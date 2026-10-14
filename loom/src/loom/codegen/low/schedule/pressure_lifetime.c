@@ -9,7 +9,7 @@
 #include "iree/base/internal/math.h"
 #include "loom/codegen/low/schedule/target_pressure.h"
 
-static void loom_low_schedule_note_candidate_early_added_pressure(
+void loom_low_schedule_pressure_lifetime_note_early_result(
     const loom_low_schedule_build_state_t* state,
     loom_low_schedule_pressure_state_t* pressure_state, uint16_t reg_class_id,
     uint32_t unit_count) {
@@ -36,36 +36,6 @@ static void loom_low_schedule_note_candidate_early_added_pressure(
       record->flags, LOOM_LOW_SCHEDULE_ALIAS_PRESSURE_FLAG_CANDIDATE_TOUCHED));
   record->candidate_lifetime.early_added_units = iree_math_saturating_add_u64(
       record->candidate_lifetime.early_added_units, unit_count);
-}
-
-static uint32_t loom_low_schedule_candidate_early_added_units(
-    const loom_low_schedule_build_state_t* state,
-    const loom_low_schedule_node_t* node, uint16_t result_index,
-    uint32_t unit_count) {
-  const loom_low_operand_t* result_operand = loom_low_descriptor_operand(
-      state->target.descriptor_set, node->descriptor, result_index);
-  if (!iree_any_bit_set(result_operand->flags,
-                        LOOM_LOW_OPERAND_FLAG_EARLY_CLOBBER)) {
-    return 0;
-  }
-  return iree_any_bit_set(result_operand->flags, LOOM_LOW_OPERAND_FLAG_TIED)
-             ? 0
-             : unit_count;
-}
-
-void loom_low_schedule_pressure_lifetime_note_early_result(
-    const loom_low_schedule_build_state_t* state,
-    loom_low_schedule_pressure_state_t* pressure_state,
-    const loom_low_schedule_node_t* node, uint16_t result_index,
-    uint32_t unit_count) {
-  loom_low_schedule_note_candidate_early_added_pressure(
-      state, pressure_state,
-      state
-          ->values[loom_low_schedule_node_const_result_ordinals(
-              node)[result_index]]
-          .register_class_id,
-      loom_low_schedule_candidate_early_added_units(state, node, result_index,
-                                                    unit_count));
 }
 
 uint64_t loom_low_schedule_pressure_lifetime_transient_growth(

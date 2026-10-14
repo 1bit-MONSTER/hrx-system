@@ -161,9 +161,8 @@ typedef struct loom_low_emission_frame_t {
 typedef struct loom_low_emission_frame_lower_spill_traffic_result_t {
   // Number of user-facing diagnostics emitted while lowering spill traffic.
   uint32_t error_count;
-  // Scratch-arena-owned value IDs that target lowering creates or newly
-  // exposes and requires in registers during subsequent allocation rounds.
-  // This includes replacement sources used when materializing block arguments.
+  // Scratch-arena-owned helper value IDs created by target lowering that
+  // require registers during subsequent allocation rounds.
   // The frame retains the original spill-plan values independently.
   const loom_value_id_t* required_register_value_ids;
   // Number of entries in |required_register_value_ids|.

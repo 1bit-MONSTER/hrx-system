@@ -70,10 +70,14 @@ typedef uint32_t loom_amdgpu_kernel_descriptor_flags_t;
 
 // Descriptor controls not represented by the kernel metadata record.
 typedef struct loom_amdgpu_kernel_descriptor_options_t {
-  // Additional AMDHSA setup and code-property flags.
+  // AMDHSA setup and code-property flags from the retained ABI inputs.
+  // A nonempty kernarg segment does not imply that its pointer is consumed.
   loom_amdgpu_kernel_descriptor_flags_t flags;
   // Minimum user SGPR count required by the kernel ABI.
   uint32_t minimum_user_sgpr_count;
+  // Retained COMPUTE_PGM_RSRC3.ACCUM_OFFSET encoding from the architectural
+  // VGPR bank, in four-register units minus one. Ignored without an AGPR bank.
+  uint32_t accum_offset;
 } loom_amdgpu_kernel_descriptor_options_t;
 
 // Resolves descriptor workitem-id flags to the COMPUTE_PGM_RSRC2 field value.

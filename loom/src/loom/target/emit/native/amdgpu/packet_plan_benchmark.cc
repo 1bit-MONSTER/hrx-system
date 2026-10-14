@@ -27,6 +27,7 @@
 #include "loom/codegen/low/verify.h"
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
+#include "loom/target/arch/amdgpu/facts.h"
 #include "loom/target/arch/amdgpu/hal/kernel_abi.h"
 #include "loom/target/arch/amdgpu/planning/address_state.h"
 #include "loom/target/arch/amdgpu/planning/descriptor_semantics.h"
@@ -35,6 +36,7 @@
 #include "loom/target/arch/amdgpu/planning/placement.h"
 #include "loom/target/arch/amdgpu/planning/storage_lease.h"
 #include "loom/target/arch/amdgpu/planning/vopd_plan.h"
+#include "loom/target/arch/amdgpu/refs/target_refs.h"
 #include "loom/target/emit/native/amdgpu/packet_plan_attention_bf16.h"
 #include "loom/target/low_descriptor_registry.h"
 #include "loom/target/provider.h"
@@ -56,6 +58,7 @@ enum class PlanComponent {
 
 enum class FixtureInputStage {
   kGeneratedLow,
+  kGeneratedMfma,
   kAuthoredSource,
 };
 
@@ -75,6 +78,15 @@ struct FrameShape {
   iree_host_size_t packet_count;
   // Number of physical allocation assignments.
   iree_host_size_t assignment_count;
+  // Physical register extents used by the final allocation.
+  struct {
+    // Scalar register extent, excluding the separate ABI-fixed range.
+    uint32_t sgpr;
+    // Architectural vector register extent.
+    uint32_t vgpr;
+    // Accumulator register extent.
+    uint32_t agpr;
+  } physical_registers;
   // Number of finalized branch edge-copy segments.
   iree_host_size_t edge_copy_count;
   // Number of branch segments coalesced into destination storage.
@@ -96,6 +108,22 @@ struct FixtureSpec {
   FixtureInputStage input_stage;
   // Generated target-low topology; empty for authored source fixtures.
   GeneratedMatrixShape generated_matrix;
+  // Alternative matrix branches feeding one join; zero for linear fixtures.
+  uint32_t matrix_branch_count = 0;
+  // DOT dependency chain; empty for other fixtures.
+  struct {
+    // Number of accumulator phases separated by CFG edges.
+    uint32_t phase_count = 0;
+    // Number of distinct native DOT opcodes cycled through each phase.
+    uint32_t opcode_count = 0;
+  } generated_dot;
+  // Independent DGEMM pipeline dependencies; empty for other fixtures.
+  struct {
+    // Number of matrix/FMA phases separated by CFG edges.
+    uint32_t phase_count = 0;
+    // Interleave a VALU write and memory read around each DGEMM.
+    bool memory_interlock = false;
+  } generated_dgemm;
 };
 
 constexpr FixtureSpec kMemoryControl = {
@@ -203,12 +231,27 @@ struct FrameAnalysis {
 };
 
 static FrameAnalysis AnalyzeFrame(const loom_low_emission_frame_t& frame) {
+  const uint8_t agpr_class =
+      loom_amdgpu_agpr_reg_class_id(frame.schedule.target.descriptor_set);
   FrameAnalysis analysis = {
       .shape =
           {
               .block_count = frame.schedule.block_count,
               .packet_count = frame.schedule.scheduled_node_count,
               .assignment_count = frame.allocation.assignment_count,
+              .physical_registers =
+                  {
+                      .sgpr =
+                          frame.allocation.physical_extents
+                              .ends_by_reg_class[LOOM_AMDGPU_REG_CLASS_ID_SGPR],
+                      .vgpr =
+                          frame.allocation.physical_extents
+                              .ends_by_reg_class[LOOM_AMDGPU_REG_CLASS_ID_VGPR],
+                      .agpr = agpr_class == UINT8_MAX
+                                  ? 0
+                                  : frame.allocation.physical_extents
+                                        .ends_by_reg_class[agpr_class],
+                  },
               .edge_copy_count = frame.allocation.edge_copy_count,
               .coalesced_edge_copy_count = 0,
               .matrix_packet_count = 0,
@@ -289,15 +332,13 @@ low.kernel.def target<amdgpu.rdna4.gfx125x.core>(@target) abi_layout({constant_c
 )";
 }
 
-static std::string BuildMatrixSource(const FixtureSpec& spec) {
-  std::ostringstream source;
+static void BeginMatrixSource(std::ostringstream& source, const char* name) {
   source << R"(
 amdgpu.target<gfx1250> @target
 
 low.kernel.def target<amdgpu.rdna4.gfx125x.core>(@target) abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 3, resource_count = 3, resource_offsets = [0, 8, 16], resource_parameter_indices = [0, 1, 2], uses_kernarg_segment_ptr = true}) export(")"
-         << spec.name
-         << R"(") workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @)"
-         << spec.name << R"(() {
+         << name << R"(") workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @)"
+         << name << R"(() {
   %lane = low.live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
   %input_view = low.resource<hal_binding> {extent = 4096, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %weight_view = low.resource<hal_binding> {extent = 4096, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
@@ -314,7 +355,11 @@ low.kernel.def target<amdgpu.rdna4.gfx125x.core>(@target) abi_layout({constant_c
   %lane_column = low.op<amdgpu.v_and_b32.src0_inline>(%lane) {imm32 = 15} : (reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr>
   %row_address = low.op<amdgpu.v_lshlrev_b32.src0_inline>(%lane_column) {imm32 = 5} : (reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr>
 )";
+}
 
+static std::string BuildMatrixSource(const FixtureSpec& spec) {
+  std::ostringstream source;
+  BeginMatrixSource(source, spec.name);
   std::string accumulator = "%initial_accumulator";
   for (uint32_t phase = 0; phase < spec.generated_matrix.phase_count; ++phase) {
     if (phase != 0) {
@@ -435,9 +480,194 @@ low.kernel.def target<amdgpu.rdna4.gfx125x.core>(@target) abi_layout({constant_c
   return source.str();
 }
 
+// Distinct source tuples stay live through the dispatch chain. Their matrix
+// release windows converge at one join even though only one branch executes.
+static std::string BuildMatrixJoinSource(const FixtureSpec& spec) {
+  std::ostringstream source;
+  BeginMatrixSource(source, spec.name);
+  for (uint32_t i = 0; i < spec.matrix_branch_count; ++i) {
+    for (uint32_t half = 0; half < 2; ++half) {
+      source << "  %input" << i << "_" << half
+             << " = low.op<amdgpu.global_load_b128_saddr>(%row_address, "
+                "%input_view) {offset = "
+             << i * 32 + half * 16
+             << "} : (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) -> "
+                "reg<amdgpu.vgpr x4>\n";
+    }
+    source << "  %input" << i << " = low.concat(%input" << i << "_0, %input"
+           << i
+           << "_1) : (reg<amdgpu.vgpr x4>, reg<amdgpu.vgpr x4>) -> "
+              "reg<amdgpu.vgpr x8>\n";
+  }
+  source << "  %selector = low.slice %input_view[0] : reg<amdgpu.sgpr x2> "
+            "-> reg<amdgpu.sgpr>\n";
+  for (uint32_t i = 0; i + 1 < spec.matrix_branch_count; ++i) {
+    source << "  %choice" << i
+           << " = low.const<amdgpu.s_mov_b32> {imm32 = " << i
+           << "} : reg<amdgpu.sgpr>\n"
+           << "  %selected" << i
+           << " = low.op<amdgpu.s_cmp_eq_i32>(%selector, %choice" << i
+           << ") : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.scc>\n"
+           << "  low.cond_br %selected" << i << ", ^path" << i << ", ^choose"
+           << i + 1 << " : reg<amdgpu.scc>\n^choose" << i + 1 << ":\n";
+  }
+  source << "  low.br ^path" << spec.matrix_branch_count - 1 << "\n";
+  for (uint32_t i = 0; i < spec.matrix_branch_count; ++i) {
+    source << "^path" << i << ":\n"
+           << "  %result" << i
+           << " = low.op<amdgpu.v_wmma_f32_16x16x32_bf16>(%input" << i
+           << ", %initial_accumulator, %initial_accumulator) "
+              "{matrix_a_reuse = 0, matrix_b_reuse = 0} : "
+              "(reg<amdgpu.vgpr x8>, reg<amdgpu.vgpr x8>, "
+              "reg<amdgpu.vgpr x8>) -> reg<amdgpu.vgpr x8>\n"
+           << "  %result_low" << i << " = low.slice %result" << i
+           << "[0] : reg<amdgpu.vgpr x8> -> reg<amdgpu.vgpr x4>\n"
+           << "  low.op<amdgpu.global_store_b128_saddr>(%row_address, "
+              "%result_low"
+           << i
+           << ", %output_view) {offset = 0} : "
+              "(reg<amdgpu.vgpr>, reg<amdgpu.vgpr x4>, "
+              "reg<amdgpu.sgpr x2>)\n"
+           << "  low.br ^join\n";
+  }
+  source << R"(^join:
+  low.return
+}
+)";
+  return source.str();
+}
+
+// Same-opcode chains forward SrcC immediately. Alternating native identities
+// exercises distinct releases through the same physical accumulator and CFG.
+static std::string BuildDotSource(const FixtureSpec& spec) {
+  static constexpr const char* kMnemonics[] = {
+      "v_dot2_f32_f16", "v_dot4_i32_i8", "v_dot4_u32_u8",
+      "v_dot8_i32_i4",  "v_dot8_u32_u4",
+  };
+  std::ostringstream source;
+  source << R"(
+amdgpu.target<gfx90a> @target
+low.kernel.def target<amdgpu.cdna2.core>(@target) abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 1, resource_count = 1, resource_offsets = [0], resource_parameter_indices = [0], uses_kernarg_segment_ptr = true}) export("dot_windows") workgroup_size(64, 1, 1) workgroup_count(1, 1, 1) @dot_windows() asm {
+  %lane = low.live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
+  %output = low.resource<hal_binding> {extent = 1024, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %initial = low.const<amdgpu.v_mov_b32> {imm32 = 0} : reg<amdgpu.vgpr>
+  %address = low.op<amdgpu.v_lshlrev_b32.src0_inline>(%lane) {imm32 = 2} : (reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr>
+)";
+  std::string accumulator = "%initial";
+  for (uint32_t phase = 0; phase < spec.generated_dot.phase_count; ++phase) {
+    if (phase != 0) {
+      source << "  low.br ^phase" << phase << "(" << accumulator
+             << ": reg<amdgpu.vgpr>)\n^phase" << phase << "(%incoming" << phase
+             << ": reg<amdgpu.vgpr>):\n";
+      accumulator = "%incoming" + std::to_string(phase);
+    }
+    for (uint32_t step = 0; step < 5; ++step) {
+      const std::string result =
+          "%result" + std::to_string(phase) + "_" + std::to_string(step);
+      source << "  " << result << " = "
+             << kMnemonics[step % spec.generated_dot.opcode_count]
+             << " %lane, %lane, " << accumulator << "\n";
+      accumulator = result;
+    }
+  }
+  source << "  global_store_dword_saddr %address, " << accumulator
+         << ", %output\n  return\n}\n";
+  return source.str();
+}
+
+// Register-independent FMA and memory dependencies around the double-precision
+// matrix pipeline. Both chains remain live through the final output stores.
+static std::string BuildDgemmSource(const FixtureSpec& spec) {
+  std::ostringstream source;
+  source << R"(
+amdgpu.target<gfx90a> @target
+low.kernel.def schedule(locked) target<amdgpu.cdna2.core>(@target) abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 1, resource_count = 1, resource_offsets = [0], resource_parameter_indices = [0], uses_kernarg_segment_ptr = true}) export("dgemm_windows") workgroup_size(64, 1, 1) workgroup_count(1, 1, 1) @dgemm_windows() asm {
+  %lane = low.live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
+  %output = low.resource<hal_binding> {extent = 1024, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %zero = v_mov_b32 0
+  %one_high = v_mov_b32 1072693248
+  %one = concat(%zero, %one_high) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %initial = copy %one : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr x2>
+  %address = v_lshlrev_b32_src0_inline %lane, 3
+)";
+  std::string accumulator = "%initial";
+  std::string fma = "%one";
+  for (uint32_t phase = 0; phase < spec.generated_dgemm.phase_count; ++phase) {
+    if (phase != 0) {
+      source << "  low.br ^phase" << phase << "(" << accumulator
+             << ": reg<amdgpu.vgpr x2>, " << fma
+             << ": reg<amdgpu.vgpr x2>)\n^phase" << phase << "(%matrix_in"
+             << phase << ": reg<amdgpu.vgpr x2>, %fma_in" << phase
+             << ": reg<amdgpu.vgpr x2>):\n";
+      accumulator = "%matrix_in" + std::to_string(phase);
+      fma = "%fma_in" + std::to_string(phase);
+    }
+    if (spec.generated_dgemm.memory_interlock) {
+      source << "  %payload" << phase << " = v_add_u32 %lane, %address\n";
+    }
+    source << "  %matrix" << phase << " = v_mfma_f64_4x4x4f64 %one, %one, "
+           << accumulator << "\n";
+    if (spec.generated_dgemm.memory_interlock) {
+      source << "  global_store_dword_saddr %address, %payload" << phase
+             << ", %output\n";
+    }
+    source << "  %fma" << phase << " = v_fma_f64 %one, %one, " << fma << "\n";
+    accumulator = "%matrix" + std::to_string(phase);
+    fma = "%fma" + std::to_string(phase);
+  }
+  source << "  global_store_dwordx2_saddr %address, " << accumulator
+         << ", %output\n  global_store_dwordx2_saddr %address, " << fma
+         << ", %output\n  return\n}\n";
+  return source.str();
+}
+
 static std::string BuildGeneratedLowSource(const FixtureSpec& spec) {
+  if (spec.generated_dgemm.phase_count != 0) {
+    return BuildDgemmSource(spec);
+  }
+  if (spec.generated_dot.opcode_count != 0) {
+    return BuildDotSource(spec);
+  }
+  if (spec.matrix_branch_count != 0) {
+    return BuildMatrixJoinSource(spec);
+  }
   return spec.generated_matrix.phase_count == 0 ? BuildMemoryControlSource()
                                                 : BuildMatrixSource(spec);
+}
+
+// Alternate long and short producers over one physical accumulator, carrying
+// it through block arguments. The shorter producer can forward its input while
+// the older producer's ordinary-use window remains outstanding.
+static std::string BuildMfmaSource(const FixtureSpec& spec) {
+  std::ostringstream source;
+  source << R"(
+amdgpu.target<gfx90a> @target
+low.kernel.def target<amdgpu.cdna2.core>(@target) abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 1, resource_count = 1, resource_offsets = [0], resource_parameter_indices = [0], uses_kernarg_segment_ptr = true}) export("matrix_windows") workgroup_size(64, 1, 1) workgroup_count(1, 1, 1) @matrix_windows() asm {
+  %lane = low.live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
+  %output = low.resource<hal_binding> {extent = 1024, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %zero0 = low.const<amdgpu.v_mov_b32> {imm32 = 0} : reg<amdgpu.vgpr>
+  %zero1 = low.const<amdgpu.v_mov_b32> {imm32 = 0} : reg<amdgpu.vgpr>
+  %zero2 = low.const<amdgpu.v_mov_b32> {imm32 = 0} : reg<amdgpu.vgpr>
+  %zero3 = low.const<amdgpu.v_mov_b32> {imm32 = 0} : reg<amdgpu.vgpr>
+  %initial = low.concat(%zero0, %zero1, %zero2, %zero3) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x4>
+  %address = low.op<amdgpu.v_lshlrev_b32.src0_inline>(%lane) {imm32 = 4} : (reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr>
+)";
+  std::string accumulator = "%initial";
+  for (uint32_t phase = 0; phase < spec.generated_matrix.phase_count; ++phase) {
+    if (phase != 0) {
+      source << "  low.br ^phase" << phase << "(" << accumulator
+             << ": reg<amdgpu.vgpr x4>)\n^phase" << phase << "(%incoming"
+             << phase << ": reg<amdgpu.vgpr x4>):\n";
+      accumulator = "%incoming" + std::to_string(phase);
+    }
+    source << "  %long" << phase << " = v_mfma_f32_16x16x4f32 %lane, %lane, "
+           << accumulator << "\n  %short" << phase
+           << " = v_mfma_f32_4x4x1f32 %lane, %lane, %long" << phase << "\n";
+    accumulator = "%short" + std::to_string(phase);
+  }
+  source << "  global_store_dwordx4_saddr %address, " << accumulator
+         << ", %output\n  return\n}\n";
+  return source.str();
 }
 
 static iree_string_view_t AttentionBf16Source() {
@@ -451,6 +681,8 @@ struct PlanMetrics {
   iree_host_size_t plan_used_bytes = 0;
   // Arena bytes retained from the block pool.
   iree_host_size_t plan_owned_bytes = 0;
+  // System allocations required by the first plan, including temporary arenas.
+  iree_arena_block_pool_statistics_t pool_statistics = {};
   // Transient wait-planner bytes discarded after one direct plan build.
   iree_host_size_t wait_transient_used_bytes = 0;
   // Wait actions produced by the selected plan component.
@@ -509,7 +741,9 @@ class PacketPlanFixture {
     if (spec.input_stage == FixtureInputStage::kAuthoredSource) {
       source = AttentionBf16Source();
     } else {
-      generated_source = BuildGeneratedLowSource(spec);
+      generated_source = spec.input_stage == FixtureInputStage::kGeneratedMfma
+                             ? BuildMfmaSource(spec)
+                             : BuildGeneratedLowSource(spec);
       source = iree_make_string_view(generated_source.data(),
                                      generated_source.size());
     }
@@ -604,6 +838,8 @@ class PacketPlanFixture {
     loom_amdgpu_hal_kernel_abi_verify_result_t abi_verify_result = {};
     AbortOnError(loom_amdgpu_hal_kernel_abi_verify_low(
         module_, low_function, resolved_target.descriptor_set,
+        loom_amdgpu_target_processor_properties_from_resolved_target(
+            &resolved_target),
         /*max_errors=*/20, /*emitter=*/{}, &abi_verify_result, &frame_arena_));
     if (abi_verify_result.error_count != 0) {
       std::abort();
@@ -670,6 +906,11 @@ class PacketPlanFixture {
     return frame_arena_.used_allocation_size;
   }
   const FrameAnalysis& analysis() const { return analysis_; }
+  iree_arena_block_pool_statistics_t plan_pool_statistics() const {
+    iree_arena_block_pool_statistics_t statistics = {};
+    iree_arena_block_pool_query_statistics(&plan_block_pool_, &statistics);
+    return statistics;
+  }
 
  private:
   iree_arena_block_pool_t frame_block_pool_ = {};
@@ -700,7 +941,8 @@ static PlanMetrics BuildReferencePlan(PacketPlanFixture& fixture,
     loom_amdgpu_wait_plan_t plan = {};
     AbortOnError(loom_amdgpu_wait_plan_build(
         &fixture.frame().schedule, &fixture.frame().allocation,
-        &fixture.address_state(), fixture.plan_arena(),
+        &fixture.address_state(), /*matrix_arena=*/nullptr,
+        /*out_matrix_results=*/nullptr, fixture.plan_arena(),
         fixture.transient_arena(), &plan));
     metrics.wait_action_count = plan.action_count;
     metrics.hazard_record_count = plan.hazard_plan.record_count;
@@ -723,6 +965,7 @@ static PlanMetrics BuildReferencePlan(PacketPlanFixture& fixture,
   }
   metrics.plan_used_bytes = fixture.plan_arena()->used_allocation_size;
   metrics.plan_owned_bytes = fixture.plan_arena()->total_allocation_size;
+  metrics.pool_statistics = fixture.plan_pool_statistics();
   return metrics;
 }
 
@@ -733,6 +976,9 @@ static void RecordMetrics(benchmark::State& state,
   state.counters["assignments"] =
       static_cast<double>(analysis.shape.assignment_count);
   state.counters["blocks"] = static_cast<double>(analysis.shape.block_count);
+  state.counters["physical_sgprs"] = analysis.shape.physical_registers.sgpr;
+  state.counters["physical_vgprs"] = analysis.shape.physical_registers.vgpr;
+  state.counters["physical_agprs"] = analysis.shape.physical_registers.agpr;
   state.counters["coalesced_edge_copies"] =
       static_cast<double>(analysis.shape.coalesced_edge_copy_count);
   state.counters["edge_copies"] =
@@ -748,6 +994,13 @@ static void RecordMetrics(benchmark::State& state,
       static_cast<double>(metrics.plan_owned_bytes);
   state.counters["plan_arena_used_bytes"] =
       static_cast<double>(metrics.plan_used_bytes);
+  const auto& pool_statistics = metrics.pool_statistics;
+  state.counters["plan_pool_system_bytes"] =
+      static_cast<double>(pool_statistics.block_system_allocation_bytes +
+                          pool_statistics.oversized_allocation_bytes);
+  state.counters["plan_pool_system_allocations"] =
+      static_cast<double>(pool_statistics.block_system_allocation_count +
+                          pool_statistics.oversized_allocation_count);
   state.counters["progress_events"] =
       static_cast<double>(metrics.progress_record_count);
   state.counters["storage_leases"] =
@@ -787,7 +1040,8 @@ static void BenchmarkPlan(benchmark::State& state, const FixtureSpec& spec,
       loom_amdgpu_wait_plan_t plan = {};
       AbortOnError(loom_amdgpu_wait_plan_build(
           &fixture.frame().schedule, &fixture.frame().allocation,
-          &fixture.address_state(), fixture.plan_arena(),
+          &fixture.address_state(), /*matrix_arena=*/nullptr,
+          /*out_matrix_results=*/nullptr, fixture.plan_arena(),
           fixture.transient_arena(), &plan));
       benchmark::DoNotOptimize(plan);
     } else {
@@ -800,6 +1054,86 @@ static void BenchmarkPlan(benchmark::State& state, const FixtureSpec& spec,
   }
   RecordMetrics(state, fixture, reference_metrics);
 }
+
+static void BM_PacketPlan_MatrixJoin(benchmark::State& state) {
+  const FixtureSpec spec = {
+      .name = "matrix_join",
+      .input_stage = FixtureInputStage::kGeneratedLow,
+      .generated_matrix = {},
+      .matrix_branch_count = static_cast<uint32_t>(state.range(0)),
+  };
+  BenchmarkPlan(state, spec, PlanComponent::kComplete);
+}
+BENCHMARK(BM_PacketPlan_MatrixJoin)
+    ->Arg(8)
+    ->Arg(24)
+    ->Iterations(200)
+    ->Unit(benchmark::kNanosecond);
+
+static void BM_PacketPlan_MfmaWindows(benchmark::State& state) {
+  const FixtureSpec spec = {
+      .name = "mfma_windows",
+      .input_stage = FixtureInputStage::kGeneratedMfma,
+      .generated_matrix =
+          {
+              .phase_count = static_cast<uint32_t>(state.range(0)),
+          },
+  };
+  BenchmarkPlan(state, spec, PlanComponent::kComplete);
+}
+BENCHMARK(BM_PacketPlan_MfmaWindows)
+    ->Arg(0)
+    ->Arg(1)
+    ->Arg(8)
+    ->Arg(32)
+    ->Iterations(500)
+    ->Unit(benchmark::kNanosecond);
+
+static void BM_PacketPlan_DotWindows(benchmark::State& state) {
+  const FixtureSpec spec = {
+      .name = "dot_windows",
+      .input_stage = FixtureInputStage::kGeneratedLow,
+      .generated_matrix = {},
+      .generated_dot =
+          {
+              .phase_count = static_cast<uint32_t>(state.range(0)),
+              .opcode_count = static_cast<uint32_t>(state.range(1)),
+          },
+  };
+  BenchmarkPlan(state, spec, PlanComponent::kComplete);
+}
+BENCHMARK(BM_PacketPlan_DotWindows)
+    ->Args({1, 1})
+    ->Args({1, 5})
+    ->Args({8, 1})
+    ->Args({8, 5})
+    ->Args({32, 1})
+    ->Args({32, 5})
+    ->Iterations(500)
+    ->Unit(benchmark::kNanosecond);
+
+static void BM_PacketPlan_DgemmWindows(benchmark::State& state) {
+  const FixtureSpec spec = {
+      .name = "dgemm_windows",
+      .input_stage = FixtureInputStage::kGeneratedLow,
+      .generated_matrix = {},
+      .generated_dgemm =
+          {
+              .phase_count = static_cast<uint32_t>(state.range(0)),
+              .memory_interlock = state.range(1) != 0,
+          },
+  };
+  BenchmarkPlan(state, spec, PlanComponent::kComplete);
+}
+BENCHMARK(BM_PacketPlan_DgemmWindows)
+    ->Args({1, 0})
+    ->Args({1, 1})
+    ->Args({8, 0})
+    ->Args({8, 1})
+    ->Args({32, 0})
+    ->Args({32, 1})
+    ->Iterations(500)
+    ->Unit(benchmark::kNanosecond);
 
 static void BM_WaitPlan_MemoryControl(benchmark::State& state) {
   BenchmarkPlan(state, kMemoryControl, PlanComponent::kWait);

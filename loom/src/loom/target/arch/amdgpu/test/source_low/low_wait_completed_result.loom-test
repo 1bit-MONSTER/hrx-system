@@ -46,12 +46,12 @@ low.func.def target<amdgpu.rdna3.core>(@target) @completed_vector_result(%base: 
 amdgpu.target<gfx942> @target
 
 low.func.def target<amdgpu.cdna3.core>(@target) @completed_cdna_result(%base: reg<amdgpu.sgpr x2>, %offset: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
-  %old = global_load_dwordx2_saddr %offset, %base
+  %old = global_load_dwordx2_saddr %offset, %base : reg<amdgpu.vgpr x2>
   low.br ^stage
 ^stage:
   %lane0 = slice %old[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %first = v_add_f32 %lane0, %offset
-  %fresh = global_load_dword_saddr %offset, %base {offset = 8}
+  %fresh = global_load_dword_saddr %offset, %base {offset = 8} : reg<amdgpu.vgpr>
   low.br ^consume
 ^consume:
   %lane1 = slice %old[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>

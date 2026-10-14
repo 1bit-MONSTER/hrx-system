@@ -14,6 +14,44 @@ from __future__ import annotations
 
 from enum import IntEnum
 
+
+class AmdgpuRegisterEncodingAdapter(IntEnum):
+    """Bank-selector masks retained in low operand encoding adapters."""
+
+    DIRECT = 0
+    ACC0 = 1
+    ACC1 = 2
+    ACC_CD = 4
+
+
+_MATRIX_REGISTER_ENCODING_ADAPTERS = {
+    "VDST": AmdgpuRegisterEncodingAdapter.ACC_CD,
+    "SRC0": AmdgpuRegisterEncodingAdapter.ACC0,
+    "SRC1": AmdgpuRegisterEncodingAdapter.ACC1,
+    "SRC2": AmdgpuRegisterEncodingAdapter.ACC_CD,
+}
+
+AMDGPU_MEMORY_REGISTER_ENCODING_ADAPTERS = {
+    encoding: {field: AmdgpuRegisterEncodingAdapter.ACC0 for field in fields}
+    for encoding, fields in (
+        ("ENC_FLAT", ("VDST", "DATA")),
+        ("ENC_FLAT_GLBL", ("VDST", "DATA")),
+        ("ENC_FLAT_SCRATCH", ("VDST", "DATA")),
+        ("ENC_MUBUF", ("VDATA",)),
+    )
+}
+
+AMDGPU_REGISTER_ENCODING_ADAPTERS = {
+    **AMDGPU_MEMORY_REGISTER_ENCODING_ADAPTERS,
+    "VOP3P_MFMA": _MATRIX_REGISTER_ENCODING_ADAPTERS,
+    "ENC_VOP3PX2": _MATRIX_REGISTER_ENCODING_ADAPTERS,
+}
+
+
+def amdgpu_register_encoding_adapter_field(adapter: int) -> str:
+    return "ACC_CD" if adapter == AmdgpuRegisterEncodingAdapter.ACC_CD else "ACC"
+
+
 AMDGPU_ENCODING_FORMAT_NONE = 0
 
 _AMDGPU_ENCODING_FORMAT_ID_PAIRS = (

@@ -51,11 +51,12 @@ struct loom_low_schedule_build_state_t;
 struct loom_low_schedule_node_t;
 
 // Classifies exclusive storage setup from the retained pressure domains.
-// Repair also orders structural setup and data-dependent rematerializations.
+// Retained private producers receive ordering independently of the optional
+// function-wide structural setup policy used during allocation repair.
 // The existing node walk records membership before dependency construction.
 void loom_low_schedule_setup_order_classify_node(
     struct loom_low_schedule_build_state_t* state,
-    struct loom_low_schedule_node_t* node, bool is_repair);
+    struct loom_low_schedule_node_t* node, bool order_structural_setup);
 
 // Closes setup dependencies before adjacency construction. Every member has
 // one complete successor and remains inside its source-order range, so its

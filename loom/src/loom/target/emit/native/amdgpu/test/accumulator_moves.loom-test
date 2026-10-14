@@ -1,0 +1,288 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// The opcode, rather than an ACC selector, identifies each fixed bank.
+// RUN: emit amdgpu-assembly @native_transfers strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @native_transfers(%vector: reg<amdgpu.vgpr>, %scalar: reg<amdgpu.sgpr>, %accumulator: reg<amdgpu.agpr>) -> (reg<amdgpu.agpr>, reg<amdgpu.agpr>, reg<amdgpu.vgpr>) asm {
+  %from_vector = v_accvgpr_write_b32 %vector
+  %from_scalar = v_accvgpr_write_b32 %scalar
+  %from_accumulator = v_accvgpr_mov_b32 %accumulator
+  %read = v_accvgpr_read_b32 %from_vector
+  return %from_scalar, %from_accumulator, %read
+}
+// ----
+  v_accvgpr_write_b32 acc1, v0
+  v_accvgpr_write_b32 acc2, s0
+  v_accvgpr_mov_b32 acc0, acc0
+  v_accvgpr_read_b32 v0, acc1
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @inline_initialization strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @inline_initialization() -> (reg<amdgpu.agpr>, reg<amdgpu.agpr>, reg<amdgpu.agpr>, reg<amdgpu.agpr>, reg<amdgpu.agpr>) asm {
+  %negative = v_accvgpr_write_b32_inline_i32 -16
+  %minus_one = v_accvgpr_write_b32_inline_i32 -1
+  %zero = v_accvgpr_write_b32_inline_i32 0
+  %positive = v_accvgpr_write_b32_inline_i32 64
+  %float = v_accvgpr_write_b32_inline_f32 "f32_n0_5"
+  return %negative, %minus_one, %zero, %positive, %float
+}
+// ----
+  v_accvgpr_write_b32 acc0, -16
+  v_accvgpr_write_b32 acc1, -1
+  v_accvgpr_write_b32 acc2, 0
+  v_accvgpr_write_b32 acc3, 64
+  v_accvgpr_write_b32 acc4, 3204448256
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @vector_to_accumulator strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @vector_to_accumulator(%source: reg<amdgpu.vgpr x4>) -> (reg<amdgpu.agpr x4>) asm {
+  %result = copy %source : reg<amdgpu.vgpr x4> -> reg<amdgpu.agpr x4>
+  return %result
+}
+// ----
+  v_accvgpr_write_b32 acc0, v0
+  v_accvgpr_write_b32 acc1, v1
+  v_accvgpr_write_b32 acc2, v2
+  v_accvgpr_write_b32 acc3, v3
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @scalar_to_accumulator strategy=source
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @scalar_to_accumulator(%source: reg<amdgpu.sgpr x3>) -> (reg<amdgpu.agpr x3>) asm {
+  %result = copy %source : reg<amdgpu.sgpr x3> -> reg<amdgpu.agpr x3>
+  return %result
+}
+// ----
+  v_accvgpr_write_b32 acc0, s0
+  v_accvgpr_write_b32 acc1, s1
+  v_accvgpr_write_b32 acc2, s2
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @accumulator_to_vector strategy=source
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @accumulator_to_vector(%source: reg<amdgpu.agpr x2>) -> (reg<amdgpu.vgpr x2>) asm {
+  %result = copy %source : reg<amdgpu.agpr x2> -> reg<amdgpu.vgpr x2>
+  return %result
+}
+// ----
+  v_accvgpr_read_b32 v0, acc0
+  v_accvgpr_read_b32 v1, acc1
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @overlapping_accumulators strategy=source fixed=%source:physical_register:0:3 fixed=%result:physical_register:2:3
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @overlapping_accumulators(%source: reg<amdgpu.agpr x3>) -> (reg<amdgpu.agpr x3>) asm {
+  %result = copy %source : reg<amdgpu.agpr x3> -> reg<amdgpu.agpr x3>
+  return %result
+}
+// ----
+  v_accvgpr_mov_b32 acc3, acc1
+  v_accvgpr_mov_b32 acc4, acc2
+  v_accvgpr_mov_b32 acc2, acc0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @high_accumulators strategy=source fixed=%source:physical_register:252:4 fixed=%result:physical_register:248:4
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @high_accumulators(%source: reg<amdgpu.agpr x4>) -> (reg<amdgpu.agpr x4>) asm {
+  %result = copy %source : reg<amdgpu.agpr x4> -> reg<amdgpu.agpr x4>
+  return %result
+}
+// ----
+  v_accvgpr_mov_b32 acc248, acc252
+  v_accvgpr_mov_b32 acc249, acc253
+  v_accvgpr_mov_b32 acc250, acc254
+  v_accvgpr_mov_b32 acc251, acc255
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @portable_transfer strategy=source
+amdgpu.target<gfx9-4-generic> @target
+
+low.func.def target<amdgpu.gfx9_4.generic.core>(@target) @portable_transfer(%source: reg<amdgpu.vgpr>) -> (reg<amdgpu.agpr>) asm {
+  %result = copy %source : reg<amdgpu.vgpr> -> reg<amdgpu.agpr>
+  return %result
+}
+// ----
+  v_accvgpr_write_b32 acc0, v0
+  s_endpgm
+
+// ====
+
+// Backedge cycles use scratch in the same bank and preserve every tuple unit.
+// RUN: emit amdgpu-assembly @loop_swap strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @loop_swap(%lhs: reg<amdgpu.agpr x2>, %rhs: reg<amdgpu.agpr x2>) -> (reg<amdgpu.agpr x2>, reg<amdgpu.agpr x2>) asm {
+  %count = s_mov_b32 3
+  %step = s_mov_b32 1
+  %limit = s_mov_b32 0
+  low.br ^loop(%lhs: reg<amdgpu.agpr x2>, %rhs: reg<amdgpu.agpr x2>, %count: reg<amdgpu.sgpr>)
+^loop(%a: reg<amdgpu.agpr x2>, %b: reg<amdgpu.agpr x2>, %remaining: reg<amdgpu.sgpr>):
+  %next = s_sub_u32 %remaining, %step
+  %again = s_cmp_gt_u32 %next, %limit
+  low.cond_br %again, ^back, ^exit : reg<amdgpu.scc>
+^back:
+  low.br ^loop(%b: reg<amdgpu.agpr x2>, %a: reg<amdgpu.agpr x2>, %next: reg<amdgpu.sgpr>)
+^exit:
+  return %a, %b
+}
+// ----
+  s_mov_b32 s0, 3
+  s_mov_b32 s1, 1
+  s_mov_b32 s2, 0
+.Lbb1:
+  s_sub_u32 s0, s0, s1
+  s_cmp_gt_u32 s0, s2
+  s_cbranch_scc0 .Lbb3
+.Lbb2:
+  v_accvgpr_mov_b32 acc4, acc2
+  v_accvgpr_mov_b32 acc2, acc0
+  v_accvgpr_mov_b32 acc0, acc4
+  v_accvgpr_mov_b32 acc4, acc3
+  v_accvgpr_mov_b32 acc3, acc1
+  v_accvgpr_mov_b32 acc1, acc4
+  s_branch .Lbb1
+.Lbb3:
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @concat_cycles strategy=source fixed=%a:physical_register:1:1 fixed=%b:physical_register:0:1 fixed=%c:physical_register:3:1 fixed=%d:physical_register:2:1 fixed=%packed:physical_register:0:4
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @concat_cycles(%a: reg<amdgpu.agpr>, %b: reg<amdgpu.agpr>, %c: reg<amdgpu.agpr>, %d: reg<amdgpu.agpr>) -> (reg<amdgpu.agpr x4>) asm {
+  %packed = concat(%a, %b, %c, %d) : (reg<amdgpu.agpr>, reg<amdgpu.agpr>, reg<amdgpu.agpr>, reg<amdgpu.agpr>) -> reg<amdgpu.agpr x4>
+  return %packed
+}
+// ----
+  v_accvgpr_mov_b32 acc4, acc1
+  v_accvgpr_mov_b32 acc1, acc0
+  v_accvgpr_mov_b32 acc0, acc4
+  v_accvgpr_mov_b32 acc4, acc3
+  v_accvgpr_mov_b32 acc3, acc2
+  v_accvgpr_mov_b32 acc2, acc4
+  s_endpgm
+
+// ====
+
+// Physical moves observe the VALU-to-MFMA and MFMA-to-VALU windows.
+// RUN: emit amdgpu-assembly @matrix_copy_windows strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @matrix_copy_windows(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %acc: reg<amdgpu.vgpr x4>, %offset: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>) asm {
+  %seed = copy %acc : reg<amdgpu.vgpr x4> -> reg<amdgpu.agpr x4>
+  %matrix = v_mfma_f32_16x16x4f32 %lhs, %rhs, %seed
+  %read = copy %matrix : reg<amdgpu.agpr x4> -> reg<amdgpu.vgpr x4>
+  global_store_dwordx4_saddr %offset, %read, %base
+  return
+}
+// ----
+  v_accvgpr_write_b32 acc0, v0
+  v_accvgpr_write_b32 acc1, v1
+  v_accvgpr_write_b32 acc2, v2
+  v_accvgpr_write_b32 acc3, v3
+  s_nop 1
+  v_mfma_f32_16x16x4f32 acc[0:3], v4, v5, acc[0:3]
+  s_nop 10
+  v_accvgpr_read_b32 v0, acc0
+  v_accvgpr_read_b32 v1, acc1
+  v_accvgpr_read_b32 v2, acc2
+  v_accvgpr_read_b32 v3, acc3
+  global_store_dwordx4 v6, v[0:3], s[0:1] offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_endpgm
+
+// ====
+
+// Writing the payload bank observes the store retention window.
+// RUN: emit amdgpu-assembly @store_overwrite strategy=source fixed=%payload:physical_register:0:4 fixed=%replacement:physical_register:0:4
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @store_overwrite(%payload: reg<amdgpu.agpr x4>, %source: reg<amdgpu.vgpr x4>, %offset: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.agpr x4>) asm {
+  global_store_dwordx4_saddr %offset, %payload, %base
+  %replacement = copy %source : reg<amdgpu.vgpr x4> -> reg<amdgpu.agpr x4>
+  return %replacement
+}
+// ----
+  global_store_dwordx4 v0, acc[0:3], s[0:1] offset:0
+  s_nop 0
+  v_accvgpr_write_b32 acc0, v4
+  v_accvgpr_write_b32 acc1, v5
+  v_accvgpr_write_b32 acc2, v6
+  v_accvgpr_write_b32 acc3, v7
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-native-words @native_transfers strategy=source fixed=%vector:physical_register:255:1 fixed=%scalar:physical_register:101:1 fixed=%accumulator:physical_register:255:1 fixed=%from_vector:physical_register:252:1 fixed=%from_scalar:physical_register:253:1 fixed=%from_accumulator:physical_register:254:1 fixed=%read:physical_register:255:1
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @native_transfers(%vector: reg<amdgpu.vgpr>, %scalar: reg<amdgpu.sgpr>, %accumulator: reg<amdgpu.agpr>) -> (reg<amdgpu.agpr>, reg<amdgpu.agpr>, reg<amdgpu.vgpr>) asm {
+  %from_vector = v_accvgpr_write_b32 %vector
+  %from_scalar = v_accvgpr_write_b32 %scalar
+  %from_accumulator = v_accvgpr_mov_b32 %accumulator
+  %read = v_accvgpr_read_b32 %from_vector
+  return %from_scalar, %from_accumulator, %read
+}
+// ----
+0xD3D940FC
+0x180001FF
+0xD3D940FD
+0x18000065
+0x7FFCA5FF
+0xD3D840FF
+0x180001FC
+0xBF810000
+
+// ====
+
+// RUN: emit amdgpu-native-words @inline_initialization strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @inline_initialization() -> (reg<amdgpu.agpr>, reg<amdgpu.agpr>, reg<amdgpu.agpr>, reg<amdgpu.agpr>, reg<amdgpu.agpr>) asm {
+  %negative = v_accvgpr_write_b32_inline_i32 -16
+  %minus_one = v_accvgpr_write_b32_inline_i32 -1
+  %zero = v_accvgpr_write_b32_inline_i32 0
+  %positive = v_accvgpr_write_b32_inline_i32 64
+  %float = v_accvgpr_write_b32_inline_f32 "f32_n0_5"
+  return %negative, %minus_one, %zero, %positive, %float
+}
+// ----
+0xD3D94000
+0x180000D0
+0xD3D94001
+0x180000C1
+0xD3D94002
+0x18000080
+0xD3D94003
+0x180000C0
+0xD3D94004
+0x180000F1
+0xBF810000

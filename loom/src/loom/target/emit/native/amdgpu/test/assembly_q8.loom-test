@@ -40,7 +40,7 @@ low.func.def target<amdgpu.rdna3.core>(@target) @gfx11_q8_native(%lane: reg<amdg
   v_lshlrev_b32 v2, 2, v0
   global_load_b32 v3, v2, s[0:1] offset:0
   v_lshlrev_b32 v1, 1, v1
-  global_load_d16_b16 v1, v1, s[0:1] offset:0
+  global_load_short_d16 v1, v1, s[0:1] offset:0
   v_lshlrev_b32 v0, 4, v0
   global_load_b128 v[4:7], v0, s[2:3] offset:0
   s_waitcnt vmcnt(2) lgkmcnt(63)

@@ -19,6 +19,8 @@
 #include "loom/ir/ir.h"
 #include "loom/ops/low/ops.h"
 #include "loom/target/arch/amdgpu/facts.h"
+#include "loom/target/arch/amdgpu/planning/matrix_result_wait.h"
+#include "loom/target/arch/amdgpu/planning/matrix_wait_states.h"
 #include "loom/target/arch/amdgpu/planning/sgpr_read_hazard.h"
 #include "loom/target/arch/amdgpu/planning/trans_result_window.h"
 #include "loom/target/arch/amdgpu/planning/wait_actions.h"
@@ -77,6 +79,8 @@ typedef struct loom_amdgpu_wait_plan_builder_t {
   iree_arena_allocator_t* arena;
   // Arena that owns builder state discarded after plan construction.
   iree_arena_allocator_t* transient_arena;
+  // Optional MFMA static summaries owned by the enclosing packet planner.
+  loom_amdgpu_matrix_result_wait_t* matrix_results;
   // Processor properties selected by the low target, or NULL if unavailable.
   const loom_amdgpu_processor_properties_t* processor_properties;
   // Common VMEM completion class in the current epoch, or UNKNOWN for mixed
@@ -3266,6 +3270,10 @@ static iree_status_t loom_amdgpu_wait_plan_build_actions(
   for (iree_host_size_t block_index = 0; block_index < schedule->block_count;
        ++block_index) {
     const loom_low_schedule_block_t* block = &schedule->blocks[block_index];
+    if (builder->matrix_results != NULL) {
+      loom_amdgpu_matrix_result_wait_begin_static_block(builder->matrix_results,
+                                                        (uint16_t)block_index);
+    }
     builder->insertion.anchor_node = LOOM_LOW_SCHEDULE_NODE_NONE;
     ++builder->block_epoch;
     builder->current_block_full_drain_counter_mask = 0;
@@ -3316,7 +3324,22 @@ static iree_status_t loom_amdgpu_wait_plan_build_actions(
       if (!loom_amdgpu_wait_plan_node_has_zero_native_work(builder,
                                                            node_index)) {
         builder->insertion.anchor_node = LOOM_LOW_SCHEDULE_NODE_NONE;
+        if (builder->matrix_results != NULL) {
+          const loom_amdgpu_wait_node_state_t* state =
+              &builder->classification.node_states[node_index];
+          const loom_low_packet_view_t packet =
+              loom_low_packet_at(schedule, packet_index);
+          loom_amdgpu_matrix_result_wait_collect(
+              builder->matrix_results, &packet,
+              iree_any_bit_set(state->flags,
+                               LOOM_AMDGPU_WAIT_NODE_STATE_MATRIX_RESULT),
+              state->minimum_instruction_count);
+        }
       }
+    }
+    if (builder->matrix_results != NULL) {
+      IREE_RETURN_IF_ERROR(loom_amdgpu_matrix_result_wait_end_static_block(
+          builder->matrix_results));
     }
     loom_amdgpu_wait_plan_verify_cyclic_frontiers(builder,
                                                   (uint16_t)block_index);
@@ -3329,9 +3352,14 @@ iree_status_t loom_amdgpu_wait_plan_build(
     const loom_low_schedule_table_t* schedule,
     const loom_low_allocation_table_t* allocation,
     const loom_amdgpu_address_state_plan_t* address_state,
+    iree_arena_allocator_t* matrix_arena,
+    loom_amdgpu_matrix_result_wait_t** out_matrix_results,
     iree_arena_allocator_t* arena, iree_arena_allocator_t* transient_arena,
     loom_amdgpu_wait_plan_t* out_plan) {
   *out_plan = (loom_amdgpu_wait_plan_t){0};
+  if (out_matrix_results != NULL) {
+    *out_matrix_results = NULL;
+  }
   IREE_ASSERT(schedule->value_count == 0 ||
               schedule->value_producer_nodes != NULL);
   IREE_ASSERT(allocation->edge_copy_count == 0 ||
@@ -3359,6 +3387,17 @@ iree_status_t loom_amdgpu_wait_plan_build(
   iree_status_t status = loom_amdgpu_wait_classification_build(
       schedule, allocation, builder.processor_properties,
       &builder.wait_packet_target, transient_arena, &builder.classification);
+  if (iree_status_is_ok(status) && out_matrix_results != NULL) {
+    status = loom_amdgpu_matrix_result_wait_allocate(
+        schedule, allocation,
+        loom_amdgpu_matrix_wait_profile_from_feature_profile(
+            builder.processor_properties != NULL
+                ? builder.processor_properties->features.matrix
+                : LOOM_AMDGPU_MATRIX_FEATURE_PROFILE_NONE),
+        builder.classification.matrix_result_node_count, matrix_arena,
+        out_matrix_results);
+    builder.matrix_results = *out_matrix_results;
+  }
   if (iree_status_is_ok(status)) {
     status = loom_amdgpu_wait_plan_allocate_dependency_heads(&builder);
   }
@@ -3412,6 +3451,8 @@ iree_status_t loom_amdgpu_wait_plan_build(
         .actions = builder.actions.actions,
         .action_count = builder.actions.action_count,
         .elided_wait_nodes = builder.elided_wait_nodes,
+        .descriptor_traits = builder.classification.descriptor_traits,
+        .dot_identity_mask = builder.classification.dot_identity_mask,
     };
     if (builder.hazard_plan.progress == &builder.progress) {
       out_plan->hazard_plan.progress = &out_plan->progress;

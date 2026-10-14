@@ -443,10 +443,10 @@ loom_corpus_test(
     "@scalar_f32_values"
     "TARGET/001"
     "numeric/float/scalar_float64.loom"
-    "@scalar_float64_random_values"
+    "@scalar_float64_remainder_random_values"
     "TARGET/001"
     "numeric/float/scalar_float64.loom"
-    "@scalar_float64_special_values"
+    "@scalar_float64_remainder_special_values"
     "TARGET/001"
     "numeric/float/selectors.loom"
     "@selector_f32_values"
@@ -530,7 +530,7 @@ loom_corpus_test(
   RESOURCE_GROUP
     "gpu-device"
   REQUIRES
-    "LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU"
+    LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

@@ -27,6 +27,36 @@ node 2 issue-cycle: 4
 
 // ====
 
+// The descriptor's default ownership reuses the source storage even though the
+// result writes before other input reads complete.
+// RUN: emit low-schedule-json @preferred_ownership_reuses_storage strategy=resource-stall diagnostics=candidates test.i32=74 output=none
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @preferred_ownership_reuses_storage(%held: reg<test.i32 x66>, %source: reg<test.i32 x4>) -> (reg<test.i32 x66>, reg<test.i32 x4>) asm {
+  // REMARK@+1: BACKEND/015 {scheduled_ordinal="0", chosen_packet="test.early_preferred.v4i32", rejected_packet="low.storage.reserve", chosen_pressure_cliff_penalty="0", chosen_projected_live_units="70"}
+  %result = test.early_preferred.v4i32 %source
+  %scratch = storage {byte_alignment = 4, byte_length = 4} : low.storage<private>
+  return %held, %result
+}
+
+// ====
+
+// An independent result needs four more units during the early-write phase.
+// Descriptor preference does not eliminate the source/result overlap.
+// RUN: emit low-schedule-json @independent_early_write_needs_headroom strategy=resource-stall diagnostics=candidates test.i32=74 output=none
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @independent_early_write_needs_headroom(%held: reg<test.i32 x66>, %source: reg<test.i32 x4>) -> (reg<test.i32 x66>, reg<test.i32 x4>) asm {
+  // REMARK@+1: BACKEND/015 {scheduled_ordinal="0", chosen_packet="test.early_preferred.v4i32", rejected_packet="low.storage.reserve", chosen_pressure_cliff_penalty="4", chosen_projected_live_units="70"}
+  %result = test.early_preferred.v4i32 %source : reg<test.i32 x4>
+  %scratch = storage {byte_alignment = 4, byte_length = 4} : low.storage<private>
+  return %held, %result
+}
+
+// ====
+
 // The same fixed occupancy below a direct residency cliff cannot constrain
 // scalar demand. No allocation budget is needed for the virtual pointer class.
 // RUN: emit low-schedule-json @unchanged_residency_headroom strategy=resource-stall cliff=test.ptr:8:15:14 diagnostics=candidates output=none

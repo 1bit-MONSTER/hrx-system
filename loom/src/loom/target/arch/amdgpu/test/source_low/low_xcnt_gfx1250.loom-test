@@ -83,7 +83,7 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @smem_base_reuse_require
 }
 
 // ----
-  s_load_dwordx8 s[8:15], s[0:1] offset:0
+  s_load_dwordx8 s[8:15], s[0:1], 0
   s_wait_xcnt xcnt(0)
   s_mov_b32 s0, 0
   s_wait_kmcnt kmcnt(0)
@@ -122,7 +122,7 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @getreg_implicit_drain_p
 // S_GETREG drains XCNT before writing its destination. Reusing the scalar-load
 // base as that destination therefore needs no explicit XCNT wait.
 // ----
-  s_load_dword s4, s[0:1] offset:0
+  s_load_dword s4, s[0:1], 0
   s_getreg_b32 s0, hwreg(HW_REG_IB_STS2, 21, 4)
   s_wait_kmcnt kmcnt(0)
   s_add_u32 s0, s4, s0
@@ -264,7 +264,7 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @exec_drain_preserves_sm
 // EXEC changes require VMEM XCNT completion. They do not complete the scalar
 // load's source read, so reusing its base still requires an XCNT wait.
 // ----
-  s_load_dword s4, s[0:1] offset:0
+  s_load_dword s4, s[0:1], 0
   s_mov_b64 exec, s[2:3]
   s_wait_xcnt xcnt(0)
   s_mov_b32 s0, 7
@@ -388,7 +388,7 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @cross_block_smem_result
 // One path consumes the value and the other overwrites the same register; both
 // operations must wait for the SMEM writeback before touching s8.
 // ----
-  s_load_dwordx4 s[8:11], s[0:1] offset:0
+  s_load_dwordx4 s[8:11], s[0:1], 0
   s_cbranch_scc0 .Lbb2
 .Lbb1:
   s_wait_kmcnt kmcnt(0)
@@ -417,7 +417,7 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @smem_vmem_group_switch_
 }
 
 // ----
-  s_load_dword s2, s[0:1] offset:0
+  s_load_dword s2, s[0:1], 0
   global_load_b32 v1, v0, s[4:5] offset:0
   s_mov_b32 s0, 7
   s_wait_kmcnt kmcnt(0)

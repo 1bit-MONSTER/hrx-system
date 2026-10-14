@@ -128,6 +128,15 @@ iree_status_t loom_check_low_emit_resolve_fixed_value_specs(
     iree_host_size_t* out_fixed_value_count, bool* out_resolved,
     iree_arena_allocator_t* arena);
 
+// Realizes required physical operand ties before direct Low emission. This
+// applies shipping Low preparation without optimization or target rewriting.
+// The function must have been verified against |descriptor_set|. Run before
+// resolving named fixed values, since independent results may be replaced.
+iree_status_t loom_check_low_emit_materialize_operand_ties(
+    loom_module_t* module, loom_op_t* function,
+    const loom_low_descriptor_set_t* descriptor_set,
+    iree_arena_allocator_t* arena);
+
 // Packetizes the selected low function through the registry linked into the
 // emit provider request. |out_frame| stores table pointers allocated
 // from request->case_arena. The request supplies the descriptor registry and

@@ -57,6 +57,8 @@ typedef struct loom_check_test_low_schedule_options_t {
   iree_string_view_t pressure_register_class;
   // Comma-separated values whose lifetimes require physical registers.
   iree_string_view_t required_register_value_selectors;
+  // Comma-separated private producers whose per-user placement is retained.
+  iree_string_view_t per_user_placement_value_selectors;
   // Inclusive live-unit ceiling requested for scheduled pressure.
   uint32_t pressure_limit;
   // Producer and consumer source nodes whose dependency timing is requested.
@@ -66,6 +68,8 @@ typedef struct loom_check_test_low_schedule_options_t {
   loom_check_test_low_schedule_dependency_query_t dependency_query;
   // Candidate selection strategy used by Low schedule construction.
   loom_low_schedule_strategy_t schedule_strategy;
+  // Optional scheduling policies selected by the RUN line.
+  loom_low_schedule_flags_t schedule_flags;
   // Structured scheduler diagnostics requested by the RUN line.
   loom_low_schedule_diagnostic_flags_t schedule_diagnostic_flags;
   // Invocation spaces whose synchronous boundary transport is being tested.
@@ -90,12 +94,12 @@ static bool loom_check_test_low_schedule_consume_value_selector(
 }
 
 static iree_status_t loom_check_test_low_schedule_validate_value_selectors(
-    iree_string_view_t value) {
+    iree_string_view_t name, iree_string_view_t value) {
   if (iree_string_view_is_empty(value)) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
-        "low-schedule-query option 'required-register-values' requires an SSA "
-        "value list");
+        "low-schedule-query option '%.*s' requires an SSA value list",
+        (int)name.size, name.data);
   }
   iree_string_view_t remaining = value;
   while (!iree_string_view_is_empty(remaining)) {
@@ -103,11 +107,11 @@ static iree_status_t loom_check_test_low_schedule_validate_value_selectors(
     loom_check_test_low_schedule_consume_value_selector(&remaining, &selector);
     if (!iree_string_view_starts_with(selector, IREE_SV("%")) ||
         selector.size == 1) {
-      return iree_make_status(
-          IREE_STATUS_INVALID_ARGUMENT,
-          "low-schedule-query option 'required-register-values' expected "
-          "comma-separated SSA values, got '%.*s'",
-          (int)value.size, value.data);
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "low-schedule-query option '%.*s' expected "
+                              "comma-separated SSA values, got '%.*s'",
+                              (int)name.size, name.data, (int)value.size,
+                              value.data);
     }
   }
   return iree_ok_status();
@@ -385,16 +389,34 @@ static iree_status_t loom_check_test_low_schedule_parse_option(
     options->flags |= LOOM_CHECK_TEST_SCHEDULE_OPTION_FLAG_HAS_PRESSURE_LIMIT;
     return iree_ok_status();
   }
-  if (iree_string_view_equal(name, IREE_SV("required-register-values"))) {
-    if (!iree_string_view_is_empty(
-            options->required_register_value_selectors)) {
+  if (iree_string_view_equal(name, IREE_SV("order-structural-setup"))) {
+    if (!iree_string_view_is_empty(value) ||
+        iree_any_bit_set(options->schedule_flags,
+                         LOOM_LOW_SCHEDULE_FLAG_ORDER_STRUCTURAL_SETUP)) {
       return iree_make_status(
           IREE_STATUS_INVALID_ARGUMENT,
-          "duplicate low-schedule-query option 'required-register-values'");
+          "low-schedule-query flag 'order-structural-setup' takes no value "
+          "and may appear only once");
+    }
+    options->schedule_flags |= LOOM_LOW_SCHEDULE_FLAG_ORDER_STRUCTURAL_SETUP;
+    return iree_ok_status();
+  }
+  iree_string_view_t* value_selectors = NULL;
+  if (iree_string_view_equal(name, IREE_SV("required-register-values"))) {
+    value_selectors = &options->required_register_value_selectors;
+  } else if (iree_string_view_equal(name,
+                                    IREE_SV("per-user-placement-values"))) {
+    value_selectors = &options->per_user_placement_value_selectors;
+  }
+  if (value_selectors != NULL) {
+    if (!iree_string_view_is_empty(*value_selectors)) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "duplicate low-schedule-query option '%.*s'",
+                              (int)name.size, name.data);
     }
     IREE_RETURN_IF_ERROR(
-        loom_check_test_low_schedule_validate_value_selectors(value));
-    options->required_register_value_selectors = value;
+        loom_check_test_low_schedule_validate_value_selectors(name, value));
+    *value_selectors = value;
     return iree_ok_status();
   }
   iree_string_view_t* node_list = NULL;
@@ -977,6 +999,45 @@ static iree_status_t loom_check_test_low_schedule_append_transport(
   return status;
 }
 
+static iree_status_t loom_check_test_low_schedule_resolve_values(
+    loom_module_t* module, loom_op_t* low_function,
+    iree_string_view_t selectors, const char* role,
+    iree_arena_allocator_t* arena, iree_bitmap_t* out_values) {
+  *out_values = (iree_bitmap_t){0};
+  if (iree_string_view_is_empty(selectors)) {
+    return iree_ok_status();
+  }
+  out_values->bit_count = module->values.count;
+  const iree_host_size_t word_count =
+      iree_bitmap_calculate_words(out_values->bit_count);
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(arena, word_count,
+                                                 sizeof(*out_values->words),
+                                                 (void**)&out_values->words));
+  iree_bitmap_reset_all(*out_values);
+  iree_string_view_t selector = iree_string_view_empty();
+  while (loom_check_test_low_schedule_consume_value_selector(&selectors,
+                                                             &selector)) {
+    const iree_string_view_t value_name =
+        iree_string_view_substr(selector, 1, IREE_HOST_SIZE_MAX);
+    loom_check_low_emit_value_resolution_t resolution;
+    loom_check_low_emit_resolve_function_value(module, low_function, value_name,
+                                               &resolution);
+    if (resolution.kind == LOOM_CHECK_LOW_EMIT_VALUE_RESOLUTION_NOT_FOUND) {
+      return iree_make_status(
+          IREE_STATUS_NOT_FOUND,
+          "low-schedule-query %s value '%.*s' was not found", role,
+          (int)selector.size, selector.data);
+    }
+    if (resolution.kind == LOOM_CHECK_LOW_EMIT_VALUE_RESOLUTION_AMBIGUOUS) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "low-schedule-query %s value '%.*s' is ambiguous",
+                              role, (int)selector.size, selector.data);
+    }
+    iree_bitmap_set(*out_values, resolution.value_id);
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_check_test_low_schedule_build(
     const loom_check_emit_provider_request_t* request,
     const loom_check_emit_native_module_t* native_module,
@@ -1008,47 +1069,25 @@ static iree_status_t loom_check_test_low_schedule_build(
   }
 
   iree_bitmap_t required_register_values = {0};
-  if (!iree_string_view_is_empty(options->required_register_value_selectors)) {
-    required_register_values.bit_count = native_module->module->values.count;
-    const iree_host_size_t word_count =
-        iree_bitmap_calculate_words(required_register_values.bit_count);
-    IREE_RETURN_IF_ERROR(
-        iree_arena_allocate_array(request->case_arena, word_count,
-                                  sizeof(*required_register_values.words),
-                                  (void**)&required_register_values.words));
-    iree_bitmap_reset_all(required_register_values);
-    iree_string_view_t selectors = options->required_register_value_selectors;
-    iree_string_view_t selector = iree_string_view_empty();
-    while (loom_check_test_low_schedule_consume_value_selector(&selectors,
-                                                               &selector)) {
-      const iree_string_view_t value_name =
-          iree_string_view_substr(selector, 1, IREE_HOST_SIZE_MAX);
-      loom_check_low_emit_value_resolution_t resolution;
-      loom_check_low_emit_resolve_function_value(
-          native_module->module, low_function, value_name, &resolution);
-      if (resolution.kind == LOOM_CHECK_LOW_EMIT_VALUE_RESOLUTION_NOT_FOUND) {
-        return iree_make_status(
-            IREE_STATUS_NOT_FOUND,
-            "low-schedule-query required register value '%.*s' was not found",
-            (int)selector.size, selector.data);
-      }
-      if (resolution.kind == LOOM_CHECK_LOW_EMIT_VALUE_RESOLUTION_AMBIGUOUS) {
-        return iree_make_status(
-            IREE_STATUS_INVALID_ARGUMENT,
-            "low-schedule-query required register value '%.*s' is ambiguous",
-            (int)selector.size, selector.data);
-      }
-      iree_bitmap_set(required_register_values, resolution.value_id);
-    }
-  }
+  IREE_RETURN_IF_ERROR(loom_check_test_low_schedule_resolve_values(
+      native_module->module, low_function,
+      options->required_register_value_selectors, "required register",
+      request->case_arena, &required_register_values));
+  iree_bitmap_t per_user_placement_values = {0};
+  IREE_RETURN_IF_ERROR(loom_check_test_low_schedule_resolve_values(
+      native_module->module, low_function,
+      options->per_user_placement_value_selectors, "per-user placement",
+      request->case_arena, &per_user_placement_values));
 
   loom_low_schedule_options_t schedule_options = {
       .allocation_budgets = options->allocation_budgets,
       .allocation_budget_count = options->allocation_budget_count,
       .required_register_values = required_register_values,
+      .per_user_placement_values = per_user_placement_values,
       .emitter = emitter,
       .diagnostic_flags = options->schedule_diagnostic_flags,
-      .flags = LOOM_LOW_SCHEDULE_FLAG_RETAIN_LIVENESS |
+      .flags = options->schedule_flags |
+               LOOM_LOW_SCHEDULE_FLAG_RETAIN_LIVENESS |
                LOOM_LOW_SCHEDULE_FLAG_RETAIN_PRESSURE_STEPS,
       .strategy = options->schedule_strategy,
   };

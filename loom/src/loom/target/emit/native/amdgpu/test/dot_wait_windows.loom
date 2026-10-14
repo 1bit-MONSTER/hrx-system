@@ -1,0 +1,65 @@
+// Locked native sequences exercise opcode-dependent DOT forwarding and reads
+// across empty block edges without scheduling away their dependency windows.
+amdgpu.target<gfx90a> @target
+
+low.func.def schedule(locked) target<amdgpu.cdna2.core>(@target) @integer_windows(%lane: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %offset = v_lshlrev_b32_src0_inline %lane, 2
+  %lhs = v_mov_b32 4278058235
+  %rhs = v_mov_b32 67305985
+  %initial = v_mov_b32 7
+  %signed = v_dot4_i32_i8 %lhs, %rhs, %initial
+  %forwarded = v_dot4_i32_i8 %lhs, %rhs, %signed
+  low.br ^empty
+^empty:
+  low.br ^consume
+^consume:
+  %unsigned = v_dot4_u32_u8 %lhs, %rhs, %forwarded
+  %input_read = v_dot4_i32_i8 %unsigned, %rhs, %initial
+  %signed_nibbles = v_dot8_i32_i4 %lhs, %rhs, %input_read
+  %unsigned_nibbles = v_dot8_u32_u4 %lhs, %rhs, %signed_nibbles
+  %ordinary_read = v_add_u32 %unsigned_nibbles, %initial
+  global_store_dword_saddr %offset, %ordinary_read, %output
+  return
+}
+
+low.func.def schedule(locked) target<amdgpu.cdna2.core>(@target) @float_windows(%lane: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %offset = v_lshlrev_b32_src0_inline %lane, 2
+  %lhs = v_mov_b32 1073757184
+  %rhs = v_mov_b32 1006648320
+  %initial = v_mov_b32 1088421888
+  %first = v_dot2_f32_f16 %lhs, %rhs, %initial
+  %forwarded = v_dot2_f32_f16 %lhs, %rhs, %first
+  low.br ^empty
+^empty:
+  low.br ^store
+^store:
+  global_store_dword_saddr %offset, %forwarded, %output
+  return
+}
+
+kernel.def target(@target) @dot_windows() {
+  %unit = index.constant 1 : index
+  %lanes = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%lanes, %unit, %unit) : index
+} launch(%integers: buffer, %floats: buffer) {
+  %lane_index = kernel.workitem.id<x> : index
+  %lane_i32 = index.cast %lane_index : index to i32
+  %lane = vector.splat %lane_i32 : vector<1xi32>
+  low.invoke @integer_windows(%lane, %integers) : (vector<1xi32>, buffer)
+  low.invoke @float_windows(%lane, %floats) : (vector<1xi32>, buffer)
+  kernel.return
+}
+
+check.case @physical_dot_windows {
+  check.requires<hal.amdgpu.descriptor_set> {descriptor_set = "amdgpu.cdna2.core"}
+  %integers = check.generate.fill value(-1) : tensor<64xi32>
+  %floats = check.generate.fill value(-1.0) : tensor<64xf32>
+  kernel.launch @dot_windows(%integers, %floats) : (tensor<64xi32>, tensor<64xf32>)
+  // The signed/unsigned byte and nibble chain yields -23, -53, 2477, -58,
+  // -88, 42, then 49. The FP16 pairs [1, 2] and [1, 1] add 3 twice to 7.
+  %expected_integers = check.generate.fill value(49) : tensor<64xi32>
+  %expected_floats = check.generate.fill value(13.0) : tensor<64xf32>
+  check.expect.bitwise actual(%integers) expected(%expected_integers) : tensor<64xi32>
+  check.expect.bitwise actual(%floats) expected(%expected_floats) : tensor<64xf32>
+  check.return
+}

@@ -574,7 +574,7 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@gfx1250_target) @gfx1250_vopd_ad
 
 // ----
   s_set_vgpr_msb 1
-  v_mov_b32_copy v6, v2
+  v_mov_b32 v6, v2
   v_mov_b32 v4, 0
   s_set_vgpr_msb 256
   v_max_i32 v5, v2, v3

@@ -45,6 +45,7 @@ from loom.target.arch.amdgpu.encoding import (  # noqa: E402
     AMDGPU_GFX125X_VOP3_SCALE_SEL_BIT_OFFSET,
     AMDGPU_VOP3_ENCODING_FORMAT_NAMES,
     amdgpu_encoding_field_name,
+    amdgpu_register_encoding_adapter_field,
     amdgpu_supplemental_encoding_format_names,
 )
 from loom.target.arch.amdgpu.isa_xml import (  # noqa: E402
@@ -582,6 +583,7 @@ def _compile_formats(
 def _descriptor_encoding_field_names(descriptor: Descriptor) -> set[str]:
     field_names = {"OP"}
     field_names.update(amdgpu_encoding_field_name(operand.encoding_field_id) for operand in descriptor.operands if operand.encoding_field_id != 0)
+    field_names.update(amdgpu_register_encoding_adapter_field(operand.encoding_adapter_id) for operand in descriptor.operands if operand.encoding_adapter_id != 0)
     for immediate in descriptor.immediates:
         if immediate.encoding_field_id != 0:
             field_names.add(amdgpu_encoding_field_name(immediate.encoding_field_id))
@@ -661,13 +663,7 @@ def _compile_encoding_contract(
         descriptors=tuple(descriptor_contracts),
         source_literal=spec.operand_predefined_value("OPR_SRC", "SRC_LITERAL"),
         scalar_source_literal=spec.operand_predefined_value("OPR_SSRC", "SRC_LITERAL"),
-        scalar_inline_u32=_derive_predefined_linear_range(
-            spec,
-            operand_type_name="OPR_SSRC",
-            base_name="0",
-            name_pattern=re.compile(r"([0-9]+)"),
-            description="OPR_SSRC inline integer",
-        ),
+        scalar_inline_u32=_derive_inline_integer_range(spec),
         inline_f32_sources=_derive_predefined_f32_sources(
             spec,
             operand_type_name="OPR_SRC",
@@ -758,6 +754,25 @@ def _instruction_opcode(
                 raise ValueError(f"AMDGPU instruction '{instruction_name}' has no {encoding_name}/{condition_name or '*'} encoding")
         raise ValueError(f"AMDGPU instruction '{instruction_name}' has no {encoding_name} encoding")
     raise ValueError(f"AMDGPU instruction '{instruction_name}' is missing")
+
+
+def _derive_inline_integer_range(spec: AmdgpuIsaFactSource) -> tuple[int, int]:
+    base, count = _derive_predefined_linear_range(
+        spec,
+        operand_type_name="OPR_SSRC",
+        base_name="0",
+        name_pattern=re.compile(r"([0-9]+)"),
+        description="OPR_SSRC inline integer",
+    )
+    # Both source domains share the positive range followed by -1 through -16.
+    # The encoder derives this adjacent range without another per-target row.
+    for operand_type in ("OPR_SSRC", "OPR_SRC"):
+        for integer in range(-16, count):
+            expected = base + integer if integer >= 0 else base + count - integer - 1
+            actual = spec.operand_predefined_value(operand_type, str(integer))
+            if actual != expected:
+                raise ValueError(f"{spec.source_name}: {operand_type} inline integer {integer} has value {actual}, expected {expected}")
+    return base, count
 
 
 def _derive_predefined_linear_range(

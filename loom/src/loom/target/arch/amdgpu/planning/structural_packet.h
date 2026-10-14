@@ -37,6 +37,8 @@ typedef enum loom_amdgpu_structural_packet_flag_bits_e {
   LOOM_AMDGPU_STRUCTURAL_PACKET_FLAG_READS_SCC = 1u << 4,
   // The materialized packet issues at least one scalar-ALU instruction.
   LOOM_AMDGPU_STRUCTURAL_PACKET_FLAG_USES_SCALAR_ALU = 1u << 5,
+  // Taking the conditional branch skips the packet's final native branch.
+  LOOM_AMDGPU_STRUCTURAL_PACKET_FLAG_CONDITIONAL_TAIL = 1u << 6,
 } loom_amdgpu_structural_packet_flag_bits_t;
 typedef uint32_t loom_amdgpu_structural_packet_flags_t;
 
@@ -53,6 +55,16 @@ typedef struct loom_amdgpu_structural_packet_info_t {
   // Native scalar-ALU instructions outside of |moves|.
   uint64_t scalar_alu_instruction_count;
 } loom_amdgpu_structural_packet_info_t;
+
+// Returns native issue progress guaranteed along every outgoing path.
+static inline uint64_t loom_amdgpu_structural_packet_minimum_instruction_count(
+    const loom_amdgpu_structural_packet_info_t* info) {
+  return info->instruction_count -
+         (iree_any_bit_set(info->flags,
+                           LOOM_AMDGPU_STRUCTURAL_PACKET_FLAG_CONDITIONAL_TAIL)
+              ? 1u
+              : 0u);
+}
 
 // Returns the number of native control-transfer instructions represented by
 // |node|. This is independent of allocation and may be queried before physical

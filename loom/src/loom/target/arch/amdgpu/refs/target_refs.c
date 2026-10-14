@@ -17,6 +17,7 @@ extern const loom_amdgpu_descriptor_immediate_slots_t* const
     kLoomAmdgpuDescriptorImmediateSlotTables[];
 extern const loom_amdgpu_reg_class_traits_t* const
     kLoomAmdgpuRegClassTraitTables[];
+extern const uint8_t kLoomAmdgpuAgprRegClassIds[];
 
 static uint16_t loom_amdgpu_target_ref_descriptor_set_ordinal(
     const loom_low_descriptor_set_t* descriptor_set) {
@@ -184,7 +185,8 @@ loom_amdgpu_store_data_wait_t loom_amdgpu_descriptor_store_data_wait(
       loom_amdgpu_descriptor_memory_properties(descriptor_set, descriptor);
   return (loom_amdgpu_store_data_wait_t){
       .operand_index = (uint8_t)(((properties >> 3) & 7) - 1),
-      .cycles = properties >> 6,
+      .valu_cycles = (((properties >> 3) & 7) != 0) + (properties >> 7),
+      .other_cycles = (properties >> 6) & 1,
   };
 }
 
@@ -226,4 +228,28 @@ loom_amdgpu_reg_class_traits_t loom_amdgpu_reg_class_traits(
     return 0;
   }
   return trait_table[reg_class_id];
+}
+
+uint8_t loom_amdgpu_agpr_reg_class_id(
+    const loom_low_descriptor_set_t* descriptor_set) {
+  return kLoomAmdgpuAgprRegClassIds[descriptor_set->descriptor_set_ordinal];
+}
+
+loom_amdgpu_descriptor_ref_t loom_amdgpu_accumulator_copy_ref(
+    const loom_low_descriptor_set_t* descriptor_set,
+    uint16_t destination_reg_class_id, uint16_t source_reg_class_id) {
+  const uint8_t agpr = loom_amdgpu_agpr_reg_class_id(descriptor_set);
+  if (destination_reg_class_id == agpr) {
+    if (source_reg_class_id == agpr) {
+      return LOOM_AMDGPU_DESCRIPTOR_REF_V_ACCVGPR_MOV_B32;
+    }
+    if (source_reg_class_id == LOOM_AMDGPU_REG_CLASS_ID_SGPR ||
+        source_reg_class_id == LOOM_AMDGPU_REG_CLASS_ID_VGPR) {
+      return LOOM_AMDGPU_DESCRIPTOR_REF_V_ACCVGPR_WRITE_B32;
+    }
+  } else if (destination_reg_class_id == LOOM_AMDGPU_REG_CLASS_ID_VGPR &&
+             source_reg_class_id == agpr) {
+    return LOOM_AMDGPU_DESCRIPTOR_REF_V_ACCVGPR_READ_B32;
+  }
+  return LOOM_AMDGPU_DESCRIPTOR_REF_NONE;
 }

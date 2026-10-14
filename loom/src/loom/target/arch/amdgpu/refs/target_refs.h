@@ -57,8 +57,53 @@ typedef enum loom_amdgpu_descriptor_trait_bit_e {
   // Packed F32 arithmetic spells input register pairs even when both result
   // lanes select the first dword. Physical read footprints remain independent.
   LOOM_AMDGPU_DESCRIPTOR_TRAIT_PACKED_F32 = 1u << 15,
+  // Wide shift operand zero needs its next VGPR allocated when the count
+  // occupies the last register of an eight-register allocation block.
+  LOOM_AMDGPU_DESCRIPTOR_TRAIT_SHIFT64_ALLOCATION = 1u << 16,
+  // MFMA executes on the F64 matrix pipeline.
+  LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX_DGEMM = 1u << 22,
+  // MFMA executes on the narrow/integer/XF32 matrix pipeline.
+  LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX_XDL = 1u << 23,
+  // VMEM, DS, or export reads use the matrix-to-memory forwarding window.
+  LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX_MEMORY_CONSUMER = 1u << 24,
+  // DIV_FMAS reads its VCC condition through a separate forwarding path.
+  LOOM_AMDGPU_DESCRIPTOR_TRAIT_DIV_FMAS = 1u << 25,
+  // F64 FMA/FMAC shares a pipeline release dependency with DGEMM.
+  LOOM_AMDGPU_DESCRIPTOR_TRAIT_FMA64 = 1u << 29,
+  // VMEM and DS reads depend on the VALU-to-memory hardware interlock.
+  LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_MEMORY_INTERLOCK = 1u << 30,
+  // Descriptor belongs to a scalar-memory replay clause.
+  LOOM_AMDGPU_DESCRIPTOR_TRAIT_SCALAR_MEMORY = 1u << 31,
 } loom_amdgpu_descriptor_trait_bit_t;
 typedef uint32_t loom_amdgpu_descriptor_traits_t;
+
+enum {
+  // MFMA execution passes occupy five bits in the descriptor's existing trait
+  // word. Zero identifies descriptors without software MFMA result waits.
+  LOOM_AMDGPU_DESCRIPTOR_MATRIX_PASSES_SHIFT = 17,
+  LOOM_AMDGPU_DESCRIPTOR_MATRIX_PASSES_MASK = 31u << 17,
+  // One-based native CDNA DOT opcode identity; zero means no fixed DOT wait.
+  // Matching opcode accumulator reads and overwrites forward immediately.
+  LOOM_AMDGPU_DESCRIPTOR_DOT_IDENTITY_SHIFT = 26,
+  LOOM_AMDGPU_DESCRIPTOR_DOT_IDENTITY_MASK = 7u << 26,
+};
+
+// Returns the hardware MFMA execution passes, independently of result width
+// and the scheduler's estimated latency.
+static inline uint16_t loom_amdgpu_descriptor_matrix_pass_count(
+    loom_amdgpu_descriptor_traits_t traits) {
+  return (uint16_t)((traits & LOOM_AMDGPU_DESCRIPTOR_MATRIX_PASSES_MASK) >>
+                    LOOM_AMDGPU_DESCRIPTOR_MATRIX_PASSES_SHIFT);
+}
+
+// Returns the native DOT identity's one-hot bit, or zero for other packets.
+static inline uint8_t loom_amdgpu_descriptor_dot_identity_mask(
+    loom_amdgpu_descriptor_traits_t traits) {
+  const unsigned identity =
+      (traits & LOOM_AMDGPU_DESCRIPTOR_DOT_IDENTITY_MASK) >>
+      LOOM_AMDGPU_DESCRIPTOR_DOT_IDENTITY_SHIFT;
+  return (uint8_t)((1u << identity) >> 1);
+}
 
 // Relative completion order of VMEM loads and cache invalidations. Distinct
 // classes may complete out of order even when they share a native wait counter.
@@ -78,15 +123,22 @@ typedef enum loom_amdgpu_vmem_result_order_class_e {
   LOOM_AMDGPU_VMEM_RESULT_ORDER_CLASS_COUNT = 5,
 } loom_amdgpu_vmem_result_order_class_t;
 
-// Compact memory properties use three bits for result order, three for the
-// one-based retained payload operand, and two for the VALU overwrite window.
+// Compact memory properties use three bits for result order and three for the
+// one-based retained payload operand. A retained payload requires one VALU
+// slot; the remaining bits independently add one non-VALU slot and a second
+// VALU slot.
 typedef struct loom_amdgpu_store_data_wait_t {
-  // Descriptor operand carrying the retained VGPR payload, when cycles is
-  // nonzero.
+  // Descriptor operand carrying the retained VGPR/AGPR payload, when
+  // valu_cycles is nonzero.
   uint8_t operand_index;
-  // Intervening issue slots before VALU overwrite. Other writes need one less.
-  uint8_t cycles;
+  // Intervening issue slots before a VALU or matrix overwrite, at most two.
+  uint8_t valu_cycles : 2;
+  // Intervening issue slots before another physical overwrite, at most one.
+  uint8_t other_cycles : 1;
 } loom_amdgpu_store_data_wait_t;
+
+static_assert(sizeof(loom_amdgpu_store_data_wait_t) == 2,
+              "store retention bindings must remain compact by-value results");
 
 typedef enum loom_amdgpu_reg_class_trait_bit_e {
   // Register class is the CDNA accumulator file.
@@ -141,7 +193,7 @@ loom_amdgpu_descriptor_vmem_result_order_class(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_low_descriptor_t* descriptor);
 
-// Returns the wide-store source retention contract, or zero cycles when absent.
+// Returns the wide-store source retention contract, or zero counts when absent.
 loom_amdgpu_store_data_wait_t loom_amdgpu_descriptor_store_data_wait(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_low_descriptor_t* descriptor);
@@ -155,6 +207,18 @@ loom_amdgpu_descriptor_immediate_slots_t loom_amdgpu_descriptor_immediate_slots(
 // Returns generated target-owned semantic trait bits for |reg_class_id|.
 loom_amdgpu_reg_class_traits_t loom_amdgpu_reg_class_traits(
     const loom_low_descriptor_set_t* descriptor_set, uint16_t reg_class_id);
+
+// Returns the accumulator class in a resolved AMDGPU descriptor set, or
+// UINT8_MAX when absent. MFMA descriptor sets always have an accumulator class.
+uint8_t loom_amdgpu_agpr_reg_class_id(
+    const loom_low_descriptor_set_t* descriptor_set);
+
+// Returns the native one-unit accumulator transfer for the physical register
+// banks, or NONE when the pair is not an accumulator transfer. The shared move
+// planner owns tuple ordering, overlap, and cycle scratch.
+loom_amdgpu_descriptor_ref_t loom_amdgpu_accumulator_copy_ref(
+    const loom_low_descriptor_set_t* descriptor_set,
+    uint16_t destination_reg_class_id, uint16_t source_reg_class_id);
 
 #ifdef __cplusplus
 }  // extern "C"

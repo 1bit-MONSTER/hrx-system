@@ -675,11 +675,12 @@ static iree_status_t loom_low_schedule_initialize_descriptor_tables(
         (void**)&state->call_node_indices));
   }
   iree_host_size_t call_index = 0;
-  const bool is_repair =
-      iree_bitmap_any_set(state->options->per_user_placement_values);
+  const bool order_structural_setup = iree_any_bit_set(
+      state->options->flags, LOOM_LOW_SCHEDULE_FLAG_ORDER_STRUCTURAL_SETUP);
   for (iree_host_size_t node_index = 0; node_index < node_count; ++node_index) {
     loom_low_schedule_node_t* node = &state->nodes[node_index];
-    loom_low_schedule_setup_order_classify_node(state, node, is_repair);
+    loom_low_schedule_setup_order_classify_node(state, node,
+                                                order_structural_setup);
     if (node->descriptor != NULL) {
       max_descriptor_operand_count =
           iree_max(max_descriptor_operand_count, node->operand_count);

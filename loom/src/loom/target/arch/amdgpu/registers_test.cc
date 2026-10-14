@@ -158,6 +158,8 @@ TEST_F(AmdgpuRegistersTest,
     uint16_t sgpr_allocatable_count;
     // Compiler-visible VGPR allocation namespace size.
     uint16_t vgpr_allocatable_count;
+    // Required base alignment for multi-register VGPR operands.
+    uint16_t vgpr_tuple_alignment;
     // True when the descriptor set exposes accumulator VGPR storage.
     bool has_agpr;
     // True when the descriptor set exposes the MODE register namespace.
@@ -165,9 +167,18 @@ TEST_F(AmdgpuRegistersTest,
   };
   const DescriptorSetCase cases[] = {
       {
+          IREE_SV("amdgpu.cdna2.core"),
+          102,
+          256,
+          2,
+          true,
+          false,
+      },
+      {
           IREE_SV("amdgpu.cdna3.core"),
           102,
           256,
+          2,
           true,
           false,
       },
@@ -175,6 +186,7 @@ TEST_F(AmdgpuRegistersTest,
           IREE_SV("amdgpu.cdna4.core"),
           106,
           256,
+          2,
           true,
           false,
       },
@@ -182,6 +194,7 @@ TEST_F(AmdgpuRegistersTest,
           IREE_SV("amdgpu.rdna3.core"),
           106,
           256,
+          1,
           false,
           false,
       },
@@ -189,6 +202,7 @@ TEST_F(AmdgpuRegistersTest,
           IREE_SV("amdgpu.rdna4.core"),
           106,
           256,
+          1,
           false,
           false,
       },
@@ -196,6 +210,7 @@ TEST_F(AmdgpuRegistersTest,
           IREE_SV("amdgpu.rdna4.gfx125x.core"),
           106,
           1024,
+          2,
           false,
           true,
       },
@@ -221,8 +236,10 @@ TEST_F(AmdgpuRegistersTest,
         &descriptor_set->reg_classes[LOOM_AMDGPU_REG_CLASS_ID_VGPR];
     EXPECT_EQ(loom_low_reg_class_unit_alignment(sgpr, 3), 1u);
     EXPECT_EQ(loom_low_reg_class_unit_alignment(vgpr, 1), 1u);
-    EXPECT_EQ(loom_low_reg_class_unit_alignment(vgpr, 3), c.has_agpr ? 2u : 1u);
-    EXPECT_EQ(loom_low_reg_class_unit_alignment(vgpr, 6), c.has_agpr ? 2u : 1u);
+    EXPECT_EQ(loom_low_reg_class_unit_alignment(vgpr, 3),
+              c.vgpr_tuple_alignment);
+    EXPECT_EQ(loom_low_reg_class_unit_alignment(vgpr, 6),
+              c.vgpr_tuple_alignment);
     ExpectRegisterClass(
         descriptor_set, IREE_SV("amdgpu.scc"), 1, 1,
         LOOM_LOW_REG_CLASS_FLAG_PHYSICAL | LOOM_LOW_REG_CLASS_FLAG_UNSPILLABLE);

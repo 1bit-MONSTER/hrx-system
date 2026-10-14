@@ -11,10 +11,14 @@
 
 from __future__ import annotations
 
+from functools import cache
+
+from ..matrix_contracts import AMDGPU_MATRIX_CONTRACTS
 from ..matrix_formats import (
     AMDGPU_CDNA4_MATRIX_FORMAT_ENUM_DOMAIN_NAMES,
     AMDGPU_F8F6F4_MATRIX_PHYSICAL_FORMATS,
 )
+from ..target_info import AMDGPU_MATRIX_FEATURES_BY_PROFILE
 from .common import *
 
 # Measured register-operand placement qualifications, expressed in existing
@@ -89,7 +93,7 @@ def _v_wmma_16x16x16_overlay(
             ),
         ),
         fixed_encoding_fields=((op_sel_hi_field, 0x7),),
-        constraints=_destructive_accumulator_constraints(3),
+        constraints=_preferred_accumulator_constraints(3),
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
         asm_forms=asm_forms,
     )
@@ -399,7 +403,7 @@ def _v_wmma_i32_16x16x16_overlay(
         immediate_fields=immediate_fields,
         immediates=immediates,
         fixed_encoding_fields=((op_sel_hi_field, 0x7),),
-        constraints=_destructive_accumulator_constraints(3),
+        constraints=_preferred_accumulator_constraints(3),
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
         asm_forms=asm_forms,
     )
@@ -543,11 +547,12 @@ def _v_mfma_overlay(
     rhs_units: int,
     encoding_name: str = "VOP3P_MFMA",
     low_mnemonic_suffix: str = "",
+    descriptor_key: str | None = None,
     matrix_physical_formats: tuple[str, str] | None = None,
 ) -> AmdgpuDescriptorOverlay:
     native_mnemonic = instruction_name.lower()
     mnemonic = f"{native_mnemonic}{low_mnemonic_suffix}"
-    descriptor_key = f"amdgpu.{mnemonic}"
+    descriptor_key = descriptor_key or f"amdgpu.{mnemonic}"
     matrix_format_immediates = (
         _cdna4_f8f6f4_matrix_format_immediates(matrix_physical_formats)
         if matrix_physical_formats is not None
@@ -588,7 +593,7 @@ def _v_mfma_overlay(
             ("CBSZ", "BLGP") if matrix_physical_formats is not None else ()
         ),
         immediates=matrix_format_immediates,
-        constraints=_destructive_accumulator_constraints(3),
+        constraints=_preferred_accumulator_constraints(3),
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
         asm_forms=(
             _cdna4_f8f6f4_matrix_asm_forms(native_mnemonic, has_scale_operands=False)
@@ -647,7 +652,7 @@ def _v_mfma_scale_overlay(
             ("ENCODING", 0x1A7),
             ("X2ENCODING", 0xD3AC),
         ),
-        constraints=_destructive_accumulator_constraints(3),
+        constraints=_preferred_accumulator_constraints(3),
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
         asm_forms=_cdna4_f8f6f4_matrix_asm_forms(
             native_mnemonic, has_scale_operands=True
@@ -683,6 +688,47 @@ def _v_mfma_f32_16x16x4_f32_overlay() -> AmdgpuDescriptorOverlay:
         lhs_units=1,
         rhs_units=1,
     )
+
+
+@cache
+def _cdna2_matrix_rows() -> tuple[
+    tuple[AmdgpuDescriptorOverlay, _AmdgpuMatrixTiming], ...
+]:
+    # Shared semantic contracts retain their descriptor identity across XML
+    # generations. CDNA2's native assembly uses the earlier packed spellings.
+    canonical_keys = {
+        overlay.semantic_tag: overlay.descriptor_key
+        for overlay in _cdna3_mfma_overlays()
+    }
+    features = frozenset(AMDGPU_MATRIX_FEATURES_BY_PROFILE["mfma_gfx90a"])
+    rows = []
+    for contract in AMDGPU_MATRIX_CONTRACTS:
+        if contract.family != "mfma" or not features.issuperset(contract.features):
+            continue
+        _, result, shape, source, *modifiers = contract.name.split(".")
+        mnemonic = f"v_mfma_{result}_{shape}{source}"
+        if modifiers:
+            mnemonic += "_" + "_".join(modifiers)
+        semantic_tag = f"matrix.{contract.name}"
+        descriptor_key = canonical_keys.get(semantic_tag, f"amdgpu.{mnemonic}")
+        overlay = _v_mfma_overlay(
+            instruction_name=mnemonic.upper(),
+            descriptor_key=descriptor_key,
+            semantic_tag=semantic_tag,
+            accumulator_units=contract.accumulator.register_count,
+            lhs_units=contract.lhs.register_count,
+            rhs_units=contract.rhs.register_count,
+        )
+        overlay = replace(
+            overlay, schedule_class=_amdgpu_mfma_schedule_class_name(descriptor_key)
+        )
+        # LLVM SIDPFullSpeedModel assigns 2/8/16 passes by F32/I32 tile
+        # width, 4/8 for F64, and four cycles of MFMA read advance.
+        passes = ({4: 4, 16: 8} if result == "f64" else {4: 2, 16: 8, 32: 16})[
+            contract.tile_shape[0]
+        ]
+        rows.append((overlay, _AmdgpuMatrixTiming(passes + 4, passes)))
+    return tuple(rows)
 
 
 def _cdna3_mfma_overlays() -> tuple[AmdgpuDescriptorOverlay, ...]:
@@ -1609,8 +1655,7 @@ def _v_dot2_f32_packed_float_overlay(
             op_sel_hi_field=op_sel_hi_field
         ),
         constraints=(
-            Constraint(ConstraintKind.TIED, 0, 3),
-            Constraint(ConstraintKind.DESTRUCTIVE, 0, 3),
+            Constraint(ConstraintKind.PREFER_TIED, 0, 3),
             Constraint(ConstraintKind.COMMUTABLE, 1, 2),
         ),
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
@@ -1836,6 +1881,7 @@ def _v_dot8_u32_u4_overlay(
 
 
 __all__ = (
+    "_cdna2_matrix_rows",
     "_GFX12_WAVE64_MATRIX_OPERAND_SIZE_REASON",
     "_WMMA_GFX11_WAVE64_ACCUMULATOR_SIZE_REASON",
     "_cdna3_mfma_overlays",

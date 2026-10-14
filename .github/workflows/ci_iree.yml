@@ -129,6 +129,12 @@ jobs:
               --group-add 993 --group-add 992 --group-add 110
               --ulimit memlock=-1:-1 --security-opt seccomp=unconfined
               --env-file /etc/podinfo/gha-gpu-isolation-settings --user 0:0
+          - name: Clang / Fastbuild / AMD gfx90a
+            kind: amdgpu
+            command: iree-bazel-amdgpu
+            runner: linux-gfx90a-1gpu-ossci-rocm
+            target_selector: gfx90a
+            container_options: *amdgpu_container_options
           - name: Clang / Fastbuild / AMD gfx110x
             kind: amdgpu
             command: iree-bazel-amdgpu

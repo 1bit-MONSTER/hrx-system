@@ -24,6 +24,9 @@
 #include "loom/codegen/low/schedule/types.h"
 #include "loom/target/arch/amdgpu/planning/address_state.h"
 #include "loom/target/arch/amdgpu/planning/wait_counters.h"
+#include "loom/target/arch/amdgpu/refs/target_refs.h"
+
+struct loom_amdgpu_matrix_result_wait_t;
 
 #ifdef __cplusplus
 extern "C" {
@@ -146,6 +149,10 @@ typedef struct loom_amdgpu_wait_plan_t {
   // progress; packetization, fixed-delay planning, and emission share this
   // decision.
   const uint64_t* elided_wait_nodes;
+  // Union of native descriptor traits retained by node classification.
+  loom_amdgpu_descriptor_traits_t descriptor_traits;
+  // Native DOT identities requiring independent fixed-delay channels.
+  uint8_t dot_identity_mask;
 } loom_amdgpu_wait_plan_t;
 
 // Returns whether the canonical counter walk proved an authored wait redundant.
@@ -180,13 +187,18 @@ iree_string_view_t loom_amdgpu_wait_plan_residual_action_name(
 // Planned waits share insertion points across zero-instruction packets, but
 // never across block entries or transitions retained in |address_state|.
 // The address-state overlay is borrowed only for this call.
-// Builder state is allocated from |transient_arena| and may be discarded after
-// this function returns. The caller must keep |schedule| and |allocation|
-// immutable and |arena| alive for as long as |out_plan| is used.
+// When |out_matrix_results| is present, this traversal retains static MFMA
+// exits and source facts in |matrix_arena| for the subsequent fixed-wait
+// planner. Both may be NULL when only the counter-wait plan is needed. Builder
+// state is allocated from |transient_arena| and may be discarded after this
+// function returns. The caller must keep |schedule| and |allocation| immutable
+// and |arena| alive for as long as |out_plan| is used.
 iree_status_t loom_amdgpu_wait_plan_build(
     const loom_low_schedule_table_t* schedule,
     const loom_low_allocation_table_t* allocation,
     const loom_amdgpu_address_state_plan_t* address_state,
+    iree_arena_allocator_t* matrix_arena,
+    struct loom_amdgpu_matrix_result_wait_t** out_matrix_results,
     iree_arena_allocator_t* arena, iree_arena_allocator_t* transient_arena,
     loom_amdgpu_wait_plan_t* out_plan);
 

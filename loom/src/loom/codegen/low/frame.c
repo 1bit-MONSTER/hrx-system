@@ -85,7 +85,8 @@ static iree_status_t loom_low_emission_frame_record_value_list(
 // Allocation cannot select an already retained value for another spill plan,
 // so every non-empty materialization batch strictly reduces the remaining
 // population of spillable program values. Target lowering extends this set
-// with any register values it creates or exposes while rewriting the traffic.
+// with register helpers it creates while rewriting the traffic. Existing
+// CFG-edge payloads remain spillable independently of their block arguments.
 static iree_status_t loom_low_emission_frame_record_spill_plan_values(
     const loom_low_allocation_table_t* allocation,
     iree_arena_allocator_t* arena, iree_bitmap_t* inout_values) {
@@ -965,6 +966,8 @@ static iree_status_t loom_low_emission_frame_build_spill_free_impl(
     iree_arena_allocator_t* arena, loom_low_planning_statistics_t* statistics,
     loom_low_emission_frame_t* out_frame, bool* out_accepted) {
   *out_frame = (loom_low_emission_frame_t){0};
+  loom_low_emission_frame_options_t repair_options = *frame_options;
+  frame_options = &repair_options;
   IREE_RETURN_IF_ERROR(loom_low_storage_layout_hoist_reservations(
       module, loom_low_function_body(low_func_op), scratch_arena));
 
@@ -1033,6 +1036,8 @@ static iree_status_t loom_low_emission_frame_build_spill_free_impl(
             frame.schedule.failure.state_value_id, /*schedule=*/NULL,
             &rematerialization, scratch_arena, &result));
         if (result.rewritten_operand_count != 0) {
+          repair_options.schedule_flags |=
+              LOOM_LOW_SCHEDULE_FLAG_ORDER_STRUCTURAL_SETUP;
           if (statistics != NULL) {
             statistics->repair.rematerialized_operand_count +=
                 result.rewritten_operand_count;
@@ -1056,6 +1061,8 @@ static iree_status_t loom_low_emission_frame_build_spill_free_impl(
             repair_emitter, scratch_arena, &result));
         if (result.rewritten_operand_count != 0 ||
             result.retained_placement_count != 0) {
+          repair_options.schedule_flags |=
+              LOOM_LOW_SCHEDULE_FLAG_ORDER_STRUCTURAL_SETUP;
           if (statistics != NULL) {
             statistics->repair.rematerialized_operand_count +=
                 result.rewritten_operand_count;
@@ -1084,6 +1091,8 @@ static iree_status_t loom_low_emission_frame_build_spill_free_impl(
             module, &frame.allocation, &rematerialization, repair_emitter,
             scratch_arena, &rematerialization_result));
         if (rematerialization_result.rewritten_operand_count != 0) {
+          repair_options.schedule_flags |=
+              LOOM_LOW_SCHEDULE_FLAG_ORDER_STRUCTURAL_SETUP;
           if (statistics != NULL) {
             statistics->repair.rematerialized_operand_count +=
                 rematerialization_result.rewritten_operand_count;
@@ -1152,6 +1161,8 @@ static iree_status_t loom_low_emission_frame_build_spill_free_impl(
     // The frame loop materializes one complete allocation snapshot at a time;
     // the next iteration accounts for any spill traffic introduced by it.
     materialization_options.max_spill_plan_count = 0;
+    materialization_options.per_user_placement_values =
+        rematerialization.per_user_values;
     if (materialization_options.emitter.fn == NULL) {
       materialization_options.emitter = frame_options->emitter;
     }
@@ -1172,7 +1183,8 @@ static iree_status_t loom_low_emission_frame_build_spill_free_impl(
             result.materialized_spills, result.materialized_spill_count,
             &materialization_summary.spill_records, repair_arena));
     last_rematerialized_spill_plan_count = IREE_HOST_SIZE_MAX;
-    loom_low_rematerialization_invalidate_placement(&rematerialization);
+    repair_options.schedule_flags &=
+        ~LOOM_LOW_SCHEDULE_FLAG_ORDER_STRUCTURAL_SETUP;
     value_repair_iteration_count = 0;
     value_repair_iteration_limit = 0;
 

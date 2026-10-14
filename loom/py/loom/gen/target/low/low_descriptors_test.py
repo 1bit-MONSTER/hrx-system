@@ -88,6 +88,7 @@ from loom.target.test.descriptors import (
     TEST_LOW_STATE_ADD_I32_DESCRIPTOR,
     TEST_LOW_STATE_ADD_I32_RHS_ZERO_DESCRIPTOR,
     TEST_LOW_STATE_ADD_SCHEDULE_STATE_DESCRIPTOR,
+    TEST_LOW_TIED_PAIR_DESCRIPTOR,
     TEST_LOW_WRITE_HIGH16_I32_DESCRIPTOR,
     TEST_LOW_WRITE_LOW16_I32_DESCRIPTOR,
 )
@@ -1136,6 +1137,46 @@ def test_compiler_derives_tied_operand_projection_flags() -> None:
     assert OperandFlag.TIED in compiled.descriptors[0].operands[0].flags
     assert OperandFlag.TIED in compiled.descriptors[0].operands[1].flags
     assert OperandFlag.TIED not in compiled.descriptors[0].operands[2].flags
+    assert DescriptorFlag.TIED_RESULTS in compiled.descriptors[0].flags
+
+
+@pytest.mark.parametrize("kind", [ConstraintKind.TIED, ConstraintKind.PREFER_TIED, ConstraintKind.DESTRUCTIVE])
+@pytest.mark.parametrize("shared_result", [False, True])
+def test_compiler_rejects_conflicting_physical_ties(kind: ConstraintKind, shared_result: bool) -> None:
+    descriptor = replace(
+        TEST_LOW_TIED_PAIR_DESCRIPTOR,
+        constraints=(
+            Constraint(ConstraintKind.TIED, 0, 2),
+            Constraint(kind, 0 if shared_result else 1, 3 if shared_result else 2),
+        ),
+    )
+    descriptor_set = replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,))
+
+    with pytest.raises(ValueError, match="ties result 0 to distinct inputs" if shared_result else "ties input 2 to distinct results"):
+        compiler.compile_descriptor_set(descriptor_set)
+
+
+def test_compiler_rejects_duplicate_ownership_tie() -> None:
+    tie = Constraint(ConstraintKind.TIED, 0, 1)
+    descriptor = replace(TEST_LOW_ADD_I32_DESCRIPTOR, constraints=(tie, tie))
+    with pytest.raises(ValueError, match="repeats ownership tie"):
+        compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
+
+
+@pytest.mark.parametrize("required", [ConstraintKind.TIED, ConstraintKind.DESTRUCTIVE])
+@pytest.mark.parametrize("preferred_first", [False, True])
+def test_compiler_rejects_required_and_preferred_aliasing(required, preferred_first):
+    kinds = (ConstraintKind.PREFER_TIED, required) if preferred_first else (required, ConstraintKind.PREFER_TIED)
+    descriptor = replace(TEST_LOW_ADD_I32_DESCRIPTOR, constraints=tuple(Constraint(kind, 0, 1) for kind in kinds))
+    with pytest.raises(ValueError, match="combines preferred and required ties"):
+        compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
+
+
+def test_preferred_ownership_does_not_require_physical_aliasing():
+    descriptor = replace(TEST_LOW_ADD_I32_DESCRIPTOR, constraints=(Constraint(ConstraintKind.PREFER_TIED, 0, 1),))
+    compiled = compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
+    assert DescriptorFlag.TIED_RESULTS not in compiled.descriptors[0].flags
+    assert all(OperandFlag.TIED not in operand.flags for operand in compiled.descriptors[0].operands)
 
 
 def _storage_continuation_descriptor() -> Descriptor:
@@ -2570,28 +2611,30 @@ def test_generator_accepts_exact_type_for_same_register_value_type_result() -> N
     assert "LOOM_LOW_ASM_RESULT_TYPE_KIND_SCALAR" in generated.source
 
 
-def test_generator_accepts_same_register_value_type_between_operands() -> None:
+@pytest.mark.parametrize("kind", [ConstraintKind.SAME_REGISTER_VALUE_TYPE, ConstraintKind.SAME_REGISTER_CLASS])
+def test_generator_accepts_register_type_relation_between_operands(kind: ConstraintKind) -> None:
     descriptor = replace(
         TEST_LOW_ADD_I32_DESCRIPTOR,
-        constraints=(Constraint(ConstraintKind.SAME_REGISTER_VALUE_TYPE, 1, 2),),
+        constraints=(Constraint(kind, 1, 2),),
     )
     descriptor_set = replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,))
 
     generated = generate_descriptor_set(descriptor_set)
 
-    assert "LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_VALUE_TYPE" in generated.source
+    assert kind.value in generated.source
 
 
-def test_generator_rejects_same_register_value_type_without_rhs() -> None:
+@pytest.mark.parametrize("kind", [ConstraintKind.SAME_REGISTER_VALUE_TYPE, ConstraintKind.SAME_REGISTER_CLASS])
+def test_generator_rejects_register_type_relation_without_rhs(kind: ConstraintKind) -> None:
     descriptor = replace(
         TEST_LOW_ADD_I32_DESCRIPTOR,
-        constraints=(Constraint(ConstraintKind.SAME_REGISTER_VALUE_TYPE, 0),),
+        constraints=(Constraint(kind, 0),),
     )
     descriptor_set = replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,))
 
     with pytest.raises(
         ValueError,
-        match=re.escape("descriptor 'test.add.i32' same-register-value-type constraint 0 requires an rhs operand"),
+        match=re.escape(f"descriptor 'test.add.i32' {kind.name.lower().replace('_', '-')} constraint 0 requires an rhs operand"),
     ):
         generate_descriptor_set(descriptor_set)
 

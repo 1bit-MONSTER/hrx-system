@@ -134,7 +134,7 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @after_reset(
 // ----
   v_cndmask_b32 v0, 0, v0, s[0:1]
   s_mov_b32 s3, s0
-  v_mov_b32_copy v0, s3
+  v_mov_b32 v0, s3
   s_mov_b32 s2, s1
   s_mov_b32 s0, s2
   s_mov_b32 s1, s3
@@ -185,7 +185,7 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @loop_mask_re
   v_cndmask_b32 v2, v0, v1, s[0:1]
   s_delay_alu instid0(VALU_DEP_1)
   v_cmp_lt_i32 s[4:5], v2, v1
-  v_mov_b32_copy v2, s2
+  v_mov_b32 v2, s2
   s_delay_alu instid0(VALU_DEP_2)
   s_mov_b32 s0, s4
   s_mov_b32 s1, s5
@@ -211,7 +211,7 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @loop_mask_re
 // ----
 .Lbb1:
   v_cndmask_b32 v2, v0, v1, s[0:1]
-  v_mov_b32_copy v3, s2
+  v_mov_b32 v3, s2
   s_delay_alu instid0(VALU_DEP_2)
   v_cmp_lt_i32 s[0:1], v2, v1
   s_branch .Lbb1
@@ -340,7 +340,7 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @reset_mask_b
   s_delay_alu instid0(VALU_DEP_1)
   v_cndmask_b32 v1, v0, v0, s[0:1]
 .Lbb3:
-  v_mov_b32_copy v1, s4
+  v_mov_b32 v1, s4
   s_branch .Lbb1
 
 // ====

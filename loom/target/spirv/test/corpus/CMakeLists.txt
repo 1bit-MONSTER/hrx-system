@@ -1924,6 +1924,12 @@ loom_corpus_test(
     "numeric/float/scalar_f32.loom"
     "@scalar_f32_values"
     "TARGET/001"
+    "numeric/float/scalar_float64.loom"
+    "@scalar_float64_fma_random_values"
+    "TARGET/001"
+    "numeric/float/scalar_float64.loom"
+    "@scalar_float64_fma_special_values"
+    "TARGET/001"
     "numeric/float/selectors.loom"
     "@selector_f32_values"
     "TARGET/001"
@@ -2100,6 +2106,12 @@ loom_corpus_test(
     "@scalar_float64_random_values"
     "EXPECT/002"
     "numeric/float/scalar_float64.loom"
+    "@scalar_float64_remainder_random_values"
+    "EXPECT/002"
+    "numeric/float/scalar_float64.loom"
+    "@scalar_float64_remainder_special_values"
+    "EXPECT/002"
+    "numeric/float/scalar_float64.loom"
     "@scalar_float64_special_values"
     "EXPECT/002"
     "numeric/vector/conversion.loom"
@@ -2131,7 +2143,7 @@ loom_corpus_test(
   RESOURCE_GROUP
     "gpu-device"
   REQUIRES
-    "LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN"
+    LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

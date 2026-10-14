@@ -1615,6 +1615,28 @@ ERR_TARGET_093 = ErrorDef(
     ),
 )
 
+# ERR_TARGET_094: Ownership tie conflicts with a physical input/result tie.
+ERR_TARGET_094 = ErrorDef(
+    domain=ErrorDomain.TARGET,
+    code=94,
+    severity=Severity.ERROR,
+    summary="Ownership tie conflicts with a physical input/result tie.",
+    message=(
+        "'{op_name}' result {result_index} is tied to operand {operand_index}, "
+        "but its physical input/result constraint requires operand "
+        "{required_operand_index}"
+    ),
+    params=(
+        ErrorParam("op_name", ParamKind.STRING),
+        ErrorParam("result_index", ParamKind.U32),
+        ErrorParam("operand_index", ParamKind.U32),
+        ErrorParam("required_operand_index", ParamKind.U32),
+    ),
+    fix_hint=(
+        "Tie the result to its required input or give it an independent result type."
+    ),
+)
+
 ALL_TARGET_ERRORS = (
     ERR_TARGET_001,
     ERR_TARGET_002,
@@ -1693,4 +1715,5 @@ ALL_TARGET_ERRORS = (
     ERR_TARGET_091,
     ERR_TARGET_092,
     ERR_TARGET_093,
+    ERR_TARGET_094,
 )

@@ -135,8 +135,8 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @gfx1151_pending_vmem_preserve
 }
 
 // ----
-  global_load_d16_b16 v1, v0, s[0:1] offset:0
-  global_load_d16_hi_b16 v1, v0, s[0:1] offset:2
+  global_load_short_d16 v1, v0, s[0:1] offset:0
+  global_load_short_d16_hi v1, v0, s[0:1] offset:2
   s_waitcnt vmcnt(1) lgkmcnt(63)
   global_store_short v0, v1, s[2:3] offset:0
   s_waitcnt vmcnt(0) lgkmcnt(63)
@@ -343,7 +343,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @ready_vmem_preserved_read(%se
 }
 
 // ----
-  global_load_d16_hi_b16 v0, v1, s[0:1] offset:0
+  global_load_short_d16_hi v0, v1, s[0:1] offset:0
   global_store_short v1, v0, s[0:1] offset:8
   s_waitcnt vmcnt(0) lgkmcnt(63)
   global_store_b32 v1, v0, s[0:1] offset:12
@@ -383,7 +383,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @vmem_preserved_to_lds(%seed: 
 }
 
 // ----
-  global_load_d16_hi_b16 v0, v1, s[0:1] offset:0
+  global_load_short_d16_hi v0, v1, s[0:1] offset:0
   ds_write_b16 v1, v0 offset:0
   s_waitcnt vmcnt(0) lgkmcnt(63)
   global_store_b32 v1, v0, s[2:3] offset:0
@@ -404,8 +404,8 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @pending_vmem_preserved_to_lds
 }
 
 // ----
-  global_load_d16_b16 v1, v0, s[0:1] offset:0
-  global_load_d16_hi_b16 v1, v0, s[0:1] offset:2
+  global_load_short_d16 v1, v0, s[0:1] offset:0
+  global_load_short_d16_hi v1, v0, s[0:1] offset:2
   s_waitcnt vmcnt(1) lgkmcnt(63)
   ds_write_b16 v0, v1 offset:0
   s_waitcnt vmcnt(0) lgkmcnt(63)
@@ -426,7 +426,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @buffer_preserved_to_lds(%seed
 }
 
 // ----
-  buffer_load_d16_hi_b16 v0, v1, s[0:3], s4 offen offset:0 glc:0 slc:0 dlc:0
+  buffer_load_short_d16_hi v0, v1, s[0:3], s4 offen offset:0
   ds_write_b8 v1, v0 offset:0
   s_waitcnt vmcnt(0) lgkmcnt(63)
   global_store_b32 v1, v0, s[6:7] offset:0
@@ -446,7 +446,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @buffer_offset_preserved_to_ld
 }
 
 // ----
-  buffer_load_d16_hi_b16 v0, v1, s[0:3], 0 offen offset:0 glc:0 slc:0 dlc:0
+  buffer_load_short_d16_hi v0, v1, s[0:3], 0 offen offset:0
   ds_write_b16 v1, v0 offset:0
   s_waitcnt vmcnt(0) lgkmcnt(63)
   global_store_b32 v1, v0, s[4:5] offset:0
@@ -466,7 +466,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @global_vaddr_preserved_to_lds
 }
 
 // ----
-  global_load_d16_hi_b16 v0, v[2:3], off offset:0
+  global_load_short_d16_hi v0, v[2:3], off offset:0
   ds_write_b16 v1, v0 offset:0
   s_waitcnt vmcnt(0) lgkmcnt(63)
   global_store_b32 v1, v0, s[0:1] offset:0
@@ -490,10 +490,10 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @preserved_narrow_memory_consu
 
 // ----
   ds_load_u16_d16_hi v0, v1 offset:0
-  global_store_b8 v1, v0, s[2:3] offset:0
+  global_store_byte v1, v0, s[2:3] offset:0
   global_store_short v[2:3], v0, off offset:0
-  buffer_store_b8 v0, v1, s[4:7], s0 offen offset:0
-  buffer_store_short v0, v1, s[4:7], 0 offen offset:0 glc:0 slc:0 dlc:0
+  buffer_store_byte v0, v1, s[4:7], s0 offen offset:0
+  buffer_store_short v0, v1, s[4:7], 0 offen offset:0
   s_waitcnt vmcnt(63) lgkmcnt(0)
   global_store_b32 v1, v0, s[2:3] offset:0
   s_waitcnt_vscnt vscnt(0)

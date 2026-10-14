@@ -395,6 +395,67 @@ TEST_F(LowAllocationStoragePressureSummaryTest,
 }
 
 TEST_F(LowAllocationStoragePressureSummaryTest,
+       RetiresSpilledPressureLeasesFromAvailability) {
+  const loom_low_reg_class_t reg_classes[] = {RegClass(/*alias_set_id=*/1)};
+  const loom_low_descriptor_set_t descriptor_set =
+      DescriptorSet(reg_classes, IREE_ARRAYSIZE(reg_classes));
+  const loom_low_storage_lease_flags_t record_flags[] = {
+      LOOM_LOW_STORAGE_LEASE_FLAG_RELEASE_FOR_PRESSURE,
+      LOOM_LOW_STORAGE_LEASE_FLAG_RELEASE_FOR_PRESSURE,
+  };
+  const uint16_t descriptor_reg_class_ids[] = {0, 0};
+  const uint32_t unit_counts[] = {16, 16};
+  const uint32_t start_points[] = {10, 30};
+  const uint32_t end_points[] = {20, 100};
+  for (bool initially_spilled : {false, true}) {
+    SCOPED_TRACE(initially_spilled);
+    PressureSummaryScenario scenario;
+    InitializeScenario(&descriptor_set, IREE_ARRAYSIZE(record_flags),
+                       record_flags, descriptor_reg_class_ids, unit_counts,
+                       start_points, end_points, &scenario);
+    if (initially_spilled) {
+      scenario.assignments[0].location_kind =
+          LOOM_LOW_ALLOCATION_LOCATION_SPILL_SLOT;
+    }
+    RecordAssignments(&descriptor_set, &scenario);
+    ASSERT_NE(scenario.state.availability_expiration_heap, nullptr);
+    if (!initially_spilled) {
+      EXPECT_EQ(scenario.state.minimum_pressure_release_start_point, 10u);
+      scenario.assignments[0].location_kind =
+          LOOM_LOW_ALLOCATION_LOCATION_SPILL_SLOT;
+      loom_low_allocation_storage_lease_state_record_spill(
+          &scenario.state, &descriptor_set, &scenario.assignments[0],
+          /*value_ordinal=*/0);
+    }
+    EXPECT_EQ(scenario.state.availability_expiration_count, 1u);
+    EXPECT_EQ(scenario.state.minimum_pressure_release_start_point, 30u);
+    EXPECT_FALSE(
+        loom_low_allocation_storage_lease_state_pressure_release_may_overlap(
+            &scenario.state, &descriptor_set, /*allocation_point=*/0,
+            /*candidate_end_point=*/30));
+    EXPECT_TRUE(
+        loom_low_allocation_storage_lease_state_pressure_release_may_overlap(
+            &scenario.state, &descriptor_set, /*allocation_point=*/0,
+            /*candidate_end_point=*/31));
+
+    scenario.assignments[1].location_kind =
+        LOOM_LOW_ALLOCATION_LOCATION_SPILL_SLOT;
+    loom_low_allocation_storage_lease_state_record_spill(
+        &scenario.state, &descriptor_set, &scenario.assignments[1],
+        /*value_ordinal=*/1);
+    EXPECT_EQ(scenario.state.availability_expiration_count, 0u);
+    EXPECT_EQ(scenario.state.minimum_pressure_release_start_point, UINT32_MAX);
+    EXPECT_FALSE(
+        loom_low_allocation_storage_lease_state_pressure_release_may_overlap(
+            &scenario.state, &descriptor_set, /*allocation_point=*/0,
+            /*candidate_end_point=*/101));
+    IREE_ASSERT_OK(
+        loom_low_allocation_storage_lease_state_finalize(&scenario.state));
+    DeinitializeScenario(&scenario);
+  }
+}
+
+TEST_F(LowAllocationStoragePressureSummaryTest,
        RetainsPressureSearchForHeterogeneousLeaseTables) {
   const loom_low_reg_class_t reg_classes[] = {RegClass(/*alias_set_id=*/1)};
   const loom_low_descriptor_set_t descriptor_set =
@@ -941,6 +1002,71 @@ TEST_F(LowAllocationStorageIdentityTest,
   DeinitializeScenario(&scenario);
 }
 
+TEST_F(LowAllocationStorageIdentityTest, SpilledValuesReleasePhysicalLeases) {
+  const loom_low_reg_class_t reg_classes[] = {RegClass(/*alias_set_id=*/1)};
+  const loom_low_descriptor_set_t descriptor_set =
+      DescriptorSet(reg_classes, IREE_ARRAYSIZE(reg_classes));
+  for (uint32_t leased_units : {1u, 32u}) {
+    for (bool initially_spilled : {false, true}) {
+      SCOPED_TRACE(leased_units);
+      SCOPED_TRACE(initially_spilled);
+      const uint32_t unit_counts[] = {leased_units, 1};
+      const loom_value_ordinal_t storage_order[] = {1, 0};
+      StorageIdentityScenario scenario;
+      InitializeScenario(&descriptor_set, unit_counts,
+                         IREE_ARRAYSIZE(unit_counts), nullptr, 0, storage_order,
+                         0, &scenario);
+      auto assignment =
+          Assignment(scenario.value_ids[0], /*descriptor_reg_class_id=*/0,
+                     /*start_point=*/0, /*end_point=*/1, /*location_base=*/16,
+                     /*location_count=*/leased_units);
+      assignment.unit_count = leased_units;
+      if (initially_spilled) {
+        assignment.location_kind = LOOM_LOW_ALLOCATION_LOCATION_SPILL_SLOT;
+        assignment.location_base = 0;
+      }
+      loom_low_allocation_storage_lease_state_record_assignment(
+          &scenario.state, &descriptor_set, &scenario.liveness, &assignment,
+          /*assignment_index=*/0, /*value_ordinal=*/0);
+      auto candidate =
+          Assignment(scenario.value_ids[1], /*descriptor_reg_class_id=*/0,
+                     /*start_point=*/1, /*end_point=*/2, /*location_base=*/16,
+                     /*location_count=*/1);
+      candidate.unit_count = 1;
+      candidate.unit_point_start = scenario.unit_values[1].unit_point_start;
+      ExpectConflictOnScanAndIndex(&scenario, &descriptor_set, candidate,
+                                   !initially_spilled);
+      if (!initially_spilled) {
+        assignment.location_kind = LOOM_LOW_ALLOCATION_LOCATION_SPILL_SLOT;
+        assignment.location_base = 0;
+        loom_low_allocation_storage_lease_state_record_spill(
+            &scenario.state, &descriptor_set, &assignment,
+            /*value_ordinal=*/0);
+      }
+      ExpectConflictOnScanAndIndex(&scenario, &descriptor_set, candidate,
+                                   false);
+      EXPECT_EQ(scenario.state.instance_count, 1u);
+      EXPECT_EQ(scenario.state.instances[0].end_point, 0u);
+      EXPECT_EQ(scenario.state.instances[0].location_kind,
+                LOOM_LOW_ALLOCATION_LOCATION_SPILL_SLOT);
+      EXPECT_EQ(scenario.state.availability_expiration_count, 0u);
+      if (leased_units == 32) {
+        ASSERT_NE(scenario.state.availability_expiration_heap, nullptr);
+        uint32_t available_base = UINT32_MAX;
+        EXPECT_TRUE(
+            loom_low_allocation_storage_lease_state_find_next_available_location(
+                &scenario.state, &descriptor_set, &candidate,
+                LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FORBIDDEN,
+                /*minimum_base=*/16, /*maximum_base=*/16, &available_base));
+        EXPECT_EQ(available_base, 16u);
+      }
+      IREE_ASSERT_OK(
+          loom_low_allocation_storage_lease_state_finalize(&scenario.state));
+      DeinitializeScenario(&scenario);
+    }
+  }
+}
+
 TEST_F(LowAllocationStorageIdentityTest, RequiresExactExplicitRegisterViews) {
   loom_low_reg_class_t reg_classes[] = {RegClass(0), RegClass(0)};
   reg_classes[0].flags = LOOM_LOW_REG_CLASS_FLAG_PHYSICAL |
@@ -1062,6 +1188,17 @@ TEST_F(LowAllocationStorageIdentityTest, RequiresExactExplicitRegisterViews) {
       &scenario.state, &descriptor_set, &scenario.liveness, &candidate,
       /*ignored_value_ids=*/nullptr, /*ignored_value_count=*/0,
       LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FORBIDDEN));
+
+  // Spilling the leased value retires both the wide and narrow physical views.
+  assignments[0].location_kind = LOOM_LOW_ALLOCATION_LOCATION_SPILL_SLOT;
+  assignments[0].location_base = 0;
+  loom_low_allocation_storage_lease_state_record_spill(
+      &scenario.state, &descriptor_set, &assignments[0], /*value_ordinal=*/0);
+  candidate.location_base = 0;
+  ExpectConflictOnScanAndIndex(&scenario, &descriptor_set, candidate, false);
+  candidate.descriptor_reg_class_id = 1;
+  candidate.location_base = 1;
+  ExpectConflictOnScanAndIndex(&scenario, &descriptor_set, candidate, false);
 
   IREE_ASSERT_OK(
       loom_low_allocation_storage_lease_state_finalize(&scenario.state));

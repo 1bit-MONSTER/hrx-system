@@ -63,7 +63,7 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
   explicit KfdSparseMappingBackend(amdf_native_lifetime_t lifetime)
       : lifetime_(lifetime) {}
 
-  bool PrepareInstance() {
+  bool Prepare() {
     const amdf_status_t status = amdf_gpu_umd_instance_prepare(
         &instance_, lifetime_, amdf_allocator_system());
     if (status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
@@ -73,11 +73,6 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
       return false;
     }
     RequireStatus(status, "prepare KFD instance");
-    return true;
-  }
-
-  void Initialize(uint32_t backing_count, uint64_t reservation_byte_length,
-                  uint64_t payload_byte_length) override {
     RequireStatus(
         amdf_platform_instance_create(amdf_allocator_system(), &platform_),
         "create platform");
@@ -89,7 +84,6 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
     RequireStatus(amdf_platform_endpoint_enumerate(platform_, count,
                                                    endpoints.data(), &count),
                   "enumerate endpoints");
-    amdf_queue_family_info_t family = {};
     for (const auto& summary : endpoints) {
       if (summary.engine_kind != AMDF_ENGINE_KIND_GPU) {
         continue;
@@ -107,12 +101,12 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
         if (candidate.command_type == AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA &&
             (candidate.publication_modes & AMDF_QUEUE_PUBLICATION_MODE_USER) &&
             (candidate.roles & AMDF_QUEUE_ROLE_TRANSFER)) {
-          family = candidate;
+          queue_family_ = candidate;
           break;
         }
       }
       amdf_free(amdf_allocator_system(), profile);
-      if (family.command_type != 0) {
+      if (queue_family_.command_type != 0) {
         std::fprintf(stderr, "endpoint=%s lifetime=%u\n", summary.name,
                      lifetime_);
         break;
@@ -120,7 +114,20 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
       RequireStatus(amdf_platform_endpoint_close(endpoint_), "close endpoint");
       endpoint_ = nullptr;
     }
-    Require(endpoint_ != nullptr, "native SDMA user queue is required");
+    if (!endpoint_) {
+      RequireStatus(amdf_platform_instance_destroy(platform_),
+                    "release platform without a native SDMA user queue");
+      platform_ = nullptr;
+      RequireStatus(amdf_gpu_umd_instance_destroy(instance_),
+                    "release unused KFD instance");
+      instance_ = nullptr;
+      return false;
+    }
+    return true;
+  }
+
+  void Initialize(uint32_t backing_count, uint64_t reservation_byte_length,
+                  uint64_t payload_byte_length) override {
     struct utsname kernel = {};
     Require(uname(&kernel) == 0, "query kernel identity");
     ::testing::Test::RecordProperty("kernel_release", kernel.release);
@@ -139,7 +146,7 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
         device_->topology.gc_ip.minor, device_->topology.gc_ip.revision,
         device_->topology.sdma.ip.major, device_->topology.sdma.ip.minor,
         device_->topology.sdma.ip.revision, kernel.release);
-    format_features = family.format_features;
+    format_features = queue_family_.format_features;
     reservation_byte_length_ = reservation_byte_length;
     for (auto& address : reservation_addresses) {
       void* pointer = mmap(nullptr, reservation_byte_length_, PROT_NONE,
@@ -213,13 +220,13 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
     context_ = context.out.alloc.ctx_id;
 
     amdf_gpu_umd_user_queue_create_info_t create = {
-        .command_type = family.command_type,
-        .format_version = family.format_version,
+        .command_type = queue_family_.command_type,
+        .format_version = queue_family_.format_version,
         .priority = AMDF_QUEUE_PRIORITY_NORMAL,
         .producer_mode = AMDF_QUEUE_PRODUCER_MODE_SINGLE,
         .required_capabilities = AMDF_USER_QUEUE_CAPABILITY_HOST_PRODUCER,
-        .roles = family.roles,
-        .ring_byte_length = family.minimum_ring_byte_length,
+        .roles = queue_family_.roles,
+        .ring_byte_length = queue_family_.minimum_ring_byte_length,
     };
     amdf_gpu_umd_user_queue_result_t queue_result = {};
     RequireStatus(amdf_gpu_umd_user_queue_create(device_, &create, &queue_,
@@ -476,6 +483,8 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
   amdf_platform_instance_t* platform_ = nullptr;
   // Open immutable native endpoint, outliving the device.
   amdf_platform_endpoint_t* endpoint_ = nullptr;
+  // Discovered native SDMA user queue contract for the selected endpoint.
+  amdf_queue_family_info_t queue_family_ = {};
   // Shared KFD connection and per-device VM owner.
   amdf_gpu_umd_instance_t* instance_ = nullptr;
   // Native execution domain borrowed by buffers and queues.
@@ -515,8 +524,9 @@ class KfdSparseMappingTest
 
 TEST_P(KfdSparseMappingTest, ReplacesRetainedBackingBeforeImmediateAccess) {
   KfdSparseMappingBackend backend(GetParam());
-  if (!backend.PrepareInstance()) {
-    GTEST_SKIP() << "KFD does not support native lifetime " << GetParam()
+  if (!backend.Prepare()) {
+    GTEST_SKIP() << "No KFD native SDMA user queue supports lifetime "
+                 << GetParam()
                  << "; mapping replacement has not been exercised";
   }
   ExerciseSparseMappingReplacement(backend);

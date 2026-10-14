@@ -185,14 +185,14 @@ static VKAPI_ATTR VkResult VKAPI_CALL CaptureMaintenance(
 }
 
 static iree_hal_vulkan_device_syms_t HostImportSyms() {
-  iree_hal_vulkan_device_syms_t syms = {};
-  syms.vkMapMemory = CaptureMapMemory;
-  syms.vkUnmapMemory = CaptureUnmapMemory;
-  syms.vkDestroyBuffer = CaptureDestroyBuffer;
-  syms.vkFreeMemory = CaptureFreeMemory;
-  syms.vkFlushMappedMemoryRanges = CaptureMaintenance;
-  syms.vkInvalidateMappedMemoryRanges = syms.vkFlushMappedMemoryRanges;
-  return syms;
+  return {
+      .vkDestroyBuffer = CaptureDestroyBuffer,
+      .vkFreeMemory = CaptureFreeMemory,
+      .vkMapMemory = CaptureMapMemory,
+      .vkUnmapMemory = CaptureUnmapMemory,
+      .vkInvalidateMappedMemoryRanges = CaptureMaintenance,
+      .vkFlushMappedMemoryRanges = CaptureMaintenance,
+  };
 }
 
 static iree_status_t CreateHostImport(HostImportCapture* capture, void* pointer,

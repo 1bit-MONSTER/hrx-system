@@ -1519,6 +1519,17 @@ iree_status_t loom_low_schedule_fill_nodes(
            ++result_index) {
         state->value_producer_nodes[result_ordinals[result_index]] =
             next_node_index;
+        if (iree_any_bit_set(node->flags,
+                             LOOM_LOW_SCHEDULE_NODE_FLAG_EARLY_CLOBBER) &&
+            iree_any_bit_set(
+                loom_low_descriptor_operand(state->target.descriptor_set,
+                                            descriptor, result_index)
+                    ->flags,
+                LOOM_LOW_OPERAND_FLAG_EARLY_CLOBBER) &&
+            !loom_op_find_tied_result(op, result_index)) {
+          state->values[result_ordinals[result_index]].flags |=
+              LOOM_LOW_SCHEDULE_VALUE_FLAG_EARLY_WRITE;
+        }
       }
       ++next_node_index;
     }

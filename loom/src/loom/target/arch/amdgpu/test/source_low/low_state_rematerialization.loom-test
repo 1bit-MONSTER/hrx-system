@@ -43,7 +43,7 @@ low.func.def target<amdgpu.rdna3.core>(@target) @scc_compare_rematerializes_at_s
 // ----
   s_cmp_lt_u32 s0, s1
   s_cselect_b32 s3, s0, s2
-  s_addk_i32 s3, s3, 1
+  s_addk_i32 s3, 1
   s_cmp_lt_u32 s0, s1
   s_cbranch_scc0 .Lbb2
 .Lbb1:

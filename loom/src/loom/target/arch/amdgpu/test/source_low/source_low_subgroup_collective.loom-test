@@ -523,7 +523,7 @@ low.kernel.def target<amdgpu.cdna4.core>(@target) abi_layout({constant_count = 0
   %input_view = resource<hal_binding> {extent = 256, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 512, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %24 = v_lshlrev_b32_src0_inline %tid, 2
-  %value = global_load_dword_saddr %24, %input_view
+  %value = global_load_dword_saddr %24, %input_view : reg<amdgpu.vgpr>
   %26 = v_readfirstlane_b32 %value
   %27 = v_mov_b32_copy %26
   %28 = v_cmp_eq_i32 %value, %27

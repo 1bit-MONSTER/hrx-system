@@ -8,13 +8,16 @@
 
 #include <inttypes.h>
 
+#include "loom/analysis/symbol_facts.h"
 #include "loom/codegen/low/diagnostics.h"
 #include "loom/codegen/low/function.h"
+#include "loom/codegen/low/operand_ties.h"
 #include "loom/error/error_catalog.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
 #include "loom/ops/op_defs.h"
+#include "loom/rewrite/rewriter.h"
 #include "loom/tools/loom-check/diagnostics.h"
 
 iree_status_t loom_check_low_emit_fixed_value_spec_list_initialize(
@@ -507,6 +510,30 @@ iree_status_t loom_check_low_emit_resolve_fixed_value_specs(
   return iree_ok_status();
 }
 
+iree_status_t loom_check_low_emit_materialize_operand_ties(
+    loom_module_t* module, loom_op_t* function,
+    const loom_low_descriptor_set_t* descriptor_set,
+    iree_arena_allocator_t* arena) {
+  loom_rewriter_t rewriter;
+  loom_rewriter_initialize(&rewriter, module, arena);
+  loom_region_t* body = loom_low_function_body(function);
+  iree_status_t status = iree_ok_status();
+  for (uint16_t i = 0; iree_status_is_ok(status) && i < body->block_count;
+       ++i) {
+    for (loom_op_t* op = body->blocks[i]->first_op;
+         iree_status_is_ok(status) && op != NULL;) {
+      loom_op_t* next = op->next_op;
+      loom_op_t* replacement = NULL;
+      status = loom_low_operand_ties_materialize(&rewriter, descriptor_set,
+                                                 /*memory_accesses=*/NULL, op,
+                                                 &replacement);
+      op = next;
+    }
+  }
+  loom_rewriter_deinitialize(&rewriter);
+  return status;
+}
+
 iree_status_t loom_check_low_emit_packetize_function(
     const loom_check_emit_provider_request_t* request,
     const loom_check_emit_native_module_t* native_module,
@@ -538,6 +565,28 @@ iree_status_t loom_check_low_emit_packetize_function(
   if (!low_function) {
     return iree_ok_status();
   }
+
+  loom_low_emission_frame_options_t frame_options = *options;
+  frame_options.descriptor_registry = &request->low_registry->registry;
+  frame_options.emitter = emitter;
+  loom_low_resolved_target_t resolved_target = {0};
+  if (frame_options.resolved_target == NULL) {
+    loom_symbol_fact_table_t symbol_facts;
+    loom_symbol_fact_table_initialize(&symbol_facts, request->case_arena);
+    IREE_RETURN_IF_ERROR(loom_low_resolve_function_target(
+        native_module->module, &symbol_facts, low_function,
+        frame_options.function_target_facts, frame_options.descriptor_registry,
+        emitter, &resolved_target));
+    if (resolved_target.descriptor_set == NULL) {
+      return iree_ok_status();
+    }
+    frame_options.resolved_target = &resolved_target;
+  }
+  // Direct Low emission skips optimization, but still realizes the same
+  // physical operand requirements as the shipping preparation pipeline.
+  IREE_RETURN_IF_ERROR(loom_check_low_emit_materialize_operand_ties(
+      native_module->module, low_function,
+      frame_options.resolved_target->descriptor_set, request->case_arena));
   const loom_low_allocation_fixed_value_t* fixed_values = NULL;
   iree_host_size_t fixed_value_count = 0;
   bool fixed_values_resolved = false;
@@ -549,11 +598,8 @@ iree_status_t loom_check_low_emit_packetize_function(
     return iree_ok_status();
   }
 
-  loom_low_emission_frame_options_t frame_options = *options;
-  frame_options.descriptor_registry = &request->low_registry->registry;
   frame_options.allocation_fixed_values = fixed_values;
   frame_options.allocation_fixed_value_count = fixed_value_count;
-  frame_options.emitter = emitter;
   *out_frame = (loom_low_emission_frame_t){0};
   if (spill_free_options != NULL) {
     return loom_low_emission_frame_build_spill_free(

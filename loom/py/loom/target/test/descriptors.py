@@ -975,6 +975,35 @@ TEST_LOW_DESTRUCTIVE_ANY_DESCRIPTOR = replace(
     constraints=(Constraint(ConstraintKind.DESTRUCTIVE, 0, 1),),
 )
 
+TEST_LOW_PREFERRED_ADD_I32_DESCRIPTOR = replace(
+    TEST_LOW_ADD_I32_DESCRIPTOR,
+    key="test.preferred.add.i32",
+    mnemonic="test.preferred.add.i32",
+    constraints=(Constraint(ConstraintKind.PREFER_TIED, 0, 2),),
+    operand_forms=(
+        OperandForm(
+            replacement_descriptor="test.preferred.identity.i32",
+            matches=(
+                OperandFormMatch(
+                    source_operand="lhs",
+                    match_kind=OperandFormMatchKind.ALL_EQUAL_I64,
+                    match_i64=0,
+                ),
+            ),
+        ),
+    ),
+)
+
+TEST_LOW_PREFERRED_IDENTITY_I32_DESCRIPTOR = replace(
+    TEST_LOW_PREFERRED_ADD_I32_DESCRIPTOR,
+    key="test.preferred.identity.i32",
+    mnemonic="test.preferred.identity.i32",
+    operands=(_i32_result(), _i32_operand("rhs")),
+    constraints=(Constraint(ConstraintKind.PREFER_TIED, 0, 1),),
+    operand_forms=(),
+    asm_forms=_asm(results=("dst",), operands=("rhs",)),
+)
+
 TEST_LOW_TIED_PAIR_DESCRIPTOR = replace(
     TEST_LOW_TIED_ANY_DESCRIPTOR,
     key="test.tied.pair",
@@ -1213,6 +1242,17 @@ TEST_LOW_EARLY_TIED_V4I32_DESCRIPTOR = Descriptor(
     asm_forms=_asm(results=("dst",), operands=("src",)),
     schedule_class=_SCHEDULE_VECTOR_ALU,
     flags=(DescriptorFlag.DEAD_REMOVABLE,),
+)
+
+TEST_LOW_EARLY_PREFERRED_V4I32_DESCRIPTOR = replace(
+    TEST_LOW_EARLY_TIED_V4I32_DESCRIPTOR,
+    key="test.early_preferred.v4i32",
+    mnemonic="test.early_preferred.v4i32",
+    semantic_tag="test.early_preferred.v4i32",
+    constraints=(
+        Constraint(ConstraintKind.PREFER_TIED, 0, 1),
+        Constraint(ConstraintKind.EARLY_CLOBBER, 0),
+    ),
 )
 
 TEST_LOW_DOT4I_S8S8_DESCRIPTOR = Descriptor(
@@ -2669,6 +2709,8 @@ TEST_LOW_CORE_DESCRIPTOR_SET = DescriptorSet(
         TEST_LOW_TIED_ANY_DESCRIPTOR,
         TEST_LOW_TOTAL_TIED_I32_DESCRIPTOR,
         TEST_LOW_DESTRUCTIVE_ANY_DESCRIPTOR,
+        TEST_LOW_PREFERRED_ADD_I32_DESCRIPTOR,
+        TEST_LOW_PREFERRED_IDENTITY_I32_DESCRIPTOR,
         TEST_LOW_TIED_PAIR_DESCRIPTOR,
         TEST_LOW_SAME_REGISTER_VALUE_TYPES_DESCRIPTOR,
         TEST_LOW_COINDEXED_RESULTS_DESCRIPTOR,
@@ -2689,6 +2731,7 @@ TEST_LOW_CORE_DESCRIPTOR_SET = DescriptorSet(
         TEST_LOW_EARLY_CLOBBER_V4I32_DESCRIPTOR,
         TEST_LOW_MIXED_EARLY_CLOBBER_V4I32_DESCRIPTOR,
         TEST_LOW_EARLY_TIED_V4I32_DESCRIPTOR,
+        TEST_LOW_EARLY_PREFERRED_V4I32_DESCRIPTOR,
         TEST_LOW_DOT4I_S8S8_DESCRIPTOR,
         TEST_LOW_MMA_I32_2X2X2_DESCRIPTOR,
         TEST_LOW_ACCUMULATE_V8I32_DESCRIPTOR,

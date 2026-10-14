@@ -119,6 +119,7 @@ loom_cc_library(
     "matrix_wait_states.c"
   DEPS
     iree::base
+    iree::base::internal
     loom::target::arch::amdgpu::target_info_defs
   PUBLIC
 )
@@ -134,8 +135,34 @@ loom_cc_test(
     ::matrix_wait_states
     iree::testing::gtest
     iree::testing::gtest_main
+    loom::target::arch::amdgpu::target_info_defs
   LABELS
     "iree-build-requirement=loom.target.arch.amdgpu"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU)
+loom_cc_library(
+  NAME
+    matrix_result_wait
+  HDRS
+    "matrix_result_wait.h"
+  SRCS
+    "matrix_result_wait.c"
+  DEPS
+    ::matrix_wait_states
+    ::structural_packet
+    iree::base
+    iree::base::internal::arena
+    loom::codegen::low::allocation
+    loom::codegen::low::packet
+    loom::codegen::low::schedule
+    loom::ops::low
+    loom::target::arch::amdgpu::matrix::contract
+    loom::target::arch::amdgpu::refs::target_refs
+    loom::util::cfg_dataflow
+    loom::util::cfg_graph
+  PUBLIC
 )
 endif()
 
@@ -162,6 +189,7 @@ loom_cc_library(
     loom::target::arch::amdgpu::refs::target_refs
     loom::target::arch::amdgpu::target_info
     loom::target::arch::amdgpu::target_info_defs
+    loom::util::cfg_dataflow
     loom::util::cfg_graph
   PUBLIC
 )
@@ -223,22 +251,27 @@ loom_cc_library(
     wait_states
   HDRS
     "mask_write_wait.h"
-    "store_data_wait.h"
+    "replay_clause.h"
+    "short_wait.h"
     "wait_states.h"
   SRCS
     "mask_write_wait.c"
-    "store_data_wait.c"
+    "replay_clause.c"
+    "short_wait.c"
     "wait_states.c"
   DEPS
+    ::address_state
     ::delay_alu
     ::descriptor_semantics
     ::matrix_coexecution
+    ::matrix_result_wait
     ::matrix_wait_states
     ::structural_packet
     ::vopd_plan
     ::wait_packets
     ::wait_plan
     iree::base
+    iree::base::internal
     iree::base::internal::arena
     loom::codegen::low::allocation
     loom::codegen::low::packet
@@ -248,9 +281,11 @@ loom_cc_library(
     loom::ir
     loom::ops::low
     loom::target::arch::amdgpu::encoding
-    loom::target::arch::amdgpu::matrix::contract
+    loom::target::arch::amdgpu::facts
     loom::target::arch::amdgpu::refs::target_refs
     loom::target::arch::amdgpu::target_info
+    loom::target::arch::amdgpu::target_info_defs
+    loom::util::cfg_dataflow
     loom::util::cfg_graph
     loom::util::segmented_storage
   PUBLIC
@@ -494,6 +529,8 @@ loom_cc_library(
     "wait_plan.c"
   DEPS
     ::address_state
+    ::matrix_result_wait
+    ::matrix_wait_states
     ::sgpr_read_hazard
     ::trans_result_window
     ::wait_classification
@@ -680,6 +717,7 @@ loom_cc_library(
   DEPS
     ::address_state
     ::matrix_coexecution
+    ::matrix_result_wait
     ::vopd_plan
     ::wait_packets
     ::wait_plan

@@ -124,6 +124,7 @@ loom_cc_library(
     deps = [
         "//loom/src/loom/target/arch/amdgpu:target_info_defs",
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal",
     ],
 )
 
@@ -132,8 +133,29 @@ loom_cc_test(
     srcs = ["matrix_wait_states_test.cc"],
     deps = [
         ":matrix_wait_states",
+        "//loom/src/loom/target/arch/amdgpu:target_info_defs",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
+    name = "matrix_result_wait",
+    srcs = ["matrix_result_wait.c"],
+    hdrs = ["matrix_result_wait.h"],
+    deps = [
+        ":matrix_wait_states",
+        ":structural_packet",
+        "//loom/src/loom/codegen/low:allocation",
+        "//loom/src/loom/codegen/low:packet",
+        "//loom/src/loom/codegen/low/schedule",
+        "//loom/src/loom/ops/low",
+        "//loom/src/loom/target/arch/amdgpu/matrix:contract",
+        "//loom/src/loom/target/arch/amdgpu/refs:target_refs",
+        "//loom/src/loom/util:cfg_dataflow",
+        "//loom/src/loom/util:cfg_graph",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
     ],
 )
 
@@ -153,6 +175,7 @@ loom_cc_library(
         "//loom/src/loom/target/arch/amdgpu:target_info_defs",
         "//loom/src/loom/target/arch/amdgpu/matrix:types",
         "//loom/src/loom/target/arch/amdgpu/refs:target_refs",
+        "//loom/src/loom/util:cfg_dataflow",
         "//loom/src/loom/util:cfg_graph",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
@@ -196,18 +219,22 @@ loom_cc_library(
     name = "wait_states",
     srcs = [
         "mask_write_wait.c",
-        "store_data_wait.c",
+        "replay_clause.c",
+        "short_wait.c",
         "wait_states.c",
     ],
     hdrs = [
         "mask_write_wait.h",
-        "store_data_wait.h",
+        "replay_clause.h",
+        "short_wait.h",
         "wait_states.h",
     ],
     deps = [
+        ":address_state",
         ":delay_alu",
         ":descriptor_semantics",
         ":matrix_coexecution",
+        ":matrix_result_wait",
         ":matrix_wait_states",
         ":structural_packet",
         ":vopd_plan",
@@ -220,13 +247,16 @@ loom_cc_library(
         "//loom/src/loom/codegen/low/schedule",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/low",
+        "//loom/src/loom/target/arch/amdgpu:facts",
         "//loom/src/loom/target/arch/amdgpu:target_info",
+        "//loom/src/loom/target/arch/amdgpu:target_info_defs",
         "//loom/src/loom/target/arch/amdgpu/encoding",
-        "//loom/src/loom/target/arch/amdgpu/matrix:contract",
         "//loom/src/loom/target/arch/amdgpu/refs:target_refs",
+        "//loom/src/loom/util:cfg_dataflow",
         "//loom/src/loom/util:cfg_graph",
         "//loom/src/loom/util:segmented_storage",
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal",
         "//runtime/src/iree/base/internal:arena",
     ],
 )
@@ -416,6 +446,8 @@ loom_cc_library(
     visibility = _AMDGPU_ROOT_VISIBILITY + _AMDGPU_LOWER_VISIBILITY,
     deps = [
         ":address_state",
+        ":matrix_result_wait",
+        ":matrix_wait_states",
         ":sgpr_read_hazard",
         ":trans_result_window",
         ":wait_classification",
@@ -581,6 +613,7 @@ loom_cc_library(
     deps = [
         ":address_state",
         ":matrix_coexecution",
+        ":matrix_result_wait",
         ":vopd_plan",
         ":wait_packets",
         ":wait_plan",

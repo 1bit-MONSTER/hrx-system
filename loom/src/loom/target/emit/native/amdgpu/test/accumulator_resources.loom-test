@@ -1,0 +1,246 @@
+// Both banks share one hardware allocation, but the accumulator offset depends
+// only on the architectural bank. Loading accumulators bypasses VGPR copies.
+// RUN: emit amdgpu-kernel-assembly
+amdgpu.target<gfx90a> @target
+
+low.kernel.def schedule(locked) target<amdgpu.cdna2.core>(@target) workgroup_size(64, 1, 1) @matrix_accumulators() asm {
+  %pointer = live_in<amdgpu.kernarg_segment_ptr> : reg<amdgpu.sgpr x2>
+  %lane = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
+  %offset = v_lshlrev_b32_src0_inline %lane, 4
+  %buffer = s_load_dwordx2_offset_only %pointer
+  %base_low = slice %buffer[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %base_high = slice %buffer[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %address_low, %carry = v_add_co_u32 %base_low, %offset
+  %high = v_mov_b32_copy %base_high
+  %zero = v_mov_b32 0
+  %address_high, %unused = v_addc_co_u32 %high, %zero, %carry
+  %address = concat(%address_low, %address_high) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %accumulator = flat_load_dwordx4 %address : reg<amdgpu.agpr x4>
+  %lhs = v_mov_b32 1067450368
+  %rhs = v_mov_b32 1075838976
+  %result = v_mfma_f32_16x16x4f32 %lhs, %rhs, %accumulator
+  flat_store_dwordx4 %address, %result
+  return
+}
+
+// ----
+.text
+.amdgcn_target "amdgcn-amd-amdhsa--gfx90a"
+.amdhsa_code_object_version 6
+
+.protected matrix_accumulators
+.globl matrix_accumulators
+.p2align 8
+.type matrix_accumulators,@function
+matrix_accumulators:
+  v_lshlrev_b32 v0, 4, v0
+  s_load_dwordx2 s[2:3], s[0:1], 0
+  s_waitcnt vmcnt(63) lgkmcnt(0)
+  v_add_co_u32 v0, s[0:1], s2, v0
+  v_mov_b32 v1, s3
+  v_mov_b32 v2, 0
+  v_addc_co_u32 v1, s[0:1], v1, v2, s[0:1]
+  flat_load_dwordx4 acc[0:3], v[0:1] offset:0
+  v_mov_b32 v2, 1067450368
+  v_mov_b32 v3, 1075838976
+  s_waitcnt vmcnt(0) lgkmcnt(0)
+  s_nop 0
+  v_mfma_f32_16x16x4f32 acc[0:3], v2, v3, acc[0:3]
+  s_nop 10
+  flat_store_dwordx4 v[0:1], acc[0:3] offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_endpgm
+.Lfunc_end0:
+.size matrix_accumulators, .Lfunc_end0-matrix_accumulators
+
+.rodata
+.p2align 6
+.amdhsa_kernel matrix_accumulators
+  .amdhsa_group_segment_fixed_size 0
+  .amdhsa_private_segment_fixed_size 0
+  .amdhsa_kernarg_size 0
+  .amdhsa_user_sgpr_count 4
+  .amdhsa_user_sgpr_private_segment_buffer 0
+  .amdhsa_user_sgpr_dispatch_ptr 0
+  .amdhsa_user_sgpr_queue_ptr 0
+  .amdhsa_user_sgpr_kernarg_segment_ptr 1
+  .amdhsa_user_sgpr_dispatch_id 0
+  .amdhsa_user_sgpr_flat_scratch_init 0
+  .amdhsa_user_sgpr_private_segment_size 0
+  .amdhsa_uses_dynamic_stack 0
+  .amdhsa_system_sgpr_private_segment_wavefront_offset 0
+  .amdhsa_system_sgpr_workgroup_id_x 0
+  .amdhsa_system_sgpr_workgroup_id_y 0
+  .amdhsa_system_sgpr_workgroup_id_z 0
+  .amdhsa_system_sgpr_workgroup_info 0
+  .amdhsa_system_vgpr_workitem_id 0
+  .amdhsa_next_free_vgpr 8
+  .amdhsa_next_free_sgpr 4
+  .amdhsa_accum_offset 4
+  .amdhsa_reserve_vcc 0
+  .amdhsa_reserve_flat_scratch 0
+  .amdhsa_float_round_mode_32 0
+  .amdhsa_float_round_mode_16_64 0
+  .amdhsa_float_denorm_mode_32 3
+  .amdhsa_float_denorm_mode_16_64 3
+  .amdhsa_dx10_clamp 1
+  .amdhsa_ieee_mode 1
+  .amdhsa_fp16_overflow 0
+  .amdhsa_tg_split 0
+  .amdhsa_exception_fp_ieee_invalid_op 0
+  .amdhsa_exception_fp_denorm_src 0
+  .amdhsa_exception_fp_ieee_div_zero 0
+  .amdhsa_exception_fp_ieee_overflow 0
+  .amdhsa_exception_fp_ieee_underflow 0
+  .amdhsa_exception_fp_ieee_inexact 0
+  .amdhsa_exception_int_div_zero 0
+.end_amdhsa_kernel
+
+.amdgpu_metadata
+  amdhsa.version:
+    - 1
+    - 2
+  amdhsa.target: 'amdgcn-amd-amdhsa--gfx90a'
+  amdhsa.kernels:
+    - .name: 'matrix_accumulators'
+      .symbol: 'matrix_accumulators.kd'
+      .kernarg_segment_size: 0
+      .group_segment_fixed_size: 0
+      .private_segment_fixed_size: 0
+      .kernarg_segment_align: 8
+      .wavefront_size: 64
+      .sgpr_count: 4
+      .vgpr_count: 8
+      .max_flat_workgroup_size: 64
+      .agpr_count: 4
+      .reqd_workgroup_size:
+        - 64
+        - 1
+        - 1
+      .args: []
+.end_amdgpu_metadata
+
+// ====
+
+// The wide-shift operand needs the next VGPR to be allocated. The accumulator
+// partition follows that physical floor even though no SSA value names it.
+// RUN: emit amdgpu-kernel-assembly
+amdgpu.target<gfx90a> @target
+
+low.kernel.def schedule(locked) target<amdgpu.cdna2.core>(@target) workgroup_size(64, 1, 1) @shift_accumulator_partition() asm {
+  %a0 = v_mov_b32 1
+  %a1 = v_mov_b32 2
+  %b0 = v_mov_b32 3
+  %b1 = v_mov_b32 4
+  %c0 = v_mov_b32 5
+  %c1 = v_mov_b32 6
+  %extra = v_mov_b32 7
+  %count = v_mov_b32 31
+  %left = concat(%a0, %a1) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %right = concat(%b0, %b1) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %signed = concat(%c0, %c1) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %accumulator = flat_load_dword %left : reg<amdgpu.agpr>
+  %shifted_left = v_lshlrev_b64 %count, %left
+  %shifted_right = v_lshrrev_b64 %count, %right
+  %shifted_signed = v_ashrrev_i64 %count, %signed
+  %used = v_xor_b32 %extra, %count
+  flat_store_dword %shifted_left, %accumulator
+  return
+}
+
+// ----
+.text
+.amdgcn_target "amdgcn-amd-amdhsa--gfx90a"
+.amdhsa_code_object_version 6
+
+.protected shift_accumulator_partition
+.globl shift_accumulator_partition
+.p2align 8
+.type shift_accumulator_partition,@function
+shift_accumulator_partition:
+  v_mov_b32 v0, 1
+  v_mov_b32 v1, 2
+  v_mov_b32 v2, 3
+  v_mov_b32 v3, 4
+  v_mov_b32 v4, 5
+  v_mov_b32 v5, 6
+  v_mov_b32 v6, 7
+  v_mov_b32 v7, 31
+  flat_load_dword acc0, v[0:1] offset:0
+  v_lshlrev_b64 v[0:1], v7, v[0:1]
+  v_lshrrev_b64 v[2:3], v7, v[2:3]
+  v_ashrrev_i64 v[2:3], v7, v[4:5]
+  v_xor_b32 v2, v6, v7
+  s_waitcnt vmcnt(0) lgkmcnt(0)
+  flat_store_dword v[0:1], acc0 offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_endpgm
+.Lfunc_end0:
+.size shift_accumulator_partition, .Lfunc_end0-shift_accumulator_partition
+
+.rodata
+.p2align 6
+.amdhsa_kernel shift_accumulator_partition
+  .amdhsa_group_segment_fixed_size 0
+  .amdhsa_private_segment_fixed_size 0
+  .amdhsa_kernarg_size 0
+  .amdhsa_user_sgpr_count 2
+  .amdhsa_user_sgpr_private_segment_buffer 0
+  .amdhsa_user_sgpr_dispatch_ptr 0
+  .amdhsa_user_sgpr_queue_ptr 0
+  .amdhsa_user_sgpr_kernarg_segment_ptr 0
+  .amdhsa_user_sgpr_dispatch_id 0
+  .amdhsa_user_sgpr_flat_scratch_init 0
+  .amdhsa_user_sgpr_private_segment_size 0
+  .amdhsa_uses_dynamic_stack 0
+  .amdhsa_system_sgpr_private_segment_wavefront_offset 0
+  .amdhsa_system_sgpr_workgroup_id_x 0
+  .amdhsa_system_sgpr_workgroup_id_y 0
+  .amdhsa_system_sgpr_workgroup_id_z 0
+  .amdhsa_system_sgpr_workgroup_info 0
+  .amdhsa_system_vgpr_workitem_id 0
+  .amdhsa_next_free_vgpr 13
+  .amdhsa_next_free_sgpr 2
+  .amdhsa_accum_offset 12
+  .amdhsa_reserve_vcc 0
+  .amdhsa_reserve_flat_scratch 0
+  .amdhsa_float_round_mode_32 0
+  .amdhsa_float_round_mode_16_64 0
+  .amdhsa_float_denorm_mode_32 3
+  .amdhsa_float_denorm_mode_16_64 3
+  .amdhsa_dx10_clamp 1
+  .amdhsa_ieee_mode 1
+  .amdhsa_fp16_overflow 0
+  .amdhsa_tg_split 0
+  .amdhsa_exception_fp_ieee_invalid_op 0
+  .amdhsa_exception_fp_denorm_src 0
+  .amdhsa_exception_fp_ieee_div_zero 0
+  .amdhsa_exception_fp_ieee_overflow 0
+  .amdhsa_exception_fp_ieee_underflow 0
+  .amdhsa_exception_fp_ieee_inexact 0
+  .amdhsa_exception_int_div_zero 0
+.end_amdhsa_kernel
+
+.amdgpu_metadata
+  amdhsa.version:
+    - 1
+    - 2
+  amdhsa.target: 'amdgcn-amd-amdhsa--gfx90a'
+  amdhsa.kernels:
+    - .name: 'shift_accumulator_partition'
+      .symbol: 'shift_accumulator_partition.kd'
+      .kernarg_segment_size: 0
+      .group_segment_fixed_size: 0
+      .private_segment_fixed_size: 0
+      .kernarg_segment_align: 8
+      .wavefront_size: 64
+      .sgpr_count: 2
+      .vgpr_count: 13
+      .max_flat_workgroup_size: 64
+      .agpr_count: 1
+      .reqd_workgroup_size:
+        - 64
+        - 1
+        - 1
+      .args: []
+.end_amdgpu_metadata

@@ -731,7 +731,8 @@ static iree_status_t loom_low_allocation_materialize_block_arg_edges(
     loom_module_t* module, const loom_low_allocation_table_t* table,
     const loom_low_allocation_spill_plan_t* plan,
     loom_value_id_t storage_value_id, loom_block_t* block, uint16_t arg_index,
-    uint32_t reload_count, iree_arena_allocator_t* arena,
+    uint32_t reload_count, iree_bitmap_t per_user_placement_values,
+    iree_arena_allocator_t* arena,
     loom_low_materialized_traffic_t* out_store_traffic) {
   *out_store_traffic = (loom_low_materialized_traffic_t){0};
 
@@ -746,6 +747,9 @@ static iree_status_t loom_low_allocation_materialize_block_arg_edges(
 
     const loom_value_id_t payload =
         loom_op_const_operands(branch_op)[arg_index];
+    if (payload < per_user_placement_values.bit_count) {
+      iree_bitmap_reset(per_user_placement_values, payload);
+    }
     if (reload_count != 0 && payload != plan->value_id) {
       loom_builder_t builder;
       loom_builder_initialize(module, &module->arena, branch_op->parent_block,
@@ -778,10 +782,14 @@ static iree_status_t loom_low_allocation_materialize_one_spill_plan(
     loom_module_t* module, const loom_low_allocation_table_t* table,
     loom_low_allocation_storage_prefix_t* storage_prefix,
     const loom_low_allocation_spill_plan_t* plan,
-    loom_value_id_t storage_value_id, iree_arena_allocator_t* arena,
+    loom_value_id_t storage_value_id, iree_bitmap_t per_user_placement_values,
+    iree_arena_allocator_t* arena,
     loom_low_allocation_materialization_result_t* result,
     loom_low_allocation_materialized_spill_flags_t* out_record_flags) {
   *out_record_flags = 0;
+  if (plan->value_id < per_user_placement_values.bit_count) {
+    iree_bitmap_reset(per_user_placement_values, plan->value_id);
+  }
   loom_block_t* block_arg_block = NULL;
   uint16_t block_arg_index = 0;
   const loom_value_t* spill_value = loom_module_value(module, plan->value_id);
@@ -837,7 +845,8 @@ static iree_status_t loom_low_allocation_materialize_one_spill_plan(
     loom_low_materialized_traffic_t inserted_store_traffic = {0};
     IREE_RETURN_IF_ERROR(loom_low_allocation_materialize_block_arg_edges(
         module, table, plan, storage_value_id, block_arg_block, block_arg_index,
-        inserted_reload_traffic.count, arena, &inserted_store_traffic));
+        inserted_reload_traffic.count, per_user_placement_values, arena,
+        &inserted_store_traffic));
     if (inserted_store_traffic.count > UINT32_MAX - result->spill_count) {
       return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                               "materialized spill count overflow");
@@ -873,6 +882,8 @@ iree_status_t loom_low_allocation_materialize_spills(
       options && options->record_materialized_spills;
   const iree_diagnostic_emitter_t emitter =
       options ? options->emitter : (iree_diagnostic_emitter_t){0};
+  const iree_bitmap_t per_user_placement_values =
+      options ? options->per_user_placement_values : (iree_bitmap_t){0};
   iree_host_size_t spill_plan_count = table->spill_plan_count;
   if (options && options->max_spill_plan_count > 0 &&
       options->max_spill_plan_count < spill_plan_count) {
@@ -922,7 +933,8 @@ iree_status_t loom_low_allocation_materialize_spills(
     loom_low_allocation_materialized_spill_flags_t record_flags = 0;
     IREE_RETURN_IF_ERROR(loom_low_allocation_materialize_one_spill_plan(
         module, table, &storage_prefix, &table->spill_plans[i],
-        slots[i].storage_value_id, arena, &result, &record_flags));
+        slots[i].storage_value_id, per_user_placement_values, arena, &result,
+        &record_flags));
     const loom_low_materialized_traffic_t materialized_store_traffic = {
         .count = result.spill_count - prior_spill_count,
         .bytes = result.spill_bytes - prior_spill_bytes,

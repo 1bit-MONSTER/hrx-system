@@ -23,8 +23,8 @@ low.func.def target<amdgpu.cdna3.core>(@target) @global_reduce(%offset: reg<amdg
 amdgpu.target<gfx950> @target
 
 low.func.def target<amdgpu.cdna4.core>(@target) @global_rmw(%offset: reg<amdgpu.vgpr>, %value: reg<amdgpu.vgpr x2>, %address: reg<amdgpu.sgpr x2>) asm {
-  %device = global_atomic_add_x2_rtn_saddr %offset, %value, %address
-  %system = global_atomic_add_x2_rtn_saddr %offset, %value, %address {sc1 = 1}
+  %device = global_atomic_add_x2_rtn_saddr %offset, %value, %address : reg<amdgpu.vgpr x2>
+  %system = global_atomic_add_x2_rtn_saddr %offset, %value, %address {sc1 = 1} : reg<amdgpu.vgpr x2>
   return
 }
 

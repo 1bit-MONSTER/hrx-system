@@ -36,6 +36,9 @@ from loom.target.arch.amdgpu.descriptors import (  # noqa: E402
     amdgpu_immediate_encoding_id_items,
     build_amdgpu_core_descriptor_sets_from_specs,
 )
+from loom.target.arch.amdgpu.descriptors.cdna import (  # noqa: E402
+    AMDGPU_MFMA_TIMINGS_BY_DESCRIPTOR_SET,
+)
 from loom.target.arch.amdgpu.descriptors.common import (  # noqa: E402
     _REG_EXEC,
     _SCHEDULE_VMEM_CACHE_INVALIDATE,
@@ -68,12 +71,14 @@ from loom.target.arch.amdgpu.target_info import (  # noqa: E402
     sorted_descriptor_set_infos,
 )
 from loom.target.low_descriptors import (  # noqa: E402
+    ConstraintKind,
     Descriptor,
     DescriptorSet,
     Immediate,
     ImmediateFlag,
     ImmediateKind,
     InstructionClass,
+    OperandAddressMapKind,
     OperandFlag,
     OperandRole,
     Resource,
@@ -162,6 +167,10 @@ _IMAGE_MEMORY_ENCODING_FORMAT_IDS = frozenset(
     )
 )
 
+_MATRIX_MEMORY_ENCODING_FORMAT_IDS = (
+    _VECTOR_MEMORY_ENCODING_FORMAT_IDS | _IMAGE_MEMORY_ENCODING_FORMAT_IDS | frozenset(AMDGPU_ENCODING_FORMAT_IDS[name] for name in ("ENC_DS", "ENC_VDS", "ENC_EXP", "ENC_VEXPORT"))
+)
+
 _TRANSCENDENTAL_DESCRIPTOR_KEYS = frozenset(
     (
         "amdgpu.v_exp_f32",
@@ -222,6 +231,7 @@ class _DescriptorSetRefTable:
     address_offset_immediate_slots: list[int | None]
     cache_scope_immediate_slots: list[int | None]
     reg_class_traits: list[tuple[str, ...]]
+    agpr_reg_class_id: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,6 +249,7 @@ class _DescriptorTraitContext:
     descriptor_set: DescriptorSet
     resources: Mapping[str, Resource]
     schedule_classes: Mapping[str, ScheduleClass]
+    dot_identities: Mapping[tuple[int, int], int]
 
 
 def _parse_isa_xml_argument(value: str) -> tuple[str, Path]:
@@ -405,7 +416,10 @@ def _validate_spill_lowering_descriptor_contracts(
     descriptor_set: DescriptorSet,
 ) -> None:
     requires_m0_materialization = False
+    descriptor_keys = {descriptor.key for descriptor in descriptor_set.descriptors}
     for descriptor_key in _SPILL_LOWERING_SCRATCH_DESCRIPTOR_KEYS:
+        if descriptor_key.endswith("_offset_only") and descriptor_key not in descriptor_keys:
+            continue
         descriptor = _descriptor_by_key(descriptor_set, descriptor_key)
         _validate_spill_lowering_descriptor_shape(descriptor_set, descriptor)
         offset_slot = _descriptor_address_offset_immediate_slot(descriptor_set, descriptor)
@@ -481,10 +495,20 @@ def _descriptor_issue_resources(
 
 
 def _descriptor_trait_context(descriptor_set: DescriptorSet) -> _DescriptorTraitContext:
+    dot_encodings = sorted(
+        {
+            (descriptor.encoding_format_id, descriptor.encoding_id)
+            for descriptor in descriptor_set.descriptors
+            if descriptor_set.key in AMDGPU_MFMA_TIMINGS_BY_DESCRIPTOR_SET and (descriptor.semantic_tag or "").startswith("dot.")
+        }
+    )
+    if len(dot_encodings) > 6:
+        raise ValueError(f"CDNA descriptor set '{descriptor_set.key}' exceeds the six native DOT forwarding channels")
     return _DescriptorTraitContext(
         descriptor_set=descriptor_set,
         resources={resource.name: resource for resource in descriptor_set.resources},
         schedule_classes={schedule_class.name: schedule_class for schedule_class in descriptor_set.schedule_classes},
+        dot_identities={encoding: ordinal for ordinal, encoding in enumerate(dot_encodings, 1)},
     )
 
 
@@ -536,14 +560,77 @@ def _descriptor_trait_names(
             )
     uses_vector_alu = any(resource.kind == ResourceKind.VECTOR_ALU for resource in issue_resources)
     uses_matrix = any(resource.kind == ResourceKind.MATRIX for resource in issue_resources)
+    # The final physical dependency owner retains five native issue slots.
+    # Each instruction contributes at most two output spans and one separately
+    # described store payload; wide outputs remain one contiguous span.
+    physical_outputs = sum(
+        (operand.role in (OperandRole.RESULT, OperandRole.OPERAND_RESULT) or OperandFlag.STATE_WRITE in operand.flags)
+        and any(alternative.reg_class in ("amdgpu.sgpr", "amdgpu.vgpr", "amdgpu.agpr", "amdgpu.exec", "amdgpu.vcc", "amdgpu.m0") for alternative in operand.reg_alts)
+        for operand in descriptor.operands
+    )
+    if physical_outputs > 2:
+        raise ValueError(f"AMDGPU descriptor '{descriptor.key}' exceeds the two-result native instruction contract")
     if uses_vector_alu:
         trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_ALU")
+    if context.dot_identities and (descriptor.semantic_tag or "").startswith("dot."):
+        results = tuple(operand for operand in descriptor.operands if operand.role is OperandRole.RESULT)
+        inputs = tuple(operand for operand in descriptor.operands if operand.role is OperandRole.OPERAND and OperandFlag.IMPLICIT not in operand.flags)
+        if (
+            not uses_vector_alu
+            or len(results) != 1
+            or tuple(operand.field_name for operand in inputs) != ("lhs", "rhs", "acc")
+            or any(operand.unit_count != 1 for operand in (*results, *inputs))
+            or any(alternative.reg_class != "amdgpu.vgpr" for alternative in results[0].reg_alts)
+        ):
+            raise ValueError(f"CDNA DOT forwarding requires one DWORD result and lhs/rhs/acc inputs: {descriptor.key}")
+        identity = context.dot_identities[(descriptor.encoding_format_id, descriptor.encoding_id)]
+        trait_names.append(f"({identity}u << LOOM_AMDGPU_DESCRIPTOR_DOT_IDENTITY_SHIFT)")
     if any(resource.kind == ResourceKind.SCALAR_ALU for resource in issue_resources):
         trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_SCALAR_ALU")
     if uses_matrix:
         trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX")
+        timings = AMDGPU_MFMA_TIMINGS_BY_DESCRIPTOR_SET.get(context.descriptor_set.key)
+        if timings is not None:
+            timing = timings.get(descriptor.key)
+            if timing is None or timing.execution_passes not in (2, 4, 8, 16):
+                raise ValueError(f"AMDGPU matrix descriptor '{descriptor.key}' has no qualified execution pass count in '{context.descriptor_set.key}'")
+            trait_names.append(f"({timing.execution_passes}u << LOOM_AMDGPU_DESCRIPTOR_MATRIX_PASSES_SHIFT)")
+            semantic = descriptor.semantic_tag or ""
+            if not semantic.startswith(("matrix.mfma.", "matrix.smfmac.")):
+                raise ValueError(f"MFMA pipeline classification requires matrix semantics: {descriptor.key}")
+            # Exact forwarding floors are indexed by their fixed physical
+            # result shapes in the native wait planner, without a range search.
+            floor_width = 4 if timing.execution_passes == 2 else 2 if semantic.startswith("matrix.mfma.f64.") and timing.execution_passes == 4 else 0
+            if floor_width:
+                results = tuple(operand for operand in descriptor.operands if operand.role in (OperandRole.RESULT, OperandRole.OPERAND_RESULT))
+                if len(results) != 1 or results[0].unit_count != floor_width:
+                    raise ValueError(f"MFMA exact forwarding floor requires one {floor_width}-register result: {descriptor.key}")
+            results = tuple((index, operand) for index, operand in enumerate(descriptor.operands) if operand.role is OperandRole.RESULT)
+            accumulators = tuple((index, operand) for index, operand in enumerate(descriptor.operands) if operand.field_name == "acc")
+            if (
+                len(results) != 1
+                or len(accumulators) != 1
+                or results[0][1].unit_count != accumulators[0][1].unit_count
+                or not any(
+                    constraint.kind in (ConstraintKind.TIED, ConstraintKind.PREFER_TIED) and {constraint.lhs_operand_index, constraint.rhs_operand_index} == {results[0][0], accumulators[0][0]}
+                    for constraint in descriptor.constraints
+                )
+            ):
+                raise ValueError(f"MFMA input retention requires a same-width accumulator and result: {descriptor.key}")
+            if semantic.startswith("matrix.mfma.f64."):
+                trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX_DGEMM")
+            elif not semantic.endswith(".f32"):
+                trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX_XDL")
     if descriptor.encoding_format_id in _VECTOR_MEMORY_ENCODING_FORMAT_IDS:
         trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_MEMORY")
+    if descriptor.encoding_format_id == AMDGPU_ENCODING_FORMAT_IDS["ENC_SMEM"]:
+        trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_SCALAR_MEMORY")
+    if descriptor.encoding_format_id in _MATRIX_MEMORY_ENCODING_FORMAT_IDS:
+        trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX_MEMORY_CONSUMER")
+        if descriptor.encoding_format_id not in (AMDGPU_ENCODING_FORMAT_IDS["ENC_EXP"], AMDGPU_ENCODING_FORMAT_IDS["ENC_VEXPORT"]):
+            trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_MEMORY_INTERLOCK")
+    if descriptor.semantic_tag in ("float.fma.f64", "float.fmac.f64"):
+        trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_FMA64")
     if descriptor.key in _TRANSCENDENTAL_DESCRIPTOR_KEYS:
         trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_TRANSCENDENTAL")
     if descriptor.encoding_format_id in AMDGPU_DPP_ENCODING_FORMAT_IDS:
@@ -552,6 +639,8 @@ def _descriptor_trait_names(
         trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_PERMLANE")
     if descriptor.key in _READFIRSTLANE_DESCRIPTOR_KEYS:
         trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_READFIRSTLANE")
+    if (descriptor.semantic_tag or "").startswith("float.div.fmas."):
+        trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_DIV_FMAS")
     if descriptor.encoding_format_id == AMDGPU_ENCODING_FORMAT_VOP1_SDWA:
         trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_SDWA")
     if descriptor.key in _XCNT_IMPLICIT_DRAIN_DESCRIPTOR_KEYS or descriptor.key.startswith(_XCNT_IMPLICIT_DRAIN_DESCRIPTOR_KEY_PREFIXES):
@@ -568,6 +657,19 @@ def _descriptor_trait_names(
         trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_WRITES_EXEC")
     if descriptor.semantic_tag in ("float.add.pk2.f32", "float.mul.pk2.f32", "float.fma.pk2.f32"):
         trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_PACKED_F32")
+    if descriptor.semantic_tag in ("integer.shl.u64", "integer.shr.u64", "integer.shr.s64"):
+        shift_operands = tuple(operand for operand in descriptor.operands if operand.field_name == "shift" and operand.addressable_unit_count == 255)
+        if shift_operands:
+            operands = tuple(operand for operand in descriptor.operands if operand.role == OperandRole.OPERAND and OperandFlag.IMPLICIT not in operand.flags)
+            if (
+                len(shift_operands) != 1
+                or len(operands) != 2
+                or operands[0] != shift_operands[0]
+                or shift_operands[0].unit_count != 1
+                or shift_operands[0].address_map_kind is not OperandAddressMapKind.LOW_SUBSET
+            ):
+                raise ValueError(f"CDNA wide shift count must be the first one-register operand: {descriptor.key}")
+            trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_SHIFT64_ALLOCATION")
     return tuple(trait_names)
 
 
@@ -592,10 +694,11 @@ def _descriptor_memory_properties(info: AmdgpuDescriptorSetInfo, descriptor: Des
         return order_class
     if descriptor.encoding_format_id not in _VECTOR_MEMORY_ENCODING_FORMAT_IDS:
         return order_class
-    # CDNA3/4 ISA 4.5, table 11: wide VMEM store and compare-swap payloads
-    # must survive two issue slots before VALU reuse, one before other writes.
-    # LLVM's SOFFSET-dependent window also requires one slot for SGPR-offset
-    # buffer stores. DATA/VDATA input widths cover stores and 64-bit CAS alike.
+    # CDNA2 ISA 4.5, table 9 requires one slot before wide-payload reuse;
+    # CDNA3/4 table 11 requires a second slot before VALU reuse. SGPR-offset
+    # buffers are exempt on CDNA2. Later targets retain LLVM's one-slot VALU
+    # correction for those buffers. DATA/VDATA includes 64-bit CAS payloads.
+    is_cdna2 = info.generator_target == "cdna2"
     data_fields = (AMDGPU_ENCODING_FIELD_IDS["DATA"], AMDGPU_ENCODING_FIELD_IDS["VDATA"])
     for index, operand in enumerate(descriptor.operands):
         if operand.encoding_field_id not in data_fields or operand.role not in (OperandRole.OPERAND, OperandRole.OPERAND_RESULT) or operand.unit_count <= 2:
@@ -603,8 +706,11 @@ def _descriptor_memory_properties(info: AmdgpuDescriptorSetInfo, descriptor: Des
         if index >= 7:
             raise ValueError(f"wide store payload index does not fit memory properties: {descriptor.key}")
         has_scalar_offset = any(operand.encoding_field_id == AMDGPU_ENCODING_FIELD_IDS["SOFFSET"] for operand in descriptor.operands)
-        cycles = 1 if has_scalar_offset else 2
-        return f"{order_class} | (({index} + 1) << 3) | ({cycles} << 6)"
+        if is_cdna2 and has_scalar_offset:
+            return order_class
+        other_cycles = int(not has_scalar_offset)
+        second_valu_cycle = int(not is_cdna2 and not has_scalar_offset)
+        return f"{order_class} | (({index} + 1) << 3) | ({other_cycles} << 6) | ({second_valu_cycle} << 7)"
     return order_class
 
 
@@ -733,6 +839,11 @@ def _materialize_descriptor_ref_tables(
         literal_immediate_slots = [_descriptor_literal_immediate_slot(descriptor_set, descriptor) for descriptor in descriptor_set.descriptors]
         address_offset_immediate_slots = [_descriptor_address_offset_immediate_slot(descriptor_set, descriptor) for descriptor in descriptor_set.descriptors]
         cache_scope_immediate_slots = [_descriptor_cache_scope_immediate_slot(descriptor_set, descriptor) for descriptor in descriptor_set.descriptors]
+        agpr_reg_class_ids = [index for index, reg_class in enumerate(descriptor_set.reg_classes) if reg_class.name == "amdgpu.agpr"]
+        if len(agpr_reg_class_ids) > 1 or (agpr_reg_class_ids and agpr_reg_class_ids[0] >= 255):
+            raise ValueError(f"AMDGPU accumulator class must have a unique byte-sized ID: {descriptor_set.key}")
+        if descriptor_set.key in AMDGPU_MFMA_TIMINGS_BY_DESCRIPTOR_SET and not agpr_reg_class_ids:
+            raise ValueError(f"MFMA descriptor set requires an accumulator register class: {descriptor_set.key}")
         descriptor_set_tables.append(
             _DescriptorSetRefTable(
                 descriptor_set_ordinal=amdgpu_descriptor_set_ordinal(descriptor_set_info.key),
@@ -746,6 +857,7 @@ def _materialize_descriptor_ref_tables(
                 address_offset_immediate_slots=address_offset_immediate_slots,
                 cache_scope_immediate_slots=cache_scope_immediate_slots,
                 reg_class_traits=[_reg_class_trait_names(reg_class.name) for reg_class in descriptor_set.reg_classes],
+                agpr_reg_class_id=agpr_reg_class_ids[0] if agpr_reg_class_ids else 255,
             )
         )
     descriptor_set_tables.sort(key=lambda table: table.descriptor_set_ordinal)
@@ -928,6 +1040,10 @@ def _emit_source(
     for descriptor_set_table in descriptor_set_tables:
         symbols = symbols_by_descriptor_set_key[descriptor_set_table.descriptor_set_key]
         lines.append(f"    [{_u16_literal(descriptor_set_table.descriptor_set_ordinal)}] = {symbols.reg_class_traits},")
+    lines.append("};")
+    lines.append("")
+    lines.append("const uint8_t kLoomAmdgpuAgprRegClassIds[LOOM_AMDGPU_TARGET_REF_DESCRIPTOR_SET_ORDINAL_COUNT] = {")
+    lines.extend(f"    [{_u16_literal(table.descriptor_set_ordinal)}] = {table.agpr_reg_class_id}," for table in descriptor_set_tables)
     lines.append("};")
     return "\n".join(lines) + "\n"
 

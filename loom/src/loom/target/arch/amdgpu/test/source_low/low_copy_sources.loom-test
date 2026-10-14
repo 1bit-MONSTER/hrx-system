@@ -121,7 +121,7 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @copied_destr
   s_mov_b32 s4, s1
   s_mov_b32 s5, s0
   s_mov_b32 s2, s4
-  s_addk_i32 s2, s2, 1
+  s_addk_i32 s2, 1
   s_mov_b32 s0, s4
   s_mov_b32 s1, s5
 .Lbb1:
@@ -147,7 +147,7 @@ low.func.def schedule(locked) target<amdgpu.rdna3_5.core>(@target) @destructive_
 // ----
   s_mov_b32 s4, s1
   s_mov_b32 s5, s0
-  s_addk_i32 s4, s4, 1
+  s_addk_i32 s4, 1
   s_mov_b32 s0, s1
   s_mov_b32 s1, s5
 .Lbb1:

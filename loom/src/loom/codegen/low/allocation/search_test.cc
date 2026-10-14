@@ -1260,7 +1260,12 @@ TEST_F(LowAllocationSearchTest,
       .instance_written = lease_instance_written,
   };
   loom_low_allocation_spill_plan_traffic_t spill_traffic[] = {
-      {},
+      {
+          .store_count = 1,
+          .store_bytes = 8,
+          .reload_count = 16,
+          .reload_bytes = 128,
+      },
       {
           .store_count = 1,
           .reload_count = 1,
@@ -1397,7 +1402,12 @@ TEST_F(LowAllocationSearchTest, SelectsLowerTrafficActiveSpillVictimSetTie) {
 
   loom_low_allocation_storage_lease_state_t storage_leases = {};
   loom_low_allocation_spill_plan_traffic_t spill_traffic[] = {
-      {},
+      {
+          .store_count = 1,
+          .store_bytes = 8,
+          .reload_count = 16,
+          .reload_bytes = 128,
+      },
       {
           .store_count = 1,
           .store_bytes = 8,
@@ -1434,6 +1444,35 @@ TEST_F(LowAllocationSearchTest, SelectsLowerTrafficActiveSpillVictimSetTie) {
   ASSERT_TRUE(victim_set.found);
   EXPECT_EQ(victim_set.location_base, 2u);
   ASSERT_EQ(victim_set.assignment_count, 1u);
+  EXPECT_EQ(victim_set.assignment_indices[0], 1u);
+
+  // A heavily reused active value can cost more traffic for the pressure it
+  // removes than the incoming interval. Required incoming storage must still
+  // evict a physical victim.
+  spill_traffic[1].reload_count = 31;
+  spill_traffic[1].reload_bytes = 248;
+  spill_traffic[2].reload_count = 11;
+  spill_traffic[2].reload_bytes = 88;
+  spill_traffic[0].reload_count = 1;
+  spill_traffic[0].reload_bytes = 8;
+  for (bool requires_register : {false, true}) {
+    IREE_ASSERT_OK(loom_low_allocation_search_find_active_spill_victim_set(
+        &context, &intervals[0], &capacity, requires_register, &workspace,
+        &arena_, &victim_set));
+    EXPECT_EQ(victim_set.found, requires_register);
+    if (requires_register) {
+      ASSERT_EQ(victim_set.assignment_count, 1u);
+      EXPECT_EQ(victim_set.assignment_indices[0], 1u);
+    }
+  }
+  // The active value's longer lifetime can justify more total traffic:
+  // spilling the incoming definition must not cause repeated short repairs.
+  spill_traffic[0].reload_count = 7;
+  spill_traffic[0].reload_bytes = 56;
+  IREE_ASSERT_OK(loom_low_allocation_search_find_active_spill_victim_set(
+      &context, &intervals[0], &capacity, /*interval_requires_register=*/false,
+      &workspace, &arena_, &victim_set));
+  ASSERT_TRUE(victim_set.found);
   EXPECT_EQ(victim_set.assignment_indices[0], 1u);
 
   loom_module_value_ordinal_scratch_clear(module, candidate_value);
@@ -1540,7 +1579,12 @@ TEST_F(LowAllocationSearchTest, SelectsLowerTrafficOverFewerVictims) {
 
   loom_low_allocation_storage_lease_state_t storage_leases = {};
   loom_low_allocation_spill_plan_traffic_t spill_traffic[] = {
-      {},
+      {
+          .store_count = 1,
+          .store_bytes = 8,
+          .reload_count = 16,
+          .reload_bytes = 128,
+      },
       {
           .store_count = 1,
           .store_bytes = 8,

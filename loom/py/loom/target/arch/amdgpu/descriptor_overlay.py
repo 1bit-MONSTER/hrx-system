@@ -19,6 +19,8 @@ from dataclasses import dataclass, replace
 
 from loom.target.arch.amdgpu.encoding import (
     AMDGPU_ENCODING_FORMAT_XML_NAMES_BY_ID,
+    AMDGPU_MEMORY_REGISTER_ENCODING_ADAPTERS,
+    AMDGPU_REGISTER_ENCODING_ADAPTERS,
     amdgpu_encoding_field_id,
     amdgpu_encoding_field_name,
     amdgpu_encoding_format_id,
@@ -73,6 +75,8 @@ _REGISTER_PART_WIDTH_BITS = {
     "amdgpu.sgpr.high16": 16,
     "amdgpu.vgpr.low16": 16,
     "amdgpu.vgpr.high16": 16,
+    "amdgpu.agpr.low16": 16,
+    "amdgpu.agpr.high16": 16,
 }
 
 AMDGPU_D16_PARTIAL_REGISTER_SIZE_REASON = "d16-instruction-uses-half-register"
@@ -195,25 +199,27 @@ def materialize_amdgpu_descriptor_overlay(
 ) -> Descriptor:
     instruction = _select_instruction(spec, overlay)
     encoding = _select_instruction_encoding(instruction, overlay)
-    _validate_operand_overlay(spec, overlay, instruction, encoding)
+    xml_operands = _validate_operand_overlay(spec, overlay, instruction, encoding)
     operands = tuple(
-        _materialize_operand_overlay(operand_overlay)
+        _materialize_operand_overlay(
+            operand_overlay,
+            overlay.encoding_name,
+            xml_operands[operand_overlay.xml_field_name].operand_type,
+        )
         for operand_overlay in overlay.operands
     ) + tuple(
         implicit_overlay.descriptor_operand
         for implicit_overlay in overlay.implicit_operands
         if implicit_overlay.descriptor_operand is not None
     )
+    operands = tuple(
+        operand for operand in operands if operand.role is OperandRole.RESULT
+    ) + tuple(operand for operand in operands if operand.role is not OperandRole.RESULT)
     return Descriptor(
         key=overlay.descriptor_key,
         mnemonic=overlay.mnemonic or overlay.instruction_name.lower(),
         semantic_tag=overlay.semantic_tag,
-        operands=tuple(
-            operand for operand in operands if operand.role is OperandRole.RESULT
-        )
-        + tuple(
-            operand for operand in operands if operand.role is not OperandRole.RESULT
-        ),
+        operands=operands,
         immediates=_materialize_immediates(overlay),
         encoding_field_values=_materialize_encoding_field_values(
             spec, overlay, encoding
@@ -222,7 +228,9 @@ def materialize_amdgpu_descriptor_overlay(
         asm_surface=overlay.asm_surface,
         asm_surface_reason=overlay.asm_surface_reason,
         effects=overlay.effects,
-        constraints=overlay.constraints,
+        constraints=_materialize_register_bank_constraints(
+            operands, overlay.constraints
+        ),
         operand_forms=overlay.operand_forms,
         feature_mask_words=overlay.feature_mask_words,
         encoding_format_id=_encoding_format_id(overlay),
@@ -233,6 +241,37 @@ def materialize_amdgpu_descriptor_overlay(
         flags=overlay.flags,
         op_kind=overlay.op_kind,
     )
+
+
+def _materialize_register_bank_constraints(
+    operands: tuple[Operand, ...], constraints: tuple[Constraint, ...]
+) -> tuple[Constraint, ...]:
+    first_operands: dict[int, int] = {}
+    bank_constraints = []
+    for index, operand in enumerate(operands):
+        adapter = operand.encoding_adapter_id
+        if not adapter:
+            continue
+        first_index = first_operands.setdefault(adapter, index)
+        if first_index == index:
+            continue
+        if any(
+            constraint.kind
+            in (
+                ConstraintKind.TIED,
+                ConstraintKind.PREFER_TIED,
+                ConstraintKind.DESTRUCTIVE,
+                ConstraintKind.SAME_REGISTER_CLASS,
+            )
+            and {constraint.lhs_operand_index, constraint.rhs_operand_index}
+            == {first_index, index}
+            for constraint in constraints
+        ):
+            continue
+        bank_constraints.append(
+            Constraint(ConstraintKind.SAME_REGISTER_CLASS, first_index, index)
+        )
+    return (*constraints, *bank_constraints)
 
 
 def _encoding_format_id(overlay: AmdgpuDescriptorOverlay) -> int:
@@ -258,7 +297,9 @@ def _immediate_field_is_synthetic_literal(
     return format_name is not None and "INST_LITERAL" in format_name
 
 
-def _materialize_operand_overlay(operand_overlay: AmdgpuOperandOverlay) -> Operand:
+def _materialize_operand_overlay(
+    operand_overlay: AmdgpuOperandOverlay, encoding_name: str, xml_operand_type: str
+) -> Operand:
     try:
         operand = replace(
             operand_overlay.descriptor_operand,
@@ -269,6 +310,42 @@ def _materialize_operand_overlay(operand_overlay: AmdgpuOperandOverlay) -> Opera
             f"AMDGPU operand overlay references unmapped encoding field "
             f"'{operand_overlay.xml_field_name}'"
         ) from exc
+    if xml_operand_type in ("OPR_ACCVGPR", "OPR_SRC_ACCVGPR"):
+        if any(
+            alternative.reg_class != "amdgpu.agpr" for alternative in operand.reg_alts
+        ):
+            raise AmdgpuDescriptorOverlayError(
+                f"fixed accumulator operand '{operand.field_name}' exposes another "
+                f"register bank for XML type '{xml_operand_type}'"
+            )
+        if operand.encoding_adapter_id:
+            raise AmdgpuDescriptorOverlayError(
+                f"fixed accumulator operand '{operand.field_name}' has a bank selector"
+            )
+    elif any(
+        alternative.reg_class == "amdgpu.agpr" for alternative in operand.reg_alts
+    ):
+        if any(
+            alternative.reg_class not in (None, "amdgpu.vgpr", "amdgpu.agpr")
+            for alternative in operand.reg_alts
+        ):
+            raise AmdgpuDescriptorOverlayError(
+                f"AGPR operand '{operand.field_name}' mixes incompatible register banks"
+            )
+        if operand.encoding_adapter_id:
+            raise AmdgpuDescriptorOverlayError(
+                f"AGPR operand '{operand.field_name}' already has an encoding adapter"
+            )
+        try:
+            adapter = AMDGPU_REGISTER_ENCODING_ADAPTERS[encoding_name][
+                operand_overlay.xml_field_name
+            ]
+        except KeyError as exc:
+            raise AmdgpuDescriptorOverlayError(
+                f"AGPR operand '{operand.field_name}' has no register-bank selector "
+                f"for {encoding_name}.{operand_overlay.xml_field_name}"
+            ) from exc
+        operand = replace(operand, encoding_adapter_id=adapter)
     if (
         operand_overlay.size_exception_reason == AMDGPU_D16_PARTIAL_REGISTER_SIZE_REASON
         and operand.role is OperandRole.RESULT
@@ -552,7 +629,7 @@ def _validate_operand_overlay(
     overlay: AmdgpuDescriptorOverlay,
     instruction: AmdgpuIsaInstruction,
     encoding: AmdgpuIsaInstructionEncoding,
-) -> None:
+) -> dict[str, AmdgpuIsaOperand]:
     _validate_unique_overlay_fields(overlay)
     xml_operands = _explicit_xml_operands_by_field_name(encoding, overlay)
     encoding_fields, partition_carriers = _encoding_fields_and_partition_carriers(
@@ -570,6 +647,19 @@ def _validate_operand_overlay(
             )
         _validate_operand_role(overlay, operand_overlay, xml_operand)
         _validate_operand_width(overlay, operand_overlay, xml_operand)
+        if (
+            overlay.encoding_name in AMDGPU_MEMORY_REGISTER_ENCODING_ADAPTERS
+            and any(
+                alternative.reg_class == "amdgpu.agpr"
+                for alternative in operand_overlay.descriptor_operand.reg_alts
+            )
+            and xml_operand.operand_type != "OPR_VGPR_OR_ACCVGPR"
+        ):
+            raise AmdgpuDescriptorOverlayError(
+                f"descriptor overlay '{overlay.descriptor_key}' exposes accumulator "
+                f"memory operand '{operand_overlay.descriptor_operand.field_name}' "
+                f"with incompatible XML type '{xml_operand.operand_type}'"
+            )
         covered_fields.add(operand_overlay.xml_field_name)
 
     for ignored_operand in overlay.ignored_operands:
@@ -672,6 +762,7 @@ def _validate_operand_overlay(
             f"operand field(s): {missing_text}"
         )
     _validate_implicit_operand_overlays(overlay, instruction, encoding)
+    return xml_operands
 
 
 def _xml_operand_requires_implicit_overlay(xml_operand: AmdgpuIsaOperand) -> bool:

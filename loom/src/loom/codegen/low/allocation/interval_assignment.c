@@ -623,6 +623,11 @@ loom_low_allocation_interval_assignment_spill_active_assignment(
   assignment->location_base = state->next_spill_slot;
   assignment->location_count = assignment->unit_count;
   state->next_spill_slot += assignment->unit_count;
+  loom_low_allocation_storage_lease_state_record_spill(
+      state->context->storage_leases, state->context->target->descriptor_set,
+      assignment,
+      loom_local_value_domain_ordinal(state->context->value_domain,
+                                      assignment->value_id));
   return loom_low_allocation_interval_assignment_record_spill(
       state, assignment_index, capacity,
       /*retained_fixed_value_index_plus_one=*/0);
@@ -647,6 +652,13 @@ loom_low_allocation_interval_assignment_try_relocate_independent_assignment(
   loom_low_allocation_assignment_t* assignment =
       &state->result.assignments[assignment_index];
   if (assignment->descriptor_reg_class_id != constrained_reg_class_id) {
+    return iree_ok_status();
+  }
+  // Relocation keeps the current frame, unlike spilling and rebuilding it.
+  // Its physical lease index cannot move an already published storage key.
+  if (loom_low_allocation_storage_lease_state_value_has_records(
+          state->context->storage_leases, state->context->liveness,
+          assignment->value_id)) {
     return iree_ok_status();
   }
 
@@ -1391,6 +1403,9 @@ static iree_status_t loom_low_allocation_interval_assignment_assign(
     const loom_low_allocation_spill_register_requirement_t spill_requirement =
         loom_low_allocation_spill_register_requirement_for_value(
             context->module, context->liveness->region, interval->value_id);
+    // A producer lease needs physical storage at definition. Previously
+    // assigned values can still spill; rebuilding the frame then closes their
+    // leases before the stores and establishes new leases for the reloads.
     const bool requires_register =
         loom_low_allocation_storage_lease_state_value_has_records(
             context->storage_leases, context->liveness, interval->value_id) ||

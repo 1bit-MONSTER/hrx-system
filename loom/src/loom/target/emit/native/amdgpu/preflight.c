@@ -168,6 +168,12 @@ static iree_status_t loom_amdgpu_native_preflight_collect_register_usage(
   preflight->next_free_vgpr =
       allocation->physical_extents
           .ends_by_reg_class[LOOM_AMDGPU_REG_CLASS_ID_VGPR];
+  const uint8_t agpr_reg_class_id =
+      loom_amdgpu_agpr_reg_class_id(allocation->target.descriptor_set);
+  if (agpr_reg_class_id != UINT8_MAX) {
+    preflight->next_free_agpr =
+        allocation->physical_extents.ends_by_reg_class[agpr_reg_class_id];
+  }
   for (iree_host_size_t i = 0; i < allocation->assignment_count; ++i) {
     const loom_low_allocation_assignment_t* assignment =
         &allocation->assignments[i];
@@ -176,16 +182,8 @@ static iree_status_t loom_amdgpu_native_preflight_collect_register_usage(
       continue;
     }
     if (assignment->descriptor_reg_class_id == LOOM_AMDGPU_REG_CLASS_ID_SGPR ||
-        assignment->descriptor_reg_class_id == LOOM_AMDGPU_REG_CLASS_ID_VGPR) {
-      continue;
-    }
-    if (loom_amdgpu_register_class_is_agpr(
-            allocation->target.descriptor_set,
-            assignment->descriptor_reg_class_id)) {
-      IREE_RETURN_IF_ERROR(
-          loom_amdgpu_native_preflight_emit_unsupported_register_metadata(
-              allocation, assignment, IREE_SV("AGPR kernel-descriptor"),
-              preflight, options));
+        assignment->descriptor_reg_class_id == LOOM_AMDGPU_REG_CLASS_ID_VGPR ||
+        assignment->descriptor_reg_class_id == agpr_reg_class_id) {
       continue;
     }
     if (loom_amdgpu_native_preflight_metadata_free_register_class(

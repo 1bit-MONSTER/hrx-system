@@ -1,3 +1,69 @@
+// RUN: emit amdgpu-assembly @cdna2_addressed_spills strategy=source
+
+// CDNA2 scratch traffic always has an address operand. Cover all vector
+// transfer widths, misaligned chunks, and a scalar spill beyond the immediate.
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @cdna2_addressed_spills(%aligned: reg<amdgpu.vgpr x4>, %misaligned: reg<amdgpu.vgpr x4>, %uniform: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr x4>, reg<amdgpu.vgpr x4>, reg<amdgpu.sgpr x2>) asm {
+  %storage = storage {byte_alignment = 16, byte_length = 4112} : low.storage<private>
+  low.spill %aligned, %storage : reg<amdgpu.vgpr x4>, low.storage<private>
+  low.spill %misaligned, %storage {offset = 20} : reg<amdgpu.vgpr x4>, low.storage<private>
+  low.spill %uniform, %storage {offset = 4096} : reg<amdgpu.sgpr x2>, low.storage<private>
+  %first = low.reload %storage : low.storage<private> -> reg<amdgpu.vgpr x4>
+  %second = low.reload %storage {offset = 20} : low.storage<private> -> reg<amdgpu.vgpr x4>
+  %third = low.reload %storage {offset = 4096} : low.storage<private> -> reg<amdgpu.sgpr x2>
+  return %first, %second, %third
+}
+
+// ----
+  v_mov_b32 v8, 0
+  scratch_store_dwordx4 v8, v[0:3], off offset:0
+  s_nop 0
+  v_mov_b32 v0, 20
+  scratch_store_dword v0, v4, off offset:0
+  v_mov_b32 v0, v5
+  v_mov_b32 v1, v6
+  v_mov_b32 v2, 24
+  scratch_store_dwordx2 v2, v[0:1], off offset:0
+  v_mov_b32 v0, 32
+  scratch_store_dword v0, v7, off offset:0
+  s_mov_b64_exec_read s[2:3]
+  s_mov_b64 exec, -1
+  v_mov_b32 v0, s0
+  v_mov_b32 v1, 4096
+  scratch_store_dword v1, v0, off offset:0
+  v_mov_b32 v0, s1
+  v_mov_b32 v1, 4100
+  scratch_store_dword v1, v0, off offset:0
+  s_mov_b64 exec, s[2:3]
+  v_mov_b32 v0, 0
+  scratch_load_dwordx4 v[0:3], v0, off offset:0
+  v_mov_b32 v4, 20
+  scratch_load_dword v4, v4, off offset:0
+  v_mov_b32 v5, 24
+  scratch_load_dwordx2 v[6:7], v5, off offset:0
+  v_mov_b32 v5, 32
+  scratch_load_dword v5, v5, off offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  v_mov_b32 v8, v6
+  v_mov_b32 v6, v7
+  v_mov_b32 v7, v5
+  v_mov_b32 v5, v8
+  s_mov_b64_exec_read s[0:1]
+  s_mov_b64 exec, -1
+  v_mov_b32 v8, 4096
+  scratch_load_dword v8, v8, off offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  v_readfirstlane_b32 s2, v8
+  v_mov_b32 v8, 4100
+  scratch_load_dword v8, v8, off offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  v_readfirstlane_b32 s3, v8
+  s_mov_b64 exec, s[0:1]
+  s_endpgm
+
+// ====
+
 // RUN: emit amdgpu-assembly @gfx9_4_generic_sgpr_spill_reload waits=none strategy=source
 
 amdgpu.target<gfx9-4-generic> @gfx9_4_generic_target
@@ -12,16 +78,16 @@ low.func.def target<amdgpu.gfx9_4.generic.core>(@gfx9_4_generic_target) @gfx9_4_
 // ----
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  v_mov_b32_copy v0, s0
-  scratch_store_b32 off, v0, off offset:0 nt:0 sc0:0 sc1:0
-  v_mov_b32_copy v0, s1
-  scratch_store_b32 off, v0, off offset:4 nt:0 sc0:0 sc1:0
+  v_mov_b32 v0, s0
+  scratch_store_dword off, v0, off offset:0
+  v_mov_b32 v0, s1
+  scratch_store_dword off, v0, off offset:4
   s_mov_b64 exec, s[2:3]
   s_mov_b64_exec_read s[0:1]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:0 nt:0 sc0:0 sc1:0
+  scratch_load_dword v0, off, off offset:0
   v_readfirstlane_b32 s2, v0
-  scratch_load_b32 v0, off, off offset:4 nt:0 sc0:0 sc1:0
+  scratch_load_dword v0, off, off offset:4
   v_readfirstlane_b32 s3, v0
   s_mov_b64 exec, s[0:1]
   s_endpgm
@@ -69,16 +135,16 @@ low.func.def target<amdgpu.gfx11.generic.core>(@gfx11_retired_lane_target) @sgpr
 .Lbb2:
   s_mov_b64_exec_read s[4:5]
   s_mov_b64 exec, -1
-  v_mov_b32_copy v4, s0
-  scratch_store_b32 off, v4, off offset:0 glc:0 slc:0 dlc:0
-  v_mov_b32_copy v4, s1
-  scratch_store_b32 off, v4, off offset:4 glc:0 slc:0 dlc:0
+  v_mov_b32 v4, s0
+  scratch_store_b32 off, v4, off offset:0
+  v_mov_b32 v4, s1
+  scratch_store_b32 off, v4, off offset:4
   s_mov_b64 exec, s[4:5]
   s_mov_b64_exec_read s[4:5]
   s_mov_b64 exec, -1
-  scratch_load_b32 v4, off, off offset:0 glc:0 slc:0 dlc:0
+  scratch_load_b32 v4, off, off offset:0
   v_readfirstlane_b32 s6, v4
-  scratch_load_b32 v4, off, off offset:4 glc:0 slc:0 dlc:0
+  scratch_load_b32 v4, off, off offset:4
   v_readfirstlane_b32 s7, v4
   s_mov_b64 exec, s[4:5]
   v_add_u32 v3, v1, v2
@@ -130,17 +196,17 @@ low.func.def target<amdgpu.gfx9_4.generic.core>(@gfx9_4_generic_target) @gfx9_4_
 // ----
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  v_mov_b32_copy v0, s0
-  scratch_store_b32 off, v0, off offset:0 nt:0 sc0:0 sc1:0
-  v_mov_b32_copy v0, s1
-  scratch_store_b32 off, v0, off offset:4 nt:0 sc0:0 sc1:0
+  v_mov_b32 v0, s0
+  scratch_store_dword off, v0, off offset:0
+  v_mov_b32 v0, s1
+  scratch_store_dword off, v0, off offset:4
   s_mov_b64 exec, s[2:3]
   s_mov_b64_exec_read s[0:1]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:0 nt:0 sc0:0 sc1:0
+  scratch_load_dword v0, off, off offset:0
   s_waitcnt vmcnt(0) lgkmcnt(15)
   v_readfirstlane_b32 s2, v0
-  scratch_load_b32 v0, off, off offset:4 nt:0 sc0:0 sc1:0
+  scratch_load_dword v0, off, off offset:4
   s_waitcnt vmcnt(0) lgkmcnt(15)
   v_readfirstlane_b32 s3, v0
   s_mov_b64 exec, s[0:1]
@@ -162,16 +228,16 @@ low.func.def target<amdgpu.gfx11.generic.core>(@gfx11_generic_target) @gfx11_gen
 // ----
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  v_mov_b32_copy v0, s0
-  scratch_store_b32 off, v0, off offset:0 glc:0 slc:0 dlc:0
-  v_mov_b32_copy v0, s1
-  scratch_store_b32 off, v0, off offset:4 glc:0 slc:0 dlc:0
+  v_mov_b32 v0, s0
+  scratch_store_b32 off, v0, off offset:0
+  v_mov_b32 v0, s1
+  scratch_store_b32 off, v0, off offset:4
   s_mov_b64 exec, s[2:3]
   s_mov_b64_exec_read s[0:1]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:0 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:0
   v_readfirstlane_b32 s2, v0
-  scratch_load_b32 v0, off, off offset:4 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:4
   v_readfirstlane_b32 s3, v0
   s_mov_b64 exec, s[0:1]
   s_endpgm
@@ -192,16 +258,16 @@ low.func.def target<amdgpu.gfx12.generic.core>(@gfx12_generic_target) @gfx12_gen
 // ----
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  v_mov_b32_copy v0, s0
-  scratch_store_b32 off, v0, off offset:0 nv:0 scope:0 th:0
-  v_mov_b32_copy v0, s1
-  scratch_store_b32 off, v0, off offset:4 nv:0 scope:0 th:0
+  v_mov_b32 v0, s0
+  scratch_store_b32 off, v0, off offset:0
+  v_mov_b32 v0, s1
+  scratch_store_b32 off, v0, off offset:4
   s_mov_b64 exec, s[2:3]
   s_mov_b64_exec_read s[0:1]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:0 nv:0 scope:0 th:0
+  scratch_load_b32 v0, off, off offset:0
   v_readfirstlane_b32 s2, v0
-  scratch_load_b32 v0, off, off offset:4 nv:0 scope:0 th:0
+  scratch_load_b32 v0, off, off offset:4
   v_readfirstlane_b32 s3, v0
   s_mov_b64 exec, s[0:1]
   s_endpgm
@@ -222,16 +288,16 @@ low.func.def target<amdgpu.gfx12_5.generic.core>(@gfx12_5_generic_target) @gfx12
 // ----
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  v_mov_b32_copy v0, s0
-  scratch_store_b32 off, v0, off offset:0 nv:0 scope:0 th:0
-  v_mov_b32_copy v0, s1
-  scratch_store_b32 off, v0, off offset:4 nv:0 scope:0 th:0
+  v_mov_b32 v0, s0
+  scratch_store_b32 off, v0, off offset:0
+  v_mov_b32 v0, s1
+  scratch_store_b32 off, v0, off offset:4
   s_mov_b64 exec, s[2:3]
   s_mov_b64_exec_read s[0:1]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:0 nv:0 scope:0 th:0
+  scratch_load_b32 v0, off, off offset:0
   v_readfirstlane_b32 s2, v0
-  scratch_load_b32 v0, off, off offset:4 nv:0 scope:0 th:0
+  scratch_load_b32 v0, off, off offset:4
   v_readfirstlane_b32 s3, v0
   s_mov_b64 exec, s[0:1]
   s_endpgm
@@ -252,14 +318,14 @@ low.func.def target<amdgpu.gfx11.generic.core>(@gfx11_generic_target) @gfx11_spi
 }
 
 // ----
-  scratch_store_b128 off, v[0:3], off offset:0 glc:0 slc:0 dlc:0
-  scratch_load_b128 v[0:3], off, off offset:0 glc:0 slc:0 dlc:0
-  scratch_store_b32 off, v4, off offset:20 glc:0 slc:0 dlc:0
-  scratch_store_b64 off, v[5:6], off offset:24 glc:0 slc:0 dlc:0
-  scratch_store_b32 off, v7, off offset:32 glc:0 slc:0 dlc:0
-  scratch_load_b32 v0, off, off offset:20 glc:0 slc:0 dlc:0
-  scratch_load_b64 v[1:2], off, off offset:24 glc:0 slc:0 dlc:0
-  scratch_load_b32 v3, off, off offset:32 glc:0 slc:0 dlc:0
+  scratch_store_b128 off, v[0:3], off offset:0
+  scratch_load_b128 v[0:3], off, off offset:0
+  scratch_store_b32 off, v4, off offset:20
+  scratch_store_b64 off, v[5:6], off offset:24
+  scratch_store_b32 off, v7, off offset:32
+  scratch_load_b32 v0, off, off offset:20
+  scratch_load_b64 v[1:2], off, off offset:24
+  scratch_load_b32 v3, off, off offset:32
   s_endpgm
 
 // ====
@@ -281,17 +347,17 @@ low.func.def target<amdgpu.gfx11.generic.core>(@gfx11_generic_target) @gfx11_spi
 
 // ----
   v_mov_b32 v1, 4104
-  scratch_store_b32 v1, v0, off offset:0 glc:0 slc:0 dlc:0
+  scratch_store_b32 v1, v0, off offset:0
   v_mov_b32 v0, 4104
-  scratch_load_b32 v0, v0, off offset:0 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, v0, off offset:0
   v_mov_b32 v0, 4112
-  scratch_store_b64 v0, v[2:3], off offset:0 glc:0 slc:0 dlc:0
+  scratch_store_b64 v0, v[2:3], off offset:0
   v_mov_b32 v0, 4112
-  scratch_load_b64 v[0:1], v0, off offset:0 glc:0 slc:0 dlc:0
+  scratch_load_b64 v[0:1], v0, off offset:0
   v_mov_b32 v0, 4128
-  scratch_store_b128 v0, v[4:7], off offset:0 glc:0 slc:0 dlc:0
+  scratch_store_b128 v0, v[4:7], off offset:0
   v_mov_b32 v0, 4128
-  scratch_load_b128 v[0:3], v0, off offset:0 glc:0 slc:0 dlc:0
+  scratch_load_b128 v[0:3], v0, off offset:0
   s_endpgm
 
 // ====
@@ -309,14 +375,14 @@ low.func.def target<amdgpu.gfx11.generic.core>(@gfx11_generic_target) @spill_rej
 
 // ====
 
-// RUN: emit amdgpu-assembly @spill_rejects_agpr_registers waits=none
+// RUN: emit amdgpu-assembly @spill_rejects_special_registers waits=none
 
 amdgpu.target<gfx9-4-generic> @gfx9_4_generic_target
 
-low.func.def target<amdgpu.gfx9_4.generic.core>(@gfx9_4_generic_target) @spill_rejects_agpr_registers(%value: reg<amdgpu.agpr>) asm {
+low.func.def target<amdgpu.gfx9_4.generic.core>(@gfx9_4_generic_target) @spill_rejects_special_registers(%value: reg<amdgpu.scc>) asm {
   %storage = storage {byte_alignment = 4, byte_length = 4} : low.storage<private>
-  // ERROR@+1: AMDGPU/038 {function_name="spill_rejects_agpr_registers", op_name="low.spill", value_name="value", actual_type="reg<amdgpu.agpr>"}
-  low.spill %value, %storage : reg<amdgpu.agpr>, low.storage<private>
+  // ERROR@+1: AMDGPU/038 {function_name="spill_rejects_special_registers", op_name="low.spill", value_name="value", actual_type="reg<amdgpu.scc>"}
+  low.spill %value, %storage : reg<amdgpu.scc>, low.storage<private>
   return
 }
 
@@ -365,44 +431,44 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @later_block_storage_survi
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
   s_delay_alu instid0(VALU_DEP_1)
-  v_mov_b32_copy v0, s0
-  scratch_store_b32 off, v0, off offset:0 glc:0 slc:0 dlc:0
-  v_mov_b32_copy v0, s1
-  scratch_store_b32 off, v0, off offset:4 glc:0 slc:0 dlc:0
+  v_mov_b32 v0, s0
+  scratch_store_b32 off, v0, off offset:0
+  v_mov_b32 v0, s1
+  scratch_store_b32 off, v0, off offset:4
   s_mov_b64 exec, s[2:3]
   v_cmp_lt_u32 s[2:3], v2, v3
   s_mov_b64_exec_read s[4:5]
   s_mov_b64 exec, -1
   s_delay_alu instid0(VALU_DEP_1)
-  v_mov_b32_copy v0, s2
-  scratch_store_b32 off, v0, off offset:32 glc:0 slc:0 dlc:0
-  v_mov_b32_copy v0, s3
-  scratch_store_b32 off, v0, off offset:36 glc:0 slc:0 dlc:0
+  v_mov_b32 v0, s2
+  scratch_store_b32 off, v0, off offset:32
+  v_mov_b32 v0, s3
+  scratch_store_b32 off, v0, off offset:36
   s_mov_b64 exec, s[4:5]
   v_cmp_lt_u32 s[2:3], v4, v5
   s_mov_b64_exec_read s[4:5]
   s_mov_b64 exec, -1
   s_delay_alu instid0(VALU_DEP_1)
-  v_mov_b32_copy v0, s2
-  scratch_store_b32 off, v0, off offset:8 glc:0 slc:0 dlc:0
-  v_mov_b32_copy v0, s3
-  scratch_store_b32 off, v0, off offset:12 glc:0 slc:0 dlc:0
+  v_mov_b32 v0, s2
+  scratch_store_b32 off, v0, off offset:8
+  v_mov_b32 v0, s3
+  scratch_store_b32 off, v0, off offset:12
   s_mov_b64 exec, s[4:5]
   v_cmp_lt_u32 s[2:3], v6, v7
   s_mov_b64_exec_read s[4:5]
   s_mov_b64 exec, -1
   s_delay_alu instid0(VALU_DEP_1)
-  v_mov_b32_copy v0, s2
-  scratch_store_b32 off, v0, off offset:24 glc:0 slc:0 dlc:0
-  v_mov_b32_copy v0, s3
-  scratch_store_b32 off, v0, off offset:28 glc:0 slc:0 dlc:0
+  v_mov_b32 v0, s2
+  scratch_store_b32 off, v0, off offset:24
+  v_mov_b32 v0, s3
+  scratch_store_b32 off, v0, off offset:28
   s_mov_b64 exec, s[4:5]
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:32 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:32
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s4, v0
-  scratch_load_b32 v0, off, off offset:36 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:36
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s5, v0
   s_mov_b64 exec, s[2:3]
@@ -410,26 +476,26 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @later_block_storage_survi
   s_and_b64 s[2:3], s[0:1], s[4:5]
   s_mov_b64_exec_read s[4:5]
   s_mov_b64 exec, -1
-  v_mov_b32_copy v0, s2
-  scratch_store_b32 off, v0, off offset:16 glc:0 slc:0 dlc:0
-  v_mov_b32_copy v0, s3
-  scratch_store_b32 off, v0, off offset:20 glc:0 slc:0 dlc:0
+  v_mov_b32 v0, s2
+  scratch_store_b32 off, v0, off offset:16
+  v_mov_b32 v0, s3
+  scratch_store_b32 off, v0, off offset:20
   s_mov_b64 exec, s[4:5]
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:8 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:8
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s4, v0
-  scratch_load_b32 v0, off, off offset:12 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:12
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s5, v0
   s_mov_b64 exec, s[2:3]
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:24 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:24
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s6, v0
-  scratch_load_b32 v0, off, off offset:28 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:28
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s7, v0
   s_mov_b64 exec, s[2:3]
@@ -437,10 +503,10 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @later_block_storage_survi
   s_and_b64 s[2:3], s[4:5], s[6:7]
   s_mov_b64_exec_read s[4:5]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:16 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:16
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s6, v0
-  scratch_load_b32 v0, off, off offset:20 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:20
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s7, v0
   s_mov_b64 exec, s[4:5]
@@ -449,10 +515,10 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @later_block_storage_survi
   s_and_b64 s[0:1], s[2:3], s[0:1]
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:32 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:32
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s4, v0
-  scratch_load_b32 v0, off, off offset:36 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:36
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s5, v0
   s_mov_b64 exec, s[2:3]
@@ -460,10 +526,10 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @later_block_storage_survi
   s_and_b64 s[0:1], s[0:1], s[4:5]
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:8 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:8
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s4, v0
-  scratch_load_b32 v0, off, off offset:12 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:12
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s5, v0
   s_mov_b64 exec, s[2:3]
@@ -471,10 +537,10 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @later_block_storage_survi
   s_and_b64 s[0:1], s[0:1], s[4:5]
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:0 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:0
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s4, v0
-  scratch_load_b32 v0, off, off offset:4 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:4
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s5, v0
   s_mov_b64 exec, s[2:3]
@@ -519,44 +585,44 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @storage_views_survive_spi
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
   s_delay_alu instid0(VALU_DEP_1)
-  v_mov_b32_copy v0, s0
-  scratch_store_b32 off, v0, off offset:28 glc:0 slc:0 dlc:0
-  v_mov_b32_copy v0, s1
-  scratch_store_b32 off, v0, off offset:32 glc:0 slc:0 dlc:0
+  v_mov_b32 v0, s0
+  scratch_store_b32 off, v0, off offset:28
+  v_mov_b32 v0, s1
+  scratch_store_b32 off, v0, off offset:32
   s_mov_b64 exec, s[2:3]
   v_cmp_lt_u32 s[2:3], v2, v3
   s_mov_b64_exec_read s[4:5]
   s_mov_b64 exec, -1
   s_delay_alu instid0(VALU_DEP_1)
-  v_mov_b32_copy v0, s2
-  scratch_store_b32 off, v0, off offset:72 glc:0 slc:0 dlc:0
-  v_mov_b32_copy v0, s3
-  scratch_store_b32 off, v0, off offset:76 glc:0 slc:0 dlc:0
+  v_mov_b32 v0, s2
+  scratch_store_b32 off, v0, off offset:72
+  v_mov_b32 v0, s3
+  scratch_store_b32 off, v0, off offset:76
   s_mov_b64 exec, s[4:5]
   v_cmp_lt_u32 s[2:3], v4, v5
   s_mov_b64_exec_read s[4:5]
   s_mov_b64 exec, -1
   s_delay_alu instid0(VALU_DEP_1)
-  v_mov_b32_copy v0, s2
-  scratch_store_b32 off, v0, off offset:48 glc:0 slc:0 dlc:0
-  v_mov_b32_copy v0, s3
-  scratch_store_b32 off, v0, off offset:52 glc:0 slc:0 dlc:0
+  v_mov_b32 v0, s2
+  scratch_store_b32 off, v0, off offset:48
+  v_mov_b32 v0, s3
+  scratch_store_b32 off, v0, off offset:52
   s_mov_b64 exec, s[4:5]
   v_cmp_lt_u32 s[2:3], v6, v7
   s_mov_b64_exec_read s[4:5]
   s_mov_b64 exec, -1
   s_delay_alu instid0(VALU_DEP_1)
-  v_mov_b32_copy v0, s2
-  scratch_store_b32 off, v0, off offset:64 glc:0 slc:0 dlc:0
-  v_mov_b32_copy v0, s3
-  scratch_store_b32 off, v0, off offset:68 glc:0 slc:0 dlc:0
+  v_mov_b32 v0, s2
+  scratch_store_b32 off, v0, off offset:64
+  v_mov_b32 v0, s3
+  scratch_store_b32 off, v0, off offset:68
   s_mov_b64 exec, s[4:5]
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:72 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:72
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s4, v0
-  scratch_load_b32 v0, off, off offset:76 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:76
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s5, v0
   s_mov_b64 exec, s[2:3]
@@ -564,26 +630,26 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @storage_views_survive_spi
   s_and_b64 s[2:3], s[0:1], s[4:5]
   s_mov_b64_exec_read s[4:5]
   s_mov_b64 exec, -1
-  v_mov_b32_copy v0, s2
-  scratch_store_b32 off, v0, off offset:56 glc:0 slc:0 dlc:0
-  v_mov_b32_copy v0, s3
-  scratch_store_b32 off, v0, off offset:60 glc:0 slc:0 dlc:0
+  v_mov_b32 v0, s2
+  scratch_store_b32 off, v0, off offset:56
+  v_mov_b32 v0, s3
+  scratch_store_b32 off, v0, off offset:60
   s_mov_b64 exec, s[4:5]
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:48 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:48
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s4, v0
-  scratch_load_b32 v0, off, off offset:52 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:52
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s5, v0
   s_mov_b64 exec, s[2:3]
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:64 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:64
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s6, v0
-  scratch_load_b32 v0, off, off offset:68 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:68
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s7, v0
   s_mov_b64 exec, s[2:3]
@@ -591,10 +657,10 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @storage_views_survive_spi
   s_and_b64 s[2:3], s[4:5], s[6:7]
   s_mov_b64_exec_read s[4:5]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:56 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:56
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s6, v0
-  scratch_load_b32 v0, off, off offset:60 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:60
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s7, v0
   s_mov_b64 exec, s[4:5]
@@ -603,10 +669,10 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @storage_views_survive_spi
   s_and_b64 s[0:1], s[2:3], s[0:1]
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:72 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:72
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s4, v0
-  scratch_load_b32 v0, off, off offset:76 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:76
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s5, v0
   s_mov_b64 exec, s[2:3]
@@ -614,10 +680,10 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @storage_views_survive_spi
   s_and_b64 s[0:1], s[0:1], s[4:5]
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:48 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:48
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s4, v0
-  scratch_load_b32 v0, off, off offset:52 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:52
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s5, v0
   s_mov_b64 exec, s[2:3]
@@ -625,14 +691,179 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @storage_views_survive_spi
   s_and_b64 s[0:1], s[0:1], s[4:5]
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:28 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:28
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s4, v0
-  scratch_load_b32 v0, off, off offset:32 glc:0 slc:0 dlc:0
+  scratch_load_b32 v0, off, off offset:32
   s_waitcnt vmcnt(0) lgkmcnt(63)
   v_readfirstlane_b32 s5, v0
   s_mov_b64 exec, s[2:3]
   s_delay_alu instid0(VALU_DEP_1)
   s_xor_b64 s[0:1], s[0:1], s[4:5]
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+
+// Spilling asynchronous load results rebuilds their register leases. Exact
+// assembly checks the load-to-spill and reload-to-store waits.
+// RUN: emit amdgpu-assembly @loaded_snapshot strategy=source amdgpu.vgpr=4
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @loaded_snapshot(%offset: reg<amdgpu.vgpr>, %source: reg<amdgpu.sgpr x2>, %destination: reg<amdgpu.sgpr x2>) asm {
+  %first = global_load_b32_saddr %offset, %source
+  %second = global_load_b32_saddr %offset, %source {offset = 4}
+  %third = global_load_b32_saddr %offset, %source {offset = 8}
+  %fourth = global_load_b32_saddr %offset, %source {offset = 12}
+  %fifth = global_load_b32_saddr %offset, %source {offset = 16}
+  s_barrier
+  global_store_b32_saddr %offset, %first, %destination
+  global_store_b32_saddr %offset, %second, %destination {offset = 4}
+  global_store_b32_saddr %offset, %third, %destination {offset = 8}
+  global_store_b32_saddr %offset, %fourth, %destination {offset = 12}
+  global_store_b32_saddr %offset, %fifth, %destination {offset = 16}
+  return
+}
+// ----
+  global_load_b32 v1, v0, s[0:1] offset:0
+  global_load_b32 v2, v0, s[0:1] offset:4
+  global_load_b32 v3, v0, s[0:1] offset:8
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  scratch_store_b32 off, v3, off offset:0
+  global_load_b32 v3, v0, s[0:1] offset:12
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  scratch_store_b32 off, v3, off offset:4
+  global_load_b32 v3, v0, s[0:1] offset:16
+  s_barrier
+  global_store_b32 v0, v1, s[2:3] offset:0
+  global_store_b32 v0, v2, s[2:3] offset:4
+  scratch_load_b32 v1, off, off offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  global_store_b32 v0, v1, s[2:3] offset:8
+  scratch_load_b32 v1, off, off offset:4
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  global_store_b32 v0, v1, s[2:3] offset:12
+  global_store_b32 v0, v3, s[2:3] offset:16
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+
+// An authored scratch store does not make its shared source globally
+// unspillable. Its other uses still participate in ordinary spill repair.
+// RUN: emit amdgpu-assembly @shared_spill_payloads strategy=source amdgpu.vgpr=4
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @shared_spill_payloads(%offset: reg<amdgpu.vgpr>, %source: reg<amdgpu.sgpr x2>, %destination: reg<amdgpu.sgpr x2>) asm {
+  %storage = storage {byte_alignment = 4, byte_length = 20} : low.storage<private>
+  %first = global_load_b32_saddr %offset, %source
+  %second = global_load_b32_saddr %offset, %source {offset = 4}
+  %third = global_load_b32_saddr %offset, %source {offset = 8}
+  %fourth = global_load_b32_saddr %offset, %source {offset = 12}
+  %fifth = global_load_b32_saddr %offset, %source {offset = 16}
+  s_barrier
+  low.spill %first, %storage : reg<amdgpu.vgpr>, low.storage<private>
+  low.spill %second, %storage {offset = 4} : reg<amdgpu.vgpr>, low.storage<private>
+  low.spill %third, %storage {offset = 8} : reg<amdgpu.vgpr>, low.storage<private>
+  low.spill %fourth, %storage {offset = 12} : reg<amdgpu.vgpr>, low.storage<private>
+  low.spill %fifth, %storage {offset = 16} : reg<amdgpu.vgpr>, low.storage<private>
+  global_store_b32_saddr %offset, %first, %destination
+  global_store_b32_saddr %offset, %second, %destination {offset = 4}
+  global_store_b32_saddr %offset, %third, %destination {offset = 8}
+  global_store_b32_saddr %offset, %fourth, %destination {offset = 12}
+  global_store_b32_saddr %offset, %fifth, %destination {offset = 16}
+  return
+}
+// ----
+  global_load_b32 v1, v0, s[0:1] offset:0
+  global_load_b32 v2, v0, s[0:1] offset:4
+  global_load_b32 v3, v0, s[0:1] offset:8
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  scratch_store_b32 off, v3, off offset:20
+  global_load_b32 v3, v0, s[0:1] offset:12
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  scratch_store_b32 off, v3, off offset:24
+  global_load_b32 v3, v0, s[0:1] offset:16
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  scratch_store_b32 off, v3, off offset:28
+  s_barrier
+  scratch_store_b32 off, v1, off offset:0
+  scratch_store_b32 off, v2, off offset:4
+  scratch_load_b32 v3, off, off offset:20
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  scratch_store_b32 off, v3, off offset:8
+  scratch_load_b32 v3, off, off offset:24
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  scratch_store_b32 off, v3, off offset:12
+  scratch_load_b32 v3, off, off offset:28
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  scratch_store_b32 off, v3, off offset:16
+  global_store_b32 v0, v1, s[2:3] offset:0
+  global_store_b32 v0, v2, s[2:3] offset:4
+  scratch_load_b32 v1, off, off offset:20
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  global_store_b32 v0, v1, s[2:3] offset:8
+  scratch_load_b32 v1, off, off offset:24
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  global_store_b32 v0, v1, s[2:3] offset:12
+  scratch_load_b32 v1, off, off offset:28
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  global_store_b32 v0, v1, s[2:3] offset:16
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+
+// Rematerialize private arithmetic, then spill the captured loads. Retaining
+// that arithmetic placement lets each reload start before the private producer
+// instead of losing all placement facts when spill traffic is inserted.
+// RUN: emit amdgpu-assembly @retained_arithmetic_after_spill strategy=resource-stall amdgpu.vgpr=3
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @retained_arithmetic_after_spill(%offset: reg<amdgpu.vgpr>, %source: reg<amdgpu.sgpr x2>, %destination: reg<amdgpu.sgpr x2>) asm {
+  %bias0 = v_add_u32_lit %offset, 12345
+  %bias1 = v_add_u32_lit %offset, 12346
+  %bias2 = v_add_u32_lit %offset, 12347
+  low.schedule.fence
+  %loaded0 = global_load_b32_saddr %offset, %source
+  %loaded1 = global_load_b32_saddr %offset, %source {offset = 4}
+  %loaded2 = global_load_b32_saddr %offset, %source {offset = 8}
+  s_barrier
+  %biased0 = v_add_u32 %loaded0, %bias0
+  global_store_b32_saddr %offset, %biased0, %destination
+  %biased1 = v_add_u32 %loaded1, %bias1
+  global_store_b32_saddr %offset, %biased1, %destination {offset = 4}
+  %biased2 = v_add_u32 %loaded2, %bias2
+  global_store_b32_saddr %offset, %biased2, %destination {offset = 8}
+  return
+}
+// ----
+  global_load_b32 v1, v0, s[0:1] offset:4
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  scratch_store_b32 off, v1, off offset:0
+  global_load_b32 v1, v0, s[0:1] offset:8
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  scratch_store_b32 off, v1, off offset:4
+  global_load_b32 v1, v0, s[0:1] offset:0
+  s_barrier
+  v_add_u32 v2, 12345, v0
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  s_delay_alu instid0(VALU_DEP_1) | instskip(SKIP_4) | instid1(VALU_DEP_1)
+  v_add_u32 v1, v1, v2
+  global_store_b32 v0, v1, s[2:3] offset:0
+  scratch_load_b32 v1, off, off offset:0
+  v_add_u32 v2, 12346, v0
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  v_add_u32 v1, v1, v2
+  global_store_b32 v0, v1, s[2:3] offset:4
+  scratch_load_b32 v1, off, off offset:4
+  v_add_u32 v2, 12347, v0
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  s_delay_alu instid0(VALU_DEP_1)
+  v_add_u32 v1, v1, v2
+  global_store_b32 v0, v1, s[2:3] offset:8
   s_waitcnt_vscnt vscnt(0)
   s_endpgm

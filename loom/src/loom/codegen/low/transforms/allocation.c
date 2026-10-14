@@ -530,6 +530,7 @@ static iree_status_t loom_low_materialize_allocation_run_attempts(
                                           : LOOM_LOW_STORAGE_SPACE_SET_ALL,
         .emit_spill_diagnostics = state && state->emit_spill_diagnostics,
         .max_spill_plan_count = 1,
+        .per_user_placement_values = rematerialization.per_user_values,
         .emitter = pass->diagnostic_emitter,
     };
     IREE_RETURN_IF_ERROR(loom_low_allocation_materialize_spills(
@@ -546,7 +547,6 @@ static iree_status_t loom_low_materialize_allocation_run_attempts(
           table.spill_plan_count);
     }
 
-    loom_low_rematerialization_invalidate_placement(&rematerialization);
     loom_low_materialize_allocation_statistics_t* statistics =
         loom_low_materialize_allocation_statistics(pass);
     statistics->storage += (int64_t)result.storage_count;

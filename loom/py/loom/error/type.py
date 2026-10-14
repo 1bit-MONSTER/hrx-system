@@ -293,6 +293,23 @@ ERR_TYPE_012 = ErrorDef(
     "before it reaches this boundary",
 )
 
+# ERR_TYPE_018: Register carrier classes must agree.
+ERR_TYPE_018 = ErrorDef(
+    domain=ErrorDomain.TYPE,
+    code=18,
+    severity=Severity.ERROR,
+    summary="Register carrier classes do not match.",
+    message="'{field_a}' type {type_a} and '{field_b}' type {type_b} "
+    "must use the same register class",
+    params=(
+        ErrorParam("field_a", ParamKind.STRING),
+        ErrorParam("type_a", ParamKind.TYPE),
+        ErrorParam("field_b", ParamKind.STRING),
+        ErrorParam("type_b", ParamKind.TYPE),
+    ),
+    fix_hint="Use the same register class for '{field_a}' and '{field_b}'",
+)
+
 ALL_TYPE_ERRORS: tuple[ErrorDef, ...] = (
     ERR_TYPE_001,
     ERR_TYPE_002,
@@ -311,4 +328,5 @@ ALL_TYPE_ERRORS: tuple[ErrorDef, ...] = (
     ERR_TYPE_015,
     ERR_TYPE_016,
     ERR_TYPE_017,
+    ERR_TYPE_018,
 )

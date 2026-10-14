@@ -6,7 +6,9 @@
 
 #include "loom/target/arch/amd/xdna/aie2p/check/leaf.h"
 
+#include "loom/analysis/symbol_facts.h"
 #include "loom/codegen/low/diagnostics.h"
+#include "loom/codegen/low/target_binding.h"
 #include "loom/ops/low/ops.h"
 #include "loom/target/arch/amd/xdna/aie2p/descriptors/core_descriptors.h"
 #include "loom/target/arch/amd/xdna/aie2p/emit/leaf_compile.h"
@@ -217,6 +219,18 @@ static iree_status_t loom_aie2p_leaf_check_execute(
       .descriptor_set_providers = descriptor_set_providers,
       .descriptor_set_provider_count = IREE_ARRAYSIZE(descriptor_set_providers),
   };
+  loom_symbol_fact_table_t symbol_facts;
+  loom_symbol_fact_table_initialize(&symbol_facts, request->case_arena);
+  loom_low_resolved_target_t target;
+  IREE_RETURN_IF_ERROR(loom_low_resolve_function_target(
+      native_module->module, &symbol_facts, function, NULL,
+      &descriptor_registry, emitter, &target));
+  if (target.descriptor_set == NULL) {
+    return iree_ok_status();
+  }
+  IREE_RETURN_IF_ERROR(loom_check_low_emit_materialize_operand_ties(
+      native_module->module, function, target.descriptor_set,
+      request->case_arena));
   loom_aie2p_leaf_compile_options_t options = {
       .descriptor_registry = &descriptor_registry,
       .allocation_diagnostic_flags = allocation_diagnostic_flags,

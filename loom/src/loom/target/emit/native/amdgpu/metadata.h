@@ -68,16 +68,21 @@ typedef struct loom_amdgpu_metadata_kernel_t {
   uint32_t group_segment_fixed_size;
   // Fixed scratch/private segment size in bytes.
   uint32_t private_segment_fixed_size;
-  // Physical SGPR high-water count for the kernel body.
+  // SGPR high-water count including body, ABI and entry requirements.
   uint32_t sgpr_count;
-  // Physical VGPR high-water count for the kernel body.
+  // Total vector register allocation before hardware granulation. On CDNA this
+  // includes the aligned architectural VGPR bank followed by any AGPRs.
   uint32_t vgpr_count;
+  // AGPR high-water count, including structural move temporaries.
+  uint32_t agpr_count;
   // Maximum flat workgroup size advertised for dispatch validation/tuning.
   uint32_t max_flat_workgroup_size;
   // Required workgroup size, when |has_required_workgroup_size| is true.
   loom_target_workgroup_size_t required_workgroup_size;
   // True when |required_workgroup_size| should be emitted.
   bool has_required_workgroup_size;
+  // True on targets with accumulator registers, including zero AGPR usage.
+  bool has_agpr_count;
   // Required nontrivial workgroup-cluster size, when
   // |has_workgroup_cluster_size| is true.
   loom_target_workgroup_cluster_size_t workgroup_cluster_size;

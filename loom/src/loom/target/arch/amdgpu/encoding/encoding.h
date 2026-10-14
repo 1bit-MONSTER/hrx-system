@@ -184,6 +184,20 @@ enum loom_amdgpu_encoding_format_flag_bits_e {
   LOOM_AMDGPU_ENCODING_FORMAT_FLAG_DPP_CONTROL = 1u << 4,
 };
 
+// Register-bank selectors stored in loom_low_operand_t::encoding_adapter_id.
+// Each nonzero value is a distinct selector mask. Descriptor constraints
+// require matching register classes for operands sharing a selector.
+typedef enum loom_amdgpu_register_encoding_adapter_e {
+  // The operand has no independent register-bank selector.
+  LOOM_AMDGPU_REGISTER_ENCODING_DIRECT = 0,
+  // ACC[0] selects MFMA SrcA or FLAT data/result registers.
+  LOOM_AMDGPU_REGISTER_ENCODING_ACC0 = 1u << 0,
+  // ACC[1] selects MFMA SrcB registers.
+  LOOM_AMDGPU_REGISTER_ENCODING_ACC1 = 1u << 1,
+  // ACC_CD selects both MFMA accumulator and result registers.
+  LOOM_AMDGPU_REGISTER_ENCODING_ACC_CD = 1u << 2,
+} loom_amdgpu_register_encoding_adapter_t;
+
 typedef enum loom_amdgpu_dpp_control_syntax_e {
   // Reserved or otherwise invalid DPP control value.
   LOOM_AMDGPU_DPP_CONTROL_SYNTAX_INVALID = 0,
@@ -394,8 +408,8 @@ bool loom_amdgpu_encoding_field_is_literal(uint16_t field_id);
 // Returns true when |selector| writes a sub-DWORD destination through SDWA.
 bool loom_amdgpu_sdwa_dst_selector_writes_subdword(uint32_t selector);
 
-// Maps a verified inline unsigned integer into the target's scalar/vector
-// source selector domain.
+// Maps a 32-bit integer bit pattern into the target's scalar/vector source
+// selector domain. Returns false when the value needs a literal payload.
 bool loom_amdgpu_encoding_inline_u32_source(
     const loom_amdgpu_encoding_table_t* table, uint32_t value,
     uint16_t* out_source);

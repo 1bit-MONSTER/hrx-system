@@ -44,15 +44,11 @@ low.kernel.def target<amdgpu.rdna3.core> abi_layout({constant_count = 0, direct_
   %42 = v_mov_b32_copy %41
   %43 = slice %seed[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
   %44 = v_mov_b32_copy %43
-  %45 = concat(%42, %44) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  %46 = copy %45 : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr x2>
-  %49 = slice %46[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %50 = v_dot2_f32_f16 %32, %37, %49
-  %53 = slice %46[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %54 = v_dot2_f32_f16 %34, %39, %53
-  %result = concat(%50, %54) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  %56 = v_mov_b32 0
-  global_store_b64_saddr %56, %result, %output_view
+  %49 = v_dot2_f32_f16 %32, %37, %42 : reg<amdgpu.vgpr>
+  %53 = v_dot2_f32_f16 %34, %39, %44 : reg<amdgpu.vgpr>
+  %result = concat(%49, %53) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %55 = v_mov_b32 0
+  global_store_b64_saddr %55, %result, %output_view
   return
 }
 
@@ -101,15 +97,11 @@ low.kernel.def target<amdgpu.rdna3.core> abi_layout({constant_count = 0, direct_
   %42 = v_mov_b32_copy %41
   %43 = slice %seed[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
   %44 = v_mov_b32_copy %43
-  %45 = concat(%42, %44) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  %46 = copy %45 : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr x2>
-  %49 = slice %46[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %50 = v_dot2_f32_bf16 %32, %37, %49
-  %53 = slice %46[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
-  %54 = v_dot2_f32_bf16 %34, %39, %53
-  %result = concat(%50, %54) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
-  %56 = v_mov_b32 0
-  global_store_b64_saddr %56, %result, %output_view
+  %49 = v_dot2_f32_bf16 %32, %37, %42 : reg<amdgpu.vgpr>
+  %53 = v_dot2_f32_bf16 %34, %39, %44 : reg<amdgpu.vgpr>
+  %result = concat(%49, %53) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %55 = v_mov_b32 0
+  global_store_b64_saddr %55, %result, %output_view
   return
 }
 

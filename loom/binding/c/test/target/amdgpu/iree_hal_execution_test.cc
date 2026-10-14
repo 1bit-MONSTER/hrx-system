@@ -62,6 +62,10 @@ kernel.def @double_i32_at_byte_offset() {
 // clang-format off
 constexpr char kWideScaledSourceText[] =
     "template.decl @spill_offset(%words: vector<2xi32>) -> (vector<2xi32>)\n"
+#if defined(LOOM_AMDGPU_DESCRIPTOR_SET_CDNA2_CORE)
+    AMDGPU_SPILL_OFFSET_PROVIDER(gfx90a, "gfx90a",
+                                "amdgpu.cdna2.core")
+#endif
 #if defined(LOOM_AMDGPU_DESCRIPTOR_SET_CDNA3_CORE)
     AMDGPU_SPILL_OFFSET_PROVIDER(gfx940, "gfx940",
                                 "amdgpu.cdna3.core")

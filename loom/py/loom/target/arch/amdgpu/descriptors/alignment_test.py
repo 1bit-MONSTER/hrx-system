@@ -60,7 +60,7 @@ def test_instruction_alignment_across_native_families(target) -> None:
     assert seen_pairs and seen_wide and seen_vectors
     vgpr = next(row for row in aligned.reg_classes if row.name == _REG_VGPR)
     assert (RegClassFlag.EVEN_ALIGNED_TUPLES in vgpr.flags) == target.startswith(
-        ("cdna", "gfx9_4")
+        ("cdna", "gfx9_4", "gfx12_5", "rdna4_gfx125")
     )
 
 

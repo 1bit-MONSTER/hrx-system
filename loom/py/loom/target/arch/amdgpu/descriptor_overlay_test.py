@@ -16,6 +16,7 @@ from loom.target.arch.amdgpu.descriptor_overlay import (
     AmdgpuImplicitOperandOverlay,
     AmdgpuOperandOverlay,
     AmdgpuOperandPredefinedValueRef,
+    _materialize_operand_overlay,
     materialize_amdgpu_descriptor_overlay,
     materialize_amdgpu_descriptor_overlays,
 )
@@ -1308,3 +1309,55 @@ def test_materialize_rejects_implicit_mapping_without_implicit_flag() -> None:
         match="without implicit flag",
     ):
         materialize_amdgpu_descriptor_overlay(spec, overlay)
+
+
+@pytest.mark.parametrize(
+    ("field", "xml_type", "role"),
+    [
+        ("VDST", "OPR_ACCVGPR", OperandRole.RESULT),
+        ("SRC0", "OPR_SRC_ACCVGPR", OperandRole.OPERAND),
+    ],
+)
+def test_fixed_accumulator_bank_needs_no_selector(field, xml_type, role) -> None:
+    operand = Operand("value", role, (RegClassAlt("amdgpu.agpr"),))
+    result = _materialize_operand_overlay(
+        AmdgpuOperandOverlay(field, operand), "ENC_VOP1", xml_type
+    )
+    assert result.encoding_adapter_id == 0
+    assert result.reg_alts == operand.reg_alts
+
+
+@pytest.mark.parametrize("xml_type", ["OPR_ACCVGPR", "OPR_SRC_ACCVGPR"])
+def test_fixed_accumulator_bank_rejects_vector_alternatives(xml_type) -> None:
+    with pytest.raises(
+        AmdgpuDescriptorOverlayError, match="exposes another register bank"
+    ):
+        _materialize_operand_overlay(
+            AmdgpuOperandOverlay(
+                "VDST",
+                Operand(
+                    "value",
+                    OperandRole.RESULT,
+                    (RegClassAlt("amdgpu.agpr"), RegClassAlt("amdgpu.vgpr")),
+                ),
+            ),
+            "ENC_VOP1",
+            xml_type,
+        )
+
+
+def test_fixed_accumulator_bank_rejects_a_switchable_selector() -> None:
+    with pytest.raises(AmdgpuDescriptorOverlayError, match="has a bank selector"):
+        _materialize_operand_overlay(
+            AmdgpuOperandOverlay(
+                "VDST",
+                Operand(
+                    "value",
+                    OperandRole.RESULT,
+                    (RegClassAlt("amdgpu.agpr"),),
+                    encoding_adapter_id=1,
+                ),
+            ),
+            "ENC_VOP3P",
+            "OPR_ACCVGPR",
+        )

@@ -195,6 +195,15 @@ void loom_low_allocation_storage_lease_state_record_assignment(
     const loom_low_allocation_assignment_t* assignments,
     uint32_t assignment_index, loom_value_ordinal_t value_ordinal);
 
+// Retires the physical reservations of an assigned value selected for spilling.
+// The provisional frame is rebuilt after spill IR materialization; its final
+// producer and reload assignments establish fresh physical storage leases.
+void loom_low_allocation_storage_lease_state_record_spill(
+    loom_low_allocation_storage_lease_state_t* state,
+    const loom_low_descriptor_set_t* descriptor_set,
+    const loom_low_allocation_assignment_t* assignment,
+    loom_value_ordinal_t value_ordinal);
+
 // Verifies that every input storage-lease record was materialized exactly once.
 iree_status_t loom_low_allocation_storage_lease_state_finalize(
     const loom_low_allocation_storage_lease_state_t* state);

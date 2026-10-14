@@ -135,6 +135,8 @@ iree_string_view_t loom_low_constraint_kind_name(
   switch (kind) {
     case LOOM_LOW_CONSTRAINT_KIND_TIED:
       return IREE_SV("tied");
+    case LOOM_LOW_CONSTRAINT_KIND_PREFER_TIED:
+      return IREE_SV("prefer_tied");
     case LOOM_LOW_CONSTRAINT_KIND_COMMUTABLE:
       return IREE_SV("commutable");
     case LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE:
@@ -149,6 +151,8 @@ iree_string_view_t loom_low_constraint_kind_name(
       return IREE_SV("same_register_ordinal");
     case LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_VALUE_TYPE:
       return IREE_SV("same_register_value_type");
+    case LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_CLASS:
+      return IREE_SV("same_register_class");
     default:
       return IREE_SV("unknown");
   }

@@ -5,6 +5,17 @@ global.rodata.def @addends = align(16) bytes("01000000fbffffff6400000000000080")
 
 global.rodata.def @reverse_lanes = align(32) bytes("0f0e0d0c0b0a090807060504030201000f0e0d0c0b0a09080706050403020100")
 
+// Independently owned results still obey the instruction's physical ties.
+low.func.def public target<x86.avx2.core> abi(object_function) @independent_integer_updates(%left32: reg<x86.gpr32>, %right32: reg<x86.gpr32>, %left64: reg<x86.gpr64>, %right64: reg<x86.gpr64>, %output: reg<x86.gpr64>) asm {
+  %sum = add.gpr32 %left32, %right32 : reg<x86.gpr32>
+  %difference = sub.gpr64 %left64, %right64 : reg<x86.gpr64>
+  mov.store.gpr32 %left32, %output {disp32 = 0}
+  mov.store.gpr32 %sum, %output {disp32 = 4}
+  mov.store.gpr64 %left64, %output {disp32 = 8}
+  mov.store.gpr64 %difference, %output {disp32 = 16}
+  return
+}
+
 // Exact source lanes lower into artifact-owned data before this object is
 // independently linked. Alternating values cover each storage width without
 // being mistaken for the uniform broadcast path.

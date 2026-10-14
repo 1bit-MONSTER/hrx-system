@@ -164,7 +164,7 @@ low.func.def target<amdgpu.cdna3.core>(@target) @gfx942_same_class_vmem_waw_back
   %zero = s_mov_b32 0
   low.br ^loop(%zero: reg<amdgpu.sgpr>)
 ^loop(%iteration: reg<amdgpu.sgpr>):
-  %unused = global_load_dword_saddr %address, %input
+  %unused = global_load_dword_saddr %address, %input : reg<amdgpu.vgpr>
   %one = s_mov_b32 1
   %next = s_add_u32 %iteration, %one
   %again = s_cmp_lt_i32 %next, %limit

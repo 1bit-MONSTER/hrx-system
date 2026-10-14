@@ -14,6 +14,11 @@ from __future__ import annotations
 from dataclasses import replace
 
 from .common import *
+from .memory_assembly import (
+    _buffer_memory_asm,
+    _global_memory_asm,
+    _native_memory_modifiers,
+)
 
 _MEMORY_DWORD_VECTOR_WIDTHS = ((32, 1), (64, 2), (96, 3), (128, 4))
 _SMEM_DWORDX4_WIDTHS = (
@@ -98,20 +103,6 @@ def _buffer_operand_forms(
             )
         )
     return tuple(operand_forms)
-
-
-def _buffer_vaddr_offset_native_assembly_values(
-    *,
-    payload_kind: NativeAsmValueKind,
-    payload_field_name: str,
-    fixed_soffset_native_spelling: str,
-) -> tuple[NativeAsmValue, ...]:
-    return (
-        NativeAsmValue(payload_kind, field_name=payload_field_name),
-        _native_operand("vaddr"),
-        _native_operand("resource"),
-        _native_literal(f"{fixed_soffset_native_spelling} offen"),
-    )
 
 
 def _s_buffer_load_sized_overlay(
@@ -332,6 +323,11 @@ def _s_load_sized_overlay(
             operands=("base",),
             immediates=("offset",),
             named_immediates=True,
+            native_assembly_values=(
+                _native_result("dst"),
+                _native_operand("base"),
+                _native_i64_immediate("offset"),
+            ),
         )
     else:
         operands = (
@@ -475,6 +471,11 @@ def _s_store_sized_overlay(
             operands=("value", "base"),
             immediates=("offset",),
             named_immediates=True,
+            native_assembly_values=(
+                _native_operand("value"),
+                _native_operand("base"),
+                _native_i64_immediate("offset"),
+            ),
         )
     else:
         operands = (
@@ -813,6 +814,16 @@ def _buffer_load_dword_overlay(
             off_zero_descriptor_key=off_zero_descriptor_key,
             vaddr_offset_descriptor_key=vaddr_offset_descriptor_key,
         ),
+        asm_forms=_buffer_memory_asm(
+            mnemonic="buffer_load_dword",
+            native_assembly_mnemonic="buffer_load_dword",
+            results=("dst",),
+            operands=("resource", "vaddr", "soffset"),
+            immediates=_memory_asm_immediate_names(cache_fields),
+            native_modifiers=_native_memory_modifiers(
+                cache_fields, temporal_operation="load"
+            ),
+        ),
     )
 
 
@@ -859,13 +870,15 @@ def _buffer_load_off_zero_overlay(
         ),
         effects=(memory_effect,),
         flags=(DescriptorFlag.SIDE_EFFECTING,),
-        asm_forms=_asm(
+        asm_forms=_buffer_memory_asm(
             mnemonic=f"{mnemonic}_off_zero",
-            native_assembly_mnemonic=mnemonic,
+            native_assembly_mnemonic=instruction_name.lower(),
             results=("dst",),
             operands=("resource",),
             immediates=_memory_asm_immediate_names(cache_fields),
-            named_immediates=True,
+            native_modifiers=_native_memory_modifiers(
+                cache_fields, temporal_operation="load"
+            ),
         ),
     )
 
@@ -914,17 +927,15 @@ def _buffer_load_vaddr_offset_overlay(
         ),
         effects=(memory_effect,),
         flags=(DescriptorFlag.SIDE_EFFECTING,),
-        asm_forms=_asm(
+        asm_forms=_buffer_memory_asm(
             mnemonic=f"{mnemonic}_vaddr_offset",
-            native_assembly_mnemonic=mnemonic,
+            native_assembly_mnemonic=instruction_name.lower(),
             results=("dst",),
             operands=("resource", "vaddr"),
             immediates=_memory_asm_immediate_names(cache_fields),
-            named_immediates=True,
-            native_assembly_values=_buffer_vaddr_offset_native_assembly_values(
-                payload_kind=NativeAsmValueKind.RESULT,
-                payload_field_name="dst",
-                fixed_soffset_native_spelling=fixed_soffset_native_spelling,
+            fixed_soffset_native_spelling=fixed_soffset_native_spelling,
+            native_modifiers=_native_memory_modifiers(
+                cache_fields, temporal_operation="load"
             ),
         ),
     )
@@ -1024,6 +1035,16 @@ def _buffer_load_b16_d16_overlay(
         operand_forms=_buffer_operand_forms(
             vaddr_offset_descriptor_key=vaddr_offset_descriptor_key,
         ),
+        asm_forms=_buffer_memory_asm(
+            mnemonic="buffer_load_d16_b16",
+            native_assembly_mnemonic="buffer_load_short_d16",
+            results=("dst",),
+            operands=("resource", "vaddr", "soffset"),
+            immediates=_memory_asm_immediate_names(cache_fields),
+            native_modifiers=_native_memory_modifiers(
+                cache_fields, temporal_operation="load"
+            ),
+        ),
     )
 
 
@@ -1087,17 +1108,14 @@ def _buffer_load_b16_d16_hi_overlay(
         operand_forms=_buffer_operand_forms(
             vaddr_offset_descriptor_key=vaddr_offset_descriptor_key,
         ),
-        asm_forms=_asm(
+        asm_forms=_buffer_memory_asm(
+            mnemonic="buffer_load_d16_hi_b16",
+            native_assembly_mnemonic="buffer_load_short_d16_hi",
             results=("dst",),
             operands=("src", "resource", "vaddr", "soffset"),
             immediates=_memory_asm_immediate_names(cache_fields),
-            named_immediates=True,
-            native_assembly_values=(
-                _native_result("dst"),
-                _native_operand("vaddr"),
-                _native_operand("resource"),
-                _native_operand("soffset"),
-                _native_modifier_literal("offen"),
+            native_modifiers=_native_memory_modifiers(
+                cache_fields, temporal_operation="load"
             ),
         ),
     )
@@ -1144,17 +1162,15 @@ def _buffer_load_b16_d16_vaddr_offset_overlay(
         ),
         effects=(_global_read_effect(16),),
         flags=(DescriptorFlag.SIDE_EFFECTING,),
-        asm_forms=_asm(
+        asm_forms=_buffer_memory_asm(
             mnemonic="buffer_load_d16_b16_vaddr_offset",
-            native_assembly_mnemonic="buffer_load_d16_b16",
+            native_assembly_mnemonic="buffer_load_short_d16",
             results=("dst",),
             operands=("resource", "vaddr"),
             immediates=_memory_asm_immediate_names(cache_fields),
-            named_immediates=True,
-            native_assembly_values=_buffer_vaddr_offset_native_assembly_values(
-                payload_kind=NativeAsmValueKind.RESULT,
-                payload_field_name="dst",
-                fixed_soffset_native_spelling=fixed_soffset_native_spelling,
+            fixed_soffset_native_spelling=fixed_soffset_native_spelling,
+            native_modifiers=_native_memory_modifiers(
+                cache_fields, temporal_operation="load"
             ),
         ),
     )
@@ -1219,17 +1235,15 @@ def _buffer_load_b16_d16_hi_vaddr_offset_overlay(
         effects=(_global_read_effect(16),),
         constraints=(Constraint(ConstraintKind.TIED, 0, 1),),
         flags=(DescriptorFlag.SIDE_EFFECTING,),
-        asm_forms=_asm(
+        asm_forms=_buffer_memory_asm(
             mnemonic="buffer_load_d16_hi_b16_vaddr_offset",
-            native_assembly_mnemonic="buffer_load_d16_hi_b16",
+            native_assembly_mnemonic="buffer_load_short_d16_hi",
             results=("dst",),
             operands=("src", "resource", "vaddr"),
             immediates=_memory_asm_immediate_names(cache_fields),
-            named_immediates=True,
-            native_assembly_values=_buffer_vaddr_offset_native_assembly_values(
-                payload_kind=NativeAsmValueKind.RESULT,
-                payload_field_name="dst",
-                fixed_soffset_native_spelling=fixed_soffset_native_spelling,
+            fixed_soffset_native_spelling=fixed_soffset_native_spelling,
+            native_modifiers=_native_memory_modifiers(
+                cache_fields, temporal_operation="load"
             ),
         ),
     )
@@ -1279,6 +1293,16 @@ def _buffer_load_sized_overlay(
         operand_forms=_buffer_operand_forms(
             off_zero_descriptor_key=off_zero_descriptor_key,
             vaddr_offset_descriptor_key=vaddr_offset_descriptor_key,
+        ),
+        asm_forms=_buffer_memory_asm(
+            mnemonic=mnemonic,
+            native_assembly_mnemonic=instruction_name.lower(),
+            results=("dst",),
+            operands=("resource", "vaddr", "soffset"),
+            immediates=_memory_asm_immediate_names(cache_fields),
+            native_modifiers=_native_memory_modifiers(
+                cache_fields, temporal_operation="load"
+            ),
         ),
     )
 
@@ -1700,12 +1724,15 @@ def _buffer_load_lds_overlay(
             off_zero_descriptor_key=off_zero_descriptor_key,
             vaddr_offset_descriptor_key=vaddr_offset_descriptor_key,
         ),
-        asm_forms=_asm(
+        asm_forms=_buffer_memory_asm(
             mnemonic=asm_mnemonic,
-            native_assembly_mnemonic=mnemonic,
+            native_assembly_mnemonic=instruction_name.lower(),
             operands=("resource", "vaddr", "soffset", "m0"),
             immediates=_memory_asm_immediate_names(cache_fields),
-            named_immediates=True,
+            native_modifiers=(
+                *_native_memory_modifiers(cache_fields, temporal_operation="load"),
+                _native_modifier_literal("lds"),
+            ),
         ),
     )
 
@@ -1766,12 +1793,15 @@ def _buffer_load_lds_vaddr_offset_overlay(
             workgroup_width_bits=workgroup_width_bits,
         ),
         flags=(DescriptorFlag.SIDE_EFFECTING,),
-        asm_forms=_asm(
+        asm_forms=_buffer_memory_asm(
             mnemonic=f"{asm_mnemonic}_vaddr_offset",
-            native_assembly_mnemonic=mnemonic,
+            native_assembly_mnemonic=instruction_name.lower(),
             operands=("resource", "vaddr", "m0"),
             immediates=_memory_asm_immediate_names(cache_fields),
-            named_immediates=True,
+            native_modifiers=(
+                *_native_memory_modifiers(cache_fields, temporal_operation="load"),
+                _native_modifier_literal("lds"),
+            ),
         ),
     )
 
@@ -1832,12 +1862,15 @@ def _buffer_load_lds_off_zero_overlay(
             workgroup_width_bits=workgroup_width_bits,
         ),
         flags=(DescriptorFlag.SIDE_EFFECTING,),
-        asm_forms=_asm(
+        asm_forms=_buffer_memory_asm(
             mnemonic=f"{asm_mnemonic}_off_zero",
-            native_assembly_mnemonic=mnemonic,
+            native_assembly_mnemonic=instruction_name.lower(),
             operands=("resource", "m0"),
             immediates=_memory_asm_immediate_names(cache_fields),
-            named_immediates=True,
+            native_modifiers=(
+                *_native_memory_modifiers(cache_fields, temporal_operation="load"),
+                _native_modifier_literal("lds"),
+            ),
         ),
     )
 
@@ -2015,6 +2048,15 @@ def _buffer_store_dword_overlay(
             off_zero_descriptor_key=off_zero_descriptor_key,
             vaddr_offset_descriptor_key=vaddr_offset_descriptor_key,
         ),
+        asm_forms=_buffer_memory_asm(
+            mnemonic="buffer_store_dword",
+            native_assembly_mnemonic="buffer_store_dword",
+            operands=("value", "resource", "vaddr", "soffset"),
+            immediates=_memory_asm_immediate_names(cache_fields),
+            native_modifiers=_native_memory_modifiers(
+                cache_fields, temporal_operation="store"
+            ),
+        ),
     )
 
 
@@ -2060,12 +2102,14 @@ def _buffer_store_off_zero_overlay(
         ),
         effects=(memory_effect,),
         flags=(DescriptorFlag.SIDE_EFFECTING,),
-        asm_forms=_asm(
+        asm_forms=_buffer_memory_asm(
             mnemonic=f"{mnemonic}_off_zero",
-            native_assembly_mnemonic=mnemonic,
+            native_assembly_mnemonic=instruction_name.lower(),
             operands=("value", "resource"),
             immediates=_memory_asm_immediate_names(cache_fields),
-            named_immediates=True,
+            native_modifiers=_native_memory_modifiers(
+                cache_fields, temporal_operation="store"
+            ),
         ),
     )
 
@@ -2122,16 +2166,14 @@ def _buffer_store_vaddr_offset_overlay(
         ),
         effects=(memory_effect,),
         flags=(DescriptorFlag.SIDE_EFFECTING,),
-        asm_forms=_asm(
+        asm_forms=_buffer_memory_asm(
             mnemonic=f"{mnemonic}_vaddr_offset",
-            native_assembly_mnemonic=mnemonic,
+            native_assembly_mnemonic=instruction_name.lower(),
             operands=("value", "resource", "vaddr"),
             immediates=_memory_asm_immediate_names(cache_fields),
-            named_immediates=True,
-            native_assembly_values=_buffer_vaddr_offset_native_assembly_values(
-                payload_kind=NativeAsmValueKind.OPERAND,
-                payload_field_name="value",
-                fixed_soffset_native_spelling=fixed_soffset_native_spelling,
+            fixed_soffset_native_spelling=fixed_soffset_native_spelling,
+            native_modifiers=_native_memory_modifiers(
+                cache_fields, temporal_operation="store"
             ),
         ),
     )
@@ -2229,6 +2271,15 @@ def _buffer_store_b16_overlay(
         operand_forms=_buffer_operand_forms(
             vaddr_offset_descriptor_key=vaddr_offset_descriptor_key,
         ),
+        asm_forms=_buffer_memory_asm(
+            mnemonic="buffer_store_short",
+            native_assembly_mnemonic="buffer_store_short",
+            operands=("value", "resource", "vaddr", "soffset"),
+            immediates=_memory_asm_immediate_names(cache_fields),
+            native_modifiers=_native_memory_modifiers(
+                cache_fields, temporal_operation="store"
+            ),
+        ),
     )
 
 
@@ -2273,16 +2324,14 @@ def _buffer_store_b16_vaddr_offset_overlay(
         ),
         effects=(_global_write_effect(16),),
         flags=(DescriptorFlag.SIDE_EFFECTING,),
-        asm_forms=_asm(
+        asm_forms=_buffer_memory_asm(
             mnemonic="buffer_store_short_vaddr_offset",
             native_assembly_mnemonic="buffer_store_short",
             operands=("value", "resource", "vaddr"),
             immediates=_memory_asm_immediate_names(cache_fields),
-            named_immediates=True,
-            native_assembly_values=_buffer_vaddr_offset_native_assembly_values(
-                payload_kind=NativeAsmValueKind.OPERAND,
-                payload_field_name="value",
-                fixed_soffset_native_spelling=fixed_soffset_native_spelling,
+            fixed_soffset_native_spelling=fixed_soffset_native_spelling,
+            native_modifiers=_native_memory_modifiers(
+                cache_fields, temporal_operation="store"
             ),
         ),
     )
@@ -2327,6 +2376,15 @@ def _buffer_store_b8_overlay(
         flags=(DescriptorFlag.SIDE_EFFECTING,),
         operand_forms=_buffer_operand_forms(
             vaddr_offset_descriptor_key=vaddr_offset_descriptor_key,
+        ),
+        asm_forms=_buffer_memory_asm(
+            mnemonic="buffer_store_b8",
+            native_assembly_mnemonic="buffer_store_byte",
+            operands=("value", "resource", "vaddr", "soffset"),
+            immediates=_memory_asm_immediate_names(cache_fields),
+            native_modifiers=_native_memory_modifiers(
+                cache_fields, temporal_operation="store"
+            ),
         ),
     )
 
@@ -2403,6 +2461,15 @@ def _buffer_store_sized_overlay(
         operand_forms=_buffer_operand_forms(
             off_zero_descriptor_key=off_zero_descriptor_key,
             vaddr_offset_descriptor_key=vaddr_offset_descriptor_key,
+        ),
+        asm_forms=_buffer_memory_asm(
+            mnemonic=mnemonic,
+            native_assembly_mnemonic=instruction_name.lower(),
+            operands=("value", "resource", "vaddr", "soffset"),
+            immediates=_memory_asm_immediate_names(cache_fields),
+            native_modifiers=_native_memory_modifiers(
+                cache_fields, temporal_operation="store"
+            ),
         ),
     )
 
@@ -2893,20 +2960,16 @@ def _global_load_overlay(
         fixed_encoding_fields=fixed_encoding_fields,
         effects=(_global_read_effect(width_bits),),
         flags=(DescriptorFlag.SIDE_EFFECTING,),
-        asm_forms=_global_saddr_asm(
+        asm_forms=_global_memory_asm(
             mnemonic=mnemonic,
-            native_assembly_mnemonic=native_assembly_mnemonic,
+            native_assembly_mnemonic=native_assembly_mnemonic
+            or instruction_name.lower(),
             results=("dst",),
-            operands=("addr", "saddr"),
+            operands=("addr", *(("saddr",) if saddr_off is None else ())),
             immediates=_memory_asm_immediate_names(cache_fields),
-        )
-        if saddr_off is None
-        else _global_vaddr_asm(
-            mnemonic=mnemonic,
-            native_assembly_mnemonic=native_assembly_mnemonic,
-            results=("dst",),
-            operands=("addr",),
-            immediates=_memory_asm_immediate_names(cache_fields),
+            native_modifiers=_native_memory_modifiers(
+                cache_fields, temporal_operation="load"
+            ),
         ),
     )
 
@@ -3012,18 +3075,15 @@ def _global_load_b16_d16_overlay(
         fixed_encoding_fields=fixed_encoding_fields,
         effects=(_global_read_effect(16),),
         flags=(DescriptorFlag.SIDE_EFFECTING,),
-        asm_forms=_global_saddr_asm(
+        asm_forms=_global_memory_asm(
             mnemonic="global_load_d16_b16",
+            native_assembly_mnemonic="global_load_short_d16",
             results=("dst",),
-            operands=("addr", "saddr"),
+            operands=("addr", *(("saddr",) if saddr_off is None else ())),
             immediates=_memory_asm_immediate_names(cache_fields),
-        )
-        if saddr_off is None
-        else _global_vaddr_asm(
-            mnemonic="global_load_d16_b16",
-            results=("dst",),
-            operands=("addr",),
-            immediates=_memory_asm_immediate_names(cache_fields),
+            native_modifiers=_native_memory_modifiers(
+                cache_fields, temporal_operation="load"
+            ),
         ),
     )
 
@@ -3079,11 +3139,6 @@ def _global_load_b16_d16_hi_overlay(
     else:
         fixed_encoding_fields = (("SADDR", saddr_off),)
     asm_operands = ("src", "addr", "saddr") if saddr_off is None else ("src", "addr")
-    native_assembly_values = (
-        (_native_result("dst"), _native_operand("addr"), _native_operand("saddr"))
-        if saddr_off is None
-        else (_native_result("dst"), _native_operand("addr"))
-    )
     return AmdgpuDescriptorOverlay(
         descriptor_key=descriptor_key,
         instruction_name="GLOBAL_LOAD_SHORT_D16_HI",
@@ -3102,18 +3157,15 @@ def _global_load_b16_d16_hi_overlay(
         effects=(_global_read_effect(16),),
         constraints=(Constraint(ConstraintKind.TIED, 0, 1),),
         flags=(DescriptorFlag.SIDE_EFFECTING,),
-        asm_forms=_asm(
-            mnemonic=(
-                "global_load_d16_hi_b16_saddr"
-                if saddr_off is None
-                else "global_load_d16_hi_b16_vaddr"
-            ),
-            native_assembly_mnemonic="global_load_d16_hi_b16",
+        asm_forms=_global_memory_asm(
+            mnemonic="global_load_d16_hi_b16",
+            native_assembly_mnemonic="global_load_short_d16_hi",
             results=("dst",),
             operands=asm_operands,
             immediates=_memory_asm_immediate_names(cache_fields),
-            named_immediates=True,
-            native_assembly_values=native_assembly_values,
+            native_modifiers=_native_memory_modifiers(
+                cache_fields, temporal_operation="load"
+            ),
         ),
     )
 
@@ -3181,15 +3233,10 @@ def _flat_load_overlay(
     data_format_name: str,
     implicit_flat_scratch: bool,
     xml_has_m0: bool,
-    allow_accumulator_results: bool,
     fixed_saddr: AmdgpuFixedEncodingValue | None = None,
     cache_fields: tuple[tuple[str, int], ...] = (),
 ) -> AmdgpuDescriptorOverlay:
-    result_operand = (
-        _vgpr_agpr_result(units=units)
-        if allow_accumulator_results
-        else _vgpr_result(units=units)
-    )
+    result_operand = _vgpr_result(units=units)
     implicit_operands: tuple[AmdgpuImplicitOperandOverlay, ...] = (
         _ignore_generic_memory(
             width_bits=width_bits,
@@ -3233,6 +3280,11 @@ def _flat_load_overlay(
             operands=asm_operands,
             immediates=_memory_asm_immediate_names(cache_fields),
             named_immediates=True,
+            native_assembly_values=(
+                _native_result("dst"),
+                _native_operand("addr"),
+                *_native_memory_modifiers(cache_fields, temporal_operation="load"),
+            ),
         ),
     )
 
@@ -3339,15 +3391,12 @@ def _flat_store_overlay(
     data_format_name: str,
     implicit_flat_scratch: bool,
     xml_has_m0: bool,
-    allow_accumulator_operands: bool,
     fixed_saddr: AmdgpuFixedEncodingValue | None = None,
     cache_fields: tuple[tuple[str, int], ...] = (),
 ) -> AmdgpuDescriptorOverlay:
     vgpr_register_part = _REG_PART_VGPR_LOW16 if width_bits < 32 else None
-    value_operand = (
-        _vgpr_agpr_operand("value", units=units, vgpr_register_part=vgpr_register_part)
-        if allow_accumulator_operands
-        else _vgpr_operand("value", units=units, register_part=vgpr_register_part)
+    value_operand = _vgpr_operand(
+        "value", units=units, register_part=vgpr_register_part
     )
     value_size_exception_reason = (
         _BYTE_STORE_PARTIAL_REGISTER_SIZE_REASON
@@ -3402,6 +3451,11 @@ def _flat_store_overlay(
             operands=asm_operands,
             immediates=_memory_asm_immediate_names(cache_fields),
             named_immediates=True,
+            native_assembly_values=(
+                _native_operand("addr"),
+                _native_operand("value"),
+                *_native_memory_modifiers(cache_fields, temporal_operation="store"),
+            ),
         ),
     )
 
@@ -3419,8 +3473,6 @@ def _flat_memory_overlays(
     offset_signed: bool,
     implicit_flat_scratch: bool,
     xml_has_m0: bool = False,
-    allow_accumulator_results: bool = False,
-    allow_accumulator_operands: bool = False,
     fixed_saddr: AmdgpuFixedEncodingValue | None = None,
     cache_fields: tuple[tuple[str, int], ...] = (),
 ) -> tuple[AmdgpuDescriptorOverlay, ...]:
@@ -3442,7 +3494,6 @@ def _flat_memory_overlays(
                 data_format_name=data_format_name,
                 implicit_flat_scratch=implicit_flat_scratch,
                 xml_has_m0=xml_has_m0,
-                allow_accumulator_results=allow_accumulator_results,
                 fixed_saddr=fixed_saddr,
                 cache_fields=cache_fields,
             )
@@ -3475,7 +3526,6 @@ def _flat_memory_overlays(
                 data_format_name=data_format_name,
                 implicit_flat_scratch=implicit_flat_scratch,
                 xml_has_m0=xml_has_m0,
-                allow_accumulator_operands=allow_accumulator_operands,
                 fixed_saddr=fixed_saddr,
                 cache_fields=cache_fields,
             )
@@ -3513,6 +3563,7 @@ def _scratch_load_overlay(
     fixed_saddr: AmdgpuFixedEncodingValue | None,
     implicit_flat_scratch: bool,
     xml_has_m0: bool,
+    vector_enable_field: str | None = "SVE",
     cache_fields: tuple[tuple[str, int], ...] = (),
 ) -> AmdgpuDescriptorOverlay:
     operands: tuple[AmdgpuOperandOverlay, ...] = (
@@ -3526,7 +3577,9 @@ def _scratch_load_overlay(
     if xml_has_m0:
         implicit_operands = (*implicit_operands, _IGNORE_REGISTER_MEMORY_M0)
     fixed_encoding_fields: tuple[tuple[str, AmdgpuFixedEncodingValue], ...] = (
-        ("SVE", 1 if fixed_vaddr is None else 0),
+        ((vector_enable_field, 1 if fixed_vaddr is None else 0),)
+        if vector_enable_field is not None
+        else ()
     )
     if fixed_vaddr is None:
         operands += (AmdgpuOperandOverlay(address_field_name, _vgpr_operand("addr")),)
@@ -3569,13 +3622,21 @@ def _scratch_load_overlay(
         flags=(DescriptorFlag.SIDE_EFFECTING,),
         asm_forms=_asm(
             mnemonic=asm_mnemonic,
-            native_assembly_mnemonic=mnemonic
-            if asm_mnemonic.endswith("_offset_only")
-            else None,
+            native_assembly_mnemonic=instruction_name.lower(),
             results=("dst",),
             operands=asm_operands,
             immediates=_memory_asm_immediate_names(cache_fields),
             named_immediates=True,
+            native_assembly_values=(
+                _native_result("dst"),
+                _native_operand("addr")
+                if fixed_vaddr is None
+                else _native_literal("off"),
+                _native_operand("saddr")
+                if fixed_saddr is None
+                else _native_literal("off"),
+                *_native_memory_modifiers(cache_fields, temporal_operation="load"),
+            ),
         ),
     )
 
@@ -3599,6 +3660,7 @@ def _scratch_store_overlay(
     fixed_saddr: AmdgpuFixedEncodingValue | None,
     implicit_flat_scratch: bool,
     xml_has_m0: bool,
+    vector_enable_field: str | None = "SVE",
     cache_fields: tuple[tuple[str, int], ...] = (),
 ) -> AmdgpuDescriptorOverlay:
     operands: tuple[AmdgpuOperandOverlay, ...] = ()
@@ -3610,7 +3672,9 @@ def _scratch_store_overlay(
     if xml_has_m0:
         implicit_operands = (*implicit_operands, _IGNORE_REGISTER_MEMORY_M0)
     fixed_encoding_fields: tuple[tuple[str, AmdgpuFixedEncodingValue], ...] = (
-        ("SVE", 1 if fixed_vaddr is None else 0),
+        ((vector_enable_field, 1 if fixed_vaddr is None else 0),)
+        if vector_enable_field is not None
+        else ()
     )
     if fixed_vaddr is None:
         operands += (AmdgpuOperandOverlay(address_field_name, _vgpr_operand("addr")),)
@@ -3660,12 +3724,20 @@ def _scratch_store_overlay(
         flags=(DescriptorFlag.SIDE_EFFECTING,),
         asm_forms=_asm(
             mnemonic=asm_mnemonic,
-            native_assembly_mnemonic=mnemonic
-            if asm_mnemonic.endswith("_offset_only")
-            else None,
+            native_assembly_mnemonic=instruction_name.lower(),
             operands=asm_operands,
             immediates=_memory_asm_immediate_names(cache_fields),
             named_immediates=True,
+            native_assembly_values=(
+                _native_operand("addr")
+                if fixed_vaddr is None
+                else _native_literal("off"),
+                _native_operand("value"),
+                _native_operand("saddr")
+                if fixed_saddr is None
+                else _native_literal("off"),
+                *_native_memory_modifiers(cache_fields, temporal_operation="store"),
+            ),
         ),
     )
 
@@ -3685,6 +3757,7 @@ def _scratch_load_narrow_overlays(
     implicit_flat_scratch: bool,
     xml_has_m0: bool,
     descriptor_key_suffix: str = "",
+    vector_enable_field: str | None = "SVE",
     cache_fields: tuple[tuple[str, int], ...] = (),
 ) -> tuple[AmdgpuDescriptorOverlay, ...]:
     return tuple(
@@ -3712,6 +3785,7 @@ def _scratch_load_narrow_overlays(
             fixed_saddr=fixed_saddr,
             implicit_flat_scratch=implicit_flat_scratch,
             xml_has_m0=xml_has_m0,
+            vector_enable_field=vector_enable_field,
             cache_fields=cache_fields,
         )
         for (
@@ -3739,6 +3813,7 @@ def _scratch_store_narrow_overlays(
     implicit_flat_scratch: bool,
     xml_has_m0: bool,
     descriptor_key_suffix: str = "",
+    vector_enable_field: str | None = "SVE",
     cache_fields: tuple[tuple[str, int], ...] = (),
 ) -> tuple[AmdgpuDescriptorOverlay, ...]:
     return tuple(
@@ -3766,6 +3841,7 @@ def _scratch_store_narrow_overlays(
             fixed_saddr=fixed_saddr,
             implicit_flat_scratch=implicit_flat_scratch,
             xml_has_m0=xml_has_m0,
+            vector_enable_field=vector_enable_field,
             cache_fields=cache_fields,
         )
         for (
@@ -3795,6 +3871,7 @@ def _scratch_memory_overlays(
     narrow_byte_load_mnemonic_suffixes: tuple[str, str] = ("u8", "i8"),
     narrow_b16_load_mnemonic_suffixes: tuple[str, str] = ("u16", "i16"),
     narrow_store_mnemonic_suffixes: tuple[str, str] = ("b8", "b16"),
+    vector_enable_field: str | None = "SVE",
     cache_fields: tuple[tuple[str, int], ...] = (),
 ) -> tuple[AmdgpuDescriptorOverlay, ...]:
     return (
@@ -3812,6 +3889,7 @@ def _scratch_memory_overlays(
             implicit_flat_scratch=implicit_flat_scratch,
             xml_has_m0=xml_has_m0,
             descriptor_key_suffix=descriptor_key_suffix,
+            vector_enable_field=vector_enable_field,
             cache_fields=cache_fields,
         ),
         *_scratch_load_narrow_overlays(
@@ -3828,6 +3906,7 @@ def _scratch_memory_overlays(
             implicit_flat_scratch=implicit_flat_scratch,
             xml_has_m0=xml_has_m0,
             descriptor_key_suffix=descriptor_key_suffix,
+            vector_enable_field=vector_enable_field,
             cache_fields=cache_fields,
         ),
         *_scratch_store_narrow_overlays(
@@ -3844,6 +3923,7 @@ def _scratch_memory_overlays(
             implicit_flat_scratch=implicit_flat_scratch,
             xml_has_m0=xml_has_m0,
             descriptor_key_suffix=descriptor_key_suffix,
+            vector_enable_field=vector_enable_field,
             cache_fields=cache_fields,
         ),
         *(
@@ -3865,6 +3945,7 @@ def _scratch_memory_overlays(
                 fixed_saddr=fixed_saddr,
                 implicit_flat_scratch=implicit_flat_scratch,
                 xml_has_m0=xml_has_m0,
+                vector_enable_field=vector_enable_field,
                 cache_fields=cache_fields,
             )
             for (width_bits, units), instruction_suffix, mnemonic_suffix in zip(
@@ -3893,6 +3974,7 @@ def _scratch_memory_overlays(
                 fixed_saddr=fixed_saddr,
                 implicit_flat_scratch=implicit_flat_scratch,
                 xml_has_m0=xml_has_m0,
+                vector_enable_field=vector_enable_field,
                 cache_fields=cache_fields,
             )
             for (width_bits, units), instruction_suffix, mnemonic_suffix in zip(
@@ -3965,16 +4047,14 @@ def _global_store_overlay(
         fixed_encoding_fields=fixed_encoding_fields,
         effects=(_global_write_effect(width_bits),),
         flags=(DescriptorFlag.SIDE_EFFECTING,),
-        asm_forms=_global_saddr_asm(
+        asm_forms=_global_memory_asm(
             mnemonic=mnemonic,
-            operands=("addr", "value", "saddr"),
+            native_assembly_mnemonic=instruction_name.lower(),
+            operands=("addr", "value", *(("saddr",) if saddr_off is None else ())),
             immediates=_memory_asm_immediate_names(cache_fields),
-        )
-        if saddr_off is None
-        else _global_vaddr_asm(
-            mnemonic=mnemonic,
-            operands=("addr", "value"),
-            immediates=_memory_asm_immediate_names(cache_fields),
+            native_modifiers=_native_memory_modifiers(
+                cache_fields, temporal_operation="store"
+            ),
         ),
     )
 
@@ -4029,16 +4109,14 @@ def _global_store_b16_overlay(
         fixed_encoding_fields=fixed_encoding_fields,
         effects=(_global_write_effect(16),),
         flags=(DescriptorFlag.SIDE_EFFECTING,),
-        asm_forms=_global_saddr_asm(
+        asm_forms=_global_memory_asm(
             mnemonic="global_store_short",
-            operands=("addr", "value", "saddr"),
+            native_assembly_mnemonic="global_store_short",
+            operands=("addr", "value", *(("saddr",) if saddr_off is None else ())),
             immediates=_memory_asm_immediate_names(cache_fields),
-        )
-        if saddr_off is None
-        else _global_vaddr_asm(
-            mnemonic="global_store_short",
-            operands=("addr", "value"),
-            immediates=_memory_asm_immediate_names(cache_fields),
+            native_modifiers=_native_memory_modifiers(
+                cache_fields, temporal_operation="store"
+            ),
         ),
     )
 
@@ -4055,6 +4133,7 @@ def _global_load_lds_overlay(
     saddr_off: AmdgpuFixedEncodingValue | None,
     offset_field_name: str = "OFFSET",
     offset_bit_width: int = 13,
+    lds_field: str | None = None,
     cache_fields: tuple[tuple[str, int], ...] = (),
 ) -> AmdgpuDescriptorOverlay:
     operands: tuple[AmdgpuOperandOverlay, ...] = (
@@ -4065,6 +4144,8 @@ def _global_load_lds_overlay(
         operands += (AmdgpuOperandOverlay("SADDR", _sgpr_operand("saddr", units=2)),)
     else:
         fixed_encoding_fields = (("SADDR", saddr_off),)
+    if lds_field is not None:
+        fixed_encoding_fields += ((lds_field, 1),)
     return AmdgpuDescriptorOverlay(
         descriptor_key=descriptor_key,
         instruction_name=instruction_name,
@@ -4080,7 +4161,22 @@ def _global_load_lds_overlay(
                 fixed_encoding_value=_predefined("v0", "OPR_VGPR"),
             ),
         ),
-        implicit_operands=(_implicit_m0_input(),),
+        implicit_operands=(
+            _implicit_m0_input(),
+            *(
+                (
+                    AmdgpuImplicitOperandOverlay(
+                        "OPR_GPUMEM",
+                        size_bits=global_width_bits,
+                        is_input=True,
+                        is_output=False,
+                        ignore_reason="modeled-by-global-to-workgroup-effects",
+                    ),
+                )
+                if lds_field is not None
+                else ()
+            ),
+        ),
         immediate_fields=(offset_field_name, *_cache_field_names(cache_fields)),
         immediates=(
             _signed_offset_immediate(offset_bit_width),
@@ -4092,18 +4188,15 @@ def _global_load_lds_overlay(
             workgroup_width_bits=workgroup_width_bits,
         ),
         flags=(DescriptorFlag.SIDE_EFFECTING,),
-        asm_forms=_global_saddr_asm(
+        asm_forms=_global_memory_asm(
             mnemonic=mnemonic,
-            operands=("addr", "saddr"),
-            implicit_m0=True,
+            native_assembly_mnemonic=instruction_name.lower(),
+            operands=("addr", *(("saddr",) if saddr_off is None else ()), "m0"),
             immediates=_memory_asm_immediate_names(cache_fields),
-        )
-        if saddr_off is None
-        else _asm(
-            mnemonic=f"{mnemonic}_vaddr",
-            operands=("addr", "m0"),
-            immediates=_memory_asm_immediate_names(cache_fields),
-            named_immediates=True,
+            native_modifiers=(
+                *_native_memory_modifiers(cache_fields, temporal_operation="load"),
+                *((_native_modifier_literal("lds"),) if lds_field is not None else ()),
+            ),
         ),
     )
 
@@ -4154,6 +4247,7 @@ def _global_load_lds_overlays(
     descriptor_key_suffix: str = "",
     address_units: int,
     saddr_off: AmdgpuFixedEncodingValue | None,
+    lds_field: str | None = None,
     cache_fields: tuple[tuple[str, int], ...] = (),
     variants: tuple[tuple[str, str, str, int, int], ...] = (
         _GLOBAL_LOAD_LDS_GFX950_VARIANTS
@@ -4164,13 +4258,18 @@ def _global_load_lds_overlays(
             descriptor_key=(
                 f"amdgpu.global_load_lds_{mnemonic_suffix}{descriptor_key_suffix}"
             ),
-            instruction_name=f"GLOBAL_LOAD_LDS_{instruction_suffix}",
+            instruction_name=(
+                f"GLOBAL_LOAD_{instruction_suffix}"
+                if lds_field
+                else f"GLOBAL_LOAD_LDS_{instruction_suffix}"
+            ),
             mnemonic=f"global_load_lds_{mnemonic_suffix}",
             semantic_tag=semantic_tag,
             global_width_bits=global_width_bits,
             workgroup_width_bits=workgroup_width_bits,
             address_units=address_units,
             saddr_off=saddr_off,
+            lds_field=lds_field,
             cache_fields=cache_fields,
         )
         for (

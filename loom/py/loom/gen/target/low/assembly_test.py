@@ -115,6 +115,7 @@ def test_view_rejects_noncanonical_packet_order():
     "kinds",
     [
         (ConstraintKind.TIED,),
+        (ConstraintKind.PREFER_TIED,),
         (ConstraintKind.DESTRUCTIVE,),
         (ConstraintKind.TIED, ConstraintKind.DESTRUCTIVE),
         (ConstraintKind.DESTRUCTIVE, ConstraintKind.TIED),
@@ -132,7 +133,7 @@ def test_operand_type_inheritance_distinguishes_ownership(kinds):
         constraints=tuple(Constraint(kind, 0, 3) for kind in kinds),
     )
     form = _compile(descriptor).asm_forms[0]
-    owns_operand = ConstraintKind.TIED in kinds
+    owns_operand = any(kind in (ConstraintKind.TIED, ConstraintKind.PREFER_TIED) for kind in kinds)
     assert form.result_types == (CompiledAsmOperandType(1, tied=owns_operand),)
     assert form.tied_results == ((CompiledAsmTiedResult(0, 1),) if owns_operand else ())
     generated = generate_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
@@ -155,28 +156,6 @@ def test_default_ties_keep_constraint_order_and_result_indexed_types(result_orde
     form = _compile(descriptor).asm_forms[0]
     assert form.result_types == tuple(CompiledAsmOperandType(2 - result, tied=True) for result in range(3))
     assert form.tied_results == tuple(CompiledAsmTiedResult(result, 2 - result) for result in result_order)
-
-
-@pytest.mark.parametrize("kind", [ConstraintKind.TIED, ConstraintKind.DESTRUCTIVE])
-def test_rejects_conflicting_inherited_sources(kind):
-    descriptor = replace(TEST_LOW_ADD_I32_DESCRIPTOR, constraints=(Constraint(kind, 0, 1), Constraint(ConstraintKind.DESTRUCTIVE, 0, 2)))
-    with pytest.raises(ValueError, match="inherits conflicting operand types"):
-        _compile(descriptor)
-
-
-def test_rejects_duplicate_default_ownership():
-    base = TEST_LOW_ADD_I32_DESCRIPTOR
-    tie = Constraint(ConstraintKind.TIED, 0, 1)
-    with pytest.raises(ValueError, match="repeats ownership tie"):
-        _compile(replace(base, constraints=(tie, tie)))
-    descriptor = replace(
-        base,
-        operands=(base.operands[0], replace(base.operands[0], field_name="carry"), *base.operands[1:]),
-        constraints=(Constraint(ConstraintKind.TIED, 0, 2), Constraint(ConstraintKind.TIED, 1, 2)),
-        asm_forms=(AsmForm(results=("dst", "carry"), operands=("lhs", "rhs")),),
-    )
-    with pytest.raises(ValueError, match="ties multiple results"):
-        _compile(descriptor)
 
 
 def test_semantic_and_inherited_recipes_share_one_result_span():

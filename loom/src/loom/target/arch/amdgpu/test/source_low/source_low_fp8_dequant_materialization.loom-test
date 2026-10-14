@@ -667,9 +667,9 @@ low.kernel.def target<amdgpu.cdna4.core>(@target) abi_layout({constant_count = 0
   %scale_view = resource<hal_binding> {extent = 256, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 1024, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %31 = v_lshlrev_b32_src0_inline %lane, 3
-  %packed = global_load_dwordx2_saddr %31, %input_view
+  %packed = global_load_dwordx2_saddr %31, %input_view : reg<amdgpu.vgpr x2>
   %33 = v_lshlrev_b32_src0_inline %lane, 2
-  %row_scale = global_load_dword_saddr %33, %scale_view
+  %row_scale = global_load_dword_saddr %33, %scale_view : reg<amdgpu.vgpr>
   %35 = slice %packed[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %36 = v_cvt_scalef32_pk_bf16_fp8 %35, %row_scale
   %38 = v_lshrrev_b32_src0_inline %35, 16
@@ -715,9 +715,9 @@ low.kernel.def target<amdgpu.cdna4.core>(@target) abi_layout({constant_count = 0
   %scale_view = resource<hal_binding> {extent = 256, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 1024, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %31 = v_lshlrev_b32_src0_inline %lane, 3
-  %packed = global_load_dwordx2_saddr %31, %input_view
+  %packed = global_load_dwordx2_saddr %31, %input_view : reg<amdgpu.vgpr x2>
   %33 = v_lshlrev_b32_src0_inline %lane, 2
-  %row_scale = global_load_dword_saddr %33, %scale_view
+  %row_scale = global_load_dword_saddr %33, %scale_view : reg<amdgpu.vgpr>
   %35 = slice %packed[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %36 = v_cvt_scalef32_pk_bf16_bf8 %35, %row_scale
   %38 = v_lshrrev_b32_src0_inline %35, 16
@@ -762,9 +762,9 @@ low.kernel.def target<amdgpu.cdna4.core>(@target) abi_layout({constant_count = 0
   %scale_view = resource<hal_binding> {extent = 256, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 1024, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %30 = v_lshlrev_b32_src0_inline %lane, 2
-  %row_scale = global_load_dword_saddr %30, %scale_view
+  %row_scale = global_load_dword_saddr %30, %scale_view : reg<amdgpu.vgpr>
   %32 = v_lshlrev_b32_src0_inline %lane, 3
-  %payload = global_load_dwordx2_saddr %32, %input_view
+  %payload = global_load_dwordx2_saddr %32, %input_view : reg<amdgpu.vgpr x2>
   %34 = slice %payload[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %35 = v_cvt_scalef32_pk_bf16_fp8 %34, %row_scale
   %37 = v_lshrrev_b32_src0_inline %34, 16
@@ -805,7 +805,7 @@ low.kernel.def target<amdgpu.cdna4.core>(@target) abi_layout({constant_count = 0
   %input_view = resource<hal_binding> {extent = 256, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 384, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %23 = v_lshlrev_b32_src0_inline %lane, 2
-  %packed = global_load_dword_saddr %23, %input_view
+  %packed = global_load_dword_saddr %23, %input_view : reg<amdgpu.vgpr>
   %25 = v_mov_b32 1065353216
   %26 = v_cvt_scalef32_pk_bf16_fp8 %packed, %25
   %27 = v_lshrrev_b32_src0_inline %packed, 16
@@ -843,7 +843,7 @@ low.kernel.def target<amdgpu.cdna4.core>(@target) abi_layout({constant_count = 0
   %input_view = resource<hal_binding> {extent = 256, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 384, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %23 = v_lshlrev_b32_src0_inline %lane, 2
-  %packed = global_load_dword_saddr %23, %input_view
+  %packed = global_load_dword_saddr %23, %input_view : reg<amdgpu.vgpr>
   %25 = v_mov_b32 1065353216
   %26 = v_cvt_scalef32_pk_f16_fp8 %packed, %25
   %27 = v_lshrrev_b32_src0_inline %packed, 16
@@ -881,7 +881,7 @@ low.kernel.def target<amdgpu.cdna4.core>(@target) abi_layout({constant_count = 0
   %input_view = resource<hal_binding> {extent = 256, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 768, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %23 = v_lshlrev_b32_src0_inline %lane, 2
-  %packed = global_load_dword_saddr %23, %input_view
+  %packed = global_load_dword_saddr %23, %input_view : reg<amdgpu.vgpr>
   %25 = v_cvt_pk_f32_fp8 %packed
   %26 = slice %25[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %27 = slice %25[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
@@ -926,8 +926,8 @@ low.kernel.def target<amdgpu.cdna4.core>(@target) abi_layout({constant_count = 0
   %scale_view = resource<hal_binding> {extent = 256, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 384, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %29 = v_lshlrev_b32_src0_inline %lane, 2
-  %packed = global_load_dword_saddr %29, %input_view
-  %row_scale = global_load_dword_saddr %29, %scale_view
+  %packed = global_load_dword_saddr %29, %input_view : reg<amdgpu.vgpr>
+  %row_scale = global_load_dword_saddr %29, %scale_view : reg<amdgpu.vgpr>
   %33 = v_mov_b32 0
   %34 = s_mov_b32 1048592
   %35 = s_mov_b32 1006648320
@@ -1046,8 +1046,8 @@ low.kernel.def target<amdgpu.cdna4.core>(@target) abi_layout({constant_count = 0
   %scale_view = resource<hal_binding> {extent = 256, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 384, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %29 = v_lshlrev_b32_src0_inline %lane, 2
-  %packed = global_load_dword_saddr %29, %input_view
-  %row_scale = global_load_dword_saddr %29, %scale_view
+  %packed = global_load_dword_saddr %29, %input_view : reg<amdgpu.vgpr>
+  %row_scale = global_load_dword_saddr %29, %scale_view : reg<amdgpu.vgpr>
   %33 = v_cvt_scalef32_pk_f16_fp8 %packed, %row_scale
   %34 = v_lshrrev_b32_src0_inline %packed, 16
   %35 = v_cvt_scalef32_pk_f16_fp8 %34, %row_scale
@@ -1088,9 +1088,9 @@ low.kernel.def target<amdgpu.cdna4.core>(@target) abi_layout({constant_count = 0
   %scale_view = resource<hal_binding> {extent = 256, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 1024, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %31 = v_lshlrev_b32_src0_inline %lane, 2
-  %row_scale = global_load_dword_saddr %31, %scale_view
+  %row_scale = global_load_dword_saddr %31, %scale_view : reg<amdgpu.vgpr>
   %33 = v_lshlrev_b32_src0_inline %lane, 3
-  %payload = global_load_dwordx2_saddr %33, %input_view
+  %payload = global_load_dwordx2_saddr %33, %input_view : reg<amdgpu.vgpr x2>
   %35 = slice %payload[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %36 = v_cvt_scalef32_pk_bf16_fp8 %35, %row_scale
   %38 = v_lshrrev_b32_src0_inline %35, 16
@@ -1135,9 +1135,9 @@ low.kernel.def target<amdgpu.cdna4.core>(@target) abi_layout({constant_count = 0
   %scale_view = resource<hal_binding> {extent = 256, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 1024, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %30 = v_lshlrev_b32_src0_inline %lane, 2
-  %row_scale = global_load_dword_saddr %30, %scale_view
+  %row_scale = global_load_dword_saddr %30, %scale_view : reg<amdgpu.vgpr>
   %32 = v_lshlrev_b32_src0_inline %lane, 3
-  %payload = global_load_dwordx2_saddr %32, %input_view
+  %payload = global_load_dwordx2_saddr %32, %input_view : reg<amdgpu.vgpr x2>
   %34 = slice %payload[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %35 = v_cvt_scalef32_pk_bf16_bf8 %34, %row_scale
   %37 = v_lshrrev_b32_src0_inline %34, 16
@@ -1182,9 +1182,9 @@ low.kernel.def target<amdgpu.cdna4.core>(@target) abi_layout({constant_count = 0
   %scale_view = resource<hal_binding> {extent = 256, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 1024, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %30 = v_lshlrev_b32_src0_inline %lane, 2
-  %row_scale = global_load_dword_saddr %30, %scale_view
+  %row_scale = global_load_dword_saddr %30, %scale_view : reg<amdgpu.vgpr>
   %32 = v_lshlrev_b32_src0_inline %lane, 3
-  %payload = global_load_dwordx2_saddr %32, %input_view
+  %payload = global_load_dwordx2_saddr %32, %input_view : reg<amdgpu.vgpr x2>
   %34 = slice %payload[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %35 = v_cvt_scalef32_pk_f16_fp8 %34, %row_scale
   %37 = v_lshrrev_b32_src0_inline %34, 16
@@ -1229,9 +1229,9 @@ low.kernel.def target<amdgpu.cdna4.core>(@target) abi_layout({constant_count = 0
   %scale_view = resource<hal_binding> {extent = 256, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 1024, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %30 = v_lshlrev_b32_src0_inline %lane, 2
-  %row_scale = global_load_dword_saddr %30, %scale_view
+  %row_scale = global_load_dword_saddr %30, %scale_view : reg<amdgpu.vgpr>
   %32 = v_lshlrev_b32_src0_inline %lane, 3
-  %payload = global_load_dwordx2_saddr %32, %input_view
+  %payload = global_load_dwordx2_saddr %32, %input_view : reg<amdgpu.vgpr x2>
   %34 = slice %payload[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %35 = v_cvt_scalef32_pk_f16_bf8 %34, %row_scale
   %37 = v_lshrrev_b32_src0_inline %34, 16
@@ -1276,9 +1276,9 @@ low.kernel.def target<amdgpu.cdna4.core>(@target) abi_layout({constant_count = 0
   %scale_view = resource<hal_binding> {extent = 256, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 2048, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %30 = v_lshlrev_b32_src0_inline %lane, 2
-  %row_scale = global_load_dword_saddr %30, %scale_view
+  %row_scale = global_load_dword_saddr %30, %scale_view : reg<amdgpu.vgpr>
   %32 = v_lshlrev_b32_src0_inline %lane, 3
-  %payload = global_load_dwordx2_saddr %32, %input_view
+  %payload = global_load_dwordx2_saddr %32, %input_view : reg<amdgpu.vgpr x2>
   %34 = slice %payload[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %35 = v_cvt_scalef32_pk_f32_fp8 %34, %row_scale
   %36 = slice %35[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
@@ -1334,8 +1334,8 @@ low.kernel.def target<amdgpu.cdna4.core>(@target) abi_layout({constant_count = 0
   %scale_view = resource<hal_binding> {extent = 256, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 768, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %29 = v_lshlrev_b32_src0_inline %lane, 2
-  %packed = global_load_dword_saddr %29, %input_view
-  %row_scale = global_load_dword_saddr %29, %scale_view
+  %packed = global_load_dword_saddr %29, %input_view : reg<amdgpu.vgpr>
+  %row_scale = global_load_dword_saddr %29, %scale_view : reg<amdgpu.vgpr>
   %33 = v_mov_b32 0
   %34 = s_mov_b32 1048592
   %35 = s_mov_b32 1006648320
@@ -1451,9 +1451,9 @@ low.kernel.def target<amdgpu.cdna4.core>(@target) abi_layout({constant_count = 0
   %scale_view = resource<hal_binding> {extent = 256, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 2048, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %30 = v_lshlrev_b32_src0_inline %lane, 2
-  %row_scale = global_load_dword_saddr %30, %scale_view
+  %row_scale = global_load_dword_saddr %30, %scale_view : reg<amdgpu.vgpr>
   %32 = v_lshlrev_b32_src0_inline %lane, 3
-  %payload = global_load_dwordx2_saddr %32, %input_view
+  %payload = global_load_dwordx2_saddr %32, %input_view : reg<amdgpu.vgpr x2>
   %34 = slice %payload[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %35 = v_cvt_scalef32_pk_f32_bf8 %34, %row_scale
   %36 = slice %35[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
@@ -1511,9 +1511,9 @@ low.kernel.def target<amdgpu.cdna4.core>(@target) abi_layout({constant_count = 0
   %scale_view = resource<hal_binding> {extent = 128, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 1024, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %38 = v_lshlrev_b32_src0_inline %lane, 1
-  %row_scale = global_load_d16_b16_saddr %38, %scale_view
+  %row_scale = global_load_d16_b16_saddr %38, %scale_view : reg<amdgpu.vgpr>
   %40 = v_lshlrev_b32_src0_inline %lane, 3
-  %packed = global_load_dwordx2_saddr %40, %input_view
+  %packed = global_load_dwordx2_saddr %40, %input_view : reg<amdgpu.vgpr x2>
   %42 = v_lshlrev_b32_src0_16_low16 %row_scale
   %43 = slice %packed[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %44 = v_cvt_scalef32_pk_bf16_fp8 %43, %42
@@ -3008,7 +3008,7 @@ low.kernel.def target<amdgpu.cdna3.core>(@target) abi_layout({constant_count = 0
   %input_view = resource<hal_binding> {extent = 512, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 1024, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %25 = v_lshlrev_b32_src0_inline %lane, 3
-  %payload = global_load_dwordx2_saddr %25, %input_view
+  %payload = global_load_dwordx2_saddr %25, %input_view : reg<amdgpu.vgpr x2>
   %27 = slice %payload[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %28 = slice %payload[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %29 = v_mov_b32 0
@@ -3086,7 +3086,7 @@ low.kernel.def target<amdgpu.cdna3.core>(@target) abi_layout({constant_count = 0
   %input_view = resource<hal_binding> {extent = 512, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 1024, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %25 = v_lshlrev_b32_src0_inline %lane, 3
-  %payload = global_load_dwordx2_saddr %25, %input_view
+  %payload = global_load_dwordx2_saddr %25, %input_view : reg<amdgpu.vgpr x2>
   %27 = slice %payload[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %28 = slice %payload[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %29 = v_mov_b32 0

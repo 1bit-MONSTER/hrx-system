@@ -250,10 +250,13 @@ iree_py_library(
     "descriptors/matrix.py"
     "descriptors/matrix_schedule.py"
     "descriptors/memory.py"
+    "descriptors/memory_assembly.py"
+    "descriptors/memory_banks.py"
     "descriptors/rdna3.py"
     "descriptors/rdna35.py"
     "descriptors/rdna4.py"
     "descriptors/rdna4m.py"
+    "descriptors/register_moves.py"
     "descriptors/scalar_carry.py"
     "descriptors/scalar_float.py"
     "descriptors/sets.py"
@@ -263,6 +266,7 @@ iree_py_library(
   DEPS
     loom::py::loom::target::arch::amdgpu::encoding_info
     loom::py::loom::target::arch::amdgpu::isa_xml
+    loom::py::loom::target::arch::amdgpu::matrix_contracts
     loom::py::loom::target::arch::amdgpu::matrix_formats
     loom::py::loom::target::arch::amdgpu::target_info
     loom::py::loom::target::low_descriptors

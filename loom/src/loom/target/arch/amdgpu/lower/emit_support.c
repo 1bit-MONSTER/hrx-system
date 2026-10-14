@@ -1038,17 +1038,12 @@ iree_status_t loom_amdgpu_legalize_vop3_scalar_sources(
           LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_VOP3_TWO_SCALAR_SOURCES)
           ? 2u
           : 1u;
+  if (source_count <= scalar_source_limit) {
+    return iree_ok_status();
+  }
 
-  loom_value_id_t original_scalar_sources[3] = {
-      LOOM_VALUE_ID_INVALID,
-      LOOM_VALUE_ID_INVALID,
-      LOOM_VALUE_ID_INVALID,
-  };
-  loom_value_id_t legal_scalar_sources[3] = {
-      LOOM_VALUE_ID_INVALID,
-      LOOM_VALUE_ID_INVALID,
-      LOOM_VALUE_ID_INVALID,
-  };
+  loom_value_id_t original_scalar_sources[3];
+  loom_value_id_t legal_scalar_sources[3];
   uint32_t unique_scalar_source_count = 0;
   uint32_t retained_scalar_source_count = 0;
   const loom_module_t* module = loom_low_lower_context_module(context);

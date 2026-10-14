@@ -332,7 +332,7 @@ static iree_status_t loom_amdgpu_kernel_plan_admit_residency(
       record->metadata.sgpr_count,
       allocation_direct_resource_units[LOOM_AMDGPU_REG_CLASS_ID_SGPR]);
   IREE_ASSERT_GE(
-      record->metadata.vgpr_count,
+      record->architectural_vgpr_count,
       allocation_direct_resource_units[LOOM_AMDGPU_REG_CLASS_ID_VGPR]);
   const loom_target_residency_direct_resource_override_t resource_overrides[] =
       {
@@ -342,7 +342,7 @@ static iree_status_t loom_amdgpu_kernel_plan_admit_residency(
           },
           {
               .resource_id = LOOM_AMDGPU_REG_CLASS_ID_VGPR,
-              .units = record->metadata.vgpr_count,
+              .units = record->architectural_vgpr_count,
           },
       };
   const uint32_t final_residency_tier =
@@ -412,10 +412,14 @@ iree_status_t loom_amdgpu_kernel_plan_build(
     return iree_ok_status();
   }
 
+  IREE_RETURN_IF_ERROR(loom_amdgpu_packet_plan_build(
+      &frame->schedule, &frame->allocation, arena, &out_plan->packet_plan));
   const loom_amdgpu_kernel_record_options_t record_options = {
       .abi_layout = options->abi_layout,
       .abi_verify = options->abi_verify,
       .preflight = &preflight,
+      .minimum_vgpr_count =
+          out_plan->packet_plan.wait_states.minimum_vgpr_count,
   };
   IREE_RETURN_IF_ERROR(loom_amdgpu_kernel_record_build(
       &frame->schedule, &frame->allocation, &record_options, &out_plan->record,
@@ -429,8 +433,6 @@ iree_status_t loom_amdgpu_kernel_plan_build(
     return iree_ok_status();
   }
 
-  IREE_RETURN_IF_ERROR(loom_amdgpu_packet_plan_build(
-      &frame->schedule, &frame->allocation, arena, &out_plan->packet_plan));
   IREE_RETURN_IF_ERROR(loom_amdgpu_kernel_plan_record_wait_plan(
       options->report, &out_plan->packet_plan));
   *out_accepted = true;

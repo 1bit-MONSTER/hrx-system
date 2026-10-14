@@ -1,0 +1,93 @@
+// Tuple swaps exercise allocator cycle scratch in the accumulator bank. Read,
+// write, broadcast and inline initialization preserve every lane's payload.
+amdgpu.target<gfx90a> @target
+
+low.func.def schedule(locked) target<amdgpu.cdna2.core>(@target) @transport(%lane: reg<amdgpu.vgpr>, %input: reg<amdgpu.sgpr x2>, %output: reg<amdgpu.sgpr x2>) asm {
+  %source_offset = v_lshlrev_b32_src0_inline %lane, 4
+  %target_offset = v_mul_lo_u32_src0_inline %lane, 48
+  %loaded = global_load_dwordx4_saddr %source_offset, %input : reg<amdgpu.agpr x4>
+  %left = slice %loaded[0] : reg<amdgpu.agpr x4> -> reg<amdgpu.agpr x2>
+  %right = slice %loaded[2] : reg<amdgpu.agpr x4> -> reg<amdgpu.agpr x2>
+  %count = s_mov_b32 4
+  %step = s_mov_b32 1
+  %cleared = s_mov_b32 0
+  low.br ^loop(%left: reg<amdgpu.agpr x2>, %right: reg<amdgpu.agpr x2>, %count: reg<amdgpu.sgpr>)
+^loop(%a: reg<amdgpu.agpr x2>, %b: reg<amdgpu.agpr x2>, %remaining: reg<amdgpu.sgpr>):
+  %next = s_sub_u32 %remaining, %step
+  %again = s_cmp_gt_u32 %next, %cleared
+  low.cond_br %again, ^back, ^exit : reg<amdgpu.scc>
+^back:
+  low.br ^loop(%b: reg<amdgpu.agpr x2>, %a: reg<amdgpu.agpr x2>, %next: reg<amdgpu.sgpr>)
+^exit:
+  %packed = concat(%a, %b) : (reg<amdgpu.agpr x2>, reg<amdgpu.agpr x2>) -> reg<amdgpu.agpr x4>
+  global_store_dwordx4_saddr %target_offset, %packed, %output
+  %read = copy %packed : reg<amdgpu.agpr x4> -> reg<amdgpu.vgpr x4>
+  %write = copy %read : reg<amdgpu.vgpr x4> -> reg<amdgpu.agpr x4>
+  global_store_dwordx4_saddr %target_offset, %write, %output {offset = 16}
+  %scalar = s_mov_b32 37
+  %broadcast = copy %scalar : reg<amdgpu.sgpr> -> reg<amdgpu.agpr>
+  %negative = v_accvgpr_write_b32_inline_i32 -16
+  %fraction = v_accvgpr_write_b32_inline_f32 "f32_n0_5"
+  %inline_zero = v_accvgpr_write_b32_inline_i32 0
+  %constants = concat(%broadcast, %negative, %fraction, %inline_zero) : (reg<amdgpu.agpr>, reg<amdgpu.agpr>, reg<amdgpu.agpr>, reg<amdgpu.agpr>) -> reg<amdgpu.agpr x4>
+  global_store_dwordx4_saddr %target_offset, %constants, %output {offset = 32}
+  return
+}
+
+kernel.def target(@target) @accumulator_moves() {
+  %unit = index.constant 1 : index
+  %lanes = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%lanes, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %lane_index = kernel.workitem.id<x> : index
+  %lane_i32 = index.cast %lane_index : index to i32
+  %lane = vector.splat %lane_i32 : vector<1xi32>
+  low.invoke @transport(%lane, %input, %output) : (vector<1xi32>, buffer, buffer)
+  kernel.return
+}
+
+func.def @accumulator_moves_oracle(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<64x4xi32>
+  %target = buffer.view %output[%base] : buffer -> view<64x12xi32>
+  %begin = index.constant 0 : index
+  %end = index.constant 64 : index
+  %width = index.constant 4 : index
+  %step = index.constant 1 : index
+  %pair = index.constant 2 : index
+  %broadcast_column = index.constant 8 : index
+  %negative_column = index.constant 9 : index
+  %fraction_column = index.constant 10 : index
+  %clear_column = index.constant 11 : index
+  %broadcast = scalar.constant 37 : i32
+  %negative = scalar.constant -16 : i32
+  %fraction = scalar.constant -1090519040 : i32
+  %cleared = scalar.constant 0 : i32
+  scf.for %lane = [%begin to %end step %step] {
+    scf.for %word = [%begin to %width step %step] {
+      %rotated = index.add %word, %pair : index
+      %source_word = index.rem %rotated, %width : index
+      %value = view.load %source[%lane, %source_word] : view<64x4xi32> -> i32
+      %second = index.add %word, %width : index
+      view.store %value, %target[%lane, %word] : i32, view<64x12xi32>
+      view.store %value, %target[%lane, %second] : i32, view<64x12xi32>
+    }
+    view.store %broadcast, %target[%lane, %broadcast_column] : i32, view<64x12xi32>
+    view.store %negative, %target[%lane, %negative_column] : i32, view<64x12xi32>
+    view.store %fraction, %target[%lane, %fraction_column] : i32, view<64x12xi32>
+    view.store %cleared, %target[%lane, %clear_column] : i32, view<64x12xi32>
+  }
+  func.return
+}
+
+check.scenario @accumulator_register_transport {
+  check.requires<hal.amdgpu.descriptor_set> {descriptor_set = "amdgpu.cdna2.core"}
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(305397760) step(37) : tensor<64x4xi32>
+    %output = check.generate.fill value(-1) : tensor<64x12xi32>
+    check.compare<@accumulator_moves, @accumulator_moves_oracle>(%input, %output) : (tensor<64x4xi32>, tensor<64x12xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<64x12xi32>
+    }
+  }
+  check.return
+}

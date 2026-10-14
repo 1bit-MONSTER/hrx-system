@@ -383,6 +383,40 @@ TEST(AmdgpuMetadataTest, AppendsCanonicalMsgpackMapOrder) {
                                   "amdhsa.version"});
 }
 
+TEST(AmdgpuMetadataTest, RetainsAccumulatorCountIncludingZero) {
+  for (uint32_t count : {0u, 4u, 256u}) {
+    SCOPED_TRACE(count);
+    auto kernel = MinimalKernel();
+    kernel.wavefront_size = 64;
+    kernel.vgpr_count = 12 + count;
+    kernel.agpr_count = count;
+    kernel.has_agpr_count = true;
+    auto metadata = MetadataForKernel(&kernel);
+    metadata.target = IREE_SV("amdgcn-amd-amdhsa--gfx90a");
+
+    iree_string_builder_t builder;
+    iree_string_builder_initialize(iree_allocator_system(), &builder);
+    IREE_ASSERT_OK(loom_amdgpu_metadata_append_assembly(&metadata, &builder));
+    EXPECT_NE(
+        BuilderString(builder).find(".agpr_count: " + std::to_string(count)),
+        std::string::npos);
+    iree_string_builder_reset(&builder);
+    IREE_ASSERT_OK(loom_amdgpu_metadata_append_msgpack(&metadata, &builder));
+    const std::string bytes = BuilderString(builder);
+    ExpectOrderedSubstrings(bytes, {"amdhsa.kernels", ".agpr_count", ".args",
+                                    ".vgpr_count", "amdhsa.target"});
+    const size_t value_offset =
+        bytes.find(".agpr_count") + strlen(".agpr_count");
+    if (count < 128) {
+      EXPECT_EQ((uint8_t)bytes[value_offset], count);
+    } else {
+      // MessagePack encodes 256 as uint16, in network byte order.
+      EXPECT_EQ(bytes.substr(value_offset, 3), std::string("\xcd\x01\x00", 3));
+    }
+    iree_string_builder_deinitialize(&builder);
+  }
+}
+
 TEST(AmdgpuMetadataTest, BuildsElfNoteMetadata) {
   loom_amdgpu_metadata_kernel_t kernel = MinimalKernel();
   loom_amdgpu_code_object_metadata_t metadata = MetadataForKernel(&kernel);

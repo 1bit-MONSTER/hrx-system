@@ -8,9 +8,9 @@
 //
 // AMDGPU has hazards that are not modeled by wait counters. CDNA MFMA/SMFMAC
 // packets need fixed scalar no-op cycles both after matrix results before
-// ordinary VGPR consumers and after legacy VALU writes before matrix source,
-// DPP, or fixed-lane VGPR-to-SGPR reads. GFX940-family transcendental VALU
-// results and destination-selected sub-DWORD writes also need fixed waits
+// ordinary VGPR/AGPR consumers and after legacy VALU writes before matrix
+// source, DPP, or fixed-lane VGPR-to-SGPR reads. GFX940-family transcendental
+// VALU results and destination-selected sub-DWORD writes also need fixed waits
 // before dependent VALU consumers, and nearby VALU or VMEM reads of
 // VALU-written SGPRs need fixed waits because the hardware does not interlock
 // those dependencies.
@@ -36,7 +36,9 @@ extern "C" {
 struct loom_amdgpu_vopd_plan_t;
 struct loom_amdgpu_wait_packet_plan_t;
 struct loom_amdgpu_matrix_coexecution_t;
+struct loom_amdgpu_matrix_result_wait_t;
 struct loom_amdgpu_processor_info_t;
+struct loom_amdgpu_address_state_plan_t;
 
 // Maximum number of cycles a single `s_nop` packet can wait. The SOPP SIMM16
 // operand is encoded as wait_cycles - 1, and current AMDGPU targets use a
@@ -46,7 +48,7 @@ struct loom_amdgpu_processor_info_t;
 typedef enum loom_amdgpu_wait_state_reason_e {
   // Unknown or uninitialized wait-state reason.
   LOOM_AMDGPU_WAIT_STATE_REASON_UNKNOWN = 0,
-  // A packet consumes VGPR storage produced by an outstanding MFMA/SMFMAC.
+  // A packet consumes VGPR/AGPR storage produced by an outstanding MFMA/SMFMAC.
   LOOM_AMDGPU_WAIT_STATE_REASON_MATRIX_RESULT_USE = 1,
   // An MFMA/SMFMAC consumes VGPR storage written by a legacy VALU packet.
   LOOM_AMDGPU_WAIT_STATE_REASON_VALU_TO_MATRIX_USE = 2,
@@ -75,8 +77,20 @@ typedef enum loom_amdgpu_wait_state_reason_e {
   LOOM_AMDGPU_WAIT_STATE_REASON_STORE_DATA_REUSE = 11,
   // An ALU instruction overwrites storage previously read as a lane mask.
   LOOM_AMDGPU_WAIT_STATE_REASON_MASK_WRITE = 12,
+  // DIV_FMAS consumes a condition written to VCC by a recent VALU packet.
+  LOOM_AMDGPU_WAIT_STATE_REASON_DIV_FMAS_CONDITION = 13,
+  // An address or message consumer reads M0 after a scalar ALU write.
+  LOOM_AMDGPU_WAIT_STATE_REASON_M0_READ = 14,
+  // A DOT result is read or overwritten without same-opcode forwarding.
+  LOOM_AMDGPU_WAIT_STATE_REASON_DOT_RESULT_USE = 15,
+  // F64 FMA/FMAC issues before an independent DGEMM pipeline releases.
+  LOOM_AMDGPU_WAIT_STATE_REASON_DGEMM_PIPELINE = 16,
+  // An intervening DGEMM disabled the VALU-to-memory hardware interlock.
+  LOOM_AMDGPU_WAIT_STATE_REASON_DGEMM_MEMORY = 17,
+  // A replayable memory clause would overwrite an address or mix load/store.
+  LOOM_AMDGPU_WAIT_STATE_REASON_XNACK_REPLAY_CLAUSE = 18,
   // Number of wait-state reasons, including UNKNOWN.
-  LOOM_AMDGPU_WAIT_STATE_REASON_COUNT_ = 13,
+  LOOM_AMDGPU_WAIT_STATE_REASON_COUNT_ = 19,
 } loom_amdgpu_wait_state_reason_t;
 
 typedef enum loom_amdgpu_wait_state_action_e {
@@ -144,6 +158,8 @@ typedef struct loom_amdgpu_wait_state_plan_t {
   const loom_amdgpu_wait_state_t* states;
   // Number of wait-state records.
   iree_host_size_t state_count;
+  // Hardware allocation floor needed by final physical operand hazards.
+  uint32_t minimum_vgpr_count;
 } loom_amdgpu_wait_state_plan_t;
 
 struct loom_amdgpu_processor_properties_t;
@@ -160,15 +176,19 @@ iree_string_view_t loom_amdgpu_wait_state_action_name(
 // allocated, and VOPD-packetized low function. Elided authored waits in
 // |wait_packets->wait_plan| provide no instruction-slot progress. Concrete
 // wait insertions supply native progress. |vopd_plan| may be NULL
-// when the target has no native packetization. The caller must keep the input
-// plans immutable and |arena| alive for as long as |out_plan| is used.
+// when the target has no native packetization. Processor properties come from
+// the resolved target record and must be present. Concrete |address_state|
+// transitions also separate replayable memory clauses. The caller must keep the
+// input plans immutable and |arena| alive for as long as |out_plan| is used.
 iree_status_t loom_amdgpu_wait_state_plan_build(
     const loom_low_schedule_table_t* schedule,
     const loom_low_allocation_table_t* allocation,
     const struct loom_amdgpu_processor_properties_t* processor_properties,
+    const struct loom_amdgpu_address_state_plan_t* address_state,
     const struct loom_amdgpu_wait_packet_plan_t* wait_packets,
     const struct loom_amdgpu_vopd_plan_t* vopd_plan,
     struct loom_amdgpu_matrix_coexecution_t* matrix_coexecution,
+    struct loom_amdgpu_matrix_result_wait_t* matrix_results,
     iree_arena_allocator_t* arena, iree_arena_allocator_t* transient_arena,
     loom_amdgpu_wait_state_plan_t* out_plan);
 

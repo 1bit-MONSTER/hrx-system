@@ -132,6 +132,9 @@ loom_amdgpu_structural_packet_info_t loom_amdgpu_structural_packet_analyze(
                    LOOM_AMDGPU_STRUCTURAL_PACKET_FLAG_READS_SCC;
       info.instruction_count = control_transfer_count;
       info.scalar_alu_instruction_count = control_transfer_count;
+      if (control_transfer_count == 2) {
+        info.flags |= LOOM_AMDGPU_STRUCTURAL_PACKET_FLAG_CONDITIONAL_TAIL;
+      }
     }
     return info;
   }

@@ -995,7 +995,7 @@ def test_gfx9_4_matrix_schedule_classes_match_member_timings() -> None:
             assert schedule_class.issue_uses == (
                 IssueUse(
                     _RESOURCE_MFMA,
-                    cycles=timing.reciprocal_throughput_cycles,
+                    cycles=timing.execution_passes,
                     units=1,
                 ),
             )
@@ -1021,10 +1021,24 @@ def test_gfx9_4_matrix_schedule_classes_match_member_timings() -> None:
             gfx942_timing.latency_cycles,
             gfx950_timing.latency_cycles,
         )
-        assert generic_timing.reciprocal_throughput_cycles == max(
-            gfx942_timing.reciprocal_throughput_cycles,
-            gfx950_timing.reciprocal_throughput_cycles,
+        assert generic_timing.execution_passes == max(
+            gfx942_timing.execution_passes,
+            gfx950_timing.execution_passes,
         )
+
+
+def test_gfx950_f8f6f4_execution_passes_cover_both_operand_selectors() -> None:
+    # LLVM's SIDPGFX950FullSpeedModel doubles the execution passes when either
+    # source is FP8/BF8, for both scaled and unscaled forms.
+    for prefix in ("v_mfma", "v_mfma_scale"):
+        for shape, narrow_passes in (("16x16x128", 4), ("32x32x64", 8)):
+            for lhs in ("f8", "f6", "f4"):
+                for rhs in ("f8", "f6", "f4"):
+                    key = f"amdgpu.{prefix}_f32_{shape}_f8f6f4_{lhs}_{rhs}"
+                    expected = narrow_passes * (2 if "f8" in (lhs, rhs) else 1)
+                    timing = _AMDGPU_GFX950_MATRIX_TIMINGS[key]
+                    assert timing.execution_passes == expected, key
+                    assert timing.latency_cycles == expected + 4, key
 
 
 def test_gfx950_f8f6f4_mfma_descriptors_model_physical_abis() -> None:
@@ -1142,6 +1156,7 @@ def test_valu_schedule_class_separates_result_latency_from_issue_rate(
     descriptor_set: DescriptorSet,
 ) -> None:
     cdna_contracts = {
+        "amdgpu.cdna2.core",
         "amdgpu.cdna3.core",
         "amdgpu.cdna4.core",
         "amdgpu.gfx9_4.generic.core",
@@ -1530,7 +1545,38 @@ def test_pure_integer_valu_results_are_rematerializable() -> None:
             )
 
 
-def test_tied_u32_address_arithmetic_forms_are_destructive() -> None:
+def test_matrix_ownership_distinguishes_independent_and_destructive_accumulators():
+    for overlay_builder in _AMDGPU_CONTRACT_DESCRIPTOR_OVERLAY_BUILDERS.values():
+        descriptor = overlay_builder()
+        semantic = descriptor.semantic_tag or ""
+        dense = semantic.startswith(("matrix.mfma.", "matrix.wmma."))
+        sparse = semantic.startswith(("matrix.smfmac.", "matrix.swmmac."))
+        if not dense and not sparse:
+            continue
+        accumulators = [
+            i
+            for i, operand in enumerate(descriptor.operands)
+            if operand.descriptor_operand.field_name == "acc"
+        ]
+        if not accumulators:
+            # Literal-zero forms have no accumulator register to consume.
+            continue
+        (accumulator,) = accumulators
+        expected = ConstraintKind.PREFER_TIED if dense else ConstraintKind.TIED
+        assert Constraint(expected, 0, accumulator) in descriptor.constraints, (
+            descriptor.descriptor_key
+        )
+        assert (
+            any(
+                constraint.kind is ConstraintKind.DESTRUCTIVE
+                for constraint in descriptor.constraints
+            )
+            == sparse
+        )
+        assert Constraint(ConstraintKind.EARLY_CLOBBER, 0) in descriptor.constraints
+
+
+def test_tied_u32_address_arithmetic_forms_prefer_input_ownership() -> None:
     for overlays, add_native_mnemonic, sub_mnemonic in (
         (_gfx940_core_overlays(), "v_add_u32", "v_sub_u32"),
         (_gfx11_core_overlays(), "v_add_nc_u32", "v_sub_nc_u32"),
@@ -1541,21 +1587,13 @@ def test_tied_u32_address_arithmetic_forms_are_destructive() -> None:
         assert add.mnemonic == "v_add_u32_rhs_tied"
         assert add.asm_forms is not None
         assert add.asm_forms[0].native_assembly_mnemonic == add_native_mnemonic
-        assert add.constraints == (
-            Constraint(ConstraintKind.TIED, 0, 2),
-            Constraint(ConstraintKind.DESTRUCTIVE, 0, 2),
-            Constraint(ConstraintKind.EARLY_CLOBBER, 0),
-        )
+        assert add.constraints == (Constraint(ConstraintKind.PREFER_TIED, 0, 2),)
 
         sub = descriptors["amdgpu.v_sub_u32.lhs_tied"]
         assert sub.mnemonic == f"{sub_mnemonic}_lhs_tied"
         assert sub.asm_forms is not None
         assert sub.asm_forms[0].native_assembly_mnemonic == sub_mnemonic
-        assert sub.constraints == (
-            Constraint(ConstraintKind.TIED, 0, 1),
-            Constraint(ConstraintKind.DESTRUCTIVE, 0, 1),
-            Constraint(ConstraintKind.EARLY_CLOBBER, 0),
-        )
+        assert sub.constraints == (Constraint(ConstraintKind.PREFER_TIED, 0, 1),)
 
 
 def test_mask_writer_scalar_data_has_execution_mode_read_lifetime() -> None:
@@ -4640,7 +4678,7 @@ def test_packed_fmac_f16_descriptor_pins_destructive_accumulator() -> None:
         ) == ((0, 1), (0, 1))
 
 
-def test_packed_dot2_descriptors_pin_destructive_accumulator() -> None:
+def test_packed_dot2_descriptors_prefer_accumulator_ownership() -> None:
     descriptor_sets = (
         _gfx940_core_overlays(),
         _gfx950_core_overlays(),
@@ -4677,8 +4715,11 @@ def test_packed_dot2_descriptors_pin_destructive_accumulator() -> None:
                 )
                 for constraint in descriptor.constraints
             }
-            assert (ConstraintKind.TIED, 0, 3) in constraint_contracts
-            assert (ConstraintKind.DESTRUCTIVE, 0, 3) in constraint_contracts
+            assert (ConstraintKind.PREFER_TIED, 0, 3) in constraint_contracts
+            assert not any(
+                kind in (ConstraintKind.TIED, ConstraintKind.DESTRUCTIVE)
+                for kind, _, _ in constraint_contracts
+            )
             assert (ConstraintKind.COMMUTABLE, 1, 2) in constraint_contracts
 
 
@@ -5451,6 +5492,7 @@ def _assert_memory_vaddr_offset_overlay(
     width_bits: int,
     semantic_tag: str,
     mnemonic: str,
+    native_mnemonic: str,
     operand_units: int,
     payload_field_name: str,
     effect_kind: EffectKind,
@@ -5484,20 +5526,21 @@ def _assert_memory_vaddr_offset_overlay(
     assert forms is not None
     form = forms[0]
     assert form.mnemonic == f"{mnemonic}_vaddr_offset"
-    assert form.native_assembly_mnemonic == mnemonic
+    assert form.native_assembly_mnemonic == native_mnemonic
     payload_value_kind = (
         NativeAsmValueKind.RESULT
         if effect_kind == EffectKind.READ
         else NativeAsmValueKind.OPERAND
     )
-    assert form.native_assembly_values == (
+    assert form.native_assembly_values[:5] == (
         NativeAsmValue(payload_value_kind, field_name=payload_field_name),
         NativeAsmValue(NativeAsmValueKind.OPERAND, field_name="vaddr"),
         NativeAsmValue(NativeAsmValueKind.OPERAND, field_name="resource"),
         NativeAsmValue(
             NativeAsmValueKind.LITERAL,
-            literal=f"{fixed_soffset_native_spelling} offen",
+            literal=fixed_soffset_native_spelling,
         ),
+        NativeAsmValue(NativeAsmValueKind.MODIFIER_LITERAL, literal="offen"),
     )
     assert form.results == (("dst",) if effect_kind == EffectKind.READ else ())
     assert form.operands == (
@@ -5755,6 +5798,7 @@ def test_dwordx3_memory_descriptors_cover_cdna_and_rdna_families() -> None:
                 width_bits=96,
                 semantic_tag="memory.load.u96",
                 mnemonic=buffer_mnemonic,
+                native_mnemonic=buffer_mnemonic,
                 operand_units=3,
                 payload_field_name="dst",
                 effect_kind=EffectKind.READ,
@@ -5783,6 +5827,7 @@ def test_dwordx3_memory_descriptors_cover_cdna_and_rdna_families() -> None:
                 width_bits=96,
                 semantic_tag="memory.store.u96",
                 mnemonic=buffer_mnemonic.replace("load", "store"),
+                native_mnemonic=buffer_mnemonic.replace("load", "store"),
                 operand_units=3,
                 payload_field_name="value",
                 effect_kind=EffectKind.WRITE,
@@ -6432,6 +6477,7 @@ def test_vmem_narrow_load_descriptors_cover_active_xml_families() -> None:
                     width_bits=width_bits,
                     semantic_tag=global_semantic_tag,
                     mnemonic=f"buffer_load_{suffix}",
+                    native_mnemonic=f"buffer_load_{cdna_mnemonic_suffixes[suffix]}",
                     operand_units=1,
                     payload_field_name="dst",
                     effect_kind=EffectKind.READ,
@@ -6499,12 +6545,19 @@ def test_vmem_narrow_load_descriptors_cover_active_xml_families() -> None:
                     f"{scratch_mnemonic}{asm_suffix}"
                 )
 
-        for store_key, width_bits, semantic_tag, mnemonic in (
-            ("amdgpu.buffer_store_b8", 8, "memory.store.u8", "buffer_store_b8"),
+        for store_key, width_bits, semantic_tag, mnemonic, native_mnemonic in (
+            (
+                "amdgpu.buffer_store_b8",
+                8,
+                "memory.store.u8",
+                "buffer_store_b8",
+                "buffer_store_byte",
+            ),
             (
                 "amdgpu.buffer_store_b16",
                 16,
                 "memory.store.u16.low",
+                "buffer_store_short",
                 "buffer_store_short",
             ),
         ):
@@ -6519,6 +6572,7 @@ def test_vmem_narrow_load_descriptors_cover_active_xml_families() -> None:
                     width_bits=width_bits,
                     semantic_tag=semantic_tag,
                     mnemonic=mnemonic,
+                    native_mnemonic=native_mnemonic,
                     operand_units=1,
                     payload_field_name="value",
                     effect_kind=EffectKind.WRITE,
@@ -6545,6 +6599,7 @@ def test_vmem_narrow_load_descriptors_cover_active_xml_families() -> None:
                 width_bits=16,
                 semantic_tag="memory.load.u16.d16.low",
                 mnemonic="buffer_load_d16_b16",
+                native_mnemonic="buffer_load_short_d16",
                 operand_units=1,
                 payload_field_name="dst",
                 effect_kind=EffectKind.READ,

@@ -12,6 +12,7 @@ import struct
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Literal
 
 from loom.target.arch.amdgpu.descriptor_overlay import (
     AMDGPU_D16_PARTIAL_REGISTER_ADDRESSABLE_UNIT_COUNT,
@@ -149,6 +150,8 @@ AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_SCOPE = 8
 AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_LOAD_TEMPORAL = 9
 AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_REQUIRED_NAMED_I64 = 10
 AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_DPP8 = 11
+AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_STORE_TEMPORAL = 12
+AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_ATOMIC_TEMPORAL = 13
 
 _REG_SGPR = "amdgpu.sgpr"
 _REG_VGPR = "amdgpu.vgpr"
@@ -165,6 +168,9 @@ _REG_PART_SGPR_FULL32_MASK = 0x3
 _REG_PART_VGPR_LOW16 = "amdgpu.vgpr.low16"
 _REG_PART_VGPR_HIGH16 = "amdgpu.vgpr.high16"
 _REG_PART_VGPR_FULL32_MASK = 0x3
+_REG_PART_AGPR_LOW16 = "amdgpu.agpr.low16"
+_REG_PART_AGPR_HIGH16 = "amdgpu.agpr.high16"
+_REG_PART_AGPR_FULL32_MASK = 0x3
 
 _RESOURCE_SALU = "amdgpu.salu"
 _RESOURCE_VALU = "amdgpu.valu"
@@ -229,11 +235,6 @@ _SCHEDULE_WAIT_X = "amdgpu.wait.x"
 
 
 def _amdgpu_mfma_schedule_class_name(descriptor_key: str) -> str:
-    if not _amdgpu_mfma_has_qualified_timing(descriptor_key):
-        raise ValueError(
-            f"AMDGPU descriptor '{descriptor_key}' has no qualified GFX9.4 "
-            "matrix timing"
-        )
     return f"{_SCHEDULE_MFMA_QUALIFIED_PREFIX}{descriptor_key.removeprefix('amdgpu.')}"
 
 
@@ -249,7 +250,7 @@ def _amdgpu_mfma_schedule_classes(
             issue_uses=(
                 IssueUse(
                     _RESOURCE_MFMA,
-                    cycles=timing.reciprocal_throughput_cycles,
+                    cycles=timing.execution_passes,
                     units=1,
                 ),
             ),
@@ -767,6 +768,10 @@ _SGPR_REGISTER_PARTS = (
     RegisterPart(_REG_PART_SGPR_HIGH16, _REG_SGPR, 0x2),
 )
 _AMDGPU_REGISTER_PARTS = (*_VGPR_REGISTER_PARTS, *_SGPR_REGISTER_PARTS)
+_AGPR_REGISTER_PARTS = (
+    RegisterPart(_REG_PART_AGPR_LOW16, _REG_AGPR, 0x1),
+    RegisterPart(_REG_PART_AGPR_HIGH16, _REG_AGPR, 0x2),
+)
 
 
 class AmdgpuAtomicMemorySpace(CEnum):
@@ -1378,53 +1383,19 @@ def _native_amdgpu_gfx12_scope_immediate(field_name: str) -> NativeAsmValue:
     )
 
 
-def _native_amdgpu_gfx12_load_temporal_immediate(
-    field_name: str,
+def _native_amdgpu_gfx12_temporal_immediate(
+    field_name: str, operation: Literal["load", "store", "atomic"]
 ) -> NativeAsmValue:
+    format_id = {
+        "load": AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_LOAD_TEMPORAL,
+        "store": AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_STORE_TEMPORAL,
+        "atomic": AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_ATOMIC_TEMPORAL,
+    }[operation]
     return NativeAsmValue(
         NativeAsmValueKind.IMMEDIATE_TARGET_FORMAT,
         field_name=field_name,
         literal="th",
-        target_format_id=AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_LOAD_TEMPORAL,
-    )
-
-
-def _global_vaddr_asm(
-    *,
-    mnemonic: str,
-    native_assembly_mnemonic: str | None = None,
-    results: tuple[str, ...] = (),
-    operands: tuple[str, ...],
-    immediates: tuple[str, ...],
-) -> tuple[AsmForm, ...]:
-    return _asm(
-        mnemonic=f"{mnemonic}_vaddr",
-        native_assembly_mnemonic=native_assembly_mnemonic,
-        results=results,
-        operands=operands,
-        immediates=immediates,
-        named_immediates=True,
-    )
-
-
-def _global_saddr_asm(
-    *,
-    mnemonic: str,
-    native_assembly_mnemonic: str | None = None,
-    results: tuple[str, ...] = (),
-    operands: tuple[str, ...],
-    implicit_m0: bool = False,
-    immediates: tuple[str, ...],
-) -> tuple[AsmForm, ...]:
-    if implicit_m0:
-        operands = (*operands, "m0")
-    return _asm(
-        mnemonic=f"{mnemonic}_saddr",
-        native_assembly_mnemonic=native_assembly_mnemonic,
-        results=results,
-        operands=operands,
-        immediates=immediates,
-        named_immediates=True,
+        target_format_id=format_id,
     )
 
 
@@ -1796,23 +1767,8 @@ def _vgpr_agpr_result(field_name: str = "dst", *, units: int = 1) -> Operand:
     return Operand(field_name, OperandRole.RESULT, _VGPR_AGPR_ALT, unit_count=units)
 
 
-def _vgpr_agpr_operand(
-    field_name: str,
-    *,
-    units: int = 1,
-    vgpr_register_part: str | None = None,
-) -> Operand:
-    return Operand(
-        field_name,
-        OperandRole.OPERAND,
-        tuple(
-            replace(alternative, register_part=vgpr_register_part)
-            if alternative.reg_class == _REG_VGPR
-            else alternative
-            for alternative in _VGPR_AGPR_ALT
-        ),
-        unit_count=units,
-    )
+def _vgpr_agpr_operand(field_name: str, *, units: int = 1) -> Operand:
+    return Operand(field_name, OperandRole.OPERAND, _VGPR_AGPR_ALT, unit_count=units)
 
 
 def _vgpr_agpr_const_operand(field_name: str, *, units: int = 1) -> Operand:
@@ -2710,6 +2666,15 @@ def _destructive_accumulator_constraints(
     )
 
 
+def _preferred_accumulator_constraints(
+    accumulator_operand_index: int,
+) -> tuple[Constraint, ...]:
+    return (
+        Constraint(ConstraintKind.PREFER_TIED, 0, accumulator_operand_index),
+        Constraint(ConstraintKind.EARLY_CLOBBER, 0),
+    )
+
+
 _DESTRUCTIVE_ACCUMULATOR_CONSTRAINTS = _destructive_accumulator_constraints(1)
 _BUFFER_ATOMIC_VDATA_INPUT_REASON = "xml-models-buffer-atomic-vdata-as-output-only"
 _SMFMAC_VDST_ACCUMULATOR_REASON = "xml-models-smfmac-accumulator-as-vdst"
@@ -3392,6 +3357,8 @@ __all__ = (
     "AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_DPP_CTRL",
     "AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_DPP8",
     "AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_LOAD_TEMPORAL",
+    "AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_STORE_TEMPORAL",
+    "AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_ATOMIC_TEMPORAL",
     "AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_GFX12_SCOPE",
     "AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_NAMED_BIT_LIST",
     "AMDGPU_NATIVE_ASM_IMMEDIATE_FORMAT_NAMED_FLAG",
@@ -3495,6 +3462,7 @@ __all__ = (
     "_AMDGPU_DESCRIPTOR_SOURCE_DIR",
     "_AMDGPU_INLINE_F32_ENUM_DOMAIN_NAME",
     "_AMDGPU_REGISTER_PARTS",
+    "_AGPR_REGISTER_PARTS",
     "_AMDGPU_SOURCE_INLINE_F32_ENUM_DOMAIN",
     "_AMDGPU_SOURCE_INLINE_U32_16_ENUM_DOMAIN",
     "_AMDGPU_TRANS_DESCRIPTOR_KEYS",
@@ -3612,6 +3580,9 @@ __all__ = (
     "_REG_EXEC",
     "_REG_M0",
     "_REG_MODE",
+    "_REG_PART_AGPR_FULL32_MASK",
+    "_REG_PART_AGPR_HIGH16",
+    "_REG_PART_AGPR_LOW16",
     "_REG_PART_SGPR_FULL32_MASK",
     "_REG_PART_SGPR_HIGH16",
     "_REG_PART_SGPR_LOW16",
@@ -3755,6 +3726,7 @@ __all__ = (
     "_ds_offset_immediate",
     "_EARLY_CLOBBER_RESULT_CONSTRAINTS",
     "_destructive_accumulator_constraints",
+    "_preferred_accumulator_constraints",
     "_exec_clobber",
     "_exec_state_read",
     "_exec_value_read",
@@ -3767,8 +3739,6 @@ __all__ = (
     "_global_atomic_effects",
     "_global_read_effect",
     "_global_to_lds_effects",
-    "_global_saddr_asm",
-    "_global_vaddr_asm",
     "_global_write_effect",
     "_hal_buffer_descriptor_pseudos",
     "_ignore_generic_atomic_memory",
@@ -3794,7 +3764,7 @@ __all__ = (
     "_native_amdgpu_dpp_ctrl_immediate",
     "_native_amdgpu_dpp8_immediate",
     "_native_amdgpu_dpp_bank_mask_immediate",
-    "_native_amdgpu_gfx12_load_temporal_immediate",
+    "_native_amdgpu_gfx12_temporal_immediate",
     "_native_amdgpu_gfx12_scope_immediate",
     "_native_amdgpu_named_bit_list_immediate",
     "_native_amdgpu_named_flag_immediate",

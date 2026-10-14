@@ -59,10 +59,10 @@ low.kernel.def target<amdgpu.cdna3.core> abi_layout({constant_count = 3, direct_
   %109 = v_mov_b32 4294967292
   %110 = v_mul_lo_u32 %108, %109
   %111 = v_add_u32_src0_inline %110, 56
-  %uniform_value = scratch_load_b32_vaddr %111
+  %uniform_value = scratch_load_b32_vaddr %111 : reg<amdgpu.vgpr>
   %114 = v_mul_lo_u32 %lane, %109
   %115 = v_add_u32_src0_inline %114, 56
-  %varying_value = scratch_load_b32_vaddr %115
+  %varying_value = scratch_load_b32_vaddr %115 : reg<amdgpu.vgpr>
   %117 = v_lshlrev_b32_src0_inline %lane, 3
   global_store_dword_saddr %117, %uniform_value, %output_view
   global_store_dword_saddr %117, %varying_value, %output_view {offset = 4}

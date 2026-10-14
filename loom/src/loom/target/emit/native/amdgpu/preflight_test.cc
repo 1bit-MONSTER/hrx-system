@@ -45,19 +45,6 @@ const loom_low_descriptor_set_t* LookupAmdgpuGfx125xDescriptorSet() {
       &registry.registry, IREE_SV("amdgpu.rdna4.gfx125x.core"));
 }
 
-uint16_t FindRegisterClassId(const loom_low_descriptor_set_t* descriptor_set,
-                             iree_string_view_t name) {
-  for (uint16_t i = 0; i < descriptor_set->reg_class_count; ++i) {
-    const loom_low_reg_class_t* reg_class = &descriptor_set->reg_classes[i];
-    const iree_string_view_t reg_class_name = loom_low_descriptor_set_string(
-        descriptor_set, reg_class->name_string_ref);
-    if (iree_string_view_equal(reg_class_name, name)) {
-      return i;
-    }
-  }
-  return LOOM_LOW_REG_CLASS_NONE;
-}
-
 class AmdgpuNativePreflightTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -219,8 +206,7 @@ class AmdgpuNativePreflightTest : public ::testing::Test {
   std::vector<uint32_t> physical_extents_;
 };
 
-TEST_F(AmdgpuNativePreflightTest,
-       AgprNativeMetadataUnsupportedEmitsDiagnostic) {
+TEST_F(AmdgpuNativePreflightTest, RetainsAccumulatorAndMoveScratchExtents) {
   const loom_low_descriptor_set_t* descriptor_set =
       LookupAmdgpuCdna3DescriptorSet();
   if (descriptor_set == nullptr) {
@@ -228,8 +214,8 @@ TEST_F(AmdgpuNativePreflightTest,
   }
   BuildLowFunction(descriptor_set);
   const uint16_t agpr_reg_class_id =
-      FindRegisterClassId(descriptor_set, IREE_SV("amdgpu.agpr"));
-  ASSERT_NE(agpr_reg_class_id, LOOM_LOW_REG_CLASS_NONE);
+      loom_amdgpu_agpr_reg_class_id(descriptor_set);
+  ASSERT_NE(agpr_reg_class_id, UINT8_MAX);
 
   loom_low_schedule_table_t schedule = Schedule(descriptor_set);
 
@@ -244,6 +230,8 @@ TEST_F(AmdgpuNativePreflightTest,
   loom_low_allocation_table_t allocation = Allocation(descriptor_set);
   allocation.assignments = &assignment;
   allocation.assignment_count = 1;
+  // A structural move uses a4 beyond the four-register SSA assignment.
+  physical_extents_[agpr_reg_class_id] = 5;
 
   DiagnosticEmissionCapture capture;
   loom_amdgpu_native_preflight_options_t options = {
@@ -253,17 +241,9 @@ TEST_F(AmdgpuNativePreflightTest,
   IREE_ASSERT_OK(loom_amdgpu_native_preflight_analyze(&schedule, &allocation,
                                                       &options, &preflight));
 
-  EXPECT_EQ(preflight.error_count, 1u);
-  ASSERT_EQ(capture.emissions.size(), 1u);
-  const testing::CapturedDiagnosticEmission& emission = capture.emissions[0];
-  EXPECT_EQ(emission.error, LOOM_ERR_AMDGPU_035);
-  ASSERT_EQ(emission.string_params.size(), 8u);
-  EXPECT_EQ(emission.string_params[0], "gfx942");
-  EXPECT_EQ(emission.string_params[3], "preflight");
-  EXPECT_EQ(emission.string_params[4], "<unknown>");
-  EXPECT_EQ(emission.string_params[5], "amdgpu.agpr");
-  EXPECT_EQ(emission.string_params[6], "amdgpu.agpr");
-  EXPECT_EQ(emission.string_params[7], "AGPR kernel-descriptor");
+  EXPECT_EQ(preflight.error_count, 0u);
+  EXPECT_TRUE(capture.emissions.empty());
+  EXPECT_EQ(preflight.next_free_agpr, 5u);
 }
 
 TEST_F(AmdgpuNativePreflightTest, UsesCompleteRetainedRegisterExtents) {

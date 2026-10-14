@@ -349,6 +349,13 @@ typedef enum loom_low_constraint_kind_e {
   // Two register values carry the same semantic value type. Their carrier
   // classes and storage remain independent.
   LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_VALUE_TYPE = 8,
+  // Two register values use the same carrier class. Their tuple sizes,
+  // semantic value types, and assigned storage remain independent.
+  LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_CLASS = 9,
+  // The result and input have matching types. Default authoring and lowering
+  // reuse the input's storage, but explicitly independent results may use a
+  // separate register. Physical aliasing is not required.
+  LOOM_LOW_CONSTRAINT_KIND_PREFER_TIED = 10,
 } loom_low_constraint_kind_t;
 
 // Bitset of descriptor constraint flags.
@@ -521,6 +528,8 @@ typedef uint16_t loom_low_descriptor_flags_t;
 #define LOOM_LOW_DESCRIPTOR_FLAG_STATE_ASSIGNMENT ((uint16_t)1u << 11)
 // At least one input register alternative may read through result writes.
 #define LOOM_LOW_DESCRIPTOR_FLAG_LATE_READ ((uint16_t)1u << 12)
+// At least one result must occupy the same physical storage as an input.
+#define LOOM_LOW_DESCRIPTOR_FLAG_TIED_RESULTS ((uint16_t)1u << 13)
 
 // Target-neutral semantic classes attached to generated low descriptors.
 // Multiple classes may be present when a packet contributes to several

@@ -661,7 +661,7 @@ amdgpu.target<gfx950> @target
 low.func.def target<amdgpu.cdna4.core>(@target) @buffer_load_dwordx2_off_zero(%resource: reg<amdgpu.sgpr x4>) -> (reg<amdgpu.vgpr x2>) asm {
   %vaddr = v_mov_b32 0
   %soffset = s_mov_b32 0
-  %result = buffer_load_dwordx2 %resource, %vaddr, %soffset {offset = 32}
+  %result = buffer_load_dwordx2 %resource, %vaddr, %soffset {offset = 32} : reg<amdgpu.vgpr x2>
   return %result
 }
 
@@ -669,7 +669,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) @buffer_load_dwordx2_off_zero(%r
 amdgpu.target<gfx950> @target
 
 low.func.def target<amdgpu.cdna4.core>(@target) @buffer_load_dwordx2_off_zero(%resource: reg<amdgpu.sgpr x4>) -> (reg<amdgpu.vgpr x2>) asm {
-  %result = buffer_load_dwordx2_off_zero %resource {offset = 32}
+  %result = buffer_load_dwordx2_off_zero %resource {offset = 32} : reg<amdgpu.vgpr x2>
   return %result
 }
 
@@ -679,7 +679,7 @@ amdgpu.target<gfx950> @target
 
 low.func.def target<amdgpu.cdna4.core>(@target) @buffer_load_dwordx2_vaddr_offset(%resource: reg<amdgpu.sgpr x4>, %vaddr: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x2>) asm {
   %soffset = s_mov_b32 256
-  %result = buffer_load_dwordx2 %resource, %vaddr, %soffset {offset = 24}
+  %result = buffer_load_dwordx2 %resource, %vaddr, %soffset {offset = 24} : reg<amdgpu.vgpr x2>
   return %result
 }
 
@@ -687,7 +687,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) @buffer_load_dwordx2_vaddr_offse
 amdgpu.target<gfx950> @target
 
 low.func.def target<amdgpu.cdna4.core>(@target) @buffer_load_dwordx2_vaddr_offset(%resource: reg<amdgpu.sgpr x4>, %vaddr: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr x2>) asm {
-  %result = buffer_load_dwordx2_vaddr_offset %resource, %vaddr {offset = 280}
+  %result = buffer_load_dwordx2_vaddr_offset %resource, %vaddr {offset = 280} : reg<amdgpu.vgpr x2>
   return %result
 }
 

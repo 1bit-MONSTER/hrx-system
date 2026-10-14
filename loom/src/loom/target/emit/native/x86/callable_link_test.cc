@@ -17,6 +17,9 @@ using F16 = _Float16;
 // These definitions are linked directly from the object emitted by Loom in a
 // separate build action. The compiler process exits before the link begins.
 extern "C" uint64_t mix(uint64_t input, uint64_t delta);
+extern "C" void independent_integer_updates(uint32_t left32, uint32_t right32,
+                                            uint64_t left64, uint64_t right64,
+                                            uint64_t* output);
 extern "C" uint32_t immediate_mix32(uint32_t input);
 extern "C" uint64_t immediate_mix64(uint64_t input);
 extern "C" uint64_t immediate_scale(uint64_t coordinate);
@@ -395,6 +398,22 @@ TEST(NativeCallableTest, CompareBranchesUseOrdinaryCLinkage) {
   EXPECT_EQ(immediate_branch_family(-17, 0, 129, -130), 4u);
   EXPECT_EQ(register_branch_false_fallthrough(-4, 7, 19, 23), 19u);
   EXPECT_EQ(register_branch_false_fallthrough(7, -4, 19, 23), 23u);
+}
+
+TEST(NativeCallableTest, IndependentResultsPreservePhysicallyTiedInputs) {
+  for (uint64_t left :
+       {UINT64_C(0), UINT64_C(7), UINT64_C(0x123456789abcdef0), UINT64_MAX}) {
+    for (uint64_t right : {UINT64_C(1), UINT64_C(19), UINT64_MAX}) {
+      std::array<uint64_t, 3> output = {};
+      independent_integer_updates(static_cast<uint32_t>(left),
+                                  static_cast<uint32_t>(right), left, right,
+                                  output.data());
+      const uint32_t sum = static_cast<uint32_t>(left + right);
+      EXPECT_EQ(output[0], (uint64_t{sum} << 32) | static_cast<uint32_t>(left));
+      EXPECT_EQ(output[1], left);
+      EXPECT_EQ(output[2], left - right);
+    }
+  }
 }
 
 TEST(NativeCallableTest, IntegerImmediateArithmetic) {

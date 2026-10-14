@@ -72,7 +72,9 @@ def test_memory_cache_policy_fragments_are_data_only() -> None:
     )
     temporal_th = amdgpu_target_info._emit_memory_cache_policy_temporal_th()
 
-    for source in (policy_rows, temporal_th):
+    native_names = amdgpu_target_info._emit_memory_cache_native_names()
+
+    for source in (policy_rows, temporal_th, native_names):
         assert "typedef " not in source
         assert "#ifndef " not in source
         assert "#include " not in source
@@ -312,6 +314,12 @@ def test_target_info_flag_expressions_cover_every_known_bit() -> None:
 
 def test_cluster_launch_state_is_scoped_to_gfx1250() -> None:
     assert {info.processor for info in amdgpu_target_info_data.AMDGPU_PROCESSOR_INFOS if info.flags & AMDGPU_PROCESSOR_INFO_FLAG_CLUSTER_LAUNCH_STATE} == {"gfx1250"}
+
+
+def test_dgemm_memory_interlock_defect_is_scoped_to_gfx90a() -> None:
+    assert {info.processor for info in amdgpu_target_info_data.AMDGPU_PROCESSOR_INFOS if info.features.scheduling & amdgpu_target_info_data.AMDGPU_PROCESSOR_SCHEDULING_DGEMM_MEMORY_INTERLOCK} == {
+        "gfx90a"
+    }
 
 
 def test_initial_vmem_replay_entry_profile_covers_required_processors() -> None:

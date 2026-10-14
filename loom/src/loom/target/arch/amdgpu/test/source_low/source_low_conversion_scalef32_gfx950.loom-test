@@ -79,7 +79,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) abi(hal_kernel) @gfx950_vector_d
   %75, %76 = s_add_co_u32 %71, %73
   %77, %78 = s_addc_u32 %72, %74, %76
   %79 = concat(%75, %77) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  %payload = global_load_ushort_saddr %70, %79
+  %payload = global_load_ushort_saddr %70, %79 : reg<amdgpu.vgpr>
   %decoded = v_cvt_scalef32_pk_f16_fp8 %payload, %scale
   return %decoded
 }
@@ -94,7 +94,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) abi(hal_kernel) @gfx950_vector_d
   %91, %92 = s_add_co_u32 %87, %89
   %93, %94 = s_addc_u32 %88, %90, %92
   %95 = concat(%91, %93) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  %payload = global_load_ushort_saddr %86, %95
+  %payload = global_load_ushort_saddr %86, %95 : reg<amdgpu.vgpr>
   %decoded = v_cvt_scalef32_pk_f16_bf8 %payload, %scale
   return %decoded
 }
@@ -109,7 +109,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) abi(hal_kernel) @gfx950_vector_d
   %107, %108 = s_add_co_u32 %103, %105
   %109, %110 = s_addc_u32 %104, %106, %108
   %111 = concat(%107, %109) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  %payload = global_load_ushort_saddr %102, %111
+  %payload = global_load_ushort_saddr %102, %111 : reg<amdgpu.vgpr>
   %decoded = v_cvt_scalef32_pk_bf16_fp8 %payload, %scale
   return %decoded
 }
@@ -124,7 +124,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) abi(hal_kernel) @gfx950_vector_d
   %123, %124 = s_add_co_u32 %119, %121
   %125, %126 = s_addc_u32 %120, %122, %124
   %127 = concat(%123, %125) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  %payload = global_load_ushort_saddr %118, %127
+  %payload = global_load_ushort_saddr %118, %127 : reg<amdgpu.vgpr>
   %decoded = v_cvt_scalef32_pk_bf16_bf8 %payload, %scale
   return %decoded
 }
@@ -139,7 +139,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) abi(hal_kernel) @gfx950_vector_d
   %139, %140 = s_add_co_u32 %135, %137
   %141, %142 = s_addc_u32 %136, %138, %140
   %143 = concat(%139, %141) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  %payload = global_load_ushort_saddr %134, %143
+  %payload = global_load_ushort_saddr %134, %143 : reg<amdgpu.vgpr>
   %decoded = v_cvt_scalef32_pk_f32_fp8 %payload, %scale
   return %decoded
 }
@@ -154,7 +154,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) abi(hal_kernel) @gfx950_vector_d
   %155, %156 = s_add_co_u32 %151, %153
   %157, %158 = s_addc_u32 %152, %154, %156
   %159 = concat(%155, %157) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  %payload = global_load_ushort_saddr %150, %159
+  %payload = global_load_ushort_saddr %150, %159 : reg<amdgpu.vgpr>
   %decoded = v_cvt_scalef32_pk_f32_bf8 %payload, %scale
   return %decoded
 }
@@ -169,7 +169,7 @@ low.func.def target<amdgpu.cdna4.core>(@target) abi(hal_kernel) @gfx950_vector_d
   %171, %172 = s_add_co_u32 %167, %169
   %173, %174 = s_addc_u32 %168, %170, %172
   %175 = concat(%171, %173) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  %payload = global_load_ushort_saddr %166, %175
+  %payload = global_load_ushort_saddr %166, %175 : reg<amdgpu.vgpr>
   %177 = v_and_b32_lit %payload, 128
   %178 = v_lshlrev_b32_src0_inline %177, 8
   %179 = v_and_b32_lit %payload, 127

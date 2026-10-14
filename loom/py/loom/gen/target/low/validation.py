@@ -1659,6 +1659,11 @@ def validate_descriptor_constraints(
     """Validates constraints and returns rematerializable result indices."""
 
     rematerializable_results: set[int] = set()
+    tied_inputs: dict[int, int] = {}
+    tied_results: dict[int, int] = {}
+    ownership_results: set[int] = set()
+    preferred_results: set[int] = set()
+    required_results: set[int] = set()
     for constraint_index, constraint in enumerate(descriptor.constraints):
         lhs_operand_index = constraint.lhs_operand_index
         rhs_operand_index = constraint.rhs_operand_index
@@ -1671,6 +1676,7 @@ def validate_descriptor_constraints(
         lhs = descriptor.operands[lhs_operand_index]
         if constraint.kind in (
             ConstraintKind.TIED,
+            ConstraintKind.PREFER_TIED,
             ConstraintKind.DESTRUCTIVE,
         ):
             constraint_name = constraint.kind.name.lower()
@@ -1684,6 +1690,22 @@ def validate_descriptor_constraints(
             rhs = descriptor.operands[rhs_operand_index]
             if lhs.role is not OperandRole.RESULT or not operand_role_is_packet_input(rhs.role):
                 raise ValueError(f"descriptor '{descriptor.key}' {constraint_name} constraint requires a result lhs and packet operand rhs")
+            previous_input = tied_inputs.setdefault(lhs_operand_index, rhs_operand_index)
+            if previous_input != rhs_operand_index:
+                raise ValueError(f"{description} ties result {lhs_operand_index} to distinct inputs {previous_input} and {rhs_operand_index}")
+            previous_result = tied_results.setdefault(rhs_operand_index, lhs_operand_index)
+            if previous_result != lhs_operand_index:
+                raise ValueError(f"{description} ties input {rhs_operand_index} to distinct results {previous_result} and {lhs_operand_index}")
+            if constraint.kind is ConstraintKind.PREFER_TIED:
+                preferred_results.add(lhs_operand_index)
+            else:
+                required_results.add(lhs_operand_index)
+            if lhs_operand_index in preferred_results and lhs_operand_index in required_results:
+                raise ValueError(f"{description} combines preferred and required ties for result {lhs_operand_index}")
+            if constraint.kind in (ConstraintKind.TIED, ConstraintKind.PREFER_TIED):
+                if lhs_operand_index in ownership_results:
+                    raise ValueError(f"descriptor '{descriptor.key}' repeats ownership tie for result {lhs_operand_index}")
+                ownership_results.add(lhs_operand_index)
         elif constraint.kind is ConstraintKind.COMMUTABLE:
             rhs_operand_index = _validate_binary_constraint(
                 descriptor,
@@ -1698,6 +1720,7 @@ def validate_descriptor_constraints(
         elif constraint.kind in (
             ConstraintKind.SAME_REGISTER_ORDINAL,
             ConstraintKind.SAME_REGISTER_VALUE_TYPE,
+            ConstraintKind.SAME_REGISTER_CLASS,
         ):
             constraint_name = constraint.kind.name.lower().replace("_", "-")
             rhs_operand_index = _validate_binary_constraint(
