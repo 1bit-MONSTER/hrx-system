@@ -22,8 +22,9 @@ static bool loom_cmd_program_plan_has_source_kernels(
     }
     const loom_link_module_index_symbol_t* source =
         loom_link_module_index_symbol_at(index, source_ordinal);
-    if (iree_any_bit_set(source->facets.schema.interfaces,
-                         LOOM_SYMBOL_INTERFACE_KERNEL)) {
+    if (iree_any_bit_set(
+            source->facets.schema.interfaces,
+            LOOM_SYMBOL_INTERFACE_KERNEL | LOOM_SYMBOL_INTERFACE_PIPELINE)) {
       return true;
     }
   }

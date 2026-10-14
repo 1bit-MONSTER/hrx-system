@@ -6,6 +6,7 @@
 
 #include "loom/transforms/kernel/kernel_request_producer.h"
 
+#include <cstring>
 #include <memory>
 #include <string>
 #include <vector>
@@ -19,6 +20,7 @@
 #include "loom/link/module_index.h"
 #include "loom/ops/kernel/ops.h"
 #include "loom/ops/op_registry.h"
+#include "loom/ops/scalar/ops.h"
 #include "loom/testing/module_ptr.h"
 #include "loom/verify/verify.h"
 
@@ -120,6 +122,10 @@ template.def<@request.schedule> priority(1) @small(%size: index) {
   kernel.return
 }
 )";
+    return ParseText(source);
+  }
+
+  ModulePtr ParseText(const std::string& source) {
     loom_text_parse_options_t parse_options = {};
     parse_options.diagnostic_sink.fn = loom_diagnostic_stderr_sink;
     parse_options.max_errors = 20;
@@ -129,6 +135,9 @@ template.def<@request.schedule> priority(1) @small(%size: index) {
                                   &context_, &block_pool_, &parse_options,
                                   &module));
     ModulePtr module_ptr(module);
+    if (!module) {
+      return module_ptr;
+    }
     Verify(module);
     return module_ptr;
   }
@@ -270,6 +279,259 @@ template.def<@request.schedule> priority(1) @small(%size: index) {
   loom_context_t context_ = {};
 };
 
+TEST_P(KernelRequestProducerTest, BindsScalarAndVectorLiteralFamilies) {
+  const char* scalar_types[] = {"index", "offset", "i1",     "i8",     "i16",
+                                "i32",   "i64",    "f8E4M3", "f8E5M2", "f16",
+                                "bf16",  "f32",    "f64"};
+  for (const char* scalar_type : scalar_types) {
+    for (const char* shape : {"", "1x", "4x", "2x3x5x", "0x"}) {
+      const bool vector = shape[0] != '\0';
+      const bool empty = std::strcmp(shape, "0x") == 0;
+      const bool boolean = std::strcmp(scalar_type, "i1") == 0;
+      const std::string type =
+          vector ? std::string("vector<") + shape + scalar_type + ">"
+                 : scalar_type;
+      SCOPED_TRACE(type);
+      const std::string operation = empty    ? "vector.empty"
+                                    : vector ? "vector.constant"
+                                    : (std::strcmp(scalar_type, "index") == 0 ||
+                                       std::strcmp(scalar_type, "offset") == 0)
+                                        ? "index.constant"
+                                        : "scalar.constant";
+      const bool floating = scalar_type[0] == 'f' || scalar_type[0] == 'b';
+      const std::string first = empty      ? ""
+                                : boolean  ? " true"
+                                : floating ? " 0.0"
+                                           : " 1";
+      const std::string second = empty      ? ""
+                                 : boolean  ? " false"
+                                 : floating ? " -0.0"
+                                            : " 2";
+      const std::string source =
+          "func.decl @observe(%value: " + type + ")\n" +
+          (GetParam()
+               ? "target.decl @device\npipeline.def<kernel> target(@device) "
+               : "pipeline.def<kernel> ") +
+          "@classified(%value: " + type +
+          ") run(%output: buffer) {\n"
+          "func.call @observe(%value) : (" +
+          type +
+          ")\npipeline.finish\n}\n"
+          "func.def @sites(%output: buffer) {\n%first = " +
+          operation + first + " : " + type + "\n%second = " + operation +
+          second + " : " + type + "\n%equal = " + operation + first + " : " +
+          type + "\nfunc.return\n}\n";
+      ModulePtr source_module = ParseText(source);
+      ASSERT_NE(source_module, nullptr);
+      std::vector<uint8_t> bytecode = WriteModule(source_module.get());
+      IndexPtr index = CreateIndex();
+      const iree_host_size_t source_symbol_ordinal =
+          AddBytecodeSource(index.get(), bytecode, source_module.get());
+      ProducerPtr producer = CreateProducer(index.get());
+      iree_arena_allocator_t scratch_arena;
+      iree_arena_initialize(&block_pool_, &scratch_arena);
+      const auto site_function = loom_func_like_cast(
+          source_module.get(),
+          source_module->symbols
+              .entries[FindSymbol(source_module.get(), IREE_SV("sites"))]
+              .defining_op);
+      loom_value_fact_table_t facts = {};
+      IREE_ASSERT_OK(
+          loom_value_fact_table_initialize(&facts, &scratch_arena, 0));
+      IREE_ASSERT_OK(loom_value_fact_table_compute(&facts, source_module.get(),
+                                                   site_function));
+      loom_value_id_t arguments[3][2] = {};
+      loom_kernel_class_site_t sites[3] = {};
+      const loom_op_t* literal =
+          loom_region_entry_block(loom_func_like_body(site_function))->first_op;
+      for (size_t i = 0; i < 3; ++i) {
+        arguments[i][0] = loom_op_results((loom_op_t*)literal)[0];
+        arguments[i][1] =
+            loom_region_entry_block(loom_func_like_body(site_function))
+                ->arg_ids[0];
+        sites[i] = {.facts = &facts, .argument_values = arguments[i]};
+        literal = literal->next_op;
+      }
+      RequestCapture capture = {.block_pool = &block_pool_};
+      const auto environment = MaterializationEnvironment();
+      auto options = loom_kernel_class_collection_options_default();
+      loom_kernel_class_collection_t collection = {};
+      if (!empty) {
+        options.class_limit = 1;
+        IREE_EXPECT_STATUS_IS(
+            IREE_STATUS_RESOURCE_EXHAUSTED,
+            loom_kernel_request_producer_publish(
+                producer.get(), &environment, source_symbol_ordinal,
+                source_module.get(), sites, std::size(sites), &options,
+                {.publish = CaptureRequest, .user_data = &capture},
+                &scratch_arena, &collection));
+        EXPECT_TRUE(capture.requests.empty());
+        options = loom_kernel_class_collection_options_default();
+      }
+      IREE_ASSERT_OK(loom_kernel_request_producer_publish(
+          producer.get(), &environment, source_symbol_ordinal,
+          source_module.get(), sites, std::size(sites), &options,
+          {.publish = CaptureRequest, .user_data = &capture}, &scratch_arena,
+          &collection));
+      EXPECT_EQ(collection.class_count, empty ? 1u : 2u);
+      EXPECT_EQ(collection.site_classes[0], collection.site_classes[2]);
+      producer.reset();
+      index.reset();
+      source_module.reset();
+      bytecode.clear();
+      iree_arena_deinitialize(&scratch_arena);
+      for (CapturedRequest& request : capture.requests) {
+        Verify(request.product.module);
+        const auto function =
+            loom_func_like_cast(request.product.module,
+                                request.product.module->symbols
+                                    .entries[request.product.kernel.symbol_id]
+                                    .defining_op);
+        uint16_t argument_count = 0;
+        loom_func_like_arg_ids(function, &argument_count);
+        EXPECT_EQ(argument_count, 1u);
+        EXPECT_EQ(loom_func_like_specialization_count(function), 0);
+        const loom_op_t* bound =
+            loom_region_entry_block(loom_func_like_body(function))->first_op;
+        EXPECT_TRUE(iree_all_bits_set(bound->traits, LOOM_TRAIT_CONSTANT_LIKE));
+        const loom_type_t bound_type = loom_module_value_type(
+            request.product.module, loom_op_results((loom_op_t*)bound)[0]);
+        EXPECT_EQ(loom_type_is_vector(bound_type), vector);
+        if (vector) {
+          EXPECT_EQ(loom_type_rank(bound_type),
+                    std::strcmp(shape, "2x3x5x") == 0 ? 3u : 1u);
+        }
+        loom_kernel_class_product_deinitialize(&request.product);
+      }
+    }
+  }
+}
+
+TEST_P(KernelRequestProducerTest,
+       PreservesMandatoryClassesAndResidualContracts) {
+  for (const char* scalar_type :
+       {"f8E4M3", "f8E5M2", "f16", "bf16", "f32", "f64"}) {
+    SCOPED_TRACE(scalar_type);
+    const std::string type = scalar_type;
+    const std::string source =
+        R"(
+template.decl @schedule(%size: index)
+template.def<@schedule> priority(10) @large(%size: index) where [ge(%size, 512)] {
+  template.return
+}
+template.def<@schedule> priority(1) @small(%size: index) {
+  template.return
+}
+)" + std::string("func.decl @observe(%value: ") +
+        type + ")\n" +
+        (GetParam()
+             ? "target.decl @device\npipeline.def<kernel> target(@device) "
+             : "pipeline.def<kernel> ") +
+        "@classified(%width: index, %reference: " + type +
+        ") "
+        "run(%size: index, %value: " +
+        type +
+        ", %output: buffer) "
+        "where [multiple_of(%width, 16), ge(%size, %width), "
+        "eq(%value, %reference), finite(%reference), finite(%value)] {\n"
+        "template.apply<@schedule>(%size) : (index)\n"
+        "func.call @observe(%value) : (" +
+        type +
+        ")\npipeline.finish\n}\n"
+        "func.def @sites(%output: buffer) {\n"
+        "%narrow = index.constant 64 : index\n"
+        "%wide = index.constant 128 : index\n"
+        "%small = index.constant 256 : index\n"
+        "%large = index.constant 512 : index\n"
+        "%reference = scalar.constant 1.25 : " +
+        type + "\nfunc.return\n}\n";
+    ModulePtr source_module = ParseText(source);
+    ASSERT_NE(source_module, nullptr);
+    auto bytecode = WriteModule(source_module.get());
+    IndexPtr index = CreateIndex();
+    const auto source_symbol_ordinal =
+        AddBytecodeSource(index.get(), bytecode, source_module.get());
+    ProducerPtr producer = CreateProducer(index.get());
+    iree_arena_allocator_t scratch_arena;
+    iree_arena_initialize(&block_pool_, &scratch_arena);
+    const auto site_function = loom_func_like_cast(
+        source_module.get(),
+        source_module->symbols
+            .entries[FindSymbol(source_module.get(), IREE_SV("sites"))]
+            .defining_op);
+    loom_value_fact_table_t facts = {};
+    IREE_ASSERT_OK(loom_value_fact_table_initialize(&facts, &scratch_arena, 0));
+    IREE_ASSERT_OK(loom_value_fact_table_compute(&facts, source_module.get(),
+                                                 site_function));
+    const auto* block =
+        loom_region_entry_block(loom_func_like_body(site_function));
+    loom_value_id_t constants[5] = {};
+    const auto* literal = block->first_op;
+    for (auto& value : constants) {
+      value = loom_op_const_results(literal)[0];
+      literal = literal->next_op;
+    }
+    loom_value_id_t arguments[4][5] = {};
+    loom_kernel_class_site_t sites[4] = {};
+    for (size_t i = 0; i < 4; ++i) {
+      arguments[i][0] = constants[i / 2];
+      arguments[i][1] = constants[4];
+      arguments[i][2] = constants[2 + i % 2];
+      arguments[i][3] = constants[4];
+      arguments[i][4] = block->arg_ids[0];
+      sites[i] = {.facts = &facts, .argument_values = arguments[i]};
+    }
+    RequestCapture capture = {.block_pool = &block_pool_};
+    const auto environment = MaterializationEnvironment();
+    auto options = loom_kernel_class_collection_options_default();
+    options.class_limit = 2;
+    loom_kernel_class_collection_t collection = {};
+    IREE_ASSERT_OK(loom_kernel_request_producer_publish(
+        producer.get(), &environment, source_symbol_ordinal,
+        source_module.get(), sites, std::size(sites), &options,
+        {.publish = CaptureRequest, .user_data = &capture}, &scratch_arena,
+        &collection));
+    EXPECT_EQ(collection.class_count, 2u);
+    EXPECT_EQ(collection.accepted_decision_count, 0u);
+    EXPECT_EQ(collection.skipped_decision_count, 1u);
+    EXPECT_EQ(collection.decision_results[0].state,
+              LOOM_KERNEL_CLASS_DECISION_SKIPPED_CLASS_LIMIT);
+    EXPECT_EQ(collection.site_classes[0], collection.site_classes[1]);
+    EXPECT_EQ(collection.site_classes[2], collection.site_classes[3]);
+    EXPECT_NE(collection.site_classes[0], collection.site_classes[2]);
+    producer.reset();
+    index.reset();
+    source_module.reset();
+    bytecode.clear();
+    iree_arena_deinitialize(&scratch_arena);
+    ASSERT_EQ(capture.requests.size(), 2u);
+    for (auto& request : capture.requests) {
+      Verify(request.product.module);
+      const auto function = loom_func_like_cast(
+          request.product.module, request.product.module->symbols
+                                      .entries[request.product.kernel.symbol_id]
+                                      .defining_op);
+      uint16_t predicate_count = 0;
+      const auto* predicates =
+          loom_func_like_predicates(function, &predicate_count);
+      ASSERT_EQ(predicate_count, 2u);
+      EXPECT_EQ(predicates[0].kind, LOOM_PREDICATE_GE);
+      EXPECT_EQ(predicates[0].arg_tags[1], LOOM_PRED_ARG_CONST);
+      EXPECT_EQ(predicates[0].args[1], request.class_ordinal == 0 ? 64 : 128);
+      EXPECT_EQ(predicates[1].kind, LOOM_PREDICATE_FINITE);
+      const auto* first =
+          loom_region_entry_block(loom_func_like_body(function))->first_op;
+      const auto* assume = first->next_op->next_op;
+      ASSERT_TRUE(loom_scalar_assume_isa(assume));
+      const auto assumption = loom_scalar_assume_predicates(assume);
+      ASSERT_EQ(assumption.count, 1u);
+      EXPECT_EQ(assumption.predicate_list[0].kind, LOOM_PREDICATE_EQ);
+      EXPECT_EQ(assume->operand_count, 2u);
+      loom_kernel_class_product_deinitialize(&request.product);
+    }
+  }
+}
+
 TEST_P(KernelRequestProducerTest,
        PublishesBytecodeBackedClassesWithIndependentOwnership) {
   ModulePtr source_module = ParseSource();
@@ -296,7 +558,7 @@ TEST_P(KernelRequestProducerTest,
   const loom_link_plan_materialization_environment_t environment =
       MaterializationEnvironment();
   IREE_ASSERT_OK(loom_kernel_request_producer_publish(
-      producer.get(), &environment, source_symbol_ordinal, sites,
+      producer.get(), &environment, source_symbol_ordinal, nullptr, sites,
       IREE_ARRAYSIZE(sites), &collection_options,
       loom_kernel_request_sink_t{
           .publish = CaptureRequest,
@@ -363,15 +625,16 @@ TEST_P(KernelRequestProducerTest, StopsAfterSinkFailureBeforeMaterialization) {
   loom_kernel_class_collection_t collection = {};
   const loom_link_plan_materialization_environment_t environment =
       MaterializationEnvironment();
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_ABORTED,
-                        loom_kernel_request_producer_publish(
-                            producer.get(), &environment, source_symbol_ordinal,
-                            sites, IREE_ARRAYSIZE(sites), &collection_options,
-                            loom_kernel_request_sink_t{
-                                .publish = RejectRequest,
-                                .user_data = &state,
-                            },
-                            &scratch_arena, &collection));
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_ABORTED,
+      loom_kernel_request_producer_publish(
+          producer.get(), &environment, source_symbol_ordinal, nullptr, sites,
+          IREE_ARRAYSIZE(sites), &collection_options,
+          loom_kernel_request_sink_t{
+              .publish = RejectRequest,
+              .user_data = &state,
+          },
+          &scratch_arena, &collection));
   EXPECT_EQ(state.call_count, 1u);
   EXPECT_EQ(collection.class_count, 0u);
 

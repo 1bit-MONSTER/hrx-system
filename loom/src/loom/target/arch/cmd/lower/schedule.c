@@ -156,18 +156,30 @@ static iree_status_t loom_cmd_schedule_append_command(
   loom_cmd_schedule_command_t command = {
       .source_op = op,
   };
-  IREE_ASSERT(loom_kernel_dispatch_isa(op));
-  command.callee = loom_kernel_dispatch_callee(op);
-  command.arguments =
-      loom_cmd_schedule_value_slice(loom_kernel_dispatch_arguments(op));
-  command.workgroup_counts =
-      loom_cmd_schedule_value_slice(loom_kernel_dispatch_workgroup_counts(op));
-  IREE_ASSERT_GT(command.workgroup_counts.count, 0u);
-  const loom_type_t first_count_type =
-      loom_module_value_type(build->module, command.workgroup_counts.values[0]);
-  command.kind = loom_type_is_view(first_count_type)
-                     ? LOOM_CMD_SCHEDULE_COMMAND_KIND_KERNEL_DISPATCH_INDIRECT
-                     : LOOM_CMD_SCHEDULE_COMMAND_KIND_KERNEL_DISPATCH_DIRECT;
+  if (loom_kernel_launch_isa(op)) {
+    command.callee = loom_kernel_launch_callee(op);
+    command.arguments =
+        loom_cmd_schedule_value_slice(loom_kernel_launch_arguments(op));
+    command.source_arguments = (loom_cmd_schedule_value_slice_t){
+        .values = loom_op_operands((loom_op_t*)op),
+        .count = op->operand_count,
+    };
+    command.kind = LOOM_CMD_SCHEDULE_COMMAND_KIND_PIPELINE_LAUNCH;
+  } else {
+    IREE_ASSERT(loom_kernel_dispatch_isa(op));
+    command.callee = loom_kernel_dispatch_callee(op);
+    command.arguments =
+        loom_cmd_schedule_value_slice(loom_kernel_dispatch_arguments(op));
+    command.workgroup_counts = loom_cmd_schedule_value_slice(
+        loom_kernel_dispatch_workgroup_counts(op));
+    IREE_ASSERT_GT(command.workgroup_counts.count, 0u);
+    const loom_type_t first_count_type = loom_module_value_type(
+        build->module, command.workgroup_counts.values[0]);
+    command.kind = loom_type_is_view(first_count_type)
+                       ? LOOM_CMD_SCHEDULE_COMMAND_KIND_KERNEL_DISPATCH_INDIRECT
+                       : LOOM_CMD_SCHEDULE_COMMAND_KIND_KERNEL_DISPATCH_DIRECT;
+    command.source_arguments = command.arguments;
+  }
   if (!iree_host_size_checked_add(build->argument_value_count,
                                   command.arguments.count,
                                   &build->argument_value_count)) {
@@ -254,14 +266,9 @@ static iree_status_t loom_cmd_schedule_build_commands(
     } else if (loom_kernel_launch_concurrent_isa(op)) {
       child_region = loom_kernel_launch_concurrent_body(op);
       child_mode = LOOM_CMD_SCHEDULE_MODE_CONCURRENT;
-    } else if (loom_kernel_dispatch_isa(op)) {
+    } else if (loom_kernel_dispatch_isa(op) || loom_kernel_launch_isa(op)) {
       IREE_RETURN_IF_ERROR(loom_cmd_schedule_append_command(build, frame, op));
       continue;
-    } else if (loom_kernel_launch_isa(op)) {
-      return iree_make_status(
-          IREE_STATUS_FAILED_PRECONDITION,
-          "logical kernel launch reached command scheduling before "
-          "configuration resolution");
     } else if (loom_buffer_alloca_isa(op)) {
       IREE_RETURN_IF_ERROR(
           loom_cmd_schedule_append_allocation(build, frame, op));

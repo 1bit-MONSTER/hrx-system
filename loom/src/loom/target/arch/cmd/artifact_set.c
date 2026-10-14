@@ -9,7 +9,6 @@
 #include <string.h>
 
 #include "loom/ir/module.h"
-#include "loom/ops/kernel/ops.h"
 #include "loom/ops/op_defs.h"
 #include "loom/target/arch/cmd/lower/serialize.h"
 
@@ -63,9 +62,9 @@ iree_status_t loom_cmd_program_artifact_set_build(
   for (iree_host_size_t i = 0; i < plan->entry_requirement_count; ++i) {
     const loom_op_t* declaration_op =
         plan->entry_requirements[i].declaration_op;
-    IREE_ASSERT(loom_kernel_entry_decl_isa(declaration_op));
     const iree_string_view_t name = loom_cmd_program_artifact_set_symbol_name(
-        plan->root_module, loom_kernel_entry_decl_callee(declaration_op));
+        plan->root_module, loom_func_like_callee(loom_func_like_const_cast(
+                               plan->root_module, declaration_op)));
     if (!iree_host_size_checked_add(string_storage_size, name.size,
                                     &string_storage_size)) {
       return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
@@ -112,7 +111,8 @@ iree_status_t loom_cmd_program_artifact_set_build(
     const loom_op_t* declaration_op =
         plan->entry_requirements[i].declaration_op;
     const iree_string_view_t name = loom_cmd_program_artifact_set_symbol_name(
-        plan->root_module, loom_kernel_entry_decl_callee(declaration_op));
+        plan->root_module, loom_func_like_callee(loom_func_like_const_cast(
+                               plan->root_module, declaration_op)));
     artifact_set.entries.values[i].symbol =
         loom_cmd_program_artifact_set_copy_string(name, &string_cursor);
   }

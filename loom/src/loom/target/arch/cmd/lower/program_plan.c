@@ -377,7 +377,8 @@ static iree_status_t loom_cmd_program_plan_emit_argument_error(
       LOOM_CMD_PROGRAM_ARGUMENT_CLASSIFICATION_NON_EXACT_SCALAR) {
     requirement = IREE_SV("an exact scalar bit pattern");
   }
-  const uint32_t flat_argument_offset = command->workgroup_counts.count;
+  const uint32_t flat_argument_offset =
+      command->source_op->operand_count - command->arguments.count;
   const loom_diagnostic_param_t params[] = {
       loom_param_string(
           loom_cmd_program_plan_symbol_name(module, command->callee)),
@@ -467,12 +468,17 @@ static iree_status_t loom_cmd_program_plan_build_lower_plan(
     IREE_ASSERT_LT(command->callee.symbol_id, plan_module->symbols.count);
     const loom_op_t* declaration_op =
         plan_module->symbols.entries[command->callee.symbol_id].defining_op;
-    IREE_ASSERT(loom_kernel_entry_decl_isa(declaration_op));
     uint32_t requirement_index = UINT32_MAX;
     if (command_requirement_indices != NULL) {
       requirement_index = command_requirement_indices[i];
     }
     if (requirement_index == UINT32_MAX) {
+      if (command->source_arguments.count != command->arguments.count) {
+        return iree_make_status(
+            IREE_STATUS_FAILED_PRECONDITION,
+            "staged pipeline launches require a source definition and a "
+            "specialization request sink");
+      }
       requirement_index = loom_cmd_program_plan_declaration_requirement(
           plan, symbol_index, command->callee, declaration_op);
     }
@@ -751,7 +757,7 @@ iree_status_t loom_cmd_program_plan_build_from_materialization(
           continue;
         }
         const loom_symbol_ref_t entry_ref =
-            loom_kernel_entry_decl_callee(entry_op);
+            loom_func_like_callee(loom_func_like_cast(plan_module, entry_op));
         IREE_ASSERT(loom_symbol_ref_is_valid(entry_ref));
         IREE_ASSERT_EQ(entry_ref.module_id, 0u);
         IREE_ASSERT_LT(entry_ref.symbol_id, plan_module->symbols.count);

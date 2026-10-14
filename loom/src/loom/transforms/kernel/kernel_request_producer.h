@@ -100,11 +100,13 @@ iree_status_t loom_kernel_request_materialize(
 //
 // The returned collection is allocated from |scratch_arena| and remains valid
 // until that arena is reset. It maps the input sites to the published class
-// ordinals without retaining any product or source-module storage.
+// ordinals without retaining any product. Staged literal tuples borrow
+// |site_module|, which contains the site argument values, until the collection
+// is released. Ordinary kernels without staged arguments do not use it.
 iree_status_t loom_kernel_request_producer_publish(
     loom_kernel_request_producer_t* producer,
     const loom_link_plan_materialization_environment_t* environment,
-    iree_host_size_t source_symbol_ordinal,
+    iree_host_size_t source_symbol_ordinal, const loom_module_t* site_module,
     const loom_kernel_class_site_t* sites, iree_host_size_t site_count,
     const loom_kernel_class_collection_options_t* collection_options,
     loom_kernel_request_sink_t sink, iree_arena_allocator_t* scratch_arena,

@@ -151,7 +151,7 @@ class KernelClassClassifierBenchmarkFixture {
         .decision_count = decision_count,
         .maximum_provider_count = 2,
         .kernel_argument_count = kKernelArgumentCount,
-        .reserved = {},
+        .specialization_count = 0,
     };
   }
 
@@ -165,7 +165,7 @@ class KernelClassClassifierBenchmarkFixture {
         loom_kernel_class_collection_options_default();
     loom_kernel_class_collection_t collection = {};
     IREE_CHECK_OK(loom_kernel_class_classifier_collect(
-        &classifier_, sites_.data(), sites_.size(), &options,
+        &classifier_, nullptr, sites_.data(), sites_.size(), &options,
         &collection_arena_, &collection));
     IREE_ASSERT_EQ(collection.class_count, 2u);
     IREE_ASSERT_EQ(collection.accepted_decision_count,

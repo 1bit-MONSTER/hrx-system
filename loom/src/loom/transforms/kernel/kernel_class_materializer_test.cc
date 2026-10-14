@@ -276,7 +276,7 @@ kernel.def @classified() {
       loom_kernel_class_collection_options_default();
   loom_kernel_class_collection_t collection = {};
   IREE_ASSERT_OK(loom_kernel_class_classifier_collect(
-      &classifier, sites.data(), sites.size(), &collection_options,
+      &classifier, nullptr, sites.data(), sites.size(), &collection_options,
       &analysis_arena, &collection));
   ASSERT_EQ(collection.class_count, 2u);
   ASSERT_EQ(collection.accepted_decision_count, 3u);
@@ -504,7 +504,7 @@ kernel.def @classified() {
       loom_kernel_class_collection_options_default();
   loom_kernel_class_collection_t collection = {};
   IREE_ASSERT_OK(loom_kernel_class_classifier_collect(
-      &classifier, &site, /*site_count=*/1, &collection_options,
+      &classifier, nullptr, &site, /*site_count=*/1, &collection_options,
       &analysis_arena, &collection));
   ASSERT_EQ(collection.class_count, 1u);
   ASSERT_EQ(collection.accepted_decision_count, 1u);
