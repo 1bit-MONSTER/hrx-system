@@ -90,6 +90,7 @@ loom_cc_library(
     loom::analysis::consumption
     loom::analysis::contract_vector
     loom::analysis::control_uniformity
+    loom::analysis::integer_relation
     loom::analysis::kernel_async_legality
     loom::analysis::kernel_barrier_lifetime
     loom::analysis::motion

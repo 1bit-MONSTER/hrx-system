@@ -20,6 +20,7 @@ loom_cc_library(
     iree::base
     loom::analysis::condition_fact_scope
     loom::analysis::condition_facts
+    loom::analysis::integer_relation
     loom::analysis::template_provider_catalog
     loom::decision::predicate
     loom::ir

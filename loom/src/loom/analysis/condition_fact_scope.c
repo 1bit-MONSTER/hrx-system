@@ -128,75 +128,41 @@ bool loom_condition_fact_scope_apply_to_value_facts(
   return state.applied;
 }
 
-static loom_condition_relation_outcome_bits_t
+static loom_integer_order_outcome_bits_t
 loom_condition_fact_scope_flat_exclusions(
     const loom_condition_fact_set_t* facts,
     const loom_value_fact_table_t* fact_table,
     const loom_condition_integer_relation_t* queried) {
-  static const loom_symbolic_integer_relation_t outcome_relations[] = {
-      LOOM_SYMBOLIC_INTEGER_RELATION_LT,
-      LOOM_SYMBOLIC_INTEGER_RELATION_EQ,
-      LOOM_SYMBOLIC_INTEGER_RELATION_GT,
-  };
-  loom_condition_relation_outcome_bits_t exclusions = 0;
-  for (loom_condition_relation_outcome_t outcome = 0;
-       outcome < LOOM_CONDITION_RELATION_OUTCOME_COUNT; ++outcome) {
+  loom_integer_order_outcome_bits_t exclusions = 0;
+  for (loom_integer_order_outcome_t outcome = 0;
+       outcome < LOOM_INTEGER_ORDER_OUTCOME_COUNT; ++outcome) {
     loom_condition_integer_relation_t outcome_query = *queried;
-    outcome_query.relation = outcome_relations[outcome];
+    outcome_query.relation = loom_integer_order_outcome_relation(outcome);
     bool result = false;
     if (loom_condition_fact_set_proves_integer_relation(
             facts, fact_table, &outcome_query, &result) &&
         !result) {
-      exclusions |= (loom_condition_relation_outcome_bits_t)(1u << outcome);
+      exclusions |= (loom_integer_order_outcome_bits_t)(1u << outcome);
     }
   }
   return exclusions;
 }
 
-static loom_condition_relation_outcome_bits_t
-loom_condition_fact_scope_relation_outcomes(
-    loom_symbolic_integer_relation_t relation) {
-  switch (relation) {
-    case LOOM_SYMBOLIC_INTEGER_RELATION_EQ:
-      return LOOM_CONDITION_RELATION_OUTCOME_BIT_EQUAL;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_NE:
-      return LOOM_CONDITION_RELATION_OUTCOME_BIT_LESS |
-             LOOM_CONDITION_RELATION_OUTCOME_BIT_GREATER;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_LT:
-      return LOOM_CONDITION_RELATION_OUTCOME_BIT_LESS;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_LE:
-      return LOOM_CONDITION_RELATION_OUTCOME_BIT_LESS |
-             LOOM_CONDITION_RELATION_OUTCOME_BIT_EQUAL;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_GT:
-      return LOOM_CONDITION_RELATION_OUTCOME_BIT_GREATER;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_GE:
-      return LOOM_CONDITION_RELATION_OUTCOME_BIT_EQUAL |
-             LOOM_CONDITION_RELATION_OUTCOME_BIT_GREATER;
-    default:
-      return 0;
-  }
-}
-
-static loom_condition_relation_outcome_bits_t
+static loom_integer_order_outcome_bits_t
 loom_condition_fact_scope_projection_exclusions(
     const loom_condition_edge_projection_t* projection,
     const loom_value_fact_table_t* fact_table,
     const loom_condition_integer_relation_t* queried) {
-  static const loom_symbolic_integer_relation_t outcome_relations[] = {
-      LOOM_SYMBOLIC_INTEGER_RELATION_LT,
-      LOOM_SYMBOLIC_INTEGER_RELATION_EQ,
-      LOOM_SYMBOLIC_INTEGER_RELATION_GT,
-  };
-  loom_condition_relation_outcome_bits_t exclusions = 0;
-  for (loom_condition_relation_outcome_t outcome = 0;
-       outcome < LOOM_CONDITION_RELATION_OUTCOME_COUNT; ++outcome) {
+  loom_integer_order_outcome_bits_t exclusions = 0;
+  for (loom_integer_order_outcome_t outcome = 0;
+       outcome < LOOM_INTEGER_ORDER_OUTCOME_COUNT; ++outcome) {
     loom_condition_integer_relation_t outcome_query = *queried;
-    outcome_query.relation = outcome_relations[outcome];
+    outcome_query.relation = loom_integer_order_outcome_relation(outcome);
     bool result = false;
     if (loom_condition_edge_projection_proves_integer_relation(
             projection, fact_table, &outcome_query, &result) &&
         !result) {
-      exclusions |= (loom_condition_relation_outcome_bits_t)(1u << outcome);
+      exclusions |= (loom_integer_order_outcome_bits_t)(1u << outcome);
     }
   }
   return exclusions;
@@ -206,7 +172,7 @@ bool loom_condition_fact_scope_proves_integer_relation(
     const loom_condition_fact_scope_t* scope,
     const loom_value_fact_table_t* fact_table,
     const loom_condition_integer_relation_t* queried, bool* out_result) {
-  loom_condition_relation_outcome_bits_t exclusions = 0;
+  loom_integer_order_outcome_bits_t exclusions = 0;
   for (const loom_condition_fact_scope_t* current = scope; current != NULL;
        current = current->parent) {
     if (current->local_derivation != NULL) {
@@ -221,21 +187,11 @@ bool loom_condition_fact_scope_proves_integer_relation(
           queried->left, queried->right);
     }
   }
-  const loom_condition_relation_outcome_bits_t outcomes =
-      LOOM_CONDITION_RELATION_OUTCOME_BIT_ALL &
-      (loom_condition_relation_outcome_bits_t)~exclusions;
-  if (outcomes == 0) {
-    return false;
-  }
-  const loom_condition_relation_outcome_bits_t queried_outcomes =
-      loom_condition_fact_scope_relation_outcomes(queried->relation);
-  const loom_condition_relation_outcome_bits_t matching =
-      outcomes & queried_outcomes;
-  if (matching != 0 && matching != outcomes) {
-    return false;
-  }
-  *out_result = matching != 0;
-  return true;
+  const loom_integer_order_outcome_bits_t outcomes =
+      LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL &
+      (loom_integer_order_outcome_bits_t)~exclusions;
+  return loom_symbolic_integer_relation_resolve(outcomes, queried->relation,
+                                                out_result);
 }
 
 static bool loom_condition_fact_scope_query_local_boolean(

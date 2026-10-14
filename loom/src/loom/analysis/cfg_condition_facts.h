@@ -111,7 +111,7 @@ bool loom_cfg_condition_relation_view_query_boolean(
 // Returns the comparison outcomes excluded by |view| for an ordered operand
 // pair. Exact ambient integer facts participate in operand identity so an SSA
 // constant and its literal value query the same retained relation.
-loom_condition_relation_outcome_bits_t
+loom_integer_order_outcome_bits_t
 loom_cfg_condition_relation_view_query_excluded_outcomes(
     const loom_cfg_condition_relation_table_t* table,
     const loom_cfg_condition_relation_view_t* view,

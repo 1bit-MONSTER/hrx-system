@@ -370,29 +370,71 @@ TEST_F(SymbolicExprTest, AssumedValueRelationPredicatesProveRelations) {
   IREE_ASSERT_OK(loom_index_assume_build(&builder_, &induction, 1, &predicate,
                                          1, &index_type, 1,
                                          LOOM_LOCATION_UNKNOWN, &assume_op));
+  ComputeFacts(assume_op);
   loom_value_id_t assumed_induction =
       loom_index_assume_results(assume_op).values[0];
+  loom_op_t* alias_op = nullptr;
+  IREE_ASSERT_OK(loom_index_assume_build(
+      &builder_, &assumed_induction, 1, /*predicates=*/nullptr,
+      /*predicate_count=*/0, &index_type, 1, LOOM_LOCATION_UNKNOWN, &alias_op));
+  ComputeFacts(alias_op);
+  loom_value_id_t aliased_induction =
+      loom_index_assume_results(alias_op).values[0];
 
   loom_symbolic_proof_result_t proof = LOOM_SYMBOLIC_PROOF_UNKNOWN;
   IREE_ASSERT_OK(loom_symbolic_expr_prove_value_relation(
       &expression_context_, LOOM_SYMBOLIC_INTEGER_RELATION_LT,
-      assumed_induction, upper_bound, &proof));
+      aliased_induction, upper_bound, &proof));
   EXPECT_EQ(proof, LOOM_SYMBOLIC_PROOF_TRUE);
 
   IREE_ASSERT_OK(loom_symbolic_expr_prove_value_relation(
       &expression_context_, LOOM_SYMBOLIC_INTEGER_RELATION_GE,
-      assumed_induction, upper_bound, &proof));
+      aliased_induction, upper_bound, &proof));
   EXPECT_EQ(proof, LOOM_SYMBOLIC_PROOF_FALSE);
 
   IREE_ASSERT_OK(loom_symbolic_expr_prove_value_relation(
       &expression_context_, LOOM_SYMBOLIC_INTEGER_RELATION_EQ,
-      assumed_induction, upper_bound, &proof));
+      aliased_induction, upper_bound, &proof));
   EXPECT_EQ(proof, LOOM_SYMBOLIC_PROOF_FALSE);
 
   IREE_ASSERT_OK(loom_symbolic_expr_prove_value_relation(
       &expression_context_, LOOM_SYMBOLIC_INTEGER_RELATION_NE,
-      assumed_induction, upper_bound, &proof));
+      aliased_induction, upper_bound, &proof));
   EXPECT_EQ(proof, LOOM_SYMBOLIC_PROOF_TRUE);
+}
+
+TEST_F(SymbolicExprTest, RetainedLiteralExclusionProvesRelations) {
+  const loom_value_id_t value = DefineIndexValue();
+  const loom_predicate_t predicate = {
+      .kind = LOOM_PREDICATE_NE,
+      .arg_count = 2,
+      .arg_tags = {LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_CONST},
+      .reserved = {},
+      .args = {value, 42},
+  };
+  const loom_type_t index_type = loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
+  loom_op_t* assume_op = nullptr;
+  IREE_ASSERT_OK(loom_index_assume_build(&builder_, &value, 1, &predicate, 1,
+                                         &index_type, 1, LOOM_LOCATION_UNKNOWN,
+                                         &assume_op));
+  ComputeFacts(assume_op);
+  const loom_value_id_t assumed_value =
+      loom_index_assume_results(assume_op).values[0];
+
+  loom_op_t* literal_op = BuildIndexConstant(42);
+  ComputeFacts(literal_op);
+  const loom_value_id_t literal = loom_index_constant_result(literal_op);
+
+  loom_symbolic_proof_result_t proof = LOOM_SYMBOLIC_PROOF_UNKNOWN;
+  IREE_ASSERT_OK(loom_symbolic_expr_prove_value_relation(
+      &expression_context_, LOOM_SYMBOLIC_INTEGER_RELATION_NE, assumed_value,
+      literal, &proof));
+  EXPECT_EQ(proof, LOOM_SYMBOLIC_PROOF_TRUE);
+
+  IREE_ASSERT_OK(loom_symbolic_expr_prove_value_relation(
+      &expression_context_, LOOM_SYMBOLIC_INTEGER_RELATION_EQ, assumed_value,
+      literal, &proof));
+  EXPECT_EQ(proof, LOOM_SYMBOLIC_PROOF_FALSE);
 }
 
 TEST_F(SymbolicExprTest, CheckedIdentityPredicateProvesDynamicExtent) {
@@ -785,6 +827,7 @@ TEST_F(SymbolicExprTest, AssumedRightValueRelationPredicatesAreSwapped) {
   IREE_ASSERT_OK(loom_index_assume_build(&builder_, &upper_bound, 1, &predicate,
                                          1, &index_type, 1,
                                          LOOM_LOCATION_UNKNOWN, &assume_op));
+  ComputeFacts(assume_op);
   loom_value_id_t assumed_upper_bound =
       loom_index_assume_results(assume_op).values[0];
 
@@ -845,6 +888,7 @@ TEST_F(SymbolicExprTest, ProvesFlattenedAddressFromDynamicAxisBounds) {
       &builder_, row_values, IREE_ARRAYSIZE(row_values), &row_predicate, 1,
       row_result_types, IREE_ARRAYSIZE(row_result_types), LOOM_LOCATION_UNKNOWN,
       &row_assume_op));
+  ComputeFacts(row_assume_op);
   loom_value_slice_t row_results = loom_index_assume_results(row_assume_op);
   loom_value_id_t row = row_results.values[0];
   loom_value_id_t row_count = row_results.values[1];

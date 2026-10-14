@@ -418,7 +418,7 @@ static iree_status_t loom_cfg_condition_event_queue_append(
 
 static iree_status_t loom_cfg_condition_event_queue_enqueue_integer(
     loom_cfg_condition_event_queue_t* queue, uint16_t block, uint32_t row,
-    loom_condition_relation_outcome_t outcome) {
+    loom_integer_order_outcome_t outcome) {
   const uint32_t global_row = queue->block_row_offsets[block] + row;
   const uint8_t bit = (uint8_t)(1u << outcome);
   if ((queue->integer_queued_masks[global_row] & bit) != 0) {
@@ -521,39 +521,11 @@ loom_cfg_condition_mapping_lookup(const loom_cfg_condition_mapping_t* mapping,
   return mapping->pairs != NULL ? mapping->pairs + first : NULL;
 }
 
-static loom_condition_relation_outcome_bits_t
-loom_cfg_condition_relation_exclusions(
+static loom_integer_order_outcome_bits_t loom_cfg_condition_relation_exclusions(
     loom_symbolic_integer_relation_t relation) {
-  switch (relation) {
-    case LOOM_SYMBOLIC_INTEGER_RELATION_EQ:
-      return LOOM_CONDITION_RELATION_OUTCOME_BIT_LESS |
-             LOOM_CONDITION_RELATION_OUTCOME_BIT_GREATER;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_NE:
-      return LOOM_CONDITION_RELATION_OUTCOME_BIT_EQUAL;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_LT:
-      return LOOM_CONDITION_RELATION_OUTCOME_BIT_EQUAL |
-             LOOM_CONDITION_RELATION_OUTCOME_BIT_GREATER;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_LE:
-      return LOOM_CONDITION_RELATION_OUTCOME_BIT_GREATER;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_GT:
-      return LOOM_CONDITION_RELATION_OUTCOME_BIT_LESS |
-             LOOM_CONDITION_RELATION_OUTCOME_BIT_EQUAL;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_GE:
-      return LOOM_CONDITION_RELATION_OUTCOME_BIT_LESS;
-    default:
-      return 0;
-  }
-}
-
-static loom_condition_relation_outcome_t loom_cfg_condition_swap_outcome(
-    loom_condition_relation_outcome_t outcome) {
-  if (outcome == LOOM_CONDITION_RELATION_OUTCOME_LESS) {
-    return LOOM_CONDITION_RELATION_OUTCOME_GREATER;
-  }
-  if (outcome == LOOM_CONDITION_RELATION_OUTCOME_GREATER) {
-    return LOOM_CONDITION_RELATION_OUTCOME_LESS;
-  }
-  return outcome;
+  return LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL &
+         (loom_integer_order_outcome_bits_t)~loom_symbolic_integer_relation_outcomes(
+             relation);
 }
 
 static bool loom_cfg_condition_relation_is_boolean_truth(
@@ -1038,20 +1010,20 @@ static loom_condition_relation_set_id_t loom_cfg_condition_relation_singleton(
 static iree_status_t loom_cfg_condition_relation_add_symmetric(
     loom_cfg_condition_relation_solver_t* solver,
     loom_cfg_condition_operand_t left, loom_cfg_condition_operand_t right,
-    loom_condition_relation_outcome_bits_t exclusions) {
+    loom_integer_order_outcome_bits_t exclusions) {
   const loom_condition_relation_set_id_t left_set =
       loom_cfg_condition_relation_singleton(left);
   const loom_condition_relation_set_id_t right_set =
       loom_cfg_condition_relation_singleton(right);
-  for (loom_condition_relation_outcome_t outcome = 0;
-       outcome < LOOM_CONDITION_RELATION_OUTCOME_COUNT; ++outcome) {
+  for (loom_integer_order_outcome_t outcome = 0;
+       outcome < LOOM_INTEGER_ORDER_OUTCOME_COUNT; ++outcome) {
     if ((exclusions & (1u << outcome)) == 0) {
       continue;
     }
     IREE_RETURN_IF_ERROR(loom_condition_relation_matrix_builder_add(
         &solver->matrix_builder, outcome, left, right_set));
     IREE_RETURN_IF_ERROR(loom_condition_relation_matrix_builder_add(
-        &solver->matrix_builder, loom_cfg_condition_swap_outcome(outcome),
+        &solver->matrix_builder, loom_integer_order_outcome_swap(outcome),
         right, left_set));
   }
   return iree_ok_status();
@@ -1082,8 +1054,8 @@ static iree_status_t loom_cfg_condition_relation_drop_contradictions(
     if (contradiction == LOOM_CONDITION_RELATION_SET_EMPTY) {
       continue;
     }
-    for (loom_condition_relation_outcome_t outcome = 0;
-         outcome < LOOM_CONDITION_RELATION_OUTCOME_COUNT; ++outcome) {
+    for (loom_integer_order_outcome_t outcome = 0;
+         outcome < LOOM_INTEGER_ORDER_OUTCOME_COUNT; ++outcome) {
       IREE_RETURN_IF_ERROR(loom_condition_relation_set_builder_difference(
           solver->set_builder, row->excluded[outcome], contradiction,
           &row->excluded[outcome]));
@@ -1343,8 +1315,8 @@ static iree_status_t loom_cfg_condition_relation_project_matrix_into_builder(
     const loom_condition_relation_matrix_row_t* row = &source->rows[row_index];
     const loom_cfg_condition_image_span_t left_images =
         loom_cfg_condition_relation_images(solver, edge, row->left);
-    for (loom_condition_relation_outcome_t outcome = 0;
-         outcome < LOOM_CONDITION_RELATION_OUTCOME_COUNT; ++outcome) {
+    for (loom_integer_order_outcome_t outcome = 0;
+         outcome < LOOM_INTEGER_ORDER_OUTCOME_COUNT; ++outcome) {
       if (row->excluded[outcome] == LOOM_CONDITION_RELATION_SET_EMPTY) {
         continue;
       }
@@ -1386,8 +1358,8 @@ static iree_status_t loom_cfg_condition_relation_matrix_projection_is_identity(
     if (!loom_cfg_condition_image_span_is_identity(left_images, row->left)) {
       return iree_ok_status();
     }
-    for (loom_condition_relation_outcome_t outcome = 0;
-         outcome < LOOM_CONDITION_RELATION_OUTCOME_COUNT; ++outcome) {
+    for (loom_integer_order_outcome_t outcome = 0;
+         outcome < LOOM_INTEGER_ORDER_OUTCOME_COUNT; ++outcome) {
       loom_condition_relation_set_id_t projected =
           LOOM_CONDITION_RELATION_SET_EMPTY;
       IREE_RETURN_IF_ERROR(loom_cfg_condition_relation_project_set(
@@ -1470,7 +1442,7 @@ loom_cfg_condition_relation_build_edges(
           solver, relation->left, left_variants);
       loom_cfg_condition_relation_solver_operand_variants(
           solver, relation->right, right_variants);
-      const loom_condition_relation_outcome_bits_t exclusions =
+      const loom_integer_order_outcome_bits_t exclusions =
           loom_cfg_condition_relation_exclusions(relation->relation);
       for (uint8_t left_index = 0; left_index < 2; ++left_index) {
         if (left_variants[left_index] == LOOM_CFG_CONDITION_OPERAND_INVALID) {
@@ -1581,8 +1553,8 @@ static iree_status_t loom_cfg_condition_relation_intersect_block(
                 contribution->rows[contribution_position].left == row->left
             ? &contribution->rows[contribution_position]
             : NULL;
-    for (loom_condition_relation_outcome_t outcome = 0;
-         outcome < LOOM_CONDITION_RELATION_OUTCOME_COUNT; ++outcome) {
+    for (loom_integer_order_outcome_t outcome = 0;
+         outcome < LOOM_INTEGER_ORDER_OUTCOME_COUNT; ++outcome) {
       const loom_condition_relation_set_id_t incoming =
           contribution_row ? contribution_row->excluded[outcome]
                            : LOOM_CONDITION_RELATION_SET_EMPTY;
@@ -1749,8 +1721,7 @@ loom_cfg_condition_relation_matrix_exclusions(
 
 static iree_status_t loom_cfg_condition_relation_update_contribution_row(
     loom_cfg_condition_relation_solver_t* solver,
-    loom_cfg_condition_edge_state_t* edge,
-    loom_condition_relation_outcome_t outcome,
+    loom_cfg_condition_edge_state_t* edge, loom_integer_order_outcome_t outcome,
     loom_cfg_condition_operand_t target_left,
     loom_condition_relation_set_id_t candidate) {
   loom_cfg_condition_matrix_state_t* target_facts =

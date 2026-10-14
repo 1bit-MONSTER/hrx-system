@@ -634,32 +634,6 @@ bool loom_condition_integer_comparison_relation(
                    comparison->predicate, out_relation, out_unsigned_order);
 }
 
-static bool loom_condition_relation_to_predicate_kind(
-    loom_symbolic_integer_relation_t relation, uint8_t* out_kind) {
-  switch (relation) {
-    case LOOM_SYMBOLIC_INTEGER_RELATION_EQ:
-      *out_kind = LOOM_PREDICATE_EQ;
-      return true;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_NE:
-      *out_kind = LOOM_PREDICATE_NE;
-      return true;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_LT:
-      *out_kind = LOOM_PREDICATE_LT;
-      return true;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_LE:
-      *out_kind = LOOM_PREDICATE_LE;
-      return true;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_GT:
-      *out_kind = LOOM_PREDICATE_GT;
-      return true;
-    case LOOM_SYMBOLIC_INTEGER_RELATION_GE:
-      *out_kind = LOOM_PREDICATE_GE;
-      return true;
-    default:
-      return false;
-  }
-}
-
 // Normalizes carrier order to mathematical order. Unsigned comparisons may
 // additionally establish a nonnegative lower operand on the selected edge.
 static bool loom_condition_integer_comparison_normalize_relation(
@@ -724,11 +698,10 @@ void loom_condition_integer_comparison_refine_facts(
           &relation)) {
     return;
   }
-  uint8_t predicate_kind = 0;
-  if (loom_condition_relation_to_predicate_kind(relation, &predicate_kind)) {
-    (void)loom_value_facts_refine_relation(predicate_kind, *lhs_facts,
-                                           *rhs_facts, lhs_facts, rhs_facts);
-  }
+  const loom_predicate_kind_t predicate_kind =
+      loom_symbolic_integer_relation_to_predicate_kind(relation);
+  (void)loom_value_facts_refine_relation(predicate_kind, *lhs_facts, *rhs_facts,
+                                         lhs_facts, rhs_facts);
 }
 
 // Derives numeric consequences while the condition owner visits a comparison.
@@ -886,9 +859,9 @@ static iree_status_t loom_condition_facts_query_integer_compare(
   };
   IREE_RETURN_IF_ERROR(loom_condition_fact_set_append_integer_relation(
       facts, out_derivation, assertion, out_complete));
-  uint8_t predicate_kind = 0;
-  if (loom_condition_relation_to_predicate_kind(relation, &predicate_kind) &&
-      loom_value_facts_refine_relation(predicate_kind, left_facts, right_facts,
+  const loom_predicate_kind_t predicate_kind =
+      loom_symbolic_integer_relation_to_predicate_kind(relation);
+  if (loom_value_facts_refine_relation(predicate_kind, left_facts, right_facts,
                                        &left_facts, &right_facts)) {
     IREE_RETURN_IF_ERROR(loom_condition_facts_derive_quotient_preimage(
         module, fact_table, left_value, left_facts, facts, out_derivation,
@@ -1596,11 +1569,8 @@ bool loom_condition_integer_relation_make_predicate_for_value(
     return false;
   }
 
-  uint8_t predicate_kind = 0;
-  if (!loom_condition_relation_to_predicate_kind(normalized_relation,
-                                                 &predicate_kind)) {
-    return false;
-  }
+  const loom_predicate_kind_t predicate_kind =
+      loom_symbolic_integer_relation_to_predicate_kind(normalized_relation);
 
   *out_predicate = (loom_predicate_t){
       .kind = predicate_kind,
@@ -1719,16 +1689,6 @@ bool loom_condition_integer_relation_implies(
   return false;
 }
 
-// Bits represent the possible less/equal/greater comparison outcomes.
-static const uint8_t loom_condition_integer_relation_outcomes[] = {
-    [LOOM_SYMBOLIC_INTEGER_RELATION_EQ] = 2,
-    [LOOM_SYMBOLIC_INTEGER_RELATION_NE] = 5,
-    [LOOM_SYMBOLIC_INTEGER_RELATION_LT] = 1,
-    [LOOM_SYMBOLIC_INTEGER_RELATION_LE] = 3,
-    [LOOM_SYMBOLIC_INTEGER_RELATION_GT] = 4,
-    [LOOM_SYMBOLIC_INTEGER_RELATION_GE] = 6,
-};
-
 bool loom_condition_fact_set_proves_integer_relation(
     const loom_condition_fact_set_t* facts,
     const loom_value_fact_table_t* fact_table,
@@ -1736,7 +1696,8 @@ bool loom_condition_fact_set_proves_integer_relation(
   if (!facts) {
     return false;
   }
-  uint8_t outcomes = 7;
+  loom_integer_order_outcome_bits_t outcomes =
+      LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL;
   for (iree_host_size_t i = 0; i < facts->integer_relation_count; ++i) {
     const loom_condition_integer_relation_t* known =
         &facts->integer_relations[i];
@@ -1744,25 +1705,17 @@ bool loom_condition_fact_set_proves_integer_relation(
             known->left, queried->left, fact_table) &&
         loom_condition_integer_operands_equivalent_with_facts(
             known->right, queried->right, fact_table)) {
-      outcomes &= loom_condition_integer_relation_outcomes[known->relation];
+      outcomes &= loom_symbolic_integer_relation_outcomes(known->relation);
     } else if (loom_condition_integer_operands_equivalent_with_facts(
                    known->left, queried->right, fact_table) &&
                loom_condition_integer_operands_equivalent_with_facts(
                    known->right, queried->left, fact_table)) {
-      outcomes &= loom_condition_integer_relation_outcomes
-          [loom_symbolic_integer_relation_swap(known->relation)];
+      outcomes &= loom_symbolic_integer_relation_outcomes(
+          loom_symbolic_integer_relation_swap(known->relation));
     }
   }
-  if (outcomes == 0) {
-    return false;
-  }
-  const uint8_t matching_outcomes =
-      outcomes & loom_condition_integer_relation_outcomes[queried->relation];
-  if (matching_outcomes != 0 && matching_outcomes != outcomes) {
-    return false;
-  }
-  *out_result = matching_outcomes != 0;
-  return true;
+  return loom_symbolic_integer_relation_resolve(outcomes, queried->relation,
+                                                out_result);
 }
 
 bool loom_condition_integer_relations_equivalent(
@@ -1787,34 +1740,27 @@ bool loom_condition_integer_relation_meet(
     iree_host_size_t right_count,
     loom_condition_integer_relation_t* out_relation) {
   // Conjunction within one edge intersects outcomes; a CFG join unions them.
-  static const loom_symbolic_integer_relation_t outcomes_relation[] = {
-      [1] = LOOM_SYMBOLIC_INTEGER_RELATION_LT,
-      [2] = LOOM_SYMBOLIC_INTEGER_RELATION_EQ,
-      [3] = LOOM_SYMBOLIC_INTEGER_RELATION_LE,
-      [4] = LOOM_SYMBOLIC_INTEGER_RELATION_GT,
-      [5] = LOOM_SYMBOLIC_INTEGER_RELATION_NE,
-      [6] = LOOM_SYMBOLIC_INTEGER_RELATION_GE,
-  };
-  uint8_t right_outcomes = 7;
+  loom_integer_order_outcome_bits_t right_outcomes =
+      LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL;
   for (iree_host_size_t i = 0; i < right_count; ++i) {
     loom_symbolic_integer_relation_t relation = right[i].relation;
     if (loom_condition_integer_operands_equal(left->left, right[i].left) &&
         loom_condition_integer_operands_equal(left->right, right[i].right)) {
-      right_outcomes &= loom_condition_integer_relation_outcomes[relation];
+      right_outcomes &= loom_symbolic_integer_relation_outcomes(relation);
     } else if (loom_condition_integer_operands_equal(left->left,
                                                      right[i].right) &&
                loom_condition_integer_operands_equal(left->right,
                                                      right[i].left)) {
       relation = loom_symbolic_integer_relation_swap(relation);
-      right_outcomes &= loom_condition_integer_relation_outcomes[relation];
+      right_outcomes &= loom_symbolic_integer_relation_outcomes(relation);
     }
   }
-  uint8_t common_outcomes =
-      loom_condition_integer_relation_outcomes[left->relation] | right_outcomes;
-  if (common_outcomes == 7) {
+  const loom_integer_order_outcome_bits_t common_outcomes =
+      loom_symbolic_integer_relation_outcomes(left->relation) | right_outcomes;
+  if (common_outcomes == LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL) {
     return false;
   }
   *out_relation = *left;
-  out_relation->relation = outcomes_relation[common_outcomes];
-  return true;
+  return loom_symbolic_integer_relation_from_outcomes(common_outcomes,
+                                                      &out_relation->relation);
 }

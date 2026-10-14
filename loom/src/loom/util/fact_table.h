@@ -58,6 +58,8 @@ typedef struct loom_value_fact_exact_lane_origin_entry_t
     loom_value_fact_exact_lane_origin_entry_t;
 typedef struct loom_value_fact_vector_partitions_t
     loom_value_fact_vector_partitions_t;
+typedef struct loom_value_fact_integer_relations_t
+    loom_value_fact_integer_relations_t;
 typedef struct loom_condition_edge_projection_t
     loom_condition_edge_projection_t;
 typedef struct loom_cfg_graph_t loom_cfg_graph_t;
@@ -235,6 +237,12 @@ struct loom_value_fact_table_t {
     // Allocated entry count. Storage grows lazily on the first alias.
     iree_host_size_t capacity;
   } identities;
+
+  // Signed relations carried by scoped SSA aliases, including sparse interior
+  // literal exclusions that scalar interval facts cannot represent. All
+  // storage is allocated lazily in the transient arena; scopes without
+  // retained relations leave this NULL.
+  loom_value_fact_integer_relations_t* integer_relations;
 
   // Region execution context and optional CFG structure retained by the fact
   // owner. Entries and buckets have transient scope lifetime.

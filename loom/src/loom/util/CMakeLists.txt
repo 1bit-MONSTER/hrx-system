@@ -275,6 +275,20 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    fact_ordinal_map
+  HDRS
+    "fact_ordinal_map.h"
+  SRCS
+    "fact_ordinal_map.c"
+  DEPS
+    ::fact_table_api
+    iree::base
+    iree::base::internal::arena
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     fact_table
   HDRS
     "fact_cfg.h"
@@ -283,6 +297,7 @@ loom_cc_library(
     "fact_layout.h"
     "fact_loop.h"
     "fact_recurrence.h"
+    "fact_relation.h"
     "fact_table.h"
     "fact_vector_partition.h"
     "reference_transfer.h"
@@ -293,6 +308,7 @@ loom_cc_library(
     "fact_layout.c"
     "fact_loop.c"
     "fact_recurrence.c"
+    "fact_relation.c"
     "fact_table.c"
     "fact_table_compute.c"
     "fact_vector_partition.c"
@@ -304,6 +320,7 @@ loom_cc_library(
     ::cfg_loop_nest
     ::cfg_regions
     ::fact_control
+    ::fact_ordinal_map
     ::fact_table_api
     ::numeric_format
     ::reference_facts
@@ -312,6 +329,7 @@ loom_cc_library(
     iree::base::internal::arena
     loom::analysis::condition_edge_projection
     loom::analysis::condition_facts
+    loom::analysis::integer_relation
     loom::analysis::loop_domain
     loom::analysis::scc
     loom::ir
@@ -365,6 +383,21 @@ loom_cc_test(
 
 loom_cc_test(
   NAME
+    fact_relation_test
+  SRCS
+    "fact_relation_test.cc"
+  DEPS
+    ::fact_table
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::ir
+    loom::ops::index
+    loom::ops::scalar
+)
+
+loom_cc_test(
+  NAME
     fact_table_compute_test
   SRCS
     "fact_table_compute_test.cc"
@@ -391,6 +424,7 @@ loom_cc_library(
   SRCS
     "predicate_facts.c"
   DEPS
+    ::fact_ordinal_map
     ::fact_table
     iree::base::internal
     iree::base::internal::arena

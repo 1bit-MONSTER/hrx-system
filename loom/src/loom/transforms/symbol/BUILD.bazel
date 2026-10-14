@@ -19,6 +19,7 @@ loom_cc_library(
     deps = [
         "//loom/src/loom/analysis:condition_fact_scope",
         "//loom/src/loom/analysis:condition_facts",
+        "//loom/src/loom/analysis:integer_relation",
         "//loom/src/loom/analysis:template_provider_catalog",
         "//loom/src/loom/decision:predicate",
         "//loom/src/loom/ir",

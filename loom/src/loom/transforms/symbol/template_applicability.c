@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 
+#include "loom/analysis/integer_relation.h"
 #include "loom/decision/predicate.h"
 #include "loom/ops/scf/ops.h"
 #include "loom/ops/template/ops.h"
@@ -225,32 +226,6 @@ static loom_decision_truth_t loom_template_applicability_truth_from_feasibility(
   IREE_BUILTIN_UNREACHABLE();
 }
 
-static bool loom_template_predicate_relation_kind(
-    uint8_t predicate_kind, loom_symbolic_integer_relation_t* out_relation) {
-  switch ((loom_predicate_kind_t)predicate_kind) {
-    case LOOM_PREDICATE_EQ:
-      *out_relation = LOOM_SYMBOLIC_INTEGER_RELATION_EQ;
-      return true;
-    case LOOM_PREDICATE_NE:
-      *out_relation = LOOM_SYMBOLIC_INTEGER_RELATION_NE;
-      return true;
-    case LOOM_PREDICATE_LT:
-      *out_relation = LOOM_SYMBOLIC_INTEGER_RELATION_LT;
-      return true;
-    case LOOM_PREDICATE_LE:
-      *out_relation = LOOM_SYMBOLIC_INTEGER_RELATION_LE;
-      return true;
-    case LOOM_PREDICATE_GT:
-      *out_relation = LOOM_SYMBOLIC_INTEGER_RELATION_GT;
-      return true;
-    case LOOM_PREDICATE_GE:
-      *out_relation = LOOM_SYMBOLIC_INTEGER_RELATION_GE;
-      return true;
-    default:
-      return false;
-  }
-}
-
 static bool loom_template_predicate_arg_as_condition_operand(
     const loom_decision_predicate_operand_t* arg,
     loom_condition_integer_operand_t* out_operand) {
@@ -275,8 +250,8 @@ loom_template_applicability_evaluate_relation(
     const loom_decision_predicate_operand_t* rhs, uint8_t predicate_kind,
     const loom_template_applicability_facts_t* application_facts) {
   loom_condition_integer_relation_t queried_relation = {0};
-  if (loom_template_predicate_relation_kind(predicate_kind,
-                                            &queried_relation.relation) &&
+  if (loom_symbolic_integer_relation_from_predicate_kind(
+          predicate_kind, &queried_relation.relation) &&
       loom_template_predicate_arg_as_condition_operand(
           lhs, &queried_relation.left) &&
       loom_template_predicate_arg_as_condition_operand(

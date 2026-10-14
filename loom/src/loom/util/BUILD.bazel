@@ -237,6 +237,17 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "fact_ordinal_map",
+    srcs = ["fact_ordinal_map.c"],
+    hdrs = ["fact_ordinal_map.h"],
+    deps = [
+        ":fact_table_api",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
     name = "fact_table",
     srcs = [
         "fact_cfg.c",
@@ -245,6 +256,7 @@ loom_cc_library(
         "fact_layout.c",
         "fact_loop.c",
         "fact_recurrence.c",
+        "fact_relation.c",
         "fact_table.c",
         "fact_table_compute.c",
         "fact_vector_partition.c",
@@ -257,6 +269,7 @@ loom_cc_library(
         "fact_layout.h",
         "fact_loop.h",
         "fact_recurrence.h",
+        "fact_relation.h",
         "fact_table.h",
         "fact_vector_partition.h",
         "reference_transfer.h",
@@ -268,11 +281,13 @@ loom_cc_library(
         ":cfg_loop_nest",
         ":cfg_regions",
         ":fact_control",
+        ":fact_ordinal_map",
         ":fact_table_api",
         ":numeric_format",
         ":reference_facts",
         "//loom/src/loom/analysis:condition_edge_projection",
         "//loom/src/loom/analysis:condition_facts",
+        "//loom/src/loom/analysis:integer_relation",
         "//loom/src/loom/analysis:loop_domain",
         "//loom/src/loom/analysis:scc",
         "//loom/src/loom/ir",
@@ -325,6 +340,20 @@ loom_cc_test(
 )
 
 loom_cc_test(
+    name = "fact_relation_test",
+    srcs = ["fact_relation_test.cc"],
+    deps = [
+        ":fact_table",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/index",
+        "//loom/src/loom/ops/scalar",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
     name = "fact_table_compute_test",
     srcs = ["fact_table_compute_test.cc"],
     deps = [
@@ -348,6 +377,7 @@ loom_cc_library(
     srcs = ["predicate_facts.c"],
     hdrs = ["predicate_facts.h"],
     deps = [
+        ":fact_ordinal_map",
         ":fact_table",
         "//loom/src/loom/ir:facts",
         "//runtime/src/iree/base/internal",
