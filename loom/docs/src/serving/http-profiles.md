@@ -22,6 +22,10 @@ no built-in authentication or TLS termination.
 | `POST /v1/models/unregister` | `{"model":"name","mode":"drain"}`; mode may instead be `"abort"`; HTTP 202 accepts removal. |
 | `POST /v1/models/activate`, `POST /v1/models/deactivate` | Model-only body; HTTP 202 accepts a residency operation on a healthy drained registration. |
 | `POST /v1/models/pin`, `POST /v1/models/unpin` | Model-only body; HTTP 200 changes parameter eviction policy. |
+| `GET /v1/models/variants` | Native executable inventory or one candidate's retained compilation diagnostics. |
+| `POST /v1/models/variants` | Stage native providers against a ready base without selecting them. |
+| `POST /v1/models/variants/select` | Select a ready candidate with expected-current protection. |
+| `POST /v1/models/variants/remove` | Remove an unused terminal candidate. |
 | `POST /v1/devices/trim` | `{"device":0,"target_bytes":0}`; HTTP 200 returns actual resource accounting after eligible reclamation. |
 | `GET /metrics` | Prometheus text counters and ownership gauges. |
 | `GET /logz`, `GET /logz/stream` | Bounded JSONL polling or SSE with independent cursors. |
@@ -37,6 +41,61 @@ Capabilities do not establish learned quality or support for every optional fiel
 [Operation](workflows/operate-model-server.md) specifies asynchronous control
 completion, conflict and overload behavior. [Observation](workflows/observe-model-server.md)
 specifies model selection, cursors, SSE resume and inspection pagination.
+
+### Native executable variants
+
+A prepared service supporting native updates reports
+`loom.variants:{"selected":12,"count":2}` in model discovery and status.
+The text service enables this capability through nonzero `variant_capacity`.
+Other modalities without the capability return 501. A registration must have a
+healthy prepared service; drained admission is permitted, removal is not.
+
+`GET /v1/models/variants` requires `X-Loom-Model: scout` and an empty body.
+It returns `object:"list"`, `model`, `selected`, `count`, `offset`, `data` and
+`next_offset`. Optional `X-Loom-Offset` selects a zero-based index; each page
+contains at most 64 entries in creation order. This is live inventory, not a
+stable snapshot across concurrent removals. Instead, `X-Loom-Variant: 13`
+selects one full record, including compilation diagnostics. The variant and
+offset headers are mutually exclusive.
+
+Staging accepts:
+
+```json
+{"model":"scout","base":12,"base_directory":"/srv/models/scout/candidate","sources":["config.loom","advance.loombc"],"wait":true}
+```
+
+`base` identifies a ready choice in this registration. It asserts that the
+new providers preserve its resource contract; it does not merge in the base's
+providers. `sources` supplies the complete native provider set. Relative paths
+require an absolute `base_directory`; otherwise paths must be absolute. Files
+are read by server-side compilation workers. This endpoint accepts locators,
+not uploaded file contents. `prepare`, `control` and other model fields reject.
+
+Omitted or true `wait` completes the HTTP request after JIT with 200 for ready
+or 422 for failed compilation. False returns 202 after accepting construction.
+Both responses contain `selected` and `variant`. A variant record contains
+`object:"variant"`, `id`, `base`, `phase` (`compiling`, `ready` or `failed`) and
+`users` (explicit consumer references). Terminal failures retain an `error`
+with code/message. Detailed records also include available `compilation`
+evidence. Staging never changes the preferred choice, including when JIT fails.
+
+Selection accepts `{"model":"scout","variant":13,"expected":12}`. The request
+completes at the service's safe execution boundary and returns
+`{"selected":13}`. A stale expected ID, pending selection, compiling/failed
+candidate or candidate from another registration rejects without switching.
+Selection failure leaves the previous preference intact. Query inventory after
+an error or interrupted connection to inspect the actual preference.
+
+Removal accepts `{"model":"scout","variant":12}` and returns `{"removed":12}`.
+Compiling or consumer-retained entries cannot be removed. Missing entries return
+404; conflicts return 409; exhausted pool or management-observation credit
+returns 429. Unknown, duplicate or wrongly typed fields return 400.
+
+IDs never recycle within the server process, including after unregister/register.
+They are not persistent identifiers across restarts. Compilation results remain
+until explicit removal or model retirement. Disconnect withdraws the reader,
+not accepted compilation or selection. Unregister withdraws waiting compilation
+readers with 410 while still joining the compiler's actual model ownership.
 
 ## Chat completions
 

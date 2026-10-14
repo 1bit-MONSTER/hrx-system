@@ -171,7 +171,7 @@ loom_cc_test(
   ARGS
     "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom}}"
     "--test_device=vulkan"
-    "--gtest_filter=Workers/SourceTextServiceTest.*:Workers/AdmissionServiceTest.*:SharedWorkers/PrefixServiceTest.*"
+    "--gtest_filter=-Workers/ElasticTextServiceTest.*"
   LABELS
     "iree-run-requirement=vulkan.resource.device"
     "iree-build-requirement=loom.target.arch.spirv"

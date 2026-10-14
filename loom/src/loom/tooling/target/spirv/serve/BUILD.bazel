@@ -128,7 +128,7 @@ loom_cc_test(
     args = [
         "--model_source=$(rootpath //loom/src/loom/serve/fixture/text:prepare.loom)",
         "--test_device=vulkan",
-        "--gtest_filter=Workers/SourceTextServiceTest.*:Workers/AdmissionServiceTest.*:SharedWorkers/PrefixServiceTest.*",
+        "--gtest_filter=-Workers/ElasticTextServiceTest.*",
     ],
     data = TEXT_SOURCES,
     resource_group = GPU_DEVICE_RESOURCE_GROUP,

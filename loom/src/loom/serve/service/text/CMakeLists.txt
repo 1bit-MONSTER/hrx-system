@@ -69,6 +69,7 @@ loom_cc_library(
     "checkpoint_test.cc"
     "owner_turn_test_util.h"
     "prefix_service_test.cc"
+    "reconfiguration_http_test.cc"
     "service_test_fixture.h"
     "source_service_test.cc"
     "source_test_oracle.h"
@@ -78,6 +79,7 @@ loom_cc_library(
     iree::async
     iree::async::platform
     iree::base
+    iree::base::internal::json
     iree::base::threading
     iree::base::tooling::flags
     iree::net::carrier

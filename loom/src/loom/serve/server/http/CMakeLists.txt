@@ -11,6 +11,46 @@ iree_add_all_subdirs()
 
 loom_cc_library(
   NAME
+    response
+  HDRS
+    "response.h"
+  SRCS
+    "response.c"
+  DEPS
+    iree::base
+    loom::serve::transport::http::server
+    loom::util::json
+    loom::util::stream
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    variants
+  HDRS
+    "variants.h"
+  SRCS
+    "variants.c"
+  DEPS
+    ::response
+    iree::base
+    iree::base::internal::json
+    iree::base::internal::unicode
+    loom::serve::runtime::program::compilation
+    loom::serve::runtime::program::sources
+    loom::serve::runtime::program::variant_pool
+    loom::serve::server::registry
+    loom::serve::service::inspection
+    loom::serve::service::reconfiguration
+    loom::serve::transport::http::request
+    loom::serve::transport::http::server
+    loom::util::json
+    loom::util::stream
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     tokenization
   HDRS
     "tokenization.h"

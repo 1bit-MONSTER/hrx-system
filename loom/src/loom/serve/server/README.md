@@ -62,6 +62,30 @@ Log readers retain copied identity and cursor state, not model resources or
 producer ring slots. A slow reader can miss overwritten records; model removal
 does not wait for it.
 
+## Native executable management
+
+The [variant handler](http/variants.h) exposes discovery, staging, selection and
+removal through the service's optional
+[reconfiguration capability](../service/reconfiguration.h). The shared pool
+owns compiled choices and diagnostics; the service owns when and how a choice
+may execute. HTTP staging does not promote a candidate or infer state
+compatibility. Selection carries an expected-current ID to the service policy.
+
+A waiting compilation reader stores registry slot, incarnation and variant IDs,
+not borrowed model or pool pointers. The router collects these observations
+after service advancement and before registry retirement. Removal withdraws
+the reader without shortening an accepted compiler's model ownership.
+Selection completion has separately allocated callback storage until the
+service relinquishes it, even if the HTTP peer disconnected. Accepted selection
+is not a transport-owned operation.
+
+Terminal results are copied into transport before resources can retire. Network
+backpressure cannot retain executable objects. Waiting management connections
+share the held-request/log-reader control-credit bound; abandoned callback
+records retain no transport credit. Native text tests exercise the complete
+HTTP/JIT/device/output path. Router tests control compiler and execution
+readiness to exercise disconnect, removal, shutdown and saturated credit.
+
 ## Observation and failures
 
 [Resources](resources.h) publishes the application's listeners, immutable
