@@ -113,6 +113,7 @@ loom_cc_library(
         "//loom/src/loom/codegen:pass_environment",
         "//loom/src/loom/codegen/low:frame",
         "//loom/src/loom/codegen/low:function",
+        "//loom/src/loom/codegen/low:representation_binding",
         "//loom/src/loom/codegen/low:verify",
         "//loom/src/loom/codegen/low/lower",
         "//loom/src/loom/codegen/low/lower:source_selection",

@@ -19,12 +19,15 @@ from loom.target.low_descriptors import (
     Constraint,
     ConstraintKind,
     Descriptor,
+    DescriptorAsmSurface,
     DescriptorFlag,
     DescriptorOpKind,
     DescriptorSet,
     Effect,
     EffectFlag,
     EffectKind,
+    EnumDomain,
+    EnumValue,
     EventSeparation,
     Hazard,
     HazardKind,
@@ -395,6 +398,27 @@ _SHUFFLE_CONTROL_IMMEDIATE = Immediate(
     ImmediateKind.UNSIGNED,
     bit_width=8,
     unsigned_max=255,
+)
+
+_INTEGER_PREDICATE_ENUM = "test.integer.predicate"
+_INTEGER_PREDICATE_VALUES = (
+    "eq",
+    "ne",
+    "slt",
+    "sle",
+    "sgt",
+    "sge",
+    "ult",
+    "ule",
+    "ugt",
+    "uge",
+)
+_INTEGER_PREDICATE_IMMEDIATE = Immediate(
+    "predicate",
+    ImmediateKind.ENUM,
+    enum_domain=_INTEGER_PREDICATE_ENUM,
+    bit_width=4,
+    unsigned_max=len(_INTEGER_PREDICATE_VALUES) - 1,
 )
 
 _SHUFFLE_BYTE_IMMEDIATES = tuple(
@@ -2037,6 +2061,22 @@ TEST_LOW_COND_BR_I32_DESCRIPTOR = Descriptor(
     flags=(DescriptorFlag.SIDE_EFFECTING, DescriptorFlag.TERMINATOR),
 )
 
+TEST_LOW_NATIVE_COND_BR_I32_DESCRIPTOR = Descriptor(
+    key="test.native.cond_br.i32",
+    mnemonic="test.native.cond_br.i32",
+    semantic_tag="control.native_cond_branch.i32",
+    operands=(_i32_operand("lhs"), _i32_operand("rhs")),
+    op_kind=DescriptorOpKind.COND_BR,
+    immediates=(_INTEGER_PREDICATE_IMMEDIATE,),
+    asm_surface=DescriptorAsmSurface.STRUCTURAL,
+    asm_surface_reason="CFG successors use the canonical low.op.cond_br syntax.",
+    effects=(_CONTROL_EFFECT,),
+    schedule_class=_SCHEDULE_CONTROL,
+    feature_mask_words=(1,),
+    flags=(DescriptorFlag.SIDE_EFFECTING, DescriptorFlag.TERMINATOR),
+    instruction_classes=(InstructionClass.BRANCH,),
+)
+
 TEST_LOW_RETURN_I32_DESCRIPTOR = Descriptor(
     key="test.return.i32",
     mnemonic="test.return.i32",
@@ -2583,6 +2623,15 @@ TEST_LOW_CORE_DESCRIPTOR_SET = DescriptorSet(
             model_quality=ModelQuality.EXACT,
         ),
     ),
+    enum_domains=(
+        EnumDomain(
+            _INTEGER_PREDICATE_ENUM,
+            tuple(
+                EnumValue(predicate, ordinal)
+                for ordinal, predicate in enumerate(_INTEGER_PREDICATE_VALUES)
+            ),
+        ),
+    ),
     descriptors=(
         TEST_LOW_CONST_I32_DESCRIPTOR,
         TEST_LOW_CONST_ZERO_I32_DESCRIPTOR,
@@ -2688,6 +2737,7 @@ TEST_LOW_CORE_DESCRIPTOR_SET = DescriptorSet(
         TEST_LOW_MEMORY_BARRIER_DESCRIPTOR,
         TEST_LOW_BR_DESCRIPTOR,
         TEST_LOW_COND_BR_I32_DESCRIPTOR,
+        TEST_LOW_NATIVE_COND_BR_I32_DESCRIPTOR,
         TEST_LOW_RETURN_I32_DESCRIPTOR,
         TEST_LOW_RETURN_VOID_DESCRIPTOR,
         TEST_LOW_PROJECTABLE_EFFECT_I32_DESCRIPTOR,
@@ -2719,6 +2769,7 @@ TEST_LOW_ALT_DESCRIPTOR_SET = DescriptorSet(
     ),
     resources=(
         Resource(_RESOURCE_SCALAR, capacity_per_cycle=1, kind=ResourceKind.SCALAR_ALU),
+        Resource(_RESOURCE_CONTROL, capacity_per_cycle=1, kind=ResourceKind.CONTROL),
     ),
     schedule_classes=(
         ScheduleClass(
@@ -2733,10 +2784,28 @@ TEST_LOW_ALT_DESCRIPTOR_SET = DescriptorSet(
             issue_uses=(IssueUse(_RESOURCE_SCALAR, cycles=1, units=1),),
             model_quality=ModelQuality.EXACT,
         ),
+        ScheduleClass(
+            _SCHEDULE_CONTROL,
+            latency_kind=LatencyKind.EXACT,
+            latency_cycles=1,
+            issue_uses=(IssueUse(_RESOURCE_CONTROL, cycles=1, units=1),),
+            flags=(ScheduleClassFlag.CONTROL,),
+            model_quality=ModelQuality.EXACT,
+        ),
+    ),
+    enum_domains=(
+        EnumDomain(
+            _INTEGER_PREDICATE_ENUM,
+            tuple(
+                EnumValue(predicate, ordinal)
+                for ordinal, predicate in enumerate(_INTEGER_PREDICATE_VALUES)
+            ),
+        ),
     ),
     descriptors=(
         TEST_LOW_ALT_CONST_I32_DESCRIPTOR,
         TEST_LOW_ALT_NEG_I32_DESCRIPTOR,
         TEST_LOW_ALT_PROJECTABLE_EFFECT_I32_DESCRIPTOR,
+        TEST_LOW_NATIVE_COND_BR_I32_DESCRIPTOR,
     ),
 )

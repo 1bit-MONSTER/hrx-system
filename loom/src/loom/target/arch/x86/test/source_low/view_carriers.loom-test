@@ -79,18 +79,17 @@ low.func.def public target<x86.avx2.core> abi(object_function) @rotate_distinct_
   %begin = mov.imm64 0
   low.br ^_bb1(%begin: reg<x86.gpr64>, %first_view: reg<x86.gpr64>, %second_view: reg<x86.gpr64>)
 ^_bb1(%position: reg<x86.gpr64>, %current: reg<x86.gpr64>, %next: reg<x86.gpr64>):
-  %45 = cmp.gpr64 %position, %count, "slt"
-  low.cond_br %45, ^_bb2, ^_bb3 : reg<x86.gpr32>
+  low.op.cond_br<x86.scalar.cmp.branch.gpr64>(%position, %count) {predicate = 12}, ^_bb2, ^_bb3 : (reg<x86.gpr64>, reg<x86.gpr64>)
 ^_bb2:
   %ordinal = mov.trunc.gpr32.gpr64 %position
-  %47 = copy %seed : reg<x86.gpr32> -> reg<x86.gpr32>
-  %value$48 = add.gpr32 %47, %ordinal
-  mov.store.gpr32 %value$48, %current {disp32 = 0}
-  %49 = lea.disp %position {disp32 = 1}
-  low.br ^_bb1(%49: reg<x86.gpr64>, %next: reg<x86.gpr64>, %current: reg<x86.gpr64>)
+  %46 = copy %seed : reg<x86.gpr32> -> reg<x86.gpr32>
+  %value$47 = add.gpr32 %46, %ordinal
+  mov.store.gpr32 %value$47, %current {disp32 = 0}
+  %48 = lea.disp %position {disp32 = 1}
+  low.br ^_bb1(%48: reg<x86.gpr64>, %next: reg<x86.gpr64>, %current: reg<x86.gpr64>)
 ^_bb3:
-  %value$50 = mov.load.gpr32 %current {disp32 = 0}
-  return %value$50
+  %value$49 = mov.load.gpr32 %current {disp32 = 0}
+  return %value$49
 }
 
 // ====

@@ -142,6 +142,52 @@ func.def public @choose_mix(%input: i64, %delta: i64, %limit: i64) -> (i64) {
   func.return %other : i64
 }
 
+// Immediate comparison branches retain the architectural comparison width and
+// consume the flags directly in the following Jcc.
+func.def public @immediate_branch_family(%value8: i8, %value16: i16, %value32: i32, %value64: i64) -> (i32) {
+  %limit8 = scalar.constant -17 : i8
+  %limit16 = scalar.constant -129 : i16
+  %limit32 = scalar.constant 128 : i32
+  %limit64 = scalar.constant -129 : i64
+  %condition8 = scalar.cmpi eq, %value8, %limit8 : i8
+  cfg.cond_br %condition8, ^check16, ^failure8
+^check16:
+  %condition16 = scalar.cmpi ne, %value16, %limit16 : i16
+  cfg.cond_br %condition16, ^check32, ^failure16
+^check32:
+  %condition32 = scalar.cmpi sgt, %value32, %limit32 : i32
+  cfg.cond_br %condition32, ^check64, ^failure32
+^check64:
+  %condition64 = scalar.cmpi sge, %value64, %limit64 : i64
+  cfg.cond_br %condition64, ^success, ^failure64
+^success:
+  %success_value = scalar.constant 0 : i32
+  func.return %success_value : i32
+^failure8:
+  %failure8_value = scalar.constant 1 : i32
+  func.return %failure8_value : i32
+^failure16:
+  %failure16_value = scalar.constant 2 : i32
+  func.return %failure16_value : i32
+^failure32:
+  %failure32_value = scalar.constant 3 : i32
+  func.return %failure32_value : i32
+^failure64:
+  %failure64_value = scalar.constant 4 : i32
+  func.return %failure64_value : i32
+}
+
+// Placing the false successor next in block order exercises the uninverted
+// condition-code path and the explicit jump to the true successor.
+func.def public @register_branch_false_fallthrough(%lhs: i32, %rhs: i32, %true_value: i32, %false_value: i32) -> (i32) {
+  %condition = scalar.cmpi slt, %lhs, %rhs : i32
+  cfg.cond_br %condition, ^less, ^greater_equal
+^greater_equal:
+  func.return %false_value : i32
+^less:
+  func.return %true_value : i32
+}
+
 // Exclusive comparison users retain flags inside one native instruction
 // packet. Compare and selected payload widths remain independent.
 func.def public @compare_select_mix(%lhs32: i32, %rhs32: i32, %lhs64: i64) -> (i64) {

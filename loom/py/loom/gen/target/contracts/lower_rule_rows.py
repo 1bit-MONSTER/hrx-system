@@ -149,6 +149,33 @@ _ATTR_COPY_VALUE_REF_KINDS = frozenset(
     )
 )
 
+_ATTR_COPY_SOURCE_ATTR_KINDS = frozenset(
+    (
+        LowerAttrCopyKind.DIRECT,
+        LowerAttrCopyKind.ENUM_ORDINAL,
+        LowerAttrCopyKind.ENUM_REMAP,
+        LowerAttrCopyKind.I64_LOG2,
+        LowerAttrCopyKind.I64_ARRAY_ELEMENT,
+        LowerAttrCopyKind.I64_ARRAY_ELEMENT_PLUS_LITERAL,
+        LowerAttrCopyKind.I64_ARRAY_LITERAL_MINUS_ELEMENT,
+        LowerAttrCopyKind.I64_ARRAY_ELEMENT_QUOTIENT,
+        LowerAttrCopyKind.I64_ARRAY_ELEMENT_REMAINDER,
+        LowerAttrCopyKind.I64_ARRAY_PACK_ELEMENTS,
+        LowerAttrCopyKind.ATTRS_PACK_CONSECUTIVE,
+        LowerAttrCopyKind.I64_ARRAY_LANE_BYTE,
+        LowerAttrCopyKind.I64_ARRAY_SHUFFLE_MASK_CHUNK,
+        LowerAttrCopyKind.I64_ARRAY_READ_ONLY_ELEMENTS,
+        LowerAttrCopyKind.I64_ARRAY_READ_ONLY_BYTE_SEGMENT,
+        LowerAttrCopyKind.I64_ARRAY_READ_ONLY_BYTE_WORDS,
+        LowerAttrCopyKind.I64_LOW_BIT_MASK,
+        LowerAttrCopyKind.I64_SHIFTED_LOW_BIT_MASK,
+        LowerAttrCopyKind.I64_SHIFTED_LOW_BIT_CLEAR_MASK,
+        LowerAttrCopyKind.I64_LITERAL_MINUS_ATTR,
+        LowerAttrCopyKind.I64_LITERAL_MINUS_ATTRS,
+        LowerAttrCopyKind.I64_ATTR_MINUS_LITERAL,
+    )
+)
+
 
 def guard_uses_value_ref(kind: GuardKind) -> bool:
     return kind in _GUARD_VALUE_REF_KINDS
@@ -160,6 +187,10 @@ def guard_uses_other_value_ref(kind: GuardKind) -> bool:
 
 def attr_copy_uses_value_ref(kind: LowerAttrCopyKind) -> bool:
     return kind in _ATTR_COPY_VALUE_REF_KINDS
+
+
+def attr_copy_uses_source_attr(kind: LowerAttrCopyKind) -> bool:
+    return kind in _ATTR_COPY_SOURCE_ATTR_KINDS
 
 
 def attr_copy_uses_other_value_ref(kind: LowerAttrCopyKind) -> bool:
@@ -802,30 +833,8 @@ def attr_copy_row(
         target_name_string_ref,
         always=True,
     )
-    if row.kind in (
-        LowerAttrCopyKind.DIRECT,
-        LowerAttrCopyKind.ENUM_ORDINAL,
-        LowerAttrCopyKind.ENUM_REMAP,
-        LowerAttrCopyKind.I64_LOG2,
-        LowerAttrCopyKind.I64_ARRAY_ELEMENT,
-        LowerAttrCopyKind.I64_ARRAY_ELEMENT_PLUS_LITERAL,
-        LowerAttrCopyKind.I64_ARRAY_LITERAL_MINUS_ELEMENT,
-        LowerAttrCopyKind.I64_ARRAY_ELEMENT_QUOTIENT,
-        LowerAttrCopyKind.I64_ARRAY_ELEMENT_REMAINDER,
-        LowerAttrCopyKind.I64_ARRAY_PACK_ELEMENTS,
-        LowerAttrCopyKind.ATTRS_PACK_CONSECUTIVE,
-        LowerAttrCopyKind.I64_ARRAY_LANE_BYTE,
-        LowerAttrCopyKind.I64_ARRAY_SHUFFLE_MASK_CHUNK,
-        LowerAttrCopyKind.I64_ARRAY_READ_ONLY_ELEMENTS,
-        LowerAttrCopyKind.I64_ARRAY_READ_ONLY_BYTE_SEGMENT,
-        LowerAttrCopyKind.I64_ARRAY_READ_ONLY_BYTE_WORDS,
-        LowerAttrCopyKind.I64_LOW_BIT_MASK,
-        LowerAttrCopyKind.I64_SHIFTED_LOW_BIT_MASK,
-        LowerAttrCopyKind.I64_SHIFTED_LOW_BIT_CLEAR_MASK,
-        LowerAttrCopyKind.I64_LITERAL_MINUS_ATTR,
-        LowerAttrCopyKind.I64_LITERAL_MINUS_ATTRS,
-        LowerAttrCopyKind.I64_ATTR_MINUS_LITERAL,
-    ):
+    _append_field(fields, "source_node_index", row.source_node_index)
+    if attr_copy_uses_source_attr(row.kind):
         _append_field(fields, "source_attr_index", row.source_attr_index, always=True)
     if row.kind == LowerAttrCopyKind.OPERAND_SEGMENT_EXACT_BITS_READ_ONLY:
         _append_field(

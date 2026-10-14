@@ -28,6 +28,26 @@ value %sum: test.i32 -> target_id[0:1]
 
 // ====
 
+// Descriptor-backed branches consume their register operands through the
+// ordinary schedule and allocation path.
+// RUN: emit low-allocation-query @descriptor_cond_br values=%lhs,%rhs
+
+test.target<low_core> @test_target {contract_feature_bits = 1}
+
+low.func.def target<test.low.core>(@test_target) @descriptor_cond_br(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>) asm {
+  low.op.cond_br<test.native.cond_br.i32>(%lhs, %rhs) {predicate = 2}, ^less, ^greater_equal : (reg<test.i32>, reg<test.i32>)
+^less:
+  return %lhs
+^greater_equal:
+  return %rhs
+}
+
+// ----
+value %lhs: test.i32 -> target_id[0:1]
+value %rhs: test.i32 -> target_id[1:1]
+
+// ====
+
 // RUN: emit low-allocation-query @alloc values=%lhs,%rhs,%sum
 
 test.target<low_core> @test_target

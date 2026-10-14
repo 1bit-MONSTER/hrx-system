@@ -14,6 +14,7 @@
 #include "loom/codegen/low/function.h"
 #include "loom/codegen/low/lower/source_selection.h"
 #include "loom/codegen/low/pipeline/pipeline.h"
+#include "loom/codegen/low/representation_binding.h"
 #include "loom/codegen/low/testing/allocation_checker.h"
 #include "loom/codegen/low/verify.h"
 #include "loom/codegen/pass_environment.h"
@@ -84,7 +85,8 @@ static uint32_t loom_low_source_workload_count_low_descriptor_ops(
     const loom_block_t* block = loom_region_const_block(body, block_index);
     const loom_op_t* op = NULL;
     loom_block_for_each_op(block, op) {
-      if (loom_low_op_isa(op) || loom_low_const_isa(op)) {
+      if (loom_low_descriptor_packet_kind(op) !=
+          LOOM_LOW_DESCRIPTOR_PACKET_NONE) {
         ++count;
       }
     }

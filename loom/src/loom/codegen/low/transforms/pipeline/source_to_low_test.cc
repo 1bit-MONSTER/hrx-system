@@ -1024,6 +1024,10 @@ TEST_F(LowLowerPassTest,
                     "    %input: reg<test.i32>) -> (reg<test.i32>) {\n"
                     "  %result = low.op<test.projectable_effect.i32>(%input) : "
                     "(reg<test.i32>) -> reg<test.i32>\n"
+                    "  low.op.cond_br<test.native.cond_br.i32>(%input, "
+                    "%result) {predicate = slt}, ^exit, ^exit : "
+                    "(reg<test.i32>, reg<test.i32>)\n"
+                    "^exit:\n"
                     "  low.return %result : reg<test.i32>\n"
                     "}\n"
                     "low.func.decl target<test.low.core> @project_import("
@@ -1043,6 +1047,9 @@ TEST_F(LowLowerPassTest,
   loom_op_t* packet = loom_region_entry_block(body)->first_op;
   ASSERT_NE(packet, nullptr);
   ASSERT_TRUE(loom_low_op_isa(packet));
+  loom_op_t* branch = packet->next_op;
+  ASSERT_NE(branch, nullptr);
+  ASSERT_TRUE(loom_low_op_cond_br_isa(branch));
   EXPECT_TRUE(iree_any_bit_set(packet->traits, LOOM_TRAIT_UNKNOWN_EFFECTS));
   EXPECT_TRUE(loom_region_has_read_effects(body));
   EXPECT_TRUE(loom_region_has_write_effects(body));
@@ -1080,6 +1087,8 @@ TEST_F(LowLowerPassTest,
   const loom_type_t authored_argument_type =
       loom_block_arg_type(module.get(), loom_region_entry_block(body), 0);
   const uint32_t authored_descriptor = loom_low_op_descriptor(packet);
+  const uint32_t authored_branch_descriptor =
+      loom_low_op_cond_br_descriptor(branch);
   const loom_low_representation_projection_plan_t* plan = nullptr;
   IREE_ASSERT_OK(loom_low_plan_function_representation(
       module.get(), function, &target_facts, &projection_registry.registry,
@@ -1097,6 +1106,7 @@ TEST_F(LowLowerPassTest,
   EXPECT_EQ(loom_func_like_repr_contract(import), authored_contract);
   EXPECT_EQ(loom_func_like_repr_contract(function), authored_contract);
   EXPECT_EQ(loom_low_op_descriptor(packet), authored_descriptor);
+  EXPECT_EQ(loom_low_op_cond_br_descriptor(branch), authored_branch_descriptor);
   EXPECT_TRUE(loom_type_equal(
       loom_block_arg_type(module.get(), loom_region_entry_block(body), 0),
       authored_argument_type));
@@ -1153,6 +1163,11 @@ TEST_F(LowLowerPassTest,
       target_descriptor_set, IREE_SV("test.projectable_effect.i32"));
   ASSERT_NE(target_ordinal, LOOM_LOW_DESCRIPTOR_ORDINAL_NONE);
   EXPECT_EQ(loom_low_op_descriptor(packet), target_ordinal);
+  const uint32_t target_branch_ordinal =
+      loom_low_descriptor_set_lookup_descriptor(
+          target_descriptor_set, IREE_SV("test.native.cond_br.i32"));
+  ASSERT_NE(target_branch_ordinal, LOOM_LOW_DESCRIPTOR_ORDINAL_NONE);
+  EXPECT_EQ(loom_low_op_cond_br_descriptor(branch), target_branch_ordinal);
   EXPECT_EQ(loom_func_like_repr_contract(import),
             loom_func_like_repr_contract(function));
   EXPECT_TRUE(loom_type_equal(

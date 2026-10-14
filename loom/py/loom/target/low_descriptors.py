@@ -299,6 +299,7 @@ class DescriptorOpKind(CEnum):
 
     OP = "LOOM_LOW_DESCRIPTOR_OP_KIND_OP"
     CONST = "LOOM_LOW_DESCRIPTOR_OP_KIND_CONST"
+    COND_BR = "LOOM_LOW_DESCRIPTOR_OP_KIND_COND_BR"
 
 
 class InstructionClass(CEnum):

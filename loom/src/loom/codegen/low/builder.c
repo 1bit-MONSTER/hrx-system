@@ -171,3 +171,46 @@ iree_status_t loom_low_build_resolved_descriptor_const(
   loom_op_results(*out_op)[0] = result_id;
   return loom_builder_finalize_op(builder, *out_op);
 }
+
+iree_status_t loom_low_build_resolved_descriptor_cond_br(
+    loom_builder_t* builder, const loom_low_descriptor_set_t* descriptor_set,
+    const loom_low_descriptor_t* descriptor, const loom_value_id_t* operands,
+    iree_host_size_t operand_count, loom_named_attr_slice_t attrs,
+    loom_block_t* true_dest, loom_block_t* false_dest,
+    loom_location_id_t location, loom_op_t** out_op) {
+  *out_op = NULL;
+  IREE_ASSERT_EQ(descriptor->op_kind, LOOM_LOW_DESCRIPTOR_OP_KIND_COND_BR);
+  const uint32_t descriptor_ordinal =
+      loom_low_descriptor_set_descriptor_ordinal(descriptor_set, descriptor);
+  IREE_ASSERT_NE(descriptor_ordinal, LOOM_LOW_DESCRIPTOR_ORDINAL_NONE);
+  if (operand_count > UINT16_MAX) {
+    return iree_make_status(
+        IREE_STATUS_RESOURCE_EXHAUSTED,
+        "low.op.cond_br operand count exceeds uint16_t range");
+  }
+
+  IREE_RETURN_IF_ERROR(loom_builder_allocate_op_with_successors(
+      builder, LOOM_OP_LOW_OP_COND_BR, (uint16_t)operand_count,
+      /*result_count=*/0, /*successor_count=*/2, /*region_count=*/0,
+      /*tied_result_count=*/0, /*attribute_count=*/2, location, out_op));
+  (*out_op)->traits =
+      loom_low_descriptor_effective_traits(descriptor_set, descriptor);
+  if (operand_count > 0) {
+    memcpy(loom_op_operands(*out_op), operands,
+           operand_count * sizeof(loom_value_id_t));
+  }
+  loom_block_t** successors = loom_op_successors(*out_op);
+  successors[0] = true_dest;
+  successors[1] = false_dest;
+  loom_low_op_cond_br_initialize_descriptor(
+      *out_op, loom_attr_scoped_enum(descriptor_ordinal));
+  loom_attribute_t attributes = loom_attr_absent();
+  if (attrs.count > 0) {
+    IREE_RETURN_IF_ERROR(loom_module_make_canonical_attr_dict(
+        builder->module, attrs, &attributes));
+    IREE_RETURN_IF_ERROR(loom_low_resolve_immediate_enums(
+        builder->module, descriptor_set, descriptor, &attributes));
+  }
+  loom_low_op_cond_br_initialize_attrs(*out_op, attributes);
+  return loom_builder_finalize_op(builder, *out_op);
+}

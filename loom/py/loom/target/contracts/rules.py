@@ -36,7 +36,12 @@ from loom.target.contracts.guards import Guard, GuardKind
 from loom.target.contracts.immediates import OperandSegmentProject
 from loom.target.contracts.kinds import ContractSystem, SourceValueKind
 from loom.target.contracts.source import ValueRef
-from loom.target.low_descriptors import Descriptor, DescriptorSet, OperandRole
+from loom.target.low_descriptors import (
+    Descriptor,
+    DescriptorOpKind,
+    DescriptorSet,
+    OperandRole,
+)
 
 MAX_SOURCE_NODES = 8
 SOURCE_NODE_COUNT_BITS = (MAX_SOURCE_NODES - 1).bit_length()
@@ -336,6 +341,7 @@ class DescriptorRule:
         self._validate_related_results()
         self._validate_source_memory_preservation()
         self._validate_per_lane_sequence()
+        self._validate_terminator_emit()
 
     def _validate_operand_segment_projections(self) -> None:
         exact_segment_guards = {
@@ -620,6 +626,19 @@ class DescriptorRule:
                         f"{self.source_op.name}: per-lane-sequence operands "
                         "cannot use value materializers"
                     )
+
+    def _validate_terminator_emit(self) -> None:
+        for emit_index, emit in enumerate(self.emit):
+            if (
+                not isinstance(emit, EmitDescriptorOp)
+                or emit.descriptor.op_kind is not DescriptorOpKind.COND_BR
+            ):
+                continue
+            if emit_index + 1 != len(self.emit):
+                raise ValueError(
+                    f"{self.source_op.name}: low.op.cond_br must be the final "
+                    "emit in a descriptor rule"
+                )
 
 
 @dataclass(frozen=True, slots=True)

@@ -57,6 +57,8 @@ typedef enum loom_low_descriptor_packet_kind_e {
   LOOM_LOW_DESCRIPTOR_PACKET_OP = 1,
   // low.const descriptor packet.
   LOOM_LOW_DESCRIPTOR_PACKET_CONST = 2,
+  // low.op.cond_br descriptor packet.
+  LOOM_LOW_DESCRIPTOR_PACKET_COND_BR = 3,
 } loom_low_descriptor_packet_kind_t;
 
 // Descriptor row bound to one verified Low packet.
@@ -93,14 +95,44 @@ static inline loom_low_descriptor_packet_kind_t loom_low_descriptor_packet_kind(
   if (loom_low_const_isa(op)) {
     return LOOM_LOW_DESCRIPTOR_PACKET_CONST;
   }
+  if (loom_low_op_cond_br_isa(op)) {
+    return LOOM_LOW_DESCRIPTOR_PACKET_COND_BR;
+  }
   return LOOM_LOW_DESCRIPTOR_PACKET_NONE;
 }
 
 // Returns the required descriptor ordinal for a descriptor-backed packet.
 static inline uint32_t loom_low_descriptor_packet_ordinal(
     const loom_op_t* op, loom_low_descriptor_packet_kind_t kind) {
-  return kind == LOOM_LOW_DESCRIPTOR_PACKET_OP ? loom_low_op_descriptor(op)
-                                               : loom_low_const_descriptor(op);
+  switch (kind) {
+    case LOOM_LOW_DESCRIPTOR_PACKET_OP:
+      return loom_low_op_descriptor(op);
+    case LOOM_LOW_DESCRIPTOR_PACKET_CONST:
+      return loom_low_const_descriptor(op);
+    case LOOM_LOW_DESCRIPTOR_PACKET_COND_BR:
+      return loom_low_op_cond_br_descriptor(op);
+    case LOOM_LOW_DESCRIPTOR_PACKET_NONE:
+    default:
+      IREE_ASSERT_UNREACHABLE("operation is not a descriptor packet");
+      IREE_BUILTIN_UNREACHABLE();
+  }
+}
+
+// Returns the canonical named attribute dictionary for one descriptor packet.
+static inline loom_named_attr_slice_t loom_low_descriptor_packet_attrs(
+    const loom_op_t* op, loom_low_descriptor_packet_kind_t kind) {
+  switch (kind) {
+    case LOOM_LOW_DESCRIPTOR_PACKET_OP:
+      return loom_low_op_attrs(op);
+    case LOOM_LOW_DESCRIPTOR_PACKET_CONST:
+      return loom_low_const_attrs(op);
+    case LOOM_LOW_DESCRIPTOR_PACKET_COND_BR:
+      return loom_low_op_cond_br_attrs(op);
+    case LOOM_LOW_DESCRIPTOR_PACKET_NONE:
+    default:
+      IREE_ASSERT_UNREACHABLE("operation is not a descriptor packet");
+      IREE_BUILTIN_UNREACHABLE();
+  }
 }
 
 // Projects one verified Low packet into its descriptor row.
@@ -131,7 +163,11 @@ static inline uint16_t loom_low_descriptor_packet_attribute_index(
   if (packet->kind == LOOM_LOW_DESCRIPTOR_PACKET_OP) {
     return loom_low_op_descriptor_diagnostic_ref().index;
   }
-  return loom_low_const_descriptor_diagnostic_ref().index;
+  if (packet->kind == LOOM_LOW_DESCRIPTOR_PACKET_CONST) {
+    return loom_low_const_descriptor_diagnostic_ref().index;
+  }
+  IREE_ASSERT_EQ(packet->kind, LOOM_LOW_DESCRIPTOR_PACKET_COND_BR);
+  return loom_low_op_cond_br_descriptor_diagnostic_ref().index;
 }
 
 // Returns the stable descriptor spelling for diagnostics and presentation.

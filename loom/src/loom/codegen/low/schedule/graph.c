@@ -67,7 +67,7 @@ static void loom_low_schedule_reset_state_accesses(
 }
 
 static bool loom_low_schedule_op_is_descriptor_packet(const loom_op_t* op) {
-  return loom_low_op_isa(op) || loom_low_const_isa(op);
+  return loom_low_descriptor_packet_kind(op) != LOOM_LOW_DESCRIPTOR_PACKET_NONE;
 }
 
 static bool loom_low_schedule_op_is_terminator(const loom_module_t* module,
@@ -91,10 +91,10 @@ static iree_status_t loom_low_schedule_resolve_descriptor(
 
   node->descriptor = packet.descriptor;
   node->source_descriptor_ordinal = packet.descriptor_ordinal;
+  const loom_named_attr_slice_t attrs =
+      loom_low_descriptor_packet_attrs(op, packet.kind);
   node->immediate_presence = loom_low_bind_immediate_presence(
-      state->module, state->target.descriptor_set, packet.descriptor,
-      packet.kind == LOOM_LOW_DESCRIPTOR_PACKET_OP ? loom_low_op_attrs(op)
-                                                   : loom_low_const_attrs(op));
+      state->module, state->target.descriptor_set, packet.descriptor, attrs);
   if (iree_any_bit_set(packet.descriptor->flags,
                        LOOM_LOW_DESCRIPTOR_FLAG_EARLY_CLOBBER)) {
     node->flags |= LOOM_LOW_SCHEDULE_NODE_FLAG_EARLY_CLOBBER;

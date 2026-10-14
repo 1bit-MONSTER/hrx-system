@@ -30,6 +30,16 @@ typedef struct loom_low_lower_rule_source_t {
   uint8_t source_node_count;
 } loom_low_lower_rule_source_t;
 
+static const loom_op_t* loom_low_lower_rule_source_node(
+    const loom_low_lower_rule_source_t* state, uint8_t source_node_index) {
+  if (source_node_index == 0) {
+    return state->source_op;
+  }
+  IREE_ASSERT_LT(source_node_index, state->source_node_count);
+  IREE_ASSERT(state->source_nodes != NULL);
+  return state->source_nodes[source_node_index];
+}
+
 static loom_value_id_t loom_low_lower_rule_plan_source_value(
     const loom_low_lower_context_t* context,
     const loom_low_lower_rule_set_t* rule_set,
@@ -414,13 +424,12 @@ static iree_status_t loom_low_lower_rule_project_read_only_data(
 
 static iree_status_t loom_low_lower_rule_build_attrs(
     loom_low_lower_context_t* context,
-    const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
+    const loom_low_lower_rule_set_t* rule_set,
     const loom_low_lower_rule_source_t* state,
     const loom_low_lower_emit_t* emit,
     const loom_low_source_memory_access_plan_t* source_memory_access,
     loom_named_attr_t* attrs,
     loom_low_lower_read_only_attributes_t* read_only_attributes) {
-  const loom_attribute_t* source_attrs = loom_op_const_attrs(source_op);
   const int64_t static_byte_offset =
       emit->source_memory_ordinal != 0
           ? loom_low_lower_rule_source_memory_static_byte_offset(
@@ -432,6 +441,14 @@ static iree_status_t loom_low_lower_rule_build_attrs(
         (uint16_t)(emit->payload.descriptor.attr_copy_start + i);
     const loom_low_lower_attr_copy_t* attr_copy =
         &rule_set->attr_copies[attr_copy_index];
+    const uint8_t source_node_index =
+        attr_copy->kind ==
+                LOOM_LOW_LOWER_ATTR_COPY_SOURCE_MEMORY_DYNAMIC_BYTE_STRIDE
+            ? 0
+            : attr_copy->source_node_index;
+    const loom_op_t* source_op =
+        loom_low_lower_rule_source_node(state, source_node_index);
+    const loom_attribute_t* source_attrs = loom_op_const_attrs(source_op);
     IREE_RETURN_IF_ERROR(loom_module_intern_string(
         loom_low_lower_context_module(context),
         loom_low_lower_rule_set_string(rule_set,
@@ -1537,7 +1554,7 @@ iree_status_t loom_low_lower_rule_plan_finalize(
     }
     if (emit->attr_copy_count != 0) {
       IREE_RETURN_IF_ERROR(loom_low_lower_rule_build_attrs(
-          context, rule_set, source_op, &source, emit,
+          context, rule_set, &source, emit,
           emit->source_memory_ordinal ? source_memory_access : NULL,
           (loom_named_attr_t*)attributes, read_only_attributes));
     }

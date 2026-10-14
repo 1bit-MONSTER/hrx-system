@@ -239,6 +239,40 @@ callee-preserved: rbx, r12
 
 // ====
 
+// Equal descriptor-branch successors collapse to their shared fallthrough
+// without materializing the comparison or a conditional transfer.
+// RUN: emit x86-native-bytes @same_descriptor_successor fixed=%lhs:physical_register:7:1 fixed=%rhs:physical_register:6:1
+x86.target<scalar> @target
+
+low.func.def target<x86.scalar.core>(@target) @same_descriptor_successor(%lhs: reg<x86.gpr32>, %rhs: reg<x86.gpr32>) asm {
+  low.op.cond_br<x86.scalar.cmp.branch.gpr32>(%lhs, %rhs) {predicate = 2}, ^exit, ^exit : (reg<x86.gpr32>, reg<x86.gpr32>)
+^exit:
+  return
+}
+
+// ----
+code: c3
+
+// ====
+
+// Equal structural-branch successors outside the fallthrough position collapse
+// to one unconditional transfer without reading the condition.
+// RUN: emit x86-native-bytes @same_structural_successor fixed=%condition:physical_register:7:1
+x86.target<scalar> @target
+
+low.func.def target<x86.scalar.core>(@target) @same_structural_successor(%condition: reg<x86.gpr32>) asm {
+  low.br ^loop
+^loop:
+  low.br ^condition_block
+^condition_block:
+  low.cond_br %condition, ^loop, ^loop : reg<x86.gpr32>
+}
+
+// ----
+code: e9 fb ff ff ff c3
+
+// ====
+
 // A coalesced SysV RDI entry needs no transport write. Return transport writes
 // the caller-saved RAX instead.
 // RUN: emit x86-frame @read_only fixed=%input:physical_register:7:1

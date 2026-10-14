@@ -18,9 +18,13 @@ from loom.target.low_descriptors import (
     Constraint,
     ConstraintKind,
     Descriptor,
+    DescriptorAsmSurface,
     DescriptorFlag,
     DescriptorOpKind,
     DescriptorSet,
+    Effect,
+    EffectFlag,
+    EffectKind,
     EnumDomain,
     EnumValue,
     Immediate,
@@ -72,6 +76,7 @@ from .common import (
     _SCHEDULE_MEMORY_STORE_GPR32,
     _SCHEDULE_MEMORY_STORE_GPR64,
     _SCHEDULE_SCALAR,
+    _SCHEDULE_SCALAR_CONTROL,
     _SHIFT32_IMMEDIATE,
     _SHIFT64_IMMEDIATE,
     _asm,
@@ -768,6 +773,45 @@ def _gpr_predicate_compare_descriptor(bit_count: int, *, immediate: bool) -> Des
     )
 
 
+def _gpr_compare_branch_descriptor(bit_count: int, *, immediate: bool) -> Descriptor:
+    value_immediate = _gpr_compare_immediate(bit_count)
+    form_name = "imm." if immediate else ""
+    return Descriptor(
+        key=f"x86.scalar.cmp.branch.{form_name}gpr{bit_count}",
+        encoding_format_id=(
+            Form.COMPARE_IMMEDIATE_BRANCH if immediate else Form.COMPARE_BRANCH
+        ),
+        encoding_id=encoding(
+            _gpr_compare_opcode(bit_count, immediate=immediate),
+            extension=7 if immediate else 0,
+            flags=_gpr_width_flags(bit_count),
+        ),
+        mnemonic="cmp.branch",
+        semantic_tag=f"control.integer_compare.i{bit_count}",
+        operands=(
+            _gpr_width_operand(bit_count, "lhs"),
+            *((_gpr_width_operand(bit_count, "rhs"),) if not immediate else ()),
+        ),
+        op_kind=DescriptorOpKind.COND_BR,
+        immediates=(
+            (value_immediate, _INTEGER_PREDICATE_IMMEDIATE)
+            if immediate
+            else (_INTEGER_PREDICATE_IMMEDIATE,)
+        ),
+        asm_surface=DescriptorAsmSurface.STRUCTURAL,
+        asm_surface_reason="CFG successors use the canonical low.op.cond_br syntax.",
+        effects=(
+            Effect(
+                EffectKind.CONTROL,
+                flags=(EffectFlag.ORDERED,),
+            ),
+        ),
+        schedule_class=_SCHEDULE_SCALAR_CONTROL,
+        flags=(DescriptorFlag.SIDE_EFFECTING, DescriptorFlag.TERMINATOR),
+        instruction_classes=(InstructionClass.BRANCH,),
+    )
+
+
 def _gpr_compare_select_descriptor(
     compare_bit_count: int, result_bit_count: int, *, immediate: bool
 ) -> Descriptor:
@@ -1155,6 +1199,11 @@ _X86_SCALAR_SUFFIX_DESCRIPTORS = (
     _gpr_select_descriptor(64),
     *(
         _gpr_predicate_compare_descriptor(bit_count, immediate=immediate)
+        for bit_count in (8, 16, 32, 64)
+        for immediate in (False, True)
+    ),
+    *(
+        _gpr_compare_branch_descriptor(bit_count, immediate=immediate)
         for bit_count in (8, 16, 32, 64)
         for immediate in (False, True)
     ),
@@ -1631,6 +1680,17 @@ X86_SCALAR_DESCRIPTOR_SET = DescriptorSet(
             latency_cycles=1,
             issue_uses=(IssueUse(_RESOURCE_STORE, cycles=1, units=1),),
             flags=(ScheduleClassFlag.MAY_STORE,),
+            model_quality=ModelQuality.ESTIMATED,
+        ),
+        ScheduleClass(
+            _SCHEDULE_SCALAR_CONTROL,
+            latency_kind=LatencyKind.ESTIMATE,
+            latency_cycles=1,
+            issue_uses=(
+                IssueUse(_RESOURCE_SCALAR, cycles=1, units=1),
+                IssueUse(_RESOURCE_CONTROL, cycles=1, units=1),
+            ),
+            flags=(ScheduleClassFlag.CONTROL,),
             model_quality=ModelQuality.ESTIMATED,
         ),
         ScheduleClass(

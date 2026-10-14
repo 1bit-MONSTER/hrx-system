@@ -381,6 +381,8 @@ uint16_t loom_x86_encoding_gpr_writes(
     case LOOM_X86_ENCODING_FORM_JUMP:
     case LOOM_X86_ENCODING_FORM_BRANCH_ZERO:
     case LOOM_X86_ENCODING_FORM_BRANCH_NONZERO:
+    case LOOM_X86_ENCODING_FORM_COMPARE_BRANCH:
+    case LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_BRANCH:
       return 0;
     case LOOM_X86_ENCODING_FORM_PUSH:
     case LOOM_X86_ENCODING_FORM_CALL:
@@ -494,6 +496,21 @@ void loom_x86_encode_instruction(
       loom_x86_encode_predicate(instruction, operands->secondary_immediate,
                                 result);
       break;
+    case LOOM_X86_ENCODING_FORM_COMPARE_BRANCH:
+      loom_x86_encode_compare_registers(instruction, encoding_id, rhs, lhs);
+      loom_x86_encode_opcode(
+          instruction,
+          LOOM_X86_ENCODING_OPCODE_0F | (0x80 | operands->secondary_immediate));
+      loom_x86_encode_integer(instruction, 0, 4);
+      return;
+    case LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_BRANCH:
+      loom_x86_encode_compare_immediate(instruction, encoding_id, lhs,
+                                        operands->immediate);
+      loom_x86_encode_opcode(
+          instruction,
+          LOOM_X86_ENCODING_OPCODE_0F | (0x80 | operands->secondary_immediate));
+      loom_x86_encode_integer(instruction, 0, 4);
+      return;
     case LOOM_X86_ENCODING_FORM_COMPARE_SELECT: {
       const uint8_t condition_code = (uint8_t)operands->immediate;
       loom_x86_encode_compare_registers(instruction, encoding_id, rhs, lhs);

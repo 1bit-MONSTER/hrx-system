@@ -165,6 +165,7 @@ class AttrProject:
 
     kind: AttrProjectKind
     source_attr: str
+    source_node: str = ""
     other_source_attr: str = ""
     literal_i64: int = 0
     element: int | None = None
@@ -175,6 +176,13 @@ class AttrProject:
     bytes_per_lane: int | None = None
     target_names: tuple[str, ...] = ()
     enum_values: tuple[tuple[str, int], ...] = ()
+
+    def in_source_node(self, source_node: str) -> Self:
+        """Returns this projection scoped to a named descriptor-rule node."""
+
+        if not source_node:
+            raise ValueError("attribute projection source node must be non-empty")
+        return replace(self, source_node=source_node)
 
     @classmethod
     def direct(cls, source_attr: str) -> Self:
@@ -569,14 +577,35 @@ class AttrProject:
         elif self.enum_values:
             raise ValueError(f"{self.kind.value} projection must not carry enum values")
 
+    def _referenced_op(
+        self,
+        source_op: Op,
+        source_ops: Mapping[str, Op] | None,
+        subject: str,
+    ) -> Op:
+        if not self.source_node:
+            return source_op
+        referenced_op = (
+            source_ops.get(self.source_node) if source_ops is not None else None
+        )
+        if referenced_op is None:
+            raise ValueError(
+                f"{source_op.name}: {subject} references unknown source node "
+                f"'{self.source_node}'"
+            )
+        return referenced_op
+
     def validate(
         self,
         source_op: Op,
         descriptor_set: DescriptorSet,
         descriptor: Descriptor,
         bound_immediate_name: str | None,
+        *,
+        source_ops: Mapping[str, Op] | None = None,
     ) -> None:
         subject = f"immediate projection {self.kind.value}"
+        source_op = self._referenced_op(source_op, source_ops, subject)
         attr = _require_attr(source_op, self.source_attr, subject)
         if self.kind == AttrProjectKind.DIRECT:
             if bound_immediate_name is None:

@@ -217,6 +217,7 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::ir
+    loom::ops::low
     loom::ops::test
     loom::target::facts_builder
     loom::target::registers

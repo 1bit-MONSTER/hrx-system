@@ -598,6 +598,7 @@ def test_validate_c_table_shape_rejects_oversized_attr_copy_byte_fields() -> Non
         target_name="value",
     )
     for field_name, field_subject in (
+        ("source_node_index", "source-node index"),
         ("source_attr_index", "source attr index"),
         ("source_element_count", "source element count"),
     ):
@@ -608,6 +609,23 @@ def test_validate_c_table_shape_rejects_oversized_attr_copy_byte_fields() -> Non
             lambda table=table: _validate_c_table_shape(table, _c_shape_contract(), ()),
             f"lower-rule set 'test.low.generated_c_shape' attr-copy 0 {field_subject} exceeds uint8_t",
         )
+
+
+def test_validate_c_table_shape_rejects_source_node_on_non_attr_copy() -> None:
+    table = _compiled_lower_rule_set(
+        attr_copies=(
+            LowerAttrCopy(
+                kind=LowerAttrCopyKind.I64_LITERAL,
+                target_name="value",
+                source_node_index=1,
+            ),
+        ),
+    )
+
+    _expect_value_error(
+        lambda: _validate_c_table_shape(table, _c_shape_contract(), ()),
+        "attr-copy 0 kind cannot select a related source node",
+    )
 
 
 def test_validate_c_table_shape_rejects_rule_guard_range_oob() -> None:
@@ -1776,6 +1794,21 @@ def test_attr_copy_row_emits_portable_signed_i64_literal() -> None:
 
     assert ".target_name_string_ref = TEST_STRING_VALUE" in fields
     assert ".literal_i64 = (-INT64_C(2147483648))" in fields
+
+
+def test_attr_copy_row_emits_related_source_node() -> None:
+    fields = attr_copy_row(
+        LowerAttrCopy(
+            kind=LowerAttrCopyKind.DIRECT,
+            target_name="predicate",
+            source_node_index=2,
+            source_attr_index=3,
+        ),
+        target_name_string_ref="TEST_STRING_PREDICATE",
+    )
+
+    assert ".source_node_index = 2" in fields
+    assert ".source_attr_index = 3" in fields
 
 
 def test_attr_copy_row_emits_attr_minus_literal_payload() -> None:

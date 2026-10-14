@@ -158,14 +158,13 @@ low.func.def target<x86.avx2.core> abi(object_function) @offset_scale_loop(%elem
   %begin = mov.imm64 0
   low.br ^_bb1(%begin: reg<x86.gpr64>, %bytes: reg<x86.gpr64>)
 ^_bb1(%iteration: reg<x86.gpr64>, %current: reg<x86.gpr64>):
-  %28 = cmp.gpr64 %iteration, %count, "slt"
-  low.cond_br %28, ^_bb2, ^_bb3 : reg<x86.gpr32>
+  low.op.cond_br<x86.scalar.cmp.branch.gpr64>(%iteration, %count) {predicate = 12}, ^_bb2, ^_bb3 : (reg<x86.gpr64>, reg<x86.gpr64>)
 ^_bb2:
   %next = lea %current, %stride
-  %30 = lea.disp %iteration {disp32 = 1}
-  low.br ^_bb1(%30: reg<x86.gpr64>, %next: reg<x86.gpr64>)
+  %29 = lea.disp %iteration {disp32 = 1}
+  low.br ^_bb1(%29: reg<x86.gpr64>, %next: reg<x86.gpr64>)
 ^_bb3:
-  %31 = copy %current : reg<x86.gpr64> -> reg<x86.gpr64>
-  %previous = sub.gpr64 %31, %stride
+  %30 = copy %current : reg<x86.gpr64> -> reg<x86.gpr64>
+  %previous = sub.gpr64 %30, %stride
   return %previous
 }

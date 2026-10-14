@@ -51,6 +51,33 @@ low.func.def target<test.low.core>(@target) @roundtrip_asm(%value: reg<test.i32>
 
 // ====
 
+// RUN: roundtrip
+
+// Descriptor-backed control keeps canonical Low syntax because its semantic
+// successors are part of the operation rather than descriptor immediates.
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @roundtrip_native_cond_br(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>) asm {
+  low.op.cond_br<test.native.cond_br.i32>(%lhs, %rhs) {predicate = slt}, ^equal, ^unequal : (reg<test.i32>, reg<test.i32>)
+^equal:
+  return %lhs
+^unequal:
+  return %rhs
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @roundtrip_native_cond_br(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>) asm {
+  low.op.cond_br<test.native.cond_br.i32>(%lhs, %rhs) {predicate = 2}, ^equal, ^unequal : (reg<test.i32>, reg<test.i32>)
+^equal:
+  return %lhs
+^unequal:
+  return %rhs
+}
+
+// ====
+
 // RUN: pass dce
 
 test.target<low_core> @target

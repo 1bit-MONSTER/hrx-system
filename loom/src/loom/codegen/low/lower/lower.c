@@ -963,6 +963,11 @@ static iree_status_t loom_low_lower_emit_selected_plan(
   } else if (selected_plan.kind == LOOM_LOW_LOWER_SELECTED_PLAN_INVOKE) {
     IREE_RETURN_IF_ERROR(loom_low_lower_source_invoke(
         context, selected_plan.source_op, selected_plan.data.invoke));
+  } else if (selected_plan.kind == LOOM_LOW_LOWER_SELECTED_PLAN_STRUCTURAL) {
+    bool handled = false;
+    IREE_RETURN_IF_ERROR(loom_low_lower_structural_op(
+        context, selected_plan.source_op, &handled));
+    IREE_ASSERT(handled);
   } else {
     IREE_ASSERT_FALSE(
         loom_low_lower_plan_is_empty(selected_plan.data.target_plan));

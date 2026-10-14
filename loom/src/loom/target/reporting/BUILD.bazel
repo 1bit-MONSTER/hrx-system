@@ -209,6 +209,7 @@ loom_cc_test(
     deps = [
         ":low",
         "//loom/src/loom/ir",
+        "//loom/src/loom/ops/low",
         "//loom/src/loom/ops/test",
         "//loom/src/loom/target:facts_builder",
         "//loom/src/loom/target:registers",

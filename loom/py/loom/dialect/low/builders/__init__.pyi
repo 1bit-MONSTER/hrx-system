@@ -372,3 +372,13 @@ class LowBuilder(DialectBuilder):
         *,
         location_id: int | None = ...,
     ) -> None: ...
+    def op_cond_br(
+        self,
+        *,
+        descriptor: str,
+        operands: list[ValueRef] = ...,
+        attrs: Mapping[str, Any] | None = ...,
+        true_dest: Block,
+        false_dest: Block,
+        location_id: int | None = ...,
+    ) -> None: ...

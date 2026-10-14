@@ -657,6 +657,11 @@ static void loom_low_lower_mark_selected_plan_storage_demands(
       loom_low_lower_require_source_operands_storage(context,
                                                      selected_plan->source_op);
       break;
+    case LOOM_LOW_LOWER_SELECTED_PLAN_STRUCTURAL:
+      loom_low_lower_source_value_storage_mark_structural_demands(
+          context, selected_plan->source_op,
+          loom_op_effective_traits(context->module, selected_plan->source_op));
+      break;
   }
 }
 

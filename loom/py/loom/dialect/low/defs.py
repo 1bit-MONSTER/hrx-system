@@ -1194,6 +1194,48 @@ low_op = Op(
 )
 
 # ============================================================================
+# low.op.cond_br — descriptor-backed conditional branch
+# ============================================================================
+
+low_op_cond_br = Op(
+    "low.op.cond_br",
+    group=low_ops,
+    phase=OpPhase.EXECUTABLE,
+    doc=("Descriptor-backed target conditional branch over virtual-register operands and two semantic CFG successors."),
+    operands=[Operand("operands", REGISTER, variadic=True)],
+    attrs=[
+        AttrDef("descriptor", "scoped_enum"),
+        AttrDef("attrs", "dict", optional=True),
+    ],
+    successors=[
+        Successor("true_dest", doc="Destination block when the target predicate is true."),
+        Successor("false_dest", doc="Destination block when the target predicate is false."),
+    ],
+    traits=[TERMINATOR, UNKNOWN_EFFECTS],
+    verify="loom_low_op_cond_br_verify",
+    generate_c_builder=False,
+    format=[
+        ScopedEnumRef("descriptor"),
+        GLUE,
+        LPAREN,
+        Refs("operands"),
+        RPAREN,
+        AttrDict("attrs"),
+        COMMA,
+        BlockRef("true_dest"),
+        COMMA,
+        BlockRef("false_dest"),
+        COLON,
+        LPAREN,
+        TypesOf("operands"),
+        RPAREN,
+    ],
+    examples=[
+        "low.op.cond_br<test.native.cond_br.i32>(%lhs, %rhs) {predicate = slt}, ^equal, ^unequal : (reg<test.i32>, reg<test.i32>)",
+    ],
+)
+
+# ============================================================================
 # low.const — descriptor-backed register constant/materialization
 # ============================================================================
 
@@ -1828,4 +1870,6 @@ ALL_LOW_OPS: tuple[Op, ...] = (
     low_schedule_begin,
     low_schedule_phase,
     low_schedule_end,
+    # Appended to preserve every existing serialized Low operation ordinal.
+    low_op_cond_br,
 )

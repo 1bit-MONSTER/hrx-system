@@ -30,6 +30,7 @@ iree_py_library(
     loom::py::loom::target::test::descriptors
     loom::py::loom::core
     loom::py::loom::dialect::buffer::buffer
+    loom::py::loom::dialect::cfg::cfg
     loom::py::loom::dialect::index::index
     loom::py::loom::dialect::scalar::scalar
     loom::py::loom::dialect::vector::vector

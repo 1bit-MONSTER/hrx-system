@@ -41,6 +41,7 @@ iree_py_library(
   DEPS
     loom::py::loom::core
     loom::py::loom::dialect::buffer::buffer
+    loom::py::loom::dialect::cfg::cfg
     loom::py::loom::dialect::globals::globals
     loom::py::loom::dialect::index::index
     loom::py::loom::dialect::scalar::scalar
@@ -136,11 +137,13 @@ iree_py_test(
     "loom.target.arch.x86.contracts.families_test"
   DEPS
     loom::py::loom::target::arch::x86::contracts::contracts
+    loom::py::loom::dialect::cfg::cfg
     loom::py::loom::dialect::index::index
     loom::py::loom::dialect::scalar::scalar
     loom::py::loom::dialect::scf::scf
     loom::py::loom::dialect::vector::vector
     loom::py::loom::dialect::view::view
+    loom::py::loom::target::low_descriptors
     loom::py::loom::target::arch::x86::descriptors
     loom::py::loom::target::arch::x86::scalar_families
     loom::py::loom::target::arch::x86::vector_families

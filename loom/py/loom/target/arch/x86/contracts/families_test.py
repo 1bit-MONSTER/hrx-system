@@ -4,6 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+from loom.dialect.cfg import cfg_cond_br
 from loom.dialect.index import defs as index
 from loom.dialect.scalar import arithmetic as scalar_arithmetic
 from loom.dialect.scalar import bitwise as scalar_bitwise
@@ -57,6 +58,7 @@ from loom.target.contracts import (
     AttrProject,
     AttrProjectKind,
     Buffer,
+    DescriptorEmitForm,
     DescriptorRule,
     EmitDescriptorOp,
     GuardKind,
@@ -69,6 +71,7 @@ from loom.target.contracts import (
     ValueRef,
     Vector,
 )
+from loom.target.low_descriptors import DescriptorOpKind
 
 
 def _value_type_guard(rule: DescriptorRule, field: str):
@@ -441,6 +444,90 @@ def test_scalar_integer_comparisons_cover_native_carriers() -> None:
                 immediate,
             )
         )
+    assert actual_cells == {
+        *(
+            (
+                scalar_comparison.scalar_cmpi,
+                Scalar(f"i{bit_count}"),
+                bit_count,
+                immediate,
+            )
+            for bit_count in (8, 16, 32, 64)
+            for immediate in (False, True)
+        ),
+        *(
+            (
+                index.index_cmp,
+                Scalar(("index", "offset")),
+                64,
+                immediate,
+            )
+            for immediate in (False, True)
+        ),
+    }
+    assert len(rules) == len(actual_cells)
+
+
+def test_scalar_compare_branches_cover_native_carrier_matrix() -> None:
+    rules = tuple(
+        case
+        for case in X86_SCALAR_CONTRACT_FRAGMENT.cases
+        if isinstance(case, DescriptorRule)
+        and case.source_op is cfg_cond_br
+        and case.descriptor.key.startswith("x86.scalar.cmp.branch.")
+    )
+    actual_cells = set()
+    for rule in rules:
+        assert not rule.target_query
+        assert rule.descriptor.op_kind is DescriptorOpKind.COND_BR
+        assert len(rule.source_nodes) == 1
+        compare = rule.source_nodes[0]
+        assert compare.source_op in (scalar_comparison.scalar_cmpi, index.index_cmp)
+        assert compare.relation is SourceNodeRelation.EXCLUSIVE_DEFINITION
+        assert compare.parent_value == ValueRef.operand("condition")
+        assert compare.node_value == ValueRef.result("result")
+        compare_type = _source_node_value_type_guard(compare, "lhs")
+        assert _source_node_value_type_guard(compare, "rhs") == compare_type
+        assert _source_node_value_type_guard(compare, "result") == Scalar("i1")
+        compare_width = int(rule.descriptor.key.rsplit("gpr", 1)[1])
+        emit = rule.emit[0]
+        assert isinstance(emit, EmitDescriptorOp)
+        assert emit.form is DescriptorEmitForm.COND_BR
+        assert not emit.results
+        assert emit.operands["lhs"] == ValueRef.operand("lhs", source_node="compare")
+        predicate = emit.immediates["predicate"]
+        assert isinstance(predicate, AttrProject)
+        assert predicate.kind is AttrProjectKind.ENUM_REMAP
+        assert predicate.source_node == "compare"
+        assert dict(predicate.enum_values) == dict(X86_INTEGER_CONDITION_CODES)
+        immediate_fields = tuple(
+            field for field in emit.immediates if field.startswith("imm")
+        )
+        immediate = bool(immediate_fields)
+        assert ("rhs" not in emit.operands) == immediate
+        assert immediate == (".imm." in rule.descriptor.key)
+        assert (rule.priority > 0) == immediate
+        if immediate:
+            (immediate_field,) = immediate_fields
+            assert immediate_field == f"imm{min(compare_width, 32)}"
+            immediate_project = emit.immediates[immediate_field]
+            assert isinstance(immediate_project, ValueProject)
+            assert immediate_project.source_node == "compare"
+            range_guard = next(
+                guard
+                for guard in compare.guards
+                if guard.kind is GuardKind.VALUE_I64_RANGE and guard.field == "rhs"
+            )
+            immediate_bit_count = min(compare_width, 32)
+            assert (range_guard.minimum, range_guard.maximum) == (
+                -(2 ** (immediate_bit_count - 1)),
+                2 ** (immediate_bit_count - 1) - 1,
+            )
+        else:
+            assert emit.operands["rhs"] == ValueRef.operand(
+                "rhs", source_node="compare"
+            )
+        actual_cells.add((compare.source_op, compare_type, compare_width, immediate))
     assert actual_cells == {
         *(
             (

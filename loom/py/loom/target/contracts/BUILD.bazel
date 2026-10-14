@@ -68,6 +68,7 @@ iree_py_test(
         ":contracts",
         "//loom/py/loom/dialect:shared",
         "//loom/py/loom/dialect/buffer",
+        "//loom/py/loom/dialect/cfg",
         "//loom/py/loom/dialect/scalar",
         "//loom/py/loom/dialect/vector",
         "//loom/py/loom/target/test:descriptors",

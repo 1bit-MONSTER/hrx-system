@@ -292,16 +292,11 @@ loom_low_lower_control_loop_trip_count(const loom_low_lower_context_t* context,
                        : NULL;
 }
 
-iree_status_t loom_low_lower_control_emit_cond_branch(
+iree_status_t loom_low_lower_control_attach_cond_branch_facts(
     loom_low_lower_context_t* context, const loom_op_t* source_terminator,
-    loom_value_id_t low_condition, loom_block_t* low_true_dest,
-    loom_block_t* low_false_dest) {
+    loom_op_t* low_cond_br_op) {
   const loom_low_lower_loop_trip_count_t* retained =
       loom_low_lower_control_loop_trip_count(context, source_terminator);
-  loom_op_t* low_cond_br_op = NULL;
-  IREE_RETURN_IF_ERROR(loom_low_cond_br_build(
-      loom_low_lower_context_builder(context), low_condition, low_true_dest,
-      low_false_dest, source_terminator->location, &low_cond_br_op));
   if (retained == NULL) {
     return iree_ok_status();
   }
@@ -319,6 +314,18 @@ iree_status_t loom_low_lower_control_emit_cond_branch(
                                                 .trip_count = retained->count,
                                                 .count_kind = count_kind,
                                             });
+}
+
+iree_status_t loom_low_lower_control_emit_cond_branch(
+    loom_low_lower_context_t* context, const loom_op_t* source_terminator,
+    loom_value_id_t low_condition, loom_block_t* low_true_dest,
+    loom_block_t* low_false_dest) {
+  loom_op_t* low_cond_br_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_cond_br_build(
+      loom_low_lower_context_builder(context), low_condition, low_true_dest,
+      low_false_dest, source_terminator->location, &low_cond_br_op));
+  return loom_low_lower_control_attach_cond_branch_facts(
+      context, source_terminator, low_cond_br_op);
 }
 
 static iree_status_t loom_low_lower_control_plan_operands(

@@ -146,6 +146,7 @@ loom_cc_library(
         ":descriptor_traits",
         ":descriptors",
         ":immediates",
+        ":representation_binding",
         "//loom/src/loom/format:low_repr",
         "//loom/src/loom/ops/low",
         "//runtime/src/iree/base",
@@ -314,6 +315,7 @@ loom_cc_library(
     srcs = ["function_requirements.c"],
     hdrs = ["function_requirements.h"],
     deps = [
+        ":representation_binding",
         ":storage_layout",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/global",

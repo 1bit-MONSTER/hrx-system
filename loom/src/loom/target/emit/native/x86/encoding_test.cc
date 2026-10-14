@@ -705,6 +705,80 @@ TEST(EncodingTest, CompareSelectPredicateFamily) {
   }
 }
 
+TEST(EncodingTest, CompareBranchPredicateFamily) {
+  constexpr uint8_t kConditionCodes[] = {
+      0x4,  // eq
+      0x5,  // ne
+      0xc,  // slt
+      0xe,  // sle
+      0xf,  // sgt
+      0xd,  // sge
+      0x2,  // ult
+      0x6,  // ule
+      0x7,  // ugt
+      0x3,  // uge
+  };
+  loom_x86_encoding_operands_t operands = {};
+  operands.inputs[0] = 8;
+  operands.inputs[1] = 9;
+  for (uint8_t condition_code : kConditionCodes) {
+    operands.secondary_immediate = condition_code;
+    loom_x86_encoded_instruction_t instruction;
+    loom_x86_encode_instruction(LOOM_X86_ENCODING_FORM_COMPARE_BRANCH, 0x39,
+                                &operands, &instruction);
+    ASSERT_EQ(instruction.length, 9);
+    EXPECT_EQ(instruction.instruction_count, 2);
+    EXPECT_EQ(instruction.bytes[0], 0x45);
+    EXPECT_EQ(instruction.bytes[1], 0x39);
+    EXPECT_EQ(instruction.bytes[2], 0xc8);
+    EXPECT_EQ(instruction.bytes[3], 0x0f);
+    EXPECT_EQ(instruction.bytes[4], 0x80 | condition_code);
+    EXPECT_EQ(loom_x86_encoding_gpr_writes(
+                  LOOM_X86_ENCODING_FORM_COMPARE_BRANCH, &operands),
+              0);
+  }
+}
+
+TEST(EncodingTest, CompareBranchWidthsAndImmediate) {
+  loom_x86_encoding_operands_t operands = {
+      .secondary_immediate = 0x2,  // ult
+  };
+  operands.inputs[0] = 8;
+  operands.inputs[1] = 9;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_COMPARE_BRANCH,
+                 0x38 | LOOM_X86_ENCODING_BYTE, operands,
+                 {0x45, 0x38, 0xc8, 0x0f, 0x82, 0, 0, 0, 0}, 0, 2);
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_COMPARE_BRANCH,
+                 0x39 | LOOM_X86_ENCODING_OPERAND_16, operands,
+                 {0x66, 0x45, 0x39, 0xc8, 0x0f, 0x82, 0, 0, 0, 0}, 0, 2);
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_COMPARE_BRANCH, 0x39, operands,
+                 {0x45, 0x39, 0xc8, 0x0f, 0x82, 0, 0, 0, 0}, 0, 2);
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_COMPARE_BRANCH,
+                 0x39 | LOOM_X86_ENCODING_REX_W, operands,
+                 {0x4d, 0x39, 0xc8, 0x0f, 0x82, 0, 0, 0, 0}, 0, 2);
+
+  operands.secondary_immediate = 0x5;  // ne
+  operands.immediate = -17;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_BRANCH,
+                 0x80 | (7u << 9) | LOOM_X86_ENCODING_BYTE, operands,
+                 {0x41, 0x80, 0xf8, 0xef, 0x0f, 0x85, 0, 0, 0, 0}, 0, 2);
+  operands.immediate = -129;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_BRANCH,
+                 0x81 | (7u << 9) | LOOM_X86_ENCODING_OPERAND_16, operands,
+                 {0x66, 0x41, 0x81, 0xf8, 0x7f, 0xff, 0x0f, 0x85, 0, 0, 0, 0},
+                 0, 2);
+  operands.immediate = 128;
+  ExpectEncoding(LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_BRANCH,
+                 0x81 | (7u << 9), operands,
+                 {0x41, 0x81, 0xf8, 0x80, 0, 0, 0, 0x0f, 0x85, 0, 0, 0, 0}, 0,
+                 2);
+  operands.immediate = -129;
+  ExpectEncoding(
+      LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_BRANCH,
+      0x81 | (7u << 9) | LOOM_X86_ENCODING_REX_W, operands,
+      {0x49, 0x81, 0xf8, 0x7f, 0xff, 0xff, 0xff, 0x0f, 0x85, 0, 0, 0, 0}, 0, 2);
+}
+
 TEST(EncodingTest, CompareSelectWidthsAndImmediate) {
   loom_x86_encoding_operands_t operands = {
       .immediate = 0xc,  // slt
