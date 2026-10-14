@@ -10,6 +10,7 @@
 #include "loom/target/arch/amdgpu/planning/structural_packet.h"
 #include "loom/target/arch/amdgpu/planning/wait_states.h"
 #include "loom/target/arch/amdgpu/refs/target_refs.h"
+#include "loom/target/arch/amdgpu/target_info_defs.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,6 +36,12 @@ enum {
   // Six native DOT identities retain separate three-slot release channels.
   LOOM_AMDGPU_SHORT_WAIT_DOT_SHIFT = 12,
   LOOM_AMDGPU_SHORT_WAIT_DOT_MASK = 63u << LOOM_AMDGPU_SHORT_WAIT_DOT_SHIFT,
+  // Independent FMA64 instructions wait for the DGEMM pipeline to release.
+  LOOM_AMDGPU_SHORT_WAIT_DGEMM_PIPELINE = 1u << 18,
+  // DGEMM activates still-fresh VALU writes needing memory-read separation.
+  LOOM_AMDGPU_SHORT_WAIT_DGEMM_MEMORY_SHIFT = 19,
+  LOOM_AMDGPU_SHORT_WAIT_DGEMM_MEMORY =
+      1u << LOOM_AMDGPU_SHORT_WAIT_DGEMM_MEMORY_SHIFT,
 };
 
 typedef struct loom_amdgpu_short_wait_match_t {
@@ -53,21 +60,21 @@ typedef struct loom_amdgpu_short_wait_match_t {
 typedef iree_status_t (*loom_amdgpu_short_wait_emit_fn_t)(
     void* user_data, const loom_amdgpu_wait_state_t* wait_state);
 
-// Allocates bounded physical dependency tracking. Fixed ALU reasons are
-// selected by the caller; store-retention support comes from the descriptor
-// set. Returns NULL when neither mechanism is enabled. CFG summaries are
-// allocated only when the function has edges.
+// Selects bounded physical dependency channels from retained classification
+// and processor facts. Returns NULL when no mechanism is enabled. CFG summaries
+// are allocated only when the function has edges.
 iree_status_t loom_amdgpu_short_wait_allocate(
     const loom_low_schedule_table_t* schedule,
     const loom_low_allocation_table_t* allocation,
-    loom_amdgpu_short_wait_reasons_t reasons, iree_arena_allocator_t* arena,
-    loom_amdgpu_short_wait_t** out_state);
+    loom_amdgpu_processor_scheduling_bits_t scheduling,
+    loom_amdgpu_descriptor_traits_t traits, uint8_t dot_identity_mask,
+    iree_arena_allocator_t* arena, loom_amdgpu_short_wait_t** out_state);
 
 // Starts collection for a block in the owning final-packet traversal.
 void loom_amdgpu_short_wait_begin_block(loom_amdgpu_short_wait_t* state,
                                         uint16_t block_index);
 
-// Begins a native packet and matches store-payload and DOT result obligations.
+// Begins a native packet and matches retained inputs and pipeline obligations.
 // Further physical reads are queried before publishing any packet results.
 loom_amdgpu_short_wait_match_t loom_amdgpu_short_wait_begin_packet(
     loom_amdgpu_short_wait_t* state, const loom_low_packet_view_t* packet,
@@ -101,7 +108,8 @@ void loom_amdgpu_short_wait_advance(loom_amdgpu_short_wait_t* state,
 void loom_amdgpu_short_wait_drain_stores(loom_amdgpu_short_wait_t* state);
 
 // Publishes retained prefix queries and native packet progress after local
-// inserted delays. Store payload and DOT publication are owned by this commit.
+// inserted delays. Retained inputs, DOT results, and pipeline transitions are
+// published by this commit.
 void loom_amdgpu_short_wait_commit(loom_amdgpu_short_wait_t* state,
                                    const loom_low_packet_view_t* packet);
 

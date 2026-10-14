@@ -31,8 +31,10 @@ low.func.def schedule(locked) target<amdgpu.cdna2.core>(@target) @loop_windows(%
   return
 }
 
-low.func.def schedule(locked) target<amdgpu.cdna2.core>(@target) @double_memory_window(%lane: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
-  %offset = v_lshlrev_b32_src0_inline %lane, 3
+// Independent FMA64 and VALU-to-memory dependencies exercise the DGEMM
+// pipeline, while both matrix shapes retain their own result windows.
+low.func.def schedule(locked) target<amdgpu.cdna2.core>(@target) @double_pipeline_windows(%lane: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
+  %offset = v_lshlrev_b32_src0_inline %lane, 5
   %zero = v_mov_b32 0
   %one_high = v_mov_b32 1072693248
   %two_high = v_mov_b32 1073741824
@@ -41,8 +43,15 @@ low.func.def schedule(locked) target<amdgpu.cdna2.core>(@target) @double_memory_
   %rhs = concat(%zero, %two_high) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
   %accumulator = concat(%zero, %three_high, %zero, %three_high, %zero, %three_high, %zero, %three_high) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x8>
   %result = v_mfma_f64_16x16x4f64 %lhs, %rhs, %accumulator
+  %fma = v_fma_f64 %lhs, %rhs, %lhs
+  global_store_dwordx2_saddr %offset, %fma, %output {offset = 8}
+  %short_accumulator = copy %lhs : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr x2>
+  %payload = v_add_f64 %lhs, %rhs
+  %short = v_mfma_f64_4x4x4f64 %lhs, %rhs, %short_accumulator
+  global_store_dwordx2_saddr %offset, %payload, %output {offset = 16}
   %first = slice %result[0] : reg<amdgpu.vgpr x8> -> reg<amdgpu.vgpr x2>
   global_store_dwordx2_saddr %offset, %first, %output
+  global_store_dwordx2_saddr %offset, %short, %output {offset = 24}
   return
 }
 
@@ -75,7 +84,7 @@ kernel.def target(@target) @matrix_windows() {
   %lane = vector.splat %lane_i32 : vector<1xi32>
   %iterations = scalar.constant 8 : i32
   low.invoke @loop_windows(%lane, %history, %final, %iterations) : (vector<1xi32>, buffer, buffer, i32)
-  low.invoke @double_memory_window(%lane, %double) : (vector<1xi32>, buffer)
+  low.invoke @double_pipeline_windows(%lane, %double) : (vector<1xi32>, buffer)
   low.invoke @accumulator_storage(%lane, %accumulator) : (vector<1xi32>, buffer)
   kernel.return
 }
@@ -84,7 +93,7 @@ func.def @matrix_windows_oracle(%history: buffer, %final: buffer, %double: buffe
   %base = index.constant 0 : offset
   %history_view = buffer.view %history[%base] : buffer -> view<8x64xf32>
   %final_view = buffer.view %final[%base] : buffer -> view<64x4xf32>
-  %double_view = buffer.view %double[%base] : buffer -> view<64xf64>
+  %double_view = buffer.view %double[%base] : buffer -> view<64x4xf64>
   %accumulator_view = buffer.view %accumulator[%base] : buffer -> view<64x4xf32>
   %begin = index.constant 0 : index
   %end = index.constant 64 : index
@@ -93,6 +102,9 @@ func.def @matrix_windows_oracle(%history: buffer, %final: buffer, %double: buffe
   %increment = scalar.constant 10.0 : f32
   %iterations = index.constant 8 : index
   %expected_double = scalar.constant 11.0 : f64
+  %expected_fma = scalar.constant 3.0 : f64
+  %expected_payload = scalar.constant 3.0 : f64
+  %expected_short = scalar.constant 9.0 : f64
   %expected_accumulator = scalar.constant 15.5 : f32
   %expected_final = scf.for %iteration = [%begin to %iterations step %step](%value = %initial : f32) -> (f32) {
     scf.for %lane = [%begin to %end step %step] {
@@ -106,7 +118,10 @@ func.def @matrix_windows_oracle(%history: buffer, %final: buffer, %double: buffe
     view.store %expected_final, %final_view[%lane, 1] : f32, view<64x4xf32>
     view.store %expected_final, %final_view[%lane, 2] : f32, view<64x4xf32>
     view.store %expected_final, %final_view[%lane, 3] : f32, view<64x4xf32>
-    view.store %expected_double, %double_view[%lane] : f64, view<64xf64>
+    view.store %expected_double, %double_view[%lane, 0] : f64, view<64x4xf64>
+    view.store %expected_fma, %double_view[%lane, 1] : f64, view<64x4xf64>
+    view.store %expected_payload, %double_view[%lane, 2] : f64, view<64x4xf64>
+    view.store %expected_short, %double_view[%lane, 3] : f64, view<64x4xf64>
     view.store %expected_accumulator, %accumulator_view[%lane, 0] : f32, view<64x4xf32>
     view.store %expected_accumulator, %accumulator_view[%lane, 1] : f32, view<64x4xf32>
     view.store %expected_accumulator, %accumulator_view[%lane, 2] : f32, view<64x4xf32>
@@ -120,12 +135,12 @@ check.scenario @physical_matrix_windows {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %history = check.generate.fill value(0.0) : tensor<8x64xf32>
     %final = check.generate.fill value(0.0) : tensor<64x4xf32>
-    %double = check.generate.fill value(0.0) : tensor<64xf64>
+    %double = check.generate.fill value(0.0) : tensor<64x4xf64>
     %accumulator = check.generate.fill value(3.0) : tensor<64x4xf32>
-    check.compare<@matrix_windows, @matrix_windows_oracle>(%history, %final, %double, %accumulator) : (tensor<8x64xf32>, tensor<64x4xf32>, tensor<64xf64>, tensor<64x4xf32>) -> () {
+    check.compare<@matrix_windows, @matrix_windows_oracle>(%history, %final, %double, %accumulator) : (tensor<8x64xf32>, tensor<64x4xf32>, tensor<64x4xf64>, tensor<64x4xf32>) -> () {
       check.expect.bitwise actual(%history) expected(%history) : tensor<8x64xf32>
       check.expect.bitwise actual(%final) expected(%final) : tensor<64x4xf32>
-      check.expect.bitwise actual(%double) expected(%double) : tensor<64xf64>
+      check.expect.bitwise actual(%double) expected(%double) : tensor<64x4xf64>
       check.expect.bitwise actual(%accumulator) expected(%accumulator) : tensor<64x4xf32>
     }
   }

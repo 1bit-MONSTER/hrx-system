@@ -117,6 +117,13 @@ struct FixtureSpec {
     // Number of distinct native DOT opcodes cycled through each phase.
     uint32_t opcode_count = 0;
   } generated_dot;
+  // Independent DGEMM pipeline dependencies; empty for other fixtures.
+  struct {
+    // Number of matrix/FMA phases separated by CFG edges.
+    uint32_t phase_count = 0;
+    // Interleave a VALU write and memory read around each DGEMM.
+    bool memory_interlock = false;
+  } generated_dgemm;
 };
 
 constexpr FixtureSpec kMemoryControl = {
@@ -568,7 +575,56 @@ low.kernel.def target<amdgpu.cdna2.core>(@target) abi_layout({constant_count = 0
   return source.str();
 }
 
+// Register-independent FMA and memory dependencies around the double-precision
+// matrix pipeline. Both chains remain live through the final output stores.
+static std::string BuildDgemmSource(const FixtureSpec& spec) {
+  std::ostringstream source;
+  source << R"(
+amdgpu.target<gfx90a> @target
+low.kernel.def schedule(locked) target<amdgpu.cdna2.core>(@target) abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 1, resource_count = 1, resource_offsets = [0], resource_parameter_indices = [0], uses_kernarg_segment_ptr = true}) export("dgemm_windows") workgroup_size(64, 1, 1) workgroup_count(1, 1, 1) @dgemm_windows() asm {
+  %lane = low.live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
+  %output = low.resource<hal_binding> {extent = 1024, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %zero = v_mov_b32 0
+  %one_high = v_mov_b32 1072693248
+  %one = concat(%zero, %one_high) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %initial = copy %one : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr x2>
+  %address = v_lshlrev_b32_src0_inline %lane, 3
+)";
+  std::string accumulator = "%initial";
+  std::string fma = "%one";
+  for (uint32_t phase = 0; phase < spec.generated_dgemm.phase_count; ++phase) {
+    if (phase != 0) {
+      source << "  low.br ^phase" << phase << "(" << accumulator
+             << ": reg<amdgpu.vgpr x2>, " << fma
+             << ": reg<amdgpu.vgpr x2>)\n^phase" << phase << "(%matrix_in"
+             << phase << ": reg<amdgpu.vgpr x2>, %fma_in" << phase
+             << ": reg<amdgpu.vgpr x2>):\n";
+      accumulator = "%matrix_in" + std::to_string(phase);
+      fma = "%fma_in" + std::to_string(phase);
+    }
+    if (spec.generated_dgemm.memory_interlock) {
+      source << "  %payload" << phase << " = v_add_u32 %lane, %address\n";
+    }
+    source << "  %matrix" << phase << " = v_mfma_f64_4x4x4f64 %one, %one, "
+           << accumulator << "\n";
+    if (spec.generated_dgemm.memory_interlock) {
+      source << "  global_store_dword_saddr %address, %payload" << phase
+             << ", %output\n";
+    }
+    source << "  %fma" << phase << " = v_fma_f64 %one, %one, " << fma << "\n";
+    accumulator = "%matrix" + std::to_string(phase);
+    fma = "%fma" + std::to_string(phase);
+  }
+  source << "  global_store_dwordx2_saddr %address, " << accumulator
+         << ", %output\n  global_store_dwordx2_saddr %address, " << fma
+         << ", %output\n  return\n}\n";
+  return source.str();
+}
+
 static std::string BuildGeneratedLowSource(const FixtureSpec& spec) {
+  if (spec.generated_dgemm.phase_count != 0) {
+    return BuildDgemmSource(spec);
+  }
   if (spec.generated_dot.opcode_count != 0) {
     return BuildDotSource(spec);
   }
@@ -1053,6 +1109,29 @@ BENCHMARK(BM_PacketPlan_DotWindows)
     ->Args({8, 5})
     ->Args({32, 1})
     ->Args({32, 5})
+    ->Iterations(500)
+    ->Unit(benchmark::kNanosecond);
+
+static void BM_PacketPlan_DgemmWindows(benchmark::State& state) {
+  const FixtureSpec spec = {
+      .name = "dgemm_windows",
+      .input_stage = FixtureInputStage::kGeneratedLow,
+      .generated_matrix = {},
+      .generated_dgemm =
+          {
+              .phase_count = static_cast<uint32_t>(state.range(0)),
+              .memory_interlock = state.range(1) != 0,
+          },
+  };
+  BenchmarkPlan(state, spec, PlanComponent::kComplete);
+}
+BENCHMARK(BM_PacketPlan_DgemmWindows)
+    ->Args({1, 0})
+    ->Args({1, 1})
+    ->Args({8, 0})
+    ->Args({8, 1})
+    ->Args({32, 0})
+    ->Args({32, 1})
     ->Iterations(500)
     ->Unit(benchmark::kNanosecond);
 

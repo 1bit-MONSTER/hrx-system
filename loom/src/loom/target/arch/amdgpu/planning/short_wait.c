@@ -16,17 +16,18 @@ enum {
   LOOM_AMDGPU_SHORT_WAIT_STORE_VALU = 1u << 0,
   LOOM_AMDGPU_SHORT_WAIT_STORE_OTHER = 1u << 1,
   LOOM_AMDGPU_SHORT_WAIT_STORES = 3u,
-  LOOM_AMDGPU_SHORT_WAIT_CHANNEL_COUNT = 18,
+  LOOM_AMDGPU_SHORT_WAIT_CHANNEL_COUNT = 20,
   LOOM_AMDGPU_SHORT_WAIT_MAX_CYCLES = 5,
   // Generated instructions have at most two physical results per native issue,
   // including the two coincident VOPD results. A packet may also retain
-  // one store payload. All obligations expire after at most five slots.
+  // one store payload or pipeline release. All obligations expire after at
+  // most five slots.
   LOOM_AMDGPU_SHORT_WAIT_SOURCE_COUNT = 3 * LOOM_AMDGPU_SHORT_WAIT_MAX_CYCLES,
 };
 
 // Required native instruction separation for each independent release channel.
 static const uint8_t loom_amdgpu_short_wait_cycles[] = {
-    2, 1, 2, 1, 2, 2, 1, 1, 5, 4, 1, 2, 3, 3, 3, 3, 3, 3,
+    2, 1, 2, 1, 2, 2, 1, 1, 5, 4, 1, 2, 3, 3, 3, 3, 3, 3, 2, 2,
 };
 
 static_assert(IREE_ARRAYSIZE(loom_amdgpu_short_wait_cycles) ==
@@ -64,6 +65,8 @@ typedef struct loom_amdgpu_short_wait_block_t {
   uint8_t source_count;
   // Guaranteed issue progress, saturated at the maximum lifetime.
   uint8_t cycles;
+  // The first native instruction activates incoming VALU-to-memory hazards.
+  bool leading_dgemm;
   // Incoming channels explicitly retired inside this block.
   loom_amdgpu_short_wait_reasons_t drained_reasons;
   // Channels represented in this block's outgoing residual planes.
@@ -86,8 +89,8 @@ struct loom_amdgpu_short_wait_t {
   // Populated query channels at each native offset of the current packet.
   loom_amdgpu_short_wait_reasons_t
       query_reasons[LOOM_AMDGPU_SHORT_WAIT_MAX_CYCLES];
-  // Channels queried by any retained block prefix.
-  loom_amdgpu_short_wait_reasons_t prefix_reasons;
+  // Channels needed by any retained block prefix or transfer.
+  loom_amdgpu_short_wait_reasons_t required_reasons;
   // Channels published by any locally produced outgoing window.
   loom_amdgpu_short_wait_reasons_t outgoing_reasons;
   // Number of words in one physical-register bit plane.
@@ -100,7 +103,9 @@ struct loom_amdgpu_short_wait_t {
   loom_amdgpu_short_wait_source_t sources[LOOM_AMDGPU_SHORT_WAIT_SOURCE_COUNT];
   // Populated local source prefix, including reusable expired entries.
   uint8_t source_count;
-  // Store payload or DOT result retained until its packet is committed.
+  // The pending packet activates still-fresh VALU-to-memory hazards.
+  bool pending_dgemm;
+  // Store payload, DOT result, or pipeline release retained until commit.
   loom_amdgpu_short_wait_source_t pending_source;
   // Native issue progress guaranteed by the pending packet.
   uint64_t pending_cycles;
@@ -196,16 +201,85 @@ static loom_amdgpu_wait_state_reason_t loom_amdgpu_short_wait_reason(
       LOOM_AMDGPU_WAIT_STATE_REASON_DOT_RESULT_USE,
       LOOM_AMDGPU_WAIT_STATE_REASON_DOT_RESULT_USE,
       LOOM_AMDGPU_WAIT_STATE_REASON_DOT_RESULT_USE,
+      LOOM_AMDGPU_WAIT_STATE_REASON_DGEMM_PIPELINE,
+      LOOM_AMDGPU_WAIT_STATE_REASON_DGEMM_MEMORY,
   };
   return (loom_amdgpu_wait_state_reason_t)reasons[channel];
+}
+
+static loom_amdgpu_short_wait_reasons_t loom_amdgpu_short_wait_select_reasons(
+    loom_amdgpu_processor_scheduling_bits_t scheduling,
+    loom_amdgpu_descriptor_traits_t traits, uint8_t dot_identity_mask) {
+  loom_amdgpu_short_wait_reasons_t reasons =
+      (loom_amdgpu_descriptor_matrix_pass_count(traits) != 0
+           ? (1u << LOOM_AMDGPU_WAIT_STATE_REASON_VALU_TO_MATRIX_USE)
+           : 0) |
+      ((uint32_t)dot_identity_mask << LOOM_AMDGPU_SHORT_WAIT_DOT_SHIFT);
+  if (iree_any_bit_set(
+          scheduling,
+          LOOM_AMDGPU_PROCESSOR_SCHEDULING_FIXED_DATA_WAIT_STATES)) {
+    reasons |= LOOM_AMDGPU_SHORT_WAIT_M0_READ;
+    if (iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_DPP)) {
+      reasons |= (1u << LOOM_AMDGPU_WAIT_STATE_REASON_LANE_PERMUTE_VGPR_READ);
+    }
+    if (iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_MEMORY)) {
+      reasons |= LOOM_AMDGPU_SHORT_WAIT_VMEM_SGPR_READ;
+    }
+    if (iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_DIV_FMAS)) {
+      reasons |= LOOM_AMDGPU_SHORT_WAIT_DIV_FMAS_CONDITION;
+    }
+    if (iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_PERMLANE)) {
+      reasons |= LOOM_AMDGPU_SHORT_WAIT_PERMLANE_READ;
+    }
+  }
+  if (iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_TRANSCENDENTAL) &&
+      iree_any_bit_set(
+          scheduling,
+          LOOM_AMDGPU_PROCESSOR_SCHEDULING_VALU_TRANS_USE_WAIT_STATES)) {
+    reasons |= (1u << LOOM_AMDGPU_WAIT_STATE_REASON_TRANS_RESULT_USE);
+  }
+  if (iree_any_bit_set(
+          scheduling,
+          LOOM_AMDGPU_PROCESSOR_SCHEDULING_VALU_SGPR_READ_WAIT_STATES)) {
+    reasons |= (1u << LOOM_AMDGPU_WAIT_STATE_REASON_VALU_SGPR_READ);
+    if (iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_READFIRSTLANE)) {
+      reasons |= (1u << LOOM_AMDGPU_WAIT_STATE_REASON_READFIRSTLANE_VGPR_READ);
+    }
+  }
+  if (iree_any_bit_set(
+          traits,
+          LOOM_AMDGPU_DESCRIPTOR_TRAIT_SDWA |
+              LOOM_AMDGPU_DESCRIPTOR_TRAIT_DESTINATION_SELECTION_FORWARDING) &&
+      iree_any_bit_set(
+          scheduling,
+          LOOM_AMDGPU_PROCESSOR_SCHEDULING_DESTINATION_SELECTION_WAIT_STATES)) {
+    reasons |= (1u << LOOM_AMDGPU_WAIT_STATE_REASON_DST_SEL_FORWARDING_USE);
+  }
+  if (iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX_DGEMM)) {
+    if (iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_FMA64)) {
+      reasons |= LOOM_AMDGPU_SHORT_WAIT_DGEMM_PIPELINE;
+    }
+    if (iree_any_bit_set(
+            scheduling,
+            LOOM_AMDGPU_PROCESSOR_SCHEDULING_DGEMM_MEMORY_INTERLOCK) &&
+        iree_any_bit_set(
+            traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_MEMORY_INTERLOCK)) {
+      reasons |= LOOM_AMDGPU_SHORT_WAIT_DGEMM_MEMORY;
+    }
+  }
+  return reasons;
 }
 
 iree_status_t loom_amdgpu_short_wait_allocate(
     const loom_low_schedule_table_t* schedule,
     const loom_low_allocation_table_t* allocation,
-    loom_amdgpu_short_wait_reasons_t reasons, iree_arena_allocator_t* arena,
-    loom_amdgpu_short_wait_t** out_state) {
+    loom_amdgpu_processor_scheduling_bits_t scheduling,
+    loom_amdgpu_descriptor_traits_t traits, uint8_t dot_identity_mask,
+    iree_arena_allocator_t* arena, loom_amdgpu_short_wait_t** out_state) {
   *out_state = NULL;
+  loom_amdgpu_short_wait_reasons_t reasons =
+      loom_amdgpu_short_wait_select_reasons(scheduling, traits,
+                                            dot_identity_mask);
   const loom_amdgpu_descriptor_set_info_t* info =
       loom_amdgpu_target_info_descriptor_set_at(
           schedule->target.descriptor_set->descriptor_set_ordinal);
@@ -260,7 +334,9 @@ iree_status_t loom_amdgpu_short_wait_allocate(
   state->banks.vcc = state->banks.sgpr + state->banks.sgpr_allocated_count +
                      sgpr->fixed_location_count;
   state->banks.m0 = state->banks.vcc + 1;
-  state->word_count = (state->banks.m0 + 1 + 63) / 64;
+  const uint32_t pipeline_count =
+      (reasons & LOOM_AMDGPU_SHORT_WAIT_DGEMM_PIPELINE) != 0;
+  state->word_count = (state->banks.m0 + 1 + pipeline_count + 63) / 64;
   if (schedule->cfg_graph.edge_count != 0) {
     IREE_RETURN_IF_ERROR(iree_arena_allocate_array(arena, schedule->block_count,
                                                    sizeof(*state->blocks),
@@ -287,16 +363,10 @@ void loom_amdgpu_short_wait_begin_block(loom_amdgpu_short_wait_t* state,
   state->source_count = 0;
 }
 
-loom_amdgpu_short_wait_match_t loom_amdgpu_short_wait_query(
-    loom_amdgpu_short_wait_t* state, uint16_t register_class, uint32_t base,
-    uint16_t count, uint32_t instruction_offset,
-    loom_amdgpu_short_wait_reasons_t reasons) {
+static loom_amdgpu_short_wait_match_t loom_amdgpu_short_wait_query_range(
+    loom_amdgpu_short_wait_t* state, uint32_t base, uint16_t count,
+    uint32_t instruction_offset, loom_amdgpu_short_wait_reasons_t reasons) {
   loom_amdgpu_short_wait_match_t match = {0};
-  reasons &= state->enabled_reasons;
-  if (!reasons ||
-      !loom_amdgpu_short_wait_map_range(state, register_class, &base)) {
-    return match;
-  }
   if (state->blocks != NULL && state->position + instruction_offset <
                                    LOOM_AMDGPU_SHORT_WAIT_MAX_CYCLES) {
     unsigned incoming_reasons = reasons & ~state->drained_reasons;
@@ -343,6 +413,19 @@ loom_amdgpu_short_wait_match_t loom_amdgpu_short_wait_query(
     }
   }
   return match;
+}
+
+loom_amdgpu_short_wait_match_t loom_amdgpu_short_wait_query(
+    loom_amdgpu_short_wait_t* state, uint16_t register_class, uint32_t base,
+    uint16_t count, uint32_t instruction_offset,
+    loom_amdgpu_short_wait_reasons_t reasons) {
+  reasons &= state->enabled_reasons;
+  if (!reasons ||
+      !loom_amdgpu_short_wait_map_range(state, register_class, &base)) {
+    return (loom_amdgpu_short_wait_match_t){0};
+  }
+  return loom_amdgpu_short_wait_query_range(state, base, count,
+                                            instruction_offset, reasons);
 }
 
 static loom_amdgpu_short_wait_source_t* loom_amdgpu_short_wait_source(
@@ -406,6 +489,10 @@ loom_amdgpu_short_wait_match_t loom_amdgpu_short_wait_begin_packet(
     const loom_amdgpu_structural_packet_info_t* structural,
     loom_amdgpu_descriptor_traits_t traits) {
   state->pending_source = (loom_amdgpu_short_wait_source_t){0};
+  const bool is_dgemm =
+      iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX_DGEMM);
+  state->pending_dgemm = is_dgemm && (state->enabled_reasons &
+                                      LOOM_AMDGPU_SHORT_WAIT_DGEMM_MEMORY);
   state->pending_cycles =
       packet->descriptor != NULL
           ? 1
@@ -419,6 +506,16 @@ loom_amdgpu_short_wait_match_t loom_amdgpu_short_wait_begin_packet(
       << LOOM_AMDGPU_SHORT_WAIT_DOT_SHIFT;
   const loom_amdgpu_short_wait_reasons_t dot_reasons =
       state->enabled_reasons & LOOM_AMDGPU_SHORT_WAIT_DOT_MASK;
+  if (is_dgemm &&
+      (state->enabled_reasons & LOOM_AMDGPU_SHORT_WAIT_DGEMM_PIPELINE)) {
+    state->pending_source = (loom_amdgpu_short_wait_source_t){
+        .node_index = packet->node_index,
+        .base = state->banks.m0 + 1,
+        .count = 1,
+        .reasons = {LOOM_AMDGPU_SHORT_WAIT_DGEMM_PIPELINE,
+                    LOOM_AMDGPU_SHORT_WAIT_DGEMM_PIPELINE},
+    };
+  }
   if (dot_identity) {
     const loom_low_allocation_assignment_t* result =
         loom_low_packet_result_assignment(state->allocation, packet, 0);
@@ -456,8 +553,19 @@ loom_amdgpu_short_wait_match_t loom_amdgpu_short_wait_begin_packet(
     }
   }
   loom_amdgpu_short_wait_match_t match = {0};
+  if (iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_FMA64) &&
+      (state->enabled_reasons & LOOM_AMDGPU_SHORT_WAIT_DGEMM_PIPELINE)) {
+    match = loom_amdgpu_short_wait_query_range(
+        state, state->banks.m0 + 1, 1, 0,
+        LOOM_AMDGPU_SHORT_WAIT_DGEMM_PIPELINE);
+  }
+  const loom_amdgpu_short_wait_reasons_t memory_reasons =
+      iree_any_bit_set(traits,
+                       LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_MEMORY_INTERLOCK)
+          ? state->enabled_reasons & LOOM_AMDGPU_SHORT_WAIT_DGEMM_MEMORY
+          : 0;
   if (!(state->enabled_reasons & LOOM_AMDGPU_SHORT_WAIT_STORES) &&
-      !dot_reasons) {
+      !dot_reasons && !memory_reasons) {
     return match;
   }
   const bool dot_consumer =
@@ -488,7 +596,7 @@ loom_amdgpu_short_wait_match_t loom_amdgpu_short_wait_begin_packet(
       }
     }
   } else if (state->pending_cycles != 0) {
-    if (dot_reasons && dot_consumer) {
+    if ((dot_reasons && dot_consumer) || memory_reasons) {
       for (uint16_t i = 0; i < packet->node->operand_count; ++i) {
         const loom_low_allocation_assignment_t* operand =
             loom_low_packet_operand_assignment(state->allocation, packet, i);
@@ -498,7 +606,10 @@ loom_amdgpu_short_wait_match_t loom_amdgpu_short_wait_begin_packet(
           // Generation fixes DOT's accumulator at input two. Other inputs and
           // every ordinary consumer retain all pending native identities.
           const loom_amdgpu_short_wait_reasons_t reasons =
-              i == 2 ? dot_reasons & ~dot_identity : dot_reasons;
+              (dot_consumer
+                   ? (i == 2 ? dot_reasons & ~dot_identity : dot_reasons)
+                   : 0) |
+              memory_reasons;
           const loom_amdgpu_short_wait_match_t candidate =
               loom_amdgpu_short_wait_query(
                   state, operand->descriptor_reg_class_id,
@@ -549,6 +660,25 @@ void loom_amdgpu_short_wait_drain_stores(loom_amdgpu_short_wait_t* state) {
 
 void loom_amdgpu_short_wait_commit(loom_amdgpu_short_wait_t* state,
                                    const loom_low_packet_view_t* packet) {
+  if (state->pending_dgemm) {
+    // Only the immediately preceding VALU can retain a dependency after this
+    // DGEMM issues. Keep that path relationship on the producer's existing row;
+    // independently joined VALU and DGEMM facts would invent hazards.
+    for (unsigned i = 0; i < state->source_count; ++i) {
+      loom_amdgpu_short_wait_source_t* source = &state->sources[i];
+      if (source->end_position == state->position &&
+          (source->reasons[1] &
+           (1u << LOOM_AMDGPU_WAIT_STATE_REASON_VALU_TO_MATRIX_USE))) {
+        source->reasons[0] |= LOOM_AMDGPU_SHORT_WAIT_DGEMM_MEMORY;
+        source->reasons[1] |= LOOM_AMDGPU_SHORT_WAIT_DGEMM_MEMORY;
+      }
+    }
+    if (state->blocks != NULL && state->position == 0) {
+      state->blocks[state->block_index].leading_dgemm = true;
+      state->required_reasons |=
+          1u << LOOM_AMDGPU_WAIT_STATE_REASON_VALU_TO_MATRIX_USE;
+    }
+  }
   if (state->blocks != NULL) {
     loom_amdgpu_short_wait_block_t* block = &state->blocks[state->block_index];
     for (unsigned offset = 0;
@@ -580,7 +710,7 @@ void loom_amdgpu_short_wait_commit(loom_amdgpu_short_wait_t* state,
             .reasons = block->prefix[position].reasons | committed_reasons,
             .packet_position = (uint8_t)state->position,
         };
-        state->prefix_reasons |= committed_reasons;
+        state->required_reasons |= committed_reasons;
       }
     }
   }
@@ -665,7 +795,7 @@ static iree_status_t loom_amdgpu_short_wait_transfer(void* user_data,
   loom_amdgpu_short_wait_block_t* target = &state->blocks[target_index];
   *out_changed = false;
   unsigned reasons = state->blocks[source_index].outgoing_reasons &
-                     state->prefix_reasons & ~target->drained_reasons;
+                     state->required_reasons & ~target->drained_reasons;
   while (reasons) {
     const unsigned channel = iree_math_count_trailing_zeros_u32(reasons);
     reasons &= reasons - 1;
@@ -690,6 +820,27 @@ static iree_status_t loom_amdgpu_short_wait_transfer(void* user_data,
       *out_changed = true;
     }
   }
+  if (target->leading_dgemm && target->cycles == 1 &&
+      (state->blocks[source_index].outgoing_reasons &
+       (1u << LOOM_AMDGPU_WAIT_STATE_REASON_VALU_TO_MATRIX_USE))) {
+    const uint64_t* input = loom_amdgpu_short_wait_block_bits(
+        state, source_index,
+        state->plane_count +
+            state->channel_offsets
+                [LOOM_AMDGPU_WAIT_STATE_REASON_VALU_TO_MATRIX_USE] +
+            1);
+    uint64_t* output = loom_amdgpu_short_wait_block_bits(
+        state, target_index,
+        state->plane_count +
+            state->channel_offsets[LOOM_AMDGPU_SHORT_WAIT_DGEMM_MEMORY_SHIFT]);
+    for (iree_host_size_t word = 0; word < state->word_count; ++word) {
+      *out_changed |= (input[word] & ~output[word]) != 0;
+      output[word] |= input[word];
+      if (output[word]) {
+        target->outgoing_reasons |= LOOM_AMDGPU_SHORT_WAIT_DGEMM_MEMORY;
+      }
+    }
+  }
   return iree_ok_status();
 }
 
@@ -697,7 +848,7 @@ iree_status_t loom_amdgpu_short_wait_resolve(
     loom_amdgpu_short_wait_t* state, loom_amdgpu_short_wait_emit_fn_t emit,
     void* user_data) {
   if (state->blocks == NULL ||
-      !(state->prefix_reasons & state->outgoing_reasons)) {
+      !(state->required_reasons & state->outgoing_reasons)) {
     return iree_ok_status();
   }
   IREE_RETURN_IF_ERROR(loom_cfg_dataflow_solve(&state->schedule->cfg_graph,
@@ -722,7 +873,7 @@ iree_status_t loom_amdgpu_short_wait_resolve(
       }
       unsigned reasons =
           state->blocks[predecessors.values[i]].outgoing_reasons &
-          state->prefix_reasons;
+          state->required_reasons;
       incoming_reasons |= reasons;
       while (reasons) {
         const unsigned channel = iree_math_count_trailing_zeros_u32(reasons);
@@ -740,6 +891,27 @@ iree_status_t loom_amdgpu_short_wait_resolve(
       }
     }
     loom_amdgpu_short_wait_block_t* block = &state->blocks[index];
+    if (block->leading_dgemm &&
+        (incoming_reasons &
+         (1u << LOOM_AMDGPU_WAIT_STATE_REASON_VALU_TO_MATRIX_USE))) {
+      // Project the leading DGEMM's channel transition into the input planes.
+      // Memory can first query it at position one. Normal delay aging removes
+      // the dependency when a wait before or after DGEMM supplies that slot.
+      const uint64_t* potential =
+          incoming + (state->channel_offsets
+                          [LOOM_AMDGPU_WAIT_STATE_REASON_VALU_TO_MATRIX_USE] +
+                      1) *
+                         state->word_count;
+      uint64_t* activated =
+          incoming +
+          state->channel_offsets[LOOM_AMDGPU_SHORT_WAIT_DGEMM_MEMORY_SHIFT] *
+              state->word_count;
+      for (iree_host_size_t word = 0; word < state->word_count; ++word) {
+        activated[word] |= potential[word];
+        activated[state->word_count + word] |= potential[word];
+      }
+      incoming_reasons |= LOOM_AMDGPU_SHORT_WAIT_DGEMM_MEMORY;
+    }
     uint8_t inserted[LOOM_AMDGPU_SHORT_WAIT_MAX_CYCLES] = {0};
     unsigned delay = 0;
     for (unsigned position = 0;
@@ -812,7 +984,7 @@ iree_status_t loom_amdgpu_short_wait_resolve(
     // Refine forward-edge outputs with actual waits. Backedges retain the
     // conservative fixed point; only progress after a local producer counts.
     unsigned reasons =
-        (block->outgoing_reasons | incoming_reasons) & state->prefix_reasons;
+        (block->outgoing_reasons | incoming_reasons) & state->required_reasons;
     block->outgoing_reasons = 0;
     while (reasons) {
       const unsigned channel = iree_math_count_trailing_zeros_u32(reasons);

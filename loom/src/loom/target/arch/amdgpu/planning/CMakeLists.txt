@@ -280,6 +280,7 @@ loom_cc_library(
     loom::target::arch::amdgpu::encoding
     loom::target::arch::amdgpu::refs::target_refs
     loom::target::arch::amdgpu::target_info
+    loom::target::arch::amdgpu::target_info_defs
     loom::util::cfg_dataflow
     loom::util::cfg_graph
     loom::util::segmented_storage

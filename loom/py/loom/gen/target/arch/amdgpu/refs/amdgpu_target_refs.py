@@ -625,6 +625,10 @@ def _descriptor_trait_names(
         trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_MEMORY")
     if descriptor.encoding_format_id in _MATRIX_MEMORY_ENCODING_FORMAT_IDS:
         trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX_MEMORY_CONSUMER")
+        if descriptor.encoding_format_id not in (AMDGPU_ENCODING_FORMAT_IDS["ENC_EXP"], AMDGPU_ENCODING_FORMAT_IDS["ENC_VEXPORT"]):
+            trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_MEMORY_INTERLOCK")
+    if descriptor.semantic_tag in ("float.fma.f64", "float.fmac.f64"):
+        trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_FMA64")
     if descriptor.key in _TRANSCENDENTAL_DESCRIPTOR_KEYS:
         trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_TRANSCENDENTAL")
     if descriptor.encoding_format_id in AMDGPU_DPP_ENCODING_FORMAT_IDS:

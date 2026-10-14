@@ -169,6 +169,7 @@ loom_check_test_suite(
     "test/compile_time_insertions.loom-test"
     "test/delay_alu.loom-test"
     "test/delay_layout.loom-test"
+    "test/dgemm_wait_windows.loom-test"
     "test/dot_wait_windows.loom-test"
     "test/dpp_wait_states.loom-test"
     "test/entry_preamble.loom-test"

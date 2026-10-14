@@ -548,10 +548,22 @@ def test_matrix_memory_read_traits_cover_all_native_memory_formats() -> None:
         descriptor = _descriptor("amdgpu.memory", encoding_format_id=AMDGPU_ENCODING_FORMAT_IDS[name])
         context = amdgpu_target_refs._descriptor_trait_context(_descriptor_set(descriptor))
         assert "LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX_MEMORY_CONSUMER" in amdgpu_target_refs._descriptor_trait_names(context, descriptor), name
+        traits = amdgpu_target_refs._descriptor_trait_names(context, descriptor)
+        assert ("LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_MEMORY_INTERLOCK" in traits) == (name not in ("ENC_EXP", "ENC_VEXPORT")), name
     for name in ("ENC_VOP1", "ENC_SMEM", "ENC_SOPP"):
         descriptor = _descriptor("amdgpu.other", encoding_format_id=AMDGPU_ENCODING_FORMAT_IDS[name])
         context = amdgpu_target_refs._descriptor_trait_context(_descriptor_set(descriptor))
         assert "LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX_MEMORY_CONSUMER" not in amdgpu_target_refs._descriptor_trait_names(context, descriptor), name
+        assert "LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_MEMORY_INTERLOCK" not in amdgpu_target_refs._descriptor_trait_names(context, descriptor), name
+
+
+def test_fma64_pipeline_traits_follow_semantics_across_encoding_forms() -> None:
+    for semantic in ("float.fma.f64", "float.fmac.f64", "float.fma.f32", "float.add.f64", "float.div.fmas.f64"):
+        for format_name in ("ENC_VOP2", "ENC_VOP3"):
+            descriptor = _descriptor("amdgpu.arithmetic", semantic_tag=semantic, encoding_format_id=AMDGPU_ENCODING_FORMAT_IDS[format_name])
+            context = amdgpu_target_refs._descriptor_trait_context(_descriptor_set(descriptor))
+            traits = amdgpu_target_refs._descriptor_trait_names(context, descriptor)
+            assert ("LOOM_AMDGPU_DESCRIPTOR_TRAIT_FMA64" in traits) == (semantic in ("float.fma.f64", "float.fmac.f64"))
 
 
 def test_descriptor_trait_names_classify_dpp_encoding_families() -> None:
@@ -710,6 +722,7 @@ def test_descriptor_trait_names_include_memory_and_ref_facts() -> None:
         "LOOM_AMDGPU_DESCRIPTOR_TRAIT_SCALAR_ALU",
         "LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_MEMORY",
         "LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX_MEMORY_CONSUMER",
+        "LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_MEMORY_INTERLOCK",
     )
     assert amdgpu_target_refs._descriptor_trait_names(trait_context, descriptor_set.descriptors[1]) == (
         "LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_ALU",

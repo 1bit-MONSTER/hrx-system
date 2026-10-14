@@ -82,8 +82,12 @@ typedef enum loom_amdgpu_wait_state_reason_e {
   LOOM_AMDGPU_WAIT_STATE_REASON_M0_READ = 14,
   // A DOT result is read or overwritten without same-opcode forwarding.
   LOOM_AMDGPU_WAIT_STATE_REASON_DOT_RESULT_USE = 15,
+  // F64 FMA/FMAC issues before an independent DGEMM pipeline releases.
+  LOOM_AMDGPU_WAIT_STATE_REASON_DGEMM_PIPELINE = 16,
+  // An intervening DGEMM disabled the VALU-to-memory hardware interlock.
+  LOOM_AMDGPU_WAIT_STATE_REASON_DGEMM_MEMORY = 17,
   // Number of wait-state reasons, including UNKNOWN.
-  LOOM_AMDGPU_WAIT_STATE_REASON_COUNT_ = 16,
+  LOOM_AMDGPU_WAIT_STATE_REASON_COUNT_ = 18,
 } loom_amdgpu_wait_state_reason_t;
 
 typedef enum loom_amdgpu_wait_state_action_e {

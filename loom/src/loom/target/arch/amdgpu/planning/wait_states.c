@@ -231,6 +231,8 @@ static const iree_string_view_t kAmdgpuWaitStateReasonNames[] = {
         IREE_SVL("div_fmas_condition"),
     [LOOM_AMDGPU_WAIT_STATE_REASON_M0_READ] = IREE_SVL("m0_read"),
     [LOOM_AMDGPU_WAIT_STATE_REASON_DOT_RESULT_USE] = IREE_SVL("dot_result_use"),
+    [LOOM_AMDGPU_WAIT_STATE_REASON_DGEMM_PIPELINE] = IREE_SVL("dgemm_pipeline"),
+    [LOOM_AMDGPU_WAIT_STATE_REASON_DGEMM_MEMORY] = IREE_SVL("dgemm_memory"),
     [LOOM_AMDGPU_WAIT_STATE_REASON_STORE_DATA_REUSE] =
         IREE_SVL("store_data_reuse"),
     [LOOM_AMDGPU_WAIT_STATE_REASON_MATRIX_RESULT_USE] =
@@ -1734,58 +1736,11 @@ static iree_status_t loom_amdgpu_wait_state_plan_build_with_scratch(
         builder->schedule, builder->allocation, builder->transient_arena,
         &builder->mask_writes));
   }
-  loom_amdgpu_short_wait_reasons_t short_reasons =
-      (builder->matrix_results != NULL
-           ? LOOM_AMDGPU_WAIT_STATE_REASON_FLAG_VALU_TO_MATRIX_USE
-           : 0) |
-      ((uint32_t)builder->wait_plan->dot_identity_mask
-       << LOOM_AMDGPU_SHORT_WAIT_DOT_SHIFT);
-  const loom_amdgpu_descriptor_traits_t traits =
-      builder->wait_plan->descriptor_traits;
-  if (loom_amdgpu_wait_state_has_scheduling(
-          builder, LOOM_AMDGPU_PROCESSOR_SCHEDULING_FIXED_DATA_WAIT_STATES)) {
-    short_reasons |= LOOM_AMDGPU_SHORT_WAIT_M0_READ;
-    if (iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_DPP)) {
-      short_reasons |=
-          LOOM_AMDGPU_WAIT_STATE_REASON_FLAG_LANE_PERMUTE_VGPR_READ;
-    }
-    if (iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_MEMORY)) {
-      short_reasons |= LOOM_AMDGPU_SHORT_WAIT_VMEM_SGPR_READ;
-    }
-    if (iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_DIV_FMAS)) {
-      short_reasons |= LOOM_AMDGPU_SHORT_WAIT_DIV_FMAS_CONDITION;
-    }
-    if (iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_PERMLANE)) {
-      short_reasons |= LOOM_AMDGPU_SHORT_WAIT_PERMLANE_READ;
-    }
-  }
-  if (iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_TRANSCENDENTAL) &&
-      loom_amdgpu_wait_state_has_scheduling(
-          builder,
-          LOOM_AMDGPU_PROCESSOR_SCHEDULING_VALU_TRANS_USE_WAIT_STATES)) {
-    short_reasons |= LOOM_AMDGPU_WAIT_STATE_REASON_FLAG_TRANS_RESULT_USE;
-  }
-  if (loom_amdgpu_wait_state_has_scheduling(
-          builder,
-          LOOM_AMDGPU_PROCESSOR_SCHEDULING_VALU_SGPR_READ_WAIT_STATES)) {
-    short_reasons |= LOOM_AMDGPU_WAIT_STATE_REASON_FLAG_VALU_SGPR_READ;
-    if (iree_any_bit_set(traits, LOOM_AMDGPU_DESCRIPTOR_TRAIT_READFIRSTLANE)) {
-      short_reasons |=
-          LOOM_AMDGPU_WAIT_STATE_REASON_FLAG_READFIRSTLANE_VGPR_READ;
-    }
-  }
-  if (iree_any_bit_set(
-          traits,
-          LOOM_AMDGPU_DESCRIPTOR_TRAIT_SDWA |
-              LOOM_AMDGPU_DESCRIPTOR_TRAIT_DESTINATION_SELECTION_FORWARDING) &&
-      loom_amdgpu_wait_state_has_scheduling(
-          builder,
-          LOOM_AMDGPU_PROCESSOR_SCHEDULING_DESTINATION_SELECTION_WAIT_STATES)) {
-    short_reasons |= LOOM_AMDGPU_WAIT_STATE_REASON_FLAG_DST_SEL_FORWARDING_USE;
-  }
   IREE_RETURN_IF_ERROR(loom_amdgpu_short_wait_allocate(
-      builder->schedule, builder->allocation, short_reasons,
-      builder->transient_arena, &builder->short_wait));
+      builder->schedule, builder->allocation, builder->processor_scheduling,
+      builder->wait_plan->descriptor_traits,
+      builder->wait_plan->dot_identity_mask, builder->transient_arena,
+      &builder->short_wait));
   IREE_RETURN_IF_ERROR(loom_amdgpu_wait_state_allocate(builder));
   iree_host_size_t wait_packet_cursor = 0;
   iree_host_size_t wait_action_cursor = 0;

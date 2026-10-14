@@ -1,0 +1,438 @@
+// RUN: emit amdgpu-assembly @independent_fma_cdna2 strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @independent_fma_cdna2(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x2>, %x: reg<amdgpu.vgpr x2>, %y: reg<amdgpu.vgpr x2>, %z: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
+  %matrix = v_mfma_f64_4x4x4f64 %lhs, %rhs, %acc
+  %value = v_fma_f64 %x, %y, %z
+  return %matrix, %value
+}
+// ----
+  v_mfma_f64_4x4x4f64 v[4:5], v[0:1], v[2:3], v[4:5]
+  s_nop 1
+  v_fma_f64 v[0:1], v[6:7], v[8:9], v[10:11]
+  s_nop 2
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @independent_fma_cdna3 strategy=source
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @independent_fma_cdna3(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x2>, %x: reg<amdgpu.vgpr x2>, %y: reg<amdgpu.vgpr x2>, %z: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
+  %matrix = v_mfma_f64_4x4x4_4b_f64 %lhs, %rhs, %acc
+  %value = v_fma_f64 %x, %y, %z
+  return %matrix, %value
+}
+// ----
+  v_mfma_f64_4x4x4_4b_f64 v[4:5], v[0:1], v[2:3], v[4:5]
+  s_nop 1
+  v_fma_f64 v[0:1], v[6:7], v[8:9], v[10:11]
+  s_nop 2
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @independent_fma_cdna4 strategy=source
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @independent_fma_cdna4(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x2>, %x: reg<amdgpu.vgpr x2>, %y: reg<amdgpu.vgpr x2>, %z: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
+  %matrix = v_mfma_f64_4x4x4_4b_f64 %lhs, %rhs, %acc
+  %value = v_fma_f64 %x, %y, %z
+  return %matrix, %value
+}
+// ----
+  v_mfma_f64_4x4x4_4b_f64 v[4:5], v[0:1], v[2:3], v[4:5]
+  s_nop 1
+  v_fma_f64 v[0:1], v[6:7], v[8:9], v[10:11]
+  s_nop 2
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @independent_fma_gfx9_4_generic strategy=source
+amdgpu.target<gfx9-4-generic> @target
+
+low.func.def target<amdgpu.gfx9_4.generic.core>(@target) @independent_fma_gfx9_4_generic(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x2>, %x: reg<amdgpu.vgpr x2>, %y: reg<amdgpu.vgpr x2>, %z: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
+  %matrix = v_mfma_f64_4x4x4_4b_f64 %lhs, %rhs, %acc
+  %value = v_fma_f64 %x, %y, %z
+  return %matrix, %value
+}
+// ----
+  v_mfma_f64_4x4x4_4b_f64 v[4:5], v[0:1], v[2:3], v[4:5]
+  s_nop 1
+  v_fma_f64 v[0:1], v[6:7], v[8:9], v[10:11]
+  s_nop 2
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @wide_dgemm_fmac strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @wide_dgemm_fmac(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x8>, %x: reg<amdgpu.vgpr x2>, %y: reg<amdgpu.vgpr x2>, %z: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x8>, reg<amdgpu.vgpr x2>) asm {
+  %matrix = v_mfma_f64_16x16x4f64 %lhs, %rhs, %acc
+  %value = v_fmac_f64 %x, %y, %z
+  return %matrix, %value
+}
+// ----
+  v_mfma_f64_16x16x4f64 v[8:15], v[0:1], v[2:3], v[8:15]
+  s_nop 1
+  v_fmac_f64 v[4:5], v[6:7], v[16:17]
+  s_nop 7
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @pipeline_issue_gap_1 strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @pipeline_issue_gap_1(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x2>, %x: reg<amdgpu.vgpr x2>, %y: reg<amdgpu.vgpr x2>, %z: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
+  %matrix = v_mfma_f64_4x4x4f64 %lhs, %rhs, %acc
+  %gap = s_mov_b32 42
+  %value = v_fma_f64 %x, %y, %z
+  return %matrix, %value
+}
+// ----
+  v_mfma_f64_4x4x4f64 v[4:5], v[0:1], v[2:3], v[4:5]
+  s_mov_b32 s0, 42
+  s_nop 0
+  v_fma_f64 v[0:1], v[6:7], v[8:9], v[10:11]
+  s_nop 2
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @pipeline_issue_gap_2 strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @pipeline_issue_gap_2(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x2>, %x: reg<amdgpu.vgpr x2>, %y: reg<amdgpu.vgpr x2>, %z: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
+  %matrix = v_mfma_f64_4x4x4f64 %lhs, %rhs, %acc
+  %gap0 = s_mov_b32 42
+  %gap1 = s_mov_b32 43
+  %value = v_fma_f64 %x, %y, %z
+  return %matrix, %value
+}
+// ----
+  v_mfma_f64_4x4x4f64 v[4:5], v[0:1], v[2:3], v[4:5]
+  s_mov_b32 s0, 42
+  s_mov_b32 s0, 43
+  v_fma_f64 v[0:1], v[6:7], v[8:9], v[10:11]
+  s_nop 2
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @pipeline_empty_edges strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @pipeline_empty_edges(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x2>, %x: reg<amdgpu.vgpr x2>, %y: reg<amdgpu.vgpr x2>, %z: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
+  %matrix = v_mfma_f64_4x4x4f64 %lhs, %rhs, %acc
+  low.br ^empty
+^empty:
+  low.br ^consumer
+^consumer:
+  %value = v_fma_f64 %x, %y, %z
+  return %matrix, %value
+}
+// ----
+  v_mfma_f64_4x4x4f64 v[4:5], v[0:1], v[2:3], v[4:5]
+.Lbb1:
+.Lbb2:
+  s_nop 1
+  v_fma_f64 v[0:1], v[6:7], v[8:9], v[10:11]
+  s_nop 4
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @pipeline_loop strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @pipeline_loop(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x2>, %x: reg<amdgpu.vgpr x2>, %y: reg<amdgpu.vgpr x2>, %z: reg<amdgpu.vgpr x2>, %again: reg<amdgpu.scc>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
+  low.br ^loop
+^loop:
+  %value = v_fma_f64 %x, %y, %z
+  %acc_copy = copy %acc : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr x2>
+  %matrix = v_mfma_f64_4x4x4f64 %lhs, %rhs, %acc_copy
+  low.cond_br %again, ^loop, ^done : reg<amdgpu.scc>
+^done:
+  return %matrix, %value
+}
+// ----
+.Lbb1:
+  s_nop 0
+  v_fma_f64 v[12:13], v[6:7], v[8:9], v[10:11]
+  s_nop 3
+  v_mov_b32 v14, v4
+  v_mov_b32 v15, v5
+  s_nop 1
+  v_mfma_f64_4x4x4f64 v[14:15], v[0:1], v[2:3], v[14:15]
+  s_cbranch_scc1 .Lbb1
+.Lbb2:
+  s_nop 4
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @memory_interlock_cdna2 strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @memory_interlock_cdna2(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x2>, %left: reg<amdgpu.vgpr>, %right: reg<amdgpu.vgpr>, %offset: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr x2>) asm {
+  %payload = v_add_f32 %left, %right
+  %matrix = v_mfma_f64_4x4x4f64 %lhs, %rhs, %acc
+  global_store_dword_saddr %offset, %payload, %base
+  return %matrix
+}
+// ----
+  v_add_f32 v0, v0, v1
+  v_mfma_f64_4x4x4f64 v[6:7], v[2:3], v[4:5], v[6:7]
+  s_nop 0
+  global_store_dword v8, v0, s[0:1] offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_nop 2
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @memory_interlock_cdna3 strategy=source
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @memory_interlock_cdna3(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x2>, %left: reg<amdgpu.vgpr>, %right: reg<amdgpu.vgpr>, %offset: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr x2>) asm {
+  %payload = v_add_f32 %left, %right
+  %matrix = v_mfma_f64_4x4x4_4b_f64 %lhs, %rhs, %acc
+  global_store_dword_saddr %offset, %payload, %base
+  return %matrix
+}
+// ----
+  v_add_f32 v0, v0, v1
+  v_mfma_f64_4x4x4_4b_f64 v[6:7], v[2:3], v[4:5], v[6:7]
+  global_store_dword v8, v0, s[0:1] offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_nop 3
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @memory_interlock_cdna4 strategy=source
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @memory_interlock_cdna4(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x2>, %left: reg<amdgpu.vgpr>, %right: reg<amdgpu.vgpr>, %offset: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr x2>) asm {
+  %payload = v_add_f32 %left, %right
+  %matrix = v_mfma_f64_4x4x4_4b_f64 %lhs, %rhs, %acc
+  global_store_dword_saddr %offset, %payload, %base
+  return %matrix
+}
+// ----
+  v_add_f32 v0, v0, v1
+  v_mfma_f64_4x4x4_4b_f64 v[6:7], v[2:3], v[4:5], v[6:7]
+  global_store_dword v8, v0, s[0:1] offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_nop 3
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @incoming_valu strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @incoming_valu(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x2>, %left: reg<amdgpu.vgpr>, %right: reg<amdgpu.vgpr>, %offset: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr x2>) asm {
+  %payload = v_add_f32 %left, %right
+  low.br ^matrix_block
+^matrix_block:
+  %matrix = v_mfma_f64_4x4x4f64 %lhs, %rhs, %acc
+  global_store_dword_saddr %offset, %payload, %base
+  return %matrix
+}
+// ----
+  v_add_f32 v0, v0, v1
+.Lbb1:
+  v_mfma_f64_4x4x4f64 v[6:7], v[2:3], v[4:5], v[6:7]
+  s_nop 0
+  global_store_dword v8, v0, s[0:1] offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_nop 3
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @outgoing_dgemm strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @outgoing_dgemm(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x2>, %left: reg<amdgpu.vgpr>, %right: reg<amdgpu.vgpr>, %offset: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr x2>) asm {
+  %payload = v_add_f32 %left, %right
+  %matrix = v_mfma_f64_4x4x4f64 %lhs, %rhs, %acc
+  low.br ^memory_block
+^memory_block:
+  global_store_dword_saddr %offset, %payload, %base
+  return %matrix
+}
+// ----
+  v_add_f32 v0, v0, v1
+  v_mfma_f64_4x4x4f64 v[6:7], v[2:3], v[4:5], v[6:7]
+.Lbb1:
+  s_nop 0
+  global_store_dword v8, v0, s[0:1] offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_nop 3
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @isolated_dgemm strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @isolated_dgemm(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x2>, %left: reg<amdgpu.vgpr>, %right: reg<amdgpu.vgpr>, %offset: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr x2>) asm {
+  %payload = v_add_f32 %left, %right
+  low.br ^matrix_block
+^matrix_block:
+  %matrix = v_mfma_f64_4x4x4f64 %lhs, %rhs, %acc
+  low.br ^empty
+^empty:
+  low.br ^memory_block
+^memory_block:
+  global_store_dword_saddr %offset, %payload, %base
+  return %matrix
+}
+// ----
+  v_add_f32 v0, v0, v1
+.Lbb1:
+  v_mfma_f64_4x4x4f64 v[6:7], v[2:3], v[4:5], v[6:7]
+.Lbb2:
+.Lbb3:
+  s_nop 0
+  global_store_dword v8, v0, s[0:1] offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_nop 3
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @issue_before_dgemm strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @issue_before_dgemm(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x2>, %left: reg<amdgpu.vgpr>, %right: reg<amdgpu.vgpr>, %offset: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr x2>) asm {
+  %payload = v_add_f32 %left, %right
+  %gap = s_mov_b32 42
+  %matrix = v_mfma_f64_4x4x4f64 %lhs, %rhs, %acc
+  global_store_dword_saddr %offset, %payload, %base
+  return %matrix
+}
+// ----
+  v_add_f32 v0, v0, v1
+  s_mov_b32 s2, 42
+  v_mfma_f64_4x4x4f64 v[6:7], v[2:3], v[4:5], v[6:7]
+  global_store_dword v8, v0, s[0:1] offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_nop 3
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @issue_after_dgemm strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @issue_after_dgemm(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x2>, %left: reg<amdgpu.vgpr>, %right: reg<amdgpu.vgpr>, %offset: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr x2>) asm {
+  %payload = v_add_f32 %left, %right
+  %matrix = v_mfma_f64_4x4x4f64 %lhs, %rhs, %acc
+  %gap = s_mov_b32 42
+  global_store_dword_saddr %offset, %payload, %base
+  return %matrix
+}
+// ----
+  v_add_f32 v0, v0, v1
+  v_mfma_f64_4x4x4f64 v[6:7], v[2:3], v[4:5], v[6:7]
+  s_mov_b32 s2, 42
+  global_store_dword v8, v0, s[0:1] offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_nop 2
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @ordinary_memory_interlock strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @ordinary_memory_interlock(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x2>, %left: reg<amdgpu.vgpr>, %right: reg<amdgpu.vgpr>, %offset: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr x2>) asm {
+  %payload = v_add_f32 %left, %right
+  global_store_dword_saddr %offset, %payload, %base
+  %matrix = v_mfma_f64_4x4x4f64 %lhs, %rhs, %acc
+  return %matrix
+}
+// ----
+  v_add_f32 v0, v0, v1
+  global_store_dword v2, v0, s[0:1] offset:0
+  v_mfma_f64_4x4x4f64 v[8:9], v[4:5], v[6:7], v[8:9]
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_nop 4
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @disjoint_memory_input strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @disjoint_memory_input(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x2>, %left: reg<amdgpu.vgpr>, %right: reg<amdgpu.vgpr>, %offset: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr>) asm {
+  %payload = v_add_f32 %left, %right
+  %matrix = v_mfma_f64_4x4x4f64 %lhs, %rhs, %acc
+  global_store_dword_saddr %offset, %left, %base
+  return %matrix, %payload
+}
+// ----
+  v_add_f32 v0, v1, v0
+  v_mfma_f64_4x4x4f64 v[6:7], v[2:3], v[4:5], v[6:7]
+  global_store_dword v8, v1, s[0:1] offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_nop 3
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @ds_interlock strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @ds_interlock(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x2>, %left: reg<amdgpu.vgpr>, %right: reg<amdgpu.vgpr>, %offset: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr x2>) asm {
+  %payload = v_add_f32 %left, %right
+  %matrix = v_mfma_f64_4x4x4f64 %lhs, %rhs, %acc
+  ds_write_b32 %offset, %payload
+  return %matrix
+}
+// ----
+  v_add_f32 v0, v0, v1
+  v_mfma_f64_4x4x4f64 v[6:7], v[2:3], v[4:5], v[6:7]
+  s_nop 0
+  ds_write_b32 v8, v0 offset:0
+  s_nop 3
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @independent_join_paths strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @independent_join_paths(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x2>, %left: reg<amdgpu.vgpr>, %right: reg<amdgpu.vgpr>, %offset: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>, %choose: reg<amdgpu.scc>) -> (reg<amdgpu.vgpr x2>) asm {
+  low.cond_br %choose, ^matrix_path, ^valu_path : reg<amdgpu.scc>
+^matrix_path:
+  %matrix = v_mfma_f64_4x4x4f64 %lhs, %rhs, %acc
+  low.br ^join(%left: reg<amdgpu.vgpr>, %matrix: reg<amdgpu.vgpr x2>)
+^valu_path:
+  %payload = v_add_f32 %left, %right
+  low.br ^join(%payload: reg<amdgpu.vgpr>, %acc: reg<amdgpu.vgpr x2>)
+^join(%incoming: reg<amdgpu.vgpr>, %result: reg<amdgpu.vgpr x2>):
+  global_store_dword_saddr %offset, %incoming, %base
+  return %result
+}
+// ----
+  s_cbranch_scc0 .Lbb2
+.Lbb1:
+  v_mfma_f64_4x4x4f64 v[6:7], v[0:1], v[2:3], v[6:7]
+  s_branch .Lbb3
+.Lbb2:
+  v_add_f32 v0, v4, v5
+  v_mov_b32 v4, v0
+.Lbb3:
+  global_store_dword v8, v4, s[0:1] offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_nop 2
+  s_endpgm
+
+// ====
+// RUN: emit amdgpu-assembly @incoming_wait_retires_interlock strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @incoming_wait_retires_interlock(%lhs: reg<amdgpu.vgpr x2>, %rhs: reg<amdgpu.vgpr x2>, %acc: reg<amdgpu.vgpr x2>, %offset: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr x2>) asm {
+  %payload = v_add_f64 %lhs, %rhs
+  low.br ^matrix_block
+^matrix_block:
+  %matrix = v_mfma_f64_4x4x4f64 %payload, %rhs, %acc
+  global_store_dwordx2_saddr %offset, %payload, %base
+  return %matrix
+}
+// ----
+  v_add_f64 v[0:1], v[0:1], v[2:3]
+.Lbb1:
+  s_nop 1
+  v_mfma_f64_4x4x4f64 v[4:5], v[0:1], v[2:3], v[4:5]
+  global_store_dwordx2 v6, v[0:1], s[0:1] offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_nop 3
+  s_endpgm

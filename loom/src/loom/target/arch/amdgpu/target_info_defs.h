@@ -294,6 +294,8 @@ typedef enum loom_amdgpu_processor_scheduling_bit_e {
   LOOM_AMDGPU_PROCESSOR_SCHEDULING_VALU_MASK_WRITE_DEPCTR = 1u << 9,
   // CDNA data dependencies require fixed native instruction-slot separation.
   LOOM_AMDGPU_PROCESSOR_SCHEDULING_FIXED_DATA_WAIT_STATES = 1u << 10,
+  // Intervening DGEMM disables the VALU-to-VMEM/DS hardware interlock.
+  LOOM_AMDGPU_PROCESSOR_SCHEDULING_DGEMM_MEMORY_INTERLOCK = 1u << 11,
   // Processor scheduling bits known by the AMDGPU target package.
   LOOM_AMDGPU_PROCESSOR_SCHEDULING_KNOWN_BITS =
       LOOM_AMDGPU_PROCESSOR_SCHEDULING_VALU_TRANS_USE_DEPCTR |
@@ -306,7 +308,8 @@ typedef enum loom_amdgpu_processor_scheduling_bit_e {
       LOOM_AMDGPU_PROCESSOR_SCHEDULING_FLAT_COUNTERS_IN_ORDER |
       LOOM_AMDGPU_PROCESSOR_SCHEDULING_TENSOR_ISSUE_DRAIN |
       LOOM_AMDGPU_PROCESSOR_SCHEDULING_VALU_MASK_WRITE_DEPCTR |
-      LOOM_AMDGPU_PROCESSOR_SCHEDULING_FIXED_DATA_WAIT_STATES,
+      LOOM_AMDGPU_PROCESSOR_SCHEDULING_FIXED_DATA_WAIT_STATES |
+      LOOM_AMDGPU_PROCESSOR_SCHEDULING_DGEMM_MEMORY_INTERLOCK,
 } loom_amdgpu_processor_scheduling_bit_t;
 
 // Bitset of loom_amdgpu_processor_scheduling_bit_t values.

@@ -68,6 +68,10 @@ typedef enum loom_amdgpu_descriptor_trait_bit_e {
   LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX_MEMORY_CONSUMER = 1u << 24,
   // DIV_FMAS reads its VCC condition through a separate forwarding path.
   LOOM_AMDGPU_DESCRIPTOR_TRAIT_DIV_FMAS = 1u << 25,
+  // F64 FMA/FMAC shares a pipeline release dependency with DGEMM.
+  LOOM_AMDGPU_DESCRIPTOR_TRAIT_FMA64 = 1u << 29,
+  // VMEM and DS reads depend on the VALU-to-memory hardware interlock.
+  LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_MEMORY_INTERLOCK = 1u << 30,
 } loom_amdgpu_descriptor_trait_bit_t;
 typedef uint32_t loom_amdgpu_descriptor_traits_t;
 
