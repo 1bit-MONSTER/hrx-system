@@ -28,9 +28,9 @@ typedef struct loom_amdgpu_store_data_source_t {
   uint64_t end_position;
   // Schedule node issuing the source.
   uint32_t node_index;
-  // First physical VGPR in the payload.
+  // First payload register in the disjoint VGPR/AGPR index space.
   uint32_t base;
-  // Number of physical VGPRs in the payload.
+  // Number of physical registers in the payload.
   uint16_t count;
   // Intervening slots required before VALU reuse, or zero for an empty row.
   uint8_t cycles;
@@ -66,7 +66,7 @@ struct loom_amdgpu_store_data_wait_state_t {
   uint64_t* bits;
   // Four write bit planes for the currently inspected packet.
   uint64_t* writes;
-  // Number of words per physical VGPR bit plane.
+  // Number of words per combined physical-register bit plane.
   iree_host_size_t word_count;
   // The two most recently issued local payloads.
   loom_amdgpu_store_data_source_t sources[2];
@@ -80,6 +80,10 @@ struct loom_amdgpu_store_data_wait_state_t {
   uint16_t block_index;
   // Next local source slot, alternating between the two retained rows.
   uint8_t next_source;
+  // Accumulator register class in the selected CDNA descriptor set.
+  uint8_t agpr_reg_class_id;
+  // Start of the AGPR bank, immediately after the allocated VGPR extent.
+  uint32_t agpr_base;
 };
 
 static uint64_t* loom_amdgpu_store_data_block_bits(
@@ -106,13 +110,20 @@ iree_status_t loom_amdgpu_store_data_wait_allocate(
   const loom_amdgpu_descriptor_set_info_t* info =
       loom_amdgpu_target_info_descriptor_set_at(
           schedule->target.descriptor_set->descriptor_set_ordinal);
-  const uint32_t vgpr_count =
-      allocation->physical_extents
-          .ends_by_reg_class[LOOM_AMDGPU_REG_CLASS_ID_VGPR];
   if (!iree_any_bit_set(
           info->flags,
-          LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_STORE_DATA_WAIT_STATES) ||
-      vgpr_count == 0) {
+          LOOM_AMDGPU_DESCRIPTOR_SET_INFO_FLAG_STORE_DATA_WAIT_STATES)) {
+    return iree_ok_status();
+  }
+  const uint8_t agpr_reg_class_id =
+      loom_amdgpu_agpr_reg_class_id(schedule->target.descriptor_set);
+  const uint32_t agpr_base =
+      allocation->physical_extents
+          .ends_by_reg_class[LOOM_AMDGPU_REG_CLASS_ID_VGPR];
+  const uint32_t physical_count =
+      agpr_base +
+      allocation->physical_extents.ends_by_reg_class[agpr_reg_class_id];
+  if (physical_count == 0) {
     return iree_ok_status();
   }
   loom_amdgpu_store_data_wait_state_t* state = NULL;
@@ -122,7 +133,9 @@ iree_status_t loom_amdgpu_store_data_wait_allocate(
   state->schedule = schedule;
   state->allocation = allocation;
   state->arena = arena;
-  state->word_count = (vgpr_count + 63) / 64;
+  state->agpr_reg_class_id = agpr_reg_class_id;
+  state->agpr_base = agpr_base;
+  state->word_count = (physical_count + 63) / 64;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(arena, schedule->block_count,
                                                  sizeof(*state->blocks),
                                                  (void**)&state->blocks));
@@ -149,8 +162,14 @@ void loom_amdgpu_store_data_wait_begin_block(
 }
 
 static void loom_amdgpu_store_data_record_write(
-    loom_amdgpu_store_data_wait_state_t* state, uint32_t base, uint32_t count,
-    unsigned offset, unsigned kind) {
+    loom_amdgpu_store_data_wait_state_t* state, uint16_t register_class,
+    uint32_t base, uint32_t count, unsigned offset, unsigned kind) {
+  if (register_class != LOOM_AMDGPU_REG_CLASS_ID_VGPR) {
+    if (register_class != state->agpr_reg_class_id) {
+      return;
+    }
+    base += state->agpr_base;
+  }
   loom_amdgpu_store_data_set_range(
       state->writes + (offset * 2 + kind) * state->word_count, base, count);
 }
@@ -177,7 +196,10 @@ loom_amdgpu_store_data_wait_match_t loom_amdgpu_store_data_wait_inspect(
               state->allocation, packet, binding.operand_index);
       state->pending_source = (loom_amdgpu_store_data_source_t){
           .node_index = packet->node_index,
-          .base = payload->location_base,
+          .base = payload->location_base +
+                  (payload->descriptor_reg_class_id == state->agpr_reg_class_id
+                       ? state->agpr_base
+                       : 0),
           .count = payload->location_count,
           .cycles = binding.cycles,
       };
@@ -199,12 +221,10 @@ loom_amdgpu_store_data_wait_match_t loom_amdgpu_store_data_wait_inspect(
     for (iree_host_size_t i = 0; i < count; ++i) {
       const loom_low_move_t* move =
           &state->allocation->moves[structural->moves.start + i];
-      if (move->destination.descriptor_reg_class_id ==
-          LOOM_AMDGPU_REG_CLASS_ID_VGPR) {
-        loom_amdgpu_store_data_record_write(state, move->destination.location,
-                                            1, (unsigned)i,
-                                            LOOM_AMDGPU_STORE_DATA_WAIT_VALU);
-      }
+      loom_amdgpu_store_data_record_write(
+          state, move->destination.descriptor_reg_class_id,
+          move->destination.location, 1, (unsigned)i,
+          LOOM_AMDGPU_STORE_DATA_WAIT_VALU);
     }
   } else if (state->pending_cycles != 0) {
     const unsigned kind =
@@ -216,10 +236,12 @@ loom_amdgpu_store_data_wait_match_t loom_amdgpu_store_data_wait_inspect(
     for (uint16_t i = 0; i < packet->node->result_count; ++i) {
       const loom_low_allocation_assignment_t* result =
           loom_low_packet_result_assignment(state->allocation, packet, i);
-      if (loom_low_allocation_assignment_is_physical_register_class(
-              result, LOOM_AMDGPU_REG_CLASS_ID_VGPR)) {
-        loom_amdgpu_store_data_record_write(state, result->location_base,
-                                            result->location_count, 0, kind);
+      if (result != NULL &&
+          result->location_kind ==
+              LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER) {
+        loom_amdgpu_store_data_record_write(
+            state, result->descriptor_reg_class_id, result->location_base,
+            result->location_count, 0, kind);
       }
     }
   }

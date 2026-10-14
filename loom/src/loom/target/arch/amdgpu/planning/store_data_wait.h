@@ -35,7 +35,9 @@ typedef struct loom_amdgpu_store_data_wait_match_t {
 typedef iree_status_t (*loom_amdgpu_store_data_wait_emit_fn_t)(
     void* user_data, const loom_amdgpu_wait_state_t* wait_state);
 
-// Allocates transient state, returning NULL on targets without this hazard.
+// Allocates transient state over disjoint VGPR and AGPR ranges from the final
+// allocation. Returns NULL when neither bank has allocated registers or the
+// target has no store-retention hazard.
 iree_status_t loom_amdgpu_store_data_wait_allocate(
     const loom_low_schedule_table_t* schedule,
     const loom_low_allocation_table_t* allocation,
