@@ -699,8 +699,11 @@ lifetime][linux-aie4-query-power], [runtime PM condition][linux-query-runtime-pm
 
 In the NPU4 register backend, the H-clock field is populated from the sensor's
 NPU-clock reading; the MP-NPU field comes from the separate MP-NPU reading.
-The field names therefore matter when interpreting the result. An operating
-frequency sample does not record intervening frequency changes.
+The clock query requests a counter refresh before returning those fields. If
+the platform sensor service cannot refresh them, the previously stored values
+remain; the query does not publish a telemetry-validity flag. The field
+names therefore matter when interpreting the result. An operating frequency
+sample does not record intervening frequency changes.
 [Sensor-to-clock mapping][linux-npu4-clocks]
 
 The firmware `CALIBRATE_CLOCK` command has a different purpose: the driver
@@ -728,6 +731,82 @@ microsecond host submission-to-completion bracket. At 10 MHz the single
 dispatch would represent 1.567 milliseconds, exceeding that enclosing interval.
 This falsifies that particular counter/rate pairing; it does not derive the
 marker's actual frequency from host timing.
+
+`KMTQAITYPE_NODEPERFDATA` is also a separate interface. On that Windows stack,
+its node-zero frequency and maximum frequency both report 1 GHz. A
+post-configuration marker interval of 2,104,447 cycles fits inside an automatic
+firmware interval of 1,181,370 ns, falsifying 1 GHz as the marker's rate.
+The documented engine-frequency field supplies no promise that an arbitrary
+array counter uses that frequency. [Node performance fields][windows-node-clock]
+
+### Windows array operating-rate query
+
+The installed XRT 2.21.0 public `max_clock_frequency_mhz` query returns 800 MHz
+while idle and 1810 MHz with the workload context active on the Windows NPU4
+stack above. The public XRT consumer obtains a list of decimal MHz values and
+selects its maximum; its name does not imply a permanently fixed frequency.
+[Public clock-list consumer][xrt-clock-list-consumer]
+
+Observation of that SDK query and independent native replay identify this
+read-only MCDM escape. These offsets describe the observed driver protocol;
+they are not a Microsoft-defined clock ABI. All other request words are zero
+in the observed request.
+
+| Field | Observed representation |
+| --- | --- |
+| Escape envelope | `D3DKMT_ESCAPE_DRIVERPRIVATE`, 4216-byte private payload. |
+| Command | Operation `4` at byte 0, parameter length `4200` at byte 4. |
+| Input parameter | Payload length `8` at byte 16, element count `1` at byte 24, next-block offset `48` at byte 32. |
+| Input data | Selector `1` at byte 48, text capacity `4096` at byte 52. |
+| Output parameter | Payload length `4112` at byte 64, element count `1` at byte 72, output direction `1` at byte 88. |
+| Output data | 64-bit returned extent `4112` at byte 96; null-terminated decimal MHz lines begin at byte 104. |
+
+The first returned line is the array rate used by the observed marker counter.
+The other line varies independently and is not used for that conversion.
+Replies include `800\n400\n` in powersaver mode and `1810\n1\n` with the
+active default workload. Native error status, malformed output or a zero
+array rate cannot establish marker units. A successful query leaves power
+policy and context ownership unchanged.
+
+### Controlled same-command durations
+
+A begin marker immediately before core enable, after array configuration, and
+an end marker after the program's output-DMA completion wait bracket useful
+work without crossing the configuration's possible timer reset. For an
+unchanged operating rate `f`, the interval is `delta_cycles * 1e9 / f` ns.
+The rate is sampled with the workload admitted; an idle-device reading may
+describe a different operating point.
+
+On the Windows stack above, the official `xrt-smi configure --pmode` control
+selects powersaver or performance mode. A finite arithmetic recurrence over
+sixteen output words, with four independently checked commands at each work
+size, produced these median intervals:
+
+| Mode and reported rate | Iterations per word | Marker duration (us) | Enclosing automatic firmware duration (us) |
+| --- | ---: | ---: | ---: |
+| Powersaver, 800 MHz | 4096 | 1322.834 | 1377.266 |
+| Powersaver, 800 MHz | 16384 | 5255.179 | 5317.230 |
+| Performance, 1810 MHz | 4096 | 583.491 | 602.164 |
+| Performance, 1810 MHz | 16384 | 2321.474 | 2340.033 |
+
+Every converted interval was contained in its independent firmware interval.
+The increase with arithmetic work agrees within 0.2% between the two sources
+in these captures. This is experimental evidence for the array-rate mapping
+and same-command conversion, not an accuracy guarantee or a performance
+benchmark. The original Default power mode was restored afterward. On the
+Linux NPU5 stack, the same useful-work construction reported an H clock of
+1800 MHz and produced positive converted intervals inside their host batch;
+that stack exposes no automatic firmware-clock service for the stronger
+device-to-device comparison.
+
+Linux's public power-mode service is a separate device policy operation.
+The AIE2 implementation maps LOW to DPM level zero, MEDIUM to half the maximum,
+and HIGH to the maximum. TURBO requests the maximum and disables clock gating;
+the other modes enable gating. Raising the DPM level includes a settling delay
+in the native operation. The source describes the requested level as an allowed
+clock range, so selecting a mode is not by itself a record of the actual rate
+through a capture. [Power-mode control][linux-power-mode],
+[XRT power-mode transport][linux-xrt-power-mode]
 
 Clock interpretation has independent requirements. A raw event observation
 needs a known sampling point and coherent record. Ordering observations by
@@ -1022,3 +1101,8 @@ positions alone cannot identify every externally restarted recording.
 [xrt-fw-trace-format]: https://github.com/Xilinx/XRT/blob/5a97d152f6dd93709406e8d7c0eac8bc8407f9f2/src/runtime_src/core/tools/xbutil2/EventTracing/EventTraceBase.cpp#L154-L167
 [linux-dpt-layout]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_dpt.h#L42-L96
 [linux-dpt-ring]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_dpt.c#L208-L321
+
+[windows-node-clock]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmthk/ns-d3dkmthk-_d3dkmt_node_perfdata
+[xrt-clock-list-consumer]: https://github.com/Xilinx/XRT/blob/cdfbe96e394385702f377694d3875c57c3ef5b9d/src/runtime_src/core/common/api/xrt_device.cpp#L147-L153
+[linux-power-mode]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_pm.c#L86-L149
+[linux-xrt-power-mode]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/src/shim/device.cpp#L842-L878
