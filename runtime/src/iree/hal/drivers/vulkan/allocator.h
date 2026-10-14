@@ -106,8 +106,8 @@ iree_status_t iree_hal_vulkan_allocator_allocate_direct_buffer_from_type(
     iree_device_size_t allocation_size, iree_hal_buffer_t** out_buffer);
 
 // Returns whether this allocator can attach ordinary host allocations as
-// Vulkan memory. This requires both VK_EXT_external_memory_host and a unified
-// physical-device memory model.
+// Vulkan memory. The extension enables this route on both integrated and
+// discrete devices; attachment queries the actual pointer's compatible types.
 bool iree_hal_vulkan_allocator_supports_host_allocation_import(
     const iree_hal_vulkan_allocator_t* allocator);
 
@@ -132,6 +132,22 @@ iree_status_t iree_hal_vulkan_allocator_allocate_direct_buffer(
     iree_hal_allocator_t* base_allocator,
     const iree_hal_vulkan_buffer_spec_t* spec,
     iree_device_size_t allocation_size, iree_hal_buffer_t** out_buffer);
+
+// Allocates private staging storage backed by ordinary host pages when host
+// import is available. |out_host_allocation| then owns the original allocation
+// and must be freed with iree_allocator_free_aligned after releasing
+// |out_buffer|. Native I/O uses this original pointer: vkMapMemory may return a
+// different alias whose native page-pinning properties are not guaranteed.
+//
+// Without host import, returns a native Vulkan allocation and an empty host
+// allocation. That route supports host copies and buffered files, not direct
+// native files. Both outputs are empty on failure. This is cold ring setup;
+// transfer submission neither allocates backing nor discovers capabilities.
+iree_status_t iree_hal_vulkan_allocator_allocate_staging_buffer(
+    iree_hal_allocator_t* base_allocator,
+    const iree_hal_vulkan_buffer_spec_t* spec,
+    iree_device_size_t allocation_size, iree_allocator_t host_allocator,
+    iree_byte_span_t* out_host_allocation, iree_hal_buffer_t** out_buffer);
 
 #ifdef __cplusplus
 }  // extern "C"

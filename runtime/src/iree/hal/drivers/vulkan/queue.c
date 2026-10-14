@@ -1552,7 +1552,7 @@ struct iree_hal_vulkan_queue_staging_ring_t {
   // Mutex protecting slot ownership and waiters.
   iree_slim_mutex_t mutex;
 
-  // Host allocator used for ring metadata.
+  // Host allocator used for ring metadata and imported host backing.
   iree_allocator_t host_allocator;
 
   // Queue owning this staging ring. Borrowed.
@@ -1563,6 +1563,10 @@ struct iree_hal_vulkan_queue_staging_ring_t {
 
   // Persistent host mapping of |buffer|.
   iree_hal_buffer_mapping_t mapping;
+
+  // Owned ordinary host pages when imported into |buffer|. Native I/O uses
+  // this original address instead of a potentially different driver mapping.
+  iree_byte_span_t host_allocation;
 
   // Byte length of each staging slot.
   iree_device_size_t slot_size;
@@ -1636,8 +1640,9 @@ static iree_status_t iree_hal_vulkan_queue_staging_ring_allocate(
       .queue_family_affinity = iree_hal_make_queue_family_affinity(
           iree_hal_queue_family_ordinal(iree_hal_queue_family(&queue->base))),
   };
-  iree_status_t status = iree_hal_vulkan_allocator_allocate_direct_buffer(
-      queue->device_allocator, &buffer_spec, allocation_size, &ring->buffer);
+  iree_status_t status = iree_hal_vulkan_allocator_allocate_staging_buffer(
+      queue->device_allocator, &buffer_spec, allocation_size,
+      ring->host_allocator, &ring->host_allocation, &ring->buffer);
   if (iree_status_is_ok(status)) {
     status = iree_hal_buffer_map_range(
         ring->buffer, IREE_HAL_MAPPING_MODE_PERSISTENT,
@@ -1646,19 +1651,23 @@ static iree_status_t iree_hal_vulkan_queue_staging_ring_allocate(
         /*byte_offset=*/0, allocation_size, &ring->mapping);
   }
   if (iree_status_is_ok(status)) {
+    uint8_t* host_pointer = ring->host_allocation.data
+                                ? ring->host_allocation.data
+                                : ring->mapping.contents.data;
     for (uint32_t i = 0; i < slot_count; ++i) {
       const iree_device_size_t slot_offset = slot_size * i;
       ring->slots[i].ordinal = i;
       ring->slots[i].buffer_offset = slot_offset;
-      ring->slots[i].host_span =
-          iree_make_byte_span(ring->mapping.contents.data + slot_offset,
-                              (iree_host_size_t)slot_size);
+      ring->slots[i].host_span = iree_make_byte_span(
+          host_pointer + slot_offset, (iree_host_size_t)slot_size);
     }
     *out_ring = ring;
   } else {
     status =
         iree_status_join(status, iree_hal_buffer_unmap_range(&ring->mapping));
     iree_hal_buffer_release(ring->buffer);
+    iree_allocator_free_aligned(ring->host_allocator,
+                                ring->host_allocation.data);
     iree_slim_mutex_deinitialize(&ring->mutex);
     iree_allocator_free(queue->host_allocator, ring);
   }
@@ -1670,8 +1679,9 @@ static void iree_hal_vulkan_queue_staging_ring_free(
   if (!ring) {
     return;
   }
-  iree_status_ignore(iree_hal_buffer_unmap_range(&ring->mapping));
+  IREE_CHECK_OK(iree_hal_buffer_unmap_range(&ring->mapping));
   iree_hal_buffer_release(ring->buffer);
+  iree_allocator_free_aligned(ring->host_allocator, ring->host_allocation.data);
   iree_slim_mutex_deinitialize(&ring->mutex);
   iree_allocator_free(ring->host_allocator, ring);
 }
@@ -8439,7 +8449,7 @@ static iree_status_t iree_hal_vulkan_staged_transfer_create(
           "staging slots do not preserve file buffer alignment");
     }
     IREE_RETURN_IF_ERROR(iree_hal_file_prepare_transfer(
-        requirements, file_offset, ring->mapping.contents.data, length,
+        requirements, file_offset, ring->slots[0].host_span.data, length,
         chunk_size, &chunk_size));
   }
 

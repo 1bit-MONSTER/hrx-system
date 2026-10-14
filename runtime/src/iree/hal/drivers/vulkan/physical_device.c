@@ -778,6 +778,26 @@ iree_status_t iree_hal_vulkan_physical_device_snapshot_initialize(
     iree_vkGetPhysicalDeviceProperties2(IREE_VULKAN_INSTANCE(&instance->syms),
                                         handle, &properties2);
     IREE_LEAK_CHECK_DISABLE_POP();
+    const VkPhysicalDeviceExternalBufferInfo buffer_info = {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_BUFFER_INFO,
+        .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                 VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT,
+    };
+    VkExternalBufferProperties buffer_properties = {
+        .sType = VK_STRUCTURE_TYPE_EXTERNAL_BUFFER_PROPERTIES,
+    };
+    iree_vkGetPhysicalDeviceExternalBufferProperties(
+        IREE_VULKAN_INSTANCE(&instance->syms), handle, &buffer_info,
+        &buffer_properties);
+    const VkExternalMemoryFeatureFlags features =
+        buffer_properties.externalMemoryProperties.externalMemoryFeatures;
+    out_snapshot->host_allocation_importable =
+        iree_all_bits_set(features,
+                          VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT) &&
+        !iree_any_bit_set(features,
+                          VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT);
   }
   if (iree_status_is_ok(status) &&
       iree_hal_vulkan_physical_device_has_extension(

@@ -407,6 +407,7 @@ iree_cc_library(
     iree::base::core_headers
     iree::base::internal
     iree::base::internal::arena
+    iree::base::internal::memory
     iree::base::threading
     iree::base::threading::thread
     iree::hal
