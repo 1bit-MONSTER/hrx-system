@@ -92,50 +92,45 @@ kernel.def @repack() {
     scf.yield %selected_dim0$39, %selected_layout$40, %selected$41 : index, encoding<layout>, view<[%selected_dim0$39]x32xf32, %selected_layout$40>
   }
   %workitem_id_x = kernel.workitem.id<x> : index
-  %column = index.cast %workitem_id_x : index to i32
-  %49 = scalar.constant 0 : i32
-  %50 = index.cast %49 : i32 to index
-  %51 = scalar.extui %column : i32 to i64
-  %52 = index.cast %51 : i64 to index
-  %value = view.load %selected$46[%50, %52] : view<[%selected_dim0$44]x32xf32, %selected_layout$45> -> f32
-  %54 = scalar.constant 0 : i32
-  %55 = index.cast %54 : i32 to index
-  %56 = scalar.extui %column : i32 to i64
-  %57 = index.cast %56 : i64 to index
-  view.store %value, %destination[%55, %57] : f32, view<[%destination_dim0]x32xf32, %output_layout>
+  %48 = scalar.constant 0 : i32
+  %49 = index.cast %48 : i32 to index
+  %value = view.load %selected$46[%49, %workitem_id_x] : view<[%selected_dim0$44]x32xf32, %selected_layout$45> -> f32
+  %51 = scalar.constant 0 : i32
+  %52 = index.cast %51 : i32 to index
+  view.store %value, %destination[%52, %workitem_id_x] : f32, view<[%destination_dim0]x32xf32, %output_layout>
   kernel.return
 }
 
-func.def @suffix(%source_dim0: index, %source_layout: encoding<layout>, %source: view<[%source_dim0]x32xf32, %source_layout>, %first: i32, %remaining: i32) -> (%63: index, %64: encoding<layout>, view<[%63]x32xf32, %64>) {
-  %66 = scalar.extui %first : i32 to i64
-  %67 = scalar.constant 0 : i32
-  %68 = scalar.extsi %67 : i32 to i64
-  %69 = scalar.extui %remaining : i32 to i64
-  %70 = index.cast %69 : i64 to index
-  %71 = index.cast %66 : i64 to index
-  %72 = index.cast %68 : i64 to index
-  %73 = view.subview %source[%71, %72] : view<[%source_dim0]x32xf32, %source_layout> -> view<[%70]x32xf32, %source_layout>
-  func.return %70, %source_layout, %73 : index, encoding<layout>, view<[%70]x32xf32, %source_layout>
+func.def @suffix(%source_dim0: index, %source_layout: encoding<layout>, %source: view<[%source_dim0]x32xf32, %source_layout>, %first: i32, %remaining: i32) -> (%58: index, %59: encoding<layout>, view<[%58]x32xf32, %59>) {
+  %61 = scalar.extui %first : i32 to i64
+  %62 = scalar.constant 0 : i32
+  %63 = scalar.extsi %62 : i32 to i64
+  %64 = scalar.extui %remaining : i32 to i64
+  %65 = index.cast %64 : i64 to index
+  %66 = index.cast %61 : i64 to index
+  %67 = index.cast %63 : i64 to index
+  %68 = view.subview %source[%66, %67] : view<[%source_dim0]x32xf32, %source_layout> -> view<[%65]x32xf32, %source_layout>
+  func.return %65, %source_layout, %68 : index, encoding<layout>, view<[%65]x32xf32, %source_layout>
 }
 
-func.def @narrow(%source_dim0: index, %source_layout: encoding<layout>, %source: view<[%source_dim0]x32xf32, %source_layout>, %first: i32, %column: i32, %remaining: i32) -> (%80: index, %81: encoding<layout>, view<[%80]x16xf32, %81>) {
-  %83 = scalar.extui %first : i32 to i64
-  %84 = scalar.extui %column : i32 to i64
-  %85 = scalar.extui %remaining : i32 to i64
-  %86 = index.cast %85 : i64 to index
-  %87 = index.cast %83 : i64 to index
-  %88 = index.cast %84 : i64 to index
-  %89 = view.subview %source[%87, %88] : view<[%source_dim0]x32xf32, %source_layout> -> view<[%86]x16xf32, %source_layout>
-  func.return %86, %source_layout, %89 : index, encoding<layout>, view<[%86]x16xf32, %source_layout>
+func.def @narrow(%source_dim0: index, %source_layout: encoding<layout>, %source: view<[%source_dim0]x32xf32, %source_layout>, %first: i32, %column: i32, %remaining: i32) -> (%75: index, %76: encoding<layout>, view<[%75]x16xf32, %76>) {
+  %78 = scalar.extui %first : i32 to i64
+  %79 = scalar.extui %column : i32 to i64
+  %80 = scalar.extui %remaining : i32 to i64
+  %81 = index.cast %80 : i64 to index
+  %82 = index.cast %78 : i64 to index
+  %83 = index.cast %79 : i64 to index
+  %84 = view.subview %source[%82, %83] : view<[%source_dim0]x32xf32, %source_layout> -> view<[%81]x16xf32, %source_layout>
+  func.return %81, %source_layout, %84 : index, encoding<layout>, view<[%81]x16xf32, %source_layout>
 }
 
-func.def @choose(%use_right: i1, %left_dim0: index, %left_layout: encoding<layout>, %left: view<[%left_dim0]x32xf32, %left_layout>, %right_dim0: index, %right_layout: encoding<layout>, %right: view<[%right_dim0]x32xf32, %right_layout>) -> (%97: index, %98: encoding<layout>, view<[%97]x32xf32, %98>) {
-  %100, %101, %102 = scf.if %use_right -> (index, encoding<layout>, view<[%100]x32xf32, %101>) {
+func.def @choose(%use_right: i1, %left_dim0: index, %left_layout: encoding<layout>, %left: view<[%left_dim0]x32xf32, %left_layout>, %right_dim0: index, %right_layout: encoding<layout>, %right: view<[%right_dim0]x32xf32, %right_layout>) -> (%92: index, %93: encoding<layout>, view<[%92]x32xf32, %93>) {
+  %95, %96, %97 = scf.if %use_right -> (index, encoding<layout>, view<[%95]x32xf32, %96>) {
     scf.yield %right_dim0, %right_layout, %right : index, encoding<layout>, view<[%right_dim0]x32xf32, %right_layout>
   } else {
     scf.yield %left_dim0, %left_layout, %left : index, encoding<layout>, view<[%left_dim0]x32xf32, %left_layout>
   }
-  func.return %100, %101, %102 : index, encoding<layout>, view<[%100]x32xf32, %101>
+  func.return %95, %96, %97 : index, encoding<layout>, view<[%95]x32xf32, %96>
 }
 
 // ====

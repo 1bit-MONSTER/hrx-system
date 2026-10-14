@@ -122,3 +122,56 @@ func.def device inline @exchange(%value: f32) -> (f32) {
   %50, %51 = kernel.subgroup.shuffle<xor> %value, %48, %49 : f32, i32, i32
   func.return %50 : f32
 }
+
+// ====
+// Auto-deduced topology coordinates retain Loom's index identity while normal
+// C++ and HIP expressions cross the existing unsigned boundary.
+#include <hip/hip_runtime.h>
+#include <loomcxx/predicate.h>
+
+[[loom::kernel, loom::workgroup_size(4, 1, 1), loom::workgroup_count(1, 1, 1)]]
+void topology_identity(unsigned* output) {
+  auto coordinate = loom::kernel::workitem::id.x;
+  loom::assume(loom::predicate::range(coordinate, 0, 3));
+  unsigned lane = coordinate;
+  unsigned values[4];
+  values[coordinate] = lane;
+  unsigned hip_coordinate = threadIdx.x + blockIdx.x;
+  output[coordinate] = values[coordinate] + hip_coordinate;
+  auto logical = static_cast<loom::type::index>(coordinate);
+  auto shifted = logical + loom::type::index{0};
+  auto output_view = loom::buffer::view<4>(output, {}, loom::encoding::layout::dense<1>());
+  loom::view::store(lane, output_view, shifted);
+}
+
+// ----
+kernel.def @topology_identity() {
+  %1 = index.constant 1 : index
+  %4 = index.constant 4 : index
+  kernel.launch.config workgroups(%1, %1, %1) workgroup_size(%4, %1, %1) : index
+} launch(%output: buffer) {
+  %output_byte_offset = index.constant 0 : offset
+  %workitem_id_x = kernel.workitem.id<x> : index
+  %coordinate = index.assume %workitem_id_x [range(%workitem_id_x, 0, 3)] : index
+  %lane = index.cast %coordinate : index to i32
+  %11 = index.constant 16 : offset
+  %values_storage = buffer.alloca<private> align(4) %11 : buffer
+  %values_view = buffer.view %values_storage[%output_byte_offset] : buffer -> view<4xi32>
+  %16 = scalar.extui %lane : i32 to i64
+  %17 = scalar.assume %16 [range(%16, 0, 3)] : i64
+  %18 = index.cast %17 : i64 to index
+  view.store %lane, %values_view[%18] : i32, view<4xi32>
+  %20 = index.cast %workitem_id_x : index to i32
+  %28 = view.load %values_view[%18] : view<4xi32> -> i32
+  %50 = scalar.addi %20, %28 : i32
+  %47 = scalar.constant 2 : i32
+  %48 = scalar.shli %lane, %47 : i32
+  %49 = scalar.extui %48 : i32 to i64
+  %36 = scalar.assume %49 [range(%49, 0, 9223372036854775807)] : i64
+  %37 = index.cast %36 : i64 to offset
+  %38 = buffer.view %output[%37] : buffer -> view<1xi32>
+  view.store %50, %38[0] : i32, view<1xi32>
+  %output_view = buffer.view %output[%output_byte_offset] : buffer -> view<4xi32>
+  view.store %lane, %output_view[%coordinate] : i32, view<4xi32>
+  kernel.return
+}

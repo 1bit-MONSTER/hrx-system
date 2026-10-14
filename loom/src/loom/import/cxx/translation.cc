@@ -1339,7 +1339,18 @@ class Translator final : private Initialization::Evaluation {
       loom_op_t* op;
       auto coordinate = loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
       check(topology_build(&builder_, dimension, coordinate, source, &op));
-      auto value = name(result(op), std::string(topology_name) + "_" + axis);
+      auto raw_value = loom_op_results(op)[0];
+      const auto& partition = types_.partition(ast->type, ast);
+      if (partition.kind == ValueKind::Address) {
+        const auto& address = static_cast<const AddressPartition&>(partition);
+        if (address.element_type != LOOM_SCALAR_TYPE_INDEX) {
+          fail(ast, "kernel topology requires the Loom index domain");
+        }
+        std::array<loom_value_id_t, 1> components = {raw_value};
+        return name(value_arena_.capture(partition, components),
+                    std::string(topology_name) + "_" + axis);
+      }
+      auto value = name(raw_value, std::string(topology_name) + "_" + axis);
       check(loom_index_cast_build(&builder_, value, coordinate,
                                   types_.get(ast->type, ast), source, &op));
       return result(op);
