@@ -775,9 +775,9 @@ lifetime][linux-aie2-trace-query], [AIE4 query lifetime][linux-aie4-trace-query]
 
 ### Automatic firmware events
 
-The public Strix event schema describes the following pairs and instantaneous
-events. These identify firmware operations, not arbitrary regions inside a
-resident tile program. [Event schema][firmware-trace-events]
+The public Strix format 1.0 schema describes the following pairs and
+instantaneous events. These identify firmware operations, not arbitrary regions
+inside a resident tile program. [Event schema][firmware-trace-events]
 
 | Events | Attribution in the event payload |
 | --- | --- |
@@ -788,10 +788,14 @@ resident tile program. [Event schema][firmware-trace-events]
 | `L2SAVE_START`, `L2SAVE_DONE`, `L2RESTORE_START`, `L2RESTORE_DONE` | Context ID. |
 | `GATE_AIE2_CLKS`, `UNGATE_AIE2_CLKS`, `POWER_OFF_ONO`, `POWER_ON_ONO` | First column and column count. |
 
-The Strix decoder reads a 64-bit timestamp followed by a 64-bit word whose
-upper 16 bits identify the event and lower 48 bits carry its arguments. It
-prints the timestamp unchanged. This representation does not establish a
-nanosecond scale or a relation to the shim timer used by `RECORD_TIMER`.
+The Strix decoder reads an event payload containing a 64-bit timestamp followed
+by a 64-bit word whose upper 16 bits identify the event and lower 48 bits carry
+its arguments. Entry headers and footers are separate: XRT takes their sizes
+from the device's schema and skips them around each payload. The 16-byte
+payload is therefore not a universal complete-record size. The decoder prints
+the timestamp unchanged. This representation does not establish a nanosecond
+scale or a relation to the shim timer used by `RECORD_TIMER`.
+[Entry framing][xrt-fw-trace-framing],
 [Record decoder][xrt-fw-trace-records], [timestamp formatting][xrt-fw-trace-format]
 
 Application-message records contain no submission sequence or caller marker.
@@ -814,11 +818,13 @@ returned cursor minus returned bytes exposes that skipped byte extent.
 [Buffer and footer][linux-dpt-layout], [cursor and copy implementation][linux-dpt-ring]
 
 That cursor gap is not a count of logical dispatches or events lost inside
-firmware. The Strix schema supplies no event sequence field, and the cited
-decoder's local sequence increments while parsing; it supplies no independent
-loss evidence. The driver's copy reads a cached tail once and does not pin the
-producer or recheck its tail after copying. The implementation therefore does
-not establish a stable snapshot when a producer can overwrite the copied
+firmware. The format 1.0 event-argument schema supplies no event sequence field,
+and the cited decoder's local sequence increments while parsing; it supplies
+no independent loss evidence. A record header or footer's sequence and
+publication semantics depend on its own format revision, separately from these
+event arguments. The driver's copy reads a cached tail once and does not pin
+the producer or recheck its tail after copying. The implementation therefore
+does not establish a stable snapshot when a producer can overwrite the copied
 region during the read. [Decoder sequence][xrt-fw-trace-records],
 [ring copy][linux-dpt-ring]
 
@@ -895,6 +901,7 @@ region during the read. [Decoder sequence][xrt-fw-trace-records],
 [linux-fw-trace-features]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/npu4_regs.c#L94-L109
 [firmware-trace-events]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/tools/bins/configs/trace_events.json
 [xrt-fw-trace-records]: https://github.com/Xilinx/XRT/blob/5a97d152f6dd93709406e8d7c0eac8bc8407f9f2/src/runtime_src/core/tools/xbutil2/EventTracing/EventTraceStrix.cpp#L231-L338
+[xrt-fw-trace-framing]: https://github.com/Xilinx/XRT/blob/15e6319be8de1e76a6150111a3861729e988fdb5/src/runtime_src/core/tools/xbutil2/EventTracing/EventTraceStrix.cpp#L308-L338
 [xrt-fw-trace-format]: https://github.com/Xilinx/XRT/blob/5a97d152f6dd93709406e8d7c0eac8bc8407f9f2/src/runtime_src/core/tools/xbutil2/EventTracing/EventTraceBase.cpp#L154-L167
 [linux-dpt-layout]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_dpt.h#L42-L96
 [linux-dpt-ring]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_dpt.c#L208-L321
