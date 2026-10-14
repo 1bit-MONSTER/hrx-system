@@ -820,6 +820,28 @@ TEST_P(SourceEmbeddingServiceTest, UploadedPolicyPreparesServerLocalWeights) {
   const auto response = Read(Send(R"({"model":"weighted","input":"a"})"));
   EXPECT_NE(response.find(R"("embedding":[2,2,2,2])"), std::string::npos)
       << response << ModelStatus("weighted");
+  // A model unregister joins accepted compiler borrowers even after the
+  // staging response and uploaded source package have left the client.
+  const uint64_t base = Number(Read(Send({}, "/v1/models/variants", "GET",
+                                         "X-Loom-Model: weighted\r\n")),
+                               "selected");
+  {
+    loom_serve::testing::SourcePackage package;
+    for (const char* file : {"config.loom", "embed.loom", "weights.loom"}) {
+      IREE_ASSERT_OK(package.AddFile(std::string("model/") + file,
+                                     directory + "/" + file));
+    }
+    int client = -1;
+    IREE_ASSERT_OK(http_.Send(
+        package.Request(
+            "/v1/models/variants",
+            "{\"model\":\"weighted\",\"base\":" + std::to_string(base) +
+                ",\"sources\":[\"config.loom\",\"embed.loom\",\"weights.loom\"]"
+                ",\"wait\":false}"),
+        &client));
+    const auto accepted = Read(client);
+    ASSERT_EQ(accepted.find("HTTP/1.1 202"), 0u) << accepted;
+  }
   ASSERT_EQ(Read(Send(R"({"model":"weighted"})", "/v1/models/unregister"))
                 .find("HTTP/1.1 202"),
             0u);

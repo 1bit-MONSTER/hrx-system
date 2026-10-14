@@ -17,10 +17,12 @@
 
 #include "iree/async/proactor.h"
 #include "iree/base/internal/base64.h"
+#include "iree/base/internal/json.h"
 #include "iree/base/tooling/flags.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "iree/testing/temp_file.h"
+#include "loom/serve/runtime/program/variant_pool.h"
 #include "loom/serve/server/model_registration.h"
 #include "loom/serve/server/router.h"
 #include "loom/serve/service/image/model.h"
@@ -90,6 +92,7 @@ class SourceImageServiceTest
           .width = kWidth,
           .height = kHeight,
           .pending_capacity = 8,
+          .variant_capacity = 16,
           .heartbeat_interval = 0,
       };
       loom_serve_image_service_t* service = nullptr;
@@ -240,6 +243,33 @@ class SourceImageServiceTest
     return encoded;
   }
 
+  static uint64_t Number(const std::string& response, const char* field,
+                         const char* object = nullptr) {
+    uint64_t result = 0;
+    [&] {
+      const auto start = response.find("\r\n\r\n");
+      ASSERT_NE(start, std::string::npos) << response;
+      auto value = iree_make_string_view(response.data() + start + 4,
+                                         response.size() - start - 4);
+      if (object) {
+        IREE_ASSERT_OK(iree_json_lookup_object_value(
+            value, iree_make_cstring_view(object), &value));
+      }
+      IREE_ASSERT_OK(iree_json_lookup_object_value(
+          value, iree_make_cstring_view(field), &value));
+      IREE_ASSERT_OK(iree_json_parse_uint64(value, &result));
+    }();
+    return result;
+  }
+
+  std::string SelectVariant(uint64_t variant, uint64_t expected,
+                            const char* name = "fixture-image") {
+    return Read(Send("POST", "/v1/models/variants/select",
+                     "{\"model\":\"" + std::string(name) +
+                         "\",\"variant\":" + std::to_string(variant) +
+                         ",\"expected\":" + std::to_string(expected) + "}"));
+  }
+
   void CheckAbandonedImage(loom_serve_http_service_flags_t flags) {
     ASSERT_NO_FATAL_FAILURE(CreateStandaloneModel());
     const loom_serve_image_service_options_t options = {
@@ -364,6 +394,191 @@ class SourceImageServiceTest
   loom_serve::testing::HttpHarness http_;
 };
 
+TEST_P(SourceImageServiceTest,
+       UploadedExecutionChangesPartsAndPixelsWithoutRelinking) {
+  ASSERT_NO_FATAL_FAILURE(CreateStandaloneModel());
+  IREE_ASSERT_OK(loom_serve_image_model_activate(model_));
+  const auto weights = loom_serve_image_model_weight_activity(model_);
+  Start();
+  const auto inventory = Read(Send("GET", "/v1/models/variants", {},
+                                   "X-Loom-Model: fixture-image\r\n"));
+  ASSERT_EQ(inventory.find("HTTP/1.1 200"), 0u) << inventory;
+  const uint64_t original = Number(inventory, "selected");
+  const std::string request =
+      R"({"model":"fixture-image","prompt":"aba","seed":1})";
+  auto generate = [&](uint64_t seed) {
+    const auto response = Read(Send("POST", "/v1/images/generations", request));
+    EXPECT_EQ(response.find("HTTP/1.1 200"), 0u) << response;
+    EXPECT_NE(response.find("\"b64_json\":\"" + EncodedPixels(3, seed) + "\""),
+              std::string::npos)
+        << response;
+  };
+  generate(1);
+  std::ifstream input(directory_ + "/generate.loom");
+  ASSERT_TRUE(input.good());
+  std::string source((std::istreambuf_iterator<char>(input)), {});
+  const std::string red = "scf.select %odd_seed, %high, %low";
+  const auto red_position = source.find(red);
+  ASSERT_NE(red_position, std::string::npos);
+  source.replace(red_position, red.size(), "scf.select %odd_seed, %low, %high");
+  const std::string launch = "  kernel.launch @pixels(%colors, %rgb)";
+  const auto launch_position = source.find(launch);
+  ASSERT_NE(launch_position, std::string::npos);
+  // A second producer is a third barrier wave under command_quantum=1. The
+  // replacement table must grow, while the retained source VM sees new counts.
+  source.insert(
+      launch_position,
+      "  kernel.launch @colors(%request, %colors) : (buffer, buffer)\n");
+  const std::string allocation = "index.constant 8 : offset";
+  const auto allocation_position = source.find(allocation);
+  ASSERT_NE(allocation_position, std::string::npos);
+  source.replace(allocation_position, allocation.size(),
+                 "index.constant 4160 : offset");
+  loom_serve::testing::SourcePackage package;
+  package.Add("model/generate.loom", source);
+  IREE_ASSERT_OK(
+      package.AddFile("model/config.loom", directory_ + "/config.loom"));
+  int client = -1;
+  IREE_ASSERT_OK(http_.Send(
+      package.Request(
+          "/v1/models/variants",
+          "{\"model\":\"fixture-image\",\"base\":" + std::to_string(original) +
+              ",\"sources\":[\"config.loom\",\"generate.loom\"],\"wait\":"
+              "true}"),
+      &client));
+  const auto staged = Read(client);
+  ASSERT_EQ(staged.find("HTTP/1.1 200"), 0u) << staged;
+  const uint64_t candidate = Number(staged, "id", "variant");
+  EXPECT_EQ(Number(staged, "selected"), original);
+  generate(1);
+  const auto selected = SelectVariant(candidate, original);
+  ASSERT_EQ(selected.find("HTTP/1.1 200"), 0u) << selected;
+  generate(0);
+  EXPECT_EQ(SelectVariant(original, original).find("HTTP/1.1 409"), 0u);
+  ASSERT_EQ(SelectVariant(original, candidate).find("HTTP/1.1 200"), 0u);
+  generate(1);
+  const auto metrics = Read(Send("GET", "/metrics"));
+  const std::string batches = "\nloom_serve_server_batches_total ";
+  const auto position = metrics.find(batches);
+  ASSERT_NE(position, std::string::npos) << metrics;
+  EXPECT_EQ(std::stoull(metrics.substr(position + batches.size())),
+            std::get<1>(GetParam()) ? 9u : 4u);
+  loom_serve::testing::SourcePackage broken;
+  broken.Add("model/generate.loom", "not a Loom program");
+  IREE_ASSERT_OK(http_.Send(
+      broken.Request(
+          "/v1/models/variants",
+          "{\"model\":\"fixture-image\",\"base\":" + std::to_string(original) +
+              ",\"sources\":[\"generate.loom\"],\"wait\":true}"),
+      &client));
+  const auto failed = Read(client);
+  EXPECT_EQ(failed.find("HTTP/1.1 422"), 0u) << failed;
+  EXPECT_EQ(Number(failed, "selected"), original);
+  generate(1);
+  loom_serve_http_server_request_stop(server_);
+  IREE_ASSERT_OK(http_.Join());
+  const auto retained = loom_serve_image_model_weight_activity(model_);
+  EXPECT_EQ(retained.read_bytes, weights.read_bytes);
+  EXPECT_EQ(retained.prepared_bytes, weights.prepared_bytes);
+  EXPECT_EQ(retained.activations, weights.activations);
+}
+
+TEST_P(SourceImageServiceTest, SelectionWaitsForWholeImageAndEncoderRelease) {
+  ASSERT_NO_FATAL_FAILURE(CreateStandaloneModel());
+  const loom_serve_image_service_options_t options = {
+      .name = loom_serve_image_model_name(model_),
+      .width = kWidth,
+      .height = kHeight,
+      .pending_capacity = 8,
+      .variant_capacity = 4,
+  };
+  loom_serve_image_service_t* value = nullptr;
+  IREE_ASSERT_OK(loom_serve_image_service_allocate(
+      host_, loom_serve_image_model_generator(model_), &options, nullptr,
+      host_allocator_, &value));
+  std::unique_ptr<loom_serve_image_service_t,
+                  decltype(&loom_serve_image_service_free)>
+      service(value, loom_serve_image_service_free);
+  const auto interface = loom_serve_image_service_interface(value);
+  auto* notification = loom_serve_http_server_notification(server_);
+  interface.set_observer(interface.self,
+                         {[](void* self) {
+                            iree_notification_post(
+                                static_cast<iree_notification_t*>(self),
+                                IREE_ALL_WAITERS);
+                          },
+                          notification});
+  auto advance_until = [&](auto ready) {
+    while (!ready()) {
+      const auto ticket = iree_notification_prepare_wait(notification);
+      bool progress = false;
+      IREE_ASSERT_OK(interface.advance(interface.self, 0, &progress));
+      if (ready() || progress) {
+        iree_notification_cancel_wait(notification);
+      } else {
+        iree_notification_commit_wait(notification, ticket, IREE_DURATION_ZERO,
+                                      IREE_TIME_INFINITE_FUTURE);
+      }
+    }
+  };
+  loom_serve::testing::ModelDocument document;
+  IREE_ASSERT_OK(document.Load(directory_ + "/model.json"));
+  auto sources = document.value().sources;
+  sources.prepare = {};
+  sources.control = {};
+  const auto& configuration = interface.reconfiguration;
+  const auto original = configuration.selected(configuration.self);
+  loom_serve_variant_id_t candidate = 0;
+  IREE_ASSERT_OK(configuration.stage_native(configuration.self, original,
+                                            &sources, &candidate));
+  loom_serve_variant_snapshot_t snapshot;
+  ASSERT_NO_FATAL_FAILURE(advance_until([&] {
+    return loom_serve_variant_pool_snapshot(configuration.pool, candidate,
+                                            &snapshot) &&
+           snapshot.phase != LOOM_SERVE_VARIANT_COMPILING;
+  }));
+  ASSERT_EQ(snapshot.phase, LOOM_SERVE_VARIANT_READY)
+      << std::string(snapshot.message.data ? snapshot.message.data : "",
+                     snapshot.message.size);
+  const int client =
+      Send("POST", "/v1/images/generations",
+           R"({"model":"fixture-image","prompt":"aba","seed":1})");
+  loom_serve_http_connection_t* connection = nullptr;
+  const loom_serve_http_request_t* request = nullptr;
+  IREE_ASSERT_OK(http_.TakeRequest(client, &connection, &request));
+  IREE_ASSERT_OK(interface.accept(interface.self, connection, request, 0));
+  ASSERT_NO_FATAL_FAILURE(advance_until([&] {
+    return std::string(interface.snapshot(interface.self).phase) ==
+           "generating";
+  }));
+  struct Selection {
+    // Borrowed live service, accessed only on this serialized owner.
+    const loom_serve_http_service_t* interface;
+    // Terminal selection publication after the entire invocation retires.
+    bool complete;
+  } selection{&interface, false};
+  IREE_ASSERT_OK(configuration.select(
+      configuration.self, candidate, original,
+      [](void* user_data, iree_status_t status,
+         loom_serve_variant_id_t selected) {
+        auto* selection = static_cast<Selection*>(user_data);
+        IREE_EXPECT_OK(status);
+        const auto* interface = selection->interface;
+        EXPECT_STREQ(interface->snapshot(interface->self).phase, "idle");
+        EXPECT_EQ(interface->telemetry.counters->completed, 1u);
+        selection->complete = true;
+      },
+      &selection));
+  EXPECT_FALSE(selection.complete);
+  ASSERT_NO_FATAL_FAILURE(advance_until([&] { return selection.complete; }));
+  EXPECT_EQ(configuration.selected(configuration.self), candidate);
+  EXPECT_NE(Read(client).find("\"b64_json\":\"" + EncodedPixels(3, 1) + "\""),
+            std::string::npos);
+  EXPECT_EQ(interface.telemetry.counters->batches,
+            std::get<1>(GetParam()) ? 2u : 1u);
+  interface.set_observer(interface.self, {});
+}
+
 TEST_P(SourceImageServiceTest, SourcePixelsAndHttpPngPreserveRequestIdentity) {
   ASSERT_NO_FATAL_FAILURE(CreateStandaloneModel());
   loom_serve_image_prepared_t prepared;
@@ -391,7 +606,7 @@ TEST_P(SourceImageServiceTest, SourcePixelsAndHttpPngPreserveRequestIdentity) {
   EXPECT_NE(
       Read(Send("GET", "/v1/models"))
           .find(
-              R"("input_modalities":["text"],"output_modalities":["image"],"loom":{"kind":"image","endpoint":"/v1/images/generations","tokenize":true}})"),
+              R"("input_modalities":["text"],"output_modalities":["image"],"loom":{"kind":"image","endpoint":"/v1/images/generations","tokenize":true,"variants":)"),
       std::string::npos);
   EXPECT_NE(
       Read(Send("GET", "/v1/status"))
@@ -682,6 +897,29 @@ TEST_P(SourceImageServiceTest, UploadedImageRegistrationProducesExactPixels) {
   EXPECT_NE(response.find("\"b64_json\":\"" + EncodedPixels(3, 1) + "\""),
             std::string::npos)
       << response;
+  // Registration retirement also joins accepted, detached compilation, not
+  // just the last image's device timeline. Uploaded providers outlive this
+  // request and are released before the model's parameter roots.
+  const uint64_t base = Number(
+      Read(Send("GET", "/v1/models/variants", {}, "X-Loom-Model: pixels\r\n")),
+      "selected");
+  {
+    loom_serve::testing::SourcePackage package;
+    for (const char* file : {"config.loom", "generate.loom"}) {
+      IREE_ASSERT_OK(package.AddFile(std::string("model/") + file,
+                                     directory_ + "/" + file));
+    }
+    int client = -1;
+    IREE_ASSERT_OK(http_.Send(
+        package.Request(
+            "/v1/models/variants",
+            "{\"model\":\"pixels\",\"base\":" + std::to_string(base) +
+                ",\"sources\":[\"config.loom\",\"generate.loom\"],\"wait\":"
+                "false}"),
+        &client));
+    const auto accepted = Read(client);
+    ASSERT_EQ(accepted.find("HTTP/1.1 202"), 0u) << accepted;
+  }
   ASSERT_EQ(Read(Send("POST", "/v1/models/unregister", R"({"model":"pixels"})"))
                 .find("HTTP/1.1 202"),
             0u);

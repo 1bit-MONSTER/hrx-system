@@ -76,8 +76,10 @@ iree_status_t loom_serve_module_create(const iree_hal_module_types_t* types,
 
 // Rebinds the native stages of a module created above without changing its VM
 // declarations, process storage, feedback destinations or execution timeline.
-// The count and each stage's model-buffer arity must match the original table.
-// Commands, direct executables and private workspace requirements may change.
+// The nonempty table may grow or shrink; each stage's model-buffer arity must
+// fit the original binding capacity. Commands, direct executables and private
+// workspace requirements may change. The owner updates source stage indices
+// together with the table, never midway through an invocation using them.
 // All validation and workspace reservation precede publication. Failure leaves
 // the previous bindings usable; success retains the new commands/executables.
 // Accepted queue work retains its previous resources independently.

@@ -6,8 +6,6 @@
 
 #include "loom/serve/service/execution_reconfiguration.h"
 
-#include <string.h>
-
 struct loom_serve_execution_reconfiguration_t {
   // Allocator owning this policy and captured native-provider locators.
   iree_allocator_t host_allocator;
@@ -38,7 +36,9 @@ typedef struct loom_serve_execution_reconfiguration_job_t {
   iree_allocator_t host_allocator;
   // Stable pending entry, published only after the job relinquishes inputs.
   loom_serve_variant_entry_t* entry;
-  // Owned native-provider locators and retained package, independent of HTTP.
+  // Owned provider locators, filesystem base and retained package, independent
+  // of HTTP. Resolution stays with the source reader so relative file bases
+  // and package namespaces keep their original meaning.
   loom_serve_sources_t sources;
 } loom_serve_execution_reconfiguration_job_t;
 
@@ -49,6 +49,8 @@ static void loom_serve_execution_reconfiguration_job_free(
                         (void*)job->sources.values[i].data);
   }
   iree_allocator_free(job->host_allocator, (void*)job->sources.values);
+  iree_allocator_free(job->host_allocator,
+                      (void*)job->sources.base_directory.data);
   loom_serve_package_release(job->sources.package);
   iree_allocator_free(job->host_allocator, job);
 }
@@ -88,24 +90,27 @@ static iree_status_t loom_serve_execution_reconfiguration_stage(
   if (iree_status_is_ok(status)) {
     job->sources.count = sources->count;
   }
+  if (iree_status_is_ok(status) && sources->base_directory.size) {
+    status = iree_allocator_clone(
+        job->host_allocator,
+        iree_make_const_byte_span(sources->base_directory.data,
+                                  sources->base_directory.size),
+        (void**)&job->sources.base_directory.data);
+    if (iree_status_is_ok(status)) {
+      job->sources.base_directory.size = sources->base_directory.size;
+    }
+  }
   for (iree_host_size_t i = 0;
        i < job->sources.count && iree_status_is_ok(status); ++i) {
     char* path = NULL;
-    if (sources->package && !loom_serve_path_is_absolute(sources->values[i])) {
-      status = iree_allocator_malloc(
-          job->host_allocator, sources->values[i].size + 1, (void**)&path);
-      if (iree_status_is_ok(status)) {
-        memcpy(path, sources->values[i].data, sources->values[i].size);
-        path[sources->values[i].size] = 0;
-      }
-    } else {
-      status =
-          loom_serve_path_resolve(sources->base_directory, sources->values[i],
-                                  job->host_allocator, &path);
-    }
+    status =
+        iree_allocator_clone(job->host_allocator,
+                             iree_make_const_byte_span(sources->values[i].data,
+                                                       sources->values[i].size),
+                             (void**)&path);
     if (iree_status_is_ok(status)) {
       ((iree_string_view_t*)job->sources.values)[i] =
-          iree_make_cstring_view(path);
+          iree_make_string_view(path, sources->values[i].size);
     }
   }
   if (iree_status_is_ok(status)) {

@@ -260,6 +260,7 @@ static iree_status_t loom_serve_image_registration_prepare(
         .height = configuration->image.height,
         .adapter_enabled = configuration->image.adapter.size != 0,
         .pending_capacity = configuration->pending_requests,
+        .variant_capacity = configuration->variant_capacity,
         .heartbeat_interval = registration->options->heartbeat_interval};
     status = loom_serve_image_service_allocate(
         loom_serve_device_host(registration->device),

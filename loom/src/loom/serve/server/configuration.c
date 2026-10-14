@@ -307,11 +307,8 @@ static iree_status_t loom_serve_model_configuration_definition_parse(
                                       IREE_JSON_VALUE_TYPE_NUMBER,
                                       .kinds =
                                           (1u << LOOM_SERVE_MODEL_KIND_IMAGE)},
-      [DEFINITION_VARIANT_CAPACITY] = {
-          "variant_capacity", IREE_JSON_VALUE_TYPE_NUMBER,
-          .kinds = (1u << LOOM_SERVE_MODEL_KIND_TEXT) |
-                   (1u << LOOM_SERVE_MODEL_KIND_EMBEDDING) |
-                   (1u << LOOM_SERVE_MODEL_KIND_DECISION)}};
+      [DEFINITION_VARIANT_CAPACITY] = {"variant_capacity",
+                                       IREE_JSON_VALUE_TYPE_NUMBER}};
   configuration_fields_t context = {IREE_ARRAYSIZE(fields), fields};
   IREE_RETURN_IF_ERROR(iree_json_enumerate_object_typed(
       value, loom_serve_model_configuration_field_visit, &context));

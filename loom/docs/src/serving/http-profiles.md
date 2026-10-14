@@ -46,9 +46,10 @@ specifies model selection, cursors, SSE resume and inspection pagination.
 
 A prepared service supporting native updates reports
 `loom.variants:{"selected":12,"count":2}` in model discovery and status.
-The text service enables this capability through nonzero `variant_capacity`.
-Other modalities without the capability return 501. A registration must have a
-healthy prepared service; drained admission is permitted, removal is not.
+Text, image, embedding and decision services enable this capability through
+nonzero `variant_capacity`. Disabled or custom services without the capability
+return 501. A registration must have a healthy prepared service; drained
+admission is permitted, removal is not.
 
 `GET /v1/models/variants` requires `X-Loom-Model: scout` and an empty body.
 It returns `object:"list"`, `model`, `selected`, `count`, `offset`, `data` and
@@ -86,6 +87,17 @@ completes at the service's safe execution boundary and returns
 candidate or candidate from another registration rejects without switching.
 Selection failure leaves the previous preference intact. Query inventory after
 an error or interrupted connection to inspect the actual preference.
+
+Execution replacement preserves preparation/control VM programs, stage
+declarations and specialization values, parameter placement, and retained state.
+It can replace command programs and their reachable kernels, or direct-dispatch
+implementations including resident pipelines. It does not rerun weight
+preparation. Text selects between retired epochs; embedding and decision
+services select outside their active cohort; image services finish the whole
+image and CPU encoder before selection. Prepared but unsubmitted work may use
+the new execution because its request/result layout is unchanged. Image command
+part counts and transient requirements may change without relinking the control
+VM. Changing preserved model contracts requires a new registration.
 
 Removal accepts `{"model":"scout","variant":12}` and returns `{"removed":12}`.
 Compiling or consumer-retained entries cannot be removed. Missing entries return

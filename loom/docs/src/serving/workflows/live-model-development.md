@@ -1,10 +1,13 @@
 # Develop models on a live server
 
-`loom-serve` can JIT new command programs and kernels while retaining a text
-model's weights and conversation state. An author can check and benchmark a
-change, upload it from another machine, compare continuations from one pinned
-checkpoint, and select or roll back the executable without restarting the
-server. The client needs HTTP access, not write access to the server filesystem.
+`loom-serve` can JIT new execution programs while retaining a model's weights
+and state. An author can check and benchmark a change, upload it from another
+machine, compare outputs, and select or roll back the executable without
+restarting the server. This works for text, image, embedding and decision
+services, including command programs, their kernels and direct-dispatch
+implementations. The client needs HTTP access, not write access to the server
+filesystem. The text example below compares continuations from one pinned
+checkpoint; finite requests use the same staging and selection endpoints.
 
 This is the serving half of [agent-driven kernel development](../../workflows/agent-driven-kernel-development.md).
 Kernel checks establish numerical behavior; compiler reports explain the
@@ -21,14 +24,18 @@ a text deployment named `scout`; its package has `prepare.loom`, `control.loom`,
 `weights.loom`, `tokenizer.json` and two native providers, `config.loom` and
 `advance.loombc`. Substitute your package's complete file list and paths.
 
-Source uploads work for all serving modalities. Live native selection is a
-capability of the text service: prepared deployments advertise `loom.variants`.
+Source uploads and live native selection work across these serving modalities:
+prepared deployments advertise `loom.variants` when enabled.
 It preserves preparation declarations, the stage/shape catalog, control VM,
 tokenizer, parameter interpretation and retained-state layout. The author
 asserts compatibility; binding checks do not prove mathematical equivalence.
 Changes to those preserved contracts require a new registration, not a native
 variant. A compatible optimization can change instructions, traversal, fusion
-or scratch requirements within the existing stage binding contract.
+or scratch requirements within the existing stage binding contract. An image
+candidate can also change the number of command submission parts without
+replacing the control VM. Each image keeps one execution choice through its
+last part and CPU encoding; finite-vector cohorts likewise finish before
+selection. Prepared but unsubmitted requests can use the new choice.
 
 In the model document, set `name` to `scout`,
 `definition.checkpoint_capacity` to at least one and
@@ -215,7 +222,9 @@ Selection is model-wide. Subsequent epochs, including those of already-admitted
 requests, may use the new code. Coordinate with other authors and isolate the
 evaluation workload; there is no request-local variant selector here. A
 selection response completes at a safe execution boundary, without reloading
-weights or copying KV state.
+weights or copying KV state. The epoch boundary described here is specific to
+text; image and finite-vector services use the whole-invocation boundaries
+described above.
 
 In a Bash session, these helpers retain complete responses and use
 expected-current protection on each selection:
@@ -281,6 +290,15 @@ a header or role-only event; it is not automatically token TTFT. Rejected draft
 tokens are work but not useful output. A cached checkpoint comparison measures
 continuation behavior, so separate fresh-session trials are needed to establish
 prefill gains.
+
+For images, replay identical prompts, seeds, dimensions, step counts and adapter
+settings against each choice. Compare decoded pixels or a stated image-quality
+criterion, not response IDs or timestamps. Include output encoding in end-to-end
+latency. For embeddings and decisions, replay the same inputs and batching
+conditions and compare returned vectors or decisions under the model's numerical
+tolerance. Report both completion latency and aggregate useful outputs per
+second. These finite requests need no conversation checkpoint; the retained
+weights and unchanged request contract provide their common starting point.
 
 The [observation workflow](observe-model-server.md) connects client results to
 `/logz/stream`, counters, epoch packing and memory accounting. Comparing

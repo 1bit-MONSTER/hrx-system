@@ -598,6 +598,10 @@ TEST_P(JitTest, RebindingChangesWorkspaceWithoutRelinkingVm) {
                           loom_serve_module_bind_stages(native_, 0, nullptr));
     if (i) {
       const loom_serve_stage_t replacement = {commands_[i], 1, transients_[i]};
+      const loom_serve_stage_t expanded[] = {replacement, replacement,
+                                             replacement};
+      IREE_ASSERT_OK(loom_serve_module_bind_stages(
+          native_, IREE_ARRAYSIZE(expanded), expanded));
       IREE_ASSERT_OK(loom_serve_module_bind_stages(native_, 1, &replacement));
     }
     iree_vm_variant_t arguments[] = {

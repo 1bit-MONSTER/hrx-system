@@ -295,12 +295,13 @@ TEST_F(ConfigurationTest, ImageDefaultsAndSpecializations) {
   EXPECT_EQ(model_.pending_requests, 3u);
 }
 
-TEST_F(ConfigurationTest, VariantCapacityAppliesToTextAndFiniteServices) {
+TEST_F(ConfigurationTest, VariantCapacityAppliesToEveryService) {
   for (unsigned capacity : {0u, 1u, 8u}) {
     const auto field = ",\"variant_capacity\":" + std::to_string(capacity);
     IREE_ASSERT_OK(Parse(Text(field)));
     EXPECT_EQ(model_.variant_capacity, capacity);
-    IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT, Parse(Image(field)));
+    IREE_ASSERT_OK(Parse(Image(field)));
+    EXPECT_EQ(model_.variant_capacity, capacity);
     for (const char* kind : {"embedding", "decision"}) {
       IREE_ASSERT_OK(Parse(Document(kind, R"(,"assets":".")" + field)));
       EXPECT_EQ(model_.variant_capacity, capacity);
