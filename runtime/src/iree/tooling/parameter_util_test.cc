@@ -10,7 +10,9 @@
 #include <string>
 
 #include "iree/base/internal/path.h"
+#include "iree/base/tooling/flags.h"
 #include "iree/io/file_contents.h"
+#include "iree/io/file_handle.h"
 #include "iree/io/parameter_index.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
@@ -18,6 +20,9 @@
 
 namespace iree {
 namespace {
+
+IREE_FLAG(string, expected_parameter_mode, "file",
+          "Expected parameter file mode selected by this test invocation.");
 
 static std::string ToString(iree_string_view_t value) {
   return std::string(value.data, value.size);
@@ -73,8 +78,20 @@ TEST(ParameterUtilTest, AppendsSafetensorsIndexManifest) {
   iree_io_parameter_index_t* index = NULL;
   IREE_ASSERT_OK(
       iree_io_parameter_index_create(iree_allocator_system(), &index));
-  IREE_ASSERT_OK(iree_tooling_append_parameter_file_to_index(
-      manifest_path.path_view(), index, iree_allocator_system()));
+  iree::Status status = iree_tooling_append_parameter_file_to_index(
+      manifest_path.path_view(), index, iree_allocator_system());
+  if (std::string(FLAG_expected_parameter_mode) == "invalid") {
+    EXPECT_EQ(status.code(), iree::StatusCode::kInvalidArgument);
+    EXPECT_EQ(0u, iree_io_parameter_index_count(index));
+    iree_io_parameter_index_release(index);
+    return;
+  }
+  if (std::string(FLAG_expected_parameter_mode) == "direct" &&
+      status.code() == iree::StatusCode::kUnavailable) {
+    iree_io_parameter_index_release(index);
+    GTEST_SKIP() << status.ToString();
+  }
+  IREE_ASSERT_OK(status);
 
   EXPECT_EQ(2u, iree_io_parameter_index_count(index));
 
@@ -87,6 +104,21 @@ TEST(ParameterUtilTest, AppendsSafetensorsIndexManifest) {
   IREE_ASSERT_OK(
       iree_io_parameter_index_lookup(index, IREE_SV("tensor1"), &tensor1));
   EXPECT_EQ(8ull, tensor1->length);
+
+  for (const auto* tensor : {tensor0, tensor1}) {
+    ASSERT_EQ(tensor->type, IREE_IO_PARAMETER_INDEX_ENTRY_STORAGE_TYPE_FILE);
+    auto* handle = tensor->storage.file.handle;
+    if (std::string(FLAG_expected_parameter_mode) == "preload") {
+      EXPECT_EQ(iree_io_file_handle_type(handle),
+                IREE_IO_FILE_HANDLE_TYPE_HOST_ALLOCATION);
+    } else {
+      EXPECT_EQ(iree_io_file_handle_type(handle), IREE_IO_FILE_HANDLE_TYPE_FD);
+      EXPECT_TRUE(iree_io_file_handle_uses_async_io(handle));
+      EXPECT_EQ(iree_any_bit_set(iree_io_file_handle_mode(handle),
+                                 IREE_IO_FILE_MODE_DIRECT),
+                std::string(FLAG_expected_parameter_mode) == "direct");
+    }
+  }
 
   iree_io_parameter_index_release(index);
 }

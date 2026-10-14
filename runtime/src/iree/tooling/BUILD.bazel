@@ -179,18 +179,39 @@ iree_runtime_cc_library(
     ],
 )
 
+_PARAMETER_UTIL_TEST_DEPS = [
+    ":parameter_util",
+    "//runtime/src/iree/base",
+    "//runtime/src/iree/base/internal:path",
+    "//runtime/src/iree/base/tooling:flags",
+    "//runtime/src/iree/io:file_handle",
+    "//runtime/src/iree/io:parameter_index",
+    "//runtime/src/iree/testing:gtest",
+    "//runtime/src/iree/testing:gtest_main",
+    "//runtime/src/iree/testing:temp_file",
+]
+
 iree_runtime_cc_test(
     name = "parameter_util_test",
     srcs = ["parameter_util_test.cc"],
     tags = ["requires-filesystem"],
-    deps = [
-        ":parameter_util",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal:path",
-        "//runtime/src/iree/io:file_handle",
-        "//runtime/src/iree/io:parameter_index",
-        "//runtime/src/iree/testing:gtest",
-        "//runtime/src/iree/testing:gtest_main",
-        "//runtime/src/iree/testing:temp_file",
-    ],
+    deps = _PARAMETER_UTIL_TEST_DEPS,
 )
+
+[
+    iree_runtime_cc_test(
+        name = "parameter_util_%s_test" % mode,
+        srcs = ["parameter_util_test.cc"],
+        args = [
+            "--parameter_mode=" + mode,
+            "--expected_parameter_mode=" + mode,
+        ],
+        tags = ["requires-filesystem"],
+        deps = _PARAMETER_UTIL_TEST_DEPS,
+    )
+    for mode in [
+        "direct",
+        "preload",
+        "invalid",
+    ]
+]
