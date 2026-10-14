@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include "benchmark/benchmark.h"
 #include "loom/binding/c/benchmark/compile_throughput_benchmark.h"
@@ -16,9 +17,17 @@
 namespace loomc::bench {
 namespace {
 
+using PreamblePtr = HandlePtr<loomc_cxx_preamble_t, loomc_cxx_preamble_release>;
+
 enum class SourceLanguage {
   kCxx,
   kLoom,
+};
+
+enum class CxxSourceMode {
+  kColdImport,
+  kPreambleImport,
+  kPreambleCreate,
 };
 
 struct SourceToModuleInput {
@@ -30,6 +39,8 @@ struct SourceToModuleInput {
   const char* source_identifier;
   // Optional embedded header supplied through the public source provider.
   const char* header_identifier;
+  // C++ frontend lifecycle measured by each timed invocation.
+  CxxSourceMode cxx_mode = CxxSourceMode::kColdImport;
 };
 
 static iree_status_t CreateSource(loomc_string_view_t identifier,
@@ -91,6 +102,9 @@ class SourceToModuleScenario final : public CompileScenario {
                        loomc_make_byte_span(text.data(), text.size()),
                        LOOMC_SOURCE_FORMAT_UNKNOWN, &source_));
     }
+    if (input_.cxx_mode == CxxSourceMode::kPreambleImport) {
+      IREE_RETURN_IF_ERROR(CreatePreamble(&preamble_));
+    }
     return iree_ok_status();
   }
 
@@ -109,10 +123,15 @@ class SourceToModuleScenario final : public CompileScenario {
       IREE_RETURN_IF_ERROR(status);
       return RequireSucceededResult(result.get(), "Loom source parsing");
     }
+    if (input_.cxx_mode == CxxSourceMode::kPreambleCreate) {
+      PreamblePtr preamble;
+      return CreatePreamble(&preamble);
+    }
 
     loomc_cxx_import_options_t options = {
         .type = LOOMC_STRUCTURE_TYPE_CXX_IMPORT_OPTIONS,
         .structure_size = sizeof(options),
+        .preamble = preamble_.get(),
     };
     if (header_) {
       options.source_provider = {ProvideSource, this};
@@ -127,6 +146,28 @@ class SourceToModuleScenario final : public CompileScenario {
   }
 
  private:
+  iree_status_t CreatePreamble(PreamblePtr* out_preamble) {
+    out_preamble->reset();
+    loomc_cxx_import_options_t options = {
+        .type = LOOMC_STRUCTURE_TYPE_CXX_IMPORT_OPTIONS,
+        .structure_size = sizeof(options),
+    };
+    if (header_) {
+      options.source_provider = {ProvideSource, this};
+    }
+    loomc_cxx_preamble_t* raw_preamble = nullptr;
+    loomc_result_t* raw_result = nullptr;
+    IREE_RETURN_IF_ERROR(to_iree_status(loomc_cxx_preamble_create(
+        context_.get(), source_.get(), &options, loom_allocator(),
+        &raw_preamble, &raw_result)));
+    PreamblePtr preamble(raw_preamble);
+    ResultPtr result(raw_result);
+    IREE_RETURN_IF_ERROR(
+        RequireSucceededResult(result.get(), "C++ preamble creation"));
+    *out_preamble = std::move(preamble);
+    return iree_ok_status();
+  }
+
   static loomc_status_t ProvideSource(void* user_data, loomc_string_view_t path,
                                       loomc_source_t** out_source) {
     auto& self = *static_cast<SourceToModuleScenario*>(user_data);
@@ -153,6 +194,8 @@ class SourceToModuleScenario final : public CompileScenario {
   SourcePtr source_;
   // Optional immutable user header returned by the source provider.
   SourcePtr header_;
+  // Optional immutable prefix restored into each timed translation unit.
+  PreamblePtr preamble_;
   // Number of independent imports submitted in each compile-pool batch.
   iree_host_size_t job_count_ = 1;
 };
@@ -166,6 +209,11 @@ std::unique_ptr<CompileScenario> CreateSourceToModuleScenario(
 
 void SourceToModule(::benchmark::State& state,
                     const SourceToModuleInput* source) {
+  RunCompileBenchmarkDirect(state, CreateSourceToModuleScenario, source);
+}
+
+void SourceToPreamble(::benchmark::State& state,
+                      const SourceToModuleInput* source) {
   RunCompileBenchmarkDirect(state, CreateSourceToModuleScenario, source);
 }
 
@@ -236,9 +284,23 @@ constexpr SourceToModuleInput kKernelPredicate = {
     SourceLanguage::kCxx,
     "#include <loomcxx/kernel.h>\n#include <loomcxx/predicate.h>\n", nullptr,
     nullptr};
+constexpr SourceToModuleInput kKernelPredicatePreamble = {
+    SourceLanguage::kCxx,
+    "#include <loomcxx/kernel.h>\n#include <loomcxx/predicate.h>\n", nullptr,
+    nullptr, CxxSourceMode::kPreambleImport};
+constexpr SourceToModuleInput kKernelPredicatePreambleCreate = {
+    SourceLanguage::kCxx,
+    "#include <loomcxx/kernel.h>\n#include <loomcxx/predicate.h>\n", nullptr,
+    nullptr, CxxSourceMode::kPreambleCreate};
 constexpr SourceToModuleInput kQ8S32Providers = {
     SourceLanguage::kCxx, nullptr, "q8s32_specialization_providers.cxx",
     "q8s32_specialization.h"};
+constexpr SourceToModuleInput kQ8S32ProvidersPreamble = {
+    SourceLanguage::kCxx, nullptr, "q8s32_specialization_providers.cxx",
+    "q8s32_specialization.h", CxxSourceMode::kPreambleImport};
+constexpr SourceToModuleInput kQ8S32ProvidersPreambleCreate = {
+    SourceLanguage::kCxx, nullptr, "q8s32_specialization_providers.cxx",
+    "q8s32_specialization.h", CxxSourceMode::kPreambleCreate};
 constexpr SourceToModuleInput kQ8S32AuthoredLoomProviders = {
     SourceLanguage::kLoom, nullptr, "q8s32_specialization_providers.loom",
     nullptr};
@@ -269,7 +331,19 @@ BENCHMARK_CAPTURE(SourceToModule, Kernel, &kKernel)
     ->Unit(::benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(SourceToModule, KernelPredicate, &kKernelPredicate)
     ->Unit(::benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(SourceToModule, KernelPredicatePreamble,
+                  &kKernelPredicatePreamble)
+    ->Unit(::benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(SourceToPreamble, KernelPredicate,
+                  &kKernelPredicatePreambleCreate)
+    ->Unit(::benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(SourceToModule, Q8S32Providers, &kQ8S32Providers)
+    ->Unit(::benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(SourceToModule, Q8S32ProvidersPreamble,
+                  &kQ8S32ProvidersPreamble)
+    ->Unit(::benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(SourceToPreamble, Q8S32Providers,
+                  &kQ8S32ProvidersPreambleCreate)
     ->Unit(::benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(SourceToModule, Q8S32AuthoredLoomProviders,
                   &kQ8S32AuthoredLoomProviders)

@@ -14,6 +14,8 @@
 extern "C" {
 #endif
 
+typedef struct loom_cxx_preamble_t loom_cxx_preamble_t;
+
 // Source integer and pointer layout, independent of the importing process.
 typedef enum loom_cxx_data_model_e {
   LOOM_CXX_DATA_MODEL_LP64 = 0,
@@ -117,6 +119,9 @@ typedef struct loom_cxx_import_options_t {
   const iree_string_view_t* roots;
   // Number of explicitly selected source roots.
   iree_host_size_t root_count;
+  // Optional immutable frontend preamble borrowed for the import duration.
+  // Source or frontend-configuration mismatches use ordinary cold parsing.
+  const loom_cxx_preamble_t* preamble;
 } loom_cxx_import_options_t;
 
 // Parses the canonical precise or fast floating-point model spelling.
@@ -124,6 +129,10 @@ bool loom_cxx_fp_model_parse(iree_string_view_t value,
                              loom_cxx_fp_model_t* out_model);
 
 void loom_cxx_import_options_initialize(loom_cxx_import_options_t* options);
+
+// Validates enum, flag and borrowed-array invariants at a public API boundary.
+iree_status_t loom_cxx_import_options_validate(
+    const loom_cxx_import_options_t* options);
 
 #ifdef __cplusplus
 }

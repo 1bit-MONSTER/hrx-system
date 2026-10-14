@@ -138,6 +138,75 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_cc_library(
   NAME
+    contents
+  CXX_STANDARD
+    23
+  CXX_FEATURES
+    "exceptions"
+    "rtti"
+  HDRS
+    "contents.h"
+  SRCS
+    "contents.cc"
+  DEPS
+    ::catalog
+    ::error
+    ::options
+    iree::third_party::cxx_parser
+  PUBLIC
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_cc_library(
+  NAME
+    frontend
+  CXX_STANDARD
+    23
+  CXX_FEATURES
+    "exceptions"
+    "rtti"
+  HDRS
+    "frontend.h"
+  SRCS
+    "frontend.cc"
+  DEPS
+    ::contents
+    ::error
+    ::options
+    iree::third_party::cxx_parser
+    loom::error::error_defs
+  PUBLIC
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_cc_library(
+  NAME
+    preamble
+  CXX_STANDARD
+    23
+  CXX_FEATURES
+    "exceptions"
+    "rtti"
+  HDRS
+    "preamble.h"
+  SRCS
+    "preamble.cc"
+  DEPS
+    ::error
+    ::frontend
+    ::options
+    iree::base
+    iree::base::internal
+    iree::third_party::cxx_parser
+  PUBLIC
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_cc_library(
+  NAME
     source
   CXX_STANDARD
     23
@@ -149,11 +218,8 @@ loom_cc_library(
   SRCS
     "source.cc"
   DEPS
-    ::catalog
-    ::error
-    ::options
-    iree::third_party::cxx_parser
-    loom::error::error_defs
+    ::frontend
+    ::preamble
   PUBLIC
 )
 endif()
@@ -364,6 +430,30 @@ loom_cc_test(
   DEPS
     ::error
     ::options
+    ::preamble
+    ::source
+    iree::testing::gtest
+    iree::testing::gtest_main
+    iree::third_party::cxx_parser
+  LABELS
+    "iree-build-requirement=loom.import.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_cc_test(
+  NAME
+    preamble_test
+  SRCS
+    "preamble_test.cc"
+  CXX_STANDARD
+    23
+  CXX_FEATURES
+    "exceptions"
+    "rtti"
+  DEPS
+    ::frontend
+    ::preamble
     ::source
     iree::testing::gtest
     iree::testing::gtest_main

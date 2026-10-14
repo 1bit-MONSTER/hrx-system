@@ -24,6 +24,7 @@ using WorkspacePtr = HandlePtr<loomc_workspace_t, loomc_workspace_release>;
 using SourcePtr = HandlePtr<loomc_source_t, loomc_source_release>;
 using ModulePtr = HandlePtr<loomc_module_t, loomc_module_release>;
 using ResultPtr = HandlePtr<loomc_result_t, loomc_result_release>;
+using PreamblePtr = HandlePtr<loomc_cxx_preamble_t, loomc_cxx_preamble_release>;
 using CompilerPtr = HandlePtr<loomc_compiler_t, loomc_compiler_release>;
 using PassPtr = HandlePtr<loomc_pass_program_t, loomc_pass_program_release>;
 using LinkBuilderPtr =
@@ -306,6 +307,99 @@ struct PrefixSourcePathMapper {
     return loomc_ok_status();
   }
 };
+
+TEST_F(CxxTest, RetainedPreambleRestoresAfterCreationInputsAreReleased) {
+  loomc_context_t* raw_producer_context = nullptr;
+  LOOMC_ASSERT_OK(loomc_context_create(nullptr, loomc_allocator_system(),
+                                       &raw_producer_context));
+  ContextPtr producer_context(raw_producer_context);
+  HeaderCache cache;
+  auto producer = Source("producer.cpp",
+                         "#include <helper.h>\n"
+                         "int entry(int x) { return helper<7>(x); }");
+  const auto include_path = loomc_make_cstring_view("/headers");
+  loomc_cxx_import_options_t options = {
+      .flags = LOOMC_CXX_IMPORT_FLAG_NO_BUILTIN_INCLUDES,
+      .source_provider = {HeaderCache::Resolve, &cache},
+      .system_include_paths = &include_path,
+      .system_include_path_count = 1,
+  };
+  loomc_cxx_preamble_t* raw_preamble = nullptr;
+  loomc_result_t* raw_result = nullptr;
+  LOOMC_ASSERT_OK(loomc_cxx_preamble_create(
+      producer_context.get(), producer.get(), &options,
+      loomc_allocator_system(), &raw_preamble, &raw_result));
+  PreamblePtr publishing_reference(raw_preamble);
+  ResultPtr create_result(raw_result);
+  ASSERT_NE(publishing_reference, nullptr);
+  ExpectSuccess(create_result.get());
+  EXPECT_EQ(cache.hits, 1u);
+
+  loomc_cxx_preamble_retain(publishing_reference.get());
+  PreamblePtr retained(publishing_reference.get());
+  publishing_reference.reset();
+  producer_context.reset();
+  producer.reset();
+  cache.header.reset();
+  auto consumer = Source("consumer.cpp",
+                         "#include <helper.h>\n"
+                         "int entry(int x) { return helper<7>(x); }");
+  options.preamble = retained.get();
+  LOOMC_ASSERT_OK(Import(consumer.get(), &options));
+  retained.reset();
+  ExpectSuccess(result_.get());
+  EXPECT_EQ(cache.hits, 1u);
+  ASSERT_NE(module_, nullptr);
+  const auto text = Print(module_.get());
+  EXPECT_NE(text.find("func.def public @entry"), std::string::npos);
+  EXPECT_NE(text.find("scalar.constant 7"), std::string::npos);
+}
+
+TEST_F(CxxTest, PreambleRejectionRetainsMappedHeaderDiagnostic) {
+  HeaderCache cache;
+  const std::string header = "static int broken() { return missing; }";
+  cache.header = Source("/headers/helper.h", header.c_str());
+  auto source = Source("unit.cpp", "#include <helper.h>\nint entry();");
+  const auto include_path = loomc_make_cstring_view("/headers");
+  PrefixSourcePathMapper mapper;
+  const loomc_cxx_import_options_t options = {
+      .flags = LOOMC_CXX_IMPORT_FLAG_NO_BUILTIN_INCLUDES,
+      .source_provider = {HeaderCache::Resolve, &cache},
+      .source_path_mapper = {PrefixSourcePathMapper::Map, &mapper},
+      .system_include_paths = &include_path,
+      .system_include_path_count = 1,
+  };
+  loomc_cxx_preamble_t* raw_preamble = nullptr;
+  loomc_result_t* raw_result = nullptr;
+  LOOMC_ASSERT_OK(loomc_cxx_preamble_create(context_.get(), source.get(),
+                                            &options, loomc_allocator_system(),
+                                            &raw_preamble, &raw_result));
+  PreamblePtr preamble(raw_preamble);
+  ResultPtr result(raw_result);
+  source.reset();
+  cache.header.reset();
+
+  EXPECT_EQ(preamble, nullptr);
+  ASSERT_NE(result, nullptr);
+  ASSERT_FALSE(loomc_result_succeeded(result.get()));
+  ASSERT_GT(loomc_result_diagnostic_count(result.get()), 0u);
+  const auto* diagnostic = loomc_result_diagnostic_at(result.get(), 0);
+  EXPECT_EQ(ToString(loomc_source_identifier(diagnostic->range.source)),
+            "/logical/headers/helper.h");
+  EXPECT_EQ(Contents(diagnostic->range.source), header);
+}
+
+TEST_F(CxxTest, PreambleRequiresAReusableIncludePrefix) {
+  auto source = Source("unit.cpp", "int value() { return 42; }");
+  loomc_cxx_preamble_t* preamble = nullptr;
+  loomc_result_t* result = nullptr;
+  LOOMC_ASSERT_STATUS_IS(
+      LOOMC_STATUS_FAILED_PRECONDITION,
+      loomc_cxx_preamble_create(context_.get(), source.get(), nullptr,
+                                loomc_allocator_system(), &preamble, &result));
+  EXPECT_EQ(preamble, nullptr);
+  EXPECT_EQ(result, nullptr);
+}
 
 TEST_F(CxxTest, OptionsAndSharedIncludeProviderAcrossWorkers) {
   HeaderCache cache;

@@ -12,9 +12,11 @@
 
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "loom/codegen/low/text_asm.h"
 #include "loom/format/text/printer.h"
 #include "loom/import/cxx/source/catalog.h"
 #include "loom/ops/op_registry.h"
+#include "loom/target/test/descriptors.h"
 
 namespace {
 
@@ -32,6 +34,7 @@ class ImportTest : public ::testing::Test {
 
   void TearDown() override {
     loom_module_free(module_);
+    loom_cxx_preamble_release(preamble_);
     loom_context_deinitialize(&context_);
     iree_arena_block_pool_deinitialize(&pool_);
   }
@@ -45,9 +48,14 @@ class ImportTest : public ::testing::Test {
   }
 
   std::string Print() {
+    const loom_text_print_options_t options = {
+        .flags = LOOM_TEXT_PRINT_DEFAULT,
+        .low_asm_environment = options_.low_asm_environment,
+    };
     iree_string_builder_t builder;
     iree_string_builder_initialize(iree_allocator_system(), &builder);
-    IREE_EXPECT_OK(loom_text_print_module_to_builder(module_, &builder, 0));
+    IREE_EXPECT_OK(loom_text_print_module_to_builder_with_options(
+        module_, &builder, &options));
     std::string result(iree_string_builder_buffer(&builder),
                        iree_string_builder_size(&builder));
     iree_string_builder_deinitialize(&builder);
@@ -89,6 +97,8 @@ class ImportTest : public ::testing::Test {
   loom_module_t* module_ = nullptr;
   // Per-invocation source configuration.
   loom_cxx_import_options_t options_ = {};
+  // Optional immutable preamble released after every import output.
+  loom_cxx_preamble_t* preamble_ = nullptr;
   // Number of callbacks delivered by the source diagnostic boundary.
   int diagnostic_count_ = 0;
   // Copied source identity retained after the frontend is destroyed.
@@ -220,6 +230,172 @@ TEST_F(ImportTest, HeaderProviderUsesNormalIncludeSearch) {
   EXPECT_EQ(source_requests_["/overrides/value.h"], 1);
   EXPECT_EQ(source_requests_["/facade/value.h"], 1);
   EXPECT_EQ(source_requests_["/facade/factor.h"], 1);
+}
+
+TEST_F(ImportTest, PreambleRestoresHeaderIRAndExactSourceWithoutProviderCalls) {
+  const std::string header =
+      "#include <loomcxx/low.h>\n"
+      "struct [[loom::representation(\"test.low.core\")]] Contract {};\n"
+      "int header_entry(int value) {\n"
+      "  return loom::low::assembly<Contract, int>(R\"loom(\n"
+      "      (%value: reg<test.i32>) -> (reg<test.i32>) {\n"
+      "        return %value\n"
+      "      }\n"
+      "  )loom\", value);\n"
+      "}\n";
+  const auto source =
+      IREE_SV("#include \"library.h\"\nvoid consumer_marker();\n");
+  headers_["/app/library.h"] = header;
+  options_.source_provider = {ProvideSource, this};
+  const loom_low_descriptor_set_provider_t descriptor_set_providers[] = {
+      loom_test_low_core_descriptor_set,
+  };
+  const loom_low_descriptor_registry_t descriptor_registry = {
+      .descriptor_set_providers = descriptor_set_providers,
+      .descriptor_set_provider_count = IREE_ARRAYSIZE(descriptor_set_providers),
+  };
+  loom_low_descriptor_text_asm_environment_initialize(
+      &descriptor_registry, &options_.low_asm_environment);
+
+  struct Capture {
+    // Exact sources observed by physical filename.
+    std::map<std::string, std::string> sources;
+  } capture;
+  options_.source_observer = {
+      [](void* user_data, loom_source_id_t, iree_string_view_t filename,
+         iree_string_view_t source) {
+        auto& capture = *static_cast<Capture*>(user_data);
+        capture.sources.emplace(std::string(filename.data, filename.size),
+                                std::string(source.data, source.size));
+        return iree_ok_status();
+      },
+      &capture};
+
+  IREE_ASSERT_OK(Import(source));
+  ASSERT_NE(module_, nullptr);
+  const std::string cold = Print();
+  EXPECT_NE(cold.find("low.invoke inline"), std::string::npos);
+  EXPECT_NE(cold.find("low.func.def target<test.low.core>"), std::string::npos);
+  IREE_ASSERT_OK(loom_cxx_preamble_create(source, IREE_SV("/app/source.cpp"),
+                                          &options_, iree_allocator_system(),
+                                          &preamble_));
+  ASSERT_NE(preamble_, nullptr);
+
+  source_requests_.clear();
+  headers_.clear();
+  capture.sources.clear();
+  options_.preamble = preamble_;
+  IREE_ASSERT_OK(Import(source));
+  ASSERT_NE(module_, nullptr);
+  EXPECT_EQ(Print(), cold);
+  EXPECT_TRUE(source_requests_.empty());
+  ASSERT_TRUE(capture.sources.contains("/app/library.h"));
+  EXPECT_EQ(capture.sources.at("/app/library.h"), header);
+}
+
+TEST_F(ImportTest, PreambleConfigurationMismatchUsesColdParsing) {
+  const auto source =
+      IREE_SV("#include \"library.h\"\nvoid consumer_marker();\n");
+  headers_["/app/library.h"] =
+      "int header_entry(int value) { return value + 1; }\n";
+  options_.source_provider = {ProvideSource, this};
+  IREE_ASSERT_OK(loom_cxx_preamble_create(source, IREE_SV("/app/source.cpp"),
+                                          &options_, iree_allocator_system(),
+                                          &preamble_));
+  ASSERT_NE(preamble_, nullptr);
+
+  source_requests_.clear();
+  options_.preamble = preamble_;
+  options_.data_model = LOOM_CXX_DATA_MODEL_LLP64;
+  IREE_ASSERT_OK(Import(source));
+  ASSERT_NE(module_, nullptr);
+  EXPECT_EQ(source_requests_["/app/library.h"], 1);
+}
+
+TEST_F(ImportTest, PreambleSourceMismatchUsesColdParsing) {
+  const auto producer_source =
+      IREE_SV("#include \"library.h\"\nvoid consumer_marker();\n");
+  const auto consumer_source =
+      IREE_SV("#include \"other.h\"\nvoid consumer_marker();\n");
+  headers_["/app/library.h"] = "int library_entry();\n";
+  headers_["/app/other.h"] = "int other_entry();\n";
+  options_.source_provider = {ProvideSource, this};
+  IREE_ASSERT_OK(loom_cxx_preamble_create(producer_source,
+                                          IREE_SV("/app/source.cpp"), &options_,
+                                          iree_allocator_system(), &preamble_));
+  ASSERT_NE(preamble_, nullptr);
+
+  source_requests_.clear();
+  options_.preamble = preamble_;
+  IREE_ASSERT_OK(Import(consumer_source));
+  ASSERT_NE(module_, nullptr);
+  EXPECT_EQ(source_requests_["/app/library.h"], 0);
+  EXPECT_EQ(source_requests_["/app/other.h"], 1);
+}
+
+TEST_F(ImportTest, PreambleNewDirectiveUsesColdParsing) {
+  const auto producer_source =
+      IREE_SV("#include \"library.h\"\nvoid consumer_marker();\n");
+  const auto consumer_source = IREE_SV(
+      "#include \"library.h\"\n#define NEW_DIRECTIVE 1\n"
+      "void consumer_marker();\n");
+  headers_["/app/library.h"] =
+      "int header_entry(int value) { return value + 1; }\n";
+  options_.source_provider = {ProvideSource, this};
+  IREE_ASSERT_OK(loom_cxx_preamble_create(producer_source,
+                                          IREE_SV("/app/source.cpp"), &options_,
+                                          iree_allocator_system(), &preamble_));
+  ASSERT_NE(preamble_, nullptr);
+
+  source_requests_.clear();
+  options_.preamble = preamble_;
+  IREE_ASSERT_OK(Import(consumer_source));
+  ASSERT_NE(module_, nullptr);
+  EXPECT_EQ(source_requests_["/app/library.h"], 1);
+}
+
+TEST_F(ImportTest, RestoredHeaderDiagnosticRetainsExactSource) {
+  const std::string header =
+      "long distance(int* lhs, int* rhs) { return lhs - rhs; }\n";
+  const auto source =
+      IREE_SV("#include \"invalid.h\"\nvoid consumer_marker();\n");
+  headers_["/app/invalid.h"] = header;
+  options_.source_provider = {ProvideSource, this};
+  IREE_ASSERT_OK(loom_cxx_preamble_create(source, IREE_SV("/app/source.cpp"),
+                                          &options_, iree_allocator_system(),
+                                          &preamble_));
+  ASSERT_NE(preamble_, nullptr);
+
+  headers_.clear();
+  options_.preamble = preamble_;
+  IREE_ASSERT_OK(Import(source));
+  EXPECT_EQ(module_, nullptr);
+  EXPECT_EQ(diagnostic_count_, 1);
+  EXPECT_EQ(diagnostic_filename_, "/app/invalid.h");
+  EXPECT_EQ(diagnostic_source_, header);
+}
+
+TEST_F(ImportTest, PreambleCreationRequiresLeadingIncludes) {
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_FAILED_PRECONDITION,
+      loom_cxx_preamble_create(IREE_SV("int entry() { return 1; }\n"),
+                               IREE_SV("/app/source.cpp"), &options_,
+                               iree_allocator_system(), &preamble_));
+  EXPECT_EQ(preamble_, nullptr);
+}
+
+TEST_F(ImportTest, PreambleCreationReportsRejectedHeaderSource) {
+  const std::string header = "int broken( {\n";
+  headers_["/app/invalid.h"] = header;
+  options_.source_provider = {ProvideSource, this};
+  IREE_ASSERT_OK(loom_cxx_preamble_create(
+      IREE_SV("#include \"invalid.h\"\nvoid consumer_marker();\n"),
+      IREE_SV("/app/source.cpp"), &options_, iree_allocator_system(),
+      &preamble_));
+  EXPECT_EQ(preamble_, nullptr);
+  EXPECT_GT(diagnostic_count_, 0);
+  EXPECT_EQ(diagnostic_filename_, "/app/invalid.h");
+  EXPECT_EQ(diagnostic_source_, header);
 }
 
 TEST_F(ImportTest, RejectedSourceDoesNotPoisonNextImport) {

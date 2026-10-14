@@ -83,6 +83,42 @@ TEST_F(LocationsTest, RetainedRangeAndFilenameOutliveSource) {
   EXPECT_EQ(entry.file.end_col, 11);
 }
 
+TEST_F(LocationsTest, ObserverReceivesExactHeaderSource) {
+  struct Capture {
+    // Physical filename of the observed translated source.
+    std::string filename;
+    // Exact bytes retained for that physical source.
+    std::string source;
+  } capture;
+  options_.source_provider = {
+      [](void*, iree_string_view_t path, bool* out_found,
+         iree_string_view_t* out_source) {
+        *out_found = iree_string_view_equal(path, IREE_SV("/app/value.h"));
+        *out_source =
+            *out_found ? IREE_SV("int value;\n") : iree_string_view_empty();
+        return iree_ok_status();
+      },
+      nullptr};
+  options_.source_observer = {
+      [](void* user_data, loom_source_id_t, iree_string_view_t filename,
+         iree_string_view_t source) {
+        auto& capture = *static_cast<Capture*>(user_data);
+        capture.filename = string(filename);
+        capture.source = string(source);
+        return iree_ok_status();
+      },
+      &capture};
+  Source source(IREE_SV("#include \"value.h\"\n"), IREE_SV("/app/source.cpp"),
+                options_);
+  Locations locations(source.unit(), source.diagnostics(), module_,
+                      options_.source_observer);
+  auto* declaration = find_value(source.unit());
+  ASSERT_NE(declaration, nullptr);
+  EXPECT_NE(locations.get(declaration), LOOM_LOCATION_UNKNOWN);
+  EXPECT_EQ(capture.filename, "/app/value.h");
+  EXPECT_EQ(capture.source, "int value;\n");
+}
+
 TEST_F(LocationsTest, RejectsCoordinatesThatWouldTruncate) {
   std::string contents(65535, '\n');
   contents += "int value;\n";

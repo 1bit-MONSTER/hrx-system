@@ -19,6 +19,7 @@ loom_cc_library(
     "cxx.c"
   DEPS
     iree::base
+    iree::base::internal::arena
     loom::binding::c::loomc
     loom::import::cxx
   ALWAYSLINK
