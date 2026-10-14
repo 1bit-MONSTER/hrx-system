@@ -27,7 +27,7 @@ extern "C" {
 typedef struct loom_amdgpu_spill_lowering_result_t {
   // Number of user-facing diagnostics emitted while lowering spill traffic.
   uint32_t error_count;
-  // Scratch-arena-owned value IDs created or newly exposed by spill lowering
+  // Scratch-arena-owned helper value IDs created by spill lowering
   // that must remain in registers during subsequent allocation rounds.
   const loom_value_id_t* required_register_value_ids;
   // Number of entries in |required_register_value_ids|.

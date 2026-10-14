@@ -85,7 +85,8 @@ static iree_status_t loom_low_emission_frame_record_value_list(
 // Allocation cannot select an already retained value for another spill plan,
 // so every non-empty materialization batch strictly reduces the remaining
 // population of spillable program values. Target lowering extends this set
-// with any register values it creates or exposes while rewriting the traffic.
+// with register helpers it creates while rewriting the traffic. Existing
+// CFG-edge payloads remain spillable independently of their block arguments.
 static iree_status_t loom_low_emission_frame_record_spill_plan_values(
     const loom_low_allocation_table_t* allocation,
     iree_arena_allocator_t* arena, iree_bitmap_t* inout_values) {

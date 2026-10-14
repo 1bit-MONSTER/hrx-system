@@ -1051,10 +1051,6 @@ iree_status_t loom_low_allocation_search_assignment_spill_capacity(
           context->target_constraints, assignment->value_id)) {
     return iree_ok_status();
   }
-  if (loom_low_allocation_storage_lease_state_value_has_records(
-          context->storage_leases, context->liveness, assignment->value_id)) {
-    return iree_ok_status();
-  }
   if ((assignment->value_id < context->required_register_values.bit_count &&
        iree_bitmap_test(context->required_register_values,
                         assignment->value_id)) ||
@@ -1237,10 +1233,8 @@ static iree_status_t loom_low_allocation_search_collect_active_spill_victim_set(
       loom_low_allocation_search_location_conflicts(
           context, interval, capacity->descriptor_reg_class_id,
           capacity->location_kind, location_base, interval->unit_count,
-          ignored_value_ids, assignment_count,
-          /*ignored_storage_lease_value_ids=*/NULL,
-          /*ignored_storage_lease_value_count=*/0,
-          LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FOR_PRESSURE)) {
+          ignored_value_ids, assignment_count, ignored_value_ids,
+          assignment_count, LOOM_LOW_ALLOCATION_STORAGE_RELEASE_FOR_PRESSURE)) {
     *out_blocked = true;
     return iree_ok_status();
   }
@@ -1379,6 +1373,42 @@ iree_status_t loom_low_allocation_search_find_active_spill_victim_set(
 
   if (best_assignment_count == 0) {
     return iree_ok_status();
+  }
+  if (!interval_requires_register) {
+    const loom_low_allocation_assignment_t incoming =
+        loom_low_allocation_search_candidate_assignment(
+            context, interval, capacity->descriptor_reg_class_id,
+            capacity->location_kind, best_location_base, interval->unit_count);
+    uint64_t incoming_traffic_cost = 0;
+    IREE_RETURN_IF_ERROR(
+        loom_low_allocation_search_assignment_spill_traffic_cost(
+            context, &incoming, capacity, &incoming_traffic_cost));
+    // A spilled result still needs physical storage at its definition. Charge
+    // one spill/reload round trip for that temporary footprint instead of
+    // treating an incoming spill as an immediately free register assignment.
+    const uint64_t definition_bytes =
+        ((uint64_t)incoming.unit_count * capacity->alloc_unit_bits + 7u) / 8u;
+    incoming_traffic_cost = iree_math_saturating_add_u64(incoming_traffic_cost,
+                                                         definition_bytes * 2u);
+    // Compare traffic per remaining register lifetime. Spilling the incoming
+    // value can require another victim when its definition is materialized;
+    // a longer-lived active victim also removes pressure at later definitions.
+    const uint64_t active_pressure =
+        (uint64_t)(best_latest_end_point - incoming.start_point) *
+        best_unit_count;
+    const uint64_t incoming_pressure =
+        (uint64_t)iree_max(incoming.end_point - incoming.start_point, 1u) *
+        incoming.unit_count;
+    uint64_t active_high = 0, active_low = 0;
+    uint64_t incoming_high = 0, incoming_low = 0;
+    iree_math_mul_u64_to_u128(best_traffic_cost, incoming_pressure,
+                              &active_high, &active_low);
+    iree_math_mul_u64_to_u128(incoming_traffic_cost, active_pressure,
+                              &incoming_high, &incoming_low);
+    if (active_high > incoming_high ||
+        (active_high == incoming_high && active_low > incoming_low)) {
+      return iree_ok_status();
+    }
   }
   *out_victim_set = (loom_low_allocation_search_spill_victim_set_t){
       .location_base = best_location_base,

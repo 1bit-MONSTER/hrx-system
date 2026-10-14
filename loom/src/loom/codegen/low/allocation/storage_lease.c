@@ -1174,6 +1174,33 @@ bool loom_low_allocation_storage_lease_state_value_has_records(
   return state->record_heads_by_value_ordinal[value_ordinal] != UINT32_MAX;
 }
 
+static void loom_low_allocation_storage_lease_state_shorten(
+    loom_low_allocation_storage_lease_state_t* state,
+    const loom_low_descriptor_set_t* descriptor_set,
+    uint32_t lease_record_index, uint32_t end_point) {
+  state->instances[lease_record_index].end_point = end_point;
+  loom_low_allocation_storage_lease_unit_index_update(state->unit_index,
+                                                      lease_record_index);
+  if (state->availability_expiration_heap != NULL) {
+    const uint32_t position =
+        state->availability_expiration_positions[lease_record_index];
+    if (position != UINT32_MAX) {
+      if (end_point <= state->availability_start_point) {
+        loom_low_allocation_storage_lease_expiration_remove(state,
+                                                            lease_record_index);
+        loom_low_allocation_storage_lease_unit_index_refresh_availability(
+            state->unit_index, descriptor_set, lease_record_index,
+            state->availability_start_point,
+            loom_low_allocation_storage_lease_all_records_release_for_pressure(
+                state));
+        loom_low_allocation_storage_lease_refresh_pressure_summary(state);
+      } else {
+        loom_low_allocation_storage_lease_expiration_sift_up(state, position);
+      }
+    }
+  }
+}
+
 static iree_status_t
 loom_low_allocation_storage_lease_state_record_release_action(
     loom_low_allocation_storage_lease_state_t* state,
@@ -1227,27 +1254,8 @@ loom_low_allocation_storage_lease_state_record_release_action(
           .lease_record_index = lease_record_index,
       };
   lease->release_action_index = release_action_index;
-  lease->end_point = release_program_point;
-  loom_low_allocation_storage_lease_unit_index_update(state->unit_index,
-                                                      lease_record_index);
-  if (state->availability_expiration_heap != NULL) {
-    const uint32_t position =
-        state->availability_expiration_positions[lease_record_index];
-    if (position != UINT32_MAX) {
-      if (lease->end_point <= state->availability_start_point) {
-        loom_low_allocation_storage_lease_expiration_remove(state,
-                                                            lease_record_index);
-        loom_low_allocation_storage_lease_unit_index_refresh_availability(
-            state->unit_index, descriptor_set, lease_record_index,
-            state->availability_start_point,
-            loom_low_allocation_storage_lease_all_records_release_for_pressure(
-                state));
-        loom_low_allocation_storage_lease_refresh_pressure_summary(state);
-      } else {
-        loom_low_allocation_storage_lease_expiration_sift_up(state, position);
-      }
-    }
-  }
+  loom_low_allocation_storage_lease_state_shorten(
+      state, descriptor_set, lease_record_index, release_program_point);
   return iree_ok_status();
 }
 
@@ -1366,6 +1374,8 @@ void loom_low_allocation_storage_lease_state_record_assignment(
   }
   const loom_low_allocation_assignment_t* assignment =
       &assignments[assignment_index];
+  const bool is_register =
+      loom_low_allocation_assignment_is_register_like(assignment);
   uint32_t lease_record_index =
       state->record_heads_by_value_ordinal[value_ordinal];
   while (lease_record_index != UINT32_MAX) {
@@ -1374,7 +1384,8 @@ void loom_low_allocation_storage_lease_state_record_assignment(
     const loom_liveness_block_info_t* block_info =
         &liveness->blocks[record->block_index];
     const uint32_t end_point =
-        record->release_before_scheduled_ordinal_plus_one != 0
+        !is_register ? 0
+        : record->release_before_scheduled_ordinal_plus_one != 0
             ? block_info->start_point +
                   record->release_before_scheduled_ordinal_plus_one
         : iree_any_bit_set(record->flags,
@@ -1398,10 +1409,12 @@ void loom_low_allocation_storage_lease_state_record_assignment(
         };
     state->instance_written[lease_record_index] = 1;
     ++state->instance_count;
-    loom_low_allocation_storage_lease_unit_index_insert(
-        state->unit_index, descriptor_set, lease_record_index, record->flags);
+    if (is_register) {
+      loom_low_allocation_storage_lease_unit_index_insert(
+          state->unit_index, descriptor_set, lease_record_index, record->flags);
+    }
     const bool tracks_expiration =
-        state->availability_expiration_heap != NULL &&
+        is_register && state->availability_expiration_heap != NULL &&
         !loom_low_reg_class_uses_explicit_physical_registers(
             &descriptor_set->reg_classes[assignment->descriptor_reg_class_id]);
     if (tracks_expiration) {
@@ -1415,12 +1428,35 @@ void loom_low_allocation_storage_lease_state_record_assignment(
           loom_low_allocation_storage_lease_all_records_release_for_pressure(
               state));
       loom_low_allocation_storage_lease_refresh_pressure_summary(state);
-    } else if (iree_all_bits_set(
+    } else if (is_register &&
+               iree_all_bits_set(
                    record->flags,
                    LOOM_LOW_STORAGE_LEASE_FLAG_RELEASE_FOR_PRESSURE)) {
       state->minimum_pressure_release_start_point = 0;
     }
     lease_record_index = state->next_record_indices[lease_record_index];
+  }
+}
+
+void loom_low_allocation_storage_lease_state_record_spill(
+    loom_low_allocation_storage_lease_state_t* state,
+    const loom_low_descriptor_set_t* descriptor_set,
+    const loom_low_allocation_assignment_t* assignment,
+    loom_value_ordinal_t value_ordinal) {
+  if (state->record_heads_by_value_ordinal == NULL) {
+    return;
+  }
+  uint32_t record_index = state->record_heads_by_value_ordinal[value_ordinal];
+  while (record_index != UINT32_MAX) {
+    loom_low_allocation_storage_lease_t* lease =
+        &state->instances[record_index];
+    loom_low_allocation_storage_lease_state_shorten(
+        state, descriptor_set, record_index, /*end_point=*/0);
+    lease->location_kind = assignment->location_kind;
+    lease->location_base =
+        assignment->location_base +
+        state->lease_table->records[record_index].unit_offset;
+    record_index = state->next_record_indices[record_index];
   }
 }
 

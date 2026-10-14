@@ -702,3 +702,114 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @storage_views_survive_spi
   s_xor_b64 s[0:1], s[0:1], s[4:5]
   s_waitcnt_vscnt vscnt(0)
   s_endpgm
+
+// ====
+
+// Spilling asynchronous load results rebuilds their register leases. Exact
+// assembly checks the load-to-spill and reload-to-store waits.
+// RUN: emit amdgpu-assembly @loaded_snapshot strategy=source amdgpu.vgpr=4
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @loaded_snapshot(%offset: reg<amdgpu.vgpr>, %source: reg<amdgpu.sgpr x2>, %destination: reg<amdgpu.sgpr x2>) asm {
+  %first = global_load_b32_saddr %offset, %source
+  %second = global_load_b32_saddr %offset, %source {offset = 4}
+  %third = global_load_b32_saddr %offset, %source {offset = 8}
+  %fourth = global_load_b32_saddr %offset, %source {offset = 12}
+  %fifth = global_load_b32_saddr %offset, %source {offset = 16}
+  s_barrier
+  global_store_b32_saddr %offset, %first, %destination
+  global_store_b32_saddr %offset, %second, %destination {offset = 4}
+  global_store_b32_saddr %offset, %third, %destination {offset = 8}
+  global_store_b32_saddr %offset, %fourth, %destination {offset = 12}
+  global_store_b32_saddr %offset, %fifth, %destination {offset = 16}
+  return
+}
+// ----
+  global_load_b32 v1, v0, s[0:1] offset:0
+  global_load_b32 v2, v0, s[0:1] offset:4
+  global_load_b32 v3, v0, s[0:1] offset:8
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  scratch_store_b32 off, v3, off offset:0
+  global_load_b32 v3, v0, s[0:1] offset:12
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  scratch_store_b32 off, v3, off offset:4
+  global_load_b32 v3, v0, s[0:1] offset:16
+  s_barrier
+  global_store_b32 v0, v1, s[2:3] offset:0
+  global_store_b32 v0, v2, s[2:3] offset:4
+  scratch_load_b32 v1, off, off offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  global_store_b32 v0, v1, s[2:3] offset:8
+  scratch_load_b32 v1, off, off offset:4
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  global_store_b32 v0, v1, s[2:3] offset:12
+  global_store_b32 v0, v3, s[2:3] offset:16
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+
+// An authored scratch store does not make its shared source globally
+// unspillable. Its other uses still participate in ordinary spill repair.
+// RUN: emit amdgpu-assembly @shared_spill_payloads strategy=source amdgpu.vgpr=4
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @shared_spill_payloads(%offset: reg<amdgpu.vgpr>, %source: reg<amdgpu.sgpr x2>, %destination: reg<amdgpu.sgpr x2>) asm {
+  %storage = storage {byte_alignment = 4, byte_length = 20} : low.storage<private>
+  %first = global_load_b32_saddr %offset, %source
+  %second = global_load_b32_saddr %offset, %source {offset = 4}
+  %third = global_load_b32_saddr %offset, %source {offset = 8}
+  %fourth = global_load_b32_saddr %offset, %source {offset = 12}
+  %fifth = global_load_b32_saddr %offset, %source {offset = 16}
+  s_barrier
+  low.spill %first, %storage : reg<amdgpu.vgpr>, low.storage<private>
+  low.spill %second, %storage {offset = 4} : reg<amdgpu.vgpr>, low.storage<private>
+  low.spill %third, %storage {offset = 8} : reg<amdgpu.vgpr>, low.storage<private>
+  low.spill %fourth, %storage {offset = 12} : reg<amdgpu.vgpr>, low.storage<private>
+  low.spill %fifth, %storage {offset = 16} : reg<amdgpu.vgpr>, low.storage<private>
+  global_store_b32_saddr %offset, %first, %destination
+  global_store_b32_saddr %offset, %second, %destination {offset = 4}
+  global_store_b32_saddr %offset, %third, %destination {offset = 8}
+  global_store_b32_saddr %offset, %fourth, %destination {offset = 12}
+  global_store_b32_saddr %offset, %fifth, %destination {offset = 16}
+  return
+}
+// ----
+  global_load_b32 v1, v0, s[0:1] offset:0
+  global_load_b32 v2, v0, s[0:1] offset:4
+  global_load_b32 v3, v0, s[0:1] offset:8
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  scratch_store_b32 off, v3, off offset:20
+  global_load_b32 v3, v0, s[0:1] offset:12
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  scratch_store_b32 off, v3, off offset:24
+  global_load_b32 v3, v0, s[0:1] offset:16
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  scratch_store_b32 off, v3, off offset:28
+  s_barrier
+  scratch_store_b32 off, v1, off offset:0
+  scratch_store_b32 off, v2, off offset:4
+  scratch_load_b32 v3, off, off offset:20
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  scratch_store_b32 off, v3, off offset:8
+  scratch_load_b32 v3, off, off offset:24
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  scratch_store_b32 off, v3, off offset:12
+  scratch_load_b32 v3, off, off offset:28
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  scratch_store_b32 off, v3, off offset:16
+  global_store_b32 v0, v1, s[2:3] offset:0
+  global_store_b32 v0, v2, s[2:3] offset:4
+  scratch_load_b32 v1, off, off offset:20
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  global_store_b32 v0, v1, s[2:3] offset:8
+  scratch_load_b32 v1, off, off offset:24
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  global_store_b32 v0, v1, s[2:3] offset:12
+  scratch_load_b32 v1, off, off offset:28
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  global_store_b32 v0, v1, s[2:3] offset:16
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm

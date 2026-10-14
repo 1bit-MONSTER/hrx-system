@@ -276,6 +276,8 @@ typedef struct loom_low_allocation_exit_moves_t {
 // record names the scheduled packet attachment and target release class; this
 // allocation-side record names the concrete assignment subrange that must
 // remain unavailable for incompatible reuse while the lease is active.
+// Provisional spilled assignments have an empty lease ending at zero; spill
+// materialization and frame rebuilding establish their final register leases.
 typedef struct loom_low_allocation_storage_lease_t {
   // Index into |storage_leases.records|.
   uint32_t lease_record_index;
@@ -285,7 +287,8 @@ typedef struct loom_low_allocation_storage_lease_t {
   loom_value_id_t value_id;
   // Program point where the lease becomes active.
   uint32_t start_point;
-  // Program point where allocation may reuse the leased units.
+  // Program point where allocation may reuse the leased units, or zero for a
+  // provisional spilled assignment with no physical reservation.
   uint32_t end_point;
   // Release action covering this lease, or STORAGE_RELEASE_ACTION_INDEX_NONE.
   uint32_t release_action_index;
@@ -293,7 +296,7 @@ typedef struct loom_low_allocation_storage_lease_t {
   uint16_t descriptor_reg_class_id;
   // Target-visible storage kind for the leased units.
   loom_low_allocation_location_kind_t location_kind;
-  // First physical register or target ID leased.
+  // First unit of the assignment subrange, interpreted by |location_kind|.
   uint32_t location_base;
   // Number of contiguous physical units leased.
   uint32_t location_count;

@@ -1112,19 +1112,15 @@ iree_status_t loom_amdgpu_lower_spill_traffic(
 
   loom_rewriter_t rewriter = {0};
   loom_rewriter_initialize(&rewriter, module, scratch_arena);
-  // This is terminal target lowering: no later structural spill layer can
-  // recursively spill its packet helpers. Preserve every created helper and
-  // every existing value consumed by a lowered spill store in registers.
+  // Generated packet helpers cannot recursively spill. The frame loop retains
+  // already-spilled producers separately; an existing source of an authored or
+  // CFG-edge spill can still have other uses that benefit from spilling.
   const loom_value_id_t first_generated_value_id = module->values.count;
   iree_status_t status = iree_ok_status();
   for (iree_host_size_t i = 0; i < op_count && iree_status_is_ok(status); ++i) {
     if (loom_low_spill_isa(ops[i])) {
-      status = loom_amdgpu_spill_lowering_record_required_register_value(
-          &context, loom_low_spill_value(ops[i]));
-      if (iree_status_is_ok(status)) {
-        status = loom_amdgpu_spill_lowering_rewrite_spill(&context, &rewriter,
-                                                          ops[i]);
-      }
+      status =
+          loom_amdgpu_spill_lowering_rewrite_spill(&context, &rewriter, ops[i]);
     } else if (loom_low_reload_isa(ops[i])) {
       status = loom_amdgpu_spill_lowering_rewrite_reload(&context, &rewriter,
                                                          ops[i]);
