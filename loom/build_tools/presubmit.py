@@ -50,14 +50,19 @@ CMAKE_SOURCE_FORMAT_TARGET_DEFINES = (
 CI_LOOM_TARGETS = ",".join(
     target for target, _define in CMAKE_SOURCE_FORMAT_TARGET_DEFINES
 )
+# Formatting, hygiene, dependency selection, and tests share one build
+# configuration so successive phases retain Bazel's configured analysis graph.
+BAZEL_CONFIGURATION_ARGS = (
+    f"--//loom/config/target:enable={CI_LOOM_TARGETS}",
+    "--//loom/config/import:enable=cxx",
+)
 BAZEL_SOURCE_TOOL_ARGS = (
     "--config=locked",
-    f"--//loom/config/target:enable={CI_LOOM_TARGETS}",
+    *BAZEL_CONFIGURATION_ARGS,
 )
 BAZEL_TEST_CONFIGURATION_ARGS = (
     "--config=presubmit",
-    f"--//loom/config/target:enable={CI_LOOM_TARGETS}",
-    "--//loom/config/import:enable=cxx",
+    *BAZEL_CONFIGURATION_ARGS,
 )
 BAZEL_FULL_TEST_TARGET = "//loom/..."
 BAZEL_ALL_TESTS_QUERY = f"tests({BAZEL_FULL_TEST_TARGET})"

@@ -36,6 +36,15 @@ class LoomPresubmitTest(unittest.TestCase):
     def setUpClass(cls):
         cls.presubmit = load_presubmit_module()
 
+    def test_source_tools_and_tests_share_the_build_configuration(self):
+        source_options = self.presubmit.BAZEL_SOURCE_TOOL_ARGS
+        test_options = self.presubmit.BAZEL_TEST_CONFIGURATION_ARGS
+
+        self.assertEqual(source_options[0], "--config=locked")
+        self.assertEqual(test_options[0], "--config=presubmit")
+        self.assertEqual(source_options[1:], test_options[1:])
+        self.assertIn("--//loom/config/import:enable=cxx", source_options)
+
     def test_bazel_tests_preserve_manual_filter_without_hardware_blacklists(self):
         command = self.presubmit.bazel_test_command()
 
@@ -678,6 +687,7 @@ class LoomPresubmitTest(unittest.TestCase):
             bazel_args=(
                 "--config=locked",
                 "--//loom/config/target:enable=amdgpu,spirv,vm,wasm,xdna,x86",
+                "--//loom/config/import:enable=cxx",
             ),
         )
         run_command.assert_called_once_with(
