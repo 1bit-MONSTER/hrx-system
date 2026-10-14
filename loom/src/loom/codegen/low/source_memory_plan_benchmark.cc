@@ -95,7 +95,8 @@ class SourceMemoryPlanBenchmark {
     for (const loom_op_t* memory_op : memory_ops_) {
       loom_low_source_memory_access_diagnostic_t diagnostic = {};
       const bool planned = loom_low_source_memory_access_plan_build(
-          &view_regions, memory_op, &last_plan_, &diagnostic);
+          &view_regions, memory_op, /*axis_byte_strides=*/NULL, &last_plan_,
+          &diagnostic);
       if (!planned) {
         std::abort();
       }

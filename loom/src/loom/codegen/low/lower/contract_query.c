@@ -761,6 +761,9 @@ typedef struct loom_low_lower_contract_query_match_state_t {
   loom_symbolic_expr_context_t expression_context;
   // Canonical source-memory plan shared by every candidate for one root.
   loom_low_source_memory_access_plan_t source_memory_access;
+  // Read-only fragment geometry shared by every candidate for one root.
+  loom_low_source_memory_axis_byte_stride_t
+      axis_byte_strides[LOOM_ENCODING_ADDRESS_LAYOUT_MAX_RANK];
   // Lazy source-memory matching state shared by every candidate for one root.
   loom_low_lower_rule_source_memory_state_t source_memory_state;
   // Fully initialized rule matching context borrowing the fields above.
@@ -772,7 +775,6 @@ static void loom_low_lower_contract_query_match_state_initialize(
     const loom_low_lower_contract_query_options_t* options,
     const loom_op_t* source_op,
     loom_low_lower_contract_query_match_state_t* out_state) {
-  memset(out_state, 0, sizeof(*out_state));
   loom_symbolic_expr_context_t* expression_context = NULL;
   if (environment->view_regions != NULL) {
     expression_context = environment->view_regions->expression_context;
@@ -787,6 +789,11 @@ static void loom_low_lower_contract_query_match_state_initialize(
   loom_low_lower_rule_source_memory_state_initialize(
       source_op, &out_state->source_memory_access,
       &out_state->source_memory_state);
+  if (loom_vector_memory_op_footprint_kind(environment->module, source_op) ==
+      LOOM_VECTOR_MEMORY_FOOTPRINT_FRAGMENT) {
+    out_state->source_memory_state.axis_byte_strides =
+        out_state->axis_byte_strides;
+  }
   out_state->match_context = (loom_low_lower_rule_match_context_t){
       .module = environment->module,
       .function = environment->function,

@@ -55,6 +55,8 @@ typedef struct loom_low_lower_rule_source_memory_state_t {
   bool plan_available;
   // Caller-owned storage receiving the canonical source-memory plan.
   loom_low_source_memory_access_plan_t* access_plan;
+  // Optional caller-owned axis storage used by read-only fragment legality.
+  loom_low_source_memory_axis_byte_stride_t* axis_byte_strides;
   // Shared preselection's immutable source plan, or NULL in read-only legality.
   const loom_low_source_memory_access_plan_t* retained_access;
   // Exact source-access rejection facts when planning did not succeed.

@@ -501,6 +501,44 @@ TEST_F(SourceMemoryPlanTest, DynamicStridedLayoutScalesDynamicOrigin) {
   EXPECT_EQ(plan.source_index_byte_stride, 0);
 }
 
+TEST_F(SourceMemoryPlanTest, RetainsRuntimeStrideAtFoldedZeroOrigin) {
+  const loom_value_id_t buffer = DefineBufferArg();
+  const loom_value_id_t row_stride = DefineIndexArg();
+  const loom_value_id_t layout = BuildDynamicStridedLayout(row_stride, 1);
+  const loom_value_id_t base_offset =
+      loom_index_constant_result(BuildOffsetConstant(0));
+  const loom_value_id_t zero =
+      loom_index_constant_result(BuildIndexConstant(0));
+  loom_op_t* view_op = nullptr;
+  IREE_ASSERT_OK(loom_buffer_view_build(&builder_, buffer, base_offset,
+                                        ViewType2D(16, 16, layout),
+                                        LOOM_LOCATION_UNKNOWN, &view_op));
+  const int64_t static_indices[] = {INT64_MIN, INT64_MIN};
+  const loom_value_id_t indices[] = {zero, zero};
+  loom_op_t* load_op = nullptr;
+  IREE_ASSERT_OK(loom_vector_load_build(
+      &builder_, 0, /*instance_flags=*/0, loom_buffer_view_result(view_op),
+      indices, IREE_ARRAYSIZE(indices), static_indices,
+      IREE_ARRAYSIZE(static_indices), 0, 0, VectorType1D(1),
+      LOOM_LOCATION_UNKNOWN, &load_op));
+  loom_value_fact_table_t facts = {};
+  ComputeFacts(&facts);
+  loom_low_source_memory_axis_byte_stride_t strides[2];
+  loom_low_source_memory_access_plan_t plan = {};
+  loom_low_source_memory_access_diagnostic_t diagnostic = {};
+  ASSERT_TRUE(BuildPlan(&facts, load_op, &plan, &diagnostic, strides));
+  EXPECT_EQ(plan.dynamic_term_count, 0u);
+  EXPECT_EQ(plan.static_byte_offset, 0);
+  ASSERT_EQ(plan.view_rank, 2u);
+  ASSERT_EQ(plan.axis_byte_strides, strides);
+  EXPECT_EQ(strides[0].kind, LOOM_LOW_SOURCE_MEMORY_AXIS_BYTE_STRIDE_DYNAMIC);
+  EXPECT_EQ(strides[0].static_byte_coefficient, 4);
+  ASSERT_EQ(strides[0].dynamic_factor_count, 1u);
+  EXPECT_EQ(strides[0].dynamic_factors[0], row_stride);
+  EXPECT_EQ(strides[1].kind, LOOM_LOW_SOURCE_MEMORY_AXIS_BYTE_STRIDE_STATIC);
+  EXPECT_EQ(strides[1].static_byte_coefficient, 4);
+}
+
 TEST_F(SourceMemoryPlanTest, DynamicStridedLayoutScalesStaticOrigin) {
   const loom_value_id_t buffer = DefineBufferArg();
   const loom_value_id_t row_stride = DefineIndexArg();

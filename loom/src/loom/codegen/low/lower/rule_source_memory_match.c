@@ -35,8 +35,8 @@ loom_low_lower_rule_source_memory_state_resolve(
         state->plan_available = true;
       } else {
         state->plan_available = loom_low_source_memory_access_plan_build(
-            match_context->view_regions, source_op, state->access_plan,
-            &state->diagnostic);
+            match_context->view_regions, source_op, state->axis_byte_strides,
+            state->access_plan, &state->diagnostic);
       }
       if (state->plan_available &&
           match_context->source_memory_root_byte_offset.fn != NULL) {

@@ -324,9 +324,11 @@ class SourceMemoryPlanTest : public ::testing::Test {
         loom_value_fact_table_compute(out_facts, module_, function_));
   }
 
-  bool BuildPlan(loom_value_fact_table_t* facts, const loom_op_t* op,
-                 loom_low_source_memory_access_plan_t* out_plan,
-                 loom_low_source_memory_access_diagnostic_t* out_diagnostic) {
+  bool BuildPlan(
+      loom_value_fact_table_t* facts, const loom_op_t* op,
+      loom_low_source_memory_access_plan_t* out_plan,
+      loom_low_source_memory_access_diagnostic_t* out_diagnostic,
+      loom_low_source_memory_axis_byte_stride_t* axis_byte_strides = nullptr) {
     loom_local_value_domain_t value_domain = {};
     IREE_EXPECT_OK(loom_local_value_domain_acquire_for_region(
         module_, loom_func_like_body(function_), &analysis_arena_,
@@ -339,7 +341,7 @@ class SourceMemoryPlanTest : public ::testing::Test {
         &value_domain, &expression_context, &view_regions));
     IREE_EXPECT_OK(loom_view_region_table_analyze(&view_regions));
     const bool built = loom_low_source_memory_access_plan_build(
-        &view_regions, op, out_plan, out_diagnostic);
+        &view_regions, op, axis_byte_strides, out_plan, out_diagnostic);
     loom_local_value_domain_release(&value_domain);
     return built;
   }
