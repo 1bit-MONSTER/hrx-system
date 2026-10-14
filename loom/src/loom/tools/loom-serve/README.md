@@ -6,9 +6,9 @@ models can be registered, drained and removed independently. Numerical programs
 and parameter files are external inputs. Adding a compatible model package does
 not require rebuilding the server.
 
-The website owns the [installed-user walkthrough](../../../../docs/src/workflows/serving/serve-models.md),
-[command reference](../../../../docs/src/reference/loom-serve.md) and
-[model-document format](../../../../docs/src/reference/serving-models.md).
+The website owns the [installed-user walkthrough](../../../../docs/src/serving/workflows/serve-models.md),
+[command reference](../../../../docs/src/serving/index.md) and
+[model-document format](../../../../docs/src/serving/model-documents.md).
 This page describes the executable's source ownership and repository entry points.
 
 ## Start an empty server

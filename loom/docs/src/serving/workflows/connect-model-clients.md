@@ -231,7 +231,7 @@ curl --fail --silent --show-error "$loom_base_url/models"
 ```
 
 Then test the operation directly with the exact model ID. The
-[HTTP profile reference](../../reference/serving-http.md) gives accepted request
+[HTTP profile reference](../http-profiles.md) gives accepted request
 fields for chat, image and embedding operations. Loom deliberately rejects
 unknown or unsupported options instead of silently changing their meaning.
 Common configuration failures are a nonzero sampling parameter, an image size

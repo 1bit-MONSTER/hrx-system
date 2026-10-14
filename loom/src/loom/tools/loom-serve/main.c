@@ -115,12 +115,12 @@ static int loom_serve_main_agents_markdown(void) {
              "no subcommand.\n\n"
              "## References\n\n"
              "- First output: "
-             "https://rocm.github.io/hrx-system/loom/workflows/serving/"
+             "https://rocm.github.io/hrx-system/loom/serving/workflows/"
              "serve-models/\n"
              "- Command options: "
-             "https://rocm.github.io/hrx-system/loom/reference/loom-serve/\n"
+             "https://rocm.github.io/hrx-system/loom/serving/\n"
              "- Model documents: "
-             "https://rocm.github.io/hrx-system/loom/reference/serving-models/"
+             "https://rocm.github.io/hrx-system/loom/serving/model-documents/"
              "\n",
              stdout) == EOF
              ? EXIT_FAILURE

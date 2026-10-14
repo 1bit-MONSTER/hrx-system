@@ -46,7 +46,8 @@ manual, tool reference, target cookbook, and fixture inventory at once.
 | Tutorials | How do I build increasingly substantial workloads? | An ordered sequence of complete operations, each adding a bounded set of concepts. |
 | Programming guide | What does this language construct mean, and which boundary owns it? | Concept-oriented chapters organized from modules and values through kernels, specialization, checks, and command programs. |
 | Workflows | How do I format, test, benchmark, compile, inspect, or debug a program? | Task-oriented public tool invocations with their input, output, and failure contracts. |
-| Integration | How do I package libraries or embed AOT/JIT compilation? | Real caller flows for bytecode libraries, the `loomc` API, launch evaluation, artifacts, and caches. |
+| Integration | How do I package libraries or embed AOT/JIT compilation? | Real caller flows for bytecode libraries, model packages, the `loomc` API, launch evaluation, artifacts, and caches. |
+| Serving | How do I configure, operate, observe, and connect to `loom-serve`? | The server command, deployment and HTTP contracts followed by task-oriented serving workflows. |
 | Targets | What changes for this architecture or runtime? | Target-owned setup, profiles, capabilities, execution paths, and evidence interpretation. |
 | Reference | What is the exact syntax or API contract? | Generated dialect/type/attribute pages and declaration-owned C API documentation. |
 | Contributing | How do I build Loom or change its documentation? | Repository tooling and compiler-development workflows kept out of the installed-user path. |
