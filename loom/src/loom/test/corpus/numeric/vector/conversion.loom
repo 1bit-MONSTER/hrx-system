@@ -191,48 +191,6 @@ check.scenario @wide_integer_values {
   check.return
 }
 
-kernel.def @truncate_halfwords() {
-  %unit = index.constant 1 : index
-  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
-} launch(%input: buffer, %output: buffer) {
-  %base = index.constant 0 : offset
-  %aligned = buffer.assume.alignment %input {minimum_alignment = 16} : buffer
-  %inputs = buffer.view %aligned[%base] : buffer -> view<64xi16>
-  %outputs = buffer.view %output[%base] : buffer -> view<64xi8>
-  %halves = vector.load %inputs[0] : view<64xi16> -> vector<64xi16>
-  %bytes = vector.trunci %halves : vector<64xi16> to vector<64xi8>
-  vector.store %bytes, %outputs[0] : vector<64xi8>, view<64xi8>
-  kernel.return
-}
-
-func.def @truncate_halfwords_oracle(%input: buffer, %output: buffer) {
-  %base = index.constant 0 : offset
-  %begin = index.constant 0 : index
-  %end = index.constant 64 : index
-  %step = index.constant 1 : index
-  %inputs = buffer.view %input[%base] : buffer -> view<64xi16>
-  %outputs = buffer.view %output[%base] : buffer -> view<64xi8>
-  scf.for %i = [%begin to %end step %step] {
-    %half = view.load %inputs[%i] : view<64xi16> -> i16
-    %byte = scalar.trunci %half : i16 to i8
-    view.store %byte, %outputs[%i] : i8, view<64xi8>
-  }
-  func.return
-}
-
-check.scenario @halfword_truncation_values {
-  check.trial[64](%trial: index, %entropy: check.entropy) {
-    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
-    %input = check.generate.random.uniform seed(%seed) range(-32768 to 32767) : tensor<64xi16>
-    %storage = check.generate.fill value(-91) : tensor<96xi8>
-    %output = check.tensor.view %storage offset(16) : tensor<96xi8> -> tensor<64xi8>
-    check.compare<@truncate_halfwords, @truncate_halfwords_oracle>(%input, %output) : (tensor<64xi16>, tensor<64xi8>) -> () {
-      check.expect.bitwise actual(%storage) expected(%storage) : tensor<96xi8>
-    }
-  }
-  check.return
-}
-
 kernel.def @wide_bfloat_conversions() {
   %unit = index.constant 1 : index
   kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
@@ -302,67 +260,6 @@ check.scenario @wide_bfloat_values {
       check.expect.bitwise actual(%float_storage) expected(%float_storage) : tensor<40xf32>
       check.expect.bitwise actual(%bfloat_storage) expected(%bfloat_storage) : tensor<40xbf16>
       check.expect.bitwise actual(%word_storage) expected(%word_storage) : tensor<24xi32>
-    }
-  }
-  check.return
-}
-
-kernel.def @pack_nibbles() {
-  %unit = index.constant 1 : index
-  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
-} launch(%input: buffer, %output: buffer) {
-  %base = index.constant 0 : offset
-  %aligned = buffer.assume.alignment %input {minimum_alignment = 16} : buffer
-  %inputs = buffer.view %aligned[%base] : buffer -> view<128xi8>
-  %outputs = buffer.view %output[%base] : buffer -> view<96xi8>
-  %bytes64 = vector.load %inputs[0] : view<128xi8> -> vector<64xi8>
-  %packed32 = vector.bitpack<4> %bytes64 : vector<64xi8> -> vector<32xi8>
-  vector.store %packed32, %outputs[0] : vector<32xi8>, view<96xi8>
-  %bytes128 = vector.load %inputs[0] : view<128xi8> -> vector<128xi8>
-  %packed64 = vector.bitpack<4> %bytes128 : vector<128xi8> -> vector<64xi8>
-  vector.store %packed64, %outputs[32] : vector<64xi8>, view<96xi8>
-  kernel.return
-}
-
-func.def @pack_nibbles_oracle(%input: buffer, %output: buffer) {
-  %base = index.constant 0 : offset
-  %begin = index.constant 0 : index
-  %end = index.constant 64 : index
-  %step = index.constant 1 : index
-  %c2 = index.constant 2 : index
-  %inputs = buffer.view %input[%base] : buffer -> view<128xi8>
-  %outputs = buffer.view %output[%base] : buffer -> view<96xi8>
-  scf.for %i = [%begin to %end step %step] {
-    %even = index.mul %i, %c2 : index
-    %odd = index.add %even, %step : index
-    %low = view.load %inputs[%even] : view<128xi8> -> i8
-    %high = view.load %inputs[%odd] : view<128xi8> -> i8
-    %mask = scalar.constant 15 : i8
-    %shift = scalar.constant 4 : i8
-    %low_nibble = scalar.andi %low, %mask : i8
-    %high_nibble = scalar.shli %high, %shift : i8
-    %packed = scalar.ori %low_nibble, %high_nibble : i8
-    %c32 = index.constant 32 : index
-    %position = index.add %i, %c32 : index
-    view.store %packed, %outputs[%position] : i8, view<96xi8>
-    %below32 = index.cmp ult, %i, %c32 : index
-    scf.if %below32 {
-      view.store %packed, %outputs[%i] : i8, view<96xi8>
-    }
-  }
-  func.return
-}
-
-check.scenario @packed_nibble_values {
-  check.trial[64](%trial: index, %entropy: check.entropy) {
-    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
-    %input = check.generate.random.uniform seed(%seed) range(-128 to 127) : tensor<128xi8>
-    %expected_input = check.generate.random.uniform seed(%seed) range(-128 to 127) : tensor<128xi8>
-    %storage = check.generate.fill value(-91) : tensor<128xi8>
-    %output = check.tensor.view %storage offset(16) : tensor<128xi8> -> tensor<96xi8>
-    check.compare<@pack_nibbles, @pack_nibbles_oracle>(%input, %output) : (tensor<128xi8>, tensor<96xi8>) -> () {
-      check.expect.bitwise actual(%storage) expected(%storage) : tensor<128xi8>
-      check.expect.bitwise actual(%input) expected(%expected_input) : tensor<128xi8>
     }
   }
   check.return

@@ -90,8 +90,10 @@ loom_corpus_sources(
     "vector/integer_widening.loom"
     "vector/interleave.loom"
     "vector/lanes.loom"
-    "vector/packed_arithmetic.loom"
-    "vector/packed_selection.loom"
+    "vector/packed/arithmetic.loom"
+    "vector/packed/dot.loom"
+    "vector/packed/narrowing.loom"
+    "vector/packed/selection.loom"
     "vector/reductions.loom"
     "vector/selection.loom"
 )
