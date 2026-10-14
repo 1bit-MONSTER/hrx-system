@@ -21,6 +21,7 @@ from loom.gen.target.contracts.lower_rule_rows import (
     diagnostic_has_implicit_target_context,
     diagnostic_stored_params,
     diagnostic_value_row,
+    emit_ref_row,
     emit_row,
     guard_payload_row,
     guard_row,
@@ -838,7 +839,6 @@ def test_validate_c_table_shape_rejects_descriptor_structural_payload() -> None:
 
 def test_emit_row_overlays_descriptor_table_ranges() -> None:
     row = emit_row(
-        {TEST_LOW_ADD_F32_DESCRIPTOR.key: 1},
         LowerEmit(
             kind=LowerEmitKind.DESCRIPTOR_OP,
             descriptor=TEST_LOW_ADD_F32_DESCRIPTOR,
@@ -853,9 +853,81 @@ def test_emit_row_overlays_descriptor_table_ranges() -> None:
     assert ".payload.descriptor.tied_result_start = 5" in row
 
 
+def test_emit_references_keep_descriptor_identity_out_of_shared_behavior() -> None:
+    descriptor_refs = {TEST_LOW_ADD_I32_DESCRIPTOR.key: 3}
+    descriptor_emit = LowerEmit(
+        kind=LowerEmitKind.DESCRIPTOR_OP,
+        descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+    )
+    assert emit_ref_row(descriptor_refs, descriptor_emit, 7) == [
+        ".descriptor_ref = 3",
+        ".emit_index = 7",
+    ]
+    assert emit_row(descriptor_emit) == [".kind = LOOM_LOW_LOWER_EMIT_DESCRIPTOR_OP"]
+    for kind in (
+        LowerEmitKind.REGISTER_SLICE,
+        LowerEmitKind.REGISTER_CONCAT,
+        LowerEmitKind.REGISTER_COPY,
+        LowerEmitKind.REGISTER_MOVE,
+    ):
+        assert emit_ref_row({}, LowerEmit(kind=kind), 5) == [
+            ".descriptor_ref = 65535",
+            ".emit_index = 5",
+        ]
+
+
+def test_generated_tables_share_bindings_without_merging_descriptors() -> None:
+    contract = ContractFragment(
+        name="test.low.emit_sharing",
+        descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+        public_header=_TEST_PUBLIC_HEADER,
+        cases=tuple(
+            DescriptorRule(
+                source_op=source_op,
+                descriptor=descriptor,
+                guards=tuple(Guard.value_type(name, Scalar("i32")) for name in ("lhs", "rhs", "result")),
+                emit=(
+                    EmitDescriptorOp(
+                        descriptor=descriptor,
+                        operands={"lhs": ValueRef.operand("lhs"), "rhs": ValueRef.operand("rhs")},
+                        results={"dst": ValueRef.result("result")},
+                    ),
+                ),
+            )
+            for source_op, descriptor in (
+                (scalar_arithmetic.scalar_addi, TEST_LOW_ADD_I32_DESCRIPTOR),
+                (scalar_arithmetic.scalar_muli, TEST_LOW_MUL_I32_DESCRIPTOR),
+            )
+        ),
+    )
+    compiled = compile_lower_rule_set(contract, dialect_ops={"scalar": ALL_SCALAR_OPS})
+    generated = generate_lower_rule_set_from_compiled(contract, compiled=compiled)
+    emit_rows = generated.source.split("static const loom_low_lower_emit_t ", 1)[1].split("};", 1)[0]
+    emit_refs = generated.source.split("static const loom_low_lower_emit_ref_t ", 1)[1].split("};", 1)[0]
+    assert emit_rows.count(".kind = ") == 1
+    assert ".descriptor_ref" not in emit_rows
+    assert emit_refs.count(".emit_index = 0,") == 2
+    assert emit_refs.count(".descriptor_ref = 0,") == 1
+    assert emit_refs.count(".descriptor_ref = 1,") == 1
+
+    # A different operand-copy contract must retain its own behavior row even
+    # when the descriptor and every other field match an existing emit.
+    copied_case = replace(
+        contract.cases[0],
+        emit=(replace(contract.cases[0].emit[0], copy_operands=("lhs",)),),
+    )
+    changed = replace(contract, cases=(*contract.cases, copied_case))
+    generated = generate_lower_rule_set(changed, dialect_ops={"scalar": ALL_SCALAR_OPS})
+    emit_rows = generated.source.split("static const loom_low_lower_emit_t ", 1)[1].split("};", 1)[0]
+    emit_refs = generated.source.split("static const loom_low_lower_emit_ref_t ", 1)[1].split("};", 1)[0]
+    assert emit_rows.count(".kind = ") == 2
+    assert emit_rows.count(".copy_operand_mask = 1,") == 1
+    assert emit_refs.count(".emit_index = 0,") == 2
+    assert emit_refs.count(".emit_index = 1,") == 1
+
+
 def test_emit_row_spells_target_operand_materialization() -> None:
     row = emit_row(
-        {TEST_LOW_ADD_F32_DESCRIPTOR.key: 1},
         LowerEmit(
             kind=LowerEmitKind.DESCRIPTOR_OP,
             descriptor=TEST_LOW_ADD_F32_DESCRIPTOR,
@@ -868,7 +940,6 @@ def test_emit_row_spells_target_operand_materialization() -> None:
 
 def test_emit_row_overlays_result_type_ranges() -> None:
     value_ref_row_fields = emit_row(
-        {},
         LowerEmit(
             kind=LowerEmitKind.REGISTER_COPY,
             result_ref_start=2,
@@ -876,7 +947,6 @@ def test_emit_row_overlays_result_type_ranges() -> None:
         ),
     )
     type_pattern_row_fields = emit_row(
-        {},
         LowerEmit(
             kind=LowerEmitKind.REGISTER_COPY,
             flags=(LOWER_EMIT_FLAG_BIND_RESULTS_TO_REFS | LOWER_EMIT_FLAG_RESULT_TYPE_PATTERN),
@@ -911,7 +981,6 @@ def test_validate_c_table_shape_requires_type_pattern_bind_range() -> None:
 
 def test_emit_row_overlays_register_slice_payload() -> None:
     row = emit_row(
-        {},
         LowerEmit(
             kind=LowerEmitKind.REGISTER_SLICE,
             structural_offset=2,
@@ -1953,24 +2022,6 @@ def test_generated_tables_intern_guards_and_diagnostic_params() -> None:
         (".u64 = UINT64_C(9)",),
     )
     assert payload_ordinals == (0, 1, 1, 2)
-
-    emits = (
-        LowerEmit(
-            kind=LowerEmitKind.DESCRIPTOR_OP,
-            descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
-        ),
-        LowerEmit(
-            kind=LowerEmitKind.DESCRIPTOR_OP,
-            descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
-        ),
-        LowerEmit(
-            kind=LowerEmitKind.DESCRIPTOR_OP,
-            descriptor=TEST_LOW_MUL_I32_DESCRIPTOR,
-        ),
-    )
-    unique_emits, emit_refs = _intern_rows(emits)
-    assert unique_emits == (emits[0], emits[2])
-    assert emit_refs == (0, 0, 1)
 
     params = (
         LowerDiagnosticParam(

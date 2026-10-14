@@ -962,7 +962,14 @@ def tied_result_row(row: LowerTiedResult) -> list[str]:
     return fields
 
 
-def emit_row(descriptor_refs: Mapping[str, int], row: LowerEmit) -> list[str]:
+def emit_ref_row(descriptor_refs: Mapping[str, int], row: LowerEmit, emit_index: int) -> list[str]:
+    return [
+        f".descriptor_ref = {_descriptor_ref_index(descriptor_refs, row.descriptor)}",
+        f".emit_index = {emit_index}",
+    ]
+
+
+def emit_row(row: LowerEmit) -> list[str]:
     fields: list[str] = []
     flags = lower_rule_spelling.emit_flags(row.flags)
     _append_field(fields, "kind", lower_rule_spelling.EMIT_KIND_C_NAMES[row.kind], always=True)
@@ -974,12 +981,6 @@ def emit_row(descriptor_refs: Mapping[str, int], row: LowerEmit) -> list[str]:
             lower_rule_spelling.OPERAND_MATERIALIZATION_C_NAMES[row.operand_materialization],
             always=True,
         )
-    _append_field(
-        fields,
-        "descriptor_ref",
-        _descriptor_ref_index(descriptor_refs, row.descriptor),
-        always=True,
-    )
     if row.operand_ref_count:
         _append_field(fields, "operand_ref_start", row.operand_ref_start, always=True)
         _append_field(fields, "operand_ref_count", row.operand_ref_count, always=True)

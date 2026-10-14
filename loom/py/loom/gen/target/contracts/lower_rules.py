@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from collections.abc import Hashable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from loom.dsl import Op
@@ -636,22 +636,24 @@ def _generate_source(
         )
     )
 
-    unique_emits, emit_refs = _intern_rows(table.emits)
+    # Descriptor identity belongs to the program position, so instructions with
+    # identical bindings share one behavior row across types and opcode families.
+    unique_emits, emit_refs = _intern_rows(tuple(replace(row, descriptor=None) for row in table.emits))
     emits_name = f"k{c_table_prefix}Emits"
     lines.extend(
         lower_rule_rows.emit_optional_array(
             emits_name,
             "loom_low_lower_emit_t",
-            [lower_rule_rows.emit_row(descriptor_refs, row) for row in unique_emits],
+            [lower_rule_rows.emit_row(row) for row in unique_emits],
         )
     )
 
     emit_refs_name = f"k{c_table_prefix}EmitRefs"
     lines.extend(
-        lower_rule_rows.emit_optional_value_array(
+        lower_rule_rows.emit_optional_array(
             emit_refs_name,
             "loom_low_lower_emit_ref_t",
-            [str(ref) for ref in emit_refs],
+            [lower_rule_rows.emit_ref_row(descriptor_refs, row, ref) for row, ref in zip(table.emits, emit_refs, strict=True)],
         )
     )
 

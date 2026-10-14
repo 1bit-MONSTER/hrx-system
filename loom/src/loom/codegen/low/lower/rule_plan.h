@@ -45,9 +45,9 @@ typedef struct loom_low_lower_lane_plan_t {
 } loom_low_lower_lane_plan_t;
 
 typedef struct loom_low_lower_resolved_emit_t {
-  // Static emit-program row selected by planning.
+  // Shared emission behavior selected by planning.
   const loom_low_lower_emit_t* emit;
-  // Descriptor row referenced by emit and resolved during planning.
+  // Program-position descriptor resolved during planning.
   loom_low_lower_resolved_descriptor_t descriptor;
   // Source access semantics for this memory packet; zero for address setup.
   loom_memory_access_flags_t access_flags;
