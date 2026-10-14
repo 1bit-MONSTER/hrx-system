@@ -11,6 +11,11 @@
 typedef enum loom_serve_http_request_parser_phase_e {
   LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_HEADERS = 0,
   LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_BODY,
+  LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_CHUNK_SIZE,
+  LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_CHUNK_DATA,
+  LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_CHUNK_CR,
+  LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_CHUNK_LF,
+  LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_TRAILERS,
   LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_COMPLETE,
   LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_FAILED,
 } loom_serve_http_request_parser_phase_t;
@@ -45,8 +50,10 @@ struct loom_serve_http_request_parser_t {
   loom_serve_http_request_limits_t limits;
   // Active framing phase or terminal lifecycle state.
   loom_serve_http_request_parser_phase_t phase;
-  // Exact request bytes received from the connection.
+  // Initial request headers followed by decoded body bytes.
   iree_string_builder_t storage;
+  // Reused partial chunk-size or trailer line, including its CRLF.
+  iree_string_builder_t framing_line;
   // Request method range established with the request line.
   loom_serve_http_request_range_t method;
   // Origin-form target range established with the request line.
@@ -55,8 +62,10 @@ struct loom_serve_http_request_parser_t {
   loom_serve_http_header_record_list_t header_records;
   // Total header bytes including the terminal empty line.
   iree_host_size_t header_length;
-  // Total request bytes required by Content-Length.
-  iree_host_size_t request_length;
+  // Body bytes remaining in Content-Length framing or the current chunk.
+  iree_host_size_t body_remaining;
+  // Cumulative chunk framing bytes charged independently of decoded content.
+  iree_host_size_t framing_length;
   // Final contiguous public header pairs.
   iree_string_pair_t* header_pairs;
   // Final public request borrowing parser-owned storage.
@@ -249,6 +258,32 @@ static iree_status_t loom_serve_http_append_header_record(
   return iree_ok_status();
 }
 
+static iree_status_t loom_serve_http_parse_field_line(
+    iree_string_view_t line, iree_string_pair_t* out_field) {
+  const iree_host_size_t colon = iree_string_view_find_char(line, ':', 0);
+  if (colon == IREE_STRING_VIEW_NPOS || colon == 0) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "HTTP field line has no valid name");
+  }
+  const iree_string_view_t name = iree_make_string_view(line.data, colon);
+  IREE_RETURN_IF_ERROR(loom_serve_http_validate_token(name, "field name"));
+  iree_host_size_t value_start = colon + 1;
+  while (value_start < line.size &&
+         (line.data[value_start] == ' ' || line.data[value_start] == '\t')) {
+    ++value_start;
+  }
+  iree_host_size_t value_end = line.size;
+  while (value_end > value_start && (line.data[value_end - 1] == ' ' ||
+                                     line.data[value_end - 1] == '\t')) {
+    --value_end;
+  }
+  const iree_string_view_t value =
+      iree_make_string_view(line.data + value_start, value_end - value_start);
+  IREE_RETURN_IF_ERROR(loom_serve_http_validate_header_value(value));
+  *out_field = (iree_string_pair_t){.key = name, .value = value};
+  return iree_ok_status();
+}
+
 static iree_status_t loom_serve_http_parse_headers(
     loom_serve_http_request_parser_t* parser) {
   const iree_string_view_t storage =
@@ -263,6 +298,8 @@ static iree_status_t loom_serve_http_parse_headers(
       parser, iree_make_string_view(storage.data, request_line_end)));
 
   bool has_host = false;
+  bool has_content_length = false;
+  bool is_chunked = false;
   iree_host_size_t content_length = 0;
   iree_host_size_t cursor = request_line_end + 2;
   while (cursor < parser->header_length) {
@@ -279,26 +316,10 @@ static iree_status_t loom_serve_http_parse_headers(
     }
     const iree_string_view_t line =
         iree_make_string_view(storage.data + cursor, line_end - cursor);
-    const iree_host_size_t colon = iree_string_view_find_char(line, ':', 0);
-    if (colon == IREE_STRING_VIEW_NPOS || colon == 0) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "HTTP header line has no valid name");
-    }
-    const iree_string_view_t name = iree_make_string_view(line.data, colon);
-    IREE_RETURN_IF_ERROR(loom_serve_http_validate_token(name, "header name"));
-    iree_host_size_t value_start = colon + 1;
-    while (value_start < line.size &&
-           (line.data[value_start] == ' ' || line.data[value_start] == '\t')) {
-      ++value_start;
-    }
-    iree_host_size_t value_end = line.size;
-    while (value_end > value_start && (line.data[value_end - 1] == ' ' ||
-                                       line.data[value_end - 1] == '\t')) {
-      --value_end;
-    }
-    const iree_string_view_t value =
-        iree_make_string_view(line.data + value_start, value_end - value_start);
-    IREE_RETURN_IF_ERROR(loom_serve_http_validate_header_value(value));
+    iree_string_pair_t field;
+    IREE_RETURN_IF_ERROR(loom_serve_http_parse_field_line(line, &field));
+    const iree_string_view_t name = field.key;
+    const iree_string_view_t value = field.value;
     IREE_RETURN_IF_ERROR(
         loom_serve_http_append_header_record(parser, name, value));
 
@@ -309,12 +330,16 @@ static iree_status_t loom_serve_http_parse_headers(
       }
       has_host = true;
     } else if (iree_string_view_equal_case(name, IREE_SV("Content-Length"))) {
+      has_content_length = true;
       IREE_RETURN_IF_ERROR(
           loom_serve_http_parse_content_length(value, &content_length));
     } else if (iree_string_view_equal_case(name,
                                            IREE_SV("Transfer-Encoding"))) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "HTTP Transfer-Encoding is unsupported");
+      if (!iree_string_view_equal_case(value, IREE_SV("chunked"))) {
+        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                "HTTP Transfer-Encoding must be chunked");
+      }
+      is_chunked = true;
     } else if (iree_string_view_equal_case(name, IREE_SV("Expect"))) {
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                               "HTTP Expect is unsupported");
@@ -333,16 +358,18 @@ static iree_status_t loom_serve_http_parse_headers(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "HTTP Host is required");
   }
+  if (has_content_length && is_chunked) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "HTTP Content-Length and Transfer-Encoding conflict");
+  }
   if (content_length > parser->limits.body_byte_capacity) {
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "HTTP request body capacity exhausted");
   }
-  if (!iree_host_size_checked_add(parser->header_length, content_length,
-                                  &parser->request_length)) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "HTTP request length overflows host storage");
-  }
-  parser->phase = LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_BODY;
+  parser->body_remaining = content_length;
+  parser->phase = is_chunked ? LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_CHUNK_SIZE
+                             : LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_BODY;
   return iree_ok_status();
 }
 
@@ -373,9 +400,8 @@ static iree_status_t loom_serve_http_complete_request(
               .count = header_count,
               .pairs = parser->header_pairs,
           },
-      .body =
-          iree_make_string_view(storage.data + parser->header_length,
-                                parser->request_length - parser->header_length),
+      .body = iree_make_string_view(storage.data + parser->header_length,
+                                    storage.size - parser->header_length),
   };
   parser->phase = LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_COMPLETE;
   return iree_ok_status();
@@ -383,10 +409,7 @@ static iree_status_t loom_serve_http_complete_request(
 
 static iree_status_t loom_serve_http_append_body_bytes(
     loom_serve_http_request_parser_t* parser, iree_const_byte_span_t chunk) {
-  const iree_host_size_t storage_length =
-      iree_string_builder_size(&parser->storage);
-  if (storage_length > parser->request_length ||
-      chunk.data_length > parser->request_length - storage_length) {
+  if (chunk.data_length > parser->body_remaining) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "HTTP request contains trailing or pipelined bytes");
@@ -396,10 +419,225 @@ static iree_status_t loom_serve_http_append_body_bytes(
         &parser->storage,
         iree_make_string_view((const char*)chunk.data, chunk.data_length)));
   }
-  if (iree_string_builder_size(&parser->storage) == parser->request_length) {
+  parser->body_remaining -= chunk.data_length;
+  if (parser->body_remaining == 0) {
     return loom_serve_http_complete_request(parser);
   }
   return iree_ok_status();
+}
+
+static void loom_serve_http_skip_whitespace(iree_string_view_t value,
+                                            iree_host_size_t* cursor) {
+  while (*cursor < value.size &&
+         (value.data[*cursor] == ' ' || value.data[*cursor] == '\t')) {
+    ++*cursor;
+  }
+}
+
+// RFC 9112 section 7.1.1 requires ignoring unrecognized extensions. Parse their
+// complete grammar so quoted semicolons/escapes cannot alter chunk framing.
+static bool loom_serve_http_validate_chunk_extensions(iree_string_view_t line,
+                                                      iree_host_size_t cursor) {
+  while (cursor < line.size) {
+    loom_serve_http_skip_whitespace(line, &cursor);
+    if (cursor == line.size || line.data[cursor++] != ';') {
+      return false;
+    }
+    loom_serve_http_skip_whitespace(line, &cursor);
+    const iree_host_size_t name_start = cursor;
+    while (cursor < line.size &&
+           loom_serve_http_is_token_character((uint8_t)line.data[cursor])) {
+      ++cursor;
+    }
+    if (cursor == name_start) {
+      return false;
+    }
+    const iree_host_size_t name_end = cursor;
+    loom_serve_http_skip_whitespace(line, &cursor);
+    if (cursor == line.size || line.data[cursor] != '=') {
+      cursor = name_end;
+      continue;
+    }
+    ++cursor;
+    loom_serve_http_skip_whitespace(line, &cursor);
+    if (cursor == line.size) {
+      return false;
+    }
+    if (line.data[cursor] == '"') {
+      ++cursor;
+      while (cursor < line.size && line.data[cursor] != '"') {
+        uint8_t byte = (uint8_t)line.data[cursor++];
+        if (byte == '\\') {
+          if (cursor == line.size) {
+            return false;
+          }
+          byte = (uint8_t)line.data[cursor++];
+        }
+        if ((byte < 0x20 && byte != '\t') || byte == 0x7F) {
+          return false;
+        }
+      }
+      if (cursor == line.size) {
+        return false;
+      }
+      ++cursor;
+    } else {
+      const iree_host_size_t value_start = cursor;
+      while (cursor < line.size &&
+             loom_serve_http_is_token_character((uint8_t)line.data[cursor])) {
+        ++cursor;
+      }
+      if (cursor == value_start) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+static iree_status_t loom_serve_http_parse_chunk_size(
+    loom_serve_http_request_parser_t* parser, iree_string_view_t line) {
+  iree_host_size_t cursor = 0;
+  iree_host_size_t length = 0;
+  while (cursor < line.size) {
+    const uint8_t byte = (uint8_t)line.data[cursor];
+    uint8_t digit = 0;
+    if (byte >= '0' && byte <= '9') {
+      digit = byte - '0';
+    } else if (byte >= 'a' && byte <= 'f') {
+      digit = byte - 'a' + 10;
+    } else if (byte >= 'A' && byte <= 'F') {
+      digit = byte - 'A' + 10;
+    } else {
+      break;
+    }
+    iree_host_size_t scaled_length = 0;
+    if (!iree_host_size_checked_mul(length, 16, &scaled_length) ||
+        !iree_host_size_checked_add(scaled_length, digit, &length)) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "HTTP chunk size overflows host storage");
+    }
+    ++cursor;
+  }
+  if (cursor == 0 || !loom_serve_http_validate_chunk_extensions(line, cursor)) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "HTTP chunk size or extensions are invalid");
+  }
+  const iree_host_size_t body_length =
+      iree_string_builder_size(&parser->storage) - parser->header_length;
+  if (length > parser->limits.body_byte_capacity - body_length) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "HTTP request body capacity exhausted");
+  }
+  parser->body_remaining = length;
+  parser->phase = length ? LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_CHUNK_DATA
+                         : LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_TRAILERS;
+  return iree_ok_status();
+}
+
+// Consumes at most one framing line. The caller advances even for a partial
+// line; cumulative framing bytes bound storage and work across all chunks.
+static iree_status_t loom_serve_http_append_framing_line(
+    loom_serve_http_request_parser_t* parser, iree_const_byte_span_t bytes,
+    iree_host_size_t* out_consumed) {
+  const iree_host_size_t available =
+      parser->limits.header_byte_capacity - parser->framing_length;
+  const iree_host_size_t scan_length = iree_min(bytes.data_length, available);
+  const uint8_t* newline = memchr(bytes.data, '\n', scan_length);
+  const iree_host_size_t length =
+      newline ? (iree_host_size_t)(newline - bytes.data) + 1
+              : bytes.data_length;
+  if (!newline && length >= available) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "HTTP chunk framing capacity exhausted");
+  }
+  IREE_RETURN_IF_ERROR(iree_string_builder_append_string(
+      &parser->framing_line,
+      iree_make_string_view((const char*)bytes.data, length)));
+  parser->framing_length += length;
+  *out_consumed = length;
+  if (!newline) {
+    return iree_ok_status();
+  }
+  iree_string_view_t line = iree_string_builder_view(&parser->framing_line);
+  if (line.size < 2 || line.data[line.size - 2] != '\r') {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "HTTP chunk framing requires CRLF");
+  }
+  line.size -= 2;
+  iree_status_t status = iree_ok_status();
+  if (parser->phase == LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_CHUNK_SIZE) {
+    status = loom_serve_http_parse_chunk_size(parser, line);
+  } else if (iree_string_view_is_empty(line)) {
+    status = loom_serve_http_complete_request(parser);
+  } else {
+    // RFC 9112 section 7.1.2 permits discarding trailers. They cannot supply
+    // authentication, routing, framing or other initial-header semantics.
+    iree_string_pair_t ignored;
+    status = loom_serve_http_parse_field_line(line, &ignored);
+  }
+  iree_string_builder_reset(&parser->framing_line);
+  return status;
+}
+
+static iree_status_t loom_serve_http_append_chunked_bytes(
+    loom_serve_http_request_parser_t* parser, iree_const_byte_span_t bytes) {
+  iree_host_size_t cursor = 0;
+  iree_status_t status = iree_ok_status();
+  while (iree_status_is_ok(status) && cursor < bytes.data_length) {
+    switch (parser->phase) {
+      case LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_CHUNK_SIZE:
+      case LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_TRAILERS: {
+        iree_host_size_t consumed = 0;
+        status = loom_serve_http_append_framing_line(
+            parser,
+            iree_make_const_byte_span(bytes.data + cursor,
+                                      bytes.data_length - cursor),
+            &consumed);
+        cursor += consumed;
+        break;
+      }
+      case LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_CHUNK_DATA: {
+        const iree_host_size_t length =
+            iree_min(parser->body_remaining, bytes.data_length - cursor);
+        status = iree_string_builder_append_string(
+            &parser->storage,
+            iree_make_string_view((const char*)bytes.data + cursor, length));
+        parser->body_remaining -= length;
+        cursor += length;
+        if (parser->body_remaining == 0) {
+          parser->phase = LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_CHUNK_CR;
+        }
+        break;
+      }
+      case LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_CHUNK_CR:
+      case LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_CHUNK_LF: {
+        const bool is_carriage_return =
+            parser->phase == LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_CHUNK_CR;
+        if (parser->framing_length == parser->limits.header_byte_capacity) {
+          status = iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                                    "HTTP chunk framing capacity exhausted");
+        } else if (bytes.data[cursor++] != (is_carriage_return ? '\r' : '\n')) {
+          status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                    "HTTP chunk data requires CRLF");
+        } else {
+          ++parser->framing_length;
+          parser->phase = is_carriage_return
+                              ? LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_CHUNK_LF
+                              : LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_CHUNK_SIZE;
+        }
+        break;
+      }
+      case LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_COMPLETE:
+        status = iree_make_status(
+            IREE_STATUS_INVALID_ARGUMENT,
+            "HTTP request contains trailing or pipelined bytes");
+        break;
+      default:
+        IREE_CHECK_UNREACHABLE("chunk decoder requires active chunk framing");
+    }
+  }
+  return status;
 }
 
 void loom_serve_http_request_parser_free(
@@ -410,6 +648,7 @@ void loom_serve_http_request_parser_free(
   iree_allocator_t host_allocator = parser->host_allocator;
   iree_allocator_free(host_allocator, parser->header_pairs);
   iree_allocator_free(host_allocator, parser->header_records.values);
+  iree_string_builder_deinitialize(&parser->framing_line);
   iree_string_builder_deinitialize(&parser->storage);
   iree_allocator_free(host_allocator, parser);
 }
@@ -437,6 +676,7 @@ iree_status_t loom_serve_http_request_parser_allocate(
     parser->limits = limits;
     parser->phase = LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_HEADERS;
     iree_string_builder_initialize(host_allocator, &parser->storage);
+    iree_string_builder_initialize(host_allocator, &parser->framing_line);
   }
   if (iree_status_is_ok(status)) {
     status =
@@ -492,6 +732,12 @@ iree_status_t loom_serve_http_request_parser_feed(
       if (delimiter != IREE_STRING_VIEW_NPOS) {
         parser->header_length = delimiter + 4;
         status = loom_serve_http_parse_headers(parser);
+        // Replay lookahead from the caller's bytes through the selected body
+        // decoder; retained storage contains only headers and decoded content.
+        consumed_length = parser->header_length - old_length;
+        iree_string_builder_reset(&parser->storage);
+        iree_string_builder_commit_append(&parser->storage,
+                                          parser->header_length);
       } else if (storage.size == parser->limits.header_byte_capacity) {
         status = iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                                   "HTTP request header capacity exhausted");
@@ -499,11 +745,15 @@ iree_status_t loom_serve_http_request_parser_feed(
     }
   }
   if (iree_status_is_ok(status) &&
-      parser->phase == LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_BODY) {
-    status = loom_serve_http_append_body_bytes(
-        parser, iree_make_const_byte_span(
-                    chunk.data ? chunk.data + consumed_length : NULL,
-                    chunk.data_length - consumed_length));
+      parser->phase != LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_HEADERS) {
+    const iree_const_byte_span_t body_bytes = iree_make_const_byte_span(
+        chunk.data ? chunk.data + consumed_length : NULL,
+        chunk.data_length - consumed_length);
+    if (parser->phase == LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_BODY) {
+      status = loom_serve_http_append_body_bytes(parser, body_bytes);
+    } else {
+      status = loom_serve_http_append_chunked_bytes(parser, body_bytes);
+    }
   }
   if (iree_status_is_ok(status) &&
       parser->phase == LOOM_SERVE_HTTP_REQUEST_PARSER_PHASE_COMPLETE) {

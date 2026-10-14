@@ -221,6 +221,31 @@ TEST_F(HttpServerTest, ConnectionSlotsRecycleAfterDrain) {
   }
 }
 
+TEST_F(HttpServerTest, ChunkedUploadSurvivesPeerHalfClose) {
+  int client = Connect();
+  ASSERT_TRUE(Write(client,
+                    "POST /v1/audio/transcriptions HTTP/1.1\r\nHost: local\r\n"
+                    "Transfer-Encoding: chunked\r\n\r\n3\r"));
+  ASSERT_TRUE(Write(client, "\nabc\r\n2;part=last\r\n"));
+  ASSERT_TRUE(Write(client, std::string("\0d", 2)));
+  ASSERT_TRUE(Write(client, "\r\n0\r\nX-End: yes\r\n\r"));
+  ASSERT_TRUE(Write(client, "\n"));
+  ASSERT_EQ(shutdown(client, SHUT_WR), 0);
+  const loom_serve_http_request_t* request = nullptr;
+  auto* connection = Take(&request);
+  ASSERT_NE(connection, nullptr);
+  EXPECT_EQ(std::string(request->body.data, request->body.size),
+            std::string("abc\0d", 5));
+  EXPECT_EQ(request->headers.count, 2u);
+  IREE_ASSERT_OK(loom_serve_http_connection_send(
+      connection,
+      IREE_SV("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nuploaded")));
+  loom_serve_http_connection_finish(connection);
+  EXPECT_EQ(Read(client),
+            "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nuploaded");
+  ASSERT_EQ(close(client), 0);
+}
+
 TEST_F(HttpServerTest, CapacityWaitReturnsTheOriginalRequestAfterRetirement) {
   ASSERT_NO_FATAL_FAILURE(HoldCapacity());
   const int client = Connect();
