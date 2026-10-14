@@ -1,4 +1,4 @@
-// RUN: emit source-low output=low
+// RUN: with-checks compile-report source-to-low,low-dce
 
 aie2p.target<core> @target
 
@@ -7,516 +7,95 @@ func.def target(@target) @interleave_i16x32(%even: vector<32xi16>, %odd: vector<
   func.return %result : vector<64xi16>
 }
 
-// ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @interleave_i16x32(%even: reg<aie2p.vec256 x2>, %odd: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x4>) asm {
-  %7 = mova.i32 18
-  %8 = mova.i32 19
-  %9 = vshuffle %even, %odd, %7
-  %10 = vshuffle %even, %odd, %8
-  %result = concat(%9, %10) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
-  return %result
-}
-
-// ====
-
-aie2p.target<core> @target
-
 func.def target(@target) @deinterleave_i16x64(%source: vector<64xi16>) -> (vector<32xi16>, vector<32xi16>) {
   %even, %odd = vector.deinterleave<0> %source : vector<64xi16> -> vector<32xi16>, vector<32xi16>
   func.return %even, %odd : vector<32xi16>, vector<32xi16>
 }
-
-// ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @deinterleave_i16x64(%source: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) asm {
-  %8 = mova.i32 2
-  %9 = mova.i32 3
-  %10 = slice %source[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %11 = slice %source[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %even = vshuffle %10, %11, %8
-  %odd = vshuffle %10, %11, %9
-  return %even, %odd
-}
-
-// ====
-
-aie2p.target<core> @target
 
 func.def target(@target) @interleave_i8_8x8_axis0(%even: vector<8x8xi8>, %odd: vector<8x8xi8>) -> (vector<16x8xi8>) {
   %result = vector.interleave<0> %even, %odd : vector<8x8xi8>, vector<8x8xi8> -> vector<16x8xi8>
   func.return %result : vector<16x8xi8>
 }
 
-// ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @interleave_i8_8x8_axis0(%even: reg<aie2p.vec256 x2>, %odd: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x4>) asm {
-  %7 = mova.i32 14
-  %8 = mova.i32 15
-  %9 = vshuffle %even, %odd, %7
-  %10 = vshuffle %even, %odd, %8
-  %result = concat(%9, %10) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
-  return %result
-}
-
-// ====
-
-aie2p.target<core> @target
-
 func.def target(@target) @deinterleave_i8_16x8_axis0(%source: vector<16x8xi8>) -> (vector<8x8xi8>, vector<8x8xi8>) {
   %even, %odd = vector.deinterleave<0> %source : vector<16x8xi8> -> vector<8x8xi8>, vector<8x8xi8>
   func.return %even, %odd : vector<8x8xi8>, vector<8x8xi8>
 }
-
-// ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @deinterleave_i8_16x8_axis0(%source: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) asm {
-  %8 = mova.i32 6
-  %9 = mova.i32 7
-  %10 = slice %source[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %11 = slice %source[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %even = vshuffle %10, %11, %8
-  %odd = vshuffle %10, %11, %9
-  return %even, %odd
-}
-
-// ====
-
-aie2p.target<core> @target
 
 func.def target(@target) @interleave_i8_4x16_axis0(%even: vector<4x16xi8>, %odd: vector<4x16xi8>) -> (vector<8x16xi8>) {
   %result = vector.interleave<0> %even, %odd : vector<4x16xi8>, vector<4x16xi8> -> vector<8x16xi8>
   func.return %result : vector<8x16xi8>
 }
 
-// ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @interleave_i8_4x16_axis0(%even: reg<aie2p.vec256 x2>, %odd: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x4>) asm {
-  %7 = mova.i32 12
-  %8 = mova.i32 13
-  %9 = vshuffle %even, %odd, %7
-  %10 = vshuffle %even, %odd, %8
-  %result = concat(%9, %10) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
-  return %result
-}
-
-// ====
-
-aie2p.target<core> @target
-
 func.def target(@target) @deinterleave_i8_8x16_axis0(%source: vector<8x16xi8>) -> (vector<4x16xi8>, vector<4x16xi8>) {
   %even, %odd = vector.deinterleave<0> %source : vector<8x16xi8> -> vector<4x16xi8>, vector<4x16xi8>
   func.return %even, %odd : vector<4x16xi8>, vector<4x16xi8>
 }
-
-// ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @deinterleave_i8_8x16_axis0(%source: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) asm {
-  %8 = mova.i32 8
-  %9 = mova.i32 9
-  %10 = slice %source[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %11 = slice %source[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %even = vshuffle %10, %11, %8
-  %odd = vshuffle %10, %11, %9
-  return %even, %odd
-}
-
-// ====
-
-aie2p.target<core> @target
 
 func.def target(@target) @interleave_i8_2x32_axis0(%even: vector<2x32xi8>, %odd: vector<2x32xi8>) -> (vector<4x32xi8>) {
   %result = vector.interleave<0> %even, %odd : vector<2x32xi8>, vector<2x32xi8> -> vector<4x32xi8>
   func.return %result : vector<4x32xi8>
 }
 
-// ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @interleave_i8_2x32_axis0(%even: reg<aie2p.vec256 x2>, %odd: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x4>) asm {
-  %7 = mova.i32 10
-  %8 = mova.i32 11
-  %9 = vshuffle %even, %odd, %7
-  %10 = vshuffle %even, %odd, %8
-  %result = concat(%9, %10) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
-  return %result
-}
-
-// ====
-
-aie2p.target<core> @target
-
 func.def target(@target) @deinterleave_i8_4x32_axis0(%source: vector<4x32xi8>) -> (vector<2x32xi8>, vector<2x32xi8>) {
   %even, %odd = vector.deinterleave<0> %source : vector<4x32xi8> -> vector<2x32xi8>, vector<2x32xi8>
   func.return %even, %odd : vector<2x32xi8>, vector<2x32xi8>
 }
-
-// ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @deinterleave_i8_4x32_axis0(%source: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) asm {
-  %8 = mova.i32 10
-  %9 = mova.i32 11
-  %10 = slice %source[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %11 = slice %source[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %even = vshuffle %10, %11, %8
-  %odd = vshuffle %10, %11, %9
-  return %even, %odd
-}
-
-// ====
-
-aie2p.target<core> @target
 
 func.def target(@target) @interleave_f32x32(%even: vector<32xf32>, %odd: vector<32xf32>) -> (vector<64xf32>) {
   %result = vector.interleave<0> %even, %odd : vector<32xf32>, vector<32xf32> -> vector<64xf32>
   func.return %result : vector<64xf32>
 }
 
-// ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @interleave_f32x32(%even: reg<aie2p.mbms x2>, %odd: reg<aie2p.mbms x2>) -> (reg<aie2p.mbms x4>) asm {
-  %7 = mova.i32 16
-  %8 = mova.i32 17
-  %9 = slice %even[0] : reg<aie2p.mbms x2> -> reg<aie2p.mbms>
-  %10 = vmov.accumulator512.to.vector512 %9
-  %11 = slice %odd[0] : reg<aie2p.mbms x2> -> reg<aie2p.mbms>
-  %12 = vmov.accumulator512.to.vector512 %11
-  %13 = vshuffle %10, %12, %7
-  %14 = vshuffle %10, %12, %8
-  %15 = slice %even[1] : reg<aie2p.mbms x2> -> reg<aie2p.mbms>
-  %16 = vmov.accumulator512.to.vector512 %15
-  %17 = slice %odd[1] : reg<aie2p.mbms x2> -> reg<aie2p.mbms>
-  %18 = vmov.accumulator512.to.vector512 %17
-  %19 = vshuffle %16, %18, %7
-  %20 = vshuffle %16, %18, %8
-  %21 = vmov.vector512.to.accumulator512 %13
-  %22 = vmov.vector512.to.accumulator512 %14
-  %23 = vmov.vector512.to.accumulator512 %19
-  %24 = vmov.vector512.to.accumulator512 %20
-  %result = concat(%21, %22, %23, %24) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
-  return %result
-}
-
-// ====
-
-aie2p.target<core> @target
-
 func.def target(@target) @deinterleave_f32x64(%source: vector<64xf32>) -> (vector<32xf32>, vector<32xf32>) {
   %even, %odd = vector.deinterleave<0> %source : vector<64xf32> -> vector<32xf32>, vector<32xf32>
   func.return %even, %odd : vector<32xf32>, vector<32xf32>
 }
-
-// ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @deinterleave_f32x64(%source: reg<aie2p.mbms x4>) -> (reg<aie2p.mbms x2>, reg<aie2p.mbms x2>) asm {
-  %8 = mova.i32 4
-  %9 = mova.i32 5
-  %10 = slice %source[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
-  %11 = vmov.accumulator512.to.vector512 %10
-  %12 = slice %source[1] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
-  %13 = vmov.accumulator512.to.vector512 %12
-  %14 = vshuffle %11, %13, %8
-  %15 = vshuffle %11, %13, %9
-  %16 = slice %source[2] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
-  %17 = vmov.accumulator512.to.vector512 %16
-  %18 = slice %source[3] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
-  %19 = vmov.accumulator512.to.vector512 %18
-  %20 = vshuffle %17, %19, %8
-  %21 = vshuffle %17, %19, %9
-  %22 = vmov.vector512.to.accumulator512 %14
-  %23 = vmov.vector512.to.accumulator512 %20
-  %even = concat(%22, %23) : (reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x2>
-  %25 = vmov.vector512.to.accumulator512 %15
-  %26 = vmov.vector512.to.accumulator512 %21
-  %odd = concat(%25, %26) : (reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x2>
-  return %even, %odd
-}
-
-// ====
-
-aie2p.target<core> @target
 
 func.def target(@target) @interleave_i32x32(%even: vector<32xi32>, %odd: vector<32xi32>) -> (vector<64xi32>) {
   %result = vector.interleave<0> %even, %odd : vector<32xi32>, vector<32xi32> -> vector<64xi32>
   func.return %result : vector<64xi32>
 }
 
-// ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @interleave_i32x32(%even: reg<aie2p.vec256 x4>, %odd: reg<aie2p.vec256 x4>) -> (reg<aie2p.mbms x4>) asm {
-  %7 = mova.i32 16
-  %8 = mova.i32 17
-  %9 = slice %even[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %10 = slice %odd[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %11 = vshuffle %9, %10, %7
-  %12 = vshuffle %9, %10, %8
-  %13 = slice %even[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %14 = slice %odd[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %15 = vshuffle %13, %14, %7
-  %16 = vshuffle %13, %14, %8
-  %17 = vmov.vector512.to.accumulator512 %11
-  %18 = vmov.vector512.to.accumulator512 %12
-  %19 = vmov.vector512.to.accumulator512 %15
-  %20 = vmov.vector512.to.accumulator512 %16
-  %result = concat(%17, %18, %19, %20) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
-  return %result
-}
-
-// ====
-
-aie2p.target<core> @target
-
 func.def target(@target) @deinterleave_i32x64(%source: vector<64xi32>) -> (vector<32xi32>, vector<32xi32>) {
   %even, %odd = vector.deinterleave<0> %source : vector<64xi32> -> vector<32xi32>, vector<32xi32>
   func.return %even, %odd : vector<32xi32>, vector<32xi32>
 }
-
-// ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @deinterleave_i32x64(%source: reg<aie2p.mbms x4>) -> (reg<aie2p.vec256 x4>, reg<aie2p.vec256 x4>) asm {
-  %8 = mova.i32 4
-  %9 = mova.i32 5
-  %10 = slice %source[0] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
-  %11 = vmov.accumulator512.to.vector512 %10
-  %12 = slice %source[1] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
-  %13 = vmov.accumulator512.to.vector512 %12
-  %14 = vshuffle %11, %13, %8
-  %15 = vshuffle %11, %13, %9
-  %16 = slice %source[2] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
-  %17 = vmov.accumulator512.to.vector512 %16
-  %18 = slice %source[3] : reg<aie2p.mbms x4> -> reg<aie2p.mbms>
-  %19 = vmov.accumulator512.to.vector512 %18
-  %20 = vshuffle %17, %19, %8
-  %21 = vshuffle %17, %19, %9
-  %even = concat(%14, %20) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
-  %odd = concat(%15, %21) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
-  return %even, %odd
-}
-
-// ====
-
-aie2p.target<core> @target
 
 func.def target(@target) @interleave_i1x64(%even: vector<64xi1>, %odd: vector<64xi1>) -> (vector<128xi1>) {
   %result = vector.interleave<0> %even, %odd : vector<64xi1>, vector<64xi1> -> vector<128xi1>
   func.return %result : vector<128xi1>
 }
 
-// ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @interleave_i1x64(%even: reg<aie2p.elpredicate>, %odd: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate x2>) asm {
-  %7 = mova.i32 20
-  %8 = mova.i32 21
-  %9 = mov.short 1
-  %10 = vbcst.8 %9
-  %11 = vsub.8 %10, %10
-  %12 = vsel.8 %11, %10, %even
-  %13 = vsel.8 %11, %10, %odd
-  %14 = vshuffle %12, %13, %7
-  %15 = vshuffle %12, %13, %8
-  %16 = vlt.u8x64 %11, %14
-  %17 = vlt.u8x64 %11, %15
-  %result = concat(%16, %17) : (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) -> reg<aie2p.elpredicate x2>
-  return %result
-}
-
-// ====
-
-aie2p.target<core> @target
-
 func.def target(@target) @deinterleave_i1x128(%source: vector<128xi1>) -> (vector<64xi1>, vector<64xi1>) {
   %even, %odd = vector.deinterleave<0> %source : vector<128xi1> -> vector<64xi1>, vector<64xi1>
   func.return %even, %odd : vector<64xi1>, vector<64xi1>
 }
-
-// ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @deinterleave_i1x128(%source: reg<aie2p.elpredicate x2>) -> (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) asm {
-  %8 = mova.i32 0
-  %9 = mova.i32 1
-  %10 = slice %source[0] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
-  %11 = mov.short 1
-  %12 = vbcst.8 %11
-  %13 = vsub.8 %12, %12
-  %14 = vsel.8 %13, %12, %10
-  %15 = slice %source[1] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
-  %16 = vsel.8 %13, %12, %15
-  %17 = vshuffle %14, %16, %8
-  %18 = vshuffle %14, %16, %9
-  %even = vlt.u8x64 %13, %17
-  %odd = vlt.u8x64 %13, %18
-  return %even, %odd
-}
-
-// ====
-
-aie2p.target<core> @target
 
 func.def target(@target) @interleave_i8_3x21_axis0(%even: vector<3x21xi8>, %odd: vector<3x21xi8>) -> (vector<6x21xi8>) {
   %result = vector.interleave<0> %even, %odd : vector<3x21xi8>, vector<3x21xi8> -> vector<6x21xi8>
   func.return %result : vector<6x21xi8>
 }
 
-// ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @interleave_i8_3x21_axis0(%even: reg<aie2p.vec256 x2>, %odd: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x4>) asm {
-  %7 = mova.i32 43
-  %8 = vshift %odd, %odd, %7
-  %9 = predicate.constant.low32 -2097152
-  %10 = predicate.complete.constant.high32 %9, 1023
-  %11 = vsel.8 %even, %8, %10
-  %12 = vshift %even, %even, %7
-  %13 = predicate.constant.low32 0
-  %14 = predicate.complete.constant.high32 %13, 2147482624
-  %15 = vsel.8 %11, %12, %14
-  %16 = mova.i32 22
-  %17 = vshift %odd, %odd, %16
-  %18 = predicate.constant.low32 0
-  %19 = predicate.complete.constant.high32 %18, -2147483648
-  %20 = vsel.8 %15, %17, %19
-  %22 = vshift %even, %even, %16
-  %23 = predicate.constant.low32 -1048576
-  %24 = predicate.complete.constant.high32 %23, 511
-  %25 = vsel.8 %17, %22, %24
-  %26 = mova.i32 1
-  %27 = vshift %odd, %odd, %26
-  %28 = predicate.constant.low32 0
-  %29 = predicate.complete.constant.high32 %28, 1073741312
-  %30 = vsel.8 %25, %27, %29
-  %result = concat(%20, %30) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
-  return %result
-}
-
-// ====
-
-aie2p.target<core> @target
-
 func.def target(@target) @deinterleave_i8_6x21_axis0(%source: vector<6x21xi8>) -> (vector<3x21xi8>, vector<3x21xi8>) {
   %even, %odd = vector.deinterleave<0> %source : vector<6x21xi8> -> vector<3x21xi8>, vector<3x21xi8>
   func.return %even, %odd : vector<3x21xi8>, vector<3x21xi8>
 }
-
-// ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @deinterleave_i8_6x21_axis0(%source: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) asm {
-  %8 = slice %source[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %9 = mova.i32 21
-  %10 = vshift %8, %8, %9
-  %12 = predicate.constant.low32 -2097152
-  %13 = predicate.complete.constant.high32 %12, 1023
-  %14 = vsel.8 %8, %10, %13
-  %15 = mova.i32 42
-  %16 = vshift %8, %8, %15
-  %17 = predicate.constant.low32 2097152
-  %18 = predicate.complete.zero.high32 %17, 0
-  %19 = vsel.8 %10, %16, %18
-  %20 = slice %source[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %21 = vshift %20, %20, %15
-  %22 = predicate.constant.low32 0
-  %23 = predicate.complete.constant.high32 %22, 2147482624
-  %even = vsel.8 %14, %21, %23
-  %26 = predicate.constant.low32 -4194304
-  %27 = predicate.complete.constant.high32 %26, 1023
-  %28 = vsel.8 %19, %21, %27
-  %29 = mova.i32 63
-  %30 = vshift %20, %20, %29
-  %31 = predicate.constant.low32 0
-  %32 = predicate.complete.constant.high32 %31, 2147482624
-  %odd = vsel.8 %28, %30, %32
-  return %even, %odd
-}
-
-// ====
-
-aie2p.target<core> @target
 
 func.def target(@target) @interleave_i1_3x21_axis0(%even: vector<3x21xi1>, %odd: vector<3x21xi1>) -> (vector<6x21xi1>) {
   %result = vector.interleave<0> %even, %odd : vector<3x21xi1>, vector<3x21xi1> -> vector<6x21xi1>
   func.return %result : vector<6x21xi1>
 }
 
-// ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @interleave_i1_3x21_axis0(%even: reg<aie2p.elpredicate>, %odd: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate x2>) asm {
-  %7 = mov.short 1
-  %8 = vbcst.8 %7
-  %9 = vsub.8 %8, %8
-  %10 = vsel.8 %9, %8, %even
-  %11 = vsel.8 %9, %8, %odd
-  %12 = mova.i32 43
-  %13 = vshift %11, %11, %12
-  %14 = predicate.constant.low32 -2097152
-  %15 = predicate.complete.constant.high32 %14, 1023
-  %16 = vsel.8 %10, %13, %15
-  %17 = vshift %10, %10, %12
-  %18 = predicate.constant.low32 0
-  %19 = predicate.complete.constant.high32 %18, 2147482624
-  %20 = vsel.8 %16, %17, %19
-  %21 = mova.i32 22
-  %22 = vshift %11, %11, %21
-  %23 = predicate.constant.low32 0
-  %24 = predicate.complete.constant.high32 %23, -2147483648
-  %25 = vsel.8 %20, %22, %24
-  %27 = vshift %10, %10, %21
-  %28 = predicate.constant.low32 -1048576
-  %29 = predicate.complete.constant.high32 %28, 511
-  %30 = vsel.8 %22, %27, %29
-  %31 = mova.i32 1
-  %32 = vshift %11, %11, %31
-  %33 = predicate.constant.low32 0
-  %34 = predicate.complete.constant.high32 %33, 1073741312
-  %35 = vsel.8 %30, %32, %34
-  %36 = vlt.u8x64 %9, %25
-  %37 = vlt.u8x64 %9, %35
-  %result = concat(%36, %37) : (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) -> reg<aie2p.elpredicate x2>
-  return %result
-}
-
-// ====
-
-aie2p.target<core> @target
-
 func.def target(@target) @deinterleave_i1_6x21_axis0(%source: vector<6x21xi1>) -> (vector<3x21xi1>, vector<3x21xi1>) {
   %even, %odd = vector.deinterleave<0> %source : vector<6x21xi1> -> vector<3x21xi1>, vector<3x21xi1>
   func.return %even, %odd : vector<3x21xi1>, vector<3x21xi1>
 }
 
-// ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @deinterleave_i1_6x21_axis0(%source: reg<aie2p.elpredicate x2>) -> (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) asm {
-  %8 = slice %source[0] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
-  %9 = mov.short 1
-  %10 = vbcst.8 %9
-  %11 = vsub.8 %10, %10
-  %12 = vsel.8 %11, %10, %8
-  %13 = mova.i32 21
-  %14 = vshift %12, %12, %13
-  %16 = predicate.constant.low32 -2097152
-  %17 = predicate.complete.constant.high32 %16, 1023
-  %18 = vsel.8 %12, %14, %17
-  %19 = mova.i32 42
-  %20 = vshift %12, %12, %19
-  %21 = predicate.constant.low32 2097152
-  %22 = predicate.complete.zero.high32 %21, 0
-  %23 = vsel.8 %14, %20, %22
-  %24 = slice %source[1] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
-  %25 = vsel.8 %11, %10, %24
-  %26 = vshift %25, %25, %19
-  %27 = predicate.constant.low32 0
-  %28 = predicate.complete.constant.high32 %27, 2147482624
-  %29 = vsel.8 %18, %26, %28
-  %31 = predicate.constant.low32 -4194304
-  %32 = predicate.complete.constant.high32 %31, 1023
-  %33 = vsel.8 %23, %26, %32
-  %34 = mova.i32 63
-  %35 = vshift %25, %25, %34
-  %36 = predicate.constant.low32 0
-  %37 = predicate.complete.constant.high32 %36, 2147482624
-  %38 = vsel.8 %33, %35, %37
-  %even = vlt.u8x64 %11, %29
-  %odd = vlt.u8x64 %11, %38
-  return %even, %odd
-}
-
-// ====
-
-aie2p.target<core> @target
-
 func.def target(@target) @interleave_i8_1x64_axis0(%even: vector<1x64xi8>, %odd: vector<1x64xi8>) -> (vector<2x64xi8>) {
   %result = vector.interleave<0> %even, %odd : vector<1x64xi8>, vector<1x64xi8> -> vector<2x64xi8>
   func.return %result : vector<2x64xi8>
 }
-
-// ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @interleave_i8_1x64_axis0(%even: reg<aie2p.vec256 x2>, %odd: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x4>) asm {
-  %result = concat(%even, %odd) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
-  return %result
-}
-
-// ====
-
-aie2p.target<core> @target
 
 func.def target(@target) @deinterleave_i8_2x64_axis0(%source: vector<2x64xi8>) -> (vector<1x64xi8>, vector<1x64xi8>) {
   %even, %odd = vector.deinterleave<0> %source : vector<2x64xi8> -> vector<1x64xi8>, vector<1x64xi8>
@@ -524,8 +103,23 @@ func.def target(@target) @deinterleave_i8_2x64_axis0(%source: vector<2x64xi8>) -
 }
 
 // ----
-low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @deinterleave_i8_2x64_axis0(%source: reg<aie2p.vec256 x4>) -> (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) asm {
-  %even = slice %source[0] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  %odd = slice %source[2] : reg<aie2p.vec256 x4> -> reg<aie2p.vec256 x2>
-  return %even, %odd
-}
+CHECK: COMPILE-REPORT: source_low[*] function=interleave_i16x32 source_op=vector.interleave selection=plan plan_key=interleave.vshuffle *
+CHECK: COMPILE-REPORT: source_low[*] function=deinterleave_i16x64 source_op=vector.deinterleave selection=plan plan_key=deinterleave.vshuffle *
+CHECK: COMPILE-REPORT: source_low[*] function=interleave_i8_8x8_axis0 source_op=vector.interleave selection=plan plan_key=interleave.vshuffle *
+CHECK: COMPILE-REPORT: source_low[*] function=deinterleave_i8_16x8_axis0 source_op=vector.deinterleave selection=plan plan_key=deinterleave.vshuffle *
+CHECK: COMPILE-REPORT: source_low[*] function=interleave_i8_4x16_axis0 source_op=vector.interleave selection=plan plan_key=interleave.vshuffle *
+CHECK: COMPILE-REPORT: source_low[*] function=deinterleave_i8_8x16_axis0 source_op=vector.deinterleave selection=plan plan_key=deinterleave.vshuffle *
+CHECK: COMPILE-REPORT: source_low[*] function=interleave_i8_2x32_axis0 source_op=vector.interleave selection=plan plan_key=interleave.vshuffle *
+CHECK: COMPILE-REPORT: source_low[*] function=deinterleave_i8_4x32_axis0 source_op=vector.deinterleave selection=plan plan_key=deinterleave.vshuffle *
+CHECK: COMPILE-REPORT: source_low[*] function=interleave_f32x32 source_op=vector.interleave selection=plan plan_key=interleave.vshuffle *
+CHECK: COMPILE-REPORT: source_low[*] function=deinterleave_f32x64 source_op=vector.deinterleave selection=plan plan_key=deinterleave.vshuffle *
+CHECK: COMPILE-REPORT: source_low[*] function=interleave_i32x32 source_op=vector.interleave selection=plan plan_key=interleave.vshuffle *
+CHECK: COMPILE-REPORT: source_low[*] function=deinterleave_i32x64 source_op=vector.deinterleave selection=plan plan_key=deinterleave.vshuffle *
+CHECK: COMPILE-REPORT: source_low[*] function=interleave_i1x64 source_op=vector.interleave selection=plan plan_key=interleave.predicate-vshuffle *
+CHECK: COMPILE-REPORT: source_low[*] function=deinterleave_i1x128 source_op=vector.deinterleave selection=plan plan_key=deinterleave.predicate-vshuffle *
+CHECK: COMPILE-REPORT: source_low[*] function=interleave_i8_3x21_axis0 source_op=vector.interleave selection=plan plan_key=interleave.block-route *
+CHECK: COMPILE-REPORT: source_low[*] function=deinterleave_i8_6x21_axis0 source_op=vector.deinterleave selection=plan plan_key=deinterleave.block-route *
+CHECK: COMPILE-REPORT: source_low[*] function=interleave_i1_3x21_axis0 source_op=vector.interleave selection=plan plan_key=interleave.predicate-block-route *
+CHECK: COMPILE-REPORT: source_low[*] function=deinterleave_i1_6x21_axis0 source_op=vector.deinterleave selection=plan plan_key=deinterleave.predicate-block-route *
+CHECK: COMPILE-REPORT: source_low[*] function=interleave_i8_1x64_axis0 source_op=vector.interleave selection=plan plan_key=interleave.block-route *
+CHECK: COMPILE-REPORT: source_low[*] function=deinterleave_i8_2x64_axis0 source_op=vector.deinterleave selection=plan plan_key=deinterleave.block-route *

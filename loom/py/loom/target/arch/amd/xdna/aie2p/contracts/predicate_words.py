@@ -69,12 +69,12 @@ def _constant_emit(
     result: ValueRef,
     value: int | AttrProject | ValueTypeProject,
     *,
-    wide: bool = False,
+    full_width: bool = False,
 ) -> EmitDescriptorOp:
     return EmitDescriptorOp(
         descriptor=_descriptor(
-            "amd.xdna.aie2p.constant.i32.mova"
-            if wide
+            "amd.xdna.aie2p.constant.i32"
+            if full_width
             else "amd.xdna.aie2p.constant.i32.short"
         ),
         results={"dst": result},

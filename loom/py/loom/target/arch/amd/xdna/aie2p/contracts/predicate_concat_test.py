@@ -138,7 +138,7 @@ def _evaluate_descriptor(
     key = emit.descriptor.key
     if key in (
         "amd.xdna.aie2p.constant.i32.short",
-        "amd.xdna.aie2p.constant.i32.mova",
+        "amd.xdna.aie2p.constant.i32",
     ):
         immediate = emit.immediates["i"]
         return (
@@ -280,7 +280,7 @@ def test_predicate_concat_packs_one_word_directly() -> None:
     rule = _predicate_concat_rule_for_lanes(8, 8)
     assert _descriptor_keys(rule) == [
         "amd.xdna.aie2p.constant.i32.short",
-        "amd.xdna.aie2p.constant.i32.mova",
+        "amd.xdna.aie2p.constant.i32",
         "amd.xdna.aie2p.predicate.mask.low32.to.low32",
         "amd.xdna.aie2p.predicate.shift.low32",
         "amd.xdna.aie2p.predicate.or.low32.rhs_tied",
@@ -304,7 +304,7 @@ def test_carrier_aligned_predicate_concat_is_structural() -> None:
 def test_predicate_concat_uses_bounded_scalar_word_composition() -> None:
     allowed_descriptors = {
         "amd.xdna.aie2p.constant.i32.short",
-        "amd.xdna.aie2p.constant.i32.mova",
+        "amd.xdna.aie2p.constant.i32",
         "amd.xdna.aie2p.predicate.mask.low32.to.low32",
         "amd.xdna.aie2p.predicate.mask.high32.to.low32",
         "amd.xdna.aie2p.predicate.shift.low32",

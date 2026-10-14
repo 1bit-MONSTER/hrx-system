@@ -60,7 +60,7 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i64x9_comparison(
   %42 = predicate.or.low32 %39, %41
   %43 = predicate.complete.zero.high32 %42, 0
   %44 = mov.short 8
-  %45 = mova.i32 255
+  %45 = mov.i32 255
   %46 = predicate.mask.low32.to.low32 %28, %45
   %47 = predicate.shift.low32 %43, %44
   %48 = predicate.or.low32.rhs_tied %46, %47
@@ -129,7 +129,7 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @shaped_i64_compar
   %45 = predicate.or.low32 %42, %44
   %46 = predicate.complete.zero.high32 %45, 0
   %47 = mov.short 8
-  %48 = mova.i32 255
+  %48 = mov.i32 255
   %49 = predicate.mask.low32.to.low32 %31, %48
   %50 = predicate.shift.low32 %46, %47
   %51 = predicate.or.low32.rhs_tied %49, %50

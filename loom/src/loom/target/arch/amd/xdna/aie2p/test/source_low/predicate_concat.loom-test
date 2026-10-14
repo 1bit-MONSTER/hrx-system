@@ -9,7 +9,7 @@ func.def @narrow_pair(%left: vector<40xi1>, %right: vector<40xi1>) -> (vector<80
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @narrow_pair(%left: reg<aie2p.elpredicate>, %right: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate x2>) asm {
   %7 = mov.short 8
   %8 = mov.short -24
-  %9 = mova.i32 255
+  %9 = mov.i32 255
   %10 = predicate.mask.high32.to.low32 %left, %9
   %11 = predicate.shift.low32 %right, %7
   %12 = predicate.or.low32.to.high32 %10, %11, %left
@@ -36,7 +36,7 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @narrow_left_wide_
   %8 = slice %right[1] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
   %9 = mov.short 8
   %10 = mov.short -24
-  %11 = mova.i32 255
+  %11 = mov.i32 255
   %12 = predicate.mask.low32.to.low32 %left, %11
   %13 = predicate.shift.low32 %7, %9
   %14 = predicate.or.low32.rhs_tied %12, %13
@@ -67,7 +67,7 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @wide_left_narrow_
   %7 = slice %left[0] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
   %8 = slice %left[1] : reg<aie2p.elpredicate x2> -> reg<aie2p.elpredicate>
   %9 = mov.short 8
-  %10 = mova.i32 255
+  %10 = mov.i32 255
   %11 = predicate.mask.low32.to.low32 %8, %10
   %12 = predicate.shift.low32 %right, %9
   %13 = predicate.or.low32.rhs_tied %11, %12
