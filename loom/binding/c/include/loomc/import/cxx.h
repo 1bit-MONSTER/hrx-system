@@ -123,6 +123,14 @@ typedef struct loomc_cxx_define_t {
   loomc_string_view_t value;
 } loomc_cxx_define_t;
 
+/// Immutable process-local C/C++ semantic preamble.
+///
+/// A preamble owns the parsed state and exact source snapshot of one leading
+/// include prefix. It does not retain the source, context, import options, or
+/// callback state used to create it. Retained handles may be shared by
+/// concurrent imports; each import restores into a fresh translation unit.
+typedef struct loomc_cxx_preamble_t loomc_cxx_preamble_t;
+
 /// Configuration for one source translation unit.
 ///
 /// Zero initialization selects C++26, LP64, precise math, visible definitions
@@ -166,7 +174,61 @@ typedef struct loomc_cxx_import_options_t {
   const loomc_string_view_t* roots;
   /// Number of explicitly selected roots.
   loomc_host_size_t root_count;
+  /// Optional immutable preamble borrowed until import returns. An exact source
+  /// prefix or frontend-configuration mismatch uses ordinary cold parsing.
+  const loomc_cxx_preamble_t* preamble;
 } loomc_cxx_import_options_t;
+
+/// Creates an immutable semantic preamble from leading include directives.
+///
+/// The representative source must begin with at least one reusable include.
+/// The handle copies its matching source prefix, resolved headers, retained
+/// misses, and serialized frontend state. Later imports can vary source text
+/// after that prefix and import-only policy such as roots or floating-point
+/// lowering while retaining the same language, ABI, include-search, define,
+/// and embedded-header configuration.
+///
+/// @param context Immutable context defining diagnostic source retention.
+/// @param source Representative source with UNKNOWN format.
+/// @param options Source configuration, or NULL for defaults.
+/// @param allocator Host allocator owning the returned handle and result.
+/// @param out_preamble Receives one owned preamble after successful admission.
+/// @param out_result Receives one owned result with retained diagnostics.
+/// @return OK for successful creation or diagnosed source rejection. Rejection
+/// returns a failed result and NULL preamble. A source without a leading
+/// include returns FAILED_PRECONDITION with NULL outputs.
+///
+/// @ownership
+/// Release outputs with loomc_cxx_preamble_release and loomc_result_release.
+/// The caller owns catalog lookup, caching, and eviction policy.
+///
+/// @lifetime
+/// Source/include bytes, options, and callback state may be released on return.
+/// The returned handle is process-local and has no persisted wire format.
+///
+/// @thread_safety
+/// The immutable handle may be retained, released, and used by concurrent
+/// imports. The source provider and path mapper follow their documented
+/// per-invocation synchronization requirements during creation.
+LOOMC_API_EXPORT loomc_status_t loomc_cxx_preamble_create(
+    loomc_context_t* context, const loomc_source_t* source,
+    const loomc_cxx_import_options_t* options, loomc_allocator_t allocator,
+    loomc_cxx_preamble_t** out_preamble, loomc_result_t** out_result);
+
+/// Retains `preamble` for another owner. Passing NULL is allowed.
+///
+/// @param preamble Preamble to retain, or NULL.
+///
+/// Retain/release operations are safe to perform from multiple threads.
+LOOMC_API_EXPORT void loomc_cxx_preamble_retain(loomc_cxx_preamble_t* preamble);
+
+/// Releases `preamble` from one owner. Passing NULL is allowed.
+///
+/// @param preamble Preamble to release, or NULL.
+///
+/// The immutable preamble is destroyed after its final reference is released.
+LOOMC_API_EXPORT void loomc_cxx_preamble_release(
+    loomc_cxx_preamble_t* preamble);
 
 /// Imports C/C++ source into a verified High IR module, without cleanup passes.
 ///

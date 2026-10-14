@@ -21,6 +21,7 @@ loom_cc_library(
         "//loom/binding/c:loomc",
         "//loom/src/loom/import/cxx",
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
     ],
     alwayslink = True,
 )
