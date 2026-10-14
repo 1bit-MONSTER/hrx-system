@@ -53,7 +53,7 @@ array. Kinds are `text`, `image`, `embedding`, `decision` and `speech`.
 | --- | --- |
 | `prepare` | Cold VM program declaring stages, specialization, parameter domains and model metadata. |
 | `control` | Warm VM program implementing the modality's request and execution contract. |
-| `sources` | Native command, kernel, configuration and motif providers. |
+| `sources` | Shared VM functions, native commands, kernels, configuration and motif providers. |
 | `options` | JSON object passed to source preparation unchanged; defaults to `{}`. |
 | `pending_requests` | Request credit, default `32`; positive integer. Text/image/speech count queued requests, while embedding/decision also count the active cohort. |
 | `variant_capacity` | Text/image/embedding/decision retained native executable choices, default `16`, including the original, pending compilations and failed attempts; zero disables native reconfiguration. |
@@ -66,8 +66,10 @@ device. Source-declared parameter preparation policies accept the same formats.
 Provider order is not an execution schedule. Loom's linker indexes symbols,
 resolves imported declarations and selects definitions reachable from named
 roots. The document supplies inputs to that linker; it does not describe a
-second layer graph. Preparation/control VM roles compile separately from native
-providers. [Module composition](../integration/module-composition.md) explains
+second layer graph. Preparation/control VM roles link their helpers from this
+catalog and compile separately from native commands. Each VM entry file is a
+primary input; library-private symbols stay private. An entry file may also
+appear in `sources`. [Module composition](../integration/module-composition.md) explains
 the underlying source and dependency contract.
 
 Native configuration does not interpret `options` keys or rewrite strings

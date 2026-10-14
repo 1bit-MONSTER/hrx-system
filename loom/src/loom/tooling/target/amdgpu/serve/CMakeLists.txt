@@ -484,7 +484,9 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/compilation/invalid.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/jit/config.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/jit/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/jit/private_vm_helper.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/jit/stage.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/jit/vm_helpers.loom"
   DEPS
     ::test_compiler
     ::test_device

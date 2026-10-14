@@ -295,11 +295,19 @@ class JitTest : public ::testing::TestWithParam<int> {
     };
     IREE_RETURN_IF_ERROR(loom_serve_module_create(&types_, execution_, options,
                                                   host_allocator_, &native_));
-    const std::string path = directory_ + "/control.loom";
+    const std::string directory =
+        std::filesystem::absolute(directory_).string();
+    const std::string path = directory + "/control.loom";
     iree_const_byte_span_t image;
     const iree_string_view_t roots[] = {IREE_SVL("step"),
                                         IREE_SVL("selected_step")};
-    const loom_serve_sources_t sources = {.base_directory = IREE_SV(".")};
+    const iree_string_view_t providers[] = {IREE_SV("control.loom"),
+                                            IREE_SV("vm_helpers.loom"),
+                                            IREE_SV("stage.loom")};
+    const loom_serve_sources_t sources = {
+        .base_directory = iree_make_cstring_view(directory.c_str()),
+        .count = IREE_ARRAYSIZE(providers),
+        .values = providers};
     IREE_RETURN_IF_ERROR(loom_serve_jit_compile_vm(
         &sources, iree_make_cstring_view(path.c_str()), IREE_ARRAYSIZE(roots),
         roots, &compilation_, host_allocator_, &image));
@@ -456,6 +464,39 @@ TEST_P(JitTest, SourceDefaultsAndOverridesShareVmAndGpuState) {
   IREE_ASSERT_OK(loom_serve_execution_feedback_wait(execution_, completion));
   for (size_t i = 0; i < output_.size(); ++i) {
     EXPECT_EQ(output_[i], 112 + 2 * i) << "specialized element " << i;
+  }
+}
+
+TEST_P(JitTest, VmLibrariesPreserveMissingPrivateAndDuplicateDiagnostics) {
+  struct Case {
+    // Entry source supplying the VM root.
+    iree_string_view_t entry;
+    // Number of identical library entries to supply.
+    iree_host_size_t library_count;
+  };
+  const Case cases[] = {
+      {IREE_SV("control.loom"), 0},
+      {IREE_SV("private_vm_helper.loom"), 1},
+      {IREE_SV("control.loom"), 2},
+  };
+  const iree_string_view_t providers[] = {IREE_SV("vm_helpers.loom"),
+                                          IREE_SV("vm_helpers.loom")};
+  const iree_string_view_t root = IREE_SV("step");
+  for (const auto& test : cases) {
+    SCOPED_TRACE(test.library_count);
+    const loom_serve_sources_t sources = {
+        .base_directory = iree_make_cstring_view(directory_.c_str()),
+        .count = test.library_count,
+        .values = providers};
+    loom_serve_compilation_report_t report = {};
+    iree_const_byte_span_t image = {};
+    auto status = loom_serve_jit_compile_vm(&sources, test.entry, 1, &root,
+                                            &report, host_allocator_, &image);
+    EXPECT_FALSE(iree_status_is_ok(status));
+    EXPECT_EQ(image.data, nullptr);
+    EXPECT_GT(report.severities[LOOMC_DIAGNOSTIC_SEVERITY_ERROR], 0u);
+    iree_status_free(status);
+    iree_allocator_free(host_allocator_, const_cast<uint8_t*>(image.data));
   }
 }
 

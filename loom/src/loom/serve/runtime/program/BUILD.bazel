@@ -21,7 +21,9 @@ exports_files(
         "testdata/control/kernels.loom",
         "testdata/jit/config.loom",
         "testdata/jit/control.loom",
+        "testdata/jit/private_vm_helper.loom",
         "testdata/jit/stage.loom",
+        "testdata/jit/vm_helpers.loom",
     ],
     visibility = ["//loom/src/loom/serve:implementation"],
 )

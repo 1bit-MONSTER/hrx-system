@@ -62,17 +62,22 @@ metadata in a separate logical namespace while parameter files stay server-local
 The [live development workflow](workflows/live-model-development.md)
 shows upload, native selection and retained-state comparisons.
 
-`definition.sources` is a numerical provider catalog, not an ordered dispatch
-list. Roots and imported symbols determine dependency closure through the
+`definition.sources` supplies shared VM and native providers. Roots and
+referenced symbols determine dependency closure through the
 normal Loom linker. Reusable helpers take SSA values or template arguments;
 model-specific configuration belongs at program/kernel boundaries. This keeps
 a motif usable without importing another model's global configuration namespace.
 
-Preparation and control VM files compile separately and link with native
-capability modules. Their imports are not resolved from the numerical provider
-catalog. The cold program names numerical roots; the warm program invokes the
-resulting prepared stages. These are explicit boundaries, not one combined
-host/device link graph.
+Preparation and control VM files each link against that catalog as primary
+inputs. Ordinary function declarations and template applications resolve to
+exported library definitions; library-private helpers stay private. This lets
+preparation, control and numerical commands share layout calculations without
+duplicating them across files.
+
+Explicit `func.decl import("module")` declarations remain capability imports,
+bound to native modules when the VM program loads. The cold program names
+numerical roots; the warm program invokes the resulting prepared stages.
+Shared source helpers do not turn device kernels into direct VM calls.
 
 ## Separate preparation from execution
 
