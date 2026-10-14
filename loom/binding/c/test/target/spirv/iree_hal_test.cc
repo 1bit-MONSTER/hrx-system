@@ -550,30 +550,37 @@ TEST(LoomcSpirvIreeHalTargetTest,
             "iree-hal:vulkan.device.cooperative_matrix_properties");
 }
 
-TEST(LoomcSpirvIreeHalTargetTest, AcceptsSaturatingCooperativeMatrixProperty) {
-  const iree_hal_vulkan_cooperative_matrix_property_t property =
-      S8MatrixProperty(/*saturating_accumulation=*/1);
-  DeviceSpecPtr device_spec;
-  IREE_ASSERT_OK(CreateVulkanDeviceSpec(
-      CooperativeMatrixVulkanFeatures(), kCompleteDeviceSpecFlags, &device_spec,
-      /*cooperative_matrix_property_count=*/1, &property));
-  FakeHalDevice device = {};
-  InitializeFakeDevice(device_spec.get(), &device);
-  TargetEnvironmentPtr target_environment = CreateSpirvTargetEnvironment();
-  loomc_result_t* result = nullptr;
-  TargetProfilePtr profile =
-      SelectTargetFromHal(target_environment.get(), &device, &result);
-  ResultPtr result_ptr(result);
+TEST(LoomcSpirvIreeHalTargetTest,
+     CooperativeMatrixPropertiesRequireExactSaturation) {
+  for (uint32_t saturation_mode : {0u, 1u}) {
+    SCOPED_TRACE(saturation_mode);
+    iree_hal_vulkan_cooperative_matrix_property_t properties[] = {
+        S8MatrixProperty(saturation_mode), U8MatrixProperty()};
+    properties[1].saturating_accumulation = saturation_mode;
+    DeviceSpecPtr device_spec;
+    IREE_ASSERT_OK(CreateVulkanDeviceSpec(
+        CooperativeMatrixVulkanFeatures(), kCompleteDeviceSpecFlags,
+        &device_spec, IREE_ARRAYSIZE(properties), properties));
+    FakeHalDevice device = {};
+    InitializeFakeDevice(device_spec.get(), &device);
+    TargetEnvironmentPtr target_environment = CreateSpirvTargetEnvironment();
+    loomc_result_t* result = nullptr;
+    TargetProfilePtr profile =
+        SelectTargetFromHal(target_environment.get(), &device, &result);
+    ResultPtr result_ptr(result);
 
-  ASSERT_NE(profile.get(), nullptr);
-  ExpectSucceededResult(result_ptr.get());
-  loomc_spirv_cooperative_matrix_row_t row = {};
-  ASSERT_TRUE(
-      FindCooperativeMatrixRow(profile.get(), kS8CooperativeMatrixRow, &row));
-  EXPECT_EQ(row.state, LOOMC_TARGET_FACT_STATE_TRUE);
-  ASSERT_TRUE(
-      FindCooperativeMatrixRow(profile.get(), kF16CooperativeMatrixRow, &row));
-  EXPECT_EQ(row.state, LOOMC_TARGET_FACT_STATE_FALSE);
+    ASSERT_NE(profile.get(), nullptr);
+    ExpectSucceededResult(result_ptr.get());
+    loomc_spirv_cooperative_matrix_row_t row = {};
+    ASSERT_TRUE(
+        FindCooperativeMatrixRow(profile.get(), kS8CooperativeMatrixRow, &row));
+    EXPECT_EQ(row.state, saturation_mode ? LOOMC_TARGET_FACT_STATE_TRUE
+                                         : LOOMC_TARGET_FACT_STATE_FALSE);
+    ASSERT_TRUE(
+        FindCooperativeMatrixRow(profile.get(), kU8CooperativeMatrixRow, &row));
+    EXPECT_EQ(row.state, saturation_mode ? LOOMC_TARGET_FACT_STATE_FALSE
+                                         : LOOMC_TARGET_FACT_STATE_TRUE);
+  }
 }
 
 TEST(LoomcSpirvIreeHalTargetTest,

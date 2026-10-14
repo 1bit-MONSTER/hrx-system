@@ -378,79 +378,59 @@ static bool loomc_spirv_iree_hal_vulkan_feature_enabled(
   return iree_all_bits_set(spec->enabled_features.general, feature);
 }
 
-static bool loomc_spirv_iree_hal_component_matches_scalar_type(
-    uint32_t component_type, loomc_spirv_scalar_type_t scalar_type) {
-  switch (component_type) {
-    case LOOMC_SPIRV_COMPONENT_TYPE_FLOAT16_NV:
-      return scalar_type == LOOMC_SPIRV_SCALAR_TYPE_F16;
-    case LOOMC_SPIRV_COMPONENT_TYPE_FLOAT32_NV:
-      return scalar_type == LOOMC_SPIRV_SCALAR_TYPE_F32;
-    case LOOMC_SPIRV_COMPONENT_TYPE_FLOAT64_NV:
-      return scalar_type == LOOMC_SPIRV_SCALAR_TYPE_F64;
-    case LOOMC_SPIRV_COMPONENT_TYPE_SIGNED_INT8_NV:
-      return scalar_type == LOOMC_SPIRV_SCALAR_TYPE_S8;
-    case LOOMC_SPIRV_COMPONENT_TYPE_SIGNED_INT16_NV:
-      return scalar_type == LOOMC_SPIRV_SCALAR_TYPE_S16;
-    case LOOMC_SPIRV_COMPONENT_TYPE_SIGNED_INT32_NV:
-      return scalar_type == LOOMC_SPIRV_SCALAR_TYPE_S32;
-    case LOOMC_SPIRV_COMPONENT_TYPE_SIGNED_INT64_NV:
-      return scalar_type == LOOMC_SPIRV_SCALAR_TYPE_S64;
-    case LOOMC_SPIRV_COMPONENT_TYPE_UNSIGNED_INT8_NV:
-      return scalar_type == LOOMC_SPIRV_SCALAR_TYPE_U8;
-    case LOOMC_SPIRV_COMPONENT_TYPE_UNSIGNED_INT16_NV:
-      return scalar_type == LOOMC_SPIRV_SCALAR_TYPE_U16;
-    case LOOMC_SPIRV_COMPONENT_TYPE_UNSIGNED_INT32_NV:
-      return scalar_type == LOOMC_SPIRV_SCALAR_TYPE_U32;
-    case LOOMC_SPIRV_COMPONENT_TYPE_UNSIGNED_INT64_NV:
-      return scalar_type == LOOMC_SPIRV_SCALAR_TYPE_U64;
-    case LOOMC_SPIRV_IREE_HAL_VULKAN_COMPONENT_TYPE_BFLOAT16_KHR:
-      return scalar_type == LOOMC_SPIRV_SCALAR_TYPE_BF16;
-    default:
-      return false;
+static uint32_t loomc_spirv_iree_hal_scalar_component_type(
+    loomc_spirv_scalar_type_t scalar_type) {
+  switch (scalar_type) {
+    case LOOMC_SPIRV_SCALAR_TYPE_F16:
+      return LOOMC_SPIRV_COMPONENT_TYPE_FLOAT16_NV;
+    case LOOMC_SPIRV_SCALAR_TYPE_F32:
+      return LOOMC_SPIRV_COMPONENT_TYPE_FLOAT32_NV;
+    case LOOMC_SPIRV_SCALAR_TYPE_F64:
+      return LOOMC_SPIRV_COMPONENT_TYPE_FLOAT64_NV;
+    case LOOMC_SPIRV_SCALAR_TYPE_S8:
+      return LOOMC_SPIRV_COMPONENT_TYPE_SIGNED_INT8_NV;
+    case LOOMC_SPIRV_SCALAR_TYPE_S16:
+      return LOOMC_SPIRV_COMPONENT_TYPE_SIGNED_INT16_NV;
+    case LOOMC_SPIRV_SCALAR_TYPE_S32:
+      return LOOMC_SPIRV_COMPONENT_TYPE_SIGNED_INT32_NV;
+    case LOOMC_SPIRV_SCALAR_TYPE_S64:
+      return LOOMC_SPIRV_COMPONENT_TYPE_SIGNED_INT64_NV;
+    case LOOMC_SPIRV_SCALAR_TYPE_U8:
+      return LOOMC_SPIRV_COMPONENT_TYPE_UNSIGNED_INT8_NV;
+    case LOOMC_SPIRV_SCALAR_TYPE_U16:
+      return LOOMC_SPIRV_COMPONENT_TYPE_UNSIGNED_INT16_NV;
+    case LOOMC_SPIRV_SCALAR_TYPE_U32:
+      return LOOMC_SPIRV_COMPONENT_TYPE_UNSIGNED_INT32_NV;
+    case LOOMC_SPIRV_SCALAR_TYPE_U64:
+      return LOOMC_SPIRV_COMPONENT_TYPE_UNSIGNED_INT64_NV;
+    case LOOMC_SPIRV_SCALAR_TYPE_BF16:
+      return LOOMC_SPIRV_IREE_HAL_VULKAN_COMPONENT_TYPE_BFLOAT16_KHR;
+    case LOOMC_SPIRV_SCALAR_TYPE_UNKNOWN:
+      break;
   }
-}
-
-static bool loomc_spirv_iree_hal_matrix_row_matches_device_property(
-    const loomc_spirv_cooperative_matrix_row_t* row,
-    const iree_hal_vulkan_cooperative_matrix_property_t* property) {
-  if (row->m_size != property->m_size || row->n_size != property->n_size ||
-      row->k_size != property->k_size ||
-      (uint32_t)row->scope != property->scope) {
-    return false;
-  }
-  if (!loomc_spirv_iree_hal_component_matches_scalar_type(property->a_type,
-                                                          row->lhs_type) ||
-      !loomc_spirv_iree_hal_component_matches_scalar_type(property->b_type,
-                                                          row->rhs_type) ||
-      !loomc_spirv_iree_hal_component_matches_scalar_type(
-          property->c_type, row->accumulator_type) ||
-      !loomc_spirv_iree_hal_component_matches_scalar_type(property->result_type,
-                                                          row->result_type)) {
-    return false;
-  }
-  const bool requires_saturating_accumulation = iree_any_bit_set(
-      row->operand_flags,
-      LOOMC_SPIRV_COOPERATIVE_MATRIX_OPERAND_SATURATING_ACCUMULATION);
-  return !requires_saturating_accumulation ||
-         property->saturating_accumulation != 0;
+  IREE_CHECK_UNREACHABLE("validated cooperative matrix scalar type");
 }
 
 static bool loomc_spirv_iree_hal_matrix_row_is_supported(
     const loomc_spirv_cooperative_matrix_row_t* row,
     const iree_hal_vulkan_device_spec_t* vulkan_spec) {
-  for (iree_host_size_t i = 0; i < vulkan_spec->cooperative_matrix.count; ++i) {
-    iree_hal_vulkan_cooperative_matrix_property_t property = {0};
-    if (!iree_hal_vulkan_device_spec_read_cooperative_matrix_property(
-            vulkan_spec, i, &property)) {
-      IREE_ASSERT_UNREACHABLE("validated Vulkan device property table");
-      IREE_BUILTIN_UNREACHABLE();
-    }
-    if (loomc_spirv_iree_hal_matrix_row_matches_device_property(row,
-                                                                &property)) {
-      return true;
-    }
-  }
-  return false;
+  const iree_hal_vulkan_cooperative_matrix_property_t requirement = {
+      .m_size = row->m_size,
+      .n_size = row->n_size,
+      .k_size = row->k_size,
+      .a_type = loomc_spirv_iree_hal_scalar_component_type(row->lhs_type),
+      .b_type = loomc_spirv_iree_hal_scalar_component_type(row->rhs_type),
+      .c_type =
+          loomc_spirv_iree_hal_scalar_component_type(row->accumulator_type),
+      .result_type =
+          loomc_spirv_iree_hal_scalar_component_type(row->result_type),
+      .saturating_accumulation = iree_any_bit_set(
+          row->operand_flags,
+          LOOMC_SPIRV_COOPERATIVE_MATRIX_OPERAND_SATURATING_ACCUMULATION),
+      .scope = (uint32_t)row->scope,
+  };
+  return iree_hal_vulkan_device_spec_supports_cooperative_matrix(vulkan_spec,
+                                                                 &requirement);
 }
 
 static loomc_status_t loomc_spirv_iree_hal_collect_unavailable_matrix_rows(
@@ -462,23 +442,11 @@ static loomc_status_t loomc_spirv_iree_hal_collect_unavailable_matrix_rows(
   *out_row_count = 0;
   const loomc_host_size_t model_row_count =
       loomc_spirv_model_cooperative_matrix_row_count();
-  loomc_host_size_t unavailable_row_count = 0;
-  for (loomc_host_size_t i = 0; i < model_row_count; ++i) {
-    loomc_spirv_cooperative_matrix_row_t row = {0};
-    loomc_spirv_model_cooperative_matrix_row_at(i, &row);
-    if (!loomc_spirv_iree_hal_matrix_row_is_supported(&row, vulkan_spec)) {
-      ++unavailable_row_count;
-    }
-  }
-  if (unavailable_row_count == 0) {
-    return loomc_ok_status();
-  }
-
   loomc_spirv_cooperative_matrix_row_t* rows = NULL;
-  LOOMC_RETURN_IF_ERROR(loomc_allocator_malloc(
-      allocator, unavailable_row_count * sizeof(*rows), (void**)&rows));
   loomc_host_size_t row_count = 0;
-  for (loomc_host_size_t i = 0; i < model_row_count; ++i) {
+  loomc_status_t status = loomc_ok_status();
+  for (loomc_host_size_t i = 0;
+       i < model_row_count && loomc_status_is_ok(status); ++i) {
     loomc_spirv_cooperative_matrix_row_t row = {0};
     loomc_spirv_model_cooperative_matrix_row_at(i, &row);
     if (loomc_spirv_iree_hal_matrix_row_is_supported(&row, vulkan_spec)) {
@@ -487,11 +455,23 @@ static loomc_status_t loomc_spirv_iree_hal_collect_unavailable_matrix_rows(
     row.state = LOOMC_TARGET_FACT_STATE_FALSE;
     row.provenance = loomc_make_cstring_view(
         "iree-hal:vulkan.device.cooperative_matrix_properties");
-    rows[row_count++] = row;
+    if (rows == NULL) {
+      // The first unsupported row bounds the remaining output capacity. Keep
+      // each query result instead of repeating discovery to size the array.
+      status = loomc_allocator_malloc(
+          allocator, (model_row_count - i) * sizeof(*rows), (void**)&rows);
+    }
+    if (loomc_status_is_ok(status)) {
+      rows[row_count++] = row;
+    }
   }
-  *out_rows = rows;
-  *out_row_count = row_count;
-  return loomc_ok_status();
+  if (loomc_status_is_ok(status)) {
+    *out_rows = rows;
+    *out_row_count = row_count;
+  } else {
+    loomc_allocator_free(allocator, rows);
+  }
+  return status;
 }
 
 static loomc_status_t loomc_spirv_iree_hal_decode_vulkan_spec(
