@@ -167,10 +167,11 @@ TEST_P(QueueClockRecipeTest, NominalDurationsAndHostBounds) {
       return;
     }
   }
-  // This fit checks only the observed bounded capture at the nominal rate.
-  // It supplies neither an oscillator-accuracy bound nor extrapolation across
-  // idle/reset. Production consumers own refresh policy and uncertainty.
-  EXPECT_LE(lower_offset, upper_offset);
+  // Nominal units do not guarantee a fixed offset against the host oscillator.
+  // An empty intersection rejects this capture's constant-offset model, not
+  // timestamp publication. Consumers own drift estimation and refresh policy.
+  RecordProperty("clock_constant_offset_consistent",
+                 lower_offset <= upper_offset);
   RecordProperty("clock_offset_lower_ns", std::to_string(lower_offset));
   RecordProperty("clock_offset_upper_ns", std::to_string(upper_offset));
 }

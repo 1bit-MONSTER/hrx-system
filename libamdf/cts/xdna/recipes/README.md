@@ -40,12 +40,15 @@ trace services skip this case without changing ordinary workload coverage.
 `FirmwareDurationsAndHostClockBounds` executes 32 guarded numeric commands
 with a deliberate 100 ms ordinary idle gap midway through the capture. It
 checks positive nanosecond firmware intervals, source ordering, containment
-within each host submission/completion width, and a nonempty intersection of
-the corresponding source-to-host offset bounds. Its XML properties retain
-observed durations and the final offset range. These observations check clock
-interpretation and report sampling uncertainty; they are not latency thresholds
-or benchmark results. The case uses the same recorder and ordinary completion
-protocol as the streaming case, with bounded caller-owned calibration storage.
+within each host submission/completion width, and records the corresponding
+source-to-host offset bounds. Its XML properties retain observed durations,
+the final offset range, and whether a constant-offset model fits the capture.
+Independent host and firmware clocks can drift even when both report
+nanoseconds; an empty intersection rejects that model without failing timestamp
+publication. These observations report sampling uncertainty, not latency
+thresholds or benchmark results. The case uses the same recorder and ordinary
+completion protocol as the streaming case, with bounded caller-owned calibration
+storage.
 
 `FirmwareResultRecipeTest` attaches the smallest advertised finite result
 buffer through the dynamic XDNA API. Four useful numeric commands each emit

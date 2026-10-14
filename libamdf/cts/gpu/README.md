@@ -143,11 +143,12 @@ profiling overhead from correctness runs.
 `QueueClockRecipeTest` asks the public GPU extension for the selected family's
 nominal timestamp rate. Eight finite, guarded copies per PM4/SDMA publication
 mode produce durations and host brackets around actual queue samples. The
-constant-offset intersection checks the bounded capture at that rate; it does
-not assume native driver queries share the packet epoch or promise oscillator
-accuracy across a long trace. AQL's existing confirmed-copy timestamp cases
-also query the native rate and record converted durations. These observations
-are correctness evidence, not performance measurements.
+constant-offset intersection reports whether that model fits the capture; an
+empty interval does not fail timestamp publication or establish its cause.
+Nominal rates supply no host-relative oscillator-accuracy guarantee. AQL's
+existing confirmed-copy timestamp cases also query the native rate and record
+converted durations. These observations are correctness evidence, not
+performance measurements.
 
 PM4/SDMA batches publish four prepared upload/compute/download graphs with one
 publication per queue. Each graph has separate payload, arguments and progress
