@@ -39,18 +39,11 @@ low.func.def public target<wasm.core.simd128> abi(wasm_function) @copy_selected_
   } else {
     low.scf.yield %second_storage, %second_origin : reg<wasm.i32>, reg<wasm.i32>
   }
-  %begin = i32.const 0
-  %end = i32.const 8
-  %step = i32.const 4
-  %unroll = i32.const 2
-  low.scf.for signed [%begin to %end step %step] unroll(%unroll) do(%position: reg<wasm.i32>) {
-    %40 = i32.mul %position, %step
-    %41 = i32.add %selected_offset, %40
-    %42 = i32.add %selected_root, %41
-    %values = v128.load %42
-    %46 = i32.add %output_storage, %40
-    v128.store %46, %values {offset = 64}
-  }
+  %42 = i32.add %selected_root, %selected_offset
+  %values = v128.load %42
+  v128.store %output_storage, %values {offset = 64}
+  %values_1 = v128.load %42 {offset = 16}
+  v128.store %output_storage, %values_1 {offset = 80}
   return
 }
 

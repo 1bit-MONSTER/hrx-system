@@ -376,6 +376,25 @@ TEST_F(TargetPipelineTest, ZeroChecksStillMaterializesAuthoredAssertions) {
   EXPECT_EQ(counts.other_sanitizer_runs, 0);
 }
 
+TEST_F(TargetPipelineTest, StructuredControlFlowExpandsSourceLoopPolicies) {
+  ModulePtr module = AllocateModule(IREE_SV("pipeline"));
+  const loom_target_pipeline_options_t options = {
+      .control_flow_lowering = LOOM_TARGET_CONTROL_FLOW_LOWERING_STRUCTURED_LOW,
+  };
+
+  loom_op_t* pipeline_op = nullptr;
+  IREE_ASSERT_OK(loom_target_pipeline_build_to_prepared_low(
+      module.get(), IREE_SV("compile"), &options, &environment_,
+      loom_pass_environment_empty(), &pipeline_op));
+
+  const PipelineRunCounts counts = CountPipelineRuns(module.get(), pipeline_op);
+  EXPECT_EQ(counts.source_loop_unrolling, 1);
+  EXPECT_LT(counts.source_loop_unrolling_ordinal,
+            counts.boundary_projection_ordinal);
+  EXPECT_LT(counts.source_loop_unrolling_ordinal, counts.source_to_low_ordinal);
+  EXPECT_EQ(counts.scf_to_cfg, 0);
+}
+
 TEST_F(TargetPipelineTest, DiagnosticArtifactsPreserveRawSourceBoundary) {
   ModulePtr module = AllocateModule(IREE_SV("pipeline"));
 
