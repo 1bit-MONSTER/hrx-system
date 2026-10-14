@@ -69,6 +69,7 @@ loom_cc_library(
         ":device",
         "//loom/src/loom/tools/loom-serve:main",
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base:core_headers",
     ],
 )
 

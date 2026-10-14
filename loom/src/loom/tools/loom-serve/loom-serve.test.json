@@ -16,19 +16,19 @@
           "--slab_bytes=67108864"
         ]
       },
-      "stderr": {"empty": true}
+      "stderr": {"not_contains": ["\"event\":\"ready\""]}
     },
     {
       "name": "explicit physical slab size overrides the serving default",
       "run": {"tool": "loom-serve", "args": ["--slab_bytes=2097152", "--help"]},
       "stdout": {"contains": ["--slab_bytes=2097152"]},
-      "stderr": {"empty": true}
+      "stderr": {"not_contains": ["\"event\":\"ready\""]}
     },
     {
       "name": "allocator-recommended physical slabs remain selectable",
       "run": {"tool": "loom-serve", "args": ["--slab_bytes=0", "--help"]},
       "stdout": {"contains": ["--slab_bytes=0"]},
-      "stderr": {"empty": true}
+      "stderr": {"not_contains": ["\"event\":\"ready\""]}
     },
     {
       "name": "agent help explains deployment and source inputs",
@@ -46,7 +46,7 @@
           "https://rocm.github.io/hrx-system/loom/serving/model-programs/"
         ]
       },
-      "stderr": {"empty": true}
+      "stderr": {"not_contains": ["\"event\":\"ready\""]}
     },
     {
       "name": "no redundant server subcommand",

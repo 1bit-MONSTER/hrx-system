@@ -7,11 +7,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "iree/base/tracing.h"
 #include "loom/serve/testing/compiler.h"
 #include "loom/serve/testing/device.h"
 #include "loom/tools/loom-serve/main.h"
 
 int main(int argc, char** argv) {
+  IREE_TRACE_APP_ENTER();
   const loom_serve_test_compiler_t* compiler = loom_serve_test_compiler();
   const loomc_iree_hal_target_provider_t* target_provider =
       compiler->target_provider();
@@ -42,5 +44,6 @@ int main(int argc, char** argv) {
     iree_status_free(status);
   }
   iree_hal_driver_registry_free(driver_registry);
+  IREE_TRACE_APP_EXIT(result);
   return result;
 }
