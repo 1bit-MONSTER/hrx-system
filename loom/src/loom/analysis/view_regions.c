@@ -1004,6 +1004,8 @@ enum {
   // Temporary incoming-payload proof, consumed before type dependencies refine
   // it.
   LOOM_VIEW_STORAGE_JOIN_INVARIANT = 1u << 3,
+  // At least one use observes the opaque buffer instead of an addressed view.
+  LOOM_VIEW_STORAGE_NON_VIEW_USE = 1u << 4,
 };
 
 typedef enum loom_view_region_analysis_phase_e {
@@ -1028,6 +1030,78 @@ loom_view_access_flags_t loom_view_region_table_root_access_flags(
              ? 0
              : table->storage_flags_by_value_ordinal[ordinal] &
                    (LOOM_VIEW_ACCESS_READ | LOOM_VIEW_ACCESS_WRITE);
+}
+
+bool loom_view_region_table_root_has_only_view_uses(
+    const loom_view_region_table_t* table, loom_value_id_t root_value_id) {
+  const loom_value_ordinal_t ordinal =
+      loom_local_value_domain_try_ordinal(table->value_domain, root_value_id);
+  return ordinal != LOOM_VALUE_ORDINAL_INVALID &&
+         !iree_any_bit_set(table->storage_flags_by_value_ordinal[ordinal],
+                           LOOM_VIEW_STORAGE_NON_VIEW_USE);
+}
+
+static loom_value_id_t loom_view_region_resolve_buffer_root(
+    const loom_view_region_table_t* table, loom_value_id_t buffer_value_id) {
+  loom_value_fact_buffer_reference_t reference = {
+      .root_value_id = buffer_value_id,
+  };
+  (void)loom_value_facts_query_buffer_reference(
+      &table->expression_context->fact_table->context,
+      loom_view_region_lookup_facts(table, buffer_value_id), &reference);
+  return loom_value_fact_buffer_reference_resolve_root_value(reference,
+                                                             buffer_value_id);
+}
+
+static void loom_view_region_mark_non_view_use(
+    loom_view_region_table_t* table, loom_value_id_t buffer_value_id) {
+  const loom_value_id_t root_value_id =
+      loom_view_region_resolve_buffer_root(table, buffer_value_id);
+  const loom_value_ordinal_t ordinal =
+      loom_local_value_domain_try_ordinal(table->value_domain, root_value_id);
+  if (ordinal != LOOM_VALUE_ORDINAL_INVALID) {
+    table->storage_flags_by_value_ordinal[ordinal] |=
+        LOOM_VIEW_STORAGE_NON_VIEW_USE;
+  }
+}
+
+static bool loom_view_region_is_view_only_buffer_operand(
+    const loom_op_t* op, uint16_t operand_index) {
+  if (loom_buffer_view_isa(op)) {
+    return operand_index == 0;
+  }
+  if (loom_buffer_assume_alignment_isa(op)) {
+    return operand_index < loom_buffer_assume_alignment_results(op).count;
+  }
+  if (loom_buffer_assume_noalias_isa(op)) {
+    return operand_index < loom_buffer_assume_noalias_results(op).count;
+  }
+  return false;
+}
+
+static void loom_view_region_analyze_buffer_uses(
+    loom_view_region_table_t* table, const loom_op_t* op) {
+  const loom_module_t* module = table->expression_context->module;
+  const loom_value_id_t* operands = loom_op_const_operands(op);
+  for (uint16_t i = 0; i < op->operand_count; ++i) {
+    const loom_value_id_t operand = operands[i];
+    if (loom_type_is_buffer(loom_module_value_type(module, operand)) &&
+        !loom_view_region_is_view_only_buffer_operand(op, i)) {
+      loom_view_region_mark_non_view_use(table, operand);
+    }
+  }
+}
+
+static void loom_view_region_analyze_buffer_type_uses(
+    loom_view_region_table_t* table) {
+  const loom_module_t* module = table->expression_context->module;
+  for (loom_value_ordinal_t i = 0; i < table->value_domain->value_count; ++i) {
+    const loom_value_id_t value_id = table->value_domain->value_ids[i];
+    if (loom_type_is_buffer(loom_module_value_type(module, value_id)) &&
+        loom_module_value_has_type_uses(module, value_id)) {
+      loom_view_region_mark_non_view_use(table, value_id);
+    }
+  }
 }
 
 static void loom_view_region_add_root_access(
@@ -1094,6 +1168,9 @@ static iree_status_t loom_view_region_table_analyze_op_memory(
     loom_view_region_table_t* table, const loom_op_t* op,
     const loom_op_vtable_t* vtable, loom_trait_flags_t traits,
     loom_view_region_analysis_phase_t phase) {
+  if (phase == LOOM_VIEW_REGION_ANALYZE_MEMORY) {
+    loom_view_region_analyze_buffer_uses(table, op);
+  }
   if (!vtable) {
     table->interference_memory_spaces = UINT32_MAX;
     return iree_ok_status();
@@ -1501,6 +1578,7 @@ iree_status_t loom_view_region_table_analyze(loom_view_region_table_t* table) {
   IREE_RETURN_IF_ERROR(loom_view_region_table_analyze_region(
       table, table->value_domain->region, LOOM_VIEW_REGION_ANALYZE_MEMORY,
       false));
+  loom_view_region_analyze_buffer_type_uses(table);
   if (table->varying_root_write_memory_spaces) {
     table->varying_root_write_memory_spaces = 0;
     IREE_RETURN_IF_ERROR(loom_view_region_table_analyze_region(

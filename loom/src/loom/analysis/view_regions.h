@@ -208,6 +208,15 @@ iree_status_t loom_view_region_table_analyze(loom_view_region_table_t* table);
 loom_view_access_flags_t loom_view_region_table_root_access_flags(
     const loom_view_region_table_t* table, loom_value_id_t root_value_id);
 
+// Returns true when every buffer value retaining |root_value_id| is consumed
+// only by typed-view construction or by transparent root-preserving alignment
+// and noalias refinements. Type dependencies and all other buffer operations
+// observe properties that staging a root into different storage cannot
+// preserve. Requires analyze to have completed; this query performs no IR
+// traversal.
+bool loom_view_region_table_root_has_only_view_uses(
+    const loom_view_region_table_t* table, loom_value_id_t root_value_id);
+
 // Proves that an accessed storage root remains unchanged throughout the
 // analyzed domain. Local read-only access alone is insufficient: acquisition
 // may import another participant's writes, and unknown effects or incomparable

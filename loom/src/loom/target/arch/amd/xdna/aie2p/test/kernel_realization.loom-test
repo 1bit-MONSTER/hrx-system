@@ -24,6 +24,28 @@ CHECK: low.func.def public retain target<amd.xdna.aie2p.configuration>* abi(arra
 
 // ====
 
+// RUN: with-checks pass target=amd.xdna.aie2p:amd.xdna.strix.17f0_10 aie2p-realize-kernel
+
+// Ingress and egress each stage a 60-byte record. Both allocations retain the
+// stronger authored alignment instead of packing the second at byte 60.
+kernel.def @aligned_store() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%buffer: buffer) {
+  %c0 = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %buffer {minimum_alignment = 64} : buffer
+  %unique = buffer.assume.noalias %aligned : buffer
+  %view = buffer.view %unique[%c0] : buffer -> view<15xi32>
+  %value = vector.constant 42 : vector<15xi32>
+  vector.store %value, %view[0] : vector<15xi32>, view<15xi32>
+  kernel.return
+}
+
+// ----
+CHECK-COUNT-2: * = buffer.alloca<workgroup> pool(*) align(64) * : buffer
+
+// ====
+
 // RUN: pass target=amd.xdna.aie2p:amd.xdna.strix.17f0_10 aie2p-realize-kernel
 
 // A write followed by a read through another potentially aliasing binding is
