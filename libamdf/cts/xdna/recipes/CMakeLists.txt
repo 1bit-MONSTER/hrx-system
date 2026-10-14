@@ -21,6 +21,7 @@ iree_cc_library(
     iree::third_party::google_test
     libamdf::cts::util::mapped_memory
     libamdf::cts::xdna::programs::mul_i32
+    libamdf::cts::xdna::programs::recurrence_i32
     libamdf::cts::xdna::util::executable
     libamdf::cts::xdna::util::execution
     libamdf::cts::xdna::xdna_device_fixture

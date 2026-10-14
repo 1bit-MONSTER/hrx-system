@@ -448,7 +448,7 @@ consume the same backing under its own ordering and lifetime contract. The
 
 XDNA extension version 2 also exposes the context's finite firmware-result
 service. `context_query_result_buffer_info` describes its borrowed private
-memory scope, allocation profile, admitted range geometry and marker clock.
+memory scope, allocation profile, admitted range geometry and marker width.
 This passive query precedes memory layout decisions. Linux accepts a whole
 page-aligned private allocation; Windows Direct accepts an aligned slice of
 the context's private aperture. The caller keeps that slice disjoint from
@@ -495,13 +495,50 @@ Neither memory release nor context destruction implicitly detaches a binding.
 `amdf_xdna_timer_record_t` describes the native `RECORD_TIMER` result: a caller
 ID followed by the timestamp's high and low words. The helper
 `amdf_xdna_timer_record_timestamp` combines them without converting units.
-This source is the partition-shim timer. Its reported frequency is zero until
-a rate is established; it is not the Windows KMT clock or the automatic trace
-clock. Array reconfiguration may reset it even within a context. Only records
-within a program-established common timer epoch can form a duration. Marker
-IDs identify caller regions but cannot repair a timer reset. The
-[hardware timing reference](../../docs/reference/amd/xdna/observability.md)
-describes these distinct native mechanisms.
+This source is the partition-shim timer; it is distinct from the Windows KMT
+clock and automatic firmware trace clock. The cached geometry query leaves its
+frequency zero because operating rate changes independently of that geometry.
+`device_query_timer_clock_info` explicitly queries the native reported array
+rate on Linux and Windows, in the same `amdf_observation_clock_info_t` used by
+GPU observations. It creates no object, retains no sample history, and changes
+no power policy. Native errors leave the output unchanged.
+
+### Marker durations
+
+A caller queries the rate after admitting its ordinary context/workload. An
+idle-device snapshot can differ from the rate used by the active workload.
+For a controlled constant-rate interval, the caller retains that rate with its
+capture and converts records only after retirement, collection and acquisition:
+
+```c
+amdf_observation_clock_info_t clock;
+amdf_status_t status = xdna->device_query_timer_clock_info(device, &clock);
+// A successful rate query describes the operating snapshot. The caller owns
+// the interval's power policy and establishes that this rate applies to it.
+if (amdf_status_is_ok(status)) {
+  // Submit the prepared marker/work sequence, retire its writers, collect
+  // the finite results and acquire the host mapping before reading records.
+  uint64_t begin = amdf_xdna_timer_record_timestamp(&begin_record);
+  uint64_t end = amdf_xdna_timer_record_timestamp(&end_record);
+  double duration_ns = (double)(end - begin) * (1e9 / clock.frequency_hz);
+  // Consume duration_ns under that same-epoch, constant-rate contract.
+}
+```
+
+The query reports a nominal operating rate, not pinning or rate history.
+Equal endpoint readings alone cannot detect an intervening DPM change. Clock
+gating and preemption must also be accounted for before calling the result
+elapsed wall time. A caller requiring independent continuous nanoseconds uses
+an admitted automatic firmware trace source instead.
+
+Array reconfiguration may reset the timer even within a context. A marker
+immediately before core enable, after configuration, and another after the
+program's ordinary output completion wait bracket useful work in one program
+established epoch. Marker IDs identify caller regions but cannot repair a
+reset. The first marker's host submission/completion enclosure can place this
+interval on a bounded host timeline; it does not align another command's epoch.
+The [hardware timing reference](../../docs/reference/amd/xdna/observability.md)
+describes the native rate sources, explicit power modes and measured evidence.
 
 ## Automatic firmware timing
 
@@ -613,13 +650,14 @@ The same host clock can relate GPU observations to this capture, after the
 GPU's own source relation is established. Sharing a device or a nominal rate
 does not establish that relation.
 
-The finite marker service does not currently provide an equivalent wall-clock
-conversion: its zero frequency explicitly reports an unestablished rate.
-Converting that counter requires its operating-clock history and an unchanged
-program timer epoch. Sampling the current H-clock frequency before and after
-work does not reveal intervening changes. The automatic firmware source avoids
-that array-clock dependency; admission of its native trace service remains a
-separate driver capability.
+The finite marker service supports the constant-rate, same-epoch duration
+conversion described above through `device_query_timer_clock_info`. Its cached
+buffer geometry leaves frequency zero; the explicit operating-rate query
+supplies the conversion rate. Unlike automatic firmware timestamps, markers
+require the caller to account for array-clock changes, gating and timer resets.
+Sampling the H-clock before and after work does not reveal intervening changes.
+The automatic firmware source avoids that array-clock dependency; admission of
+its native trace service remains a separate driver capability.
 
 ## Asynchronous host observation
 

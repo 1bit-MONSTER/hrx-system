@@ -52,11 +52,28 @@ buffer through the dynamic XDNA API. Four useful numeric commands each emit
 three caller-identified timer records, with one host wait after the four
 submissions. Two batches append to the same attachment; a third follows an
 explicit detach/clear/attach cycle. Repeated collection preserves the snapshot.
-The oracle checks all IDs, two adjacent samples with an unchanged timer epoch,
-unused result bytes, numeric output, instruction bytes and aperture guard
-storage. Native control points do not alter public queue completion identity.
+The oracle checks all IDs, an interval from core enable through output DMA
+completion after configuration, unused result bytes, numeric output, instruction
+bytes and aperture guard storage. Native control points do not alter public
+queue completion identity.
 Validation also rejects misaligned, empty and foreign-scope bindings before
 native effects. Failed controls preserve backing instead of guessing retirement.
+
+`MarkerDurationsAtOperatingRate` uses the native timer clock query after context
+admission. Three four-command batches execute 1, 4096 and 16384 recurrence
+iterations per output word. Each batch has one completion wait, then finite
+collection and an independent numerical oracle. Converted same-command marker
+intervals must be positive and fit their enclosing host batch.
+`MarkerDurationsInsideFirmwareIntervals` additionally checks each interval
+against the independent automatic firmware clock when that service is admitted.
+Both retain raw ticks, queried rates, nanoseconds and enclosing widths in XML.
+
+The operating rate is a snapshot. A changed endpoint rate skips fixed-rate
+interpretation after checking the workload; equal endpoint values do not prove
+that no intervening change occurred. Controlled power-mode runs establish that
+separate condition without letting an ordinary test mutate machine power
+policy. These cases check clock units and causality, not performance thresholds
+or cross-command counter continuity.
 
 `XdnaReservationTest` queries native reservation support and mapping-source
 eligibility before allocating backing. It keeps one command and queue alive

@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "libamdf/cts/xdna/programs/mul_i32.h"
+#include "libamdf/cts/xdna/programs/recurrence_i32.h"
 #include "libamdf/cts/xdna/util/executable.h"
 #include "libamdf/cts/xdna/util/execution.h"
 #include "libamdf/cts/xdna/xdna_device_fixture.h"
@@ -235,6 +236,10 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
  protected:
   enum class RegisteredContents { kUntouched, kHostWritten };
 
+  virtual const iree_file_toc_t* ProgramImages() const {
+    return amdf_cts_xdna_mul_i32_create();
+  }
+
   void SetUp() override {
     ASSERT_NO_FATAL_FAILURE(XdnaDeviceFixture::SetUp());
     amdf_xdna_endpoint_info_t endpoint_info = {
@@ -255,10 +260,10 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
     const iree_file_toc_t* image = nullptr;
     const std::string_view target = endpoint_info.target_id;
     if (target == "amd.xdna.strix_halo.17f0_11") {
-      image = &amdf_cts_xdna_mul_i32_create()[1];
+      image = &ProgramImages()[1];
     } else if (target == "amd.xdna.strix.17f0_10" ||
                target == "amd.xdna.krackan.17f0_20") {
-      image = &amdf_cts_xdna_mul_i32_create()[0];
+      image = &ProgramImages()[0];
     } else {
       GTEST_SKIP() << "no finite arithmetic fixture for " << target;
     }
@@ -602,6 +607,60 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
 // its behalf. Cleanup deliberately stops if native retirement becomes unknown.
 class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
  protected:
+  const iree_file_toc_t* ProgramImages() const override {
+    return amdf_cts_xdna_recurrence_i32_create();
+  }
+
+  void FindCoreEnable(std::span<const uint8_t> original) {
+    // This finite one-worker fixture has one core enable after configuration.
+    // Locate it once during preparation; binding only patches DMA addresses.
+    size_t offset = 16;
+    uint32_t count = 0;
+    while (offset < original.size()) {
+      const auto operation = original.subspan(offset);
+      ASSERT_GE(operation.size(), 8u);
+      size_t length_offset = 0;
+      switch (operation[0]) {
+        case 0:
+          length_offset = 20;
+          break;  // WRITE32.
+        case 1:
+          length_offset = 12;
+          break;  // BLOCKWRITE32.
+        case 3:
+        case 4:
+          length_offset = 24;
+          break;  // MASKWRITE/POLL32.
+        case 128:
+        case 129:
+        case 130:
+          length_offset = 4;
+          break;
+        default:
+          FAIL() << "unexpected transaction opcode " << +operation[0];
+      }
+      ASSERT_GE(operation.size(), length_offset + 4);
+      auto word = [&](size_t position) {
+        uint32_t value;
+        std::memcpy(&value, operation.data() + position, sizeof(value));
+        return value;
+      };
+      const uint32_t length = word(length_offset);
+      ASSERT_GE(length, length_offset + 4);
+      ASSERT_LE(length, operation.size());
+      if ((operation[0] == 0 || operation[0] == 3) &&
+          (word(8) & 0xfffff) == 0x32000 && (word(16) & 1) != 0 &&
+          (operation[0] == 0 || (word(20) & 1) != 0)) {
+        ASSERT_EQ(core_enable_offset_, 0u);
+        core_enable_offset_ = offset;
+      }
+      offset += length;
+      ++count;
+    }
+    ASSERT_EQ(count, operation_count_);
+    ASSERT_NE(core_enable_offset_, 0u);
+  }
+
   void TearDown() override {
     if (control_failed_) {
       ADD_FAILURE() << "retaining firmware result backing after native failure";
@@ -634,6 +693,7 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
     ASSERT_EQ(original[0], 0u);
     ASSERT_EQ(original[1], 1u);
     std::memcpy(&operation_count_, original.data() + 8, 4);
+    ASSERT_NO_FATAL_FAILURE(FindCoreEnable(original));
     command_length_ = original.size() + 3 * 12;
     const uint64_t alignment = executable_.allocation_alignment();
     command_stride_ = (command_length_ + alignment - 1) / alignment * alignment;
@@ -783,8 +843,9 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
       ASSERT_EQ(record.id, expected_ids_[i]);
       const uint64_t timestamp = amdf_xdna_timer_record_timestamp(&record);
       ASSERT_NE(timestamp, 0u);
-      // The final two markers execute after all array reconfiguration. Only
-      // those adjacent records have a common timer epoch by construction.
+      // The final pair brackets core enable through output DMA completion,
+      // after all array reconfiguration. The pre-configuration marker can
+      // belong to a different timer epoch.
       if (i % 3 == 2) {
         EXPECT_GT(timestamp, previous);
       }
@@ -809,7 +870,7 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
                             [](uint8_t value) { return value == 0; }));
   }
 
-  void RunBatch(uint32_t generation) {
+  void RunBatch(uint32_t generation, uint32_t iterations = 1) {
     for (auto& memory : bindings_) {
       auto bytes = memory.bytes();
       std::fill(bytes.begin(), bytes.end(), 0xA5);
@@ -822,6 +883,10 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
         StoreU32(bindings_[1].bytes(), offset,
                  generation * 11 + i * 3 + dispatch);
       }
+      StoreU32(
+          bindings_[1].bytes(),
+          dispatch * kBindingStorageByteLength + kBindingByteOffset + 15 * 4,
+          iterations);
       auto addresses = binding_addresses_;
       for (auto& address : addresses) {
         address += dispatch * kBindingStorageByteLength;
@@ -833,10 +898,14 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
       std::copy_n(original.begin(), 16, command.begin());
       StoreU32(command, 8, operation_count_ + 3);
       StoreU32(command, 12, static_cast<uint32_t>(command_length_));
-      std::copy(original.begin() + 16, original.end(), command.begin() + 28);
+      std::copy(original.begin() + 16, original.begin() + core_enable_offset_,
+                command.begin() + 28);
+      std::copy(original.begin() + core_enable_offset_, original.end(),
+                command.begin() + core_enable_offset_ + 24);
       for (uint32_t marker = 0; marker < 3; ++marker) {
-        const size_t offset =
-            marker == 0 ? 16 : command_length_ - (3 - marker) * 12;
+        const size_t offset = marker == 0   ? 16
+                              : marker == 1 ? core_enable_offset_ + 12
+                                            : command_length_ - 12;
         const uint32_t id = (generation << 16) | (dispatch << 8) | (marker + 1);
         StoreU32(command, offset, 0x83);  // RECORD_TIMER.
         StoreU32(command, offset + 4, 12);
@@ -897,8 +966,14 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
                         dispatch * kBindingStorageByteLength +
                         kBindingByteOffset + i * 4,
                     4);
-        ASSERT_EQ(actual, (generation * 17 + i + dispatch) *
-                              (generation * 11 + i * 3 + dispatch));
+        const uint32_t lhs = generation * 17 + i + dispatch;
+        const uint32_t rhs =
+            i == 15 ? iterations : generation * 11 + i * 3 + dispatch;
+        uint32_t expected = lhs;
+        for (uint32_t iteration = 0; iteration < iterations; ++iteration) {
+          expected = expected * lhs + rhs;
+        }
+        ASSERT_EQ(actual, expected);
       }
     }
     auto output = bindings_[2].bytes();
@@ -919,6 +994,97 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
     EXPECT_EQ(status.terminal_status, AMDF_STATUS_OK);
   }
 
+  void RunTimerDurations(bool use_firmware_clock) {
+    ASSERT_NO_FATAL_FAILURE(PrepareResults());
+    if (IsSkipped()) {
+      return;
+    }
+    std::array<FirmwareCommandInterval, 12> firmware_intervals;
+    FirmwareTraceCapture capture(xdna_api_, device_, firmware_intervals);
+    if (use_firmware_clock) {
+      amdf_xdna_firmware_trace_info_t info = {
+          .type = AMDF_STRUCTURE_TYPE_XDNA_FIRMWARE_TRACE_INFO,
+          .structure_size = sizeof(info),
+      };
+      const auto status =
+          xdna_api_->device_query_firmware_trace_info(device_, &info);
+      if (status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+        GTEST_SKIP() << "native driver supplies no independent firmware clock";
+      }
+      ASSERT_EQ(status, AMDF_STATUS_OK);
+      ASSERT_NO_FATAL_FAILURE(capture.Start(info));
+    }
+    constexpr std::array<uint32_t, 3> kIterations = {1, 4096, 16384};
+    for (uint32_t batch = 0; batch < kIterations.size(); ++batch) {
+      SCOPED_TRACE(batch);
+      ASSERT_NO_FATAL_FAILURE(Attach());
+      amdf_observation_clock_info_t before = {};
+      const auto status =
+          xdna_api_->device_query_timer_clock_info(device_, &before);
+      if (status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+        GTEST_SKIP() << "native driver supplies no timer operating rate";
+      }
+      ASSERT_EQ(status, AMDF_STATUS_OK);
+      ASSERT_GT(before.frequency_hz, 0u);
+      const int64_t host_begin = HostTimestamp();
+      ASSERT_NO_FATAL_FAILURE(RunBatch(batch + 1, kIterations[batch]));
+      const int64_t host_end = HostTimestamp();
+      amdf_observation_clock_info_t after = {};
+      ASSERT_EQ(xdna_api_->device_query_timer_clock_info(device_, &after),
+                AMDF_STATUS_OK);
+      ASSERT_NO_FATAL_FAILURE(Collect());
+      if (use_firmware_clock) {
+        ASSERT_NO_FATAL_FAILURE(capture.Drain((batch + 1) * 4));
+      }
+      const std::string prefix = "timer_batch_" + std::to_string(batch);
+      RecordProperty(prefix + "_iterations", kIterations[batch]);
+      RecordProperty(prefix + "_frequency_before_hz",
+                     std::to_string(before.frequency_hz));
+      RecordProperty(prefix + "_frequency_after_hz",
+                     std::to_string(after.frequency_hz));
+      if (before.frequency_hz != after.frequency_hz) {
+        GTEST_SKIP() << "operating rate changed; a controlled profiling "
+                        "interval is needed for fixed-rate conversion";
+      }
+      const double nanoseconds_per_tick = 1e9 / before.frequency_hz;
+      double sum_ns = 0;
+      for (uint32_t dispatch = 0; dispatch < 4; ++dispatch) {
+        std::array<amdf_xdna_timer_record_t, 3> records;
+        std::memcpy(records.data(),
+                    ResultBytes().data() + dispatch * sizeof(records),
+                    sizeof(records));
+        const uint64_t begin = amdf_xdna_timer_record_timestamp(&records[1]);
+        const uint64_t end = amdf_xdna_timer_record_timestamp(&records[2]);
+        ASSERT_GT(end, begin);
+        const double duration_ns = (end - begin) * nanoseconds_per_tick;
+        sum_ns += duration_ns;
+        ASSERT_GT(duration_ns, 0);
+        ASSERT_LE(duration_ns, host_end - host_begin);
+        const std::string sample =
+            prefix + "_dispatch_" + std::to_string(dispatch);
+        RecordProperty(sample + "_ticks", std::to_string(end - begin));
+        RecordProperty(sample + "_duration_ns", std::to_string(duration_ns));
+        if (use_firmware_clock) {
+          const auto& interval =
+              firmware_intervals[batch * 4 + dispatch].device;
+          ASSERT_GT(interval.end, interval.begin);
+          const uint64_t firmware_ns = interval.end - interval.begin;
+          ASSERT_LE(duration_ns, firmware_ns);
+          RecordProperty(sample + "_firmware_duration_ns",
+                         std::to_string(firmware_ns));
+        }
+      }
+      // Serial controller intervals must all fit in their enclosing host
+      // batch. This checks units/causality, not a latency threshold. Equal
+      // endpoint rates cannot prove absence of an intervening DPM transition;
+      // controlled power-mode qualification supplies that separate condition.
+      EXPECT_LE(sum_ns, host_end - host_begin);
+      RecordProperty(prefix + "_host_bracket_ns",
+                     std::to_string(host_end - host_begin));
+      ASSERT_NO_FATAL_FAILURE(Detach());
+    }
+  }
+
   // Queried immutable scope, native binding geometry and timer interpretation.
   amdf_xdna_result_buffer_info_t requirements_ = {};
   // Whole-BO providers require a separate result allocation.
@@ -937,6 +1103,8 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
   std::vector<uint8_t> image_storage_;
   // Native operation count before inserting the three marker instructions.
   uint32_t operation_count_ = 0;
+  // Native position after configuration and immediately before core enable.
+  size_t core_enable_offset_ = 0;
   // Complete transaction length including markers.
   uint64_t command_length_ = 0;
   // Firmware-aligned distance between the four immutable command instances.
@@ -985,6 +1153,14 @@ TEST_F(FirmwareResultRecipeTest,
     EXPECT_TRUE(std::equal(snapshot.begin(), snapshot.end(), bytes.begin()));
   }
   ASSERT_NO_FATAL_FAILURE(Detach());
+}
+
+TEST_F(FirmwareResultRecipeTest, MarkerDurationsAtOperatingRate) {
+  RunTimerDurations(false);
+}
+
+TEST_F(FirmwareResultRecipeTest, MarkerDurationsInsideFirmwareIntervals) {
+  RunTimerDurations(true);
 }
 
 TEST_F(CpuXdnaRecipeTest, AllocatedRoundTrip) {
