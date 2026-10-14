@@ -26,9 +26,11 @@ bool loom_low_operand_ties_need_materialization(
     return false;
   }
   const loom_low_descriptor_t* descriptor = packet->descriptor;
-  for (uint16_t i = 0; i < descriptor->constraint_count; ++i) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  for (uint16_t i = 0; i < descriptor_layout->constraint_count; ++i) {
     const loom_low_constraint_t* constraint =
-        &descriptor_set->constraints[descriptor->constraint_start + i];
+        &descriptor_set->constraints[descriptor_layout->constraint_start + i];
     if ((constraint->kind == LOOM_LOW_CONSTRAINT_KIND_TIED ||
          constraint->kind == LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE) &&
         !loom_op_find_tied_result(packet->op, constraint->lhs_operand_index)) {
@@ -51,6 +53,8 @@ iree_status_t loom_low_operand_ties_materialize(
   }
   const loom_low_descriptor_t* descriptor =
       &descriptor_set->descriptors[loom_low_op_descriptor(op)];
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
   loom_tied_result_t* ties = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       rewriter->arena, op->result_count, sizeof(*ties), (void**)&ties));
@@ -85,9 +89,10 @@ iree_status_t loom_low_operand_ties_materialize(
   loom_builder_set_before(&rewriter->builder, op);
   iree_status_t status = iree_ok_status();
   for (uint16_t i = 0;
-       iree_status_is_ok(status) && i < descriptor->constraint_count; ++i) {
+       iree_status_is_ok(status) && i < descriptor_layout->constraint_count;
+       ++i) {
     const loom_low_constraint_t* constraint =
-        &descriptor_set->constraints[descriptor->constraint_start + i];
+        &descriptor_set->constraints[descriptor_layout->constraint_start + i];
     if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_TIED &&
         constraint->kind != LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE) {
       continue;

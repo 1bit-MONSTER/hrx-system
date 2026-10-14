@@ -1761,9 +1761,12 @@ static iree_status_t loom_low_verify_tied_results(
     }
     if (packet != NULL) {
       const loom_low_descriptor_t* descriptor = packet->descriptor;
-      for (uint16_t j = 0; j < descriptor->constraint_count; ++j) {
+      const loom_low_descriptor_layout_t* descriptor_layout =
+          loom_low_descriptor_layout(descriptor_set, descriptor);
+      for (uint16_t j = 0; j < descriptor_layout->constraint_count; ++j) {
         const loom_low_constraint_t* constraint =
-            &descriptor_set->constraints[descriptor->constraint_start + j];
+            &descriptor_set
+                 ->constraints[descriptor_layout->constraint_start + j];
         if ((constraint->kind != LOOM_LOW_CONSTRAINT_KIND_TIED &&
              constraint->kind != LOOM_LOW_CONSTRAINT_KIND_PREFER_TIED &&
              constraint->kind != LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE) ||

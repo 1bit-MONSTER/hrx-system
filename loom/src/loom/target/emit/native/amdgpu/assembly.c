@@ -1536,7 +1536,7 @@ loom_amdgpu_descriptor_packet_route_flags(
     const loom_low_asm_layout_t* layout =
         &descriptor_set->asm_layouts[form->layout_index];
     if (layout->native_assembly_value_count > 0 &&
-        (descriptor->immediate_count == 0 ||
+        (descriptor_layout->immediate_count == 0 ||
          iree_any_bit_set(layout->flags,
                           LOOM_LOW_ASM_LAYOUT_FLAG_NATIVE_IMMEDIATE_SYNTAX))) {
       flags |= LOOM_AMDGPU_DESCRIPTOR_PACKET_ROUTE_FLAG_NATIVE_FORM;

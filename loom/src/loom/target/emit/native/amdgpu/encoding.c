@@ -1022,14 +1022,15 @@ static iree_status_t loom_amdgpu_encode_move(
   }
   const loom_low_descriptor_t* descriptor =
       loom_amdgpu_descriptor_ref_descriptor(descriptor_set, descriptor_ref);
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
   loom_amdgpu_encoding_field_value_t
       fields[LOOM_AMDGPU_ENCODING_PACKET_FIELD_VALUE_CAPACITY];
   iree_host_size_t field_count = 0;
-  for (uint16_t i = 0; i < descriptor->encoding_field_value_count; ++i) {
+  for (uint16_t i = 0; i < descriptor_layout->encoding_field_value_count; ++i) {
     const loom_low_encoding_field_value_t* field =
-        &descriptor_set
-             ->encoding_field_values[descriptor->encoding_field_value_start +
-                                     i];
+        &descriptor_set->encoding_field_values
+             [descriptor_layout->encoding_field_value_start + i];
     loom_amdgpu_push_encoding_field_value(
         fields, &field_count, field->encoding_field_id, field->value);
   }
@@ -1050,7 +1051,7 @@ static iree_status_t loom_amdgpu_encode_move(
       source_value);
   loom_amdgpu_encoding_packet_t encoded_packet;
   IREE_RETURN_IF_ERROR(loom_amdgpu_encoding_pack(
-      state->inputs.encoding_table, descriptor->encoding_format_id,
+      state->inputs.encoding_table, descriptor_layout->encoding_format_id,
       descriptor->encoding_id, fields, field_count, &encoded_packet));
   loom_amdgpu_append_encoding_packet(state, &encoded_packet);
   return iree_ok_status();
