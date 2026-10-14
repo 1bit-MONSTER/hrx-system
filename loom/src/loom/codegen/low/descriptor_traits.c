@@ -76,6 +76,13 @@ loom_trait_flags_t loom_low_descriptor_effective_traits(
                        LOOM_LOW_DESCRIPTOR_FLAG_UNIQUE_IDENTITY)) {
     traits |= LOOM_TRAIT_UNIQUE_IDENTITY;
   }
+  if (iree_any_bit_set(descriptor->flags,
+                       LOOM_LOW_DESCRIPTOR_FLAG_STATE_ASSIGNMENT)) {
+    // The descriptor guarantees that its sole effect is replacing one whole
+    // architectural register. Preserve that effect without inventing storage
+    // writes or acquisition barriers.
+    traits |= LOOM_TRAIT_OBSERVABLE_EFFECT;
+  }
   if (loom_low_descriptor_defines_implicit_state_result(descriptor_set,
                                                         descriptor)) {
     // Implicit state results define target-owned architectural state outside

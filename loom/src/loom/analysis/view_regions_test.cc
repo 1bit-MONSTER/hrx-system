@@ -73,13 +73,12 @@ class ViewRegionsTest : public ::testing::Test {
                                                  (uint16_t)vtable_count));
   }
 
-  void BuildFunction() {
+  void BuildFunction(iree_string_view_t name = IREE_SV("test_fn")) {
     loom_builder_t module_builder;
     loom_builder_initialize(module_, &module_->arena,
                             loom_module_block(module_), &module_builder);
     loom_string_id_t name_id = LOOM_STRING_ID_INVALID;
-    IREE_ASSERT_OK(loom_builder_intern_string(&module_builder,
-                                              IREE_SV("test_fn"), &name_id));
+    IREE_ASSERT_OK(loom_builder_intern_string(&module_builder, name, &name_id));
     uint16_t symbol_id = LOOM_SYMBOL_ID_INVALID;
     IREE_ASSERT_OK(loom_module_add_symbol(module_, name_id, &symbol_id));
     loom_symbol_ref_t callee = {
@@ -509,6 +508,80 @@ TEST_F(ViewRegionsTest, UnknownEffectsPreventStorageStability) {
             LOOM_VIEW_ACCESS_READ);
   EXPECT_FALSE(RootIsStable(&table, view));
 }
+
+enum class CallableStorageEffect {
+  kRead,
+  kWrite,
+  kAcquire,
+  kUnknown,
+  kRecursive
+};
+
+using CallBuilder = decltype(&loom_test_invoke_build);
+
+class CallableStorageStabilityTest
+    : public ViewRegionsTest,
+      public ::testing::WithParamInterface<
+          std::tuple<CallBuilder, CallableStorageEffect>> {};
+
+TEST_P(CallableStorageStabilityTest, RetainsReadsWithoutInventingWrites) {
+  const auto [build_call, effect] = GetParam();
+  const loom_func_like_t caller = function_;
+  const loom_builder_t caller_builder = builder_;
+  BuildFunction(IREE_SV("callee"));
+  const loom_symbol_ref_t callee = loom_func_like_callee(function_);
+  const loom_value_id_t argument = DefineBufferArg();
+  const loom_value_id_t callee_view = BuildReadOnlyView(argument);
+  loom_op_t* operation = nullptr;
+  if (effect == CallableStorageEffect::kWrite) {
+    const int64_t indices[] = {0};
+    const loom_value_id_t loaded =
+        loom_vector_load_result(builder_.ip.block->last_op);
+    IREE_ASSERT_OK(loom_vector_store_build(&builder_, 0, 0, loaded, callee_view,
+                                           nullptr, 0, indices, 1, 0, 0,
+                                           LOOM_LOCATION_UNKNOWN, &operation));
+  } else if (effect == CallableStorageEffect::kAcquire) {
+    IREE_ASSERT_OK(loom_buffer_fence_build(&builder_, LOOM_ATOMIC_SCOPE_SYSTEM,
+                                           LOOM_ATOMIC_ORDERING_ACQUIRE,
+                                           LOOM_LOCATION_UNKNOWN, &operation));
+  } else if (effect == CallableStorageEffect::kUnknown) {
+    IREE_ASSERT_OK(loom_test_clause_copy_build(
+        &builder_, argument, argument, LOOM_LOCATION_UNKNOWN, &operation));
+  } else if (effect == CallableStorageEffect::kRecursive) {
+    IREE_ASSERT_OK(build_call(&builder_, callee, &argument, 1, nullptr, 0,
+                              nullptr, 0, LOOM_LOCATION_UNKNOWN, &operation));
+  }
+  IREE_ASSERT_OK(loom_test_yield_build(&builder_, nullptr, 0,
+                                       LOOM_LOCATION_UNKNOWN, &operation));
+
+  function_ = caller;
+  builder_ = caller_builder;
+  const loom_value_id_t buffer = DefineBufferArg();
+  const loom_value_id_t unique = BuildNoAliasBuffer(buffer);
+  const loom_value_id_t view = BuildView(unique);
+  IREE_ASSERT_OK(build_call(&builder_, callee, &unique, 1, nullptr, 0, nullptr,
+                            0, LOOM_LOCATION_UNKNOWN, &operation));
+  loom_value_fact_table_t facts = {};
+  ComputeFacts(&facts);
+  loom_view_region_table_t table = {};
+  Analyze(&facts, &table);
+  EXPECT_EQ(RootIsStable(&table, view), effect == CallableStorageEffect::kRead);
+  if (effect == CallableStorageEffect::kRead) {
+    EXPECT_EQ(loom_view_region_table_root_access_flags(&table, buffer),
+              LOOM_VIEW_ACCESS_READ);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ViewRegions, CallableStorageStabilityTest,
+    ::testing::Combine(::testing::Values(loom_test_invoke_build,
+                                         loom_test_low_call_build,
+                                         loom_test_low_invoke_build),
+                       ::testing::Values(CallableStorageEffect::kRead,
+                                         CallableStorageEffect::kWrite,
+                                         CallableStorageEffect::kAcquire,
+                                         CallableStorageEffect::kUnknown,
+                                         CallableStorageEffect::kRecursive)));
 
 TEST_F(ViewRegionsTest, UnmodeledFencePreventsStorageStability) {
   const loom_value_id_t buffer = DefineBufferArg();

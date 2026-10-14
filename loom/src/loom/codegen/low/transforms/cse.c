@@ -82,9 +82,8 @@ static loom_low_cse_packet_identity_t loom_low_cse_observe_packet(
   // results still obey the shared identity and ownership eligibility rules.
   const bool can_reuse_assignment =
       is_assignment &&
-      !iree_any_bit_set(cursor->traits, LOOM_TRAIT_OBSERVABLE_EFFECT |
-                                            LOOM_TRAIT_UNIQUE_IDENTITY |
-                                            LOOM_TRAIT_CONVERGENT) &&
+      !iree_any_bit_set(cursor->traits,
+                        LOOM_TRAIT_UNIQUE_IDENTITY | LOOM_TRAIT_CONVERGENT) &&
       loom_expression_can_share_result_ownership(cursor->module, cursor->op);
   const loom_low_descriptor_t* descriptor = packet->descriptor;
   for (uint16_t i = 0; i < descriptor->operand_count; ++i) {
@@ -164,17 +163,17 @@ static iree_status_t loom_low_cse_region(
         packet.descriptor &&
         iree_any_bit_set(packet.descriptor->flags,
                          LOOM_LOW_DESCRIPTOR_FLAG_STATE_ASSIGNMENT);
-    // Assignment descriptors refine their conservative UNKNOWN_EFFECTS trait.
+    // The assignment's observable effect belongs to its exact state class.
     // A boundary identity, unlike the value epoch, distinguishes zero-result
     // operations and invalidates every class without clearing the class table.
     if (cursor.op->parent_block != assignment_block ||
         cursor.op->region_count != 0 ||
         iree_any_bit_set(cursor.traits,
                          LOOM_TRAIT_CALLABLE_BOUNDARY | LOOM_TRAIT_TERMINATOR |
-                             LOOM_TRAIT_CONVERGENT | LOOM_TRAIT_MEMORY_FENCE |
-                             LOOM_TRAIT_OBSERVABLE_EFFECT) ||
+                             LOOM_TRAIT_CONVERGENT | LOOM_TRAIT_MEMORY_FENCE) ||
         (!is_assignment &&
-         iree_any_bit_set(cursor.traits, LOOM_TRAIT_UNKNOWN_EFFECTS)) ||
+         iree_any_bit_set(cursor.traits, LOOM_TRAIT_UNKNOWN_EFFECTS |
+                                             LOOM_TRAIT_OBSERVABLE_EFFECT)) ||
         (packet.descriptor &&
          iree_any_bit_set(packet.descriptor->flags,
                           LOOM_LOW_DESCRIPTOR_FLAG_BARRIER)) ||

@@ -18,6 +18,15 @@ bool loom_callable_effects_may_access_memory(loom_func_like_t function) {
               : loom_func_like_purity(function) == 0;
 }
 
+bool loom_callable_effects_may_write(loom_func_like_t function) {
+  if (!loom_func_like_isa(function)) {
+    return true;
+  }
+  loom_region_t* body = loom_func_like_body(function);
+  return body ? loom_region_has_write_effects(body)
+              : loom_func_like_purity(function) == 0;
+}
+
 bool loom_callable_effects_is_pure(loom_func_like_t function) {
   if (!loom_func_like_isa(function)) {
     return false;

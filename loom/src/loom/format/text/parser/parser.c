@@ -496,6 +496,9 @@ static iree_status_t loom_finalize_op(
            parsed->region_count * sizeof(loom_region_t*));
     for (uint8_t i = 0; i < parsed->region_count; ++i) {
       loom_parser_set_region_parent_op(parsed->regions[i], op);
+      if (parser->finalize_operations && parsed->regions[i]) {
+        loom_module_record_region_summaries(op, parsed->regions[i]);
+      }
     }
   }
 

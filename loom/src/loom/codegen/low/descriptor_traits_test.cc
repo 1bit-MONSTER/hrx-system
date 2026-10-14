@@ -160,6 +160,27 @@ TEST(LowDescriptorTraitsTest, SideEffectingTerminatorFlagsCompose) {
   EXPECT_FALSE(iree_any_bit_set(traits, LOOM_TRAIT_PURE));
 }
 
+TEST(LowDescriptorTraitsTest, StateAssignmentDoesNotInvalidateStorage) {
+  const loom_low_descriptor_layout_t layout = {};
+  const loom_low_descriptor_set_t descriptor_set = {
+      .descriptor_layouts = &layout,
+      .descriptor_layout_count = 1,
+  };
+  for (uint16_t flags : {LOOM_LOW_DESCRIPTOR_FLAG_SIDE_EFFECTING,
+                         LOOM_LOW_DESCRIPTOR_FLAG_DEAD_REMOVABLE}) {
+    const loom_low_descriptor_t descriptor = {
+        .flags = static_cast<uint16_t>(
+            flags | LOOM_LOW_DESCRIPTOR_FLAG_STATE_ASSIGNMENT),
+    };
+    const loom_trait_flags_t traits =
+        loom_low_descriptor_effective_traits(&descriptor_set, &descriptor);
+    EXPECT_TRUE(loom_traits_have_observable_effects(traits));
+    EXPECT_FALSE(loom_traits_may_write(traits));
+    EXPECT_FALSE(loom_traits_may_access_memory(traits));
+    EXPECT_FALSE(iree_any_bit_set(traits, LOOM_TRAIT_PURE));
+  }
+}
+
 TEST(LowDescriptorTraitsTest, UniqueIdentityIsNotPureAndCannotBeCse) {
   const loom_low_descriptor_layout_t layout = {};
   const loom_low_descriptor_set_t descriptor_set = {

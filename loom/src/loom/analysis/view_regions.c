@@ -14,6 +14,7 @@
 #include "loom/ir/attribute.h"
 #include "loom/ir/context.h"
 #include "loom/ops/buffer/ops.h"
+#include "loom/ops/callable_effects.h"
 #include "loom/ops/channel/ops.h"
 #include "loom/ops/encoding/storage.h"
 #include "loom/ops/kernel/ops.h"
@@ -1176,6 +1177,32 @@ static iree_status_t loom_view_region_table_analyze_op_memory(
     return iree_ok_status();
   }
   if (phase == LOOM_VIEW_REGION_ANALYZE_MEMORY) {
+    if (vtable->call_like &&
+        iree_any_bit_set(traits, LOOM_TRAIT_UNKNOWN_EFFECTS)) {
+      const loom_module_t* module = table->expression_context->module;
+      const loom_symbol_ref_t callee = loom_attr_as_symbol(
+          loom_op_attrs(op)[vtable->call_like->callee_attr_index]);
+      if (callee.module_id == 0) {
+        const loom_func_like_t function = loom_func_like_cast(
+            module, module->symbols.entries[callee.symbol_id].defining_op);
+        if (!loom_callable_effects_may_write(function)) {
+          // This refines storage interference only. Reads and architectural
+          // state effects do not make the call pure or freely movable.
+          traits &= ~LOOM_TRAIT_UNKNOWN_EFFECTS;
+          if (loom_callable_effects_may_access_memory(function)) {
+            const loom_value_id_t* operands = loom_op_const_operands(op);
+            for (uint16_t i = 0; i < op->operand_count; ++i) {
+              const loom_type_t type =
+                  loom_module_value_type(module, operands[i]);
+              if (loom_type_is_buffer(type) || loom_type_is_view(type)) {
+                IREE_RETURN_IF_ERROR(loom_view_region_analyze_operand_access(
+                    table, operands[i], LOOM_VIEW_ACCESS_READ));
+              }
+            }
+          }
+        }
+      }
+    }
     loom_view_region_analyze_interference(table, op, vtable, traits);
   }
 
