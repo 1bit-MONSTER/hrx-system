@@ -53,19 +53,19 @@ static void ObserveResourceRefCount(void* user_data,
 
 class VulkanFileTest : public CtsTestBase<> {
  protected:
-  void ImportNativeFile(const std::vector<uint8_t>& file_contents,
-                        const char* temp_file_stem,
-                        Ref<iree_hal_file_t>* out_file,
-                        iree_io_file_mode_t extra_mode = 0,
-                        FileHandlePtr* out_handle = nullptr) {
+  iree_status_t ImportNativeFile(const std::vector<uint8_t>& file_contents,
+                                 const char* temp_file_stem,
+                                 Ref<iree_hal_file_t>* out_file,
+                                 iree_io_file_mode_t extra_mode = 0,
+                                 FileHandlePtr* out_handle = nullptr) {
     iree::testing::TempFilePath path(temp_file_stem);
-    IREE_ASSERT_OK(iree_io_file_contents_write(
+    IREE_RETURN_IF_ERROR(iree_io_file_contents_write(
         path.path_view(),
         iree_make_const_byte_span(file_contents.data(), file_contents.size()),
         iree_allocator_system()));
 
     iree_io_file_handle_t* raw_handle = nullptr;
-    IREE_ASSERT_OK(iree_io_file_handle_open(
+    IREE_RETURN_IF_ERROR(iree_io_file_handle_open(
         IREE_IO_FILE_MODE_READ | IREE_IO_FILE_MODE_WRITE |
             IREE_IO_FILE_MODE_RANDOM_ACCESS | IREE_IO_FILE_MODE_SHARE_READ |
             IREE_IO_FILE_MODE_SHARE_WRITE | IREE_IO_FILE_MODE_ASYNC |
@@ -74,7 +74,7 @@ class VulkanFileTest : public CtsTestBase<> {
     FileHandlePtr handle(raw_handle);
 
     Ref<iree_hal_file_t> file;
-    IREE_ASSERT_OK(iree_hal_file_import(
+    IREE_RETURN_IF_ERROR(iree_hal_file_import(
         device_, /*storage_pool=*/nullptr, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY,
         IREE_HAL_MEMORY_ACCESS_READ | IREE_HAL_MEMORY_ACCESS_WRITE,
         handle.get(), IREE_HAL_EXTERNAL_FILE_FLAG_NONE, file.out()));
@@ -82,6 +82,7 @@ class VulkanFileTest : public CtsTestBase<> {
     if (out_handle) {
       *out_handle = std::move(handle);
     }
+    return iree_ok_status();
   }
 
   void NativeFileRoundTrip(iree_device_size_t file_length,
@@ -91,7 +92,7 @@ class VulkanFileTest : public CtsTestBase<> {
         MakeDeterministicBytes(file_length);
 
     Ref<iree_hal_file_t> file;
-    ImportNativeFile(file_contents, temp_file_stem, &file);
+    IREE_ASSERT_OK(ImportNativeFile(file_contents, temp_file_stem, &file));
 
     Ref<iree_hal_buffer_t> source_buffer;
     IREE_ASSERT_OK(CreateDeviceBufferWithData(
@@ -272,9 +273,14 @@ class VulkanImportedFileTest : public VulkanFileTest {
     Ref<iree_hal_file_t> input;
     Ref<iree_hal_file_t> output;
     const auto mode = direct ? IREE_IO_FILE_MODE_DIRECT : 0;
-    ASSERT_NO_FATAL_FAILURE(
-        ImportNativeFile(expected, "iree_vulkan_imported_input", &input, mode));
-    ASSERT_NO_FATAL_FAILURE(ImportNativeFile(
+    iree::Status import_status =
+        ImportNativeFile(expected, "iree_vulkan_imported_input", &input, mode);
+    if (direct && (import_status.code() == iree::StatusCode::kUnavailable ||
+                   import_status.code() == iree::StatusCode::kUnimplemented)) {
+      GTEST_SKIP() << import_status.ToString();
+    }
+    IREE_ASSERT_OK(import_status);
+    IREE_ASSERT_OK(ImportNativeFile(
         expected_file, "iree_vulkan_imported_output", &output, mode));
     const auto& read = iree_hal_file_requirements(input)->read;
     const auto& write = iree_hal_file_requirements(output)->write;
@@ -426,9 +432,9 @@ class VulkanImportedFileTest : public VulkanFileTest {
     const size_t length = 5 * 1024 * 1024 + 31;
     Ref<iree_hal_file_t> file;
     FileHandlePtr handle;
-    ASSERT_NO_FATAL_FAILURE(ImportNativeFile(std::vector<uint8_t>(length, 0xAB),
-                                             "iree_vulkan_imported_failure",
-                                             &file, 0, &handle));
+    IREE_ASSERT_OK(ImportNativeFile(std::vector<uint8_t>(length, 0xAB),
+                                    "iree_vulkan_imported_failure", &file, 0,
+                                    &handle));
     if (!fail_dependency) {
       // The imported extent is still valid, but native I/O must report EOF
       // after successful partial requests and retire the other accepted lanes.
@@ -484,11 +490,21 @@ TEST_P(VulkanImportedFileTest, QueuesDirectReadsConsumersAndReuse) {
 }
 
 TEST_P(VulkanImportedFileTest, QueuedAllocationPreservesImportedFileBacking) {
+  QueuedRoundTrip(kRoundTripQueuedAllocation);
+}
+
+TEST_P(VulkanImportedFileTest,
+       DirectQueuedAllocationPreservesImportedFileBacking) {
   QueuedRoundTrip(kRoundTripDirect | kRoundTripQueuedAllocation);
 }
 
 TEST_P(VulkanImportedFileTest,
        NativeFileVisibilitySurvivesEmptyPayloadBarriers) {
+  QueuedRoundTrip(kRoundTripEmptyPayloadBarriers);
+}
+
+TEST_P(VulkanImportedFileTest,
+       DirectFileVisibilitySurvivesEmptyPayloadBarriers) {
   QueuedRoundTrip(kRoundTripDirect | kRoundTripEmptyPayloadBarriers);
 }
 
