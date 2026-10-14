@@ -192,6 +192,46 @@ static void Error(void* user_data, iree_status_t status) {
   iree_status_free(status);
 }
 
+static constexpr size_t kProvidedReceiveGuardSize = 16;
+
+static iree_async_span_t ProvideReceiveBuffer(void* user_data) {
+  auto* context = static_cast<ProvidedReceiveContext*>(user_data);
+  auto& buffer = context->buffers[context->buffer_index];
+  return iree_async_span_from_ptr(
+      buffer.data() + kProvidedReceiveGuardSize + context->position,
+      buffer.size() - 2 * kProvidedReceiveGuardSize - context->position);
+}
+
+static iree_status_t ReceiveProvidedBuffer(void* user_data,
+                                           iree_async_span_t data,
+                                           iree_async_buffer_lease_t* lease) {
+  auto* context = static_cast<ProvidedReceiveContext*>(user_data);
+  EXPECT_EQ(lease, nullptr);
+  if (data.length == 0) {
+    ++context->events.eof_count;
+    return iree_ok_status();
+  }
+  const iree_async_span_t expected = ProvideReceiveBuffer(context);
+  EXPECT_EQ(iree_async_span_ptr(data), iree_async_span_ptr(expected));
+  EXPECT_LE(data.length, expected.length);
+  context->position += data.length;
+  context->bytes_received += data.length;
+  ++context->receive_count;
+  if (data.length == expected.length) {
+    ++context->buffer_index;
+    context->position = 0;
+  }
+  return context->receive_error == IREE_STATUS_OK
+             ? iree_ok_status()
+             : iree_make_status(context->receive_error,
+                                "provided receive rejected for testing");
+}
+
+static void ProvidedReceiveError(void* user_data, iree_status_t status) {
+  auto* context = static_cast<ProvidedReceiveContext*>(user_data);
+  Error(&context->events, status);
+}
+
 void SendCompleted(void* user_data, iree_status_t status,
                    iree_host_size_t bytes_transferred) {
   auto* result = static_cast<SendResult*>(user_data);
@@ -357,7 +397,7 @@ void StreamCarrierTest::CreateCarrierPair(
     iree_allocator_t server_host_allocator) {
   ASSERT_NO_FATAL_FAILURE(CreateCarrierPairWithHandlers(
       {Receive, Error, &client_context_}, {Receive, Error, &server_context_},
-      max_send_operations, receive_buffer_size, receive_buffer_count,
+      max_send_operations, receive_buffer_size, receive_buffer_count, {},
       server_host_allocator));
 }
 
@@ -365,6 +405,7 @@ void StreamCarrierTest::CreateCarrierPairWithHandlers(
     iree_net_carrier_handlers_t client_handlers,
     iree_net_carrier_handlers_t server_handlers, uint32_t max_send_operations,
     iree_host_size_t receive_buffer_size, iree_host_size_t receive_buffer_count,
+    iree_net_stream_receive_buffer_provider_t server_receive_provider,
     iree_allocator_t server_host_allocator) {
   ASSERT_NO_FATAL_FAILURE(CreateReceivePool(
       receive_buffer_size, receive_buffer_count, &client_receive_pool_));
@@ -390,6 +431,10 @@ void StreamCarrierTest::CreateCarrierPairWithHandlers(
       iree_net_carrier_set_handlers(client_carrier_, client_handlers));
   IREE_ASSERT_OK(
       iree_net_carrier_set_handlers(server_carrier_, server_handlers));
+  if (server_receive_provider.fn) {
+    IREE_ASSERT_OK(iree_net_stream_carrier_set_receive_buffer_provider(
+        server_carrier_, server_receive_provider));
+  }
   IREE_ASSERT_OK(iree_net_carrier_activate(client_carrier_));
   IREE_ASSERT_OK(iree_net_carrier_activate(server_carrier_));
 }
@@ -463,6 +508,122 @@ TEST_P(StreamCarrierTest, RejectsUnconnectedStreams) {
                             nullptr, iree_allocator_system(), &carrier));
   EXPECT_EQ(carrier, nullptr);
   iree_async_socket_release(socket);
+}
+
+TEST_P(StreamCarrierTest, ReceivesIntoChangingProvidedSpansWithoutLeases) {
+  auto& context = provided_receive_context_;
+  const std::array<size_t, 3> lengths = {31, 192 * 1024 + 7, 257};
+  std::vector<uint8_t> payload;
+  for (size_t length : lengths) {
+    context.buffers.emplace_back(length + 2 * kProvidedReceiveGuardSize, 0xA5);
+    for (size_t i = 0; i < length; ++i) {
+      payload.push_back(static_cast<uint8_t>((payload.size() * 37 + 11) % 251));
+    }
+  }
+  context.buffers.emplace_back(64 + 2 * kProvidedReceiveGuardSize, 0xA5);
+  ASSERT_NO_FATAL_FAILURE(CreateCarrierPairWithHandlers(
+      {Receive, Error, &client_context_},
+      {ReceiveProvidedBuffer, ProvidedReceiveError, &context}, 4, 64, 1,
+      {ProvideReceiveBuffer, &context}, iree_allocator_system()));
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_FAILED_PRECONDITION,
+                        iree_net_stream_carrier_set_receive_buffer_provider(
+                            server_carrier_, {ProvideReceiveBuffer, &context}));
+
+  // An explicit first send makes the current destination complete in pieces.
+  SendResult first_result;
+  iree_async_span_t first_span = iree_async_span_from_ptr(payload.data(), 7);
+  iree_net_send_params_t first_params = {
+      iree_net_send_prefix_empty(),
+      iree_async_span_list_make(&first_span, 1),
+      {SendCompleted, &first_result}};
+  IREE_ASSERT_OK(iree_net_carrier_send(client_carrier_, &first_params));
+  PollUntil([&] {
+    return context.bytes_received == 7 && first_result.completion_count == 1;
+  });
+  EXPECT_EQ(context.buffer_index, 0u);
+  EXPECT_EQ(context.position, 7u);
+
+  SendResult remainder_result;
+  iree_async_span_t remainder_span =
+      iree_async_span_from_ptr(payload.data() + 7, payload.size() - 7);
+  iree_net_send_params_t remainder_params = {
+      iree_net_send_prefix_empty(),
+      iree_async_span_list_make(&remainder_span, 1),
+      {SendCompleted, &remainder_result}};
+  IREE_ASSERT_OK(iree_net_carrier_send(client_carrier_, &remainder_params));
+  PollUntil([&] {
+    return context.bytes_received == payload.size() &&
+           remainder_result.completion_count == 1;
+  });
+  EXPECT_EQ(first_result.status_code, IREE_STATUS_OK);
+  EXPECT_EQ(remainder_result.status_code, IREE_STATUS_OK);
+  EXPECT_EQ(context.buffer_index, lengths.size());
+  EXPECT_EQ(context.position, 0u);
+  EXPECT_GE(context.receive_count, lengths.size() + 1);
+  EXPECT_EQ(iree_async_buffer_pool_available(server_receive_pool_.pool), 1u);
+
+  size_t payload_position = 0;
+  for (size_t i = 0; i < context.buffers.size(); ++i) {
+    const auto& buffer = context.buffers[i];
+    for (size_t j = 0; j < kProvidedReceiveGuardSize; ++j) {
+      EXPECT_EQ(buffer[j], 0xA5);
+      EXPECT_EQ(buffer[buffer.size() - 1 - j], 0xA5);
+    }
+    if (i < lengths.size()) {
+      EXPECT_EQ(memcmp(buffer.data() + kProvidedReceiveGuardSize,
+                       payload.data() + payload_position, lengths[i]),
+                0);
+      payload_position += lengths[i];
+    }
+  }
+  IREE_ASSERT_OK(iree_net_carrier_shutdown(client_carrier_));
+  PollUntil([&] { return context.events.eof_count == 1; });
+  EXPECT_EQ(context.events.error_count, 0);
+  DeactivatePair();
+}
+
+TEST_P(StreamCarrierTest, ProvidedReceiveBorrowRetiresBeforeDeactivation) {
+  auto& context = provided_receive_context_;
+  context.buffers.emplace_back(4096 + 2 * kProvidedReceiveGuardSize, 0xA5);
+  ASSERT_NO_FATAL_FAILURE(CreateCarrierPairWithHandlers(
+      {Receive, Error, &client_context_},
+      {ReceiveProvidedBuffer, ProvidedReceiveError, &context}, 4, 64, 1,
+      {ProvideReceiveBuffer, &context}, iree_allocator_system()));
+  EXPECT_EQ(iree_net_carrier_pending_operation_count(server_carrier_), 1);
+  BeginDeactivation(server_carrier_, &server_deactivated_);
+  EXPECT_FALSE(server_deactivated_);
+  PollUntil([&] { return server_deactivated_; });
+  EXPECT_EQ(iree_net_carrier_pending_operation_count(server_carrier_), 0);
+  EXPECT_EQ(context.receive_count, 0u);
+  EXPECT_EQ(context.events.error_count, 0);
+  // The native borrower has returned. The entire target can now be reused.
+  context.buffers.clear();
+  DeactivatePair();
+}
+
+TEST_P(StreamCarrierTest, ProvidedReceiveHandlerFailureDrainsNativeBorrow) {
+  auto& context = provided_receive_context_;
+  context.buffers.emplace_back(4096 + 2 * kProvidedReceiveGuardSize, 0xA5);
+  context.receive_error = IREE_STATUS_DATA_LOSS;
+  ASSERT_NO_FATAL_FAILURE(CreateCarrierPairWithHandlers(
+      {Receive, Error, &client_context_},
+      {ReceiveProvidedBuffer, ProvidedReceiveError, &context}, 4, 64, 1,
+      {ProvideReceiveBuffer, &context}, iree_allocator_system()));
+  uint8_t payload = 0x5B;
+  SendResult result;
+  iree_async_span_t span = iree_async_span_from_ptr(&payload, 1);
+  iree_net_send_params_t params = {iree_net_send_prefix_empty(),
+                                   iree_async_span_list_make(&span, 1),
+                                   {SendCompleted, &result}};
+  IREE_ASSERT_OK(iree_net_carrier_send(client_carrier_, &params));
+  PollUntil([&] {
+    return context.events.error_count == 1 && result.completion_count == 1;
+  });
+  EXPECT_EQ(context.events.error_code, IREE_STATUS_DATA_LOSS);
+  EXPECT_EQ(context.buffers[0][kProvidedReceiveGuardSize], payload);
+  EXPECT_EQ(context.bytes_received, 1u);
+  DeactivatePair();
+  context.buffers.clear();
 }
 
 TEST_P(StreamCarrierTest,
@@ -859,7 +1020,7 @@ TEST_P(StreamCarrierTest, LeaseReturnedOffThreadBeforeReceiveCallbackReturns) {
       {Receive, Error, &client_context_},
       {receive_and_return, Error, &server_context_},
       /*max_send_operations=*/4, /*receive_buffer_size=*/64,
-      /*receive_buffer_count=*/2, iree_allocator_system()));
+      /*receive_buffer_count=*/2, {}, iree_allocator_system()));
   std::array<uint8_t, 16> payload = {};
   iree_async_span_t span =
       iree_async_span_from_ptr(payload.data(), payload.size());
@@ -1108,7 +1269,7 @@ TEST_P(StreamCarrierTest,
       {QueueSendsAndFail, DeactivateOnError, &failure_context},
       /*max_send_operations=*/2,
       /*receive_buffer_size=*/4096,
-      /*receive_buffer_count=*/4, iree_allocator_system()));
+      /*receive_buffer_count=*/4, {}, iree_allocator_system()));
   failure_context.carrier = server_carrier_;
 
   uint8_t payload = 0x5A;

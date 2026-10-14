@@ -79,6 +79,23 @@ struct SendResult {
   int completion_count = 0;
 };
 
+struct ProvidedReceiveContext {
+  // Independently guarded destination extents, followed by an idle read target.
+  std::vector<std::vector<uint8_t>> buffers;
+  // Destination currently published to the native receive lane.
+  size_t buffer_index = 0;
+  // Completed bytes in the current destination, excluding its leading guard.
+  size_t position = 0;
+  // Total live bytes written directly into the selected destinations.
+  size_t bytes_received = 0;
+  // Number of native receive completions delivered.
+  size_t receive_count = 0;
+  // Error returned after a nonempty receive when failure is requested.
+  iree_status_code_t receive_error = IREE_STATUS_OK;
+  // Ordinary EOF and error callback observations.
+  CarrierContext events;
+};
+
 // Records completion of a fixture-owned proactor operation.
 void AsyncOperationCompleted(void* user_data, iree_async_operation_t* operation,
                              iree_status_t status,
@@ -147,6 +164,7 @@ class StreamCarrierTest : public ::testing::TestWithParam<StreamSendMode> {
       iree_net_carrier_handlers_t server_handlers, uint32_t max_send_operations,
       iree_host_size_t receive_buffer_size,
       iree_host_size_t receive_buffer_count,
+      iree_net_stream_receive_buffer_provider_t server_receive_provider,
       iree_allocator_t server_host_allocator);
   void BeginDeactivation(iree_net_carrier_t* carrier, bool* completed);
   void DeactivatePair();
@@ -174,6 +192,10 @@ class StreamCarrierTest : public ::testing::TestWithParam<StreamSendMode> {
 
   // Server callback state.
   CarrierContext server_context_;
+
+  // Provider and destinations kept alive through teardown and native
+  // retirement.
+  ProvidedReceiveContext provided_receive_context_;
 
   // Client deactivation completion state.
   bool client_deactivated_ = false;
