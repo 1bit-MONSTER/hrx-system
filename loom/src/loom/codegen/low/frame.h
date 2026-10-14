@@ -173,6 +173,12 @@ typedef struct loom_low_emission_frame_lower_spill_traffic_result_t {
   const loom_value_id_t* expanded_execution_value_ids;
   // Number of entries in |expanded_execution_value_ids|.
   iree_host_size_t expanded_execution_value_count;
+  // Scratch-arena-owned IDs for target-created, single-result definitions
+  // private to one consumer setup chain. The frame retains their per-user
+  // placement across subsequent scheduling rounds.
+  const loom_value_id_t* per_user_placement_value_ids;
+  // Number of entries in |per_user_placement_value_ids|.
+  iree_host_size_t per_user_placement_value_count;
 } loom_low_emission_frame_lower_spill_traffic_result_t;
 
 // Target callback that rewrites structural low.spill/low.reload traffic into
@@ -181,7 +187,10 @@ typedef struct loom_low_emission_frame_lower_spill_traffic_result_t {
 // source exposed by it must be returned as a required-register value. This
 // prevents target spill traffic from recursively becoming spill traffic.
 // Definitions reported in |expanded_execution_value_ids| must acquire fresh
-// storage at their own definition point.
+// storage at their own definition point. Values reported in
+// |per_user_placement_value_ids| must also appear in
+// |required_register_value_ids|, be the sole results of their definitions, and
+// be private to one consumer setup chain.
 typedef iree_status_t (*loom_low_emission_frame_lower_spill_traffic_fn_t)(
     void* user_data, loom_module_t* module, loom_op_t* low_func_op,
     iree_diagnostic_emitter_t emitter, iree_arena_allocator_t* arena,

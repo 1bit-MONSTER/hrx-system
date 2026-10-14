@@ -369,6 +369,9 @@ static iree_status_t loom_low_rematerialization_prepare_value(
     }
     const loom_low_schedule_node_t* consumer =
         loom_low_schedule_node_for_op(schedule, loom_use_user_op(uses[0]));
+    // Eligibility established that every use is the immediately following op
+    // in the producer's block, so a scheduled producer has a scheduled user.
+    IREE_ASSERT(consumer != NULL);
     if (consumer->scheduled_ordinal <= producer->scheduled_ordinal + 1u) {
       return iree_ok_status();
     }
