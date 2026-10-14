@@ -12,9 +12,22 @@
           "--model",
           "--listen",
           "--workers",
-          "--pool_backing"
+          "--pool_backing",
+          "--slab_bytes=67108864"
         ]
       },
+      "stderr": {"empty": true}
+    },
+    {
+      "name": "explicit physical slab size overrides the serving default",
+      "run": {"tool": "loom-serve", "args": ["--slab_bytes=2097152", "--help"]},
+      "stdout": {"contains": ["--slab_bytes=2097152"]},
+      "stderr": {"empty": true}
+    },
+    {
+      "name": "allocator-recommended physical slabs remain selectable",
+      "run": {"tool": "loom-serve", "args": ["--slab_bytes=0", "--help"]},
+      "stdout": {"contains": ["--slab_bytes=0"]},
       "stderr": {"empty": true}
     },
     {
