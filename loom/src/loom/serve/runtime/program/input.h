@@ -20,6 +20,8 @@ extern "C" {
 //   require(i32 condition, buffer diagnostic)
 //   encode(buffer text, i32 flags, i64 capacity)
 //       -> (buffer little_endian_ids, i64 count)
+//   decode(buffer little_endian_ids, i32 flags, i64 byte_capacity)
+//       -> (buffer text, i64 byte_length)
 //   lookup(buffer token) -> i32 id
 // encode retains at most capacity IDs and returns a zero-padded capacity*4 byte
 // buffer plus its live count. Flags use iree_tokenizer_encode_flags_t:
@@ -30,12 +32,19 @@ extern "C" {
 // no result channel in this ID-only capability. Other flag bits are rejected.
 // A caller requiring the entire text requests one more ID than its limit and
 // rejects a returned count above that limit instead of accepting truncation.
-// Missing vocabulary tokens return -1. require propagates INVALID_ARGUMENT
-// with the source diagnostic when condition is zero.
-// The environment and optional tokenizer are borrowed for the module lifetime.
-// A NULL tokenizer supports cold input validation only; encode/lookup then
-// fail with FAILED_PRECONDITION. No request bytes are retained after a call.
-// On failure *out_module is NULL.
+// decode consumes every ID and returns a zero-padded byte_capacity buffer with
+// its live UTF-8 byte length. Insufficient capacity fails with
+// RESOURCE_EXHAUSTED; it never returns partial text. Flags use
+// iree_tokenizer_decode_flags_t: SKIP_SPECIAL_TOKENS (1) omits special tokens;
+// zero retains them. Other flag bits, partial I32 words, and IDs absent from
+// the vocabulary are rejected. Every call starts fresh decoder state, including
+// tokenizer-defined leading space handling. Callers pass only live IDs,
+// excluding encode's padding. lookup returns -1 for missing vocabulary tokens.
+// require propagates INVALID_ARGUMENT with the source diagnostic when condition
+// is zero. The environment and optional tokenizer are borrowed for the module
+// lifetime. A NULL tokenizer supports cold input validation only;
+// encode/decode/lookup then fail with FAILED_PRECONDITION. No request bytes are
+// retained after a call. On failure *out_module is NULL.
 iree_status_t loom_serve_input_module_create(iree_vm_environment_t* environment,
                                              const iree_tokenizer_t* tokenizer,
                                              iree_allocator_t host_allocator,

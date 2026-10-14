@@ -121,6 +121,18 @@ The [runner-module contract](https://github.com/ROCm/hrx-system/blob/main/loom/s
 defines arity, buffer types and lifetime. This is a coarse serving capability,
 not a source program's ownership of the entire device or process scheduler.
 
+Request preparation can use the `input` capability to encode text and decode
+token spans with the deployment's tokenizer. `encode(text, flags, capacity)`
+returns a zero-padded little-endian I32 ID buffer and live token count; it can
+stop at the requested capacity. `decode(ids, flags, byte_capacity)` consumes
+the complete ID buffer and returns a zero-padded UTF-8 buffer and live byte
+length. An insufficient decoding capacity fails instead of returning partial
+text. Pass only live IDs, excluding encoding padding. Each call starts fresh
+tokenizer state, including leading-space handling. Encoding flags are
+`ADD_SPECIAL_TOKENS = 4` and `NO_SPECIAL_TOKEN_MATCHING = 8`; decoding supports
+`SKIP_SPECIAL_TOKENS = 1`, with zero retaining special tokens. The source owns
+text normalization, sentence boundaries, and capacity admission.
+
 ## Trace one finite request end to end
 
 The embedding package is the smallest complete example. Its cold entry is
