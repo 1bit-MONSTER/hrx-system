@@ -109,6 +109,22 @@ iree_status_t loom_low_allocate_function(
     const loom_low_allocation_options_t* options, iree_arena_allocator_t* arena,
     loom_low_allocation_table_t* out_table);
 
+// Rebuilds schedule-sensitive allocation state while retaining every concrete
+// value location from |source_table|. The source must be a successful,
+// spill-free allocation of the same function and target before an IR rewrite
+// that preserves its value set. Current liveness, clobbers, hard relations,
+// reservations, and storage leases validate each retained location through the
+// ordinary allocation conflict indexes. A conflicting or missing location is
+// a legitimate comparison rejection reported by |out_replayed|; it does not
+// emit a planning diagnostic. A successful replay writes a complete table with
+// current lifetimes and move plans without searching or renumbering locations.
+iree_status_t loom_low_allocation_try_replay_locations(
+    const loom_low_function_model_t* model,
+    const loom_low_allocation_options_t* options,
+    const loom_low_allocation_table_t* source_table,
+    iree_arena_allocator_t* arena, loom_low_allocation_table_t* out_table,
+    bool* out_replayed);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

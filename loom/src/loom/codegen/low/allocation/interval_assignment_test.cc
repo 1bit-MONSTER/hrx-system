@@ -229,6 +229,33 @@ TEST_F(LowAllocationIntervalAssignmentTest,
   EXPECT_EQ(result.remarks, nullptr);
   EXPECT_TRUE(result.has_packable_aggregates);
 
+  // Replaying a retained location bypasses first-fit search while rebuilding
+  // the assignment's current lifetime and indexes.
+  loom_low_allocation_assignment_t retained_assignment = result.assignments[0];
+  retained_assignment.location_base = 2;
+  const loom_low_allocation_assignment_t* retained_assignments[] = {
+      &retained_assignment,
+  };
+  loom_low_allocation_interval_assignment_context_t replay_context = context;
+  replay_context.search_strategy =
+      LOOM_LOW_ALLOCATION_SEARCH_STRATEGY_RETAINED_LOCATIONS;
+  replay_context.retained_assignments_by_value_ordinal = retained_assignments;
+  result = {};
+  IREE_ASSERT_OK(loom_low_allocation_interval_assignment_build(
+      &replay_context, &decision_arena_, &result));
+  ASSERT_EQ(result.assignment_count, 1u);
+  EXPECT_FALSE(result.retained_location_replay_failed);
+  EXPECT_EQ(result.assignments[0].location_base, 2u);
+  EXPECT_EQ(result.assignments[0].start_point, 0u);
+  EXPECT_EQ(result.assignments[0].end_point, 8u);
+
+  retained_assignments[0] = nullptr;
+  result = {};
+  IREE_ASSERT_OK(loom_low_allocation_interval_assignment_build(
+      &replay_context, &decision_arena_, &result));
+  EXPECT_TRUE(result.retained_location_replay_failed);
+  EXPECT_EQ(target_constraints.error_count, 0u);
+
   // A comparison attempt stops as soon as its first irreversible spill cannot
   // improve the incumbent traffic. The same attempt completes when that spill
   // remains below the exclusive bound.
@@ -494,6 +521,30 @@ TEST_F(LowAllocationIntervalAssignmentTest,
   EXPECT_EQ(result.assignments[1].location_base, 0u);
   EXPECT_EQ(result.assignments[2].location_base, 3u);
   EXPECT_EQ(result.assignments[2].location_count, 2u);
+
+  // Current liveness rejects a retained location that aliases an active value
+  // without turning the speculative replay into a user-facing target error.
+  loom_low_allocation_assignment_t retained_assignments[] = {
+      result.assignments[0],
+      result.assignments[1],
+      result.assignments[2],
+  };
+  retained_assignments[1].location_base = retained_assignments[0].location_base;
+  const loom_low_allocation_assignment_t* retained_by_value_ordinal[] = {
+      &retained_assignments[0],
+      &retained_assignments[1],
+      &retained_assignments[2],
+  };
+  loom_low_allocation_interval_assignment_context_t replay_context = context;
+  replay_context.search_strategy =
+      LOOM_LOW_ALLOCATION_SEARCH_STRATEGY_RETAINED_LOCATIONS;
+  replay_context.retained_assignments_by_value_ordinal =
+      retained_by_value_ordinal;
+  result = {};
+  IREE_ASSERT_OK(loom_low_allocation_interval_assignment_build(
+      &replay_context, &decision_arena_, &result));
+  EXPECT_TRUE(result.retained_location_replay_failed);
+  EXPECT_EQ(target_constraints.error_count, 0u);
 
   loom_local_value_domain_release(&value_domain);
   loom_module_free(module);

@@ -25,6 +25,7 @@ void loom_low_planning_statistics_accumulate(
   target->flags &= source->flags;
   LOOM_LOW_PLANNING_ACCUMULATE(frame_build_count);
   LOOM_LOW_PLANNING_ACCUMULATE(allocation_run_count);
+  LOOM_LOW_PLANNING_ACCUMULATE(retained_location_replay_count);
   LOOM_LOW_PLANNING_ACCUMULATE(repair.iteration_count);
   LOOM_LOW_PLANNING_ACCUMULATE(repair.spill_traffic_lowering_count);
   LOOM_LOW_PLANNING_ACCUMULATE(repair.rematerialized_operand_count);

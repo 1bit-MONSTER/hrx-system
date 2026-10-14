@@ -356,6 +356,24 @@ timing 1 -> 2: separation=0 source=event-pair quality=exact
 
 // ====
 
+// The condition begins the latency-bearing path to the mask update. The
+// independent masked arithmetic only has a zero-cycle read-before-clobber
+// edge, so it fills the condition latency instead of delaying the update.
+// RUN: emit low-schedule-query @state_antidependency_does_not_extend_critical_path strategy=resource-stall order=1,0,2
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @state_antidependency_does_not_extend_critical_path(%lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %independent = test.masked.add.i32 %lhs, %rhs
+  %condition = test.cmp.eq.i32 %lhs, %rhs
+  %mask = test.mask.narrow.i32 %condition
+  return %independent, %mask
+}
+
+// ----
+block 0 order: 1, 0, 2
+
+// ====
+
 // Explicit state carried across a block with updates cannot preserve its old
 // value. The existing state-clobber diagnostic still owns this rejection.
 // RUN: emit low-schedule @state_live_out_clobber output=none

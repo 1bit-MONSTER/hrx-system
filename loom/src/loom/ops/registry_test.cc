@@ -121,6 +121,39 @@ TEST(OpSemantics, DialectTablesAreDenseAndQueryable) {
   EXPECT_EQ(wrong_dialect.contract_families, 0u);
 }
 
+TEST(OpSemantics, IntegerArithmeticConditionsCoverEveryDialectForm) {
+  loom_context_t context;
+  loom_context_initialize(iree_allocator_system(), &context);
+  IREE_ASSERT_OK(loom_op_registry_register_all_dialects(&context));
+  IREE_ASSERT_OK(loom_context_finalize(&context));
+
+  struct ExpectedCondition {
+    loom_op_kind_t kind;
+    loom_execution_condition_t condition;
+  };
+  static constexpr ExpectedCondition kExpectedConditions[] = {
+      {LOOM_OP_SCALAR_ADDI, LOOM_EXECUTION_CONDITION_INTEGER_ADD},
+      {LOOM_OP_VECTOR_ADDI, LOOM_EXECUTION_CONDITION_INTEGER_ADD},
+      {LOOM_OP_INDEX_ADD, LOOM_EXECUTION_CONDITION_INTEGER_ADD},
+      {LOOM_OP_SCALAR_SUBI, LOOM_EXECUTION_CONDITION_INTEGER_SUBTRACT},
+      {LOOM_OP_VECTOR_SUBI, LOOM_EXECUTION_CONDITION_INTEGER_SUBTRACT},
+      {LOOM_OP_INDEX_SUB, LOOM_EXECUTION_CONDITION_INTEGER_SUBTRACT},
+      {LOOM_OP_SCALAR_MULI, LOOM_EXECUTION_CONDITION_INTEGER_MULTIPLY},
+      {LOOM_OP_VECTOR_MULI, LOOM_EXECUTION_CONDITION_INTEGER_MULTIPLY},
+      {LOOM_OP_INDEX_MUL, LOOM_EXECUTION_CONDITION_INTEGER_MULTIPLY},
+      {LOOM_OP_SCALAR_FMAI, LOOM_EXECUTION_CONDITION_INTEGER_MULTIPLY_ADD},
+      {LOOM_OP_VECTOR_FMAI, LOOM_EXECUTION_CONDITION_INTEGER_MULTIPLY_ADD},
+      {LOOM_OP_INDEX_MADD, LOOM_EXECUTION_CONDITION_INTEGER_MULTIPLY_ADD},
+  };
+  for (const auto& expected : kExpectedConditions) {
+    EXPECT_EQ(loom_context_resolve_op_semantics(&context, expected.kind)
+                  .execution_condition,
+              expected.condition);
+  }
+
+  loom_context_deinitialize(&context);
+}
+
 TEST(TypeRegistry, DescriptorsCarrySemantics) {
   const loom_type_descriptor_t* token = loom_type_registry_lookup(
       nullptr, iree_make_cstring_view("kernel.async.token"));

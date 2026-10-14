@@ -46,3 +46,24 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @mixed_issue_pipelines(%addres
   %sum = v_add_u32 %lhs, %rhs
   return %loaded, %sum, %scalar
 }
+
+// ====
+
+// The compare begins the latency-bearing SSA path to the EXEC update. The
+// independent shift consumes the old EXEC value at issue, so it can fill that
+// latency without delaying the update.
+// RUN: emit low-schedule-query @exec_read_fills_compare_latency strategy=resource-stall order=1,0,2 kind=state consumer=2 timing=0:2
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @exec_read_fills_compare_latency(%value: reg<amdgpu.vgpr>, %lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr x2>) asm {
+  %shifted = v_lshlrev_b32_src0_inline %value, 2
+  %mask = v_cmp_lt_i32 %lhs, %rhs
+  %saved_exec, %active = s_and_saveexec_b64 %mask
+  return %shifted, %saved_exec
+}
+
+// ----
+block 0 order: 1, 0, 2
+node 2 <- 0, 1
+timing 0 -> 2: separation=0 source=event-pair quality=exact

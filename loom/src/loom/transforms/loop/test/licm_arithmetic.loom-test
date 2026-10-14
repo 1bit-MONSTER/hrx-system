@@ -1,0 +1,354 @@
+// RUN: pass licm
+
+// Operand-derived bounds prove every fixed width and arithmetic form without
+// borrowing the promised result. Boundary-crossing NSW/NUW cases remain under
+// the possibly zero-trip loop.
+func.def @proves_scalar_arithmetic(%n: index, %i1_lhs_input: i1, %i1_rhs_input: i1, %i8_signed_lhs_input: i8, %i8_signed_rhs_input: i8, %i8_signed_overflow_input: i8, %i8_unsigned_lhs_input: i8, %i8_unsigned_underflow_input: i8, %i8_unsigned_rhs_input: i8, %i16_lhs_input: i16, %i16_rhs_input: i16, %i16_overflow_input: i16, %i32_small_input: i32, %i32_large_input: i32, %i32_unsigned_overflow_input: i32, %i64_input: i64, %i64_zero_input: i64, %i64_one_input: i64) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %i1_lhs = scalar.assume %i1_lhs_input [range(%i1_lhs_input, 0, 1)] : i1
+  %i1_rhs = scalar.assume %i1_rhs_input [range(%i1_rhs_input, 0, 1)] : i1
+  %i8_signed_lhs = scalar.assume %i8_signed_lhs_input [range(%i8_signed_lhs_input, -100, 100)] : i8
+  %i8_signed_rhs = scalar.assume %i8_signed_rhs_input [range(%i8_signed_rhs_input, -20, 20)] : i8
+  %i8_signed_overflow = scalar.assume %i8_signed_overflow_input [range(%i8_signed_overflow_input, -28, 28)] : i8
+  %i8_unsigned_lhs = scalar.assume %i8_unsigned_lhs_input [range(%i8_unsigned_lhs_input, 20, 100)] : i8
+  %i8_unsigned_underflow = scalar.assume %i8_unsigned_underflow_input [range(%i8_unsigned_underflow_input, 19, 100)] : i8
+  %i8_unsigned_rhs = scalar.assume %i8_unsigned_rhs_input [range(%i8_unsigned_rhs_input, 0, 20)] : i8
+  %i16_lhs = scalar.assume %i16_lhs_input [range(%i16_lhs_input, -100, 100)] : i16
+  %i16_rhs = scalar.assume %i16_rhs_input [range(%i16_rhs_input, -200, 200)] : i16
+  %i16_overflow = scalar.assume %i16_overflow_input [range(%i16_overflow_input, -400, 400)] : i16
+  %i32_small = scalar.assume %i32_small_input [range(%i32_small_input, 0, 100)] : i32
+  %i32_large = scalar.assume %i32_large_input [range(%i32_large_input, 50000, 50000)] : i32
+  %i32_unsigned_overflow = scalar.assume %i32_unsigned_overflow_input [range(%i32_unsigned_overflow_input, 65536, 65536)] : i32
+  %i64_zero = scalar.assume %i64_zero_input [range(%i64_zero_input, 0, 0)] : i64
+  %i64_one = scalar.assume %i64_one_input [range(%i64_one_input, 1, 1)] : i64
+  scf.for %iv = [%begin to %n step %step] {
+    %i1_multiply = scalar.muli<nuw> %i1_lhs, %i1_rhs : i1
+    %i8_add = scalar.addi<nsw> %i8_signed_lhs, %i8_signed_rhs : i8
+    %i8_add_overflow = scalar.addi<nsw> %i8_signed_lhs, %i8_signed_overflow : i8
+    %i8_unsigned_add = scalar.addi<nuw> %i8_unsigned_lhs, %i8_unsigned_rhs : i8
+    %i8_unsigned_add_unproven = scalar.addi<nuw> %i8_signed_lhs, %i8_unsigned_rhs : i8
+    %i8_signed_subtract = scalar.subi<nsw> %i8_signed_lhs, %i8_signed_rhs : i8
+    %i8_signed_subtract_overflow = scalar.subi<nsw> %i8_signed_lhs, %i8_signed_overflow : i8
+    %i8_subtract = scalar.subi<nuw> %i8_unsigned_lhs, %i8_unsigned_rhs : i8
+    %i8_subtract_underflow = scalar.subi<nuw> %i8_unsigned_underflow, %i8_unsigned_rhs : i8
+    %i8_unsigned_multiply_overflow = scalar.muli<nuw> %i8_unsigned_lhs, %i8_unsigned_rhs : i8
+    %i16_multiply = scalar.muli<nsw> %i16_lhs, %i16_rhs : i16
+    %i16_multiply_overflow = scalar.muli<nsw> %i16_lhs, %i16_overflow : i16
+    %i32_multiply_add = scalar.fmai<nsw|nuw> %i32_small, %i32_small, %i32_small : i32
+    %i32_multiply_add_overflow = scalar.fmai<nsw|nuw> %i32_large, %i32_large, %i32_large : i32
+    %i32_unsigned_multiply_add = scalar.fmai<nuw> %i32_large, %i32_large, %i32_large : i32
+    %i32_unsigned_multiply_add_overflow = scalar.fmai<nuw> %i32_unsigned_overflow, %i32_unsigned_overflow, %i32_unsigned_overflow : i32
+    %i64_add_identity = scalar.addi<nsw|nuw> %i64_input, %i64_zero : i64
+    %i64_add_overflow = scalar.addi<nsw|nuw> %i64_input, %i64_one : i64
+    test.use %i1_multiply, %i8_add, %i8_add_overflow, %i8_unsigned_add, %i8_unsigned_add_unproven, %i8_signed_subtract, %i8_signed_subtract_overflow, %i8_subtract, %i8_subtract_underflow, %i8_unsigned_multiply_overflow, %i16_multiply, %i16_multiply_overflow, %i32_multiply_add, %i32_multiply_add_overflow, %i32_unsigned_multiply_add, %i32_unsigned_multiply_add_overflow, %i64_add_identity, %i64_add_overflow : i1, i8, i8, i8, i8, i8, i8, i8, i8, i8, i16, i16, i32, i32, i32, i32, i64, i64
+  }
+  func.return
+}
+
+// ----
+func.def @proves_scalar_arithmetic(%n: index, %i1_lhs_input: i1, %i1_rhs_input: i1, %i8_signed_lhs_input: i8, %i8_signed_rhs_input: i8, %i8_signed_overflow_input: i8, %i8_unsigned_lhs_input: i8, %i8_unsigned_underflow_input: i8, %i8_unsigned_rhs_input: i8, %i16_lhs_input: i16, %i16_rhs_input: i16, %i16_overflow_input: i16, %i32_small_input: i32, %i32_large_input: i32, %i32_unsigned_overflow_input: i32, %i64_input: i64, %i64_zero_input: i64, %i64_one_input: i64) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %i1_lhs = scalar.assume %i1_lhs_input [range(%i1_lhs_input, 0, 1)] : i1
+  %i1_rhs = scalar.assume %i1_rhs_input [range(%i1_rhs_input, 0, 1)] : i1
+  %i8_signed_lhs = scalar.assume %i8_signed_lhs_input [range(%i8_signed_lhs_input, -100, 100)] : i8
+  %i8_signed_rhs = scalar.assume %i8_signed_rhs_input [range(%i8_signed_rhs_input, -20, 20)] : i8
+  %i8_signed_overflow = scalar.assume %i8_signed_overflow_input [range(%i8_signed_overflow_input, -28, 28)] : i8
+  %i8_unsigned_lhs = scalar.assume %i8_unsigned_lhs_input [range(%i8_unsigned_lhs_input, 20, 100)] : i8
+  %i8_unsigned_underflow = scalar.assume %i8_unsigned_underflow_input [range(%i8_unsigned_underflow_input, 19, 100)] : i8
+  %i8_unsigned_rhs = scalar.assume %i8_unsigned_rhs_input [range(%i8_unsigned_rhs_input, 0, 20)] : i8
+  %i16_lhs = scalar.assume %i16_lhs_input [range(%i16_lhs_input, -100, 100)] : i16
+  %i16_rhs = scalar.assume %i16_rhs_input [range(%i16_rhs_input, -200, 200)] : i16
+  %i16_overflow = scalar.assume %i16_overflow_input [range(%i16_overflow_input, -400, 400)] : i16
+  %i32_small = scalar.assume %i32_small_input [range(%i32_small_input, 0, 100)] : i32
+  %i32_large = scalar.assume %i32_large_input [range(%i32_large_input, 50000, 50000)] : i32
+  %i32_unsigned_overflow = scalar.assume %i32_unsigned_overflow_input [range(%i32_unsigned_overflow_input, 65536, 65536)] : i32
+  %i64_zero = scalar.assume %i64_zero_input [range(%i64_zero_input, 0, 0)] : i64
+  %i64_one = scalar.assume %i64_one_input [range(%i64_one_input, 1, 1)] : i64
+  %i1_multiply = scalar.muli<nuw> %i1_lhs, %i1_rhs : i1
+  %i8_add = scalar.addi<nsw> %i8_signed_lhs, %i8_signed_rhs : i8
+  %i8_unsigned_add = scalar.addi<nuw> %i8_unsigned_lhs, %i8_unsigned_rhs : i8
+  %i8_signed_subtract = scalar.subi<nsw> %i8_signed_lhs, %i8_signed_rhs : i8
+  %i8_subtract = scalar.subi<nuw> %i8_unsigned_lhs, %i8_unsigned_rhs : i8
+  %i16_multiply = scalar.muli<nsw> %i16_lhs, %i16_rhs : i16
+  %i32_multiply_add = scalar.fmai<nsw|nuw> %i32_small, %i32_small, %i32_small : i32
+  %i32_unsigned_multiply_add = scalar.fmai<nuw> %i32_large, %i32_large, %i32_large : i32
+  %i64_add_identity = scalar.addi<nsw|nuw> %i64_input, %i64_zero : i64
+  scf.for %iv = [%begin to %n step %step] {
+    %i8_add_overflow = scalar.addi<nsw> %i8_signed_lhs, %i8_signed_overflow : i8
+    %i8_unsigned_add_unproven = scalar.addi<nuw> %i8_signed_lhs, %i8_unsigned_rhs : i8
+    %i8_signed_subtract_overflow = scalar.subi<nsw> %i8_signed_lhs, %i8_signed_overflow : i8
+    %i8_subtract_underflow = scalar.subi<nuw> %i8_unsigned_underflow, %i8_unsigned_rhs : i8
+    %i8_unsigned_multiply_overflow = scalar.muli<nuw> %i8_unsigned_lhs, %i8_unsigned_rhs : i8
+    %i16_multiply_overflow = scalar.muli<nsw> %i16_lhs, %i16_overflow : i16
+    %i32_multiply_add_overflow = scalar.fmai<nsw|nuw> %i32_large, %i32_large, %i32_large : i32
+    %i32_unsigned_multiply_add_overflow = scalar.fmai<nuw> %i32_unsigned_overflow, %i32_unsigned_overflow, %i32_unsigned_overflow : i32
+    %i64_add_overflow = scalar.addi<nsw|nuw> %i64_input, %i64_one : i64
+    test.use %i1_multiply, %i8_add, %i8_add_overflow, %i8_unsigned_add, %i8_unsigned_add_unproven, %i8_signed_subtract, %i8_signed_subtract_overflow, %i8_subtract, %i8_subtract_underflow, %i8_unsigned_multiply_overflow, %i16_multiply, %i16_multiply_overflow, %i32_multiply_add, %i32_multiply_add_overflow, %i32_unsigned_multiply_add, %i32_unsigned_multiply_add_overflow, %i64_add_identity, %i64_add_overflow : i1, i8, i8, i8, i8, i8, i8, i8, i8, i8, i16, i16, i32, i32, i32, i32, i64, i64
+  }
+  func.return
+}
+
+// ====
+
+// The fact lattice represents i1 as Boolean [0, 1], but NSW interprets the
+// raw true payload as signed -1. Exercise both signed and unsigned one-bit
+// domains across every arithmetic form.
+func.def @proves_i1_arithmetic(%n: index, %lhs_input: i1, %rhs_input: i1) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %false = scalar.constant 0 : i1
+  %true = scalar.constant 1 : i1
+  %ordered_lhs, %ordered_rhs = scalar.assume %lhs_input, %rhs_input [ge(%lhs_input, %rhs_input)] : i1, i1
+  scf.for %iv = [%begin to %n step %step] {
+    %signed_add = scalar.addi<nsw> %false, %true : i1
+    %signed_add_overflow = scalar.addi<nsw> %true, %true : i1
+    %signed_subtract = scalar.subi<nsw> %true, %false : i1
+    %signed_subtract_overflow = scalar.subi<nsw> %false, %true : i1
+    %signed_multiply = scalar.muli<nsw> %true, %false : i1
+    %signed_multiply_overflow = scalar.muli<nsw> %true, %true : i1
+    %signed_multiply_add = scalar.fmai<nsw> %true, %false, %true : i1
+    %signed_multiply_add_overflow = scalar.fmai<nsw> %true, %true, %false : i1
+    %unsigned_add = scalar.addi<nuw> %false, %true : i1
+    %unsigned_add_overflow = scalar.addi<nuw> %true, %true : i1
+    %unsigned_subtract = scalar.subi<nuw> %true, %false : i1
+    %unsigned_subtract_underflow = scalar.subi<nuw> %false, %true : i1
+    %unsigned_multiply = scalar.muli<nuw> %true, %true : i1
+    %unsigned_multiply_add = scalar.fmai<nuw> %true, %false, %true : i1
+    %unsigned_multiply_add_overflow = scalar.fmai<nuw> %true, %true, %true : i1
+    %unsigned_ordered_subtract = scalar.subi<nuw> %ordered_lhs, %ordered_rhs : i1
+    test.use %signed_add, %signed_add_overflow, %signed_subtract, %signed_subtract_overflow, %signed_multiply, %signed_multiply_overflow, %signed_multiply_add, %signed_multiply_add_overflow, %unsigned_add, %unsigned_add_overflow, %unsigned_subtract, %unsigned_subtract_underflow, %unsigned_multiply, %unsigned_multiply_add, %unsigned_multiply_add_overflow, %unsigned_ordered_subtract : i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1
+  }
+  func.return
+}
+
+// ----
+func.def @proves_i1_arithmetic(%n: index, %lhs_input: i1, %rhs_input: i1) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %false = scalar.constant 0 : i1
+  %true = scalar.constant 1 : i1
+  %ordered_lhs, %ordered_rhs = scalar.assume %lhs_input, %rhs_input [ge(%lhs_input, %rhs_input)] : i1, i1
+  %signed_add = scalar.addi<nsw> %false, %true : i1
+  %signed_subtract = scalar.subi<nsw> %true, %false : i1
+  %signed_multiply = scalar.muli<nsw> %true, %false : i1
+  %signed_multiply_add = scalar.fmai<nsw> %true, %false, %true : i1
+  %unsigned_add = scalar.addi<nuw> %false, %true : i1
+  %unsigned_subtract = scalar.subi<nuw> %true, %false : i1
+  %unsigned_multiply = scalar.muli<nuw> %true, %true : i1
+  %unsigned_multiply_add = scalar.fmai<nuw> %true, %false, %true : i1
+  scf.for %iv = [%begin to %n step %step] {
+    %signed_add_overflow = scalar.addi<nsw> %true, %true : i1
+    %signed_subtract_overflow = scalar.subi<nsw> %false, %true : i1
+    %signed_multiply_overflow = scalar.muli<nsw> %true, %true : i1
+    %signed_multiply_add_overflow = scalar.fmai<nsw> %true, %true, %false : i1
+    %unsigned_add_overflow = scalar.addi<nuw> %true, %true : i1
+    %unsigned_subtract_underflow = scalar.subi<nuw> %false, %true : i1
+    %unsigned_multiply_add_overflow = scalar.fmai<nuw> %true, %true, %true : i1
+    %unsigned_ordered_subtract = scalar.subi<nuw> %ordered_lhs, %ordered_rhs : i1
+    test.use %signed_add, %signed_add_overflow, %signed_subtract, %signed_subtract_overflow, %signed_multiply, %signed_multiply_overflow, %signed_multiply_add, %signed_multiply_add_overflow, %unsigned_add, %unsigned_add_overflow, %unsigned_subtract, %unsigned_subtract_underflow, %unsigned_multiply, %unsigned_multiply_add, %unsigned_multiply_add_overflow, %unsigned_ordered_subtract : i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1, i1
+  }
+  func.return
+}
+
+// ====
+
+// Unsigned proofs interpret the complete payload domain instead of discarding
+// its signed-negative half. Retained operand order proves subtraction when
+// independent intervals overlap, while reversed sign halves still underflow.
+func.def @proves_unsigned_payload_arithmetic(%n: index, %lhs_input: i8, %rhs_input: i8) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %c0 = scalar.constant 0 : i8
+  %c1 = scalar.constant 1 : i8
+  %ordered_lhs, %ordered_rhs = scalar.assume %lhs_input, %rhs_input [ge(%lhs_input, 0), ge(%rhs_input, 0), ge(%lhs_input, %rhs_input)] : i8, i8
+  %ordered_high_lhs, %ordered_high_rhs = scalar.assume %lhs_input, %rhs_input [lt(%lhs_input, 0), lt(%rhs_input, 0), ge(%lhs_input, %rhs_input)] : i8, i8
+  %high = scalar.assume %lhs_input [lt(%lhs_input, 0)] : i8
+  %low = scalar.assume %rhs_input [ge(%rhs_input, 0)] : i8
+  scf.for %iv = [%begin to %n step %step] {
+    %identity_add = scalar.addi<nuw> %lhs_input, %c0 : i8
+    %identity_subtract = scalar.subi<nsw|nuw> %lhs_input, %lhs_input : i8
+    %ordered_subtract = scalar.subi<nuw> %ordered_lhs, %ordered_rhs : i8
+    %ordered_high_subtract = scalar.subi<nuw> %ordered_high_lhs, %ordered_high_rhs : i8
+    %cross_half_subtract = scalar.subi<nuw> %high, %low : i8
+    %cross_half_underflow = scalar.subi<nuw> %low, %high : i8
+    %identity_multiply = scalar.muli<nuw> %lhs_input, %c1 : i8
+    %identity_multiply_add = scalar.fmai<nuw> %lhs_input, %c0, %rhs_input : i8
+    test.use %identity_add, %identity_subtract, %ordered_subtract, %ordered_high_subtract, %cross_half_subtract, %cross_half_underflow, %identity_multiply, %identity_multiply_add : i8, i8, i8, i8, i8, i8, i8, i8
+  }
+  func.return
+}
+
+// ----
+func.def @proves_unsigned_payload_arithmetic(%n: index, %lhs_input: i8, %rhs_input: i8) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %c0 = scalar.constant 0 : i8
+  %c1 = scalar.constant 1 : i8
+  %ordered_lhs, %ordered_rhs = scalar.assume %lhs_input, %rhs_input [ge(%lhs_input, 0), ge(%rhs_input, 0), ge(%lhs_input, %rhs_input)] : i8, i8
+  %ordered_high_lhs, %ordered_high_rhs = scalar.assume %lhs_input, %rhs_input [lt(%lhs_input, 0), lt(%rhs_input, 0), ge(%lhs_input, %rhs_input)] : i8, i8
+  %high = scalar.assume %lhs_input [lt(%lhs_input, 0)] : i8
+  %low = scalar.assume %rhs_input [ge(%rhs_input, 0)] : i8
+  %identity_add = scalar.addi<nuw> %lhs_input, %c0 : i8
+  %identity_subtract = scalar.subi<nsw|nuw> %lhs_input, %lhs_input : i8
+  %ordered_subtract = scalar.subi<nuw> %ordered_lhs, %ordered_rhs : i8
+  %ordered_high_subtract = scalar.subi<nuw> %ordered_high_lhs, %ordered_high_rhs : i8
+  %cross_half_subtract = scalar.subi<nuw> %high, %low : i8
+  %identity_multiply = scalar.muli<nuw> %lhs_input, %c1 : i8
+  %identity_multiply_add = scalar.fmai<nuw> %lhs_input, %c0, %rhs_input : i8
+  scf.for %iv = [%begin to %n step %step] {
+    %cross_half_underflow = scalar.subi<nuw> %low, %high : i8
+    test.use %identity_add, %identity_subtract, %ordered_subtract, %ordered_high_subtract, %cross_half_subtract, %cross_half_underflow, %identity_multiply, %identity_multiply_add : i8, i8, i8, i8, i8, i8, i8, i8
+  }
+  func.return
+}
+
+// ====
+
+// Vector arithmetic consumes the existing uniform, explicit-lane, iota,
+// dynamic-shape, and empty summaries. One overflowing explicit lane rejects
+// the aggregate proof.
+func.def @proves_vector_arithmetic(%n: index, %length: index, %small_input: i8, %second_input: i8, %overflow_input: i8, %dynamic_input: i32, %empty_a: vector<0xi32>, %empty_b: vector<0xi32>, %empty_c: vector<0xi32>) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %small = scalar.assume %small_input [range(%small_input, 0, 10)] : i8
+  %second = scalar.assume %second_input [range(%second_input, 10, 20)] : i8
+  %overflow = scalar.assume %overflow_input [range(%overflow_input, 120, 120)] : i8
+  %uniform_a = vector.splat %small : vector<4xi8>
+  %uniform_b = vector.splat %second : vector<4xi8>
+  %explicit_a = vector.from_elements %second, %second : vector<2xi8>
+  %explicit_b = vector.from_elements %small, %small : vector<2xi8>
+  %overflow_b = vector.from_elements %small, %overflow : vector<2xi8>
+  %iota_base = scalar.constant 0 : i8
+  %iota_step = scalar.constant 1 : i8
+  %iota = vector.iota %iota_base step %iota_step : vector<4xi8>
+  %dynamic = scalar.assume %dynamic_input [range(%dynamic_input, 0, 100)] : i32
+  %dynamic_a = vector.splat %dynamic : vector<[%length]xi32>
+  scf.for %iv = [%begin to %n step %step] {
+    %added = vector.addi<nsw> %uniform_a, %uniform_b : vector<4xi8>
+    %subtracted = vector.subi<nuw> %explicit_a, %explicit_b : vector<2xi8>
+    %identity_subtract = vector.subi<nsw|nuw> %uniform_a, %uniform_a : vector<4xi8>
+    %multiplied = vector.muli<nuw> %iota, %uniform_a : vector<4xi8>
+    %multiply_added = vector.fmai<nsw|nuw> %dynamic_a, %dynamic_a, %dynamic_a : vector<[%length]xi32>
+    %overflowing = vector.addi<nsw> %explicit_a, %overflow_b : vector<2xi8>
+    %empty = vector.fmai<nsw|nuw> %empty_a, %empty_b, %empty_c : vector<0xi32>
+    test.use %added, %subtracted, %identity_subtract, %multiplied, %multiply_added, %overflowing, %empty : vector<4xi8>, vector<2xi8>, vector<4xi8>, vector<4xi8>, vector<[%length]xi32>, vector<2xi8>, vector<0xi32>
+  }
+  func.return
+}
+
+// ----
+func.def @proves_vector_arithmetic(%n: index, %length: index, %small_input: i8, %second_input: i8, %overflow_input: i8, %dynamic_input: i32, %empty_a: vector<0xi32>, %empty_b: vector<0xi32>, %empty_c: vector<0xi32>) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %small = scalar.assume %small_input [range(%small_input, 0, 10)] : i8
+  %second = scalar.assume %second_input [range(%second_input, 10, 20)] : i8
+  %overflow = scalar.assume %overflow_input [range(%overflow_input, 120, 120)] : i8
+  %uniform_a = vector.splat %small : vector<4xi8>
+  %uniform_b = vector.splat %second : vector<4xi8>
+  %explicit_a = vector.from_elements %second, %second : vector<2xi8>
+  %explicit_b = vector.from_elements %small, %small : vector<2xi8>
+  %overflow_b = vector.from_elements %small, %overflow : vector<2xi8>
+  %iota_base = scalar.constant 0 : i8
+  %iota_step = scalar.constant 1 : i8
+  %iota = vector.iota %iota_base step %iota_step : vector<4xi8>
+  %dynamic = scalar.assume %dynamic_input [range(%dynamic_input, 0, 100)] : i32
+  %dynamic_a = vector.splat %dynamic : vector<[%length]xi32>
+  %added = vector.addi<nsw> %uniform_a, %uniform_b : vector<4xi8>
+  %subtracted = vector.subi<nuw> %explicit_a, %explicit_b : vector<2xi8>
+  %identity_subtract = vector.subi<nsw|nuw> %uniform_a, %uniform_a : vector<4xi8>
+  %multiplied = vector.muli<nuw> %iota, %uniform_a : vector<4xi8>
+  %multiply_added = vector.fmai<nsw|nuw> %dynamic_a, %dynamic_a, %dynamic_a : vector<[%length]xi32>
+  %empty = vector.fmai<nsw|nuw> %empty_a, %empty_b, %empty_c : vector<0xi32>
+  scf.for %iv = [%begin to %n step %step] {
+    %overflowing = vector.addi<nsw> %explicit_a, %overflow_b : vector<2xi8>
+    test.use %added, %subtracted, %identity_subtract, %multiplied, %multiply_added, %overflowing, %empty : vector<4xi8>, vector<2xi8>, vector<4xi8>, vector<4xi8>, vector<[%length]xi32>, vector<2xi8>, vector<0xi32>
+  }
+  func.return
+}
+
+// ====
+
+// Offset addition, subtraction, and scaling are total modulo the selected
+// carrier. Mathematical index addition still needs target-width facts and
+// remains under a targetless LICM invocation.
+func.def @hoists_total_offset_arithmetic(%n: index, %base: offset, %delta: offset, %coordinate: index, %stride: offset, %lhs: index, %rhs: index) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  scf.for %iv = [%begin to %n step %step] {
+    %sum = index.add %base, %delta : offset
+    %difference = index.sub %base, %delta : offset
+    %scaled = index.scale %coordinate, %stride : index, offset -> offset
+    %targetless = index.add %lhs, %rhs : index
+    test.use %sum, %difference, %scaled, %targetless : offset, offset, offset, index
+  }
+  func.return
+}
+
+// ----
+func.def @hoists_total_offset_arithmetic(%n: index, %base: offset, %delta: offset, %coordinate: index, %stride: offset, %lhs: index, %rhs: index) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %sum = index.add %base, %delta : offset
+  %difference = index.sub %base, %delta : offset
+  %scaled = index.scale %coordinate, %stride : index, offset -> offset
+  scf.for %iv = [%begin to %n step %step] {
+    %targetless = index.add %lhs, %rhs : index
+    test.use %sum, %difference, %scaled, %targetless : offset, offset, offset, index
+  }
+  func.return
+}
+
+// ====
+
+// Control-dependent range and order refinements cannot justify executing
+// arithmetic before the path that established them. LICM only receives the
+// ordinary function facts, so the globally unproven subtraction stays under
+// every guard.
+func.def @keeps_conditioned_arithmetic_guarded(%n: index, %lhs: i8, %rhs: i8) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %c0 = scalar.constant 0 : i8
+  %lhs_nonnegative = scalar.cmpi sge, %lhs, %c0 : i8
+  %rhs_nonnegative = scalar.cmpi sge, %rhs, %c0 : i8
+  %ordered = scalar.cmpi sge, %lhs, %rhs : i8
+  scf.for %iv = [%begin to %n step %step] {
+    scf.if %lhs_nonnegative {
+      scf.if %rhs_nonnegative {
+        scf.if %ordered {
+          %difference = scalar.subi<nuw> %lhs, %rhs : i8
+          test.use %difference : i8
+        } else {
+        }
+      } else {
+      }
+    } else {
+    }
+  }
+  func.return
+}
+
+// ----
+func.def @keeps_conditioned_arithmetic_guarded(%n: index, %lhs: i8, %rhs: i8) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %c0 = scalar.constant 0 : i8
+  %lhs_nonnegative = scalar.cmpi sge, %lhs, %c0 : i8
+  %rhs_nonnegative = scalar.cmpi sge, %rhs, %c0 : i8
+  %ordered = scalar.cmpi sge, %lhs, %rhs : i8
+  scf.for %iv = [%begin to %n step %step] {
+    scf.if %lhs_nonnegative {
+      scf.if %rhs_nonnegative {
+        scf.if %ordered {
+          %difference = scalar.subi<nuw> %lhs, %rhs : i8
+          test.use %difference : i8
+        } else {
+        }
+      } else {
+      }
+    } else {
+    }
+  }
+  func.return
+}

@@ -11,6 +11,7 @@
 #include "loom/ops/op_defs.h"
 #include "loom/target/facts.h"
 #include "loom/util/fact_extensions.h"
+#include "loom/util/fact_relation.h"
 #include "loom/util/fact_table.h"
 
 typedef struct loom_execution_integer_facts_t {
@@ -132,6 +133,231 @@ static bool loom_execution_integer_shift_is_safe(
   return true;
 }
 
+static bool loom_execution_signed_arithmetic_bounds(
+    loom_execution_condition_t condition,
+    const loom_execution_integer_facts_t* operand_facts, uint8_t operand_count,
+    bool is_i1, int64_t* out_lower, int64_t* out_upper) {
+  loom_value_facts_t bounds[3];
+  for (uint8_t i = 0; i < operand_count; ++i) {
+    bounds[i] = operand_facts[i].bounds;
+    if (is_i1) {
+      // The fact lattice represents Boolean payloads numerically as [0, 1],
+      // while signed one-bit arithmetic interprets raw 1 as -1.
+      bounds[i].range_lo = -operand_facts[i].bounds.range_hi;
+      bounds[i].range_hi = -operand_facts[i].bounds.range_lo;
+    }
+  }
+
+  int64_t lower = 0;
+  int64_t upper = 0;
+  switch (condition) {
+    case LOOM_EXECUTION_CONDITION_INTEGER_ADD:
+      if (!iree_checked_add_i64(bounds[0].range_lo, bounds[1].range_lo,
+                                &lower) ||
+          !iree_checked_add_i64(bounds[0].range_hi, bounds[1].range_hi,
+                                &upper)) {
+        return false;
+      }
+      break;
+    case LOOM_EXECUTION_CONDITION_INTEGER_SUBTRACT:
+      if (!iree_checked_sub_i64(bounds[0].range_lo, bounds[1].range_hi,
+                                &lower) ||
+          !iree_checked_sub_i64(bounds[0].range_hi, bounds[1].range_lo,
+                                &upper)) {
+        return false;
+      }
+      break;
+    case LOOM_EXECUTION_CONDITION_INTEGER_MULTIPLY:
+    case LOOM_EXECUTION_CONDITION_INTEGER_MULTIPLY_ADD: {
+      const int64_t products[][2] = {
+          {bounds[0].range_lo, bounds[1].range_lo},
+          {bounds[0].range_lo, bounds[1].range_hi},
+          {bounds[0].range_hi, bounds[1].range_lo},
+          {bounds[0].range_hi, bounds[1].range_hi},
+      };
+      if (!iree_checked_mul_i64(products[0][0], products[0][1], &lower)) {
+        return false;
+      }
+      upper = lower;
+      for (iree_host_size_t i = 1; i < IREE_ARRAYSIZE(products); ++i) {
+        int64_t product = 0;
+        if (!iree_checked_mul_i64(products[i][0], products[i][1], &product)) {
+          return false;
+        }
+        lower = iree_min(lower, product);
+        upper = iree_max(upper, product);
+      }
+      if (condition == LOOM_EXECUTION_CONDITION_INTEGER_MULTIPLY_ADD &&
+          (!iree_checked_add_i64(lower, bounds[2].range_lo, &lower) ||
+           !iree_checked_add_i64(upper, bounds[2].range_hi, &upper))) {
+        return false;
+      }
+      break;
+    }
+    default:
+      IREE_ASSERT_UNREACHABLE("not an integer arithmetic condition");
+      return false;
+  }
+  *out_lower = lower;
+  *out_upper = upper;
+  return true;
+}
+
+static bool loom_execution_unsigned_arithmetic_is_safe(
+    loom_execution_condition_t condition,
+    const loom_execution_integer_facts_t* operand_facts, uint8_t operand_count,
+    uint8_t bit_count, loom_integer_order_outcome_bits_t subtraction_order) {
+  typedef struct loom_execution_unsigned_bounds_t {
+    uint64_t lower;
+    uint64_t upper;
+  } loom_execution_unsigned_bounds_t;
+
+  const uint64_t maximum =
+      bit_count == 64 ? UINT64_MAX : (UINT64_C(1) << bit_count) - 1;
+  loom_execution_unsigned_bounds_t bounds[3];
+  for (uint8_t i = 0; i < operand_count; ++i) {
+    const loom_value_facts_t facts = operand_facts[i].bounds;
+    // Fact production clamps fixed-width values to their signed payload
+    // domain. Raw unsigned bits stay ordered within either sign half; an
+    // interval crossing zero spans both ends of the unsigned domain.
+    if (facts.range_lo < 0 && facts.range_hi >= 0) {
+      bounds[i] = (loom_execution_unsigned_bounds_t){0, maximum};
+    } else {
+      bounds[i] = (loom_execution_unsigned_bounds_t){
+          (uint64_t)facts.range_lo & maximum,
+          (uint64_t)facts.range_hi & maximum,
+      };
+    }
+  }
+
+  uint64_t result_upper = 0;
+  switch (condition) {
+    case LOOM_EXECUTION_CONDITION_INTEGER_ADD:
+      return iree_checked_add_u64(bounds[0].upper, bounds[1].upper,
+                                  &result_upper) &&
+             result_upper <= maximum;
+    case LOOM_EXECUTION_CONDITION_INTEGER_SUBTRACT: {
+      if (bounds[0].lower >= bounds[1].upper) {
+        return true;
+      }
+      // A retained signed order also proves unsigned order while both ranges
+      // occupy the same signed half. Boolean facts use numeric [0, 1] instead
+      // of signed one-bit [0, -1], so only direct bounds prove i1 order.
+      const bool same_signed_half =
+          bit_count > 1 && ((operand_facts[0].bounds.range_lo >= 0 &&
+                             operand_facts[1].bounds.range_lo >= 0) ||
+                            (operand_facts[0].bounds.range_hi < 0 &&
+                             operand_facts[1].bounds.range_hi < 0));
+      return same_signed_half &&
+             !(subtraction_order & LOOM_INTEGER_ORDER_OUTCOME_BIT_LESS);
+    }
+    case LOOM_EXECUTION_CONDITION_INTEGER_MULTIPLY:
+      return iree_checked_mul_u64(bounds[0].upper, bounds[1].upper,
+                                  &result_upper) &&
+             result_upper <= maximum;
+    case LOOM_EXECUTION_CONDITION_INTEGER_MULTIPLY_ADD:
+      return iree_checked_mul_u64(bounds[0].upper, bounds[1].upper,
+                                  &result_upper) &&
+             iree_checked_add_u64(result_upper, bounds[2].upper,
+                                  &result_upper) &&
+             result_upper <= maximum;
+    default:
+      IREE_ASSERT_UNREACHABLE("not an integer arithmetic condition");
+      return false;
+  }
+}
+
+static bool loom_execution_integer_arithmetic_is_safe(
+    const loom_module_t* module, const loom_op_t* op,
+    const loom_value_fact_table_t* fact_table,
+    loom_execution_condition_t condition) {
+  const loom_type_t result_type =
+      loom_module_value_type(module, loom_op_const_results(op)[0]);
+  const loom_scalar_type_t element_type = loom_type_element_type(result_type);
+  if (element_type == LOOM_SCALAR_TYPE_OFFSET) {
+    return true;
+  }
+
+  uint32_t bit_count = 0;
+  const bool is_index = element_type == LOOM_SCALAR_TYPE_INDEX;
+  if (is_index) {
+    if (!fact_table->context.target_facts) {
+      return false;
+    }
+    bit_count =
+        fact_table->context.target_facts->storage.snapshot.index_bitwidth;
+  } else {
+    IREE_ASSERT(loom_scalar_type_is_integer(element_type));
+    bit_count = (uint32_t)loom_scalar_type_bitwidth(element_type);
+  }
+  if (bit_count == 0 || bit_count > 64) {
+    return false;
+  }
+
+  const uint8_t operand_count =
+      condition == LOOM_EXECUTION_CONDITION_INTEGER_MULTIPLY_ADD ? 3 : 2;
+  loom_execution_integer_facts_t operand_facts[3];
+  for (uint8_t i = 0; i < operand_count; ++i) {
+    if (!loom_execution_query_integer_facts(fact_table, result_type,
+                                            loom_op_const_operands(op)[i],
+                                            &operand_facts[i])) {
+      return false;
+    }
+    if (operand_facts[i].empty) {
+      return true;
+    }
+  }
+
+  loom_integer_order_outcome_bits_t subtraction_order =
+      LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL;
+  if (condition == LOOM_EXECUTION_CONDITION_INTEGER_SUBTRACT) {
+    const loom_value_id_t* operands = loom_op_const_operands(op);
+    if (loom_type_is_scalar(result_type)) {
+      subtraction_order = loom_value_fact_table_query_signed_integer_order(
+          fact_table, operands[0], operands[1]);
+    }
+    const bool operands_equal =
+        subtraction_order == LOOM_INTEGER_ORDER_OUTCOME_BIT_EQUAL ||
+        (!loom_type_is_scalar(result_type) &&
+         loom_value_fact_table_values_equal(fact_table, operands[0],
+                                            operands[1]));
+    if (operands_equal) {
+      return true;
+    }
+  }
+
+  int64_t signed_lower = 0;
+  int64_t signed_upper = 0;
+  const bool signed_bounds_valid = loom_execution_signed_arithmetic_bounds(
+      condition, operand_facts, operand_count,
+      element_type == LOOM_SCALAR_TYPE_I1, &signed_lower, &signed_upper);
+  if (is_index) {
+    return signed_bounds_valid &&
+           loom_value_facts_fit_signed_bit_count(
+               loom_value_facts_make(signed_lower, signed_upper,
+                                     /*known_divisor=*/1),
+               (uint8_t)bit_count);
+  }
+
+  const uint8_t overflow_flags = op->instance_flags;
+  if (iree_any_bit_set(overflow_flags, LOOM_INTEGER_OVERFLOW_FLAG_NSW)) {
+    if (!signed_bounds_valid ||
+        !loom_value_facts_fit_signed_bit_count(
+            loom_value_facts_make(signed_lower, signed_upper,
+                                  /*known_divisor=*/1),
+            (uint8_t)bit_count)) {
+      return false;
+    }
+  }
+  if (iree_any_bit_set(overflow_flags, LOOM_INTEGER_OVERFLOW_FLAG_NUW) &&
+      !loom_execution_unsigned_arithmetic_is_safe(
+          condition, operand_facts, operand_count, (uint8_t)bit_count,
+          subtraction_order)) {
+    return false;
+  }
+  return true;
+}
+
 bool loom_execution_condition_is_satisfied(
     const loom_module_t* module, const loom_op_t* op,
     const loom_value_fact_table_t* fact_table) {
@@ -147,6 +373,12 @@ bool loom_execution_condition_is_satisfied(
     case LOOM_EXECUTION_CONDITION_INTEGER_SHIFT_RIGHT:
       return loom_execution_integer_shift_is_safe(module, op, fact_table,
                                                   condition);
+    case LOOM_EXECUTION_CONDITION_INTEGER_ADD:
+    case LOOM_EXECUTION_CONDITION_INTEGER_SUBTRACT:
+    case LOOM_EXECUTION_CONDITION_INTEGER_MULTIPLY:
+    case LOOM_EXECUTION_CONDITION_INTEGER_MULTIPLY_ADD:
+      return loom_execution_integer_arithmetic_is_safe(module, op, fact_table,
+                                                       condition);
     default:
       IREE_ASSERT_UNREACHABLE("unimplemented execution condition");
       return false;

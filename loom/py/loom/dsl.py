@@ -1388,6 +1388,10 @@ class ExecutionCondition(Enum):
 
     INTEGER_SHIFT_LEFT = "LOOM_EXECUTION_CONDITION_INTEGER_SHIFT_LEFT"
     INTEGER_SHIFT_RIGHT = "LOOM_EXECUTION_CONDITION_INTEGER_SHIFT_RIGHT"
+    INTEGER_ADD = "LOOM_EXECUTION_CONDITION_INTEGER_ADD"
+    INTEGER_SUBTRACT = "LOOM_EXECUTION_CONDITION_INTEGER_SUBTRACT"
+    INTEGER_MULTIPLY = "LOOM_EXECUTION_CONDITION_INTEGER_MULTIPLY"
+    INTEGER_MULTIPLY_ADD = "LOOM_EXECUTION_CONDITION_INTEGER_MULTIPLY_ADD"
 
     @property
     def c_name(self) -> str:
@@ -6266,16 +6270,24 @@ def _validate_execution_condition(
         raise ValueError(
             f"Op '{op_name}': execution condition requires a leaf operation"
         )
+
+    arithmetic_conditions = {
+        ExecutionCondition.INTEGER_ADD,
+        ExecutionCondition.INTEGER_SUBTRACT,
+        ExecutionCondition.INTEGER_MULTIPLY,
+        ExecutionCondition.INTEGER_MULTIPLY_ADD,
+    }
+    operand_count = 3 if condition is ExecutionCondition.INTEGER_MULTIPLY_ADD else 2
     if (
-        len(operands) != 2
+        len(operands) != operand_count
         or any(operand.optional or operand.variadic for operand in operands)
         or len(results) != 1
         or not isinstance(results[0], Result)
         or results[0].variadic
     ):
         raise ValueError(
-            f"Op '{op_name}': integer shift execution condition requires "
-            "two required operands and one required result"
+            f"Op '{op_name}': integer execution condition requires "
+            f"{operand_count} required operands and one required result"
         )
 
     fields = (*operands, results[0])
@@ -6285,17 +6297,30 @@ def _validate_execution_condition(
         for constraint in constraints
     )
     constraints_by_field = {field.type_constraint for field in fields}
-    fixed_or_index = len(constraints_by_field) == 1 and next(
-        iter(constraints_by_field)
-    ) in (INTEGER, INDEX)
+    scalar_constraint = (
+        next(iter(constraints_by_field)) if len(constraints_by_field) == 1 else None
+    )
+    allowed_scalar_constraints = {INTEGER, INDEX}
+    if condition in (
+        ExecutionCondition.INTEGER_ADD,
+        ExecutionCondition.INTEGER_SUBTRACT,
+    ):
+        allowed_scalar_constraints.add(ADDRESS)
+    scalar = scalar_constraint in allowed_scalar_constraints
     vector = constraints_by_field == {VECTOR} and any(
         constraint.name == "HasIntegerElement" and results[0].name in constraint.args
         for constraint in constraints
     )
-    if not has_same_type or not (fixed_or_index or vector):
+    if not has_same_type or not (scalar or vector):
+        allowed_fields = "integer, index, or integer-vector"
+        if condition in (
+            ExecutionCondition.INTEGER_ADD,
+            ExecutionCondition.INTEGER_SUBTRACT,
+        ):
+            allowed_fields = "integer, index, address, or integer-vector"
         raise ValueError(
-            f"Op '{op_name}': integer shift execution condition requires "
-            "same-typed integer, index, or integer-vector fields"
+            f"Op '{op_name}': integer execution condition requires same-typed "
+            f"{allowed_fields} fields"
         )
 
     if condition is ExecutionCondition.INTEGER_SHIFT_RIGHT:
@@ -6306,11 +6331,27 @@ def _validate_execution_condition(
             )
         return
 
-    if not attrs:
+    if scalar_constraint in (INDEX, ADDRESS):
+        if attrs:
+            raise ValueError(
+                f"Op '{op_name}': index/address execution condition does not "
+                "accept instance attributes"
+            )
         return
+
+    if (
+        condition in arithmetic_conditions
+        or condition is ExecutionCondition.INTEGER_SHIFT_LEFT
+    ):
+        condition_name = (
+            "arithmetic" if condition in arithmetic_conditions else "left-shift"
+        )
+    else:
+        raise ValueError(f"Op '{op_name}': unknown execution condition {condition}")
+
     if len(attrs) != 1:
         raise ValueError(
-            f"Op '{op_name}': left-shift execution condition accepts only "
+            f"Op '{op_name}': {condition_name} execution condition requires "
             "canonical integer overflow flags"
         )
     overflow_attr = attrs[0]
@@ -6326,7 +6367,7 @@ def _validate_execution_condition(
         != [("nsw", 1), ("nuw", 2)]
     ):
         raise ValueError(
-            f"Op '{op_name}': left-shift execution condition accepts only "
+            f"Op '{op_name}': {condition_name} execution condition requires "
             "canonical integer overflow flags"
         )
 

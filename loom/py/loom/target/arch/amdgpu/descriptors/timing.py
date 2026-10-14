@@ -168,3 +168,50 @@ def _with_valu_sgpr_timing(
             ),
         ),
     )
+
+
+def _with_state_read_before_clobber_timing(
+    descriptor_set: DescriptorSet,
+) -> DescriptorSet:
+    """Models architectural state inputs as consumed when a packet issues.
+
+    The shared wave-issue resource keeps packets from the same wave in distinct
+    issue slots. A following packet may therefore overwrite architectural state
+    without waiting for the reader's unrelated result latency.
+    """
+    read_event = "amdgpu.state.read"
+    write_event = "amdgpu.state.write"
+    descriptors: list[Descriptor] = []
+    for descriptor in descriptor_set.descriptors:
+        operands = tuple(
+            replace(
+                operand,
+                read_event=(
+                    read_event
+                    if OperandFlag.STATE_READ in operand.flags
+                    and operand.read_event is None
+                    else operand.read_event
+                ),
+                write_event=(
+                    write_event
+                    if OperandFlag.STATE_WRITE in operand.flags
+                    and operand.write_event is None
+                    else operand.write_event
+                ),
+            )
+            for operand in descriptor.operands
+        )
+        descriptors.append(replace(descriptor, operands=operands))
+    return replace(
+        descriptor_set,
+        descriptors=tuple(descriptors),
+        timing_events=(
+            *descriptor_set.timing_events,
+            TimingEvent(read_event),
+            TimingEvent(write_event),
+        ),
+        event_separations=(
+            *descriptor_set.event_separations,
+            EventSeparation(read_event, write_event, 0, ModelQuality.EXACT),
+        ),
+    )

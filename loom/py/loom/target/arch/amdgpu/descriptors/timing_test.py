@@ -19,7 +19,14 @@ from loom.target.arch.amdgpu.descriptors.alu import (
     _v_readfirstlane_b32_overlay,
     _v_readlane_b32_src1_inline_overlay,
 )
-from loom.target.arch.amdgpu.descriptors.common import _REG_VGPR
+from loom.target.arch.amdgpu.descriptors.common import (
+    _REG_EXEC,
+    _REG_M0,
+    _REG_MODE,
+    _REG_SCC,
+    _REG_VCC,
+    _REG_VGPR,
+)
 from loom.target.arch.amdgpu.descriptors.contracts import (
     _amdgpu_contract_descriptor_from_overlay,
 )
@@ -29,6 +36,7 @@ from loom.target.arch.amdgpu.descriptors.rdna3 import (
 )
 from loom.target.arch.amdgpu.descriptors.timing import (
     _with_lds_service_timing,
+    _with_state_read_before_clobber_timing,
     _with_valu_sgpr_timing,
 )
 from loom.target.arch.amdgpu.descriptors.workgroup import (
@@ -40,9 +48,13 @@ from loom.target.arch.amdgpu.descriptors.workgroup import (
     _ds_write_overlay,
 )
 from loom.target.low_descriptors import (
+    Descriptor,
     EventSeparation,
     IssueUse,
     ModelQuality,
+    Operand,
+    OperandFlag,
+    OperandRole,
     RegClassAlt,
 )
 
@@ -168,3 +180,58 @@ def test_other_producers_preserve_their_result_timing() -> None:
     # The selected producer fixes the class of a mixed SGPR/VGPR source.
     assert vector_move.operands[1].read_event == "amdgpu.sgpr.read"
     assert scalar_load.operands[1].read_event == "amdgpu.sgpr.read"
+
+
+def test_state_reads_release_every_architectural_state_at_issue() -> None:
+    state_classes = (_REG_M0, _REG_SCC, _REG_EXEC, _REG_VCC, _REG_MODE)
+    reads = tuple(
+        Operand(
+            f"read_{index}",
+            OperandRole.IMPLICIT,
+            (RegClassAlt(register_class),),
+            flags=(OperandFlag.IMPLICIT, OperandFlag.STATE_READ),
+        )
+        for index, register_class in enumerate(state_classes)
+    )
+    writes = tuple(
+        Operand(
+            f"write_{index}",
+            OperandRole.IMPLICIT,
+            (RegClassAlt(register_class),),
+            flags=(OperandFlag.IMPLICIT, OperandFlag.STATE_WRITE),
+        )
+        for index, register_class in enumerate(state_classes)
+    )
+    specialized_read = replace(
+        reads[0], field_name="specialized_read", read_event="amdgpu.specific.read"
+    )
+    specialized_write = replace(
+        writes[0],
+        field_name="specialized_write",
+        write_event="amdgpu.specific.write",
+    )
+    descriptor = Descriptor(
+        key="amdgpu.test.state_timing",
+        mnemonic="state_timing",
+        semantic_tag="test.state_timing",
+        operands=(*reads, *writes, specialized_read, specialized_write),
+        schedule_class="amdgpu.salu",
+    )
+    original = replace(
+        _AMDGPU_RDNA3_CORE_DESCRIPTOR_SET_BASE,
+        descriptors=(descriptor,),
+    )
+
+    timed = _with_state_read_before_clobber_timing(original)
+    timed_reads = timed.descriptors[0].operands[: len(reads)]
+    timed_writes = timed.descriptors[0].operands[len(reads) : len(reads) + len(writes)]
+
+    assert all(operand.read_event == "amdgpu.state.read" for operand in timed_reads)
+    assert all(operand.write_event is None for operand in timed_reads)
+    assert all(operand.read_event is None for operand in timed_writes)
+    assert all(operand.write_event == "amdgpu.state.write" for operand in timed_writes)
+    assert timed.descriptors[0].operands[-2].read_event == "amdgpu.specific.read"
+    assert timed.descriptors[0].operands[-1].write_event == "amdgpu.specific.write"
+    assert timed.event_separations[-1] == EventSeparation(
+        "amdgpu.state.read", "amdgpu.state.write", 0, ModelQuality.EXACT
+    )

@@ -82,6 +82,8 @@ typedef struct loom_low_planning_statistics_t {
   uint64_t frame_build_count;
   // Number of allocation runs reached after successful scheduling.
   uint64_t allocation_run_count;
+  // Number of allocation runs that attempted exact retained-location replay.
+  uint64_t retained_location_replay_count;
   // Repair work performed while converging on the final frame.
   loom_low_planning_repair_statistics_t repair;
   // Arena and system allocation economics for the planning invocation.
