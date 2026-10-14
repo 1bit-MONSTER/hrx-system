@@ -71,6 +71,60 @@ func.def @bfloat_maximum_reductions_33(%storage_buffer: buffer) {
   func.return
 }
 
+// Each aligned source has one excluded lane that would change the
+// corresponding extremum if a partial load widened its memory access.
+func.def @bfloat_partial_load_minnum(%storage_buffer: buffer) {
+  %input_origin = index.constant 0 : offset
+  %output_origin = index.constant 64 : offset
+  %aligned_storage = buffer.assume.alignment %storage_buffer {minimum_alignment = 64} : buffer
+  %input_view = buffer.view %aligned_storage[%input_origin] : buffer -> view<32xbf16>
+  %output_view = buffer.view %aligned_storage[%output_origin] : buffer -> view<4xbf16>
+  %input = vector.load %input_view[0] : view<32xbf16> -> vector<31xbf16>
+  %initial = scalar.constant 20.0 : bf16
+  %minnum = vector.reduce<minnumf, reassoc|nnan|nsz> %input, %initial : vector<31xbf16>, bf16
+  view.store %minnum, %output_view[1] : bf16, view<4xbf16>
+  func.return
+}
+
+func.def @bfloat_partial_load_minimum(%storage_buffer: buffer) {
+  %input_origin = index.constant 0 : offset
+  %output_origin = index.constant 64 : offset
+  %aligned_storage = buffer.assume.alignment %storage_buffer {minimum_alignment = 64} : buffer
+  %input_view = buffer.view %aligned_storage[%input_origin] : buffer -> view<32xbf16>
+  %output_view = buffer.view %aligned_storage[%output_origin] : buffer -> view<4xbf16>
+  %input = vector.load %input_view[0] : view<32xbf16> -> vector<31xbf16>
+  %initial = scalar.constant 20.0 : bf16
+  %minimum = vector.reduce<minimumf, reassoc|nnan|nsz> %input, %initial : vector<31xbf16>, bf16
+  view.store %minimum, %output_view[1] : bf16, view<4xbf16>
+  func.return
+}
+
+func.def @bfloat_partial_load_maxnum(%storage_buffer: buffer) {
+  %input_origin = index.constant 0 : offset
+  %output_origin = index.constant 64 : offset
+  %aligned_storage = buffer.assume.alignment %storage_buffer {minimum_alignment = 64} : buffer
+  %input_view = buffer.view %aligned_storage[%input_origin] : buffer -> view<32xbf16>
+  %output_view = buffer.view %aligned_storage[%output_origin] : buffer -> view<4xbf16>
+  %input = vector.load %input_view[0] : view<32xbf16> -> vector<31xbf16>
+  %initial = scalar.constant -20.0 : bf16
+  %maxnum = vector.reduce<maxnumf, reassoc|nnan|nsz> %input, %initial : vector<31xbf16>, bf16
+  view.store %maxnum, %output_view[1] : bf16, view<4xbf16>
+  func.return
+}
+
+func.def @bfloat_partial_load_maximum(%storage_buffer: buffer) {
+  %input_origin = index.constant 0 : offset
+  %output_origin = index.constant 64 : offset
+  %aligned_storage = buffer.assume.alignment %storage_buffer {minimum_alignment = 64} : buffer
+  %input_view = buffer.view %aligned_storage[%input_origin] : buffer -> view<32xbf16>
+  %output_view = buffer.view %aligned_storage[%output_origin] : buffer -> view<4xbf16>
+  %input = vector.load %input_view[0] : view<32xbf16> -> vector<31xbf16>
+  %initial = scalar.constant -20.0 : bf16
+  %maximum = vector.reduce<maximumf, reassoc|nnan|nsz> %input, %initial : vector<31xbf16>, bf16
+  view.store %maximum, %output_view[1] : bf16, view<4xbf16>
+  func.return
+}
+
 check.scenario @bfloat_extrema_reduction_boundaries {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %storage = check.generate.iota offset(-2.0) step(3.0) : tensor<6xbf16>
@@ -102,6 +156,48 @@ check.scenario @bfloat_extrema_reduction_boundaries {
     %expected_maximum = check.generate.fill value(16.0) : tensor<2xbf16>
     check.compare<@bfloat_maximum_reductions_33>(%storage) : (tensor<36xbf16>) -> () {
       check.expect.close actual(%output) expected(%expected_maximum) atol(0.0) rtol(0.0) nan(same) : tensor<2xbf16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.iota offset(15.0) step(-1.0) : tensor<36xbf16>
+    %output = check.tensor.view %storage offset(64) : tensor<36xbf16> -> tensor<4xbf16>
+    %result = check.tensor.view %output offset(2) : tensor<4xbf16> -> tensor<1xbf16>
+    %prefix = check.tensor.view %output offset(0) : tensor<4xbf16> -> tensor<1xbf16>
+    %suffix = check.tensor.view %output offset(4) : tensor<4xbf16> -> tensor<2xbf16>
+    %expected_result = check.generate.fill value(-15.0) : tensor<1xbf16>
+    %expected_prefix = check.generate.fill value(-17.0) : tensor<1xbf16>
+    %expected_suffix = check.generate.iota offset(-19.0) step(-1.0) : tensor<2xbf16>
+    check.compare<@bfloat_partial_load_minnum>(%storage) : (tensor<36xbf16>) -> () {
+      check.expect.close actual(%result) expected(%expected_result) atol(0.0) rtol(0.0) nan(same) : tensor<1xbf16>
+      check.expect.close actual(%prefix) expected(%expected_prefix) atol(0.0) rtol(0.0) nan(same) : tensor<1xbf16>
+      check.expect.close actual(%suffix) expected(%expected_suffix) atol(0.0) rtol(0.0) nan(same) : tensor<2xbf16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.iota offset(15.0) step(-1.0) : tensor<36xbf16>
+    %output = check.tensor.view %storage offset(64) : tensor<36xbf16> -> tensor<4xbf16>
+    %result = check.tensor.view %output offset(2) : tensor<4xbf16> -> tensor<1xbf16>
+    %expected_result = check.generate.fill value(-15.0) : tensor<1xbf16>
+    check.compare<@bfloat_partial_load_minimum>(%storage) : (tensor<36xbf16>) -> () {
+      check.expect.close actual(%result) expected(%expected_result) atol(0.0) rtol(0.0) nan(same) : tensor<1xbf16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.iota offset(-15.0) step(1.0) : tensor<36xbf16>
+    %output = check.tensor.view %storage offset(64) : tensor<36xbf16> -> tensor<4xbf16>
+    %result = check.tensor.view %output offset(2) : tensor<4xbf16> -> tensor<1xbf16>
+    %expected_result = check.generate.fill value(15.0) : tensor<1xbf16>
+    check.compare<@bfloat_partial_load_maxnum>(%storage) : (tensor<36xbf16>) -> () {
+      check.expect.close actual(%result) expected(%expected_result) atol(0.0) rtol(0.0) nan(same) : tensor<1xbf16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.iota offset(-15.0) step(1.0) : tensor<36xbf16>
+    %output = check.tensor.view %storage offset(64) : tensor<36xbf16> -> tensor<4xbf16>
+    %result = check.tensor.view %output offset(2) : tensor<4xbf16> -> tensor<1xbf16>
+    %expected_result = check.generate.fill value(15.0) : tensor<1xbf16>
+    check.compare<@bfloat_partial_load_maximum>(%storage) : (tensor<36xbf16>) -> () {
+      check.expect.close actual(%result) expected(%expected_result) atol(0.0) rtol(0.0) nan(same) : tensor<1xbf16>
     }
   }
   check.return

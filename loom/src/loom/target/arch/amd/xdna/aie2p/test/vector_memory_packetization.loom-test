@@ -195,10 +195,10 @@ func.def @copy_i32x17_source_aligned16(%input: buffer, %output: buffer) {
   %output_view = buffer.view %output_aligned[%origin] : buffer -> view<17xi32>
   %8 = vector.load %input_view[0] : view<17xi32> -> vector<8xi32>
   %9 = vector.load %input_view[8] : view<17xi32> -> vector<8xi32>
-  %12 = view.load %input_view[16] : view<17xi32> -> i32
+  %10 = view.load %input_view[16] : view<17xi32> -> i32
   vector.store %8, %output_view[0] : vector<8xi32>, view<17xi32>
   vector.store %9, %output_view[8] : vector<8xi32>, view<17xi32>
-  view.store %12, %output_view[16] : i32, view<17xi32>
+  view.store %10, %output_view[16] : i32, view<17xi32>
   func.return
 }
 

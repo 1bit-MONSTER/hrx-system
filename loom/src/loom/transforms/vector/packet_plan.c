@@ -10,6 +10,7 @@
 
 #include "loom/analysis/motion.h"
 #include "loom/analysis/view_regions.h"
+#include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ir/scalar_type.h"
 #include "loom/ops/buffer/ops.h"
@@ -153,33 +154,35 @@ bool loom_vector_packet_shape_from_type(
   return true;
 }
 
-// Constrains a geometric packet shape with target contract answers for this
-// memory operation. The authored access retains its address and view facts
-// while the scoped query projects matching vector values to each candidate
-// width.
-iree_status_t loom_vector_packet_memory_shape_constrain(
+static iree_status_t loom_vector_packet_memory_chunk_lane_count_select_impl(
     loom_target_legalization_context_t* context, const loom_op_t* op,
     const loom_target_vector_packet_policy_t* policy, loom_type_t vector_type,
-    loom_vector_packet_shape_t* inout_shape, bool* out_supported) {
-  *out_supported = false;
-  uint32_t lane_count = 0;
-  if (!loom_vector_packet_static_lane_count(vector_type, &lane_count) ||
-      lane_count != inout_shape->lane_count) {
+    uint32_t maximum_lane_count, uint32_t* out_lane_count,
+    bool* out_contract_handled_candidate) {
+  *out_lane_count = 0;
+  if (out_contract_handled_candidate != NULL) {
+    *out_contract_handled_candidate = false;
+  }
+  uint32_t authored_lane_count = 0;
+  if (!loom_vector_packet_static_lane_count(vector_type,
+                                            &authored_lane_count)) {
     return iree_ok_status();
   }
 
   uint32_t selected_lane_count = 0;
+  uint32_t policy_lane_count = 0;
   bool contract_handled_candidate = false;
   for (uint8_t i = 0; i < policy->native_bit_count_count; ++i) {
     const uint32_t candidate_lane_count =
         loom_vector_packet_lane_count_for_bit_count(
             policy, vector_type, policy->native_bit_counts[i]);
-    if (candidate_lane_count == 0 || candidate_lane_count >= lane_count ||
-        candidate_lane_count > inout_shape->chunk_lane_count) {
+    if (candidate_lane_count == 0 ||
+        candidate_lane_count > maximum_lane_count) {
       continue;
     }
+    policy_lane_count = iree_max(policy_lane_count, candidate_lane_count);
     const loom_target_contract_vector_lane_projection_t projection = {
-        .source_lane_count = lane_count,
+        .source_lane_count = authored_lane_count,
         .projected_lane_count = candidate_lane_count,
     };
     loom_target_contract_query_result_t query_result =
@@ -193,11 +196,56 @@ iree_status_t loom_vector_packet_memory_shape_constrain(
       selected_lane_count = iree_max(selected_lane_count, candidate_lane_count);
     }
   }
-  if (selected_lane_count == 0) {
+  if (selected_lane_count != 0) {
+    *out_lane_count = selected_lane_count;
+  } else if (!contract_handled_candidate) {
     // Some targets retain structural memory selection in a custom Low planner
     // instead of exposing candidate rows through the query contract. Preserve
     // their declared packet policy only when the contract had no opinion about
     // any candidate. One handled answer makes the contract authoritative.
+    *out_lane_count = policy_lane_count;
+  }
+  if (out_contract_handled_candidate != NULL) {
+    *out_contract_handled_candidate = contract_handled_candidate;
+  }
+  return iree_ok_status();
+}
+
+iree_status_t loom_vector_packet_memory_chunk_lane_count_select(
+    loom_target_legalization_context_t* context, const loom_op_t* op,
+    const loom_target_vector_packet_policy_t* policy, loom_type_t vector_type,
+    uint32_t maximum_lane_count, uint32_t* out_lane_count) {
+  return loom_vector_packet_memory_chunk_lane_count_select_impl(
+      context, op, policy, vector_type, maximum_lane_count, out_lane_count,
+      /*out_contract_handled_candidate=*/NULL);
+}
+
+// Constrains a geometric packet shape with target contract answers for this
+// memory operation. The authored access retains its address and view facts
+// while the scoped query projects matching vector values to each candidate
+// width.
+iree_status_t loom_vector_packet_memory_shape_constrain(
+    loom_target_legalization_context_t* context, const loom_op_t* op,
+    const loom_target_vector_packet_policy_t* policy, loom_type_t vector_type,
+    loom_vector_packet_shape_t* inout_shape, bool* out_supported) {
+  *out_supported = false;
+  uint32_t lane_count = 0;
+  if (!loom_vector_packet_static_lane_count(vector_type, &lane_count) ||
+      lane_count != inout_shape->lane_count || lane_count <= 1) {
+    return iree_ok_status();
+  }
+
+  uint32_t selected_lane_count = 0;
+  bool contract_handled_candidate = false;
+  IREE_RETURN_IF_ERROR(loom_vector_packet_memory_chunk_lane_count_select_impl(
+      context, op, policy, vector_type,
+      iree_min(inout_shape->chunk_lane_count, lane_count - 1u),
+      &selected_lane_count, &contract_handled_candidate));
+  if (selected_lane_count == 0) {
+    // Preserve the caller's geometric width for targets whose custom Low
+    // planner does not expose any candidate contract rows. Exact component
+    // planning uses the public selector above and instead treats a suffix with
+    // no policy width as a scalar tail.
     *out_supported = !contract_handled_candidate;
     return iree_ok_status();
   }
@@ -252,6 +300,464 @@ iree_status_t loom_vector_packet_reduce_shape_constrain(
   inout_shape->chunk_lane_count = selected_lane_count;
   inout_shape->chunk_count = (lane_count - 1u) / selected_lane_count + 1u;
   *out_supported = true;
+  return iree_ok_status();
+}
+
+// Queries the target contract for the lanewise fold that would combine packed
+// reduction leaves. The prototype borrows the reduction input for its three
+// value slots so the existing lane projection supplies the candidate type
+// without adding speculative IR to the module.
+static iree_status_t loom_vector_packet_query_combining_contract(
+    loom_target_legalization_context_t* context, const loom_op_t* reduce_op,
+    loom_target_contract_vector_lane_projection_t projection,
+    loom_target_contract_query_result_t* out_result) {
+  typedef struct loom_vector_binary_op_prototype_t {
+    // Stack-owned operation header presented to the target contract.
+    loom_op_t op;
+    // Two operands followed by one result in loom_op_t trailing storage order.
+    loom_value_id_t values[3];
+    // Detached operand slots; contract queries never publish use-list entries.
+    loom_use_index_t operand_use_indices[2];
+  } loom_vector_binary_op_prototype_t;
+
+  loom_op_kind_t op_kind = LOOM_OP_KIND_UNKNOWN;
+  if (!loom_vector_combining_kind_op(loom_vector_reduce_kind(reduce_op),
+                                     &op_kind)) {
+    *out_result = loom_target_contract_query_result_empty();
+    return iree_ok_status();
+  }
+  loom_vector_binary_op_prototype_t prototype = {
+      .op =
+          {
+              .kind = op_kind,
+              .operand_count = 2,
+              .result_count = 1,
+              .location = reduce_op->location,
+              .instance_flags = loom_vector_reduce_fastmath(reduce_op),
+              .block_ordinal = reduce_op->block_ordinal,
+              .parent_op = reduce_op->parent_op,
+              .parent_block = reduce_op->parent_block,
+          },
+  };
+  const loom_op_vtable_t* prototype_vtable =
+      loom_op_vtable(context->module, &prototype.op);
+  IREE_ASSERT(prototype_vtable != NULL);
+  prototype.op.traits = prototype_vtable->traits;
+  const loom_value_id_t input = loom_vector_reduce_input(reduce_op);
+  loom_op_operands(&prototype.op)[0] = input;
+  loom_op_operands(&prototype.op)[1] = input;
+  loom_op_results(&prototype.op)[0] = input;
+  loom_op_operand_use_indices(&prototype.op)[0] = LOOM_USE_INDEX_INVALID;
+  loom_op_operand_use_indices(&prototype.op)[1] = LOOM_USE_INDEX_INVALID;
+  return loom_target_legalization_query_contract_with_vector_lane_projection(
+      context, &prototype.op, projection, out_result);
+}
+
+// Returns whether a power-of-two leaf can be folded to two lanes using only
+// target-native lanewise combining operations. The final pair is handled by
+// scalar extraction, so a target does not need a synthetic one-lane vector
+// contract to complete the fold.
+static iree_status_t loom_vector_packet_reduction_leaf_can_fold(
+    loom_target_legalization_context_t* context, const loom_op_t* reduce_op,
+    uint32_t input_lane_count, uint32_t leaf_lane_count, bool* out_supported) {
+  *out_supported = false;
+  if (leaf_lane_count < 2 || (leaf_lane_count & (leaf_lane_count - 1u)) != 0) {
+    return iree_ok_status();
+  }
+  while (leaf_lane_count > 2) {
+    leaf_lane_count /= 2u;
+    const loom_target_contract_vector_lane_projection_t projection = {
+        .source_lane_count = input_lane_count,
+        .projected_lane_count = leaf_lane_count,
+    };
+    loom_target_contract_query_result_t query_result =
+        loom_target_contract_query_result_empty();
+    IREE_RETURN_IF_ERROR(loom_vector_packet_query_combining_contract(
+        context, reduce_op, projection, &query_result));
+    if (query_result.outcome != LOOM_TARGET_CONTRACT_QUERY_LEGAL) {
+      return iree_ok_status();
+    }
+  }
+  *out_supported = true;
+  return iree_ok_status();
+}
+
+iree_status_t loom_vector_packet_reduce_combine_shape_constrain(
+    loom_target_legalization_context_t* context, const loom_op_t* reduce_op,
+    const loom_target_vector_packet_policy_t* policy, loom_type_t vector_type,
+    loom_vector_packet_shape_t* inout_shape, bool* out_supported) {
+  *out_supported = false;
+  uint32_t lane_count = 0;
+  int64_t identity = 0;
+  double float_identity = 0.0;
+  const loom_combining_kind_t kind = loom_vector_reduce_kind(reduce_op);
+  const bool can_reassociate =
+      loom_combining_kind_accepts_integer(kind) ||
+      iree_any_bit_set(loom_vector_reduce_fastmath(reduce_op),
+                       LOOM_VECTOR_FASTMATHFLAGS_REASSOC);
+  const bool has_identity =
+      loom_combining_kind_integer_identity(
+          kind, loom_type_element_type(vector_type), &identity) ||
+      (can_reassociate &&
+       loom_combining_kind_float_identity(kind, &float_identity));
+  const bool can_repeat =
+      loom_combining_kind_is_idempotent(kind) && can_reassociate;
+  if (!loom_vector_packet_static_lane_count(vector_type, &lane_count) ||
+      lane_count != inout_shape->lane_count || (!has_identity && !can_repeat)) {
+    return iree_ok_status();
+  }
+
+  uint32_t selected_lane_count = 0;
+  for (uint8_t i = 0; i < policy->native_bit_count_count; ++i) {
+    const uint32_t candidate_lane_count =
+        loom_vector_packet_lane_count_for_bit_count(
+            policy, vector_type, policy->native_bit_counts[i]);
+    if (candidate_lane_count < 2 || candidate_lane_count >= lane_count ||
+        candidate_lane_count > inout_shape->chunk_lane_count) {
+      continue;
+    }
+    const loom_target_contract_vector_lane_projection_t projection = {
+        .source_lane_count = lane_count,
+        .projected_lane_count = candidate_lane_count,
+    };
+    loom_target_contract_query_result_t query_result =
+        loom_target_contract_query_result_empty();
+    IREE_RETURN_IF_ERROR(loom_vector_packet_query_combining_contract(
+        context, reduce_op, projection, &query_result));
+    if (query_result.outcome == LOOM_TARGET_CONTRACT_QUERY_LEGAL) {
+      selected_lane_count = iree_max(selected_lane_count, candidate_lane_count);
+    }
+  }
+  if (selected_lane_count == 0) {
+    return iree_ok_status();
+  }
+
+  inout_shape->chunk_lane_count = selected_lane_count;
+  inout_shape->chunk_count = (lane_count - 1u) / selected_lane_count + 1u;
+  *out_supported = true;
+  return iree_ok_status();
+}
+
+static iree_status_t loom_vector_packet_partition_vector_reductions_are_native(
+    loom_target_legalization_context_t* context, const loom_op_t* reduce_op,
+    loom_value_fact_vector_partition_t partition, uint32_t input_lane_count,
+    bool* out_native) {
+  *out_native = true;
+  uint32_t previous_lane_count = 0;
+  for (uint32_t i = 0; i < partition.count; ++i) {
+    const loom_value_fact_vector_partition_component_t component =
+        partition.components[i];
+    const loom_type_t component_type =
+        loom_module_value_type(context->module, component.value);
+    if (!loom_type_is_vector(component_type) ||
+        component.lane_count == previous_lane_count) {
+      continue;
+    }
+    const loom_target_contract_vector_lane_projection_t projection = {
+        .source_lane_count = input_lane_count,
+        .projected_lane_count = component.lane_count,
+    };
+    loom_target_contract_query_result_t query_result =
+        loom_target_contract_query_result_empty();
+    IREE_RETURN_IF_ERROR(
+        loom_target_legalization_query_contract_with_vector_lane_projection(
+            context, reduce_op, projection, &query_result));
+    if (query_result.outcome != LOOM_TARGET_CONTRACT_QUERY_LEGAL) {
+      *out_native = false;
+      return iree_ok_status();
+    }
+    previous_lane_count = component.lane_count;
+  }
+  return iree_ok_status();
+}
+
+static bool loom_vector_packet_partition_packed_work_plan(
+    const loom_target_legalization_context_t* context,
+    loom_value_fact_vector_partition_t partition, uint32_t candidate_lane_count,
+    uint32_t scalar_count, bool combining_is_idempotent,
+    bool has_combining_identity, bool reduction_is_native,
+    uint32_t* out_packed_value_count, uint32_t* out_scalar_pack_lane_count) {
+  *out_packed_value_count = 0;
+  *out_scalar_pack_lane_count = 0;
+  iree_host_size_t packet_count = 0;
+  iree_host_size_t operation_count = 0;
+  for (uint32_t i = 0; i < partition.count; ++i) {
+    if (loom_type_is_scalar(loom_module_value_type(
+            context->module, partition.components[i].value))) {
+      continue;
+    }
+    const uint32_t component_lane_count = partition.components[i].lane_count;
+    const iree_host_size_t component_packet_count =
+        (component_lane_count - 1u) / candidate_lane_count + 1u;
+    if (!iree_host_size_checked_add(packet_count, component_packet_count,
+                                    &packet_count)) {
+      return false;
+    }
+    // Components larger than a leaf require one slice per packet. A short
+    // terminal packet also requires a concat and, when repetition is not
+    // algebraically valid, an identity constant.
+    if (component_lane_count > candidate_lane_count &&
+        !iree_host_size_checked_add(operation_count, component_packet_count,
+                                    &operation_count)) {
+      return false;
+    }
+    const uint32_t terminal_lane_count =
+        component_lane_count % candidate_lane_count;
+    if (terminal_lane_count != 0) {
+      const bool can_repeat_component =
+          combining_is_idempotent &&
+          candidate_lane_count % terminal_lane_count == 0;
+      if (!can_repeat_component && !has_combining_identity) {
+        return false;
+      }
+      // Target legalization lowers a repeated multi-input concat to a binary
+      // tree. Charge that final shape here instead of treating an arbitrarily
+      // wide authored concat as one operation.
+      const iree_host_size_t normalization_op_count =
+          can_repeat_component ? candidate_lane_count / terminal_lane_count - 1u
+                               : 2u;
+      if (!iree_host_size_checked_add(operation_count, normalization_op_count,
+                                      &operation_count)) {
+        return false;
+      }
+    }
+  }
+  iree_host_size_t terminal_op_count = 1;
+  if (!reduction_is_native) {
+    // Each vector fold level builds two half-width slices and one combine. The
+    // final pair needs two extracts, one scalar combine, and one accumulator
+    // combine.
+    terminal_op_count = 4;
+    for (uint32_t lane_count = candidate_lane_count; lane_count > 2;
+         lane_count /= 2u) {
+      if (!iree_host_size_checked_add(terminal_op_count, 3u,
+                                      &terminal_op_count)) {
+        return false;
+      }
+    }
+  }
+
+  if (combining_is_idempotent && scalar_count != 0) {
+    // Two-lane scalar groups map the second value to the target's cheap
+    // zero-index insert and expose independent packets to the balanced fold.
+    // Increase the group width only when that parallel form would cross the
+    // shared static expansion limit.
+    const uint32_t first_group_lane_count = scalar_count == 1 ? 1u : 2u;
+    const uint32_t maximum_group_lane_count =
+        iree_min(scalar_count, candidate_lane_count);
+    for (uint32_t group_lane_count = first_group_lane_count;
+         group_lane_count <= maximum_group_lane_count; ++group_lane_count) {
+      const iree_host_size_t scalar_packet_count =
+          (scalar_count + group_lane_count - 1u) / group_lane_count;
+      iree_host_size_t candidate_packet_count = 0;
+      iree_host_size_t candidate_operation_count = operation_count;
+      if (!iree_host_size_checked_add(packet_count, scalar_packet_count,
+                                      &candidate_packet_count) ||
+          !iree_host_size_checked_add(candidate_operation_count, scalar_count,
+                                      &candidate_operation_count) ||
+          !iree_host_size_checked_add(candidate_operation_count,
+                                      candidate_packet_count - 1u,
+                                      &candidate_operation_count) ||
+          !iree_host_size_checked_add(candidate_operation_count,
+                                      terminal_op_count,
+                                      &candidate_operation_count)) {
+        return false;
+      }
+      if (candidate_operation_count <= LOOM_VECTOR_PACKET_STATIC_OP_LIMIT) {
+        *out_packed_value_count = (uint32_t)candidate_packet_count;
+        *out_scalar_pack_lane_count = group_lane_count;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  const iree_host_size_t scalar_packet_count = scalar_count != 0 ? 1u : 0u;
+  if (!iree_host_size_checked_add(packet_count, scalar_packet_count,
+                                  &packet_count) ||
+      packet_count == 0) {
+    return false;
+  }
+  if (scalar_count != 0 &&
+      !iree_host_size_checked_add(operation_count, scalar_count + 1u,
+                                  &operation_count)) {
+    return false;
+  }
+  if (!iree_host_size_checked_add(operation_count, packet_count - 1u,
+                                  &operation_count)) {
+    return false;
+  }
+  if (!iree_host_size_checked_add(operation_count, terminal_op_count,
+                                  &operation_count) ||
+      operation_count > LOOM_VECTOR_PACKET_STATIC_OP_LIMIT) {
+    return false;
+  }
+  *out_packed_value_count = (uint32_t)packet_count;
+  return true;
+}
+
+iree_status_t loom_vector_packet_partition_reduce_plan_select(
+    loom_target_legalization_context_t* context, const loom_op_t* reduce_op,
+    const loom_target_vector_packet_policy_t* policy,
+    loom_value_fact_vector_partition_t partition,
+    loom_vector_packet_partition_reduce_plan_t* out_plan) {
+  *out_plan = (loom_vector_packet_partition_reduce_plan_t){0};
+  const loom_value_id_t input = loom_vector_reduce_input(reduce_op);
+  const loom_type_t input_type = loom_module_value_type(context->module, input);
+  uint32_t input_lane_count = 0;
+  if (partition.count == 0 ||
+      loom_value_fact_vector_partition_has_uniform_components(partition) ||
+      !loom_vector_packet_static_lane_count(input_type, &input_lane_count) ||
+      partition.lane_count != input_lane_count) {
+    return iree_ok_status();
+  }
+
+  uint32_t scalar_count = 0;
+  bool has_vector_component = false;
+  uint32_t maximum_vector_lane_count = 0;
+  for (uint32_t i = 0; i < partition.count; ++i) {
+    const loom_value_fact_vector_partition_component_t component =
+        partition.components[i];
+    const loom_type_t component_type =
+        loom_module_value_type(context->module, component.value);
+    if (loom_type_is_scalar(component_type)) {
+      if (component.lane_count != 1 || loom_type_element_type(component_type) !=
+                                           loom_type_element_type(input_type)) {
+        return iree_ok_status();
+      }
+      ++scalar_count;
+      continue;
+    }
+    uint32_t component_lane_count = 0;
+    if (!loom_vector_packet_static_lane_count(component_type,
+                                              &component_lane_count) ||
+        component_lane_count != component.lane_count ||
+        !loom_type_element_type_equals(component_type, input_type)) {
+      return iree_ok_status();
+    }
+    has_vector_component = true;
+    maximum_vector_lane_count =
+        iree_max(maximum_vector_lane_count, component_lane_count);
+  }
+  const loom_combining_kind_t kind = loom_vector_reduce_kind(reduce_op);
+  const bool combining_accepts_integer =
+      loom_combining_kind_accepts_integer(kind);
+  if (!combining_accepts_integer && !loom_combining_kind_accepts_float(kind)) {
+    return iree_ok_status();
+  }
+  if (!has_vector_component) {
+    return iree_ok_status();
+  }
+  if (scalar_count == 0 &&
+      partition.count <= LOOM_VECTOR_PACKET_STATIC_OP_LIMIT) {
+    bool vector_reductions_are_native = false;
+    IREE_RETURN_IF_ERROR(
+        loom_vector_packet_partition_vector_reductions_are_native(
+            context, reduce_op, partition, input_lane_count,
+            &vector_reductions_are_native));
+    if (vector_reductions_are_native) {
+      // A vector-only partition needs one native reduction per component.
+      // Normalizing unequal components to a shared leaf cannot use fewer
+      // operations: it adds at least one normalization or padding operation
+      // before the packet combines and terminal reduction.
+      out_plan->mode = LOOM_VECTOR_PACKET_PARTITION_REDUCE_MODE_HYBRID;
+      return iree_ok_status();
+    }
+  }
+  const bool can_reassociate =
+      combining_accepts_integer ||
+      iree_any_bit_set(loom_vector_reduce_fastmath(reduce_op),
+                       LOOM_VECTOR_FASTMATHFLAGS_REASSOC);
+  int64_t identity = 0;
+  double float_identity = 0.0;
+  const bool has_combining_identity =
+      (combining_accepts_integer &&
+       loom_combining_kind_integer_identity(
+           kind, loom_type_element_type(input_type), &identity)) ||
+      (can_reassociate &&
+       loom_combining_kind_float_identity(kind, &float_identity));
+  const bool combining_is_idempotent = loom_combining_kind_is_idempotent(kind);
+  const bool can_pack =
+      has_combining_identity || (combining_is_idempotent && can_reassociate);
+  const uint32_t maximum_candidate_lane_count = maximum_vector_lane_count;
+  uint32_t selected_lane_count = 0;
+  for (uint8_t candidate_index = 0;
+       can_pack && candidate_index < policy->native_bit_count_count;
+       ++candidate_index) {
+    const uint32_t candidate_lane_count =
+        loom_vector_packet_lane_count_for_bit_count(
+            policy, input_type, policy->native_bit_counts[candidate_index]);
+    if (candidate_lane_count < 2 || candidate_lane_count >= input_lane_count ||
+        candidate_lane_count > maximum_candidate_lane_count) {
+      continue;
+    }
+    const loom_target_contract_vector_lane_projection_t projection = {
+        .source_lane_count = input_lane_count,
+        .projected_lane_count = candidate_lane_count,
+    };
+    loom_target_contract_query_result_t combining_query_result =
+        loom_target_contract_query_result_empty();
+    IREE_RETURN_IF_ERROR(loom_vector_packet_query_combining_contract(
+        context, reduce_op, projection, &combining_query_result));
+    if (combining_query_result.outcome != LOOM_TARGET_CONTRACT_QUERY_LEGAL) {
+      continue;
+    }
+
+    loom_target_contract_query_result_t reduction_query_result =
+        loom_target_contract_query_result_empty();
+    IREE_RETURN_IF_ERROR(
+        loom_target_legalization_query_contract_with_vector_lane_projection(
+            context, reduce_op, projection, &reduction_query_result));
+    const bool reduction_is_native =
+        reduction_query_result.outcome == LOOM_TARGET_CONTRACT_QUERY_LEGAL;
+    if (!reduction_is_native) {
+      bool leaf_can_fold = false;
+      IREE_RETURN_IF_ERROR(loom_vector_packet_reduction_leaf_can_fold(
+          context, reduce_op, input_lane_count, candidate_lane_count,
+          &leaf_can_fold));
+      if (!leaf_can_fold) {
+        continue;
+      }
+    }
+    uint32_t packed_value_count = 0;
+    uint32_t scalar_pack_lane_count = 0;
+    if (!loom_vector_packet_partition_packed_work_plan(
+            context, partition, candidate_lane_count, scalar_count,
+            combining_is_idempotent, has_combining_identity,
+            reduction_is_native, &packed_value_count,
+            &scalar_pack_lane_count)) {
+      continue;
+    }
+    if (out_plan->leaf_reduction_is_native && !reduction_is_native) {
+      continue;
+    }
+    if (out_plan->leaf_reduction_is_native == reduction_is_native &&
+        candidate_lane_count <= selected_lane_count) {
+      continue;
+    }
+    selected_lane_count = candidate_lane_count;
+    out_plan->packed_value_count = packed_value_count;
+    out_plan->scalar_pack_lane_count = scalar_pack_lane_count;
+    out_plan->leaf_reduction_is_native = reduction_is_native;
+  }
+  if (selected_lane_count == 0) {
+    bool vector_reductions_are_native = false;
+    IREE_RETURN_IF_ERROR(
+        loom_vector_packet_partition_vector_reductions_are_native(
+            context, reduce_op, partition, input_lane_count,
+            &vector_reductions_are_native));
+    if (partition.count <= LOOM_VECTOR_PACKET_STATIC_OP_LIMIT &&
+        vector_reductions_are_native) {
+      out_plan->mode = LOOM_VECTOR_PACKET_PARTITION_REDUCE_MODE_HYBRID;
+    }
+    return iree_ok_status();
+  }
+  out_plan->mode = LOOM_VECTOR_PACKET_PARTITION_REDUCE_MODE_PACKED;
+  out_plan->leaf_shape = (loom_vector_packet_shape_t){
+      .lane_count = input_lane_count,
+      .chunk_lane_count = selected_lane_count,
+      .chunk_count = (input_lane_count - 1u) / selected_lane_count + 1u,
+  };
   return iree_ok_status();
 }
 
@@ -675,6 +1181,12 @@ static iree_status_t loom_vector_packet_select_memory_load_shape(
                                                &cache_policy)) {
     return iree_ok_status();
   }
+  // Scalar packet materialization uses view.load and wraps the result in a
+  // one-lane vector. It does not require a native vector.load contract.
+  if (inout_shape->chunk_lane_count == 1u) {
+    *out_selected = true;
+    return iree_ok_status();
+  }
   return loom_vector_packet_memory_shape_constrain(
       context, op, packetization->policy, footprint.vector_type, inout_shape,
       out_selected);
@@ -964,7 +1476,8 @@ bool loom_vector_packet_shared_snapshot_requires_staging(
 // snapshot. Every replay uses the function's indexed motion barriers instead
 // of rescanning the block for each consumer.
 iree_status_t loom_vector_packet_classify_memory_loads(
-    loom_vector_packetization_t* packetization, const loom_op_t* root_op) {
+    loom_vector_packetization_t* packetization, const loom_op_t* root_op,
+    bool allow_streaming) {
   uint32_t remaining_load_count = 0;
   for (uint32_t i = 0; i < packetization->value_count; ++i) {
     loom_vector_packetized_value_t* packetized_value =
@@ -978,7 +1491,7 @@ iree_status_t loom_vector_packet_classify_memory_loads(
       ++remaining_load_count;
     }
   }
-  if (remaining_load_count == 0) {
+  if (remaining_load_count == 0 || !allow_streaming) {
     return iree_ok_status();
   }
 

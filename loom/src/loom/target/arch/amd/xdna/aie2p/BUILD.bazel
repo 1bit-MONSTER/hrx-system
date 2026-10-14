@@ -834,6 +834,7 @@ loom_check_test_suite(
         "test/source_low/numeric_nonlinear.loom-test",
         "test/source_low/numeric_offset_narrowing.loom-test",
         "test/source_low/numeric_offset_wide.loom-test",
+        "test/source_low/numeric_partial_load_reductions.loom-test",
         "test/source_low/numeric_power_of_two_scale.loom-test",
         "test/source_low/numeric_reciprocal.loom-test",
         "test/source_low/numeric_reduce.loom-test",

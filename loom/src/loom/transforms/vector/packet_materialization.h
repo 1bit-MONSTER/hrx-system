@@ -34,6 +34,13 @@ iree_status_t loom_vector_packet_preserve_memory_loads(
     loom_vector_packetization_t* packetization,
     const loom_vector_packet_shape_t* shape, bool* out_rewritten);
 
+// Preserves loads for a consumer that can combine exact scalar/vector leaves.
+// Legal memory packets are retained directly; a terminal suffix smaller than
+// every legal packet is published as scalar components.
+iree_status_t loom_vector_packet_preserve_memory_load_components(
+    loom_vector_packetization_t* packetization,
+    const loom_vector_packet_shape_t* shape, bool* out_rewritten);
+
 iree_status_t loom_vector_packet_staging_load(
     loom_vector_packetization_t* packetization, loom_value_id_t staging_view,
     loom_type_t vector_type, const loom_vector_packet_slice_t* slice,
@@ -109,6 +116,14 @@ iree_status_t loom_vector_packet_static_reduce(
     loom_vector_packetization_t* packetization, loom_value_id_t input,
     const loom_vector_packet_shape_t* shape, loom_op_t* reduce_op,
     bool fold_packet_inputs, loom_value_id_t* out_accumulator);
+
+// Reduces an exact scalar/vector component partition without materializing its
+// logical aggregate carrier.
+iree_status_t loom_vector_packet_partition_reduce(
+    loom_target_legalization_context_t* context,
+    const loom_vector_packet_partition_reduce_plan_t* plan,
+    loom_value_fact_vector_partition_t partition, loom_op_t* reduce_op,
+    loom_value_id_t* out_accumulator);
 
 iree_status_t loom_vector_packet_erase_dead_sources(
     loom_vector_packetization_t* packetization, const loom_op_t* excluded_op);

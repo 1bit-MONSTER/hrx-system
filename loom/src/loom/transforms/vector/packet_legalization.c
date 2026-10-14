@@ -794,7 +794,8 @@ iree_status_t loom_vector_packet_legalize_dynamic_slice(
     return iree_ok_status();
   }
   IREE_RETURN_IF_ERROR(
-      loom_vector_packet_classify_memory_loads(&packetization, op));
+      loom_vector_packet_classify_memory_loads(&packetization, op,
+                                               /*allow_streaming=*/true));
   if (!loom_vector_packet_can_materialize(&packetization, &source_shape)) {
     return iree_ok_status();
   }
@@ -951,7 +952,8 @@ iree_status_t loom_vector_packet_legalize_table_lookup(
       &packetization, indices, &shape, &producer_selected));
   if (producer_selected) {
     IREE_RETURN_IF_ERROR(
-        loom_vector_packet_classify_memory_loads(&packetization, op));
+        loom_vector_packet_classify_memory_loads(&packetization, op,
+                                                 /*allow_streaming=*/true));
     if (!loom_vector_packet_can_materialize(&packetization, &shape)) {
       return iree_ok_status();
     }
@@ -1112,7 +1114,8 @@ iree_status_t loom_vector_packet_legalize_store(
       &packetization, store_footprint.value, &shape, &producer_selected));
   if (producer_selected) {
     IREE_RETURN_IF_ERROR(
-        loom_vector_packet_classify_memory_loads(&packetization, op));
+        loom_vector_packet_classify_memory_loads(&packetization, op,
+                                                 /*allow_streaming=*/true));
   }
 
   loom_vector_memory_cache_policy_t store_cache_policy = {0};
@@ -1278,6 +1281,34 @@ iree_status_t loom_vector_packet_legalize_store(
   return iree_ok_status();
 }
 
+// Rewrites selected producer loads at their authored observation points. The
+// greedy driver then rebuilds facts and lets the reduction consume the exact
+// native component partition on a later visit.
+static iree_status_t loom_vector_packet_preserve_reduce_loads(
+    loom_target_legalization_context_t* context, loom_op_t* reduce_op,
+    const loom_target_vector_packet_policy_t* policy, loom_value_id_t input,
+    loom_vector_packet_shape_t shape, bool* out_preserved) {
+  *out_preserved = false;
+  loom_vector_packetization_t packetization = {0};
+  loom_vector_packetization_initialize(context, policy, &packetization);
+  packetization.selection_flags =
+      LOOM_VECTOR_PACKET_SELECTION_FLAG_CAPTURE_EXTERNAL;
+  packetization.captured_value_location = reduce_op->location;
+  bool producer_selected = false;
+  IREE_RETURN_IF_ERROR(loom_vector_packet_select_value_shape(
+      &packetization, input, &shape, &producer_selected));
+  if (!producer_selected) {
+    return iree_ok_status();
+  }
+  IREE_RETURN_IF_ERROR(loom_vector_packet_classify_memory_loads(
+      &packetization, reduce_op, /*allow_streaming=*/false));
+  if (!loom_vector_packet_can_materialize(&packetization, &shape)) {
+    return iree_ok_status();
+  }
+  return loom_vector_packet_preserve_memory_load_components(
+      &packetization, &shape, out_preserved);
+}
+
 iree_status_t loom_vector_packet_legalize_reduce(
     loom_target_legalization_context_t* context, loom_op_t* op,
     const loom_target_vector_packet_policy_t* policy,
@@ -1286,14 +1317,71 @@ iree_status_t loom_vector_packet_legalize_reduce(
 
   const loom_value_id_t input = loom_vector_reduce_input(op);
   const loom_type_t input_type = loom_module_value_type(context->module, input);
+  const loom_value_fact_vector_partition_t input_partition =
+      loom_value_fact_table_query_vector_partition(context->fact_table, input);
+  loom_vector_packet_partition_reduce_plan_t partition_plan = {0};
+  IREE_RETURN_IF_ERROR(loom_vector_packet_partition_reduce_plan_select(
+      context, op, policy, input_partition, &partition_plan));
+  if (partition_plan.mode != LOOM_VECTOR_PACKET_PARTITION_REDUCE_MODE_NONE) {
+    loom_rewriter_t* rewriter = context->rewriter;
+    loom_builder_set_before(&rewriter->builder, op);
+    const loom_value_id_t value_checkpoint =
+        loom_rewriter_value_checkpoint(rewriter);
+    const loom_value_t* input_value = loom_module_value(context->module, input);
+    loom_op_t* input_op =
+        input_value != NULL && !loom_value_is_block_arg(input_value)
+            ? loom_value_def_op(input_value)
+            : NULL;
+    loom_value_id_t accumulator = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_vector_packet_partition_reduce(
+        context, &partition_plan, input_partition, op, &accumulator));
+    IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+        rewriter, op, &accumulator, 1, value_checkpoint));
+    IREE_RETURN_IF_ERROR(loom_rewriter_replace_all_uses_and_erase(
+        rewriter, op, &accumulator, 1));
+    if (input_op != NULL) {
+      bool erased = false;
+      IREE_RETURN_IF_ERROR(
+          loom_rewriter_erase_if_dead(rewriter, input_op, &erased));
+    }
+    *out_result = LOOM_VECTOR_PACKET_REDUCE_RESULT_REWRITTEN;
+    return iree_ok_status();
+  }
+  const bool authored_reduction_is_legal =
+      context->contract_query_result != NULL &&
+      context->contract_query_result->outcome ==
+          LOOM_TARGET_CONTRACT_QUERY_LEGAL;
+  if (authored_reduction_is_legal) {
+    *out_result = LOOM_VECTOR_PACKET_REDUCE_RESULT_RETAIN_NATIVE;
+  }
   loom_vector_packet_shape_t shape = {0};
-  if (!loom_vector_packet_shape_from_type(context, policy, input_type,
-                                          &shape)) {
+  const bool requires_packet_shape =
+      loom_vector_packet_shape_from_type(context, policy, input_type, &shape);
+  if (!requires_packet_shape) {
     return iree_ok_status();
   }
   bool packet_reduction_supported = false;
   IREE_RETURN_IF_ERROR(loom_vector_packet_reduce_shape_constrain(
       context, op, policy, input_type, &shape, &packet_reduction_supported));
+  loom_vector_packet_shape_t combining_shape = shape;
+  bool packet_combining_supported = false;
+  IREE_RETURN_IF_ERROR(loom_vector_packet_reduce_combine_shape_constrain(
+      context, op, policy, input_type, &combining_shape,
+      &packet_combining_supported));
+  if (packet_reduction_supported || packet_combining_supported) {
+    const loom_vector_packet_shape_t component_shape =
+        packet_combining_supported ? combining_shape : shape;
+    bool source_reads_preserved = false;
+    IREE_RETURN_IF_ERROR(loom_vector_packet_preserve_reduce_loads(
+        context, op, policy, input, component_shape, &source_reads_preserved));
+    if (source_reads_preserved) {
+      *out_result = LOOM_VECTOR_PACKET_REDUCE_RESULT_REWRITTEN;
+      return iree_ok_status();
+    }
+  }
+  if (authored_reduction_is_legal) {
+    return iree_ok_status();
+  }
   if (!packet_reduction_supported) {
     // Keep the reduction and its decomposable producer graph under one plan.
     // A scalar-width packet lets the same graph materializer rebuild source
@@ -1312,6 +1400,9 @@ iree_status_t loom_vector_packet_legalize_reduce(
   IREE_RETURN_IF_ERROR(loom_vector_packet_select_value_shape(
       &packetization, input, &shape, &producer_selected));
   if (!producer_selected) {
+    if (authored_reduction_is_legal) {
+      return iree_ok_status();
+    }
     iree_host_size_t operations_per_chunk = 0;
     if (!iree_host_size_checked_mul(shape.chunk_lane_count, 2u,
                                     &operations_per_chunk) ||
@@ -1323,7 +1414,8 @@ iree_status_t loom_vector_packet_legalize_reduce(
     return iree_ok_status();
   }
   IREE_RETURN_IF_ERROR(
-      loom_vector_packet_classify_memory_loads(&packetization, op));
+      loom_vector_packet_classify_memory_loads(&packetization, op,
+                                               /*allow_streaming=*/true));
   if (!loom_vector_packet_can_materialize(&packetization, &shape)) {
     return iree_ok_status();
   }

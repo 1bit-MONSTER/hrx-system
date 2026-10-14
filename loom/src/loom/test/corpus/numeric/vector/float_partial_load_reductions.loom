@@ -1,0 +1,76 @@
+// Each input ends one lane before a naturally aligned packet boundary. The
+// excluded guard lane would change the result if packetization widened either
+// load, while the surrounding output lanes expose an over-wide store.
+func.def @partial_load_float_sum(%storage_buffer: buffer) {
+  %input_origin = index.constant 0 : offset
+  %output_origin = index.constant 128 : offset
+  %aligned_storage = buffer.assume.alignment %storage_buffer {minimum_alignment = 64} : buffer
+  %input_view = buffer.view %aligned_storage[%input_origin] : buffer -> view<32xf32>
+  %output_view = buffer.view %aligned_storage[%output_origin] : buffer -> view<4xf32>
+  %values = vector.load %input_view[0] : view<32xf32> -> vector<31xf32>
+  %initial = scalar.constant -0.0 : f32
+  %result = vector.reduce<addf, reassoc> %values, %initial : vector<31xf32>, f32
+  view.store %result, %output_view[1] : f32, view<4xf32>
+  func.return
+}
+
+func.def @partial_load_float_product(%storage_buffer: buffer) {
+  %input_origin = index.constant 0 : offset
+  %output_origin = index.constant 32 : offset
+  %aligned_storage = buffer.assume.alignment %storage_buffer {minimum_alignment = 32} : buffer
+  %input_view = buffer.view %aligned_storage[%input_origin] : buffer -> view<8xf32>
+  %output_view = buffer.view %aligned_storage[%output_origin] : buffer -> view<4xf32>
+  %values = vector.load %input_view[0] : view<8xf32> -> vector<7xf32>
+  %initial = scalar.constant 1.0 : f32
+  %result = vector.reduce<mulf, reassoc> %values, %initial : vector<7xf32>, f32
+  view.store %result, %output_view[1] : f32, view<4xf32>
+  func.return
+}
+
+check.scenario @partial_load_float_reduction_boundaries {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.iota offset(1.0) step(1.0) : tensor<36xf32>
+    %output = check.tensor.view %storage offset(128) : tensor<36xf32> -> tensor<4xf32>
+    %result = check.tensor.view %output offset(4) : tensor<4xf32> -> tensor<1xf32>
+    %prefix = check.tensor.view %output offset(0) : tensor<4xf32> -> tensor<1xf32>
+    %suffix = check.tensor.view %output offset(8) : tensor<4xf32> -> tensor<2xf32>
+    %expected_result = check.generate.fill value(496.0) : tensor<1xf32>
+    %expected_prefix = check.generate.fill value(33.0) : tensor<1xf32>
+    %expected_suffix = check.generate.iota offset(35.0) step(1.0) : tensor<2xf32>
+    check.compare<@partial_load_float_sum>(%storage) : (tensor<36xf32>) -> () {
+      check.expect.close actual(%result) expected(%expected_result) atol(0.0) rtol(0.0) nan(same) : tensor<1xf32>
+      check.expect.close actual(%prefix) expected(%expected_prefix) atol(0.0) rtol(0.0) nan(same) : tensor<1xf32>
+      check.expect.close actual(%suffix) expected(%expected_suffix) atol(0.0) rtol(0.0) nan(same) : tensor<2xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.iota offset(1.0) step(1.0) : tensor<12xf32>
+    %output = check.tensor.view %storage offset(32) : tensor<12xf32> -> tensor<4xf32>
+    %result = check.tensor.view %output offset(4) : tensor<4xf32> -> tensor<1xf32>
+    %prefix = check.tensor.view %output offset(0) : tensor<4xf32> -> tensor<1xf32>
+    %suffix = check.tensor.view %output offset(8) : tensor<4xf32> -> tensor<2xf32>
+    %expected_result = check.generate.fill value(5040.0) : tensor<1xf32>
+    %expected_prefix = check.generate.fill value(9.0) : tensor<1xf32>
+    %expected_suffix = check.generate.iota offset(11.0) step(1.0) : tensor<2xf32>
+    check.compare<@partial_load_float_product>(%storage) : (tensor<12xf32>) -> () {
+      check.expect.close actual(%result) expected(%expected_result) atol(0.0) rtol(0.0) nan(same) : tensor<1xf32>
+      check.expect.close actual(%prefix) expected(%expected_prefix) atol(0.0) rtol(0.0) nan(same) : tensor<1xf32>
+      check.expect.close actual(%suffix) expected(%expected_suffix) atol(0.0) rtol(0.0) nan(same) : tensor<2xf32>
+    }
+  }
+  check.return
+}
+
+// Kept separate so a target-specific signed-zero defect cannot mask the
+// ordinary sum and product boundary trials above.
+check.scenario @partial_load_float_signed_zero {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.fill value(-0.0) : tensor<36xf32>
+    %output = check.tensor.view %storage offset(128) : tensor<36xf32> -> tensor<4xf32>
+    %expected = check.generate.fill value(-0.0) : tensor<4xf32>
+    check.compare<@partial_load_float_sum>(%storage) : (tensor<36xf32>) -> () {
+      check.expect.bitwise actual(%output) expected(%expected) : tensor<4xf32>
+    }
+  }
+  check.return
+}

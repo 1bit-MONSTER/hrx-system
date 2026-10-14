@@ -60,6 +60,15 @@ typedef struct loom_value_fact_vector_partition_t {
   uint32_t snapshot_lane_count;
 } loom_value_fact_vector_partition_t;
 
+// Returns true when every exact component is a vector with the same lane
+// count. Regular partitions with a shorter terminal vector return false.
+static inline bool loom_value_fact_vector_partition_has_uniform_components(
+    loom_value_fact_vector_partition_t partition) {
+  return partition.count != 0 && partition.regular_lane_count != 0 &&
+         partition.lane_count ==
+             (uint64_t)partition.count * partition.regular_lane_count;
+}
+
 // Returns reusable component scratch with room for |count| entries. The
 // contents remain valid only until the next scratch request.
 iree_status_t loom_value_fact_table_vector_partition_component_scratch(

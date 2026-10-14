@@ -554,7 +554,8 @@ static iree_status_t loom_aie2p_legalize_vector_reduce(
       may_scalarize) {
     IREE_RETURN_IF_ERROR(loom_vector_reduce_captured_to_scalar_rewrite_op(
         context->pass, context->rewriter, op, &rewritten));
-  } else if (!rewritten && may_scalarize) {
+  } else if (packet_result == LOOM_VECTOR_PACKET_REDUCE_RESULT_NONE &&
+             may_scalarize) {
     IREE_RETURN_IF_ERROR(loom_vector_reduce_to_scalar_rewrite_op(
         context->pass, context->rewriter, op, &rewritten));
   }
@@ -722,6 +723,7 @@ static const loom_target_legalizer_rule_t kAie2pLegalizerRules[] = {
         .legalize = loom_aie2p_legalize_vector_store,
     },
     {
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REWRITE_LEGAL,
         .root_kind = LOOM_OP_VECTOR_REDUCE,
         .legalize = loom_aie2p_legalize_vector_reduce,
     },

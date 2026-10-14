@@ -1,0 +1,346 @@
+// RUN: pass target-legalize{mode=final}
+
+aie2p.target<core> @target
+
+func.def target(@target) @minimum_unsigned_i8x127_load(%input: buffer) -> (i8) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<127xi8>
+  %values = vector.load %view[0] : view<127xi8> -> vector<127xi8>
+  %initial = scalar.constant 1 : i8
+  %result = vector.reduce<minui> %values, %initial : vector<127xi8>, i8
+  func.return %result : i8
+}
+
+// ----
+aie2p.target<core> @target
+
+func.def target(@target) @minimum_unsigned_i8x127_load(%input: buffer) -> (i8) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<127xi8>
+  %8 = vector.load %view[0] : view<127xi8> -> vector<64xi8>
+  %9 = vector.load %view[64] : view<127xi8> -> vector<32xi8>
+  %10 = vector.load %view[96] : view<127xi8> -> vector<16xi8>
+  %11 = view.load %view[112] : view<127xi8> -> i8
+  %30 = vector.splat %11 : vector<64xi8>
+  %12 = view.load %view[113] : view<127xi8> -> i8
+  %31 = vector.insert %12 into %30[0] : i8, vector<64xi8>
+  %13 = view.load %view[114] : view<127xi8> -> i8
+  %32 = vector.splat %13 : vector<64xi8>
+  %14 = view.load %view[115] : view<127xi8> -> i8
+  %33 = vector.insert %14 into %32[0] : i8, vector<64xi8>
+  %15 = view.load %view[116] : view<127xi8> -> i8
+  %34 = vector.splat %15 : vector<64xi8>
+  %16 = view.load %view[117] : view<127xi8> -> i8
+  %35 = vector.insert %16 into %34[0] : i8, vector<64xi8>
+  %17 = view.load %view[118] : view<127xi8> -> i8
+  %36 = vector.splat %17 : vector<64xi8>
+  %18 = view.load %view[119] : view<127xi8> -> i8
+  %37 = vector.insert %18 into %36[0] : i8, vector<64xi8>
+  %19 = view.load %view[120] : view<127xi8> -> i8
+  %38 = vector.splat %19 : vector<64xi8>
+  %20 = view.load %view[121] : view<127xi8> -> i8
+  %39 = vector.insert %20 into %38[0] : i8, vector<64xi8>
+  %21 = view.load %view[122] : view<127xi8> -> i8
+  %40 = vector.splat %21 : vector<64xi8>
+  %22 = view.load %view[123] : view<127xi8> -> i8
+  %41 = vector.insert %22 into %40[0] : i8, vector<64xi8>
+  %23 = view.load %view[124] : view<127xi8> -> i8
+  %42 = vector.splat %23 : vector<64xi8>
+  %24 = view.load %view[125] : view<127xi8> -> i8
+  %43 = vector.insert %24 into %42[0] : i8, vector<64xi8>
+  %25 = view.load %view[126] : view<127xi8> -> i8
+  %initial = scalar.constant 1 : i8
+  %28 = vector.concat<0> %9, %9 : vector<32xi8>, vector<32xi8> -> vector<64xi8>
+  %56 = vector.concat<0> %10, %10 : vector<16xi8>, vector<16xi8> -> vector<32xi8>
+  %57 = vector.concat<0> %10, %10 : vector<16xi8>, vector<16xi8> -> vector<32xi8>
+  %58 = vector.concat<0> %56, %57 : vector<32xi8>, vector<32xi8> -> vector<64xi8>
+  %44 = vector.splat %25 : vector<64xi8>
+  %45 = vector.minui %8, %28 : vector<64xi8>
+  %46 = vector.minui %58, %31 : vector<64xi8>
+  %47 = vector.minui %33, %35 : vector<64xi8>
+  %48 = vector.minui %37, %39 : vector<64xi8>
+  %49 = vector.minui %41, %43 : vector<64xi8>
+  %50 = vector.minui %45, %46 : vector<64xi8>
+  %51 = vector.minui %47, %48 : vector<64xi8>
+  %52 = vector.minui %49, %44 : vector<64xi8>
+  %53 = vector.minui %50, %51 : vector<64xi8>
+  %54 = vector.minui %53, %52 : vector<64xi8>
+  %result = vector.reduce<minui> %54, %initial : vector<64xi8>, i8
+  func.return %result : i8
+}
+
+// ====
+
+// RUN: pass target-legalize{mode=final}
+
+aie2p.target<core> @target
+
+func.def target(@target) @sum_i32x7_load(%input: buffer) -> (i32) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<7xi32>
+  %values = vector.load %view[0] : view<7xi32> -> vector<7xi32>
+  %initial = scalar.constant 3 : i32
+  %result = vector.reduce<addi> %values, %initial : vector<7xi32>, i32
+  func.return %result : i32
+}
+
+// ----
+aie2p.target<core> @target
+
+func.def target(@target) @sum_i32x7_load(%input: buffer) -> (i32) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<7xi32>
+  %8 = vector.load %view[0] : view<7xi32> -> vector<4xi32>
+  %9 = view.load %view[4] : view<7xi32> -> i32
+  %10 = view.load %view[5] : view<7xi32> -> i32
+  %11 = view.load %view[6] : view<7xi32> -> i32
+  %initial = scalar.constant 3 : i32
+  %14 = scalar.addi %9, %10 : i32
+  %15 = scalar.addi %14, %11 : i32
+  %16 = vector.constant 0 : vector<4xi32>
+  %17 = vector.insert %15 into %16[0] : i32, vector<4xi32>
+  %18 = vector.addi %8, %17 : vector<4xi32>
+  %result = vector.reduce<addi> %18, %initial : vector<4xi32>, i32
+  func.return %result : i32
+}
+
+// ====
+
+// RUN: pass target-legalize{mode=final}
+
+aie2p.target<core> @target
+
+func.def target(@target) @multiply_i8x63_load(%input: buffer) -> (i8) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<63xi8>
+  %values = vector.load %view[0] : view<63xi8> -> vector<63xi8>
+  %initial = scalar.constant 3 : i8
+  %result = vector.reduce<muli> %values, %initial : vector<63xi8>, i8
+  func.return %result : i8
+}
+
+// ----
+aie2p.target<core> @target
+
+func.def target(@target) @multiply_i8x63_load(%input: buffer) -> (i8) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<63xi8>
+  %initial = scalar.constant 3 : i8
+  %8 = index.constant 0 : index
+  %9 = index.constant 63 : index
+  %10 = index.constant 1 : index
+  %result = scf.for %11 = [%8 to %9 step %10](%12 = %initial : i8) -> (i8) {
+    %14 = view.load %view[%11] : view<63xi8> -> i8
+    %17 = scalar.muli %12, %14 : i8
+    scf.yield %17 : i8
+  }
+  func.return %result : i8
+}
+
+// ====
+
+// RUN: pass target-legalize{mode=final}
+
+aie2p.target<core> @target
+
+func.def target(@target) @minimum_unsigned_i8x4095_load(%input: buffer) -> (i8) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<4095xi8>
+  %values = vector.load %view[0] : view<4095xi8> -> vector<4095xi8>
+  %initial = scalar.constant 1 : i8
+  %result = vector.reduce<minui> %values, %initial : vector<4095xi8>, i8
+  func.return %result : i8
+}
+
+// ----
+aie2p.target<core> @target
+
+func.def target(@target) @minimum_unsigned_i8x4095_load(%input: buffer) -> (i8) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<4095xi8>
+  %initial = scalar.constant 1 : i8
+  %8 = index.constant 0 : index
+  %9 = index.constant 4032 : index
+  %10 = index.constant 64 : index
+  %13 = scf.for %11 = [%8 to %9 step %10](%12 = %initial : i8) -> (i8) {
+    %14 = vector.load %view[%11] : view<4095xi8> -> vector<64xi8>
+    %15 = vector.reduce<minui> %14, %12 : vector<64xi8>, i8
+    scf.yield %15 : i8
+  }
+  %18 = vector.load %view[4032] : view<4095xi8> -> vector<32xi8>
+  %19 = vector.load %view[4064] : view<4095xi8> -> vector<16xi8>
+  %20 = view.load %view[4080] : view<4095xi8> -> i8
+  %38 = vector.splat %20 : vector<32xi8>
+  %21 = view.load %view[4081] : view<4095xi8> -> i8
+  %39 = vector.insert %21 into %38[0] : i8, vector<32xi8>
+  %22 = view.load %view[4082] : view<4095xi8> -> i8
+  %40 = vector.splat %22 : vector<32xi8>
+  %23 = view.load %view[4083] : view<4095xi8> -> i8
+  %41 = vector.insert %23 into %40[0] : i8, vector<32xi8>
+  %24 = view.load %view[4084] : view<4095xi8> -> i8
+  %42 = vector.splat %24 : vector<32xi8>
+  %25 = view.load %view[4085] : view<4095xi8> -> i8
+  %43 = vector.insert %25 into %42[0] : i8, vector<32xi8>
+  %26 = view.load %view[4086] : view<4095xi8> -> i8
+  %44 = vector.splat %26 : vector<32xi8>
+  %27 = view.load %view[4087] : view<4095xi8> -> i8
+  %45 = vector.insert %27 into %44[0] : i8, vector<32xi8>
+  %28 = view.load %view[4088] : view<4095xi8> -> i8
+  %46 = vector.splat %28 : vector<32xi8>
+  %29 = view.load %view[4089] : view<4095xi8> -> i8
+  %47 = vector.insert %29 into %46[0] : i8, vector<32xi8>
+  %30 = view.load %view[4090] : view<4095xi8> -> i8
+  %48 = vector.splat %30 : vector<32xi8>
+  %31 = view.load %view[4091] : view<4095xi8> -> i8
+  %49 = vector.insert %31 into %48[0] : i8, vector<32xi8>
+  %32 = view.load %view[4092] : view<4095xi8> -> i8
+  %50 = vector.splat %32 : vector<32xi8>
+  %33 = view.load %view[4093] : view<4095xi8> -> i8
+  %51 = vector.insert %33 into %50[0] : i8, vector<32xi8>
+  %34 = view.load %view[4094] : view<4095xi8> -> i8
+  %37 = vector.concat<0> %19, %19 : vector<16xi8>, vector<16xi8> -> vector<32xi8>
+  %52 = vector.splat %34 : vector<32xi8>
+  %53 = vector.minui %18, %37 : vector<32xi8>
+  %54 = vector.minui %39, %41 : vector<32xi8>
+  %55 = vector.minui %43, %45 : vector<32xi8>
+  %56 = vector.minui %47, %49 : vector<32xi8>
+  %57 = vector.minui %51, %52 : vector<32xi8>
+  %58 = vector.minui %53, %54 : vector<32xi8>
+  %59 = vector.minui %55, %56 : vector<32xi8>
+  %60 = vector.minui %58, %59 : vector<32xi8>
+  %61 = vector.minui %60, %57 : vector<32xi8>
+  %result = vector.reduce<minui> %61, %13 : vector<32xi8>, i8
+  func.return %result : i8
+}
+
+// ====
+
+// RUN: pass target-legalize{mode=final}
+
+aie2p.target<core> @target
+
+func.def target(@target) @bf16x31_shared_extrema_load(%input: buffer) -> (bf16, bf16) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<31xbf16>
+  %values = vector.load %view[0] : view<31xbf16> -> vector<31xbf16>
+  %minimum_initial = scalar.constant 3.0 : bf16
+  %minimum = vector.reduce<minnumf, reassoc|nnan|nsz> %values, %minimum_initial : vector<31xbf16>, bf16
+  %maximum_initial = scalar.constant -3.0 : bf16
+  %maximum = vector.reduce<maximumf, reassoc|nnan|nsz> %values, %maximum_initial : vector<31xbf16>, bf16
+  func.return %minimum, %maximum : bf16, bf16
+}
+
+// ----
+aie2p.target<core> @target
+
+func.def target(@target) @bf16x31_shared_extrema_load(%input: buffer) -> (bf16, bf16) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<31xbf16>
+  %11 = vector.load %view[0] : view<31xbf16> -> vector<16xbf16>
+  %12 = vector.load %view[16] : view<31xbf16> -> vector<8xbf16>
+  %13 = view.load %view[24] : view<31xbf16> -> bf16
+  %23 = vector.splat %13 : vector<16xbf16>
+  %46 = vector.splat %13 : vector<16xbf16>
+  %14 = view.load %view[25] : view<31xbf16> -> bf16
+  %24 = vector.insert %14 into %23[0] : bf16, vector<16xbf16>
+  %47 = vector.insert %14 into %46[0] : bf16, vector<16xbf16>
+  %15 = view.load %view[26] : view<31xbf16> -> bf16
+  %25 = vector.splat %15 : vector<16xbf16>
+  %48 = vector.splat %15 : vector<16xbf16>
+  %16 = view.load %view[27] : view<31xbf16> -> bf16
+  %26 = vector.insert %16 into %25[0] : bf16, vector<16xbf16>
+  %49 = vector.insert %16 into %48[0] : bf16, vector<16xbf16>
+  %17 = view.load %view[28] : view<31xbf16> -> bf16
+  %27 = vector.splat %17 : vector<16xbf16>
+  %50 = vector.splat %17 : vector<16xbf16>
+  %18 = view.load %view[29] : view<31xbf16> -> bf16
+  %28 = vector.insert %18 into %27[0] : bf16, vector<16xbf16>
+  %51 = vector.insert %18 into %50[0] : bf16, vector<16xbf16>
+  %19 = view.load %view[30] : view<31xbf16> -> bf16
+  %minimum_initial = scalar.constant 3.0 : bf16
+  %45 = vector.concat<0> %12, %12 : vector<8xbf16>, vector<8xbf16> -> vector<16xbf16>
+  %52 = vector.splat %19 : vector<16xbf16>
+  %53 = vector.minnumf<reassoc|nnan|nsz> %11, %45 : vector<16xbf16>
+  %54 = vector.minnumf<reassoc|nnan|nsz> %47, %49 : vector<16xbf16>
+  %55 = vector.minnumf<reassoc|nnan|nsz> %51, %52 : vector<16xbf16>
+  %56 = vector.minnumf<reassoc|nnan|nsz> %53, %54 : vector<16xbf16>
+  %57 = vector.minnumf<reassoc|nnan|nsz> %56, %55 : vector<16xbf16>
+  %minimum = vector.reduce<minnumf, reassoc|nnan|nsz> %57, %minimum_initial : vector<16xbf16>, bf16
+  %maximum_initial = scalar.constant -3.0 : bf16
+  %22 = vector.concat<0> %12, %12 : vector<8xbf16>, vector<8xbf16> -> vector<16xbf16>
+  %29 = vector.splat %19 : vector<16xbf16>
+  %30 = vector.maximumf<reassoc|nnan|nsz> %11, %22 : vector<16xbf16>
+  %31 = vector.maximumf<reassoc|nnan|nsz> %24, %26 : vector<16xbf16>
+  %32 = vector.maximumf<reassoc|nnan|nsz> %28, %29 : vector<16xbf16>
+  %33 = vector.maximumf<reassoc|nnan|nsz> %30, %31 : vector<16xbf16>
+  %34 = vector.maximumf<reassoc|nnan|nsz> %33, %32 : vector<16xbf16>
+  %maximum = vector.reduce<maximumf, reassoc|nnan|nsz> %34, %maximum_initial : vector<16xbf16>, bf16
+  func.return %minimum, %maximum : bf16, bf16
+}
+
+// ====
+
+// RUN: pass target-legalize{mode=final}
+
+aie2p.target<core> @target
+
+func.def target(@target) @sum_f32x31_load(%input: buffer) -> (f32) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<31xf32>
+  %values = vector.load %view[0] : view<31xf32> -> vector<31xf32>
+  %initial = scalar.constant -0.0 : f32
+  %result = vector.reduce<addf, reassoc> %values, %initial : vector<31xf32>, f32
+  func.return %result : f32
+}
+
+// ----
+aie2p.target<core> @target
+
+func.def target(@target) @sum_f32x31_load(%input: buffer) -> (f32) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<31xf32>
+  %8 = vector.load %view[0] : view<31xf32> -> vector<16xf32>
+  %9 = vector.load %view[16] : view<31xf32> -> vector<8xf32>
+  %10 = vector.load %view[24] : view<31xf32> -> vector<4xf32>
+  %11 = view.load %view[28] : view<31xf32> -> f32
+  %12 = view.load %view[29] : view<31xf32> -> f32
+  %13 = view.load %view[30] : view<31xf32> -> f32
+  %initial = scalar.constant -0.0 : f32
+  %16 = vector.constant -0.0 : vector<8xf32>
+  %17 = vector.concat<0> %9, %16 : vector<8xf32>, vector<8xf32> -> vector<16xf32>
+  %18 = vector.constant -0.0 : vector<12xf32>
+  %19 = vector.concat<0> %10, %18 : vector<4xf32>, vector<12xf32> -> vector<16xf32>
+  %20 = scalar.addf<reassoc> %11, %12 : f32
+  %21 = scalar.addf<reassoc> %20, %13 : f32
+  %22 = vector.constant -0.0 : vector<16xf32>
+  %23 = vector.insert %21 into %22[0] : f32, vector<16xf32>
+  %24 = vector.addf<reassoc> %8, %17 : vector<16xf32>
+  %25 = vector.addf<reassoc> %19, %23 : vector<16xf32>
+  %26 = vector.addf<reassoc> %24, %25 : vector<16xf32>
+  %27 = vector.slice %26[0] : vector<16xf32> -> vector<8xf32>
+  %28 = vector.slice %26[8] : vector<16xf32> -> vector<8xf32>
+  %29 = vector.addf<reassoc> %27, %28 : vector<8xf32>
+  %30 = vector.slice %29[0] : vector<8xf32> -> vector<4xf32>
+  %31 = vector.slice %29[4] : vector<8xf32> -> vector<4xf32>
+  %32 = vector.addf<reassoc> %30, %31 : vector<4xf32>
+  %33 = vector.slice %32[0] : vector<4xf32> -> vector<2xf32>
+  %34 = vector.slice %32[2] : vector<4xf32> -> vector<2xf32>
+  %35 = vector.addf<reassoc> %33, %34 : vector<2xf32>
+  %36 = vector.extract %35[0] : vector<2xf32> -> f32
+  %37 = vector.extract %35[1] : vector<2xf32> -> f32
+  %38 = scalar.addf<reassoc> %36, %37 : f32
+  %result = scalar.addf<reassoc> %initial, %38 : f32
+  func.return %result : f32
+}
