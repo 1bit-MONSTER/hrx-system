@@ -421,6 +421,7 @@ loom_cc_library(
     loom::codegen::low::packet
     loom::codegen::low::verify
     loom::error::error_defs
+    loom::error::parameter
     loom::ops::low
     loom::target::arch::amdgpu::encoding
     loom::target::arch::amdgpu::facts

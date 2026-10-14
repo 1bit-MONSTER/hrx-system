@@ -294,6 +294,7 @@ loom_cc_library(
     loom::codegen::low::diagnostics
     loom::codegen::low::function
     loom::error::emitter
+    loom::error::parameter
     loom::ir
     loom::ops::low
     loom::ops::type_registry
@@ -512,6 +513,7 @@ loom_cc_library(
     loom::codegen::low::diagnostics
     loom::codegen::low::frame
     loom::error::emitter
+    loom::error::parameter
     loom::ir
     loom::target::arch::amdgpu::error_defs
     loom::target::arch::amdgpu::hal::kernel_abi
@@ -541,6 +543,7 @@ loom_cc_library(
     loom::codegen::low::storage_layout
     loom::error::emitter
     loom::error::error_defs
+    loom::error::parameter
     loom::ops::type_registry
     loom::target::arch::amdgpu::error_defs
     loom::target::arch::amdgpu::refs::target_refs

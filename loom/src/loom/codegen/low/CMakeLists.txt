@@ -261,6 +261,7 @@ loom_cc_library(
     loom::analysis::symbol_facts
     loom::error::emitter
     loom::error::error_defs
+    loom::error::parameter
     loom::ir
     loom::ops::func_symbol_facts
     loom::ops::low
@@ -468,6 +469,7 @@ loom_cc_library(
     loom::analysis::liveness
     loom::error::emitter
     loom::error::error_defs
+    loom::error::parameter
     loom::ir
     loom::ops::low
   PUBLIC
@@ -742,6 +744,7 @@ loom_cc_library(
     loom::codegen::low::allocation::spill_plan
     loom::codegen::low::allocation::storage
     loom::error::error_defs
+    loom::error::parameter
     loom::ir
     loom::ops::low
     loom::ops::op_defs
@@ -792,6 +795,7 @@ loom_cc_library(
     loom::codegen::low::schedule
     loom::error::emitter
     loom::error::error_defs
+    loom::error::parameter
     loom::ir
     loom::ops::op_defs
     loom::rewrite::materialize
@@ -819,6 +823,7 @@ loom_cc_library(
     loom::codegen::low::allocation::storage
     loom::error::emitter
     loom::error::error_defs
+    loom::error::parameter
     loom::ir
     loom::ops::low
     loom::ops::op_defs
@@ -949,6 +954,7 @@ loom_cc_library(
     loom::codegen::low::schedule
     loom::error::emitter
     loom::error::error_defs
+    loom::error::parameter
   PUBLIC
 )
 
@@ -961,7 +967,7 @@ loom_cc_test(
     ::addressability
     iree::testing::gtest
     iree::testing::gtest_main
-    loom::error::error_defs
+    loom::error::parameter
     loom::ops::test
     loom::target::facts_builder
     loom::target::test::target_record_table
@@ -1287,6 +1293,7 @@ loom_cc_library(
     iree::base
     loom::error::emitter
     loom::error::error_defs
+    loom::error::parameter
     loom::ir
     loom::ops::low
     loom::target::function_version
@@ -1313,6 +1320,7 @@ loom_cc_library(
     iree::base::internal::arena
     loom::error::emitter
     loom::error::error_defs
+    loom::error::parameter
     loom::ir
     loom::ops::global
     loom::ops::low

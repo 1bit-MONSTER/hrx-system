@@ -132,6 +132,7 @@ loom_generated_cc_library(
     loom::analysis::motion_policy
     loom::error::emitter
     loom::error::error_defs
+    loom::error::parameter
     loom::ir
     loom::ir::facts
     loom::ops::op_defs
