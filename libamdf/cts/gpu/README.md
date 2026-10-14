@@ -130,6 +130,16 @@ replace the ordering operation under test. Query-driven compute compositions
 place required SDMA cache operations at each upload/download boundary; explicit
 GCR variants also exercise that stream when the backing permits a no-op.
 
+`SdmaTimestampStreamTest` consumes 16,387 timestamped copies from four reusable
+128-byte slots before one SDMA stream retires. GET_GLOBAL pairs surround each
+copy, a later FENCE publishes a complete record prefix, and CPU-returned
+credits prevent overwriting unread slots. The final credit wait keeps the
+producer live through consumption. Both publication modes have cases; native
+family admission decides which can execute. IDs, raw sample order, full copied
+payloads, untouched guards and source preservation form the oracle. Results
+establish sustained storage reuse, without inferring clock conversion or
+profiling overhead from correctness runs.
+
 PM4/SDMA batches publish four prepared upload/compute/download graphs with one
 publication per queue. Each graph has separate payload, arguments and progress
 records. With a shared transfer queue, SDMA observes one graph's shader

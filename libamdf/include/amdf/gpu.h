@@ -251,6 +251,13 @@ enum amdf_gpu_pm4_format_feature_bits_e {
 /// dword-aligned and never straddle ring wrap. NOP dwords have value zero.
 /// Optional commands and field layouts use the reported format features.
 /// Kernel publication accepts an immutable dword-aligned command stream.
+/// TIMESTAMP_GET_GLOBAL uses three dwords: opcode 13/suboperation 2 followed
+/// by the low and high halves of a 32-byte-aligned destination address. It
+/// writes eight raw GPU-clock bytes after preceding commands complete. The
+/// optional MEMORY_SCOPE feature places SYS (3) at header bits 25:24; other
+/// policy bits remain zero. A separate completion after the sample and the
+/// memory edge's cache actions establish result visibility. Sampling neither
+/// returns a host-correlated time nor supplies a slot-reuse notification.
 /// Device publication requires command stores to be visible at system scope
 /// before the write index is published; a device-scope release alone does not
 /// establish SDMA fetch visibility. The write index and doorbell use aligned

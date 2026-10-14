@@ -143,6 +143,31 @@ Standard AQL dispatch and AND/OR barriers do not imply the optional vendor
 barrier-value packet. A caller using that packet additionally requires
 `AMDF_GPU_AQL_FORMAT_FEATURE_BARRIER_VALUE` in the family's `format_features`.
 
+## SDMA queue observations
+
+An admitted SDMA format-1 queue can write raw `TIMESTAMP_GET_GLOBAL` samples
+into caller-owned device-writable storage. The caller brackets its intended
+commands with samples and puts the payload's release and completion after the
+ending sample. The reader observes that completion and applies the queried
+memory edge before reading. Timestamp bytes themselves are not a publication
+flag, and command-ring consumption does not make a sample ready.
+
+A runtime can reuse a fixed number of sample slots while execution continues.
+The producer waits for each slot's returned credit before writing it. A
+separate ordered publication word identifies complete records; the consumer
+returns credit only after copying them. This protocol lives in the caller's
+command stream and memory layout. libamdf owns no query pool, result collector,
+record cursor or sample lifetime, and ordinary submission adds no profiling
+work. USER and KERNEL publication retain their native queue contracts.
+
+These are raw GPU ticks. The current API exposes no GPU rate or CPU correlation
+query; inferring a rate from the graphics IP or borrowing an XDNA/KMT frequency
+would give the samples an unsupported meaning. The [SDMA timing
+reference](../../docs/reference/amd/gpu/sdma/timing.md) describes native clock
+sources, sample placement, publication and instrumentation effects. A sample
+pair can include drains and cache work, and its difference is not a measurement
+of the host cost of submitting the commands.
+
 ## Fixed private memory
 
 AQL kernels declare their private-segment requirement in compiler-produced
