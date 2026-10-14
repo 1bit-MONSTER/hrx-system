@@ -26,6 +26,15 @@ without an implicit local device or fallback. Fixed backing works without
 virtual-memory support; elastic backing demand-commits retained slabs on
 drivers that provide it.
 
+Generic URI parameters request immutable device runtime services. For example,
+`--device=amdgpu:?feedback` uses the default AMDGPU device and provisions the
+diagnostic channel used by authored kernel assertions. The parameters are
+additive: `?feedback&asan` and `?feedback&asan&tsan` are both valid. `asan` and
+`tsan` provision address- and race-sanitizer state and the report transport each
+requires; explicit `feedback` also enables general authored diagnostics.
+Unsupported services fail during device creation. Address-sanitized devices
+require fixed backing.
+
 `/healthz` and `/readyz` report server availability, independently of model
 preparation. `/v1/status` reports each registration's state and diagnostics;
 `/v1/models` lists prepared deployments and their client capabilities. Empty

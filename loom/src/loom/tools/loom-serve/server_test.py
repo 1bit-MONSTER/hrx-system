@@ -41,6 +41,28 @@ class ServerTest(unittest.TestCase):
                 self.assertIn("--device is required", result.stderr)
                 self.assertNotIn('"event":"ready"', result.stderr)
 
+    def test_device_uri_runtime_services_fail_before_listening(self):
+        cases = (
+            ("task:?feedback&asan&tsan", "feature flags 0x7"),
+            ("task://?feedback=enabled", "does not accept a value"),
+        )
+        for device, diagnostic in cases:
+            with self.subTest(device=device):
+                result = subprocess.run(
+                    [
+                        str(SERVER),
+                        f"--device={device}",
+                        "--pool_backing=fixed",
+                        "--workers=1",
+                        "--listen=127.0.0.1:0",
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertIn(diagnostic, result.stderr)
+                self.assertNotIn('"event":"ready"', result.stderr)
+
     def test_shared_byte_limit_requires_one_device(self):
         result = subprocess.run(
             [

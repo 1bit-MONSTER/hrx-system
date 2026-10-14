@@ -284,7 +284,7 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
 
   void SetUp() override {
     const loom_serve_device_options_t options = {
-        .uri = IREE_SV("amdgpu"),
+        .uri = IREE_SV("amdgpu:?feedback"),
         .backing = GetParam() ? LOOM_SERVE_DEVICE_BACKING_ELASTIC
                               : LOOM_SERVE_DEVICE_BACKING_FIXED,
         .slab_size = kSlabBytes,
