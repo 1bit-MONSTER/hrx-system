@@ -1958,7 +1958,9 @@ iree_status_t iree_hal_amdgpu_logical_device_create(
   *out_device = NULL;
 
   IREE_RETURN_AND_END_ZONE_IF_ERROR(
-      z0, iree_hal_device_create_params_verify(create_params),
+      z0,
+      iree_hal_device_create_params_verify_runtime_features(
+          create_params, IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAGS_KNOWN),
       "verifying device creation parameters");
 
   const iree_hal_hostcall_provider_t* hostcall_provider = NULL;

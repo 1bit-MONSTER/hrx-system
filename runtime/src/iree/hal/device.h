@@ -79,7 +79,8 @@ typedef uint64_t iree_hal_device_runtime_feature_flags_t;
 enum iree_hal_device_runtime_feature_flag_bits_e {
   // No optional runtime services are requested.
   IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_NONE = 0ull,
-  // Device-originated feedback events may be emitted by executables.
+  // Device-to-host diagnostics such as authored assertions and UBSAN reports
+  // may be emitted by executables.
   IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_FEEDBACK = 1ull << 0,
   // Address sanitizer support may be required by executables.
   IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_ASAN = 1ull << 1,
@@ -297,6 +298,14 @@ iree_hal_device_create_params_default(void) {
 // HAL backend.
 IREE_API_EXPORT iree_status_t iree_hal_device_create_params_verify(
     const iree_hal_device_create_params_t* params);
+
+// Verifies common device-creation inputs and that every requested runtime
+// feature is implemented by the backend. |supported_runtime_features| is the
+// complete feature set implemented by the concrete device constructor.
+IREE_API_EXPORT iree_status_t
+iree_hal_device_create_params_verify_runtime_features(
+    const iree_hal_device_create_params_t* params,
+    iree_hal_device_runtime_feature_flags_t supported_runtime_features);
 
 // Device's cached view of topology for fast compatibility checks.
 //

@@ -204,6 +204,27 @@ TEST(DeviceCreateParamsTest, VerifyRejectsZeroedParams) {
                         iree_hal_device_create_params_verify(&params));
 }
 
+TEST(DeviceCreateParamsTest, VerifyRuntimeFeaturesAgainstBackendSupport) {
+  iree_hal_device_create_params_t params =
+      iree_hal_device_create_params_default();
+  params.proactor_pool = reinterpret_cast<iree_async_proactor_pool_t*>(1);
+  params.runtime_features = IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_FEEDBACK |
+                            IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_TSAN;
+  IREE_EXPECT_OK(iree_hal_device_create_params_verify_runtime_features(
+      &params, IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_FEEDBACK |
+                   IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_TSAN));
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_UNIMPLEMENTED,
+      iree_hal_device_create_params_verify_runtime_features(
+          &params, IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_FEEDBACK));
+
+  params.runtime_features = 1ull << 63;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_INVALID_ARGUMENT,
+      iree_hal_device_create_params_verify_runtime_features(
+          &params, IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAGS_KNOWN));
+}
+
 class DeviceProfilingTest : public ::testing::Test {
  protected:
   void SetUp() override {

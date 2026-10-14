@@ -170,10 +170,8 @@ iree_status_t iree_hal_amd_xdna_device_create(
     const iree_hal_device_create_params_t* create_params,
     iree_allocator_t host_allocator, iree_hal_device_t** out_device) {
   *out_device = NULL;
-  if (create_params->runtime_features || create_params->next) {
-    return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
-                            "XDNA device has no optional runtime services");
-  }
+  IREE_RETURN_IF_ERROR(iree_hal_device_create_params_verify_runtime_features(
+      create_params, IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_NONE));
   iree_hal_amd_xdna_device_t* device = NULL;
   IREE_RETURN_IF_ERROR(
       iree_allocator_malloc(host_allocator, sizeof(*device), (void**)&device));

@@ -69,6 +69,8 @@ iree_status_t CreateDeviceByPath(
     const iree_hal_device_create_params_t* create_params,
     iree_allocator_t host_allocator, iree_hal_device_t** out_device) {
   EXPECT_TRUE(iree_string_view_equal(device_path, IREE_SV("0")));
+  EXPECT_EQ(create_params->runtime_features,
+            IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAGS_KNOWN);
   EXPECT_EQ(param_count, 1u);
   if (param_count) {
     EXPECT_TRUE(iree_string_view_equal(params[0].key, IREE_SV("columns")));
@@ -323,7 +325,7 @@ TEST(DriverRegistryTest, UsesEveryFactorySlotAndCompactsFirstEntry) {
   }
 }
 
-TEST(DriverRegistryTest, PreservesSchemeThroughListingAndUriCreation) {
+TEST(DriverRegistryTest, PreservesSchemeAndConfigurationThroughUriCreation) {
   Factory factory({{1, IREE_SV("rdna"), IREE_SV("GPU")},
                    {1, IREE_SV("xdna"), IREE_SV("NPU")}});
   ScopedRegistry registry;
@@ -348,15 +350,23 @@ TEST(DriverRegistryTest, PreservesSchemeThroughListingAndUriCreation) {
   auto params = iree_hal_device_create_params_default();
   params.proactor_pool = proactor_pool;
   iree_hal_device_t* device = nullptr;
-  IREE_ASSERT_OK(iree_hal_create_device(registry_, IREE_SV("rdna:0?columns=4"),
-                                        &params, iree_allocator_system(),
-                                        &device));
+  IREE_EXPECT_STATUS_IS(
+      StatusCode::kInvalidArgument,
+      iree_hal_create_device(registry_, IREE_SV("rdna:0?feedback=enabled"),
+                             &params, iree_allocator_system(), &device));
+  EXPECT_EQ(device, nullptr);
+
+  params.runtime_features = IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_FEEDBACK;
+  IREE_ASSERT_OK(
+      iree_hal_create_device(registry_, IREE_SV("rdna:0?asan&columns=4&tsan"),
+                             &params, iree_allocator_system(), &device));
   EXPECT_TRUE(
       iree_string_view_equal(iree_hal_device_id(device), IREE_SV("rdna")));
   iree_hal_device_release(device);
-  IREE_ASSERT_OK(iree_hal_create_device(registry_,
-                                        IREE_SV("xdna://0?columns=4"), &params,
-                                        iree_allocator_system(), &device));
+  params.runtime_features = IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_NONE;
+  IREE_ASSERT_OK(iree_hal_create_device(
+      registry_, IREE_SV("xdna://0?feedback&asan&tsan&columns=4"), &params,
+      iree_allocator_system(), &device));
   EXPECT_TRUE(
       iree_string_view_equal(iree_hal_device_id(device), IREE_SV("xdna")));
   EXPECT_EQ(factory.creation_ids.size(), 1u);

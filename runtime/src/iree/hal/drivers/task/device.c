@@ -267,7 +267,8 @@ iree_status_t iree_hal_task_device_create(
   IREE_TRACE_ZONE_BEGIN(z0);
 
   IREE_RETURN_AND_END_ZONE_IF_ERROR(
-      z0, iree_hal_device_create_params_verify(create_params));
+      z0, iree_hal_device_create_params_verify_runtime_features(
+              create_params, IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_NONE));
 
   IREE_RETURN_AND_END_ZONE_IF_ERROR(
       z0, iree_hal_task_device_check_params(params, queue_count));

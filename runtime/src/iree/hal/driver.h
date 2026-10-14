@@ -147,8 +147,13 @@ IREE_API_EXPORT iree_status_t iree_hal_driver_create_device_by_path(
 // device or type of device. If the path is omitted the driver will select a
 // device based on heuristics, flags, the environment, or a die roll.
 //
-// This is equivalent to performing URI parsing and calling
-// iree_hal_driver_create_device_by_path.
+// The optional bare parameters `feedback`, `asan`, and `tsan` request generic
+// HAL runtime services. `feedback` provisions device-originated diagnostics,
+// including authored assertions. `asan` and `tsan` provision address and race
+// sanitizer state, respectively. They compose with services already requested
+// in |create_params| and are removed before the remaining driver-specific
+// parameters are passed to iree_hal_driver_create_device_by_path. Generic
+// parameters do not accept values; for example, use `?feedback&asan`.
 IREE_API_EXPORT iree_status_t iree_hal_driver_create_device_by_uri(
     iree_hal_driver_t* driver, iree_string_view_t device_uri,
     const iree_hal_device_create_params_t* create_params,

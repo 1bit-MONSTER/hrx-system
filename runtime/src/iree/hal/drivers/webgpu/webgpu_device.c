@@ -205,7 +205,8 @@ iree_status_t iree_hal_webgpu_device_create(
   *out_device = NULL;
 
   IREE_RETURN_AND_END_ZONE_IF_ERROR(
-      z0, iree_hal_device_create_params_verify(create_params));
+      z0, iree_hal_device_create_params_verify_runtime_features(
+              create_params, IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_NONE));
 
   iree_hal_webgpu_device_t* device = NULL;
   iree_host_size_t total_size = sizeof(*device) + identifier.size;
