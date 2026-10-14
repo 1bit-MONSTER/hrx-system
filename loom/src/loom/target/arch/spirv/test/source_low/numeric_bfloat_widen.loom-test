@@ -105,3 +105,44 @@ low.func.def target<spirv.logical.core> abi(shader_entry_point) @replace_bfloat(
   %after_wide = OpFConvert.bf16.f32 %after
   return %before_wide, %after_wide
 }
+
+// ====
+
+// RUN: emit source-low target=spirv:vulkan1.3+bda output=low
+
+// A software BF16 payload needs only a shift and bitcast, without arithmetic
+// on subnormal inputs or native BF16/Int16 capabilities.
+func.def @widen_software_bfloat(%input: bf16) -> (f32) {
+  %wide = scalar.extf %input : bf16 to f32
+  func.return %wide : f32
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @widen_software_bfloat(%input: reg<spirv.id : i32>) -> (reg<spirv.id : f32>) asm {
+  %5 = OpConstant.i32 16 : reg<spirv.id>
+  %6 = OpShiftLeftLogical %input, %5 : reg<spirv.id>
+  %wide = OpBitcast.i32.f32 %6
+  return %wide
+}
+
+// ====
+
+// RUN: emit source-low output=low
+
+// Native BF16 without Int16 or floating-point controls packs through I32.
+spirv.target<vulkan1_3> @target {contract_feature_bits = 2147520518}
+
+func.def target(@target) @widen_native_bfloat_payload(%input: bf16) -> (f32) {
+  %wide = scalar.extf %input : bf16 to f32
+  func.return %wide : f32
+}
+
+// ----
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @widen_native_bfloat_payload(%input: reg<spirv.id : bf16>) -> (reg<spirv.id : f32>) asm {
+  %5 = OpCompositeConstruct.v2bf16 %input, %input : reg<spirv.id>
+  %6 = OpBitcast.v2bf16.i32 %5 : reg<spirv.id>
+  %7 = OpConstant.i32 16 : reg<spirv.id>
+  %8 = OpShiftLeftLogical %6, %7 : reg<spirv.id>
+  %wide = OpBitcast.i32.f32 %8
+  return %wide
+}

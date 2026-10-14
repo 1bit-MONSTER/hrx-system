@@ -143,6 +143,7 @@ iree_py_test(
     "loom.target.arch.spirv.contracts.index_test"
   DEPS
     loom::py::loom::target::arch::spirv::contracts::contracts
+    loom::py::loom::target::arch::spirv::descriptors
     loom::py::loom::target::arch::spirv::features
     loom::py::loom::target::arch::spirv::ordinary_vector_conversion
     loom::py::loom::target::arch::spirv::scalar_alu

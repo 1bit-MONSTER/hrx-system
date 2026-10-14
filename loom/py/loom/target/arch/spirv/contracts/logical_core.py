@@ -43,6 +43,7 @@ from loom.target.arch.spirv.contracts.bfloat import (
     bfloat_carrier_memory_rules,
     bfloat_carrier_to_i16_rule,
     bfloat_narrow_rules,
+    bfloat_widen_rules,
 )
 from loom.target.arch.spirv.contracts.descriptor_rule import (
     descriptor_feature_guards as _feature_guards,
@@ -1508,6 +1509,7 @@ def _conversion_rules() -> tuple[DescriptorRule, ...]:
     ]
     rules.extend(float_width_narrow_rules())
     rules.extend(bfloat_narrow_rules())
+    rules.extend(bfloat_widen_rules())
     rules.append(bfloat_carrier_from_i16_rule())
     rules.append(bfloat_carrier_to_i16_rule())
     rules.extend(float8_narrow_rules())
