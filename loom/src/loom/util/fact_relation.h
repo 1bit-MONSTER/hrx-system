@@ -17,9 +17,9 @@ extern "C" {
 #endif
 
 // Returns the possible signed comparison outcomes for |lhs| relative to
-// |rhs|. Identity, exact integer facts, and retained alias relations are
-// resolved without walking producers or predicates. Unknown or contradictory
-// retained state admits every outcome.
+// |rhs|. Identity, scalar integer facts, retained alias relations, and literal
+// exclusions are resolved without walking producers or predicates. Unknown or
+// contradictory retained state admits every outcome.
 loom_integer_order_outcome_bits_t
 loom_value_fact_table_query_signed_integer_order(
     const loom_value_fact_table_t* table, loom_value_id_t lhs,

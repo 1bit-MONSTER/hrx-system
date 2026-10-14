@@ -82,6 +82,27 @@ class FactRelationTest : public ::testing::Test {
     };
   }
 
+  static loom_predicate_t LiteralPredicate(loom_predicate_kind_t kind,
+                                           loom_value_id_t value,
+                                           int64_t literal) {
+    return {
+        .kind = kind,
+        .arg_count = 2,
+        .arg_tags = {LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_CONST,
+                     LOOM_PRED_ARG_NONE},
+        .reserved = {},
+        .args = {value, literal, 0},
+    };
+  }
+
+  loom_value_id_t BuildConstant(int64_t value) {
+    loom_op_t* op = nullptr;
+    IREE_CHECK_OK(loom_index_constant_build(&builder_, loom_attr_i64(value),
+                                            type_, LOOM_LOCATION_UNKNOWN, &op));
+    IREE_CHECK_OK(loom_value_fact_table_compute_op(&table_, module_, op));
+    return loom_index_constant_result(op);
+  }
+
   loom_value_id_t DefineValue(loom_type_t type) {
     loom_value_id_t value = LOOM_VALUE_ID_INVALID;
     IREE_CHECK_OK(loom_builder_define_value(&builder_, type, &value));
@@ -125,6 +146,104 @@ TEST_F(FactRelationTest, IntegerOrderUsesIdentityAndExactFacts) {
                 &table_, inputs_[1], inputs_[0]),
             LOOM_INTEGER_ORDER_OUTCOME_BIT_GREATER);
   EXPECT_EQ(table_.integer_relations, nullptr);
+}
+
+TEST_F(FactRelationTest, IntegerOrderUsesIntervalsAndNonzeroFacts) {
+  IREE_ASSERT_OK(loom_value_fact_table_define(
+      &table_, inputs_[0], loom_value_facts_make(-16, -1, 1)));
+  IREE_ASSERT_OK(loom_value_fact_table_define(&table_, inputs_[1],
+                                              loom_value_facts_make(0, 16, 1)));
+  EXPECT_EQ(loom_value_fact_table_query_signed_integer_order(
+                &table_, inputs_[0], inputs_[1]),
+            LOOM_INTEGER_ORDER_OUTCOME_BIT_LESS);
+
+  loom_value_facts_t nonzero = loom_value_facts_unknown();
+  nonzero.flags |= LOOM_VALUE_FACT_NON_ZERO;
+  IREE_ASSERT_OK(loom_value_fact_table_define(&table_, inputs_[0], nonzero));
+  IREE_ASSERT_OK(loom_value_fact_table_define(&table_, inputs_[1],
+                                              loom_value_facts_exact_i64(0)));
+  EXPECT_EQ(loom_value_fact_table_query_signed_integer_order(
+                &table_, inputs_[0], inputs_[1]),
+            LOOM_INTEGER_ORDER_OUTCOME_BIT_LESS |
+                LOOM_INTEGER_ORDER_OUTCOME_BIT_GREATER);
+  EXPECT_EQ(table_.integer_relations, nullptr);
+}
+
+TEST_F(FactRelationTest, InteriorLiteralDisequalityRetainsScopedExclusion) {
+  const loom_value_id_t literal = BuildConstant(42);
+  loom_op_t* assume = nullptr;
+  IREE_ASSERT_OK(BuildAssume(
+      {inputs_[0]}, {LiteralPredicate(LOOM_PREDICATE_NE, inputs_[0], 42)},
+      &assume));
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, assume));
+  const loom_value_id_t result = loom_index_assume_results(assume).values[0];
+
+  EXPECT_EQ(loom_value_fact_table_query_signed_integer_order(&table_, result,
+                                                             literal),
+            LOOM_INTEGER_ORDER_OUTCOME_BIT_LESS |
+                LOOM_INTEGER_ORDER_OUTCOME_BIT_GREATER);
+  EXPECT_EQ(loom_value_fact_table_query_signed_integer_order(
+                &table_, inputs_[0], literal),
+            LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL);
+}
+
+TEST_F(FactRelationTest, NonzeroLiteralUsesScalarFactsWithoutRelationState) {
+  const loom_value_id_t zero = BuildConstant(0);
+  loom_op_t* assume = nullptr;
+  IREE_ASSERT_OK(BuildAssume(
+      {inputs_[0]}, {LiteralPredicate(LOOM_PREDICATE_NE, inputs_[0], 0)},
+      &assume));
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, assume));
+  const loom_value_id_t result = loom_index_assume_results(assume).values[0];
+
+  EXPECT_EQ(
+      loom_value_fact_table_query_signed_integer_order(&table_, result, zero),
+      LOOM_INTEGER_ORDER_OUTCOME_BIT_LESS |
+          LOOM_INTEGER_ORDER_OUTCOME_BIT_GREATER);
+  EXPECT_EQ(table_.integer_relations, nullptr);
+}
+
+TEST_F(FactRelationTest, LiteralBoundsStayInScalarFacts) {
+  const loom_value_id_t literal = BuildConstant(42);
+  loom_op_t* assume = nullptr;
+  IREE_ASSERT_OK(BuildAssume(
+      {inputs_[0]}, {LiteralPredicate(LOOM_PREDICATE_LT, inputs_[0], 42)},
+      &assume));
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, assume));
+  const loom_value_id_t result = loom_index_assume_results(assume).values[0];
+
+  EXPECT_EQ(loom_value_fact_table_query_signed_integer_order(&table_, result,
+                                                             literal),
+            LOOM_INTEGER_ORDER_OUTCOME_BIT_LESS);
+  EXPECT_EQ(table_.integer_relations, nullptr);
+}
+
+TEST_F(FactRelationTest, LiteralExclusionsInternAndInheritAsPersistentSets) {
+  std::vector<loom_value_id_t> literals;
+  std::vector<loom_predicate_t> predicates;
+  for (int64_t value = 1; value <= 10; ++value) {
+    literals.push_back(BuildConstant(value));
+    predicates.push_back(
+        LiteralPredicate(LOOM_PREDICATE_NE, inputs_[0], value));
+  }
+  loom_op_t* assume = nullptr;
+  IREE_ASSERT_OK(BuildAssume({inputs_[0]}, predicates, &assume));
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, assume));
+  loom_value_id_t result = loom_index_assume_results(assume).values[0];
+
+  for (int i = 0; i < 32; ++i) {
+    loom_op_t* identity = nullptr;
+    IREE_ASSERT_OK(BuildIdentity(result, &identity));
+    IREE_ASSERT_OK(
+        loom_value_fact_table_compute_op(&table_, module_, identity));
+    result = loom_index_assume_results(identity).values[0];
+  }
+  for (loom_value_id_t literal : literals) {
+    EXPECT_EQ(loom_value_fact_table_query_signed_integer_order(&table_, result,
+                                                               literal),
+              LOOM_INTEGER_ORDER_OUTCOME_BIT_LESS |
+                  LOOM_INTEGER_ORDER_OUTCOME_BIT_GREATER);
+  }
 }
 
 TEST_F(FactRelationTest, SignedRelationsRetainEveryOrientation) {
@@ -188,8 +307,7 @@ TEST_F(FactRelationTest, FloatEqualityDoesNotEnterSignedStore) {
   const loom_value_id_t rhs = DefineValue(f32_type);
   const loom_value_id_t values[] = {lhs, rhs};
   const loom_type_t result_types[] = {f32_type, f32_type};
-  const loom_predicate_t predicate =
-      RelationPredicate(LOOM_PREDICATE_EQ, lhs, rhs);
+  loom_predicate_t predicate = RelationPredicate(LOOM_PREDICATE_EQ, lhs, rhs);
   loom_op_t* assume = nullptr;
   IREE_ASSERT_OK(loom_scalar_assume_build(
       &builder_, values, IREE_ARRAYSIZE(values), &predicate, 1, result_types,
@@ -343,6 +461,62 @@ TEST_F(FactRelationTest, RelationMutationUndefinitionAndScopeReuse) {
   EXPECT_EQ(loom_value_fact_table_query_signed_integer_order(
                 &table_, results.values[0], inputs_[1]),
             LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL);
+}
+
+TEST_F(FactRelationTest, LiteralRelationLifecycleAndTransfer) {
+  const loom_value_id_t literal = BuildConstant(42);
+  loom_predicate_t predicate =
+      LiteralPredicate(LOOM_PREDICATE_NE, inputs_[0], 42);
+  loom_op_t* assume = nullptr;
+  IREE_ASSERT_OK(BuildAssume({inputs_[0]}, {predicate}, &assume));
+  bool changed = false;
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op_and_report(&table_, module_,
+                                                             assume, &changed));
+  EXPECT_TRUE(changed);
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op_and_report(&table_, module_,
+                                                             assume, &changed));
+  EXPECT_FALSE(changed);
+  const loom_value_id_t result = loom_index_assume_results(assume).values[0];
+
+  IREE_ASSERT_OK(loom_index_assume_set_predicates(
+      module_, assume, loom_attr_predicate_list(nullptr, 0)));
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op_and_report(&table_, module_,
+                                                             assume, &changed));
+  EXPECT_TRUE(changed);
+  EXPECT_EQ(loom_value_fact_table_query_signed_integer_order(&table_, result,
+                                                             literal),
+            LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL);
+
+  IREE_ASSERT_OK(loom_index_assume_set_predicates(
+      module_, assume, loom_attr_predicate_list(&predicate, 1)));
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, assume));
+  loom_value_fact_table_undefine(&table_, result);
+  EXPECT_EQ(loom_value_fact_table_query_signed_integer_order(&table_, result,
+                                                             literal),
+            LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL);
+  IREE_ASSERT_OK(loom_value_fact_table_compute_op(&table_, module_, assume));
+
+  const loom_value_id_t selected[] = {result, literal};
+  loom_value_fact_table_t clone = {};
+  IREE_ASSERT_OK(loom_value_fact_table_initialize(&clone, &arena_, 0));
+  IREE_ASSERT_OK(loom_value_fact_table_clone_values(
+      &clone, {&table_, selected, IREE_ARRAYSIZE(selected)}, module_));
+  EXPECT_EQ(
+      loom_value_fact_table_query_signed_integer_order(&clone, result, literal),
+      LOOM_INTEGER_ORDER_OUTCOME_BIT_LESS |
+          LOOM_INTEGER_ORDER_OUTCOME_BIT_GREATER);
+
+  loom_value_fact_table_t seed = {};
+  IREE_ASSERT_OK(loom_value_fact_table_initialize(&seed, &arena_, 0));
+  IREE_ASSERT_OK(loom_value_fact_table_seed_values(
+      &seed, {&table_, selected, IREE_ARRAYSIZE(selected)}, module_));
+  EXPECT_EQ(
+      loom_value_fact_table_query_signed_integer_order(&seed, result, literal),
+      LOOM_INTEGER_ORDER_OUTCOME_BIT_LESS |
+          LOOM_INTEGER_ORDER_OUTCOME_BIT_GREATER);
+
+  loom_value_fact_table_clear_scope(&table_);
+  EXPECT_EQ(table_.integer_relations, nullptr);
 }
 
 TEST_F(FactRelationTest, CloneAndSeedPreserveSelectedRelationScope) {

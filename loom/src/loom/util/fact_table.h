@@ -238,9 +238,10 @@ struct loom_value_fact_table_t {
     iree_host_size_t capacity;
   } identities;
 
-  // Signed pairwise relations carried by scoped SSA aliases. All storage is
-  // allocated lazily in the transient arena; scopes without retained
-  // relations leave this NULL.
+  // Signed relations carried by scoped SSA aliases, including sparse interior
+  // literal exclusions that scalar interval facts cannot represent. All
+  // storage is allocated lazily in the transient arena; scopes without
+  // retained relations leave this NULL.
   loom_value_fact_integer_relations_t* integer_relations;
 
   // Region execution context and optional CFG structure retained by the fact
