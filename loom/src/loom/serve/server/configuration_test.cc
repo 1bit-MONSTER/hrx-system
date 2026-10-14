@@ -205,6 +205,7 @@ TEST_F(ConfigurationTest,
   IREE_ASSERT_OK(Parse(Text()));
   EXPECT_EQ(model_.kind, LOOM_SERVE_MODEL_KIND_TEXT);
   EXPECT_EQ(model_.text.rows, 4u);
+  EXPECT_EQ(model_.text.variant_capacity, 16u);
   EXPECT_EQ(model_.text.admission_overtakes, 4u);
   EXPECT_EQ(model_.text.context_capacity, 16384u);
   EXPECT_EQ(model_.text.pool_capacity, 65536u);
@@ -248,6 +249,15 @@ TEST_F(ConfigurationTest, ImageDefaultsAndSpecializations) {
   EXPECT_EQ(model_.pending_requests, 3u);
 }
 
+TEST_F(ConfigurationTest, VariantCapacityIsExplicitAndTextScoped) {
+  for (unsigned capacity : {0u, 1u, 8u}) {
+    const auto field = ",\"variant_capacity\":" + std::to_string(capacity);
+    IREE_ASSERT_OK(Parse(Text(field)));
+    EXPECT_EQ(model_.text.variant_capacity, capacity);
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT, Parse(Image(field)));
+  }
+}
+
 TEST_F(ConfigurationTest, NativeCapacitiesAreNotOneModelShape) {
   for (unsigned depth = 0; depth <= 7; ++depth) {
     IREE_ASSERT_OK(
@@ -268,6 +278,8 @@ TEST_F(ConfigurationTest, RejectsInvalidAndWrongModalityFields) {
   for (const char* field :
        {R"(,"rows":0)",
         R"(,"rows":17)",
+        R"(,"variant_capacity":-1)",
+        R"(,"variant_capacity":2147483648)",
         R"(,"rows":2,"rows":4)",
         R"(,"draft_depth":8)",
         R"(,"continuation_epochs":2)",

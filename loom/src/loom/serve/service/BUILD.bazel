@@ -17,11 +17,22 @@ loom_cc_library(
     hdrs = ["service.h"],
     deps = [
         ":inspection",
+        ":reconfiguration",
         "//loom/src/loom/serve/runtime/host:wake",
         "//loom/src/loom/serve/telemetry:stream",
         "//loom/src/loom/serve/transport/http:server",
         "//runtime/src/iree/base",
         "//runtime/src/iree/tokenizer",
+    ],
+)
+
+loom_cc_library(
+    name = "reconfiguration",
+    hdrs = ["reconfiguration.h"],
+    deps = [
+        "//loom/src/loom/serve/runtime/program:sources",
+        "//loom/src/loom/serve/runtime/program:variant_pool",
+        "//runtime/src/iree/base",
     ],
 )
 

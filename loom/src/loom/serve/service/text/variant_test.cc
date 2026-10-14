@@ -303,4 +303,302 @@ TEST_P(SourceTextServiceTest, IndependentCandidatesShareOnlyModelResources) {
   EXPECT_EQ(loom_serve_text_row_token(row), oracle.Predict());
 }
 
+// Drives the actual HTTP service owner while compilation and device execution
+// use its normal shared worker pool. Teardown joins accepted work even when a
+// test assertion exits early; callback storage lives through that join.
+class ReconfigurationTextServiceTest : public SourceTextServiceTest {
+ protected:
+  void SetUp() override {
+    SourceTextServiceTest::SetUp();
+    if (HasFatalFailure()) {
+      return;
+    }
+    auto options = ServiceOptions();
+    options.variant_capacity = 6;
+    IREE_ASSERT_OK(loom_serve_text_service_allocate(
+        model_, &options, nullptr, host_allocator_, &service_));
+    interface_ = loom_serve_text_service_interface(service_);
+    configuration_ = interface_.reconfiguration;
+    ASSERT_NE(configuration_.pool, nullptr);
+    original_ = configuration_.selected(configuration_.self);
+    Observe(interface_);
+  }
+
+  void TearDown() override {
+    if (service_) {
+      AdvanceUntil(
+          interface_, [&] { return Idle(); },
+          LOOM_SERVE_HTTP_SERVICE_FLAG_STOPPING);
+      interface_.set_observer(interface_.self, {});
+      loom_serve_text_service_free(service_, IREE_STATUS_OK);
+      IREE_EXPECT_OK(TakeSelectionStatus());
+    }
+    SourceTextServiceTest::TearDown();
+  }
+
+  bool Idle() const {
+    return !interface_.is_pending(interface_.self) &&
+           !interface_.is_active(interface_.self) &&
+           !interface_.snapshot(interface_.self).queued_requests;
+  }
+
+  void Stage(std::string path, loom_serve_variant_id_t base,
+             loom_serve_variant_id_t* out_id) {
+    // Both the locator array and its string disappear before JIT completion.
+    // The service captures inputs instead of borrowing the management request.
+    path = std::filesystem::absolute(path).string();
+    const auto provider = iree_make_cstring_view(path.c_str());
+    const loom_serve_sources_t sources = {.count = 1, .values = &provider};
+    IREE_ASSERT_OK(configuration_.stage_native(configuration_.self, base,
+                                               &sources, out_id));
+  }
+
+  void AwaitCandidates() {
+    AdvanceUntil(interface_, [&] {
+      return !loom_serve_variant_pool_pending(configuration_.pool);
+    });
+  }
+
+  void Select(loom_serve_variant_id_t id) {
+    selection_.called = false;
+    IREE_ASSERT_OK(configuration_.select(
+        configuration_.self, id, configuration_.selected(configuration_.self),
+        Selected, this));
+  }
+
+  iree_status_t TakeSelectionStatus() {
+    const auto status = selection_.status;
+    selection_.status = iree_ok_status();
+    return status;
+  }
+
+  static void Selected(void* user_data, iree_status_t status,
+                       loom_serve_variant_id_t id) {
+    auto* self = static_cast<ReconfigurationTextServiceTest*>(user_data);
+    EXPECT_FALSE(self->selection_.called);
+    self->selection_.status = status;
+    self->selection_.id = id;
+    self->selection_.called = true;
+  }
+
+  // Owned service; the inherited model and transport outlive its retirement.
+  loom_serve_text_service_t* service_ = nullptr;
+  // Borrowed owner callbacks, invoked without a concurrent router owner.
+  loom_serve_http_service_t interface_ = {};
+  // Borrowed modality policy; its pool has no preferred-choice field.
+  loom_serve_reconfiguration_t configuration_ = {};
+  // Initially preferred executable identity, used for explicit rollback.
+  loom_serve_variant_id_t original_ = 0;
+  // Owner-thread terminal selection delivery, alive through TearDown.
+  struct {
+    // Exactly one callback is owed for an accepted selection.
+    bool called = false;
+    // Owned status, consumed by the test or teardown.
+    iree_status_t status = iree_ok_status();
+    // Actual preferred identity after success, failure or cancellation.
+    loom_serve_variant_id_t id = 0;
+  } selection_;
+};
+
+TEST_P(ReconfigurationTextServiceTest,
+       SwitchWaitsForBorrowersAndPreservesHttpSessionAcrossRollback) {
+  const auto unloaded = loom_serve_text_model_weight_activity(model_);
+  const auto path = iree::testing::MakeTempFilePath("service_variant", ".loom");
+  ASSERT_NO_FATAL_FAILURE(EditNativeProvider(directory_ + "/advance.loom", path,
+                                             "scalar.remui %total, %c3_i32",
+                                             "scalar.remui %total, %c1_i32"));
+  loom_serve_variant_id_t id = 0;
+  ASSERT_NO_FATAL_FAILURE(Stage(path, original_, &id));
+  ASSERT_NO_FATAL_FAILURE(AwaitCandidates());
+  loom_serve_variant_snapshot_t snapshot = {};
+  ASSERT_TRUE(
+      loom_serve_variant_pool_snapshot(configuration_.pool, id, &snapshot));
+  ASSERT_EQ(snapshot.phase, LOOM_SERVE_VARIANT_READY);
+  EXPECT_EQ(configuration_.selected(configuration_.self), original_);
+  const auto compiled = loom_serve_text_model_weight_activity(model_);
+  EXPECT_EQ(compiled.read_bytes, unloaded.read_bytes);
+  EXPECT_EQ(compiled.activations, unloaded.activations);
+
+  const std::string prompt = "abxabba";
+  const int first =
+      Send(Request(Message("user", prompt), 4), "X-Loom-Session: first\r\n");
+  loom_serve_http_connection_t* connection = nullptr;
+  ASSERT_NO_FATAL_FAILURE(Accept(first, interface_, &connection));
+  ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface_, [&] {
+    return std::string(interface_.snapshot(interface_.self).phase) == "execute";
+  }));
+  EXPECT_EQ(interface_.telemetry.counters->batches, 0u);
+  // First admission activates a demand-loaded model. Establish the resident
+  // baseline here so the experiment measures replacement, not initial load.
+  const auto weights = loom_serve_text_model_weight_activity(model_);
+  EXPECT_GT(weights.read_bytes, 0u);
+  const int second =
+      Send(Request(Message("user", "baxab"), 3), "X-Loom-Session: second\r\n");
+  const loom_serve_http_request_t* request = nullptr;
+  IREE_ASSERT_OK(http_.TakeRequest(second, &connection, &request));
+  loom_serve::testing::text::OwnerTurn::Run(
+      loom_serve_host_executor(host_), [&] {
+        IREE_ASSERT_OK(
+            interface_.accept(interface_.self, connection, request, 0));
+        EXPECT_EQ(interface_.snapshot(interface_.self).queued_requests, 1u);
+        ASSERT_NO_FATAL_FAILURE(Select(id));
+        EXPECT_FALSE(selection_.called);
+        EXPECT_EQ(configuration_.selected(configuration_.self), original_);
+        bool progress = false;
+        IREE_ASSERT_OK(interface_.advance(interface_.self, 0, &progress));
+        if (GetParam() == 1) {
+          // The accepted CPU task cannot retire while its sole worker runs
+          // this turn, even if the outstanding device epoch is already ready.
+          EXPECT_FALSE(selection_.called);
+          EXPECT_EQ(configuration_.selected(configuration_.self), original_);
+        }
+      });
+  ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface_, [&] { return Idle(); }));
+  ASSERT_TRUE(selection_.called);
+  IREE_ASSERT_OK(TakeSelectionStatus());
+  EXPECT_EQ(selection_.id, id);
+  EXPECT_EQ(Content(Read(first)), "aaaa");
+  EXPECT_EQ(Content(Read(second)), "aaa");
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_FAILED_PRECONDITION,
+      loom_serve_variant_pool_remove(configuration_.pool, id));
+
+  ASSERT_NO_FATAL_FAILURE(Select(original_));
+  ASSERT_NO_FATAL_FAILURE(
+      AdvanceUntil(interface_, [&] { return selection_.called; }));
+  IREE_ASSERT_OK(TakeSelectionStatus());
+  EXPECT_EQ(selection_.id, original_);
+  IREE_ASSERT_OK(loom_serve_variant_pool_remove(configuration_.pool, id));
+  const int resumed = Send(
+      Request(Message("user", prompt) + "," + Message("assistant", "aaaa") +
+                  "," + Message("user", "bx"),
+              2),
+      "X-Loom-Session: first\r\n");
+  ASSERT_NO_FATAL_FAILURE(Accept(resumed, interface_, &connection));
+  ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface_, [&] { return Idle(); }));
+  const auto response = Read(resumed);
+  EXPECT_EQ(Content(response), Oracle::Complete(prompt + "aaaa#bx", 2));
+  EXPECT_NE(response.find(R"("cached_tokens":10)"), std::string::npos)
+      << response;
+  const auto retained = loom_serve_text_model_weight_activity(model_);
+  EXPECT_EQ(retained.read_bytes, weights.read_bytes);
+  EXPECT_EQ(retained.prepared_bytes, weights.prepared_bytes);
+  EXPECT_EQ(retained.activations, weights.activations);
+}
+
+TEST_P(ReconfigurationTextServiceTest,
+       CandidateFailuresAndStaleSelectionsLeaveInferenceHealthy) {
+  const auto changed =
+      iree::testing::MakeTempFilePath("service_choice", ".loom");
+  ASSERT_NO_FATAL_FAILURE(EditNativeProvider(
+      directory_ + "/advance.loom", changed, "scalar.remui %total, %c3_i32",
+      "scalar.remui %total, %c1_i32"));
+  loom_serve_variant_id_t ready = 0, alternative = 0;
+  ASSERT_NO_FATAL_FAILURE(Stage(changed, original_, &ready));
+  ASSERT_NO_FATAL_FAILURE(
+      Stage(directory_ + "/advance.loom", original_, &alternative));
+  loom_serve_variant_id_t failures[2] = {};
+  for (unsigned i = 0; i < 2; ++i) {
+    const auto rejected =
+        iree::testing::MakeTempFilePath("service_rejected", ".loom");
+    ASSERT_NO_FATAL_FAILURE(EditNativeProvider(
+        directory_ + "/advance.loom", rejected,
+        i ? "\"bias\"" : "scalar.remui %total",
+        i ? "\"missing\"" : "scalar.not_an_operation %total"));
+    ASSERT_NO_FATAL_FAILURE(Stage(rejected, original_, &failures[i]));
+  }
+  ASSERT_NO_FATAL_FAILURE(AwaitCandidates());
+  EXPECT_EQ(configuration_.selected(configuration_.self), original_);
+  for (unsigned i = 0; i < 2; ++i) {
+    loom_serve_variant_snapshot_t snapshot = {};
+    ASSERT_TRUE(loom_serve_variant_pool_snapshot(configuration_.pool,
+                                                 failures[i], &snapshot));
+    EXPECT_EQ(snapshot.phase, LOOM_SERVE_VARIANT_FAILED);
+    EXPECT_EQ(snapshot.code, IREE_STATUS_INVALID_ARGUMENT);
+    EXPECT_GT(snapshot.message.size, 0u);
+    if (!i) {
+      EXPECT_GT(snapshot.compilation->diagnostic_count, 0u);
+    }
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_FAILED_PRECONDITION,
+        configuration_.select(configuration_.self, failures[i], original_,
+                              Selected, this));
+  }
+  EXPECT_FALSE(selection_.called);
+  // A request after failed JIT/reflection still executes the unchanged model.
+  const int baseline = Send(Request(Message("user", "baxab"), 3));
+  loom_serve_http_connection_t* connection = nullptr;
+  ASSERT_NO_FATAL_FAILURE(Accept(baseline, interface_, &connection));
+  ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface_, [&] { return Idle(); }));
+  EXPECT_EQ(Content(Read(baseline)), Oracle::Complete("baxab", 3));
+
+  ASSERT_NO_FATAL_FAILURE(Select(ready));
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_FAILED_PRECONDITION,
+                        configuration_.select(configuration_.self, alternative,
+                                              original_, Selected, this));
+  ASSERT_NO_FATAL_FAILURE(
+      AdvanceUntil(interface_, [&] { return selection_.called; }));
+  IREE_ASSERT_OK(TakeSelectionStatus());
+  EXPECT_EQ(selection_.id, ready);
+  // A second author cannot publish over a choice different from its expected
+  // current base. Merely acquiring another choice is not a policy change.
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_FAILED_PRECONDITION,
+                        configuration_.select(configuration_.self, alternative,
+                                              original_, Selected, this));
+  loom_serve_variant_entry_t* pinned = nullptr;
+  IREE_ASSERT_OK(loom_serve_variant_pool_acquire(configuration_.pool,
+                                                 alternative, &pinned));
+  EXPECT_EQ(configuration_.selected(configuration_.self), ready);
+  loom_serve_variant_entry_release(pinned);
+  const int updated = Send(Request(Message("user", "baxab"), 3));
+  ASSERT_NO_FATAL_FAILURE(Accept(updated, interface_, &connection));
+  ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface_, [&] { return Idle(); }));
+  EXPECT_EQ(Content(Read(updated)), "aaa");
+}
+
+TEST_P(ReconfigurationTextServiceTest,
+       StopCancelsSelectionButJoinsAcceptedCompilerBorrow) {
+  loom_serve_variant_id_t id = 0;
+  loom_serve::testing::text::OwnerTurn::Run(
+      loom_serve_host_executor(host_), [&] {
+        ASSERT_NO_FATAL_FAILURE(
+            Stage(directory_ + "/advance.loom", original_, &id));
+        ASSERT_NO_FATAL_FAILURE(Select(original_));
+        bool progress = false;
+        IREE_ASSERT_OK(interface_.advance(
+            interface_.self, LOOM_SERVE_HTTP_SERVICE_FLAG_STOPPING, &progress));
+        EXPECT_TRUE(selection_.called);
+        EXPECT_EQ(selection_.id, original_);
+        IREE_EXPECT_STATUS_IS(IREE_STATUS_CANCELLED, TakeSelectionStatus());
+        if (GetParam() == 1) {
+          EXPECT_TRUE(interface_.is_pending(interface_.self));
+          loom_serve_variant_snapshot_t snapshot = {};
+          ASSERT_TRUE(loom_serve_variant_pool_snapshot(configuration_.pool, id,
+                                                       &snapshot));
+          EXPECT_EQ(snapshot.phase, LOOM_SERVE_VARIANT_COMPILING);
+        }
+      });
+  ASSERT_NO_FATAL_FAILURE(AdvanceUntil(
+      interface_, [&] { return Idle(); },
+      LOOM_SERVE_HTTP_SERVICE_FLAG_STOPPING));
+  loom_serve_variant_snapshot_t snapshot = {};
+  ASSERT_TRUE(
+      loom_serve_variant_pool_snapshot(configuration_.pool, id, &snapshot));
+  EXPECT_EQ(snapshot.phase, LOOM_SERVE_VARIANT_READY);
+  const auto provider = IREE_SV("ignored.loom");
+  const loom_serve_sources_t sources = {.count = 1, .values = &provider};
+  loom_serve_variant_id_t rejected = 0;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_FAILED_PRECONDITION,
+      configuration_.stage_native(configuration_.self, original_, &sources,
+                                  &rejected));
+  EXPECT_EQ(rejected, 0u);
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_FAILED_PRECONDITION,
+                        configuration_.select(configuration_.self, id,
+                                              original_, Selected, this));
+}
+
+INSTANTIATE_TEST_SUITE_P(Workers, ReconfigurationTextServiceTest,
+                         ::testing::Values(1, 4));
+
 }  // namespace

@@ -50,6 +50,29 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "variant_pool",
+    srcs = ["variant_pool.c"],
+    hdrs = ["variant_pool.h"],
+    deps = [
+        ":compilation",
+        "//loom/src/loom/serve/runtime/host:wake",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/threading",
+    ],
+)
+
+loom_cc_test(
+    name = "variant_pool_test",
+    srcs = ["variant_pool_test.cc"],
+    deps = [
+        ":variant_pool",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
     name = "module",
     srcs = ["module.c"],
     hdrs = ["module.h"],

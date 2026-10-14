@@ -24,6 +24,7 @@
 #include "loom/serve/service/text/input.h"
 #include "loom/serve/service/text/packing.h"
 #include "loom/serve/service/text/prefix_cache.h"
+#include "loom/serve/service/text/reconfiguration.h"
 #include "loom/serve/service/text/response.h"
 #include "loom/serve/service/text/schedule.h"
 #include "loom/serve/service/text/session.h"
@@ -77,6 +78,8 @@ struct loom_serve_text_service_t {
   iree_allocator_t host_allocator;
   // Borrowed model residency and its single host execution owner.
   loom_serve_text_model_t* model;
+  // Native choice pool and text policy, joined before model retirement.
+  loom_serve_text_reconfiguration_t* reconfiguration;
   // Borrowed deployment name, independent of the source policy identity.
   iree_string_view_t name;
   // Owned fallback shape for isolated execution.
@@ -1532,6 +1535,7 @@ void loom_serve_text_service_free(loom_serve_text_service_t* service,
   }
   loom_serve_text_stop(service, terminal_code);
   const iree_allocator_t host_allocator = service->host_allocator;
+  loom_serve_text_reconfiguration_free(service->reconfiguration);
   for (iree_host_size_t i = 0; i < service->row_count; ++i) {
     loom_serve_text_session_deinitialize(&service->sessions[i]);
   }
@@ -1614,6 +1618,11 @@ iree_status_t loom_serve_text_service_allocate(
   iree_string_builder_initialize(host_allocator, &service->tool_calls);
   iree_status_t status = loom_serve_text_service_initialize(service, stream);
   if (iree_status_is_ok(status)) {
+    status = loom_serve_text_reconfiguration_allocate(
+        model, options->variant_capacity, host_allocator,
+        &service->reconfiguration);
+  }
+  if (iree_status_is_ok(status)) {
     loom_serve_text_heartbeat_configure(
         &service->heartbeat, service->completion.proactor,
         service->telemetry.stream, &service->telemetry.counters,
@@ -1631,6 +1640,8 @@ static void loom_serve_text_set_observer(void* self,
   iree_slim_mutex_lock(&service->completion.mutex);
   service->completion.observer = observer;
   iree_slim_mutex_unlock(&service->completion.mutex);
+  loom_serve_text_reconfiguration_set_observer(service->reconfiguration,
+                                               observer);
   loom_serve_residency_set_reclaimer(
       loom_serve_text_model_residency(service->model),
       observer.wake
@@ -1644,6 +1655,7 @@ static void loom_serve_text_set_observer(void* self,
 static bool loom_serve_text_is_pending(void* self) {
   loom_serve_text_service_t* service = self;
   return loom_serve_text_has_work(service) ||
+         loom_serve_text_reconfiguration_pending(service->reconfiguration) ||
          loom_serve_text_heartbeat_is_pending(&service->heartbeat);
 }
 
@@ -1760,6 +1772,8 @@ static iree_status_t loom_serve_text_advance_work(
     loom_serve_text_stop(service, service->telemetry.failure_code);
     return iree_ok_status();
   }
+  *out_progress |= loom_serve_text_reconfiguration_advance(
+      service->reconfiguration, /*quiescent=*/true, /*stopping=*/false);
   // Release/suspend controls can free capacity for a stalled generation queue.
   // They run only after the previous epoch relinquishes its retained views.
   if (service->control.connection) {
@@ -1833,6 +1847,9 @@ static iree_status_t loom_serve_text_advance_work(
 static iree_status_t loom_serve_text_advance(
     void* self, loom_serve_http_service_flags_t flags, bool* out_progress) {
   loom_serve_text_service_t* service = self;
+  const bool configuration_progress = loom_serve_text_reconfiguration_advance(
+      service->reconfiguration, /*quiescent=*/false,
+      iree_any_bit_set(flags, LOOM_SERVE_HTTP_SERVICE_FLAG_STOPPING));
   iree_status_t status = loom_serve_text_heartbeat_advance(
       &service->heartbeat,
       iree_any_bit_set(flags, LOOM_SERVE_HTTP_SERVICE_FLAG_STOPPING),
@@ -1844,7 +1861,8 @@ static iree_status_t loom_serve_text_advance(
   iree_status_t work_status =
       loom_serve_text_advance_work(self, flags, &work_progress);
   // A new model failure needs another owner turn to stop a pending timer.
-  *out_progress |= work_progress || !iree_status_is_ok(work_status);
+  *out_progress |= configuration_progress || work_progress ||
+                   !iree_status_is_ok(work_status);
   status = iree_status_join(status, work_status);
   if (!iree_status_is_ok(status)) {
     loom_serve_text_telemetry_fail(&service->telemetry, status);
@@ -1970,6 +1988,8 @@ loom_serve_http_service_t loom_serve_text_service_interface(
       .snapshot = loom_serve_text_snapshot,
       .inspection = {.request_at = loom_serve_text_request_at,
                      .session_at = loom_serve_text_session_at},
+      .reconfiguration =
+          loom_serve_text_reconfiguration_interface(service->reconfiguration),
       .telemetry = {service->telemetry.stream, &service->telemetry.counters},
       .capacity_domain = loom_serve_residency_cache(
           loom_serve_text_model_residency(service->model))};

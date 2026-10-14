@@ -27,6 +27,9 @@ typedef struct loom_serve_text_service_options_t {
   iree_host_size_t default_max_tokens;
   // Positive bound on claimed requests waiting without a model row.
   iree_host_size_t pending_capacity;
+  // Maximum cached executable choices, including the original and pending
+  // compilation attempts. Zero disables native reconfiguration.
+  iree_host_size_t variant_capacity;
   // Successful overtakes permitted per blocked oldest request. Zero is FIFO;
   // deployment configuration defaults to one execution-row cohort.
   iree_host_size_t admission_overtakes;
@@ -117,8 +120,9 @@ loom_serve_http_service_t loom_serve_text_service_interface(
 // terminal failure, unresolved device reservations remain pinned for model
 // destruction; on ordinary completed-boundary shutdown, unused reservations are
 // released. terminal_code is the owner loop's result, including another model's
-// failure. The owner has consumed all CPU, device and heartbeat callbacks,
-// including timer cancellation receipts, before this call. Null is accepted.
+// failure. The owner has consumed all CPU, device, compiler and heartbeat
+// callbacks, including queued selection and timer cancellation receipts, before
+// this call. Null is accepted.
 // The borrowed model and transport both outlive this call.
 void loom_serve_text_service_free(loom_serve_text_service_t* service,
                                   iree_status_code_t terminal_code);

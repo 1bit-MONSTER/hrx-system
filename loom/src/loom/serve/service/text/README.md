@@ -27,6 +27,35 @@ packing shape. It produces bounded spans and optional device-fed continuation
 without allocation or HTTP access. The model program's completed progress is
 authoritative; the service commits that progress only after readiness.
 
+## Executable choices
+
+The [variant pool](../../runtime/program/variant_pool.h) retains independently
+compiled choices and their diagnostics. Construction publishes readiness, not
+execution policy. Explicit consumer borrows protect entries from removal;
+compilation and failure records count against the configured cache capacity.
+IDs are process-lifetime identities and never transfer across registrations.
+
+The text [reconfiguration policy](reconfiguration.h) stages native providers
+against the original model's parameter and state contract. It captures provider
+locators before returning and compiles on the shared task pool while inference
+continues. Both source text and portable bytecode providers use this path.
+Preparation declarations, control VM, tokenizer, shape catalog and retained
+state stay fixed. Reflection checks parameter binding layout; the author remains
+responsible for semantic compatibility of retained bytes.
+
+Selecting a ready choice queues a preferred-policy change with an expected
+current ID. The owner retires accepted CPU and device work before rebinding
+native stages. A failed construction or binding leaves the previous choice
+usable; shutdown cancels queued selections and joins accepted compilation before
+the model can retire. Selection neither reads parameters again nor copies KV
+state. It is a cold table-binding operation, separate from ordinary epoch
+packing and from request-local executable selection.
+
+The pool does not permanently pin the original entry. The text model separately
+retains its bootstrap stage metadata and original commands for parameter
+binding and restoration. Dropping a cached entry releases that entry's ownership,
+not resources still held by the model or its selected native module.
+
 ## Admission and packing
 
 [Packing](packing.h) treats token capacity and independently advancing span

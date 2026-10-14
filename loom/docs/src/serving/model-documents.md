@@ -88,6 +88,7 @@ file. Native capacity fields are:
 | `checkpoint_capacity` | `0` | Explicit pinned endpoint slots, independent of execution rows. |
 | `session_cache_capacity` | `0` | Evictable idle endpoints beyond execution rows; nonzero values also reserve one admission-exchange endpoint. |
 | `prefix_cache_capacity` | `0` | Evictable exact intermediate-prefix endpoints; zero disables capture. |
+| `variant_capacity` | `16` | Retained native executable choices, including pending compilations and failed attempts; zero disables native reconfiguration. |
 | `admission_overtakes` | `rows` | Successful fitting admissions allowed to pass a blocked oldest request; zero selects FIFO. |
 | `max_tokens` | `512` | Default request output limit, from 1 through 16384. |
 | `draft_depth` | `0` | Proposed tokens after each anchor, from 0 through 7; requires matching source support. |

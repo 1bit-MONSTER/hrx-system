@@ -10,6 +10,7 @@
 #include "iree/tokenizer/tokenizer.h"
 #include "loom/serve/runtime/host/wake.h"
 #include "loom/serve/service/inspection.h"
+#include "loom/serve/service/reconfiguration.h"
 #include "loom/serve/telemetry/stream.h"
 #include "loom/serve/transport/http/server.h"
 
@@ -104,6 +105,9 @@ typedef struct loom_serve_http_service_t {
   // Optional bounded metadata queries on the same serialized owner. No task
   // payload or model borrow escapes into an observation response.
   loom_serve_http_inspection_t inspection;
+  // Optional service-owned executable pool and preferred-choice policy. Its
+  // producers and queued selections participate in is_pending retirement.
+  loom_serve_reconfiguration_t reconfiguration;
   // Borrowed shared-capacity owner identity, never dereferenced by the router.
   // Only equal non-NULL identities can provide SHARED_ACTIVITY to each other;
   // NULL means this service has no shared-capacity relationship. The owner

@@ -38,6 +38,33 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    variant_pool
+  HDRS
+    "variant_pool.h"
+  SRCS
+    "variant_pool.c"
+  DEPS
+    ::compilation
+    iree::base
+    iree::base::threading
+    loom::serve::runtime::host::wake
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    variant_pool_test
+  SRCS
+    "variant_pool_test.cc"
+  DEPS
+    ::variant_pool
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_library(
+  NAME
     module
   HDRS
     "module.h"

@@ -29,6 +29,9 @@ typedef struct loom_serve_text_configuration_t {
   iree_host_size_t rows;
   // Successful overtakes per blocked oldest text request; zero is FIFO.
   iree_host_size_t admission_overtakes;
+  // Retained native executable choices, including the original and pending
+  // attempts. Zero disables the reconfiguration capability.
+  iree_host_size_t variant_capacity;
   // Logical context ceiling per row, not eagerly committed storage.
   iree_host_size_t context_capacity;
   // Shared token positions in this model's logical cache pool.

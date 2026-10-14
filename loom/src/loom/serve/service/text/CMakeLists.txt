@@ -87,6 +87,7 @@ loom_cc_library(
     iree::testing::temp_file
     loom::serve::runtime::device
     loom::serve::runtime::host
+    loom::serve::runtime::program::variant_pool
     loom::serve::server::model_registration
     loom::serve::server::registry
     loom::serve::server::router
@@ -454,6 +455,24 @@ loom_cc_library(
   PUBLIC
 )
 
+loom_cc_library(
+  NAME
+    reconfiguration
+  HDRS
+    "reconfiguration.h"
+  SRCS
+    "reconfiguration.c"
+  DEPS
+    ::model
+    iree::base
+    loom::serve::runtime::host::wake
+    loom::serve::runtime::program::compilation
+    loom::serve::runtime::program::sources
+    loom::serve::runtime::program::variant_pool
+    loom::serve::service::reconfiguration
+  PUBLIC
+)
+
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
@@ -473,6 +492,7 @@ loom_cc_library(
     ::model
     ::packing
     ::prefix_cache
+    ::reconfiguration
     ::response
     ::schedule
     ::session

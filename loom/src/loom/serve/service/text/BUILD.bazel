@@ -77,6 +77,7 @@ loom_cc_library(
     deps = [
         "//loom/src/loom/serve/runtime/device",
         "//loom/src/loom/serve/runtime/host",
+        "//loom/src/loom/serve/runtime/program:variant_pool",
         "//loom/src/loom/serve/server:model_registration",
         "//loom/src/loom/serve/server:registry",
         "//loom/src/loom/serve/server:router",
@@ -421,6 +422,21 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "reconfiguration",
+    srcs = ["reconfiguration.c"],
+    hdrs = ["reconfiguration.h"],
+    deps = [
+        ":model",
+        "//loom/src/loom/serve/runtime/host:wake",
+        "//loom/src/loom/serve/runtime/program:compilation",
+        "//loom/src/loom/serve/runtime/program:sources",
+        "//loom/src/loom/serve/runtime/program:variant_pool",
+        "//loom/src/loom/serve/service:reconfiguration",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
     name = "service",
     srcs = ["service.c"],
     hdrs = ["service.h"],
@@ -438,6 +454,7 @@ loom_cc_library(
         ":model",
         ":packing",
         ":prefix_cache",
+        ":reconfiguration",
         ":response",
         ":schedule",
         ":session",

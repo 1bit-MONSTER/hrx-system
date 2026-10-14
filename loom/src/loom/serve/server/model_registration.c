@@ -426,6 +426,7 @@ static iree_status_t loom_serve_text_registration_prepare(
     const loom_serve_text_service_options_t options = {
         .name = configuration->name,
         .row_count = text->rows,
+        .variant_capacity = text->variant_capacity,
         .chunk_size = text->prefill_capacity,
         .default_max_tokens = text->max_tokens,
         .pending_capacity = configuration->pending_requests,

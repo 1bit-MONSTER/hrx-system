@@ -149,12 +149,14 @@ typedef enum definition_field_e {
   DEFINITION_ADMISSION_OVERTAKES,
   DEFINITION_PREFIX_CACHE_CAPACITY,
   DEFINITION_COMMAND_QUANTUM,
+  DEFINITION_VARIANT_CAPACITY,
 } definition_field_t;
 
 static iree_status_t loom_serve_model_configuration_text(
     const configuration_field_t* fields, loom_serve_text_configuration_t* text,
     iree_allocator_t host_allocator) {
   *text = (loom_serve_text_configuration_t){.rows = 4,
+                                            .variant_capacity = 16,
                                             .context_capacity = 16384,
                                             .pool_capacity = 65536,
                                             .prefill_capacity = 512,
@@ -167,6 +169,9 @@ static iree_status_t loom_serve_model_configuration_text(
   IREE_RETURN_IF_ERROR(loom_serve_model_configuration_size(
       &fields[DEFINITION_ROWS], 1, 16, &text->rows));
   text->admission_overtakes = text->rows;
+  IREE_RETURN_IF_ERROR(loom_serve_model_configuration_size(
+      &fields[DEFINITION_VARIANT_CAPACITY], 0, INT32_MAX,
+      &text->variant_capacity));
   IREE_RETURN_IF_ERROR(loom_serve_model_configuration_size(
       &fields[DEFINITION_ADMISSION_OVERTAKES], 0, INT32_MAX,
       &text->admission_overtakes));
@@ -302,9 +307,13 @@ static iree_status_t loom_serve_model_configuration_definition_parse(
       [DEFINITION_PREFIX_CACHE_CAPACITY] =
           {"prefix_cache_capacity", IREE_JSON_VALUE_TYPE_NUMBER,
            .kinds = (1u << LOOM_SERVE_MODEL_KIND_TEXT)},
-      [DEFINITION_COMMAND_QUANTUM] = {
-          "command_quantum", IREE_JSON_VALUE_TYPE_NUMBER,
-          .kinds = (1u << LOOM_SERVE_MODEL_KIND_IMAGE)}};
+      [DEFINITION_COMMAND_QUANTUM] = {"command_quantum",
+                                      IREE_JSON_VALUE_TYPE_NUMBER,
+                                      .kinds =
+                                          (1u << LOOM_SERVE_MODEL_KIND_IMAGE)},
+      [DEFINITION_VARIANT_CAPACITY] = {
+          "variant_capacity", IREE_JSON_VALUE_TYPE_NUMBER,
+          .kinds = (1u << LOOM_SERVE_MODEL_KIND_TEXT)}};
   configuration_fields_t context = {IREE_ARRAYSIZE(fields), fields};
   IREE_RETURN_IF_ERROR(iree_json_enumerate_object_typed(
       value, loom_serve_model_configuration_field_visit, &context));
