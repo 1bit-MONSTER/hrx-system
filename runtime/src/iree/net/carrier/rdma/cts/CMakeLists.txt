@@ -379,6 +379,7 @@ iree_native_test(
 )
 endif()
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_NET_RDMA)
 iree_cc_test(
   NAME
     receive_tests
@@ -387,5 +388,6 @@ iree_cc_test(
     iree::net::cts::receive_tests
     iree::net::rdma::connection_test_main
 )
+endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

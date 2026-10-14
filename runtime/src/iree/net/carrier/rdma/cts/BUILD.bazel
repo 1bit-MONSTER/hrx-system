@@ -321,6 +321,7 @@ iree_executable_test(
 
 iree_runtime_cc_test(
     name = "receive_tests",
+    target_compatible_with = RDMA_COMPATIBILITY,
     deps = [
         ":backend",
         "//runtime/src/iree/net/cts:receive_tests",
