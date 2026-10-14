@@ -39,6 +39,7 @@ constexpr uint32_t kVulkanApiVersion13 =
     (1u << 22) | (3u << 12) | static_cast<uint32_t>(0);
 constexpr uint32_t kVulkanComponentTypeBfloat16Khr = 1000141000;
 constexpr uint32_t kVulkanSubgroupFeatureBallotBit = 0x00000008;
+constexpr uint32_t kVulkanSubgroupFeatureVoteBit = 0x00000002;
 constexpr uint64_t kMaximumWorkgroupLocalMemorySize = 32 * 1024;
 constexpr uint32_t kAmdVendorId = 0x1002;
 constexpr uint32_t kNvidiaVendorId = 0x10DE;
@@ -480,6 +481,10 @@ TEST(LoomcSpirvIreeHalTargetTest, CreatesProfileFromHalFacts) {
       profile.get(), LOOMC_SPIRV_FEATURE_FLOAT64_TO_FLOAT16_CONVERSION,
       &feature_state));
   EXPECT_EQ(feature_state, LOOMC_TARGET_FACT_STATE_TRUE);
+  LOOMC_EXPECT_OK(loomc_spirv_target_profile_query_feature(
+      profile.get(), LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE,
+      &feature_state));
+  EXPECT_EQ(feature_state, LOOMC_TARGET_FACT_STATE_FALSE);
 }
 
 TEST(LoomcSpirvIreeHalTargetTest, DisablesBrokenAmdFloat64ToFloat16Conversion) {
@@ -522,7 +527,8 @@ TEST(LoomcSpirvIreeHalTargetTest, PreservesExtendedCompilerFeatureFamily) {
       enabled_features, kCompleteDeviceSpecFlags, &device_spec,
       /*cooperative_matrix_property_count=*/0,
       /*cooperative_matrix_properties=*/nullptr, kAllFloatControlFlags,
-      /*subgroup_supported_operations=*/kVulkanSubgroupFeatureBallotBit));
+      /*subgroup_supported_operations=*/kVulkanSubgroupFeatureBallotBit |
+          kVulkanSubgroupFeatureVoteBit));
   FakeHalDevice device = {};
   InitializeFakeDevice(device_spec.get(), &device);
   TargetEnvironmentPtr target_environment = CreateSpirvTargetEnvironment();
@@ -551,6 +557,7 @@ TEST(LoomcSpirvIreeHalTargetTest, PreservesExtendedCompilerFeatureFamily) {
       LOOMC_SPIRV_FEATURE_WORKGROUP_FLOAT64_ATOMIC_ADD,
       LOOMC_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE,
       LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT,
+      LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE,
       LOOMC_SPIRV_FEATURE_FLOAT16_64_DENORM_PRESERVE,
       LOOMC_SPIRV_FEATURE_FLOAT16_64_ROUNDING_RTE,
       LOOMC_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE,
@@ -847,10 +854,10 @@ TEST(LoomcSpirvIreeHalTargetTest, ForcedProfilesCheckTheCompleteFeatureFamily) {
       .atomics = IREE_HAL_VULKAN_SHADER_ATOMIC_FEATURE_ALL_RECOGNIZED,
   };
   DeviceSpecPtr rich_spec;
-  IREE_ASSERT_OK(CreateVulkanDeviceSpec(rich_features, kCompleteDeviceSpecFlags,
-                                        &rich_spec, IREE_ARRAYSIZE(properties),
-                                        properties, kAllFloatControlFlags,
-                                        kVulkanSubgroupFeatureBallotBit));
+  IREE_ASSERT_OK(CreateVulkanDeviceSpec(
+      rich_features, kCompleteDeviceSpecFlags, &rich_spec,
+      IREE_ARRAYSIZE(properties), properties, kAllFloatControlFlags,
+      kVulkanSubgroupFeatureBallotBit | kVulkanSubgroupFeatureVoteBit));
   DeviceSpecPtr baseline_spec;
   IREE_ASSERT_OK(CreateVulkanDeviceSpec(
       RequiredVulkanFeatures(), kCompleteDeviceSpecFlags, &baseline_spec));

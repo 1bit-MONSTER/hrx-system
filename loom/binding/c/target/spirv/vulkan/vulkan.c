@@ -537,6 +537,12 @@ static loomc_status_t loomc_spirv_vulkan_query_properties(
                                   VK_SUBGROUP_FEATURE_BALLOT_BIT) != 0,
         LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT,
         loomc_make_cstring_view("vulkan:subgroupSupportedOperations")));
+    LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkan_add_bool_feature(
+        facts,
+        has_group_non_uniform && (subgroup_properties.supportedOperations &
+                                  VK_SUBGROUP_FEATURE_VOTE_BIT) != 0,
+        LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE,
+        loomc_make_cstring_view("vulkan:subgroupSupportedOperations")));
     LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkan_add_limit_fact(
         facts, LOOMC_SPIRV_LIMIT_DEFAULT_SUBGROUP_SIZE,
         subgroup_properties.subgroupSize,

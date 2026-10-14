@@ -115,8 +115,8 @@ from loom.target.arch.spirv.scalar_memory import (  # noqa: E402
     StorageBufferScalar,
 )
 from loom.target.arch.spirv.subgroup import (  # noqa: E402
-    SPIRV_SUBGROUP_BALLOT_INSTRUCTION,
     SPIRV_SUBGROUP_BALLOT_PACKING_INSTRUCTIONS,
+    SPIRV_SUBGROUP_INSTRUCTIONS,
 )
 from loom.target.low_descriptors import (  # noqa: E402
     Descriptor,
@@ -978,7 +978,6 @@ def _ordinary_vector_rows() -> list[_PacketRow]:
 
 
 def _subgroup_rows() -> list[_PacketRow]:
-    row = SPIRV_SUBGROUP_BALLOT_INSTRUCTION
     return [
         _PacketRow(
             row.key,
@@ -988,6 +987,7 @@ def _subgroup_rows() -> list[_PacketRow]:
             operand_types=tuple(_ordinary_vector_instruction_value(operand_type) for operand_type in row.operand_types),
             group_operation_scope="LOOM_SPIRV_SCOPE_SUBGROUP",
         )
+        for row in SPIRV_SUBGROUP_INSTRUCTIONS
     ]
 
 

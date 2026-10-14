@@ -761,7 +761,8 @@ TEST(TargetSpirvVulkanTest, UsesExtensionFeatureStructsBeforeCorePromotion) {
 TEST(TargetSpirvVulkanTest, PreservesExtendedCompilerFeatureFamily) {
   TargetEnvironmentPtr target_environment = CreateSpirvTargetEnvironment();
   MockVulkanDevice device;
-  device.subgroup_operations |= VK_SUBGROUP_FEATURE_BALLOT_BIT;
+  device.subgroup_operations |=
+      VK_SUBGROUP_FEATURE_BALLOT_BIT | VK_SUBGROUP_FEATURE_VOTE_BIT;
   device.denorm_behavior_independence =
       VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_32_BIT_ONLY;
   device.rounding_mode_independence =
@@ -815,6 +816,7 @@ TEST(TargetSpirvVulkanTest, PreservesExtendedCompilerFeatureFamily) {
       LOOMC_SPIRV_FEATURE_WORKGROUP_FLOAT64_ATOMIC_ADD,
       LOOMC_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE,
       LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT,
+      LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE,
       LOOMC_SPIRV_FEATURE_FLOAT16_64_DENORM_PRESERVE,
       LOOMC_SPIRV_FEATURE_FLOAT16_64_ROUNDING_RTE,
       LOOMC_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE,

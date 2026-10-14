@@ -15,6 +15,7 @@ from loom.target.arch.spirv.ordinary_vector import (
     BOOLEAN_ORDINARY_VECTOR_COMPONENT_TYPE,
     OrdinaryVectorComponentType,
     OrdinaryVectorInstruction,
+    OrdinaryVectorInstructionType,
     OrdinaryVectorType,
 )
 from loom.target.arch.spirv.ordinary_vector_integer import (
@@ -47,7 +48,7 @@ class SpirvSubgroupInstruction:
     mnemonic: str
     opcode: str
     packet_form: str
-    result_type: OrdinaryVectorType
+    result_type: OrdinaryVectorInstructionType
     operand_names: tuple[str, ...]
     operand_types: tuple[OrdinaryVectorComponentType, ...]
     feature_atoms: tuple[str, ...]
@@ -70,11 +71,30 @@ SPIRV_SUBGROUP_BALLOT_INSTRUCTION = SpirvSubgroupInstruction(
     key="spirv.op_group_non_uniform_ballot.v4u32",
     mnemonic="OpGroupNonUniformBallot.v4u32",
     opcode="LOOM_SPIRV_OP_GROUP_NON_UNIFORM_BALLOT",
-    packet_form="LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BALLOT",
+    packet_form="LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_UNARY",
     result_type=SPIRV_SUBGROUP_V4U32_TYPE,
     operand_names=("predicate",),
     operand_types=(BOOLEAN_ORDINARY_VECTOR_COMPONENT_TYPE,),
     feature_atoms=("group_non_uniform_ballot",),
+)
+
+SPIRV_SUBGROUP_VOTE_INSTRUCTIONS = tuple(
+    SpirvSubgroupInstruction(
+        key=f"spirv.op_group_non_uniform_{name}.bool",
+        mnemonic=f"OpGroupNonUniform{mnemonic}.bool",
+        opcode=f"LOOM_SPIRV_OP_GROUP_NON_UNIFORM_{name.upper()}",
+        packet_form="LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_UNARY",
+        result_type=BOOLEAN_ORDINARY_VECTOR_COMPONENT_TYPE,
+        operand_names=("predicate",),
+        operand_types=(BOOLEAN_ORDINARY_VECTOR_COMPONENT_TYPE,),
+        feature_atoms=("group_non_uniform_vote",),
+    )
+    for name, mnemonic in (("any", "Any"), ("all", "All"))
+)
+
+SPIRV_SUBGROUP_INSTRUCTIONS = (
+    SPIRV_SUBGROUP_BALLOT_INSTRUCTION,
+    *SPIRV_SUBGROUP_VOTE_INSTRUCTIONS,
 )
 
 

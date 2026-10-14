@@ -472,6 +472,19 @@ FEATURE_ATOMS = (
         required=("vulkan_shader",),
         minimum_spirv_version=SPIRV_VERSION_1_0,
     ),
+    FeatureAtom(
+        key="group_non_uniform_vote",
+        c_suffix="GROUP_NON_UNIFORM_VOTE",
+        name="spirv.group_non_uniform.vote",
+        doc="Boolean votes over active subgroup invocations.",
+        required=("group_non_uniform",),
+        minimum_spirv_version=SPIRV_VERSION_1_3,
+        capabilities=("LOOM_SPIRV_CAPABILITY_GROUP_NON_UNIFORM_VOTE",),
+        opcodes=(
+            "LOOM_SPIRV_OP_GROUP_NON_UNIFORM_ALL",
+            "LOOM_SPIRV_OP_GROUP_NON_UNIFORM_ANY",
+        ),
+    ),
 )
 
 FEATURE_PROFILES = (

@@ -212,8 +212,11 @@ typedef enum loomc_spirv_feature_e {
   /// Native F64-to-F16 conversion satisfies the scalar.fptrunc contract.
   LOOMC_SPIRV_FEATURE_FLOAT64_TO_FLOAT16_CONVERSION = 40,
 
+  /// Boolean votes over active subgroup invocations.
+  LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE = 41,
+
   /// Number of public SPIR-V feature identifiers.
-  LOOMC_SPIRV_FEATURE_COUNT = 41,
+  LOOMC_SPIRV_FEATURE_COUNT = 42,
 } loomc_spirv_feature_t;
 
 /// Bitset of `loomc_spirv_feature_t` values.

@@ -275,6 +275,19 @@ TEST(SpirvTargetProfileTest, SelectsSupportedSubgroupsPerRoot) {
   iree_arena_block_pool_deinitialize(&block_pool);
 }
 
+TEST(SpirvTargetProfileTest, SelectsNativeSubgroupPredicates) {
+  const loom_spirv_target_profile_t* profile = nullptr;
+  IREE_ASSERT_OK(loom_spirv_target_profile_select(
+      IREE_SV("vulkan1.3+bda+subgroup32+ballot+vote+hal"), &profile));
+  EXPECT_EQ(profile->base.target_bundle->snapshot->subgroup_size, 32u);
+  EXPECT_EQ(profile->base.target_bundle->export_plan->abi_kind,
+            LOOM_TARGET_ABI_HAL_KERNEL);
+  EXPECT_TRUE(iree_all_bits_set(
+      profile->base.target_bundle->config->contract_feature_bits,
+      LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT |
+          LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE));
+}
+
 TEST(SpirvTargetProfileTest, RejectsUnknownNamedProfile) {
   const loom_spirv_target_profile_t* profile = nullptr;
   IREE_EXPECT_STATUS_IS(

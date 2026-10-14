@@ -117,8 +117,8 @@ from loom.target.arch.spirv.scalar_memory import (
     StorageBufferScalar,
 )
 from loom.target.arch.spirv.subgroup import (
-    SPIRV_SUBGROUP_BALLOT_INSTRUCTION,
     SPIRV_SUBGROUP_BALLOT_PACKING_INSTRUCTIONS,
+    SPIRV_SUBGROUP_INSTRUCTIONS,
     SpirvSubgroupInstruction,
 )
 from loom.target.low_descriptors import (
@@ -1939,7 +1939,7 @@ SPIRV_LOGICAL_CORE_DESCRIPTOR_SET = DescriptorSet(
             _ordinary_vector_descriptor(row)
             for row in SPIRV_SUBGROUP_BALLOT_PACKING_INSTRUCTIONS
         ),
-        _subgroup_instruction_descriptor(SPIRV_SUBGROUP_BALLOT_INSTRUCTION),
+        *(_subgroup_instruction_descriptor(row) for row in SPIRV_SUBGROUP_INSTRUCTIONS),
         *(_extended_math_descriptor(row) for row in EXTENDED_MATH_INSTRUCTIONS),
         _coordinate_copy_descriptor(),
         _ternary_same_type_descriptor(

@@ -12,6 +12,7 @@ from loom.target.arch.spirv.subgroup import (
     SPIRV_SUBGROUP_U64_TYPE,
     SPIRV_SUBGROUP_V2U32_TYPE,
     SPIRV_SUBGROUP_V4U32_TYPE,
+    SPIRV_SUBGROUP_VOTE_INSTRUCTIONS,
 )
 
 
@@ -48,3 +49,14 @@ def test_ballot_native_types_remain_source_ineligible() -> None:
     assert not SPIRV_SUBGROUP_V4U32_TYPE.component_type.source_types
     assert not SPIRV_SUBGROUP_V2U32_TYPE.component_type.source_types
     assert not SPIRV_SUBGROUP_U64_TYPE.source_types
+
+
+def test_boolean_votes_have_native_capability_and_scalar_result() -> None:
+    assert {row.opcode for row in SPIRV_SUBGROUP_VOTE_INSTRUCTIONS} == {
+        "LOOM_SPIRV_OP_GROUP_NON_UNIFORM_ANY",
+        "LOOM_SPIRV_OP_GROUP_NON_UNIFORM_ALL",
+    }
+    for row in SPIRV_SUBGROUP_VOTE_INSTRUCTIONS:
+        assert row.result_type.suffix == "bool"
+        assert row.operand_types == (row.result_type,)
+        assert row.feature_bits == feature_bits_value(("group_non_uniform_vote",))

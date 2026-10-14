@@ -185,7 +185,8 @@ TEST(TargetSpirvVulkaninfoTest, ImportsGpuinfoProfileWrapper) {
             "subgroupSize": 32,
             "subgroupSupportedOperations": [
               "VK_SUBGROUP_FEATURE_BASIC_BIT",
-              "VK_SUBGROUP_FEATURE_BALLOT_BIT"
+              "VK_SUBGROUP_FEATURE_BALLOT_BIT",
+              "VK_SUBGROUP_FEATURE_VOTE_BIT"
             ]
           },
           "VkPhysicalDeviceVulkan12Properties": {
@@ -302,6 +303,7 @@ TEST(TargetSpirvVulkaninfoTest, ImportsGpuinfoProfileWrapper) {
       LOOMC_SPIRV_FEATURE_WORKGROUP_FLOAT64_ATOMIC_ADD,
       LOOMC_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE,
       LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT,
+      LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE,
       LOOMC_SPIRV_FEATURE_FLOAT16_64_DENORM_PRESERVE,
       LOOMC_SPIRV_FEATURE_FLOAT16_64_ROUNDING_RTE,
       LOOMC_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE,

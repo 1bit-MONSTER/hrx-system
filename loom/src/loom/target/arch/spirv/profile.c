@@ -179,6 +179,19 @@ static const loom_spirv_target_profile_t kSpirvSubgroup32BallotHalProfile = {
         },
 };
 
+static const loom_spirv_target_profile_t kSpirvSubgroup32PredicateHalProfile = {
+    .base =
+        {
+            .type = &loom_spirv_target_profile_type,
+            .target_bundle =
+                &loom_spirv_low_target_bundle_subgroup32_predicate_hal,
+            .explicit_fields =
+                (UINT64_C(1) << LOOM_TARGET_FACT_FIELD_SUBGROUP_SIZE) |
+                (UINT64_C(1) << LOOM_TARGET_FACT_FIELD_ABI) |
+                (UINT64_C(1) << LOOM_TARGET_FACT_FIELD_CONTRACT_FEATURE_BITS),
+        },
+};
+
 void loom_spirv_target_profile_initialize(
     const loom_target_bundle_t* target_bundle,
     loom_target_fact_field_set_t explicit_fields,
@@ -213,12 +226,17 @@ iree_status_t loom_spirv_target_profile_select(
   } else if (iree_string_view_equal(
                  selector, IREE_SV("vulkan1.3+bda+subgroup32+ballot+hal"))) {
     *out_profile = &kSpirvSubgroup32BallotHalProfile;
+  } else if (iree_string_view_equal(
+                 selector,
+                 IREE_SV("vulkan1.3+bda+subgroup32+ballot+vote+hal"))) {
+    *out_profile = &kSpirvSubgroup32PredicateHalProfile;
   } else {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "unknown SPIR-V target selector '%.*s'; expected vulkan1.3+bda, "
-        "vulkan1.3+bda+extended-types, vulkan1.3+bda+hal, or "
-        "vulkan1.3+bda+subgroup32+ballot+hal",
+        "vulkan1.3+bda+extended-types, vulkan1.3+bda+hal, "
+        "vulkan1.3+bda+subgroup32+ballot+hal, or "
+        "vulkan1.3+bda+subgroup32+ballot+vote+hal",
         (int)selector.size, selector.data);
   }
   return iree_ok_status();

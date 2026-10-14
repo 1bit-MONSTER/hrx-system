@@ -54,7 +54,8 @@ enum loom_spirv_packet_form_e {
   LOOM_SPIRV_PACKET_FORM_ATOMIC_FLOAT_CAS = 23,
   LOOM_SPIRV_PACKET_FORM_ATOMIC_FLOAT_COMPARE_EXCHANGE = 24,
   LOOM_SPIRV_PACKET_FORM_EXTENDED_INSTRUCTION = 25,
-  LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BALLOT = 26,
+  // Typed subgroup instruction with one value operand after its scope.
+  LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_UNARY = 26,
 };
 typedef uint8_t loom_spirv_packet_form_t;
 

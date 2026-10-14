@@ -26,6 +26,7 @@
 enum {
   LOOMC_SPIRV_IREE_HAL_VULKAN_COMPONENT_TYPE_BFLOAT16_KHR = 1000141000,
   LOOMC_SPIRV_IREE_HAL_VULKAN_SUBGROUP_FEATURE_BALLOT_BIT = 0x00000008,
+  LOOMC_SPIRV_IREE_HAL_VULKAN_SUBGROUP_FEATURE_VOTE_BIT = 0x00000002,
   // PCI-SIG vendor identifier reported by AMD Vulkan physical devices.
   LOOMC_SPIRV_IREE_HAL_VULKAN_AMD_VENDOR_ID = 0x1002,
   LOOMC_SPIRV_IREE_HAL_VULKAN_API_VERSION_1_3 =
@@ -215,6 +216,13 @@ static const loomc_spirv_iree_hal_feature_row_t
             .required_subgroup_operations =
                 LOOMC_SPIRV_IREE_HAL_VULKAN_SUBGROUP_FEATURE_BALLOT_BIT,
             .feature = LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT,
+            .provenance =
+                "iree-hal:vulkan.device.subgroup_supported_operations",
+        },
+        {
+            .required_subgroup_operations =
+                LOOMC_SPIRV_IREE_HAL_VULKAN_SUBGROUP_FEATURE_VOTE_BIT,
+            .feature = LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE,
             .provenance =
                 "iree-hal:vulkan.device.subgroup_supported_operations",
         },

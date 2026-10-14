@@ -445,9 +445,17 @@ static loomc_status_t loomc_spirv_vulkaninfo_add_subgroup_features(
   LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_flag_feature(
       import, object, key, IREE_SV("VK_SUBGROUP_FEATURE_BALLOT_BIT"),
       &ballot_state));
-  return loomc_spirv_vulkaninfo_add_feature_fact(
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_feature_fact(
       import, LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT,
       loomc_spirv_vulkaninfo_and_fact_states(basic_state, ballot_state),
+      provenance));
+  loomc_target_fact_state_t vote_state = LOOMC_TARGET_FACT_STATE_UNKNOWN;
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_flag_feature(
+      import, object, key, IREE_SV("VK_SUBGROUP_FEATURE_VOTE_BIT"),
+      &vote_state));
+  return loomc_spirv_vulkaninfo_add_feature_fact(
+      import, LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE,
+      loomc_spirv_vulkaninfo_and_fact_states(basic_state, vote_state),
       provenance);
 }
 

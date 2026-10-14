@@ -868,7 +868,7 @@ static iree_status_t loom_spirv_emit_control_barrier_packet(
       row->opcode, instruction_operands, IREE_ARRAYSIZE(instruction_operands));
 }
 
-static iree_status_t loom_spirv_emit_group_non_uniform_ballot_packet(
+static iree_status_t loom_spirv_emit_group_non_uniform_unary_packet(
     loom_spirv_emit_state_t* state, const loom_low_descriptor_packet_t* packet,
     const loom_spirv_packet_row_t* row) {
   loom_spirv_module_value_ref_t operands[1] = {0};
@@ -1010,9 +1010,8 @@ static iree_status_t loom_spirv_emit_descriptor_packet(
                                                                row);
     case LOOM_SPIRV_PACKET_FORM_CONTROL_BARRIER:
       return loom_spirv_emit_control_barrier_packet(state, row);
-    case LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BALLOT:
-      return loom_spirv_emit_group_non_uniform_ballot_packet(state, packet,
-                                                             row);
+    case LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_UNARY:
+      return loom_spirv_emit_group_non_uniform_unary_packet(state, packet, row);
     case LOOM_SPIRV_PACKET_FORM_ATOMIC:
       return loom_spirv_emit_atomic_packet(state, packet, row);
     case LOOM_SPIRV_PACKET_FORM_ATOMIC_COMPARE_EXCHANGE:

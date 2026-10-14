@@ -82,8 +82,8 @@ from loom.target.arch.spirv.scalar_memory import (
     STORAGE_BUFFER_SCALARS,
 )
 from loom.target.arch.spirv.subgroup import (
-    SPIRV_SUBGROUP_BALLOT_INSTRUCTION,
     SPIRV_SUBGROUP_BALLOT_PACKING_INSTRUCTIONS,
+    SPIRV_SUBGROUP_INSTRUCTIONS,
 )
 from loom.target.low_descriptors import (
     AsmResultValueType,
@@ -196,18 +196,17 @@ def test_subgroup_builtins_require_group_non_uniform() -> None:
         )
 
 
-def test_subgroup_ballot_is_convergent_and_capability_guarded() -> None:
+def test_subgroup_instructions_are_convergent_and_capability_guarded() -> None:
     descriptors = {
         descriptor.key: descriptor
         for descriptor in SPIRV_LOGICAL_CORE_DESCRIPTOR_SET.descriptors
     }
-    ballot = descriptors[SPIRV_SUBGROUP_BALLOT_INSTRUCTION.key]
-    assert ballot.feature_mask_words == (
-        feature_bits_value(("group_non_uniform_ballot",)),
-    )
-    assert len(ballot.effects) == 1
-    assert ballot.effects[0].kind is EffectKind.CONVERGENT
-    assert ballot.effects[0].flags == (EffectFlag.ORDERED,)
+    for row in SPIRV_SUBGROUP_INSTRUCTIONS:
+        descriptor = descriptors[row.key]
+        assert descriptor.feature_mask_words == (row.feature_bits,)
+        assert len(descriptor.effects) == 1
+        assert descriptor.effects[0].kind is EffectKind.CONVERGENT
+        assert descriptor.effects[0].flags == (EffectFlag.ORDERED,)
 
 
 def _scalar_recipe(source_type: str) -> AsmResultValueType:
@@ -383,6 +382,7 @@ def test_result_asm_recipes_cover_every_spirv_descriptor_family() -> None:
         *ORDINARY_VECTOR_CONVERSION_INSTRUCTIONS,
         *ORDINARY_VECTOR_BIT_LAYOUT_INSTRUCTIONS,
         *SPIRV_SUBGROUP_BALLOT_PACKING_INSTRUCTIONS,
+        *SPIRV_SUBGROUP_INSTRUCTIONS,
     ):
         component_type = (
             row.result_type.component_type
@@ -409,8 +409,6 @@ def test_result_asm_recipes_cover_every_spirv_descriptor_family() -> None:
                 vector_lane_count=lane_count,
             ),
         )
-
-    add_carrier_only(SPIRV_SUBGROUP_BALLOT_INSTRUCTION.key)
 
     extended_math_recipes = _extended_math_result_recipes()
     assert expected_recipes.keys().isdisjoint(extended_math_recipes)

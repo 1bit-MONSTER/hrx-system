@@ -116,6 +116,22 @@ const loom_target_bundle_t loom_spirv_low_target_bundle_subgroup32_ballot_hal =
         .config = &kSpirvSubgroup32BallotConfig,
 };
 
+static const loom_target_config_t kSpirvSubgroup32PredicateConfig = {
+    .name = IREE_SVL("spirv.logical.core.subgroup32.predicates"),
+    .contract_set_key = IREE_SVL("spirv.logical.core"),
+    .contract_feature_bits = LOOM_SPIRV_FEATURE_PROFILE_VULKAN_1_3_BDA |
+                             LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT |
+                             LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE,
+};
+
+const loom_target_bundle_t
+    loom_spirv_low_target_bundle_subgroup32_predicate_hal = {
+        .name = IREE_SVL("spirv-vulkan1.3-subgroup32-predicate-hal"),
+        .snapshot = &kSpirvVulkan13Subgroup32Snapshot,
+        .export_plan = &kSpirvHalKernelExportPlan,
+        .config = &kSpirvSubgroup32PredicateConfig,
+};
+
 static const loom_target_bundle_t* const kSpirvTargetBundleValues[] = {
     NULL,
     &loom_spirv_low_target_bundle_vulkan1_3,

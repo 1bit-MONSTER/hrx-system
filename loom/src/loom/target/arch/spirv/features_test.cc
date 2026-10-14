@@ -164,6 +164,24 @@ TEST(SpirvFeaturesTest, PreparesSubgroupBallotCapability) {
       ContainsOpcode(feature_set, LOOM_SPIRV_OP_GROUP_NON_UNIFORM_BALLOT));
 }
 
+TEST(SpirvFeaturesTest, PreparesSubgroupVotes) {
+  loom_spirv_feature_set_t feature_set;
+  IREE_ASSERT_OK(loom_spirv_feature_set_prepare(
+      IREE_SV("test.subgroup_vote"),
+      LOOM_SPIRV_FEATURE_PROFILE_VULKAN_1_3_BDA |
+          LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE,
+      &feature_set));
+  EXPECT_TRUE(ContainsCapability(feature_set,
+                                 LOOM_SPIRV_CAPABILITY_GROUP_NON_UNIFORM_VOTE));
+  EXPECT_TRUE(ContainsOpcode(feature_set, LOOM_SPIRV_OP_GROUP_NON_UNIFORM_ALL));
+  EXPECT_TRUE(ContainsOpcode(feature_set, LOOM_SPIRV_OP_GROUP_NON_UNIFORM_ANY));
+  EXPECT_EQ(loom_spirv_feature_bits_with_dependencies(
+                LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE),
+            LOOM_SPIRV_FEATURE_VULKAN_SHADER |
+                LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM |
+                LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE);
+}
+
 TEST(SpirvFeaturesTest, ClosesTransitiveSubgroupBallotDependencies) {
   EXPECT_EQ(loom_spirv_feature_bits_with_dependencies(
                 LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT),

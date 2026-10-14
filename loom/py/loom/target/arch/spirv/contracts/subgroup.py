@@ -21,9 +21,11 @@ from loom.target.arch.spirv.scalar_alu import (
 from loom.target.arch.spirv.subgroup import (
     SPIRV_SUBGROUP_BALLOT_INSTRUCTION,
     SPIRV_SUBGROUP_BALLOT_PACKING_INSTRUCTIONS,
+    SPIRV_SUBGROUP_VOTE_INSTRUCTIONS,
 )
 from loom.target.contracts import (
     ContractCase,
+    DescriptorEmitForm,
     DescriptorResultType,
     DescriptorRule,
     EmitDescriptorOp,
@@ -65,13 +67,13 @@ def _integer_view_descriptor(pair: IntegerAluTypePair) -> Descriptor:
     )
 
 
-def _ballot_emit(mask_type: str) -> tuple[EmitDescriptorOp, ...]:
+def _ballot_emit(mask_type: str, predicate: ValueRef) -> tuple[EmitDescriptorOp, ...]:
     native_mask = ValueRef.temporary("native_mask")
     low_word = ValueRef.temporary("low_word")
     emits = [
         emit_descriptor_op(
             descriptor=_BALLOT,
-            operands={"predicate": ValueRef.operand("predicate")},
+            operands={"predicate": predicate},
             results={"dst": native_mask},
             result_types={"dst": DescriptorResultType()},
         ),
@@ -127,7 +129,9 @@ def _ballot_emit(mask_type: str) -> tuple[EmitDescriptorOp, ...]:
     return tuple(emits)
 
 
-def _ballot_rule(mask_type: str, mask_bit_count: int) -> DescriptorRule:
+def _ballot_rule(
+    mask_type: str, mask_bit_count: int, *, active_mask: bool = False
+) -> DescriptorRule:
     descriptors = (
         _BALLOT,
         _EXTRACT_WORD,
@@ -140,20 +144,70 @@ def _ballot_rule(mask_type: str, mask_bit_count: int) -> DescriptorRule:
             _BITCAST_WORD_PAIR_TO_U64,
             _integer_view_descriptor(_I64_PAIR),
         )
+    predicate = ValueRef.operand("predicate")
+    prefix = ()
+    predicate_guards = (Guard.value_type("predicate", Scalar("i1")),)
+    if active_mask:
+        predicate = ValueRef.temporary("active")
+        predicate_guards = ()
+        constant = logical_core_descriptor("spirv.op_constant_true.bool")
+        descriptors = (*descriptors, constant)
+        prefix = (
+            EmitDescriptorOp(
+                descriptor=constant,
+                results={"dst": predicate},
+                result_types={"dst": DescriptorResultType()},
+                form=DescriptorEmitForm.CONST,
+            ),
+        )
     return DescriptorRule(
-        source_op=kernel.kernel_subgroup_vote_ballot,
+        source_op=(
+            kernel.kernel_subgroup_active_mask
+            if active_mask
+            else kernel.kernel_subgroup_vote_ballot
+        ),
         descriptor=_BALLOT,
         guards=(
-            Guard.value_type("predicate", Scalar("i1")),
+            *predicate_guards,
             Guard.value_type("mask", Scalar(mask_type)),
             Guard.target_subgroup_size_range(1, mask_bit_count),
             *descriptor_feature_guards(*descriptors),
         ),
-        emit=_ballot_emit(mask_type),
+        emit=(*prefix, *_ballot_emit(mask_type, predicate)),
+    )
+
+
+def _vote_rules() -> tuple[DescriptorRule, ...]:
+    return tuple(
+        DescriptorRule(
+            source_op=source,
+            descriptor=descriptor,
+            guards=(
+                Guard.value_type("predicate", Scalar("i1")),
+                Guard.value_type("result", Scalar("i1")),
+                *descriptor_feature_guards(descriptor),
+            ),
+            emit=(
+                emit_descriptor_op(
+                    descriptor=descriptor,
+                    operands={"predicate": ValueRef.operand("predicate")},
+                    results={"dst": ValueRef.result("result")},
+                ),
+            ),
+        )
+        for source, row in zip(
+            (kernel.kernel_subgroup_vote_any, kernel.kernel_subgroup_vote_all),
+            SPIRV_SUBGROUP_VOTE_INSTRUCTIONS,
+            strict=True,
+        )
+        for descriptor in (logical_core_descriptor(row.key),)
     )
 
 
 SPIRV_SUBGROUP_CONTRACT_CASES: tuple[ContractCase, ...] = (
     _ballot_rule("i32", 32),
     _ballot_rule("i64", 64),
+    _ballot_rule("i32", 32, active_mask=True),
+    _ballot_rule("i64", 64, active_mask=True),
+    *_vote_rules(),
 )

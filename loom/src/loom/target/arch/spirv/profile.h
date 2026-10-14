@@ -50,6 +50,7 @@ void loom_spirv_target_profile_initialize(
 // with the HAL kernel entry ABI.
 // "vulkan1.3+bda+subgroup32+ballot+hal" additionally requires a fixed
 // subgroup size of 32 and subgroup ballot operations.
+// "vulkan1.3+bda+subgroup32+ballot+vote+hal" also admits native boolean votes.
 //
 // The returned profile has process lifetime. Named profiles model static API
 // environments; device-discovered profiles may additionally carry dynamic

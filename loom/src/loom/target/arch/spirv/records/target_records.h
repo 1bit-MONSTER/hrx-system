@@ -33,6 +33,11 @@ extern const loom_target_bundle_t loom_spirv_low_target_bundle_hal_kernel;
 extern const loom_target_bundle_t
     loom_spirv_low_target_bundle_subgroup32_ballot_hal;
 
+// Vulkan 1.3 BDA HAL environment requiring subgroup size 32, ballot and vote
+// operations. Supports the complete subgroup predicate family.
+extern const loom_target_bundle_t
+    loom_spirv_low_target_bundle_subgroup32_predicate_hal;
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif
