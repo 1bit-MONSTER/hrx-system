@@ -123,6 +123,8 @@ loom_check_test_suite(
     "scalar_invalid.cxx-test"
     "scalar_templates.cxx-test"
     "scalar_templates_invalid.cxx-test"
+    "scans.cxx-test"
+    "scans_invalid.cxx-test"
     "schedule_lowering.cxx-test"
     "schedules.cxx-test"
     "schedules_invalid.cxx-test"
@@ -175,6 +177,7 @@ loom_check_test_suite(
     "volatile.cxx-test"
     "volatile_invalid.cxx-test"
     "volatile_views.cxx-test"
+    "workgroup_reductions.cxx-test"
     "workload_config.cxx-test"
     "workload_config_invalid.cxx-test"
   DATA
@@ -1115,6 +1118,15 @@ loom_test_module(
     assumptions_module
   SRCS
     "assumptions.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    collective_scans_module
+  SRCS
+    "collective_scans.cxx"
 )
 endif()
 

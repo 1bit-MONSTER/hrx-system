@@ -137,6 +137,8 @@ loom_check_test_suite(
         "scalar_invalid.cxx-test",
         "scalar_templates.cxx-test",
         "scalar_templates_invalid.cxx-test",
+        "scans.cxx-test",
+        "scans_invalid.cxx-test",
         "schedule_lowering.cxx-test",
         "schedules.cxx-test",
         "schedules_invalid.cxx-test",
@@ -189,6 +191,7 @@ loom_check_test_suite(
         "volatile.cxx-test",
         "volatile_invalid.cxx-test",
         "volatile_views.cxx-test",
+        "workgroup_reductions.cxx-test",
         "workload_config.cxx-test",
         "workload_config_invalid.cxx-test",
     ],
@@ -579,6 +582,7 @@ loom_test_module(
     )
     for source in [
         "assumptions",
+        "collective_scans",
         "constant_loops",
         "configured_workgroup_storage",
         "control_flow",

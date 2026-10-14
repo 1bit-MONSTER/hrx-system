@@ -21,18 +21,18 @@
 
 namespace loom::cxx_import {
 
-// Typed source projection of subgroup topology, votes, broadcasts, and
-// reductions. Calls require a kernel or required-inline helper; the translation
+// Typed source projection of kernel topology, votes, broadcasts, reductions,
+// and scans. Calls require a kernel or required-inline helper; the translation
 // driver owns that placement check. Collective participation and convergence
 // remain High semantics, independent of the source spelling or target wave
 // width.
-class SubgroupIntrinsic {
+class KernelCollectiveIntrinsic {
  public:
   static bool supports(std::string_view name);
 
   // Admits one concrete scalar/vector signature. Unknown operations return
   // nullopt; invalid source signatures diagnose at owner.
-  static std::optional<SubgroupIntrinsic> resolve(
+  static std::optional<KernelCollectiveIntrinsic> resolve(
       cxx::TranslationUnit& unit, Diagnostics& diagnostics, Types& types,
       cxx::FunctionSymbol* function, const cxx::Attribute& attribute,
       cxx::AST* owner);
@@ -43,7 +43,7 @@ class SubgroupIntrinsic {
                        loom_builder_t* builder,
                        loom_location_id_t location) const;
 
-  bool equivalent(const SubgroupIntrinsic& other) const;
+  bool equivalent(const KernelCollectiveIntrinsic& other) const;
 
  private:
   enum class Operation {
@@ -57,33 +57,48 @@ class SubgroupIntrinsic {
     ActiveMask,
     Broadcast,
     BroadcastFirst,
-    Reduce,
+    SubgroupReduce,
+    WorkgroupReduce,
+    SubgroupScan,
+    WorkgroupScan,
   };
 
-  struct Reduction {
+  struct Scan {
+    // Inclusive or exclusive prefix, in the High enum representation.
+    uint8_t mode;
+    // Forward or reverse prefix, in the High enum representation.
+    uint8_t direction;
+
+    bool operator==(const Scan& other) const = default;
+  };
+
+  struct Combining {
     // Combining operation applied across the selected lanes.
     loom_combining_kind_t combining_kind;
-    // Static clustered reduction width, or zero when absent.
+    // Static subgroup cluster width, or zero when absent.
     uint32_t cluster_size;
-    // Static clustered reduction lane stride, or zero when absent.
+    // Static subgroup cluster lane stride, or zero when absent.
     uint32_t cluster_stride;
+    // Prefix semantics, present exactly for scan operations.
+    std::optional<Scan> scan;
   };
 
   static std::optional<Operation> find(std::string_view name);
 
-  SubgroupIntrinsic(Operation operation, loom_type_t result_type)
+  KernelCollectiveIntrinsic(Operation operation, loom_type_t result_type)
       : operation_(operation), result_type_(result_type) {}
-  SubgroupIntrinsic(loom_type_t result_type, Reduction reduction)
-      : operation_(Operation::Reduce),
+  KernelCollectiveIntrinsic(Operation operation, loom_type_t result_type,
+                            Combining combining)
+      : operation_(operation),
         result_type_(result_type),
-        reduction_(reduction) {}
+        combining_(combining) {}
 
   // Operation selected once at declaration or template-instance admission.
   Operation operation_;
   // Source-selected scalar or rank-one vector representation.
   loom_type_t result_type_;
-  // Reduction semantics; present exactly when operation_ is Reduce.
-  std::optional<Reduction> reduction_;
+  // Combining semantics; present exactly for reduction and scan operations.
+  std::optional<Combining> combining_;
 };
 
 // An execution rendezvous with explicit memory effects. Unlike subgroup

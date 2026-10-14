@@ -1677,8 +1677,9 @@ class Translator final : private Initialization::Evaluation {
              "check declarations cannot be called from ordinary functions");
       }
       auto* binding = intrinsics_.lookup(function, ast);
-      if (binding && (std::holds_alternative<SubgroupIntrinsic>(*binding) ||
-                      std::holds_alternative<AsyncIntrinsic>(*binding))) {
+      if (binding &&
+          (std::holds_alternative<KernelCollectiveIntrinsic>(*binding) ||
+           std::holds_alternative<AsyncIntrinsic>(*binding))) {
         require_kernel_context(ast);
       }
       if (binding && std::holds_alternative<TargetIntrinsic>(*binding)) {

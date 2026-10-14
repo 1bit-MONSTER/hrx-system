@@ -64,6 +64,7 @@ _MODULES = [
     "assumptions",
     "atomics",
     "boolean_storage",
+    "collective_scans",
     "constant_loops",
     "control_flow",
     "early_returns",
@@ -100,6 +101,9 @@ _MODULES = [
 ]
 
 _XFAILS = {
+    "collective_scans": {
+        "@scan_u64_values": "AMDGPU/023",
+    },
     "vector_values": {},
 }
 

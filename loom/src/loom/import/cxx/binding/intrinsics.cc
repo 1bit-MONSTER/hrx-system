@@ -149,7 +149,8 @@ void Intrinsics::declaration(cxx::FunctionSymbol* function,
                                              owner)) {
       diagnostics_.reject(unit_, owner,
                           "template.apply requires an ordinary function");
-    } else if (SubgroupIntrinsic::supports(selected->arguments[0]->name())) {
+    } else if (KernelCollectiveIntrinsic::supports(
+                   selected->arguments[0]->name())) {
       // Concrete specialization owns source type and template-argument
       // validation. Retain the complete descriptor until those are known.
     } else if (selected->arguments.size() != 1 ||
@@ -270,9 +271,9 @@ Intrinsics::Binding Intrinsics::resolve(cxx::FunctionSymbol* function,
           unit_, diagnostics_, types_, signature, attribute, owner)) {
     return *memory;
   }
-  if (auto subgroup = SubgroupIntrinsic::resolve(unit_, diagnostics_, types_,
-                                                 function, attribute, owner)) {
-    return *subgroup;
+  if (auto collective = KernelCollectiveIntrinsic::resolve(
+          unit_, diagnostics_, types_, function, attribute, owner)) {
+    return *collective;
   }
   if (auto target = TargetIntrinsic::resolve(unit_, diagnostics_, types_,
                                              function, attribute, owner)) {
@@ -461,8 +462,8 @@ IntrinsicCallResult Intrinsics::call(const Binding& admitted,
     fence->call(builder, location);
     return {std::nullopt};
   }
-  if (auto* subgroup = std::get_if<SubgroupIntrinsic>(binding)) {
-    return {Value(subgroup->call(arguments, builder, location))};
+  if (auto* collective = std::get_if<KernelCollectiveIntrinsic>(binding)) {
+    return {Value(collective->call(arguments, builder, location))};
   }
   if (auto* target = std::get_if<TargetIntrinsic>(binding)) {
     return {Value(target->call(builder, location))};

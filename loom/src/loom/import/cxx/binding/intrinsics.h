@@ -86,7 +86,7 @@ class Intrinsics {
                    DecodeIntrinsic, FragmentIntrinsic, BufferIntrinsic,
                    ViewIntrinsic, VectorArithmeticIntrinsic,
                    VectorMemoryIntrinsic, AsyncIntrinsic, AtomicIntrinsic,
-                   FenceIntrinsic, SubgroupIntrinsic, BarrierIntrinsic,
+                   FenceIntrinsic, KernelCollectiveIntrinsic, BarrierIntrinsic,
                    TargetIntrinsic, AssemblyIntrinsic, TemplateApplyIntrinsic,
                    CheckIntrinsic, AddressIntrinsic>;
 
