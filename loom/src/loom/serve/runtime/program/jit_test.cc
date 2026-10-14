@@ -27,6 +27,8 @@
 #include "loom/serve/runtime/device/device.h"
 #include "loom/serve/runtime/execution/execution.h"
 #include "loom/serve/runtime/program/module.h"
+#include "loom/serve/testing/compiler.h"
+#include "loom/serve/testing/device.h"
 
 IREE_FLAG(string, jit_sources, "", "Portable test source catalog.");
 IREE_FLAG(string, invalid_sources, "", "Malformed source catalog.");
@@ -173,11 +175,19 @@ struct Compilation {
 class JitTest : public ::testing::TestWithParam<int> {
  protected:
   void SetUp() override {
-    const loom_serve_device_options_t options = {.uri = IREE_SV("amdgpu")};
     loom_serve_host_t* host = nullptr;
-    IREE_ASSERT_OK(loom_serve_host_create(GetParam(), host_allocator_, &host));
+    IREE_ASSERT_OK(
+        loom_serve_test_host_create(GetParam(), host_allocator_, &host));
+    iree_hal_driver_t* driver = nullptr;
+    IREE_ASSERT_OK(
+        loom_serve_test_driver_create(host, host_allocator_, &driver));
+    const loom_serve_device_options_t options = {
+        .driver = driver,
+        .uri = loom_serve_test_device()->device_uri,
+    };
     auto status = loom_serve_device_group_allocate(host, 1, &options,
                                                    host_allocator_, &group_);
+    iree_hal_driver_release(driver);
     loom_serve_host_release(host);
     IREE_ASSERT_OK(status);
     device_owner_ = loom_serve_device_group_at(group_, 0);
@@ -191,7 +201,8 @@ class JitTest : public ::testing::TestWithParam<int> {
     const loom_serve_sources_t sources = {
         .base_directory = iree_make_cstring_view(directory_.c_str()),
         .count = IREE_ARRAYSIZE(providers),
-        .values = providers};
+        .values = providers,
+    };
     IREE_ASSERT_OK(loom_serve_jit_allocate(
         device_, dispatch_, loom_serve_device_host(device_owner_), &sources,
         nullptr, &compilation_, host_allocator_, &jit_));
@@ -278,9 +289,10 @@ class JitTest : public ::testing::TestWithParam<int> {
         {commands_[0], 1, transients_[0], dispatches_[0]},
         {commands_[1], 1, transients_[1], dispatches_[1]},
     };
-    loom_serve_module_options_t options = {};
-    options.binding_capacity = 1;
-    options.stages = {commands_[1] || dispatches_[1] ? 2u : 1u, stages};
+    loom_serve_module_options_t options = {
+        .binding_capacity = 1,
+        .stages = {commands_[1] || dispatches_[1] ? 2u : 1u, stages},
+    };
     IREE_RETURN_IF_ERROR(loom_serve_module_create(&types_, execution_, options,
                                                   host_allocator_, &native_));
     const std::string path = directory_ + "/control.loom";
@@ -412,8 +424,9 @@ TEST_P(JitTest, SourceDefaultsAndOverridesShareVmAndGpuState) {
       loom_serve_device_storage_pool(device_owner_),
       iree_hal_make_pool_reservation_request(sizeof(input_), 0),
       iree_infinite_timeout(), &buffer_));
-  iree_hal_transfer_operation_t upload = {};
-  upload.type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD;
+  iree_hal_transfer_operation_t upload = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
+  };
   upload.upload.source = input_.data();
   upload.upload.target_buffer = buffer_;
   upload.upload.length = sizeof(input_);
@@ -432,8 +445,9 @@ TEST_P(JitTest, SourceDefaultsAndOverridesShareVmAndGpuState) {
   const iree_hal_buffer_binding_t binding = {buffer_, 0, sizeof(input_)};
   IREE_ASSERT_OK(loom_serve_execution_execute(execution_, commands_[1],
                                               {1, &binding}, &completion));
-  iree_hal_transfer_operation_t download = {};
-  download.type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD;
+  iree_hal_transfer_operation_t download = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
+  };
   download.download.source_buffer = buffer_;
   download.download.target = output_.data();
   download.download.length = sizeof(output_);
@@ -458,11 +472,12 @@ TEST_P(JitTest, SourceFailureOutlivesUnconstructedCatalogAndVm) {
   const loom_serve_sources_t sources = {
       .base_directory = iree_make_cstring_view(directory.c_str()),
       .count = IREE_ARRAYSIZE(providers),
-      .values = providers};
+      .values = providers,
+  };
   auto status = loom_serve_jit_allocate(
       device_, dispatch_, loom_serve_device_host(device_owner_), &sources,
       nullptr, &report, host_allocator_, &invalid);
-  EXPECT_FALSE(iree_status_is_ok(status));
+  EXPECT_NE(iree_status_code(status), IREE_STATUS_OK);
   EXPECT_EQ(invalid, nullptr);
   EXPECT_GT(report.severities[LOOMC_DIAGNOSTIC_SEVERITY_ERROR], 0u);
   ASSERT_GT(report.diagnostic_count, 0u);
@@ -477,12 +492,11 @@ TEST_P(JitTest, SourceFailureOutlivesUnconstructedCatalogAndVm) {
   const iree_string_view_t root = IREE_SVL("broken");
   // More failures than retained slots leave complete severity counters.
   for (size_t i = 0; i < 10; ++i) {
-    iree_const_byte_span_t image = {};
+    iree_const_byte_span_t image = iree_const_byte_span_empty();
     status = loom_serve_jit_compile_vm(&sources, IREE_SV("invalid.loom"), 1,
                                        &root, &report, host_allocator_, &image);
-    EXPECT_FALSE(iree_status_is_ok(status));
+    IREE_EXPECT_NOT_OK(status);
     EXPECT_EQ(image.data, nullptr);
-    iree_status_free(status);
   }
   EXPECT_EQ(report.diagnostic_count, IREE_ARRAYSIZE(report.diagnostics));
   EXPECT_GE(report.severities[LOOMC_DIAGNOSTIC_SEVERITY_ERROR], 11u);
@@ -502,7 +516,8 @@ TEST_P(JitTest, CompletedCatalogsRetireWithoutClosingSharedCompilerQueue) {
   const loom_serve_sources_t sources = {
       .base_directory = iree_make_cstring_view(directory_.c_str()),
       .count = IREE_ARRAYSIZE(providers),
-      .values = providers};
+      .values = providers,
+  };
   IREE_ASSERT_OK(loom_serve_jit_allocate(device_, dispatch_, host, &sources,
                                          nullptr, &peer_report, host_allocator_,
                                          &peer));
@@ -545,9 +560,10 @@ TEST_P(JitTest, CompletedCatalogsRetireWithoutClosingSharedCompilerQueue) {
       loom_serve_device_storage_pool(device_owner_),
       iree_hal_make_pool_reservation_request(sizeof(input_), 0),
       iree_infinite_timeout(), &buffer_));
-  iree_hal_transfer_operation_t upload = {};
-  upload.type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD;
-  upload.upload = {input_.data(), buffer_, 0, sizeof(input_)};
+  iree_hal_transfer_operation_t upload = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
+      .upload = {input_.data(), buffer_, 0, sizeof(input_)},
+  };
   uint64_t completion = 0;
   IREE_ASSERT_OK(
       loom_serve_execution_transfer(execution_, 1, &upload, &completion));
@@ -556,9 +572,10 @@ TEST_P(JitTest, CompletedCatalogsRetireWithoutClosingSharedCompilerQueue) {
     IREE_ASSERT_OK(loom_serve_execution_execute(execution_, command,
                                                 {1, &binding}, &completion));
   }
-  iree_hal_transfer_operation_t download = {};
-  download.type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD;
-  download.download = {buffer_, 0, output_.data(), sizeof(output_)};
+  iree_hal_transfer_operation_t download = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
+      .download = {buffer_, 0, output_.data(), sizeof(output_)},
+  };
   IREE_ASSERT_OK(
       loom_serve_execution_feedback(execution_, 1, &download, &completion));
   IREE_ASSERT_OK(loom_serve_execution_feedback_wait(execution_, completion));
@@ -669,9 +686,10 @@ TEST_P(JitTest, DirectStagesReuseExactInputsAndOutliveCatalog) {
       loom_serve_device_storage_pool(device_owner_),
       iree_hal_make_pool_reservation_request(sizeof(input_), 0),
       iree_infinite_timeout(), &buffer_));
-  iree_hal_transfer_operation_t upload = {};
-  upload.type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD;
-  upload.upload = {input_.data(), buffer_, 0, sizeof(input_)};
+  iree_hal_transfer_operation_t upload = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
+      .upload = {input_.data(), buffer_, 0, sizeof(input_)},
+  };
   uint64_t completion = 0;
   IREE_ASSERT_OK(
       loom_serve_execution_transfer(execution_, 1, &upload, &completion));
@@ -699,9 +717,10 @@ TEST_P(JitTest, DirectStagesReuseExactInputsAndOutliveCatalog) {
     iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
     IREE_ASSERT_OK(status);
   }
-  iree_hal_transfer_operation_t download = {};
-  download.type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD;
-  download.download = {buffer_, 0, output_.data(), sizeof(output_)};
+  iree_hal_transfer_operation_t download = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
+      .download = {buffer_, 0, output_.data(), sizeof(output_)},
+  };
   IREE_ASSERT_OK(
       loom_serve_execution_feedback(execution_, 1, &download, &completion));
   IREE_ASSERT_OK(loom_serve_execution_feedback_wait(execution_, completion));
@@ -752,9 +771,10 @@ TEST_P(JitTest, UnequalPrivateWorkspacesPreservePoolPolicyAndOutput) {
       loom_serve_device_storage_pool(device_owner_),
       iree_hal_make_pool_reservation_request(sizeof(input_), 0),
       iree_infinite_timeout(), &buffer_));
-  iree_hal_transfer_operation_t upload = {};
-  upload.type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD;
-  upload.upload = {input_.data(), buffer_, 0, sizeof(input_)};
+  iree_hal_transfer_operation_t upload = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
+      .upload = {input_.data(), buffer_, 0, sizeof(input_)},
+  };
   uint64_t completion = 0;
   IREE_ASSERT_OK(
       loom_serve_execution_transfer(execution_, 1, &upload, &completion));
@@ -773,9 +793,10 @@ TEST_P(JitTest, UnequalPrivateWorkspacesPreservePoolPolicyAndOutput) {
     IREE_ASSERT_OK(status);
     expected += stage ? 7 : 5;
   }
-  iree_hal_transfer_operation_t download = {};
-  download.type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD;
-  download.download = {buffer_, 0, output_.data(), sizeof(output_)};
+  iree_hal_transfer_operation_t download = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
+      .download = {buffer_, 0, output_.data(), sizeof(output_)},
+  };
   IREE_ASSERT_OK(
       loom_serve_execution_feedback(execution_, 1, &download, &completion));
   IREE_ASSERT_OK(loom_serve_execution_drain(execution_));
@@ -803,8 +824,10 @@ TEST_P(JitTest, UnequalPrivateWorkspacesPreservePoolPolicyAndOutput) {
   // completed-frontier query must recover reuse without a device-wide chain.
   IREE_ASSERT_OK(
       loom_serve_device_create_execution(device_owner_, &held_.execution));
-  const iree_hal_pool_reservation_request_t request = {.allocation_size = 4160,
-                                                       .min_alignment = 16};
+  const iree_hal_pool_reservation_request_t request = {
+      .allocation_size = 4160,
+      .min_alignment = 16,
+  };
   IREE_ASSERT_OK(
       loom_serve_execution_alloca(held_.execution, &request, &held_.buffer));
   ASSERT_NE(held_.buffer->memory.contract, nullptr);
@@ -819,11 +842,15 @@ TEST_P(JitTest, UnequalPrivateWorkspacesPreservePoolPolicyAndOutput) {
       iree_hal_queue_family(loom_serve_device_transfer_queue(device_owner_)),
       IREE_HAL_BUFFER_USAGE_TRANSFER));
   iree_hal_transfer_operation_t transfers[] = {
-      {.type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
-       .upload = {input_.data(), held_.buffer, 0, sizeof(input_)}},
-      {.type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
-       .download = {held_.buffer, 0, held_.output.data(),
-                    sizeof(held_.output)}},
+      {
+          .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
+          .upload = {input_.data(), held_.buffer, 0, sizeof(input_)},
+      },
+      {
+          .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
+          .download = {held_.buffer, 0, held_.output.data(),
+                       sizeof(held_.output)},
+      },
   };
   IREE_ASSERT_OK(loom_serve_execution_transfer(held_.execution, 1, transfers,
                                                &completion));
@@ -875,13 +902,16 @@ TEST_P(JitTest, IndependentModelCompletesWhileSharedWorkspaceGrows) {
       loom_serve_device_create_execution(device_owner_, &held_.execution));
   IREE_ASSERT_OK(
       loom_serve_execution_reserve_workspace(held_.execution, 64, 16));
-  const iree_hal_pool_reservation_request_t request = {.allocation_size = 64,
-                                                       .min_alignment = 16};
+  const iree_hal_pool_reservation_request_t request = {
+      .allocation_size = 64,
+      .min_alignment = 16,
+  };
   IREE_ASSERT_OK(
       loom_serve_execution_alloca(held_.execution, &request, &held_.buffer));
-  iree_hal_transfer_operation_t upload = {};
-  upload.type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD;
-  upload.upload = {input_.data(), held_.buffer, 0, sizeof(input_)};
+  iree_hal_transfer_operation_t upload = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
+      .upload = {input_.data(), held_.buffer, 0, sizeof(input_)},
+  };
   uint64_t completion = 0;
   IREE_ASSERT_OK(
       loom_serve_execution_transfer(held_.execution, 1, &upload, &completion));
@@ -895,10 +925,10 @@ TEST_P(JitTest, IndependentModelCompletesWhileSharedWorkspaceGrows) {
   const iree_hal_buffer_binding_t binding = {held_.buffer, 0, sizeof(input_)};
   IREE_ASSERT_OK(loom_serve_execution_execute(held_.execution, commands_[0],
                                               {1, &binding}, &completion));
-  iree_hal_transfer_operation_t download = {};
-  download.type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD;
-  download.download = {held_.buffer, 0, held_.output.data(),
-                       sizeof(held_.output)};
+  iree_hal_transfer_operation_t download = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
+      .download = {held_.buffer, 0, held_.output.data(), sizeof(held_.output)},
+  };
   IREE_ASSERT_OK(loom_serve_execution_feedback(held_.execution, 1, &download,
                                                &completion));
   auto held_frontier = loom_serve_execution_frontier(held_.execution);
@@ -982,8 +1012,10 @@ TEST_P(JitTest, RetiredModelDoesNotJoinRawQueueAllocationCaptures) {
   uint64_t value = 1;
   IREE_ASSERT_OK(
       loom_serve_execution_barrier(held_.execution, {1, &held_.gate, &value}));
-  const iree_hal_pool_reservation_request_t request = {.allocation_size = 64,
-                                                       .min_alignment = 16};
+  const iree_hal_pool_reservation_request_t request = {
+      .allocation_size = 64,
+      .min_alignment = 16,
+  };
   IREE_ASSERT_OK(
       loom_serve_execution_alloca(held_.execution, &request, &held_.buffer));
   IREE_ASSERT_OK(
@@ -1030,7 +1062,8 @@ TEST_P(JitTest, RetiredModelDoesNotJoinRawQueueAllocationCaptures) {
       iree_infinite_timeout(), &buffer_));
   const iree_hal_transfer_operation_t upload = {
       .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
-      .upload = {input_.data(), buffer_, 0, sizeof(input_)}};
+      .upload = {input_.data(), buffer_, 0, sizeof(input_)},
+  };
   IREE_ASSERT_OK(loom_serve_execution_transfer(execution_, 1, &upload, &value));
   iree_vm_function_t selected_step;
   IREE_ASSERT_OK(iree_vm_process_lookup_function(
@@ -1047,7 +1080,8 @@ TEST_P(JitTest, RetiredModelDoesNotJoinRawQueueAllocationCaptures) {
   IREE_ASSERT_OK(status);
   const iree_hal_transfer_operation_t download = {
       .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
-      .download = {buffer_, 0, output_.data(), sizeof(output_)}};
+      .download = {buffer_, 0, output_.data(), sizeof(output_)},
+  };
   IREE_ASSERT_OK(
       loom_serve_execution_feedback(execution_, 1, &download, &value));
   IREE_ASSERT_OK(loom_serve_execution_drain(execution_));

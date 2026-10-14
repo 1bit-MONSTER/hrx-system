@@ -20,6 +20,7 @@
 #include "loom/serve/runtime/device/device.h"
 #include "loom/serve/server/router.h"
 #include "loom/serve/service/image/service.h"
+#include "loom/serve/testing/device.h"
 #include "loom/serve/testing/http_harness.h"
 #include "loom/serve/transport/http/listener.h"
 
@@ -115,11 +116,17 @@ class ImageServiceFixture : public ::testing::Test {
  protected:
   void Initialize(uint32_t worker_count, bool independent) {
     IREE_ASSERT_OK(
-        loom_serve_host_create(worker_count, host_allocator_, &host_));
-    const loom_serve_device_options_t options[] = {{.uri = IREE_SV("amdgpu")},
-                                                   {.uri = IREE_SV("amdgpu")}};
-    IREE_ASSERT_OK(loom_serve_device_group_allocate(
-        host_, independent ? 2 : 1, options, host_allocator_, &group_));
+        loom_serve_host_create(worker_count, nullptr, host_allocator_, &host_));
+    iree_hal_driver_t* driver = nullptr;
+    IREE_ASSERT_OK(
+        loom_serve_test_driver_create(host_, host_allocator_, &driver));
+    const auto uri = loom_serve_test_device()->device_uri;
+    const loom_serve_device_options_t options[] = {
+        {.driver = driver, .uri = uri}, {.driver = driver, .uri = uri}};
+    iree_status_t status = loom_serve_device_group_allocate(
+        host_, independent ? 2 : 1, options, host_allocator_, &group_);
+    iree_hal_driver_release(driver);
+    IREE_ASSERT_OK(status);
     for (iree_host_size_t i = 0; i < loom_serve_device_group_count(group_);
          ++i) {
       IREE_ASSERT_OK(loom_serve_device_create_execution(
@@ -200,13 +207,15 @@ class ImageServiceFixture : public ::testing::Test {
         .submit = ImageGate::Submit,
         .complete = ImageGate::Complete,
         .capacity_domain = loom_serve_device_residency_cache(
-            loom_serve_device_group_at(group_, executions_[1] ? index : 0))};
+            loom_serve_device_group_at(group_, executions_[1] ? index : 0)),
+    };
     const loom_serve_image_service_options_t options = {
         .name = name,
         .width = 1,
         .height = 1,
         .pending_capacity = 1,
-        .heartbeat_interval = heartbeat_interval};
+        .heartbeat_interval = heartbeat_interval,
+    };
     IREE_ASSERT_OK(loom_serve_image_service_allocate(
         host_, generator, &options, nullptr, host_allocator_, &images_[index]));
     services_[index] = loom_serve_image_service_interface(images_[index]);

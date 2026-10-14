@@ -13,6 +13,7 @@
 #include "iree/testing/status_matchers.h"
 #include "loom/serve/runtime/device/device.h"
 #include "loom/serve/runtime/execution/retirement.h"
+#include "loom/serve/testing/device.h"
 
 namespace {
 
@@ -20,14 +21,21 @@ class RelocationTest : public ::testing::Test {
  protected:
   void SetUp() override {
     loom_serve_retirement_initialize(&retirement);
-    const loom_serve_device_options_t options = {
-        .uri = IREE_SV("amdgpu"),
-        .backing = LOOM_SERVE_DEVICE_BACKING_ELASTIC,
-        .slab_size = 2 * 1024 * 1024};
     loom_serve_host_t* host = nullptr;
-    IREE_ASSERT_OK(loom_serve_host_create(1, iree_allocator_system(), &host));
+    IREE_ASSERT_OK(
+        loom_serve_host_create(1, nullptr, iree_allocator_system(), &host));
+    iree_hal_driver_t* driver = nullptr;
+    IREE_ASSERT_OK(
+        loom_serve_test_driver_create(host, iree_allocator_system(), &driver));
+    const loom_serve_device_options_t options = {
+        .driver = driver,
+        .uri = loom_serve_test_device()->device_uri,
+        .backing = LOOM_SERVE_DEVICE_BACKING_ELASTIC,
+        .slab_size = 2 * 1024 * 1024,
+    };
     auto status = loom_serve_device_group_allocate(
         host, 1, &options, iree_allocator_system(), &group);
+    iree_hal_driver_release(driver);
     loom_serve_host_release(host);
     IREE_ASSERT_OK(status);
     device = loom_serve_device_group_at(group, 0);
@@ -89,11 +97,15 @@ TEST_F(RelocationTest, RepeatedPlanesCrossBatchAndAddressBoundaries) {
       const uint32_t value = plane * 1000 + block;
       const iree_hal_transfer_operation_t fill = {
           .type = IREE_HAL_TRANSFER_OPERATION_TYPE_FILL,
-          .fill = {.target_buffer = view,
-                   .target_offset = offset,
-                   .length = region.block_bytes,
-                   .pattern = &value,
-                   .pattern_length = sizeof(value)}};
+          .fill =
+              {
+                  .target_buffer = view,
+                  .target_offset = offset,
+                  .length = region.block_bytes,
+                  .pattern = &value,
+                  .pattern_length = sizeof(value),
+              },
+      };
       IREE_ASSERT_OK(
           loom_serve_execution_transfer(execution, 1, &fill, &completion));
     }
@@ -123,10 +135,14 @@ TEST_F(RelocationTest, RepeatedPlanesCrossBatchAndAddressBoundaries) {
   for (uint32_t plane = 0; plane < region.count; ++plane) {
     const iree_hal_transfer_operation_t download = {
         .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
-        .download = {.source_buffer = view,
-                     .source_offset = region.origin + plane * region.stride,
-                     .target = observed.data(),
-                     .length = kLiveBlocks * region.block_bytes}};
+        .download =
+            {
+                .source_buffer = view,
+                .source_offset = region.origin + plane * region.stride,
+                .target = observed.data(),
+                .length = kLiveBlocks * region.block_bytes,
+            },
+    };
     IREE_ASSERT_OK(
         loom_serve_execution_transfer(execution, 1, &download, &completion));
     IREE_ASSERT_OK(loom_serve_execution_wait(execution, completion));

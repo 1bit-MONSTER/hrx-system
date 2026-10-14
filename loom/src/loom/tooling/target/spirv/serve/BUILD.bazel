@@ -6,7 +6,7 @@
 
 load("@rules_python//python:defs.bzl", "py_test")
 load("//build_tools/bazel:test_resources.bzl", "GPU_DEVICE_RESOURCE_GROUP")
-load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_test", "loom_config_compatible_with")
+load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_binary", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
 load("//loom/src/loom/serve/fixture/decision:sources.bzl", DECISION_SOURCES = "SOURCES")
 load("//loom/src/loom/serve/fixture/embedding:sources.bzl", EMBEDDING_SOURCES = "SOURCES", EMBEDDING_VARIANT_SOURCES = "VARIANT_SOURCES")
 load("//loom/src/loom/serve/fixture/image:sources.bzl", IMAGE_SOURCES = "SOURCES")
@@ -14,13 +14,58 @@ load("//loom/src/loom/serve/fixture/text:sources.bzl", TEXT_SOURCES = "SOURCES")
 
 package(default_visibility = ["//visibility:private"])
 
+loom_cc_library(
+    name = "test_compiler",
+    testonly = True,
+    srcs = ["test_compiler.c"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target:spirv_vulkan_artifacts",
+    ]),
+    deps = [
+        "//loom/binding/c/target/spirv",
+        "//loom/binding/c/target/spirv:iree_hal",
+        "//loom/src/loom/serve/testing:compiler",
+    ],
+    alwayslink = True,
+)
+
+loom_cc_binary(
+    name = "loom-serve-test-tool",
+    testonly = True,
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+        "//loom/config/target:spirv_artifacts",
+        "//runtime/config/hal:driver_vulkan",
+    ]),
+    deps = [
+        ":test_compiler",
+        ":test_device",
+        "//loom/src/loom/serve/testing:server_test_tool",
+    ],
+)
+
+loom_cc_library(
+    name = "test_device",
+    testonly = True,
+    srcs = ["test_device.c"],
+    target_compatible_with = loom_config_compatible_with([
+        "//runtime/config/hal:driver_vulkan",
+    ]),
+    deps = [
+        "//loom/src/loom/serve/testing:device",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/drivers/vulkan/registration",
+    ],
+    alwayslink = True,
+)
+
 loom_cc_test(
     name = "source_image_service_test",
-    args = [
-        "--model_source=$(rootpath //loom/src/loom/serve/fixture/image:prepare.loom)",
-        "--test_device=vulkan",
-    ],
     data = IMAGE_SOURCES,
+    env = {
+        "LOOM_SERVE_TEST_MODEL_SOURCE": "$(rootpath //loom/src/loom/serve/fixture/image:prepare.loom)",
+    },
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = [
         "iree-run-requirement=vulkan.resource.device",
@@ -33,6 +78,8 @@ loom_cc_test(
         "//conditions:default": ["@platforms//:incompatible"],
     }),
     deps = [
+        ":test_compiler",
+        ":test_device",
         "//loom/src/loom/serve/service/image:source_service_tests",
         "//runtime/src/iree/testing:gtest_main",
     ],
@@ -43,7 +90,7 @@ py_test(
     size = "medium",
     srcs = ["//loom/src/loom/serve/server:catalog_test.py"],
     args = [
-        "--server=$(rootpath //loom/src/loom/tools/loom-serve:loom-serve)",
+        "--server=$(rootpath :loom-serve-test-tool)",
         "--fixture=$(rootpath //loom/src/loom/serve/fixture/image:model.json)",
         "--fixture=$(rootpath //loom/src/loom/serve/fixture/embedding:model.json)",
         "--fixture=$(rootpath //loom/src/loom/serve/fixture/decision:model.json)",
@@ -52,7 +99,7 @@ py_test(
         "--pool_backing=fixed",
     ],
     data = DECISION_SOURCES + EMBEDDING_SOURCES + IMAGE_SOURCES + TEXT_SOURCES + [
-        "//loom/src/loom/tools/loom-serve",
+        ":loom-serve-test-tool",
     ],
     main = "catalog_test.py",
     tags = [
@@ -75,12 +122,11 @@ py_test(
 
 loom_cc_test(
     name = "source_decision_service_test",
-    args = [
-        "--model_source=$(rootpath //loom/src/loom/serve/fixture/decision:prepare.loom)",
-        "--embedding_source=$(rootpath //loom/src/loom/serve/fixture/embedding:prepare.loom)",
-        "--test_device=vulkan",
-    ],
     data = DECISION_SOURCES + EMBEDDING_SOURCES,
+    env = {
+        "LOOM_SERVE_TEST_EMBEDDING_SOURCE": "$(rootpath //loom/src/loom/serve/fixture/embedding:prepare.loom)",
+        "LOOM_SERVE_TEST_MODEL_SOURCE": "$(rootpath //loom/src/loom/serve/fixture/decision:prepare.loom)",
+    },
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = [
         "iree-run-requirement=vulkan.resource.device",
@@ -93,6 +139,8 @@ loom_cc_test(
         "//conditions:default": ["@platforms//:incompatible"],
     }),
     deps = [
+        ":test_compiler",
+        ":test_device",
         "//loom/src/loom/serve/service/finite/decision:source_service_tests",
         "//runtime/src/iree/testing:gtest_main",
     ],
@@ -100,12 +148,10 @@ loom_cc_test(
 
 loom_cc_test(
     name = "source_embedding_service_test",
-    args = [
-        "--model_source=$(rootpath //loom/src/loom/serve/fixture/embedding:prepare.loom)",
-        "--test_device=vulkan",
-        "--gtest_filter=Workers/SourceEmbeddingServiceTest.*",
-    ],
     data = EMBEDDING_SOURCES + EMBEDDING_VARIANT_SOURCES,
+    env = {
+        "LOOM_SERVE_TEST_MODEL_SOURCE": "$(rootpath //loom/src/loom/serve/fixture/embedding:prepare.loom)",
+    },
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = [
         "iree-run-requirement=vulkan.resource.device",
@@ -118,19 +164,20 @@ loom_cc_test(
         "//conditions:default": ["@platforms//:incompatible"],
     }),
     deps = [
-        "//loom/src/loom/serve/service/finite/embedding:source_service_tests",
+        ":test_compiler",
+        ":test_device",
+        "//loom/src/loom/serve/service/finite/embedding:direct_dispatch_tests",
+        "//loom/src/loom/serve/service/finite/embedding:source_execution_tests",
         "//runtime/src/iree/testing:gtest_main",
     ],
 )
 
 loom_cc_test(
     name = "source_text_service_test",
-    args = [
-        "--model_source=$(rootpath //loom/src/loom/serve/fixture/text:prepare.loom)",
-        "--test_device=vulkan",
-        "--gtest_filter=-Workers/ElasticTextServiceTest.*",
-    ],
     data = TEXT_SOURCES,
+    env = {
+        "LOOM_SERVE_TEST_MODEL_SOURCE": "$(rootpath //loom/src/loom/serve/fixture/text:prepare.loom)",
+    },
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = [
         "iree-run-requirement=vulkan.resource.device",
@@ -143,7 +190,9 @@ loom_cc_test(
         "//conditions:default": ["@platforms//:incompatible"],
     }),
     deps = [
-        "//loom/src/loom/serve/service/text:source_service_tests",
+        ":test_compiler",
+        ":test_device",
+        "//loom/src/loom/serve/service/text:source_execution_tests",
         "//runtime/src/iree/testing:gtest_main",
     ],
 )

@@ -13,7 +13,8 @@ namespace {
 class DeviceTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    IREE_ASSERT_OK(loom_serve_host_create(1, iree_allocator_system(), &host));
+    IREE_ASSERT_OK(
+        loom_serve_host_create(1, nullptr, iree_allocator_system(), &host));
   }
   void TearDown() override { loom_serve_host_release(host); }
 
@@ -21,22 +22,12 @@ class DeviceTest : public ::testing::Test {
   loom_serve_host_t* host = nullptr;
 };
 
-TEST_F(DeviceTest, MissingDriverReleasesPartialOwnership) {
-  loom_serve_device_group_t* group = nullptr;
-  const loom_serve_device_options_t options = {
-      .uri = IREE_SV("unregistered-serving-device"),
-  };
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_NOT_FOUND,
-      loom_serve_device_group_allocate(host, 1, &options,
-                                       iree_allocator_system(), &group));
-  EXPECT_EQ(group, nullptr);
-  IREE_EXPECT_OK(loom_serve_device_group_free(group));
-}
-
 TEST_F(DeviceTest, AllocationFailureReturnsNoOwner) {
   loom_serve_device_group_t* group = nullptr;
-  const loom_serve_device_options_t options = {.uri = IREE_SV("amdgpu")};
+  const loom_serve_device_options_t options = {
+      .driver = loom_serve_host_task_driver(host),
+      .uri = IREE_SV("task"),
+  };
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         loom_serve_device_group_allocate(
                             host, 1, &options, iree_allocator_null(), &group));
@@ -47,7 +38,8 @@ TEST_F(DeviceTest, AllocationFailureReturnsNoOwner) {
 TEST_F(DeviceTest, InvalidBackingRejectsBeforeDeviceCreation) {
   loom_serve_device_group_t* group = nullptr;
   loom_serve_device_options_t options = {
-      .uri = IREE_SV("unregistered-serving-device"),
+      .driver = loom_serve_host_task_driver(host),
+      .uri = IREE_SV("task"),
       .memory_limit = 1,
   };
   IREE_EXPECT_STATUS_IS(
@@ -79,8 +71,12 @@ TEST_F(DeviceTest, InvalidCountRejectsBeforeReadingOptions) {
 TEST_F(DeviceTest, EveryOptionIsValidatedBeforeCreatingDevices) {
   loom_serve_device_group_t* group = nullptr;
   const loom_serve_device_options_t options[] = {
-      {.uri = IREE_SV("unregistered-serving-device")},
-      {.uri = IREE_SV("unregistered-serving-device"), .memory_limit = 1}};
+      {.driver = loom_serve_host_task_driver(host), .uri = IREE_SV("task")},
+      {
+          .driver = loom_serve_host_task_driver(host),
+          .uri = IREE_SV("task"),
+          .memory_limit = 1,
+      }};
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,
       loom_serve_device_group_allocate(host, IREE_ARRAYSIZE(options), options,

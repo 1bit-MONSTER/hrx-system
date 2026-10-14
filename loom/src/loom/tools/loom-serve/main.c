@@ -4,6 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include "loom/tools/loom-serve/main.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -14,7 +16,6 @@
 #include "loom/serve/server/router.h"
 #include "loom/serve/transport/http/listener.h"
 #include "loom/tooling/cli/help.h"
-#include "loom/tools/loom-serve/options.h"
 #include "loom/tools/loom-serve/signals.h"
 #include "loom/util/json.h"
 #include "loom/util/stream.h"
@@ -153,7 +154,8 @@ static int loom_serve_main_agents_markdown(void) {
              : EXIT_SUCCESS;
 }
 
-int main(int argc, char** argv) {
+int loom_serve_main(int argc, char** argv,
+                    const loom_serve_configuration_t* configuration) {
   iree_flags_set_usage(
       "loom-serve",
       "Serves source-defined models over HTTP with shared devices and "
@@ -238,11 +240,12 @@ int main(int argc, char** argv) {
         host_allocator, listener_count, sizeof(*listeners), (void**)&listeners);
   }
   if (iree_status_is_ok(status)) {
-    status = loom_serve_host_create_from_flags(host_allocator, &host);
+    status = loom_serve_host_create_from_flags(configuration->compiler_options,
+                                               host_allocator, &host);
   }
   if (iree_status_is_ok(status)) {
-    status = loom_serve_device_group_allocate_from_flags(host, host_allocator,
-                                                         &group);
+    status = loom_serve_device_group_allocate_from_flags(
+        host, configuration->driver_registry, host_allocator, &group);
   }
   if (iree_status_is_ok(status)) {
     registration_options.device_group = group;

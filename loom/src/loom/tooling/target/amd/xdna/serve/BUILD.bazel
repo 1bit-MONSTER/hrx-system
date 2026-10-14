@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("//build_tools/bazel:test_resources.bzl", "GPU_DEVICE_RESOURCE_GROUP")
-load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_test", "loom_config_compatible_with")
+load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
 load("//loom/src/loom/serve/fixture/embedding:sources.bzl", EMBEDDING_SOURCES = "SOURCES", EMBEDDING_VARIANT_SOURCES = "VARIANT_SOURCES")
 
 package(default_visibility = ["//visibility:private"])
@@ -15,17 +15,46 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 
+loom_cc_library(
+    name = "test_compiler",
+    testonly = True,
+    srcs = ["test_compiler.c"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target:xdna_artifacts",
+    ]),
+    deps = [
+        "//loom/binding/c/target/amd/xdna",
+        "//loom/binding/c/target/amd/xdna:iree_hal",
+        "//loom/src/loom/serve/testing:compiler",
+    ],
+    alwayslink = True,
+)
+
+loom_cc_library(
+    name = "test_device",
+    testonly = True,
+    srcs = ["test_device.c"],
+    target_compatible_with = loom_config_compatible_with([
+        "//runtime/config/hal:driver_xdna",
+    ]),
+    deps = [
+        "//loom/src/loom/serve/testing:device",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/drivers/amd/registration",
+    ],
+    alwayslink = True,
+)
+
 loom_cc_test(
     name = "source_embedding_service_test",
-    args = [
-        "--model_source=$(rootpath //loom/src/loom/serve/fixture/embedding:prepare.loom)",
-        "--test_device=xdna",
-        "--direct_stage_source=$(rootpath //loom/src/loom/tooling/target/amd/xdna/serve:testdata/resident_embedding.loom)",
-        "--gtest_filter=*DirectDispatch*",
-    ],
     data = EMBEDDING_SOURCES + EMBEDDING_VARIANT_SOURCES + [
         "//loom/src/loom/tooling/target/amd/xdna/serve:testdata/resident_embedding.loom",
     ],
+    env = {
+        "LOOM_SERVE_TEST_DIRECT_STAGE_SOURCE": "$(rootpath //loom/src/loom/tooling/target/amd/xdna/serve:testdata/resident_embedding.loom)",
+        "LOOM_SERVE_TEST_MODEL_SOURCE": "$(rootpath //loom/src/loom/serve/fixture/embedding:prepare.loom)",
+    },
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = [
         "iree-run-requirement=libamdf.resource.xdna",
@@ -39,7 +68,9 @@ loom_cc_test(
         "//conditions:default": ["@platforms//:incompatible"],
     }),
     deps = [
-        "//loom/src/loom/serve/service/finite/embedding:source_service_tests",
+        ":test_compiler",
+        ":test_device",
+        "//loom/src/loom/serve/service/finite/embedding:direct_dispatch_tests",
         "//runtime/src/iree/testing:gtest_main",
     ],
 )

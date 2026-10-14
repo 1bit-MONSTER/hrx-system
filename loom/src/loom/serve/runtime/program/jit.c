@@ -15,7 +15,6 @@
 #include "loomc/launch_config.h"
 #include "loomc/link.h"
 #include "loomc/target/cmd/program.h"
-#include "loomc/target/configured.h"
 #include "loomc/target/vm.h"
 #include "loomc/task_pool.h"
 
@@ -255,11 +254,22 @@ iree_status_t loom_serve_jit_allocate(
   jit->dispatch = dispatch;
   iree_hal_queue_retain(dispatch);
   const loomc_allocator_t ca = loomc_allocator_from_iree(host_allocator);
-  iree_status_t status = iree_status_from_loomc(
-      loomc_target_environment_create_configured(ca, &jit->kernel.environment));
+  jit->kernel.environment = loom_serve_host_target_environment(host);
+  if (!jit->kernel.environment) {
+    loom_serve_jit_free(jit);
+    return iree_make_status(
+        IREE_STATUS_FAILED_PRECONDITION,
+        "serving host has no compiler target configuration");
+  }
+  loomc_target_environment_retain(jit->kernel.environment);
+  iree_host_size_t target_provider_count = 0;
+  const loomc_iree_hal_target_provider_t* const* target_providers =
+      loom_serve_host_target_providers(host, &target_provider_count);
+  iree_status_t status = iree_ok_status();
   loom_serve_target_t target = {0};
   if (iree_status_is_ok(status)) {
-    status = loom_serve_target_select(jit->kernel.environment, device, affinity,
+    status = loom_serve_target_select(jit->kernel.environment, target_providers,
+                                      target_provider_count, device, affinity,
                                       report, host_allocator, &target);
     jit->kernel.profile = target.selection.target_profile;
     jit->target = target.selection.executable_target;

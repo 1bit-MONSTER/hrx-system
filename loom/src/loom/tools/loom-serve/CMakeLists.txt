@@ -18,8 +18,10 @@ loom_cc_library(
     "options.c"
   DEPS
     iree::base
+    iree::base::internal::path
     iree::base::tooling::flags
-    iree::tooling::device_util
+    iree::hal
+    iree::tooling::device_flags
     loom::serve::runtime::device
     loom::serve::runtime::host
   PUBLIC
@@ -57,10 +59,11 @@ loom_cc_test(
 )
 endif()
 
-if(LOOM_TARGET_ARCH_VM)
-loom_cc_binary(
+loom_cc_library(
   NAME
-    loom-serve
+    main
+  HDRS
+    "main.h"
   SRCS
     "main.c"
   DEPS
@@ -79,6 +82,49 @@ loom_cc_binary(
     loom::tooling::cli::help
     loom::util::json
     loom::util::stream
+  PUBLIC
+)
+
+if(LOOM_TARGET_ARCH_VM)
+set(_loom_serve_platform_copts "")
+if(LOOM_TARGET_ARCH_X86)
+  list(APPEND _loom_serve_platform_copts "-DLOOM_SERVE_CONFIG_HAVE_X86=1")
+endif()
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
+  list(APPEND _loom_serve_platform_copts "-DLOOM_SERVE_CONFIG_HAVE_AMDGPU=1")
+endif()
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND IREE_HAL_DRIVER_VULKAN)
+  list(APPEND _loom_serve_platform_copts "-DLOOM_SERVE_CONFIG_HAVE_SPIRV=1")
+endif()
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
+  list(APPEND _loom_serve_platform_copts "-DLOOM_SERVE_CONFIG_HAVE_XDNA=1")
+endif()
+set(_loom_serve_platform_deps "")
+if(LOOM_TARGET_ARCH_X86)
+  list(APPEND _loom_serve_platform_deps loom::binding::c::target::cpu::iree_hal)
+endif()
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
+  list(APPEND _loom_serve_platform_deps loom::binding::c::target::amdgpu::iree_hal)
+endif()
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND IREE_HAL_DRIVER_VULKAN)
+  list(APPEND _loom_serve_platform_deps loom::binding::c::target::spirv::iree_hal)
+endif()
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
+  list(APPEND _loom_serve_platform_deps loom::binding::c::target::amd::xdna::iree_hal)
+endif()
+loom_cc_binary(
+  NAME
+    loom-serve
+  SRCS
+    "loom-serve.c"
+  COPTS
+    ${_loom_serve_platform_copts}
+  DEPS
+    ::main
+    iree::base
+    iree::tooling::device_util
+    loom::binding::c::target::configured
+    ${_loom_serve_platform_deps}
 )
 endif()
 

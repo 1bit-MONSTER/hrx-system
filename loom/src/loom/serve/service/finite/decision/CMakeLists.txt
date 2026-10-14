@@ -38,7 +38,6 @@ loom_cc_library(
     iree::base
     iree::base::internal::json
     iree::base::threading
-    iree::base::tooling::flags
     iree::testing::gtest
     loom::serve::runtime::device
     loom::serve::runtime::host
@@ -51,6 +50,7 @@ loom_cc_library(
     loom::serve::testing::http_harness
     loom::serve::testing::model
     loom::serve::testing::package
+    loom::serve::testing::service_application
     loom::serve::transport::http::listener
     loom::serve::transport::http::server
   TESTONLY

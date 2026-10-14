@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("//build_tools/testing:build_defs.bzl", "iree_execution_test_suite")
-load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_binary", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
+load("//loom/build_tools/bazel:build_defs.bzl", "iree_select", "loom_cc_binary", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
 
 package(
     default_visibility = ["//loom/src/loom/serve:implementation"],
@@ -15,7 +15,7 @@ package(
 
 exports_files(
     ["server_test.py"],
-    visibility = ["//loom/src/loom/tooling/target/cpu:__pkg__"],
+    visibility = ["//loom/src/loom/tooling/target/cpu/serve:__pkg__"],
 )
 
 loom_cc_library(
@@ -26,8 +26,10 @@ loom_cc_library(
         "//loom/src/loom/serve/runtime/device",
         "//loom/src/loom/serve/runtime/host",
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:path",
         "//runtime/src/iree/base/tooling:flags",
-        "//runtime/src/iree/tooling:device_util",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/tooling:device_flags",
     ],
 )
 
@@ -61,13 +63,10 @@ loom_cc_test(
     ],
 )
 
-loom_cc_binary(
-    name = "loom-serve",
+loom_cc_library(
+    name = "main",
     srcs = ["main.c"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
-    visibility = ["//visibility:public"],
+    hdrs = ["main.h"],
     deps = [
         ":options",
         ":signals",
@@ -85,6 +84,46 @@ loom_cc_binary(
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/tooling:flags",
     ],
+)
+
+loom_cc_binary(
+    name = "loom-serve",
+    srcs = ["loom-serve.c"],
+    copts = iree_select({
+        "//loom/config/target/arch:x86": ["-DLOOM_SERVE_CONFIG_HAVE_X86=1"],
+        "//conditions:default": [],
+    }) + iree_select({
+        "//loom/config/target:amdgpu_artifacts": ["-DLOOM_SERVE_CONFIG_HAVE_AMDGPU=1"],
+        "//conditions:default": [],
+    }) + iree_select({
+        "//loom/config/target:spirv_vulkan_artifacts": ["-DLOOM_SERVE_CONFIG_HAVE_SPIRV=1"],
+        "//conditions:default": [],
+    }) + iree_select({
+        "//loom/config/target:xdna_artifacts": ["-DLOOM_SERVE_CONFIG_HAVE_XDNA=1"],
+        "//conditions:default": [],
+    }),
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
+    visibility = ["//visibility:public"],
+    deps = [
+        ":main",
+        "//loom/binding/c/target/configured",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/tooling:device_util",
+    ] + iree_select({
+        "//loom/config/target/arch:x86": ["//loom/binding/c/target/cpu:iree_hal"],
+        "//conditions:default": [],
+    }) + iree_select({
+        "//loom/config/target:amdgpu_artifacts": ["//loom/binding/c/target/amdgpu:iree_hal"],
+        "//conditions:default": [],
+    }) + iree_select({
+        "//loom/config/target:spirv_vulkan_artifacts": ["//loom/binding/c/target/spirv:iree_hal"],
+        "//conditions:default": [],
+    }) + iree_select({
+        "//loom/config/target:xdna_artifacts": ["//loom/binding/c/target/amd/xdna:iree_hal"],
+        "//conditions:default": [],
+    }),
 )
 
 iree_execution_test_suite(

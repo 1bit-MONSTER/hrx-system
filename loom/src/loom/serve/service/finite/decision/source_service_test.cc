@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -15,7 +16,6 @@
 
 #include "iree/async/proactor.h"
 #include "iree/base/internal/json.h"
-#include "iree/base/tooling/flags.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "loom/serve/server/router.h"
@@ -25,17 +25,12 @@
 #include "loom/serve/testing/http_harness.h"
 #include "loom/serve/testing/model.h"
 #include "loom/serve/testing/package.h"
+#include "loom/serve/testing/service_application.h"
 #include "loom/serve/transport/http/listener.h"
-
-IREE_FLAG(string, model_source, "", "Deterministic decision bootstrap source.");
-IREE_FLAG(string, embedding_source, "",
-          "Independent embedding bootstrap source.");
-IREE_FLAG(string, test_device, "amdgpu",
-          "HAL device executing the source-defined decision fixture.");
 
 namespace {
 
-class SourceDecisionServiceTest : public ::testing::TestWithParam<uint32_t> {
+class SourceDecisionServiceTest : public ::testing::Test {
  protected:
   void CreateModel(const char* source, loom_serve_finite_model_t** output) {
     const std::string file = source;
@@ -51,15 +46,23 @@ class SourceDecisionServiceTest : public ::testing::TestWithParam<uint32_t> {
                                                     host_allocator_, output));
   }
   void SetUp() override {
+    const char* model_source = std::getenv("LOOM_SERVE_TEST_MODEL_SOURCE");
+    const char* embedding_source =
+        std::getenv("LOOM_SERVE_TEST_EMBEDDING_SOURCE");
+    ASSERT_NE(model_source, nullptr);
+    ASSERT_NE(embedding_source, nullptr);
+    model_source_ = model_source;
+    embedding_source_ = embedding_source;
     iree_notification_initialize(&notification_);
-    IREE_ASSERT_OK(loom_serve_host_create(GetParam(), host_allocator_, &host_));
-    const loom_serve_device_options_t options = {
-        .uri = iree_make_cstring_view(FLAG_test_device),
-    };
-    IREE_ASSERT_OK(loom_serve_device_group_allocate(host_, 1, &options,
-                                                    host_allocator_, &group_));
-    device_ = loom_serve_device_group_at(group_, 0);
-    ASSERT_NO_FATAL_FAILURE(CreateModel(FLAG_model_source, &models_[0]));
+    const auto application_options =
+        loom_serve_test_application_options_default();
+    loom_serve_test_application_t* application = nullptr;
+    IREE_ASSERT_OK(loom_serve_test_application_acquire(
+        &application_options, host_allocator_, &application));
+    host_ = loom_serve_test_application_host(application);
+    group_ = loom_serve_test_application_device_group(application);
+    device_ = loom_serve_test_application_device_at(application, 0);
+    ASSERT_NO_FATAL_FAILURE(CreateModel(model_source_.c_str(), &models_[0]));
     IREE_ASSERT_OK(loom_serve_finite_service_allocate(
         host_, models_[0], loom_serve_decision_protocol(), IREE_SV("decisions"),
         16, 16, 0, nullptr, host_allocator_, &services_[0]));
@@ -100,8 +103,6 @@ class SourceDecisionServiceTest : public ::testing::TestWithParam<uint32_t> {
     for (auto* model : models_) {
       IREE_EXPECT_OK(loom_serve_finite_model_free(model));
     }
-    IREE_EXPECT_OK(loom_serve_device_group_free(group_));
-    loom_serve_host_release(host_);
     iree_notification_deinitialize(&notification_);
   }
   int Send(const std::string& body, const char* target = "/v1/systemone",
@@ -168,7 +169,8 @@ class SourceDecisionServiceTest : public ::testing::TestWithParam<uint32_t> {
     }
   }
   void StartRouter() {
-    ASSERT_NO_FATAL_FAILURE(CreateModel(FLAG_embedding_source, &models_[1]));
+    ASSERT_NO_FATAL_FAILURE(
+        CreateModel(embedding_source_.c_str(), &models_[1]));
     IREE_ASSERT_OK(loom_serve_finite_service_allocate(
         host_, models_[1], loom_serve_embedding_protocol(), IREE_SV("vectors"),
         16, 16, 0, nullptr, host_allocator_, &services_[1]));
@@ -186,6 +188,10 @@ class SourceDecisionServiceTest : public ::testing::TestWithParam<uint32_t> {
   }
   // Allocator shared by all test-owned production components.
   const iree_allocator_t host_allocator_ = iree_allocator_system();
+  // Source package for the decision model under test.
+  std::string model_source_;
+  // Independent source package used for cross-modality routing.
+  std::string embedding_source_;
   // Real shared CPU/JIT executor and asynchronous I/O owner.
   loom_serve_host_t* host_ = nullptr;
   // Application group enclosing all model and device resources.
@@ -231,7 +237,7 @@ void CheckSingleNoulResponse(const std::string& response) {
   EXPECT_NEAR(probability, 2.0 / 3.0, 2.5 * 0x1p-24);
 }
 
-TEST_P(SourceDecisionServiceTest, PacksQuestionsAndRetainsResultsAcrossReset) {
+TEST_F(SourceDecisionServiceTest, PacksQuestionsAndRetainsResultsAcrossReset) {
   const int a = Send(R"({"model":"decisions","state":"a","questions":{
     "route":{"type":"choice","instructions":"???","criteria":{"z":null,"x":null}},
     "level":{"type":"score","instructions":"???","criteria":["","x"]}
@@ -280,7 +286,7 @@ TEST_P(SourceDecisionServiceTest, PacksQuestionsAndRetainsResultsAcrossReset) {
   CheckSingleNoulResponse(Read(next));
 }
 
-TEST_P(SourceDecisionServiceTest,
+TEST_F(SourceDecisionServiceTest,
        PreservesWireOrderAndRejectsOversizeSourceInput) {
   for (const char* options : {R"("z":null,"v":null)", R"("v":null,"z":null)"}) {
     const int client = Send(
@@ -314,7 +320,7 @@ TEST_P(SourceDecisionServiceTest,
   EXPECT_EQ(Read(next).find("HTTP/1.1 200"), 0u);
 }
 
-TEST_P(SourceDecisionServiceTest, SelectsUploadedDecisionExecution) {
+TEST_F(SourceDecisionServiceTest, SelectsUploadedDecisionExecution) {
   ASSERT_NO_FATAL_FAILURE(StartRouter());
   CheckSingleNoulResponse(Read(Send(kNoul)));
   // With two routes, inventory requires an explicit model selector.
@@ -343,7 +349,7 @@ TEST_P(SourceDecisionServiceTest, SelectsUploadedDecisionExecution) {
     return result;
   };
   const uint64_t original = number(inventory, "selected");
-  const auto directory = std::filesystem::path(FLAG_model_source).parent_path();
+  const auto directory = std::filesystem::path(model_source_).parent_path();
   std::ifstream input(directory / "decide.loom");
   ASSERT_TRUE(input.good());
   std::string source((std::istreambuf_iterator<char>(input)), {});
@@ -382,7 +388,7 @@ TEST_P(SourceDecisionServiceTest, SelectsUploadedDecisionExecution) {
             std::string::npos);
 }
 
-TEST_P(SourceDecisionServiceTest, SharesRouterWithEmbeddingsAndRawUtilities) {
+TEST_F(SourceDecisionServiceTest, SharesRouterWithEmbeddingsAndRawUtilities) {
   ASSERT_NO_FATAL_FAILURE(StartRouter());
   const int decision = Send(kNoul);
   const int embedding =
@@ -437,8 +443,5 @@ TEST_P(SourceDecisionServiceTest, SharesRouterWithEmbeddingsAndRawUtilities) {
       0u);
   EXPECT_EQ(Read(Send(kNoul)).find("HTTP/1.1 200"), 0u);
 }
-
-INSTANTIATE_TEST_SUITE_P(Workers, SourceDecisionServiceTest,
-                         ::testing::Values(1u, 4u));
 
 }  // namespace

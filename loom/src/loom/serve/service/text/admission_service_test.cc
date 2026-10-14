@@ -297,49 +297,46 @@ class AdmissionServiceTest : public SourceTextServiceTest {
       {4, 1}, {16, 2}, {32, 2}};
 };
 
-TEST_P(AdmissionServiceTest, FifoHoldsFittingTailUntilOldestCanProgress) {
+TEST_F(AdmissionServiceTest, FifoHoldsFittingTailUntilOldestCanProgress) {
   CheckBackfill(0, OverlapAction::kComplete);
 }
 
-TEST_P(AdmissionServiceTest, OneOvertakeThenOldestMakesProgress) {
+TEST_F(AdmissionServiceTest, OneOvertakeThenOldestMakesProgress) {
   CheckBackfill(1, OverlapAction::kComplete);
 }
 
-TEST_P(AdmissionServiceTest, CohortOvertakesThenOldestMakesProgress) {
+TEST_F(AdmissionServiceTest, CohortOvertakesThenOldestMakesProgress) {
   CheckBackfill(2, OverlapAction::kComplete);
 }
 
-TEST_P(AdmissionServiceTest, CancellingOldestReleasesExhaustedBudget) {
+TEST_F(AdmissionServiceTest, CancellingOldestReleasesExhaustedBudget) {
   CheckBackfill(2, OverlapAction::kDisconnect);
 }
 
-TEST_P(AdmissionServiceTest, StopRetiresParkedInputsAndActiveReservations) {
+TEST_F(AdmissionServiceTest, StopRetiresParkedInputsAndActiveReservations) {
   CheckBackfill(2, OverlapAction::kStop);
 }
 
-TEST_P(AdmissionServiceTest, RowReuseRepreparesEvictedHistoryExactlyOnce) {
+TEST_F(AdmissionServiceTest, RowReuseRepreparesEvictedHistoryExactlyOnce) {
   CheckBackfill(2, OverlapAction::kComplete, History::kRetained);
 }
 
-TEST_P(AdmissionServiceTest,
+TEST_F(AdmissionServiceTest,
        PinnedHistorySurvivesOvertakesWithoutRepreparation) {
   CheckBackfill(2, OverlapAction::kComplete, History::kPinned);
 }
 
-TEST_P(AdmissionServiceTest,
+TEST_F(AdmissionServiceTest,
        DetachedHistorySurvivesOvertakesWithoutRepreparation) {
   CheckBackfill(2, OverlapAction::kComplete, History::kCached);
 }
 
-TEST_P(AdmissionServiceTest, CancellingOldestPreservesBorrowedTailPreparation) {
+TEST_F(AdmissionServiceTest, CancellingOldestPreservesBorrowedTailPreparation) {
   CheckBorrowedProbeCancellation(OverlapAction::kDisconnect);
 }
 
-TEST_P(AdmissionServiceTest, StopRetiresBorrowedTailPreparation) {
+TEST_F(AdmissionServiceTest, StopRetiresBorrowedTailPreparation) {
   CheckBorrowedProbeCancellation(OverlapAction::kStop);
 }
-
-INSTANTIATE_TEST_SUITE_P(Workers, AdmissionServiceTest,
-                         ::testing::Values(1, 4));
 
 }  // namespace

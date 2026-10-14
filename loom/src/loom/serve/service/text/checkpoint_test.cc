@@ -11,7 +11,7 @@ namespace {
 using loom_serve::testing::text::Oracle;
 using loom_serve::testing::text::SourceTextServiceTest;
 
-TEST_P(SourceTextServiceTest,
+TEST_F(SourceTextServiceTest,
        ActivePrefixPinsPreserveReservationAndIndependentContinuation) {
   for (size_t length : {3u, 4u, 5u, 8u}) {
     SCOPED_TRACE(length);
@@ -83,7 +83,7 @@ TEST_P(SourceTextServiceTest,
   }
 }
 
-TEST_P(SourceTextServiceTest, ActivePrefixPinDenialPreservesFullPoolRequest) {
+TEST_F(SourceTextServiceTest, ActivePrefixPinDenialPreservesFullPoolRequest) {
   IREE_ASSERT_OK(loom_serve_text_model_free(model_));
   model_ = nullptr;
   auto options = ModelOptions();

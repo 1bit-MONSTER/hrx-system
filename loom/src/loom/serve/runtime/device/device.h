@@ -35,6 +35,8 @@ typedef enum loom_serve_device_backing_e {
 } loom_serve_device_backing_t;
 
 typedef struct loom_serve_device_options_t {
+  // HAL driver selected by the application, borrowed during creation.
+  iree_hal_driver_t* driver;
   // HAL device URI, borrowed during creation.
   iree_string_view_t uri;
   // Physical backing strategy for all models sharing this owner.
@@ -45,13 +47,14 @@ typedef struct loom_serve_device_options_t {
   uint64_t memory_limit;
 } loom_serve_device_options_t;
 
-// Creates each driver once and every requested HAL device, seals one group,
-// then constructs each record's pools and selects its first provisioned
-// dispatch/transfer queues.
+// Creates every requested HAL device from its application-selected driver,
+// seals one group, then constructs each record's pools and selects its first
+// provisioned dispatch/transfer queues.
 // Missing roles fail creation. device_count must be nonzero and within the HAL
 // topology limit; options are borrowed only during creation. This establishes
 // runtime ownership, not compiler support or cross-device tensor access.
-// CPU task devices share the host executor instead of creating private workers.
+// Pass loom_serve_host_task_driver(host) for task devices so CPU queues share
+// the host executor instead of creating private workers.
 // Devices provision feedback for authored kernel assertions; sanitizer runtime
 // state remains a separate driver policy. Runtime-service allocations are
 // driver overhead outside the retained-memory budget. Retains host through all

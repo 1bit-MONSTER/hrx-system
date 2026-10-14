@@ -126,7 +126,7 @@ void EditNativeProvider(const std::string& source_path,
   ASSERT_TRUE(output.good());
 }
 
-TEST_P(SourceTextServiceTest, NativeVariantPreservesLiveRowsAndPinnedPrefix) {
+TEST_F(SourceTextServiceTest, NativeVariantPreservesLiveRowsAndPinnedPrefix) {
   auto* source = loom_serve_text_model_row(model_, 0);
   auto* branch = loom_serve_text_model_row(model_, 1);
   bool admitted = false;
@@ -213,7 +213,7 @@ TEST_P(SourceTextServiceTest, NativeVariantPreservesLiveRowsAndPinnedPrefix) {
   EXPECT_EQ(retained.activations, weights.activations);
 }
 
-TEST_P(SourceTextServiceTest, FailedNativeVariantsLeaveCurrentModelUsable) {
+TEST_F(SourceTextServiceTest, FailedNativeVariantsLeaveCurrentModelUsable) {
   auto* row = loom_serve_text_model_row(model_, 0);
   bool admitted = false;
   IREE_ASSERT_OK(loom_serve_text_row_try_reserve(
@@ -256,7 +256,7 @@ TEST_P(SourceTextServiceTest, FailedNativeVariantsLeaveCurrentModelUsable) {
   EXPECT_EQ(retained.activations, weights.activations);
 }
 
-TEST_P(SourceTextServiceTest, IndependentCandidatesShareOnlyModelResources) {
+TEST_F(SourceTextServiceTest, IndependentCandidatesShareOnlyModelResources) {
   const auto modified_path =
       iree::testing::MakeTempFilePath("independent_variant", ".loom");
   const std::string original_path = directory_ + "/advance.loom";
@@ -400,7 +400,7 @@ class ReconfigurationTextServiceTest : public SourceTextServiceTest {
   } selection_;
 };
 
-TEST_P(ReconfigurationTextServiceTest,
+TEST_F(ReconfigurationTextServiceTest,
        SwitchWaitsForBorrowersAndPreservesHttpSessionAcrossRollback) {
   const auto unloaded = loom_serve_text_model_weight_activity(model_);
   const auto path = iree::testing::MakeTempFilePath("service_variant", ".loom");
@@ -446,12 +446,10 @@ TEST_P(ReconfigurationTextServiceTest,
         EXPECT_EQ(configuration_.selected(configuration_.self), original_);
         bool progress = false;
         IREE_ASSERT_OK(interface_.advance(interface_.self, 0, &progress));
-        if (GetParam() == 1) {
-          // The accepted CPU task cannot retire while its sole worker runs
-          // this turn, even if the outstanding device epoch is already ready.
-          EXPECT_FALSE(selection_.called);
-          EXPECT_EQ(configuration_.selected(configuration_.self), original_);
-        }
+        // The accepted CPU task cannot retire while its sole worker runs this
+        // turn, even if the outstanding device epoch is already ready.
+        EXPECT_FALSE(selection_.called);
+        EXPECT_EQ(configuration_.selected(configuration_.self), original_);
       });
   ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface_, [&] { return Idle(); }));
   ASSERT_TRUE(selection_.called);
@@ -486,7 +484,7 @@ TEST_P(ReconfigurationTextServiceTest,
   EXPECT_EQ(retained.activations, weights.activations);
 }
 
-TEST_P(ReconfigurationTextServiceTest,
+TEST_F(ReconfigurationTextServiceTest,
        CandidateFailuresAndStaleSelectionsLeaveInferenceHealthy) {
   const auto changed =
       iree::testing::MakeTempFilePath("service_choice", ".loom");
@@ -556,7 +554,7 @@ TEST_P(ReconfigurationTextServiceTest,
   EXPECT_EQ(Content(Read(updated)), "aaa");
 }
 
-TEST_P(ReconfigurationTextServiceTest,
+TEST_F(ReconfigurationTextServiceTest,
        StopCancelsSelectionButJoinsAcceptedCompilerBorrow) {
   loom_serve_variant_id_t id = 0;
   loom_serve::testing::text::OwnerTurn::Run(
@@ -570,13 +568,11 @@ TEST_P(ReconfigurationTextServiceTest,
         EXPECT_TRUE(selection_.called);
         EXPECT_EQ(selection_.id, original_);
         IREE_EXPECT_STATUS_IS(IREE_STATUS_CANCELLED, TakeSelectionStatus());
-        if (GetParam() == 1) {
-          EXPECT_TRUE(interface_.is_pending(interface_.self));
-          loom_serve_variant_snapshot_t snapshot = {};
-          ASSERT_TRUE(loom_serve_variant_pool_snapshot(configuration_.pool, id,
-                                                       &snapshot));
-          EXPECT_EQ(snapshot.phase, LOOM_SERVE_VARIANT_COMPILING);
-        }
+        EXPECT_TRUE(interface_.is_pending(interface_.self));
+        loom_serve_variant_snapshot_t snapshot = {};
+        ASSERT_TRUE(loom_serve_variant_pool_snapshot(configuration_.pool, id,
+                                                     &snapshot));
+        EXPECT_EQ(snapshot.phase, LOOM_SERVE_VARIANT_COMPILING);
       });
   ASSERT_NO_FATAL_FAILURE(AdvanceUntil(
       interface_, [&] { return Idle(); },
@@ -597,8 +593,5 @@ TEST_P(ReconfigurationTextServiceTest,
                         configuration_.select(configuration_.self, id,
                                               original_, Selected, this));
 }
-
-INSTANTIATE_TEST_SUITE_P(Workers, ReconfigurationTextServiceTest,
-                         ::testing::Values(1, 4));
 
 }  // namespace

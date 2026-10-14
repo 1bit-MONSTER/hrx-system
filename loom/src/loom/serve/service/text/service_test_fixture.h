@@ -39,41 +39,14 @@
 
 namespace loom_serve::testing::text {
 
-// Process-wide source package and device flags shared by the fixture suites.
-const char* ServiceTestSource();
-const char* ServiceTestDevice();
-
-class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
+class SourceTextServiceTest : public ::testing::Test {
  protected:
   // Document ownership covers every asynchronous native load in this fixture.
   loom_serve::testing::ModelDocument document_;
 
-  void SetUp() override {
-    IREE_ASSERT_OK(loom_serve_host_create(GetParam(), host_allocator_, &host_));
-    const loom_serve_device_options_t device_options = {
-        .uri = iree_make_cstring_view(ServiceTestDevice())};
-    IREE_ASSERT_OK(loom_serve_device_group_allocate(host_, 1, &device_options,
-                                                    host_allocator_, &group_));
-    device_ = loom_serve_device_group_at(group_, 0);
-    const std::string source = ServiceTestSource();
-    directory_ = source.substr(0, source.find_last_of('/'));
-    IREE_ASSERT_OK(document_.Load(directory_ + "/model.json"));
-    tokenizer_ = directory_ + "/tokenizer.json";
-    weights_ = iree::testing::MakeTempFilePath("text_fixture", ".safetensors");
-    ASSERT_NO_FATAL_FAILURE(WriteWeights(2));
-    auto options = ModelOptions();
-    IREE_ASSERT_OK(loom_serve_text_model_allocate(device_, &options,
-                                                  host_allocator_, &model_));
-    auto server_options = loom_serve_http_server_options_default();
-    IREE_ASSERT_OK(loom_serve_http_server_allocate(
-        loom_serve_host_proactor_pool(host_), &server_options, host_allocator_,
-        &server_));
-    auto listener_options = loom_serve_http_listener_options_default();
-    listener_options.address = IREE_SV("127.0.0.1:0");
-    IREE_ASSERT_OK(loom_serve_http_listener_allocate(
-        server_, &listener_options, host_allocator_, &listener_));
-    IREE_ASSERT_OK(http_.Initialize(server_, listener_));
-  }
+  void SetUp() override;
+
+  void TearDown() override;
 
   void WriteWeights(uint32_t bias) {
     std::string header =
@@ -106,18 +79,6 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
         .row_count = 4,
         .checkpoint_capacity = 2,
     };
-  }
-
-  void TearDown() override {
-    if (http_.joinable()) {
-      loom_serve_http_server_request_stop(server_);
-      IREE_EXPECT_OK(http_.Join());
-    }
-    IREE_EXPECT_OK(loom_serve_http_listener_free(listener_));
-    loom_serve_http_server_free(server_);
-    IREE_EXPECT_OK(loom_serve_text_model_free(model_));
-    IREE_EXPECT_OK(loom_serve_device_group_free(group_));
-    loom_serve_host_release(host_);
   }
 
   virtual loom_serve_text_service_options_t ServiceOptions() const {
@@ -653,11 +614,11 @@ class SourceTextServiceTest : public ::testing::TestWithParam<uint32_t> {
   std::string tokenizer_;
   // Tiny generated checkpoint owned by the test runner's temp directory.
   std::string weights_;
-  // Shared task/JIT owner outliving device and model.
+  // Borrowed process-wide task/JIT owner outliving every test model.
   loom_serve_host_t* host_ = nullptr;
-  // Application group enclosing all model and device resources.
+  // Borrowed process-wide application group enclosing all test models.
   loom_serve_device_group_t* group_ = nullptr;
-  // Borrowed device record within the application group.
+  // Borrowed device record within the process-wide application group.
   loom_serve_device_t* device_ = nullptr;
   // Actual source-defined text model, with no native mock implementation.
   loom_serve_text_model_t* model_ = nullptr;

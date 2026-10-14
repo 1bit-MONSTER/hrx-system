@@ -130,31 +130,9 @@ loom_cc_library(
   PUBLIC
 )
 
-set(_target_platform_copts "")
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
-  list(APPEND _target_platform_copts "-DLOOM_SERVE_TARGET_AMDGPU=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND IREE_HAL_DRIVER_VULKAN)
-  list(APPEND _target_platform_copts "-DLOOM_SERVE_TARGET_SPIRV=1")
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
-  list(APPEND _target_platform_copts "-DLOOM_SERVE_TARGET_XDNA=1")
-endif()
-set(_target_platform_deps "")
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
-  list(APPEND _target_platform_deps loom::binding::c::target::amdgpu::iree_hal)
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND IREE_HAL_DRIVER_VULKAN)
-  list(APPEND _target_platform_deps loom::binding::c::target::spirv::iree_hal)
-endif()
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
-  list(APPEND _target_platform_deps loom::binding::c::target::amd::xdna::iree_hal)
-endif()
 loom_cc_library(
   NAME
     target
-  COPTS
-    ${_target_platform_copts}
   HDRS
     "target.h"
   SRCS
@@ -164,9 +142,7 @@ loom_cc_library(
     iree::base
     iree::hal
     loom::binding::c::loomc
-    loom::binding::c::target::cpu::iree_hal
     loom::binding::c::target::iree_hal
-    ${_target_platform_deps}
   PUBLIC
 )
 
@@ -230,7 +206,6 @@ loom_cc_library(
     iree::hal
     loom::binding::c::loomc
     loom::binding::c::target::cmd
-    loom::binding::c::target::configured
     loom::binding::c::target::vm
     loom::binding::c::task_pool
     loom::serve::runtime::execution::dispatch

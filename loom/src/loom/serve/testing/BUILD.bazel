@@ -14,6 +14,65 @@ package(
 )
 
 loom_cc_library(
+    name = "compiler",
+    testonly = True,
+    srcs = ["compiler.c"],
+    hdrs = ["compiler.h"],
+    visibility = ["//loom/src/loom/serve:implementation"],
+    deps = [
+        "//loom/binding/c:loomc",
+        "//loom/binding/c/target/iree_hal",
+        "//loom/src/loom/serve/runtime/host",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+    ],
+)
+
+loom_cc_library(
+    name = "device",
+    testonly = True,
+    srcs = ["device.c"],
+    hdrs = ["device.h"],
+    visibility = ["//loom/src/loom/serve:implementation"],
+    deps = [
+        "//loom/src/loom/serve/runtime/device",
+        "//loom/src/loom/serve/runtime/host",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+    ],
+)
+
+loom_cc_library(
+    name = "service_application",
+    testonly = True,
+    srcs = ["service_application.cc"],
+    hdrs = ["service_application.h"],
+    visibility = ["//loom/src/loom/serve:implementation"],
+    deps = [
+        ":compiler",
+        ":device",
+        "//loom/src/loom/serve/runtime/device",
+        "//loom/src/loom/serve/runtime/host",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/testing:gtest",
+    ],
+)
+
+loom_cc_library(
+    name = "server_test_tool",
+    testonly = True,
+    srcs = ["server_test_tool.c"],
+    visibility = ["//loom/src/loom/serve:implementation"],
+    deps = [
+        ":compiler",
+        ":device",
+        "//loom/src/loom/tools/loom-serve:main",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
     name = "http_harness",
     testonly = True,
     srcs = ["http_harness_linux.cc"],

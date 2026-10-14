@@ -9,6 +9,72 @@
 
 iree_add_all_subdirs()
 
+loom_cc_library(
+  NAME
+    compiler
+  HDRS
+    "compiler.h"
+  SRCS
+    "compiler.c"
+  DEPS
+    iree::base
+    iree::hal
+    loom::binding::c::loomc
+    loom::binding::c::target::iree_hal
+    loom::serve::runtime::host
+  TESTONLY
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    device
+  HDRS
+    "device.h"
+  SRCS
+    "device.c"
+  DEPS
+    iree::base
+    iree::hal
+    loom::serve::runtime::device
+    loom::serve::runtime::host
+  TESTONLY
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    service_application
+  HDRS
+    "service_application.h"
+  SRCS
+    "service_application.cc"
+  DEPS
+    ::compiler
+    ::device
+    iree::base
+    iree::hal
+    iree::testing::gtest
+    loom::serve::runtime::device
+    loom::serve::runtime::host
+  TESTONLY
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    server_test_tool
+  SRCS
+    "server_test_tool.c"
+  DEPS
+    ::compiler
+    ::device
+    iree::base
+    loom::tools::loom-serve::main
+  TESTONLY
+  PUBLIC
+)
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_cc_library(
   NAME

@@ -28,20 +28,18 @@ loom_cc_library(
     ],
 )
 
-# Compiled suite shared by physical target registrations; helpers stay private.
 loom_cc_library(
-    name = "source_service_tests",
+    name = "source_service_fixture",
     testonly = True,
-    srcs = [
-        "source_service_test.cc",
-    ],
+    srcs = ["source_service_test_fixture.cc"],
+    hdrs = ["source_service_test_fixture.h"],
     target_compatible_with = loom_config_compatible_with([
         "//loom/config/target/arch:vm",
     ]) + select({
         "@platforms//os:linux": [],
         "//conditions:default": ["@platforms//:incompatible"],
     }),
-    visibility = ["//visibility:public"],
+    visibility = ["//visibility:private"],
     deps = [
         "//loom/src/loom/serve/runtime/device",
         "//loom/src/loom/serve/runtime/execution",
@@ -54,9 +52,11 @@ loom_cc_library(
         "//loom/src/loom/serve/service/finite:model",
         "//loom/src/loom/serve/service/finite:service",
         "//loom/src/loom/serve/service/finite/embedding:protocol",
+        "//loom/src/loom/serve/telemetry:record",
         "//loom/src/loom/serve/testing:http_harness",
         "//loom/src/loom/serve/testing:model",
         "//loom/src/loom/serve/testing:package",
+        "//loom/src/loom/serve/testing:service_application",
         "//loom/src/loom/serve/testing:stalled_stderr",
         "//loom/src/loom/serve/transport/http:listener",
         "//loom/src/loom/serve/transport/http:server",
@@ -64,9 +64,117 @@ loom_cc_library(
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:json",
         "//runtime/src/iree/base/threading",
-        "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal",
         "//runtime/src/iree/task",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:temp_file",
+    ],
+)
+
+loom_cc_library(
+    name = "source_management_tests",
+    testonly = True,
+    srcs = ["source_management_test.cc"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    visibility = ["//loom/src/loom/serve:implementation"],
+    deps = [
+        ":source_service_fixture",
+        "//loom/src/loom/serve/testing:model",
+        "//loom/src/loom/serve/testing:package",
+        "//loom/src/loom/serve/testing:stalled_stderr",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:temp_file",
+    ],
+    alwayslink = True,
+)
+
+loom_cc_library(
+    name = "source_execution_tests",
+    testonly = True,
+    srcs = ["source_execution_test.cc"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    visibility = ["//loom/src/loom/serve:implementation"],
+    deps = [
+        ":source_service_fixture",
+        "//loom/src/loom/serve/testing:model",
+        "//loom/src/loom/serve/testing:package",
+        "//loom/src/loom/serve/testing:stalled_stderr",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:temp_file",
+    ],
+    alwayslink = True,
+)
+
+loom_cc_library(
+    name = "direct_dispatch_tests",
+    testonly = True,
+    srcs = ["direct_dispatch_test.cc"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    visibility = ["//loom/src/loom/serve:implementation"],
+    deps = [
+        ":source_service_fixture",
+        "//loom/src/loom/serve/testing:model",
+        "//loom/src/loom/serve/testing:package",
+        "//loom/src/loom/serve/testing:stalled_stderr",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:temp_file",
+    ],
+    alwayslink = True,
+)
+
+loom_cc_library(
+    name = "elastic_storage_tests",
+    testonly = True,
+    srcs = ["elastic_storage_test.cc"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    visibility = ["//loom/src/loom/serve:implementation"],
+    deps = [
+        ":source_service_fixture",
+        "//loom/src/loom/serve/testing:model",
+        "//loom/src/loom/serve/testing:package",
+        "//loom/src/loom/serve/testing:stalled_stderr",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:temp_file",
+    ],
+    alwayslink = True,
+)
+
+loom_cc_library(
+    name = "device_group_tests",
+    testonly = True,
+    srcs = ["device_group_test.cc"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    visibility = ["//loom/src/loom/serve:implementation"],
+    deps = [
+        ":source_service_fixture",
+        "//loom/src/loom/serve/testing:model",
+        "//loom/src/loom/serve/testing:package",
+        "//loom/src/loom/serve/testing:stalled_stderr",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:temp_file",
     ],

@@ -34,7 +34,7 @@ class PrefixServiceTest : public SourceTextServiceTest {
   }
 };
 
-TEST_P(PrefixServiceTest, SharesActiveSourceWithIndependentDivergentRequests) {
+TEST_F(PrefixServiceTest, SharesActiveSourceWithIndependentDivergentRequests) {
   Start(4);
   StalledClient source;
   ASSERT_NO_FATAL_FAILURE(
@@ -65,7 +65,7 @@ TEST_P(PrefixServiceTest, SharesActiveSourceWithIndependentDivergentRequests) {
   EXPECT_NE(log.find(R"("event":"prefix_capture")"), std::string::npos) << log;
 }
 
-TEST_P(PrefixServiceTest, PreservesNamedCompletedHistoryAfterAutomaticReuse) {
+TEST_F(PrefixServiceTest, PreservesNamedCompletedHistoryAfterAutomaticReuse) {
   Start(4);
   ExpectResponse(Read(Send(Request(Message("user", "abxabb"), 2))), "abxabb", 2,
                  0);
@@ -82,7 +82,7 @@ TEST_P(PrefixServiceTest, PreservesNamedCompletedHistoryAfterAutomaticReuse) {
   ExpectResponse(next, prompt + output + "#b", 3, prompt.size() + 2);
 }
 
-TEST_P(PrefixServiceTest, LruEvictionKeepsRecentlyUsedAncestor) {
+TEST_F(PrefixServiceTest, LruEvictionKeepsRecentlyUsedAncestor) {
   Start(4);
   auto run = [&](const std::string& prompt, size_t cached) {
     ExpectResponse(Read(Send(Request(Message("user", prompt), 2))), prompt, 2,
@@ -96,7 +96,7 @@ TEST_P(PrefixServiceTest, LruEvictionKeepsRecentlyUsedAncestor) {
   run("baxaxb", 0);
 }
 
-TEST_P(PrefixServiceTest, PressureReplaysWhenSelectedPrefixCannotFit) {
+TEST_F(PrefixServiceTest, PressureReplaysWhenSelectedPrefixCannotFit) {
   IREE_ASSERT_OK(loom_serve_text_model_free(model_));
   model_ = nullptr;
   auto options = ModelOptions();
@@ -113,7 +113,7 @@ TEST_P(PrefixServiceTest, PressureReplaysWhenSelectedPrefixCannotFit) {
                  "abxabxabab", 7, 0);
 }
 
-TEST_P(PrefixServiceTest, DynamicDeclarationReservesIndependentEndpointQuotas) {
+TEST_F(PrefixServiceTest, DynamicDeclarationReservesIndependentEndpointQuotas) {
   StartManaged();
   std::string declaration =
       Declaration("fixture-text", directory_, "open",
@@ -136,7 +136,7 @@ TEST_P(PrefixServiceTest, DynamicDeclarationReservesIndependentEndpointQuotas) {
   }
 }
 
-TEST_P(PrefixServiceTest, StopRetiresAcceptedCaptureBeforeReleasingOwners) {
+TEST_F(PrefixServiceTest, StopRetiresAcceptedCaptureBeforeReleasingOwners) {
   auto options = ServiceOptions();
   options.chunk_size = 4;
   loom_serve_text_service_t* service = nullptr;
@@ -172,8 +172,5 @@ TEST_P(PrefixServiceTest, StopRetiresAcceptedCaptureBeforeReleasingOwners) {
   const auto pool = loom_serve_text_model_pool_usage(model_);
   EXPECT_EQ(pool.available, pool.capacity);
 }
-
-INSTANTIATE_TEST_SUITE_P(SharedWorkers, PrefixServiceTest,
-                         ::testing::Values(1u, 4u));
 
 }  // namespace

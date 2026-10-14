@@ -11,7 +11,10 @@ package_group(
     name = "implementation",
     packages = [
         "//loom/src/loom/serve/...",
+        "//loom/src/loom/tooling/target/amd/xdna/serve",
         "//loom/src/loom/tooling/target/amdgpu/serve",
+        "//loom/src/loom/tooling/target/cpu/serve",
+        "//loom/src/loom/tooling/target/spirv/serve",
         "//loom/src/loom/tools/loom-serve",
     ],
 )
