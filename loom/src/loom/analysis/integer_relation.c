@@ -6,18 +6,21 @@
 
 #include "loom/analysis/integer_relation.h"
 
-static_assert((int)LOOM_PREDICATE_EQ == (int)LOOM_SYMBOLIC_INTEGER_RELATION_EQ,
-              "signed predicate and relation families must align");
-static_assert((int)LOOM_PREDICATE_NE == (int)LOOM_SYMBOLIC_INTEGER_RELATION_NE,
-              "signed predicate and relation families must align");
-static_assert((int)LOOM_PREDICATE_LT == (int)LOOM_SYMBOLIC_INTEGER_RELATION_LT,
-              "signed predicate and relation families must align");
-static_assert((int)LOOM_PREDICATE_LE == (int)LOOM_SYMBOLIC_INTEGER_RELATION_LE,
-              "signed predicate and relation families must align");
-static_assert((int)LOOM_PREDICATE_GT == (int)LOOM_SYMBOLIC_INTEGER_RELATION_GT,
-              "signed predicate and relation families must align");
-static_assert((int)LOOM_PREDICATE_GE == (int)LOOM_SYMBOLIC_INTEGER_RELATION_GE,
-              "signed predicate and relation families must align");
+// Both families intentionally share ordinals so conversion remains a range
+// check and cast. Prove each against the common numeric contract instead of
+// comparing the enum domains directly, which MSVC diagnoses as C5287.
+#define LOOM_ASSERT_SIGNED_RELATION_ORDINAL(name, ordinal)             \
+  static_assert((int)LOOM_PREDICATE_##name == ordinal,                 \
+                "signed predicate ordinal must remain stable");        \
+  static_assert((int)LOOM_SYMBOLIC_INTEGER_RELATION_##name == ordinal, \
+                "symbolic integer relation ordinal must remain stable")
+LOOM_ASSERT_SIGNED_RELATION_ORDINAL(EQ, 0);
+LOOM_ASSERT_SIGNED_RELATION_ORDINAL(NE, 1);
+LOOM_ASSERT_SIGNED_RELATION_ORDINAL(LT, 2);
+LOOM_ASSERT_SIGNED_RELATION_ORDINAL(LE, 3);
+LOOM_ASSERT_SIGNED_RELATION_ORDINAL(GT, 4);
+LOOM_ASSERT_SIGNED_RELATION_ORDINAL(GE, 5);
+#undef LOOM_ASSERT_SIGNED_RELATION_ORDINAL
 
 static const loom_integer_order_outcome_bits_t
     loom_symbolic_integer_relation_outcome_table[] = {
