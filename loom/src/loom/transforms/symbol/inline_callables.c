@@ -20,6 +20,7 @@
 #include "loom/ops/cfg/ops.h"
 #include "loom/ops/command/ops.h"
 #include "loom/ops/func/ops.h"
+#include "loom/ops/low/capture.h"
 #include "loom/ops/low/ops.h"
 #include "loom/ops/op_defs.h"
 #include "loom/pass/pipeline.h"
@@ -1266,12 +1267,60 @@ static iree_status_t loom_inline_materialize_command_schedule(
   return status;
 }
 
-// Makes command and Low scheduling contracts explicit before a body crosses
-// a callable boundary. Commands retain their serial scope. Locked blocks
+// A call captures each register argument's contents independently. Callee-local
+// destructive updates cannot consume the caller's register identity when the
+// boundary disappears. Allocation may reuse storage once its observations end.
+static iree_status_t loom_inline_capture_low_arguments(
+    loom_rewriter_t* rewriter, loom_op_t* call_op, loom_func_like_t callee) {
+  const loom_value_slice_t results = loom_low_func_call_results(call_op);
+  bool results_are_stable = true;
+  for (uint16_t i = 0; i < results.count; ++i) {
+    results_are_stable &=
+        loom_low_capture_source_is_stable(rewriter->module, results.values[i]);
+  }
+  uint16_t argument_count = 0;
+  const loom_value_id_t* arguments =
+      loom_func_like_arg_ids(callee, &argument_count);
+  const loom_builder_ip_t saved = loom_builder_save(&rewriter->builder);
+  loom_builder_set_before(&rewriter->builder, call_op);
+  const loom_value_slice_t operands = loom_low_func_call_operands(call_op);
+  iree_status_t status = iree_ok_status();
+  for (uint16_t i = 0; i < argument_count && iree_status_is_ok(status); ++i) {
+    const loom_value_id_t source = operands.values[i];
+    const loom_use_t use = loom_value_uses(loom_module_value(
+        rewriter->module, source))[loom_op_operand_use_indices(call_op)[i]];
+    // Explicit call ties transfer the caller's owner into the callee.
+    if (iree_any_bit_set(loom_use_flags(use), LOOM_USE_FLAG_CONSUMES)) {
+      continue;
+    }
+    // Stable inputs and observations need no independent register owner. A
+    // returned argument can acquire destructive users in the caller, so the
+    // result boundary participates in this proof even for an identity helper.
+    if (results_are_stable &&
+        loom_low_capture_source_is_stable(rewriter->module, source) &&
+        loom_low_capture_source_is_stable(rewriter->module, arguments[i])) {
+      continue;
+    }
+    loom_op_t* copy_op = NULL;
+    status =
+        loom_low_copy_build(&rewriter->builder, source, false,
+                            loom_module_value_type(rewriter->module, source),
+                            call_op->location, &copy_op);
+    if (iree_status_is_ok(status)) {
+      status = loom_rewriter_set_operand(rewriter, call_op, i,
+                                         loom_low_copy_result(copy_op));
+    }
+  }
+  loom_builder_restore(&rewriter->builder, saved);
+  return status;
+}
+
+// Makes argument capture and scheduling explicit before a body crosses a
+// callable boundary. Commands retain their serial scope. Locked blocks
 // receive a fence before and after each instruction; phased functions receive
 // one scope closed at every return. Normalization is idempotent for retained
 // helpers so generic cloning and CFG splicing preserve the explicit contracts.
-static iree_status_t loom_inline_materialize_schedules(
+static iree_status_t loom_inline_materialize_boundaries(
     loom_inline_callables_plan_t* state, loom_rewriter_t* rewriter) {
   for (uint32_t entry_index = 0; entry_index < state->entry_count;
        ++entry_index) {
@@ -1289,6 +1338,8 @@ static iree_status_t loom_inline_materialize_schedules(
     if (kind != LOOM_CALL_LIKE_KIND_LOW_INTERNAL) {
       continue;
     }
+    IREE_RETURN_IF_ERROR(loom_inline_capture_low_arguments(
+        rewriter, entry->call_op, entry->callee));
     const loom_low_schedule_t schedule =
         loom_low_func_def_schedule(entry->callee.op);
     if (schedule != LOOM_LOW_SCHEDULE_PHASED &&
@@ -1446,7 +1497,7 @@ static iree_status_t loom_inline_execute_plan(
   loom_rewriter_t rewriter = {0};
   loom_rewriter_initialize(&rewriter, state->module, state->pass->arena);
 
-  iree_status_t status = loom_inline_materialize_schedules(state, &rewriter);
+  iree_status_t status = loom_inline_materialize_boundaries(state, &rewriter);
   const iree_host_size_t symbol_count = state->module->symbols.count;
   loom_inline_execution_symbol_t* execution_symbols = NULL;
   loom_inline_execution_entry_t* execution_entries = NULL;

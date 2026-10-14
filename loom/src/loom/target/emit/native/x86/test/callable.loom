@@ -1021,3 +1021,30 @@ func.def public @outgoing_many(%input: buffer) -> (i64) {
   %result = scalar.xori %first, %second : i64
   func.return %result : i64
 }
+
+// An inlined Low helper owns each argument's register contents. Its destructive
+// updates preserve values that remain observable in the source caller.
+low.func.def inline target<x86.scalar.core> @mutate_argument(%value: reg<x86.gpr64>, %delta: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %sum = add.gpr64 %value, %delta
+  return %sum
+}
+
+func.def public @reuse_mutated_argument(%value: i64, %delta: i64) -> (i64) {
+  %first = low.invoke @mutate_argument(%value, %delta) : (i64, i64) -> (i64)
+  %second = low.invoke @mutate_argument(%value, %first) : (i64, i64) -> (i64)
+  %result = scalar.xori %value, %second : i64
+  func.return %result : i64
+}
+
+low.func.def inline target<x86.scalar.core> @mutate_pair(%first: reg<x86.gpr64>, %second: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %one = mov.imm64 1
+  %changed = add.gpr64 %first, %one
+  %sum = add.gpr64 %second, %changed
+  return %sum
+}
+
+func.def public @reuse_aliased_arguments(%value: i64) -> (i64) {
+  %sum = low.invoke @mutate_pair(%value, %value) : (i64, i64) -> (i64)
+  %result = scalar.xori %value, %sum : i64
+  func.return %result : i64
+}

@@ -158,3 +158,116 @@ low.func.def public target<amd.xdna.aie2p.core>(@target) abi(object_function) @r
   %value = lda.i32.index %base, %14
   return %value
 }
+
+// ====
+// RUN: emit source-low output=low
+
+// Updating a helper's pointer leaves the caller's buffer value available for
+// another invocation and for the caller's own returned observation.
+aie2p.target<core> @target
+
+low.func.def inline target<amd.xdna.aie2p.core>(@target) @advance(%base: reg<aie2p.ep>, %offset: reg<aie2p.er>) -> (reg<aie2p.ep>) asm {
+  %modifier = mov.modifier %offset
+  %next = padda.modifier %base, %modifier
+  return %next
+}
+
+func.def target(@target) @independent_offsets(%base: buffer, %first_offset: offset, %second_offset: offset) -> (buffer, buffer, buffer) {
+  %first = low.invoke @advance(%base, %first_offset) : (buffer, offset) -> (buffer)
+  %second = low.invoke @advance(%base, %second_offset) : (buffer, offset) -> (buffer)
+  func.return %first, %second, %base : buffer, buffer, buffer
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @independent_offsets(%first_offset: reg<aie2p.er>, %second_offset: reg<aie2p.er>) -> (reg<aie2p.ep>, reg<aie2p.ep>, reg<aie2p.ep>) asm {
+  %base = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %21 = copy %base : reg<aie2p.ep> -> reg<aie2p.ep>
+  %modifier$23 = mov.modifier %first_offset
+  %next$24 = padda.modifier %21, %modifier$23
+  %22 = copy %base : reg<aie2p.ep> -> reg<aie2p.ep>
+  %modifier$3 = mov.modifier %second_offset
+  %next$4 = padda.modifier %22, %modifier$3
+  return %next$24, %next$4, %base
+}
+
+// ====
+// RUN: with-low-asm pass inline-callables
+
+// An identity helper still returns an independent captured value when its
+// caller consumes that result. Both cloned and moved bodies preserve the base.
+aie2p.target<core> @target
+
+low.func.def inline target<amd.xdna.aie2p.core>(@target) @identity_pointer(%base: reg<aie2p.ep>) -> (reg<aie2p.ep>) asm {
+  return %base
+}
+
+low.func.def public target<amd.xdna.aie2p.core>(@target) @offset_identity(%base: reg<aie2p.ep>) -> (reg<aie2p.ep>, reg<aie2p.ep>, reg<aie2p.ep>) asm {
+  %first = low.func.call @identity_pointer(%base) : (reg<aie2p.ep>) -> (reg<aie2p.ep>)
+  %first_offset = padda %first, 64
+  %second = low.func.call @identity_pointer(%base) : (reg<aie2p.ep>) -> (reg<aie2p.ep>)
+  %second_offset = paddb %second, -64
+  return %first_offset, %second_offset, %base
+}
+
+// ----
+aie2p.target<core> @target
+
+low.func.def public target<amd.xdna.aie2p.core>(@target) @offset_identity(%base: reg<aie2p.ep>) -> (reg<aie2p.ep>, reg<aie2p.ep>, reg<aie2p.ep>) asm {
+  %10 = copy %base : reg<aie2p.ep> -> reg<aie2p.ep>
+  %first_offset = padda %10, 64
+  %11 = copy %base : reg<aie2p.ep> -> reg<aie2p.ep>
+  %second_offset = paddb %11, -64
+  return %first_offset, %second_offset, %base
+}
+
+// ====
+// RUN: with-low-asm pass inline-callables
+
+// Independent CFG clones and the final consuming splice capture their own
+// pointer contents before the callee's entry block updates them.
+aie2p.target<core> @target
+
+low.func.def inline target<amd.xdna.aie2p.core>(@target) @cfg_advance(%base: reg<aie2p.ep>) -> (reg<aie2p.ep>) asm {
+  %next = padds %base, 64
+  low.br ^finish(%next: reg<aie2p.ep>)
+^finish(%result: reg<aie2p.ep>):
+  return %result
+}
+
+low.func.def public target<amd.xdna.aie2p.core>(@target) @independent_cfg_offsets(%base: reg<aie2p.ep>) -> (reg<aie2p.ep>, reg<aie2p.ep>, reg<aie2p.ep>, reg<aie2p.ep>) asm {
+  %first = low.func.call @cfg_advance(%base) : (reg<aie2p.ep>) -> (reg<aie2p.ep>)
+  %second = low.func.call @cfg_advance(%base) : (reg<aie2p.ep>) -> (reg<aie2p.ep>)
+  %third = low.func.call @cfg_advance(%base) : (reg<aie2p.ep>) -> (reg<aie2p.ep>)
+  return %first, %second, %third, %base
+}
+
+// ----
+aie2p.target<core> @target
+
+low.func.def public target<amd.xdna.aie2p.core>(@target) @independent_cfg_offsets(%base: reg<aie2p.ep>) -> (reg<aie2p.ep>, reg<aie2p.ep>, reg<aie2p.ep>, reg<aie2p.ep>) asm {
+  %12 = copy %base : reg<aie2p.ep> -> reg<aie2p.ep>
+  low.br ^_bb1
+^_bb1:
+  %next$20 = padds %12, 64
+  low.br ^_bb2(%next$20: reg<aie2p.ep>)
+^_bb2(%result$21: reg<aie2p.ep>):
+  low.br ^_bb3(%result$21: reg<aie2p.ep>)
+^_bb3(%first: reg<aie2p.ep>):
+  %13 = copy %base : reg<aie2p.ep> -> reg<aie2p.ep>
+  low.br ^_bb4
+^_bb4:
+  %next$16 = padds %13, 64
+  low.br ^_bb5(%next$16: reg<aie2p.ep>)
+^_bb5(%result$17: reg<aie2p.ep>):
+  low.br ^_bb6(%result$17: reg<aie2p.ep>)
+^_bb6(%second: reg<aie2p.ep>):
+  %14 = copy %base : reg<aie2p.ep> -> reg<aie2p.ep>
+  low.br ^_bb7
+^_bb7:
+  %next$2 = padds %14, 64
+  low.br ^_bb8(%next$2: reg<aie2p.ep>)
+^_bb8(%result$3: reg<aie2p.ep>):
+  low.br ^_bb9(%result$3: reg<aie2p.ep>)
+^_bb9(%third: reg<aie2p.ep>):
+  return %first, %second, %third, %base
+}
