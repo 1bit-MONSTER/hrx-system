@@ -71,7 +71,7 @@ struct iree_hal_vulkan_buffer_mapping_state_t {
   // Host pointer returned by vkMapMemory while the allocation is mapped.
   void* mapped_data;
 
-  // Number of live HAL mappings using |mapped_data|.
+  // Live HAL mappings plus the import owner's maintenance lease, when present.
   iree_host_size_t active_mapping_count;
 
   // Byte length of the dense VkDeviceMemory allocation.
@@ -93,6 +93,9 @@ typedef struct iree_hal_vulkan_buffer_t {
 
   // Byte offset within native device memory where this allocation begins.
   VkDeviceSize device_memory_offset;
+
+  // Original host pointer supplied to native import, never a vkMapMemory alias.
+  void* imported_host_pointer;
 
   // Shared mapping state for the dense device memory.
   iree_hal_vulkan_buffer_mapping_state_t* mapping_state;
@@ -238,6 +241,7 @@ static iree_status_t iree_hal_vulkan_buffer_create_internal(
     VkDeviceSize device_memory_size,
     iree_hal_vulkan_buffer_mapping_state_t* borrowed_mapping_state,
     VkBuffer handle, VkDeviceSize handle_length, VkDeviceAddress device_address,
+    void* imported_host_pointer, iree_hal_buffer_t* host_allocation,
     iree_hal_vulkan_buffer_ownership_t ownership,
     iree_hal_buffer_release_callback_t release_callback,
     iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer) {
@@ -271,6 +275,7 @@ static iree_status_t iree_hal_vulkan_buffer_create_internal(
   buffer->syms = *syms;
   buffer->logical_device = logical_device;
   buffer->device_memory_offset = device_memory_offset;
+  buffer->imported_host_pointer = imported_host_pointer;
   if (iree_any_bit_set(ownership, IREE_HAL_VULKAN_BUFFER_OWNS_MAPPING_STATE)) {
     iree_hal_vulkan_buffer_mapping_state_initialize(
         device_memory_size, &buffer->inline_mapping_state);
@@ -281,6 +286,8 @@ static iree_status_t iree_hal_vulkan_buffer_create_internal(
   iree_hal_vulkan_buffer_initialize_bindings(
       &buffer->base, device_memory, handle, handle_length, device_address,
       handle_offset, &buffer->native);
+  buffer->native.host_allocation =
+      imported_host_pointer ? &buffer->base : host_allocation;
   buffer->memory_property_flags = memory_property_flags;
   buffer->memory_type_index = memory_type_index;
   buffer->non_coherent_atom_size =
@@ -288,9 +295,29 @@ static iree_status_t iree_hal_vulkan_buffer_create_internal(
   buffer->ownership = ownership;
   buffer->release_callback = release_callback;
 
-  *out_buffer = &buffer->base;
+  iree_status_t status = iree_ok_status();
+  if (imported_host_pointer &&
+      !iree_any_bit_set(memory_property_flags,
+                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+    status = iree_vkMapMemory(IREE_VULKAN_DEVICE(&buffer->syms), logical_device,
+                              device_memory,
+                              /*offset=*/0, device_memory_size, /*flags=*/0,
+                              &buffer->mapping_state->mapped_data);
+    if (iree_status_is_ok(status)) {
+      // A construction-time lease keeps maintenance valid independently of
+      // public mappings. Teardown releases it with the native allocation.
+      buffer->mapping_state->active_mapping_count = 1;
+    }
+  }
+  if (iree_status_is_ok(status)) {
+    *out_buffer = &buffer->base;
+  } else {
+    iree_hal_vulkan_buffer_mapping_state_deinitialize(buffer,
+                                                      buffer->mapping_state);
+    iree_allocator_free(host_allocator, buffer);
+  }
   IREE_TRACE_ZONE_END(z0);
-  return iree_ok_status();
+  return status;
 }
 
 iree_status_t iree_hal_vulkan_buffer_create(
@@ -303,7 +330,7 @@ iree_status_t iree_hal_vulkan_buffer_create(
     VkDeviceMemory device_memory, VkDeviceSize device_memory_offset,
     VkDeviceSize device_memory_size, VkBuffer handle,
     VkDeviceSize handle_length, VkDeviceSize handle_offset,
-    VkDeviceAddress device_address,
+    VkDeviceAddress device_address, void* imported_host_pointer,
     iree_hal_buffer_release_callback_t release_callback,
     iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer) {
   return iree_hal_vulkan_buffer_create_internal(
@@ -312,6 +339,7 @@ iree_status_t iree_hal_vulkan_buffer_create(
       memory_property_flags, memory_type_index, non_coherent_atom_size,
       device_memory, handle_offset, device_memory_offset, device_memory_size,
       /*borrowed_mapping_state=*/NULL, handle, handle_length, device_address,
+      imported_host_pointer, /*host_allocation=*/NULL,
       IREE_HAL_VULKAN_BUFFER_OWNS_HANDLE |
           IREE_HAL_VULKAN_BUFFER_OWNS_DEVICE_MEMORY |
           IREE_HAL_VULKAN_BUFFER_OWNS_MAPPING_STATE,
@@ -327,7 +355,7 @@ iree_status_t iree_hal_vulkan_buffer_create_borrowed(
     VkMemoryPropertyFlags memory_property_flags,
     VkDeviceSize non_coherent_atom_size, VkDeviceMemory device_memory,
     iree_hal_vulkan_buffer_mapping_state_t* mapping_state, VkBuffer handle,
-    VkDeviceAddress device_address,
+    VkDeviceAddress device_address, iree_hal_buffer_t* host_allocation,
     iree_hal_buffer_release_callback_t release_callback,
     iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer) {
   if (IREE_UNLIKELY(handle_offset > allocation_size ||
@@ -346,6 +374,7 @@ iree_status_t iree_hal_vulkan_buffer_create_borrowed(
       (VkDeviceSize)handle_offset,
       mapping_state ? mapping_state->device_memory_size : 0, mapping_state,
       handle, (VkDeviceSize)allocation_size, device_address,
+      /*imported_host_pointer=*/NULL, host_allocation,
       IREE_HAL_VULKAN_BUFFER_OWNS_NONE, release_callback, host_allocator,
       out_buffer);
 }
@@ -466,6 +495,35 @@ iree_status_t iree_hal_vulkan_buffer_resolve_backing_offset(
                             "Vulkan buffer local offset overflows");
   }
   *out_backing_byte_offset = backing_byte_offset;
+  return iree_ok_status();
+}
+
+iree_status_t iree_hal_vulkan_buffer_resolve_host_span(
+    iree_hal_buffer_t* buffer, iree_device_size_t offset,
+    iree_device_size_t length, iree_hal_vulkan_buffer_host_span_t* out_span) {
+  *out_span = (iree_hal_vulkan_buffer_host_span_t){0};
+  iree_hal_buffer_t* backing = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_hal_vulkan_buffer_resolve_backing(buffer, &backing));
+  iree_hal_buffer_t* allocation =
+      iree_hal_vulkan_buffer_native(backing)->host_allocation;
+  if (!allocation) {
+    return iree_ok_status();
+  }
+  iree_device_size_t allocation_offset = 0;
+  IREE_RETURN_IF_ERROR(iree_hal_vulkan_buffer_resolve_backing_offset(
+      buffer, backing, offset, &allocation_offset));
+  const iree_hal_vulkan_buffer_t* owner =
+      iree_hal_vulkan_buffer_cast(allocation);
+  *out_span = (iree_hal_vulkan_buffer_host_span_t){
+      .contents = iree_make_byte_span(
+          (uint8_t*)owner->imported_host_pointer + allocation_offset,
+          (iree_host_size_t)length),
+      .allocation = allocation,
+      .allocation_offset = allocation_offset,
+      .coherent = iree_any_bit_set(owner->memory_property_flags,
+                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT),
+  };
   return iree_ok_status();
 }
 
@@ -786,3 +844,15 @@ static const iree_hal_buffer_vtable_t iree_hal_vulkan_buffer_vtable = {
     .invalidate_range = iree_hal_vulkan_buffer_invalidate_range,
     .flush_range = iree_hal_vulkan_buffer_flush_range,
 };
+
+iree_status_t iree_hal_vulkan_buffer_flush_host_span(
+    const iree_hal_vulkan_buffer_host_span_t* span) {
+  return iree_hal_vulkan_buffer_flush_range(
+      span->allocation, span->allocation_offset, span->contents.data_length);
+}
+
+iree_status_t iree_hal_vulkan_buffer_invalidate_host_span(
+    const iree_hal_vulkan_buffer_host_span_t* span) {
+  return iree_hal_vulkan_buffer_invalidate_range(
+      span->allocation, span->allocation_offset, span->contents.data_length);
+}

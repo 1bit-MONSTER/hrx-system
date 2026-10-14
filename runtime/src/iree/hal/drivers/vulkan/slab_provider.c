@@ -406,8 +406,9 @@ static iree_status_t iree_hal_vulkan_slab_provider_wrap_buffer(
       &provider->syms, provider->logical_device, placement, memory_type,
       allowed_access, allowed_usage, native->handle_length, handle_offset,
       allocation_size, memory_property_flags, provider->non_coherent_atom_size,
-      device_memory, mapping_state, handle, device_address, release_callback,
-      provider->host_allocator, out_buffer);
+      device_memory, mapping_state, handle, device_address,
+      native->host_allocation, release_callback, provider->host_allocator,
+      out_buffer);
   if (iree_status_is_ok(status) && provider->mapping_granularity) {
     iree_hal_vulkan_buffer_prepare_mapping_source(
         *out_buffer, slab_buffer, provider->mapping_granularity);

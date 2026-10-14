@@ -49,6 +49,7 @@ iree_cc_library(
     "file_test.cc"
   DEPS
     iree::hal
+    iree::hal::cts::util::pool_test_util
     iree::hal::cts::util::test_base
     iree::io::file_handle
     iree::testing::temp_file
@@ -642,6 +643,7 @@ iree_cc_test(
     iree::hal::cts::util::test_main
     iree::hal::drivers::vulkan
     iree::hal::drivers::vulkan::headers
+    iree::hal::drivers::vulkan::queue_test_util
     iree::hal::memory::tlsf_pool
     iree::testing::gtest
   LABELS

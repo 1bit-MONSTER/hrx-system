@@ -18,6 +18,7 @@
 #include "iree/hal/drivers/vulkan/buffer.h"
 #include "iree/hal/drivers/vulkan/command_buffer.h"
 #include "iree/hal/drivers/vulkan/executable.h"
+#include "iree/hal/drivers/vulkan/file_transfer.h"
 #include "iree/hal/drivers/vulkan/memory_backend.h"
 #include "iree/hal/drivers/vulkan/sparse_buffer.h"
 #include "iree/hal/drivers/vulkan/transient_buffer.h"
@@ -43,25 +44,6 @@ enum iree_hal_vulkan_queue_activation_state_e {
   IREE_HAL_VULKAN_QUEUE_ACTIVATION_STATE_INACTIVE = 0,
   IREE_HAL_VULKAN_QUEUE_ACTIVATION_STATE_ACTIVE = 1,
 };
-
-typedef void(IREE_API_PTR* iree_hal_vulkan_queue_completion_action_fn_t)(
-    void* user_data, const iree_status_t completion_status);
-
-typedef struct iree_hal_vulkan_queue_completion_action_t {
-  // Completion callback invoked after the queue epoch retires.
-  iree_hal_vulkan_queue_completion_action_fn_t fn;
-
-  // User data passed to |fn|.
-  void* user_data;
-
-  // Optional resource retained until |fn| has been invoked or cancelled.
-  iree_hal_resource_t* resource;
-} iree_hal_vulkan_queue_completion_action_t;
-
-static iree_hal_vulkan_queue_completion_action_t
-iree_hal_vulkan_queue_completion_action_null(void) {
-  return (iree_hal_vulkan_queue_completion_action_t){0};
-}
 
 struct iree_hal_vulkan_queue_command_buffer_block_t {
   // Next block in the queue-owned command buffer cache.
@@ -7049,7 +7031,7 @@ static void iree_hal_vulkan_queue_capture_barriers(
   }
 }
 
-static iree_status_t iree_hal_vulkan_queue_submit_barrier_with_action(
+iree_status_t iree_hal_vulkan_queue_submit_barrier_with_action(
     iree_hal_vulkan_queue_t* queue,
     const iree_hal_semaphore_list_t wait_semaphore_list,
     const iree_hal_semaphore_list_t signal_semaphore_list,
@@ -9467,6 +9449,19 @@ iree_status_t iree_hal_vulkan_queue_submit_read(
     }
   }
   if (iree_status_is_ok(status) && target_is_native &&
+      iree_hal_file_async_handle(source_file)) {
+    iree_hal_vulkan_buffer_host_span_t span;
+    status = iree_hal_vulkan_buffer_resolve_host_span(
+        target_buffer, target_offset, length, &span);
+    if (iree_status_is_ok(status) && span.allocation) {
+      IREE_TRACE_ZONE_END(z0);
+      return iree_hal_vulkan_queue_submit_file_transfer(
+          queue, wait_semaphore_list, signal_semaphore_list, source_file,
+          IREE_HAL_MEMORY_ACCESS_READ, source_offset, target_buffer, span,
+          barriers);
+    }
+  }
+  if (iree_status_is_ok(status) && target_is_native &&
       iree_hal_vulkan_queue_file_supports_staged_transfer(source_file)) {
     IREE_TRACE_ZONE_END(z0);
     return iree_hal_vulkan_queue_submit_staged_transfer(
@@ -9539,6 +9534,19 @@ iree_status_t iree_hal_vulkan_queue_submit_write(
           source_offset, target_storage_buffer,
           (iree_device_size_t)target_offset, length, barriers,
           IREE_HAL_COPY_FLAG_NONE);
+    }
+  }
+  if (iree_status_is_ok(status) && source_is_native &&
+      iree_hal_file_async_handle(target_file)) {
+    iree_hal_vulkan_buffer_host_span_t span;
+    status = iree_hal_vulkan_buffer_resolve_host_span(
+        source_buffer, source_offset, length, &span);
+    if (iree_status_is_ok(status) && span.allocation) {
+      IREE_TRACE_ZONE_END(z0);
+      return iree_hal_vulkan_queue_submit_file_transfer(
+          queue, wait_semaphore_list, signal_semaphore_list, target_file,
+          IREE_HAL_MEMORY_ACCESS_WRITE, target_offset, source_buffer, span,
+          barriers);
     }
   }
   if (iree_status_is_ok(status) && source_is_native &&

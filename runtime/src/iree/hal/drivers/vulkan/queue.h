@@ -440,6 +440,33 @@ void iree_hal_vulkan_queue_sample_native_replay_cache_stats(
     iree_hal_vulkan_queue_t* queue,
     iree_hal_vulkan_native_replay_cache_stats_t* out_stats);
 
+// Retained continuation for one native queue completion boundary.
+typedef struct iree_hal_vulkan_queue_completion_action_t {
+  // Invoked after the queue epoch retires, or with failure before execution.
+  // Borrows the status for the callback duration.
+  void(IREE_API_PTR* fn)(void* user_data,
+                         const iree_status_t completion_status);
+  // Callback state, kept alive by |resource| when supplied.
+  void* user_data;
+  // Optional resource retained until callback invocation or cancellation.
+  iree_hal_resource_t* resource;
+} iree_hal_vulkan_queue_completion_action_t;
+
+static inline iree_hal_vulkan_queue_completion_action_t
+iree_hal_vulkan_queue_completion_action_null(void) {
+  return (iree_hal_vulkan_queue_completion_action_t){0};
+}
+
+// Submits an existing queue dependency/publication boundary with an owned
+// continuation. A successful submission retains the action resource; a
+// rejected submission may invoke the action with the terminal failure.
+iree_status_t iree_hal_vulkan_queue_submit_barrier_with_action(
+    iree_hal_vulkan_queue_t* queue,
+    const iree_hal_semaphore_list_t wait_semaphore_list,
+    const iree_hal_semaphore_list_t signal_semaphore_list,
+    const iree_hal_vulkan_queue_barriers_t* barriers,
+    iree_hal_vulkan_queue_completion_action_t completion_action);
+
 // Submits a queue-ordered semaphore barrier.
 iree_status_t iree_hal_vulkan_queue_submit_barrier(
     iree_hal_vulkan_queue_t* queue,

@@ -20,6 +20,7 @@
 #include "iree/hal/drivers/vulkan/command_buffer.h"
 #include "iree/hal/drivers/vulkan/cts/bda_spirv_test_spv.h"
 #include "iree/hal/drivers/vulkan/queue_stats.h"
+#include "iree/hal/drivers/vulkan/queue_test_util.h"
 #include "iree/hal/memory/tlsf_pool.h"
 
 namespace iree::hal::cts {
@@ -1400,6 +1401,8 @@ TEST_P(BdaSpirvTest, CommandBufferExecutesBdaShaderWithSparseBindings) {
   if (!capabilities.max_byte_length) {
     GTEST_SKIP() << "Vulkan sparse virtual memory is not available";
   }
+  iree_hal_queue_t* mapping_queue = FindVulkanSparseBindingQueue(device_);
+  ASSERT_NE(nullptr, mapping_queue);
   for (auto& family : families) {
     family.interfaces = UINT64_C(1) << IREE_HAL_BUFFER_INTERFACE_MAPPING_SOURCE;
   }
@@ -1466,7 +1469,7 @@ TEST_P(BdaSpirvTest, CommandBufferExecutesBdaShaderWithSparseBindings) {
   };
   SemaphoreList mapped(device_, {0}, {1});
   IREE_ASSERT_OK(iree_hal_queue_map(
-      transfer_queue_, iree_hal_semaphore_list_empty(), mapped,
+      mapping_queue, iree_hal_semaphore_list_empty(), mapped,
       IREE_ARRAYSIZE(mappings), mappings, IREE_HAL_QUEUE_MAP_FLAG_NONE));
   IREE_ASSERT_OK(iree_hal_semaphore_list_wait(mapped, iree_infinite_timeout(),
                                               IREE_ASYNC_WAIT_FLAG_NONE));
@@ -1539,7 +1542,7 @@ TEST_P(BdaSpirvTest, CommandBufferExecutesBdaShaderWithSparseBindings) {
   }
   SemaphoreList unmapped(device_, {0}, {1});
   IREE_ASSERT_OK(iree_hal_queue_map(
-      transfer_queue_, iree_hal_semaphore_list_empty(), unmapped,
+      mapping_queue, iree_hal_semaphore_list_empty(), unmapped,
       IREE_ARRAYSIZE(mappings), mappings, IREE_HAL_QUEUE_MAP_FLAG_NONE));
   IREE_ASSERT_OK(iree_hal_semaphore_list_wait(unmapped, iree_infinite_timeout(),
                                               IREE_ASYNC_WAIT_FLAG_NONE));

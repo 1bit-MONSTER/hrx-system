@@ -47,6 +47,7 @@ iree_runtime_cc_library(
     srcs = ["file_test.cc"],
     deps = [
         "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/cts/util:pool_test_util",
         "//runtime/src/iree/hal/cts/util:test_base",
         "//runtime/src/iree/io:file_handle",
         "//runtime/src/iree/testing:temp_file",
@@ -336,6 +337,7 @@ iree_runtime_cc_test(
         "//runtime/src/iree/hal/cts/util:test_main",
         "//runtime/src/iree/hal/drivers/vulkan",
         "//runtime/src/iree/hal/drivers/vulkan:headers",
+        "//runtime/src/iree/hal/drivers/vulkan:queue_test_util",
         "//runtime/src/iree/hal/memory:tlsf_pool",
         "//runtime/src/iree/testing:gtest",
     ],
