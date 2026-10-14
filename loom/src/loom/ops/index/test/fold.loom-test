@@ -1625,28 +1625,40 @@ test.target<quirky> @target32
 
 test.target<low_core> @target64
 
-func.def target(@target32) @target_width_32(%x: index) -> (index, index, index, index) {
+func.def target(@target32) @target_width_32(%x: index) -> (index, index, index, index, index, index, index) {
   %c1 = index.constant 1 : index
   %c2 = index.constant 2 : index
   %c8 = index.constant 8 : index
+  %c32 = index.constant 32 : index
+  %c33 = index.constant 33 : index
+  %cn1 = index.constant -1 : index
   %count = index.ctlzi %c1 : index
   %rotate = index.rotri %x, %c8 : index
+  %rotate_width = index.rotli %x, %c32 : index
+  %rotate_wrapped = index.rotli %x, %c33 : index
+  %rotate_negative = index.rotri %x, %cn1 : index
   %multiply = index.mul %x, %c8 : index
   %inner_shift = index.shli %x, %c1 : index
   %outer_shift = index.shli %inner_shift, %c2 : index
-  func.return %count, %rotate, %multiply, %outer_shift : index, index, index, index
+  func.return %count, %rotate, %rotate_width, %rotate_wrapped, %rotate_negative, %multiply, %outer_shift : index, index, index, index, index, index, index
 }
 
-func.def target(@target64) @target_width_64(%x: index) -> (index, index, index, index) {
+func.def target(@target64) @target_width_64(%x: index) -> (index, index, index, index, index, index, index) {
   %c1 = index.constant 1 : index
   %c2 = index.constant 2 : index
   %c8 = index.constant 8 : index
+  %c64 = index.constant 64 : index
+  %c65 = index.constant 65 : index
+  %cn1 = index.constant -1 : index
   %count = index.ctlzi %c1 : index
   %rotate = index.rotri %x, %c8 : index
+  %rotate_width = index.rotli %x, %c64 : index
+  %rotate_wrapped = index.rotli %x, %c65 : index
+  %rotate_negative = index.rotri %x, %cn1 : index
   %multiply = index.mul %x, %c8 : index
   %inner_shift = index.shli %x, %c1 : index
   %outer_shift = index.shli %inner_shift, %c2 : index
-  func.return %count, %rotate, %multiply, %outer_shift : index, index, index, index
+  func.return %count, %rotate, %rotate_width, %rotate_wrapped, %rotate_negative, %multiply, %outer_shift : index, index, index, index, index, index, index
 }
 
 // ----
@@ -1654,26 +1666,34 @@ test.target<quirky> @target32
 
 test.target<low_core> @target64
 
-func.def target(@target32) @target_width_32(%x: index) -> (index, index, index, index) {
+func.def target(@target32) @target_width_32(%x: index) -> (index, index, index, index, index, index, index) {
   %count = index.constant 31 : index
-  %30 = index.constant 24 : index
-  %rotate = index.rotli %x, %30 : index
-  %28 = index.constant 3 : index
-  %multiply = index.shli %x, %28 : index
-  %26 = index.constant 3 : index
-  %outer_shift = index.shli %x, %26 : index
-  func.return %count, %rotate, %multiply, %outer_shift : index, index, index, index
+  %52 = index.constant 24 : index
+  %rotate = index.rotli %x, %52 : index
+  %50 = index.constant 1 : index
+  %rotate_wrapped = index.rotli %x, %50 : index
+  %48 = index.constant 1 : index
+  %rotate_negative = index.rotli %x, %48 : index
+  %46 = index.constant 3 : index
+  %multiply = index.shli %x, %46 : index
+  %44 = index.constant 3 : index
+  %outer_shift = index.shli %x, %44 : index
+  func.return %count, %rotate, %x, %rotate_wrapped, %rotate_negative, %multiply, %outer_shift : index, index, index, index, index, index, index
 }
 
-func.def target(@target64) @target_width_64(%x: index) -> (index, index, index, index) {
+func.def target(@target64) @target_width_64(%x: index) -> (index, index, index, index, index, index, index) {
   %count = index.constant 63 : index
-  %37 = index.constant 56 : index
-  %rotate = index.rotli %x, %37 : index
-  %35 = index.constant 3 : index
-  %multiply = index.shli %x, %35 : index
-  %33 = index.constant 3 : index
-  %outer_shift = index.shli %x, %33 : index
-  func.return %count, %rotate, %multiply, %outer_shift : index, index, index, index
+  %63 = index.constant 56 : index
+  %rotate = index.rotli %x, %63 : index
+  %61 = index.constant 1 : index
+  %rotate_wrapped = index.rotli %x, %61 : index
+  %59 = index.constant 1 : index
+  %rotate_negative = index.rotli %x, %59 : index
+  %57 = index.constant 3 : index
+  %multiply = index.shli %x, %57 : index
+  %55 = index.constant 3 : index
+  %outer_shift = index.shli %x, %55 : index
+  func.return %count, %rotate, %x, %rotate_wrapped, %rotate_negative, %multiply, %outer_shift : index, index, index, index, index, index, index
 }
 
 // ====

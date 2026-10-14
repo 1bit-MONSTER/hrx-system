@@ -1464,6 +1464,54 @@ void loom_value_facts_shrsi(const loom_value_facts_t* lhs,
   loom_value_facts_propagate_binary_distribution(lhs_facts, rhs_facts, out);
 }
 
+static void loom_value_facts_rotate(const loom_value_facts_t* lhs,
+                                    const loom_value_facts_t* rhs,
+                                    int32_t bit_count, bool rotate_left,
+                                    loom_value_facts_t* out) {
+  const loom_value_facts_t lhs_facts = *lhs;
+  const loom_value_facts_t rhs_facts = *rhs;
+  int64_t value = 0;
+  int64_t amount = 0;
+  if (bit_count <= 0 || bit_count > 64 ||
+      !loom_value_facts_as_exact_i64(lhs_facts, &value) ||
+      !loom_value_facts_as_exact_i64(rhs_facts, &amount)) {
+    *out = loom_value_facts_unknown();
+    loom_value_facts_propagate_binary_distribution(lhs_facts, rhs_facts, out);
+    return;
+  }
+
+  int64_t normalized_amount = amount % bit_count;
+  if (normalized_amount < 0) {
+    normalized_amount += bit_count;
+  }
+  uint32_t shift = (uint32_t)normalized_amount;
+  uint64_t mask =
+      bit_count == 64 ? UINT64_MAX : (UINT64_C(1) << (uint32_t)bit_count) - 1;
+  uint64_t raw_value = (uint64_t)value & mask;
+  uint64_t rotated = raw_value;
+  if (shift != 0) {
+    uint32_t complement = (uint32_t)bit_count - shift;
+    rotated = rotate_left ? (raw_value << shift) | (raw_value >> complement)
+                          : (raw_value >> shift) | (raw_value << complement);
+  }
+  *out = bit_count == 1
+             ? loom_value_facts_exact_i64((int64_t)(rotated & 1))
+             : loom_value_facts_make_signed_raw_bits(rotated & mask, bit_count);
+  loom_value_facts_propagate_binary_distribution(lhs_facts, rhs_facts, out);
+}
+
+void loom_value_facts_rotli(const loom_value_facts_t* lhs,
+                            const loom_value_facts_t* rhs, int32_t bit_count,
+                            loom_value_facts_t* out) {
+  loom_value_facts_rotate(lhs, rhs, bit_count, /*rotate_left=*/true, out);
+}
+
+void loom_value_facts_rotri(const loom_value_facts_t* lhs,
+                            const loom_value_facts_t* rhs, int32_t bit_count,
+                            loom_value_facts_t* out) {
+  loom_value_facts_rotate(lhs, rhs, bit_count, /*rotate_left=*/false, out);
+}
+
 //===----------------------------------------------------------------------===//
 // Transfer functions: bitwise
 //===----------------------------------------------------------------------===//

@@ -330,31 +330,15 @@ iree_status_t loom_index_shrui_facts(loom_fact_context_t* context,
 static iree_status_t loom_index_rotate_facts(
     const loom_fact_context_t* context, const loom_value_facts_t* operand_facts,
     bool rotate_left, loom_value_facts_t* result_facts) {
-  int64_t value = 0;
-  int64_t amount = 0;
   int32_t bitwidth =
       loom_index_target_carrier_bitwidth(context, LOOM_SCALAR_TYPE_INDEX);
-  if (!loom_value_facts_as_exact_i64(operand_facts[0], &value) ||
-      !loom_value_facts_as_exact_i64(operand_facts[1], &amount) ||
-      bitwidth <= 0 || bitwidth > 64 || amount < 0 || amount >= bitwidth) {
-    result_facts[0] = loom_value_facts_unknown();
-    return iree_ok_status();
+  if (rotate_left) {
+    loom_value_facts_rotli(&operand_facts[0], &operand_facts[1], bitwidth,
+                           &result_facts[0]);
+  } else {
+    loom_value_facts_rotri(&operand_facts[0], &operand_facts[1], bitwidth,
+                           &result_facts[0]);
   }
-  uint64_t mask = bitwidth == 64 ? UINT64_MAX : ((UINT64_C(1) << bitwidth) - 1);
-  uint64_t raw_value = (uint64_t)value & mask;
-  uint32_t shift = (uint32_t)amount;
-  if (shift == 0) {
-    result_facts[0] =
-        loom_value_facts_make_signed_raw_bits(raw_value, bitwidth);
-    return iree_ok_status();
-  }
-  uint64_t rotated =
-      rotate_left
-          ? ((raw_value << shift) | (raw_value >> ((uint32_t)bitwidth - shift)))
-          : ((raw_value >> shift) |
-             (raw_value << ((uint32_t)bitwidth - shift)));
-  result_facts[0] =
-      loom_value_facts_make_signed_raw_bits(rotated & mask, bitwidth);
   return iree_ok_status();
 }
 

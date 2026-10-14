@@ -1893,6 +1893,76 @@ TEST(IntegerExtremaTransfer, BooleanAndNarrowRanges) {
 }
 
 //===----------------------------------------------------------------------===//
+// Transfer functions: rotates
+//===----------------------------------------------------------------------===//
+
+TEST(IntegerRotateTransfer, SignedAmountsWrapModuloEveryIntegerWidth) {
+  struct Case {
+    int32_t bit_count;
+    int64_t value;
+    int64_t left_one;
+    int64_t right_one;
+  };
+  static constexpr Case kCases[] = {
+      {1, 1, 1, 1},
+      {8, -127, 3, -64},
+      {16, -32767, 3, -16384},
+      {32, INT32_MIN + INT64_C(1), 3, INT64_C(-1073741824)},
+      {64, INT64_MIN + INT64_C(1), 3, INT64_C(-4611686018427387904)},
+  };
+  using Transfer =
+      void (*)(const loom_value_facts_t*, const loom_value_facts_t*, int32_t,
+               loom_value_facts_t*);
+  auto evaluate = [](Transfer transfer, int32_t bit_count, int64_t value,
+                     int64_t amount) {
+    loom_value_facts_t lhs = loom_value_facts_exact_i64(value);
+    loom_value_facts_t rhs = loom_value_facts_exact_i64(amount);
+    loom_value_facts_t result = loom_value_facts_unknown();
+    transfer(&lhs, &rhs, bit_count, &result);
+    EXPECT_TRUE(loom_value_facts_is_exact(result));
+    return result.range_lo;
+  };
+
+  for (const auto& test_case : kCases) {
+    SCOPED_TRACE(test_case.bit_count);
+    EXPECT_EQ(evaluate(loom_value_facts_rotli, test_case.bit_count,
+                       test_case.value, 1),
+              test_case.left_one);
+    EXPECT_EQ(evaluate(loom_value_facts_rotli, test_case.bit_count,
+                       test_case.value, test_case.bit_count + 1),
+              test_case.left_one);
+    EXPECT_EQ(evaluate(loom_value_facts_rotli, test_case.bit_count,
+                       test_case.value, -1),
+              test_case.right_one);
+    EXPECT_EQ(evaluate(loom_value_facts_rotri, test_case.bit_count,
+                       test_case.value, 1),
+              test_case.right_one);
+    EXPECT_EQ(evaluate(loom_value_facts_rotri, test_case.bit_count,
+                       test_case.value, test_case.bit_count + 1),
+              test_case.right_one);
+    EXPECT_EQ(evaluate(loom_value_facts_rotri, test_case.bit_count,
+                       test_case.value, -1),
+              test_case.left_one);
+    EXPECT_EQ(evaluate(loom_value_facts_rotli, test_case.bit_count,
+                       test_case.value, test_case.bit_count),
+              test_case.value);
+  }
+}
+
+TEST(IntegerRotateTransfer, PreservesDistributionWithoutExactValues) {
+  loom_value_facts_t lhs = loom_value_facts_unknown();
+  loom_value_facts_mark_workgroup_uniform(&lhs);
+  loom_value_facts_t rhs = loom_value_facts_unknown();
+  loom_value_facts_mark_subgroup_uniform(&rhs);
+  loom_value_facts_t result = loom_value_facts_unknown();
+
+  loom_value_facts_rotli(&lhs, &rhs, 32, &result);
+
+  EXPECT_TRUE(loom_value_facts_is_subgroup_uniform(result));
+  EXPECT_FALSE(loom_value_facts_is_workgroup_uniform(result));
+}
+
+//===----------------------------------------------------------------------===//
 // Shaped type helpers
 //===----------------------------------------------------------------------===//
 

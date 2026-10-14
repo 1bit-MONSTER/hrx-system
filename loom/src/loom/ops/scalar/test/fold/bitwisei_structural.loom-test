@@ -100,18 +100,29 @@ func.def @shift_identities_and_reassociation(%x: i32) -> (i32, i32, i32, i32, i3
 
 // ====
 
-func.def @rotate_identities_and_direction(%x: i32) -> (i32, i32, i32) {
+func.def @rotate_amounts_wrap_modulo_width(%x: i32) -> (i32, i32, i32, i32, i32, i32) {
   %c0 = scalar.constant 0 : i32
-  %c8 = scalar.constant 8 : i32
+  %c32 = scalar.constant 32 : i32
+  %c33 = scalar.constant 33 : i32
+  %cn1 = scalar.constant -1 : i32
   %rotl_zero = scalar.rotli %x, %c0 : i32
-  %rotr_zero = scalar.rotri %x, %c0 : i32
-  %rotr = scalar.rotri %x, %c8 : i32
-  func.return %rotl_zero, %rotr_zero, %rotr : i32, i32, i32
+  %rotl_width = scalar.rotli %x, %c32 : i32
+  %rotl_wrapped = scalar.rotli %x, %c33 : i32
+  %rotl_negative = scalar.rotli %x, %cn1 : i32
+  %rotr_wrapped = scalar.rotri %x, %c33 : i32
+  %rotr_negative = scalar.rotri %x, %cn1 : i32
+  func.return %rotl_zero, %rotl_width, %rotl_wrapped, %rotl_negative, %rotr_wrapped, %rotr_negative : i32, i32, i32, i32, i32, i32
 }
 
 // ----
-func.def @rotate_identities_and_direction(%x: i32) -> (i32, i32, i32) {
-  %9 = scalar.constant 24 : i32
-  %rotr = scalar.rotli %x, %9 : i32
-  func.return %x, %x, %rotr : i32, i32, i32
+func.def @rotate_amounts_wrap_modulo_width(%x: i32) -> (i32, i32, i32, i32, i32, i32) {
+  %23 = scalar.constant 1 : i32
+  %rotl_wrapped = scalar.rotli %x, %23 : i32
+  %21 = scalar.constant 31 : i32
+  %rotl_negative = scalar.rotli %x, %21 : i32
+  %19 = scalar.constant 31 : i32
+  %rotr_wrapped = scalar.rotli %x, %19 : i32
+  %17 = scalar.constant 1 : i32
+  %rotr_negative = scalar.rotli %x, %17 : i32
+  func.return %x, %x, %rotl_wrapped, %rotl_negative, %rotr_wrapped, %rotr_negative : i32, i32, i32, i32, i32, i32
 }

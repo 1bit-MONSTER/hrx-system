@@ -3775,6 +3775,8 @@ iree_status_t loom_vector_shrui_facts(loom_fact_context_t* context,
   return loom_vector_integer_binary_summary_facts(
       context, bit_count, operand_facts, result_facts, loom_value_facts_shrui);
 }
+LOOM_VECTOR_WIDTH_BINARY_FACTS(loom_vector_rotli_facts, loom_value_facts_rotli)
+LOOM_VECTOR_WIDTH_BINARY_FACTS(loom_vector_rotri_facts, loom_value_facts_rotri)
 LOOM_VECTOR_BIT_COUNT_FACTS(loom_vector_ctlzi_facts, loom_vector_ctlzi_result,
                             iree_math_count_leading_zeros_u64_width)
 LOOM_VECTOR_BIT_COUNT_FACTS(loom_vector_cttzi_facts, loom_vector_cttzi_result,

@@ -579,21 +579,27 @@ iree_status_t loom_scalar_bitfield_extracts_facts(
       result_facts);
 }
 
-// Rotates: no transfer function yet — exact-only fact inference.
 iree_status_t loom_scalar_rotli_facts(loom_fact_context_t* context,
                                       const loom_module_t* module,
                                       const loom_op_t* op,
                                       const loom_value_facts_t* operand_facts,
                                       loom_value_facts_t* result_facts) {
-  result_facts[0] = loom_value_facts_unknown();
+  int32_t bit_count =
+      loom_scalar_type_bitwidth(loom_scalar_result_element_type(module, op));
+  loom_value_facts_rotli(&operand_facts[0], &operand_facts[1], bit_count,
+                         &result_facts[0]);
   return iree_ok_status();
 }
+
 iree_status_t loom_scalar_rotri_facts(loom_fact_context_t* context,
                                       const loom_module_t* module,
                                       const loom_op_t* op,
                                       const loom_value_facts_t* operand_facts,
                                       loom_value_facts_t* result_facts) {
-  result_facts[0] = loom_value_facts_unknown();
+  int32_t bit_count =
+      loom_scalar_type_bitwidth(loom_scalar_result_element_type(module, op));
+  loom_value_facts_rotri(&operand_facts[0], &operand_facts[1], bit_count,
+                         &result_facts[0]);
   return iree_ok_status();
 }
 
