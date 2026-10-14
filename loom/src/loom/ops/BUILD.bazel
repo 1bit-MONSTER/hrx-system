@@ -227,7 +227,20 @@ loom_cc_library(
     name = "combining",
     srcs = ["combining.c"],
     hdrs = ["combining.h"],
-    deps = ["//runtime/src/iree/base"],
+    deps = [
+        "//loom/src/loom/ir",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_test(
+    name = "combining_test",
+    srcs = ["combining_test.cc"],
+    deps = [
+        ":combining",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
 )
 
 loom_generated_file_family(

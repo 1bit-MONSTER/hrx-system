@@ -253,28 +253,29 @@ func.def target(@target) @store_streamed_wide_predicate_window(%source: buffer, 
   %136 = vector.select %133, %14, %15 : vector<4xi8>
   %137 = index.constant 64 : index
   %138 = index.add %offset, %137 : index
-  %139 = vector.load %source_view[%138] : view<80xi32> -> vector<1xi32>
-  %140 = vector.constant 0 : vector<1xi32>
-  %141 = vector.cmpi slt, %139, %140 : vector<1xi32> -> vector<1xi1>
-  %142 = vector.constant 1 : vector<1xi8>
-  %143 = vector.constant 0 : vector<1xi8>
-  %144 = vector.select %141, %142, %143 : vector<1xi8>
-  %146 = vector.concat<0> %16, %24 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
-  %147 = vector.concat<0> %32, %40 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
-  %148 = vector.concat<0> %48, %56 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
-  %149 = vector.concat<0> %64, %72 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
-  %150 = vector.concat<0> %80, %88 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
-  %151 = vector.concat<0> %96, %104 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
-  %152 = vector.concat<0> %112, %120 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
-  %153 = vector.concat<0> %128, %136 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
-  %154 = vector.concat<0> %146, %147 : vector<8xi8>, vector<8xi8> -> vector<16xi8>
-  %155 = vector.concat<0> %148, %149 : vector<8xi8>, vector<8xi8> -> vector<16xi8>
-  %156 = vector.concat<0> %150, %151 : vector<8xi8>, vector<8xi8> -> vector<16xi8>
-  %157 = vector.concat<0> %152, %153 : vector<8xi8>, vector<8xi8> -> vector<16xi8>
-  vector.store %154, %output_view[0] : vector<16xi8>, view<65xi8>
-  vector.store %155, %output_view[16] : vector<16xi8>, view<65xi8>
-  vector.store %156, %output_view[32] : vector<16xi8>, view<65xi8>
-  vector.store %157, %output_view[48] : vector<16xi8>, view<65xi8>
-  vector.store %144, %output_view[64] : vector<1xi8>, view<65xi8>
+  %139 = view.load %source_view[%138] : view<80xi32> -> i32
+  %140 = vector.splat %139 : vector<1xi32>
+  %141 = vector.constant 0 : vector<1xi32>
+  %142 = vector.cmpi slt, %140, %141 : vector<1xi32> -> vector<1xi1>
+  %143 = vector.constant 1 : vector<1xi8>
+  %144 = vector.constant 0 : vector<1xi8>
+  %145 = vector.select %142, %143, %144 : vector<1xi8>
+  %147 = vector.concat<0> %16, %24 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %148 = vector.concat<0> %32, %40 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %149 = vector.concat<0> %48, %56 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %150 = vector.concat<0> %64, %72 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %151 = vector.concat<0> %80, %88 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %152 = vector.concat<0> %96, %104 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %153 = vector.concat<0> %112, %120 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %154 = vector.concat<0> %128, %136 : vector<4xi8>, vector<4xi8> -> vector<8xi8>
+  %155 = vector.concat<0> %147, %148 : vector<8xi8>, vector<8xi8> -> vector<16xi8>
+  %156 = vector.concat<0> %149, %150 : vector<8xi8>, vector<8xi8> -> vector<16xi8>
+  %157 = vector.concat<0> %151, %152 : vector<8xi8>, vector<8xi8> -> vector<16xi8>
+  %158 = vector.concat<0> %153, %154 : vector<8xi8>, vector<8xi8> -> vector<16xi8>
+  vector.store %155, %output_view[0] : vector<16xi8>, view<65xi8>
+  vector.store %156, %output_view[16] : vector<16xi8>, view<65xi8>
+  vector.store %157, %output_view[32] : vector<16xi8>, view<65xi8>
+  vector.store %158, %output_view[48] : vector<16xi8>, view<65xi8>
+  vector.store %145, %output_view[64] : vector<1xi8>, view<65xi8>
   func.return
 }

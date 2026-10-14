@@ -23,6 +23,9 @@ typedef enum loom_vector_packet_reduce_result_e {
   // The producer graph cannot be decomposed, but a bounded scalar fallback can
   // retain the input SSA value and consume terminal lane extracts from it.
   LOOM_VECTOR_PACKET_REDUCE_RESULT_CAPTURE_INPUT = 2,
+  // The target accepts the authored reduction and packet legalization did not
+  // select a component-consumption rewrite.
+  LOOM_VECTOR_PACKET_REDUCE_RESULT_RETAIN_NATIVE = 3,
 } loom_vector_packet_reduce_result_t;
 
 typedef struct loom_vector_packet_consumer_materializer_t {

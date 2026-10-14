@@ -57,6 +57,9 @@ typedef struct loom_aie2p_kernel_binding_plan_t {
   // Complete staged footprint in bytes.
   int64_t byte_length;
 
+  // Required alignment of each invocation-local staging allocation.
+  uint64_t byte_alignment;
+
   // Derived memory effects through this binding.
   loom_view_access_flags_t access;
 
@@ -254,7 +257,7 @@ static iree_status_t loom_aie2p_kernel_append_access(
       (loom_aie2p_kernel_access_binding_t){
           .binding_index = binding_index,
           .access = access,
-      };
+  };
   ++operation_plan->binding_count;
   return iree_ok_status();
 }
@@ -364,9 +367,19 @@ static iree_status_t loom_aie2p_kernel_plan_bindings(
     if (loom_value_has_no_uses(argument)) {
       continue;
     }
+    if (!loom_view_region_table_root_has_only_view_uses(
+            &regions, binding->source_argument)) {
+      plan->rejected = true;
+      status = loom_aie2p_kernel_reject(
+          pass, plan->function.op,
+          IREE_SV("buffer arguments reaching only typed views through "
+                  "root-preserving refinements"));
+      break;
+    }
 
     int64_t maximum_end = 0;
     bool has_region = false;
+    binding->byte_alignment = plan->byte_alignment;
     for (iree_host_size_t r = 0; r < regions.region_count; ++r) {
       const loom_view_region_t* region = &regions.regions[r];
       if (region->root_value_id != binding->source_argument ||
@@ -385,6 +398,8 @@ static iree_status_t loom_aie2p_kernel_plan_bindings(
         break;
       }
       maximum_end = iree_max(maximum_end, region->end_byte_offset.constant);
+      binding->byte_alignment =
+          iree_max(binding->byte_alignment, region->root_minimum_alignment);
       if (!has_region) {
         binding->root_region = *region;
         has_region = true;
@@ -608,7 +623,7 @@ static iree_status_t loom_aie2p_kernel_plan(
     if (!binding->used) {
       continue;
     }
-    if (!iree_checked_align_u64(local_byte_length, out_plan->byte_alignment,
+    if (!iree_checked_align_u64(local_byte_length, binding->byte_alignment,
                                 &local_byte_length) ||
         !iree_checked_add_u64(local_byte_length, (uint64_t)binding->byte_length,
                               &local_byte_length)) {
@@ -618,7 +633,7 @@ static iree_status_t loom_aie2p_kernel_plan(
     }
     if (out_plan->mode == LOOM_AIE2P_KERNEL_REALIZATION_SNAPSHOT &&
         iree_any_bit_set(binding->access, LOOM_VIEW_ACCESS_WRITE) &&
-        (!iree_checked_align_u64(local_byte_length, out_plan->byte_alignment,
+        (!iree_checked_align_u64(local_byte_length, binding->byte_alignment,
                                  &local_byte_length) ||
          !iree_checked_add_u64(local_byte_length,
                                (uint64_t)binding->byte_length,
@@ -687,7 +702,7 @@ static iree_status_t loom_aie2p_kernel_build_local_buffer(
   IREE_RETURN_IF_ERROR(loom_buffer_alloca_build(
       ir, LOOM_BUFFER_ALLOCA_BUILD_FLAG_HAS_POOL,
       LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP, builder->memory,
-      builder->plan->byte_alignment, byte_length, loom_type_buffer(),
+      binding->byte_alignment, byte_length, loom_type_buffer(),
       builder->location, &allocation_op));
   *out_buffer = loom_buffer_alloca_result(allocation_op);
   binding->record_view_type =

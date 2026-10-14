@@ -80,6 +80,61 @@ func.def @integer_extrema_reductions_i64x9(%storage_buffer: buffer) {
   func.return
 }
 
+// Each aligned source has one trailing guard lane that would change
+// the result if a partial load widened its memory access. The four widths
+// exercise the native packet and scalar-tail boundaries independently.
+func.def @partial_load_minui_i8x63(%storage_buffer: buffer) {
+  %input_origin = index.constant 0 : offset
+  %output_origin = index.constant 64 : offset
+  %aligned_storage = buffer.assume.alignment %storage_buffer {minimum_alignment = 64} : buffer
+  %input_view = buffer.view %aligned_storage[%input_origin] : buffer -> view<64xi8>
+  %output_view = buffer.view %aligned_storage[%output_origin] : buffer -> view<4xi8>
+  %values = vector.load %input_view[0] : view<64xi8> -> vector<63xi8>
+  %initial = scalar.constant -1 : i8
+  %result = vector.reduce<minui> %values, %initial : vector<63xi8>, i8
+  view.store %result, %output_view[1] : i8, view<4xi8>
+  func.return
+}
+
+func.def @partial_load_maxsi_i16x31(%storage_buffer: buffer) {
+  %input_origin = index.constant 0 : offset
+  %output_origin = index.constant 64 : offset
+  %aligned_storage = buffer.assume.alignment %storage_buffer {minimum_alignment = 64} : buffer
+  %input_view = buffer.view %aligned_storage[%input_origin] : buffer -> view<32xi16>
+  %output_view = buffer.view %aligned_storage[%output_origin] : buffer -> view<4xi16>
+  %values = vector.load %input_view[0] : view<32xi16> -> vector<31xi16>
+  %initial = scalar.constant -32768 : i16
+  %result = vector.reduce<maxsi> %values, %initial : vector<31xi16>, i16
+  view.store %result, %output_view[1] : i16, view<4xi16>
+  func.return
+}
+
+func.def @partial_load_minsi_i32x15(%storage_buffer: buffer) {
+  %input_origin = index.constant 0 : offset
+  %output_origin = index.constant 64 : offset
+  %aligned_storage = buffer.assume.alignment %storage_buffer {minimum_alignment = 64} : buffer
+  %input_view = buffer.view %aligned_storage[%input_origin] : buffer -> view<16xi32>
+  %output_view = buffer.view %aligned_storage[%output_origin] : buffer -> view<4xi32>
+  %values = vector.load %input_view[0] : view<16xi32> -> vector<15xi32>
+  %initial = scalar.constant 2147483647 : i32
+  %result = vector.reduce<minsi> %values, %initial : vector<15xi32>, i32
+  view.store %result, %output_view[1] : i32, view<4xi32>
+  func.return
+}
+
+func.def @partial_load_maxui_i64x7(%storage_buffer: buffer) {
+  %input_origin = index.constant 0 : offset
+  %output_origin = index.constant 64 : offset
+  %aligned_storage = buffer.assume.alignment %storage_buffer {minimum_alignment = 64} : buffer
+  %input_view = buffer.view %aligned_storage[%input_origin] : buffer -> view<8xi64>
+  %output_view = buffer.view %aligned_storage[%output_origin] : buffer -> view<4xi64>
+  %values = vector.load %input_view[0] : view<8xi64> -> vector<7xi64>
+  %initial = scalar.constant 0 : i64
+  %result = vector.reduce<maxui> %values, %initial : vector<7xi64>, i64
+  view.store %result, %output_view[1] : i64, view<4xi64>
+  func.return
+}
+
 check.scenario @integer_extrema_reduction_boundaries {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %storage = check.generate.fill value(42) : tensor<64xi8>
@@ -135,6 +190,70 @@ check.scenario @integer_extrema_reduction_boundaries {
       check.expect.bitwise actual(%signed) expected(%expected_signed) : tensor<2xi64>
       check.expect.bitwise actual(%unsigned_maximum) expected(%expected_unsigned_maximum) : tensor<1xi64>
       check.expect.bitwise actual(%unsigned_minimum) expected(%expected_unsigned_minimum) : tensor<1xi64>
+    }
+  }
+  check.return
+}
+
+check.scenario @partial_load_integer_extrema_boundaries {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.iota offset(63) step(-1) : tensor<68xi8>
+    %output = check.tensor.view %storage offset(64) : tensor<68xi8> -> tensor<4xi8>
+    %result = check.tensor.view %output offset(1) : tensor<4xi8> -> tensor<1xi8>
+    %prefix = check.tensor.view %output offset(0) : tensor<4xi8> -> tensor<1xi8>
+    %suffix = check.tensor.view %output offset(2) : tensor<4xi8> -> tensor<2xi8>
+    %expected_result = check.generate.fill value(1) : tensor<1xi8>
+    %expected_prefix = check.generate.fill value(-1) : tensor<1xi8>
+    %expected_suffix = check.generate.iota offset(-3) step(-1) : tensor<2xi8>
+    check.compare<@partial_load_minui_i8x63>(%storage) : (tensor<68xi8>) -> () {
+      check.expect.bitwise actual(%result) expected(%expected_result) : tensor<1xi8>
+      check.expect.bitwise actual(%prefix) expected(%expected_prefix) : tensor<1xi8>
+      check.expect.bitwise actual(%suffix) expected(%expected_suffix) : tensor<2xi8>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.iota offset(-32) step(1) : tensor<36xi16>
+    %output = check.tensor.view %storage offset(64) : tensor<36xi16> -> tensor<4xi16>
+    %result = check.tensor.view %output offset(2) : tensor<4xi16> -> tensor<1xi16>
+    %prefix = check.tensor.view %output offset(0) : tensor<4xi16> -> tensor<1xi16>
+    %suffix = check.tensor.view %output offset(4) : tensor<4xi16> -> tensor<2xi16>
+    %expected_result = check.generate.fill value(-2) : tensor<1xi16>
+    %expected_prefix = check.generate.fill value(0) : tensor<1xi16>
+    %expected_suffix = check.generate.iota offset(2) step(1) : tensor<2xi16>
+    check.compare<@partial_load_maxsi_i16x31>(%storage) : (tensor<36xi16>) -> () {
+      check.expect.bitwise actual(%result) expected(%expected_result) : tensor<1xi16>
+      check.expect.bitwise actual(%prefix) expected(%expected_prefix) : tensor<1xi16>
+      check.expect.bitwise actual(%suffix) expected(%expected_suffix) : tensor<2xi16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.iota offset(0) step(-1) : tensor<20xi32>
+    %output = check.tensor.view %storage offset(64) : tensor<20xi32> -> tensor<4xi32>
+    %result = check.tensor.view %output offset(4) : tensor<4xi32> -> tensor<1xi32>
+    %prefix = check.tensor.view %output offset(0) : tensor<4xi32> -> tensor<1xi32>
+    %suffix = check.tensor.view %output offset(8) : tensor<4xi32> -> tensor<2xi32>
+    %expected_result = check.generate.fill value(-14) : tensor<1xi32>
+    %expected_prefix = check.generate.fill value(-16) : tensor<1xi32>
+    %expected_suffix = check.generate.iota offset(-18) step(-1) : tensor<2xi32>
+    check.compare<@partial_load_minsi_i32x15>(%storage) : (tensor<20xi32>) -> () {
+      check.expect.bitwise actual(%result) expected(%expected_result) : tensor<1xi32>
+      check.expect.bitwise actual(%prefix) expected(%expected_prefix) : tensor<1xi32>
+      check.expect.bitwise actual(%suffix) expected(%expected_suffix) : tensor<2xi32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %storage = check.generate.iota offset(0) step(1) : tensor<12xi64>
+    %output = check.tensor.view %storage offset(64) : tensor<12xi64> -> tensor<4xi64>
+    %result = check.tensor.view %output offset(8) : tensor<4xi64> -> tensor<1xi64>
+    %prefix = check.tensor.view %output offset(0) : tensor<4xi64> -> tensor<1xi64>
+    %suffix = check.tensor.view %output offset(16) : tensor<4xi64> -> tensor<2xi64>
+    %expected_result = check.generate.fill value(6) : tensor<1xi64>
+    %expected_prefix = check.generate.fill value(8) : tensor<1xi64>
+    %expected_suffix = check.generate.iota offset(10) step(1) : tensor<2xi64>
+    check.compare<@partial_load_maxui_i64x7>(%storage) : (tensor<12xi64>) -> () {
+      check.expect.bitwise actual(%result) expected(%expected_result) : tensor<1xi64>
+      check.expect.bitwise actual(%prefix) expected(%expected_prefix) : tensor<1xi64>
+      check.expect.bitwise actual(%suffix) expected(%expected_suffix) : tensor<2xi64>
     }
   }
   check.return

@@ -25,6 +25,7 @@ loom_corpus_test(
     "numeric/vector/bfloat_extrema_reductions.loom"
     "numeric/vector/constants.loom"
     "numeric/vector/f32.loom"
+    "numeric/vector/float_partial_load_reductions.loom"
     "numeric/vector/integer_extrema_reductions.loom"
     "numeric/vector/integer_widening.loom"
   XFAILS
@@ -46,6 +47,9 @@ loom_corpus_test(
     "numeric/vector/f32.loom"
     "@vector_f32_square_root_values"
     "TARGET/001"
+    "numeric/vector/float_partial_load_reductions.loom"
+    "@partial_load_float_signed_zero"
+    "EXPECT/002"
   RUNNER_ARGS
     "--device=xdna"
   LABELS

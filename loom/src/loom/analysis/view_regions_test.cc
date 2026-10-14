@@ -332,6 +332,56 @@ class ViewRegionsTest : public ::testing::Test {
   loom_builder_t builder_;
 };
 
+TEST_F(ViewRegionsTest, ClassifiesViewOnlyBufferRefinementChains) {
+  const loom_value_id_t root = DefineBufferArg();
+  const loom_type_t buffer_type = loom_type_buffer();
+
+  loom_op_t* aligned_op = nullptr;
+  IREE_ASSERT_OK(loom_buffer_assume_alignment_build(
+      &builder_, &root, 1, 64, &buffer_type, 1, LOOM_LOCATION_UNKNOWN,
+      &aligned_op));
+  const loom_value_id_t aligned =
+      loom_buffer_assume_alignment_results(aligned_op).values[0];
+
+  loom_op_t* noalias_op = nullptr;
+  IREE_ASSERT_OK(
+      loom_buffer_assume_noalias_build(&builder_, &aligned, 1, &buffer_type, 1,
+                                       LOOM_LOCATION_UNKNOWN, &noalias_op));
+  BuildView(loom_buffer_assume_noalias_results(noalias_op).values[0]);
+
+  loom_value_fact_table_t facts;
+  ComputeFacts(&facts);
+  loom_view_region_table_t table;
+  Analyze(&facts, &table);
+
+  EXPECT_TRUE(loom_view_region_table_root_has_only_view_uses(&table, root));
+}
+
+TEST_F(ViewRegionsTest, ClassifiesRootSensitiveBufferUses) {
+  const loom_value_id_t root = DefineBufferArg();
+  const loom_type_t buffer_type = loom_type_buffer();
+
+  loom_op_t* aligned_op = nullptr;
+  IREE_ASSERT_OK(loom_buffer_assume_alignment_build(
+      &builder_, &root, 1, 64, &buffer_type, 1, LOOM_LOCATION_UNKNOWN,
+      &aligned_op));
+  const loom_value_id_t aligned =
+      loom_buffer_assume_alignment_results(aligned_op).values[0];
+
+  loom_op_t* space_op = nullptr;
+  IREE_ASSERT_OK(loom_buffer_assume_memory_space_build(
+      &builder_, LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL, aligned, buffer_type,
+      LOOM_LOCATION_UNKNOWN, &space_op));
+  BuildView(loom_buffer_assume_memory_space_result(space_op));
+
+  loom_value_fact_table_t facts;
+  ComputeFacts(&facts);
+  loom_view_region_table_t table;
+  Analyze(&facts, &table);
+
+  EXPECT_FALSE(loom_view_region_table_root_has_only_view_uses(&table, root));
+}
+
 TEST_F(ViewRegionsTest, SelectedViewRetainsUnknownRootRelativeOffset) {
   loom_value_id_t buffer = DefineBufferArg();
   loom_value_id_t condition = LOOM_VALUE_ID_INVALID;

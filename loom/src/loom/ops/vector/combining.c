@@ -17,6 +17,61 @@ typedef iree_status_t (*loom_vector_binary_builder_t)(
     loom_builder_t* builder, loom_value_id_t lhs, loom_value_id_t rhs,
     loom_type_t result_type, loom_location_id_t location, loom_op_t** out_op);
 
+bool loom_vector_combining_kind_op(loom_combining_kind_t kind,
+                                   loom_op_kind_t* out_op_kind) {
+  switch (kind) {
+    case LOOM_COMBINING_KIND_ADDI:
+      *out_op_kind = LOOM_OP_VECTOR_ADDI;
+      return true;
+    case LOOM_COMBINING_KIND_ADDF:
+      *out_op_kind = LOOM_OP_VECTOR_ADDF;
+      return true;
+    case LOOM_COMBINING_KIND_MULI:
+      *out_op_kind = LOOM_OP_VECTOR_MULI;
+      return true;
+    case LOOM_COMBINING_KIND_MULF:
+      *out_op_kind = LOOM_OP_VECTOR_MULF;
+      return true;
+    case LOOM_COMBINING_KIND_MINSI:
+      *out_op_kind = LOOM_OP_VECTOR_MINSI;
+      return true;
+    case LOOM_COMBINING_KIND_MAXSI:
+      *out_op_kind = LOOM_OP_VECTOR_MAXSI;
+      return true;
+    case LOOM_COMBINING_KIND_MINUI:
+      *out_op_kind = LOOM_OP_VECTOR_MINUI;
+      return true;
+    case LOOM_COMBINING_KIND_MAXUI:
+      *out_op_kind = LOOM_OP_VECTOR_MAXUI;
+      return true;
+    case LOOM_COMBINING_KIND_ANDI:
+      *out_op_kind = LOOM_OP_VECTOR_ANDI;
+      return true;
+    case LOOM_COMBINING_KIND_ORI:
+      *out_op_kind = LOOM_OP_VECTOR_ORI;
+      return true;
+    case LOOM_COMBINING_KIND_XORI:
+      *out_op_kind = LOOM_OP_VECTOR_XORI;
+      return true;
+    case LOOM_COMBINING_KIND_MINIMUMF:
+      *out_op_kind = LOOM_OP_VECTOR_MINIMUMF;
+      return true;
+    case LOOM_COMBINING_KIND_MAXIMUMF:
+      *out_op_kind = LOOM_OP_VECTOR_MAXIMUMF;
+      return true;
+    case LOOM_COMBINING_KIND_MINNUMF:
+      *out_op_kind = LOOM_OP_VECTOR_MINNUMF;
+      return true;
+    case LOOM_COMBINING_KIND_MAXNUMF:
+      *out_op_kind = LOOM_OP_VECTOR_MAXNUMF;
+      return true;
+    case LOOM_COMBINING_KIND_COUNT_:
+      break;
+  }
+  *out_op_kind = LOOM_OP_KIND_UNKNOWN;
+  return false;
+}
+
 iree_status_t loom_vector_combining_build(
     loom_builder_t* builder, loom_combining_kind_t kind, uint8_t fastmath_flags,
     loom_value_id_t lhs, loom_value_id_t rhs, loom_type_t result_type,

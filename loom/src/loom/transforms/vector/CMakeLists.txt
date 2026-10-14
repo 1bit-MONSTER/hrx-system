@@ -255,13 +255,16 @@ loom_cc_library(
     "packet_plan.h"
   DEPS
     iree::base
+    iree::base::internal
     loom::analysis::motion
     loom::analysis::view_regions
     loom::ir
     loom::ops::buffer
     loom::ops::index
+    loom::ops::scalar
     loom::ops::scf
     loom::ops::vector
+    loom::ops::view
     loom::rewrite::rewriter
     loom::target::contract
     loom::target::legalization

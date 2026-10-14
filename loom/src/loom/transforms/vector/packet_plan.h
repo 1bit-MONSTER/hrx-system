@@ -32,6 +32,31 @@ typedef struct loom_vector_packet_shape_t {
   uint32_t chunk_count;
 } loom_vector_packet_shape_t;
 
+typedef enum loom_vector_packet_partition_reduce_mode_e {
+  // The retained partition does not expose a terminal mixed component plan.
+  LOOM_VECTOR_PACKET_PARTITION_REDUCE_MODE_NONE = 0,
+  // Reduces exact vector components and scalar lanes without rebuilding the
+  // aggregate carrier.
+  LOOM_VECTOR_PACKET_PARTITION_REDUCE_MODE_HYBRID = 1,
+  // Normalizes exact components to one target-native leaf packet before one
+  // packed reduction.
+  LOOM_VECTOR_PACKET_PARTITION_REDUCE_MODE_PACKED = 2,
+} loom_vector_packet_partition_reduce_mode_t;
+
+typedef struct loom_vector_packet_partition_reduce_plan_t {
+  // Selected component-consumption strategy.
+  loom_vector_packet_partition_reduce_mode_t mode;
+  // Common leaf packet shape when |mode| is PACKED.
+  loom_vector_packet_shape_t leaf_shape;
+  // Number of leaf-width values materialized before the balanced fold.
+  uint32_t packed_value_count;
+  // Number of scalar components grouped into each idempotent leaf packet.
+  // Zero when the plan has no idempotent scalar-component packets.
+  uint32_t scalar_pack_lane_count;
+  // Whether the target accepts a reduction of one leaf packet.
+  bool leaf_reduction_is_native;
+} loom_vector_packet_partition_reduce_plan_t;
+
 typedef enum loom_vector_packet_source_mode_e {
   // Rebuilds an ordinary load or pure producer for each packet.
   LOOM_VECTOR_PACKET_SOURCE_MODE_STREAMED = 0,
@@ -114,10 +139,39 @@ iree_status_t loom_vector_packet_memory_shape_constrain(
     const loom_target_vector_packet_policy_t* policy, loom_type_t vector_type,
     loom_vector_packet_shape_t* inout_shape, bool* out_supported);
 
+// Selects the widest target-native memory packet no larger than
+// |maximum_lane_count|. The query projects the authored vector width directly
+// to each candidate so terminal packet selection does not depend on creating
+// and later legalizing an intermediate tail load. Returns zero when the target
+// contract handled the candidates but rejected all that fit.
+iree_status_t loom_vector_packet_memory_chunk_lane_count_select(
+    loom_target_legalization_context_t* context, const loom_op_t* op,
+    const loom_target_vector_packet_policy_t* policy, loom_type_t vector_type,
+    uint32_t maximum_lane_count, uint32_t* out_lane_count);
+
 iree_status_t loom_vector_packet_reduce_shape_constrain(
     loom_target_legalization_context_t* context, const loom_op_t* op,
     const loom_target_vector_packet_policy_t* policy, loom_type_t vector_type,
     loom_vector_packet_shape_t* inout_shape, bool* out_supported);
+
+// Constrains a geometric packet shape to widths whose projected lanewise
+// combining operation is target-native. This is the packet-fold fallback for
+// reductions without a target-native horizontal reduction.
+iree_status_t loom_vector_packet_reduce_combine_shape_constrain(
+    loom_target_legalization_context_t* context, const loom_op_t* reduce_op,
+    const loom_target_vector_packet_policy_t* policy, loom_type_t vector_type,
+    loom_vector_packet_shape_t* inout_shape, bool* out_supported);
+
+// Selects a reduction plan for an exact retained component partition. Packed
+// plans use the widest legal native lane count that can represent every vector
+// component through exact slicing, identity padding, or idempotent repetition.
+// Terminal partitions without such a width retain a hybrid plan only when
+// every vector component has a native horizontal reduction.
+iree_status_t loom_vector_packet_partition_reduce_plan_select(
+    loom_target_legalization_context_t* context, const loom_op_t* reduce_op,
+    const loom_target_vector_packet_policy_t* policy,
+    loom_value_fact_vector_partition_t partition,
+    loom_vector_packet_partition_reduce_plan_t* out_plan);
 
 bool loom_vector_packet_table_lookup_shape(
     const loom_target_vector_packet_policy_t* policy, loom_type_t index_type,
@@ -167,8 +221,12 @@ bool loom_vector_packet_shared_snapshot_requires_staging(
     loom_vector_packetization_t* packetization,
     const loom_vector_packet_shape_t* shape, const loom_op_t* root_op);
 
+// Classifies selected load leaves at their authored observation point. When
+// |allow_streaming| is true, exclusive ordinary loads may instead replay at
+// the root when indexed motion analysis proves that move safe.
 iree_status_t loom_vector_packet_classify_memory_loads(
-    loom_vector_packetization_t* packetization, const loom_op_t* root_op);
+    loom_vector_packetization_t* packetization, const loom_op_t* root_op,
+    bool allow_streaming);
 
 bool loom_vector_packet_can_materialize(
     const loom_vector_packetization_t* packetization,

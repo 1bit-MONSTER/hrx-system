@@ -73,6 +73,7 @@ NUMERIC_CORPUS = loom_corpus_manifest(
         "vector/constants.loom",
         "vector/dynamic_windows.loom",
         "vector/f32.loom",
+        "vector/float_partial_load_reductions.loom",
         "vector/floating.loom",
         "vector/float_comparison.loom",
         "vector/float_extrema.loom",

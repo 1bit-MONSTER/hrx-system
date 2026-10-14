@@ -461,38 +461,6 @@ static int64_t loom_vector_integer_all_ones(loom_scalar_type_t element_type) {
   return element_type == LOOM_SCALAR_TYPE_I1 ? 1 : -1;
 }
 
-static bool loom_vector_reduce_integer_identity(loom_combining_kind_t kind,
-                                                loom_type_t input_type,
-                                                int64_t* out_identity) {
-  switch (kind) {
-    case LOOM_COMBINING_KIND_ADDI:
-    case LOOM_COMBINING_KIND_ORI:
-    case LOOM_COMBINING_KIND_XORI:
-      *out_identity = 0;
-      return true;
-    case LOOM_COMBINING_KIND_MULI:
-      *out_identity = 1;
-      return true;
-    case LOOM_COMBINING_KIND_ANDI:
-      *out_identity =
-          loom_vector_integer_all_ones(loom_type_element_type(input_type));
-      return true;
-    case LOOM_COMBINING_KIND_ADDF:
-    case LOOM_COMBINING_KIND_MULF:
-    case LOOM_COMBINING_KIND_MINSI:
-    case LOOM_COMBINING_KIND_MAXSI:
-    case LOOM_COMBINING_KIND_MINUI:
-    case LOOM_COMBINING_KIND_MAXUI:
-    case LOOM_COMBINING_KIND_MINIMUMF:
-    case LOOM_COMBINING_KIND_MAXIMUMF:
-    case LOOM_COMBINING_KIND_MINNUMF:
-    case LOOM_COMBINING_KIND_MAXNUMF:
-    case LOOM_COMBINING_KIND_COUNT_:
-      return false;
-  }
-  return false;
-}
-
 static iree_status_t loom_vector_replace_single_result_with_integer_zero(
     loom_op_t* op, loom_rewriter_t* rewriter, loom_type_t result_type) {
   loom_attribute_t attr =
@@ -2481,7 +2449,8 @@ iree_status_t loom_vector_reduce_canonicalize(loom_op_t* op,
   }
 
   int64_t identity = 0;
-  if (!loom_vector_reduce_integer_identity(kind, input_type, &identity)) {
+  if (!loom_combining_kind_integer_identity(
+          kind, loom_type_element_type(input_type), &identity)) {
     return iree_ok_status();
   }
 
@@ -2514,7 +2483,8 @@ iree_status_t loom_vector_reduce_axes_canonicalize(loom_op_t* op,
   loom_combining_kind_t kind = loom_vector_reduce_axes_kind(op);
 
   int64_t identity = 0;
-  if (loom_vector_reduce_integer_identity(kind, input_type, &identity) &&
+  if (loom_combining_kind_integer_identity(
+          kind, loom_type_element_type(input_type), &identity) &&
       loom_vector_value_is_all_exact_i64(rewriter, input, identity)) {
     IREE_RETURN_IF_ERROR(
         loom_vector_replace_single_result_with_value(op, rewriter, init));

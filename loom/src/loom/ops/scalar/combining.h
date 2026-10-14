@@ -21,6 +21,14 @@ extern "C" {
 bool loom_scalar_combining_kind_op(loom_combining_kind_t kind,
                                    loom_op_kind_t* out_op_kind);
 
+// Builds the scalar operation for one verified combining step. Floating-point
+// operations retain |fastmath_flags|; integer operations have exact semantics
+// and ignore them. Returns the single operation result.
+iree_status_t loom_scalar_combining_build(
+    loom_builder_t* builder, loom_combining_kind_t kind, uint8_t fastmath_flags,
+    loom_value_id_t lhs, loom_value_id_t rhs, loom_type_t result_type,
+    loom_location_id_t location, loom_value_id_t* out_result);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

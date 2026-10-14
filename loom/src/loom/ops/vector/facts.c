@@ -2000,11 +2000,48 @@ iree_status_t loom_vector_broadcast_facts(
       context, lanes, result_lane_count, &result_facts[0]);
 }
 
+static iree_status_t loom_vector_define_partition_fact(
+    loom_fact_context_t* context, loom_value_id_t result,
+    loom_value_fact_vector_partition_t partition) {
+  if (context == NULL || context->table == NULL) {
+    return iree_ok_status();
+  }
+  return loom_value_fact_table_define_vector_partition(
+      context->table, result, partition, context->result_facts_changed);
+}
+
 iree_status_t loom_vector_from_elements_facts(
     loom_fact_context_t* context, const loom_module_t* module,
     const loom_op_t* op, const loom_value_facts_t* operand_facts,
     loom_value_facts_t* result_facts) {
   loom_value_slice_t elements = loom_vector_from_elements_elements(op);
+  const loom_value_id_t result = loom_vector_from_elements_result(op);
+  const loom_type_t result_type = loom_module_value_type(module, result);
+  loom_value_fact_vector_partition_t partition = {0};
+  iree_host_size_t result_lane_count = 0;
+  if (context != NULL && context->table != NULL &&
+      loom_type_rank(result_type) == 1 &&
+      loom_vector_type_static_lane_count(result_type, &result_lane_count) &&
+      result_lane_count == elements.count &&
+      elements.count <= LOOM_VALUE_FACT_VECTOR_PARTITION_EXPANSION_LIMIT) {
+    loom_value_fact_vector_partition_component_t* components = NULL;
+    IREE_RETURN_IF_ERROR(
+        loom_value_fact_table_vector_partition_component_scratch(
+            context->table, elements.count, &components));
+    for (iree_host_size_t i = 0; i < elements.count; ++i) {
+      components[i] = (loom_value_fact_vector_partition_component_t){
+          .value = elements.values[i],
+          .lane_count = 1,
+      };
+    }
+    partition = (loom_value_fact_vector_partition_t){
+        .components = components,
+        .count = (uint32_t)elements.count,
+        .lane_count = (uint32_t)result_lane_count,
+    };
+  }
+  IREE_RETURN_IF_ERROR(
+      loom_vector_define_partition_fact(context, result, partition));
   if (elements.count > 0) {
     loom_value_id_t first_element = loom_value_slice_get(elements, 0);
     bool all_same_element = true;
@@ -2128,6 +2165,81 @@ iree_status_t loom_vector_extract_facts(loom_fact_context_t* context,
       context, lanes, result_lane_count, &result_facts[0]);
 }
 
+static iree_status_t loom_vector_insert_define_partition_fact(
+    loom_fact_context_t* context, const loom_module_t* module,
+    const loom_op_t* op, loom_type_t value_type, loom_type_t result_type) {
+  if (context == NULL || context->table == NULL) {
+    return iree_ok_status();
+  }
+  const loom_value_id_t result = loom_vector_insert_result(op);
+  const loom_value_fact_vector_partition_t empty_partition = {0};
+  if (!loom_type_is_scalar(value_type) || loom_type_rank(result_type) != 1) {
+    return loom_vector_define_partition_fact(context, result, empty_partition);
+  }
+  iree_host_size_t result_lane_count = 0;
+  const loom_attribute_t static_indices = loom_vector_insert_static_indices(op);
+  if (!loom_vector_type_static_lane_count(result_type, &result_lane_count) ||
+      result_lane_count == 0 ||
+      result_lane_count > LOOM_VALUE_FACT_VECTOR_PARTITION_EXPANSION_LIMIT ||
+      loom_vector_insert_indices(op).count != 0 ||
+      static_indices.kind != LOOM_ATTR_I64_ARRAY || static_indices.count != 1 ||
+      static_indices.i64_array[0] < 0 ||
+      (uint64_t)static_indices.i64_array[0] >= result_lane_count) {
+    return loom_vector_define_partition_fact(context, result, empty_partition);
+  }
+
+  const loom_value_id_t dest = loom_vector_insert_dest(op);
+  const loom_value_fact_vector_partition_t dest_partition =
+      loom_value_fact_table_query_vector_partition(context->table, dest);
+  bool dest_has_scalar_components =
+      dest_partition.count == result_lane_count &&
+      dest_partition.lane_count == result_lane_count;
+  if (dest_has_scalar_components) {
+    for (uint32_t i = 0; i < dest_partition.count; ++i) {
+      if (dest_partition.components[i].lane_count != 1 ||
+          !loom_type_is_scalar(loom_module_value_type(
+              module, dest_partition.components[i].value))) {
+        dest_has_scalar_components = false;
+        break;
+      }
+    }
+  }
+
+  loom_value_id_t uniform_scalar = LOOM_VALUE_ID_INVALID;
+  if (!dest_has_scalar_components &&
+      !loom_value_fact_table_query_uniform_element_origin(
+          context->table, module, dest, &uniform_scalar)) {
+    return loom_vector_define_partition_fact(context, result, empty_partition);
+  }
+
+  loom_value_fact_vector_partition_component_t* components = NULL;
+  IREE_RETURN_IF_ERROR(loom_value_fact_table_vector_partition_component_scratch(
+      context->table, result_lane_count, &components));
+  if (dest_has_scalar_components) {
+    memcpy(components, dest_partition.components,
+           result_lane_count * sizeof(*components));
+  } else {
+    for (iree_host_size_t i = 0; i < result_lane_count; ++i) {
+      components[i] = (loom_value_fact_vector_partition_component_t){
+          .value = uniform_scalar,
+          .lane_count = 1,
+      };
+    }
+  }
+  components[static_indices.i64_array[0]] =
+      (loom_value_fact_vector_partition_component_t){
+          .value = loom_vector_insert_value(op),
+          .lane_count = 1,
+      };
+  return loom_vector_define_partition_fact(
+      context, result,
+      (loom_value_fact_vector_partition_t){
+          .components = components,
+          .count = (uint32_t)result_lane_count,
+          .lane_count = (uint32_t)result_lane_count,
+      });
+}
+
 iree_status_t loom_vector_insert_facts(loom_fact_context_t* context,
                                        const loom_module_t* module,
                                        const loom_op_t* op,
@@ -2137,6 +2249,8 @@ iree_status_t loom_vector_insert_facts(loom_fact_context_t* context,
       loom_module_value_type(module, loom_vector_insert_value(op));
   loom_type_t result_type =
       loom_module_value_type(module, loom_vector_insert_result(op));
+  IREE_RETURN_IF_ERROR(loom_vector_insert_define_partition_fact(
+      context, module, op, value_type, result_type));
   uint8_t result_rank = loom_type_rank(result_type);
   bool value_is_scalar = loom_type_is_scalar(value_type);
   loom_value_facts_t dest_uniform = {0};
@@ -2461,50 +2575,170 @@ iree_status_t loom_vector_slice_facts(loom_fact_context_t* context,
 static iree_status_t loom_vector_concat_define_partition_fact(
     loom_fact_context_t* context, const loom_module_t* module,
     const loom_op_t* op) {
-  if (context == NULL || context->table == NULL || module == NULL ||
-      loom_vector_concat_axis(op) != 0) {
+  if (context == NULL || context->table == NULL) {
     return iree_ok_status();
   }
   const loom_value_id_t result = loom_vector_concat_result(op);
+  const loom_value_fact_vector_partition_t empty_partition = {0};
+  if (loom_vector_concat_axis(op) != 0) {
+    return loom_vector_define_partition_fact(context, result, empty_partition);
+  }
   const loom_type_t result_type = loom_module_value_type(module, result);
   iree_host_size_t result_lane_count = 0;
   if (loom_type_rank(result_type) != 1 ||
       !loom_vector_type_static_lane_count(result_type, &result_lane_count) ||
       result_lane_count > UINT32_MAX) {
-    return iree_ok_status();
+    return loom_vector_define_partition_fact(context, result, empty_partition);
   }
 
   const loom_value_slice_t inputs = loom_vector_concat_inputs(op);
-  uint32_t regular_lane_count = 0;
+  iree_host_size_t component_count = 0;
+  bool expand_nested_partitions = true;
+  bool direct_partition_is_regular = true;
+  uint32_t direct_regular_lane_count = 0;
   uint64_t partition_lane_count = 0;
   for (iree_host_size_t i = 0; i < inputs.count; ++i) {
-    const loom_type_t input_type =
-        loom_module_value_type(module, inputs.values[i]);
+    const loom_value_id_t input = inputs.values[i];
+    const loom_type_t input_type = loom_module_value_type(module, input);
     iree_host_size_t input_lane_count = 0;
     if (loom_type_rank(input_type) != 1 ||
         !loom_type_element_type_equals(input_type, result_type) ||
         !loom_vector_type_static_lane_count(input_type, &input_lane_count) ||
         input_lane_count == 0 || input_lane_count > UINT32_MAX) {
-      return iree_ok_status();
+      return loom_vector_define_partition_fact(context, result,
+                                               empty_partition);
     }
     if (i == 0) {
-      regular_lane_count = (uint32_t)input_lane_count;
-    } else if (input_lane_count > regular_lane_count ||
+      direct_regular_lane_count = (uint32_t)input_lane_count;
+    } else if (input_lane_count > direct_regular_lane_count ||
                (i + 1u < inputs.count &&
-                input_lane_count != regular_lane_count)) {
-      return iree_ok_status();
+                input_lane_count != direct_regular_lane_count)) {
+      direct_partition_is_regular = false;
+    }
+    if (expand_nested_partitions) {
+      const loom_value_fact_vector_partition_t input_partition =
+          loom_value_fact_table_query_vector_partition(context->table, input);
+      const iree_host_size_t input_component_count =
+          input_partition.count != 0 &&
+                  input_partition.lane_count == input_lane_count
+              ? input_partition.count
+              : 1u;
+      iree_host_size_t expanded_component_count = 0;
+      if (!iree_host_size_checked_add(component_count, input_component_count,
+                                      &expanded_component_count) ||
+          expanded_component_count >
+              LOOM_VALUE_FACT_VECTOR_PARTITION_EXPANSION_LIMIT) {
+        expand_nested_partitions = false;
+      } else {
+        component_count = expanded_component_count;
+      }
     }
     partition_lane_count += input_lane_count;
   }
   if (inputs.count == 0 || partition_lane_count != result_lane_count) {
-    return iree_ok_status();
+    return loom_vector_define_partition_fact(context, result, empty_partition);
   }
-  return loom_value_fact_table_define_vector_partition(
-      context->table, result,
+  if (!expand_nested_partitions) {
+    if (!direct_partition_is_regular) {
+      return loom_vector_define_partition_fact(context, result,
+                                               empty_partition);
+    }
+    component_count = inputs.count;
+  }
+  iree_host_size_t scratch_component_count = component_count;
+  if (direct_partition_is_regular &&
+      !iree_host_size_checked_add(scratch_component_count, inputs.count,
+                                  &scratch_component_count)) {
+    return loom_vector_define_partition_fact(context, result, empty_partition);
+  }
+  loom_value_fact_vector_partition_component_t* components = NULL;
+  IREE_RETURN_IF_ERROR(loom_value_fact_table_vector_partition_component_scratch(
+      context->table, scratch_component_count, &components));
+  iree_host_size_t component_index = 0;
+  for (iree_host_size_t i = 0; i < inputs.count; ++i) {
+    const loom_value_id_t input = inputs.values[i];
+    const loom_type_t input_type = loom_module_value_type(module, input);
+    const uint32_t input_lane_count =
+        (uint32_t)loom_type_dim_static_size_at(input_type, 0);
+    const loom_value_fact_vector_partition_t input_partition =
+        loom_value_fact_table_query_vector_partition(context->table, input);
+    if (expand_nested_partitions && input_partition.count != 0 &&
+        input_partition.lane_count == input_lane_count) {
+      memcpy(components + component_index, input_partition.components,
+             input_partition.count * sizeof(*components));
+      component_index += input_partition.count;
+    } else {
+      components[component_index++] =
+          (loom_value_fact_vector_partition_component_t){
+              .value = input,
+              .lane_count = input_lane_count,
+          };
+    }
+  }
+  IREE_ASSERT_EQ(component_index, component_count);
+
+  uint32_t regular_lane_count = 0;
+  for (iree_host_size_t i = 0; i < component_count; ++i) {
+    const loom_type_t component_type =
+        loom_module_value_type(module, components[i].value);
+    iree_host_size_t component_lane_count = 0;
+    if (loom_type_rank(component_type) != 1 ||
+        !loom_type_element_type_equals(component_type, result_type) ||
+        !loom_vector_type_static_lane_count(component_type,
+                                            &component_lane_count) ||
+        component_lane_count != components[i].lane_count) {
+      regular_lane_count = 0;
+      break;
+    }
+    if (i == 0) {
+      regular_lane_count = components[i].lane_count;
+    } else if (components[i].lane_count > regular_lane_count ||
+               (i + 1u < component_count &&
+                components[i].lane_count != regular_lane_count)) {
+      regular_lane_count = 0;
+      break;
+    }
+  }
+
+  const loom_value_fact_vector_partition_component_t* snapshot_components =
+      NULL;
+  uint32_t snapshot_count = 0;
+  uint32_t snapshot_lane_count = 0;
+  if (direct_partition_is_regular) {
+    loom_value_fact_vector_partition_component_t* direct_components =
+        components + component_count;
+    bool exact_components_are_direct = component_count == inputs.count;
+    for (iree_host_size_t i = 0; i < inputs.count; ++i) {
+      const loom_value_id_t input = inputs.values[i];
+      const uint32_t input_lane_count = (uint32_t)loom_type_dim_static_size_at(
+          loom_module_value_type(module, input), 0);
+      direct_components[i] = (loom_value_fact_vector_partition_component_t){
+          .value = input,
+          .lane_count = input_lane_count,
+      };
+      exact_components_are_direct &=
+          components[i].value == input &&
+          components[i].lane_count == input_lane_count;
+    }
+    snapshot_components =
+        exact_components_are_direct ? components : direct_components;
+    snapshot_count = (uint32_t)inputs.count;
+    snapshot_lane_count = direct_regular_lane_count;
+  } else if (regular_lane_count != 0) {
+    snapshot_components = components;
+    snapshot_count = (uint32_t)component_count;
+    snapshot_lane_count = regular_lane_count;
+  }
+  return loom_vector_define_partition_fact(
+      context, result,
       (loom_value_fact_vector_partition_t){
-          .values = inputs.values,
-          .count = (uint32_t)inputs.count,
+          .components = components,
+          .snapshot_components = snapshot_components,
+          .count = (uint32_t)component_count,
+          .lane_count = (uint32_t)partition_lane_count,
           .regular_lane_count = regular_lane_count,
+          .snapshot_count = snapshot_count,
+          .snapshot_lane_count = snapshot_lane_count,
       });
 }
 
@@ -4812,41 +5046,18 @@ static bool loom_vector_reduce_apply_float(
   }
 }
 
-static int64_t loom_vector_facts_integer_all_ones(
-    loom_scalar_type_t element_type) {
-  return element_type == LOOM_SCALAR_TYPE_I1 ? 1 : -1;
-}
-
 static bool loom_vector_reduce_dynamic_identity(loom_combining_kind_t kind,
                                                 loom_scalar_type_t element_type,
                                                 loom_value_facts_t element,
                                                 loom_value_facts_t init,
                                                 loom_value_facts_t* out) {
-  switch (kind) {
-    case LOOM_COMBINING_KIND_ADDI:
-    case LOOM_COMBINING_KIND_ORI:
-    case LOOM_COMBINING_KIND_XORI:
-      if (loom_vector_facts_exact_i64_is(element, 0)) {
-        *out = init;
-        return true;
-      }
-      return false;
-    case LOOM_COMBINING_KIND_MULI:
-      if (loom_vector_facts_exact_i64_is(element, 1)) {
-        *out = init;
-        return true;
-      }
-      return false;
-    case LOOM_COMBINING_KIND_ANDI:
-      if (loom_vector_facts_exact_i64_is(
-              element, loom_vector_facts_integer_all_ones(element_type))) {
-        *out = init;
-        return true;
-      }
-      return false;
-    default:
-      return false;
+  int64_t identity = 0;
+  if (loom_combining_kind_integer_identity(kind, element_type, &identity) &&
+      loom_vector_facts_exact_i64_is(element, identity)) {
+    *out = init;
+    return true;
   }
+  return false;
 }
 
 static bool loom_vector_reduce_apply_facts(loom_scalar_type_t scalar_type,
