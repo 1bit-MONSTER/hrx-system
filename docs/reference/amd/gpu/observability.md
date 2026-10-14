@@ -294,6 +294,11 @@ reference controls stable pstate; the mutex serializes participating query
 submissions. Every exposed counter is marked as affected by concurrent work.
 Neither owner establishes exclusion against all other collectors.
 
+[Streaming performance monitoring](profiling/spm.md) separates hardware ring
+layouts from the vendor KFD transport's asynchronous host-buffer rotation.
+Repeated snapshots, overwrite capture and native buffer rotation have different
+publication and storage-retirement boundaries.
+
 SDMA counters participate in that CP-managed lifecycle. PAL's GFX11 DMA block
 is global, with two counter modules per available instance and at most two
 instances; Mesa describes the same inventory. PAL selects instance-specific
