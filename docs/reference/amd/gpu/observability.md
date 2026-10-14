@@ -19,6 +19,7 @@ state.
 | Shader realtime counter | A wave samples a fixed-frequency clock through S_MEMREALTIME or a returned REALTIME message. The result's readiness, frequency and correlation remain separate contracts. |
 | Programmable counters | A collection observes a specified event across selected hardware instances and a defined counting interval. |
 | [Program-counter sampling](profiling/pc-sampling.md) | Native triggers and a trap writer capture wave state; per-XCC buffer rotation publishes completed samples while the workload continues. |
+| [Shader thread traces](profiling/thread-trace.md) | SQTT token streams use source-specific finite drain or live buffer replacement, with explicit loss and decoding context. |
 | [Pipeline statistics](pm4/pipeline-statistics.md) | Beginning and ending counter samples, including CS invocations, with separate result records, availability and final-reader ownership. |
 | Host timing | A host clock measures publication, submission through observed completion, or another explicitly bounded host interval. |
 
