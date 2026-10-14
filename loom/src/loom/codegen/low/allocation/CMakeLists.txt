@@ -320,6 +320,7 @@ loom_cc_test(
     "search_covering_spill_test.cc"
   DEPS
     ::search
+    ::storage_lease
     iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main

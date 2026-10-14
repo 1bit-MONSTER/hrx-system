@@ -8,7 +8,9 @@
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "loom/codegen/low/allocation/search.h"
+#include "loom/codegen/low/allocation/storage_lease.h"
 #include "loom/ir/context.h"
+#include "loom/ir/local_value_domain.h"
 #include "loom/ir/module.h"
 #include "loom/ir/types.h"
 
@@ -143,15 +145,16 @@ TEST_F(LowAllocationCoveringSpillSearchTest,
   const loom_value_id_t required_source_value = DefineValue(module);
   const loom_value_id_t covering_result_value = DefineValue(module);
   const loom_value_id_t other_result_value = DefineValue(module);
-  loom_module_value_ordinal_scratch_acquire(module);
-  loom_module_value_ordinal_scratch_set(module, candidate_value,
-                                        /*ordinal=*/0);
-  loom_module_value_ordinal_scratch_set(module, required_source_value,
-                                        /*ordinal=*/1);
-  loom_module_value_ordinal_scratch_set(module, covering_result_value,
-                                        /*ordinal=*/2);
-  loom_module_value_ordinal_scratch_set(module, other_result_value,
-                                        /*ordinal=*/3);
+  loom_local_value_domain_t value_domain = {};
+  IREE_ASSERT_OK(loom_local_value_domain_acquire_for_region(
+      module, module->body, &arena_, &value_domain));
+  for (const loom_value_id_t value_id :
+       {candidate_value, required_source_value, covering_result_value,
+        other_result_value}) {
+    loom_value_ordinal_t value_ordinal = LOOM_VALUE_ORDINAL_INVALID;
+    IREE_ASSERT_OK(loom_local_value_domain_register_value(
+        &value_domain, value_id, &value_ordinal));
+  }
 
   const uint64_t descriptor_set_id = 13;
   const loom_liveness_value_class_t value_class =
@@ -313,7 +316,7 @@ TEST_F(LowAllocationCoveringSpillSearchTest,
       .relation_indices_by_source_ordinal = relation_indices_by_source_ordinal,
       .ranges_by_source_ordinal = ranges_by_source_ordinal,
   };
-  loom_low_allocation_storage_lease_state_t storage_leases = {};
+  loom_low_allocation_storage_lease_state_t empty_storage_leases = {};
   loom_low_allocation_spill_plan_traffic_t spill_traffic[] = {
       {.store_count = 1, .store_bytes = 16},
       {.store_count = 1, .store_bytes = 8},
@@ -330,7 +333,7 @@ TEST_F(LowAllocationCoveringSpillSearchTest,
       .assignment_map = &assignment_map,
       .placement = &placement,
       .active_set = &active_set,
-      .storage_leases = &storage_leases,
+      .storage_leases = &empty_storage_leases,
       .spill_traffic_by_value_ordinal = spill_traffic,
       .required_register_values = {64, required_register_words},
   };
@@ -351,29 +354,125 @@ TEST_F(LowAllocationCoveringSpillSearchTest,
   ASSERT_EQ(victim_set.released_value_count, 1u);
   EXPECT_EQ(victim_set.released_value_ids[0], required_source_value);
 
-  // A covering store discharges only the decomposed observation. An
-  // asynchronous producer reservation that survives the source's semantic
-  // end still owns the physical register independently.
-  uint32_t lease_record_heads[] = {UINT32_MAX, 0, UINT32_MAX, UINT32_MAX};
-  uint32_t next_lease_records[] = {UINT32_MAX};
-  uint8_t lease_instance_written[] = {1};
-  loom_low_allocation_storage_lease_t lease_instances[] = {
-      {.end_point = intervals[1].end_point + 1},
+  // The source and covering victim both have outstanding asynchronous leases.
+  // Spilling the victim retires its lease, while the source lease must be
+  // independently releasable before the incoming assignment.
+  constexpr uint32_t kScheduleNodeCount = 9;
+  loom_low_schedule_node_t schedule_nodes[kScheduleNodeCount] = {};
+  uint32_t scheduled_node_indices[kScheduleNodeCount] = {};
+  for (uint32_t i = 0; i < kScheduleNodeCount; ++i) {
+    schedule_nodes[i].block_index = 0;
+    schedule_nodes[i].scheduled_ordinal = i;
+    scheduled_node_indices[i] = i;
+  }
+  schedule_nodes[0].operand_count = 1;
+  schedule_nodes[0].value_ordinals.inline_value_ordinals[0] = 1;
+  schedule_nodes[1].operand_count = 1;
+  schedule_nodes[1].value_ordinals.inline_value_ordinals[0] = 2;
+  loom_low_schedule_block_t schedule_blocks[] = {{
+      .node_count = kScheduleNodeCount,
+      .scheduled_node_count = kScheduleNodeCount,
+  }};
+  uint32_t value_producer_nodes[] = {
+      LOOM_LOW_SCHEDULE_NODE_NONE,
+      LOOM_LOW_SCHEDULE_NODE_NONE,
+      LOOM_LOW_SCHEDULE_NODE_NONE,
+      LOOM_LOW_SCHEDULE_NODE_NONE,
   };
-  storage_leases.record_heads_by_value_ordinal = lease_record_heads;
-  storage_leases.next_record_indices = next_lease_records;
-  storage_leases.instance_written = lease_instance_written;
-  storage_leases.instances = lease_instances;
-  IREE_ASSERT_OK(loom_low_allocation_search_find_active_spill_victim_set(
-      &context, &intervals[0], &capacity,
-      /*interval_requires_register=*/true, &workspace, &arena_, &victim_set));
-  EXPECT_FALSE(victim_set.found);
-  lease_instances[0].end_point = intervals[1].end_point;
+  const loom_op_t* function_op =
+      reinterpret_cast<const loom_op_t*>(static_cast<uintptr_t>(1));
+  loom_low_schedule_table_t schedule = {
+      .module = module,
+      .function_op = function_op,
+      .target = target,
+      .value_ids = value_ids,
+      .value_count = IREE_ARRAYSIZE(value_ids),
+      .value_producer_nodes = value_producer_nodes,
+      .blocks = schedule_blocks,
+      .block_count = IREE_ARRAYSIZE(schedule_blocks),
+      .nodes = schedule_nodes,
+      .node_count = IREE_ARRAYSIZE(schedule_nodes),
+      .scheduled_node_indices = scheduled_node_indices,
+      .scheduled_node_count = IREE_ARRAYSIZE(scheduled_node_indices),
+  };
+
+  loom_low_storage_lease_record_t lease_records[2] = {};
+  for (uint32_t i = 0; i < IREE_ARRAYSIZE(lease_records); ++i) {
+    lease_records[i].packet_index = i;
+    lease_records[i].node_index = i;
+    lease_records[i].block_index = 0;
+    lease_records[i].scheduled_ordinal = i;
+    lease_records[i].kind = LOOM_LOW_STORAGE_LEASE_SOURCE_READ;
+    lease_records[i].attachment = LOOM_LOW_STORAGE_LEASE_ATTACHMENT_OPERAND;
+    lease_records[i].unit_count = 2;
+    lease_records[i].release_scope =
+        LOOM_LOW_STORAGE_LEASE_RELEASE_SCOPE_PROGRESS_CLASS;
+    lease_records[i].release_class_id = 1;
+    lease_records[i].release_action_id = 1;
+    lease_records[i].release_before_scheduled_ordinal_plus_one = 20;
+    lease_records[i].flags = LOOM_LOW_STORAGE_LEASE_FLAG_STARTS_AT_ISSUE;
+  }
+  lease_records[0].flags |= LOOM_LOW_STORAGE_LEASE_FLAG_RELEASE_FOR_PRESSURE;
+  const loom_low_storage_lease_table_t lease_table = {
+      .schedule = &schedule,
+      .records = lease_records,
+      .record_count = IREE_ARRAYSIZE(lease_records),
+  };
+  const loom_low_allocation_storage_identity_t storage_identity = {};
+  loom_low_allocation_storage_lease_state_t storage_leases = {};
+  IREE_ASSERT_OK(loom_low_allocation_storage_lease_state_initialize(
+      &lease_table, module, function_op, &value_domain, &liveness,
+      &storage_identity, &unit_liveness, &arena_, &storage_leases));
+  loom_low_allocation_storage_lease_state_record_assignment(
+      &storage_leases, &descriptor_set, &liveness, assignments,
+      /*assignment_index=*/0, /*value_ordinal=*/1);
+  loom_low_allocation_storage_lease_state_record_assignment(
+      &storage_leases, &descriptor_set, &liveness, assignments,
+      /*assignment_index=*/1, /*value_ordinal=*/2);
+  context.storage_leases = &storage_leases;
+
   IREE_ASSERT_OK(loom_low_allocation_search_find_active_spill_victim_set(
       &context, &intervals[0], &capacity,
       /*interval_requires_register=*/true, &workspace, &arena_, &victim_set));
   EXPECT_TRUE(victim_set.found);
-  storage_leases = {};
+
+  lease_records[0].flags &= ~LOOM_LOW_STORAGE_LEASE_FLAG_RELEASE_FOR_PRESSURE;
+  IREE_ASSERT_OK(loom_low_allocation_search_find_active_spill_victim_set(
+      &context, &intervals[0], &capacity,
+      /*interval_requires_register=*/true, &workspace, &arena_, &victim_set));
+  EXPECT_FALSE(victim_set.found);
+  lease_records[0].flags |= LOOM_LOW_STORAGE_LEASE_FLAG_RELEASE_FOR_PRESSURE;
+
+  schedule_blocks[0].scheduled_node_count = 8;
+  IREE_ASSERT_OK(loom_low_allocation_search_find_active_spill_victim_set(
+      &context, &intervals[0], &capacity,
+      /*interval_requires_register=*/true, &workspace, &arena_, &victim_set));
+  EXPECT_FALSE(victim_set.found);
+  schedule_blocks[0].scheduled_node_count = kScheduleNodeCount;
+
+  IREE_ASSERT_OK(loom_low_allocation_search_find_active_spill_victim_set(
+      &context, &intervals[0], &capacity,
+      /*interval_requires_register=*/true, &workspace, &arena_, &victim_set));
+  ASSERT_TRUE(victim_set.found);
+  loom_low_allocation_assignment_t spilled_covering = assignments[1];
+  spilled_covering.location_kind = LOOM_LOW_ALLOCATION_LOCATION_SPILL_SLOT;
+  spilled_covering.location_base = 0;
+  loom_low_allocation_storage_lease_state_record_spill(
+      &storage_leases, &descriptor_set, &spilled_covering,
+      /*value_ordinal=*/2);
+  const loom_low_allocation_assignment_t incoming =
+      Assignment(candidate_value, /*start=*/8, /*end=*/12, value_class,
+                 /*location_base=*/0, /*location_count=*/4,
+                 /*unit_point_start=*/0);
+  IREE_ASSERT_OK(loom_low_allocation_storage_lease_state_record_release_actions(
+      &storage_leases, &descriptor_set, &liveness, &incoming,
+      /*ignored_value_ids=*/nullptr, /*ignored_value_count=*/0));
+  ASSERT_EQ(storage_leases.release_action_count, 1u);
+  EXPECT_EQ(storage_leases.instances[0].end_point, incoming.start_point);
+  EXPECT_EQ(storage_leases.instances[1].end_point, 0u);
+  IREE_ASSERT_OK(
+      loom_low_allocation_storage_lease_state_finalize(&storage_leases));
+  context.storage_leases = &empty_storage_leases;
 
   // Ordinary semantic liveness needs no release. Only a producer-retained
   // physical observation can be shortened by materializing the result.
@@ -465,11 +564,7 @@ TEST_F(LowAllocationCoveringSpillSearchTest,
       /*interval_requires_register=*/true, &workspace, &arena_, &victim_set));
   EXPECT_FALSE(victim_set.found);
 
-  loom_module_value_ordinal_scratch_clear(module, candidate_value);
-  loom_module_value_ordinal_scratch_clear(module, required_source_value);
-  loom_module_value_ordinal_scratch_clear(module, covering_result_value);
-  loom_module_value_ordinal_scratch_clear(module, other_result_value);
-  loom_module_value_ordinal_scratch_release(module);
+  loom_local_value_domain_release(&value_domain);
   loom_module_free(module);
 }
 

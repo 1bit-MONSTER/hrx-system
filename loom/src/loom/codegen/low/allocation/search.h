@@ -95,6 +95,11 @@ typedef struct loom_low_allocation_search_workspace_t {
   // Candidate victims already selected, indexed by active-set position.
   // This keeps covering-source deduplication linear without another u32 array.
   iree_bitmap_t candidate_selected_assignments;
+  // Entry capacity of |ignored_storage_lease_value_ids|.
+  iree_host_size_t ignored_storage_lease_capacity;
+  // Selected victim values whose storage leases retire with their spills.
+  // Allocated lazily because ordinary victim sets use |ignored_value_ids|.
+  loom_value_id_t* ignored_storage_lease_value_ids;
   // Entry capacity of |best_released_value_ids|.
   iree_host_size_t released_value_capacity;
   // Best source reservations released by materializing covering victims.
