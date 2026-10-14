@@ -471,22 +471,20 @@ def test_avx512_predicate_descriptors_cover_every_core_width_and_element() -> No
         for mnemonic in AVX512_SELECT_MNEMONICS.values()
     } <= descriptor_keys
 
-    carrier_rows = {
-        2: ("q", "xmm"),
-        4: ("d", "xmm"),
-        8: ("w", "xmm"),
-        16: ("b", "xmm"),
-        32: ("b", "ymm"),
-        64: ("b", "zmm"),
-    }
-    assert {
+    predicate_conversion_keys = {
         key
-        for element_suffix, register_suffix in carrier_rows.values()
+        for key in descriptor_keys
+        if ".vpmovm2" in key or key.endswith(("2m.k.xmm", "2m.k.ymm", "2m.k.zmm"))
+    }
+    assert predicate_conversion_keys == {
+        key
+        for element_suffix in ("b", "w", "d", "q")
+        for register_suffix in ("xmm", "ymm", "zmm")
         for key in (
             f"x86.avx512.vpmovm2{element_suffix}.{register_suffix}.k",
             f"x86.avx512.vpmov{element_suffix}2m.k.{register_suffix}",
         )
-    } <= descriptor_keys
+    }
     assert {
         "x86.avx512.kmovq.k.gpr64",
         "x86.avx512.kmovq.gpr64.k",

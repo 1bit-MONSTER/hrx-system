@@ -92,6 +92,24 @@ low.func.def target<x86.avx2.core> abi(object_function) @exchange_signed_positio
 }
 
 // ====
+// RUN: emit source-low output=low
+
+x86.target<avx2> @target
+
+func.def target(@target) @widen_vector_subregister(%source: vector<1xi8>) -> (vector<1xi16>, vector<1xi16>) {
+  %signed = vector.extsi %source : vector<1xi8> to vector<1xi16>
+  %unsigned = vector.extui %source : vector<1xi8> to vector<1xi16>
+  func.return %signed, %unsigned : vector<1xi16>, vector<1xi16>
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (vector<1xi8>) -> (vector<1xi16>, vector<1xi16>)}) @widen_vector_subregister(%source: reg<x86.xmm>) -> (reg<x86.xmm>, reg<x86.xmm>) asm {
+  %signed = vpmovsxbw.xmm %source
+  %unsigned = vpmovzxbw.xmm %source
+  return %signed, %unsigned
+}
+
+// ====
 
 x86.target<avx2> @target
 
@@ -105,6 +123,24 @@ func.def target(@target) @widen_vector_ymm(%source: vector<8xi16>) -> (vector<8x
 low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (vector<8xi16>) -> (vector<8xi32>, vector<8xi32>)}) @widen_vector_ymm(%source: reg<x86.xmm>) -> (reg<x86.ymm>, reg<x86.ymm>) asm {
   %signed = vpmovsxwd.ymm %source
   %unsigned = vpmovzxwd.ymm %source
+  return %signed, %unsigned
+}
+
+// ====
+// RUN: emit source-low output=low
+
+x86.target<avx512> @target
+
+func.def target(@target) @widen_vector_avx512_subregister(%source: vector<1xi32>) -> (vector<1xi64>, vector<1xi64>) {
+  %signed = vector.extsi %source : vector<1xi32> to vector<1xi64>
+  %unsigned = vector.extui %source : vector<1xi32> to vector<1xi64>
+  func.return %signed, %unsigned : vector<1xi64>, vector<1xi64>
+}
+
+// ----
+low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = (vector<1xi32>) -> (vector<1xi64>, vector<1xi64>)}) @widen_vector_avx512_subregister(%source: reg<x86.xmm>) -> (reg<x86.xmm>, reg<x86.xmm>) asm {
+  %signed = vpmovsxdq.xmm %source
+  %unsigned = vpmovzxdq.xmm %source
   return %signed, %unsigned
 }
 

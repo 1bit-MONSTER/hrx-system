@@ -247,3 +247,87 @@ low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({sig
   %result = vpblendvb.xmm %false_value, %true_value, %condition
   return %result
 }
+
+// ====
+
+// Predicates for two- and four-byte payloads occupy the low 16 or 32 bits of
+// XMM and remain packed from comparison through selection.
+x86.target<avx2> @target
+
+func.def target(@target) @subregister_compare_select(%lhs2: vector<2xi8>, %rhs2: vector<2xi8>, %true2: vector<2xi8>, %false2: vector<2xi8>, %lhs4: vector<4xi8>, %rhs4: vector<4xi8>, %true4: vector<4xi8>, %false4: vector<4xi8>) -> (vector<2xi8>, vector<4xi8>) {
+  %condition2 = vector.cmpi slt, %lhs2, %rhs2 : vector<2xi8> -> vector<2xi1>
+  %result2 = vector.select %condition2, %true2, %false2 : vector<2xi8>
+  %condition4 = vector.cmpi slt, %lhs4, %rhs4 : vector<4xi8> -> vector<4xi1>
+  %result4 = vector.select %condition4, %true4, %false4 : vector<4xi8>
+  func.return %result2, %result4 : vector<2xi8>, vector<4xi8>
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (vector<2xi8>, vector<2xi8>, vector<2xi8>, vector<2xi8>, vector<4xi8>, vector<4xi8>, vector<4xi8>, vector<4xi8>) -> (vector<2xi8>, vector<4xi8>)}) @subregister_compare_select(%lhs2: reg<x86.xmm>, %rhs2: reg<x86.xmm>, %true2: reg<x86.xmm>, %false2: reg<x86.xmm>, %lhs4: reg<x86.xmm>, %rhs4: reg<x86.xmm>, %true4: reg<x86.xmm>, %false4: reg<x86.xmm>) -> (reg<x86.xmm>, reg<x86.xmm>) asm {
+  %condition2 = vpcmpgtb.xmm %rhs2, %lhs2
+  %result2 = vpblendvb.xmm %false2, %true2, %condition2
+  %condition4 = vpcmpgtb.xmm %rhs4, %lhs4
+  %result4 = vpblendvb.xmm %false4, %true4, %condition4
+  return %result2, %result4
+}
+
+// ====
+
+// Predicate extensions preserve the all-zero/all-one carrier through signed
+// lane conversion and normalize unsigned results without scalar lane access.
+x86.target<avx2> @target
+
+func.def target(@target) @predicate_integer_extensions(%predicate: vector<4xi1>) -> (vector<4xi8>, vector<4xi8>, vector<4xi16>, vector<4xi16>, vector<4xi32>, vector<4xi32>, vector<4xi64>, vector<4xi64>) {
+  %s8 = vector.extsi %predicate : vector<4xi1> to vector<4xi8>
+  %u8 = vector.extui %predicate : vector<4xi1> to vector<4xi8>
+  %s16 = vector.extsi %predicate : vector<4xi1> to vector<4xi16>
+  %u16 = vector.extui %predicate : vector<4xi1> to vector<4xi16>
+  %s32 = vector.extsi %predicate : vector<4xi1> to vector<4xi32>
+  %u32 = vector.extui %predicate : vector<4xi1> to vector<4xi32>
+  %s64 = vector.extsi %predicate : vector<4xi1> to vector<4xi64>
+  %u64 = vector.extui %predicate : vector<4xi1> to vector<4xi64>
+  func.return %s8, %u8, %s16, %u16, %s32, %u32, %s64, %u64 : vector<4xi8>, vector<4xi8>, vector<4xi16>, vector<4xi16>, vector<4xi32>, vector<4xi32>, vector<4xi64>, vector<4xi64>
+}
+
+func.def target(@target) @integer_predicate_truncations(%bytes: vector<4xi8>, %halves: vector<4xi16>, %words: vector<4xi32>, %wides: vector<4xi64>) -> (vector<4xi1>, vector<4xi1>, vector<4xi1>, vector<4xi1>) {
+  %p8 = vector.trunci %bytes : vector<4xi8> to vector<4xi1>
+  %p16 = vector.trunci %halves : vector<4xi16> to vector<4xi1>
+  %p32 = vector.trunci %words : vector<4xi32> to vector<4xi1>
+  %p64 = vector.trunci %wides : vector<4xi64> to vector<4xi1>
+  func.return %p8, %p16, %p32, %p64 : vector<4xi1>, vector<4xi1>, vector<4xi1>, vector<4xi1>
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (vector<4xi1>) -> (vector<4xi8>, vector<4xi8>, vector<4xi16>, vector<4xi16>, vector<4xi32>, vector<4xi32>, vector<4xi64>, vector<4xi64>)}) @predicate_integer_extensions(%predicate: reg<x86.xmm>) -> (reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.ymm>, reg<x86.ymm>) asm {
+  %38 = avx2.vmovdqu.rodata.xmm @__low_rodata_9663ac4f
+  %s8 = vpshufb.xmm %predicate, %38
+  %42 = vxorps.zero.xmm
+  %u8 = vpsubb.xmm %42, %s8
+  %s16 = vpackssdw.xmm %predicate, %predicate
+  %u16 = vpsrlw.xmm %s16, 15
+  %s32 = copy %predicate : reg<x86.xmm> -> reg<x86.xmm>
+  %48 = copy %predicate : reg<x86.xmm> -> reg<x86.xmm>
+  %u32 = vpsrld.xmm %48, 31
+  %s64 = vpmovsxdq.ymm %predicate
+  %u64 = vpsrlq.ymm %s64, 63
+  return %s8, %u8, %s16, %u16, %s32, %u32, %s64, %u64
+}
+
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (vector<4xi8>, vector<4xi16>, vector<4xi32>, vector<4xi64>) -> (vector<4xi1>, vector<4xi1>, vector<4xi1>, vector<4xi1>)}) @integer_predicate_truncations(%bytes: reg<x86.xmm>, %halves: reg<x86.xmm>, %words: reg<x86.xmm>, %wides: reg<x86.ymm>) -> (reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>) asm {
+  %61 = vxorps.zero.xmm
+  %62 = vpsllw.xmm %bytes, 7
+  %63 = vpcmpgtb.xmm %61, %62
+  %p8 = vpmovsxbd.xmm %63
+  %66 = vpsllw.xmm %halves, 15
+  %67 = vpcmpgtw.xmm %61, %66
+  %p16 = vpmovsxwd.xmm %67
+  %70 = vpslld.xmm %words, 31
+  %p32 = vpcmpgtd.xmm %61, %70
+  %72 = vxorps.zero.ymm
+  %73 = vpsllq.ymm %wides, 63
+  %74 = vpcmpgtq.ymm %72, %73
+  %75 = vextractf128.xmm %74, 0
+  %76 = vextractf128.xmm %74, 1
+  %p64 = vshufps.xmm %75, %76, 136
+  return %p8, %p16, %p32, %p64
+}

@@ -206,7 +206,7 @@ static bool loom_x86_avx2_register_class_for_source_type(
     return true;
   }
   return loom_x86_static_vector_register_class_for_source_type(
-      source_type, /*minimum_vector_bit_width=*/64,
+      source_type, /*minimum_vector_bit_width=*/8,
       /*maximum_vector_bit_width=*/256, out_register_class);
 }
 

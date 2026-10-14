@@ -66,25 +66,34 @@ low.func.def target<x86.scalar.core> abi(object_function) abi_layout({signature 
 
 x86.target<avx2> @target
 
-func.def target(@target) @truncate_vectors_avx2(%halves: vector<16xi16>, %words: vector<8xi32>) -> (vector<16xi8>, vector<8xi8>) {
+func.def target(@target) @truncate_vectors_avx2(%subregister: vector<1xi64>, %halves: vector<16xi16>, %words: vector<8xi32>, %wides: vector<4xi64>) -> (vector<1xi8>, vector<16xi8>, vector<8xi8>, vector<4xi8>) {
+  %subregister_result = vector.trunci %subregister : vector<1xi64> to vector<1xi8>
   %half_results = vector.trunci %halves : vector<16xi16> to vector<16xi8>
   %word_results = vector.trunci %words : vector<8xi32> to vector<8xi8>
-  func.return %half_results, %word_results : vector<16xi8>, vector<8xi8>
+  %wide_results = vector.trunci %wides : vector<4xi64> to vector<4xi8>
+  func.return %subregister_result, %half_results, %word_results, %wide_results : vector<1xi8>, vector<16xi8>, vector<8xi8>, vector<4xi8>
 }
 
 // ----
-low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (vector<16xi16>, vector<8xi32>) -> (vector<16xi8>, vector<8xi8>)}) @truncate_vectors_avx2(%halves: reg<x86.ymm>, %words: reg<x86.ymm>) -> (reg<x86.xmm>, reg<x86.xmm>) asm {
-  %10 = avx2.vmovdqu.rodata.ymm @__low_rodata_eef44b1f
-  %11 = vpshufb.ymm %halves, %10
-  %12 = vextractf128.xmm %11, 0
-  %13 = vextractf128.xmm %11, 1
-  %half_results = vpunpcklqdq.xmm %12, %13
-  %15 = avx2.vmovdqu.rodata.ymm @__low_rodata_1b0a0b7f
-  %16 = vpshufb.ymm %words, %15
-  %17 = vextractf128.xmm %16, 0
-  %18 = vextractf128.xmm %16, 1
-  %word_results = vpunpckldq.xmm %17, %18
-  return %half_results, %word_results
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (vector<1xi64>, vector<16xi16>, vector<8xi32>, vector<4xi64>) -> (vector<1xi8>, vector<16xi8>, vector<8xi8>, vector<4xi8>)}) @truncate_vectors_avx2(%subregister: reg<x86.xmm>, %halves: reg<x86.ymm>, %words: reg<x86.ymm>, %wides: reg<x86.ymm>) -> (reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>) asm {
+  %20 = avx2.vmovdqu.rodata.xmm @__low_rodata_7dcab98f
+  %subregister_result = vpshufb.xmm %subregister, %20
+  %22 = avx2.vmovdqu.rodata.ymm @__low_rodata_eef44b1f
+  %23 = vpshufb.ymm %halves, %22
+  %24 = vextractf128.xmm %23, 0
+  %25 = vextractf128.xmm %23, 1
+  %half_results = vpunpcklqdq.xmm %24, %25
+  %27 = avx2.vmovdqu.rodata.ymm @__low_rodata_1b0a0b7f
+  %28 = vpshufb.ymm %words, %27
+  %29 = vextractf128.xmm %28, 0
+  %30 = vextractf128.xmm %28, 1
+  %word_results = vpunpckldq.xmm %29, %30
+  %32 = avx2.vmovdqu.rodata.ymm @__low_rodata_9a5b1dff
+  %33 = vpshufb.ymm %wides, %32
+  %34 = vextractf128.xmm %33, 0
+  %35 = vextractf128.xmm %33, 1
+  %wide_results = vpunpcklwd.xmm %34, %35
+  return %subregister_result, %half_results, %word_results, %wide_results
 }
 
 // ====
@@ -92,15 +101,17 @@ low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({sig
 
 x86.target<avx512> @target
 
-func.def target(@target) @truncate_vectors_avx512(%words: vector<8xi32>, %wides: vector<8xi64>) -> (vector<8xi8>, vector<8xi8>) {
+func.def target(@target) @truncate_vectors_avx512(%subregister: vector<1xi16>, %words: vector<8xi32>, %wides: vector<8xi64>) -> (vector<1xi8>, vector<8xi8>, vector<8xi8>) {
+  %subregister_result = vector.trunci %subregister : vector<1xi16> to vector<1xi8>
   %word_results = vector.trunci %words : vector<8xi32> to vector<8xi8>
   %wide_results = vector.trunci %wides : vector<8xi64> to vector<8xi8>
-  func.return %word_results, %wide_results : vector<8xi8>, vector<8xi8>
+  func.return %subregister_result, %word_results, %wide_results : vector<1xi8>, vector<8xi8>, vector<8xi8>
 }
 
 // ----
-low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = (vector<8xi32>, vector<8xi64>) -> (vector<8xi8>, vector<8xi8>)}) @truncate_vectors_avx512(%words: reg<x86.ymm>, %wides: reg<x86.zmm>) -> (reg<x86.xmm>, reg<x86.xmm>) asm {
+low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = (vector<1xi16>, vector<8xi32>, vector<8xi64>) -> (vector<1xi8>, vector<8xi8>, vector<8xi8>)}) @truncate_vectors_avx512(%subregister: reg<x86.xmm>, %words: reg<x86.ymm>, %wides: reg<x86.zmm>) -> (reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>) asm {
+  %subregister_result = avx512.vpmovwb.xmm.xmm %subregister
   %word_results = avx512.vpmovdb.xmm.ymm %words
   %wide_results = avx512.vpmovqb.xmm.zmm %wides
-  return %word_results, %wide_results
+  return %subregister_result, %word_results, %wide_results
 }

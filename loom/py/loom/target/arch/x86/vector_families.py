@@ -11,10 +11,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 AVX2_VECTOR_BIT_WIDTHS = (128, 256)
-# The x86 call ABI carries 64-bit vectors in the low half of an XMM register.
-# These payloads use AVX2 construction and lane-movement instructions even though
-# they are narrower than an architecturally native packed arithmetic width.
-AVX2_CARRIER_VECTOR_BIT_WIDTHS = (64, *AVX2_VECTOR_BIT_WIDTHS)
+# The x86 call ABI carries subregister vectors in the low bits of an XMM
+# register. These payloads use AVX2 construction and lane-movement instructions
+# even though they are narrower than an architecturally native packed arithmetic
+# width.
+AVX2_CARRIER_VECTOR_BIT_WIDTHS = (8, 16, 32, 64, *AVX2_VECTOR_BIT_WIDTHS)
 AVX512_VECTOR_BIT_WIDTHS = (512,)
 AVX512_CARRIER_VECTOR_BIT_WIDTHS = (
     *AVX2_CARRIER_VECTOR_BIT_WIDTHS,

@@ -1455,7 +1455,7 @@ VPMOVD2M = _instruction(
     _UNARY,
     _OPERANDS_7,
     _IMMEDIATES_0,
-    _encoding(_EVEX, _MAP_2, 2, 0, 0x39, (128,)),
+    _encoding(_EVEX, _MAP_2, 2, 0, 0x39, (128, 256, 512)),
 )
 VPMOVM2B = _instruction(
     "vpmovm2b",
@@ -1469,29 +1469,31 @@ VPMOVM2D = _instruction(
     _UNARY,
     _OPERANDS_11,
     _IMMEDIATES_0,
-    _encoding(_EVEX, _MAP_2, 2, 0, 0x38, (128,)),
+    _encoding(_EVEX, _MAP_2, 2, 0, 0x38, (128, 256, 512)),
 )
 VPMOVM2Q = _instruction(
     "vpmovm2q",
     _UNARY,
     _OPERANDS_11,
     _IMMEDIATES_0,
-    _encoding(_EVEX, _MAP_2, 2, 1, 0x38, (128,)),
+    _encoding(_EVEX, _MAP_2, 2, 1, 0x38, (128, 256, 512)),
 )
 VPMOVM2W = _instruction(
     "vpmovm2w",
     _UNARY,
     _OPERANDS_11,
     _IMMEDIATES_0,
-    _encoding(_EVEX, _MAP_2, 2, 1, 0x28, (128,)),
+    _encoding(_EVEX, _MAP_2, 2, 1, 0x28, (128, 256, 512)),
 )
 VPMOVQ2M = _instruction(
     "vpmovq2m",
     _UNARY,
     _OPERANDS_7,
     _IMMEDIATES_0,
-    _encoding(_EVEX, _MAP_2, 2, 1, 0x39, (128,)),
+    _encoding(_EVEX, _MAP_2, 2, 1, 0x39, (128, 256, 512)),
 )
+
+
 def _packed_widen_instruction(mnemonic: str, opcode: int) -> VectorMachineInstruction:
     return _instruction(
         mnemonic,
@@ -1514,7 +1516,7 @@ VPMOVW2M = _instruction(
     _UNARY,
     _OPERANDS_7,
     _IMMEDIATES_0,
-    _encoding(_EVEX, _MAP_2, 2, 1, 0x29, (128,)),
+    _encoding(_EVEX, _MAP_2, 2, 1, 0x29, (128, 256, 512)),
 )
 
 
@@ -2088,12 +2090,10 @@ AVX512_GPR_BROADCAST = (
 )
 AVX512_SELECT = (VPBLENDMB, VPBLENDMW, VPBLENDMD, VPBLENDMQ, VBLENDMPS, VBLENDMPD)
 AVX512_PREDICATE_CONVERSION = (
-    (VPMOVQ2M, VPMOVM2Q),
-    (VPMOVD2M, VPMOVM2D),
+    (VPMOVB2M, VPMOVM2B),
     (VPMOVW2M, VPMOVM2W),
-    (VPMOVB2M, VPMOVM2B),
-    (VPMOVB2M, VPMOVM2B),
-    (VPMOVB2M, VPMOVM2B),
+    (VPMOVD2M, VPMOVM2D),
+    (VPMOVQ2M, VPMOVM2Q),
 )
 PACKED_INTEGER_WIDEN = (
     (VPMOVSXBW, VPMOVZXBW),

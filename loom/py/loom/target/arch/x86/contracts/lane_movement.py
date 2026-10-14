@@ -261,6 +261,8 @@ def _lane_movement_rules(
         extract_key = _lane_descriptor_key(row.extract_mnemonic, row.element_bit_width)
         insert_key = _lane_descriptor_key(row.insert_mnemonic, row.element_bit_width)
         for vector_bit_width in vector_bit_widths:
+            if vector_bit_width < row.element_bit_width:
+                continue
             rules.extend(
                 (
                     _lane_extract_rule(
@@ -413,7 +415,7 @@ def _insert_f32_rule(
         )
     inserted = (
         ValueRef.result("result")
-        if vector_bit_width == 128
+        if vector_bit_width <= 128
         else ValueRef.temporary("inserted_chunk")
     )
     emits.append(
@@ -422,7 +424,7 @@ def _insert_f32_rule(
             operands={"dest": dest, "value": ValueRef.operand("value")},
             results={"dst": inserted},
             result_types=(
-                None if vector_bit_width == 128 else {"dst": DescriptorResultType()}
+                None if vector_bit_width <= 128 else {"dst": DescriptorResultType()}
             ),
             immediates={"control": lane},
         )
@@ -581,10 +583,12 @@ def avx2_lane_movement_rules(
             _floating_extract_rule(element_name, vector_bit_width, descriptor_lookup)
             for element_name in ("f32", "f64")
             for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS
+            if vector_bit_width >= (32 if element_name == "f32" else 64)
         ),
         *(
             _insert_f32_rule(vector_bit_width, descriptor_lookup)
             for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS
+            if vector_bit_width >= 32
         ),
         _insert_f64_rule(0, descriptor_lookup, vector_lane_count=1),
         _insert_f64_rule(0, descriptor_lookup),

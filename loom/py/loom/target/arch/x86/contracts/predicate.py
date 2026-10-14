@@ -24,9 +24,14 @@ from loom.target.arch.x86.contracts.rule_builders import (
 from loom.target.arch.x86.contracts.rule_builders import (
     value_type_guards as _typed_guards,
 )
+from loom.target.arch.x86.contracts.vector_integer_conversion import (
+    avx2_signed_integer_conversion_emits as _signed_integer_conversion_emits,
+)
+from loom.target.arch.x86.contracts.vector_integer_conversion import (
+    unsigned_integer_mask_normalization_emits as _unsigned_mask_normalization_emits,
+)
 from loom.target.arch.x86.vector_families import (
     AVX2_BITWISE_FAMILIES,
-    AVX2_CARRIER_VECTOR_BIT_WIDTHS,
     AVX2_FLOAT_COMPARE_MNEMONICS,
     AVX2_INTEGER_COMPARE_MNEMONICS,
     AVX2_PAYLOAD_ELEMENT_NAMES,
@@ -40,6 +45,7 @@ from loom.target.arch.x86.vector_families import (
 from loom.target.contracts import (
     AttrProject,
     ContractCase,
+    ContractEmit,
     DescriptorEmitForm,
     DescriptorResultType,
     DescriptorRule,
@@ -73,14 +79,34 @@ _PAYLOAD_ELEMENT_NAMES_BY_BIT_WIDTH = {
     )
     for bit_width in (8, 16, 32, 64)
 }
-_REGISTER_SUFFIXES = {64: "xmm", 128: "xmm", 256: "ymm"}
-_REGISTER_CLASSES = {64: "x86.xmm", 128: "x86.xmm", 256: "x86.ymm"}
-_PREDICATE_SIMD_BIT_WIDTHS = (64, 128, 256)
+_REGISTER_SUFFIXES = {
+    16: "xmm",
+    32: "xmm",
+    64: "xmm",
+    128: "xmm",
+    256: "ymm",
+}
+_REGISTER_CLASSES = {
+    16: "x86.xmm",
+    32: "x86.xmm",
+    64: "x86.xmm",
+    128: "x86.xmm",
+    256: "x86.ymm",
+}
+_PREDICATE_SIMD_BIT_WIDTHS = (16, 32, 64, 128, 256)
+_PACKED_PREDICATE_CONVERSION_BIT_WIDTHS = (64, 128, 256)
 _INTEGER_BROADCAST_MNEMONICS = {
     8: "vpbroadcastb",
     16: "vpbroadcastw",
     32: "vpbroadcastd",
     64: "vpbroadcastq",
+}
+_INTEGER_ELEMENT_SUFFIXES = {8: "b", 16: "w", 32: "d", 64: "q"}
+_INTEGER_SHIFT_LEFT_MNEMONICS = {
+    8: "vpsllw",
+    16: "vpsllw",
+    32: "vpslld",
+    64: "vpsllq",
 }
 _PREDICATE_TYPES = {
     2: _V2I1,
@@ -112,17 +138,13 @@ _PREDICATE_BITWISE_SOURCE_OPS = {
 }
 
 _PREDICATE_CARRIER_TYPES = {
-    (64, 2): Vector("i32", lanes=2),
-    (64, 4): Vector("i16", lanes=4),
-    (64, 8): Vector("i8", lanes=8),
-    (128, 2): Vector("i64", lanes=2),
-    (128, 4): Vector("i32", lanes=4),
-    (128, 8): Vector("i16", lanes=8),
-    (128, 16): Vector("i8", lanes=16),
-    (256, 4): Vector("i64", lanes=4),
-    (256, 8): Vector("i32", lanes=8),
-    (256, 16): Vector("i16", lanes=16),
-    (256, 32): Vector("i8", lanes=32),
+    (vector_bit_width, lane_count): Vector(
+        f"i{vector_bit_width // lane_count}", lanes=lane_count
+    )
+    for lane_count in _PREDICATE_TYPES
+    for vector_bit_width in _PREDICATE_SIMD_BIT_WIDTHS
+    if vector_bit_width % lane_count == 0
+    and vector_bit_width // lane_count in _INTEGER_ELEMENT_SUFFIXES
 }
 
 _PREDICATE_HALF_TYPES = {
@@ -703,6 +725,251 @@ def _predicate_representation_bit_widths(lane_count: int) -> tuple[int, ...]:
     )
 
 
+def _signed_predicate_mask_conversion_emits(
+    descriptor_lookup: _DescriptorLookup,
+    *,
+    source_element_bit_width: int,
+    result_element_bit_width: int,
+    lane_count: int,
+    source: ValueRef,
+    result: ValueRef,
+    result_type: TypePattern | None,
+    temporary_prefix: str,
+) -> tuple[tuple[ContractEmit, ...], tuple[Descriptor, ...]]:
+    source_vector_bit_width = lane_count * source_element_bit_width
+    result_vector_bit_width = lane_count * result_element_bit_width
+    if (
+        source_element_bit_width > result_element_bit_width
+        and source_vector_bit_width in _PACKED_PREDICATE_CONVERSION_BIT_WIDTHS
+        and result_vector_bit_width in _PACKED_PREDICATE_CONVERSION_BIT_WIDTHS
+    ):
+        descriptor_keys = _predicate_conversion_descriptor_keys(
+            lane_count, source_vector_bit_width, result_vector_bit_width
+        )
+        return (
+            _predicate_conversion_emits(
+                lane_count=lane_count,
+                source_bit_width=source_vector_bit_width,
+                result_bit_width=result_vector_bit_width,
+                source=source,
+                result=result,
+                result_type=result_type,
+                descriptor_lookup=descriptor_lookup,
+                temporary_prefix=temporary_prefix,
+            ),
+            tuple(descriptor_lookup(key) for key in descriptor_keys),
+        )
+    return _signed_integer_conversion_emits(
+        descriptor_lookup,
+        source_element_bit_width=source_element_bit_width,
+        result_element_bit_width=result_element_bit_width,
+        lane_count=lane_count,
+        source=source,
+        result=result,
+        result_type=result_type,
+        temporary_prefix=temporary_prefix,
+    )
+
+
+def _predicate_extension_rules(
+    descriptor_lookup: _DescriptorLookup,
+) -> tuple[DescriptorRule, ...]:
+    rules: list[DescriptorRule] = []
+    for lane_count, source_type in _PREDICATE_TYPES.items():
+        for source_bit_width in _predicate_representation_bit_widths(lane_count):
+            source_element_bit_width = _predicate_carrier_element_bit_width(
+                lane_count, source_bit_width
+            )
+            for result_element in INTEGER_ELEMENTS:
+                result_vector_bit_width = lane_count * result_element.bit_width
+                if result_vector_bit_width > 256:
+                    continue
+                physical_result_bit_width = max(128, result_vector_bit_width)
+                result_register_class = _REGISTER_CLASSES[physical_result_bit_width]
+                result_type = Vector(result_element.name, lanes=lane_count)
+                for source_op, signed in (
+                    (vector.vector_extsi, True),
+                    (vector.vector_extui, False),
+                ):
+                    conversion_result = ValueRef.result("result")
+                    conversion_result_type: TypePattern | None = None
+                    if not signed:
+                        conversion_result = ValueRef.temporary("signed_mask")
+                        conversion_result_type = result_type
+                    conversion_emits, conversion_descriptors = (
+                        _signed_predicate_mask_conversion_emits(
+                            descriptor_lookup,
+                            source_element_bit_width=source_element_bit_width,
+                            result_element_bit_width=result_element.bit_width,
+                            lane_count=lane_count,
+                            source=ValueRef.operand("input"),
+                            result=conversion_result,
+                            result_type=conversion_result_type,
+                            temporary_prefix="predicate_extend",
+                        )
+                    )
+                    normalization_emits: tuple[EmitDescriptorOp, ...] = ()
+                    normalization_descriptors: tuple[Descriptor, ...] = ()
+                    if not signed:
+                        normalization_emits, normalization_descriptors = (
+                            _unsigned_mask_normalization_emits(
+                                descriptor_lookup,
+                                descriptor_key_prefix="x86.avx2",
+                                element_bit_width=result_element.bit_width,
+                                vector_bit_width=physical_result_bit_width,
+                                source=conversion_result,
+                                result=ValueRef.result("result"),
+                                result_type=None,
+                                temporary_type=result_type,
+                                temporary_prefix="predicate_extend",
+                            )
+                        )
+                    descriptors = tuple(
+                        dict.fromkeys(
+                            (*conversion_descriptors, *normalization_descriptors)
+                        )
+                    )
+                    primary_descriptor = (
+                        conversion_descriptors[0]
+                        if conversion_descriptors
+                        else (normalization_descriptors[-1] if descriptors else None)
+                    )
+                    rules.append(
+                        DescriptorRule(
+                            source_op=source_op,
+                            descriptor=primary_descriptor,
+                            guards=(
+                                Guard.value_type("input", source_type),
+                                Guard.value_type("result", result_type),
+                                Guard.value_static_element_count_eq("input", "result"),
+                                *_predicate_representation_guards(
+                                    "input", lane_count, source_bit_width
+                                ),
+                                Guard.low_value_register_class(
+                                    "result", result_register_class
+                                ),
+                                *(
+                                    Guard.descriptor_available(descriptor)
+                                    for descriptor in descriptors
+                                    if descriptor != primary_descriptor
+                                ),
+                            ),
+                            emit=(*conversion_emits, *normalization_emits),
+                            report_key=(
+                                "x86.predicate_extend.signed"
+                                if signed
+                                else "x86.predicate_extend.unsigned"
+                            ),
+                        )
+                    )
+    return tuple(rules)
+
+
+def _predicate_truncation_rules(
+    descriptor_lookup: _DescriptorLookup,
+) -> tuple[DescriptorRule, ...]:
+    rules: list[DescriptorRule] = []
+    for lane_count, result_type in _PREDICATE_TYPES.items():
+        for source_element in INTEGER_ELEMENTS:
+            source_vector_bit_width = lane_count * source_element.bit_width
+            if source_vector_bit_width > 256:
+                continue
+            physical_source_bit_width = max(128, source_vector_bit_width)
+            source_register_class = _REGISTER_CLASSES[physical_source_bit_width]
+            source_register_suffix = _REGISTER_SUFFIXES[physical_source_bit_width]
+            source_type = Vector(source_element.name, lanes=lane_count)
+            shift = descriptor_lookup(
+                f"x86.avx2.{_INTEGER_SHIFT_LEFT_MNEMONICS[source_element.bit_width]}."
+                f"{source_register_suffix}"
+            )
+            zero = descriptor_lookup(f"x86.avx2.vxorps.zero.{source_register_suffix}")
+            compare = descriptor_lookup(
+                f"x86.avx2."
+                f"{AVX2_INTEGER_COMPARE_MNEMONICS[source_element.name][1]}."
+                f"{source_register_suffix}"
+            )
+            for result_bit_width in _predicate_representation_bit_widths(lane_count):
+                result_element_bit_width = _predicate_carrier_element_bit_width(
+                    lane_count, result_bit_width
+                )
+                requires_conversion = (
+                    source_element.bit_width != result_element_bit_width
+                )
+                native_mask = (
+                    ValueRef.temporary("native_mask")
+                    if requires_conversion
+                    else ValueRef.result("result")
+                )
+                prefix_emits = (
+                    _op_emit(
+                        descriptor=zero,
+                        results={"dst": ValueRef.temporary("zero")},
+                        result_types={"dst": source_type},
+                    ),
+                    _op_emit(
+                        descriptor=shift,
+                        operands={"source": ValueRef.operand("input")},
+                        results={"dst": ValueRef.temporary("low_bit_sign")},
+                        result_types={"dst": source_type},
+                        immediates={"shift": source_element.bit_width - 1},
+                    ),
+                    _op_emit(
+                        descriptor=compare,
+                        operands={
+                            "lhs": ValueRef.temporary("zero"),
+                            "rhs": ValueRef.temporary("low_bit_sign"),
+                        },
+                        results={"dst": native_mask},
+                        result_types=(
+                            {"dst": source_type} if requires_conversion else None
+                        ),
+                    ),
+                )
+                conversion_emits = ()
+                conversion_descriptors: tuple[Descriptor, ...] = ()
+                if requires_conversion:
+                    conversion_emits, conversion_descriptors = (
+                        _signed_predicate_mask_conversion_emits(
+                            descriptor_lookup,
+                            source_element_bit_width=source_element.bit_width,
+                            result_element_bit_width=result_element_bit_width,
+                            lane_count=lane_count,
+                            source=native_mask,
+                            result=ValueRef.result("result"),
+                            result_type=None,
+                            temporary_prefix="predicate_truncate",
+                        )
+                    )
+                descriptors = tuple(
+                    dict.fromkeys((zero, shift, compare, *conversion_descriptors))
+                )
+                rules.append(
+                    DescriptorRule(
+                        source_op=vector.vector_trunci,
+                        descriptor=compare,
+                        guards=(
+                            Guard.value_type("input", source_type),
+                            Guard.value_type("result", result_type),
+                            Guard.value_static_element_count_eq("input", "result"),
+                            Guard.low_value_register_class(
+                                "input", source_register_class
+                            ),
+                            *_predicate_representation_guards(
+                                "result", lane_count, result_bit_width
+                            ),
+                            *(
+                                Guard.descriptor_available(descriptor)
+                                for descriptor in descriptors
+                                if descriptor != compare
+                            ),
+                        ),
+                        emit=(*prefix_emits, *conversion_emits),
+                        report_key="x86.predicate_truncate.low_bit",
+                    )
+                )
+    return tuple(rules)
+
+
 def _predicate_lane_descriptor_key(mnemonic: str, element_bit_width: int) -> str:
     if mnemonic.startswith("vpextr"):
         return f"x86.avx2.{mnemonic}.gpr{max(32, element_bit_width)}.xmm"
@@ -951,7 +1218,9 @@ def _integer_compare_rules(
 ) -> tuple[DescriptorRule, ...]:
     rules: list[DescriptorRule] = []
     for element in INTEGER_ELEMENTS:
-        for payload_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS:
+        for payload_bit_width in _PREDICATE_SIMD_BIT_WIDTHS:
+            if payload_bit_width % element.bit_width:
+                continue
             lane_count = element.lane_count(payload_bit_width)
             if lane_count not in _PREDICATE_TYPES:
                 continue
@@ -990,21 +1259,19 @@ def _integer_compare_rules(
                     conversion_emits: tuple[EmitDescriptorOp, ...] = ()
                     conversion_descriptors: tuple[Descriptor, ...] = ()
                     if requires_conversion:
-                        conversion_keys = _predicate_conversion_descriptor_keys(
-                            lane_count, payload_bit_width, result_bit_width
-                        )
-                        conversion_descriptors = tuple(
-                            descriptor_lookup(key) for key in conversion_keys
-                        )
-                        conversion_emits = _predicate_conversion_emits(
-                            lane_count=lane_count,
-                            source_bit_width=payload_bit_width,
-                            result_bit_width=result_bit_width,
-                            source=native_result,
-                            result=ValueRef.result("result"),
-                            result_type=None,
-                            descriptor_lookup=descriptor_lookup,
-                            temporary_prefix="converted_mask",
+                        conversion_emits, conversion_descriptors = (
+                            _signed_predicate_mask_conversion_emits(
+                                descriptor_lookup,
+                                source_element_bit_width=element.bit_width,
+                                result_element_bit_width=(
+                                    result_bit_width // lane_count
+                                ),
+                                lane_count=lane_count,
+                                source=native_result,
+                                result=ValueRef.result("result"),
+                                result_type=None,
+                                temporary_prefix="converted_mask",
+                            )
                         )
                     all_descriptors = tuple(
                         dict.fromkeys((*descriptors, *conversion_descriptors))
@@ -1037,7 +1304,9 @@ def _floating_compare_rules(
 ) -> tuple[DescriptorRule, ...]:
     rules: list[DescriptorRule] = []
     for element in FLOAT_ELEMENTS:
-        for payload_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS:
+        for payload_bit_width in _PREDICATE_SIMD_BIT_WIDTHS:
+            if payload_bit_width % element.bit_width:
+                continue
             lane_count = element.lane_count(payload_bit_width)
             if lane_count not in _PREDICATE_TYPES:
                 continue
@@ -1072,21 +1341,17 @@ def _floating_compare_rules(
                 conversion_emits: tuple[EmitDescriptorOp, ...] = ()
                 conversion_descriptors: tuple[Descriptor, ...] = ()
                 if requires_conversion:
-                    conversion_keys = _predicate_conversion_descriptor_keys(
-                        lane_count, payload_bit_width, result_bit_width
-                    )
-                    conversion_descriptors = tuple(
-                        descriptor_lookup(key) for key in conversion_keys
-                    )
-                    conversion_emits = _predicate_conversion_emits(
-                        lane_count=lane_count,
-                        source_bit_width=payload_bit_width,
-                        result_bit_width=result_bit_width,
-                        source=native_result,
-                        result=ValueRef.result("result"),
-                        result_type=None,
-                        descriptor_lookup=descriptor_lookup,
-                        temporary_prefix="converted_mask",
+                    conversion_emits, conversion_descriptors = (
+                        _signed_predicate_mask_conversion_emits(
+                            descriptor_lookup,
+                            source_element_bit_width=element.bit_width,
+                            result_element_bit_width=result_bit_width // lane_count,
+                            lane_count=lane_count,
+                            source=native_result,
+                            result=ValueRef.result("result"),
+                            result_type=None,
+                            temporary_prefix="converted_mask",
+                        )
                     )
                 rules.append(
                     DescriptorRule(
@@ -1128,24 +1393,22 @@ def _vector_select_rules(
                 conversion_emits: tuple[EmitDescriptorOp, ...] = ()
                 conversion_descriptors: tuple[Descriptor, ...] = ()
                 if requires_conversion:
-                    conversion_keys = _predicate_conversion_descriptor_keys(
-                        lane_count, condition_bit_width, payload_bit_width
-                    )
-                    conversion_descriptors = tuple(
-                        descriptor_lookup(key) for key in conversion_keys
-                    )
                     mask = ValueRef.temporary("native_mask")
-                    conversion_emits = _predicate_conversion_emits(
-                        lane_count=lane_count,
-                        source_bit_width=condition_bit_width,
-                        result_bit_width=payload_bit_width,
-                        source=ValueRef.operand("condition"),
-                        result=mask,
-                        result_type=_PREDICATE_CARRIER_TYPES[
-                            (payload_bit_width, lane_count)
-                        ],
-                        descriptor_lookup=descriptor_lookup,
-                        temporary_prefix="converted_mask",
+                    conversion_emits, conversion_descriptors = (
+                        _signed_predicate_mask_conversion_emits(
+                            descriptor_lookup,
+                            source_element_bit_width=(
+                                condition_bit_width // lane_count
+                            ),
+                            result_element_bit_width=(payload_bit_width // lane_count),
+                            lane_count=lane_count,
+                            source=ValueRef.operand("condition"),
+                            result=mask,
+                            result_type=_PREDICATE_CARRIER_TYPES[
+                                (payload_bit_width, lane_count)
+                            ],
+                            temporary_prefix="converted_mask",
+                        )
                     )
                 rules.append(
                     DescriptorRule(
@@ -1282,6 +1545,8 @@ def avx2_predicate_rules(
     return (
         *_predicate_constant_rules(descriptor_lookup),
         *_predicate_splat_rules(descriptor_lookup),
+        *_predicate_extension_rules(descriptor_lookup),
+        *_predicate_truncation_rules(descriptor_lookup),
         *_predicate_lane_movement_rules(descriptor_lookup),
         *_integer_compare_rules(descriptor_lookup),
         *_floating_compare_rules(descriptor_lookup),

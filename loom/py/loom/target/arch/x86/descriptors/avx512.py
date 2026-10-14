@@ -213,20 +213,15 @@ def _vector_narrow_descriptor(
 
 
 def _predicate_conversion_descriptor(
-    lane_count: int,
+    element_bit_width: int,
+    vector_bit_width: int,
     instruction: VectorMachineInstruction,
     *,
     mask_to_carrier: bool,
 ) -> Descriptor:
-    carrier_bit_width, element_suffix = {
-        2: (128, "q"),
-        4: (128, "d"),
-        8: (128, "w"),
-        16: (128, "b"),
-        32: (256, "b"),
-        64: (512, "b"),
-    }[lane_count]
-    register_suffix = _REGISTER_SUFFIXES[carrier_bit_width]
+    element_suffix = {8: "b", 16: "w", 32: "d", 64: "q"}[element_bit_width]
+    lane_count = vector_bit_width // element_bit_width
+    register_suffix = _REGISTER_SUFFIXES[vector_bit_width]
     mnemonic = (
         f"vpmovm2{element_suffix}" if mask_to_carrier else f"vpmov{element_suffix}2m"
     )
@@ -239,14 +234,14 @@ def _predicate_conversion_descriptor(
             ),
             mnemonic=mnemonic,
             semantic_tag=(
-                f"mask.expand.i1x{lane_count}"
+                f"mask.expand.i1x{lane_count}.i{element_bit_width}x{lane_count}"
                 if mask_to_carrier
-                else f"mask.compress.i1x{lane_count}"
+                else f"mask.compress.i{element_bit_width}x{lane_count}.i1x{lane_count}"
             ),
             operands=(
-                (_vector_result(carrier_bit_width), _k_operand("source"))
+                (_vector_result(vector_bit_width), _k_operand("source"))
                 if mask_to_carrier
-                else (_k_result(), _vector_operand(carrier_bit_width, "source"))
+                else (_k_result(), _vector_operand(vector_bit_width, "source"))
             ),
             asm_forms=_asm(
                 mnemonic=(
@@ -1102,15 +1097,17 @@ X86_AVX512_CORE_DESCRIPTOR_SET = DescriptorSet(
         ),
         *(
             _predicate_conversion_descriptor(
-                lane_count,
+                element_bit_width,
+                vector_bit_width,
                 instruction,
                 mask_to_carrier=mask_to_carrier,
             )
-            for lane_count, instructions in zip(
-                (2, 4, 8, 16, 32, 64),
+            for element_bit_width, instructions in zip(
+                (8, 16, 32, 64),
                 native.AVX512_PREDICATE_CONVERSION,
                 strict=True,
             )
+            for vector_bit_width in (128, 256, 512)
             for mask_to_carrier, instruction in zip(
                 (False, True), instructions, strict=True
             )

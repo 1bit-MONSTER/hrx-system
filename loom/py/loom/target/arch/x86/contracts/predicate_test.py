@@ -13,7 +13,6 @@ from loom.target.arch.x86.descriptors import (
     X86_AVX512_CORE_DESCRIPTOR_SET,
 )
 from loom.target.arch.x86.vector_families import (
-    AVX2_CARRIER_VECTOR_BIT_WIDTHS,
     AVX2_VECTOR_BIT_WIDTHS,
     AVX512_SELECT_MNEMONICS,
     FLOAT_ELEMENTS,
@@ -23,6 +22,7 @@ from loom.target.arch.x86.vector_families import (
 from loom.target.contracts import (
     AttrProject,
     DescriptorRule,
+    EmitDescriptorOp,
     GuardKind,
     Scalar,
     Vector,
@@ -58,6 +58,7 @@ _FLOAT_COMPARE_IMMEDIATES = {
     "uno": 3,
 }
 _PREDICATE_LANE_COUNTS = (2, 4, 8, 16, 32)
+_PREDICATE_SIMD_BIT_WIDTHS = (16, 32, 64, 128, 256)
 
 
 def _descriptor(key: str):
@@ -110,13 +111,19 @@ def _enum_guard(rule: DescriptorRule, field: str) -> str:
 def _representation_bit_widths(lane_count: int) -> tuple[int, ...]:
     return tuple(
         bit_width
-        for bit_width in (64, 128, 256)
+        for bit_width in _PREDICATE_SIMD_BIT_WIDTHS
         if bit_width % lane_count == 0 and bit_width // lane_count in (8, 16, 32, 64)
     )
 
 
 def _register_class(bit_width: int) -> str:
-    return {64: "x86.xmm", 128: "x86.xmm", 256: "x86.ymm"}[bit_width]
+    return {
+        16: "x86.xmm",
+        32: "x86.xmm",
+        64: "x86.xmm",
+        128: "x86.xmm",
+        256: "x86.ymm",
+    }[bit_width]
 
 
 def _representation(lane_count: int, bit_width: int) -> int:
@@ -177,6 +184,71 @@ def test_predicate_construction_covers_every_callable_lane_count() -> None:
         for representation_bit_width in _representation_bit_widths(lane_count)
     }
     assert all(_type_guard(rule, "scalar") == Scalar("i1") for rule in splat_rules)
+
+
+def test_predicate_extensions_cover_every_one_register_integer_result() -> None:
+    for source_op in (vector.vector_extsi, vector.vector_extui):
+        rules = _rules_for(source_op)
+        assert {
+            (
+                _type_guard(rule, "input"),
+                _register_class_guard(rule, "input"),
+                _representation_guard(rule, "input"),
+                _type_guard(rule, "result"),
+                _register_class_guard(rule, "result"),
+            )
+            for rule in rules
+        } == {
+            (
+                Vector("i1", lanes=lane_count),
+                _register_class(source_bit_width),
+                _representation(lane_count, source_bit_width),
+                Vector(element.name, lanes=lane_count),
+                _register_class(max(128, lane_count * element.bit_width)),
+            )
+            for lane_count in _PREDICATE_LANE_COUNTS
+            for source_bit_width in _representation_bit_widths(lane_count)
+            for element in INTEGER_ELEMENTS
+            if lane_count * element.bit_width <= 256
+        }
+        assert all(
+            not emit.descriptor.key.startswith("x86.scalar")
+            for rule in rules
+            for emit in rule.emit
+            if isinstance(emit, EmitDescriptorOp)
+        )
+
+
+def test_predicate_truncation_covers_every_one_register_integer_source() -> None:
+    rules = _rules_for(vector.vector_trunci)
+    assert {
+        (
+            _type_guard(rule, "input"),
+            _register_class_guard(rule, "input"),
+            _type_guard(rule, "result"),
+            _register_class_guard(rule, "result"),
+            _representation_guard(rule, "result"),
+        )
+        for rule in rules
+    } == {
+        (
+            Vector(element.name, lanes=lane_count),
+            _register_class(max(128, lane_count * element.bit_width)),
+            Vector("i1", lanes=lane_count),
+            _register_class(result_bit_width),
+            _representation(lane_count, result_bit_width),
+        )
+        for lane_count in _PREDICATE_LANE_COUNTS
+        for element in INTEGER_ELEMENTS
+        if lane_count * element.bit_width <= 256
+        for result_bit_width in _representation_bit_widths(lane_count)
+    }
+    assert all(
+        not emit.descriptor.key.startswith("x86.scalar")
+        for rule in rules
+        for emit in rule.emit
+        if isinstance(emit, EmitDescriptorOp)
+    )
 
 
 def test_predicate_lane_movement_covers_every_representation() -> None:
@@ -241,7 +313,7 @@ def test_integer_comparisons_cover_every_element_predicate_and_carrier() -> None
             ),
         )
         for element in INTEGER_ELEMENTS
-        for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS
+        for vector_bit_width in _PREDICATE_SIMD_BIT_WIDTHS
         if vector_bit_width // element.bit_width in _PREDICATE_LANE_COUNTS
         for predicate in _INTEGER_PREDICATES
         for representation_bit_width in _representation_bit_widths(
@@ -277,7 +349,7 @@ def test_float_comparisons_cover_every_element_and_carrier() -> None:
             ),
         )
         for element in FLOAT_ELEMENTS
-        for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS
+        for vector_bit_width in _PREDICATE_SIMD_BIT_WIDTHS
         if vector_bit_width // element.bit_width in _PREDICATE_LANE_COUNTS
         for representation_bit_width in _representation_bit_widths(
             vector_bit_width // element.bit_width
@@ -357,17 +429,28 @@ def test_predicate_rule_inventory_has_no_unclassified_rows() -> None:
         len(_representation_bit_widths(vector_bit_width // element.bit_width))
         * len(_INTEGER_PREDICATES)
         for element in INTEGER_ELEMENTS
-        for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS
+        for vector_bit_width in _PREDICATE_SIMD_BIT_WIDTHS
         if vector_bit_width // element.bit_width in _PREDICATE_LANE_COUNTS
     )
     expected_count += sum(
         len(_representation_bit_widths(vector_bit_width // element.bit_width))
         for element in FLOAT_ELEMENTS
-        for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS
+        for vector_bit_width in _PREDICATE_SIMD_BIT_WIDTHS
         if vector_bit_width // element.bit_width in _PREDICATE_LANE_COUNTS
     )
     expected_count += sum(
         len(_representation_bit_widths(lane_count)) ** 2
+        for lane_count in _PREDICATE_LANE_COUNTS
+    )
+    expected_count += sum(
+        len(_representation_bit_widths(lane_count))
+        * sum(lane_count * element.bit_width <= 256 for element in INTEGER_ELEMENTS)
+        * 2
+        for lane_count in _PREDICATE_LANE_COUNTS
+    )
+    expected_count += sum(
+        len(_representation_bit_widths(lane_count))
+        * sum(lane_count * element.bit_width <= 256 for element in INTEGER_ELEMENTS)
         for lane_count in _PREDICATE_LANE_COUNTS
     )
     expected_count += len(AVX2_VECTOR_BIT_WIDTHS)
@@ -430,6 +513,27 @@ def _avx512_delta_representations(
     return ("x86.k",)
 
 
+def _avx512_simd_representation_bit_widths(lane_count: int) -> tuple[int, ...]:
+    return tuple(
+        bit_width
+        for bit_width in (16, 32, 64, 128, 256, 512)
+        if bit_width % lane_count == 0
+        and bit_width // lane_count in (8, 16, 32, 64)
+        and (bit_width != 512 or lane_count == 64)
+    )
+
+
+def _avx512_register_class(vector_bit_width: int) -> str:
+    return {
+        16: "x86.xmm",
+        32: "x86.xmm",
+        64: "x86.xmm",
+        128: "x86.xmm",
+        256: "x86.ymm",
+        512: "x86.zmm",
+    }[vector_bit_width]
+
+
 def test_avx512_predicate_construction_is_only_the_missing_delta() -> None:
     assert {
         (
@@ -479,6 +583,88 @@ def test_avx512_predicate_lane_movement_is_only_the_missing_delta() -> None:
         (source_op, Vector("i1", lanes=64), "x86.zmm", 8)
         for source_op in (vector.vector_extract, vector.vector_insert)
     }
+
+
+def test_avx512_predicate_extensions_cover_mask_and_512_bit_deltas() -> None:
+    for source_op in (vector.vector_extsi, vector.vector_extui):
+        rules = _avx512_rules_for(source_op)
+        assert {
+            (
+                _type_guard(rule, "input"),
+                _register_class_guard(rule, "input"),
+                _representation_guard(rule, "input"),
+                _type_guard(rule, "result"),
+                _register_class_guard(rule, "result"),
+            )
+            for rule in rules
+        } == {
+            (
+                Vector("i1", lanes=lane_count),
+                (
+                    "x86.k"
+                    if source_bit_width is None
+                    else _avx512_register_class(source_bit_width)
+                ),
+                1 if source_bit_width is None else source_bit_width // lane_count,
+                Vector(element.name, lanes=lane_count),
+                _avx512_register_class(max(128, lane_count * element.bit_width)),
+            )
+            for lane_count in _AVX512_LANE_COUNTS
+            for source_bit_width in (
+                None,
+                *_avx512_simd_representation_bit_widths(lane_count),
+            )
+            for element in INTEGER_ELEMENTS
+            if lane_count * element.bit_width <= 512
+            if source_bit_width is None
+            or lane_count * element.bit_width > 256
+            or lane_count == 64
+        }
+        assert all(
+            not emit.descriptor.key.startswith("x86.scalar")
+            for rule in rules
+            for emit in rule.emit
+            if isinstance(emit, EmitDescriptorOp)
+        )
+
+
+def test_avx512_predicate_truncation_covers_every_result_representation() -> None:
+    rules = _avx512_rules_for(vector.vector_trunci)
+    assert {
+        (
+            _type_guard(rule, "input"),
+            _register_class_guard(rule, "input"),
+            _type_guard(rule, "result"),
+            _register_class_guard(rule, "result"),
+            _representation_guard(rule, "result"),
+        )
+        for rule in rules
+    } == {
+        (
+            Vector(element.name, lanes=lane_count),
+            _avx512_register_class(max(128, lane_count * element.bit_width)),
+            Vector("i1", lanes=lane_count),
+            (
+                "x86.k"
+                if result_bit_width is None
+                else _avx512_register_class(result_bit_width)
+            ),
+            1 if result_bit_width is None else result_bit_width // lane_count,
+        )
+        for lane_count in _AVX512_LANE_COUNTS
+        for element in INTEGER_ELEMENTS
+        if lane_count * element.bit_width <= 512
+        for result_bit_width in (
+            None,
+            *_avx512_simd_representation_bit_widths(lane_count),
+        )
+    }
+    assert all(
+        not emit.descriptor.key.startswith("x86.scalar")
+        for rule in rules
+        for emit in rule.emit
+        if isinstance(emit, EmitDescriptorOp)
+    )
 
 
 def test_avx512_integer_compare_covers_all_widths_elements_and_predicates() -> None:
@@ -603,4 +789,27 @@ def test_avx512_predicate_logic_covers_mask_and_missing_carrier() -> None:
 
 
 def test_avx512_predicate_rule_inventory_has_no_unclassified_rows() -> None:
-    assert len(_AVX512_RULES) == 80
+    extension_count = sum(
+        2
+        for lane_count in _AVX512_LANE_COUNTS
+        for source_bit_width in (
+            None,
+            *_avx512_simd_representation_bit_widths(lane_count),
+        )
+        for element in INTEGER_ELEMENTS
+        if lane_count * element.bit_width <= 512
+        if source_bit_width is None
+        or lane_count * element.bit_width > 256
+        or lane_count == 64
+    )
+    truncation_count = sum(
+        1
+        for lane_count in _AVX512_LANE_COUNTS
+        for element in INTEGER_ELEMENTS
+        if lane_count * element.bit_width <= 512
+        for result_bit_width in (
+            None,
+            *_avx512_simd_representation_bit_widths(lane_count),
+        )
+    )
+    assert len(_AVX512_RULES) == 80 + extension_count + truncation_count

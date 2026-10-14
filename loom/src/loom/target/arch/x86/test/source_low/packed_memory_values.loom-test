@@ -37,10 +37,10 @@ func.def @partial_bytes(%input: buffer, %output: buffer) {
 
 // ----
 low.func.def target<x86.avx2.core> abi(object_function) @partial_bytes(%source: reg<x86.gpr64>, %destination: reg<x86.gpr64>) asm {
-  %19 = movzx.load.u8.gpr32 %source {disp32 = 0}
-  %20 = movzx.load.u8.gpr32 %source {disp32 = 1}
-  mov.store.u8.gpr32 %19, %destination {disp32 = 0}
-  mov.store.u8.gpr32 %20, %destination {disp32 = 1}
+  %12 = movzx.load.u16.gpr32 %source {disp32 = 0}
+  %value = vmovd.xmm.gpr32 %12
+  %14 = vmovd.gpr32.xmm %value
+  mov.store.u16.gpr32 %14, %destination {disp32 = 0}
   return
 }
 

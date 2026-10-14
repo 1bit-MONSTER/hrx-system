@@ -68,14 +68,14 @@ func.def @copy_float8_tail(%input: buffer, %output: buffer) {
 
 // ----
 low.func.def target<x86.avx2.core> abi(object_function) @copy_float8_tail(%input: reg<x86.gpr64>, %output: reg<x86.gpr64>) asm {
-  %26 = movzx.load.u8.gpr32 %input {disp32 = 1}
-  %27 = movzx.load.u8.gpr32 %input {disp32 = 2}
-  %28 = movzx.load.u8.gpr32 %input {disp32 = 3}
-  %29 = movzx.load.u8.gpr32 %input {disp32 = 4}
-  mov.store.u8.gpr32 %26, %output {disp32 = 1}
-  mov.store.u8.gpr32 %27, %output {disp32 = 2}
-  mov.store.u8.gpr32 %28, %output {disp32 = 3}
-  mov.store.u8.gpr32 %29, %output {disp32 = 4}
+  %12 = movzx.load.u16.gpr32 %input {disp32 = 1}
+  %e4m3 = vmovd.xmm.gpr32 %12
+  %14 = movzx.load.u16.gpr32 %input {disp32 = 3}
+  %e5m2 = vmovd.xmm.gpr32 %14
+  %16 = vmovd.gpr32.xmm %e4m3
+  mov.store.u16.gpr32 %16, %output {disp32 = 1}
+  %17 = vmovd.gpr32.xmm %e5m2
+  mov.store.u16.gpr32 %17, %output {disp32 = 3}
   return
 }
 

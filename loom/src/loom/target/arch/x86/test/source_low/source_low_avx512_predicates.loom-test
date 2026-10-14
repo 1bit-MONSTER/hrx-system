@@ -195,3 +195,56 @@ low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({s
   %result = vpblendvb.xmm %false_value, %true_value, %condition
   return %result
 }
+
+// ====
+
+// Predicate conversions cross the callable SIMD, native K, and ZMM
+// representations without expanding through scalar lanes.
+x86.target<avx512> @target
+
+func.def target(@target) @extend_predicate_to_zmm(%predicate: vector<8xi1>) -> (vector<8xi64>, vector<8xi64>) {
+  %signed = vector.extsi %predicate : vector<8xi1> to vector<8xi64>
+  %unsigned = vector.extui %predicate : vector<8xi1> to vector<8xi64>
+  func.return %signed, %unsigned : vector<8xi64>, vector<8xi64>
+}
+
+func.def target(@target) @truncate_zmm_to_predicate(%input: vector<8xi64>) -> (vector<8xi1>) {
+  %predicate = vector.trunci %input : vector<8xi64> to vector<8xi1>
+  func.return %predicate : vector<8xi1>
+}
+
+// ----
+low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = (vector<8xi1>) -> (vector<8xi64>, vector<8xi64>)}) @extend_predicate_to_zmm(%predicate: reg<x86.xmm>) -> (reg<x86.zmm>, reg<x86.zmm>) asm {
+  %signed = avx512.vpmovsxwq.zmm.xmm %predicate
+  %unsigned = avx512.vpsrlq.zmm %signed, 63
+  return %signed, %unsigned
+}
+
+low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = (vector<8xi64>) -> (vector<8xi1>)}) @truncate_zmm_to_predicate(%input: reg<x86.zmm>) -> (reg<x86.xmm>) asm {
+  %16 = avx512.vpsllq.zmm %input, 63
+  %17 = avx512.vpmovq2m.k.zmm %16
+  %predicate = avx512.vpmovm2w.xmm.k %17
+  return %predicate
+}
+
+// ====
+
+// A predicate internal to the function stays in K form across truncation and
+// signed extension; unsigned extension normalizes the same native mask.
+x86.target<avx512> @target
+
+func.def target(@target) @roundtrip_predicate16(%input: vector<16xi32>) -> (vector<16xi32>, vector<16xi32>) {
+  %predicate = vector.trunci %input : vector<16xi32> to vector<16xi1>
+  %signed = vector.extsi %predicate : vector<16xi1> to vector<16xi32>
+  %unsigned = vector.extui %predicate : vector<16xi1> to vector<16xi32>
+  func.return %signed, %unsigned : vector<16xi32>, vector<16xi32>
+}
+
+// ----
+low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = (vector<16xi32>) -> (vector<16xi32>, vector<16xi32>)}) @roundtrip_predicate16(%input: reg<x86.zmm>) -> (reg<x86.zmm>, reg<x86.zmm>) asm {
+  %9 = avx512.vpslld.zmm %input, 31
+  %predicate = avx512.vpmovd2m.k.zmm %9
+  %signed = avx512.vpmovm2d.zmm.k %predicate
+  %unsigned = avx512.vpsrld.zmm %signed, 31
+  return %signed, %unsigned
+}

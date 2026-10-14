@@ -682,17 +682,22 @@ def x86_view_carrier_rules(
     )
 
 
-def _scalar_memory_family_rules(
+def _gpr_memory_family_rules(
     descriptor_lookup: _DescriptorLookup,
     *,
+    load_op: Op,
+    store_op: Op,
     value_type: TypePattern,
     element_byte_count: int,
+    lane_count: int,
     register_suffix: str,
     load_mnemonic: str,
     diagnostic: GuardDiagnostic,
     transport: _MemoryValueTransport | None = None,
     priority: int = 0,
 ) -> tuple[DescriptorRule, ...]:
+    """Builds one logical memory family through scalar GPR transfers."""
+
     rules: list[DescriptorRule] = []
     # Both static transfers precede the dynamic load and store groups. Within
     # each dynamic group, native addressing precedes byte-offset materialization.
@@ -701,8 +706,8 @@ def _scalar_memory_family_rules(
         tuple(addressing for addressing in _MemoryAddressing if addressing.is_dynamic),
     )
     operations = (
-        (view.view_load, SourceMemoryOperation.LOAD, load_mnemonic),
-        (view.view_store, SourceMemoryOperation.STORE, "mov"),
+        (load_op, SourceMemoryOperation.LOAD, load_mnemonic),
+        (store_op, SourceMemoryOperation.STORE, "mov"),
     )
     for addressings in addressing_groups:
         for source_op, operation, mnemonic in operations:
@@ -712,7 +717,7 @@ def _scalar_memory_family_rules(
                     operation,
                     value_type,
                     element_byte_count=element_byte_count,
-                    lane_count=1,
+                    lane_count=lane_count,
                     addressing=addressing,
                     descriptor_key=_memory_descriptor_key(
                         f"x86.scalar.{mnemonic}",
@@ -734,7 +739,7 @@ def _scalar_memory_family_rules(
                 operation,
                 value_type,
                 element_byte_count=element_byte_count,
-                lane_count=1,
+                lane_count=lane_count,
                 descriptor_key=_memory_descriptor_key(
                     f"x86.scalar.{mnemonic}",
                     operation,
@@ -765,10 +770,13 @@ def x86_scalar_memory_rules(
             (Scalar(_BYTE_STORAGE_TYPES), 1, "u8.gpr32", "movzx"),
             (Scalar(_WORD_STORAGE_TYPES), 2, "u16.gpr32", "movzx"),
         )
-        for rule in _scalar_memory_family_rules(
+        for rule in _gpr_memory_family_rules(
             descriptor_lookup,
+            load_op=view.view_load,
+            store_op=view.view_store,
             value_type=value_type,
             element_byte_count=element_byte_count,
+            lane_count=1,
             register_suffix=register_suffix,
             load_mnemonic=load_mnemonic,
             diagnostic=diagnostic,
@@ -785,10 +793,13 @@ def x86_scalar_xmm_word_memory_rules(
 ) -> tuple[DescriptorRule, ...]:
     """Transfers a 16-bit scalar through memory and an XMM source carrier."""
 
-    return _scalar_memory_family_rules(
+    return _gpr_memory_family_rules(
         descriptor_lookup,
+        load_op=view.view_load,
+        store_op=view.view_store,
         value_type=value_type,
         element_byte_count=2,
+        lane_count=1,
         register_suffix="u16.gpr32",
         load_mnemonic="movzx",
         diagnostic=diagnostic,
@@ -896,17 +907,41 @@ def x86_low_xmm_vector_memory_rules(
     diagnostic: GuardDiagnostic,
     priority: int = 0,
 ) -> tuple[DescriptorRule, ...]:
-    """Transfers one 64-bit logical vector through the low half of XMM."""
+    """Transfers one subregister logical vector through the low bits of XMM."""
 
-    if element_byte_count * lane_count != 8:
-        raise ValueError("low-XMM source memory requires an eight-byte payload")
+    payload_byte_count = element_byte_count * lane_count
+    if payload_byte_count not in (1, 2, 4, 8):
+        raise ValueError(
+            "low-XMM source memory requires a one-, two-, four-, or eight-byte payload"
+        )
+    if payload_byte_count <= 2:
+        memory_type = Scalar(f"i{payload_byte_count * 8}")
+        return _gpr_memory_family_rules(
+            descriptor_lookup,
+            load_op=vector.vector_load,
+            store_op=vector.vector_store,
+            value_type=value_type,
+            element_byte_count=element_byte_count,
+            lane_count=lane_count,
+            register_suffix=f"u{payload_byte_count * 8}.gpr32",
+            load_mnemonic="movzx",
+            diagnostic=diagnostic,
+            transport=_MemoryValueTransport(
+                memory_type=memory_type,
+                load=descriptor_lookup("x86.avx2.vmovd.xmm.gpr32"),
+                store=descriptor_lookup("x86.avx2.vmovd.gpr32.xmm"),
+            ),
+            priority=priority,
+        )
     return _direct_memory_type_rules(
         descriptor_lookup,
         operations=(
             (vector.vector_load, SourceMemoryOperation.LOAD),
             (vector.vector_store, SourceMemoryOperation.STORE),
         ),
-        descriptor_key_prefix="x86.avx2.vmovsd",
+        descriptor_key_prefix=(
+            "x86.avx2.vmovss" if payload_byte_count == 4 else "x86.avx2.vmovsd"
+        ),
         register_suffix="xmm",
         value_type=value_type,
         element_byte_count=element_byte_count,
@@ -999,27 +1034,30 @@ def x86_vector_memory_rules(
     vector_bit_widths: Sequence[int],
     diagnostic: GuardDiagnostic,
 ) -> tuple[DescriptorRule, ...]:
-    """Builds exact source-memory rules for x86 vector-carrier transfers."""
+    """Builds exact source-memory rules for x86 vector carriers."""
 
     rules: list[DescriptorRule] = []
     for vector_bit_width in vector_bit_widths:
-        if vector_bit_width == 64:
-            register_suffix = "xmm"
-            memory_descriptor_prefix = "x86.avx2.vmovsd"
-        else:
-            register_suffix = {128: "xmm", 256: "ymm", 512: "zmm"}.get(vector_bit_width)
-            memory_descriptor_prefix = f"{descriptor_key_prefix}.vmovdqu32"
-        if register_suffix is None:
+        register_suffix = {128: "xmm", 256: "ymm", 512: "zmm"}.get(vector_bit_width)
+        if register_suffix is None and vector_bit_width not in (8, 16, 32, 64):
             raise ValueError(f"unsupported x86 memory vector width {vector_bit_width}")
         for element_types, element_byte_count in _STORAGE_FORMATS:
             vector_byte_width = vector_bit_width // 8
             if vector_byte_width % element_byte_count != 0:
-                raise ValueError(
-                    f"x86 vector width {vector_bit_width} cannot store "
-                    f"{element_byte_count}-byte elements"
-                )
+                continue
             lane_count = vector_byte_width // element_byte_count
             value_type = Vector(element_types, lanes=lane_count)
+            if vector_bit_width < 128:
+                rules.extend(
+                    x86_low_xmm_vector_memory_rules(
+                        descriptor_lookup,
+                        value_type=value_type,
+                        element_byte_count=element_byte_count,
+                        lane_count=lane_count,
+                        diagnostic=diagnostic,
+                    )
+                )
+                continue
             rules.extend(
                 _direct_memory_type_rules(
                     descriptor_lookup,
@@ -1027,7 +1065,7 @@ def x86_vector_memory_rules(
                         (vector.vector_load, SourceMemoryOperation.LOAD),
                         (vector.vector_store, SourceMemoryOperation.STORE),
                     ),
-                    descriptor_key_prefix=memory_descriptor_prefix,
+                    descriptor_key_prefix=f"{descriptor_key_prefix}.vmovdqu32",
                     register_suffix=register_suffix,
                     value_type=value_type,
                     element_byte_count=element_byte_count,

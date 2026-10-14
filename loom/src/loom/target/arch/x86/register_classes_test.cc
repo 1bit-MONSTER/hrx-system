@@ -344,12 +344,11 @@ TEST(X86RegisterClassesTest, SparseCompositeViewUsesSharedStorageOrdinals) {
 
 TEST(X86RegisterClassesTest, VectorWidthProjection) {
   loom_x86_register_class_t register_class = LOOM_X86_REGISTER_CLASS_GPR32;
-  EXPECT_TRUE(
-      loom_x86_register_class_for_vector_bit_width(64, &register_class));
-  EXPECT_EQ(register_class, LOOM_X86_REGISTER_CLASS_XMM);
-  EXPECT_TRUE(
-      loom_x86_register_class_for_vector_bit_width(128, &register_class));
-  EXPECT_EQ(register_class, LOOM_X86_REGISTER_CLASS_XMM);
+  for (uint32_t vector_bit_width : {8u, 16u, 32u, 64u, 128u}) {
+    EXPECT_TRUE(loom_x86_register_class_for_vector_bit_width(vector_bit_width,
+                                                             &register_class));
+    EXPECT_EQ(register_class, LOOM_X86_REGISTER_CLASS_XMM);
+  }
   EXPECT_TRUE(
       loom_x86_register_class_for_vector_bit_width(256, &register_class));
   EXPECT_EQ(register_class, LOOM_X86_REGISTER_CLASS_YMM);
@@ -357,7 +356,7 @@ TEST(X86RegisterClassesTest, VectorWidthProjection) {
       loom_x86_register_class_for_vector_bit_width(512, &register_class));
   EXPECT_EQ(register_class, LOOM_X86_REGISTER_CLASS_ZMM);
   EXPECT_FALSE(
-      loom_x86_register_class_for_vector_bit_width(32, &register_class));
+      loom_x86_register_class_for_vector_bit_width(24, &register_class));
   EXPECT_EQ(register_class, LOOM_X86_REGISTER_CLASS_GPR32);
 }
 
