@@ -74,7 +74,12 @@ typedef struct loomc_spirv_iree_hal_target_options_t {
   /// Optional physical-device set the selected profile must fully cover.
   iree_hal_physical_device_affinity_t physical_device_affinity;
 
-  /// Optional caller-selected SPIR-V profile the device must load exactly.
+  /// Optional caller-selected SPIR-V profile. Selection checks its enabled
+  /// features, resource limits, fixed subgroup size, and cooperative operation
+  /// rows against the device, retaining this exact profile on success. Device
+  /// features are never added implicitly. Unknown or false optional features
+  /// do not require their absence on the device. Ordinary source entry-ABI and
+  /// executable-loader validation still applies to compiled artifacts.
   loomc_target_profile_t* target_profile;
 } loomc_spirv_iree_hal_target_options_t;
 

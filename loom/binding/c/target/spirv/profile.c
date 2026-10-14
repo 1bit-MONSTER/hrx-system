@@ -15,7 +15,6 @@
 #include "loom/target/arch/spirv/profile.h"
 #include "loom/target/arch/spirv/records/target_records.h"
 #include "loomc/iree.h"
-#include "profile_match.h"
 #include "profile_rows.h"
 #include "result.h"
 #include "target.h"
@@ -133,7 +132,7 @@ static uint64_t loomc_spirv_profile_limit_maximum_value(
   switch (limit) {
     case LOOMC_SPIRV_LIMIT_MAX_FLAT_GRID_SIZE:
     case LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_STORAGE_BYTES:
-      return UINT64_MAX;
+      return INT64_MAX;
     case LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SIZE_X:
     case LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SIZE_Y:
     case LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SIZE_Z:
@@ -157,7 +156,7 @@ static const char* loomc_spirv_profile_limit_range_name(
   switch (limit) {
     case LOOMC_SPIRV_LIMIT_MAX_FLAT_GRID_SIZE:
     case LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_STORAGE_BYTES:
-      return "uint64_t";
+      return "non-negative int64_t";
     case LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SIZE_X:
     case LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SIZE_Y:
     case LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SIZE_Z:
@@ -962,41 +961,6 @@ loomc_spirv_profile_query_rows(
     temporary->prepared_properties = &temporary->cooperative_properties;
   }
   return temporary;
-}
-
-loomc_status_t loomc_spirv_target_profile_match_selector(
-    const loomc_target_profile_t* profile, loomc_string_view_t selector,
-    bool* out_is_spirv, bool* out_matches) {
-  if (out_is_spirv == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "out_is_spirv must not be NULL");
-  }
-  *out_is_spirv = false;
-  if (out_matches != NULL) {
-    *out_matches = false;
-  }
-  if (profile == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "profile must not be NULL");
-  }
-  const loom_spirv_target_profile_t* native_profile =
-      loom_spirv_target_profile_cast(
-          loomc_target_profile_loom_target_profile(profile));
-  if (native_profile == NULL) {
-    return loomc_ok_status();
-  }
-  *out_is_spirv = true;
-  if (out_matches == NULL) {
-    return loomc_ok_status();
-  }
-  const loom_spirv_target_profile_t* named_profile = NULL;
-  LOOMC_RETURN_IF_ERROR(loomc_status_from_iree(loom_spirv_target_profile_select(
-      iree_string_view_from_loomc(selector), &named_profile)));
-  *out_matches =
-      native_profile->base.target_bundle == named_profile->base.target_bundle &&
-      native_profile->cooperative_properties ==
-          named_profile->cooperative_properties;
-  return loomc_ok_status();
 }
 
 static loomc_string_view_t loomc_spirv_profile_refined_identifier(

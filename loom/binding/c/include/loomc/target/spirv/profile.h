@@ -293,6 +293,7 @@ typedef enum loomc_spirv_limit_e {
   LOOMC_SPIRV_LIMIT_MAX_FLAT_WORKGROUP_SIZE = 4,
 
   /// Maximum bytes reserved in SPIR-V Workgroup storage by one entry point.
+  /// Known values must fit the IR's non-negative int64_t attribute range.
   LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_STORAGE_BYTES = 5,
 
   /// Fixed target-wide subgroup size in invocations.
@@ -317,6 +318,7 @@ typedef enum loomc_spirv_limit_e {
   LOOMC_SPIRV_LIMIT_MAX_GRID_SIZE_Z = 12,
 
   /// Maximum product of dispatched grid dimensions, in workitems.
+  /// Known values must fit the IR's non-negative int64_t attribute range.
   LOOMC_SPIRV_LIMIT_MAX_FLAT_GRID_SIZE = 13,
 
   /// Number of public SPIR-V limit identifiers.

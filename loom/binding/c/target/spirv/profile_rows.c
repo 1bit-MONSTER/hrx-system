@@ -386,7 +386,7 @@ static loomc_status_t loomc_spirv_rows_component_type_to_loom(
                            "SPIR-V component type is invalid");
 }
 
-static void loomc_spirv_rows_matrix_row_from_loom(
+void loomc_spirv_cooperative_matrix_row_from_loom(
     const loom_spirv_cooperative_matrix_property_t* property,
     loomc_spirv_cooperative_matrix_row_t* out_row) {
   *out_row = (loomc_spirv_cooperative_matrix_row_t){
@@ -442,21 +442,6 @@ static void loomc_spirv_rows_vector_row_from_loom(
           (loomc_spirv_storage_class_flags_t)property->storage_class_flags,
       .flags = (loomc_spirv_cooperative_vector_flags_t)property->flags,
   };
-}
-
-loomc_host_size_t loomc_spirv_model_cooperative_matrix_row_count(void) {
-  iree_host_size_t row_count = 0;
-  loom_spirv_cooperative_matrix_model_properties(&row_count);
-  return row_count;
-}
-
-void loomc_spirv_model_cooperative_matrix_row_at(
-    loomc_host_size_t index, loomc_spirv_cooperative_matrix_row_t* out_row) {
-  iree_host_size_t row_count = 0;
-  const loom_spirv_cooperative_matrix_property_t* rows =
-      loom_spirv_cooperative_matrix_model_properties(&row_count);
-  IREE_ASSERT(index < row_count);
-  loomc_spirv_rows_matrix_row_from_loom(&rows[index], out_row);
 }
 
 static loomc_status_t loomc_spirv_rows_matrix_row_to_loom(
@@ -1027,7 +1012,7 @@ static loomc_status_t loomc_spirv_rows_matrix_property_matches_row(
     const loom_spirv_cooperative_matrix_property_t* property,
     const loomc_spirv_cooperative_matrix_row_t* row, bool* out_matches) {
   loomc_spirv_cooperative_matrix_row_t property_row = {0};
-  loomc_spirv_rows_matrix_row_from_loom(property, &property_row);
+  loomc_spirv_cooperative_matrix_row_from_loom(property, &property_row);
   *out_matches = loomc_spirv_rows_matrix_row_keys_equal(&property_row, row);
   return loomc_ok_status();
 }
@@ -1355,7 +1340,7 @@ loomc_status_t loomc_spirv_cooperative_row_fact_set_matrix_row_at(
   if (index < cooperative_properties->matrix_property_count) {
     const loom_spirv_cooperative_matrix_property_t* property =
         &cooperative_properties->matrix_properties[index];
-    loomc_spirv_rows_matrix_row_from_loom(property, out_row);
+    loomc_spirv_cooperative_matrix_row_from_loom(property, out_row);
     const loomc_spirv_cooperative_matrix_row_t* explicit_row = NULL;
     LOOMC_RETURN_IF_ERROR(loomc_spirv_rows_explicit_matrix_row_for_property(
         row_facts, property, LOOMC_TARGET_FACT_STATE_TRUE, &explicit_row));

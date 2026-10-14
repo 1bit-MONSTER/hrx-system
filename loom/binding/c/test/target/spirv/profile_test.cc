@@ -1827,6 +1827,44 @@ TEST(TargetSpirvProfileTest, ReportsOutOfRangeLimitValuesAsResult) {
               ::testing::HasSubstr("probe:too-large"));
 }
 
+TEST(TargetSpirvProfileTest, NumericLimitRangesMatchIRRepresentation) {
+  auto environment = CreateSpirvTargetEnvironment();
+  for (int i = 1; i < LOOMC_SPIRV_LIMIT_COUNT; ++i) {
+    const auto limit = static_cast<loomc_spirv_limit_t>(i);
+    SCOPED_TRACE(limit);
+    const uint64_t maximum =
+        limit == LOOMC_SPIRV_LIMIT_MAX_FLAT_GRID_SIZE ||
+                limit == LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_STORAGE_BYTES
+            ? static_cast<uint64_t>(INT64_MAX)
+            : UINT32_MAX;
+    loomc_spirv_limit_fact_t fact = {
+        .limit = limit,
+        .state = LOOMC_TARGET_FACT_STATE_TRUE,
+        .value = maximum,
+    };
+    const loomc_spirv_profile_options_t options = {
+        .preset = LOOMC_SPIRV_PROFILE_PRESET_VULKAN_1_3_BDA,
+        .limit_facts = &fact,
+        .limit_fact_count = 1,
+    };
+    auto valid = CreateSpirvProfile(environment.get(), &options);
+    ASSERT_NE(valid.get(), nullptr);
+    ExpectLimitValue(valid.get(), limit, LOOMC_TARGET_FACT_STATE_TRUE, maximum);
+    ++fact.value;
+    loomc_target_profile_t* profile = nullptr;
+    loomc_result_t* result = nullptr;
+    LOOMC_ASSERT_OK(loomc_target_profile_create_spirv(
+        environment.get(), &options, loomc_allocator_system(), &profile,
+        &result));
+    TargetProfilePtr profile_ptr(profile);
+    ResultPtr result_ptr(result);
+    EXPECT_EQ(profile, nullptr);
+    ExpectFailedResult(result);
+    EXPECT_THAT(ToString(loomc_result_diagnostic_at(result, 0)->message),
+                ::testing::HasSubstr("range"));
+  }
+}
+
 TEST(TargetSpirvProfileTest, ReportsEnvironmentVersionTooLowAsResult) {
   TargetEnvironmentPtr target_environment = CreateSpirvTargetEnvironment();
   loomc_spirv_environment_fact_t environment[] = {

@@ -6,13 +6,16 @@
 
 #include "loomc/target/spirv/iree_hal.h"
 
+#include <inttypes.h>
 #include <stdint.h>
 
 #include "diagnostic.h"
 #include "iree/hal/drivers/vulkan/device_spec.h"
-#include "loom/binding/c/target/spirv/profile_match.h"
-#include "loom/binding/c/target/spirv/profile_rows.h"
+#include "loom/target/arch/spirv/cooperative_properties.h"
+#include "loom/target/arch/spirv/features.h"
+#include "loom/target/arch/spirv/profile.h"
 #include "loomc/iree.h"
+#include "profile_rows.h"
 #include "result.h"
 #include "target.h"
 
@@ -21,8 +24,6 @@
    ((uint32_t)(patch)))
 
 enum {
-  LOOMC_SPIRV_IREE_HAL_LIMIT_FACT_CAPACITY = 16,
-  LOOMC_SPIRV_IREE_HAL_ENVIRONMENT_FACT_CAPACITY = 4,
   LOOMC_SPIRV_IREE_HAL_VULKAN_COMPONENT_TYPE_BFLOAT16_KHR = 1000141000,
   LOOMC_SPIRV_IREE_HAL_VULKAN_SUBGROUP_FEATURE_BALLOT_BIT = 0x00000008,
   // PCI-SIG vendor identifier reported by AMD Vulkan physical devices.
@@ -224,25 +225,15 @@ static const loomc_spirv_iree_hal_feature_row_t
 #undef LOOMC_SPIRV_IREE_HAL_GENERAL_FEATURE_ROW
 
 typedef struct loomc_spirv_iree_hal_profile_facts_t {
-  // Feature facts normalized from HAL device queries.
+  // Feature facts indexed by public feature ID; unobserved slots stay unknown.
   loomc_spirv_feature_fact_t feature_facts[LOOMC_SPIRV_FEATURE_COUNT];
 
-  // Number of entries in feature_facts.
-  loomc_host_size_t feature_fact_count;
+  // Numeric limits indexed by public limit ID.
+  loomc_spirv_limit_fact_t limit_facts[LOOMC_SPIRV_LIMIT_COUNT];
 
-  // Numeric limit facts normalized from HAL device queries.
-  loomc_spirv_limit_fact_t
-      limit_facts[LOOMC_SPIRV_IREE_HAL_LIMIT_FACT_CAPACITY];
-
-  // Number of entries in limit_facts.
-  loomc_host_size_t limit_fact_count;
-
-  // Environment facts normalized from HAL device queries.
+  // Environment facts indexed by public environment ID.
   loomc_spirv_environment_fact_t
-      environment_facts[LOOMC_SPIRV_IREE_HAL_ENVIRONMENT_FACT_CAPACITY];
-
-  // Number of entries in environment_facts.
-  loomc_host_size_t environment_fact_count;
+      environment_facts[LOOMC_SPIRV_ENVIRONMENT_COUNT];
 } loomc_spirv_iree_hal_profile_facts_t;
 
 static loomc_status_t loomc_spirv_iree_hal_validate_string_view(
@@ -286,67 +277,35 @@ static loomc_status_t loomc_spirv_iree_hal_validate_options(
   return loomc_ok_status();
 }
 
-static loomc_status_t loomc_spirv_iree_hal_add_feature_fact(
-    loomc_spirv_iree_hal_profile_facts_t* facts, loomc_spirv_feature_t feature,
-    loomc_target_fact_state_t state, loomc_string_view_t provenance) {
-  if (state == LOOMC_TARGET_FACT_STATE_UNKNOWN) {
-    return loomc_ok_status();
-  }
-  if (facts->feature_fact_count >= IREE_ARRAYSIZE(facts->feature_facts)) {
-    return loomc_make_status(LOOMC_STATUS_RESOURCE_EXHAUSTED,
-                             "too many SPIR-V IREE HAL feature facts");
-  }
-  facts->feature_facts[facts->feature_fact_count++] =
-      (loomc_spirv_feature_fact_t){
-          .feature = feature,
-          .state = state,
-          .provenance = provenance,
-      };
-  return loomc_ok_status();
-}
-
-static loomc_status_t loomc_spirv_iree_hal_add_bool_feature(
+static void loomc_spirv_iree_hal_set_bool_feature(
     loomc_spirv_iree_hal_profile_facts_t* facts, bool value,
     loomc_spirv_feature_t feature, loomc_string_view_t provenance) {
-  return loomc_spirv_iree_hal_add_feature_fact(
-      facts, feature,
-      value ? LOOMC_TARGET_FACT_STATE_TRUE : LOOMC_TARGET_FACT_STATE_FALSE,
-      provenance);
+  facts->feature_facts[feature].state =
+      value ? LOOMC_TARGET_FACT_STATE_TRUE : LOOMC_TARGET_FACT_STATE_FALSE;
+  facts->feature_facts[feature].provenance = provenance;
 }
 
-static loomc_status_t loomc_spirv_iree_hal_add_limit_fact(
+static void loomc_spirv_iree_hal_set_limit_fact(
     loomc_spirv_iree_hal_profile_facts_t* facts, loomc_spirv_limit_t limit,
     uint64_t value, loomc_string_view_t provenance) {
-  if (facts->limit_fact_count >= LOOMC_SPIRV_IREE_HAL_LIMIT_FACT_CAPACITY) {
-    return loomc_make_status(LOOMC_STATUS_RESOURCE_EXHAUSTED,
-                             "too many SPIR-V IREE HAL limit facts");
-  }
-  facts->limit_facts[facts->limit_fact_count++] = (loomc_spirv_limit_fact_t){
+  facts->limit_facts[limit] = (loomc_spirv_limit_fact_t){
       .limit = limit,
       .state = LOOMC_TARGET_FACT_STATE_TRUE,
       .value = value,
       .provenance = provenance,
   };
-  return loomc_ok_status();
 }
 
-static loomc_status_t loomc_spirv_iree_hal_add_environment_fact(
+static void loomc_spirv_iree_hal_set_environment_fact(
     loomc_spirv_iree_hal_profile_facts_t* facts,
     loomc_spirv_environment_t environment, uint64_t value,
     loomc_string_view_t provenance) {
-  if (facts->environment_fact_count >=
-      LOOMC_SPIRV_IREE_HAL_ENVIRONMENT_FACT_CAPACITY) {
-    return loomc_make_status(LOOMC_STATUS_RESOURCE_EXHAUSTED,
-                             "too many SPIR-V IREE HAL environment facts");
-  }
-  facts->environment_facts[facts->environment_fact_count++] =
-      (loomc_spirv_environment_fact_t){
-          .environment = environment,
-          .state = LOOMC_TARGET_FACT_STATE_TRUE,
-          .value = value,
-          .provenance = provenance,
-      };
-  return loomc_ok_status();
+  facts->environment_facts[environment] = (loomc_spirv_environment_fact_t){
+      .environment = environment,
+      .state = LOOMC_TARGET_FACT_STATE_TRUE,
+      .value = value,
+      .provenance = provenance,
+  };
 }
 
 static loomc_status_t loomc_spirv_iree_hal_fail_status(loomc_result_t* result,
@@ -379,40 +338,40 @@ static bool loomc_spirv_iree_hal_vulkan_feature_enabled(
 }
 
 static uint32_t loomc_spirv_iree_hal_scalar_component_type(
-    loomc_spirv_scalar_type_t scalar_type) {
+    loom_spirv_scalar_type_t scalar_type) {
   switch (scalar_type) {
-    case LOOMC_SPIRV_SCALAR_TYPE_F16:
+    case LOOM_SPIRV_SCALAR_TYPE_F16:
       return LOOMC_SPIRV_COMPONENT_TYPE_FLOAT16_NV;
-    case LOOMC_SPIRV_SCALAR_TYPE_F32:
+    case LOOM_SPIRV_SCALAR_TYPE_F32:
       return LOOMC_SPIRV_COMPONENT_TYPE_FLOAT32_NV;
-    case LOOMC_SPIRV_SCALAR_TYPE_F64:
+    case LOOM_SPIRV_SCALAR_TYPE_F64:
       return LOOMC_SPIRV_COMPONENT_TYPE_FLOAT64_NV;
-    case LOOMC_SPIRV_SCALAR_TYPE_S8:
+    case LOOM_SPIRV_SCALAR_TYPE_S8:
       return LOOMC_SPIRV_COMPONENT_TYPE_SIGNED_INT8_NV;
-    case LOOMC_SPIRV_SCALAR_TYPE_S16:
+    case LOOM_SPIRV_SCALAR_TYPE_S16:
       return LOOMC_SPIRV_COMPONENT_TYPE_SIGNED_INT16_NV;
-    case LOOMC_SPIRV_SCALAR_TYPE_S32:
+    case LOOM_SPIRV_SCALAR_TYPE_S32:
       return LOOMC_SPIRV_COMPONENT_TYPE_SIGNED_INT32_NV;
-    case LOOMC_SPIRV_SCALAR_TYPE_S64:
+    case LOOM_SPIRV_SCALAR_TYPE_S64:
       return LOOMC_SPIRV_COMPONENT_TYPE_SIGNED_INT64_NV;
-    case LOOMC_SPIRV_SCALAR_TYPE_U8:
+    case LOOM_SPIRV_SCALAR_TYPE_U8:
       return LOOMC_SPIRV_COMPONENT_TYPE_UNSIGNED_INT8_NV;
-    case LOOMC_SPIRV_SCALAR_TYPE_U16:
+    case LOOM_SPIRV_SCALAR_TYPE_U16:
       return LOOMC_SPIRV_COMPONENT_TYPE_UNSIGNED_INT16_NV;
-    case LOOMC_SPIRV_SCALAR_TYPE_U32:
+    case LOOM_SPIRV_SCALAR_TYPE_U32:
       return LOOMC_SPIRV_COMPONENT_TYPE_UNSIGNED_INT32_NV;
-    case LOOMC_SPIRV_SCALAR_TYPE_U64:
+    case LOOM_SPIRV_SCALAR_TYPE_U64:
       return LOOMC_SPIRV_COMPONENT_TYPE_UNSIGNED_INT64_NV;
-    case LOOMC_SPIRV_SCALAR_TYPE_BF16:
+    case LOOM_SPIRV_SCALAR_TYPE_BF16:
       return LOOMC_SPIRV_IREE_HAL_VULKAN_COMPONENT_TYPE_BFLOAT16_KHR;
-    case LOOMC_SPIRV_SCALAR_TYPE_UNKNOWN:
+    case LOOM_SPIRV_SCALAR_TYPE_UNKNOWN:
       break;
   }
   IREE_CHECK_UNREACHABLE("validated cooperative matrix scalar type");
 }
 
 static bool loomc_spirv_iree_hal_matrix_row_is_supported(
-    const loomc_spirv_cooperative_matrix_row_t* row,
+    const loom_spirv_cooperative_matrix_property_t* row,
     const iree_hal_vulkan_device_spec_t* vulkan_spec) {
   const iree_hal_vulkan_cooperative_matrix_property_t requirement = {
       .m_size = row->m_size,
@@ -426,7 +385,7 @@ static bool loomc_spirv_iree_hal_matrix_row_is_supported(
           loomc_spirv_iree_hal_scalar_component_type(row->result_type),
       .saturating_accumulation = iree_any_bit_set(
           row->operand_flags,
-          LOOMC_SPIRV_COOPERATIVE_MATRIX_OPERAND_SATURATING_ACCUMULATION),
+          LOOM_SPIRV_COOPERATIVE_MATRIX_OPERAND_SATURATING_ACCUMULATION),
       .scope = (uint32_t)row->scope,
   };
   return iree_hal_vulkan_device_spec_supports_cooperative_matrix(vulkan_spec,
@@ -440,18 +399,20 @@ static loomc_status_t loomc_spirv_iree_hal_collect_unavailable_matrix_rows(
     loomc_host_size_t* out_row_count) {
   *out_rows = NULL;
   *out_row_count = 0;
-  const loomc_host_size_t model_row_count =
-      loomc_spirv_model_cooperative_matrix_row_count();
+  iree_host_size_t model_row_count = 0;
+  const loom_spirv_cooperative_matrix_property_t* model_rows =
+      loom_spirv_cooperative_matrix_model_properties(&model_row_count);
   loomc_spirv_cooperative_matrix_row_t* rows = NULL;
   loomc_host_size_t row_count = 0;
   loomc_status_t status = loomc_ok_status();
   for (loomc_host_size_t i = 0;
        i < model_row_count && loomc_status_is_ok(status); ++i) {
-    loomc_spirv_cooperative_matrix_row_t row = {0};
-    loomc_spirv_model_cooperative_matrix_row_at(i, &row);
-    if (loomc_spirv_iree_hal_matrix_row_is_supported(&row, vulkan_spec)) {
+    if (loomc_spirv_iree_hal_matrix_row_is_supported(&model_rows[i],
+                                                     vulkan_spec)) {
       continue;
     }
+    loomc_spirv_cooperative_matrix_row_t row;
+    loomc_spirv_cooperative_matrix_row_from_loom(&model_rows[i], &row);
     row.state = LOOMC_TARGET_FACT_STATE_FALSE;
     row.provenance = loomc_make_cstring_view(
         "iree-hal:vulkan.device.cooperative_matrix_properties");
@@ -529,6 +490,15 @@ static loomc_status_t loomc_spirv_iree_hal_query_facts(
     iree_hal_vulkan_device_spec_t* out_vulkan_spec, loomc_result_t* result,
     const iree_hal_executable_target_t** out_executable_target) {
   *out_facts = (loomc_spirv_iree_hal_profile_facts_t){0};
+  for (uint32_t i = 1; i < LOOMC_SPIRV_FEATURE_COUNT; ++i) {
+    out_facts->feature_facts[i].feature = (loomc_spirv_feature_t)i;
+  }
+  for (uint32_t i = 1; i < LOOMC_SPIRV_LIMIT_COUNT; ++i) {
+    out_facts->limit_facts[i].limit = (loomc_spirv_limit_t)i;
+  }
+  for (uint32_t i = 1; i < LOOMC_SPIRV_ENVIRONMENT_COUNT; ++i) {
+    out_facts->environment_facts[i].environment = (loomc_spirv_environment_t)i;
+  }
   *out_vulkan_spec = (iree_hal_vulkan_device_spec_t){0};
   *out_executable_target = NULL;
   const iree_hal_device_spec_t* device_spec =
@@ -604,77 +574,104 @@ static loomc_status_t loomc_spirv_iree_hal_query_facts(
 
   const loomc_string_view_t api_provenance =
       loomc_make_cstring_view("iree-hal:vulkan.device.api_version");
-  LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_add_bool_feature(
-      out_facts, true, LOOMC_SPIRV_FEATURE_VULKAN_SHADER, api_provenance));
-  LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_add_bool_feature(
-      out_facts, true, LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM, api_provenance));
-  LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_add_bool_feature(
+  loomc_spirv_iree_hal_set_bool_feature(
+      out_facts, true, LOOMC_SPIRV_FEATURE_VULKAN_SHADER, api_provenance);
+  loomc_spirv_iree_hal_set_bool_feature(
+      out_facts, true, LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM, api_provenance);
+  loomc_spirv_iree_hal_set_bool_feature(
       out_facts,
       identity->vendor_id != LOOMC_SPIRV_IREE_HAL_VULKAN_AMD_VENDOR_ID,
       LOOMC_SPIRV_FEATURE_FLOAT64_TO_FLOAT16_CONVERSION,
-      loomc_make_cstring_view("iree-hal:identity.vendor_id")));
-  LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_add_environment_fact(
+      loomc_make_cstring_view("iree-hal:identity.vendor_id"));
+  loomc_spirv_iree_hal_set_environment_fact(
       out_facts, LOOMC_SPIRV_ENVIRONMENT_MAX_SPIRV_VERSION,
       loomc_spirv_max_version_from_vulkan_api_version(
           loomc_spirv_iree_hal_vulkan_api_version_major(
               vulkan_spec.api_version),
           loomc_spirv_iree_hal_vulkan_api_version_minor(
               vulkan_spec.api_version)),
-      api_provenance));
+      api_provenance);
 
-  LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_add_bool_feature(
+  loomc_spirv_iree_hal_set_bool_feature(
       out_facts, buffer_device_address,
       LOOMC_SPIRV_FEATURE_PHYSICAL_STORAGE_BUFFER,
-      loomc_make_cstring_view(
-          "iree-hal:vulkan.feature.buffer_device_address")));
-  LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_add_bool_feature(
+      loomc_make_cstring_view("iree-hal:vulkan.feature.buffer_device_address"));
+  loomc_spirv_iree_hal_set_bool_feature(
       out_facts, shader_int64, LOOMC_SPIRV_FEATURE_INT64,
-      loomc_make_cstring_view("iree-hal:vulkan.feature.shader_int64")));
+      loomc_make_cstring_view("iree-hal:vulkan.feature.shader_int64"));
 
-  LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_add_limit_fact(
+  loomc_spirv_iree_hal_set_limit_fact(
       out_facts, LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE,
       dispatch->subgroup.default_size,
-      loomc_make_cstring_view("iree-hal:vulkan.device.subgroup_size")));
-  LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_add_limit_fact(
+      loomc_make_cstring_view("iree-hal:vulkan.device.subgroup_size"));
+  loomc_spirv_iree_hal_set_limit_fact(
       out_facts, LOOMC_SPIRV_LIMIT_MAX_FLAT_WORKGROUP_SIZE,
       dispatch->launch.maximum_workgroup_invocations,
       loomc_make_cstring_view(
-          "iree-hal:vulkan.device.max_compute_workgroup_invocations")));
-  LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_add_limit_fact(
+          "iree-hal:vulkan.device.max_compute_workgroup_invocations"));
+  loomc_spirv_iree_hal_set_limit_fact(
       out_facts, LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_STORAGE_BYTES,
-      dispatch->execution.maximum_workgroup_local_memory_size,
+      iree_min(dispatch->execution.maximum_workgroup_local_memory_size,
+               INT64_MAX),
       loomc_make_cstring_view(
-          "iree-hal:vulkan.device.max_compute_shared_memory_size")));
-  LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_add_limit_fact(
+          "iree-hal:vulkan.device.max_compute_shared_memory_size"));
+  loomc_spirv_iree_hal_set_limit_fact(
       out_facts, LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SIZE_X,
       dispatch->launch.maximum_workgroup_size[0],
       loomc_make_cstring_view(
-          "iree-hal:vulkan.device.max_compute_workgroup_size_x")));
-  LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_add_limit_fact(
+          "iree-hal:vulkan.device.max_compute_workgroup_size_x"));
+  loomc_spirv_iree_hal_set_limit_fact(
       out_facts, LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SIZE_Y,
       dispatch->launch.maximum_workgroup_size[1],
       loomc_make_cstring_view(
-          "iree-hal:vulkan.device.max_compute_workgroup_size_y")));
-  LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_add_limit_fact(
+          "iree-hal:vulkan.device.max_compute_workgroup_size_y"));
+  loomc_spirv_iree_hal_set_limit_fact(
       out_facts, LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SIZE_Z,
       dispatch->launch.maximum_workgroup_size[2],
       loomc_make_cstring_view(
-          "iree-hal:vulkan.device.max_compute_workgroup_size_z")));
-  LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_add_limit_fact(
+          "iree-hal:vulkan.device.max_compute_workgroup_size_z"));
+  loomc_spirv_iree_hal_set_limit_fact(
       out_facts, LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_COUNT_X,
       dispatch->launch.maximum_workgroup_count[0],
       loomc_make_cstring_view(
-          "iree-hal:vulkan.device.max_compute_workgroup_count_x")));
-  LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_add_limit_fact(
+          "iree-hal:vulkan.device.max_compute_workgroup_count_x"));
+  loomc_spirv_iree_hal_set_limit_fact(
       out_facts, LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_COUNT_Y,
       dispatch->launch.maximum_workgroup_count[1],
       loomc_make_cstring_view(
-          "iree-hal:vulkan.device.max_compute_workgroup_count_y")));
-  LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_add_limit_fact(
+          "iree-hal:vulkan.device.max_compute_workgroup_count_y"));
+  loomc_spirv_iree_hal_set_limit_fact(
       out_facts, LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_COUNT_Z,
       dispatch->launch.maximum_workgroup_count[2],
       loomc_make_cstring_view(
-          "iree-hal:vulkan.device.max_compute_workgroup_count_z")));
+          "iree-hal:vulkan.device.max_compute_workgroup_count_z"));
+
+  const loomc_spirv_limit_t grid_limits[] = {LOOMC_SPIRV_LIMIT_MAX_GRID_SIZE_X,
+                                             LOOMC_SPIRV_LIMIT_MAX_GRID_SIZE_Y,
+                                             LOOMC_SPIRV_LIMIT_MAX_GRID_SIZE_Z};
+  const char* grid_provenance[] = {"iree-hal:vulkan.device.max_grid_size_x",
+                                   "iree-hal:vulkan.device.max_grid_size_y",
+                                   "iree-hal:vulkan.device.max_grid_size_z"};
+  uint64_t flat_grid_size = dispatch->launch.maximum_workgroup_invocations;
+  for (uint32_t i = 0; i < 3; ++i) {
+    const uint32_t workgroup_size =
+        iree_min(dispatch->launch.maximum_workgroup_size[i],
+                 dispatch->launch.maximum_workgroup_invocations);
+    const uint32_t workgroup_count =
+        dispatch->launch.maximum_workgroup_count[i];
+    const uint64_t grid_size = (uint64_t)workgroup_size * workgroup_count;
+    loomc_spirv_iree_hal_set_limit_fact(
+        out_facts, grid_limits[i], iree_min(grid_size, UINT32_MAX),
+        loomc_make_cstring_view(grid_provenance[i]));
+    // Grid limits are upper bounds. Saturate at the compiler representation
+    // limit when the device admits more workitems than it can represent.
+    flat_grid_size = flat_grid_size > INT64_MAX / workgroup_count
+                         ? INT64_MAX
+                         : flat_grid_size * workgroup_count;
+  }
+  loomc_spirv_iree_hal_set_limit_fact(
+      out_facts, LOOMC_SPIRV_LIMIT_MAX_FLAT_GRID_SIZE, flat_grid_size,
+      loomc_make_cstring_view("iree-hal:vulkan.device.max_flat_grid_size"));
 
   for (iree_host_size_t i = 0;
        i < IREE_ARRAYSIZE(kLoomcSpirvIreeHalFeatureRows); ++i) {
@@ -688,20 +685,120 @@ static loomc_status_t loomc_spirv_iree_hal_query_facts(
         iree_all_bits_set(vulkan_spec.flags, row->required_device_flags) &&
         iree_all_bits_set(vulkan_spec.subgroup_supported_operations,
                           row->required_subgroup_operations);
-    LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_add_bool_feature(
+    loomc_spirv_iree_hal_set_bool_feature(
         out_facts, supported, row->feature,
-        loomc_make_cstring_view(row->provenance)));
+        loomc_make_cstring_view(row->provenance));
   }
   *out_vulkan_spec = vulkan_spec;
   return loomc_ok_status();
 }
 
-static loomc_status_t loomc_spirv_iree_hal_profile_is_loadable(
-    const loomc_target_profile_t* target_profile, bool* out_is_loadable) {
-  bool is_spirv = false;
-  return loomc_spirv_target_profile_match_selector(
-      target_profile, loomc_make_cstring_view("vulkan1.3+bda"), &is_spirv,
-      out_is_loadable);
+static loomc_status_t loomc_spirv_iree_hal_validate_profile_requirements(
+    const loomc_target_profile_t* target_profile,
+    const loomc_spirv_iree_hal_profile_facts_t* facts,
+    const iree_hal_vulkan_device_spec_t* vulkan_spec) {
+  const loom_spirv_target_profile_t* profile = loom_spirv_target_profile_cast(
+      loomc_target_profile_loom_target_profile(target_profile));
+  if (profile == NULL) {
+    return loomc_make_status(LOOMC_STATUS_UNAVAILABLE,
+                             "IREE HAL Vulkan requires a SPIR-V profile");
+  }
+
+  const loom_spirv_feature_bits_t feature_bits =
+      profile->base.target_bundle->config->contract_feature_bits;
+  uint32_t minimum_version = 0;
+  for (uint32_t i = 1; i < LOOMC_SPIRV_FEATURE_COUNT; ++i) {
+    const loom_spirv_feature_atom_t atom =
+        loomc_spirv_feature_atom_from_public((loomc_spirv_feature_t)i);
+    if (!iree_any_bit_set(feature_bits, loom_spirv_feature_atom_bit(atom))) {
+      continue;
+    }
+    const loom_spirv_feature_atom_descriptor_t* descriptor =
+        loom_spirv_feature_atom_descriptor(atom);
+    if (facts->feature_facts[i].state != LOOMC_TARGET_FACT_STATE_TRUE) {
+      return loomc_status_from_iree(iree_make_status(
+          IREE_STATUS_UNAVAILABLE,
+          "forced SPIR-V profile requires device feature '%.*s'",
+          (int)descriptor->name.size, descriptor->name.data));
+    }
+    minimum_version =
+        iree_max(minimum_version, descriptor->minimum_spirv_version);
+  }
+  const uint64_t maximum_version =
+      facts->environment_facts[LOOMC_SPIRV_ENVIRONMENT_MAX_SPIRV_VERSION].value;
+  if (minimum_version > maximum_version) {
+    return loomc_status_from_iree(
+        iree_make_status(IREE_STATUS_UNAVAILABLE,
+                         "forced SPIR-V profile requires version 0x%08" PRIx32
+                         ", but the device supports only 0x%08" PRIx64,
+                         minimum_version, maximum_version));
+  }
+
+  const loom_target_snapshot_t* snapshot =
+      profile->base.target_bundle->snapshot;
+  const uint64_t requirements[LOOMC_SPIRV_LIMIT_COUNT] = {
+      [LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SIZE_X] = snapshot->max_workgroup_size.x,
+      [LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SIZE_Y] = snapshot->max_workgroup_size.y,
+      [LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_SIZE_Z] = snapshot->max_workgroup_size.z,
+      [LOOMC_SPIRV_LIMIT_MAX_FLAT_WORKGROUP_SIZE] =
+          snapshot->max_flat_workgroup_size,
+      [LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_STORAGE_BYTES] =
+          snapshot->max_workgroup_storage_bytes,
+      [LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE] = snapshot->subgroup_size,
+      [LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_COUNT_X] =
+          snapshot->max_workgroup_count.x,
+      [LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_COUNT_Y] =
+          snapshot->max_workgroup_count.y,
+      [LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_COUNT_Z] =
+          snapshot->max_workgroup_count.z,
+      [LOOMC_SPIRV_LIMIT_MAX_GRID_SIZE_X] = snapshot->max_grid_size.x,
+      [LOOMC_SPIRV_LIMIT_MAX_GRID_SIZE_Y] = snapshot->max_grid_size.y,
+      [LOOMC_SPIRV_LIMIT_MAX_GRID_SIZE_Z] = snapshot->max_grid_size.z,
+      [LOOMC_SPIRV_LIMIT_MAX_FLAT_GRID_SIZE] = snapshot->max_flat_grid_size,
+  };
+  for (uint32_t i = 1; i < LOOMC_SPIRV_LIMIT_COUNT; ++i) {
+    const loomc_spirv_limit_fact_t* available = &facts->limit_facts[i];
+    const bool incompatible =
+        i == LOOMC_SPIRV_LIMIT_SUBGROUP_SIZE
+            ? requirements[i] != 0 && requirements[i] != available->value
+            : requirements[i] > available->value;
+    if (incompatible) {
+      return loomc_status_from_iree(
+          iree_make_status(IREE_STATUS_UNAVAILABLE,
+                           "forced SPIR-V profile limit %" PRIu64
+                           " is incompatible with '%.*s' = %" PRIu64,
+                           requirements[i], (int)available->provenance.size,
+                           available->provenance.data, available->value));
+    }
+  }
+
+  if (iree_any_bit_set(feature_bits,
+                       LOOM_SPIRV_FEATURE_COOPERATIVE_MATRIX_KHR)) {
+    const loom_spirv_cooperative_property_set_t* properties =
+        profile->cooperative_properties;
+    loom_spirv_cooperative_property_set_t modeled_properties;
+    if (properties == NULL) {
+      const loom_spirv_feature_set_t features = {.atom_bits = feature_bits};
+      loom_spirv_cooperative_property_set_prepare(&features,
+                                                  &modeled_properties);
+      properties = &modeled_properties;
+    }
+    for (uint16_t i = 0; i < properties->matrix_property_count; ++i) {
+      const loom_spirv_cooperative_matrix_property_t* property =
+          &properties->matrix_properties[i];
+      if (!iree_all_bits_set(feature_bits, property->required_feature_bits)) {
+        continue;
+      }
+      if (!loomc_spirv_iree_hal_matrix_row_is_supported(property,
+                                                        vulkan_spec)) {
+        return loomc_status_from_iree(iree_make_status(
+            IREE_STATUS_UNAVAILABLE,
+            "forced SPIR-V profile requires cooperative matrix row '%.*s'",
+            (int)property->name.size, property->name.data));
+      }
+    }
+  }
+  return loomc_ok_status();
 }
 
 loomc_status_t loomc_target_select_spirv_iree_hal(
@@ -740,16 +837,11 @@ loomc_status_t loomc_target_select_spirv_iree_hal(
   loomc_host_size_t matrix_row_count = 0;
   if (loomc_status_is_ok(status) && loomc_result_succeeded(result)) {
     if (options->target_profile != NULL) {
-      bool is_loadable = false;
-      status = loomc_spirv_iree_hal_profile_is_loadable(options->target_profile,
-                                                        &is_loadable);
-      if (loomc_status_is_ok(status) && !is_loadable) {
-        status = loomc_spirv_iree_hal_fail_status(
-            result, loomc_make_status(
-                        LOOMC_STATUS_UNAVAILABLE,
-                        "IREE HAL Vulkan device cannot load the forced SPIR-V "
-                        "profile"));
-      } else if (loomc_status_is_ok(status)) {
+      status = loomc_spirv_iree_hal_validate_profile_requirements(
+          options->target_profile, &facts, &vulkan_spec);
+      if (!loomc_status_is_ok(status)) {
+        status = loomc_spirv_iree_hal_fail_status(result, status);
+      } else {
         loomc_target_profile_retain(options->target_profile);
         target_profile = options->target_profile;
       }
@@ -770,12 +862,12 @@ loomc_status_t loomc_target_select_spirv_iree_hal(
           /*.next=*/NULL,
           /*.identifier=*/options->identifier,
           /*.preset=*/LOOMC_SPIRV_PROFILE_PRESET_VULKAN_1_3_BDA,
-          /*.feature_facts=*/facts.feature_facts,
-          /*.feature_fact_count=*/facts.feature_fact_count,
-          /*.limit_facts=*/facts.limit_facts,
-          /*.limit_fact_count=*/facts.limit_fact_count,
-          /*.environment_facts=*/facts.environment_facts,
-          /*.environment_fact_count=*/facts.environment_fact_count,
+          /*.feature_facts=*/facts.feature_facts + 1,
+          /*.feature_fact_count=*/LOOMC_SPIRV_FEATURE_COUNT - 1,
+          /*.limit_facts=*/facts.limit_facts + 1,
+          /*.limit_fact_count=*/LOOMC_SPIRV_LIMIT_COUNT - 1,
+          /*.environment_facts=*/facts.environment_facts + 1,
+          /*.environment_fact_count=*/LOOMC_SPIRV_ENVIRONMENT_COUNT - 1,
           /*.cooperative_matrix_rows=*/matrix_rows,
           /*.cooperative_matrix_row_count=*/matrix_row_count,
       };
@@ -833,9 +925,9 @@ static loomc_status_t loomc_spirv_iree_hal_provider_select_target(
   *out_selection = (loomc_iree_hal_target_selection_t){0};
   *out_result = NULL;
   if (options->target_profile != NULL) {
-    LOOMC_RETURN_IF_ERROR(loomc_spirv_target_profile_match_selector(
-        options->target_profile, loomc_make_cstring_view("vulkan1.3+bda"),
-        out_supported, NULL));
+    *out_supported =
+        loom_spirv_target_profile_cast(loomc_target_profile_loom_target_profile(
+            options->target_profile)) != NULL;
   } else {
     LOOMC_RETURN_IF_ERROR(loomc_spirv_iree_hal_device_is_supported(
         options->device, out_supported));

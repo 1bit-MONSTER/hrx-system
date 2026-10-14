@@ -41,7 +41,7 @@ _SPIRV_VULKAN_EXECUTE_COPTS = iree_select({
 
 _SPIRV_VULKAN_EXECUTE_DEPS = iree_select({
     "//loom/config/execute:spirv_vulkan_hal": [
-        "//loom/binding/c/target/spirv/iree_hal",
+        "//loom/binding/c/target/spirv:iree_hal",
     ],
     "//conditions:default": [],
 })

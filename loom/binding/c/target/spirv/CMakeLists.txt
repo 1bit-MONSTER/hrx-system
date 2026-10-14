@@ -18,7 +18,6 @@ loom_cc_library(
     "${PROJECT_SOURCE_DIR}/loom/binding/c/include/loomc/target/spirv/base.h"
     "${PROJECT_SOURCE_DIR}/loom/binding/c/include/loomc/target/spirv/emit.h"
     "${PROJECT_SOURCE_DIR}/loom/binding/c/include/loomc/target/spirv/profile.h"
-    "profile_match.h"
     "profile_rows.h"
   SRCS
     "profile.c"
@@ -34,6 +33,28 @@ loom_cc_library(
     loom::target::arch::spirv::profile
     loom::target::arch::spirv::records::target_records
     loom::target::types
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND IREE_HAL_DRIVER_VULKAN)
+loom_cc_library(
+  NAME
+    iree_hal
+  HDRS
+    "${PROJECT_SOURCE_DIR}/loom/binding/c/include/loomc/target/spirv/iree_hal.h"
+  SRCS
+    "iree_hal.c"
+  DEPS
+    ::spirv
+    iree::hal
+    iree::hal::drivers::vulkan::device_spec
+    loom::binding::c::loomc
+    loom::binding::c::target::iree_hal
+    loom::target::arch::spirv::cooperative_properties
+    loom::target::arch::spirv::features
+    loom::target::arch::spirv::profile
   ALWAYSLINK
   PUBLIC
 )
