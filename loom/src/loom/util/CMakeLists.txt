@@ -388,6 +388,7 @@ loom_cc_test(
     "fact_relation_test.cc"
   DEPS
     ::fact_table
+    ::predicate_facts
     iree::base::internal::arena
     iree::testing::gtest
     iree::testing::gtest_main
@@ -428,6 +429,8 @@ loom_cc_library(
     ::fact_table
     iree::base::internal
     iree::base::internal::arena
+    loom::analysis::integer_relation
+    loom::decision::predicate
     loom::ir::facts
   PUBLIC
 )

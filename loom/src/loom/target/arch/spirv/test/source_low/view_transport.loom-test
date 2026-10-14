@@ -76,7 +76,7 @@ func.def @nested_dynamic_view_refinement(%input: buffer, %extent_input: index, %
 }
 
 // ----
-low.func.def target<spirv.logical.core> abi(shader_entry_point) @nested_dynamic_view_refinement(%aligned: reg<spirv.ptr.storage_buffer>, %second_extent: reg<spirv.id : index>, %position: reg<spirv.id : index>, %condition: reg<spirv.id : i1>) -> (reg<spirv.id : i32>) asm {
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @nested_dynamic_view_refinement(%aligned: reg<spirv.ptr.storage_buffer>, %refined_extent: reg<spirv.id : index>, %position: reg<spirv.id : index>, %condition: reg<spirv.id : i1>) -> (reg<spirv.id : i32>) asm {
   %result = low.scf.if %condition -> (reg<spirv.id : i32>) {
     %23 = OpSConvert.i32.offset64 %position
     %24 = OpConstant.offset64 4

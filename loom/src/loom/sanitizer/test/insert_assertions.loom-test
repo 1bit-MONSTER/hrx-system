@@ -33,6 +33,22 @@ func.def @assume_with_only_proven_predicates_erases(%n: index) -> (index) {
 
 // ====
 
+// The second assumption repeats alias-local relations established by the
+// first. Only the first relation needs an executable assertion.
+func.def @retained_relations_filter_repeated_assume(%a: index, %b: index) -> (index, index) {
+  %related_a, %related_b = index.assume %a, %b [lt(%a, %b), ne(%a, 42)] : index, index
+  %repeated_a, %repeated_b = index.assume %related_a, %related_b [lt(%related_a, %related_b), ne(%related_a, 42)] : index, index
+  func.return %repeated_a, %repeated_b : index, index
+}
+
+// ----
+func.def @retained_relations_filter_repeated_assume(%a: index, %b: index) -> (index, index) {
+  %related_a, %related_b = sanitizer.assert.value %a, %b [lt(%a, %b), ne(%a, 42)] : index, index
+  func.return %related_a, %related_b : index, index
+}
+
+// ====
+
 // Predicate SSA operands that are not themselves checked aliases are still
 // listed on the assertion so the predicate remains verifiable and reportable.
 func.def @assume_with_relational_rhs_value(%n: index) -> (index) {

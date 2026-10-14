@@ -42,15 +42,15 @@ low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_c
   %42 = v_mov_b32 0
   %44 = s_mov_b64_exec_read
   low.br ^_bb1(%41: reg<amdgpu.vgpr>, %42: reg<amdgpu.vgpr>)
-^_bb1(%bounded_position: reg<amdgpu.vgpr>, %running_count: reg<amdgpu.vgpr>):
-  %43 = v_cmp_lt_i32 %bounded_position, %upper_bound
+^_bb1(%position: reg<amdgpu.vgpr>, %running_count: reg<amdgpu.vgpr>):
+  %43 = v_cmp_lt_i32 %position, %upper_bound
   %45, %46 = s_and_saveexec_b64 %43
   low.cond_br %46, ^_bb2, ^_bb3 : reg<amdgpu.scc>
 ^_bb2:
-  %47 = v_lshlrev_b32_src0_inline %bounded_position, 2
+  %47 = v_lshlrev_b32_src0_inline %position, 2
   %value = global_load_b32_saddr %47, %value_view
   %next_count = v_add_u32 %running_count, %value
-  %50 = v_add_u32 %loop_step, %bounded_position
+  %50 = v_add_u32 %loop_step, %position
   low.br ^_bb1(%50: reg<amdgpu.vgpr>, %next_count: reg<amdgpu.vgpr>)
 ^_bb3:
   s_mov_b64_exec %44

@@ -344,6 +344,7 @@ loom_cc_test(
     srcs = ["fact_relation_test.cc"],
     deps = [
         ":fact_table",
+        ":predicate_facts",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/index",
         "//loom/src/loom/ops/scalar",
@@ -379,6 +380,8 @@ loom_cc_library(
     deps = [
         ":fact_ordinal_map",
         ":fact_table",
+        "//loom/src/loom/analysis:integer_relation",
+        "//loom/src/loom/decision:predicate",
         "//loom/src/loom/ir:facts",
         "//runtime/src/iree/base/internal",
         "//runtime/src/iree/base/internal:arena",

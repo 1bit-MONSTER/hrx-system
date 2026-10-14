@@ -16,6 +16,7 @@
 #include "loom/ops/index/ops.h"
 #include "loom/ops/scalar/ops.h"
 #include "loom/util/fact_table.h"
+#include "loom/util/predicate_facts.h"
 
 namespace loom {
 namespace {
@@ -169,6 +170,24 @@ TEST_F(FactRelationTest, IntegerOrderUsesIntervalsAndNonzeroFacts) {
   EXPECT_EQ(table_.integer_relations, nullptr);
 }
 
+TEST_F(FactRelationTest, IntegerLiteralOrderUsesScalarFacts) {
+  EXPECT_EQ(loom_value_fact_table_query_signed_integer_literal_order(
+                nullptr, inputs_[0], 42),
+            LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL);
+  IREE_ASSERT_OK(loom_value_fact_table_define(&table_, inputs_[0],
+                                              loom_value_facts_make(4, 9, 1)));
+  EXPECT_EQ(loom_value_fact_table_query_signed_integer_literal_order(
+                &table_, inputs_[0], 3),
+            LOOM_INTEGER_ORDER_OUTCOME_BIT_GREATER);
+  EXPECT_EQ(loom_value_fact_table_query_signed_integer_literal_order(
+                &table_, inputs_[0], 7),
+            LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL);
+  EXPECT_EQ(loom_value_fact_table_query_signed_integer_literal_order(
+                &table_, inputs_[0], 10),
+            LOOM_INTEGER_ORDER_OUTCOME_BIT_LESS);
+  EXPECT_EQ(table_.integer_relations, nullptr);
+}
+
 TEST_F(FactRelationTest, InteriorLiteralDisequalityRetainsScopedExclusion) {
   const loom_value_id_t literal = BuildConstant(42);
   loom_op_t* assume = nullptr;
@@ -182,8 +201,19 @@ TEST_F(FactRelationTest, InteriorLiteralDisequalityRetainsScopedExclusion) {
                                                              literal),
             LOOM_INTEGER_ORDER_OUTCOME_BIT_LESS |
                 LOOM_INTEGER_ORDER_OUTCOME_BIT_GREATER);
+  EXPECT_EQ(loom_value_fact_table_query_signed_integer_literal_order(
+                &table_, result, 42),
+            LOOM_INTEGER_ORDER_OUTCOME_BIT_LESS |
+                LOOM_INTEGER_ORDER_OUTCOME_BIT_GREATER);
+  const loom_predicate_t repeated =
+      LiteralPredicate(LOOM_PREDICATE_NE, result, 42);
+  EXPECT_EQ(loom_value_fact_table_evaluate_predicate(&table_, &repeated),
+            LOOM_DECISION_TRUTH_TRUE);
   EXPECT_EQ(loom_value_fact_table_query_signed_integer_order(
                 &table_, inputs_[0], literal),
+            LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL);
+  EXPECT_EQ(loom_value_fact_table_query_signed_integer_literal_order(
+                &table_, inputs_[0], 42),
             LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL);
 }
 
@@ -306,6 +336,10 @@ TEST_F(FactRelationTest, SignedRelationsRetainEveryOrientation) {
     EXPECT_EQ(loom_value_fact_table_query_signed_integer_order(
                   &table_, inputs_[0], inputs_[1]),
               LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL);
+    const loom_predicate_t repeated = RelationPredicate(
+        relation_case.predicate_kind, results.values[0], results.values[1]);
+    EXPECT_EQ(loom_value_fact_table_evaluate_predicate(&table_, &repeated),
+              LOOM_DECISION_TRUTH_TRUE);
   }
 }
 
@@ -320,6 +354,10 @@ TEST_F(FactRelationTest, UnsignedRelationDoesNotEnterSignedStore) {
   EXPECT_EQ(loom_value_fact_table_query_signed_integer_order(
                 &table_, results.values[0], results.values[1]),
             LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL);
+  const loom_predicate_t repeated = RelationPredicate(
+      LOOM_PREDICATE_ULT, results.values[0], results.values[1]);
+  EXPECT_EQ(loom_value_fact_table_evaluate_predicate(&table_, &repeated),
+            LOOM_DECISION_TRUTH_UNKNOWN);
   EXPECT_EQ(table_.integer_relations, nullptr);
 }
 
@@ -360,6 +398,10 @@ TEST_F(FactRelationTest, DynamicRangeRetainsBothEndpoints) {
       loom_value_fact_table_query_signed_integer_order(&table_, result, upper),
       loom_symbolic_integer_relation_outcomes(
           LOOM_SYMBOLIC_INTEGER_RELATION_LE));
+  loom_predicate_t repeated = range;
+  repeated.args[0] = result;
+  EXPECT_EQ(loom_value_fact_table_evaluate_predicate(&table_, &repeated),
+            LOOM_DECISION_TRUTH_TRUE);
 }
 
 TEST_F(FactRelationTest, TupleAliasesShareLocalRelationsButKeepInheritedScope) {

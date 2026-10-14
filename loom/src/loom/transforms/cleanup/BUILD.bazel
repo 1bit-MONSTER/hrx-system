@@ -177,6 +177,7 @@ loom_cc_library(
         "//loom/src/loom/rewrite:type_propagation",
         "//loom/src/loom/target:facts",
         "//loom/src/loom/util:fact_table",
+        "//loom/src/loom/util:predicate_facts",
         "//loom/src/loom/util:walk",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal",

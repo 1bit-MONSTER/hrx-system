@@ -165,6 +165,22 @@ func.def @proven_op_assertion_folds(%n: index) -> (index) {
 
 // ====
 
+// Alias-local relations and literal holes are retained facts, so repeated
+// executable checks fold without walking the defining assumptions.
+func.def @retained_relation_assertions_fold(%a: index, %b: index) -> (index, index) {
+  %related_a, %related_b = index.assume %a, %b [lt(%a, %b), ne(%a, 42)] : index, index
+  %checked_a, %checked_b = sanitizer.assert.value %related_a, %related_b [lt(%related_a, %related_b), ne(%related_a, 42)] : index, index
+  func.return %checked_a, %checked_b : index, index
+}
+
+// ----
+func.def @retained_relation_assertions_fold(%a: index, %b: index) -> (index, index) {
+  %related_a, %related_b = index.assume %a, %b [lt(%a, %b), ne(%a, 42)] : index, index
+  func.return %related_a, %related_b : index, index
+}
+
+// ====
+
 // Unproven operation assertions stay as executable boundaries.
 func.def @unproven_op_assertion_survives(%n: index) -> (index) {
   sanitizer.assert.op %n [eq(%n, 42)] : index

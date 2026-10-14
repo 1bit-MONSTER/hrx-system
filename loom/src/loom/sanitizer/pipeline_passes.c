@@ -8,7 +8,6 @@
 
 #include <string.h>
 
-#include "loom/decision/predicate.h"
 #include "loom/error/error_catalog.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
@@ -28,6 +27,7 @@
 #include "loom/sanitizer/options.h"
 #include "loom/sanitizer/site_location.h"
 #include "loom/sanitizer/site_payload.h"
+#include "loom/util/predicate_facts.h"
 
 typedef struct loom_sanitizer_insert_assertions_state_t {
   // Check classes enabled for this pass invocation.
@@ -289,54 +289,10 @@ static bool loom_sanitizer_predicate_supported_for_values(
   return true;
 }
 
-static bool loom_sanitizer_predicate_arg_operand(
-    const loom_predicate_t* predicate, uint8_t argument_index,
-    loom_rewriter_t* rewriter, loom_value_slice_t values,
-    loom_decision_predicate_operand_t* out_operand) {
-  if (argument_index >= predicate->arg_count) {
-    return false;
-  }
-  *out_operand = (loom_decision_predicate_operand_t){
-      .facts = loom_value_facts_unknown(),
-      .identity = LOOM_DECISION_OPERAND_IDENTITY_NONE,
-  };
-  switch ((loom_predicate_arg_tag_t)predicate->arg_tags[argument_index]) {
-    case LOOM_PRED_ARG_CONST:
-      out_operand->facts =
-          loom_value_facts_exact_i64(predicate->args[argument_index]);
-      return true;
-    case LOOM_PRED_ARG_VALUE: {
-      if (predicate->args[argument_index] < 0) {
-        return false;
-      }
-      const loom_value_id_t value_id =
-          (loom_value_id_t)predicate->args[argument_index];
-      if (!loom_sanitizer_find_value(values, value_id, NULL)) {
-        return false;
-      }
-      out_operand->facts = loom_rewriter_value_facts(rewriter, value_id);
-      out_operand->identity = value_id;
-      return true;
-    }
-    case LOOM_PRED_ARG_NONE:
-    case LOOM_PRED_ARG_COUNT_:
-      return false;
-  }
-  return false;
-}
-
 static bool loom_sanitizer_predicate_is_proven(
-    const loom_predicate_t* predicate, loom_rewriter_t* rewriter,
-    loom_value_slice_t values) {
-  loom_decision_predicate_operand_t operands[3] = {0};
-  for (uint8_t i = 0; i < predicate->arg_count; ++i) {
-    if (!loom_sanitizer_predicate_arg_operand(predicate, i, rewriter, values,
-                                              &operands[i])) {
-      return false;
-    }
-  }
-  return loom_decision_predicate_evaluate(predicate->kind, operands) ==
-         LOOM_DECISION_TRUTH_TRUE;
+    const loom_predicate_t* predicate, loom_rewriter_t* rewriter) {
+  return loom_value_fact_table_evaluate_predicate(
+             rewriter->fact_table, predicate) == LOOM_DECISION_TRUTH_TRUE;
 }
 
 static iree_status_t loom_sanitizer_result_types_for_values(
@@ -1207,7 +1163,7 @@ static iree_status_t loom_sanitizer_filter_predicates(
       *out_all_supported = false;
       continue;
     }
-    if (loom_sanitizer_predicate_is_proven(predicate, rewriter, values)) {
+    if (loom_sanitizer_predicate_is_proven(predicate, rewriter)) {
       ++*out_elided_count;
       continue;
     }
@@ -1462,7 +1418,7 @@ static iree_status_t loom_sanitizer_build_fastmath_value_assertion(
   for (uint16_t i = 0; i < values.count; ++i) {
     loom_predicate_t predicate =
         loom_sanitizer_make_unary_predicate(predicate_kind, values.values[i]);
-    if (loom_sanitizer_predicate_is_proven(&predicate, rewriter, values)) {
+    if (loom_sanitizer_predicate_is_proven(&predicate, rewriter)) {
       ++elided_count;
       continue;
     }

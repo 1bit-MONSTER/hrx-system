@@ -662,6 +662,36 @@ loom_value_fact_table_query_signed_integer_order(
   return outcomes ? outcomes : LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL;
 }
 
+loom_integer_order_outcome_bits_t
+loom_value_fact_table_query_signed_integer_literal_order(
+    const loom_value_fact_table_t* table, loom_value_id_t value,
+    int64_t literal) {
+  if (!table || value == LOOM_VALUE_ID_INVALID) {
+    return LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL;
+  }
+
+  const loom_value_facts_t value_facts =
+      loom_value_fact_table_lookup(table, value);
+  const loom_value_facts_t literal_facts = loom_value_facts_exact_i64(literal);
+  loom_integer_order_outcome_bits_t outcomes =
+      loom_value_fact_integer_facts_order_outcomes(value_facts, literal_facts);
+  if (!table->integer_relations) {
+    return outcomes ? outcomes : LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL;
+  }
+
+  const loom_value_fact_relation_roots_t roots =
+      loom_value_fact_relation_lookup_roots(table, value);
+  const uint32_t literal_atom = loom_value_fact_relation_atom_find(
+      table->integer_relations, LOOM_VALUE_FACT_RELATION_ATOM_LITERAL,
+      (uint64_t)literal);
+  if (loom_value_fact_relation_root_contains(table->integer_relations,
+                                             roots.excluded_literal_equal,
+                                             literal_atom)) {
+    outcomes &= ~LOOM_INTEGER_ORDER_OUTCOME_BIT_EQUAL;
+  }
+  return outcomes ? outcomes : LOOM_INTEGER_ORDER_OUTCOME_BIT_ALL;
+}
+
 void loom_value_fact_integer_relations_clear_scope(
     loom_value_fact_table_t* table) {
   table->integer_relations = NULL;

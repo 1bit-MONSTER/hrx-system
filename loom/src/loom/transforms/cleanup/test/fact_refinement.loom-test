@@ -229,12 +229,11 @@ func.def @composed_relations(%input: buffer, %upper: index) -> (f32) {
   %view = buffer.view %input[%base] : buffer -> view<[%upper]xf32>
   %c0 = index.constant 0 : index
   %first = index.constant 0 : index
-  %upper_refined$9 = index.assume %upper [ne(%upper, 0), gt(%upper, 0)] : index
+  %upper_refined = index.assume %upper [ne(%upper, 0), gt(%upper, 0)] : index
   %second = index.constant 0 : index
-  %upper_refined$10 = index.assume %upper_refined$9 [ge(%upper_refined$9, 0)] : index
-  %view_refined = view.refine %view : view<[%upper]xf32> -> view<[%upper_refined$10]xf32>
+  %view_refined = view.refine %view : view<[%upper]xf32> -> view<[%upper_refined]xf32>
   test.use %first, %second : index, index
-  %value = view.load %view_refined[%c0] : view<[%upper_refined$10]xf32> -> f32
+  %value = view.load %view_refined[%c0] : view<[%upper_refined]xf32> -> f32
   func.return %value : f32
 }
 

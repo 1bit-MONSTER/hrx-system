@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "loom/analysis/symbolic_expr.h"
+#include "loom/ir/attribute_schema.h"
 #include "loom/ir/context.h"
 #include "loom/ir/facts.h"
 #include "loom/ir/module.h"
@@ -20,6 +21,7 @@
 #include "loom/target/facts.h"
 #include "loom/transforms/cleanup/fact_refinement.h"
 #include "loom/transforms/cleanup/patterns.h"
+#include "loom/util/predicate_facts.h"
 #include "loom/util/walk.h"
 
 //===----------------------------------------------------------------------===//
@@ -284,6 +286,114 @@ static iree_status_t loom_canonicalize_try_elide_empty_op(
   IREE_RETURN_IF_ERROR(
       loom_rewriter_replace_results_with_materialized_values_and_erase(
           rewriter, op, policy->materialize_empty));
+  *out_elided = true;
+  return iree_ok_status();
+}
+
+static bool loom_canonicalize_predicate_lists_are_empty(
+    const loom_op_t* op, const loom_op_vtable_t* vtable) {
+  const loom_attribute_t* attributes = loom_op_const_attrs(op);
+  for (uint8_t i = 0; i < vtable->attribute_count; ++i) {
+    if (vtable->attr_descriptors[i].attr_kind == LOOM_ATTR_PREDICATE_LIST &&
+        attributes[i].count != 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool loom_canonicalize_predicate_implied_by_carrier(
+    const loom_value_fact_table_t* fact_table, const loom_op_t* carrier_op,
+    const loom_op_vtable_t* carrier_vtable,
+    const loom_predicate_t* conclusion) {
+  const loom_attribute_t* carrier_attributes = loom_op_const_attrs(carrier_op);
+  for (uint8_t i = 0; i < carrier_vtable->attribute_count; ++i) {
+    if (carrier_vtable->attr_descriptors[i].attr_kind !=
+        LOOM_ATTR_PREDICATE_LIST) {
+      continue;
+    }
+    const loom_attribute_t* premise_attribute = &carrier_attributes[i];
+    for (uint16_t j = 0; j < premise_attribute->count; ++j) {
+      if (loom_value_fact_table_predicate_implies(
+              fact_table, &premise_attribute->predicate_list[j], conclusion)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+static bool loom_canonicalize_predicate_lists_implied_by_carrier(
+    const loom_value_fact_table_t* fact_table, const loom_op_t* op,
+    const loom_op_vtable_t* vtable, const loom_op_t* carrier_op,
+    const loom_op_vtable_t* carrier_vtable) {
+  const loom_attribute_t* attributes = loom_op_const_attrs(op);
+  for (uint8_t i = 0; i < vtable->attribute_count; ++i) {
+    if (vtable->attr_descriptors[i].attr_kind != LOOM_ATTR_PREDICATE_LIST) {
+      continue;
+    }
+    const loom_attribute_t* conclusion_attribute = &attributes[i];
+    for (uint16_t j = 0; j < conclusion_attribute->count; ++j) {
+      if (!loom_canonicalize_predicate_implied_by_carrier(
+              fact_table, carrier_op, carrier_vtable,
+              &conclusion_attribute->predicate_list[j])) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+static iree_status_t loom_canonicalize_try_elide_redundant_fact_identity(
+    loom_rewriter_t* rewriter, loom_op_t* op, const loom_op_vtable_t* vtable,
+    bool* out_elided) {
+  *out_elided = false;
+  if (!vtable ||
+      !iree_all_bits_set(op->traits,
+                         LOOM_TRAIT_PURE | LOOM_TRAIT_FACT_IDENTITY) ||
+      !iree_any_bit_set(vtable->vtable_flags,
+                        LOOM_OP_VTABLE_HAS_PREDICATE_LIST)) {
+    return iree_ok_status();
+  }
+
+  // An empty fact identity is the ordinary identity operation. Nonempty
+  // identities require one explicit immediate carrier for the complete input
+  // tuple. Looking through only this O(1) SSA definition edge ensures the
+  // premise survives this rewrite; ambient loop and branch facts cannot erase
+  // the operation that materializes them for later pipelines.
+  if (!loom_canonicalize_predicate_lists_are_empty(op, vtable)) {
+    loom_op_t* carrier_op = NULL;
+    const loom_value_id_t* operands = loom_op_const_operands(op);
+    for (uint16_t i = 0; i < op->operand_count; ++i) {
+      const loom_value_t* operand =
+          loom_module_value(rewriter->module, operands[i]);
+      if (loom_value_is_block_arg(operand)) {
+        return iree_ok_status();
+      }
+      loom_op_t* definition = loom_value_def_op(operand);
+      if (!definition || (carrier_op && carrier_op != definition)) {
+        return iree_ok_status();
+      }
+      carrier_op = definition;
+    }
+    if (!carrier_op ||
+        !iree_all_bits_set(carrier_op->traits,
+                           LOOM_TRAIT_PURE | LOOM_TRAIT_FACT_IDENTITY)) {
+      return iree_ok_status();
+    }
+    const loom_op_vtable_t* carrier_vtable =
+        loom_op_vtable(rewriter->module, carrier_op);
+    if (!carrier_vtable ||
+        !iree_any_bit_set(carrier_vtable->vtable_flags,
+                          LOOM_OP_VTABLE_HAS_PREDICATE_LIST) ||
+        !loom_canonicalize_predicate_lists_implied_by_carrier(
+            rewriter->fact_table, op, vtable, carrier_op, carrier_vtable)) {
+      return iree_ok_status();
+    }
+  }
+
+  IREE_RETURN_IF_ERROR(loom_rewriter_replace_all_uses_and_erase(
+      rewriter, op, loom_op_const_operands(op), op->operand_count));
   *out_elided = true;
   return iree_ok_status();
 }
@@ -604,6 +714,20 @@ static iree_status_t loom_canonicalize_rewrite_op(
   loom_greedy_rewrite_result_record_rewriter_flags(result, rewriter);
 
   const loom_op_vtable_t* vtable = loom_op_vtable(driver->module, op);
+
+  // Collapse duplicate explicit fact carriers one SSA edge at a time. Retained
+  // canonical identities compare renamed predicate arguments without walking
+  // producer chains; greedy rewriting naturally converges long carrier chains.
+  bool fact_identity_elided = false;
+  rewriter->flags = 0;
+  IREE_RETURN_IF_ERROR(loom_canonicalize_try_elide_redundant_fact_identity(
+      rewriter, op, vtable, &fact_identity_elided));
+  if (fact_identity_elided) {
+    loom_greedy_rewrite_result_record_change(
+        result, rewriter, LOOM_GREEDY_REWRITE_CHANGE_FLAG_COUNT_MODIFIED_OP);
+    *out_changed = true;
+    return iree_ok_status();
+  }
 
   // Table-driven type propagation: generated equality constraints and
   // value facts can narrow dynamic shapes, encoding roles, and static

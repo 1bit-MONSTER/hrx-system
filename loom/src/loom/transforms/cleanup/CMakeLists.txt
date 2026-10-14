@@ -191,6 +191,7 @@ loom_cc_library(
     loom::rewrite::type_propagation
     loom::target::facts
     loom::util::fact_table
+    loom::util::predicate_facts
     loom::util::walk
   PUBLIC
 )
