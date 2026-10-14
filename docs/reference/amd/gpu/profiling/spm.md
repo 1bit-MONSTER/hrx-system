@@ -35,6 +35,47 @@ does not provide a count of samples overwritten during capture or a consumer
 credit protocol. Sample timestamps, hardware result values and a queue's
 completion marker retain their separate meanings.
 
+## Sampling interval and clock selection
+
+The ROCprofiler SDK's embedded AQLProfile distinguishes shader-clock intervals
+from reference-clock intervals. Its public caller admits reference-clock mode
+on exactly `gfx1200`, `gfx1201`, and `gfx1250`; it rejects that parameter on
+other agents before building commands and removes it from their advertised
+configuration list. The lower-level configuration enumerator alone is broader:
+it lists reference-clock mode for factory IDs above `GFX10_GPU_ID`, while its
+command-construction check rejects that mode below `GFX12_GPU_ID`. The caller's
+predicate is therefore part of the usable contract. Factory enumeration order
+is not a hardware capability test. [Caller admission][interval-admission]
+[Parameter rejection][interval-validation]
+[Advertised configurations][interval-filter] [Factory IDs][factory-ids]
+[Lower-level enumeration][interval-enumeration] [Build check][interval-build]
+
+For the GFX12 primitive, `RLC_SPM_PERFMON_CNTL` contains:
+
+| Bits | Field | Value emitted by the builder |
+| --- | --- | --- |
+| 13:12 | `PERFMON_RING_MODE` | 3, identified by the builder as stall and interrupt. |
+| 14 | `PERFMON_SAMPLE_INTERVAL_START_MODE` | 0. |
+| 15 | `PERFMON_SAMPLE_INTERVAL_TYPE` | 0 for SCLK, 1 for REFCLK. |
+| 31:16 | `PERFMON_SAMPLE_INTERVAL` | Requested interval minus one, representing 1 through 65,536 selected-clock cycles. |
+
+[GFX12 field definitions][interval-fields12]
+[GFX12 encoding][interval-encode12]
+
+The older GFX9/GFX10 factory path reports SCLK intervals from 32 through
+65,504 cycles in multiples of 32; its normalization rounds a request to the
+nearest multiple using `(N + 16) & ~31`. The GFX11 primitive writes its interval
+directly instead of using the GFX12 count-minus-one encoding. Transferring an
+interval field across these builders without its encoding changes its meaning.
+[Interval normalization][interval-normalize] [GFX11 encoding][interval-encode11]
+
+Selecting an interval clock does not correlate the resulting records with the
+host or with another GPU engine. An SCLK interval also needs the operating
+frequency over that interval to express elapsed time. The reference-clock
+selection and an independently obtained clock rate avoid that particular
+shader-frequency dependency; neither supplies a cross-clock epoch by itself.
+[Clock domains](../observability.md#clock-domains-and-conversion)
+
 ## Vendor KFD destination ABI
 
 The vendor request `AMDKFD_IOC_SPM` uses ioctl number `0x84` and the following
@@ -105,6 +146,49 @@ frees the kernel rings; it does not publish a final user header or return a fina
 valid extent. Releasing without prior collection can discard the tail.
 [Rotation][spm-rotate] [Stop and release][spm-release]
 
+## Device-scoped producer and collector sequence
+
+The SDK's device-scoped SPM caller starts the native transport and collector
+before submitting the producer's start packet. It then waits with acquire
+semantics for that packet's completion. This ordering lets the native driver
+initialize its ring and read pointer before PM4 enables sampling. The builder
+intentionally leaves the SPM reset to KFD: resetting the write pointer without
+the kernel-owned read pointer would break their common ring position.
+[Device start][device-start] [Native collector initialization][collector-start]
+[Reset ownership][builder-start]
+
+Stopping reverses those producer/collector dependencies. The caller submits
+the producer's stop packet, waits for its completion, then stops the host
+collector. The collector joins its worker threads before releasing native SPM.
+This separates command completion, destination retirement, and native ring
+release; they are not one interchangeable stop operation.
+[Device stop][device-stop] [Collector bridge][collector-bridge]
+[Worker and native teardown][collector-start]
+
+For factory IDs at or above `GFX11_GPU_ID`, the stop builder first requests a
+one-SCLK-cycle sampling interval to materialize the partial final interval.
+That changes both the interval and its source even when capture used REFCLK.
+It then emits the idle dependency and stops SPM without resetting its ring.
+The final sample therefore does not represent another ordinary configured
+sampling interval. The command sequence does not expose a separate
+acknowledgement of that requested final sample.
+[Stop selection][interval-build] [Stop commands][builder-stop]
+
+The collector continues destination rotation after the stop request, but its
+loop can exit after six nonempty returned extents instead of observing an
+empty drain. That is a consumer policy, not evidence that every final GPU
+write reached a returned destination. A final-data guarantee needs the
+producer's completed publication and the native ring's drained extent; a fixed
+number of rotations cannot establish either condition.
+[Drain exit conditions][collector-drain]
+
+The caller also requests the native PMC owner and requests PTL disablement.
+Its version query and ownership request are separate calls, and this caller
+does not gate start on their returned statuses. Successful SDK start therefore
+does not by itself prove exclusive ownership or successful native-control
+configuration. [Caller controls][device-controls]
+[Native control results][native-controls]
+
 ## Errors, loss and ownership
 
 Rotation is not transactional across XCCs. A header copy can fail after the old
@@ -140,3 +224,22 @@ alone do not establish safe concurrent use by competing profilers.
 [spm-rotate]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_spm.c#L572-L702
 [spm-dispatch]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_spm.c#L704-L740
 [spm-interrupt]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_spm.c#L741-L780
+[interval-admission]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/spm/service.cpp#L39-L53
+[interval-validation]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/spm/service.cpp#L111-L118
+[interval-filter]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/spm/service.cpp#L348-L362
+[factory-ids]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/core/pm4_factory.h#L70-L86
+[interval-enumeration]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/core/spm_v2.cpp#L281-L311
+[interval-build]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/core/spm_v2.cpp#L549-L566
+[interval-fields12]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/linux/registers/gc/gc_12_0_0_sh_mask.h#L18644-L18654
+[interval-encode12]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/gfxip/gfx12/gfx12_primitives.h#L547-L559
+[interval-normalize]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/core/spm_v2.cpp#L270-L278
+[interval-encode11]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/gfxip/gfx11/gfx11_primitives.h#L606-L611
+[device-start]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/spm/device_counting.cpp#L335-L388
+[device-stop]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/spm/device_counting.cpp#L434-L457
+[collector-start]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/core/spm_v2.cpp#L94-L140
+[builder-start]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/pm4/spm_builder.h#L123-L145
+[collector-bridge]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/hsa/aql_packet.cpp#L488-L527
+[builder-stop]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/pm4/spm_builder.h#L744-L785
+[collector-drain]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/core/spm_v2.cpp#L737-L804
+[device-controls]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/spm/device_counting.cpp#L259-L266
+[native-controls]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/counters/ioctl.cpp#L100-L212
