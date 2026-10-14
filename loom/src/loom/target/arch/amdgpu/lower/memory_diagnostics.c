@@ -91,7 +91,7 @@ iree_string_view_t loom_amdgpu_memory_address_form_name(
 
 iree_string_view_t loom_amdgpu_memory_access_dynamic_term_kind_name(
     const loom_amdgpu_memory_access_t* access) {
-  switch (access->source.dynamic_term_count) {
+  switch (access->source->dynamic_term_count) {
     case 0:
       return IREE_SV("none");
     case 1:
@@ -454,14 +454,14 @@ iree_status_t loom_amdgpu_record_memory_access_diagnostic(
     loom_low_source_memory_operation_kind_t kind) {
   if (!iree_any_bit_set(loom_target_low_legality_diagnostic_flags(context),
                         LOOM_TARGET_LOW_LEGALITY_DIAGNOSTIC_MEMORY_ACCESS) ||
-      access->source.memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
+      access->source->memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
     return iree_ok_status();
   }
 
   const iree_string_view_t packet_key =
       loom_amdgpu_memory_access_descriptor_key(descriptor_set, access);
   return loom_target_low_legality_record_memory_access(
-      context, op, loom_amdgpu_memory_space_name(access->source.memory_space),
+      context, op, loom_amdgpu_memory_space_name(access->source->memory_space),
       loom_amdgpu_memory_operation_name(kind), packet_key,
       loom_amdgpu_memory_address_form_name(access->address_form),
       loom_amdgpu_memory_access_dynamic_term_kind_name(access),
@@ -469,12 +469,12 @@ iree_status_t loom_amdgpu_record_memory_access_diagnostic(
           descriptor_set, loom_target_low_legality_module(context),
           loom_target_low_legality_function(context),
           loom_target_low_legality_bundle(context), access, kind),
-      IREE_SV("selected"), access->source.static_byte_offset,
-      access->source.element_byte_count, access->payload_register_count,
-      access->source.dynamic_term_count == 1
-          ? access->source.dynamic_terms[0].byte_stride
+      IREE_SV("selected"), access->static_byte_offset,
+      access->source->element_byte_count, access->payload_register_count,
+      access->source->dynamic_term_count == 1
+          ? access->source->dynamic_terms[0].byte_stride
           : 0,
-      access->source.vector_lane_byte_stride);
+      access->source->vector_lane_byte_stride);
 }
 
 static iree_status_t loom_amdgpu_record_memory_cache_policy(
@@ -485,7 +485,7 @@ static iree_status_t loom_amdgpu_record_memory_cache_policy(
     iree_string_view_t decision_key, iree_string_view_t decision,
     const loom_amdgpu_memory_cache_policy_attrs_t* cache_attrs) {
   const loom_vector_memory_cache_policy_t* policy =
-      &access->source.cache_policy;
+      &access->source->cache_policy;
   const bool scope_attr_present =
       cache_attrs &&
       iree_any_bit_set(cache_attrs->flags,
@@ -497,7 +497,7 @@ static iree_status_t loom_amdgpu_record_memory_cache_policy(
       cache_attrs && iree_any_bit_set(cache_attrs->flags,
                                       LOOM_AMDGPU_MEMORY_CACHE_POLICY_ATTR_NT);
   return loom_target_low_legality_record_memory_cache_policy(
-      context, op, loom_amdgpu_memory_space_name(access->source.memory_space),
+      context, op, loom_amdgpu_memory_space_name(access->source->memory_space),
       loom_amdgpu_memory_operation_name(kind),
       loom_amdgpu_cache_policy_scope_param(policy),
       loom_amdgpu_cache_policy_temporal_param(policy), decision_key, decision,
@@ -522,7 +522,7 @@ iree_status_t loom_amdgpu_record_memory_cache_policy_diagnostic(
   IREE_ASSERT_NE(resolution,
                  LOOM_AMDGPU_MEMORY_CACHE_POLICY_RESOLUTION_REJECTED);
   const loom_low_source_memory_operation_kind_t kind =
-      access->source.operation_kind;
+      access->source->operation_kind;
   if (resolution == LOOM_AMDGPU_MEMORY_CACHE_POLICY_RESOLUTION_DROPPED) {
     return loom_amdgpu_record_memory_cache_policy(
         context, op, descriptor_set, access, kind,
@@ -542,16 +542,16 @@ iree_status_t loom_amdgpu_record_memory_cache_policy_rejection_diagnostic(
   if (!iree_any_bit_set(loom_target_low_legality_diagnostic_flags(context),
                         LOOM_TARGET_LOW_LEGALITY_DIAGNOSTIC_MEMORY_ACCESS) ||
       !loom_amdgpu_memory_cache_policy_is_present(
-          &access->source.cache_policy)) {
+          &access->source->cache_policy)) {
     return iree_ok_status();
   }
 
   const loom_low_source_memory_operation_kind_t kind =
-      access->source.operation_kind;
+      access->source->operation_kind;
   return loom_amdgpu_record_memory_cache_policy(
       context, op, descriptor_set, access, kind,
       loom_amdgpu_memory_cache_policy_rejection_key(
-          descriptor_set, &access->source.cache_policy),
+          descriptor_set, &access->source->cache_policy),
       IREE_SV("rejected"), /*cache_attrs=*/NULL);
 }
 

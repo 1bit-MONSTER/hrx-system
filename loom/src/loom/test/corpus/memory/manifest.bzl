@@ -80,6 +80,7 @@ MEMORY_CORPUS = loom_corpus_manifest(
         "view/selection.loom",
         "view/shrinking.loom",
         "view/strided_recurrence.loom",
+        "view/strided_vectors.loom",
         "view/subview.loom",
         "view/window_walk.loom",
     ],

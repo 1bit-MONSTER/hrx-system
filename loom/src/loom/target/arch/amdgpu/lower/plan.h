@@ -1446,8 +1446,13 @@ typedef struct loom_amdgpu_memory_dynamic_term_plan_t {
 } loom_amdgpu_memory_dynamic_term_plan_t;
 
 typedef struct loom_amdgpu_memory_access_t {
-  // Target-independent source memory access plan being wrapped.
-  loom_low_source_memory_access_plan_t source;
+  // Borrowed target-independent source plan. The selected plan that retains
+  // this access owns the source for at least the access lifetime.
+  const loom_low_source_memory_access_plan_t* source;
+  // Number of source vector lanes moved by this physical packet.
+  uint32_t vector_lane_count;
+  // Effective static byte offset of this physical packet.
+  int64_t static_byte_offset;
   // Optional view-derived descriptor bound; explicit resource extents win.
   const loom_amdgpu_buffer_extent_plan_t* buffer_extent;
   // Retained operand decisions in canonical-term, realization, then optional
@@ -1498,6 +1503,25 @@ typedef struct loom_amdgpu_memory_access_t {
   const loom_low_descriptor_t* descriptor;
 } loom_amdgpu_memory_access_t;
 
+// Returns a target access view over |source| with its original packet geometry.
+static inline loom_amdgpu_memory_access_t loom_amdgpu_memory_access_from_source(
+    const loom_low_source_memory_access_plan_t* source) {
+  return (loom_amdgpu_memory_access_t){
+      .source = source,
+      .vector_lane_count = source->vector_lane_count,
+      .static_byte_offset = source->static_byte_offset,
+  };
+}
+
+// Materializes the target-independent view of one physical packet.
+static inline void loom_amdgpu_memory_access_source_plan(
+    const loom_amdgpu_memory_access_t* access,
+    loom_low_source_memory_access_plan_t* out_source) {
+  *out_source = *access->source;
+  out_source->vector_lane_count = access->vector_lane_count;
+  out_source->static_byte_offset = access->static_byte_offset;
+}
+
 typedef struct loom_amdgpu_memory_packet_plan_t {
   // Selected access form for this emitted direct memory packet.
   loom_amdgpu_memory_access_t access;
@@ -1511,6 +1535,8 @@ typedef struct loom_amdgpu_memory_packet_plan_t {
 
 // Immutable function-retained direct-memory packet plan.
 typedef struct loom_amdgpu_memory_access_plan_t {
+  // Canonical source access shared by all physical packet views.
+  loom_low_source_memory_access_plan_t source;
   // Number of populated packet plans.
   uint32_t packet_count;
   // Direct memory packets emitted in increasing payload-byte order. The

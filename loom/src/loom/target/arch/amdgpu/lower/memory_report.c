@@ -108,7 +108,9 @@ static iree_status_t loom_amdgpu_record_memory_packet_report(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_amdgpu_memory_packet_plan_t* packet,
     uint64_t execution_count_plus_one) {
-  const loom_low_source_memory_access_plan_t* source = &packet->access.source;
+  loom_low_source_memory_access_plan_t packet_source;
+  loom_amdgpu_memory_access_source_plan(&packet->access, &packet_source);
+  const loom_low_source_memory_access_plan_t* source = &packet_source;
 
   const loom_low_descriptor_set_t* descriptor_set =
       loom_low_lower_context_descriptor_set(context);
