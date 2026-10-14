@@ -879,6 +879,46 @@ does not establish a stable snapshot when a producer can overwrite the copied
 region during the read. [Decoder sequence][xrt-fw-trace-records],
 [ring copy][linux-dpt-ring]
 
+#### Observed Windows cursor and retention
+
+On the Strix NPU4 driver identified in the MCDM result-buffer section,
+device-private KMT escape operations 21 and 22 configure/query and read the
+automatic firmware channel. These operations work through an ordinary logical
+device independently of the workload context. The trace read's private data
+contains a 64-bit capacity/returned byte count at offset 88, a 64-bit requested/
+returned position at offset 96, payload at offset 104, and eight trailing
+bytes after the capacity. This describes the observed interface, not a portable
+KMT schema or the transaction interpreter's finite debug buffer.
+
+The returned Windows position is a producer limit even when the destination
+limits the copy. A 256-byte destination returned 256 bytes while advancing the
+position by 320 bytes. Treating that position as the end of copied data skipped
+two format-2 records. Advancing only by copied length was correct before ring
+reuse, but replayed clamped history after overwrite. A deliberately delayed
+4 KiB reader had equal aggregate start/done counts despite missing and
+duplicating the same number of sequence occurrences. Counts alone therefore
+do not establish an intact timeline.
+
+A delayed full-window read retained 1,044,480 bytes, or 1 MiB minus 4 KiB,
+and exposed a 1,052,992-byte discarded prefix. When the entire retained window
+fits, its beginning is `returned_position - returned_byte_count`; the distance
+from the requested position measures that lost prefix. A full destination with
+more position advance than copied bytes is ambiguous between capacity
+truncation and overwrite. A consumer needs larger storage before accepting
+that position as progress. The first surviving command event may be an end
+whose beginning was discarded; interval pairing must restart across the gap.
+
+A bounded live capture of 32,768 finite numeric commands used 4 MiB of caller
+read storage and obtained 131,083 intact 32-byte records through 390 nonempty
+reads while execution continued. Header/footer checks, absolute byte position
+and format-2 sequence agreed through two sequence rollovers, and all expected
+command pairs and final context deletion were present. This establishes
+incremental collection on that stack, not losslessness for arbitrary producer
+rates. Validation of the complete returned batch remains necessary because a
+producer may reuse storage during a copy. A mismatched frame generation cannot
+supply a reliable duration. Capture ownership also remains separate: byte
+positions alone cannot identify every externally restarted recording.
+
 [cycle-counter]: https://download.amd.com/docnav/aiengine/xilinx2026_1/aiengine_ml_v2_intrinsics/intrinsics/group__intr__counter.html
 [aie-timer-read]: https://github.com/Xilinx/aie-codegen/blob/2855a032366e3d19dab893e7c263b14bb920cd64/src/timer/xaie_timer.c#L327-L407
 [aie2ipu-registers]: https://github.com/Xilinx/aie-codegen/blob/2855a032366e3d19dab893e7c263b14bb920cd64/src/global/xaie2ipugbl_reginit.c
