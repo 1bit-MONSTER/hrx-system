@@ -39,8 +39,8 @@ iree_status_t iree_net_buffer_lease_allocate(
                          IREE_STRUCT_FIELD_FAM(capacity, uint8_t)));
 
   iree_net_buffer_lease_storage_t* storage = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_allocator_malloc(host_allocator, total_size, (void**)&storage));
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc_uninitialized(
+      host_allocator, total_size, (void**)&storage));
   storage->host_allocator = host_allocator;
 
   out_lease->span = iree_async_span_from_ptr(storage->data, capacity);
