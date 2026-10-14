@@ -229,3 +229,145 @@ func.def @lowered_loaded_terminal_position(%links: buffer, %output: buffer) {
   view.store %value, %output_view[%terminal_offset] : i32, view<1xi32>
   func.return
 }
+
+// ====
+
+// RUN: pass vector-memory-footprint
+
+func.def @nested_block_tail(%input: buffer) {
+  %origin = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %width = index.constant 6144 : index
+  %block_size = index.constant 256 : index
+  %tile = index.constant 16 : index
+  %view = buffer.view %input[%origin] : buffer -> view<6144xf32>
+  scf.for %block = [%begin to %width step %block_size] {
+    %limit = index.add %block, %block_size : index
+    %end = index.min %limit, %width : index
+    scf.for %column = [%block to %end step %tile] {
+      %value = vector.load %view[%column] : view<6144xf32> -> vector<16xf32>
+      test.use %value : vector<16xf32>
+    }
+  }
+  func.return
+}
+
+// ----
+func.def @nested_block_tail(%input: buffer) {
+  %origin = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %width = index.constant 6144 : index
+  %block_size = index.constant 256 : index
+  %tile = index.constant 16 : index
+  %view = buffer.view %input[%origin] : buffer -> view<6144xf32>
+  scf.for %block = [%begin to %width step %block_size] {
+    %limit = index.add %block, %block_size : index
+    %end = index.min %limit, %width : index
+    scf.for %column = [%block to %end step %tile] {
+      %value = vector.load %view[%column] : view<6144xf32> -> vector<16xf32>
+      test.use %value : vector<16xf32>
+    }
+  }
+  func.return
+}
+
+// ====
+
+// RUN: pass scf-to-cfg,vector-memory-footprint
+
+func.def @nested_block_tail_cfg(%input: buffer) {
+  %origin = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %width = index.constant 6144 : index
+  %block_size = index.constant 256 : index
+  %tile = index.constant 16 : index
+  %view = buffer.view %input[%origin] : buffer -> view<6144xf32>
+  scf.for %block = [%begin to %width step %block_size] {
+    %limit = index.add %block, %block_size : index
+    %end = index.min %limit, %width : index
+    scf.for %column = [%block to %end step %tile] {
+      %value = vector.load %view[%column] : view<6144xf32> -> vector<16xf32>
+      test.use %value : vector<16xf32>
+    }
+  }
+  func.return
+}
+
+// ----
+func.def @nested_block_tail_cfg(%input: buffer) {
+  %origin = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %width = index.constant 6144 : index
+  %block_size = index.constant 256 : index
+  %tile = index.constant 16 : index
+  %view = buffer.view %input[%origin] : buffer -> view<6144xf32>
+  cfg.br ^_bb1(%begin: index)
+^_bb1(%12: index):
+  %14 = index.cmp slt, %12, %width : index
+  cfg.cond_br %14, ^_bb2, ^_bb6
+^_bb2:
+  %block = index.assume %12 [range(%12, 0, 5888), multiple_of(%12, 256)] : index
+  %limit = index.add %block, %block_size : index
+  %end = index.min %limit, %width : index
+  cfg.br ^_bb3(%block: index)
+^_bb3(%16: index):
+  %18 = index.cmp slt, %16, %end : index
+  cfg.cond_br %18, ^_bb4, ^_bb5
+^_bb4:
+  %column = index.assume %16 [range(%16, 0, 6128), multiple_of(%16, 16), ge(%16, %block), lt(%16, %end)] : index
+  %value = vector.load %view[%column] : view<6144xf32> -> vector<16xf32>
+  test.use %value : vector<16xf32>
+  %19 = index.add %column, %tile : index
+  cfg.br ^_bb3(%19: index)
+^_bb5:
+  %15 = index.add %block, %block_size : index
+  cfg.br ^_bb1(%15: index)
+^_bb6:
+  func.return
+}
+
+// ====
+
+// RUN: pass vector-memory-footprint
+
+func.def @nested_partial_block_tail(%input: buffer) {
+  %origin = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %width = index.constant 6143 : index
+  %block_size = index.constant 256 : index
+  %tile = index.constant 16 : index
+  %view = buffer.view %input[%origin] : buffer -> view<6143xf32>
+  scf.for %block = [%begin to %width step %block_size] {
+    %limit = index.add %block, %block_size : index
+    %end = index.min %limit, %width : index
+    scf.for %column = [%block to %end step %tile] {
+      // ERROR@+1: SUBRANGE/010
+      %value = vector.load %view[%column] : view<6143xf32> -> vector<16xf32>
+      test.use %value : vector<16xf32>
+    }
+  }
+  func.return
+}
+
+// ====
+
+// RUN: pass scf-to-cfg,vector-memory-footprint
+
+func.def @nested_partial_block_tail_cfg(%input: buffer) {
+  %origin = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %width = index.constant 6143 : index
+  %block_size = index.constant 256 : index
+  %tile = index.constant 16 : index
+  %view = buffer.view %input[%origin] : buffer -> view<6143xf32>
+  scf.for %block = [%begin to %width step %block_size] {
+    %limit = index.add %block, %block_size : index
+    %end = index.min %limit, %width : index
+    scf.for %column = [%block to %end step %tile] {
+      // ERROR@+1: SUBRANGE/010
+      %value = vector.load %view[%column] : view<6143xf32> -> vector<16xf32>
+      test.use %value : vector<16xf32>
+    }
+  }
+  func.return
+}
