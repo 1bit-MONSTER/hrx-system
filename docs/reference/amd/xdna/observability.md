@@ -764,6 +764,16 @@ mailbox protocol 6.19 and later in major 6, or major 7. The protocol revision
 is distinct from the firmware image's build version. [Driver ABI history][linux-driver-version],
 [firmware feature table][linux-fw-trace-features]
 
+The upstream kernel and AMD's SDK driver have separate interface histories.
+Linux v7.1 reports ABI 0.8 and does not expose the DPT trace operations; AMD's
+SDK adds them at ABI 0.15. The SDK's XRT adapter connects `event_trace_state`,
+`event_trace_data` and `event_trace_version` to those native operations.
+Installing a newer user-space recorder alone cannot add the missing kernel
+interface. AMD's installation documentation identifies this upstream-versus-SDK
+driver mismatch as a cause of unsupported diagnostic queries. [Upstream
+interface][linux-upstream-driver-version], [SDK introduction][linux-trace-introduction],
+[XRT adapter][linux-xrt-trace], [driver packaging][linux-sdk-packaging]
+
 Payload reads carry a cursor and can block waiting for new data. `ESTALE`
 reports that a disable/enable cycle invalidated the cursor and returns the new
 cursor with zero payload. `ESHUTDOWN` reports a disabled channel and ends the
@@ -793,10 +803,51 @@ by a 64-bit word whose upper 16 bits identify the event and lower 48 bits carry
 its arguments. Entry headers and footers are separate: XRT takes their sizes
 from the device's schema and skips them around each payload. The 16-byte
 payload is therefore not a universal complete-record size. The decoder prints
-the timestamp unchanged. This representation does not establish a nanosecond
-scale or a relation to the shim timer used by `RECORD_TIMER`.
-[Entry framing][xrt-fw-trace-framing],
-[Record decoder][xrt-fw-trace-records], [timestamp formatting][xrt-fw-trace-format]
+the timestamp unchanged; units come from the matching schema.
+[Entry framing][xrt-fw-trace-framing], [record decoder][xrt-fw-trace-records],
+[timestamp formatting][xrt-fw-trace-format]
+
+AMD's validation-data archive supplies the Strix format 2.0 schema, identified
+by product 0, schema 0, major 2 and minor 0. It explicitly defines the timestamp
+in nanoseconds. An entry has the following layout; byte offsets are from the
+entry start, excluding the file's version prefix. [Format 2.0
+structures][vtd-strix-trace-layout]
+
+| Byte offset | Width | Field |
+| --- | --- | --- |
+| 0 | 8 bits | Header magic `0xCA`. |
+| 1 | 8 bits | Payload length in 64-bit words; 2 for this event payload. |
+| 2 | 16 bits | Header sequence number; valid values are 1 through 65535. |
+| 4 | 32 bits | Reserved; firmware initializes it to zero. |
+| 8 | 64 bits | Timestamp in nanoseconds. |
+| 16 | 64 bits | Packed event ID in bits 63:48 and arguments in bits 47:0. |
+| 24 | 32 bits | Reserved; firmware initializes it to zero. |
+| 28 | 16 bits | Footer sequence number. |
+| 30 | 8 bits | Footer payload length in 64-bit words. |
+| 31 | 8 bits | Footer magic `0xBA`. |
+
+Format 2.0 also adds an 8-bit `virt_ctx` at argument bits 27:20 to the
+application-message events. The physical context, virtual context, message
+opcode and context lifetime together supply their native attribution. The
+sequence number belongs to the trace entry, not to an application submission.
+[Application-message fields][vtd-strix-trace-events]
+
+Nanosecond units do not establish nanosecond resolution, a CPU-clock epoch or
+a relation to the shim timer used by `RECORD_TIMER`. The AIE2 trace-start reply
+contains `current_timestamp`, but the cited Linux driver forwards only the
+notification fields to its caller; its public trace query has no paired host
+clock sample. Correlation therefore needs an independently established clock
+relation. The array's H-clock frequency is not the rate of this nanosecond
+representation. [Start reply][linux-fw-trace-messages],
+[reply handling][linux-fw-trace-start], [native queries][linux-uapi]
+
+Other SDK timing outputs measure different intervals. XRT's NPU latency
+validation reports host elapsed time around runner execution and its final
+wait. Its Strix GEMM validation instead reads cycle counts written into a result
+buffer and converts them using the queried H-clock. XDP's ML Timeline collector
+writes `RECORD_TIMER` samples as cycles. None of those conversions supplies the
+epoch or resolution of the automatic firmware trace clock. [Runner timing][xrt-runner-timing],
+[GEMM result timing][xrt-gemm-timing], [ML Timeline output][xdp-timeline-output]
 
 Application-message records contain no submission sequence or caller marker.
 A command chain can contain several logical dispatches inside one firmware
@@ -902,6 +953,15 @@ region during the read. [Decoder sequence][xrt-fw-trace-records],
 [firmware-trace-events]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/tools/bins/configs/trace_events.json
 [xrt-fw-trace-records]: https://github.com/Xilinx/XRT/blob/5a97d152f6dd93709406e8d7c0eac8bc8407f9f2/src/runtime_src/core/tools/xbutil2/EventTracing/EventTraceStrix.cpp#L231-L338
 [xrt-fw-trace-framing]: https://github.com/Xilinx/XRT/blob/15e6319be8de1e76a6150111a3861729e988fdb5/src/runtime_src/core/tools/xbutil2/EventTracing/EventTraceStrix.cpp#L308-L338
+[vtd-strix-trace-layout]: https://github.com/Xilinx/VTD/blob/fa945e489497397269cbb912e3e7cce33d1935ff/archive/strx/firmware_configs/trace_events.json#L1388-L1462
+[vtd-strix-trace-events]: https://github.com/Xilinx/VTD/blob/fa945e489497397269cbb912e3e7cce33d1935ff/archive/strx/firmware_configs/trace_events.json#L445-L532
+[linux-upstream-driver-version]: https://github.com/torvalds/linux/blob/8cd9520d35a6c38db6567e97dd93b1f11f185dc6/drivers/accel/amdxdna/amdxdna_pci_drv.c#L32-L46
+[linux-trace-introduction]: https://github.com/amd/xdna-driver/commit/d351e625bda47e69fa8645bc70a723586f6d8560
+[linux-xrt-trace]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/src/shim/device.cpp#L898-L1021
+[linux-sdk-packaging]: https://github.com/amd/xdna-driver/blob/31f02e87c6338e94aa56c40365c4662fc534fa81/README.md#L347-L353
+[xrt-runner-timing]: https://github.com/Xilinx/XRT/blob/cdfbe96e394385702f377694d3875c57c3ef5b9d/src/runtime_src/core/common/runner/runner.cpp#L2323-L2356
+[xrt-gemm-timing]: https://github.com/Xilinx/XRT/blob/cdfbe96e394385702f377694d3875c57c3ef5b9d/src/runtime_src/core/tools/common/tests/TestGemm.cpp#L29-L111
+[xdp-timeline-output]: https://github.com/Xilinx/XDP/blob/8ac25a00cc0261023d96bcca09841b682c04dba6/profile/plugin/ml_timeline/clientDev/ml_timeline.cpp#L220-L305
 [xrt-fw-trace-format]: https://github.com/Xilinx/XRT/blob/5a97d152f6dd93709406e8d7c0eac8bc8407f9f2/src/runtime_src/core/tools/xbutil2/EventTracing/EventTraceBase.cpp#L154-L167
 [linux-dpt-layout]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_dpt.h#L42-L96
 [linux-dpt-ring]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_dpt.c#L208-L321
