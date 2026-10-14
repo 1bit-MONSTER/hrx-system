@@ -53,8 +53,11 @@ iree_status_t loom_serve_http_package_parse(
       }
     } else if (iree_string_view_equal(part.name, IREE_SV("file")) &&
                part.filename.size) {
-      status = iree_allocator_grow_array(
-          host_allocator, count + 1, sizeof(*files), &capacity, (void**)&files);
+      if (count == capacity) {
+        status =
+            iree_allocator_grow_array(host_allocator, count + 1, sizeof(*files),
+                                      &capacity, (void**)&files);
+      }
       if (iree_status_is_ok(status)) {
         char* name = NULL;
         status = iree_allocator_clone(
