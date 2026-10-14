@@ -12,7 +12,6 @@
 #include "iree/async/util/proactor_pool.h"
 #include "iree/base/threading/numa.h"
 #include "iree/base/tooling/flags.h"
-#include "iree/hal/drivers/init.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "iree/vm/bytecode/module.h"
@@ -21,6 +20,8 @@
 #include "loom/serve/runtime/host/host.h"
 #include "loom/serve/runtime/program/jit.h"
 #include "loom/serve/runtime/program/module.h"
+#include "loom/serve/testing/compiler.h"
+#include "loom/serve/testing/device.h"
 
 IREE_FLAG(string, control_sources, "", "Portable control source catalog.");
 
@@ -63,10 +64,12 @@ class ControlTest
     const auto* family = iree_hal_queue_family(dispatch);
     const auto* transfer_family = iree_hal_queue_family(transfer);
     const iree_hal_pool_family_access_t families[] = {
-        {.family = family,
-         .usage = IREE_HAL_BUFFER_USAGE_STORAGE |
-                  IREE_HAL_BUFFER_USAGE_TRANSFER |
-                  IREE_HAL_BUFFER_USAGE_DISPATCH_INDIRECT_PARAMETERS},
+        {
+            .family = family,
+            .usage = IREE_HAL_BUFFER_USAGE_STORAGE |
+                     IREE_HAL_BUFFER_USAGE_TRANSFER |
+                     IREE_HAL_BUFFER_USAGE_DISPATCH_INDIRECT_PARAMETERS,
+        },
         {.family = transfer_family, .usage = IREE_HAL_BUFFER_USAGE_TRANSFER},
     };
     const iree_hal_pool_scope_t scope = {
@@ -93,7 +96,8 @@ class ControlTest
     const loom_serve_sources_t sources = {
         .base_directory = iree_make_cstring_view(directory_.c_str()),
         .count = IREE_ARRAYSIZE(providers),
-        .values = providers};
+        .values = providers,
+    };
     IREE_ASSERT_OK(loom_serve_jit_allocate(device_, dispatch, host_, &sources,
                                            nullptr, &compilation_,
                                            host_allocator_, &jit_));
@@ -153,20 +157,20 @@ class ControlTest
   }
 
   iree_status_t CreateDevice() {
-    iree_hal_driver_registry_t* registry = nullptr;
-    IREE_RETURN_IF_ERROR(
-        iree_hal_driver_registry_allocate(host_allocator_, &registry));
-    iree_status_t status = iree_hal_register_all_available_drivers(registry);
+    iree_status_t status =
+        loom_serve_test_host_create(2, host_allocator_, &host_);
+    iree_hal_driver_t* driver = nullptr;
     if (iree_status_is_ok(status)) {
-      status = loom_serve_host_create(2, host_allocator_, &host_);
+      status = loom_serve_test_driver_create(host_, host_allocator_, &driver);
     }
     if (iree_status_is_ok(status)) {
       auto params = iree_hal_device_create_params_default();
       params.proactor_pool = loom_serve_host_proactor_pool(host_);
-      status = iree_hal_create_device(registry, IREE_SV("amdgpu"), &params,
-                                      host_allocator_, &device_);
+      status = iree_hal_driver_create_device_by_uri(
+          driver, loom_serve_test_device()->device_uri, &params,
+          host_allocator_, &device_);
     }
-    iree_hal_driver_registry_free(registry);
+    iree_hal_driver_release(driver);
     if (iree_status_is_ok(status)) {
       status = iree_async_frontier_tracker_create(
           iree_async_frontier_tracker_options_default(), host_allocator_,
@@ -206,10 +210,11 @@ class ControlTest
     const iree_byte_span_t feedback[] = {
         iree_make_byte_span(outputs_[0].tokens.data(), kLengths[1]),
     };
-    loom_serve_module_options_t options = {};
-    options.binding_capacity = 12;
-    options.stages = {IREE_ARRAYSIZE(stages), stages};
-    options.feedback = {IREE_ARRAYSIZE(feedback), feedback};
+    loom_serve_module_options_t options = {
+        .binding_capacity = 12,
+        .stages = {IREE_ARRAYSIZE(stages), stages},
+        .feedback = {IREE_ARRAYSIZE(feedback), feedback},
+    };
     IREE_RETURN_IF_ERROR(loom_serve_module_create(
         &types_, execution_, options, host_allocator_, &native_module_));
     const std::string path = directory_ + "/control.loom";
@@ -471,8 +476,9 @@ TEST_P(ControlTest, FeedbackForkDoesNotAdvanceWork) {
   IREE_ASSERT_OK(Upload(1, 0, 3, &work_completion));
   IREE_ASSERT_OK(Invoke(1, buffers_[0], &work_completion));
   EXPECT_EQ(work_completion, 3u);
-  iree_hal_transfer_operation_t invalid = {};
-  invalid.type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD;
+  iree_hal_transfer_operation_t invalid = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
+  };
   invalid.download.source_buffer = buffers_[0][1];
   invalid.download.source_offset = kLengths[1];
   invalid.download.target = outputs_[0].tokens.data();
@@ -650,8 +656,9 @@ TEST_P(ControlTest, DeviceProducedCountsGateConcurrentContinuation) {
         execution_, commands_[2], {bindings.size(), bindings.data()},
         &completion));
   }
-  iree_hal_transfer_operation_t download = {};
-  download.type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD;
+  iree_hal_transfer_operation_t download = {
+      .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
+  };
   download.download.source_buffer = continuation_.buffers[1];
   download.download.target = continuation_.output.data();
   download.download.length = kContinuationLengths[1];

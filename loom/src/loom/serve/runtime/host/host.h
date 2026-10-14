@@ -7,7 +7,9 @@
 #define LOOM_SERVE_RUNTIME_HOST_HOST_H_
 
 #include "iree/async/util/proactor_pool.h"
+#include "iree/hal/api.h"
 #include "iree/task/executor.h"
+#include "loomc/target.h"
 #include "loomc/task.h"
 #include "loomc/task_pool.h"
 
@@ -21,11 +23,36 @@ extern "C" {
 // retire all attached work before releasing its final owner.
 typedef struct loom_serve_host_t loom_serve_host_t;
 
+struct loomc_iree_hal_target_provider_t;
+
+// Creates one immutable compiler target environment for an application host.
+typedef loomc_status_t(
+    LOOMC_API_PTR* loom_serve_target_environment_create_fn_t)(
+    loomc_allocator_t allocator,
+    loomc_target_environment_t** out_target_environment);
+
+// Application-global compiler target composition. The environment factory and
+// provider descriptors are process-lifetime functions/data from linked LoomC
+// target leaves. The host creates and owns one environment and copies the
+// provider pointer list. Device-only hosts may omit this configuration.
+typedef struct loom_serve_compiler_options_t {
+  // Factory for the exact linked compiler target environment.
+  loom_serve_target_environment_create_fn_t target_environment_create;
+  // Ordered HAL target routes borrowed for host creation.
+  const struct loomc_iree_hal_target_provider_t* const* target_providers;
+  // Number of entries in target_providers.
+  iree_host_size_t target_provider_count;
+} loom_serve_compiler_options_t;
+
 // Creates up to worker_count physical-core workers with compiler-sized stacks.
 // Worker count must be positive. Proactors are created lazily per NUMA node.
-iree_status_t loom_serve_host_create(iree_host_size_t worker_count,
-                                     iree_allocator_t host_allocator,
-                                     loom_serve_host_t** out_host);
+// The host always owns a task driver backed by this exact executor; that
+// runtime capability is independent of optional native x86 compiler support.
+// compiler_options may be NULL when the host will never JIT kernels.
+iree_status_t loom_serve_host_create(
+    iree_host_size_t worker_count,
+    const loom_serve_compiler_options_t* compiler_options,
+    iree_allocator_t host_allocator, loom_serve_host_t** out_host);
 
 // Releases I/O infrastructure and joins the final executor owner. This is an
 // outer application teardown operation, never a task or completion callback.
@@ -39,11 +66,25 @@ void loom_serve_host_retain(loom_serve_host_t* host);
 // uses exactly this executor; it does not create another worker population.
 iree_task_executor_t* loom_serve_host_executor(const loom_serve_host_t* host);
 loomc_task_pool_t* loom_serve_host_task_pool(const loom_serve_host_t* host);
+// Task driver sharing the host executor, borrowed through host release.
+iree_hal_driver_t* loom_serve_host_task_driver(const loom_serve_host_t* host);
 
 // Shared compiler scheduling domain, borrowed through host release. Catalogs
 // retire their own jobs, not this queue; only outer host teardown drains it.
 // Worker ordinals match the shared task pool and executor.
 loomc_task_sink_t loom_serve_host_compiler_sink(const loom_serve_host_t* host);
+
+// Exact compiler target environment, or NULL for a device-only host. Borrowed
+// through host release.
+loomc_target_environment_t* loom_serve_host_target_environment(
+    const loom_serve_host_t* host);
+
+// Ordered HAL target routes paired with the host environment. Returns NULL and
+// zero routes for a device-only host. The returned array is borrowed through
+// host release.
+const struct loomc_iree_hal_target_provider_t* const*
+loom_serve_host_target_providers(const loom_serve_host_t* host,
+                                 iree_host_size_t* out_provider_count);
 
 iree_async_proactor_pool_t* loom_serve_host_proactor_pool(
     const loom_serve_host_t* host);

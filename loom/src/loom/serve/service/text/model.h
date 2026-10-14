@@ -340,7 +340,9 @@ void loom_serve_text_load_free(loom_serve_text_load_t* load);
 // payloads. The shared device owner outlives the model and
 // serializes model calls; its pool supplies elastic backing or explicit fixed
 // allocations. Pooled state grows on row/page activation. Options strings are
-// borrowed only for this call. Failure releases partial ownership.
+// borrowed only for this call. Failure releases partial ownership. Compilation
+// evidence is available through the owner-driven load interface; this wrapper
+// performs no process-global output.
 iree_status_t loom_serve_text_model_allocate(
     loom_serve_device_t* device, const loom_serve_text_options_t* options,
     iree_allocator_t host_allocator, loom_serve_text_model_t** out_model);

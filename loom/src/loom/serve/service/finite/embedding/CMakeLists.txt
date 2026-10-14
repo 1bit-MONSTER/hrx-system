@@ -31,15 +31,16 @@ loom_cc_library(
 if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_cc_library(
   NAME
-    source_service_tests
+    source_service_fixture
+  HDRS
+    "source_service_test_fixture.h"
   SRCS
-    "source_service_test.cc"
+    "source_service_test_fixture.cc"
   DEPS
     iree::async
     iree::base
     iree::base::internal::json
     iree::base::threading
-    iree::base::tooling::flags
     iree::hal
     iree::task
     iree::testing::gtest
@@ -55,12 +56,108 @@ loom_cc_library(
     loom::serve::service::finite::embedding::protocol
     loom::serve::service::finite::model
     loom::serve::service::finite::service
+    loom::serve::telemetry::record
     loom::serve::testing::http_harness
     loom::serve::testing::model
     loom::serve::testing::package
+    loom::serve::testing::service_application
     loom::serve::testing::stalled_stderr
     loom::serve::transport::http::listener
     loom::serve::transport::http::server
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_library(
+  NAME
+    source_management_tests
+  SRCS
+    "source_management_test.cc"
+  DEPS
+    ::source_service_fixture
+    iree::testing::gtest
+    iree::testing::temp_file
+    loom::serve::testing::model
+    loom::serve::testing::package
+    loom::serve::testing::stalled_stderr
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_library(
+  NAME
+    source_execution_tests
+  SRCS
+    "source_execution_test.cc"
+  DEPS
+    ::source_service_fixture
+    iree::testing::gtest
+    iree::testing::temp_file
+    loom::serve::testing::model
+    loom::serve::testing::package
+    loom::serve::testing::stalled_stderr
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_library(
+  NAME
+    direct_dispatch_tests
+  SRCS
+    "direct_dispatch_test.cc"
+  DEPS
+    ::source_service_fixture
+    iree::testing::gtest
+    iree::testing::temp_file
+    loom::serve::testing::model
+    loom::serve::testing::package
+    loom::serve::testing::stalled_stderr
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_library(
+  NAME
+    elastic_storage_tests
+  SRCS
+    "elastic_storage_test.cc"
+  DEPS
+    ::source_service_fixture
+    iree::testing::gtest
+    iree::testing::temp_file
+    loom::serve::testing::model
+    loom::serve::testing::package
+    loom::serve::testing::stalled_stderr
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_library(
+  NAME
+    device_group_tests
+  SRCS
+    "device_group_test.cc"
+  DEPS
+    ::source_service_fixture
+    iree::testing::gtest
+    iree::testing::temp_file
+    loom::serve::testing::model
+    loom::serve::testing::package
+    loom::serve::testing::stalled_stderr
   TESTONLY
   ALWAYSLINK
   PUBLIC

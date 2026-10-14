@@ -15,6 +15,7 @@
 #include "iree/hal/api.h"
 #include "iree/hal/replay/execute.h"
 #include "iree/io/file_contents.h"
+#include "iree/tooling/device_profiling.h"
 #include "iree/tooling/device_util.h"
 
 IREE_FLAG_LIST(

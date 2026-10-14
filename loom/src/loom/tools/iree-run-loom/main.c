@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "iree/base/tooling/flags.h"
+#include "iree/tooling/device_profiling.h"
 #include "iree/tooling/device_util.h"
 #include "iree/tooling/value_io.h"
 #include "loom/config/text_binding.h"

@@ -9,6 +9,80 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_TARGET_ARCH_X86)
+loom_cc_library(
+  NAME
+    test_compiler
+  SRCS
+    "test_compiler.c"
+  DEPS
+    loom::binding::c::target::cpu::iree_hal
+    loom::binding::c::target::x86
+    loom::serve::testing::compiler
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(IREE_HAL_DRIVER_TASK)
+loom_cc_library(
+  NAME
+    test_device
+  SRCS
+    "test_device.c"
+  DEPS
+    loom::serve::testing::device
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND LOOM_TARGET_ARCH_X86 AND IREE_HAL_DRIVER_TASK)
+loom_cc_binary(
+  NAME
+    loom-serve-test-tool
+  DEPS
+    ::test_compiler
+    ::test_device
+    loom::serve::testing::server_test_tool
+  TESTONLY
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND LOOM_TARGET_ARCH_X86 AND IREE_HAL_DRIVER_TASK AND IREE_HAL_EXECUTABLE_LOADER_EMBEDDED_ELF AND IREE_ARCH STREQUAL "x86_64" AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+iree_py_test(
+  NAME
+    serve_command_test
+  MAIN
+    "../../../../tools/loom-serve/server_test.py"
+  SRCS
+    "../../../../tools/loom-serve/server_test.py"
+  ARGS
+    "{{$<TARGET_FILE:loom::tooling::target::cpu::serve::loom-serve-test-tool>}}"
+    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom}}"
+    "{{$<TARGET_FILE:loom::tools::loom-format::loom-format>}}"
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/config.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/embed.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/model.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/tokenizer.json"
+    "loom::tooling::target::cpu::serve::loom-serve-test-tool"
+    "loom::tools::loom-format::loom-format"
+  DEPS
+    loom::serve::testing::http
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
+  TIMEOUT
+    60
+)
+endif()
+
 if(LOOM_TARGET_ARCH_VM AND LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 iree_py_test(
   NAME
@@ -18,7 +92,7 @@ iree_py_test(
   SRCS
     "../../../../serve/service/text/client_test.py"
   ARGS
-    "{{$<TARGET_FILE:loom::tools::loom-serve::loom-serve>}}"
+    "{{$<TARGET_FILE:loom::tooling::target::cpu::serve::loom-serve-test-tool>}}"
     "{{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom}}"
   DATA
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/advance.loom"
@@ -27,7 +101,7 @@ iree_py_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/tokenizer.json"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/weights.loom"
-    "loom::tools::loom-serve::loom-serve"
+    "loom::tooling::target::cpu::serve::loom-serve-test-tool"
   DEPS
     loom::serve::testing::http
   PACKAGE_DIRS
@@ -51,11 +125,12 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/prepare.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/tokenizer.json"
   DEPS
+    ::test_compiler
+    ::test_device
     iree::testing::gtest_main
     loom::serve::service::image::source_service_tests
-  ARGS
-    "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/prepare.loom}}"
-    "--test_device=task"
+  ENV
+    "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/prepare.loom}}"
 )
 endif()
 
@@ -76,12 +151,13 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/tokenizer.json"
   DEPS
+    ::test_compiler
+    ::test_device
     iree::testing::gtest_main
     loom::serve::service::finite::decision::source_service_tests
-  ARGS
-    "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/decision/prepare.loom}}"
-    "--embedding_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom}}"
-    "--test_device=task"
+  ENV
+    "LOOM_SERVE_TEST_EMBEDDING_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom}}"
+    "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/decision/prepare.loom}}"
 )
 endif()
 
@@ -100,12 +176,61 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/policy.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/weights.loom"
   DEPS
+    ::test_compiler
+    ::test_device
     iree::testing::gtest_main
-    loom::serve::service::finite::embedding::source_service_tests
-  ARGS
-    "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom}}"
-    "--test_device=task"
-    "--gtest_filter=Workers/SourceEmbeddingServiceTest.*"
+    loom::serve::service::finite::embedding::direct_dispatch_tests
+    loom::serve::service::finite::embedding::source_execution_tests
+  ENV
+    "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom}}"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_test(
+  NAME
+    source_embedding_management_test
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/config.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/embed.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/model.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/tokenizer.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/direct.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/policy.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/weights.loom"
+  DEPS
+    ::test_compiler
+    ::test_device
+    iree::testing::gtest_main
+    loom::serve::service::finite::embedding::source_management_tests
+  ENV
+    "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom}}"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_test(
+  NAME
+    source_embedding_device_group_test
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/config.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/embed.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/model.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/tokenizer.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/direct.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/policy.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/weights.loom"
+  DEPS
+    ::test_compiler
+    ::test_device
+    iree::testing::gtest_main
+    loom::serve::service::finite::embedding::device_group_tests
+  ENV
+    "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom}}"
 )
 endif()
 
@@ -121,12 +246,117 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/tokenizer.json"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/weights.loom"
   DEPS
+    ::test_compiler
+    ::test_device
     iree::testing::gtest_main
-    loom::serve::service::text::source_service_tests
-  ARGS
-    "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom}}"
-    "--test_device=task"
-    "--gtest_filter=Workers/SourceTextServiceTest.*:Workers/AdmissionServiceTest.*:SharedWorkers/PrefixServiceTest.*"
+    loom::serve::service::text::source_reference_tests
+  ENV
+    "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom}}"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_test(
+  NAME
+    source_text_admission_test
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/advance.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/model.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/tokenizer.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/weights.loom"
+  DEPS
+    ::test_compiler
+    ::test_device
+    iree::testing::gtest_main
+    loom::serve::service::text::admission_service_tests
+  ENV
+    "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom}}"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_test(
+  NAME
+    source_text_checkpoint_test
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/advance.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/model.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/tokenizer.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/weights.loom"
+  DEPS
+    ::test_compiler
+    ::test_device
+    iree::testing::gtest_main
+    loom::serve::service::text::checkpoint_tests
+  ENV
+    "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom}}"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_test(
+  NAME
+    source_text_prefix_test
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/advance.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/model.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/tokenizer.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/weights.loom"
+  DEPS
+    ::test_compiler
+    ::test_device
+    iree::testing::gtest_main
+    loom::serve::service::text::prefix_service_tests
+  ENV
+    "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom}}"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_test(
+  NAME
+    source_text_cache_test
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/advance.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/model.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/tokenizer.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/weights.loom"
+  DEPS
+    ::test_compiler
+    ::test_device
+    iree::testing::gtest_main
+    loom::serve::service::text::source_cache_tests
+  ENV
+    "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom}}"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_test(
+  NAME
+    source_text_reconfiguration_test
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/advance.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/model.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/tokenizer.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/weights.loom"
+  DEPS
+    ::test_compiler
+    ::test_device
+    iree::testing::gtest_main
+    loom::serve::service::text::source_reconfiguration_tests
+  ENV
+    "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom}}"
 )
 endif()
 

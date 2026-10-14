@@ -24,6 +24,7 @@ iree_runtime_cc_binary(
         "//runtime/src/iree/hal",
         "//runtime/src/iree/hal/replay:execute",
         "//runtime/src/iree/io:file_handle",
+        "//runtime/src/iree/tooling:device_profiling",
         "//runtime/src/iree/tooling:device_util",
     ],
 )

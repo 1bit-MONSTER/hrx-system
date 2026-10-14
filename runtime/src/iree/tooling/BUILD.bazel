@@ -40,9 +40,19 @@ iree_runtime_cc_test(
 )
 
 iree_runtime_cc_library(
-    name = "device_util",
-    srcs = ["device_util.c"],
-    hdrs = ["device_util.h"],
+    name = "device_flags",
+    srcs = ["device_flags.c"],
+    hdrs = ["device_flags.h"],
+    deps = [
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/tooling:flags",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "device_profiling",
+    srcs = ["device_profiling.c"],
+    hdrs = ["device_profiling.h"],
     deps = [
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal",
@@ -50,11 +60,24 @@ iree_runtime_cc_library(
         "//runtime/src/iree/base/threading:thread",
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal",
-        "//runtime/src/iree/hal/drivers",
-        "//runtime/src/iree/hal/utils:mpi_channel_provider",
         "//runtime/src/iree/hal/utils:profile_file",
         "//runtime/src/iree/hal/utils:statistics_sink",
         "//runtime/src/iree/io:file_handle",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "device_util",
+    srcs = ["device_util.c"],
+    hdrs = ["device_util.h"],
+    deps = [
+        ":device_flags",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/threading",
+        "//runtime/src/iree/base/tooling:flags",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/drivers",
+        "//runtime/src/iree/hal/utils:mpi_channel_provider",
     ],
 )
 

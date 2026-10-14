@@ -14,21 +14,29 @@
 #include "iree/testing/status_matchers.h"
 #include "loom/serve/runtime/device/device.h"
 #include "loom/serve/runtime/execution/execution.h"
+#include "loom/serve/testing/device.h"
 
 namespace {
 
 class MemoryTest : public ::testing::Test {
  protected:
   void SetUp() override {
+    loom_serve_host_t* host = nullptr;
+    IREE_ASSERT_OK(
+        loom_serve_host_create(1, nullptr, iree_allocator_system(), &host));
+    iree_hal_driver_t* driver = nullptr;
+    IREE_ASSERT_OK(
+        loom_serve_test_driver_create(host, iree_allocator_system(), &driver));
     const loom_serve_device_options_t options = {
-        .uri = IREE_SV("amdgpu"),
+        .driver = driver,
+        .uri = loom_serve_test_device()->device_uri,
         .backing = LOOM_SERVE_DEVICE_BACKING_ELASTIC,
         .slab_size = kSlabSize,
-        .memory_limit = 3 * kSlabSize};
-    loom_serve_host_t* host = nullptr;
-    IREE_ASSERT_OK(loom_serve_host_create(1, iree_allocator_system(), &host));
+        .memory_limit = 3 * kSlabSize,
+    };
     auto status = loom_serve_device_group_allocate(
         host, 1, &options, iree_allocator_system(), &group);
+    iree_hal_driver_release(driver);
     loom_serve_host_release(host);
     IREE_ASSERT_OK(status);
     device = loom_serve_device_group_at(group, 0);
@@ -51,17 +59,27 @@ class MemoryTest : public ::testing::Test {
   void RoundTrip(iree_hal_buffer_t* buffer, uint64_t offset, uint32_t value) {
     std::array<uint32_t, 64> observed = {};
     const iree_hal_transfer_operation_t operations[] = {
-        {.type = IREE_HAL_TRANSFER_OPERATION_TYPE_FILL,
-         .fill = {.target_buffer = buffer,
-                  .target_offset = offset,
-                  .length = sizeof(observed),
-                  .pattern = &value,
-                  .pattern_length = sizeof(value)}},
-        {.type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
-         .download = {.source_buffer = buffer,
-                      .source_offset = offset,
-                      .target = observed.data(),
-                      .length = sizeof(observed)}},
+        {
+            .type = IREE_HAL_TRANSFER_OPERATION_TYPE_FILL,
+            .fill =
+                {
+                    .target_buffer = buffer,
+                    .target_offset = offset,
+                    .length = sizeof(observed),
+                    .pattern = &value,
+                    .pattern_length = sizeof(value),
+                },
+        },
+        {
+            .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
+            .download =
+                {
+                    .source_buffer = buffer,
+                    .source_offset = offset,
+                    .target = observed.data(),
+                    .length = sizeof(observed),
+                },
+        },
     };
     uint64_t completion = 0;
     IREE_ASSERT_OK(
@@ -79,10 +97,14 @@ class MemoryTest : public ::testing::Test {
     std::array<uint32_t, 64> observed = {};
     const iree_hal_transfer_operation_t download = {
         .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
-        .download = {.source_buffer = buffer,
-                     .source_offset = offset,
-                     .target = observed.data(),
-                     .length = sizeof(observed)}};
+        .download =
+            {
+                .source_buffer = buffer,
+                .source_offset = offset,
+                .target = observed.data(),
+                .length = sizeof(observed),
+            },
+    };
     uint64_t completion = 0;
     IREE_ASSERT_OK(
         loom_serve_execution_transfer(execution, 1, &download, &completion));
@@ -341,7 +363,9 @@ TEST_F(MemoryTest, DeviceTrimPreservesLiveWorkspaceAndMutableState) {
   IREE_ASSERT_OK(
       loom_serve_execution_reserve_workspace(execution, kSlabSize, 256));
   const iree_hal_pool_reservation_request_t request = {
-      .allocation_size = kSlabSize, .min_alignment = 256};
+      .allocation_size = kSlabSize,
+      .min_alignment = 256,
+  };
   for (int iteration = 0; iteration < 2; ++iteration) {
     IREE_ASSERT_OK(
         loom_serve_execution_alloca(execution, &request, &workspace));

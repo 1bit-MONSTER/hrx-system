@@ -121,7 +121,9 @@ iree_status_t loom_serve_image_load_free(loom_serve_image_load_t* load);
 // all model calls. Its physical pool backs parameter roots independently of
 // cached commands. First generation or explicit activation streams/prepares
 // weights. Already active generation does no JIT or parameter preparation.
-// Failure releases partial ownership and leaves *out_model NULL.
+// Failure releases partial ownership and leaves *out_model NULL. Compilation
+// evidence is available through load_report; this wrapper performs no
+// process-global output.
 iree_status_t loom_serve_image_model_allocate(
     loom_serve_device_t* device,
     const loom_serve_image_model_options_t* options,

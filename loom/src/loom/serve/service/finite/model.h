@@ -111,7 +111,9 @@ iree_status_t loom_serve_finite_load_free(loom_serve_finite_load_t* load);
 // The cold outer-application constructor drives the same asynchronous load and
 // joins it outside the shared worker pool. Creation indexes weights without
 // loading them. The shared device outlives this model. Failure releases partial
-// ownership and leaves *out_model NULL. Live owners use load_advance instead.
+// ownership and leaves *out_model NULL. Compilation evidence is available
+// through load_report; this wrapper performs no process-global output. Live
+// owners use load_advance instead.
 iree_status_t loom_serve_finite_model_allocate(
     loom_serve_device_t* device,
     const loom_serve_finite_model_options_t* options,

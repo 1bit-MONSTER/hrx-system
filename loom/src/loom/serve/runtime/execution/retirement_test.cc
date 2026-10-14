@@ -13,6 +13,7 @@
 #include "iree/testing/status_matchers.h"
 #include "loom/serve/runtime/device/device.h"
 #include "loom/serve/runtime/storage/memory.h"
+#include "loom/serve/testing/device.h"
 
 namespace {
 
@@ -27,15 +28,22 @@ class RetirementTest : public ::testing::TestWithParam<bool> {
 
   void SetUp() override {
     loom_serve_retirement_initialize(&retirement);
+    loom_serve_host_t* host = nullptr;
+    IREE_ASSERT_OK(
+        loom_serve_host_create(1, nullptr, iree_allocator_system(), &host));
+    iree_hal_driver_t* driver = nullptr;
+    IREE_ASSERT_OK(
+        loom_serve_test_driver_create(host, iree_allocator_system(), &driver));
     const loom_serve_device_options_t options = {
-        .uri = IREE_SV("amdgpu"),
+        .driver = driver,
+        .uri = loom_serve_test_device()->device_uri,
         .backing = LOOM_SERVE_DEVICE_BACKING_ELASTIC,
         .slab_size = kSlabBytes,
-        .memory_limit = kSlabBytes};
-    loom_serve_host_t* host = nullptr;
-    IREE_ASSERT_OK(loom_serve_host_create(1, iree_allocator_system(), &host));
+        .memory_limit = kSlabBytes,
+    };
     auto status = loom_serve_device_group_allocate(
         host, 1, &options, iree_allocator_system(), &group);
+    iree_hal_driver_release(driver);
     loom_serve_host_release(host);
     IREE_ASSERT_OK(status);
     device = loom_serve_device_group_at(group, 0);
@@ -123,14 +131,24 @@ TEST_P(RetirementTest, NestedQueueViewsOutliveFailedReadiness) {
     payload.input[i] = static_cast<uint32_t>(i * 17 + 13);
   }
   const iree_hal_transfer_operation_t operations[] = {
-      {.type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
-       .upload = {.source = payload.input.data(),
+      {
+          .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
+          .upload =
+              {
+                  .source = payload.input.data(),
                   .target_buffer = child,
-                  .length = sizeof(payload.input)}},
-      {.type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
-       .download = {.source_buffer = child,
-                    .target = payload.output.data(),
-                    .length = sizeof(payload.output)}},
+                  .length = sizeof(payload.input),
+              },
+      },
+      {
+          .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
+          .download =
+              {
+                  .source_buffer = child,
+                  .target = payload.output.data(),
+                  .length = sizeof(payload.output),
+              },
+      },
   };
   uint64_t value = 1;
   auto status = iree_hal_queue_transfer(

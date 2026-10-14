@@ -21,6 +21,7 @@
 #include "loom/serve/runtime/device/device.h"
 #include "loom/serve/runtime/execution/retirement.h"
 #include "loom/serve/runtime/storage/memory.h"
+#include "loom/serve/testing/device.h"
 
 namespace {
 
@@ -31,15 +32,22 @@ class SnapshotTest : public ::testing::Test {
  protected:
   void SetUp() override {
     loom_serve_retirement_initialize(&retirement);
+    loom_serve_host_t* host = nullptr;
+    IREE_ASSERT_OK(
+        loom_serve_host_create(1, nullptr, iree_allocator_system(), &host));
+    iree_hal_driver_t* driver = nullptr;
+    IREE_ASSERT_OK(
+        loom_serve_test_driver_create(host, iree_allocator_system(), &driver));
     const loom_serve_device_options_t options = {
-        .uri = IREE_SV("amdgpu"),
+        .driver = driver,
+        .uri = loom_serve_test_device()->device_uri,
         .backing = LOOM_SERVE_DEVICE_BACKING_ELASTIC,
         .slab_size = kSlabSize,
-        .memory_limit = 256 * kSlabSize};
-    loom_serve_host_t* host = nullptr;
-    IREE_ASSERT_OK(loom_serve_host_create(1, iree_allocator_system(), &host));
+        .memory_limit = 256 * kSlabSize,
+    };
     auto status = loom_serve_device_group_allocate(
         host, 1, &options, iree_allocator_system(), &group);
+    iree_hal_driver_release(driver);
     loom_serve_host_release(host);
     IREE_ASSERT_OK(status);
     device = loom_serve_device_group_at(group, 0);

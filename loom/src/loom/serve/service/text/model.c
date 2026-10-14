@@ -8,12 +8,11 @@
 
 #include "loom/serve/service/text/model.h"
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "iree/async/operations/semaphore.h"
-#include "iree/tooling/device_util.h"
+#include "iree/tooling/device_profiling.h"
 #include "iree/vm/buffer.h"
 #include "iree/vm/sync.h"
 #include "loom/serve/runtime/device/device.h"
@@ -714,11 +713,6 @@ iree_status_t loom_serve_text_model_allocate(
     }
   }
   if (load) {
-    loom_output_stream_t output;
-    loom_output_stream_for_file(stderr, &output);
-    status = iree_status_join(
-        status, loom_serve_compilation_write(loom_serve_text_load_report(load),
-                                             &output));
     loom_serve_text_model_t* model = loom_serve_text_load_take_model(load);
     loom_serve_text_load_free(load);
     if (iree_status_is_ok(status)) {

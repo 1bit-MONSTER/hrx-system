@@ -7,16 +7,6 @@
 #include "loom/serve/runtime/program/target.h"
 
 #include "loomc/iree.h"
-#include "loomc/target/cpu/iree_hal.h"
-#if defined(LOOM_SERVE_TARGET_AMDGPU)
-#include "loomc/target/amdgpu/iree_hal.h"
-#endif
-#if defined(LOOM_SERVE_TARGET_SPIRV)
-#include "loomc/target/spirv/iree_hal.h"
-#endif
-#if defined(LOOM_SERVE_TARGET_XDNA)
-#include "loomc/target/amd/xdna/iree_hal.h"
-#endif
 
 // Public emitter names paired with the loader families selected by LoomC.
 // CPU artifacts are architecture-specific; a CPU device does not imply x86.
@@ -42,28 +32,18 @@ static const struct {
 };
 
 iree_status_t loom_serve_target_select(
-    loomc_target_environment_t* environment, iree_hal_device_t* device,
+    loomc_target_environment_t* environment,
+    const loomc_iree_hal_target_provider_t* const* providers,
+    iree_host_size_t provider_count, iree_hal_device_t* device,
     iree_hal_physical_device_affinity_t affinity,
     loom_serve_compilation_report_t* report, iree_allocator_t host_allocator,
     loom_serve_target_t* out_target) {
   *out_target = (loom_serve_target_t){0};
-  const loomc_iree_hal_target_provider_t* providers[] = {
-      loomc_cpu_iree_hal_target_provider(),
-#if defined(LOOM_SERVE_TARGET_AMDGPU)
-      loomc_amdgpu_iree_hal_target_provider(),
-#endif
-#if defined(LOOM_SERVE_TARGET_SPIRV)
-      loomc_spirv_iree_hal_target_provider(),
-#endif
-#if defined(LOOM_SERVE_TARGET_XDNA)
-      loomc_xdna_iree_hal_target_provider(),
-#endif
-  };
   const loomc_iree_hal_target_options_t options = {
       .device = device,
       .physical_device_affinity = affinity,
       .providers = providers,
-      .provider_count = IREE_ARRAYSIZE(providers),
+      .provider_count = provider_count,
   };
   loomc_iree_hal_target_selection_t selection = {0};
   loomc_result_t* result = NULL;

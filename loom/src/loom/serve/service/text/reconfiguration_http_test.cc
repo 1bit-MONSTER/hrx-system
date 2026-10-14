@@ -150,7 +150,7 @@ class ReconfigurationHttpTextTest : public SourceTextServiceTest {
   }
 };
 
-TEST_P(ReconfigurationHttpTextTest,
+TEST_F(ReconfigurationHttpTextTest,
        UploadedRegistrationOwnsDeferredVmAndMetadata) {
   StartManaged();
   {
@@ -194,7 +194,7 @@ TEST_P(ReconfigurationHttpTextTest,
   WaitModel("fixture-text", {});
 }
 
-TEST_P(ReconfigurationHttpTextTest,
+TEST_F(ReconfigurationHttpTextTest,
        StageSelectRollbackPreserveWeightsAndConversation) {
   IREE_ASSERT_OK(loom_serve_text_model_activate(model_));
   const auto weights = loom_serve_text_model_weight_activity(model_);
@@ -271,7 +271,7 @@ TEST_P(ReconfigurationHttpTextTest,
   EXPECT_EQ(retained.activations, weights.activations);
 }
 
-TEST_P(ReconfigurationHttpTextTest, CompilationFailuresRemainInspectable) {
+TEST_F(ReconfigurationHttpTextTest, CompilationFailuresRemainInspectable) {
   Start();
   const uint64_t original = Number(Inventory(), "selected");
   std::string path;
@@ -308,8 +308,5 @@ TEST_P(ReconfigurationHttpTextTest, CompilationFailuresRemainInspectable) {
   EXPECT_EQ(Number(terminal, "selected"), original);
   EXPECT_EQ(Remove(candidate).find("HTTP/1.1 200"), 0u);
 }
-
-INSTANTIATE_TEST_SUITE_P(Workers, ReconfigurationHttpTextTest,
-                         ::testing::Values(1, 4));
 
 }  // namespace

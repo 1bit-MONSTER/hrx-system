@@ -138,7 +138,7 @@ loom_cc_library(
     iree::module::hal::types
     iree::tokenizer
     iree::tokenizer::format::huggingface::tokenizer_json
-    iree::tooling::device_util
+    iree::tooling::device_profiling
     iree::vm
     loom::binding::c::loomc
     loom::serve::runtime::device
@@ -174,7 +174,6 @@ loom_cc_library(
     iree::base
     iree::base::internal::base64
     iree::base::internal::json
-    iree::base::tooling::flags
     iree::hal
     iree::testing::gtest
     iree::testing::temp_file
@@ -195,6 +194,7 @@ loom_cc_library(
     loom::serve::testing::http_harness
     loom::serve::testing::model
     loom::serve::testing::package
+    loom::serve::testing::service_application
     loom::serve::testing::stalled_stderr
     loom::serve::transport::http::listener
     loom::serve::transport::http::server

@@ -37,10 +37,11 @@ class WorkspaceTest : public ::testing::TestWithParam<uint32_t> {
   };
 
   void SetUp() override {
-    IREE_ASSERT_OK(
-        loom_serve_host_create(GetParam(), iree_allocator_system(), &host_));
-    const loom_serve_device_options_t options[] = {{.uri = IREE_SV("task")},
-                                                   {.uri = IREE_SV("task")}};
+    IREE_ASSERT_OK(loom_serve_host_create(GetParam(), nullptr,
+                                          iree_allocator_system(), &host_));
+    const loom_serve_device_options_t options[] = {
+        {.driver = loom_serve_host_task_driver(host_), .uri = IREE_SV("task")},
+        {.driver = loom_serve_host_task_driver(host_), .uri = IREE_SV("task")}};
     IREE_ASSERT_OK(loom_serve_device_group_allocate(
         host_, IREE_ARRAYSIZE(options), options, iree_allocator_system(),
         &group_));

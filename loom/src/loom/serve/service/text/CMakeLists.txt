@@ -63,25 +63,20 @@ loom_cc_test(
 if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_cc_library(
   NAME
-    source_service_tests
-  SRCS
-    "admission_service_test.cc"
-    "checkpoint_test.cc"
+    source_service_fixture
+  HDRS
     "owner_turn_test_util.h"
-    "prefix_service_test.cc"
-    "reconfiguration_http_test.cc"
     "service_test_fixture.h"
-    "source_service_test.cc"
     "source_test_oracle.h"
     "stalled_client_test_util.h"
-    "variant_test.cc"
+  SRCS
+    "service_test_fixture.cc"
   DEPS
     iree::async
     iree::async::platform
     iree::base
     iree::base::internal::json
     iree::base::threading
-    iree::base::tooling::flags
     iree::net::carrier
     iree::net::carrier::loopback
     iree::task
@@ -105,9 +100,163 @@ loom_cc_library(
     loom::serve::testing::http_harness
     loom::serve::testing::model
     loom::serve::testing::package
+    loom::serve::testing::service_application
     loom::serve::testing::stalled_stderr
     loom::serve::transport::http::listener
     loom::serve::transport::http::server
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_library(
+  NAME
+    source_lifecycle_tests
+  SRCS
+    "source_lifecycle_test.cc"
+  DEPS
+    ::source_service_fixture
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_library(
+  NAME
+    source_cache_tests
+  SRCS
+    "source_cache_test.cc"
+  DEPS
+    ::source_service_fixture
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_library(
+  NAME
+    admission_service_tests
+  SRCS
+    "admission_service_test.cc"
+  DEPS
+    ::source_service_fixture
+    ::telemetry
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_library(
+  NAME
+    checkpoint_tests
+  SRCS
+    "checkpoint_test.cc"
+  DEPS
+    ::source_service_fixture
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_library(
+  NAME
+    prefix_service_tests
+  SRCS
+    "prefix_service_test.cc"
+  DEPS
+    ::source_service_fixture
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_library(
+  NAME
+    reconfiguration_http_tests
+  SRCS
+    "reconfiguration_http_test.cc"
+  DEPS
+    ::source_service_fixture
+    iree::base::internal::json
+    loom::binding::c::loomc
+    loom::serve::testing::package
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_library(
+  NAME
+    variant_tests
+  SRCS
+    "variant_test.cc"
+  DEPS
+    ::source_service_fixture
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_library(
+  NAME
+    source_reference_tests
+  DEPS
+    ::source_execution_tests
+    ::source_lifecycle_tests
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_library(
+  NAME
+    source_execution_tests
+  SRCS
+    "source_execution_test.cc"
+  DEPS
+    ::source_service_fixture
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_library(
+  NAME
+    source_reconfiguration_tests
+  DEPS
+    ::reconfiguration_http_tests
+    ::variant_tests
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_library(
+  NAME
+    elastic_storage_tests
+  SRCS
+    "elastic_storage_test.cc"
+  DEPS
+    ::source_service_fixture
   TESTONLY
   ALWAYSLINK
   PUBLIC
@@ -202,7 +351,7 @@ loom_cc_library(
     iree::tokenizer
     iree::tokenizer::format::huggingface::tokenizer_json
     iree::tokenizer::vocab
-    iree::tooling::device_util
+    iree::tooling::device_profiling
     iree::vm
     loom::binding::c::loomc
     loom::serve::runtime::device

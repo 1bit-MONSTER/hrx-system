@@ -12,8 +12,8 @@ namespace {
 class CpuDeviceTest : public ::testing::TestWithParam<uint32_t> {
  protected:
   void SetUp() override {
-    IREE_ASSERT_OK(
-        loom_serve_host_create(GetParam(), iree_allocator_system(), &host_));
+    IREE_ASSERT_OK(loom_serve_host_create(GetParam(), nullptr,
+                                          iree_allocator_system(), &host_));
   }
 
   void TearDown() override {
@@ -28,8 +28,9 @@ class CpuDeviceTest : public ::testing::TestWithParam<uint32_t> {
 };
 
 TEST_P(CpuDeviceTest, DevicesUseApplicationWorkerBudgetAndOneGroup) {
-  const loom_serve_device_options_t options[] = {{.uri = IREE_SV("task")},
-                                                 {.uri = IREE_SV("task")}};
+  const loom_serve_device_options_t options[] = {
+      {.driver = loom_serve_host_task_driver(host_), .uri = IREE_SV("task")},
+      {.driver = loom_serve_host_task_driver(host_), .uri = IREE_SV("task")}};
   IREE_ASSERT_OK(
       loom_serve_device_group_allocate(host_, IREE_ARRAYSIZE(options), options,
                                        iree_allocator_system(), &group_));
@@ -51,7 +52,11 @@ TEST_P(CpuDeviceTest, DevicesUseApplicationWorkerBudgetAndOneGroup) {
 
 TEST_P(CpuDeviceTest, LaterUriFailureReleasesBorrowedWorkers) {
   const loom_serve_device_options_t options[] = {
-      {.uri = IREE_SV("task")}, {.uri = IREE_SV("task://missing")}};
+      {.driver = loom_serve_host_task_driver(host_), .uri = IREE_SV("task")},
+      {
+          .driver = loom_serve_host_task_driver(host_),
+          .uri = IREE_SV("task://missing"),
+      }};
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_NOT_FOUND,
       loom_serve_device_group_allocate(host_, IREE_ARRAYSIZE(options), options,

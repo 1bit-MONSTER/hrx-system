@@ -9,6 +9,39 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)
+loom_cc_library(
+  NAME
+    test_compiler
+  SRCS
+    "test_compiler.c"
+  DEPS
+    loom::binding::c::target::amd::xdna
+    loom::binding::c::target::amd::xdna::iree_hal
+    loom::serve::testing::compiler
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(IREE_HAL_DRIVER_XDNA)
+loom_cc_library(
+  NAME
+    test_device
+  SRCS
+    "test_device.c"
+  DEPS
+    iree::base
+    iree::hal
+    iree::hal::drivers::amd::registration
+    loom::serve::testing::device
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
 if(LOOM_TARGET_ARCH_VM AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_XDNA AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_cc_test(
   NAME
@@ -25,13 +58,13 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/weights.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/serve/testdata/resident_embedding.loom"
   DEPS
+    ::test_compiler
+    ::test_device
     iree::testing::gtest_main
-    loom::serve::service::finite::embedding::source_service_tests
-  ARGS
-    "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom}}"
-    "--test_device=xdna"
-    "--direct_stage_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/serve/testdata/resident_embedding.loom}}"
-    "--gtest_filter=*DirectDispatch*"
+    loom::serve::service::finite::embedding::direct_dispatch_tests
+  ENV
+    "LOOM_SERVE_TEST_DIRECT_STAGE_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/serve/testdata/resident_embedding.loom}}"
+    "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom}}"
   LABELS
     "iree-run-requirement=libamdf.resource.xdna"
     "runtime-resource=amd-xdna"

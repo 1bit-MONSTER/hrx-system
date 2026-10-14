@@ -9,21 +9,9 @@
 
 iree_add_all_subdirs()
 
-set(_device_platform_copts "")
-if(IREE_HAL_DRIVER_TASK)
-  list(APPEND _device_platform_copts "-DLOOM_SERVE_DRIVER_TASK=1")
-endif()
-set(_device_platform_deps "")
-if(IREE_HAL_DRIVER_TASK)
-  list(APPEND _device_platform_deps iree::hal::drivers::task::driver)
-  list(APPEND _device_platform_deps iree::hal::drivers::task::executable::loader)
-  list(APPEND _device_platform_deps iree::hal::drivers::task::executable::loaders::registration)
-endif()
 loom_cc_library(
   NAME
     device
-  COPTS
-    ${_device_platform_copts}
   HDRS
     "device.h"
   SRCS
@@ -32,17 +20,14 @@ loom_cc_library(
     iree::async
     iree::async::util::proactor_pool
     iree::base
-    iree::base::internal::path
     iree::base::threading
     iree::hal
-    iree::hal::drivers
-    iree::tooling::device_util
+    iree::tooling::device_profiling
     loom::serve::runtime::execution
     loom::serve::runtime::execution::workspace
     loom::serve::runtime::host
     loom::serve::runtime::parameter::residency
     loom::serve::runtime::storage::memory
-    ${_device_platform_deps}
   PUBLIC
 )
 

@@ -33,9 +33,10 @@ class ResourcesTest : public ::testing::Test {
   }
   iree_status_t CreateCpuGroup() {
     IREE_RETURN_IF_ERROR(
-        loom_serve_host_create(1, iree_allocator_system(), &host_));
-    const loom_serve_device_options_t options[] = {{.uri = IREE_SV("task")},
-                                                   {.uri = IREE_SV("task")}};
+        loom_serve_host_create(1, nullptr, iree_allocator_system(), &host_));
+    const loom_serve_device_options_t options[] = {
+        {.driver = loom_serve_host_task_driver(host_), .uri = IREE_SV("task")},
+        {.driver = loom_serve_host_task_driver(host_), .uri = IREE_SV("task")}};
     return loom_serve_device_group_allocate(host_, IREE_ARRAYSIZE(options),
                                             options, iree_allocator_system(),
                                             &group_);

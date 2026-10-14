@@ -7,15 +7,19 @@
 #ifndef LOOM_TOOLS_LOOM_SERVE_OPTIONS_H_
 #define LOOM_TOOLS_LOOM_SERVE_OPTIONS_H_
 
+#include "iree/hal/driver_registry.h"
 #include "loom/serve/runtime/device/device.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// CLI leaf creating shared application workers and I/O infrastructure.
-iree_status_t loom_serve_host_create_from_flags(iree_allocator_t host_allocator,
-                                                loom_serve_host_t** out_host);
+// CLI leaf creating shared application workers and I/O infrastructure. Compiler
+// options may be NULL for a runtime-only application; source JIT requests then
+// fail at the compiler boundary.
+iree_status_t loom_serve_host_create_from_flags(
+    const loom_serve_compiler_options_t* compiler_options,
+    iree_allocator_t host_allocator, loom_serve_host_t** out_host);
 
 // CLI leaf constructing the application group from ordered, explicit device
 // URIs. Backing strategy and slab size apply to every record. A nonzero
@@ -24,8 +28,8 @@ iree_status_t loom_serve_host_create_from_flags(iree_allocator_t host_allocator,
 // interpretation belongs to the HAL driver, with no implicit local device or
 // backend fallback.
 iree_status_t loom_serve_device_group_allocate_from_flags(
-    loom_serve_host_t* host, iree_allocator_t host_allocator,
-    loom_serve_device_group_t** out_group);
+    loom_serve_host_t* host, iree_hal_driver_registry_t* driver_registry,
+    iree_allocator_t host_allocator, loom_serve_device_group_t** out_group);
 
 #ifdef __cplusplus
 }  // extern "C"

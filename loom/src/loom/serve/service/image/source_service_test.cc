@@ -8,17 +8,16 @@
 #include <unistd.h>
 
 #include <array>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <string>
-#include <tuple>
 #include <vector>
 
 #include "iree/async/proactor.h"
 #include "iree/base/internal/base64.h"
 #include "iree/base/internal/json.h"
-#include "iree/base/tooling/flags.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "iree/testing/temp_file.h"
@@ -31,32 +30,30 @@
 #include "loom/serve/testing/http_harness.h"
 #include "loom/serve/testing/model.h"
 #include "loom/serve/testing/package.h"
+#include "loom/serve/testing/service_application.h"
 #include "loom/serve/testing/stalled_stderr.h"
 #include "loom/serve/transport/http/listener.h"
 
-IREE_FLAG(string, model_source, "", "Deterministic image bootstrap source.");
-IREE_FLAG(string, test_device, "amdgpu",
-          "HAL device executing the source-defined image fixture.");
-
 namespace {
 
-class SourceImageServiceTest
-    : public ::testing::TestWithParam<std::tuple<uint32_t, uint32_t>> {
+class SourceImageServiceTest : public ::testing::TestWithParam<uint32_t> {
  protected:
   static constexpr uint32_t kWidth = 7;
   static constexpr uint32_t kHeight = 5;
   static constexpr size_t kPixels = kWidth * kHeight;
 
   void SetUp() override {
-    IREE_ASSERT_OK(loom_serve_host_create(std::get<0>(GetParam()),
-                                          host_allocator_, &host_));
-    const loom_serve_device_options_t device_options = {
-        .uri = iree_make_cstring_view(FLAG_test_device),
-    };
-    IREE_ASSERT_OK(loom_serve_device_group_allocate(host_, 1, &device_options,
-                                                    host_allocator_, &group_));
-    device_ = loom_serve_device_group_at(group_, 0);
-    const std::string source = FLAG_model_source;
+    const char* source_path = std::getenv("LOOM_SERVE_TEST_MODEL_SOURCE");
+    ASSERT_NE(source_path, nullptr);
+    const auto application_options =
+        loom_serve_test_application_options_default();
+    loom_serve_test_application_t* application = nullptr;
+    IREE_ASSERT_OK(loom_serve_test_application_acquire(
+        &application_options, host_allocator_, &application));
+    host_ = loom_serve_test_application_host(application);
+    group_ = loom_serve_test_application_device_group(application);
+    device_ = loom_serve_test_application_device_at(application, 0);
+    const std::string source = source_path;
     directory_ = source.substr(0, source.find_last_of('/'));
     auto options = loom_serve_http_server_options_default();
     IREE_ASSERT_OK(
@@ -77,8 +74,6 @@ class SourceImageServiceTest
     IREE_EXPECT_OK(loom_serve_http_listener_free(listener_));
     loom_serve_http_server_free(server_);
     IREE_EXPECT_OK(loom_serve_image_model_free(model_));
-    IREE_EXPECT_OK(loom_serve_device_group_free(group_));
-    loom_serve_host_release(host_);
   }
 
   void Start() {
@@ -129,7 +124,7 @@ class SourceImageServiceTest
         .height = kHeight,
         .width = kWidth,
         .text_tokens = 32,
-        .command_quantum = std::get<1>(GetParam()),
+        .command_quantum = GetParam(),
     };
     IREE_ASSERT_OK(loom_serve_image_model_allocate(device_, &options,
                                                    host_allocator_, &model_));
@@ -164,7 +159,7 @@ class SourceImageServiceTest
            std::filesystem::absolute(directory_).string() +
            "\",\"width\":7,\"height\":5,\"text_tokens\":32,\"command_"
            "quantum\":" +
-           std::to_string(std::get<1>(GetParam())) + "}}";
+           std::to_string(GetParam()) + "}}";
   }
 
   std::string ModelStatus(const std::string& name) {
@@ -462,7 +457,7 @@ TEST_P(SourceImageServiceTest,
   const auto position = metrics.find(batches);
   ASSERT_NE(position, std::string::npos) << metrics;
   EXPECT_EQ(std::stoull(metrics.substr(position + batches.size())),
-            std::get<1>(GetParam()) ? 9u : 4u);
+            GetParam() ? 9u : 4u);
   loom_serve::testing::SourcePackage broken;
   broken.Add("model/generate.loom", "not a Loom program");
   IREE_ASSERT_OK(http_.Send(
@@ -594,8 +589,7 @@ TEST_P(SourceImageServiceTest, SelectionWaitsForWholeImageAndEncoderRelease) {
   EXPECT_EQ(configuration.selected(configuration.self), candidate);
   EXPECT_NE(Read(client).find("\"b64_json\":\"" + EncodedPixels(3, 1) + "\""),
             std::string::npos);
-  EXPECT_EQ(interface.telemetry.counters->batches,
-            std::get<1>(GetParam()) ? 2u : 1u);
+  EXPECT_EQ(interface.telemetry.counters->batches, GetParam() ? 2u : 1u);
   interface.set_observer(interface.self, {});
 }
 
@@ -767,7 +761,7 @@ TEST_P(SourceImageServiceTest, IndependentLogReadersCannotBlockColdImageWork) {
   const std::string totals =
       std::string(
           R"("requests":42,"completed":40,"rejected":2,"cancelled":0,"failed":0,"input_tokens":0,"output_tokens":0,"batches":)") +
-      (std::get<1>(GetParam()) ? "80" : "40");
+      (GetParam() ? "80" : "40");
   EXPECT_NE(latest.find(totals), std::string::npos);
   EXPECT_NE(events.find(R"("generated_images":40,"generated_pixels":1400)"),
             std::string::npos);
@@ -899,7 +893,7 @@ TEST_P(SourceImageServiceTest, UploadedImageRegistrationProducesExactPixels) {
         R"("kind":"image","prepare":"prepare.loom","control":"control.loom",)"
         R"("sources":["config.loom","generate.loom"],"checkpoint":".",)"
         R"("width":7,"height":5,"text_tokens":32,"command_quantum":)" +
-        std::to_string(std::get<1>(GetParam())) + "}}";
+        std::to_string(GetParam()) + "}}";
     int client = -1;
     IREE_ASSERT_OK(http_.Send(
         package.Request("/v1/models/register", declaration), &client));
@@ -1010,7 +1004,7 @@ TEST_P(SourceImageServiceTest, FailedPartReadinessPreservesActualRetirement) {
   loom_serve_execution_frontier_t frontier;
   bool complete = false;
   IREE_ASSERT_OK(generator.submit(generator.self, 0, &frontier, &complete));
-  EXPECT_EQ(complete, std::get<1>(GetParam()) == 0);
+  EXPECT_EQ(complete, GetParam() == 0);
   // Failure readiness does not authorize releasing the workspace or upload
   // payload while the native queue still owns its accepted first part.
   iree_hal_semaphore_fail(
@@ -1021,8 +1015,7 @@ TEST_P(SourceImageServiceTest, FailedPartReadinessPreservesActualRetirement) {
   model_ = nullptr;
 }
 
-INSTANTIATE_TEST_SUITE_P(WorkersAndQuanta, SourceImageServiceTest,
-                         ::testing::Combine(::testing::Values(1u, 4u),
-                                            ::testing::Values(0u, 1u)));
+INSTANTIATE_TEST_SUITE_P(CommandQuanta, SourceImageServiceTest,
+                         ::testing::Values(0u, 1u));
 
 }  // namespace

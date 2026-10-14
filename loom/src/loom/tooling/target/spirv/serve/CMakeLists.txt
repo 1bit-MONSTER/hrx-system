@@ -9,6 +9,51 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND IREE_HAL_DRIVER_VULKAN AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
+loom_cc_library(
+  NAME
+    test_compiler
+  SRCS
+    "test_compiler.c"
+  DEPS
+    loom::binding::c::target::spirv
+    loom::binding::c::target::spirv::iree_hal
+    loom::serve::testing::compiler
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND IREE_HAL_DRIVER_VULKAN AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
+loom_cc_binary(
+  NAME
+    loom-serve-test-tool
+  DEPS
+    ::test_compiler
+    ::test_device
+    loom::serve::testing::server_test_tool
+  TESTONLY
+)
+endif()
+
+if(IREE_HAL_DRIVER_VULKAN AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
+loom_cc_library(
+  NAME
+    test_device
+  SRCS
+    "test_device.c"
+  DEPS
+    iree::base
+    iree::hal
+    iree::hal::drivers::vulkan::registration
+    loom::serve::testing::device
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
 if(LOOM_TARGET_ARCH_VM AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_cc_test(
   NAME
@@ -21,11 +66,12 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/prepare.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/tokenizer.json"
   DEPS
+    ::test_compiler
+    ::test_device
     iree::testing::gtest_main
     loom::serve::service::image::source_service_tests
-  ARGS
-    "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/prepare.loom}}"
-    "--test_device=vulkan"
+  ENV
+    "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/prepare.loom}}"
   LABELS
     "iree-run-requirement=vulkan.resource.device"
     "iree-build-requirement=loom.target.arch.spirv"
@@ -44,7 +90,7 @@ iree_py_test(
   SRCS
     "../../../../serve/server/catalog_test.py"
   ARGS
-    "--server={{$<TARGET_FILE:loom::tools::loom-serve::loom-serve>}}"
+    "--server={{$<TARGET_FILE:loom::tooling::target::spirv::serve::loom-serve-test-tool>}}"
     "--fixture={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/model.json}}"
     "--fixture={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/model.json}}"
     "--fixture={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/decision/model.json}}"
@@ -75,7 +121,7 @@ iree_py_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/tokenizer.json"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/weights.loom"
-    "loom::tools::loom-serve::loom-serve"
+    "loom::tooling::target::spirv::serve::loom-serve-test-tool"
   DEPS
     loom::serve::server::catalog_test_util
     loom::serve::testing::http
@@ -109,12 +155,13 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/tokenizer.json"
   DEPS
+    ::test_compiler
+    ::test_device
     iree::testing::gtest_main
     loom::serve::service::finite::decision::source_service_tests
-  ARGS
-    "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/decision/prepare.loom}}"
-    "--embedding_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom}}"
-    "--test_device=vulkan"
+  ENV
+    "LOOM_SERVE_TEST_EMBEDDING_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom}}"
+    "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/decision/prepare.loom}}"
   LABELS
     "iree-run-requirement=vulkan.resource.device"
     "iree-build-requirement=loom.target.arch.spirv"
@@ -139,12 +186,13 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/policy.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/weights.loom"
   DEPS
+    ::test_compiler
+    ::test_device
     iree::testing::gtest_main
-    loom::serve::service::finite::embedding::source_service_tests
-  ARGS
-    "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom}}"
-    "--test_device=vulkan"
-    "--gtest_filter=Workers/SourceEmbeddingServiceTest.*"
+    loom::serve::service::finite::embedding::direct_dispatch_tests
+    loom::serve::service::finite::embedding::source_execution_tests
+  ENV
+    "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom}}"
   LABELS
     "iree-run-requirement=vulkan.resource.device"
     "iree-build-requirement=loom.target.arch.spirv"
@@ -166,12 +214,12 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/tokenizer.json"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/weights.loom"
   DEPS
+    ::test_compiler
+    ::test_device
     iree::testing::gtest_main
-    loom::serve::service::text::source_service_tests
-  ARGS
-    "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom}}"
-    "--test_device=vulkan"
-    "--gtest_filter=-Workers/ElasticTextServiceTest.*"
+    loom::serve::service::text::source_execution_tests
+  ENV
+    "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom}}"
   LABELS
     "iree-run-requirement=vulkan.resource.device"
     "iree-build-requirement=loom.target.arch.spirv"

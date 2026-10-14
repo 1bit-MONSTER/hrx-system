@@ -20,6 +20,7 @@ loom_cc_library(
     iree::base
     iree::base::internal::arena
     iree::base::tooling::flags
+    iree::tooling::device_profiling
     iree::tooling::device_util
     iree::tooling::value_io
     loom::binding::c::loomc

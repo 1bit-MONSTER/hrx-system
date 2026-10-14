@@ -21,6 +21,8 @@
 #include "loom/serve/runtime/execution/execution.h"
 #include "loom/serve/runtime/parameter/activation.h"
 #include "loom/serve/runtime/parameter/residency.h"
+#include "loom/serve/testing/compiler.h"
+#include "loom/serve/testing/device.h"
 
 IREE_FLAG(string, weight_sources, "", "Weight loader source catalog.");
 
@@ -120,9 +122,13 @@ struct Activation {
     }
     const iree_hal_transfer_operation_t download = {
         .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
-        .download = {.source_buffer = self->output,
-                     .target = self->readback->data(),
-                     .length = sizeof(*self->readback)}};
+        .download =
+            {
+                .source_buffer = self->output,
+                .target = self->readback->data(),
+                .length = sizeof(*self->readback),
+            },
+    };
     if (iree_status_is_ok(status)) {
       status = loom_serve_execution_feedback(self->execution, 1, &download,
                                              &completion);
@@ -285,16 +291,22 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
   }
 
   void SetUp() override {
+    loom_serve_host_t* host = nullptr;
+    IREE_ASSERT_OK(loom_serve_test_host_create(1, host_allocator_, &host));
+    iree_hal_driver_t* driver = nullptr;
+    IREE_ASSERT_OK(
+        loom_serve_test_driver_create(host, host_allocator_, &driver));
     const loom_serve_device_options_t options = {
+        .driver = driver,
         .uri = IREE_SV("amdgpu:?feedback"),
         .backing = GetParam() ? LOOM_SERVE_DEVICE_BACKING_ELASTIC
                               : LOOM_SERVE_DEVICE_BACKING_FIXED,
         .slab_size = kSlabBytes,
-        .memory_limit = GetParam() ? 2 * kSlabBytes : 0};
-    loom_serve_host_t* host = nullptr;
-    IREE_ASSERT_OK(loom_serve_host_create(1, host_allocator_, &host));
+        .memory_limit = GetParam() ? 2 * kSlabBytes : 0,
+    };
     auto status = loom_serve_device_group_allocate(host, 1, &options,
                                                    host_allocator_, &group_);
+    iree_hal_driver_release(driver);
     loom_serve_host_release(host);
     IREE_ASSERT_OK(status);
     device_owner_ = loom_serve_device_group_at(group_, 0);
@@ -310,7 +322,8 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
     const loom_serve_sources_t sources = {
         .base_directory = iree_make_cstring_view(directory_.c_str()),
         .count = IREE_ARRAYSIZE(providers),
-        .values = providers};
+        .values = providers,
+    };
     IREE_ASSERT_OK(loom_serve_jit_allocate(
         device_, dispatch_, loom_serve_device_host(device_owner_), &sources,
         nullptr, &compilation_, host_allocator_, &jit_));
@@ -447,8 +460,9 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
     uint64_t completion = 0;
     IREE_ASSERT_OK(loom_serve_execution_execute(execution_, commands_[index],
                                                 {1, &binding}, &completion));
-    iree_hal_transfer_operation_t download = {};
-    download.type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD;
+    iree_hal_transfer_operation_t download = {
+        .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
+    };
     download.download.source_buffer = output_buffer_;
     download.download.target = output_.data();
     download.download.length = sizeof(output_);
@@ -707,10 +721,14 @@ TEST_P(WeightsTest, CachedConsumersSurviveBackingReuseAndPreparationReplay) {
   const uint32_t poison = 0xDEADBEEF;
   const iree_hal_transfer_operation_t fill = {
       .type = IREE_HAL_TRANSFER_OPERATION_TYPE_FILL,
-      .fill = {.target_buffer = loom_serve_virtual_buffer_handle(other),
-               .length = 2 * kSlabBytes,
-               .pattern = &poison,
-               .pattern_length = sizeof(poison)}};
+      .fill =
+          {
+              .target_buffer = loom_serve_virtual_buffer_handle(other),
+              .length = 2 * kSlabBytes,
+              .pattern = &poison,
+              .pattern_length = sizeof(poison),
+          },
+  };
   uint64_t completion = 0;
   IREE_ASSERT_OK(
       loom_serve_execution_transfer(execution_, 1, &fill, &completion));
@@ -1189,10 +1207,14 @@ TEST_P(WeightsTest, MutableGrowthReclaimsIdleParametersWithoutDiscardingState) {
   uint32_t observed = 0;
   const iree_hal_transfer_operation_t fill = {
       .type = IREE_HAL_TRANSFER_OPERATION_TYPE_FILL,
-      .fill = {.target_buffer = loom_serve_virtual_buffer_handle(state_),
-               .length = sizeof(value),
-               .pattern = &value,
-               .pattern_length = sizeof(value)}};
+      .fill =
+          {
+              .target_buffer = loom_serve_virtual_buffer_handle(state_),
+              .length = sizeof(value),
+              .pattern = &value,
+              .pattern_length = sizeof(value),
+          },
+  };
   uint64_t completion = 0;
   IREE_ASSERT_OK(
       loom_serve_execution_transfer(execution_, 1, &fill, &completion));
@@ -1205,9 +1227,13 @@ TEST_P(WeightsTest, MutableGrowthReclaimsIdleParametersWithoutDiscardingState) {
   EXPECT_EQ(state_statistics_.committed_bytes, 2 * kSlabBytes);
   const iree_hal_transfer_operation_t download = {
       .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
-      .download = {.source_buffer = loom_serve_virtual_buffer_handle(state_),
-                   .target = &observed,
-                   .length = sizeof(observed)}};
+      .download =
+          {
+              .source_buffer = loom_serve_virtual_buffer_handle(state_),
+              .target = &observed,
+              .length = sizeof(observed),
+          },
+  };
   IREE_ASSERT_OK(
       loom_serve_execution_feedback(execution_, 1, &download, &completion));
   IREE_ASSERT_OK(loom_serve_execution_feedback_wait(execution_, completion));
@@ -1233,7 +1259,9 @@ TEST_P(WeightsTest,
   IREE_ASSERT_OK(
       loom_serve_execution_reserve_workspace(execution_, kSlabBytes, 256));
   const iree_hal_pool_reservation_request_t request = {
-      .allocation_size = kSlabBytes, .min_alignment = 256};
+      .allocation_size = kSlabBytes,
+      .min_alignment = 256,
+  };
   IREE_ASSERT_OK(
       loom_serve_execution_alloca(execution_, &request, &workspace_));
   uint64_t completion = 0;

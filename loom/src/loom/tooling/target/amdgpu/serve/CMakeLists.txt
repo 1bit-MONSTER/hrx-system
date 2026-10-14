@@ -9,6 +9,51 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_cc_library(
+  NAME
+    test_compiler
+  SRCS
+    "test_compiler.c"
+  DEPS
+    loom::binding::c::target::amdgpu
+    loom::binding::c::target::amdgpu::iree_hal
+    loom::serve::testing::compiler
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_cc_binary(
+  NAME
+    loom-serve-test-tool
+  DEPS
+    ::test_compiler
+    ::test_device
+    loom::serve::testing::server_test_tool
+  TESTONLY
+)
+endif()
+
+if(IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_cc_library(
+  NAME
+    test_device
+  SRCS
+    "test_device.c"
+  DEPS
+    iree::base
+    iree::hal
+    iree::hal::drivers::amdgpu::registration
+    loom::serve::testing::device
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
 if(LOOM_TARGET_ARCH_VM AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 loom_cc_test(
   NAME
@@ -19,13 +64,14 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/control/control.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/control/kernels.loom"
   DEPS
+    ::test_compiler
+    ::test_device
     iree::async
     iree::async::util::proactor_pool
     iree::base
     iree::base::threading
     iree::base::tooling::flags
     iree::hal
-    iree::hal::drivers
     iree::module::hal::types
     iree::testing::gtest
     iree::testing::gtest_main
@@ -37,6 +83,8 @@ loom_cc_test(
     loom::serve::runtime::host
     loom::serve::runtime::program::jit
     loom::serve::runtime::program::module
+    loom::serve::testing::compiler
+    loom::serve::testing::device
   ARGS
     "--control_sources={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/control/kernels.loom}}"
   LABELS
@@ -56,6 +104,7 @@ loom_cc_test(
   SRCS
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/device/device_group_test.cc"
   DEPS
+    ::test_device
     iree::base
     iree::hal
     iree::testing::gtest
@@ -64,6 +113,7 @@ loom_cc_test(
     loom::serve::runtime::execution
     loom::serve::runtime::host
     loom::serve::runtime::storage::memory
+    loom::serve::testing::device
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
     "notsan"
@@ -83,7 +133,7 @@ iree_py_test(
   SRCS
     "../../../../serve/server/catalog_test.py"
   ARGS
-    "--server={{$<TARGET_FILE:loom::tools::loom-serve::loom-serve>}}"
+    "--server={{$<TARGET_FILE:loom::tooling::target::amdgpu::serve::loom-serve-test-tool>}}"
     "--fixture={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/model.json}}"
     "--fixture={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/model.json}}"
     "--fixture={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/decision/model.json}}"
@@ -114,7 +164,7 @@ iree_py_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/tokenizer.json"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/weights.loom"
-    "loom::tools::loom-serve::loom-serve"
+    "loom::tooling::target::amdgpu::serve::loom-serve-test-tool"
   DEPS
     loom::serve::server::catalog_test_util
     loom::serve::testing::http
@@ -141,7 +191,7 @@ iree_py_test(
   SRCS
     "../../../../serve/server/catalog_test.py"
   ARGS
-    "--server={{$<TARGET_FILE:loom::tools::loom-serve::loom-serve>}}"
+    "--server={{$<TARGET_FILE:loom::tooling::target::amdgpu::serve::loom-serve-test-tool>}}"
     "--fixture={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/model.json}}"
     "--fixture={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/model.json}}"
     "--fixture={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/decision/model.json}}"
@@ -172,7 +222,7 @@ iree_py_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/tokenizer.json"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/weights.loom"
-    "loom::tools::loom-serve::loom-serve"
+    "loom::tooling::target::amdgpu::serve::loom-serve-test-tool"
   DEPS
     loom::serve::server::catalog_test_util
     loom::serve::testing::http
@@ -199,7 +249,7 @@ iree_py_test(
   SRCS
     "../../../../serve/server/pressure_test.py"
   ARGS
-    "--server={{$<TARGET_FILE:loom::tools::loom-serve::loom-serve>}}"
+    "--server={{$<TARGET_FILE:loom::tooling::target::amdgpu::serve::loom-serve-test-tool>}}"
     "--source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom}}"
   DATA
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/advance.loom"
@@ -208,7 +258,7 @@ iree_py_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/tokenizer.json"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/weights.loom"
-    "loom::tools::loom-serve::loom-serve"
+    "loom::tooling::target::amdgpu::serve::loom-serve-test-tool"
   DEPS
     loom::serve::testing::http
   LABELS
@@ -241,12 +291,13 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/tokenizer.json"
   DEPS
+    ::test_compiler
+    ::test_device
     iree::testing::gtest_main
     loom::serve::service::finite::decision::source_service_tests
-  ARGS
-    "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/decision/prepare.loom}}"
-    "--embedding_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom}}"
-    "--test_device=amdgpu"
+  ENV
+    "LOOM_SERVE_TEST_EMBEDDING_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom}}"
+    "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/decision/prepare.loom}}"
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
     "notsan"
@@ -272,11 +323,14 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/policy.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/weights.loom"
   DEPS
+    ::test_compiler
+    ::test_device
     iree::testing::gtest_main
-    loom::serve::service::finite::embedding::source_service_tests
-  ARGS
-    "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom}}"
-    "--test_device=amdgpu"
+    loom::serve::service::finite::embedding::direct_dispatch_tests
+    loom::serve::service::finite::embedding::elastic_storage_tests
+    loom::serve::service::finite::embedding::source_execution_tests
+  ENV
+    "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom}}"
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
     "notsan"
@@ -299,11 +353,13 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/tokenizer.json"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/weights.loom"
   DEPS
+    ::test_compiler
+    ::test_device
     iree::testing::gtest_main
-    loom::serve::service::text::source_service_tests
-  ARGS
-    "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom}}"
-    "--test_device=amdgpu"
+    loom::serve::service::text::elastic_storage_tests
+    loom::serve::service::text::source_execution_tests
+  ENV
+    "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom}}"
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
     "notsan"
@@ -326,11 +382,12 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/prepare.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/tokenizer.json"
   DEPS
+    ::test_compiler
+    ::test_device
     iree::testing::gtest_main
     loom::serve::service::image::source_service_tests
-  ARGS
-    "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/prepare.loom}}"
-    "--test_device=amdgpu"
+  ENV
+    "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/prepare.loom}}"
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
     "notsan"
@@ -348,6 +405,7 @@ loom_cc_test(
   SRCS
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/service/image/service_linux_test.cc"
   DEPS
+    ::test_device
     iree::async
     iree::base
     iree::base::threading
@@ -362,6 +420,7 @@ loom_cc_test(
     loom::serve::service::image::service
     loom::serve::telemetry::record
     loom::serve::telemetry::stream
+    loom::serve::testing::device
     loom::serve::testing::http_harness
     loom::serve::transport::http::listener
     loom::serve::transport::http::server
@@ -387,6 +446,8 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/jit/control.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/jit/stage.loom"
   DEPS
+    ::test_compiler
+    ::test_device
     iree::base
     iree::base::tooling::flags
     iree::hal
@@ -401,6 +462,8 @@ loom_cc_test(
     loom::serve::runtime::execution
     loom::serve::runtime::program::jit
     loom::serve::runtime::program::module
+    loom::serve::testing::compiler
+    loom::serve::testing::device
   ARGS
     "--jit_sources={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/jit/config.loom}}"
     "--invalid_sources={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/compilation/invalid.loom}}"
@@ -421,6 +484,7 @@ loom_cc_test(
   SRCS
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/execution/retirement_test.cc"
   DEPS
+    ::test_device
     iree::base
     iree::base::threading
     iree::hal
@@ -429,6 +493,7 @@ loom_cc_test(
     loom::serve::runtime::device
     loom::serve::runtime::execution::retirement
     loom::serve::runtime::storage::memory
+    loom::serve::testing::device
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
     "notsan"
@@ -449,6 +514,8 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/parameter/testdata/weights/policy.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/parameter/testdata/weights/stages.loom"
   DEPS
+    ::test_compiler
+    ::test_device
     iree::async
     iree::async::util::proactor_pool
     iree::base
@@ -466,6 +533,8 @@ loom_cc_test(
     loom::serve::runtime::parameter::weights
     loom::serve::runtime::program::jit
     loom::serve::runtime::storage::memory
+    loom::serve::testing::compiler
+    loom::serve::testing::device
   ARGS
     "--weight_sources={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/parameter/testdata/weights/stages.loom}}"
   LABELS
@@ -485,6 +554,7 @@ loom_cc_test(
   SRCS
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/storage/memory_test.cc"
   DEPS
+    ::test_device
     iree::base
     iree::hal
     iree::hal::memory::maintenance
@@ -493,6 +563,7 @@ loom_cc_test(
     loom::serve::runtime::device
     loom::serve::runtime::execution
     loom::serve::runtime::storage::memory
+    loom::serve::testing::device
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
     "notsan"
@@ -510,6 +581,7 @@ loom_cc_test(
   SRCS
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/storage/relocation_test.cc"
   DEPS
+    ::test_device
     iree::base
     iree::hal
     iree::testing::gtest
@@ -519,6 +591,7 @@ loom_cc_test(
     loom::serve::runtime::execution::retirement
     loom::serve::runtime::storage::memory
     loom::serve::runtime::storage::relocation
+    loom::serve::testing::device
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
     "notsan"
@@ -536,6 +609,7 @@ loom_cc_test(
   SRCS
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/storage/snapshot_test.cc"
   DEPS
+    ::test_device
     iree::async
     iree::async::util::proactor_pool
     iree::base
@@ -548,6 +622,7 @@ loom_cc_test(
     loom::serve::runtime::execution::retirement
     loom::serve::runtime::storage::memory
     loom::serve::runtime::storage::snapshot
+    loom::serve::testing::device
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
     "notsan"

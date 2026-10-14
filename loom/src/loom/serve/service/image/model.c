@@ -6,11 +6,8 @@
 
 #include "loom/serve/service/image/model.h"
 
-#include <inttypes.h>
-#include <stdio.h>
-
 #include "iree/tokenizer/format/huggingface/tokenizer_json.h"
-#include "iree/tooling/device_util.h"
+#include "iree/tooling/device_profiling.h"
 #include "iree/vm/buffer.h"
 #include "iree/vm/sync.h"
 #include "loom/serve/runtime/device/device.h"
@@ -863,57 +860,6 @@ static iree_status_t loom_serve_image_variant_select(void* self, void* value) {
   return iree_ok_status();
 }
 
-static iree_status_t loom_serve_image_model_write_residency(
-    const loom_serve_image_model_t* model, loom_output_stream_t* output) {
-  uint64_t workspace_length = 0;
-  uint64_t workspace_alignment = 0;
-  uint64_t executable_count = 0;
-  uint64_t entry_count = 0;
-  for (uint32_t i = 0; i < model->stages.count; ++i) {
-    const loom_cmd_program_t* program =
-        loom_serve_jit_stage_program(model->stages.values[i].compiled);
-    workspace_length = iree_max(
-        workspace_length, program->requirements.transient.required_byte_length);
-    workspace_alignment = iree_max(
-        workspace_alignment, program->requirements.transient.minimum_alignment);
-    executable_count += program->requirements.executable_count;
-    entry_count += program->requirements.entry_count;
-  }
-  const loom_cmd_program_t* program =
-      loom_serve_jit_stage_program(model->stages.values[0].compiled);
-  uint64_t parameter_bytes = 0;
-  for (uint32_t i = 0; i < program->requirements.fixed_buffer_count; ++i) {
-    parameter_bytes +=
-        loom_cmd_program_parameter_root_at(program, i).required_byte_length;
-  }
-  const uint64_t input_bytes = model->input_capacity;
-  IREE_RETURN_IF_ERROR(loom_output_stream_write_format(
-      output,
-      "{\"event\":\"image_residency\",\"parameter_bytes\":%" PRIu64
-      ",\"input_bytes\":%" PRIu64
-      ",\"output_bytes\":%zu"
-      ",\"workspace_bytes\":%" PRIu64 ",\"workspace_alignment\":%" PRIu64
-      ",\"kernels\":%" PRIu64 ",\"entries\":%" PRIu64 ",\"stages\":[",
-      parameter_bytes, input_bytes, model->output.data_length, workspace_length,
-      workspace_alignment, executable_count, entry_count));
-  for (uint32_t i = 0; i < model->stages.count; ++i) {
-    const image_model_stage_t* stage = &model->stages.values[i];
-    const loom_cmd_program_t* reflected =
-        loom_serve_jit_stage_program(stage->compiled);
-    IREE_RETURN_IF_ERROR(loom_output_stream_write_format(
-        output,
-        "%s{\"stage\":%u,\"tag\":%" PRId64 ",\"workspace_bytes\":%" PRIu64
-        ",\"workspace_alignment\":%" PRIu64 ",\"kernels\":%u,\"entries\":%u}",
-        i ? "," : "", i,
-        loom_serve_preparation_stage(model->preparation, i)->tag,
-        reflected->requirements.transient.required_byte_length,
-        reflected->requirements.transient.minimum_alignment,
-        reflected->requirements.executable_count,
-        reflected->requirements.entry_count));
-  }
-  return loom_output_stream_write_cstring(output, "]}\n");
-}
-
 typedef enum image_load_phase_e {
   IMAGE_LOAD_PREPARE,
   IMAGE_LOAD_STAGES,
@@ -1208,15 +1154,6 @@ iree_status_t loom_serve_image_model_allocate(
     }
   }
   if (load) {
-    loom_output_stream_t output;
-    loom_output_stream_for_file(stderr, &output);
-    status = iree_status_join(
-        status, loom_serve_compilation_write(loom_serve_image_load_report(load),
-                                             &output));
-    if (iree_status_is_ok(status)) {
-      loom_output_stream_for_file(stdout, &output);
-      status = loom_serve_image_model_write_residency(load->model, &output);
-    }
     if (iree_status_is_ok(status)) {
       *out_model = loom_serve_image_load_take_model(load);
     }

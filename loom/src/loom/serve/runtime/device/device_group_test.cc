@@ -4,17 +4,22 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include <array>
+#include <string>
 
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "loom/serve/runtime/device/device.h"
+#include "loom/serve/testing/device.h"
 
 namespace {
 
 class DeviceGroupTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    IREE_ASSERT_OK(loom_serve_host_create(1, iree_allocator_system(), &host_));
+    IREE_ASSERT_OK(
+        loom_serve_host_create(1, nullptr, iree_allocator_system(), &host_));
+    IREE_ASSERT_OK(loom_serve_test_driver_create(host_, iree_allocator_system(),
+                                                 &driver_));
   }
 
   void TearDown() override {
@@ -28,6 +33,7 @@ class DeviceGroupTest : public ::testing::Test {
       IREE_EXPECT_OK(loom_serve_virtual_buffer_free(reservation));
     }
     IREE_EXPECT_OK(loom_serve_device_group_free(group_));
+    iree_hal_driver_release(driver_);
     loom_serve_host_release(host_);
   }
 
@@ -35,6 +41,8 @@ class DeviceGroupTest : public ::testing::Test {
   static constexpr uint64_t kSlabBytes = 2 * 1024 * 1024;
   // Shared workers and asynchronous I/O outliving all device resources.
   loom_serve_host_t* host_ = nullptr;
+  // Exact physical driver supplied by the target-specific test leaf.
+  iree_hal_driver_t* driver_ = nullptr;
   // One application group, including nullable partial construction.
   loom_serve_device_group_t* group_ = nullptr;
   // Independent model-like timelines, one per device record.
@@ -48,11 +56,20 @@ class DeviceGroupTest : public ::testing::Test {
 };
 
 TEST_F(DeviceGroupTest, LaterDeviceFailureReleasesEarlierHandle) {
+  std::string invalid_uri(loom_serve_test_device()->device_uri.data,
+                          loom_serve_test_device()->device_uri.size);
+  invalid_uri.append(":?");
+  for (size_t i = 0; i <= 128; ++i) {
+    invalid_uri.append("x&");
+  }
   const loom_serve_device_options_t options[] = {
-      {.uri = IREE_SV("amdgpu")},
-      {.uri = IREE_SV("unregistered-serving-device")}};
+      {.driver = driver_, .uri = loom_serve_test_device()->device_uri},
+      {
+          .driver = driver_,
+          .uri = iree_make_string_view(invalid_uri.data(), invalid_uri.size()),
+      }};
   IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_NOT_FOUND,
+      IREE_STATUS_INVALID_ARGUMENT,
       loom_serve_device_group_allocate(host_, IREE_ARRAYSIZE(options), options,
                                        iree_allocator_system(), &group_));
   EXPECT_EQ(group_, nullptr);
@@ -60,12 +77,18 @@ TEST_F(DeviceGroupTest, LaterDeviceFailureReleasesEarlierHandle) {
 
 TEST_F(DeviceGroupTest, LaterPoolFailureReleasesSealedGroupAndEarlierPool) {
   const loom_serve_device_options_t options[] = {
-      {.uri = IREE_SV("amdgpu"),
-       .backing = LOOM_SERVE_DEVICE_BACKING_ELASTIC,
-       .slab_size = kSlabBytes},
-      {.uri = IREE_SV("amdgpu"),
-       .backing = LOOM_SERVE_DEVICE_BACKING_ELASTIC,
-       .slab_size = UINT64_MAX}};
+      {
+          .driver = driver_,
+          .uri = loom_serve_test_device()->device_uri,
+          .backing = LOOM_SERVE_DEVICE_BACKING_ELASTIC,
+          .slab_size = kSlabBytes,
+      },
+      {
+          .driver = driver_,
+          .uri = loom_serve_test_device()->device_uri,
+          .backing = LOOM_SERVE_DEVICE_BACKING_ELASTIC,
+          .slab_size = UINT64_MAX,
+      }};
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,
       loom_serve_device_group_allocate(host_, IREE_ARRAYSIZE(options), options,
@@ -75,14 +98,20 @@ TEST_F(DeviceGroupTest, LaterPoolFailureReleasesSealedGroupAndEarlierPool) {
 
 TEST_F(DeviceGroupTest, SeparateBudgetsAndWholeGroupLifetime) {
   const loom_serve_device_options_t options[] = {
-      {.uri = IREE_SV("amdgpu"),
-       .backing = LOOM_SERVE_DEVICE_BACKING_ELASTIC,
-       .slab_size = kSlabBytes,
-       .memory_limit = kSlabBytes},
-      {.uri = IREE_SV("amdgpu"),
-       .backing = LOOM_SERVE_DEVICE_BACKING_ELASTIC,
-       .slab_size = kSlabBytes,
-       .memory_limit = 2 * kSlabBytes}};
+      {
+          .driver = driver_,
+          .uri = loom_serve_test_device()->device_uri,
+          .backing = LOOM_SERVE_DEVICE_BACKING_ELASTIC,
+          .slab_size = kSlabBytes,
+          .memory_limit = kSlabBytes,
+      },
+      {
+          .driver = driver_,
+          .uri = loom_serve_test_device()->device_uri,
+          .backing = LOOM_SERVE_DEVICE_BACKING_ELASTIC,
+          .slab_size = kSlabBytes,
+          .memory_limit = 2 * kSlabBytes,
+      }};
   IREE_ASSERT_OK(
       loom_serve_device_group_allocate(host_, IREE_ARRAYSIZE(options), options,
                                        iree_allocator_system(), &group_));
@@ -116,15 +145,23 @@ TEST_F(DeviceGroupTest, SeparateBudgetsAndWholeGroupLifetime) {
     const uint32_t pattern = 0x12345678u + i;
     const iree_hal_transfer_operation_t fill = {
         .type = IREE_HAL_TRANSFER_OPERATION_TYPE_FILL,
-        .fill = {.target_buffer = buffer,
-                 .length = sizeof(pattern),
-                 .pattern = &pattern,
-                 .pattern_length = sizeof(pattern)}};
+        .fill =
+            {
+                .target_buffer = buffer,
+                .length = sizeof(pattern),
+                .pattern = &pattern,
+                .pattern_length = sizeof(pattern),
+            },
+    };
     const iree_hal_transfer_operation_t download = {
         .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
-        .download = {.source_buffer = buffer,
-                     .target = &output_[i],
-                     .length = sizeof(output_[i])}};
+        .download =
+            {
+                .source_buffer = buffer,
+                .target = &output_[i],
+                .length = sizeof(output_[i]),
+            },
+    };
     uint64_t value = 0;
     IREE_ASSERT_OK(
         loom_serve_execution_transfer(executions_[i], 1, &fill, &value));

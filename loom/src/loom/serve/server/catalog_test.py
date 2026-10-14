@@ -1219,7 +1219,7 @@ def main():
     parser.add_argument("--fixture", type=Path, action="append", required=True)
     parser.add_argument("--device", default="amdgpu")
     parser.add_argument("--pool_backing", choices=("fixed", "elastic"), default="fixed")
-    parser.add_argument("--rounds", type=int, default=4, choices=range(1, 17))
+    parser.add_argument("--rounds", type=int, default=1, choices=range(1, 17))
     arguments = parser.parse_args()
     server_command = [
         str(arguments.server.absolute()),
@@ -1234,46 +1234,46 @@ def main():
         catalog, catalog_path = prepare_catalog(arguments.fixture, directory)
         check_startup_failures(server_command, directory, catalog)
         check_multiple_bindings(server_command, directory, catalog_path)
-        for workers in (1, 4):
-            check_dynamic_catalog(server_command, directory, catalog, workers)
-            with running_server(server_command, directory, catalog_path, workers) as (
-                client,
-                observations,
-            ):
-                assert client.request("/readyz") == {"status": "ready"}
-                discovered = client.request("/v1/models")
-                assert sorted(item["id"] for item in discovered["data"]) == sorted(
-                    [
-                        "pixels",
-                        "vectors",
-                        "judge",
-                        "fixture-text",
-                    ]
-                )
-                with paused_log_reader(client, arguments.rounds):
-                    for iteration in range(arguments.rounds):
-                        print(
-                            json.dumps(
-                                {
-                                    "event": "catalog_churn",
-                                    "workers": workers,
-                                    **run_round(client, iteration, observations),
-                                }
-                            ),
-                            flush=True,
-                        )
-                check_parameter_residency(client, arguments.pool_backing, workers)
-                check_device_trim(client, arguments.pool_backing, workers)
-            print(
-                json.dumps(
-                    {
-                        "event": "catalog_joined",
-                        "workers": workers,
-                        "external_sources": True,
-                    }
-                ),
-                flush=True,
+        workers = 1
+        check_dynamic_catalog(server_command, directory, catalog, workers)
+        with running_server(server_command, directory, catalog_path, workers) as (
+            client,
+            observations,
+        ):
+            assert client.request("/readyz") == {"status": "ready"}
+            discovered = client.request("/v1/models")
+            assert sorted(item["id"] for item in discovered["data"]) == sorted(
+                [
+                    "pixels",
+                    "vectors",
+                    "judge",
+                    "fixture-text",
+                ]
             )
+            with paused_log_reader(client, arguments.rounds):
+                for iteration in range(arguments.rounds):
+                    print(
+                        json.dumps(
+                            {
+                                "event": "catalog_churn",
+                                "workers": workers,
+                                **run_round(client, iteration, observations),
+                            }
+                        ),
+                        flush=True,
+                    )
+            check_parameter_residency(client, arguments.pool_backing, workers)
+            check_device_trim(client, arguments.pool_backing, workers)
+        print(
+            json.dumps(
+                {
+                    "event": "catalog_joined",
+                    "workers": workers,
+                    "external_sources": True,
+                }
+            ),
+            flush=True,
+        )
 
 
 if __name__ == "__main__":

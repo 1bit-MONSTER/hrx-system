@@ -21,6 +21,10 @@ loom_cc_library(
     iree::async::util::proactor_thread
     iree::base
     iree::base::threading
+    iree::hal
+    iree::hal::drivers::task::driver
+    iree::hal::drivers::task::executable::loader
+    iree::hal::drivers::task::executable::loaders::registration
     iree::task
     loom::binding::c::loomc
     loom::binding::c::task_pool

@@ -6,13 +6,12 @@
 
 #include "loom/serve/service/finite/model.h"
 
-#include <stdio.h>
 #include <string.h>
 
 #include "iree/base/threading/mutex.h"
 #include "iree/base/threading/notification.h"
 #include "iree/tokenizer/format/huggingface/tokenizer_json.h"
-#include "iree/tooling/device_util.h"
+#include "iree/tooling/device_profiling.h"
 #include "iree/vm/buffer.h"
 #include "iree/vm/sync.h"
 #include "loom/serve/runtime/device/device.h"
@@ -1028,11 +1027,6 @@ iree_status_t loom_serve_finite_model_allocate(
     }
   }
   if (load) {
-    loom_output_stream_t output;
-    loom_output_stream_for_file(stderr, &output);
-    status = iree_status_join(
-        status, loom_serve_compilation_write(
-                    loom_serve_finite_load_report(load), &output));
     if (iree_status_is_ok(status)) {
       *out_model = loom_serve_finite_load_take_model(load);
     }
