@@ -28,6 +28,7 @@ def render_preamble(
     operation_names: set[str],
     scalar_names: set[str],
     vector_aliases: dict[tuple[str, tuple[int, ...], bool], str],
+    record_declarations: dict[str, tuple[tuple[str, str], ...]],
     table_lookup_declarations: set[tuple[str, str, str, str]],
     target: TargetInfo | None,
 ) -> list[str]:
@@ -36,11 +37,25 @@ def render_preamble(
     headers = {"loomcxx/kernel.h"}
     if "scalar.siluf" in operation_names:
         headers.add("loomcxx/scalar.h")
+    if "index.assume" in operation_names:
+        headers.add("loomcxx/predicate.h")
+    if "encoding.define" in operation_names:
+        headers.add("loomcxx/encoding.h")
     if operation_names & {
         "kernel.subgroup.reduce",
+        "vector.absf",
+        "vector.absi",
+        "vector.minimumf",
+        "vector.maximumf",
+        "vector.minnumf",
+        "vector.maxnumf",
         "vector.dot2f",
+        "vector.decode",
+        "vector.fragment",
         "vector.load",
+        "vector.mma",
         "vector.reduce",
+        "vector.slice",
         "vector.store",
         "vector.table.lookup",
     }:
@@ -70,6 +85,14 @@ def render_preamble(
             f"using {alias} = {base} __attribute__((ext_vector_type({dims[0]})));"
         )
     if vector_aliases:
+        preamble.append("")
+
+    for record_name, fields in record_declarations.items():
+        preamble.append(f"struct {record_name} {{")
+        preamble.extend(
+            f"  {field_type} {field_name};" for field_name, field_type in fields
+        )
+        preamble.append("};")
         preamble.append("")
 
     for function, result, table, indices in sorted(table_lookup_declarations):

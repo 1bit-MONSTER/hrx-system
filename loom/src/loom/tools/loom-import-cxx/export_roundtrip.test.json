@@ -25,6 +25,7 @@
               "unordered": [
                 "kernel.def @copy_one",
                 "kernel.workitem.id<x>",
+                "index.xori",
                 "view.subview",
                 "view.load",
                 "view.store"

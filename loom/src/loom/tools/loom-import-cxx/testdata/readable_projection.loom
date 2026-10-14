@@ -9,7 +9,9 @@ kernel.def @copy_one() {
   %workitem = index.cast %workitem_index : index to i32
   %wide_workitem = scalar.extui %workitem : i32 to i64
   %bounded_workitem = scalar.assume %wide_workitem [range(%wide_workitem, 0, 9223372036854775807)] : i64
-  %element = index.cast %bounded_workitem : i64 to index
+  %base_element = index.cast %bounded_workitem : i64 to index
+  %c1 = index.constant 1 : index
+  %element = index.xori %base_element, %c1 : index
   %slice = view.subview %input_view[%element] : view<4xf32> -> view<1xf32>
   %value = view.load %slice[0] : view<1xf32> -> f32
   %output_view = buffer.view %output[%c0] : buffer -> view<4xf32>
