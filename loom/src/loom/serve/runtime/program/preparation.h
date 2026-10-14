@@ -18,15 +18,24 @@
 extern "C" {
 #endif
 
-// A source-selected checkpoint and preparation policy for one fixed binding.
+// Source-selected checkpoint files and preparation policy for one fixed
+// binding.
 typedef struct loom_serve_preparation_parameter_t {
   // Fixed-buffer ordinal in the compiled command's parameter reflection.
   uint32_t binding;
-  // Owned resolved checkpoint path, independent of the bootstrap VM.
-  iree_string_view_t path;
+  // Owned resolved paths in registration order, independent of the bootstrap
+  // VM.
+  iree_string_view_list_t paths;
   // Owned preparation-policy path, relative to the bootstrap source directory.
   iree_string_view_t policy;
 } loom_serve_preparation_parameter_t;
+
+// Compares checkpoint domains by their ordered file lists and preparation
+// policy. Binding ordinals are local to each command and do not affect domain
+// identity.
+bool loom_serve_preparation_parameter_equal(
+    const loom_serve_preparation_parameter_t* lhs,
+    const loom_serve_preparation_parameter_t* rhs);
 
 // Compiler product selected by the model's cold source program.
 typedef enum loom_serve_preparation_stage_kind_e {
@@ -66,9 +75,12 @@ typedef struct loom_serve_preparation_t loom_serve_preparation_t;
 //             buffer policy)
 // All string buffers exclude NUL bytes. Config values use the public loomc
 // textual value syntax; config_i64 formats signed decimal values. Parameter
-// paths join directory and path in the server filesystem namespace. Policy
-// paths resolve through the source environment. Declarations copy their strings
-// and retain no references to arguments, source mappings or the VM environment.
+// paths join directory and path in the server filesystem namespace. Repeated
+// parameter calls for the same binding append files to one checkpoint domain
+// and must name the same policy. File order is preserved in the parameter
+// index. Policy paths resolve through the source environment. Declarations
+// copy their strings and retain no references to arguments, source mappings,
+// or the VM environment.
 // Additional caller libraries are linked beside the prepare module. Results
 // are ordinary VM variants owned by the caller; the environment must outlive
 // any returned references. The source program is destroyed before return.

@@ -86,7 +86,14 @@ configuration and checkpoint domains. Shared preparation capabilities include:
 | `config(stage, key, value)` | Bind a public Loom configuration value in textual syntax. |
 | `config_i64(stage, key, value)` | Bind a signed integer configuration value. |
 | `workspace_limit(stage, bytes)` | Bound command workspace, including compatible live replacements. |
-| `parameter(stage, binding, directory, path, policy)` | Associate a reflected fixed binding with a checkpoint and preparation policy. |
+| `parameter(stage, binding, directory, path, policy)` | Append a checkpoint file to a reflected fixed binding's parameter domain. |
+
+A split checkpoint uses one `parameter` call per file with the same binding
+and preparation policy. The files populate one parameter index in declaration
+order, so their tensors share one residency plan. Stages naming the same ordered
+file list and policy share that domain. File selection belongs to the model's
+cold source; the loader accepts explicit GGUF, safetensors, and other supported
+parameter files without inferring filenames.
 
 The exact signatures and ownership are in the
 [preparation contract](https://github.com/ROCm/hrx-system/blob/main/loom/src/loom/serve/runtime/program/preparation.h).

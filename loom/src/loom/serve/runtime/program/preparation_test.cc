@@ -120,12 +120,42 @@ TEST_F(PreparationTest, CatalogGrowthPreservesEveryDeclaration) {
                 std::to_string(j));
       const auto& parameter = stage->parameters[j];
       EXPECT_EQ(parameter.binding, j);
-      EXPECT_EQ(std::string(parameter.path.data, parameter.path.size),
+      ASSERT_EQ(parameter.paths.count, 3);
+      const auto* paths = parameter.paths.values;
+      EXPECT_EQ(std::string(paths[0].data, paths[0].size),
                 "/checkpoints/model.safetensors");
+      EXPECT_EQ(std::string(paths[1].data, paths[1].size),
+                std::string(j < 10 ? "/checkpoints/k0" : "/checkpoints/k") +
+                    std::to_string(j));
+      EXPECT_EQ(std::string(paths[2].data, paths[2].size),
+                "/checkpoints/weights.loom");
       EXPECT_EQ(std::string(parameter.policy.data, parameter.policy.size),
                 "weights.loom");
     }
   }
+}
+
+TEST_F(PreparationTest, CheckpointIdentityIncludesEveryFileAndPolicy) {
+  const iree_string_view_t files[] = {IREE_SV("first.gguf"),
+                                      IREE_SV("second.gguf")};
+  const loom_serve_preparation_parameter_t base = {
+      0, {IREE_ARRAYSIZE(files), files}, IREE_SV("weights.loom")};
+  auto peer = base;
+  peer.binding = 1;
+  EXPECT_TRUE(loom_serve_preparation_parameter_equal(&base, &peer));
+  const iree_string_view_t different[] = {files[0], IREE_SV("other.gguf")};
+  peer.paths.values = different;
+  EXPECT_FALSE(loom_serve_preparation_parameter_equal(&base, &peer));
+  peer = base;
+  peer.paths.count = 1;
+  EXPECT_FALSE(loom_serve_preparation_parameter_equal(&base, &peer));
+  const iree_string_view_t reversed[] = {files[1], files[0]};
+  peer = base;
+  peer.paths.values = reversed;
+  EXPECT_FALSE(loom_serve_preparation_parameter_equal(&base, &peer));
+  peer = base;
+  peer.policy = IREE_SV("adapter.loom");
+  EXPECT_FALSE(loom_serve_preparation_parameter_equal(&base, &peer));
 }
 
 TEST_F(PreparationTest, InvalidDeclarationsReleasePartialOwnership) {
@@ -137,7 +167,7 @@ TEST_F(PreparationTest, InvalidDeclarationsReleasePartialOwnership) {
   };
   const Case cases[] = {
       {"missing_stage", IREE_STATUS_OUT_OF_RANGE},
-      {"duplicate_parameter", IREE_STATUS_ALREADY_EXISTS},
+      {"conflicting_parameter_policy", IREE_STATUS_INVALID_ARGUMENT},
       {"direct_parameter", IREE_STATUS_INVALID_ARGUMENT},
       {"missing_workspace_stage", IREE_STATUS_OUT_OF_RANGE},
       {"duplicate_workspace_limit", IREE_STATUS_ALREADY_EXISTS},

@@ -87,11 +87,11 @@ typedef void (*loom_serve_weights_completion_fn_t)(void* user_data,
 // run on the shared host. Payload reads wait for activation; open checkpoint
 // handles and recorded preparers remain cached, not a second weight copy.
 //
-// weights_path always names a server-local file relative to the source
-// environment's base_directory. policy_path uses the source environment's
-// package when present. Absolute paths name server-local files in both cases.
-// The environment's strings/package and both paths are borrowed until
-// completion.
+// The ordered weights_paths populate one parameter index; files may use any
+// supported format. Relative checkpoint paths use the source environment's
+// server-local base_directory. policy_path uses its package when present.
+// Absolute paths name server-local files in both cases. The environment's
+// strings/package, path list, and all paths are borrowed until completion.
 // policy_path names a text or bytecode source with the VM export:
 //   prepare_weight(buffer key) -> (buffer command_root, i64 byte_length)
 // The key is a read-only, non-NUL-terminated tensor name. Empty command_root
@@ -108,7 +108,7 @@ typedef void (*loom_serve_weights_completion_fn_t)(void* user_data,
 iree_status_t loom_serve_weights_prepare_async(
     loom_serve_weights_t* weights, loom_serve_host_t* host,
     loom_serve_jit_t* jit, iree_hal_command_buffer_mode_t command_mode,
-    const loom_serve_sources_t* sources, iree_string_view_t weights_path,
+    const loom_serve_sources_t* sources, iree_string_view_list_t weights_paths,
     iree_string_view_t policy_path,
     loom_serve_weights_completion_fn_t completion, void* user_data);
 
@@ -117,7 +117,7 @@ iree_status_t loom_serve_weights_prepare_async(
 iree_status_t loom_serve_weights_prepare(
     loom_serve_weights_t* weights, loom_serve_host_t* host,
     loom_serve_jit_t* jit, iree_hal_command_buffer_mode_t command_mode,
-    const loom_serve_sources_t* sources, iree_string_view_t weights_path,
+    const loom_serve_sources_t* sources, iree_string_view_list_t weights_paths,
     iree_string_view_t policy_path);
 
 // Commits storage and streams/prepares directly into final roots through four

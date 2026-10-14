@@ -94,10 +94,8 @@ static iree_status_t loom_serve_text_check_layouts(
           IREE_STATUS_INVALID_ARGUMENT,
           "shared stages must implement the target bindings");
     }
-    if (!iree_string_view_equal(declaration->parameters[0].path,
-                                checkpoint->path) ||
-        !iree_string_view_equal(declaration->parameters[0].policy,
-                                checkpoint->policy)) {
+    if (!loom_serve_preparation_parameter_equal(&declaration->parameters[0],
+                                                checkpoint)) {
       return iree_make_status(
           IREE_STATUS_INVALID_ARGUMENT,
           "shared target stages must use one checkpoint domain");
@@ -166,8 +164,7 @@ iree_status_t loom_serve_text_stages_bind(
         for (; domain < parameters->count; ++domain) {
           const loom_serve_preparation_parameter_t* prior =
               parameters->sources[domain];
-          if (iree_string_view_equal(source->path, prior->path) &&
-              iree_string_view_equal(source->policy, prior->policy)) {
+          if (loom_serve_preparation_parameter_equal(source, prior)) {
             break;
           }
         }
