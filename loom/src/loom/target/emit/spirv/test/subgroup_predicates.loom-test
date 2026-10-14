@@ -44,6 +44,7 @@ kernel.def @subgroup_predicates() {
                OpName %flag "flag"
                OpName %active "active"
                OpName %result "result"
+               OpModuleProcessed "iree.vulkan.bda.v1[subgroup_predicates].subgroup_size=32"
                OpModuleProcessed "iree.vulkan.bda.v1[subgroup_predicates].root=0,32"
                OpModuleProcessed "iree.vulkan.bda.v1[subgroup_predicates].constant_offset=32"
                OpModuleProcessed "iree.vulkan.bda.v1[subgroup_predicates].constant_length=0"
