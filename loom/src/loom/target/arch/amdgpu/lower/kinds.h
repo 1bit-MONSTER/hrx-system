@@ -35,15 +35,11 @@ extern "C" {
 #define LOOM_AMDGPU_MAX_VECTOR_STORAGE_ELEMENTS \
   (LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES * 2u)
 
-// Maximum number of direct memory packets needed to move one scalarized source
-// vector payload. Packed 16-bit vectors with an odd lane count may need one
-// final sub-dword tail packet after the whole-register packets. Packed bytes
-// have half this register limit, so two tail packets also fit this bound.
-#define LOOM_AMDGPU_MAX_MEMORY_PACKET_COUNT     \
-  (((LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES +   \
-     LOOM_AMDGPU_MAX_MEMORY_32BIT_LANES - 1u) / \
-    LOOM_AMDGPU_MAX_MEMORY_32BIT_LANES) +       \
-   1u)
+// Maximum number of direct memory packets needed to move one source vector.
+// Arbitrary positive-stride vectors may require one physical packet per
+// logical element, including the widest packed byte and halfword vectors.
+#define LOOM_AMDGPU_MAX_MEMORY_PACKET_COUNT \
+  LOOM_AMDGPU_MAX_VECTOR_STORAGE_ELEMENTS
 
 // Maximum number of packed f16/bf16 lanes accepted for packed-half payloads.
 #define LOOM_AMDGPU_MAX_PACKED_16BIT_FLOAT_LANES \

@@ -2578,26 +2578,29 @@ bool loom_amdgpu_memory_access_select_flat_address(
 }
 
 static bool loom_amdgpu_memory_access_make_packet(
-    const loom_low_source_memory_access_plan_t* source,
-    uint32_t source_byte_offset, uint32_t packet_byte_count,
+    const loom_amdgpu_memory_access_t* logical_access,
+    int64_t source_byte_offset, uint32_t packet_byte_count,
     uint32_t payload_register_count, loom_amdgpu_memory_access_t* out_access,
     loom_amdgpu_memory_access_diagnostic_t* out_diagnostic) {
+  const loom_low_source_memory_access_plan_t* source = logical_access->source;
   if (source->element_byte_count == 0 ||
       packet_byte_count % source->element_byte_count != 0) {
     out_diagnostic->rejection_bits |=
         LOOM_AMDGPU_MEMORY_ACCESS_REJECTION_VECTOR_TYPE;
     return false;
   }
-  const int64_t static_delta = source_byte_offset;
-  if (source->static_byte_offset > INT64_MAX - static_delta) {
+  int64_t static_byte_offset = 0;
+  if (source_byte_offset < 0 ||
+      !iree_checked_add_i64(logical_access->static_byte_offset,
+                            source_byte_offset, &static_byte_offset)) {
     out_diagnostic->rejection_bits |=
         LOOM_AMDGPU_MEMORY_ACCESS_REJECTION_DESCRIPTOR_OFFSET_RANGE;
     return false;
   }
-  *out_access = loom_amdgpu_memory_access_from_source(source);
+  *out_access = *logical_access;
   out_access->vector_lane_count =
       (uint32_t)(packet_byte_count / source->element_byte_count);
-  out_access->static_byte_offset = source->static_byte_offset + static_delta;
+  out_access->static_byte_offset = static_byte_offset;
   out_access->payload_register_class =
       LOOM_AMDGPU_MEMORY_PAYLOAD_REGISTER_CLASS_VGPR;
   out_access->payload_register_count = payload_register_count;
@@ -2632,14 +2635,14 @@ static bool loom_amdgpu_memory_access_plan_push_packet(
 static bool loom_amdgpu_memory_access_plan_push_chunk_packet(
     const loom_amdgpu_memory_packet_selection_context_t* selection_context,
     loom_low_source_memory_operation_kind_t kind, bool allow_global_smem,
-    const loom_low_source_memory_access_plan_t* source,
+    const loom_amdgpu_memory_access_t* logical_access,
     uint32_t payload_byte_offset, uint32_t payload_register_count,
     uint32_t packet_byte_count,
     loom_amdgpu_memory_access_selection_t* out_selection,
     loom_amdgpu_memory_access_diagnostic_t* out_diagnostic) {
   loom_amdgpu_memory_access_t packet_access = {0};
   if (!loom_amdgpu_memory_access_make_packet(
-          source, payload_byte_offset, packet_byte_count,
+          logical_access, payload_byte_offset, packet_byte_count,
           payload_register_count, &packet_access, out_diagnostic)) {
     return false;
   }
@@ -2648,25 +2651,40 @@ static bool loom_amdgpu_memory_access_plan_push_chunk_packet(
       &packet_access, out_selection, out_diagnostic);
 }
 
-static bool loom_amdgpu_memory_access_plan_push_strided_lane_packet(
+static bool loom_amdgpu_memory_access_make_strided_packet(
+    const loom_amdgpu_memory_access_t* logical_access, uint32_t lane_index,
+    uint32_t lane_count, uint32_t* out_payload_byte_offset,
+    loom_amdgpu_memory_access_t* out_access,
+    loom_amdgpu_memory_access_diagnostic_t* out_diagnostic) {
+  const loom_low_source_memory_access_plan_t* source = logical_access->source;
+  const int64_t source_byte_offset =
+      (int64_t)lane_index * source->vector_lane_byte_stride;
+  *out_payload_byte_offset = lane_index * source->element_byte_count;
+  const uint32_t packet_byte_count = lane_count * source->element_byte_count;
+  const uint32_t payload_register_count = (packet_byte_count + 3u) / 4u;
+  return loom_amdgpu_memory_access_make_packet(
+      logical_access, source_byte_offset, packet_byte_count,
+      payload_register_count, out_access, out_diagnostic);
+}
+
+static bool loom_amdgpu_memory_access_plan_push_strided_packet(
     const loom_amdgpu_memory_packet_selection_context_t* selection_context,
     loom_low_source_memory_operation_kind_t kind,
-    const loom_low_source_memory_access_plan_t* source, uint32_t lane_index,
-    loom_amdgpu_memory_access_selection_t* out_selection,
+    const loom_amdgpu_memory_access_t* logical_access, uint32_t lane_index,
+    uint32_t lane_count, loom_amdgpu_memory_access_selection_t* out_selection,
     loom_amdgpu_memory_access_diagnostic_t* out_diagnostic) {
-  const uint32_t lane_register_count = source->element_byte_count / 4u;
-  const uint32_t source_byte_offset =
-      lane_index * (uint32_t)source->vector_lane_byte_stride;
+  uint32_t payload_byte_offset = 0;
   loom_amdgpu_memory_access_t packet_access = {0};
-  if (!loom_amdgpu_memory_access_make_packet(
-          source, source_byte_offset, source->element_byte_count,
-          lane_register_count, &packet_access, out_diagnostic)) {
+  if (!loom_amdgpu_memory_access_make_strided_packet(
+          logical_access, lane_index, lane_count, &payload_byte_offset,
+          &packet_access, out_diagnostic)) {
     return false;
   }
+  const bool allow_global_smem = packet_access.packet_byte_count ==
+                                 packet_access.payload_register_count * 4u;
   return loom_amdgpu_memory_access_plan_push_packet(
-      selection_context, kind, /*allow_global_smem=*/false,
-      lane_index * source->element_byte_count, &packet_access, out_selection,
-      out_diagnostic);
+      selection_context, kind, allow_global_smem, payload_byte_offset,
+      &packet_access, out_selection, out_diagnostic);
 }
 
 static bool loom_amdgpu_memory_access_requires_ds_pair_split(
@@ -2772,20 +2790,78 @@ bool loom_amdgpu_memory_access_plan_select(
     access.payload_format =
         LOOM_AMDGPU_MEMORY_PAYLOAD_FORMAT_UNSIGNED_8BIT_INTEGER;
   }
-  if (loom_amdgpu_memory_access_requires_ds_pair_split(&selection_context,
-                                                       &access)) {
-    for (uint32_t lane_index = 0; lane_index < 2u; ++lane_index) {
-      if (!loom_amdgpu_memory_access_plan_push_strided_lane_packet(
-              &selection_context, kind, access.source, lane_index,
-              out_selection, out_diagnostic)) {
-        return false;
-      }
-    }
-    return true;
-  }
   const uint32_t whole_register_byte_count = access.payload_register_count * 4u;
   const bool whole_register_payload =
       access.packet_byte_count == whole_register_byte_count;
+  if (!is_atomic &&
+      !loom_amdgpu_memory_access_has_contiguous_vector_lanes(&access)) {
+    if (selected_source->vector_lane_byte_stride <= 0 ||
+        selected_source->vector_lane_byte_stride > UINT32_MAX) {
+      out_diagnostic->rejection_bits |=
+          LOOM_AMDGPU_MEMORY_ACCESS_REJECTION_VECTOR_AXIS_STRIDE;
+      return false;
+    }
+    const bool native_packet_shape =
+        access.payload_register_count <= LOOM_AMDGPU_MAX_MEMORY_32BIT_LANES &&
+        (whole_register_payload || access.packet_byte_count <= 2);
+    if (native_packet_shape &&
+        !loom_amdgpu_memory_access_requires_ds_pair_split(&selection_context,
+                                                          &access)) {
+      loom_amdgpu_memory_access_t native_access = access;
+      loom_amdgpu_memory_access_diagnostic_t native_diagnostic =
+          *out_diagnostic;
+      const bool allow_global_smem = whole_register_payload;
+      if (loom_amdgpu_memory_access_plan_push_packet(
+              &selection_context, kind, allow_global_smem,
+              /*payload_byte_offset=*/0, &native_access, out_selection,
+              &native_diagnostic)) {
+        return true;
+      }
+      out_selection->packet_count = 0;
+      if (native_diagnostic.rejection_bits !=
+          LOOM_AMDGPU_MEMORY_ACCESS_REJECTION_VECTOR_AXIS_STRIDE) {
+        *out_diagnostic = native_diagnostic;
+        return false;
+      }
+    }
+    IREE_ASSERT_LE(selected_source->vector_lane_count,
+                   IREE_ARRAYSIZE(out_selection->packets));
+    uint32_t lane_index = 0;
+    while (lane_index < selected_source->vector_lane_count) {
+      const uint32_t remaining_lane_count =
+          selected_source->vector_lane_count - lane_index;
+      const bool can_try_ds_pair = remaining_lane_count >= 2u &&
+                                   selected_source->memory_space ==
+                                       LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP &&
+                                   (selected_source->element_byte_count == 4u ||
+                                    selected_source->element_byte_count == 8u);
+      if (can_try_ds_pair) {
+        loom_amdgpu_memory_access_diagnostic_t pair_diagnostic =
+            *out_diagnostic;
+        uint32_t pair_payload_byte_offset = 0;
+        loom_amdgpu_memory_access_t pair_access = {0};
+        if (loom_amdgpu_memory_access_make_strided_packet(
+                &access, lane_index, /*lane_count=*/2,
+                &pair_payload_byte_offset, &pair_access, &pair_diagnostic) &&
+            !loom_amdgpu_memory_access_requires_ds_pair_split(
+                &selection_context, &pair_access) &&
+            loom_amdgpu_memory_access_plan_push_packet(
+                &selection_context, kind, /*allow_global_smem=*/false,
+                pair_payload_byte_offset, &pair_access, out_selection,
+                &pair_diagnostic)) {
+          lane_index += 2u;
+          continue;
+        }
+      }
+      if (!loom_amdgpu_memory_access_plan_push_strided_packet(
+              &selection_context, kind, &access, lane_index,
+              /*lane_count=*/1, out_selection, out_diagnostic)) {
+        return false;
+      }
+      ++lane_index;
+    }
+    return true;
+  }
   if (access.payload_register_count <= LOOM_AMDGPU_MAX_MEMORY_32BIT_LANES &&
       (whole_register_payload || access.packet_byte_count <= 2)) {
     const bool allow_global_smem = !is_atomic && whole_register_payload;
@@ -2816,7 +2892,7 @@ bool loom_amdgpu_memory_access_plan_select(
             : iree_min(remaining, 2u);
     if (!loom_amdgpu_memory_access_plan_push_chunk_packet(
             &selection_context, kind,
-            /*allow_global_smem=*/whole_register_payload, access.source,
+            /*allow_global_smem=*/whole_register_payload, &access,
             payload_byte_offset, (packet_byte_count + 3u) / 4u,
             packet_byte_count, out_selection, out_diagnostic)) {
       return false;

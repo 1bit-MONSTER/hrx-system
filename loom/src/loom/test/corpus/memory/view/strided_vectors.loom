@@ -1,0 +1,286 @@
+// Positive vector-axis strides preserve raw payloads across every
+// byte-addressable carrier family. The widest byte vector reaches the target
+// packet-count boundary once; adjacent carrier types use smaller vectors.
+
+kernel.def @strided_vector_bytes() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %e4m3_input_base = index.constant 64 : offset
+  %e5m2_input_base = index.constant 69 : offset
+  %i8_output_base = index.constant 1 : offset
+  %e4m3_output_base = index.constant 65 : offset
+  %e5m2_output_base = index.constant 70 : offset
+  %e4m3_scratch_base = index.constant 192 : offset
+  %e5m2_scratch_base = index.constant 208 : offset
+  %scratch_bytes = index.constant 224 : offset
+  %layout = encoding.layout.strided [1, 3] : encoding<layout>
+  %scratch = buffer.alloca<workgroup> align(16) %scratch_bytes : buffer
+
+  %i8_input = buffer.view %input[%base] : buffer -> view<64xi8>
+  %e4m3_input = buffer.view %input[%e4m3_input_base] : buffer -> view<5xf8E4M3>
+  %e5m2_input = buffer.view %input[%e5m2_input_base] : buffer -> view<5xf8E5M2>
+  %i8_scratch = buffer.view %scratch[%base] : buffer -> view<1x64xi8, %layout>
+  %e4m3_scratch = buffer.view %scratch[%e4m3_scratch_base] : buffer -> view<1x5xf8E4M3, %layout>
+  %e5m2_scratch = buffer.view %scratch[%e5m2_scratch_base] : buffer -> view<1x5xf8E5M2, %layout>
+  %i8_output = buffer.view %output[%i8_output_base] : buffer -> view<64xi8>
+  %e4m3_output = buffer.view %output[%e4m3_output_base] : buffer -> view<5xf8E4M3>
+  %e5m2_output = buffer.view %output[%e5m2_output_base] : buffer -> view<5xf8E5M2>
+
+  %i8 = vector.load %i8_input[0] : view<64xi8> -> vector<64xi8>
+  vector.store<volatile> %i8, %i8_scratch[0, 0] : vector<64xi8>, view<1x64xi8, %layout>
+  %i8_staged = vector.load<volatile> %i8_scratch[0, 0] : view<1x64xi8, %layout> -> vector<64xi8>
+  vector.store %i8_staged, %i8_output[0] : vector<64xi8>, view<64xi8>
+
+  %e4m3 = vector.load %e4m3_input[0] : view<5xf8E4M3> -> vector<5xf8E4M3>
+  vector.store<volatile> %e4m3, %e4m3_scratch[0, 0] : vector<5xf8E4M3>, view<1x5xf8E4M3, %layout>
+  %e4m3_staged = vector.load<volatile> %e4m3_scratch[0, 0] : view<1x5xf8E4M3, %layout> -> vector<5xf8E4M3>
+  vector.store %e4m3_staged, %e4m3_output[0] : vector<5xf8E4M3>, view<5xf8E4M3>
+
+  %e5m2 = vector.load %e5m2_input[0] : view<5xf8E5M2> -> vector<5xf8E5M2>
+  vector.store<volatile> %e5m2, %e5m2_scratch[0, 0] : vector<5xf8E5M2>, view<1x5xf8E5M2, %layout>
+  %e5m2_staged = vector.load<volatile> %e5m2_scratch[0, 0] : view<1x5xf8E5M2, %layout> -> vector<5xf8E5M2>
+  vector.store %e5m2_staged, %e5m2_output[0] : vector<5xf8E5M2>, view<5xf8E5M2>
+  kernel.return
+}
+
+kernel.def @strided_vector_halfwords() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %f16_input_base = index.constant 20 : offset
+  %bf16_input_base = index.constant 30 : offset
+  %i16_output_base = index.constant 2 : offset
+  %f16_output_base = index.constant 22 : offset
+  %bf16_output_base = index.constant 32 : offset
+  %f16_scratch_base = index.constant 64 : offset
+  %bf16_scratch_base = index.constant 96 : offset
+  %scratch_bytes = index.constant 128 : offset
+  %layout = encoding.layout.strided [1, 3] : encoding<layout>
+  %scratch = buffer.alloca<workgroup> align(16) %scratch_bytes : buffer
+
+  %i16_input = buffer.view %input[%base] : buffer -> view<10xi16>
+  %f16_input = buffer.view %input[%f16_input_base] : buffer -> view<5xf16>
+  %bf16_input = buffer.view %input[%bf16_input_base] : buffer -> view<5xbf16>
+  %i16_scratch = buffer.view %scratch[%base] : buffer -> view<1x10xi16, %layout>
+  %f16_scratch = buffer.view %scratch[%f16_scratch_base] : buffer -> view<1x5xf16, %layout>
+  %bf16_scratch = buffer.view %scratch[%bf16_scratch_base] : buffer -> view<1x5xbf16, %layout>
+  %i16_output = buffer.view %output[%i16_output_base] : buffer -> view<10xi16>
+  %f16_output = buffer.view %output[%f16_output_base] : buffer -> view<5xf16>
+  %bf16_output = buffer.view %output[%bf16_output_base] : buffer -> view<5xbf16>
+
+  %i16 = vector.load %i16_input[0] : view<10xi16> -> vector<10xi16>
+  vector.store<volatile> %i16, %i16_scratch[0, 0] : vector<10xi16>, view<1x10xi16, %layout>
+  %i16_staged = vector.load<volatile> %i16_scratch[0, 0] : view<1x10xi16, %layout> -> vector<10xi16>
+  vector.store %i16_staged, %i16_output[0] : vector<10xi16>, view<10xi16>
+
+  %f16 = vector.load %f16_input[0] : view<5xf16> -> vector<5xf16>
+  vector.store<volatile> %f16, %f16_scratch[0, 0] : vector<5xf16>, view<1x5xf16, %layout>
+  %f16_staged = vector.load<volatile> %f16_scratch[0, 0] : view<1x5xf16, %layout> -> vector<5xf16>
+  vector.store %f16_staged, %f16_output[0] : vector<5xf16>, view<5xf16>
+
+  %bf16 = vector.load %bf16_input[0] : view<5xbf16> -> vector<5xbf16>
+  vector.store<volatile> %bf16, %bf16_scratch[0, 0] : vector<5xbf16>, view<1x5xbf16, %layout>
+  %bf16_staged = vector.load<volatile> %bf16_scratch[0, 0] : view<1x5xbf16, %layout> -> vector<5xbf16>
+  vector.store %bf16_staged, %bf16_output[0] : vector<5xbf16>, view<5xbf16>
+  kernel.return
+}
+
+kernel.def @strided_vector_words() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %f32_input_base = index.constant 12 : offset
+  %i32_output_base = index.constant 4 : offset
+  %f32_output_base = index.constant 16 : offset
+  %f32_scratch_base = index.constant 32 : offset
+  %scratch_bytes = index.constant 64 : offset
+  %layout = encoding.layout.strided [1, 3] : encoding<layout>
+  %scratch = buffer.alloca<workgroup> align(16) %scratch_bytes : buffer
+
+  %i32_input = buffer.view %input[%base] : buffer -> view<3xi32>
+  %f32_input = buffer.view %input[%f32_input_base] : buffer -> view<3xf32>
+  %i32_scratch = buffer.view %scratch[%base] : buffer -> view<1x3xi32, %layout>
+  %f32_scratch = buffer.view %scratch[%f32_scratch_base] : buffer -> view<1x3xf32, %layout>
+  %i32_output = buffer.view %output[%i32_output_base] : buffer -> view<3xi32>
+  %f32_output = buffer.view %output[%f32_output_base] : buffer -> view<3xf32>
+
+  %i32 = vector.load %i32_input[0] : view<3xi32> -> vector<3xi32>
+  vector.store<volatile> %i32, %i32_scratch[0, 0] : vector<3xi32>, view<1x3xi32, %layout>
+  %i32_staged = vector.load<volatile> %i32_scratch[0, 0] : view<1x3xi32, %layout> -> vector<3xi32>
+  vector.store %i32_staged, %i32_output[0] : vector<3xi32>, view<3xi32>
+
+  %f32 = vector.load %f32_input[0] : view<3xf32> -> vector<3xf32>
+  vector.store<volatile> %f32, %f32_scratch[0, 0] : vector<3xf32>, view<1x3xf32, %layout>
+  %f32_staged = vector.load<volatile> %f32_scratch[0, 0] : view<1x3xf32, %layout> -> vector<3xf32>
+  vector.store %f32_staged, %f32_output[0] : vector<3xf32>, view<3xf32>
+  kernel.return
+}
+
+kernel.def @strided_vector_doublewords() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %f64_input_base = index.constant 24 : offset
+  %i64_output_base = index.constant 8 : offset
+  %f64_output_base = index.constant 32 : offset
+  %f64_scratch_base = index.constant 64 : offset
+  %scratch_bytes = index.constant 128 : offset
+  %layout = encoding.layout.strided [1, 3] : encoding<layout>
+  %scratch = buffer.alloca<workgroup> align(16) %scratch_bytes : buffer
+
+  %i64_input = buffer.view %input[%base] : buffer -> view<3xi64>
+  %f64_input = buffer.view %input[%f64_input_base] : buffer -> view<3xf64>
+  %i64_scratch = buffer.view %scratch[%base] : buffer -> view<1x3xi64, %layout>
+  %f64_scratch = buffer.view %scratch[%f64_scratch_base] : buffer -> view<1x3xf64, %layout>
+  %i64_output = buffer.view %output[%i64_output_base] : buffer -> view<3xi64>
+  %f64_output = buffer.view %output[%f64_output_base] : buffer -> view<3xf64>
+
+  %i64 = vector.load %i64_input[0] : view<3xi64> -> vector<3xi64>
+  vector.store<volatile> %i64, %i64_scratch[0, 0] : vector<3xi64>, view<1x3xi64, %layout>
+  %i64_staged = vector.load<volatile> %i64_scratch[0, 0] : view<1x3xi64, %layout> -> vector<3xi64>
+  vector.store %i64_staged, %i64_output[0] : vector<3xi64>, view<3xi64>
+
+  %f64 = vector.load %f64_input[0] : view<3xf64> -> vector<3xf64>
+  vector.store<volatile> %f64, %f64_scratch[0, 0] : vector<3xf64>, view<1x3xf64, %layout>
+  %f64_staged = vector.load<volatile> %f64_scratch[0, 0] : view<1x3xf64, %layout> -> vector<3xf64>
+  vector.store %f64_staged, %f64_output[0] : vector<3xf64>, view<3xf64>
+  kernel.return
+}
+
+// Every AMDGPU address domain uses the same logical three-lane vector while
+// retaining its distinct packet form. Constant memory is read-only.
+kernel.def @strided_vector_address_spaces() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %descriptor_base = index.constant 24 : offset
+  %constant_base = index.constant 48 : offset
+  %scratch_bytes = index.constant 20 : offset
+  %layout = encoding.layout.strided [1, 2] : encoding<layout>
+  %global_input = buffer.assume.memory_space<global> %input : buffer
+  %descriptor_input = buffer.assume.memory_space<descriptor> %input : buffer
+  %constant_input = buffer.assume.memory_space<constant> %input : buffer
+  %generic_output = buffer.assume.memory_space<generic> %output : buffer
+  %descriptor_output = buffer.assume.memory_space<descriptor> %output : buffer
+  %global_output = buffer.assume.memory_space<global> %output : buffer
+  %scratch = buffer.alloca<private> align(4) %scratch_bytes : buffer
+  %input_view = buffer.view %global_input[%base] : buffer -> view<1x3xi32, %layout>
+  %scratch_view = buffer.view %scratch[%base] : buffer -> view<1x3xi32, %layout>
+  %output_view = buffer.view %generic_output[%base] : buffer -> view<1x3xi32, %layout>
+  %descriptor_input_view = buffer.view %descriptor_input[%descriptor_base] : buffer -> view<1x3xi32, %layout>
+  %descriptor_output_view = buffer.view %descriptor_output[%descriptor_base] : buffer -> view<1x3xi32, %layout>
+  %constant_input_view = buffer.view %constant_input[%constant_base] : buffer -> view<1x3xi32, %layout>
+  %global_output_view = buffer.view %global_output[%constant_base] : buffer -> view<1x3xi32, %layout>
+  %value = vector.load<volatile> %input_view[0, 0] : view<1x3xi32, %layout> -> vector<3xi32>
+  vector.store<volatile> %value, %scratch_view[0, 0] : vector<3xi32>, view<1x3xi32, %layout>
+  %staged = vector.load<volatile> %scratch_view[0, 0] : view<1x3xi32, %layout> -> vector<3xi32>
+  vector.store<volatile> %staged, %output_view[0, 0] : vector<3xi32>, view<1x3xi32, %layout>
+  %descriptor_value = vector.load<volatile> %descriptor_input_view[0, 0] : view<1x3xi32, %layout> -> vector<3xi32>
+  vector.store<volatile> %descriptor_value, %descriptor_output_view[0, 0] : vector<3xi32>, view<1x3xi32, %layout>
+  %constant_value = vector.load<volatile> %constant_input_view[0, 0] : view<1x3xi32, %layout> -> vector<3xi32>
+  vector.store<volatile> %constant_value, %global_output_view[0, 0] : vector<3xi32>, view<1x3xi32, %layout>
+  kernel.return
+}
+
+func.def @copy_centered_span_oracle(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %c2 = index.constant 2 : index
+  %input_length = buffer.length %input
+  %output_length = buffer.length %output
+  %bounded_input_length = index.assume %input_length [range(%input_length, 0, 9223372036854775807)] : offset
+  %bounded_output_length = index.assume %output_length [range(%output_length, 0, 9223372036854775807)] : offset
+  %input_extent = index.cast %bounded_input_length : offset to index
+  %output_extent = index.cast %bounded_output_length : offset to index
+  %guard_span = index.sub %output_extent, %input_extent : index
+  %guard_index = index.div %guard_span, %c2 : index
+  %bounded_guard = index.assume %guard_index [range(%guard_index, 0, 9223372036854775807)] : index
+  %guard = index.cast %bounded_guard : index to offset
+  buffer.copy %input[%origin], %output[%guard], %input_length
+  func.return
+}
+
+func.def @strided_vector_address_spaces_oracle(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %descriptor_base = index.constant 24 : offset
+  %constant_base = index.constant 48 : offset
+  %layout = encoding.layout.strided [1, 2] : encoding<layout>
+  %input_view = buffer.view %input[%base] : buffer -> view<1x3xi32, %layout>
+  %output_view = buffer.view %output[%base] : buffer -> view<1x3xi32, %layout>
+  %descriptor_input_view = buffer.view %input[%descriptor_base] : buffer -> view<1x3xi32, %layout>
+  %descriptor_output_view = buffer.view %output[%descriptor_base] : buffer -> view<1x3xi32, %layout>
+  %constant_input_view = buffer.view %input[%constant_base] : buffer -> view<1x3xi32, %layout>
+  %constant_output_view = buffer.view %output[%constant_base] : buffer -> view<1x3xi32, %layout>
+  %value = vector.load %input_view[0, 0] : view<1x3xi32, %layout> -> vector<3xi32>
+  vector.store %value, %output_view[0, 0] : vector<3xi32>, view<1x3xi32, %layout>
+  %descriptor_value = vector.load %descriptor_input_view[0, 0] : view<1x3xi32, %layout> -> vector<3xi32>
+  vector.store %descriptor_value, %descriptor_output_view[0, 0] : vector<3xi32>, view<1x3xi32, %layout>
+  %constant_value = vector.load %constant_input_view[0, 0] : view<1x3xi32, %layout> -> vector<3xi32>
+  vector.store %constant_value, %constant_output_view[0, 0] : vector<3xi32>, view<1x3xi32, %layout>
+  func.return
+}
+
+check.scenario @strided_vector_byte_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-128) step(3) : tensor<74xi8>
+    %output = check.generate.fill value(91) : tensor<76xi8>
+    check.compare<@strided_vector_bytes, @copy_centered_span_oracle>(%input, %output) : (tensor<74xi8>, tensor<76xi8>) -> () {
+      check.expect.bitwise actual(%input) expected(%input) : tensor<74xi8>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<76xi8>
+    }
+  }
+  check.return
+}
+
+check.scenario @strided_vector_halfword_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-32768) step(3000) : tensor<20xi16>
+    %output = check.generate.fill value(23130) : tensor<22xi16>
+    check.compare<@strided_vector_halfwords, @copy_centered_span_oracle>(%input, %output) : (tensor<20xi16>, tensor<22xi16>) -> () {
+      check.expect.bitwise actual(%input) expected(%input) : tensor<20xi16>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<22xi16>
+    }
+  }
+  check.return
+}
+
+check.scenario @strided_vector_word_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-2147483648) step(715827883) : tensor<6xi32>
+    %output = check.generate.fill value(1515870810) : tensor<8xi32>
+    check.compare<@strided_vector_words, @copy_centered_span_oracle>(%input, %output) : (tensor<6xi32>, tensor<8xi32>) -> () {
+      check.expect.bitwise actual(%input) expected(%input) : tensor<6xi32>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<8xi32>
+    }
+  }
+  check.return
+}
+
+check.scenario @strided_vector_doubleword_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-9223372036854775808) step(3074457345618258603) : tensor<6xi64>
+    %output = check.generate.fill value(6510615555426900570) : tensor<8xi64>
+    check.compare<@strided_vector_doublewords, @copy_centered_span_oracle>(%input, %output) : (tensor<6xi64>, tensor<8xi64>) -> () {
+      check.expect.bitwise actual(%input) expected(%input) : tensor<6xi64>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<8xi64>
+    }
+  }
+  check.return
+}
+
+check.scenario @strided_vector_address_space_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-2147483648) step(268435455) : tensor<17xi32>
+    %output = check.generate.fill value(1515870810) : tensor<17xi32>
+    check.compare<@strided_vector_address_spaces, @strided_vector_address_spaces_oracle>(%input, %output) : (tensor<17xi32>, tensor<17xi32>) -> () {
+      check.expect.bitwise actual(%input) expected(%input) : tensor<17xi32>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<17xi32>
+    }
+  }
+  check.return
+}
