@@ -1,39 +1,447 @@
-// RUN: emit source-low target=x86:avx2 output=low
+// RUN: emit source-low output=low
 
-func.def @i64x16_insert_static(%values: vector<16xi64>, %value: i64) -> (vector<16xi64>) {
-  // ERROR@+1: TARGET/002 {op_name="vector.insert", field_name="dest"}
-  %result = vector.insert %value into %values[1] : i64, vector<16xi64>
-  func.return %result : vector<16xi64>
+// Static insertion updates only the packet owning the selected lane.
+x86.target<avx2> @target
+
+func.def public target(@target) @i32x16_insert_static(%input: buffer, %output: buffer, %value: i32) {
+  %c0 = index.constant 0 : offset
+  %input_view = buffer.view %input[%c0] : buffer -> view<16xi32>
+  %output_view = buffer.view %output[%c0] : buffer -> view<16xi32>
+  %values = vector.load %input_view[0] : view<16xi32> -> vector<16xi32>
+  %result = vector.insert %value into %values[9] : i32, vector<16xi32>
+  vector.store %result, %output_view[0] : vector<16xi32>, view<16xi32>
+  func.return
+}
+
+// ----
+low.func.def public target<x86.avx2.core>(@target) abi(object_function) @i32x16_insert_static(%input: reg<x86.gpr64>, %output: reg<x86.gpr64>, %value: reg<x86.gpr32>) asm {
+  %18 = vmovdqu32.load.ymm %input {disp32 = 0}
+  %19 = vmovdqu32.load.ymm %input {disp32 = 32}
+  %20 = vextractf128.xmm %19, 0
+  %21 = vpinsrd.xmm %20, %value, 1
+  %22 = vinsertf128.ymm.xmm %19, %21, 0
+  vmovdqu32.store.ymm %18, %output {disp32 = 0}
+  vmovdqu32.store.ymm %22, %output {disp32 = 32}
+  return
 }
 
 // ====
 
-func.def @i32x32_insert_static(%values: vector<32xi32>, %value: i32) -> (vector<32xi32>) {
-  // ERROR@+1: TARGET/002 {op_name="vector.insert", field_name="dest"}
-  %result = vector.insert %value into %values[17] : i32, vector<32xi32>
-  func.return %result : vector<32xi32>
+// A one-lane native vector uses scalar selection and rebuilds its carrier.
+x86.target<avx2> @target
+
+func.def target(@target) @i64x1_insert_dynamic(%values: vector<1xi64>, %value: i64, %position: index) -> (vector<1xi64>) {
+  %result = vector.insert %value into %values[%position] : i64, vector<1xi64>
+  func.return %result : vector<1xi64>
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (vector<1xi64>, i64, index) -> (vector<1xi64>)}) @i64x1_insert_dynamic(%values: reg<x86.xmm>, %value: reg<x86.gpr64>, %position: reg<x86.gpr64>) -> (reg<x86.xmm>) asm {
+  %14 = vpextrq.xmm %values, 0
+  %15 = copy %14 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %16 = cmp.select.imm.gpr64.gpr64 %position, %value, %15, 0, "eq"
+  %17 = vmovq.xmm.gpr64 %16
+  %result = avx2.vpbroadcastq.xmm %17
+  return %result
 }
 
 // ====
 
-func.def @i64x16_insert_dynamic(%values: vector<16xi64>, %value: i64, %position: index) -> (vector<16xi64>) {
-  // ERROR@+1: TARGET/002 {op_name="vector.insert", field_name="dest"}
-  %result = vector.insert %value into %values[%position] : i64, vector<16xi64>
-  func.return %result : vector<16xi64>
+// An irregular numeric vector keeps its 256-bit and 64-bit packets while the
+// final three lanes remain scalar components.
+x86.target<avx2> @target
+
+func.def public target(@target) @i16x23_insert_dynamic(%input: buffer, %output: buffer, %value: i16, %position: index) {
+  %c0 = index.constant 0 : offset
+  %input_view = buffer.view %input[%c0] : buffer -> view<23xi16>
+  %output_view = buffer.view %output[%c0] : buffer -> view<23xi16>
+  %values = vector.load %input_view[0] : view<23xi16> -> vector<23xi16>
+  %result = vector.insert %value into %values[%position] : i16, vector<23xi16>
+  vector.store %result, %output_view[0] : vector<23xi16>, view<23xi16>
+  func.return
+}
+
+// ----
+low.func.def public target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (buffer, buffer, i16, index) -> ()}) @i16x23_insert_dynamic(%input: reg<x86.gpr64>, %output: reg<x86.gpr64>, %value: reg<x86.gpr32>, %position: reg<x86.gpr64>) asm {
+  %76 = movzx.load.u16.gpr32 %input {disp32 = 40}
+  %77 = movzx.load.u16.gpr32 %input {disp32 = 42}
+  %78 = movzx.load.u16.gpr32 %input {disp32 = 44}
+  %79 = mov.trunc.gpr32.gpr64 %position
+  %80 = movsx.i16.gpr32 %79
+  %81 = mov.imm32 0
+  %82 = copy %81 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %83 = sub.gpr32 %82, %80
+  %84 = mov.imm64 506097522914230528
+  %85 = vmovq.xmm.gpr64 %84
+  %86 = mov.imm64 1084818905618843912
+  %87 = vmovq.xmm.gpr64 %86
+  %88 = vpunpcklqdq.xmm %85, %87
+  %89 = vpmovzxbw.ymm %88
+  %90 = vmovd.xmm.gpr32 %83
+  %91 = vpbroadcastw.ymm %90
+  %92 = vpaddw.ymm %91, %89
+  %93 = vxorps.zero.ymm
+  %94 = vpcmpeqw.ymm %92, %93
+  %95 = cmp.imm.gpr64 %position, 16, "ult"
+  %96 = mov.imm32 0
+  %97 = sub.gpr32 %96, %95
+  %98 = vmovd.xmm.gpr32 %97
+  %99 = vpbroadcastw.ymm %98
+  %100 = vpand.ymm %94, %99
+  %101 = vmovd.xmm.gpr32 %value
+  %102 = vpbroadcastw.ymm %101
+  %103 = vmovdqu32.load.ymm %input {disp32 = 0}
+  %104 = vpblendvb.ymm %103, %102, %100
+  %105 = movzx.u16.gpr32 %79
+  %106 = copy %105 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %107 = add.imm.gpr32 %106 {imm32 = -16}
+  %108 = movsx.i16.gpr32 %107
+  %109 = copy %81 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %110 = sub.gpr32 %109, %108
+  %111 = mov.imm32 50462976
+  %112 = vmovd.xmm.gpr32 %111
+  %113 = vpmovzxbw.xmm %112
+  %114 = vmovd.xmm.gpr32 %110
+  %115 = vpbroadcastw.xmm %114
+  %116 = vpaddw.xmm %115, %113
+  %117 = vxorps.zero.xmm
+  %118 = vpcmpeqw.xmm %116, %117
+  %119 = cmp.imm.gpr64 %position, 20, "ult"
+  %120 = cmp.imm.gpr64 %position, 16, "uge"
+  %121 = copy %120 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %122 = and.gpr32 %121, %119
+  %123 = mov.imm32 0
+  %124 = sub.gpr32 %123, %122
+  %125 = vmovd.xmm.gpr32 %124
+  %126 = vpbroadcastw.xmm %125
+  %127 = vpand.xmm %118, %126
+  %129 = vpbroadcastw.xmm %101
+  %130 = vmovsd.load.xmm %input {disp32 = 32}
+  %131 = vpblendvb.xmm %130, %129, %127
+  %132 = copy %76 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %133 = cmp.select.imm.gpr64.gpr32 %position, %value, %132, 20, "eq"
+  %134 = copy %77 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %135 = cmp.select.imm.gpr64.gpr32 %position, %value, %134, 21, "eq"
+  %136 = copy %78 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %137 = cmp.select.imm.gpr64.gpr32 %position, %value, %136, 22, "eq"
+  vmovdqu32.store.ymm %104, %output {disp32 = 0}
+  vmovsd.store.xmm %131, %output {disp32 = 32}
+  mov.store.u16.gpr32 %133, %output {disp32 = 40}
+  mov.store.u16.gpr32 %135, %output {disp32 = 42}
+  mov.store.u16.gpr32 %137, %output {disp32 = 44}
+  return
 }
 
 // ====
 
-func.def @i32x2x2_insert_static(%values: vector<2x2xi32>, %value: i32) -> (vector<2x2xi32>) {
-  // ERROR@+1: TARGET/002 {op_name="vector.insert", field_name="dest"}
-  %result = vector.insert %value into %values[1, 1] : i32, vector<2x2xi32>
-  func.return %result : vector<2x2xi32>
+// Float8 scalar tails select their integer storage representation.
+x86.target<avx2> @target
+
+func.def public target(@target) @f8e4m3x39_insert_dynamic(%input: buffer, %output: buffer, %value: f8E4M3, %position: index) {
+  %c0 = index.constant 0 : offset
+  %input_view = buffer.view %input[%c0] : buffer -> view<39xf8E4M3>
+  %output_view = buffer.view %output[%c0] : buffer -> view<39xf8E4M3>
+  %values = vector.load %input_view[0] : view<39xf8E4M3> -> vector<39xf8E4M3>
+  %result = vector.insert %value into %values[%position] : f8E4M3, vector<39xf8E4M3>
+  vector.store %result, %output_view[0] : vector<39xf8E4M3>, view<39xf8E4M3>
+  func.return
+}
+
+// ----
+low.func.def public target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (buffer, buffer, f8E4M3, index) -> ()}) @f8e4m3x39_insert_dynamic(%input: reg<x86.gpr64>, %output: reg<x86.gpr64>, %value: reg<x86.gpr32>, %position: reg<x86.gpr64>) asm {
+  %63 = movzx.load.u8.gpr32 %input {disp32 = 32}
+  %64 = movzx.load.u8.gpr32 %input {disp32 = 33}
+  %65 = movzx.load.u8.gpr32 %input {disp32 = 34}
+  %66 = movzx.load.u8.gpr32 %input {disp32 = 35}
+  %67 = movzx.load.u8.gpr32 %input {disp32 = 36}
+  %68 = movzx.load.u8.gpr32 %input {disp32 = 37}
+  %69 = movzx.load.u8.gpr32 %input {disp32 = 38}
+  %70 = mov.trunc.gpr32.gpr64 %position
+  %71 = movsx.i8.gpr32 %70
+  %72 = mov.imm32 0
+  %73 = copy %72 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %74 = sub.gpr32 %73, %71
+  %75 = mov.imm64 506097522914230528
+  %76 = vmovq.xmm.gpr64 %75
+  %77 = mov.imm64 1084818905618843912
+  %78 = vmovq.xmm.gpr64 %77
+  %79 = vpunpcklqdq.xmm %76, %78
+  %80 = mov.imm64 1663540288323457296
+  %81 = vmovq.xmm.gpr64 %80
+  %82 = mov.imm64 2242261671028070680
+  %83 = vmovq.xmm.gpr64 %82
+  %84 = vpunpcklqdq.xmm %81, %83
+  %85 = vxorps.zero.ymm
+  %86 = vinsertf128.ymm.xmm %85, %79, 0
+  %87 = vinsertf128.ymm.xmm %86, %84, 1
+  %88 = vmovd.xmm.gpr32 %74
+  %89 = vpbroadcastb.ymm %88
+  %90 = vpaddb.ymm %89, %87
+  %92 = vpcmpeqb.ymm %90, %85
+  %93 = cmp.imm.gpr64 %position, 32, "ult"
+  %94 = mov.imm32 0
+  %95 = sub.gpr32 %94, %93
+  %96 = vmovd.xmm.gpr32 %95
+  %97 = vpbroadcastb.ymm %96
+  %98 = vpand.ymm %92, %97
+  %99 = vmovd.xmm.gpr32 %value
+  %100 = vpbroadcastb.ymm %99
+  %101 = vmovdqu32.load.ymm %input {disp32 = 0}
+  %102 = vpblendvb.ymm %101, %100, %98
+  %103 = copy %63 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %104 = cmp.select.imm.gpr64.gpr32 %position, %value, %103, 32, "eq"
+  %105 = copy %64 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %106 = cmp.select.imm.gpr64.gpr32 %position, %value, %105, 33, "eq"
+  %107 = copy %65 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %108 = cmp.select.imm.gpr64.gpr32 %position, %value, %107, 34, "eq"
+  %109 = copy %66 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %110 = cmp.select.imm.gpr64.gpr32 %position, %value, %109, 35, "eq"
+  %111 = copy %67 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %112 = cmp.select.imm.gpr64.gpr32 %position, %value, %111, 36, "eq"
+  %113 = copy %68 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %114 = cmp.select.imm.gpr64.gpr32 %position, %value, %113, 37, "eq"
+  %115 = copy %69 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %116 = cmp.select.imm.gpr64.gpr32 %position, %value, %115, 38, "eq"
+  vmovdqu32.store.ymm %102, %output {disp32 = 0}
+  mov.store.u8.gpr32 %104, %output {disp32 = 32}
+  mov.store.u8.gpr32 %106, %output {disp32 = 33}
+  mov.store.u8.gpr32 %108, %output {disp32 = 34}
+  mov.store.u8.gpr32 %110, %output {disp32 = 35}
+  mov.store.u8.gpr32 %112, %output {disp32 = 36}
+  mov.store.u8.gpr32 %114, %output {disp32 = 37}
+  mov.store.u8.gpr32 %116, %output {disp32 = 38}
+  return
 }
 
 // ====
 
-func.def @i32x16_insert_static(%values: vector<16xi32>, %value: i32) -> (vector<16xi32>) {
-  // ERROR@+1: TARGET/002 {op_name="vector.insert", field_name="dest"}
-  %result = vector.insert %value into %values[15] : i32, vector<16xi32>
-  func.return %result : vector<16xi32>
+// Predicate packets update bits without converting through payload selection.
+x86.target<avx2> @target
+
+func.def public target(@target) @i1x40_insert_dynamic(%input: buffer, %output: buffer, %value: i1, %position: index) {
+  %c0 = index.constant 0 : offset
+  %input_view = buffer.view %input[%c0] : buffer -> view<40xi8>
+  %output_view = buffer.view %output[%c0] : buffer -> view<40xi8>
+  %values = vector.load %input_view[0] : view<40xi8> -> vector<40xi8>
+  %clear_values = vector.constant 0 : vector<40xi8>
+  %predicates = vector.cmpi eq, %values, %clear_values : vector<40xi8> -> vector<40xi1>
+  %updated = vector.insert %value into %predicates[%position] : i1, vector<40xi1>
+  %result = vector.select %updated, %values, %clear_values : vector<40xi8>
+  vector.store %result, %output_view[0] : vector<40xi8>, view<40xi8>
+  func.return
+}
+
+// ----
+low.func.def public target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (buffer, buffer, i1, index) -> ()}) @i1x40_insert_dynamic(%input: reg<x86.gpr64>, %output: reg<x86.gpr64>, %value: reg<x86.gpr32>, %position: reg<x86.gpr64>) asm {
+  %82 = vmovdqu32.load.ymm %input {disp32 = 0}
+  %83 = vmovsd.load.xmm %input {disp32 = 32}
+  %84 = vxorps.zero.ymm
+  %85 = vpcmpeqb.ymm %82, %84
+  %86 = vxorps.zero.xmm
+  %87 = vpcmpeqb.xmm %83, %86
+  %88 = mov.trunc.gpr32.gpr64 %position
+  %89 = movsx.i8.gpr32 %88
+  %90 = mov.imm32 0
+  %91 = copy %90 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %92 = sub.gpr32 %91, %89
+  %93 = mov.imm64 506097522914230528
+  %94 = vmovq.xmm.gpr64 %93
+  %95 = mov.imm64 1084818905618843912
+  %96 = vmovq.xmm.gpr64 %95
+  %97 = vpunpcklqdq.xmm %94, %96
+  %98 = mov.imm64 1663540288323457296
+  %99 = vmovq.xmm.gpr64 %98
+  %100 = mov.imm64 2242261671028070680
+  %101 = vmovq.xmm.gpr64 %100
+  %102 = vpunpcklqdq.xmm %99, %101
+  %104 = vinsertf128.ymm.xmm %84, %97, 0
+  %105 = vinsertf128.ymm.xmm %104, %102, 1
+  %106 = vmovd.xmm.gpr32 %92
+  %107 = vpbroadcastb.ymm %106
+  %108 = vpaddb.ymm %107, %105
+  %109 = vpcmpeqb.ymm %108, %84
+  %110 = cmp.imm.gpr64 %position, 32, "ult"
+  %111 = mov.imm32 0
+  %112 = sub.gpr32 %111, %110
+  %113 = vmovd.xmm.gpr32 %112
+  %114 = vpbroadcastb.ymm %113
+  %115 = vpand.ymm %109, %114
+  %116 = mov.imm32 0
+  %117 = sub.gpr32 %116, %value
+  %118 = vmovd.xmm.gpr32 %117
+  %119 = vpbroadcastb.ymm %118
+  %120 = vpxor.ymm %85, %119
+  %121 = vpand.ymm %120, %115
+  %122 = vpxor.ymm %85, %121
+  %123 = movzx.u8.gpr32 %88
+  %124 = copy %123 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %125 = add.imm.gpr32 %124 {imm32 = -32}
+  %126 = movsx.i8.gpr32 %125
+  %127 = copy %90 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %128 = sub.gpr32 %127, %126
+  %131 = vmovd.xmm.gpr32 %128
+  %132 = vpbroadcastb.xmm %131
+  %133 = vpaddb.xmm %132, %94
+  %134 = vpcmpeqb.xmm %133, %86
+  %135 = cmp.imm.gpr64 %position, 40, "ult"
+  %136 = cmp.imm.gpr64 %position, 32, "uge"
+  %137 = copy %136 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %138 = and.gpr32 %137, %135
+  %139 = mov.imm32 0
+  %140 = sub.gpr32 %139, %138
+  %141 = vmovd.xmm.gpr32 %140
+  %142 = vpbroadcastb.xmm %141
+  %143 = vpand.xmm %134, %142
+  %144 = mov.imm32 0
+  %145 = sub.gpr32 %144, %value
+  %146 = vmovd.xmm.gpr32 %145
+  %147 = vpbroadcastb.xmm %146
+  %148 = vpxor.xmm %87, %147
+  %149 = vpand.xmm %148, %143
+  %150 = vpxor.xmm %87, %149
+  %151 = vpblendvb.ymm %84, %82, %122
+  vmovdqu32.store.ymm %151, %output {disp32 = 0}
+  %152 = vpblendvb.xmm %86, %83, %150
+  vmovsd.store.xmm %152, %output {disp32 = 32}
+  return
+}
+
+// ====
+
+// AVX-512 packets use native K predicates while an inherited 64-bit AVX2
+// packet keeps its comparison predicate in XMM.
+x86.target<avx512> @target
+
+func.def public target(@target) @avx512_i16x39_insert_dynamic(%input: buffer, %output: buffer, %value: i16, %position: index) {
+  %c0 = index.constant 0 : offset
+  %input_view = buffer.view %input[%c0] : buffer -> view<39xi16>
+  %output_view = buffer.view %output[%c0] : buffer -> view<39xi16>
+  %values = vector.load %input_view[0] : view<39xi16> -> vector<39xi16>
+  %result = vector.insert %value into %values[%position] : i16, vector<39xi16>
+  vector.store %result, %output_view[0] : vector<39xi16>, view<39xi16>
+  func.return
+}
+
+// ----
+low.func.def public target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = (buffer, buffer, i16, index) -> ()}) @avx512_i16x39_insert_dynamic(%input: reg<x86.gpr64>, %output: reg<x86.gpr64>, %value: reg<x86.gpr32>, %position: reg<x86.gpr64>) asm {
+  %76 = movzx.load.u16.gpr32 %input {disp32 = 72}
+  %77 = movzx.load.u16.gpr32 %input {disp32 = 74}
+  %78 = movzx.load.u16.gpr32 %input {disp32 = 76}
+  %79 = mov.trunc.gpr32.gpr64 %position
+  %80 = movsx.i16.gpr32 %79
+  %81 = mov.imm32 0
+  %82 = copy %81 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %83 = sub.gpr32 %82, %80
+  %84 = mov.imm64 506097522914230528
+  %85 = vmovq.xmm.gpr64 %84
+  %86 = mov.imm64 1084818905618843912
+  %87 = vmovq.xmm.gpr64 %86
+  %88 = vpunpcklqdq.xmm %85, %87
+  %89 = mov.imm32 16
+  %90 = avx512.vpbroadcastb.xmm %89
+  %91 = vpaddb.xmm %88, %90
+  %92 = vxorps.zero.ymm
+  %93 = vinsertf128.ymm.xmm %92, %88, 0
+  %94 = vinsertf128.ymm.xmm %93, %91, 1
+  %95 = avx512.vpmovzxbw.zmm.ymm %94
+  %96 = vpbroadcastw %83
+  %97 = vpaddw %96, %95
+  %98 = vxorps.zero
+  %99 = vpcmpw %97, %98, 0
+  %100 = cmp.imm.gpr64 %position, 32, "ult"
+  %101 = mov.imm32 0
+  %102 = sub.gpr32 %101, %100
+  %103 = movsxd.gpr64.gpr32 %102
+  %104 = avx512.kmovq.k.gpr64 %103
+  %105 = kandq %99, %104
+  %106 = vpbroadcastw %value
+  %107 = vmovdqu32.load %input {disp32 = 0}
+  %108 = vpblendmw %105, %106, %107
+  %109 = movzx.u16.gpr32 %79
+  %110 = copy %109 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %111 = add.imm.gpr32 %110 {imm32 = -32}
+  %112 = movsx.i16.gpr32 %111
+  %113 = copy %81 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %114 = sub.gpr32 %113, %112
+  %115 = mov.imm32 50462976
+  %116 = vmovd.xmm.gpr32 %115
+  %117 = vpmovzxbw.xmm %116
+  %118 = vmovd.xmm.gpr32 %114
+  %119 = vpbroadcastw.xmm %118
+  %120 = vpaddw.xmm %119, %117
+  %121 = vxorps.zero.xmm
+  %122 = vpcmpeqw.xmm %120, %121
+  %123 = cmp.imm.gpr64 %position, 36, "ult"
+  %124 = cmp.imm.gpr64 %position, 32, "uge"
+  %125 = copy %124 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %126 = and.gpr32 %125, %123
+  %127 = mov.imm32 0
+  %128 = sub.gpr32 %127, %126
+  %129 = vmovd.xmm.gpr32 %128
+  %130 = vpbroadcastw.xmm %129
+  %131 = vpand.xmm %122, %130
+  %132 = vmovd.xmm.gpr32 %value
+  %133 = vpbroadcastw.xmm %132
+  %134 = vmovsd.load.xmm %input {disp32 = 64}
+  %135 = vpblendvb.xmm %134, %133, %131
+  %136 = copy %76 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %137 = cmp.select.imm.gpr64.gpr32 %position, %value, %136, 36, "eq"
+  %138 = copy %77 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %139 = cmp.select.imm.gpr64.gpr32 %position, %value, %138, 37, "eq"
+  %140 = copy %78 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %141 = cmp.select.imm.gpr64.gpr32 %position, %value, %140, 38, "eq"
+  vmovdqu32.store %108, %output {disp32 = 0}
+  vmovsd.store.xmm %135, %output {disp32 = 64}
+  mov.store.u16.gpr32 %137, %output {disp32 = 72}
+  mov.store.u16.gpr32 %139, %output {disp32 = 74}
+  mov.store.u16.gpr32 %141, %output {disp32 = 76}
+  return
+}
+
+// ====
+
+// Object-function signatures preserve their authored platform ABI instead of
+// silently projecting an unsupported wide vector into private packet arguments.
+x86.target<avx2> @target
+
+// ERROR@+1: TARGET/031 {op_name="func.def", type_constraint="vector.target_carrier"}
+func.def target(@target) @unsupported_wide_callable(%values: vector<16xi64>) {
+  func.return
+}
+
+// ====
+
+// A vector narrower than the smallest source carrier stays on the scalar
+// fallback, including storage-float selections that preserve payload bits.
+x86.target<avx2> @target
+
+func.def public target(@target) @short_dynamic_insert(%output: buffer, %value: f8E4M3, %position: index) {
+  %c0 = index.constant 0 : offset
+  %output_view = buffer.view %output[%c0] : buffer -> view<4xf8E4M3>
+  %values = vector.constant 0.0 : vector<4xf8E4M3>
+  %result = vector.insert %value into %values[%position] : f8E4M3, vector<4xf8E4M3>
+  vector.store %result, %output_view[0] : vector<4xf8E4M3>, view<4xf8E4M3>
+  func.return
+}
+
+// ----
+low.func.def public target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (buffer, f8E4M3, index) -> ()}) @short_dynamic_insert(%output: reg<x86.gpr64>, %value: reg<x86.gpr32>, %position: reg<x86.gpr64>) asm {
+  %26 = mov.imm64 0
+  %27 = mov.imm32 0
+  %28 = copy %27 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %29 = cmp.select.gpr64.gpr32 %26, %position, %value, %28, "eq"
+  %30 = mov.imm64 1
+  %31 = copy %27 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %32 = cmp.select.gpr64.gpr32 %30, %position, %value, %31, "eq"
+  %33 = mov.imm64 2
+  %34 = copy %27 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %35 = cmp.select.gpr64.gpr32 %33, %position, %value, %34, "eq"
+  %36 = mov.imm64 3
+  %37 = copy %27 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %38 = cmp.select.gpr64.gpr32 %36, %position, %value, %37, "eq"
+  mov.store.u8.gpr32 %29, %output {disp32 = 0}
+  mov.store.u8.gpr32 %32, %output {disp32 = 1}
+  mov.store.u8.gpr32 %35, %output {disp32 = 2}
+  mov.store.u8.gpr32 %38, %output {disp32 = 3}
+  return
 }

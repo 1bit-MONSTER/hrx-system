@@ -709,8 +709,85 @@ static const loom_low_lower_function_storage_mapping_t kX86FunctionStorage[] = {
      LOOM_X86_REGISTER_CLASS_GPR64},
 };
 
+static bool loom_x86_avx2_source_vector_carrier_supported(
+    void* user_data, const loom_module_t* module, loom_type_t source_type) {
+  (void)user_data;
+  (void)module;
+  loom_x86_register_class_t register_class = 0;
+  return loom_x86_avx2_register_class_for_source_type(source_type,
+                                                      &register_class);
+}
+
+static bool loom_x86_avx512_source_vector_carrier_supported(
+    void* user_data, const loom_module_t* module, loom_type_t source_type) {
+  (void)user_data;
+  (void)module;
+  loom_x86_register_class_t register_class = 0;
+  return loom_x86_avx512_register_class_for_source_type(source_type,
+                                                        &register_class);
+}
+
+static const uint16_t kX86Avx2VectorPacketBitCounts[] = {256u, 128u, 64u};
+static const uint16_t kX86Avx2VectorPacketLaneCounts[] = {32u, 16u, 8u, 4u, 2u};
+static const loom_target_vector_packet_lane_limit_t
+    kX86Avx2VectorPacketStructuralLaneLimits[] = {
+        {
+            .element_type = LOOM_SCALAR_TYPE_I1,
+            .maximum_lane_count = 32u,
+        },
+};
+static_assert(IREE_ARRAYSIZE(kX86Avx2VectorPacketLaneCounts) <=
+                  LOOM_TARGET_VECTOR_PACKET_LANE_COUNT_LIMIT,
+              "packet lane candidates exceed the shared planner capacity");
+
+static const loom_target_vector_packet_policy_t kX86Avx2VectorPacketPolicy = {
+    .native_bit_counts = kX86Avx2VectorPacketBitCounts,
+    .native_lane_counts = kX86Avx2VectorPacketLaneCounts,
+    .index_bit_count = 64u,
+    .offset_bit_count = 64u,
+    .flags = LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_MEMORY_ROOT_COMPONENTS |
+             LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_BOUNDARY_PROJECTION,
+    .structural_lane_limits = kX86Avx2VectorPacketStructuralLaneLimits,
+    .maximum_unpacketized_bit_count = 256u,
+    .native_bit_count_count = IREE_ARRAYSIZE(kX86Avx2VectorPacketBitCounts),
+    .native_lane_count_count = IREE_ARRAYSIZE(kX86Avx2VectorPacketLaneCounts),
+    .structural_lane_limit_count =
+        IREE_ARRAYSIZE(kX86Avx2VectorPacketStructuralLaneLimits),
+};
+
+static const uint16_t kX86Avx512VectorPacketBitCounts[] = {512u, 256u, 128u,
+                                                           64u};
+static const uint16_t kX86Avx512VectorPacketLaneCounts[] = {64u, 32u, 16u,
+                                                            8u,  4u,  2u};
+static const loom_target_vector_packet_lane_limit_t
+    kX86Avx512VectorPacketStructuralLaneLimits[] = {
+        {
+            .element_type = LOOM_SCALAR_TYPE_I1,
+            .maximum_lane_count = 64u,
+        },
+};
+static_assert(IREE_ARRAYSIZE(kX86Avx512VectorPacketLaneCounts) <=
+                  LOOM_TARGET_VECTOR_PACKET_LANE_COUNT_LIMIT,
+              "packet lane candidates exceed the shared planner capacity");
+
+static const loom_target_vector_packet_policy_t kX86Avx512VectorPacketPolicy = {
+    .native_bit_counts = kX86Avx512VectorPacketBitCounts,
+    .native_lane_counts = kX86Avx512VectorPacketLaneCounts,
+    .index_bit_count = 64u,
+    .offset_bit_count = 64u,
+    .flags = LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_MEMORY_ROOT_COMPONENTS |
+             LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_BOUNDARY_PROJECTION,
+    .structural_lane_limits = kX86Avx512VectorPacketStructuralLaneLimits,
+    .maximum_unpacketized_bit_count = 512u,
+    .native_bit_count_count = IREE_ARRAYSIZE(kX86Avx512VectorPacketBitCounts),
+    .native_lane_count_count = IREE_ARRAYSIZE(kX86Avx512VectorPacketLaneCounts),
+    .structural_lane_limit_count =
+        IREE_ARRAYSIZE(kX86Avx512VectorPacketStructuralLaneLimits),
+};
+
 static const loom_low_lower_policy_t kX86Avx512LowLowerPolicy = {
     .name = IREE_SVL("x86-avx512-low-lower"),
+    .vector_packet_policy = &kX86Avx512VectorPacketPolicy,
     .function_storage = {kX86FunctionStorage,
                          IREE_ARRAYSIZE(kX86FunctionStorage)},
     .error_catalog = &loom_error_catalog_core,
@@ -726,12 +803,18 @@ static const loom_low_lower_policy_t kX86Avx512LowLowerPolicy = {
     .map_argument = {.fn = loom_x86_map_avx512_argument, .user_data = NULL},
     .source_type_supported = {.fn = loom_x86_source_type_supported,
                               .user_data = NULL},
+    .source_vector_carrier_supported =
+        {
+            .fn = loom_x86_avx512_source_vector_carrier_supported,
+            .user_data = NULL,
+        },
     .source_plan_observer = &loom_x86_avx512_predicate_representation_observer,
     .contract = LOOM_X86_AVX512_CONTRACT,
 };
 
 static const loom_low_lower_policy_t kX86Avx2LowLowerPolicy = {
     .name = IREE_SVL("x86-avx2-low-lower"),
+    .vector_packet_policy = &kX86Avx2VectorPacketPolicy,
     .function_storage = {kX86FunctionStorage,
                          IREE_ARRAYSIZE(kX86FunctionStorage)},
     .error_catalog = &loom_error_catalog_core,
@@ -747,12 +830,18 @@ static const loom_low_lower_policy_t kX86Avx2LowLowerPolicy = {
     .map_argument = {.fn = loom_x86_map_avx2_argument, .user_data = NULL},
     .source_type_supported = {.fn = loom_x86_source_type_supported,
                               .user_data = NULL},
+    .source_vector_carrier_supported =
+        {
+            .fn = loom_x86_avx2_source_vector_carrier_supported,
+            .user_data = NULL,
+        },
     .source_plan_observer = &loom_x86_avx2_predicate_representation_observer,
     .contract = LOOM_X86_AVX2_CONTRACT,
 };
 
 static const loom_low_lower_policy_t kX86Avx2FeaturesLowLowerPolicy = {
     .name = IREE_SVL("x86-avx2-features-low-lower"),
+    .vector_packet_policy = &kX86Avx2VectorPacketPolicy,
     .function_storage = {kX86FunctionStorage,
                          IREE_ARRAYSIZE(kX86FunctionStorage)},
     .error_catalog = &loom_error_catalog_core,
@@ -769,6 +858,11 @@ static const loom_low_lower_policy_t kX86Avx2FeaturesLowLowerPolicy = {
                      .user_data = NULL},
     .source_type_supported = {.fn = loom_x86_source_type_supported,
                               .user_data = NULL},
+    .source_vector_carrier_supported =
+        {
+            .fn = loom_x86_avx2_source_vector_carrier_supported,
+            .user_data = NULL,
+        },
     .descriptor_matrix =
         {
             .options = loom_x86_descriptor_matrix_options,
@@ -814,6 +908,7 @@ static const loom_low_lower_policy_t kX86PackedDotLowLowerPolicy = {
 
 static const loom_low_lower_policy_t kX86Avx512FeaturesLowLowerPolicy = {
     .name = IREE_SVL("x86-avx512-features-low-lower"),
+    .vector_packet_policy = &kX86Avx512VectorPacketPolicy,
     .function_storage = {kX86FunctionStorage,
                          IREE_ARRAYSIZE(kX86FunctionStorage)},
     .error_catalog = &loom_error_catalog_core,
@@ -828,6 +923,11 @@ static const loom_low_lower_policy_t kX86Avx512FeaturesLowLowerPolicy = {
                            .user_data = NULL},
     .map_argument = {.fn = loom_x86_map_avx512_features_argument,
                      .user_data = NULL},
+    .source_vector_carrier_supported =
+        {
+            .fn = loom_x86_avx512_source_vector_carrier_supported,
+            .user_data = NULL,
+        },
     .descriptor_matrix =
         {
             .options = loom_x86_descriptor_matrix_options,

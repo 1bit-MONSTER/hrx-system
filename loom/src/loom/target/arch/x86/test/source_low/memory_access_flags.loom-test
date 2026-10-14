@@ -31,16 +31,14 @@ func.def @observe_vector(%input: buffer, %output: buffer) {
 }
 
 // ----
-CHECK: %109 = mov.load.gpr32<volatile> %source_aligned {disp32 = 0}
-CHECK: %124 = mov.load.gpr32<volatile> %source_aligned {disp32 = 60}
-CHECK: %125 = mov.load.gpr32<volatile> %source_aligned {disp32 = 0}
-CHECK: %140 = mov.load.gpr32<volatile> %source_aligned {disp32 = 60}
-CHECK: mov.store.gpr32<volatile> %109, %destination_aligned {disp32 = 0}
-CHECK: mov.store.gpr32<volatile> %124, %destination_aligned {disp32 = 60}
-CHECK: mov.store.gpr32<volatile> %125, %destination_aligned {disp32 = 64}
-CHECK: mov.store.gpr32<volatile> %140, %destination_aligned {disp32 = 124}
-CHECK-NOT: * = mov.load.gpr32 %*
-CHECK-NOT: mov.store.gpr32 %*
+CHECK-COUNT-2: * = vmovdqu32.load.ymm<volatile> %source_aligned {disp32 = 0}
+CHECK-COUNT-2: * = vmovdqu32.load.ymm<volatile> %source_aligned {disp32 = 32}
+CHECK: vmovdqu32.store.ymm<volatile> *, %destination_aligned {disp32 = 0}
+CHECK: vmovdqu32.store.ymm<volatile> *, %destination_aligned {disp32 = 32}
+CHECK: vmovdqu32.store.ymm<volatile> *, %destination_aligned {disp32 = 64}
+CHECK: vmovdqu32.store.ymm<volatile> *, %destination_aligned {disp32 = 96}
+CHECK-NOT: * = vmovdqu32.load.ymm %*
+CHECK-NOT: vmovdqu32.store.ymm %*
 
 // ====
 

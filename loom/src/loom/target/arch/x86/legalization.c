@@ -10,7 +10,9 @@
 #include "loom/ops/scalar/ops.h"
 #include "loom/ops/vector/ops.h"
 #include "loom/target/arch/x86/records/target_records.h"
+#include "loom/target/arch/x86/vector_insert.h"
 #include "loom/transforms/scalar/target_legalization.h"
+#include "loom/transforms/vector/packet_legalization.h"
 #include "loom/transforms/vector/to_scalar.h"
 
 static bool loom_x86_legalizer_descriptor_set_is_x86(
@@ -123,7 +125,59 @@ static iree_status_t loom_x86_legalize_vector_divrem(
   return iree_ok_status();
 }
 
+static iree_status_t loom_x86_legalize_vector_packets(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+  if (!loom_x86_legalizer_descriptor_set_is_x86(context->descriptor_set) ||
+      context->source_function_has_unsupported_vector_carrier ||
+      context->vector_packet_policy == NULL) {
+    return iree_ok_status();
+  }
+
+  bool rewritten = false;
+  switch (op->kind) {
+    case LOOM_OP_VECTOR_LOAD: {
+      IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_load(
+          context, op, context->vector_packet_policy, &rewritten));
+      break;
+    }
+    case LOOM_OP_VECTOR_STORE: {
+      IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_store(
+          context, op, context->vector_packet_policy, &rewritten));
+      break;
+    }
+    case LOOM_OP_VECTOR_INSERT: {
+      IREE_RETURN_IF_ERROR(
+          loom_x86_vector_insert_legalize(context, op, &rewritten));
+      break;
+    }
+    default:
+      IREE_ASSERT_UNREACHABLE();
+  }
+  if (rewritten) {
+    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  }
+  return iree_ok_status();
+}
+
 static const loom_target_legalizer_rule_t kX86LegalizerRules[] = {
+    {
+        .root_kind = LOOM_OP_VECTOR_LOAD,
+        .legalize = loom_x86_legalize_vector_packets,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_STORE,
+        .legalize = loom_x86_legalize_vector_packets,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_INSERT,
+        .legalize = loom_x86_legalize_vector_packets,
+    },
     {
         .root_kind = LOOM_OP_SCALAR_EXTF,
         .first_operand_element_types =

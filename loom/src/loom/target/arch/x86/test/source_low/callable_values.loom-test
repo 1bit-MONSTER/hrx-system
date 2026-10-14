@@ -1,8 +1,7 @@
 // RUN: emit source-low target=x86:avx2 output=low
 
-func.def public @call_mixed_i32(%input: vector<1xi32>, %delta: i32) -> (i32, i32) {
-  // ERROR@+1: TARGET/002 {op_name="vector.extract", field_name="source"}
-  %value = vector.extract %input[0] : vector<1xi32> -> i32
+func.def public @call_mixed_i32(%input: vector<2xi32>, %delta: i32) -> (i32, i32) {
+  %value = vector.extract %input[0] : vector<2xi32> -> i32
   %mixed = func.call @add_i32(%value, %delta) : (i32, i32) -> (i32)
   %uniform = func.call @add_i32(%delta, %delta) : (i32, i32) -> (i32)
   func.return %mixed, %uniform : i32, i32
@@ -14,6 +13,23 @@ func.def @add_i32(%value: i32, %delta: i32) -> (i32) {
   %sum = scalar.addi %wide_value, %wide_delta : i64
   %result = scalar.trunci %sum : i64 to i32
   func.return %result : i32
+}
+
+// ----
+low.func.def public target<x86.avx2.core> abi(object_function) abi_layout({signature = (vector<2xi32>, i32) -> (i32, i32)}) @call_mixed_i32(%input: reg<x86.xmm>, %delta: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>) asm {
+  %value = vpextrd.xmm %input, 0
+  %mixed = low.func.call pure @add_i32(%value, %delta) : (reg<x86.gpr32>, reg<x86.gpr32>) -> (reg<x86.gpr32>)
+  %uniform = low.func.call pure @add_i32(%delta, %delta) : (reg<x86.gpr32>, reg<x86.gpr32>) -> (reg<x86.gpr32>)
+  return %mixed, %uniform
+}
+
+low.func.def target<x86.avx2.core> @add_i32(%value: reg<x86.gpr32>, %delta: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %wide_value = movzx.gpr64.gpr32 %value
+  %wide_delta = movzx.gpr64.gpr32 %delta
+  %26 = copy %wide_value : reg<x86.gpr64> -> reg<x86.gpr64>
+  %sum = add.gpr64 %26, %wide_delta
+  %result = mov.trunc.gpr32.gpr64 %sum
+  return %result
 }
 
 // ====
@@ -76,9 +92,8 @@ low.func.def public target<x86.avx2.core> abi(object_function) @call_vector_resu
 
 // ====
 
-func.def public @call_loop(%input: vector<1xi32>, %delta: i32, %count: index) -> (i32) {
-  // ERROR@+1: TARGET/002 {op_name="vector.extract", field_name="source"}
-  %value = vector.extract %input[0] : vector<1xi32> -> i32
+func.def public @call_loop(%input: vector<2xi32>, %delta: i32, %count: index) -> (i32) {
+  %value = vector.extract %input[0] : vector<2xi32> -> i32
   %result = func.call @repeat_add(%value, %delta, %count) : (i32, i32, index) -> (i32)
   func.return %result : i32
 }
@@ -96,6 +111,32 @@ func.def @repeat_add(%value: i32, %delta: i32, %count: index) -> (i32) {
 func.def @advance_i32(%value: i32, %delta: i32) -> (i32) {
   %result = scalar.addi %value, %delta : i32
   func.return %result : i32
+}
+
+// ----
+low.func.def public target<x86.avx2.core> abi(object_function) abi_layout({signature = (vector<2xi32>, i32, index) -> (i32)}) @call_loop(%input: reg<x86.xmm>, %delta: reg<x86.gpr32>, %count: reg<x86.gpr64>) -> (reg<x86.gpr32>) asm {
+  %value = vpextrd.xmm %input, 0
+  %result = low.func.call pure @repeat_add(%value, %delta, %count) : (reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr64>) -> (reg<x86.gpr32>)
+  return %result
+}
+
+low.func.def target<x86.avx2.core> @repeat_add(%value: reg<x86.gpr32>, %delta: reg<x86.gpr32>, %count: reg<x86.gpr64>) -> (reg<x86.gpr32>) asm {
+  %c0 = mov.imm64 0
+  low.br ^_bb1(%c0: reg<x86.gpr64>, %value: reg<x86.gpr32>)
+^_bb1(%i: reg<x86.gpr64>, %current: reg<x86.gpr32>):
+  low.op.cond_br<x86.scalar.cmp.branch.gpr64>(%i, %count) {predicate = 12}, ^_bb2, ^_bb3 : (reg<x86.gpr64>, reg<x86.gpr64>)
+^_bb2:
+  %next = low.func.call pure @advance_i32(%current, %delta) : (reg<x86.gpr32>, reg<x86.gpr32>) -> (reg<x86.gpr32>)
+  %40 = lea.disp %i {disp32 = 1}
+  low.br ^_bb1(%40: reg<x86.gpr64>, %next: reg<x86.gpr32>)
+^_bb3:
+  return %current
+}
+
+low.func.def target<x86.avx2.core> @advance_i32(%value: reg<x86.gpr32>, %delta: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %44 = copy %value : reg<x86.gpr32> -> reg<x86.gpr32>
+  %result = add.gpr32 %44, %delta
+  return %result
 }
 
 // ====

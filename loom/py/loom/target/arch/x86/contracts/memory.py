@@ -999,11 +999,16 @@ def x86_vector_memory_rules(
     vector_bit_widths: Sequence[int],
     diagnostic: GuardDiagnostic,
 ) -> tuple[DescriptorRule, ...]:
-    """Builds exact source-memory rules for x86 full-register transfers."""
+    """Builds exact source-memory rules for x86 vector-carrier transfers."""
 
     rules: list[DescriptorRule] = []
     for vector_bit_width in vector_bit_widths:
-        register_suffix = {128: "xmm", 256: "ymm", 512: "zmm"}.get(vector_bit_width)
+        if vector_bit_width == 64:
+            register_suffix = "xmm"
+            memory_descriptor_prefix = "x86.avx2.vmovsd"
+        else:
+            register_suffix = {128: "xmm", 256: "ymm", 512: "zmm"}.get(vector_bit_width)
+            memory_descriptor_prefix = f"{descriptor_key_prefix}.vmovdqu32"
         if register_suffix is None:
             raise ValueError(f"unsupported x86 memory vector width {vector_bit_width}")
         for element_types, element_byte_count in _STORAGE_FORMATS:
@@ -1022,7 +1027,7 @@ def x86_vector_memory_rules(
                         (vector.vector_load, SourceMemoryOperation.LOAD),
                         (vector.vector_store, SourceMemoryOperation.STORE),
                     ),
-                    descriptor_key_prefix=f"{descriptor_key_prefix}.vmovdqu32",
+                    descriptor_key_prefix=memory_descriptor_prefix,
                     register_suffix=register_suffix,
                     value_type=value_type,
                     element_byte_count=element_byte_count,

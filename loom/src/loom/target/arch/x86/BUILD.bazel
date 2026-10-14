@@ -111,15 +111,22 @@ loom_cc_test(
 
 loom_cc_library(
     name = "legalization",
-    srcs = ["legalization.c"],
+    srcs = [
+        "legalization.c",
+        "vector_insert.c",
+        "vector_insert.h",
+    ],
     hdrs = ["legalization.h"],
     deps = [
         "//loom/src/loom/ir",
+        "//loom/src/loom/ops/index",
         "//loom/src/loom/ops/scalar",
+        "//loom/src/loom/ops/scf",
         "//loom/src/loom/ops/vector",
         "//loom/src/loom/target:legalization",
         "//loom/src/loom/target/arch/x86/records:target_records",
         "//loom/src/loom/transforms/scalar:target_legalization",
+        "//loom/src/loom/transforms/vector:packet_legalization",
         "//loom/src/loom/transforms/vector:to_scalar",
         "//runtime/src/iree/base",
     ],

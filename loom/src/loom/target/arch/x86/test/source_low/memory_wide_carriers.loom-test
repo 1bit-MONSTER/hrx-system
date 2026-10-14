@@ -16,8 +16,12 @@ func.def @copy_wide_origin_vectors(%input: buffer, %output: buffer, %byte_offset
 }
 
 // ----
-CHECK: * = mov.load.indexed.gpr32 %source, %destination_offset {disp32 = 64, scale = 1}
-CHECK: mov.store.indexed.gpr32 *, %destination, %destination_offset {disp32 = 60, scale = 1}
+CHECK: * = vmovdqu32.load.indexed.ymm %source, %destination_offset {disp32 = 64, scale = 1}
+CHECK: * = vmovdqu32.load.indexed.ymm %source, %destination_offset {disp32 = 96, scale = 1}
+CHECK: vmovdqu32.store.indexed.ymm *, %destination, %destination_offset {disp32 = 0, scale = 1}
+CHECK: vmovdqu32.store.indexed.ymm *, %destination, %destination_offset {disp32 = 32, scale = 1}
+CHECK-NOT: * = mov.load.indexed.gpr32 %*
+CHECK-NOT: mov.store.indexed.gpr32 %*
 
 // ====
 

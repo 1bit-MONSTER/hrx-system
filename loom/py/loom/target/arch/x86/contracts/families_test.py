@@ -980,6 +980,48 @@ def test_scalar_float_memory_covers_types_and_addressing_without_bitcasts() -> N
                 )
 
 
+def test_vector_memory_covers_storage_families_and_carrier_widths() -> None:
+    for source_op, type_field in (
+        (vector.vector_load, "result"),
+        (vector.vector_store, "value"),
+    ):
+        for family in X86_VECTOR_STORAGE_FAMILIES:
+            for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS:
+                value_type = Vector(
+                    family.element_names,
+                    lanes=vector_bit_width // family.element_bit_width,
+                )
+                rules = tuple(
+                    case
+                    for case in X86_AVX2_CONTRACT_FRAGMENT.cases
+                    if isinstance(case, DescriptorRule)
+                    and case.source_op is source_op
+                    and _value_type_guard(case, type_field) == value_type
+                )
+                assert len(rules) == 9
+                for rule in rules:
+                    memory = tuple(
+                        emit
+                        for emit in rule.emit
+                        if isinstance(emit, EmitDescriptorOp)
+                        and emit.descriptor.semantic_tag.startswith("memory.")
+                    )
+                    assert len(memory) == 1
+                    assert memory[0].source_memory is not None
+                    assert memory[0].source_memory.element_byte_count == (
+                        family.element_bit_width // 8
+                    )
+                    assert memory[0].source_memory.vector_lane_count == (
+                        vector_bit_width // family.element_bit_width
+                    )
+                    descriptor_prefix = (
+                        "x86.avx2.vmovsd."
+                        if vector_bit_width == 64
+                        else "x86.avx2.vmovdqu32."
+                    )
+                    assert memory[0].descriptor.key.startswith(descriptor_prefix)
+
+
 def test_avx2_lane_movement_covers_every_payload_type_and_width() -> None:
     rules = tuple(
         case
@@ -1450,8 +1492,9 @@ def test_avx2_iotas_cover_every_integer_element_and_width() -> None:
             priority,
         )
         for element in INTEGER_ELEMENTS
-        for vector_bit_width in AVX2_VECTOR_BIT_WIDTHS
+        for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS
         for priority in (0, 1)
+        if vector_bit_width != element.bit_width or priority == 0
     }
     assert actual == expected
     assert len(rules) == len(expected)
