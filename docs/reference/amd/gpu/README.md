@@ -28,7 +28,7 @@ resource-lifetime protocol.
 | [Streaming performance monitoring](profiling/spm.md) | SPM sample layouts, RLC rings, vendor KFD host-buffer rotation, per-XCC extents, loss and completed storage use. |
 | [Program-counter sampling](profiling/pc-sampling.md) | Native trigger methods, trap records, per-XCC buffer rotation, reservation versus publication, loss and final trap users. |
 | [Shader thread traces](profiling/thread-trace.md) | SQTT selection, finite drain, live GFX9/GFX12 buffer replacement, hardware-slot phase, overflow and decoder context. |
-| [Firmware dispatch logs](profiling/dispatch-log.md) | Vendor KFD `DLOG` stream ABI, native MQD fields, start/end records, overwrite detection, queue identity and mapped-storage lifetime. |
+| [Firmware dispatch logs](profiling/dispatch-log.md) | Vendor KFD `DLOG` stream ABI versions, native MQD fields, start/end records, overwrite detection and its limits, queue identity and mapped-storage lifetime. |
 
 Compiler target, physical graphics/compute IP, SDMA IP, firmware, and native
 transport identify different parts of a programming contract. The operation

@@ -11,9 +11,12 @@ completion signal on each traced dispatch. [Native service][open]
 
 ## Applicability and native admission
 
-This interface belongs to the pinned ROCm AMDGPU driver, with profiler protocol
-version 6 and dispatch-stream ABI version 3. It is not implied by the presence
-of `/dev/kfd`. The driver selects physical GC IP and checks the MEC pipe count:
+The pinned ROCm AMDGPU driver implements profiler protocol version 6 and
+dispatch-stream ABI version 3. ROCprofiler's separate [version-4 consumer](#version-4-sdk-contract)
+changes the mapping, cursor, and notification contracts; its SDK declarations
+are not the version-3 driver's implementation. Availability is not implied by
+the presence of `/dev/kfd`. The driver selects physical GC IP and checks the
+MEC pipe count:
 
 | Physical GC IP | Regions in one stream | Selection |
 | --- | --- | --- |
@@ -41,7 +44,7 @@ the dispatch-ID or timestamp semantics of arbitrary PM4 packets. SDMA queues
 are outside this binding predicate. [Queue type and format][queue-format]
 [Binding predicate][bind] [Record interpretation][record]
 
-## Stream representation
+## Version-3 stream representation
 
 `AMDKFD_IOC_PROFILER` uses ioctl number `0x28`, a 40-byte request and operation
 `KFD_IOC_PROFILER_DLOG` (`4`). The 24-byte DLOG payload selects `OPEN_STREAM`
@@ -116,7 +119,7 @@ update, while creation can install the fields before the initial MQD load.
 [GFX12 offsets][mqd12-layout] [GFX12 builder][mqd12-builder]
 [Queue binding][autoarm]
 
-## Publication, overwrite and collection
+## Version-3 publication, overwrite and collection
 
 The UAPI specifies free-running unsigned 64-bit counters, with the slot selected
 by the low bits of the count. Firmware publishes payload before its write
@@ -165,7 +168,7 @@ on the firmware source sharing the clock domain expected by ROCr; field width
 alone does not establish it. [Timing caller][timing]
 [Translation](../observability.md#clock-domains-and-conversion)
 
-## Notification and completed storage use
+## Version-3 notification and completed storage use
 
 Firmware notifications use an EOP interrupt with a dispatch-log context tag and
 the target PASID. KFD routes it to the matching stream waitqueue. `poll()`
@@ -192,6 +195,61 @@ for final reading. A GPU reset publishes ERR without declaring normal capture
 completion or freeing the buffer. These are distinct terminal conditions.
 [Unbind and retention][unbind] [Retained-session retry][bind]
 [Target exit][target-exit] [Reset][reset]
+
+## Version-4 SDK contract
+
+The later ROCprofiler consumer requires stream ABI 4, although its outer
+profiler protocol remains version 6. Its INFO structure drops `rptr_offset`,
+shrinking from 72 to 64 bytes; the stream ioctl request consequently shrinks
+from 80 to 72 bytes, including its operation and reserved DWORDs. The encoded
+ioctl size changes with it. The consumer checks the returned ABI and geometry
+before mapping. These are version-specific requests and layouts, rather than
+a reader policy that can be applied to either native interface.
+[V4 declaration][v4-uapi] [Layout checks][v4-layout]
+[Consumer admission][v4-admission]
+
+| Property | Version-3 driver and consumer | Version-4 SDK contract |
+| --- | --- | --- |
+| Mapping | Shared read/write; records, write counters, and read counters. | Shared read-only; records and write-pointer slots. |
+| Producer progress | Free-running 64-bit count. | Low 32 bits from each eight-byte write-pointer slot. |
+| Consumer progress | Shared 64-bit read counter. | Reader-local 32-bit cursor. |
+| Unread count | Unsigned `write - read`. | `(write - read) & (capacity - 1)`. |
+| Ring lap | Count distance can expose completed overwrites. | Masked unread distance loses full-lap information. |
+| Poll readiness | Shared write and read counters differ. | Native notification count is nonzero. |
+
+The v4 declaration distinguishes GFX12's wrapping slot index from the gfx950
+path's free-running count. The consumer masks the distance and slot for both,
+so it does not retain lap information from the latter. Each pointer load has
+32-bit width but an eight-byte stride: region `i` uses `wptr_offset + 8i`, not
+the `i`th element of a packed 32-bit array. The consumer initializes local
+cursors from those slots synchronously before exposing the reader as ready;
+this discards the initial backlog without accidentally discarding later work
+on a delayed first drain. [Cursor contract][v4-uapi]
+[Pointer loads][v4-load] [Initial cursor publication][v4-attach]
+
+In this declaration, each firmware notification or queue-destruction nudge
+increments a native notification count. A nonblocking eight-byte `read()`
+returns and clears that count; `EAGAIN` means it was already zero. The reader
+consumes the count after `POLLIN`, then collects to the observed producer
+positions. The count acknowledges notifications, not records or available ring
+capacity. Consuming records alone does not clear readiness. Poll timeout also
+triggers collection of a tail shorter than the declared 512-record notification
+interval. [Notification contract][v4-notify] [Consumer sequence][v4-read]
+
+The v4 copier has no post-copy overwrite check or per-record trust result.
+Exactly one full ring of unread records aliases to empty, and copying a slot
+while firmware replaces it is not detected by its masked cursor arithmetic.
+Increasing capacity or copying faster changes the chance of that collision;
+neither supplies a stable-snapshot or loss-count contract. The older consumer's
+overwrite checks therefore cannot be attributed to this v4 path.
+[Copy implementation][v4-copy]
+
+The SDK limits its size lattice to 10 MiB and defaults to 2.5 MiB. Its stream
+operations remain INFO and STATUS, with no stop-and-freeze request; cleanup
+unmaps and closes. The version-3 driver's terminal-state and failed-unbind
+implementation above cannot, by itself, establish those same details for the
+different native implementation required by v4. [Size policy][v4-size]
+[Operations][v4-uapi] [Cleanup caller][v4-cleanup]
 
 [uapi]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/include/uapi/linux/kfd_ioctl.h#L1748-L1813
 [profiler-ioctl]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/include/uapi/linux/kfd_ioctl.h#L2069-L2070
@@ -227,3 +285,13 @@ completion or freeing the buffer. These are distinct terminal conditions.
 [unbind]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_process_queue_manager.c#L1043-L1093
 [target-exit]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_dlog_stream.c#L517-L570
 [reset]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_dlog_stream.c#L424-L439
+[v4-uapi]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/kfd/kfd_dlog_uapi.h#L87-L174
+[v4-layout]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/kfd/dlog_abi.cpp#L62-L90
+[v4-admission]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/kfd/kfd_reader.cpp#L381-L418
+[v4-load]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/kfd/dlog_drain.hpp#L102-L115
+[v4-attach]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/kfd/kfd_reader.cpp#L451-L477
+[v4-notify]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/kfd/kfd_dlog_uapi.h#L134-L150
+[v4-read]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/kfd/kfd_reader.cpp#L1128-L1152
+[v4-copy]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/kfd/dlog_drain.hpp#L253-L331
+[v4-size]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/kfd/dlog_drain.hpp#L59-L84
+[v4-cleanup]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/kfd/kfd_reader.cpp#L492-L523
