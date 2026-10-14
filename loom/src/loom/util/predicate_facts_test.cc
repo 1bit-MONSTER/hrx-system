@@ -494,5 +494,54 @@ TEST(PredicateFactsImplicationTest, PreservesPredicateDomainSemantics) {
       /*table=*/nullptr, &conclusion, &premise));
 }
 
+TEST(PredicateFactsImplicationTest, IntegerRelationMatrix) {
+  struct Relation {
+    // Predicate interpreted by the compiler query.
+    loom_predicate_kind_t kind;
+    // Independent concrete integer semantics.
+    bool (*evaluate)(int64_t, int64_t);
+  };
+  const Relation relations[] = {
+      {LOOM_PREDICATE_EQ, [](int64_t a, int64_t b) { return a == b; }},
+      {LOOM_PREDICATE_NE, [](int64_t a, int64_t b) { return a != b; }},
+      {LOOM_PREDICATE_LT, [](int64_t a, int64_t b) { return a < b; }},
+      {LOOM_PREDICATE_LE, [](int64_t a, int64_t b) { return a <= b; }},
+      {LOOM_PREDICATE_GT, [](int64_t a, int64_t b) { return a > b; }},
+      {LOOM_PREDICATE_GE, [](int64_t a, int64_t b) { return a >= b; }},
+      {LOOM_PREDICATE_ULT,
+       [](int64_t a, int64_t b) { return uint64_t(a) < uint64_t(b); }},
+      {LOOM_PREDICATE_ULE,
+       [](int64_t a, int64_t b) { return uint64_t(a) <= uint64_t(b); }},
+      {LOOM_PREDICATE_UGT,
+       [](int64_t a, int64_t b) { return uint64_t(a) > uint64_t(b); }},
+      {LOOM_PREDICATE_UGE,
+       [](int64_t a, int64_t b) { return uint64_t(a) >= uint64_t(b); }},
+  };
+  for (const Relation& premise : relations) {
+    for (const Relation& conclusion : relations) {
+      for (bool swapped : {false, true}) {
+        bool implies = true;
+        // These representatives cover both signs and all relative orders.
+        for (int64_t left = -2; left <= 2; ++left) {
+          for (int64_t right = -2; right <= 2; ++right) {
+            implies &= !premise.evaluate(left, right) ||
+                       conclusion.evaluate(swapped ? right : left,
+                                           swapped ? left : right);
+          }
+        }
+        const auto premise_predicate = MakeBinaryPredicate(premise.kind, 1, 2);
+        const auto conclusion_predicate = MakeBinaryPredicate(
+            conclusion.kind, swapped ? 2 : 1, swapped ? 1 : 2);
+        EXPECT_EQ(
+            loom_value_fact_table_predicate_implies(
+                /*table=*/nullptr, &premise_predicate, &conclusion_predicate),
+            implies)
+            << "premise " << int(premise.kind) << " conclusion "
+            << int(conclusion.kind) << " swapped " << swapped;
+      }
+    }
+  }
+}
+
 }  // namespace
 }  // namespace loom

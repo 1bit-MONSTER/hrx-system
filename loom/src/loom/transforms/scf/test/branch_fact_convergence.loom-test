@@ -1,0 +1,682 @@
+// RUN: pass combine
+
+// An explicit exclusion survives nested false-edge refinement for i1.
+func.decl @observe(%value: i1) -> (i1)
+
+func.def @excluded_literal_i1(%input: i1, %other: i1) -> (i1) {
+  %known = scalar.assume %input [ne(%input, 1)] : i1
+  %excluded = scalar.constant 1 : i1
+  %single = scalar.cmpi eq, %known, %excluded : i1
+  %condition = scalar.ori %other, %single : i1
+  %result = scf.if %condition -> (i1) {
+    scf.yield %excluded : i1
+  } else {
+    %observed = func.call @observe(%known) : (i1) -> (i1)
+    scf.yield %observed : i1
+  }
+  func.return %result : i1
+}
+
+// ----
+func.decl @observe(%value: i1) -> (i1)
+
+func.def @excluded_literal_i1(%input: i1, %other: i1) -> (i1) {
+  %known = scalar.constant false : i1
+  %excluded = scalar.constant 1 : i1
+  %result = scf.if %other -> (i1) {
+    scf.yield %excluded : i1
+  } else {
+    %observed = func.call @observe(%known) : (i1) -> (i1)
+    scf.yield %observed : i1
+  }
+  func.return %result : i1
+}
+
+// ====
+
+// An explicit exclusion survives nested false-edge refinement for i8.
+func.decl @observe(%value: i8) -> (i8)
+
+func.def @excluded_literal_i8(%input: i8, %other: i1) -> (i8) {
+  %known = scalar.assume %input [ne(%input, 1)] : i8
+  %excluded = scalar.constant 1 : i8
+  %single = scalar.cmpi eq, %known, %excluded : i8
+  %condition = scalar.ori %other, %single : i1
+  %result = scf.if %condition -> (i8) {
+    scf.yield %excluded : i8
+  } else {
+    %observed = func.call @observe(%known) : (i8) -> (i8)
+    scf.yield %observed : i8
+  }
+  func.return %result : i8
+}
+
+// ----
+func.decl @observe(%value: i8) -> (i8)
+
+func.def @excluded_literal_i8(%input: i8, %other: i1) -> (i8) {
+  %known = scalar.assume %input [ne(%input, 1)] : i8
+  %excluded = scalar.constant 1 : i8
+  %result = scf.if %other -> (i8) {
+    scf.yield %excluded : i8
+  } else {
+    %observed = func.call @observe(%known) : (i8) -> (i8)
+    scf.yield %observed : i8
+  }
+  func.return %result : i8
+}
+
+// ====
+
+// An explicit exclusion survives nested false-edge refinement for i16.
+func.decl @observe(%value: i16) -> (i16)
+
+func.def @excluded_literal_i16(%input: i16, %other: i1) -> (i16) {
+  %known = scalar.assume %input [ne(%input, 1)] : i16
+  %excluded = scalar.constant 1 : i16
+  %single = scalar.cmpi eq, %known, %excluded : i16
+  %condition = scalar.ori %other, %single : i1
+  %result = scf.if %condition -> (i16) {
+    scf.yield %excluded : i16
+  } else {
+    %observed = func.call @observe(%known) : (i16) -> (i16)
+    scf.yield %observed : i16
+  }
+  func.return %result : i16
+}
+
+// ----
+func.decl @observe(%value: i16) -> (i16)
+
+func.def @excluded_literal_i16(%input: i16, %other: i1) -> (i16) {
+  %known = scalar.assume %input [ne(%input, 1)] : i16
+  %excluded = scalar.constant 1 : i16
+  %result = scf.if %other -> (i16) {
+    scf.yield %excluded : i16
+  } else {
+    %observed = func.call @observe(%known) : (i16) -> (i16)
+    scf.yield %observed : i16
+  }
+  func.return %result : i16
+}
+
+// ====
+
+// An explicit exclusion survives nested false-edge refinement for i32.
+func.decl @observe(%value: i32) -> (i32)
+
+func.def @excluded_literal_i32(%input: i32, %other: i1) -> (i32) {
+  %known = scalar.assume %input [ne(%input, 1)] : i32
+  %excluded = scalar.constant 1 : i32
+  %single = scalar.cmpi eq, %known, %excluded : i32
+  %condition = scalar.ori %other, %single : i1
+  %result = scf.if %condition -> (i32) {
+    scf.yield %excluded : i32
+  } else {
+    %observed = func.call @observe(%known) : (i32) -> (i32)
+    scf.yield %observed : i32
+  }
+  func.return %result : i32
+}
+
+// ----
+func.decl @observe(%value: i32) -> (i32)
+
+func.def @excluded_literal_i32(%input: i32, %other: i1) -> (i32) {
+  %known = scalar.assume %input [ne(%input, 1)] : i32
+  %excluded = scalar.constant 1 : i32
+  %result = scf.if %other -> (i32) {
+    scf.yield %excluded : i32
+  } else {
+    %observed = func.call @observe(%known) : (i32) -> (i32)
+    scf.yield %observed : i32
+  }
+  func.return %result : i32
+}
+
+// ====
+
+// An explicit exclusion survives nested false-edge refinement for i64.
+func.decl @observe(%value: i64) -> (i64)
+
+func.def @excluded_literal_i64(%input: i64, %other: i1) -> (i64) {
+  %known = scalar.assume %input [ne(%input, 1)] : i64
+  %excluded = scalar.constant 1 : i64
+  %single = scalar.cmpi eq, %known, %excluded : i64
+  %condition = scalar.ori %other, %single : i1
+  %result = scf.if %condition -> (i64) {
+    scf.yield %excluded : i64
+  } else {
+    %observed = func.call @observe(%known) : (i64) -> (i64)
+    scf.yield %observed : i64
+  }
+  func.return %result : i64
+}
+
+// ----
+func.decl @observe(%value: i64) -> (i64)
+
+func.def @excluded_literal_i64(%input: i64, %other: i1) -> (i64) {
+  %known = scalar.assume %input [ne(%input, 1)] : i64
+  %excluded = scalar.constant 1 : i64
+  %result = scf.if %other -> (i64) {
+    scf.yield %excluded : i64
+  } else {
+    %observed = func.call @observe(%known) : (i64) -> (i64)
+    scf.yield %observed : i64
+  }
+  func.return %result : i64
+}
+
+// ====
+
+// An explicit exclusion survives nested false-edge refinement for index.
+func.decl @observe(%value: index) -> (index)
+
+func.def @excluded_literal_index(%input: index, %other: i1) -> (index) {
+  %known = index.assume %input [ne(%input, 1)] : index
+  %excluded = index.constant 1 : index
+  %single = index.cmp eq, %known, %excluded : index
+  %condition = scalar.ori %other, %single : i1
+  %result = scf.if %condition -> (index) {
+    scf.yield %excluded : index
+  } else {
+    %observed = func.call @observe(%known) : (index) -> (index)
+    scf.yield %observed : index
+  }
+  func.return %result : index
+}
+
+// ----
+func.decl @observe(%value: index) -> (index)
+
+func.def @excluded_literal_index(%input: index, %other: i1) -> (index) {
+  %known = index.assume %input [ne(%input, 1)] : index
+  %excluded = index.constant 1 : index
+  %result = scf.if %other -> (index) {
+    scf.yield %excluded : index
+  } else {
+    %observed = func.call @observe(%known) : (index) -> (index)
+    scf.yield %observed : index
+  }
+  func.return %result : index
+}
+
+// ====
+
+// An explicit exclusion survives nested false-edge refinement for offset.
+func.decl @observe(%value: offset) -> (offset)
+
+func.def @excluded_literal_offset(%input: offset, %other: i1) -> (offset) {
+  %known = index.assume %input [ne(%input, 1)] : offset
+  %excluded = index.constant 1 : offset
+  %single = index.cmp eq, %known, %excluded : offset
+  %condition = scalar.ori %other, %single : i1
+  %result = scf.if %condition -> (offset) {
+    scf.yield %excluded : offset
+  } else {
+    %observed = func.call @observe(%known) : (offset) -> (offset)
+    scf.yield %observed : offset
+  }
+  func.return %result : offset
+}
+
+// ----
+func.decl @observe(%value: offset) -> (offset)
+
+func.def @excluded_literal_offset(%input: offset, %other: i1) -> (offset) {
+  %known = index.assume %input [ne(%input, 1)] : offset
+  %excluded = index.constant 1 : offset
+  %result = scf.if %other -> (offset) {
+    scf.yield %excluded : offset
+  } else {
+    %observed = func.call @observe(%known) : (offset) -> (offset)
+    scf.yield %observed : offset
+  }
+  func.return %result : offset
+}
+
+// ====
+
+// A tuple carrier establishes the complete eq relation on the true edge.
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @implied_relation_eq(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [eq(%left, %right)] : i32, i32
+  %ordered = scalar.cmpi eq, %known_left, %known_right : i32
+  %condition = scalar.andi %other, %ordered : i1
+  %result = scf.if %condition -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ----
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @implied_relation_eq(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [eq(%left, %right)] : i32, i32
+  %result = scf.if %other -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ====
+
+// A tuple carrier establishes the complete ne relation on the true edge.
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @implied_relation_ne(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [ne(%left, %right)] : i32, i32
+  %ordered = scalar.cmpi ne, %known_left, %known_right : i32
+  %condition = scalar.andi %other, %ordered : i1
+  %result = scf.if %condition -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ----
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @implied_relation_ne(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [ne(%left, %right)] : i32, i32
+  %result = scf.if %other -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ====
+
+// A tuple carrier establishes the complete lt relation on the true edge.
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @implied_relation_lt(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [lt(%left, %right)] : i32, i32
+  %ordered = scalar.cmpi sle, %known_left, %known_right : i32
+  %condition = scalar.andi %other, %ordered : i1
+  %result = scf.if %condition -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ----
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @implied_relation_lt(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [lt(%left, %right)] : i32, i32
+  %result = scf.if %other -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ====
+
+// A tuple carrier establishes the complete le relation on the true edge.
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @implied_relation_le(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [le(%left, %right)] : i32, i32
+  %ordered = scalar.cmpi sle, %known_left, %known_right : i32
+  %condition = scalar.andi %other, %ordered : i1
+  %result = scf.if %condition -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ----
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @implied_relation_le(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [le(%left, %right)] : i32, i32
+  %result = scf.if %other -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ====
+
+// A tuple carrier establishes the complete gt relation on the true edge.
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @implied_relation_gt(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [gt(%left, %right)] : i32, i32
+  %ordered = scalar.cmpi sge, %known_left, %known_right : i32
+  %condition = scalar.andi %other, %ordered : i1
+  %result = scf.if %condition -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ----
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @implied_relation_gt(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [gt(%left, %right)] : i32, i32
+  %result = scf.if %other -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ====
+
+// A tuple carrier establishes the complete ge relation on the true edge.
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @implied_relation_ge(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [ge(%left, %right)] : i32, i32
+  %ordered = scalar.cmpi sge, %known_left, %known_right : i32
+  %condition = scalar.andi %other, %ordered : i1
+  %result = scf.if %condition -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ----
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @implied_relation_ge(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [ge(%left, %right)] : i32, i32
+  %result = scf.if %other -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ====
+
+// A tuple carrier establishes the complete ult relation on the true edge.
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @implied_relation_ult(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [ult(%left, %right)] : i32, i32
+  %ordered = scalar.cmpi ule, %known_left, %known_right : i32
+  %condition = scalar.andi %other, %ordered : i1
+  %result = scf.if %condition -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ----
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @implied_relation_ult(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [ult(%left, %right)] : i32, i32
+  %ordered = scalar.cmpi ule, %known_left, %known_right : i32
+  %condition = scalar.andi %other, %ordered : i1
+  %result = scf.if %condition -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ====
+
+// A tuple carrier establishes the complete ule relation on the true edge.
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @implied_relation_ule(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [ule(%left, %right)] : i32, i32
+  %ordered = scalar.cmpi ule, %known_left, %known_right : i32
+  %condition = scalar.andi %other, %ordered : i1
+  %result = scf.if %condition -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ----
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @implied_relation_ule(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [ule(%left, %right)] : i32, i32
+  %ordered = scalar.cmpi ule, %known_left, %known_right : i32
+  %condition = scalar.andi %other, %ordered : i1
+  %result = scf.if %condition -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ====
+
+// A tuple carrier establishes the complete ugt relation on the true edge.
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @implied_relation_ugt(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [ugt(%left, %right)] : i32, i32
+  %ordered = scalar.cmpi uge, %known_left, %known_right : i32
+  %condition = scalar.andi %other, %ordered : i1
+  %result = scf.if %condition -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ----
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @implied_relation_ugt(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [ugt(%left, %right)] : i32, i32
+  %ordered = scalar.cmpi uge, %known_left, %known_right : i32
+  %condition = scalar.andi %other, %ordered : i1
+  %result = scf.if %condition -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ====
+
+// A tuple carrier establishes the complete uge relation on the true edge.
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @implied_relation_uge(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [uge(%left, %right)] : i32, i32
+  %ordered = scalar.cmpi uge, %known_left, %known_right : i32
+  %condition = scalar.andi %other, %ordered : i1
+  %result = scf.if %condition -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ----
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @implied_relation_uge(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [uge(%left, %right)] : i32, i32
+  %ordered = scalar.cmpi uge, %known_left, %known_right : i32
+  %condition = scalar.andi %other, %ordered : i1
+  %result = scf.if %condition -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ====
+
+// A stronger edge relation remains explicit even with an existing carrier.
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @stronger_edge_relation(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [le(%left, %right)] : i32, i32
+  %strict = scalar.cmpi slt, %known_left, %known_right : i32
+  %condition = scalar.andi %other, %strict : i1
+  %result = scf.if %condition -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ----
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @stronger_edge_relation(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [le(%left, %right)] : i32, i32
+  %strict = scalar.cmpi slt, %known_left, %known_right : i32
+  %condition = scalar.andi %other, %strict : i1
+  %result = scf.if %condition -> (i32) {
+    %14 = scalar.assume %known_right [gt(%known_right, %known_left)] : i32
+    %13 = scalar.assume %known_left [lt(%known_left, %known_right)] : i32
+    %observed = func.call @observe(%13, %14) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ====
+
+// Signed and unsigned order remain distinct on the same input aliases.
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @distinct_edge_domain(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [lt(%left, %right)] : i32, i32
+  %ordered = scalar.cmpi ult, %known_left, %known_right : i32
+  %condition = scalar.andi %other, %ordered : i1
+  %result = scf.if %condition -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ----
+func.decl @observe(%left: i32, %right: i32) -> (i32)
+
+func.def @distinct_edge_domain(%left: i32, %right: i32, %other: i1) -> (i32) {
+  %known_left, %known_right = scalar.assume %left, %right [lt(%left, %right)] : i32, i32
+  %ordered = scalar.cmpi ult, %known_left, %known_right : i32
+  %condition = scalar.andi %other, %ordered : i1
+  %result = scf.if %condition -> (i32) {
+    %observed = func.call @observe(%known_left, %known_right) : (i32, i32) -> (i32)
+    scf.yield %observed : i32
+  } else {
+    scf.yield %known_right : i32
+  }
+  func.return %result : i32
+}
+
+// ====
+
+// Default edges retain only exclusions not already carried by the selector.
+func.decl @observe(%value: index) -> (index)
+
+func.def @switch_exclusions(%input: index) -> (index) {
+  %known = index.assume %input [ne(%input, 1)] : index
+  %result = scf.switch %known -> (index) {
+    case 1 {
+      %excluded = index.constant 1 : index
+      scf.yield %excluded : index
+    }
+    case 2 {
+      %other_case = index.constant 2 : index
+      scf.yield %other_case : index
+    }
+    default {
+      %observed = func.call @observe(%known) : (index) -> (index)
+      scf.yield %observed : index
+    }
+  }
+  func.return %result : index
+}
+
+// ----
+func.decl @observe(%value: index) -> (index)
+
+func.def @switch_exclusions(%input: index) -> (index) {
+  %known = index.assume %input [ne(%input, 1)] : index
+  %result = scf.switch %known -> (index) {
+    case 1 {
+      %excluded = index.constant 1 : index
+      scf.yield %excluded : index
+    }
+    case 2 {
+      %other_case = index.constant 2 : index
+      scf.yield %other_case : index
+    }
+    default {
+      %9 = index.assume %known [ne(%known, 2)] : index
+      %observed = func.call @observe(%9) : (index) -> (index)
+      scf.yield %observed : index
+    }
+  }
+  func.return %result : index
+}

@@ -48,6 +48,16 @@ bool loom_value_fact_table_predicate_implies(
     const loom_value_fact_table_t* table, const loom_predicate_t* premise,
     const loom_predicate_t* conclusion);
 
+// Returns true when an explicit predicate on the verified pure fact-identity
+// |carrier| establishes |conclusion|. Other operations return false. Only the
+// carrier's declared predicates and retained SSA identities participate;
+// ambient numeric and path facts cannot substitute for this durable program
+// contract. The query does not follow the carrier's operands or allocate
+// storage.
+bool loom_value_fact_table_carrier_implies_predicate(
+    const loom_value_fact_table_t* table, const loom_module_t* module,
+    const loom_op_t* carrier, const loom_predicate_t* conclusion);
+
 // Tightens one fact per SSA alias using predicates over those aliases and
 // externally referenced SSA values already defined in |table|. Literal
 // predicates refine their target alias directly. Binary relational predicates

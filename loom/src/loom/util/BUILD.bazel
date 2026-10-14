@@ -382,6 +382,7 @@ loom_cc_library(
         ":fact_table",
         "//loom/src/loom/analysis:integer_relation",
         "//loom/src/loom/decision:predicate",
+        "//loom/src/loom/ir",
         "//loom/src/loom/ir:facts",
         "//runtime/src/iree/base/internal",
         "//runtime/src/iree/base/internal:arena",
