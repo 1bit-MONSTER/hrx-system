@@ -47,7 +47,8 @@ TEST(CompileReportLowMixTest,
   branch.successors[0] = region_blocks[2];
   branch.successors[1] = region_blocks[3];
 
-  loom_low_descriptor_t descriptor = {
+  loom_low_descriptor_t descriptor = {};
+  loom_low_descriptor_layout_t layout = {
       .op_kind = LOOM_LOW_DESCRIPTOR_OP_KIND_COND_BR,
   };
   loom_low_descriptor_view_t descriptor_view = {
@@ -57,6 +58,8 @@ TEST(CompileReportLowMixTest,
   };
   loom_low_descriptor_set_t descriptor_set = {
       .descriptors = &descriptor,
+      .descriptor_layouts = &layout,
+      .descriptor_layout_count = 1,
       .descriptor_views = &descriptor_view,
       .descriptor_count = 1,
       .descriptor_ordinal_count = 1,
@@ -85,7 +88,7 @@ TEST(CompileReportLowMixTest,
   loom_op_t generic_terminator = {
       .kind = LOOM_OP_LOW_OP,
   };
-  descriptor.op_kind = LOOM_LOW_DESCRIPTOR_OP_KIND_OP;
+  layout.op_kind = LOOM_LOW_DESCRIPTOR_OP_KIND_OP;
   descriptor_view.instruction_class_flags =
       LOOM_LOW_INSTRUCTION_CLASS_FLAG_CONTROL;
   node.op = &generic_terminator;
@@ -102,9 +105,9 @@ TEST(CompileReportLowMixTest, CountsExecutionBarriersFromInstructionClasses) {
   // Both packets have ordering effects; only one is an execution rendezvous.
   loom_low_effect_t effect = {.kind = LOOM_LOW_EFFECT_KIND_BARRIER};
   loom_low_descriptor_t descriptors[2] = {};
+  const loom_low_descriptor_layout_t layout = {.effect_count = 1};
   loom_low_descriptor_view_t descriptor_views[2] = {};
   for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(descriptors); ++i) {
-    descriptors[i].effect_count = 1;
     descriptor_views[i].instruction_class_flags =
         LOOM_LOW_INSTRUCTION_CLASS_FLAG_CONTROL;
   }
@@ -112,6 +115,8 @@ TEST(CompileReportLowMixTest, CountsExecutionBarriersFromInstructionClasses) {
       LOOM_LOW_INSTRUCTION_CLASS_FLAG_EXECUTION_BARRIER;
   loom_low_descriptor_set_t descriptor_set = {
       .descriptors = descriptors,
+      .descriptor_layouts = &layout,
+      .descriptor_layout_count = 1,
       .descriptor_views = descriptor_views,
       .descriptor_count = IREE_ARRAYSIZE(descriptors),
       .descriptor_ordinal_count = IREE_ARRAYSIZE(descriptors),
@@ -155,13 +160,17 @@ TEST(CompileReportLowMixTest, CountsOnlyMemoryAttachedReadWriteEffects) {
   effects[5].memory_space = LOOM_LOW_MEMORY_SPACE_WORKGROUP;
   effects[5].width_bits = 64;
   loom_low_descriptor_t descriptors[IREE_ARRAYSIZE(effects)] = {};
+  loom_low_descriptor_layout_t layouts[IREE_ARRAYSIZE(effects)] = {};
   loom_low_descriptor_view_t descriptor_views[IREE_ARRAYSIZE(effects)] = {};
   for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(descriptors); ++i) {
-    descriptors[i].effect_start = i;
-    descriptors[i].effect_count = 1;
+    descriptors[i].layout_index = i;
+    layouts[i].effect_start = i;
+    layouts[i].effect_count = 1;
   }
   loom_low_descriptor_set_t descriptor_set = {
       .descriptors = descriptors,
+      .descriptor_layouts = layouts,
+      .descriptor_layout_count = IREE_ARRAYSIZE(layouts),
       .descriptor_views = descriptor_views,
       .descriptor_count = IREE_ARRAYSIZE(descriptors),
       .descriptor_ordinal_count = IREE_ARRAYSIZE(descriptors),
@@ -232,14 +241,18 @@ TEST_P(CompileReportLowTest, RecordsPressureSpillAndAllocationFailureRows) {
   constexpr loom_string_ref_t kRegisterClassGpr = LOOM_STRING_REF(132, 8);
   constexpr loom_string_ref_t kRegisterClassFpr = LOOM_STRING_REF(140, 8);
   loom_low_descriptor_t descriptors[8] = {};
+  const loom_low_descriptor_layout_t layouts[] = {
+      {},
+      {.effect_count = 1},
+      {.effect_start = 1, .effect_count = 1},
+  };
   loom_low_descriptor_view_t descriptor_views[8] = {};
   descriptors[0].semantic_tag_string_ref = kRegisterCopyTag;
   descriptors[1].semantic_tag_string_ref = kMemoryGlobalTag;
   descriptors[2].semantic_tag_string_ref = kMemoryStackLoadTag;
-  descriptors[2].effect_count = 1;
+  descriptors[2].layout_index = 1;
   descriptors[3].semantic_tag_string_ref = kMemoryStackStoreTag;
-  descriptors[3].effect_start = 1;
-  descriptors[3].effect_count = 1;
+  descriptors[3].layout_index = 2;
   descriptors[4].semantic_tag_string_ref = kMatrixWmmaTag;
   descriptors[5].semantic_tag_string_ref = kMemoryGlobalTag;
   descriptors[6].semantic_tag_string_ref = kMatrixSwmmacTag;
@@ -303,6 +316,8 @@ TEST_P(CompileReportLowTest, RecordsPressureSpillAndAllocationFailureRows) {
               .data_length = sizeof(kDescriptorStringPool) - 1,
           },
       .descriptors = descriptors,
+      .descriptor_layouts = layouts,
+      .descriptor_layout_count = IREE_ARRAYSIZE(layouts),
       .descriptor_views = descriptor_views,
       .descriptor_count = IREE_ARRAYSIZE(descriptors),
       .descriptor_ordinal_count = IREE_ARRAYSIZE(descriptors),

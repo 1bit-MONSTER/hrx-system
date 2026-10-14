@@ -64,11 +64,15 @@ TEST(LowPlacementTest, DefiningTransferPrecedesEarlierCollectedUses) {
       LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_ORDINAL, 0, 1, 0};
   loom_low_descriptor_t descriptor = {
       .operand_count = 2,
-      .minimum_packet_operand_count = 2,
+  };
+  const loom_low_descriptor_layout_t layout = {
       .constraint_count = 1,
+      .minimum_packet_operand_count = 2,
   };
   loom_low_descriptor_set_t descriptor_set = {
       .stable_id = 1,
+      .descriptor_layouts = &layout,
+      .descriptor_layout_count = 1,
       .operands = operands,
       .operand_count = IREE_ARRAYSIZE(operands),
       .reg_classes = classes,
@@ -276,15 +280,19 @@ TEST(LowPlacementTest, RetainsOperandConstraintsAcrossExactTiesOnly) {
   const loom_low_constraint_t tie_constraint = {LOOM_LOW_CONSTRAINT_KIND_TIED,
                                                 0, 1, 0};
   loom_low_descriptor_t descriptors[2] = {};
+  const loom_low_descriptor_layout_t layouts[] = {
+      {.constraint_count = 1, .minimum_packet_operand_count = 1},
+      {.minimum_packet_operand_count = 1},
+  };
   descriptors[0].operand_count = 2;
   descriptors[0].result_count = 1;
-  descriptors[0].minimum_packet_operand_count = 1;
-  descriptors[0].constraint_count = 1;
   descriptors[1].operand_start = 2;
   descriptors[1].operand_count = 1;
-  descriptors[1].minimum_packet_operand_count = 1;
+  descriptors[1].layout_index = 1;
   loom_low_descriptor_set_t descriptor_set = {
       .stable_id = 1,
+      .descriptor_layouts = layouts,
+      .descriptor_layout_count = IREE_ARRAYSIZE(layouts),
       .operands = operands,
       .operand_count = IREE_ARRAYSIZE(operands),
       .reg_classes = classes,
@@ -538,8 +546,8 @@ class LowPlacementStorageTest : public ::testing::Test {
     operands_[1].role = LOOM_LOW_OPERAND_ROLE_OPERAND;
     descriptor_.operand_count = 2;
     descriptor_.result_count = 1;
-    descriptor_.minimum_packet_operand_count = 1;
-    descriptor_.constraint_count = 1;
+    layout_.minimum_packet_operand_count = 1;
+    layout_.constraint_count = 1;
     descriptor_set_.stable_id = 1;
     descriptor_set_.reg_classes = &register_class_;
     descriptor_set_.reg_class_count = 1;
@@ -551,6 +559,8 @@ class LowPlacementStorageTest : public ::testing::Test {
     descriptor_set_.operand_indices = operand_indices;
     descriptor_set_.operand_index_count = IREE_ARRAYSIZE(operand_indices);
     descriptor_set_.descriptors = &descriptor_;
+    descriptor_set_.descriptor_layouts = &layout_;
+    descriptor_set_.descriptor_layout_count = 1;
     descriptor_set_.descriptor_count = 1;
     descriptor_set_.descriptor_ordinal_count = 1;
     descriptor_set_.constraints = &constraint_;
@@ -727,6 +737,8 @@ class LowPlacementStorageTest : public ::testing::Test {
   loom_low_constraint_t constraint_ = {LOOM_LOW_CONSTRAINT_KIND_TIED, 0, 1, 0};
   // One-result, one-operand destructive packet.
   loom_low_descriptor_t descriptor_ = {};
+  // Structural metadata shared by the chain's descriptor instances.
+  loom_low_descriptor_layout_t layout_ = {};
   // Borrowed target descriptors live throughout the fixture.
   loom_low_descriptor_set_t descriptor_set_ = {};
   // Collected operation sequence excluding the final return.

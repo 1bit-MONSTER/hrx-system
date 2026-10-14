@@ -22,6 +22,26 @@ MEMORY_MODEL_UNSPECIFIED = "LOOM_SPIRV_MEMORY_MODEL_UNSPECIFIED"
 _C_SUFFIX_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 
+_SUBGROUP_ARITHMETIC_OPCODES = tuple(
+    f"LOOM_SPIRV_OP_GROUP_NON_UNIFORM_{operation}"
+    for operation in (
+        "I_ADD",
+        "F_ADD",
+        "I_MUL",
+        "F_MUL",
+        "S_MIN",
+        "U_MIN",
+        "S_MAX",
+        "U_MAX",
+        "BITWISE_AND",
+        "BITWISE_OR",
+        "BITWISE_XOR",
+        "LOGICAL_AND",
+        "LOGICAL_OR",
+        "LOGICAL_XOR",
+    )
+)
+
 
 @dataclass(frozen=True, slots=True)
 class FeatureAtom:
@@ -471,6 +491,47 @@ FEATURE_ATOMS = (
         doc="Native F64-to-F16 conversion satisfies the scalar.fptrunc contract.",
         required=("vulkan_shader",),
         minimum_spirv_version=SPIRV_VERSION_1_0,
+    ),
+    FeatureAtom(
+        key="group_non_uniform_vote",
+        c_suffix="GROUP_NON_UNIFORM_VOTE",
+        name="spirv.group_non_uniform.vote",
+        doc="Boolean votes over active subgroup invocations.",
+        required=("group_non_uniform",),
+        minimum_spirv_version=SPIRV_VERSION_1_3,
+        capabilities=("LOOM_SPIRV_CAPABILITY_GROUP_NON_UNIFORM_VOTE",),
+        opcodes=(
+            "LOOM_SPIRV_OP_GROUP_NON_UNIFORM_ALL",
+            "LOOM_SPIRV_OP_GROUP_NON_UNIFORM_ANY",
+        ),
+    ),
+    FeatureAtom(
+        key="group_non_uniform_arithmetic",
+        c_suffix="GROUP_NON_UNIFORM_ARITHMETIC",
+        name="spirv.group_non_uniform.arithmetic",
+        doc="Arithmetic reductions over active subgroup invocations.",
+        required=("group_non_uniform",),
+        minimum_spirv_version=SPIRV_VERSION_1_3,
+        capabilities=("LOOM_SPIRV_CAPABILITY_GROUP_NON_UNIFORM_ARITHMETIC",),
+        opcodes=_SUBGROUP_ARITHMETIC_OPCODES,
+    ),
+    FeatureAtom(
+        key="group_non_uniform_clustered",
+        c_suffix="GROUP_NON_UNIFORM_CLUSTERED",
+        name="spirv.group_non_uniform.clustered",
+        doc="Arithmetic reductions over contiguous power-of-two subgroup clusters.",
+        required=("group_non_uniform",),
+        minimum_spirv_version=SPIRV_VERSION_1_3,
+        capabilities=("LOOM_SPIRV_CAPABILITY_GROUP_NON_UNIFORM_CLUSTERED",),
+        opcodes=_SUBGROUP_ARITHMETIC_OPCODES,
+    ),
+    FeatureAtom(
+        key="subgroup_extended_types",
+        c_suffix="SUBGROUP_EXTENDED_TYPES",
+        name="spirv.subgroup_extended_types",
+        doc="Vulkan subgroup operations admit I8/I16/I64 and F16 values.",
+        required=("group_non_uniform",),
+        minimum_spirv_version=SPIRV_VERSION_1_3,
     ),
 )
 

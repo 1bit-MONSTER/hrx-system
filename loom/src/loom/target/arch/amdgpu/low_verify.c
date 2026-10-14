@@ -105,13 +105,17 @@ static iree_status_t loom_amdgpu_low_verify_instruction_constraints(
 static const loom_low_immediate_t* loom_amdgpu_low_find_dpp_control_immediate(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_low_descriptor_t* descriptor) {
-  IREE_ASSERT_LE(descriptor->immediate_start, descriptor_set->immediate_count);
-  IREE_ASSERT_LE(descriptor->immediate_count,
-                 descriptor_set->immediate_count - descriptor->immediate_start);
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  IREE_ASSERT_LE(descriptor_layout->immediate_start,
+                 descriptor_set->immediate_count);
+  IREE_ASSERT_LE(
+      descriptor_layout->immediate_count,
+      descriptor_set->immediate_count - descriptor_layout->immediate_start);
   const loom_low_immediate_t* dpp_control = NULL;
-  for (uint16_t i = 0; i < descriptor->immediate_count; ++i) {
+  for (uint16_t i = 0; i < descriptor_layout->immediate_count; ++i) {
     const loom_low_immediate_t* immediate =
-        &descriptor_set->immediates[descriptor->immediate_start + i];
+        &descriptor_set->immediates[descriptor_layout->immediate_start + i];
     if (immediate->encoding_field_id != LOOM_AMDGPU_ENCODING_FIELD_DPP_CTRL) {
       continue;
     }
@@ -159,15 +163,17 @@ static iree_status_t loom_amdgpu_low_verify_dpp_control(
     const loom_amdgpu_low_verify_state_t* state,
     const loom_low_descriptor_packet_t* packet) {
   const loom_low_descriptor_t* descriptor = packet->descriptor;
+  const loom_low_descriptor_set_t* descriptor_set =
+      state->target->descriptor_set;
   const loom_amdgpu_encoding_format_flags_t format_flags =
-      loom_amdgpu_encoding_format_flags(descriptor->encoding_format_id);
+      loom_amdgpu_encoding_format_flags(
+          loom_low_descriptor_layout(descriptor_set, descriptor)
+              ->encoding_format_id);
   if (!iree_any_bit_set(format_flags,
                         LOOM_AMDGPU_ENCODING_FORMAT_FLAG_DPP_CONTROL)) {
     return iree_ok_status();
   }
 
-  const loom_low_descriptor_set_t* descriptor_set =
-      state->target->descriptor_set;
   const iree_string_view_t descriptor_key =
       loom_low_descriptor_packet_diagnostic_key(descriptor_set, packet);
   const loom_low_immediate_t* immediate =

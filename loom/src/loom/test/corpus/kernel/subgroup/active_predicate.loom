@@ -17,6 +17,9 @@ kernel.def @subgroup_active_predicate() {
   %odd = scalar.andi %value, %c1 : i32
   %inactive_predicate = scalar.cmpi ne, %odd, %c0 : i32
   %true_predicate = scalar.cmpi sge, %value, %c0 : i32
+  %c2 = scalar.constant 2 : i32
+  %pair_bit = scalar.andi %value, %c2 : i32
+  %mixed_predicate = scalar.cmpi ne, %pair_bit, %c0 : i32
   %index_unit = index.constant 1 : index
   %c0_index = index.constant 0 : index
   %parity = index.andi %lane, %index_unit : index
@@ -26,6 +29,9 @@ kernel.def @subgroup_active_predicate() {
     %position = index.div %lane, %pair_width : index
     %any = kernel.subgroup.vote.any %inactive_predicate : i1
     %all = kernel.subgroup.vote.all %true_predicate : i1
+    %mixed_any = kernel.subgroup.vote.any %mixed_predicate : i1
+    %mixed_all = kernel.subgroup.vote.all %mixed_predicate : i1
+    %mixed_ballot = kernel.subgroup.vote.ballot %mixed_predicate : i1 -> i64
     %inactive_ballot = kernel.subgroup.vote.ballot %inactive_predicate : i1 -> i64
     %active_ballot = kernel.subgroup.vote.ballot %true_predicate : i1 -> i64
     %active_mask = kernel.subgroup.active.mask : i64
@@ -33,9 +39,17 @@ kernel.def @subgroup_active_predicate() {
     %empty = scalar.cmpi eq, %inactive_ballot, %c0_wide : i64
     %complete = scalar.cmpi eq, %active_ballot, %active_mask : i64
     %ballots_match = scalar.andi %empty, %complete : i1
+    // A mixed predicate distinguishes any from all without assuming a fixed
+    // subgroup size. The independently qualified ballot is the lane mask.
+    %expected_any = scalar.cmpi ne, %mixed_ballot, %c0_wide : i64
+    %expected_all = scalar.cmpi eq, %mixed_ballot, %active_mask : i64
+    %any_matches = scalar.cmpi eq, %mixed_any, %expected_any : i1
+    %all_matches = scalar.cmpi eq, %mixed_all, %expected_all : i1
+    %mixed_matches = scalar.andi %any_matches, %all_matches : i1
+    %predicates_match = scalar.andi %ballots_match, %mixed_matches : i1
     %any_value = scalar.extui %any : i1 to i32
     %all_value = scalar.extui %all : i1 to i32
-    %ballot_value = scalar.extui %ballots_match : i1 to i32
+    %ballot_value = scalar.extui %predicates_match : i1 to i32
     view.store %any_value, %any_view[%position] : i32, view<32xi32>
     view.store %all_value, %all_view[%position] : i32, view<32xi32>
     view.store %ballot_value, %ballot_view[%position] : i32, view<32xi32>

@@ -144,8 +144,10 @@ iree_status_t loom_low_lower_rule_resolve_descriptor_ref(
 static bool loom_low_lower_rule_descriptor_features_available(
     const loom_low_lower_rule_match_context_t* match_context,
     const loom_low_descriptor_t* descriptor) {
-  for (uint16_t i = 0; i < descriptor->feature_mask_word_count; ++i) {
-    const uint32_t word_index = descriptor->feature_mask_word_start + i;
+  const loom_low_descriptor_layout_t* layout =
+      loom_low_descriptor_layout(match_context->descriptor_set, descriptor);
+  for (uint16_t i = 0; i < layout->feature_mask_word_count; ++i) {
+    const uint32_t word_index = layout->feature_mask_word_start + i;
     const uint64_t required_bits =
         match_context->descriptor_set->feature_mask_words[word_index];
     const uint64_t available_bits = i == 0 ? match_context->feature_bits : 0;
@@ -1393,6 +1395,30 @@ static iree_status_t loom_low_lower_rule_guard_matches(
       *out_matches = subgroup_size != 0 &&
                      subgroup_size >= payload->i64_range.minimum &&
                      subgroup_size <= payload->i64_range.maximum;
+      return iree_ok_status();
+    }
+    case LOOM_LOW_LOWER_GUARD_TARGET_WHOLE_SUBGROUP:
+    case LOOM_LOW_LOWER_GUARD_TARGET_CONTIGUOUS_SUBGROUP_CLUSTER: {
+      const loom_attribute_t* attributes = loom_op_const_attrs(source_op);
+      const loom_attribute_t size =
+          attributes[guard->selector.attribute.attr_index];
+      const loom_attribute_t stride =
+          attributes[guard->selector.attribute.other_attr_index];
+      if (!loom_attr_is_absent(stride) && stride.i64 != 1) {
+        return iree_ok_status();
+      }
+      const uint32_t subgroup_size =
+          match_context->bundle->snapshot->subgroup_size;
+      if (guard->kind == LOOM_LOW_LOWER_GUARD_TARGET_WHOLE_SUBGROUP) {
+        *out_matches = loom_attr_is_absent(size) ||
+                       (subgroup_size != 0 && size.i64 == subgroup_size);
+      } else if (!loom_attr_is_absent(size)) {
+        const uint64_t cluster_size = (uint64_t)size.i64;
+        // A singleton cluster is valid even without a fixed target width.
+        *out_matches = cluster_size == 1 ||
+                       (cluster_size != 0 && cluster_size <= subgroup_size &&
+                        (cluster_size & (cluster_size - 1)) == 0);
+      }
       return iree_ok_status();
     }
     default:

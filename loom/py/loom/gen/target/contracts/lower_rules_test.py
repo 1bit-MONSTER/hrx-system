@@ -1766,6 +1766,16 @@ def test_guard_row_emits_low_value_representation_payload() -> None:
     assert guard_payload_row(row) == [".u64 = UINT64_C(17)"]
 
 
+def test_subgroup_cluster_guards_share_inline_attribute_selectors() -> None:
+    for kind in (GuardKind.TARGET_WHOLE_SUBGROUP, GuardKind.TARGET_CONTIGUOUS_SUBGROUP_CLUSTER):
+        row = LowerGuard(kind=kind, attr_index=1, other_attr_index=2)
+        fields = guard_row({}, row)
+        assert ".selector.attribute.attr_index = 1" in fields
+        assert ".selector.attribute.other_attr_index = 2" in fields
+        assert not any("payload_ordinal" in field for field in fields)
+        assert guard_payload_row(row) == []
+
+
 def test_guard_row_emits_exact_operand_segment_payload() -> None:
     row = LowerGuard(
         kind=GuardKind.OPERAND_SEGMENT_EXACT_BITS,

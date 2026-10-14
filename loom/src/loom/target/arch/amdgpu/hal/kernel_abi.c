@@ -1280,7 +1280,8 @@ static iree_status_t loom_amdgpu_hal_kernel_abi_verify_low_ops(
 
       const loom_named_attr_slice_t attrs = loom_low_op_attrs(op);
       loom_attribute_t cache_swizzle_stride_attr = loom_attr_absent();
-      if (attrs.count == descriptor->immediate_count) {
+      if (attrs.count == loom_low_descriptor_layout(descriptor_set, descriptor)
+                             ->immediate_count) {
         cache_swizzle_stride_attr =
             descriptor == dynamic_buffer_descriptor
                 ? loom_amdgpu_hal_buffer_descriptor_extent_cache_swizzle_stride(

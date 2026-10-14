@@ -70,28 +70,40 @@ class FunctionTest : public ::testing::Test {
 
 TEST(X86LoopPlacementCostTest, AdmitsOnlySingleScalarInstruction) {
   loom_low_loop_placement_cost_t cost = {};
+  const loom_low_descriptor_layout_t layouts[] = {
+      {.encoding_format_id = LOOM_X86_ENCODING_FORM_MOVE},
+      {.encoding_format_id = LOOM_X86_ENCODING_FORM_SELECT},
+      {.encoding_format_id = LOOM_X86_ENCODING_FORMAT_VECTOR},
+      {},
+  };
+  loom_low_descriptor_set_t descriptor_set = {
+      .descriptor_layouts = layouts,
+      .descriptor_layout_count = IREE_ARRAYSIZE(layouts),
+  };
   const loom_low_descriptor_t scalar = {
-      .encoding_format_id = LOOM_X86_ENCODING_FORM_MOVE,
       .encoding_id = 0x89,
   };
-  EXPECT_TRUE(loom_x86_loop_placement_cost_query(nullptr, &scalar, &cost));
+  EXPECT_TRUE(
+      loom_x86_loop_placement_cost_query(&descriptor_set, &scalar, &cost));
   EXPECT_EQ(cost.maximum_execution_multiplier, 8u);
   EXPECT_EQ(cost.maximum_schedule_cycle_count, 2u);
 
   const loom_low_descriptor_t expanded = {
-      .encoding_format_id = LOOM_X86_ENCODING_FORM_SELECT,
       .encoding_id = 0x44,
+      .layout_index = 1,
   };
-  EXPECT_FALSE(loom_x86_loop_placement_cost_query(nullptr, &expanded, &cost));
+  EXPECT_FALSE(
+      loom_x86_loop_placement_cost_query(&descriptor_set, &expanded, &cost));
 
   const loom_low_descriptor_t vector = {
-      .encoding_format_id = LOOM_X86_ENCODING_FORMAT_VECTOR,
+      .layout_index = 2,
   };
-  EXPECT_FALSE(loom_x86_loop_placement_cost_query(nullptr, &vector, &cost));
-
-  const loom_low_descriptor_t unavailable = {};
   EXPECT_FALSE(
-      loom_x86_loop_placement_cost_query(nullptr, &unavailable, &cost));
+      loom_x86_loop_placement_cost_query(&descriptor_set, &vector, &cost));
+
+  const loom_low_descriptor_t unavailable = {.layout_index = 3};
+  EXPECT_FALSE(
+      loom_x86_loop_placement_cost_query(&descriptor_set, &unavailable, &cost));
 }
 
 TEST_F(FunctionTest, EmptyLeafNeedsOnlyReturn) {

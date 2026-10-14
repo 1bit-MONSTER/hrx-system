@@ -362,6 +362,7 @@ class AmdgpuWaitPlanTest : public ::testing::Test {
               loom_named_attr_slice_t attrs) {
     const auto* descriptor =
         loom_amdgpu_descriptor_ref_descriptor(descriptors_, descriptor_ref);
+    const auto* layout = loom_low_descriptor_layout(descriptors_, descriptor);
     const auto* view =
         loom_low_descriptor_set_descriptor_view(descriptors_, descriptor);
     loom_low_schedule_node_t node = {};
@@ -374,7 +375,7 @@ class AmdgpuWaitPlanTest : public ::testing::Test {
     node.schedule_class_id = view->schedule_class_id;
     node.schedule_class =
         &descriptors_->schedule_classes[view->schedule_class_id];
-    node.operand_count = descriptor->minimum_packet_operand_count;
+    node.operand_count = layout->minimum_packet_operand_count;
     for (uint16_t i = 0; i < node.operand_count; ++i) {
       loom_low_schedule_node_operand_ordinals(&node)[i] = i;
     }
@@ -388,8 +389,8 @@ class AmdgpuWaitPlanTest : public ::testing::Test {
     node.immediate_presence = loom_low_bind_immediate_presence(
         module_, descriptors_, descriptor, loom_low_op_attrs(op));
     nodes_.push_back(node);
-    for (uint16_t i = 0; i < descriptor->effect_count; ++i) {
-      const auto& effect = descriptors_->effects[descriptor->effect_start + i];
+    for (uint16_t i = 0; i < layout->effect_count; ++i) {
+      const auto& effect = descriptors_->effects[layout->effect_start + i];
       loom_low_schedule_effect_use_t use = {
           .node_index = node.source_ordinal,
           .scheduled_ordinal = node.scheduled_ordinal,

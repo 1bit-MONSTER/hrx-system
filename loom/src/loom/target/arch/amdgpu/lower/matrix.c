@@ -546,20 +546,23 @@ iree_status_t loom_amdgpu_descriptor_matrix_attrs(
   (void)user_data;
   (void)rule;
   *out_attrs = loom_named_attr_slice_empty();
-  if (descriptor->immediate_count == 0) {
+  const loom_low_descriptor_set_t* descriptor_set =
+      loom_low_lower_context_descriptor_set(context);
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  if (descriptor_layout->immediate_count == 0) {
     return iree_ok_status();
   }
 
   loom_named_attr_t* attrs = NULL;
   IREE_RETURN_IF_ERROR(loom_low_lower_allocate_function_array(
-      context, descriptor->immediate_count, sizeof(*attrs), (void**)&attrs));
-  const loom_low_descriptor_set_t* descriptor_set =
-      loom_low_lower_context_descriptor_set(context);
-  IREE_ASSERT((uint64_t)descriptor->immediate_start +
-                  (uint64_t)descriptor->immediate_count <=
+      context, descriptor_layout->immediate_count, sizeof(*attrs),
+      (void**)&attrs));
+  IREE_ASSERT((uint64_t)descriptor_layout->immediate_start +
+                  (uint64_t)descriptor_layout->immediate_count <=
               descriptor_set->immediate_count);
-  for (uint16_t i = 0; i < descriptor->immediate_count; ++i) {
-    const uint32_t immediate_row = descriptor->immediate_start + i;
+  for (uint16_t i = 0; i < descriptor_layout->immediate_count; ++i) {
+    const uint32_t immediate_row = descriptor_layout->immediate_start + i;
     const loom_low_immediate_t* immediate =
         &descriptor_set->immediates[immediate_row];
     const iree_string_view_t field_name = loom_low_descriptor_set_string(
@@ -570,6 +573,7 @@ iree_status_t loom_amdgpu_descriptor_matrix_attrs(
         loom_amdgpu_descriptor_matrix_attr_value(contract_request, immediate));
   }
 
-  *out_attrs = loom_make_named_attr_slice(attrs, descriptor->immediate_count);
+  *out_attrs =
+      loom_make_named_attr_slice(attrs, descriptor_layout->immediate_count);
   return iree_ok_status();
 }

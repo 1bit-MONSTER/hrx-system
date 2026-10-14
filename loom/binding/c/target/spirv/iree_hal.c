@@ -26,6 +26,9 @@
 enum {
   LOOMC_SPIRV_IREE_HAL_VULKAN_COMPONENT_TYPE_BFLOAT16_KHR = 1000141000,
   LOOMC_SPIRV_IREE_HAL_VULKAN_SUBGROUP_FEATURE_BALLOT_BIT = 0x00000008,
+  LOOMC_SPIRV_IREE_HAL_VULKAN_SUBGROUP_FEATURE_VOTE_BIT = 0x00000002,
+  LOOMC_SPIRV_IREE_HAL_VULKAN_SUBGROUP_FEATURE_ARITHMETIC_BIT = 0x00000004,
+  LOOMC_SPIRV_IREE_HAL_VULKAN_SUBGROUP_FEATURE_CLUSTERED_BIT = 0x00000040,
   // PCI-SIG vendor identifier reported by AMD Vulkan physical devices.
   LOOMC_SPIRV_IREE_HAL_VULKAN_AMD_VENDOR_ID = 0x1002,
   LOOMC_SPIRV_IREE_HAL_VULKAN_API_VERSION_1_3 =
@@ -86,6 +89,9 @@ static const loomc_spirv_iree_hal_feature_row_t
             IREE_HAL_VULKAN_FEATURE_ENABLE_SHADER_INT8, INT8, "shader_int8"),
         LOOMC_SPIRV_IREE_HAL_GENERAL_FEATURE_ROW(
             IREE_HAL_VULKAN_FEATURE_ENABLE_SHADER_INT16, INT16, "shader_int16"),
+        LOOMC_SPIRV_IREE_HAL_GENERAL_FEATURE_ROW(
+            IREE_HAL_VULKAN_FEATURE_ENABLE_SHADER_SUBGROUP_EXTENDED_TYPES,
+            SUBGROUP_EXTENDED_TYPES, "shader_subgroup_extended_types"),
         LOOMC_SPIRV_IREE_HAL_GENERAL_FEATURE_ROW(
             IREE_HAL_VULKAN_FEATURE_ENABLE_SHADER_BFLOAT16_TYPE,
             BFLOAT16_TYPE_KHR, "shader_bfloat16_type"),
@@ -215,6 +221,27 @@ static const loomc_spirv_iree_hal_feature_row_t
             .required_subgroup_operations =
                 LOOMC_SPIRV_IREE_HAL_VULKAN_SUBGROUP_FEATURE_BALLOT_BIT,
             .feature = LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT,
+            .provenance =
+                "iree-hal:vulkan.device.subgroup_supported_operations",
+        },
+        {
+            .required_subgroup_operations =
+                LOOMC_SPIRV_IREE_HAL_VULKAN_SUBGROUP_FEATURE_VOTE_BIT,
+            .feature = LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE,
+            .provenance =
+                "iree-hal:vulkan.device.subgroup_supported_operations",
+        },
+        {
+            .required_subgroup_operations =
+                LOOMC_SPIRV_IREE_HAL_VULKAN_SUBGROUP_FEATURE_ARITHMETIC_BIT,
+            .feature = LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_ARITHMETIC,
+            .provenance =
+                "iree-hal:vulkan.device.subgroup_supported_operations",
+        },
+        {
+            .required_subgroup_operations =
+                LOOMC_SPIRV_IREE_HAL_VULKAN_SUBGROUP_FEATURE_CLUSTERED_BIT,
+            .feature = LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_CLUSTERED,
             .provenance =
                 "iree-hal:vulkan.device.subgroup_supported_operations",
         },

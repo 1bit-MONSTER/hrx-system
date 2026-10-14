@@ -194,13 +194,16 @@ static void loom_target_compile_report_accumulate_low_memory_effects(
     const loom_low_descriptor_t* descriptor,
     loom_low_instruction_class_flags_t instruction_classes,
     loom_target_compile_report_static_instruction_mix_t* mix) {
-  if (descriptor->effect_count == 0) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  if (descriptor_layout->effect_count == 0) {
     return;
   }
-  IREE_ASSERT_LE((uint64_t)descriptor->effect_start + descriptor->effect_count,
+  IREE_ASSERT_LE((uint64_t)descriptor_layout->effect_start +
+                     descriptor_layout->effect_count,
                  descriptor_set->effect_count);
-  for (uint16_t i = 0; i < descriptor->effect_count; ++i) {
-    const uint32_t effect_index = descriptor->effect_start + i;
+  for (uint16_t i = 0; i < descriptor_layout->effect_count; ++i) {
+    const uint32_t effect_index = descriptor_layout->effect_start + i;
     const loom_low_effect_t* effect = &descriptor_set->effects[effect_index];
     loom_target_compile_report_accumulate_low_memory_effect(
         effect, instruction_classes, mix);

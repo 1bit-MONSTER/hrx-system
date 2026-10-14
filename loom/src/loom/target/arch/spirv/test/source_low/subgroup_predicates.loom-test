@@ -1,0 +1,101 @@
+// RUN: emit source-low target=spirv:vulkan1.3+bda+subgroup32+ballot+vote+hal output=low
+
+kernel.def @subgroup_predicates() {
+  %unit = index.constant 1 : index
+  %width = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer) {
+  %lane = kernel.subgroup.lane.id : index
+  %base = index.constant 0 : offset
+  %limit = index.constant 16 : index
+  %output_view = buffer.view %output[%base] : buffer -> view<32xi64>
+  %predicate = index.cmp ult, %lane, %limit : index
+  %any = kernel.subgroup.vote.any %predicate : i1
+  %all = kernel.subgroup.vote.all %predicate : i1
+  %active_word = kernel.subgroup.active.mask : i32
+  %active_wide = kernel.subgroup.active.mask : i64
+  %different = scalar.xori %any, %all : i1
+  %flag = scalar.extui %different : i1 to i32
+  %word_result = scalar.xori %active_word, %flag : i32
+  %extended = scalar.extui %word_result : i32 to i64
+  %result = scalar.xori %extended, %active_wide : i64
+  view.store %result, %output_view[%lane] : i64, view<32xi64>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer) -> ()}) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @subgroup_predicates() asm {
+  %output = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %lane = OpLoadBuiltin.subgroup_local_invocation_id
+  %limit = OpConstant.i32 16 : reg<spirv.id : index>
+  %23 = OpBitcast.i32.u32 %lane
+  %24 = OpBitcast.i32.u32 %limit
+  %predicate = OpULessThan.u32 %23, %24
+  %any = OpGroupNonUniformAny.bool %predicate
+  %all = OpGroupNonUniformAll.bool %predicate
+  %28 = OpConstantTrue.bool : reg<spirv.id>
+  %29 = OpGroupNonUniformBallot.v4u32 %28
+  %30 = OpCompositeExtract.v4u32.u32 %29, 0
+  %active_word = OpBitcast.u32.i32 %30
+  %32 = OpConstantTrue.bool : reg<spirv.id>
+  %33 = OpGroupNonUniformBallot.v4u32 %32
+  %34 = OpCompositeExtract.v4u32.u32 %33, 0
+  %35 = OpCompositeExtract.v4u32.u32 %33, 1
+  %36 = OpCompositeConstruct.v2u32 %34, %35
+  %37 = OpBitcast.v2u32.u64 %36
+  %active_wide = OpBitcast.u64.i64 %37
+  %different = OpLogicalNotEqual.bool %any, %all
+  %40 = OpConstant.i32 1
+  %41 = OpConstant.i32 0
+  %flag = OpSelect %different, %40, %41
+  %word_result = OpBitwiseXor %active_word, %flag
+  %44 = OpBitcast.i32.u32 %word_result
+  %45 = OpUConvert.u32.u64 %44
+  %extended = OpBitcast.u64.i64 %45
+  %result = OpBitwiseXor.i64 %extended, %active_wide
+  %48 = OpSConvert.i32.offset64 %lane
+  %49 = OpConstant.offset64 8
+  %50 = OpIMul.offset64 %48, %49
+  %51 = OpPtrAccessChain.storage_buffer.i64.byte_offset %output, %50
+  OpStore.storage_buffer.i64 %51, %result
+  return
+}
+
+// ====
+// RUN: emit source-low target=spirv:vulkan1.3+bda+subgroup32+ballot+hal output=none
+
+kernel.def @missing_vote_capability() {
+  %unit = index.constant 1 : index
+  %width = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer) {
+  %lane = kernel.subgroup.lane.id : index
+  %limit = index.constant 16 : index
+  %predicate = index.cmp ult, %lane, %limit : index
+  // ERROR@+1: TARGET/003 {subject_role="descriptor", subject_name="spirv.op_group_non_uniform_any.bool", constraint_key="descriptor_available"}
+  %any = kernel.subgroup.vote.any %predicate : i1
+  // ERROR@+1: TARGET/003 {subject_role="descriptor", subject_name="spirv.op_group_non_uniform_all.bool", constraint_key="descriptor_available"}
+  %all = kernel.subgroup.vote.all %predicate : i1
+  %different = scalar.xori %any, %all : i1
+  %result = scalar.extui %different : i1 to i32
+  %base = index.constant 0 : offset
+  %output_view = buffer.view %output[%base] : buffer -> view<32xi32>
+  view.store %result, %output_view[%lane] : i32, view<32xi32>
+  kernel.return
+}
+
+// ====
+// RUN: emit source-low target=spirv:vulkan1.3+bda output=none
+
+kernel.def @unknown_subgroup_size() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%output: buffer) {
+  // ERROR@+1: TARGET/003 {subject_role="target", subject_name="subgroup_size", constraint_key="range"}
+  %active = kernel.subgroup.active.mask : i64
+  %base = index.constant 0 : offset
+  %position = index.constant 0 : index
+  %output_view = buffer.view %output[%base] : buffer -> view<1xi64>
+  view.store %active, %output_view[%position] : i64, view<1xi64>
+  kernel.return
+}

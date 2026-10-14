@@ -216,9 +216,11 @@ static bool loom_low_select_operand_form_matches(
 }
 
 static bool loom_low_packet_has_operand_forms(
+    const loom_low_descriptor_set_t* descriptor_set,
     const loom_low_descriptor_packet_t* packet) {
   return packet->kind == LOOM_LOW_DESCRIPTOR_PACKET_OP &&
-         packet->descriptor->operand_form_count != 0;
+         loom_low_descriptor_layout(descriptor_set, packet->descriptor)
+                 ->operand_form_count != 0;
 }
 
 static bool loom_low_semantic_tag_has_token(iree_string_view_t semantic_tag,
@@ -302,7 +304,8 @@ static iree_status_t loom_low_select_operand_forms_try_fold_select_packet(
   const loom_low_descriptor_set_t* descriptor_set =
       state->target->descriptor_set;
   if (op->result_count != 1 || descriptor->result_count != 1 ||
-      descriptor->effect_count != 0 ||
+      loom_low_descriptor_layout(descriptor_set, descriptor)->effect_count !=
+          0 ||
       !iree_all_bits_set(descriptor->flags,
                          LOOM_LOW_DESCRIPTOR_FLAG_DEAD_REMOVABLE) ||
       !loom_low_descriptor_is_select(descriptor_set, descriptor)) {
@@ -375,7 +378,7 @@ static iree_status_t loom_low_select_operand_forms_function_has_candidate(
       loom_low_descriptor_packet_t packet = {0};
       loom_low_descriptor_packet_initialize(target->descriptor_set, op,
                                             &packet);
-      if (loom_low_packet_has_operand_forms(&packet) ||
+      if (loom_low_packet_has_operand_forms(target->descriptor_set, &packet) ||
           (packet.kind == LOOM_LOW_DESCRIPTOR_PACKET_OP &&
            loom_low_descriptor_is_select(target->descriptor_set,
                                          packet.descriptor))) {
@@ -431,13 +434,15 @@ static iree_string_view_t loom_low_descriptor_operand_name(
 static iree_string_view_t loom_low_descriptor_immediate_name(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_low_descriptor_t* descriptor, uint16_t immediate_index) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
   if (immediate_index == LOOM_LOW_DESCRIPTOR_SET_ORDINAL_NONE ||
-      immediate_index >= descriptor->immediate_count) {
+      immediate_index >= descriptor_layout->immediate_count) {
     return IREE_SV("<none>");
   }
   const loom_low_immediate_t* immediate =
       &descriptor_set
-           ->immediates[descriptor->immediate_start + immediate_index];
+           ->immediates[descriptor_layout->immediate_start + immediate_index];
   return loom_low_descriptor_set_string(descriptor_set,
                                         immediate->field_name_string_ref);
 }
@@ -560,9 +565,11 @@ static iree_status_t loom_low_descriptor_build_tied_results(
     iree_host_size_t* out_tied_result_count) {
   *out_tied_results = NULL;
   iree_host_size_t tied_result_count = 0;
-  for (uint16_t i = 0; i < descriptor->constraint_count; ++i) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  for (uint16_t i = 0; i < descriptor_layout->constraint_count; ++i) {
     const loom_low_constraint_t* constraint =
-        &descriptor_set->constraints[descriptor->constraint_start + i];
+        &descriptor_set->constraints[descriptor_layout->constraint_start + i];
     if (constraint->kind == LOOM_LOW_CONSTRAINT_KIND_TIED) {
       ++tied_result_count;
     }
@@ -576,9 +583,9 @@ static iree_status_t loom_low_descriptor_build_tied_results(
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       arena, tied_result_count, sizeof(*tied_results), (void**)&tied_results));
   iree_host_size_t tied_result_index = 0;
-  for (uint16_t i = 0; i < descriptor->constraint_count; ++i) {
+  for (uint16_t i = 0; i < descriptor_layout->constraint_count; ++i) {
     const loom_low_constraint_t* constraint =
-        &descriptor_set->constraints[descriptor->constraint_start + i];
+        &descriptor_set->constraints[descriptor_layout->constraint_start + i];
     if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_TIED) {
       continue;
     }
@@ -712,10 +719,11 @@ static iree_status_t loom_low_select_operand_form_can_rewrite_destructive(
   loom_low_select_operand_form_reset_destructive_info(out_info);
   *out_reject_reason = IREE_SV("selected");
   *out_can_rewrite = true;
-  for (uint16_t i = 0; i < replacement_descriptor->constraint_count; ++i) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, replacement_descriptor);
+  for (uint16_t i = 0; i < descriptor_layout->constraint_count; ++i) {
     const loom_low_constraint_t* constraint =
-        &descriptor_set
-             ->constraints[replacement_descriptor->constraint_start + i];
+        &descriptor_set->constraints[descriptor_layout->constraint_start + i];
     if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE) {
       continue;
     }
@@ -980,10 +988,12 @@ static iree_status_t loom_low_select_operand_form_read_i64_immediate(
     return iree_ok_status();
   }
 
-  IREE_ASSERT(immediate_index < descriptor->immediate_count);
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  IREE_ASSERT(immediate_index < descriptor_layout->immediate_count);
   const loom_low_immediate_t* immediate =
       &descriptor_set
-           ->immediates[descriptor->immediate_start + immediate_index];
+           ->immediates[descriptor_layout->immediate_start + immediate_index];
   iree_string_view_t immediate_name = loom_low_descriptor_set_string(
       descriptor_set, immediate->field_name_string_ref);
   loom_string_id_t immediate_name_id = LOOM_STRING_ID_INVALID;
@@ -1049,10 +1059,12 @@ static iree_status_t loom_low_select_operand_form_resolve_immediate_value(
       IREE_BUILTIN_UNREACHABLE();
   }
 
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, replacement_descriptor);
   IREE_ASSERT(form->replacement_immediate_index <
-              replacement_descriptor->immediate_count);
+              descriptor_layout->immediate_count);
   const loom_low_immediate_t* immediate =
-      &descriptor_set->immediates[replacement_descriptor->immediate_start +
+      &descriptor_set->immediates[descriptor_layout->immediate_start +
                                   form->replacement_immediate_index];
   *out_immediate_value = replacement_value;
   if (!loom_low_immediate_accepts_i64(descriptor_set, immediate,
@@ -1074,10 +1086,12 @@ static iree_status_t loom_low_select_operand_form_build_attrs(
     return iree_ok_status();
   }
 
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, replacement_descriptor);
   IREE_ASSERT(form->replacement_immediate_index <
-              replacement_descriptor->immediate_count);
+              descriptor_layout->immediate_count);
   const loom_low_immediate_t* immediate =
-      &descriptor_set->immediates[replacement_descriptor->immediate_start +
+      &descriptor_set->immediates[descriptor_layout->immediate_start +
                                   form->replacement_immediate_index];
   IREE_ASSERT(loom_low_immediate_accepts_i64(descriptor_set, immediate,
                                              immediate_value));
@@ -1225,7 +1239,8 @@ static iree_status_t loom_low_select_operand_forms_try_rewrite_packet(
   loom_low_descriptor_packet_t packet = {0};
   loom_low_descriptor_packet_initialize(state->target->descriptor_set, op,
                                         &packet);
-  if (!loom_low_packet_has_operand_forms(&packet)) {
+  if (!loom_low_packet_has_operand_forms(state->target->descriptor_set,
+                                         &packet)) {
     if (packet.kind != LOOM_LOW_DESCRIPTOR_PACKET_OP) {
       return iree_ok_status();
     }
@@ -1243,10 +1258,12 @@ static iree_status_t loom_low_select_operand_forms_try_rewrite_packet(
 
   const loom_low_descriptor_set_t* descriptor_set =
       state->target->descriptor_set;
-  for (uint16_t i = 0; i < packet.descriptor->operand_form_count; ++i) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, packet.descriptor);
+  for (uint16_t i = 0; i < descriptor_layout->operand_form_count; ++i) {
     const loom_low_operand_form_t* form =
         &descriptor_set
-             ->operand_forms[packet.descriptor->operand_form_start + i];
+             ->operand_forms[descriptor_layout->operand_form_start + i];
     int64_t matched_value = 0;
     bool matched = true;
     for (uint16_t match_index = 0; match_index < form->match_count;

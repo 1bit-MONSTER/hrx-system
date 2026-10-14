@@ -695,7 +695,10 @@ static iree_status_t loom_low_schedule_initialize_descriptor_tables(
         schedule_class != NULL && schedule_class->issue_use_count != 0;
     if (!iree_host_size_checked_add(
             effect_use_capacity,
-            node->descriptor ? node->descriptor->effect_count : 0,
+            node->descriptor
+                ? loom_low_descriptor_layout(descriptor_set, node->descriptor)
+                      ->effect_count
+                : 0,
             &effect_use_capacity)) {
       return iree_make_status(
           IREE_STATUS_OUT_OF_RANGE,

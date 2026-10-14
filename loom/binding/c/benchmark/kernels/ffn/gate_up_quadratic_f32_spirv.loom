@@ -1,7 +1,7 @@
 // Fused gate/up compiler workload for SPIR-V.
 //
-// The current SPIR-V emitter requires a single Low block, so this target
-// implementation unrolls the dot loop after input-size specialization.
+// The dot loop remains structured after input-size specialization so input
+// scaling measures compilation of the kernel, not forced code expansion.
 //
 // One workgroup computes one [token, output channel] result. The two F32 dot
 // products share each input load and feed a portable quadratic gate epilogue.
@@ -50,7 +50,7 @@ kernel.def retain export("ffn_gate_up_quadratic_f32") @ffn_gate_up_quadratic_f32
   %gate_view = buffer.view %gate_aligned[%base] : buffer -> view<[%body_output_size]x[%input_size]xf32>
   %up_view = buffer.view %up_aligned[%base] : buffer -> view<[%body_output_size]x[%input_size]xf32>
   %output_view = buffer.view %output_aligned[%base] : buffer -> view<[%body_token_count]x[%body_output_size]xf32>
-  %gate_dot, %up_dot = scf.for %input_base = [%c0 to %input_size step %c4](%gate_acc = %c0_f32 : f32, %up_acc = %c0_f32 : f32) -> (f32, f32) unroll {
+  %gate_dot, %up_dot = scf.for %input_base = [%c0 to %input_size step %c4](%gate_acc = %c0_f32 : f32, %up_acc = %c0_f32 : f32) -> (f32, f32) {
     %input_index1 = index.add %input_base, %c1 : index
     %input_index2 = index.add %input_base, %c2 : index
     %input_index3 = index.add %input_base, %c3 : index

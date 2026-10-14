@@ -55,7 +55,8 @@ static iree_status_t loom_x86_hal_build_packet(
   const loom_low_descriptor_t* descriptor =
       loom_low_descriptor_set_descriptor_at(set, descriptor_ref);
   loom_op_t* op = NULL;
-  if (descriptor->op_kind == LOOM_LOW_DESCRIPTOR_OP_KIND_CONST) {
+  if (loom_low_descriptor_layout(set, descriptor)->op_kind ==
+      LOOM_LOW_DESCRIPTOR_OP_KIND_CONST) {
     IREE_RETURN_IF_ERROR(loom_low_build_resolved_descriptor_const(
         &builder->ir, set, descriptor,
         loom_make_named_attr_slice(&attr, attr_count), result_type,

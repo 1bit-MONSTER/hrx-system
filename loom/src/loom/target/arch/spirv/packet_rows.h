@@ -54,7 +54,10 @@ enum loom_spirv_packet_form_e {
   LOOM_SPIRV_PACKET_FORM_ATOMIC_FLOAT_CAS = 23,
   LOOM_SPIRV_PACKET_FORM_ATOMIC_FLOAT_COMPARE_EXCHANGE = 24,
   LOOM_SPIRV_PACKET_FORM_EXTENDED_INSTRUCTION = 25,
-  LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BALLOT = 26,
+  // Typed subgroup instruction with one value operand after its scope.
+  LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_UNARY = 26,
+  // Typed subgroup arithmetic with a GroupOperation literal before its value.
+  LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_ARITHMETIC = 27,
 };
 typedef uint8_t loom_spirv_packet_form_t;
 
@@ -132,6 +135,8 @@ typedef union loom_spirv_packet_payload_t {
   struct {
     // SPIR-V execution scope literal.
     uint32_t execution_scope;
+    // SPIR-V GroupOperation literal for arithmetic packets.
+    uint32_t operation;
   } group_non_uniform;
   // Cooperative-matrix packet literals.
   struct {

@@ -441,18 +441,21 @@ static iree_status_t loom_low_verify_descriptor_immediate_name(
     uint16_t descriptor_immediate_index,
     const loom_low_immediate_t** out_immediate,
     iree_string_view_t* out_immediate_name) {
-  if (descriptor->immediate_start > descriptor_set->immediate_count ||
-      descriptor_immediate_index >=
-          descriptor_set->immediate_count - descriptor->immediate_start) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  if (descriptor_layout->immediate_start > descriptor_set->immediate_count ||
+      descriptor_immediate_index >= descriptor_set->immediate_count -
+                                        descriptor_layout->immediate_start) {
     const uint64_t immediate_row =
-        (uint64_t)descriptor->immediate_start + descriptor_immediate_index;
+        (uint64_t)descriptor_layout->immediate_start +
+        descriptor_immediate_index;
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                             "low descriptor immediate row %" PRIu64
                             " is out of range",
                             immediate_row);
   }
   const uint32_t immediate_row =
-      descriptor->immediate_start + descriptor_immediate_index;
+      descriptor_layout->immediate_start + descriptor_immediate_index;
   const loom_low_immediate_t* immediate =
       &descriptor_set->immediates[immediate_row];
   *out_immediate_name = loom_low_descriptor_set_string(
@@ -466,7 +469,10 @@ static iree_status_t loom_low_verify_descriptor_has_immediate_name(
     const loom_low_descriptor_t* descriptor, iree_string_view_t attr_name,
     bool* out_has_immediate) {
   *out_has_immediate = false;
-  for (uint16_t i = 0; i < descriptor->immediate_count; ++i) {
+  for (uint16_t i = 0;
+       i <
+       loom_low_descriptor_layout(descriptor_set, descriptor)->immediate_count;
+       ++i) {
     const loom_low_immediate_t* immediate = NULL;
     iree_string_view_t immediate_name = iree_string_view_empty();
     IREE_RETURN_IF_ERROR(loom_low_verify_descriptor_immediate_name(
@@ -822,7 +828,10 @@ static iree_status_t loom_low_verify_descriptor_immediates(
     return iree_ok_status();
   }
 
-  for (uint16_t i = 0; i < descriptor->immediate_count; ++i) {
+  for (uint16_t i = 0;
+       i <
+       loom_low_descriptor_layout(descriptor_set, descriptor)->immediate_count;
+       ++i) {
     const loom_low_immediate_t* immediate = NULL;
     iree_string_view_t immediate_name = iree_string_view_empty();
     IREE_RETURN_IF_ERROR(loom_low_verify_descriptor_immediate_name(
@@ -1411,7 +1420,10 @@ static iree_status_t loom_low_verify_descriptor_registers(
   }
   if (has_variadic_operands) {
     const uint16_t descriptor_operand_index = fixed_descriptor_operand_end;
-    for (uint16_t field_index = descriptor->minimum_packet_operand_count;
+    for (uint16_t field_index =
+             loom_low_descriptor_layout(function_state->target->descriptor_set,
+                                        descriptor)
+                 ->minimum_packet_operand_count;
          field_index < op->operand_count; ++field_index) {
       IREE_RETURN_IF_ERROR(loom_low_verify_descriptor_register_field(
           function_state, op, descriptor, descriptor_operand_index,
@@ -1430,8 +1442,10 @@ static iree_status_t loom_low_verify_descriptor_constraints(
   const loom_low_descriptor_set_t* descriptor_set =
       function_state->target->descriptor_set;
   uint16_t diagnosed_register_value_type_lhs = LOOM_LOW_ID_NONE;
-  for (uint16_t i = 0; i < descriptor->constraint_count; ++i) {
-    const uint32_t constraint_row = descriptor->constraint_start + i;
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  for (uint16_t i = 0; i < descriptor_layout->constraint_count; ++i) {
+    const uint32_t constraint_row = descriptor_layout->constraint_start + i;
     if (constraint_row >= descriptor_set->constraint_count) {
       return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                               "low descriptor constraint row %" PRIu32
@@ -1496,9 +1510,11 @@ static bool loom_low_verify_descriptor_tied_operand_index(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_low_descriptor_t* descriptor, uint16_t result_index,
     uint16_t* out_operand_index) {
-  for (uint16_t i = 0; i < descriptor->constraint_count; ++i) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  for (uint16_t i = 0; i < descriptor_layout->constraint_count; ++i) {
     const loom_low_constraint_t* constraint =
-        &descriptor_set->constraints[descriptor->constraint_start + i];
+        &descriptor_set->constraints[descriptor_layout->constraint_start + i];
     if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_TIED ||
         constraint->lhs_operand_index != result_index ||
         constraint->rhs_operand_index == LOOM_LOW_ID_NONE) {
@@ -1574,7 +1590,8 @@ static iree_status_t loom_low_verify_descriptor_register_parts(
     const iree_string_view_t field_name = loom_low_descriptor_set_string(
         descriptor_set, descriptor_operand->field_name_string_ref);
     for (uint16_t packet_operand_index =
-             descriptor->minimum_packet_operand_count;
+             loom_low_descriptor_layout(descriptor_set, descriptor)
+                 ->minimum_packet_operand_count;
          packet_operand_index < op->operand_count; ++packet_operand_index) {
       loom_low_packet_field_t field = {.field_name = field_name};
       IREE_RETURN_IF_ERROR(loom_low_verify_descriptor_packet_operand_field(
@@ -1777,8 +1794,11 @@ static iree_status_t loom_low_verify_descriptor_features(
     return iree_ok_status();
   }
   const loom_low_descriptor_set_t* descriptor_set = target->descriptor_set;
-  for (uint16_t i = 0; i < descriptor->feature_mask_word_count; ++i) {
-    const uint32_t feature_mask_row = descriptor->feature_mask_word_start + i;
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  for (uint16_t i = 0; i < descriptor_layout->feature_mask_word_count; ++i) {
+    const uint32_t feature_mask_row =
+        descriptor_layout->feature_mask_word_start + i;
     const uint64_t required_bits =
         descriptor_set->feature_mask_words[feature_mask_row];
     const uint64_t available_bits = i == 0 ? target->feature_bits : 0;
@@ -1806,9 +1826,11 @@ static iree_status_t loom_low_verify_packet_access_flags(
   const loom_low_descriptor_set_t* descriptor_set =
       function_state->target->descriptor_set;
   const loom_low_descriptor_t* descriptor = packet->descriptor;
-  for (uint16_t i = 0; i < descriptor->effect_count; ++i) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  for (uint16_t i = 0; i < descriptor_layout->effect_count; ++i) {
     const loom_low_effect_t* effect =
-        &descriptor_set->effects[descriptor->effect_start + i];
+        &descriptor_set->effects[descriptor_layout->effect_start + i];
     if (loom_low_effect_is_memory_access(effect)) {
       return iree_ok_status();
     }
@@ -1837,8 +1859,10 @@ static iree_status_t loom_low_verify_packet(
   const loom_low_descriptor_t* descriptor = packet->descriptor;
   const iree_string_view_t actual_op_name =
       loom_op_name(function_state->state->module, op);
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
   const iree_string_view_t expected_op_name =
-      loom_low_verify_descriptor_op_name(descriptor->op_kind);
+      loom_low_verify_descriptor_op_name(descriptor_layout->op_kind);
   if (!iree_string_view_equal(actual_op_name, expected_op_name)) {
     IREE_RETURN_IF_ERROR(loom_low_verify_emit_packet_op_kind_mismatch(
         function_state, op, descriptor_key, descriptor_attr_index,
@@ -1856,7 +1880,7 @@ static iree_status_t loom_low_verify_packet(
 
   const uint32_t expected_result_count = descriptor->result_count;
   const uint32_t minimum_operand_count =
-      descriptor->minimum_packet_operand_count;
+      descriptor_layout->minimum_packet_operand_count;
   const bool has_variadic_operands =
       loom_low_descriptor_has_variadic_operands(descriptor);
   const uint32_t packet_start_error_count =

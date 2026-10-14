@@ -197,6 +197,9 @@ iree_py_test(
     "loom.target.arch.spirv.contracts.subgroup_test"
   DEPS
     loom::py::loom::target::arch::spirv::contracts::contracts
+    loom::py::loom::dialect::kernel::kernel
+    loom::py::loom::target::arch::spirv::descriptors
+    loom::py::loom::target::arch::spirv::features
     loom::py::loom::target::arch::spirv::subgroup
     loom::py::loom::target::contracts::contracts
   PACKAGE_DIRS

@@ -186,7 +186,8 @@ class AmdgpuSanitizerRaceReportTest : public ::testing::Test {
       return 0;
     }
     EXPECT_FALSE(loom_low_descriptor_has_variadic_operands(descriptor));
-    return descriptor->minimum_packet_operand_count;
+    return loom_low_descriptor_layout(descriptor_set_, descriptor)
+        ->minimum_packet_operand_count;
   }
 
   bool LowOpHasDescriptorRef(

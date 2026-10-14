@@ -668,16 +668,18 @@ static iree_status_t loom_aie2p_bundle_plan_encode_packet(
     operand_assignments[i] = assignment;
   }
 
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
   int64_t* immediate_values =
-      descriptor->immediate_count
-          ? (int64_t*)iree_alloca(descriptor->immediate_count *
+      descriptor_layout->immediate_count
+          ? (int64_t*)iree_alloca(descriptor_layout->immediate_count *
                                   sizeof(*immediate_values))
           : NULL;
   // Required core immediates and canonical IR dictionaries share field-name
   // order. Construction and Low verification establish their positional
   // binding.
   const loom_named_attr_slice_t attrs = loom_low_packet_attrs(packet);
-  for (uint16_t i = 0; i < descriptor->immediate_count; ++i) {
+  for (uint16_t i = 0; i < descriptor_layout->immediate_count; ++i) {
     const loom_attribute_t value = attrs.entries[i].value;
     if (value.kind == LOOM_ATTR_SYMBOL) {
       if (packet->descriptor_ordinal !=
@@ -737,7 +739,9 @@ static iree_status_t loom_aie2p_bundle_plan_encode_storage_address(
            [AIE2P_CORE_DESCRIPTOR_REF_MATERIALIZE_LOCAL_ADDRESS_I32];
   IREE_ASSERT_EQ(descriptor->operand_count, 1u);
   IREE_ASSERT_EQ(descriptor->result_count, 1u);
-  IREE_ASSERT_EQ(descriptor->immediate_count, 1u);
+  IREE_ASSERT_EQ(loom_low_descriptor_layout(builder->descriptor_set, descriptor)
+                     ->immediate_count,
+                 1u);
   const loom_low_allocation_assignment_t* operand_assignments[] = {
       result_assignment,
   };
@@ -782,8 +786,10 @@ loom_aie2p_bundle_plan_encode_structural_descriptor(
     IREE_ASSERT(operand->encoding_field_id == 0 &&
                 "structural descriptor operands must not encode bits");
   }
-  IREE_ASSERT(descriptor->immediate_count == 0 &&
-              "structural descriptors must not carry immediates");
+  IREE_ASSERT(
+      loom_low_descriptor_layout(descriptor_set, descriptor)->immediate_count ==
+          0 &&
+      "structural descriptors must not carry immediates");
   return loom_aie2p_descriptor_encode(descriptor_set, descriptor_ordinal, NULL,
                                       NULL);
 }
@@ -1400,7 +1406,8 @@ static iree_status_t loom_aie2p_bundle_plan_encode_branch(
     loom_aie2p_encoded_slot_t* out_encoded_slot) {
   const loom_low_descriptor_t* descriptor =
       &builder->descriptor_set->descriptors[descriptor_ordinal];
-  IREE_ASSERT(descriptor->immediate_count == 1 &&
+  IREE_ASSERT(loom_low_descriptor_layout(builder->descriptor_set, descriptor)
+                      ->immediate_count == 1 &&
               "AIE2P structural branch must carry one target immediate");
   const loom_low_allocation_assignment_t* operand_assignments[1] = {NULL};
   if (descriptor->operand_count != 0) {

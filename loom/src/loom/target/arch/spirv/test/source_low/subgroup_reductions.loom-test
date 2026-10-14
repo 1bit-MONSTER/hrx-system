@@ -1,0 +1,160 @@
+// RUN: emit source-low target=spirv:vulkan1.3+bda+subgroup32+reductions+hal output=low
+
+// Each vector component is reduced across invocations, not across components.
+// An explicit full-width cluster uses Reduce, not ClusteredReduce.
+kernel.def @native_reductions() {
+  %unit = index.constant 1 : index
+  %width = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %lane = kernel.workitem.id<x> : index
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<32x3xi32>
+  %destination = buffer.view %output[%base] : buffer -> view<32x4xi32>
+  %vector = vector.load %source[%lane, 0] : view<32x3xi32> -> vector<3xi32>
+  %minimum = kernel.subgroup.reduce<minui> %vector {cluster_size = 8, cluster_stride = 1} : vector<3xi32>
+  vector.store %minimum, %destination[%lane, 0] : vector<3xi32>, view<32x4xi32>
+  %integer_lane = index.cast %lane : index to i32
+  %scalar = scalar.sitofp %integer_lane : i32 to f32
+  %sum = kernel.subgroup.reduce<addf> %scalar {cluster_size = 32} : f32
+  %integer_sum = scalar.fptosi %sum : f32 to i32
+  %limit = index.constant 16 : index
+  %predicate = index.cmp ult, %lane, %limit : index
+  %parity = kernel.subgroup.reduce<addi> %predicate : i1
+  %flag = scalar.extui %parity : i1 to i32
+  %combined = scalar.xori %integer_sum, %flag : i32
+  view.store %combined, %destination[%lane, 3] : i32, view<32x4xi32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer, buffer) -> ()}) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @native_reductions() asm {
+  %input = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %output = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %lane = OpLoadBuiltin.local_invocation_id.x
+  %65 = OpSConvert.i32.offset64 %lane
+  %66 = OpConstant.offset64 12
+  %67 = OpIMul.offset64 %65, %66
+  %68 = OpPtrAccessChain.storage_buffer.i32.byte_offset %input, %67
+  %69 = OpLoad.storage_buffer.i32 %68
+  %73 = OpConstant.offset64 4
+  %74 = OpIAdd.offset64 %67, %73
+  %75 = OpPtrAccessChain.storage_buffer.i32.byte_offset %input, %74
+  %76 = OpLoad.storage_buffer.i32 %75
+  %80 = OpConstant.offset64 8
+  %81 = OpIAdd.offset64 %67, %80
+  %82 = OpPtrAccessChain.storage_buffer.i32.byte_offset %input, %81
+  %83 = OpLoad.storage_buffer.i32 %82
+  %vector = OpCompositeConstruct.v3i32 %69, %76, %83
+  %85 = OpBitcast.v3i32.v3u32 %vector
+  %86 = OpGroupNonUniformUMin.clustered_reduce.v3u32 %85, 8
+  %minimum = OpBitcast.v3u32.v3i32 %86
+  %88 = OpCompositeExtract.v3i32.i32 %minimum, 0
+  %89 = OpCompositeExtract.v3i32.i32 %minimum, 1
+  %90 = OpCompositeExtract.v3i32.i32 %minimum, 2
+  %91 = OpSConvert.i32.offset64 %lane
+  %92 = OpConstant.offset64 16
+  %93 = OpIMul.offset64 %91, %92
+  %94 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output, %93
+  OpStore.storage_buffer.i32 %94, %88
+  %98 = OpConstant.offset64 4
+  %99 = OpIAdd.offset64 %93, %98
+  %100 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output, %99
+  OpStore.storage_buffer.i32 %100, %89
+  %104 = OpConstant.offset64 8
+  %105 = OpIAdd.offset64 %93, %104
+  %106 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output, %105
+  OpStore.storage_buffer.i32 %106, %90
+  %integer_lane = OpCopyObject.i32 %lane
+  %scalar = OpConvertSToF.i32.f32 %integer_lane
+  %sum = OpGroupNonUniformFAdd.reduce.f32 %scalar : reg<spirv.id>
+  %integer_sum = OpConvertFToS.f32.i32 %sum
+  %limit = OpConstant.i32 16 : reg<spirv.id : index>
+  %112 = OpBitcast.i32.u32 %lane
+  %113 = OpBitcast.i32.u32 %limit
+  %predicate = OpULessThan.u32 %112, %113
+  %parity = OpGroupNonUniformLogicalXor.reduce.bool %predicate : reg<spirv.id>
+  %116 = OpConstant.i32 1
+  %117 = OpConstant.i32 0
+  %flag = OpSelect %parity, %116, %117
+  %combined = OpBitwiseXor %integer_sum, %flag
+  %120 = OpSConvert.i32.offset64 %lane
+  %121 = OpConstant.offset64 16
+  %122 = OpIMul.offset64 %120, %121
+  %123 = OpConstant.offset64 12
+  %124 = OpIAdd.offset64 %122, %123
+  %125 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output, %124
+  OpStore.storage_buffer.i32 %125, %combined
+  return
+}
+
+// ====
+
+// Number-preferring extrema use integer ordering so all-NaN groups, signed
+// zeros, and subnormal payloads retain the source semantics.
+kernel.def @number_minimum() {
+  %unit = index.constant 1 : index
+  %width = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %lane = kernel.workitem.id<x> : index
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<32xf32>
+  %destination = buffer.view %output[%base] : buffer -> view<32xf32>
+  %value = view.load %source[%lane] : view<32xf32> -> f32
+  %minimum = kernel.subgroup.reduce<minnumf> %value : f32
+  view.store %minimum, %destination[%lane] : f32, view<32xf32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer, buffer) -> ()}) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @number_minimum() asm {
+  %input = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %output = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %lane = OpLoadBuiltin.local_invocation_id.x
+  %13 = OpSConvert.i32.offset64 %lane
+  %14 = OpConstant.offset64 4
+  %15 = OpIMul.offset64 %13, %14
+  %16 = OpPtrAccessChain.storage_buffer.f32.byte_offset %input, %15
+  %value = OpLoad.storage_buffer.f32 %16
+  %18 = OpBitcast.f32.i32 %value : reg<spirv.id>
+  %19 = OpConstant.i32 2147483647 : reg<spirv.id>
+  %20 = OpConstant.i32 31 : reg<spirv.id>
+  %21 = OpConstant.i32 2139095040 : reg<spirv.id>
+  %22 = OpBitwiseAnd %18, %19 : reg<spirv.id>
+  %23 = OpSGreaterThan %22, %21 : reg<spirv.id>
+  %24 = OpShiftRightArithmetic %18, %20 : reg<spirv.id>
+  %25 = OpBitwiseAnd %24, %19 : reg<spirv.id>
+  %26 = OpBitwiseXor %18, %25 : reg<spirv.id>
+  %27 = OpSelect %23, %19, %26 : reg<spirv.id>
+  %28 = OpGroupNonUniformSMin.reduce.i32 %27 : reg<spirv.id>
+  %29 = OpShiftRightArithmetic %28, %20 : reg<spirv.id>
+  %30 = OpBitwiseAnd %29, %19 : reg<spirv.id>
+  %31 = OpBitwiseXor %28, %30 : reg<spirv.id>
+  %minimum = OpBitcast.i32.f32 %31
+  %33 = OpSConvert.i32.offset64 %lane
+  %34 = OpConstant.offset64 4
+  %35 = OpIMul.offset64 %33, %34
+  %36 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output, %35
+  OpStore.storage_buffer.f32 %36, %minimum
+  return
+}
+
+// ====
+// RUN: emit source-low target=spirv:vulkan1.3+bda+subgroup32+reductions+hal output=none
+
+kernel.def @unsupported_cluster_shapes() {
+  %unit = index.constant 1 : index
+  %width = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer) {
+  %lane = kernel.workitem.id<x> : index
+  %value = index.cast %lane : index to i32
+  // ERROR@+1: TARGET/003 {subject_role="field", subject_name="cluster_size", constraint_key="target_whole_subgroup"}
+  %non_power_of_two = kernel.subgroup.reduce<addi> %value {cluster_size = 3} : i32
+  // ERROR@+1: TARGET/003 {subject_role="field", subject_name="cluster_size", constraint_key="target_whole_subgroup"}
+  %too_wide = kernel.subgroup.reduce<addi> %value {cluster_size = 64} : i32
+  // ERROR@+1: TARGET/003 {subject_role="field", subject_name="cluster_size", constraint_key="target_whole_subgroup"}
+  %strided = kernel.subgroup.reduce<addi> %value {cluster_size = 8, cluster_stride = 2} : i32
+  kernel.return
+}

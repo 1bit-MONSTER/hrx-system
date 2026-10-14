@@ -324,8 +324,11 @@ TEST_F(LowAllocationUnitLivenessTest, RetainsImplicitReadsWithoutClobbering) {
     operands[i + 1].unit_count = i == 0 ? 3 : 1;
   }
   loom_low_descriptor_t descriptor = {.operand_count = 3, .result_count = 1};
+  const loom_low_descriptor_layout_t layout = {};
   loom_low_descriptor_set_t descriptors = {
       .stable_id = 1,
+      .descriptor_layouts = &layout,
+      .descriptor_layout_count = 1,
       .operands = operands,
       .operand_count = 3,
       .reg_classes = classes,
@@ -603,8 +606,11 @@ TEST_P(LowAllocationDefinitionLivenessTest, DistinguishesWritesFromTransport) {
   };
   operand.unit_count = width;
   loom_low_descriptor_t descriptor = {.operand_count = 1, .result_count = 1};
+  const loom_low_descriptor_layout_t layout = {};
   loom_low_descriptor_set_t descriptors = {
       .stable_id = 1,
+      .descriptor_layouts = &layout,
+      .descriptor_layout_count = 1,
       .operands = &operand,
       .operand_count = 1,
       .reg_classes = &register_class,

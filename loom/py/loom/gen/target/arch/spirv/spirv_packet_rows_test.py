@@ -79,6 +79,7 @@ from loom.target.arch.spirv.scalar_memory import (
     RAW_STORAGE_BUFFER_BYTE,
     STORAGE_BUFFER_SCALARS,
 )
+from loom.target.arch.spirv.subgroup import SPIRV_SUBGROUP_REDUCTIONS
 from loom.target.low_descriptors import Descriptor, ImmediateFlag, ImmediateKind
 
 
@@ -99,9 +100,10 @@ def _packet_row(descriptor_key: str) -> _PacketRow:
     return rows[_row_index(rows, descriptor_key)]
 
 
-def test_subgroup_ballot_row_carries_the_subgroup_execution_scope() -> None:
-    row = _packet_row("spirv.op_group_non_uniform_ballot.v4u32")
-    assert row.form == "LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BALLOT"
+@pytest.mark.parametrize("suffix", ["ballot.v4u32", "any.bool", "all.bool"])
+def test_subgroup_predicate_rows_carry_the_subgroup_execution_scope(suffix: str) -> None:
+    row = _packet_row(f"spirv.op_group_non_uniform_{suffix}")
+    assert row.form == "LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_UNARY"
     assert row.result_count == 1
     assert row.group_operation_scope == "LOOM_SPIRV_SCOPE_SUBGROUP"
     assert row.payload_initializer() == "{ .group_non_uniform = { .execution_scope = LOOM_SPIRV_SCOPE_SUBGROUP, } }"
@@ -117,6 +119,19 @@ def test_generation_emits_the_complete_control_barrier_family() -> None:
         assert row.execution_scope == case.scope.execution_scope
         assert row.memory_scope == case.scope.memory_scope
         assert row.memory_semantics == case.memory_semantics
+
+
+def test_subgroup_reductions_retain_group_mode_and_cluster_operand() -> None:
+    rows = {row.descriptor_key: row for row in _packet_rows()}
+    for reduction in SPIRV_SUBGROUP_REDUCTIONS:
+        instruction = reduction.instruction
+        row = rows[instruction.key]
+        assert row.form == "LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_ARITHMETIC"
+        assert row.group_operation == instruction.group_operation
+        assert row.group_operation_scope == "LOOM_SPIRV_SCOPE_SUBGROUP"
+        assert row.has_immediate == instruction.clustered
+        assert row.result_count == 1
+        assert row.operand_types == (row.result_type,)
 
 
 def _packet_value_types(row: _PacketRow) -> tuple[str, ...]:

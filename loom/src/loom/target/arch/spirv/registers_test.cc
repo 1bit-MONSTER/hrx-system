@@ -336,9 +336,11 @@ TEST(SpirvRegistersTest, StorageBufferEffectsStayDescriptorLocal) {
   const loom_low_descriptor_t* load_descriptor = LookupDescriptor(
       descriptor_set, IREE_SV("spirv.op_load.storage_buffer.i32"));
   ASSERT_NE(load_descriptor, nullptr);
-  ASSERT_EQ(load_descriptor->effect_count, 1);
+  const auto* load_layout =
+      loom_low_descriptor_layout(descriptor_set, load_descriptor);
+  ASSERT_EQ(load_layout->effect_count, 1);
   const loom_low_effect_t& load_effect =
-      descriptor_set->effects[load_descriptor->effect_start];
+      descriptor_set->effects[load_layout->effect_start];
   EXPECT_EQ(load_effect.kind, LOOM_LOW_EFFECT_KIND_READ);
   EXPECT_EQ(load_effect.memory_space, LOOM_LOW_MEMORY_SPACE_GLOBAL);
   EXPECT_TRUE(
@@ -347,9 +349,11 @@ TEST(SpirvRegistersTest, StorageBufferEffectsStayDescriptorLocal) {
   const loom_low_descriptor_t* store_descriptor = LookupDescriptor(
       descriptor_set, IREE_SV("spirv.op_store.storage_buffer.i32"));
   ASSERT_NE(store_descriptor, nullptr);
-  ASSERT_EQ(store_descriptor->effect_count, 1);
+  const auto* store_layout =
+      loom_low_descriptor_layout(descriptor_set, store_descriptor);
+  ASSERT_EQ(store_layout->effect_count, 1);
   const loom_low_effect_t& store_effect =
-      descriptor_set->effects[store_descriptor->effect_start];
+      descriptor_set->effects[store_layout->effect_start];
   EXPECT_EQ(store_effect.kind, LOOM_LOW_EFFECT_KIND_WRITE);
   EXPECT_EQ(store_effect.memory_space, LOOM_LOW_MEMORY_SPACE_GLOBAL);
   EXPECT_TRUE(

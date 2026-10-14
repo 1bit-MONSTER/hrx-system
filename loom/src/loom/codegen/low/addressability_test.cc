@@ -40,6 +40,8 @@ struct AddressabilityTestState {
   loom_low_reg_class_alt_t reg_class_alts[1] = {};
   loom_low_operand_t operands[2] = {};
   loom_low_descriptor_t descriptors[1] = {};
+  // Structural metadata owned by this synthetic target.
+  loom_low_descriptor_layout_t descriptor_layouts[1] = {};
   loom_low_descriptor_view_t descriptor_views[1] = {};
   loom_low_descriptor_set_t descriptor_set = {};
   // Complete synthetic target facts borrowed by schedule and allocation state.
@@ -158,7 +160,9 @@ void InitializeAddressabilityTestState(
   state->descriptors[0].operand_start = 0;
   state->descriptors[0].operand_count = IREE_ARRAYSIZE(state->operands);
   state->descriptors[0].result_count = 1;
-  state->descriptors[0].minimum_packet_operand_count = 1;
+  state->descriptor_layouts[0].minimum_packet_operand_count = 1;
+  state->descriptor_set.descriptor_layouts = state->descriptor_layouts;
+  state->descriptor_set.descriptor_layout_count = 1;
 
   state->nodes[0].op = &state->packet_op;
   state->nodes[0].block_index = 0;

@@ -755,7 +755,9 @@ loom_amdgpu_wait_state_packet_has_destination_selection_forwarding_hazard(
       loom_amdgpu_descriptor_immediate_slots(descriptor_set,
                                              packet->descriptor);
   const loom_low_immediate_t* immediate =
-      &descriptor_set->immediates[packet->descriptor->immediate_start +
+      &descriptor_set->immediates[loom_low_descriptor_layout(descriptor_set,
+                                                             packet->descriptor)
+                                      ->immediate_start +
                                   slots.sdwa_dst_sel];
   const loom_attribute_t attr =
       loom_low_packet_immediate_attr(packet, immediate);

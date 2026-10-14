@@ -23,6 +23,7 @@ from loom.gen.target.low.compiled import (
     CompiledNativeAsmValue,
     CompiledOperandForm,
     DescriptorSetView,
+    append_interned_sequence,
 )
 from loom.target.low_descriptors import (
     LOW_DESCRIPTOR_SET_ORDINAL_NONE,
@@ -224,39 +225,40 @@ def _descriptor_row_lines(
     compiled: CompiledDescriptorSet,
     descriptors: Sequence[Descriptor],
     descriptor_rows: Sequence[dict[str, int]],
+    layout_rows: list[tuple[str, ...]],
+    layout_starts: dict[tuple[tuple[str, ...], ...], int],
 ) -> list[list[str]]:
     pool = compiled.string_pool
-    return [
-        [
-            f".key_string_ref = {pool.ref(f'descriptor_{descriptor.key}')},",
-            f".stable_id = {c_spelling.hex_u64_literal(descriptor_stable_id(descriptor.key))},",
-            f".mnemonic_string_ref = {c_spelling.optional_string_expr(pool, f'mnemonic_{descriptor.key}' if descriptor.mnemonic is not None else None)},",
-            f".semantic_tag_string_ref = {c_spelling.optional_string_expr(pool, f'semantic_{descriptor.key}' if descriptor.semantic_tag is not None else None)},",
-            f".feature_mask_word_start = {descriptor_rows[i]['feature_mask_word_start']},",
-            f".feature_mask_word_count = {descriptor_rows[i]['feature_mask_word_count']},",
-            f".encoding_field_value_start = {descriptor_rows[i]['encoding_field_value_start']},",
-            f".encoding_field_value_count = {descriptor_rows[i]['encoding_field_value_count']},",
-            f".encoding_format_id = {descriptor.encoding_format_id},",
-            f".encoding_id = {c_spelling.encoding_id_expr(descriptor.encoding_id)},",
-            f".operand_start = {descriptor_rows[i]['operand_start']},",
-            f".operand_count = {descriptor_rows[i]['operand_count']},",
-            f".result_count = {descriptor_rows[i]['result_count']},",
-            f".minimum_packet_operand_count = {descriptor_rows[i]['minimum_packet_operand_count']},",
-            f".immediate_start = {descriptor_rows[i]['immediate_start']},",
-            f".immediate_count = {descriptor_rows[i]['immediate_count']},",
-            f".effect_start = {descriptor_rows[i]['effect_start']},",
-            f".effect_count = {descriptor_rows[i]['effect_count']},",
-            f".constraint_start = {descriptor_rows[i]['constraint_start']},",
-            f".constraint_count = {descriptor_rows[i]['constraint_count']},",
-            f".storage_lease_start = {descriptor_rows[i]['storage_lease_start']},",
-            f".storage_lease_count = {descriptor_rows[i]['storage_lease_count']},",
-            f".operand_form_start = {descriptor_rows[i]['operand_form_start']},",
-            f".operand_form_count = {descriptor_rows[i]['operand_form_count']},",
-            f".flags = {c_spelling.flag_expr(descriptor.flags)},",
-            f".op_kind = {descriptor.op_kind.c_name},",
-        ]
-        for i, descriptor in enumerate(descriptors)
-    ]
+    rows = []
+    for descriptor, descriptor_row in zip(descriptors, descriptor_rows, strict=True):
+        layout = []
+        for span in ("feature_mask_word", "encoding_field_value", "immediate", "effect", "constraint", "storage_lease", "operand_form"):
+            count = descriptor_row[f"{span}_count"]
+            start = descriptor_row[f"{span}_start"] if count else 0
+            layout.extend((f".{span}_start = {start},", f".{span}_count = {count},"))
+        layout.extend(
+            (
+                f".encoding_format_id = {descriptor.encoding_format_id},",
+                f".minimum_packet_operand_count = {descriptor_row['minimum_packet_operand_count']},",
+                f".op_kind = {descriptor.op_kind.c_name},",
+            )
+        )
+        layout_index, _ = append_interned_sequence((tuple(layout),), layout_rows, layout_starts)
+        rows.append(
+            [
+                f".key_string_ref = {pool.ref(f'descriptor_{descriptor.key}')},",
+                f".stable_id = {c_spelling.hex_u64_literal(descriptor_stable_id(descriptor.key))},",
+                f".mnemonic_string_ref = {c_spelling.optional_string_expr(pool, f'mnemonic_{descriptor.key}' if descriptor.mnemonic is not None else None)},",
+                f".semantic_tag_string_ref = {c_spelling.optional_string_expr(pool, f'semantic_{descriptor.key}' if descriptor.semantic_tag is not None else None)},",
+                f".encoding_id = {c_spelling.encoding_id_expr(descriptor.encoding_id)},",
+                f".operand_start = {descriptor_row['operand_start']},",
+                f".operand_count = {descriptor_row['operand_count']},",
+                f".result_count = {descriptor_row['result_count']},",
+                f".layout_index = {layout_index},",
+                f".flags = {c_spelling.flag_expr(descriptor.flags)},",
+            ]
+        )
+    return rows
 
 
 def _descriptor_view_row_lines(
@@ -940,6 +942,8 @@ def emit_source_for_views(
             f"k{spec.c_table_prefix}OperandFormOperandIndices",
             [str(operand_index) for operand_index in compiled.operand_form_operand_indices],
         )
+    descriptor_layout_rows: list[tuple[str, ...]] = []
+    descriptor_layout_starts: dict[tuple[tuple[str, ...], ...], int] = {}
     storage_descriptor_table_symbol = view_array_emitter.append_struct_array(
         "loom_low_descriptor_t",
         f"k{spec.c_table_prefix}Descriptors",
@@ -947,6 +951,8 @@ def emit_source_for_views(
             compiled,
             compiled.descriptors,
             compiled.descriptor_rows,
+            descriptor_layout_rows,
+            descriptor_layout_starts,
         ),
     )
     storage_descriptor_view_table_symbol = view_array_emitter.append_struct_array(
@@ -986,6 +992,8 @@ def emit_source_for_views(
                     compiled,
                     view.descriptors,
                     view.descriptor_rows,
+                    descriptor_layout_rows,
+                    descriptor_layout_starts,
                 ),
             )
         if view.uses_storage_descriptor_view_tables:
@@ -1023,6 +1031,12 @@ def emit_source_for_views(
                     for source_ordinal, alternative_ordinal in view.schedule_alternative_rows
                 ],
             )
+    validation.validate_u16_table_count(len(descriptor_layout_rows), "descriptor layout")
+    descriptor_layout_table_symbol = view_array_emitter.append_struct_array(
+        "loom_low_descriptor_layout_t",
+        f"k{spec.c_table_prefix}DescriptorLayouts",
+        descriptor_layout_rows,
+    )
     storage_descriptor_ref_table_symbol = view_array_emitter.append_value_array(
         "uint32_t",
         f"k{spec.c_table_prefix}DescriptorRefs",
@@ -1219,6 +1233,8 @@ def emit_source_for_views(
             f"            .data_length = sizeof(k{spec.c_table_prefix}StringData) - 1,",
             "        },",
             f"    .descriptors = {descriptor_table_symbol},",
+            f"    .descriptor_layouts = {descriptor_layout_table_symbol},",
+            f"    .descriptor_layout_count = {len(descriptor_layout_rows)},",
             f"    .descriptor_views = {descriptor_view_table_symbol},",
             *(
                 [

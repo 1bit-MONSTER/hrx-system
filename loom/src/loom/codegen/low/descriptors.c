@@ -210,9 +210,11 @@ static bool loom_low_descriptor_constraint_ties_operands(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_low_descriptor_t* descriptor, uint16_t result_operand_index,
     uint16_t packet_operand_index) {
-  for (uint16_t i = 0; i < descriptor->constraint_count; ++i) {
+  const loom_low_descriptor_layout_t* layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  for (uint16_t i = 0; i < layout->constraint_count; ++i) {
     const loom_low_constraint_t* constraint =
-        &descriptor_set->constraints[descriptor->constraint_start + i];
+        &descriptor_set->constraints[layout->constraint_start + i];
     if (constraint->kind == LOOM_LOW_CONSTRAINT_KIND_TIED &&
         constraint->lhs_operand_index == result_operand_index &&
         constraint->rhs_operand_index == packet_operand_index) {
@@ -425,8 +427,10 @@ loom_low_descriptor_memory_effect_summary(
   if (descriptor == NULL) {
     return summary;
   }
-  for (uint16_t i = 0; i < descriptor->effect_count; ++i) {
-    const uint32_t effect_index = descriptor->effect_start + i;
+  const loom_low_descriptor_layout_t* layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  for (uint16_t i = 0; i < layout->effect_count; ++i) {
+    const uint32_t effect_index = layout->effect_start + i;
     IREE_ASSERT(effect_index < descriptor_set->effect_count);
     const loom_low_effect_t* effect = &descriptor_set->effects[effect_index];
     if (!loom_low_effect_is_memory_access(effect)) {

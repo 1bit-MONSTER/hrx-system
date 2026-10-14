@@ -789,10 +789,12 @@ static iree_status_t loom_low_placement_collect_op_relations(
           loom_low_placement_descriptor_operand_value_id(op, operand)));
     }
   }
-  for (uint16_t i = 0; i < descriptor->constraint_count; ++i) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(state->descriptor_set, descriptor);
+  for (uint16_t i = 0; i < descriptor_layout->constraint_count; ++i) {
     const loom_low_constraint_t* constraint =
         &state->descriptor_set
-             ->constraints[descriptor->constraint_start + (uint32_t)i];
+             ->constraints[descriptor_layout->constraint_start + (uint32_t)i];
     if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_ORDINAL) {
       continue;
     }

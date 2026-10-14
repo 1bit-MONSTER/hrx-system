@@ -1,0 +1,120 @@
+// RUN: emit spirv-dis target=spirv:vulkan1.3+bda+subgroup32+ballot+vote+hal input=source-low validate
+// REQUIRES: spirv-dis, spirv-val
+
+kernel.def @subgroup_predicates() {
+  %unit = index.constant 1 : index
+  %width = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer) {
+  %lane = kernel.subgroup.lane.id : index
+  %base = index.constant 0 : offset
+  %limit = index.constant 16 : index
+  %output_view = buffer.view %output[%base] : buffer -> view<32xi32>
+  %predicate = index.cmp ult, %lane, %limit : index
+  %any = kernel.subgroup.vote.any %predicate : i1
+  %all = kernel.subgroup.vote.all %predicate : i1
+  %different = scalar.xori %any, %all : i1
+  %flag = scalar.extui %different : i1 to i32
+  %active = kernel.subgroup.active.mask : i32
+  %result = scalar.xori %active, %flag : i32
+  view.store %result, %output_view[%lane] : i32, view<32xi32>
+  kernel.return
+}
+
+// ----
+               OpCapability Shader
+               OpCapability PhysicalStorageBufferAddresses
+               OpCapability Int64
+               OpCapability GroupNonUniform
+               OpCapability GroupNonUniformBallot
+               OpCapability GroupNonUniformVote
+               OpExtension "SPV_KHR_physical_storage_buffer"
+               OpMemoryModel PhysicalStorageBuffer64 GLSL450
+               OpEntryPoint GLCompute %subgroup_predicates "subgroup_predicates" %subgroup_local_invocation_id
+               OpExecutionMode %subgroup_predicates LocalSize 32 1 1
+               OpName %subgroup_predicates "subgroup_predicates"
+               OpName %output "output"
+               OpName %subgroup_local_invocation_id "subgroup_local_invocation_id"
+               OpName %lane "lane"
+               OpName %limit "limit"
+               OpName %predicate "predicate"
+               OpName %any "any"
+               OpName %all "all"
+               OpName %different "different"
+               OpName %flag "flag"
+               OpName %active "active"
+               OpName %result "result"
+               OpModuleProcessed "iree.vulkan.bda.v1[subgroup_predicates].subgroup_size=32"
+               OpModuleProcessed "iree.vulkan.bda.v1[subgroup_predicates].root=0,32"
+               OpModuleProcessed "iree.vulkan.bda.v1[subgroup_predicates].constant_offset=32"
+               OpModuleProcessed "iree.vulkan.bda.v1[subgroup_predicates].constant_length=0"
+               OpModuleProcessed "iree.vulkan.bda.v1[subgroup_predicates].bindings=1"
+               OpModuleProcessed "iree.vulkan.bda.parameters.v1[subgroup_predicates]=b0"
+               OpDecorate %_runtimearr_ulong ArrayStride 8
+               OpDecorate %_struct_11 Block
+               OpMemberDecorate %_struct_11 0 Offset 0
+               OpDecorate %subgroup_local_invocation_id BuiltIn SubgroupLocalInvocationId
+               OpDecorate %_ptr_PhysicalStorageBuffer_int ArrayStride 4
+               OpDecorate %_struct_52 Block
+               OpMemberDecorate %_struct_52 0 Offset 0
+               OpMemberDecorate %_struct_52 1 Offset 8
+               OpMemberDecorate %_struct_52 2 Offset 16
+               OpMemberDecorate %_struct_52 3 Offset 20
+               OpMemberDecorate %_struct_52 4 Offset 24
+               OpMemberDecorate %_struct_52 5 Offset 28
+       %void = OpTypeVoid
+          %4 = OpTypeFunction %void
+      %ulong = OpTypeInt 64 0
+       %uint = OpTypeInt 32 0
+%_ptr_PushConstant_ulong = OpTypePointer PushConstant %ulong
+%_ptr_PushConstant_uint = OpTypePointer PushConstant %uint
+%_runtimearr_ulong = OpTypeRuntimeArray %ulong
+ %_struct_11 = OpTypeStruct %_runtimearr_ulong
+%_ptr_PhysicalStorageBuffer__struct_11 = OpTypePointer PhysicalStorageBuffer %_struct_11
+        %int = OpTypeInt 32 1
+      %int_0 = OpConstant %int 0
+      %int_2 = OpConstant %int 2
+%_ptr_PhysicalStorageBuffer_ulong = OpTypePointer PhysicalStorageBuffer %ulong
+%_ptr_Input_uint = OpTypePointer Input %uint
+%subgroup_local_invocation_id = OpVariable %_ptr_Input_uint Input
+      %limit = OpConstant %int 16
+       %bool = OpTypeBool
+     %uint_3 = OpConstant %uint 3
+      %int_1 = OpConstant %int 1
+    %int_0_0 = OpConstant %int 0
+       %true = OpConstantTrue %bool
+     %v4uint = OpTypeVector %uint 4
+    %ulong_4 = OpConstant %ulong 4
+%_ptr_PhysicalStorageBuffer_int = OpTypePointer PhysicalStorageBuffer %int
+ %_struct_52 = OpTypeStruct %ulong %ulong %uint %uint %uint %uint
+%_ptr_PushConstant__struct_52 = OpTypePointer PushConstant %_struct_52
+          %2 = OpVariable %_ptr_PushConstant__struct_52 PushConstant
+%subgroup_predicates = OpFunction %void None %4
+          %5 = OpLabel
+         %16 = OpAccessChain %_ptr_PushConstant_ulong %2 %int_0
+         %17 = OpLoad %ulong %16 Aligned 8
+         %18 = OpConvertUToPtr %_ptr_PhysicalStorageBuffer__struct_11 %17
+         %19 = OpAccessChain %_ptr_PushConstant_uint %2 %int_2
+         %20 = OpLoad %uint %19 Aligned 4
+         %22 = OpAccessChain %_ptr_PhysicalStorageBuffer_ulong %18 %int_0 %20
+     %output = OpLoad %ulong %22 Aligned 8
+         %26 = OpLoad %uint %subgroup_local_invocation_id
+       %lane = OpBitcast %int %26
+         %29 = OpBitcast %uint %lane
+         %30 = OpBitcast %uint %limit
+  %predicate = OpULessThan %bool %29 %30
+        %any = OpGroupNonUniformAny %bool %uint_3 %predicate
+        %all = OpGroupNonUniformAll %bool %uint_3 %predicate
+  %different = OpLogicalNotEqual %bool %any %all
+       %flag = OpSelect %int %different %int_1 %int_0_0
+         %42 = OpGroupNonUniformBallot %v4uint %uint_3 %true
+         %43 = OpCompositeExtract %uint %42 0
+     %active = OpBitcast %int %43
+     %result = OpBitwiseXor %int %active %flag
+         %46 = OpSConvert %ulong %lane
+         %48 = OpIMul %ulong %46 %ulong_4
+         %49 = OpIAdd %ulong %output %48
+         %51 = OpConvertUToPtr %_ptr_PhysicalStorageBuffer_int %49
+               OpStore %51 %result Aligned 4
+               OpReturn
+               OpFunctionEnd

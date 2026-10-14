@@ -201,3 +201,113 @@ check.scenario @subgroup_float_reduction_values {
   }
   check.return
 }
+
+// Eight-lane clusters exercise partial subgroups. All floating additions are
+// exact in every source format for this input range. Integer narrowing happens
+// before the collective, so byte sums also exercise modular overflow.
+kernel.def @subgroup_extended_reductions() {
+  %unit = index.constant 1 : index
+  %items = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%items, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %lane = kernel.workitem.id<x> : index
+  %source = buffer.view %input[%base] : buffer -> view<64xi32>
+  %destination = buffer.view %output[%base] : buffer -> view<64x7xi64>
+  %value = view.load %source[%lane] : view<64xi32> -> i32
+  %byte = scalar.trunci %value : i32 to i8
+  %short = scalar.trunci %value : i32 to i16
+  %wide = scalar.extsi %value : i32 to i64
+  %half = scalar.sitofp %value : i32 to f16
+  %single = scalar.sitofp %value : i32 to f32
+  %double = scalar.sitofp %value : i32 to f64
+  %c0 = scalar.constant 0 : i32
+  %predicate = scalar.cmpi ne, %value, %c0 : i32
+  %byte_sum = kernel.subgroup.reduce<addi> %byte {cluster_size = 8} : i8
+  %short_sum = kernel.subgroup.reduce<addi> %short {cluster_size = 8} : i16
+  %wide_sum = kernel.subgroup.reduce<addi> %wide {cluster_size = 8} : i64
+  %half_vector = vector.splat %half : vector<1xf16>
+  %half_vector_sum = kernel.subgroup.reduce<addf> %half_vector {cluster_size = 8} : vector<1xf16>
+  %half_sum = vector.extract %half_vector_sum[0] : vector<1xf16> -> f16
+  %single_sum = kernel.subgroup.reduce<addf> %single {cluster_size = 8} : f32
+  %double_sum = kernel.subgroup.reduce<addf> %double {cluster_size = 8} : f64
+  %parity = kernel.subgroup.reduce<xori> %predicate {cluster_size = 8} : i1
+  %byte_result = scalar.extsi %byte_sum : i8 to i64
+  %short_result = scalar.extsi %short_sum : i16 to i64
+  %half_bits = scalar.bitcast %half_sum : f16 to i16
+  %half_result = scalar.extui %half_bits : i16 to i64
+  %single_bits = scalar.bitcast %single_sum : f32 to i32
+  %single_result = scalar.extui %single_bits : i32 to i64
+  %double_result = scalar.bitcast %double_sum : f64 to i64
+  %parity_result = scalar.extui %parity : i1 to i64
+  view.store %byte_result, %destination[%lane, 0] : i64, view<64x7xi64>
+  view.store %short_result, %destination[%lane, 1] : i64, view<64x7xi64>
+  view.store %wide_sum, %destination[%lane, 2] : i64, view<64x7xi64>
+  view.store %half_result, %destination[%lane, 3] : i64, view<64x7xi64>
+  view.store %single_result, %destination[%lane, 4] : i64, view<64x7xi64>
+  view.store %double_result, %destination[%lane, 5] : i64, view<64x7xi64>
+  view.store %parity_result, %destination[%lane, 6] : i64, view<64x7xi64>
+  kernel.return
+}
+
+// One serial integer accumulation supplies the independent mathematical sum;
+// only its final conversion produces each source format's expected payload.
+func.def @subgroup_extended_reductions_oracle(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<64xi32>
+  %destination = buffer.view %output[%base] : buffer -> view<64x7xi64>
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %items = index.constant 64 : index
+  %width = index.constant 8 : index
+  %initial = scalar.constant 0 : i64
+  %false = scalar.constant 0 : i1
+  %c0 = scalar.constant 0 : i32
+  scf.for %cluster = [%begin to %items step %width] {
+    %end = index.add %cluster, %width : index
+    %sum, %parity = scf.for %lane = [%cluster to %end step %step](%accumulator = %initial : i64, %parity_accumulator = %false : i1) -> (i64, i1) {
+      %value = view.load %source[%lane] : view<64xi32> -> i32
+      %wide = scalar.extsi %value : i32 to i64
+      %next_sum = scalar.addi %accumulator, %wide : i64
+      %predicate = scalar.cmpi ne, %value, %c0 : i32
+      %next_parity = scalar.xori %parity_accumulator, %predicate : i1
+      scf.yield %next_sum, %next_parity : i64, i1
+    }
+    %byte = scalar.trunci %sum : i64 to i8
+    %byte_result = scalar.extsi %byte : i8 to i64
+    %short = scalar.trunci %sum : i64 to i16
+    %short_result = scalar.extsi %short : i16 to i64
+    %half = scalar.sitofp %sum : i64 to f16
+    %half_bits = scalar.bitcast %half : f16 to i16
+    %half_result = scalar.extui %half_bits : i16 to i64
+    %single = scalar.sitofp %sum : i64 to f32
+    %single_bits = scalar.bitcast %single : f32 to i32
+    %single_result = scalar.extui %single_bits : i32 to i64
+    %double = scalar.sitofp %sum : i64 to f64
+    %double_result = scalar.bitcast %double : f64 to i64
+    %parity_result = scalar.extui %parity : i1 to i64
+    scf.for %lane = [%cluster to %end step %step] {
+      view.store %byte_result, %destination[%lane, 0] : i64, view<64x7xi64>
+      view.store %short_result, %destination[%lane, 1] : i64, view<64x7xi64>
+      view.store %sum, %destination[%lane, 2] : i64, view<64x7xi64>
+      view.store %half_result, %destination[%lane, 3] : i64, view<64x7xi64>
+      view.store %single_result, %destination[%lane, 4] : i64, view<64x7xi64>
+      view.store %double_result, %destination[%lane, 5] : i64, view<64x7xi64>
+      view.store %parity_result, %destination[%lane, 6] : i64, view<64x7xi64>
+    }
+  }
+  func.return
+}
+
+check.scenario @subgroup_extended_reduction_values {
+  check.trial[8](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%seed) range(-128 to 127) : tensor<64xi32>
+    %output = check.generate.fill value(123) : tensor<64x7xi64>
+    check.compare<@subgroup_extended_reductions, @subgroup_extended_reductions_oracle>(%input, %output) : (tensor<64xi32>, tensor<64x7xi64>) -> () {
+      check.expect.bitwise actual(%input) expected(%input) : tensor<64xi32>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<64x7xi64>
+    }
+  }
+  check.return
+}

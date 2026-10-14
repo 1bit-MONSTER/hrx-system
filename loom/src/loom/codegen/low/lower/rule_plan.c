@@ -287,9 +287,11 @@ static loom_memory_access_flags_t loom_low_lower_resolve_emit_access_flags(
   }
   // Source-memory rows also describe address materialization. Only actual
   // memory packets inherit the source operation's observable access.
-  for (uint16_t i = 0; i < descriptor->effect_count; ++i) {
+  const loom_low_descriptor_layout_t* layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  for (uint16_t i = 0; i < layout->effect_count; ++i) {
     const loom_low_effect_t* effect =
-        &descriptor_set->effects[descriptor->effect_start + i];
+        &descriptor_set->effects[layout->effect_start + i];
     if (loom_low_effect_is_memory_access(effect)) {
       return access_flags;
     }

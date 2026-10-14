@@ -179,7 +179,9 @@ iree_status_t loom_low_build_resolved_descriptor_cond_br(
     loom_block_t* true_dest, loom_block_t* false_dest,
     loom_location_id_t location, loom_op_t** out_op) {
   *out_op = NULL;
-  IREE_ASSERT_EQ(descriptor->op_kind, LOOM_LOW_DESCRIPTOR_OP_KIND_COND_BR);
+  IREE_ASSERT_EQ(
+      loom_low_descriptor_layout(descriptor_set, descriptor)->op_kind,
+      LOOM_LOW_DESCRIPTOR_OP_KIND_COND_BR);
   const uint32_t descriptor_ordinal =
       loom_low_descriptor_set_descriptor_ordinal(descriptor_set, descriptor);
   IREE_ASSERT_NE(descriptor_ordinal, LOOM_LOW_DESCRIPTOR_ORDINAL_NONE);

@@ -136,6 +136,7 @@ iree_py_test(
     loom::py::loom::gen::target::arch::spirv::packet_rows
     loom::py::loom::target::arch::spirv::barrier
     loom::py::loom::target::arch::spirv::extended_math
+    loom::py::loom::target::arch::spirv::subgroup
   PACKAGE_DIRS
     "${PROJECT_SOURCE_DIR}/loom/py"
     "${PROJECT_BINARY_DIR}/loom/py"

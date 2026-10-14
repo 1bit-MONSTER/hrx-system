@@ -27,7 +27,7 @@ extern "C" {
 #endif
 
 // ABI version for descriptor sets consumed by this header.
-#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 58u
+#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 59u
 
 // Sentinel for absent target-family or descriptor-set stable IDs.
 #define LOOM_LOW_STABLE_ID_NONE UINT64_C(0)
@@ -1163,56 +1163,68 @@ typedef struct loom_low_descriptor_t {
   loom_string_ref_t mnemonic_string_ref;
   // String-pool reference for the primary semantic tag.
   loom_string_ref_t semantic_tag_string_ref;
-  // First feature-mask word required by this descriptor.
-  uint16_t feature_mask_word_start;
-  // First target-owned fixed encoding field value for this descriptor.
-  uint16_t encoding_field_value_start;
   // First index in the set's operand_indices for this descriptor.
   uint16_t operand_start;
-  // First immediate row for this descriptor.
-  uint16_t immediate_start;
-  // First effect row for this descriptor.
-  uint16_t effect_start;
-  // First constraint row for this descriptor.
-  uint16_t constraint_start;
-  // First storage-lease row for this descriptor.
-  uint16_t storage_lease_start;
-  // First operand-form row for descriptor-family packet selection.
-  uint16_t operand_form_start;
-  // Descriptor flags used by verifier, scheduler, and optimizer.
-  loom_low_descriptor_flags_t flags;
-  // Canonical low IR operation used to represent this descriptor packet.
-  loom_low_descriptor_op_kind_t op_kind;
-  // Number of feature-mask words required by this descriptor.
-  uint16_t feature_mask_word_count;
-  // Number of target-owned fixed encoding field values for this descriptor.
-  uint16_t encoding_field_value_count;
-  // Target-owned encoding format identifier. Zero means no target-specific
-  // format selector is required by generic descriptor consumers.
-  uint16_t encoding_format_id;
-  // Target-owned encoding identifier.
-  uint16_t encoding_id;
   // Total number of operand/result rows for this descriptor.
   uint16_t operand_count;
   // Number of leading operand rows that define results.
   uint16_t result_count;
+  // Target-owned encoding identifier.
+  uint16_t encoding_id;
+  // Index into the set's shared descriptor_layouts table.
+  uint16_t layout_index;
+  // Descriptor flags used by verifier, scheduler, and optimizer.
+  loom_low_descriptor_flags_t flags;
+} loom_low_descriptor_t;
+
+static_assert(sizeof(loom_low_descriptor_t) == 32,
+              "loom_low_descriptor_t must be 32 bytes");
+
+// Immutable structural spans shared by instruction identities and target views.
+// Identity, operand binding and encoding-ID queries stay in the descriptor row;
+// consumers of these spans use the descriptor's layout_index. Empty spans have
+// start zero so unused offsets do not distinguish otherwise identical layouts.
+typedef struct loom_low_descriptor_layout_t {
+  // First feature-mask word required by this descriptor.
+  uint16_t feature_mask_word_start;
+  // Number of feature-mask words required by this descriptor.
+  uint16_t feature_mask_word_count;
+  // First target-owned fixed encoding field value for this descriptor.
+  uint16_t encoding_field_value_start;
+  // Number of target-owned fixed encoding field values for this descriptor.
+  uint16_t encoding_field_value_count;
+  // First immediate row for this descriptor.
+  uint16_t immediate_start;
+  // Number of immediate rows for this descriptor.
+  uint16_t immediate_count;
+  // First effect row for this descriptor.
+  uint16_t effect_start;
+  // Number of effect rows for this descriptor.
+  uint16_t effect_count;
+  // First constraint row for this descriptor.
+  uint16_t constraint_start;
+  // Number of constraint rows for this descriptor.
+  uint16_t constraint_count;
+  // First storage-lease row for this descriptor.
+  uint16_t storage_lease_start;
+  // Number of storage-lease rows for this descriptor.
+  uint16_t storage_lease_count;
+  // First operand-form row for descriptor-family packet selection.
+  uint16_t operand_form_start;
+  // Number of operand-form rows for this descriptor.
+  uint16_t operand_form_count;
+  // Target-owned encoding format identifier. Zero means no target-specific
+  // format selector is required by generic descriptor consumers.
+  uint16_t encoding_format_id;
   // Minimum packet operand count. Fixed descriptors accept exactly this count;
   // variadic descriptors accept this count or greater.
   uint16_t minimum_packet_operand_count;
-  // Number of immediate rows for this descriptor.
-  uint16_t immediate_count;
-  // Number of effect rows for this descriptor.
-  uint16_t effect_count;
-  // Number of constraint rows for this descriptor.
-  uint16_t constraint_count;
-  // Number of storage-lease rows for this descriptor.
-  uint16_t storage_lease_count;
-  // Number of operand-form rows for this descriptor.
-  uint16_t operand_form_count;
-} loom_low_descriptor_t;
+  // Canonical low IR operation used to represent this descriptor packet.
+  loom_low_descriptor_op_kind_t op_kind;
+} loom_low_descriptor_layout_t;
 
-static_assert(sizeof(loom_low_descriptor_t) == 64,
-              "loom_low_descriptor_t must be 64 bytes");
+static_assert(sizeof(loom_low_descriptor_layout_t) == 34,
+              "loom_low_descriptor_layout_t must be 34 bytes");
 
 // Descriptor facts owned by one descriptor-set view. Rows correspond exactly
 // to the structural rows in loom_low_descriptor_set_t::descriptors. Keeping
@@ -1490,6 +1502,10 @@ typedef struct loom_low_descriptor_set_t {
   loom_string_pool_t string_pool;
   // Structural descriptor rows indexed by descriptor ordinal.
   const loom_low_descriptor_t* descriptors;
+  // Interned structural layouts referenced by descriptor layout indices.
+  const loom_low_descriptor_layout_t* descriptor_layouts;
+  // Number of rows in the shared descriptor_layouts table.
+  uint32_t descriptor_layout_count;
   // View-specific descriptor rows indexed by descriptor ordinal.
   const loom_low_descriptor_view_t* descriptor_views;
   // Optional bitset selecting descriptor ordinals in this view. A NULL pointer
@@ -1735,6 +1751,13 @@ loom_low_descriptor_set_has_descriptor(
   const uint64_t word =
       descriptor_set->descriptor_membership_words[descriptor_ordinal / 64u];
   return (word & (UINT64_C(1) << (descriptor_ordinal % 64u))) != 0;
+}
+
+// Returns the shared structural layout for a verified descriptor in this set.
+IREE_ATTRIBUTE_ALWAYS_INLINE static inline const loom_low_descriptor_layout_t*
+loom_low_descriptor_layout(const loom_low_descriptor_set_t* descriptor_set,
+                           const loom_low_descriptor_t* descriptor) {
+  return &descriptor_set->descriptor_layouts[descriptor->layout_index];
 }
 
 // Returns the view-owned facts for |descriptor_ordinal|. The ordinal must be a

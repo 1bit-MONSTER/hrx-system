@@ -463,8 +463,9 @@ static uint16_t loom_amdgpu_descriptor_single_fixed_encoding_field_u16(
   const loom_low_descriptor_set_t* descriptor_set =
       state->inputs.schedule->target.descriptor_set;
   const loom_low_encoding_field_value_t* field_value =
-      &descriptor_set
-           ->encoding_field_values[descriptor->encoding_field_value_start];
+      &descriptor_set->encoding_field_values[loom_low_descriptor_layout(
+                                                 descriptor_set, descriptor)
+                                                 ->encoding_field_value_start];
   return (uint16_t)field_value->value;
 }
 
@@ -491,9 +492,12 @@ static uint32_t loom_amdgpu_descriptor_immediate_row(
     const loom_low_descriptor_t* descriptor,
     uint16_t descriptor_immediate_index) {
   IREE_ASSERT(descriptor_set->immediates != NULL);
-  IREE_ASSERT_LT(descriptor_immediate_index, descriptor->immediate_count);
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  IREE_ASSERT_LT(descriptor_immediate_index,
+                 descriptor_layout->immediate_count);
   const uint64_t immediate_row =
-      (uint64_t)descriptor->immediate_start + descriptor_immediate_index;
+      (uint64_t)descriptor_layout->immediate_start + descriptor_immediate_index;
   IREE_ASSERT_LE(immediate_row, UINT32_MAX);
   IREE_ASSERT_LT(immediate_row, descriptor_set->immediate_count);
   return (uint32_t)immediate_row;
@@ -1235,7 +1239,10 @@ static iree_status_t loom_amdgpu_descriptor_literal_immediate_u32(
   *out_found = false;
   const loom_low_descriptor_set_t* descriptor_set =
       state->inputs.schedule->target.descriptor_set;
-  for (uint16_t i = 0; i < packet->descriptor->immediate_count; ++i) {
+  for (uint16_t i = 0;
+       i < loom_low_descriptor_layout(descriptor_set, packet->descriptor)
+               ->immediate_count;
+       ++i) {
     const loom_low_immediate_t* immediate =
         loom_amdgpu_descriptor_immediate(descriptor_set, packet->descriptor, i);
     if (!loom_amdgpu_encoding_field_is_literal(immediate->encoding_field_id) ||
@@ -1270,11 +1277,12 @@ static iree_status_t loom_amdgpu_try_encode_vop2_u32_vgpr_packet(
   bool replaced_src0_literal = false;
   const loom_low_descriptor_set_t* descriptor_set =
       state->inputs.schedule->target.descriptor_set;
-  for (uint16_t i = 0; i < packet->descriptor->encoding_field_value_count;
-       ++i) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, packet->descriptor);
+  for (uint16_t i = 0; i < descriptor_layout->encoding_field_value_count; ++i) {
     const loom_low_encoding_field_value_t* field_value =
         &descriptor_set->encoding_field_values
-             [packet->descriptor->encoding_field_value_start + i];
+             [descriptor_layout->encoding_field_value_start + i];
     if (loom_amdgpu_encoding_field_is_src0(field_value->encoding_field_id) &&
         field_value->value == state->inputs.encoding_table->source_literal) {
       replaced_src0_literal = true;
@@ -1302,7 +1310,9 @@ static iree_status_t loom_amdgpu_try_encode_special_descriptor_packet(
     loom_amdgpu_encode_state_t* state, const loom_low_packet_view_t* packet,
     bool* out_encoded) {
   *out_encoded = false;
-  switch (packet->descriptor->encoding_format_id) {
+  switch (loom_low_descriptor_layout(
+              state->inputs.schedule->target.descriptor_set, packet->descriptor)
+              ->encoding_format_id) {
     case LOOM_AMDGPU_ENCODING_FORMAT_SOP1:
       if (packet->descriptor == state->inputs.descriptors.s_mov_b32 ||
           packet->descriptor == state->inputs.descriptors.s_mov_b32_m0_imm) {
@@ -1367,11 +1377,12 @@ static iree_status_t loom_amdgpu_encode_generic_descriptor_packet(
         state, packet, rel32_fixup.pc_component, &rel32_base_pc_byte_offset));
   }
 
-  for (uint16_t i = 0; i < packet->descriptor->encoding_field_value_count;
-       ++i) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, packet->descriptor);
+  for (uint16_t i = 0; i < descriptor_layout->encoding_field_value_count; ++i) {
     const loom_low_encoding_field_value_t* field_value =
         &descriptor_set->encoding_field_values
-             [packet->descriptor->encoding_field_value_start + i];
+             [descriptor_layout->encoding_field_value_start + i];
     loom_amdgpu_push_encoding_field_value(field_values, &field_value_count,
                                           field_value->encoding_field_id,
                                           field_value->value);
@@ -1397,7 +1408,7 @@ static iree_status_t loom_amdgpu_encode_generic_descriptor_packet(
                                           operand->encoding_field_id, value);
   }
 
-  for (uint16_t i = 0; i < packet->descriptor->immediate_count; ++i) {
+  for (uint16_t i = 0; i < descriptor_layout->immediate_count; ++i) {
     const loom_low_immediate_t* immediate =
         loom_amdgpu_descriptor_immediate(descriptor_set, packet->descriptor, i);
     if (immediate->encoding_field_id == 0 &&
@@ -1417,7 +1428,7 @@ static iree_status_t loom_amdgpu_encode_generic_descriptor_packet(
 
   loom_amdgpu_encoding_packet_t encoded_packet;
   IREE_RETURN_IF_ERROR(loom_amdgpu_encoding_pack(
-      state->inputs.encoding_table, packet->descriptor->encoding_format_id,
+      state->inputs.encoding_table, descriptor_layout->encoding_format_id,
       packet->descriptor->encoding_id, field_values, field_value_count,
       &encoded_packet));
   if (has_rel32_text_fixup) {
@@ -1528,7 +1539,10 @@ static iree_status_t loom_amdgpu_encode_descriptor_packet(
                             state->inputs.target->key.data);
   }
 
-  const uint16_t encoding_format = packet->descriptor->encoding_format_id;
+  const uint16_t encoding_format =
+      loom_low_descriptor_layout(state->inputs.schedule->target.descriptor_set,
+                                 packet->descriptor)
+          ->encoding_format_id;
   if (!loom_amdgpu_encoding_table_has_format(state->inputs.encoding_table,
                                              encoding_format)) {
     const iree_string_view_t key = loom_amdgpu_descriptor_string(
@@ -1872,17 +1886,18 @@ static iree_status_t loom_amdgpu_encode_generic_wait_packet(
   iree_host_size_t field_value_count = 0;
   const loom_low_descriptor_set_t* descriptor_set =
       state->inputs.schedule->target.descriptor_set;
-  for (uint16_t i = 0; i < descriptor->encoding_field_value_count; ++i) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  for (uint16_t i = 0; i < descriptor_layout->encoding_field_value_count; ++i) {
     const loom_low_encoding_field_value_t* field_value =
-        &descriptor_set
-             ->encoding_field_values[descriptor->encoding_field_value_start +
-                                     i];
+        &descriptor_set->encoding_field_values
+             [descriptor_layout->encoding_field_value_start + i];
     loom_amdgpu_push_encoding_field_value(field_values, &field_value_count,
                                           field_value->encoding_field_id,
                                           field_value->value);
   }
 
-  for (uint16_t i = 0; i < descriptor->immediate_count; ++i) {
+  for (uint16_t i = 0; i < descriptor_layout->immediate_count; ++i) {
     const loom_low_immediate_t* descriptor_immediate =
         loom_amdgpu_descriptor_immediate(descriptor_set, descriptor, i);
     if (descriptor_immediate->encoding_field_id == 0) {
@@ -1902,7 +1917,7 @@ static iree_status_t loom_amdgpu_encode_generic_wait_packet(
 
   loom_amdgpu_encoding_packet_t encoded_packet;
   IREE_RETURN_IF_ERROR(loom_amdgpu_encoding_pack(
-      state->inputs.encoding_table, descriptor->encoding_format_id,
+      state->inputs.encoding_table, descriptor_layout->encoding_format_id,
       descriptor->encoding_id, field_values, field_value_count,
       &encoded_packet));
   loom_amdgpu_append_encoding_packet(state, &encoded_packet);

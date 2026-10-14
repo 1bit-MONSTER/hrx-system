@@ -358,9 +358,12 @@ static const uint16_t* loom_low_schedule_index_descriptor_operands(
     ++indexed_operand_count;
   }
   if (has_variadic_operands) {
-    IREE_ASSERT_LE(descriptor->minimum_packet_operand_count, operand_count);
+    const loom_low_descriptor_layout_t* descriptor_layout =
+        loom_low_descriptor_layout(state->target.descriptor_set, descriptor);
+    IREE_ASSERT_LE(descriptor_layout->minimum_packet_operand_count,
+                   operand_count);
     for (uint16_t packet_operand_index =
-             descriptor->minimum_packet_operand_count;
+             descriptor_layout->minimum_packet_operand_count;
          packet_operand_index < operand_count; ++packet_operand_index) {
       state->descriptor_operands.indices[packet_operand_index] =
           fixed_descriptor_operand_end;

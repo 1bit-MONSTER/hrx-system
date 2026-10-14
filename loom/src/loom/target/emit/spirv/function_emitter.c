@@ -868,7 +868,7 @@ static iree_status_t loom_spirv_emit_control_barrier_packet(
       row->opcode, instruction_operands, IREE_ARRAYSIZE(instruction_operands));
 }
 
-static iree_status_t loom_spirv_emit_group_non_uniform_ballot_packet(
+static iree_status_t loom_spirv_emit_group_non_uniform_packet(
     loom_spirv_emit_state_t* state, const loom_low_descriptor_packet_t* packet,
     const loom_spirv_packet_row_t* row) {
   loom_spirv_module_value_ref_t operands[1] = {0};
@@ -888,15 +888,27 @@ static iree_status_t loom_spirv_emit_group_non_uniform_ballot_packet(
   IREE_RETURN_IF_ERROR(loom_spirv_emit_u32_constant(
       state->type_context, payload->group_non_uniform.execution_scope,
       &execution_scope_id));
-  const uint32_t instruction_operands[] = {
+  uint32_t instruction_operands[6] = {
       result_type_id,
       result_id,
       execution_scope_id,
-      operands[0].id,
   };
+  uint32_t instruction_operand_count = 3;
+  if (row->form == LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_ARITHMETIC) {
+    instruction_operands[instruction_operand_count++] =
+        payload->group_non_uniform.operation;
+  }
+  instruction_operands[instruction_operand_count++] = operands[0].id;
+  if (row->form == LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_ARITHMETIC &&
+      payload->group_non_uniform.operation ==
+          LOOM_SPIRV_GROUP_OPERATION_CLUSTERED_REDUCE) {
+    IREE_RETURN_IF_ERROR(loom_spirv_emit_u32_constant(
+        state->type_context, (uint32_t)loom_spirv_emit_packet_immediate(packet),
+        &instruction_operands[instruction_operand_count++]));
+  }
   IREE_RETURN_IF_ERROR(loom_spirv_binary_write_instruction(
       loom_spirv_emit_section(state, LOOM_SPIRV_MODULE_SECTION_FUNCTION),
-      row->opcode, instruction_operands, IREE_ARRAYSIZE(instruction_operands)));
+      row->opcode, instruction_operands, instruction_operand_count));
   return loom_spirv_emit_define_packet_result(
       state, packet, result_id, result_type_id,
       loom_spirv_packet_row_result_type(row));
@@ -953,9 +965,12 @@ static iree_status_t loom_spirv_emit_transfer(loom_spirv_emit_state_t* state,
 static iree_status_t loom_spirv_emit_descriptor_packet(
     loom_spirv_emit_state_t* state, const loom_op_t* op,
     const loom_low_descriptor_packet_t* packet) {
-  for (uint16_t i = 0; i < packet->descriptor->feature_mask_word_count; ++i) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(state->function_plan->descriptor_set,
+                                 packet->descriptor);
+  for (uint16_t i = 0; i < descriptor_layout->feature_mask_word_count; ++i) {
     const uint32_t feature_mask_row =
-        packet->descriptor->feature_mask_word_start + i;
+        descriptor_layout->feature_mask_word_start + i;
     const uint64_t feature_bits = state->function_plan->descriptor_set
                                       ->feature_mask_words[feature_mask_row];
     IREE_ASSERT(i == 0 || feature_bits == 0);
@@ -1010,9 +1025,9 @@ static iree_status_t loom_spirv_emit_descriptor_packet(
                                                                row);
     case LOOM_SPIRV_PACKET_FORM_CONTROL_BARRIER:
       return loom_spirv_emit_control_barrier_packet(state, row);
-    case LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BALLOT:
-      return loom_spirv_emit_group_non_uniform_ballot_packet(state, packet,
-                                                             row);
+    case LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_UNARY:
+    case LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_ARITHMETIC:
+      return loom_spirv_emit_group_non_uniform_packet(state, packet, row);
     case LOOM_SPIRV_PACKET_FORM_ATOMIC:
       return loom_spirv_emit_atomic_packet(state, packet, row);
     case LOOM_SPIRV_PACKET_FORM_ATOMIC_COMPARE_EXCHANGE:

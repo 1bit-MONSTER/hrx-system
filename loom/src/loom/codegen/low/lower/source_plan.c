@@ -983,7 +983,9 @@ static iree_status_t loom_low_lower_create_descriptor_matrix_plan(
   plan_data->attrs = loom_named_attr_slice_empty();
   plan_data->native_contraction_facts =
       query_result->selected_native_contraction_facts;
-  if (plan_data->descriptor.descriptor->immediate_count != 0) {
+  if (loom_low_descriptor_layout(context->descriptor_set,
+                                 plan_data->descriptor.descriptor)
+          ->immediate_count != 0) {
     if (context->policy->descriptor_matrix.attrs == NULL) {
       IREE_ASSERT_UNREACHABLE("descriptor-matrix policy has no attrs callback");
       IREE_BUILTIN_UNREACHABLE();

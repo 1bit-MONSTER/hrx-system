@@ -1207,14 +1207,16 @@ bool loom_amdgpu_descriptor_offset_immediate_info(
   }
   const loom_low_descriptor_t* descriptor =
       &descriptor_set->descriptors[descriptor_ordinal];
-  if (descriptor->immediate_count != 0 &&
-      descriptor->immediate_start >= descriptor_set->immediate_count) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  if (descriptor_layout->immediate_count != 0 &&
+      descriptor_layout->immediate_start >= descriptor_set->immediate_count) {
     return false;
   }
   uint16_t offset_immediate_count = 0;
   uint64_t unsigned_max = UINT64_MAX;
-  for (uint16_t i = 0; i < descriptor->immediate_count; ++i) {
-    const uint32_t immediate_index = descriptor->immediate_start + i;
+  for (uint16_t i = 0; i < descriptor_layout->immediate_count; ++i) {
+    const uint32_t immediate_index = descriptor_layout->immediate_start + i;
     if (immediate_index >= descriptor_set->immediate_count) {
       return false;
     }
@@ -1489,7 +1491,10 @@ bool loom_amdgpu_memory_access_select_flat_offset(
   // Flat descriptors put their byte offset first. CDNA generic offsets are
   // unsigned; global and RDNA offsets use the descriptor's signed range.
   const loom_low_immediate_kind_t offset_kind =
-      descriptor_set->immediates[descriptor->immediate_start].kind;
+      descriptor_set
+          ->immediates[loom_low_descriptor_layout(descriptor_set, descriptor)
+                           ->immediate_start]
+          .kind;
   loom_amdgpu_descriptor_offset_immediate_info_t offset_info;
   if (!loom_amdgpu_descriptor_offset_immediate_info(
           descriptor_set, descriptor_ordinal, 1, offset_kind, &offset_info) ||

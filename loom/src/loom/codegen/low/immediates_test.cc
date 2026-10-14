@@ -36,12 +36,14 @@ class LowImmediatesTest : public ::testing::Test {
     domain_.value_count = IREE_ARRAYSIZE(values_);
     descriptor_set_.string_pool = {kStrings, sizeof(kStrings) - 1};
     descriptor_set_.immediates = &immediate_;
+    descriptor_set_.descriptor_layouts = &layout_;
+    descriptor_set_.descriptor_layout_count = 1;
     descriptor_set_.immediate_count = 1;
     descriptor_set_.enum_domains = &domain_;
     descriptor_set_.enum_domain_count = 1;
     descriptor_set_.enum_values = values_;
     descriptor_set_.enum_value_count = IREE_ARRAYSIZE(values_);
-    descriptor_.immediate_count = 1;
+    layout_.immediate_count = 1;
     descriptor_.flags = LOOM_LOW_DESCRIPTOR_FLAG_ENUM_IMMEDIATES;
   }
 
@@ -73,6 +75,8 @@ class LowImmediatesTest : public ::testing::Test {
   loom_low_descriptor_set_t descriptor_set_ = {};
   // Descriptor owning the mode field.
   loom_low_descriptor_t descriptor_ = {};
+  // Shared structural metadata for the descriptor.
+  loom_low_descriptor_layout_t layout_ = {};
 };
 
 TEST_F(LowImmediatesTest, ResolvesSemanticValuesWithoutMutatingSharedInput) {
@@ -128,7 +132,7 @@ TEST_F(LowImmediatesTest, BindsEverySparseDictionaryShape) {
   descriptor_set_.string_pool = {strings, sizeof(strings) - 1};
   descriptor_set_.immediates = fields;
   descriptor_set_.immediate_count = IREE_ARRAYSIZE(fields);
-  descriptor_.immediate_count = IREE_ARRAYSIZE(fields);
+  layout_.immediate_count = IREE_ARRAYSIZE(fields);
   descriptor_.flags = 0;
 
   // Declaration order, canonical key order, and sparse entry positions differ.

@@ -132,6 +132,7 @@ loom_corpus_build(
     profiles = ["//loom/target/amdgpu:all"],
     xfails = {
         "//loom/target/amdgpu:all": {
+            "kernel/subgroup/reduce.loom:@subgroup_extended_reductions": "AMDGPU/023",
             "numeric/conversion/float8_facts.loom:@float8_facts": "TARGET/034",
             "numeric/vector/conversion.loom:@pack_nibbles": "AMDGPU/023,TARGET/003",
         },
@@ -157,6 +158,7 @@ loom_scenario_test(
             "function/call/overflow.loom:@overflow_call_values": "LOWERING/044",
             "function/call/spill.loom:@spill_values": "LOWERING/044",
             "function/template/library.loom:@template_dead_library_values": "LOWERING/045",
+            "kernel/subgroup/reduce.loom:@subgroup_extended_reduction_values": "AMDGPU/023",
             "memory/address/address.loom:@launch_arithmetic_values": "TARGET/004",
             "memory/buffer/allocation_freshness.loom:@allocation_freshness_values": "LOWERING/044",
             "memory/buffer/boundaries.loom:@vector_boundary_values": "LOWERING/044",

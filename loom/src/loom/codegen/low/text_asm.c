@@ -68,8 +68,10 @@ static void loom_low_descriptor_text_asm_make_packet(
     loom_text_low_asm_packet_descriptor_t* out_packet) {
   const loom_low_asm_layout_t* layout =
       &descriptor_set->asm_layouts[asm_form->layout_index];
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
   const bool builds_as_const =
-      descriptor->op_kind == LOOM_LOW_DESCRIPTOR_OP_KIND_CONST;
+      descriptor_layout->op_kind == LOOM_LOW_DESCRIPTOR_OP_KIND_CONST;
   *out_packet = (loom_text_low_asm_packet_descriptor_t){
       .descriptor_set =
           loom_low_descriptor_text_asm_descriptor_set_handle(descriptor_set),
@@ -80,12 +82,12 @@ static void loom_low_descriptor_text_asm_make_packet(
       .mnemonic = loom_low_descriptor_set_string(descriptor_set,
                                                  asm_form->mnemonic_string_ref),
       .result_count = descriptor->result_count,
-      .minimum_operand_count = descriptor->minimum_packet_operand_count,
+      .minimum_operand_count = descriptor_layout->minimum_packet_operand_count,
       .operand_segment_count = layout->operand_segment_count,
       .has_variadic_operands =
           loom_low_descriptor_has_variadic_operands(descriptor),
       .asm_immediate_count = layout->explicit_immediate_count,
-      .immediate_count = descriptor->immediate_count,
+      .immediate_count = descriptor_layout->immediate_count,
       .immediate_attribute_field_index =
           builds_as_const ? loom_low_const_attrs_diagnostic_ref().index
                           : loom_low_op_attrs_diagnostic_ref().index,
@@ -504,8 +506,10 @@ static void loom_low_descriptor_text_asm_immediate_descriptor(
       &descriptor_set
            ->asm_immediates[layout->immediate_start + immediate_index];
   const loom_low_immediate_t* immediate =
-      &descriptor_set->immediates[descriptor->immediate_start +
-                                  asm_immediate->immediate_index];
+      &descriptor_set
+           ->immediates[loom_low_descriptor_layout(descriptor_set, descriptor)
+                            ->immediate_start +
+                        asm_immediate->immediate_index];
   out_immediate->field_name = loom_low_descriptor_set_string(
       descriptor_set, immediate->field_name_string_ref);
   out_immediate->has_default_value =

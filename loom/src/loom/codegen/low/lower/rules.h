@@ -875,6 +875,12 @@ typedef enum loom_low_lower_guard_kind_e {
   LOOM_LOW_LOWER_GUARD_OPERAND_SEGMENT_EXACT_BITS = 44,
   // Source value facts must not be an exact non-floating integer.
   LOOM_LOW_LOWER_GUARD_VALUE_NOT_EXACT_I64 = 45,
+  // Optional i64 size/stride attributes name the full target subgroup at unit
+  // stride. An absent size matches even when target width is not fixed.
+  LOOM_LOW_LOWER_GUARD_TARGET_WHOLE_SUBGROUP = 46,
+  // Optional i64 size/stride attributes name an explicit contiguous
+  // power-of-two cluster no larger than the target subgroup.
+  LOOM_LOW_LOWER_GUARD_TARGET_CONTIGUOUS_SUBGROUP_CLUSTER = 47,
   // Maximum guard kind value plus one.
   LOOM_LOW_LOWER_GUARD_COUNT_,
 } loom_low_lower_guard_kind_t;

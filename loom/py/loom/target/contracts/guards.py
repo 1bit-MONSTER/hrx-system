@@ -138,6 +138,8 @@ class GuardKind(Enum):
     VALUE_STATIC_ELEMENT_COUNT_EQ = "value_static_element_count_eq"
     VALUE_MEMORY_SPACE = "value_memory_space"
     TARGET_SUBGROUP_SIZE_RANGE = "target_subgroup_size_range"
+    TARGET_WHOLE_SUBGROUP = "target_whole_subgroup"
+    TARGET_CONTIGUOUS_SUBGROUP_CLUSTER = "target_contiguous_subgroup_cluster"
 
 
 _LOW_VALUE_GUARD_KINDS = (
@@ -154,6 +156,8 @@ _SOURCE_ATTR_GUARD_KINDS = (
     GuardKind.ENUM_ATTR_IN,
     GuardKind.I64_RANGE,
     GuardKind.I64_ATTRS_SUM_EQUALS,
+    GuardKind.TARGET_WHOLE_SUBGROUP,
+    GuardKind.TARGET_CONTIGUOUS_SUBGROUP_CLUSTER,
 )
 
 
@@ -843,6 +847,26 @@ class Guard:
         )
 
     @classmethod
+    def target_whole_subgroup(cls, size_field: str, stride_field: str) -> Self:
+        """Matches an absent size or the target's full width, at unit stride."""
+        return cls(
+            kind=GuardKind.TARGET_WHOLE_SUBGROUP,
+            field=size_field,
+            other_field=stride_field,
+        )
+
+    @classmethod
+    def target_contiguous_subgroup_cluster(
+        cls, size_field: str, stride_field: str
+    ) -> Self:
+        """Matches an explicit power-of-two size within the target subgroup."""
+        return cls(
+            kind=GuardKind.TARGET_CONTIGUOUS_SUBGROUP_CLUSTER,
+            field=size_field,
+            other_field=stride_field,
+        )
+
+    @classmethod
     def value_packed_integer_payload_from_lanes(
         cls,
         lane_field: str,
@@ -1241,6 +1265,18 @@ def _validate_source_attr_guard(
     if guard.other_field is None:
         raise ValueError(f"{source_op.name}: {subject} needs another field")
     other_attr = _require_attr(source_op, guard.other_field, subject)
+    if guard.kind in (
+        GuardKind.TARGET_WHOLE_SUBGROUP,
+        GuardKind.TARGET_CONTIGUOUS_SUBGROUP_CLUSTER,
+    ):
+        if any(
+            item.attr_type != ATTR_TYPE_I64 or not item.optional
+            for item in (attr, other_attr)
+        ):
+            raise ValueError(
+                f"{source_op.name}: {subject} requires optional i64 size and stride"
+            )
+        return
     if other_attr.attr_type not in (ATTR_TYPE_I64, ATTR_TYPE_ANY):
         raise ValueError(
             f"{source_op.name}: {subject} field '{guard.other_field}' "

@@ -185,7 +185,10 @@ TEST(TargetSpirvVulkaninfoTest, ImportsGpuinfoProfileWrapper) {
             "subgroupSize": 32,
             "subgroupSupportedOperations": [
               "VK_SUBGROUP_FEATURE_BASIC_BIT",
-              "VK_SUBGROUP_FEATURE_BALLOT_BIT"
+              "VK_SUBGROUP_FEATURE_BALLOT_BIT",
+              "VK_SUBGROUP_FEATURE_VOTE_BIT",
+              "VK_SUBGROUP_FEATURE_ARITHMETIC_BIT",
+              "VK_SUBGROUP_FEATURE_CLUSTERED_BIT"
             ]
           },
           "VkPhysicalDeviceVulkan12Properties": {
@@ -211,6 +214,7 @@ TEST(TargetSpirvVulkaninfoTest, ImportsGpuinfoProfileWrapper) {
             "shaderInt64": true
           },
           "VkPhysicalDeviceVulkan12Features": {
+            "shaderSubgroupExtendedTypes": true,
             "shaderFloat16": true,
             "shaderInt8": true,
             "storageBuffer8BitAccess": true,
@@ -302,6 +306,10 @@ TEST(TargetSpirvVulkaninfoTest, ImportsGpuinfoProfileWrapper) {
       LOOMC_SPIRV_FEATURE_WORKGROUP_FLOAT64_ATOMIC_ADD,
       LOOMC_SPIRV_FEATURE_FLOAT32_DENORM_PRESERVE,
       LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT,
+      LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE,
+      LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_ARITHMETIC,
+      LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_CLUSTERED,
+      LOOMC_SPIRV_FEATURE_SUBGROUP_EXTENDED_TYPES,
       LOOMC_SPIRV_FEATURE_FLOAT16_64_DENORM_PRESERVE,
       LOOMC_SPIRV_FEATURE_FLOAT16_64_ROUNDING_RTE,
       LOOMC_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE,
@@ -377,6 +385,9 @@ TEST(TargetSpirvVulkaninfoTest, ImportsRawDevicesArrayByIndex) {
         "extended_features": {
           "VkPhysicalDeviceVulkan12Features": {
             "bufferDeviceAddress": true
+          },
+          "VkPhysicalDeviceShaderSubgroupExtendedTypesFeatures": {
+            "shaderSubgroupExtendedTypes": true
           }
         }
       }
@@ -394,6 +405,8 @@ TEST(TargetSpirvVulkaninfoTest, ImportsRawDevicesArrayByIndex) {
   TargetProfilePtr profile =
       ImportVulkaninfoProfile(target_environment.get(), source.get(), &options);
 
+  ExpectFeatureState(profile.get(), LOOMC_SPIRV_FEATURE_SUBGROUP_EXTENDED_TYPES,
+                     LOOMC_TARGET_FACT_STATE_TRUE);
   ExpectFeatureState(profile.get(), LOOMC_SPIRV_FEATURE_INT64,
                      LOOMC_TARGET_FACT_STATE_TRUE);
   ExpectFeatureState(profile.get(), LOOMC_SPIRV_FEATURE_FLOAT64,

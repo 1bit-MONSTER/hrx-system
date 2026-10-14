@@ -932,9 +932,11 @@ static iree_status_t loom_low_allocation_unit_liveness_note_instruction_effects(
           /*permits_definition=*/false, unit_use_index->decision_arena));
     }
   }
-  for (uint16_t i = 0; i < descriptor->constraint_count; ++i) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  for (uint16_t i = 0; i < descriptor_layout->constraint_count; ++i) {
     const loom_low_constraint_t* constraint =
-        &descriptor_set->constraints[descriptor->constraint_start + i];
+        &descriptor_set->constraints[descriptor_layout->constraint_start + i];
     if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_EARLY_CLOBBER) {
       continue;
     }
