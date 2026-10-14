@@ -209,3 +209,21 @@ unsigned entry(const unsigned* destination) {
   // ERROR@+1: LOWERING/059 "atomic destination requires a mutable pointer"
   return __atomic_fetch_add(destination, 1u, __ATOMIC_RELAXED);
 }
+
+// ====
+#include <loomcxx/atomic.h>
+using namespace loom::atomic;
+void entry(unsigned* storage) {
+  auto values = loom::buffer::view<4, 8>(storage, {}, loom::encoding::layout::dense<2>());
+  // ERROR@+1: LOWERING/059 "atomic view index count must match its rank"
+  (void)loom::view::atomic::load<ordering::relaxed, scope::device>(values, 0u);
+}
+
+// ====
+#include <loomcxx/atomic.h>
+using namespace loom::atomic;
+void entry(unsigned* storage) {
+  auto values = loom::buffer::view<4>(storage, {}, loom::encoding::layout::dense<1>());
+  // ERROR@+1: LOWERING/059 "atomic view index requires an integer value"
+  loom::view::atomic::store<ordering::relaxed, scope::device>(1u, values, 0.5f);
+}

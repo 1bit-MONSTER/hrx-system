@@ -7,6 +7,8 @@
 #ifndef LOOMCXX_ATOMIC_H_
 #define LOOMCXX_ATOMIC_H_
 
+#include <loomcxx/view.h>
+
 namespace loom::atomic {
 
 // Read-modify-write operation kind supported by view and vector atomics.
@@ -75,10 +77,11 @@ enum class scope {
 
 }  // namespace loom::atomic
 
-// Scalar integer pointer projections. The pointer identifies one live,
-// naturally aligned integer object; its buffer and byte origin are retained.
+// Scalar integer pointer and typed-view projections. A pointer identifies one
+// live, naturally aligned integer object; its buffer and byte origin are
+// retained. A view retains its complete rank, encoding, and logical indices.
 // Loads accept const storage; updates require mutable storage. Boolean payloads
-// are rejected. Volatile pointers are accepted: each operation is already an
+// are rejected. Volatile storage is accepted: each operation is already an
 // observable atomic memory effect.
 // Ordering and scope are explicit. The selected target must implement the
 // requested width, memory space, and synchronization contract.
@@ -89,10 +92,36 @@ namespace loom::view::atomic {
 template <loom::atomic::ordering Ordering, loom::atomic::scope Scope, class T>
 [[loom::op("view.atomic.load")]] T load(const volatile T* source);
 
+// Observes one logical view element without rebuilding its address as a
+// pointer. One index is required for every source axis.
+template <loom::atomic::ordering Ordering, loom::atomic::scope Scope,
+          class Shape, class T, loom::encoding::role Role, class... Indices>
+[[loom::op("view.atomic.load")]] T load(loom::type::view<Shape, T, Role> source,
+                                        Indices... indices);
+
+// Observes an atomic access through a volatile view.
+template <loom::atomic::ordering Ordering, loom::atomic::scope Scope,
+          class Shape, class T, loom::encoding::role Role, class... Indices>
+[[loom::op("view.atomic.load")]] T load(
+    loom::type::view<Shape, volatile T, Role> source, Indices... indices);
+
 // Publishes one object without reading its old value. Ordering is relaxed,
 // release, or seq_cst.
 template <loom::atomic::ordering Ordering, loom::atomic::scope Scope, class T>
 [[loom::op("view.atomic.store")]] void store(T value, volatile T* destination);
+
+// Publishes one logical view element. Template deduction rejects const views.
+template <loom::atomic::ordering Ordering, loom::atomic::scope Scope,
+          class Shape, class T, loom::encoding::role Role, class... Indices>
+[[loom::op("view.atomic.store")]] void store(
+    T value, loom::type::view<Shape, T, Role> destination, Indices... indices);
+
+// Publishes one logical element through a volatile view.
+template <loom::atomic::ordering Ordering, loom::atomic::scope Scope,
+          class Shape, class T, loom::encoding::role Role, class... Indices>
+[[loom::op("view.atomic.store")]] void store(
+    T value, loom::type::view<Shape, volatile T, Role> destination,
+    Indices... indices);
 
 // Atomically combines value with memory and returns the old memory value.
 // Signed and unsigned minimum/maximum kinds match the integer source type.
@@ -100,11 +129,41 @@ template <loom::atomic::kind Kind, loom::atomic::ordering Ordering,
           loom::atomic::scope Scope, class T>
 [[loom::op("view.atomic.rmw")]] T rmw(T value, volatile T* destination);
 
+// Atomically combines one logical view element and returns the old value.
+template <loom::atomic::kind Kind, loom::atomic::ordering Ordering,
+          loom::atomic::scope Scope, class Shape, class T,
+          loom::encoding::role Role, class... Indices>
+[[loom::op("view.atomic.rmw")]] T rmw(
+    T value, loom::type::view<Shape, T, Role> destination, Indices... indices);
+
+// Atomically combines one logical element through a volatile view.
+template <loom::atomic::kind Kind, loom::atomic::ordering Ordering,
+          loom::atomic::scope Scope, class Shape, class T,
+          loom::encoding::role Role, class... Indices>
+[[loom::op("view.atomic.rmw")]] T rmw(
+    T value, loom::type::view<Shape, volatile T, Role> destination,
+    Indices... indices);
+
 // Performs the same atomic update without returning the old value.
 template <loom::atomic::kind Kind, loom::atomic::ordering Ordering,
           loom::atomic::scope Scope, class T>
 [[loom::op("view.atomic.reduce")]] void reduce(T value,
                                                volatile T* destination);
+
+// Applies an atomic update to one logical view element without returning it.
+template <loom::atomic::kind Kind, loom::atomic::ordering Ordering,
+          loom::atomic::scope Scope, class Shape, class T,
+          loom::encoding::role Role, class... Indices>
+[[loom::op("view.atomic.reduce")]] void reduce(
+    T value, loom::type::view<Shape, T, Role> destination, Indices... indices);
+
+// Applies an atomic update through a volatile view.
+template <loom::atomic::kind Kind, loom::atomic::ordering Ordering,
+          loom::atomic::scope Scope, class Shape, class T,
+          loom::encoding::role Role, class... Indices>
+[[loom::op("view.atomic.reduce")]] void reduce(
+    T value, loom::type::view<Shape, volatile T, Role> destination,
+    Indices... indices);
 
 // Stores replacement exactly when memory equals expected. Returns the old
 // value on both success and failure, without modifying expected. Failure
@@ -114,6 +173,22 @@ template <loom::atomic::ordering Success, loom::atomic::ordering Failure,
           loom::atomic::scope Scope, class T>
 [[loom::op("view.atomic.cmpxchg")]] T cmpxchg(T expected, T replacement,
                                               volatile T* destination);
+
+// Compares and conditionally replaces one logical view element.
+template <loom::atomic::ordering Success, loom::atomic::ordering Failure,
+          loom::atomic::scope Scope, class Shape, class T,
+          loom::encoding::role Role, class... Indices>
+[[loom::op("view.atomic.cmpxchg")]] T cmpxchg(
+    T expected, T replacement, loom::type::view<Shape, T, Role> destination,
+    Indices... indices);
+
+// Compares and conditionally replaces through a volatile view.
+template <loom::atomic::ordering Success, loom::atomic::ordering Failure,
+          loom::atomic::scope Scope, class Shape, class T,
+          loom::encoding::role Role, class... Indices>
+[[loom::op("view.atomic.cmpxchg")]] T cmpxchg(
+    T expected, T replacement,
+    loom::type::view<Shape, volatile T, Role> destination, Indices... indices);
 
 }  // namespace loom::view::atomic
 
