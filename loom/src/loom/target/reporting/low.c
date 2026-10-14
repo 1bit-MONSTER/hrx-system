@@ -578,9 +578,11 @@ void loom_target_compile_report_record_low_planning(
   }
 }
 
-iree_status_t loom_target_compile_report_record_low_emission_frame(
+iree_status_t
+loom_target_compile_report_record_low_emission_frame_with_dynamic_context(
     loom_target_compile_report_t* report,
-    const loom_low_emission_frame_t* frame) {
+    const loom_low_emission_frame_t* frame,
+    const loom_target_compile_report_low_dynamic_context_t* dynamic_context) {
   loom_target_compile_report_record_low_frame_identity(report, frame);
   loom_low_allocation_value_scratch_t value_scratch = {0};
   IREE_RETURN_IF_ERROR(loom_low_allocation_acquire_value_scratch(
@@ -598,20 +600,14 @@ iree_status_t loom_target_compile_report_record_low_emission_frame(
       frame->schedule.model_summary_count, liveness->pressure_summary_count,
       peak_live_units);
   loom_target_compile_report_record_low_static_instruction_mix(report, frame);
-  loom_target_compile_report_low_dynamic_context_t dynamic_context = {0};
-  iree_status_t status =
-      loom_target_compile_report_low_dynamic_context_initialize(
-          frame, &dynamic_context);
-  if (iree_status_is_ok(status)) {
-    status = loom_target_compile_report_record_low_dynamic_mix(
-        report, frame, &dynamic_context);
-  }
+  iree_status_t status = loom_target_compile_report_record_low_dynamic_mix(
+      report, frame, dynamic_context);
   if (iree_status_is_ok(status)) {
     loom_target_compile_report_record_move_causes(report, frame);
   }
   if (iree_status_is_ok(status)) {
     status = loom_target_compile_report_record_low_allocation_contents(
-        report, &frame->allocation, &frame->schedule, &dynamic_context);
+        report, &frame->allocation, &frame->schedule, dynamic_context);
   }
   if (iree_status_is_ok(status)) {
     loom_target_compile_report_record_allocation_materialization(
@@ -626,6 +622,21 @@ iree_status_t loom_target_compile_report_record_low_emission_frame(
                                                                        frame);
   }
   loom_low_allocation_release_value_scratch(&value_scratch);
+  return status;
+}
+
+iree_status_t loom_target_compile_report_record_low_emission_frame(
+    loom_target_compile_report_t* report,
+    const loom_low_emission_frame_t* frame) {
+  loom_target_compile_report_low_dynamic_context_t dynamic_context = {0};
+  iree_status_t status =
+      loom_target_compile_report_low_dynamic_context_initialize(
+          frame, &dynamic_context);
+  if (iree_status_is_ok(status)) {
+    status =
+        loom_target_compile_report_record_low_emission_frame_with_dynamic_context(
+            report, frame, &dynamic_context);
+  }
   loom_target_compile_report_low_dynamic_context_deinitialize(&dynamic_context);
   return status;
 }

@@ -13,13 +13,35 @@
 #include "iree/base/internal/arena.h"
 #include "iree/base/string_builder.h"
 #include "loom/codegen/low/frame.h"
+#include "loom/target/emit/native/amdgpu/encoding.h"
 #include "loom/target/emit/native/amdgpu/hsaco_build.h"
 #include "loom/target/emit/native/amdgpu/kernel_plan.h"
-#include "loom/target/reporting/report.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef uint32_t loom_amdgpu_kernel_emission_flags_t;
+enum loom_amdgpu_kernel_emission_flag_bits_e {
+  // No optional emission facts are retained.
+  LOOM_AMDGPU_KERNEL_EMISSION_FLAG_NONE = 0u,
+  // Retain native insertion rows for post-emission reporting.
+  LOOM_AMDGPU_KERNEL_EMISSION_FLAG_CAPTURE_NATIVE_INSERTIONS = 1u << 0,
+};
+
+// Complete output of one successful native kernel emission.
+typedef struct loom_amdgpu_kernel_emission_result_t {
+  // Kernel row consumed by final HSACO construction.
+  loom_amdgpu_hsaco_kernel_t kernel;
+  // Number of instructions emitted for the scheduled Low body.
+  uint64_t body_instruction_count;
+  // Number of instructions prepended by the native entry envelope.
+  uint64_t entry_instruction_count;
+  // Arena-owned native insertions retained when requested by |flags|.
+  const loom_amdgpu_native_insertion_t* native_insertions;
+  // Number of entries in |native_insertions|.
+  iree_host_size_t native_insertion_count;
+} loom_amdgpu_kernel_emission_result_t;
 
 // Emits one final HSACO kernel row and optional assembly listing.
 //
@@ -30,8 +52,9 @@ extern "C" {
 iree_status_t loom_amdgpu_kernel_emission_build(
     const loom_low_emission_frame_t* frame,
     const loom_amdgpu_kernel_plan_t* plan,
-    iree_string_builder_t* target_listing, loom_target_compile_report_t* report,
-    loom_amdgpu_hsaco_kernel_t* out_kernel,
+    loom_amdgpu_kernel_emission_flags_t flags,
+    iree_string_builder_t* target_listing,
+    loom_amdgpu_kernel_emission_result_t* out_result,
     iree_arena_allocator_t* table_arena);
 
 #ifdef __cplusplus

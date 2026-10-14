@@ -17,6 +17,7 @@
 #include "loom/target/arch/amdgpu/target_identity.h"
 #include "loom/target/arch/amdgpu/target_info.h"
 #include "loom/target/emit/native/amdgpu/descriptor.h"
+#include "loom/target/emit/native/amdgpu/kernel_entry.h"
 #include "loom/target/emit/native/amdgpu/metadata.h"
 #include "loom/target/emit/native/amdgpu/storage_layout.h"
 
@@ -33,6 +34,8 @@ typedef struct loom_amdgpu_kernel_record_t {
   loom_amdgpu_target_identity_t target_identity;
   // Processor facts selected by the AMDGPU target record.
   const loom_amdgpu_processor_info_t* processor;
+  // Hardware-entry envelope selected during native planning.
+  const loom_amdgpu_kernel_entry_envelope_t* entry_envelope;
   // Function-local storage layout shared by metadata and instruction emission.
   loom_amdgpu_storage_layout_t storage_layout;
   // Metadata row shared by assembly notes and direct HSACO notes.

@@ -363,6 +363,7 @@ loom_cc_library(
     hdrs = ["kernel_record.h"],
     deps = [
         ":descriptor",
+        ":kernel_entry",
         ":metadata",
         ":storage_layout",
         "//loom/src/loom/target/arch/amdgpu:target_identity",
@@ -521,12 +522,24 @@ loom_cc_library(
         ":kernel_entry",
         ":kernel_plan",
         "//loom/src/loom/codegen/low:frame",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
+    name = "kernel_report",
+    srcs = ["kernel_report.c"],
+    hdrs = ["kernel_report.h"],
+    deps = [
+        ":kernel_emission",
+        ":kernel_plan",
+        "//loom/src/loom/codegen/low:frame",
         "//loom/src/loom/ir",
         "//loom/src/loom/target/arch/amdgpu/refs:target_refs",
         "//loom/src/loom/target/reporting:low",
         "//loom/src/loom/target/reporting:report",
         "//runtime/src/iree/base",
-        "//runtime/src/iree/base/internal:arena",
     ],
 )
 
@@ -617,6 +630,7 @@ loom_cc_library(
         ":hsaco_build",
         ":kernel_emission",
         ":kernel_plan_build",
+        ":kernel_report",
         ":runtime_globals",
         ":spill_lowering",
         "//loom/src/loom/analysis:symbol_facts",

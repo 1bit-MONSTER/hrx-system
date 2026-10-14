@@ -879,13 +879,13 @@ class LowKernelEmitter {
     if (!plan_accepted) {
       return iree_ok_status();
     }
-    loom_amdgpu_hsaco_kernel_t kernel = {};
+    loom_amdgpu_kernel_emission_result_t emission_result = {};
     IREE_RETURN_IF_ERROR(loom_amdgpu_kernel_emission_build(
-        &frame, &plan, /*target_listing=*/nullptr, /*report=*/nullptr, &kernel,
-        arena));
+        &frame, &plan, LOOM_AMDGPU_KERNEL_EMISSION_FLAG_NONE,
+        /*target_listing=*/nullptr, &emission_result, arena));
     const loom_amdgpu_hsaco_input_t hsaco_input = {
         .target_identity = target_profile->identity,
-        .kernels = &kernel,
+        .kernels = &emission_result.kernel,
         .kernel_count = 1,
     };
     loom_amdgpu_hsaco_plan_t hsaco_plan = {};

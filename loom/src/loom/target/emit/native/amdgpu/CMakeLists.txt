@@ -422,6 +422,7 @@ loom_cc_library(
     "kernel_record.h"
   DEPS
     ::descriptor
+    ::kernel_entry
     ::metadata
     ::storage_layout
     iree::base
@@ -628,6 +629,23 @@ loom_cc_library(
     iree::base
     iree::base::internal::arena
     loom::codegen::low::frame
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
+loom_cc_library(
+  NAME
+    kernel_report
+  HDRS
+    "kernel_report.h"
+  SRCS
+    "kernel_report.c"
+  DEPS
+    ::kernel_emission
+    ::kernel_plan
+    iree::base
+    loom::codegen::low::frame
     loom::ir
     loom::target::arch::amdgpu::refs::target_refs
     loom::target::reporting::low
@@ -724,6 +742,7 @@ loom_cc_library(
     ::hsaco_build
     ::kernel_emission
     ::kernel_plan_build
+    ::kernel_report
     ::runtime_globals
     ::spill_lowering
     iree::base

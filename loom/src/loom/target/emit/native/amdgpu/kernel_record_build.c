@@ -480,6 +480,7 @@ iree_status_t loom_amdgpu_kernel_record_build(
       .descriptor_symbol = descriptor_symbol,
       .target_identity = target_facts->identity,
       .processor = processor,
+      .entry_envelope = entry_envelope,
       .storage_layout = storage_layout,
       .metadata =
           {
