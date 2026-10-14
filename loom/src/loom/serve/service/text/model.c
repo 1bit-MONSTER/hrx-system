@@ -12,7 +12,7 @@
 #include <string.h>
 
 #include "iree/async/operations/semaphore.h"
-#include "iree/tooling/device_util.h"
+#include "iree/tooling/device_profiling.h"
 #include "iree/vm/buffer.h"
 #include "iree/vm/sync.h"
 #include "loom/serve/runtime/device/device.h"

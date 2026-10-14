@@ -13,7 +13,7 @@
 #include "iree/hal/drivers/task/driver.h"
 #include "iree/hal/drivers/task/executable/loaders/registration/init.h"
 #endif
-#include "iree/tooling/device_util.h"
+#include "iree/tooling/device_profiling.h"
 
 struct loom_serve_device_t {
   // Borrowed enclosing application group, owning this record's storage.

@@ -11,7 +11,7 @@
 #include "iree/base/threading/mutex.h"
 #include "iree/base/threading/notification.h"
 #include "iree/tokenizer/format/huggingface/tokenizer_json.h"
-#include "iree/tooling/device_util.h"
+#include "iree/tooling/device_profiling.h"
 #include "iree/vm/buffer.h"
 #include "iree/vm/sync.h"
 #include "loom/serve/runtime/device/device.h"

@@ -146,7 +146,7 @@ loom_cc_library(
         "//runtime/src/iree/module/hal:types",
         "//runtime/src/iree/tokenizer",
         "//runtime/src/iree/tokenizer/format/huggingface:tokenizer_json",
-        "//runtime/src/iree/tooling:device_util",
+        "//runtime/src/iree/tooling:device_profiling",
         "//runtime/src/iree/vm",
     ],
 )

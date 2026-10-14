@@ -41,11 +41,24 @@ iree_cc_test(
 
 iree_cc_library(
   NAME
-    device_util
+    device_flags
   HDRS
-    "device_util.h"
+    "device_flags.h"
   SRCS
-    "device_util.c"
+    "device_flags.c"
+  DEPS
+    iree::base
+    iree::base::tooling::flags
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    device_profiling
+  HDRS
+    "device_profiling.h"
+  SRCS
+    "device_profiling.c"
   DEPS
     iree::base
     iree::base::internal
@@ -53,11 +66,27 @@ iree_cc_library(
     iree::base::threading::thread
     iree::base::tooling::flags
     iree::hal
-    iree::hal::drivers
-    iree::hal::utils::mpi_channel_provider
     iree::hal::utils::profile_file
     iree::hal::utils::statistics_sink
     iree::io::file_handle
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    device_util
+  HDRS
+    "device_util.h"
+  SRCS
+    "device_util.c"
+  DEPS
+    ::device_flags
+    iree::base
+    iree::base::threading
+    iree::base::tooling::flags
+    iree::hal
+    iree::hal::drivers
+    iree::hal::utils::mpi_channel_provider
   PUBLIC
 )
 

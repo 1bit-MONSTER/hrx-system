@@ -23,6 +23,7 @@ iree_cc_binary_benchmark(
     iree::hal::replay::execute
     iree::io::file_handle
     iree::third_party::google_benchmark
+    iree::tooling::device_profiling
     iree::tooling::device_util
   ARGS
     "--agents_md"

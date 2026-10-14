@@ -36,7 +36,7 @@ loom_cc_library(
     iree::base::threading
     iree::hal
     iree::hal::drivers
-    iree::tooling::device_util
+    iree::tooling::device_profiling
     loom::serve::runtime::execution
     loom::serve::runtime::execution::workspace
     loom::serve::runtime::host

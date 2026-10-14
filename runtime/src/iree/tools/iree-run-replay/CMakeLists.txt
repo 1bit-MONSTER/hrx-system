@@ -22,6 +22,7 @@ iree_cc_binary(
     iree::hal
     iree::hal::replay::execute
     iree::io::file_handle
+    iree::tooling::device_profiling
     iree::tooling::device_util
 )
 

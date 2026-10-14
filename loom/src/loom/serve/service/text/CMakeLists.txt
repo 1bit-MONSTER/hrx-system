@@ -202,7 +202,7 @@ loom_cc_library(
     iree::tokenizer
     iree::tokenizer::format::huggingface::tokenizer_json
     iree::tokenizer::vocab
-    iree::tooling::device_util
+    iree::tooling::device_profiling
     iree::vm
     loom::binding::c::loomc
     loom::serve::runtime::device
