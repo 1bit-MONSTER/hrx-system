@@ -250,6 +250,10 @@ static iree_status_t loom_amdgpu_metadata_append_kernel_assembly(
           kernel->private_segment_fixed_size, kernel->kernarg_segment_alignment,
           kernel->wavefront_size, kernel->sgpr_count, kernel->vgpr_count,
           kernel->max_flat_workgroup_size));
+  if (kernel->has_agpr_count) {
+    IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+        builder, "      .agpr_count: %" PRIu32 "\n", kernel->agpr_count));
+  }
   if (kernel->has_required_workgroup_size) {
     IREE_RETURN_IF_ERROR(
         iree_string_builder_append_format(builder,
@@ -512,11 +516,20 @@ static iree_status_t loom_amdgpu_metadata_append_kernel_msgpack(
     const loom_amdgpu_metadata_kernel_t* kernel,
     iree_string_builder_t* builder) {
   const iree_host_size_t field_count =
-      11 + (kernel->has_required_workgroup_size ? 1 : 0) +
+      11 + (kernel->has_agpr_count ? 1 : 0) +
+      (kernel->has_required_workgroup_size ? 1 : 0) +
       (kernel->has_workgroup_cluster_size ? 1 : 0) +
       kernel->target_extensions.count;
   IREE_RETURN_IF_ERROR(loom_amdgpu_msgpack_append_map(builder, field_count));
   uint16_t target_extension_ordinal = 0;
+  if (kernel->has_agpr_count) {
+    IREE_RETURN_IF_ERROR(
+        loom_amdgpu_metadata_append_target_extensions_before_msgpack(
+            &kernel->target_extensions, IREE_SV(".agpr_count"),
+            &target_extension_ordinal, builder));
+    IREE_RETURN_IF_ERROR(loom_amdgpu_msgpack_append_uint32_field(
+        builder, IREE_SV(".agpr_count"), kernel->agpr_count));
+  }
   IREE_RETURN_IF_ERROR(
       loom_amdgpu_metadata_append_target_extensions_before_msgpack(
           &kernel->target_extensions, IREE_SV(".args"),

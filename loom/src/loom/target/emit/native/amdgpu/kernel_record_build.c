@@ -472,6 +472,19 @@ iree_status_t loom_amdgpu_kernel_record_build(
   if (options->minimum_vgpr_count > next_free_vgpr) {
     next_free_vgpr = options->minimum_vgpr_count;
   }
+  const bool has_accumulators =
+      loom_amdgpu_processor_properties_kernel_descriptor_has_flags(
+          &processor->properties,
+          LOOM_AMDGPU_KERNEL_DESCRIPTOR_ABI_FLAG_ACCUM_OFFSET);
+  // Both native writers consume this partition after every architectural
+  // register requirement has been included. AGPRs occupy a separate bank
+  // within the same hardware allocation as the architectural VGPRs.
+  const uint32_t accum_offset =
+      has_accumulators && next_free_vgpr != 0 ? (next_free_vgpr - 1u) / 4u : 0;
+  const uint32_t total_vgpr_count =
+      preflight->next_free_agpr != 0
+          ? ((next_free_vgpr + 3u) & ~UINT32_C(3)) + preflight->next_free_agpr
+          : next_free_vgpr;
 
   iree_string_view_t descriptor_symbol = iree_string_view_empty();
   IREE_RETURN_IF_ERROR(loom_amdgpu_kernel_record_concat3(
@@ -513,10 +526,12 @@ iree_status_t loom_amdgpu_kernel_record_build(
                   (uint32_t)
                       storage_layout.segment_sizes.private_segment_fixed_size,
               .sgpr_count = next_free_sgpr,
-              .vgpr_count = next_free_vgpr,
+              .vgpr_count = total_vgpr_count,
+              .agpr_count = preflight->next_free_agpr,
               .max_flat_workgroup_size = max_flat_workgroup_size,
               .required_workgroup_size = hal_kernel->required_workgroup_size,
               .has_required_workgroup_size = has_required_workgroup_size,
+              .has_agpr_count = has_accumulators,
               .workgroup_cluster_size = workgroup_cluster_size,
               .has_workgroup_cluster_size = has_workgroup_cluster_size,
               .target_extensions =
@@ -527,6 +542,8 @@ iree_status_t loom_amdgpu_kernel_record_build(
       .descriptor_flags = descriptor_flags,
       .system_vgpr_workitem_id = system_vgpr_workitem_id,
       .user_sgpr_count = user_sgpr_count,
+      .architectural_vgpr_count = next_free_vgpr,
+      .accum_offset = accum_offset,
   };
   return iree_ok_status();
 }

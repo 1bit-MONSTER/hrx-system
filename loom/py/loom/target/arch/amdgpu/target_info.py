@@ -558,6 +558,7 @@ AMDGPU_DESCRIPTOR_SET_ISA_RDNA4 = AmdgpuDescriptorSetIsaInfo(
 # standard fields.
 AMDGPU_STANDARD_KERNEL_METADATA_KEYS = frozenset(
     (
+        ".agpr_count",
         ".args",
         ".cluster_dims",
         ".group_segment_fixed_size",

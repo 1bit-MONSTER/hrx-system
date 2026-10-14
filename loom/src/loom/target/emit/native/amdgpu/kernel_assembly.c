@@ -16,18 +16,6 @@
 
 #define LOOM_AMDGPU_KERNEL_ASSEMBLY_CODE_OBJECT_VERSION 6u
 
-static iree_status_t loom_amdgpu_kernel_assembly_accum_offset(
-    uint32_t vgpr_count, uint32_t* out_accum_offset) {
-  const uint32_t normalized_vgpr_count = vgpr_count == 0 ? 1u : vgpr_count;
-  if (normalized_vgpr_count > UINT32_MAX - 3u) {
-    return iree_make_status(
-        IREE_STATUS_OUT_OF_RANGE,
-        "AMDGPU kernel assembly accum-offset VGPR count overflows");
-  }
-  *out_accum_offset = (normalized_vgpr_count + 3u) & ~UINT32_C(3);
-  return iree_ok_status();
-}
-
 static uint32_t loom_amdgpu_kernel_assembly_flag(
     const loom_amdgpu_kernel_record_t* record,
     loom_amdgpu_kernel_descriptor_flags_t flag) {
@@ -158,11 +146,9 @@ static iree_status_t loom_amdgpu_kernel_assembly_append_metadata(
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       builder, "  .amdhsa_next_free_sgpr %" PRIu32 "\n", kernel->sgpr_count));
   if (has_accum_offset) {
-    uint32_t accum_offset = 0;
-    IREE_RETURN_IF_ERROR(loom_amdgpu_kernel_assembly_accum_offset(
-        kernel->vgpr_count, &accum_offset));
     IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
-        builder, "  .amdhsa_accum_offset %" PRIu32 "\n", accum_offset));
+        builder, "  .amdhsa_accum_offset %" PRIu32 "\n",
+        (record->accum_offset + 1u) * 4u));
   }
   IREE_RETURN_IF_ERROR(
       iree_string_builder_append_cstring(builder, "  .amdhsa_reserve_vcc 0\n"));

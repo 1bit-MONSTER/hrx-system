@@ -82,9 +82,9 @@ typedef struct loom_amdgpu_kernel_descriptor_fields_t {
   uint32_t kernarg_size;
   // Byte offset from the descriptor symbol to the kernel entry instruction.
   int64_t kernel_code_entry_byte_offset;
-  // Physical SGPR high-water count for the kernel body.
+  // SGPR high-water count including body, ABI and entry requirements.
   uint32_t next_free_sgpr;
-  // Physical VGPR high-water count for the kernel body.
+  // Total vector register allocation, including AGPRs on CDNA.
   uint32_t next_free_vgpr;
   // Total user SGPR count encoded in COMPUTE_PGM_RSRC2.
   uint32_t user_sgpr_count;
@@ -479,13 +479,9 @@ iree_status_t loom_amdgpu_kernel_descriptor_encode(
   if (loom_amdgpu_processor_properties_kernel_descriptor_has_flags(
           &processor->properties,
           LOOM_AMDGPU_KERNEL_DESCRIPTOR_ABI_FLAG_ACCUM_OFFSET)) {
-    uint32_t accum_offset = 0;
-    IREE_RETURN_IF_ERROR(loom_amdgpu_kernel_descriptor_granulated_blocks(
-        descriptor.next_free_vgpr, 4,
-        LOOM_AMDGPU_COMPUTE_PGM_RSRC3_ACCUM_OFFSET_WIDTH, &accum_offset));
     loom_amdgpu_kernel_descriptor_set_bits_u32(
         &compute_pgm_rsrc3, LOOM_AMDGPU_COMPUTE_PGM_RSRC3_ACCUM_OFFSET_SHIFT,
-        LOOM_AMDGPU_COMPUTE_PGM_RSRC3_ACCUM_OFFSET_WIDTH, accum_offset);
+        LOOM_AMDGPU_COMPUTE_PGM_RSRC3_ACCUM_OFFSET_WIDTH, options.accum_offset);
   }
 
   uint32_t compute_pgm_rsrc1 = 0;

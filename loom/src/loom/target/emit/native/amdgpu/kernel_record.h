@@ -46,6 +46,12 @@ typedef struct loom_amdgpu_kernel_record_t {
   uint32_t system_vgpr_workitem_id;
   // User SGPR count required by ABI live-ins.
   uint32_t user_sgpr_count;
+  // Architectural VGPR high-water count after body, ABI and packet-plan floors.
+  // The metadata VGPR count additionally includes accumulator storage.
+  uint32_t architectural_vgpr_count;
+  // COMPUTE_PGM_RSRC3.ACCUM_OFFSET: four-register boundary minus one, or zero
+  // on targets without the unified VGPR/AGPR register file.
+  uint32_t accum_offset;
 } loom_amdgpu_kernel_record_t;
 
 #ifdef __cplusplus

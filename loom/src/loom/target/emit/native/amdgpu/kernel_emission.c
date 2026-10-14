@@ -61,6 +61,7 @@ iree_status_t loom_amdgpu_kernel_emission_build(
                   {
                       .flags = record->descriptor_flags,
                       .minimum_user_sgpr_count = record->user_sgpr_count,
+                      .accum_offset = record->accum_offset,
                   },
               .text = kernel_text,
               .text_fixups = kernel_text_fixups,

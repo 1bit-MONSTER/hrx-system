@@ -109,6 +109,7 @@ shift_boundary:
       .sgpr_count: 2
       .vgpr_count: 9
       .max_flat_workgroup_size: 64
+      .agpr_count: 0
       .reqd_workgroup_size:
         - 64
         - 1
@@ -223,6 +224,7 @@ shift_boundary:
       .sgpr_count: 0
       .vgpr_count: 9
       .max_flat_workgroup_size: 64
+      .agpr_count: 0
       .reqd_workgroup_size:
         - 64
         - 1
@@ -337,6 +339,7 @@ shift_boundary:
       .sgpr_count: 0
       .vgpr_count: 9
       .max_flat_workgroup_size: 64
+      .agpr_count: 0
       .reqd_workgroup_size:
         - 64
         - 1

@@ -144,6 +144,7 @@ loom_check_test_suite(
   NAME
     loom_check_file_test
   SRCS
+    "test/accumulator_resources.loom-test"
     "test/allocation_json.loom-test"
     "test/assembly.loom-test"
     "test/assembly_allocation.loom-test"

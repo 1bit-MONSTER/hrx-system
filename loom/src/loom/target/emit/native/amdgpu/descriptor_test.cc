@@ -177,11 +177,14 @@ TEST(AmdgpuDescriptorTest, EncodesNamedComputePgmRsrc1TargetFeatures) {
     metadata.sgpr_count = 20;
     metadata.vgpr_count = 9;
 
+    const loom_amdgpu_kernel_descriptor_options_t options = {
+        .accum_offset = c.expected_accum_offset ? 2u : 0u,
+    };
     std::array<uint8_t, 65> bytes;
     bytes.fill(0);
-    IREE_ASSERT_OK(
-        EncodeDescriptor(iree_make_cstring_view(c.processor), metadata, 0,
-                         iree_make_byte_span(bytes.data(), bytes.size())))
+    IREE_ASSERT_OK(EncodeDescriptor(
+        iree_make_cstring_view(c.processor), metadata, 0,
+        iree_make_byte_span(bytes.data(), bytes.size()), options))
         << c.processor;
 
     const uint32_t compute_pgm_rsrc1 = LoadLeU32(bytes, 48);
@@ -244,8 +247,11 @@ TEST(AmdgpuDescriptorTest, EncodesComputePgmFieldsForEveryDescriptorProfile) {
 
     std::array<uint8_t, 65> bytes;
     bytes.fill(0);
+    const loom_amdgpu_kernel_descriptor_options_t options = {
+        .accum_offset = 2,
+    };
     IREE_ASSERT_OK(loom_amdgpu_kernel_descriptor_encode(
-        processor, &metadata, {}, 0,
+        processor, &metadata, options, 0,
         iree_make_byte_span(bytes.data(), bytes.size())))
         << processor->name.data;
 
@@ -317,6 +323,42 @@ TEST(AmdgpuDescriptorTest, EncodesComputePgmFieldsForEveryDescriptorProfile) {
         << processor->name.data;
   }
   EXPECT_GT(checked_count, 0u);
+}
+
+TEST(AmdgpuDescriptorTest, EncodesAccumulatorPartitionIndependentlyOfTotal) {
+  struct Case {
+    // Combined architectural and accumulator allocation before granulation.
+    uint32_t total_registers;
+    // Encoded accumulator boundary retained by kernel-record construction.
+    uint32_t accum_offset;
+    // Expected COMPUTE_PGM_RSRC1.VGPRS encoding.
+    uint32_t blocks;
+  };
+  const Case cases[] = {{0, 0, 0},  {5, 0, 0},    {9, 0, 1},    {12, 1, 1},
+                        {16, 2, 1}, {256, 0, 31}, {512, 63, 63}};
+  for (const char* processor :
+       {"gfx90a", "gfx940", "gfx941", "gfx942", "gfx950", "gfx9-4-generic"}) {
+    SCOPED_TRACE(processor);
+    for (const auto& test : cases) {
+      SCOPED_TRACE(test.total_registers);
+      loom_amdgpu_metadata_kernel_t metadata = MinimalMetadataKernel();
+      metadata.wavefront_size = 64;
+      metadata.vgpr_count = test.total_registers;
+      const loom_amdgpu_kernel_descriptor_options_t options = {
+          .accum_offset = test.accum_offset,
+      };
+      std::array<uint8_t, 65> bytes = {};
+      IREE_ASSERT_OK(EncodeDescriptor(
+          iree_make_cstring_view(processor), metadata, 0,
+          iree_make_byte_span(bytes.data(), bytes.size()), options));
+      EXPECT_EQ(Field(LoadLeU32(bytes, 48), kComputePgmRsrc1VgprCountShift,
+                      kComputePgmRsrc1VgprCountWidth),
+                test.blocks);
+      EXPECT_EQ(Field(LoadLeU32(bytes, 44), kComputePgmRsrc3AccumOffsetShift,
+                      kComputePgmRsrc3AccumOffsetWidth),
+                test.accum_offset);
+    }
+  }
 }
 
 TEST(AmdgpuDescriptorTest, EncodesNamedSetupAndCodePropertyFields) {
@@ -467,6 +509,7 @@ TEST(AmdgpuDescriptorTest, EncodesGfx942ResourceAndAbiFields) {
                LOOM_AMDGPU_KERNEL_DESCRIPTOR_SYSTEM_VGPR_WORKITEM_ID_Z |
                LOOM_AMDGPU_KERNEL_DESCRIPTOR_USES_DYNAMIC_STACK,
       .minimum_user_sgpr_count = 2,
+      .accum_offset = 2,
   };
 
   std::array<uint8_t, 65> bytes;
@@ -521,6 +564,7 @@ TEST(AmdgpuDescriptorTest, EncodesGfx950ResourceAndAbiFields) {
       .flags = LOOM_AMDGPU_KERNEL_DESCRIPTOR_ENABLE_SGPR_KERNARG_SEGMENT_PTR |
                LOOM_AMDGPU_KERNEL_DESCRIPTOR_ENABLE_SGPR_WORKGROUP_ID_X,
       .minimum_user_sgpr_count = 2,
+      .accum_offset = 2,
   };
 
   std::array<uint8_t, 65> bytes;

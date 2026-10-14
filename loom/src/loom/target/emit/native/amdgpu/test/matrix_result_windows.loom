@@ -46,25 +46,46 @@ low.func.def schedule(locked) target<amdgpu.cdna2.core>(@target) @double_memory_
   return
 }
 
+// Direct memory access keeps the matrix accumulator in the AGPR bank across
+// load, MFMA and store. Its partition must include the VGPR address and inputs.
+low.func.def schedule(locked) target<amdgpu.cdna2.core>(@target) @accumulator_storage(%lane: reg<amdgpu.vgpr>, %buffer: reg<amdgpu.sgpr x2>) asm {
+  %offset = v_lshlrev_b32_src0_inline %lane, 4
+  %base_low = slice %buffer[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %base_high = slice %buffer[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %address_low, %carry = v_add_co_u32 %base_low, %offset
+  %high = v_mov_b32_copy %base_high
+  %zero = v_mov_b32 0
+  %address_high, %unused = v_addc_co_u32 %high, %zero, %carry
+  %address = concat(%address_low, %address_high) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %accumulator = flat_load_dwordx4 %address : reg<amdgpu.agpr x4>
+  %lhs = v_mov_b32 1067450368
+  %rhs = v_mov_b32 1075838976
+  %result = v_mfma_f32_16x16x4f32 %lhs, %rhs, %accumulator
+  flat_store_dwordx4 %address, %result
+  return
+}
+
 kernel.def target(@target) @matrix_windows() {
   %unit = index.constant 1 : index
   %lanes = index.constant 64 : index
   kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%lanes, %unit, %unit) : index
-} launch(%history: buffer, %final: buffer, %double: buffer) {
+} launch(%history: buffer, %final: buffer, %double: buffer, %accumulator: buffer) {
   %lane_index = kernel.workitem.id<x> : index
   %lane_i32 = index.cast %lane_index : index to i32
   %lane = vector.splat %lane_i32 : vector<1xi32>
   %iterations = scalar.constant 8 : i32
   low.invoke @loop_windows(%lane, %history, %final, %iterations) : (vector<1xi32>, buffer, buffer, i32)
   low.invoke @double_memory_window(%lane, %double) : (vector<1xi32>, buffer)
+  low.invoke @accumulator_storage(%lane, %accumulator) : (vector<1xi32>, buffer)
   kernel.return
 }
 
-func.def @matrix_windows_oracle(%history: buffer, %final: buffer, %double: buffer) {
+func.def @matrix_windows_oracle(%history: buffer, %final: buffer, %double: buffer, %accumulator: buffer) {
   %base = index.constant 0 : offset
   %history_view = buffer.view %history[%base] : buffer -> view<8x64xf32>
   %final_view = buffer.view %final[%base] : buffer -> view<64x4xf32>
   %double_view = buffer.view %double[%base] : buffer -> view<64xf64>
+  %accumulator_view = buffer.view %accumulator[%base] : buffer -> view<64x4xf32>
   %begin = index.constant 0 : index
   %end = index.constant 64 : index
   %step = index.constant 1 : index
@@ -72,6 +93,7 @@ func.def @matrix_windows_oracle(%history: buffer, %final: buffer, %double: buffe
   %increment = scalar.constant 10.0 : f32
   %iterations = index.constant 8 : index
   %expected_double = scalar.constant 11.0 : f64
+  %expected_accumulator = scalar.constant 15.5 : f32
   %expected_final = scf.for %iteration = [%begin to %iterations step %step](%value = %initial : f32) -> (f32) {
     scf.for %lane = [%begin to %end step %step] {
       view.store %value, %history_view[%iteration, %lane] : f32, view<8x64xf32>
@@ -85,6 +107,10 @@ func.def @matrix_windows_oracle(%history: buffer, %final: buffer, %double: buffe
     view.store %expected_final, %final_view[%lane, 2] : f32, view<64x4xf32>
     view.store %expected_final, %final_view[%lane, 3] : f32, view<64x4xf32>
     view.store %expected_double, %double_view[%lane] : f64, view<64xf64>
+    view.store %expected_accumulator, %accumulator_view[%lane, 0] : f32, view<64x4xf32>
+    view.store %expected_accumulator, %accumulator_view[%lane, 1] : f32, view<64x4xf32>
+    view.store %expected_accumulator, %accumulator_view[%lane, 2] : f32, view<64x4xf32>
+    view.store %expected_accumulator, %accumulator_view[%lane, 3] : f32, view<64x4xf32>
   }
   func.return
 }
@@ -95,10 +121,12 @@ check.scenario @physical_matrix_windows {
     %history = check.generate.fill value(0.0) : tensor<8x64xf32>
     %final = check.generate.fill value(0.0) : tensor<64x4xf32>
     %double = check.generate.fill value(0.0) : tensor<64xf64>
-    check.compare<@matrix_windows, @matrix_windows_oracle>(%history, %final, %double) : (tensor<8x64xf32>, tensor<64x4xf32>, tensor<64xf64>) -> () {
+    %accumulator = check.generate.fill value(3.0) : tensor<64x4xf32>
+    check.compare<@matrix_windows, @matrix_windows_oracle>(%history, %final, %double, %accumulator) : (tensor<8x64xf32>, tensor<64x4xf32>, tensor<64xf64>, tensor<64x4xf32>) -> () {
       check.expect.bitwise actual(%history) expected(%history) : tensor<8x64xf32>
       check.expect.bitwise actual(%final) expected(%final) : tensor<64x4xf32>
       check.expect.bitwise actual(%double) expected(%double) : tensor<64xf64>
+      check.expect.bitwise actual(%accumulator) expected(%accumulator) : tensor<64x4xf32>
     }
   }
   check.return

@@ -85,6 +85,7 @@ no_private_storage:
       .sgpr_count: 3
       .vgpr_count: 1
       .max_flat_workgroup_size: 64
+      .agpr_count: 0
       .reqd_workgroup_size:
         - 64
         - 1
@@ -201,6 +202,7 @@ private_storage:
       .sgpr_count: 10
       .vgpr_count: 3
       .max_flat_workgroup_size: 64
+      .agpr_count: 0
       .reqd_workgroup_size:
         - 64
         - 1

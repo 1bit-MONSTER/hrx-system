@@ -33,6 +33,8 @@ typedef struct loom_amdgpu_native_preflight_t {
   uint32_t next_free_sgpr;
   // Highest VGPR index used by the body or structural moves plus one.
   uint32_t next_free_vgpr;
+  // Highest AGPR index used by the body or structural moves plus one.
+  uint32_t next_free_agpr;
 } loom_amdgpu_native_preflight_t;
 
 typedef struct loom_amdgpu_native_preflight_options_t {

@@ -332,7 +332,7 @@ static iree_status_t loom_amdgpu_kernel_plan_admit_residency(
       record->metadata.sgpr_count,
       allocation_direct_resource_units[LOOM_AMDGPU_REG_CLASS_ID_SGPR]);
   IREE_ASSERT_GE(
-      record->metadata.vgpr_count,
+      record->architectural_vgpr_count,
       allocation_direct_resource_units[LOOM_AMDGPU_REG_CLASS_ID_VGPR]);
   const loom_target_residency_direct_resource_override_t resource_overrides[] =
       {
@@ -342,7 +342,7 @@ static iree_status_t loom_amdgpu_kernel_plan_admit_residency(
           },
           {
               .resource_id = LOOM_AMDGPU_REG_CLASS_ID_VGPR,
-              .units = record->metadata.vgpr_count,
+              .units = record->architectural_vgpr_count,
           },
       };
   const uint32_t final_residency_tier =

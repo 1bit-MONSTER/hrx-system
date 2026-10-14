@@ -36,7 +36,8 @@ class AmdgpuOccupancyTargetResourcesTest : public ::testing::Test {
       iree_string_view_t processor_name, uint32_t wave_size,
       uint32_t scalar_register_count, uint32_t vector_register_count,
       uint32_t flat_workgroup_size, uint32_t local_memory_bytes,
-      loom_target_residency_constraint_list_t* constraints = nullptr) {
+      loom_target_residency_constraint_list_t* constraints = nullptr,
+      uint32_t accumulator_register_count = 0) {
     const loom_amdgpu_processor_info_t* processor =
         loom_amdgpu_target_info_find_processor(processor_name);
     EXPECT_NE(processor, nullptr);
@@ -49,6 +50,14 @@ class AmdgpuOccupancyTargetResourcesTest : public ::testing::Test {
         scalar_register_count;
     direct_resource_units[LOOM_AMDGPU_REG_CLASS_ID_VGPR] =
         vector_register_count;
+    for (iree_host_size_t i = 0; i < model->register_class_count; ++i) {
+      const auto& resource = model->register_classes[i];
+      if (iree_string_view_equal(resource.register_class,
+                                 IREE_SV("amdgpu.agpr"))) {
+        direct_resource_units[resource.descriptor_reg_class_id] =
+            accumulator_register_count;
+      }
+    }
     loom_amdgpu_occupancy_target_resources_t resources = {};
     IREE_EXPECT_OK(loom_amdgpu_occupancy_build_target_resources(
         processor, wave_size, direct_resource_units.data(),
@@ -265,6 +274,50 @@ TEST_F(AmdgpuOccupancyTargetResourcesTest,
   const auto* accumulator = FindConstraint(constraints, IREE_SV("amdgpu.agpr"));
   ASSERT_NE(accumulator, nullptr);
   EXPECT_EQ(accumulator->units, 0u);
+}
+
+TEST_F(AmdgpuOccupancyTargetResourcesTest, AccountsForBothCdnaRegisterBanks) {
+  for (const char* processor :
+       {"gfx90a", "gfx942", "gfx950", "gfx9-4-generic"}) {
+    SCOPED_TRACE(processor);
+    for (uint32_t workgroup_size : {0u, 64u}) {
+      for (uint32_t accumulators : {0u, 4u, 128u, 256u}) {
+        SCOPED_TRACE(workgroup_size);
+        SCOPED_TRACE(accumulators);
+        loom_target_residency_constraint_list_t constraints = {};
+        const auto resources =
+            Build(iree_make_cstring_view(processor), 64, 36, 129,
+                  workgroup_size, 0, &constraints, accumulators);
+        const auto& summary = resources.residency_summary;
+        EXPECT_FALSE(iree_any_bit_set(
+            summary.flags,
+            LOOM_TARGET_RESIDENCY_SUMMARY_FLAG_INCOMPLETE_RESOURCE_COUNTS));
+        EXPECT_EQ(loom_target_residency_summary_is_valid(&summary),
+                  workgroup_size != 0);
+        const auto* vector =
+            FindConstraint(constraints, IREE_SV("amdgpu.vgpr"));
+        const auto* accumulator =
+            FindConstraint(constraints, IREE_SV("amdgpu.agpr"));
+        const auto* combined =
+            FindConstraint(constraints, IREE_SV("amdgpu.vgpr_agpr"));
+        ASSERT_NE(vector, nullptr);
+        ASSERT_NE(accumulator, nullptr);
+        ASSERT_NE(combined, nullptr);
+        EXPECT_EQ(vector->units, 129u);
+        EXPECT_EQ(accumulator->units, accumulators);
+        EXPECT_EQ(combined->units, 132u + accumulators);
+        const uint32_t rounded_units = (132u + accumulators + 7u) & ~7u;
+        EXPECT_EQ(combined->rounded_units, rounded_units);
+        EXPECT_EQ(resources.resident_waves_per_simd, 512u / rounded_units);
+        for (const auto* constraint : {vector, accumulator, combined}) {
+          EXPECT_TRUE(iree_all_bits_set(
+              constraint->flags,
+              LOOM_TARGET_RESIDENCY_CONSTRAINT_FLAG_HAS_USAGE |
+                  LOOM_TARGET_RESIDENCY_CONSTRAINT_FLAG_HAS_TIER));
+        }
+      }
+    }
+  }
 }
 
 TEST_F(AmdgpuOccupancyTargetResourcesTest, RetainsFixedLaunchCeiling) {
