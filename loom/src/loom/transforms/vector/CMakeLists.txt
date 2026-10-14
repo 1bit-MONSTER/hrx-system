@@ -219,7 +219,6 @@ loom_cc_library(
     loom::rewrite::rewriter
     loom::target::contract
     loom::target::legalization
-    loom::util::walk
   PUBLIC
 )
 

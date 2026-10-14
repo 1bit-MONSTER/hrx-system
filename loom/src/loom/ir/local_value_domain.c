@@ -249,6 +249,7 @@ static iree_status_t loom_local_value_domain_register_region_values(
     }
     const loom_op_t* op = NULL;
     loom_block_for_each_op(block, op) {
+      domain->operation_traits |= op->traits;
       const loom_value_id_t* results = loom_op_const_results(op);
       for (uint16_t i = 0; i < op->result_count; ++i) {
         IREE_RETURN_IF_ERROR(
@@ -279,6 +280,7 @@ static iree_status_t loom_local_value_domain_register_region_tree_values(
     }
     const loom_op_t* op = NULL;
     loom_block_for_each_op(block, op) {
+      domain->operation_traits |= op->traits;
       const loom_value_id_t* operands = loom_op_const_operands(op);
       for (uint16_t i = 0; i < op->operand_count; ++i) {
         loom_value_ordinal_t value_ordinal = LOOM_VALUE_ORDINAL_INVALID;

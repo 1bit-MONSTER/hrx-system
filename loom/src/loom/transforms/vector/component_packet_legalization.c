@@ -16,7 +16,6 @@
 #include "loom/rewrite/rewriter.h"
 #include "loom/target/contract.h"
 #include "loom/transforms/vector/packet_legalization.h"
-#include "loom/util/walk.h"
 
 #define LOOM_VECTOR_COMPONENT_INDEX_INVALID UINT32_MAX
 
@@ -228,7 +227,8 @@ static uint32_t loom_vector_component_record_for_value(
     const loom_vector_component_plan_t* plan, loom_value_id_t value_id) {
   const loom_value_ordinal_t ordinal = loom_local_value_domain_try_ordinal(
       plan->context->value_domain, value_id);
-  if (ordinal == LOOM_VALUE_ORDINAL_INVALID) {
+  if (ordinal == LOOM_VALUE_ORDINAL_INVALID ||
+      ordinal >= plan->context->value_domain->definition_count) {
     return LOOM_VECTOR_COMPONENT_INDEX_INVALID;
   }
   const uint32_t one_based_index = plan->value_record_indices[ordinal];
@@ -346,11 +346,7 @@ static iree_status_t loom_vector_component_candidate_bits(
 }
 
 static iree_status_t loom_vector_component_classify_op(
-    void* user_data, loom_op_t* op, const loom_walk_context_t* walk_context,
-    loom_walk_result_t* out_result) {
-  (void)walk_context;
-  *out_result = LOOM_WALK_CONTINUE;
-  loom_vector_component_plan_t* plan = (loom_vector_component_plan_t*)user_data;
+    loom_vector_component_plan_t* plan, loom_op_t* op) {
   uint32_t lane_count = 0;
   if (!loom_vector_component_describe(plan->context->module, op, &lane_count)) {
     return iree_ok_status();
@@ -1547,7 +1543,7 @@ loom_vector_component_packet_query_cache_lookup(
 }
 
 iree_status_t loom_vector_component_packet_legalize(
-    loom_target_legalization_context_t* context, loom_region_t* region,
+    loom_target_legalization_context_t* context,
     loom_vector_component_packet_rewrite_callback_t rewrite_callback,
     loom_vector_component_packet_query_cache_t* out_query_cache,
     uint32_t* out_rewritten_op_count) {
@@ -1559,37 +1555,64 @@ iree_status_t loom_vector_component_packet_legalize(
     return iree_ok_status();
   }
 
-  const loom_value_ordinal_t value_count = context->value_domain->value_count;
+  if (!iree_any_bit_set(context->value_domain->operation_traits,
+                        LOOM_TRAIT_DECOMPOSABLE)) {
+    return iree_ok_status();
+  }
   const loom_value_ordinal_t definition_count =
       context->value_domain->definition_count;
   if (definition_count == 0) {
     return iree_ok_status();
   }
+
+  uint32_t record_capacity = 0;
+  for (loom_value_ordinal_t ordinal = 0; ordinal < definition_count;
+       ++ordinal) {
+    const loom_value_t* value = loom_module_value(
+        context->module, context->value_domain->value_ids[ordinal]);
+    if (loom_value_is_block_arg(value)) {
+      continue;
+    }
+    loom_op_t* op = loom_value_def_op(value);
+    uint32_t lane_count = 0;
+    if (op != NULL &&
+        loom_vector_component_describe(context->module, op, &lane_count)) {
+      ++record_capacity;
+    }
+  }
+  if (record_capacity == 0) {
+    return iree_ok_status();
+  }
+
   loom_vector_component_plan_t* plan = NULL;
   IREE_RETURN_IF_ERROR(
       iree_arena_allocate(context->arena, sizeof(*plan), (void**)&plan));
   *plan = (loom_vector_component_plan_t){
       .context = context,
       .rewrite_callback = rewrite_callback,
-      .record_capacity = definition_count,
+      .record_capacity = record_capacity,
   };
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      context->arena, value_count, sizeof(*plan->value_record_indices),
+      context->arena, definition_count, sizeof(*plan->value_record_indices),
       (void**)&plan->value_record_indices));
   memset(plan->value_record_indices, 0,
-         value_count * sizeof(*plan->value_record_indices));
+         definition_count * sizeof(*plan->value_record_indices));
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-      context->arena, definition_count, sizeof(*plan->records),
+      context->arena, record_capacity, sizeof(*plan->records),
       (void**)&plan->records));
 
-  loom_walk_result_t walk_result = LOOM_WALK_CONTINUE;
-  IREE_RETURN_IF_ERROR(
-      loom_walk_region(context->module, region, LOOM_WALK_PRE_ORDER,
-                       (loom_walk_callback_t){
-                           .fn = loom_vector_component_classify_op,
-                           .user_data = plan,
-                       },
-                       &walk_result));
+  for (loom_value_ordinal_t ordinal = 0; ordinal < definition_count;
+       ++ordinal) {
+    const loom_value_t* value = loom_module_value(
+        context->module, context->value_domain->value_ids[ordinal]);
+    if (!loom_value_is_block_arg(value)) {
+      loom_op_t* op = loom_value_def_op(value);
+      if (op != NULL) {
+        IREE_RETURN_IF_ERROR(loom_vector_component_classify_op(plan, op));
+      }
+    }
+  }
+  IREE_ASSERT_EQ(plan->record_count, record_capacity);
   out_query_cache->plan = plan;
   if (plan->demanded_record_count == 0) {
     return iree_ok_status();
