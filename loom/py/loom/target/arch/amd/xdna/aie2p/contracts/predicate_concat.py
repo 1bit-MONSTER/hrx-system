@@ -99,7 +99,7 @@ def _boundary_emits(
         _constant_emit(
             mask,
             ValueTypeProject.static_dim_low_bits_mask(left, addend=-lane_base),
-            wide=True,
+            full_width=True,
         )
     )
     emits.append(
