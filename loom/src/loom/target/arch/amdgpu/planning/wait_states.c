@@ -813,7 +813,8 @@ static void loom_amdgpu_wait_state_apply_moves(
              loom_amdgpu_agpr_reg_class_id(builder->descriptor_set))) {
       const loom_amdgpu_short_wait_reasons_t two_slot_reasons =
           LOOM_AMDGPU_WAIT_STATE_REASON_FLAG_VALU_TO_MATRIX_USE |
-          LOOM_AMDGPU_SHORT_WAIT_PERMLANE_READ |
+          (loom_amdgpu_short_wait_reasons_t)
+              LOOM_AMDGPU_SHORT_WAIT_PERMLANE_READ |
           (register_class == LOOM_AMDGPU_REG_CLASS_ID_VGPR
                ? LOOM_AMDGPU_WAIT_STATE_REASON_FLAG_LANE_PERMUTE_VGPR_READ
                : 0);
@@ -986,7 +987,8 @@ static void loom_amdgpu_wait_state_record_results(
                        LOOM_AMDGPU_WAIT_STATE_PACKET_FLAG_USES_VECTOR_ALU) ||
       info->structural.vector_alu_instruction_count != 0;
   const loom_amdgpu_short_wait_reasons_t vector_two_slot_reasons =
-      is_valu ? LOOM_AMDGPU_SHORT_WAIT_PERMLANE_READ |
+      is_valu ? (loom_amdgpu_short_wait_reasons_t)
+                        LOOM_AMDGPU_SHORT_WAIT_PERMLANE_READ |
                     (loom_amdgpu_descriptor_dot_identity_mask(
                          info->descriptor_traits) == 0
                          ? LOOM_AMDGPU_WAIT_STATE_REASON_FLAG_VALU_TO_MATRIX_USE
@@ -1255,7 +1257,8 @@ static void loom_amdgpu_wait_state_match_packet_hazards(
           iree_any_bit_set(info->descriptor_traits,
                            LOOM_AMDGPU_DESCRIPTOR_TRAIT_DPP)
               ? LOOM_AMDGPU_WAIT_STATE_REASON_FLAG_LANE_PERMUTE_VGPR_READ
-              : LOOM_AMDGPU_SHORT_WAIT_PERMLANE_READ;
+              : (loom_amdgpu_short_wait_reasons_t)
+                    LOOM_AMDGPU_SHORT_WAIT_PERMLANE_READ;
     }
     if (iree_any_bit_set(
             info->flags,
