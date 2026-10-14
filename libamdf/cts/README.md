@@ -42,6 +42,17 @@ before any reuse. Cleanup follows the native ownership dependencies and checks
 release results. Failure to remove a native owner preserves storage that may
 remain reachable. A passing payload alone is not successful cleanup.
 
+The [Windows file corpus](gpu/windows/file_io_test.cc) composes IOCP transfers
+with allocated and registered GPU backing in buffered and unbuffered modes.
+Native file queries determine transfer geometry; libamdf profiles determine
+backing geometry and memory-pair queries determine visibility operations.
+PM4 or SDMA swaps file blocks between allocations, and IOCP writes the
+GPU-produced bytes before any CPU payload inspection. An independent reopen
+checks the entire file, while full memory guards check transfer boundaries.
+The corpus selects advertised queue families; Windows SDMA requires an
+HWS-enabled engine. File handles, completion ports and native I/O remain owned
+by the caller, outside libamdf.
+
 ## Build and resource selection
 
 Shader-bearing corpora compile their fixtures with Loom during the build.
