@@ -57,8 +57,14 @@ Value Initialization::value(const cxx::Type* type,
     return arena_.capture(*record, components);
   }
   const auto& partition = types_.partition(type, owner);
+  if (partition.kind == ValueKind::Address) {
+    if (elements && !elements->next) {
+      return evaluation_.convert(elements->value, type, owner);
+    }
+    diagnostics_.reject(unit_, owner,
+                        "address values require one integer or address value");
+  }
   if (partition.kind == ValueKind::Buffer ||
-      partition.kind == ValueKind::Address ||
       partition.kind == ValueKind::OpaqueDialect ||
       partition.kind == ValueKind::Encoding ||
       partition.kind == ValueKind::View ||
@@ -131,12 +137,18 @@ void Initialization::object(StorageProjection destination,
       cxx::List<cxx::ExpressionAST*>* arguments = nullptr;
       if (auto* construction =
               cxx::ast_cast<cxx::BracedTypeConstructionAST>(clause)) {
-        types_.admit_copy(construction->constructorSymbol, type, clause);
+        if (types_.address_domain(types_.unqualified(type), clause) ==
+            LOOM_SCALAR_TYPE_NONE) {
+          types_.admit_copy(construction->constructorSymbol, type, clause);
+        }
         arguments = construction->bracedInitList->expressionList;
         list = true;
       } else if (auto* construction =
                      cxx::ast_cast<cxx::TypeConstructionAST>(clause)) {
-        types_.admit_copy(construction->constructorSymbol, type, clause);
+        if (types_.address_domain(types_.unqualified(type), clause) ==
+            LOOM_SCALAR_TYPE_NONE) {
+          types_.admit_copy(construction->constructorSymbol, type, clause);
+        }
         arguments = construction->expressionList;
         list = true;
       }

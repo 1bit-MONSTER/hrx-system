@@ -113,6 +113,19 @@ loom::type::offset physical_offset_from_index(loom::type::index value) {
   return loom::offset::cast(value);
 }
 
+loom::type::index add_one(loom::type::index value) {
+  loom::type::index one{1};
+  return value + one;
+}
+
+loom::type::offset add_bytes(loom::type::offset value) {
+  return value + loom::type::offset{16};
+}
+
+loom::type::index index_from_unsigned(unsigned value) {
+  return loom::type::index{value};
+}
+
 constexpr loom::type::index previous{-1};
 constexpr loom::type::offset cache_line{64};
 
@@ -126,6 +139,14 @@ long long logical_carrier(loom::type::index value) {
 
 unsigned long long physical_carrier(loom::type::offset value) {
   return static_cast<unsigned long long>(value);
+}
+
+unsigned logical_fixed_width(loom::type::index value) {
+  return loom::index::cast<unsigned>(value);
+}
+
+long long physical_fixed_width(loom::type::offset value) {
+  return loom::offset::cast<long long>(value);
 }
 
 // ----
@@ -191,6 +212,28 @@ func.def public @physical_offset_from_index(%value: index) -> (offset) {
   func.return %101 : offset
 }
 
+func.def public @add_one(%value: index) -> (index) {
+  %104 = scalar.constant 1 : i32
+  %105 = scalar.extsi %104 : i32 to i64
+  %one = index.cast %105 : i64 to index
+  %107 = index.add %value, %one : index
+  func.return %107 : index
+}
+
+func.def public @add_bytes(%value: offset) -> (offset) {
+  %110 = scalar.constant 16 : i32
+  %111 = scalar.extsi %110 : i32 to i64
+  %112 = index.cast %111 : i64 to offset
+  %113 = index.add %value, %112 : offset
+  func.return %113 : offset
+}
+
+func.def public @index_from_unsigned(%value: i32) -> (index) {
+  %116 = scalar.extui %value : i32 to i64
+  %117 = index.cast %116 : i64 to index
+  func.return %117 : index
+}
+
 func.def public @logical_constant() -> (index) {
   %previous = index.constant -1 : index
   func.return %previous : index
@@ -202,11 +245,21 @@ func.def public @physical_constant() -> (offset) {
 }
 
 func.def public @logical_carrier(%value: index) -> (i64) {
-  %108 = index.cast %value : index to i64
-  func.return %108 : i64
+  %124 = index.cast %value : index to i64
+  func.return %124 : i64
 }
 
 func.def public @physical_carrier(%value: offset) -> (i64) {
-  %111 = index.cast %value : offset to i64
-  func.return %111 : i64
+  %127 = index.cast %value : offset to i64
+  func.return %127 : i64
+}
+
+func.def public @logical_fixed_width(%value: index) -> (i32) {
+  %130 = index.cast %value : index to i32
+  func.return %130 : i32
+}
+
+func.def public @physical_fixed_width(%value: offset) -> (i64) {
+  %133 = index.cast %value : offset to i64
+  func.return %133 : i64
 }

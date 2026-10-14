@@ -72,6 +72,7 @@ void reject_misplaced_binding_attributes(
         }
         if (name == "fastmath" && scope != BindingAttributeScope::Declaration &&
             scope != BindingAttributeScope::Function &&
+            scope != BindingAttributeScope::LocalDeclaration &&
             scope != BindingAttributeScope::Statement) {
           if (scope == BindingAttributeScope::CheckStatement) {
             diagnostics.reject(
@@ -80,7 +81,7 @@ void reject_misplaced_binding_attributes(
           }
           diagnostics.reject(
               unit, attribute,
-              "fastmath requires a function declaration attribute or a "
+              "fastmath requires a function, automatic declaration, or "
               "leading statement attribute");
         }
       });
@@ -145,6 +146,9 @@ void reject_misplaced_binding_statement(cxx::TranslationUnit& unit,
                                         Diagnostics& diagnostics,
                                         cxx::StatementAST* statement,
                                         BindingAttributeScope scope) {
+  if (cxx::ast_cast<cxx::DeclarationStatementAST>(statement)) {
+    scope = BindingAttributeScope::LocalDeclaration;
+  }
   reject_misplaced_binding_attributes(unit, diagnostics,
                                       statement_attributes(statement), scope);
 }

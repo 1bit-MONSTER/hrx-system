@@ -225,3 +225,43 @@ func.def public @reversed_constants(%value$0: i32) -> (i32) {
   %value$7 = scalar.assume %value$6 [eq(%value$6, 7)] : i32
   func.return %value$7 : i32
 }
+
+// ====
+// RUN: roundtrip
+// Address-domain helpers accept ordinary constants without converting their
+// retained subjects or peer values into fixed-width scalars.
+#include <loomcxx/kernel.h>
+#include <loomcxx/predicate.h>
+
+loom::type::index bounded_index(loom::type::index value) {
+  loom::assume(loom::predicate::range(value, -4, 15));
+  return value;
+}
+
+loom::type::offset bounded_offset(loom::type::offset bytes) {
+  loom::assume(loom::predicate::multiple_of(bytes, 16));
+  loom::assume(loom::predicate::range(bytes, 0, 255));
+  return bytes;
+}
+
+loom::type::index bounded_pair(loom::type::index value, loom::type::index limit) {
+  loom::assume(loom::predicate::le(value, limit));
+  return value;
+}
+
+// ----
+func.def public @bounded_index(%value$0: index) -> (index) {
+  %value$2 = index.assume %value$0 [range(%value$0, -4, 15)] : index
+  func.return %value$2 : index
+}
+
+func.def public @bounded_offset(%bytes$3: offset) -> (offset) {
+  %bytes$5 = index.assume %bytes$3 [multiple_of(%bytes$3, 16)] : offset
+  %bytes$6 = index.assume %bytes$5 [range(%bytes$5, 0, 255)] : offset
+  func.return %bytes$6 : offset
+}
+
+func.def public @bounded_pair(%value$7: index, %limit$8: index) -> (index) {
+  %value$10, %limit$11 = index.assume %value$7, %limit$8 [le(%value$7, %limit$8)] : index, index
+  func.return %value$10 : index
+}

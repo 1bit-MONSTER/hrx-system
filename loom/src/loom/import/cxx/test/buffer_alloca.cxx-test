@@ -1,5 +1,6 @@
 // RUN: roundtrip
 #include <loomcxx/buffer.h>
+#include <loomcxx/index.h>
 
 struct Pair {
   unsigned first;
@@ -45,6 +46,12 @@ unsigned generic_words(__SIZE_TYPE__ count, __SIZE_TYPE__ write_index,
                                                          read_index, value);
 }
 
+unsigned char private_bytes(loom::type::offset byte_length, unsigned char value) {
+  auto* bytes = loom::buffer::alloca<loom::memory_space::private_, 16>(byte_length);
+  bytes[0] = value;
+  return bytes[0];
+}
+
 // ----
 func.def public @private_records(%count: i64, %write_index: i64, %read_index: i64, %value_first: i32, %value_second: f32) -> (i32, f32) {
   %7, %8 = func.call @exchange___Pair_3_64(%count, %write_index, %read_index, %value_first, %value_second) : (i64, i64, i64, i32, f32) -> (i32, f32)
@@ -71,141 +78,167 @@ func.def public @generic_words(%count: i64, %write_index: i64, %read_index: i64,
   func.return %32 : i32
 }
 
-func.def @exchange___Pair_3_64(%count: i64, %write_index: i64, %read_index: i64, %value_first: i32, %value_second: f32) -> (i32, f32) {
-  %40 = index.cast %count : i64 to index
-  %41 = index.constant 8 : offset
-  %42 = index.scale %40, %41 : index, offset -> offset
-  %values = buffer.alloca<private> align(64) %42 : buffer
-  %values_byte_offset = index.constant 0 : offset
-  %45 = scalar.constant 8 : i64
-  %46 = scalar.muli %write_index, %45 : i64
-  %47 = index.cast %values_byte_offset : offset to i64
-  %48 = scalar.addi %47, %46 : i64
-  %49 = scalar.assume %48 [range(%48, 0, 9223372036854775807)] : i64
-  %50 = index.cast %49 : i64 to offset
-  %51 = index.constant 0 : offset
-  %52 = index.add %50, %51 : offset
-  %53 = buffer.view %values[%52] : buffer -> view<1xi32>
-  view.store %value_first, %53[0] : i32, view<1xi32>
-  %54 = index.constant 4 : offset
-  %55 = index.add %50, %54 : offset
-  %56 = buffer.view %values[%55] : buffer -> view<1xf32>
-  view.store %value_second, %56[0] : f32, view<1xf32>
-  %57 = scalar.constant 8 : i64
-  %58 = scalar.muli %read_index, %57 : i64
-  %59 = index.cast %values_byte_offset : offset to i64
-  %60 = scalar.addi %59, %58 : i64
-  %61 = scalar.assume %60 [range(%60, 0, 9223372036854775807)] : i64
-  %62 = index.cast %61 : i64 to offset
-  %63 = index.constant 0 : offset
-  %64 = index.add %62, %63 : offset
-  %65 = buffer.view %values[%64] : buffer -> view<1xi32>
-  %66 = view.load %65[0] : view<1xi32> -> i32
-  %67 = index.constant 4 : offset
-  %68 = index.add %62, %67 : offset
-  %69 = buffer.view %values[%68] : buffer -> view<1xf32>
-  %70 = view.load %69[0] : view<1xf32> -> f32
-  func.return %66, %70 : i32, f32
+func.def public @private_bytes(%byte_length: offset, %value: i8) -> (i8) {
+  %bytes = buffer.alloca<private> align(16) %byte_length : buffer
+  %bytes_byte_offset = index.constant 0 : offset
+  %38 = scalar.constant 0 : i32
+  %39 = scalar.extsi %38 : i32 to i64
+  %40 = scalar.constant 1 : i64
+  %41 = scalar.muli %39, %40 : i64
+  %42 = index.cast %bytes_byte_offset : offset to i64
+  %43 = scalar.addi %42, %41 : i64
+  %44 = scalar.assume %43 [range(%43, 0, 9223372036854775807)] : i64
+  %45 = index.cast %44 : i64 to offset
+  %46 = buffer.view %bytes[%45] : buffer -> view<1xi8>
+  view.store %value, %46[0] : i8, view<1xi8>
+  %47 = scalar.constant 0 : i32
+  %48 = scalar.extsi %47 : i32 to i64
+  %49 = scalar.constant 1 : i64
+  %50 = scalar.muli %48, %49 : i64
+  %51 = index.cast %bytes_byte_offset : offset to i64
+  %52 = scalar.addi %51, %50 : i64
+  %53 = scalar.assume %52 [range(%52, 0, 9223372036854775807)] : i64
+  %54 = index.cast %53 : i64 to offset
+  %55 = buffer.view %bytes[%54] : buffer -> view<1xi8>
+  %56 = view.load %55[0] : view<1xi8> -> i8
+  func.return %56 : i8
 }
 
-func.def @exchange_unsigned_int_1_4(%count: i64, %write_index: i64, %read_index: i64, %value: i32) -> (i32) {
-  %76 = index.cast %count : i64 to index
-  %77 = index.constant 4 : offset
-  %78 = index.scale %76, %77 : index, offset -> offset
-  %values = buffer.alloca<global> align(4) %78 : buffer
+func.def @exchange___Pair_3_64(%count: i64, %write_index: i64, %read_index: i64, %value_first: i32, %value_second: f32) -> (i32, f32) {
+  %64 = index.cast %count : i64 to index
+  %65 = index.constant 8 : offset
+  %66 = index.scale %64, %65 : index, offset -> offset
+  %values = buffer.alloca<private> align(64) %66 : buffer
   %values_byte_offset = index.constant 0 : offset
-  %81 = scalar.constant 4 : i64
-  %82 = scalar.muli %write_index, %81 : i64
+  %69 = scalar.constant 8 : i64
+  %70 = scalar.muli %write_index, %69 : i64
+  %71 = index.cast %values_byte_offset : offset to i64
+  %72 = scalar.addi %71, %70 : i64
+  %73 = scalar.assume %72 [range(%72, 0, 9223372036854775807)] : i64
+  %74 = index.cast %73 : i64 to offset
+  %75 = index.constant 0 : offset
+  %76 = index.add %74, %75 : offset
+  %77 = buffer.view %values[%76] : buffer -> view<1xi32>
+  view.store %value_first, %77[0] : i32, view<1xi32>
+  %78 = index.constant 4 : offset
+  %79 = index.add %74, %78 : offset
+  %80 = buffer.view %values[%79] : buffer -> view<1xf32>
+  view.store %value_second, %80[0] : f32, view<1xf32>
+  %81 = scalar.constant 8 : i64
+  %82 = scalar.muli %read_index, %81 : i64
   %83 = index.cast %values_byte_offset : offset to i64
   %84 = scalar.addi %83, %82 : i64
   %85 = scalar.assume %84 [range(%84, 0, 9223372036854775807)] : i64
   %86 = index.cast %85 : i64 to offset
-  %87 = buffer.view %values[%86] : buffer -> view<1xi32>
-  view.store %value, %87[0] : i32, view<1xi32>
-  %88 = scalar.constant 4 : i64
-  %89 = scalar.muli %read_index, %88 : i64
-  %90 = index.cast %values_byte_offset : offset to i64
-  %91 = scalar.addi %90, %89 : i64
-  %92 = scalar.assume %91 [range(%91, 0, 9223372036854775807)] : i64
-  %93 = index.cast %92 : i64 to offset
-  %94 = buffer.view %values[%93] : buffer -> view<1xi32>
-  %95 = view.load %94[0] : view<1xi32> -> i32
-  func.return %95 : i32
+  %87 = index.constant 0 : offset
+  %88 = index.add %86, %87 : offset
+  %89 = buffer.view %values[%88] : buffer -> view<1xi32>
+  %90 = view.load %89[0] : view<1xi32> -> i32
+  %91 = index.constant 4 : offset
+  %92 = index.add %86, %91 : offset
+  %93 = buffer.view %values[%92] : buffer -> view<1xf32>
+  %94 = view.load %93[0] : view<1xf32> -> f32
+  func.return %90, %94 : i32, f32
+}
+
+func.def @exchange_unsigned_int_1_4(%count: i64, %write_index: i64, %read_index: i64, %value: i32) -> (i32) {
+  %100 = index.cast %count : i64 to index
+  %101 = index.constant 4 : offset
+  %102 = index.scale %100, %101 : index, offset -> offset
+  %values = buffer.alloca<global> align(4) %102 : buffer
+  %values_byte_offset = index.constant 0 : offset
+  %105 = scalar.constant 4 : i64
+  %106 = scalar.muli %write_index, %105 : i64
+  %107 = index.cast %values_byte_offset : offset to i64
+  %108 = scalar.addi %107, %106 : i64
+  %109 = scalar.assume %108 [range(%108, 0, 9223372036854775807)] : i64
+  %110 = index.cast %109 : i64 to offset
+  %111 = buffer.view %values[%110] : buffer -> view<1xi32>
+  view.store %value, %111[0] : i32, view<1xi32>
+  %112 = scalar.constant 4 : i64
+  %113 = scalar.muli %read_index, %112 : i64
+  %114 = index.cast %values_byte_offset : offset to i64
+  %115 = scalar.addi %114, %113 : i64
+  %116 = scalar.assume %115 [range(%115, 0, 9223372036854775807)] : i64
+  %117 = index.cast %116 : i64 to offset
+  %118 = buffer.view %values[%117] : buffer -> view<1xi32>
+  %119 = view.load %118[0] : view<1xi32> -> i32
+  func.return %119 : i32
 }
 
 func.def @exchange_unsigned_int_2_4(%count: i64, %write_index: i64, %read_index: i64, %value: i32) -> (i32) {
-  %101 = index.cast %count : i64 to index
-  %102 = index.constant 4 : offset
-  %103 = index.scale %101, %102 : index, offset -> offset
-  %values = buffer.alloca<workgroup> align(4) %103 : buffer
+  %125 = index.cast %count : i64 to index
+  %126 = index.constant 4 : offset
+  %127 = index.scale %125, %126 : index, offset -> offset
+  %values = buffer.alloca<workgroup> align(4) %127 : buffer
   %values_byte_offset = index.constant 0 : offset
-  %106 = scalar.constant 4 : i64
-  %107 = scalar.muli %write_index, %106 : i64
-  %108 = index.cast %values_byte_offset : offset to i64
-  %109 = scalar.addi %108, %107 : i64
-  %110 = scalar.assume %109 [range(%109, 0, 9223372036854775807)] : i64
-  %111 = index.cast %110 : i64 to offset
-  %112 = buffer.view %values[%111] : buffer -> view<1xi32>
-  view.store %value, %112[0] : i32, view<1xi32>
-  %113 = scalar.constant 4 : i64
-  %114 = scalar.muli %read_index, %113 : i64
-  %115 = index.cast %values_byte_offset : offset to i64
-  %116 = scalar.addi %115, %114 : i64
-  %117 = scalar.assume %116 [range(%116, 0, 9223372036854775807)] : i64
-  %118 = index.cast %117 : i64 to offset
-  %119 = buffer.view %values[%118] : buffer -> view<1xi32>
-  %120 = view.load %119[0] : view<1xi32> -> i32
-  func.return %120 : i32
+  %130 = scalar.constant 4 : i64
+  %131 = scalar.muli %write_index, %130 : i64
+  %132 = index.cast %values_byte_offset : offset to i64
+  %133 = scalar.addi %132, %131 : i64
+  %134 = scalar.assume %133 [range(%133, 0, 9223372036854775807)] : i64
+  %135 = index.cast %134 : i64 to offset
+  %136 = buffer.view %values[%135] : buffer -> view<1xi32>
+  view.store %value, %136[0] : i32, view<1xi32>
+  %137 = scalar.constant 4 : i64
+  %138 = scalar.muli %read_index, %137 : i64
+  %139 = index.cast %values_byte_offset : offset to i64
+  %140 = scalar.addi %139, %138 : i64
+  %141 = scalar.assume %140 [range(%140, 0, 9223372036854775807)] : i64
+  %142 = index.cast %141 : i64 to offset
+  %143 = buffer.view %values[%142] : buffer -> view<1xi32>
+  %144 = view.load %143[0] : view<1xi32> -> i32
+  func.return %144 : i32
 }
 
 func.def @exchange_unsigned_int_5_4(%count: i64, %write_index: i64, %read_index: i64, %value: i32) -> (i32) {
-  %126 = index.cast %count : i64 to index
-  %127 = index.constant 4 : offset
-  %128 = index.scale %126, %127 : index, offset -> offset
-  %values = buffer.alloca<host> align(4) %128 : buffer
+  %150 = index.cast %count : i64 to index
+  %151 = index.constant 4 : offset
+  %152 = index.scale %150, %151 : index, offset -> offset
+  %values = buffer.alloca<host> align(4) %152 : buffer
   %values_byte_offset = index.constant 0 : offset
-  %131 = scalar.constant 4 : i64
-  %132 = scalar.muli %write_index, %131 : i64
-  %133 = index.cast %values_byte_offset : offset to i64
-  %134 = scalar.addi %133, %132 : i64
-  %135 = scalar.assume %134 [range(%134, 0, 9223372036854775807)] : i64
-  %136 = index.cast %135 : i64 to offset
-  %137 = buffer.view %values[%136] : buffer -> view<1xi32>
-  view.store %value, %137[0] : i32, view<1xi32>
-  %138 = scalar.constant 4 : i64
-  %139 = scalar.muli %read_index, %138 : i64
-  %140 = index.cast %values_byte_offset : offset to i64
-  %141 = scalar.addi %140, %139 : i64
-  %142 = scalar.assume %141 [range(%141, 0, 9223372036854775807)] : i64
-  %143 = index.cast %142 : i64 to offset
-  %144 = buffer.view %values[%143] : buffer -> view<1xi32>
-  %145 = view.load %144[0] : view<1xi32> -> i32
-  func.return %145 : i32
+  %155 = scalar.constant 4 : i64
+  %156 = scalar.muli %write_index, %155 : i64
+  %157 = index.cast %values_byte_offset : offset to i64
+  %158 = scalar.addi %157, %156 : i64
+  %159 = scalar.assume %158 [range(%158, 0, 9223372036854775807)] : i64
+  %160 = index.cast %159 : i64 to offset
+  %161 = buffer.view %values[%160] : buffer -> view<1xi32>
+  view.store %value, %161[0] : i32, view<1xi32>
+  %162 = scalar.constant 4 : i64
+  %163 = scalar.muli %read_index, %162 : i64
+  %164 = index.cast %values_byte_offset : offset to i64
+  %165 = scalar.addi %164, %163 : i64
+  %166 = scalar.assume %165 [range(%165, 0, 9223372036854775807)] : i64
+  %167 = index.cast %166 : i64 to offset
+  %168 = buffer.view %values[%167] : buffer -> view<1xi32>
+  %169 = view.load %168[0] : view<1xi32> -> i32
+  func.return %169 : i32
 }
 
 func.def @exchange_unsigned_int_7_4(%count: i64, %write_index: i64, %read_index: i64, %value: i32) -> (i32) {
-  %151 = index.cast %count : i64 to index
-  %152 = index.constant 4 : offset
-  %153 = index.scale %151, %152 : index, offset -> offset
-  %values = buffer.alloca<generic> align(4) %153 : buffer
+  %175 = index.cast %count : i64 to index
+  %176 = index.constant 4 : offset
+  %177 = index.scale %175, %176 : index, offset -> offset
+  %values = buffer.alloca<generic> align(4) %177 : buffer
   %values_byte_offset = index.constant 0 : offset
-  %156 = scalar.constant 4 : i64
-  %157 = scalar.muli %write_index, %156 : i64
-  %158 = index.cast %values_byte_offset : offset to i64
-  %159 = scalar.addi %158, %157 : i64
-  %160 = scalar.assume %159 [range(%159, 0, 9223372036854775807)] : i64
-  %161 = index.cast %160 : i64 to offset
-  %162 = buffer.view %values[%161] : buffer -> view<1xi32>
-  view.store %value, %162[0] : i32, view<1xi32>
-  %163 = scalar.constant 4 : i64
-  %164 = scalar.muli %read_index, %163 : i64
-  %165 = index.cast %values_byte_offset : offset to i64
-  %166 = scalar.addi %165, %164 : i64
-  %167 = scalar.assume %166 [range(%166, 0, 9223372036854775807)] : i64
-  %168 = index.cast %167 : i64 to offset
-  %169 = buffer.view %values[%168] : buffer -> view<1xi32>
-  %170 = view.load %169[0] : view<1xi32> -> i32
-  func.return %170 : i32
+  %180 = scalar.constant 4 : i64
+  %181 = scalar.muli %write_index, %180 : i64
+  %182 = index.cast %values_byte_offset : offset to i64
+  %183 = scalar.addi %182, %181 : i64
+  %184 = scalar.assume %183 [range(%183, 0, 9223372036854775807)] : i64
+  %185 = index.cast %184 : i64 to offset
+  %186 = buffer.view %values[%185] : buffer -> view<1xi32>
+  view.store %value, %186[0] : i32, view<1xi32>
+  %187 = scalar.constant 4 : i64
+  %188 = scalar.muli %read_index, %187 : i64
+  %189 = index.cast %values_byte_offset : offset to i64
+  %190 = scalar.addi %189, %188 : i64
+  %191 = scalar.assume %190 [range(%190, 0, 9223372036854775807)] : i64
+  %192 = index.cast %191 : i64 to offset
+  %193 = buffer.view %values[%192] : buffer -> view<1xi32>
+  %194 = view.load %193[0] : view<1xi32> -> i32
+  func.return %194 : i32
 }
 
 // ====
@@ -278,4 +311,22 @@ func.def public @view_private(%count: i64, %write_index: i64, %read_index: i64, 
   %14 = index.cast %read_index : i64 to index
   %15 = view.load %view[%14] : view<[%view_dim0]xf32, %layout> -> f32
   func.return %15 : f32
+}
+
+// ====
+// Native index counts remain in the address domain through allocation sizing.
+#include <loomcxx/buffer.h>
+#include <loomcxx/index.h>
+
+void allocate_words(loom::type::index count) {
+  loom::buffer::alloca<unsigned, loom::memory_space::private_>(count);
+}
+
+// ----
+func.def public @allocate_words(%count: index) {
+  %1 = index.constant 4 : offset
+  %2 = index.scale %count, %1 : index, offset -> offset
+  %3 = buffer.alloca<private> align(4) %2 : buffer
+  %4 = index.constant 0 : offset
+  func.return
 }

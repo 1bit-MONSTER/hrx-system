@@ -84,3 +84,23 @@ using Float4 = float __attribute__((ext_vector_type(4)));
 // ERROR@+1: LOWERING/059 "vector.slice offset requires an integer value"
 [[loom::op("vector.slice")]] Float4 invalid(Float4, float);
 Float4 call(Float4 source) { return invalid(source, 0.0f); }
+
+// ====
+#include <loomcxx/vector.h>
+using Float4 = float __attribute__((ext_vector_type(4)));
+// ERROR@+1: LOWERING/059 "vector absolute value element type does not match the operation category"
+Float4 invalid(Float4 value) { return loom::vector::absi(value); }
+
+// ====
+#include <loomcxx/vector.h>
+using Int4 = int __attribute__((ext_vector_type(4)));
+// ERROR@+1: LOWERING/059 "vector absolute value element type does not match the operation category"
+Int4 invalid(Int4 value) { return loom::vector::absf(value); }
+
+// ====
+#include <loomcxx/vector.h>
+using Int4 = int __attribute__((ext_vector_type(4)));
+// ERROR@+2: LOWERING/059 "floating vector extremum requires one floating-point vector type for its operands and result"
+Int4 invalid(Int4 left, Int4 right) {
+  return loom::vector::minnumf(left, right);
+}

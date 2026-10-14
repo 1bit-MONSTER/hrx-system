@@ -19,9 +19,10 @@
 
 namespace loom::cxx_import {
 
-// A typed dynamic allocation. The concrete specialization supplies its object
-// type, memory space and minimum alignment; the call supplies a size_t element
-// count. The result is the ordinary two-component source pointer projection.
+// An admitted buffer allocation or scoped pointer contract. Allocations retain
+// their logical or physical count domain, memory space, and minimum alignment.
+// Assumptions refine the buffer root while preserving the source pointer's byte
+// origin.
 class BufferIntrinsic {
  public:
   static bool supports(std::string_view name);
@@ -35,31 +36,54 @@ class BufferIntrinsic {
                                                 const cxx::Attribute& attribute,
                                                 cxx::AST* owner);
 
-  // Emits the physical extent and fresh root after the count has been
-  // evaluated using normal C++ argument rules.
+  // Emits the selected buffer operation after arguments have been evaluated
+  // using normal C++ rules.
   Value call(std::span<const Value> arguments, Storage& storage,
              cxx::AST* owner) const;
 
   bool equivalent(const BufferIntrinsic& other) const;
 
  private:
+  enum class Operation {
+    AllocaBytes,
+    AllocaElements,
+    AssumeAlignment,
+    AssumeNoalias,
+  };
+
   BufferIntrinsic(const cxx::Type* element_type,
                   const cxx::Type* element_count_type,
                   loom_value_fact_memory_space_t memory_space,
                   int64_t alignment)
-      : element_type_(element_type),
+      : operation_(Operation::AllocaElements),
+        element_type_(element_type),
         element_count_type_(element_count_type),
         memory_space_(memory_space),
         alignment_(alignment) {}
+  BufferIntrinsic(loom_value_fact_memory_space_t memory_space,
+                  int64_t alignment)
+      : operation_(Operation::AllocaBytes),
+        memory_space_(memory_space),
+        alignment_(alignment) {}
+  explicit BufferIntrinsic(const cxx::Type* element_type)
+      : operation_(Operation::AssumeNoalias), element_type_(element_type) {}
+  BufferIntrinsic(const cxx::Type* element_type, int64_t alignment)
+      : operation_(Operation::AssumeAlignment),
+        element_type_(element_type),
+        alignment_(alignment) {}
+
+  // Buffer operation selected by the source declaration.
+  Operation operation_;
 
   // Source object type named by T and by the result pointee.
-  const cxx::Type* element_type_;
-  // Canonical source size type accepted by the single runtime operand.
-  const cxx::Type* element_count_type_;
+  const cxx::Type* element_type_ = nullptr;
+  // Source size or native index type accepted by the runtime operand.
+  const cxx::Type* element_count_type_ = nullptr;
   // Allocatable High memory domain selected by the template.
-  loom_value_fact_memory_space_t memory_space_;
+  loom_value_fact_memory_space_t memory_space_ =
+      LOOM_VALUE_FACT_MEMORY_SPACE_UNKNOWN;
   // Positive power-of-two minimum byte alignment.
-  int64_t alignment_;
+  int64_t alignment_ = 0;
 };
 
 }  // namespace loom::cxx_import

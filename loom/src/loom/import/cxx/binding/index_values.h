@@ -102,17 +102,19 @@ class AddressIntrinsic {
     return operation_ == other.operation_ && predicate_ == other.predicate_ &&
            unsigned_source_ == other.unsigned_source_ &&
            source_domain_ == other.source_domain_ &&
+           loom_type_equal(result_type_, other.result_type_) &&
            result_partition_ == other.result_partition_;
   }
 
  private:
   AddressIntrinsic(Operation operation, loom_index_cmp_predicate_t predicate,
                    bool unsigned_source, loom_scalar_type_t source_domain,
-                   const Partition* result_partition)
+                   loom_type_t result_type, const Partition* result_partition)
       : operation_(operation),
         predicate_(predicate),
         unsigned_source_(unsigned_source),
         source_domain_(source_domain),
+        result_type_(result_type),
         result_partition_(result_partition) {}
 
   // Admitted address operation.
@@ -123,6 +125,8 @@ class AddressIntrinsic {
   bool unsigned_source_;
   // Native address input domain, or NONE for a fixed-width C++ integer.
   loom_scalar_type_t source_domain_;
+  // Exact IR result type retained from the admitted C++ signature.
+  loom_type_t result_type_;
   // Nominal C++ result partition, owned by Types or static scalar storage.
   const Partition* result_partition_;
 };

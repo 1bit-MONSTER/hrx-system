@@ -98,6 +98,12 @@ template <class Integer>
   requires(__is_integral(Integer) && !__is_same(Integer, bool))
 [[loom::op("index.cast")]] loom::type::index cast(Integer value);
 
+// Converts a logical coordinate to a fixed-width C++ integer. The explicit
+// result type records the source program's intended width and signedness.
+template <class Integer>
+  requires(__is_integral(Integer) && !__is_same(Integer, bool))
+[[loom::op("index.cast")]] Integer cast(loom::type::index value);
+
 // Converts a physical byte quantity to a logical coordinate. Target lowering
 // requires its numeric value to fit the selected index carrier.
 [[loom::op("index.cast")]] loom::type::index cast(loom::type::offset value);
@@ -146,6 +152,13 @@ namespace loom::offset {
 template <class Integer>
   requires(__is_integral(Integer) && !__is_same(Integer, bool))
 [[loom::op("index.cast")]] loom::type::offset cast(Integer value);
+
+// Converts a physical byte quantity to a fixed-width C++ integer. The
+// explicit result type records the source program's intended width and
+// signedness.
+template <class Integer>
+  requires(__is_integral(Integer) && !__is_same(Integer, bool))
+[[loom::op("index.cast")]] Integer cast(loom::type::offset value);
 
 // Converts a logical coordinate to a physical byte quantity. Target lowering
 // requires the coordinate to be nonnegative and representable by the selected

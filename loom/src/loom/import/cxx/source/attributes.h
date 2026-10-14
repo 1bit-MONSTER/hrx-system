@@ -53,9 +53,18 @@ enum class BindingAttributeScope {
   Local,
 };
 
-// Returns the raw leading attribute list carried by one statement kind.
+// Returns the raw leading attribute list carried by one statement or automatic
+// declaration. C++ represents a declaration statement's leading attributes on
+// its nested simple declaration.
 inline cxx::List<cxx::AttributeSpecifierAST*>* statement_attributes(
     cxx::StatementAST* statement) {
+  if (auto* declaration =
+          cxx::ast_cast<cxx::DeclarationStatementAST>(statement)) {
+    if (auto* simple = cxx::ast_cast<cxx::SimpleDeclarationAST>(
+            declaration->declaration)) {
+      return simple->attributeList;
+    }
+  }
   cxx::List<cxx::AttributeSpecifierAST*>* attributes = nullptr;
   cxx::visit(
       [&](auto* node) {

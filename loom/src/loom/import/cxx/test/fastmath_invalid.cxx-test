@@ -57,14 +57,6 @@ float conflict(float value) [[loom::fastmath("nnan")]];
 float conflict(float value) [[loom::fastmath("ninf")]] { return value; }
 
 // ====
-// Local declarations cannot own a lexical expression contract.
-float local(float value) {
-  // ERROR@+1: LOWERING/059 "fastmath requires a function declaration attribute or a leading statement attribute"
-  [[loom::fastmath("nnan")]] float copy = value;
-  return copy;
-}
-
-// ====
 // Intrinsic declarations own per-operation permissions in loom::op.
 // ERROR@+1: LOWERING/059 "fastmath requires a translated function body; intrinsic permissions belong in loom::op"
 [[loom::op("scalar.mulf"), loom::fastmath]]

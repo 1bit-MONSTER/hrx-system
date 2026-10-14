@@ -57,7 +57,7 @@ std::optional<ShapedIntrinsic::Operation> ShapedIntrinsic::admit(
     if (attribute.arguments.size() != 1) {
       diagnostics.reject(unit, owner, "vector slice has no semantic arguments");
     }
-    return Slice{std::nullopt};
+    return Slice{Slice::OffsetKind::Unresolved};
   }
   if (name == "vector.table.lookup") {
     if (attribute.arguments.size() != 1) {
@@ -65,6 +65,29 @@ std::optional<ShapedIntrinsic::Operation> ShapedIntrinsic::admit(
                          "register table lookup has no semantic arguments");
     }
     return TableLookup{};
+  }
+  if (name == "vector.absf" || name == "vector.absi") {
+    const bool floating = name == "vector.absf";
+    if (!floating && attribute.arguments.size() != 1) {
+      diagnostics.reject(unit, owner,
+                         "integer vector absolute value has no semantic "
+                         "arguments");
+    }
+    return Absolute{
+        floating ? Absolute::Kind::Float : Absolute::Kind::Integer,
+        floating ? math_permissions(unit, diagnostics, attribute, 1, owner)
+                 : uint8_t{0},
+    };
+  }
+  if (name == "vector.minimumf" || name == "vector.maximumf" ||
+      name == "vector.minnumf" || name == "vector.maxnumf") {
+    const FloatExtremum::Kind kind =
+        name == "vector.minimumf"   ? FloatExtremum::Kind::Minimum
+        : name == "vector.maximumf" ? FloatExtremum::Kind::Maximum
+        : name == "vector.minnumf"  ? FloatExtremum::Kind::MinNumber
+                                    : FloatExtremum::Kind::MaxNumber;
+    return FloatExtremum{
+        kind, math_permissions(unit, diagnostics, attribute, 1, owner)};
   }
   if (name == "vector.dot4i") {
     if (attribute.arguments.size() == 1) {
@@ -144,12 +167,62 @@ ShapedIntrinsic ShapedIntrinsic::resolve(Operation operation,
           "vector.slice result must preserve the element type and fit within "
           "the source");
     }
-    slice->offset_unsigned = require_integral(unit, diagnostics, types,
-                                              signature->parameterTypes()[1],
-                                              owner, "vector.slice offset");
+    const auto* offset_type = signature->parameterTypes()[1];
+    if (types.address_domain(offset_type, owner) == LOOM_SCALAR_TYPE_INDEX) {
+      slice->offset_kind = Slice::OffsetKind::Index;
+    } else {
+      slice->offset_kind =
+          require_integral(unit, diagnostics, types, offset_type, owner,
+                           "vector.slice offset")
+              ? Slice::OffsetKind::UnsignedInteger
+              : Slice::OffsetKind::SignedInteger;
+    }
     return ShapedIntrinsic(operation, types.get(result, owner));
   }
   bool lookup = std::holds_alternative<TableLookup>(operation);
+  if (auto* absolute = std::get_if<Absolute>(&operation)) {
+    if (signature->isVariadic() || signature->parameterTypes().size() != 1) {
+      diagnostics.reject(unit, owner,
+                         "vector absolute value requires one operand");
+    }
+    const auto* result = types.vector(signature->returnType());
+    const auto* input = types.vector(signature->parameterTypes()[0]);
+    if (!result || !input || result != input) {
+      diagnostics.reject(
+          unit, owner,
+          "vector absolute value requires one vector type for its operand "
+          "and result");
+    }
+    const auto* element = types.unqualified(result->elementType());
+    const bool category_matches =
+        absolute->kind == Absolute::Kind::Float
+            ? types.is_float(element)
+            : unit.typeTraits().is_integral(element) &&
+                  element->kind() != cxx::TypeKind::kBool;
+    if (!category_matches) {
+      diagnostics.reject(unit, owner,
+                         "vector absolute value element type does not match "
+                         "the operation category");
+    }
+    return ShapedIntrinsic(operation, types.get(result, owner));
+  }
+  if (std::holds_alternative<FloatExtremum>(operation)) {
+    if (signature->isVariadic() || signature->parameterTypes().size() != 2) {
+      diagnostics.reject(unit, owner,
+                         "floating vector extremum requires two operands");
+    }
+    const auto* result = types.vector(signature->returnType());
+    const auto* left = types.vector(signature->parameterTypes()[0]);
+    const auto* right = types.vector(signature->parameterTypes()[1]);
+    if (!result || result != left || result != right ||
+        !types.is_float(result->elementType())) {
+      diagnostics.reject(
+          unit, owner,
+          "floating vector extremum requires one floating-point vector type "
+          "for its operands and result");
+    }
+    return ShapedIntrinsic(operation, types.get(result, owner));
+  }
   bool reduction = std::holds_alternative<Reduction>(operation);
   bool scalar_result = reduction || std::holds_alternative<Dotf>(operation);
   size_t operand_count = lookup || reduction ? 2 : 3;
@@ -267,8 +340,13 @@ loom_value_id_t ShapedIntrinsic::call(std::span<const Value> arguments,
       [&](auto operation) {
         using T = decltype(operation);
         if constexpr (std::is_same_v<T, Slice>) {
-          const loom_value_id_t offset = cast_index(
-              arguments[1], *operation.offset_unsigned, builder, location);
+          const loom_value_id_t offset =
+              operation.offset_kind == Slice::OffsetKind::Index
+                  ? arguments[1].ssa()
+                  : cast_index(arguments[1],
+                               operation.offset_kind ==
+                                   Slice::OffsetKind::UnsignedInteger,
+                               builder, location);
           const int64_t static_offset = std::numeric_limits<int64_t>::min();
           return loom_vector_slice_build(builder, arguments[0].ssa(), &offset,
                                          1, &static_offset, 1, result_type_,
@@ -277,6 +355,25 @@ loom_value_id_t ShapedIntrinsic::call(std::span<const Value> arguments,
           return loom_vector_table_lookup_build(builder, arguments[0].ssa(),
                                                 arguments[1].ssa(),
                                                 result_type_, location, &op);
+        } else if constexpr (std::is_same_v<T, Absolute>) {
+          if (operation.kind == Absolute::Kind::Float) {
+            return loom_vector_absf_build(builder, operation.flags | math_flags,
+                                          arguments[0].ssa(), result_type_,
+                                          location, &op);
+          }
+          return loom_vector_absi_build(builder, arguments[0].ssa(),
+                                        result_type_, location, &op);
+        } else if constexpr (std::is_same_v<T, FloatExtremum>) {
+          auto build = operation.kind == FloatExtremum::Kind::Minimum
+                           ? loom_vector_minimumf_build
+                       : operation.kind == FloatExtremum::Kind::Maximum
+                           ? loom_vector_maximumf_build
+                       : operation.kind == FloatExtremum::Kind::MinNumber
+                           ? loom_vector_minnumf_build
+                           : loom_vector_maxnumf_build;
+          return build(builder, operation.flags | math_flags,
+                       arguments[0].ssa(), arguments[1].ssa(), result_type_,
+                       location, &op);
         } else if constexpr (std::is_same_v<T, Dot4i>) {
           return loom_vector_dot4i_build(
               builder, *operation.kind, arguments[0].ssa(), arguments[1].ssa(),

@@ -38,8 +38,10 @@ loom_type_t object_storage_type(loom_type_t value_type) {
 }  // namespace
 
 Pointer Storage::root(loom_value_id_t buffer, cxx::AST* owner) {
-  return {buffer,
-          scalars_.integer(0, LOOM_SCALAR_TYPE_OFFSET, locations_.get(owner))};
+  auto byte_offset =
+      scalars_.integer(0, LOOM_SCALAR_TYPE_OFFSET, locations_.get(owner));
+  zero_origin_offsets_.insert(byte_offset);
+  return {buffer, byte_offset};
 }
 
 Pointer Storage::constrain_origin(Pointer pointer, cxx::AST* owner) {
@@ -58,7 +60,11 @@ Pointer Storage::constrain_origin(Pointer pointer, cxx::AST* owner) {
   loom_op_t* op;
   check(loom_index_assume_build(&builder_, &pointer.byte_offset, 1, &range, 1,
                                 &offset_type, 1, source, &op));
-  return {pointer.root, loom_op_results(op)[0]};
+  auto byte_offset = loom_op_results(op)[0];
+  if (zero_origin_offsets_.contains(pointer.byte_offset)) {
+    zero_origin_offsets_.insert(byte_offset);
+  }
+  return {pointer.root, byte_offset};
 }
 
 Pointer Storage::constrain_access(Pointer pointer, int64_t access_bytes,
@@ -81,7 +87,11 @@ Pointer Storage::constrain_access(Pointer pointer, int64_t access_bytes,
   loom_op_t* op;
   check(loom_index_assume_build(&builder_, &pointer.byte_offset, 1, &range, 1,
                                 &offset_type, 1, source, &op));
-  return {pointer.root, loom_op_results(op)[0]};
+  auto byte_offset = loom_op_results(op)[0];
+  if (zero_origin_offsets_.contains(pointer.byte_offset)) {
+    zero_origin_offsets_.insert(byte_offset);
+  }
+  return {pointer.root, byte_offset};
 }
 
 StorageProjection Storage::project(Pointer pointer,
@@ -301,6 +311,7 @@ StorageAllocation Storage::allocate(const cxx::Type* type,
   auto root = loom_op_results(op)[0];
   auto base =
       scalars_.integer(0, LOOM_SCALAR_TYPE_OFFSET, locations_.get(owner));
+  zero_origin_offsets_.insert(base);
   auto* array = cxx::type_cast<cxx::BoundedArrayType>(types_.unqualified(type));
   auto* view_source_type = array ? array->elementType() : type;
   auto source_kind = types_.unqualified(view_source_type)->kind();
@@ -353,14 +364,18 @@ Pointer Storage::allocate_elements(const cxx::Type* element_type,
   }
 
   auto source = locations_.get(owner);
-  auto wide_count =
-      scalars_.convert(element_count, element_count_type,
-                       unit_.control()->getUnsignedLongLongIntType(), owner);
   loom_op_t* op;
-  check(loom_index_cast_build(
-      &builder_, wide_count, loom_type_scalar(LOOM_SCALAR_TYPE_I64),
-      loom_type_scalar(LOOM_SCALAR_TYPE_INDEX), source, &op));
-  auto count = loom_op_results(op)[0];
+  auto count = element_count;
+  if (types_.address_domain(element_count_type, owner) !=
+      LOOM_SCALAR_TYPE_INDEX) {
+    auto wide_count =
+        scalars_.convert(element_count, element_count_type,
+                         unit_.control()->getUnsignedLongLongIntType(), owner);
+    check(loom_index_cast_build(
+        &builder_, wide_count, loom_type_scalar(LOOM_SCALAR_TYPE_I64),
+        loom_type_scalar(LOOM_SCALAR_TYPE_INDEX), source, &op));
+    count = loom_op_results(op)[0];
+  }
   auto stride =
       scalars_.integer(element_bytes, LOOM_SCALAR_TYPE_OFFSET, source);
   check(loom_index_scale_build(&builder_, count, stride,
@@ -373,7 +388,55 @@ Pointer Storage::allocate_elements(const cxx::Type* element_type,
       loom_type_buffer(), source, &op));
   auto root = loom_op_results(op)[0];
   auto base = scalars_.integer(0, LOOM_SCALAR_TYPE_OFFSET, source);
+  zero_origin_offsets_.insert(base);
   return {root, base};
+}
+
+Pointer Storage::allocate_bytes(loom_value_id_t byte_length,
+                                loom_value_fact_memory_space_t memory_space,
+                                int64_t alignment, cxx::AST* owner) {
+  auto source = locations_.get(owner);
+  loom_op_t* op;
+  check(loom_buffer_alloca_build(&builder_, /*build_flags=*/0, memory_space,
+                                 LOOM_VALUE_ID_INVALID, alignment, byte_length,
+                                 loom_type_buffer(), source, &op));
+  auto root = loom_op_results(op)[0];
+  auto base = scalars_.integer(0, LOOM_SCALAR_TYPE_OFFSET, source);
+  zero_origin_offsets_.insert(base);
+  return {root, base};
+}
+
+Pointer Storage::assume_noalias(Pointer pointer, cxx::AST* owner) {
+  auto type = loom_type_buffer();
+  loom_op_t* op;
+  check(loom_buffer_assume_noalias_build(&builder_, &pointer.root, 1, &type, 1,
+                                         locations_.get(owner), &op));
+  auto root = loom_op_results(op)[0];
+  if (auto allocation = allocations_.find(pointer.root);
+      allocation != allocations_.end()) {
+    allocations_.emplace(root, allocation->second);
+  }
+  return {root, pointer.byte_offset};
+}
+
+Pointer Storage::assume_alignment(Pointer pointer, int64_t minimum_alignment,
+                                  cxx::AST* owner) {
+  if (!zero_origin_offsets_.contains(pointer.byte_offset)) {
+    diagnostics_.reject(
+        unit_, owner,
+        "buffer alignment assumption requires a zero-origin pointer");
+  }
+  auto type = loom_type_buffer();
+  loom_op_t* op;
+  check(loom_buffer_assume_alignment_build(&builder_, &pointer.root, 1,
+                                           minimum_alignment, &type, 1,
+                                           locations_.get(owner), &op));
+  auto root = loom_op_results(op)[0];
+  if (auto allocation = allocations_.find(pointer.root);
+      allocation != allocations_.end()) {
+    allocations_.emplace(root, allocation->second);
+  }
+  return {root, pointer.byte_offset};
 }
 
 }  // namespace loom::cxx_import

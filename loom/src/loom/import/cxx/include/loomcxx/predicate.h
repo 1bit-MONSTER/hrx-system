@@ -12,34 +12,36 @@
 // implementation. The helper names match Loom's textual predicate vocabulary.
 namespace loom::predicate {
 
-template <class T>
-[[loom::predicate("eq")]] bool eq(const T& left, const T& right);
-template <class T>
-[[loom::predicate("ne")]] bool ne(const T& left, const T& right);
-template <class T>
-[[loom::predicate("lt")]] bool lt(const T& left, const T& right);
-template <class T>
-[[loom::predicate("le")]] bool le(const T& left, const T& right);
-template <class T>
-[[loom::predicate("gt")]] bool gt(const T& left, const T& right);
-template <class T>
-[[loom::predicate("ge")]] bool ge(const T& left, const T& right);
-template <class T>
-[[loom::predicate("ult")]] bool ult(const T& left, const T& right);
-template <class T>
-[[loom::predicate("ule")]] bool ule(const T& left, const T& right);
-template <class T>
-[[loom::predicate("ugt")]] bool ugt(const T& left, const T& right);
-template <class T>
-[[loom::predicate("uge")]] bool uge(const T& left, const T& right);
-template <class T>
+// The first operand selects the predicate carrier. Later retained values use
+// that same type, while pure constants may keep their ordinary literal types.
+template <class T, class U>
+[[loom::predicate("eq")]] bool eq(const T& left, const U& right);
+template <class T, class U>
+[[loom::predicate("ne")]] bool ne(const T& left, const U& right);
+template <class T, class U>
+[[loom::predicate("lt")]] bool lt(const T& left, const U& right);
+template <class T, class U>
+[[loom::predicate("le")]] bool le(const T& left, const U& right);
+template <class T, class U>
+[[loom::predicate("gt")]] bool gt(const T& left, const U& right);
+template <class T, class U>
+[[loom::predicate("ge")]] bool ge(const T& left, const U& right);
+template <class T, class U>
+[[loom::predicate("ult")]] bool ult(const T& left, const U& right);
+template <class T, class U>
+[[loom::predicate("ule")]] bool ule(const T& left, const U& right);
+template <class T, class U>
+[[loom::predicate("ugt")]] bool ugt(const T& left, const U& right);
+template <class T, class U>
+[[loom::predicate("uge")]] bool uge(const T& left, const U& right);
+template <class T, class U>
 [[loom::predicate("multiple_of")]] bool multiple_of(const T& value,
-                                                    const T& divisor);
+                                                    const U& divisor);
 template <class T>
 [[loom::predicate("power_of_two")]] bool power_of_two(const T& value);
-template <class T>
-[[loom::predicate("range")]] bool range(const T& value, const T& lower,
-                                        const T& upper);
+template <class T, class Lower, class Upper>
+[[loom::predicate("range")]] bool range(const T& value, const Lower& lower,
+                                        const Upper& upper);
 template <class T>
 [[loom::predicate("not_nan")]] bool not_nan(const T& value);
 template <class T>

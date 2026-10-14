@@ -256,21 +256,33 @@ std::optional<AddressIntrinsic> AddressIntrinsic::resolve(
   }
 
   const auto& result = types.partition(signature->returnType(), owner);
+  auto result_type = *operation == Operation::Cast
+                         ? types.get(signature->returnType(), owner)
+                         : loom_type_none();
   auto result_domain = domain(signature->returnType());
   bool unsigned_source = false;
   loom_scalar_type_t source_domain = LOOM_SCALAR_TYPE_NONE;
   if (*operation == Operation::Cast) {
     require_count(1);
-    if (result_domain != LOOM_SCALAR_TYPE_INDEX &&
-        result_domain != LOOM_SCALAR_TYPE_OFFSET) {
-      diagnostics.reject(unit, owner,
-                         "index.cast must return an address-domain value");
-    }
     source_domain = domain(parameters[0]);
-    unsigned_source = source_domain == LOOM_SCALAR_TYPE_OFFSET;
-    if (source_domain == LOOM_SCALAR_TYPE_NONE) {
+    bool result_is_address = result_domain == LOOM_SCALAR_TYPE_INDEX ||
+                             result_domain == LOOM_SCALAR_TYPE_OFFSET;
+    bool source_is_address = source_domain == LOOM_SCALAR_TYPE_INDEX ||
+                             source_domain == LOOM_SCALAR_TYPE_OFFSET;
+    if (!result_is_address) {
+      require_integral(unit, diagnostics, types, signature->returnType(), owner,
+                       "index.cast result");
+      if (!source_is_address) {
+        diagnostics.reject(
+            unit, owner,
+            "index.cast requires an address source or result domain");
+      }
+    } else if (!source_is_address) {
       unsigned_source = require_integral(unit, diagnostics, types,
                                          parameters[0], owner, "index.cast");
+    }
+    if (source_is_address) {
+      unsigned_source = source_domain == LOOM_SCALAR_TYPE_OFFSET;
     }
   } else if (*operation == Operation::Compare) {
     require_count(2);
@@ -330,7 +342,7 @@ std::optional<AddressIntrinsic> AddressIntrinsic::resolve(
     require_domain(signature->returnType(), LOOM_SCALAR_TYPE_INDEX);
   }
   return AddressIntrinsic(*operation, predicate, unsigned_source, source_domain,
-                          &result);
+                          result_type, &result);
 }
 
 Value AddressIntrinsic::call(std::span<const Value> arguments,
@@ -340,14 +352,11 @@ Value AddressIntrinsic::call(std::span<const Value> arguments,
   if (operation_ == Operation::Cast) {
     auto input = arguments[0].ssa();
     auto input_type = loom_module_value_type(builder->module, input);
-    auto result_domain =
-        static_cast<const AddressPartition*>(result_partition_)->element_type;
-    auto output_type = loom_type_scalar(result_domain);
-    if (loom_type_equal(input_type, output_type)) {
+    if (loom_type_equal(input_type, result_type_)) {
       return arena.capture(*result_partition_, {&input, 1});
     }
     auto i64_type = loom_type_scalar(LOOM_SCALAR_TYPE_I64);
-    if (result_domain == LOOM_SCALAR_TYPE_INDEX &&
+    if (loom_type_element_type(result_type_) == LOOM_SCALAR_TYPE_INDEX &&
         source_domain_ == LOOM_SCALAR_TYPE_NONE && unsigned_source_ &&
         !loom_type_equal(input_type, i64_type)) {
       check(loom_scalar_extui_build(builder, input, input_type, i64_type,
@@ -355,9 +364,12 @@ Value AddressIntrinsic::call(std::span<const Value> arguments,
       input = loom_op_results(op)[0];
       input_type = i64_type;
     }
-    check(loom_index_cast_build(builder, input, input_type, output_type,
+    check(loom_index_cast_build(builder, input, input_type, result_type_,
                                 location, &op));
-    return arena.capture(*result_partition_, {loom_op_results(op), 1});
+    auto result = loom_op_results(op)[0];
+    return result_partition_->kind == ValueKind::Address
+               ? arena.capture(*result_partition_, {&result, 1})
+               : Value(result);
   }
 
   std::array<loom_value_id_t, 3> operands = {};

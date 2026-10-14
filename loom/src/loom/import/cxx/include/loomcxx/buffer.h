@@ -11,6 +11,9 @@ namespace loom {
 
 namespace type {
 
+class index;
+class offset;
+
 // A borrowed, zero-origin buffer root with source-visible element type T.
 // Unlike T*, this is one Loom buffer value and has no independent byte offset.
 // Form a typed view before accessing its storage.
@@ -49,6 +52,29 @@ namespace buffer {
 template <class T, loom::memory_space Space,
           __SIZE_TYPE__ Alignment = alignof(T)>
 [[loom::op("buffer.alloca")]] T* alloca(__SIZE_TYPE__ element_count);
+
+// Retains a native logical element count without exposing its target-selected
+// carrier through source code.
+template <class T, loom::memory_space Space,
+          __SIZE_TYPE__ Alignment = alignof(T)>
+[[loom::op("buffer.alloca")]] T* alloca(loom::type::index element_count);
+
+// Allocates an exact physical byte extent. This form preserves a byte count
+// already computed in Loom's offset domain instead of reinterpreting it as a
+// logical element count.
+template <loom::memory_space Space, __SIZE_TYPE__ Alignment = 1>
+[[loom::op("buffer.alloca")]] unsigned char* alloca(
+    loom::type::offset byte_length);
+
+// Promises that source identifies an independently comparable storage root in
+// the current scope while preserving its exact pointer origin.
+template <class T>
+[[loom::op("buffer.assume.noalias")]] T* assume_noalias(T* source);
+
+// Promises that source names the zero-origin buffer root with at least
+// Alignment-byte alignment in the current scope.
+template <__SIZE_TYPE__ Alignment, class T>
+[[loom::op("buffer.assume.alignment")]] T* assume_alignment(T* source);
 
 }  // namespace buffer
 }  // namespace loom
