@@ -244,3 +244,20 @@ ORDINARY_VECTOR_INTEGER_INSTRUCTIONS = (
     *UNSIGNED_ORDINARY_VECTOR_INTEGER_COMPARE_INSTRUCTIONS,
     *ORDINARY_VECTOR_BOOLEAN_BINARY_INSTRUCTIONS,
 )
+
+# Population counts retain the input width and shape, including scalar inputs.
+INTEGER_BIT_COUNT_INSTRUCTIONS = tuple(
+    OrdinaryVectorInstruction(
+        key=f"spirv.op_bit_count.{value_type.suffix}",
+        mnemonic=f"OpBitCount.{value_type.suffix}",
+        opcode="LOOM_SPIRV_OP_BIT_COUNT",
+        packet_form="LOOM_SPIRV_PACKET_FORM_UNARY_TYPED",
+        result_type=value_type,
+        operand_names=("input",),
+        operand_types=(value_type,),
+    )
+    for value_type in (
+        *SIGNED_INTEGER_ORDINARY_VECTOR_COMPONENT_TYPES,
+        *(pair.signed for pair in ORDINARY_VECTOR_INTEGER_TYPE_PAIRS),
+    )
+)

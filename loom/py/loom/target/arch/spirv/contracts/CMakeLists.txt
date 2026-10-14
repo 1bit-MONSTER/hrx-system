@@ -22,6 +22,7 @@ iree_py_library(
     "float8.py"
     "float_width.py"
     "index.py"
+    "integer_bits.py"
     "logical_core.py"
     "memory.py"
     "ordinary_vector.py"
@@ -136,6 +137,7 @@ iree_py_test(
     "float_narrowing_test.py"
     "float_payload_test.py"
     "index_test.py"
+    "integer_bits_test.py"
     "../../../../tools/pytest_style_runner.py"
   ARGS
     "loom.target.arch.spirv.contracts.comparison_test"
@@ -143,6 +145,7 @@ iree_py_test(
     "loom.target.arch.spirv.contracts.float_narrowing_test"
     "loom.target.arch.spirv.contracts.float_payload_test"
     "loom.target.arch.spirv.contracts.index_test"
+    "loom.target.arch.spirv.contracts.integer_bits_test"
   DEPS
     loom::py::loom::target::arch::spirv::contracts::contracts
     loom::py::loom::target::arch::spirv::descriptors

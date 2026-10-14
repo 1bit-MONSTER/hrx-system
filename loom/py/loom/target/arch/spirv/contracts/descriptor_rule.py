@@ -37,7 +37,7 @@ class IntegerRecipe:
             f"i{integer_width}" if lanes == 1 else f"v{lanes}i{integer_width}"
         )
         self.emits: list[EmitDescriptorOp] = []
-        self.constants: dict[int, ValueRef] = {}
+        self.constants: dict[tuple[int, int], ValueRef] = {}
 
     def emit(
         self,
@@ -65,13 +65,15 @@ class IntegerRecipe:
         )
         return result
 
-    def constant(self, value: int) -> ValueRef:
-        if value not in self.constants:
-            modulus = 1 << self.integer_width
+    def constant(self, value: int, *, bit_width: int | None = None) -> ValueRef:
+        bit_width = self.integer_width if bit_width is None else bit_width
+        key = (bit_width, value)
+        if key not in self.constants:
+            modulus = 1 << bit_width
             encoded = value & (modulus - 1)
             if encoded >= modulus // 2:
                 encoded -= modulus
-            scalar_suffix = f"i{self.integer_width}"
+            scalar_suffix = f"i{bit_width}"
             literal = self.emit(
                 f"constant.{scalar_suffix}",
                 {},
@@ -80,11 +82,11 @@ class IntegerRecipe:
             )
             if self.lanes != 1:
                 literal = self.emit(
-                    f"composite_construct.{self.integer_suffix}",
+                    f"composite_construct.v{self.lanes}{scalar_suffix}",
                     {f"component{lane}": literal for lane in range(self.lanes)},
                 )
-            self.constants[value] = literal
-        return self.constants[value]
+            self.constants[key] = literal
+        return self.constants[key]
 
     def binary(self, operation: str, lhs: ValueRef, rhs: ValueRef) -> ValueRef:
         return self.emit(f"{operation}.{self.integer_suffix}", {"lhs": lhs, "rhs": rhs})

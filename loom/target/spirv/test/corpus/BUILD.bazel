@@ -493,8 +493,6 @@ _SPIRV_EXECUTION_XFAILS = {
     "numeric/float/turns.loom:@turn_values": "LOWERING/036",
     "numeric/integer/arithmetic.loom:@integer_arithmetic_i32_values": "TARGET/001",
     "numeric/integer/arithmetic.loom:@integer_arithmetic_i64_values": "TARGET/001",
-    "numeric/integer/bit_count.loom:@bit_counts_i16_all_bits": "TARGET/001",
-    "numeric/integer/bit_count.loom:@bit_counts_i8_all_bits": "TARGET/001",
     "numeric/integer/bitfield.loom:@bitfield_values": "TARGET/003",
     "numeric/integer/wide/address_comparison.loom:@mixed_width_index_comparison_values": "SPIRV/026",
     "numeric/integer/wide/observations.loom:@wide_dynamic_lane_values": "TARGET/004",

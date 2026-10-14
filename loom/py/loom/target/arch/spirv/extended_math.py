@@ -21,14 +21,14 @@ from loom.target.arch.spirv.ordinary_vector import (
 
 @dataclass(frozen=True, slots=True)
 class ExtendedMathOperation:
-    """One source math operation and its GLSL.std.450 instruction."""
+    """One math primitive and its GLSL.std.450 instruction."""
 
     source_op_key: str
     operand_names: tuple[str, ...]
     instruction_name: str
     instruction_c_enum: str
     required_fastmath_flags: tuple[str, ...] = ()
-    # Element formats admitted by this GLSL instruction, not all float formats.
+    # Element formats admitted by this GLSL instruction.
     source_types: tuple[str, ...] = ("f32",)
     # Whether exact selection depends on the operand width's denormal mode.
     preserve_denormals: bool = False
@@ -142,12 +142,23 @@ ROUNDING_MATH_OPERATIONS = tuple(
     )
 )
 
+INTEGER_MATH_OPERATIONS = (
+    ExtendedMathOperation(
+        source_op_key="find_umsb",
+        operand_names=("input",),
+        instruction_name="FindUMsb",
+        instruction_c_enum="LOOM_SPIRV_GLSL_STD_450_FIND_UMSB",
+        source_types=("i32",),
+    ),
+)
+
 EXTENDED_MATH_INSTRUCTIONS = tuple(
     ExtendedMathInstruction(operation=operation, value_type=value_type)
     for operation in (
         *EXTENDED_MATH_OPERATIONS,
         *EXTREMA_MATH_OPERATIONS,
         *ROUNDING_MATH_OPERATIONS,
+        *INTEGER_MATH_OPERATIONS,
     )
     for value_type in (*ORDINARY_VECTOR_COMPONENT_TYPES, *ORDINARY_VECTOR_TYPES)
     if (

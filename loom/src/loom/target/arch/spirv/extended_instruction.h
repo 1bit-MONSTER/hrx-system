@@ -34,6 +34,7 @@ typedef enum loom_spirv_glsl_std_450_instruction_e {
   LOOM_SPIRV_GLSL_STD_450_LOG = 28,
   LOOM_SPIRV_GLSL_STD_450_EXP2 = 29,
   LOOM_SPIRV_GLSL_STD_450_LOG2 = 30,
+  LOOM_SPIRV_GLSL_STD_450_FIND_UMSB = 75,
   LOOM_SPIRV_GLSL_STD_450_NMIN = 79,
   LOOM_SPIRV_GLSL_STD_450_NMAX = 80,
 } loom_spirv_glsl_std_450_instruction_t;

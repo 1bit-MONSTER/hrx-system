@@ -73,6 +73,7 @@ from loom.target.arch.spirv.ordinary_vector_float import (
     ORDINARY_VECTOR_FLOAT_SCALE_INSTRUCTIONS,
 )
 from loom.target.arch.spirv.ordinary_vector_integer import (
+    INTEGER_BIT_COUNT_INSTRUCTIONS,
     ORDINARY_VECTOR_INTEGER_INSTRUCTIONS,
 )
 from loom.target.arch.spirv.scalar_alu import (
@@ -1986,13 +1987,7 @@ SPIRV_LOGICAL_CORE_DESCRIPTOR_SET = DescriptorSet(
             ),
             result_value_type=None,
         ),
-        _unary_typed_descriptor(
-            key="spirv.op_bit_count.i32",
-            mnemonic="OpBitCount",
-            semantic_tag="spirv.op_bit_count.i32",
-            operands=(_id_result(), _id_operand("input")),
-            result_value_type=_scalar_result_value_type("i32"),
-        ),
+        *(_ordinary_vector_descriptor(row) for row in INTEGER_BIT_COUNT_INSTRUCTIONS),
         *_address_conversion_descriptors(),
         *_builtin_index_descriptors(),
         *_builtin_scalar_index_descriptors(),

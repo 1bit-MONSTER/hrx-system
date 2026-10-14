@@ -47,6 +47,7 @@ from loom.target.arch.spirv.ordinary_vector_float import (
     ORDINARY_VECTOR_FLOAT_SCALE_INSTRUCTIONS,
 )
 from loom.target.arch.spirv.ordinary_vector_integer import (
+    INTEGER_BIT_COUNT_INSTRUCTIONS,
     ORDINARY_VECTOR_INTEGER_INSTRUCTIONS,
 )
 from loom.target.arch.spirv.scalar_alu import (
@@ -357,6 +358,7 @@ def test_result_asm_recipes_cover_every_spirv_descriptor_family() -> None:
         *ORDINARY_VECTOR_FLOAT_SCALE_INSTRUCTIONS,
         *ORDINARY_VECTOR_FLOAT_COMPARE_INSTRUCTIONS,
         *ORDINARY_VECTOR_INTEGER_INSTRUCTIONS,
+        *INTEGER_BIT_COUNT_INSTRUCTIONS,
         *ORDINARY_VECTOR_CONVERSION_INSTRUCTIONS,
         *ORDINARY_VECTOR_BIT_LAYOUT_INSTRUCTIONS,
         *SPIRV_SUBGROUP_BALLOT_PACKING_INSTRUCTIONS,
@@ -396,7 +398,6 @@ def test_result_asm_recipes_cover_every_spirv_descriptor_family() -> None:
 
     add_scalar_recipe("spirv.op_copy_object.i32", "i32")
     add_scalar_recipe("spirv.op_imul_add.i32", "i32")
-    add_scalar_recipe("spirv.op_bit_count.i32", "i32")
     for opcode in ("iadd", "isub", "imul"):
         add_carrier_only(f"spirv.op_{opcode}.offset64")
 
