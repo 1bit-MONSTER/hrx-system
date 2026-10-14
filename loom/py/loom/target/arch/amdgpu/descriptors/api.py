@@ -58,7 +58,11 @@ from .rdna4m import (
 )
 from .sets import *
 from .tensor import _gfx125x_tensor_descriptors
-from .timing import _with_lds_service_timing, _with_valu_sgpr_timing
+from .timing import (
+    _with_lds_service_timing,
+    _with_state_read_before_clobber_timing,
+    _with_valu_sgpr_timing,
+)
 
 
 def _descriptor_has_memory_effect(descriptor: Descriptor) -> bool:
@@ -1611,6 +1615,7 @@ def _build_amdgpu_core_descriptor_set_from_spec(
         descriptor_set = _with_lds_service_timing(
             descriptor_set, builder.lds_bits_per_lane_per_cycle
         )
+    descriptor_set = _with_state_read_before_clobber_timing(descriptor_set)
     # Execution pipelines overlap, but a wave issues one encoded instruction
     # at a time. A VOPD packet still occupies one instruction issue slot.
     descriptor_set = replace(

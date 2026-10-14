@@ -559,9 +559,15 @@ void loom_low_schedule_pressure_compute_node_priorities(
         has_effect_consumer |=
             dependency->kind == LOOM_LOW_SCHEDULE_DEPENDENCY_EFFECT;
         if (state->node_critical_path_cycles != NULL) {
-          successor_path_cycles = iree_max(
-              successor_path_cycles,
+          const uint32_t issue_separation_cycles =
+              dependency->minimum_issue_separation_cycles > 0
+                  ? (uint32_t)dependency->minimum_issue_separation_cycles
+                  : 0;
+          const uint32_t dependency_path_cycles = iree_math_saturating_add_u32(
+              issue_separation_cycles,
               state->node_critical_path_cycles[dependency->consumer_node]);
+          successor_path_cycles =
+              iree_max(successor_path_cycles, dependency_path_cycles);
         }
         if (state->node_pressure_demand_units != NULL &&
             state->node_pressure_activation_units != NULL &&
@@ -738,7 +744,7 @@ void loom_low_schedule_pressure_compute_node_priorities(
           loom_low_schedule_class_schedule_distance_cycles(
               node->schedule_class);
       state->node_critical_path_cycles[node_index] =
-          iree_math_saturating_add_u32(latency_cycles, successor_path_cycles);
+          iree_max((uint32_t)latency_cycles, successor_path_cycles);
     }
     if (state->node_opened_completion_latency_cycles != NULL &&
         has_effect_consumer) {

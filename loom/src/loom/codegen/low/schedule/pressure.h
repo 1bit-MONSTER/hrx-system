@@ -259,7 +259,7 @@ typedef struct loom_low_schedule_candidate_score_t {
   uint32_t killed_live_value_count;
   // Register result values made live by the candidate.
   uint32_t produced_live_value_count;
-  // Longest same-block latency path starting at the candidate.
+  // Longest same-block issue-separation path starting at the candidate.
   uint32_t critical_path_cycles;
   // Downstream visible register demand reached through structural nodes.
   uint32_t pressure_demand_units;
