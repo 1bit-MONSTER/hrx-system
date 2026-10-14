@@ -15,6 +15,7 @@ state.
 | SDMA global timestamp | GET_GLOBAL writes a raw timestamp. PAL orders preceding transfer work before its timestamp operation; host visibility and command storage lifetime remain separate obligations. |
 | AQL-carried CP timestamp | A native vendor IB executes a clock copy, with explicit virtual-XCC selection where needed and a native carrier completion. |
 | AQL dispatch profiling | A profiling-enabled queue captures start/end in the dispatch's native completion signal. That storage remains owned until the result is read. |
+| [Firmware dispatch logs](profiling/dispatch-log.md) | A vendor KFD service exposes per-process compute dispatch records in native overwrite rings, with source-specific clock, identity and collection rules. |
 | Shader cycle counter | A wave samples core cycles through the target's scalar-memory, shader-register or dedicated counter instruction. Width and SIMD epoch determine which samples can be compared. |
 | Shader realtime counter | A wave samples a fixed-frequency clock through S_MEMREALTIME or a returned REALTIME message. The result's readiness, frequency and correlation remain separate contracts. |
 | Programmable counters | A collection observes a specified event across selected hardware instances and a defined counting interval. |
