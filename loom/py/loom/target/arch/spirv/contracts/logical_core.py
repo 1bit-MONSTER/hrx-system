@@ -87,6 +87,9 @@ from loom.target.arch.spirv.contracts.memory import (
     storage_buffer_alignment_diagnostic as _storage_buffer_alignment_diagnostic,
 )
 from loom.target.arch.spirv.contracts.memory import (
+    storage_buffer_memory_spaces as _storage_buffer_memory_spaces,
+)
+from loom.target.arch.spirv.contracts.memory import (
     storage_buffer_source_memory as _storage_buffer_source_memory,
 )
 from loom.target.arch.spirv.contracts.memory import (
@@ -889,7 +892,7 @@ def _cooperative_matrix_memory(
         operation=operation,
         root_kind=SourceMemoryRootKind.ANY,
         address_layout=SourceMemoryAddressLayout.COMPACT_ROW_MAJOR,
-        memory_spaces=_STORAGE_BUFFER_MEMORY_SPACES,
+        memory_spaces=_storage_buffer_memory_spaces(operation),
         element_byte_count=element_byte_width,
         vector_lane_count=1,
         vector_lane_byte_stride=element_byte_width,

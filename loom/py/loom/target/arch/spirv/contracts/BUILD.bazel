@@ -122,6 +122,7 @@ iree_py_test(
         "float_payload_test.py",
         "index_test.py",
         "integer_bits_test.py",
+        "memory_test.py",
         "//loom/py/loom/tools:pytest_style_runner.py",
     ],
     args = [
@@ -131,6 +132,7 @@ iree_py_test(
         "loom.target.arch.spirv.contracts.float_payload_test",
         "loom.target.arch.spirv.contracts.index_test",
         "loom.target.arch.spirv.contracts.integer_bits_test",
+        "loom.target.arch.spirv.contracts.memory_test",
     ],
     main = "pytest_style_runner.py",
     deps = [
