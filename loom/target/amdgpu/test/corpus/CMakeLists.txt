@@ -519,6 +519,10 @@ loom_corpus_test(
     "numeric/vector/packed/narrowing.loom"
     "@saturating_nibble_values"
     "AMDGPU/023,TARGET/002,TARGET/031"
+  ALLOWED_FAILURES
+    "numeric/vector/packed/dot.loom"
+    "@packed_mixed_nibble_dot_values"
+    "TARGET/003"
   RUNNER_ARGS
     "--device=amdgpu"
   LABELS

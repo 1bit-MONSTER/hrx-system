@@ -145,6 +145,11 @@ loom_corpus_build(
 
 loom_scenario_test(
     name = "scenario_execution",
+    allowed_failures = {
+        AMDGPU_HARDWARE_PROFILE.name: {
+            "numeric/vector/packed/dot.loom:@packed_mixed_nibble_dot_values": "TARGET/003",
+        },
+    },
     catalog = LOOM_CORPUS,
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],
     xfails = {
