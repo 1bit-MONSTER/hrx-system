@@ -9,6 +9,7 @@
 
 #include <optional>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "loom/import/cxx/value/representation.h"
 #include "loom/import/cxx/value/scalar.h"
@@ -133,6 +134,18 @@ class Storage {
                             const cxx::Type* element_count_type,
                             loom_value_fact_memory_space_t memory_space,
                             int64_t explicit_alignment, cxx::AST* owner);
+  // Allocates an exact runtime byte extent already represented in Loom's
+  // physical offset domain. No logical count conversion or scaling is added.
+  Pointer allocate_bytes(loom_value_id_t byte_length,
+                         loom_value_fact_memory_space_t memory_space,
+                         int64_t alignment, cxx::AST* owner);
+  // Refines one pointer root with a scoped no-alias identity while preserving
+  // its byte origin and compiler-owned allocation facts.
+  Pointer assume_noalias(Pointer pointer, cxx::AST* owner);
+  // Refines a zero-origin pointer root with a scoped minimum byte alignment.
+  // Interior pointers cannot represent buffer-root alignment and are rejected.
+  Pointer assume_alignment(Pointer pointer, int64_t minimum_alignment,
+                           cxx::AST* owner);
 
  private:
   StorageProjection subobject(StorageProjection base, uint64_t byte_offset,
@@ -168,6 +181,9 @@ class Storage {
   };
   // Allocation facts retained once at their allocating producer.
   std::unordered_map<loom_value_id_t, Allocation> allocations_;
+  // Offsets proven to be the zero origin of their buffer root. Refining
+  // assumptions retain this identity without downstream producer inspection.
+  std::unordered_set<loom_value_id_t> zero_origin_offsets_;
 };
 
 }  // namespace loom::cxx_import

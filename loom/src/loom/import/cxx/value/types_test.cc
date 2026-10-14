@@ -30,6 +30,9 @@ TEST_F(TypesWithModuleTest, ProjectsSpecialAndRegisteredOpaqueHandles) {
     using Words4 = unsigned __attribute__((vector_size(16)));
     using VectorBuffer = Buffer<Words4>;
     struct [[loom::type("index")]] Index {
+      operator long long() const;
+    };
+    struct [[loom::type("offset")]] Offset {
       operator unsigned long long() const;
     };
     struct [[loom::type("check.entropy")]] Entropy {};
@@ -65,15 +68,28 @@ TEST_F(TypesWithModuleTest, ProjectsSpecialAndRegisteredOpaqueHandles) {
             LOOM_TYPE_BUFFER);
 
   const auto& index = types.partition(source_type("Index"), owner);
-  ASSERT_EQ(index.kind, ValueKind::Index);
+  ASSERT_EQ(index.kind, ValueKind::Address);
   ASSERT_EQ(index.component_count, 1u);
   auto index_type = types.get(source_type("Index"), owner);
   EXPECT_EQ(loom_type_element_type(index_type), LOOM_SCALAR_TYPE_INDEX);
   EXPECT_TRUE(types.is_index(source_type("Index"), owner));
+  EXPECT_FALSE(types.is_offset(source_type("Index"), owner));
   std::vector<loom_type_t> index_signature;
   types.append(source_type("Index"), owner, index_signature);
   ASSERT_EQ(index_signature.size(), 1u);
   EXPECT_TRUE(loom_type_equal(index_signature[0], index_type));
+
+  const auto& offset = types.partition(source_type("Offset"), owner);
+  ASSERT_EQ(offset.kind, ValueKind::Address);
+  ASSERT_EQ(offset.component_count, 1u);
+  auto offset_type = types.get(source_type("Offset"), owner);
+  EXPECT_EQ(loom_type_element_type(offset_type), LOOM_SCALAR_TYPE_OFFSET);
+  EXPECT_TRUE(types.is_offset(source_type("Offset"), owner));
+  EXPECT_FALSE(types.is_index(source_type("Offset"), owner));
+  std::vector<loom_type_t> offset_signature;
+  types.append(source_type("Offset"), owner, offset_signature);
+  ASSERT_EQ(offset_signature.size(), 1u);
+  EXPECT_TRUE(loom_type_equal(offset_signature[0], offset_type));
 
   const auto& entropy = types.partition(source_type("Entropy"), owner);
   ASSERT_EQ(entropy.kind, ValueKind::OpaqueDialect);

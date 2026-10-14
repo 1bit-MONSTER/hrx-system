@@ -74,12 +74,14 @@ struct BufferPartition final : Partition {
   const cxx::Type* element_type;
 };
 
-// Canonical source handle projected to Loom's target-independent index scalar.
-// The class gives C++ a distinct type for native region arguments while its
-// conversion operator restores ordinary unsigned arithmetic inside functions.
-struct IndexPartition final : Partition {
+// Canonical source handle projected to one Loom address-domain scalar. Index
+// and offset remain nominally distinct in C++ and retain their independent
+// target-selected carriers through every value boundary.
+struct AddressPartition final : Partition {
   // Concrete source class retaining copy and conversion semantics.
   cxx::ClassSymbol* source;
+  // Native address domain represented by this source class.
+  loom_scalar_type_t element_type;
 };
 
 // Canonical source encoding object projected to one first-class High encoding
@@ -277,8 +279,13 @@ class Types {
   const cxx::VectorType* vector(const cxx::Type* type);
   bool is_unsigned(const cxx::Type* type);
   bool is_float(const cxx::Type* type);
+  // Returns the native address domain represented by a source class, or
+  // LOOM_SCALAR_TYPE_NONE for an ordinary C++ value.
+  loom_scalar_type_t address_domain(const cxx::Type* type, cxx::AST* owner);
   // Whether the source class projects directly to Loom's native index scalar.
   bool is_index(const cxx::Type* type, cxx::AST* owner);
+  // Whether the source class projects directly to Loom's native offset scalar.
+  bool is_offset(const cxx::Type* type, cxx::AST* owner);
   // Whether the source class names this exact registered opaque dialect type.
   bool is_opaque_dialect(const cxx::Type* type, std::string_view name,
                          cxx::AST* owner);
@@ -287,7 +294,9 @@ class Types {
   void require_record_storage(const cxx::ClassType* input, cxx::AST* owner);
   const Partition* special(const cxx::Type* input, cxx::AST* owner);
   const BufferPartition* buffer(const cxx::ClassType* input, cxx::AST* owner);
-  const IndexPartition* index(const cxx::ClassType* input, cxx::AST* owner);
+  const AddressPartition* address(const cxx::ClassType* input,
+                                  loom_scalar_type_t element_type,
+                                  cxx::AST* owner);
   const EncodingPartition* encoding(const cxx::ClassType* input,
                                     cxx::AST* owner);
   const OpaqueDialectPartition* opaque_dialect(const cxx::ClassType* input,
@@ -313,9 +322,9 @@ class Types {
   // Admitted typed buffer handles keyed by concrete source specialization.
   std::unordered_map<cxx::ClassSymbol*, std::unique_ptr<BufferPartition>>
       buffers_;
-  // Admitted native index handles keyed by their source class.
-  std::unordered_map<cxx::ClassSymbol*, std::unique_ptr<IndexPartition>>
-      indices_;
+  // Admitted native address handles keyed by their source class.
+  std::unordered_map<cxx::ClassSymbol*, std::unique_ptr<AddressPartition>>
+      addresses_;
   // Array schemas retain the element partition once, independently of length.
   std::unordered_map<const cxx::BoundedArrayType*,
                      std::unique_ptr<ArrayPartition>>

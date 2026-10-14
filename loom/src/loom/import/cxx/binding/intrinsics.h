@@ -86,7 +86,7 @@ class Intrinsics {
                    ViewIntrinsic, VectorMemoryIntrinsic, AsyncIntrinsic,
                    AtomicIntrinsic, FenceIntrinsic, SubgroupIntrinsic,
                    BarrierIntrinsic, TargetIntrinsic, AssemblyIntrinsic,
-                   TemplateApplyIntrinsic, CheckIntrinsic, IndexCastIntrinsic>;
+                   TemplateApplyIntrinsic, CheckIntrinsic, AddressIntrinsic>;
 
   Intrinsics(cxx::TranslationUnit& unit, Diagnostics& diagnostics, Types& types,
              Locations& locations, SymbolNames& names,

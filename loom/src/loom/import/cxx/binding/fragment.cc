@@ -147,13 +147,13 @@ FragmentIntrinsic::Shape FragmentIntrinsic::require_shape(
   for (size_t index = 0; index < record->members.size(); ++index) {
     const auto& member = record->members[index];
     auto name = cxx::to_string(member.field->name());
-    if (name != expected[index] || member.partition->kind != ValueKind::SSA) {
+    if (name != expected[index]) {
       diagnostics.reject(unit, owner,
                          "fragment shape requires flat {rows, columns} or "
                          "{blocks, rows, columns} integer fields");
     }
-    if (require_integral(unit, diagnostics, types, member.field->type(), owner,
-                         "fragment shape")) {
+    if (require_index_value(unit, diagnostics, types, member.field->type(),
+                            owner, "fragment shape")) {
       unsigned_mask |= uint16_t{1} << index;
     }
   }

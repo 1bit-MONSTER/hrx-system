@@ -92,9 +92,32 @@ std::optional<PredicateConstant> float_predicate_constant(
   };
 }
 
+enum class AddressSourceType { Index, Offset };
+
+std::optional<AddressSourceType> address_source_type(cxx::TranslationUnit& unit,
+                                                     const cxx::Type* type) {
+  auto* source_type =
+      cxx::type_cast<cxx::ClassType>(unit.typeTraits().remove_cv(type));
+  auto* binding =
+      source_type ? annotation(source_type->definition(), "type") : nullptr;
+  if (!binding || binding->arguments.size() != 1) {
+    return std::nullopt;
+  }
+  if (binding->arguments[0]->name() == "index") {
+    return AddressSourceType::Index;
+  }
+  if (binding->arguments[0]->name() == "offset") {
+    return AddressSourceType::Offset;
+  }
+  return std::nullopt;
+}
+
 std::optional<PredicateConstant> predicate_constant(
     cxx::TranslationUnit& unit, cxx::ExpressionAST* expression,
     const cxx::Type* carrier_type) {
+  if (address_source_type(unit, carrier_type)) {
+    return integer_predicate_constant(unit, expression, 64);
+  }
   const auto traits = unit.typeTraits();
   if (traits.is_floating_point(carrier_type)) {
     return float_predicate_constant(unit, expression);
@@ -137,15 +160,6 @@ std::optional<loom_predicate_kind_t> helper_kind(cxx::TranslationUnit& unit,
 
 bool is_result_call(cxx::CallExpressionAST* call) {
   return annotation(direct_callee(call), "predicate_result");
-}
-
-bool is_index_source_type(cxx::TranslationUnit& unit, const cxx::Type* type) {
-  auto* source_type =
-      cxx::type_cast<cxx::ClassType>(unit.typeTraits().remove_cv(type));
-  auto* binding =
-      source_type ? annotation(source_type->definition(), "type") : nullptr;
-  return binding && binding->arguments.size() == 1 &&
-         binding->arguments[0]->name() == "index";
 }
 
 std::optional<PredicateValue> predicate_value(cxx::TranslationUnit& unit,
@@ -456,6 +470,13 @@ void append_helper_predicate(cxx::TranslationUnit& unit,
         predicate_operand(unit, diagnostics, expression, carrier_type);
     projected.argument_types[argument_index] = expression->type;
     if (auto* value = std::get_if<PredicateValue>(&operand)) {
+      if (argument_index > 0 &&
+          unit.typeTraits().remove_cv(value->source->type) !=
+              unit.typeTraits().remove_cv(carrier_type)) {
+        diagnostics.reject(
+            unit, value->source,
+            "retained predicate values must use the first operand's type");
+      }
       if (!predicate_accepts_source_type(unit, kind, value->source->type)) {
         diagnostics.reject(unit, value->source,
                            std::string(loom_predicate_kind_name(kind)) +
@@ -614,17 +635,17 @@ bool predicate_accepts_source_type(cxx::TranslationUnit& unit,
                                    loom_predicate_kind_t kind,
                                    const cxx::Type* type) {
   const auto traits = unit.typeTraits();
-  const bool is_index = is_index_source_type(unit, type);
+  const bool is_address = address_source_type(unit, type).has_value();
   switch (kind) {
     case LOOM_PREDICATE_EQ:
     case LOOM_PREDICATE_NE:
-      return is_index || traits.is_arithmetic(type) || traits.is_enum(type);
+      return is_address || traits.is_arithmetic(type) || traits.is_enum(type);
     case LOOM_PREDICATE_NOT_NAN:
     case LOOM_PREDICATE_NOT_INF:
     case LOOM_PREDICATE_FINITE:
       return traits.is_floating_point(type);
     default: {
-      if (is_index) {
+      if (is_address) {
         return true;
       }
       auto representation = traits.integral_representation(type);

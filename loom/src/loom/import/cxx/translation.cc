@@ -157,22 +157,35 @@ class Translator final : private Initialization::Evaluation {
   Value convert(cxx::ExpressionAST* input_ast, const cxx::Type* output_type,
                 cxx::AST* owner) override {
     auto value = expression(input_ast);
-    if (value.is_index()) {
+    if (value.is_address()) {
+      auto input_domain =
+          static_cast<const AddressPartition&>(value.partition()).element_type;
       auto output = types_.get(output_type, owner);
-      auto index = loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
-      if (loom_type_equal(output, index)) {
+      auto output_kind = loom_type_kind(output);
+      auto output_domain = output_kind == LOOM_TYPE_SCALAR
+                               ? loom_type_element_type(output)
+                               : LOOM_SCALAR_TYPE_NONE;
+      auto input = loom_type_scalar(input_domain);
+      if (loom_type_equal(output, input)) {
         return value;
       }
-      if (types_.unqualified(output_type) !=
-          unit_.control()->getUnsignedLongLongIntType()) {
+      if (output_kind != LOOM_TYPE_SCALAR ||
+          (!unit_.typeTraits().is_integral(output_type) &&
+           output_domain != LOOM_SCALAR_TYPE_INDEX &&
+           output_domain != LOOM_SCALAR_TYPE_OFFSET)) {
         fail(owner,
-             "index conversion requires loom::type::index or unsigned long "
-             "long");
+             "address conversion requires an address domain or C++ integer");
       }
       loom_op_t* cast;
-      check(loom_index_cast_build(&builder_, value.ssa(), index, output,
+      check(loom_index_cast_build(&builder_, value.ssa(), input, output,
                                   locations_.get(owner), &cast));
-      return Value(loom_op_results(cast)[0]);
+      auto result = loom_op_results(cast)[0];
+      if (output_domain == LOOM_SCALAR_TYPE_INDEX ||
+          output_domain == LOOM_SCALAR_TYPE_OFFSET) {
+        return value_arena_.capture(types_.partition(output_type, owner),
+                                    {&result, 1});
+      }
+      return Value(result);
     }
     if (value.is_record() || value.is_array() || value.is_buffer() ||
         value.is_opaque_dialect() || value.is_encoding() || value.is_view() ||
@@ -187,6 +200,41 @@ class Translator final : private Initialization::Evaluation {
         fail(owner, "conversion must preserve pointer representation");
       }
       return value;
+    }
+    const auto& output_partition = types_.partition(output_type, owner);
+    if (output_partition.kind == ValueKind::Address) {
+      auto input = value.ssa();
+      auto input_type = value_type(input);
+      const auto& address =
+          static_cast<const AddressPartition&>(output_partition);
+      auto output = loom_type_scalar(address.element_type);
+      if (loom_type_equal(input_type, output)) {
+        return value_arena_.capture(output_partition, {&input, 1});
+      }
+      auto traits = unit_.typeTraits();
+      auto input_domain = types_.address_domain(input_ast->type, owner);
+      if (input_domain == LOOM_SCALAR_TYPE_NONE &&
+          (!traits.is_integral(input_ast->type) ||
+           types_.unqualified(input_ast->type)->kind() ==
+               cxx::TypeKind::kBool)) {
+        fail(owner,
+             "address construction requires a non-Boolean integer or address");
+      }
+      loom_op_t* op;
+      auto i64_type = loom_type_scalar(LOOM_SCALAR_TYPE_I64);
+      if (address.element_type == LOOM_SCALAR_TYPE_INDEX &&
+          input_domain == LOOM_SCALAR_TYPE_NONE &&
+          types_.is_unsigned(input_ast->type) &&
+          !loom_type_equal(input_type, i64_type)) {
+        check(loom_scalar_extui_build(&builder_, input, input_type, i64_type,
+                                      locations_.get(owner), &op));
+        input = loom_op_results(op)[0];
+        input_type = i64_type;
+      }
+      check(loom_index_cast_build(&builder_, input, input_type, output,
+                                  locations_.get(owner), &op));
+      auto result = loom_op_results(op)[0];
+      return value_arena_.capture(output_partition, {&result, 1});
     }
     return numeric_convert(value.ssa(), input_ast->type, output_type, owner);
   }
@@ -494,7 +542,10 @@ class Translator final : private Initialization::Evaluation {
         unit_.typeTraits().is_volatile(variable->type())) {
       allocate_local(variable, variable->explicitAlignment(), owner);
       if (initializer) {
-        types_.admit_copy(variable->constructor(), variable->type(), owner);
+        if (types_.address_domain(types_.unqualified(variable->type()),
+                                  owner) == LOOM_SCALAR_TYPE_NONE) {
+          types_.admit_copy(variable->constructor(), variable->type(), owner);
+        }
         initialization_.storage(locals_.at(variable), variable->type(),
                                 initializer, owner);
       }
@@ -504,7 +555,10 @@ class Translator final : private Initialization::Evaluation {
       fail(owner, "locals require initializers");
     }
     types_.partition(variable->type(), owner);
-    types_.admit_copy(variable->constructor(), variable->type(), owner);
+    if (types_.address_domain(types_.unqualified(variable->type()), owner) ==
+        LOOM_SCALAR_TYPE_NONE) {
+      types_.admit_copy(variable->constructor(), variable->type(), owner);
+    }
     auto value =
         apply_constexpr_contract(expression(initializer), constexpr_contract);
     values_[variable] = name(value, cxx::to_string(variable->name()));
@@ -918,8 +972,8 @@ class Translator final : private Initialization::Evaluation {
       source = static_cast<const RecordPartition&>(partition).source;
     } else if (partition.kind == ValueKind::Buffer) {
       source = static_cast<const BufferPartition&>(partition).source;
-    } else if (partition.kind == ValueKind::Index) {
-      source = static_cast<const IndexPartition&>(partition).source;
+    } else if (partition.kind == ValueKind::Address) {
+      source = static_cast<const AddressPartition&>(partition).source;
     } else if (partition.kind == ValueKind::OpaqueDialect) {
       source = static_cast<const OpaqueDialectPartition&>(partition).source;
     } else if (partition.kind == ValueKind::Encoding) {
@@ -1075,7 +1129,8 @@ class Translator final : private Initialization::Evaluation {
     }
     if (auto* cast = cxx::ast_cast<cxx::ImplicitCastExpressionAST>(ast)) {
       if (cast->conversionFunction &&
-          !types_.is_index(cast->expression->type, ast)) {
+          types_.address_domain(cast->expression->type, ast) ==
+              LOOM_SCALAR_TYPE_NONE) {
         types_.admit_copy(cast->conversionFunction, ast->type, ast);
       }
       return convert(cast->expression, cast->type, ast);
@@ -1115,6 +1170,12 @@ class Translator final : private Initialization::Evaluation {
       return convert(cast->expression, cast->type, ast);
     }
     if (auto* cast = cxx::ast_cast<cxx::TypeConstructionAST>(ast)) {
+      if (types_.address_domain(ast->type, ast) != LOOM_SCALAR_TYPE_NONE) {
+        if (!cast->expressionList || cast->expressionList->next) {
+          fail(ast, "address construction requires one integer argument");
+        }
+        return convert(cast->expressionList->value, ast->type, ast);
+      }
       if (types_.record(ast->type, ast)) {
         types_.admit_copy(cast->constructorSymbol, ast->type, ast);
         return initialization_.value(ast->type, cast->expressionList, ast);
@@ -1137,6 +1198,13 @@ class Translator final : private Initialization::Evaluation {
     }
     if (auto* construction =
             cxx::ast_cast<cxx::BracedTypeConstructionAST>(ast)) {
+      if (types_.address_domain(ast->type, ast) != LOOM_SCALAR_TYPE_NONE) {
+        auto* arguments = construction->bracedInitList->expressionList;
+        if (!arguments || arguments->next) {
+          fail(ast, "address construction requires one integer argument");
+        }
+        return convert(arguments->value, ast->type, ast);
+      }
       types_.admit_copy(construction->constructorSymbol, ast->type, ast);
       return initialization_.value(
           ast->type, construction->bracedInitList->expressionList, ast);
@@ -1278,7 +1346,22 @@ class Translator final : private Initialization::Evaluation {
     }
     if (auto* binary = cxx::ast_cast<cxx::BinaryExpressionAST>(ast)) {
       if (binary->symbol) {
-        fail(ast, "overloaded arithmetic is not admitted");
+        auto* function = cxx::symbol_cast<cxx::FunctionSymbol>(binary->symbol);
+        auto* binding = function ? intrinsics_.lookup(function, ast) : nullptr;
+        if (!binding || !std::holds_alternative<AddressIntrinsic>(*binding)) {
+          fail(ast, "overloaded arithmetic requires a Loom address operation");
+        }
+        std::array<Value, 2> arguments = {
+            expression(binary->leftExpression),
+            expression(binary->rightExpression),
+        };
+        auto called =
+            intrinsics_.call(*binding, arguments, value_arena_, storage_, ast,
+                             lexical_fastmath_flags_, &builder_, source);
+        if (!called.value) {
+          fail(ast, "address operator must produce a value");
+        }
+        return *called.value;
       }
       if (binary->op == cxx::TokenKind::T_COMMA) {
         effect(binary->leftExpression);

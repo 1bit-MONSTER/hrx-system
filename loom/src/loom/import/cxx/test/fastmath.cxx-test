@@ -110,6 +110,11 @@ float statement_fast(float left, float right) {
   [[loom::fastmath]] return left * right;
 }
 
+float declaration_fast(float left, float right) {
+  [[loom::fastmath("nnan", "ninf", "arcp")]] float quotient = left / right;
+  return quotient;
+}
+
 // ----
 func.def public @strict(%left: f32, %right: f32) -> (f32) {
   %3 = scalar.negf %left : f32
@@ -254,16 +259,21 @@ func.def public @statement_fast(%left: f32, %right: f32) -> (f32) {
   func.return %113 : f32
 }
 
+func.def public @declaration_fast(%left: f32, %right: f32) -> (f32) {
+  %quotient = scalar.divf<nnan|ninf|arcp> %left, %right : f32
+  func.return %quotient : f32
+}
+
 func.def @scaled_float(%value: f32, %scale: f32) -> (f32) {
-  %117 = scalar.mulf<reassoc|nnan|ninf|nsz|arcp|contract|afn> %value, %scale : f32
-  %118 = scalar.addf<reassoc|nnan|ninf|nsz|arcp|contract|afn> %117, %value : f32
-  func.return %118 : f32
+  %121 = scalar.mulf<reassoc|nnan|ninf|nsz|arcp|contract|afn> %value, %scale : f32
+  %122 = scalar.addf<reassoc|nnan|ninf|nsz|arcp|contract|afn> %121, %value : f32
+  func.return %122 : f32
 }
 
 func.def @helper(%value: f32, %scale: f32) -> (f32) {
-  %122 = scalar.mulf<reassoc> %value, %scale : f32
-  %123 = scalar.addf<reassoc> %122, %value : f32
-  func.return %123 : f32
+  %126 = scalar.mulf<reassoc> %value, %scale : f32
+  %127 = scalar.addf<reassoc> %126, %value : f32
+  func.return %127 : f32
 }
 
 // ====

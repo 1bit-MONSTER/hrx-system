@@ -18,13 +18,13 @@ Float8 scaled_mma(Half16 lhs_data, Half16 rhs_data, Float8 init_data,
                   loom::type::size_type m, loom::type::size_type n,
                   loom::type::size_type k) {
   auto lhs = fragment::attach<fragment::role::lhs>(
-      lhs_data, fragment::shape{.rows = m, .columns = k},
+      lhs_data, fragment::shape{m, k},
       Parameters{lhs_scale, schema});
   auto rhs = fragment::attach<fragment::role::rhs>(
-      rhs_data, fragment::shape{.rows = k, .columns = n},
+      rhs_data, fragment::shape{k, n},
       Parameters{rhs_scale, schema});
   auto init = fragment::attach<fragment::role::init>(
-      init_data, fragment::shape{.rows = m, .columns = n});
+      init_data, fragment::shape{m, n});
   return loom::vector::mma(lhs, rhs, init);
 }
 
@@ -56,13 +56,9 @@ BFloat16 repack(Float8 source, loom::type::size_type blocks,
                 loom::type::size_type rows,
                 loom::type::size_type columns) {
   auto init = fragment::attach<fragment::role::init>(
-      source, fragment::batched_shape{.blocks = blocks,
-                                      .rows = rows,
-                                      .columns = columns});
+      source, fragment::batched_shape{blocks, rows, columns});
   return fragment::repack<fragment::role::lhs, BFloat16>(
-      init, fragment::batched_shape{.blocks = blocks,
-                                    .rows = rows,
-                                    .columns = columns});
+      init, fragment::batched_shape{blocks, rows, columns});
 }
 
 // ----
@@ -107,16 +103,15 @@ void load_mma_store(Input lhs_source, EncodedInput rhs_source,
                     loomt::size_type column, loomt::size_type m,
                     loomt::size_type n, loomt::size_type k, Scale2 rhs_scale) {
   auto lhs = fragment::load<fragment::role::lhs, Half16>(
-      lhs_source, {row, column}, fragment::shape{.rows = m, .columns = k});
+      lhs_source, {row, column}, fragment::shape{m, k});
   auto rhs = fragment::load<fragment::role::rhs, Half16>(
-      rhs_source, {row, column}, fragment::shape{.rows = k, .columns = n},
+      rhs_source, {row, column}, fragment::shape{k, n},
       Auxiliary{rhs_scale});
   auto init = fragment::load<fragment::role::init, Float8>(
-      init_source, {row, column}, fragment::shape{.rows = m, .columns = n});
+      init_source, {row, column}, fragment::shape{m, n});
   auto result = loom::vector::mma(lhs, rhs, init);
   fragment::store<fragment::role::result>(
-      result, output, {row, column},
-      fragment::shape{.rows = m, .columns = n});
+      result, output, {row, column}, fragment::shape{m, n});
 }
 
 // ----
@@ -200,26 +195,20 @@ Float8 fp4_e4m3_mma(Words8 lhs_data, Words8 rhs_data, Scale2 lhs_scale,
 func.def public @fp4_e4m3_mma(%lhs_data: vector<8xi32>, %rhs_data: vector<8xi32>, %lhs_scale: vector<2xi32>, %rhs_scale: vector<2xi32>, %init_data: vector<8xf32>) -> (vector<8xf32>) {
   %schema = encoding.define #encoding.f4e2m1<affine=scale_only, payload_elements=64, payload_packing=target_fragment, payload_registers=8, scale_format=f8e4m3, scale_group_elements=16, scale_operands=1, scale_topology=block_1d, zero_scale_fallback=true> : encoding<schema>
   %7 = scalar.constant 16 : i32
-  %8 = scalar.extsi %7 : i32 to i64
-  %9 = scalar.constant 128 : i32
-  %10 = scalar.extsi %9 : i32 to i64
-  %11 = index.cast %8 : i64 to index
-  %12 = index.cast %10 : i64 to index
-  %lhs = vector.fragment<lhs> %lhs_data shape [%11, %12] using {scale = %lhs_scale : vector<2xi32>, schema = %schema : encoding<schema>} : vector<8xi32>
-  %14 = scalar.constant 128 : i32
-  %15 = scalar.extsi %14 : i32 to i64
-  %16 = scalar.constant 16 : i32
-  %17 = scalar.extsi %16 : i32 to i64
-  %18 = index.cast %15 : i64 to index
-  %19 = index.cast %17 : i64 to index
-  %rhs = vector.fragment<rhs> %rhs_data shape [%18, %19] using {scale = %rhs_scale : vector<2xi32>, schema = %schema : encoding<schema>} : vector<8xi32>
-  %21 = scalar.constant 16 : i32
-  %22 = scalar.extsi %21 : i32 to i64
-  %23 = scalar.constant 16 : i32
-  %24 = scalar.extsi %23 : i32 to i64
-  %25 = index.cast %22 : i64 to index
-  %26 = index.cast %24 : i64 to index
-  %init = vector.fragment<init> %init_data shape [%25, %26] : vector<8xf32>
-  %28 = vector.mma %lhs, %rhs, %init : vector<8xi32>, vector<8xi32>, vector<8xf32>
-  func.return %28 : vector<8xf32>
+  %8 = scalar.constant 128 : i32
+  %9 = index.cast %7 : i32 to index
+  %10 = index.cast %8 : i32 to index
+  %lhs = vector.fragment<lhs> %lhs_data shape [%9, %10] using {scale = %lhs_scale : vector<2xi32>, schema = %schema : encoding<schema>} : vector<8xi32>
+  %12 = scalar.constant 128 : i32
+  %13 = scalar.constant 16 : i32
+  %14 = index.cast %12 : i32 to index
+  %15 = index.cast %13 : i32 to index
+  %rhs = vector.fragment<rhs> %rhs_data shape [%14, %15] using {scale = %rhs_scale : vector<2xi32>, schema = %schema : encoding<schema>} : vector<8xi32>
+  %17 = scalar.constant 16 : i32
+  %18 = scalar.constant 16 : i32
+  %19 = index.cast %17 : i32 to index
+  %20 = index.cast %18 : i32 to index
+  %init = vector.fragment<init> %init_data shape [%19, %20] : vector<8xf32>
+  %22 = vector.mma %lhs, %rhs, %init : vector<8xi32>, vector<8xi32>, vector<8xf32>
+  func.return %22 : vector<8xf32>
 }

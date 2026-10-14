@@ -110,39 +110,39 @@ Vector entry(Vector value, Layout layout) {
 // ====
 #include <loomcxx/vector.h>
 using Vector = float __attribute__((ext_vector_type(4)));
-template <loom::vector::fragment::role Role>
+template <loom::vector::fragment::role Role, class Shape>
 [[loom::op("vector.fragment.load")]] Vector invalid(
     Vector source, loom::type::coordinates<1> origin,
-    loom::vector::fragment::shape shape);
+    Shape shape);
 Vector entry(Vector source) {
   // ERROR@+1: LOWERING/059 "fragment memory operation requires a view value"
-  return invalid<loom::vector::fragment::role::lhs>(source, {0}, {2, 2});
+  return invalid<loom::vector::fragment::role::lhs>(source, {0}, loom::vector::fragment::shape{2, 2});
 }
 
 // ====
 #include <loomcxx/vector.h>
 using Vector = float __attribute__((ext_vector_type(4)));
 using View = loom::type::view<loom::type::shape<4, 4>, const float>;
-template <loom::vector::fragment::role Role>
+template <loom::vector::fragment::role Role, class Shape>
 [[loom::op("vector.fragment.load")]] Vector invalid(
     View source, loom::type::coordinates<1> origin,
-    loom::vector::fragment::shape shape);
+    Shape shape);
 Vector entry(View source) {
   // ERROR@+1: LOWERING/059 "fragment origin has the wrong arity"
-  return invalid<loom::vector::fragment::role::lhs>(source, {0}, {2, 2});
+  return invalid<loom::vector::fragment::role::lhs>(source, {0}, loom::vector::fragment::shape{2, 2});
 }
 
 // ====
 #include <loomcxx/vector.h>
 using Vector = float __attribute__((ext_vector_type(4)));
 using View = loom::type::view<loom::type::shape<4, 4>, const float>;
-template <loom::vector::fragment::role Role>
+template <loom::vector::fragment::role Role, class Shape>
 [[loom::op("vector.fragment.load")]] float invalid(
     View source, loom::type::coordinates<2> origin,
-    loom::vector::fragment::shape shape);
+    Shape shape);
 float entry(View source) {
   // ERROR@+1: LOWERING/059 "vector.fragment.load must return a vector"
-  return invalid<loom::vector::fragment::role::lhs>(source, {0, 0}, {2, 2});
+  return invalid<loom::vector::fragment::role::lhs>(source, {0, 0}, loom::vector::fragment::shape{2, 2});
 }
 
 // ====
@@ -169,14 +169,13 @@ void entry(Vector value, View destination) {
 #include <loomcxx/vector.h>
 using Vector = float __attribute__((ext_vector_type(4)));
 using View = loom::type::view<loom::type::shape<4, 4>, const float>;
-template <loom::vector::fragment::role Role>
+template <loom::vector::fragment::role Role, class Shape>
 [[loom::op("vector.fragment.load")]] Vector invalid(
     View source, loom::type::coordinates<2> origin,
-    loom::vector::fragment::shape shape, Vector scale);
+    Shape shape, Vector scale);
 Vector entry(View source, Vector scale) {
   // ERROR@+1: LOWERING/059 "fragment named operands must be a flat record"
-  return invalid<loom::vector::fragment::role::lhs>(source, {0, 0}, {2, 2},
-                                                     scale);
+  return invalid<loom::vector::fragment::role::lhs>(source, {0, 0}, loom::vector::fragment::shape{2, 2}, scale);
 }
 
 // ====

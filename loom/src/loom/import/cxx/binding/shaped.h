@@ -26,12 +26,32 @@ namespace loom::cxx_import {
 class ShapedIntrinsic {
  public:
   struct Slice {
-    // Source-language interpretation retained for index widening.
-    std::optional<bool> offset_unsigned;
+    enum class OffsetKind { Unresolved, SignedInteger, UnsignedInteger, Index };
+
+    // Source representation retained until the call constructs its index.
+    OffsetKind offset_kind;
     bool operator==(const Slice&) const = default;
   };
   struct TableLookup {
     bool operator==(const TableLookup&) const = default;
+  };
+  struct Absolute {
+    enum class Kind { Float, Integer };
+
+    // Element category selected by the operation spelling.
+    Kind kind;
+    // Explicit source permissions; integer absolute has none.
+    uint8_t flags;
+    bool operator==(const Absolute&) const = default;
+  };
+  struct FloatExtremum {
+    enum class Kind { Minimum, Maximum, MinNumber, MaxNumber };
+
+    // NaN/comparison semantics selected by the operation spelling.
+    Kind kind;
+    // Explicit source permissions.
+    uint8_t flags;
+    bool operator==(const FloatExtremum&) const = default;
   };
   struct Dot4i {
     // Explicit interpretation of each input's byte lanes. An absent kind is
@@ -55,8 +75,8 @@ class ShapedIntrinsic {
     uint8_t flags;
     bool operator==(const Reduction&) const = default;
   };
-  using Operation =
-      std::variant<Slice, TableLookup, Dot4i, Dot2f, Dotf, Reduction>;
+  using Operation = std::variant<Slice, TableLookup, Absolute, FloatExtremum,
+                                 Dot4i, Dot2f, Dotf, Reduction>;
 
   // Admits a string-only loom::op attribute independently of source types.
   // Unknown names return nullopt; recognized names with invalid declarations

@@ -32,27 +32,30 @@ loom_attribute_t integer_attribute(uint64_t bits, unsigned bytes) {
   return loom_attr_i64(stored);
 }
 
-const cxx::ConstValue& index_constant_payload(cxx::TranslationUnit& unit,
-                                              Diagnostics& diagnostics,
-                                              const cxx::ConstValue& value,
-                                              cxx::AST* owner) {
+const cxx::ConstValue& address_constant_payload(cxx::TranslationUnit& unit,
+                                                Diagnostics& diagnostics,
+                                                const cxx::ConstValue& value,
+                                                loom_scalar_type_t domain,
+                                                cxx::AST* owner) {
   auto* object = std::get_if<std::shared_ptr<cxx::ConstObject>>(&value);
   if (!object || !*object || (*object)->members().size() != 1) {
-    diagnostics.reject(
-        unit, owner,
-        "index constants require one unsigned long long storage member");
+    diagnostics.reject(unit, owner,
+                       "address constants require one carrier storage member");
   }
   const auto& member = (*object)->members().front();
   auto* field =
       member.symbol && member.symbol->kind() == cxx::SymbolKind::kField
           ? static_cast<const cxx::FieldSymbol*>(member.symbol)
           : nullptr;
+  const cxx::Type* expected =
+      domain == LOOM_SCALAR_TYPE_INDEX
+          ? static_cast<const cxx::Type*>(unit.control()->getLongLongIntType())
+          : static_cast<const cxx::Type*>(
+                unit.control()->getUnsignedLongLongIntType());
   if (!field || field->isStatic() ||
-      unit.typeTraits().remove_cv(field->type()) !=
-          unit.control()->getUnsignedLongLongIntType()) {
+      unit.typeTraits().remove_cv(field->type()) != expected) {
     diagnostics.reject(
-        unit, owner,
-        "index constants require one unsigned long long storage member");
+        unit, owner, "address constant storage does not match its signedness");
   }
   return member.value;
 }
@@ -239,11 +242,13 @@ loom_attribute_t Scalars::constant_attribute(const cxx::ConstValue& value,
   if (loom_type_kind(target) != LOOM_TYPE_SCALAR) {
     diagnostics_.reject(unit_, ast, "constants require a numeric scalar type");
   }
-  const bool is_index =
-      loom_type_element_type(target) == LOOM_SCALAR_TYPE_INDEX;
+  const auto element_type = loom_type_element_type(target);
+  const bool is_address = element_type == LOOM_SCALAR_TYPE_INDEX ||
+                          element_type == LOOM_SCALAR_TYPE_OFFSET;
   const cxx::ConstValue& payload =
-      is_index ? index_constant_payload(unit_, diagnostics_, value, ast)
-               : value;
+      is_address ? address_constant_payload(unit_, diagnostics_, value,
+                                            element_type, ast)
+                 : value;
   loom_attribute_t attribute;
   if (types_.is_float(source_type)) {
     if (auto* floating = std::get_if<cxx::ConstFloat>(&payload);
@@ -266,8 +271,12 @@ loom_attribute_t Scalars::constant_attribute(const cxx::ConstValue& value,
     // Literals are represented in the signed storage width of their IR
     // scalar type; signedness remains a source fact at each operation.
     const cxx::Type* storage_type = source_type;
-    if (is_index) {
-      storage_type = unit_.control()->getUnsignedLongLongIntType();
+    if (is_address) {
+      storage_type = element_type == LOOM_SCALAR_TYPE_INDEX
+                         ? static_cast<const cxx::Type*>(
+                               unit_.control()->getLongLongIntType())
+                         : static_cast<const cxx::Type*>(
+                               unit_.control()->getUnsignedLongLongIntType());
     }
     auto bytes = *unit_.control()->memoryLayout()->sizeOf(storage_type);
     attribute = integer_attribute(std::bit_cast<uint64_t>(*number), bytes);

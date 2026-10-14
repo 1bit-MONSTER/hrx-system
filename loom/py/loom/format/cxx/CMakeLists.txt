@@ -14,7 +14,9 @@ iree_py_library(
     cxx
   SRCS
     "__init__.py"
+    "context.py"
     "errors.py"
+    "expressions.py"
     "naming.py"
     "printer.py"
     "registry.py"

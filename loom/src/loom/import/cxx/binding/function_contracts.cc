@@ -279,7 +279,7 @@ std::vector<loom_predicate_t> FunctionContracts::bind(
       partition = member.partition;
     }
     if ((partition->kind != ValueKind::SSA &&
-         partition->kind != ValueKind::Index) ||
+         partition->kind != ValueKind::Address) ||
         partition->component_count != 1) {
       diagnostics_.reject(unit_, value.source,
                           "predicate values must select one scalar source "

@@ -12,6 +12,7 @@ from loom.format.cxx.errors import CxxRenderError
 from loom.ir import (
     BufferType,
     DialectType,
+    EncodingType,
     Module,
     ScalarType,
     ShapedType,
@@ -52,8 +53,10 @@ class CxxTypes:
 
     def scalar(self, value_type: ScalarType, signed: bool = False) -> str:
         name = repr(value_type)
-        if name in {"index", "offset"}:
-            return "unsigned long long"
+        if name == "index":
+            return "loom::type::index"
+        if name == "offset":
+            return "loom::type::offset"
         if name.startswith("i") and not signed:
             result = _UNSIGNED_INTEGER_TYPES.get(name)
         else:
@@ -115,6 +118,9 @@ class CxxTypes:
             return self.vector(value_type, use_signed)
         if isinstance(value_type, BufferType):
             return "unsigned char*"
+        if isinstance(value_type, EncodingType):
+            role = value_type.role.name.lower()
+            return f"loom::type::encoding<loom::encoding::role::{role}>"
         if isinstance(value_type, DialectType):
             return "auto"
         raise CxxRenderError(

@@ -39,8 +39,8 @@ class FastMathContracts {
   // Returns the source contract established for this function, if any.
   cxx::AttributeAST* function_source(cxx::FunctionSymbol* function) const;
 
-  // Returns the exact permissions established for one source statement, or no
-  // value when the statement inherits its enclosing policy.
+  // Returns the exact permissions established for one source statement or
+  // automatic declaration, or no value when it inherits its enclosing policy.
   std::optional<uint8_t> statement(cxx::StatementAST* statement);
 
  private:

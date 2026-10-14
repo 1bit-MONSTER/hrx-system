@@ -120,39 +120,39 @@ namespace loom::view {
 
 // Forms a subview with an explicitly selected result extent pattern.
 template <loom::type::size_type... Extents, class T,
-          loom::type::size_type... SourceExtents, loom::encoding::role Role>
+          loom::type::size_type... SourceExtents, loom::encoding::role Role,
+          class Origin = loom::type::coordinates<sizeof...(SourceExtents)>>
 [[loom::op("view.subview")]]
 loom::type::view<loom::type::shape<Extents...>, T, Role> subview(
     loom::type::view<loom::type::shape<SourceExtents...>, T, Role> source,
-    loom::type::coordinates<sizeof...(SourceExtents)> origin,
-    loom::detail::view_dimensions<Extents...> dimensions);
+    Origin origin, loom::detail::view_dimensions<Extents...> dimensions);
 
 // Forms a subview retaining result extents already in Loom's index domain.
 template <loom::type::size_type... Extents, class T,
-          loom::type::size_type... SourceExtents, loom::encoding::role Role>
+          loom::type::size_type... SourceExtents, loom::encoding::role Role,
+          class Origin = loom::type::coordinates<sizeof...(SourceExtents)>>
   requires((Extents == loom::type::dynamic) || ...)
 [[loom::op("view.subview")]]
 loom::type::view<loom::type::shape<Extents...>, T, Role> subview(
     loom::type::view<loom::type::shape<SourceExtents...>, T, Role> source,
-    loom::type::coordinates<sizeof...(SourceExtents)> origin,
-    loom::detail::view_index_dimensions<Extents...> dimensions);
+    Origin origin, loom::detail::view_index_dimensions<Extents...> dimensions);
 
 // Forms a subview while preserving the source's static/dynamic extent pattern.
-template <class T, loom::type::size_type... Extents, loom::encoding::role Role>
+template <class T, loom::type::size_type... Extents, loom::encoding::role Role,
+          class Origin = loom::type::coordinates<sizeof...(Extents)>>
 [[loom::op("view.subview")]]
 loom::type::view<loom::type::shape<Extents...>, T, Role> subview(
     loom::type::view<loom::type::shape<Extents...>, T, Role> source,
-    loom::type::coordinates<sizeof...(Extents)> origin,
-    loom::detail::view_dimensions<Extents...> dimensions);
+    Origin origin, loom::detail::view_dimensions<Extents...> dimensions);
 
 // Preserves a source's dynamic extent pattern and index-domain identities.
-template <class T, loom::type::size_type... Extents, loom::encoding::role Role>
+template <class T, loom::type::size_type... Extents, loom::encoding::role Role,
+          class Origin = loom::type::coordinates<sizeof...(Extents)>>
   requires((Extents == loom::type::dynamic) || ...)
 [[loom::op("view.subview")]]
 loom::type::view<loom::type::shape<Extents...>, T, Role> subview(
     loom::type::view<loom::type::shape<Extents...>, T, Role> source,
-    loom::type::coordinates<sizeof...(Extents)> origin,
-    loom::detail::view_index_dimensions<Extents...> dimensions);
+    Origin origin, loom::detail::view_index_dimensions<Extents...> dimensions);
 
 // Loads one scalar at a logical coordinate.
 template <class Shape, class T, loom::encoding::role Role, class... Indices>

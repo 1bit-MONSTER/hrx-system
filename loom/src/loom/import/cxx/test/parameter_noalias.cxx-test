@@ -179,3 +179,71 @@ kernel.def @instantiated_unsigned_int() {
   view.store %23, %32[0] : i32, view<1xi32>
   kernel.return
 }
+
+// ====
+// Scoped contracts refine interior pointer roots without strengthening the
+// callable's public parameters.
+#include <loomcxx/buffer.h>
+
+unsigned scoped(const unsigned* input, unsigned* output) {
+  auto* unique_input = loom::buffer::assume_noalias(input + 1);
+  auto* unique_output = loom::buffer::assume_noalias(output + 2);
+  unique_output[0] = unique_input[0];
+  return unique_output[0];
+}
+
+// ----
+func.def public @scoped(%input: buffer, %input_byte_offset: offset, %output: buffer, %output_byte_offset: offset) -> (i32) {
+  %53 = scalar.constant 4 : i64
+  %9 = index.cast %input_byte_offset : offset to i64
+  %10 = scalar.addi %9, %53 : i64
+  %11 = scalar.assume %10 [range(%10, 0, 9223372036854775807)] : i64
+  %unique_input_byte_offset = index.cast %11 : i64 to offset
+  %unique_input = buffer.assume.noalias %input : buffer
+  %52 = scalar.constant 8 : i64
+  %18 = index.cast %output_byte_offset : offset to i64
+  %19 = scalar.addi %18, %52 : i64
+  %20 = scalar.assume %19 [range(%19, 0, 9223372036854775807)] : i64
+  %unique_output_byte_offset = index.cast %20 : i64 to offset
+  %unique_output = buffer.assume.noalias %output : buffer
+  %27 = index.cast %unique_input_byte_offset : offset to i64
+  %29 = scalar.assume %27 [range(%27, 0, 9223372036854775807)] : i64
+  %30 = index.cast %29 : i64 to offset
+  %31 = buffer.view %unique_input[%30] : buffer -> view<1xi32>
+  %32 = view.load %31[0] : view<1xi32> -> i32
+  %37 = index.cast %unique_output_byte_offset : offset to i64
+  %39 = scalar.assume %37 [range(%37, 0, 9223372036854775807)] : i64
+  %40 = index.cast %39 : i64 to offset
+  %41 = buffer.view %unique_output[%40] : buffer -> view<1xi32>
+  view.store %32, %41[0] : i32, view<1xi32>
+  %51 = view.load %41[0] : view<1xi32> -> i32
+  func.return %51 : i32
+}
+
+// ====
+// Scoped alignment refines a zero-origin buffer only along the branch where
+// the source promise is active.
+#include <loomcxx/buffer.h>
+[[loom::kernel, loom::workgroup_size(1, 1, 1), loom::workgroup_count(1, 1, 1)]]
+void scoped_alignment(bool active, const unsigned* input, unsigned* output) {
+  if (active) {
+    auto* aligned = loom::buffer::assume_alignment<16>(input);
+    output[0] = aligned[0];
+  }
+}
+
+// ----
+kernel.def @scoped_alignment() {
+  %3 = index.constant 1 : index
+  kernel.launch.config workgroups(%3, %3, %3) workgroup_size(%3, %3, %3) : index
+} launch(%active: i1, %input: buffer, %output: buffer) {
+  scf.if %active {
+    %aligned = buffer.assume.alignment %input {minimum_alignment = 16} : buffer
+    %32 = index.constant 0 : offset
+    %20 = buffer.view %aligned[%32] : buffer -> view<1xi32>
+    %21 = view.load %20[0] : view<1xi32> -> i32
+    %30 = buffer.view %output[%32] : buffer -> view<1xi32>
+    view.store %21, %30[0] : i32, view<1xi32>
+  }
+  kernel.return
+}

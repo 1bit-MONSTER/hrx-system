@@ -163,3 +163,16 @@ void entry(unsigned value, unsigned other) {
   // ERROR@+1: LOWERING/059 "predicate operands must be retained scalar values or pure constants without calls, mutation, or value-changing casts"
   assume(other < 32u && value < (1u / 0u));
 }
+
+// ====
+// RUN: verify
+// Heterogeneous constants preserve a strong subject, but two retained address
+// values must agree on their logical or physical domain.
+#include <loomcxx/kernel.h>
+#include <loomcxx/predicate.h>
+
+loom::type::index mixed_address_domains(loom::type::index logical, loom::type::offset physical) {
+  // ERROR@+1: LOWERING/059 "retained predicate values must use the first operand's type"
+  loom::assume(loom::predicate::eq(logical, physical));
+  return logical;
+}
