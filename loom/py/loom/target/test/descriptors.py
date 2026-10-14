@@ -1244,6 +1244,17 @@ TEST_LOW_EARLY_TIED_V4I32_DESCRIPTOR = Descriptor(
     flags=(DescriptorFlag.DEAD_REMOVABLE,),
 )
 
+TEST_LOW_EARLY_PREFERRED_V4I32_DESCRIPTOR = replace(
+    TEST_LOW_EARLY_TIED_V4I32_DESCRIPTOR,
+    key="test.early_preferred.v4i32",
+    mnemonic="test.early_preferred.v4i32",
+    semantic_tag="test.early_preferred.v4i32",
+    constraints=(
+        Constraint(ConstraintKind.PREFER_TIED, 0, 1),
+        Constraint(ConstraintKind.EARLY_CLOBBER, 0),
+    ),
+)
+
 TEST_LOW_DOT4I_S8S8_DESCRIPTOR = Descriptor(
     key="test.dot4i.s8s8",
     mnemonic="test.dot4i.s8s8",
@@ -2720,6 +2731,7 @@ TEST_LOW_CORE_DESCRIPTOR_SET = DescriptorSet(
         TEST_LOW_EARLY_CLOBBER_V4I32_DESCRIPTOR,
         TEST_LOW_MIXED_EARLY_CLOBBER_V4I32_DESCRIPTOR,
         TEST_LOW_EARLY_TIED_V4I32_DESCRIPTOR,
+        TEST_LOW_EARLY_PREFERRED_V4I32_DESCRIPTOR,
         TEST_LOW_DOT4I_S8S8_DESCRIPTOR,
         TEST_LOW_MMA_I32_2X2X2_DESCRIPTOR,
         TEST_LOW_ACCUMULATE_V8I32_DESCRIPTOR,

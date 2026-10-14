@@ -168,6 +168,8 @@ enum loom_low_schedule_value_flag_bits_e {
   LOOM_LOW_SCHEDULE_VALUE_FLAG_CANDIDATE_LATE_READ = 1u << 7,
   // Allocation requires this value to remain in physical register storage.
   LOOM_LOW_SCHEDULE_VALUE_FLAG_REQUIRES_REGISTER = 1u << 8,
+  // Definition creates independent storage before its input reads complete.
+  LOOM_LOW_SCHEDULE_VALUE_FLAG_EARLY_WRITE = 1u << 9,
 };
 typedef uint16_t loom_low_schedule_value_flags_t;
 

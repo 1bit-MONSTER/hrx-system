@@ -1690,8 +1690,6 @@ void loom_low_schedule_pressure_score_candidate(
       node->descriptor != NULL && node->operand_count == 0 &&
       !iree_any_bit_set(node->traits, LOOM_TRAIT_OBSERVABLE_EFFECT);
   const uint16_t storage_relation_count = node->storage_relation_count;
-  const bool has_early_clobber =
-      iree_any_bit_set(node->flags, LOOM_LOW_SCHEDULE_NODE_FLAG_EARLY_CLOBBER);
 
   const loom_value_ordinal_t* operand_ordinals =
       loom_low_schedule_node_const_operand_ordinals(node);
@@ -1783,9 +1781,10 @@ void loom_low_schedule_pressure_score_candidate(
     }
     loom_low_schedule_note_candidate_pressure_delta(
         state, pressure_state, value->register_class_id, (int64_t)unit_count);
-    if (has_early_clobber) {
+    if (iree_any_bit_set(value->flags,
+                         LOOM_LOW_SCHEDULE_VALUE_FLAG_EARLY_WRITE)) {
       loom_low_schedule_pressure_lifetime_note_early_result(
-          state, pressure_state, node, result_index, unit_count);
+          state, pressure_state, value->register_class_id, unit_count);
     }
   }
   IREE_ASSERT_LE(killed_live_units, pressure_state->current_live_units);

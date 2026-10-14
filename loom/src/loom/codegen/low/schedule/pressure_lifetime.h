@@ -18,8 +18,7 @@ extern "C" {
 // Accounts for an early result's overlap with input storage before any reads.
 void loom_low_schedule_pressure_lifetime_note_early_result(
     const loom_low_schedule_build_state_t* state,
-    loom_low_schedule_pressure_state_t* pressure_state,
-    const loom_low_schedule_node_t* node, uint16_t result_index,
+    loom_low_schedule_pressure_state_t* pressure_state, uint16_t reg_class_id,
     uint32_t unit_count);
 
 // Returns peak storage growth above the pre-instruction live set. Callers
