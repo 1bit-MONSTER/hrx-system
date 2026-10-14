@@ -41,6 +41,8 @@ typedef struct loom_serve_preparation_stage_t {
   loom_serve_preparation_stage_kind_t kind;
   // Model-defined selection tag. The preparation service does not interpret it.
   int64_t tag;
+  // Maximum reflected transient workspace in bytes, or zero if unrestricted.
+  uint64_t workspace_limit_bytes;
   // Owned compiler bindings; compilation requires all configuration resolved.
   loomc_config_options_t config;
   // Number of fixed parameter bindings declared by the model.
@@ -58,6 +60,7 @@ typedef struct loom_serve_preparation_t loom_serve_preparation_t;
 //   dispatch(buffer root, i64 tag) -> i32 stage
 //   config(i32 stage, buffer key, buffer value)
 //   config_i64(i32 stage, buffer key, i64 value)
+//   workspace_limit(i32 stage, i64 bytes)
 //   parameter(i32 stage, i32 binding, buffer directory, buffer path,
 //             buffer policy)
 // All string buffers exclude NUL bytes. Config values use the public loomc
@@ -89,6 +92,12 @@ iree_host_size_t loom_serve_preparation_stage_count(
 // Borrows an immutable declaration; |index| is below stage_count.
 const loom_serve_preparation_stage_t* loom_serve_preparation_stage(
     const loom_serve_preparation_t* preparation, iree_host_size_t index);
+
+// Checks the compiler-reflected transient workspace against the source's
+// optional stage limit. A reflected requirement above the limit fails with
+// RESOURCE_EXHAUSTED before execution storage is allocated.
+iree_status_t loom_serve_preparation_stage_check_workspace(
+    const loom_serve_preparation_stage_t* stage, uint64_t required_byte_length);
 
 #ifdef __cplusplus
 }  // extern "C"

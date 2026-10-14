@@ -210,6 +210,26 @@ static iree_status_t loom_serve_preparation_add_parameter(
                                             &parameter->policy);
 }
 
+static iree_status_t loom_serve_preparation_set_workspace_limit(
+    preparation_stage_t* stage, const iree_vm_call_packet_t* call) {
+  if (stage->declaration.kind != LOOM_SERVE_PREPARATION_STAGE_COMMAND) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "workspace limits require a command reflection contract");
+  }
+  const int64_t limit = (int64_t)iree_vm_call_value_argument_load(call, 1);
+  if (limit <= 0) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "workspace limit must be positive");
+  }
+  if (stage->declaration.workspace_limit_bytes) {
+    return iree_make_status(IREE_STATUS_ALREADY_EXISTS,
+                            "workspace limit declared twice");
+  }
+  stage->declaration.workspace_limit_bytes = (uint64_t)limit;
+  return iree_ok_status();
+}
+
 static iree_status_t loom_serve_preparation_module_start(
     iree_vm_module_t* base,
     const iree_vm_module_function_start_params_t* params,
@@ -232,6 +252,8 @@ static iree_status_t loom_serve_preparation_module_start(
     preparation_stage_t* stage = &preparation->stages[index];
     if (params->function_ordinal == 3) {
       status = loom_serve_preparation_add_parameter(preparation, stage, call);
+    } else if (params->function_ordinal == 5) {
+      status = loom_serve_preparation_set_workspace_limit(stage, call);
     } else {
       iree_string_view_t key = iree_string_view_empty();
       IREE_RETURN_IF_ERROR(
@@ -262,6 +284,9 @@ static const iree_vm_module_signature_type_t preparation_stage_arguments[] = {
 static const iree_vm_module_signature_type_t preparation_stage_results[] = {
     {IREE_VM_SCALAR_TYPE_I32, 0}};
 static const iree_vm_module_signature_type_t
+    preparation_workspace_limit_arguments[] = {{IREE_VM_SCALAR_TYPE_I32, 0},
+                                               {IREE_VM_SCALAR_TYPE_I64, 0}};
+static const iree_vm_module_signature_type_t
     preparation_config_i64_arguments[] = {
         {IREE_VM_SCALAR_TYPE_I32, 0},
         {IREE_VM_MODULE_SIGNATURE_TYPE_KIND_REF, 0},
@@ -279,6 +304,8 @@ static const iree_vm_module_signature_type_t preparation_parameter_arguments[] =
 
 static const iree_vm_module_callable_type_declaration_t
     preparation_callables[] = {
+        {.signature = {.arguments = {preparation_workspace_limit_arguments, 2,
+                                     2, 0, 0}}},
         {.signature = {.arguments = {preparation_stage_arguments, 2, 1, 1, 0},
                        .results = {preparation_stage_results, 1, 1, 0, 0}}},
         {.signature = {.arguments = {preparation_config_i64_arguments, 3, 2, 1,
@@ -291,20 +318,23 @@ static const iree_vm_module_callable_type_declaration_t
 
 static const iree_vm_module_export_declaration_t preparation_exports[] = {
     {.export_name = IREE_SVL("config"),
-     .callable_type_ordinal = 2,
+     .callable_type_ordinal = 3,
      .function_ordinal = 2},
     {.export_name = IREE_SVL("config_i64"),
-     .callable_type_ordinal = 1,
+     .callable_type_ordinal = 2,
      .function_ordinal = 1},
     {.export_name = IREE_SVL("dispatch"),
-     .callable_type_ordinal = 0,
+     .callable_type_ordinal = 1,
      .function_ordinal = 4},
     {.export_name = IREE_SVL("parameter"),
-     .callable_type_ordinal = 3,
+     .callable_type_ordinal = 4,
      .function_ordinal = 3},
     {.export_name = IREE_SVL("stage"),
-     .callable_type_ordinal = 0,
+     .callable_type_ordinal = 1,
      .function_ordinal = 0},
+    {.export_name = IREE_SVL("workspace_limit"),
+     .callable_type_ordinal = 0,
+     .function_ordinal = 5},
 };
 
 static void loom_serve_preparation_module_destroy(iree_vm_module_t* base) {
@@ -376,10 +406,10 @@ iree_status_t loom_serve_preparation_allocate(
         .name = IREE_SVL("prepare"),
         .flags = IREE_VM_MODULE_FLAG_LINKABLE,
         .ref_types = {&module->buffer_type, 1},
-        .counts = {.function_count = 5,
-                   .callable_type_count = 4,
-                   .export_count = 5,
-                   .callable_fields = {.value_count = 7, .ref_count = 7}},
+        .counts = {.function_count = 6,
+                   .callable_type_count = 5,
+                   .export_count = 6,
+                   .callable_fields = {.value_count = 9, .ref_count = 7}},
     };
     if (iree_status_is_ok(status)) {
       status = iree_vm_module_initialize(&preparation_module_vtable,
@@ -442,4 +472,20 @@ iree_host_size_t loom_serve_preparation_stage_count(
 const loom_serve_preparation_stage_t* loom_serve_preparation_stage(
     const loom_serve_preparation_t* preparation, iree_host_size_t index) {
   return &preparation->stages[index].declaration;
+}
+
+iree_status_t loom_serve_preparation_stage_check_workspace(
+    const loom_serve_preparation_stage_t* stage,
+    uint64_t required_byte_length) {
+  if (stage->workspace_limit_bytes &&
+      required_byte_length > stage->workspace_limit_bytes) {
+    return iree_make_status(
+        IREE_STATUS_RESOURCE_EXHAUSTED,
+        "stage '%.*s' requires %" PRIu64
+        " bytes of transient workspace, exceeding its %" PRIu64
+        "-byte source limit",
+        (int)stage->root.size, stage->root.data, required_byte_length,
+        stage->workspace_limit_bytes);
+  }
+  return iree_ok_status();
 }

@@ -67,6 +67,21 @@ TEST_F(PreparationTest, DirectDeclarationRetainsProductAndSpecialization) {
   EXPECT_EQ(std::string(value.data, value.size), "true");
 }
 
+TEST_F(PreparationTest, WorkspaceLimitConstrainsCompilerReflection) {
+  IREE_ASSERT_OK(loom_serve_preparation_allocate(
+      environment, iree_make_cstring_view(FLAG_boundary_source),
+      IREE_SV("workspace_constrained"), iree_vm_variant_span_empty(),
+      iree_vm_variant_span_empty(), iree_vm_module_span_empty(), &compilation,
+      host_allocator, &preparation));
+  const auto* stage = loom_serve_preparation_stage(preparation, 0);
+  EXPECT_EQ(stage->workspace_limit_bytes, 1073741824u);
+  IREE_EXPECT_OK(loom_serve_preparation_stage_check_workspace(
+      stage, stage->workspace_limit_bytes));
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_RESOURCE_EXHAUSTED,
+                        loom_serve_preparation_stage_check_workspace(
+                            stage, stage->workspace_limit_bytes + 1));
+}
+
 TEST_F(PreparationTest, CatalogGrowthPreservesEveryDeclaration) {
   // Bound the regression's failure mode: unconditional doubling would ask for
   // gigabytes before reporting a catalog that only needs kilobytes.
@@ -118,10 +133,16 @@ TEST_F(PreparationTest, InvalidDeclarationsReleasePartialOwnership) {
     // Terminal error from the declaration boundary.
     iree_status_code_t code;
   };
-  const Case cases[] = {{"missing_stage", IREE_STATUS_OUT_OF_RANGE},
-                        {"duplicate_parameter", IREE_STATUS_ALREADY_EXISTS},
-                        {"direct_parameter", IREE_STATUS_INVALID_ARGUMENT},
-                        {"no_stages", IREE_STATUS_INVALID_ARGUMENT}};
+  const Case cases[] = {
+      {"missing_stage", IREE_STATUS_OUT_OF_RANGE},
+      {"duplicate_parameter", IREE_STATUS_ALREADY_EXISTS},
+      {"direct_parameter", IREE_STATUS_INVALID_ARGUMENT},
+      {"missing_workspace_stage", IREE_STATUS_OUT_OF_RANGE},
+      {"duplicate_workspace_limit", IREE_STATUS_ALREADY_EXISTS},
+      {"direct_workspace_limit", IREE_STATUS_INVALID_ARGUMENT},
+      {"zero_workspace_limit", IREE_STATUS_INVALID_ARGUMENT},
+      {"negative_workspace_limit", IREE_STATUS_INVALID_ARGUMENT},
+      {"no_stages", IREE_STATUS_INVALID_ARGUMENT}};
   for (const auto& test : cases) {
     SCOPED_TRACE(test.entry);
     IREE_EXPECT_STATUS_IS(
