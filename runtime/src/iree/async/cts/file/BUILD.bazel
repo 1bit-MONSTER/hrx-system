@@ -18,16 +18,46 @@ package(
 # Individual test libraries (alwayslink for static init registration)
 #===------------------------------------------------------------------------===#
 
+iree_runtime_cc_library(
+    name = "native_file",
+    testonly = True,
+    srcs = [
+        "native_file.cc",
+    ] + select({
+        "@platforms//os:windows": ["native_file_win32.cc"],
+        "//conditions:default": ["native_file_posix.cc"],
+    }),
+    hdrs = ["native_file.h"],
+    deps = [
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/io:file_handle",
+    ],
+)
+
 # File I/O tests: open, read, write, close, concurrent reads, large I/O.
 iree_runtime_cc_library(
     name = "file_test",
     testonly = True,
-    srcs = [
-        "file_test.cc",
-        "native_file.cc",
-    ],
-    hdrs = ["native_file.h"],
+    srcs = ["file_test.cc"],
     deps = [
+        ":native_file",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/async/cts/util:registry",
+        "//runtime/src/iree/async/cts/util:test_base",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/io:file_handle",
+        "//runtime/src/iree/testing:temp_file",
+    ],
+    alwayslink = True,
+)
+
+iree_runtime_cc_library(
+    name = "requirements_test",
+    testonly = True,
+    srcs = ["requirements_test.cc"],
+    deps = [
+        ":native_file",
         "//runtime/src/iree/async",
         "//runtime/src/iree/async/cts/util:registry",
         "//runtime/src/iree/async/cts/util:test_base",
@@ -48,5 +78,6 @@ iree_runtime_cc_library(
     testonly = True,
     deps = [
         ":file_test",
+        ":requirements_test",
     ],
 )

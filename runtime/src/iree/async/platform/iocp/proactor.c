@@ -2353,6 +2353,12 @@ static iree_status_t iree_async_proactor_iocp_import_file(
                             "invalid file handle");
   }
 
+  // Allocate before the irreversible IOCP association. Import failure must not
+  // leave the caller's still-owned handle attached to this proactor.
+  iree_async_file_t* file = NULL;
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, iree_allocator_malloc(allocator, sizeof(*file), (void**)&file));
+
   // Associate the file handle with the IOCP port. This is required for
   // overlapped ReadFile/WriteFile completions to flow to this port.
   HANDLE result = CreateIoCompletionPort(
@@ -2361,6 +2367,7 @@ static iree_status_t iree_async_proactor_iocp_import_file(
       /*NumberOfConcurrentThreads=*/0);
   if (result == NULL) {
     DWORD error = GetLastError();
+    iree_allocator_free(allocator, file);
     IREE_TRACE_ZONE_END(z0);
     return iree_make_status(iree_status_code_from_win32_error(error),
                             "CreateIoCompletionPort failed for file handle "
@@ -2368,10 +2375,7 @@ static iree_status_t iree_async_proactor_iocp_import_file(
                             (unsigned long)error);
   }
 
-  // Allocate and initialize the file structure.
-  iree_async_file_t* file = NULL;
-  IREE_RETURN_AND_END_ZONE_IF_ERROR(
-      z0, iree_allocator_malloc(allocator, sizeof(*file), (void**)&file));
+  // No fallible work remains after the native association.
   memset(file, 0, sizeof(*file));
 
   iree_atomic_ref_count_init(&file->ref_count);

@@ -23,6 +23,7 @@ iree_cc_library(
   DEPS
     iree::base
     iree::base::internal
+    iree::base::internal::file_io_posix
     iree::base::internal::path
   PUBLIC
 )

@@ -46,6 +46,7 @@ iree_runtime_cc_library(
         "event_posix.c",
         "event_win32.c",
         "file.c",
+        "file_platform.h",
         "frontier.c",
         "frontier_tracker.c",
         "notification.c",
@@ -58,7 +59,13 @@ iree_runtime_cc_library(
         "semaphore.c",
         "slab.c",
         "socket.c",
-    ],
+    ] + select({
+        "@platforms//os:ios": ["file_apple.c"],
+        "@platforms//os:linux": ["file_linux.c"],
+        "@platforms//os:macos": ["file_apple.c"],
+        "@platforms//os:windows": ["file_win32.c"],
+        "//conditions:default": ["file_generic.c"],
+    }),
     hdrs = [
         "address.h",
         "affinity.h",
@@ -94,7 +101,10 @@ iree_runtime_cc_library(
         "//runtime/src/iree/base/internal:atomic_freelist",
         "//runtime/src/iree/base/internal:memory",
         "//runtime/src/iree/base/threading",
-    ],
+    ] + select({
+        "@platforms//os:linux": ["//third_party:linux_io_uapi"],
+        "//conditions:default": [],
+    }),
 )
 
 #===------------------------------------------------------------------------===#

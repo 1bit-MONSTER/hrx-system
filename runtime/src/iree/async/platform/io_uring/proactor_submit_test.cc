@@ -363,8 +363,9 @@ TEST_F(IoUringSubmitTest, MalformedTailDoesNotConsumeCloseOwnership) {
   int file_fd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
   ASSERT_GE(file_fd, 0);
   iree_async_file_t* file = nullptr;
-  IREE_ASSERT_OK(iree_async_file_import(
-      proactor_, iree_async_primitive_from_fd(file_fd), &file));
+  IREE_ASSERT_OK(iree_async_file_import(proactor_,
+                                        iree_async_primitive_from_fd(file_fd),
+                                        IREE_ASYNC_FILE_FLAG_NONE, &file));
 
   CompletionState close_completion;
   iree_async_file_close_operation_t close_operation = {};

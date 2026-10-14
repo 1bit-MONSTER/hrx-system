@@ -10,6 +10,13 @@ iree_setup_c_src_root(
   IMPLICIT_DEFS_TARGET iree_defs
 )
 
+# Native file requirements use the syscall metadata definitions independently
+# of any device provider or hardware test configuration.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  include("${PROJECT_SOURCE_DIR}/build_tools/third_party/linux_uapi/linux_uapi.cmake")
+  iree_configure_linux_io_uapi()
+endif()
+
 # Enable LLVM coverage for the runtime libraries.
 # All object archives under runtime/src/ will contain coverage information and
 # binaries will be will produce profraw files when requested.

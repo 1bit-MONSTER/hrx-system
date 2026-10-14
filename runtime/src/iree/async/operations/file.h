@@ -45,10 +45,10 @@ extern "C" {
 //   CREATE    yes     | yes      | yes   | yes
 //   TRUNCATE  yes     | yes      | yes   | yes
 //   APPEND    yes     | yes      | yes   | yes
-//   DIRECT    emul*   | yes      | yes   | yes
+//   DIRECT    native  | yes      | yes   | yes
 //
-//   * generic: O_DIRECT may be unavailable on some filesystems; falls back
-//     to buffered I/O with a warning.
+// Native uncached I/O may be unavailable on the selected filesystem. Failure
+// to enable the requested mode fails the open; it never selects buffered I/O.
 //
 enum iree_async_file_open_flag_bits_e {
   IREE_ASYNC_FILE_OPEN_FLAG_NONE = 0u,
@@ -68,15 +68,10 @@ enum iree_async_file_open_flag_bits_e {
   // Writes append to the end of the file (offset is ignored for writes).
   IREE_ASYNC_FILE_OPEN_FLAG_APPEND = 1u << 4,
 
-  // Bypass the kernel page cache (O_DIRECT on POSIX, FILE_FLAG_NO_BUFFERING
-  // on Windows). Buffers must be aligned to the filesystem block size
-  // (typically 512 or 4096 bytes). Enables predictable I/O latency at the
-  // cost of requiring the caller to manage buffering.
-  //
-  // Use this for:
-  //   - Database files where you manage your own page cache.
-  //   - Large sequential reads/writes where page cache adds overhead.
-  //   - Latency-sensitive workloads where page cache eviction is disruptive.
+  // Request native uncached I/O: O_DIRECT on Linux, FILE_FLAG_NO_BUFFERING on
+  // Windows, F_NOCACHE on Apple platforms. Query the opened file's requirements
+  // before choosing request geometry. This does not imply write-through
+  // durability, bounded latency, or absence of native copies/buffered paths.
   IREE_ASYNC_FILE_OPEN_FLAG_DIRECT = 1u << 5,
 };
 typedef uint32_t iree_async_file_open_flags_t;
@@ -140,11 +135,15 @@ typedef struct iree_async_file_open_operation_t {
 //   A successful completion with bytes_read < requested indicates:
 //     - EOF reached (normal for end of file).
 //     - Signal interruption (rare, retryable).
-//   The caller should check bytes_read and issue another read if needed.
+//   The caller inspects bytes_read and decides whether to continue. Each new
+//   request must satisfy the file's requirements; a positive short count can
+//   leave an unaligned buffer/offset that cannot be resubmitted directly.
 //
 // Buffer alignment (with DIRECT flag):
 //   When the file was opened with IREE_ASYNC_FILE_OPEN_FLAG_DIRECT, the
-//   buffer address and size must be aligned to the filesystem block size.
+//   buffer, file offset and requested length must satisfy the read requirements
+//   returned by iree_async_file_query_requirements(). No staging or geometry
+//   repair is performed by submission.
 //
 // Buffer lifetime:
 //   Registered regions are retained through the final callback. Raw buffer
@@ -196,7 +195,9 @@ typedef struct iree_async_file_read_operation_t {
 //
 // Buffer alignment (with DIRECT flag):
 //   When the file was opened with IREE_ASYNC_FILE_OPEN_FLAG_DIRECT, the
-//   buffer address and size must be aligned to the filesystem block size.
+//   buffer, file offset and requested length must satisfy the write
+//   requirements returned by iree_async_file_query_requirements(). No staging
+//   or geometry repair is performed by submission.
 //
 // Durability:
 //   Write completion means data has been accepted by the kernel, not

@@ -222,7 +222,8 @@ TEST_F(IoUringRegistrationOwnerTest, SlabLifecycleFromCallerTask) {
   ASSERT_GE(raw_file_fd_, 0) << strerror(errno);
   ASSERT_EQ(ftruncate(raw_file_fd_, 4096), 0) << strerror(errno);
   IREE_ASSERT_OK(iree_async_file_import(
-      proactor_, iree_async_primitive_from_fd(raw_file_fd_), &file_));
+      proactor_, iree_async_primitive_from_fd(raw_file_fd_),
+      IREE_ASYNC_FILE_FLAG_NONE, &file_));
   raw_file_fd_ = -1;
 
   iree_async_slab_options_t slab_options = {0};

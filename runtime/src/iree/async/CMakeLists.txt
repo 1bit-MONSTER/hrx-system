@@ -19,6 +19,22 @@ iree_cc_library(
   PUBLIC
 )
 
+set(_async_platform_srcs "")
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  list(APPEND _async_platform_srcs "file_apple.c")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  list(APPEND _async_platform_srcs "file_linux.c")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+  list(APPEND _async_platform_srcs "file_apple.c")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+  list(APPEND _async_platform_srcs "file_win32.c")
+else()
+  list(APPEND _async_platform_srcs "file_generic.c")
+endif()
+set(_async_platform_deps "")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  list(APPEND _async_platform_deps $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_io_uapi>)
+endif()
 iree_cc_library(
   NAME
     async
@@ -60,6 +76,7 @@ iree_cc_library(
     "event_posix.c"
     "event_win32.c"
     "file.c"
+    "file_platform.h"
     "frontier.c"
     "frontier_tracker.c"
     "notification.c"
@@ -72,6 +89,7 @@ iree_cc_library(
     "semaphore.c"
     "slab.c"
     "socket.c"
+    ${_async_platform_srcs}
   DEPS
     ::types
     iree::async::util::intrusive_list
@@ -80,6 +98,7 @@ iree_cc_library(
     iree::base::internal::atomic_freelist
     iree::base::internal::memory
     iree::base::threading
+    ${_async_platform_deps}
   PUBLIC
 )
 
