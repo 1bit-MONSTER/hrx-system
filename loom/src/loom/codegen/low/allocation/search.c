@@ -1126,8 +1126,10 @@ static bool loom_low_allocation_search_relation_forwards_complete_storage(
 // of the source bits and replaces later result uses with reloads, allowing the
 // required source reservation to end at the new store. Placement owns the
 // indexed relation graph, so this query visits each direct structural user at
-// most once.
-static iree_status_t loom_low_allocation_search_find_covering_spill_assignment(
+// most once. Keep this exceptional recovery out of the hot spill-candidate
+// loop; ordinary assignments never need to inspect the relation graph.
+IREE_ATTRIBUTE_NOINLINE static iree_status_t
+loom_low_allocation_search_find_covering_spill_assignment(
     loom_low_allocation_search_context_t* context,
     const loom_low_allocation_assignment_t* source_assignment,
     uint32_t program_point, uint32_t* out_assignment_index,
@@ -1248,6 +1250,39 @@ static iree_status_t loom_low_allocation_search_find_covering_spill_assignment(
   return iree_ok_status();
 }
 
+// Lazily starts duplicate tracking after the first covering spill maps a
+// source conflict onto a different assignment. Direct conflict assignments are
+// unique, so ordinary spill searches do not need this bitmap or its arena
+// storage.
+IREE_ATTRIBUTE_NOINLINE static iree_status_t
+loom_low_allocation_search_begin_covering_spill_selection(
+    const loom_low_allocation_active_set_t* active_set,
+    const uint32_t* assignment_indices, uint16_t assignment_count,
+    loom_low_allocation_search_workspace_t* workspace,
+    iree_arena_allocator_t* arena) {
+  if (workspace->candidate_selected_assignments.bit_count <
+      workspace->capacity) {
+    const iree_host_size_t selected_word_count =
+        iree_bitmap_calculate_words(workspace->capacity);
+    uint64_t* selected_words = NULL;
+    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(arena, selected_word_count,
+                                                   sizeof(*selected_words),
+                                                   (void**)&selected_words));
+    memset(selected_words, 0, selected_word_count * sizeof(*selected_words));
+    workspace->candidate_selected_assignments = (iree_bitmap_t){
+        .bit_count = workspace->capacity,
+        .words = selected_words,
+    };
+  }
+  for (uint16_t i = 0; i < assignment_count; ++i) {
+    const uint32_t active_position =
+        active_set->entries[assignment_indices[i]].position;
+    IREE_ASSERT_NE(active_position, UINT32_MAX);
+    iree_bitmap_set(workspace->candidate_selected_assignments, active_position);
+  }
+  return iree_ok_status();
+}
+
 static bool loom_low_allocation_search_spill_victim_set_is_better(
     uint16_t candidate_count, uint32_t candidate_unit_count,
     uint32_t candidate_latest_end_point, uint64_t candidate_traffic_cost,
@@ -1363,17 +1398,26 @@ static iree_status_t loom_low_allocation_search_collect_active_spill_victim_set(
         *out_blocked = true;
         break;
       }
+      if (!has_covering_spill) {
+        IREE_RETURN_IF_ERROR(
+            loom_low_allocation_search_begin_covering_spill_selection(
+                context->active_set, assignment_indices, assignment_count,
+                workspace, arena));
+      }
       has_covering_spill = true;
       assignment =
           &context->assignment_map->assignments[spill_assignment_index];
     }
     ignored_value_ids[ignored_value_count++] = conflict_assignment->value_id;
-    const uint32_t active_position =
-        context->active_set->entries[spill_assignment_index].position;
-    IREE_ASSERT_NE(active_position, UINT32_MAX);
-    if (iree_bitmap_test(workspace->candidate_selected_assignments,
-                         active_position)) {
-      continue;
+    uint32_t active_position = UINT32_MAX;
+    if (has_covering_spill) {
+      active_position =
+          context->active_set->entries[spill_assignment_index].position;
+      IREE_ASSERT_NE(active_position, UINT32_MAX);
+      if (iree_bitmap_test(workspace->candidate_selected_assignments,
+                           active_position)) {
+        continue;
+      }
     }
     if (can_spill) {
       IREE_RETURN_IF_ERROR(
@@ -1392,7 +1436,10 @@ static iree_status_t loom_low_allocation_search_collect_active_spill_victim_set(
       return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                               "active spill victim unit count overflow");
     }
-    iree_bitmap_set(workspace->candidate_selected_assignments, active_position);
+    if (has_covering_spill) {
+      iree_bitmap_set(workspace->candidate_selected_assignments,
+                      active_position);
+    }
     assignment_indices[assignment_count] = spill_assignment_index;
     ++assignment_count;
     unit_count += assignment->unit_count;
@@ -1436,22 +1483,24 @@ static iree_status_t loom_low_allocation_search_collect_active_spill_victim_set(
 
   if (!*out_blocked) {
     uint16_t released_value_count = 0;
-    for (uint16_t i = 0; i < ignored_value_count; ++i) {
-      loom_value_ordinal_t value_ordinal = LOOM_VALUE_ORDINAL_INVALID;
-      const bool has_ordinal =
-          loom_low_allocation_assignment_map_value_ordinal_for_value(
-              context->assignment_map, ignored_value_ids[i], &value_ordinal);
-      IREE_ASSERT(has_ordinal);
-      const uint32_t assignment_index =
-          context->assignment_map
-              ->assignment_indices_by_value_ordinal[value_ordinal];
-      IREE_ASSERT_NE(assignment_index, UINT32_MAX);
-      const uint32_t active_position =
-          context->active_set->entries[assignment_index].position;
-      IREE_ASSERT_NE(active_position, UINT32_MAX);
-      if (!iree_bitmap_test(workspace->candidate_selected_assignments,
-                            active_position)) {
-        ignored_value_ids[released_value_count++] = ignored_value_ids[i];
+    if (has_covering_spill) {
+      for (uint16_t i = 0; i < ignored_value_count; ++i) {
+        loom_value_ordinal_t value_ordinal = LOOM_VALUE_ORDINAL_INVALID;
+        const bool has_ordinal =
+            loom_low_allocation_assignment_map_value_ordinal_for_value(
+                context->assignment_map, ignored_value_ids[i], &value_ordinal);
+        IREE_ASSERT(has_ordinal);
+        const uint32_t assignment_index =
+            context->assignment_map
+                ->assignment_indices_by_value_ordinal[value_ordinal];
+        IREE_ASSERT_NE(assignment_index, UINT32_MAX);
+        const uint32_t active_position =
+            context->active_set->entries[assignment_index].position;
+        IREE_ASSERT_NE(active_position, UINT32_MAX);
+        if (!iree_bitmap_test(workspace->candidate_selected_assignments,
+                              active_position)) {
+          ignored_value_ids[released_value_count++] = ignored_value_ids[i];
+        }
       }
     }
     *out_assignment_count = assignment_count;
@@ -1460,12 +1509,14 @@ static iree_status_t loom_low_allocation_search_collect_active_spill_victim_set(
     *out_traffic_cost = traffic_cost;
     *out_released_value_count = released_value_count;
   }
-  for (uint16_t i = 0; i < assignment_count; ++i) {
-    const uint32_t active_position =
-        context->active_set->entries[assignment_indices[i]].position;
-    IREE_ASSERT_NE(active_position, UINT32_MAX);
-    iree_bitmap_reset(workspace->candidate_selected_assignments,
-                      active_position);
+  if (has_covering_spill) {
+    for (uint16_t i = 0; i < assignment_count; ++i) {
+      const uint32_t active_position =
+          context->active_set->entries[assignment_indices[i]].position;
+      IREE_ASSERT_NE(active_position, UINT32_MAX);
+      iree_bitmap_reset(workspace->candidate_selected_assignments,
+                        active_position);
+    }
   }
   return iree_ok_status();
 }
@@ -1523,17 +1574,6 @@ iree_status_t loom_low_allocation_search_find_active_spill_victim_set(
         workspace->candidate_assignment_indices + workspace->capacity;
     workspace->ignored_value_ids =
         workspace->best_assignment_indices + workspace->capacity;
-    const iree_host_size_t selected_word_count =
-        iree_bitmap_calculate_words(workspace->capacity);
-    uint64_t* selected_words = NULL;
-    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(arena, selected_word_count,
-                                                   sizeof(*selected_words),
-                                                   (void**)&selected_words));
-    memset(selected_words, 0, selected_word_count * sizeof(*selected_words));
-    workspace->candidate_selected_assignments = (iree_bitmap_t){
-        .bit_count = workspace->capacity,
-        .words = selected_words,
-    };
   }
   uint32_t* candidate_assignment_indices =
       workspace->candidate_assignment_indices;
