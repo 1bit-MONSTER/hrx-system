@@ -134,6 +134,22 @@ void amdf_windows_xdna_submission_build_execute(
          packet, sizeof(*packet));
 }
 
+void amdf_windows_xdna_submission_build_result_buffer(
+    uint32_t opcode, const amdf_windows_xdna_private_allocation_t* allocation,
+    uint64_t native_byte_offset, uint64_t byte_length,
+    amdf_windows_xdna_submission_t* out_submission) {
+  amdf_windows_xdna_submission_initialize(120, out_submission);
+  amdf_windows_xdna_submission_write_u64(out_submission->bytes, 0, opcode);
+  amdf_windows_xdna_submission_write_u64(out_submission->bytes, 8,
+                                         allocation->allocation);
+  amdf_windows_xdna_submission_write_u64(out_submission->bytes, 16,
+                                         byte_length);
+  amdf_windows_xdna_submission_write_u64(out_submission->bytes, 24,
+                                         native_byte_offset);
+  amdf_windows_xdna_submission_write_u64(out_submission->bytes, 32,
+                                         opcode == 1 ? 1 : 0);
+}
+
 void amdf_windows_xdna_submission_build_execute_list(
     const amdf_windows_xdna_private_allocation_t* execution_allocation,
     const amdf_windows_xdna_private_allocation_t* response_allocation,

@@ -58,3 +58,13 @@ amdf_cc_library(
     visibility = ["//libamdf/src/xdna:__subpackages__"],
     deps = [":device"],
 )
+
+amdf_cc_library(
+    name = "result_buffer",
+    hdrs = ["result_buffer.h"],
+    visibility = ["//libamdf/src/xdna:__subpackages__"],
+    deps = [
+        ":context",
+        ":memory",
+    ],
+)

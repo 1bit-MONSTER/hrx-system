@@ -10,6 +10,7 @@
 #include <stdint.h>
 
 #include "amdf/amdf.h"
+#include "amdf/xdna_result.h"
 #include "amdf/xdna_trace.h"
 
 #ifdef __cplusplus
@@ -19,7 +20,7 @@ extern "C" {
 /// The first supported XDNA extension version.
 #define AMDF_XDNA_EXTENSION_VERSION_1 1u
 
-/// Device-wide firmware observation services.
+/// Device-wide firmware tracing and context firmware-result services.
 #define AMDF_XDNA_EXTENSION_VERSION_2 2u
 
 /// The most recent XDNA extension version described by this header.
@@ -588,6 +589,52 @@ typedef struct amdf_xdna_api_t {
       amdf_device_t* device, uint32_t format_version, uint64_t position,
       void* buffer, uint32_t buffer_byte_length,
       amdf_observation_read_result_t* out_result);
+
+  /// Queries the cached backing/geometry requirements for finite firmware
+  /// results before the caller selects its memory layout. Performs no native
+  /// call, allocation or reservation. Failure leaves out_info unchanged.
+  amdf_status_t(AMDF_CALL* context_query_result_buffer_info)(
+      amdf_xdna_context_t* context, amdf_xdna_result_buffer_info_t* out_info);
+
+  /// Attaches one caller-owned finite result destination to this context.
+  /// The caller clears and publishes its destination beforehand, budgets every
+  /// possible result byte, and maintains only one active attachment per
+  /// context. The compiler/caller supplies RECORD_TIMER/READ_REGS instructions
+  /// and the record protocol; submission neither patches commands nor tracks
+  /// results.
+  ///
+  /// The caller serializes result controls with each other and queue
+  /// publication. The caller retires every result writer before collection,
+  /// rearm or detach. Controls can block on native commands; they allocate no
+  /// library objects and retain no memory/descriptor references. Native failure
+  /// may leave the association active: backing remains live until native
+  /// removal/retirement is established. Failure is not transactional rollback
+  /// or release proof.
+  amdf_status_t(AMDF_CALL* context_attach_result_buffer)(
+      amdf_xdna_context_t* context,
+      const amdf_xdna_result_buffer_binding_t* binding);
+
+  /// Completes the native result transfer for the same active binding. This
+  /// does not reset the append position, clear storage, decode records or
+  /// report a written extent. CPU access then performs the existing
+  /// host-mapping cache acquire. The caller's known finite record protocol
+  /// determines valid bytes; a successful transfer alone does not prove that
+  /// expected records exist. Failure invalidates this attempted snapshot and
+  /// preserves the backing obligation. Concurrent collection or live rearm is
+  /// not part of this mode.
+  amdf_status_t(AMDF_CALL* context_collect_result_buffer)(
+      amdf_xdna_context_t* context,
+      const amdf_xdna_result_buffer_binding_t* binding);
+
+  /// Removes the same active binding after writer retirement, leaving memory
+  /// allocated. Healthy native completion permits reuse or a fresh explicit
+  /// clear/publish/attach cycle. After an ambiguous native failure, a
+  /// subsequent successful control alone is not independent proof of writer
+  /// retirement. No implicit detach occurs during memory or context
+  /// destruction.
+  amdf_status_t(AMDF_CALL* context_detach_result_buffer)(
+      amdf_xdna_context_t* context,
+      const amdf_xdna_result_buffer_binding_t* binding);
 } amdf_xdna_api_t;
 
 #ifdef __cplusplus

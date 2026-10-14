@@ -44,6 +44,7 @@ amdf_library(
         "include/amdf/observation.h",
         "include/amdf/queue.h",
         "include/amdf/xdna.h",
+        "include/amdf/xdna_result.h",
         "include/amdf/xdna_trace.h",
     ],
     components = ["//libamdf/src/provider"],

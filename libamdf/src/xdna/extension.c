@@ -16,6 +16,7 @@
 #include "libamdf/src/xdna/device_profile.h"
 #include "libamdf/src/xdna/firmware_trace.h"
 #include "libamdf/src/xdna/kernel_queue.h"
+#include "libamdf/src/xdna/result_buffer.h"
 #include "libamdf/src/xdna/umd/device.h"
 
 static amdf_status_t AMDF_CALL amdf_xdna_endpoint_query_info(
@@ -79,6 +80,11 @@ static const amdf_xdna_api_t amdf_xdna_api_v2 = {
     .device_configure_firmware_trace =
         amdf_xdna_device_configure_firmware_trace,
     .device_read_firmware_trace = amdf_xdna_device_read_firmware_trace,
+    .context_query_result_buffer_info =
+        amdf_xdna_context_query_result_buffer_info,
+    .context_attach_result_buffer = amdf_xdna_context_attach_result_buffer,
+    .context_collect_result_buffer = amdf_xdna_context_collect_result_buffer,
+    .context_detach_result_buffer = amdf_xdna_context_detach_result_buffer,
 };
 
 uint32_t amdf_xdna_extension_query_endpoint_queue_families(

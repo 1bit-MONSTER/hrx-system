@@ -13,6 +13,7 @@
 #include "libamdf/src/xdna/umd/context.h"
 #include "libamdf/src/xdna/umd/kernel_queue.h"
 #include "libamdf/src/xdna/umd/mcdm/private_allocation.h"
+#include "libamdf/src/xdna/umd/result_buffer.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -39,6 +40,16 @@ amdf_status_t amdf_windows_xdna_kernel_execution_prepare_memory(
 amdf_status_t amdf_windows_xdna_kernel_execution_release_memory(
     amdf_windows_xdna_kernel_execution_t* execution,
     amdf_windows_xdna_private_allocation_t* allocation);
+
+// Submits and waits for one Direct-protocol result control. The caller supplies
+// a validated range in the bound aperture, excludes ordinary publication and
+// has retired its result writers. Native points remain separate from public
+// queue points. No backing pointer or attachment state is retained here.
+amdf_status_t amdf_windows_xdna_kernel_execution_result_buffer(
+    amdf_windows_xdna_kernel_execution_t* execution,
+    amdf_xdna_result_buffer_operation_t operation,
+    const amdf_windows_xdna_private_allocation_t* allocation,
+    uint64_t native_byte_offset, uint64_t byte_length);
 
 // Allocates inert host state for one context-owned execution path.
 amdf_status_t amdf_windows_xdna_kernel_execution_create(

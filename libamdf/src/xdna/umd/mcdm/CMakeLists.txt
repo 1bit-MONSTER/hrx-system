@@ -265,6 +265,7 @@ iree_cc_library(
     libamdf::src::xdna::transaction_interpreter
     libamdf::src::xdna::umd::context
     libamdf::src::xdna::umd::kernel_queue
+    libamdf::src::xdna::umd::result_buffer
   PUBLIC
 )
 endif()
@@ -330,6 +331,7 @@ iree_cc_library(
     ::firmware_trace
     ::kernel_queue
     ::memory
+    ::result_buffer
     amdf::headers
   PUBLIC
 )
@@ -473,6 +475,7 @@ iree_cc_test(
     ::kernel_execution
     ::kernel_queue
     ::memory
+    ::result_buffer
     amdf::headers
     iree::third_party::google_test
     iree::third_party::google_test_main
@@ -480,6 +483,7 @@ iree_cc_test(
     libamdf::src::xdna::device_profile
     libamdf::src::xdna::umd::kernel_queue
     libamdf::src::xdna::umd::memory
+    libamdf::src::xdna::umd::result_buffer
   LABELS
     "iree-build-requirement=libamdf"
     "iree-build-requirement=libamdf.xdna"
@@ -518,6 +522,23 @@ iree_cc_test(
   LABELS
     "iree-build-requirement=libamdf"
     "iree-build-requirement=libamdf.xdna"
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_library(
+  NAME
+    result_buffer
+  SRCS
+    "result_buffer.c"
+  DEPS
+    ::context_state
+    ::kernel_execution
+    ::memory
+    ::memory_profile
+    amdf::headers
+    libamdf::src::xdna::umd::result_buffer
+  PUBLIC
 )
 endif()
 

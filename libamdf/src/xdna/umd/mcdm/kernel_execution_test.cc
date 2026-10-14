@@ -15,6 +15,7 @@
 #include "libamdf/src/xdna/umd/kernel_queue.h"
 #include "libamdf/src/xdna/umd/mcdm/context.h"
 #include "libamdf/src/xdna/umd/memory.h"
+#include "libamdf/src/xdna/umd/result_buffer.h"
 
 namespace {
 
@@ -238,7 +239,9 @@ NTSTATUS APIENTRY Submit(const D3DKMT_SUBMITCOMMANDTOHWQUEUE* submit) {
                     : 88);
   const size_t response_address_offset = direct ? 0x40 : 0x38;
   native_state->opcodes.push_back(opcode);
-  if ((opcode == 3 || opcode == 6) && native_state->submission_result != 0) {
+  if ((opcode == 1 || opcode == 3 || opcode == 6 || opcode == 7 ||
+       opcode == 8) &&
+      native_state->submission_result != 0) {
     return native_state->submission_result;
   }
   if (opcode == 5 || opcode == 3 || opcode == 6) {
@@ -265,6 +268,19 @@ NTSTATUS APIENTRY Submit(const D3DKMT_SUBMITCOMMANDTOHWQUEUE* submit) {
       EXPECT_EQ(ReadU64(bytes, 0x08), 0u);
     } else {
       EXPECT_EQ(native_state->allocations[ReadU64(bytes, 0x08)].type, 0x3323u);
+    }
+  } else if (opcode == 1 || opcode == 7 || opcode == 8) {
+    EXPECT_TRUE(direct);
+    EXPECT_EQ(submit->CommandBuffer, 0u);
+    EXPECT_EQ(submit->CommandLength, 0u);
+    EXPECT_EQ(submit->PrivateDriverDataSize, 120u);
+    EXPECT_EQ(native_state->allocations[ReadU64(bytes, 8)].type, 0x3323u);
+    EXPECT_EQ(ReadU64(bytes, 16), 4096u);
+    EXPECT_EQ(ReadU64(bytes, 24),
+              AMDF_WINDOWS_XDNA_PRIVATE_BOOTSTRAP_SIZE + 0x10000);
+    EXPECT_EQ(ReadU64(bytes, 32), opcode == 1 ? 1u : 0u);
+    for (size_t offset = 40; offset < 120; offset += 8) {
+      EXPECT_EQ(ReadU64(bytes, offset), 0u);
     }
   } else if (opcode == 5) {
     EXPECT_EQ(submit->PrivateDriverDataSize, header_length + 520);
@@ -514,6 +530,52 @@ class WindowsXdnaKernelExecutionTest
   // Caller-owned auto-reset wake destination, closed after native teardown.
   HANDLE event_ = nullptr;
 };
+
+TEST_P(WindowsXdnaKernelExecutionTest,
+       FiniteResultControlsUseBorrowedAperture) {
+  amdf_xdna_result_buffer_info_t info = {.minimum_byte_length = 77};
+  const auto query =
+      amdf_xdna_umd_context_query_result_buffer_info(&context_, &info);
+  if (native_.protocol != AMDF_WINDOWS_XDNA_PROTOCOL_DIRECT) {
+    EXPECT_EQ(query, amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED));
+    EXPECT_EQ(info.minimum_byte_length, 77u);
+    EXPECT_TRUE(native_.opcodes.empty());
+    return;
+  }
+  ASSERT_EQ(query, AMDF_STATUS_OK);
+  EXPECT_EQ(info.binding_mode, AMDF_XDNA_RESULT_BUFFER_BINDING_RANGE);
+  EXPECT_EQ(info.minimum_byte_length, 4096u);
+  EXPECT_EQ(info.byte_offset_alignment, 4096u);
+  EXPECT_EQ(info.byte_length_granularity, 4096u);
+  amdf_xdna_umd_memory_result_t result = {};
+  ASSERT_EQ(amdf_xdna_umd_memory_prepare_private(&context_, &profile_, &create_,
+                                                 &memory_, &result),
+            AMDF_STATUS_OK);
+  const size_t allocations = native_.allocations.size();
+  device_.host_allocator.allocate = [](void*, uint64_t, uint64_t) -> void* {
+    ADD_FAILURE() << "result controls must not allocate or retain a collector";
+    return nullptr;
+  };
+  for (auto operation : {AMDF_XDNA_RESULT_BUFFER_OPERATION_ATTACH,
+                         AMDF_XDNA_RESULT_BUFFER_OPERATION_COLLECT,
+                         AMDF_XDNA_RESULT_BUFFER_OPERATION_DETACH}) {
+    const auto previous = native_.progress;
+    ASSERT_EQ(amdf_xdna_umd_context_result_buffer(&context_, operation, memory_,
+                                                  0x10000, 4096),
+              AMDF_STATUS_OK);
+    EXPECT_EQ(native_.progress, previous + 1);
+  }
+  EXPECT_EQ(native_.allocations.size(), allocations);
+  EXPECT_EQ(native_.opcodes, (std::vector<uint64_t>{2, 5, 9, 7, 1, 8}));
+  native_.submission_result = static_cast<NTSTATUS>(0xC0000001u);
+  const auto previous = native_.progress;
+  EXPECT_EQ(amdf_xdna_umd_context_result_buffer(
+                &context_, AMDF_XDNA_RESULT_BUFFER_OPERATION_ATTACH, memory_,
+                0x10000, 4096),
+            amdf_make_status(AMDF_STATUS_DOMAIN_NTSTATUS, 0xC0000001u));
+  EXPECT_EQ(native_.progress, previous);
+  native_.submission_result = 0;
+}
 
 TEST_P(WindowsXdnaKernelExecutionTest, QueueLeasesReuseContextWithoutMetadata) {
   amdf_xdna_umd_memory_result_t result = {};

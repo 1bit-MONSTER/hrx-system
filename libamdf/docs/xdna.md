@@ -420,12 +420,12 @@ A cooperative machine benchmark lease serializes participating benchmarks, not
 all device users. libamdf issues no keepalive work and changes no machine
 power policy.
 
-## Observation result memory
+## Program-owned observation memory
 
-A counter-reply or trace destination is ordinary device-writable memory. The
-caller selects a scope and memory profile with the intended NPU and host or
-GPU consumers, then obtains backing with `memory_create`, registration, or
-`memory_import`.
+A program-owned counter-reply or trace destination is ordinary device-writable
+memory. The caller selects a scope and memory profile with the intended NPU
+and host or GPU consumers, then obtains backing with `memory_create`,
+registration, or `memory_import`.
 
 `memory_query_address(memory, access_ordinal, AMDF_MEMORY_ADDRESS_XDNA_DMA,
 &address)` returns the address interpretation used by shim DMA. An offset into
@@ -443,6 +443,65 @@ from `memory_query_pair_info`. A host acquire requiring cache invalidation uses
 visibility; it does not wait for a still-running writer. A GPU reader can
 consume the same backing under its own ordering and lifetime contract. The
 [memory reference](memory.md) describes those operations in detail.
+
+## Finite firmware results
+
+XDNA extension version 2 also exposes the context's finite firmware-result
+service. `context_query_result_buffer_info` describes its borrowed private
+memory scope, allocation profile, admitted range geometry and marker clock.
+This passive query precedes memory layout decisions. Linux accepts a whole
+page-aligned private allocation; Windows Direct accepts an aligned slice of
+the context's private aperture. The caller keeps that slice disjoint from
+instructions and payloads. The Windows metadata protocols return `UNSUPPORTED`
+for this service; ordinary execution support does not imply result support.
+
+A caller creates admitted backing through the ordinary memory API, maps it,
+and clears and publishes the finite destination. The same binding then goes to
+each control:
+
+```c
+amdf_xdna_result_buffer_binding_t binding = {
+    .memory = result_memory,
+    .access_ordinal = result_access_ordinal,
+    .byte_offset = result_offset,
+    .byte_length = result_capacity,
+};
+amdf_status_t status = xdna->context_attach_result_buffer(context, &binding);
+// After successful attach, ordinary command streams may append RECORD_TIMER
+// and READ_REGS results. The caller budgets every possible emitted byte and
+// retires all writers before collecting. No per-submission host wait is added.
+if (amdf_status_is_ok(status)) {
+  status = xdna->context_collect_result_buffer(context, &binding);
+}
+// On successful collection, acquire the host mapping before reading records.
+// The caller's finite protocol supplies the record layout and valid count.
+```
+
+One attachment accepts several submissions before collection. Collection
+neither clears bytes nor resets the append position, and returns no live cursor
+or written extent. Repeated collection without new writes preserves the result.
+Explicit `context_detach_result_buffer`, followed by a new clear/publish/attach
+cycle, establishes a fresh finite capture. Every control uses the same exact
+binding and is externally serialized with other controls and queue publication.
+Native controls may block. They allocate no library objects, retain no memory
+references, and add no branch or wait to ordinary submission.
+
+The caller keeps the backing and context alive through writer retirement and
+native removal. A failed native control may have made progress; its error does
+not authorize freeing the destination. After an ambiguous native failure, a
+later successful control alone does not prove that old writers have retired.
+Neither memory release nor context destruction implicitly detaches a binding.
+
+`amdf_xdna_timer_record_t` describes the native `RECORD_TIMER` result: a caller
+ID followed by the timestamp's high and low words. The helper
+`amdf_xdna_timer_record_timestamp` combines them without converting units.
+This source is the partition-shim timer. Its reported frequency is zero until
+a rate is established; it is not the Windows KMT clock or the automatic trace
+clock. Array reconfiguration may reset it even within a context. Only records
+within a program-established common timer epoch can form a duration. Marker
+IDs identify caller regions but cannot repair a timer reset. The
+[hardware timing reference](../../docs/reference/amd/xdna/observability.md)
+describes these distinct native mechanisms.
 
 ## Automatic firmware timing
 

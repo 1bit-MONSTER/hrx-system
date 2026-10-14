@@ -216,6 +216,7 @@ iree_cc_library(
     ::firmware_trace
     ::kernel_queue
     ::memory
+    ::result_buffer
     amdf::headers
   PUBLIC
 )
@@ -329,6 +330,46 @@ iree_cc_test(
     iree::third_party::google_test
     iree::third_party::google_test_main
     libamdf::src::xdna::umd::firmware_trace
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.xdna"
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_library(
+  NAME
+    result_buffer
+  SRCS
+    "result_buffer.c"
+  DEPS
+    $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_xdna_uapi>
+    ::context_state
+    ::memory
+    amdf::headers
+    libamdf::src::platform::linux::file
+    libamdf::src::xdna::umd::result_buffer
+  PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_test(
+  NAME
+    result_buffer_test
+  SRCS
+    "result_buffer_test.cc"
+  LINKOPTS
+    "-Wl,--wrap=ioctl"
+  DEPS
+    $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_xdna_uapi>
+    ::context_state
+    ::memory
+    ::result_buffer
+    amdf::headers
+    iree::third_party::google_test
+    iree::third_party::google_test_main
+    libamdf::src::xdna::umd::result_buffer
   LABELS
     "iree-build-requirement=libamdf"
     "iree-build-requirement=libamdf.xdna"

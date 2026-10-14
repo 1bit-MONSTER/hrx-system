@@ -127,6 +127,7 @@ amdf_cc_library(
         ":device_profile",
         ":firmware_trace",
         ":kernel_queue",
+        ":result_buffer",
         "//libamdf/src:endpoint",
         "//libamdf/src:structure",
         "//libamdf/src/platform",
@@ -216,5 +217,17 @@ amdf_cc_test(
         ":firmware_trace_format",
         "//third_party:google_test",
         "//third_party:google_test_main",
+    ],
+)
+
+amdf_cc_library(
+    name = "result_buffer",
+    srcs = ["result_buffer.c"],
+    hdrs = ["result_buffer.h"],
+    deps = [
+        ":context",
+        "//libamdf/src:memory_resource",
+        "//libamdf/src:structure",
+        "//libamdf/src/xdna/umd:result_buffer",
     ],
 )

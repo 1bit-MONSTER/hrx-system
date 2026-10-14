@@ -51,6 +51,10 @@ TEST(XdnaExtensionTest, ReportsCompiledAvailabilityBeforeCreatingInstance) {
   EXPECT_NE(xdna_api->device_query_firmware_trace_info, nullptr);
   EXPECT_NE(xdna_api->device_configure_firmware_trace, nullptr);
   EXPECT_NE(xdna_api->device_read_firmware_trace, nullptr);
+  EXPECT_NE(xdna_api->context_query_result_buffer_info, nullptr);
+  EXPECT_NE(xdna_api->context_attach_result_buffer, nullptr);
+  EXPECT_NE(xdna_api->context_collect_result_buffer, nullptr);
+  EXPECT_NE(xdna_api->context_detach_result_buffer, nullptr);
   EXPECT_NE(xdna_api->endpoint_query_info, nullptr);
   EXPECT_NE(xdna_api->device_create, nullptr);
   EXPECT_NE(xdna_api->context_query_placement_info, nullptr);

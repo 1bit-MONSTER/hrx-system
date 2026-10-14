@@ -31,6 +31,23 @@ that neighboring caller contents survived registration and execution. These
 cases exercise initial cache readiness independently of the guarded round-trip
 tests, whose output initialization already requires a CPU release.
 
+`AllocatedRoundTripWithFirmwareTrace` incrementally reads the automatic
+firmware recorder while 16,384 unchanged numeric commands execute. It uses
+fixed caller storage, checks native record continuity and complete command
+intervals, and restores its initially disabled recorder. Unsupported native
+trace services skip this case without changing ordinary workload coverage.
+
+`FirmwareResultRecipeTest` attaches the smallest advertised finite result
+buffer through the dynamic XDNA API. Four useful numeric commands each emit
+three caller-identified timer records, with one host wait after the four
+submissions. Two batches append to the same attachment; a third follows an
+explicit detach/clear/attach cycle. Repeated collection preserves the snapshot.
+The oracle checks all IDs, two adjacent samples with an unchanged timer epoch,
+unused result bytes, numeric output, instruction bytes and aperture guard
+storage. Native control points do not alter public queue completion identity.
+Validation also rejects misaligned, empty and foreign-scope bindings before
+native effects. Failed controls preserve backing instead of guessing retirement.
+
 `XdnaReservationTest` queries native reservation support and mapping-source
 eligibility before allocating backing. It keeps one command and queue alive
 while replacing inputs and outputs at fixed NPU addresses, including repeated

@@ -201,6 +201,7 @@ amdf_cc_library(
         "//libamdf/src/xdna:transaction_interpreter",
         "//libamdf/src/xdna/umd:context",
         "//libamdf/src/xdna/umd:kernel_queue",
+        "//libamdf/src/xdna/umd:result_buffer",
     ],
 )
 
@@ -253,6 +254,7 @@ amdf_cc_library(
         ":firmware_trace",
         ":kernel_queue",
         ":memory",
+        ":result_buffer",
     ],
 )
 
@@ -357,10 +359,12 @@ amdf_cc_test(
         ":kernel_execution",
         ":kernel_queue",
         ":memory",
+        ":result_buffer",
         "//libamdf/src:allocator",
         "//libamdf/src/xdna:device_profile",
         "//libamdf/src/xdna/umd:kernel_queue",
         "//libamdf/src/xdna/umd:memory",
+        "//libamdf/src/xdna/umd:result_buffer",
         "//third_party:google_test",
         "//third_party:google_test_main",
     ],
@@ -388,5 +392,18 @@ amdf_cc_test(
         "//libamdf/src/xdna/umd:firmware_trace",
         "//third_party:google_test",
         "//third_party:google_test_main",
+    ],
+)
+
+amdf_cc_library(
+    name = "result_buffer",
+    srcs = ["result_buffer.c"],
+    target_compatible_with = MCDM_COMPATIBILITY,
+    deps = [
+        ":context_state",
+        ":kernel_execution",
+        ":memory",
+        ":memory_profile",
+        "//libamdf/src/xdna/umd:result_buffer",
     ],
 )

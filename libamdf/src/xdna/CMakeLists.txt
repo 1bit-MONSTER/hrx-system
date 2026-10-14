@@ -163,6 +163,7 @@ iree_cc_library(
     ::device_profile
     ::firmware_trace
     ::kernel_queue
+    ::result_buffer
     amdf::headers
     libamdf::src::endpoint
     libamdf::src::platform
@@ -299,6 +300,24 @@ iree_cc_test(
   LABELS
     "iree-build-requirement=libamdf"
     "iree-build-requirement=libamdf.xdna"
+)
+endif()
+
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_library(
+  NAME
+    result_buffer
+  HDRS
+    "result_buffer.h"
+  SRCS
+    "result_buffer.c"
+  DEPS
+    ::context
+    amdf::headers
+    libamdf::src::memory_resource
+    libamdf::src::structure
+    libamdf::src::xdna::umd::result_buffer
+  PUBLIC
 )
 endif()
 
