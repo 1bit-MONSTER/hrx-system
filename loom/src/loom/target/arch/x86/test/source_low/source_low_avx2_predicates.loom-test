@@ -180,3 +180,70 @@ low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({sig
   %result = and.imm.gpr32 %11 {imm32 = 1}
   return %result
 }
+
+// ====
+
+// Packed 64-bit comparison masks widen to the stable 128-bit callable
+// predicate carriers according to their logical lane width.
+x86.target<avx2> @target
+
+func.def target(@target) @packed_compare_return(%lhs2: vector<2xi32>, %rhs2: vector<2xi32>, %lhs4: vector<4xi16>, %rhs4: vector<4xi16>, %lhs8: vector<8xi8>, %rhs8: vector<8xi8>) -> (vector<2xi1>, vector<4xi1>, vector<8xi1>) {
+  %result2 = vector.cmpi slt, %lhs2, %rhs2 : vector<2xi32> -> vector<2xi1>
+  %result4 = vector.cmpi slt, %lhs4, %rhs4 : vector<4xi16> -> vector<4xi1>
+  %result8 = vector.cmpi slt, %lhs8, %rhs8 : vector<8xi8> -> vector<8xi1>
+  func.return %result2, %result4, %result8 : vector<2xi1>, vector<4xi1>, vector<8xi1>
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (vector<2xi32>, vector<2xi32>, vector<4xi16>, vector<4xi16>, vector<8xi8>, vector<8xi8>) -> (vector<2xi1>, vector<4xi1>, vector<8xi1>)}) @packed_compare_return(%lhs2: reg<x86.xmm>, %rhs2: reg<x86.xmm>, %lhs4: reg<x86.xmm>, %rhs4: reg<x86.xmm>, %lhs8: reg<x86.xmm>, %rhs8: reg<x86.xmm>) -> (reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>) asm {
+  %21 = vpcmpgtd.xmm %rhs2, %lhs2
+  %result2 = vpmovsxdq.xmm.xmm %21
+  %23 = vpcmpgtw.xmm %rhs4, %lhs4
+  %result4 = vpmovsxwd.xmm.xmm %23
+  %25 = vpcmpgtb.xmm %rhs8, %lhs8
+  %result8 = vpmovsxbw.xmm.xmm %25
+  return %result2, %result4, %result8
+}
+
+// ====
+
+// Callable predicate arguments pack from their stable 128-bit carriers into
+// the 64-bit layouts required by narrow vector selects.
+x86.target<avx2> @target
+
+func.def target(@target) @packed_select_argument(%condition2: vector<2xi1>, %true2: vector<2xi32>, %false2: vector<2xi32>, %condition4: vector<4xi1>, %true4: vector<4xi16>, %false4: vector<4xi16>, %condition8: vector<8xi1>, %true8: vector<8xi8>, %false8: vector<8xi8>) -> (vector<2xi32>, vector<4xi16>, vector<8xi8>) {
+  %result2 = vector.select %condition2, %true2, %false2 : vector<2xi32>
+  %result4 = vector.select %condition4, %true4, %false4 : vector<4xi16>
+  %result8 = vector.select %condition8, %true8, %false8 : vector<8xi8>
+  func.return %result2, %result4, %result8 : vector<2xi32>, vector<4xi16>, vector<8xi8>
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (vector<2xi1>, vector<2xi32>, vector<2xi32>, vector<4xi1>, vector<4xi16>, vector<4xi16>, vector<8xi1>, vector<8xi8>, vector<8xi8>) -> (vector<2xi32>, vector<4xi16>, vector<8xi8>)}) @packed_select_argument(%condition2: reg<x86.xmm>, %true2: reg<x86.xmm>, %false2: reg<x86.xmm>, %condition4: reg<x86.xmm>, %true4: reg<x86.xmm>, %false4: reg<x86.xmm>, %condition8: reg<x86.xmm>, %true8: reg<x86.xmm>, %false8: reg<x86.xmm>) -> (reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>) asm {
+  %27 = vshufps.xmm %condition2, %condition2, 136
+  %result2 = vpblendvb.xmm %false2, %true2, %27
+  %29 = vpackssdw.xmm %condition4, %condition4
+  %result4 = vpblendvb.xmm %false4, %true4, %29
+  %31 = vpacksswb.xmm %condition8, %condition8
+  %result8 = vpblendvb.xmm %false8, %true8, %31
+  return %result2, %result4, %result8
+}
+
+// ====
+
+// A packed comparison consumed by a matching select remains in its 64-bit
+// representation without a boundary conversion.
+x86.target<avx2> @target
+
+func.def target(@target) @packed_compare_select(%lhs: vector<8xi8>, %rhs: vector<8xi8>, %true_value: vector<8xi8>, %false_value: vector<8xi8>) -> (vector<8xi8>) {
+  %condition = vector.cmpi slt, %lhs, %rhs : vector<8xi8> -> vector<8xi1>
+  %result = vector.select %condition, %true_value, %false_value : vector<8xi8>
+  func.return %result : vector<8xi8>
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (vector<8xi8>, vector<8xi8>, vector<8xi8>, vector<8xi8>) -> (vector<8xi8>)}) @packed_compare_select(%lhs: reg<x86.xmm>, %rhs: reg<x86.xmm>, %true_value: reg<x86.xmm>, %false_value: reg<x86.xmm>) -> (reg<x86.xmm>) asm {
+  %condition = vpcmpgtb.xmm %rhs, %lhs
+  %result = vpblendvb.xmm %false_value, %true_value, %condition
+  return %result
+}

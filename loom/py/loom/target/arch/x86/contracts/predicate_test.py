@@ -13,6 +13,7 @@ from loom.target.arch.x86.descriptors import (
     X86_AVX512_CORE_DESCRIPTOR_SET,
 )
 from loom.target.arch.x86.vector_families import (
+    AVX2_CARRIER_VECTOR_BIT_WIDTHS,
     AVX2_VECTOR_BIT_WIDTHS,
     AVX512_SELECT_MNEMONICS,
     FLOAT_ELEMENTS,
@@ -90,6 +91,14 @@ def _register_class_guard(rule: DescriptorRule, field: str) -> str:
     )
 
 
+def _representation_guard(rule: DescriptorRule, field: str) -> int:
+    return next(
+        guard.count
+        for guard in rule.guards
+        if guard.kind == GuardKind.LOW_VALUE_REPRESENTATION and guard.field == field
+    )
+
+
 def _enum_guard(rule: DescriptorRule, field: str) -> str:
     return next(
         guard.enum_keyword
@@ -99,15 +108,29 @@ def _enum_guard(rule: DescriptorRule, field: str) -> str:
 
 
 def _representation_bit_widths(lane_count: int) -> tuple[int, ...]:
-    if lane_count == 2:
-        return (128,)
-    if lane_count == 32:
-        return (256,)
-    return (128, 256)
+    return tuple(
+        bit_width
+        for bit_width in (64, 128, 256)
+        if bit_width % lane_count == 0 and bit_width // lane_count in (8, 16, 32, 64)
+    )
 
 
 def _register_class(bit_width: int) -> str:
-    return {128: "x86.xmm", 256: "x86.ymm"}[bit_width]
+    return {64: "x86.xmm", 128: "x86.xmm", 256: "x86.ymm"}[bit_width]
+
+
+def _representation(lane_count: int, bit_width: int) -> int:
+    return bit_width // lane_count
+
+
+_PAYLOAD_NAMES_BY_BIT_WIDTH = {
+    bit_width: tuple(
+        element.name
+        for element in (*INTEGER_ELEMENTS, *STORAGE_ELEMENTS, *FLOAT_ELEMENTS)
+        if element.bit_width == bit_width
+    )
+    for bit_width in (8, 16, 32, 64)
+}
 
 
 def test_predicate_construction_covers_every_callable_lane_count() -> None:
@@ -116,6 +139,7 @@ def test_predicate_construction_covers_every_callable_lane_count() -> None:
         (
             _type_guard(rule, "result"),
             _register_class_guard(rule, "result"),
+            _representation_guard(rule, "result"),
             next(
                 (guard.minimum, guard.maximum)
                 for guard in rule.guards
@@ -127,6 +151,7 @@ def test_predicate_construction_covers_every_callable_lane_count() -> None:
         (
             Vector("i1", lanes=lane_count),
             _register_class(representation_bit_width),
+            _representation(lane_count, representation_bit_width),
             (value, value),
         )
         for lane_count in _PREDICATE_LANE_COUNTS
@@ -139,12 +164,14 @@ def test_predicate_construction_covers_every_callable_lane_count() -> None:
         (
             _type_guard(rule, "result"),
             _register_class_guard(rule, "result"),
+            _representation_guard(rule, "result"),
         )
         for rule in splat_rules
     } == {
         (
             Vector("i1", lanes=lane_count),
             _register_class(representation_bit_width),
+            _representation(lane_count, representation_bit_width),
         )
         for lane_count in _PREDICATE_LANE_COUNTS
         for representation_bit_width in _representation_bit_widths(lane_count)
@@ -164,6 +191,10 @@ def test_predicate_lane_movement_covers_every_representation() -> None:
                 rule,
                 "source" if rule.source_op is vector.vector_extract else "result",
             ),
+            _representation_guard(
+                rule,
+                "source" if rule.source_op is vector.vector_extract else "result",
+            ),
         )
         for rule in (
             *_rules_for(vector.vector_extract),
@@ -174,6 +205,7 @@ def test_predicate_lane_movement_covers_every_representation() -> None:
             source_op,
             Vector("i1", lanes=lane_count),
             _register_class(representation_bit_width),
+            _representation(lane_count, representation_bit_width),
         )
         for source_op in (vector.vector_extract, vector.vector_insert)
         for lane_count in _PREDICATE_LANE_COUNTS
@@ -188,6 +220,7 @@ def test_integer_comparisons_cover_every_element_predicate_and_carrier() -> None
             _type_guard(rule, "lhs"),
             _type_guard(rule, "result"),
             _register_class_guard(rule, "result"),
+            _representation_guard(rule, "result"),
         )
         for rule in _rules_for(vector.vector_cmpi)
     } == {
@@ -202,9 +235,14 @@ def test_integer_comparisons_cover_every_element_predicate_and_carrier() -> None
                 lanes=vector_bit_width // element.bit_width,
             ),
             _register_class(representation_bit_width),
+            _representation(
+                vector_bit_width // element.bit_width,
+                representation_bit_width,
+            ),
         )
         for element in INTEGER_ELEMENTS
-        for vector_bit_width in AVX2_VECTOR_BIT_WIDTHS
+        for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS
+        if vector_bit_width // element.bit_width in _PREDICATE_LANE_COUNTS
         for predicate in _INTEGER_PREDICATES
         for representation_bit_width in _representation_bit_widths(
             vector_bit_width // element.bit_width
@@ -219,6 +257,7 @@ def test_float_comparisons_cover_every_element_and_carrier() -> None:
             _type_guard(rule, "lhs"),
             _type_guard(rule, "result"),
             _register_class_guard(rule, "result"),
+            _representation_guard(rule, "result"),
         )
         for rule in rules
     } == {
@@ -232,9 +271,14 @@ def test_float_comparisons_cover_every_element_and_carrier() -> None:
                 lanes=vector_bit_width // element.bit_width,
             ),
             _register_class(representation_bit_width),
+            _representation(
+                vector_bit_width // element.bit_width,
+                representation_bit_width,
+            ),
         )
         for element in FLOAT_ELEMENTS
-        for vector_bit_width in AVX2_VECTOR_BIT_WIDTHS
+        for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS
+        if vector_bit_width // element.bit_width in _PREDICATE_LANE_COUNTS
         for representation_bit_width in _representation_bit_widths(
             vector_bit_width // element.bit_width
         )
@@ -250,6 +294,8 @@ def test_vector_select_covers_every_condition_and_payload_carrier_pair() -> None
         (
             _type_guard(rule, "condition"),
             _register_class_guard(rule, "condition"),
+            _representation_guard(rule, "condition"),
+            _type_guard(rule, "result"),
             _register_class_guard(rule, "result"),
         )
         for rule in _rules_for(vector.vector_select)
@@ -257,6 +303,11 @@ def test_vector_select_covers_every_condition_and_payload_carrier_pair() -> None
         (
             Vector("i1", lanes=lane_count),
             _register_class(condition_bit_width),
+            _representation(lane_count, condition_bit_width),
+            Vector(
+                _PAYLOAD_NAMES_BY_BIT_WIDTH[payload_bit_width // lane_count],
+                lanes=lane_count,
+            ),
             _register_class(payload_bit_width),
         )
         for lane_count in _PREDICATE_LANE_COUNTS
@@ -274,21 +325,46 @@ def test_whole_vector_select_covers_both_register_widths() -> None:
     assert all(_type_guard(rule, "condition") == Scalar("i1") for rule in rules)
 
 
+def test_predicate_logic_preserves_each_physical_representation() -> None:
+    assert {
+        (
+            rule.source_op,
+            _type_guard(rule, "result"),
+            _register_class_guard(rule, "result"),
+            _representation_guard(rule, "result"),
+        )
+        for source_op in (vector.vector_andi, vector.vector_ori, vector.vector_xori)
+        for rule in _rules_for(source_op)
+    } == {
+        (
+            source_op,
+            Vector("i1", lanes=lane_count),
+            _register_class(representation_bit_width),
+            _representation(lane_count, representation_bit_width),
+        )
+        for source_op in (vector.vector_andi, vector.vector_ori, vector.vector_xori)
+        for lane_count in _PREDICATE_LANE_COUNTS
+        for representation_bit_width in _representation_bit_widths(lane_count)
+    }
+
+
 def test_predicate_rule_inventory_has_no_unclassified_rows() -> None:
     expected_count = sum(
-        len(_representation_bit_widths(lane_count)) * 5
+        len(_representation_bit_widths(lane_count)) * 8
         for lane_count in _PREDICATE_LANE_COUNTS
     )
     expected_count += sum(
         len(_representation_bit_widths(vector_bit_width // element.bit_width))
         * len(_INTEGER_PREDICATES)
         for element in INTEGER_ELEMENTS
-        for vector_bit_width in AVX2_VECTOR_BIT_WIDTHS
+        for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS
+        if vector_bit_width // element.bit_width in _PREDICATE_LANE_COUNTS
     )
     expected_count += sum(
         len(_representation_bit_widths(vector_bit_width // element.bit_width))
         for element in FLOAT_ELEMENTS
-        for vector_bit_width in AVX2_VECTOR_BIT_WIDTHS
+        for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS
+        if vector_bit_width // element.bit_width in _PREDICATE_LANE_COUNTS
     )
     expected_count += sum(
         len(_representation_bit_widths(lane_count)) ** 2
@@ -316,6 +392,20 @@ _AVX512_CARRIER_CLASSES = {
     32: "x86.ymm",
     64: "x86.zmm",
 }
+_AVX512_CARRIER_REPRESENTATIONS = {
+    2: 64,
+    4: 32,
+    8: 16,
+    16: 8,
+    32: 8,
+    64: 8,
+}
+
+
+def _avx512_representation(lane_count: int, register_class: str) -> int:
+    return (
+        1 if register_class == "x86.k" else _AVX512_CARRIER_REPRESENTATIONS[lane_count]
+    )
 
 
 def _avx512_rules_for(source_op) -> tuple[DescriptorRule, ...]:
@@ -346,16 +436,17 @@ def test_avx512_predicate_construction_is_only_the_missing_delta() -> None:
             rule.source_op,
             _type_guard(rule, "result"),
             _register_class_guard(rule, "result"),
+            _representation_guard(rule, "result"),
         )
         for rule in (
             *_avx512_rules_for(vector.vector_constant),
             *_avx512_rules_for(vector.vector_splat),
         )
     } == {
-        (source_op, Vector("i1", minimum_lanes=2, maximum_lanes=64), "x86.k")
+        (source_op, Vector("i1", minimum_lanes=2, maximum_lanes=64), "x86.k", 1)
         for source_op in (vector.vector_constant, vector.vector_splat)
     } | {
-        (source_op, Vector("i1", lanes=64), "x86.zmm")
+        (source_op, Vector("i1", lanes=64), "x86.zmm", 8)
         for source_op in (vector.vector_constant, vector.vector_splat)
     }
 
@@ -372,16 +463,20 @@ def test_avx512_predicate_lane_movement_is_only_the_missing_delta() -> None:
                 rule,
                 "source" if rule.source_op is vector.vector_extract else "result",
             ),
+            _representation_guard(
+                rule,
+                "source" if rule.source_op is vector.vector_extract else "result",
+            ),
         )
         for rule in (
             *_avx512_rules_for(vector.vector_extract),
             *_avx512_rules_for(vector.vector_insert),
         )
     } == {
-        (source_op, Vector("i1", minimum_lanes=2, maximum_lanes=64), "x86.k")
+        (source_op, Vector("i1", minimum_lanes=2, maximum_lanes=64), "x86.k", 1)
         for source_op in (vector.vector_extract, vector.vector_insert)
     } | {
-        (source_op, Vector("i1", lanes=64), "x86.zmm")
+        (source_op, Vector("i1", lanes=64), "x86.zmm", 8)
         for source_op in (vector.vector_extract, vector.vector_insert)
     }
 
@@ -393,6 +488,7 @@ def test_avx512_integer_compare_covers_all_widths_elements_and_predicates() -> N
             _type_guard(rule, "lhs"),
             _type_guard(rule, "result"),
             _register_class_guard(rule, "result"),
+            _representation_guard(rule, "result"),
         )
         for rule in _avx512_rules_for(vector.vector_cmpi)
     } == {
@@ -401,6 +497,9 @@ def test_avx512_integer_compare_covers_all_widths_elements_and_predicates() -> N
             Vector(element.name, lanes=vector_bit_width // element.bit_width),
             Vector("i1", lanes=vector_bit_width // element.bit_width),
             register_class,
+            _avx512_representation(
+                vector_bit_width // element.bit_width, register_class
+            ),
         )
         for vector_bit_width in (128, 256, 512)
         for element in INTEGER_ELEMENTS
@@ -420,6 +519,7 @@ def test_avx512_float_compare_covers_all_widths_and_elements() -> None:
             _type_guard(rule, "lhs"),
             _type_guard(rule, "result"),
             _register_class_guard(rule, "result"),
+            _representation_guard(rule, "result"),
         )
         for rule in _avx512_rules_for(vector.vector_cmpf)
     } == {
@@ -427,6 +527,9 @@ def test_avx512_float_compare_covers_all_widths_and_elements() -> None:
             Vector(element.name, lanes=vector_bit_width // element.bit_width),
             Vector("i1", lanes=vector_bit_width // element.bit_width),
             register_class,
+            _avx512_representation(
+                vector_bit_width // element.bit_width, register_class
+            ),
         )
         for vector_bit_width in (128, 256, 512)
         for element in FLOAT_ELEMENTS
@@ -442,6 +545,7 @@ def test_avx512_select_covers_all_widths_and_payload_elements() -> None:
             _type_guard(rule, "condition"),
             _type_guard(rule, "result"),
             _register_class_guard(rule, "condition"),
+            _representation_guard(rule, "condition"),
         )
         for rule in _avx512_rules_for(vector.vector_select)
     } == {
@@ -449,6 +553,9 @@ def test_avx512_select_covers_all_widths_and_payload_elements() -> None:
             Vector("i1", lanes=vector_bit_width // element_bit_width),
             Vector(element_names, lanes=vector_bit_width // element_bit_width),
             register_class,
+            _avx512_representation(
+                vector_bit_width // element_bit_width, register_class
+            ),
         )
         for vector_bit_width in (128, 256, 512)
         for mnemonic in dict.fromkeys(AVX512_SELECT_MNEMONICS.values())
@@ -486,11 +593,12 @@ def test_avx512_predicate_logic_covers_mask_and_missing_carrier() -> None:
             (
                 _type_guard(rule, "result"),
                 _register_class_guard(rule, "result"),
+                _representation_guard(rule, "result"),
             )
             for rule in _avx512_rules_for(source_op)
         } == {
-            (Vector("i1", minimum_lanes=2, maximum_lanes=64), "x86.k"),
-            (Vector("i1", lanes=64), "x86.zmm"),
+            (Vector("i1", minimum_lanes=2, maximum_lanes=64), "x86.k", 1),
+            (Vector("i1", lanes=64), "x86.zmm", 8),
         }
 
 

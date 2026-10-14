@@ -20,6 +20,7 @@ from loom.dialect.view import defs as view
 from loom.target.arch.x86.contracts.avx512_predicate import (
     avx512_predicate_carrier_register_class,
     avx512_predicate_carrier_to_mask_emits,
+    avx512_predicate_representation_id,
 )
 from loom.target.arch.x86.contracts.memory import x86_fused_load_rules
 from loom.target.arch.x86.descriptors import X86_AVX512_FEATURES_DESCRIPTOR_SET
@@ -123,6 +124,12 @@ def _result_forms(
                 Guard.value_type("false_value", result_type),
                 Guard.value_type("result", result_type),
                 Guard.low_value_register_class("condition", condition_register_class),
+                Guard.low_value_representation(
+                    "condition",
+                    avx512_predicate_representation_id(
+                        lane_count, condition_register_class
+                    ),
+                ),
             ]
             if masking == "zero":
                 select_guards.append(Guard.value_float_equals("false_value", 0.0))

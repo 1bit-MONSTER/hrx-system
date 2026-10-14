@@ -77,6 +77,15 @@ _CARRIER_ELEMENT_SUFFIXES = {
     32: "b",
     64: "b",
 }
+_CARRIER_ELEMENT_BIT_WIDTHS = {
+    2: 64,
+    4: 32,
+    8: 16,
+    16: 8,
+    32: 8,
+    64: 8,
+}
+_MASK_REPRESENTATION = 1
 _INTEGER_COMPARE_IMMEDIATES = {
     "eq": 0,
     "ne": 4,
@@ -149,6 +158,30 @@ def avx512_predicate_carrier_register_class(lane_count: int) -> str:
     """Returns the callable SIMD register class for a predicate shape."""
 
     return _CARRIER_REGISTER_CLASSES[lane_count]
+
+
+def avx512_predicate_representation_id(lane_count: int, register_class: str) -> int:
+    """Returns the physical bits per logical predicate lane."""
+
+    if register_class == "x86.k":
+        return _MASK_REPRESENTATION
+    if register_class != _CARRIER_REGISTER_CLASSES[lane_count]:
+        raise ValueError(
+            f"unsupported V{lane_count} predicate register class {register_class}"
+        )
+    return _CARRIER_ELEMENT_BIT_WIDTHS[lane_count]
+
+
+def _predicate_representation_guards(
+    field: str, lane_count: int, register_class: str
+) -> tuple[Guard, Guard]:
+    return (
+        Guard.low_value_register_class(field, register_class),
+        Guard.low_value_representation(
+            field,
+            avx512_predicate_representation_id(lane_count, register_class),
+        ),
+    )
 
 
 def _mask_to_carrier_descriptor_key(lane_count: int) -> str:
@@ -283,7 +316,9 @@ def _predicate_extract_rules(
                 guards=(
                     Guard.value_type("source", source_type),
                     Guard.value_type("result", _I1),
-                    Guard.low_value_register_class("source", source_register_class),
+                    *_predicate_representation_guards(
+                        "source", lane_count, source_register_class
+                    ),
                     Guard.operand_segment_count("indices", 0),
                     Guard.i64_array_count("static_indices", 1),
                     Guard.i64_array_element_range("static_indices", 0, 0, 63),
@@ -449,8 +484,12 @@ def _predicate_insert_rules(
                     Guard.value_type("value", _I1),
                     Guard.value_type("dest", result_type),
                     Guard.value_type("result", result_type),
-                    Guard.low_value_register_class("dest", register_class),
-                    Guard.low_value_register_class("result", register_class),
+                    *_predicate_representation_guards(
+                        "dest", lane_count, register_class
+                    ),
+                    *_predicate_representation_guards(
+                        "result", lane_count, register_class
+                    ),
                     Guard.operand_segment_count("indices", 0),
                     Guard.i64_array_count("static_indices", 1),
                     Guard.i64_array_element_range("static_indices", 0, 0, 63),
@@ -519,7 +558,7 @@ def _predicate_constant_rules(
                         Guard.attr_kind("value", "i64"),
                         Guard.i64_range("value", value, value),
                         Guard.value_type("result", result_type),
-                        Guard.low_value_register_class("result", register_class),
+                        *_predicate_representation_guards("result", 64, register_class),
                         Guard.descriptor_available(move_bits),
                         *(
                             (Guard.descriptor_available(move_mask),)
@@ -604,7 +643,7 @@ def _predicate_splat_rules(
                 guards=(
                     Guard.value_type("scalar", _I1),
                     Guard.value_type("result", result_type),
-                    Guard.low_value_register_class("result", register_class),
+                    *_predicate_representation_guards("result", 64, register_class),
                     Guard.descriptor_available(zero),
                     Guard.descriptor_available(subtract),
                     Guard.descriptor_available(extend),
@@ -678,7 +717,9 @@ def _comparison_rule(
             ),
             *_typed_guards(("lhs", "rhs"), operand_type),
             Guard.value_type("result", result_type),
-            Guard.low_value_register_class("result", result_register_class),
+            *_predicate_representation_guards(
+                "result", lane_count, result_register_class
+            ),
             *(
                 (Guard.descriptor_available(conversion),)
                 if conversion is not None
@@ -881,7 +922,9 @@ def _select_rule(
         guards=(
             Guard.value_type("condition", _PREDICATE_TYPES[lane_count]),
             *_typed_guards(("true_value", "false_value", "result"), value_type),
-            Guard.low_value_register_class("condition", condition_register_class),
+            *_predicate_representation_guards(
+                "condition", lane_count, condition_register_class
+            ),
             *((Guard.descriptor_available(conversion),) if conversion else ()),
         ),
         emit=tuple(emits),
@@ -956,8 +999,11 @@ def _predicate_bitwise_rules(
                         Vector("i1", minimum_lanes=2, maximum_lanes=64),
                     ),
                     *(
-                        Guard.low_value_register_class(field, "x86.k")
+                        guard
                         for field in ("lhs", "rhs", "result")
+                        for guard in _predicate_representation_guards(
+                            field, 64, "x86.k"
+                        )
                     ),
                 ),
                 emit=(
@@ -981,8 +1027,11 @@ def _predicate_bitwise_rules(
                 guards=(
                     *_typed_guards(("lhs", "rhs", "result"), Vector("i1", lanes=64)),
                     *(
-                        Guard.low_value_register_class(field, "x86.zmm")
+                        guard
                         for field in ("lhs", "rhs", "result")
+                        for guard in _predicate_representation_guards(
+                            field, 64, "x86.zmm"
+                        )
                     ),
                 ),
                 emit=(

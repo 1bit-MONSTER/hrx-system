@@ -1497,21 +1497,21 @@ VPMOVSXBW = _instruction(
     _UNARY,
     _OPERANDS_13,
     _IMMEDIATES_0,
-    _encoding(_VEX, _MAP_2, 1, 0, 0x20, (256,)),
+    _encoding(_VEX, _MAP_2, 1, 0, 0x20, (128, 256)),
 )
 VPMOVSXDQ = _instruction(
     "vpmovsxdq",
     _UNARY,
     _OPERANDS_13,
     _IMMEDIATES_0,
-    _encoding(_VEX, _MAP_2, 1, 0, 0x25, (256,)),
+    _encoding(_VEX, _MAP_2, 1, 0, 0x25, (128, 256)),
 )
 VPMOVSXWD = _instruction(
     "vpmovsxwd",
     _UNARY,
     _OPERANDS_13,
     _IMMEDIATES_0,
-    _encoding(_VEX, _MAP_2, 1, 0, 0x23, (256,)),
+    _encoding(_VEX, _MAP_2, 1, 0, 0x23, (128, 256)),
 )
 VPMOVW2M = _instruction(
     "vpmovw2m",

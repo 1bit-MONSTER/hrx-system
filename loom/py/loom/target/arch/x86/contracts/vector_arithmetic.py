@@ -338,7 +338,7 @@ def avx2_vector_arithmetic_rules(
             descriptor_key_prefix="x86.avx2",
             vector_bit_widths=AVX2_VECTOR_BIT_WIDTHS,
             bitwise_families=AVX2_BITWISE_FAMILIES,
-            element_names=(*AVX2_PAYLOAD_ELEMENT_NAMES, "i1"),
+            element_names=AVX2_PAYLOAD_ELEMENT_NAMES,
         ),
         *vector_fma_family_rules(
             descriptor_lookup,

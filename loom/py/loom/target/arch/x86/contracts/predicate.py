@@ -25,12 +25,15 @@ from loom.target.arch.x86.contracts.rule_builders import (
     value_type_guards as _typed_guards,
 )
 from loom.target.arch.x86.vector_families import (
+    AVX2_BITWISE_FAMILIES,
+    AVX2_CARRIER_VECTOR_BIT_WIDTHS,
     AVX2_FLOAT_COMPARE_MNEMONICS,
     AVX2_INTEGER_COMPARE_MNEMONICS,
     AVX2_PAYLOAD_ELEMENT_NAMES,
     AVX2_VECTOR_BIT_WIDTHS,
     FLOAT_ELEMENTS,
     INTEGER_ELEMENTS,
+    STORAGE_ELEMENTS,
     X86_LANE_FAMILIES,
     VectorElement,
 )
@@ -62,8 +65,17 @@ _PAYLOAD_VECTOR_TYPES = Vector(
     minimum_lanes=2,
     maximum_lanes=32,
 )
-_REGISTER_SUFFIXES = {128: "xmm", 256: "ymm"}
-_REGISTER_CLASSES = {128: "x86.xmm", 256: "x86.ymm"}
+_PAYLOAD_ELEMENT_NAMES_BY_BIT_WIDTH = {
+    bit_width: tuple(
+        element.name
+        for element in (*INTEGER_ELEMENTS, *STORAGE_ELEMENTS, *FLOAT_ELEMENTS)
+        if element.bit_width == bit_width
+    )
+    for bit_width in (8, 16, 32, 64)
+}
+_REGISTER_SUFFIXES = {64: "xmm", 128: "xmm", 256: "ymm"}
+_REGISTER_CLASSES = {64: "x86.xmm", 128: "x86.xmm", 256: "x86.ymm"}
+_PREDICATE_SIMD_BIT_WIDTHS = (64, 128, 256)
 _INTEGER_BROADCAST_MNEMONICS = {
     8: "vpbroadcastb",
     16: "vpbroadcastw",
@@ -93,8 +105,16 @@ _FLOAT_COMPARE_IMMEDIATES = {
     "une": 4,
     "uno": 3,
 }
+_PREDICATE_BITWISE_SOURCE_OPS = {
+    "andi": vector.vector_andi,
+    "ori": vector.vector_ori,
+    "xori": vector.vector_xori,
+}
 
 _PREDICATE_CARRIER_TYPES = {
+    (64, 2): Vector("i32", lanes=2),
+    (64, 4): Vector("i16", lanes=4),
+    (64, 8): Vector("i8", lanes=8),
     (128, 2): Vector("i64", lanes=2),
     (128, 4): Vector("i32", lanes=4),
     (128, 8): Vector("i16", lanes=8),
@@ -122,6 +142,24 @@ def _predicate_carrier_element_bit_width(
     lane_count: int, representation_bit_width: int
 ) -> int:
     return representation_bit_width // lane_count
+
+
+def _predicate_representation_id(lane_count: int, representation_bit_width: int) -> int:
+    return _predicate_carrier_element_bit_width(lane_count, representation_bit_width)
+
+
+def _predicate_representation_guards(
+    field: str, lane_count: int, representation_bit_width: int
+) -> tuple[Guard, Guard]:
+    return (
+        Guard.low_value_register_class(
+            field, _REGISTER_CLASSES[representation_bit_width]
+        ),
+        Guard.low_value_representation(
+            field,
+            _predicate_representation_id(lane_count, representation_bit_width),
+        ),
+    )
 
 
 def _scalar_i1_mask_emits(
@@ -210,7 +248,6 @@ def _predicate_constant_rules(
             carrier_type = _PREDICATE_CARRIER_TYPES[
                 (representation_bit_width, lane_count)
             ]
-            register_class = _REGISTER_CLASSES[representation_bit_width]
             register_suffix = _REGISTER_SUFFIXES[representation_bit_width]
             zero = descriptor_lookup(f"x86.avx2.vxorps.zero.{register_suffix}")
             element_bit_width = _predicate_carrier_element_bit_width(
@@ -222,7 +259,9 @@ def _predicate_constant_rules(
             )
             common_guards = (
                 Guard.value_type("result", result_type),
-                Guard.low_value_register_class("result", register_class),
+                *_predicate_representation_guards(
+                    "result", lane_count, representation_bit_width
+                ),
             )
             rules.append(
                 DescriptorRule(
@@ -284,7 +323,6 @@ def _predicate_splat_rules(
             element_bit_width = _predicate_carrier_element_bit_width(
                 lane_count, representation_bit_width
             )
-            register_class = _REGISTER_CLASSES[representation_bit_width]
             register_suffix = _REGISTER_SUFFIXES[representation_bit_width]
             emits, descriptors = _scalar_i1_mask_emits(
                 descriptor_lookup,
@@ -301,7 +339,9 @@ def _predicate_splat_rules(
                     guards=(
                         Guard.value_type("scalar", _I1),
                         Guard.value_type("result", result_type),
-                        Guard.low_value_register_class("result", register_class),
+                        *_predicate_representation_guards(
+                            "result", lane_count, representation_bit_width
+                        ),
                         *(
                             Guard.descriptor_available(descriptor)
                             for descriptor in descriptors[:-1]
@@ -318,6 +358,20 @@ def _predicate_conversion_descriptor_keys(
     source_bit_width: int,
     result_bit_width: int,
 ) -> tuple[str, ...]:
+    if source_bit_width == 64 and result_bit_width == 128:
+        return {
+            2: ("x86.avx2.vpmovsxdq.xmm.xmm",),
+            4: ("x86.avx2.vpmovsxwd.xmm.xmm",),
+            8: ("x86.avx2.vpmovsxbw.xmm.xmm",),
+        }[lane_count]
+    if source_bit_width == 128 and result_bit_width == 64:
+        return (
+            {
+                2: "x86.avx2.vshufps.xmm",
+                4: "x86.avx2.vpackssdw.xmm",
+                8: "x86.avx2.vpacksswb.xmm",
+            }[lane_count],
+        )
     if source_bit_width == 128 and result_bit_width == 256:
         return {
             4: ("x86.avx2.vpmovsxdq.ymm.xmm",),
@@ -332,6 +386,16 @@ def _predicate_conversion_descriptor_keys(
                 8: "x86.avx2.vpackssdw.xmm",
                 16: "x86.avx2.vpacksswb.xmm",
             }[lane_count],
+        )
+    if source_bit_width == 64 and result_bit_width == 256:
+        return (
+            *_predicate_conversion_descriptor_keys(lane_count, 64, 128),
+            *_predicate_conversion_descriptor_keys(lane_count, 128, 256),
+        )
+    if source_bit_width == 256 and result_bit_width == 64:
+        return (
+            *_predicate_conversion_descriptor_keys(lane_count, 256, 128),
+            *_predicate_conversion_descriptor_keys(lane_count, 128, 64),
         )
     raise ValueError(
         f"unsupported AVX2 predicate conversion v{source_bit_width} to "
@@ -350,10 +414,58 @@ def _predicate_conversion_emits(
     descriptor_lookup: _DescriptorLookup,
     temporary_prefix: str,
 ) -> tuple[EmitDescriptorOp, ...]:
+    if source_bit_width == 64 and result_bit_width == 256:
+        middle = ValueRef.temporary(f"{temporary_prefix}_xmm")
+        return (
+            *_predicate_conversion_emits(
+                lane_count=lane_count,
+                source_bit_width=64,
+                result_bit_width=128,
+                source=source,
+                result=middle,
+                result_type=_PREDICATE_CARRIER_TYPES[(128, lane_count)],
+                descriptor_lookup=descriptor_lookup,
+                temporary_prefix=f"{temporary_prefix}_widen",
+            ),
+            *_predicate_conversion_emits(
+                lane_count=lane_count,
+                source_bit_width=128,
+                result_bit_width=256,
+                source=middle,
+                result=result,
+                result_type=result_type,
+                descriptor_lookup=descriptor_lookup,
+                temporary_prefix=f"{temporary_prefix}_finish",
+            ),
+        )
+    if source_bit_width == 256 and result_bit_width == 64:
+        middle = ValueRef.temporary(f"{temporary_prefix}_xmm")
+        return (
+            *_predicate_conversion_emits(
+                lane_count=lane_count,
+                source_bit_width=256,
+                result_bit_width=128,
+                source=source,
+                result=middle,
+                result_type=_PREDICATE_CARRIER_TYPES[(128, lane_count)],
+                descriptor_lookup=descriptor_lookup,
+                temporary_prefix=f"{temporary_prefix}_narrow",
+            ),
+            *_predicate_conversion_emits(
+                lane_count=lane_count,
+                source_bit_width=128,
+                result_bit_width=64,
+                source=middle,
+                result=result,
+                result_type=result_type,
+                descriptor_lookup=descriptor_lookup,
+                temporary_prefix=f"{temporary_prefix}_finish",
+            ),
+        )
     descriptor_keys = _predicate_conversion_descriptor_keys(
         lane_count, source_bit_width, result_bit_width
     )
-    if source_bit_width == 128:
+    if (source_bit_width, result_bit_width) in ((64, 128), (128, 256)):
         descriptor = descriptor_lookup(descriptor_keys[0])
         return (
             _op_emit(
@@ -361,6 +473,18 @@ def _predicate_conversion_emits(
                 operands={"source": source},
                 results={"dst": result},
                 result_types=None if result_type is None else {"dst": result_type},
+            ),
+        )
+
+    if source_bit_width == 128 and result_bit_width == 64:
+        pack = descriptor_lookup(descriptor_keys[0])
+        return (
+            _op_emit(
+                descriptor=pack,
+                operands={"low": source, "high": source},
+                results={"dst": result},
+                result_types=None if result_type is None else {"dst": result_type},
+                immediates={"control": 0x88} if lane_count == 2 else None,
             ),
         )
 
@@ -427,7 +551,8 @@ def _integer_compare_program(
     native_result: ValueRef,
     native_result_type: TypePattern | None,
 ) -> tuple[tuple[Descriptor, ...], tuple[EmitDescriptorOp, ...]]:
-    register_suffix = _REGISTER_SUFFIXES[vector_bit_width]
+    instruction_bit_width = max(128, vector_bit_width)
+    register_suffix = _REGISTER_SUFFIXES[instruction_bit_width]
     operand_type = _full_vector_type(element, vector_bit_width)
     equal_mnemonic, greater_mnemonic = AVX2_INTEGER_COMPARE_MNEMONICS[element.name]
     equal = descriptor_lookup(f"x86.avx2.{equal_mnemonic}.{register_suffix}")
@@ -570,11 +695,12 @@ def _integer_compare_program(
 
 
 def _predicate_representation_bit_widths(lane_count: int) -> tuple[int, ...]:
-    if lane_count == 2:
-        return (128,)
-    if lane_count == 32:
-        return (256,)
-    return (128, 256)
+    return tuple(
+        bit_width
+        for bit_width in _PREDICATE_SIMD_BIT_WIDTHS
+        if bit_width % lane_count == 0
+        and bit_width // lane_count in _PREDICATE_XMM_LANE_TYPES
+    )
 
 
 def _predicate_lane_descriptor_key(mnemonic: str, element_bit_width: int) -> str:
@@ -612,7 +738,6 @@ def _predicate_lane_movement_rules(
             insert_lane = descriptor_lookup(
                 _predicate_lane_descriptor_key(insert_mnemonic, element_bit_width)
             )
-            register_class = _REGISTER_CLASSES[representation_bit_width]
             half_lane_count = 128 // element_bit_width
             source = ValueRef.operand("source")
             lane = AttrProject.i64_array_element("static_indices", element=0)
@@ -678,7 +803,9 @@ def _predicate_lane_movement_rules(
                     guards=(
                         Guard.value_type("source", predicate_type),
                         Guard.value_type("result", _I1),
-                        Guard.low_value_register_class("source", register_class),
+                        *_predicate_representation_guards(
+                            "source", lane_count, representation_bit_width
+                        ),
                         Guard.operand_segment_count("indices", 0),
                         Guard.i64_array_count("static_indices", 1),
                         Guard.i64_array_element_range(
@@ -796,8 +923,12 @@ def _predicate_lane_movement_rules(
                         Guard.value_type("value", _I1),
                         Guard.value_type("dest", predicate_type),
                         Guard.value_type("result", predicate_type),
-                        Guard.low_value_register_class("dest", register_class),
-                        Guard.low_value_register_class("result", register_class),
+                        *_predicate_representation_guards(
+                            "dest", lane_count, representation_bit_width
+                        ),
+                        *_predicate_representation_guards(
+                            "result", lane_count, representation_bit_width
+                        ),
                         Guard.operand_segment_count("indices", 0),
                         Guard.i64_array_count("static_indices", 1),
                         Guard.i64_array_element_range(
@@ -820,9 +951,11 @@ def _integer_compare_rules(
 ) -> tuple[DescriptorRule, ...]:
     rules: list[DescriptorRule] = []
     for element in INTEGER_ELEMENTS:
-        for native_bit_width in AVX2_VECTOR_BIT_WIDTHS:
-            lane_count = element.lane_count(native_bit_width)
-            operand_type = _full_vector_type(element, native_bit_width)
+        for payload_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS:
+            lane_count = element.lane_count(payload_bit_width)
+            if lane_count not in _PREDICATE_TYPES:
+                continue
+            operand_type = _full_vector_type(element, payload_bit_width)
             result_type = _PREDICATE_TYPES[lane_count]
             for predicate in (
                 "eq",
@@ -839,7 +972,7 @@ def _integer_compare_rules(
                 for result_bit_width in _predicate_representation_bit_widths(
                     lane_count
                 ):
-                    requires_conversion = result_bit_width != native_bit_width
+                    requires_conversion = result_bit_width != payload_bit_width
                     native_result = (
                         ValueRef.temporary("native_mask")
                         if requires_conversion
@@ -849,7 +982,7 @@ def _integer_compare_rules(
                     descriptors, compare_emits = _integer_compare_program(
                         predicate,
                         element,
-                        native_bit_width,
+                        payload_bit_width,
                         descriptor_lookup,
                         native_result=native_result,
                         native_result_type=native_result_type,
@@ -858,14 +991,14 @@ def _integer_compare_rules(
                     conversion_descriptors: tuple[Descriptor, ...] = ()
                     if requires_conversion:
                         conversion_keys = _predicate_conversion_descriptor_keys(
-                            lane_count, native_bit_width, result_bit_width
+                            lane_count, payload_bit_width, result_bit_width
                         )
                         conversion_descriptors = tuple(
                             descriptor_lookup(key) for key in conversion_keys
                         )
                         conversion_emits = _predicate_conversion_emits(
                             lane_count=lane_count,
-                            source_bit_width=native_bit_width,
+                            source_bit_width=payload_bit_width,
                             result_bit_width=result_bit_width,
                             source=native_result,
                             result=ValueRef.result("result"),
@@ -884,8 +1017,8 @@ def _integer_compare_rules(
                                 Guard.enum_attr_equals("predicate", predicate),
                                 *_typed_guards(("lhs", "rhs"), operand_type),
                                 Guard.value_type("result", result_type),
-                                Guard.low_value_register_class(
-                                    "result", _REGISTER_CLASSES[result_bit_width]
+                                *_predicate_representation_guards(
+                                    "result", lane_count, result_bit_width
                                 ),
                                 *(
                                     Guard.descriptor_available(descriptor)
@@ -904,16 +1037,19 @@ def _floating_compare_rules(
 ) -> tuple[DescriptorRule, ...]:
     rules: list[DescriptorRule] = []
     for element in FLOAT_ELEMENTS:
-        for native_bit_width in AVX2_VECTOR_BIT_WIDTHS:
-            lane_count = element.lane_count(native_bit_width)
-            operand_type = _full_vector_type(element, native_bit_width)
+        for payload_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS:
+            lane_count = element.lane_count(payload_bit_width)
+            if lane_count not in _PREDICATE_TYPES:
+                continue
+            instruction_bit_width = max(128, payload_bit_width)
+            operand_type = _full_vector_type(element, payload_bit_width)
             result_type = _PREDICATE_TYPES[lane_count]
             compare = descriptor_lookup(
                 f"x86.avx2.{AVX2_FLOAT_COMPARE_MNEMONICS[element.name]}."
-                f"{_REGISTER_SUFFIXES[native_bit_width]}"
+                f"{_REGISTER_SUFFIXES[instruction_bit_width]}"
             )
             for result_bit_width in _predicate_representation_bit_widths(lane_count):
-                requires_conversion = result_bit_width != native_bit_width
+                requires_conversion = result_bit_width != payload_bit_width
                 native_result = (
                     ValueRef.temporary("native_mask")
                     if requires_conversion
@@ -937,14 +1073,14 @@ def _floating_compare_rules(
                 conversion_descriptors: tuple[Descriptor, ...] = ()
                 if requires_conversion:
                     conversion_keys = _predicate_conversion_descriptor_keys(
-                        lane_count, native_bit_width, result_bit_width
+                        lane_count, payload_bit_width, result_bit_width
                     )
                     conversion_descriptors = tuple(
                         descriptor_lookup(key) for key in conversion_keys
                     )
                     conversion_emits = _predicate_conversion_emits(
                         lane_count=lane_count,
-                        source_bit_width=native_bit_width,
+                        source_bit_width=payload_bit_width,
                         result_bit_width=result_bit_width,
                         source=native_result,
                         result=ValueRef.result("result"),
@@ -959,8 +1095,8 @@ def _floating_compare_rules(
                         guards=(
                             *_typed_guards(("lhs", "rhs"), operand_type),
                             Guard.value_type("result", result_type),
-                            Guard.low_value_register_class(
-                                "result", _REGISTER_CLASSES[result_bit_width]
+                            *_predicate_representation_guards(
+                                "result", lane_count, result_bit_width
                             ),
                             *(
                                 Guard.descriptor_available(descriptor)
@@ -979,6 +1115,10 @@ def _vector_select_rules(
     rules: list[DescriptorRule] = []
     for lane_count, condition_type in _PREDICATE_TYPES.items():
         for payload_bit_width in _predicate_representation_bit_widths(lane_count):
+            payload_type = Vector(
+                _PAYLOAD_ELEMENT_NAMES_BY_BIT_WIDTH[payload_bit_width // lane_count],
+                lanes=lane_count,
+            )
             blend = descriptor_lookup(
                 f"x86.avx2.vpblendvb.{_REGISTER_SUFFIXES[payload_bit_width]}"
             )
@@ -1015,11 +1155,10 @@ def _vector_select_rules(
                             Guard.value_type("condition", condition_type),
                             *_typed_guards(
                                 ("true_value", "false_value", "result"),
-                                _PAYLOAD_VECTOR_TYPES,
+                                payload_type,
                             ),
-                            Guard.low_value_register_class(
-                                "condition",
-                                _REGISTER_CLASSES[condition_bit_width],
+                            *_predicate_representation_guards(
+                                "condition", lane_count, condition_bit_width
                             ),
                             Guard.low_value_register_class(
                                 "result", _REGISTER_CLASSES[payload_bit_width]
@@ -1097,6 +1236,46 @@ def _whole_vector_select_rules(
     return tuple(rules)
 
 
+def _predicate_bitwise_rules(
+    descriptor_lookup: _DescriptorLookup,
+) -> tuple[DescriptorRule, ...]:
+    rules: list[DescriptorRule] = []
+    for lane_count, predicate_type in _PREDICATE_TYPES.items():
+        for representation_bit_width in _predicate_representation_bit_widths(
+            lane_count
+        ):
+            register_suffix = _REGISTER_SUFFIXES[representation_bit_width]
+            for source_operation, mnemonic, _ in AVX2_BITWISE_FAMILIES:
+                descriptor = descriptor_lookup(f"x86.avx2.{mnemonic}.{register_suffix}")
+                rules.append(
+                    DescriptorRule(
+                        source_op=_PREDICATE_BITWISE_SOURCE_OPS[source_operation],
+                        descriptor=descriptor,
+                        guards=(
+                            *_typed_guards(("lhs", "rhs", "result"), predicate_type),
+                            *(
+                                guard
+                                for field in ("lhs", "rhs", "result")
+                                for guard in _predicate_representation_guards(
+                                    field, lane_count, representation_bit_width
+                                )
+                            ),
+                        ),
+                        emit=(
+                            _op_emit(
+                                descriptor=descriptor,
+                                operands={
+                                    "lhs": ValueRef.operand("lhs"),
+                                    "rhs": ValueRef.operand("rhs"),
+                                },
+                                results={"dst": ValueRef.result("result")},
+                            ),
+                        ),
+                    )
+                )
+    return tuple(rules)
+
+
 def avx2_predicate_rules(
     descriptor_lookup: _DescriptorLookup,
 ) -> tuple[ContractCase, ...]:
@@ -1107,5 +1286,6 @@ def avx2_predicate_rules(
         *_integer_compare_rules(descriptor_lookup),
         *_floating_compare_rules(descriptor_lookup),
         *_vector_select_rules(descriptor_lookup),
+        *_predicate_bitwise_rules(descriptor_lookup),
         *_whole_vector_select_rules(descriptor_lookup),
     )

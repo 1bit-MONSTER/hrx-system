@@ -347,6 +347,7 @@ def _vector_widen_descriptor(
     result_bit_width: int,
     semantic_tag: str,
     instruction: VectorMachineInstruction,
+    explicit_source_suffix: bool = False,
 ) -> Descriptor:
     register_suffix = _VECTOR_REGISTER_SUFFIXES[result_bit_width]
     return _vex_descriptor(
@@ -356,7 +357,11 @@ def _vector_widen_descriptor(
             semantic_tag=semantic_tag,
             operands=(_vector_result(result_bit_width), _xmm_operand("source")),
             asm_forms=_asm(
-                mnemonic=f"{mnemonic}.{register_suffix}",
+                mnemonic=(
+                    f"{mnemonic}.{register_suffix}.xmm"
+                    if explicit_source_suffix
+                    else f"{mnemonic}.{register_suffix}"
+                ),
                 results=("dst",),
                 operands=("source",),
             ),
@@ -742,53 +747,30 @@ _X86_AVX2_VECTOR_DESCRIPTORS = (
         ),
         native.VPBROADCASTD_VECTOR_UNARY,
     ),
-    _vex_descriptor(
-        Descriptor(
-            key="x86.avx2.vpmovsxdq.ymm.xmm",
-            mnemonic="vpmovsxdq",
-            semantic_tag="integer.extend.signed.i32x4.i64x4",
-            operands=(_vector_result(256), _xmm_operand("source")),
-            asm_forms=_asm(
-                mnemonic="vpmovsxdq.ymm.xmm",
-                results=("dst",),
-                operands=("source",),
+    *(
+        _vector_widen_descriptor(
+            mnemonic=mnemonic,
+            result_bit_width=result_bit_width,
+            semantic_tag=(
+                f"integer.extend.signed.i{source_element_bit_width}x"
+                f"{result_bit_width // result_element_bit_width}."
+                f"i{result_element_bit_width}x"
+                f"{result_bit_width // result_element_bit_width}"
             ),
-            schedule_class=_SCHEDULE_VECTOR_I32_YMM,
-            flags=(DescriptorFlag.DEAD_REMOVABLE,),
-        ),
-        native.VPMOVSXDQ,
-    ),
-    _vex_descriptor(
-        Descriptor(
-            key="x86.avx2.vpmovsxwd.ymm.xmm",
-            mnemonic="vpmovsxwd",
-            semantic_tag="integer.extend.signed.i16x8.i32x8",
-            operands=(_vector_result(256), _xmm_operand("source")),
-            asm_forms=_asm(
-                mnemonic="vpmovsxwd.ymm.xmm",
-                results=("dst",),
-                operands=("source",),
-            ),
-            schedule_class=_SCHEDULE_VECTOR_I32_YMM,
-            flags=(DescriptorFlag.DEAD_REMOVABLE,),
-        ),
-        native.VPMOVSXWD,
-    ),
-    _vex_descriptor(
-        Descriptor(
-            key="x86.avx2.vpmovsxbw.ymm.xmm",
-            mnemonic="vpmovsxbw",
-            semantic_tag="integer.extend.signed.i8x16.i16x16",
-            operands=(_vector_result(256), _xmm_operand("source")),
-            asm_forms=_asm(
-                mnemonic="vpmovsxbw.ymm.xmm",
-                results=("dst",),
-                operands=("source",),
-            ),
-            schedule_class=_SCHEDULE_VECTOR_I32_YMM,
-            flags=(DescriptorFlag.DEAD_REMOVABLE,),
-        ),
-        native.VPMOVSXBW,
+            instruction=instruction,
+            explicit_source_suffix=True,
+        )
+        for (
+            mnemonic,
+            source_element_bit_width,
+            result_element_bit_width,
+            instruction,
+        ) in (
+            ("vpmovsxdq", 32, 64, native.VPMOVSXDQ),
+            ("vpmovsxwd", 16, 32, native.VPMOVSXWD),
+            ("vpmovsxbw", 8, 16, native.VPMOVSXBW),
+        )
+        for result_bit_width in AVX2_VECTOR_BIT_WIDTHS
     ),
     _vex_descriptor(
         Descriptor(
