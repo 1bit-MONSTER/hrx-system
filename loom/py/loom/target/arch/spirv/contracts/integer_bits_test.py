@@ -6,7 +6,10 @@
 
 from collections import Counter
 
-from loom.target.arch.spirv.contracts.integer_bits import bit_count_rules
+from loom.target.arch.spirv.contracts.integer_bits import (
+    bit_count_rules,
+    rotation_rules,
+)
 from loom.target.arch.spirv.descriptors import SPIRV_LOGICAL_CORE_DESCRIPTOR_SET
 from loom.target.arch.spirv.features import feature_bits_value
 from loom.target.contracts import DescriptorRule, GuardKind, ValueAliasRule
@@ -34,12 +37,12 @@ def test_bit_counts_cover_every_integer_width_and_native_shape() -> None:
     assert actual == expected
 
 
-def test_bit_count_recipes_use_only_the_authored_integer_capabilities() -> None:
-    for rule in bit_count_rules():
+def test_bit_recipes_use_only_the_authored_integer_capabilities() -> None:
+    for rule in (*bit_count_rules(), *rotation_rules()):
         pattern = next(
             guard.type_pattern
             for guard in rule.guards
-            if guard.kind is GuardKind.VALUE_TYPE and guard.field == "input"
+            if guard.kind is GuardKind.VALUE_TYPE and guard.field == "result"
         )
         element = pattern.elements[0]
         required = feature_bits_value(
@@ -51,6 +54,16 @@ def test_bit_count_recipes_use_only_the_authored_integer_capabilities() -> None:
                 for mask in guard.descriptor.feature_mask_words:
                     guarded |= mask
         assert guarded == required
+
+
+def test_count_recipes_use_native_scans_and_report_composed_operations() -> None:
+    for rule in bit_count_rules():
+        pattern = next(
+            guard.type_pattern
+            for guard in rule.guards
+            if guard.kind is GuardKind.VALUE_TYPE and guard.field == "input"
+        )
+        element = pattern.elements[0]
         if isinstance(rule, ValueAliasRule):
             assert element == "i1" and rule.source_op.name.endswith("ctpopi")
             continue
@@ -65,3 +78,40 @@ def test_bit_count_recipes_use_only_the_authored_integer_capabilities() -> None:
             assert len(rule.emit) == 1
         elif element != "i1":
             assert rule.report_key == "integer_bit_count"
+
+
+def test_rotations_cover_every_integer_width_and_native_shape() -> None:
+    actual = Counter()
+    for rule in rotation_rules():
+        rule.validate(SPIRV_LOGICAL_CORE_DESCRIPTOR_SET)
+        pattern = next(
+            guard.type_pattern
+            for guard in rule.guards
+            if guard.kind is GuardKind.VALUE_TYPE and guard.field == "lhs"
+        )
+        actual[
+            (rule.source_op.name, pattern.kind, pattern.elements, pattern.lanes)
+        ] += 1
+        assert not any(guard.kind is GuardKind.VALUE_I64_RANGE for guard in rule.guards)
+        if isinstance(rule, ValueAliasRule):
+            assert pattern.elements == ("i1",)
+            assert rule.source.field == "lhs"
+        else:
+            assert isinstance(rule, DescriptorRule)
+            assert rule.report_key == "integer_rotation"
+            shifts = [step for step in rule.emit if "op_shift_" in step.descriptor.key]
+            masks = [
+                step for step in rule.emit if "op_bitwise_and." in step.descriptor.key
+            ]
+            assert len(shifts) == len(masks) == 2
+            assert {shift.operands["rhs"] for shift in shifts} == {
+                mask.results["dst"] for mask in masks
+            }
+    expected = Counter()
+    for operation in ("rotli", "rotri"):
+        for width in (1, 8, 16, 32, 64):
+            element = (f"i{width}",)
+            expected[(f"scalar.{operation}", "scalar", element, None)] = 1
+            for lanes in (1, 2, 3, 4):
+                expected[(f"vector.{operation}", "vector", element, lanes)] = 1
+    assert actual == expected

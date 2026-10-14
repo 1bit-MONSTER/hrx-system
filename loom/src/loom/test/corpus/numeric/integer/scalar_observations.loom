@@ -251,6 +251,12 @@ func.def @portable_index_bitwise_observations(%ordinal: index, %lhs_bits: i64, %
   %rhs = index.cast %rhs_bits32 : i32 to index
   %amount0 = index.rem %bounded_ordinal, %c32_index : index
   %amount = index.assume %amount0 [range(%amount0, 0, 31)] : index
+  %top_count = index.ctlzi %c1_index : index
+  %carrier_width = index.add %top_count, %c1_index : index
+  // Rotation counts wrap at the target carrier width, including negative
+  // counts. The resulting low-word observations are carrier-independent.
+  %large_amount = index.add %amount, %carrier_width : index
+  %negative_amount = index.sub %amount, %carrier_width : index
 
   %and = index.andi %lhs, %rhs : index
   %or = index.ori %lhs, %rhs : index
@@ -258,13 +264,11 @@ func.def @portable_index_bitwise_observations(%ordinal: index, %lhs_bits: i64, %
   %left = index.shli %lhs, %amount : index
   %signed_right = index.shrsi %lhs, %amount : index
   %unsigned_right = index.shrui %lhs, %amount : index
-  %rotated_left = index.rotli %c1_index, %amount : index
+  %rotated_left = index.rotli %c1_index, %large_amount : index
   %rotated_right_source = index.shli %c1_index, %amount : index
-  %rotated_right = index.rotri %rotated_right_source, %amount : index
-  %top_count = index.ctlzi %c1_index : index
+  %rotated_right = index.rotri %rotated_right_source, %negative_amount : index
   %top_bit = index.shli %c1_index, %top_count : index
   %normalized_leading = index.ctlzi %top_bit : index
-  %carrier_width = index.add %top_count, %c1_index : index
   %ordinal_leading = index.ctlzi %bounded_ordinal : index
   %ordinal_width = index.sub %carrier_width, %ordinal_leading : index
   %ordinal_trailing = index.cttzi %bounded_ordinal : index

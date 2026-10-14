@@ -67,7 +67,10 @@ from loom.target.arch.spirv.contracts.index import (
     SPIRV_INDEX_CONVERSION_RULES,
     SPIRV_INDEX_NUMERIC_RULES,
 )
-from loom.target.arch.spirv.contracts.integer_bits import bit_count_rules
+from loom.target.arch.spirv.contracts.integer_bits import (
+    bit_count_rules,
+    rotation_rules,
+)
 from loom.target.arch.spirv.contracts.memory import (
     STORAGE_BUFFER_MEMORY_SPACES as _STORAGE_BUFFER_MEMORY_SPACES,
 )
@@ -1611,6 +1614,7 @@ SPIRV_LOGICAL_CORE_CONTRACT_FRAGMENT = ContractFragment(
         *extrema_rules(),
         *rounding_rules(),
         *bit_count_rules(),
+        *rotation_rules(),
         *SPIRV_ORDINARY_VECTOR_CONTRACT_CASES,
         *SPIRV_ORDINARY_VECTOR_ALU_CONTRACT_CASES,
         *_compare_rules(),

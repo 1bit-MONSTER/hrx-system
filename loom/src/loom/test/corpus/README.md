@@ -2,8 +2,8 @@
 
 This tree owns target-neutral Loom programs that establish executable language
 semantics. Each `.loom` file keeps the subject operations together with its
-`check.case` inputs and expected results. Compiler targets and execution devices
-remain outside these source packages.
+`check.scenario` inputs and independent oracle comparisons. Compiler targets and
+execution devices remain outside these source packages.
 
 Each semantic package exports an exhaustive source inventory from
 `manifest.bzl` through `loom_corpus_sources`. The root `catalog.bzl` composes

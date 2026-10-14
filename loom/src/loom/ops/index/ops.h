@@ -432,7 +432,7 @@ iree_status_t loom_index_shrui_facts(
     const loom_value_facts_t* operand_facts,
     loom_value_facts_t* result_facts);
 
-// LOOM_OP_INDEX_ROTLI: Left rotate over logical coordinate values. Offsets are physical byte counts and cannot use this op.
+// LOOM_OP_INDEX_ROTLI: Left rotate over logical coordinate values, with the count reduced modulo the target coordinate-carrier width. Offsets are physical byte counts and cannot use this op.
 // %r = index.rotli %lhs, %rhs : index
 LOOM_DEFINE_ISA(loom_index_rotli_isa, LOOM_OP_INDEX_ROTLI)
 LOOM_DEFINE_OPERAND(loom_index_rotli_lhs, 0)
@@ -451,7 +451,7 @@ iree_status_t loom_index_rotli_facts(
     const loom_value_facts_t* operand_facts,
     loom_value_facts_t* result_facts);
 
-// LOOM_OP_INDEX_ROTRI: Right rotate over logical coordinate values. Offsets are physical byte counts and cannot use this op.
+// LOOM_OP_INDEX_ROTRI: Right rotate over logical coordinate values, with the count reduced modulo the target coordinate-carrier width. Offsets are physical byte counts and cannot use this op.
 // %r = index.rotri %lhs, %rhs : index
 LOOM_DEFINE_ISA(loom_index_rotri_isa, LOOM_OP_INDEX_ROTRI)
 LOOM_DEFINE_OPERAND(loom_index_rotri_lhs, 0)

@@ -1,0 +1,92 @@
+// RUN: emit source-low target=spirv:vulkan1.3+bda output=low
+
+// Runtime coordinate counts need no range proof and use the I32 recipe.
+func.def @coordinate_rotation(%value: index, %amount: index) -> (index) {
+  %result = index.rotli %value, %amount : index
+  func.return %result : index
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @coordinate_rotation(%value: reg<spirv.id : index>, %amount: reg<spirv.id : index>) -> (reg<spirv.id : index>) asm {
+  %7 = OpConstant.i32 31 : reg<spirv.id>
+  %8 = OpBitwiseAnd %amount, %7 : reg<spirv.id>
+  %9 = OpConstant.i32 0 : reg<spirv.id>
+  %10 = OpISub %9, %8 : reg<spirv.id>
+  %11 = OpBitwiseAnd %10, %7 : reg<spirv.id>
+  %12 = OpShiftLeftLogical %value, %8 : reg<spirv.id>
+  %13 = OpShiftRightLogical %value, %11 : reg<spirv.id>
+  %result = OpBitwiseOr %12, %13 : reg<spirv.id : index>
+  return %result
+}
+
+// ====
+// RUN: emit source-low target=spirv:vulkan1.3+bda+extended-types output=low
+
+// Both shift counts are masked at the authored narrow width.
+func.def @byte_rotation(%value: i8, %amount: i8) -> (i8) {
+  %result = scalar.rotri %value, %amount : i8
+  func.return %result : i8
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @byte_rotation(%value: reg<spirv.id : i8>, %amount: reg<spirv.id : i8>) -> (reg<spirv.id : i8>) asm {
+  %7 = OpConstant.i8 7 : reg<spirv.id>
+  %8 = OpBitwiseAnd.i8 %amount, %7 : reg<spirv.id>
+  %9 = OpConstant.i8 0 : reg<spirv.id>
+  %10 = OpISub.i8 %9, %8 : reg<spirv.id>
+  %11 = OpBitwiseAnd.i8 %10, %7 : reg<spirv.id>
+  %12 = OpShiftLeftLogical.i8 %value, %11 : reg<spirv.id>
+  %13 = OpShiftRightLogical.i8 %value, %8 : reg<spirv.id>
+  %result = OpBitwiseOr.i8 %12, %13
+  return %result
+}
+
+// ====
+// RUN: emit source-low target=spirv:vulkan1.3+bda output=low
+
+// A native vector uses independent per-lane counts, including the odd shape.
+func.def @vector_rotation(%first: i64, %second: i64, %third: i64) -> (i64) {
+  %values = vector.from_elements %first, %second, %third : vector<3xi64>
+  %amounts = vector.from_elements %second, %third, %first : vector<3xi64>
+  %rotated = vector.rotli %values, %amounts : vector<3xi64>
+  %result = vector.extract %rotated[1] : vector<3xi64> -> i64
+  func.return %result : i64
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @vector_rotation(%first: reg<spirv.id : i64>, %second: reg<spirv.id : i64>, %third: reg<spirv.id : i64>) -> (reg<spirv.id : i64>) asm {
+  %values = OpCompositeConstruct.v3i64 %first, %second, %third
+  %amounts = OpCompositeConstruct.v3i64 %second, %third, %first
+  %14 = OpConstant.i64 63 : reg<spirv.id>
+  %15 = OpCompositeConstruct.v3i64 %14, %14, %14 : reg<spirv.id>
+  %16 = OpBitwiseAnd.v3i64 %amounts, %15 : reg<spirv.id>
+  %17 = OpConstant.i64 0 : reg<spirv.id>
+  %18 = OpCompositeConstruct.v3i64 %17, %17, %17 : reg<spirv.id>
+  %19 = OpISub.v3i64 %18, %16 : reg<spirv.id>
+  %20 = OpBitwiseAnd.v3i64 %19, %15 : reg<spirv.id>
+  %21 = OpShiftLeftLogical.v3i64 %values, %16 : reg<spirv.id>
+  %22 = OpShiftRightLogical.v3i64 %values, %20 : reg<spirv.id>
+  %rotated = OpBitwiseOr.v3i64 %21, %22
+  %result = OpCompositeExtract.v3i64.i64 %rotated, 1
+  return %result
+}
+
+// ====
+// RUN: emit source-low target=spirv:vulkan1.3+bda output=low
+
+// One-bit scalar and vector rotations are identity for every count.
+func.def @predicate_rotation(%first: i1, %second: i1) -> (i1, i1) {
+  %values = vector.from_elements %first, %second : vector<2xi1>
+  %amounts = vector.from_elements %second, %first : vector<2xi1>
+  %rotated = vector.rotri %values, %amounts : vector<2xi1>
+  %vector_result = vector.extract %rotated[1] : vector<2xi1> -> i1
+  %scalar_result = scalar.rotli %first, %second : i1
+  func.return %vector_result, %scalar_result : i1, i1
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @predicate_rotation(%scalar_result: reg<spirv.id : i1>, %second: reg<spirv.id : i1>) -> (reg<spirv.id : i1>, reg<spirv.id : i1>) asm {
+  %rotated = OpCompositeConstruct.v2bool %scalar_result, %second
+  %vector_result = OpCompositeExtract.v2bool.bool %rotated, 1
+  return %vector_result, %scalar_result
+}

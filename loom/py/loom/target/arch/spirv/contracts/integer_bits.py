@@ -175,3 +175,69 @@ def bit_count_rules() -> tuple[ContractCase, ...]:
                     else bit_count_rule(source_op, pattern, width, lanes)
                 )
     return tuple(rules)
+
+
+def rotation_rule(
+    source_op: Op, pattern: TypePattern, width: int, lanes: int = 1
+) -> ContractCase:
+    """Lowers a modulo-width rotation without any full-width shift."""
+    guards = tuple(
+        Guard.value_type(field, pattern) for field in ("lhs", "rhs", "result")
+    )
+    if width == 1:
+        return ValueAliasRule(
+            source_op=source_op,
+            source=ValueRef.operand("lhs"),
+            result=ValueRef.result("result"),
+            guards=guards,
+        )
+    recipe = IntegerRecipe(width, lanes)
+    value = ValueRef.operand("lhs")
+    mask = recipe.constant(width - 1)
+    amount = recipe.binary("bitwise_and", ValueRef.operand("rhs"), mask)
+    complement = recipe.binary("isub", recipe.constant(0), amount)
+    # SPIR-V shifts are undefined for counts at least the component width.
+    # Mask both counts so a zero rotation never shifts by the full width.
+    reverse_amount = recipe.binary("bitwise_and", complement, mask)
+    left_amount, right_amount = (
+        (amount, reverse_amount)
+        if source_op.name.endswith("rotli")
+        else (reverse_amount, amount)
+    )
+    left = recipe.binary("shift_left_logical", value, left_amount)
+    right = recipe.binary("shift_right_logical", value, right_amount)
+    recipe.emit(
+        f"bitwise_or.{recipe.integer_suffix}",
+        {"lhs": left, "rhs": right},
+        result=ValueRef.result("result"),
+    )
+    return DescriptorRule(
+        source_op=source_op,
+        descriptor=recipe.emits[-1].descriptor,
+        guards=(
+            *guards,
+            *descriptor_feature_guards(*(step.descriptor for step in recipe.emits)),
+        ),
+        emit=tuple(recipe.emits),
+        report_key="integer_rotation",
+    )
+
+
+def rotation_rules() -> tuple[ContractCase, ...]:
+    rules: list[ContractCase] = []
+    for width in (1, 8, 16, 32, 64):
+        for source_lanes in (0, 1, 2, 3, 4):
+            lanes = max(1, source_lanes)
+            pattern = (
+                Scalar(f"i{width}")
+                if source_lanes == 0
+                else Vector(f"i{width}", lanes=lanes)
+            )
+            for operation in ("rotli", "rotri"):
+                source_op = (
+                    getattr(scalar, f"scalar_{operation}")
+                    if source_lanes == 0
+                    else getattr(vector, f"vector_{operation}")
+                )
+                rules.append(rotation_rule(source_op, pattern, width, lanes))
+    return tuple(rules)

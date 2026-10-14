@@ -3080,13 +3080,13 @@ vector_shrui = _lanewise_binary(
 vector_rotli = _lanewise_binary(
     "vector.rotli",
     result_constraint=INTEGER_ELEMENT,
-    doc="Lanewise left rotate of same-typed integer vector operands.",
+    doc="Lanewise left rotate of same-typed integer vector operands. Each count is reduced modulo the element width; one-bit rotation is identity.",
 )
 
 vector_rotri = _lanewise_binary(
     "vector.rotri",
     result_constraint=INTEGER_ELEMENT,
-    doc="Lanewise right rotate of same-typed integer vector operands.",
+    doc="Lanewise right rotate of same-typed integer vector operands. Each count is reduced modulo the element width; one-bit rotation is identity.",
 )
 
 vector_ctlzi = _lanewise_unary(
