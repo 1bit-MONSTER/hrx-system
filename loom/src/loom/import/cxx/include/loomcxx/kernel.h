@@ -7,7 +7,6 @@
 #ifndef LOOMCXX_KERNEL_H_
 #define LOOMCXX_KERNEL_H_
 
-#include <loomcxx/atomic.h>
 #include <loomcxx/buffer.h>
 #include <loomcxx/cache.h>
 #include <loomcxx/view.h>

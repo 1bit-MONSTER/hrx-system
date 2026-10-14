@@ -135,3 +135,37 @@ void gather_tile(const unsigned char* input) {
   auto transfer_group = loom::kernel::async::group(transfer);
   loom::kernel::async::wait<0>(transfer_group);
 }
+
+// ====
+// Atomic accesses retain one shared typed view and its multidimensional
+// logical coordinates through C++ projection.
+#include <loomcxx/atomic.h>
+#include <loomcxx/kernel.h>
+
+using loom::atomic::kind;
+using loom::atomic::ordering;
+using loom::atomic::scope;
+
+[[loom::kernel, loom::workgroup_count(1, 1, 1), loom::workgroup_size(1, 1, 1)]]
+void atomic_grid(unsigned* storage, unsigned row) {
+  auto values = loom::buffer::view<4, 8>(storage, {}, loom::encoding::layout::dense<2>());
+  unsigned observed = loom::view::atomic::load<ordering::acquire, scope::device>(values, row, 0);
+  loom::view::atomic::store<ordering::release, scope::device>(observed, values, row, 1);
+  unsigned old = loom::view::atomic::rmw<kind::addi, ordering::acq_rel, scope::device>(1u, values, row, 2);
+  loom::view::atomic::reduce<kind::maxui, ordering::relaxed, scope::device>(old, values, row, 3);
+  (void)loom::view::atomic::cmpxchg<ordering::acq_rel, ordering::acquire, scope::device>(observed, old, values, row, 4);
+}
+
+// ----
+#include <loomcxx/atomic.h>
+#include <loomcxx/kernel.h>
+
+[[loom::kernel, loom::workgroup_count(1, 1, 1), loom::workgroup_size(1, 1, 1)]]
+void atomic_grid(unsigned* storage, unsigned row) {
+  auto values = loom::buffer::view<4, 8>(storage, {}, loom::encoding::layout::dense<2>());
+  unsigned observed = loom::view::atomic::load<loom::atomic::ordering::acquire, loom::atomic::scope::device>(values, loom::index::cast(row), loom::type::index{0});
+  loom::view::atomic::store<loom::atomic::ordering::release, loom::atomic::scope::device>(observed, values, loom::index::cast(row), loom::type::index{1});
+  unsigned old = loom::view::atomic::rmw<loom::atomic::kind::addi, loom::atomic::ordering::acq_rel, loom::atomic::scope::device>(1u, values, loom::index::cast(row), loom::type::index{2});
+  loom::view::atomic::reduce<loom::atomic::kind::maxui, loom::atomic::ordering::relaxed, loom::atomic::scope::device>(old, values, loom::index::cast(row), loom::type::index{3});
+  (void)loom::view::atomic::cmpxchg<loom::atomic::ordering::acq_rel, loom::atomic::ordering::acquire, loom::atomic::scope::device>(observed, old, values, loom::index::cast(row), loom::type::index{4});
+}
