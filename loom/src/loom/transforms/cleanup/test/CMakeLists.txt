@@ -21,6 +21,7 @@ loom_check_test_suite(
     "hint_lifetime.loom-test"
     "integer_division.loom-test"
     "parameter_domains.loom-test"
+    "redundant_assumptions.loom-test"
     "value_equality.loom-test"
     "value_facts.loom-test"
     "value_identity.loom-test"

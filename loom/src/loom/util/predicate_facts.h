@@ -38,6 +38,16 @@ bool loom_value_fact_table_proves_predicate_list(
     const loom_value_fact_table_t* table, const loom_predicate_t* predicates,
     uint16_t predicate_count);
 
+// Returns true when one verified |premise| predicate logically establishes
+// the verified |conclusion| predicate. SSA arguments compare by their retained
+// canonical identities in |table|; no numeric, contextual, or path facts are
+// consulted. This makes the query suitable for deciding whether one explicit
+// predicate carrier subsumes another without confusing ambient proof with a
+// durable program contract.
+bool loom_value_fact_table_predicate_implies(
+    const loom_value_fact_table_t* table, const loom_predicate_t* premise,
+    const loom_predicate_t* conclusion);
+
 // Tightens one fact per SSA alias using predicates over those aliases and
 // externally referenced SSA values already defined in |table|. Literal
 // predicates refine their target alias directly. Binary relational predicates

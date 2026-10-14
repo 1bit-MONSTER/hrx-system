@@ -200,6 +200,185 @@ bool loom_value_fact_table_proves_predicate_list(
   return true;
 }
 
+static bool loom_value_fact_table_predicate_arguments_equal(
+    const loom_value_fact_table_t* table, loom_predicate_arg_tag_t lhs_tag,
+    int64_t lhs_argument, loom_predicate_arg_tag_t rhs_tag,
+    int64_t rhs_argument) {
+  if (lhs_tag != rhs_tag) {
+    return false;
+  }
+  if (lhs_tag == LOOM_PRED_ARG_VALUE) {
+    if (lhs_argument < 0 || rhs_argument < 0) {
+      return false;
+    }
+    return loom_value_fact_table_query_identity(
+               table, (loom_value_id_t)lhs_argument) ==
+           loom_value_fact_table_query_identity(table,
+                                                (loom_value_id_t)rhs_argument);
+  }
+  return lhs_argument == rhs_argument;
+}
+
+static bool loom_value_fact_table_predicate_operands_equal(
+    const loom_value_fact_table_t* table, const loom_predicate_t* lhs,
+    const loom_predicate_t* rhs, bool swapped) {
+  if (lhs->arg_count != rhs->arg_count) {
+    return false;
+  }
+  for (uint8_t i = 0; i < lhs->arg_count; ++i) {
+    const uint8_t rhs_index = swapped ? (uint8_t)(lhs->arg_count - i - 1) : i;
+    if (!loom_value_fact_table_predicate_arguments_equal(
+            table, (loom_predicate_arg_tag_t)lhs->arg_tags[i], lhs->args[i],
+            (loom_predicate_arg_tag_t)rhs->arg_tags[rhs_index],
+            rhs->args[rhs_index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool loom_value_fact_table_unsigned_relation_outcomes(
+    loom_predicate_kind_t kind,
+    loom_integer_order_outcome_bits_t* out_outcomes) {
+  switch (kind) {
+    case LOOM_PREDICATE_EQ:
+      *out_outcomes = LOOM_INTEGER_ORDER_OUTCOME_BIT_EQUAL;
+      return true;
+    case LOOM_PREDICATE_NE:
+      *out_outcomes = LOOM_INTEGER_ORDER_OUTCOME_BIT_LESS |
+                      LOOM_INTEGER_ORDER_OUTCOME_BIT_GREATER;
+      return true;
+    case LOOM_PREDICATE_ULT:
+      *out_outcomes = LOOM_INTEGER_ORDER_OUTCOME_BIT_LESS;
+      return true;
+    case LOOM_PREDICATE_ULE:
+      *out_outcomes = LOOM_INTEGER_ORDER_OUTCOME_BIT_LESS |
+                      LOOM_INTEGER_ORDER_OUTCOME_BIT_EQUAL;
+      return true;
+    case LOOM_PREDICATE_UGT:
+      *out_outcomes = LOOM_INTEGER_ORDER_OUTCOME_BIT_GREATER;
+      return true;
+    case LOOM_PREDICATE_UGE:
+      *out_outcomes = LOOM_INTEGER_ORDER_OUTCOME_BIT_EQUAL |
+                      LOOM_INTEGER_ORDER_OUTCOME_BIT_GREATER;
+      return true;
+    default:
+      return false;
+  }
+}
+
+static bool loom_value_fact_table_relation_predicate_implies(
+    const loom_value_fact_table_t* table, const loom_predicate_t* premise,
+    const loom_predicate_t* conclusion) {
+  loom_symbolic_integer_relation_t premise_relation =
+      LOOM_SYMBOLIC_INTEGER_RELATION_EQ;
+  loom_symbolic_integer_relation_t conclusion_relation =
+      LOOM_SYMBOLIC_INTEGER_RELATION_EQ;
+  if (loom_symbolic_integer_relation_from_predicate_kind(premise->kind,
+                                                         &premise_relation) &&
+      loom_symbolic_integer_relation_from_predicate_kind(
+          conclusion->kind, &conclusion_relation)) {
+    if (loom_value_fact_table_predicate_operands_equal(
+            table, premise, conclusion, /*swapped=*/true)) {
+      premise_relation = loom_symbolic_integer_relation_swap(premise_relation);
+    } else if (!loom_value_fact_table_predicate_operands_equal(
+                   table, premise, conclusion, /*swapped=*/false)) {
+      return false;
+    }
+    bool result = false;
+    return loom_symbolic_integer_relation_implies(
+               premise_relation, conclusion_relation, &result) &&
+           result;
+  }
+
+  loom_integer_order_outcome_bits_t premise_outcomes = 0;
+  loom_integer_order_outcome_bits_t conclusion_outcomes = 0;
+  if (!loom_value_fact_table_unsigned_relation_outcomes(premise->kind,
+                                                        &premise_outcomes) ||
+      !loom_value_fact_table_unsigned_relation_outcomes(conclusion->kind,
+                                                        &conclusion_outcomes)) {
+    return false;
+  }
+  if (loom_value_fact_table_predicate_operands_equal(table, premise, conclusion,
+                                                     /*swapped=*/true)) {
+    premise_outcomes = loom_integer_order_outcomes_swap(premise_outcomes);
+  } else if (!loom_value_fact_table_predicate_operands_equal(
+                 table, premise, conclusion, /*swapped=*/false)) {
+    return false;
+  }
+  return (premise_outcomes & ~conclusion_outcomes) == 0;
+}
+
+static bool loom_value_fact_table_range_bound_implies(
+    const loom_value_fact_table_t* table, loom_predicate_arg_tag_t premise_tag,
+    int64_t premise_argument, loom_predicate_arg_tag_t conclusion_tag,
+    int64_t conclusion_argument, bool is_lower_bound) {
+  if (premise_tag == LOOM_PRED_ARG_CONST &&
+      conclusion_tag == LOOM_PRED_ARG_CONST) {
+    return is_lower_bound ? premise_argument >= conclusion_argument
+                          : premise_argument <= conclusion_argument;
+  }
+  return loom_value_fact_table_predicate_arguments_equal(
+      table, premise_tag, premise_argument, conclusion_tag,
+      conclusion_argument);
+}
+
+bool loom_value_fact_table_predicate_implies(
+    const loom_value_fact_table_t* table, const loom_predicate_t* premise,
+    const loom_predicate_t* conclusion) {
+  if (premise->arg_count == conclusion->arg_count &&
+      premise->kind == conclusion->kind &&
+      loom_value_fact_table_predicate_operands_equal(table, premise, conclusion,
+                                                     /*swapped=*/false)) {
+    return true;
+  }
+
+  if (loom_value_fact_table_relation_predicate_implies(table, premise,
+                                                       conclusion)) {
+    return true;
+  }
+
+  if (premise->kind == LOOM_PREDICATE_MULTIPLE_OF &&
+      conclusion->kind == LOOM_PREDICATE_MULTIPLE_OF &&
+      loom_value_fact_table_predicate_arguments_equal(
+          table, (loom_predicate_arg_tag_t)premise->arg_tags[0],
+          premise->args[0], (loom_predicate_arg_tag_t)conclusion->arg_tags[0],
+          conclusion->args[0]) &&
+      premise->arg_tags[1] == LOOM_PRED_ARG_CONST &&
+      conclusion->arg_tags[1] == LOOM_PRED_ARG_CONST && premise->args[1] > 0 &&
+      conclusion->args[1] > 0) {
+    return premise->args[1] % conclusion->args[1] == 0;
+  }
+
+  if (premise->kind == LOOM_PREDICATE_RANGE &&
+      conclusion->kind == LOOM_PREDICATE_RANGE &&
+      loom_value_fact_table_predicate_arguments_equal(
+          table, (loom_predicate_arg_tag_t)premise->arg_tags[0],
+          premise->args[0], (loom_predicate_arg_tag_t)conclusion->arg_tags[0],
+          conclusion->args[0])) {
+    return loom_value_fact_table_range_bound_implies(
+               table, (loom_predicate_arg_tag_t)premise->arg_tags[1],
+               premise->args[1],
+               (loom_predicate_arg_tag_t)conclusion->arg_tags[1],
+               conclusion->args[1], /*is_lower_bound=*/true) &&
+           loom_value_fact_table_range_bound_implies(
+               table, (loom_predicate_arg_tag_t)premise->arg_tags[2],
+               premise->args[2],
+               (loom_predicate_arg_tag_t)conclusion->arg_tags[2],
+               conclusion->args[2], /*is_lower_bound=*/false);
+  }
+
+  if (premise->kind == LOOM_PREDICATE_FINITE &&
+      (conclusion->kind == LOOM_PREDICATE_NOT_NAN ||
+       conclusion->kind == LOOM_PREDICATE_NOT_INF) &&
+      premise->arg_count == 1 && conclusion->arg_count == 1) {
+    return loom_value_fact_table_predicate_operands_equal(
+        table, premise, conclusion, /*swapped=*/false);
+  }
+
+  return false;
+}
+
 static bool loom_value_fact_alias_map_resolve(
     const loom_value_fact_table_t* table,
     const loom_value_fact_ordinal_map_t* alias_map,

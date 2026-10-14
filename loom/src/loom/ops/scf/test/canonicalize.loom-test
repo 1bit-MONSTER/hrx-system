@@ -232,8 +232,7 @@ func.def @if_chains_dialect_condition_refinements(%value: index) {
   %condition = scalar.andi %first, %second : i1
   scf.if %condition {
     %4 = index.assume %value [gt(%value, 0)] : index
-    %5 = index.assume %4 [gt(%4, 0)] : index
-    test.use %5 : index
+    test.use %4 : index
   }
   func.return
 }

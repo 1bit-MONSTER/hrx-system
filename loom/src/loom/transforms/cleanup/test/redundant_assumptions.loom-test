@@ -1,0 +1,225 @@
+// RUN: pass canonicalize
+
+// A fact identity adds nothing when its complete predicate conjunction is
+// already established on the input aliases. Stronger predicates remain.
+func.def @scalar_facts(%input: i32) -> (i32, i32) {
+  %known = scalar.assume %input [range(%input, 0, 64), multiple_of(%input, 8)] : i32
+  %redundant = scalar.assume %known [range(%known, 0, 64), multiple_of(%known, 4)] : i32
+  %stronger = scalar.assume %known [range(%known, 8, 32), multiple_of(%known, 16)] : i32
+  func.return %redundant, %stronger : i32, i32
+}
+
+// ----
+func.def @scalar_facts(%input: i32) -> (i32, i32) {
+  %known = scalar.assume %input [range(%input, 0, 64), multiple_of(%input, 8)] : i32
+  %stronger = scalar.assume %known [range(%known, 8, 32), multiple_of(%known, 16)] : i32
+  func.return %known, %stronger : i32, i32
+}
+
+// ====
+
+func.def @power_of_two(%input: i64) -> (i64) {
+  %known = scalar.assume %input [power_of_two(%input)] : i64
+  %redundant = scalar.assume %known [power_of_two(%known)] : i64
+  func.return %redundant : i64
+}
+
+// ----
+func.def @power_of_two(%input: i64) -> (i64) {
+  %known = scalar.assume %input [power_of_two(%input)] : i64
+  func.return %known : i64
+}
+
+// ====
+
+// Retained value-to-value order proves repeated tuple assumptions without
+// walking back through either producer chain.
+func.def @signed_relation(%left: i32, %right: i32) -> (i32, i32) {
+  %ordered_left, %ordered_right = scalar.assume %left, %right [lt(%left, %right)] : i32, i32
+  %redundant_left, %redundant_right = scalar.assume %ordered_left, %ordered_right [le(%ordered_left, %ordered_right), ne(%ordered_left, %ordered_right), gt(%ordered_right, %ordered_left)] : i32, i32
+  func.return %redundant_left, %redundant_right : i32, i32
+}
+
+// ----
+func.def @signed_relation(%left: i32, %right: i32) -> (i32, i32) {
+  %ordered_left, %ordered_right = scalar.assume %left, %right [lt(%left, %right)] : i32, i32
+  func.return %ordered_left, %ordered_right : i32, i32
+}
+
+// ====
+
+// Strict unsigned order establishes non-strict order and inequality while
+// remaining distinct from signed order.
+func.def @unsigned_relation(%left: i32, %right: i32) -> (i32, i32) {
+  %ordered_left, %ordered_right = scalar.assume %left, %right [ult(%left, %right)] : i32, i32
+  %redundant_left, %redundant_right = scalar.assume %ordered_left, %ordered_right [ule(%ordered_left, %ordered_right), ne(%ordered_left, %ordered_right), ugt(%ordered_right, %ordered_left)] : i32, i32
+  func.return %redundant_left, %redundant_right : i32, i32
+}
+
+// ----
+func.def @unsigned_relation(%left: i32, %right: i32) -> (i32, i32) {
+  %ordered_left, %ordered_right = scalar.assume %left, %right [ult(%left, %right)] : i32, i32
+  func.return %ordered_left, %ordered_right : i32, i32
+}
+
+// ====
+
+// A retained relation may name a bound that is not itself an output alias.
+func.def @external_relation_operand(%value: i32, %upper: i32) -> (i32) {
+  %bounded = scalar.assume %value [lt(%value, %upper)] : i32
+  %redundant = scalar.assume %bounded [lt(%bounded, %upper)] : i32
+  func.return %redundant : i32
+}
+
+// ----
+func.def @external_relation_operand(%value: i32, %upper: i32) -> (i32) {
+  %bounded = scalar.assume %value [lt(%value, %upper)] : i32
+  func.return %bounded : i32
+}
+
+// ====
+
+// Dynamic ranges and excluded interior literals are retained relation facts.
+func.def @dynamic_range_and_exclusion(%lower: index, %value: index, %upper: index) -> (index, index, index) {
+  %bounded_lower, %bounded_value, %bounded_upper = index.assume %lower, %value, %upper [range(%value, %lower, %upper), ne(%value, 42)] : index, index, index
+  %redundant_lower, %redundant_value, %redundant_upper = index.assume %bounded_lower, %bounded_value, %bounded_upper [range(%bounded_value, %bounded_lower, %bounded_upper), ne(%bounded_value, 42)] : index, index, index
+  func.return %redundant_lower, %redundant_value, %redundant_upper : index, index, index
+}
+
+// ----
+func.def @dynamic_range_and_exclusion(%lower: index, %value: index, %upper: index) -> (index, index, index) {
+  %bounded_lower, %bounded_value, %bounded_upper = index.assume %lower, %value, %upper [range(%value, %lower, %upper), ne(%value, 42)] : index, index, index
+  func.return %bounded_lower, %bounded_value, %bounded_upper : index, index, index
+}
+
+// ====
+
+// Signed order does not establish unsigned order over unconstrained values.
+func.def @signedness_is_distinct(%left: i32, %right: i32) -> (i32, i32) {
+  %signed_left, %signed_right = scalar.assume %left, %right [lt(%left, %right)] : i32, i32
+  %unsigned_left, %unsigned_right = scalar.assume %signed_left, %signed_right [ult(%signed_left, %signed_right)] : i32, i32
+  func.return %unsigned_left, %unsigned_right : i32, i32
+}
+
+// ====
+
+// Finite values are neither NaN nor infinite. A not-NaN fact alone does not
+// establish finiteness.
+func.def @floating_classification(%finite_input: f32, %not_nan_input: f32) -> (f32, f32, f32) {
+  %finite = scalar.assume %finite_input [finite(%finite_input)] : f32
+  %not_nan = scalar.assume %finite [not_nan(%finite)] : f32
+  %not_infinite = scalar.assume %finite [not_inf(%finite)] : f32
+  %only_not_nan = scalar.assume %not_nan_input [not_nan(%not_nan_input)] : f32
+  %still_unproven_finite = scalar.assume %only_not_nan [finite(%only_not_nan)] : f32
+  func.return %not_nan, %not_infinite, %still_unproven_finite : f32, f32, f32
+}
+
+// ----
+func.def @floating_classification(%finite_input: f32, %not_nan_input: f32) -> (f32, f32, f32) {
+  %finite = scalar.assume %finite_input [finite(%finite_input)] : f32
+  %only_not_nan = scalar.assume %not_nan_input [not_nan(%not_nan_input)] : f32
+  %still_unproven_finite = scalar.assume %only_not_nan [finite(%only_not_nan)] : f32
+  func.return %finite, %finite, %still_unproven_finite : f32, f32, f32
+}
+
+// ====
+
+// Empty predicate lists are vacuous conjunctions, including on variadic
+// identities with repeated inputs.
+func.def @empty_predicates(%value: i64) -> (i64, i64) {
+  %left, %right = scalar.assume %value, %value [] : i64, i64
+  func.return %left, %right : i64, i64
+}
+
+// ----
+func.def @empty_predicates(%value: i64) -> (i64, i64) {
+  func.return %value, %value : i64, i64
+}
+
+// ====
+
+// Branch-local facts remain attached to their alias. The original value does
+// not acquire those facts on the path after the branch.
+func.def @branch_local(%value: i32, %condition: i1) -> (i32, i32) {
+  %c1 = scalar.constant 1 : i32
+  %selected = scf.if %condition -> (i32) {
+    %bounded = scalar.assume %value [range(%value, 0, 16)] : i32
+    %redundant = scalar.assume %bounded [range(%bounded, 0, 16)] : i32
+    test.use %bounded : i32
+    %incremented = scalar.addi %redundant, %c1 : i32
+    scf.yield %incremented : i32
+  } else {
+    scf.yield %value : i32
+  }
+  %outside = scalar.assume %value [range(%value, 0, 16)] : i32
+  func.return %selected, %outside : i32, i32
+}
+
+// ----
+func.def @branch_local(%value: i32, %condition: i1) -> (i32, i32) {
+  %c1 = scalar.constant 1 : i32
+  %selected = scf.if %condition -> (i32) {
+    %bounded = scalar.assume %value [range(%value, 0, 16)] : i32
+    test.use %bounded : i32
+    %incremented = scalar.addi %bounded, %c1 : i32
+    scf.yield %incremented : i32
+  } else {
+    scf.yield %value : i32
+  }
+  %outside = scalar.assume %value [range(%value, 0, 16)] : i32
+  func.return %selected, %outside : i32, i32
+}
+
+// ====
+
+// Low uses the same fact contract while preserving its register-storage
+// identity semantics.
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @low_facts(%input: reg<test.i32>) -> (reg<test.i32>) asm {
+  %bounded = low.assume %input [range(%input, 0, 64)] : reg<test.i32>
+  %redundant = low.assume %bounded [range(%bounded, 0, 64)] : reg<test.i32>
+  return %redundant
+}
+
+// ----
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @low_facts(%input: reg<test.i32>) -> (reg<test.i32>) asm {
+  %bounded = low.assume %input [range(%input, 0, 64)] : reg<test.i32>
+  return %bounded
+}
+
+// ====
+
+// A destructive write starts a new value and cannot inherit the consumed
+// alias's numeric facts.
+test.target<low_core> @test_target
+
+low.func.def target<test.low.core>(@test_target) @low_mutation(%input: reg<test.i32>) -> (reg<test.i32>) asm {
+  %bounded = low.assume %input [range(%input, 0, 64)] : reg<test.i32>
+  %changed = test.tied.any %bounded
+  %still_required = low.assume %changed [range(%changed, 0, 64)] : reg<test.i32>
+  return %still_required
+}
+
+// ====
+
+// A loop's fixed-point facts may prove this bound at the current program point,
+// but the explicit carrier must survive later transformations that no longer
+// have the loop analysis. Ambient proof cannot retire a program contract.
+func.def @loop_fact_carrier() -> (i32) {
+  %initial = scalar.constant 16 : i32
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  cfg.br ^loop(%initial: i32)
+^loop(%offset: i32):
+  %condition = scalar.cmpi ne, %offset, %c0 : i32
+  cfg.cond_br %condition, ^body, ^exit
+^body:
+  %bounded = scalar.assume %offset [range(%offset, 0, 31)] : i32
+  %next = scalar.shrui %bounded, %c1 : i32
+  cfg.br ^loop(%next: i32)
+^exit:
+  func.return %offset : i32
+}

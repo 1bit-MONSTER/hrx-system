@@ -387,5 +387,112 @@ TEST_F(PredicateFactsTest, PredicateProofCombinesScalarAndLiteralFacts) {
       loom_value_fact_table_proves_predicate_list(&table, &stronger, 1));
 }
 
+static loom_predicate_t MakeBinaryPredicate(loom_predicate_kind_t kind,
+                                            loom_value_id_t lhs,
+                                            loom_value_id_t rhs) {
+  loom_predicate_t predicate = {.kind = kind, .arg_count = 2};
+  predicate.arg_tags[0] = LOOM_PRED_ARG_VALUE;
+  predicate.arg_tags[1] = LOOM_PRED_ARG_VALUE;
+  predicate.args[0] = lhs;
+  predicate.args[1] = rhs;
+  return predicate;
+}
+
+TEST(PredicateFactsImplicationTest, IdenticalPredicatesCoverVocabulary) {
+  for (loom_predicate_kind_t kind = 0; kind < LOOM_PREDICATE_COUNT_; ++kind) {
+    loom_predicate_t predicate = {
+        .kind = kind,
+        .arg_count = loom_predicate_kind_argument_count(kind),
+    };
+    predicate.arg_tags[0] = LOOM_PRED_ARG_VALUE;
+    predicate.args[0] = 1;
+    for (uint8_t i = 1; i < predicate.arg_count; ++i) {
+      predicate.arg_tags[i] = LOOM_PRED_ARG_CONST;
+      predicate.args[i] = i == 1 ? 2 : 8;
+    }
+    EXPECT_TRUE(loom_value_fact_table_predicate_implies(
+        /*table=*/nullptr, &predicate, &predicate))
+        << "predicate kind " << static_cast<int>(kind);
+  }
+}
+
+TEST(PredicateFactsImplicationTest, PreservesPredicateDomainSemantics) {
+  loom_predicate_t premise = {
+      .kind = LOOM_PREDICATE_RANGE,
+      .arg_count = 3,
+      .arg_tags = {LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_CONST,
+                   LOOM_PRED_ARG_CONST},
+      .args = {1, 4, 32},
+  };
+  loom_predicate_t conclusion = premise;
+  conclusion.args[1] = 0;
+  conclusion.args[2] = 64;
+  EXPECT_TRUE(loom_value_fact_table_predicate_implies(
+      /*table=*/nullptr, &premise, &conclusion));
+  EXPECT_FALSE(loom_value_fact_table_predicate_implies(
+      /*table=*/nullptr, &conclusion, &premise));
+
+  premise = {
+      .kind = LOOM_PREDICATE_MULTIPLE_OF,
+      .arg_count = 2,
+      .arg_tags = {LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_CONST,
+                   LOOM_PRED_ARG_NONE},
+      .args = {1, 16, 0},
+  };
+  conclusion = premise;
+  conclusion.args[1] = 8;
+  EXPECT_TRUE(loom_value_fact_table_predicate_implies(
+      /*table=*/nullptr, &premise, &conclusion));
+  EXPECT_FALSE(loom_value_fact_table_predicate_implies(
+      /*table=*/nullptr, &conclusion, &premise));
+
+  premise = MakeBinaryPredicate(LOOM_PREDICATE_LT, 1, 2);
+  conclusion = MakeBinaryPredicate(LOOM_PREDICATE_LE, 1, 2);
+  EXPECT_TRUE(loom_value_fact_table_predicate_implies(
+      /*table=*/nullptr, &premise, &conclusion));
+  conclusion = MakeBinaryPredicate(LOOM_PREDICATE_GT, 2, 1);
+  EXPECT_TRUE(loom_value_fact_table_predicate_implies(
+      /*table=*/nullptr, &premise, &conclusion));
+  conclusion = MakeBinaryPredicate(LOOM_PREDICATE_ULT, 1, 2);
+  EXPECT_FALSE(loom_value_fact_table_predicate_implies(
+      /*table=*/nullptr, &premise, &conclusion));
+
+  premise = MakeBinaryPredicate(LOOM_PREDICATE_ULT, 1, 2);
+  conclusion = MakeBinaryPredicate(LOOM_PREDICATE_ULE, 1, 2);
+  EXPECT_TRUE(loom_value_fact_table_predicate_implies(
+      /*table=*/nullptr, &premise, &conclusion));
+  conclusion = MakeBinaryPredicate(LOOM_PREDICATE_UGT, 2, 1);
+  EXPECT_TRUE(loom_value_fact_table_predicate_implies(
+      /*table=*/nullptr, &premise, &conclusion));
+  conclusion = MakeBinaryPredicate(LOOM_PREDICATE_NE, 1, 2);
+  EXPECT_TRUE(loom_value_fact_table_predicate_implies(
+      /*table=*/nullptr, &premise, &conclusion));
+  conclusion = MakeBinaryPredicate(LOOM_PREDICATE_LT, 1, 2);
+  EXPECT_FALSE(loom_value_fact_table_predicate_implies(
+      /*table=*/nullptr, &premise, &conclusion));
+
+  premise = MakeBinaryPredicate(LOOM_PREDICATE_EQ, 1, 2);
+  conclusion = MakeBinaryPredicate(LOOM_PREDICATE_ULE, 1, 2);
+  EXPECT_TRUE(loom_value_fact_table_predicate_implies(
+      /*table=*/nullptr, &premise, &conclusion));
+  conclusion = MakeBinaryPredicate(LOOM_PREDICATE_UGE, 1, 2);
+  EXPECT_TRUE(loom_value_fact_table_predicate_implies(
+      /*table=*/nullptr, &premise, &conclusion));
+  conclusion = MakeBinaryPredicate(LOOM_PREDICATE_ULT, 1, 2);
+  EXPECT_FALSE(loom_value_fact_table_predicate_implies(
+      /*table=*/nullptr, &premise, &conclusion));
+
+  premise = {.kind = LOOM_PREDICATE_FINITE, .arg_count = 1};
+  premise.arg_tags[0] = LOOM_PRED_ARG_VALUE;
+  premise.args[0] = 1;
+  conclusion = {.kind = LOOM_PREDICATE_NOT_NAN, .arg_count = 1};
+  conclusion.arg_tags[0] = LOOM_PRED_ARG_VALUE;
+  conclusion.args[0] = 1;
+  EXPECT_TRUE(loom_value_fact_table_predicate_implies(
+      /*table=*/nullptr, &premise, &conclusion));
+  EXPECT_FALSE(loom_value_fact_table_predicate_implies(
+      /*table=*/nullptr, &conclusion, &premise));
+}
+
 }  // namespace
 }  // namespace loom
