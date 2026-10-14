@@ -27,6 +27,18 @@ extern "C" {
 // contribute to resident connection storage.
 #define IREE_NET_TCP_DEFAULT_MAX_FRAME_SIZE UINT32_MAX
 
+// Native receive storage strategy. Both strategies use the same framing core.
+typedef enum iree_net_tcp_receive_mode_e {
+  // Receive chunks into a registered pool, then dispatch complete messages or
+  // copy matched bodies into their posted destinations. Amortizes native reads
+  // across small messages and allows complete messages to retain pool leases.
+  IREE_NET_TCP_RECEIVE_MODE_POOLED = 0,
+  // Read framing metadata into bounded cursor storage and matched bodies
+  // directly into their posted destinations. No receive pool is required.
+  // Ordinary messages allocate exact-size leases after their headers resolve.
+  IREE_NET_TCP_RECEIVE_MODE_PLACEMENT = 1,
+} iree_net_tcp_receive_mode_t;
+
 // Options controlling TCP connection framing and bounded resources.
 typedef struct iree_net_tcp_connection_options_t {
   // Number of ordinal message endpoints preallocated by the connection.
@@ -34,6 +46,9 @@ typedef struct iree_net_tcp_connection_options_t {
 
   // Maximum total wire-frame extent including the transport header.
   uint32_t max_frame_size;
+
+  // Native receive storage, selected before the connection becomes active.
+  iree_net_tcp_receive_mode_t receive_mode;
 
   // DATA admission, generated-prefix storage, and per-connection send policy.
   // The connection reserves one additional send operation internally for
@@ -48,6 +63,7 @@ iree_net_tcp_connection_options_default(void) {
   iree_net_tcp_connection_options_t options;
   options.max_endpoint_count = IREE_NET_TCP_DEFAULT_MAX_ENDPOINT_COUNT;
   options.max_frame_size = IREE_NET_TCP_DEFAULT_MAX_FRAME_SIZE;
+  options.receive_mode = IREE_NET_TCP_RECEIVE_MODE_POOLED;
   options.carrier_options = iree_net_stream_carrier_options_default();
   return options;
 }
@@ -62,7 +78,9 @@ IREE_API_EXPORT iree_status_t iree_net_tcp_connection_options_validate(
 // Creates a published connection over a connected TCP socket.
 //
 // |proactor| must own |socket| and the registered region backing
-// |receive_pool|. The pool must be dedicated to this connection while active.
+// |receive_pool|, when provided. POOLED mode requires a pool dedicated to this
+// connection while active. PLACEMENT mode requires NULL and uses the shared
+// framing cursor's current destination for each native read.
 // The connection retains all three resources through its shared carrier
 // stack without consuming the caller's references.
 //

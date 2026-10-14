@@ -110,6 +110,8 @@ iree_net_stream_carrier_options_default(void) {
 // its buffers with another I/O producer would violate lease exclusivity. The
 // carrier retains all three resources without consuming the caller's
 // references.
+// |receive_pool| may be NULL when a receive buffer provider is installed before
+// activation. In that case no pool or pool-lease metadata is allocated.
 //
 // The returned carrier begins in CREATED state. Install handlers and activate
 // it before sending. The carrier accepts at most

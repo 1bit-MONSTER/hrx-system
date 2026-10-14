@@ -136,4 +136,13 @@ iree_cc_binary_benchmark(
   TESTONLY
 )
 
+iree_cc_test(
+  NAME
+    receive_tests
+  DEPS
+    ::backend
+    iree::net::cts::receive_tests
+    iree::testing::gtest_main
+)
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

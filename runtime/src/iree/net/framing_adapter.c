@@ -21,6 +21,9 @@ struct iree_net_framing_adapter_t {
   // Message handlers protected by |callback_mutex|.
   iree_net_message_endpoint_callbacks_t callbacks;
 
+  // First terminal receive failure, retained for destination retirement.
+  iree_status_t terminal_status;
+
   // Coordinates endpoint and connection deactivation requests.
   iree_net_endpoint_lifecycle_t lifecycle;
 
@@ -98,6 +101,10 @@ static iree_status_t iree_net_framing_adapter_on_recv(
 static void iree_net_framing_adapter_on_carrier_error(void* user_data,
                                                       iree_status_t status) {
   iree_net_framing_adapter_t* adapter = (iree_net_framing_adapter_t*)user_data;
+  iree_slim_mutex_lock(&adapter->callback_mutex);
+  adapter->terminal_status =
+      iree_status_join(adapter->terminal_status, iree_status_clone(status));
+  iree_slim_mutex_unlock(&adapter->callback_mutex);
   const iree_net_message_endpoint_callbacks_t callbacks =
       iree_net_framing_adapter_snapshot_callbacks(adapter);
   callbacks.on_error(callbacks.user_data, status);
@@ -105,6 +112,17 @@ static void iree_net_framing_adapter_on_carrier_error(void* user_data,
 
 static void iree_net_framing_adapter_on_carrier_deactivated(void* user_data) {
   iree_net_framing_adapter_t* adapter = (iree_net_framing_adapter_t*)user_data;
+  if (adapter->accumulator.receive_operation) {
+    iree_slim_mutex_lock(&adapter->callback_mutex);
+    iree_status_t status = iree_status_clone(adapter->terminal_status);
+    iree_slim_mutex_unlock(&adapter->callback_mutex);
+    if (iree_status_is_ok(status)) {
+      status = iree_status_from_code(IREE_STATUS_CANCELLED);
+    }
+    iree_net_frame_accumulator_abort(&adapter->accumulator, status);
+  } else {
+    iree_net_frame_accumulator_reset(&adapter->accumulator);
+  }
   iree_net_endpoint_lifecycle_complete_deactivation(&adapter->lifecycle);
 }
 
@@ -189,7 +207,7 @@ iree_status_t iree_net_framing_adapter_allocate(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "carrier is required");
   }
-  if (!frame_length.fn || frame_length.max_header_size == 0) {
+  if (!frame_length.fn || frame_length.header_size == 0) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "frame length callback and header size are required");
@@ -198,7 +216,7 @@ iree_status_t iree_net_framing_adapter_allocate(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "max_frame_size must be > 0");
   }
-  if (frame_length.max_header_size > max_frame_size) {
+  if (frame_length.header_size > max_frame_size) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "maximum header size exceeds maximum frame size");
   }
@@ -210,7 +228,7 @@ iree_status_t iree_net_framing_adapter_allocate(
 
   iree_host_size_t accumulator_storage_size = 0;
   iree_status_t status = iree_net_frame_accumulator_calculate_storage_size(
-      frame_length.max_header_size, &accumulator_storage_size);
+      frame_length.header_size, &accumulator_storage_size);
   iree_host_size_t total_size = 0;
   if (iree_status_is_ok(status) &&
       !iree_host_size_checked_add(
@@ -263,10 +281,22 @@ void iree_net_framing_adapter_free(iree_net_framing_adapter_t* adapter) {
   iree_allocator_t allocator = adapter->host_allocator;
   iree_net_endpoint_lifecycle_deinitialize(&adapter->lifecycle);
   iree_net_frame_accumulator_deinitialize(&adapter->accumulator);
+  iree_status_free(adapter->terminal_status);
   iree_net_carrier_release(adapter->carrier);
   iree_slim_mutex_deinitialize(&adapter->callback_mutex);
   iree_allocator_free(allocator, adapter);
   IREE_TRACE_ZONE_END(z0);
+}
+
+void iree_net_framing_adapter_set_receive_router(
+    iree_net_framing_adapter_t* adapter,
+    iree_net_frame_receive_router_t router) {
+  iree_net_frame_accumulator_set_receive_router(&adapter->accumulator, router);
+}
+
+iree_async_span_t iree_net_framing_adapter_query_receive_buffer(
+    iree_net_framing_adapter_t* adapter) {
+  return iree_net_frame_accumulator_query_receive_buffer(&adapter->accumulator);
 }
 
 void iree_net_framing_adapter_join_deactivation(

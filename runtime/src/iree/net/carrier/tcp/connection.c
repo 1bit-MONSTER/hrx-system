@@ -13,6 +13,7 @@
 #include "iree/base/threading/mutex.h"
 #include "iree/net/endpoint_lifecycle.h"
 #include "iree/net/framing_adapter.h"
+#include "iree/net/message_receive_queue.h"
 
 // "IRN1" in little-endian byte order.
 #define IREE_NET_TCP_FRAME_MAGIC UINT32_C(0x314E5249)
@@ -157,6 +158,9 @@ struct iree_net_tcp_endpoint_t {
 
   // Coordinates endpoint operations with endpoint/connection drain.
   iree_net_endpoint_lifecycle_t lifecycle;
+
+  // Posted destinations in this ordinal namespace, held through native drain.
+  iree_net_message_receive_queue_t receive_queue;
 
   // Preallocated operation delivering the endpoint-ready callback.
   iree_async_nop_operation_t ready_operation;
@@ -561,6 +565,9 @@ static void iree_net_tcp_connection_record_terminal_error(
       callback_pending = true;
     }
     iree_slim_mutex_unlock(&connection->mutex);
+    iree_net_message_receive_queue_close(
+        &endpoint->receive_queue,
+        iree_status_clone(connection->terminal_status));
     if (callback_pending) {
       IREE_ASSERT(callbacks.on_error,
                   "admitted TCP terminal callback has no error handler");
@@ -586,6 +593,32 @@ static void iree_net_tcp_connection_record_terminal_error(
     }
   }
   iree_net_connection_release(&connection->base);
+}
+
+// The codec has validated the ordinal and flags before this routing query.
+static iree_net_message_receive_queue_t* iree_net_tcp_route_receive(
+    void* user_data, iree_const_byte_span_t header) {
+  iree_net_tcp_connection_t* connection = (iree_net_tcp_connection_t*)user_data;
+  if (iree_unaligned_load_le_u16(header.data + 6) !=
+      IREE_NET_TCP_FRAME_FLAG_NONE) {
+    return NULL;
+  }
+  iree_net_tcp_endpoint_t* endpoint =
+      &connection->endpoints[iree_unaligned_load_le_u16(header.data + 12)];
+  iree_slim_mutex_lock(&connection->mutex);
+  iree_net_message_receive_queue_t* queue =
+      connection->state == IREE_NET_TCP_CONNECTION_STATE_OPEN &&
+              iree_status_is_ok(connection->terminal_status) &&
+              endpoint->phase == IREE_NET_TCP_ENDPOINT_PHASE_ACTIVE
+          ? &endpoint->receive_queue
+          : NULL;
+  iree_slim_mutex_unlock(&connection->mutex);
+  return queue;
+}
+
+static iree_async_span_t iree_net_tcp_query_receive_buffer(void* user_data) {
+  return iree_net_framing_adapter_query_receive_buffer(
+      (iree_net_framing_adapter_t*)user_data);
 }
 
 static iree_status_t iree_net_tcp_on_wire_frame(
@@ -1124,6 +1157,8 @@ static iree_status_t iree_net_tcp_endpoint_deactivate(
         iree_make_status(IREE_STATUS_CANCELLED,
                          "TCP send cancelled during endpoint deactivation"));
   }
+  iree_net_message_receive_queue_close(&endpoint->receive_queue,
+                                       iree_ok_status());
   iree_net_tcp_clear_endpoint_pending_frame(endpoint);
   IREE_ASSERT(
       iree_any_bit_set(actions,
@@ -1259,12 +1294,25 @@ static iree_net_carrier_send_budget_t iree_net_tcp_endpoint_query_send_budget(
   return budget;
 }
 
+static iree_status_t iree_net_tcp_endpoint_receive(
+    void* self, iree_net_message_receive_operation_t* operation,
+    const iree_net_message_endpoint_receive_params_t* params) {
+  iree_net_tcp_endpoint_t* endpoint = (iree_net_tcp_endpoint_t*)self;
+  uint32_t frame_size = 0;
+  IREE_RETURN_IF_ERROR(iree_net_tcp_calculate_frame_size(
+      endpoint->connection,
+      params->prefix.data_length + params->data.data_length, &frame_size));
+  return iree_net_message_receive_queue_submit(&endpoint->receive_queue,
+                                               operation, params);
+}
+
 static const iree_net_message_endpoint_vtable_t iree_net_tcp_endpoint_vtable = {
     .set_callbacks = iree_net_tcp_endpoint_set_callbacks,
     .activate = iree_net_tcp_endpoint_activate,
     .deactivate = iree_net_tcp_endpoint_deactivate,
     .send = iree_net_tcp_endpoint_send,
     .query_send_budget = iree_net_tcp_endpoint_query_send_budget,
+    .receive = iree_net_tcp_endpoint_receive,
 };
 
 //===----------------------------------------------------------------------===//
@@ -1311,6 +1359,8 @@ static void iree_net_tcp_connection_begin_endpoint_drain(
               IREE_STATUS_CANCELLED,
               "TCP send cancelled during connection deactivation"));
     }
+    iree_net_message_receive_queue_close(&endpoint->receive_queue,
+                                         iree_ok_status());
     iree_net_tcp_clear_endpoint_pending_frame(endpoint);
     if (iree_any_bit_set(
             actions, IREE_NET_ENDPOINT_LIFECYCLE_ACTION_BEGIN_DEACTIVATION)) {
@@ -1410,6 +1460,7 @@ static void iree_net_tcp_connection_destroy(
                     endpoint->activation_announcement_phase !=
                         IREE_NET_TCP_ACTIVATION_ANNOUNCEMENT_PHASE_IN_FLIGHT,
                 "TCP connection destroyed with endpoint ACTIVE pending");
+    iree_net_message_receive_queue_deinitialize(&endpoint->receive_queue);
     iree_net_endpoint_lifecycle_deinitialize(&endpoint->lifecycle);
   }
   iree_status_free(connection->terminal_status);
@@ -1531,6 +1582,11 @@ static iree_status_t iree_net_tcp_connection_options_validate_impl(
                             "TCP frame limit must exceed the %u-byte header",
                             IREE_NET_TCP_FRAME_HEADER_SIZE);
   }
+  if (options->receive_mode != IREE_NET_TCP_RECEIVE_MODE_POOLED &&
+      options->receive_mode != IREE_NET_TCP_RECEIVE_MODE_PLACEMENT) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "invalid TCP receive mode");
+  }
   if (options->carrier_options.max_send_operations == 0) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "TCP send operation limit must be nonzero");
@@ -1556,10 +1612,9 @@ iree_status_t iree_net_tcp_connection_create(
     iree_allocator_t host_allocator, iree_net_connection_t** out_connection) {
   IREE_ASSERT_ARGUMENT(out_connection);
   *out_connection = NULL;
-  if (!proactor || !socket || !receive_pool) {
-    return iree_make_status(
-        IREE_STATUS_INVALID_ARGUMENT,
-        "proactor, connected socket, and receive pool are required");
+  if (!proactor || !socket) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "proactor and connected socket are required");
   }
   iree_net_tcp_connection_options_t default_options =
       iree_net_tcp_connection_options_default();
@@ -1567,6 +1622,12 @@ iree_status_t iree_net_tcp_connection_create(
     options = &default_options;
   }
   IREE_RETURN_IF_ERROR(iree_net_tcp_connection_options_validate_impl(options));
+  if ((options->receive_mode == IREE_NET_TCP_RECEIVE_MODE_POOLED) !=
+      (receive_pool != NULL)) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "TCP receive pool must be provided only in pooled mode");
+  }
 
   iree_host_size_t endpoint_offset = 0;
   iree_host_size_t send_state_offset = 0;
@@ -1614,6 +1675,8 @@ iree_status_t iree_net_tcp_connection_create(
     endpoint->next_activation_ordinal = IREE_NET_TCP_INDEX_NONE;
     iree_net_endpoint_lifecycle_initialize(&connection->deactivation_barrier,
                                            &endpoint->lifecycle);
+    iree_net_message_receive_queue_initialize(&endpoint->lifecycle,
+                                              &endpoint->receive_queue);
   }
   for (uint32_t i = 0; i < connection->send_state_count; ++i) {
     iree_net_tcp_send_state_t* send_state = &connection->send_states[i];
@@ -1633,14 +1696,26 @@ iree_status_t iree_net_tcp_connection_create(
     iree_net_frame_length_callback_t frame_length = {
         .fn = iree_net_tcp_resolve_frame_size,
         .user_data = connection,
-        .max_header_size = IREE_NET_TCP_FRAME_HEADER_SIZE,
+        .header_size = IREE_NET_TCP_FRAME_HEADER_SIZE,
     };
     status = iree_net_framing_adapter_allocate(
         carrier, frame_length, options->max_frame_size,
         &connection->deactivation_barrier, host_allocator,
         &connection->framing_adapter);
     if (iree_status_is_ok(status)) {
+      // The adapter owns the carrier even if provider installation fails.
+      iree_net_carrier_t* stream_carrier = carrier;
       carrier = NULL;
+      iree_net_framing_adapter_set_receive_router(
+          connection->framing_adapter,
+          (iree_net_frame_receive_router_t){.fn = iree_net_tcp_route_receive,
+                                            .user_data = connection});
+      if (options->receive_mode == IREE_NET_TCP_RECEIVE_MODE_PLACEMENT) {
+        status = iree_net_stream_carrier_set_receive_buffer_provider(
+            stream_carrier, (iree_net_stream_receive_buffer_provider_t){
+                                .fn = iree_net_tcp_query_receive_buffer,
+                                .user_data = connection->framing_adapter});
+      }
     }
   }
   if (iree_status_is_ok(status)) {

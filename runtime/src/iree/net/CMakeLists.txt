@@ -69,8 +69,35 @@ iree_cc_library(
     "message_endpoint.h"
   DEPS
     ::carrier
+    ::message_receive
     iree::async
     iree::base
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    message_receive
+  HDRS
+    "message_receive.h"
+  DEPS
+    iree::base
+    iree::base::internal
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    message_receive_queue
+  HDRS
+    "message_receive_queue.h"
+  SRCS
+    "message_receive_queue.c"
+  DEPS
+    ::endpoint_lifecycle
+    ::message_receive
+    iree::base
+    iree::base::threading
   PUBLIC
 )
 
@@ -188,6 +215,7 @@ iree_cc_library(
     ::endpoint_lifecycle
     ::framing_adapter
     ::message_endpoint
+    ::message_receive_queue
     iree::async
     iree::base
     iree::base::core_headers
@@ -204,6 +232,8 @@ iree_cc_library(
     "frame_accumulator.c"
   DEPS
     ::buffer_lease
+    ::message_receive
+    ::message_receive_queue
     iree::async
     iree::base
   PUBLIC
@@ -341,7 +371,9 @@ iree_cc_test(
   SRCS
     "frame_accumulator_test.cc"
   DEPS
+    ::endpoint_lifecycle
     ::frame_accumulator
+    ::message_receive_queue
     iree::base
     iree::testing::gtest
     iree::testing::gtest_main

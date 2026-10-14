@@ -318,3 +318,12 @@ iree_executable_test(
     env = {"IREE_NET_RDMA_CTS_COMPLETION_MODE": "busy_poll"},
     target_compatible_with = RDMA_COMPATIBILITY,
 )
+
+iree_runtime_cc_test(
+    name = "receive_tests",
+    deps = [
+        ":backend",
+        "//runtime/src/iree/net/cts:receive_tests",
+        "//runtime/src/iree/net/rdma:connection_test_main",
+    ],
+)

@@ -76,10 +76,8 @@ typedef struct iree_net_framing_adapter_t iree_net_framing_adapter_t;
 // its owning connection. The barrier must be initialized before this call and
 // outlive the adapter. Standalone adapters pass NULL.
 //
-// The |frame_length| callback determines frame boundaries by examining at most
-// |frame_length.max_header_size| bytes. It reports the total frame size when
-// determinable, leaves the size 0 when more bytes are needed, and rejects
-// malformed headers.
+// The |frame_length| callback determines frame boundaries from its exact fixed
+// |frame_length.header_size| bytes and rejects malformed headers.
 //
 // The |max_frame_size| is an admission bound rather than a resident allocation.
 // Larger frames report IREE_STATUS_RESOURCE_EXHAUSTED through the endpoint
@@ -104,6 +102,19 @@ IREE_API_EXPORT void iree_net_framing_adapter_free(
 // CREATED or DEACTIVATED. The adapter must have been allocated with its owning
 // connection's barrier.
 IREE_API_EXPORT void iree_net_framing_adapter_join_deactivation(
+    iree_net_framing_adapter_t* adapter);
+
+// Installs transport routing from validated wire headers to logical receive
+// queues. Called before activation; router targets outlive native deactivation.
+IREE_API_EXPORT void iree_net_framing_adapter_set_receive_router(
+    iree_net_framing_adapter_t* adapter,
+    iree_net_frame_receive_router_t router);
+
+// Queries the current writable span for a native direct receive. The caller
+// writes only that span and commits it through the carrier's on_receive
+// callback. Metadata, leased ordinary frames and posted bodies share one frame
+// cursor.
+IREE_API_EXPORT iree_async_span_t iree_net_framing_adapter_query_receive_buffer(
     iree_net_framing_adapter_t* adapter);
 
 // Returns a borrowed message_endpoint view into this adapter.

@@ -297,3 +297,20 @@ iree_runtime_cc_library(
     ],
     alwayslink = True,
 )
+
+iree_runtime_cc_library(
+    name = "receive_tests",
+    testonly = True,
+    srcs = ["receive_test.cc"],
+    deps = [
+        ":transport_backend",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/async:platform",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/net:connection",
+        "//runtime/src/iree/net:message_endpoint",
+        "//runtime/src/iree/net:transport_factory",
+        "//runtime/src/iree/testing:gtest",
+    ],
+    alwayslink = True,
+)
