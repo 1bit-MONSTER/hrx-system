@@ -475,6 +475,26 @@ TEST_P(SourceImageServiceTest,
   EXPECT_EQ(failed.find("HTTP/1.1 422"), 0u) << failed;
   EXPECT_EQ(Number(failed, "selected"), original);
   generate(1);
+  // The original preparation owns the budget even when a candidate's command
+  // program grows. Reject before selection without disturbing the live model.
+  const std::string grown_allocation = "index.constant 4160 : offset";
+  source.replace(source.find(grown_allocation), grown_allocation.size(),
+                 "index.constant 16384 : offset");
+  loom_serve::testing::SourcePackage over_budget;
+  over_budget.Add("model/generate.loom", source);
+  IREE_ASSERT_OK(
+      over_budget.AddFile("model/config.loom", directory_ + "/config.loom"));
+  IREE_ASSERT_OK(http_.Send(
+      over_budget.Request(
+          "/v1/models/variants",
+          "{\"model\":\"fixture-image\",\"base\":" + std::to_string(original) +
+              ",\"sources\":[\"config.loom\",\"generate.loom\"]}"),
+      &client));
+  const auto rejected = Read(client);
+  EXPECT_EQ(rejected.find("HTTP/1.1 422"), 0u) << rejected;
+  EXPECT_NE(rejected.find("workspace"), std::string::npos) << rejected;
+  EXPECT_EQ(Number(rejected, "selected"), original);
+  generate(1);
   loom_serve_http_server_request_stop(server_);
   IREE_ASSERT_OK(http_.Join());
   const auto retained = loom_serve_image_model_weight_activity(model_);

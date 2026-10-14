@@ -33,7 +33,8 @@ typedef struct loom_serve_stage_set_t {
 typedef void (*loom_serve_stage_set_completion_fn_t)(
     void* user_data, iree_status_t status, loom_serve_stage_set_t* stages);
 
-// Snapshots providers and compiles the existing declarations on shared workers.
+// Snapshots providers and compiles the existing declarations on shared workers,
+// enforcing their workspace limits before publishing successful completion.
 // Reuses identical kernel requests within the new catalog. Success owes one
 // completion, possibly before return; rejection owes none. Device, preparation,
 // sources and user_data remain borrowed through completion. No model/queue

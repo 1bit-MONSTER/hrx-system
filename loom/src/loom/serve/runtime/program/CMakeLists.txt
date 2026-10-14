@@ -93,6 +93,7 @@ loom_cc_library(
     loom::binding::c::task_pool
     loom::serve::runtime::device
     loom::serve::runtime::host
+    loom::target::arch::cmd::program
   PUBLIC
 )
 

@@ -426,8 +426,9 @@ TEST_F(JsonTest, ParseI64RejectsNonIntegersOverflowAndInvalidRanges) {
         Number(IREE_SV("parse_i64"), value, 0, std::string_view(value).size()));
   }
   for (const auto& range : {std::array<int64_t, 2>{-1, 1}, {0, -1}, {2, 2}}) {
-    IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
-                          Number(IREE_SV("parse_i64"), "123", range[0], range[1]));
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_OUT_OF_RANGE,
+        Number(IREE_SV("parse_i64"), "123", range[0], range[1]));
   }
   IREE_ASSERT_OK(Number(IREE_SV("parse_i64"), "123", 0, 3));
   int64_t value = 0;

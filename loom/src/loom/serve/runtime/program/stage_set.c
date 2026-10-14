@@ -6,6 +6,7 @@
 
 #include "loom/serve/runtime/program/stage_set.h"
 
+#include "loom/target/arch/cmd/program.h"
 #include "loomc/iree.h"
 
 typedef struct loom_serve_stage_set_job_t {
@@ -79,6 +80,14 @@ static void loom_serve_stage_set_next(loom_serve_stage_set_job_t* job) {
 static void loom_serve_stage_set_compiled(void* user_data, iree_status_t status,
                                           loom_serve_jit_stage_t* stage) {
   loom_serve_stage_set_job_t* job = user_data;
+  if (iree_status_is_ok(status)) {
+    const loom_cmd_program_t* program = loom_serve_jit_stage_program(stage);
+    if (program) {
+      status = loom_serve_preparation_stage_check_workspace(
+          loom_serve_preparation_stage(job->preparation, job->index),
+          program->requirements.transient.required_byte_length);
+    }
+  }
   job->stages->values[job->index++] = stage;
   if (iree_status_is_ok(status)) {
     loom_serve_stage_set_next(job);
