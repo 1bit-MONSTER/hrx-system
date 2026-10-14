@@ -337,120 +337,6 @@ static bool loom_low_source_memory_access_vector_lane_count(
   return true;
 }
 
-static bool loom_low_source_memory_access_power_of_two_shift(
-    int64_t value, uint32_t* out_shift) {
-  *out_shift = LOOM_LOW_SOURCE_MEMORY_ACCESS_BYTE_SHIFT_NONE;
-  if (value <= 0 || !iree_math_is_power_of_two_i64(value)) {
-    return false;
-  }
-  *out_shift = (uint32_t)iree_math_count_trailing_zeros_u64((uint64_t)value);
-  return true;
-}
-
-void loom_low_source_memory_query_axis_byte_stride(
-    const loom_value_fact_table_t* fact_table,
-    const loom_vector_memory_access_t* vector_access, uint8_t view_axis,
-    loom_low_source_memory_axis_byte_stride_t* out_stride) {
-  *out_stride = (loom_low_source_memory_axis_byte_stride_t){
-      .kind = LOOM_LOW_SOURCE_MEMORY_AXIS_BYTE_STRIDE_UNAVAILABLE,
-      .byte_facts = loom_value_facts_unknown(),
-      .static_byte_shift = LOOM_LOW_SOURCE_MEMORY_ACCESS_BYTE_SHIFT_NONE,
-  };
-  if (view_axis >= vector_access->view_rank ||
-      vector_access->static_element_byte_count < 0) {
-    return;
-  }
-
-  int64_t static_byte_coefficient = vector_access->static_element_byte_count;
-  loom_value_facts_t byte_facts =
-      loom_value_facts_exact_i64(static_byte_coefficient);
-  if (vector_access->layout_kind == LOOM_VECTOR_MEMORY_LAYOUT_DENSE) {
-    for (uint8_t axis = (uint8_t)(view_axis + 1);
-         axis < vector_access->view_rank; ++axis) {
-      loom_value_facts_t dimension_facts = loom_value_facts_unknown();
-      if (loom_type_dim_is_dynamic_at(vector_access->view_type, axis)) {
-        const loom_value_id_t dimension_value =
-            loom_type_dim_value_id_at(vector_access->view_type, axis);
-        dimension_facts = loom_value_facts_non_negative_extent(
-            loom_value_fact_table_lookup(fact_table, dimension_value));
-        int64_t exact_dimension = 0;
-        if (loom_low_source_memory_access_exact_i64(dimension_facts,
-                                                    &exact_dimension)) {
-          if (!iree_checked_mul_i64(static_byte_coefficient, exact_dimension,
-                                    &static_byte_coefficient)) {
-            out_stride->kind = LOOM_LOW_SOURCE_MEMORY_AXIS_BYTE_STRIDE_INVALID;
-            return;
-          }
-        } else {
-          out_stride->dynamic_factors[out_stride->dynamic_factor_count++] =
-              dimension_value;
-        }
-      } else {
-        const int64_t dimension_size =
-            loom_type_dim_static_size_at(vector_access->view_type, axis);
-        dimension_facts = loom_value_facts_exact_i64(dimension_size);
-        if (dimension_size < 0 ||
-            !iree_checked_mul_i64(static_byte_coefficient, dimension_size,
-                                  &static_byte_coefficient)) {
-          out_stride->kind = LOOM_LOW_SOURCE_MEMORY_AXIS_BYTE_STRIDE_INVALID;
-          return;
-        }
-      }
-      loom_value_facts_muli(&byte_facts, &dimension_facts, &byte_facts);
-    }
-  } else if (vector_access->layout_kind == LOOM_VECTOR_MEMORY_LAYOUT_STRIDED) {
-    const loom_value_fact_address_layout_t layout =
-        vector_access->layout_summary;
-    if (layout.kind != LOOM_VALUE_FACT_ADDRESS_LAYOUT_STRIDED ||
-        view_axis >= layout.rank || !layout.strides) {
-      return;
-    }
-    const loom_value_facts_t element_stride_facts = layout.strides[view_axis];
-    if (loom_value_facts_is_float(element_stride_facts)) {
-      out_stride->kind = LOOM_LOW_SOURCE_MEMORY_AXIS_BYTE_STRIDE_INVALID;
-      return;
-    }
-    loom_value_facts_muli(&byte_facts, &element_stride_facts, &byte_facts);
-    int64_t exact_element_stride = 0;
-    if (loom_low_source_memory_access_exact_i64(element_stride_facts,
-                                                &exact_element_stride)) {
-      if (!iree_checked_mul_i64(static_byte_coefficient, exact_element_stride,
-                                &static_byte_coefficient)) {
-        out_stride->kind = LOOM_LOW_SOURCE_MEMORY_AXIS_BYTE_STRIDE_INVALID;
-        return;
-      }
-    } else {
-      const loom_value_fact_layout_strides_t stride_values =
-          vector_access->layout_stride_values;
-      if (view_axis >= stride_values.count ||
-          stride_values.values[view_axis] == LOOM_VALUE_ID_INVALID) {
-        out_stride->kind =
-            LOOM_LOW_SOURCE_MEMORY_AXIS_BYTE_STRIDE_UNMATERIALIZED;
-        out_stride->byte_facts = byte_facts;
-        return;
-      }
-      out_stride->dynamic_factors[out_stride->dynamic_factor_count++] =
-          stride_values.values[view_axis];
-    }
-  } else {
-    return;
-  }
-
-  // A zero static factor makes the complete product exact even when a suffix
-  // dimension is dynamic.
-  if (static_byte_coefficient == 0) {
-    out_stride->dynamic_factor_count = 0;
-    byte_facts = loom_value_facts_exact_i64(0);
-  }
-  out_stride->kind = out_stride->dynamic_factor_count == 0
-                         ? LOOM_LOW_SOURCE_MEMORY_AXIS_BYTE_STRIDE_STATIC
-                         : LOOM_LOW_SOURCE_MEMORY_AXIS_BYTE_STRIDE_DYNAMIC;
-  out_stride->static_byte_coefficient = static_byte_coefficient;
-  out_stride->byte_facts = byte_facts;
-  (void)loom_low_source_memory_access_power_of_two_shift(
-      static_byte_coefficient, &out_stride->static_byte_shift);
-}
-
 static uint8_t loom_low_source_memory_access_axis_from_byte_stride(
     const loom_value_fact_table_t* fact_table,
     const loom_vector_memory_access_t* vector_access, int64_t byte_stride) {
@@ -484,16 +370,17 @@ static bool loom_low_source_memory_access_append_dynamic_term(
 
 static void loom_low_source_memory_access_append_dynamic_realization(
     loom_low_source_memory_access_plan_t* plan,
-    const loom_low_source_memory_dynamic_term_t* term, uint8_t first_term,
-    uint8_t term_count) {
-  IREE_ASSERT_GE(term_count, 2u);
+    const loom_low_source_memory_dynamic_term_t* term, uint16_t term_mask) {
+  IREE_ASSERT_NE(term_mask, 0u);
   IREE_ASSERT_LT(plan->dynamic_realization_count,
                  LOOM_LOW_SOURCE_MEMORY_DYNAMIC_REALIZATION_CAPACITY);
+  for (uint8_t i = 0; i < plan->dynamic_realization_count; ++i) {
+    IREE_ASSERT_EQ(plan->dynamic_realizations[i].term_mask & term_mask, 0u);
+  }
   plan->dynamic_realizations[plan->dynamic_realization_count++] =
       (loom_low_source_memory_dynamic_realization_t){
           .term = *term,
-          .first_term = first_term,
-          .term_count = term_count,
+          .term_mask = term_mask,
       };
 }
 
@@ -723,24 +610,25 @@ loom_value_facts_t loom_low_source_memory_dynamic_offset_facts(
                           &offset_facts);
     term_ordinal = plan->dynamic_view_base_term_count;
   }
-  uint8_t realization_ordinal = 0;
+  const uint16_t prefix_mask =
+      term_ordinal == 0 ? 0 : (uint16_t)((1u << term_ordinal) - 1u);
+  uint16_t realization_mask = 0;
+  for (uint8_t i = 0; i < plan->dynamic_realization_count; ++i) {
+    const loom_low_source_memory_dynamic_realization_t* realization =
+        &plan->dynamic_realizations[i];
+    IREE_ASSERT_EQ(realization->term_mask & prefix_mask, 0u);
+    IREE_ASSERT_EQ(realization_mask & realization->term_mask, 0u);
+    realization_mask |= realization->term_mask;
+    loom_value_facts_addi(&offset_facts, &realization->term.byte_facts,
+                          &offset_facts);
+  }
   while (term_ordinal < plan->dynamic_term_count) {
-    const loom_low_source_memory_dynamic_realization_t* realization = NULL;
-    if (realization_ordinal < plan->dynamic_realization_count &&
-        plan->dynamic_realizations[realization_ordinal].first_term ==
-            term_ordinal) {
-      realization = &plan->dynamic_realizations[realization_ordinal++];
-    }
-    if (realization != NULL) {
-      loom_value_facts_addi(&offset_facts, &realization->term.byte_facts,
-                            &offset_facts);
-      term_ordinal = (uint8_t)(term_ordinal + realization->term_count);
-    } else {
+    if (!(realization_mask & (1u << term_ordinal))) {
       loom_value_facts_addi(&offset_facts,
                             &plan->dynamic_terms[term_ordinal].byte_facts,
                             &offset_facts);
-      ++term_ordinal;
     }
+    ++term_ordinal;
   }
   return offset_facts;
 }
@@ -751,6 +639,89 @@ bool loom_low_source_memory_dynamic_offset_fits_unsigned_bit_count(
   return loom_value_facts_fit_unsigned_bit_count(
       loom_low_source_memory_dynamic_offset_facts(plan, static_byte_offset),
       bit_count);
+}
+
+static uint16_t loom_low_source_memory_expression_component_mask(
+    const loom_symbolic_expr_t* expression,
+    const loom_symbolic_expr_t* component, uint8_t first_expression_term) {
+  if (!loom_symbolic_expr_is_linear(component) || component->constant != 0 ||
+      component->term_count == 0 ||
+      component->term_count >= expression->term_count) {
+    return 0;
+  }
+  uint16_t mask = 0;
+  iree_host_size_t expression_index = 0;
+  for (iree_host_size_t component_index = 0;
+       component_index < component->term_count; ++component_index) {
+    const loom_symbolic_term_t* component_term =
+        &component->terms[component_index];
+    while (expression_index < expression->term_count &&
+           expression->terms[expression_index].value_id <
+               component_term->value_id) {
+      ++expression_index;
+    }
+    if (expression_index == expression->term_count ||
+        expression->terms[expression_index].value_id !=
+            component_term->value_id ||
+        expression->terms[expression_index].coefficient !=
+            component_term->coefficient) {
+      return 0;
+    }
+    mask |= (uint16_t)(1u << (first_expression_term + expression_index));
+    ++expression_index;
+  }
+  return mask;
+}
+
+static void loom_low_source_memory_access_append_expression_realization(
+    const loom_value_fact_table_t* fact_table,
+    const loom_vector_memory_access_t* vector_access,
+    loom_low_source_memory_access_plan_t* plan, loom_value_id_t value_id,
+    loom_value_facts_t expression_facts, int64_t expression_constant,
+    int64_t expression_byte_stride, uint8_t dynamic_axis,
+    const loom_value_id_t* stride_values, uint8_t stride_value_count,
+    uint16_t term_mask) {
+  uint32_t byte_shift = LOOM_LOW_SOURCE_MEMORY_ACCESS_BYTE_SHIFT_NONE;
+  (void)loom_low_source_memory_query_byte_shift(expression_byte_stride,
+                                                &byte_shift);
+  loom_value_facts_t canonical_byte_facts = loom_value_facts_exact_i64(0);
+  for (uint8_t term_ordinal = 0; term_ordinal < plan->dynamic_term_count;
+       ++term_ordinal) {
+    if (term_mask & (1u << term_ordinal)) {
+      loom_value_facts_addi(&canonical_byte_facts,
+                            &plan->dynamic_terms[term_ordinal].byte_facts,
+                            &canonical_byte_facts);
+    }
+  }
+  loom_value_facts_t expression_byte_facts = loom_value_facts_unknown();
+  loom_low_source_memory_dynamic_term_compute_expression_byte_facts(
+      fact_table, vector_access, expression_facts, dynamic_axis,
+      expression_constant, expression_byte_stride, stride_values,
+      stride_value_count, &expression_byte_facts);
+  loom_value_facts_t byte_facts =
+      loom_low_source_memory_access_intersect_index_facts(
+          canonical_byte_facts, expression_byte_facts);
+  loom_value_facts_t realization_byte_facts = loom_value_facts_unknown();
+  loom_low_source_memory_dynamic_term_compute_scaled_byte_facts(
+      fact_table, value_id, expression_byte_stride, stride_values,
+      stride_value_count, &realization_byte_facts);
+  byte_facts = loom_low_source_memory_access_intersect_index_facts(
+      byte_facts, realization_byte_facts);
+  loom_low_source_memory_dynamic_term_t term = {
+      .index = value_id,
+      .axis = dynamic_axis,
+      .byte_stride = expression_byte_stride,
+      .byte_facts = byte_facts,
+      .byte_shift = byte_shift,
+      .stride_value_count = stride_value_count,
+  };
+  loom_low_source_memory_access_dynamic_index_source(
+      fact_table, value_id, &term.source, &term.dimension);
+  for (uint8_t i = 0; i < stride_value_count; ++i) {
+    term.stride_values[i] = stride_values[i];
+  }
+  loom_low_source_memory_access_append_dynamic_realization(plan, &term,
+                                                           term_mask);
 }
 
 bool loom_low_source_memory_access_plan_include_root_byte_offset(
@@ -916,8 +887,8 @@ static bool loom_low_source_memory_access_add_view_region_expression_terms(
     };
     loom_low_source_memory_access_dynamic_index_source(
         fact_table, materialized_value, &term.source, &term.dimension);
-    (void)loom_low_source_memory_access_power_of_two_shift(term.byte_stride,
-                                                           &term.byte_shift);
+    (void)loom_low_source_memory_query_byte_shift(term.byte_stride,
+                                                  &term.byte_shift);
     loom_value_facts_t byte_facts = loom_value_facts_unknown();
     if (loom_low_source_memory_access_single_term_dynamic_facts(expression,
                                                                 &byte_facts)) {
@@ -1179,45 +1150,6 @@ static loom_type_t loom_low_source_memory_access_payload_vector_type(
   return loom_low_source_memory_element_vector_type(view_type);
 }
 
-static loom_low_source_memory_address_layout_t
-loom_low_source_memory_classify_address_layout(
-    const loom_vector_memory_access_t* vector_access) {
-  if (vector_access->layout_kind == LOOM_VECTOR_MEMORY_LAYOUT_DENSE) {
-    return LOOM_LOW_SOURCE_MEMORY_ADDRESS_LAYOUT_COMPACT_ROW_MAJOR;
-  }
-  if (vector_access->layout_kind != LOOM_VECTOR_MEMORY_LAYOUT_STRIDED) {
-    return LOOM_LOW_SOURCE_MEMORY_ADDRESS_LAYOUT_UNPROVEN;
-  }
-
-  int64_t expected_stride = 1;
-  for (int16_t axis = (int16_t)vector_access->view_rank - 1; axis >= 0;
-       --axis) {
-    // A singleton axis contributes no address delta, regardless of its stride.
-    if (!loom_type_dim_is_dynamic_at(vector_access->view_type, (uint8_t)axis) &&
-        loom_type_dim_static_size_at(vector_access->view_type, (uint8_t)axis) ==
-            1) {
-      continue;
-    }
-    int64_t actual_stride = 0;
-    if (!loom_vector_memory_access_static_axis_stride(
-            vector_access, (uint8_t)axis, &actual_stride) ||
-        actual_stride != expected_stride) {
-      return LOOM_LOW_SOURCE_MEMORY_ADDRESS_LAYOUT_UNPROVEN;
-    }
-    if (axis != 0) {
-      if (loom_type_dim_is_dynamic_at(vector_access->view_type,
-                                      (uint8_t)axis) ||
-          !iree_checked_mul_i64(expected_stride,
-                                loom_type_dim_static_size_at(
-                                    vector_access->view_type, (uint8_t)axis),
-                                &expected_stride)) {
-        return LOOM_LOW_SOURCE_MEMORY_ADDRESS_LAYOUT_UNPROVEN;
-      }
-    }
-  }
-  return LOOM_LOW_SOURCE_MEMORY_ADDRESS_LAYOUT_COMPACT_ROW_MAJOR;
-}
-
 static bool loom_low_source_memory_access_plan_from_components(
     const loom_view_region_table_t* view_regions,
     loom_low_source_memory_operation_kind_t operation_kind,
@@ -1379,8 +1311,8 @@ static bool loom_low_source_memory_access_plan_from_components(
          ++factor) {
       term.stride_values[factor - 1] = axis_stride.dynamic_factors[factor];
     }
-    (void)loom_low_source_memory_access_power_of_two_shift(term.byte_stride,
-                                                           &term.byte_shift);
+    (void)loom_low_source_memory_query_byte_shift(term.byte_stride,
+                                                  &term.byte_shift);
     loom_low_source_memory_dynamic_term_compute_scaled_byte_facts(
         fact_table, term.index, term.byte_stride, term.stride_values,
         term.stride_value_count, &term.byte_facts);
@@ -1530,8 +1462,8 @@ static bool loom_low_source_memory_access_plan_from_components(
           return false;
         }
         uint32_t byte_shift = LOOM_LOW_SOURCE_MEMORY_ACCESS_BYTE_SHIFT_NONE;
-        (void)loom_low_source_memory_access_power_of_two_shift(term_byte_stride,
-                                                               &byte_shift);
+        (void)loom_low_source_memory_query_byte_shift(term_byte_stride,
+                                                      &byte_shift);
         loom_value_facts_t byte_facts = loom_value_facts_unknown();
         loom_low_source_memory_dynamic_term_compute_scaled_byte_facts(
             fact_table, materialized_value, term_byte_stride, stride_values,
@@ -1555,58 +1487,49 @@ static bool loom_low_source_memory_access_plan_from_components(
           return false;
         }
       }
-      // Preserve the analyzed SSA value that exactly materializes the
-      // canonical dynamic terms. This may be the source index itself or a
-      // constant-free prefix retained while symbolic analysis folded a static
-      // suffix.
-      if (index_summary.materialized_dynamic_value_id !=
-          LOOM_VALUE_ID_INVALID) {
-        const loom_value_id_t realization_value =
-            index_summary.materialized_dynamic_value_id;
-        uint32_t byte_shift = LOOM_LOW_SOURCE_MEMORY_ACCESS_BYTE_SHIFT_NONE;
-        (void)loom_low_source_memory_access_power_of_two_shift(
-            expression_byte_stride, &byte_shift);
-        loom_value_facts_t canonical_byte_facts = loom_value_facts_exact_i64(0);
-        for (uint8_t term_ordinal = first_expression_term;
-             term_ordinal < out_plan->dynamic_term_count; ++term_ordinal) {
-          loom_value_facts_addi(
-              &canonical_byte_facts,
-              &out_plan->dynamic_terms[term_ordinal].byte_facts,
-              &canonical_byte_facts);
-        }
-        loom_value_facts_t expression_byte_facts = loom_value_facts_unknown();
-        loom_low_source_memory_dynamic_term_compute_expression_byte_facts(
-            fact_table, &vector_access, index_expression->facts, dynamic_axis,
-            index_expression->constant, expression_byte_stride, stride_values,
-            stride_value_count, &expression_byte_facts);
-        loom_value_facts_t byte_facts =
-            loom_low_source_memory_access_intersect_index_facts(
-                canonical_byte_facts, expression_byte_facts);
-        loom_value_facts_t realization_byte_facts = loom_value_facts_unknown();
-        loom_low_source_memory_dynamic_term_compute_scaled_byte_facts(
-            fact_table, realization_value, expression_byte_stride,
-            stride_values, stride_value_count, &realization_byte_facts);
-        byte_facts = loom_low_source_memory_access_intersect_index_facts(
-            byte_facts, realization_byte_facts);
-        loom_low_source_memory_dynamic_term_t realization_term = {
-            .index = realization_value,
-            .axis = dynamic_axis,
-            .byte_stride = expression_byte_stride,
-            .byte_facts = byte_facts,
-            .byte_shift = byte_shift,
-            .stride_value_count = stride_value_count,
-        };
-        loom_low_source_memory_access_dynamic_index_source(
-            fact_table, realization_value, &realization_term.source,
-            &realization_term.dimension);
-        for (uint8_t stride_ordinal = 0; stride_ordinal < stride_value_count;
-             ++stride_ordinal) {
-          realization_term.stride_values[stride_ordinal] =
-              stride_values[stride_ordinal];
-        }
-        loom_low_source_memory_access_append_dynamic_realization(
-            out_plan, &realization_term, first_expression_term,
-            (uint8_t)(out_plan->dynamic_term_count - first_expression_term));
+      // Preserve the largest reusable source spelling. A complete expression
+      // already consumed more than once is the best realization. When the
+      // complete expression is private to this access, prefer the shared
+      // strict component retained by symbolic analysis so sibling accesses can
+      // reuse it with their distinct canonical suffixes.
+      loom_symbolic_expr_summary_t component_summary = {0};
+      uint16_t component_mask = 0;
+      if (index_summary.materialized_component_value_id !=
+              LOOM_VALUE_ID_INVALID &&
+          loom_symbolic_expr_context_try_lookup_summary(
+              view_regions->expression_context,
+              index_summary.materialized_component_value_id,
+              &component_summary)) {
+        component_mask = loom_low_source_memory_expression_component_mask(
+            index_expression, &component_summary.expression,
+            first_expression_term);
+      }
+      const bool complete_expression_is_reused =
+          index_summary.materialized_dynamic_value_id !=
+              LOOM_VALUE_ID_INVALID &&
+          loom_module_value(module, index_summary.materialized_dynamic_value_id)
+                  ->use_count > 1;
+      if (component_mask != 0 && !complete_expression_is_reused) {
+        loom_low_source_memory_access_append_expression_realization(
+            fact_table, &vector_access, out_plan,
+            index_summary.materialized_component_value_id,
+            component_summary.expression.facts,
+            component_summary.expression.constant, expression_byte_stride,
+            LOOM_LOW_SOURCE_MEMORY_DYNAMIC_TERM_AXIS_NONE, stride_values,
+            stride_value_count, component_mask);
+      } else if (index_summary.materialized_dynamic_value_id !=
+                 LOOM_VALUE_ID_INVALID) {
+        const uint8_t expression_term_count =
+            (uint8_t)(out_plan->dynamic_term_count - first_expression_term);
+        const uint16_t expression_term_mask =
+            (uint16_t)(((1u << expression_term_count) - 1u)
+                       << first_expression_term);
+        loom_low_source_memory_access_append_expression_realization(
+            fact_table, &vector_access, out_plan,
+            index_summary.materialized_dynamic_value_id,
+            index_expression->facts, index_expression->constant,
+            expression_byte_stride, dynamic_axis, stride_values,
+            stride_value_count, expression_term_mask);
       }
       continue;
     }
@@ -1616,8 +1539,7 @@ static bool loom_low_source_memory_access_plan_from_components(
     // combined byte stride/static offset and do not need to materialize the
     // intermediate index.
     uint32_t byte_shift = LOOM_LOW_SOURCE_MEMORY_ACCESS_BYTE_SHIFT_NONE;
-    (void)loom_low_source_memory_access_power_of_two_shift(byte_stride,
-                                                           &byte_shift);
+    (void)loom_low_source_memory_query_byte_shift(byte_stride, &byte_shift);
     loom_value_facts_t base_byte_facts = loom_value_facts_unknown();
     loom_low_source_memory_dynamic_term_compute_byte_facts(
         fact_table, &vector_access, dynamic_index, dynamic_axis,

@@ -1,0 +1,39 @@
+// RUN: emit source-low target=amdgpu:gfx1151 output=low
+
+// A uniform row origin is shared by two lane-varying coordinates. Retaining
+// that authored origin must not rebuild a full-width scalar address for each
+// access when the complete vector offsets are proven to fit u32.
+kernel.def @shared_scalar_row_component() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %row: index) {
+  %bounded_row = index.assume %row [range(%row, 0, 7)] : index
+  %lane = kernel.workitem.id<x> : index
+  %bounded_lane = index.assume %lane [range(%lane, 0, 63)] : index
+  %row_stride = index.constant 128 : index
+  %row_origin = index.mul %bounded_row, %row_stride : index
+  %first_index = index.add %row_origin, %bounded_lane : index
+  %distance = index.constant 64 : index
+  %later_lane = index.add %bounded_lane, %distance : index
+  %second_index = index.add %row_origin, %later_lane : index
+  %base = index.constant 0 : offset
+  %data = buffer.view %input[%base] : buffer -> view<1024xi32>
+  %first = view.load<volatile> %data[%first_index] : view<1024xi32> -> i32
+  %second = view.load<volatile> %data[%second_index] : view<1024xi32> -> i32
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.rdna3_5.core> abi_layout({constant_count = 1, direct_arg_count = 1, direct_arg_names = {arg0 = "row"}, direct_arg_offsets = [8], direct_arg_parameter_indices = [1], direct_arg_sizes = [4], parameter_count = 2, resource_count = 1, resource_offsets = [0], resource_parameter_indices = [0], uses_kernarg_segment_ptr = true}) workgroup_size(64, 1, 1) workgroup_count(1, 1, 1) @shared_scalar_row_component(%bounded_row: reg<amdgpu.sgpr>) asm {
+  %bounded_lane = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
+  %data = resource<hal_binding> {extent = 4096, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %22 = s_mov_b32 7
+  %row_origin = s_lshl_b32 %bounded_row, %22
+  %24 = v_mov_b32_copy %row_origin
+  %25 = v_add_u32 %24, %bounded_lane
+  %26 = v_lshlrev_b32_src0_inline %25, 2
+  %first = global_load_b32_saddr<volatile> %26, %data
+  %second = global_load_b32_saddr<volatile> %26, %data {offset = 256}
+  return
+}

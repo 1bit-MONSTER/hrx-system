@@ -903,7 +903,8 @@ iree_status_t loom_index_add_canonicalize(loom_op_t* op,
   loom_op_t* lhs_def = loom_rewriter_value_defining_op(rewriter, lhs);
   loom_index_scaled_value_t lhs_scaled;
   if (loom_index_match_scaled_value_with_exact_positive_factor(
-          rewriter, lhs_def, &lhs_scaled)) {
+          rewriter, lhs_def, &lhs_scaled) &&
+      loom_value_has_single_use(loom_module_value(rewriter->module, lhs))) {
     if (lhs_scaled.factor == 1) {
       return iree_ok_status();
     }
@@ -914,7 +915,8 @@ iree_status_t loom_index_add_canonicalize(loom_op_t* op,
   loom_op_t* rhs_def = loom_rewriter_value_defining_op(rewriter, rhs);
   loom_index_scaled_value_t rhs_scaled;
   if (loom_index_match_scaled_value_with_exact_positive_factor(
-          rewriter, rhs_def, &rhs_scaled)) {
+          rewriter, rhs_def, &rhs_scaled) &&
+      loom_value_has_single_use(loom_module_value(rewriter->module, rhs))) {
     if (rhs_scaled.factor == 1) {
       return iree_ok_status();
     }

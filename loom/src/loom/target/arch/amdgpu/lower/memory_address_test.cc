@@ -40,8 +40,7 @@ loom_amdgpu_memory_access_t MixedAccess() {
   access.dynamic_term_kinds[1] = LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR;
   access.source.dynamic_realization_count = 1;
   access.source.dynamic_realizations[0].term = Term(3, 0, 1276);
-  access.source.dynamic_realizations[0].first_term = 0;
-  access.source.dynamic_realizations[0].term_count = 2;
+  access.source.dynamic_realizations[0].term_mask = 0b11;
   return access;
 }
 
@@ -103,8 +102,7 @@ TEST(AmdgpuMemoryAddressTest, MultipleRealizationsRequireCombinedBound) {
   access.dynamic_term_kinds[3] = LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR;
   access.source.dynamic_realization_count = 2;
   access.source.dynamic_realizations[1].term = Term(6, 0, UINT32_MAX);
-  access.source.dynamic_realizations[1].first_term = 2;
-  access.source.dynamic_realizations[1].term_count = 2;
+  access.source.dynamic_realizations[1].term_mask = 0b1100;
   loom_amdgpu_memory_access_select_vaddr_realizations(&access);
   EXPECT_EQ(access.vaddr_realization_mask, 0);
 
@@ -123,8 +121,7 @@ TEST(AmdgpuMemoryAddressTest, UnknownScalarRealizationPreservesPartition) {
   access.dynamic_term_kinds[3] = LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR;
   access.source.dynamic_realization_count = 2;
   access.source.dynamic_realizations[1].term = Term(6, 0, INT64_MAX);
-  access.source.dynamic_realizations[1].first_term = 2;
-  access.source.dynamic_realizations[1].term_count = 2;
+  access.source.dynamic_realizations[1].term_mask = 0b1100;
   loom_amdgpu_memory_access_select_vaddr_realizations(&access);
   EXPECT_EQ(access.vaddr_realization_mask, 0);
 }
@@ -247,6 +244,57 @@ TEST(AmdgpuMemoryAddressTest, RetainedScalarComponentDoesNotNarrow) {
   loom_amdgpu_memory_access_select_vaddr_realizations(&access);
   EXPECT_EQ(access.retained_component_kind,
             LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_SOFFSET);
+}
+
+TEST(AmdgpuMemoryAddressTest, RetainedScalarComponentPromotesBesideVectorTerm) {
+  auto access = MixedAccess();
+  const auto component = Term(5, 0, 1024);
+  access.source.retained_component = {&component, 0b01};
+  loom_amdgpu_memory_access_select_vaddr_realizations(&access);
+  EXPECT_EQ(access.retained_component_kind,
+            LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR);
+
+  access.address_form = LOOM_AMDGPU_MEMORY_ADDRESS_FORM_DEFAULT;
+  loom_amdgpu_memory_access_select_vaddr_realizations(&access);
+  EXPECT_EQ(access.retained_component_kind,
+            LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_SOFFSET);
+}
+
+TEST(AmdgpuMemoryAddressTest,
+     ScalarRealizationPromotesBesideSeparateVectorTerm) {
+  auto access = MixedAccess();
+  access.source.dynamic_realizations[0].term = Term(3, 0, 1024);
+  access.source.dynamic_realizations[0].term_mask = 0b01;
+  loom_amdgpu_memory_access_select_vaddr_realizations(&access);
+  EXPECT_EQ(access.vaddr_realization_mask, 1);
+
+  access.source.dynamic_realizations[0].term.byte_facts =
+      loom_value_facts_unknown();
+  loom_amdgpu_memory_access_select_vaddr_realizations(&access);
+  EXPECT_EQ(access.vaddr_realization_mask, 0);
+}
+
+TEST(AmdgpuMemoryAddressTest,
+     RetainedNoncontiguousComponentResolvesEachTermOnce) {
+  auto access = MixedAccess();
+  access.source.dynamic_term_count = 3;
+  access.source.dynamic_terms[2] = Term(4, 0, 128);
+  access.dynamic_term_kinds[2] = LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR;
+  access.source.dynamic_realization_count = 0;
+  const auto component = Term(5, 0, 1152);
+  access.source.retained_component = {&component, 0b101};
+  access.retained_component_kind = LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR;
+  loom_amdgpu_memory_dynamic_term_plan_t plans[4] = {};
+  access.dynamic_term_plans = plans;
+
+  loom_amdgpu_memory_dynamic_term_sequence_t sequence = {};
+  loom_amdgpu_memory_access_resolve_dynamic_terms(
+      /*context=*/nullptr, &access, &sequence);
+  ASSERT_EQ(sequence.count, 2u);
+  EXPECT_EQ(sequence.terms[0], &component);
+  EXPECT_EQ(sequence.kinds[0], LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR);
+  EXPECT_EQ(sequence.terms[1], &access.source.dynamic_terms[1]);
+  EXPECT_EQ(sequence.kinds[1], LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR);
 }
 
 TEST(AmdgpuMemoryAddressTest,

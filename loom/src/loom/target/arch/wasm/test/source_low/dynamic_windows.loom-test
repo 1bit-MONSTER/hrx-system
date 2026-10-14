@@ -86,13 +86,13 @@ func.def @dynamic_shaped_tail(%trial0: index, %input: buffer, %output: buffer) {
 
 // ----
 low.func.def target<wasm.core.simd128> abi(wasm_function) @dynamic_shaped_tail(%trial: reg<wasm.i32>, %input: reg<wasm.i32>, %output: reg<wasm.i32>) asm {
-  %39 = i32.const 24
-  %40 = i32.mul %trial, %39
-  %41 = i32.add %input, %40
-  %42 = v128.load %41
-  %46 = i64.load %41 {offset = 16}
-  v128.store %output, %42
-  i64.store %output, %46 {offset = 16}
+  %38 = i32.const 24
+  %39 = i32.mul %trial, %38
+  %40 = i32.add %input, %39
+  %41 = v128.load %40
+  %45 = i64.load %40 {offset = 16}
+  v128.store %output, %41
+  i64.store %output, %45 {offset = 16}
   return
 }
 

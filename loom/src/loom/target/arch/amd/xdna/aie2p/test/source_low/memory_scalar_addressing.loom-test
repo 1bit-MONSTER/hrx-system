@@ -123,10 +123,10 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @scalar_mixed_rank
   %29 = mac %28, %row_bounded, %27
   %30 = mov.i32 2
   %31 = lshl %29, %30
-  %32 = add.rr %base_aligned, %31
+  %32 = add.rr %31, %base_aligned
   %33 = mov.address-index %32
   %loaded = lda.i32.index %input_view, %33
-  %37 = add.rr %base_aligned, %31
+  %37 = add.rr %31, %base_aligned
   %38 = mov.address-index %37
   st.i32.index %loaded, %output_view, %38
   return %loaded

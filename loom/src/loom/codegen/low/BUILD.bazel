@@ -1040,10 +1040,14 @@ loom_cc_library(
 loom_cc_library(
     name = "source_memory_plan",
     srcs = [
+        "source_memory_layout.c",
         "source_memory_plan.c",
         "source_memory_plan_summary.c",
     ],
-    hdrs = ["source_memory_plan.h"],
+    hdrs = [
+        "source_memory_layout.h",
+        "source_memory_plan.h",
+    ],
     deps = [
         ":memory_access",
         "//loom/src/loom/analysis:view_regions",

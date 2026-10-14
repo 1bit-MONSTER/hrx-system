@@ -120,18 +120,16 @@ func.def @scalar_mixed_rank2_i32(%input: buffer, %output: buffer, %base: offset,
 
 // ----
 low.func.def target<spirv.logical.core> abi(shader_entry_point) @scalar_mixed_rank2_i32(%input_aligned: reg<spirv.ptr.storage_buffer>, %output_aligned: reg<spirv.ptr.storage_buffer>, %base_aligned: reg<spirv.offset64>, %row_bounded: reg<spirv.id : index>, %column_bounded: reg<spirv.id : index>) -> (reg<spirv.id : i32>) asm {
-  %27 = OpSConvert.i32.offset64 %row_bounded
-  %28 = OpConstant.offset64 32
-  %29 = OpIMul.offset64 %27, %28
-  %30 = OpIAdd.offset64 %base_aligned, %29
-  %31 = OpSConvert.i32.offset64 %column_bounded
-  %32 = OpConstant.offset64 4
-  %33 = OpIMul.offset64 %31, %32
-  %34 = OpIAdd.offset64 %30, %33
-  %35 = OpPtrAccessChain.storage_buffer.i32.byte_offset %input_aligned, %34
-  %loaded = OpLoad.storage_buffer.i32 %35
-  %45 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output_aligned, %34
-  OpStore.storage_buffer.i32 %45, %loaded
+  %27 = OpConstant.i32 8 : reg<spirv.id : index>
+  %28 = OpIMulAdd %row_bounded, %27, %column_bounded : reg<spirv.id : index>
+  %29 = OpSConvert.i32.offset64 %28
+  %30 = OpConstant.offset64 4
+  %31 = OpIMul.offset64 %29, %30
+  %32 = OpIAdd.offset64 %base_aligned, %31
+  %33 = OpPtrAccessChain.storage_buffer.i32.byte_offset %input_aligned, %32
+  %loaded = OpLoad.storage_buffer.i32 %33
+  %39 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output_aligned, %32
+  OpStore.storage_buffer.i32 %39, %loaded
   return %loaded
 }
 

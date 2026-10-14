@@ -20,14 +20,14 @@ func.def @tiled_channel_load(%input: buffer, %row: index, %lane: index) -> (i32)
 // ----
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @tiled_channel_load(%bounded_row: reg<aie2p.er>, %bounded_lane: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
   %data = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
-  %20 = mov.i32 10
-  %21 = lshl %bounded_row, %20
-  %22 = mov.i32 2
-  %23 = lshl %bounded_lane, %22
+  %20 = mov.i32 2
+  %21 = lshl %bounded_lane, %20
+  %22 = mov.i32 10
+  %23 = lshl %bounded_row, %22
   %24 = add.rr %21, %23
   %25 = mov.address-index %24
   %value = lda.i32.index %data, %25
-  %29 = mov.address-index %23
+  %29 = mov.address-index %21
   %weight = lda.i32.index %data, %29
   %result = mul %value, %weight
   return %result

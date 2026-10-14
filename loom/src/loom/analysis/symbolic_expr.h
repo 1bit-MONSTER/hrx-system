@@ -57,6 +57,8 @@ extern "C" {
 
 typedef struct loom_symbolic_expr_memo_entry_t loom_symbolic_expr_memo_entry_t;
 typedef struct loom_symbolic_expr_memo_chunk_t loom_symbolic_expr_memo_chunk_t;
+typedef struct loom_symbolic_expr_materialization_t
+    loom_symbolic_expr_materialization_t;
 typedef struct loom_symbolic_congruence_t loom_symbolic_congruence_t;
 typedef struct loom_symbolic_projection_t loom_symbolic_projection_t;
 typedef struct loom_symbolic_product_t loom_symbolic_product_t;
@@ -112,6 +114,10 @@ typedef struct loom_symbolic_expr_summary_t {
   // SSA value exactly materializing expression's nonconstant terms, or
   // LOOM_VALUE_ID_INVALID when no such value was retained during expansion.
   loom_value_id_t materialized_dynamic_value_id;
+
+  // Shared SSA value exactly materializing a strict, constant-free subset of
+  // expression terms, or LOOM_VALUE_ID_INVALID when none was retained.
+  loom_value_id_t materialized_component_value_id;
 
   // Optional exact digit function for this value. Materialized expression
   // terms remain unchanged; proof consumers may query this retained relation.
@@ -172,6 +178,17 @@ typedef struct loom_symbolic_expr_context_t {
     // Number of initialized payload slots in the current epoch.
     uint32_t count;
   } memo;
+
+  // Sparse materialization pairs owned by READY_COMPONENT memo entries. Most
+  // expressions need no row and retain the compact base memo payload.
+  struct {
+    // Arena-owned records indexed by READY_COMPONENT memo entries.
+    loom_symbolic_expr_materialization_t* values;
+    // Number of records populated in the current epoch.
+    iree_host_size_t count;
+    // Allocated record count, retained across context resets.
+    iree_host_size_t capacity;
+  } materializations;
 
   // Exact digit proofs owned by this context. Only projected values allocate
   // records; their memo slots retain indices into this array.

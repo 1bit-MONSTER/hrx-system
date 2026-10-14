@@ -90,11 +90,11 @@ low.func.def inline target<amd.xdna.aie2p.core> @__pipeline_worker_1() asm {
   %290 = mac %289, %row, %width
   %291 = mov.i32 2
   %292 = lshl %290, %291
-  %293 = add.rr %read, %292
+  %293 = add.rr %292, %read
   %294 = mov.address-index %293
   %value = lda.i32.index %payload, %294
   %scaled = lshl %value, %275
-  %299 = add.rr %read, %292
+  %299 = add.rr %292, %read
   %300 = mov.address-index %299
   st.i32.index %scaled, %payload, %300
   %301 = add.rr %column, %275

@@ -230,7 +230,7 @@ static iree_status_t loom_low_lower_memory_components_grow(
 static void loom_low_lower_memory_component_select(
     loom_low_lower_source_memory_builder_t* builder,
     loom_low_lower_source_memory_record_t* record, uint16_t mask) {
-  if (mask == 0 || (mask & (mask - 1)) == 0) {
+  if (mask == 0) {
     return;
   }
   loom_low_lower_memory_component_entry_t* entry =
@@ -309,8 +309,7 @@ static iree_status_t loom_low_lower_memory_components_publish(
   for (uint8_t i = 0; i < record->access.dynamic_realization_count; ++i) {
     const loom_low_source_memory_dynamic_realization_t* realization =
         &record->access.dynamic_realizations[i];
-    const uint16_t mask = loom_low_lower_memory_term_range(
-        realization->first_term, realization->term_count);
+    const uint16_t mask = realization->term_mask;
     const uint32_t hash =
         loom_low_lower_memory_component_hash(&record->access, mask);
     loom_low_lower_memory_component_entry_t* entry =
@@ -398,6 +397,12 @@ iree_status_t loom_low_lower_source_memory_observe(
         loom_low_lower_memory_invariant_terms(context, record);
     loom_low_lower_memory_component_select(builder, record,
                                            record->invariant_term_mask);
+    for (uint8_t i = 0; record->access.retained_component.term == NULL &&
+                        i < record->access.dynamic_realization_count;
+         ++i) {
+      loom_low_lower_memory_component_select(
+          builder, record, record->access.dynamic_realizations[i].term_mask);
+    }
     if (record->access.retained_component.term == NULL) {
       loom_low_lower_memory_component_select(
           builder, record,
