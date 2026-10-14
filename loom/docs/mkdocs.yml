@@ -112,6 +112,7 @@ nav:
           - Operate a model server: serving/workflows/operate-model-server.md
           - Observe a model server: serving/workflows/observe-model-server.md
           - Connect model clients: serving/workflows/connect-model-clients.md
+          - Develop models on a live server: serving/workflows/live-model-development.md
   - Targets:
       - Resident pipelines on XDNA: targets/xdna-pipelines.md
   - Reference:

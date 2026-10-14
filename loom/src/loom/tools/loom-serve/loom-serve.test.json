@@ -39,7 +39,9 @@
           "/v1/models/register",
           ".loombc",
           "base_directory",
-          "trusted clients"
+          "trusted clients",
+          "/v1/models/variants",
+          "live-model-development/"
         ]
       },
       "stderr": {"empty": true}

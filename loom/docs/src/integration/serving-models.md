@@ -55,7 +55,11 @@ Its keys, encodings and layouts must agree with the authored source.
 All program roles and numerical providers accept `.loom` or `.loombc`.
 Bytecode is portable IR and still JITs for the selected device. References in a
 file document resolve from its directory, including references to shared motif
-libraries elsewhere. An HTTP document supplies its absolute server-local base.
+libraries elsewhere. JSON-only HTTP registration supplies its absolute
+server-local base. A multipart source package instead carries programs and
+metadata in a separate logical namespace while parameter files stay server-local.
+The [live development workflow](../serving/workflows/live-model-development.md)
+shows upload, native selection and retained-state comparisons.
 
 `definition.sources` is a numerical provider catalog, not an ordered dispatch
 list. Roots and imported symbols determine dependency closure through the

@@ -155,7 +155,7 @@ curl --fail-with-body --silent --show-error \
 ```
 
 These JSON-only commands use provider files already on the server. A
-[multipart source package](../../reference/serving-http.md#uploaded-source-packages)
+[multipart source package](../http-profiles.md#uploaded-source-packages)
 instead carries client-local providers in the request. Staging waits
 asynchronously by default and returns retained compiler diagnostics on failure;
 `"wait":false` instead returns an ID immediately for later inspection.
@@ -184,8 +184,10 @@ for every retained session and checkpoint that either choice will consume.
 Unused terminal candidates can be explicitly removed to reclaim cache credit.
 Pending and failed attempts count against `variant_capacity`; capacity exhaustion
 rejects new staging instead of evicting an arbitrary rollback choice. The
-[HTTP reference](../../reference/serving-http.md#native-executable-variants)
+[HTTP reference](../http-profiles.md#native-executable-variants)
 defines inspection, selection and removal responses.
+The [live development workflow](live-model-development.md) combines these controls
+with remote source uploads, checked kernel changes and pinned continuation trials.
 
 ## Bound memory and admission
 
