@@ -70,7 +70,8 @@ ConstexprContract admit_constexpr_contract(
                        "constexpr does not accept addressable bindings");
   }
   const auto& partition = types.partition(variable->type(), owner);
-  if (partition.kind != ValueKind::SSA && partition.kind != ValueKind::Index) {
+  if (partition.kind != ValueKind::SSA &&
+      partition.kind != ValueKind::Address) {
     diagnostics.reject(unit, contract.source,
                        "constexpr requires a scalar value binding");
   }

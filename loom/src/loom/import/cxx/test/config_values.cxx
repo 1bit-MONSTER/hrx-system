@@ -15,7 +15,7 @@ unsigned configured_sum(unsigned start) {
   unsigned result = start;
   [[loom::unroll(factor)]]
   for (unsigned index = 0; index < count; ++index) {
-    result += enabled ? index * factor : index;
+    result += enabled ? index * static_cast<long long>(factor) : index;
   }
   return result;
 }

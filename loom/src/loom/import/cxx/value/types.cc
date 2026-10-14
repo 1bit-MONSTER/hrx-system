@@ -223,7 +223,10 @@ const Partition* Types::special(const cxx::Type* input, cxx::AST* owner) {
     return buffer(type, owner);
   }
   if (name == "index") {
-    return index(type, owner);
+    return address(type, LOOM_SCALAR_TYPE_INDEX, owner);
+  }
+  if (name == "offset") {
+    return address(type, LOOM_SCALAR_TYPE_OFFSET, owner);
   }
   if (name == "encoding") {
     return encoding(type, owner);
@@ -284,10 +287,15 @@ const BufferPartition* Types::buffer(const cxx::ClassType* input,
   return admitted;
 }
 
-const IndexPartition* Types::index(const cxx::ClassType* input,
-                                   cxx::AST* owner) {
+const AddressPartition* Types::address(const cxx::ClassType* input,
+                                       loom_scalar_type_t element_type,
+                                       cxx::AST* owner) {
   auto* source = input->definition();
-  if (auto found = indices_.find(source); found != indices_.end()) {
+  if (auto found = addresses_.find(source); found != addresses_.end()) {
+    if (found->second->element_type != element_type) {
+      diagnostics_.reject(unit_, owner,
+                          "source class has conflicting address domains");
+    }
     return found->second.get();
   }
   auto traits = unit_.typeTraits();
@@ -299,16 +307,18 @@ const IndexPartition* Types::index(const cxx::ClassType* input,
       !source->baseClasses().empty() || !source->templateArguments().empty() ||
       !traits.is_trivially_copyable(input) ||
       !traits.has_trivial_destructor(input)) {
-    diagnostics_.reject(unit_, owner,
-                        "index values require a complete non-template trivial "
-                        "class without bases");
+    diagnostics_.reject(
+        unit_, owner,
+        "address values require a complete non-template trivial "
+        "class without bases");
   }
-  auto result = std::make_unique<IndexPartition>();
-  result->kind = ValueKind::Index;
+  auto result = std::make_unique<AddressPartition>();
+  result->kind = ValueKind::Address;
   result->component_count = 1;
   result->source = source;
+  result->element_type = element_type;
   auto* admitted = result.get();
-  indices_.emplace(source, std::move(result));
+  addresses_.emplace(source, std::move(result));
   return admitted;
 }
 
@@ -689,7 +699,7 @@ void Types::append_component_names(const Partition& partition,
   switch (partition.kind) {
     case ValueKind::SSA:
     case ValueKind::Buffer:
-    case ValueKind::Index:
+    case ValueKind::Address:
     case ValueKind::OpaqueDialect:
     case ValueKind::Encoding:
       append({});
@@ -828,8 +838,9 @@ loom_type_t Types::get(const cxx::Type* input, cxx::AST* ast) {
       if (admitted && admitted->kind == ValueKind::Buffer) {
         return loom_type_buffer();
       }
-      if (admitted && admitted->kind == ValueKind::Index) {
-        return loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
+      if (admitted && admitted->kind == ValueKind::Address) {
+        return loom_type_scalar(
+            static_cast<const AddressPartition*>(admitted)->element_type);
       }
       if (admitted && admitted->kind == ValueKind::Tensor) {
         const auto& tensor = static_cast<const TensorPartition&>(*admitted);
@@ -956,8 +967,8 @@ void Types::admit_copy(cxx::FunctionSymbol* constructor, const cxx::Type* type,
     source = static_cast<const RecordPartition&>(admitted).source;
   } else if (admitted.kind == ValueKind::Buffer) {
     source = static_cast<const BufferPartition&>(admitted).source;
-  } else if (admitted.kind == ValueKind::Index) {
-    source = static_cast<const IndexPartition&>(admitted).source;
+  } else if (admitted.kind == ValueKind::Address) {
+    source = static_cast<const AddressPartition&>(admitted).source;
   } else if (admitted.kind == ValueKind::Encoding) {
     source = static_cast<const EncodingPartition&>(admitted).source;
   } else if (admitted.kind == ValueKind::OpaqueDialect) {
@@ -1024,8 +1035,9 @@ void Types::append_bound(const cxx::Type* input, cxx::AST* owner,
     case ValueKind::Buffer:
       output.push_back(loom_type_buffer());
       return;
-    case ValueKind::Index:
-      output.push_back(loom_type_scalar(LOOM_SCALAR_TYPE_INDEX));
+    case ValueKind::Address:
+      output.push_back(loom_type_scalar(
+          static_cast<const AddressPartition&>(admitted).element_type));
       return;
     case ValueKind::OpaqueDialect:
       output.push_back(
@@ -1118,7 +1130,19 @@ bool Types::is_float(const cxx::Type* input) {
 }
 
 bool Types::is_index(const cxx::Type* type, cxx::AST* owner) {
-  return partition(type, owner).kind == ValueKind::Index;
+  return address_domain(type, owner) == LOOM_SCALAR_TYPE_INDEX;
+}
+
+bool Types::is_offset(const cxx::Type* type, cxx::AST* owner) {
+  return address_domain(type, owner) == LOOM_SCALAR_TYPE_OFFSET;
+}
+
+loom_scalar_type_t Types::address_domain(const cxx::Type* type,
+                                         cxx::AST* owner) {
+  const auto& admitted = partition(type, owner);
+  return admitted.kind == ValueKind::Address
+             ? static_cast<const AddressPartition&>(admitted).element_type
+             : LOOM_SCALAR_TYPE_NONE;
 }
 
 }  // namespace loom::cxx_import

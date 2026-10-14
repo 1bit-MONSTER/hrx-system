@@ -19,6 +19,7 @@
 #include "loom/import/cxx/source/source.h"
 #include "loom/import/cxx/value/representation.h"
 #include "loom/import/cxx/value/types.h"
+#include "loom/ops/index/ops.h"
 
 namespace loom::cxx_import {
 
@@ -51,33 +52,79 @@ loom_value_id_t cast_index(Value value, bool unsigned_source,
                            loom_builder_t* builder,
                            loom_location_id_t location);
 
-// Source projection of index.cast. The concrete C++ specialization retains
-// the operand's signedness so emission can preserve integer value semantics.
-class IndexCastIntrinsic {
+// Source projection of the complete High address-domain operation family. A
+// concrete C++ declaration is admitted once, including its domain, predicate,
+// arity, and result partition; calls only evaluate operands and dispatch the
+// retained operation.
+class AddressIntrinsic {
  public:
+  enum class Operation {
+    Cast,
+    Add,
+    Sub,
+    Mul,
+    Scale,
+    Div,
+    Rem,
+    DivRem,
+    Min,
+    Max,
+    Madd,
+    And,
+    Or,
+    Xor,
+    ShiftLeft,
+    ShiftRightSigned,
+    ShiftRightUnsigned,
+    RotateLeft,
+    RotateRight,
+    CountLeadingZeros,
+    CountTrailingZeros,
+    CountPopulation,
+    Compare,
+  };
+
   static bool supports(std::string_view name);
 
   // Unknown operations return nullopt. A recognized operation with an invalid
   // source signature diagnoses at owner.
-  static std::optional<IndexCastIntrinsic> resolve(
+  static std::optional<AddressIntrinsic> resolve(
       cxx::TranslationUnit& unit, Diagnostics& diagnostics, Types& types,
       cxx::FunctionSymbol* function, const cxx::Attribute& attribute,
       cxx::AST* owner);
 
-  // Converts the single admitted scalar operand to High index.
-  Value call(std::span<const Value> arguments, loom_builder_t* builder,
-             loom_location_id_t location) const;
+  // Emits the retained High operation and preserves the nominal C++ result
+  // partition, including the two-component divrem result record.
+  Value call(std::span<const Value> arguments, ValueArena& arena,
+             loom_builder_t* builder, loom_location_id_t location) const;
 
-  bool equivalent(const IndexCastIntrinsic& other) const {
-    return unsigned_source_ == other.unsigned_source_;
+  bool equivalent(const AddressIntrinsic& other) const {
+    return operation_ == other.operation_ && predicate_ == other.predicate_ &&
+           unsigned_source_ == other.unsigned_source_ &&
+           source_domain_ == other.source_domain_ &&
+           result_partition_ == other.result_partition_;
   }
 
  private:
-  explicit IndexCastIntrinsic(bool unsigned_source)
-      : unsigned_source_(unsigned_source) {}
+  AddressIntrinsic(Operation operation, loom_index_cmp_predicate_t predicate,
+                   bool unsigned_source, loom_scalar_type_t source_domain,
+                   const Partition* result_partition)
+      : operation_(operation),
+        predicate_(predicate),
+        unsigned_source_(unsigned_source),
+        source_domain_(source_domain),
+        result_partition_(result_partition) {}
 
+  // Admitted address operation.
+  Operation operation_;
+  // Comparison interpretation; EQ for operations without a predicate.
+  loom_index_cmp_predicate_t predicate_;
   // Whether the source integer uses unsigned C++ value semantics.
   bool unsigned_source_;
+  // Native address input domain, or NONE for a fixed-width C++ integer.
+  loom_scalar_type_t source_domain_;
+  // Nominal C++ result partition, owned by Types or static scalar storage.
+  const Partition* result_partition_;
 };
 
 }  // namespace loom::cxx_import

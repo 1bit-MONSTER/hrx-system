@@ -154,7 +154,7 @@ void Intrinsics::declaration(cxx::FunctionSymbol* function,
                 !VectorMemoryIntrinsic::supports(
                     selected->arguments[0]->name()) &&
                 !BufferIntrinsic::supports(selected->arguments[0]->name()) &&
-                !IndexCastIntrinsic::supports(selected->arguments[0]->name()) &&
+                !AddressIntrinsic::supports(selected->arguments[0]->name()) &&
                 !DecodeIntrinsic::supports(selected->arguments[0]->name()) &&
                 !FragmentIntrinsic::supports(selected->arguments[0]->name()) &&
                 !AsyncIntrinsic::supports(selected->arguments[0]->name()) &&
@@ -220,8 +220,8 @@ Intrinsics::Binding Intrinsics::resolve(cxx::FunctionSymbol* function,
           unit_, diagnostics_, types_, launches_, function, attribute, owner)) {
     return *binding;
   }
-  if (auto index = IndexCastIntrinsic::resolve(unit_, diagnostics_, types_,
-                                               function, attribute, owner)) {
+  if (auto index = AddressIntrinsic::resolve(unit_, diagnostics_, types_,
+                                             function, attribute, owner)) {
     return *index;
   }
   if (auto* scalar =
@@ -455,8 +455,8 @@ IntrinsicCallResult Intrinsics::call(const Binding& admitted,
   if (auto* target = std::get_if<TargetIntrinsic>(binding)) {
     return {Value(target->call(builder, location))};
   }
-  if (auto* index = std::get_if<IndexCastIntrinsic>(binding)) {
-    return {index->call(arguments, builder, location)};
+  if (auto* index = std::get_if<AddressIntrinsic>(binding)) {
+    return {index->call(arguments, arena, builder, location)};
   }
   if (auto* barrier = std::get_if<BarrierIntrinsic>(binding)) {
     barrier->call(builder, location);

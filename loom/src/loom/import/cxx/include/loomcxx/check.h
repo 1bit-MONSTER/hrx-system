@@ -62,7 +62,17 @@ template <class... Args>
 namespace loom::check {
 
 // Stable source representation of a configuration or trial-domain ordinal.
-using ordinal = loom::type::index;
+// Check ordinals project to Loom index values while retaining convenient
+// unsigned conversion for constructing host-side test data.
+class [[loom::type("index")]] ordinal {
+ public:
+  explicit constexpr ordinal(long long value) : value_(value) {}
+
+  constexpr operator unsigned long long() const { return value_; }
+
+ private:
+  long long value_;
+};
 
 // Immutable counter-based entropy identity supplied to configured scenarios
 // and trials. Named forks and indexed reads are deterministic and do not

@@ -14,6 +14,8 @@ loom_check_test_suite(
   NAME
     compiler_test
   SRCS
+    "address_values.cxx-test"
+    "address_values_invalid.cxx-test"
     "aggregate_constants.cxx-test"
     "array_records.cxx-test"
     "assembly.cxx-test"
