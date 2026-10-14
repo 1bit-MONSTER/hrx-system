@@ -23,18 +23,19 @@ typedef struct loom_serve_finite_service_t loom_serve_finite_service_t;
 // proactor; workers never wait. Compatible requests already waiting fill the
 // oldest request's cohort up to its source-defined limit, without an arrival
 // delay. capacity bounds all outstanding host requests, including the live
-// cohort. A nonnegative heartbeat_interval controls periodic counter snapshots;
-// zero disables periodic samples, not counters or lifecycle events. Observation
-// is a bounded overwriting stream exposed through the HTTP interface, never a
-// synchronous stderr write on a worker.
-// A non-NULL stream is borrowed through service destruction and shares the
-// serialized owner's publication order. NULL creates a service-owned stream.
+// cohort. variant_capacity bounds retained execution choices; zero disables
+// reconfiguration. A nonnegative heartbeat_interval controls periodic
+// snapshots; zero disables periodic samples, not counters or lifecycle events.
+// Observation is a bounded overwriting stream exposed through the HTTP
+// interface, never a synchronous stderr write on a worker. A non-NULL stream is
+// borrowed through service destruction and shares the serialized owner's
+// publication order. NULL creates a service-owned stream.
 iree_status_t loom_serve_finite_service_allocate(
     loom_serve_host_t* host, loom_serve_finite_model_t* model,
     const loom_serve_finite_protocol_t* protocol, iree_string_view_t name,
-    iree_host_size_t capacity, iree_duration_t heartbeat_interval,
-    loom_serve_telemetry_stream_t* stream, iree_allocator_t host_allocator,
-    loom_serve_finite_service_t** out_service);
+    iree_host_size_t capacity, iree_host_size_t variant_capacity,
+    iree_duration_t heartbeat_interval, loom_serve_telemetry_stream_t* stream,
+    iree_allocator_t host_allocator, loom_serve_finite_service_t** out_service);
 
 loom_serve_http_service_t loom_serve_finite_service_interface(
     loom_serve_finite_service_t* service);

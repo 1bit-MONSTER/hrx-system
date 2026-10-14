@@ -251,7 +251,7 @@ TEST_F(ConfigurationTest,
   IREE_ASSERT_OK(Parse(Text()));
   EXPECT_EQ(model_.kind, LOOM_SERVE_MODEL_KIND_TEXT);
   EXPECT_EQ(model_.text.rows, 4u);
-  EXPECT_EQ(model_.text.variant_capacity, 16u);
+  EXPECT_EQ(model_.variant_capacity, 16u);
   EXPECT_EQ(model_.text.admission_overtakes, 4u);
   EXPECT_EQ(model_.text.context_capacity, 16384u);
   EXPECT_EQ(model_.text.pool_capacity, 65536u);
@@ -295,12 +295,16 @@ TEST_F(ConfigurationTest, ImageDefaultsAndSpecializations) {
   EXPECT_EQ(model_.pending_requests, 3u);
 }
 
-TEST_F(ConfigurationTest, VariantCapacityIsExplicitAndTextScoped) {
+TEST_F(ConfigurationTest, VariantCapacityAppliesToTextAndFiniteServices) {
   for (unsigned capacity : {0u, 1u, 8u}) {
     const auto field = ",\"variant_capacity\":" + std::to_string(capacity);
     IREE_ASSERT_OK(Parse(Text(field)));
-    EXPECT_EQ(model_.text.variant_capacity, capacity);
+    EXPECT_EQ(model_.variant_capacity, capacity);
     IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT, Parse(Image(field)));
+    for (const char* kind : {"embedding", "decision"}) {
+      IREE_ASSERT_OK(Parse(Document(kind, R"(,"assets":".")" + field)));
+      EXPECT_EQ(model_.variant_capacity, capacity);
+    }
   }
 }
 

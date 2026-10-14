@@ -37,6 +37,7 @@ loom_cc_library(
   DEPS
     iree::async
     iree::base
+    iree::base::internal::json
     iree::base::threading
     iree::base::tooling::flags
     iree::hal

@@ -50,6 +50,7 @@ loom_cc_library(
     loom::serve::service::finite::service
     loom::serve::testing::http_harness
     loom::serve::testing::model
+    loom::serve::testing::package
     loom::serve::transport::http::listener
     loom::serve::transport::http::server
   TESTONLY

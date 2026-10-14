@@ -12,6 +12,7 @@
 #include "iree/base/threading/mutex.h"
 #include "loom/serve/runtime/host/timer.h"
 #include "loom/serve/runtime/host/wake.h"
+#include "loom/serve/service/execution_reconfiguration.h"
 #include "loom/util/json.h"
 
 typedef struct finite_job_t {
@@ -60,6 +61,8 @@ struct loom_serve_finite_service_t {
   iree_allocator_t host_allocator;
   // Shared source residency, borrowing the device owner through model lifetime.
   loom_serve_finite_model_t* model;
+  // Candidate pool and selection, retired before the borrowed model.
+  loom_serve_execution_reconfiguration_t* reconfiguration;
   // Immutable native modality contract, borrowed through service lifetime.
   const loom_serve_finite_protocol_t* protocol;
   // Borrowed catalog route identifier.
@@ -474,6 +477,8 @@ static bool loom_serve_finite_is_active(void* self) {
 static bool loom_serve_finite_is_pending(void* self) {
   loom_serve_finite_service_t* service = self;
   return loom_serve_finite_is_active(service) ||
+         loom_serve_execution_reconfiguration_pending(
+             service->reconfiguration) ||
          loom_serve_timer_is_pending(&service->timer);
 }
 
@@ -637,6 +642,11 @@ static iree_status_t loom_serve_finite_advance(
   }
   loom_serve_finite_cancel_peers(service);
   iree_status_t status = loom_serve_finite_collect(service, out_progress);
+  *out_progress |= loom_serve_execution_reconfiguration_advance(
+      service->reconfiguration,
+      iree_status_is_ok(status) &&
+          (service->phase == FINITE_IDLE || service->phase == FINITE_WAITING),
+      service->stopping || !iree_status_is_ok(status));
   if (iree_status_is_ok(status) && service->phase == FINITE_WAITING) {
     bool has_peer = false;
     for (iree_host_size_t i = 0; i < service->cohort_count; ++i) {
@@ -776,6 +786,8 @@ static void loom_serve_finite_set_observer(
   service->event.observer = observer;
   iree_slim_mutex_unlock(&service->event.mutex);
   loom_serve_timer_set_observer(&service->timer, observer);
+  loom_serve_execution_reconfiguration_set_observer(service->reconfiguration,
+                                                    observer);
 }
 
 loom_serve_http_service_t loom_serve_finite_service_interface(
@@ -798,6 +810,8 @@ loom_serve_http_service_t loom_serve_finite_service_interface(
            .output_modalities = {1, &service->protocol->output_modality}},
       .snapshot = loom_serve_finite_snapshot,
       .inspection = {.request_at = loom_serve_finite_request_at},
+      .reconfiguration = loom_serve_execution_reconfiguration_interface(
+          service->reconfiguration),
       .capacity_domain = loom_serve_residency_cache(
           loom_serve_finite_model_residency(service->model)),
       .telemetry = {.stream = service->telemetry.stream,
@@ -815,6 +829,7 @@ void loom_serve_finite_service_free(loom_serve_finite_service_t* service) {
     loom_serve_finite_model_release_batch(service->model);
   }
   loom_serve_finite_finish(service, iree_ok_status());
+  loom_serve_execution_reconfiguration_free(service->reconfiguration);
   loom_serve_timer_deinitialize(&service->timer);
   iree_string_builder_deinitialize(&service->response);
   iree_slim_mutex_deinitialize(&service->event.mutex);
@@ -831,8 +846,9 @@ void loom_serve_finite_service_free(loom_serve_finite_service_t* service) {
 iree_status_t loom_serve_finite_service_allocate(
     loom_serve_host_t* host, loom_serve_finite_model_t* model,
     const loom_serve_finite_protocol_t* protocol, iree_string_view_t name,
-    iree_host_size_t capacity, iree_duration_t heartbeat_interval,
-    loom_serve_telemetry_stream_t* stream, iree_allocator_t host_allocator,
+    iree_host_size_t capacity, iree_host_size_t variant_capacity,
+    iree_duration_t heartbeat_interval, loom_serve_telemetry_stream_t* stream,
+    iree_allocator_t host_allocator,
     loom_serve_finite_service_t** out_service) {
   *out_service = NULL;
   if (!name.size || !capacity || heartbeat_interval < 0 ||
@@ -877,6 +893,11 @@ iree_status_t loom_serve_finite_service_allocate(
   if (iree_status_is_ok(status)) {
     status = iree_async_proactor_pool_get(loom_serve_host_proactor_pool(host),
                                           0, &service->proactor);
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_serve_execution_reconfiguration_allocate(
+        loom_serve_finite_model_execution_update(model), variant_capacity,
+        host_allocator, &service->reconfiguration);
   }
   if (iree_status_is_ok(status) && !stream) {
     status = loom_serve_telemetry_stream_allocate(128, host_allocator,

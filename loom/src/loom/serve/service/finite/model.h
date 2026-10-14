@@ -12,6 +12,7 @@
 #include "loom/serve/runtime/device/device.h"
 #include "loom/serve/runtime/program/compilation.h"
 #include "loom/serve/runtime/program/sources.h"
+#include "loom/serve/service/execution_reconfiguration.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,6 +21,11 @@ extern "C" {
 // One cached source program for finite vector-producing invocations. Calls are
 // serialized by its service; independent requests are data, not VM processes.
 typedef struct loom_serve_finite_model_t loom_serve_finite_model_t;
+
+// Replaces command/direct execution over the same prepared parameters and VM
+// packet contract. Selection runs only outside CPU/device invocation borrows.
+loom_serve_execution_update_t loom_serve_finite_model_execution_update(
+    loom_serve_finite_model_t* model);
 
 // Base alignment guaranteed for the source program's device input/output
 // packets. Interior records retain their source-defined alignment.

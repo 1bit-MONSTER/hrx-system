@@ -96,6 +96,7 @@ static iree_status_t loom_serve_finite_registration_prepare(
             ? loom_serve_embedding_protocol()
             : loom_serve_decision_protocol(),
         configuration->name, configuration->pending_requests,
+        configuration->variant_capacity,
         registration->options->heartbeat_interval, registration->stream,
         registration->host_allocator, &registration->service);
   }
@@ -426,7 +427,7 @@ static iree_status_t loom_serve_text_registration_prepare(
     const loom_serve_text_service_options_t options = {
         .name = configuration->name,
         .row_count = text->rows,
-        .variant_capacity = text->variant_capacity,
+        .variant_capacity = configuration->variant_capacity,
         .chunk_size = text->prefill_capacity,
         .default_max_tokens = text->max_tokens,
         .pending_capacity = configuration->pending_requests,

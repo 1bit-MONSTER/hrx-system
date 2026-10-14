@@ -29,9 +29,6 @@ typedef struct loom_serve_text_configuration_t {
   iree_host_size_t rows;
   // Successful overtakes per blocked oldest text request; zero is FIFO.
   iree_host_size_t admission_overtakes;
-  // Retained native executable choices, including the original and pending
-  // attempts. Zero disables the reconfiguration capability.
-  iree_host_size_t variant_capacity;
   // Logical context ceiling per row, not eagerly committed storage.
   iree_host_size_t context_capacity;
   // Shared token positions in this model's logical cache pool.
@@ -96,6 +93,9 @@ typedef struct loom_serve_model_configuration_t {
   // Bounded host request credit. Text/image exclude the active invocation;
   // finite vector services include all requests in the active cohort.
   iree_host_size_t pending_requests;
+  // Retained execution choices, including original/pending/failed attempts.
+  // Zero disables reconfiguration independently of modality admission.
+  iree_host_size_t variant_capacity;
   // Register metadata without preparing the model until admission opens.
   bool start_drained;
   // Only the member selected by kind is initialized and owned.

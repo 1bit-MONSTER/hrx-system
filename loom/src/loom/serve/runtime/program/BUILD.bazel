@@ -73,6 +73,33 @@ loom_cc_test(
 )
 
 loom_cc_library(
+    name = "parameter_layout",
+    srcs = ["parameter_layout.c"],
+    hdrs = ["parameter_layout.h"],
+    deps = [
+        "//loom/src/loom/target/arch/cmd:program",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
+    name = "stage_set",
+    srcs = ["stage_set.c"],
+    hdrs = ["stage_set.h"],
+    deps = [
+        ":compilation",
+        ":jit",
+        ":preparation",
+        ":sources",
+        "//loom/binding/c:loomc",
+        "//loom/binding/c:task_pool",
+        "//loom/src/loom/serve/runtime/device",
+        "//loom/src/loom/serve/runtime/host",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
     name = "module",
     srcs = ["module.c"],
     hdrs = ["module.h"],

@@ -65,6 +65,39 @@ loom_cc_test(
 
 loom_cc_library(
   NAME
+    parameter_layout
+  HDRS
+    "parameter_layout.h"
+  SRCS
+    "parameter_layout.c"
+  DEPS
+    iree::base
+    loom::target::arch::cmd::program
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    stage_set
+  HDRS
+    "stage_set.h"
+  SRCS
+    "stage_set.c"
+  DEPS
+    ::compilation
+    ::jit
+    ::preparation
+    ::sources
+    iree::base
+    loom::binding::c::loomc
+    loom::binding::c::task_pool
+    loom::serve::runtime::device
+    loom::serve::runtime::host
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     module
   HDRS
     "module.h"
