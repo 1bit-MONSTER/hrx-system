@@ -137,6 +137,89 @@ TEST(LowLowerSourceMemoryMatchTest, SelectsExactRejectionReason) {
             100 + LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_LAYOUT);
 }
 
+TEST(LowLowerSourceMemoryMatchTest, MatrixStrideLegality) {
+  struct StrideCase {
+    // Element stride along the matrix's leading axis.
+    int64_t stride;
+    // Whether a load may use this stride.
+    bool load_matches;
+    // Whether a store may use this stride.
+    bool store_matches;
+  };
+  const StrideCase cases[] = {
+      {0, true, false},    {16, true, true},         {48, true, true},
+      {17, false, false},  {4294967280, true, true}, {4294967296, false, false},
+      {-16, false, false},
+  };
+  loom_low_lower_source_memory_diagnostics_t diagnostics = {};
+  for (uint16_t reason = 0;
+       reason < LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_COUNT; ++reason) {
+    diagnostics.rejection_diagnostic_indices[reason] = reason;
+  }
+  const loom_low_lower_rule_match_context_t context = {};
+  for (uint8_t byte_count : {1, 2, 4}) {
+    for (uint8_t leading_axis : {0, 1}) {
+      for (uint8_t operation : {LOOM_LOW_SOURCE_MEMORY_OPERATION_LOAD,
+                                LOOM_LOW_SOURCE_MEMORY_OPERATION_STORE}) {
+        const loom_low_lower_source_memory_t constraint = {
+            .operation_kind = operation,
+            .root_kind = LOOM_LOW_LOWER_SOURCE_MEMORY_ROOT_ANY,
+            .address_layout = static_cast<uint8_t>(
+                leading_axis == 0
+                    ? LOOM_LOW_LOWER_SOURCE_MEMORY_ADDRESS_LAYOUT_ROW_MAJOR
+                    : LOOM_LOW_LOWER_SOURCE_MEMORY_ADDRESS_LAYOUT_COLUMN_MAJOR),
+            .element_stride_unsigned_bit_count = 32,
+            .memory_space_mask = LOOM_LOW_LOWER_MEMORY_SPACE_GLOBAL,
+            .vector_lane_count = 1,
+            .minimum_alignment = 16,
+            .element_byte_count = byte_count,
+        };
+        const loom_low_lower_source_memory_shape_t shape = {
+            .vector_lane_byte_stride = byte_count,
+        };
+        for (const auto& test_case : cases) {
+          SCOPED_TRACE(::testing::Message()
+                       << "bytes=" << unsigned(byte_count)
+                       << " axis=" << unsigned(leading_axis)
+                       << " operation=" << unsigned(operation)
+                       << " stride=" << test_case.stride);
+          loom_low_source_memory_axis_byte_stride_t strides[2] = {};
+          for (uint8_t axis : {0, 1}) {
+            strides[axis].kind = LOOM_LOW_SOURCE_MEMORY_AXIS_BYTE_STRIDE_STATIC;
+            strides[axis].static_byte_coefficient =
+                byte_count * (axis == leading_axis ? test_case.stride : 1);
+            strides[axis].byte_facts = loom_value_facts_exact_i64(
+                strides[axis].static_byte_coefficient);
+          }
+          const loom_low_source_memory_access_plan_t access = {
+              .operation_kind = operation,
+              .memory_space = LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL,
+              .view_rank = 2,
+              .axis_byte_strides = strides,
+              .element_byte_count = byte_count,
+              .vector_lane_count = 1,
+              .vector_lane_byte_stride = byte_count,
+              .minimum_alignment = 16,
+          };
+          uint16_t diagnostic_index = LOOM_LOW_LOWER_DIAGNOSTIC_NONE;
+          const bool expected =
+              operation == LOOM_LOW_SOURCE_MEMORY_OPERATION_LOAD
+                  ? test_case.load_matches
+                  : test_case.store_matches;
+          EXPECT_EQ(loom_low_lower_rule_source_memory_matches(
+                        &context, &constraint, &shape, &diagnostics, &access, 0,
+                        &diagnostic_index),
+                    expected);
+          if (!expected) {
+            EXPECT_EQ(diagnostic_index,
+                      LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ELEMENT_STRIDE);
+          }
+        }
+      }
+    }
+  }
+}
+
 TEST(LowLowerSourceMemoryMatchTest, MatchesResidualOfRetainedViewBase) {
   loom_low_lower_source_memory_t constraint = {
       .operation_kind = LOOM_LOW_SOURCE_MEMORY_OPERATION_LOAD,

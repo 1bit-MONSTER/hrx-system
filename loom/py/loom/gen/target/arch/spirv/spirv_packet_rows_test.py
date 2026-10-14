@@ -38,7 +38,7 @@ from loom.target.arch.spirv.builtins import (
     BUILTIN_INDEX_QUERIES,
     BUILTIN_SCALAR_INDEX_QUERIES,
 )
-from loom.target.arch.spirv.cooperative_matrix import cooperative_matrix_descriptor_key
+from loom.target.arch.spirv.cooperative_matrix import COOPERATIVE_MATRIX_CASES
 from loom.target.arch.spirv.descriptors import SPIRV_LOGICAL_CORE_DESCRIPTOR_SET
 from loom.target.arch.spirv.extended_math import EXTENDED_MATH_INSTRUCTIONS
 from loom.target.arch.spirv.ordinary_vector import (
@@ -278,28 +278,6 @@ def _descriptor(descriptor_key: str) -> Descriptor:
     raise AssertionError(f"missing descriptor fixture '{descriptor_key}'")
 
 
-def _cooperative_matrix_descriptor(
-    op_name: str,
-    *,
-    role: str | None,
-    element: str,
-    k_size: int,
-    accumulator: str,
-    layout: str | None = None,
-) -> str:
-    return cooperative_matrix_descriptor_key(
-        op_name,
-        role=role,
-        element=element,
-        m_size=16,
-        n_size=16,
-        k_size=k_size,
-        accumulator=accumulator,
-        scope="subgroup",
-        layout=layout,
-    )
-
-
 def test_generation_emits_scalar_memory_packet_rows() -> None:
     tables = generate_tables()
 
@@ -341,111 +319,47 @@ def test_generation_emits_complete_float_constant_packet_rows() -> None:
         assert descriptor.feature_mask_words == ((scalar.feature_bits,) if scalar.feature_bits else ())
 
 
-def test_generation_uses_element_strides_for_cooperative_matrix_rows() -> None:
-    f16_lhs = _packet_row(
-        _cooperative_matrix_descriptor(
-            "op_cooperative_matrix_load_khr",
-            role="lhs",
-            element="f16",
-            k_size=16,
-            accumulator="f32",
-            layout="row_major",
-        ),
-    )
-    f16_init = _packet_row(
-        _cooperative_matrix_descriptor(
-            "op_cooperative_matrix_load_khr",
-            role="init",
-            element="f16",
-            k_size=16,
-            accumulator="f32",
-            layout="row_major",
-        ),
-    )
-    f16_store = _packet_row(
-        _cooperative_matrix_descriptor(
-            "op_cooperative_matrix_store_khr",
-            role="result",
-            element="f16",
-            k_size=16,
-            accumulator="f32",
-            layout="row_major",
-        ),
-    )
-    assert f16_lhs.cooperative_matrix_element_stride == 16
-    assert f16_init.cooperative_matrix_element_stride == 16
-    assert f16_store.cooperative_matrix_element_stride == 16
-
-    bf16_rhs = _packet_row(
-        _cooperative_matrix_descriptor(
-            "op_cooperative_matrix_load_khr",
-            role="rhs",
-            element="bf16",
-            k_size=16,
-            accumulator="f32",
-            layout="row_major",
-        ),
-    )
-    assert bf16_rhs.cooperative_matrix_element_stride == 16
-
-    s8_lhs = _packet_row(
-        _cooperative_matrix_descriptor(
-            "op_cooperative_matrix_load_khr",
-            role="lhs",
-            element="s8",
-            k_size=32,
-            accumulator="s32",
-            layout="row_major",
-        ),
-    )
-    s8_rhs = _packet_row(
-        _cooperative_matrix_descriptor(
-            "op_cooperative_matrix_load_khr",
-            role="rhs",
-            element="s8",
-            k_size=32,
-            accumulator="s32",
-            layout="row_major",
-        ),
-    )
-    s8_store = _packet_row(
-        _cooperative_matrix_descriptor(
-            "op_cooperative_matrix_store_khr",
-            role="result",
-            element="s8",
-            k_size=32,
-            accumulator="s32",
-            layout="row_major",
-        ),
-    )
-    assert s8_lhs.cooperative_matrix_element_stride == 32
-    assert s8_rhs.cooperative_matrix_element_stride == 16
-    assert s8_store.cooperative_matrix_element_stride == 16
-
-    u8_lhs = _packet_row(
-        _cooperative_matrix_descriptor(
-            "op_cooperative_matrix_load_khr",
-            role="lhs",
-            element="u8",
-            k_size=32,
-            accumulator="u32",
-            layout="row_major",
-        ),
-    )
-    u8_store = _packet_row(
-        _cooperative_matrix_descriptor(
-            "op_cooperative_matrix_store_khr",
-            role="result",
-            element="u8",
-            k_size=32,
-            accumulator="u32",
-            layout="row_major",
-        ),
-    )
-    assert "LOOM_SPIRV_SCALAR_TYPE_U8" in u8_lhs.result_type
-    assert "LOOM_SPIRV_SCALAR_TYPE_U32" in u8_store.operand_types[1]
-    assert u8_lhs.cooperative_matrix_element_stride == 32
-    assert u8_store.cooperative_matrix_element_stride == 16
+def test_cooperative_matrix_memory_packets_preserve_runtime_stride() -> None:
+    rows = {row.descriptor_key: row for row in _packet_rows()}
+    for case in COOPERATIVE_MATRIX_CASES:
+        for memory_space, pointer_class in (
+            ("storage_buffer", "PTR_PHYSICAL_STORAGE_BUFFER"),
+            ("workgroup", "PTR_WORKGROUP"),
+        ):
+            for role, scalar in (
+                ("lhs", case.lhs_scalar),
+                ("rhs", case.rhs_scalar),
+                ("init", case.accumulator_scalar),
+            ):
+                row = rows[
+                    case.descriptor_key(
+                        "op_cooperative_matrix_load_khr",
+                        role=role,
+                        memory_space=memory_space,
+                    )
+                ]
+                assert row.form == "LOOM_SPIRV_PACKET_FORM_COOPERATIVE_MATRIX_LOAD"
+                assert len(row.operand_types) == 2
+                assert f"LOOM_SPIRV_VALUE_CLASS_{pointer_class}" in row.operand_types[0]
+                assert scalar.scalar_enum in row.operand_types[0]
+                assert scalar.scalar_enum in row.result_type
+                assert "LOOM_SPIRV_VALUE_CLASS_SCALAR" in row.operand_types[1]
+                assert "LOOM_SPIRV_SCALAR_TYPE_U32" in row.operand_types[1]
+                assert row.has_immediate
+            store = rows[
+                case.descriptor_key(
+                    "op_cooperative_matrix_store_khr",
+                    role="result",
+                    memory_space=memory_space,
+                )
+            ]
+            assert store.form == "LOOM_SPIRV_PACKET_FORM_COOPERATIVE_MATRIX_STORE"
+            assert len(store.operand_types) == 3
+            assert f"LOOM_SPIRV_VALUE_CLASS_{pointer_class}" in store.operand_types[0]
+            assert case.result_scalar.scalar_enum in store.operand_types[1]
+            assert "LOOM_SPIRV_VALUE_CLASS_SCALAR" in store.operand_types[2]
+            assert "LOOM_SPIRV_SCALAR_TYPE_U32" in store.operand_types[2]
+            assert store.has_immediate
 
 
 def test_generation_offsets_storage_buffer_address_before_pointer_conversion() -> None:

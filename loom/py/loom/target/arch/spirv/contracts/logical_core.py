@@ -44,6 +44,9 @@ from loom.target.arch.spirv.contracts.bfloat import (
     bfloat_narrow_rules,
     bfloat_widen_rules,
 )
+from loom.target.arch.spirv.contracts.cooperative_matrix import (
+    COOPERATIVE_MATRIX_MEMORY_RULES,
+)
 from loom.target.arch.spirv.contracts.descriptor_rule import (
     descriptor_feature_guards as _feature_guards,
 )
@@ -83,13 +86,10 @@ from loom.target.arch.spirv.contracts.memory import (
     storage_buffer_address_materializer as _storage_buffer_address_materializer,
 )
 from loom.target.arch.spirv.contracts.memory import (
-    storage_buffer_alignment_diagnostic as _storage_buffer_alignment_diagnostic,
-)
-from loom.target.arch.spirv.contracts.memory import (
-    storage_buffer_memory_spaces as _storage_buffer_memory_spaces,
-)
-from loom.target.arch.spirv.contracts.memory import (
     storage_buffer_source_memory as _storage_buffer_source_memory,
+)
+from loom.target.arch.spirv.contracts.memory import (
+    storage_element_format_guards as _storage_element_format_guards,
 )
 from loom.target.arch.spirv.contracts.memory import (
     workgroup_address_materializer as _workgroup_address_materializer,
@@ -109,10 +109,6 @@ from loom.target.arch.spirv.contracts.ordinary_vector_alu import (
 from loom.target.arch.spirv.contracts.predicate import integer_to_boolean_rule
 from loom.target.arch.spirv.contracts.rounding import rounding_rules
 from loom.target.arch.spirv.contracts.subgroup import SPIRV_SUBGROUP_CONTRACT_CASES
-from loom.target.arch.spirv.cooperative_matrix import (
-    COOPERATIVE_MATRIX_CASES,
-    CooperativeMatrixCase,
-)
 from loom.target.arch.spirv.descriptors import SPIRV_LOGICAL_CORE_DESCRIPTOR_SET
 from loom.target.arch.spirv.ordinary_vector import NATIVE_ORDINARY_VECTOR_LANE_COUNTS
 from loom.target.arch.spirv.ordinary_vector_conversion import (
@@ -167,15 +163,10 @@ from loom.target.contracts import (
     DescriptorRule,
     EmitDescriptorOp,
     Guard,
-    GuardDiagnostic,
     ResultTypeBinding,
     Scalar,
     SourceMemoryAddressCoordinateType,
-    SourceMemoryAddressLayout,
-    SourceMemoryConstraint,
-    SourceMemoryDynamicIndexSource,
     SourceMemoryOperation,
-    SourceMemoryRootKind,
     SourceValueKind,
     TypePattern,
     ValueAliasRule,
@@ -697,23 +688,6 @@ def _storage_source_types(scalar: StorageBufferScalar) -> tuple[str, ...]:
     return (scalar.source_type,)
 
 
-def _storage_element_format_guards(
-    field: str,
-    scalar: StorageBufferScalar,
-) -> tuple[Guard, ...]:
-    if not scalar.source_type.startswith("i"):
-        return ()
-    numeric_format = scalar.numeric_format_c_expression
-    if numeric_format is None:
-        return ()
-    return (
-        Guard.value_storage_element_format(
-            field,
-            numeric_format,
-        ),
-    )
-
-
 def _buffer_view_rule(
     scalar: StorageBufferScalar,
     *,
@@ -869,230 +843,6 @@ def _float_integer_carrier(
     if integer_storage_scalar is None:
         raise ValueError(f"missing SPIR-V storage scalar '{integer_type.suffix}'")
     return float_type, integer_type, integer_storage_scalar
-
-
-def _cooperative_matrix_memory(
-    operation: SourceMemoryOperation,
-    *,
-    element_byte_width: int,
-    minimum_alignment: int,
-) -> SourceMemoryConstraint:
-    # Source memory supplies the logical origin. The descriptor owns the
-    # cooperative tile footprint; its fragment payload is not contiguous IO.
-    return SourceMemoryConstraint(
-        operation=operation,
-        root_kind=SourceMemoryRootKind.ANY,
-        address_layout=SourceMemoryAddressLayout.COMPACT_ROW_MAJOR,
-        memory_spaces=_storage_buffer_memory_spaces(operation),
-        element_byte_count=element_byte_width,
-        vector_lane_count=1,
-        vector_lane_byte_stride=element_byte_width,
-        static_byte_offset_minimum=0,
-        static_byte_offset_maximum=(2**63) - 1,
-        minimum_alignment=minimum_alignment,
-        dynamic_term_count=None,
-        dynamic_index_source=SourceMemoryDynamicIndexSource.NONE,
-        address_layout_diagnostic=_cooperative_matrix_compact_tile_diagnostic(),
-        alignment_diagnostic=_storage_buffer_alignment_diagnostic(minimum_alignment),
-    )
-
-
-def _cooperative_matrix_zero_indices_guards() -> tuple[Guard, ...]:
-    return (
-        Guard.operand_segment_count("indices", 0),
-        Guard.i64_array_count("static_indices", 2),
-        Guard.i64_array_element_range("static_indices", 0, 0, 0),
-        Guard.i64_array_element_range("static_indices", 1, 0, 0),
-    )
-
-
-def _cooperative_matrix_compact_tile_diagnostic() -> GuardDiagnostic:
-    return GuardDiagnostic(
-        subject_role="value",
-        subject_name="view",
-        constraint_key="cooperative_matrix.compact_storage_tile",
-    )
-
-
-def _cooperative_matrix_view_guard(
-    scalar: StorageBufferScalar,
-    *,
-    rows: int,
-    columns: int,
-) -> Guard:
-    # Cooperative matrix packets encode a compact row stride. Exact dimensions
-    # constrain the tile footprint while the source-memory row separately
-    # requires a proven compact row-major layout.
-    return Guard.value_type(
-        "view",
-        View(scalar.source_type, dims=(rows, columns)),
-        diagnostic=_cooperative_matrix_compact_tile_diagnostic(),
-    )
-
-
-def _cooperative_matrix_shape_guards(
-    *,
-    rows: int,
-    columns: int,
-) -> tuple[Guard, ...]:
-    return (
-        Guard.value_i64_range("rows", rows, rows),
-        Guard.value_i64_range("columns", columns, columns),
-    )
-
-
-def _cooperative_matrix_load_rule(
-    *,
-    role: str,
-    case: CooperativeMatrixCase,
-    scalar: StorageBufferScalar,
-    result_element: str,
-    result_lanes: int,
-    rows: int,
-    columns: int,
-) -> DescriptorRule:
-    descriptor = _descriptor(
-        case.descriptor_key(
-            "op_cooperative_matrix_load_khr",
-            role=role,
-            layout="row_major",
-        )
-    )
-    address_materializer = _storage_buffer_address_materializer(scalar)
-    return DescriptorRule(
-        source_op=vector.vector_fragment_load,
-        descriptor=descriptor,
-        guards=(
-            Guard.enum_attr_equals("role", role),
-            _cooperative_matrix_view_guard(
-                scalar,
-                rows=rows,
-                columns=columns,
-            ),
-            *_storage_element_format_guards("view", scalar),
-            Guard.value_type("result", Vector(result_element, lanes=result_lanes)),
-            *_cooperative_matrix_shape_guards(rows=rows, columns=columns),
-            *_cooperative_matrix_zero_indices_guards(),
-            *_source_memory_address_feature_guards(address_materializer),
-            *_feature_guards(descriptor),
-        ),
-        emit=(
-            _descriptor_emit(
-                descriptor=descriptor,
-                operands={"ptr": ValueRef.source_memory_address()},
-                results={"dst": ValueRef.result("result")},
-                source_memory=_cooperative_matrix_memory(
-                    SourceMemoryOperation.LOAD,
-                    element_byte_width=scalar.byte_width,
-                    minimum_alignment=16,
-                ),
-                source_memory_address_materializer=address_materializer,
-            ),
-        ),
-    )
-
-
-def _cooperative_matrix_store_rule(
-    *,
-    case: CooperativeMatrixCase,
-    scalar: StorageBufferScalar,
-    value_element: str,
-    value_lanes: int,
-    rows: int,
-    columns: int,
-) -> DescriptorRule:
-    descriptor = _descriptor(
-        case.descriptor_key(
-            "op_cooperative_matrix_store_khr",
-            role="result",
-            layout="row_major",
-        )
-    )
-    address_materializer = _storage_buffer_address_materializer(scalar)
-    return DescriptorRule(
-        source_op=vector.vector_fragment_store,
-        descriptor=descriptor,
-        guards=(
-            Guard.enum_attr_equals("role", "result"),
-            _cooperative_matrix_view_guard(
-                scalar,
-                rows=rows,
-                columns=columns,
-            ),
-            *_storage_element_format_guards("view", scalar),
-            Guard.value_type("value", Vector(value_element, lanes=value_lanes)),
-            *_cooperative_matrix_shape_guards(rows=rows, columns=columns),
-            *_cooperative_matrix_zero_indices_guards(),
-            *_source_memory_address_feature_guards(address_materializer),
-            *_feature_guards(descriptor),
-        ),
-        emit=(
-            _descriptor_emit(
-                descriptor=descriptor,
-                operands={
-                    "ptr": ValueRef.source_memory_address(),
-                    "value": ValueRef.operand("value"),
-                },
-                source_memory=_cooperative_matrix_memory(
-                    SourceMemoryOperation.STORE,
-                    element_byte_width=scalar.byte_width,
-                    minimum_alignment=16,
-                ),
-                source_memory_address_materializer=address_materializer,
-            ),
-        ),
-    )
-
-
-def _cooperative_matrix_rules_for_case(
-    case: CooperativeMatrixCase,
-) -> tuple[DescriptorRule, ...]:
-    return (
-        _cooperative_matrix_load_rule(
-            role="lhs",
-            case=case,
-            scalar=case.lhs_scalar,
-            result_element=case.lhs_source_type,
-            result_lanes=case.lhs_vector_lanes,
-            rows=case.lhs_rows,
-            columns=case.lhs_columns,
-        ),
-        _cooperative_matrix_load_rule(
-            role="rhs",
-            case=case,
-            scalar=case.rhs_scalar,
-            result_element=case.rhs_source_type,
-            result_lanes=case.rhs_vector_lanes,
-            rows=case.rhs_rows,
-            columns=case.rhs_columns,
-        ),
-        _cooperative_matrix_load_rule(
-            role="init",
-            case=case,
-            scalar=case.accumulator_scalar,
-            result_element=case.accumulator_source_type,
-            result_lanes=case.accumulator_vector_lanes,
-            rows=case.accumulator_rows,
-            columns=case.accumulator_columns,
-        ),
-        _cooperative_matrix_store_rule(
-            case=case,
-            scalar=case.result_scalar,
-            value_element=case.result_source_type,
-            value_lanes=case.accumulator_vector_lanes,
-            rows=case.accumulator_rows,
-            columns=case.accumulator_columns,
-        ),
-    )
-
-
-def _cooperative_matrix_rules() -> tuple[DescriptorRule, ...]:
-    rules: list[DescriptorRule] = []
-    for case in COOPERATIVE_MATRIX_CASES:
-        if not case.source_rule_enabled:
-            continue
-        rules.extend(_cooperative_matrix_rules_for_case(case))
-    return tuple(rules)
 
 
 def _view_load_rule(scalar: StorageBufferScalar) -> DescriptorRule:
@@ -1620,7 +1370,7 @@ SPIRV_LOGICAL_CORE_CONTRACT_FRAGMENT = ContractFragment(
         *SPIRV_ATOMIC_CONTRACT_CASES,
         *SPIRV_SUBGROUP_CONTRACT_CASES,
         *_control_barrier_rules(),
-        *_cooperative_matrix_rules(),
+        *COOPERATIVE_MATRIX_MEMORY_RULES,
         DescriptorMatrixRule(
             source_op=vector.vector_mma,
             source="vector_mma",

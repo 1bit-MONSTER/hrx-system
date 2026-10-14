@@ -36,6 +36,7 @@ from loom.target.contracts.kinds import SourceValueKind
 from loom.target.contracts.patterns import TypePattern
 from loom.target.contracts.source import ValueRef
 from loom.target.contracts.source_memory import (
+    SourceMemoryAddressLayout,
     SourceMemoryAddressMaterializer,
     SourceMemoryByteOffsetMaterializer,
     SourceMemoryConstraint,
@@ -496,6 +497,7 @@ class EmitDescriptorOp:
                     SourceValueKind.SOURCE_MEMORY_BYTE_OFFSET,
                     SourceValueKind.SOURCE_MEMORY_ADDRESS,
                     SourceValueKind.SOURCE_MEMORY_ROOT,
+                    SourceValueKind.SOURCE_MEMORY_ELEMENT_STRIDE,
                 ):
                     raise ValueError(
                         f"{source_op.name}: descriptor result type "
@@ -705,7 +707,10 @@ class EmitDescriptorOp:
                     "offset materializer"
                 )
         for descriptor_field, value_ref in operand_bindings.items():
-            if value_ref.kind != SourceValueKind.SOURCE_MEMORY_ADDRESS:
+            if value_ref.kind not in (
+                SourceValueKind.SOURCE_MEMORY_ADDRESS,
+                SourceValueKind.SOURCE_MEMORY_ELEMENT_STRIDE,
+            ):
                 continue
             if self.source_memory is None:
                 raise ValueError(
@@ -717,6 +722,23 @@ class EmitDescriptorOp:
                     f"{source_op.name}: descriptor '{self.descriptor.key}' "
                     f"operand '{descriptor_field}' needs a source-memory address "
                     "materializer"
+                )
+
+        for value_ref in operand_bindings.values():
+            if value_ref.kind != SourceValueKind.SOURCE_MEMORY_ELEMENT_STRIDE:
+                continue
+            expected_layout = (
+                SourceMemoryAddressLayout.ROW_MAJOR
+                if value_ref.element == 0
+                else SourceMemoryAddressLayout.COLUMN_MAJOR
+            )
+            if (
+                self.source_memory is None
+                or self.source_memory.address_layout != expected_layout
+            ):
+                raise ValueError(
+                    f"{source_op.name}: stride axis must be the leading axis "
+                    "of the source-memory layout"
                 )
 
     def _validate_immediates(
@@ -885,6 +907,7 @@ def _validate_structural_result(
             SourceValueKind.SOURCE_MEMORY_BYTE_OFFSET,
             SourceValueKind.SOURCE_MEMORY_ADDRESS,
             SourceValueKind.SOURCE_MEMORY_ROOT,
+            SourceValueKind.SOURCE_MEMORY_ELEMENT_STRIDE,
         ):
             raise ValueError(
                 f"{source_op.name}: {subject} type cannot bind source memory"

@@ -227,6 +227,15 @@ static iree_status_t loom_low_lower_rule_low_value(
                   resolved_emit)),
           out_low_value_id);
     }
+    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ELEMENT_STRIDE:
+      return loom_low_lower_rule_materialize_source_memory_element_stride(
+          context, rule_set, source_op, source_memory, source_memory_access,
+          (uint8_t)value_ref->index,
+          loom_type_table_get(
+              &context->module->types,
+              loom_low_lower_resolved_emit_address_coordinate_type_id(
+                  resolved_emit)),
+          out_low_value_id);
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ROOT:
       IREE_ASSERT(source_memory != NULL);
       IREE_ASSERT(source_memory_access != NULL);

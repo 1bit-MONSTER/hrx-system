@@ -27,16 +27,16 @@ def cooperative_matrix_descriptor_key(
     k_size: int,
     accumulator: str,
     scope: str,
-    layout: str | None = None,
+    memory_space: str | None = None,
     operand_mode: str | None = None,
 ) -> str:
     role_part = f".{role}" if role else ""
-    layout_part = f".{layout}" if layout else ""
+    memory_space_part = f".{memory_space}" if memory_space else ""
     operand_mode_part = f".{operand_mode}" if operand_mode else ""
     return (
         f"spirv.{op_name}{role_part}.{element}."
         f"m{m_size}n{n_size}k{k_size}.{accumulator}.{scope}"
-        f"{layout_part}{operand_mode_part}"
+        f"{memory_space_part}{operand_mode_part}"
     )
 
 
@@ -121,7 +121,7 @@ class CooperativeMatrixCase:
         op_name: str,
         *,
         role: str | None = None,
-        layout: str | None = None,
+        memory_space: str | None = None,
         include_operand_mode: bool = False,
     ) -> str:
         return cooperative_matrix_descriptor_key(
@@ -133,7 +133,7 @@ class CooperativeMatrixCase:
             k_size=self.k_size,
             accumulator=self.accumulator,
             scope="subgroup",
-            layout=layout,
+            memory_space=memory_space,
             operand_mode=self.operand_mode if include_operand_mode else None,
         )
 
@@ -238,7 +238,6 @@ COOPERATIVE_MATRIX_CASES = (
         feature_atoms=(
             "cooperative_matrix_khr",
             "int8",
-            "storage_buffer_8bit_access",
         ),
         property_storage_flags="STORAGE_BUFFER_OR_BDA",
         operand_mode="signed_saturating",
@@ -267,7 +266,6 @@ COOPERATIVE_MATRIX_CASES = (
         feature_atoms=(
             "cooperative_matrix_khr",
             "int8",
-            "storage_buffer_8bit_access",
         ),
         lhs_scalar_suffix="u8",
         rhs_scalar_suffix="u8",

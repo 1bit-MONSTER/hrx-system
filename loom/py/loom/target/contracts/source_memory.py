@@ -61,6 +61,8 @@ class SourceMemoryAddressLayout(Enum):
 
     ANY = "any"
     COMPACT_ROW_MAJOR = "compact_row_major"
+    ROW_MAJOR = "row_major"
+    COLUMN_MAJOR = "column_major"
 
 
 @unique
@@ -209,7 +211,10 @@ class SourceMemoryConstraint:
     vector_lane_byte_stride: int
     static_byte_offset_minimum: int
     static_byte_offset_maximum: int
+    # Alignment of the origin and each row/column start for matrix layouts.
     minimum_alignment: int = 0
+    # Unsigned element-stride width for row/column layouts, or zero if unconstrained.
+    element_stride_unsigned_bit_count: int = 0
     dynamic_term_count: int | None = 0
     dynamic_term_count_minimum: int = 0
     dynamic_view_base_term_count: int | None = None
@@ -222,6 +227,8 @@ class SourceMemoryConstraint:
     # Reuse complete multi-term view bases; static constraints and projections
     # describe only the residual displacement outside the retained SSA value.
     reuse_view_base: bool = False
+    # The complete origin and every retained stride are subgroup-uniform.
+    require_subgroup_uniform: bool = False
     # Unsigned width of the complete byte offset, or zero if unconstrained.
     byte_offset_unsigned_bit_count: int = 0
     # Unsigned width excluding the selected recipe's displacement, or zero if
@@ -248,6 +255,7 @@ class SourceMemoryConstraint:
         static_byte_offset_minimum: int | None = None,
         static_byte_offset_maximum: int | None = None,
         minimum_alignment: int = 0,
+        element_stride_unsigned_bit_count: int = 0,
         dynamic_term_count: int | None = 0,
         dynamic_term_count_minimum: int = 0,
         dynamic_view_base_term_count: int | None = None,
@@ -258,6 +266,7 @@ class SourceMemoryConstraint:
         allow_dynamic_stride_values: bool = False,
         preserve_source_index: bool = False,
         reuse_view_base: bool = False,
+        require_subgroup_uniform: bool = False,
         byte_offset_unsigned_bit_count: int = 0,
         dynamic_offset_unsigned_bit_count: int = 0,
         alignment_diagnostic: GuardDiagnostic | None = None,
@@ -281,6 +290,9 @@ class SourceMemoryConstraint:
         object.__setattr__(self, "static_byte_offset_minimum", minimum)
         object.__setattr__(self, "static_byte_offset_maximum", maximum)
         object.__setattr__(self, "minimum_alignment", minimum_alignment)
+        object.__setattr__(
+            self, "element_stride_unsigned_bit_count", element_stride_unsigned_bit_count
+        )
         object.__setattr__(self, "dynamic_term_count", dynamic_term_count)
         object.__setattr__(
             self,
@@ -301,6 +313,7 @@ class SourceMemoryConstraint:
         )
         object.__setattr__(self, "preserve_source_index", preserve_source_index)
         object.__setattr__(self, "reuse_view_base", reuse_view_base)
+        object.__setattr__(self, "require_subgroup_uniform", require_subgroup_uniform)
         object.__setattr__(
             self,
             "byte_offset_unsigned_bit_count",
@@ -362,6 +375,15 @@ class SourceMemoryConstraint:
         if self.vector_lane_byte_stride == 0:
             raise ValueError("source memory vector lane byte stride must be non-zero")
         self._validate_byte_offsets()
+        if not 0 <= self.element_stride_unsigned_bit_count <= 64:
+            raise ValueError("source memory element stride width must be in [0, 64]")
+        if self.element_stride_unsigned_bit_count and self.address_layout not in (
+            SourceMemoryAddressLayout.ROW_MAJOR,
+            SourceMemoryAddressLayout.COLUMN_MAJOR,
+        ):
+            raise ValueError(
+                "source memory element stride width requires a row/column layout"
+            )
         if not 0 <= self.minimum_alignment <= _U32_MAX:
             raise ValueError("source memory minimum alignment must fit in u32")
         if self.minimum_alignment != 0 and (

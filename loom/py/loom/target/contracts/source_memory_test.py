@@ -12,6 +12,7 @@ from loom.dialect.vector import defs as vector
 from loom.target.contracts import (
     DescriptorRule,
     EmitDescriptorOp,
+    SourceMemoryAddressLayout,
     SourceMemoryAddressMaterializer,
     SourceMemoryByteOffsetMaterializer,
     SourceMemoryConstraint,
@@ -301,3 +302,34 @@ def test_byte_offset_widths_cover_the_integer_fact_domain(field):
     for width in (-1, 65):
         with pytest.raises(ValueError, match="width must be in"):
             replace(constraint, **{field: width})
+
+
+@pytest.mark.parametrize(
+    "layout",
+    [SourceMemoryAddressLayout.ROW_MAJOR, SourceMemoryAddressLayout.COLUMN_MAJOR],
+)
+def test_element_stride_width_requires_a_matrix_layout(layout):
+    constraint = SourceMemoryConstraint(
+        operation=SourceMemoryOperation.LOAD,
+        memory_spaces=("global",),
+        address_layout=layout,
+        element_byte_count=4,
+        vector_lane_count=1,
+        vector_lane_byte_stride=4,
+        static_byte_offset=0,
+    )
+    for width in (0, 32, 64):
+        replace(constraint, element_stride_unsigned_bit_count=width)
+    for width in (-1, 65):
+        with pytest.raises(ValueError, match="width must be in"):
+            replace(constraint, element_stride_unsigned_bit_count=width)
+    for invalid_layout in (
+        SourceMemoryAddressLayout.ANY,
+        SourceMemoryAddressLayout.COMPACT_ROW_MAJOR,
+    ):
+        with pytest.raises(ValueError, match="requires a row/column layout"):
+            replace(
+                constraint,
+                address_layout=invalid_layout,
+                element_stride_unsigned_bit_count=32,
+            )

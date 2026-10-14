@@ -269,6 +269,7 @@ static bool loom_low_lower_rule_value_ref_uses_source_memory_plan(
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET:
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_BYTE_OFFSET:
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ADDRESS:
+    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ELEMENT_STRIDE:
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ROOT:
       return true;
     default:
@@ -435,6 +436,16 @@ static void loom_low_lower_mark_rule_storage_demands(
         IREE_ASSERT(source_memory_access != NULL);
         loom_low_lower_mark_value_storage_required(
             context, source_memory_access->root_value_id);
+        continue;
+      }
+      if (value_ref->kind ==
+          LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ELEMENT_STRIDE) {
+        const loom_low_source_memory_axis_byte_stride_t* stride =
+            &source_memory_access->axis_byte_strides[value_ref->index];
+        for (uint8_t i = 0; i < stride->dynamic_factor_count; ++i) {
+          loom_low_lower_mark_value_storage_required(
+              context, stride->dynamic_factors[i]);
+        }
         continue;
       }
       loom_low_lower_mark_rule_value_ref_storage_demand(context, selected_plan,

@@ -233,3 +233,20 @@ def workgroup_carrier_guard(scalar_suffix: str) -> Guard:
     return Guard.low_value_register_class(
         "view", f"spirv.ptr.workgroup.array.{scalar_suffix}"
     )
+
+
+def storage_element_format_guards(
+    field: str,
+    scalar: StorageBufferScalar,
+) -> tuple[Guard, ...]:
+    if not scalar.source_type.startswith("i"):
+        return ()
+    numeric_format = scalar.numeric_format_c_expression
+    if numeric_format is None:
+        return ()
+    return (
+        Guard.value_storage_element_format(
+            field,
+            numeric_format,
+        ),
+    )

@@ -174,17 +174,60 @@ static bool loom_low_lower_rule_source_memory_root_matches(
   }
 }
 
-static bool loom_low_lower_rule_source_memory_address_layout_matches(
+static loom_low_source_memory_rejection_reason_t
+loom_low_lower_rule_source_memory_layout_rejection_reason(
     const loom_low_lower_source_memory_t* source_memory,
     const loom_low_source_memory_access_plan_t* access) {
   switch (source_memory->address_layout) {
     case LOOM_LOW_LOWER_SOURCE_MEMORY_ADDRESS_LAYOUT_ANY:
-      return true;
+      return LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_COUNT;
     case LOOM_LOW_LOWER_SOURCE_MEMORY_ADDRESS_LAYOUT_COMPACT_ROW_MAJOR:
       return access->address_layout ==
-             LOOM_LOW_SOURCE_MEMORY_ADDRESS_LAYOUT_COMPACT_ROW_MAJOR;
+                     LOOM_LOW_SOURCE_MEMORY_ADDRESS_LAYOUT_COMPACT_ROW_MAJOR
+                 ? LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_COUNT
+                 : LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ADDRESS_LAYOUT;
+    case LOOM_LOW_LOWER_SOURCE_MEMORY_ADDRESS_LAYOUT_ROW_MAJOR:
+    case LOOM_LOW_LOWER_SOURCE_MEMORY_ADDRESS_LAYOUT_COLUMN_MAJOR: {
+      if (access->view_rank != 2 || access->axis_byte_strides == NULL) {
+        return LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ADDRESS_LAYOUT;
+      }
+      const uint8_t leading_axis =
+          source_memory->address_layout ==
+                  LOOM_LOW_LOWER_SOURCE_MEMORY_ADDRESS_LAYOUT_ROW_MAJOR
+              ? 0
+              : 1;
+      const loom_low_source_memory_axis_byte_stride_t* contiguous =
+          &access->axis_byte_strides[1 - leading_axis];
+      const loom_low_source_memory_axis_byte_stride_t* leading =
+          &access->axis_byte_strides[leading_axis];
+      if (contiguous->kind != LOOM_LOW_SOURCE_MEMORY_AXIS_BYTE_STRIDE_STATIC ||
+          contiguous->static_byte_coefficient != access->element_byte_count ||
+          (leading->kind != LOOM_LOW_SOURCE_MEMORY_AXIS_BYTE_STRIDE_STATIC &&
+           leading->kind != LOOM_LOW_SOURCE_MEMORY_AXIS_BYTE_STRIDE_DYNAMIC)) {
+        return LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ADDRESS_LAYOUT;
+      }
+      const int64_t minimum_stride =
+          access->operation_kind == LOOM_LOW_SOURCE_MEMORY_OPERATION_LOAD
+              ? 0
+              : access->element_byte_count;
+      if (leading->byte_facts.range_lo < minimum_stride ||
+          (source_memory->minimum_alignment != 0 &&
+           !loom_value_facts_divisible_by(leading->byte_facts,
+                                          source_memory->minimum_alignment))) {
+        return LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ELEMENT_STRIDE;
+      }
+      const uint8_t bit_count =
+          source_memory->element_stride_unsigned_bit_count;
+      if (bit_count != 0 &&
+          (uint64_t)leading->byte_facts.range_hi / access->element_byte_count >
+              (UINT64_MAX >> (64 - bit_count))) {
+        return LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ELEMENT_STRIDE;
+      }
+      return LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_COUNT;
+    }
   }
-  return false;
+  IREE_CHECK_UNREACHABLE("generated source memory address layout");
+  return LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ADDRESS_LAYOUT;
 }
 
 static bool loom_low_lower_rule_source_memory_byte_offset_matches(
@@ -260,8 +303,9 @@ static bool loom_low_lower_rule_emit_materializes_source_memory_address(
        ++operand_ordinal) {
     const uint16_t value_ref_index =
         (uint16_t)(emit->operand_ref_start + operand_ordinal);
-    if (rule_set->value_refs[value_ref_index].kind ==
-        LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ADDRESS) {
+    const uint8_t kind = rule_set->value_refs[value_ref_index].kind;
+    if (kind == LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ADDRESS ||
+        kind == LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ELEMENT_STRIDE) {
       return true;
     }
   }
@@ -381,6 +425,26 @@ static bool loom_low_lower_rule_source_memory_address_matches(
       }
     }
   }
+  for (uint16_t i = 0; i < emit->operand_ref_count; ++i) {
+    const loom_low_lower_value_ref_t* value_ref =
+        &rule_set->value_refs[emit->operand_ref_start + i];
+    if (value_ref->kind !=
+        LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ELEMENT_STRIDE) {
+      continue;
+    }
+    const loom_low_source_memory_axis_byte_stride_t* stride =
+        &access->axis_byte_strides[value_ref->index];
+    for (uint8_t factor = 0; factor < stride->dynamic_factor_count; ++factor) {
+      if (!loom_low_lower_rule_source_memory_address_input_matches(
+              match_context, address_materializer,
+              stride->dynamic_factors[factor])) {
+        return loom_low_lower_rule_source_memory_reject(
+            diagnostics,
+            LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ADDRESS_MATERIALIZATION,
+            out_diagnostic_index);
+      }
+    }
+  }
   return true;
 }
 
@@ -457,9 +521,17 @@ loom_low_lower_rule_source_memory_rejection_reason(
   if (dynamic_terms_reason != LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_COUNT) {
     return dynamic_terms_reason;
   }
-  if (!loom_low_lower_rule_source_memory_address_layout_matches(source_memory,
-                                                                access)) {
-    return LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ADDRESS_LAYOUT;
+  const loom_low_source_memory_rejection_reason_t layout_reason =
+      loom_low_lower_rule_source_memory_layout_rejection_reason(source_memory,
+                                                                access);
+  if (layout_reason != LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_COUNT) {
+    return layout_reason;
+  }
+  if (iree_any_bit_set(source_memory->flags,
+                       LOOM_LOW_LOWER_SOURCE_MEMORY_FLAG_SUBGROUP_UNIFORM) &&
+      loom_low_source_memory_access_uniform_scope(access) <
+          LOOM_VALUE_FACT_UNIFORM_SCOPE_SUBGROUP) {
+    return LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_UNIFORMITY;
   }
   return LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_COUNT;
 }

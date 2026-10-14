@@ -243,6 +243,8 @@ class SourceMemoryRejectionReason(Enum):
     ADDRESS_LAYOUT = "source_memory.address_layout"
     BYTE_OFFSET_WIDTH = "source_memory.byte_offset_width"
     ADDRESS_MATERIALIZATION = "source_memory.address_materialization"
+    UNIFORMITY = "source_memory.subgroup_uniform"
+    ELEMENT_STRIDE = "source_memory.element_stride"
 
 
 @dataclass(frozen=True, slots=True)
