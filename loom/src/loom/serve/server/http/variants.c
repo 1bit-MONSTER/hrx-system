@@ -11,6 +11,7 @@
 
 #include "iree/base/internal/json.h"
 #include "iree/base/internal/unicode.h"
+#include "loom/serve/server/http/package.h"
 #include "loom/serve/server/http/response.h"
 #include "loom/serve/service/inspection.h"
 #include "loom/util/json.h"
@@ -164,6 +165,7 @@ static void loom_serve_http_variant_input_deinitialize(
                         (void*)input->sources.values[i].data);
   }
   iree_allocator_free(input->host_allocator, (void*)input->sources.values);
+  loom_serve_package_release(input->sources.package);
 }
 
 static iree_status_t loom_serve_http_variant_parse(
@@ -505,8 +507,15 @@ iree_status_t loom_serve_http_variants_accept(
           : LOOM_SERVE_HTTP_VARIANT_REMOVE;
   loom_serve_http_variant_input_t input = {.host_allocator =
                                                variants->host_allocator};
-  iree_status_t status =
-      loom_serve_http_variant_parse(request->body, action, &input);
+  iree_string_view_t json = request->body;
+  iree_status_t status = iree_ok_status();
+  if (action == LOOM_SERVE_HTTP_VARIANT_STAGE) {
+    status = loom_serve_http_package_parse(request, variants->host_allocator,
+                                           &json, &input.sources.package);
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_serve_http_variant_parse(json, action, &input);
+  }
   iree_host_size_t index = 0;
   if (iree_status_is_ok(status)) {
     status = loom_serve_http_variant_model(variants, input.model, &index);

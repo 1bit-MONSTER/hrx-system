@@ -36,6 +36,8 @@ bool loom_serve_http_variants_handles(iree_string_view_t target);
 // observer. allow_wait reflects shared transport credit, including other
 // management readers. Errors from public input/model policy are responses;
 // only response allocation failures terminate the serving owner.
+// Staging accepts JSON locators or a multipart source package (see package.h).
+// An accepted service retains its input independently of the transport claim.
 iree_status_t loom_serve_http_variants_accept(
     loom_serve_http_variants_t* variants,
     loom_serve_http_connection_t* connection,

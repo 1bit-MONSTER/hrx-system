@@ -11,6 +11,36 @@ iree_add_all_subdirs()
 
 loom_cc_library(
   NAME
+    package
+  HDRS
+    "package.h"
+  SRCS
+    "package.c"
+  DEPS
+    iree::base
+    loom::serve::runtime::program::package
+    loom::serve::transport::http::multipart
+    loom::serve::transport::http::request
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    package_test
+  SRCS
+    "package_test.cc"
+  DEPS
+    ::package
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::binding::c::loomc
+    loom::serve::runtime::program::package
+    loom::serve::transport::http::request
+)
+
+loom_cc_library(
+  NAME
     response
   HDRS
     "response.h"
@@ -32,11 +62,13 @@ loom_cc_library(
   SRCS
     "variants.c"
   DEPS
+    ::package
     ::response
     iree::base
     iree::base::internal::json
     iree::base::internal::unicode
     loom::serve::runtime::program::compilation
+    loom::serve::runtime::program::package
     loom::serve::runtime::program::sources
     loom::serve::runtime::program::variant_pool
     loom::serve::server::registry

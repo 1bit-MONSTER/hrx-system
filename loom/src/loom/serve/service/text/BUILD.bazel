@@ -76,6 +76,7 @@ loom_cc_library(
     }),
     visibility = ["//visibility:public"],
     deps = [
+        "//loom/binding/c:loomc",
         "//loom/src/loom/serve/runtime/device",
         "//loom/src/loom/serve/runtime/host",
         "//loom/src/loom/serve/runtime/program:variant_pool",
@@ -431,6 +432,7 @@ loom_cc_library(
         ":model",
         "//loom/src/loom/serve/runtime/host:wake",
         "//loom/src/loom/serve/runtime/program:compilation",
+        "//loom/src/loom/serve/runtime/program:package",
         "//loom/src/loom/serve/runtime/program:sources",
         "//loom/src/loom/serve/runtime/program:variant_pool",
         "//loom/src/loom/serve/service:reconfiguration",

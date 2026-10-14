@@ -66,10 +66,11 @@ Staging accepts:
 
 `base` identifies a ready choice in this registration. It asserts that the
 new providers preserve its resource contract; it does not merge in the base's
-providers. `sources` supplies the complete native provider set. Relative paths
-require an absolute `base_directory`; otherwise paths must be absolute. Files
-are read by server-side compilation workers. This endpoint accepts locators,
-not uploaded file contents. `prepare`, `control` and other model fields reject.
+providers. `sources` supplies the complete native provider set. With a JSON
+request, relative paths require an absolute `base_directory`; otherwise paths
+must be absolute. Files are read by server-side compilation workers. A multipart
+request instead supplies an immutable source package, described below.
+`prepare`, `control` and other model fields reject.
 
 Omitted or true `wait` completes the HTTP request after JIT with 200 for ready
 or 422 for failed compilation. False returns 202 after accepting construction.
@@ -96,6 +97,45 @@ They are not persistent identifiers across restarts. Compilation results remain
 until explicit removal or model retirement. Disconnect withdraws the reader,
 not accepted compilation or selection. Unregister withdraws waiting compilation
 readers with 410 while still joining the compiler's actual model ownership.
+
+#### Uploaded native source packages
+
+The staging endpoint also accepts `multipart/form-data`: exactly one `request`
+part contains the same staging JSON, and repeated `file` parts carry its native
+providers. Each file's `filename` is a case-sensitive UTF-8 path inside the
+package, not a server filesystem destination. The request filename defaults to
+`request.json`; its directory is the base for relative source references.
+
+For a local `candidate.json` containing
+`{"model":"scout","base":12,"sources":["config.loom","advance.loombc"]}`:
+
+```bash
+curl --fail-with-body -H 'Expect:' \
+  http://127.0.0.1:8080/v1/models/variants \
+  -F 'request=@candidate.json;type=application/json;filename=model/candidate.json' \
+  -F 'file=@config.loom;filename=model/config.loom' \
+  -F 'file=@advance.loombc;filename=model/advance.loombc'
+```
+
+Package filenames use `/` separators and contain no empty, `.` or `..`
+components, absolute paths, backslashes, drive prefixes or control characters.
+Authored relative references may use `..` to reach a shared provider inside the
+package, but cannot escape its root. Missing members fail without falling back
+to server-local files. Explicit absolute source paths still name server-local
+providers, so an upload may combine changed files with existing local inputs.
+Filenames are literal UTF-8, not URL-decoded.
+
+Parts may arrive in any order; duplicates and malformed/truncated bodies reject
+before staging. File bytes are retained in memory independently of the request
+connection, including binary `.loombc`. The JIT releases its source ownership
+after constructing independent executables and copied diagnostics. These are
+code packages, not checkpoint transfers or a persistent package catalog.
+
+The normal `--request_body_bytes` limit covers the complete multipart body;
+there is no implicit upload exception. HTTP requires `Content-Length` and does
+not accept `Expect: 100-continue`, hence the empty `Expect` header above. This
+endpoint loads executable code and has the same trusted-network boundary as
+model registration.
 
 ## Chat completions
 

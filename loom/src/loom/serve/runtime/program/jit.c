@@ -155,15 +155,9 @@ static iree_status_t loom_serve_jit_index_sources(
           loomc_allocator_from_iree(jit->host_allocator), &builder));
   for (iree_host_size_t i = 0; i < sources->count && iree_status_is_ok(status);
        ++i) {
-    char* path = NULL;
-    status =
-        loom_serve_path_resolve(sources->base_directory, sources->values[i],
-                                jit->host_allocator, &path);
     loomc_source_t* source = NULL;
-    if (iree_status_is_ok(status)) {
-      status = loom_serve_jit_read_source(iree_make_cstring_view(path),
-                                          jit->host_allocator, &source);
-    }
+    status = loom_serve_sources_open(sources, sources->values[i],
+                                     jit->host_allocator, &source);
     if (iree_status_is_ok(status)) {
       const loomc_link_index_source_options_t options = {
           .provider_name = loomc_string_view_from_iree(sources->values[i]),
@@ -173,7 +167,6 @@ static iree_status_t loom_serve_jit_index_sources(
           loomc_link_index_builder_add_source(builder, source, &options, NULL));
     }
     loomc_source_release(source);
-    iree_allocator_free(jit->host_allocator, path);
   }
   if (iree_status_is_ok(status)) {
     loomc_result_t* result = NULL;

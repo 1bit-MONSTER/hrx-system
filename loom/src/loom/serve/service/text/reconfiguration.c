@@ -6,6 +6,8 @@
 
 #include "loom/serve/service/text/reconfiguration.h"
 
+#include <string.h>
+
 struct loom_serve_text_reconfiguration_t {
   // Allocator owning this policy and captured native-provider locators.
   iree_allocator_t host_allocator;
@@ -35,7 +37,7 @@ typedef struct loom_serve_text_reconfiguration_job_t {
   iree_allocator_t host_allocator;
   // Stable pending entry, published only after the job relinquishes inputs.
   loom_serve_variant_entry_t* entry;
-  // Owned absolute native-provider locators; no source payload is read here.
+  // Owned native-provider locators and retained package, independent of HTTP.
   loom_serve_sources_t sources;
 } loom_serve_text_reconfiguration_job_t;
 
@@ -46,6 +48,7 @@ static void loom_serve_text_reconfiguration_job_free(
                         (void*)job->sources.values[i].data);
   }
   iree_allocator_free(job->host_allocator, (void*)job->sources.values);
+  loom_serve_package_release(job->sources.package);
   iree_allocator_free(job->host_allocator, job);
 }
 
@@ -77,6 +80,8 @@ static iree_status_t loom_serve_text_reconfiguration_stage(
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(reconfiguration->host_allocator,
                                              sizeof(*job), (void**)&job));
   job->host_allocator = reconfiguration->host_allocator;
+  job->sources.package = sources->package;
+  loom_serve_package_retain(job->sources.package);
   iree_status_t status = iree_allocator_malloc_array(
       job->host_allocator, sources->count, sizeof(*job->sources.values),
       (void**)&job->sources.values);
@@ -86,9 +91,18 @@ static iree_status_t loom_serve_text_reconfiguration_stage(
   for (iree_host_size_t i = 0;
        i < job->sources.count && iree_status_is_ok(status); ++i) {
     char* path = NULL;
-    status =
-        loom_serve_path_resolve(sources->base_directory, sources->values[i],
-                                job->host_allocator, &path);
+    if (sources->package && !loom_serve_path_is_absolute(sources->values[i])) {
+      status = iree_allocator_malloc(
+          job->host_allocator, sources->values[i].size + 1, (void**)&path);
+      if (iree_status_is_ok(status)) {
+        memcpy(path, sources->values[i].data, sources->values[i].size);
+        path[sources->values[i].size] = 0;
+      }
+    } else {
+      status =
+          loom_serve_path_resolve(sources->base_directory, sources->values[i],
+                                  job->host_allocator, &path);
+    }
     if (iree_status_is_ok(status)) {
       ((iree_string_view_t*)job->sources.values)[i] =
           iree_make_cstring_view(path);

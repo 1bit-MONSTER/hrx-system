@@ -138,14 +138,44 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    package
+  HDRS
+    "package.h"
+  SRCS
+    "package.c"
+  DEPS
+    iree::base
+    iree::base::internal::unicode
+    loom::binding::c::loomc
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    package_test
+  SRCS
+    "package_test.cc"
+  DEPS
+    ::package
+    ::sources
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::binding::c::loomc
+)
+
+loom_cc_library(
+  NAME
     sources
   HDRS
     "sources.h"
   SRCS
     "sources.c"
   DEPS
+    ::package
     iree::base
     iree::base::internal::path
+    loom::binding::c::loomc
   PUBLIC
 )
 

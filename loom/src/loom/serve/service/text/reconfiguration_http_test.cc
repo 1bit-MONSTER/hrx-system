@@ -6,6 +6,9 @@
 
 #include "iree/base/internal/json.h"
 #include "loom/serve/service/text/service_test_fixture.h"
+#include "loomc/context.h"
+#include "loomc/iree.h"
+#include "loomc/module.h"
 
 namespace {
 
@@ -67,6 +70,82 @@ class ReconfigurationHttpTextTest : public SourceTextServiceTest {
              "", "/v1/models/variants"));
   }
 
+  static iree_status_t Bytecode(const std::string& path,
+                                std::string* out_bytes) {
+    const auto allocator = loomc_allocator_system();
+    loomc_source_t* source = nullptr;
+    auto status = iree_status_from_loomc(loomc_source_create_from_path(
+        loomc_make_cstring_view(path.c_str()), nullptr, allocator, &source));
+    loomc_context_t* context = nullptr;
+    loomc_workspace_t* workspace = nullptr;
+    loomc_module_t* module = nullptr;
+    loomc_result_t* result = nullptr;
+    loomc_source_t* bytecode = nullptr;
+    if (iree_status_is_ok(status)) {
+      status = iree_status_from_loomc(
+          loomc_context_create(nullptr, allocator, &context));
+    }
+    if (iree_status_is_ok(status)) {
+      status = iree_status_from_loomc(
+          loomc_workspace_create(nullptr, allocator, &workspace));
+    }
+    if (iree_status_is_ok(status)) {
+      status = iree_status_from_loomc(loomc_module_deserialize_from_source(
+          context, workspace, source, nullptr, allocator, &module, &result));
+    }
+    if (iree_status_is_ok(status)) {
+      status = iree_status_from_loomc(loomc_module_serialize_bytecode_to_source(
+          module, nullptr, allocator, &bytecode));
+    }
+    if (iree_status_is_ok(status)) {
+      const auto bytes = loomc_source_contents(bytecode);
+      out_bytes->assign(reinterpret_cast<const char*>(bytes.data),
+                        bytes.data_length);
+    }
+    loomc_source_release(bytecode);
+    loomc_result_release(result);
+    loomc_module_release(module);
+    loomc_workspace_release(workspace);
+    loomc_context_release(context);
+    loomc_source_release(source);
+    return status;
+  }
+
+  std::string Upload(uint64_t base, const std::string& path,
+                     bool binary = false, bool wait = true) {
+    std::ifstream input(path, std::ios::binary);
+    EXPECT_TRUE(input.good());
+    std::string source((std::istreambuf_iterator<char>(input)), {});
+    if (binary) {
+      [&] { IREE_ASSERT_OK(Bytecode(path, &source)); }();
+      if (HasFatalFailure()) {
+        return {};
+      }
+    }
+    const std::string name = binary ? "native.loombc" : "native.loom";
+    const std::string body =
+        "--source-package\r\nContent-Disposition: form-data; name=\"request\"; "
+        "filename=\"model/variant.json\"\r\nContent-Type: "
+        "application/json\r\n\r\n"
+        "{\"model\":\"fixture-text\",\"base\":" +
+        std::to_string(base) + ",\"sources\":[\"" + name +
+        "\"],\"wait\":" + (wait ? "true" : "false") +
+        "}\r\n--source-package\r\n"
+        "Content-Disposition: form-data; name=\"file\"; filename=\"model/" +
+        name +
+        "\""
+        "\r\nContent-Type: application/octet-stream\r\n\r\n" +
+        source + "\r\n--source-package--\r\n";
+    const std::string request =
+        "POST /v1/models/variants HTTP/1.1\r\nHost: local\r\n"
+        "Content-Type: multipart/form-data; boundary=source-package\r\n"
+        "Content-Length: " +
+        std::to_string(body.size()) + "\r\n\r\n" + body;
+    int client = -1;
+    [&] { IREE_ASSERT_OK(http_.Send(request, &client)); }();
+    return Read(client);
+  }
+
   std::string Select(uint64_t id, uint64_t expected) {
     return Read(
         Send("{\"model\":\"fixture-text\",\"variant\":" + std::to_string(id) +
@@ -98,11 +177,21 @@ TEST_P(ReconfigurationHttpTextTest,
 
   std::string path;
   ASSERT_NO_FATAL_FAILURE(Provider("scalar.remui %total, %c1_i32", &path));
-  const auto staged = Stage(original, path);
+  const auto accepted = Upload(original, path, true, false);
+  ASSERT_EQ(accepted.find("HTTP/1.1 202"), 0u) << accepted;
+  const uint64_t candidate = Number(accepted, "id", "variant");
+  std::string staged;
+  while (!http_.failed() && !HasFatalFailure()) {
+    staged = Inventory("X-Loom-Variant: " + std::to_string(candidate) + "\r\n");
+    ASSERT_EQ(staged.find("HTTP/1.1 200"), 0u) << staged;
+    if (staged.find("\"phase\":\"compiling\"") == std::string::npos) {
+      break;
+    }
+  }
   ASSERT_EQ(staged.find("HTTP/1.1 200"), 0u) << staged;
   EXPECT_NE(staged.find("\"phase\":\"ready\""), std::string::npos);
   EXPECT_NE(staged.find("\"compilation\":"), std::string::npos);
-  const uint64_t candidate = Number(staged, "id", "variant");
+  EXPECT_EQ(Number(staged, "id", "variant"), candidate);
   EXPECT_NE(candidate, original);
   EXPECT_EQ(Number(staged, "selected"), original);
   EXPECT_EQ(Content(Read(Send(Request(Message("user", prompt), 2)))), first);
@@ -153,7 +242,7 @@ TEST_P(ReconfigurationHttpTextTest, CompilationFailuresRemainInspectable) {
   const uint64_t original = Number(Inventory(), "selected");
   std::string path;
   ASSERT_NO_FATAL_FAILURE(Provider("scalar.not_an_operation %total", &path));
-  const auto failed = Stage(original, path);
+  const auto failed = Upload(original, path);
   ASSERT_EQ(failed.find("HTTP/1.1 422"), 0u) << failed;
   EXPECT_EQ(Number(failed, "selected"), original);
   const uint64_t rejected = Number(failed, "id", "variant");

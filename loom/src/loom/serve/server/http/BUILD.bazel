@@ -13,6 +13,32 @@ package(
 )
 
 loom_cc_library(
+    name = "package",
+    srcs = ["package.c"],
+    hdrs = ["package.h"],
+    deps = [
+        "//loom/src/loom/serve/runtime/program:package",
+        "//loom/src/loom/serve/transport/http:multipart",
+        "//loom/src/loom/serve/transport/http:request",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_test(
+    name = "package_test",
+    srcs = ["package_test.cc"],
+    deps = [
+        ":package",
+        "//loom/binding/c:loomc",
+        "//loom/src/loom/serve/runtime/program:package",
+        "//loom/src/loom/serve/transport/http:request",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
     name = "response",
     srcs = ["response.c"],
     hdrs = ["response.h"],
@@ -29,8 +55,10 @@ loom_cc_library(
     srcs = ["variants.c"],
     hdrs = ["variants.h"],
     deps = [
+        ":package",
         ":response",
         "//loom/src/loom/serve/runtime/program:compilation",
+        "//loom/src/loom/serve/runtime/program:package",
         "//loom/src/loom/serve/runtime/program:sources",
         "//loom/src/loom/serve/runtime/program:variant_pool",
         "//loom/src/loom/serve/server:registry",

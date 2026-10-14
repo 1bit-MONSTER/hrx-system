@@ -8,6 +8,7 @@
 #define LOOM_SERVE_RUNTIME_PROGRAM_SOURCES_H_
 
 #include "iree/base/api.h"
+#include "loom/serve/runtime/program/package.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,7 +28,18 @@ typedef struct loom_serve_sources_t {
   iree_host_size_t count;
   // Authored provider paths; symbols establish dependencies, not list order.
   const iree_string_view_t* values;
+  // Optional borrowed immutable package for relative source/metadata locators.
+  // Absolute locators still name server-local files. No missing-member
+  // fallback.
+  loom_serve_package_t* package;
 } loom_serve_sources_t;
+
+// Loads one source or metadata asset, retaining its bytes independently of the
+// environment. File reads belong on preparation workers, not a scheduler turn.
+iree_status_t loom_serve_sources_open(const loom_serve_sources_t* sources,
+                                      iree_string_view_t locator,
+                                      iree_allocator_t host_allocator,
+                                      loomc_source_t** out_source);
 
 // Reports whether a locator is absolute in the local filesystem namespace.
 bool loom_serve_path_is_absolute(iree_string_view_t path);

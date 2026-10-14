@@ -87,6 +87,7 @@ loom_cc_library(
     iree::task
     iree::testing::gtest
     iree::testing::temp_file
+    loom::binding::c::loomc
     loom::serve::runtime::device
     loom::serve::runtime::host
     loom::serve::runtime::program::variant_pool
@@ -469,6 +470,7 @@ loom_cc_library(
     iree::base
     loom::serve::runtime::host::wake
     loom::serve::runtime::program::compilation
+    loom::serve::runtime::program::package
     loom::serve::runtime::program::sources
     loom::serve::runtime::program::variant_pool
     loom::serve::service::reconfiguration

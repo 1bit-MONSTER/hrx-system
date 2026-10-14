@@ -133,10 +133,36 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "package",
+    srcs = ["package.c"],
+    hdrs = ["package.h"],
+    deps = [
+        "//loom/binding/c:loomc",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:unicode",
+    ],
+)
+
+loom_cc_test(
+    name = "package_test",
+    srcs = ["package_test.cc"],
+    deps = [
+        ":package",
+        ":sources",
+        "//loom/binding/c:loomc",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
     name = "sources",
     srcs = ["sources.c"],
     hdrs = ["sources.h"],
     deps = [
+        ":package",
+        "//loom/binding/c:loomc",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:path",
     ],
