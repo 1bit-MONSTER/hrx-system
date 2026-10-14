@@ -18,6 +18,10 @@ counters with Vulkan command lifetimes, a private submission mutex, pass
 selection and derived results. That path's scope, slot and width differences
 remain separate from PAL's global-counter representation below.
 
+[Programmable counter sampling](../profiling/counter-sampling.md) follows
+ROCm's separate observation queue and Tinygrad's dispatch collector, including
+their different counter-read operands and result-reuse boundaries.
+
 ## Owner and applicability
 
 PAL discovers performance-experiment properties from the selected device, then

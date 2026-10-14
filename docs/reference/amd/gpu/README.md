@@ -25,6 +25,7 @@ resource-lifetime protocol.
 | [Programming recipes](recipes/README.md) | Host/device, cross-engine, and local-memory producer/consumer flows. |
 | [CPU, GPU and NPU interop](../interop/README.md) | External sharing, directed device handoffs, resident pipelines and storage reuse. |
 | [Timing and counters](observability.md) | Shader cycles (`SHADER_CYCLES`, `S_MEMTIME`), fixed-frequency `REALTIME`, timestamp conversion, counter ownership, and profiling interference. |
+| [Programmable counter sampling](profiling/counter-sampling.md) | Workload participation, separate observation queues, running samples, register-read protocols, completion, and bounded result reuse. |
 | [Streaming performance monitoring](profiling/spm.md) | SPM sample layouts, SCLK/REFCLK intervals, RLC rings, vendor KFD host-buffer rotation, device-scoped start/stop, per-XCC extents, loss and completed storage use. |
 | [Program-counter sampling](profiling/pc-sampling.md) | Native trigger methods, trap records, per-XCC buffer rotation, reservation versus publication, loss and final trap users. |
 | [Shader thread traces](profiling/thread-trace.md) | SQTT selection, finite drain, live GFX9/GFX12 buffer replacement, hardware-slot phase, per-XCC clock anchors, overflow and decoder context. |

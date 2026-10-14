@@ -18,7 +18,7 @@ state.
 | [Firmware dispatch logs](profiling/dispatch-log.md) | A vendor KFD service exposes per-process compute dispatch records in native overwrite rings, with source-specific clock, identity and collection rules. |
 | Shader cycle counter | A wave samples core cycles through the target's scalar-memory, shader-register or dedicated counter instruction. Width and SIMD epoch determine which samples can be compared. |
 | Shader realtime counter | A wave samples a fixed-frequency clock through S_MEMREALTIME or a returned REALTIME message. The result's readiness, frequency and correlation remain separate contracts. |
-| Programmable counters | A collection observes a specified event across selected hardware instances and a defined counting interval. |
+| [Programmable counter samples](profiling/counter-sampling.md) | Queue participation, shared event selection, and sample completion define the observed population and interval. Device-scoped observation queues and dispatch-local samples have different dependencies. |
 | [Program-counter sampling](profiling/pc-sampling.md) | Native triggers and a trap writer capture wave state; per-XCC buffer rotation publishes completed samples while the workload continues. |
 | [Shader thread traces](profiling/thread-trace.md) | SQTT token streams use source-specific finite drain or live buffer replacement, with explicit loss and decoding context. |
 | [Pipeline statistics](pm4/pipeline-statistics.md) | Beginning and ending counter samples, including CS invocations, with separate result records, availability and final-reader ownership. |
