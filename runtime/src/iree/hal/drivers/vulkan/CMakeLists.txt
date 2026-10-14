@@ -375,6 +375,8 @@ iree_cc_library(
     "driver.h"
     "executable.c"
     "executable.h"
+    "file_transfer.c"
+    "file_transfer.h"
     "logical_device.c"
     "logical_device.h"
     "memory_backend.c"

@@ -597,8 +597,9 @@ TEST_F(VulkanCommandBufferTest,
       /*allocation_size=*/128, /*handle_offset=*/8, /*byte_length=*/64,
       /*memory_property_flags=*/0, /*non_coherent_atom_size=*/1, VK_NULL_HANDLE,
       /*mapping_state=*/nullptr, native_buffer,
-      /*device_address=*/0, iree_hal_buffer_release_callback_null(),
-      iree_allocator_system(), &buffer));
+      /*device_address=*/0, /*host_allocation=*/nullptr,
+      iree_hal_buffer_release_callback_null(), iree_allocator_system(),
+      &buffer));
   const iree_hal_buffer_binding_t binding = {
       .buffer = buffer,
       .offset = 5,

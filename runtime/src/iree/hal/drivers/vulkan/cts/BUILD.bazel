@@ -47,6 +47,7 @@ iree_runtime_cc_library(
     srcs = ["file_test.cc"],
     deps = [
         "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/cts/util:pool_test_util",
         "//runtime/src/iree/hal/cts/util:test_base",
         "//runtime/src/iree/io:file_handle",
         "//runtime/src/iree/testing:temp_file",

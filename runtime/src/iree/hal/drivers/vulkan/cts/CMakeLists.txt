@@ -49,6 +49,7 @@ iree_cc_library(
     "file_test.cc"
   DEPS
     iree::hal
+    iree::hal::cts::util::pool_test_util
     iree::hal::cts::util::test_base
     iree::io::file_handle
     iree::testing::temp_file

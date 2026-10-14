@@ -1074,6 +1074,7 @@ iree_hal_vulkan_allocator_allocate_direct_buffer_with_memory_type_bits(
           device_memory, /*device_memory_offset=*/handle_offset,
           memory_requirements.size, handle, (VkDeviceSize)allocation_size,
           handle_offset, device_address,
+          /*imported_host_pointer=*/NULL,
           iree_hal_buffer_release_callback_null(), allocator->host_allocator,
           &buffer);
       if (iree_status_is_ok(status)) {
@@ -1394,7 +1395,8 @@ iree_hal_vulkan_allocator_import_buffer_with_memory_type_bits(
         handle, (VkDeviceSize)allocation_size, /*handle_offset=*/0,
         iree_hal_vulkan_allocator_query_device_address(
             allocator, compat_params.usage, handle),
-        release_callback, allocator->host_allocator, &buffer);
+        external_buffer->payload.host_pointer, release_callback,
+        allocator->host_allocator, &buffer);
     if (iree_status_is_ok(status)) {
 #if IREE_TRACING_FEATURES & IREE_TRACING_FEATURE_ALLOCATION_TRACKING
       trace_handle = handle;

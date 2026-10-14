@@ -50,6 +50,10 @@ typedef struct iree_hal_vulkan_buffer_native_t {
   VkDeviceMemory device_memory;
   // Complete native resource extent, independent of the HAL view length.
   VkDeviceSize handle_length;
+  // Dense import owner retaining the original host address and cache policy,
+  // or NULL for storage without an ordinary host allocation. Borrowed through
+  // the same allocation epoch as the native buffer handle.
+  iree_hal_buffer_t* host_allocation;
 } iree_hal_vulkan_buffer_native_t;
 
 // Complete Vulkan native format, including resource extent and dense memory.
@@ -77,6 +81,10 @@ void iree_hal_vulkan_buffer_initialize_bindings(
 // is the complete native resource extent, while |handle_offset| selects the
 // first logical byte exposed by the HAL allocation. |device_memory_offset|
 // selects that same logical byte within |device_memory| for host mappings.
+// |imported_host_pointer| is the original host allocation imported at native
+// offset zero into a HOST_VISIBLE memory type, or NULL for Vulkan-owned
+// storage. Noncoherent imports prepare their maintenance mapping here; file
+// transfers never map or import lazily.
 iree_status_t iree_hal_vulkan_buffer_create(
     const iree_hal_vulkan_device_syms_t* syms, VkDevice logical_device,
     iree_hal_buffer_placement_t placement, iree_hal_memory_type_t memory_type,
@@ -87,7 +95,7 @@ iree_status_t iree_hal_vulkan_buffer_create(
     VkDeviceMemory device_memory, VkDeviceSize device_memory_offset,
     VkDeviceSize device_memory_size, VkBuffer handle,
     VkDeviceSize handle_length, VkDeviceSize handle_offset,
-    VkDeviceAddress device_address,
+    VkDeviceAddress device_address, void* imported_host_pointer,
     iree_hal_buffer_release_callback_t release_callback,
     iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer);
 
@@ -98,6 +106,8 @@ iree_status_t iree_hal_vulkan_buffer_create(
 // |handle_offset|. |handle_offset| is the start of the returned HAL buffer
 // within |handle| and |byte_length| is the logical byte length exposed through
 // the HAL API.
+// |host_allocation| is the dense host import owner, or NULL for other storage.
+// It must outlive the wrapper, just like the native handle and mapping state.
 // |release_callback| is invoked when the wrapper is destroyed and typically
 // returns a pool reservation to the source pool.
 iree_status_t iree_hal_vulkan_buffer_create_borrowed(
@@ -109,9 +119,37 @@ iree_status_t iree_hal_vulkan_buffer_create_borrowed(
     VkMemoryPropertyFlags memory_property_flags,
     VkDeviceSize non_coherent_atom_size, VkDeviceMemory device_memory,
     iree_hal_vulkan_buffer_mapping_state_t* mapping_state, VkBuffer handle,
-    VkDeviceAddress device_address,
+    VkDeviceAddress device_address, iree_hal_buffer_t* host_allocation,
     iree_hal_buffer_release_callback_t release_callback,
     iree_allocator_t host_allocator, iree_hal_buffer_t** out_buffer);
+
+// Prepared original host bytes for native file I/O, not a CPU execution grant.
+// The caller retains the logical buffer throughout I/O and cache maintenance.
+typedef struct iree_hal_vulkan_buffer_host_span_t {
+  // Original imported bytes at the requested logical offset.
+  iree_byte_span_t contents;
+  // Borrowed dense import owner; NULL when this storage has no host route.
+  iree_hal_buffer_t* allocation;
+  // Byte offset within the import owner's native allocation.
+  iree_device_size_t allocation_offset;
+  // Whether native host cache maintenance is unnecessary.
+  bool coherent;
+} iree_hal_vulkan_buffer_host_span_t;
+
+// Resolves a validated native buffer range without mapping, allocation or
+// native queries. A NULL allocation reports no direct host route. Ordinary
+// subspans, slab views and staged transient views preserve native coordinates.
+iree_status_t iree_hal_vulkan_buffer_resolve_host_span(
+    iree_hal_buffer_t* buffer, iree_device_size_t offset,
+    iree_device_size_t length, iree_hal_vulkan_buffer_host_span_t* out_span);
+
+// Performs native maintenance on an already prepared host span. Coherent spans
+// are no-ops. Noncoherent maintenance runs on a host executor after producer
+// completion and before the corresponding consumer publication.
+iree_status_t iree_hal_vulkan_buffer_flush_host_span(
+    const iree_hal_vulkan_buffer_host_span_t* span);
+iree_status_t iree_hal_vulkan_buffer_invalidate_host_span(
+    const iree_hal_vulkan_buffer_host_span_t* span);
 
 // Returns true if |buffer| is a Vulkan HAL buffer.
 bool iree_hal_vulkan_buffer_isa(iree_hal_buffer_t* buffer);

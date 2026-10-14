@@ -6,7 +6,9 @@
 
 #include "iree/hal/drivers/vulkan/buffer.h"
 
+#include <array>
 #include <cstdint>
+#include <vector>
 
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
@@ -31,8 +33,9 @@ class VulkanBufferTest : public ::testing::Test {
         /*non_coherent_atom_size=*/1, VK_NULL_HANDLE,
         /*mapping_state=*/nullptr,
         reinterpret_cast<VkBuffer>(static_cast<uintptr_t>(0x2000)),
-        device_address, iree_hal_buffer_release_callback_null(),
-        iree_allocator_system(), &buffer_);
+        device_address, /*host_allocation=*/nullptr,
+        iree_hal_buffer_release_callback_null(), iree_allocator_system(),
+        &buffer_);
   }
 
   // Borrowed native storage wrapper owned by this fixture.
@@ -123,6 +126,156 @@ TEST_F(VulkanBufferTest, NativeBindingsPreserveNestedOffsets) {
   EXPECT_EQ(inner->memory.bindings, buffer_->memory.bindings);
   iree_hal_buffer_release(inner);
 }
+
+#if !IREE_HAL_VULKAN_LIBVULKAN_STATIC
+
+// Native dependencies are replaced to exercise noncoherent imports even on
+// machines exposing only coherent memory. The real buffer implementation owns
+// construction, view offsets, public mapping leases and native teardown.
+struct HostImportCapture {
+  // Distinct native mapping alias; I/O must keep using the original allocation.
+  std::array<uint8_t, 128> alias = {};
+  // Native mapping result used to exercise construction failure.
+  VkResult map_result = VK_SUCCESS;
+  // Number of native mapping acquisitions.
+  int map_count = 0;
+  // Number of native mapping releases.
+  int unmap_count = 0;
+  // Number of native resource destructions.
+  int destroy_count = 0;
+  // Number of native memory releases.
+  int free_count = 0;
+  // Cache-maintenance ranges issued against the retained native mapping.
+  std::vector<VkMappedMemoryRange> ranges;
+};
+
+static VKAPI_ATTR VkResult VKAPI_CALL
+CaptureMapMemory(VkDevice device, VkDeviceMemory, VkDeviceSize offset,
+                 VkDeviceSize length, VkMemoryMapFlags, void** pointer) {
+  auto* capture = reinterpret_cast<HostImportCapture*>(device);
+  ++capture->map_count;
+  EXPECT_EQ(offset, 0u);
+  EXPECT_EQ(length, capture->alias.size());
+  if (capture->map_result == VK_SUCCESS) {
+    *pointer = capture->alias.data();
+  }
+  return capture->map_result;
+}
+
+static VKAPI_ATTR void VKAPI_CALL CaptureUnmapMemory(VkDevice device,
+                                                     VkDeviceMemory) {
+  ++reinterpret_cast<HostImportCapture*>(device)->unmap_count;
+}
+
+static VKAPI_ATTR void VKAPI_CALL
+CaptureDestroyBuffer(VkDevice device, VkBuffer, const VkAllocationCallbacks*) {
+  ++reinterpret_cast<HostImportCapture*>(device)->destroy_count;
+}
+
+static VKAPI_ATTR void VKAPI_CALL CaptureFreeMemory(
+    VkDevice device, VkDeviceMemory, const VkAllocationCallbacks*) {
+  ++reinterpret_cast<HostImportCapture*>(device)->free_count;
+}
+
+static VKAPI_ATTR VkResult VKAPI_CALL CaptureMaintenance(
+    VkDevice device, uint32_t count, const VkMappedMemoryRange* ranges) {
+  auto* capture = reinterpret_cast<HostImportCapture*>(device);
+  capture->ranges.insert(capture->ranges.end(), ranges, ranges + count);
+  return VK_SUCCESS;
+}
+
+static iree_hal_vulkan_device_syms_t HostImportSyms() {
+  iree_hal_vulkan_device_syms_t syms = {};
+  syms.vkMapMemory = CaptureMapMemory;
+  syms.vkUnmapMemory = CaptureUnmapMemory;
+  syms.vkDestroyBuffer = CaptureDestroyBuffer;
+  syms.vkFreeMemory = CaptureFreeMemory;
+  syms.vkFlushMappedMemoryRanges = CaptureMaintenance;
+  syms.vkInvalidateMappedMemoryRanges = syms.vkFlushMappedMemoryRanges;
+  return syms;
+}
+
+static iree_status_t CreateHostImport(HostImportCapture* capture, void* pointer,
+                                      bool coherent,
+                                      iree_hal_buffer_t** out_buffer) {
+  const auto syms = HostImportSyms();
+  return iree_hal_vulkan_buffer_create(
+      &syms, reinterpret_cast<VkDevice>(capture),
+      iree_hal_buffer_placement_undefined(),
+      IREE_HAL_MEMORY_TYPE_DEVICE_VISIBLE | IREE_HAL_MEMORY_TYPE_HOST_VISIBLE,
+      IREE_HAL_MEMORY_ACCESS_ALL,
+      IREE_HAL_BUFFER_USAGE_TRANSFER | IREE_HAL_BUFFER_USAGE_MAPPING_PERSISTENT,
+      128, 128,
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+          (coherent ? VK_MEMORY_PROPERTY_HOST_COHERENT_BIT : 0),
+      0, 16, reinterpret_cast<VkDeviceMemory>(static_cast<uintptr_t>(0x1000)),
+      0, 128, reinterpret_cast<VkBuffer>(static_cast<uintptr_t>(0x2000)), 128,
+      0, 0, pointer, iree_hal_buffer_release_callback_null(),
+      iree_allocator_system(), out_buffer);
+}
+
+TEST(VulkanHostImportTest,
+     KeepsOriginalAddressAndPreparedMaintenanceAcrossViews) {
+  for (const bool coherent : {false, true}) {
+    SCOPED_TRACE(coherent);
+    HostImportCapture capture;
+    std::array<uint8_t, 128> original = {};
+    iree_hal_buffer_t* owner = nullptr;
+    IREE_ASSERT_OK(
+        CreateHostImport(&capture, original.data(), coherent, &owner));
+    EXPECT_EQ(capture.map_count, coherent ? 0 : 1);
+    iree_hal_buffer_t* view = nullptr;
+    IREE_ASSERT_OK(
+        iree_hal_buffer_subspan(owner, 17, 64, iree_allocator_system(), &view));
+    iree_hal_buffer_t* nested = nullptr;
+    IREE_ASSERT_OK(iree_hal_buffer_subspan(view, 11, 32,
+                                           iree_allocator_system(), &nested));
+    iree_hal_buffer_release(view);
+    iree_hal_vulkan_buffer_host_span_t span;
+    IREE_ASSERT_OK(
+        iree_hal_vulkan_buffer_resolve_host_span(nested, 3, 8, &span));
+    ASSERT_EQ(span.contents.data, original.data() + 31);
+    span.contents.data[0] = 0xA5;
+    EXPECT_EQ(original[31], 0xA5);
+    EXPECT_EQ(capture.alias[31], 0);
+    IREE_ASSERT_OK(iree_hal_vulkan_buffer_flush_host_span(&span));
+    IREE_ASSERT_OK(iree_hal_vulkan_buffer_invalidate_host_span(&span));
+    EXPECT_EQ(capture.map_count, coherent ? 0 : 1);
+    ASSERT_EQ(capture.ranges.size(), coherent ? 0u : 2u);
+    for (const auto& range : capture.ranges) {
+      EXPECT_EQ(range.offset, 16u);
+      EXPECT_EQ(range.size, 32u);
+    }
+    iree_hal_buffer_mapping_t mapping = {};
+    IREE_ASSERT_OK(iree_hal_buffer_map_range(
+        owner, IREE_HAL_MAPPING_MODE_PERSISTENT, IREE_HAL_MEMORY_ACCESS_READ,
+        IREE_HAL_BUFFER_MAP_FLAG_NONE, 0, 128, &mapping));
+    IREE_ASSERT_OK(iree_hal_buffer_unmap_range(&mapping));
+    EXPECT_EQ(capture.map_count, 1);
+    EXPECT_EQ(capture.unmap_count, coherent ? 1 : 0);
+    iree_hal_buffer_release(nested);
+    iree_hal_buffer_release(owner);
+    EXPECT_EQ(capture.unmap_count, 1);
+    EXPECT_EQ(capture.destroy_count, 1);
+    EXPECT_EQ(capture.free_count, 1);
+  }
+}
+
+TEST(VulkanHostImportTest, FailedMaintenanceMappingDoesNotTakeNativeOwnership) {
+  HostImportCapture capture;
+  capture.map_result = VK_ERROR_MEMORY_MAP_FAILED;
+  std::array<uint8_t, 128> original = {};
+  iree_hal_buffer_t* buffer = nullptr;
+  Status status(CreateHostImport(&capture, original.data(), false, &buffer));
+  EXPECT_FALSE(status.ok());
+  EXPECT_EQ(buffer, nullptr);
+  EXPECT_EQ(capture.map_count, 1);
+  EXPECT_EQ(capture.unmap_count, 0);
+  EXPECT_EQ(capture.destroy_count, 0);
+  EXPECT_EQ(capture.free_count, 0);
+}
+
+#endif  // !IREE_HAL_VULKAN_LIBVULKAN_STATIC
 
 }  // namespace
 }  // namespace iree::hal::vulkan
