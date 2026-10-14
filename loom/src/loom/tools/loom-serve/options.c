@@ -16,8 +16,13 @@ IREE_FLAG(int32_t, workers, 8,
 IREE_FLAG(string, pool_backing, "elastic",
           "elastic demand-commits parameter/state slabs; fixed backs storage "
           "eagerly and supports device address sanitization.");
-IREE_FLAG(int64_t, slab_bytes, 2097152,
-          "Physical slab size; zero selects allocator recommendation.");
+IREE_FLAG(
+    int64_t, slab_bytes, 67108864,
+    "Physical commitment/reclamation granularity for elastic parameter "
+    "and state storage (default 64 MiB). Larger slabs reduce allocation "
+    "and mapping operations but retain more backing for partially live "
+    "slabs; logical tensor and KV block sizes are unchanged. Zero selects "
+    "the allocator recommendation. Ignored for fixed backing.");
 IREE_FLAG(int64_t, memory_bytes, 0,
           "Shared physical parameter/state budget; a nonzero limit requires "
           "one device. Zero imposes no serving limit. Invocation workspace "

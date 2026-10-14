@@ -206,11 +206,78 @@ iree_cc_test(
     ::parameter_util
     iree::base
     iree::base::internal::path
+    iree::base::tooling::flags
     iree::io::file_handle
     iree::io::parameter_index
     iree::testing::gtest
     iree::testing::gtest_main
     iree::testing::temp_file
+  LABELS
+    "requires-filesystem"
+)
+
+iree_cc_test(
+  NAME
+    parameter_util_direct_test
+  SRCS
+    "parameter_util_test.cc"
+  DEPS
+    ::parameter_util
+    iree::base
+    iree::base::internal::path
+    iree::base::tooling::flags
+    iree::io::file_handle
+    iree::io::parameter_index
+    iree::testing::gtest
+    iree::testing::gtest_main
+    iree::testing::temp_file
+  ARGS
+    "--parameter_mode=direct"
+    "--expected_parameter_mode=direct"
+  LABELS
+    "requires-filesystem"
+)
+
+iree_cc_test(
+  NAME
+    parameter_util_preload_test
+  SRCS
+    "parameter_util_test.cc"
+  DEPS
+    ::parameter_util
+    iree::base
+    iree::base::internal::path
+    iree::base::tooling::flags
+    iree::io::file_handle
+    iree::io::parameter_index
+    iree::testing::gtest
+    iree::testing::gtest_main
+    iree::testing::temp_file
+  ARGS
+    "--parameter_mode=preload"
+    "--expected_parameter_mode=preload"
+  LABELS
+    "requires-filesystem"
+)
+
+iree_cc_test(
+  NAME
+    parameter_util_invalid_test
+  SRCS
+    "parameter_util_test.cc"
+  DEPS
+    ::parameter_util
+    iree::base
+    iree::base::internal::path
+    iree::base::tooling::flags
+    iree::io::file_handle
+    iree::io::parameter_index
+    iree::testing::gtest
+    iree::testing::gtest_main
+    iree::testing::temp_file
+  ARGS
+    "--parameter_mode=invalid"
+    "--expected_parameter_mode=invalid"
   LABELS
     "requires-filesystem"
 )

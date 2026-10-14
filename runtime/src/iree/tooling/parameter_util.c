@@ -21,9 +21,14 @@
 
 IREE_FLAG(
     string, parameter_mode, "file",
-    "A parameter I/O mode of ['preload', 'file'].\n"
+    "A parameter I/O mode of ['preload', 'file', 'direct'].\n"
     "  preload: read entire parameter files into wired memory on startup.\n"
-    "  file: uses platform file APIs to read/write the file as needed.");
+    "  file: uses buffered platform file APIs as needed.\n"
+    "  direct: request native uncached file I/O. Transfer buffers, file "
+    "offsets\n"
+    "    and lengths must satisfy the filesystem's direct-I/O requirements.\n"
+    "    This does not add alignment staging or request write-through "
+    "durability.");
 
 // Opens the parameter file at |path| with the mode specified by the
 // --parameter_mode flag and returns its handle.
@@ -41,11 +46,15 @@ static iree_status_t iree_io_open_parameter_file(
     status = iree_io_file_handle_preload(
         IREE_IO_FILE_MODE_READ | IREE_IO_FILE_MODE_SHARE_READ, path,
         host_allocator, &file_handle);
-  } else if (strcmp(FLAG_parameter_mode, "file") == 0) {
-    status = iree_io_file_handle_open(IREE_IO_FILE_MODE_READ |
-                                          IREE_IO_FILE_MODE_SHARE_READ |
-                                          IREE_IO_FILE_MODE_ASYNC,
-                                      path, host_allocator, &file_handle);
+  } else if (strcmp(FLAG_parameter_mode, "file") == 0 ||
+             strcmp(FLAG_parameter_mode, "direct") == 0) {
+    iree_io_file_mode_t mode = IREE_IO_FILE_MODE_READ |
+                               IREE_IO_FILE_MODE_SHARE_READ |
+                               IREE_IO_FILE_MODE_ASYNC;
+    if (strcmp(FLAG_parameter_mode, "direct") == 0) {
+      mode |= IREE_IO_FILE_MODE_DIRECT;
+    }
+    status = iree_io_file_handle_open(mode, path, host_allocator, &file_handle);
   } else {
     status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                               "unrecognized --parameter_mode= value '%s'",
