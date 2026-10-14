@@ -174,7 +174,7 @@ TEST_F(Pm4DispatchTest, SelectsImmutableIndirectWorkgroupCounts) {
     ASSERT_EQ(commands.word_count(), (epoch + 1) * kCommandWordsPerEpoch);
     ASSERT_NO_FATAL_FAILURE(
         queue->Publish(api_, gpu_api_, commands.word_count()));
-    GpuWaitEqual<uint32_t>(completion_address, epoch + 1);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(completion_address, epoch + 1));
 
     // Observe all initialized storage before diagnostics or command storage
     // retirement.
@@ -430,7 +430,7 @@ TEST_F(Pm4DispatchTest, ShaderProducedCountsControlIndirectDispatch) {
     ASSERT_EQ(commands.word_count(), (epoch + 1) * kCommandWordsPerEpoch);
     ASSERT_NO_FATAL_FAILURE(
         queue->Publish(api_, gpu_api_, commands.word_count()));
-    GpuWaitEqual<uint32_t>(completion_address, epoch + 1);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(completion_address, epoch + 1));
 
     // Snapshot all six initialized allocations before diagnostics or
     // command storage retirement can add synchronization to the payload

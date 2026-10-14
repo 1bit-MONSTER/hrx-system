@@ -172,15 +172,15 @@ TEST_F(AqlEpochTest, BarrierValueOrdersEpochPayloadAcrossQueues) {
     // before decrementing the epoch; the waiting consumer acquires it only
     // after its preceding BARRIER_VALUE packet completes.
     GpuStoreRelease(consumer->host.write_index_address, consumer_index + 2);
-    aql::Publish(*consumer, consumer_index++, wait);
-    aql::Publish(*consumer, consumer_index++, consume);
+    ASSERT_TRUE(aql::Publish(*consumer, consumer_index++, wait));
+    ASSERT_TRUE(aql::Publish(*consumer, consumer_index++, consume));
     GpuStoreRelease(producer->host.write_index_address, producer_index + 1);
-    aql::Publish(*producer, producer_index++, produce);
+    ASSERT_TRUE(aql::Publish(*producer, producer_index++, produce));
 
     // Observe only the completed consumer's result before any producer wait
     // or ring-consumption wait can add synchronization to this observation.
-    GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&completion_signal.value),
-                          0);
+    ASSERT_TRUE(GpuWaitEqual<int64_t>(
+        reinterpret_cast<uintptr_t>(&completion_signal.value), 0));
     std::memcpy(output_words.data(), output->host.pointer,
                 sizeof(output_words));
     for (uint32_t i = 0; i < kWordCount; ++i) {
@@ -190,8 +190,8 @@ TEST_F(AqlEpochTest, BarrierValueOrdersEpochPayloadAcrossQueues) {
     // Even a failed dependency must not authorize an early read or release of
     // producer-owned storage. Independently await its exact full-width epoch
     // before inspecting the intermediate and immutable input.
-    GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&epoch_signal.value),
-                          completed_epoch);
+    ASSERT_TRUE(GpuWaitEqual<int64_t>(
+        reinterpret_cast<uintptr_t>(&epoch_signal.value), completed_epoch));
     EXPECT_EQ(GpuLoadAcquire<int64_t>(
                   reinterpret_cast<uintptr_t>(&epoch_signal.value)),
               completed_epoch);

@@ -201,7 +201,7 @@ TEST_P(SdmaTimestampStreamTest,
   }
   const bool valid = !HasFailure();
   GpuStoreRelease<uint32_t>(control_host + kConsumedOffset, kRecordCount);
-  GpuWaitEqual<uint32_t>(control_host + kDoneOffset, 1);
+  ASSERT_TRUE(GpuWaitEqual<uint32_t>(control_host + kDoneOffset, 1));
   ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
   if (!valid) {
     return;

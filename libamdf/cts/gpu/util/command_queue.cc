@@ -162,7 +162,8 @@ void GpuCommandQueue::Submit(const amdf_gpu_api_t* gpu_api,
 void GpuCommandQueue::WaitRetired(const amdf_api_t* api) {
   if (kernel_queue_) {
     ASSERT_EQ(api->kernel_queue_wait(kernel_queue_, submission_,
-                                     AMDF_TIMEOUT_INFINITE, 0),
+                                     amdf::cts::kWaitTimeoutNs,
+                                     amdf::cts::kWaitPollIntervalNs),
               AMDF_STATUS_OK);
     amdf_kernel_queue_status_t status = {
         .type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_STATUS,

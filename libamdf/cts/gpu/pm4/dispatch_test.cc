@@ -104,8 +104,8 @@ TEST_F(Pm4DispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
     commands.PadToEightWords();
     ASSERT_NO_FATAL_FAILURE(
         queue->Publish(api_, gpu_api_, commands.word_count()));
-    GpuWaitEqual<uint32_t>(
-        reinterpret_cast<uintptr_t>(completion->host.pointer), epoch + 1);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+        reinterpret_cast<uintptr_t>(completion->host.pointer), epoch + 1));
     std::memcpy(download.data(), output->host.pointer, sizeof(download));
     const auto* unchanged_input =
         static_cast<const uint32_t*>(input->host.pointer);
@@ -262,8 +262,8 @@ TEST_F(Pm4DispatchTest, CoherentSystemProducerConsumerChainAcrossEpochs) {
     ASSERT_EQ(commands.word_count(), (epoch + 1) * kCommandWordCountPerEpoch);
     ASSERT_NO_FATAL_FAILURE(
         queue->Publish(api_, gpu_api_, commands.word_count()));
-    GpuWaitEqual<uint32_t>(
-        reinterpret_cast<uintptr_t>(completion->host.pointer), epoch + 1);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+        reinterpret_cast<uintptr_t>(completion->host.pointer), epoch + 1));
 
     // Capture every observed byte before diagnostics or
     // command-retirement operations can add synchronization to the
@@ -410,8 +410,8 @@ TEST_F(Pm4DispatchTest, CoherentSystemReleaseCompletesShaderAcrossEpochs) {
     ASSERT_EQ(commands.word_count(), (epoch + 1) * kCommandWordCountPerEpoch);
     ASSERT_NO_FATAL_FAILURE(
         queue->Publish(api_, gpu_api_, commands.word_count()));
-    GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion_word),
-                           epoch + 1);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+        reinterpret_cast<uintptr_t>(completion_word), epoch + 1));
 
     // Snapshot every observed byte before diagnostics or retirement
     // polling can add synchronization to the payload observation.
@@ -574,7 +574,7 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderTimestampsAcrossEpochs) {
     ASSERT_EQ(commands.word_count(), (epoch + 1) * kCommandWordCountPerEpoch);
     ASSERT_NO_FATAL_FAILURE(
         queue->Publish(api_, gpu_api_, commands.word_count()));
-    GpuWaitEqual<uint32_t>(marker_host_address, epoch + 1);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(marker_host_address, epoch + 1));
 
     // Capture every observed byte before diagnostics or retirement polling
     // can add synchronization. The marker is the only host completion wait.

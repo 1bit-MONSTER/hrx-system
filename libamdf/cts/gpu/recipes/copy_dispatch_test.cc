@@ -689,11 +689,11 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(
     // Consumer-first publication leaves every dataflow edge on the device.
     // Both rings are free from the preceding epoch before this reservation.
     GpuStoreRelease(aql_queue->host.write_index_address, aql_index + 2);
-    aql::Publish(*aql_queue, aql_index++, dependency);
-    aql::Publish(*aql_queue, aql_index++, dispatch);
+    ASSERT_TRUE(aql::Publish(*aql_queue, aql_index++, dependency));
+    ASSERT_TRUE(aql::Publish(*aql_queue, aql_index++, dispatch));
     ASSERT_NO_FATAL_FAILURE(sdma_queue->PublishStream(sdma_index));
-    GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(&completion.download),
-                           epoch);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+        reinterpret_cast<uintptr_t>(&completion.download), epoch));
 
     // Observe the actual download before any native consumption/retirement
     // call or other payload read could maintain this visibility edge for us.
@@ -701,8 +701,8 @@ void CopyDispatchRecipeTest::RunCoherentHandoff(
     // Join the shader independently of the SDMA poll under test before
     // reading its output or reusing its arguments. The final download fence
     // already joins all SDMA work, including the upload signal write.
-    GpuWaitEqual<int64_t>(
-        reinterpret_cast<uintptr_t>(&completion.compute.value), 0);
+    ASSERT_TRUE(GpuWaitEqual<int64_t>(
+        reinterpret_cast<uintptr_t>(&completion.compute.value), 0));
     std::memcpy(observed_source.data(), source_words, buffers.byte_length);
     std::memcpy(observed_input.data(), input_words, buffers.byte_length);
     std::memcpy(observed_output.data(), output_words, buffers.byte_length);
@@ -1137,19 +1137,19 @@ void CopyDispatchRecipeTest::RunStagedHandoff(PairQuery query_kind) {
 
     // Consumer-first publication leaves both inter-engine edges on device.
     GpuStoreRelease(aql_queue->host.write_index_address, aql_index + 2);
-    aql::Publish(*aql_queue, aql_index++, dependency);
-    aql::Publish(*aql_queue, aql_index++, dispatch);
+    ASSERT_TRUE(aql::Publish(*aql_queue, aql_index++, dependency));
+    ASSERT_TRUE(aql::Publish(*aql_queue, aql_index++, dispatch));
     ASSERT_NO_FATAL_FAILURE(sdma_queue->PublishStream(sdma_index));
-    GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(&completion.download),
-                           epoch);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+        reinterpret_cast<uintptr_t>(&completion.download), epoch));
 
     // Capture the full output first. Diagnostic payload reads and native
     // consumed/retirement calls cannot repair this already captured result.
     std::memcpy(downloaded.data(), readback_words, byte_length);
     // The final SDMA fence joins all copies. Independently join the shader
     // before observing its arguments/control or allowing another epoch.
-    GpuWaitEqual<int64_t>(
-        reinterpret_cast<uintptr_t>(&completion.compute.value), 0);
+    ASSERT_TRUE(GpuWaitEqual<int64_t>(
+        reinterpret_cast<uintptr_t>(&completion.compute.value), 0));
     std::memcpy(observed_input_readback.data(), input_readback_words,
                 byte_length);
     std::memcpy(observed_source.data(), source_words, byte_length);

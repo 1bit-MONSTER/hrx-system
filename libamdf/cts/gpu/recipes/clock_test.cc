@@ -122,7 +122,8 @@ TEST_P(QueueClockRecipeTest, NominalDurationsAndHostBounds) {
     // Host waiting is only the calibration witness, not a profiling submit API.
     const auto host_before = std::chrono::steady_clock::now();
     ASSERT_NO_FATAL_FAILURE(queue->Publish(api_, gpu_api_, published_words));
-    GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(samples + 32), 1);
+    ASSERT_TRUE(
+        GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(samples + 32), 1));
     const auto host_after = std::chrono::steady_clock::now();
     const uint64_t begin = samples[0];
     const uint64_t end = samples[8];

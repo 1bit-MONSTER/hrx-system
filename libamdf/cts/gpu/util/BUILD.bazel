@@ -39,7 +39,10 @@ amdf_cc_library(
     srcs = ["user_queue.cc"],
     hdrs = ["user_queue.h"],
     target_compatible_with = ["@platforms//cpu:x86_64"],
-    deps = ["//third_party:google_test"],
+    deps = [
+        "//libamdf/cts/util:wait",
+        "//third_party:google_test",
+    ],
 )
 
 amdf_cc_library(

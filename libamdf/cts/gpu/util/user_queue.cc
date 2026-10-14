@@ -130,6 +130,7 @@ void GpuUserQueue::PublishStream(uint64_t producer_index) {
 void GpuUserQueue::WaitConsumed(const amdf_api_t* api,
                                 uint64_t producer_index) {
   ASSERT_EQ(api->user_queue_wait_consumed(queue, producer_index,
-                                          AMDF_TIMEOUT_INFINITE, 0),
+                                          amdf::cts::kWaitTimeoutNs,
+                                          amdf::cts::kWaitPollIntervalNs),
             AMDF_STATUS_OK);
 }

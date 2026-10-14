@@ -94,8 +94,8 @@ TEST_F(SdmaTimestampTest, GlobalTimestampsOrderDependentCopies) {
   commands.Fence32(completion->device_address, 1);
   ASSERT_NO_FATAL_FAILURE(
       queue->Publish(api_, gpu_api_, commands.word_count()));
-  GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
-                         1);
+  ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+      reinterpret_cast<uintptr_t>(completion->host.pointer), 1));
   // Capture every observation before diagnostics or retirement can intervene.
   std::memcpy(observed_staging.data(), staging, kByteLength);
   std::memcpy(observed_output.data(), output, kByteLength);

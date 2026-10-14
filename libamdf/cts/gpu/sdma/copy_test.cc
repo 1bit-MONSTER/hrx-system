@@ -62,8 +62,8 @@ TEST_F(SdmaCopyTest, LinearCopyCompletesBeforeFence) {
   commands.Fence32(completion->device_address, 1);
   ASSERT_NO_FATAL_FAILURE(
       queue->Publish(api_, gpu_api_, commands.word_count()));
-  GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
-                         1);
+  ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+      reinterpret_cast<uintptr_t>(completion->host.pointer), 1));
   // Capture every observation before diagnostics or retirement can intervene.
   std::array<uint32_t, kWordCount + 1> observed_output;
   std::array<uint32_t, kWordCount> observed_input;
@@ -130,8 +130,8 @@ TEST_F(SdmaCopyTest, ByteTailsAndPageCrossingsPreserveSurroundingBytes) {
   commands.Fence32(completion->device_address, 1);
   ASSERT_NO_FATAL_FAILURE(
       queue->Publish(api_, gpu_api_, commands.word_count()));
-  GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
-                         1);
+  ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+      reinterpret_cast<uintptr_t>(completion->host.pointer), 1));
   // Capture every observation before diagnostics or retirement can intervene.
   std::memcpy(observed_output.data(), output, observed_output.size());
   std::memcpy(observed_input.data(), input, observed_input.size());
@@ -269,10 +269,10 @@ TEST_F(SdmaDependencyTest, NopOrdersDependentCopiesAcrossEpochs) {
     ASSERT_EQ(commands.word_count(), (epoch + 1) * words_per_epoch);
     ASSERT_NO_FATAL_FAILURE(
         queue->Publish(api_, gpu_api_, commands.word_count()));
-    GpuWaitEqual<uint32_t>(
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
         reinterpret_cast<uintptr_t>(completion->host.pointer) +
             kCompletionOffset,
-        marker);
+        marker));
 
     // Capture every complete allocation before diagnostics or consumed-frontier
     // polling can intervene. The marker is the only execution observation.

@@ -848,7 +848,7 @@ TEST_F(GpuHostNumaMemoryTest, CopiesUsingPagesOnEveryAllowedHostNode) {
         commands.Fence32(memory->device_address + page_size * 3, epoch);
         ASSERT_NO_FATAL_FAILURE(
             queue->Publish(api_, gpu_api_, commands.word_count()));
-        GpuWaitEqual<uint32_t>(completion, epoch);
+        ASSERT_TRUE(GpuWaitEqual<uint32_t>(completion, epoch));
         for (uint32_t destination = 1; destination <= 2; ++destination) {
           EXPECT_EQ(std::memcmp(bytes, bytes + page_size * destination,
                                 page_size - 1),

@@ -15,6 +15,7 @@
 
 #include "amdf/amdf.h"
 #include "amdf/gpu.h"
+#include "util/wait.h"
 
 // These native producer witnesses require x86-64 and naturally aligned device
 // memory. Lock-free acquire/release accesses preserve host-thread atomicity and
@@ -43,10 +44,20 @@ inline void GpuRingDoorbell(uint64_t address, uint64_t value) {
 // Waits on a coherent completion line without maintaining any payload cache.
 // The command sequence defines what completion means; consumption is separate.
 template <typename T>
-void GpuWaitEqual(uint64_t address, T value) {
-  while (GpuLoadAcquire<T>(address) != value) {
-    std::this_thread::yield();
+[[nodiscard]] ::testing::AssertionResult GpuWaitEqual(uint64_t address,
+                                                      T value) {
+  T observed = {};
+  const auto result = amdf::cts::WaitUntil("GPU completion", [&] {
+    observed = GpuLoadAcquire<T>(address);
+    return observed == value;
+  });
+  if (!result) {
+    return ::testing::AssertionFailure()
+           << result.message() << " at "
+           << reinterpret_cast<const void*>(address) << ": expected " << value
+           << ", observed " << observed;
   }
+  return ::testing::AssertionSuccess();
 }
 
 // Case-owned native queue and its producer views. Packet encoding, index

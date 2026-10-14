@@ -28,7 +28,8 @@ class AqlQueueTest : public GpuCommandTest {
   // acquire their signal and snapshot results before waiting for consumption.
   void WaitCompletionAndConsumption(GpuUserQueue& queue, aql::Signal& signal,
                                     uint64_t consumed_index) {
-    GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0);
+    ASSERT_TRUE(
+        GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0));
     ASSERT_NO_FATAL_FAILURE(queue.WaitConsumed(api_, consumed_index));
   }
 };

@@ -485,7 +485,7 @@ TEST_P(Pm4ObservationStreamTest, DrainsMirroredRecordsBeforeQueueCompletion) {
     GpuStoreRelease<uint32_t>(host_control_address + kConsumedOffset,
                               final_position);
   }
-  GpuWaitEqual<uint32_t>(host_control_address + kDoneOffset, 1);
+  ASSERT_TRUE(GpuWaitEqual<uint32_t>(host_control_address + kDoneOffset, 1));
   ASSERT_NO_FATAL_FAILURE(queue_->WaitRetired(api_));
   if (!records_valid) {
     return;

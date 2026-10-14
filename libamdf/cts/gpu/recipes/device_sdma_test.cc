@@ -245,8 +245,9 @@ TEST_P(DeviceGeneratedSdmaBatchTest, SeparateCommandAndPayloadCredits) {
       kernel->private_segment_byte_length, kernel->group_segment_byte_length,
       descriptor_address, arguments->device_address, control->device_address);
   GpuStoreRelease(producer->host.write_index_address, packet_index + 1);
-  aql::Publish(*producer, packet_index++, dispatch);
-  GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0);
+  ASSERT_TRUE(aql::Publish(*producer, packet_index++, dispatch));
+  ASSERT_TRUE(
+      GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0));
   std::memcpy(observed_records.data(), records->host.pointer,
               record_byte_length);
   std::memcpy(observed_destination.data(), destination->host.pointer,
@@ -643,7 +644,7 @@ TEST_P(DeviceGeneratedSdmaStagedTest, IndependentConsumerReusesSelectedSlots) {
   std::memcpy(reinterpret_cast<void*>(transfer->host.ring_address),
               seed_commands.data(), frontier);
   transfer->PublishStream(frontier);
-  GpuWaitEqual<uint32_t>(completion_host, 1);
+  ASSERT_TRUE(GpuWaitEqual<uint32_t>(completion_host, 1));
   ASSERT_NO_FATAL_FAILURE(transfer->WaitConsumed(api_, frontier));
   GpuStoreRelease<uint32_t>(completion_host, 0);
   std::memcpy(static_cast<uint8_t*>(control->host.pointer) + kStateByteOffset,
@@ -806,7 +807,8 @@ TEST_P(DeviceGeneratedSdmaStagedTest, IndependentConsumerReusesSelectedSlots) {
 
   // No per-job CPU service or joins. Capture the actual result before native
   // consumption/teardown can obscure the GPU-to-SDMA-to-consumer dataflow.
-  GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0);
+  ASSERT_TRUE(
+      GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0));
   std::vector<uint32_t> observed_readback(expected_readback.size());
   std::memcpy(observed_readback.data(), readback->host.pointer, readback_bytes);
   EXPECT_EQ(observed_readback, expected_readback);

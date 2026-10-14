@@ -140,13 +140,14 @@ class AqlDispatchTimingTest : public AqlDispatchTest {
           signals->device_address + 128 + slot * sizeof(TimingSlot));
       host_before[slot] = HostNowNs();
       GpuStoreRelease(queue->host.write_index_address, packet_index + 1);
-      aql::Publish(*queue, packet_index++, packet);
+      ASSERT_TRUE(aql::Publish(*queue, packet_index++, packet));
     };
 
     auto collect = [&](uint32_t sequence) {
       const uint32_t slot = sequence % kSlotCount;
       const auto& signal = slots[slot].signal;
-      GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0);
+      ASSERT_TRUE(
+          GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0));
       const uint64_t host_after = HostNowNs();
       const aql::Signal snapshot = signal;
       EXPECT_EQ(snapshot.kind, 1);

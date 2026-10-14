@@ -190,7 +190,7 @@ void Pm4RecipeQueue::Initialize(
       return QueueStatusFailure("kernel_queue_wait", status);
     }
   } else {
-    GpuWaitEqual<uint32_t>(completion_host_address_, completion_value_);
+    return GpuWaitEqual<uint32_t>(completion_host_address_, completion_value_);
   }
   return ::testing::AssertionSuccess();
 }

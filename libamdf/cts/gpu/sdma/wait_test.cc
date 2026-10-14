@@ -208,8 +208,8 @@ class SdmaWaitTest : public GpuCommandTest,
         // The confirmed prefix establishes queue arrival. Only then does the
         // CPU produce this generation's input and release its completion value.
         // No queued producer or host retirement supplies the missing edge.
-        GpuWaitEqual<uint32_t>(control_host + kArrivalWord * sizeof(uint32_t),
-                               marker);
+        ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+            control_host + kArrivalWord * sizeof(uint32_t), marker));
         EXPECT_EQ(GpuLoadAcquire<uint32_t>(control_host +
                                            kCompletionWord * sizeof(uint32_t)),
                   marker - 1);
@@ -218,8 +218,8 @@ class SdmaWaitTest : public GpuCommandTest,
             control_host + kOperandWord * sizeof(uint32_t),
             parameters.final_value);
       }
-      GpuWaitEqual<uint32_t>(control_host + kCompletionWord * sizeof(uint32_t),
-                             marker);
+      ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+          control_host + kCompletionWord * sizeof(uint32_t), marker));
 
       // Snapshot every oracle before native retirement can add synchronization.
       std::memcpy(observed_target.data(), target->host.pointer, kDataLength);

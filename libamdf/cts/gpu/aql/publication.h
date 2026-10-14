@@ -18,18 +18,25 @@ namespace aql {
 
 // The caller reserves a packet index before publishing. Read-index progress
 // permits slot reuse, not signal or workload-memory reuse.
-inline void Publish(const GpuUserQueue& queue, uint64_t index,
-                    const Packet& packet) {
+[[nodiscard]] inline ::testing::AssertionResult Publish(
+    const GpuUserQueue& queue, uint64_t index, const Packet& packet) {
   const uint64_t capacity = queue.host.ring_byte_length / sizeof(Packet);
-  while (index - GpuLoadAcquire<uint64_t>(queue.host.read_index_address) >=
-         capacity) {
-    std::this_thread::yield();
+  uint64_t consumed = 0;
+  const auto result = amdf::cts::WaitUntil("AQL ring capacity", [&] {
+    consumed = GpuLoadAcquire<uint64_t>(queue.host.read_index_address);
+    return index - consumed < capacity;
+  });
+  if (!result) {
+    return ::testing::AssertionFailure()
+           << result.message() << ": packet " << index << ", consumed "
+           << consumed << ", capacity " << capacity;
   }
   auto* slot = reinterpret_cast<uint32_t*>(queue.host.ring_address) +
                (index & (capacity - 1)) * 16;
   std::memcpy(slot + 1, packet.data() + 1, sizeof(Packet) - sizeof(uint32_t));
   GpuStoreRelease(reinterpret_cast<uintptr_t>(slot), packet[0]);
   GpuRingDoorbell(queue.host.doorbell_address, index);
+  return ::testing::AssertionSuccess();
 }
 
 // Prepare a complete finite batch while its first header remains INVALID.

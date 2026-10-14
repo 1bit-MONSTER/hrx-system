@@ -277,7 +277,7 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
     ASSERT_EQ(commands.word_count(), (epoch + 1) * kCommandWordsPerEpoch);
     ASSERT_NO_FATAL_FAILURE(
         queue->Publish(api_, gpu_api_, commands.word_count()));
-    GpuWaitEqual<uint32_t>(completion_address, epoch + 1);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(completion_address, epoch + 1));
 
     // Snapshot the final consumer first, then every other complete initialized
     // extent before diagnostics or command-retirement queries can intervene.

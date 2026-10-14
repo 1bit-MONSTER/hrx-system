@@ -241,8 +241,8 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderHandoffAcrossQueues) {
     const uint64_t consumer_frontier = (epoch + 1) * kConsumerWordsPerEpoch;
     ASSERT_NO_FATAL_FAILURE(
         consumer->Publish(api_, gpu_api_, consumer_frontier));
-    GpuWaitEqual<uint32_t>(
-        reinterpret_cast<uintptr_t>(control_words + kReadyWord), epoch + 1);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+        reinterpret_cast<uintptr_t>(control_words + kReadyWord), epoch + 1));
     const std::array<uint32_t, 3> pending = {
         GpuLoadAcquire<uint32_t>(
             reinterpret_cast<uintptr_t>(control_words + kGateWord)),
@@ -255,16 +255,16 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderHandoffAcrossQueues) {
     // The finite producer runs without an intervening host completion join.
     ASSERT_NO_FATAL_FAILURE(
         producer->Publish(api_, gpu_api_, producer_frontier));
-    GpuWaitEqual<uint32_t>(
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
         reinterpret_cast<uintptr_t>(control_words + kConsumerCompletionWord),
-        epoch + 1);
+        epoch + 1));
     std::memcpy(observed_output.data(), output->host.pointer,
                 sizeof(observed_output));
     // Output is already captured. Independently join the producer's remaining
     // control writes before observing other owners or attempting retirement.
-    GpuWaitEqual<uint32_t>(
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
         reinterpret_cast<uintptr_t>(control_words + kProducerCompletionWord),
-        epoch + 1);
+        epoch + 1));
     std::memcpy(observed_intermediate.data(), intermediate->host.pointer,
                 sizeof(observed_intermediate));
     std::memcpy(observed_input.data(), input->host.pointer,

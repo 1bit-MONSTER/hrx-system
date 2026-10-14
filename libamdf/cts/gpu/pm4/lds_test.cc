@@ -184,7 +184,7 @@ TEST_F(Pm4LdsTest, StaticGroupMemoryExchangesAcrossWaves) {
     ASSERT_EQ(commands.word_count(), (epoch + 1) * kCommandWordCountPerEpoch);
     ASSERT_NO_FATAL_FAILURE(
         queue->Publish(api_, gpu_api_, commands.word_count()));
-    GpuWaitEqual<uint32_t>(completion_address, epoch + 1);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(completion_address, epoch + 1));
 
     // Capture every initialized extent before diagnostics or command storage
     // retirement can add synchronization to these completion-visible

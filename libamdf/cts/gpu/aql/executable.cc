@@ -102,13 +102,15 @@ void Executable::Initialize(const amdf_api_t* api,
 
   const uint64_t index = (*next_packet_index)++;
   GpuStoreRelease(queue.host.write_index_address, *next_packet_index);
-  Publish(queue, index,
-          IndirectBuffer(HeaderBarrier::kDisabled, commands_.device_address,
-                         publication.size(), completion_.device_address,
-                         {FenceScope::kNone, FenceScope::kNone}));
+  ASSERT_TRUE(
+      Publish(queue, index,
+              IndirectBuffer(HeaderBarrier::kDisabled, commands_.device_address,
+                             publication.size(), completion_.device_address,
+                             {FenceScope::kNone, FenceScope::kNone})));
   // Execution completion protects publication storage; consumption is a
   // separate setup join. Workload payload dependencies belong to the case.
-  GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0);
+  ASSERT_TRUE(
+      GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0));
   ASSERT_NO_FATAL_FAILURE(queue.WaitConsumed(api, *next_packet_index));
   descriptor_address_ = code_.device_address + image.descriptor_byte_offset;
 }

@@ -154,10 +154,10 @@ TEST_F(SdmaFillTest, ConstantFillFeedsCopiesAcrossEpochs) {
 
     ASSERT_NO_FATAL_FAILURE(
         queue->Publish(api_, gpu_api_, (epoch + 1) * words_per_epoch));
-    GpuWaitEqual<uint32_t>(
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
         reinterpret_cast<uintptr_t>(completion->host.pointer) +
             kCompletionWord * sizeof(uint32_t),
-        marker);
+        marker));
 
     // Observe the final consumer first. Native retirement and host cache
     // services cannot repair a missing fill-to-copy dependency before this.

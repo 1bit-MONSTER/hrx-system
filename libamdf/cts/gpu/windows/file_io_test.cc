@@ -434,8 +434,8 @@ TEST_P(GpuFileIoTest, IocpAndGpuShareBackingWithoutHostPayloadCopies) {
   ASSERT_NO_FATAL_FAILURE(CopySwappedBlocks(
       queue, source, target, completion,
       static_cast<uint32_t>(block_byte_length), cache_operations));
-  GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
-                         1);
+  ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+      reinterpret_cast<uintptr_t>(completion->host.pointer), 1));
   ASSERT_NO_FATAL_FAILURE(Transfer(true, output + block_byte_length,
                                    payload_byte_length, 5 * block_byte_length));
   ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));

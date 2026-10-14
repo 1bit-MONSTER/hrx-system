@@ -556,8 +556,10 @@ class Pm4SdmaStreamingTest : public Pm4SdmaTest {
         const uint64_t address =
             reinterpret_cast<uintptr_t>(control.host.pointer) +
             slot * kPageWordCount * sizeof(uint32_t);
-        GpuWaitEqual<uint32_t>(address + kComputeCompleteByteOffset, token);
-        GpuWaitEqual<uint32_t>(address + kUploadCompleteByteOffset, token);
+        ASSERT_TRUE(GpuWaitEqual<uint32_t>(address + kComputeCompleteByteOffset,
+                                           token));
+        ASSERT_TRUE(
+            GpuWaitEqual<uint32_t>(address + kUploadCompleteByteOffset, token));
         for (const uint32_t byte_offset : kControlByteOffsets) {
           const uint32_t control_generation =
               byte_offset == kSourceReadyByteOffset

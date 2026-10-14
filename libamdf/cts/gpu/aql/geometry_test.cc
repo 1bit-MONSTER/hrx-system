@@ -165,9 +165,10 @@ void AqlGeometryTest::RunGeometry(
                       arguments->device_address, completion->device_address,
                       {aql::FenceScope::kSystem, aql::FenceScope::kSystem});
     GpuStoreRelease(queue->host.write_index_address, index + 1);
-    aql::Publish(*queue, index++, packet);
+    ASSERT_TRUE(aql::Publish(*queue, index++, packet));
     // Snapshot completion-visible data before diagnostics or ring retirement.
-    GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0);
+    ASSERT_TRUE(
+        GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0));
     std::memcpy(observed.data(), output->host.pointer, sizeof(observed));
     for (uint32_t word = 0; word < kWordCount; ++word) {
       EXPECT_EQ(observed[word], expected[word])

@@ -225,8 +225,8 @@ class Pm4MappingTest : public Pm4DispatchTest {
     ASSERT_LE(command_word_count_, queue_->words().size());
     ASSERT_NO_FATAL_FAILURE(
         queue_->Publish(api_, gpu_api_, command_word_count_));
-    GpuWaitEqual<uint32_t>(
-        reinterpret_cast<uintptr_t>(completion_->host.pointer), completed_);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+        reinterpret_cast<uintptr_t>(completion_->host.pointer), completed_));
     // Completion is the program's final system-visible marker. There is no
     // allocation, mapping, native query or queue reconstruction on this edge.
     ASSERT_NO_FATAL_FAILURE(queue_->WaitRetired(api_));

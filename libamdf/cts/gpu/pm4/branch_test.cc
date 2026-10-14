@@ -338,8 +338,8 @@ TEST_P(Pm4BranchTest, ShaderOperandSelectsRetainedGraph) {
       };
       ASSERT_NO_FATAL_FAILURE(queue->Submit(gpu_api_, command));
     }
-    GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(control->host.pointer),
-                           epoch + 1);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+        reinterpret_cast<uintptr_t>(control->host.pointer), epoch + 1));
     // Final consumer output is the first observation. Diagnostic snapshots
     // and native retirement cannot supply the dependency under examination.
     std::memcpy(observed_output.data(), output->host.pointer,

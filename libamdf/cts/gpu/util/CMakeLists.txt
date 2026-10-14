@@ -50,6 +50,7 @@ iree_cc_library(
   DEPS
     amdf::headers
     iree::third_party::google_test
+    libamdf::cts::util::wait
   TESTONLY
   PUBLIC
 )

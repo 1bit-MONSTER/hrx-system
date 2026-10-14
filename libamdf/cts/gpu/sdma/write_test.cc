@@ -141,10 +141,10 @@ TEST_F(SdmaWriteTest, InlineDataFeedsDependentCopiesAcrossEpochs) {
     ASSERT_EQ(commands.word_count(), (epoch + 1) * words_per_epoch);
     ASSERT_NO_FATAL_FAILURE(
         queue->Publish(api_, gpu_api_, commands.word_count()));
-    GpuWaitEqual<uint32_t>(
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
         reinterpret_cast<uintptr_t>(completion->host.pointer) +
             kCompletionOffset,
-        marker);
+        marker));
 
     // Snapshot the final consumer first, before diagnostics or retirement can
     // add synchronization. Check all untouched backing and control guards too.

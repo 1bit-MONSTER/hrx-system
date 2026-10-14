@@ -271,24 +271,25 @@ TEST_P(AqlFanInTest, BarrierAndJoinsIndependentShaderPayloads) {
     GpuStoreRelease(consumer->host.write_index_address,
                     consumer_index + consumer_packets_per_epoch);
     for (const auto& wait : waits) {
-      aql::Publish(*consumer, consumer_index++, wait);
+      ASSERT_TRUE(aql::Publish(*consumer, consumer_index++, wait));
     }
-    aql::Publish(*consumer, consumer_index++, consume);
+    ASSERT_TRUE(aql::Publish(*consumer, consumer_index++, consume));
     GpuStoreRelease(producer->host.write_index_address,
                     producer_index + producer_count);
     for (uint32_t i = 0; i < producer_count; ++i) {
       const uint32_t p = epoch == 0 ? i : producer_count - i - 1;
-      aql::Publish(*producer, producer_index++, produce[p]);
+      ASSERT_TRUE(aql::Publish(*producer, producer_index++, produce[p]));
     }
 
     // Preserve the entire consumer result before independent producer joins
     // or consumption can add synchronization to this decisive observation.
-    GpuWaitEqual<int64_t>(
-        reinterpret_cast<uintptr_t>(&signals[producer_count].value), 0);
+    ASSERT_TRUE(GpuWaitEqual<int64_t>(
+        reinterpret_cast<uintptr_t>(&signals[producer_count].value), 0));
     std::memcpy(observed_output.data(), output->host.pointer,
                 payload_byte_length);
     for (uint32_t p = 0; p < producer_count; ++p) {
-      GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signals[p].value), 0);
+      ASSERT_TRUE(GpuWaitEqual<int64_t>(
+          reinterpret_cast<uintptr_t>(&signals[p].value), 0));
     }
     // All producer executions have joined independently of the tested edge.
     // Capture every remaining initialized extent before any diagnostics.

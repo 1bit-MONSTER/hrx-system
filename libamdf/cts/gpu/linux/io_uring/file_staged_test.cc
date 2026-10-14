@@ -403,7 +403,7 @@ void GpuFileStagedTest::Run(const StagedCase& test_case) {
                 bytes);
     frontier += bytes;
     transfer->PublishStream(frontier);
-    GpuWaitEqual<uint32_t>(completion_host, generation);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(completion_host, generation));
     ASSERT_NO_FATAL_FAILURE(transfer->WaitConsumed(api_, frontier));
   };
   ASSERT_NO_FATAL_FAILURE(copy_slots(seed->device_address, 0,

@@ -190,7 +190,7 @@ TEST_P(GpuUserQueueCapacityTest, CopiesAcrossWrapAndRetiredReuse) {
     const uint64_t producer_index =
         (publication + 1) * half_word_count * (pm4 ? 1 : sizeof(uint32_t));
     ASSERT_NO_FATAL_FAILURE(queue->PublishStream(producer_index));
-    GpuWaitEqual<uint32_t>(marker_host_address, publication + 1);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(marker_host_address, publication + 1));
     // Snapshot payload and command backing before diagnostics or consumption
     // waits can supply a visibility edge. Retirement precedes any next reuse.
     std::memcpy(observed_output.data(), target->host.pointer, payload_bytes);
