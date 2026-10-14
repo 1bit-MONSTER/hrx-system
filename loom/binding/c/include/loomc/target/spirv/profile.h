@@ -841,6 +841,9 @@ LOOMC_API_EXPORT loomc_status_t loomc_target_profile_create_spirv(
 /// value match. Contradictory facts fail `out_result` and preserve provenance
 /// from both the base fact and the refining fact. Empty `options->identifier`
 /// carries the base profile identifier into the refined profile.
+/// Named profiles selected with `loomc_target_profile_select` are also valid
+/// bases. Their enabled features, supplied limits, and entry ABI are retained;
+/// omitted optional facts remain unknown and may be supplied by refinement.
 ///
 /// @ownership
 /// The caller owns `out_profile` when the returned result succeeds and releases
@@ -856,6 +859,9 @@ LOOMC_API_EXPORT loomc_status_t loomc_spirv_target_profile_refine(
     loomc_target_profile_t** out_profile, loomc_result_t** out_result);
 
 /// Returns the known state for one SPIR-V feature fact.
+///
+/// Queries accept both named and fact-constructed SPIR-V profiles. An optional
+/// feature omitted from a named profile is unknown, not explicitly false.
 ///
 /// @param profile SPIR-V target profile to query.
 /// @param feature Feature fact to inspect.
