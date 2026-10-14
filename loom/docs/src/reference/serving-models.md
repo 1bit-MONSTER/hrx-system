@@ -6,7 +6,7 @@ The same object is accepted by `--model=path/model.json` and
 or server rebuild.
 
 This document describes the arithmetic embedding package in the
-[serving walkthrough](../workflows/serve-models.md):
+[serving walkthrough](../workflows/serving/serve-models.md):
 
 ```json
 {

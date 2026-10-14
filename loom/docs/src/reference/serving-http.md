@@ -34,8 +34,8 @@ loaded tokenizer. Text also reports configured `context_length` and
 `limits.max_output_tokens`, not training context or total cache-pool capacity.
 Capabilities do not establish learned quality or support for every optional field.
 
-[Operation](../workflows/operate-model-server.md) specifies asynchronous control
-completion, conflict and overload behavior. [Observation](../workflows/observe-model-server.md)
+[Operation](../workflows/serving/operate-model-server.md) specifies asynchronous control
+completion, conflict and overload behavior. [Observation](../workflows/serving/observe-model-server.md)
 specifies model selection, cursors, SSE resume and inspection pagination.
 
 ## Chat completions
