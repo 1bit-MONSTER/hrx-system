@@ -9,7 +9,9 @@
 #include <condition_variable>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <mutex>
+#include <vector>
 
 #include "iree/async/operations/semaphore.h"
 #include "iree/base/tooling/flags.h"
@@ -35,7 +37,7 @@ struct Preparation {
     auto* self = static_cast<Preparation*>(process->user_data);
     auto status = loom_serve_weights_prepare_async(
         self->weights, self->host, self->jit,
-        IREE_HAL_COMMAND_BUFFER_MODE_DEFAULT, &self->sources, self->checkpoint,
+        IREE_HAL_COMMAND_BUFFER_MODE_DEFAULT, &self->sources, self->checkpoints,
         self->policy, Complete, self);
     if (!iree_status_is_ok(status)) {
       Complete(self, status);
@@ -79,8 +81,8 @@ struct Preparation {
   loom_serve_jit_t* jit = nullptr;
   // Explicit local namespace borrowed through asynchronous preparation.
   const loom_serve_sources_t sources = {.base_directory = IREE_SV(".")};
-  // Borrowed file locator retained by the outer test owner.
-  iree_string_view_t checkpoint = {};
+  // Borrowed file list retained by the outer test owner through completion.
+  iree_string_view_list_t checkpoints = {};
   // Borrowed source policy path retained through completion.
   iree_string_view_t policy = {};
   // Loader's finite submitting turn, not a thread or waiting worker.
@@ -260,23 +262,31 @@ struct ActivationWake {
 
 class WeightsTest : public ::testing::TestWithParam<bool> {
  protected:
-  void WriteCheckpoint(const std::string& path, int32_t offset) {
+  void WriteCheckpoint(const std::string& path, int32_t offset,
+                       size_t first_tensor = 0, size_t tensor_count = 4) {
     // Actual safetensors input exercises file indexing and queued reads. Each
     // tensor has eight distinct words; transformations are not idempotent.
-    const std::string header =
-        R"({"a":{"dtype":"I32","shape":[8],"data_offsets":[0,32]},)"
-        R"("b":{"dtype":"I32","shape":[8],"data_offsets":[32,64]},)"
-        R"("raw":{"dtype":"I32","shape":[8],"data_offsets":[64,96]},)"
-        R"("d":{"dtype":"I32","shape":[8],"data_offsets":[96,128]}})";
+    const char* keys[] = {"a", "b", "raw", "d"};
+    std::string header = "{";
+    for (size_t i = 0; i < tensor_count; ++i) {
+      if (i) {
+        header += ",";
+      }
+      header += "\"" + std::string(keys[first_tensor + i]) +
+                "\":{\"dtype\":\"I32\",\"shape\":[8],\"data_offsets\":[" +
+                std::to_string(i * 32) + "," + std::to_string((i + 1) * 32) +
+                "]}";
+    }
+    header += "}";
     std::ofstream file(path, std::ios::binary);
     for (unsigned i = 0; i < 8; ++i) {
       file.put(
           static_cast<char>(static_cast<uint64_t>(header.size()) >> (8 * i)));
     }
     file.write(header.data(), header.size());
-    for (int tensor = 1; tensor <= 4; ++tensor) {
+    for (size_t i = 0; i < tensor_count; ++i) {
       for (int element = 0; element < 8; ++element) {
-        const int32_t value = offset + tensor * 10 + element;
+        const int32_t value = offset + (first_tensor + i + 1) * 10 + element;
         file.write(reinterpret_cast<const char*>(&value), sizeof(value));
       }
     }
@@ -376,7 +386,7 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
   iree_status_t CreateRoots(iree_host_size_t shared_count,
                             iree_host_size_t root_count,
                             const loom_serve_weight_root_t* roots,
-                            const std::string& path) {
+                            std::initializer_list<std::string> paths) {
     const std::string policy = directory_ + "/policy.loom";
     auto** plan = &plans_[plan_count_++];
     IREE_RETURN_IF_ERROR(loom_serve_weights_allocate(
@@ -388,7 +398,11 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
     preparation.weights = *plan;
     preparation.host = loom_serve_device_host(device_owner_);
     preparation.jit = jit_;
-    preparation.checkpoint = iree_make_cstring_view(path.c_str());
+    std::vector<iree_string_view_t> checkpoints;
+    for (const auto& path : paths) {
+      checkpoints.push_back(iree_make_cstring_view(path.c_str()));
+    }
+    preparation.checkpoints = {checkpoints.size(), checkpoints.data()};
     preparation.policy = iree_make_cstring_view(policy.c_str());
     auto status = preparation.Run();
     const auto after = loom_serve_weights_statistics(*plan);
@@ -401,8 +415,8 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
   iree_status_t LoadRoots(iree_host_size_t shared_count,
                           iree_host_size_t root_count,
                           const loom_serve_weight_root_t* roots,
-                          const std::string& path) {
-    IREE_RETURN_IF_ERROR(CreateRoots(shared_count, root_count, roots, path));
+                          std::initializer_list<std::string> paths) {
+    IREE_RETURN_IF_ERROR(CreateRoots(shared_count, root_count, roots, paths));
     auto* plan = plans_[plan_count_ - 1];
     auto status = loom_serve_weights_activate(plan, execution_);
     return iree_status_join(status, loom_serve_weights_await(plan));
@@ -432,7 +446,7 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
         roots[root_count++] = Root(i, r);
       }
     }
-    return LoadRoots(shared_count, root_count, roots.data(), path_.path());
+    return LoadRoots(shared_count, root_count, roots.data(), {path_.path()});
   }
 
   void Run(iree_host_size_t index, int32_t first) {
@@ -525,10 +539,36 @@ TEST_P(WeightsTest, MultiplePreparersAndSharedRootsPrepareEachTensorOnce) {
   Run(2, 93);
 }
 
+TEST_P(WeightsTest, SplitFilesPopulateOneSharedCheckpointDomain) {
+  WriteCheckpoint(path_.path(), 0, 0, 1);
+  WriteCheckpoint(adapter_path_.path(), 0, 1, 3);
+  IREE_ASSERT_OK(Compile(0, "target"));
+  IREE_ASSERT_OK(Compile(1, "target"));
+  IREE_ASSERT_OK(Compile(2, "auxiliary"));
+  const loom_serve_weight_root_t roots[] = {Root(0, 0), Root(1, 0), Root(2, 0),
+                                            Root(2, 1)};
+  IREE_ASSERT_OK(LoadRoots(2, IREE_ARRAYSIZE(roots), roots,
+                           {path_.path(), adapter_path_.path()}));
+  EXPECT_EQ(compilation_.commands, 5u);
+  EXPECT_EQ(buffers_[0][0], buffers_[1][0]);
+  Run(0, 70);
+  Run(1, 70);
+  Run(2, 93);
+}
+
+TEST_P(WeightsTest, EmptyFirstFileDoesNotHideLaterParameters) {
+  WriteCheckpoint(path_.path(), 0, 0, 0);
+  WriteCheckpoint(adapter_path_.path(), 0);
+  IREE_ASSERT_OK(Compile(0, "target"));
+  const auto root = Root(0, 0);
+  IREE_ASSERT_OK(LoadRoots(0, 1, &root, {path_.path(), adapter_path_.path()}));
+  Run(0, 70);
+}
+
 TEST_P(WeightsTest, OneWorkerActivatesAndConsumesThroughAsyncTimelineWait) {
   IREE_ASSERT_OK(Compile(0, "target"));
   const auto root = Root(0, 0);
-  IREE_ASSERT_OK(CreateRoots(0, 1, &root, path_.path()));
+  IREE_ASSERT_OK(CreateRoots(0, 1, &root, {path_.path()}));
   IREE_ASSERT_OK(Register(0, 0, 1));
   IREE_ASSERT_OK(loom_serve_jit_stage_record(
       compiled_[0], iree_hal_queue_family(dispatch_),
@@ -584,13 +624,13 @@ TEST_P(WeightsTest, SeparateCheckpointDomainsRetainSharedBaseStorage) {
   IREE_ASSERT_OK(Compile(0, "raw"));
   IREE_ASSERT_OK(Compile(1, "domains"));
   const loom_serve_weight_root_t base[] = {Root(1, 0), Root(0, 0)};
-  IREE_ASSERT_OK(LoadRoots(2, 2, base, path_.path()));
+  IREE_ASSERT_OK(LoadRoots(2, 2, base, {path_.path()}));
   EXPECT_EQ(buffers_[0][0], buffers_[1][0]);
   EXPECT_EQ(buffers_[1][1], nullptr);
   Run(0, 90);
 
   const loom_serve_weight_root_t adapter = Root(1, 1);
-  IREE_ASSERT_OK(LoadRoots(0, 1, &adapter, adapter_path_.path()));
+  IREE_ASSERT_OK(LoadRoots(0, 1, &adapter, {adapter_path_.path()}));
   EXPECT_NE(buffers_[1][0], buffers_[1][1]);
   Run(1, 290);
   Run(1, 290);
@@ -612,14 +652,15 @@ TEST_P(WeightsTest, CheckpointIndexFailureLeavesTheSharedCompilerUsable) {
   const auto failed_root = Root(0, 0);
   IREE_ASSERT_STATUS_IS(
       IREE_STATUS_NOT_FOUND,
-      CreateRoots(0, 1, &failed_root, path_.path() + ".missing.safetensors"));
+      CreateRoots(0, 1, &failed_root,
+                  {path_.path(), path_.path() + ".missing.safetensors"}));
   EXPECT_EQ(loom_serve_weights_activity(plans_[0]).read_bytes, 0u);
   EXPECT_EQ(loom_serve_weights_statistics(plans_[0]).committed_bytes, 0u);
   // The failed plan retains its own roots for normal owner-side cleanup while
   // another plan prepares and consumes through the same single-worker host.
   IREE_ASSERT_OK(Compile(1, "target"));
   const auto live_root = Root(1, 0);
-  IREE_ASSERT_OK(LoadRoots(0, 1, &live_root, path_.path()));
+  IREE_ASSERT_OK(LoadRoots(0, 1, &live_root, {path_.path()}));
   Run(1, 70);
 }
 
@@ -646,7 +687,7 @@ TEST_P(WeightsTest, LateMissingParameterRetiresEarlierAcceptedReads) {
 TEST_P(WeightsTest, RejectedActivationRetainsProtectionUntilActualRetirement) {
   IREE_ASSERT_OK(Compile(0, "partial"));
   const auto root = Root(0, 0);
-  IREE_ASSERT_OK(CreateRoots(0, 1, &root, path_.path()));
+  IREE_ASSERT_OK(CreateRoots(0, 1, &root, {path_.path()}));
   IREE_ASSERT_OK(Register(0, 0, 1));
   bool admitted = false;
   IREE_ASSERT_STATUS_IS(IREE_STATUS_NOT_FOUND, loom_serve_residency_try_acquire(
@@ -737,7 +778,7 @@ TEST_P(WeightsTest, AdmissionUsesRecencyOnlyAmongUnpinnedGroups) {
   for (iree_host_size_t i = 0; i < 3; ++i) {
     IREE_ASSERT_OK(Compile(i, "target"));
     const auto root = Root(i, 0);
-    IREE_ASSERT_OK(CreateRoots(0, 1, &root, path_.path()));
+    IREE_ASSERT_OK(CreateRoots(0, 1, &root, {path_.path()}));
     IREE_ASSERT_OK(Register(i, i, 1));
   }
   ASSERT_NO_FATAL_FAILURE(RunPinned(0, 70));
@@ -775,7 +816,7 @@ TEST_P(WeightsTest, ImpossibleParameterGroupCannotJoinPressureAdmission) {
   for (uint32_t i = 0; i < 3; ++i) {
     IREE_ASSERT_OK(Compile(i, "raw"));
     const auto root = Root(i, 0);
-    IREE_ASSERT_OK(CreateRoots(0, 1, &root, path_.path()));
+    IREE_ASSERT_OK(CreateRoots(0, 1, &root, {path_.path()}));
   }
   if (!GetParam()) {
     IREE_ASSERT_OK(Register(0, 0, 3));
@@ -797,7 +838,7 @@ TEST_P(WeightsTest, ImpossibleParameterGroupCannotJoinPressureAdmission) {
 TEST_P(WeightsTest, PersistentPinningOnlyChangesParameterEvictionEligibility) {
   IREE_ASSERT_OK(Compile(0, "target"));
   const auto root = Root(0, 0);
-  IREE_ASSERT_OK(CreateRoots(0, 1, &root, path_.path()));
+  IREE_ASSERT_OK(CreateRoots(0, 1, &root, {path_.path()}));
   IREE_ASSERT_OK(Register(0, 0, 1));
   auto* residency = residencies_[0];
   auto* cache = loom_serve_device_residency_cache(device_owner_);
@@ -825,7 +866,7 @@ TEST_P(WeightsTest, PersistentPinningOnlyChangesParameterEvictionEligibility) {
 TEST_P(WeightsTest, ExplicitActivationCancellationJoinsAcceptedReadiness) {
   IREE_ASSERT_OK(Compile(0, "target"));
   const auto root = Root(0, 0);
-  IREE_ASSERT_OK(CreateRoots(0, 1, &root, path_.path()));
+  IREE_ASSERT_OK(CreateRoots(0, 1, &root, {path_.path()}));
   IREE_ASSERT_OK(Register(0, 0, 1));
   iree_hal_semaphore_t* gate = nullptr;
   IREE_ASSERT_OK(
@@ -876,7 +917,7 @@ TEST_P(WeightsTest, CancelledWarmupWithdrawsCapacityInterestWithoutLoading) {
   for (uint32_t i = 0; i < 3; ++i) {
     IREE_ASSERT_OK(Compile(i, "raw"));
     const auto root = Root(i, 0);
-    IREE_ASSERT_OK(CreateRoots(0, 1, &root, path_.path()));
+    IREE_ASSERT_OK(CreateRoots(0, 1, &root, {path_.path()}));
   }
   IREE_ASSERT_OK(Register(0, 0, 2));
   IREE_ASSERT_OK(Register(1, 2, 1));
@@ -922,7 +963,7 @@ TEST_P(WeightsTest, CancelledWarmupWithdrawsCapacityInterestWithoutLoading) {
 TEST_P(WeightsTest, RejectedWarmupKeepsAcceptedLoadsProtectedUntilRetirement) {
   IREE_ASSERT_OK(Compile(0, "partial"));
   const auto root = Root(0, 0);
-  IREE_ASSERT_OK(CreateRoots(0, 1, &root, path_.path()));
+  IREE_ASSERT_OK(CreateRoots(0, 1, &root, {path_.path()}));
   IREE_ASSERT_OK(Register(0, 0, 1));
   ActivationWake wake;
   loom_serve_activation_t* activation = nullptr;
@@ -948,12 +989,12 @@ TEST_P(WeightsTest, CheckpointGroupsAdmitAtomicallyAndRetentionPinsNest) {
   IREE_ASSERT_OK(Compile(0, "raw"));
   IREE_ASSERT_OK(Compile(1, "domains"));
   const auto first = Root(0, 0);
-  IREE_ASSERT_OK(CreateRoots(0, 1, &first, path_.path()));
+  IREE_ASSERT_OK(CreateRoots(0, 1, &first, {path_.path()}));
   IREE_ASSERT_OK(Register(0, 0, 1));
   for (uint32_t i = 0; i < 2; ++i) {
     const auto root = Root(1, i);
     IREE_ASSERT_OK(
-        CreateRoots(0, 1, &root, i ? adapter_path_.path() : path_.path()));
+        CreateRoots(0, 1, &root, {i ? adapter_path_.path() : path_.path()}));
   }
   IREE_ASSERT_OK(Register(1, 1, 2));
   auto check_activity = [&](uint64_t activations, uint64_t deactivations) {
@@ -1005,12 +1046,12 @@ TEST_P(WeightsTest, PressureAdmissionDrainsNewPinsButNotAcceptedConsumers) {
   IREE_ASSERT_OK(Compile(0, "raw"));
   IREE_ASSERT_OK(Compile(1, "domains"));
   const auto first = Root(0, 0);
-  IREE_ASSERT_OK(CreateRoots(0, 1, &first, path_.path()));
+  IREE_ASSERT_OK(CreateRoots(0, 1, &first, {path_.path()}));
   IREE_ASSERT_OK(Register(0, 0, 1));
   for (uint32_t i = 0; i < 2; ++i) {
     const auto root = Root(1, i);
     IREE_ASSERT_OK(
-        CreateRoots(0, 1, &root, i ? adapter_path_.path() : path_.path()));
+        CreateRoots(0, 1, &root, {i ? adapter_path_.path() : path_.path()}));
   }
   IREE_ASSERT_OK(Register(1, 1, 2));
   IREE_ASSERT_OK(Register(2, 0, 0));
@@ -1065,7 +1106,7 @@ TEST_P(WeightsTest, NewAdmissionsCoexistWithoutPhysicalPressure) {
   for (iree_host_size_t i = 0; i < 2; ++i) {
     IREE_ASSERT_OK(Compile(i, "target"));
     const auto root = Root(i, 0);
-    IREE_ASSERT_OK(CreateRoots(0, 1, &root, path_.path()));
+    IREE_ASSERT_OK(CreateRoots(0, 1, &root, {path_.path()}));
     IREE_ASSERT_OK(Register(i, i, 1));
     IREE_ASSERT_OK(loom_serve_residency_try_admit(residencies_[i], &admission));
     ASSERT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_ACQUIRED);
@@ -1086,7 +1127,7 @@ TEST_P(WeightsTest, PinnedWeightsDeferIdleCacheReclamationUntilItCanHelp) {
   IREE_ASSERT_OK(Compile(0, "domains"));
   for (uint32_t i = 0; i < 2; ++i) {
     const auto root = Root(0, i);
-    IREE_ASSERT_OK(CreateRoots(0, 1, &root, path_.path()));
+    IREE_ASSERT_OK(CreateRoots(0, 1, &root, {path_.path()}));
   }
   IREE_ASSERT_OK(Register(0, 0, 2));
   IREE_ASSERT_OK(Register(1, 0, 0));
@@ -1119,7 +1160,7 @@ TEST_P(WeightsTest, PinnedWeightsDeferIdleCacheReclamationUntilItCanHelp) {
   loom_serve_residency_admission_t admission;
   IREE_ASSERT_OK(Compile(1, "raw"));
   const auto peer_root = Root(1, 0);
-  IREE_ASSERT_OK(CreateRoots(0, 1, &peer_root, path_.path()));
+  IREE_ASSERT_OK(CreateRoots(0, 1, &peer_root, {path_.path()}));
   IREE_ASSERT_OK(Register(2, 2, 1));
   IREE_ASSERT_OK(loom_serve_residency_acquire(residencies_[2]));
   ASSERT_NO_FATAL_FAILURE(Run(1, 90));
@@ -1169,7 +1210,7 @@ TEST_P(WeightsTest, PinnedWeightsDeferIdleCacheReclamationUntilItCanHelp) {
 TEST_P(WeightsTest, MutableGrowthReclaimsIdleParametersWithoutDiscardingState) {
   IREE_ASSERT_OK(Compile(0, "target"));
   const auto root = Root(0, 0);
-  IREE_ASSERT_OK(CreateRoots(0, 1, &root, path_.path()));
+  IREE_ASSERT_OK(CreateRoots(0, 1, &root, {path_.path()}));
   IREE_ASSERT_OK(Register(0, 0, 1));
   ASSERT_NO_FATAL_FAILURE(RunPinned(0, 70));
   if (!GetParam()) {
@@ -1225,7 +1266,7 @@ TEST_P(WeightsTest,
   for (iree_host_size_t i = 0; i < 2; ++i) {
     IREE_ASSERT_OK(Compile(i, "target"));
     const auto root = Root(i, 0);
-    IREE_ASSERT_OK(CreateRoots(0, 1, &root, path_.path()));
+    IREE_ASSERT_OK(CreateRoots(0, 1, &root, {path_.path()}));
     IREE_ASSERT_OK(Register(i, i, 1));
     ASSERT_NO_FATAL_FAILURE(RunPinned(i, 70));
   }

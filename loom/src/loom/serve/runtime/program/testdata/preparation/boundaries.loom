@@ -121,7 +121,7 @@ func.def public @direct_parameter() {
   func.return
 }
 
-func.def public @duplicate_parameter() {
+func.def public @conflicting_parameter_policy() {
   %root = global.load @root : buffer
   %tag = scalar.constant 0 : i64
   %stage = func.call @stage(%root, %tag) : (buffer, i64) -> (i32)
@@ -130,7 +130,7 @@ func.def public @duplicate_parameter() {
   %path = global.load @path : buffer
   %policy = global.load @policy : buffer
   func.call @parameter(%stage, %c0, %directory, %path, %policy) : (i32, i32, buffer, buffer, buffer)
-  func.call @parameter(%stage, %c0, %directory, %path, %policy) : (i32, i32, buffer, buffer, buffer)
+  func.call @parameter(%stage, %c0, %directory, %path, %path) : (i32, i32, buffer, buffer, buffer)
   func.return
 }
 
@@ -172,6 +172,8 @@ func.def public @large_catalog() {
       %binding = index.cast %j : index to i32
       func.call @config_i64(%stage, %key, %value) : (i32, buffer, i64)
       func.call @parameter(%stage, %binding, %directory, %path, %policy) : (i32, i32, buffer, buffer, buffer)
+      func.call @parameter(%stage, %binding, %directory, %key, %policy) : (i32, i32, buffer, buffer, buffer)
+      func.call @parameter(%stage, %binding, %directory, %policy, %policy) : (i32, i32, buffer, buffer, buffer)
     }
   }
   func.return

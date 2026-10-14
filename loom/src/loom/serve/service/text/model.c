@@ -636,7 +636,7 @@ iree_status_t loom_serve_text_load_advance(loom_serve_text_load_t* load,
               model->parameters.sources[index];
           status = loom_serve_weights_prepare_async(
               model->parameters.plans[index], host, model->jit,
-              model->command_mode, &load->options.sources, checkpoint->path,
+              model->command_mode, &load->options.sources, checkpoint->paths,
               checkpoint->policy, loom_serve_text_load_complete, load);
           submitted = iree_status_is_ok(status);
         } else {

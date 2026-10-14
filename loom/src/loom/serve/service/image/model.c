@@ -431,8 +431,7 @@ static iree_status_t loom_serve_image_check_layouts(
       if (parameter->binding != root ||
           loom_cmd_program_parameter_root_at(program, root)
                   .fixed_buffer_index != parameter->binding ||
-          !iree_string_view_equal(parameter->path, shared->path) ||
-          !iree_string_view_equal(parameter->policy, shared->policy)) {
+          !loom_serve_preparation_parameter_equal(parameter, shared)) {
         return iree_make_status(
             IREE_STATUS_INVALID_ARGUMENT,
             "stage %u must declare the same ordered checkpoint domains", i);
@@ -1129,7 +1128,7 @@ iree_status_t loom_serve_image_load_advance(loom_serve_image_load_t* load,
           iree_slim_mutex_unlock(&load->event.mutex);
           status = loom_serve_weights_prepare_async(
               model->weights.plans[i], host, model->jit, load->command_mode,
-              &load->options.sources, parameter->path, parameter->policy,
+              &load->options.sources, parameter->paths, parameter->policy,
               loom_serve_image_load_complete, load);
           submitted = iree_status_is_ok(status);
         } else {
