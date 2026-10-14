@@ -127,6 +127,40 @@ whose progress depends on other workgroups also needs the independent
 [scheduling and forward-progress contract](../interop/pipelines.md#progress-and-backpressure);
 cache correctness alone does not supply it.
 
+## XNACK replay and register reuse
+
+With XNACK enabled, a memory instruction can be issued again after address
+translation fails. Its source registers must still contain the original
+address and data. The CDNA2 ISA's scalar-memory clause rules prohibit a
+multi-instruction clause from overwriting its own sources. A clause is a
+consecutive run of native memory instructions; a label or an omitted branch
+does not separate it. [CDNA2 scalar-memory clauses][cdna2-replay]
+
+For example, these loads require a separator because the second result
+overwrites part of the first address:
+
+```asm
+s_load_dword s4, s[0:1], 0
+s_nop 0
+s_load_dword s0, s[2:3], 0
+```
+
+LLVM applies its soft-clause check to XNACK ON and ANY. Once the preceding
+clause defines a register, it inserts a separator if the combined reads and
+writes overlap, or if the next instruction may store. This includes returning
+atomics. Physical tuple overlap matters; equal numbers in SGPR, VGPR and AGPR
+banks are distinct locations. An existing wait or other non-memory instruction
+already separates the clause. The no-op itself establishes no memory
+completion or visibility. [Mode selection][llvm-replay-mode]
+[Clause construction and separation][llvm-replay-clause]
+
+CDNA2–4 use this software protection for both SMEM and VMEM. GFX125x has
+always-on XNACK but only the scalar soft-clause check: LLVM checks SMEM before
+the `NoDataDepHazard` early return and VMEM afterward. Its separate `xcnt`
+source-retention mechanism can already supply the required separation.
+[Hazard selection][llvm-replay-dispatch]
+[Always-on target mode][llvm-replay-always-on]
+
 ## Global release and acquire sequences
 
 The following table summarizes LLVM's default availability/visibility mapping
@@ -321,6 +355,11 @@ own publication/completion mechanism supplies the matching half. The
 conditions across several stages.
 
 [llvm-order]: https://github.com/llvm/llvm-project/blob/6e714c8d91116794cb699cdf80c26afe9cda3ef3/llvm/docs/AMDGPUUsage.rst#L7485-L7604
+[cdna2-replay]: https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/instruction-set-architectures/instinct-mi200-cdna2-instruction-set-architecture.pdf#page=59
+[llvm-replay-mode]: https://github.com/llvm/llvm-project/blob/6dfe1677ab8dffbc6ec13d53a1e0215d75147689/llvm/lib/Target/AMDGPU/GCNSubtarget.h#L346
+[llvm-replay-clause]: https://github.com/llvm/llvm-project/blob/6dfe1677ab8dffbc6ec13d53a1e0215d75147689/llvm/lib/Target/AMDGPU/GCNHazardRecognizer.cpp#L736-L791
+[llvm-replay-dispatch]: https://github.com/llvm/llvm-project/blob/6dfe1677ab8dffbc6ec13d53a1e0215d75147689/llvm/lib/Target/AMDGPU/GCNHazardRecognizer.cpp#L348-L366
+[llvm-replay-always-on]: https://github.com/llvm/llvm-project/blob/6dfe1677ab8dffbc6ec13d53a1e0215d75147689/llvm/test/CodeGen/AMDGPU/target-id-xnack-always-on.ll
 [rdna4-vector-order]: https://www.amd.com/content/dam/amd/en/documents/radeon-tech-docs/instruction-set-architectures/rdna4-instruction-set-architecture.pdf
 [llvm-alias-waits]: https://github.com/llvm/llvm-project/blob/1dac88b2aad1af472a4f4d5b7d87930e6e557d1f/llvm/lib/Target/AMDGPU/SIInsertWaitcnts.cpp#L2460-L2465
 [cdna5-counters]: https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/instruction-set-architectures/amd-instinct-cdna5-instruction-set-architecture.pdf#page=61

@@ -251,13 +251,16 @@ loom_cc_library(
     wait_states
   HDRS
     "mask_write_wait.h"
+    "replay_clause.h"
     "short_wait.h"
     "wait_states.h"
   SRCS
     "mask_write_wait.c"
+    "replay_clause.c"
     "short_wait.c"
     "wait_states.c"
   DEPS
+    ::address_state
     ::delay_alu
     ::descriptor_semantics
     ::matrix_coexecution
@@ -278,6 +281,7 @@ loom_cc_library(
     loom::ir
     loom::ops::low
     loom::target::arch::amdgpu::encoding
+    loom::target::arch::amdgpu::facts
     loom::target::arch::amdgpu::refs::target_refs
     loom::target::arch::amdgpu::target_info
     loom::target::arch::amdgpu::target_info_defs

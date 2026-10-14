@@ -219,15 +219,18 @@ loom_cc_library(
     name = "wait_states",
     srcs = [
         "mask_write_wait.c",
+        "replay_clause.c",
         "short_wait.c",
         "wait_states.c",
     ],
     hdrs = [
         "mask_write_wait.h",
+        "replay_clause.h",
         "short_wait.h",
         "wait_states.h",
     ],
     deps = [
+        ":address_state",
         ":delay_alu",
         ":descriptor_semantics",
         ":matrix_coexecution",
@@ -244,6 +247,7 @@ loom_cc_library(
         "//loom/src/loom/codegen/low/schedule",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/low",
+        "//loom/src/loom/target/arch/amdgpu:facts",
         "//loom/src/loom/target/arch/amdgpu:target_info",
         "//loom/src/loom/target/arch/amdgpu:target_info_defs",
         "//loom/src/loom/target/arch/amdgpu/encoding",

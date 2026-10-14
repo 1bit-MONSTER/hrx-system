@@ -72,6 +72,8 @@ typedef enum loom_amdgpu_descriptor_trait_bit_e {
   LOOM_AMDGPU_DESCRIPTOR_TRAIT_FMA64 = 1u << 29,
   // VMEM and DS reads depend on the VALU-to-memory hardware interlock.
   LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_MEMORY_INTERLOCK = 1u << 30,
+  // Descriptor belongs to a scalar-memory replay clause.
+  LOOM_AMDGPU_DESCRIPTOR_TRAIT_SCALAR_MEMORY = 1u << 31,
 } loom_amdgpu_descriptor_trait_bit_t;
 typedef uint32_t loom_amdgpu_descriptor_traits_t;
 

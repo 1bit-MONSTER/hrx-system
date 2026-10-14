@@ -18,6 +18,7 @@ low.func.def target<amdgpu.cdna3.core>(@target) @flat_loads_gfx942(%address: reg
 
 // ----
   flat_load_dword v3, v[0:1] offset:0
+  s_nop 0
   flat_load_dword v0, v[0:1] offset:4
   s_waitcnt vmcnt(0) lgkmcnt(0)
   v_add_u32 v1, v3, v2
@@ -446,6 +447,7 @@ low.func.def target<amdgpu.cdna3.core>(@target) @explicit_partial_flat_vmem(%add
 
 // ----
   global_load_dword v3, v2, s[0:1] offset:0
+  s_nop 0
   flat_load_dword v0, v[0:1] offset:0
   s_waitcnt vmcnt(1) lgkmcnt(15)
   s_waitcnt vmcnt(0) lgkmcnt(15)

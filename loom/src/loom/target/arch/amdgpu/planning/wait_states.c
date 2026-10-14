@@ -12,12 +12,14 @@
 #include "loom/ir/module.h"
 #include "loom/ops/low/ops.h"
 #include "loom/target/arch/amdgpu/encoding/encoding.h"
+#include "loom/target/arch/amdgpu/planning/address_state.h"
 #include "loom/target/arch/amdgpu/planning/delay_alu.h"
 #include "loom/target/arch/amdgpu/planning/descriptor_semantics.h"
 #include "loom/target/arch/amdgpu/planning/mask_write_wait.h"
 #include "loom/target/arch/amdgpu/planning/matrix_coexecution.h"
 #include "loom/target/arch/amdgpu/planning/matrix_result_wait.h"
 #include "loom/target/arch/amdgpu/planning/matrix_wait_states.h"
+#include "loom/target/arch/amdgpu/planning/replay_clause.h"
 #include "loom/target/arch/amdgpu/planning/short_wait.h"
 #include "loom/target/arch/amdgpu/planning/structural_packet.h"
 #include "loom/target/arch/amdgpu/planning/vopd_plan.h"
@@ -157,6 +159,10 @@ typedef struct loom_amdgpu_wait_state_builder_t {
   const loom_amdgpu_wait_plan_t* wait_plan;
   // Concrete counter waits supplying store-source issue progress.
   const loom_amdgpu_wait_packet_plan_t* wait_packets;
+  // Concrete address transitions separating replayable memory clauses.
+  const loom_amdgpu_address_state_plan_t* address_state;
+  // Physical register retention for the current native memory clause.
+  loom_amdgpu_replay_clause_t* replay_clause;
   // Mandatory short physical dependencies, or NULL on unaffected targets.
   loom_amdgpu_short_wait_t* short_wait;
   // Final VOPD memberships indexed by scheduled packet.
@@ -233,6 +239,8 @@ static const iree_string_view_t kAmdgpuWaitStateReasonNames[] = {
     [LOOM_AMDGPU_WAIT_STATE_REASON_DOT_RESULT_USE] = IREE_SVL("dot_result_use"),
     [LOOM_AMDGPU_WAIT_STATE_REASON_DGEMM_PIPELINE] = IREE_SVL("dgemm_pipeline"),
     [LOOM_AMDGPU_WAIT_STATE_REASON_DGEMM_MEMORY] = IREE_SVL("dgemm_memory"),
+    [LOOM_AMDGPU_WAIT_STATE_REASON_XNACK_REPLAY_CLAUSE] =
+        IREE_SVL("xnack_replay_clause"),
     [LOOM_AMDGPU_WAIT_STATE_REASON_STORE_DATA_REUSE] =
         IREE_SVL("store_data_reuse"),
     [LOOM_AMDGPU_WAIT_STATE_REASON_MATRIX_RESULT_USE] =
@@ -897,6 +905,12 @@ static iree_status_t loom_amdgpu_wait_state_append(
   };
   IREE_RETURN_IF_ERROR(loom_amdgpu_wait_state_stream_append(
       &builder->ordinary_states, builder->transient_arena, wait_state));
+  if (builder->replay_clause != NULL &&
+      match->reason != LOOM_AMDGPU_WAIT_STATE_REASON_XNACK_REPLAY_CLAUSE) {
+    // A replay separator already retains the consumer as its new clause.
+    // Every other concrete prefix wait ends the preceding memory clause.
+    loom_amdgpu_replay_clause_break(builder->replay_clause);
+  }
   if (builder->short_wait != NULL) {
     loom_amdgpu_short_wait_advance(
         builder->short_wait, action == LOOM_AMDGPU_WAIT_STATE_ACTION_S_DELAY_ALU
@@ -1398,6 +1412,23 @@ static iree_status_t loom_amdgpu_wait_state_apply_packet(
     }
   }
 
+  if (builder->replay_clause != NULL) {
+    const uint32_t producer_node = loom_amdgpu_replay_clause_apply(
+        builder->replay_clause, packet, info.descriptor_traits,
+        info.instruction_count);
+    if (producer_node != LOOM_LOW_PACKET_INDEX_NONE) {
+      const loom_amdgpu_wait_state_match_t replay_match = {
+          .reason = LOOM_AMDGPU_WAIT_STATE_REASON_XNACK_REPLAY_CLAUSE,
+          .producer_node = producer_node,
+          .required_cycle_count = 1,
+          .cycle_count = 1,
+      };
+      IREE_RETURN_IF_ERROR(
+          loom_amdgpu_wait_state_append(builder, packet, packet, &replay_match,
+                                        LOOM_AMDGPU_WAIT_STATE_ACTION_S_NOP));
+    }
+  }
+
   if (info.structural.moves.count == 0) {
     loom_amdgpu_wait_state_record_results(builder, packet, &info);
   } else {
@@ -1741,9 +1772,14 @@ static iree_status_t loom_amdgpu_wait_state_plan_build_with_scratch(
       builder->wait_plan->descriptor_traits,
       builder->wait_plan->dot_identity_mask, builder->transient_arena,
       &builder->short_wait));
+  IREE_RETURN_IF_ERROR(loom_amdgpu_replay_clause_allocate(
+      builder->schedule, builder->allocation,
+      builder->wait_plan->descriptor_traits, builder->transient_arena,
+      &builder->replay_clause));
   IREE_RETURN_IF_ERROR(loom_amdgpu_wait_state_allocate(builder));
   iree_host_size_t wait_packet_cursor = 0;
   iree_host_size_t wait_action_cursor = 0;
+  iree_host_size_t address_state_cursor = 0;
   builder->delay_alu.epoch = 1;
   for (iree_host_size_t block_index = 0;
        block_index < builder->schedule->block_count; ++block_index) {
@@ -1779,6 +1815,13 @@ static iree_status_t loom_amdgpu_wait_state_plan_build_with_scratch(
          scheduled_ordinal < block->scheduled_node_count; ++scheduled_ordinal) {
       const loom_low_packet_view_t packet = loom_low_packet_at_block_ordinal(
           builder->schedule, (uint32_t)block_index, scheduled_ordinal);
+      if (builder->replay_clause != NULL &&
+          address_state_cursor < builder->address_state->transition_count &&
+          builder->address_state->transitions[address_state_cursor]
+                  .node_index == packet.node_index) {
+        loom_amdgpu_replay_clause_break(builder->replay_clause);
+        ++address_state_cursor;
+      }
       if (builder->short_wait != NULL) {
         // CDNA's shared VM counter drains store payloads as well as load
         // results. A full drain retires the entire two-slot source window,
@@ -1798,6 +1841,9 @@ static iree_status_t loom_amdgpu_wait_state_plan_build_with_scratch(
       while (wait_packet_cursor < builder->wait_packets->packet_count &&
              builder->wait_packets->packets[wait_packet_cursor].node_index ==
                  packet.node_index) {
+        if (builder->replay_clause != NULL) {
+          loom_amdgpu_replay_clause_break(builder->replay_clause);
+        }
         if (builder->short_wait != NULL) {
           loom_amdgpu_short_wait_advance(builder->short_wait, 1);
         }
@@ -1820,6 +1866,9 @@ static iree_status_t loom_amdgpu_wait_state_plan_build_with_scratch(
         continue;
       }
       if (vopd_role == LOOM_AMDGPU_VOPD_PACKET_ROLE_FIRST) {
+        if (builder->replay_clause != NULL) {
+          loom_amdgpu_replay_clause_break(builder->replay_clause);
+        }
         const uint32_t pair_index =
             builder->vopd_packets[packet.packet_index].pair_index;
         const loom_amdgpu_vopd_pair_t* pair = &builder->vopd_pairs[pair_index];
@@ -1877,6 +1926,7 @@ iree_status_t loom_amdgpu_wait_state_plan_build(
     const loom_low_schedule_table_t* schedule,
     const loom_low_allocation_table_t* allocation,
     const loom_amdgpu_processor_properties_t* processor_properties,
+    const loom_amdgpu_address_state_plan_t* address_state,
     const loom_amdgpu_wait_packet_plan_t* wait_packets,
     const struct loom_amdgpu_vopd_plan_t* vopd_plan,
     loom_amdgpu_matrix_coexecution_t* matrix_coexecution,
@@ -1895,6 +1945,7 @@ iree_status_t loom_amdgpu_wait_state_plan_build(
               processor_properties->features.matrix),
       .wait_plan = wait_packets->wait_plan,
       .wait_packets = wait_packets,
+      .address_state = address_state,
       .vopd_packets = has_vopd_pairs ? vopd_plan->packets : NULL,
       .vopd_pairs = has_vopd_pairs ? vopd_plan->pairs : NULL,
       .descriptor_set = schedule->target.descriptor_set,

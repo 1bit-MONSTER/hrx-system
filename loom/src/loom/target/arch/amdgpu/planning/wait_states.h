@@ -38,6 +38,7 @@ struct loom_amdgpu_wait_packet_plan_t;
 struct loom_amdgpu_matrix_coexecution_t;
 struct loom_amdgpu_matrix_result_wait_t;
 struct loom_amdgpu_processor_info_t;
+struct loom_amdgpu_address_state_plan_t;
 
 // Maximum number of cycles a single `s_nop` packet can wait. The SOPP SIMM16
 // operand is encoded as wait_cycles - 1, and current AMDGPU targets use a
@@ -86,8 +87,10 @@ typedef enum loom_amdgpu_wait_state_reason_e {
   LOOM_AMDGPU_WAIT_STATE_REASON_DGEMM_PIPELINE = 16,
   // An intervening DGEMM disabled the VALU-to-memory hardware interlock.
   LOOM_AMDGPU_WAIT_STATE_REASON_DGEMM_MEMORY = 17,
+  // A replayable memory clause would overwrite an address or mix load/store.
+  LOOM_AMDGPU_WAIT_STATE_REASON_XNACK_REPLAY_CLAUSE = 18,
   // Number of wait-state reasons, including UNKNOWN.
-  LOOM_AMDGPU_WAIT_STATE_REASON_COUNT_ = 18,
+  LOOM_AMDGPU_WAIT_STATE_REASON_COUNT_ = 19,
 } loom_amdgpu_wait_state_reason_t;
 
 typedef enum loom_amdgpu_wait_state_action_e {
@@ -174,12 +177,14 @@ iree_string_view_t loom_amdgpu_wait_state_action_name(
 // |wait_packets->wait_plan| provide no instruction-slot progress. Concrete
 // wait insertions supply native progress. |vopd_plan| may be NULL
 // when the target has no native packetization. Processor properties come from
-// the resolved target record and must be present. The caller must keep the
+// the resolved target record and must be present. Concrete |address_state|
+// transitions also separate replayable memory clauses. The caller must keep the
 // input plans immutable and |arena| alive for as long as |out_plan| is used.
 iree_status_t loom_amdgpu_wait_state_plan_build(
     const loom_low_schedule_table_t* schedule,
     const loom_low_allocation_table_t* allocation,
     const struct loom_amdgpu_processor_properties_t* processor_properties,
+    const struct loom_amdgpu_address_state_plan_t* address_state,
     const struct loom_amdgpu_wait_packet_plan_t* wait_packets,
     const struct loom_amdgpu_vopd_plan_t* vopd_plan,
     struct loom_amdgpu_matrix_coexecution_t* matrix_coexecution,

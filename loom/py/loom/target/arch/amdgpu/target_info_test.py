@@ -51,6 +51,7 @@ from loom.target.arch.amdgpu.target_info import (
     AMDGPU_PROCESSOR_SCHEDULING_DELAY_ALU,
     AMDGPU_PROCESSOR_SCHEDULING_TENSOR_ISSUE_DRAIN,
     AMDGPU_PROCESSOR_SCHEDULING_VALU_MASK_WRITE_DEPCTR,
+    AMDGPU_PROCESSOR_SCHEDULING_VMEM_REPLAY_CLAUSES,
     AMDGPU_TARGET_ID_FEATURE_SUPPORT_NONE,
     AMDGPU_TARGET_ID_FEATURE_SUPPORT_SRAMECC,
     AMDGPU_TARGET_ID_FEATURE_SUPPORT_XNACK,
@@ -245,6 +246,17 @@ def test_mask_write_hazard_covers_gfx11_processors() -> None:
             info.features.scheduling
             & AMDGPU_PROCESSOR_SCHEDULING_VALU_MASK_WRITE_DEPCTR
         ) == info.processor.startswith("gfx11"), info.processor
+
+
+def test_vmem_replay_clauses_cover_cdna_and_exclude_always_on_gfx125x() -> None:
+    # LLVM checks SMEM before the NoDataDepHazard early return, and VMEM
+    # afterward. Always-on XNACK on gfx125x therefore does not imply VMEM
+    # software clauses. Stepping overlays inherit their processor's policy.
+    assert {
+        info.processor
+        for info in AMDGPU_PROCESSOR_INFOS
+        if info.features.scheduling & AMDGPU_PROCESSOR_SCHEDULING_VMEM_REPLAY_CLAUSES
+    } == {"gfx90a", "gfx940", "gfx941", "gfx942", "gfx950", "gfx9-4-generic"}
 
 
 def test_rdna4m_processors_publish_delay_alu_scheduling() -> None:

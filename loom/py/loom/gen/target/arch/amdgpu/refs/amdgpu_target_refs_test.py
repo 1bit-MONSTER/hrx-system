@@ -523,6 +523,17 @@ def test_cdna_dot_identity_uses_native_opcode_and_preserves_aliases() -> None:
     assert not any("DOT_IDENTITY" in trait for trait in amdgpu_target_refs._descriptor_trait_names(context, descriptor))
 
 
+def test_scalar_memory_trait_follows_native_encoding_independently_of_spelling() -> None:
+    # SMEM includes scalar, descriptor-backed and scratch loads/stores plus
+    # cache operations. Their common encoding class, not their mnemonic or
+    # scheduling resource, defines replay-clause membership.
+    for name, format_id in AMDGPU_ENCODING_FORMAT_IDS.items():
+        descriptor = _descriptor("amdgpu.memory_alias", encoding_format_id=format_id)
+        context = amdgpu_target_refs._descriptor_trait_context(_descriptor_set(descriptor))
+        traits = amdgpu_target_refs._descriptor_trait_names(context, descriptor)
+        assert ("LOOM_AMDGPU_DESCRIPTOR_TRAIT_SCALAR_MEMORY" in traits) == (name == "ENC_SMEM"), name
+
+
 def test_matrix_memory_read_traits_cover_all_native_memory_formats() -> None:
     for name in (
         "ENC_MUBUF",
