@@ -238,8 +238,8 @@ amdgpu.target<gfx942> @target
 
 low.func.def target<amdgpu.cdna3.core>(@target) @buffer_invalidate_partial_loads(%resource: reg<amdgpu.sgpr x4>, %address: reg<amdgpu.vgpr>, %offset: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>) asm {
   buffer_inv {sc0 = 1, sc1 = 1}
-  %first = buffer_load_dword %resource, %address, %offset
-  %second = buffer_load_dword %resource, %address, %offset {offset = 4}
+  %first = buffer_load_dword %resource, %address, %offset : reg<amdgpu.vgpr>
+  %second = buffer_load_dword %resource, %address, %offset {offset = 4} : reg<amdgpu.vgpr>
   %first_sum = v_add_u32 %first, %address
   %sum = v_add_u32 %first_sum, %second
   return %sum

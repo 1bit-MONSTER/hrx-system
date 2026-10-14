@@ -1,0 +1,150 @@
+// Copyright 2026 The IREE Authors
+//
+// Licensed under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+// Global, buffer and private packets address accumulator payloads directly.
+// RUN: emit amdgpu-assembly @memory_banks strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @memory_banks(%address: reg<amdgpu.vgpr x2>, %offset: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>, %resource: reg<amdgpu.sgpr x4>, %soffset: reg<amdgpu.sgpr>) asm {
+  %byte = global_load_ubyte_vaddr %address : reg<amdgpu.agpr>
+  %half = global_load_d16_b16_saddr %offset, %base : reg<amdgpu.agpr>
+  %word = buffer_load_dword %resource, %offset, %soffset : reg<amdgpu.agpr>
+  %pair = buffer_load_dwordx2_vaddr_offset %resource, %offset : reg<amdgpu.agpr x2>
+  %triple = scratch_load_dwordx3_vaddr %offset : reg<amdgpu.agpr x3>
+  %quad = global_load_dwordx4_saddr %offset, %base : reg<amdgpu.agpr x4>
+  flat_store_byte %address, %byte {offset = 1}
+  global_store_short_saddr %offset, %half, %base {offset = 2}
+  scratch_store_dword_saddr %word, %soffset {offset = 4}
+  global_store_dwordx2_vaddr %address, %pair {offset = 8}
+  buffer_store_dwordx3 %triple, %resource, %offset, %soffset {offset = 16}
+  scratch_store_dwordx4_vaddr %offset, %quad {offset = 32}
+  return
+}
+// ----
+  global_load_ubyte acc0, v[0:1], off offset:0
+  global_load_short_d16 acc1, v2, s[0:1] offset:0
+  buffer_load_dword acc2, v2, s[4:7], s2 offen offset:0
+  buffer_load_dwordx2 acc[4:5], v2, s[4:7], 0 offen offset:0
+  scratch_load_dwordx3 acc[6:8], v2, off offset:0
+  global_load_dwordx4 acc[12:15], v2, s[0:1] offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  flat_store_byte v[0:1], acc0 offset:1
+  global_store_short v2, acc1, s[0:1] offset:2
+  scratch_store_dword off, acc2, s2 offset:4
+  global_store_dwordx2 v[0:1], acc[4:5], off offset:8
+  buffer_store_dwordx3 acc[6:8], v2, s[4:7], s2 offen offset:16
+  scratch_store_dwordx4 v2, acc[12:15], off offset:32
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_endpgm
+
+// ====
+
+// Result and update data share the physical selector, including compare pairs.
+// RUN: emit amdgpu-native-words @atomic_banks strategy=source waits=none
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @atomic_banks(%offset: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>, %pair: reg<amdgpu.agpr x2>, %value: reg<amdgpu.agpr>) asm {
+  %compared = global_atomic_cmpswap_rtn_saddr %offset, %pair, %base : reg<amdgpu.agpr>
+  %old = global_atomic_add_rtn_saddr %offset, %value, %base : reg<amdgpu.agpr>
+  global_store_dword_saddr %offset, %old, %base
+  return
+}
+// ----
+0xDD058000
+0x00800000
+0xDD098000
+0x00800200
+0xDC708000
+0x00800000
+0xBF810000
+
+// ====
+
+// The high payload indices must not change the accumulator selector.
+// RUN: emit amdgpu-native-words @high_payload strategy=source waits=none fixed=%value:physical_register:252:4
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @high_payload(%offset: reg<amdgpu.vgpr>, %resource: reg<amdgpu.sgpr x4>, %base: reg<amdgpu.sgpr x2>, %value: reg<amdgpu.agpr x4>) asm {
+  buffer_store_dwordx4_vaddr_offset %value, %resource, %offset {offset = 16, nt = 1, sc0 = 1, sc1 = 1}
+  global_store_dwordx4_saddr %offset, %value, %base {offset = 32}
+  scratch_store_b128_offset_only %value {offset = 64}
+  return
+}
+// ----
+0xE07ED010
+0x8080FC00
+0xDC7C8020
+0x0084FC00
+0xDC7C4040
+0x00FFFC00
+0xBF810000
+
+// ====
+
+// Native SCRATCH uses dword spellings even when Low spells widths in bits.
+// RUN: emit amdgpu-assembly @scratch_banks strategy=source
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @scratch_banks(%offset: reg<amdgpu.vgpr>, %value: reg<amdgpu.agpr x4>) asm {
+  scratch_store_b128_vaddr %offset, %value {offset = 16}
+  %loaded = scratch_load_b128_offset_only {offset = 16} : reg<amdgpu.agpr x4>
+  scratch_store_b128_offset_only %loaded {offset = 32}
+  return
+}
+// ----
+  scratch_store_dwordx4 v0, acc[0:3], off offset:16
+  scratch_load_dwordx4 acc[0:3], off, off offset:16
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  scratch_store_dwordx4 off, acc[0:3], off offset:32
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_endpgm
+
+// ====
+
+// A low-half accumulator definition can feed every narrow memory store.
+// RUN: emit amdgpu-assembly @partial_payload strategy=source
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @partial_payload(%address: reg<amdgpu.vgpr x2>, %offset: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>, %resource: reg<amdgpu.sgpr x4>, %soffset: reg<amdgpu.sgpr>) asm {
+  %half = buffer_load_d16_b16 %resource, %offset, %soffset : reg<amdgpu.agpr>
+  flat_store_short %address, %half
+  global_store_b8_saddr %offset, %half, %base
+  buffer_store_short %half, %resource, %offset, %soffset
+  scratch_store_short_saddr %half, %soffset
+  return
+}
+// ----
+  buffer_load_short_d16 acc0, v2, s[4:7], s2 offen offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  flat_store_short v[0:1], acc0 offset:0
+  global_store_byte v2, acc0, s[0:1] offset:0
+  buffer_store_short acc0, v2, s[4:7], s2 offen offset:0
+  scratch_store_short off, acc0, s2 offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_endpgm
+
+// ====
+
+// RUN: verify
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @undefined_high_half(%address: reg<amdgpu.vgpr x2>) asm {
+  %half = global_load_d16_b16_vaddr %address : reg<amdgpu.agpr>
+  // ERROR@+1: DOMINANCE/011 "amdgpu.global_store_b32" "value"
+  global_store_dword_vaddr %address, %half
+  return
+}
+
+// ====
+
+// RUN: verify
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @mixed_atomic_banks(%offset: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>, %pair: reg<amdgpu.agpr x2>) asm {
+  // ERROR@+1: TYPE/018 {field_a="dst", type_a="reg<amdgpu.vgpr>", field_b="value", type_b="reg<amdgpu.agpr x2>"}
+  %result = global_atomic_cmpswap_rtn_saddr %offset, %pair, %base : reg<amdgpu.vgpr>
+  return
+}

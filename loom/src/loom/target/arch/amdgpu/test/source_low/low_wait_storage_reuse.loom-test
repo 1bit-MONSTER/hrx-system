@@ -180,11 +180,11 @@ low.func.def target<amdgpu.cdna3.core>(@target) @concat_source_at_residency_clif
   %lo0, %lo0_carry = s_add_co_u32 %base_lo, %increment
   %hi0, %hi0_carry = s_addc_u32 %base_hi, %zero, %lo0_carry
   %address0 = concat(%lo0, %hi0) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  %first = global_load_dword_saddr %offset, %address0
+  %first = global_load_dword_saddr %offset, %address0 : reg<amdgpu.vgpr>
   %lo1, %lo1_carry = s_add_co_u32 %base_lo, %increment
   %hi1, %hi1_carry = s_addc_u32 %base_hi, %increment, %lo1_carry
   %address1 = concat(%lo1, %hi1) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
-  %second = global_load_dword_saddr %offset, %address1
+  %second = global_load_dword_saddr %offset, %address1 : reg<amdgpu.vgpr>
   %sum = v_add_u32 %first, %second
   return %sum, %pressure, %base, %zero, %increment
 }

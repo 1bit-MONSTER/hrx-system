@@ -6,8 +6,8 @@ low.func.def target<amdgpu.cdna4.core>(@target) @gfx950_fp8_materialized_bf16_tw
   %lane = v_and_b32_src0_inline %workitem_id, 15
   %lhs_byte_offset = v_lshlrev_b32_src0_inline %lane, 6
   %rhs_byte_offset = v_lshlrev_b32_src0_inline %lane, 5
-  %lhs0 = global_load_dwordx4_saddr %lhs_byte_offset, %lhs_view
-  %rhs0_raw = global_load_dwordx2_saddr %rhs_byte_offset, %rhs_view
+  %lhs0 = global_load_dwordx4_saddr %lhs_byte_offset, %lhs_view : reg<amdgpu.vgpr x4>
+  %rhs0_raw = global_load_dwordx2_saddr %rhs_byte_offset, %rhs_view : reg<amdgpu.vgpr x2>
   %rhs0_raw0 = slice %rhs0_raw[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %rhs0_bf16_0 = v_cvt_scalef32_pk_bf16_fp8 %rhs0_raw0, %scale
   %rhs0_raw0_high = v_lshrrev_b32_src0_inline %rhs0_raw0, 16
@@ -21,8 +21,8 @@ low.func.def target<amdgpu.cdna4.core>(@target) @gfx950_fp8_materialized_bf16_tw
   %zero_acc = concat(%zero, %zero, %zero, %zero) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x4>
   %zero_acc_copy = copy %zero_acc : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr x4>
   %partial = v_mfma_f32_16x16x32_bf16 %lhs0, %rhs0, %zero_acc_copy
-  %lhs1 = global_load_dwordx4_saddr %lhs_byte_offset, %lhs_view {offset = 16}
-  %rhs1_raw = global_load_dwordx2_saddr %rhs_byte_offset, %rhs_view {offset = 8}
+  %lhs1 = global_load_dwordx4_saddr %lhs_byte_offset, %lhs_view {offset = 16} : reg<amdgpu.vgpr x4>
+  %rhs1_raw = global_load_dwordx2_saddr %rhs_byte_offset, %rhs_view {offset = 8} : reg<amdgpu.vgpr x2>
   %rhs1_raw0 = slice %rhs1_raw[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %rhs1_bf16_0 = v_cvt_scalef32_pk_bf16_fp8 %rhs1_raw0, %scale
   %rhs1_raw0_high = v_lshrrev_b32_src0_inline %rhs1_raw0, 16
@@ -88,8 +88,8 @@ low.func.def target<amdgpu.cdna3.core>(@target) @gfx942_fp8_materialized_bf16_tw
   %lane = v_and_b32_src0_inline %workitem_id, 15
   %lhs_byte_offset = v_lshlrev_b32_src0_inline %lane, 5
   %rhs_byte_offset = v_lshlrev_b32_src0_inline %lane, 4
-  %lhs0 = global_load_dwordx2_saddr %lhs_byte_offset, %lhs_view
-  %rhs0_raw = global_load_dword_saddr %rhs_byte_offset, %rhs_view
+  %lhs0 = global_load_dwordx2_saddr %lhs_byte_offset, %lhs_view : reg<amdgpu.vgpr x2>
+  %rhs0_raw = global_load_dword_saddr %rhs_byte_offset, %rhs_view : reg<amdgpu.vgpr>
   %rhs0_f32_0 = v_cvt_pk_f32_fp8 %rhs0_raw
   %rhs0_f32_0_low = slice %rhs0_f32_0[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %rhs0_f32_0_high = slice %rhs0_f32_0[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
@@ -124,8 +124,8 @@ low.func.def target<amdgpu.cdna3.core>(@target) @gfx942_fp8_materialized_bf16_tw
   %zero_acc = concat(%zero, %zero, %zero, %zero) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x4>
   %zero_acc_copy = copy %zero_acc : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr x4>
   %partial = v_mfma_f32_16x16x16_bf16 %lhs0, %rhs0, %zero_acc_copy
-  %lhs1 = global_load_dwordx2_saddr %lhs_byte_offset, %lhs_view {offset = 8}
-  %rhs1_raw = global_load_dword_saddr %rhs_byte_offset, %rhs_view {offset = 4}
+  %lhs1 = global_load_dwordx2_saddr %lhs_byte_offset, %lhs_view {offset = 8} : reg<amdgpu.vgpr x2>
+  %rhs1_raw = global_load_dword_saddr %rhs_byte_offset, %rhs_view {offset = 4} : reg<amdgpu.vgpr>
   %rhs1_f32_0 = v_cvt_pk_f32_fp8 %rhs1_raw
   %rhs1_f32_0_low = slice %rhs1_f32_0[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %rhs1_f32_0_high = slice %rhs1_f32_0[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
@@ -274,14 +274,14 @@ amdgpu.target<gfx942> @target
 low.func.def target<amdgpu.cdna3.core>(@target) @gfx942_bf16_two_k_block_loads_schedule_before_mfma(%workitem_id: reg<amdgpu.vgpr>, %lhs_view: reg<amdgpu.sgpr x2>, %rhs_view: reg<amdgpu.sgpr x2>, %out_view: reg<amdgpu.sgpr x2>) asm {
   %lane = v_and_b32_src0_inline %workitem_id, 15
   %byte_offset = v_lshlrev_b32_src0_inline %lane, 5
-  %lhs0 = global_load_dwordx2_saddr %byte_offset, %lhs_view
-  %rhs0 = global_load_dwordx2_saddr %byte_offset, %rhs_view
+  %lhs0 = global_load_dwordx2_saddr %byte_offset, %lhs_view : reg<amdgpu.vgpr x2>
+  %rhs0 = global_load_dwordx2_saddr %byte_offset, %rhs_view : reg<amdgpu.vgpr x2>
   %zero = v_mov_b32 0
   %zero_acc = concat(%zero, %zero, %zero, %zero) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x4>
   %zero_acc_copy = copy %zero_acc : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr x4>
   %partial = v_mfma_f32_16x16x16_bf16 %lhs0, %rhs0, %zero_acc_copy
-  %lhs1 = global_load_dwordx2_saddr %byte_offset, %lhs_view {offset = 8}
-  %rhs1 = global_load_dwordx2_saddr %byte_offset, %rhs_view {offset = 8}
+  %lhs1 = global_load_dwordx2_saddr %byte_offset, %lhs_view {offset = 8} : reg<amdgpu.vgpr x2>
+  %rhs1 = global_load_dwordx2_saddr %byte_offset, %rhs_view {offset = 8} : reg<amdgpu.vgpr x2>
   %partial_copy = copy %partial : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr x4>
   %result = v_mfma_f32_16x16x16_bf16 %lhs1, %rhs1, %partial_copy
   %out_offset = v_lshlrev_b32_src0_inline %workitem_id, 2

@@ -352,16 +352,16 @@ low.kernel.def target<amdgpu.cdna3.core>(@target) abi_layout({constant_count = 0
   %init_view = resource<hal_binding> {extent = 1024, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %out_view = resource<hal_binding> {extent = 1024, index = 3, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %337 = v_lshlrev_b32_src0_inline %332, 2
-  %lhs = global_load_dword_saddr %337, %lhs_view
-  %rhs = global_load_dword_saddr %337, %rhs_view
+  %lhs = global_load_dword_saddr %337, %lhs_view : reg<amdgpu.vgpr>
+  %rhs = global_load_dword_saddr %337, %rhs_view : reg<amdgpu.vgpr>
   %340 = v_and_b32_src0_inline %332, 3
   %341 = v_lshlrev_b32_src0_inline %340, 2
   %342 = v_lshrrev_b32_src0_inline %332, 2
   %343 = v_lshl_add_u32_shift_imm %342, %341, 6
-  %344 = global_load_dword_saddr %343, %init_view
-  %345 = global_load_dword_saddr %343, %init_view {offset = 16}
-  %346 = global_load_dword_saddr %343, %init_view {offset = 32}
-  %347 = global_load_dword_saddr %343, %init_view {offset = 48}
+  %344 = global_load_dword_saddr %343, %init_view : reg<amdgpu.vgpr>
+  %345 = global_load_dword_saddr %343, %init_view {offset = 16} : reg<amdgpu.vgpr>
+  %346 = global_load_dword_saddr %343, %init_view {offset = 32} : reg<amdgpu.vgpr>
+  %347 = global_load_dword_saddr %343, %init_view {offset = 48} : reg<amdgpu.vgpr>
   %init = concat(%344, %345, %346, %347) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x4>
   %349 = copy %init : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr x4>
   %result = v_mfma_f32_4x4x1_16b_f32 %lhs, %rhs, %349
@@ -383,28 +383,28 @@ low.kernel.def target<amdgpu.cdna3.core>(@target) abi_layout({constant_count = 0
   %init_view = resource<hal_binding> {extent = 4096, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %out_view = resource<hal_binding> {extent = 4096, index = 3, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %360 = v_lshlrev_b32_src0_inline %355, 3
-  %lhs = global_load_dwordx2_saddr %360, %lhs_view
-  %rhs = global_load_dwordx2_saddr %360, %rhs_view
+  %lhs = global_load_dwordx2_saddr %360, %lhs_view : reg<amdgpu.vgpr x2>
+  %rhs = global_load_dwordx2_saddr %360, %rhs_view : reg<amdgpu.vgpr x2>
   %363 = v_and_b32_src0_inline %355, 15
   %364 = v_lshlrev_b32_src0_inline %363, 2
   %365 = v_lshrrev_b32_src0_inline %355, 4
   %366 = v_lshl_add_u32_shift_imm %365, %364, 8
-  %367 = global_load_dword_saddr %366, %init_view
-  %368 = global_load_dword_saddr %366, %init_view {offset = 64}
-  %369 = global_load_dword_saddr %366, %init_view {offset = 128}
-  %370 = global_load_dword_saddr %366, %init_view {offset = 192}
-  %371 = global_load_dword_saddr %366, %init_view {offset = 1024}
-  %372 = global_load_dword_saddr %366, %init_view {offset = 1088}
-  %373 = global_load_dword_saddr %366, %init_view {offset = 1152}
-  %374 = global_load_dword_saddr %366, %init_view {offset = 1216}
-  %375 = global_load_dword_saddr %366, %init_view {offset = 2048}
-  %376 = global_load_dword_saddr %366, %init_view {offset = 2112}
-  %377 = global_load_dword_saddr %366, %init_view {offset = 2176}
-  %378 = global_load_dword_saddr %366, %init_view {offset = 2240}
-  %379 = global_load_dword_saddr %366, %init_view {offset = 3072}
-  %380 = global_load_dword_saddr %366, %init_view {offset = 3136}
-  %381 = global_load_dword_saddr %366, %init_view {offset = 3200}
-  %382 = global_load_dword_saddr %366, %init_view {offset = 3264}
+  %367 = global_load_dword_saddr %366, %init_view : reg<amdgpu.vgpr>
+  %368 = global_load_dword_saddr %366, %init_view {offset = 64} : reg<amdgpu.vgpr>
+  %369 = global_load_dword_saddr %366, %init_view {offset = 128} : reg<amdgpu.vgpr>
+  %370 = global_load_dword_saddr %366, %init_view {offset = 192} : reg<amdgpu.vgpr>
+  %371 = global_load_dword_saddr %366, %init_view {offset = 1024} : reg<amdgpu.vgpr>
+  %372 = global_load_dword_saddr %366, %init_view {offset = 1088} : reg<amdgpu.vgpr>
+  %373 = global_load_dword_saddr %366, %init_view {offset = 1152} : reg<amdgpu.vgpr>
+  %374 = global_load_dword_saddr %366, %init_view {offset = 1216} : reg<amdgpu.vgpr>
+  %375 = global_load_dword_saddr %366, %init_view {offset = 2048} : reg<amdgpu.vgpr>
+  %376 = global_load_dword_saddr %366, %init_view {offset = 2112} : reg<amdgpu.vgpr>
+  %377 = global_load_dword_saddr %366, %init_view {offset = 2176} : reg<amdgpu.vgpr>
+  %378 = global_load_dword_saddr %366, %init_view {offset = 2240} : reg<amdgpu.vgpr>
+  %379 = global_load_dword_saddr %366, %init_view {offset = 3072} : reg<amdgpu.vgpr>
+  %380 = global_load_dword_saddr %366, %init_view {offset = 3136} : reg<amdgpu.vgpr>
+  %381 = global_load_dword_saddr %366, %init_view {offset = 3200} : reg<amdgpu.vgpr>
+  %382 = global_load_dword_saddr %366, %init_view {offset = 3264} : reg<amdgpu.vgpr>
   %init = concat(%367, %368, %369, %370, %371, %372, %373, %374, %375, %376, %377, %378, %379, %380, %381, %382) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x16>
   %384 = copy %init : reg<amdgpu.vgpr x16> -> reg<amdgpu.vgpr x16>
   %result = v_mfma_f32_16x16x4_4b_f16 %lhs, %rhs, %384
@@ -450,45 +450,45 @@ low.kernel.def target<amdgpu.cdna3.core>(@target) abi_layout({constant_count = 0
   %init_view = resource<hal_binding> {extent = 8192, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %out_view = resource<hal_binding> {extent = 8192, index = 3, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %407 = v_lshlrev_b32_src0_inline %402, 2
-  %lhs = global_load_dword_saddr %407, %lhs_view
-  %rhs = global_load_dword_saddr %407, %rhs_view
+  %lhs = global_load_dword_saddr %407, %lhs_view : reg<amdgpu.vgpr>
+  %rhs = global_load_dword_saddr %407, %rhs_view : reg<amdgpu.vgpr>
   %410 = v_and_b32_src0_inline %402, 31
   %411 = v_lshlrev_b32_src0_inline %410, 2
   %412 = v_lshrrev_b32_src0_inline %402, 5
   %413 = v_lshl_add_u32_shift_imm %412, %411, 9
-  %414 = global_load_dword_saddr %413, %init_view
-  %415 = global_load_dword_saddr %413, %init_view {offset = 128}
-  %416 = global_load_dword_saddr %413, %init_view {offset = 256}
-  %417 = global_load_dword_saddr %413, %init_view {offset = 384}
-  %418 = global_load_dword_saddr %413, %init_view {offset = 1024}
-  %419 = global_load_dword_saddr %413, %init_view {offset = 1152}
-  %420 = global_load_dword_saddr %413, %init_view {offset = 1280}
-  %421 = global_load_dword_saddr %413, %init_view {offset = 1408}
-  %422 = global_load_dword_saddr %413, %init_view {offset = 2048}
-  %423 = global_load_dword_saddr %413, %init_view {offset = 2176}
-  %424 = global_load_dword_saddr %413, %init_view {offset = 2304}
-  %425 = global_load_dword_saddr %413, %init_view {offset = 2432}
-  %426 = global_load_dword_saddr %413, %init_view {offset = 3072}
-  %427 = global_load_dword_saddr %413, %init_view {offset = 3200}
-  %428 = global_load_dword_saddr %413, %init_view {offset = 3328}
-  %429 = global_load_dword_saddr %413, %init_view {offset = 3456}
+  %414 = global_load_dword_saddr %413, %init_view : reg<amdgpu.vgpr>
+  %415 = global_load_dword_saddr %413, %init_view {offset = 128} : reg<amdgpu.vgpr>
+  %416 = global_load_dword_saddr %413, %init_view {offset = 256} : reg<amdgpu.vgpr>
+  %417 = global_load_dword_saddr %413, %init_view {offset = 384} : reg<amdgpu.vgpr>
+  %418 = global_load_dword_saddr %413, %init_view {offset = 1024} : reg<amdgpu.vgpr>
+  %419 = global_load_dword_saddr %413, %init_view {offset = 1152} : reg<amdgpu.vgpr>
+  %420 = global_load_dword_saddr %413, %init_view {offset = 1280} : reg<amdgpu.vgpr>
+  %421 = global_load_dword_saddr %413, %init_view {offset = 1408} : reg<amdgpu.vgpr>
+  %422 = global_load_dword_saddr %413, %init_view {offset = 2048} : reg<amdgpu.vgpr>
+  %423 = global_load_dword_saddr %413, %init_view {offset = 2176} : reg<amdgpu.vgpr>
+  %424 = global_load_dword_saddr %413, %init_view {offset = 2304} : reg<amdgpu.vgpr>
+  %425 = global_load_dword_saddr %413, %init_view {offset = 2432} : reg<amdgpu.vgpr>
+  %426 = global_load_dword_saddr %413, %init_view {offset = 3072} : reg<amdgpu.vgpr>
+  %427 = global_load_dword_saddr %413, %init_view {offset = 3200} : reg<amdgpu.vgpr>
+  %428 = global_load_dword_saddr %413, %init_view {offset = 3328} : reg<amdgpu.vgpr>
+  %429 = global_load_dword_saddr %413, %init_view {offset = 3456} : reg<amdgpu.vgpr>
   %430 = v_add_u32_lit %413, 4096
-  %431 = global_load_dword_saddr %430, %init_view
-  %433 = global_load_dword_saddr %430, %init_view {offset = 128}
-  %435 = global_load_dword_saddr %430, %init_view {offset = 256}
-  %437 = global_load_dword_saddr %430, %init_view {offset = 384}
-  %439 = global_load_dword_saddr %430, %init_view {offset = 1024}
-  %441 = global_load_dword_saddr %430, %init_view {offset = 1152}
-  %443 = global_load_dword_saddr %430, %init_view {offset = 1280}
-  %445 = global_load_dword_saddr %430, %init_view {offset = 1408}
-  %447 = global_load_dword_saddr %430, %init_view {offset = 2048}
-  %449 = global_load_dword_saddr %430, %init_view {offset = 2176}
-  %451 = global_load_dword_saddr %430, %init_view {offset = 2304}
-  %453 = global_load_dword_saddr %430, %init_view {offset = 2432}
-  %455 = global_load_dword_saddr %430, %init_view {offset = 3072}
-  %457 = global_load_dword_saddr %430, %init_view {offset = 3200}
-  %459 = global_load_dword_saddr %430, %init_view {offset = 3328}
-  %461 = global_load_dword_saddr %430, %init_view {offset = 3456}
+  %431 = global_load_dword_saddr %430, %init_view : reg<amdgpu.vgpr>
+  %433 = global_load_dword_saddr %430, %init_view {offset = 128} : reg<amdgpu.vgpr>
+  %435 = global_load_dword_saddr %430, %init_view {offset = 256} : reg<amdgpu.vgpr>
+  %437 = global_load_dword_saddr %430, %init_view {offset = 384} : reg<amdgpu.vgpr>
+  %439 = global_load_dword_saddr %430, %init_view {offset = 1024} : reg<amdgpu.vgpr>
+  %441 = global_load_dword_saddr %430, %init_view {offset = 1152} : reg<amdgpu.vgpr>
+  %443 = global_load_dword_saddr %430, %init_view {offset = 1280} : reg<amdgpu.vgpr>
+  %445 = global_load_dword_saddr %430, %init_view {offset = 1408} : reg<amdgpu.vgpr>
+  %447 = global_load_dword_saddr %430, %init_view {offset = 2048} : reg<amdgpu.vgpr>
+  %449 = global_load_dword_saddr %430, %init_view {offset = 2176} : reg<amdgpu.vgpr>
+  %451 = global_load_dword_saddr %430, %init_view {offset = 2304} : reg<amdgpu.vgpr>
+  %453 = global_load_dword_saddr %430, %init_view {offset = 2432} : reg<amdgpu.vgpr>
+  %455 = global_load_dword_saddr %430, %init_view {offset = 3072} : reg<amdgpu.vgpr>
+  %457 = global_load_dword_saddr %430, %init_view {offset = 3200} : reg<amdgpu.vgpr>
+  %459 = global_load_dword_saddr %430, %init_view {offset = 3328} : reg<amdgpu.vgpr>
+  %461 = global_load_dword_saddr %430, %init_view {offset = 3456} : reg<amdgpu.vgpr>
   %init = concat(%414, %415, %416, %417, %418, %419, %420, %421, %422, %423, %424, %425, %426, %427, %428, %429, %431, %433, %435, %437, %439, %441, %443, %445, %447, %449, %451, %453, %455, %457, %459, %461) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x32>
   %463 = copy %init : reg<amdgpu.vgpr x32> -> reg<amdgpu.vgpr x32>
   %result = v_mfma_i32_32x32x4_2b_i8 %lhs, %rhs, %463
@@ -572,12 +572,12 @@ low.kernel.def target<amdgpu.cdna3.core>(@target) abi_layout({constant_count = 0
   %522 = v_lshl_add_u32_shift_imm %521, %519, 7
   %523 = v_lshrrev_b32_src0_inline %513, 4
   %524 = v_lshl_add_u32_shift_imm %523, %522, 3
-  %lhs = global_load_dwordx2_saddr %524, %lhs_view
-  %rhs = global_load_dwordx2_saddr %524, %rhs_view
+  %lhs = global_load_dwordx2_saddr %524, %lhs_view : reg<amdgpu.vgpr x2>
+  %rhs = global_load_dwordx2_saddr %524, %rhs_view : reg<amdgpu.vgpr x2>
   %527 = v_lshlrev_b32_src0_inline %518, 3
   %529 = v_lshl_add_u32_shift_imm %521, %527, 5
   %531 = v_lshl_add_u32_shift_imm %523, %529, 7
-  %init = global_load_dwordx2_saddr %531, %init_view
+  %init = global_load_dwordx2_saddr %531, %init_view : reg<amdgpu.vgpr x2>
   %533 = copy %init : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr x2>
   %result = v_mfma_f64_4x4x4_4b_f64 %lhs, %rhs, %533
   global_store_dwordx2_saddr %531, %result, %out_view

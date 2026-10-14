@@ -168,6 +168,9 @@ _REG_PART_SGPR_FULL32_MASK = 0x3
 _REG_PART_VGPR_LOW16 = "amdgpu.vgpr.low16"
 _REG_PART_VGPR_HIGH16 = "amdgpu.vgpr.high16"
 _REG_PART_VGPR_FULL32_MASK = 0x3
+_REG_PART_AGPR_LOW16 = "amdgpu.agpr.low16"
+_REG_PART_AGPR_HIGH16 = "amdgpu.agpr.high16"
+_REG_PART_AGPR_FULL32_MASK = 0x3
 
 _RESOURCE_SALU = "amdgpu.salu"
 _RESOURCE_VALU = "amdgpu.valu"
@@ -765,6 +768,10 @@ _SGPR_REGISTER_PARTS = (
     RegisterPart(_REG_PART_SGPR_HIGH16, _REG_SGPR, 0x2),
 )
 _AMDGPU_REGISTER_PARTS = (*_VGPR_REGISTER_PARTS, *_SGPR_REGISTER_PARTS)
+_AGPR_REGISTER_PARTS = (
+    RegisterPart(_REG_PART_AGPR_LOW16, _REG_AGPR, 0x1),
+    RegisterPart(_REG_PART_AGPR_HIGH16, _REG_AGPR, 0x2),
+)
 
 
 class AmdgpuAtomicMemorySpace(CEnum):
@@ -1760,23 +1767,8 @@ def _vgpr_agpr_result(field_name: str = "dst", *, units: int = 1) -> Operand:
     return Operand(field_name, OperandRole.RESULT, _VGPR_AGPR_ALT, unit_count=units)
 
 
-def _vgpr_agpr_operand(
-    field_name: str,
-    *,
-    units: int = 1,
-    vgpr_register_part: str | None = None,
-) -> Operand:
-    return Operand(
-        field_name,
-        OperandRole.OPERAND,
-        tuple(
-            replace(alternative, register_part=vgpr_register_part)
-            if alternative.reg_class == _REG_VGPR
-            else alternative
-            for alternative in _VGPR_AGPR_ALT
-        ),
-        unit_count=units,
-    )
+def _vgpr_agpr_operand(field_name: str, *, units: int = 1) -> Operand:
+    return Operand(field_name, OperandRole.OPERAND, _VGPR_AGPR_ALT, unit_count=units)
 
 
 def _vgpr_agpr_const_operand(field_name: str, *, units: int = 1) -> Operand:
@@ -3461,6 +3453,7 @@ __all__ = (
     "_AMDGPU_DESCRIPTOR_SOURCE_DIR",
     "_AMDGPU_INLINE_F32_ENUM_DOMAIN_NAME",
     "_AMDGPU_REGISTER_PARTS",
+    "_AGPR_REGISTER_PARTS",
     "_AMDGPU_SOURCE_INLINE_F32_ENUM_DOMAIN",
     "_AMDGPU_SOURCE_INLINE_U32_16_ENUM_DOMAIN",
     "_AMDGPU_TRANS_DESCRIPTOR_KEYS",
@@ -3578,6 +3571,9 @@ __all__ = (
     "_REG_EXEC",
     "_REG_M0",
     "_REG_MODE",
+    "_REG_PART_AGPR_FULL32_MASK",
+    "_REG_PART_AGPR_HIGH16",
+    "_REG_PART_AGPR_LOW16",
     "_REG_PART_SGPR_FULL32_MASK",
     "_REG_PART_SGPR_HIGH16",
     "_REG_PART_SGPR_LOW16",

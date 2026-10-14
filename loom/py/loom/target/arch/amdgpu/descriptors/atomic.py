@@ -855,7 +855,6 @@ def _flat_atomic_overlay(
     fixed_saddr: AmdgpuFixedEncodingValue | None,
     implicit_flat_scratch: bool,
     xml_has_m0: bool,
-    allow_accumulator_operands: bool,
     value_units: int,
     width_bits: int,
 ) -> AmdgpuDescriptorOverlay:
@@ -864,16 +863,8 @@ def _flat_atomic_overlay(
         if returns_old_value
         else _SCHEDULE_FLAT_ATOMIC_NO_RETURN
     )
-    result_operand = (
-        _vgpr_agpr_result(units=value_units)
-        if allow_accumulator_operands
-        else _vgpr_result(units=value_units)
-    )
-    data_operand = (
-        _vgpr_agpr_operand("value", units=value_units)
-        if allow_accumulator_operands
-        else _vgpr_operand("value", units=value_units)
-    )
+    result_operand = _vgpr_result(units=value_units)
+    data_operand = _vgpr_operand("value", units=value_units)
     ignored_operands: tuple[AmdgpuIgnoredOperandOverlay, ...] = ()
     if returns_old_value:
         operands: tuple[AmdgpuOperandOverlay, ...] = (
@@ -989,7 +980,6 @@ def _flat_atomic_cmpswap_overlay(
     fixed_saddr: AmdgpuFixedEncodingValue | None,
     implicit_flat_scratch: bool,
     xml_has_m0: bool,
-    allow_accumulator_operands: bool,
     value_units: int,
     width_bits: int,
 ) -> AmdgpuDescriptorOverlay:
@@ -1007,16 +997,8 @@ def _flat_atomic_cmpswap_overlay(
         for field_name, _bit_width in cache_fields
         if field_name not in cache_immediate_field_names
     )
-    result_operand = (
-        _vgpr_agpr_result(units=value_units)
-        if allow_accumulator_operands
-        else _vgpr_result(units=value_units)
-    )
-    data_operand = (
-        _vgpr_agpr_operand("value", units=value_units * 2)
-        if allow_accumulator_operands
-        else _vgpr_operand("value", units=value_units * 2)
-    )
+    result_operand = _vgpr_result(units=value_units)
+    data_operand = _vgpr_operand("value", units=value_units * 2)
     if fixed_saddr is not None:
         fixed_encoding_fields += (("SADDR", fixed_saddr),)
     implicit_operands: tuple[AmdgpuImplicitOperandOverlay, ...] = (
@@ -1094,7 +1076,6 @@ def _flat_atomic_overlays(
     fixed_saddr: AmdgpuFixedEncodingValue | None = None,
     implicit_flat_scratch: bool,
     xml_has_m0: bool = False,
-    allow_accumulator_operands: bool = False,
     cmpswap_mnemonic_suffix: str = "b64",
 ) -> tuple[AmdgpuDescriptorOverlay, ...]:
     overlays: list[AmdgpuDescriptorOverlay] = []
@@ -1121,7 +1102,6 @@ def _flat_atomic_overlays(
                     fixed_saddr=fixed_saddr,
                     implicit_flat_scratch=implicit_flat_scratch,
                     xml_has_m0=xml_has_m0,
-                    allow_accumulator_operands=allow_accumulator_operands,
                     value_units=row.value_units,
                     width_bits=row.width_bits,
                 )
@@ -1147,7 +1127,6 @@ def _flat_atomic_overlays(
                 fixed_saddr=fixed_saddr,
                 implicit_flat_scratch=implicit_flat_scratch,
                 xml_has_m0=xml_has_m0,
-                allow_accumulator_operands=allow_accumulator_operands,
                 value_units=row.value_units,
                 width_bits=row.width_bits,
             )
@@ -1172,7 +1151,6 @@ def _flat_atomic_overlays(
             fixed_saddr=fixed_saddr,
             implicit_flat_scratch=implicit_flat_scratch,
             xml_has_m0=xml_has_m0,
-            allow_accumulator_operands=allow_accumulator_operands,
             value_units=1,
             width_bits=32,
         )
@@ -1197,7 +1175,6 @@ def _flat_atomic_overlays(
             fixed_saddr=fixed_saddr,
             implicit_flat_scratch=implicit_flat_scratch,
             xml_has_m0=xml_has_m0,
-            allow_accumulator_operands=allow_accumulator_operands,
             value_units=2,
             width_bits=64,
         )

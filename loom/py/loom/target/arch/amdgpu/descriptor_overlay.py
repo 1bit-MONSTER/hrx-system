@@ -19,6 +19,7 @@ from dataclasses import dataclass, replace
 
 from loom.target.arch.amdgpu.encoding import (
     AMDGPU_ENCODING_FORMAT_XML_NAMES_BY_ID,
+    AMDGPU_MEMORY_REGISTER_ENCODING_ADAPTERS,
     AMDGPU_REGISTER_ENCODING_ADAPTERS,
     amdgpu_encoding_field_id,
     amdgpu_encoding_field_name,
@@ -74,6 +75,8 @@ _REGISTER_PART_WIDTH_BITS = {
     "amdgpu.sgpr.high16": 16,
     "amdgpu.vgpr.low16": 16,
     "amdgpu.vgpr.high16": 16,
+    "amdgpu.agpr.low16": 16,
+    "amdgpu.agpr.high16": 16,
 }
 
 AMDGPU_D16_PARTIAL_REGISTER_SIZE_REASON = "d16-instruction-uses-half-register"
@@ -625,6 +628,19 @@ def _validate_operand_overlay(
             )
         _validate_operand_role(overlay, operand_overlay, xml_operand)
         _validate_operand_width(overlay, operand_overlay, xml_operand)
+        if (
+            overlay.encoding_name in AMDGPU_MEMORY_REGISTER_ENCODING_ADAPTERS
+            and any(
+                alternative.reg_class == "amdgpu.agpr"
+                for alternative in operand_overlay.descriptor_operand.reg_alts
+            )
+            and xml_operand.operand_type != "OPR_VGPR_OR_ACCVGPR"
+        ):
+            raise AmdgpuDescriptorOverlayError(
+                f"descriptor overlay '{overlay.descriptor_key}' exposes accumulator "
+                f"memory operand '{operand_overlay.descriptor_operand.field_name}' "
+                f"with incompatible XML type '{xml_operand.operand_type}'"
+            )
         covered_fields.add(operand_overlay.xml_field_name)
 
     for ignored_operand in overlay.ignored_operands:

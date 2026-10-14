@@ -67,7 +67,7 @@ low.func.def target<amdgpu.cdna3.core>(@target) @completed_result_gfx942(%addres
   low.cond_br %more, ^load, ^exit : reg<amdgpu.scc>
 ^load:
   %offset = v_add_u32 %address, %address
-  %value = global_load_dword_saddr %offset, %base
+  %value = global_load_dword_saddr %offset, %base : reg<amdgpu.vgpr>
   low.br ^consume
 ^consume:
   %next = v_add_f32 %accumulator, %value

@@ -31,11 +31,18 @@ _MATRIX_REGISTER_ENCODING_ADAPTERS = {
     "SRC2": AmdgpuRegisterEncodingAdapter.ACC_CD,
 }
 
+AMDGPU_MEMORY_REGISTER_ENCODING_ADAPTERS = {
+    encoding: {field: AmdgpuRegisterEncodingAdapter.ACC0 for field in fields}
+    for encoding, fields in (
+        ("ENC_FLAT", ("VDST", "DATA")),
+        ("ENC_FLAT_GLBL", ("VDST", "DATA")),
+        ("ENC_FLAT_SCRATCH", ("VDST", "DATA")),
+        ("ENC_MUBUF", ("VDATA",)),
+    )
+}
+
 AMDGPU_REGISTER_ENCODING_ADAPTERS = {
-    "ENC_FLAT": {
-        "VDST": AmdgpuRegisterEncodingAdapter.ACC0,
-        "DATA": AmdgpuRegisterEncodingAdapter.ACC0,
-    },
+    **AMDGPU_MEMORY_REGISTER_ENCODING_ADAPTERS,
     "VOP3P_MFMA": _MATRIX_REGISTER_ENCODING_ADAPTERS,
     "ENC_VOP3PX2": _MATRIX_REGISTER_ENCODING_ADAPTERS,
 }

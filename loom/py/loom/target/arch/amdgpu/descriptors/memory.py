@@ -3233,15 +3233,10 @@ def _flat_load_overlay(
     data_format_name: str,
     implicit_flat_scratch: bool,
     xml_has_m0: bool,
-    allow_accumulator_results: bool,
     fixed_saddr: AmdgpuFixedEncodingValue | None = None,
     cache_fields: tuple[tuple[str, int], ...] = (),
 ) -> AmdgpuDescriptorOverlay:
-    result_operand = (
-        _vgpr_agpr_result(units=units)
-        if allow_accumulator_results
-        else _vgpr_result(units=units)
-    )
+    result_operand = _vgpr_result(units=units)
     implicit_operands: tuple[AmdgpuImplicitOperandOverlay, ...] = (
         _ignore_generic_memory(
             width_bits=width_bits,
@@ -3396,15 +3391,12 @@ def _flat_store_overlay(
     data_format_name: str,
     implicit_flat_scratch: bool,
     xml_has_m0: bool,
-    allow_accumulator_operands: bool,
     fixed_saddr: AmdgpuFixedEncodingValue | None = None,
     cache_fields: tuple[tuple[str, int], ...] = (),
 ) -> AmdgpuDescriptorOverlay:
     vgpr_register_part = _REG_PART_VGPR_LOW16 if width_bits < 32 else None
-    value_operand = (
-        _vgpr_agpr_operand("value", units=units, vgpr_register_part=vgpr_register_part)
-        if allow_accumulator_operands
-        else _vgpr_operand("value", units=units, register_part=vgpr_register_part)
+    value_operand = _vgpr_operand(
+        "value", units=units, register_part=vgpr_register_part
     )
     value_size_exception_reason = (
         _BYTE_STORE_PARTIAL_REGISTER_SIZE_REASON
@@ -3481,8 +3473,6 @@ def _flat_memory_overlays(
     offset_signed: bool,
     implicit_flat_scratch: bool,
     xml_has_m0: bool = False,
-    allow_accumulator_results: bool = False,
-    allow_accumulator_operands: bool = False,
     fixed_saddr: AmdgpuFixedEncodingValue | None = None,
     cache_fields: tuple[tuple[str, int], ...] = (),
 ) -> tuple[AmdgpuDescriptorOverlay, ...]:
@@ -3504,7 +3494,6 @@ def _flat_memory_overlays(
                 data_format_name=data_format_name,
                 implicit_flat_scratch=implicit_flat_scratch,
                 xml_has_m0=xml_has_m0,
-                allow_accumulator_results=allow_accumulator_results,
                 fixed_saddr=fixed_saddr,
                 cache_fields=cache_fields,
             )
@@ -3537,7 +3526,6 @@ def _flat_memory_overlays(
                 data_format_name=data_format_name,
                 implicit_flat_scratch=implicit_flat_scratch,
                 xml_has_m0=xml_has_m0,
-                allow_accumulator_operands=allow_accumulator_operands,
                 fixed_saddr=fixed_saddr,
                 cache_fields=cache_fields,
             )
@@ -3634,7 +3622,7 @@ def _scratch_load_overlay(
         flags=(DescriptorFlag.SIDE_EFFECTING,),
         asm_forms=_asm(
             mnemonic=asm_mnemonic,
-            native_assembly_mnemonic=mnemonic,
+            native_assembly_mnemonic=instruction_name.lower(),
             results=("dst",),
             operands=asm_operands,
             immediates=_memory_asm_immediate_names(cache_fields),
@@ -3736,7 +3724,7 @@ def _scratch_store_overlay(
         flags=(DescriptorFlag.SIDE_EFFECTING,),
         asm_forms=_asm(
             mnemonic=asm_mnemonic,
-            native_assembly_mnemonic=mnemonic,
+            native_assembly_mnemonic=instruction_name.lower(),
             operands=asm_operands,
             immediates=_memory_asm_immediate_names(cache_fields),
             named_immediates=True,

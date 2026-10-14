@@ -38,9 +38,9 @@ low.func.def target<amdgpu.cdna4.core>(@target) @atomic_return_flags(%address: r
   flat_atomic_add %address, %value {sc1 = 1}
   %old = flat_atomic_add_rtn %address, %value {sc1 = 1} : reg<amdgpu.vgpr>
   global_atomic_add_saddr %offset, %value, %base
-  %global_old = global_atomic_add_rtn_saddr %offset, %value, %base {sc1 = 1}
-  %compared = global_atomic_cmpswap_rtn_saddr %offset, %pair, %base
-  %wide_compared = global_atomic_cmpswap_x2_rtn_saddr %offset, %wide_pair, %base
+  %global_old = global_atomic_add_rtn_saddr %offset, %value, %base {sc1 = 1} : reg<amdgpu.vgpr>
+  %compared = global_atomic_cmpswap_rtn_saddr %offset, %pair, %base : reg<amdgpu.vgpr>
+  %wide_compared = global_atomic_cmpswap_x2_rtn_saddr %offset, %wide_pair, %base : reg<amdgpu.vgpr x2>
   return
 }
 // ----
@@ -141,9 +141,9 @@ low.func.def target<amdgpu.rdna4.core>(@target) @temporal_hints(%address: reg<am
 amdgpu.target<gfx90a> @target
 
 low.func.def target<amdgpu.cdna2.core>(@target) @buffer_address_forms(%resource: reg<amdgpu.sgpr x4>, %address: reg<amdgpu.vgpr>, %offset: reg<amdgpu.sgpr>, %m0: reg<amdgpu.m0>) asm {
-  %full = buffer_load_dword %resource, %address, %offset {offset = 4, glc = 1}
-  %vector = buffer_load_u8_vaddr_offset %resource, %address {offset = 8, slc = 1}
-  %scalar = buffer_load_dword_off_zero %resource {glc = 1, slc = 1}
+  %full = buffer_load_dword %resource, %address, %offset {offset = 4, glc = 1} : reg<amdgpu.vgpr>
+  %vector = buffer_load_u8_vaddr_offset %resource, %address {offset = 8, slc = 1} : reg<amdgpu.vgpr>
+  %scalar = buffer_load_dword_off_zero %resource {glc = 1, slc = 1} : reg<amdgpu.vgpr>
   buffer_store_dword %full, %resource, %address, %offset {glc = 1}
   buffer_store_b8_vaddr_offset %vector, %resource, %address {slc = 1}
   buffer_store_dword_off_zero %scalar, %resource {glc = 1, slc = 1}

@@ -97,7 +97,7 @@ low.func.def target<amdgpu.rdna4.gfx125x.core>(@target) @gfx1250_vmem_to_lds_con
 amdgpu.target<gfx942> @target
 
 low.func.def target<amdgpu.cdna3.core>(@target) @gfx942_vmem_to_valu_continuation(%address: reg<amdgpu.vgpr>, %input: reg<amdgpu.sgpr x2>, %a: reg<amdgpu.vgpr>, %b: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
-  %loaded = global_load_dword_saddr %address, %input
+  %loaded = global_load_dword_saddr %address, %input : reg<amdgpu.vgpr>
   %continued = v_cvt_pk_fp8_f32_high %loaded, %a, %b
   %result = v_add_u32 %continued, %address
   return %result
@@ -119,7 +119,7 @@ low.func.def target<amdgpu.cdna3.core>(@target) @gfx942_vmem_to_valu_continuatio
 amdgpu.target<gfx950> @target
 
 low.func.def target<amdgpu.cdna4.core>(@target) @gfx950_vmem_to_valu_continuation(%address: reg<amdgpu.vgpr>, %input: reg<amdgpu.sgpr x2>, %a: reg<amdgpu.vgpr>, %b: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
-  %loaded = global_load_dword_saddr %address, %input
+  %loaded = global_load_dword_saddr %address, %input : reg<amdgpu.vgpr>
   %continued = v_cvt_pk_fp8_f32_high %loaded, %a, %b
   %result = v_add_u32 %continued, %address
   return %result

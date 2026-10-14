@@ -14,6 +14,7 @@ from loom.target.arch.amdgpu.descriptors.api import (
 )
 from loom.target.arch.amdgpu.descriptors.common import (
     _REG_AGPR,
+    _REG_PART_AGPR_LOW16,
     _REG_PART_VGPR_LOW16,
     _REG_VGPR,
 )
@@ -259,4 +260,55 @@ def test_flat_store_read_parts_follow_the_selected_register_class(target: str) -
             _REG_PART_VGPR_LOW16 if width < 32 else None
         )
         if _REG_AGPR in parts_by_class:
-            assert parts_by_class[_REG_AGPR] is None
+            assert parts_by_class[_REG_AGPR] == (
+                _REG_PART_AGPR_LOW16 if width < 32 else None
+            )
+
+
+@pytest.mark.parametrize("target", ["cdna2", "cdna3", "cdna4", "gfx9_4_generic"])
+def test_cdna_memory_payloads_share_accumulator_parts_and_address_banks(
+    target: str,
+) -> None:
+    families = set()
+    for overlay in _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS[target].overlay_rows():
+        family = overlay.instruction_name.partition("_")[0]
+        if family not in ("FLAT", "GLOBAL", "SCRATCH", "BUFFER"):
+            continue
+        for row in overlay.operands:
+            operand = row.descriptor_operand
+            alternatives = {alt.reg_class: alt for alt in operand.reg_alts}
+            if row.xml_field_name in ("VDST", "DATA", "VDATA"):
+                assert alternatives.keys() == {_REG_VGPR, _REG_AGPR}, (
+                    overlay.descriptor_key
+                )
+                vector = alternatives[_REG_VGPR]
+                accumulator = alternatives[_REG_AGPR]
+                assert (
+                    replace(
+                        accumulator,
+                        reg_class=_REG_VGPR,
+                        register_part=vector.register_part,
+                    )
+                    == vector
+                )
+                assert accumulator.register_part == (
+                    _REG_PART_AGPR_LOW16
+                    if vector.register_part == _REG_PART_VGPR_LOW16
+                    else None
+                ), overlay.descriptor_key
+                families.add(family)
+            else:
+                assert _REG_AGPR not in alternatives, overlay.descriptor_key
+    assert families == {"FLAT", "GLOBAL", "SCRATCH", "BUFFER"}
+
+
+@pytest.mark.parametrize("target", _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS)
+def test_scratch_native_spelling_comes_from_the_selected_instruction(
+    target: str,
+) -> None:
+    for overlay in _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS[target].overlay_rows():
+        if not overlay.instruction_name.startswith("SCRATCH_"):
+            continue
+        assert overlay.asm_forms
+        for form in overlay.asm_forms:
+            assert form.native_assembly_mnemonic == overlay.instruction_name.lower()

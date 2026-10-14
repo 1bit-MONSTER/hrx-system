@@ -39,6 +39,7 @@ from .control import *
 from .integer_multiply import *
 from .matrix import *
 from .memory import *
+from .memory_banks import _with_accumulator_memory_banks
 from .rdna3 import *
 from .rdna4 import *
 from .rdna4m import *
@@ -366,7 +367,7 @@ def _cdna_core_overlays(
         if isa_generation >= 4
         else _BUFFER_LOAD_LDS_CDNA3_VARIANTS
     )
-    return (
+    overlays = (
         _s_add_u32_overlay(),
         _s_add_co_u32_overlay(),
         _s_add_co_u32_rhs_inline_overlay(),
@@ -927,8 +928,6 @@ def _cdna_core_overlays(
             offset_signed=False,
             implicit_flat_scratch=True,
             xml_has_m0=True,
-            allow_accumulator_results=True,
-            allow_accumulator_operands=True,
             cache_fields=cache_fields,
         ),
         *_flat_atomic_overlays(
@@ -949,7 +948,6 @@ def _cdna_core_overlays(
             cache_immediate_field_names=("SC1",) if isa_generation >= 3 else ("SLC",),
             implicit_flat_scratch=True,
             xml_has_m0=True,
-            allow_accumulator_operands=True,
         ),
         *_ds_memory_overlays(
             cmpxchg_expected_field="DATA0",
@@ -985,6 +983,8 @@ def _cdna_core_overlays(
             lgkmcnt_immediate=_LGKMCNT_4BIT_IMMEDIATE,
         ),
     )
+
+    return _with_accumulator_memory_banks(overlays)
 
 
 @cache

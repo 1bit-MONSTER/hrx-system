@@ -753,7 +753,7 @@ low.func.def target<amdgpu.rdna3.core>(@target) @global_load_store_cross_block_a
 amdgpu.target<gfx942> @target {subgroup_size = 64}
 
 low.func.def target<amdgpu.cdna3.core>(@target) @global_load_store_cross_block_antidependency_cdna3(%addr: reg<amdgpu.vgpr>, %input: reg<amdgpu.sgpr x2>, %value: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
-  %unused = global_load_dword_saddr %addr, %input
+  %unused = global_load_dword_saddr %addr, %input : reg<amdgpu.vgpr>
   low.br ^store
 ^store:
   global_store_dword_saddr %addr, %value, %output
@@ -935,7 +935,7 @@ amdgpu.target<gfx942> @target
 
 low.func.def target<amdgpu.cdna3.core>(@target) @cdna_scratch_memory_ordering(%value: reg<amdgpu.vgpr>, %addr: reg<amdgpu.vgpr>, %output: reg<amdgpu.sgpr x2>) asm {
   scratch_store_b32_offset_only %value
-  %loaded = scratch_load_b32_offset_only
+  %loaded = scratch_load_b32_offset_only : reg<amdgpu.vgpr>
   global_store_dword_saddr %addr, %loaded, %output
   return
 }
@@ -944,8 +944,8 @@ low.func.def target<amdgpu.cdna3.core>(@target) @cdna_scratch_memory_ordering(%v
 // without completing the store first. The loaded value must complete before
 // its global store consumes it, and program exit drains both stores.
 // ----
-  scratch_store_b32 off, v0, off offset:0
-  scratch_load_b32 v0, off, off offset:0
+  scratch_store_dword off, v0, off offset:0
+  scratch_load_dword v0, off, off offset:0
   s_waitcnt vmcnt(0) lgkmcnt(15)
   global_store_dword v1, v0, s[0:1] offset:0
   s_waitcnt vmcnt(0) lgkmcnt(15)

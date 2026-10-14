@@ -12,9 +12,9 @@
 amdgpu.target<gfx942> @target
 
 low.func.def target<amdgpu.cdna3.core>(@target) @buffer_scalar_capture_gfx942(%resource: reg<amdgpu.sgpr x4>, %address: reg<amdgpu.vgpr>, %offset: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
-  %first = buffer_load_dword %resource, %address, %offset
+  %first = buffer_load_dword %resource, %address, %offset : reg<amdgpu.vgpr>
   %next_offset = s_add_u32_rhs_inline %offset, 4
-  %second = buffer_load_dword %resource, %address, %next_offset
+  %second = buffer_load_dword %resource, %address, %next_offset : reg<amdgpu.vgpr>
   return %first, %second
 }
 
@@ -31,9 +31,9 @@ low.func.def target<amdgpu.cdna3.core>(@target) @buffer_scalar_capture_gfx942(%r
 amdgpu.target<gfx950> @target
 
 low.func.def target<amdgpu.cdna4.core>(@target) @buffer_scalar_capture_gfx950(%resource: reg<amdgpu.sgpr x4>, %address: reg<amdgpu.vgpr>, %offset: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
-  %first = buffer_load_dword %resource, %address, %offset
+  %first = buffer_load_dword %resource, %address, %offset : reg<amdgpu.vgpr>
   %next_offset = s_add_u32_rhs_inline %offset, 4
-  %second = buffer_load_dword %resource, %address, %next_offset
+  %second = buffer_load_dword %resource, %address, %next_offset : reg<amdgpu.vgpr>
   return %first, %second
 }
 
@@ -50,9 +50,9 @@ low.func.def target<amdgpu.cdna4.core>(@target) @buffer_scalar_capture_gfx950(%r
 amdgpu.target<gfx9-4-generic> @target
 
 low.func.def target<amdgpu.gfx9_4.generic.core>(@target) @buffer_scalar_capture_gfx9_4_generic(%resource: reg<amdgpu.sgpr x4>, %address: reg<amdgpu.vgpr>, %offset: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
-  %first = buffer_load_dword %resource, %address, %offset
+  %first = buffer_load_dword %resource, %address, %offset : reg<amdgpu.vgpr>
   %next_offset = s_add_u32_rhs_inline %offset, 4
-  %second = buffer_load_dword %resource, %address, %next_offset
+  %second = buffer_load_dword %resource, %address, %next_offset : reg<amdgpu.vgpr>
   return %first, %second
 }
 
@@ -263,7 +263,7 @@ low.func.def target<amdgpu.rdna4.gfx1251.core>(@target) @buffer_scalar_capture_g
 amdgpu.target<gfx942> @target
 
 low.func.def target<amdgpu.cdna3.core>(@target) @global_atomic_scalar_capture(%base: reg<amdgpu.sgpr x2>, %address: reg<amdgpu.vgpr>, %value: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.sgpr>) asm {
-  %old = global_atomic_add_rtn_saddr %address, %value, %base
+  %old = global_atomic_add_rtn_saddr %address, %value, %base : reg<amdgpu.vgpr>
   %replacement = s_mov_b32 0
   return %old, %replacement
 }

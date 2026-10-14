@@ -12,11 +12,11 @@ low.func.def target<amdgpu.cdna3.core>(@target) @scratch_chain(%live: reg<amdgpu
   %initial_address = storage_address %storage : low.storage<private> -> reg<amdgpu.vgpr>
   scratch_store_b64_vaddr %initial_address, %live
   %wide_load_address = storage_address %storage : low.storage<private> -> reg<amdgpu.vgpr>
-  %wide = scratch_load_b64_vaddr %wide_load_address
+  %wide = scratch_load_b64_vaddr %wide_load_address : reg<amdgpu.vgpr x2>
   %wide_store_address = storage_address %storage : low.storage<private> -> reg<amdgpu.vgpr>
   scratch_store_b64_vaddr %wide_store_address, %wide
   %narrow_load_address = storage_address %storage : low.storage<private> -> reg<amdgpu.vgpr>
-  %narrow = scratch_load_b32_vaddr %narrow_load_address
+  %narrow = scratch_load_b32_vaddr %narrow_load_address : reg<amdgpu.vgpr>
   %narrow_store_address = storage_address %storage : low.storage<private> -> reg<amdgpu.vgpr>
   scratch_store_b32_vaddr %narrow_store_address, %narrow
   %final_address = storage_address %storage : low.storage<private> -> reg<amdgpu.vgpr>
@@ -41,11 +41,11 @@ low.func.def target<amdgpu.cdna3.core>(@target) @literal_chain(%live: reg<amdgpu
   %initial_address = v_mov_b32 0
   scratch_store_b64_vaddr %initial_address, %live
   %wide_load_address = v_mov_b32 0
-  %wide = scratch_load_b64_vaddr %wide_load_address
+  %wide = scratch_load_b64_vaddr %wide_load_address : reg<amdgpu.vgpr x2>
   %wide_store_address = v_mov_b32 0
   scratch_store_b64_vaddr %wide_store_address, %wide
   %narrow_load_address = v_mov_b32 0
-  %narrow = scratch_load_b32_vaddr %narrow_load_address
+  %narrow = scratch_load_b32_vaddr %narrow_load_address : reg<amdgpu.vgpr>
   %narrow_store_address = v_mov_b32 0
   scratch_store_b32_vaddr %narrow_store_address, %narrow
   %final_address = v_mov_b32 0

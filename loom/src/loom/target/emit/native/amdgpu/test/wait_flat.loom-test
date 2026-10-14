@@ -436,7 +436,7 @@ low.func.def target<amdgpu.cdna3.core>(@target) @explicit_partial_flat_lds(%addr
 amdgpu.target<gfx942> @target
 
 low.func.def target<amdgpu.cdna3.core>(@target) @explicit_partial_flat_vmem(%address: reg<amdgpu.vgpr x2>, %base: reg<amdgpu.sgpr x2>, %offset: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
-  %older = global_load_dword_saddr %offset, %base
+  %older = global_load_dword_saddr %offset, %base : reg<amdgpu.vgpr>
   %younger = flat_load_dword %address : reg<amdgpu.vgpr>
   s_waitcnt {vmcnt = 1}
   %used = v_add_u32 %older, %offset

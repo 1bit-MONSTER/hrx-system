@@ -309,7 +309,7 @@ low.func.def target<amdgpu.cdna3.core>(@target) @wide_store_non_valu_writer(%add
 amdgpu.target<gfx942> @target
 
 low.func.def target<amdgpu.cdna3.core>(@target) @wide_compare_swap_reuse(%address: reg<amdgpu.vgpr>, %data: reg<amdgpu.vgpr x4>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr x2>) asm {
-  %old = global_atomic_cmpswap_x2_rtn_saddr %address, %data, %base
+  %old = global_atomic_cmpswap_x2_rtn_saddr %address, %data, %base : reg<amdgpu.vgpr x2>
   %replacement = v_mov_b32 42
   return %replacement, %old
 }

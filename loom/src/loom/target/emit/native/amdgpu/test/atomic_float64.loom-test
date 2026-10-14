@@ -4,7 +4,7 @@ amdgpu.target<gfx942> @target
 
 low.func.def target<amdgpu.cdna3.core>(@target) @float64_gfx942(%address: reg<amdgpu.vgpr x2>, %offset: reg<amdgpu.vgpr>, %value: reg<amdgpu.vgpr x2>, %base: reg<amdgpu.sgpr x2>) asm {
   global_atomic_add_f64_saddr %offset, %value, %base {offset = 16}
-  %global_add = global_atomic_add_f64_rtn_saddr %offset, %value, %base {offset = 16}
+  %global_add = global_atomic_add_f64_rtn_saddr %offset, %value, %base {offset = 16} : reg<amdgpu.vgpr x2>
   flat_atomic_add_f64 %address, %value {offset = 16}
   %flat_add = flat_atomic_add_f64_rtn %address, %value {offset = 16} : reg<amdgpu.vgpr x2>
   ds_add_f64 %offset, %value {offset = 16}

@@ -79,15 +79,15 @@ low.func.def target<amdgpu.gfx9_4.generic.core>(@gfx9_4_generic_target) @gfx9_4_
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
   v_mov_b32 v0, s0
-  scratch_store_b32 off, v0, off offset:0
+  scratch_store_dword off, v0, off offset:0
   v_mov_b32 v0, s1
-  scratch_store_b32 off, v0, off offset:4
+  scratch_store_dword off, v0, off offset:4
   s_mov_b64 exec, s[2:3]
   s_mov_b64_exec_read s[0:1]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:0
+  scratch_load_dword v0, off, off offset:0
   v_readfirstlane_b32 s2, v0
-  scratch_load_b32 v0, off, off offset:4
+  scratch_load_dword v0, off, off offset:4
   v_readfirstlane_b32 s3, v0
   s_mov_b64 exec, s[0:1]
   s_endpgm
@@ -197,16 +197,16 @@ low.func.def target<amdgpu.gfx9_4.generic.core>(@gfx9_4_generic_target) @gfx9_4_
   s_mov_b64_exec_read s[2:3]
   s_mov_b64 exec, -1
   v_mov_b32 v0, s0
-  scratch_store_b32 off, v0, off offset:0
+  scratch_store_dword off, v0, off offset:0
   v_mov_b32 v0, s1
-  scratch_store_b32 off, v0, off offset:4
+  scratch_store_dword off, v0, off offset:4
   s_mov_b64 exec, s[2:3]
   s_mov_b64_exec_read s[0:1]
   s_mov_b64 exec, -1
-  scratch_load_b32 v0, off, off offset:0
+  scratch_load_dword v0, off, off offset:0
   s_waitcnt vmcnt(0) lgkmcnt(15)
   v_readfirstlane_b32 s2, v0
-  scratch_load_b32 v0, off, off offset:4
+  scratch_load_dword v0, off, off offset:4
   s_waitcnt vmcnt(0) lgkmcnt(15)
   v_readfirstlane_b32 s3, v0
   s_mov_b64 exec, s[0:1]

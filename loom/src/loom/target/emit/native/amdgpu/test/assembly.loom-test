@@ -3090,9 +3090,9 @@ low.func.def target<amdgpu.cdna4.core>(@gfx950_target) @gfx950_buffer_load_lds(%
 amdgpu.target<gfx950> @gfx950_target
 
 low.func.def target<amdgpu.cdna4.core>(@gfx950_target) @gfx950_dwordx3_memory(%resource: reg<amdgpu.sgpr x4>, %vaddr: reg<amdgpu.vgpr>, %soffset: reg<amdgpu.sgpr>, %addr: reg<amdgpu.vgpr>, %saddr: reg<amdgpu.sgpr x2>) asm {
-  %buffer = buffer_load_dwordx3 %resource, %vaddr, %soffset {offset = 12}
+  %buffer = buffer_load_dwordx3 %resource, %vaddr, %soffset {offset = 12} : reg<amdgpu.vgpr x3>
   buffer_store_dwordx3 %buffer, %resource, %vaddr, %soffset {offset = 16}
-  %global = global_load_dwordx3_saddr %addr, %saddr {offset = 4}
+  %global = global_load_dwordx3_saddr %addr, %saddr {offset = 4} : reg<amdgpu.vgpr x3>
   global_store_dwordx3_saddr %addr, %global, %saddr {offset = 8}
   return
 }
@@ -3110,10 +3110,10 @@ low.func.def target<amdgpu.cdna4.core>(@gfx950_target) @gfx950_dwordx3_memory(%r
 amdgpu.target<gfx950> @gfx950_target
 
 low.func.def target<amdgpu.cdna4.core>(@gfx950_target) @gfx950_narrow_vmem_loads(%resource: reg<amdgpu.sgpr x4>, %vaddr: reg<amdgpu.vgpr>, %soffset: reg<amdgpu.sgpr>, %saddr: reg<amdgpu.sgpr x2>) asm {
-  %buffer_u8 = buffer_load_u8 %resource, %vaddr, %soffset {offset = 4}
-  %buffer_i16 = buffer_load_i16 %resource, %vaddr, %soffset {offset = 8}
-  %global_u8 = global_load_ubyte_saddr %vaddr, %saddr {offset = 12}
-  %global_i16 = global_load_sshort_saddr %vaddr, %saddr {offset = 16}
+  %buffer_u8 = buffer_load_u8 %resource, %vaddr, %soffset {offset = 4} : reg<amdgpu.vgpr>
+  %buffer_i16 = buffer_load_i16 %resource, %vaddr, %soffset {offset = 8} : reg<amdgpu.vgpr>
+  %global_u8 = global_load_ubyte_saddr %vaddr, %saddr {offset = 12} : reg<amdgpu.vgpr>
+  %global_i16 = global_load_sshort_saddr %vaddr, %saddr {offset = 16} : reg<amdgpu.vgpr>
   return
 }
 
@@ -3753,7 +3753,7 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @gfx11_trans_result_expire
 amdgpu.target<gfx950> @gfx_target
 
 low.func.def target<amdgpu.cdna4.core>(@gfx_target) @wait_fragment(%value: reg<amdgpu.vgpr>, %resource: reg<amdgpu.sgpr x4>, %soffset: reg<amdgpu.sgpr>, %vaddr: reg<amdgpu.vgpr>) asm {
-  %loaded = buffer_load_dword %resource, %vaddr, %soffset
+  %loaded = buffer_load_dword %resource, %vaddr, %soffset : reg<amdgpu.vgpr>
   buffer_store_dword %loaded, %resource, %vaddr, %soffset {offset = 4}
   return
 }

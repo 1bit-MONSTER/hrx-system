@@ -5,15 +5,15 @@ amdgpu.target<gfx942> @target
 
 low.func.def target<amdgpu.cdna3.core>(@target) @wide_gfx942(%address: reg<amdgpu.vgpr x2>, %offset: reg<amdgpu.vgpr>, %value: reg<amdgpu.vgpr x2>, %base: reg<amdgpu.sgpr x2>) asm {
   global_atomic_sub_x2_saddr %offset, %value, %base
-  %global_sub_u64 = global_atomic_sub_x2_rtn_saddr %offset, %value, %base
+  %global_sub_u64 = global_atomic_sub_x2_rtn_saddr %offset, %value, %base : reg<amdgpu.vgpr x2>
   flat_atomic_sub_x2 %address, %value
   %flat_sub_u64 = flat_atomic_sub_x2_rtn %address, %value : reg<amdgpu.vgpr x2>
   global_atomic_smin_x2_saddr %offset, %value, %base
-  %global_min_i64 = global_atomic_smin_x2_rtn_saddr %offset, %value, %base
+  %global_min_i64 = global_atomic_smin_x2_rtn_saddr %offset, %value, %base : reg<amdgpu.vgpr x2>
   flat_atomic_smin_x2 %address, %value
   %flat_min_i64 = flat_atomic_smin_x2_rtn %address, %value : reg<amdgpu.vgpr x2>
   global_atomic_xor_x2_saddr %offset, %value, %base
-  %global_xor_b64 = global_atomic_xor_x2_rtn_saddr %offset, %value, %base
+  %global_xor_b64 = global_atomic_xor_x2_rtn_saddr %offset, %value, %base : reg<amdgpu.vgpr x2>
   flat_atomic_xor_x2 %address, %value
   %flat_xor_b64 = flat_atomic_xor_x2_rtn %address, %value : reg<amdgpu.vgpr x2>
   return
@@ -53,15 +53,15 @@ amdgpu.target<gfx950> @target
 
 low.func.def target<amdgpu.cdna4.core>(@target) @wide_gfx950(%address: reg<amdgpu.vgpr x2>, %offset: reg<amdgpu.vgpr>, %value: reg<amdgpu.vgpr x2>, %base: reg<amdgpu.sgpr x2>) asm {
   global_atomic_sub_x2_saddr %offset, %value, %base
-  %global_sub_u64 = global_atomic_sub_x2_rtn_saddr %offset, %value, %base
+  %global_sub_u64 = global_atomic_sub_x2_rtn_saddr %offset, %value, %base : reg<amdgpu.vgpr x2>
   flat_atomic_sub_x2 %address, %value
   %flat_sub_u64 = flat_atomic_sub_x2_rtn %address, %value : reg<amdgpu.vgpr x2>
   global_atomic_smin_x2_saddr %offset, %value, %base
-  %global_min_i64 = global_atomic_smin_x2_rtn_saddr %offset, %value, %base
+  %global_min_i64 = global_atomic_smin_x2_rtn_saddr %offset, %value, %base : reg<amdgpu.vgpr x2>
   flat_atomic_smin_x2 %address, %value
   %flat_min_i64 = flat_atomic_smin_x2_rtn %address, %value : reg<amdgpu.vgpr x2>
   global_atomic_xor_x2_saddr %offset, %value, %base
-  %global_xor_b64 = global_atomic_xor_x2_rtn_saddr %offset, %value, %base
+  %global_xor_b64 = global_atomic_xor_x2_rtn_saddr %offset, %value, %base : reg<amdgpu.vgpr x2>
   flat_atomic_xor_x2 %address, %value
   %flat_xor_b64 = flat_atomic_xor_x2_rtn %address, %value : reg<amdgpu.vgpr x2>
   return
