@@ -35,6 +35,7 @@
 #include "loom/transforms/conversion/target_legalization.h"
 #include "loom/transforms/scalar/target_legalization.h"
 #include "loom/transforms/vector/cast_packet_legalization.h"
+#include "loom/transforms/vector/packet_insert_legalization.h"
 #include "loom/transforms/vector/packet_legalization.h"
 #include "loom/transforms/vector/shape_legalization.h"
 #include "loom/transforms/vector/table_legalization.h"
@@ -278,7 +279,8 @@ static iree_status_t loom_amdgpu_legalize_static_vector_shape(
   }
   if (!rewritten && loom_vector_insert_isa(op)) {
     IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_insert(
-        context, op, context->vector_packet_policy, &rewritten));
+        context, op, context->vector_packet_policy,
+        /*insert_materializer=*/NULL, &rewritten));
   }
   if (!rewritten && loom_vector_slice_isa(op) &&
       loom_vector_slice_offsets(op).count != 0) {

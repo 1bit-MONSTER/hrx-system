@@ -1549,6 +1549,9 @@ iree_status_t loom_vector_component_packet_legalize(
     uint32_t* out_rewritten_op_count) {
   *out_query_cache = loom_vector_component_packet_query_cache_empty();
   *out_rewritten_op_count = 0;
+  if (context->source_function_has_unsupported_vector_carrier) {
+    return iree_ok_status();
+  }
   const loom_target_vector_packet_policy_t* policy =
       context->vector_packet_policy;
   if (policy->native_lane_count_count == 0) {

@@ -215,22 +215,22 @@ kernel.def target(@target) @preserve_unpacketized_source_type() {
   %17 = vector.load %source_view[32] : view<36xf16> -> vector<4xf16>
   view.store %replacement, %source_view[0] : f16, view<36xf16>
   %19 = vector.extf %9 : vector<4xf16> to vector<4xf32>
-  %20 = vector.extf %10 : vector<4xf16> to vector<4xf32>
-  %21 = vector.extf %11 : vector<4xf16> to vector<4xf32>
-  %22 = vector.extf %12 : vector<4xf16> to vector<4xf32>
-  %23 = vector.extf %13 : vector<4xf16> to vector<4xf32>
-  %24 = vector.extf %14 : vector<4xf16> to vector<4xf32>
-  %25 = vector.extf %15 : vector<4xf16> to vector<4xf32>
-  %26 = vector.extf %16 : vector<4xf16> to vector<4xf32>
-  %27 = vector.extf %17 : vector<4xf16> to vector<4xf32>
   vector.store %19, %destination_view[0] : vector<4xf32>, view<36xf32>
+  %20 = vector.extf %10 : vector<4xf16> to vector<4xf32>
   vector.store %20, %destination_view[4] : vector<4xf32>, view<36xf32>
+  %21 = vector.extf %11 : vector<4xf16> to vector<4xf32>
   vector.store %21, %destination_view[8] : vector<4xf32>, view<36xf32>
+  %22 = vector.extf %12 : vector<4xf16> to vector<4xf32>
   vector.store %22, %destination_view[12] : vector<4xf32>, view<36xf32>
+  %23 = vector.extf %13 : vector<4xf16> to vector<4xf32>
   vector.store %23, %destination_view[16] : vector<4xf32>, view<36xf32>
+  %24 = vector.extf %14 : vector<4xf16> to vector<4xf32>
   vector.store %24, %destination_view[20] : vector<4xf32>, view<36xf32>
+  %25 = vector.extf %15 : vector<4xf16> to vector<4xf32>
   vector.store %25, %destination_view[24] : vector<4xf32>, view<36xf32>
+  %26 = vector.extf %16 : vector<4xf16> to vector<4xf32>
   vector.store %26, %destination_view[28] : vector<4xf32>, view<36xf32>
+  %27 = vector.extf %17 : vector<4xf16> to vector<4xf32>
   vector.store %27, %destination_view[32] : vector<4xf32>, view<36xf32>
   kernel.return
 }

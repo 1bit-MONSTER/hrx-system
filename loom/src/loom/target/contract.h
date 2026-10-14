@@ -81,7 +81,8 @@ typedef enum loom_target_vector_packet_policy_flag_bits_e {
   // packet planner so they never slice an unsupported memory snapshot.
   LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_MEMORY_ROOT_COMPONENTS = 1u << 1,
   // Projects unsupported static vector carriers across callable, CFG, and
-  // LoopLike boundaries using native lane candidates.
+  // LoopLike boundaries using native lane candidates. Object-function
+  // signatures retain their authored platform ABI.
   LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_BOUNDARY_PROJECTION = 1u << 2,
 } loom_target_vector_packet_policy_flag_bits_t;
 typedef uint8_t loom_target_vector_packet_policy_flags_t;

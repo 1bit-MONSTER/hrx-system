@@ -245,8 +245,10 @@ loom_cc_library(
   NAME
     packet_legalization
   HDRS
+    "packet_insert_legalization.h"
     "packet_legalization.h"
   SRCS
+    "packet_insert_legalization.c"
     "packet_legalization.c"
     "packet_materialization.c"
     "packet_materialization.h"

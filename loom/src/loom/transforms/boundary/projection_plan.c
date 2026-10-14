@@ -795,13 +795,25 @@ static iree_status_t loom_boundary_projection_collect_function(
         &walk_result));
   }
 
+  loom_block_t* entry_block = loom_region_entry_block(body);
+  const bool entry_uses_function_argument_schemas =
+      function->argument_schemas != NULL &&
+      entry_block->arg_count == function->argument_count &&
+      (entry_block->arg_count == 0 ||
+       memcmp(entry_block->arg_ids, function->arguments,
+              entry_block->arg_count * sizeof(*entry_block->arg_ids)) == 0);
   bool may_have_block_slot = false;
   loom_block_t* block = NULL;
   loom_region_for_each_block(body, block) {
     for (uint16_t i = 0; i < block->arg_count; ++i) {
-      may_have_block_slot |= loom_boundary_projection_may_claim_slot(
-          plan, function, LOOM_BOUNDARY_PROJECTION_SLOT_BLOCK_ARGUMENT,
-          loom_block_arg_id(block, i), block);
+      may_have_block_slot |=
+          entry_uses_function_argument_schemas && block == entry_block
+              ? loom_boundary_projection_schema_is_projected(
+                    &function->argument_schemas[i])
+              : loom_boundary_projection_may_claim_slot(
+                    plan, function,
+                    LOOM_BOUNDARY_PROJECTION_SLOT_BLOCK_ARGUMENT,
+                    loom_block_arg_id(block, i), block);
     }
   }
 
@@ -822,10 +834,17 @@ static iree_status_t loom_boundary_projection_collect_function(
   if (may_have_block_slot) {
     loom_region_for_each_block(body, block) {
       for (uint16_t i = 0; i < block->arg_count; ++i) {
+        const loom_boundary_projection_schema_t* required_schema = NULL;
+        if (entry_uses_function_argument_schemas && block == entry_block) {
+          required_schema = &function->argument_schemas[i];
+          if (!loom_boundary_projection_schema_is_projected(required_schema)) {
+            continue;
+          }
+        }
         IREE_RETURN_IF_ERROR(loom_boundary_projection_add_slot(
             plan, function, loom_block_arg_id(block, i),
             LOOM_BOUNDARY_PROJECTION_SLOT_BLOCK_ARGUMENT, block, NULL,
-            /*required_schema=*/NULL));
+            required_schema));
       }
     }
   }
