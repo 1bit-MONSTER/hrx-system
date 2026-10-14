@@ -15,6 +15,7 @@
 #include "loom/target/facts_builder.h"
 #include "loom/util/fact_cfg.h"
 #include "loom/util/fact_loop.h"
+#include "loom/util/fact_relation.h"
 #include "loom/util/fact_vector_partition.h"
 
 //===----------------------------------------------------------------------===//
@@ -446,6 +447,7 @@ void loom_value_fact_table_clear_scope(loom_value_fact_table_t* table) {
   table->select_dependencies.index = NULL;
   table->select_dependencies.roots = NULL;
   table->select_dependencies.capacity = 0;
+  loom_value_fact_integer_relations_clear_scope(table);
   table->exact_relations.ops = NULL;
   table->exact_relations.count = 0;
   table->exact_relations.capacity = 0;
@@ -916,6 +918,7 @@ iree_status_t loom_value_fact_table_define(loom_value_fact_table_t* table,
 
 void loom_value_fact_table_undefine(loom_value_fact_table_t* table,
                                     loom_value_id_t value_id) {
+  loom_value_fact_integer_relations_undefine(table, value_id);
   if (table->layout_origins) {
     loom_value_fact_table_clear_layout_strides(table, value_id);
   }
@@ -1792,6 +1795,8 @@ iree_status_t loom_value_fact_table_clone_values(
     IREE_RETURN_IF_ERROR(loom_value_fact_table_set_identity(
         target, value_id,
         loom_value_fact_table_query_identity(source, value_id)));
+    IREE_RETURN_IF_ERROR(loom_value_fact_integer_relations_clone_value(
+        target, source, value_id));
     if (source->layout_origins || target->layout_origins) {
       IREE_RETURN_IF_ERROR(loom_value_fact_table_define_layout_strides(
           target, value_id,
@@ -2046,6 +2051,10 @@ iree_status_t loom_value_fact_table_propagate_origins(
             table, operands[i], results[i]));
       }
     }
+  }
+  IREE_RETURN_IF_ERROR(loom_value_fact_integer_relations_propagate_origins(
+      table, module, op, traits, inout_changed));
+  if (loom_traits_are_fact_identity(traits)) {
     // Whole-region structured traversal intentionally omits change reporting;
     // every visited identity belongs to the freshly populated scope.
     // Incremental and cyclic traversal supplies a report pointer and only
