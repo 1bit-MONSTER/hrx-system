@@ -20,6 +20,8 @@
 namespace loomc::bench {
 namespace {
 
+using PreamblePtr = HandlePtr<loomc_cxx_preamble_t, loomc_cxx_preamble_release>;
+
 struct CxxKernel {
   // Embedded source filename; one compilation unit may contain several kernels.
   const char* source;
@@ -74,7 +76,8 @@ static iree_status_t CreateEmbeddedSource(const EmbeddedSource& embedded,
 
 class CxxSourceScenarioBase : public TargetCompileScenario {
  public:
-  explicit CxxSourceScenarioBase(const CxxKernel& kernel) : kernel_(kernel) {}
+  CxxSourceScenarioBase(const CxxKernel& kernel, bool restore_preamble)
+      : kernel_(kernel), restore_preamble_(restore_preamble) {}
 
   iree_host_size_t job_count() const override { return 1; }
 
@@ -124,6 +127,30 @@ class CxxSourceScenarioBase : public TargetCompileScenario {
       include_sources_.push_back(std::move(include_source));
     }
 
+    if (restore_preamble_) {
+      const loomc_string_view_t root = loomc_make_cstring_view(kernel_.root);
+      loomc_cxx_import_options_t options = {
+          .type = LOOMC_STRUCTURE_TYPE_CXX_IMPORT_OPTIONS,
+          .structure_size = sizeof(options),
+          .fp_model = LOOMC_CXX_FP_MODEL_FAST,
+          .roots = &root,
+          .root_count = 1,
+      };
+      if (!include_sources_.empty()) {
+        options.source_provider = {ProvideSource, this};
+      }
+      loomc_cxx_preamble_t* raw_preamble = nullptr;
+      loomc_result_t* raw_result = nullptr;
+      IREE_RETURN_IF_ERROR(to_iree_status(loomc_cxx_preamble_create(
+          context_.get(), source_.get(), &options, loom_allocator(),
+          &raw_preamble, &raw_result)));
+      PreamblePtr preamble(raw_preamble);
+      ResultPtr result(raw_result);
+      IREE_RETURN_IF_ERROR(
+          RequireSucceededResult(result.get(), "C++ preamble creation"));
+      preamble_ = std::move(preamble);
+    }
+
     std::string config;
     for (int axis = 0; axis < 3; ++axis) {
       config += "config.def @" + std::string(kernel_.root) +
@@ -147,6 +174,7 @@ class CxxSourceScenarioBase : public TargetCompileScenario {
         .fp_model = LOOMC_CXX_FP_MODEL_FAST,
         .roots = &root,
         .root_count = 1,
+        .preamble = preamble_.get(),
     };
     if (!include_sources_.empty()) {
       options.source_provider = {ProvideSource, this};
@@ -233,6 +261,8 @@ class CxxSourceScenarioBase : public TargetCompileScenario {
 
   // Static benchmark registration selecting source, export and target.
   const CxxKernel& kernel_;
+  // Whether each timed import restores the setup-time semantic preamble.
+  bool restore_preamble_;
   // Immutable source text backed by the embedded corpus table.
   SourcePtr source_;
   // Immutable user includes returned through the source provider.
@@ -241,14 +271,16 @@ class CxxSourceScenarioBase : public TargetCompileScenario {
   WorkspacePtr setup_workspace_;
   // Ordinary immutable config module shared by source compilations.
   ModulePtr config_;
+  // Optional immutable prefix restored into each timed translation unit.
+  PreamblePtr preamble_;
   // Embedded source size reported independently of generated artifacts.
   int64_t source_byte_count_ = 0;
 };
 
 class CxxSourceScenario final : public CxxSourceScenarioBase {
  public:
-  explicit CxxSourceScenario(const CxxKernel& kernel)
-      : CxxSourceScenarioBase(kernel) {}
+  CxxSourceScenario(const CxxKernel& kernel, bool restore_preamble)
+      : CxxSourceScenarioBase(kernel, restore_preamble) {}
 
   iree_status_t SetUp(iree_host_size_t worker_count) override {
     return SetUpSource(worker_count, LOOMC_TARGET_PIPELINE_KIND_PREPARED_LOW);
@@ -268,7 +300,8 @@ class CxxSourceScenario final : public CxxSourceScenarioBase {
 class CxxJitPhaseScenario final : public CxxSourceScenarioBase {
  public:
   CxxJitPhaseScenario(CxxJitPhase phase, const CxxKernel& kernel)
-      : CxxSourceScenarioBase(kernel), phase_(phase) {}
+      : CxxSourceScenarioBase(kernel, /*restore_preamble=*/false),
+        phase_(phase) {}
 
   iree_status_t SetUp(iree_host_size_t worker_count) override {
     const loomc_target_pipeline_kind_t pipeline_kind =
@@ -345,7 +378,14 @@ std::unique_ptr<CompileScenario> CreateCxxSourceScenario(
     const ::benchmark::State& state, const void* user_data) {
   (void)state;
   return std::make_unique<CxxSourceScenario>(
-      *static_cast<const CxxKernel*>(user_data));
+      *static_cast<const CxxKernel*>(user_data), /*restore_preamble=*/false);
+}
+
+std::unique_ptr<CompileScenario> CreateCxxPreambleSourceScenario(
+    const ::benchmark::State& state, const void* user_data) {
+  (void)state;
+  return std::make_unique<CxxSourceScenario>(
+      *static_cast<const CxxKernel*>(user_data), /*restore_preamble=*/true);
 }
 
 std::unique_ptr<CompileScenario> CreateCxxJitPhaseScenario(
@@ -357,6 +397,10 @@ std::unique_ptr<CompileScenario> CreateCxxJitPhaseScenario(
 
 void SourceToHsaco(::benchmark::State& state, const CxxKernel* kernel) {
   RunCompileBenchmarkDirect(state, CreateCxxSourceScenario, kernel);
+}
+
+void PreambleToHsaco(::benchmark::State& state, const CxxKernel* kernel) {
+  RunCompileBenchmarkDirect(state, CreateCxxPreambleSourceScenario, kernel);
 }
 
 void SourceToHsacoColdWorkspace(::benchmark::State& state,
@@ -508,6 +552,11 @@ BENCHMARK_CAPTURE(SourceToHsaco, ConfiguredWorkgroupStorage,
 BENCHMARK_CAPTURE(SourceToHsaco, NvFp4Gfx1100, &kNvFp4Gfx1100)
     ->Unit(::benchmark::kMicrosecond);
 BENCHMARK_CAPTURE(SourceToHsaco, NvFp4Gfx942, &kNvFp4Gfx942)
+    ->Unit(::benchmark::kMicrosecond);
+
+BENCHMARK_CAPTURE(PreambleToHsaco, FlashAttention, &kFlashAttention)
+    ->Unit(::benchmark::kMicrosecond);
+BENCHMARK_CAPTURE(PreambleToHsaco, RmsNorm, &kRmsNorm)
     ->Unit(::benchmark::kMicrosecond);
 
 BENCHMARK_CAPTURE(SourceToHsacoColdWorkspace, RmsNorm, &kRmsNorm)
