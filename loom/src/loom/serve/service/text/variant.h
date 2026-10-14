@@ -25,7 +25,7 @@ iree_status_t loom_serve_text_variant_compile_async(
     iree_hal_command_buffer_mode_t command_mode,
     const loom_serve_sources_t* sources,
     const loomc_sanitizer_options_t* sanitizer,
-    loom_serve_text_variant_completion_fn_t completion, void* user_data,
+    loom_serve_variant_completion_fn_t completion, void* user_data,
     iree_allocator_t host_allocator);
 
 // Checks that a successfully compiled candidate belongs to owner and rebinds

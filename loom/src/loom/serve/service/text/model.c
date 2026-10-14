@@ -832,7 +832,7 @@ loom_serve_device_t* loom_serve_text_model_device(
 iree_status_t loom_serve_text_model_compile_variant_async(
     loom_serve_text_model_t* model, const loom_serve_sources_t* sources,
     const loomc_sanitizer_options_t* sanitizer,
-    loom_serve_text_variant_completion_fn_t completion, void* user_data) {
+    loom_serve_variant_completion_fn_t completion, void* user_data) {
   return loom_serve_text_variant_compile_async(
       model, model->device_owner, model->source.preparation,
       model->source.shared_stage_count, model->stage_count, model->stages,

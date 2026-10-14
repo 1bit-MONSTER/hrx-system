@@ -219,6 +219,7 @@ loom_cc_library(
     loom::serve::runtime::program::module
     loom::serve::runtime::program::preparation
     loom::serve::runtime::program::sources
+    loom::serve::runtime::program::variant_pool
     loom::serve::runtime::storage::block_pool
     loom::serve::runtime::storage::memory
     loom::serve::runtime::storage::relocation
@@ -504,12 +505,9 @@ loom_cc_library(
   DEPS
     ::model
     iree::base
-    loom::serve::runtime::host::wake
-    loom::serve::runtime::program::compilation
-    loom::serve::runtime::program::package
     loom::serve::runtime::program::sources
     loom::serve::runtime::program::variant_pool
-    loom::serve::service::reconfiguration
+    loom::serve::service::execution_reconfiguration
   PUBLIC
 )
 
@@ -551,6 +549,7 @@ loom_cc_library(
     loom::serve::runtime::host::timer
     loom::serve::runtime::host::wake
     loom::serve::service
+    loom::serve::service::execution_reconfiguration
     loom::serve::telemetry::record
     loom::serve::telemetry::stream
     loom::serve::transport::http::request

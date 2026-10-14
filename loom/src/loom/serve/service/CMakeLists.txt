@@ -39,6 +39,24 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    execution_reconfiguration
+  HDRS
+    "execution_reconfiguration.h"
+  SRCS
+    "execution_reconfiguration.c"
+  DEPS
+    ::reconfiguration
+    iree::base
+    loom::serve::runtime::host::wake
+    loom::serve::runtime::program::compilation
+    loom::serve::runtime::program::package
+    loom::serve::runtime::program::sources
+    loom::serve::runtime::program::variant_pool
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     inspection
   HDRS
     "inspection.h"

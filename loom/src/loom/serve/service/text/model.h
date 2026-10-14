@@ -14,6 +14,7 @@
 #include "loom/serve/runtime/parameter/weights.h"
 #include "loom/serve/runtime/program/compilation.h"
 #include "loom/serve/runtime/program/sources.h"
+#include "loom/serve/runtime/program/variant_pool.h"
 #include "loom/serve/runtime/storage/memory.h"
 #include "loom/serve/service/text/chat.h"
 #include "loom/serve/service/text/packing.h"
@@ -43,13 +44,6 @@ typedef struct loom_serve_text_checkpoint_t loom_serve_text_checkpoint_t;
 // Candidates retain commands and weight-root references, never weight copies.
 typedef struct loom_serve_text_variant_t loom_serve_text_variant_t;
 
-// Runs after all compilation and recording have retired, on a shared worker.
-// Transfers status and variant, including a failed variant's diagnostic report.
-// The callback only publishes to the serialized model owner; it cannot select
-// code, destroy the model, or wait for device/host work on this worker.
-typedef void (*loom_serve_text_variant_completion_fn_t)(
-    void* user_data, iree_status_t status, loom_serve_text_variant_t* variant);
-
 // Compiles the native providers in sources against this model's original
 // stage roots/configuration. Cold preparation and warm control VM code remain
 // unchanged; sources.prepare/control are not consumed. A new catalog snapshots
@@ -64,7 +58,7 @@ typedef void (*loom_serve_text_variant_completion_fn_t)(
 iree_status_t loom_serve_text_model_compile_variant_async(
     loom_serve_text_model_t* model, const loom_serve_sources_t* sources,
     const loomc_sanitizer_options_t* sanitizer,
-    loom_serve_text_variant_completion_fn_t completion, void* user_data);
+    loom_serve_variant_completion_fn_t completion, void* user_data);
 
 // Selects a ready same-model candidate at a completed model boundary, excluding
 // concurrent VM invocation. NULL restores the initial native stages. Existing

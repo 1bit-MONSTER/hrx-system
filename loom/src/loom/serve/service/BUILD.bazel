@@ -37,6 +37,21 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "execution_reconfiguration",
+    srcs = ["execution_reconfiguration.c"],
+    hdrs = ["execution_reconfiguration.h"],
+    deps = [
+        ":reconfiguration",
+        "//loom/src/loom/serve/runtime/host:wake",
+        "//loom/src/loom/serve/runtime/program:compilation",
+        "//loom/src/loom/serve/runtime/program:package",
+        "//loom/src/loom/serve/runtime/program:sources",
+        "//loom/src/loom/serve/runtime/program:variant_pool",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
     name = "inspection",
     srcs = ["inspection.c"],
     hdrs = ["inspection.h"],

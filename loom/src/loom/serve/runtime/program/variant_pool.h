@@ -32,6 +32,13 @@ typedef struct loom_serve_variant_pool_t loom_serve_variant_pool_t;
 // for a base choice whose executable ownership remains with the model.
 typedef void (*loom_serve_variant_dispose_fn_t)(void* value);
 
+// Terminal compiler ownership transfer after its final model/input access.
+// Takes status and payload even on failure. The report borrows payload storage
+// during the callback. Publication may wake the owner, never mutate its model.
+typedef void (*loom_serve_variant_completion_fn_t)(
+    void* user_data, iree_status_t status, void* value,
+    const loom_serve_compilation_report_t* report);
+
 // Owner-thread observation. Message/report views borrow the entry until its
 // removal; no compiler-owned data escapes. Compiling entries expose neither
 // partially published results nor diagnostics still being written by a job.

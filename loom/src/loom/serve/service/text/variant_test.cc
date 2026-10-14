@@ -62,19 +62,19 @@ class VariantCompilation {
     auto status = loom_serve_text_model_compile_variant_async(
         self->model_, &self->sources_, nullptr, Complete, self);
     if (!iree_status_is_ok(status)) {
-      Complete(self, status, nullptr);
+      Complete(self, status, nullptr, nullptr);
     }
     result->completed = true;
     result->did_work = true;
     return iree_ok_status();
   }
 
-  static void Complete(void* user_data, iree_status_t status,
-                       loom_serve_text_variant_t* variant) {
+  static void Complete(void* user_data, iree_status_t status, void* variant,
+                       const loom_serve_compilation_report_t* report) {
     auto* self = static_cast<VariantCompilation*>(user_data);
     std::lock_guard<std::mutex> lock(self->mutex_);
     self->status_ = status;
-    self->variant_ = variant;
+    self->variant_ = static_cast<loom_serve_text_variant_t*>(variant);
     self->completed_ = true;
     self->condition_.notify_one();
   }

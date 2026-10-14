@@ -51,7 +51,7 @@ typedef struct loom_serve_text_variant_job_t {
   // Initial task outcome, consumed by its final release.
   iree_status_t status;
   // Terminal ownership transfer, invoked after all compiler work retires.
-  loom_serve_text_variant_completion_fn_t completion;
+  loom_serve_variant_completion_fn_t completion;
   // Borrowed terminal notification payload.
   void* user_data;
 } loom_serve_text_variant_job_t;
@@ -123,10 +123,10 @@ static void loom_serve_text_variant_finish(loom_serve_text_variant_job_t* job,
   }
   variant->ready = iree_status_is_ok(status);
   loom_serve_jit_free(job->jit);
-  const loom_serve_text_variant_completion_fn_t completion = job->completion;
+  const loom_serve_variant_completion_fn_t completion = job->completion;
   void* user_data = job->user_data;
   iree_allocator_free(variant->host_allocator, job);
-  completion(user_data, status, variant);
+  completion(user_data, status, variant, &variant->compilation);
 }
 
 static void loom_serve_text_variant_compiled(void* user_data,
@@ -193,7 +193,7 @@ iree_status_t loom_serve_text_variant_compile_async(
     iree_hal_command_buffer_mode_t command_mode,
     const loom_serve_sources_t* sources,
     const loomc_sanitizer_options_t* sanitizer,
-    loom_serve_text_variant_completion_fn_t completion, void* user_data,
+    loom_serve_variant_completion_fn_t completion, void* user_data,
     iree_allocator_t host_allocator) {
   loom_serve_text_variant_t* variant = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(host_allocator, sizeof(*variant),
