@@ -382,7 +382,7 @@ enum amdf_gpu_sdma_format_feature_bits_e {
 /// observes command-processor progress and does not complete shader work.
 #define AMDF_GPU_AQL_QUEUE_FORMAT_VERSION_1 1u
 
-/// Optional native AQL packets reported in `format_features`.
+/// Optional native AQL operations reported in `format_features`.
 enum amdf_gpu_aql_format_feature_bits_e {
   /// AMD vendor format 2 BARRIER_VALUE waits until (signal_value & mask)
   /// satisfies the signed 64-bit HSA comparison against its reference value.
@@ -391,6 +391,9 @@ enum amdf_gpu_aql_format_feature_bits_e {
   /// the last dependent execution completion. Ordinary dispatch, BARRIER_AND,
   /// and BARRIER_OR support does not imply this vendor extension.
   AMDF_GPU_AQL_FORMAT_FEATURE_BARRIER_VALUE = UINT64_C(1) << 4,
+  /// Queue creation accepts AMDF_GPU_USER_QUEUE_FLAG_DISPATCH_TIMESTAMPS.
+  /// Availability does not enable capture; the caller selects it at creation.
+  AMDF_GPU_AQL_FORMAT_FEATURE_DISPATCH_TIMESTAMPS = UINT64_C(1) << 5,
 };
 
 /// Scratch backing borrowed by one directly published compute queue.
@@ -429,6 +432,30 @@ typedef struct amdf_gpu_queue_scratch_t {
   uint32_t maximum_wave_count;
 } amdf_gpu_queue_scratch_t;
 
+/// Immutable options selected when a directly published GPU queue is created.
+typedef uint32_t amdf_gpu_user_queue_flags_t;
+enum amdf_gpu_user_queue_flag_bits_e {
+  /// Enables AQL firmware dispatch timestamps for the queue's lifetime.
+  /// Requires the AQL DISPATCH_TIMESTAMPS format feature. PM4 and SDMA use
+  /// explicit timestamp commands and reject this option.
+  ///
+  /// A dispatch with its own native completion signal writes unsigned 64-bit
+  /// start/end ticks at bytes 32/40 of that 64-byte signal block. The caller
+  /// initializes both fields to zero, gives the signal to only one outstanding
+  /// dispatch, acquires its completion, and consumes both fields before reuse.
+  /// Rearming the signal value does not clear old timestamps. A shared signal
+  /// or a later barrier's completion cannot identify individual intervals.
+  ///
+  /// The interval spans firmware packet processing, not exact first/last
+  /// shader instructions. device_query_queue_clock_info supplies the nominal
+  /// tick rate; it supplies no host epoch, cross-queue offset, or continuity
+  /// across device resets. A resident dispatch has only its outer interval.
+  ///
+  /// This option adds firmware timestamp writes, not library-owned signals,
+  /// collection, or synchronization. Zero flags leave capture disabled.
+  AMDF_GPU_USER_QUEUE_FLAG_DISPATCH_TIMESTAMPS = 1u << 0,
+};
+
 /// Parameters used to acquire one directly published GPU queue.
 typedef struct amdf_gpu_user_queue_create_info_t {
   /// Must be `AMDF_STRUCTURE_TYPE_GPU_USER_QUEUE_CREATE_INFO`.
@@ -443,8 +470,8 @@ typedef struct amdf_gpu_user_queue_create_info_t {
   amdf_queue_priority_t priority;
   /// Required producer reservation protocol.
   amdf_queue_producer_mode_t producer_mode;
-  /// Reserved for compatible growth and must be zero.
-  uint32_t reserved;
+  /// Immutable queue options. Unknown bits are invalid.
+  amdf_gpu_user_queue_flags_t flags;
   /// Direct producer capabilities that creation must achieve.
   /// Optional device publication must be requested here; mapping does not
   /// upgrade a queue's achieved capabilities. A family capability describes

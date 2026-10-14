@@ -1351,6 +1351,43 @@ TEST_F(KfdUserQueueTest, AqlEncodesCallerOwnedRetainedScratchPerXcc) {
   EXPECT_EQ(native_state_.buffer_create_count, 4);
 }
 
+TEST_F(KfdUserQueueTest, AqlSelectsDispatchTimestampsBeforeNativeActivation) {
+  for (const uint32_t target :
+       {90400u, 90401u, 90402u, 90500u, 110000u, 110001u, 110002u, 110003u,
+        110500u, 110501u, 110502u, 110503u, 110700u, 110701u, 110702u, 120000u,
+        120001u, 120500u, 120501u}) {
+    SCOPED_TRACE(target);
+    SelectAqlTopology();
+    const bool cdna = target < 100000;
+    device_.topology.properties.gfx_ip = {target / 10000, (target / 100) % 100,
+                                          target % 100};
+    device_.topology.properties.compute.wavefront_size = cdna ? 64 : 32;
+    device_.topology.properties.topology.xcc_count = cdna ? 8 : 1;
+    device_.topology.gc_ip = target >= 120500
+                                 ? amdf_gpu_kfd_ip_version_t{12, 1, 0, true}
+                                 : amdf_gpu_kfd_ip_version_t{};
+    for (const bool enabled : {false, true}) {
+      SCOPED_TRACE(enabled);
+      native_state_.Reset();
+      auto create_info = MakeCreateInfo(AMDF_QUEUE_COMMAND_TYPE_GPU_AQL);
+      create_info.dispatch_timestamps = enabled;
+      ASSERT_EQ(amdf_gpu_umd_user_queue_create(&device_, &create_info, &queue_,
+                                               &queue_result_),
+                AMDF_STATUS_OK);
+      const auto& descriptor = native_state_.observed_aql_descriptor;
+      // The fake native create snapshots the actual descriptor before the
+      // native queue can fetch it. No later descriptor update is required.
+      EXPECT_EQ(descriptor.queue_properties, enabled ? 10u : 2u);
+      EXPECT_EQ(descriptor.write_dispatch_id, 0u);
+      EXPECT_EQ(descriptor.read_dispatch_id, 0u);
+      EXPECT_EQ(native_state_.queue_create_count, 1);
+      ASSERT_EQ(amdf_gpu_umd_user_queue_destroy(queue_), AMDF_STATUS_OK);
+      queue_ = nullptr;
+      EXPECT_EQ(native_state_.LiveBufferCount(), 0u);
+    }
+  }
+}
+
 TEST_F(KfdUserQueueTest,
        RdnaAqlDescriptorUsesNativeAperturesAndScratchEncoding) {
   for (uint32_t target : {110000u, 110501u, 110700u, 120000u, 120500u}) {

@@ -143,7 +143,40 @@ Standard AQL dispatch and AND/OR barriers do not imply the optional vendor
 barrier-value packet. A caller using that packet additionally requires
 `AMDF_GPU_AQL_FORMAT_FEATURE_BARRIER_VALUE` in the family's `format_features`.
 
-## SDMA queue observations
+## Queue timing
+
+### AQL dispatch timestamps
+
+An AQL family advertising
+`AMDF_GPU_AQL_FORMAT_FEATURE_DISPATCH_TIMESTAMPS` accepts
+`AMDF_GPU_USER_QUEUE_FLAG_DISPATCH_TIMESTAMPS` in its queue creation `flags`.
+The option enables native firmware capture for the queue lifetime. Zero flags
+leave capture disabled; the feature bit alone does not turn it on. PM4 and
+SDMA use explicit timestamp commands and reject this queue option.
+
+Each observed dispatch receives an exclusive caller-owned 64-byte native
+signal, with its start/end fields initialized to zero. Firmware writes the
+unsigned 64-bit start/end ticks at byte offsets 32/40. The caller acquires that
+dispatch's completion and copies the timestamps to its own sink before reusing
+the signal. Rearming only the signal value leaves old timestamp bytes intact.
+A signal shared by several dispatches, or attached only to a final barrier,
+does not identify individual dispatch intervals.
+
+Capture selection adds no libamdf call to submission or collection. The caller
+can cycle a bounded set of signals throughout execution, with completion and
+consumption preceding each reuse. A runtime can enable the queue property at
+creation and independently select which dispatches receive observation signals.
+Changing the native property on an already-used queue requires firmware state
+reload; queue creation establishes it before activation instead.
+
+The interval describes firmware packet processing, not exact first/last shader
+instructions. Resident programs produce one outer interval. The nominal queue
+clock rate supplies duration units; host correlation uses actual source
+observations and bounds as described below. The
+[hardware dispatch contract](../../docs/reference/amd/gpu/aql/profiling.md#dispatch-timestamps)
+describes native layout and sampling semantics separately from the API.
+
+### SDMA timestamps
 
 An admitted SDMA format-1 queue can write raw `TIMESTAMP_GET_GLOBAL` samples
 into caller-owned device-writable storage. The caller brackets its intended
@@ -159,6 +192,8 @@ returns credit only after copying them. This protocol lives in the caller's
 command stream and memory layout. libamdf owns no query pool, result collector,
 record cursor or sample lifetime, and ordinary submission adds no profiling
 work. USER and KERNEL publication retain their native queue contracts.
+
+### Rates and host correlation
 
 GPU extension version 2 exposes the native nominal rate for an admitted queue
 family through `device_query_queue_clock_info`. The same passive clock record

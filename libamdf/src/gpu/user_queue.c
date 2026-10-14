@@ -243,7 +243,9 @@ amdf_status_t AMDF_CALL amdf_gpu_user_queue_create(
   if (!amdf_status_is_ok(status)) {
     return status;
   }
-  if (create_info->reserved != 0 ||
+  if ((create_info->flags & ~(amdf_gpu_user_queue_flags_t)
+                                AMDF_GPU_USER_QUEUE_FLAG_DISPATCH_TIMESTAMPS) !=
+          0 ||
       (create_info->priority != AMDF_QUEUE_PRIORITY_LOW &&
        create_info->priority != AMDF_QUEUE_PRIORITY_NORMAL &&
        create_info->priority != AMDF_QUEUE_PRIORITY_HIGH) ||
@@ -272,6 +274,14 @@ amdf_status_t AMDF_CALL amdf_gpu_user_queue_create(
       (family_info.producer_modes & (1u << create_info->producer_mode)) == 0 ||
       (family_info.priority_capabilities & (1u << create_info->priority)) ==
           0) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+  }
+  const bool dispatch_timestamps =
+      (create_info->flags & AMDF_GPU_USER_QUEUE_FLAG_DISPATCH_TIMESTAMPS) != 0;
+  if (dispatch_timestamps &&
+      (family_info.command_type != AMDF_QUEUE_COMMAND_TYPE_GPU_AQL ||
+       (family_info.format_features &
+        AMDF_GPU_AQL_FORMAT_FEATURE_DISPATCH_TIMESTAMPS) == 0)) {
     return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
   }
   if (create_info->ring_byte_length != 0 &&
@@ -311,6 +321,7 @@ amdf_status_t AMDF_CALL amdf_gpu_user_queue_create(
       .format_version = family_info.format_version,
       .priority = create_info->priority,
       .producer_mode = create_info->producer_mode,
+      .dispatch_timestamps = dispatch_timestamps,
       .required_capabilities = create_info->required_capabilities,
       .roles = family_info.roles,
       .ring_byte_length = create_info->ring_byte_length,

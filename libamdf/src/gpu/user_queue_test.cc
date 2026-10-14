@@ -34,6 +34,8 @@ struct amdf_gpu_umd_user_queue_mapping_t {
 };
 
 struct FakeNativeState {
+  // Native construction calls reached after public input validation.
+  uint32_t create_call_count = 0;
   amdf_status_t create_status = AMDF_STATUS_OK;
   amdf_status_t map_status = AMDF_STATUS_OK;
   amdf_status_t mapping_destroy_status = AMDF_STATUS_OK;
@@ -294,6 +296,80 @@ TEST_F(GpuUserQueueTest, DeviceMappingRetainsExactProducer) {
   EXPECT_EQ(amdf_child_tracker_count(&producer_.base.children), 0u);
 }
 
+TEST_F(GpuUserQueueTest, DispatchTimestampsRequireExplicitQueueSelection) {
+  current_family.command_type = AMDF_QUEUE_COMMAND_TYPE_GPU_AQL;
+  current_family.format_version = AMDF_GPU_AQL_QUEUE_FORMAT_VERSION_1;
+  current_family.format_features =
+      AMDF_GPU_AQL_FORMAT_FEATURE_DISPATCH_TIMESTAMPS;
+  for (const bool enabled : {false, true}) {
+    SCOPED_TRACE(enabled);
+    auto create_info = MakeCreateInfo();
+    create_info.flags =
+        enabled ? AMDF_GPU_USER_QUEUE_FLAG_DISPATCH_TIMESTAMPS : 0;
+    ASSERT_EQ(
+        amdf_gpu_user_queue_create(&consumer_.base, &create_info, &queue_),
+        AMDF_STATUS_OK);
+    EXPECT_EQ(consumer_state_.observed_create.dispatch_timestamps, enabled);
+    EXPECT_EQ(consumer_state_.observed_create.command_type,
+              AMDF_QUEUE_COMMAND_TYPE_GPU_AQL);
+    ASSERT_EQ(amdf_user_queue_destroy(queue_), AMDF_STATUS_OK);
+    queue_ = nullptr;
+  }
+  EXPECT_EQ(consumer_state_.create_call_count, 2u);
+}
+
+TEST_F(GpuUserQueueTest, RejectsUnavailableDispatchTimestampsBeforeCreation) {
+  struct Case {
+    // Native language selected by the family.
+    amdf_queue_command_type_t command_type;
+    // Available operations in that language's feature namespace.
+    amdf_queue_format_features_t format_features;
+  };
+  // Format bits are local to their command language. Even a coincident bit in
+  // a PM4/SDMA family must not enable an AQL-only native property.
+  constexpr Case kCases[] = {
+      {AMDF_QUEUE_COMMAND_TYPE_GPU_PM4, 0},
+      {AMDF_QUEUE_COMMAND_TYPE_GPU_PM4,
+       AMDF_GPU_AQL_FORMAT_FEATURE_DISPATCH_TIMESTAMPS},
+      {AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA, 0},
+      {AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA,
+       AMDF_GPU_AQL_FORMAT_FEATURE_DISPATCH_TIMESTAMPS},
+      {AMDF_QUEUE_COMMAND_TYPE_GPU_AQL, 0},
+  };
+  auto create_info = MakeCreateInfo();
+  create_info.flags = AMDF_GPU_USER_QUEUE_FLAG_DISPATCH_TIMESTAMPS;
+  auto* const sentinel = reinterpret_cast<amdf_user_queue_t*>(uintptr_t{1});
+  for (const auto& test : kCases) {
+    SCOPED_TRACE(test.command_type);
+    SCOPED_TRACE(test.format_features);
+    current_family.command_type = test.command_type;
+    current_family.format_features = test.format_features;
+    auto* output = sentinel;
+    EXPECT_EQ(
+        amdf_gpu_user_queue_create(&consumer_.base, &create_info, &output),
+        amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED));
+    EXPECT_EQ(output, sentinel);
+  }
+  EXPECT_EQ(consumer_state_.create_call_count, 0u);
+  EXPECT_EQ(amdf_child_tracker_count(&consumer_.base.children), 0u);
+}
+
+TEST_F(GpuUserQueueTest, RejectsUnknownQueueFlagsBeforeCreation) {
+  auto create_info = MakeCreateInfo();
+  auto* const sentinel = reinterpret_cast<amdf_user_queue_t*>(uintptr_t{1});
+  for (const uint32_t flags : {2u, 3u, UINT32_MAX}) {
+    SCOPED_TRACE(flags);
+    create_info.flags = flags;
+    auto* output = sentinel;
+    EXPECT_EQ(
+        amdf_gpu_user_queue_create(&consumer_.base, &create_info, &output),
+        amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT));
+    EXPECT_EQ(output, sentinel);
+  }
+  EXPECT_EQ(consumer_state_.create_call_count, 0u);
+  EXPECT_EQ(amdf_child_tracker_count(&consumer_.base.children), 0u);
+}
+
 TEST_F(GpuUserQueueTest, RejectsInvalidScratchWithoutPublishingOutput) {
   amdf_gpu_user_queue_create_info_t create_info = MakeCreateInfo();
   create_info.scratch.byte_length = 0;
@@ -439,6 +515,7 @@ amdf_status_t amdf_gpu_umd_user_queue_create(
     amdf_gpu_umd_user_queue_t** out_queue,
     amdf_gpu_umd_user_queue_result_t* out_result) {
   FakeNativeState* state = device->state;
+  ++state->create_call_count;
   state->observed_create = *create_info;
   if (!amdf_status_is_ok(state->create_status)) {
     return state->create_status;
