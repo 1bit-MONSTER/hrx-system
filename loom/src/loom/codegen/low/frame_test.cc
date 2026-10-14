@@ -1296,6 +1296,45 @@ low.func.def target<test.low.core> @dependency_cycle(%lhs: reg<test.schedule_sta
   EXPECT_EQ(diagnostic_count, 1u);
 }
 
+TEST_F(LowEmissionFrameTest, GuardedMotionReplaysRetainedLocations) {
+  ModulePtr module = ParseModule(R"(
+low.func.def target<test.low.core> @guarded_store(%base: reg<test.ptr>, %origin: reg<test.i32>, %pixel: reg<test.i32>, %color: reg<test.i32 x4>) asm {
+  %condition = test.event.fast.i32 %origin, %pixel
+  low.cond_br %condition, ^store, ^done : reg<test.i32>
+^store:
+  %index = test.total.add.i32 %origin, %pixel
+  test.store.index.v4i32 %base, %index, %color
+  low.br ^done
+^done:
+  return
+}
+)");
+  loom_op_t* function = loom_block_op(loom_module_block(module.get()), 0);
+  loom_region_t* body = loom_low_func_def_body(function);
+  loom_block_t* entry_block = loom_region_block(body, 0);
+  loom_block_t* guarded_block = loom_region_block(body, 1);
+  loom_op_t* branch = entry_block->last_op;
+  loom_op_t* index = loom_block_op(guarded_block, 0);
+
+  loom_low_planning_statistics_t statistics = {};
+  loom_low_emission_frame_options_t options = {
+      .descriptor_registry = &registry_.registry,
+      .schedule_strategy = LOOM_LOW_SCHEDULE_STRATEGY_RESOURCE_STALL,
+      .statistics = &statistics,
+  };
+  loom_low_emission_frame_t frame = {};
+  bool accepted = false;
+  IREE_ASSERT_OK(loom_low_emission_frame_build(module.get(), function, &options,
+                                               &arena_, &frame, &accepted));
+
+  EXPECT_TRUE(accepted);
+  EXPECT_EQ(index->parent_block, entry_block);
+  EXPECT_EQ(index->next_op, branch);
+  EXPECT_EQ(statistics.frame_build_count, 2u);
+  EXPECT_EQ(statistics.allocation_run_count, 2u);
+  EXPECT_EQ(statistics.retained_location_replay_count, 1u);
+}
+
 TEST_F(LowEmissionFrameTest, ProvenNoOpGuardedMotionSkipsTrialFrame) {
   ModulePtr module = ParseModule(R"(
 low.func.def target<test.low.core> @guarded_tail(%base: reg<test.ptr>, %origin: reg<test.i32>, %pixel: reg<test.i32>, %color: reg<test.i32 x4>) -> (reg<test.i32>) asm {
