@@ -560,6 +560,7 @@ def test_scalar_compare_select_rules_cover_native_carrier_matrix() -> None:
         case
         for case in X86_SCALAR_CONTRACT_FRAGMENT.cases
         if isinstance(case, DescriptorRule)
+        and case.source_op in (scalar_comparison.scalar_cmpi, index.index_cmp)
         and case.descriptor is not None
         and case.descriptor.key.startswith("x86.scalar.cmp.select.")
     )

@@ -1,0 +1,75 @@
+// RUN: emit source-low target=x86:avx2 output=low
+
+func.def @scalar_i32_counts(%input: i32) -> (i32, i32, i32) {
+  %leading = scalar.ctlzi %input : i32
+  %trailing = scalar.cttzi %input : i32
+  %population = scalar.ctpopi %input : i32
+  func.return %leading, %trailing, %population : i32, i32, i32
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) @scalar_i32_counts(%input: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>) asm {
+  %11 = bsr.gpr32 %input
+  %12 = xor.imm.gpr32 %11 {imm32 = 31}
+  %13 = mov.imm32 32
+  %leading = cmp.select.imm.gpr32.gpr32 %input, %13, %12, 0, "eq"
+  %15 = bsf.gpr32 %input
+  %trailing = cmp.select.imm.gpr32.gpr32 %input, %13, %15, 0, "eq"
+  %18 = copy %input : reg<x86.gpr32> -> reg<x86.gpr32>
+  %19 = shr.imm.gpr32 %18 {shift = 1}
+  %20 = and.imm.gpr32 %19 {imm32 = 1431655765}
+  %21 = copy %input : reg<x86.gpr32> -> reg<x86.gpr32>
+  %22 = sub.gpr32 %21, %20
+  %23 = copy %22 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %24 = and.imm.gpr32 %23 {imm32 = 858993459}
+  %25 = shr.imm.gpr32 %22 {shift = 2}
+  %26 = and.imm.gpr32 %25 {imm32 = 858993459}
+  %27 = add.gpr32 %24, %26
+  %28 = copy %27 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %29 = shr.imm.gpr32 %28 {shift = 4}
+  %30 = add.gpr32 %27, %29
+  %31 = and.imm.gpr32 %30 {imm32 = 252645135}
+  %32 = imul.imm.gpr32 %31 {imm32 = 16843009}
+  %population = shr.imm.gpr32 %32 {shift = 24}
+  return %leading, %trailing, %population
+}
+
+// ====
+
+func.def @scalar_i64_counts(%input: i64) -> (i64, i64, i64) {
+  %leading = scalar.ctlzi %input : i64
+  %trailing = scalar.cttzi %input : i64
+  %population = scalar.ctpopi %input : i64
+  func.return %leading, %trailing, %population : i64, i64, i64
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) @scalar_i64_counts(%input: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>, reg<x86.gpr64>) asm {
+  %11 = bsr.gpr64 %input
+  %12 = xor.imm.gpr64 %11 {imm32 = 63}
+  %13 = mov.imm64 64
+  %leading = cmp.select.imm.gpr64.gpr64 %input, %13, %12, 0, "eq"
+  %15 = bsf.gpr64 %input
+  %trailing = cmp.select.imm.gpr64.gpr64 %input, %13, %15, 0, "eq"
+  %18 = mov.imm64 6148914691236517205
+  %19 = mov.imm64 3689348814741910323
+  %20 = mov.imm64 1085102592571150095
+  %21 = copy %input : reg<x86.gpr64> -> reg<x86.gpr64>
+  %22 = shr.imm.gpr64 %21 {shift = 1}
+  %23 = and.gpr64 %22, %18
+  %24 = copy %input : reg<x86.gpr64> -> reg<x86.gpr64>
+  %25 = sub.gpr64 %24, %23
+  %26 = copy %25 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %27 = and.gpr64 %26, %19
+  %28 = shr.imm.gpr64 %25 {shift = 2}
+  %29 = and.gpr64 %28, %19
+  %30 = add.gpr64 %27, %29
+  %31 = copy %30 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %32 = shr.imm.gpr64 %31 {shift = 4}
+  %33 = add.gpr64 %30, %32
+  %34 = and.gpr64 %33, %20
+  %35 = mov.imm64 72340172838076673
+  %36 = imul.gpr64 %34, %35
+  %population = shr.imm.gpr64 %36 {shift = 56}
+  return %leading, %trailing, %population
+}
