@@ -36,6 +36,8 @@ loom_corpus_test(
     "numeric/vector/integer_shifts.loom"
     "numeric/vector/integer_widening.loom"
     "numeric/vector/interleave.loom"
+    "numeric/vector/packed/dot.loom"
+    "numeric/vector/packed/narrowing.loom"
     "numeric/vector/reductions.loom"
   XFAILS
     "numeric/conversion/float8_dequantization.loom"

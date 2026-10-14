@@ -111,8 +111,10 @@ _ADAPTER_ONLY_SCENARIOS = [
     "numeric/vector/integer_shifts.loom",
     "numeric/vector/interleave.loom",
     "numeric/vector/lanes.loom",
-    "numeric/vector/packed_arithmetic.loom",
-    "numeric/vector/packed_selection.loom",
+    "numeric/vector/packed/arithmetic.loom",
+    "numeric/vector/packed/dot.loom",
+    "numeric/vector/packed/narrowing.loom",
+    "numeric/vector/packed/selection.loom",
     "numeric/vector/reductions.loom",
     "numeric/vector/selection.loom",
 ]
@@ -134,7 +136,6 @@ loom_corpus_build(
         "//loom/target/amdgpu:all": {
             "kernel/subgroup/reduce.loom:@subgroup_extended_reductions": "AMDGPU/023",
             "numeric/conversion/float8_facts.loom:@float8_facts": "TARGET/034",
-            "numeric/vector/conversion.loom:@pack_nibbles": "AMDGPU/023,TARGET/003",
         },
         "//loom/target/amdgpu:without_bf16_fma": {
             "numeric/vector/broadcast_arithmetic.loom:@broadcast_arithmetic_bf16": "TARGET/003",
@@ -194,7 +195,6 @@ loom_scenario_test(
             "numeric/integer/rotation.loom:@integer_rotation_values": "TARGET/001",
             "numeric/integer/scalar_observations.loom:@portable_index_arithmetic_values": "TARGET/003",
             "numeric/vector/broadcast_arithmetic.loom:@broadcast_arithmetic_bf16_values": "TARGET/003",
-            "numeric/vector/conversion.loom:@packed_nibble_values": "AMDGPU/023,TARGET/003",
             "numeric/vector/float_extrema.loom:@vector_float_extrema_bf16_values": "TARGET/002,TARGET/003",
             "numeric/vector/float_extrema.loom:@vector_float_extrema_f16_values": "TARGET/002,TARGET/003",
             "numeric/vector/float_extrema.loom:@vector_float_extrema_f64_values": "TARGET/002,TARGET/003",
@@ -203,6 +203,8 @@ loom_scenario_test(
             "numeric/vector/float_extrema.loom:@vector_float_extrema_finite_f16_values": "TARGET/002,TARGET/003",
             "numeric/vector/float_extrema.loom:@vector_float_extrema_finite_f64_values": "TARGET/002",
             "numeric/vector/interleave.loom:@irregular_byte_row_mask_values": "AMDGPU/023,TARGET/002",
+            "numeric/vector/packed/narrowing.loom:@packed_nibble_values": "AMDGPU/023,TARGET/003",
+            "numeric/vector/packed/narrowing.loom:@saturating_nibble_values": "AMDGPU/023,TARGET/002,TARGET/031",
         },
     },
 )

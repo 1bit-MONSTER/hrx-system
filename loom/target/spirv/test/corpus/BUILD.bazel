@@ -114,8 +114,10 @@ _ADAPTER_ONLY_SCENARIOS = [
     "numeric/vector/integer_shifts.loom",
     "numeric/vector/interleave.loom",
     "numeric/vector/lanes.loom",
-    "numeric/vector/packed_arithmetic.loom",
-    "numeric/vector/packed_selection.loom",
+    "numeric/vector/packed/arithmetic.loom",
+    "numeric/vector/packed/dot.loom",
+    "numeric/vector/packed/narrowing.loom",
+    "numeric/vector/packed/selection.loom",
     "numeric/vector/reductions.loom",
     "numeric/vector/selection.loom",
 ]
@@ -336,8 +338,6 @@ _NO_EXTENDED_TYPES_XFAILS = {
     "numeric/vector/broadcast_arithmetic.loom:@broadcast_arithmetic_bf16": "TARGET/003",
     "numeric/vector/broadcast_arithmetic.loom:@broadcast_arithmetic_f16": "TARGET/003",
     "numeric/vector/broadcast_arithmetic.loom:@broadcast_arithmetic_i16": "TARGET/003",
-    "numeric/vector/conversion.loom:@pack_nibbles": "TARGET/003",
-    "numeric/vector/conversion.loom:@truncate_halfwords": "TARGET/003",
     "numeric/vector/conversion.loom:@wide_bfloat_conversions": "TARGET/003",
     "numeric/vector/conversion.loom:@wide_integer_conversions": "TARGET/003",
 }
@@ -571,7 +571,7 @@ _SPIRV_EXECUTION_ALLOWED_FAILURES = {
     "numeric/vector/conversion.loom:@wide_bfloat_values": "TARGET/003",
     "numeric/vector/f32.loom:@vector_bf16_origin_scale_values": "TARGET/003,EXPECT/002",
     "numeric/vector/float_comparison.loom:@vector_float_comparison_bf16_values": "TARGET/003",
-    "numeric/vector/packed_selection.loom:@packed_word_selects": "TARGET/003",
+    "numeric/vector/packed/selection.loom:@packed_word_selects": "TARGET/003",
 }
 
 loom_corpus_build(
