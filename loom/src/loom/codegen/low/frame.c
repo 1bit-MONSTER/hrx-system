@@ -629,93 +629,17 @@ static iree_status_t loom_low_emission_frame_validate_final(
                                  arena, out_accepted);
 }
 
-static uint64_t loom_low_emission_frame_residency_resource_units(
-    const loom_target_residency_derived_resource_table_t* resource_table,
-    uint16_t resource_id, const uint32_t* units_by_reg_class,
-    iree_host_size_t reg_class_count) {
-  const loom_target_residency_derived_resource_t* resource =
-      &resource_table->resources[resource_id];
-  uint64_t resource_units = 0;
-  for (uint16_t i = 0; i < resource->member_count; ++i) {
-    const loom_target_residency_derived_member_t* member =
-        &resource_table->members[resource->member_start + i];
-    IREE_ASSERT_EQ(member->resource_id, resource_id);
-    IREE_ASSERT_LT(member->direct_resource_id, reg_class_count);
-    const uint64_t contribution = loom_target_residency_round_resource_units(
-        units_by_reg_class[member->direct_resource_id],
-        member->contribution_granularity);
-    if (resource_units > UINT64_MAX - contribution) {
-      return UINT64_MAX;
-    }
-    resource_units += contribution;
-  }
-  return resource_units;
-}
-
 static bool loom_low_emission_frame_crosses_new_pressure_cliff(
     loom_target_residency_view_t residency,
     const uint32_t* baseline_units_by_reg_class,
     const loom_low_allocation_table_t* allocation) {
-  const loom_target_residency_model_t* residency_model = residency.model;
-  if (loom_target_residency_model_is_empty(residency_model)) {
+  if (loom_target_residency_model_is_empty(residency.model)) {
     return false;
   }
-  const loom_target_residency_direct_resource_table_t* direct_resources =
-      &residency_model->direct_resources;
-  IREE_ASSERT_EQ(direct_resources->resource_count,
-                 allocation->physical_extents.count);
-  for (uint16_t resource_id = 0; resource_id < direct_resources->resource_count;
-       ++resource_id) {
-    const loom_target_residency_cliff_range_t range =
-        loom_target_residency_direct_resource_cliff_range(direct_resources,
-                                                          resource_id);
-    const loom_target_residency_cliff_t* cliffs =
-        range.count == 0 ? NULL : &direct_resources->cliffs[range.start];
-    loom_target_residency_cliff_evaluation_t baseline_evaluation;
-    loom_target_residency_evaluate_cliffs(
-        cliffs, range.count, residency.tier_limit,
-        baseline_units_by_reg_class[resource_id], &baseline_evaluation);
-    loom_target_residency_cliff_evaluation_t allocated_evaluation;
-    loom_target_residency_evaluate_cliffs(
-        cliffs, range.count, residency.tier_limit,
-        allocation->physical_extents.ends_by_reg_class[resource_id],
-        &allocated_evaluation);
-    if (allocated_evaluation.tier < baseline_evaluation.tier) {
-      return true;
-    }
-  }
-  const loom_target_residency_derived_resource_table_t* resource_table =
-      &residency_model->derived_resources;
-  for (uint16_t resource_id = 0; resource_id < resource_table->resource_count;
-       ++resource_id) {
-    const loom_target_residency_derived_resource_t* resource =
-        &resource_table->resources[resource_id];
-    const uint64_t baseline_resource_units =
-        loom_low_emission_frame_residency_resource_units(
-            resource_table, resource_id, baseline_units_by_reg_class,
-            allocation->physical_extents.count);
-    const uint64_t allocated_resource_units =
-        loom_low_emission_frame_residency_resource_units(
-            resource_table, resource_id,
-            allocation->physical_extents.ends_by_reg_class,
-            allocation->physical_extents.count);
-    const loom_target_residency_cliff_t* cliffs =
-        resource->cliff_count == 0
-            ? NULL
-            : &resource_table->cliffs[resource->cliff_start];
-    loom_target_residency_cliff_evaluation_t baseline_evaluation;
-    loom_target_residency_evaluate_cliffs(
-        cliffs, resource->cliff_count, residency.tier_limit,
-        baseline_resource_units, &baseline_evaluation);
-    loom_target_residency_cliff_evaluation_t allocated_evaluation;
-    loom_target_residency_evaluate_cliffs(
-        cliffs, resource->cliff_count, residency.tier_limit,
-        allocated_resource_units, &allocated_evaluation);
-    if (allocated_evaluation.tier < baseline_evaluation.tier) {
-      return true;
-    }
-  }
-  return false;
+  return loom_target_residency_any_resource_tier_decreases(
+      residency, baseline_units_by_reg_class,
+      allocation->physical_extents.ends_by_reg_class,
+      allocation->physical_extents.count);
 }
 
 // Retains the accepted frame while measuring a pair-replication trial. Rollback
