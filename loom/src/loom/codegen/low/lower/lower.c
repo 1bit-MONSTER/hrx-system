@@ -736,11 +736,13 @@ static iree_status_t loom_low_lower_descriptor_matrix_tied_results(
   const loom_low_descriptor_set_t* descriptor_set = context->descriptor_set;
   const loom_low_descriptor_t* descriptor = plan->descriptor.descriptor;
   iree_host_size_t tied_result_count = 0;
-  IREE_ASSERT((uint64_t)descriptor->constraint_start +
-                  (uint64_t)descriptor->constraint_count <=
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  IREE_ASSERT((uint64_t)descriptor_layout->constraint_start +
+                  (uint64_t)descriptor_layout->constraint_count <=
               descriptor_set->constraint_count);
-  for (uint16_t i = 0; i < descriptor->constraint_count; ++i) {
-    const uint32_t row = descriptor->constraint_start + i;
+  for (uint16_t i = 0; i < descriptor_layout->constraint_count; ++i) {
+    const uint32_t row = descriptor_layout->constraint_start + i;
     if (descriptor_set->constraints[row].kind ==
         LOOM_LOW_CONSTRAINT_KIND_TIED) {
       ++tied_result_count;
@@ -755,9 +757,9 @@ static iree_status_t loom_low_lower_descriptor_matrix_tied_results(
       context, tied_result_count, sizeof(*tied_results),
       (void**)&tied_results));
   iree_host_size_t tied_result_index = 0;
-  for (uint16_t i = 0; i < descriptor->constraint_count; ++i) {
+  for (uint16_t i = 0; i < descriptor_layout->constraint_count; ++i) {
     const loom_low_constraint_t* constraint =
-        &descriptor_set->constraints[descriptor->constraint_start + i];
+        &descriptor_set->constraints[descriptor_layout->constraint_start + i];
     if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_TIED) {
       continue;
     }
@@ -789,7 +791,10 @@ static bool loom_low_lower_descriptor_matrix_destructive_operand_was_copied(
     uint16_t packet_operand_index) {
   for (uint16_t i = 0; i < constraint_index; ++i) {
     const loom_low_constraint_t* previous =
-        &descriptor_set->constraints[descriptor->constraint_start + i];
+        &descriptor_set->constraints[loom_low_descriptor_layout(descriptor_set,
+                                                                descriptor)
+                                         ->constraint_start +
+                                     i];
     if (previous->kind != LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE) {
       continue;
     }
@@ -810,12 +815,14 @@ static iree_status_t loom_low_lower_descriptor_matrix_copy_destructive_operands(
     loom_value_id_t* operands) {
   const loom_low_descriptor_set_t* descriptor_set = context->descriptor_set;
   const loom_low_descriptor_t* descriptor = plan->descriptor.descriptor;
-  IREE_ASSERT((uint64_t)descriptor->constraint_start +
-                  (uint64_t)descriptor->constraint_count <=
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  IREE_ASSERT((uint64_t)descriptor_layout->constraint_start +
+                  (uint64_t)descriptor_layout->constraint_count <=
               descriptor_set->constraint_count);
-  for (uint16_t i = 0; i < descriptor->constraint_count; ++i) {
+  for (uint16_t i = 0; i < descriptor_layout->constraint_count; ++i) {
     const loom_low_constraint_t* constraint =
-        &descriptor_set->constraints[descriptor->constraint_start + i];
+        &descriptor_set->constraints[descriptor_layout->constraint_start + i];
     if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE) {
       continue;
     }

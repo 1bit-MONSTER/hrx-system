@@ -461,7 +461,10 @@ iree_status_t loom_low_schedule_format_json(
     const uint16_t hazard_count =
         schedule_class ? schedule_class->hazard_count : 0;
     const uint16_t effect_count =
-        node->descriptor ? node->descriptor->effect_count : 0;
+        node->descriptor ? loom_low_descriptor_layout(
+                               table->target.descriptor_set, node->descriptor)
+                               ->effect_count
+                         : 0;
     iree_string_view_t latency_kind_name =
         loom_low_latency_kind_name(latency_kind);
     iree_string_view_t model_quality_name =

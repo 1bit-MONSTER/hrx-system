@@ -15,16 +15,18 @@ uint32_t loom_low_bind_immediate_presence(
   if (attrs.count == 0) {
     return 0;
   }
-  if (attrs.count == descriptor->immediate_count) {
+  const loom_low_descriptor_layout_t* layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  if (attrs.count == layout->immediate_count) {
     return UINT32_MAX >> (32 - attrs.count);
   }
   uint32_t presence = 0;
   for (iree_host_size_t i = 0; i < attrs.count; ++i) {
     const iree_string_view_t name =
         loom_string_table_get(&module->strings, attrs.entries[i].name_id);
-    for (uint16_t j = 0; j < descriptor->immediate_count; ++j) {
+    for (uint16_t j = 0; j < layout->immediate_count; ++j) {
       const loom_low_immediate_t* immediate =
-          &descriptor_set->immediates[descriptor->immediate_start + j];
+          &descriptor_set->immediates[layout->immediate_start + j];
       if (iree_string_view_equal(
               name, loom_low_descriptor_set_string(
                         descriptor_set, immediate->field_name_string_ref))) {
@@ -40,9 +42,11 @@ static bool loom_low_resolve_immediate_enum(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_low_descriptor_t* descriptor, iree_string_view_t name,
     iree_string_view_t token, int64_t* out_value) {
-  for (uint16_t i = 0; i < descriptor->immediate_count; ++i) {
+  const loom_low_descriptor_layout_t* layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  for (uint16_t i = 0; i < layout->immediate_count; ++i) {
     const loom_low_immediate_t* immediate =
-        &descriptor_set->immediates[descriptor->immediate_start + i];
+        &descriptor_set->immediates[layout->immediate_start + i];
     if (immediate->kind != LOOM_LOW_IMMEDIATE_KIND_ENUM ||
         !iree_string_view_equal(
             name, loom_low_descriptor_set_string(

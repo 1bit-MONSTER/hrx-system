@@ -89,7 +89,9 @@ uint32_t loom_amdgpu_wait_packet_decode_bounds(
     const loom_amdgpu_wait_packet_descriptor_immediate_template_t* immediate =
         loom_amdgpu_wait_packet_descriptor_immediate(packet_descriptor, i);
     const loom_low_immediate_t* field =
-        &descriptor_set->immediates[packet->descriptor->immediate_start +
+        &descriptor_set->immediates[loom_low_descriptor_layout(
+                                        descriptor_set, packet->descriptor)
+                                        ->immediate_start +
                                     immediate->descriptor_immediate_index];
     const loom_attribute_t attr = loom_low_packet_immediate_attr(packet, field);
     const uint16_t value = attr.kind == LOOM_ATTR_ABSENT

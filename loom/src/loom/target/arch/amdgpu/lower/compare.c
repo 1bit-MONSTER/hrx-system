@@ -123,10 +123,13 @@ static bool loom_amdgpu_compare_immediate_value_fits(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_low_lower_resolved_descriptor_t* descriptor, uint32_t value) {
   if (descriptor->descriptor == NULL ||
-      descriptor->descriptor->immediate_count != 1) {
+      loom_low_descriptor_layout(descriptor_set, descriptor->descriptor)
+              ->immediate_count != 1) {
     return false;
   }
-  const uint32_t immediate_index = descriptor->descriptor->immediate_start;
+  const uint32_t immediate_index =
+      loom_low_descriptor_layout(descriptor_set, descriptor->descriptor)
+          ->immediate_start;
   if (immediate_index >= descriptor_set->immediate_count) {
     return false;
   }

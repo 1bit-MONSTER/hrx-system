@@ -252,9 +252,12 @@ iree_status_t loom_low_schedule_note_descriptor_rows_for_node(
     ++model_summary->use_count;
   }
   if (descriptor) {
-    for (uint16_t i = 0; i < descriptor->effect_count; ++i) {
+    const loom_low_descriptor_layout_t* descriptor_layout =
+        loom_low_descriptor_layout(state->target.descriptor_set, descriptor);
+    for (uint16_t i = 0; i < descriptor_layout->effect_count; ++i) {
       const loom_low_effect_t* effect =
-          &state->target.descriptor_set->effects[descriptor->effect_start + i];
+          &state->target.descriptor_set
+               ->effects[descriptor_layout->effect_start + i];
       IREE_RETURN_IF_ERROR(loom_low_schedule_append_effect_use(
           state, (loom_low_schedule_effect_use_t){
                      .node_index = node_index,

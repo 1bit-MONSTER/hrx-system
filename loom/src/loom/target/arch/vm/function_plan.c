@@ -416,8 +416,10 @@ IREE_ATTRIBUTE_NOINLINE static iree_status_t loom_vm_function_packet(
                                                          ordinal, NULL);
     packet[operand->encoding_field_id] = (uint8_t)assignment->location_base;
   }
-  iree_host_size_t packet_length = descriptor->encoding_format_id;
-  if (descriptor->immediate_count) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(frame->target.descriptor_set, descriptor);
+  iree_host_size_t packet_length = descriptor_layout->encoding_format_id;
+  if (descriptor_layout->immediate_count) {
     // Required descriptor immediates and canonical IR dictionaries share name
     // order, established by the projection and Low verifier.
     const loom_named_attr_slice_t attributes =
@@ -454,10 +456,10 @@ IREE_ATTRIBUTE_NOINLINE static iree_status_t loom_vm_function_packet(
                    offsetof(iree_vm_bytecode_constant_i32_t, bits_u32));
       }
     } else {
-      for (uint16_t i = 0; i < descriptor->immediate_count; ++i) {
+      for (uint16_t i = 0; i < descriptor_layout->immediate_count; ++i) {
         const loom_low_immediate_t* immediate =
             &frame->target.descriptor_set
-                 ->immediates[descriptor->immediate_start + i];
+                 ->immediates[descriptor_layout->immediate_start + i];
         const loom_attribute_t value = attributes.entries[i].value;
         uint64_t bits;
         if (immediate->kind == LOOM_LOW_IMMEDIATE_KIND_ORDINAL) {

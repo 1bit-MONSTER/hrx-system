@@ -136,6 +136,8 @@ class WriteInterferenceTest : public ::testing::Test {
     descriptor_set_.operand_indices = operand_indices;
     descriptor_set_.operand_index_count = IREE_ARRAYSIZE(operand_indices);
     descriptor_set_.descriptors = descriptors_;
+    descriptor_set_.descriptor_layouts = &layout_;
+    descriptor_set_.descriptor_layout_count = 1;
     descriptor_set_.descriptor_views = views_;
     descriptor_set_.descriptor_count = IREE_ARRAYSIZE(descriptors_);
     descriptor_set_.descriptor_ordinal_count = IREE_ARRAYSIZE(descriptors_);
@@ -462,6 +464,8 @@ class WriteInterferenceTest : public ::testing::Test {
   loom_low_operand_t operands_[4] = {};
   // Retained reader, ALU result, memory result, destructive tie, reset and use.
   loom_low_descriptor_t descriptors_[6] = {};
+  // Shared empty structural spans for the fixture's instruction identities.
+  loom_low_descriptor_layout_t layout_ = {};
   // Per-descriptor read and write instruction class facts.
   loom_low_descriptor_view_t views_[6] = {};
   // Descriptor ownership and dense row domains.

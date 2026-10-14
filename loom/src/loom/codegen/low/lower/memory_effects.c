@@ -150,9 +150,11 @@ static iree_status_t loom_low_lower_record_memory_packet_effects(
   if (relative_interval == NULL && source_flags == 0) {
     return iree_ok_status();
   }
-  for (uint16_t i = 0; i < descriptor->effect_count; ++i) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(context->descriptor_set, descriptor);
+  for (uint16_t i = 0; i < descriptor_layout->effect_count; ++i) {
     const loom_low_effect_t* effect =
-        &context->descriptor_set->effects[descriptor->effect_start + i];
+        &context->descriptor_set->effects[descriptor_layout->effect_start + i];
     if (!loom_low_effect_is_memory_access(effect) ||
         !iree_any_bit_set(effect->flags, LOOM_LOW_EFFECT_FLAG_DEPENDENCY)) {
       continue;

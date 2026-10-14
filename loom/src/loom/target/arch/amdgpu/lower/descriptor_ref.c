@@ -85,9 +85,11 @@ const loom_low_descriptor_t* loom_amdgpu_lookup_descriptor_ref(
 bool loom_amdgpu_descriptor_has_immediate(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_low_descriptor_t* descriptor, iree_string_view_t name) {
-  for (uint16_t i = 0; i < descriptor->immediate_count; ++i) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  for (uint16_t i = 0; i < descriptor_layout->immediate_count; ++i) {
     const loom_low_immediate_t* immediate =
-        &descriptor_set->immediates[descriptor->immediate_start + i];
+        &descriptor_set->immediates[descriptor_layout->immediate_start + i];
     if (iree_string_view_equal(
             loom_low_descriptor_set_string(descriptor_set,
                                            immediate->field_name_string_ref),

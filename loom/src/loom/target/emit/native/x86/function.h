@@ -92,7 +92,7 @@ iree_host_size_t loom_x86_function_reserved_ranges(
 // Queries the bounded cost envelope for a non-vector-encoded x86
 // loop-placement candidate. The query consumes the same encoder as final byte
 // emission and rejects vector or expanded descriptor recipes outside the
-// calibrated policy.
+// calibrated policy. user_data is the owning loom_low_descriptor_set_t.
 bool loom_x86_loop_placement_cost_query(
     void* user_data, const loom_low_descriptor_t* descriptor,
     loom_low_loop_placement_cost_t* out_cost);

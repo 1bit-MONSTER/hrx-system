@@ -13,13 +13,14 @@ namespace {
 
 static loom_trait_flags_t ProjectEffects(const loom_low_effect_t* effects,
                                          uint16_t effect_count) {
+  const loom_low_descriptor_layout_t layout = {.effect_count = effect_count};
   loom_low_descriptor_set_t descriptor_set = {
+      .descriptor_layouts = &layout,
+      .descriptor_layout_count = 1,
       .effects = effects,
   };
   descriptor_set.effect_count = effect_count;
-  loom_low_descriptor_t descriptor = {
-      .effect_count = effect_count,
-  };
+  loom_low_descriptor_t descriptor = {};
   return loom_low_descriptor_effective_traits(&descriptor_set, &descriptor);
 }
 
@@ -141,7 +142,11 @@ TEST(LowDescriptorTraitsTest, OpaqueEffectsSubsumePreciseMemoryTraits) {
 }
 
 TEST(LowDescriptorTraitsTest, SideEffectingTerminatorFlagsCompose) {
-  const loom_low_descriptor_set_t descriptor_set = {};
+  const loom_low_descriptor_layout_t layout = {};
+  const loom_low_descriptor_set_t descriptor_set = {
+      .descriptor_layouts = &layout,
+      .descriptor_layout_count = 1,
+  };
   loom_low_descriptor_t descriptor = {
       .flags = LOOM_LOW_DESCRIPTOR_FLAG_SIDE_EFFECTING |
                LOOM_LOW_DESCRIPTOR_FLAG_TERMINATOR,
@@ -156,7 +161,11 @@ TEST(LowDescriptorTraitsTest, SideEffectingTerminatorFlagsCompose) {
 }
 
 TEST(LowDescriptorTraitsTest, UniqueIdentityIsNotPureAndCannotBeCse) {
-  const loom_low_descriptor_set_t descriptor_set = {};
+  const loom_low_descriptor_layout_t layout = {};
+  const loom_low_descriptor_set_t descriptor_set = {
+      .descriptor_layouts = &layout,
+      .descriptor_layout_count = 1,
+  };
   loom_low_descriptor_t descriptor = {
       .flags = LOOM_LOW_DESCRIPTOR_FLAG_DEAD_REMOVABLE |
                LOOM_LOW_DESCRIPTOR_FLAG_UNIQUE_IDENTITY,
@@ -171,12 +180,15 @@ TEST(LowDescriptorTraitsTest, UniqueIdentityIsNotPureAndCannotBeCse) {
 }
 
 TEST(LowDescriptorTraitsTest, ImplicitStateResultIsNonDeterministic) {
+  const loom_low_descriptor_layout_t layout = {};
   loom_low_operand_t operand = {
       .role = LOOM_LOW_OPERAND_ROLE_RESULT,
       .flags =
           LOOM_LOW_OPERAND_FLAG_IMPLICIT | LOOM_LOW_OPERAND_FLAG_STATE_WRITE,
   };
   loom_low_descriptor_set_t descriptor_set = {
+      .descriptor_layouts = &layout,
+      .descriptor_layout_count = 1,
       .operands = &operand,
       .operand_count = 1,
   };

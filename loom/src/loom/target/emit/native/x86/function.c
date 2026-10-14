@@ -150,15 +150,17 @@ iree_host_size_t loom_x86_function_reserved_ranges(
 bool loom_x86_loop_placement_cost_query(
     void* user_data, const loom_low_descriptor_t* descriptor,
     loom_low_loop_placement_cost_t* out_cost) {
-  (void)user_data;
-  if (descriptor->encoding_format_id == LOOM_X86_ENCODING_FORM_NONE ||
-      iree_any_bit_set(descriptor->encoding_format_id,
+  const loom_low_descriptor_set_t* descriptor_set = user_data;
+  const loom_low_descriptor_layout_t* layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  if (layout->encoding_format_id == LOOM_X86_ENCODING_FORM_NONE ||
+      iree_any_bit_set(layout->encoding_format_id,
                        LOOM_X86_ENCODING_FORMAT_VECTOR)) {
     return false;
   }
   const loom_x86_encoding_operands_t operands = {0};
   loom_x86_encoded_instruction_t instruction = {0};
-  loom_x86_encode_instruction(descriptor->encoding_format_id,
+  loom_x86_encode_instruction(layout->encoding_format_id,
                               descriptor->encoding_id, &operands, &instruction);
   if (instruction.instruction_count != 1) {
     return false;
@@ -822,7 +824,10 @@ static loom_attribute_t loom_x86_function_immediate(
     const loom_low_packet_view_t* packet, uint16_t index) {
   const loom_low_immediate_t* immediate =
       &frame->target.descriptor_set
-           ->immediates[packet->descriptor->immediate_start + index];
+           ->immediates[loom_low_descriptor_layout(frame->target.descriptor_set,
+                                                   packet->descriptor)
+                            ->immediate_start +
+                        index];
   loom_attribute_t value = loom_low_packet_immediate_attr(packet, immediate);
   return value.kind == LOOM_ATTR_ABSENT
              ? loom_attr_i64(immediate->default_value)
@@ -843,14 +848,17 @@ static iree_status_t loom_x86_function_packet(
     loom_x86_function_builder_t* builder) {
   loom_x86_function_t* function = builder->function;
   const loom_low_descriptor_t* descriptor = packet->descriptor;
-  if (descriptor->encoding_format_id == LOOM_X86_ENCODING_FORM_NONE) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(frame->target.descriptor_set, descriptor);
+  if (descriptor_layout->encoding_format_id == LOOM_X86_ENCODING_FORM_NONE) {
     iree_string_view_t mnemonic = loom_low_descriptor_set_string(
         frame->target.descriptor_set, descriptor->mnemonic_string_ref);
     return loom_x86_function_reject(builder, LOOM_ERR_X86_005, mnemonic);
   }
   loom_x86_encoding_operands_t operands = {0};
   const bool may_dirty_upper_vector_state =
-      (descriptor->encoding_format_id & LOOM_X86_ENCODING_FORMAT_VECTOR) &&
+      (descriptor_layout->encoding_format_id &
+       LOOM_X86_ENCODING_FORMAT_VECTOR) &&
       (descriptor->encoding_id >> 14);
   for (uint16_t i = 0; i < packet->node->operand_count; ++i) {
     const loom_low_allocation_assignment_t* input =
@@ -879,29 +887,30 @@ static iree_status_t loom_x86_function_packet(
   }
   uint32_t reference = UINT32_MAX;
   const bool is_compare_branch =
-      descriptor->encoding_format_id == LOOM_X86_ENCODING_FORM_COMPARE_BRANCH ||
-      descriptor->encoding_format_id ==
+      descriptor_layout->encoding_format_id ==
+          LOOM_X86_ENCODING_FORM_COMPARE_BRANCH ||
+      descriptor_layout->encoding_format_id ==
           LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_BRANCH;
-  if (descriptor->immediate_count) {
+  if (descriptor_layout->immediate_count) {
     const loom_attribute_t immediate =
         loom_x86_function_immediate(frame, packet, 0);
     if (immediate.kind == LOOM_ATTR_SYMBOL) {
       reference = loom_attr_as_symbol(immediate).symbol_id;
       ++function->symbol_fixup_count;
-    } else if (is_compare_branch && descriptor->immediate_count == 1) {
+    } else if (is_compare_branch && descriptor_layout->immediate_count == 1) {
       operands.secondary_immediate = (uint8_t)immediate.i64;
     } else {
       operands.immediate = immediate.i64;
     }
   }
-  if (descriptor->immediate_count == 2) {
+  if (descriptor_layout->immediate_count == 2) {
     const int64_t second_immediate =
         loom_x86_function_immediate(frame, packet, 1).i64;
-    if (descriptor->encoding_format_id ==
+    if (descriptor_layout->encoding_format_id ==
             LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_SELECT ||
-        descriptor->encoding_format_id ==
+        descriptor_layout->encoding_format_id ==
             LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_PREDICATE ||
-        descriptor->encoding_format_id ==
+        descriptor_layout->encoding_format_id ==
             LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_BRANCH) {
       operands.secondary_immediate = (uint8_t)second_immediate;
     } else {
@@ -926,14 +935,14 @@ static iree_status_t loom_x86_function_packet(
     // so the encoded branch always targets the non-fallthrough successor.
     operands.secondary_immediate ^= true_falls_through;
     reference = targets[true_falls_through ? 1 : 0];
-    loom_x86_function_append(function, descriptor->encoding_format_id,
+    loom_x86_function_append(function, descriptor_layout->encoding_format_id,
                              descriptor->encoding_id, operands, reference);
     if (!true_falls_through) {
       loom_x86_function_jump(function, targets[1], block_index + 1);
     }
     return iree_ok_status();
   }
-  loom_x86_function_append(function, descriptor->encoding_format_id,
+  loom_x86_function_append(function, descriptor_layout->encoding_format_id,
                            descriptor->encoding_id, operands, reference);
   return iree_ok_status();
 }

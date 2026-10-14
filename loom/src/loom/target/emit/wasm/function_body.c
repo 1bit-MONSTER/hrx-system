@@ -624,9 +624,11 @@ static iree_status_t loom_wasm_emit_descriptor_packet(
               loom_low_op_attrs(op))
               .i64);
     default: {
-      if (descriptor->op_kind == LOOM_LOW_DESCRIPTOR_OP_KIND_OP &&
-          descriptor->result_count == 1 && descriptor->immediate_count == 0 &&
-          descriptor->effect_count == 0 &&
+      const loom_low_descriptor_layout_t* layout = loom_low_descriptor_layout(
+          loom_wasm_core_simd128_descriptor_set(), descriptor);
+      if (layout->op_kind == LOOM_LOW_DESCRIPTOR_OP_KIND_OP &&
+          descriptor->result_count == 1 && layout->immediate_count == 0 &&
+          layout->effect_count == 0 &&
           !loom_low_descriptor_has_variadic_operands(descriptor)) {
         return loom_wasm_emit_stack_value_op(state, op, descriptor);
       }

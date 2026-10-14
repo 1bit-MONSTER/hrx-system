@@ -48,6 +48,8 @@ enum : loom_string_ref_t {
 struct RequirementTables {
   // Descriptor rows owned by the test descriptor set.
   loom_low_descriptor_t descriptors[1];
+  // Structural layouts referenced by the test descriptors.
+  loom_low_descriptor_layout_t descriptor_layouts[1];
   // View-owned descriptor rows paired with the structural rows.
   loom_low_descriptor_view_t descriptor_views[1];
   // Descriptor ordinals ordered by stable identity.
@@ -133,7 +135,7 @@ void InitializeRequirementTables(RequirementTables* tables) {
   tables->descriptors[0].operand_start = 0;
   tables->descriptors[0].operand_count = 3;
   tables->descriptors[0].result_count = 1;
-  tables->descriptors[0].minimum_packet_operand_count = 2;
+  tables->descriptor_layouts[0].minimum_packet_operand_count = 2;
   tables->descriptor_views[0].schedule_class_id = 0;
   tables->descriptors[0].flags = LOOM_LOW_DESCRIPTOR_FLAG_DEAD_REMOVABLE;
 
@@ -151,6 +153,9 @@ void InitializeRequirementTables(RequirementTables* tables) {
   tables->set.string_pool.data = kRequirementStrings;
   tables->set.string_pool.data_length = sizeof(kRequirementStrings) - 1;
   tables->set.descriptors = tables->descriptors;
+  tables->set.descriptor_layouts = tables->descriptor_layouts;
+  tables->set.descriptor_layout_count =
+      IREE_ARRAYSIZE(tables->descriptor_layouts);
   tables->set.descriptor_views = tables->descriptor_views;
   tables->set.descriptor_count = IREE_ARRAYSIZE(tables->descriptors);
   tables->set.descriptor_ordinal_count = IREE_ARRAYSIZE(tables->descriptors);

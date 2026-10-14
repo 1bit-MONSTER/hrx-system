@@ -72,11 +72,12 @@ loom_aie2p_encoded_slot_t loom_aie2p_descriptor_encode(
   loom_aie2p_encoding_field_value_t
       field_values[LOOM_AIE2P_DESCRIPTOR_MAX_ENCODING_FIELD_COUNT];
   iree_host_size_t field_count = 0;
-  for (uint16_t i = 0; i < descriptor->encoding_field_value_count; ++i) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  for (uint16_t i = 0; i < descriptor_layout->encoding_field_value_count; ++i) {
     const loom_low_encoding_field_value_t* field =
-        &descriptor_set
-             ->encoding_field_values[descriptor->encoding_field_value_start +
-                                     i];
+        &descriptor_set->encoding_field_values
+             [descriptor_layout->encoding_field_value_start + i];
     loom_aie2p_descriptor_append_field(field->encoding_field_id, field->value,
                                        &field_count, field_values);
   }
@@ -97,9 +98,9 @@ loom_aie2p_encoded_slot_t loom_aie2p_descriptor_encode(
                                        field_values);
   }
 
-  for (uint16_t i = 0; i < descriptor->immediate_count; ++i) {
+  for (uint16_t i = 0; i < descriptor_layout->immediate_count; ++i) {
     const loom_low_immediate_t* immediate =
-        &descriptor_set->immediates[descriptor->immediate_start + i];
+        &descriptor_set->immediates[descriptor_layout->immediate_start + i];
     if (immediate->encoding_field_id == 0) {
       continue;
     }

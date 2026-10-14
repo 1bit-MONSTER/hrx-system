@@ -744,7 +744,9 @@ static uint32_t loom_amdgpu_vopd_read_immediate_u32(
   const loom_low_descriptor_set_t* descriptor_set =
       builder->schedule->target.descriptor_set;
   const loom_low_immediate_t* immediate =
-      &descriptor_set->immediates[packet->descriptor->immediate_start +
+      &descriptor_set->immediates[loom_low_descriptor_layout(descriptor_set,
+                                                             packet->descriptor)
+                                      ->immediate_start +
                                   descriptor_immediate_index];
   return (uint32_t)loom_low_packet_immediate_attr(packet, immediate).i64;
 }
@@ -902,7 +904,10 @@ static bool loom_amdgpu_vopd_read_tied_accumulate_component(
   *out_component = (loom_amdgpu_vopd_candidate_component_t){0};
 
   const loom_op_t* op = packet->node->op;
-  if (op->result_count != 1 || packet->descriptor->immediate_count != 0 ||
+  if (op->result_count != 1 ||
+      loom_low_descriptor_layout(builder->schedule->target.descriptor_set,
+                                 packet->descriptor)
+              ->immediate_count != 0 ||
       rule->operands.accumulator_index >= op->operand_count ||
       rule->operands.src0_index >= op->operand_count ||
       rule->operands.vsrc1_index >= op->operand_count) {
@@ -985,7 +990,9 @@ static bool loom_amdgpu_vopd_read_binary_vgpr_component_with_operand_count(
 
   const loom_op_t* op = packet->node->op;
   if (op->result_count != 1 || op->operand_count != expected_operand_count ||
-      packet->descriptor->immediate_count != 0) {
+      loom_low_descriptor_layout(builder->schedule->target.descriptor_set,
+                                 packet->descriptor)
+              ->immediate_count != 0) {
     return false;
   }
   const loom_low_allocation_assignment_t* result_assignment =
@@ -1061,7 +1068,9 @@ static bool loom_amdgpu_vopd_read_register_mov_component(
 
   const loom_op_t* op = packet->node->op;
   if (op->result_count != 1 || op->operand_count != 1 ||
-      packet->descriptor->immediate_count != 0) {
+      loom_low_descriptor_layout(builder->schedule->target.descriptor_set,
+                                 packet->descriptor)
+              ->immediate_count != 0) {
     return false;
   }
   const loom_low_allocation_assignment_t* result_assignment =

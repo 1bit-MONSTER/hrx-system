@@ -227,17 +227,20 @@ iree_status_t loom_low_storage_lease_query_descriptor_rows(
   const loom_low_descriptor_set_t* descriptor_set =
       schedule->target.descriptor_set;
   const loom_low_descriptor_t* descriptor = node->descriptor;
-  if (descriptor->storage_lease_count == 0) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  if (descriptor_layout->storage_lease_count == 0) {
     return iree_ok_status();
   }
-  IREE_ASSERT_LE(descriptor->storage_lease_start,
+  IREE_ASSERT_LE(descriptor_layout->storage_lease_start,
                  descriptor_set->storage_lease_count);
-  IREE_ASSERT_LE(
-      descriptor->storage_lease_count,
-      descriptor_set->storage_lease_count - descriptor->storage_lease_start);
-  for (uint16_t i = 0; i < descriptor->storage_lease_count; ++i) {
+  IREE_ASSERT_LE(descriptor_layout->storage_lease_count,
+                 descriptor_set->storage_lease_count -
+                     descriptor_layout->storage_lease_start);
+  for (uint16_t i = 0; i < descriptor_layout->storage_lease_count; ++i) {
     const loom_low_descriptor_storage_lease_t* row =
-        &descriptor_set->storage_leases[descriptor->storage_lease_start + i];
+        &descriptor_set
+             ->storage_leases[descriptor_layout->storage_lease_start + i];
     const loom_low_storage_lease_event_t event = {
         .kind = row->kind,
         .attachment = row->attachment,

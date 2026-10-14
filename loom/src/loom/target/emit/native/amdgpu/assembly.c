@@ -488,9 +488,12 @@ static iree_status_t loom_amdgpu_read_packet_immediate_by_index_i64(
   const loom_low_descriptor_set_t* descriptor_set =
       context->schedule->target.descriptor_set;
   const loom_low_descriptor_t* descriptor = context->packet->descriptor;
-  IREE_ASSERT_LT(descriptor_immediate_index, descriptor->immediate_count);
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  IREE_ASSERT_LT(descriptor_immediate_index,
+                 descriptor_layout->immediate_count);
   const uint32_t immediate_row =
-      descriptor->immediate_start + descriptor_immediate_index;
+      descriptor_layout->immediate_start + descriptor_immediate_index;
   IREE_ASSERT_LT(immediate_row, descriptor_set->immediate_count);
   IREE_ASSERT(descriptor_set->immediates != NULL);
   const loom_low_immediate_t* immediate =
@@ -504,8 +507,10 @@ static iree_status_t loom_amdgpu_read_packet_immediate_by_name_i64(
   const loom_low_descriptor_set_t* descriptor_set =
       context->schedule->target.descriptor_set;
   const loom_low_descriptor_t* descriptor = context->packet->descriptor;
-  for (uint16_t i = 0; i < descriptor->immediate_count; ++i) {
-    const uint32_t immediate_index = descriptor->immediate_start + i;
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  for (uint16_t i = 0; i < descriptor_layout->immediate_count; ++i) {
+    const uint32_t immediate_index = descriptor_layout->immediate_start + i;
     IREE_ASSERT_LT(immediate_index, descriptor_set->immediate_count);
     IREE_ASSERT(descriptor_set->immediates != NULL);
     const loom_low_immediate_t* immediate =
@@ -665,9 +670,11 @@ static iree_status_t loom_amdgpu_append_packet_immediate_named_modifier(
   const loom_low_descriptor_set_t* descriptor_set =
       context->schedule->target.descriptor_set;
   const loom_low_descriptor_t* descriptor = context->packet->descriptor;
-  IREE_ASSERT_LT(native_value->index, descriptor->immediate_count);
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  IREE_ASSERT_LT(native_value->index, descriptor_layout->immediate_count);
   const uint32_t immediate_row =
-      descriptor->immediate_start + native_value->index;
+      descriptor_layout->immediate_start + native_value->index;
   IREE_ASSERT_LT(immediate_row, descriptor_set->immediate_count);
   IREE_ASSERT(descriptor_set->immediates != NULL);
   const loom_low_immediate_t* immediate =
@@ -853,14 +860,18 @@ static iree_status_t loom_amdgpu_find_packet_immediate(
   const loom_low_descriptor_set_t* descriptor_set =
       context->schedule->target.descriptor_set;
   const loom_low_descriptor_t* descriptor = context->packet->descriptor;
-  IREE_ASSERT_LE(descriptor->immediate_start, descriptor_set->immediate_count);
-  IREE_ASSERT_LE(descriptor->immediate_count,
-                 descriptor_set->immediate_count - descriptor->immediate_start);
-  IREE_ASSERT(descriptor->immediate_count == 0 ||
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  IREE_ASSERT_LE(descriptor_layout->immediate_start,
+                 descriptor_set->immediate_count);
+  IREE_ASSERT_LE(
+      descriptor_layout->immediate_count,
+      descriptor_set->immediate_count - descriptor_layout->immediate_start);
+  IREE_ASSERT(descriptor_layout->immediate_count == 0 ||
               descriptor_set->immediates != NULL);
-  for (uint16_t i = 0; i < descriptor->immediate_count; ++i) {
+  for (uint16_t i = 0; i < descriptor_layout->immediate_count; ++i) {
     const loom_low_immediate_t* immediate =
-        &descriptor_set->immediates[descriptor->immediate_start + i];
+        &descriptor_set->immediates[descriptor_layout->immediate_start + i];
     const iree_string_view_t name = loom_native_assembly_descriptor_string(
         descriptor_set, immediate->field_name_string_ref);
     if (iree_string_view_equal(name, field_name)) {
@@ -880,16 +891,19 @@ static bool loom_amdgpu_descriptor_has_memory_effect(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_low_descriptor_t* descriptor, loom_low_effect_kind_t kind,
     loom_low_memory_space_t memory_space) {
-  if (descriptor->effect_count == 0) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  if (descriptor_layout->effect_count == 0) {
     return false;
   }
   IREE_ASSERT(descriptor_set->effects != NULL);
-  IREE_ASSERT_LE(descriptor->effect_start, descriptor_set->effect_count);
-  IREE_ASSERT_LE(descriptor->effect_count,
-                 descriptor_set->effect_count - descriptor->effect_start);
-  for (uint16_t i = 0; i < descriptor->effect_count; ++i) {
+  IREE_ASSERT_LE(descriptor_layout->effect_start, descriptor_set->effect_count);
+  IREE_ASSERT_LE(
+      descriptor_layout->effect_count,
+      descriptor_set->effect_count - descriptor_layout->effect_start);
+  for (uint16_t i = 0; i < descriptor_layout->effect_count; ++i) {
     const loom_low_effect_t* effect =
-        &descriptor_set->effects[descriptor->effect_start + i];
+        &descriptor_set->effects[descriptor_layout->effect_start + i];
     if (effect->kind == kind && effect->memory_space == memory_space) {
       return true;
     }
@@ -1286,16 +1300,19 @@ static iree_status_t loom_amdgpu_append_asm_form_immediates(
     const loom_low_asm_layout_t* layout, bool* in_list) {
   const loom_low_descriptor_set_t* descriptor_set =
       context->schedule->target.descriptor_set;
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
   for (uint16_t i = 0; i < layout->explicit_immediate_count; ++i) {
     const uint32_t asm_immediate_index = layout->immediate_start + i;
     IREE_ASSERT_LT(asm_immediate_index, descriptor_set->asm_immediate_count);
     IREE_ASSERT(descriptor_set->asm_immediates != NULL);
     const loom_low_asm_immediate_t* asm_immediate =
         &descriptor_set->asm_immediates[asm_immediate_index];
-    IREE_ASSERT_LT(asm_immediate->immediate_index, descriptor->immediate_count);
+    IREE_ASSERT_LT(asm_immediate->immediate_index,
+                   descriptor_layout->immediate_count);
     IREE_ASSERT(descriptor_set->immediates != NULL);
     const loom_low_immediate_t* immediate =
-        &descriptor_set->immediates[descriptor->immediate_start +
+        &descriptor_set->immediates[descriptor_layout->immediate_start +
                                     asm_immediate->immediate_index];
     IREE_RETURN_IF_ERROR(
         loom_amdgpu_append_asm_form_separator(context, in_list));
@@ -1357,16 +1374,20 @@ static iree_status_t loom_amdgpu_append_memory_immediate_suffixes(
   const loom_low_descriptor_set_t* descriptor_set =
       context->schedule->target.descriptor_set;
   const loom_low_descriptor_t* descriptor = context->packet->descriptor;
-  if (descriptor->immediate_count == 0) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  if (descriptor_layout->immediate_count == 0) {
     return iree_ok_status();
   }
-  IREE_ASSERT_LE(descriptor->immediate_start, descriptor_set->immediate_count);
-  IREE_ASSERT_LE(descriptor->immediate_count,
-                 descriptor_set->immediate_count - descriptor->immediate_start);
+  IREE_ASSERT_LE(descriptor_layout->immediate_start,
+                 descriptor_set->immediate_count);
+  IREE_ASSERT_LE(
+      descriptor_layout->immediate_count,
+      descriptor_set->immediate_count - descriptor_layout->immediate_start);
   IREE_ASSERT(descriptor_set->immediates != NULL);
-  for (uint16_t i = 0; i < descriptor->immediate_count; ++i) {
+  for (uint16_t i = 0; i < descriptor_layout->immediate_count; ++i) {
     const loom_low_immediate_t* immediate =
-        &descriptor_set->immediates[descriptor->immediate_start + i];
+        &descriptor_set->immediates[descriptor_layout->immediate_start + i];
     const iree_string_view_t name = loom_native_assembly_descriptor_string(
         descriptor_set, immediate->field_name_string_ref);
     int64_t value = 0;
@@ -1820,9 +1841,11 @@ loom_amdgpu_descriptor_packet_route_flags(
   const loom_low_descriptor_view_t* descriptor_view =
       loom_amdgpu_descriptor_view(context);
 
-  for (uint16_t i = 0; i < descriptor->effect_count; ++i) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  for (uint16_t i = 0; i < descriptor_layout->effect_count; ++i) {
     const loom_low_effect_t* effect =
-        &descriptor_set->effects[descriptor->effect_start + i];
+        &descriptor_set->effects[descriptor_layout->effect_start + i];
     if (effect->kind == LOOM_LOW_EFFECT_KIND_COUNTER) {
       flags |= LOOM_AMDGPU_DESCRIPTOR_PACKET_ROUTE_FLAG_COUNTER_EFFECT;
     } else if (descriptor->operand_count != 0 &&
@@ -1843,7 +1866,7 @@ loom_amdgpu_descriptor_packet_route_flags(
     flags |= LOOM_AMDGPU_DESCRIPTOR_PACKET_ROUTE_FLAG_GLOBAL_TO_LDS;
   }
   const loom_amdgpu_encoding_format_flags_t encoding_flags =
-      loom_amdgpu_encoding_format_flags(descriptor->encoding_format_id);
+      loom_amdgpu_encoding_format_flags(descriptor_layout->encoding_format_id);
   if (iree_any_bit_set(encoding_flags,
                        LOOM_AMDGPU_ENCODING_FORMAT_FLAG_BUFFER_ADDRESS)) {
     flags |= LOOM_AMDGPU_DESCRIPTOR_PACKET_ROUTE_FLAG_BUFFER_FORMAT;
@@ -1861,7 +1884,7 @@ loom_amdgpu_descriptor_packet_route_flags(
                        LOOM_AMDGPU_ENCODING_FORMAT_FLAG_DATA_SHARE_ADDRESS)) {
     flags |= LOOM_AMDGPU_DESCRIPTOR_PACKET_ROUTE_FLAG_DATA_SHARE_FORMAT;
   }
-  if (descriptor->immediate_count == 2) {
+  if (descriptor_layout->immediate_count == 2) {
     flags |= LOOM_AMDGPU_DESCRIPTOR_PACKET_ROUTE_FLAG_TWO_IMMEDIATES;
   }
   if (descriptor_view->canonical_asm_form_ordinal !=
@@ -2640,9 +2663,11 @@ static iree_status_t loom_amdgpu_append_matrix_packet(
   const loom_low_descriptor_t* descriptor = context->packet->descriptor;
   const loom_op_t* op = context->packet->node->op;
   uint16_t accumulator_operand_index = UINT16_MAX;
-  for (uint16_t i = 0; i < descriptor->constraint_count; ++i) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  for (uint16_t i = 0; i < descriptor_layout->constraint_count; ++i) {
     const loom_low_constraint_t* constraint =
-        &descriptor_set->constraints[descriptor->constraint_start + i];
+        &descriptor_set->constraints[descriptor_layout->constraint_start + i];
     if (constraint->kind == LOOM_LOW_CONSTRAINT_KIND_TIED &&
         constraint->lhs_operand_index == 0 &&
         constraint->rhs_operand_index != LOOM_LOW_ID_NONE) {
@@ -2696,7 +2721,9 @@ static iree_status_t loom_amdgpu_validate_assembly_packet_shape(
   if (descriptor->result_count == shape->result_count &&
       loom_amdgpu_explicit_packet_operand_count(context) ==
           shape->explicit_operand_count &&
-      descriptor->immediate_count == shape->immediate_count) {
+      loom_low_descriptor_layout(context->schedule->target.descriptor_set,
+                                 descriptor)
+              ->immediate_count == shape->immediate_count) {
     return iree_ok_status();
   }
   const iree_string_view_t key = loom_amdgpu_descriptor_key(context);
@@ -2897,8 +2924,10 @@ static iree_status_t loom_amdgpu_append_source_immediate_asm_form_packet(
       context->schedule->target.descriptor_set;
   loom_amdgpu_source_immediate_slot_t
       slots[LOOM_AMDGPU_SOURCE_IMMEDIATE_SLOT_CAPACITY] = {0};
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
   if (descriptor->result_count != 1 ||
-      descriptor->immediate_count != immediate_count) {
+      descriptor_layout->immediate_count != immediate_count) {
     return loom_amdgpu_source_immediate_unsupported_shape(context);
   }
   for (uint8_t immediate_index = 0; immediate_index < immediate_count;
@@ -2930,20 +2959,19 @@ static iree_status_t loom_amdgpu_append_source_immediate_asm_form_packet(
   const loom_amdgpu_encoding_table_t* encoding_table =
       loom_amdgpu_encoding_table_for_descriptor_set_ordinal(
           descriptor_set->descriptor_set_ordinal);
-  if (descriptor->encoding_field_value_start >
+  if (descriptor_layout->encoding_field_value_start >
           descriptor_set->encoding_field_value_count ||
-      descriptor->encoding_field_value_count >
+      descriptor_layout->encoding_field_value_count >
           descriptor_set->encoding_field_value_count -
-              descriptor->encoding_field_value_start) {
+              descriptor_layout->encoding_field_value_start) {
     return iree_make_status(
         IREE_STATUS_OUT_OF_RANGE,
         "AMDGPU assembly descriptor encoding field range is out of range");
   }
-  for (uint16_t i = 0; i < descriptor->encoding_field_value_count; ++i) {
+  for (uint16_t i = 0; i < descriptor_layout->encoding_field_value_count; ++i) {
     const loom_low_encoding_field_value_t* field_value =
-        &descriptor_set
-             ->encoding_field_values[descriptor->encoding_field_value_start +
-                                     i];
+        &descriptor_set->encoding_field_values
+             [descriptor_layout->encoding_field_value_start + i];
     uint8_t source_index = 0;
     if (!loom_amdgpu_source_encoding_field_index(field_value->encoding_field_id,
                                                  &source_index)) {

@@ -1051,8 +1051,14 @@ TEST_F(LowLowerRuleMatchTest,
        QueriesPrimaryDescriptorAvailabilityAfterSemanticSelection) {
   const uint64_t feature_mask_words[] = {1};
   loom_low_descriptor_t descriptors[2] = {};
-  descriptors[0].feature_mask_word_count = 1;
+  const loom_low_descriptor_layout_t layouts[] = {
+      {.feature_mask_word_count = 1},
+      {},
+  };
+  descriptors[1].layout_index = 1;
   loom_low_descriptor_set_t descriptor_set = {
+      .descriptor_layouts = layouts,
+      .descriptor_layout_count = IREE_ARRAYSIZE(layouts),
       .feature_mask_words = feature_mask_words,
       .feature_mask_word_count = IREE_ARRAYSIZE(feature_mask_words),
   };

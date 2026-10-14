@@ -157,13 +157,15 @@ loom_low_lower_rule_source_memory_materializer_tied_results(
   const loom_low_descriptor_t* descriptor_row = descriptor->descriptor;
   uint16_t copy_operand_mask = 0;
   uint16_t tied_result_count = 0;
-  IREE_ASSERT((uint64_t)descriptor_row->constraint_start +
-                  (uint64_t)descriptor_row->constraint_count <=
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor_row);
+  IREE_ASSERT((uint64_t)descriptor_layout->constraint_start +
+                  (uint64_t)descriptor_layout->constraint_count <=
               descriptor_set->constraint_count);
-  for (uint16_t i = 0; i < descriptor_row->constraint_count; ++i) {
+  for (uint16_t i = 0; i < descriptor_layout->constraint_count; ++i) {
     const loom_low_constraint_t* constraint =
         &descriptor_set
-             ->constraints[descriptor_row->constraint_start + (uint32_t)i];
+             ->constraints[descriptor_layout->constraint_start + (uint32_t)i];
     switch (constraint->kind) {
       case LOOM_LOW_CONSTRAINT_KIND_TIED:
         ++tied_result_count;
@@ -196,10 +198,10 @@ loom_low_lower_rule_source_memory_materializer_tied_results(
       context, tied_result_count, sizeof(*tied_results),
       (void**)&tied_results));
   uint16_t tied_result_index = 0;
-  for (uint16_t i = 0; i < descriptor_row->constraint_count; ++i) {
+  for (uint16_t i = 0; i < descriptor_layout->constraint_count; ++i) {
     const loom_low_constraint_t* constraint =
         &descriptor_set
-             ->constraints[descriptor_row->constraint_start + (uint32_t)i];
+             ->constraints[descriptor_layout->constraint_start + (uint32_t)i];
     if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_TIED) {
       continue;
     }

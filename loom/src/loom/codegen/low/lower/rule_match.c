@@ -144,8 +144,10 @@ iree_status_t loom_low_lower_rule_resolve_descriptor_ref(
 static bool loom_low_lower_rule_descriptor_features_available(
     const loom_low_lower_rule_match_context_t* match_context,
     const loom_low_descriptor_t* descriptor) {
-  for (uint16_t i = 0; i < descriptor->feature_mask_word_count; ++i) {
-    const uint32_t word_index = descriptor->feature_mask_word_start + i;
+  const loom_low_descriptor_layout_t* layout =
+      loom_low_descriptor_layout(match_context->descriptor_set, descriptor);
+  for (uint16_t i = 0; i < layout->feature_mask_word_count; ++i) {
+    const uint32_t word_index = layout->feature_mask_word_start + i;
     const uint64_t required_bits =
         match_context->descriptor_set->feature_mask_words[word_index];
     const uint64_t available_bits = i == 0 ? match_context->feature_bits : 0;

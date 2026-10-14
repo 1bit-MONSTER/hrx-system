@@ -51,6 +51,16 @@ const loom_low_descriptor_t kDescriptor = {
     .key_string_ref = kRuleStringDescriptor,
 };
 
+const loom_low_descriptor_layout_t kDescriptorLayout = {};
+const loom_low_descriptor_set_t kDescriptorSet = {
+    .string_pool = kRuleStringPool,
+    .descriptors = &kDescriptor,
+    .descriptor_layouts = &kDescriptorLayout,
+    .descriptor_layout_count = 1,
+    .descriptor_count = 1,
+    .descriptor_ordinal_count = 1,
+};
+
 iree_status_t ResolveTestDescriptorRef(
     void* user_data, const loom_low_lower_rule_match_context_t* context,
     const loom_low_lower_rule_set_t* rule_set,
@@ -473,6 +483,7 @@ TEST(LowContractQueryTest, ContractIndexDescriptorRuleSelectsLegalCase) {
   const loom_target_facts_t target_facts = MakeTargetFacts();
   loom_target_contract_query_environment_t environment = {
       .target_facts = &target_facts,
+      .descriptor_set = &kDescriptorSet,
   };
   loom_op_t op = {.kind = kSourceOpKind};
   loom_target_contract_query_result_t result =
@@ -755,8 +766,14 @@ TEST(LowContractQueryTest,
      ContractIndexDefersUnavailableDescriptorAcrossBindings) {
   const uint64_t feature_mask_words[] = {1};
   loom_low_descriptor_t descriptors[2] = {};
-  descriptors[0].feature_mask_word_count = 1;
+  loom_low_descriptor_layout_t layouts[] = {
+      {.feature_mask_word_count = 1},
+      {},
+  };
+  descriptors[1].layout_index = 1;
   loom_low_descriptor_set_t descriptor_set = {
+      .descriptor_layouts = layouts,
+      .descriptor_layout_count = IREE_ARRAYSIZE(layouts),
       .feature_mask_words = feature_mask_words,
       .feature_mask_word_count = IREE_ARRAYSIZE(feature_mask_words),
   };
@@ -864,7 +881,7 @@ TEST(LowContractQueryTest,
   EXPECT_EQ(result.selected_descriptor, &descriptors[1]);
   EXPECT_EQ(selection.rule, &rules[1]);
 
-  descriptors[1].feature_mask_word_count = 1;
+  layouts[1].feature_mask_word_count = 1;
   result = loom_target_contract_query_result_empty();
   selection = {};
   IREE_ASSERT_OK(loom_low_lower_query_target_contract_with_selection(
@@ -1213,6 +1230,7 @@ TEST(LowContractQueryTest, TargetSubgroupSizeRangeRequiresKnownInRangeSize) {
     target_facts.storage.bundle.snapshot = &snapshot;
     loom_target_contract_query_environment_t environment = {
         .target_facts = &target_facts,
+        .descriptor_set = &kDescriptorSet,
     };
     loom_target_contract_query_result_t result =
         loom_target_contract_query_result_empty();

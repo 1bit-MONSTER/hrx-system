@@ -69,6 +69,8 @@ enum : loom_string_ref_t {
 
 struct TestTables {
   loom_low_descriptor_t descriptors[2];
+  // Independently mutable layouts for table validation tests.
+  loom_low_descriptor_layout_t descriptor_layouts[2];
   loom_low_descriptor_view_t descriptor_views[2];
   // Descriptor ordinals ordered by stable identity.
   uint32_t descriptor_refs[2];
@@ -208,26 +210,27 @@ void InitializeTestTables(TestTables* tables) {
   tables->descriptors[0].operand_start = 0;
   tables->descriptors[0].operand_count = 1;
   tables->descriptors[0].result_count = 1;
-  tables->descriptors[0].immediate_start = 0;
-  tables->descriptors[0].immediate_count = 1;
+  tables->descriptor_layouts[0].immediate_start = 0;
+  tables->descriptor_layouts[0].immediate_count = 1;
   tables->descriptor_views[0].schedule_class_id = 0;
   tables->descriptors[0].flags = LOOM_LOW_DESCRIPTOR_FLAG_DEAD_REMOVABLE;
-  tables->descriptors[0].op_kind = LOOM_LOW_DESCRIPTOR_OP_KIND_CONST;
+  tables->descriptor_layouts[0].op_kind = LOOM_LOW_DESCRIPTOR_OP_KIND_CONST;
   tables->descriptor_views[0].canonical_asm_form_ordinal =
       LOOM_LOW_ASM_FORM_ORDINAL_NONE;
 
   tables->descriptors[1].key_string_ref = TEST_STRING_REF(descriptor_add);
+  tables->descriptors[1].layout_index = 1;
   tables->descriptors[1].stable_id =
       loom_low_descriptor_stable_id_from_key(IREE_SV("test.add.i32"));
   tables->descriptors[1].mnemonic_string_ref = TEST_STRING_REF(mnemonic_add);
   tables->descriptors[1].semantic_tag_string_ref =
       TEST_STRING_REF(semantic_add);
-  tables->descriptors[1].feature_mask_word_start = 0;
-  tables->descriptors[1].feature_mask_word_count = 1;
+  tables->descriptor_layouts[1].feature_mask_word_start = 0;
+  tables->descriptor_layouts[1].feature_mask_word_count = 1;
   tables->descriptors[1].operand_start = 1;
   tables->descriptors[1].operand_count = 3;
   tables->descriptors[1].result_count = 1;
-  tables->descriptors[1].minimum_packet_operand_count = 2;
+  tables->descriptor_layouts[1].minimum_packet_operand_count = 2;
   tables->descriptor_views[1].schedule_class_id = 1;
   tables->descriptors[1].flags = LOOM_LOW_DESCRIPTOR_FLAG_DEAD_REMOVABLE;
   tables->descriptor_views[1].canonical_asm_form_ordinal =
@@ -250,6 +253,9 @@ void InitializeTestTables(TestTables* tables) {
   tables->set.string_pool.data = kTestStrings;
   tables->set.string_pool.data_length = sizeof(kTestStrings) - 1;
   tables->set.descriptors = tables->descriptors;
+  tables->set.descriptor_layouts = tables->descriptor_layouts;
+  tables->set.descriptor_layout_count =
+      IREE_ARRAYSIZE(tables->descriptor_layouts);
   tables->set.descriptor_views = tables->descriptor_views;
   tables->set.descriptor_count = IREE_ARRAYSIZE(tables->descriptors);
   tables->set.descriptor_ordinal_count = IREE_ARRAYSIZE(tables->descriptors);
@@ -343,8 +349,8 @@ void AddAddDescriptorConstraint(TestTables* tables,
   tables->constraints[0].kind = kind;
   tables->constraints[0].lhs_operand_index = lhs_operand_index;
   tables->constraints[0].rhs_operand_index = rhs_operand_index;
-  tables->descriptors[1].constraint_start = 0;
-  tables->descriptors[1].constraint_count = 1;
+  tables->descriptor_layouts[1].constraint_start = 0;
+  tables->descriptor_layouts[1].constraint_count = 1;
   tables->set.constraint_count = 1;
 }
 
@@ -375,8 +381,8 @@ void AddAddDescriptorEffect(TestTables* tables, loom_low_effect_kind_t kind,
                             loom_low_memory_space_t memory_space) {
   tables->effects[0].kind = kind;
   tables->effects[0].memory_space = memory_space;
-  tables->descriptors[1].effect_start = 0;
-  tables->descriptors[1].effect_count = 1;
+  tables->descriptor_layouts[1].effect_start = 0;
+  tables->descriptor_layouts[1].effect_count = 1;
   tables->set.effect_count = 1;
 }
 
@@ -749,6 +755,22 @@ TEST(LowDescriptorsTest, RejectsMalformedSpans) {
                         loom_low_descriptor_set_verify(&tables.set));
 }
 
+TEST(LowDescriptorsTest, RejectsMissingDescriptorLayouts) {
+  TestTables tables;
+  InitializeTestTables(&tables);
+  tables.set.descriptor_layouts = nullptr;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        loom_low_descriptor_set_verify(&tables.set));
+}
+
+TEST(LowDescriptorsTest, RejectsDescriptorLayoutOutsidePool) {
+  TestTables tables;
+  InitializeTestTables(&tables);
+  tables.descriptors[1].layout_index = tables.set.descriptor_layout_count;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
+                        loom_low_descriptor_set_verify(&tables.set));
+}
+
 TEST(LowDescriptorsTest, RejectsOperandIndexOutsideRowPool) {
   TestTables tables;
   InitializeTestTables(&tables);
@@ -868,7 +890,7 @@ TEST(LowDescriptorsTest, AcceptsImplicitRowsWithImplicitFlag) {
   tables.operands[2].source_value_index = LOOM_LOW_ID_NONE;
   tables.operands[2].flags = LOOM_LOW_OPERAND_FLAG_IMPLICIT;
   tables.operands[3].source_value_index = 0;
-  tables.descriptors[1].minimum_packet_operand_count = 1;
+  tables.descriptor_layouts[1].minimum_packet_operand_count = 1;
 
   IREE_ASSERT_OK(loom_low_descriptor_set_verify(&tables.set));
 }
@@ -1026,8 +1048,8 @@ TEST(LowDescriptorsTest, RejectsOperandFixedEncodingFieldOverlap) {
   InitializeTestTables(&tables);
   tables.operands[1].encoding_field_id = 7;
   tables.encoding_field_values[0].encoding_field_id = 7;
-  tables.descriptors[1].encoding_field_value_start = 0;
-  tables.descriptors[1].encoding_field_value_count = 1;
+  tables.descriptor_layouts[1].encoding_field_value_start = 0;
+  tables.descriptor_layouts[1].encoding_field_value_count = 1;
   tables.set.encoding_field_value_count = 1;
 
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
@@ -1209,7 +1231,7 @@ TEST(LowDescriptorsTest, RejectsPseudoFlagWithTargetEncoding) {
 TEST(LowDescriptorsTest, RejectsPseudoFlagWithTargetEncodingFormat) {
   TestTables tables;
   InitializeTestTables(&tables);
-  tables.descriptors[1].encoding_format_id = 1;
+  tables.descriptor_layouts[1].encoding_format_id = 1;
   tables.descriptors[1].encoding_id = LOOM_LOW_ID_NONE;
   tables.descriptors[1].flags =
       LOOM_LOW_DESCRIPTOR_FLAG_DEAD_REMOVABLE | LOOM_LOW_DESCRIPTOR_FLAG_PSEUDO;
@@ -1241,7 +1263,7 @@ TEST(LowDescriptorsTest, AcceptsTrailingVariadicOperandSegment) {
   InitializeTestTables(&tables);
   AddAsmForms(&tables);
   tables.operands[3].flags = LOOM_LOW_OPERAND_FLAG_VARIADIC;
-  tables.descriptors[1].minimum_packet_operand_count = 1;
+  tables.descriptor_layouts[1].minimum_packet_operand_count = 1;
   tables.descriptors[1].flags |= LOOM_LOW_DESCRIPTOR_FLAG_VARIADIC_OPERANDS;
   tables.asm_operand_segments[0].operand_count = 2;
   tables.asm_operand_segments[0].delimiter =
@@ -1258,7 +1280,7 @@ TEST(LowDescriptorsTest, AcceptsTrailingVariadicOperandSegment) {
 TEST(LowDescriptorsTest, RejectsIncorrectMinimumPacketOperandCount) {
   TestTables tables;
   InitializeTestTables(&tables);
-  tables.descriptors[1].minimum_packet_operand_count = 1;
+  tables.descriptor_layouts[1].minimum_packet_operand_count = 1;
 
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         loom_low_descriptor_set_verify(&tables.set));
@@ -1277,7 +1299,7 @@ TEST(LowDescriptorsTest, RejectsVariadicOperandWithoutDescriptorFlag) {
   TestTables tables;
   InitializeTestTables(&tables);
   tables.operands[3].flags = LOOM_LOW_OPERAND_FLAG_VARIADIC;
-  tables.descriptors[1].minimum_packet_operand_count = 1;
+  tables.descriptor_layouts[1].minimum_packet_operand_count = 1;
 
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         loom_low_descriptor_set_verify(&tables.set));
@@ -1762,7 +1784,8 @@ TEST(LowDescriptorsTest, RejectsDuplicateDescriptorReferences) {
 TEST(LowDescriptorsTest, RejectsInvalidDescriptorOperationKind) {
   TestTables tables;
   InitializeTestTables(&tables);
-  tables.descriptors[0].op_kind = static_cast<loom_low_descriptor_op_kind_t>(2);
+  tables.descriptor_layouts[0].op_kind =
+      static_cast<loom_low_descriptor_op_kind_t>(UINT8_MAX);
 
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         loom_low_descriptor_set_verify(&tables.set));
@@ -1809,7 +1832,7 @@ TEST(LowDescriptorsTest, RejectsEffectfulConstDescriptor) {
   TestTables tables;
   InitializeTestTables(&tables);
   tables.effects[0].kind = LOOM_LOW_EFFECT_KIND_CONVERGENT;
-  tables.descriptors[0].effect_count = 1;
+  tables.descriptor_layouts[0].effect_count = 1;
   tables.set.effect_count = 1;
 
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,

@@ -104,9 +104,12 @@ static bool loom_amdgpu_wait_effect_requires_system_scope_store_drain(
       LOOM_AMDGPU_DESCRIPTOR_IMMEDIATE_SLOT_NONE) {
     return false;
   }
-  IREE_ASSERT_LT(immediate_slots.cache_scope, descriptor->immediate_count);
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  IREE_ASSERT_LT(immediate_slots.cache_scope,
+                 descriptor_layout->immediate_count);
   const loom_low_immediate_t* immediate =
-      &descriptor_set->immediates[descriptor->immediate_start +
+      &descriptor_set->immediates[descriptor_layout->immediate_start +
                                   immediate_slots.cache_scope];
   const loom_low_packet_view_t packet =
       loom_low_packet_at_node(schedule, effect->node_index);

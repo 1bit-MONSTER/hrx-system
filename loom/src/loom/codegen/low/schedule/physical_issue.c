@@ -226,10 +226,13 @@ iree_status_t loom_low_physical_issue_commit(
             issue_cycle);
       }
     }
+    const loom_low_descriptor_layout_t* descriptor_layout =
+        loom_low_descriptor_layout(descriptor_set, descriptor);
     for (uint16_t j = 0;
-         j < descriptor->effect_count && iree_status_is_ok(status); ++j) {
+         j < descriptor_layout->effect_count && iree_status_is_ok(status);
+         ++j) {
       const loom_low_effect_t* effect =
-          &descriptor_set->effects[descriptor->effect_start + j];
+          &descriptor_set->effects[descriptor_layout->effect_start + j];
       if (effect->producer_event_id == LOOM_LOW_TIMING_EVENT_NONE) {
         continue;
       }

@@ -26,8 +26,10 @@ loom_trait_flags_t loom_low_descriptor_effective_traits(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_low_descriptor_t* descriptor) {
   loom_trait_flags_t traits = 0;
-  for (uint16_t i = 0; i < descriptor->effect_count; ++i) {
-    const uint32_t effect_index = descriptor->effect_start + i;
+  const loom_low_descriptor_layout_t* layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
+  for (uint16_t i = 0; i < layout->effect_count; ++i) {
+    const uint32_t effect_index = layout->effect_start + i;
     IREE_ASSERT(effect_index < descriptor_set->effect_count);
     const loom_low_effect_t* effect = &descriptor_set->effects[effect_index];
     switch (effect->kind) {
@@ -93,7 +95,7 @@ loom_trait_flags_t loom_low_descriptor_effective_traits(
                       LOOM_TRAIT_NON_DETERMINISTIC | LOOM_TRAIT_MEMORY_FENCE |
                       LOOM_TRAIT_UNIQUE_IDENTITY |
                       LOOM_TRAIT_OBSERVABLE_EFFECT)) {
-    if (descriptor->effect_count == 0 &&
+    if (layout->effect_count == 0 &&
         iree_any_bit_set(descriptor->flags,
                          LOOM_LOW_DESCRIPTOR_FLAG_SIDE_EFFECTING)) {
       traits |= LOOM_TRAIT_UNKNOWN_EFFECTS;

@@ -114,10 +114,12 @@ static void BM_StructuralFacts(benchmark::State& state,
                         uint32_t descriptor_ordinal) {
                        const loom_low_descriptor_t* descriptor =
                            &descriptor_set->descriptors[descriptor_ordinal];
+                       const auto* layout = loom_low_descriptor_layout(
+                           descriptor_set, descriptor);
                        return descriptor->stable_id +
                               descriptor->operand_start +
-                              descriptor->immediate_start +
-                              descriptor->effect_start + descriptor->flags;
+                              layout->immediate_start + layout->effect_start +
+                              descriptor->flags;
                      });
 }
 
@@ -181,7 +183,8 @@ static void BM_MixedFacts(benchmark::State& state,
             &descriptor_set
                  ->schedule_classes[descriptor_view->schedule_class_id];
         uint64_t result = descriptor->stable_id + descriptor->operand_start +
-                          descriptor->effect_start +
+                          loom_low_descriptor_layout(descriptor_set, descriptor)
+                              ->effect_start +
                           descriptor_view->instruction_class_flags +
                           schedule_class->latency_cycles +
                           schedule_class->flags;

@@ -172,14 +172,17 @@ TEST(LowDescriptorTest, IndexesPacketOperandRoles) {
 
   loom_low_descriptor_t descriptor = {
       .operand_start = 0,
-      .constraint_start = 0,
       .operand_count = IREE_ARRAYSIZE(operands),
       .result_count = 1,
-      .minimum_packet_operand_count = 4,
+  };
+  const loom_low_descriptor_layout_t layout = {
       .constraint_count = IREE_ARRAYSIZE(constraints),
+      .minimum_packet_operand_count = 4,
   };
 
   loom_low_descriptor_set_t descriptor_set = {
+      .descriptor_layouts = &layout,
+      .descriptor_layout_count = 1,
       .operands = operands,
       .operand_count = IREE_ARRAYSIZE(operands),
   };

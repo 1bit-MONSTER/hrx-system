@@ -145,6 +145,7 @@ static iree_status_t loom_x86_module_encode_function(
           loom_target_compile_report_wants_details(
               report, LOOM_TARGET_COMPILE_REPORT_DETAIL_SPILL_ROWS),
       .loop_placement_cost_query = loom_x86_loop_placement_cost_query,
+      .loop_placement_cost_query_user_data = (void*)abi->target.descriptor_set,
   };
   loom_low_emission_frame_t frame = {0};
   IREE_RETURN_IF_ERROR(loom_low_emission_frame_build_spill_free(

@@ -965,9 +965,12 @@ static iree_status_t loom_spirv_emit_transfer(loom_spirv_emit_state_t* state,
 static iree_status_t loom_spirv_emit_descriptor_packet(
     loom_spirv_emit_state_t* state, const loom_op_t* op,
     const loom_low_descriptor_packet_t* packet) {
-  for (uint16_t i = 0; i < packet->descriptor->feature_mask_word_count; ++i) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(state->function_plan->descriptor_set,
+                                 packet->descriptor);
+  for (uint16_t i = 0; i < descriptor_layout->feature_mask_word_count; ++i) {
     const uint32_t feature_mask_row =
-        packet->descriptor->feature_mask_word_start + i;
+        descriptor_layout->feature_mask_word_start + i;
     const uint64_t feature_bits = state->function_plan->descriptor_set
                                       ->feature_mask_words[feature_mask_row];
     IREE_ASSERT(i == 0 || feature_bits == 0);
