@@ -88,10 +88,16 @@ static iree_status_t iree_hal_amd_fabric_file_transfer_issue(
     iree_hal_amd_fabric_file_transfer_t* transfer,
     iree_async_completion_fn_t completion) {
   const iree_host_size_t offset = transfer->async.bytes_transferred;
-  // Native request lengths are bounded independently of the HAL range. A
-  // power-of-two ceiling preserves direct-I/O alignment between full chunks.
-  const iree_host_size_t length = iree_min(
-      transfer->buffer_contents.data_length - offset, UINT32_C(1) << 30);
+  const iree_async_file_requirements_t* requirements =
+      iree_hal_file_requirements(transfer->file);
+  iree_host_size_t length = 0;
+  IREE_RETURN_IF_ERROR(iree_hal_file_prepare_transfer(
+      transfer->file_access == IREE_HAL_MEMORY_ACCESS_READ
+          ? &requirements->read
+          : &requirements->write,
+      transfer->file_offset + offset, transfer->buffer_contents.data + offset,
+      transfer->buffer_contents.data_length - offset, UINT32_C(1) << 30,
+      &length));
   const iree_async_span_t span =
       iree_async_span_from_ptr(transfer->buffer_contents.data + offset, length);
   iree_async_operation_t* operation = NULL;

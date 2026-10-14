@@ -118,8 +118,8 @@ class FileRequirementsTest : public CtsTestBase<> {
   void ChangedRange(FileSource source, iree_async_file_flags_t flags) {
     IREE_ASSERT_OK(Open(source, flags, iree_const_byte_span_empty()));
     iree_async_file_requirements_t requirements;
-    iree::Status query_status =
-        iree_async_file_query_requirements(file_, &requirements);
+    iree::Status query_status = iree_async_file_query_requirements(
+        file_->primitive, file_->flags, &requirements);
     if (query_status.code() == iree::StatusCode::kUnavailable) {
       GTEST_SKIP() << query_status.ToString();
     }
@@ -185,8 +185,8 @@ class FileRequirementsTest : public CtsTestBase<> {
     IREE_ASSERT_OK(
         Open(source, flags, iree_make_const_byte_span(contents, length)));
     iree_async_file_requirements_t requirements;
-    iree::Status query_status =
-        iree_async_file_query_requirements(file_, &requirements);
+    iree::Status query_status = iree_async_file_query_requirements(
+        file_->primitive, file_->flags, &requirements);
     if (query_status.code() == iree::StatusCode::kUnavailable) {
       GTEST_SKIP() << query_status.ToString();
     }
@@ -215,7 +215,7 @@ class FileRequirementsTest : public CtsTestBase<> {
     ASSERT_NO_FATAL_FAILURE(Close());
   }
 
- private:
+ protected:
   // Owned fixture path, empty until Open runs after backend setup succeeds.
   iree::testing::TempFilePath path_;
   // Owned until an accepted FILE_CLOSE consumes it, or teardown releases it.
@@ -224,6 +224,29 @@ class FileRequirementsTest : public CtsTestBase<> {
 
 TEST_P(FileRequirementsTest, BufferedOpenChangedRange) {
   ChangedRange(FileSource::kAsyncOpen, IREE_ASYNC_FILE_FLAG_NONE);
+}
+
+TEST_P(FileRequirementsTest, FailedQueryPreservesOutputAndHandle) {
+  uint8_t contents[] = "borrowed handle";
+  IREE_ASSERT_OK(Open(FileSource::kImport, IREE_ASYNC_FILE_FLAG_NONE,
+                      iree_make_const_byte_span(contents, sizeof(contents))));
+  const iree_async_file_requirements_t original = {{2, 4, 8}, {16, 32, 64}};
+  auto requirements = original;
+  EXPECT_THAT(
+      iree::Status(iree_async_file_query_requirements(
+          file_->primitive, ~IREE_ASYNC_FILE_FLAG_DIRECT, &requirements)),
+      ::iree::testing::status::StatusIs(iree::StatusCode::kInvalidArgument));
+  EXPECT_EQ(std::memcmp(&original, &requirements, sizeof(original)), 0);
+  EXPECT_THAT(
+      iree::Status(iree_async_file_query_requirements(
+          iree_async_primitive_none(), IREE_ASYNC_FILE_FLAG_NONE,
+          &requirements)),
+      ::iree::testing::status::StatusIs(iree::StatusCode::kInvalidArgument));
+  EXPECT_EQ(std::memcmp(&original, &requirements, sizeof(original)), 0);
+  uint8_t readback[sizeof(contents)] = {};
+  ASSERT_NO_FATAL_FAILURE(
+      Read(0, readback, sizeof(readback), sizeof(readback)));
+  EXPECT_EQ(std::memcmp(contents, readback, sizeof(contents)), 0);
 }
 
 TEST_P(FileRequirementsTest, BufferedImportChangedRange) {

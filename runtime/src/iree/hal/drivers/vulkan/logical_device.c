@@ -1054,6 +1054,18 @@ static iree_status_t iree_hal_vulkan_logical_device_import_file(
   iree_hal_vulkan_logical_device_t* device =
       iree_hal_vulkan_logical_device_cast(base_device);
 
+  if (iree_any_bit_set(iree_io_file_handle_mode(handle),
+                       IREE_IO_FILE_MODE_DIRECT) &&
+      (!device->physical_device.host_allocation_importable ||
+       !iree_all_bits_set(
+           device->enabled_extensions,
+           IREE_HAL_VULKAN_DEVICE_EXTENSION_EXT_EXTERNAL_MEMORY_HOST))) {
+    return iree_make_status(
+        IREE_STATUS_UNAVAILABLE,
+        "Vulkan direct file I/O requires VK_EXT_external_memory_host "
+        "for native-pinnable staging memory");
+  }
+
   iree_hal_file_t* file = NULL;
   iree_status_t status =
       iree_hal_file_from_handle(storage_pool, access, handle, device->proactor,

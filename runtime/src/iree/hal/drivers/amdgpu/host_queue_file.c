@@ -343,8 +343,13 @@ static void iree_hal_amdgpu_file_action_write_complete(
 
 static iree_status_t iree_hal_amdgpu_file_action_submit_next_read(
     iree_hal_amdgpu_file_action_state_t* state) {
-  const iree_host_size_t remaining_length =
-      state->requested_length - state->completed_length;
+  iree_host_size_t length = 0;
+  IREE_RETURN_IF_ERROR(iree_hal_file_prepare_transfer(
+      &iree_hal_file_requirements(state->file)->read,
+      state->file_offset + state->completed_length,
+      state->mapping.contents.data + state->completed_length,
+      state->requested_length - state->completed_length, UINT32_C(1) << 30,
+      &length));
   iree_async_operation_zero(&state->read_op.base, sizeof(state->read_op));
   iree_async_operation_initialize(
       &state->read_op.base, IREE_ASYNC_OPERATION_TYPE_FILE_READ,
@@ -353,14 +358,19 @@ static iree_status_t iree_hal_amdgpu_file_action_submit_next_read(
   state->read_op.file = state->async_file;
   state->read_op.offset = state->file_offset + state->completed_length;
   state->read_op.buffer = iree_async_span_from_ptr(
-      state->mapping.contents.data + state->completed_length, remaining_length);
+      state->mapping.contents.data + state->completed_length, length);
   return iree_async_proactor_submit_one(state->proactor, &state->read_op.base);
 }
 
 static iree_status_t iree_hal_amdgpu_file_action_submit_next_write(
     iree_hal_amdgpu_file_action_state_t* state) {
-  const iree_host_size_t remaining_length =
-      state->requested_length - state->completed_length;
+  iree_host_size_t length = 0;
+  IREE_RETURN_IF_ERROR(iree_hal_file_prepare_transfer(
+      &iree_hal_file_requirements(state->file)->write,
+      state->file_offset + state->completed_length,
+      state->mapping.contents.data + state->completed_length,
+      state->requested_length - state->completed_length, UINT32_C(1) << 30,
+      &length));
   iree_async_operation_zero(&state->write_op.base, sizeof(state->write_op));
   iree_async_operation_initialize(
       &state->write_op.base, IREE_ASYNC_OPERATION_TYPE_FILE_WRITE,
@@ -369,7 +379,7 @@ static iree_status_t iree_hal_amdgpu_file_action_submit_next_write(
   state->write_op.file = state->async_file;
   state->write_op.offset = state->file_offset + state->completed_length;
   state->write_op.buffer = iree_async_span_from_ptr(
-      state->mapping.contents.data + state->completed_length, remaining_length);
+      state->mapping.contents.data + state->completed_length, length);
   return iree_async_proactor_submit_one(state->proactor, &state->write_op.base);
 }
 

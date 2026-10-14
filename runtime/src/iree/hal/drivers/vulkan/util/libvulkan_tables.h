@@ -77,6 +77,13 @@ IREE_HAL_VULKAN_INSTANCE_PFN(
     ARGS(physicalDevice, pMemoryProperties))
 
 IREE_HAL_VULKAN_INSTANCE_PFN(
+    void, vkGetPhysicalDeviceExternalBufferProperties,
+    DECL(VkPhysicalDevice physicalDevice,
+         const VkPhysicalDeviceExternalBufferInfo* pExternalBufferInfo,
+         VkExternalBufferProperties* pExternalBufferProperties),
+    ARGS(physicalDevice, pExternalBufferInfo, pExternalBufferProperties))
+
+IREE_HAL_VULKAN_INSTANCE_PFN(
     void, vkGetPhysicalDeviceQueueFamilyProperties2,
     DECL(VkPhysicalDevice physicalDevice, uint32_t* pQueueFamilyPropertyCount,
          VkQueueFamilyProperties2* pQueueFamilyProperties),

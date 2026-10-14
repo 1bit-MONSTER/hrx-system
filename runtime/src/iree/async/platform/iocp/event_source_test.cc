@@ -56,15 +56,18 @@ TEST(IocpEventSourceTest, CancellationFailureRetainsSource) {
   LONG native_failure = static_cast<LONG>(0xC000000DL);
   iree_async_proactor_iocp_t proactor = {};
   proactor.nt_wait_api.NtCancelWaitCompletionPacket = ReturnCancellationResult;
-  iree_async_event_source_t source = {};
-  source.wait_packet_handle = reinterpret_cast<uintptr_t>(&native_failure);
-  source.flags = IREE_ASYNC_IOCP_EVENT_SOURCE_FLAG_ARMED;
-  source.callback = {
-      +[](void*, iree_async_event_source_t*, iree_async_poll_events_t) {},
-      nullptr};
+  iree_async_event_source_t source = {
+      .wait_packet_handle = reinterpret_cast<uintptr_t>(&native_failure),
+      .flags = IREE_ASYNC_IOCP_EVENT_SOURCE_FLAG_ARMED,
+      .callback = {+[](void*, iree_async_event_source_t*,
+                       iree_async_poll_events_t) {},
+                   nullptr},
+  };
   proactor.event_sources = &source;
   struct TerminalResult {
+    // Number of terminal unregistration callbacks.
     int callback_count = 0;
+    // Native failure returned by the terminal callback.
     iree_status_code_t code = IREE_STATUS_OK;
   } result;
 
@@ -93,14 +96,16 @@ TEST(IocpEventSourceTest, RearmFailureReturnsThroughDispatch) {
   iree_async_proactor_iocp_t proactor = {};
   proactor.nt_wait_api.NtAssociateWaitCompletionPacket =
       ReturnAssociationResult;
-  iree_async_event_source_t source = {};
-  source.wait_packet_handle = reinterpret_cast<uintptr_t>(&native_failure);
-  source.flags = IREE_ASYNC_IOCP_EVENT_SOURCE_FLAG_ARMED;
   int ready_count = 0;
-  source.callback = {
-      +[](void* user_data, iree_async_event_source_t*,
-          iree_async_poll_events_t) { ++*static_cast<int*>(user_data); },
-      &ready_count};
+  iree_async_event_source_t source = {
+      .wait_packet_handle = reinterpret_cast<uintptr_t>(&native_failure),
+      .flags = IREE_ASYNC_IOCP_EVENT_SOURCE_FLAG_ARMED,
+      .callback = {+[](void* user_data, iree_async_event_source_t*,
+                       iree_async_poll_events_t) {
+                     ++*static_cast<int*>(user_data);
+                   },
+                   &ready_count},
+  };
   proactor.event_sources = &source;
 
   IREE_EXPECT_STATUS_IS(

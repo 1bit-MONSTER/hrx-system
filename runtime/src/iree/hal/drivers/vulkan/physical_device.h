@@ -141,6 +141,10 @@ typedef struct iree_hal_vulkan_physical_device_snapshot_t {
   VkPhysicalDeviceExternalMemoryHostPropertiesEXT
       external_memory_host_properties;
 
+  // Whether ordinary host allocations can back transfer/storage buffers
+  // without a dedicated-allocation requirement. Foreign mappings are distinct.
+  bool host_allocation_importable;
+
   // VK_KHR_push_descriptor properties, if the extension is available.
   VkPhysicalDevicePushDescriptorPropertiesKHR push_descriptor_properties;
 

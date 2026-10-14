@@ -9,7 +9,10 @@
 iree_status_t iree_async_file_query_direct_requirements(
     iree_async_primitive_t primitive,
     iree_async_file_requirements_t* out_requirements) {
-  (void)primitive;
+  if (primitive.type != IREE_ASYNC_PRIMITIVE_TYPE_FD) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "file requirements query needs a file descriptor");
+  }
   // F_NOCACHE does not restrict byte-granular positioned I/O. Neither the VM
   // page size nor fpathconf's recommended transfer alignment is a requirement.
   *out_requirements =

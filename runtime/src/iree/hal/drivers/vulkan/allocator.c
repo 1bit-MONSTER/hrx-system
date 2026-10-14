@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "iree/async/notification.h"
+#include "iree/base/internal/memory.h"
 #include "iree/base/threading/mutex.h"
 #include "iree/hal/drivers/vulkan/atomic.h"
 #include "iree/hal/drivers/vulkan/buffer.h"
@@ -73,6 +74,9 @@ struct iree_hal_vulkan_allocator_t {
   // VK_EXT_external_memory_host properties, if the extension is enabled.
   VkPhysicalDeviceExternalMemoryHostPropertiesEXT
       external_memory_host_properties;
+
+  // Native host-allocation buffer import support, captured before activation.
+  bool host_allocation_importable;
 
   // Physical-device memory properties captured during logical-device creation.
   VkPhysicalDeviceMemoryProperties2 memory_properties2;
@@ -191,6 +195,8 @@ iree_status_t iree_hal_vulkan_allocator_create(
   allocator->external_memory_host_properties =
       physical_device->external_memory_host_properties;
   allocator->external_memory_host_properties.pNext = NULL;
+  allocator->host_allocation_importable =
+      physical_device->host_allocation_importable;
   allocator->memory_properties2 = physical_device->memory_properties2;
   allocator->enabled_features = enabled_features;
   allocator->enabled_extensions = enabled_extensions;
@@ -649,16 +655,12 @@ static bool iree_hal_vulkan_allocator_supports_sparse_binding(
 
 bool iree_hal_vulkan_allocator_supports_host_allocation_import(
     const iree_hal_vulkan_allocator_t* allocator) {
-  if (!iree_all_bits_set(
-          allocator->enabled_extensions,
-          IREE_HAL_VULKAN_DEVICE_EXTENSION_EXT_EXTERNAL_MEMORY_HOST)) {
-    return false;
-  }
-  // Arbitrary host pointers only become usable Vulkan buffers when the device
-  // and host share memory. Discrete devices may expose the extension while
-  // still rejecting normal heap pointers for device-visible storage.
-  return iree_hal_vulkan_physical_device_type_uses_unified_memory(
-      allocator->properties2.properties.deviceType);
+  // The extension and the imported pointer's compatible memory types define
+  // this route. Discrete devices can attach host allocations as well.
+  return allocator->host_allocation_importable &&
+         iree_all_bits_set(
+             allocator->enabled_extensions,
+             IREE_HAL_VULKAN_DEVICE_EXTENSION_EXT_EXTERNAL_MEMORY_HOST);
 }
 
 static iree_status_t iree_hal_vulkan_allocator_prepare_sparse_buffer_params(
@@ -1437,6 +1439,60 @@ iree_status_t iree_hal_vulkan_allocator_import_direct_buffer(
   return iree_hal_vulkan_allocator_import_buffer_with_memory_type_bits(
       allocator, allowed_memory_type_bits, params, storage,
       iree_hal_buffer_release_callback_null(), out_buffer);
+}
+
+iree_status_t iree_hal_vulkan_allocator_allocate_staging_buffer(
+    iree_hal_allocator_t* base_allocator,
+    const iree_hal_vulkan_buffer_spec_t* params,
+    iree_device_size_t allocation_size, iree_allocator_t host_allocator,
+    iree_byte_span_t* out_host_allocation, iree_hal_buffer_t** out_buffer) {
+  *out_host_allocation = iree_byte_span_empty();
+  *out_buffer = NULL;
+  iree_hal_vulkan_allocator_t* allocator =
+      iree_hal_vulkan_allocator_cast(base_allocator);
+  if (!iree_hal_vulkan_allocator_supports_host_allocation_import(allocator)) {
+    // Native mappings remain usable for host copies and buffered file I/O.
+    // Direct native files require host import and are rejected at import.
+    return iree_hal_vulkan_allocator_allocate_direct_buffer(
+        base_allocator, params, allocation_size, out_buffer);
+  }
+
+  // Driver mappings may be VM_IO/VM_PFNMAP and cannot be pinned by native I/O.
+  // Allocate ordinary host pages first and attach those same pages to Vulkan.
+  const iree_device_size_t alignment =
+      iree_max(allocator->external_memory_host_properties
+                   .minImportedHostPointerAlignment,
+               iree_memory_query_info().normal_page_size);
+  iree_device_size_t aligned_size = 0;
+  if (!iree_device_size_checked_align(allocation_size, alignment,
+                                      &aligned_size) ||
+      alignment > IREE_HOST_SIZE_MAX || aligned_size > IREE_HOST_SIZE_MAX) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "Vulkan staging host allocation exceeds host size");
+  }
+  void* host_pointer = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc_aligned(
+      host_allocator, (iree_host_size_t)aligned_size,
+      (iree_host_size_t)alignment, /*offset=*/0, &host_pointer));
+  const iree_hal_external_storage_t storage = {
+      .storage_class =
+          {
+              .type = IREE_HAL_EXTERNAL_STORAGE_TYPE_HOST_POINTER,
+          },
+      .byte_length = aligned_size,
+      .host_cacheability = IREE_HAL_HOST_CACHEABILITY_WRITE_BACK,
+      .maintenance_range = iree_hal_make_buffer_range(0, aligned_size),
+      .payload = {.host_pointer = host_pointer},
+  };
+  iree_status_t status = iree_hal_vulkan_allocator_import_direct_buffer(
+      allocator, UINT32_MAX, params, &storage, out_buffer);
+  if (iree_status_is_ok(status)) {
+    *out_host_allocation =
+        iree_make_byte_span(host_pointer, (iree_host_size_t)aligned_size);
+  } else {
+    iree_allocator_free_aligned(host_allocator, host_pointer);
+  }
+  return status;
 }
 
 static const iree_hal_allocator_vtable_t iree_hal_vulkan_allocator_vtable = {

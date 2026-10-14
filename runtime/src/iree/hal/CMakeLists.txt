@@ -222,6 +222,18 @@ iree_cc_fuzz(
 
 iree_cc_test(
   NAME
+    file_test
+  SRCS
+    "file_test.cc"
+  DEPS
+    ::hal
+    iree::async
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+iree_cc_test(
+  NAME
     profile_metrics_test
   SRCS
     "profile_metrics_test.cc"

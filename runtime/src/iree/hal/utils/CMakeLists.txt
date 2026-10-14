@@ -81,6 +81,22 @@ iree_cc_library(
   PUBLIC
 )
 
+iree_cc_test(
+  NAME
+    fd_file_test
+  SRCS
+    "fd_file_test.cc"
+  DEPS
+    ::files
+    iree::async
+    iree::base
+    iree::hal
+    iree::io::file_handle
+    iree::testing::gtest
+    iree::testing::gtest_main
+    iree::testing::temp_file
+)
+
 iree_cc_library(
   NAME
     host_semaphore
