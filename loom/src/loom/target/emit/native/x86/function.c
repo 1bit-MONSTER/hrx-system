@@ -829,6 +829,14 @@ static loom_attribute_t loom_x86_function_immediate(
              : value;
 }
 
+static void loom_x86_function_jump(loom_x86_function_t* function,
+                                   uint32_t target, uint32_t fallthrough) {
+  if (target != fallthrough) {
+    loom_x86_function_append(function, LOOM_X86_ENCODING_FORM_JUMP, 0,
+                             (loom_x86_encoding_operands_t){0}, target);
+  }
+}
+
 static iree_status_t loom_x86_function_packet(
     const loom_low_emission_frame_t* frame,
     const loom_low_packet_view_t* packet,
@@ -870,12 +878,18 @@ static iree_status_t loom_x86_function_packet(
     }
   }
   uint32_t reference = UINT32_MAX;
+  const bool is_compare_branch =
+      descriptor->encoding_format_id == LOOM_X86_ENCODING_FORM_COMPARE_BRANCH ||
+      descriptor->encoding_format_id ==
+          LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_BRANCH;
   if (descriptor->immediate_count) {
     const loom_attribute_t immediate =
         loom_x86_function_immediate(frame, packet, 0);
     if (immediate.kind == LOOM_ATTR_SYMBOL) {
       reference = loom_attr_as_symbol(immediate).symbol_id;
       ++function->symbol_fixup_count;
+    } else if (is_compare_branch && descriptor->immediate_count == 1) {
+      operands.secondary_immediate = (uint8_t)immediate.i64;
     } else {
       operands.immediate = immediate.i64;
     }
@@ -886,7 +900,9 @@ static iree_status_t loom_x86_function_packet(
     if (descriptor->encoding_format_id ==
             LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_SELECT ||
         descriptor->encoding_format_id ==
-            LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_PREDICATE) {
+            LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_PREDICATE ||
+        descriptor->encoding_format_id ==
+            LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_BRANCH) {
       operands.secondary_immediate = (uint8_t)second_immediate;
     } else {
       operands.secondary_immediate =
@@ -894,6 +910,28 @@ static iree_status_t loom_x86_function_packet(
               (uint32_t)second_immediate);
       operands.has_index = true;
     }
+  }
+  if (is_compare_branch) {
+    const uint32_t block_index = packet->node->block_index;
+    const loom_cfg_graph_t* graph = &frame->schedule.cfg_graph;
+    const uint16_t* targets =
+        graph->successor_indices + graph->blocks[block_index].successor_start;
+    if (targets[0] == targets[1]) {
+      loom_x86_function_jump(function, targets[0], block_index + 1);
+      return iree_ok_status();
+    }
+    const bool true_falls_through = targets[0] == block_index + 1;
+    // Every x86 condition code is adjacent to its logical inverse, with the
+    // low bit selecting between them. Invert when the true edge falls through
+    // so the encoded branch always targets the non-fallthrough successor.
+    operands.secondary_immediate ^= true_falls_through;
+    reference = targets[true_falls_through ? 1 : 0];
+    loom_x86_function_append(function, descriptor->encoding_format_id,
+                             descriptor->encoding_id, operands, reference);
+    if (!true_falls_through) {
+      loom_x86_function_jump(function, targets[1], block_index + 1);
+    }
+    return iree_ok_status();
   }
   loom_x86_function_append(function, descriptor->encoding_format_id,
                            descriptor->encoding_id, operands, reference);
@@ -990,14 +1028,6 @@ static iree_status_t loom_x86_function_storage(
   return iree_ok_status();
 }
 
-static void loom_x86_function_jump(loom_x86_function_t* function,
-                                   uint32_t target, uint32_t fallthrough) {
-  if (target != fallthrough) {
-    loom_x86_function_append(function, LOOM_X86_ENCODING_FORM_JUMP, 0,
-                             (loom_x86_encoding_operands_t){0}, target);
-  }
-}
-
 static iree_status_t loom_x86_function_structural(
     const loom_low_emission_frame_t* frame,
     const loom_low_packet_view_t* packet,
@@ -1039,6 +1069,10 @@ static iree_status_t loom_x86_function_structural(
   if (loom_low_cond_br_isa(node->op)) {
     const uint16_t* targets =
         graph->successor_indices + graph->blocks[block_index].successor_start;
+    if (targets[0] == targets[1]) {
+      loom_x86_function_jump(function, targets[0], block_index + 1);
+      return iree_ok_status();
+    }
     const loom_low_allocation_assignment_t* condition =
         loom_low_packet_operand_assignment(&frame->allocation, packet, 0);
     const uint16_t width =

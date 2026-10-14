@@ -32,10 +32,13 @@ from loom.target.arch.x86.vector_encoding import (
 from loom.target.low_descriptors import (
     Constraint,
     ConstraintKind,
+    DescriptorAsmSurface,
     DescriptorFlag,
+    DescriptorOpKind,
     EffectFlag,
     EffectKind,
     ImmediateKind,
+    InstructionClass,
     OperandAddressMapKind,
     OperandFlag,
     OperandRole,
@@ -157,6 +160,8 @@ def test_scalar_speculation_facts_cover_total_integer_forms() -> None:
         Form.ZERO_REGISTER,
         Form.SIGN_EXTEND_DIVIDEND,
         Form.DIVIDE,
+        Form.COMPARE_BRANCH,
+        Form.COMPARE_IMMEDIATE_BRANCH,
     }
     descriptors = x86_descriptor_data.X86_SCALAR_DESCRIPTOR_SET.descriptors
     observed_forms = {Form(descriptor.encoding_format_id) for descriptor in descriptors}
@@ -256,10 +261,14 @@ def test_bitwise_immediate_forms_are_shared_by_scalar_profiles() -> None:
 
 
 def test_integer_comparisons_use_width_parametric_predicates() -> None:
-    descriptors = {
-        descriptor.key: descriptor for descriptor in x86_descriptor_data.X86_SCALAR_DESCRIPTOR_SET.descriptors if descriptor.key.startswith("x86.scalar.cmp.") and ".select." not in descriptor.key
+    predicate_descriptors = {
+        descriptor.key: descriptor
+        for descriptor in x86_descriptor_data.X86_SCALAR_DESCRIPTOR_SET.descriptors
+        if descriptor.key.startswith("x86.scalar.cmp.") and ".select." not in descriptor.key and ".branch." not in descriptor.key
     }
+    branch_descriptors = {descriptor.key: descriptor for descriptor in x86_descriptor_data.X86_SCALAR_DESCRIPTOR_SET.descriptors if descriptor.key.startswith("x86.scalar.cmp.branch.")}
     dynamic_keys = {f"x86.scalar.cmp.{form_name}gpr{bit_count}" for bit_count in (8, 16, 32, 64) for form_name in ("", "imm.")}
+    branch_keys = {f"x86.scalar.cmp.branch.{form_name}gpr{bit_count}" for bit_count in (8, 16, 32, 64) for form_name in ("", "imm.")}
     fixed_recipe_keys = {f"x86.scalar.cmp.{predicate}.gpr32" for predicate in ("slt", "sge", "sgt")} | {
         f"x86.scalar.cmp.{predicate}.imm.gpr{bit_count}"
         for bit_count, predicate in (
@@ -271,7 +280,8 @@ def test_integer_comparisons_use_width_parametric_predicates() -> None:
             (64, "eq"),
         )
     }
-    assert set(descriptors) == dynamic_keys | fixed_recipe_keys
+    assert set(predicate_descriptors) == dynamic_keys | fixed_recipe_keys
+    assert set(branch_descriptors) == branch_keys
 
     width_flags = {
         8: Flag.BYTE,
@@ -282,7 +292,7 @@ def test_integer_comparisons_use_width_parametric_predicates() -> None:
     for bit_count, flags in width_flags.items():
         for immediate in (False, True):
             form_name = "imm." if immediate else ""
-            descriptor = descriptors[f"x86.scalar.cmp.{form_name}gpr{bit_count}"]
+            descriptor = predicate_descriptors[f"x86.scalar.cmp.{form_name}gpr{bit_count}"]
             assert descriptor.encoding_format_id == (Form.COMPARE_IMMEDIATE_PREDICATE if immediate else Form.COMPARE_PREDICATE)
             opcode = (0x80 if bit_count == 8 else 0x81) if immediate else (0x38 if bit_count == 8 else 0x39)
             assert descriptor.encoding_id == encoding(
@@ -290,7 +300,20 @@ def test_integer_comparisons_use_width_parametric_predicates() -> None:
                 extension=7 if immediate else 0,
                 flags=flags,
             )
-            assert tuple(immediate.field_name for immediate in descriptor.immediates) == ((f"imm{min(bit_count, 32)}", "predicate") if immediate else ("predicate",))
+            immediate_fields = (f"imm{min(bit_count, 32)}", "predicate") if immediate else ("predicate",)
+            assert tuple(field.field_name for field in descriptor.immediates) == immediate_fields
+
+            branch = branch_descriptors[f"x86.scalar.cmp.branch.{form_name}gpr{bit_count}"]
+            assert branch.encoding_format_id == (Form.COMPARE_IMMEDIATE_BRANCH if immediate else Form.COMPARE_BRANCH)
+            assert branch.encoding_id == descriptor.encoding_id
+            assert tuple(field.field_name for field in branch.immediates) == immediate_fields
+            assert branch.op_kind is DescriptorOpKind.COND_BR
+            assert branch.asm_surface is DescriptorAsmSurface.STRUCTURAL
+            assert branch.effects[0].kind is EffectKind.CONTROL
+            assert branch.effects[0].flags == (EffectFlag.ORDERED,)
+            assert DescriptorFlag.SIDE_EFFECTING in branch.flags
+            assert DescriptorFlag.TERMINATOR in branch.flags
+            assert branch.instruction_classes == (InstructionClass.BRANCH,)
 
 
 def test_scalar_read_memory_binary_forms_are_shared_by_scalar_profiles() -> None:

@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 
 from loom.dialect.buffer import ALL_BUFFER_OPS
 from loom.dialect.buffer import defs as buffer
+from loom.dialect.cfg import ALL_CFG_OPS, cfg_cond_br
 from loom.dialect.globals import ALL_GLOBAL_OPS
 from loom.dialect.globals import defs as globals
 from loom.dialect.index import ALL_INDEX_OPS
@@ -624,6 +625,69 @@ def _integer_compare_rule(
     )
 
 
+def _integer_compare_branch_rule(
+    compare_op: Op,
+    compare_type: TypePattern,
+    compare_width: int,
+    immediate: bool,
+    descriptor_lookup: _DescriptorLookup,
+) -> DescriptorRule:
+    form_name = "imm." if immediate else ""
+    descriptor = descriptor_lookup(
+        f"x86.scalar.cmp.branch.{form_name}gpr{compare_width}"
+    )
+    immediate_name, immediate_min, immediate_max = _integer_compare_immediate(
+        compare_width
+    )
+    compare_guards = [
+        *_typed_guards(("lhs", "rhs"), compare_type),
+        Guard.value_type("result", _I1),
+    ]
+    operands = {
+        "lhs": ValueRef.operand("lhs", source_node="compare"),
+    }
+    immediates: dict[str, AttrProject | ValueProject | int] = {
+        "predicate": AttrProject.enum_remap(
+            "predicate", _INTEGER_CONDITION_CODE_MAP
+        ).in_source_node("compare")
+    }
+    if immediate:
+        compare_guards.extend(
+            (
+                Guard.value_exact_i64("rhs"),
+                Guard.value_i64_range("rhs", immediate_min, immediate_max),
+            )
+        )
+        immediates[immediate_name] = ValueProject.exact_i64("rhs").in_source_node(
+            "compare"
+        )
+    else:
+        operands["rhs"] = ValueRef.operand("rhs", source_node="compare")
+    return DescriptorRule(
+        source_op=cfg_cond_br,
+        descriptor=descriptor,
+        source_nodes=(
+            SourceNode.exclusive_definition(
+                "compare",
+                source_op=compare_op,
+                parent_operand=ValueRef.operand("condition"),
+                node_result=ValueRef.result("result"),
+                guards=compare_guards,
+            ),
+        ),
+        emit=(
+            EmitDescriptorOp(
+                descriptor=descriptor,
+                form=DescriptorEmitForm.COND_BR,
+                operands=operands,
+                immediates=immediates,
+            ),
+        ),
+        priority=_SCALAR_INTEGER_IMMEDIATE_PRIORITY if immediate else 0,
+        target_query=False,
+    )
+
+
 def _view_alias_rules() -> Iterable[ValueAliasRule]:
     yield ValueAliasRule(
         source_op=view.view_refine,
@@ -1209,6 +1273,23 @@ def _cases() -> Sequence[ContractCase]:
             )
         ),
         *(
+            _integer_compare_branch_rule(
+                source_op,
+                compare_type,
+                compare_width,
+                immediate,
+                descriptor_lookup,
+            )
+            for source_op, compare_type, compare_width in (
+                (scalar_comparison.scalar_cmpi, _I8, 8),
+                (scalar_comparison.scalar_cmpi, _I16, 16),
+                (scalar_comparison.scalar_cmpi, _I32, 32),
+                (scalar_comparison.scalar_cmpi, _I64, 64),
+                (index.index_cmp, Scalar(("index", "offset")), 64),
+            )
+            for immediate in (True, False)
+        ),
+        *(
             _integer_compare_rule(
                 scalar_comparison.scalar_cmpi,
                 type_pattern,
@@ -1471,6 +1552,7 @@ def _cases() -> Sequence[ContractCase]:
 
 X86_SCALAR_CONTRACT_DIALECT_OPS = {
     "buffer": ALL_BUFFER_OPS,
+    "cfg": ALL_CFG_OPS,
     "global": ALL_GLOBAL_OPS,
     "index": ALL_INDEX_OPS,
     "scalar": ALL_SCALAR_OPS,

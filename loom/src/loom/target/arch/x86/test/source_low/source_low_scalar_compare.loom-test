@@ -190,3 +190,115 @@ low.func.def target<x86.scalar.core>(@target) abi(object_function) abi_layout({s
   %selected = select.gpr32 %condition, %true_value, %15
   return %selected, %condition
 }
+
+// ====
+
+x86.target<scalar> @target
+
+func.def target(@target) @compare_branch_integer_family(%lhs8: i8, %rhs8: i8, %lhs16: i16, %rhs16: i16, %lhs32: i32, %rhs32: i32, %lhs64: i64, %rhs64: i64, %true_value: i32, %false_value: i32) -> (i32) {
+  %imm8 = scalar.constant -17 : i8
+  %imm16 = scalar.constant -129 : i16
+  %imm32 = scalar.constant 128 : i32
+  %imm64 = scalar.constant 2147483647 : i64
+  %register8 = scalar.cmpi eq, %lhs8, %rhs8 : i8
+  cfg.cond_br %register8, ^immediate8, ^failure
+^immediate8:
+  %immediate8_condition = scalar.cmpi ne, %lhs8, %imm8 : i8
+  cfg.cond_br %immediate8_condition, ^register16, ^failure
+^register16:
+  %register16_condition = scalar.cmpi slt, %lhs16, %rhs16 : i16
+  cfg.cond_br %register16_condition, ^immediate16, ^failure
+^immediate16:
+  %immediate16_condition = scalar.cmpi sle, %lhs16, %imm16 : i16
+  cfg.cond_br %immediate16_condition, ^register32, ^failure
+^register32:
+  %register32_condition = scalar.cmpi sgt, %lhs32, %rhs32 : i32
+  cfg.cond_br %register32_condition, ^immediate32, ^failure
+^immediate32:
+  %immediate32_condition = scalar.cmpi sge, %lhs32, %imm32 : i32
+  cfg.cond_br %immediate32_condition, ^register64, ^failure
+^register64:
+  %register64_condition = scalar.cmpi ult, %lhs64, %rhs64 : i64
+  cfg.cond_br %register64_condition, ^immediate64, ^failure
+^immediate64:
+  %immediate64_condition = scalar.cmpi ule, %lhs64, %imm64 : i64
+  cfg.cond_br %immediate64_condition, ^success, ^failure
+^success:
+  func.return %true_value : i32
+^failure:
+  func.return %false_value : i32
+}
+
+// ----
+low.func.def target<x86.scalar.core>(@target) abi(object_function) abi_layout({signature = (i8, i8, i16, i16, i32, i32, i64, i64, i32, i32) -> (i32)}) @compare_branch_integer_family(%lhs8: reg<x86.gpr32>, %rhs8: reg<x86.gpr32>, %lhs16: reg<x86.gpr32>, %rhs16: reg<x86.gpr32>, %lhs32: reg<x86.gpr32>, %rhs32: reg<x86.gpr32>, %lhs64: reg<x86.gpr64>, %rhs64: reg<x86.gpr64>, %true_value: reg<x86.gpr32>, %false_value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  low.op.cond_br<x86.scalar.cmp.branch.gpr8>(%lhs8, %rhs8) {predicate = 4}, ^immediate8, ^failure : (reg<x86.gpr32>, reg<x86.gpr32>)
+^immediate8:
+  low.op.cond_br<x86.scalar.cmp.branch.imm.gpr8>(%lhs8) {imm8 = -17, predicate = 5}, ^register16, ^failure : (reg<x86.gpr32>)
+^register16:
+  low.op.cond_br<x86.scalar.cmp.branch.gpr16>(%lhs16, %rhs16) {predicate = 12}, ^immediate16, ^failure : (reg<x86.gpr32>, reg<x86.gpr32>)
+^immediate16:
+  low.op.cond_br<x86.scalar.cmp.branch.imm.gpr16>(%lhs16) {imm16 = -129, predicate = 14}, ^register32, ^failure : (reg<x86.gpr32>)
+^register32:
+  low.op.cond_br<x86.scalar.cmp.branch.gpr32>(%lhs32, %rhs32) {predicate = 15}, ^immediate32, ^failure : (reg<x86.gpr32>, reg<x86.gpr32>)
+^immediate32:
+  low.op.cond_br<x86.scalar.cmp.branch.imm.gpr32>(%lhs32) {imm32 = 128, predicate = 13}, ^register64, ^failure : (reg<x86.gpr32>)
+^register64:
+  low.op.cond_br<x86.scalar.cmp.branch.gpr64>(%lhs64, %rhs64) {predicate = 2}, ^immediate64, ^failure : (reg<x86.gpr64>, reg<x86.gpr64>)
+^immediate64:
+  low.op.cond_br<x86.scalar.cmp.branch.imm.gpr64>(%lhs64) {imm32 = 2147483647, predicate = 6}, ^success, ^failure : (reg<x86.gpr64>)
+^success:
+  return %true_value
+^failure:
+  return %false_value
+}
+
+// ====
+
+x86.target<scalar> @target
+
+func.def target(@target) @compare_branch_index_family(%lhs: index, %rhs: index, %position: offset, %true_value: i32, %false_value: i32) -> (i32) {
+  %limit = index.constant 33 : offset
+  %index_condition = index.cmp ugt, %lhs, %rhs : index
+  cfg.cond_br %index_condition, ^offset_check, ^failure
+^offset_check:
+  %offset_condition = index.cmp uge, %position, %limit : offset
+  cfg.cond_br %offset_condition, ^success, ^failure
+^success:
+  func.return %true_value : i32
+^failure:
+  func.return %false_value : i32
+}
+
+// ----
+low.func.def target<x86.scalar.core>(@target) abi(object_function) @compare_branch_index_family(%lhs: reg<x86.gpr64>, %rhs: reg<x86.gpr64>, %position: reg<x86.gpr64>, %true_value: reg<x86.gpr32>, %false_value: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  low.op.cond_br<x86.scalar.cmp.branch.gpr64>(%lhs, %rhs) {predicate = 7}, ^offset_check, ^failure : (reg<x86.gpr64>, reg<x86.gpr64>)
+^offset_check:
+  low.op.cond_br<x86.scalar.cmp.branch.imm.gpr64>(%position) {imm32 = 33, predicate = 3}, ^success, ^failure : (reg<x86.gpr64>)
+^success:
+  return %true_value
+^failure:
+  return %false_value
+}
+
+// ====
+
+x86.target<scalar> @target
+
+func.def target(@target) @compare_branch_shared_condition(%lhs: i32, %rhs: i32, %true_value: i32, %false_value: i32) -> (i32, i1) {
+  %condition = scalar.cmpi slt, %lhs, %rhs : i32
+  cfg.cond_br %condition, ^less, ^greater_equal
+^less:
+  func.return %true_value, %condition : i32, i1
+^greater_equal:
+  func.return %false_value, %condition : i32, i1
+}
+
+// ----
+low.func.def target<x86.scalar.core>(@target) abi(object_function) abi_layout({signature = (i32, i32, i32, i32) -> (i32, i1)}) @compare_branch_shared_condition(%lhs: reg<x86.gpr32>, %rhs: reg<x86.gpr32>, %true_value: reg<x86.gpr32>, %false_value: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>) asm {
+  %condition = cmp.gpr32 %lhs, %rhs, "slt"
+  low.cond_br %condition, ^less, ^greater_equal : reg<x86.gpr32>
+^less:
+  return %true_value, %condition
+^greater_equal:
+  return %false_value, %condition
+}

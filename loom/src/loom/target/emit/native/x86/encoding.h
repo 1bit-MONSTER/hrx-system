@@ -74,6 +74,10 @@ typedef enum loom_x86_encoding_form_e {
   LOOM_X86_ENCODING_FORM_COMPARE_PREDICATE = 35,
   // Compares a register and immediate and materializes a dynamic predicate.
   LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_PREDICATE = 36,
+  // Compares two registers and branches on the selected condition code.
+  LOOM_X86_ENCODING_FORM_COMPARE_BRANCH = 37,
+  // Compares a register and immediate and branches on the condition code.
+  LOOM_X86_ENCODING_FORM_COMPARE_IMMEDIATE_BRANCH = 38,
 } loom_x86_encoding_form_t;
 
 // Native fixup identities. Object adapters supply their format's mapping.

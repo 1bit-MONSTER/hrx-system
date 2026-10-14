@@ -13,7 +13,7 @@ from loom.target.arch.x86.vector_encoding import (
     validate_vector_encoding_recipe,
     vector_encoding_address_base_input,
 )
-from loom.target.low_descriptors import Descriptor, OperandRole
+from loom.target.low_descriptors import Descriptor, DescriptorOpKind, OperandRole
 
 
 class Form(IntEnum):
@@ -47,6 +47,8 @@ class Form(IntEnum):
     COMPARE_IMMEDIATE_SELECT = 34
     COMPARE_PREDICATE = 35
     COMPARE_IMMEDIATE_PREDICATE = 36
+    COMPARE_BRANCH = 37
+    COMPARE_IMMEDIATE_BRANCH = 38
 
 
 class Flag(IntFlag):
@@ -98,6 +100,30 @@ def validate_descriptor_encoding(descriptor: Descriptor) -> None:
         # architectural map before producing this packed ID.
     else:
         form = Form(descriptor.encoding_format_id)
+        if form in (Form.COMPARE_BRANCH, Form.COMPARE_IMMEDIATE_BRANCH):
+            if descriptor.op_kind is not DescriptorOpKind.COND_BR:
+                raise ValueError(
+                    f"{descriptor.key}: compare-branch form requires low.op.cond_br"
+                )
+            immediate_names = tuple(
+                immediate.field_name for immediate in descriptor.immediates
+            )
+            valid_names = (
+                immediate_names == ("predicate",)
+                if form is Form.COMPARE_BRANCH
+                else len(immediate_names) == 2
+                and immediate_names[0] in ("imm8", "imm16", "imm32")
+                and immediate_names[1] == "predicate"
+            )
+            if not valid_names:
+                expected_names = (
+                    "predicate"
+                    if form is Form.COMPARE_BRANCH
+                    else "imm8|imm16|imm32, predicate"
+                )
+                raise ValueError(
+                    f"{descriptor.key}: {form.name.lower()} requires {expected_names}"
+                )
     inputs = sum(
         o.role
         in (
@@ -130,6 +156,7 @@ def validate_descriptor_encoding(descriptor: Descriptor) -> None:
         compare_immediate_form = form in (
             Form.COMPARE_IMMEDIATE_SELECT,
             Form.COMPARE_IMMEDIATE_PREDICATE,
+            Form.COMPARE_IMMEDIATE_BRANCH,
         )
         valid_names = (
             immediate_names[0] in ("imm8", "imm16", "imm32")

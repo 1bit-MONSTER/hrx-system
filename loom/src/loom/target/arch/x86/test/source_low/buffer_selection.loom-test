@@ -79,11 +79,10 @@ low.func.def target<x86.scalar.core> abi(object_function) @rotate_buffer_coordin
   %begin = mov.imm64 0
   low.br ^_bb1(%begin: reg<x86.gpr64>, %first: reg<x86.gpr64>, %first_origin: reg<x86.gpr64>, %second: reg<x86.gpr64>, %second_origin: reg<x86.gpr64>)
 ^_bb1(%i: reg<x86.gpr64>, %current: reg<x86.gpr64>, %current_origin: reg<x86.gpr64>, %other: reg<x86.gpr64>, %other_origin: reg<x86.gpr64>):
-  %44 = cmp.gpr64 %i, %count, "slt"
-  low.cond_br %44, ^_bb2, ^_bb3 : reg<x86.gpr32>
+  low.op.cond_br<x86.scalar.cmp.branch.gpr64>(%i, %count) {predicate = 12}, ^_bb2, ^_bb3 : (reg<x86.gpr64>, reg<x86.gpr64>)
 ^_bb2:
-  %45 = lea.disp %i {disp32 = 1}
-  low.br ^_bb1(%45: reg<x86.gpr64>, %other: reg<x86.gpr64>, %other_origin: reg<x86.gpr64>, %current: reg<x86.gpr64>, %current_origin: reg<x86.gpr64>)
+  %44 = lea.disp %i {disp32 = 1}
+  low.br ^_bb1(%44: reg<x86.gpr64>, %other: reg<x86.gpr64>, %other_origin: reg<x86.gpr64>, %current: reg<x86.gpr64>, %current_origin: reg<x86.gpr64>)
 ^_bb3:
   %value = movzx.load.indexed.u8.gpr32 %current, %current_origin {disp32 = 0, scale = 1}
   return %value

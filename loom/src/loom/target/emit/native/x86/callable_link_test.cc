@@ -25,6 +25,11 @@ extern "C" uint32_t read_memory_mix32(const uint32_t* input, uint64_t position,
 extern "C" uint64_t read_memory_mix64(const uint64_t* input, uint64_t position,
                                       uint64_t seed);
 extern "C" uint64_t choose_mix(uint64_t input, uint64_t delta, uint64_t limit);
+extern "C" uint32_t immediate_branch_family(int8_t value8, int16_t value16,
+                                            int32_t value32, int64_t value64);
+extern "C" uint32_t register_branch_false_fallthrough(int32_t lhs, int32_t rhs,
+                                                      uint32_t true_value,
+                                                      uint32_t false_value);
 extern "C" uint64_t compare_select_mix(uint32_t lhs32, uint32_t rhs32,
                                        int64_t lhs64);
 extern "C" uint32_t narrow_compare_mask(int8_t lhs8, int8_t rhs8, int16_t lhs16,
@@ -334,6 +339,10 @@ TEST(NativeCallableTest, OrdinaryCLinkage) {
     const uint64_t d = words[3], e = words[4], f = words[5];
     ASSERT_EQ(mix(a, b), (a + b) ^ a);
     ASSERT_EQ(choose_mix(a, b, c), a < c ? ((a + b) ^ a) : ((a * b) ^ c));
+    const int32_t signed_a = static_cast<int32_t>(a);
+    const int32_t signed_b = static_cast<int32_t>(b);
+    ASSERT_EQ(register_branch_false_fallthrough(signed_a, signed_b, 19, 23),
+              signed_a < signed_b ? 19u : 23u);
     const uint64_t selected64 =
         static_cast<uint32_t>(a) < static_cast<uint32_t>(b)
             ? UINT64_C(4294967297)
@@ -376,6 +385,16 @@ TEST(NativeCallableTest, OrdinaryCLinkage) {
     }
     ASSERT_EQ(recurrence(a, b, i % 23), first);
   }
+}
+
+TEST(NativeCallableTest, CompareBranchesUseOrdinaryCLinkage) {
+  EXPECT_EQ(immediate_branch_family(-17, 0, 129, -129), 0u);
+  EXPECT_EQ(immediate_branch_family(0, 0, 129, -129), 1u);
+  EXPECT_EQ(immediate_branch_family(-17, -129, 129, -129), 2u);
+  EXPECT_EQ(immediate_branch_family(-17, 0, 128, -129), 3u);
+  EXPECT_EQ(immediate_branch_family(-17, 0, 129, -130), 4u);
+  EXPECT_EQ(register_branch_false_fallthrough(-4, 7, 19, 23), 19u);
+  EXPECT_EQ(register_branch_false_fallthrough(7, -4, 19, 23), 23u);
 }
 
 TEST(NativeCallableTest, IntegerImmediateArithmetic) {

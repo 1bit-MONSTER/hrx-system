@@ -33,16 +33,14 @@ func.def @shared_conditional_values(%input: buffer, %output: buffer) {
 low.func.def target<x86.avx2.core> abi(object_function) @shared_conditional_values(%aligned_input: reg<x86.gpr64>, %aligned_output: reg<x86.gpr64>) asm {
   %completed = mov.imm32 1
   %outer_value = mov.load.gpr32 %aligned_input {disp32 = 0}
-  %outer = cmp.imm.gpr32 %outer_value, 0, "ne"
-  low.cond_br %outer, ^evaluate, ^fallback : reg<x86.gpr32>
+  low.op.cond_br<x86.scalar.cmp.branch.imm.gpr32>(%outer_value) {imm32 = 0, predicate = 5}, ^evaluate, ^fallback : (reg<x86.gpr32>)
 ^evaluate:
   %loaded = mov.load.gpr32 %aligned_input {disp32 = 4}
   mov.store.gpr32 %loaded, %aligned_output {disp32 = 0}
-  %inner = cmp.imm.gpr32 %loaded, 0, "ne"
-  low.cond_br %inner, ^selected, ^fallback : reg<x86.gpr32>
+  low.op.cond_br<x86.scalar.cmp.branch.imm.gpr32>(%loaded) {imm32 = 0, predicate = 5}, ^selected, ^fallback : (reg<x86.gpr32>)
 ^selected:
-  %22 = copy %loaded : reg<x86.gpr32> -> reg<x86.gpr32>
-  %result = add.gpr32 %22, %loaded
+  %20 = copy %loaded : reg<x86.gpr32> -> reg<x86.gpr32>
+  %result = add.gpr32 %20, %loaded
   mov.store.gpr32 %result, %aligned_output {disp32 = 4}
   low.br ^exit
 ^fallback:

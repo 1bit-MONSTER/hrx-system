@@ -531,12 +531,10 @@ low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({sig
 ^right:
   low.br ^header(%start: reg<x86.gpr64>, %bound: reg<x86.gpr64>)
 ^header(%iteration: reg<x86.gpr64>, %first: reg<x86.gpr64>):
-  %again = cmp.imm.gpr64 %iteration, 2, "slt"
-  low.cond_br %again, ^guard, ^exit : reg<x86.gpr32>
+  low.op.cond_br<x86.scalar.cmp.branch.imm.gpr64>(%iteration) {imm32 = 2, predicate = 12}, ^guard, ^exit : (reg<x86.gpr64>)
 ^guard:
   %end = lea.disp %first {disp32 = 3}
-  %fits = cmp.gpr64 %end, %bound, "slt"
-  low.cond_br %fits, ^access, ^exit : reg<x86.gpr32>
+  low.op.cond_br<x86.scalar.cmp.branch.gpr64>(%end, %bound) {predicate = 12}, ^access, ^exit : (reg<x86.gpr64>, reg<x86.gpr64>)
 ^access:
   %loaded = vmovdqu32.load.indexed.xmm %input, %first {disp32 = 0, scale = 4}
   vmovdqu32.store.indexed.xmm %loaded, %output, %first {disp32 = 0, scale = 4}
