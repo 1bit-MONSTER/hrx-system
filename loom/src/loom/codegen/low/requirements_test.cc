@@ -28,19 +28,19 @@ static const char kRequirementStrings[] =
     "integer.add.i32";
 
 enum : loom_string_ref_t {
-  REQUIREMENT_STRING_empty = LOOM_STRING_REF(0, 0),
-  REQUIREMENT_STRING_set_key = LOOM_STRING_REF(0, 9),
-  REQUIREMENT_STRING_target_key = LOOM_STRING_REF(9, 11),
-  REQUIREMENT_STRING_feature_key = LOOM_STRING_REF(20, 13),
-  REQUIREMENT_STRING_reg_gpr = LOOM_STRING_REF(33, 8),
-  REQUIREMENT_STRING_field_dst = LOOM_STRING_REF(41, 3),
-  REQUIREMENT_STRING_field_lhs = LOOM_STRING_REF(44, 3),
-  REQUIREMENT_STRING_field_rhs = LOOM_STRING_REF(47, 3),
-  REQUIREMENT_STRING_resource_alu = LOOM_STRING_REF(50, 8),
-  REQUIREMENT_STRING_schedule_alu = LOOM_STRING_REF(58, 12),
-  REQUIREMENT_STRING_descriptor_add = LOOM_STRING_REF(70, 12),
-  REQUIREMENT_STRING_mnemonic_add = LOOM_STRING_REF(82, 7),
-  REQUIREMENT_STRING_semantic_add = LOOM_STRING_REF(89, 15),
+  REQUIREMENT_STRING_empty = LOOM_STRING_REF(0, 0, 0),
+  REQUIREMENT_STRING_set_key = LOOM_STRING_REF(0, 0, 9),
+  REQUIREMENT_STRING_target_key = LOOM_STRING_REF(0, 9, 11),
+  REQUIREMENT_STRING_feature_key = LOOM_STRING_REF(0, 20, 13),
+  REQUIREMENT_STRING_reg_gpr = LOOM_STRING_REF(0, 33, 8),
+  REQUIREMENT_STRING_field_dst = LOOM_STRING_REF(0, 41, 3),
+  REQUIREMENT_STRING_field_lhs = LOOM_STRING_REF(0, 44, 3),
+  REQUIREMENT_STRING_field_rhs = LOOM_STRING_REF(0, 47, 3),
+  REQUIREMENT_STRING_resource_alu = LOOM_STRING_REF(0, 50, 8),
+  REQUIREMENT_STRING_schedule_alu = LOOM_STRING_REF(0, 58, 12),
+  REQUIREMENT_STRING_descriptor_add = LOOM_STRING_REF(0, 70, 12),
+  REQUIREMENT_STRING_mnemonic_add = LOOM_STRING_REF(0, 82, 7),
+  REQUIREMENT_STRING_semantic_add = LOOM_STRING_REF(0, 89, 15),
 };
 
 #define REQUIREMENT_STRING_REF(field) REQUIREMENT_STRING_##field
@@ -150,8 +150,8 @@ void InitializeRequirementTables(RequirementTables* tables) {
   tables->set.key_string_ref = REQUIREMENT_STRING_REF(set_key);
   tables->set.target_key_string_ref = REQUIREMENT_STRING_REF(target_key);
   tables->set.feature_key_string_ref = REQUIREMENT_STRING_REF(feature_key);
-  tables->set.string_pool.data = kRequirementStrings;
-  tables->set.string_pool.data_length = sizeof(kRequirementStrings) - 1;
+  tables->set.string_pool.data[0] = kRequirementStrings;
+  tables->set.string_pool.data_length[0] = sizeof(kRequirementStrings) - 1;
   tables->set.descriptors = tables->descriptors;
   tables->set.descriptor_layouts = tables->descriptor_layouts;
   tables->set.descriptor_layout_count =

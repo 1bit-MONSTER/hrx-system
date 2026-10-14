@@ -1331,8 +1331,6 @@ typedef uint16_t loom_low_lower_rule_set_flags_t;
 typedef struct loom_low_lower_rule_set_t {
   // Rule-set behavior flags.
   loom_low_lower_rule_set_flags_t flags;
-  // Packed generated strings referenced by rule-set-local table rows.
-  loom_string_pool_t string_pool;
   // Source op kind to rule-span lookup table sorted by source_op_kind.
   const loom_low_lower_rule_span_t* spans;
   // Number of rows in spans.
@@ -1451,6 +1449,9 @@ typedef struct loom_low_lower_rule_set_t {
   const loom_low_lower_diagnostic_t* diagnostics;
   // Number of rows in diagnostics.
   uint16_t diagnostic_count;
+  // Immutable spelling banks, outside the hot table prefix. Both base pointers
+  // share a 16-byte aligned slot; byte counts are used only for verification.
+  iree_alignas(16) loom_string_pool_t string_pool;
 } loom_low_lower_rule_set_t;
 
 // Returns whether projecting |rule_index| requires projecting the root

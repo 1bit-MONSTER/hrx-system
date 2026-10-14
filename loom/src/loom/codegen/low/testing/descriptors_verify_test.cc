@@ -41,28 +41,28 @@ static const char kTestStrings[] =
     "slow";
 
 enum : loom_string_ref_t {
-  TEST_STRING_empty = LOOM_STRING_REF(0, 0),
-  TEST_STRING_set_key = LOOM_STRING_REF(0, 9),
-  TEST_STRING_target_key = LOOM_STRING_REF(9, 11),
-  TEST_STRING_feature_key = LOOM_STRING_REF(20, 13),
-  TEST_STRING_reg_gpr = LOOM_STRING_REF(33, 8),
-  TEST_STRING_field_dst = LOOM_STRING_REF(41, 3),
-  TEST_STRING_field_lhs = LOOM_STRING_REF(44, 3),
-  TEST_STRING_field_rhs = LOOM_STRING_REF(47, 3),
-  TEST_STRING_field_value = LOOM_STRING_REF(50, 5),
-  TEST_STRING_resource_alu = LOOM_STRING_REF(55, 8),
-  TEST_STRING_schedule_const = LOOM_STRING_REF(63, 10),
-  TEST_STRING_schedule_alu = LOOM_STRING_REF(73, 12),
-  TEST_STRING_descriptor_const = LOOM_STRING_REF(85, 14),
-  TEST_STRING_descriptor_add = LOOM_STRING_REF(99, 12),
-  TEST_STRING_mnemonic_const = LOOM_STRING_REF(111, 9),
-  TEST_STRING_mnemonic_add = LOOM_STRING_REF(120, 7),
-  TEST_STRING_semantic_const = LOOM_STRING_REF(127, 17),
-  TEST_STRING_semantic_add = LOOM_STRING_REF(144, 15),
-  TEST_STRING_field_mode = LOOM_STRING_REF(159, 4),
-  TEST_STRING_enum_mode = LOOM_STRING_REF(163, 9),
-  TEST_STRING_enum_fast = LOOM_STRING_REF(172, 4),
-  TEST_STRING_enum_slow = LOOM_STRING_REF(176, 4),
+  TEST_STRING_empty = LOOM_STRING_REF(0, 0, 0),
+  TEST_STRING_set_key = LOOM_STRING_REF(0, 0, 9),
+  TEST_STRING_target_key = LOOM_STRING_REF(0, 9, 11),
+  TEST_STRING_feature_key = LOOM_STRING_REF(0, 20, 13),
+  TEST_STRING_reg_gpr = LOOM_STRING_REF(0, 33, 8),
+  TEST_STRING_field_dst = LOOM_STRING_REF(0, 41, 3),
+  TEST_STRING_field_lhs = LOOM_STRING_REF(0, 44, 3),
+  TEST_STRING_field_rhs = LOOM_STRING_REF(0, 47, 3),
+  TEST_STRING_field_value = LOOM_STRING_REF(0, 50, 5),
+  TEST_STRING_resource_alu = LOOM_STRING_REF(0, 55, 8),
+  TEST_STRING_schedule_const = LOOM_STRING_REF(0, 63, 10),
+  TEST_STRING_schedule_alu = LOOM_STRING_REF(0, 73, 12),
+  TEST_STRING_descriptor_const = LOOM_STRING_REF(0, 85, 14),
+  TEST_STRING_descriptor_add = LOOM_STRING_REF(0, 99, 12),
+  TEST_STRING_mnemonic_const = LOOM_STRING_REF(0, 111, 9),
+  TEST_STRING_mnemonic_add = LOOM_STRING_REF(0, 120, 7),
+  TEST_STRING_semantic_const = LOOM_STRING_REF(0, 127, 17),
+  TEST_STRING_semantic_add = LOOM_STRING_REF(0, 144, 15),
+  TEST_STRING_field_mode = LOOM_STRING_REF(0, 159, 4),
+  TEST_STRING_enum_mode = LOOM_STRING_REF(0, 163, 9),
+  TEST_STRING_enum_fast = LOOM_STRING_REF(0, 172, 4),
+  TEST_STRING_enum_slow = LOOM_STRING_REF(0, 176, 4),
 };
 
 #define TEST_STRING_REF(field) TEST_STRING_##field
@@ -250,8 +250,8 @@ void InitializeTestTables(TestTables* tables) {
   tables->set.key_string_ref = TEST_STRING_REF(set_key);
   tables->set.target_key_string_ref = TEST_STRING_REF(target_key);
   tables->set.feature_key_string_ref = TEST_STRING_REF(feature_key);
-  tables->set.string_pool.data = kTestStrings;
-  tables->set.string_pool.data_length = sizeof(kTestStrings) - 1;
+  tables->set.string_pool.data[0] = kTestStrings;
+  tables->set.string_pool.data_length[0] = sizeof(kTestStrings) - 1;
   tables->set.descriptors = tables->descriptors;
   tables->set.descriptor_layouts = tables->descriptor_layouts;
   tables->set.descriptor_layout_count =

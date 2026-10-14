@@ -25,6 +25,7 @@ def _ensure_runtime_py_on_path() -> None:
 _ensure_runtime_py_on_path()
 
 from loom.gen.support.files import write_text_file  # noqa: E402
+from loom.gen.support.string_pool import CStringBank  # noqa: E402
 from loom.gen.target.arch.amdgpu.amdgpu_target_table_family import (  # noqa: E402
     AmdgpuTargetTableFamily,
     amdgpu_target_table_family,
@@ -110,6 +111,7 @@ def generate_amdgpu_descriptor_table_family(
     descriptor_sets: Mapping[str, DescriptorSet],
     *,
     source_public_header: str,
+    shared_strings: CStringBank | None = None,
 ) -> GeneratedDescriptorSetFamily:
     """Generates descriptor storage and views from a materialized corpus."""
 
@@ -135,6 +137,7 @@ def generate_amdgpu_descriptor_table_family(
     return generate_descriptor_set_family(
         shared_storage_descriptor_set,
         (storage_descriptor_set, *view_descriptor_sets),
+        shared_strings=shared_strings,
     )
 
 

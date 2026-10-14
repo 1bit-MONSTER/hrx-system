@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from loom.gen.support.string_pool import CStringBank
 from loom.gen.target.low.low_descriptor_shard import main
 from loom.target.descriptor_sets import (
     descriptor_set_names,
@@ -52,6 +53,29 @@ def test_main_generates_selected_descriptor_set(tmp_path: Path) -> None:
     assert "loom_test_low_core_descriptor_set" in header_path.read_text(encoding="utf-8")
     source = source_path.read_text(encoding="utf-8")
     assert "const loom_low_descriptor_set_t* loom_test_low_core_descriptor_set(void)" in source
+
+
+def test_main_consumes_producer_owned_string_layout(tmp_path: Path) -> None:
+    descriptor_set = resolve_descriptor_set("test_low_core")
+    names = frozenset(descriptor.key for descriptor in descriptor_set.descriptors)
+    bank = CStringBank.build(names, symbol="test_instruction_strings", header="test/instruction_strings.h")
+    manifest = tmp_path / "strings.json"
+    manifest.write_text(bank.manifest())
+    source_path = tmp_path / "test_descriptors.c"
+    assert (
+        main(
+            [
+                "--descriptor-set=test_low_core",
+                f"--source={source_path}",
+                f"--header={tmp_path / 'test_descriptors.h'}",
+                f"--shared-strings={manifest}",
+            ]
+        )
+        == 0
+    )
+    source = source_path.read_text()
+    assert '#include "test/instruction_strings.h"' in source
+    assert "test_instruction_strings}" in source
 
 
 def test_main_reports_missing_descriptor_set(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

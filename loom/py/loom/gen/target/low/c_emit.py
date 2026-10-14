@@ -12,7 +12,7 @@ from collections.abc import Sequence
 
 from loom.gen.support import c_arrays
 from loom.gen.support.generated_file import line_comment_header
-from loom.gen.support.string_pool import emit_c_string_pool
+from loom.gen.support.string_pool import CStringBank, CStringLayout, emit_c_string_pool, layout_c_string_pool
 from loom.gen.target.low import attr_indices, c_spelling, validation
 from loom.gen.target.low.compiled import (
     CompiledAsmForm,
@@ -178,13 +178,14 @@ def emit_header(compiled: CompiledDescriptorSet) -> str:
     return emit_header_for_spec(compiled, compiled.spec)
 
 
-def _emit_string_pool(compiled: CompiledDescriptorSet, lines: list[str]) -> None:
+def _emit_string_pool(compiled: CompiledDescriptorSet, lines: list[str], layout: CStringLayout) -> None:
     spec = compiled.spec
     pool = compiled.string_pool
     lines.extend(
         emit_c_string_pool(
             pool,
             f"k{spec.c_table_prefix}StringData",
+            layout=layout,
         )
     )
 
@@ -443,6 +444,7 @@ def emit_source_for_views(
     compiled: CompiledDescriptorSet,
     *,
     views: Sequence[DescriptorSetView],
+    shared_strings: CStringBank | None = None,
 ) -> str:
     spec = compiled.spec
     pool = compiled.string_pool
@@ -469,7 +471,10 @@ def emit_source_for_views(
         lines.append(f"const loom_low_descriptor_set_t* {view.spec.function_name}(void);")
     if len(views) > 1:
         lines.append("")
-    _emit_string_pool(compiled, lines)
+    string_layout = layout_c_string_pool(pool, shared_strings)
+    if string_layout.shared is not None:
+        lines.extend([f'#include "{string_layout.shared.header}"', ""])
+    _emit_string_pool(compiled, lines, string_layout)
 
     view_array_emitter = c_arrays.StaticArrayEmitter(lines)
     if any(view.reg_classes == tuple(compiled.reg_classes) for view in views):
@@ -1227,11 +1232,6 @@ def emit_source_for_views(
             f"    .key_string_ref = {pool.ref(_metadata_string_label(spec, view_spec, 'set_key'))},",
             f"    .target_key_string_ref = {c_spelling.optional_string_expr(pool, _metadata_string_label(spec, view_spec, 'target_key') if view_spec.target_key is not None else None)},",
             f"    .feature_key_string_ref = {c_spelling.optional_string_expr(pool, _metadata_string_label(spec, view_spec, 'feature_key') if view_spec.feature_key is not None else None)},",
-            "    .string_pool =",
-            "        {",
-            f"            .data = k{spec.c_table_prefix}StringData,",
-            f"            .data_length = sizeof(k{spec.c_table_prefix}StringData) - 1,",
-            "        },",
             f"    .descriptors = {descriptor_table_symbol},",
             f"    .descriptor_layouts = {descriptor_layout_table_symbol},",
             f"    .descriptor_layout_count = {len(descriptor_layout_rows)},",
@@ -1398,6 +1398,7 @@ def emit_source_for_views(
         if compiled.feature_mask_words:
             view_lines.append(f"    .feature_mask_words = k{spec.c_table_prefix}FeatureMaskWords,")
             view_lines.append(f"    .feature_mask_word_count = IREE_ARRAYSIZE(k{spec.c_table_prefix}FeatureMaskWords),")
+        view_lines.append(f"    .string_pool = {string_layout.initializer(f'k{spec.c_table_prefix}StringData')},")
         view_lines.append("};")
         view_lines.append("")
         view_lines.append(f"const loom_low_descriptor_set_t* {view_spec.function_name}(void) {{")
@@ -1408,9 +1409,10 @@ def emit_source_for_views(
     return "\n".join(lines) + "\n"
 
 
-def emit_source(compiled: CompiledDescriptorSet) -> str:
+def emit_source(compiled: CompiledDescriptorSet, shared_strings: CStringBank | None = None) -> str:
     return emit_source_for_views(
         compiled,
+        shared_strings=shared_strings,
         views=[
             DescriptorSetView(
                 spec=compiled.spec,

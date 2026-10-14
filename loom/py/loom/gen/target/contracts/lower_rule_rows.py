@@ -12,7 +12,6 @@ from collections.abc import Mapping
 
 from loom.dsl import EncodingOperandSummaryDef
 from loom.gen.support.c import c_i64_literal as _c_i64_literal
-from loom.gen.support.string_pool import CStringPool
 from loom.gen.target.contracts import lower_rule_spelling
 from loom.target.contracts import (
     LOWER_EMIT_FLAG_BIND_RESULTS_TO_REFS,
@@ -1159,8 +1158,7 @@ def rule_set_row(
     *,
     table: CompiledLowerRuleSet,
     source_contract: ContractFragment,
-    string_pool: CStringPool,
-    string_data_name: str,
+    string_pool_initializer: str | None,
     spans_name: str,
     rules_name: str,
     rule_root_producer_closure_bits: tuple[int, ...],
@@ -1227,8 +1225,6 @@ def rule_set_row(
         flags.append("LOOM_LOW_LOWER_RULE_SET_FLAG_DYNAMIC_PRIMARY_DESCRIPTOR_FEATURES")
     if flags:
         fields.append(f".flags = {' | '.join(flags)}")
-    if string_pool.entries:
-        fields.append(f".string_pool = {{.data = {string_data_name}, .data_length = sizeof({string_data_name}) - 1}}")
     _append_table_fields(fields, "spans", table.spans, spans_name)
     _append_table_fields(fields, "rules", table.rules, rules_name)
     if rule_root_producer_closure_bits:
@@ -1339,6 +1335,8 @@ def rule_set_row(
     _append_table_fields(fields, "emit_refs", emit_refs, emit_refs_name)
     _append_table_fields(fields, "emits", emit_rows, emits_name)
     _append_table_fields(fields, "diagnostics", table.diagnostics, diagnostics_name)
+    if string_pool_initializer is not None:
+        fields.append(f".string_pool = {string_pool_initializer}")
     return fields
 
 

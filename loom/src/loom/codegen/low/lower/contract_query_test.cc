@@ -31,19 +31,21 @@ namespace {
 constexpr loom_op_kind_t kSourceOpKind = LOOM_OP_KIND(7, 3);
 constexpr uint64_t kDescriptorId = UINT64_C(0x123456789abcdef0);
 
-const char kRuleStringData[] = "test.descriptortest.sourcefieldvalueattr_kind";
+const char kDescriptorStringData[] = "test.descriptor";
+const char kRuleStringData[] = "test.sourcefieldvalueattr_kind";
 
 enum : loom_string_ref_t {
-  kRuleStringDescriptor = LOOM_STRING_REF(0, 15),
-  kRuleStringSource = LOOM_STRING_REF(15, 11),
-  kRuleStringField = LOOM_STRING_REF(26, 5),
-  kRuleStringValue = LOOM_STRING_REF(31, 5),
-  kRuleStringAttrKind = LOOM_STRING_REF(36, 9),
+  kRuleStringDescriptor = LOOM_STRING_REF(0, 0, 15),
+  kRuleStringSource = LOOM_STRING_REF(1, 0, 11),
+  kRuleStringField = LOOM_STRING_REF(1, 11, 5),
+  kRuleStringValue = LOOM_STRING_REF(1, 16, 5),
+  kRuleStringAttrKind = LOOM_STRING_REF(1, 21, 9),
 };
 
 const loom_string_pool_t kRuleStringPool = {
-    .data = kRuleStringData,
-    .data_length = sizeof(kRuleStringData) - 1,
+    .data = {kDescriptorStringData, kRuleStringData},
+    .data_length = {sizeof(kDescriptorStringData) - 1,
+                    sizeof(kRuleStringData) - 1},
 };
 
 const loom_low_descriptor_t kDescriptor = {
@@ -53,12 +55,12 @@ const loom_low_descriptor_t kDescriptor = {
 
 const loom_low_descriptor_layout_t kDescriptorLayout = {};
 const loom_low_descriptor_set_t kDescriptorSet = {
-    .string_pool = kRuleStringPool,
     .descriptors = &kDescriptor,
     .descriptor_layouts = &kDescriptorLayout,
     .descriptor_layout_count = 1,
     .descriptor_count = 1,
     .descriptor_ordinal_count = 1,
+    .string_pool = kRuleStringPool,
 };
 
 iree_status_t ResolveTestDescriptorRef(
@@ -320,7 +322,6 @@ TEST_F(LowContractQuerySourceMemoryTest,
       .flags = LOOM_LOW_LOWER_DIAGNOSTIC_FLAG_IMPLICIT_TARGET_CONTEXT,
   };
   loom_low_lower_rule_set_t rule_set = {
-      .string_pool = kRuleStringPool,
       .diagnostic_params =
           {
               .kinds = diagnostic_param_kinds,
@@ -329,6 +330,7 @@ TEST_F(LowContractQuerySourceMemoryTest,
           },
       .diagnostic_param_refs = diagnostic_param_refs,
       .diagnostic_param_ref_count = IREE_ARRAYSIZE(diagnostic_param_refs),
+      .string_pool = kRuleStringPool,
   };
   loom_low_lower_rule_match_context_t match_context = {
       .module = module_,
@@ -391,7 +393,6 @@ TEST_F(LowContractQuerySourceMemoryTest,
       .param_count = IREE_ARRAYSIZE(refs),
   };
   const loom_low_lower_rule_set_t rule_set = {
-      .string_pool = kRuleStringPool,
       .value_refs = &value_ref,
       .value_ref_count = 1,
       .diagnostic_params =
@@ -402,6 +403,7 @@ TEST_F(LowContractQuerySourceMemoryTest,
           },
       .diagnostic_param_refs = refs,
       .diagnostic_param_ref_count = IREE_ARRAYSIZE(refs),
+      .string_pool = kRuleStringPool,
   };
   const loom_low_lower_rule_match_context_t match_context = {
       .module = module_,
@@ -451,7 +453,6 @@ TEST(LowContractQueryTest, ContractIndexDescriptorRuleSelectsLegalCase) {
   };
   loom_low_lower_rule_t rule = {.emit_count = 1};
   loom_low_lower_rule_set_t rule_set = {
-      .string_pool = kRuleStringPool,
       .rules = &rule,
       .rule_count = 1,
       .descriptor_refs = &descriptor_ref,
@@ -460,6 +461,7 @@ TEST(LowContractQueryTest, ContractIndexDescriptorRuleSelectsLegalCase) {
       .emit_ref_count = 1,
       .emits = &emit,
       .emit_count = 1,
+      .string_pool = kRuleStringPool,
   };
   const loom_low_lower_rule_set_t* rule_sets[] = {&rule_set};
 
@@ -1188,7 +1190,6 @@ TEST(LowContractQueryTest, TargetSubgroupSizeRangeRequiresKnownInRangeSize) {
       .guard_count = 1,
   };
   loom_low_lower_rule_set_t rule_set = {
-      .string_pool = kRuleStringPool,
       .rules = &rule,
       .rule_count = 1,
       .descriptor_refs = &descriptor_ref,
@@ -1203,6 +1204,7 @@ TEST(LowContractQueryTest, TargetSubgroupSizeRangeRequiresKnownInRangeSize) {
       .emit_ref_count = 1,
       .emits = &emit,
       .emit_count = 1,
+      .string_pool = kRuleStringPool,
   };
   const loom_low_lower_rule_set_t* rule_sets[] = {&rule_set};
 
@@ -1280,7 +1282,6 @@ TEST(LowContractQueryTest, ContractIndexDescriptorRuleReportsRejectedCase) {
   };
   loom_low_lower_rule_t rule = {.guard_count = 1};
   loom_low_lower_rule_set_t rule_set = {
-      .string_pool = kRuleStringPool,
       .rules = &rule,
       .rule_count = 1,
       .diagnostic_params =
@@ -1297,6 +1298,7 @@ TEST(LowContractQueryTest, ContractIndexDescriptorRuleReportsRejectedCase) {
       .guard_ref_count = IREE_ARRAYSIZE(guard_refs),
       .diagnostics = &diagnostic,
       .diagnostic_count = 1,
+      .string_pool = kRuleStringPool,
   };
   const loom_low_lower_rule_set_t* rule_sets[] = {&rule_set};
 

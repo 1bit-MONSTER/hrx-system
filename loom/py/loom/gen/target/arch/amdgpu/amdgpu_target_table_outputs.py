@@ -12,6 +12,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from loom.gen.support.files import write_text_file
+from loom.gen.support.string_pool import CStringBank
 from loom.gen.target.arch.amdgpu.amdgpu_target_table_family import (
     AmdgpuTargetTableFamily,
 )
@@ -35,6 +36,7 @@ def generate_amdgpu_target_table_outputs(
     *,
     descriptor_source_path: Path,
     encoding_source_path: Path,
+    shared_strings: CStringBank | None = None,
 ) -> None:
     """Emits the descriptor and encoding sources for one storage family."""
 
@@ -42,6 +44,7 @@ def generate_amdgpu_target_table_outputs(
         family,
         descriptor_sets_by_generator_target,
         source_public_header=_DESCRIPTOR_SOURCE_HEADER,
+        shared_strings=shared_strings,
     )
     encoding_source = generate_amdgpu_encoding_table_source(
         family,

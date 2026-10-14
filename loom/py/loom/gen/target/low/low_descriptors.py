@@ -17,6 +17,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from loom.gen.support.files import write_text_file
+from loom.gen.support.string_pool import CStringBank
 from loom.gen.target.low import c_emit, compiler, views
 from loom.gen.target.low.compiled import (
     CompiledDescriptorSet,
@@ -31,11 +32,13 @@ from loom.target.low_descriptors import DescriptorSet
 def generate_descriptor_set(
     spec: DescriptorSet,
     allowlist: DescriptorAllowlist | None = None,
+    *,
+    shared_strings: CStringBank | None = None,
 ) -> GeneratedDescriptorSet:
     compiled = compiler.compile_descriptor_set(spec, allowlist)
     return GeneratedDescriptorSet(
         header=c_emit.emit_header(compiled),
-        source=c_emit.emit_source(compiled),
+        source=c_emit.emit_source(compiled, shared_strings),
     )
 
 
@@ -67,6 +70,8 @@ def compile_descriptor_set_family(
 def generate_descriptor_set_family(
     storage_spec: DescriptorSet,
     view_specs: Sequence[DescriptorSet],
+    *,
+    shared_strings: CStringBank | None = None,
 ) -> GeneratedDescriptorSetFamily:
     """Generates shared C storage and public headers for descriptor-set views."""
     compiled, descriptor_set_views = compile_descriptor_set_family(
@@ -77,6 +82,7 @@ def generate_descriptor_set_family(
         source=c_emit.emit_source_for_views(
             compiled,
             views=descriptor_set_views,
+            shared_strings=shared_strings,
         ),
         view_headers=tuple(
             c_emit.emit_header_for_spec(
@@ -95,7 +101,8 @@ def write_descriptor_set_to_paths(
     header_path: Path,
     source_path: Path,
     allowlist: DescriptorAllowlist | None = None,
+    shared_strings: CStringBank | None = None,
 ) -> None:
-    generated = generate_descriptor_set(spec, allowlist)
+    generated = generate_descriptor_set(spec, allowlist, shared_strings=shared_strings)
     write_text_file(header_path, generated.header)
     write_text_file(source_path, generated.source)

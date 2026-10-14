@@ -24,11 +24,13 @@ def _ensure_runtime_py_on_path() -> None:
 _ensure_runtime_py_on_path()
 
 from loom.gen.support.files import write_text_file  # noqa: E402
+from loom.gen.support.string_pool import CStringBank  # noqa: E402
 from loom.gen.target.contracts.contract_fragments import (  # noqa: E402
     generate_contract_fragment_from_lower_rules,
 )
 from loom.gen.target.contracts.contract_index import generate_contract_index  # noqa: E402
 from loom.gen.target.contracts.lower_rules import (  # noqa: E402
+    diagnostic_descriptor_names,
     generate_lower_rule_set_from_compiled,
 )
 from loom.target.contract_fragments import resolve_contract_fragment  # noqa: E402
@@ -80,9 +82,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="C initializer name and ordered fragment keys; may be repeated.",
     )
     parser.add_argument("--index-output", type=Path, help="Private policy index include.")
+    parser.add_argument("--shared-strings-header", type=Path)
+    parser.add_argument("--shared-strings-source", type=Path)
+    parser.add_argument("--shared-strings-layout", type=Path)
+    parser.add_argument("--shared-strings-public-header")
+    parser.add_argument("--shared-strings-symbol")
     args = parser.parse_args(argv)
     if bool(args.contract_index) != bool(args.index_output):
         parser.error("--contract-index and --index-output must be supplied together")
+    shared_string_args = (args.shared_strings_header, args.shared_strings_source, args.shared_strings_layout, args.shared_strings_public_header, args.shared_strings_symbol)
+    if any(shared_string_args) and not all(shared_string_args):
+        parser.error("all shared-string output paths, public header, and symbol must be supplied together")
 
     family_count = len(args.contract_fragment)
     for flag_name, paths in (
@@ -94,21 +104,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if len(paths) != family_count:
             parser.error(f"{flag_name} has {len(paths)} values for {family_count} contract fragments")
 
-    compiled_fragments = {}
-    for (
-        contract_fragment,
-        contract_header,
-        contract_source,
-        lower_rule_header,
-        lower_rule_source,
-    ) in zip(
-        args.contract_fragment,
-        args.contract_header,
-        args.contract_source,
-        args.lower_rule_header,
-        args.lower_rule_source,
-        strict=True,
-    ):
+    source_fragments = []
+    for contract_fragment in args.contract_fragment:
         try:
             registration = resolve_contract_fragment(contract_fragment)
         except ValueError as exc:
@@ -116,6 +113,33 @@ def main(argv: Sequence[str] | None = None) -> int:
         fragment = registration.load()
         dialect_ops = registration.load_dialect_ops()
         lower_rules = compile_lower_rule_set(fragment, dialect_ops=dialect_ops)
+        source_fragments.append((registration.key, fragment, dialect_ops, lower_rules))
+
+    shared_strings = None
+    if args.shared_strings_layout:
+        names = frozenset().union(*(diagnostic_descriptor_names(lower_rules) for _, _, _, lower_rules in source_fragments))
+        if not names:
+            parser.error("shared-string output requires descriptor diagnostic spellings")
+        shared_strings = CStringBank.build(names, symbol=args.shared_strings_symbol, header=args.shared_strings_public_header)
+        write_text_file(args.shared_strings_header, shared_strings.emit_header())
+        write_text_file(args.shared_strings_source, shared_strings.emit_source())
+        write_text_file(args.shared_strings_layout, shared_strings.manifest())
+
+    compiled_fragments = {}
+    for (
+        (fragment_key, fragment, dialect_ops, lower_rules),
+        contract_header,
+        contract_source,
+        lower_rule_header,
+        lower_rule_source,
+    ) in zip(
+        source_fragments,
+        args.contract_header,
+        args.contract_source,
+        args.lower_rule_header,
+        args.lower_rule_source,
+        strict=True,
+    ):
         generated_contract = generate_contract_fragment_from_lower_rules(
             fragment,
             dialect_ops=dialect_ops,
@@ -124,8 +148,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         generated_lower_rules = generate_lower_rule_set_from_compiled(
             fragment,
             compiled=lower_rules,
+            shared_strings=shared_strings,
         )
-        compiled_fragments[registration.key] = (
+        compiled_fragments[fragment_key] = (
             fragment,
             generated_contract.compiled,
             lower_rules,

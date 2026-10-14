@@ -59,8 +59,8 @@ typedef enum loom_amdgpu_cache_operation_e {
 #include "loom/target/arch/amdgpu/memory_cache_policy_native_names.inl"
 
 static const loom_string_pool_t kAmdgpuCacheNativeStrings = {
-    .data = kAmdgpuCacheNativeStringData,
-    .data_length = sizeof(kAmdgpuCacheNativeStringData) - 1,
+    .data = {kAmdgpuCacheNativeStringData},
+    .data_length = {sizeof(kAmdgpuCacheNativeStringData) - 1},
 };
 
 typedef enum loom_amdgpu_register_part_mask_e {

@@ -231,15 +231,15 @@ TEST_P(CompileReportLowTest, RecordsPressureSpillAndAllocationFailureRows) {
       "matrix.smfmac.f32"
       "test.gpr"
       "test.fpr";
-  constexpr loom_string_ref_t kRegisterCopyTag = LOOM_STRING_REF(0, 17);
-  constexpr loom_string_ref_t kMemoryGlobalTag = LOOM_STRING_REF(17, 22);
-  constexpr loom_string_ref_t kMemoryStackLoadTag = LOOM_STRING_REF(39, 21);
-  constexpr loom_string_ref_t kMemoryStackStoreTag = LOOM_STRING_REF(60, 23);
-  constexpr loom_string_ref_t kMatrixWmmaTag = LOOM_STRING_REF(83, 15);
-  constexpr loom_string_ref_t kMatrixSwmmacTag = LOOM_STRING_REF(98, 17);
-  constexpr loom_string_ref_t kMatrixSmfmacTag = LOOM_STRING_REF(115, 17);
-  constexpr loom_string_ref_t kRegisterClassGpr = LOOM_STRING_REF(132, 8);
-  constexpr loom_string_ref_t kRegisterClassFpr = LOOM_STRING_REF(140, 8);
+  constexpr loom_string_ref_t kRegisterCopyTag = LOOM_STRING_REF(0, 0, 17);
+  constexpr loom_string_ref_t kMemoryGlobalTag = LOOM_STRING_REF(0, 17, 22);
+  constexpr loom_string_ref_t kMemoryStackLoadTag = LOOM_STRING_REF(0, 39, 21);
+  constexpr loom_string_ref_t kMemoryStackStoreTag = LOOM_STRING_REF(0, 60, 23);
+  constexpr loom_string_ref_t kMatrixWmmaTag = LOOM_STRING_REF(0, 83, 15);
+  constexpr loom_string_ref_t kMatrixSwmmacTag = LOOM_STRING_REF(0, 98, 17);
+  constexpr loom_string_ref_t kMatrixSmfmacTag = LOOM_STRING_REF(0, 115, 17);
+  constexpr loom_string_ref_t kRegisterClassGpr = LOOM_STRING_REF(0, 132, 8);
+  constexpr loom_string_ref_t kRegisterClassFpr = LOOM_STRING_REF(0, 140, 8);
   loom_low_descriptor_t descriptors[8] = {};
   const loom_low_descriptor_layout_t layouts[] = {
       {},
@@ -310,11 +310,6 @@ TEST_P(CompileReportLowTest, RecordsPressureSpillAndAllocationFailureRows) {
   };
   loom_low_descriptor_set_t descriptor_set = {
       .stable_id = 1,
-      .string_pool =
-          {
-              .data = kDescriptorStringPool,
-              .data_length = sizeof(kDescriptorStringPool) - 1,
-          },
       .descriptors = descriptors,
       .descriptor_layouts = layouts,
       .descriptor_layout_count = IREE_ARRAYSIZE(layouts),
@@ -327,6 +322,8 @@ TEST_P(CompileReportLowTest, RecordsPressureSpillAndAllocationFailureRows) {
       .reg_class_count = IREE_ARRAYSIZE(reg_classes),
       .schedule_classes = schedule_classes,
       .schedule_class_count = IREE_ARRAYSIZE(schedule_classes),
+      .string_pool = {{kDescriptorStringPool},
+                      {sizeof(kDescriptorStringPool) - 1}},
   };
   descriptor_views[0].schedule_class_id = 0;
   descriptor_views[1].schedule_class_id = 1;

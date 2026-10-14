@@ -23,6 +23,7 @@ def _ensure_runtime_py_on_path() -> None:
 
 _ensure_runtime_py_on_path()
 
+from loom.gen.support.string_pool import CStringBank  # noqa: E402
 from loom.gen.target.arch.amdgpu.amdgpu_target_table_family import (  # noqa: E402
     amdgpu_target_table_family,
     amdgpu_target_table_instruction_names_by_isa_key,
@@ -78,6 +79,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=Path,
         required=True,
     )
+    parser.add_argument("--shared-strings", type=Path, help="Producer-owned shared string-bank layout.")
     args = parser.parse_args(argv)
 
     if not (len(args.target) == len(args.descriptor_source) == len(args.encoding_source)):
@@ -98,6 +100,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         isa_specs,
     )
 
+    shared_strings = CStringBank.read(args.shared_strings) if args.shared_strings else None
     for family, descriptor_source, encoding_source in zip(
         families,
         args.descriptor_source,
@@ -110,6 +113,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             descriptor_sets_by_generator_target,
             descriptor_source_path=descriptor_source,
             encoding_source_path=encoding_source,
+            shared_strings=shared_strings,
         )
     return 0
 

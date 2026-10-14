@@ -17,12 +17,17 @@ loom_target_contract_table_cc_libraries(
     loom::py::loom::gen::target::contracts::spirv_contract_table_family
   INDEX_OUTPUT
     "tables.inl"
+  SHARED_STRINGS
+    "instruction_strings"
   ARGS
     "--contract-fragment=spirv.logical.core"
     "--contract-index=LOOM_SPIRV_LOGICAL_CONTRACT:spirv.logical.core"
+    "--shared-strings-public-header=loom/target/arch/spirv/contracts/instruction_strings.h"
+    "--shared-strings-symbol=loom_spirv_instruction_strings"
   CONTRACT_DEPS
     loom::target::contract
   LOWER_RULE_DEPS
+    ::instruction_strings
     loom::codegen::low::lower
     loom::ops::buffer
     loom::ops::index
@@ -32,6 +37,20 @@ loom_target_contract_table_cc_libraries(
     loom::ops::vector
     loom::ops::view
     loom::target::arch::spirv::descriptors::descriptors_ids
+)
+endif()
+
+if(LOOM_TARGET_ARCH_SPIRV)
+loom_cc_library(
+  NAME
+    instruction_strings
+  HDRS
+    "instruction_strings.h"
+  SRCS
+    "instruction_strings.c"
+  DEPS
+
+  PUBLIC
 )
 endif()
 
