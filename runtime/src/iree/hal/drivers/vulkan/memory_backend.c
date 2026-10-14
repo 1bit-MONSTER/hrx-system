@@ -422,16 +422,26 @@ static iree_status_t iree_hal_vulkan_slab_pool_query_owner(
         !iree_hal_vulkan_memory_supports_host_access(flags, scope.host)) {
       continue;
     }
+    // External host storage already has backing. An owned-allocation candidate
+    // cannot impose its physical placement on imports admitted by the same
+    // pool; the actual pointer's native memory type is resolved at attachment.
     iree_hal_pool_placement_t placement =
-        iree_hal_vulkan_memory_placement(backend, group, device_ordinal, flags);
+        options->imports.class_count
+            ? (iree_hal_pool_placement_t){0}
+            : iree_hal_vulkan_memory_placement(backend, group, device_ordinal,
+                                               flags);
     if (options->placement.mode == IREE_HAL_POOL_PLACEMENT_REQUIRED &&
         (placement.mode != IREE_HAL_POOL_PLACEMENT_REQUIRED ||
          placement.node != options->placement.node)) {
       continue;
     }
-    const iree_hal_memory_type_t memory_type =
+    iree_hal_memory_type_t memory_type =
         iree_hal_vulkan_memory_type_from_properties(
             backend->physical_device->properties2.properties.deviceType, flags);
+    if (options->imports.class_count) {
+      memory_type &= ~(IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL |
+                       IREE_HAL_MEMORY_TYPE_HOST_LOCAL);
+    }
     const uint32_t import_memory_type_bits =
         options->imports.class_count
             ? iree_hal_vulkan_compatible_import_memory_type_bits(
