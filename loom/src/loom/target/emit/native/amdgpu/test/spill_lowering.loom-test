@@ -375,14 +375,14 @@ low.func.def target<amdgpu.gfx11.generic.core>(@gfx11_generic_target) @spill_rej
 
 // ====
 
-// RUN: emit amdgpu-assembly @spill_rejects_agpr_registers waits=none
+// RUN: emit amdgpu-assembly @spill_rejects_special_registers waits=none
 
 amdgpu.target<gfx9-4-generic> @gfx9_4_generic_target
 
-low.func.def target<amdgpu.gfx9_4.generic.core>(@gfx9_4_generic_target) @spill_rejects_agpr_registers(%value: reg<amdgpu.agpr>) asm {
+low.func.def target<amdgpu.gfx9_4.generic.core>(@gfx9_4_generic_target) @spill_rejects_special_registers(%value: reg<amdgpu.scc>) asm {
   %storage = storage {byte_alignment = 4, byte_length = 4} : low.storage<private>
-  // ERROR@+1: AMDGPU/038 {function_name="spill_rejects_agpr_registers", op_name="low.spill", value_name="value", actual_type="reg<amdgpu.agpr>"}
-  low.spill %value, %storage : reg<amdgpu.agpr>, low.storage<private>
+  // ERROR@+1: AMDGPU/038 {function_name="spill_rejects_special_registers", op_name="low.spill", value_name="value", actual_type="reg<amdgpu.scc>"}
+  low.spill %value, %storage : reg<amdgpu.scc>, low.storage<private>
   return
 }
 

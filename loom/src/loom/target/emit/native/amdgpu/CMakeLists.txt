@@ -147,6 +147,7 @@ loom_check_test_suite(
     "test/accumulator_memory.loom-test"
     "test/accumulator_moves.loom-test"
     "test/accumulator_resources.loom-test"
+    "test/accumulator_spills.loom-test"
     "test/allocation_json.loom-test"
     "test/assembly.loom-test"
     "test/assembly_allocation.loom-test"

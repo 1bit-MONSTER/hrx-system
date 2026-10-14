@@ -41,7 +41,10 @@ typedef struct loom_amdgpu_spill_lowering_result_t {
 
 // Rewrites low.spill/low.reload in |function_op| into descriptor-backed AMDGPU
 // scratch load/store packets. The descriptor set must be the already-selected
-// target-low descriptor set for the function target.
+// target-low descriptor set for the function target. VGPR and AGPR traffic
+// retains its payload bank and execution mask; SGPR traffic broadcasts and
+// gathers a wave-wide snapshot through VGPRs. Scratch addresses use VGPRs
+// independently of the payload bank.
 iree_status_t loom_amdgpu_lower_spill_traffic(
     loom_module_t* module, loom_op_t* function_op,
     const loom_low_descriptor_set_t* descriptor_set,

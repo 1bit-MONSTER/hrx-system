@@ -801,7 +801,7 @@ ERR_AMDGPU_038 = ErrorDef(
     message=(
         "AMDGPU spill lowering rejected '{op_name}' in '@{function_name}': "
         "value '{value_name}' has type {actual_type}, but spill traffic "
-        "lowering supports AMDGPU SGPR or VGPR register values"
+        "lowering supports AMDGPU SGPR, VGPR, or AGPR register values"
     ),
     params=(
         ErrorParam("function_name", ParamKind.STRING),
@@ -810,7 +810,7 @@ ERR_AMDGPU_038 = ErrorDef(
         ErrorParam("actual_type", ParamKind.TYPE),
     ),
     fix_hint=(
-        "Spill only values allocated in the selected AMDGPU SGPR or VGPR "
+        "Spill only values allocated in the selected AMDGPU SGPR, VGPR, or AGPR "
         "descriptor register class"
     ),
 )
