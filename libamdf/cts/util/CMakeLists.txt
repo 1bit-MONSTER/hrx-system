@@ -63,10 +63,93 @@ endif()
 if(AMDF_BUILD)
 iree_cc_library(
   NAME
+    wait
+  HDRS
+    "wait.h"
+  DEPS
+    amdf::headers
+    iree::third_party::google_test
+  TESTONLY
+  INCLUDES
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/..>"
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/..>"
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_library(
+  NAME
+    wait_test_cases
+  SRCS
+    "wait_test.cc"
+  DEPS
+    ::native_event
+    ::native_event_headers
+    ::wait
+    amdf::headers
+    iree::third_party::google_test
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD)
+amdf_cts_binary(
+  NAME
+    wait_test_dynamic_bin
+  DATA
+    amdf::amdf
+  DEPS
+    ::wait_test_cases
+    amdf::headers
+    libamdf::cts::util::dynamic_provider
+    libamdf::cts::util::test_main
+  TESTONLY
+)
+endif()
+
+if(AMDF_BUILD)
+iree_native_test(
+  NAME
+    "wait_test_dynamic"
+  ARGS
+    "--amdf_native_lifetime=process"
+    "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
+  SRC
+    ::wait_test_dynamic_bin
+  DATA
+    "amdf::amdf"
+  LABELS
+    "iree-build-requirement=libamdf"
+)
+endif()
+
+if(AMDF_BUILD)
+iree_native_test(
+  NAME
+    "wait_test_dynamic_instance"
+  ARGS
+    "--amdf_native_lifetime=instance"
+    "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
+  SRC
+    ::wait_test_dynamic_bin
+  DATA
+    "amdf::amdf"
+  LABELS
+    "iree-build-requirement=libamdf"
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_library(
+  NAME
     native_event_headers
   HDRS
     "native_event.h"
   DEPS
+    ::wait
     amdf::headers
     iree::third_party::google_test
   TESTONLY

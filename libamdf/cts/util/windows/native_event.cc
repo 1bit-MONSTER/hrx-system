@@ -46,9 +46,13 @@ amdf_native_event_type_t NativeEventType() {
   return ::testing::AssertionSuccess();
 }
 
-::testing::AssertionResult WaitNativeEvent(const amdf_native_event_t& event) {
+::testing::AssertionResult WaitNativeEvent(const amdf_native_event_t& event,
+                                           WaitDeadline deadline) {
   const DWORD result =
-      WaitForSingleObject(event.payload.native_handle, INFINITE);
+      WaitForSingleObject(event.payload.native_handle, deadline.remaining_ms());
+  if (result == WAIT_TIMEOUT) {
+    return ::testing::AssertionFailure() << "timed out waiting for Win32 event";
+  }
   return result == WAIT_OBJECT_0
              ? ::testing::AssertionSuccess()
              : (::testing::AssertionFailure()
