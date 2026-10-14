@@ -166,7 +166,10 @@ loom_low_descriptor_cc_library(
 
 loom_low_descriptor_cc_library(
     name = "avx512_features_descriptors",
-    args = ["--target=avx512_features"],
+    args = [
+        "--target=avx512_features",
+        "--shared-strings=$(rootpath //loom/src/loom/target/arch/x86/contracts:instruction_strings.json)",
+    ],
     generated_hdr_flags = [
         "--view-header=scalar",
         "--view-header=simd128",
@@ -198,9 +201,14 @@ loom_low_descriptor_cc_library(
         "avx10_2_descriptors.h",
     ],
     generator = "//loom/py/loom/gen/target/arch/x86:low_descriptor_shard",
+    ids_deps = ["//loom/src/loom/codegen/low:descriptors"],
     ids_visibility = _X86_ROOT_VISIBILITY + _X86_NATIVE_VISIBILITY,
+    inputs = ["//loom/src/loom/target/arch/x86/contracts:instruction_strings.json"],
     visibility = _X86_NATIVE_VISIBILITY,
-    deps = ["//loom/src/loom/codegen/low:descriptors"],
+    deps = [
+        "//loom/src/loom/codegen/low:descriptors",
+        "//loom/src/loom/target/arch/x86/contracts:instruction_strings",
+    ],
 )
 
 loom_cc_library(
