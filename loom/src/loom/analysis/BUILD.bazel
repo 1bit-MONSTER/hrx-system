@@ -1248,6 +1248,17 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "motion_policy",
+    srcs = ["motion_policy.c"],
+    hdrs = ["motion_policy.h"],
+    deps = [
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
     name = "motion",
     srcs = [
         "motion.c",
@@ -1261,6 +1272,7 @@ loom_cc_library(
         ":availability",
         ":execution_condition",
         ":loop_domain",
+        ":motion_policy",
         ":movement",
         ":read_motion",
         "//loom/src/loom/ir",

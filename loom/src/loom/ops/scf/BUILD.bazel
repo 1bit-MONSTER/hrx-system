@@ -120,6 +120,7 @@ loom_generated_cc_library(
     deps = [
         "//loom/src/loom/analysis:availability",
         "//loom/src/loom/analysis:condition_facts",
+        "//loom/src/loom/analysis:motion_policy",
         "//loom/src/loom/error:emitter",
         "//loom/src/loom/error:error_defs",
         "//loom/src/loom/ir",

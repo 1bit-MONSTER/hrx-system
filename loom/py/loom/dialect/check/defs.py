@@ -661,6 +661,7 @@ check_literal = Op(
     examples=[
         "%scalar = check.literal value(42) : i32",
     ],
+    eager_execution_cost=1,
 )
 
 check_generate_iota = Op(

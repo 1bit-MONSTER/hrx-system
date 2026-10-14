@@ -549,6 +549,7 @@ test_constant = Op(
         "%c42 = test.constant 42 : i32",
         "%pi = test.constant 3.14 : f32",
     ],
+    eager_execution_cost=1,
 )
 
 # ============================================================================
@@ -584,6 +585,7 @@ test_clause_constant = Op(
     traits=[PURE, CONSTANT_LIKE],
     format=[Clause("value", Attr("value")), COLON, TypeOf("result")],
     examples=["%c42 = test.clause_constant value(42) : i32"],
+    eager_execution_cost=1,
 )
 
 test_clause_copy = Op(
@@ -1329,6 +1331,7 @@ test_cmp = comparison_op(
     predicates=cmp_predicates,
     doc="Test comparison op.",
     examples=["%result = test.cmp lt, %lhs, %rhs : i32"],
+    eager_execution_cost=1,
 )
 
 # ============================================================================

@@ -433,6 +433,7 @@ buffer_length = Op(
     examples=[
         "%byte_length = buffer.length %buffer",
     ],
+    eager_execution_cost=1,
 )
 
 # ============================================================================

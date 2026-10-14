@@ -17,6 +17,7 @@ from loom.dsl import (
     INTEGER,
     ISOLATED_FROM_ABOVE,
     PURE,
+    SAFE_TO_SPECULATE,
     SYMBOL_DEFINE,
     TERMINATOR,
     AttrDef,
@@ -54,11 +55,36 @@ def test_generate_tables_emits_execution_condition() -> None:
         constraints=[SameType("lhs", "rhs", "result")],
         traits=[PURE],
         execution_condition=ExecutionCondition.INTEGER_SHIFT_RIGHT,
+        eager_execution_cost=1,
     )
 
     source = generate_tables_c("test", 0, [op])
 
     assert ".execution_condition = LOOM_EXECUTION_CONDITION_INTEGER_SHIFT_RIGHT," in source
+    assert ".eager_execution_cost = 1," in source
+
+
+def test_generate_tables_requires_authored_eager_execution_policy() -> None:
+    op = Op(
+        "test.safe",
+        group=Dialect("test"),
+        traits=[PURE, SAFE_TO_SPECULATE],
+    )
+
+    with pytest.raises(ValueError, match="explicit eager_execution_cost"):
+        generate_tables_c("test", 0, [op])
+
+
+def test_generate_tables_rejects_eager_cost_without_static_safety() -> None:
+    op = Op(
+        "test.dynamic",
+        group=Dialect("test"),
+        effective_traits="loom_test_dynamic_effective_traits",
+        eager_execution_cost=1,
+    )
+
+    with pytest.raises(ValueError, match="positive eager_execution_cost"):
+        generate_tables_c("test", 0, [op])
 
 
 @pytest.mark.parametrize("execution", [None, *RegionExecution])

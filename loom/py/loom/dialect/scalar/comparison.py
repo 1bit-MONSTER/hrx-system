@@ -90,6 +90,7 @@ scalar_cmpi = comparison_op(
     canonicalize="loom_scalar_cmpi_canonicalize",
     facts="loom_scalar_cmpi_facts",
     examples=["%result = scalar.cmpi eq, %lhs, %rhs : i32"],
+    eager_execution_cost=1,
 )
 
 scalar_cmpf = comparison_op(
@@ -103,6 +104,7 @@ scalar_cmpf = comparison_op(
     canonicalize="loom_scalar_cmpf_canonicalize",
     facts="loom_scalar_cmpf_facts",
     examples=["%result = scalar.cmpf olt, %lhs, %rhs : f32"],
+    eager_execution_cost=1,
 )
 
 scalar_isnanf = Op(
@@ -112,10 +114,11 @@ scalar_isnanf = Op(
     doc="Returns true (i1) if the operand is NaN.",
     operands=[Operand("input", FLOAT)],
     results=[Result("result", I1)],
-    traits=[PURE],
+    traits=[PURE, SAFE_TO_SPECULATE],
     format=[Ref("input"), COLON, TypeOf("input")],
     facts="loom_scalar_isnanf_facts",
     examples=["%result = scalar.isnanf %input : f32"],
+    eager_execution_cost=1,
 )
 
 scalar_isinff = Op(
@@ -125,10 +128,11 @@ scalar_isinff = Op(
     doc="Returns true (i1) if the operand is positive or negative infinity.",
     operands=[Operand("input", FLOAT)],
     results=[Result("result", I1)],
-    traits=[PURE],
+    traits=[PURE, SAFE_TO_SPECULATE],
     format=[Ref("input"), COLON, TypeOf("input")],
     facts="loom_scalar_isinff_facts",
     examples=["%result = scalar.isinff %input : f32"],
+    eager_execution_cost=1,
 )
 
 scalar_isfinitef = Op(
@@ -138,10 +142,11 @@ scalar_isfinitef = Op(
     doc="Returns true (i1) if the operand is finite (not NaN and not infinity).",
     operands=[Operand("input", FLOAT)],
     results=[Result("result", I1)],
-    traits=[PURE],
+    traits=[PURE, SAFE_TO_SPECULATE],
     format=[Ref("input"), COLON, TypeOf("input")],
     facts="loom_scalar_isfinitef_facts",
     examples=["%result = scalar.isfinitef %input : f32"],
+    eager_execution_cost=1,
 )
 
 scalar_signf = Op(
@@ -152,10 +157,11 @@ scalar_signf = Op(
     operands=[Operand("input", FLOAT)],
     results=[Result("result", FLOAT)],
     constraints=[SameType("input", "result")],
-    traits=[PURE],
+    traits=[PURE, SAFE_TO_SPECULATE],
     format=[Ref("input"), COLON, TypeOf("result")],
     facts="loom_scalar_signf_facts",
     examples=["%result = scalar.signf %input : f32"],
+    eager_execution_cost=1,
 )
 
 scalar_signi = Op(
@@ -170,6 +176,7 @@ scalar_signi = Op(
     format=[Ref("input"), COLON, TypeOf("result")],
     facts="loom_scalar_signi_facts",
     examples=["%result = scalar.signi %input : i32"],
+    eager_execution_cost=1,
 )
 
 # ============================================================================

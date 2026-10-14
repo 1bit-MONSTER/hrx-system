@@ -271,6 +271,7 @@ view_load = Op(
         "%x = view.load %view[%row, %col] : view<[%M]x[%N]xf32, %layout> -> f32",
         "%flag = view.load<volatile> %mailbox[%index] : view<16xi32> -> i32",
     ],
+    eager_execution_cost=0,
 )
 
 view_store = Op(
@@ -312,6 +313,7 @@ view_store = Op(
         "view.store %x, %view[%row, %col] : f32, view<[%M]x[%N]xf32, %layout>",
         "view.store<volatile> %flag, %mailbox[%index] : i32, view<16xi32>",
     ],
+    eager_execution_cost=0,
 )
 
 # ============================================================================
@@ -585,6 +587,7 @@ view_atomic_load = Op(
     examples=[
         "%generation = view.atomic.load %progress[0] {ordering = acquire, scope = system} : view<1xi32> -> i32",
     ],
+    eager_execution_cost=0,
 )
 
 view_atomic_store = Op(
@@ -613,6 +616,7 @@ view_atomic_store = Op(
     examples=[
         "view.atomic.store %generation, %progress[0] {ordering = release, scope = system} : i32, view<1xi32>",
     ],
+    eager_execution_cost=0,
 )
 
 # ============================================================================

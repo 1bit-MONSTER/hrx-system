@@ -1415,6 +1415,20 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    motion_policy
+  HDRS
+    "motion_policy.h"
+  SRCS
+    "motion_policy.c"
+  DEPS
+    iree::base
+    loom::ir
+    loom::ops::op_defs
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     motion
   HDRS
     "motion.h"
@@ -1426,6 +1440,7 @@ loom_cc_library(
     ::availability
     ::execution_condition
     ::loop_domain
+    ::motion_policy
     ::movement
     ::read_motion
     iree::base

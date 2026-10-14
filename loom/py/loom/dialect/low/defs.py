@@ -737,6 +737,7 @@ low_func_call = Op(
         "%result = low.func.call @extern_add(%lhs, %rhs) : (reg<amdgpu.vgpr x1>, reg<amdgpu.vgpr x1>) -> (reg<amdgpu.vgpr x1>)",
         "%result = low.func.call pure @extern_add(%lhs) : (reg<test.i32>) -> (reg<test.i32>)",
     ],
+    eager_execution_cost=0,
 )
 
 # ============================================================================
@@ -1191,6 +1192,7 @@ low_op = Op(
         "%sum = low.op<amdgpu.v_add_u32>(%lhs, %rhs) : (reg<amdgpu.vgpr x1>, reg<amdgpu.vgpr x1>) -> reg<amdgpu.vgpr x1>",
         "low.op<amdgpu.s_waitcnt>() {vmcnt = 0} : ()",
     ],
+    eager_execution_cost=0,
 )
 
 # ============================================================================
@@ -1764,6 +1766,7 @@ low_invoke = Op(
         "%result = low.invoke @extern_add(%lhs, %rhs) : (i32, i32) -> (i32)",
         "%result = low.invoke pure @extern_add(%lhs, %rhs) : (i32, i32) -> (i32)",
     ],
+    eager_execution_cost=0,
 )
 
 # ============================================================================

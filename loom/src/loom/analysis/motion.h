@@ -35,6 +35,7 @@
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
 #include "loom/analysis/availability.h"
+#include "loom/analysis/motion_policy.h"
 #include "loom/analysis/movement.h"
 #include "loom/analysis/read_motion.h"
 #include "loom/ir/ir.h"
@@ -146,45 +147,6 @@ static inline bool loom_motion_loop_hoist_result_is_legal(
 iree_status_t loom_motion_subtree_evaluate_hoist_before_loop(
     loom_motion_analysis_t* analysis, loom_loop_like_t loop,
     const loom_op_t* candidate_op, loom_motion_loop_hoist_result_t* out_result);
-
-//===----------------------------------------------------------------------===//
-// Local classification
-//===----------------------------------------------------------------------===//
-
-// Local classification checks direct op traits and retained region summaries,
-// not recursive SSA availability. Use the subtree queries below when moving an
-// op with nested regions or when an insertion point is known.
-
-// Returns true if |op| has no live uses, no retained compiler hints, and no
-// semantic effects that must keep it in the IR.
-bool loom_motion_op_can_erase(const loom_module_t* module, const loom_op_t* op);
-
-// Returns true if |op| may be moved by a transform that preserves the original
-// dynamic execution predicate. This rejects tied results, terminator roots,
-// hints, convergence, pending source expansion, unknown effects, reads, writes,
-// and nondeterminism. It intentionally does not reject UNIQUE_IDENTITY beyond
-// the ordinary purity/effect checks: relocating one execution site without
-// duplicating it is not CSE.
-bool loom_motion_op_can_relocate_effect_free(const loom_module_t* module,
-                                             const loom_op_t* op);
-
-// Returns true if |op| may be rebuilt independently while preserving or
-// narrowing its original dynamic execution predicate. This requires pure,
-// deterministic, identity-free semantics and rejects successors, retained
-// regions, terminators, hints, poison boundaries, convergence, callable
-// boundaries, and pending source expansion. Call purity does not describe
-// returned identity or execution cost. This does not require SAFE_TO_SPECULATE
-// because rematerialization must not introduce execution on an additional
-// control path.
-bool loom_motion_op_can_rematerialize_effect_free(const loom_module_t* module,
-                                                  const loom_op_t* op);
-
-// Returns true if |op| may unconditionally execute on additional control
-// paths. This requires SAFE_TO_SPECULATE and rejects any region side effects,
-// convergence, hints, or pending source expansion. Fact-dependent speculation
-// requires a motion analysis and is available through the subtree query below.
-bool loom_motion_op_can_speculate(const loom_module_t* module,
-                                  const loom_op_t* op);
 
 // Returns true when |op| is an ordinary unmasked view or vector load with no
 // write, ordering, convergence, identity, or nondeterministic semantics.

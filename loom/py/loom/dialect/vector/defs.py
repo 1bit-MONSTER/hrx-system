@@ -393,11 +393,15 @@ def _lanewise_unary_shape_change(
     source_constraint: Callable[[str], Constraint],
     result_constraint: TypeConstraint,
     doc: str,
+    traits: list[Trait] | None = None,
     facts: str = "",
     canonicalize: str = "",
     **kwargs: Any,
 ) -> Op:
     result_element_constraint = _element_constraint_for(result_constraint)
+    op_traits: list[Trait] = [PURE, ELEMENTWISE]
+    if traits:
+        op_traits.extend(traits)
     return Op(
         name,
         group=vector_ops,
@@ -410,7 +414,7 @@ def _lanewise_unary_shape_change(
             SameKind("input", "result"),
             SameShape("input", "result"),
         ],
-        traits=[PURE, ELEMENTWISE],
+        traits=op_traits,
         facts=facts,
         canonicalize=canonicalize,
         format=[
@@ -508,6 +512,7 @@ vector_constant = Op(
     traits=[PURE, CONSTANT_LIKE, REFINABLE_RESULT_TYPE_REFS],
     format=[Attr("value"), COLON, ResultType("result")],
     examples=["%v = vector.constant 0.0 : vector<4xf32>"],
+    eager_execution_cost=1,
 )
 
 vector_poison = Op(
@@ -542,6 +547,7 @@ vector_empty = Op(
     traits=[PURE, CONSTANT_LIKE, REFINABLE_RESULT_TYPE_REFS],
     format=[COLON, ResultType("result")],
     examples=["%v = vector.empty : vector<0xf32>"],
+    eager_execution_cost=1,
 )
 
 vector_splat = Op(
@@ -1699,6 +1705,7 @@ vector_load = Op(
         "%v = vector.load %view[%row, %col] : view<[%m]x[%n]xf32, %layout> -> vector<4x8xf32>",
         "%packet = vector.load<volatile> %ring[%head] : view<[%capacity]x16xi8> -> vector<16xi8>",
     ],
+    eager_execution_cost=0,
 )
 
 vector_store = Op(
@@ -1745,6 +1752,7 @@ vector_store = Op(
         "vector.store %v, %view[%row, %col] : vector<4x8xf32>, view<[%m]x[%n]xf32, %layout>",
         "vector.store<volatile> %packet, %ring[%tail] : vector<16xi8>, view<[%capacity]x16xi8>",
     ],
+    eager_execution_cost=0,
 )
 
 vector_load_mask = Op(
@@ -2480,6 +2488,7 @@ vector_select = Op(
         TypeOf("result"),
     ],
     examples=["%r = vector.select %mask, %a, %b : vector<16xf32>"],
+    eager_execution_cost=1,
 )
 
 vector_cmpi = Op(
@@ -2515,6 +2524,7 @@ vector_cmpi = Op(
         ResultType("result"),
     ],
     examples=["%m = vector.cmpi slt, %lhs, %rhs : vector<16xi32> -> vector<16xi1>"],
+    eager_execution_cost=1,
 )
 
 vector_cmpf = Op(
@@ -2554,6 +2564,7 @@ vector_cmpf = Op(
         ResultType("result"),
     ],
     examples=["%m = vector.cmpf olt, %lhs, %rhs : vector<16xf32> -> vector<16xi1>"],
+    eager_execution_cost=1,
 )
 
 
@@ -2575,6 +2586,7 @@ vector_addf = _lanewise_binary(
     flags=_VF,
     facts="loom_vector_addf_facts",
     canonicalize="loom_vector_addf_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_subf = _lanewise_binary(
@@ -2586,6 +2598,7 @@ vector_subf = _lanewise_binary(
     flags=_VF,
     facts="loom_vector_subf_facts",
     canonicalize="loom_vector_subf_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_mulf = _lanewise_binary(
@@ -2598,6 +2611,7 @@ vector_mulf = _lanewise_binary(
     flags=_VF,
     facts="loom_vector_mulf_facts",
     canonicalize="loom_vector_mulf_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_divf = _lanewise_binary(
@@ -2611,6 +2625,7 @@ vector_divf = _lanewise_binary(
     flags=_VF,
     facts="loom_vector_divf_facts",
     canonicalize="loom_vector_divf_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_remf = _lanewise_binary(
@@ -2621,6 +2636,8 @@ vector_remf = _lanewise_binary(
     flags=_VF,
     facts="loom_vector_remf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_negf = _lanewise_unary(
@@ -2628,20 +2645,22 @@ vector_negf = _lanewise_unary(
     phase=OpPhase.EXECUTABLE,
     result_constraint=FLOAT_ELEMENT,
     doc=("Lanewise floating-point negation of a same-typed vector operand."),
-    traits=[INVOLUTION],
+    traits=[INVOLUTION, SAFE_TO_SPECULATE],
     flags=_VF,
     facts="loom_vector_negf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_absf = _lanewise_unary(
     "vector.absf",
     result_constraint=FLOAT_ELEMENT,
     doc=("Lanewise floating-point absolute value of a same-typed vector operand."),
-    traits=[IDEMPOTENT],
+    traits=[IDEMPOTENT, SAFE_TO_SPECULATE],
     flags=_VF,
     facts="loom_vector_absf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_minimumf = _lanewise_binary(
@@ -2652,6 +2671,8 @@ vector_minimumf = _lanewise_binary(
     flags=_VF,
     facts="loom_vector_minimumf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=1,
 )
 
 vector_maximumf = _lanewise_binary(
@@ -2662,6 +2683,8 @@ vector_maximumf = _lanewise_binary(
     flags=_VF,
     facts="loom_vector_maximumf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=1,
 )
 
 vector_minnumf = _lanewise_binary(
@@ -2673,6 +2696,8 @@ vector_minnumf = _lanewise_binary(
     flags=_VF,
     facts="loom_vector_minnumf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=1,
 )
 
 vector_maxnumf = _lanewise_binary(
@@ -2684,6 +2709,8 @@ vector_maxnumf = _lanewise_binary(
     flags=_VF,
     facts="loom_vector_maxnumf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=1,
 )
 
 vector_clampf = Op(
@@ -2709,7 +2736,7 @@ vector_clampf = Op(
         HasFloatElement("result"),
         SameType("value", "lower", "upper", "result"),
     ],
-    traits=[PURE, ELEMENTWISE],
+    traits=[PURE, ELEMENTWISE, SAFE_TO_SPECULATE],
     facts="loom_vector_clampf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
     format=[
@@ -2727,6 +2754,7 @@ vector_clampf = Op(
         "%result = vector.clampf<number, nnan|nsz> %value, %lower, %upper : vector<16xf32>",
         "%result = vector.clampf<ieee> %value, %lower, %upper : vector<16xf32>",
     ],
+    eager_execution_cost=1,
 )
 
 vector_copysignf = _lanewise_binary(
@@ -2736,6 +2764,8 @@ vector_copysignf = _lanewise_binary(
     flags=_VF,
     facts="loom_vector_copysignf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=1,
 )
 
 vector_fmaf = Op(
@@ -2768,7 +2798,7 @@ vector_fmaf = Op(
     ],
     facts="loom_vector_fmaf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
-    traits=[PURE, ELEMENTWISE],
+    traits=[PURE, ELEMENTWISE, SAFE_TO_SPECULATE],
     format=[
         Flags("fastmath"),
         Ref("a"),
@@ -2780,6 +2810,7 @@ vector_fmaf = Op(
         TypeOf("result"),
     ],
     examples=["%r = vector.fmaf %a, %b, %c : vector<16xf32>"],
+    eager_execution_cost=1,
 )
 
 vector_addi = _lanewise_binary(
@@ -2793,6 +2824,7 @@ vector_addi = _lanewise_binary(
     facts="loom_vector_addi_facts",
     effective_traits="loom_scalar_integer_arithmetic_effective_traits",
     canonicalize="loom_vector_binary_identity_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_subi = _lanewise_binary(
@@ -2805,6 +2837,7 @@ vector_subi = _lanewise_binary(
     facts="loom_vector_subi_facts",
     effective_traits="loom_scalar_integer_arithmetic_effective_traits",
     canonicalize="loom_vector_binary_identity_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_muli = _lanewise_binary(
@@ -2818,6 +2851,7 @@ vector_muli = _lanewise_binary(
     facts="loom_vector_muli_facts",
     effective_traits="loom_scalar_integer_arithmetic_effective_traits",
     canonicalize="loom_vector_binary_identity_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_divsi = _lanewise_binary(
@@ -2924,6 +2958,7 @@ vector_negi = _lanewise_unary(
     traits=[INVOLUTION, SAFE_TO_SPECULATE],
     facts="loom_vector_negi_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_absi = _lanewise_unary(
@@ -2933,6 +2968,7 @@ vector_absi = _lanewise_unary(
     traits=[IDEMPOTENT, SAFE_TO_SPECULATE],
     facts="loom_vector_absi_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_minsi = _lanewise_binary(
@@ -2944,6 +2980,7 @@ vector_minsi = _lanewise_binary(
     facts="loom_vector_minsi_facts",
     traits=[SAFE_TO_SPECULATE],
     canonicalize="loom_vector_binary_identity_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_maxsi = _lanewise_binary(
@@ -2955,6 +2992,7 @@ vector_maxsi = _lanewise_binary(
     facts="loom_vector_maxsi_facts",
     traits=[SAFE_TO_SPECULATE],
     canonicalize="loom_vector_binary_identity_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_minui = _lanewise_binary(
@@ -2966,6 +3004,7 @@ vector_minui = _lanewise_binary(
     facts="loom_vector_minui_facts",
     traits=[SAFE_TO_SPECULATE],
     canonicalize="loom_vector_binary_identity_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_maxui = _lanewise_binary(
@@ -2977,6 +3016,7 @@ vector_maxui = _lanewise_binary(
     facts="loom_vector_maxui_facts",
     traits=[SAFE_TO_SPECULATE],
     canonicalize="loom_vector_binary_identity_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_fmai = Op(
@@ -3011,6 +3051,7 @@ vector_fmai = Op(
         TypeOf("result"),
     ],
     examples=["%r = vector.fmai %a, %b, %c : vector<16xi32>"],
+    eager_execution_cost=1,
 )
 
 vector_andi = _lanewise_binary(
@@ -3022,6 +3063,7 @@ vector_andi = _lanewise_binary(
     facts="loom_vector_andi_facts",
     traits=[SAFE_TO_SPECULATE],
     canonicalize="loom_vector_binary_identity_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_ori = _lanewise_binary(
@@ -3033,6 +3075,7 @@ vector_ori = _lanewise_binary(
     facts="loom_vector_ori_facts",
     traits=[SAFE_TO_SPECULATE],
     canonicalize="loom_vector_binary_identity_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_xori = _lanewise_binary(
@@ -3044,6 +3087,7 @@ vector_xori = _lanewise_binary(
     facts="loom_vector_xori_facts",
     traits=[SAFE_TO_SPECULATE],
     canonicalize="loom_vector_binary_identity_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_shli = _lanewise_binary(
@@ -3055,6 +3099,7 @@ vector_shli = _lanewise_binary(
     execution_condition=ExecutionCondition.INTEGER_SHIFT_LEFT,
     facts="loom_vector_shli_facts",
     canonicalize="loom_vector_binary_identity_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_shrsi = _lanewise_binary(
@@ -3065,6 +3110,7 @@ vector_shrsi = _lanewise_binary(
     execution_condition=ExecutionCondition.INTEGER_SHIFT_RIGHT,
     facts="loom_vector_shrsi_facts",
     canonicalize="loom_vector_binary_identity_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_shrui = _lanewise_binary(
@@ -3075,6 +3121,7 @@ vector_shrui = _lanewise_binary(
     execution_condition=ExecutionCondition.INTEGER_SHIFT_RIGHT,
     facts="loom_vector_shrui_facts",
     canonicalize="loom_vector_binary_identity_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_rotli = _lanewise_binary(
@@ -3083,6 +3130,7 @@ vector_rotli = _lanewise_binary(
     doc="Lanewise left rotate of same-typed integer vector operands. Each count is reduced modulo the element width; one-bit rotation is identity.",
     facts="loom_vector_rotli_facts",
     traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=1,
 )
 
 vector_rotri = _lanewise_binary(
@@ -3091,6 +3139,7 @@ vector_rotri = _lanewise_binary(
     doc="Lanewise right rotate of same-typed integer vector operands. Each count is reduced modulo the element width; one-bit rotation is identity.",
     facts="loom_vector_rotri_facts",
     traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=1,
 )
 
 vector_ctlzi = _lanewise_unary(
@@ -3100,6 +3149,7 @@ vector_ctlzi = _lanewise_unary(
     facts="loom_vector_ctlzi_facts",
     traits=[SAFE_TO_SPECULATE],
     canonicalize="loom_vector_uniform_result_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_cttzi = _lanewise_unary(
@@ -3109,6 +3159,7 @@ vector_cttzi = _lanewise_unary(
     facts="loom_vector_cttzi_facts",
     traits=[SAFE_TO_SPECULATE],
     canonicalize="loom_vector_uniform_result_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_ctpopi = _lanewise_unary(
@@ -3118,6 +3169,7 @@ vector_ctpopi = _lanewise_unary(
     facts="loom_vector_ctpopi_facts",
     traits=[SAFE_TO_SPECULATE],
     canonicalize="loom_vector_uniform_result_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_expf = _lanewise_unary(
@@ -3127,6 +3179,8 @@ vector_expf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_expf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_exp2f = _lanewise_unary(
@@ -3136,6 +3190,8 @@ vector_exp2f = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_exp2f_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_expm1f = _lanewise_unary(
@@ -3145,6 +3201,8 @@ vector_expm1f = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_expm1f_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_logf = _lanewise_unary(
@@ -3154,6 +3212,8 @@ vector_logf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_logf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_log2f = _lanewise_unary(
@@ -3163,6 +3223,8 @@ vector_log2f = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_log2f_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_log10f = _lanewise_unary(
@@ -3172,6 +3234,8 @@ vector_log10f = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_log10f_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_log1pf = _lanewise_unary(
@@ -3181,6 +3245,8 @@ vector_log1pf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_log1pf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_powf = _lanewise_binary(
@@ -3190,6 +3256,8 @@ vector_powf = _lanewise_binary(
     flags=_VF,
     facts="loom_vector_powf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_sqrtf = _lanewise_unary(
@@ -3199,6 +3267,8 @@ vector_sqrtf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_sqrtf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_rsqrtf = _lanewise_unary(
@@ -3208,6 +3278,8 @@ vector_rsqrtf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_rsqrtf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_cbrtf = _lanewise_unary(
@@ -3217,6 +3289,8 @@ vector_cbrtf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_cbrtf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_sinf = _lanewise_unary(
@@ -3226,6 +3300,8 @@ vector_sinf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_sinf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_cosf = _lanewise_unary(
@@ -3235,6 +3311,8 @@ vector_cosf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_cosf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_sinturnsf = _lanewise_unary(
@@ -3244,6 +3322,8 @@ vector_sinturnsf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_sinturnsf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_costurnsf = _lanewise_unary(
@@ -3253,6 +3333,8 @@ vector_costurnsf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_costurnsf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_tanf = _lanewise_unary(
@@ -3262,6 +3344,8 @@ vector_tanf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_tanf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_asinf = _lanewise_unary(
@@ -3271,6 +3355,8 @@ vector_asinf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_asinf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_acosf = _lanewise_unary(
@@ -3280,6 +3366,8 @@ vector_acosf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_acosf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_atanf = _lanewise_unary(
@@ -3289,6 +3377,8 @@ vector_atanf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_atanf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_atan2f = _lanewise_binary(
@@ -3298,6 +3388,8 @@ vector_atan2f = _lanewise_binary(
     flags=_VF,
     facts="loom_vector_atan2f_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_sinhf = _lanewise_unary(
@@ -3307,6 +3399,8 @@ vector_sinhf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_sinhf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_coshf = _lanewise_unary(
@@ -3316,6 +3410,8 @@ vector_coshf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_coshf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_tanhf = _lanewise_unary(
@@ -3325,6 +3421,8 @@ vector_tanhf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_tanhf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_asinhf = _lanewise_unary(
@@ -3334,6 +3432,8 @@ vector_asinhf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_asinhf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_acoshf = _lanewise_unary(
@@ -3343,6 +3443,8 @@ vector_acoshf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_acoshf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_atanhf = _lanewise_unary(
@@ -3352,6 +3454,8 @@ vector_atanhf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_atanhf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_erff = _lanewise_unary(
@@ -3361,6 +3465,8 @@ vector_erff = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_erff_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_erfcf = _lanewise_unary(
@@ -3370,6 +3476,8 @@ vector_erfcf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_erfcf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_logisticf = _lanewise_unary(
@@ -3379,6 +3487,8 @@ vector_logisticf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_logisticf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_siluf = _lanewise_unary(
@@ -3388,6 +3498,8 @@ vector_siluf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_siluf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_softplusf = _lanewise_unary(
@@ -3397,6 +3509,8 @@ vector_softplusf = _lanewise_unary(
     flags=_VF,
     facts="loom_vector_softplusf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=0,
 )
 
 vector_geluf = Op(
@@ -3423,7 +3537,7 @@ vector_geluf = Op(
     verify="loom_vector_geluf_verify",
     facts="loom_vector_geluf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
-    traits=[PURE, ELEMENTWISE],
+    traits=[PURE, ELEMENTWISE, SAFE_TO_SPECULATE],
     format=[
         TemplateParamFlags("variant", "fastmath"),
         Ref("input"),
@@ -3436,56 +3550,62 @@ vector_geluf = Op(
         "%result = vector.geluf<tanh, afn> %input : vector<16xf32>",
         "%result = vector.geluf<logistic> %input {scale = 1.702} : vector<16xf32>",
     ],
+    eager_execution_cost=0,
 )
 
 vector_ceilf = _lanewise_unary(
     "vector.ceilf",
     result_constraint=FLOAT_ELEMENT,
     doc=("Lanewise round toward positive infinity."),
-    traits=[IDEMPOTENT],
+    traits=[IDEMPOTENT, SAFE_TO_SPECULATE],
     flags=_VF,
     facts="loom_vector_ceilf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_floorf = _lanewise_unary(
     "vector.floorf",
     result_constraint=FLOAT_ELEMENT,
     doc=("Lanewise round toward negative infinity."),
-    traits=[IDEMPOTENT],
+    traits=[IDEMPOTENT, SAFE_TO_SPECULATE],
     flags=_VF,
     facts="loom_vector_floorf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_roundf = _lanewise_unary(
     "vector.roundf",
     result_constraint=FLOAT_ELEMENT,
     doc=("Lanewise round to nearest, ties away from zero."),
-    traits=[IDEMPOTENT],
+    traits=[IDEMPOTENT, SAFE_TO_SPECULATE],
     flags=_VF,
     facts="loom_vector_roundf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_roundevenf = _lanewise_unary(
     "vector.roundevenf",
     result_constraint=FLOAT_ELEMENT,
     doc=("Lanewise round to nearest, ties to even."),
-    traits=[IDEMPOTENT],
+    traits=[IDEMPOTENT, SAFE_TO_SPECULATE],
     flags=_VF,
     facts="loom_vector_roundevenf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_truncf = _lanewise_unary(
     "vector.truncf",
     result_constraint=FLOAT_ELEMENT,
     doc=("Lanewise round toward zero."),
-    traits=[IDEMPOTENT],
+    traits=[IDEMPOTENT, SAFE_TO_SPECULATE],
     flags=_VF,
     facts="loom_vector_truncf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_isnanf = _lanewise_unary_shape_change(
@@ -3495,6 +3615,8 @@ vector_isnanf = _lanewise_unary_shape_change(
     doc="Lanewise floating-point NaN test producing an i1 mask vector.",
     facts="loom_vector_isnanf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=1,
 )
 
 vector_isinff = _lanewise_unary_shape_change(
@@ -3504,6 +3626,8 @@ vector_isinff = _lanewise_unary_shape_change(
     doc="Lanewise floating-point infinity test producing an i1 mask vector.",
     facts="loom_vector_isinff_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=1,
 )
 
 vector_isfinitef = _lanewise_unary_shape_change(
@@ -3513,6 +3637,8 @@ vector_isfinitef = _lanewise_unary_shape_change(
     doc="Lanewise floating-point finite test producing an i1 mask vector.",
     facts="loom_vector_isfinitef_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=1,
 )
 
 vector_signf = _lanewise_unary(
@@ -3521,6 +3647,8 @@ vector_signf = _lanewise_unary(
     doc="Lanewise floating-point sign, returning -1.0, 0.0, or 1.0 per lane.",
     facts="loom_vector_signf_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
+    traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=1,
 )
 
 vector_signi = _lanewise_unary(
@@ -3530,6 +3658,7 @@ vector_signi = _lanewise_unary(
     facts="loom_vector_signi_facts",
     traits=[SAFE_TO_SPECULATE],
     canonicalize="loom_vector_uniform_result_canonicalize",
+    eager_execution_cost=1,
 )
 
 
@@ -3589,6 +3718,7 @@ vector_extf = _vector_cast(
     facts="loom_vector_extf_facts",
     canonicalize="loom_vector_extf_canonicalize",
     traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=1,
 )
 
 vector_fptrunc = _vector_cast(
@@ -3613,6 +3743,7 @@ vector_fptrunc = _vector_cast(
     facts="loom_vector_fptrunc_facts",
     canonicalize="loom_vector_fptrunc_canonicalize",
     traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=1,
 )
 
 vector_extsi = _vector_cast(
@@ -3625,6 +3756,7 @@ vector_extsi = _vector_cast(
     facts="loom_vector_extsi_facts",
     traits=[SAFE_TO_SPECULATE],
     canonicalize="loom_vector_uniform_result_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_extui = _vector_cast(
@@ -3636,6 +3768,7 @@ vector_extui = _vector_cast(
     traits=[SAFE_TO_SPECULATE],
     constraints=[ElementWidthGreaterThan("result", "input")],
     facts="loom_vector_extui_facts",
+    eager_execution_cost=1,
 )
 
 vector_trunci = _vector_cast(
@@ -3647,6 +3780,7 @@ vector_trunci = _vector_cast(
     traits=[SAFE_TO_SPECULATE],
     constraints=[ElementWidthLessThan("result", "input")],
     canonicalize="loom_vector_trunci_canonicalize",
+    eager_execution_cost=1,
 )
 
 vector_sitofp = _vector_cast(
@@ -3658,6 +3792,7 @@ vector_sitofp = _vector_cast(
     facts="loom_vector_sitofp_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
     traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=1,
 )
 
 vector_uitofp = _vector_cast(
@@ -3668,6 +3803,7 @@ vector_uitofp = _vector_cast(
     doc=("Lanewise unsigned integer to floating-point conversion with unchanged shape."),
     facts="loom_vector_uitofp_facts",
     traits=[SAFE_TO_SPECULATE],
+    eager_execution_cost=1,
 )
 
 vector_fptosi = _vector_cast(
@@ -3708,6 +3844,7 @@ vector_bitcast = Op(
         "%r = vector.bitcast %input : vector<16xf32> to vector<16xi32>",
         "%s = vector.bitcast %bytes : vector<2xi8> to vector<1xf16>",
     ],
+    eager_execution_cost=1,
 )
 
 
@@ -3761,6 +3898,7 @@ vector_bitfield_extractu = Op(
     examples=[
         "%lo = vector.bitfield.extractu %bytes {offset = 0, width = 4} : vector<16xi8> -> vector<16xi32>",
     ],
+    eager_execution_cost=1,
 )
 
 vector_bitfield_extracts = Op(
@@ -3793,6 +3931,7 @@ vector_bitfield_extracts = Op(
     examples=[
         "%signed = vector.bitfield.extracts %bytes {offset = 4, width = 4} : vector<16xi8> -> vector<16xi32>",
     ],
+    eager_execution_cost=1,
 )
 
 vector_bitfield_insert = Op(
@@ -3831,6 +3970,7 @@ vector_bitfield_insert = Op(
     examples=[
         "%packed = vector.bitfield.insert %lo into %zero {offset = 0, width = 4} : vector<16xi32>, vector<16xi8>",
     ],
+    eager_execution_cost=1,
 )
 
 
@@ -3861,7 +4001,7 @@ vector_bitpack = Op(
         PackedPayloadBitCountMatchesStorage("source", "width", "result", "result"),
     ],
     facts="loom_vector_bitpack_facts",
-    traits=[PURE],
+    traits=[PURE, SAFE_TO_SPECULATE],
     format=[
         TemplateParam("width"),
         Ref("source"),
@@ -3874,6 +4014,7 @@ vector_bitpack = Op(
         "%packed = vector.bitpack<4> %codes : vector<32xi8> -> vector<16xi8>",
         "%packed = vector.bitpack<1> %mask : vector<128xi1> -> vector<16xi8>",
     ],
+    eager_execution_cost=0,
 )
 
 vector_bitunpacku = Op(
@@ -3899,7 +4040,7 @@ vector_bitunpacku = Op(
     ],
     facts="loom_vector_bitunpacku_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
-    traits=[PURE],
+    traits=[PURE, SAFE_TO_SPECULATE],
     format=[
         TemplateParam("width"),
         Ref("source"),
@@ -3912,6 +4053,7 @@ vector_bitunpacku = Op(
         "%codes = vector.bitunpacku<4> %packed : vector<16xi8> -> vector<32xi8>",
         "%mask = vector.bitunpacku<1> %packed : vector<16xi8> -> vector<128xi1>",
     ],
+    eager_execution_cost=0,
 )
 
 vector_bitunpacks = Op(
@@ -3937,7 +4079,7 @@ vector_bitunpacks = Op(
     ],
     facts="loom_vector_bitunpacks_facts",
     canonicalize="loom_vector_uniform_result_canonicalize",
-    traits=[PURE],
+    traits=[PURE, SAFE_TO_SPECULATE],
     format=[
         TemplateParam("width"),
         Ref("source"),
@@ -3949,6 +4091,7 @@ vector_bitunpacks = Op(
     examples=[
         "%deltas = vector.bitunpacks<3> %packed : vector<12xi8> -> vector<32xi8>",
     ],
+    eager_execution_cost=0,
 )
 
 
@@ -3992,7 +4135,7 @@ vector_dotf = Op(
         SameElementType("lhs", "rhs", "init"),
     ],
     facts="loom_vector_dotf_facts",
-    traits=[PURE],
+    traits=[PURE, SAFE_TO_SPECULATE],
     format=[
         Flags("fastmath"),
         Ref("lhs"),
@@ -4011,6 +4154,7 @@ vector_dotf = Op(
         "%r = vector.dotf %lhs, %rhs, %acc : vector<16xf32>, vector<16xf32>, f32",
         "%r = vector.dotf<reassoc|contract> %lhs, %rhs, %acc : vector<16xf32>, vector<16xf32>, f32",
     ],
+    eager_execution_cost=0,
 )
 
 vector_dot2f = Op(
@@ -4047,7 +4191,7 @@ vector_dot2f = Op(
         LastAxisGroupedBy("lhs", "result", 2),
     ],
     facts="loom_vector_dot2f_facts",
-    traits=[PURE],
+    traits=[PURE, SAFE_TO_SPECULATE],
     format=[
         Ref("lhs"),
         COMMA,
@@ -4065,6 +4209,7 @@ vector_dot2f = Op(
         "%r = vector.dot2f %lhs, %rhs, %acc : vector<16xf16>, vector<16xf16>, vector<8xf32>",
         "%r = vector.dot2f %lhs, %rhs, %acc : vector<2x16xbf16>, vector<2x16xbf16>, vector<2x8xf32>",
     ],
+    eager_execution_cost=0,
 )
 
 vector_dot4i = Op(
@@ -4093,7 +4238,7 @@ vector_dot4i = Op(
         LastAxisGroupedBy("lhs", "result", 4),
     ],
     facts="loom_vector_dot4i_facts",
-    traits=[PURE],
+    traits=[PURE, SAFE_TO_SPECULATE],
     format=[
         TemplateParam("kind"),
         Ref("lhs"),
@@ -4112,6 +4257,7 @@ vector_dot4i = Op(
         "%r = vector.dot4i<s8s8> %lhs, %rhs, %acc : vector<16xi8>, vector<16xi8>, vector<4xi32>",
         "%r = vector.dot4i<u8s8> %lhs, %rhs, %acc : vector<2x16xi8>, vector<2x16xi8>, vector<2x4xi32>",
     ],
+    eager_execution_cost=0,
 )
 
 vector_dot8i4 = Op(
@@ -4138,7 +4284,7 @@ vector_dot8i4 = Op(
         SameType("lhs", "rhs", "acc", "result"),
     ],
     facts="loom_vector_dot8i4_facts",
-    traits=[PURE],
+    traits=[PURE, SAFE_TO_SPECULATE],
     format=[
         TemplateParam("kind"),
         Ref("lhs"),
@@ -4153,6 +4299,7 @@ vector_dot8i4 = Op(
         "%r = vector.dot8i4<s4s4> %lhs, %rhs, %acc : vector<4xi32>",
         "%r = vector.dot8i4<u4s4> %lhs, %rhs, %acc : vector<[%N]xi32>",
     ],
+    eager_execution_cost=0,
 )
 
 vector_dot4f8 = Op(
@@ -4183,7 +4330,7 @@ vector_dot4f8 = Op(
         SameShape("lhs", "acc"),
     ],
     facts="loom_vector_dot4f8_facts",
-    traits=[PURE],
+    traits=[PURE, SAFE_TO_SPECULATE],
     format=[
         TemplateParam("kind"),
         Ref("lhs"),
@@ -4200,6 +4347,7 @@ vector_dot4f8 = Op(
         "%r = vector.dot4f8<fp8bf8> %lhs, %rhs, %acc : vector<4xi32>, vector<4xf32>",
         "%r = vector.dot4f8<bf8fp8> %lhs, %rhs, %acc : vector<[%N]xi32>, vector<[%N]xf32>",
     ],
+    eager_execution_cost=0,
 )
 
 vector_mma = Op(
@@ -4227,7 +4375,7 @@ vector_mma = Op(
     attrs=[AttrDef("flags", ATTR_TYPE_FLAGS, optional=True, enum_def=MmaFlags)],
     constraints=[SameType("init", "result")],
     facts="loom_vector_mma_facts",
-    traits=[PURE],
+    traits=[PURE, SAFE_TO_SPECULATE],
     format=[
         Flags("flags"),
         Ref("lhs"),
@@ -4247,6 +4395,7 @@ vector_mma = Op(
         "%r = vector.mma<saturate> %lhs, %rhs, %init : vector<32xi8>, vector<32xi8>, vector<8xi32>",
         "%r = vector.mma %lhs, %rhs, %init : vector<6xi32>, vector<6xi32>, vector<8xf32>",
     ],
+    eager_execution_cost=0,
 )
 
 
@@ -4287,7 +4436,7 @@ vector_reduce = Op(
     verify="loom_vector_reduce_verify",
     facts="loom_vector_reduce_facts",
     canonicalize="loom_vector_reduce_canonicalize",
-    traits=[PURE],
+    traits=[PURE, SAFE_TO_SPECULATE],
     format=[
         TemplateParamFlags("kind", "fastmath"),
         Ref("input"),
@@ -4299,6 +4448,7 @@ vector_reduce = Op(
         TypeOf("result"),
     ],
     examples=["%sum = vector.reduce<addf> %v, %zero : vector<16xf32>, f32"],
+    eager_execution_cost=0,
 )
 
 vector_reduce_axes = Op(
@@ -4336,7 +4486,7 @@ vector_reduce_axes = Op(
     facts="loom_vector_reduce_axes_facts",
     canonicalize="loom_vector_reduce_axes_canonicalize",
     builder_name="reduce_axes",
-    traits=[PURE],
+    traits=[PURE, SAFE_TO_SPECULATE],
     format=[
         TemplateParamFlags("kind", "fastmath"),
         Ref("input"),
@@ -4353,6 +4503,7 @@ vector_reduce_axes = Op(
         "%cols = vector.reduce.axes<addf> %src, %init axes [0] : vector<4x8xf32>, vector<8xf32>",
         "%sum = vector.reduce.axes<addf> %src, %zero axes [0, 1] : vector<4x8xf32>, f32",
     ],
+    eager_execution_cost=0,
 )
 
 

@@ -129,6 +129,7 @@ loom_generated_cc_library(
     iree::base::internal::arena
     loom::analysis::availability
     loom::analysis::condition_facts
+    loom::analysis::motion_policy
     loom::error::emitter
     loom::error::error_defs
     loom::ir
