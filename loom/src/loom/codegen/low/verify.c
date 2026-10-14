@@ -877,7 +877,8 @@ static iree_status_t loom_low_verify_descriptor_immediates(
 
 static bool loom_low_verify_constraint_requires_matching_types(
     loom_low_constraint_kind_t kind) {
-  return kind == LOOM_LOW_CONSTRAINT_KIND_TIED ||
+  return kind == LOOM_LOW_CONSTRAINT_KIND_PREFER_TIED ||
+         kind == LOOM_LOW_CONSTRAINT_KIND_TIED ||
          kind == LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE ||
          kind == LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_CLASS ||
          kind == LOOM_LOW_CONSTRAINT_KIND_SAME_REGISTER_VALUE_TYPE;
@@ -1525,7 +1526,8 @@ static bool loom_low_verify_descriptor_tied_operand_index(
   for (uint16_t i = 0; i < descriptor_layout->constraint_count; ++i) {
     const loom_low_constraint_t* constraint =
         &descriptor_set->constraints[descriptor_layout->constraint_start + i];
-    if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_TIED ||
+    if ((constraint->kind != LOOM_LOW_CONSTRAINT_KIND_TIED &&
+         constraint->kind != LOOM_LOW_CONSTRAINT_KIND_PREFER_TIED) ||
         constraint->lhs_operand_index != result_index ||
         constraint->rhs_operand_index == LOOM_LOW_ID_NONE) {
       continue;
@@ -1763,6 +1765,7 @@ static iree_status_t loom_low_verify_tied_results(
         const loom_low_constraint_t* constraint =
             &descriptor_set->constraints[descriptor->constraint_start + j];
         if ((constraint->kind != LOOM_LOW_CONSTRAINT_KIND_TIED &&
+             constraint->kind != LOOM_LOW_CONSTRAINT_KIND_PREFER_TIED &&
              constraint->kind != LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE) ||
             constraint->lhs_operand_index != tied.result_index) {
           continue;

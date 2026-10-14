@@ -117,6 +117,7 @@ static const iree_string_view_t kResultUseNames[] = {
     IREE_SVL("matrix_src_ab"),
     IREE_SVL("matrix_srcc_exact"),
     IREE_SVL("matrix_srcc_overlap"),
+    IREE_SVL("accumulator_write"),
 };
 
 iree_string_view_t loom_amdgpu_matrix_wait_profile_name(
@@ -140,6 +141,15 @@ uint16_t loom_amdgpu_matrix_wait_result_cycle_count(
     loom_amdgpu_matrix_instruction_t producer,
     loom_amdgpu_matrix_wait_result_use_t use,
     loom_amdgpu_matrix_instruction_t consumer) {
+  if (use == LOOM_AMDGPU_MATRIX_WAIT_RESULT_USE_ACCUMULATOR_WRITE) {
+    // DGEMM and gfx940+ SGEMM need no SrcC overwrite separation. The other
+    // pipelines retain their input through the final execution pass.
+    return producer.pipeline == LOOM_AMDGPU_MATRIX_PIPELINE_DGEMM ||
+                   (profile != LOOM_AMDGPU_MATRIX_WAIT_PROFILE_MFMA_GFX90A &&
+                    producer.pipeline != LOOM_AMDGPU_MATRIX_PIPELINE_XDL)
+               ? 0
+               : producer.pass_count - 1;
+  }
   const uint32_t pass_index =
       iree_math_count_trailing_zeros_u32(producer.pass_count) - 1;
   const loom_amdgpu_matrix_result_window_t* window =

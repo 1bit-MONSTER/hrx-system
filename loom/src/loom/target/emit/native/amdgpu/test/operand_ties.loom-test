@@ -87,3 +87,52 @@ low.func.def target<amdgpu.rdna3.core>(@target) @independent_zero_accumulator(%l
   %result = v_wmma_f32_16x16x16_f16_acc_zero %lhs, %rhs
   return %result
 }
+
+// ====
+
+// An independent WMMA result cannot early-clobber its live matrix inputs.
+// RUN: emit amdgpu-assembly @independent_wmma strategy=source
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @independent_wmma(%lhs: reg<amdgpu.vgpr x8>, %rhs: reg<amdgpu.vgpr x8>, %seed: reg<amdgpu.vgpr x8>) -> (reg<amdgpu.vgpr x8>) asm {
+  %result = v_wmma_f32_16x16x16_f16 %lhs, %rhs, %seed : reg<amdgpu.vgpr x8>
+  return %result
+}
+
+// ----
+  v_wmma_f32_16x16x16_f16 v[24:31], v[0:7], v[8:15], v[16:23]
+  s_endpgm
+
+// ====
+
+// Packed floating dots have independent accumulator and destination fields.
+// RUN: emit amdgpu-assembly @independent_dots strategy=source
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @independent_dots(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %seed: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %half = v_dot2_f32_f16 %lhs, %rhs, %seed : reg<amdgpu.vgpr>
+  %bfloat = v_dot2_f32_bf16 %lhs, %rhs, %seed : reg<amdgpu.vgpr>
+  return %seed, %half, %bfloat
+}
+
+// ----
+  v_dot2_f32_f16 v3, v0, v1, v2
+  v_dot2_f32_bf16 v4, v0, v1, v2
+  s_endpgm
+
+// ====
+
+// Preferred ALU spellings also admit an explicitly independent result.
+// RUN: emit amdgpu-assembly @independent_integer_arithmetic strategy=source
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @independent_integer_arithmetic(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %sum = v_add_u32_rhs_tied %lhs, %rhs : reg<amdgpu.vgpr>
+  %difference = v_sub_nc_u32_lhs_tied %lhs, %rhs : reg<amdgpu.vgpr>
+  return %lhs, %rhs, %sum, %difference
+}
+
+// ----
+  v_add_nc_u32 v2, v0, v1
+  v_sub_nc_u32 v3, v0, v1
+  s_endpgm

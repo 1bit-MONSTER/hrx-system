@@ -40,3 +40,14 @@ low.func.def target<test.low.core>(@target) @conflicting_physical_ties(%left: re
   %first, %second = test.tied.pair %left, %right : %left as reg<test.i32>, %right as reg<test.i32>
   return %first, %second
 }
+
+// ====
+// RUN: verify
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @conflicting_preferred_tie(%left: reg<test.i32>, %right: reg<test.i32>) -> (reg<test.i32>) asm {
+  // ERROR@+1: TARGET/094 {op_name="test.preferred.add.i32", result_index="0", operand_index="0", required_operand_index="1"}
+  %result = test.preferred.add.i32 %left, %right : %left as reg<test.i32>
+  return %result
+}

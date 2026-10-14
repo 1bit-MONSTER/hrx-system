@@ -9,8 +9,7 @@ func.def target(@target) @f16_dot2f(%lhs: vector<2xf16>, %rhs: vector<2xf16>, %a
 
 // ----
 low.func.def target<amdgpu.cdna3.core>(@target) abi(hal_kernel) @f16_dot2f(%lhs: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %acc: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
-  %9 = copy %acc : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
-  %dot = v_dot2_f32_f16 %lhs, %rhs, %9
+  %dot = v_dot2_f32_f16 %lhs, %rhs, %acc : reg<amdgpu.vgpr>
   return %dot
 }
 

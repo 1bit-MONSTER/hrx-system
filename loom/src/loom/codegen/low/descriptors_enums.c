@@ -135,6 +135,8 @@ iree_string_view_t loom_low_constraint_kind_name(
   switch (kind) {
     case LOOM_LOW_CONSTRAINT_KIND_TIED:
       return IREE_SV("tied");
+    case LOOM_LOW_CONSTRAINT_KIND_PREFER_TIED:
+      return IREE_SV("prefer_tied");
     case LOOM_LOW_CONSTRAINT_KIND_COMMUTABLE:
       return IREE_SV("commutable");
     case LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE:

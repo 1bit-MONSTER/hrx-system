@@ -744,18 +744,6 @@ loom_low_allocation_unit_liveness_note_operation_direct_unit_uses(
   return iree_ok_status();
 }
 
-static bool loom_low_allocation_unit_liveness_op_ties_result_to_operand(
-    const loom_op_t* op, uint16_t result_index, uint16_t operand_index) {
-  const loom_tied_result_t* tied_results = loom_op_tied_results(op);
-  for (uint16_t i = 0; i < op->tied_result_count; ++i) {
-    if (tied_results[i].result_index == result_index &&
-        tied_results[i].operand_index == operand_index) {
-      return true;
-    }
-  }
-  return false;
-}
-
 static iree_status_t
 loom_low_allocation_unit_liveness_mark_early_clobber_operand_reads(
     loom_low_allocation_unit_use_index_t* unit_use_index,
@@ -765,6 +753,8 @@ loom_low_allocation_unit_liveness_mark_early_clobber_operand_reads(
     const loom_low_descriptor_t* descriptor,
     uint16_t early_clobber_result_index) {
   const loom_value_id_t* operands = loom_op_const_operands(op);
+  const loom_tied_result_t* tie =
+      loom_op_find_tied_result(op, early_clobber_result_index);
   for (uint16_t i = descriptor->result_count; i < descriptor->operand_count;
        ++i) {
     if (!loom_low_descriptor_operand_maps_to_packet_operand(descriptor_set,
@@ -774,16 +764,7 @@ loom_low_allocation_unit_liveness_mark_early_clobber_operand_reads(
     const loom_low_operand_t* descriptor_operand =
         loom_low_descriptor_operand(descriptor_set, descriptor, i);
     const uint16_t operand_index = descriptor_operand->source_value_index;
-    if (operand_index >= op->operand_count) {
-      return iree_make_status(
-          IREE_STATUS_FAILED_PRECONDITION,
-          "low allocation early-clobber operand index exceeds packet operand "
-          "count");
-    }
-    if (loom_low_descriptor_operands_are_tied(descriptor_set, descriptor,
-                                              early_clobber_result_index, i) ||
-        loom_low_allocation_unit_liveness_op_ties_result_to_operand(
-            op, early_clobber_result_index, operand_index)) {
+    if (tie != NULL && tie->operand_index == operand_index) {
       continue;
     }
     loom_value_ordinal_t value_ordinal = LOOM_VALUE_ORDINAL_INVALID;

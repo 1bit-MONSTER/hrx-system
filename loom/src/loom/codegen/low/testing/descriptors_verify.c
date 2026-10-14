@@ -841,6 +841,7 @@ static iree_status_t loom_low_verify_asm_form(
     const loom_low_constraint_t* constraint =
         &descriptor_set->constraints[descriptor_layout->constraint_start + i];
     if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_TIED &&
+        constraint->kind != LOOM_LOW_CONSTRAINT_KIND_PREFER_TIED &&
         constraint->kind != LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE) {
       continue;
     }
@@ -859,7 +860,8 @@ static iree_status_t loom_low_verify_asm_form(
                               " result recipe disagrees with operand inference",
                               asm_form_index);
     }
-    if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_TIED) {
+    if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_TIED &&
+        constraint->kind != LOOM_LOW_CONSTRAINT_KIND_PREFER_TIED) {
       continue;
     }
     if (tied_result_count >= layout->tied_result_count) {
@@ -1192,6 +1194,7 @@ static iree_status_t loom_low_verify_descriptor_constraints(
                                         constraint->rhs_operand_index);
     }
     switch (constraint->kind) {
+      case LOOM_LOW_CONSTRAINT_KIND_PREFER_TIED:
       case LOOM_LOW_CONSTRAINT_KIND_TIED: {
         IREE_RETURN_IF_ERROR(
             loom_low_verify_binary_constraint(constraint, "tied"));
@@ -1608,6 +1611,7 @@ static bool loom_low_storage_lease_release_scope_is_valid(
 
 static bool loom_low_constraint_kind_is_valid(loom_low_constraint_kind_t kind) {
   switch (kind) {
+    case LOOM_LOW_CONSTRAINT_KIND_PREFER_TIED:
     case LOOM_LOW_CONSTRAINT_KIND_TIED:
     case LOOM_LOW_CONSTRAINT_KIND_COMMUTABLE:
     case LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE:

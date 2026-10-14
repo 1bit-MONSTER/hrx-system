@@ -1884,7 +1884,8 @@ TEST(LowDescriptorsTest, AcceptsAsmResultTypes) {
 
 TEST(LowDescriptorsTest, OperandTypeAndOwnershipRecipes) {
   for (auto kind :
-       {LOOM_LOW_CONSTRAINT_KIND_TIED, LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE}) {
+       {LOOM_LOW_CONSTRAINT_KIND_TIED, LOOM_LOW_CONSTRAINT_KIND_PREFER_TIED,
+        LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE}) {
     TestTables tables;
     InitializeTestTables(&tables);
     AddAsmForms(&tables);
@@ -1892,18 +1893,18 @@ TEST(LowDescriptorsTest, OperandTypeAndOwnershipRecipes) {
     tables.asm_layouts[0].result_type_start = 0;
     tables.set.asm_result_type_count = 1;
     auto* recipe = &tables.asm_result_types[0];
-    recipe->kind = kind == LOOM_LOW_CONSTRAINT_KIND_TIED
-                       ? LOOM_LOW_ASM_RESULT_TYPE_KIND_TIED_OPERAND
-                       : LOOM_LOW_ASM_RESULT_TYPE_KIND_OPERAND;
+    const bool owns_operand = kind != LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE;
+    recipe->kind = owns_operand ? LOOM_LOW_ASM_RESULT_TYPE_KIND_TIED_OPERAND
+                                : LOOM_LOW_ASM_RESULT_TYPE_KIND_OPERAND;
     recipe->operand_index = 0;
-    if (kind == LOOM_LOW_CONSTRAINT_KIND_TIED) {
+    if (owns_operand) {
       tables.asm_layouts[0].tied_result_count = 1;
       tables.set.asm_tied_result_count = 1;
       tables.asm_tied_results[0] = {};
     }
     IREE_ASSERT_OK(loom_low_descriptor_set_verify(&tables.set));
 
-    if (kind == LOOM_LOW_CONSTRAINT_KIND_TIED) {
+    if (owns_operand) {
       tables.asm_tied_results[0].has_type_change = true;
       IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                             loom_low_descriptor_set_verify(&tables.set));

@@ -14,17 +14,6 @@
 #include "loom/ops/low/ops.h"
 #include "loom/rewrite/rewriter.h"
 
-static bool loom_low_operand_ties_result_is_tied(const loom_op_t* op,
-                                                 uint16_t result_index) {
-  const loom_tied_result_t* ties = loom_op_tied_results(op);
-  for (uint16_t i = 0; i < op->tied_result_count; ++i) {
-    if (ties[i].result_index == result_index) {
-      return true;
-    }
-  }
-  return false;
-}
-
 bool loom_low_operand_ties_need_materialization(
     const loom_low_descriptor_set_t* descriptor_set, const loom_op_t* op) {
   loom_low_descriptor_packet_t packet_storage;
@@ -42,8 +31,7 @@ bool loom_low_operand_ties_need_materialization(
         &descriptor_set->constraints[descriptor->constraint_start + i];
     if ((constraint->kind == LOOM_LOW_CONSTRAINT_KIND_TIED ||
          constraint->kind == LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE) &&
-        !loom_low_operand_ties_result_is_tied(packet->op,
-                                              constraint->lhs_operand_index)) {
+        !loom_op_find_tied_result(packet->op, constraint->lhs_operand_index)) {
       return true;
     }
   }

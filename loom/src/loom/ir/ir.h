@@ -617,8 +617,11 @@ static inline uint16_t loom_value_def_index(const loom_value_t* value) {
 // result has a different type than the operand (e.g., a reshape or
 // encoding change over the same storage).
 typedef struct loom_tied_result_t {
+  // Result receiving the consumed operand's storage.
   uint16_t result_index;
+  // Operand whose storage ownership transfers to the result.
   uint16_t operand_index;
+  // Whether the result reinterprets the consumed storage with a different type.
   bool has_type_change;
 } loom_tied_result_t;
 
@@ -1876,6 +1879,19 @@ static inline loom_use_index_t* loom_op_operand_use_indices(
 static inline loom_tied_result_t* loom_op_tied_results(const loom_op_t* op) {
   return (loom_tied_result_t*)(loom_op_operand_use_indices(op) +
                                op->operand_count);
+}
+
+// Returns the ownership binding for a result, or NULL for an independent
+// result.
+static inline const loom_tied_result_t* loom_op_find_tied_result(
+    const loom_op_t* op, uint16_t result_index) {
+  const loom_tied_result_t* ties = loom_op_tied_results(op);
+  for (uint16_t i = 0; i < op->tied_result_count; ++i) {
+    if (ties[i].result_index == result_index) {
+      return &ties[i];
+    }
+  }
+  return NULL;
 }
 
 // Returns a pointer to the attribute array. Aligned to

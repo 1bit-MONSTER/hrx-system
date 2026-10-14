@@ -178,6 +178,7 @@ loom_check_test_suite(
     "test/hal_kernel_library.loom-test"
     "test/immediates.loom-test"
     "test/kernel_move_resources.loom-test"
+    "test/matrix_accumulator_windows.loom-test"
     "test/matrix_result_windows.loom-test"
     "test/memory_modifiers.loom-test"
     "test/message_completion.loom-test"

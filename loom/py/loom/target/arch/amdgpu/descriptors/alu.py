@@ -812,7 +812,7 @@ def _v_add_u32_rhs_tied_overlay(
             results=("dst",),
             operands=("lhs", "rhs"),
         ),
-        constraints=_destructive_accumulator_constraints(2),
+        constraints=(Constraint(ConstraintKind.PREFER_TIED, 0, 2),),
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
     )
 
@@ -1173,7 +1173,7 @@ def _v_sub_u32_lhs_tied_overlay(
             results=("dst",),
             operands=("lhs", "rhs"),
         ),
-        constraints=_destructive_accumulator_constraints(1),
+        constraints=(Constraint(ConstraintKind.PREFER_TIED, 0, 1),),
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
     )
 

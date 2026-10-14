@@ -166,24 +166,16 @@ loom_low_lower_rule_source_memory_materializer_tied_results(
     const loom_low_constraint_t* constraint =
         &descriptor_set
              ->constraints[descriptor_layout->constraint_start + (uint32_t)i];
-    switch (constraint->kind) {
-      case LOOM_LOW_CONSTRAINT_KIND_TIED:
-        ++tied_result_count;
-        break;
-      case LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE: {
-        IREE_ASSERT_NE(constraint->rhs_operand_index, LOOM_LOW_ID_NONE);
-        const loom_low_operand_t* packet_operand = loom_low_descriptor_operand(
-            descriptor_set, descriptor_row, constraint->rhs_operand_index);
-        IREE_ASSERT_TRUE(
-            loom_low_operand_role_is_packet_operand(packet_operand->role));
-        const uint16_t packet_operand_index =
-            packet_operand->source_value_index;
-        IREE_ASSERT_LT(packet_operand_index, operand_count);
-        copy_operand_mask |= (uint16_t)((uint16_t)1u << packet_operand_index);
-        break;
-      }
-      default:
-        break;
+    if (constraint->kind == LOOM_LOW_CONSTRAINT_KIND_TIED ||
+        constraint->kind == LOOM_LOW_CONSTRAINT_KIND_PREFER_TIED) {
+      ++tied_result_count;
+    }
+    if (constraint->kind == LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE ||
+        constraint->kind == LOOM_LOW_CONSTRAINT_KIND_PREFER_TIED) {
+      const loom_low_operand_t* packet_operand = loom_low_descriptor_operand(
+          descriptor_set, descriptor_row, constraint->rhs_operand_index);
+      const uint16_t packet_operand_index = packet_operand->source_value_index;
+      copy_operand_mask |= (uint16_t)((uint16_t)1u << packet_operand_index);
     }
   }
   IREE_RETURN_IF_ERROR(
@@ -202,7 +194,8 @@ loom_low_lower_rule_source_memory_materializer_tied_results(
     const loom_low_constraint_t* constraint =
         &descriptor_set
              ->constraints[descriptor_layout->constraint_start + (uint32_t)i];
-    if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_TIED) {
+    if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_TIED &&
+        constraint->kind != LOOM_LOW_CONSTRAINT_KIND_PREFER_TIED) {
       continue;
     }
     IREE_ASSERT_NE(constraint->rhs_operand_index, LOOM_LOW_ID_NONE);

@@ -562,10 +562,35 @@ static iree_status_t loom_low_select_operand_form_emit_decision(
   return iree_diagnostic_emit(state->pass->diagnostic_emitter, &emission);
 }
 
+// Preferred ties preserve existing ownership across operand remapping; they
+// never turn an explicitly independent result into a consuming update.
+static bool loom_low_operand_form_owns_tied_input(
+    const loom_low_descriptor_set_t* descriptor_set,
+    const loom_low_descriptor_t* descriptor,
+    const loom_low_operand_form_t* form, const loom_op_t* op,
+    const loom_low_constraint_t* constraint) {
+  if (constraint->kind == LOOM_LOW_CONSTRAINT_KIND_TIED) {
+    return true;
+  }
+  if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_PREFER_TIED) {
+    return false;
+  }
+  const loom_tied_result_t* tie =
+      loom_op_find_tied_result(op, constraint->lhs_operand_index);
+  const loom_low_operand_t* operand = loom_low_descriptor_operand(
+      descriptor_set, descriptor, constraint->rhs_operand_index);
+  return tie != NULL &&
+         tie->operand_index ==
+             descriptor_set
+                 ->operand_form_operand_indices[form->operand_map_start +
+                                                operand->source_value_index];
+}
+
 static iree_status_t loom_low_descriptor_build_tied_results(
     iree_arena_allocator_t* arena,
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_low_descriptor_t* descriptor,
+    const loom_low_operand_form_t* form, const loom_op_t* op,
     const loom_tied_result_t** out_tied_results,
     iree_host_size_t* out_tied_result_count) {
   *out_tied_results = NULL;
@@ -575,7 +600,8 @@ static iree_status_t loom_low_descriptor_build_tied_results(
   for (uint16_t i = 0; i < descriptor_layout->constraint_count; ++i) {
     const loom_low_constraint_t* constraint =
         &descriptor_set->constraints[descriptor_layout->constraint_start + i];
-    if (constraint->kind == LOOM_LOW_CONSTRAINT_KIND_TIED) {
+    if (loom_low_operand_form_owns_tied_input(descriptor_set, descriptor, form,
+                                              op, constraint)) {
       ++tied_result_count;
     }
   }
@@ -591,7 +617,8 @@ static iree_status_t loom_low_descriptor_build_tied_results(
   for (uint16_t i = 0; i < descriptor_layout->constraint_count; ++i) {
     const loom_low_constraint_t* constraint =
         &descriptor_set->constraints[descriptor_layout->constraint_start + i];
-    if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_TIED) {
+    if (!loom_low_operand_form_owns_tied_input(descriptor_set, descriptor, form,
+                                               op, constraint)) {
       continue;
     }
     const loom_low_operand_t* tied_operand = loom_low_descriptor_operand(
@@ -750,16 +777,9 @@ static iree_status_t loom_low_select_operand_form_can_rewrite_destructive(
     // Retaining an ownership tie does not introduce a new consumption. In
     // particular, an independent copy may keep its source live while this
     // packet consumes the copy in either operand form.
-    bool preserves_ownership = false;
-    const loom_tied_result_t* ties = loom_op_tied_results(op);
-    for (uint16_t j = 0; j < op->tied_result_count; ++j) {
-      if (ties[j].result_index == constraint->lhs_operand_index &&
-          ties[j].operand_index == source_packet_operand_index) {
-        preserves_ownership = true;
-        break;
-      }
-    }
-    if (preserves_ownership) {
+    const loom_tied_result_t* tie =
+        loom_op_find_tied_result(op, constraint->lhs_operand_index);
+    if (tie != NULL && tie->operand_index == source_packet_operand_index) {
       continue;
     }
     if (!loom_low_select_operand_form_operand_has_single_use(
@@ -1206,8 +1226,8 @@ static iree_status_t loom_low_select_operand_form_rewrite_packet(
   const loom_tied_result_t* tied_results = NULL;
   iree_host_size_t tied_result_count = 0;
   IREE_RETURN_IF_ERROR(loom_low_descriptor_build_tied_results(
-      state->pass->arena, descriptor_set, replacement_descriptor, &tied_results,
-      &tied_result_count));
+      state->pass->arena, descriptor_set, replacement_descriptor, form, op,
+      &tied_results, &tied_result_count));
 
   const loom_value_id_t value_checkpoint =
       loom_rewriter_value_checkpoint(rewriter);

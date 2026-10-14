@@ -115,6 +115,7 @@ def test_view_rejects_noncanonical_packet_order():
     "kinds",
     [
         (ConstraintKind.TIED,),
+        (ConstraintKind.PREFER_TIED,),
         (ConstraintKind.DESTRUCTIVE,),
         (ConstraintKind.TIED, ConstraintKind.DESTRUCTIVE),
         (ConstraintKind.DESTRUCTIVE, ConstraintKind.TIED),
@@ -132,7 +133,7 @@ def test_operand_type_inheritance_distinguishes_ownership(kinds):
         constraints=tuple(Constraint(kind, 0, 3) for kind in kinds),
     )
     form = _compile(descriptor).asm_forms[0]
-    owns_operand = ConstraintKind.TIED in kinds
+    owns_operand = any(kind in (ConstraintKind.TIED, ConstraintKind.PREFER_TIED) for kind in kinds)
     assert form.result_types == (CompiledAsmOperandType(1, tied=owns_operand),)
     assert form.tied_results == ((CompiledAsmTiedResult(0, 1),) if owns_operand else ())
     generated = generate_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))

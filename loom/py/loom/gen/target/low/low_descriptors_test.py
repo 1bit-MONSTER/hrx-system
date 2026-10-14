@@ -1140,7 +1140,7 @@ def test_compiler_derives_tied_operand_projection_flags() -> None:
     assert DescriptorFlag.TIED_RESULTS in compiled.descriptors[0].flags
 
 
-@pytest.mark.parametrize("kind", [ConstraintKind.TIED, ConstraintKind.DESTRUCTIVE])
+@pytest.mark.parametrize("kind", [ConstraintKind.TIED, ConstraintKind.PREFER_TIED, ConstraintKind.DESTRUCTIVE])
 @pytest.mark.parametrize("shared_result", [False, True])
 def test_compiler_rejects_conflicting_physical_ties(kind: ConstraintKind, shared_result: bool) -> None:
     descriptor = replace(
@@ -1161,6 +1161,22 @@ def test_compiler_rejects_duplicate_ownership_tie() -> None:
     descriptor = replace(TEST_LOW_ADD_I32_DESCRIPTOR, constraints=(tie, tie))
     with pytest.raises(ValueError, match="repeats ownership tie"):
         compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
+
+
+@pytest.mark.parametrize("required", [ConstraintKind.TIED, ConstraintKind.DESTRUCTIVE])
+@pytest.mark.parametrize("preferred_first", [False, True])
+def test_compiler_rejects_required_and_preferred_aliasing(required, preferred_first):
+    kinds = (ConstraintKind.PREFER_TIED, required) if preferred_first else (required, ConstraintKind.PREFER_TIED)
+    descriptor = replace(TEST_LOW_ADD_I32_DESCRIPTOR, constraints=tuple(Constraint(kind, 0, 1) for kind in kinds))
+    with pytest.raises(ValueError, match="combines preferred and required ties"):
+        compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
+
+
+def test_preferred_ownership_does_not_require_physical_aliasing():
+    descriptor = replace(TEST_LOW_ADD_I32_DESCRIPTOR, constraints=(Constraint(ConstraintKind.PREFER_TIED, 0, 1),))
+    compiled = compiler.compile_descriptor_set(replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(descriptor,)))
+    assert DescriptorFlag.TIED_RESULTS not in compiled.descriptors[0].flags
+    assert all(OperandFlag.TIED not in operand.flags for operand in compiled.descriptors[0].operands)
 
 
 def _storage_continuation_descriptor() -> Descriptor:

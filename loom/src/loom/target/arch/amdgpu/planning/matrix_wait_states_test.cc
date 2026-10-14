@@ -45,6 +45,37 @@ TEST(AmdgpuMatrixWaitStatesTest, ProcessorFeaturesSelectWaitContract) {
             kGfx950);
 }
 
+TEST(AmdgpuMatrixWaitStatesTest, AccumulatorOverwriteRetainsInputReadWindow) {
+  constexpr auto kAccumulatorWrite =
+      LOOM_AMDGPU_MATRIX_WAIT_RESULT_USE_ACCUMULATOR_WRITE;
+  for (auto profile : {kGfx90a, kGfx940, kGfx950}) {
+    for (uint8_t passes : {2, 4, 8, 16}) {
+      EXPECT_EQ(loom_amdgpu_matrix_wait_result_cycle_count(
+                    profile, Instruction(kXdl, passes), kAccumulatorWrite, {}),
+                passes - 1);
+      EXPECT_EQ(
+          loom_amdgpu_matrix_wait_result_cycle_count(
+              profile, Instruction(kSgemm, passes), kAccumulatorWrite, {}),
+          profile == kGfx90a ? passes - 1 : 0);
+      EXPECT_EQ(
+          loom_amdgpu_matrix_wait_result_cycle_count(
+              profile, Instruction(kDgemm, passes), kAccumulatorWrite, {}),
+          0);
+      for (auto pipeline : {kSgemm, kXdl, kDgemm}) {
+        if (pipeline == kDgemm &&
+            (passes == 2 || (passes == 16 && profile != kGfx950))) {
+          continue;
+        }
+        const auto instruction = Instruction(pipeline, passes);
+        EXPECT_GE(loom_amdgpu_matrix_wait_result_cycle_count(
+                      profile, instruction, kWrite, {}),
+                  loom_amdgpu_matrix_wait_result_cycle_count(
+                      profile, instruction, kAccumulatorWrite, {}));
+      }
+    }
+  }
+}
+
 TEST(AmdgpuMatrixWaitStatesTest, DgemmSeparatesArithmeticMemoryAndOverwrite) {
   // DGEMM result access has three different forwarding windows. On CDNA4,
   // arithmetic reads wait longer than memory reads; writes retain the older

@@ -612,11 +612,11 @@ def _descriptor_trait_names(
                 or len(accumulators) != 1
                 or results[0][1].unit_count != accumulators[0][1].unit_count
                 or not any(
-                    constraint.kind is ConstraintKind.TIED and {constraint.lhs_operand_index, constraint.rhs_operand_index} == {results[0][0], accumulators[0][0]}
+                    constraint.kind in (ConstraintKind.TIED, ConstraintKind.PREFER_TIED) and {constraint.lhs_operand_index, constraint.rhs_operand_index} == {results[0][0], accumulators[0][0]}
                     for constraint in descriptor.constraints
                 )
             ):
-                raise ValueError(f"MFMA input retention requires a same-width tied accumulator and result: {descriptor.key}")
+                raise ValueError(f"MFMA input retention requires a same-width accumulator and result: {descriptor.key}")
             if semantic.startswith("matrix.mfma.f64."):
                 trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX_DGEMM")
             elif not semantic.endswith(".f32"):

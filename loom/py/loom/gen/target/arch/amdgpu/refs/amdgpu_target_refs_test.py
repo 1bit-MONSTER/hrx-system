@@ -463,7 +463,7 @@ def test_matrix_exact_forwarding_floors_require_indexable_result_shapes() -> Non
                 amdgpu_target_refs._descriptor_trait_names(context, replace(descriptor, operands=invalid_operands))
 
 
-def test_matrix_input_retention_requires_tied_accumulator_storage() -> None:
+def test_matrix_input_retention_requires_matching_accumulator_width() -> None:
     for descriptor_set, overlays in (
         (_AMDGPU_CDNA2_CORE_DESCRIPTOR_SET_BASE, tuple(overlay for overlay, _ in _cdna2_matrix_rows())),
         (_AMDGPU_CDNA3_CORE_DESCRIPTOR_SET_BASE, _gfx940_core_overlays()),
@@ -482,9 +482,9 @@ def test_matrix_input_retention_requires_tied_accumulator_storage() -> None:
                 constraints=overlay.constraints,
             )
             amdgpu_target_refs._descriptor_trait_names(context, descriptor)
-            with _raises_value_error("same-width tied accumulator"):
+            with _raises_value_error("same-width accumulator"):
                 amdgpu_target_refs._descriptor_trait_names(context, replace(descriptor, constraints=()))
-            with _raises_value_error("same-width tied accumulator"):
+            with _raises_value_error("same-width accumulator"):
                 amdgpu_target_refs._descriptor_trait_names(
                     context, replace(descriptor, operands=tuple(replace(operand, unit_count=operand.unit_count + 1) if operand.field_name == "acc" else operand for operand in descriptor.operands))
                 )

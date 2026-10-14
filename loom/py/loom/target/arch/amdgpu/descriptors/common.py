@@ -2666,6 +2666,15 @@ def _destructive_accumulator_constraints(
     )
 
 
+def _preferred_accumulator_constraints(
+    accumulator_operand_index: int,
+) -> tuple[Constraint, ...]:
+    return (
+        Constraint(ConstraintKind.PREFER_TIED, 0, accumulator_operand_index),
+        Constraint(ConstraintKind.EARLY_CLOBBER, 0),
+    )
+
+
 _DESTRUCTIVE_ACCUMULATOR_CONSTRAINTS = _destructive_accumulator_constraints(1)
 _BUFFER_ATOMIC_VDATA_INPUT_REASON = "xml-models-buffer-atomic-vdata-as-output-only"
 _SMFMAC_VDST_ACCUMULATOR_REASON = "xml-models-smfmac-accumulator-as-vdst"
@@ -3717,6 +3726,7 @@ __all__ = (
     "_ds_offset_immediate",
     "_EARLY_CLOBBER_RESULT_CONSTRAINTS",
     "_destructive_accumulator_constraints",
+    "_preferred_accumulator_constraints",
     "_exec_clobber",
     "_exec_state_read",
     "_exec_value_read",

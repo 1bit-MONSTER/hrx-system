@@ -259,6 +259,7 @@ def _materialize_register_bank_constraints(
             constraint.kind
             in (
                 ConstraintKind.TIED,
+                ConstraintKind.PREFER_TIED,
                 ConstraintKind.DESTRUCTIVE,
                 ConstraintKind.SAME_REGISTER_CLASS,
             )

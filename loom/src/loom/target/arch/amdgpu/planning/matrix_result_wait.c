@@ -16,8 +16,8 @@
 
 static_assert(sizeof(loom_amdgpu_matrix_result_identity_t) == 8,
               "forwarding identity equality requires a padding-free value");
-static_assert(sizeof(loom_amdgpu_matrix_result_source_t) == 28,
-              "forwarding identity must fit the retained source row");
+static_assert(sizeof(loom_amdgpu_matrix_result_source_t) == 36,
+              "matrix register windows must fit the retained source row");
 
 // A consumer can exclude one full-range forwarding identity. The strongest
 // two distinct identities therefore answer every partial-overlap query. The
@@ -27,7 +27,8 @@ enum {
   LOOM_AMDGPU_MATRIX_RESULT_ORDINARY_COUNT = 3,
   LOOM_AMDGPU_MATRIX_RESULT_FORWARDING_START = 3,
   LOOM_AMDGPU_MATRIX_RESULT_FLOOR_START = 9,
-  LOOM_AMDGPU_MATRIX_RESULT_RELEASE_COUNT = 11,
+  LOOM_AMDGPU_MATRIX_RESULT_ACCUMULATOR_READ = 11,
+  LOOM_AMDGPU_MATRIX_RESULT_RELEASE_COUNT = 12,
   LOOM_AMDGPU_MATRIX_RESULT_FRONTIER_CHUNK_CAPACITY = 32,
 };
 
@@ -39,7 +40,8 @@ typedef struct loom_amdgpu_matrix_result_release_t {
 } loom_amdgpu_matrix_result_release_t;
 
 typedef struct loom_amdgpu_matrix_result_active_t {
-  // Maxima for ordinary uses, three forwarding pairs and two exact floors.
+  // Maxima for ordinary uses, three forwarding pairs, two exact floors and
+  // the accumulator input's read window.
   loom_amdgpu_matrix_result_release_t
       releases[LOOM_AMDGPU_MATRIX_RESULT_RELEASE_COUNT];
   // Traversal epoch owning this physical register's state.
@@ -212,6 +214,17 @@ static void loom_amdgpu_matrix_result_publish(
             .position = state->position + source->floor_ordinal * 2,
             .source = source_index,
         });
+  }
+  if (source->accumulator_read != 0) {
+    for (uint32_t i = 0; i < source->identity.count; ++i) {
+      loom_amdgpu_matrix_result_merge_release(
+          &loom_amdgpu_matrix_result_active(state, source->accumulator_base + i)
+               ->releases[LOOM_AMDGPU_MATRIX_RESULT_ACCUMULATOR_READ],
+          (loom_amdgpu_matrix_result_release_t){
+              .position = state->position + source->accumulator_read,
+              .source = source_index,
+          });
+    }
   }
 }
 
@@ -485,6 +498,26 @@ void loom_amdgpu_matrix_result_wait_collect(
       .accumulator_operand =
           contract->family == LOOM_AMDGPU_MATRIX_FAMILY_SMFMAC ? 0 : 2,
   };
+  const loom_low_allocation_assignment_t* accumulator =
+      loom_low_packet_operand_assignment(state->allocation, packet,
+                                         source->accumulator_operand);
+  if (accumulator != NULL &&
+      accumulator->location_kind ==
+          LOOM_LOW_ALLOCATION_LOCATION_PHYSICAL_REGISTER) {
+    source->accumulator_base =
+        accumulator->location_base +
+        (accumulator->descriptor_reg_class_id == state->agpr_reg_class_id
+             ? state->agpr_base
+             : 0);
+    // An aliased result's longer overwrite window already protects SrcC.
+    if (source->accumulator_base != source->identity.base) {
+      source->accumulator_read =
+          (uint8_t)loom_amdgpu_matrix_wait_result_cycle_count(
+              state->profile, source->instruction,
+              LOOM_AMDGPU_MATRIX_WAIT_RESULT_USE_ACCUMULATOR_WRITE,
+              (loom_amdgpu_matrix_instruction_t){0});
+    }
+  }
   for (unsigned i = 0; i < 3; ++i) {
     source->ordinary[i] = (uint8_t)loom_amdgpu_matrix_wait_result_cycle_count(
         state->profile, source->instruction,
@@ -667,6 +700,13 @@ static void loom_amdgpu_matrix_result_wait_match(
     }
     loom_amdgpu_matrix_result_match_release(state, *release, position, base,
                                             count, use, consumer, match);
+    if (use == LOOM_AMDGPU_MATRIX_WAIT_RESULT_USE_WRITE) {
+      loom_amdgpu_matrix_result_match_release(
+          state, active->releases[LOOM_AMDGPU_MATRIX_RESULT_ACCUMULATOR_READ],
+          position, base, count,
+          LOOM_AMDGPU_MATRIX_WAIT_RESULT_USE_ACCUMULATOR_WRITE, consumer,
+          match);
+    }
     if (accumulator && i == 0) {
       // Generator validation establishes the only two exact-floor shapes.
       if (count == 4) {

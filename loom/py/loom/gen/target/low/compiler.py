@@ -719,7 +719,9 @@ def _compile_asm_form(
             raise ValueError(f"descriptor '{descriptor.key}' asm form '{mnemonic}' has {len(asm_form.result_value_types)} result value types for {len(result_indices)} results")
         if not any(value_type is not None for value_type in asm_form.result_value_types):
             raise ValueError(f"descriptor '{descriptor.key}' asm form '{mnemonic}' has an empty result value type recipe")
-        operand_inferred_result_indices = {constraint.lhs_operand_index for constraint in descriptor.constraints if constraint.kind in (ConstraintKind.TIED, ConstraintKind.DESTRUCTIVE)}
+        operand_inferred_result_indices = {
+            constraint.lhs_operand_index for constraint in descriptor.constraints if constraint.kind in (ConstraintKind.TIED, ConstraintKind.PREFER_TIED, ConstraintKind.DESTRUCTIVE)
+        }
         for result_index, (operand_index, value_type) in enumerate(zip(result_indices, asm_form.result_value_types, strict=True)):
             if value_type is not None and operand_index in operand_inferred_result_indices:
                 raise ValueError(f"descriptor '{descriptor.key}' asm form '{mnemonic}' result {result_index} is operand-inferred and must use the exact operand type")
@@ -787,12 +789,12 @@ def _compile_asm_form(
     packet_operand_indices = {descriptor_index: packet_index for packet_index, descriptor_index in enumerate(operand_order)}
     tied_results = []
     for constraint in descriptor.constraints:
-        if constraint.kind not in (ConstraintKind.TIED, ConstraintKind.DESTRUCTIVE):
+        if constraint.kind not in (ConstraintKind.TIED, ConstraintKind.PREFER_TIED, ConstraintKind.DESTRUCTIVE):
             continue
         result_index = constraint.lhs_operand_index
         operand_index = packet_operand_indices[constraint.rhs_operand_index]
         previous = result_types[result_index]
-        tied = constraint.kind is ConstraintKind.TIED
+        tied = constraint.kind in (ConstraintKind.TIED, ConstraintKind.PREFER_TIED)
         if tied:
             tied_results.append(CompiledAsmTiedResult(result_index, operand_index))
         result_types[result_index] = CompiledAsmOperandType(operand_index, tied or (isinstance(previous, CompiledAsmOperandType) and previous.tied))
@@ -1230,7 +1232,7 @@ def compile_descriptor_set(
                     validation.validate_u16(reg_alt.late_read_subgroup_size, f"descriptor '{descriptor.key}' operand '{operand.field_name}' late-read subgroup size")
                     if reg_alt.reg_class is None or operand.role not in (OperandRole.OPERAND, OperandRole.PREDICATE, OperandRole.RESOURCE):
                         raise ValueError(f"descriptor '{descriptor.key}' late read requires an explicit register input")
-                    if any(constraint.kind is ConstraintKind.TIED and constraint.rhs_operand_index == operand_index for constraint in descriptor.constraints):
+                    if any(constraint.kind in (ConstraintKind.TIED, ConstraintKind.PREFER_TIED) and constraint.rhs_operand_index == operand_index for constraint in descriptor.constraints):
                         raise ValueError(f"descriptor '{descriptor.key}' late read cannot share a tied result's storage")
                 validation.validate_u16(
                     reg_alt.unit_alignment,

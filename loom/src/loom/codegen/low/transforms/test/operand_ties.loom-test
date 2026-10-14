@@ -214,3 +214,77 @@ low.func.def target<test.low.core>(@target) @early_clobber_tuple(%source: reg<te
   %result = test.early_tied.v4i32 %source_copy
   return %source, %result
 }
+
+// ====
+
+// An ownership preference leaves explicitly independent results independent.
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @preferred_independent(%left: reg<test.i32>, %right: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %result = test.preferred.add.i32 %left, %right : reg<test.i32>
+  return %right, %result
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @preferred_independent(%left: reg<test.i32>, %right: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %result = test.preferred.add.i32 %left, %right : reg<test.i32>
+  return %right, %result
+}
+
+// ====
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @preferred_default(%left: reg<test.i32>, %right: reg<test.i32>) -> (reg<test.i32>) asm {
+  %result = test.preferred.add.i32 %left, %right
+  return %result
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @preferred_default(%left: reg<test.i32>, %right: reg<test.i32>) -> (reg<test.i32>) asm {
+  %result = test.preferred.add.i32 %left, %right
+  return %result
+}
+
+// ====
+
+// Selecting a smaller operand form preserves both the ownership and its mapping.
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @preferred_form_owned(%source: reg<test.i32>) -> (reg<test.i32>) asm {
+  %zero = test.const.i32 0
+  %result = test.preferred.add.i32 %zero, %source
+  return %result
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @preferred_form_owned(%source: reg<test.i32>) -> (reg<test.i32>) asm {
+  %zero = test.const.i32 0
+  %result = test.preferred.identity.i32 %source
+  return %result
+}
+
+// ====
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @preferred_form_independent(%source: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %zero = test.const.i32 0
+  %result = test.preferred.add.i32 %zero, %source : reg<test.i32>
+  return %source, %result
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @preferred_form_independent(%source: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %zero = test.const.i32 0
+  %result = test.preferred.identity.i32 %source : reg<test.i32>
+  return %source, %result
+}

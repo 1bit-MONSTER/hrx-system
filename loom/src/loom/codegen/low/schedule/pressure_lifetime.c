@@ -48,9 +48,7 @@ static uint32_t loom_low_schedule_candidate_early_added_units(
                         LOOM_LOW_OPERAND_FLAG_EARLY_CLOBBER)) {
     return 0;
   }
-  return iree_any_bit_set(result_operand->flags, LOOM_LOW_OPERAND_FLAG_TIED)
-             ? 0
-             : unit_count;
+  return loom_op_find_tied_result(node->op, result_index) ? 0 : unit_count;
 }
 
 void loom_low_schedule_pressure_lifetime_note_early_result(

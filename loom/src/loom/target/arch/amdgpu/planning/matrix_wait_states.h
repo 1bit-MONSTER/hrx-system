@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Native MFMA result separation, in intervening instruction slots.
+// Native MFMA register separation, in intervening instruction slots.
 // Generated descriptor facts identify the pipeline and execution passes. The
 // final packet planner adds physical overlap and consumer identity.
 
@@ -67,6 +67,8 @@ typedef enum loom_amdgpu_matrix_wait_result_use_e {
   LOOM_AMDGPU_MATRIX_WAIT_RESULT_USE_MATRIX_SRCC_EXACT = 5,
   // SrcC partially overlaps the producer's physical result range.
   LOOM_AMDGPU_MATRIX_WAIT_RESULT_USE_MATRIX_SRCC_OVERLAP = 6,
+  // A nonmatrix instruction overwrites the producer's accumulator input.
+  LOOM_AMDGPU_MATRIX_WAIT_RESULT_USE_ACCUMULATOR_WRITE = 7,
 } loom_amdgpu_matrix_wait_result_use_t;
 
 // Returns the stable spelling for a matrix wait profile.

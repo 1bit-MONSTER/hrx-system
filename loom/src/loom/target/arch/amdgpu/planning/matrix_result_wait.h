@@ -4,7 +4,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Pending MFMA result windows over physical VGPR and AGPR storage.
+// Pending MFMA result and accumulator-read windows over physical VGPR and AGPR
+// storage.
 
 #ifndef LOOM_TARGET_ARCH_AMDGPU_PLANNING_MATRIX_RESULT_WAIT_H_
 #define LOOM_TARGET_ARCH_AMDGPU_PLANNING_MATRIX_RESULT_WAIT_H_
@@ -43,6 +44,8 @@ typedef struct loom_amdgpu_matrix_result_source_t {
   loom_amdgpu_matrix_instruction_t instruction;
   // Physical result range and normalized accumulator-forwarding identity.
   loom_amdgpu_matrix_result_identity_t identity;
+  // Physical accumulator input start; its width matches identity.count.
+  uint32_t accumulator_base;
   // Packet operand carrying the accumulator input.
   uint8_t accumulator_operand;
   // Exact-range floor: zero, two slots (1), or four slots (2).
@@ -51,12 +54,14 @@ typedef struct loom_amdgpu_matrix_result_source_t {
   uint8_t ordinary[3];
   // Partial accumulator windows indexed by consumer pipeline.
   uint8_t accumulator[LOOM_AMDGPU_MATRIX_PIPELINE_COUNT_];
+  // Slots before an ordinary write may overwrite the accumulator input.
+  uint8_t accumulator_read;
 } loom_amdgpu_matrix_result_source_t;
 
 typedef struct loom_amdgpu_matrix_result_match_t {
   // Source opening the strongest pending window, or NULL when satisfied.
   const loom_amdgpu_matrix_result_source_t* source;
-  // Concrete use of that producer's physical result.
+  // Concrete access to that producer's physical result or accumulator input.
   loom_amdgpu_matrix_wait_result_use_t use;
   // Full producer-to-consumer separation.
   uint16_t required;

@@ -93,7 +93,7 @@ def _v_wmma_16x16x16_overlay(
             ),
         ),
         fixed_encoding_fields=((op_sel_hi_field, 0x7),),
-        constraints=_destructive_accumulator_constraints(3),
+        constraints=_preferred_accumulator_constraints(3),
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
         asm_forms=asm_forms,
     )
@@ -403,7 +403,7 @@ def _v_wmma_i32_16x16x16_overlay(
         immediate_fields=immediate_fields,
         immediates=immediates,
         fixed_encoding_fields=((op_sel_hi_field, 0x7),),
-        constraints=_destructive_accumulator_constraints(3),
+        constraints=_preferred_accumulator_constraints(3),
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
         asm_forms=asm_forms,
     )
@@ -593,7 +593,7 @@ def _v_mfma_overlay(
             ("CBSZ", "BLGP") if matrix_physical_formats is not None else ()
         ),
         immediates=matrix_format_immediates,
-        constraints=_destructive_accumulator_constraints(3),
+        constraints=_preferred_accumulator_constraints(3),
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
         asm_forms=(
             _cdna4_f8f6f4_matrix_asm_forms(native_mnemonic, has_scale_operands=False)
@@ -652,7 +652,7 @@ def _v_mfma_scale_overlay(
             ("ENCODING", 0x1A7),
             ("X2ENCODING", 0xD3AC),
         ),
-        constraints=_destructive_accumulator_constraints(3),
+        constraints=_preferred_accumulator_constraints(3),
         flags=(DescriptorFlag.DEAD_REMOVABLE,),
         asm_forms=_cdna4_f8f6f4_matrix_asm_forms(
             native_mnemonic, has_scale_operands=True
@@ -1655,8 +1655,7 @@ def _v_dot2_f32_packed_float_overlay(
             op_sel_hi_field=op_sel_hi_field
         ),
         constraints=(
-            Constraint(ConstraintKind.TIED, 0, 3),
-            Constraint(ConstraintKind.DESTRUCTIVE, 0, 3),
+            Constraint(ConstraintKind.PREFER_TIED, 0, 3),
             Constraint(ConstraintKind.COMMUTABLE, 1, 2),
         ),
         flags=(DescriptorFlag.DEAD_REMOVABLE,),

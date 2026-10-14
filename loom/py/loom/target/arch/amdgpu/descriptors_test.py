@@ -1545,7 +1545,38 @@ def test_pure_integer_valu_results_are_rematerializable() -> None:
             )
 
 
-def test_tied_u32_address_arithmetic_forms_are_destructive() -> None:
+def test_matrix_ownership_distinguishes_independent_and_destructive_accumulators():
+    for overlay_builder in _AMDGPU_CONTRACT_DESCRIPTOR_OVERLAY_BUILDERS.values():
+        descriptor = overlay_builder()
+        semantic = descriptor.semantic_tag or ""
+        dense = semantic.startswith(("matrix.mfma.", "matrix.wmma."))
+        sparse = semantic.startswith(("matrix.smfmac.", "matrix.swmmac."))
+        if not dense and not sparse:
+            continue
+        accumulators = [
+            i
+            for i, operand in enumerate(descriptor.operands)
+            if operand.descriptor_operand.field_name == "acc"
+        ]
+        if not accumulators:
+            # Literal-zero forms have no accumulator register to consume.
+            continue
+        (accumulator,) = accumulators
+        expected = ConstraintKind.PREFER_TIED if dense else ConstraintKind.TIED
+        assert Constraint(expected, 0, accumulator) in descriptor.constraints, (
+            descriptor.descriptor_key
+        )
+        assert (
+            any(
+                constraint.kind is ConstraintKind.DESTRUCTIVE
+                for constraint in descriptor.constraints
+            )
+            == sparse
+        )
+        assert Constraint(ConstraintKind.EARLY_CLOBBER, 0) in descriptor.constraints
+
+
+def test_tied_u32_address_arithmetic_forms_prefer_input_ownership() -> None:
     for overlays, add_native_mnemonic, sub_mnemonic in (
         (_gfx940_core_overlays(), "v_add_u32", "v_sub_u32"),
         (_gfx11_core_overlays(), "v_add_nc_u32", "v_sub_nc_u32"),
@@ -1556,21 +1587,13 @@ def test_tied_u32_address_arithmetic_forms_are_destructive() -> None:
         assert add.mnemonic == "v_add_u32_rhs_tied"
         assert add.asm_forms is not None
         assert add.asm_forms[0].native_assembly_mnemonic == add_native_mnemonic
-        assert add.constraints == (
-            Constraint(ConstraintKind.TIED, 0, 2),
-            Constraint(ConstraintKind.DESTRUCTIVE, 0, 2),
-            Constraint(ConstraintKind.EARLY_CLOBBER, 0),
-        )
+        assert add.constraints == (Constraint(ConstraintKind.PREFER_TIED, 0, 2),)
 
         sub = descriptors["amdgpu.v_sub_u32.lhs_tied"]
         assert sub.mnemonic == f"{sub_mnemonic}_lhs_tied"
         assert sub.asm_forms is not None
         assert sub.asm_forms[0].native_assembly_mnemonic == sub_mnemonic
-        assert sub.constraints == (
-            Constraint(ConstraintKind.TIED, 0, 1),
-            Constraint(ConstraintKind.DESTRUCTIVE, 0, 1),
-            Constraint(ConstraintKind.EARLY_CLOBBER, 0),
-        )
+        assert sub.constraints == (Constraint(ConstraintKind.PREFER_TIED, 0, 1),)
 
 
 def test_mask_writer_scalar_data_has_execution_mode_read_lifetime() -> None:
@@ -4655,7 +4678,7 @@ def test_packed_fmac_f16_descriptor_pins_destructive_accumulator() -> None:
         ) == ((0, 1), (0, 1))
 
 
-def test_packed_dot2_descriptors_pin_destructive_accumulator() -> None:
+def test_packed_dot2_descriptors_prefer_accumulator_ownership() -> None:
     descriptor_sets = (
         _gfx940_core_overlays(),
         _gfx950_core_overlays(),
@@ -4692,8 +4715,11 @@ def test_packed_dot2_descriptors_pin_destructive_accumulator() -> None:
                 )
                 for constraint in descriptor.constraints
             }
-            assert (ConstraintKind.TIED, 0, 3) in constraint_contracts
-            assert (ConstraintKind.DESTRUCTIVE, 0, 3) in constraint_contracts
+            assert (ConstraintKind.PREFER_TIED, 0, 3) in constraint_contracts
+            assert not any(
+                kind in (ConstraintKind.TIED, ConstraintKind.DESTRUCTIVE)
+                for kind, _, _ in constraint_contracts
+            )
             assert (ConstraintKind.COMMUTABLE, 1, 2) in constraint_contracts
 
 

@@ -975,6 +975,35 @@ TEST_LOW_DESTRUCTIVE_ANY_DESCRIPTOR = replace(
     constraints=(Constraint(ConstraintKind.DESTRUCTIVE, 0, 1),),
 )
 
+TEST_LOW_PREFERRED_ADD_I32_DESCRIPTOR = replace(
+    TEST_LOW_ADD_I32_DESCRIPTOR,
+    key="test.preferred.add.i32",
+    mnemonic="test.preferred.add.i32",
+    constraints=(Constraint(ConstraintKind.PREFER_TIED, 0, 2),),
+    operand_forms=(
+        OperandForm(
+            replacement_descriptor="test.preferred.identity.i32",
+            matches=(
+                OperandFormMatch(
+                    source_operand="lhs",
+                    match_kind=OperandFormMatchKind.ALL_EQUAL_I64,
+                    match_i64=0,
+                ),
+            ),
+        ),
+    ),
+)
+
+TEST_LOW_PREFERRED_IDENTITY_I32_DESCRIPTOR = replace(
+    TEST_LOW_PREFERRED_ADD_I32_DESCRIPTOR,
+    key="test.preferred.identity.i32",
+    mnemonic="test.preferred.identity.i32",
+    operands=(_i32_result(), _i32_operand("rhs")),
+    constraints=(Constraint(ConstraintKind.PREFER_TIED, 0, 1),),
+    operand_forms=(),
+    asm_forms=_asm(results=("dst",), operands=("rhs",)),
+)
+
 TEST_LOW_TIED_PAIR_DESCRIPTOR = replace(
     TEST_LOW_TIED_ANY_DESCRIPTOR,
     key="test.tied.pair",
@@ -2669,6 +2698,8 @@ TEST_LOW_CORE_DESCRIPTOR_SET = DescriptorSet(
         TEST_LOW_TIED_ANY_DESCRIPTOR,
         TEST_LOW_TOTAL_TIED_I32_DESCRIPTOR,
         TEST_LOW_DESTRUCTIVE_ANY_DESCRIPTOR,
+        TEST_LOW_PREFERRED_ADD_I32_DESCRIPTOR,
+        TEST_LOW_PREFERRED_IDENTITY_I32_DESCRIPTOR,
         TEST_LOW_TIED_PAIR_DESCRIPTOR,
         TEST_LOW_SAME_REGISTER_VALUE_TYPES_DESCRIPTOR,
         TEST_LOW_COINDEXED_RESULTS_DESCRIPTOR,

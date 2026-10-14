@@ -744,7 +744,9 @@ static iree_status_t loom_low_lower_descriptor_matrix_tied_results(
   for (uint16_t i = 0; i < descriptor_layout->constraint_count; ++i) {
     const uint32_t row = descriptor_layout->constraint_start + i;
     if (descriptor_set->constraints[row].kind ==
-        LOOM_LOW_CONSTRAINT_KIND_TIED) {
+            LOOM_LOW_CONSTRAINT_KIND_TIED ||
+        descriptor_set->constraints[row].kind ==
+            LOOM_LOW_CONSTRAINT_KIND_PREFER_TIED) {
       ++tied_result_count;
     }
   }
@@ -760,7 +762,8 @@ static iree_status_t loom_low_lower_descriptor_matrix_tied_results(
   for (uint16_t i = 0; i < descriptor_layout->constraint_count; ++i) {
     const loom_low_constraint_t* constraint =
         &descriptor_set->constraints[descriptor_layout->constraint_start + i];
-    if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_TIED) {
+    if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_TIED &&
+        constraint->kind != LOOM_LOW_CONSTRAINT_KIND_PREFER_TIED) {
       continue;
     }
     if (constraint->lhs_operand_index >= descriptor->result_count ||
@@ -789,13 +792,13 @@ static bool loom_low_lower_descriptor_matrix_destructive_operand_was_copied(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_low_descriptor_t* descriptor, uint16_t constraint_index,
     uint16_t packet_operand_index) {
+  const loom_low_descriptor_layout_t* descriptor_layout =
+      loom_low_descriptor_layout(descriptor_set, descriptor);
   for (uint16_t i = 0; i < constraint_index; ++i) {
     const loom_low_constraint_t* previous =
-        &descriptor_set->constraints[loom_low_descriptor_layout(descriptor_set,
-                                                                descriptor)
-                                         ->constraint_start +
-                                     i];
-    if (previous->kind != LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE) {
+        &descriptor_set->constraints[descriptor_layout->constraint_start + i];
+    if (previous->kind != LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE &&
+        previous->kind != LOOM_LOW_CONSTRAINT_KIND_PREFER_TIED) {
       continue;
     }
     IREE_ASSERT(previous->rhs_operand_index != LOOM_LOW_ID_NONE);
@@ -823,7 +826,8 @@ static iree_status_t loom_low_lower_descriptor_matrix_copy_destructive_operands(
   for (uint16_t i = 0; i < descriptor_layout->constraint_count; ++i) {
     const loom_low_constraint_t* constraint =
         &descriptor_set->constraints[descriptor_layout->constraint_start + i];
-    if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE) {
+    if (constraint->kind != LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE &&
+        constraint->kind != LOOM_LOW_CONSTRAINT_KIND_PREFER_TIED) {
       continue;
     }
     IREE_ASSERT(constraint->lhs_operand_index < descriptor->result_count);
