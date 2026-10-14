@@ -119,6 +119,14 @@ class JsonTest : public ::testing::Test {
     arguments_[4] = iree_vm_variant_from_i64(target_offset);
     return Invoke(IREE_SV("unescape"), 5, 1);
   }
+  iree_status_t ParseI64(std::string_view text, int64_t offset,
+                         int64_t length) {
+    ResetCall();
+    arguments_[0] = Text(text);
+    arguments_[1] = iree_vm_variant_from_i64(offset);
+    arguments_[2] = iree_vm_variant_from_i64(length);
+    return Invoke(IREE_SV("parse_i64"), 3, 1);
+  }
 
   // Allocation policy for the actual native module and VM process.
   const iree_allocator_t host_allocator_ = iree_allocator_system();
@@ -326,6 +334,36 @@ TEST_F(JsonTest, InsufficientCapacityIsNotASizeQuery) {
   int64_t written = -1;
   IREE_ASSERT_OK(iree_vm_i64_from_variant(results_[0], &written));
   EXPECT_EQ(written, 0);
+}
+
+TEST_F(JsonTest, ParseI64UsesOnlyTheProvidedRange) {
+  for (const auto& entry : {std::pair<std::string_view, int64_t>{"0", 0},
+                            {"42", 42},
+                            {"-17", -17},
+                            {"9223372036854775807", INT64_MAX},
+                            {"-9223372036854775808", INT64_MIN}}) {
+    const std::string source = "!!" + std::string(entry.first) + "!!";
+    IREE_ASSERT_OK(ParseI64(source, 2, entry.first.size()));
+    int64_t value = 0;
+    IREE_ASSERT_OK(iree_vm_i64_from_variant(results_[0], &value));
+    EXPECT_EQ(value, entry.second);
+  }
+}
+
+TEST_F(JsonTest, ParseI64RejectsNonIntegersOverflowAndInvalidRanges) {
+  for (const char* value : {"", "01", "1.0", "1e3", "true", "+1",
+                            "9223372036854775808", "-9223372036854775809"}) {
+    SCOPED_TRACE(value);
+    IREE_EXPECT_NOT_OK(ParseI64(value, 0, std::string_view(value).size()));
+  }
+  for (const auto& range : {std::array<int64_t, 2>{-1, 1}, {0, -1}, {2, 2}}) {
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
+                          ParseI64("123", range[0], range[1]));
+  }
+  IREE_ASSERT_OK(ParseI64("123", 0, 3));
+  int64_t value = 0;
+  IREE_ASSERT_OK(iree_vm_i64_from_variant(results_[0], &value));
+  EXPECT_EQ(value, 123);
 }
 
 }  // namespace
