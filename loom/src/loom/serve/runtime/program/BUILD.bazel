@@ -101,7 +101,7 @@ loom_cc_library(
         "//loom/config/target:amdgpu_artifacts": ["//loom/binding/c/target/amdgpu:iree_hal"],
         "//conditions:default": [],
     }) + iree_select({
-        "//loom/config/target:spirv_vulkan_artifacts": ["//loom/binding/c/target/spirv/iree_hal"],
+        "//loom/config/target:spirv_vulkan_artifacts": ["//loom/binding/c/target/spirv:iree_hal"],
         "//conditions:default": [],
     }) + iree_select({
         "//loom/config/target:xdna_artifacts": ["//loom/binding/c/target/amd/xdna:iree_hal"],

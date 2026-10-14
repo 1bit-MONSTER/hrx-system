@@ -371,7 +371,10 @@ class LowLowerRuleMatchTest : public ::testing::Test {
       source_nodes[0].guard_count = 1;
     }
     loom_low_lower_emit_t emit = {};
-    const loom_low_lower_emit_ref_t emit_ref = 0;
+    const loom_low_lower_emit_ref_t emit_ref = {
+        .descriptor_ref = LOOM_LOW_LOWER_DESCRIPTOR_REF_NONE,
+        .emit_index = 0,
+    };
     const bool has_related_user_chain =
         iree_any_bit_set(flags, kSourceGraphSelectionRelatedUserChain);
     loom_low_lower_rule_t rule = {
@@ -387,7 +390,6 @@ class LowLowerRuleMatchTest : public ::testing::Test {
       value_refs[2].source_node_index = 1;
       value_refs[2].index = 1;
       emit.kind = LOOM_LOW_LOWER_EMIT_DESCRIPTOR_OP;
-      emit.descriptor_ref = LOOM_LOW_LOWER_DESCRIPTOR_REF_NONE;
       emit.operand_ref_start = 2;
       emit.operand_ref_count = 1;
       rule.emit_count = 1;
@@ -1055,12 +1057,13 @@ TEST_F(LowLowerRuleMatchTest,
       .feature_mask_word_count = IREE_ARRAYSIZE(feature_mask_words),
   };
 
-  loom_low_lower_emit_t emits[2] = {};
-  emits[0].kind = LOOM_LOW_LOWER_EMIT_DESCRIPTOR_OP;
-  emits[0].descriptor_ref = 0;
-  emits[1].kind = LOOM_LOW_LOWER_EMIT_DESCRIPTOR_OP;
-  emits[1].descriptor_ref = 1;
-  const loom_low_lower_emit_ref_t emit_refs[] = {0, 1};
+  const loom_low_lower_emit_t emit = {
+      .kind = LOOM_LOW_LOWER_EMIT_DESCRIPTOR_OP,
+  };
+  const loom_low_lower_emit_ref_t emit_refs[] = {
+      {.descriptor_ref = 0, .emit_index = 0},
+      {.descriptor_ref = 1, .emit_index = 0},
+  };
   loom_low_lower_rule_t rules[2] = {};
   rules[0].emit_count = 1;
   rules[0].metadata.emit.primary_emit = LOOM_LOW_LOWER_RULE_PRIMARY_EMIT(0, 1);
@@ -1083,9 +1086,16 @@ TEST_F(LowLowerRuleMatchTest,
       .descriptor_ref_count = IREE_ARRAYSIZE(descriptors),
       .emit_refs = emit_refs,
       .emit_ref_count = IREE_ARRAYSIZE(emit_refs),
-      .emits = emits,
-      .emit_count = IREE_ARRAYSIZE(emits),
+      .emits = &emit,
+      .emit_count = 1,
   };
+
+  EXPECT_EQ(loom_low_lower_rule_set_emit_at(&rule_set, 0),
+            loom_low_lower_rule_set_emit_at(&rule_set, 1));
+  EXPECT_EQ(loom_low_lower_rule_primary_descriptor_ref(&rule_set, &rules[0]),
+            0);
+  EXPECT_EQ(loom_low_lower_rule_primary_descriptor_ref(&rule_set, &rules[1]),
+            1);
 
   loom_low_lower_rule_match_context_t match_context = {
       .module = module_,

@@ -138,6 +138,21 @@ iree_runtime_cc_test(
 )
 
 iree_runtime_cc_test(
+    name = "attributes_test",
+    srcs = [
+        "attributes_c_test.c",
+        "attributes_test.cc",
+    ],
+    deps = [
+        ":base",
+        ":core_headers",
+        "//runtime/src/iree/base/internal",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+iree_runtime_cc_test(
     name = "bitfield_test",
     srcs = ["bitfield_test.cc"],
     deps = [

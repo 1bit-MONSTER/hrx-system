@@ -434,9 +434,11 @@ TEST(LowContractQueryTest, ContractIndexDescriptorRuleSelectsLegalCase) {
   };
   loom_low_lower_emit_t emit = {
       .kind = LOOM_LOW_LOWER_EMIT_DESCRIPTOR_OP,
-      .descriptor_ref = 0,
   };
-  const loom_low_lower_emit_ref_t emit_ref = 0;
+  const loom_low_lower_emit_ref_t emit_ref = {
+      .descriptor_ref = 0,
+      .emit_index = 0,
+  };
   loom_low_lower_rule_t rule = {.emit_count = 1};
   loom_low_lower_rule_set_t rule_set = {
       .string_pool = kRuleStringPool,
@@ -759,12 +761,13 @@ TEST(LowContractQueryTest,
       .feature_mask_word_count = IREE_ARRAYSIZE(feature_mask_words),
   };
 
-  loom_low_lower_emit_t emits[2] = {};
-  emits[0].kind = LOOM_LOW_LOWER_EMIT_DESCRIPTOR_OP;
-  emits[0].descriptor_ref = 0;
-  emits[1].kind = LOOM_LOW_LOWER_EMIT_DESCRIPTOR_OP;
-  emits[1].descriptor_ref = 1;
-  const loom_low_lower_emit_ref_t emit_ref = 0;
+  const loom_low_lower_emit_t emit = {
+      .kind = LOOM_LOW_LOWER_EMIT_DESCRIPTOR_OP,
+  };
+  const loom_low_lower_emit_ref_t emit_refs[] = {
+      {.descriptor_ref = 0, .emit_index = 0},
+      {.descriptor_ref = 1, .emit_index = 0},
+  };
   loom_low_lower_rule_t rules[2] = {};
   rules[0].emit_count = 1;
   rules[1].emit_count = 1;
@@ -773,9 +776,9 @@ TEST(LowContractQueryTest,
     rule_set_storage[i].rules = &rules[i];
     rule_set_storage[i].rule_count = 1;
     rule_set_storage[i].descriptor_ref_count = IREE_ARRAYSIZE(descriptors);
-    rule_set_storage[i].emit_refs = &emit_ref;
+    rule_set_storage[i].emit_refs = &emit_refs[i];
     rule_set_storage[i].emit_ref_count = 1;
-    rule_set_storage[i].emits = &emits[i];
+    rule_set_storage[i].emits = &emit;
     rule_set_storage[i].emit_count = 1;
   }
   const loom_low_lower_rule_set_t* rule_sets[] = {
@@ -1158,9 +1161,11 @@ TEST(LowContractQueryTest, TargetSubgroupSizeRangeRequiresKnownInRangeSize) {
   const loom_low_lower_guard_ref_t guard_ref = 0;
   loom_low_lower_emit_t emit = {
       .kind = LOOM_LOW_LOWER_EMIT_DESCRIPTOR_OP,
-      .descriptor_ref = 0,
   };
-  const loom_low_lower_emit_ref_t emit_ref = 0;
+  const loom_low_lower_emit_ref_t emit_ref = {
+      .descriptor_ref = 0,
+      .emit_index = 0,
+  };
   loom_low_lower_rule_t rule = {
       .emit_count = 1,
       .guard_count = 1,
@@ -1394,10 +1399,12 @@ TEST_F(LowContractQuerySourceMemoryTest,
   }
   loom_low_lower_emit_t emit = {
       .kind = LOOM_LOW_LOWER_EMIT_DESCRIPTOR_OP,
-      .descriptor_ref = LOOM_LOW_LOWER_DESCRIPTOR_REF_NONE,
       .source_memory_ordinal = 1,
   };
-  const loom_low_lower_emit_ref_t emit_ref = 0;
+  const loom_low_lower_emit_ref_t emit_ref = {
+      .descriptor_ref = LOOM_LOW_LOWER_DESCRIPTOR_REF_NONE,
+      .emit_index = 0,
+  };
   loom_low_lower_rule_t rule = {.emit_count = 1};
 
   loom_low_lower_rule_set_t rule_set = {

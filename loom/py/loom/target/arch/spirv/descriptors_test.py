@@ -47,6 +47,7 @@ from loom.target.arch.spirv.ordinary_vector_float import (
     ORDINARY_VECTOR_FLOAT_SCALE_INSTRUCTIONS,
 )
 from loom.target.arch.spirv.ordinary_vector_integer import (
+    INTEGER_BIT_COUNT_INSTRUCTIONS,
     ORDINARY_VECTOR_INTEGER_INSTRUCTIONS,
 )
 from loom.target.arch.spirv.scalar_alu import (
@@ -281,18 +282,18 @@ def _atomic_result_recipes() -> dict[str, AsmResultValueType]:
 
 
 def _extended_math_result_recipes() -> dict[str, AsmResultValueType]:
-    f32_element_type = _scalar_recipe("f32").element_type
-    return {
-        row.descriptor_key: AsmResultValueType(
-            f32_element_type,
-            vector_lane_count=(
-                row.value_type.lane_count
-                if isinstance(row.value_type, OrdinaryVectorType)
-                else 0
-            ),
+    recipes = {}
+    for row in EXTENDED_MATH_INSTRUCTIONS:
+        component_type = row.value_type
+        lane_count = 0
+        if isinstance(row.value_type, OrdinaryVectorType):
+            component_type = row.value_type.component_type
+            lane_count = row.value_type.lane_count
+        recipes[row.descriptor_key] = AsmResultValueType(
+            _scalar_recipe(component_type.source_types[0]).element_type,
+            vector_lane_count=lane_count,
         )
-        for row in EXTENDED_MATH_INSTRUCTIONS
-    }
+    return recipes
 
 
 def test_result_asm_recipes_cover_every_spirv_descriptor_family() -> None:
@@ -357,6 +358,7 @@ def test_result_asm_recipes_cover_every_spirv_descriptor_family() -> None:
         *ORDINARY_VECTOR_FLOAT_SCALE_INSTRUCTIONS,
         *ORDINARY_VECTOR_FLOAT_COMPARE_INSTRUCTIONS,
         *ORDINARY_VECTOR_INTEGER_INSTRUCTIONS,
+        *INTEGER_BIT_COUNT_INSTRUCTIONS,
         *ORDINARY_VECTOR_CONVERSION_INSTRUCTIONS,
         *ORDINARY_VECTOR_BIT_LAYOUT_INSTRUCTIONS,
         *SPIRV_SUBGROUP_BALLOT_PACKING_INSTRUCTIONS,
@@ -396,7 +398,6 @@ def test_result_asm_recipes_cover_every_spirv_descriptor_family() -> None:
 
     add_scalar_recipe("spirv.op_copy_object.i32", "i32")
     add_scalar_recipe("spirv.op_imul_add.i32", "i32")
-    add_scalar_recipe("spirv.op_bit_count.i32", "i32")
     for opcode in ("iadd", "isub", "imul"):
         add_carrier_only(f"spirv.op_{opcode}.offset64")
 

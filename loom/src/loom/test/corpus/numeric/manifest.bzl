@@ -51,6 +51,7 @@ NUMERIC_CORPUS = loom_corpus_manifest(
         "integer/constant_division.loom",
         "integer/division.loom",
         "integer/narrow_consumers.loom",
+        "integer/rotation.loom",
         "integer/scalar_observations.loom",
         "integer/wide/address_comparison.loom",
         "integer/wide/observations.loom",

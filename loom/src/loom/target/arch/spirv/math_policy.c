@@ -47,6 +47,19 @@ static void loom_spirv_math_policy_query(
     const loom_target_math_policy_t* policy,
     const loom_target_math_query_t* query,
     loom_target_math_policy_decision_t* out_decision) {
+  // Contracts implement every source format with native IEEE instructions
+  // guarded by integer edge handling, or with integer-carrier rounding.
+  switch (query->math_op) {
+    case LOOM_TARGET_MATH_OP_CEILF:
+    case LOOM_TARGET_MATH_OP_FLOORF:
+    case LOOM_TARGET_MATH_OP_ROUNDF:
+    case LOOM_TARGET_MATH_OP_ROUNDEVENF:
+    case LOOM_TARGET_MATH_OP_TRUNCF:
+      *out_decision = loom_spirv_math_keep(IREE_SV("math.rounding"));
+      return;
+    default:
+      break;
+  }
   if (loom_spirv_math_op_is_approximate_transcendental(query->math_op)) {
     if (query->element_type != LOOM_SCALAR_TYPE_F32) {
       *out_decision =

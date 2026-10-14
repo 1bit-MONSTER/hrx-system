@@ -105,3 +105,22 @@ low.func.def target<spirv.logical.core> abi(shader_entry_point) @replace_bfloat(
   %after_wide = OpFConvert.bf16.f32 %after
   return %before_wide, %after_wide
 }
+
+// ====
+
+// RUN: emit source-low target=spirv:vulkan1.3+bda output=low
+
+// A software BF16 payload needs only a shift and bitcast, without arithmetic
+// on subnormal inputs or native BF16/Int16 capabilities.
+func.def @widen_software_bfloat(%input: bf16) -> (f32) {
+  %wide = scalar.extf %input : bf16 to f32
+  func.return %wide : f32
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @widen_software_bfloat(%input: reg<spirv.id : i32>) -> (reg<spirv.id : f32>) asm {
+  %5 = OpConstant.i32 16 : reg<spirv.id>
+  %6 = OpShiftLeftLogical %input, %5 : reg<spirv.id>
+  %wide = OpBitcast.i32.f32 %6
+  return %wide
+}

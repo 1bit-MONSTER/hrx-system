@@ -74,6 +74,7 @@ from loom.target.arch.spirv.ordinary_vector_float import (  # noqa: E402
     ORDINARY_VECTOR_FLOAT_SCALE_INSTRUCTIONS,
 )
 from loom.target.arch.spirv.ordinary_vector_integer import (  # noqa: E402
+    INTEGER_BIT_COUNT_INSTRUCTIONS,
     ORDINARY_VECTOR_INTEGER_INSTRUCTIONS,
 )
 from loom.target.arch.spirv.scalar_alu import (  # noqa: E402
@@ -968,6 +969,7 @@ def _ordinary_vector_rows() -> list[_PacketRow]:
             *ORDINARY_VECTOR_FLOAT_SCALE_INSTRUCTIONS,
             *ORDINARY_VECTOR_FLOAT_COMPARE_INSTRUCTIONS,
             *ORDINARY_VECTOR_INTEGER_INSTRUCTIONS,
+            *INTEGER_BIT_COUNT_INSTRUCTIONS,
             *ORDINARY_VECTOR_CONVERSION_INSTRUCTIONS,
             *ORDINARY_VECTOR_BIT_LAYOUT_INSTRUCTIONS,
             *SPIRV_SUBGROUP_BALLOT_PACKING_INSTRUCTIONS,
@@ -1075,13 +1077,6 @@ def _coordinate_unary_rows() -> list[_PacketRow]:
         _PacketRow(
             "spirv.op_copy_object.i32",
             opcode="LOOM_SPIRV_OP_COPY_OBJECT",
-            form="LOOM_SPIRV_PACKET_FORM_UNARY_TYPED",
-            result_type=i32_value,
-            operand_types=(i32_value,),
-        ),
-        _PacketRow(
-            "spirv.op_bit_count.i32",
-            opcode="LOOM_SPIRV_OP_BIT_COUNT",
             form="LOOM_SPIRV_PACKET_FORM_UNARY_TYPED",
             result_type=i32_value,
             operand_types=(i32_value,),

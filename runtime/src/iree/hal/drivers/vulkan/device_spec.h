@@ -18,7 +18,7 @@ extern "C" {
 #endif  // __cplusplus
 
 #define IREE_HAL_VULKAN_DEVICE_SPEC_SCHEMA_ID "iree.hal.drivers.vulkan.device"
-#define IREE_HAL_VULKAN_DEVICE_SPEC_SCHEMA_VERSION 5u
+#define IREE_HAL_VULKAN_DEVICE_SPEC_SCHEMA_VERSION 6u
 
 // Stable Vulkan device spec flags.
 typedef uint32_t iree_hal_vulkan_device_spec_flags_t;
@@ -48,7 +48,9 @@ typedef enum iree_hal_vulkan_device_spec_flag_bits_e {
 typedef struct iree_hal_vulkan_cooperative_matrix_property_table_t {
   // Number of encoded property rows.
   iree_host_size_t count;
-  // Canonical little-endian property row data borrowed from the facet payload.
+  // Canonical little-endian property rows borrowed from the facet payload.
+  // Rows are ordered by M/N/K, A/B/C/result types, scope, and saturating
+  // accumulation mode.
   iree_const_byte_span_t encoded_data;
 } iree_hal_vulkan_cooperative_matrix_property_table_t;
 
@@ -75,14 +77,15 @@ IREE_API_EXPORT iree_status_t
 iree_hal_vulkan_device_spec_calculate_payload_size(
     iree_host_size_t property_count, iree_host_size_t* out_payload_size);
 
-// Encodes |spec| and cooperative matrix |properties| into |payload|.
+// Encodes |spec| and cooperative matrix |properties| into |payload|. Property
+// rows are sorted in place in the output; the input order is not retained.
 IREE_API_EXPORT iree_status_t iree_hal_vulkan_device_spec_encode(
     const iree_hal_vulkan_device_spec_t* spec, iree_host_size_t property_count,
     const iree_hal_vulkan_cooperative_matrix_property_t* properties,
     iree_byte_span_t payload);
 
 // Decodes the fixed-width little-endian |payload| into |out_spec| after
-// validating its schema envelope.
+// validating its schema envelope and canonical property ordering.
 IREE_API_EXPORT iree_status_t iree_hal_vulkan_device_spec_decode(
     iree_const_byte_span_t payload, iree_hal_vulkan_device_spec_t* out_spec);
 
@@ -93,6 +96,17 @@ IREE_API_EXPORT bool
 iree_hal_vulkan_device_spec_read_cooperative_matrix_property(
     const iree_hal_vulkan_device_spec_t* spec, iree_host_size_t ordinal,
     iree_hal_vulkan_cooperative_matrix_property_t* out_property);
+
+// Returns whether |spec| supports |requirement|'s dimensions, component types,
+// scope, and saturating accumulation mode exactly. Saturating and
+// non-saturating operations need separate property rows. Feature enablement is
+// checked separately.
+//
+// |spec| must have been decoded successfully. This allocation-free query uses
+// binary search over the retained canonical table.
+IREE_API_EXPORT bool iree_hal_vulkan_device_spec_supports_cooperative_matrix(
+    const iree_hal_vulkan_device_spec_t* spec,
+    const iree_hal_vulkan_cooperative_matrix_property_t* requirement);
 
 // Finds the Vulkan device spec facet in |device_spec| or NULL.
 IREE_API_EXPORT const iree_hal_device_spec_facet_t*

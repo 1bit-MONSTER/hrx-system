@@ -617,6 +617,12 @@ const loom_target_profile_t* loomc_target_profile_loom_target_profile(
   return profile ? profile->target_profile : NULL;
 }
 
+bool loomc_target_profile_has_storage(
+    const loomc_target_profile_t* profile,
+    loom_target_profile_destroy_fn_t destroy) {
+  return profile && profile->target_profile_destroy == destroy;
+}
+
 loomc_target_environment_t* loomc_target_profile_target_environment(
     const loomc_target_profile_t* profile) {
   return profile ? profile->target_environment : NULL;

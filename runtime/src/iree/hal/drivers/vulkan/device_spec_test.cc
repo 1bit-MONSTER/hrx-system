@@ -6,7 +6,9 @@
 
 #include "iree/hal/drivers/vulkan/device_spec.h"
 
+#include <algorithm>
 #include <cstring>
+#include <tuple>
 #include <vector>
 
 #include "iree/hal/drivers/vulkan/atomic.h"
@@ -80,6 +82,123 @@ TEST(DeviceSpecTest, EncodesAndDecodesPayload) {
   EXPECT_EQ(decoded_property.scope, source_property.scope);
   EXPECT_FALSE(iree_hal_vulkan_device_spec_read_cooperative_matrix_property(
       &decoded, 1, &decoded_property));
+}
+
+TEST(DeviceSpecTest, CanonicalPropertyOrderSupportsBinaryLookup) {
+  for (size_t count : {0u, 1u, 2u, 3u, 64u, 1024u}) {
+    SCOPED_TRACE(count);
+    std::vector<iree_hal_vulkan_cooperative_matrix_property_t> properties;
+    for (size_t i = 0; i < count; ++i) {
+      // Include repeated keys with different saturation modes. Multiplication
+      // permutes the rows so neither input order nor unique keys are assumed.
+      const uint32_t ordinal = static_cast<uint32_t>((i * 37) % count);
+      properties.push_back({
+          .m_size = ordinal / 4 + 1,
+          .n_size = 16,
+          .k_size = 16,
+          .a_type = VK_COMPONENT_TYPE_SINT8_KHR,
+          .b_type = VK_COMPONENT_TYPE_SINT8_KHR,
+          .c_type = VK_COMPONENT_TYPE_SINT32_KHR,
+          .result_type = VK_COMPONENT_TYPE_SINT32_KHR,
+          .saturating_accumulation = ordinal % 2,
+          .scope = VK_SCOPE_SUBGROUP_KHR,
+      });
+    }
+    iree_hal_vulkan_device_spec_t source = MakeTestSpec();
+    iree_host_size_t payload_size = 0;
+    IREE_ASSERT_OK(iree_hal_vulkan_device_spec_calculate_payload_size(
+        properties.size(), &payload_size));
+    std::vector<uint8_t> payload(payload_size);
+    IREE_ASSERT_OK(iree_hal_vulkan_device_spec_encode(
+        &source, properties.size(), properties.data(),
+        iree_make_byte_span(payload.data(), payload.size())));
+    iree_hal_vulkan_device_spec_t decoded = {};
+    IREE_ASSERT_OK(iree_hal_vulkan_device_spec_decode(
+        iree_make_const_byte_span(payload.data(), payload.size()), &decoded));
+    for (const auto& property : properties) {
+      EXPECT_TRUE(iree_hal_vulkan_device_spec_supports_cooperative_matrix(
+          &decoded, &property));
+    }
+    const auto key = [](const auto& property) {
+      return std::tie(property.m_size, property.n_size, property.k_size,
+                      property.a_type, property.b_type, property.c_type,
+                      property.result_type, property.scope,
+                      property.saturating_accumulation);
+    };
+    std::sort(properties.begin(), properties.end(),
+              [&](auto& lhs, auto& rhs) { return key(lhs) < key(rhs); });
+    for (size_t i = 0; i < properties.size(); ++i) {
+      iree_hal_vulkan_cooperative_matrix_property_t actual = {};
+      ASSERT_TRUE(iree_hal_vulkan_device_spec_read_cooperative_matrix_property(
+          &decoded, i, &actual));
+      EXPECT_EQ(key(actual), key(properties[i]));
+    }
+    const iree_hal_vulkan_cooperative_matrix_property_t absent = {
+        .m_size = static_cast<uint32_t>(count + 1),
+    };
+    EXPECT_FALSE(iree_hal_vulkan_device_spec_supports_cooperative_matrix(
+        &decoded, &absent));
+
+    if (count > 1) {
+      // Keep the public envelope intact while breaking the ordering invariant.
+      const size_t offset =
+          decoded.cooperative_matrix.encoded_data.data - payload.data();
+      const size_t row_size =
+          decoded.cooperative_matrix.encoded_data.data_length / count;
+      std::swap_ranges(payload.begin() + offset,
+                       payload.begin() + offset + row_size,
+                       payload.begin() + offset + (count - 1) * row_size);
+      IREE_EXPECT_STATUS_IS(
+          IREE_STATUS_INVALID_ARGUMENT,
+          iree_hal_vulkan_device_spec_decode(
+              iree_make_const_byte_span(payload.data(), payload.size()),
+              &decoded));
+      EXPECT_EQ(decoded.cooperative_matrix.count, 0u);
+    }
+  }
+}
+
+TEST(DeviceSpecTest, PropertyLookupChecksEveryRequirement) {
+  const iree_hal_vulkan_device_spec_t source = MakeTestSpec();
+  for (uint32_t saturation_mode : {0u, 1u}) {
+    const iree_hal_vulkan_cooperative_matrix_property_t property = {
+        .m_size = 16,
+        .n_size = 8,
+        .k_size = 16,
+        .a_type = VK_COMPONENT_TYPE_SINT8_KHR,
+        .b_type = VK_COMPONENT_TYPE_SINT8_KHR,
+        .c_type = VK_COMPONENT_TYPE_SINT32_KHR,
+        .result_type = VK_COMPONENT_TYPE_SINT32_KHR,
+        .saturating_accumulation = saturation_mode,
+        .scope = VK_SCOPE_SUBGROUP_KHR,
+    };
+    iree_host_size_t payload_size = 0;
+    IREE_ASSERT_OK(
+        iree_hal_vulkan_device_spec_calculate_payload_size(1, &payload_size));
+    std::vector<uint8_t> payload(payload_size);
+    IREE_ASSERT_OK(iree_hal_vulkan_device_spec_encode(
+        &source, 1, &property,
+        iree_make_byte_span(payload.data(), payload.size())));
+    iree_hal_vulkan_device_spec_t decoded = {};
+    IREE_ASSERT_OK(iree_hal_vulkan_device_spec_decode(
+        iree_make_const_byte_span(payload.data(), payload.size()), &decoded));
+    for (uint32_t requires_saturation : {0u, 1u}) {
+      auto requirement = property;
+      requirement.saturating_accumulation = requires_saturation;
+      EXPECT_EQ(iree_hal_vulkan_device_spec_supports_cooperative_matrix(
+                    &decoded, &requirement),
+                requires_saturation == saturation_mode);
+    }
+    using Property = iree_hal_vulkan_cooperative_matrix_property_t;
+    for (auto member : {&Property::m_size, &Property::n_size, &Property::k_size,
+                        &Property::a_type, &Property::b_type, &Property::c_type,
+                        &Property::result_type, &Property::scope}) {
+      auto requirement = property;
+      ++(requirement.*member);
+      EXPECT_FALSE(iree_hal_vulkan_device_spec_supports_cooperative_matrix(
+          &decoded, &requirement));
+    }
+  }
 }
 
 TEST(DeviceSpecTest, RejectsMalformedPayloads) {

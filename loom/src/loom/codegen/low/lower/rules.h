@@ -1043,13 +1043,14 @@ enum loom_low_lower_operand_materialization_e {
   LOOM_LOW_LOWER_OPERAND_MATERIALIZATION_TARGET = 1,
 };
 
+// Interned emission behavior shared across descriptor identities. Each program
+// position supplies its descriptor separately through
+// loom_low_lower_emit_ref_t.
 typedef struct loom_low_lower_emit_t {
   // Emit action to perform.
   loom_low_lower_emit_kind_t kind;
   // Emit behavior flags.
   loom_low_lower_emit_flags_t flags;
-  // Rule-set-local low descriptor ref consumed by the selected descriptor set.
-  loom_low_lower_descriptor_ref_t descriptor_ref;
   // First value-ref table row copied as a low operand.
   uint16_t operand_ref_start;
   // Bitmask of emitted low operand ordinals copied through low.copy before the
@@ -1110,8 +1111,8 @@ typedef struct loom_low_lower_emit_t {
   // retains its data ID; execution publishes the symbol used by the packet.
   uint16_t has_read_only_data_attributes : 1;
 } loom_low_lower_emit_t;
-static_assert(sizeof(loom_low_lower_emit_t) == 20,
-              "loom_low_lower_emit_t must be 20 bytes");
+static_assert(sizeof(loom_low_lower_emit_t) == 18,
+              "loom_low_lower_emit_t must be 18 bytes");
 
 // Returns the table reference receiving one emitted result. Type selection
 // and SSA materialization share this exact result-to-source correspondence.
@@ -1125,8 +1126,15 @@ static inline uint16_t loom_low_lower_rule_emit_result_bind_ref_index(
   return (uint16_t)(start + result_ordinal);
 }
 
-// Ordinal into a rule set's interned emit table.
-typedef uint16_t loom_low_lower_emit_ref_t;
+// One emit-program position, pairing descriptor identity with shared behavior.
+typedef struct loom_low_lower_emit_ref_t {
+  // Rule-set-local descriptor ref, or NONE for structural register operations.
+  loom_low_lower_descriptor_ref_t descriptor_ref;
+  // Ordinal into the rule set's interned emit table.
+  uint16_t emit_index;
+} loom_low_lower_emit_ref_t;
+static_assert(sizeof(loom_low_lower_emit_ref_t) == 4,
+              "loom_low_lower_emit_ref_t must be 4 bytes");
 
 typedef uint8_t loom_low_lower_rule_flags_t;
 
@@ -1438,7 +1446,7 @@ static inline bool loom_low_lower_rule_requires_root_producer_closure(
 // Resolves one emit-program position to its interned emit row.
 static inline const loom_low_lower_emit_t* loom_low_lower_rule_set_emit_at(
     const loom_low_lower_rule_set_t* rule_set, uint16_t emit_ref_index) {
-  return &rule_set->emits[rule_set->emit_refs[emit_ref_index]];
+  return &rule_set->emits[rule_set->emit_refs[emit_ref_index].emit_index];
 }
 
 // Resolves the trusted one-based payload referenced by |guard|.

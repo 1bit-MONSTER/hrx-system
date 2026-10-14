@@ -27,7 +27,7 @@ independent from any GPU runtime.
 | `//loom/binding/c/target/spirv/vulkaninfo`, `loomc/target/spirv/vulkaninfo.h` | Saved Vulkan/GPUInfo profile import for offline or cached SPIR-V targeting. | No Vulkan loader or Vulkan SDK headers. |
 | `//loom/binding/c/target/spirv/vulkan`, `loomc/target/spirv/vulkan.h` | Raw Vulkan device/profile adapter for SPIR-V targeting. | Vulkan headers; the caller owns the loader, physical device, and function table. |
 | `//loom/binding/c/target/iree_hal`, `loomc/target/iree_hal.h` | Runtime target routing from IREE HAL devices into Loom target profiles. | IREE HAL headers. |
-| `//loom/binding/c/target/spirv/iree_hal`, `loomc/target/spirv/iree_hal.h` | SPIR-V targeting through IREE HAL Vulkan device information. | IREE HAL headers. |
+| `//loom/binding/c/target/spirv:iree_hal`, `loomc/target/spirv/iree_hal.h` | SPIR-V targeting through IREE HAL Vulkan device information. | IREE HAL headers. |
 | `//loom/binding/c:loomc_full` | Convenience package for the current core, SPIR-V, Vulkan, VulkanInfo, and IREE HAL binding slice. | The union of the headers above for that slice. |
 
 `loomc_full` is a packaging convenience for environments that already accept

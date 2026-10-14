@@ -1821,7 +1821,7 @@ iree_status_t loom_scalar_shrui_facts(
     const loom_value_facts_t* operand_facts,
     loom_value_facts_t* result_facts);
 
-// LOOM_OP_SCALAR_ROTLI: Left rotate.
+// LOOM_OP_SCALAR_ROTLI: Rotate bits left by the count modulo the integer width. One-bit rotation is identity.
 // %result = scalar.rotli %lhs, %rhs : i32
 LOOM_DEFINE_ISA(loom_scalar_rotli_isa, LOOM_OP_SCALAR_ROTLI)
 LOOM_DEFINE_OPERAND(loom_scalar_rotli_lhs, 0)
@@ -1838,7 +1838,7 @@ iree_status_t loom_scalar_rotli_facts(
     const loom_value_facts_t* operand_facts,
     loom_value_facts_t* result_facts);
 
-// LOOM_OP_SCALAR_ROTRI: Right rotate.
+// LOOM_OP_SCALAR_ROTRI: Rotate bits right by the count modulo the integer width. One-bit rotation is identity.
 // %result = scalar.rotri %lhs, %rhs : i32
 LOOM_DEFINE_ISA(loom_scalar_rotri_isa, LOOM_OP_SCALAR_ROTRI)
 LOOM_DEFINE_OPERAND(loom_scalar_rotri_lhs, 0)

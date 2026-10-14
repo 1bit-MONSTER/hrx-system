@@ -1529,10 +1529,10 @@ iree_status_t loom_low_lower_emit_resolved_descriptor_const(
 
 // Emits ERR_TARGET_033 for a source value type rejected by the active
 // target-low policy.
-iree_status_t loom_low_lower_emit_source_type_unsupported(
+IREE_ATTRIBUTE_NOINLINE iree_status_t
+loom_low_lower_emit_source_type_unsupported(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
-    iree_string_view_t field_name,
-    loom_type_t actual_type) IREE_ATTRIBUTE_COLD IREE_ATTRIBUTE_NOINLINE;
+    iree_string_view_t field_name, loom_type_t actual_type) IREE_ATTRIBUTE_COLD;
 
 // Emits ERR_TARGET_080 when function storage has no finite positive maximum.
 iree_status_t loom_low_lower_emit_function_storage_extent_unsupported(

@@ -43,7 +43,7 @@ _SPIRV_VULKAN_TARGET_COPTS = iree_select({
 
 _SPIRV_VULKAN_TARGET_DEPS = iree_select({
     "//loom/config/execute:spirv_vulkan_hal": [
-        "//loom/binding/c/target/spirv/iree_hal",
+        "//loom/binding/c/target/spirv:iree_hal",
         "//loom/src/loom/tooling/target/spirv:testbench_requirements",
     ],
     "//conditions:default": [],

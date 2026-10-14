@@ -126,7 +126,10 @@ iree_py_library(
 iree_py_library(
     name = "extended_math",
     srcs = ["extended_math.py"],
-    deps = [":ordinary_vector"],
+    deps = [
+        ":features",
+        ":ordinary_vector",
+    ],
 )
 
 iree_py_library(

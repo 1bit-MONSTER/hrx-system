@@ -1,0 +1,207 @@
+// Counts are unrestricted runtime bit patterns, not shift-range assumptions.
+// Every integer width is observed through scalar and vector operations. The
+// oracle routes individual bits instead of executing a rotate instruction.
+
+func.def @integer_rotations(%input: buffer, %count_storage: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xi64>
+  %counts = buffer.view %count_storage[%base] : buffer -> view<4xi64>
+  %results = buffer.view %output[%base] : buffer -> view<50xi64>
+  %values = vector.load %source[0] : view<4xi64> -> vector<4xi64>
+  %amounts = vector.load %counts[0] : view<4xi64> -> vector<4xi64>
+
+  %predicates = vector.trunci %values : vector<4xi64> to vector<4xi1>
+  %predicate_amounts = vector.trunci %amounts : vector<4xi64> to vector<4xi1>
+  %predicate_left = vector.rotli %predicates, %predicate_amounts : vector<4xi1>
+  %predicate_right = vector.rotri %predicates, %predicate_amounts : vector<4xi1>
+  %predicate_left_words = vector.extui %predicate_left : vector<4xi1> to vector<4xi64>
+  %predicate_right_words = vector.extui %predicate_right : vector<4xi1> to vector<4xi64>
+  vector.store %predicate_left_words, %results[0] : vector<4xi64>, view<50xi64>
+  vector.store %predicate_right_words, %results[4] : vector<4xi64>, view<50xi64>
+  %predicate = vector.extract %predicates[0] : vector<4xi1> -> i1
+  %predicate_amount = vector.extract %predicate_amounts[0] : vector<4xi1> -> i1
+  %scalar_predicate_left = scalar.rotli %predicate, %predicate_amount : i1
+  %scalar_predicate_right = scalar.rotri %predicate, %predicate_amount : i1
+  %scalar_predicate_left_word = scalar.extui %scalar_predicate_left : i1 to i64
+  %scalar_predicate_right_word = scalar.extui %scalar_predicate_right : i1 to i64
+  view.store %scalar_predicate_left_word, %results[8] : i64, view<50xi64>
+  view.store %scalar_predicate_right_word, %results[9] : i64, view<50xi64>
+
+  %bytes = vector.trunci %values : vector<4xi64> to vector<4xi8>
+  %byte_amounts = vector.trunci %amounts : vector<4xi64> to vector<4xi8>
+  %byte_left = vector.rotli %bytes, %byte_amounts : vector<4xi8>
+  %byte_right = vector.rotri %bytes, %byte_amounts : vector<4xi8>
+  %byte_left_words = vector.extui %byte_left : vector<4xi8> to vector<4xi64>
+  %byte_right_words = vector.extui %byte_right : vector<4xi8> to vector<4xi64>
+  vector.store %byte_left_words, %results[10] : vector<4xi64>, view<50xi64>
+  vector.store %byte_right_words, %results[14] : vector<4xi64>, view<50xi64>
+  %byte = vector.extract %bytes[0] : vector<4xi8> -> i8
+  %byte_amount = vector.extract %byte_amounts[0] : vector<4xi8> -> i8
+  %scalar_byte_left = scalar.rotli %byte, %byte_amount : i8
+  %scalar_byte_right = scalar.rotri %byte, %byte_amount : i8
+  %scalar_byte_left_word = scalar.extui %scalar_byte_left : i8 to i64
+  %scalar_byte_right_word = scalar.extui %scalar_byte_right : i8 to i64
+  view.store %scalar_byte_left_word, %results[18] : i64, view<50xi64>
+  view.store %scalar_byte_right_word, %results[19] : i64, view<50xi64>
+
+  %halfwords = vector.trunci %values : vector<4xi64> to vector<4xi16>
+  %halfword_amounts = vector.trunci %amounts : vector<4xi64> to vector<4xi16>
+  %halfword_left = vector.rotli %halfwords, %halfword_amounts : vector<4xi16>
+  %halfword_right = vector.rotri %halfwords, %halfword_amounts : vector<4xi16>
+  %halfword_left_words = vector.extui %halfword_left : vector<4xi16> to vector<4xi64>
+  %halfword_right_words = vector.extui %halfword_right : vector<4xi16> to vector<4xi64>
+  vector.store %halfword_left_words, %results[20] : vector<4xi64>, view<50xi64>
+  vector.store %halfword_right_words, %results[24] : vector<4xi64>, view<50xi64>
+  %halfword = vector.extract %halfwords[0] : vector<4xi16> -> i16
+  %halfword_amount = vector.extract %halfword_amounts[0] : vector<4xi16> -> i16
+  %scalar_halfword_left = scalar.rotli %halfword, %halfword_amount : i16
+  %scalar_halfword_right = scalar.rotri %halfword, %halfword_amount : i16
+  %scalar_halfword_left_word = scalar.extui %scalar_halfword_left : i16 to i64
+  %scalar_halfword_right_word = scalar.extui %scalar_halfword_right : i16 to i64
+  view.store %scalar_halfword_left_word, %results[28] : i64, view<50xi64>
+  view.store %scalar_halfword_right_word, %results[29] : i64, view<50xi64>
+
+  %words = vector.trunci %values : vector<4xi64> to vector<4xi32>
+  %word_amounts = vector.trunci %amounts : vector<4xi64> to vector<4xi32>
+  %word_left = vector.rotli %words, %word_amounts : vector<4xi32>
+  %word_right = vector.rotri %words, %word_amounts : vector<4xi32>
+  %word_left_wide = vector.extui %word_left : vector<4xi32> to vector<4xi64>
+  %word_right_wide = vector.extui %word_right : vector<4xi32> to vector<4xi64>
+  vector.store %word_left_wide, %results[30] : vector<4xi64>, view<50xi64>
+  vector.store %word_right_wide, %results[34] : vector<4xi64>, view<50xi64>
+  %word = vector.extract %words[0] : vector<4xi32> -> i32
+  %word_amount = vector.extract %word_amounts[0] : vector<4xi32> -> i32
+  %scalar_word_left = scalar.rotli %word, %word_amount : i32
+  %scalar_word_right = scalar.rotri %word, %word_amount : i32
+  %scalar_word_left_wide = scalar.extui %scalar_word_left : i32 to i64
+  %scalar_word_right_wide = scalar.extui %scalar_word_right : i32 to i64
+  view.store %scalar_word_left_wide, %results[38] : i64, view<50xi64>
+  view.store %scalar_word_right_wide, %results[39] : i64, view<50xi64>
+
+  %wide_left = vector.rotli %values, %amounts : vector<4xi64>
+  %wide_right = vector.rotri %values, %amounts : vector<4xi64>
+  vector.store %wide_left, %results[40] : vector<4xi64>, view<50xi64>
+  vector.store %wide_right, %results[44] : vector<4xi64>, view<50xi64>
+  %wide = vector.extract %values[0] : vector<4xi64> -> i64
+  %wide_amount = vector.extract %amounts[0] : vector<4xi64> -> i64
+  %scalar_wide_left = scalar.rotli %wide, %wide_amount : i64
+  %scalar_wide_right = scalar.rotri %wide, %wide_amount : i64
+  view.store %scalar_wide_left, %results[48] : i64, view<50xi64>
+  view.store %scalar_wide_right, %results[49] : i64, view<50xi64>
+  func.return
+}
+
+func.def inline @route_rotated_bits(%value: i64, %amount: i64, %width: index) -> (i64, i64) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %c0 = scalar.constant 0 : i64
+  %c1 = scalar.constant 1 : i64
+  %width_word = index.cast %width : index to i64
+  %mask = scalar.subi %width_word, %c1 : i64
+  %count = scalar.andi %amount, %mask : i64
+  %left, %right = scf.for %position = [%begin to %width step %step](%left_bits = %c0 : i64, %right_bits = %c0 : i64) -> (i64, i64) {
+    %source_position = index.cast %position : index to i64
+    %source_bits = scalar.shrui %value, %source_position : i64
+    %bit = scalar.andi %source_bits, %c1 : i64
+    %left_sum = scalar.addi %source_position, %count : i64
+    %right_difference = scalar.subi %source_position, %count : i64
+    %left_position = scalar.andi %left_sum, %mask : i64
+    %right_position = scalar.andi %right_difference, %mask : i64
+    %left_bit = scalar.shli %bit, %left_position : i64
+    %right_bit = scalar.shli %bit, %right_position : i64
+    %next_left = scalar.ori %left_bits, %left_bit : i64
+    %next_right = scalar.ori %right_bits, %right_bit : i64
+    scf.yield %next_left, %next_right : i64, i64
+  }
+  func.return %left, %right : i64, i64
+}
+
+func.def @integer_rotations_oracle(%input: buffer, %count_storage: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xi64>
+  %counts = buffer.view %count_storage[%base] : buffer -> view<4xi64>
+  %results = buffer.view %output[%base] : buffer -> view<50xi64>
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %lanes = index.constant 4 : index
+  %groups = index.constant 5 : index
+  %group_size = index.constant 10 : index
+  %scalar_left_offset = index.constant 8 : index
+  %scalar_right_offset = index.constant 9 : index
+  scf.for %group = [%begin to %groups step %step] {
+    %power = index.shli %lanes, %group : index
+    %is_predicate = index.cmp eq, %group, %begin : index
+    %width = scf.select %is_predicate, %step, %power : index
+    %group_base = index.mul %group, %group_size : index
+    scf.for %lane = [%begin to %lanes step %step] {
+      %value = view.load %source[%lane] : view<4xi64> -> i64
+      %amount = view.load %counts[%lane] : view<4xi64> -> i64
+      %left, %right = func.call @route_rotated_bits(%value, %amount, %width) : (i64, i64, index) -> (i64, i64)
+      %left_position = index.add %group_base, %lane : index
+      %right_position = index.add %left_position, %lanes : index
+      view.store %left, %results[%left_position] : i64, view<50xi64>
+      view.store %right, %results[%right_position] : i64, view<50xi64>
+      %is_first = index.cmp eq, %lane, %begin : index
+      scf.if %is_first {
+        %scalar_left_position = index.add %group_base, %scalar_left_offset : index
+        %scalar_right_position = index.add %group_base, %scalar_right_offset : index
+        view.store %left, %results[%scalar_left_position] : i64, view<50xi64>
+        view.store %right, %results[%scalar_right_position] : i64, view<50xi64>
+      }
+    }
+  }
+  func.return
+}
+
+func.def @rotation_inputs(%ordinal: index, %input: buffer, %count_storage: buffer) {
+  %position = index.assume %ordinal [range(%ordinal, 0, 63)] : index
+  %amount = index.cast %position : index to i64
+  %c0 = scalar.constant 0 : i64
+  %c1 = scalar.constant 1 : i64
+  %c64 = scalar.constant 64 : i64
+  %all_bits = scalar.constant -1 : i64
+  %power = scalar.shli %c1, %amount : i64
+  %below = scalar.subi %power, %c1 : i64
+  %above = scalar.addi %power, %c1 : i64
+  %complement = scalar.xori %power, %all_bits : i64
+  %large_amount = scalar.addi %amount, %c64 : i64
+  %negative_amount = scalar.subi %c0, %amount : i64
+  %large_negative_amount = scalar.subi %c0, %large_amount : i64
+  %base = index.constant 0 : offset
+  %values = buffer.view %input[%base] : buffer -> view<4xi64>
+  %counts = buffer.view %count_storage[%base] : buffer -> view<4xi64>
+  view.store %below, %values[0] : i64, view<4xi64>
+  view.store %power, %values[1] : i64, view<4xi64>
+  view.store %above, %values[2] : i64, view<4xi64>
+  view.store %complement, %values[3] : i64, view<4xi64>
+  view.store %amount, %counts[0] : i64, view<4xi64>
+  view.store %large_amount, %counts[1] : i64, view<4xi64>
+  view.store %negative_amount, %counts[2] : i64, view<4xi64>
+  view.store %large_negative_amount, %counts[3] : i64, view<4xi64>
+  func.return
+}
+
+check.scenario @integer_rotation_values {
+  // All effective counts, every bit position and adjacent bit patterns, with
+  // positive and negative full-width counts that wrap modulo the element size.
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(0) : tensor<4xi64>
+    %counts = check.generate.fill value(0) : tensor<4xi64>
+    check.generate<@rotation_inputs>(%trial, %input, %counts) : (index, tensor<4xi64>, tensor<4xi64>) -> ()
+    %output = check.generate.fill value(-1) : tensor<50xi64>
+    check.compare<@integer_rotations, @integer_rotations_oracle>(%input, %counts, %output) : (tensor<4xi64>, tensor<4xi64>, tensor<50xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<50xi64>
+    }
+  }
+  check.trial[64](%trial: index, %entropy: check.entropy) {
+    %value_seed = check.entropy.read %entropy[0] : check.entropy -> i64
+    %count_seed = check.entropy.read %entropy[1] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%value_seed) range(-9223372036854775808 to 9223372036854775807) : tensor<4xi64>
+    %counts = check.generate.random.uniform seed(%count_seed) range(-9223372036854775808 to 9223372036854775807) : tensor<4xi64>
+    %output = check.generate.fill value(-1) : tensor<50xi64>
+    check.compare<@integer_rotations, @integer_rotations_oracle>(%input, %counts, %output) : (tensor<4xi64>, tensor<4xi64>, tensor<50xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<50xi64>
+    }
+  }
+  check.return
+}

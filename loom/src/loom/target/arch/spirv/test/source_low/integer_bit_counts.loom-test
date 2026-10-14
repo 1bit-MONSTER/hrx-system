@@ -1,0 +1,119 @@
+// RUN: emit source-low target=spirv:vulkan1.3+bda output=low
+
+// Index and scalar I32 share the two-instruction leading-zero recipe.
+func.def @coordinate_count(%value: index) -> (index) {
+  %leading = index.ctlzi %value : index
+  func.return %leading : index
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @coordinate_count(%value: reg<spirv.id : index>) -> (reg<spirv.id : index>) asm {
+  %5 = OpConstant.i32 31 : reg<spirv.id>
+  %6 = OpExtInst.GLSL.std.450.FindUMsb.i32 %value : reg<spirv.id>
+  %leading = OpISub %5, %6 : reg<spirv.id : index>
+  return %leading
+}
+
+// ====
+// RUN: emit source-low target=spirv:vulkan1.3+bda+extended-types output=low
+
+// Narrow leading zeros scan a zero-extended word, not a signed extension.
+func.def @narrow_count(%value: i8) -> (i8) {
+  %leading = scalar.ctlzi %value : i8
+  func.return %leading : i8
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @narrow_count(%value: reg<spirv.id : i8>) -> (reg<spirv.id : i8>) asm {
+  %5 = OpConstant.i32 7 : reg<spirv.id>
+  %6 = OpSConvert.i8.i32 %value : reg<spirv.id>
+  %7 = OpConstant.i32 255 : reg<spirv.id>
+  %8 = OpBitwiseAnd %6, %7 : reg<spirv.id>
+  %9 = OpExtInst.GLSL.std.450.FindUMsb.i32 %8 : reg<spirv.id>
+  %10 = OpISub %5, %9 : reg<spirv.id>
+  %leading = OpSConvert.i32.i8 %10
+  return %leading
+}
+
+// ====
+// RUN: emit source-low target=spirv:vulkan1.3+bda output=low
+
+// Native vectors select and scan one 32-bit word independently per wide lane.
+func.def @wide_count(%first: i64, %second: i64) -> (i64) {
+  %values = vector.from_elements %first, %second : vector<2xi64>
+  %leading = vector.ctlzi %values : vector<2xi64>
+  %result = vector.extract %leading[1] : vector<2xi64> -> i64
+  func.return %result : i64
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @wide_count(%first: reg<spirv.id : i64>, %second: reg<spirv.id : i64>) -> (reg<spirv.id : i64>) asm {
+  %values = OpCompositeConstruct.v2i64 %first, %second
+  %10 = OpConstant.i32 63 : reg<spirv.id>
+  %11 = OpCompositeConstruct.v2i32 %10, %10 : reg<spirv.id>
+  %12 = OpConstant.i64 32 : reg<spirv.id>
+  %13 = OpCompositeConstruct.v2i64 %12, %12 : reg<spirv.id>
+  %14 = OpShiftRightLogical.v2i64 %values, %13 : reg<spirv.id>
+  %15 = OpSConvert.v2i64.v2i32 %values : reg<spirv.id>
+  %16 = OpSConvert.v2i64.v2i32 %14 : reg<spirv.id>
+  %17 = OpConstant.i32 0 : reg<spirv.id>
+  %18 = OpCompositeConstruct.v2i32 %17, %17 : reg<spirv.id>
+  %19 = OpINotEqual.v2i32 %16, %18 : reg<spirv.id>
+  %20 = OpSelect.v2i32 %19, %16, %15 : reg<spirv.id>
+  %21 = OpConstant.i32 31 : reg<spirv.id>
+  %22 = OpCompositeConstruct.v2i32 %21, %21 : reg<spirv.id>
+  %23 = OpSelect.v2i32 %19, %22, %11 : reg<spirv.id>
+  %24 = OpExtInst.GLSL.std.450.FindUMsb.v2i32 %20 : reg<spirv.id>
+  %25 = OpISub.v2i32 %23, %24 : reg<spirv.id>
+  %leading = OpSConvert.v2i32.v2i64 %25
+  %result = OpCompositeExtract.v2i64.i64 %leading, 1
+  return %result
+}
+
+// ====
+// RUN: emit source-low target=spirv:vulkan1.3+bda+extended-types output=low
+
+// The trailing-zero mask handles zero through wrapping integer subtraction.
+func.def @trailing_and_population(%value: i16) -> (i16, i16) {
+  %trailing = scalar.cttzi %value : i16
+  %population = scalar.ctpopi %value : i16
+  func.return %trailing, %population : i16, i16
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @trailing_and_population(%value: reg<spirv.id : i16>) -> (reg<spirv.id : i16>, reg<spirv.id : i16>) asm {
+  %8 = OpConstant.i16 0 : reg<spirv.id>
+  %9 = OpISub.i16 %8, %value : reg<spirv.id>
+  %10 = OpBitwiseAnd.i16 %value, %9 : reg<spirv.id>
+  %11 = OpConstant.i16 1 : reg<spirv.id>
+  %12 = OpISub.i16 %10, %11 : reg<spirv.id>
+  %trailing = OpBitCount.i16 %12
+  %population = OpBitCount.i16 %value
+  return %trailing, %population
+}
+
+// ====
+// RUN: emit source-low target=spirv:vulkan1.3+bda output=low
+
+// Predicate counts retain Boolean representation, with no numeric carriers.
+func.def @predicate_counts(%first: i1, %second: i1) -> (i1, i1, i1) {
+  %values = vector.from_elements %first, %second : vector<2xi1>
+  %leading = vector.ctlzi %values : vector<2xi1>
+  %population = vector.ctpopi %values : vector<2xi1>
+  %leading_result = vector.extract %leading[0] : vector<2xi1> -> i1
+  %population_result = vector.extract %population[1] : vector<2xi1> -> i1
+  %trailing = scalar.cttzi %second : i1
+  func.return %leading_result, %population_result, %trailing : i1, i1, i1
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @predicate_counts(%first: reg<spirv.id : i1>, %second: reg<spirv.id : i1>) -> (reg<spirv.id : i1>, reg<spirv.id : i1>, reg<spirv.id : i1>) asm {
+  %population = OpCompositeConstruct.v2bool %first, %second
+  %17 = OpConstantTrue.bool : reg<spirv.id>
+  %18 = OpCompositeConstruct.v2bool %17, %17 : reg<spirv.id>
+  %leading = OpLogicalNotEqual.v2bool %population, %18
+  %leading_result = OpCompositeExtract.v2bool.bool %leading, 0
+  %population_result = OpCompositeExtract.v2bool.bool %population, 1
+  %trailing = OpLogicalNotEqual.bool %second, %17
+  return %leading_result, %population_result, %trailing
+}

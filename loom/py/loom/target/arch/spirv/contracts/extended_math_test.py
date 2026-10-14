@@ -79,7 +79,7 @@ def test_extended_math_contract_covers_scalar_and_native_vector_shapes() -> None
         assert emit.results == {"dst": ValueRef.result("result")}
 
     assert actual == _expected_rule_matrix()
-    assert len(SPIRV_EXTENDED_MATH_CONTRACT_CASES) == 30
+    assert len(SPIRV_EXTENDED_MATH_CONTRACT_CASES) == 20
 
 
 def test_extended_math_contract_is_bound_into_the_shipping_fragment() -> None:

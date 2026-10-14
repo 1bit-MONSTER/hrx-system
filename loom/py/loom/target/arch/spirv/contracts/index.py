@@ -12,6 +12,7 @@ from loom.dialect.index import defs as index
 from loom.dialect.scf import defs as scf
 from loom.dsl import Op
 from loom.error.spirv import ERR_SPIRV_026, ERR_SPIRV_027
+from loom.target.arch.spirv.contracts.integer_bits import bit_count_rule, rotation_rule
 from loom.target.arch.spirv.contracts.predicate import integer_to_boolean_rule
 from loom.target.arch.spirv.descriptors import SPIRV_LOGICAL_CORE_DESCRIPTOR_SET
 from loom.target.arch.spirv.scalar_alu import (
@@ -720,207 +721,6 @@ def _index_shift_rule(source_op: Op, descriptor_key: str) -> DescriptorRule:
     )
 
 
-def _index_rotate_rule(source_op: Op, *, rotate_left: bool) -> DescriptorRule:
-    shift_left = _descriptor("spirv.op_shift_left_logical.i32")
-    shift_right = _descriptor("spirv.op_shift_right_logical.i32")
-    subtract = _descriptor("spirv.op_isub.i32")
-    bitwise_and = _descriptor("spirv.op_bitwise_and.i32")
-    bitwise_or = _descriptor("spirv.op_bitwise_or.i32")
-    first_shift = shift_left if rotate_left else shift_right
-    second_shift = shift_right if rotate_left else shift_left
-    return DescriptorRule(
-        source_op=source_op,
-        descriptor=bitwise_or,
-        guards=(
-            *_typed_guards(("lhs", "rhs", "result"), _INDEX),
-            Guard.value_i64_range(
-                "rhs",
-                0,
-                31,
-                diagnostic=_numeric_range_diagnostic(
-                    "rhs",
-                    0,
-                    31,
-                    "spirv.index.rotate_amount.u5",
-                ),
-            ),
-        ),
-        emit=(
-            _emit(
-                first_shift,
-                operands={
-                    "lhs": ValueRef.operand("lhs"),
-                    "rhs": ValueRef.operand("rhs"),
-                },
-                results={"dst": ValueRef.temporary("first_piece")},
-                result_types={"dst": _INDEX},
-            ),
-            _address_constant_emit(_INDEX, 32, "bit_width"),
-            _emit(
-                subtract,
-                operands={
-                    "lhs": ValueRef.temporary("bit_width"),
-                    "rhs": ValueRef.operand("rhs"),
-                },
-                results={"dst": ValueRef.temporary("complement")},
-                result_types={"dst": _INDEX},
-            ),
-            _address_constant_emit(_INDEX, 31, "amount_mask"),
-            _emit(
-                bitwise_and,
-                operands={
-                    "lhs": ValueRef.temporary("complement"),
-                    "rhs": ValueRef.temporary("amount_mask"),
-                },
-                results={"dst": ValueRef.temporary("masked_complement")},
-                result_types={"dst": _INDEX},
-            ),
-            _emit(
-                second_shift,
-                operands={
-                    "lhs": ValueRef.operand("lhs"),
-                    "rhs": ValueRef.temporary("masked_complement"),
-                },
-                results={"dst": ValueRef.temporary("second_piece")},
-                result_types={"dst": _INDEX},
-            ),
-            _emit(
-                bitwise_or,
-                operands={
-                    "lhs": ValueRef.temporary("first_piece"),
-                    "rhs": ValueRef.temporary("second_piece"),
-                },
-                results={"dst": ValueRef.result("result")},
-            ),
-        ),
-    )
-
-
-def _index_ctpop_rule() -> DescriptorRule:
-    descriptor = _descriptor("spirv.op_bit_count.i32")
-    return DescriptorRule(
-        source_op=index.index_ctpopi,
-        descriptor=descriptor,
-        guards=_typed_guards(("input", "result"), _INDEX),
-        emit=(
-            _emit(
-                descriptor,
-                operands={"input": ValueRef.operand("input")},
-                results={"dst": ValueRef.result("result")},
-            ),
-        ),
-    )
-
-
-def _index_ctlz_rule() -> DescriptorRule:
-    shift_right = _descriptor("spirv.op_shift_right_logical.i32")
-    bitwise_or = _descriptor("spirv.op_bitwise_or.i32")
-    bit_count = _descriptor("spirv.op_bit_count.i32")
-    subtract = _descriptor("spirv.op_isub.i32")
-    emits: list[EmitDescriptorOp] = []
-    smear = ValueRef.operand("input")
-    for step, amount in enumerate((1, 2, 4, 8, 16), start=1):
-        amount_name = f"shift_amount_{amount}"
-        shifted_name = f"shifted_{step}"
-        smear_name = f"smear_{step}"
-        emits.append(_address_constant_emit(_INDEX, amount, amount_name))
-        emits.append(
-            _emit(
-                shift_right,
-                operands={
-                    "lhs": smear,
-                    "rhs": ValueRef.temporary(amount_name),
-                },
-                results={"dst": ValueRef.temporary(shifted_name)},
-                result_types={"dst": _INDEX},
-            )
-        )
-        emits.append(
-            _emit(
-                bitwise_or,
-                operands={
-                    "lhs": smear,
-                    "rhs": ValueRef.temporary(shifted_name),
-                },
-                results={"dst": ValueRef.temporary(smear_name)},
-                result_types={"dst": _INDEX},
-            )
-        )
-        smear = ValueRef.temporary(smear_name)
-    emits.extend(
-        (
-            _emit(
-                bit_count,
-                operands={"input": smear},
-                results={"dst": ValueRef.temporary("population")},
-                result_types={"dst": _INDEX},
-            ),
-            _address_constant_emit(_INDEX, 32, "bit_width"),
-            _emit(
-                subtract,
-                operands={
-                    "lhs": ValueRef.temporary("bit_width"),
-                    "rhs": ValueRef.temporary("population"),
-                },
-                results={"dst": ValueRef.result("result")},
-            ),
-        )
-    )
-    return DescriptorRule(
-        source_op=index.index_ctlzi,
-        descriptor=subtract,
-        guards=_typed_guards(("input", "result"), _INDEX),
-        emit=tuple(emits),
-    )
-
-
-def _index_cttz_rule() -> DescriptorRule:
-    subtract = _descriptor("spirv.op_isub.i32")
-    bitwise_and = _descriptor("spirv.op_bitwise_and.i32")
-    bit_count = _descriptor("spirv.op_bit_count.i32")
-    return DescriptorRule(
-        source_op=index.index_cttzi,
-        descriptor=bit_count,
-        guards=_typed_guards(("input", "result"), _INDEX),
-        emit=(
-            _address_constant_emit(_INDEX, 0, "zero"),
-            _emit(
-                subtract,
-                operands={
-                    "lhs": ValueRef.temporary("zero"),
-                    "rhs": ValueRef.operand("input"),
-                },
-                results={"dst": ValueRef.temporary("negated")},
-                result_types={"dst": _INDEX},
-            ),
-            _emit(
-                bitwise_and,
-                operands={
-                    "lhs": ValueRef.operand("input"),
-                    "rhs": ValueRef.temporary("negated"),
-                },
-                results={"dst": ValueRef.temporary("low_bit")},
-                result_types={"dst": _INDEX},
-            ),
-            _address_constant_emit(_INDEX, 1, "one"),
-            _emit(
-                subtract,
-                operands={
-                    "lhs": ValueRef.temporary("low_bit"),
-                    "rhs": ValueRef.temporary("one"),
-                },
-                results={"dst": ValueRef.temporary("lower_mask")},
-                result_types={"dst": _INDEX},
-            ),
-            _emit(
-                bit_count,
-                operands={"input": ValueRef.temporary("lower_mask")},
-                results={"dst": ValueRef.result("result")},
-            ),
-        ),
-    )
-
-
 def _direct_compare_rule(
     type_pattern: TypePattern,
     predicate: ComparePredicate,
@@ -1079,11 +879,11 @@ SPIRV_INDEX_NUMERIC_RULES: tuple[DescriptorRule, ...] = (
     _index_shift_rule(index.index_shli, "spirv.op_shift_left_logical.i32"),
     _index_shift_rule(index.index_shrsi, "spirv.op_shift_right_arithmetic.i32"),
     _index_shift_rule(index.index_shrui, "spirv.op_shift_right_logical.i32"),
-    _index_rotate_rule(index.index_rotli, rotate_left=True),
-    _index_rotate_rule(index.index_rotri, rotate_left=False),
-    _index_ctlz_rule(),
-    _index_cttz_rule(),
-    _index_ctpop_rule(),
+    rotation_rule(index.index_rotli, _INDEX, 32),
+    rotation_rule(index.index_rotri, _INDEX, 32),
+    bit_count_rule(index.index_ctlzi, _INDEX, 32),
+    bit_count_rule(index.index_cttzi, _INDEX, 32),
+    bit_count_rule(index.index_ctpopi, _INDEX, 32),
     *(_index_compare_rule(predicate) for predicate in INTEGER_COMPARE_PREDICATES),
     *(_offset_compare_rule(predicate) for predicate in INTEGER_COMPARE_PREDICATES),
     _address_select_rule(_INDEX, "spirv.op_select.i32"),

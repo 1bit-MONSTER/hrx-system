@@ -40,9 +40,9 @@ void iree_vm_bytecode_assembler_lexer_initialize(
     iree_string_view_t source, iree_vm_bytecode_assembler_lexer_t* out_lexer);
 
 // Returns an INVALID_ARGUMENT diagnostic at the current source position.
-iree_status_t iree_vm_bytecode_assembler_lexer_error(
+IREE_ATTRIBUTE_NOINLINE iree_status_t iree_vm_bytecode_assembler_lexer_error(
     const iree_vm_bytecode_assembler_lexer_t* lexer,
-    const char* message) IREE_ATTRIBUTE_COLD IREE_ATTRIBUTE_NOINLINE;
+    const char* message) IREE_ATTRIBUTE_COLD;
 
 // Skips ASCII whitespace at the current position.
 void iree_vm_bytecode_assembler_lexer_skip_space(

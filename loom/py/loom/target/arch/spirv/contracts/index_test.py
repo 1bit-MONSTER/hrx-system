@@ -228,8 +228,6 @@ def test_index_numeric_range_guards_have_spirv_diagnostics() -> None:
         index.index_shli,
         index.index_shrsi,
         index.index_shrui,
-        index.index_rotli,
-        index.index_rotri,
     }
     range_guards = [
         guard
@@ -239,7 +237,7 @@ def test_index_numeric_range_guards_have_spirv_diagnostics() -> None:
         if guard.kind == GuardKind.VALUE_I64_RANGE
     ]
 
-    assert len(range_guards) == 10
+    assert len(range_guards) == 8
     assert all(guard.diagnostic is not None for guard in range_guards)
     assert all(
         guard.diagnostic.ref is not None

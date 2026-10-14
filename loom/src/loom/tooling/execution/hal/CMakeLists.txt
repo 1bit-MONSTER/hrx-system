@@ -131,8 +131,8 @@ iree_native_test(
   ARGS
     "{{${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/execution/hal/testdata/scenario_compare_hal_vm.loom}}"
     "--device=amdgpu"
-    "--case=@scenario_compare_hal_vm"
-    "--benchmark=@scenario_compare_hal_vm_throughput"
+    "--case=@scenario_scalar_results"
+    "--benchmark=@scenario_scalar_results_throughput"
     "--sample=2"
     "--batch-size=2"
     "--iterations=1"
@@ -259,10 +259,13 @@ loom_cc_library(
     loom::error::error_defs
     loom::error::source
     loom::ir
+    loom::ops::buffer
     loom::ops::func
     loom::ops::index
     loom::ops::kernel
     loom::ops::op_defs
+    loom::ops::scalar
+    loom::ops::view
     loom::tooling::execution::benchmark
     loom::tooling::testbench::scenario::executor
   PUBLIC

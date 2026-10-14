@@ -2110,7 +2110,7 @@ iree_status_t loom_vector_shrui_facts(
     const loom_value_facts_t* operand_facts,
     loom_value_facts_t* result_facts);
 
-// LOOM_OP_VECTOR_ROTLI: Lanewise left rotate of same-typed integer vector operands.
+// LOOM_OP_VECTOR_ROTLI: Lanewise left rotate of same-typed integer vector operands. Each count is reduced modulo the element width; one-bit rotation is identity.
 // vector.rotli
 LOOM_DEFINE_ISA(loom_vector_rotli_isa, LOOM_OP_VECTOR_ROTLI)
 LOOM_DEFINE_OPERAND(loom_vector_rotli_lhs, 0)
@@ -2121,7 +2121,7 @@ iree_status_t loom_vector_rotli_build(
     loom_value_id_t rhs, loom_type_t result_type,
     loom_location_id_t location, loom_op_t** out_op);
 
-// LOOM_OP_VECTOR_ROTRI: Lanewise right rotate of same-typed integer vector operands.
+// LOOM_OP_VECTOR_ROTRI: Lanewise right rotate of same-typed integer vector operands. Each count is reduced modulo the element width; one-bit rotation is identity.
 // vector.rotri
 LOOM_DEFINE_ISA(loom_vector_rotri_isa, LOOM_OP_VECTOR_ROTRI)
 LOOM_DEFINE_OPERAND(loom_vector_rotri_lhs, 0)

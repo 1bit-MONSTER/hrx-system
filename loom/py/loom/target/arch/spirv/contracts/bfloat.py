@@ -26,6 +26,7 @@ from loom.target.arch.spirv.contracts.memory import (
 )
 from loom.target.arch.spirv.scalar_memory import storage_buffer_scalar_by_suffix
 from loom.target.contracts import (
+    DescriptorEmitForm,
     DescriptorResultType,
     DescriptorRule,
     EmitDescriptorOp,
@@ -33,6 +34,7 @@ from loom.target.contracts import (
     Scalar,
     SourceMemoryAddressCoordinateType,
     SourceMemoryOperation,
+    SourceValueKind,
     ValueRef,
     View,
 )
@@ -52,6 +54,91 @@ from loom.target.emit.float_narrowing import (
 class _BfloatNarrowResult(Enum):
     NATIVE = "native"
     I32_CARRIER = "i32_carrier"
+
+
+def bfloat_to_f32_emits(
+    source: ValueRef, result: ValueRef, *, native_input: bool
+) -> tuple[EmitDescriptorOp, ...]:
+    """Widens BF16 by preserving its payload, without floating-point controls."""
+    emits: list[EmitDescriptorOp] = []
+    if native_input:
+        # Native BF16 does not imply Int16. Pack a pair into i32; shifting by
+        # sixteen discards the duplicate and places the payload in F32's high
+        # bits, preserving subnormals, signed zero and every NaN payload.
+        packed = ValueRef.temporary("packed_bfloat")
+        carrier = ValueRef.temporary("bfloat_carrier")
+        emits.extend(
+            (
+                emit_descriptor_op(
+                    descriptor=logical_core_descriptor(
+                        "spirv.op_composite_construct.v2bf16"
+                    ),
+                    operands={"component0": source, "component1": source},
+                    results={"dst": packed},
+                    result_types={"dst": DescriptorResultType()},
+                ),
+                emit_descriptor_op(
+                    descriptor=logical_core_descriptor("spirv.op_bitcast.v2bf16.i32"),
+                    operands={"input": packed},
+                    results={"dst": carrier},
+                    result_types={"dst": DescriptorResultType()},
+                ),
+            )
+        )
+        source = carrier
+    emits.extend(
+        (
+            EmitDescriptorOp(
+                descriptor=logical_core_descriptor("spirv.op_constant.i32"),
+                results={"dst": ValueRef.temporary("carrier_shift")},
+                result_types={"dst": DescriptorResultType()},
+                immediates={"i32_value": 16},
+                form=DescriptorEmitForm.CONST,
+            ),
+            emit_descriptor_op(
+                descriptor=logical_core_descriptor("spirv.op_shift_left_logical.i32"),
+                operands={"lhs": source, "rhs": ValueRef.temporary("carrier_shift")},
+                results={"dst": ValueRef.temporary("wide_bits")},
+                result_types={"dst": DescriptorResultType()},
+            ),
+            emit_descriptor_op(
+                descriptor=logical_core_descriptor("spirv.op_bitcast.i32.f32"),
+                operands={"input": ValueRef.temporary("wide_bits")},
+                results={"dst": result},
+                result_types=(
+                    {"dst": DescriptorResultType()}
+                    if result.kind is SourceValueKind.TEMPORARY
+                    else None
+                ),
+            ),
+        )
+    )
+    return tuple(emits)
+
+
+def bfloat_widen_rules() -> tuple[DescriptorRule, ...]:
+    """Returns native and software BF16-to-F32 payload conversion rules."""
+    rules = []
+    for native_input in (True, False):
+        emits = bfloat_to_f32_emits(
+            ValueRef.operand("input"),
+            ValueRef.result("result"),
+            native_input=native_input,
+        )
+        rules.append(
+            DescriptorRule(
+                source_op=conversion.scalar_extf,
+                descriptor=emits[-1].descriptor,
+                guards=(
+                    Guard.value_type("input", Scalar("bf16")),
+                    Guard.value_type("result", Scalar("f32")),
+                    *descriptor_feature_guards(*(step.descriptor for step in emits)),
+                ),
+                emit=emits,
+                report_key="exact_bfloat16_to_binary32",
+            )
+        )
+    return tuple(rules)
 
 
 def _bfloat_narrow_rule(

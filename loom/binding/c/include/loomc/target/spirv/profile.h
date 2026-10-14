@@ -293,6 +293,7 @@ typedef enum loomc_spirv_limit_e {
   LOOMC_SPIRV_LIMIT_MAX_FLAT_WORKGROUP_SIZE = 4,
 
   /// Maximum bytes reserved in SPIR-V Workgroup storage by one entry point.
+  /// Known values must fit the IR's non-negative int64_t attribute range.
   LOOMC_SPIRV_LIMIT_MAX_WORKGROUP_STORAGE_BYTES = 5,
 
   /// Fixed target-wide subgroup size in invocations.
@@ -317,6 +318,7 @@ typedef enum loomc_spirv_limit_e {
   LOOMC_SPIRV_LIMIT_MAX_GRID_SIZE_Z = 12,
 
   /// Maximum product of dispatched grid dimensions, in workitems.
+  /// Known values must fit the IR's non-negative int64_t attribute range.
   LOOMC_SPIRV_LIMIT_MAX_FLAT_GRID_SIZE = 13,
 
   /// Number of public SPIR-V limit identifiers.
@@ -741,7 +743,9 @@ typedef struct loomc_spirv_cooperative_matrix_row_t {
   /// Accepted pointer storage classes for load/store operations.
   loomc_spirv_storage_class_flags_t storage_class_flags;
 
-  /// Required cooperative matrix operand bits for this row.
+  /// Required cooperative matrix operand bits for this row. Each signed
+  /// component flag must be present if and only if its component type is
+  /// signed.
   loomc_spirv_cooperative_matrix_operand_flags_t operand_flags;
 } loomc_spirv_cooperative_matrix_row_t;
 
@@ -841,6 +845,9 @@ LOOMC_API_EXPORT loomc_status_t loomc_target_profile_create_spirv(
 /// value match. Contradictory facts fail `out_result` and preserve provenance
 /// from both the base fact and the refining fact. Empty `options->identifier`
 /// carries the base profile identifier into the refined profile.
+/// Named profiles selected with `loomc_target_profile_select` are also valid
+/// bases. Their enabled features, supplied limits, and entry ABI are retained;
+/// omitted optional facts remain unknown and may be supplied by refinement.
 ///
 /// @ownership
 /// The caller owns `out_profile` when the returned result succeeds and releases
@@ -856,6 +863,9 @@ LOOMC_API_EXPORT loomc_status_t loomc_spirv_target_profile_refine(
     loomc_target_profile_t** out_profile, loomc_result_t** out_result);
 
 /// Returns the known state for one SPIR-V feature fact.
+///
+/// Queries accept both named and fact-constructed SPIR-V profiles. An optional
+/// feature omitted from a named profile is unknown, not explicitly false.
 ///
 /// @param profile SPIR-V target profile to query.
 /// @param feature Feature fact to inspect.

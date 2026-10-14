@@ -6,11 +6,18 @@
 
 from loom.dialect.scalar import conversion
 from loom.dialect.scf import defs as scf
-from loom.target.arch.spirv.contracts.bfloat import bfloat_carrier_memory_rules
+from loom.target.arch.spirv.contracts.bfloat import (
+    bfloat_carrier_memory_rules,
+    bfloat_to_f32_emits,
+    bfloat_widen_rules,
+)
+from loom.target.arch.spirv.contracts.float8 import float8_narrow_rules
 from loom.target.arch.spirv.contracts.logical_core import (
     SPIRV_LOGICAL_CORE_CONTRACT_FRAGMENT,
 )
-from loom.target.contracts import DescriptorRule, GuardKind, ValueProjectKind
+from loom.target.arch.spirv.descriptors import SPIRV_LOGICAL_CORE_DESCRIPTOR_SET
+from loom.target.arch.spirv.features import feature_bits_value
+from loom.target.contracts import DescriptorRule, GuardKind, ValueProjectKind, ValueRef
 
 
 def _scalar_rules(source_op, field):
@@ -76,3 +83,56 @@ def test_bfloat_memory_uses_existing_bit_preserving_storage_conversions() -> Non
         else:
             assert rule.emit[0].descriptor.key == "spirv.op_s_convert.i32.i16"
     assert len(seen) == 6
+
+
+def test_bfloat_widening_preserves_payloads_without_optional_float_controls() -> None:
+    rules = bfloat_widen_rules()
+    assert len(rules) == 2
+    for native_input in (False, True):
+        features = feature_bits_value(
+            ("vulkan_shader",) + (("bfloat16_type_khr",) if native_input else ())
+        )
+        applicable = tuple(
+            rule
+            for rule in rules
+            if all(
+                not mask & ~features
+                for guard in rule.guards
+                if guard.kind is GuardKind.DESCRIPTOR_AVAILABLE
+                for mask in guard.descriptor.feature_mask_words
+            )
+        )
+        rule = applicable[0]
+        assert rule is rules[0 if native_input else 1]
+        rule.validate(SPIRV_LOGICAL_CORE_DESCRIPTOR_SET)
+        expected = (
+            "spirv.op_constant.i32",
+            "spirv.op_shift_left_logical.i32",
+            "spirv.op_bitcast.i32.f32",
+        )
+        if native_input:
+            expected = (
+                "spirv.op_composite_construct.v2bf16",
+                "spirv.op_bitcast.v2bf16.i32",
+                *expected,
+            )
+        assert tuple(step.descriptor.key for step in rule.emit) == expected
+        assert rule.emit[-3].immediates == {"i32_value": 16}
+        assert rule.emit[-1].results == {"dst": ValueRef.result("result")}
+
+
+def test_bfloat_to_float8_reuses_the_exact_widening_path() -> None:
+    rules = tuple(
+        rule
+        for rule in float8_narrow_rules()
+        if rule.report_key.startswith("exact_bfloat16_")
+    )
+    assert len(rules) == 4
+    for rule, native_input in zip(rules, (True, True, False, False), strict=True):
+        rule.validate(SPIRV_LOGICAL_CORE_DESCRIPTOR_SET)
+        prefix = bfloat_to_f32_emits(
+            ValueRef.operand("input"),
+            ValueRef.temporary("wide_input"),
+            native_input=native_input,
+        )
+        assert rule.emit[: len(prefix)] == prefix

@@ -133,6 +133,20 @@ iree_cc_test(
 
 iree_cc_test(
   NAME
+    attributes_test
+  SRCS
+    "attributes_c_test.c"
+    "attributes_test.cc"
+  DEPS
+    ::base
+    ::core_headers
+    iree::base::internal
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+iree_cc_test(
+  NAME
     bitfield_test
   SRCS
     "bitfield_test.cc"

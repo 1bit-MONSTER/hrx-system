@@ -7,6 +7,7 @@
 """Exact scalar-to-FP8 conversion rules using SPIR-V integer carriers."""
 
 from loom.dialect.scalar import conversion
+from loom.target.arch.spirv.contracts.bfloat import bfloat_to_f32_emits
 from loom.target.arch.spirv.contracts.descriptor_rule import (
     descriptor_feature_guards,
     emit_descriptor_op,
@@ -14,7 +15,6 @@ from loom.target.arch.spirv.contracts.descriptor_rule import (
     logical_core_descriptor,
 )
 from loom.target.contracts import (
-    DescriptorEmitForm,
     DescriptorResultType,
     DescriptorRule,
     EmitDescriptorOp,
@@ -126,36 +126,6 @@ def _widen_to_f32_emit(source_suffix: str) -> EmitDescriptorOp:
     )
 
 
-def _bfloat_carrier_to_f32_emits() -> tuple[EmitDescriptorOp, ...]:
-    constant_descriptor = logical_core_descriptor("spirv.op_constant.i32")
-    left_shift_descriptor = logical_core_descriptor("spirv.op_shift_left_logical.i32")
-    bitcast_descriptor = logical_core_descriptor("spirv.op_bitcast.i32.f32")
-    return (
-        EmitDescriptorOp(
-            descriptor=constant_descriptor,
-            results={"dst": ValueRef.temporary("carrier_shift")},
-            result_types={"dst": DescriptorResultType()},
-            immediates={"i32_value": 16},
-            form=DescriptorEmitForm.CONST,
-        ),
-        emit_descriptor_op(
-            descriptor=left_shift_descriptor,
-            operands={
-                "lhs": ValueRef.operand("input"),
-                "rhs": ValueRef.temporary("carrier_shift"),
-            },
-            results={"dst": ValueRef.temporary("wide_bits")},
-            result_types={"dst": DescriptorResultType()},
-        ),
-        emit_descriptor_op(
-            descriptor=bitcast_descriptor,
-            operands={"input": ValueRef.temporary("wide_bits")},
-            results={"dst": ValueRef.temporary("wide_input")},
-            result_types={"dst": DescriptorResultType()},
-        ),
-    )
-
-
 def float8_narrow_rules() -> tuple[DescriptorRule, ...]:
     """Returns the complete scalar narrowing matrix ending in i8 carriers."""
 
@@ -192,26 +162,20 @@ def float8_narrow_rules() -> tuple[DescriptorRule, ...]:
             prefix_emits=(_widen_to_f32_emit("f16"),),
         )
     )
-    rules.extend(
-        _float8_narrow_rules_for_source(
-            source_type=Scalar("bf16"),
-            source_name="bfloat16",
-            source_format=F32_FORMAT,
-            descriptors=f32_descriptors,
-            integer_suffix="i32",
-            input_ref=ValueRef.temporary("wide_input"),
-            prefix_emits=(_widen_to_f32_emit("bf16"),),
+    for native_input in (True, False):
+        rules.extend(
+            _float8_narrow_rules_for_source(
+                source_type=Scalar("bf16"),
+                source_name="bfloat16",
+                source_format=F32_FORMAT,
+                descriptors=f32_descriptors,
+                integer_suffix="i32",
+                input_ref=ValueRef.temporary("wide_input"),
+                prefix_emits=bfloat_to_f32_emits(
+                    ValueRef.operand("input"),
+                    ValueRef.temporary("wide_input"),
+                    native_input=native_input,
+                ),
+            )
         )
-    )
-    rules.extend(
-        _float8_narrow_rules_for_source(
-            source_type=Scalar("bf16"),
-            source_name="bfloat16",
-            source_format=F32_FORMAT,
-            descriptors=f32_descriptors,
-            integer_suffix="i32",
-            input_ref=ValueRef.temporary("wide_input"),
-            prefix_emits=_bfloat_carrier_to_f32_emits(),
-        )
-    )
     return tuple(rules)

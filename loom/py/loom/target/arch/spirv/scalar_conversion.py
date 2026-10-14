@@ -155,6 +155,18 @@ def _float_width_conversions() -> tuple[ScalarConversion, ...]:
                 feature_atoms = _float_narrowing_feature_atoms(
                     source_width, result_width
                 )
+            else:
+                # Nonzero finite widening results are normal in the destination,
+                # but OpFConvert may flush a source subnormal. Both widths
+                # also need the promise that preserves zeros and nonfinite
+                # values. Portable bit-pattern recipes cover other profiles.
+                feature_atoms = (
+                    "float32_denorm_preserve"
+                    if source_width == 32
+                    else "float16_64_denorm_preserve",
+                    f"float{source_width}_signed_zero_inf_nan_preserve",
+                    f"float{result_width}_signed_zero_inf_nan_preserve",
+                )
             rows.append(
                 ScalarConversion(
                     source_op_key="extf" if source_width < result_width else "fptrunc",

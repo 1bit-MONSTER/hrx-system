@@ -135,6 +135,7 @@ iree_py_library(
   SRCS
     "extended_math.py"
   DEPS
+    loom::py::loom::target::arch::spirv::features
     loom::py::loom::target::arch::spirv::ordinary_vector
 )
 

@@ -11,8 +11,6 @@ low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @spirv_
   %log = OpExtInst.GLSL.std.450.Log.f32 %exp
   %exp2 = OpExtInst.GLSL.std.450.Exp2.v2f32 %pair
   %log2 = OpExtInst.GLSL.std.450.Log2.v2f32 %exp2
-  %min = OpExtInst.GLSL.std.450.NMin.f32 %one, %two
-  %max = OpExtInst.GLSL.std.450.NMax.v2f32 %pair, %log2
   return
 }
 
@@ -35,8 +33,6 @@ low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @spirv_
                OpName %log "log"
                OpName %exp2 "exp2"
                OpName %log2 "log2"
-               OpName %min "min"
-               OpName %max "max"
        %void = OpTypeVoid
           %3 = OpTypeFunction %void
       %float = OpTypeFloat 32
@@ -50,7 +46,5 @@ low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @spirv_
         %log = OpExtInst %float %11 Log %exp
        %exp2 = OpExtInst %v2float %11 Exp2 %pair
        %log2 = OpExtInst %v2float %11 Log2 %exp2
-        %min = OpExtInst %float %11 NMin %one %two
-        %max = OpExtInst %v2float %11 NMax %pair %log2
                OpReturn
                OpFunctionEnd

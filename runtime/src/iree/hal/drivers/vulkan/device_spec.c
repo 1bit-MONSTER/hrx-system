@@ -12,6 +12,84 @@
 #define IREE_HAL_VULKAN_DEVICE_SPEC_HEADER_SIZE 40u
 #define IREE_HAL_VULKAN_COOPERATIVE_MATRIX_PROPERTY_SIZE 36u
 
+static void iree_hal_vulkan_device_spec_encode_property(
+    const iree_hal_vulkan_cooperative_matrix_property_t* property,
+    uint8_t* row) {
+  iree_unaligned_store_le_u32(row + 0, property->m_size);
+  iree_unaligned_store_le_u32(row + 4, property->n_size);
+  iree_unaligned_store_le_u32(row + 8, property->k_size);
+  iree_unaligned_store_le_u32(row + 12, property->a_type);
+  iree_unaligned_store_le_u32(row + 16, property->b_type);
+  iree_unaligned_store_le_u32(row + 20, property->c_type);
+  iree_unaligned_store_le_u32(row + 24, property->result_type);
+  iree_unaligned_store_le_u32(row + 28, property->saturating_accumulation);
+  iree_unaligned_store_le_u32(row + 32, property->scope);
+}
+
+// Saturating and non-saturating multiply-add are distinct operation variants.
+static int iree_hal_vulkan_device_spec_compare_properties(const uint8_t* lhs,
+                                                          const uint8_t* rhs) {
+  for (uint32_t i = 0; i < 8; ++i) {
+    const uint32_t offset = i == 7 ? 32 : i * 4;
+    const uint32_t lhs_value = iree_unaligned_load_le_u32(lhs + offset);
+    const uint32_t rhs_value = iree_unaligned_load_le_u32(rhs + offset);
+    if (lhs_value != rhs_value) {
+      return lhs_value < rhs_value ? -1 : 1;
+    }
+  }
+  const uint32_t lhs_saturating = iree_unaligned_load_le_u32(lhs + 28);
+  const uint32_t rhs_saturating = iree_unaligned_load_le_u32(rhs + 28);
+  return (lhs_saturating > rhs_saturating) - (lhs_saturating < rhs_saturating);
+}
+
+static void iree_hal_vulkan_device_spec_swap_properties(uint8_t* lhs,
+                                                        uint8_t* rhs) {
+  uint8_t temporary[IREE_HAL_VULKAN_COOPERATIVE_MATRIX_PROPERTY_SIZE];
+  memcpy(temporary, lhs, sizeof(temporary));
+  memcpy(lhs, rhs, sizeof(temporary));
+  memcpy(rhs, temporary, sizeof(temporary));
+}
+
+static void iree_hal_vulkan_device_spec_sift_properties(
+    uint8_t* rows, iree_host_size_t root, iree_host_size_t count) {
+  while (root < count / 2) {
+    iree_host_size_t child = root * 2 + 1;
+    uint8_t* child_row =
+        rows + child * IREE_HAL_VULKAN_COOPERATIVE_MATRIX_PROPERTY_SIZE;
+    if (child + 1 < count &&
+        iree_hal_vulkan_device_spec_compare_properties(
+            child_row,
+            child_row + IREE_HAL_VULKAN_COOPERATIVE_MATRIX_PROPERTY_SIZE) < 0) {
+      ++child;
+      child_row += IREE_HAL_VULKAN_COOPERATIVE_MATRIX_PROPERTY_SIZE;
+    }
+    uint8_t* root_row =
+        rows + root * IREE_HAL_VULKAN_COOPERATIVE_MATRIX_PROPERTY_SIZE;
+    if (iree_hal_vulkan_device_spec_compare_properties(root_row, child_row) >=
+        0) {
+      break;
+    }
+    iree_hal_vulkan_device_spec_swap_properties(root_row, child_row);
+    root = child;
+  }
+}
+
+// The output table is already owned mutable storage. Heap sort establishes the
+// lookup invariant in O(n log n) time using one row of scratch, with no copied
+// table or libc sort allocation during device construction.
+static void iree_hal_vulkan_device_spec_sort_properties(
+    uint8_t* rows, iree_host_size_t count) {
+  for (iree_host_size_t root = count / 2; root > 0; --root) {
+    iree_hal_vulkan_device_spec_sift_properties(rows, root - 1, count);
+  }
+  for (iree_host_size_t end = count; end > 1; --end) {
+    iree_hal_vulkan_device_spec_swap_properties(
+        rows,
+        rows + (end - 1) * IREE_HAL_VULKAN_COOPERATIVE_MATRIX_PROPERTY_SIZE);
+    iree_hal_vulkan_device_spec_sift_properties(rows, 0, end - 1);
+  }
+}
+
 IREE_API_EXPORT iree_status_t
 iree_hal_vulkan_device_spec_calculate_payload_size(
     iree_host_size_t property_count, iree_host_size_t* out_payload_size) {
@@ -76,20 +154,12 @@ IREE_API_EXPORT iree_status_t iree_hal_vulkan_device_spec_encode(
                               spec->subgroup_supported_operations);
   iree_unaligned_store_le_u32(payload.data + 36, (uint32_t)property_count);
   for (iree_host_size_t i = 0; i < property_count; ++i) {
-    const iree_hal_vulkan_cooperative_matrix_property_t* property =
-        &properties[i];
     uint8_t* row = payload.data + IREE_HAL_VULKAN_DEVICE_SPEC_HEADER_SIZE +
                    i * IREE_HAL_VULKAN_COOPERATIVE_MATRIX_PROPERTY_SIZE;
-    iree_unaligned_store_le_u32(row + 0, property->m_size);
-    iree_unaligned_store_le_u32(row + 4, property->n_size);
-    iree_unaligned_store_le_u32(row + 8, property->k_size);
-    iree_unaligned_store_le_u32(row + 12, property->a_type);
-    iree_unaligned_store_le_u32(row + 16, property->b_type);
-    iree_unaligned_store_le_u32(row + 20, property->c_type);
-    iree_unaligned_store_le_u32(row + 24, property->result_type);
-    iree_unaligned_store_le_u32(row + 28, property->saturating_accumulation);
-    iree_unaligned_store_le_u32(row + 32, property->scope);
+    iree_hal_vulkan_device_spec_encode_property(&properties[i], row);
   }
+  iree_hal_vulkan_device_spec_sort_properties(
+      payload.data + IREE_HAL_VULKAN_DEVICE_SPEC_HEADER_SIZE, property_count);
   return iree_ok_status();
 }
 
@@ -131,6 +201,18 @@ IREE_API_EXPORT iree_status_t iree_hal_vulkan_device_spec_decode(
         " cooperative matrix properties must be exactly %" PRIhsz
         " bytes; got %" PRIhsz,
         property_count, expected_payload_size, payload.data_length);
+  }
+  const uint8_t* property_rows =
+      payload.data + IREE_HAL_VULKAN_DEVICE_SPEC_HEADER_SIZE;
+  for (iree_host_size_t i = 1; i < property_count; ++i) {
+    const uint8_t* row =
+        property_rows + i * IREE_HAL_VULKAN_COOPERATIVE_MATRIX_PROPERTY_SIZE;
+    if (iree_hal_vulkan_device_spec_compare_properties(
+            row - IREE_HAL_VULKAN_COOPERATIVE_MATRIX_PROPERTY_SIZE, row) > 0) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "Vulkan cooperative matrix properties must be in canonical order");
+    }
   }
   out_spec->api_version = iree_unaligned_load_le_u32(payload.data + 8);
   out_spec->driver_version = iree_unaligned_load_le_u32(payload.data + 12);
@@ -181,6 +263,30 @@ iree_hal_vulkan_device_spec_read_cooperative_matrix_property(
   out_property->saturating_accumulation = iree_unaligned_load_le_u32(row + 28);
   out_property->scope = iree_unaligned_load_le_u32(row + 32);
   return true;
+}
+
+IREE_API_EXPORT bool iree_hal_vulkan_device_spec_supports_cooperative_matrix(
+    const iree_hal_vulkan_device_spec_t* spec,
+    const iree_hal_vulkan_cooperative_matrix_property_t* requirement) {
+  uint8_t key[IREE_HAL_VULKAN_COOPERATIVE_MATRIX_PROPERTY_SIZE];
+  iree_hal_vulkan_device_spec_encode_property(requirement, key);
+  const uint8_t* rows = spec->cooperative_matrix.encoded_data.data;
+  iree_host_size_t begin = 0;
+  iree_host_size_t end = spec->cooperative_matrix.count;
+  while (begin < end) {
+    const iree_host_size_t middle = begin + (end - begin) / 2;
+    const uint8_t* row =
+        rows + middle * IREE_HAL_VULKAN_COOPERATIVE_MATRIX_PROPERTY_SIZE;
+    if (iree_hal_vulkan_device_spec_compare_properties(row, key) < 0) {
+      begin = middle + 1;
+    } else {
+      end = middle;
+    }
+  }
+  return begin < spec->cooperative_matrix.count &&
+         iree_hal_vulkan_device_spec_compare_properties(
+             rows + begin * IREE_HAL_VULKAN_COOPERATIVE_MATRIX_PROPERTY_SIZE,
+             key) == 0;
 }
 
 IREE_API_EXPORT const iree_hal_device_spec_facet_t*

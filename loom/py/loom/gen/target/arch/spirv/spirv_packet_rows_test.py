@@ -61,6 +61,7 @@ from loom.target.arch.spirv.ordinary_vector_float import (
     ORDINARY_VECTOR_FLOAT_SCALE_INSTRUCTIONS,
 )
 from loom.target.arch.spirv.ordinary_vector_integer import (
+    INTEGER_BIT_COUNT_INSTRUCTIONS,
     ORDINARY_VECTOR_INTEGER_INSTRUCTIONS,
 )
 from loom.target.arch.spirv.scalar_alu import (
@@ -822,7 +823,7 @@ def test_generation_emits_complete_ordinary_vector_bit_layout_rows() -> None:
 
 
 def test_generation_emits_complete_extended_math_matrix() -> None:
-    assert len(EXTENDED_MATH_INSTRUCTIONS) == 24
+    assert len(EXTENDED_MATH_INSTRUCTIONS) == 92
     rows = {row.descriptor_key: row for row in _packet_rows()}
     descriptors = {descriptor.key: descriptor for descriptor in SPIRV_LOGICAL_CORE_DESCRIPTOR_SET.descriptors}
     for instruction in EXTENDED_MATH_INSTRUCTIONS:
@@ -840,6 +841,11 @@ def test_generation_emits_complete_extended_math_matrix() -> None:
         assert descriptor.mnemonic == instruction.mnemonic
         assert descriptor.semantic_tag == instruction.descriptor_key
         assert descriptor.immediates == ()
+
+
+def test_generation_emits_bit_counts_for_all_integer_widths_and_shapes() -> None:
+    assert {row.result_type.suffix for row in INTEGER_BIT_COUNT_INSTRUCTIONS} == {f"{prefix}i{width}" for prefix in ("", "v2", "v3", "v4") for width in (8, 16, 32, 64)}
+    _assert_generated_ordinary_vector_instructions(INTEGER_BIT_COUNT_INSTRUCTIONS)
 
 
 def test_generation_compacts_only_repeated_four_operand_types() -> None:

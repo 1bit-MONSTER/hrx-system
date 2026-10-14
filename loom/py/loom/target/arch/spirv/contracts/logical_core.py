@@ -43,6 +43,7 @@ from loom.target.arch.spirv.contracts.bfloat import (
     bfloat_carrier_memory_rules,
     bfloat_carrier_to_i16_rule,
     bfloat_narrow_rules,
+    bfloat_widen_rules,
 )
 from loom.target.arch.spirv.contracts.descriptor_rule import (
     descriptor_feature_guards as _feature_guards,
@@ -56,11 +57,19 @@ from loom.target.arch.spirv.contracts.descriptor_rule import (
 from loom.target.arch.spirv.contracts.extended_math import (
     SPIRV_EXTENDED_MATH_CONTRACT_CASES,
 )
+from loom.target.arch.spirv.contracts.extrema import extrema_rules
 from loom.target.arch.spirv.contracts.float8 import float8_narrow_rules
-from loom.target.arch.spirv.contracts.float_width import float_width_narrow_rules
+from loom.target.arch.spirv.contracts.float_width import (
+    float_width_narrow_rules,
+    float_width_widen_rules,
+)
 from loom.target.arch.spirv.contracts.index import (
     SPIRV_INDEX_CONVERSION_RULES,
     SPIRV_INDEX_NUMERIC_RULES,
+)
+from loom.target.arch.spirv.contracts.integer_bits import (
+    bit_count_rules,
+    rotation_rules,
 )
 from loom.target.arch.spirv.contracts.memory import (
     STORAGE_BUFFER_MEMORY_SPACES as _STORAGE_BUFFER_MEMORY_SPACES,
@@ -96,6 +105,7 @@ from loom.target.arch.spirv.contracts.ordinary_vector_alu import (
     SPIRV_ORDINARY_VECTOR_ALU_CONTRACT_CASES,
 )
 from loom.target.arch.spirv.contracts.predicate import integer_to_boolean_rule
+from loom.target.arch.spirv.contracts.rounding import rounding_rules
 from loom.target.arch.spirv.contracts.subgroup import SPIRV_SUBGROUP_CONTRACT_CASES
 from loom.target.arch.spirv.cooperative_matrix import (
     COOPERATIVE_MATRIX_CASES,
@@ -1508,6 +1518,7 @@ def _conversion_rules() -> tuple[DescriptorRule, ...]:
     ]
     rules.extend(float_width_narrow_rules())
     rules.extend(bfloat_narrow_rules())
+    rules.extend(bfloat_widen_rules())
     rules.append(bfloat_carrier_from_i16_rule())
     rules.append(bfloat_carrier_to_i16_rule())
     rules.extend(float8_narrow_rules())
@@ -1517,6 +1528,7 @@ def _conversion_rules() -> tuple[DescriptorRule, ...]:
         for row in NATIVE_VECTOR_SCALAR_CONVERSIONS
         for lane_count in (1, *NATIVE_ORDINARY_VECTOR_LANE_COUNTS)
     )
+    rules.extend(float_width_widen_rules())
     rules.extend(
         integer_to_boolean_rule(scalar_conversion.scalar_trunci, scalar.source_type)
         for scalar in SIGNED_INTEGER_SCALAR_ALU_TYPES
@@ -1599,6 +1611,10 @@ SPIRV_LOGICAL_CORE_CONTRACT_FRAGMENT = ContractFragment(
         *_vector_float_scale_rules(),
         *_vector_float_binary_rules(),
         *SPIRV_EXTENDED_MATH_CONTRACT_CASES,
+        *extrema_rules(),
+        *rounding_rules(),
+        *bit_count_rules(),
+        *rotation_rules(),
         *SPIRV_ORDINARY_VECTOR_CONTRACT_CASES,
         *SPIRV_ORDINARY_VECTOR_ALU_CONTRACT_CASES,
         *_compare_rules(),

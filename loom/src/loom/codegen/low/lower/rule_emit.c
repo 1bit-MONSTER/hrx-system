@@ -569,7 +569,6 @@ static iree_status_t loom_low_lower_rule_emit_register_slice(
     loom_low_lower_rule_emit_state_t* state,
     const loom_low_lower_resolved_emit_t* resolved_emit) {
   const loom_low_lower_emit_t* emit = resolved_emit->emit;
-  IREE_ASSERT_EQ(emit->descriptor_ref, LOOM_LOW_LOWER_DESCRIPTOR_REF_NONE);
   IREE_ASSERT_EQ(emit->operand_ref_count, 1);
   IREE_ASSERT_EQ(emit->result_ref_count, 1);
 
@@ -597,7 +596,6 @@ static iree_status_t loom_low_lower_rule_emit_register_concat(
     loom_low_lower_rule_emit_state_t* state,
     const loom_low_lower_resolved_emit_t* resolved_emit) {
   const loom_low_lower_emit_t* emit = resolved_emit->emit;
-  IREE_ASSERT_EQ(emit->descriptor_ref, LOOM_LOW_LOWER_DESCRIPTOR_REF_NONE);
   IREE_ASSERT_GT(emit->operand_ref_count, 0);
   IREE_ASSERT_EQ(emit->result_ref_count, 1);
 
@@ -625,7 +623,6 @@ static iree_status_t loom_low_lower_rule_emit_register_copy(
     loom_low_lower_rule_emit_state_t* state,
     const loom_low_lower_resolved_emit_t* resolved_emit) {
   const loom_low_lower_emit_t* emit = resolved_emit->emit;
-  IREE_ASSERT_EQ(emit->descriptor_ref, LOOM_LOW_LOWER_DESCRIPTOR_REF_NONE);
   IREE_ASSERT_EQ(emit->operand_ref_count, 1);
   IREE_ASSERT_EQ(emit->result_ref_count, 1);
 
@@ -652,7 +649,6 @@ static iree_status_t loom_low_lower_rule_emit_register_move(
     loom_low_lower_rule_emit_state_t* state,
     const loom_low_lower_resolved_emit_t* resolved_emit) {
   const loom_low_lower_emit_t* emit = resolved_emit->emit;
-  IREE_ASSERT_EQ(emit->descriptor_ref, LOOM_LOW_LOWER_DESCRIPTOR_REF_NONE);
   IREE_ASSERT_EQ(emit->operand_ref_count, 1);
   IREE_ASSERT_EQ(emit->result_ref_count, 1);
 
