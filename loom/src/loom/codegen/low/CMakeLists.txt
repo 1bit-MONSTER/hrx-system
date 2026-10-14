@@ -1120,8 +1120,10 @@ loom_cc_library(
   NAME
     source_memory_plan
   HDRS
+    "source_memory_layout.h"
     "source_memory_plan.h"
   SRCS
+    "source_memory_layout.c"
     "source_memory_plan.c"
     "source_memory_plan_summary.c"
   DEPS
