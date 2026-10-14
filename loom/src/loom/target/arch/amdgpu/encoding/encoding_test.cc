@@ -191,6 +191,46 @@ TEST(AmdgpuEncodingTest, DecodesExactlyArchitecturalDppControls) {
   }
 }
 
+TEST(AmdgpuEncodingTest, IntegerSourceSelectorsCoverBothSignedRanges) {
+  bool tested_table = false;
+  for (uint16_t ordinal = 0; ordinal < LOOM_AMDGPU_DESCRIPTOR_SET_ORDINAL_COUNT;
+       ++ordinal) {
+    const auto* table =
+        loom_amdgpu_encoding_table_for_descriptor_set_ordinal(ordinal);
+    if (table == nullptr) {
+      continue;
+    }
+    tested_table = true;
+    for (int32_t value = -17; value <= 65; ++value) {
+      SCOPED_TRACE(::testing::Message()
+                   << "target " << ordinal << " value " << value);
+      uint16_t source = 0;
+      EXPECT_EQ(loom_amdgpu_encoding_inline_u32_source(table, (uint32_t)value,
+                                                       &source),
+                value >= -16 && value <= 64);
+      if (value >= -16 && value <= 64) {
+        EXPECT_EQ(source, value < 0 ? 192 - value : 128 + value);
+      }
+      loom_amdgpu_encoding_packet_t packet = {};
+      IREE_ASSERT_OK(loom_amdgpu_encoding_pack_v_mov_b32_u32(
+          table, /*vdst=*/7, (uint32_t)value, &packet));
+      EXPECT_EQ(packet.word_count, value >= -16 && value <= 64 ? 1u : 2u);
+      if (packet.word_count == 1) {
+        EXPECT_EQ(packet.words[0] & 511u, source);
+      }
+      IREE_ASSERT_OK(loom_amdgpu_encoding_pack_s_mov_b32_u32(
+          table, /*sdst=*/7, (uint32_t)value, &packet));
+      EXPECT_EQ(packet.word_count, value >= -16 && value <= 64 ? 1u : 2u);
+      if (packet.word_count == 1) {
+        EXPECT_EQ(packet.words[0] & 255u, source);
+      }
+    }
+  }
+  if (!tested_table) {
+    GTEST_SKIP() << "No AMDGPU encoding table selected";
+  }
+}
+
 TEST(AmdgpuEncodingTest, VMovB32UsesInlineSourceForSmallU32) {
   LOOM_AMDGPU_REQUIRE_ENCODING_TABLE(
       table, LOOM_AMDGPU_DESCRIPTOR_SET_ORDINAL_RDNA3, "amdgpu.rdna3.core");

@@ -199,9 +199,13 @@ def materialize_amdgpu_descriptor_overlay(
 ) -> Descriptor:
     instruction = _select_instruction(spec, overlay)
     encoding = _select_instruction_encoding(instruction, overlay)
-    _validate_operand_overlay(spec, overlay, instruction, encoding)
+    xml_operands = _validate_operand_overlay(spec, overlay, instruction, encoding)
     operands = tuple(
-        _materialize_operand_overlay(operand_overlay, overlay.encoding_name)
+        _materialize_operand_overlay(
+            operand_overlay,
+            overlay.encoding_name,
+            xml_operands[operand_overlay.xml_field_name].operand_type,
+        )
         for operand_overlay in overlay.operands
     ) + tuple(
         implicit_overlay.descriptor_operand
@@ -293,7 +297,7 @@ def _immediate_field_is_synthetic_literal(
 
 
 def _materialize_operand_overlay(
-    operand_overlay: AmdgpuOperandOverlay, encoding_name: str
+    operand_overlay: AmdgpuOperandOverlay, encoding_name: str, xml_operand_type: str
 ) -> Operand:
     try:
         operand = replace(
@@ -305,7 +309,21 @@ def _materialize_operand_overlay(
             f"AMDGPU operand overlay references unmapped encoding field "
             f"'{operand_overlay.xml_field_name}'"
         ) from exc
-    if any(alternative.reg_class == "amdgpu.agpr" for alternative in operand.reg_alts):
+    if xml_operand_type in ("OPR_ACCVGPR", "OPR_SRC_ACCVGPR"):
+        if any(
+            alternative.reg_class != "amdgpu.agpr" for alternative in operand.reg_alts
+        ):
+            raise AmdgpuDescriptorOverlayError(
+                f"fixed accumulator operand '{operand.field_name}' exposes another "
+                f"register bank for XML type '{xml_operand_type}'"
+            )
+        if operand.encoding_adapter_id:
+            raise AmdgpuDescriptorOverlayError(
+                f"fixed accumulator operand '{operand.field_name}' has a bank selector"
+            )
+    elif any(
+        alternative.reg_class == "amdgpu.agpr" for alternative in operand.reg_alts
+    ):
         if any(
             alternative.reg_class not in (None, "amdgpu.vgpr", "amdgpu.agpr")
             for alternative in operand.reg_alts
@@ -610,7 +628,7 @@ def _validate_operand_overlay(
     overlay: AmdgpuDescriptorOverlay,
     instruction: AmdgpuIsaInstruction,
     encoding: AmdgpuIsaInstructionEncoding,
-) -> None:
+) -> dict[str, AmdgpuIsaOperand]:
     _validate_unique_overlay_fields(overlay)
     xml_operands = _explicit_xml_operands_by_field_name(encoding, overlay)
     encoding_fields, partition_carriers = _encoding_fields_and_partition_carriers(
@@ -743,6 +761,7 @@ def _validate_operand_overlay(
             f"operand field(s): {missing_text}"
         )
     _validate_implicit_operand_overlays(overlay, instruction, encoding)
+    return xml_operands
 
 
 def _xml_operand_requires_implicit_overlay(xml_operand: AmdgpuIsaOperand) -> bool:

@@ -44,6 +44,7 @@ from .rdna3 import *
 from .rdna4 import *
 from .rdna4m import *
 from .rdna35 import *
+from .register_moves import _cdna_register_move_overlays
 from .scalar_carry import *
 from .scalar_float import *
 from .workgroup import *
@@ -368,6 +369,7 @@ def _cdna_core_overlays(
         else _BUFFER_LOAD_LDS_CDNA3_VARIANTS
     )
     overlays = (
+        *_cdna_register_move_overlays(),
         _s_add_u32_overlay(),
         _s_add_co_u32_overlay(),
         _s_add_co_u32_rhs_inline_overlay(),

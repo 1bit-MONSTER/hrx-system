@@ -234,3 +234,22 @@ uint8_t loom_amdgpu_agpr_reg_class_id(
     const loom_low_descriptor_set_t* descriptor_set) {
   return kLoomAmdgpuAgprRegClassIds[descriptor_set->descriptor_set_ordinal];
 }
+
+loom_amdgpu_descriptor_ref_t loom_amdgpu_accumulator_copy_ref(
+    const loom_low_descriptor_set_t* descriptor_set,
+    uint16_t destination_reg_class_id, uint16_t source_reg_class_id) {
+  const uint8_t agpr = loom_amdgpu_agpr_reg_class_id(descriptor_set);
+  if (destination_reg_class_id == agpr) {
+    if (source_reg_class_id == agpr) {
+      return LOOM_AMDGPU_DESCRIPTOR_REF_V_ACCVGPR_MOV_B32;
+    }
+    if (source_reg_class_id == LOOM_AMDGPU_REG_CLASS_ID_SGPR ||
+        source_reg_class_id == LOOM_AMDGPU_REG_CLASS_ID_VGPR) {
+      return LOOM_AMDGPU_DESCRIPTOR_REF_V_ACCVGPR_WRITE_B32;
+    }
+  } else if (destination_reg_class_id == LOOM_AMDGPU_REG_CLASS_ID_VGPR &&
+             source_reg_class_id == agpr) {
+    return LOOM_AMDGPU_DESCRIPTOR_REF_V_ACCVGPR_READ_B32;
+  }
+  return LOOM_AMDGPU_DESCRIPTOR_REF_NONE;
+}

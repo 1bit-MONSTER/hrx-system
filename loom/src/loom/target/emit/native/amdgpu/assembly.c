@@ -1987,20 +1987,34 @@ static iree_status_t loom_amdgpu_append_insertions_before_packet(
 }
 
 static iree_status_t loom_amdgpu_copy_mnemonic(
-    uint16_t descriptor_reg_class_id, iree_string_view_t* out_mnemonic) {
-  if (descriptor_reg_class_id == LOOM_AMDGPU_REG_CLASS_ID_SGPR) {
+    const loom_low_descriptor_set_t* descriptor_set, uint16_t destination_class,
+    uint16_t source_class, iree_string_view_t* out_mnemonic) {
+  if (destination_class == LOOM_AMDGPU_REG_CLASS_ID_SGPR &&
+      source_class == LOOM_AMDGPU_REG_CLASS_ID_SGPR) {
     *out_mnemonic = IREE_SV("s_mov_b32");
     return iree_ok_status();
   }
-  if (descriptor_reg_class_id == LOOM_AMDGPU_REG_CLASS_ID_VGPR) {
+  if (destination_class == LOOM_AMDGPU_REG_CLASS_ID_VGPR &&
+      (source_class == LOOM_AMDGPU_REG_CLASS_ID_VGPR ||
+       source_class == LOOM_AMDGPU_REG_CLASS_ID_SGPR)) {
     *out_mnemonic = IREE_SV("v_mov_b32");
+    return iree_ok_status();
+  }
+  const loom_amdgpu_descriptor_ref_t descriptor_ref =
+      loom_amdgpu_accumulator_copy_ref(descriptor_set, destination_class,
+                                       source_class);
+  if (descriptor_ref != LOOM_AMDGPU_DESCRIPTOR_REF_NONE) {
+    const loom_low_descriptor_t* descriptor =
+        loom_amdgpu_descriptor_ref_descriptor(descriptor_set, descriptor_ref);
+    *out_mnemonic = loom_native_assembly_descriptor_string(
+        descriptor_set, descriptor->mnemonic_string_ref);
     return iree_ok_status();
   }
   return iree_make_status(
       IREE_STATUS_FAILED_PRECONDITION,
-      "AMDGPU assembly copy descriptor register class ID %" PRIu16
-      " is unsupported",
-      descriptor_reg_class_id);
+      "AMDGPU assembly copy from descriptor register class ID %" PRIu16
+      " to %" PRIu16 " is unsupported",
+      source_class, destination_class);
 }
 
 typedef struct loom_amdgpu_assembly_move_state_t {
@@ -2142,7 +2156,9 @@ static iree_status_t loom_amdgpu_emit_move_range(
     const loom_low_move_t* move =
         &context->allocation->moves[move_range.start + i];
     IREE_RETURN_IF_ERROR(loom_amdgpu_copy_mnemonic(
-        move->destination.descriptor_reg_class_id, &move_state.mnemonic));
+        context->schedule->target.descriptor_set,
+        move->destination.descriptor_reg_class_id,
+        move->source.descriptor_reg_class_id, &move_state.mnemonic));
     IREE_RETURN_IF_ERROR(loom_amdgpu_append_move(
         &move_state, &move->destination, &move->source));
     IREE_RETURN_IF_ERROR(loom_amdgpu_append_wait_states_after_instruction(

@@ -64,8 +64,7 @@ low.func.def target<amdgpu.rdna3_5.core>(@target) @poll(%address: reg<amdgpu.vgp
 
 // ----
 0x7E020281
-0xBE8400FF
-0xFFFFFFFF
+0xBE8400C1
 0xDC524000
 0x02000000
 0xBF8903F7

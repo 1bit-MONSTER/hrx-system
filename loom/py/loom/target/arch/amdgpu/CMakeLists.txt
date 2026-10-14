@@ -256,6 +256,7 @@ iree_py_library(
     "descriptors/rdna35.py"
     "descriptors/rdna4.py"
     "descriptors/rdna4m.py"
+    "descriptors/register_moves.py"
     "descriptors/scalar_carry.py"
     "descriptors/scalar_float.py"
     "descriptors/sets.py"

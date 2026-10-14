@@ -408,8 +408,8 @@ bool loom_amdgpu_encoding_field_is_literal(uint16_t field_id);
 // Returns true when |selector| writes a sub-DWORD destination through SDWA.
 bool loom_amdgpu_sdwa_dst_selector_writes_subdword(uint32_t selector);
 
-// Maps a verified inline unsigned integer into the target's scalar/vector
-// source selector domain.
+// Maps a 32-bit integer bit pattern into the target's scalar/vector source
+// selector domain. Returns false when the value needs a literal payload.
 bool loom_amdgpu_encoding_inline_u32_source(
     const loom_amdgpu_encoding_table_t* table, uint32_t value,
     uint16_t* out_source);

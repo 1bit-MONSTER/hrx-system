@@ -10,6 +10,7 @@ import pytest
 
 from loom.gen.target.arch.amdgpu.encoding.amdgpu_encoding_tables import (
     _bit_range,
+    _derive_inline_integer_range,
     _descriptor_encoding_field_names,
     _DescriptorEncodingContract,
     _EncodingContract,
@@ -23,7 +24,12 @@ from loom.target.arch.amdgpu.encoding import (
     AmdgpuRegisterEncodingAdapter,
     amdgpu_encoding_field_id,
 )
-from loom.target.arch.amdgpu.isa_xml import AmdgpuIsaEncoding
+from loom.target.arch.amdgpu.isa_xml import (
+    AmdgpuIsaEncoding,
+    AmdgpuIsaOperandType,
+    AmdgpuIsaPredefinedValue,
+    AmdgpuIsaSpec,
+)
 from loom.target.low_descriptors import Descriptor, Operand, OperandRole, RegClassAlt
 
 
@@ -201,3 +207,31 @@ def test_encoding_field_replacement_rejects_unknown_field() -> None:
 
     with pytest.raises(ValueError, match="cannot replace missing fields: UNKNOWN"):
         _replace_encoding_fields(encoding, (_field("UNKNOWN", _bit_range(16, 8)),))
+
+
+@pytest.mark.parametrize(("broken_domain", "broken_value"), [(None, 0), ("OPR_SRC", 64), ("OPR_SSRC", -16), ("OPR_SRC", -1)])
+def test_inline_integer_domains_share_adjacent_positive_and_negative_ranges(broken_domain, broken_value) -> None:
+    spec = AmdgpuIsaSpec(
+        source_name="inline-integers.xml",
+        architecture_name="test",
+        architecture_id=0,
+        instructions=(),
+        encodings=(),
+        partitioned_operand_uses=(),
+        operand_types=tuple(
+            AmdgpuIsaOperandType(
+                name=domain,
+                is_partitioned=False,
+                fields=(),
+                predefined_values=tuple(
+                    AmdgpuIsaPredefinedValue(str(value), (128 + value if value >= 0 else 192 - value) + (domain == broken_domain and value == broken_value)) for value in range(-16, 65)
+                ),
+            )
+            for domain in ("OPR_SSRC", "OPR_SRC")
+        ),
+    )
+    if broken_domain is None:
+        assert _derive_inline_integer_range(spec) == (128, 65)
+    else:
+        with pytest.raises(ValueError, match="has value"):
+            _derive_inline_integer_range(spec)

@@ -211,6 +211,13 @@ loom_amdgpu_reg_class_traits_t loom_amdgpu_reg_class_traits(
 uint8_t loom_amdgpu_agpr_reg_class_id(
     const loom_low_descriptor_set_t* descriptor_set);
 
+// Returns the native one-unit accumulator transfer for the physical register
+// banks, or NONE when the pair is not an accumulator transfer. The shared move
+// planner owns tuple ordering, overlap, and cycle scratch.
+loom_amdgpu_descriptor_ref_t loom_amdgpu_accumulator_copy_ref(
+    const loom_low_descriptor_set_t* descriptor_set,
+    uint16_t destination_reg_class_id, uint16_t source_reg_class_id);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

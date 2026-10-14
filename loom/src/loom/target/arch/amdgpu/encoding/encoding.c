@@ -461,6 +461,12 @@ bool loom_amdgpu_encoding_inline_u32_source(
     *out_source = (uint16_t)(table->scalar_inline_u32_zero + value);
     return true;
   }
+  const uint32_t magnitude = 0u - value;
+  if (magnitude >= 1 && magnitude <= 16) {
+    *out_source = (uint16_t)(table->scalar_inline_u32_zero +
+                             table->scalar_inline_u32_count + magnitude - 1);
+    return true;
+  }
   return false;
 }
 
