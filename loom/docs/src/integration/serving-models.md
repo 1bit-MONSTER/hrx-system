@@ -6,7 +6,7 @@ device queues, memory ownership, request scheduling and HTTP encoding. Adding
 a model that fits an existing modality changes the package, not the server's C
 code or executable.
 
-The [first-output walkthrough](../workflows/serving/serve-models.md) runs a complete
+The [first-output walkthrough](../serving/workflows/serve-models.md) runs a complete
 arithmetic package before weights or neural accuracy enter the picture. That
 is a useful starting point for a port: changing its math preserves a working
 path through registration, execution, output and retirement.
@@ -30,7 +30,7 @@ its own numerical oracle and representative workload.
 An audio stream, image-conditioned request or arbitrary workflow graph needs an
 input/output ownership contract beyond these HTTP profiles. Such a port is a
 modality extension, not an embedding vector with overloaded fields. The
-[HTTP reference](../reference/serving-http.md) defines the existing boundary.
+[HTTP reference](../serving/http-profiles.md) defines the existing boundary.
 
 ## Keep the package complete and relocatable
 
@@ -47,7 +47,7 @@ weights.safetensors  checkpoint selected by preparation policy
 ```
 
 These filenames are conventions, not hardcoded server paths.
-The [model document](../reference/serving-models.md) names the
+The [model document](../serving/model-documents.md) names the
 actual files. GGUF and safetensors inputs follow the selected preparation
 policy; a file extension or model name does not convert an arbitrary checkpoint.
 Its keys, encodings and layouts must agree with the authored source.
@@ -214,5 +214,5 @@ does not establish these ownership or numerical contracts.
 and [compile reports](../workflows/compile-reports.md) provide the optimization
 loop once correctness is measurable. Real model shapes, memory traffic and
 independent error bounds guide layout, traversal, fusion and specialization.
-Microkernel speed is one input; [server observations](../workflows/serving/observe-model-server.md)
+Microkernel speed is one input; [server observations](../serving/workflows/observe-model-server.md)
 and end-to-end useful throughput determine whether the change helps the workload.

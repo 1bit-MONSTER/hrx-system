@@ -6,9 +6,9 @@ models can be registered, drained and removed independently. Numerical programs
 and parameter files are external inputs. Adding a compatible model package does
 not require rebuilding the server.
 
-The website owns the [installed-user walkthrough](../../../../docs/src/workflows/serving/serve-models.md),
-[command reference](../../../../docs/src/reference/loom-serve.md) and
-[model-document format](../../../../docs/src/reference/serving-models.md).
+The website owns the [installed-user walkthrough](../../../../docs/src/serving/workflows/serve-models.md),
+[command reference](../../../../docs/src/serving/index.md) and
+[model-document format](../../../../docs/src/serving/model-documents.md).
 This page describes the executable's source ownership and repository entry points.
 
 ## Start an empty server
@@ -25,6 +25,15 @@ group has multiple members. A URI is interpreted by its linked HAL driver,
 without an implicit local device or fallback. Fixed backing works without
 virtual-memory support; elastic backing demand-commits retained slabs on
 drivers that provide it.
+
+Generic URI parameters request immutable device runtime services. For example,
+`--device=amdgpu:?feedback` uses the default AMDGPU device and provisions the
+diagnostic channel used by authored kernel assertions. The parameters are
+additive: `?feedback&asan` and `?feedback&asan&tsan` are both valid. `asan` and
+`tsan` provision address- and race-sanitizer state and the report transport each
+requires; explicit `feedback` also enables general authored diagnostics.
+Unsupported services fail during device creation. Address-sanitized devices
+require fixed backing.
 
 `/healthz` and `/readyz` report server availability, independently of model
 preparation. `/v1/status` reports each registration's state and diagnostics;

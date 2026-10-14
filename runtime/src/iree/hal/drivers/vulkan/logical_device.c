@@ -1744,7 +1744,8 @@ static iree_status_t iree_hal_vulkan_logical_device_create_with_selector(
   IREE_TRACE_ZONE_BEGIN(z0);
 
   IREE_RETURN_AND_END_ZONE_IF_ERROR(
-      z0, iree_hal_device_create_params_verify(create_params));
+      z0, iree_hal_device_create_params_verify_runtime_features(
+              create_params, IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_NONE));
 
   iree_hal_vulkan_device_options_t device_options =
       driver_options->device_options;
@@ -1828,7 +1829,8 @@ IREE_API_EXPORT iree_status_t iree_hal_vulkan_wrap_device(
   IREE_TRACE_ZONE_BEGIN(z0);
 
   IREE_RETURN_AND_END_ZONE_IF_ERROR(
-      z0, iree_hal_device_create_params_verify(create_params));
+      z0, iree_hal_device_create_params_verify_runtime_features(
+              create_params, IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_NONE));
   IREE_RETURN_AND_END_ZONE_IF_ERROR(
       z0, iree_hal_vulkan_device_options_verify(options));
   if (!instance || !physical_device || !logical_device) {

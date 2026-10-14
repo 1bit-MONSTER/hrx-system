@@ -2,7 +2,7 @@
 
 All TCP and Unix listeners expose the same catalog and HTTP endpoints.
 Inference requests select a registered deployment through the JSON `model`
-field. Names come from [model documents](serving-models.md), not checkpoint
+field. Names come from [model documents](model-documents.md), not checkpoint
 filenames or an inferred architecture. An absent model returns 404.
 
 The text, image and embedding profiles use familiar OpenAI response shapes,
@@ -34,8 +34,8 @@ loaded tokenizer. Text also reports configured `context_length` and
 `limits.max_output_tokens`, not training context or total cache-pool capacity.
 Capabilities do not establish learned quality or support for every optional field.
 
-[Operation](../workflows/serving/operate-model-server.md) specifies asynchronous control
-completion, conflict and overload behavior. [Observation](../workflows/serving/observe-model-server.md)
+[Operation](workflows/operate-model-server.md) specifies asynchronous control
+completion, conflict and overload behavior. [Observation](workflows/observe-model-server.md)
 specifies model selection, cursors, SSE resume and inspection pagination.
 
 ## Chat completions

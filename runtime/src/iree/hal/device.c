@@ -48,6 +48,23 @@ IREE_API_EXPORT iree_status_t iree_hal_device_create_params_verify(
   return iree_ok_status();
 }
 
+IREE_API_EXPORT iree_status_t
+iree_hal_device_create_params_verify_runtime_features(
+    const iree_hal_device_create_params_t* params,
+    iree_hal_device_runtime_feature_flags_t supported_runtime_features) {
+  IREE_RETURN_IF_ERROR(iree_hal_device_create_params_verify(params));
+  const iree_hal_device_runtime_feature_flags_t unsupported_features =
+      params->runtime_features & ~supported_runtime_features;
+  if (IREE_UNLIKELY(unsupported_features)) {
+    return iree_make_status(
+        IREE_STATUS_UNIMPLEMENTED,
+        "HAL backend does not support requested runtime feature flags "
+        "0x%" PRIx64,
+        unsupported_features);
+  }
+  return iree_ok_status();
+}
+
 IREE_API_EXPORT iree_string_view_t
 iree_hal_device_id(iree_hal_device_t* device) {
   IREE_ASSERT_ARGUMENT(device);

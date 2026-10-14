@@ -137,9 +137,6 @@ static iree_status_t loom_serve_device_group_initialize(
         iree_hal_device_create_params_default();
     params.proactor_pool = loom_serve_host_proactor_pool(group->host);
     params.event_sink = iree_hal_device_event_sink_stderr();
-    // Authored device assertions need feedback even without sanitizer
-    // instrumentation. Models register after this immutable device is created.
-    params.runtime_features = IREE_HAL_DEVICE_RUNTIME_FEATURE_FLAG_FEEDBACK;
     if (iree_status_is_ok(status)) {
       status = iree_hal_driver_create_device_by_uri(
           drivers[driver_index].handle, options[i].uri, &params,
@@ -180,6 +177,14 @@ static iree_status_t loom_serve_device_initialize(
     return iree_make_status(IREE_STATUS_UNAVAILABLE,
                             "device needs dispatch and transfer queues");
   }
+  const iree_hal_device_sanitizer_spec_t* sanitizer =
+      iree_hal_device_spec_sanitizer(iree_hal_device_spec(device->handle));
+  if (options->backing == LOOM_SERVE_DEVICE_BACKING_ELASTIC &&
+      iree_any_bit_set(sanitizer->flags, IREE_HAL_DEVICE_SANITIZER_FLAG_ASAN)) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "address-sanitized serving devices require fixed backing");
+  }
   const iree_hal_queue_family_t* dispatch_family =
       iree_hal_queue_family(device->dispatch);
   const iree_hal_queue_family_t* transfer_family =
@@ -200,8 +205,6 @@ static iree_status_t loom_serve_device_initialize(
       iree_hal_slab_pool_create(group->handle, scope, &storage_options,
                                 group->host_allocator, &device->storage_pool));
   iree_hal_asan_pool_options_t asan_options = {0};
-  const iree_hal_device_sanitizer_spec_t* sanitizer =
-      iree_hal_device_spec_sanitizer(iree_hal_device_spec(device->handle));
   if (iree_any_bit_set(sanitizer->flags, IREE_HAL_DEVICE_SANITIZER_FLAG_ASAN)) {
     asan_options = sanitizer->asan.pool_options;
   }

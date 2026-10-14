@@ -79,11 +79,6 @@ nav:
       - Command programs: guide/command-programs.md
   - Workflows:
       - Workflow map: workflows/index.md
-      - Serving:
-          - Serve source-defined models: workflows/serving/serve-models.md
-          - Connect model clients: workflows/serving/connect-model-clients.md
-          - Operate a model server: workflows/serving/operate-model-server.md
-          - Observe a model server: workflows/serving/observe-model-server.md
       - Agent-driven kernel development: workflows/agent-driven-kernel-development.md
       - Tune loop unrolling and pipelining: workflows/tune-loop-schedules.md
       - Search per-instance loop schedules: workflows/search-loop-schedules.md
@@ -108,13 +103,19 @@ nav:
       - Parallelize kernel JIT compilation: integration/product-frontier.md
       - Use the JIT task pool: integration/jit-task-pool.md
       - Embed kernel JIT compilation: integration/jit-kernel.md
+  - Serving:
+      - loom-serve: serving/index.md
+      - Model documents: serving/model-documents.md
+      - HTTP profiles: serving/http-profiles.md
+      - Workflows:
+          - Serve source-defined models: serving/workflows/serve-models.md
+          - Operate a model server: serving/workflows/operate-model-server.md
+          - Observe a model server: serving/workflows/observe-model-server.md
+          - Connect model clients: serving/workflows/connect-model-clients.md
   - Targets:
       - Resident pipelines on XDNA: targets/xdna-pipelines.md
   - Reference:
       - Reference map: reference/index.md
-      - loom-serve: reference/loom-serve.md
-      - Serving model documents: reference/serving-models.md
-      - Serving HTTP profiles: reference/serving-http.md
       - Dialects: reference/dialects/index.md
       - Types: reference/types/index.md
       - Attributes: reference/attributes/index.md

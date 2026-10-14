@@ -30,7 +30,7 @@ curl --fail --silent --show-error http://127.0.0.1:8080/v1/models
 The first response is `{"status":"ready"}`; the second has an empty `data`
 array. Device selection is explicit. `task` executes native x86 kernels using
 the shared CPU workers; it does not emulate a GPU. Fixed backing works without
-virtual-memory support. The [command reference](../../reference/loom-serve.md)
+virtual-memory support. The [command reference](../index.md)
 describes other device and memory choices.
 
 ## Obtain the example package
@@ -53,7 +53,7 @@ deliberately simple enough to check without another inference framework.
 
 ## Register and execute
 
-Registration takes the same [model document](../../reference/serving-models.md)
+Registration takes the same [model document](../model-documents.md)
 accepted by `--model`. An HTTP document needs an absolute `base_directory` for
 relative file references. That directory is on the server, not the client.
 
@@ -125,16 +125,16 @@ Text and portable bytecode (`.loom` and `.loombc`) can be mixed; both still JIT
 for the selected live device. Provider dependencies are resolved by Loom's
 symbol linker, not by a native list of model layers.
 
-The [model-document reference](../../reference/serving-models.md) explains path
+The [model-document reference](../model-documents.md) explains path
 binding, source roles and modality capacities. The
-[command reference](../../reference/loom-serve.md) covers device groups, multiple
+[command reference](../index.md) covers device groups, multiple
 TCP/Unix listeners and process limits. [Operation](operate-model-server.md) and
 [observation](observe-model-server.md) cover model swapping, pressure, counters
 and log streams. HTTP administration and model loading
 assume trusted clients and programs; deployment-owned isolation or tunnels
 supply any access-control boundary.
 
-[HTTP profiles](../../reference/serving-http.md) enumerate the supported request
+[HTTP profiles](../http-profiles.md) enumerate the supported request
 fields, raw tokenizer utilities and retained-text checkpoint controls.
 [Connect model clients](connect-model-clients.md) configures Pi, Oh My Pi and
 Open WebUI against the mixed catalog without changing those clients.

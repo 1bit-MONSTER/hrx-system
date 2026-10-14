@@ -78,7 +78,11 @@ static int loom_serve_main_agents_markdown(void) {
              "Repeated devices form one ordered group. A model document "
              "needs a top-level `device` index when that group has more than "
              "one member. Fixed backing is suitable for the task and Vulkan "
-             "drivers; elastic backing requires virtual-memory support.\n\n"
+             "drivers; elastic backing requires virtual-memory support. "
+             "Device URI parameters `feedback`, `asan`, and `tsan` request "
+             "additive diagnostic and sanitizer services; for example, "
+             "`--device=amdgpu:?feedback`. Combine services with `&`; "
+             "address-sanitized devices require fixed backing.\n\n"
              "## Register models\n\n"
              "Repeated `--model=path/model.json` values register startup "
              "deployments. Omitting them starts an empty server. The same "
@@ -111,12 +115,12 @@ static int loom_serve_main_agents_markdown(void) {
              "no subcommand.\n\n"
              "## References\n\n"
              "- First output: "
-             "https://rocm.github.io/hrx-system/loom/workflows/serving/"
+             "https://rocm.github.io/hrx-system/loom/serving/workflows/"
              "serve-models/\n"
              "- Command options: "
-             "https://rocm.github.io/hrx-system/loom/reference/loom-serve/\n"
+             "https://rocm.github.io/hrx-system/loom/serving/\n"
              "- Model documents: "
-             "https://rocm.github.io/hrx-system/loom/reference/serving-models/"
+             "https://rocm.github.io/hrx-system/loom/serving/model-documents/"
              "\n",
              stdout) == EOF
              ? EXIT_FAILURE

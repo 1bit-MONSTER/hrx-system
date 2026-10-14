@@ -12,11 +12,11 @@ loom-serve --help
 loom-serve --agents_md
 ```
 
-The [serving walkthrough](../workflows/serving/serve-models.md) reaches a first response
-without weights. [Model documents](serving-models.md) specify programs, assets,
+The [serving walkthrough](workflows/serve-models.md) reaches a first response
+without weights. [Model documents](model-documents.md) specify programs, assets,
 placement and per-model capacities.
-The [operation](../workflows/serving/operate-model-server.md) and
-[observation](../workflows/serving/observe-model-server.md) workflows describe lifecycle
+The [operation](workflows/operate-model-server.md) and
+[observation](workflows/observe-model-server.md) workflows describe lifecycle
 controls, pressure, counters and telemetry cursors.
 
 ## Process options
@@ -54,6 +54,16 @@ through its top-level `device` index; omission is accepted only for a singleton
 group. A URI is resolved by its linked HAL driver. The server neither chooses
 an implicit device nor falls back to a different backend.
 
+Device URI query parameters request immutable runtime services. `feedback`
+provisions device-to-host diagnostics used by authored kernel assertions and
+other UBSAN-style reports. `asan` and `tsan` provision address- and race-
+sanitizer state and start the report transport each requires. They are bare,
+additive parameters. `--device=amdgpu:?feedback` configures the default AMDGPU
+device, while `--device=amdgpu://GPU-0e12865a3bf5b7ab?feedback&asan` configures
+a specific device. `?feedback&asan&tsan` is also valid; explicit `feedback`
+adds general authored diagnostics to the sanitizer services. A backend that
+cannot provide a requested service rejects the URI during device creation.
+
 The model's native source must compile for that device. `task` uses native x86
 CPU execution. AMDGPU and Vulkan require the corresponding compiler target,
 HAL driver and supported hardware. XDNA packages use resident direct-dispatch
@@ -65,7 +75,8 @@ Fixed backing is suitable for devices without virtual-memory support, including
 the task and Vulkan paths. Elastic backing requires the device's virtual-memory
 contract; missing support fails during device-group initialization. Model-specific
 resource requirements are checked during preparation. Neither path silently
-changes the memory policy.
+changes the memory policy. Address-sanitized devices require fixed backing so
+their allocations can be published to the sanitizer shadow state.
 
 All listeners share one catalog, worker pool and connection budget. A port of
 zero requests an ephemeral port. One JSON `ready` record is written to stderr
