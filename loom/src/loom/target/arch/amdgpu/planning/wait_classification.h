@@ -17,6 +17,7 @@
 #include "loom/target/arch/amdgpu/planning/wait_completion.h"
 #include "loom/target/arch/amdgpu/planning/wait_frontier.h"
 #include "loom/target/arch/amdgpu/planning/wait_packet_tables.h"
+#include "loom/target/arch/amdgpu/refs/target_refs.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -121,6 +122,8 @@ typedef struct loom_amdgpu_wait_classification_t {
   iree_host_size_t vmem_result_node_count;
   // Number of MFMA/SMFMAC source records needed by fixed-window planning.
   iree_host_size_t matrix_result_node_count;
+  // Union of native descriptor traits established by node classification.
+  loom_amdgpu_descriptor_traits_t descriptor_traits;
 } loom_amdgpu_wait_classification_t;
 
 // Initializes target wait state once from |schedule| and |allocation|. All

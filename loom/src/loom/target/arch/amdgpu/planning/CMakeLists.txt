@@ -251,11 +251,11 @@ loom_cc_library(
     wait_states
   HDRS
     "mask_write_wait.h"
-    "store_data_wait.h"
+    "short_wait.h"
     "wait_states.h"
   SRCS
     "mask_write_wait.c"
-    "store_data_wait.c"
+    "short_wait.c"
     "wait_states.c"
   DEPS
     ::delay_alu
@@ -268,6 +268,7 @@ loom_cc_library(
     ::wait_packets
     ::wait_plan
     iree::base
+    iree::base::internal
     iree::base::internal::arena
     loom::codegen::low::allocation
     loom::codegen::low::packet

@@ -406,6 +406,7 @@ static void loom_amdgpu_wait_classification_finish_nodes(
     }
     const loom_amdgpu_descriptor_traits_t descriptor_traits =
         loom_amdgpu_descriptor_traits(descriptor_set, node->descriptor);
+    classification->descriptor_traits |= descriptor_traits;
     if (supports_xcnt &&
         iree_any_bit_set(descriptor_traits,
                          LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_MEMORY)) {

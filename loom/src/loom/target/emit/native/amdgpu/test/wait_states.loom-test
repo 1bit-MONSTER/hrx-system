@@ -616,7 +616,7 @@ low.func.def target<amdgpu.cdna3.core>(@gfx942_target) @gfx942_valu_sgpr_to_vmem
 
 // ----
 amdgpu.wait_state_plan states=1 progress=3 hazards=1
-state[0] reason=valu_sgpr_read action=amdgpu.s_nop at=b0:n1/o1 producer=n0 consumer=n1 required=2 observed=0 residual=2
+state[0] reason=valu_sgpr_read action=amdgpu.s_nop at=b0:n1/o1 producer=n0 consumer=n1 required=5 observed=0 residual=5
 
 // ====
 
@@ -633,7 +633,7 @@ low.func.def target<amdgpu.cdna3.core>(@gfx942_target) @gfx942_valu_sgpr_to_vmem
 
 // ----
 amdgpu.wait_state_plan states=1 progress=4 hazards=1
-state[0] reason=valu_sgpr_read action=amdgpu.s_nop at=b0:n2/o2 producer=n0 consumer=n2 required=2 observed=1 residual=1
+state[0] reason=valu_sgpr_read action=amdgpu.s_nop at=b0:n2/o2 producer=n0 consumer=n2 required=5 observed=1 residual=4
 
 // ====
 

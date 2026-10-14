@@ -188,6 +188,7 @@ loom_check_test_suite(
         "test/register_banks.loom-test",
         "test/register_numbering.loom-test",
         "test/shift_allocation.loom-test",
+        "test/short_wait_windows.loom-test",
         "test/spill_lowering.loom-test",
         "test/structural_delay_alu.loom-test",
         "test/target_requirement.loom-test",

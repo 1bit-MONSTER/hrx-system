@@ -3490,6 +3490,7 @@ low.func.def target<amdgpu.cdna3.core>(@gfx942_target) @gfx942_state_read_preced
   s_nop 0
   v_addc_co_u32 v0, s[0:1], v0, v1, s[8:9]
   s_add_u32 s0, s3, s2
+  s_nop 3
   buffer_store_dword v0, v2, s[4:7], s0 offen offset:0
   s_waitcnt vmcnt(0) lgkmcnt(15)
   s_endpgm

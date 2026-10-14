@@ -548,6 +548,16 @@ def _descriptor_trait_names(
             )
     uses_vector_alu = any(resource.kind == ResourceKind.VECTOR_ALU for resource in issue_resources)
     uses_matrix = any(resource.kind == ResourceKind.MATRIX for resource in issue_resources)
+    # The final physical dependency owner retains five native issue slots.
+    # Each instruction contributes at most two output spans and one separately
+    # described store payload; wide outputs remain one contiguous span.
+    physical_outputs = sum(
+        (operand.role in (OperandRole.RESULT, OperandRole.OPERAND_RESULT) or OperandFlag.STATE_WRITE in operand.flags)
+        and any(alternative.reg_class in ("amdgpu.sgpr", "amdgpu.vgpr", "amdgpu.agpr", "amdgpu.exec", "amdgpu.vcc", "amdgpu.m0") for alternative in operand.reg_alts)
+        for operand in descriptor.operands
+    )
+    if physical_outputs > 2:
+        raise ValueError(f"AMDGPU descriptor '{descriptor.key}' exceeds the two-result native instruction contract")
     if uses_vector_alu:
         trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_VECTOR_ALU")
     if any(resource.kind == ResourceKind.SCALAR_ALU for resource in issue_resources):
@@ -586,6 +596,8 @@ def _descriptor_trait_names(
         trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_PERMLANE")
     if descriptor.key in _READFIRSTLANE_DESCRIPTOR_KEYS:
         trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_READFIRSTLANE")
+    if (descriptor.semantic_tag or "").startswith("float.div.fmas."):
+        trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_DIV_FMAS")
     if descriptor.encoding_format_id == AMDGPU_ENCODING_FORMAT_VOP1_SDWA:
         trait_names.append("LOOM_AMDGPU_DESCRIPTOR_TRAIT_SDWA")
     if descriptor.key in _XCNT_IMPLICIT_DRAIN_DESCRIPTOR_KEYS or descriptor.key.startswith(_XCNT_IMPLICIT_DRAIN_DESCRIPTOR_KEY_PREFIXES):

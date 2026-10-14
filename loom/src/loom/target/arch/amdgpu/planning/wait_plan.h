@@ -24,6 +24,7 @@
 #include "loom/codegen/low/schedule/types.h"
 #include "loom/target/arch/amdgpu/planning/address_state.h"
 #include "loom/target/arch/amdgpu/planning/wait_counters.h"
+#include "loom/target/arch/amdgpu/refs/target_refs.h"
 
 struct loom_amdgpu_matrix_result_wait_t;
 
@@ -148,6 +149,8 @@ typedef struct loom_amdgpu_wait_plan_t {
   // progress; packetization, fixed-delay planning, and emission share this
   // decision.
   const uint64_t* elided_wait_nodes;
+  // Union of native descriptor traits retained by node classification.
+  loom_amdgpu_descriptor_traits_t descriptor_traits;
 } loom_amdgpu_wait_plan_t;
 
 // Returns whether the canonical counter walk proved an authored wait redundant.

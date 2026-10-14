@@ -219,12 +219,12 @@ loom_cc_library(
     name = "wait_states",
     srcs = [
         "mask_write_wait.c",
-        "store_data_wait.c",
+        "short_wait.c",
         "wait_states.c",
     ],
     hdrs = [
         "mask_write_wait.h",
-        "store_data_wait.h",
+        "short_wait.h",
         "wait_states.h",
     ],
     deps = [
@@ -251,6 +251,7 @@ loom_cc_library(
         "//loom/src/loom/util:cfg_graph",
         "//loom/src/loom/util:segmented_storage",
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal",
         "//runtime/src/iree/base/internal:arena",
     ],
 )

@@ -1,0 +1,660 @@
+// RUN: emit amdgpu-assembly @cdna2_valu_to_matrix_fallthrough strategy=source
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @cdna2_valu_to_matrix_fallthrough(%input: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %acc: reg<amdgpu.vgpr x4>) -> (reg<amdgpu.vgpr x4>) asm {
+  %lhs = v_add_f32 %input, %rhs
+  low.br ^consume
+^consume:
+  %result = v_mfma_f32_16x16x4f32 %lhs, %rhs, %acc
+  return %result
+}
+
+// ----
+  v_add_f32 v0, v0, v1
+.Lbb1:
+  s_nop 1
+  v_mfma_f32_16x16x4f32 v[4:7], v0, v1, v[4:7]
+  s_nop 10
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @cdna3_valu_to_matrix_fallthrough strategy=source
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @cdna3_valu_to_matrix_fallthrough(%input: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %acc: reg<amdgpu.vgpr x4>) -> (reg<amdgpu.vgpr x4>) asm {
+  %lhs = v_add_f32 %input, %rhs
+  low.br ^consume
+^consume:
+  %result = v_mfma_f32_16x16x4_f32 %lhs, %rhs, %acc
+  return %result
+}
+
+// ----
+  v_add_f32 v0, v0, v1
+.Lbb1:
+  s_nop 1
+  v_mfma_f32_16x16x4_f32 v[4:7], v0, v1, v[4:7]
+  s_nop 9
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @cdna4_valu_to_matrix_fallthrough strategy=source
+
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @cdna4_valu_to_matrix_fallthrough(%input: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %acc: reg<amdgpu.vgpr x4>) -> (reg<amdgpu.vgpr x4>) asm {
+  %lhs = v_add_f32 %input, %rhs
+  low.br ^consume
+^consume:
+  %result = v_mfma_f32_16x16x4_f32 %lhs, %rhs, %acc
+  return %result
+}
+
+// ----
+  v_add_f32 v0, v0, v1
+.Lbb1:
+  s_nop 1
+  v_mfma_f32_16x16x4_f32 v[4:7], v0, v1, v[4:7]
+  s_nop 9
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @transcendental_fallthrough strategy=source
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @transcendental_fallthrough(%input: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %reciprocal = v_rsq_f32 %input
+  low.br ^consume
+^consume:
+  %result = v_mul_f32 %reciprocal, %rhs
+  return %result
+}
+
+// ----
+  v_rsq_f32 v0, v0
+.Lbb1:
+  v_mul_f32 v0, v0, v1
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @scalar_result_fallthrough strategy=source
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @scalar_result_fallthrough(%resource: reg<amdgpu.sgpr x4>, %address: reg<amdgpu.vgpr>, %input: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %offset = v_readfirstlane_b32 %input
+  low.br ^consume
+^consume:
+  %loaded = buffer_load_dword %resource, %address, %offset : reg<amdgpu.vgpr>
+  return %loaded
+}
+
+// ----
+  v_readfirstlane_b32 s4, v0
+.Lbb1:
+  s_nop 4
+  buffer_load_dword v0, v1, s[0:3], s4 offen offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @lane_permute_empty_edges strategy=source
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @lane_permute_empty_edges(%input: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %value = v_add_f32 %input, %rhs
+  low.br ^empty
+^empty:
+  low.br ^consume
+^consume:
+  %result = v_add_f32_dpp %value, %rhs {dpp_ctrl = 177}
+  return %result
+}
+
+// ----
+  v_add_f32 v0, v0, v1
+.Lbb1:
+.Lbb2:
+  s_nop 1
+  v_add_f32_dpp v0, v0, v1, quad_perm:[1,0,3,2], row_mask:0xf, bank_mask:0xf, bound_ctrl:1
+  s_endpgm
+
+// ====
+
+// PERMLANE depends on VALU writers, whereas DPP also depends on loads.
+// RUN: emit amdgpu-assembly @load_to_permlane_fallthrough strategy=source
+
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @load_to_permlane_fallthrough(%resource: reg<amdgpu.sgpr x4>, %offset: reg<amdgpu.sgpr>, %address: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %value = buffer_load_dword %resource, %address, %offset : reg<amdgpu.vgpr>
+  low.br ^consume
+^consume:
+  %left, %right = v_permlane16_swap_b32 %value, %rhs
+  return %left, %right
+}
+
+// ----
+  buffer_load_dword v0, v0, s[0:3], s4 offen offset:0
+.Lbb1:
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  v_permlane16_swap_b32 v0, v1
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @valu_to_permlane_fallthrough strategy=source
+
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @valu_to_permlane_fallthrough(%input: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %value = v_add_u32 %input, %rhs
+  low.br ^consume
+^consume:
+  %left, %right = v_permlane32_swap_b32_e64 %value, %rhs
+  return %left, %right
+}
+
+// ----
+  v_add_u32 v0, v0, v1
+.Lbb1:
+  s_nop 1
+  v_permlane32_swap_b32_e64 v0, v1
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @readfirstlane_fallthrough strategy=source
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @readfirstlane_fallthrough(%input: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.sgpr>) asm {
+  %value = v_add_u32 %input, %rhs
+  low.br ^consume
+^consume:
+  %result = v_readfirstlane_b32 %value
+  return %result
+}
+
+// ----
+  v_add_u32 v0, v0, v1
+.Lbb1:
+  v_readfirstlane_b32 s0, v0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @subword_forwarding_fallthrough strategy=source
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @subword_forwarding_fallthrough(%input: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %packed = v_mov_b32_sdwa %input {dst_sel = 0, dst_unused = 0, src0_sel = 6, src0_sext = 0}
+  low.br ^consume
+^consume:
+  %result = v_add_u32 %packed, %rhs
+  return %result
+}
+
+// ----
+  v_mov_b32_sdwa v0, v0, dst_sel(0), dst_unused(0), src0_sel(6), src0_sext(0)
+.Lbb1:
+  v_add_u32 v0, v0, v1
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @joined_alu_windows strategy=source fixed=%left_value:physical_register:0:1 fixed=%right_value:physical_register:0:1 fixed=%carried:physical_register:0:1
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @joined_alu_windows(%input: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %choice: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %zero = s_mov_b32 0
+  %choose = s_cmp_lt_u32 %zero, %choice
+  low.cond_br %choose, ^left, ^right : reg<amdgpu.scc>
+^left:
+  %left_value = v_add_f32 %input, %rhs
+  low.br ^consume(%left_value: reg<amdgpu.vgpr>)
+^right:
+  %right_value = v_mul_f32 %input, %rhs
+  low.br ^consume(%right_value: reg<amdgpu.vgpr>)
+^consume(%carried: reg<amdgpu.vgpr>):
+  %result = v_add_f32_dpp %carried, %rhs {dpp_ctrl = 177}
+  return %result
+}
+
+// ----
+  s_mov_b32 s1, 0
+  s_cmp_lt_u32 s1, s0
+  s_cbranch_scc0 .Lbb2
+.Lbb1:
+  v_add_f32 v0, v0, v1
+  s_branch .Lbb3
+.Lbb2:
+  v_mul_f32 v0, v0, v1
+.Lbb3:
+  s_nop 1
+  v_add_f32_dpp v0, v0, v1, quad_perm:[1,0,3,2], row_mask:0xf, bank_mask:0xf, bound_ctrl:1
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @loop_carried_alu_window strategy=source fixed=%input:physical_register:0:1 fixed=%carried:physical_register:0:1 fixed=%next:physical_register:0:1
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @loop_carried_alu_window(%input: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %choice: reg<amdgpu.sgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %zero = s_mov_b32 0
+  %choose = s_cmp_lt_u32 %zero, %choice
+  low.br ^loop(%input: reg<amdgpu.vgpr>)
+^loop(%carried: reg<amdgpu.vgpr>):
+  %shifted = v_add_f32_dpp %carried, %rhs {dpp_ctrl = 177}
+  low.cond_br %choose, ^again, ^exit : reg<amdgpu.scc>
+^again:
+  %next = v_add_f32 %shifted, %rhs
+  low.br ^loop(%next: reg<amdgpu.vgpr>)
+^exit:
+  return %shifted
+}
+
+// ----
+  s_mov_b32 s1, 0
+  s_cmp_lt_u32 s1, s0
+.Lbb1:
+  s_nop 0
+  v_add_f32_dpp v0, v0, v1, quad_perm:[1,0,3,2], row_mask:0xf, bank_mask:0xf, bound_ctrl:1
+  s_cbranch_scc0 .Lbb3
+.Lbb2:
+  v_add_f32 v0, v0, v1
+  s_branch .Lbb1
+.Lbb3:
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @counter_wait_is_one_alu_slot strategy=source
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @counter_wait_is_one_alu_slot(%input: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %acc: reg<amdgpu.vgpr x4>, %address: reg<amdgpu.vgpr>, %base: reg<amdgpu.sgpr x2>) -> (reg<amdgpu.vgpr x4>) asm {
+  %loaded = global_load_dword_saddr %address, %base : reg<amdgpu.vgpr>
+  %lhs = v_add_f32 %input, %rhs
+  low.br ^consume
+^consume:
+  %result = v_mfma_f32_16x16x4f32 %lhs, %loaded, %acc
+  return %result
+}
+
+// ----
+  global_load_dword v0, v0, s[0:1] offset:0
+  v_add_f32 v1, v1, v2
+.Lbb1:
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_nop 0
+  v_mfma_f32_16x16x4f32 v[4:7], v1, v0, v[4:7]
+  s_nop 10
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @conditional_tail_progress strategy=source
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @conditional_tail_progress(%input: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>, %choice: reg<amdgpu.sgpr>) asm {
+  %zero = s_mov_b32 0
+  %choose = s_cmp_lt_u32 %zero, %choice
+  %value = v_add_f32 %input, %rhs
+  low.cond_br %choose, ^left, ^right : reg<amdgpu.scc>
+^exit:
+  return
+^left:
+  %left_value = v_add_f32_dpp %value, %rhs {dpp_ctrl = 177}
+  low.br ^exit
+^right:
+  %right_value = v_mul_f32 %value, %rhs
+  low.br ^exit
+}
+
+// ----
+  s_mov_b32 s1, 0
+  s_cmp_lt_u32 s1, s0
+  v_add_f32 v0, v0, v1
+  s_cbranch_scc1 .Lbb2
+  s_branch .Lbb3
+.Lbb1:
+  s_endpgm
+.Lbb2:
+  s_nop 0
+  v_add_f32_dpp v0, v0, v1, quad_perm:[1,0,3,2], row_mask:0xf, bank_mask:0xf, bound_ctrl:1
+  s_branch .Lbb1
+.Lbb3:
+  v_mul_f32 v0, v0, v1
+  s_branch .Lbb1
+
+// ====
+
+// RUN: emit amdgpu-assembly @cdna3_transcendental_fallthrough strategy=source
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @cdna3_transcendental_fallthrough(%input: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %reciprocal = v_rsq_f32 %input
+  low.br ^consume
+^consume:
+  %result = v_mul_f32 %reciprocal, %rhs
+  return %result
+}
+
+// ----
+  v_rsq_f32 v0, v0
+.Lbb1:
+  s_nop 0
+  v_mul_f32 v0, v0, v1
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @cdna3_readfirstlane_fallthrough strategy=source
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @cdna3_readfirstlane_fallthrough(%input: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.sgpr>) asm {
+  %value = v_add_u32 %input, %rhs
+  low.br ^consume
+^consume:
+  %result = v_readfirstlane_b32 %value
+  return %result
+}
+
+// ----
+  v_add_u32 v0, v0, v1
+.Lbb1:
+  s_nop 0
+  v_readfirstlane_b32 s0, v0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @cdna3_subword_forwarding_fallthrough strategy=source
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @cdna3_subword_forwarding_fallthrough(%input: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %packed = v_mov_b32_sdwa %input {dst_sel = 0, dst_unused = 0, src0_sel = 6, src0_sext = 0}
+  low.br ^consume
+^consume:
+  %result = v_add_u32 %packed, %rhs
+  return %result
+}
+
+// ----
+  v_mov_b32_sdwa v0, v0, dst_sel(0), dst_unused(0), src0_sel(6), src0_sext(0)
+.Lbb1:
+  s_nop 0
+  v_add_u32 v0, v0, v1
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @cdna3_scalar_result_fallthrough strategy=source
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @cdna3_scalar_result_fallthrough(%resource: reg<amdgpu.sgpr x4>, %address: reg<amdgpu.vgpr>, %input: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %offset = v_readfirstlane_b32 %input
+  low.br ^consume
+^consume:
+  %loaded = buffer_load_dword %resource, %address, %offset : reg<amdgpu.vgpr>
+  return %loaded
+}
+
+// ----
+  v_readfirstlane_b32 s4, v0
+.Lbb1:
+  s_nop 4
+  buffer_load_dword v0, v1, s[0:3], s4 offen offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @cdna4_scalar_result_fallthrough strategy=source
+
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @cdna4_scalar_result_fallthrough(%resource: reg<amdgpu.sgpr x4>, %address: reg<amdgpu.vgpr>, %input: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %offset = v_readfirstlane_b32 %input
+  low.br ^consume
+^consume:
+  %loaded = buffer_load_dword %resource, %address, %offset : reg<amdgpu.vgpr>
+  return %loaded
+}
+
+// ----
+  v_readfirstlane_b32 s4, v0
+.Lbb1:
+  s_nop 4
+  buffer_load_dword v0, v1, s[0:3], s4 offen offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @cdna2_division_condition_f32 strategy=source
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @cdna2_division_condition_f32(%input: reg<amdgpu.vgpr>, %other: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %scaled, %mask = v_div_scale_f32 %input, %input, %other
+  low.br ^consume
+^consume:
+  %result = v_div_fmas_f32 %scaled, %other, %scaled, %mask
+  return %result
+}
+
+// ----
+  v_div_scale_f32 v0, v0, v0, v1
+.Lbb1:
+  s_nop 3
+  v_div_fmas_f32 v0, v0, v1, v0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @cdna2_division_condition_f64 strategy=source
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @cdna2_division_condition_f64(%input: reg<amdgpu.vgpr x2>, %other: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>) asm {
+  %scaled, %mask = v_div_scale_f64 %input, %input, %other
+  low.br ^consume
+^consume:
+  %result = v_div_fmas_f64 %scaled, %other, %scaled, %mask
+  return %result
+}
+
+// ----
+  v_div_scale_f64 v[0:1], v[0:1], v[0:1], v[2:3]
+.Lbb1:
+  s_nop 3
+  v_div_fmas_f64 v[0:1], v[0:1], v[2:3], v[0:1]
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @cdna2_m0_fallthrough strategy=source
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @cdna2_m0_fallthrough(%input: reg<amdgpu.vgpr>) asm {
+  %address = s_mov_b32_m0_imm 1024
+  low.br ^consume
+^consume:
+  ds_write_addtid_b32 %input, %address
+  return
+}
+
+// ----
+  s_mov_b32 m0, 1024
+.Lbb1:
+  s_nop 0
+  ds_write_addtid_b32 v0 offset:0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @cdna3_division_condition_f32 strategy=source
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @cdna3_division_condition_f32(%input: reg<amdgpu.vgpr>, %other: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %scaled, %mask = v_div_scale_f32 %input, %input, %other
+  low.br ^consume
+^consume:
+  %result = v_div_fmas_f32 %scaled, %other, %scaled, %mask
+  return %result
+}
+
+// ----
+  v_div_scale_f32 v0, v0, v0, v1
+.Lbb1:
+  s_nop 3
+  v_div_fmas_f32 v0, v0, v1, v0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @cdna3_division_condition_f64 strategy=source
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @cdna3_division_condition_f64(%input: reg<amdgpu.vgpr x2>, %other: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>) asm {
+  %scaled, %mask = v_div_scale_f64 %input, %input, %other
+  low.br ^consume
+^consume:
+  %result = v_div_fmas_f64 %scaled, %other, %scaled, %mask
+  return %result
+}
+
+// ----
+  v_div_scale_f64 v[0:1], v[0:1], v[0:1], v[2:3]
+.Lbb1:
+  s_nop 3
+  v_div_fmas_f64 v[0:1], v[0:1], v[2:3], v[0:1]
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @cdna3_m0_fallthrough strategy=source
+
+amdgpu.target<gfx942> @target
+
+low.func.def target<amdgpu.cdna3.core>(@target) @cdna3_m0_fallthrough(%input: reg<amdgpu.vgpr>) asm {
+  %address = s_mov_b32_m0_imm 1024
+  low.br ^consume
+^consume:
+  ds_write_addtid_b32 %input, %address
+  return
+}
+
+// ----
+  s_mov_b32 m0, 1024
+.Lbb1:
+  s_nop 0
+  ds_write_addtid_b32 v0 offset:0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @cdna4_division_condition_f32 strategy=source
+
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @cdna4_division_condition_f32(%input: reg<amdgpu.vgpr>, %other: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %scaled, %mask = v_div_scale_f32 %input, %input, %other
+  low.br ^consume
+^consume:
+  %result = v_div_fmas_f32 %scaled, %other, %scaled, %mask
+  return %result
+}
+
+// ----
+  v_div_scale_f32 v0, v0, v0, v1
+.Lbb1:
+  s_nop 3
+  v_div_fmas_f32 v0, v0, v1, v0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @cdna4_division_condition_f64 strategy=source
+
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @cdna4_division_condition_f64(%input: reg<amdgpu.vgpr x2>, %other: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>) asm {
+  %scaled, %mask = v_div_scale_f64 %input, %input, %other
+  low.br ^consume
+^consume:
+  %result = v_div_fmas_f64 %scaled, %other, %scaled, %mask
+  return %result
+}
+
+// ----
+  v_div_scale_f64 v[0:1], v[0:1], v[0:1], v[2:3]
+.Lbb1:
+  s_nop 3
+  v_div_fmas_f64 v[0:1], v[0:1], v[2:3], v[0:1]
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @cdna4_m0_fallthrough strategy=source
+
+amdgpu.target<gfx950> @target
+
+low.func.def target<amdgpu.cdna4.core>(@target) @cdna4_m0_fallthrough(%input: reg<amdgpu.vgpr>) asm {
+  %address = s_mov_b32_m0_imm 1024
+  low.br ^consume
+^consume:
+  ds_write_addtid_b32 %input, %address
+  return
+}
+
+// ----
+  s_mov_b32 m0, 1024
+.Lbb1:
+  s_nop 0
+  ds_write_addtid_b32 v0 offset:0
+  s_endpgm
+
+// ====
+
+// RUN: emit amdgpu-assembly @load_to_dpp_fallthrough strategy=source
+
+amdgpu.target<gfx90a> @target
+
+low.func.def target<amdgpu.cdna2.core>(@target) @load_to_dpp_fallthrough(%resource: reg<amdgpu.sgpr x4>, %offset: reg<amdgpu.sgpr>, %address: reg<amdgpu.vgpr>, %rhs: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %value = buffer_load_dword %resource, %address, %offset : reg<amdgpu.vgpr>
+  low.br ^consume
+^consume:
+  %result = v_add_f32_dpp %value, %rhs {dpp_ctrl = 177}
+  return %result
+}
+
+// ----
+  buffer_load_dword v0, v0, s[0:3], s4 offen offset:0
+.Lbb1:
+  s_waitcnt vmcnt(0) lgkmcnt(15)
+  s_nop 0
+  v_add_f32_dpp v0, v0, v1, quad_perm:[1,0,3,2], row_mask:0xf, bank_mask:0xf, bound_ctrl:1
+  s_endpgm

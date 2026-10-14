@@ -66,6 +66,8 @@ typedef enum loom_amdgpu_descriptor_trait_bit_e {
   LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX_XDL = 1u << 23,
   // VMEM, DS, or export reads use the matrix-to-memory forwarding window.
   LOOM_AMDGPU_DESCRIPTOR_TRAIT_MATRIX_MEMORY_CONSUMER = 1u << 24,
+  // DIV_FMAS reads its VCC condition through a separate forwarding path.
+  LOOM_AMDGPU_DESCRIPTOR_TRAIT_DIV_FMAS = 1u << 25,
 } loom_amdgpu_descriptor_trait_bit_t;
 typedef uint32_t loom_amdgpu_descriptor_traits_t;
 

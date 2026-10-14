@@ -3451,6 +3451,7 @@ iree_status_t loom_amdgpu_wait_plan_build(
         .actions = builder.actions.actions,
         .action_count = builder.actions.action_count,
         .elided_wait_nodes = builder.elided_wait_nodes,
+        .descriptor_traits = builder.classification.descriptor_traits,
     };
     if (builder.hazard_plan.progress == &builder.progress) {
       out_plan->hazard_plan.progress = &out_plan->progress;

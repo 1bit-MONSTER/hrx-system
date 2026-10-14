@@ -44,7 +44,7 @@ matrix_accumulators:
   v_mov_b32 v2, 1067450368
   v_mov_b32 v3, 1075838976
   s_waitcnt vmcnt(0) lgkmcnt(0)
-  s_nop 1
+  s_nop 0
   v_mfma_f32_16x16x4f32 acc[0:3], v2, v3, acc[0:3]
   s_nop 10
   flat_store_dwordx4 v[0:1], acc[0:3] offset:0

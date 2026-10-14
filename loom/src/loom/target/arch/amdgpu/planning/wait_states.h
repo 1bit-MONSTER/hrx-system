@@ -76,8 +76,12 @@ typedef enum loom_amdgpu_wait_state_reason_e {
   LOOM_AMDGPU_WAIT_STATE_REASON_STORE_DATA_REUSE = 11,
   // An ALU instruction overwrites storage previously read as a lane mask.
   LOOM_AMDGPU_WAIT_STATE_REASON_MASK_WRITE = 12,
+  // DIV_FMAS consumes a condition written to VCC by a recent VALU packet.
+  LOOM_AMDGPU_WAIT_STATE_REASON_DIV_FMAS_CONDITION = 13,
+  // An address or message consumer reads M0 after a scalar ALU write.
+  LOOM_AMDGPU_WAIT_STATE_REASON_M0_READ = 14,
   // Number of wait-state reasons, including UNKNOWN.
-  LOOM_AMDGPU_WAIT_STATE_REASON_COUNT_ = 13,
+  LOOM_AMDGPU_WAIT_STATE_REASON_COUNT_ = 15,
 } loom_amdgpu_wait_state_reason_t;
 
 typedef enum loom_amdgpu_wait_state_action_e {
