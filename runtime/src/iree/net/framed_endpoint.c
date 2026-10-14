@@ -11,6 +11,7 @@
 #include "iree/async/operations/scheduling.h"
 #include "iree/base/threading/mutex.h"
 #include "iree/net/framing_adapter.h"
+#include "iree/net/message_receive_queue.h"
 
 // "IRN1" in little-endian byte order.
 #define IREE_NET_FRAMED_ENDPOINT_FRAME_MAGIC UINT32_C(0x314E5249)
@@ -72,6 +73,9 @@ struct iree_net_framed_endpoint_t {
 
   // Coordinates accepted sends with endpoint and connection drain.
   iree_net_endpoint_lifecycle_t lifecycle;
+
+  // Posted body destinations sharing this endpoint's native drain.
+  iree_net_message_receive_queue_t receive_queue;
 
   // Owned wire-frame adapter and carrier stack.
   iree_net_framing_adapter_t* framing_adapter;
@@ -252,9 +256,25 @@ static iree_status_t iree_net_framed_endpoint_on_wire_message(
       frame.data + IREE_NET_FRAMED_ENDPOINT_FRAME_HEADER_SIZE,
       frame.data_length - IREE_NET_FRAMED_ENDPOINT_FRAME_HEADER_SIZE);
   iree_slim_mutex_lock(&endpoint->mutex);
+  const bool admitted =
+      endpoint->state == IREE_NET_FRAMED_ENDPOINT_STATE_ACTIVE &&
+      iree_net_endpoint_lifecycle_try_begin_operation(&endpoint->lifecycle);
   const iree_net_message_endpoint_callbacks_t callbacks = endpoint->callbacks;
   iree_slim_mutex_unlock(&endpoint->mutex);
-  return callbacks.on_message(callbacks.user_data, payload, lease);
+  if (!admitted) {
+    return iree_ok_status();
+  }
+  iree_status_t status =
+      callbacks.on_message(callbacks.user_data, payload, lease);
+  iree_net_endpoint_lifecycle_end_operation(&endpoint->lifecycle);
+  return status;
+}
+
+static iree_net_message_receive_queue_t* iree_net_framed_endpoint_route_receive(
+    void* user_data, iree_const_byte_span_t header) {
+  (void)header;
+  iree_net_framed_endpoint_t* endpoint = user_data;
+  return &endpoint->receive_queue;
 }
 
 static void iree_net_framed_endpoint_on_wire_error(void* user_data,
@@ -263,6 +283,8 @@ static void iree_net_framed_endpoint_on_wire_error(void* user_data,
   iree_slim_mutex_lock(&endpoint->mutex);
   const iree_net_message_endpoint_callbacks_t callbacks = endpoint->callbacks;
   iree_slim_mutex_unlock(&endpoint->mutex);
+  iree_net_message_receive_queue_close(&endpoint->receive_queue,
+                                       iree_status_clone(status));
   callbacks.on_error(callbacks.user_data, status);
 }
 
@@ -346,12 +368,28 @@ static iree_status_t iree_net_framed_endpoint_deactivate(
     return status;
   }
 
+  iree_net_message_receive_queue_close(&endpoint->receive_queue,
+                                       iree_ok_status());
   status = iree_net_message_endpoint_deactivate(
       endpoint->wire_endpoint, iree_net_framed_endpoint_on_wire_deactivated,
       endpoint);
   IREE_ASSERT(iree_status_is_ok(status),
               "mirrored wire endpoint rejected valid deactivation");
   return status;
+}
+
+static iree_status_t iree_net_framed_endpoint_receive(
+    void* self, iree_net_message_receive_operation_t* operation,
+    const iree_net_message_endpoint_receive_params_t* params) {
+  iree_net_framed_endpoint_t* endpoint = self;
+  if (params->data.data_length >
+      UINT32_MAX - IREE_NET_FRAMED_ENDPOINT_FRAME_HEADER_SIZE -
+          params->prefix.data_length) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "posted message exceeds framed endpoint limit");
+  }
+  return iree_net_message_receive_queue_submit(&endpoint->receive_queue,
+                                               operation, params);
 }
 
 static iree_status_t iree_net_framed_endpoint_calculate_payload_length(
@@ -500,6 +538,7 @@ static const iree_net_message_endpoint_vtable_t
         .deactivate = iree_net_framed_endpoint_deactivate,
         .send = iree_net_framed_endpoint_send,
         .query_send_budget = iree_net_framed_endpoint_query_send_budget,
+        .receive = iree_net_framed_endpoint_receive,
 };
 
 iree_status_t iree_net_framed_endpoint_allocate(
@@ -530,6 +569,8 @@ iree_status_t iree_net_framed_endpoint_allocate(
   iree_async_proactor_retain(proactor);
   iree_net_endpoint_lifecycle_initialize(connection_barrier,
                                          &endpoint->lifecycle);
+  iree_net_message_receive_queue_initialize(&endpoint->lifecycle,
+                                            &endpoint->receive_queue);
   endpoint->state = IREE_NET_FRAMED_ENDPOINT_STATE_CREATED;
   endpoint->host_allocator = host_allocator;
   endpoint->send_state_count = max_send_operations;
@@ -548,7 +589,7 @@ iree_status_t iree_net_framed_endpoint_allocate(
   iree_net_frame_length_callback_t frame_length = {
       .fn = iree_net_framed_endpoint_resolve_frame_length,
       .user_data = NULL,
-      .max_header_size = IREE_NET_FRAMED_ENDPOINT_FRAME_HEADER_SIZE,
+      .header_size = IREE_NET_FRAMED_ENDPOINT_FRAME_HEADER_SIZE,
   };
   iree_status_t status = iree_net_framing_adapter_allocate(
       carrier, frame_length, UINT32_MAX, connection_barrier, host_allocator,
@@ -556,6 +597,11 @@ iree_status_t iree_net_framed_endpoint_allocate(
   if (iree_status_is_ok(status)) {
     endpoint->wire_endpoint =
         iree_net_framing_adapter_as_endpoint(endpoint->framing_adapter);
+    iree_net_framing_adapter_set_receive_router(
+        endpoint->framing_adapter,
+        (iree_net_frame_receive_router_t){
+            .fn = iree_net_framed_endpoint_route_receive,
+            .user_data = endpoint});
     iree_net_message_endpoint_set_callbacks(
         endpoint->wire_endpoint,
         (iree_net_message_endpoint_callbacks_t){
@@ -565,6 +611,7 @@ iree_status_t iree_net_framed_endpoint_allocate(
         });
     *out_endpoint = endpoint;
   } else {
+    iree_net_message_receive_queue_deinitialize(&endpoint->receive_queue);
     iree_net_endpoint_lifecycle_deinitialize(&endpoint->lifecycle);
     iree_async_proactor_release(endpoint->proactor);
     iree_slim_mutex_deinitialize(&endpoint->mutex);
@@ -583,6 +630,7 @@ void iree_net_framed_endpoint_free(iree_net_framed_endpoint_t* endpoint) {
               "framed endpoint freed with owned send state");
   iree_allocator_t host_allocator = endpoint->host_allocator;
   iree_net_framing_adapter_free(endpoint->framing_adapter);
+  iree_net_message_receive_queue_deinitialize(&endpoint->receive_queue);
   iree_net_endpoint_lifecycle_deinitialize(&endpoint->lifecycle);
   iree_async_proactor_release(endpoint->proactor);
   iree_slim_mutex_deinitialize(&endpoint->mutex);
@@ -601,6 +649,8 @@ void iree_net_framed_endpoint_join_deactivation(
     endpoint->state = IREE_NET_FRAMED_ENDPOINT_STATE_DRAINING;
   }
   iree_slim_mutex_unlock(&endpoint->mutex);
+  iree_net_message_receive_queue_close(&endpoint->receive_queue,
+                                       iree_ok_status());
   iree_net_framing_adapter_join_deactivation(endpoint->framing_adapter);
   if (iree_any_bit_set(actions,
                        IREE_NET_ENDPOINT_LIFECYCLE_ACTION_BEGIN_DEACTIVATION)) {

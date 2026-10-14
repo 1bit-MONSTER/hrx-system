@@ -6,12 +6,15 @@
 
 #include "iree/net/frame_accumulator.h"
 
+#include <algorithm>
 #include <cstring>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "iree/base/api.h"
+#include "iree/net/endpoint_lifecycle.h"
+#include "iree/net/message_receive_queue.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 
@@ -45,7 +48,7 @@ static iree_net_frame_length_callback_t TestFrameLengthCallback() {
   return {
       .fn = TestFrameLength,
       .user_data = nullptr,
-      .max_header_size = kHeaderSize,
+      .header_size = kHeaderSize,
   };
 }
 
@@ -115,10 +118,10 @@ struct MockLease {
 };
 
 static iree_host_size_t CalculateStorageSize(
-    iree_host_size_t max_header_size = kHeaderSize) {
+    iree_host_size_t header_size = kHeaderSize) {
   iree_host_size_t storage_size = 0;
   IREE_CHECK_OK(iree_net_frame_accumulator_calculate_storage_size(
-      max_header_size, &storage_size));
+      header_size, &storage_size));
   return storage_size;
 }
 
@@ -129,7 +132,7 @@ class Accumulator {
       iree_allocator_t host_allocator = iree_allocator_system(),
       iree_host_size_t max_frame_size = kMaxFrameSize,
       iree_net_frame_length_callback_t frame_length = TestFrameLengthCallback())
-      : storage_(CalculateStorageSize(frame_length.max_header_size)) {
+      : storage_(CalculateStorageSize(frame_length.header_size)) {
     accumulator_ =
         reinterpret_cast<iree_net_frame_accumulator_t*>(storage_.data());
     iree_net_frame_complete_callback_t on_frame = {
@@ -184,7 +187,7 @@ TEST(FrameAccumulatorTest, InitializeValidatesConfiguration) {
                             accumulator, kMaxFrameSize, frame_length, on_frame,
                             iree_allocator_system()));
   frame_length = TestFrameLengthCallback();
-  frame_length.max_header_size = 0;
+  frame_length.header_size = 0;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         iree_net_frame_accumulator_initialize(
                             accumulator, kMaxFrameSize, frame_length, on_frame,
@@ -196,7 +199,7 @@ TEST(FrameAccumulatorTest, InitializeValidatesConfiguration) {
                             accumulator, kMaxFrameSize, frame_length, on_frame,
                             iree_allocator_system()));
   on_frame.fn = TestContext::OnFrame;
-  frame_length.max_header_size = kMaxFrameSize + 1;
+  frame_length.header_size = kMaxFrameSize + 1;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         iree_net_frame_accumulator_initialize(
                             accumulator, kMaxFrameSize, frame_length, on_frame,
@@ -207,7 +210,8 @@ TEST(FrameAccumulatorTest, StorageDependsOnHeaderSize) {
   iree_host_size_t storage_size = 0;
   IREE_ASSERT_OK(iree_net_frame_accumulator_calculate_storage_size(
       kHeaderSize, &storage_size));
-  EXPECT_EQ(storage_size, sizeof(iree_net_frame_accumulator_t) + kHeaderSize);
+  EXPECT_EQ(storage_size, sizeof(iree_net_frame_accumulator_t) + kHeaderSize +
+                              IREE_NET_MESSAGE_RECEIVE_PREFIX_CAPACITY);
 
   IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
                         iree_net_frame_accumulator_calculate_storage_size(
@@ -419,11 +423,11 @@ TEST(FrameAccumulatorTest, BoundsUnresolvedHeader) {
   iree_net_frame_length_callback_t frame_length = {
       .fn = NeverResolveFrameLength,
       .user_data = nullptr,
-      .max_header_size = 8,
+      .header_size = 8,
   };
   Accumulator accumulator(&context, iree_allocator_system(), kMaxFrameSize,
                           frame_length);
-  std::vector<uint8_t> data(frame_length.max_header_size, 0x42);
+  std::vector<uint8_t> data(frame_length.header_size, 0x42);
 
   IREE_EXPECT_STATUS_IS(IREE_STATUS_RESOURCE_EXHAUSTED,
                         accumulator.PushBorrowed(data));
@@ -527,6 +531,142 @@ TEST(FrameAccumulatorTest, NonemptySpanRequiresStorage) {
 
   EXPECT_EQ(lease.release_count, 1);
   EXPECT_TRUE(context.frames.empty());
+}
+
+// Exercises the real matching owner and lifecycle around the shared cursor.
+struct PostedReceive {
+  // Endpoint owner whose drain must wait for the matched body.
+  iree_net_endpoint_lifecycle_t lifecycle = {};
+  // Real admission and matching queue, without a carrier-specific substitute.
+  iree_net_message_receive_queue_t queue = {};
+  // Reusable caller-owned receive record.
+  iree_net_message_receive_operation_t operation = {};
+  // Current body destination, surrounded by guard bytes.
+  uint8_t storage[10] = {};
+  // Terminal callback count.
+  int count = 0;
+  // Terminal body extent.
+  iree_host_size_t bytes = 0;
+  // Terminal completion code.
+  iree_status_code_t code = IREE_STATUS_UNKNOWN;
+
+  PostedReceive() {
+    memset(storage, 0xCC, sizeof(storage));
+    iree_net_endpoint_lifecycle_initialize(nullptr, &lifecycle);
+    IREE_CHECK_OK(iree_net_endpoint_lifecycle_activate(&lifecycle));
+    iree_net_message_receive_queue_initialize(&lifecycle, &queue);
+    iree_net_message_endpoint_receive_params_t params = {
+        iree_make_const_byte_span("tag!", 4),
+        iree_make_byte_span(storage + 1, 8),
+        {[](void* user_data, iree_status_t status, iree_host_size_t bytes) {
+           auto* self = static_cast<PostedReceive*>(user_data);
+           ++self->count;
+           self->bytes = bytes;
+           self->code = iree_status_code(status);
+           iree_status_free(status);
+         },
+         this}};
+    IREE_CHECK_OK(
+        iree_net_message_receive_queue_submit(&queue, &operation, &params));
+  }
+
+  ~PostedReceive() {
+    iree_net_message_receive_queue_close(&queue, iree_ok_status());
+    if (lifecycle.state == IREE_NET_ENDPOINT_LIFECYCLE_STATE_ACTIVE) {
+      iree_net_endpoint_lifecycle_actions_t actions;
+      IREE_CHECK_OK(iree_net_endpoint_lifecycle_request_deactivation(
+          &lifecycle, [](void*) {}, nullptr, &actions));
+      iree_net_endpoint_lifecycle_complete_deactivation(&lifecycle);
+    }
+    iree_net_message_receive_queue_deinitialize(&queue);
+    iree_net_endpoint_lifecycle_deinitialize(&lifecycle);
+  }
+
+  void Route(iree_net_frame_accumulator_t* accumulator) {
+    iree_net_frame_accumulator_set_receive_router(
+        accumulator, {[](void* user_data, iree_const_byte_span_t) {
+                        return &static_cast<PostedReceive*>(user_data)->queue;
+                      },
+                      this});
+  }
+};
+
+TEST(FrameAccumulatorTest, EveryChunkBoundaryPlacesWithoutPayloadAllocation) {
+  auto frame = MakeFrame("tag!12345678");
+  for (size_t split = 0; split <= frame.size(); ++split) {
+    SCOPED_TRACE(split);
+    PostedReceive receive;
+    TestContext context;
+    Accumulator accumulator(&context, iree_allocator_null());
+    receive.Route(accumulator.get());
+    IREE_ASSERT_OK(iree_net_frame_accumulator_push_span(
+        accumulator.get(), iree_async_span_from_ptr(frame.data(), split)));
+    IREE_ASSERT_OK(iree_net_frame_accumulator_push_span(
+        accumulator.get(),
+        iree_async_span_from_ptr(frame.data() + split, frame.size() - split)));
+    EXPECT_EQ(receive.count, 1);
+    EXPECT_EQ(receive.code, IREE_STATUS_OK);
+    EXPECT_EQ(receive.bytes, 8u);
+    EXPECT_EQ(memcmp(receive.storage + 1, "12345678", 8), 0);
+    EXPECT_EQ(receive.storage[0], 0xCC);
+    EXPECT_EQ(receive.storage[9], 0xCC);
+    EXPECT_TRUE(context.frames.empty());
+  }
+}
+
+TEST(FrameAccumulatorTest, NativeSpansNameThePostedBodyDirectly) {
+  PostedReceive receive;
+  TestContext context;
+  Accumulator accumulator(&context, iree_allocator_null());
+  receive.Route(accumulator.get());
+  auto frame = MakeFrame("tag!12345678");
+  size_t position = 0;
+  while (position < frame.size()) {
+    auto span =
+        iree_net_frame_accumulator_query_receive_buffer(accumulator.get());
+    ASSERT_GT(span.length, 0u);
+    if (position >= 8) {
+      EXPECT_EQ(iree_async_span_ptr(span), receive.storage + 1 + position - 8);
+    }
+    const size_t length = std::min<size_t>(span.length, 3);
+    memcpy(iree_async_span_ptr(span), frame.data() + position, length);
+    span.length = length;
+    IREE_ASSERT_OK(
+        iree_net_frame_accumulator_push_span(accumulator.get(), span));
+    position += length;
+  }
+  EXPECT_EQ(receive.count, 1);
+  EXPECT_EQ(receive.bytes, 8u);
+  EXPECT_EQ(memcmp(receive.storage + 1, "12345678", 8), 0);
+}
+
+TEST(FrameAccumulatorTest, FailureKeepsActiveDestinationUntilNativeRetirement) {
+  PostedReceive receive;
+  TestContext context;
+  Accumulator accumulator(&context, iree_allocator_null());
+  receive.Route(accumulator.get());
+  auto frame = MakeFrame("tag!12345678");
+  IREE_ASSERT_OK(iree_net_frame_accumulator_push_span(
+      accumulator.get(), iree_async_span_from_ptr(frame.data(), 11)));
+  iree_net_message_receive_queue_close(
+      &receive.queue, iree_status_from_code(IREE_STATUS_DATA_LOSS));
+  EXPECT_EQ(receive.count, 0);
+  bool drained = false;
+  iree_net_endpoint_lifecycle_actions_t actions;
+  IREE_ASSERT_OK(iree_net_endpoint_lifecycle_request_deactivation(
+      &receive.lifecycle,
+      [](void* value) { *static_cast<bool*>(value) = true; }, &drained,
+      &actions));
+  iree_net_endpoint_lifecycle_complete_deactivation(&receive.lifecycle);
+  EXPECT_FALSE(drained);
+  iree_net_frame_accumulator_abort(
+      accumulator.get(), iree_status_from_code(IREE_STATUS_DATA_LOSS));
+  EXPECT_EQ(receive.count, 1);
+  EXPECT_EQ(receive.code, IREE_STATUS_DATA_LOSS);
+  EXPECT_EQ(receive.bytes, 3u);
+  EXPECT_TRUE(drained);
+  EXPECT_EQ(memcmp(receive.storage + 1, "123", 3), 0);
+  EXPECT_EQ(receive.storage[4], 0xCC);
 }
 
 }  // namespace

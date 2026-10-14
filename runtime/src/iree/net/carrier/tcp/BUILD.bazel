@@ -26,6 +26,7 @@ iree_runtime_cc_library(
         "//runtime/src/iree/net:endpoint_lifecycle",
         "//runtime/src/iree/net:framing_adapter",
         "//runtime/src/iree/net:message_endpoint",
+        "//runtime/src/iree/net:message_receive_queue",
         "//runtime/src/iree/net/carrier/stream",
     ],
 )
@@ -78,4 +79,21 @@ iree_runtime_cc_test(
         "@platforms//os:macos": ["//runtime/src/iree/async/platform/posix"],
         "//conditions:default": [],
     }),
+)
+
+iree_runtime_cc_test(
+    name = "receive_test",
+    srcs = ["receive_test.cc"],
+    deps = [
+        ":connection",
+        ":factory",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/async:platform",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/net:connection",
+        "//runtime/src/iree/net:message_endpoint",
+        "//runtime/src/iree/net:transport_factory",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
 )

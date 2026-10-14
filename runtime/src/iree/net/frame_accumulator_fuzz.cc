@@ -118,7 +118,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   // Allocate accumulator storage.
   iree_host_size_t storage_size = 0;
   iree_status_t status = iree_net_frame_accumulator_calculate_storage_size(
-      /*max_header_size=*/4, &storage_size);
+      /*header_size=*/4, &storage_size);
   if (!iree_status_is_ok(status)) {
     iree_status_free(status);
     return 0;
@@ -134,7 +134,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   iree_net_frame_length_callback_t frame_length_callback = {
       .fn = fuzz_frame_length,
       .user_data = NULL,
-      .max_header_size = 4,
+      .header_size = 4,
   };
   iree_net_frame_complete_callback_t on_frame_complete = {
       fuzz_on_frame_complete, &frame_count};

@@ -334,4 +334,23 @@ iree_cc_library(
   PUBLIC
 )
 
+iree_cc_library(
+  NAME
+    receive_tests
+  SRCS
+    "receive_test.cc"
+  DEPS
+    ::transport_backend
+    iree::async
+    iree::async::platform
+    iree::base
+    iree::net::connection
+    iree::net::message_endpoint
+    iree::net::transport_factory
+    iree::testing::gtest
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

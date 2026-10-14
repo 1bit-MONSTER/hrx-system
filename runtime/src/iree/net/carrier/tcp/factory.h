@@ -34,7 +34,8 @@ typedef struct iree_net_tcp_factory_options_t {
   // Framing, endpoint, and send admission limits for every connection.
   iree_net_tcp_connection_options_t connection_options;
 
-  // Byte length of each connection-owned registered receive buffer.
+  // Byte length of each connection-owned registered receive buffer in POOLED
+  // mode. PLACEMENT mode allocates no receive pool.
   iree_host_size_t receive_buffer_size;
 
   // Power-of-two receive buffer count allocated for each connection. Must not
@@ -62,7 +63,8 @@ iree_net_tcp_factory_options_default(void) {
 // Hostname resolution is deliberately outside the transport factory so that
 // connect submission never performs blocking resolver work.
 //
-// TCP creates a dedicated registered receive pool for every connection. The
+// POOLED mode creates a dedicated registered receive pool for each connection;
+// PLACEMENT mode receives into the shared framing cursor's current target. The
 // generic receive pool arguments passed to connect and create_listener are not
 // used by this transport.
 //

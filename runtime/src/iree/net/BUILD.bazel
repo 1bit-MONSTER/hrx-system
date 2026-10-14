@@ -78,8 +78,30 @@ iree_runtime_cc_library(
     hdrs = ["message_endpoint.h"],
     deps = [
         ":carrier",
+        ":message_receive",
         "//runtime/src/iree/async",
         "//runtime/src/iree/base",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "message_receive",
+    hdrs = ["message_receive.h"],
+    deps = [
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "message_receive_queue",
+    srcs = ["message_receive_queue.c"],
+    hdrs = ["message_receive_queue.h"],
+    deps = [
+        ":endpoint_lifecycle",
+        ":message_receive",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/threading",
     ],
 )
 
@@ -179,6 +201,7 @@ iree_runtime_cc_library(
         ":endpoint_lifecycle",
         ":framing_adapter",
         ":message_endpoint",
+        ":message_receive_queue",
         "//runtime/src/iree/async",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base:core_headers",
@@ -192,6 +215,8 @@ iree_runtime_cc_library(
     hdrs = ["frame_accumulator.h"],
     deps = [
         ":buffer_lease",
+        ":message_receive",
+        ":message_receive_queue",
         "//runtime/src/iree/async",
         "//runtime/src/iree/base",
     ],
@@ -317,7 +342,9 @@ iree_runtime_cc_test(
     name = "frame_accumulator_test",
     srcs = ["frame_accumulator_test.cc"],
     deps = [
+        ":endpoint_lifecycle",
         ":frame_accumulator",
+        ":message_receive_queue",
         "//runtime/src/iree/base",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",

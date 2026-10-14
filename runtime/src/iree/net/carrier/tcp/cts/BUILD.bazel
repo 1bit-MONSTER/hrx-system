@@ -119,3 +119,43 @@ iree_runtime_cc_benchmark(
         "//runtime/src/iree/net/cts:transport_backend",
     ],
 )
+
+iree_runtime_cc_test(
+    name = "receive_tests",
+    deps = [
+        ":backend",
+        "//runtime/src/iree/net/cts:receive_tests",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+iree_runtime_cc_library(
+    name = "placement_backend",
+    testonly = True,
+    srcs = ["backend.cc"],
+    defines = ["IREE_NET_CTS_TCP_RECEIVE_PLACEMENT=1"],
+    deps = [
+        "//runtime/src/iree/net/carrier/tcp:connection",
+        "//runtime/src/iree/net/carrier/tcp:factory",
+        "//runtime/src/iree/net/cts:transport_backend",
+    ],
+    alwayslink = True,
+)
+
+iree_runtime_cc_test(
+    name = "receive_placement_tests",
+    deps = [
+        ":placement_backend",
+        "//runtime/src/iree/net/cts:receive_tests",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+iree_runtime_cc_test(
+    name = "transport_placement_tests",
+    deps = [
+        ":placement_backend",
+        "//runtime/src/iree/net/cts:transport_tests",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)

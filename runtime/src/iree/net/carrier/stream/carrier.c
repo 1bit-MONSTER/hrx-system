@@ -156,8 +156,20 @@ struct iree_net_stream_carrier_t {
   // Mutex-protected dispatch and shutdown state.
   iree_net_stream_carrier_flags_t flags;
 
-  // Single receive operation reused for the carrier lifetime.
-  iree_async_socket_recv_pool_operation_t receive_operation;
+  // Single native receive lane reused for the carrier lifetime.
+  struct {
+    // Optional cold-installed provider replacing pool selection.
+    iree_net_stream_receive_buffer_provider_t provider;
+    // Last provided span, borrowed through native completion or deactivation.
+    iree_async_span_t span;
+    // Native operation selected by the presence of |provider.fn|.
+    union {
+      // Default pool-backed receive.
+      iree_async_socket_recv_pool_operation_t pool;
+      // Receive directly into |span|.
+      iree_async_socket_recv_operation_t provided;
+    } operation;
+  } receive;
 
   // Mutex-protected receive operation ownership state.
   iree_net_stream_receive_state_t receive_state;
@@ -380,8 +392,11 @@ static iree_status_t iree_net_stream_request_receive_cancellation_locked(
   if (carrier->receive_state != IREE_NET_STREAM_RECEIVE_STATE_SUBMITTED) {
     return iree_ok_status();
   }
-  iree_status_t status = iree_net_stream_cancel_operation_locked(
-      carrier, &carrier->receive_operation.base);
+  iree_async_operation_t* operation =
+      carrier->receive.provider.fn ? &carrier->receive.operation.provided.base
+                                   : &carrier->receive.operation.pool.base;
+  iree_status_t status =
+      iree_net_stream_cancel_operation_locked(carrier, operation);
   if (iree_status_is_ok(status)) {
     carrier->receive_state = IREE_NET_STREAM_RECEIVE_STATE_CANCELLING;
   }
@@ -830,8 +845,22 @@ static void iree_net_stream_socket_receive_completed(
 
 static iree_status_t iree_net_stream_submit_receive_locked(
     iree_net_stream_carrier_t* carrier) {
+  if (carrier->receive.provider.fn) {
+    carrier->receive.span =
+        carrier->receive.provider.fn(carrier->receive.provider.user_data);
+    iree_async_socket_recv_operation_t* operation =
+        &carrier->receive.operation.provided;
+    iree_async_operation_zero(&operation->base, sizeof(*operation));
+    iree_async_operation_initialize(
+        &operation->base, IREE_ASYNC_OPERATION_TYPE_SOCKET_RECV,
+        IREE_ASYNC_OPERATION_FLAG_NONE,
+        iree_net_stream_socket_receive_completed, carrier);
+    operation->socket = carrier->socket;
+    operation->buffers = iree_async_span_list_make(&carrier->receive.span, 1);
+    return iree_async_proactor_submit_one(carrier->proactor, &operation->base);
+  }
   iree_async_socket_recv_pool_operation_t* operation =
-      &carrier->receive_operation;
+      &carrier->receive.operation.pool;
   iree_async_operation_zero(&operation->base, sizeof(*operation));
   iree_async_operation_initialize(
       &operation->base, IREE_ASYNC_OPERATION_TYPE_SOCKET_RECV_POOL,
@@ -957,9 +986,11 @@ static void iree_net_stream_retire_completing_receive(
 static void iree_net_stream_socket_receive_completed(
     void* user_data, iree_async_operation_t* operation, iree_status_t status,
     iree_async_completion_flags_t flags) {
+  (void)operation;
   iree_net_stream_carrier_t* carrier = (iree_net_stream_carrier_t*)user_data;
-  iree_async_socket_recv_pool_operation_t* receive_operation =
-      (iree_async_socket_recv_pool_operation_t*)operation;
+  const bool provided = carrier->receive.provider.fn != NULL;
+  iree_async_buffer_lease_t* lease =
+      provided ? NULL : &carrier->receive.operation.pool.lease;
 
   iree_slim_mutex_lock(&carrier->mutex);
   IREE_ASSERT(
@@ -971,7 +1002,9 @@ static void iree_net_stream_socket_receive_completed(
 
   if (iree_net_carrier_state(&carrier->base) != IREE_NET_CARRIER_STATE_ACTIVE) {
     iree_status_free(status);
-    iree_async_buffer_lease_release(&receive_operation->lease);
+    if (lease) {
+      iree_async_buffer_lease_release(lease);
+    }
     iree_net_stream_retire_completing_receive(carrier);
     return;
   }
@@ -982,15 +1015,22 @@ static void iree_net_stream_socket_receive_completed(
                               "stream socket receive was cancelled");
   }
   if (!iree_status_is_ok(status)) {
-    iree_async_buffer_lease_release(&receive_operation->lease);
+    if (lease) {
+      iree_async_buffer_lease_release(lease);
+    }
     iree_net_stream_publish_failure(carrier, status);
     iree_net_stream_retire_completing_receive(carrier);
     return;
   }
   iree_status_free(status);
 
-  if (receive_operation->bytes_received == 0) {
-    iree_async_buffer_lease_release(&receive_operation->lease);
+  const iree_host_size_t bytes_received =
+      provided ? carrier->receive.operation.provided.bytes_received
+               : carrier->receive.operation.pool.bytes_received;
+  if (bytes_received == 0) {
+    if (lease) {
+      iree_async_buffer_lease_release(lease);
+    }
     iree_status_t handler_status = carrier->base.handlers.on_receive(
         carrier->base.handlers.user_data, iree_async_span_empty(), NULL);
     if (!iree_status_is_ok(handler_status)) {
@@ -1000,12 +1040,11 @@ static void iree_net_stream_socket_receive_completed(
     return;
   }
 
-  IREE_ASSERT(
-      receive_operation->bytes_received <= receive_operation->lease.span.length,
-      "stream receive exceeds its leased buffer");
-  iree_async_span_t data = iree_async_span_make(
-      receive_operation->lease.span.region,
-      receive_operation->lease.span.offset, receive_operation->bytes_received);
+  const iree_async_span_t span = provided ? carrier->receive.span : lease->span;
+  IREE_ASSERT(bytes_received <= span.length,
+              "stream receive exceeds its submitted buffer");
+  iree_async_span_t data =
+      iree_async_span_make(span.region, span.offset, bytes_received);
   // Only this serialized callback can increase the retained count. Concurrent
   // returns can lower it, conservatively leaving this delivery borrowed. Keep
   // one native buffer available for later control/release-trigger messages;
@@ -1013,19 +1052,18 @@ static void iree_net_stream_socket_receive_completed(
   const int32_t retained_lease_count = iree_atomic_load(
       &carrier->retained_receive_lease_count, iree_memory_order_acquire);
   iree_net_stream_receive_lease_context_t* lease_context = NULL;
-  if ((iree_host_size_t)retained_lease_count <
-      carrier->receive_lease_context_count - 1) {
-    lease_context = iree_net_stream_prepare_receive_lease(
-        carrier, &receive_operation->lease);
+  if (lease && (iree_host_size_t)retained_lease_count <
+                   carrier->receive_lease_context_count - 1) {
+    lease_context = iree_net_stream_prepare_receive_lease(carrier, lease);
   }
   iree_status_t handler_status = carrier->base.handlers.on_receive(
-      carrier->base.handlers.user_data, data,
-      lease_context ? &receive_operation->lease : NULL);
+      carrier->base.handlers.user_data, data, lease_context ? lease : NULL);
   if (lease_context) {
-    iree_net_stream_retain_moved_receive_lease(carrier, lease_context,
-                                               &receive_operation->lease);
+    iree_net_stream_retain_moved_receive_lease(carrier, lease_context, lease);
   }
-  iree_async_buffer_lease_release(&receive_operation->lease);
+  if (lease) {
+    iree_async_buffer_lease_release(lease);
+  }
 
   if (!iree_status_is_ok(handler_status)) {
     iree_net_stream_publish_failure(carrier, handler_status);
@@ -1078,9 +1116,12 @@ static iree_status_t iree_net_stream_carrier_activate(
       iree_net_stream_carrier_cast(base_carrier);
   iree_status_t status = iree_ok_status();
   iree_slim_mutex_lock(&carrier->mutex);
-  if (!iree_net_carrier_try_transition_state(base_carrier,
-                                             IREE_NET_CARRIER_STATE_CREATED,
-                                             IREE_NET_CARRIER_STATE_ACTIVE)) {
+  if (!carrier->receive_pool && !carrier->receive.provider.fn) {
+    status = iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
+                              "stream reception requires a pool or provider");
+  } else if (!iree_net_carrier_try_transition_state(
+                 base_carrier, IREE_NET_CARRIER_STATE_CREATED,
+                 IREE_NET_CARRIER_STATE_ACTIVE)) {
     status = iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                               "stream carrier is not in CREATED state");
   } else {
@@ -1387,7 +1428,6 @@ IREE_API_EXPORT iree_status_t iree_net_stream_carrier_create(
     iree_allocator_t host_allocator, iree_net_carrier_t** out_carrier) {
   IREE_ASSERT_ARGUMENT(proactor);
   IREE_ASSERT_ARGUMENT(socket);
-  IREE_ASSERT_ARGUMENT(receive_pool);
   IREE_ASSERT_ARGUMENT(out_carrier);
   *out_carrier = NULL;
 
@@ -1420,20 +1460,22 @@ IREE_API_EXPORT iree_status_t iree_net_stream_carrier_create(
   }
 
   iree_async_region_t* receive_region =
-      iree_async_buffer_pool_region(receive_pool);
-  if (receive_region->proactor != proactor) {
+      receive_pool ? iree_async_buffer_pool_region(receive_pool) : NULL;
+  if (receive_region && receive_region->proactor != proactor) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "stream receive pool was registered with a different proactor");
   }
-  if (!iree_any_bit_set(receive_region->access_flags,
+  if (receive_region &&
+      !iree_any_bit_set(receive_region->access_flags,
                         IREE_ASYNC_BUFFER_ACCESS_FLAG_WRITE)) {
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                             "stream receive pool does not permit writes");
   }
   const iree_host_size_t receive_buffer_count =
-      iree_async_buffer_pool_capacity(receive_pool);
-  if (receive_buffer_count == 0 || receive_buffer_count > INT32_MAX) {
+      receive_pool ? iree_async_buffer_pool_capacity(receive_pool) : 0;
+  if (receive_pool &&
+      (receive_buffer_count == 0 || receive_buffer_count > INT32_MAX)) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "stream receive pool capacity must be in [1, INT32_MAX]");
@@ -1526,4 +1568,28 @@ IREE_API_EXPORT iree_status_t iree_net_stream_carrier_create(
                               host_allocator, &carrier->base);
   *out_carrier = &carrier->base;
   return iree_ok_status();
+}
+
+IREE_API_EXPORT iree_status_t
+iree_net_stream_carrier_set_receive_buffer_provider(
+    iree_net_carrier_t* base_carrier,
+    iree_net_stream_receive_buffer_provider_t provider) {
+  IREE_ASSERT_ARGUMENT(base_carrier);
+  if (base_carrier->vtable != &iree_net_stream_carrier_vtable || !provider.fn) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "a stream carrier and receive provider are required");
+  }
+  iree_net_stream_carrier_t* carrier =
+      iree_net_stream_carrier_cast(base_carrier);
+  iree_status_t status = iree_ok_status();
+  iree_slim_mutex_lock(&carrier->mutex);
+  if (iree_net_carrier_state(base_carrier) != IREE_NET_CARRIER_STATE_CREATED) {
+    status = iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
+                              "receive provider must precede activation");
+  } else {
+    carrier->receive.provider = provider;
+  }
+  iree_slim_mutex_unlock(&carrier->mutex);
+  return status;
 }

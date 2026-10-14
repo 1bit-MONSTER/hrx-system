@@ -7,8 +7,17 @@
 #ifndef IREE_NET_RDMA_LIBRARY_H_
 #define IREE_NET_RDMA_LIBRARY_H_
 
+// rdma-core combines distinct C enums in its public capability constants.
+// Keep its C++ deprecation diagnostic confined to the native header boundary.
+#if defined(__clang__) && defined(__cplusplus)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-anon-enum-enum-conversion"
+#endif
 #include <infiniband/verbs.h>  // IWYU pragma: export
 #include <rdma/rdma_cma.h>     // IWYU pragma: export
+#if defined(__clang__) && defined(__cplusplus)
+#pragma clang diagnostic pop
+#endif
 
 #include "iree/base/api.h"
 

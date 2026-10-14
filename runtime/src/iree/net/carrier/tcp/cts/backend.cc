@@ -12,8 +12,11 @@ namespace {
 
 iree_status_t CreateFactory(iree_allocator_t host_allocator,
                             iree_net_transport_factory_t** out_factory) {
-  return iree_net_tcp_factory_create(
-      /*options=*/nullptr, host_allocator, out_factory);
+  auto options = iree_net_tcp_factory_options_default();
+#if defined(IREE_NET_CTS_TCP_RECEIVE_PLACEMENT)
+  options.connection_options.receive_mode = IREE_NET_TCP_RECEIVE_MODE_PLACEMENT;
+#endif
+  return iree_net_tcp_factory_create(&options, host_allocator, out_factory);
 }
 
 iree_status_t MakeBindAddress(std::string* out_address) {

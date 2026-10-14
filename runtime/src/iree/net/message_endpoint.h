@@ -38,6 +38,7 @@
 #include "iree/async/api.h"
 #include "iree/base/api.h"
 #include "iree/net/carrier.h"
+#include "iree/net/message_receive.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -151,7 +152,55 @@ struct iree_net_message_endpoint_vtable_t {
                         const iree_net_message_endpoint_send_params_t* params);
   // Queries current message send admission capacity.
   iree_net_carrier_send_budget_t (*query_send_budget)(void* self);
+  // Optional destination capture for a connection-facing payload message.
+  iree_status_t (*receive)(
+      void* self, iree_net_message_receive_operation_t* operation,
+      const iree_net_message_endpoint_receive_params_t* params);
 };
+
+// Posts a current writable body for a message with an exact opaque prefix.
+//
+// All posted receives on an endpoint use the same nonzero prefix width. The
+// transport validates the complete body extent before writing it. Matched
+// messages complete this operation instead of invoking on_message; unmatched
+// messages keep ordinary leased delivery. No wire envelope is added.
+//
+// An OK return captures the prefix, destination and callback and guarantees one
+// terminal completion. A non-OK return captures nothing and invokes no
+// callback. The operation and destination survive errors until that completion;
+// endpoint error publication alone does not return a native destination borrow.
+// A matched body can keep logical endpoint deactivation pending until it
+// completes or the owning connection deactivates its native receive. No
+// registration occurs here.
+//
+// Receives may be posted from any thread. An operation is zero-initialized
+// before first use and cannot be reused until its terminal callback begins.
+// Internal wire-frame endpoint views do not expose payload placement and return
+// UNIMPLEMENTED; use the connection-facing endpoint.
+static inline iree_status_t iree_net_message_endpoint_receive(
+    iree_net_message_endpoint_t endpoint,
+    iree_net_message_receive_operation_t* operation,
+    const iree_net_message_endpoint_receive_params_t* params) {
+  if (!operation || !params || !params->completion_callback.fn ||
+      !params->prefix.data || !params->prefix.data_length ||
+      params->prefix.data_length > IREE_NET_MESSAGE_RECEIVE_PREFIX_CAPACITY ||
+      (params->data.data_length && !params->data.data)) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "receive operation, callback, bounded prefix and "
+                            "writable destination are required");
+  }
+  if (params->data.data_length >
+      IREE_HOST_SIZE_MAX - params->prefix.data_length) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "message receive extent overflow");
+  }
+  if (!endpoint.vtable->receive) {
+    return iree_make_status(
+        IREE_STATUS_UNIMPLEMENTED,
+        "endpoint does not support payload receive placement");
+  }
+  return endpoint.vtable->receive(endpoint.self, operation, params);
+}
 
 // Sets message and error handlers atomically.
 //

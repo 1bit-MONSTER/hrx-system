@@ -63,3 +63,12 @@ iree_runtime_cc_benchmark(
         "//runtime/src/iree/net/cts:transport_backend",
     ],
 )
+
+iree_runtime_cc_test(
+    name = "receive_tests",
+    deps = [
+        ":backend",
+        "//runtime/src/iree/net/cts:receive_tests",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)

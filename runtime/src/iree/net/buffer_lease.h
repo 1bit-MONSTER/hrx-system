@@ -21,7 +21,8 @@ extern "C" {
 // move-only: transfer it by value and clear the source. Release the final owner
 // with iree_async_buffer_lease_release().
 //
-// |capacity| must be nonzero.
+// |capacity| must be nonzero. Payload bytes are uninitialized; the caller must
+// write them before exposing the lease to a consumer.
 IREE_API_EXPORT iree_status_t iree_net_buffer_lease_allocate(
     iree_host_size_t capacity, iree_allocator_t host_allocator,
     iree_async_buffer_lease_t* out_lease);

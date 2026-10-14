@@ -26,6 +26,7 @@ iree_cc_library(
     iree::net::endpoint_lifecycle
     iree::net::framing_adapter
     iree::net::message_endpoint
+    iree::net::message_receive_queue
   PUBLIC
 )
 
@@ -86,6 +87,24 @@ iree_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     ${_factory_test_platform_deps}
+)
+
+iree_cc_test(
+  NAME
+    receive_test
+  SRCS
+    "receive_test.cc"
+  DEPS
+    ::connection
+    ::factory
+    iree::async
+    iree::async::platform
+    iree::base
+    iree::net::connection
+    iree::net::message_endpoint
+    iree::net::transport_factory
+    iree::testing::gtest
+    iree::testing::gtest_main
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

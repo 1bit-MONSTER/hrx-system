@@ -52,7 +52,7 @@ static iree_net_frame_length_callback_t TestFrameLengthCallback() {
   return {
       .fn = TestFrameLength,
       .user_data = nullptr,
-      .max_header_size = kHeaderSize,
+      .header_size = kHeaderSize,
   };
 }
 
@@ -463,7 +463,7 @@ TEST_F(FramingAdapterTest, AllocateRequiresFrameLengthFn) {
   iree_net_frame_length_callback_t frame_length = {
       .fn = nullptr,
       .user_data = nullptr,
-      .max_header_size = kHeaderSize,
+      .header_size = kHeaderSize,
   };
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_INVALID_ARGUMENT,

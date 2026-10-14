@@ -127,4 +127,47 @@ iree_cc_binary_benchmark(
   TESTONLY
 )
 
+iree_cc_test(
+  NAME
+    receive_tests
+  DEPS
+    ::backend
+    iree::net::cts::receive_tests
+    iree::testing::gtest_main
+)
+
+iree_cc_library(
+  NAME
+    placement_backend
+  SRCS
+    "backend.cc"
+  DEPS
+    iree::net::carrier::tcp::connection
+    iree::net::carrier::tcp::factory
+    iree::net::cts::transport_backend
+  DEFINES
+    "IREE_NET_CTS_TCP_RECEIVE_PLACEMENT=1"
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+
+iree_cc_test(
+  NAME
+    receive_placement_tests
+  DEPS
+    ::placement_backend
+    iree::net::cts::receive_tests
+    iree::testing::gtest_main
+)
+
+iree_cc_test(
+  NAME
+    transport_placement_tests
+  DEPS
+    ::placement_backend
+    iree::net::cts::transport_tests
+    iree::testing::gtest_main
+)
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###
