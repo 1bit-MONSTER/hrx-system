@@ -185,6 +185,7 @@ loom_check_test_suite(
         "test/matrix_result_windows.loom-test",
         "test/memory_modifiers.loom-test",
         "test/message_completion.loom-test",
+        "test/operand_ties.loom-test",
         "test/packet.loom-test",
         "test/packet_json.loom-test",
         "test/permlane_swap.loom-test",
@@ -876,6 +877,16 @@ loom_test(
     execution_profiles = [AMDGPU_HARDWARE_PROFILE],
     target_compatible_with = loom_amdgpu_iree_hal_representation_compatible_with(
         LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_KEY["amdgpu.cdna2.core"],
+    ),
+)
+
+loom_test(
+    name = "operand_ties_execution_test",
+    srcs = ["test/operand_ties.loom"],
+    compile_targets = ["//loom/target/amdgpu:gfx1100"],
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+    target_compatible_with = loom_amdgpu_iree_hal_representation_compatible_with(
+        LOOM_AMDGPU_DESCRIPTOR_SET_CAPABILITY_BY_KEY["amdgpu.rdna3.core"],
     ),
 )
 

@@ -233,6 +233,10 @@ def _s_tied_sopk_i32_overlay(
             results=("dst",),
             operands=("lhs",),
             immediates=("imm16",),
+            native_assembly_values=(
+                _native_result("dst"),
+                _native_i64_immediate("imm16"),
+            ),
         ),
         constraints=(
             Constraint(ConstraintKind.TIED, 0, 1),

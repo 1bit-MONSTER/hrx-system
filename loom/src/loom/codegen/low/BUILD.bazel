@@ -180,6 +180,23 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "operand_ties",
+    srcs = ["operand_ties.c"],
+    hdrs = ["operand_ties.h"],
+    deps = [
+        ":builder",
+        ":descriptors",
+        ":memory_access",
+        ":representation_binding",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/low",
+        "//loom/src/loom/rewrite:rewriter",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
     name = "immediates",
     srcs = ["immediates.c"],
     hdrs = ["immediates.h"],

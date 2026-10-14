@@ -227,6 +227,7 @@ loom_check_test_suite(
     loom_check_file_test
   SRCS
     "test/function.loom-test"
+    "test/operand_ties.loom-test"
     "test/unused_abi_inputs.loom-test"
 )
 endif()

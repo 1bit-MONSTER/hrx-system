@@ -905,6 +905,7 @@ loom_check_test_suite(
     "test/native_local_buffers.loom-test"
     "test/native_repetition.loom-test"
     "test/native_strands.loom-test"
+    "test/operand_ties.loom-test"
     "test/source_low/bf16_vectors.loom-test"
     "test/source_low/buffer_selection.loom-test"
     "test/source_low/callable_memory.loom-test"

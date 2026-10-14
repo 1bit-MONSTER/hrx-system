@@ -157,28 +157,6 @@ def test_default_ties_keep_constraint_order_and_result_indexed_types(result_orde
     assert form.tied_results == tuple(CompiledAsmTiedResult(result, 2 - result) for result in result_order)
 
 
-@pytest.mark.parametrize("kind", [ConstraintKind.TIED, ConstraintKind.DESTRUCTIVE])
-def test_rejects_conflicting_inherited_sources(kind):
-    descriptor = replace(TEST_LOW_ADD_I32_DESCRIPTOR, constraints=(Constraint(kind, 0, 1), Constraint(ConstraintKind.DESTRUCTIVE, 0, 2)))
-    with pytest.raises(ValueError, match="inherits conflicting operand types"):
-        _compile(descriptor)
-
-
-def test_rejects_duplicate_default_ownership():
-    base = TEST_LOW_ADD_I32_DESCRIPTOR
-    tie = Constraint(ConstraintKind.TIED, 0, 1)
-    with pytest.raises(ValueError, match="repeats ownership tie"):
-        _compile(replace(base, constraints=(tie, tie)))
-    descriptor = replace(
-        base,
-        operands=(base.operands[0], replace(base.operands[0], field_name="carry"), *base.operands[1:]),
-        constraints=(Constraint(ConstraintKind.TIED, 0, 2), Constraint(ConstraintKind.TIED, 1, 2)),
-        asm_forms=(AsmForm(results=("dst", "carry"), operands=("lhs", "rhs")),),
-    )
-    with pytest.raises(ValueError, match="ties multiple results"):
-        _compile(descriptor)
-
-
 def test_semantic_and_inherited_recipes_share_one_result_span():
     base = TEST_LOW_ADD_I32_DESCRIPTOR
     payload = AsmResultValueType(ScalarTypeKind.I32, vector_lane_count=4)

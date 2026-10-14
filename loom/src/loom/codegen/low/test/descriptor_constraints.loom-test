@@ -28,3 +28,15 @@ low.func.def target<test.low.core>(@target) @operand_value_type_mismatch(%lhs: r
   %result = test.same.register.value.types %lhs, %rhs : reg<test.i32 : tile<1xi32>>
   return %result
 }
+
+// ====
+// RUN: verify
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @conflicting_physical_ties(%left: reg<test.i32>, %right: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  // ERROR@+2: TARGET/094 {op_name="test.tied.pair", result_index="1", operand_index="1", required_operand_index="0"}
+  // ERROR@+1: TARGET/094 {op_name="test.tied.pair", result_index="0", operand_index="0", required_operand_index="1"}
+  %first, %second = test.tied.pair %left, %right : %left as reg<test.i32>, %right as reg<test.i32>
+  return %first, %second
+}

@@ -1,0 +1,27 @@
+// A partial predicate update preserves the independent source and its high half.
+// RUN: pass low-select-operand-forms
+
+low.func.def target<amd.xdna.aie2p.core> @predicate_update(%lhs: reg<aie2p.elpredicate>, %rhs: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) asm {
+  %result = predicate.and.low32.rhs_tied %lhs, %rhs : reg<aie2p.elpredicate>
+  return %rhs, %result
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> @predicate_update(%lhs: reg<aie2p.elpredicate>, %rhs: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) asm {
+  %rhs_copy = copy %rhs : reg<aie2p.elpredicate> -> reg<aie2p.elpredicate>
+  %result = predicate.and.low32.rhs_tied %lhs, %rhs_copy
+  return %rhs, %result
+}
+
+// ====
+
+// Direct native emission must realize the same required predicate copy.
+// RUN: emit aie2p-leaf @predicate_update report=code
+
+low.func.def target<amd.xdna.aie2p.core> @predicate_update(%lhs: reg<aie2p.elpredicate>, %rhs: reg<aie2p.elpredicate>) -> (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) asm {
+  %result = predicate.and.low32.rhs_tied %lhs, %rhs : reg<aie2p.elpredicate>
+  return %rhs, %result
+}
+
+// ----
+code: f8 20 19 1d f8 a0 59 1d 98 44 29 14 18 00 28 10 00 00 00 00 00 00 00 00 00 00

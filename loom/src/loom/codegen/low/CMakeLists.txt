@@ -150,6 +150,26 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    operand_ties
+  HDRS
+    "operand_ties.h"
+  SRCS
+    "operand_ties.c"
+  DEPS
+    ::builder
+    ::descriptors
+    ::memory_access
+    ::representation_binding
+    iree::base
+    iree::base::internal::arena
+    loom::ir
+    loom::ops::low
+    loom::rewrite::rewriter
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     immediates
   HDRS
     "immediates.h"

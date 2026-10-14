@@ -399,6 +399,10 @@ def derive_descriptor_projections(
         raise ValueError(f"descriptor '{descriptor.key}' authors the derived late-read flag")
     if any(alternative.late_read_subgroup_size is not None for operand in descriptor.operands for alternative in operand.reg_alts):
         derived_flags.append(DescriptorFlag.LATE_READ)
+    if DescriptorFlag.TIED_RESULTS in descriptor.flags:
+        raise ValueError(f"descriptor '{descriptor.key}' authors the derived tied-results flag")
+    if any(constraint.kind in (ConstraintKind.TIED, ConstraintKind.DESTRUCTIVE) for constraint in descriptor.constraints):
+        derived_flags.append(DescriptorFlag.TIED_RESULTS)
     has_variadic_operand = operand_layout.has_variadic_operands
     has_variadic_flag = DescriptorFlag.VARIADIC_OPERANDS in descriptor.flags
     if has_variadic_flag and not has_variadic_operand:
@@ -782,7 +786,6 @@ def _compile_asm_form(
     result_types: list[CompiledAsmResultType] = list(asm_form.result_value_types or (None,) * len(result_indices))
     packet_operand_indices = {descriptor_index: packet_index for packet_index, descriptor_index in enumerate(operand_order)}
     tied_results = []
-    tied_operands: set[int] = set()
     for constraint in descriptor.constraints:
         if constraint.kind not in (ConstraintKind.TIED, ConstraintKind.DESTRUCTIVE):
             continue
@@ -790,15 +793,7 @@ def _compile_asm_form(
         operand_index = packet_operand_indices[constraint.rhs_operand_index]
         previous = result_types[result_index]
         tied = constraint.kind is ConstraintKind.TIED
-        if isinstance(previous, CompiledAsmOperandType):
-            if previous.operand_index != operand_index:
-                raise ValueError(f"descriptor '{descriptor.key}' result {result_index} inherits conflicting operand types")
-            if tied and previous.tied:
-                raise ValueError(f"descriptor '{descriptor.key}' repeats ownership tie for result {result_index}")
         if tied:
-            if operand_index in tied_operands:
-                raise ValueError(f"descriptor '{descriptor.key}' ties multiple results to packet operand {operand_index}")
-            tied_operands.add(operand_index)
             tied_results.append(CompiledAsmTiedResult(result_index, operand_index))
         result_types[result_index] = CompiledAsmOperandType(operand_index, tied or (isinstance(previous, CompiledAsmOperandType) and previous.tied))
 

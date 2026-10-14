@@ -524,6 +524,8 @@ typedef uint16_t loom_low_descriptor_flags_t;
 #define LOOM_LOW_DESCRIPTOR_FLAG_STATE_ASSIGNMENT ((uint16_t)1u << 11)
 // At least one input register alternative may read through result writes.
 #define LOOM_LOW_DESCRIPTOR_FLAG_LATE_READ ((uint16_t)1u << 12)
+// At least one result must occupy the same physical storage as an input.
+#define LOOM_LOW_DESCRIPTOR_FLAG_TIED_RESULTS ((uint16_t)1u << 13)
 
 // Target-neutral semantic classes attached to generated low descriptors.
 // Multiple classes may be present when a packet contributes to several

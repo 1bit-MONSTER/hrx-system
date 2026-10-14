@@ -1,0 +1,25 @@
+// The source remains live after an independent two-address result is written.
+// RUN: emit x86-native-bytes @independent_result
+x86.target<scalar> @target
+
+low.func.def target<x86.scalar.core>(@target) @independent_result(%lhs: reg<x86.gpr64>, %rhs: reg<x86.gpr64>) -> (reg<x86.gpr64>, reg<x86.gpr64>) asm {
+  %result = add.gpr64 %lhs, %rhs : reg<x86.gpr64>
+  return %lhs, %result
+}
+
+// ----
+code: 48 8b c7 48 01 f0 48 8b d0 48 8b c7 c3
+
+// ====
+
+// A dead source permits the ownership copy to coalesce before emission.
+// RUN: emit x86-native-bytes @independent_result
+x86.target<scalar> @target
+
+low.func.def target<x86.scalar.core>(@target) @independent_result(%lhs: reg<x86.gpr64>, %rhs: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %result = sub.gpr64 %lhs, %rhs : reg<x86.gpr64>
+  return %result
+}
+
+// ----
+code: 48 29 f7 48 8b c7 c3

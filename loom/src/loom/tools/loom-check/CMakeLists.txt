@@ -65,6 +65,7 @@ loom_cc_library(
     loom::analysis::liveness_json
     loom::analysis::storage_access
     loom::analysis::storage_interference
+    loom::analysis::symbol_facts
     loom::binding::c::interop
     loom::binding::c::loomc
     loom::codegen::low::allocation
@@ -75,6 +76,7 @@ loom_cc_library(
     loom::codegen::low::function
     loom::codegen::low::function_model
     loom::codegen::low::lower
+    loom::codegen::low::operand_ties
     loom::codegen::low::packet_json
     loom::codegen::low::pipeline::legalizer_registry
     loom::codegen::low::schedule
@@ -104,6 +106,7 @@ loom_cc_library(
     loom::pass::registry
     loom::pass::report
     loom::pass::tooling
+    loom::rewrite::rewriter
     loom::sanitizer::options
     loom::target::entry_selection
     loom::target::legalization

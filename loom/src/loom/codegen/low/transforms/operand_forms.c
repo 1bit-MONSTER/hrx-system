@@ -15,6 +15,7 @@
 #include "loom/codegen/low/diagnostics.h"
 #include "loom/codegen/low/function.h"
 #include "loom/codegen/low/memory_access.h"
+#include "loom/codegen/low/operand_ties.h"
 #include "loom/codegen/low/pipeline/pass_environment.h"
 #include "loom/codegen/low/representation_binding.h"
 #include "loom/codegen/low/storage_relation.h"
@@ -41,7 +42,9 @@
   V(statistics_type, operands_rematerialized, "operands-rematerialized",  \
     "Number of replacement operands rematerialized near selected forms.") \
   V(statistics_type, packets_folded, "packets-folded",                    \
-    "Number of descriptor-backed low packets folded away.")
+    "Number of descriptor-backed low packets folded away.")               \
+  V(statistics_type, tied_inputs_copied, "tied-inputs-copied",            \
+    "Number of independent inputs preserved for physical result ties.")
 
 LOOM_PASS_STATISTICS_DEFINE(loom_low_select_operand_forms_statistics,
                             loom_low_select_operand_forms_statistics_t,
@@ -379,6 +382,8 @@ static iree_status_t loom_low_select_operand_forms_function_has_candidate(
       loom_low_descriptor_packet_initialize(target->descriptor_set, op,
                                             &packet);
       if (loom_low_packet_has_operand_forms(target->descriptor_set, &packet) ||
+          loom_low_operand_ties_need_materialization(target->descriptor_set,
+                                                     op) ||
           (packet.kind == LOOM_LOW_DESCRIPTOR_PACKET_OP &&
            loom_low_descriptor_is_select(target->descriptor_set,
                                          packet.descriptor))) {
@@ -741,6 +746,21 @@ static iree_status_t loom_low_select_operand_form_can_rewrite_destructive(
           .tied_source_packet_operand_index = source_packet_operand_index,
           .tied_value_id = operands[tied_packet_operand_index],
       };
+    }
+    // Retaining an ownership tie does not introduce a new consumption. In
+    // particular, an independent copy may keep its source live while this
+    // packet consumes the copy in either operand form.
+    bool preserves_ownership = false;
+    const loom_tied_result_t* ties = loom_op_tied_results(op);
+    for (uint16_t j = 0; j < op->tied_result_count; ++j) {
+      if (ties[j].result_index == constraint->lhs_operand_index &&
+          ties[j].operand_index == source_packet_operand_index) {
+        preserves_ownership = true;
+        break;
+      }
+    }
+    if (preserves_ownership) {
+      continue;
     }
     if (!loom_low_select_operand_form_operand_has_single_use(
             state->module, operands, operand_count,
@@ -1239,6 +1259,21 @@ static iree_status_t loom_low_select_operand_forms_try_rewrite_packet(
   loom_low_descriptor_packet_t packet = {0};
   loom_low_descriptor_packet_initialize(state->target->descriptor_set, op,
                                         &packet);
+  if (loom_low_operand_ties_need_materialization(state->target->descriptor_set,
+                                                 op)) {
+    loom_target_function_version_t* version =
+        loom_target_function_version_cast(state->pass->function_version);
+    loom_op_t* replacement = NULL;
+    IREE_RETURN_IF_ERROR(loom_low_operand_ties_materialize(
+        rewriter, state->target->descriptor_set,
+        version != NULL ? version->memory_accesses : NULL, op, &replacement));
+    state->statistics->tied_inputs_copied +=
+        replacement->tied_result_count - op->tied_result_count;
+    state->changed = true;
+    loom_pass_mark_changed(state->pass);
+    op = replacement;
+    packet.op = replacement;
+  }
   if (!loom_low_packet_has_operand_forms(state->target->descriptor_set,
                                          &packet)) {
     if (packet.kind != LOOM_LOW_DESCRIPTOR_PACKET_OP) {
@@ -1330,6 +1365,7 @@ static iree_status_t loom_low_select_operand_forms_function(
 
   loom_rewriter_t rewriter;
   loom_rewriter_initialize(&rewriter, module, pass->arena);
+  loom_rewriter_attach_value_facts(&rewriter, value_facts);
   const loom_low_select_operand_forms_pass_state_t* pass_state =
       (const loom_low_select_operand_forms_pass_state_t*)pass->state;
   loom_low_select_operand_forms_state_t state = {
