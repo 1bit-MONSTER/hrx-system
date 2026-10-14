@@ -798,7 +798,9 @@ TEST_F(PM4DispatchLiveTest, AqlAndAqlPm4IbLaunchMixedKernels) {
       &launch_states[1], IREE_ARRAYSIZE(pm4_dwords) - pm4_dword_count,
       &pm4_dwords[pm4_dword_count], &barrier_dword_count));
   pm4_dword_count += barrier_dword_count;
-  const uint32_t patched_user_data_offset = pm4_dword_count + 2;
+  // The kernarg pointer follows any descriptor-enabled user-data prefix.
+  const uint32_t patched_user_data_offset =
+      pm4_dword_count + 2 + launch_states[1].kernarg_user_data_offset;
   IREE_ASSERT_OK(iree_hal_amdgpu_pm4_dispatch_emit_user_data(
       &launch_states[1],
       reinterpret_cast<uintptr_t>(&memory->store_kernargs[2]),
