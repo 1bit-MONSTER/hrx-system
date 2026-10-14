@@ -81,3 +81,27 @@ low.func.def target<amdgpu.cdna3.core>(@target) @private_arithmetic(%input: reg<
 // ----
 block 0 order: 0, 1, 2, 3, 5, 4, 6, 7, 8
 scheduled pressure amdgpu.vgpr: peak-live-units=8 peak-live-values=4
+
+// ====
+
+// Private setup can need two leaves before either makes a consumer ready.
+// Both fit while the singleton transaction is pinned. Finish that transaction
+// before unrelated arithmetic instead of deferring every non-killing leaf.
+// RUN: emit low-schedule-query @private_completion_leaves strategy=resource-stall per-user-placement-values=%left,%right order=0,1,2,3,4,5,6,7,8
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @private_completion_leaves(%condition: reg<test.i32>, %lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  %fixed = copy %condition : reg<test.i32> -> reg<test.fixed.r0>
+  low.schedule.fence
+  %unrelated = test.add.i32 %lhs, %rhs
+  %left = test.const.i32 1
+  %right = test.const.i32 2
+  %delta = test.add.i32 %left, %right
+  %updated = test.fixed.update.i32 %fixed, %delta
+  %result = copy %updated : reg<test.fixed.r0> -> reg<test.i32>
+  return %result, %unrelated
+}
+
+// ----
+block 0 order: 0, 1, 3, 4, 5, 6, 7, 2, 8

@@ -63,9 +63,21 @@ static const loom_low_schedule_recovery_policy_t
             },
 };
 
+// A pinned completion may need several setup values before any consumer can
+// release its inputs. Advance that exact transaction while the setup fits;
+// cone membership alone cannot justify opening another register debt.
+static bool loom_low_schedule_candidate_advances_pinned_completion(
+    const loom_low_schedule_candidate_score_t* score) {
+  return score->active_unspillable_transaction_final_capacity != UINT32_MAX &&
+         !iree_any_bit_set(
+             score->flags,
+             LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_OPENS_REGISTER_DEBT |
+                 LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_EXCEEDS_UNSPILLABLE_CAPACITY);
+}
+
 // Returns true when |score| establishes a new live storage value without
-// reducing live units, exposing a storage step or descriptor, or releasing
-// live inputs along a constrained-storage completion.
+// reducing live units, exposing a storage step or descriptor, advancing a
+// feasible pinned completion, or releasing inputs along another completion.
 // Scheduling such setup early only transfers or grows liveness in its
 // destination register class and can hold scarce physical locations across
 // unrelated work. Alias establishment and storage compaction produce no value
@@ -75,17 +87,21 @@ static bool loom_low_schedule_candidate_defers_storage_setup(
   const uint16_t actionable_flags =
       LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_UNLOCKS_DESCRIPTOR |
       LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_ADVANCES_STORAGE;
-  const bool releases_completion_inputs =
-      score->killed_live_units != 0 &&
-      iree_any_bit_set(
-          score->flags,
-          LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_ADVANCES_CONSTRAINED_COMPLETION);
+  const bool advances_completion =
+      (iree_any_bit_set(
+           score->flags,
+           LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_REMATERIALIZABLE_LEAF) &&
+       loom_low_schedule_candidate_advances_pinned_completion(score)) ||
+      (score->killed_live_units != 0 &&
+       iree_any_bit_set(
+           score->flags,
+           LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_ADVANCES_CONSTRAINED_COMPLETION));
   return score->produced_live_value_count != 0 &&
          score->killed_live_units <= score->produced_live_units &&
          iree_any_bit_set(score->flags,
                           LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_STORAGE_SETUP) &&
          !iree_any_bit_set(score->flags, actionable_flags) &&
-         !releases_completion_inputs;
+         !advances_completion;
 }
 
 // A pinned completion can require several leaves before its consumer is ready.
@@ -96,11 +112,7 @@ static bool loom_low_schedule_candidate_defers_rematerializable_leaf(
     loom_low_schedule_candidate_compare_mode_t compare_mode,
     const loom_low_schedule_candidate_score_t* score) {
   if (compare_mode == LOOM_LOW_SCHEDULE_CANDIDATE_COMPARE_DEFAULT ||
-      (score->active_unspillable_transaction_final_capacity != UINT32_MAX &&
-       !iree_any_bit_set(
-           score->flags,
-           LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_OPENS_REGISTER_DEBT |
-               LOOM_LOW_SCHEDULE_CANDIDATE_FLAG_EXCEEDS_UNSPILLABLE_CAPACITY))) {
+      loom_low_schedule_candidate_advances_pinned_completion(score)) {
     return false;
   }
   uint16_t actionable_flags =
