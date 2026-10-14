@@ -418,7 +418,8 @@ iree_status_t loom_amdgpu_kernel_plan_build(
       .abi_layout = options->abi_layout,
       .abi_verify = options->abi_verify,
       .preflight = &preflight,
-      .minimum_vgpr_count = out_plan->packet_plan.wait_states.minimum_vgpr_count,
+      .minimum_vgpr_count =
+          out_plan->packet_plan.wait_states.minimum_vgpr_count,
   };
   IREE_RETURN_IF_ERROR(loom_amdgpu_kernel_record_build(
       &frame->schedule, &frame->allocation, &record_options, &out_plan->record,

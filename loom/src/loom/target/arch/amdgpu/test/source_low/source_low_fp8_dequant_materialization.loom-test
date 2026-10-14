@@ -1511,9 +1511,9 @@ low.kernel.def target<amdgpu.cdna4.core>(@target) abi_layout({constant_count = 0
   %scale_view = resource<hal_binding> {extent = 128, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %output_view = resource<hal_binding> {extent = 1024, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
   %38 = v_lshlrev_b32_src0_inline %lane, 1
-  %row_scale = global_load_d16_b16_saddr %38, %scale_view
+  %row_scale = global_load_d16_b16_saddr %38, %scale_view : reg<amdgpu.vgpr>
   %40 = v_lshlrev_b32_src0_inline %lane, 3
-  %packed = global_load_dwordx2_saddr %40, %input_view
+  %packed = global_load_dwordx2_saddr %40, %input_view : reg<amdgpu.vgpr x2>
   %42 = v_lshlrev_b32_src0_16_low16 %row_scale
   %43 = slice %packed[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
   %44 = v_cvt_scalef32_pk_bf16_fp8 %43, %42

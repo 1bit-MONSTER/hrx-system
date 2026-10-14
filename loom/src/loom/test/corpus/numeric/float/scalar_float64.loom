@@ -13,7 +13,7 @@ func.def inline @scalar_float64_result_bits(%value: f64) -> (i64) {
 
 func.def @scalar_float64_pair(%lhs_bits: i64, %rhs_bits: i64, %arithmetic: buffer, %predicates: buffer) {
   %base = index.constant 0 : offset
-  %numbers = buffer.view %arithmetic[%base] : buffer -> view<12xi64>
+  %numbers = buffer.view %arithmetic[%base] : buffer -> view<11xi64>
   %conditions = buffer.view %predicates[%base] : buffer -> view<14xi32>
   %lhs = scalar.bitcast %lhs_bits : i64 to f64
   %rhs = scalar.bitcast %rhs_bits : i64 to f64
@@ -25,8 +25,6 @@ func.def @scalar_float64_pair(%lhs_bits: i64, %rhs_bits: i64, %arithmetic: buffe
   %mulf_bits = func.call @scalar_float64_result_bits(%mulf) : (f64) -> (i64)
   %divf = scalar.divf %lhs, %rhs : f64
   %divf_bits = func.call @scalar_float64_result_bits(%divf) : (f64) -> (i64)
-  %fmaf = scalar.fmaf %lhs, %rhs, %lhs : f64
-  %fmaf_bits = func.call @scalar_float64_result_bits(%fmaf) : (f64) -> (i64)
   %absf = scalar.absf %lhs : f64
   %absf_bits = func.call @scalar_float64_result_bits(%absf) : (f64) -> (i64)
   %negf = scalar.negf %lhs : f64
@@ -41,18 +39,17 @@ func.def @scalar_float64_pair(%lhs_bits: i64, %rhs_bits: i64, %arithmetic: buffe
   %minnumf_bits = func.call @scalar_float64_result_bits(%minnumf) : (f64) -> (i64)
   %maxnumf = scalar.maxnumf %lhs, %rhs : f64
   %maxnumf_bits = func.call @scalar_float64_result_bits(%maxnumf) : (f64) -> (i64)
-  view.store %addf_bits, %numbers[0] : i64, view<12xi64>
-  view.store %subf_bits, %numbers[1] : i64, view<12xi64>
-  view.store %mulf_bits, %numbers[2] : i64, view<12xi64>
-  view.store %divf_bits, %numbers[3] : i64, view<12xi64>
-  view.store %fmaf_bits, %numbers[4] : i64, view<12xi64>
-  view.store %absf_bits, %numbers[5] : i64, view<12xi64>
-  view.store %negf_bits, %numbers[6] : i64, view<12xi64>
-  view.store %copysignf_bits, %numbers[7] : i64, view<12xi64>
-  view.store %minimumf_bits, %numbers[8] : i64, view<12xi64>
-  view.store %maximumf_bits, %numbers[9] : i64, view<12xi64>
-  view.store %minnumf_bits, %numbers[10] : i64, view<12xi64>
-  view.store %maxnumf_bits, %numbers[11] : i64, view<12xi64>
+  view.store %addf_bits, %numbers[0] : i64, view<11xi64>
+  view.store %subf_bits, %numbers[1] : i64, view<11xi64>
+  view.store %mulf_bits, %numbers[2] : i64, view<11xi64>
+  view.store %divf_bits, %numbers[3] : i64, view<11xi64>
+  view.store %absf_bits, %numbers[4] : i64, view<11xi64>
+  view.store %negf_bits, %numbers[5] : i64, view<11xi64>
+  view.store %copysignf_bits, %numbers[6] : i64, view<11xi64>
+  view.store %minimumf_bits, %numbers[7] : i64, view<11xi64>
+  view.store %maximumf_bits, %numbers[8] : i64, view<11xi64>
+  view.store %minnumf_bits, %numbers[9] : i64, view<11xi64>
+  view.store %maxnumf_bits, %numbers[10] : i64, view<11xi64>
   %oeq = scalar.cmpf oeq, %lhs, %rhs : f64
   %oeq_word = scalar.extui %oeq : i1 to i32
   view.store %oeq_word, %conditions[0] : i32, view<14xi32>
@@ -98,7 +95,7 @@ func.def @scalar_float64_pair(%lhs_bits: i64, %rhs_bits: i64, %arithmetic: buffe
   func.return
 }
 
-// Both subjects receive the same runtime bit patterns, independently of which
+// All subjects receive the same runtime bit patterns, independently of which
 // arithmetic operations the selected target implements.
 func.def inline @scalar_float64_special_inputs(%ordinal: index) -> (i64, i64) {
   %lhs, %rhs = scf.switch %ordinal -> (i64, i64) {
@@ -204,10 +201,10 @@ func.def inline @scalar_float64_special_inputs(%ordinal: index) -> (i64, i64) {
 check.scenario @scalar_float64_special_values {
   check.trial[19](%trial: index, %entropy: check.entropy) {
     %lhs, %rhs = check.generate<@scalar_float64_special_inputs>(%trial) : (index) -> (i64, i64)
-    %numbers = check.generate.fill value(-1) : tensor<12xi64>
+    %numbers = check.generate.fill value(-1) : tensor<11xi64>
     %conditions = check.generate.fill value(-1) : tensor<14xi32>
-    check.compare<@scalar_float64_pair>(%lhs, %rhs, %numbers, %conditions) : (i64, i64, tensor<12xi64>, tensor<14xi32>) -> () {
-      check.expect.bitwise actual(%numbers) expected(%numbers) : tensor<12xi64>
+    check.compare<@scalar_float64_pair>(%lhs, %rhs, %numbers, %conditions) : (i64, i64, tensor<11xi64>, tensor<14xi32>) -> () {
+      check.expect.bitwise actual(%numbers) expected(%numbers) : tensor<11xi64>
       check.expect.bitwise actual(%conditions) expected(%conditions) : tensor<14xi32>
     }
   }
@@ -218,10 +215,10 @@ check.scenario @scalar_float64_random_values {
   check.trial[8](%trial: index, %entropy: check.entropy) {
     %lhs = check.entropy.read %entropy[0] : check.entropy -> i64
     %rhs = check.entropy.read %entropy[1] : check.entropy -> i64
-    %numbers = check.generate.fill value(-1) : tensor<12xi64>
+    %numbers = check.generate.fill value(-1) : tensor<11xi64>
     %conditions = check.generate.fill value(-1) : tensor<14xi32>
-    check.compare<@scalar_float64_pair>(%lhs, %rhs, %numbers, %conditions) : (i64, i64, tensor<12xi64>, tensor<14xi32>) -> () {
-      check.expect.bitwise actual(%numbers) expected(%numbers) : tensor<12xi64>
+    check.compare<@scalar_float64_pair>(%lhs, %rhs, %numbers, %conditions) : (i64, i64, tensor<11xi64>, tensor<14xi32>) -> () {
+      check.expect.bitwise actual(%numbers) expected(%numbers) : tensor<11xi64>
       check.expect.bitwise actual(%conditions) expected(%conditions) : tensor<14xi32>
     }
   }
@@ -258,6 +255,41 @@ check.scenario @scalar_float64_remainder_random_values {
     %rhs = check.entropy.read %entropy[1] : check.entropy -> i64
     %output = check.generate.fill value(-1) : tensor<1xi64>
     check.compare<@scalar_float64_remainder>(%lhs, %rhs, %output) : (i64, i64, tensor<1xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<1xi64>
+    }
+  }
+  check.return
+}
+
+// Explicitly fused arithmetic has its own lowering and numerical contract.
+func.def @scalar_float64_fma(%lhs_bits: i64, %rhs_bits: i64, %output: buffer) {
+  %lhs = scalar.bitcast %lhs_bits : i64 to f64
+  %rhs = scalar.bitcast %rhs_bits : i64 to f64
+  %fma = scalar.fmaf %lhs, %rhs, %lhs : f64
+  %bits = func.call @scalar_float64_result_bits(%fma) : (f64) -> (i64)
+  %origin = index.constant 0 : offset
+  %result = buffer.view %output[%origin] : buffer -> view<1xi64>
+  view.store %bits, %result[0] : i64, view<1xi64>
+  func.return
+}
+
+check.scenario @scalar_float64_fma_special_values {
+  check.trial[19](%trial: index, %entropy: check.entropy) {
+    %lhs, %rhs = check.generate<@scalar_float64_special_inputs>(%trial) : (index) -> (i64, i64)
+    %output = check.generate.fill value(-1) : tensor<1xi64>
+    check.compare<@scalar_float64_fma>(%lhs, %rhs, %output) : (i64, i64, tensor<1xi64>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<1xi64>
+    }
+  }
+  check.return
+}
+
+check.scenario @scalar_float64_fma_random_values {
+  check.trial[8](%trial: index, %entropy: check.entropy) {
+    %lhs = check.entropy.read %entropy[0] : check.entropy -> i64
+    %rhs = check.entropy.read %entropy[1] : check.entropy -> i64
+    %output = check.generate.fill value(-1) : tensor<1xi64>
+    check.compare<@scalar_float64_fma>(%lhs, %rhs, %output) : (i64, i64, tensor<1xi64>) -> () {
       check.expect.bitwise actual(%output) expected(%output) : tensor<1xi64>
     }
   }

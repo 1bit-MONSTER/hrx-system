@@ -501,6 +501,8 @@ _SPIRV_EXECUTION_XFAILS = {
     "numeric/float/scalar_f32.loom:@scalar_f32_denormal_fma_values": "TARGET/001",
     "numeric/float/scalar_f32.loom:@scalar_f32_denormal_values": "EXPECT/002",
     "numeric/float/scalar_f32.loom:@scalar_f32_values": "TARGET/001",
+    "numeric/float/scalar_float64.loom:@scalar_float64_fma_random_values": "TARGET/001",
+    "numeric/float/scalar_float64.loom:@scalar_float64_fma_special_values": "TARGET/001",
     "numeric/float/selectors.loom:@selector_f32_values": "TARGET/001",
     "numeric/float/selectors.loom:@selector_f64_values": "TARGET/001",
     "numeric/float/turns.loom:@turn_values": "LOWERING/036",
