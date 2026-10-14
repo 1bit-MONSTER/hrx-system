@@ -1,6 +1,4 @@
-amdgpu.target<gfx1100> @target
-
-low.func.def schedule(locked) target<amdgpu.rdna3.core>(@target) @calculate(%lane: reg<amdgpu.vgpr>, %input: reg<amdgpu.sgpr x2>, %output: reg<amdgpu.sgpr x2>) asm {
+low.func.def schedule(locked) target<amdgpu.rdna3.core> @calculate(%lane: reg<amdgpu.vgpr>, %input: reg<amdgpu.sgpr x2>, %output: reg<amdgpu.sgpr x2>) asm {
   %input_offset = v_mul_lo_u32_src0_inline %lane, 12
   %output_offset = v_lshlrev_b32_src0_inline %lane, 3
   %seed = global_load_b32_saddr %input_offset, %input
@@ -12,7 +10,7 @@ low.func.def schedule(locked) target<amdgpu.rdna3.core>(@target) @calculate(%lan
   return
 }
 
-kernel.def target(@target) @independent_result() {
+kernel.def @independent_result() {
   %unit = index.constant 1 : index
   %lanes = index.constant 64 : index
   kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%lanes, %unit, %unit) : index

@@ -1,8 +1,6 @@
 // Each lane updates a distinct address and observes the returned old value.
 // Both the update and returned value remain in the accumulator register bank.
-amdgpu.target<gfx942> @target
-
-low.func.def schedule(locked) target<amdgpu.cdna3.core>(@target) @returning_atomic(%lane: reg<amdgpu.vgpr>, %storage: reg<amdgpu.sgpr x2>, %increments: reg<amdgpu.sgpr x2>, %prior: reg<amdgpu.sgpr x2>) asm {
+low.func.def schedule(locked) target<amdgpu.cdna3.core> @returning_atomic(%lane: reg<amdgpu.vgpr>, %storage: reg<amdgpu.sgpr x2>, %increments: reg<amdgpu.sgpr x2>, %prior: reg<amdgpu.sgpr x2>) asm {
   %offset = v_lshlrev_b32_src0_inline %lane, 2
   %increment = global_load_dword_saddr %offset, %increments : reg<amdgpu.agpr>
   %old = global_atomic_add_f32_rtn_saddr %offset, %increment, %storage : reg<amdgpu.agpr>
@@ -10,7 +8,7 @@ low.func.def schedule(locked) target<amdgpu.cdna3.core>(@target) @returning_atom
   return
 }
 
-kernel.def target(@target) @accumulator_atomic() {
+kernel.def @accumulator_atomic() {
   %unit = index.constant 1 : index
   %lanes = index.constant 64 : index
   kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%lanes, %unit, %unit) : index
