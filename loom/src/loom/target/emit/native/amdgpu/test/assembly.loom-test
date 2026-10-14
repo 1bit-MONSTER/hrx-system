@@ -3563,6 +3563,28 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @gfx11_trans_result_depctr
 
 // ====
 
+// Allocation-authored VGPR moves are vector-ALU consumers and must drain a
+// pending transcendental result before reading its physical register.
+// RUN: emit amdgpu-assembly @gfx11_trans_result_structural_copy strategy=source fixed=%trans:physical_register:7:1 fixed=%copy:physical_register:14:1
+amdgpu.target<gfx1100> @gfx11_target
+
+low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @gfx11_trans_result_structural_copy(%input: reg<amdgpu.vgpr>, %scale: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %trans = v_exp_f32 %input
+  %copy = copy %trans {detached = true} : reg<amdgpu.vgpr> -> reg<amdgpu.vgpr>
+  %result = v_mul_f32 %copy, %scale
+  return %result
+}
+
+// ----
+  v_exp_f32 v7, v0
+  s_waitcnt_depctr depctr(0)
+  v_mov_b32 v14, v7
+  s_delay_alu instid0(VALU_DEP_1)
+  v_mul_f32 v0, v14, v1
+  s_endpgm
+
+// ====
+
 // RUN: emit amdgpu-assembly @gfx11_grouped_trans_lanes strategy=source
 amdgpu.target<gfx1100> @gfx11_target
 

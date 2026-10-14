@@ -35,6 +35,18 @@ typedef iree_status_t (*loom_low_allocation_coalescing_append_assignment_fn_t)(
     const loom_value_id_t* ignored_storage_lease_value_ids,
     uint16_t ignored_storage_lease_value_count);
 
+// Attempts to relocate the sole active assignment blocking |assignment|
+// without extending the ordinary fallback's register footprint. A true result
+// guarantees that |assignment| is legal; false leaves all assignments
+// unchanged.
+typedef iree_status_t (
+    *loom_low_allocation_coalescing_try_relocate_blocker_fn_t)(
+    void* user_data, const loom_liveness_interval_t* interval,
+    const loom_low_allocation_assignment_t* assignment,
+    const loom_value_id_t* ignored_value_ids, uint16_t ignored_value_count,
+    const loom_value_id_t* ignored_storage_lease_value_ids,
+    uint16_t ignored_storage_lease_value_count, bool* out_relocated);
+
 typedef iree_status_t (*loom_low_allocation_coalescing_consumption_query_fn_t)(
     void* user_data, const loom_region_t* region,
     loom_consumption_region_query_t** out_query);
@@ -56,6 +68,8 @@ typedef struct loom_low_allocation_coalescing_context_t {
   loom_low_allocation_search_context_t* search_context;
   // Callback that commits one coalesced assignment.
   loom_low_allocation_coalescing_append_assignment_fn_t append_assignment;
+  // Callback that may relocate one independent blocker for a concat source.
+  loom_low_allocation_coalescing_try_relocate_blocker_fn_t try_relocate_blocker;
   // Callback that lazily returns the function consumption query.
   loom_low_allocation_coalescing_consumption_query_fn_t consumption_query;
   // Opaque caller state passed to callbacks.

@@ -168,6 +168,16 @@ TEST_F(LowAllocationPreferenceTest, WeightedClausesAndMergedIncidence) {
   EXPECT_EQ(Penalty(Prepare(1), 0, 0), UINT32_MAX);
 }
 
+TEST_F(LowAllocationPreferenceTest, PublishedPrimaryRemainsTentative) {
+  assignment_indices_[0] = 0;
+  assignment_indices_[2] = 2;
+  assignments_[0].location_base = 0;
+  assignments_[2].location_base = 0;
+  const auto query = Prepare();
+  EXPECT_EQ(Penalty(query, 0), 6u);
+  EXPECT_EQ(Penalty(query, 1), 0u);
+}
+
 TEST_F(LowAllocationPreferenceTest, InstructionUsesDoNotAffectStorageSearch) {
   index_.instruction_use_count = index_.use_count;
   const auto arena_bytes = arena_.used_allocation_size;

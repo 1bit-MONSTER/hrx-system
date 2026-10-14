@@ -628,18 +628,21 @@ loom_low_allocation_interval_assignment_spill_active_assignment(
       /*retained_fixed_value_index_plus_one=*/0);
 }
 
-// Moves one active spill victim above a constrained operand's low register
-// window when the victim's complete lifetime fits there without reducing the
-// current residency tier. Previously published assignments are checked with
-// exact sparse lifetimes because changing the assignment in place changes its
-// location before as well as after the current allocation point. Future
-// intervals observe the relocated active-unit entry.
+// Moves one independently placed active assignment when its complete lifetime
+// fits in the inclusive base range without reducing the current residency
+// tier. |protected_assignment|, when present, reserves a not-yet-published
+// location for the current interval. Previously published assignments are
+// checked with exact sparse lifetimes because changing the assignment in place
+// changes its location before as well as after the current allocation point.
+// Future intervals observe the relocated active-unit entry.
 static iree_status_t
-loom_low_allocation_interval_assignment_try_relocate_spill_victim(
+loom_low_allocation_interval_assignment_try_relocate_independent_assignment(
     loom_low_allocation_interval_assignment_state_t* state,
     const loom_low_allocation_search_context_t* search_context,
     uint32_t assignment_index, uint16_t constrained_reg_class_id,
-    uint32_t minimum_base, bool* out_relocated) {
+    uint32_t minimum_base, uint32_t maximum_base,
+    const loom_low_allocation_assignment_t* protected_assignment,
+    bool* out_relocated) {
   *out_relocated = false;
   loom_low_allocation_assignment_t* assignment =
       &state->result.assignments[assignment_index];
@@ -682,6 +685,15 @@ loom_low_allocation_interval_assignment_try_relocate_spill_victim(
       loom_low_placement_relation_range_for_source_value_ordinal(placement,
                                                                  value_ordinal)
               .count != 0 ||
+      (protected_assignment != NULL &&
+       (loom_low_allocation_target_constraints_fixed_value_for_value_ordinal(
+            state->context->target_constraints, value_ordinal) != NULL ||
+        (state->context->storage_transport != NULL &&
+         state->context->storage_transport
+                 ->bindings_by_value_ordinal[value_ordinal] != UINT32_MAX) ||
+        loom_low_allocation_storage_lease_state_value_has_records(
+            state->context->storage_leases, state->context->liveness,
+            assignment->value_id))) ||
       (operand_constraints != NULL &&
        operand_constraints->has_target_address_state)) {
     return iree_ok_status();
@@ -698,13 +710,38 @@ loom_low_allocation_interval_assignment_try_relocate_spill_victim(
   const uint32_t current_residency_tier =
       loom_low_allocation_search_assignment_residency_tier(search_context,
                                                            assignment);
-  const uint32_t last_base = capacity.max_units - assignment->location_count;
+  loom_low_allocation_preference_query_t relocation_preferences = {0};
+  uint32_t current_preference_penalty = 0;
+  if (protected_assignment != NULL) {
+    relocation_preferences = loom_low_allocation_preference_prepare(
+        state->context->preferences, state->context->placement,
+        &state->result.assignment_map, state->context->target_constraints,
+        value_ordinal, LOOM_VALUE_ORDINAL_INVALID,
+        &state->preference_workspace);
+    current_preference_penalty = loom_low_allocation_preference_penalty(
+        state->context->target->descriptor_set, &relocation_preferences,
+        assignment, NULL);
+  }
+  const uint32_t last_base =
+      iree_min(capacity.max_units - assignment->location_count, maximum_base);
   while (base <= last_base) {
     loom_low_allocation_assignment_t candidate = *assignment;
     candidate.location_base = base;
     bool conflicts =
+        base == assignment->location_base ||
         loom_low_allocation_search_assignment_residency_tier(
             search_context, &candidate) < current_residency_tier ||
+        (protected_assignment != NULL &&
+         (loom_low_allocation_preference_penalty(
+              state->context->target->descriptor_set, &relocation_preferences,
+              &candidate, NULL) > current_preference_penalty ||
+          loom_low_allocation_live_range_assignments_conflict(
+              state->context->target->descriptor_set,
+              state->context->unit_liveness->storage_segments.entries,
+              state->context->unit_liveness->start_points,
+              state->context->unit_liveness->end_points,
+              state->context->unit_liveness->point_count, &candidate,
+              protected_assignment))) ||
         (state->context->unit_liveness->write_interference != NULL &&
          loom_low_allocation_write_interference_conflicting_read(
              state->context->unit_liveness->write_interference,
@@ -878,6 +915,112 @@ loom_low_allocation_interval_assignment_append_assignment_callback(
       (loom_low_allocation_interval_assignment_state_t*)user_data, assignment,
       ignored_storage_lease_value_ids, ignored_storage_lease_value_count,
       /*out_assignment_index=*/NULL);
+}
+
+// Relocates the sole single-use independent assignment blocking a single-use
+// concat source's retained result slice. The blocker stays within the physical
+// extent ordinary allocation would require for the source and does not regress
+// its current preference score.
+static iree_status_t
+loom_low_allocation_interval_assignment_try_relocate_blocker_callback(
+    void* user_data, const loom_liveness_interval_t* interval,
+    const loom_low_allocation_assignment_t* requested_assignment,
+    const loom_value_id_t* ignored_value_ids, uint16_t ignored_value_count,
+    const loom_value_id_t* ignored_storage_lease_value_ids,
+    uint16_t ignored_storage_lease_value_count, bool* out_relocated) {
+  *out_relocated = false;
+  loom_low_allocation_interval_assignment_state_t* state =
+      (loom_low_allocation_interval_assignment_state_t*)user_data;
+  const loom_value_t* requested_value =
+      loom_module_value(state->context->module, requested_assignment->value_id);
+  if (requested_value->use_count != 1 || ignored_value_count > 1) {
+    return iree_ok_status();
+  }
+  const loom_value_ordinal_t value_ordinal = loom_local_value_domain_ordinal(
+      state->context->value_domain, requested_assignment->value_id);
+  const loom_low_allocation_assignment_t protected_assignment =
+      loom_low_allocation_interval_assignment_prepare_assignment(
+          state, requested_assignment, value_ordinal);
+
+  uint32_t conflict_assignment_index = UINT32_MAX;
+  for (iree_host_size_t i = 0; i < state->active.count; ++i) {
+    const uint32_t assignment_index = state->active.assignment_indices[i];
+    if (!loom_low_allocation_active_assignment_conflicts(
+            &state->active.live_range_sweep,
+            state->context->target->descriptor_set,
+            state->context->unit_liveness, state->result.assignments,
+            state->result.assignment_count, assignment_index,
+            &protected_assignment, ignored_value_ids, ignored_value_count)) {
+      continue;
+    }
+    // Relocating several independent values needs a joint placement decision.
+    // Keep this local repair transactional by handling only one blocker.
+    if (conflict_assignment_index != UINT32_MAX) {
+      return iree_ok_status();
+    }
+    conflict_assignment_index = assignment_index;
+  }
+  if (conflict_assignment_index == UINT32_MAX) {
+    return iree_ok_status();
+  }
+
+  const loom_low_allocation_assignment_t* conflict_assignment =
+      &state->result.assignments[conflict_assignment_index];
+  const loom_value_t* conflict_value =
+      loom_module_value(state->context->module, conflict_assignment->value_id);
+  if (conflict_value->use_count != 1 ||
+      conflict_assignment->descriptor_reg_class_id !=
+          requested_assignment->descriptor_reg_class_id ||
+      conflict_assignment->location_kind !=
+          requested_assignment->location_kind ||
+      conflict_assignment->location_count !=
+          requested_assignment->location_count) {
+    return iree_ok_status();
+  }
+  // Prove that removing this one active value makes the requested location
+  // legal before mutating its published assignment.
+  loom_value_id_t ignored_with_conflict[2];
+  if (ignored_value_count != 0) {
+    ignored_with_conflict[0] = ignored_value_ids[0];
+  }
+  ignored_with_conflict[ignored_value_count] = conflict_assignment->value_id;
+  loom_low_allocation_search_context_t search_context =
+      loom_low_allocation_interval_assignment_search_context(state);
+  if (loom_low_allocation_search_location_conflicts(
+          &search_context, interval,
+          requested_assignment->descriptor_reg_class_id,
+          requested_assignment->location_kind,
+          requested_assignment->location_base,
+          requested_assignment->location_count, ignored_with_conflict,
+          ignored_value_count + 1, ignored_storage_lease_value_ids,
+          ignored_storage_lease_value_count,
+          LOOM_LOW_ALLOCATION_STORAGE_RELEASE_ALLOWED)) {
+    return iree_ok_status();
+  }
+
+  loom_low_allocation_class_capacity_t capacity = {0};
+  IREE_RETURN_IF_ERROR(loom_low_allocation_target_constraints_interval_capacity(
+      state->context->target_constraints, state->context->liveness,
+      state->context->placement, interval, &capacity));
+  uint32_t fallback_location_base = 0;
+  if (!loom_low_allocation_search_find_free_location(
+          &search_context, interval, capacity, &fallback_location_base)) {
+    return iree_ok_status();
+  }
+  const uint32_t current_location_end =
+      state->context->target_constraints->max_assigned_location_end_by_reg_class
+          [requested_assignment->descriptor_reg_class_id];
+  const uint32_t fallback_location_end =
+      fallback_location_base + requested_assignment->location_count;
+  const uint32_t maximum_location_end =
+      iree_max(current_location_end, fallback_location_end);
+  return loom_low_allocation_interval_assignment_try_relocate_independent_assignment(
+      state, &search_context, conflict_assignment_index,
+      requested_assignment->descriptor_reg_class_id,
+      /*minimum_base=*/0,
+      /*maximum_base=*/maximum_location_end -
+          conflict_assignment->location_count,
+      &protected_assignment, out_relocated);
 }
 
 static iree_status_t
@@ -1091,6 +1234,8 @@ static iree_status_t loom_low_allocation_interval_assignment_assign(
         .search_context = &search_context,
         .append_assignment =
             loom_low_allocation_interval_assignment_append_assignment_callback,
+        .try_relocate_blocker =
+            loom_low_allocation_interval_assignment_try_relocate_blocker_callback,
         .consumption_query =
             loom_low_allocation_interval_assignment_consumption_query_callback,
         .user_data = state,
@@ -1197,10 +1342,11 @@ static iree_status_t loom_low_allocation_interval_assignment_assign(
           bool relocated = false;
           if (interval_requires_register && capacity.is_bounded) {
             IREE_RETURN_IF_ERROR(
-                loom_low_allocation_interval_assignment_try_relocate_spill_victim(
+                loom_low_allocation_interval_assignment_try_relocate_independent_assignment(
                     state, &search_context, victim_index,
                     capacity.descriptor_reg_class_id, capacity.max_units,
-                    &relocated));
+                    /*maximum_base=*/UINT32_MAX,
+                    /*protected_assignment=*/NULL, &relocated));
           }
           if (!relocated) {
             IREE_RETURN_IF_ERROR(

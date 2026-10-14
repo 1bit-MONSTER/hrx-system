@@ -96,6 +96,8 @@ bool loom_low_allocation_preference_has_uses(
 // secondary ordinal is INVALID for an ordinary allocation. Concrete and fixed
 // members precede mandatory origins and at most one permitted defining copy;
 // optional copy prediction never changes the mandatory-identity partition.
+// Named candidates remain tentative when the assignment map already contains
+// them so callers can compare a bounded reassignment against its current cost.
 loom_low_allocation_preference_query_t loom_low_allocation_preference_prepare(
     const loom_low_placement_preference_index_t* index,
     const loom_low_placement_table_t* placement,
