@@ -25,6 +25,7 @@ every model. The status fields answer different questions:
 | `loom.status.phase` | What is the modality scheduler doing? |
 | `loom.parameter_operation` | Is an explicit activation/deactivation waiting or in progress? |
 | `loom.parameters` | What reloadable weight plans are active and how much retained backing do they account for? |
+| `loom.variants` | Which native executable choice is preferred, and how many choices are retained? |
 | `loom.error` | Did preparation or a lifecycle operation fail? |
 
 The registration wire values are `registered`, `preparing`, `ready`, `retiring`,
@@ -120,6 +121,74 @@ change eviction eligibility. Pinning is not activation: a cold registration
 can remember the pin without loading its weights. Status exposes this policy
 as `loom.parameter_pinned`. A pending deactivation cannot be pinned.
 
+## Replace native code without reloading weights
+
+A prepared text deployment can JIT replacement command programs and kernels
+while keeping its weights, control VM, tokenizer, sessions and checkpoints.
+Staging and selection are separate: several candidates can compile without
+changing inference. Explicit selection makes a ready choice preferred at a
+completed execution boundary. There is no unregister/register cycle or
+required admission drain.
+
+The author asserts that replacements preserve the meaning and layout of retained
+state and parameters. The server checks the native binding contract, not
+mathematical equivalence. Preparation declarations, shape catalog, control VM
+and tokenizer remain fixed; changing them requires a new registration.
+For a text deployment named `scout` with variant capacity enabled, these commands
+use `jq` to carry server-issued IDs:
+
+```sh
+original=$(curl --fail --silent --show-error \
+  http://127.0.0.1:8080/v1/models/variants -H 'X-Loom-Model: scout' |
+  jq -er '.selected')
+
+candidate=$(curl --fail-with-body --silent --show-error \
+  http://127.0.0.1:8080/v1/models/variants \
+  -H 'Content-Type: application/json' \
+  -d "{\"model\":\"scout\",\"base\":$original,\"base_directory\":\"/srv/models/scout/candidate\",\"sources\":[\"config.loom\",\"advance.loom\"]}" |
+  jq -er 'select(.variant.phase == "ready") | .variant.id')
+
+curl --fail-with-body --silent --show-error \
+  http://127.0.0.1:8080/v1/models/variants/select \
+  -H 'Content-Type: application/json' \
+  -d "{\"model\":\"scout\",\"variant\":$candidate,\"expected\":$original}"
+```
+
+These JSON-only commands use provider files already on the server. A
+[multipart source package](../http-profiles.md#uploaded-source-packages)
+instead carries client-local providers in the request. Staging waits
+asynchronously by default and returns retained compiler diagnostics on failure;
+`"wait":false` instead returns an ID immediately for later inspection.
+Existing inference can progress during JIT. Selection briefly quiesces that
+model's accepted CPU/device work before rebinding native stages; it neither
+reloads weights nor copies KV state. Subsequent text epochs use the new code,
+including epochs advancing already-admitted requests. This is a model-wide
+preference, not a request-local A/B selector.
+
+Keeping the original choice makes rollback another selection:
+
+```sh
+curl --fail-with-body --silent --show-error \
+  http://127.0.0.1:8080/v1/models/variants/select \
+  -H 'Content-Type: application/json' \
+  -d "{\"model\":\"scout\",\"variant\":$original,\"expected\":$candidate}"
+```
+
+Expected-current protection prevents another author's update from being silently
+overwritten. After an interrupted response, inventory establishes the actual
+preference; disconnect does not cancel accepted work. Rollback restores code,
+not a conversation's earlier state. Named checkpoints provide independent
+state forks when comparing continuations. Native-update compatibility must hold
+for every retained session and checkpoint that either choice will consume.
+
+Unused terminal candidates can be explicitly removed to reclaim cache credit.
+Pending and failed attempts count against `variant_capacity`; capacity exhaustion
+rejects new staging instead of evicting an arbitrary rollback choice. The
+[HTTP reference](../http-profiles.md#native-executable-variants)
+defines inspection, selection and removal responses.
+The [live development workflow](live-model-development.md) combines these controls
+with remote source uploads, checked kernel changes and pinned continuation trials.
+
 ## Bound memory and admission
 
 Process limits and model capacities constrain different resources:
@@ -133,11 +202,13 @@ Process limits and model capacities constrain different resources:
 | Text `rows` | Concurrently advancing execution rows. |
 | Text `context_capacity` | Logical token ceiling of one context. |
 | Text `pool_capacity` | Shared logical KV capacity, independent of maximum context times row count. |
+| Text `variant_capacity` | Native choices, including the original, pending JITs and failed attempts. |
 | `--memory_bytes` | Physical retained parameter/state backing under elastic policy on one device. |
 
 Holding capacity stays below connection capacity so held inference cannot
-consume every control connection. Live log streams share an additional combined
-bound with held requests. Full credit returns 429. Incomplete requests and
+consume every control connection. Live log streams and waiting variant-management
+requests share an additional combined bound with held requests. Full credit
+returns 429. Incomplete requests and
 active response streams still consume transport credit; these bounds are not
 a promise that arbitrary slow clients leave connections free.
 

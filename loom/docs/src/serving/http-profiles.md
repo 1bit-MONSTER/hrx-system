@@ -17,11 +17,15 @@ no built-in authentication or TLS termination.
 | `GET /healthz`, `GET /readyz` | Server availability: `{"status":"ready"}`. |
 | `GET /v1/models` | Prepared deployments not being removed, with input/output modalities and a `loom` capability object. |
 | `GET /v1/status` | Every registration, progress/errors, admission, scheduler state and shared server resources. |
-| `POST /v1/models/register` | Complete model document; HTTP 202 accepts registration intent. |
+| `POST /v1/models/register` | Complete model document, optionally with uploaded source files; HTTP 202 accepts registration intent. |
 | `POST /v1/models/drain`, `POST /v1/models/undrain` | `{"model":"name"}`; HTTP 200 acknowledges the gate change. |
 | `POST /v1/models/unregister` | `{"model":"name","mode":"drain"}`; mode may instead be `"abort"`; HTTP 202 accepts removal. |
 | `POST /v1/models/activate`, `POST /v1/models/deactivate` | Model-only body; HTTP 202 accepts a residency operation on a healthy drained registration. |
 | `POST /v1/models/pin`, `POST /v1/models/unpin` | Model-only body; HTTP 200 changes parameter eviction policy. |
+| `GET /v1/models/variants` | Native executable inventory or one candidate's retained compilation diagnostics. |
+| `POST /v1/models/variants` | Stage native providers against a ready base without selecting them. |
+| `POST /v1/models/variants/select` | Select a ready candidate with expected-current protection. |
+| `POST /v1/models/variants/remove` | Remove an unused terminal candidate. |
 | `POST /v1/devices/trim` | `{"device":0,"target_bytes":0}`; HTTP 200 returns actual resource accounting after eligible reclamation. |
 | `GET /metrics` | Prometheus text counters and ownership gauges. |
 | `GET /logz`, `GET /logz/stream` | Bounded JSONL polling or SSE with independent cursors. |
@@ -37,6 +41,130 @@ Capabilities do not establish learned quality or support for every optional fiel
 [Operation](workflows/operate-model-server.md) specifies asynchronous control
 completion, conflict and overload behavior. [Observation](workflows/observe-model-server.md)
 specifies model selection, cursors, SSE resume and inspection pagination.
+
+### Native executable variants
+
+A prepared service supporting native updates reports
+`loom.variants:{"selected":12,"count":2}` in model discovery and status.
+Text, image, embedding and decision services enable this capability through
+nonzero `variant_capacity`. Disabled or custom services without the capability
+return 501. A registration must have a healthy prepared service; drained
+admission is permitted, removal is not.
+
+`GET /v1/models/variants` requires `X-Loom-Model: scout` and an empty body.
+It returns `object:"list"`, `model`, `selected`, `count`, `offset`, `data` and
+`next_offset`. Optional `X-Loom-Offset` selects a zero-based index; each page
+contains at most 64 entries in creation order. This is live inventory, not a
+stable snapshot across concurrent removals. Instead, `X-Loom-Variant: 13`
+selects one full record, including compilation diagnostics. The variant and
+offset headers are mutually exclusive.
+
+Staging accepts:
+
+```json
+{"model":"scout","base":12,"base_directory":"/srv/models/scout/candidate","sources":["config.loom","advance.loombc"],"wait":true}
+```
+
+`base` identifies a ready choice in this registration. It asserts that the
+new providers preserve its resource contract; it does not merge in the base's
+providers. `sources` supplies the complete native provider set. With a JSON
+request, relative paths require an absolute `base_directory`; otherwise paths
+must be absolute. Files are read by server-side compilation workers. A multipart
+request instead supplies an immutable source package, described below.
+`prepare`, `control` and other model fields reject.
+
+Omitted or true `wait` completes the HTTP request after JIT with 200 for ready
+or 422 for failed compilation. False returns 202 after accepting construction.
+Both responses contain `selected` and `variant`. A variant record contains
+`object:"variant"`, `id`, `base`, `phase` (`compiling`, `ready` or `failed`) and
+`users` (explicit consumer references). Terminal failures retain an `error`
+with code/message. Detailed records also include available `compilation`
+evidence. Staging never changes the preferred choice, including when JIT fails.
+
+Selection accepts `{"model":"scout","variant":13,"expected":12}`. The request
+completes at the service's safe execution boundary and returns
+`{"selected":13}`. A stale expected ID, pending selection, compiling/failed
+candidate or candidate from another registration rejects without switching.
+Selection failure leaves the previous preference intact. Query inventory after
+an error or interrupted connection to inspect the actual preference.
+
+Execution replacement preserves preparation/control VM programs, stage
+declarations and specialization values, parameter placement, and retained state.
+It can replace command programs and their reachable kernels, or direct-dispatch
+implementations including resident pipelines. It does not rerun weight
+preparation. Text selects between retired epochs; embedding and decision
+services select outside their active cohort; image services finish the whole
+image and CPU encoder before selection. Prepared but unsubmitted work may use
+the new execution because its request/result layout is unchanged. Image command
+part counts and transient requirements may change without relinking the control
+VM. Changing preserved model contracts requires a new registration.
+
+Removal accepts `{"model":"scout","variant":12}` and returns `{"removed":12}`.
+Compiling or consumer-retained entries cannot be removed. Missing entries return
+404; conflicts return 409; exhausted pool or management-observation credit
+returns 429. Unknown, duplicate or wrongly typed fields return 400.
+
+IDs never recycle within the server process, including after unregister/register.
+They are not persistent identifiers across restarts. Compilation results remain
+until explicit removal or model retirement. Disconnect withdraws the reader,
+not accepted compilation or selection. Unregister withdraws waiting compilation
+readers with 410 while still joining the compiler's actual model ownership.
+
+### Uploaded source packages
+
+Registration and native staging also accept `multipart/form-data`: exactly one
+`request` part contains the same JSON as the corresponding endpoint, and repeated
+`file` parts carry programs and metadata. Each file's `filename` is a
+case-sensitive UTF-8 path inside the package, not a server filesystem
+destination. The request filename defaults to
+`request.json`; its directory is the base for relative source references.
+
+For a local `candidate.json` containing
+`{"model":"scout","base":12,"sources":["config.loom","advance.loombc"]}`:
+
+```bash
+curl --fail-with-body -H 'Expect:' \
+  http://127.0.0.1:8080/v1/models/variants \
+  -F 'request=@candidate.json;type=application/json;filename=model/candidate.json' \
+  -F 'file=@config.loom;filename=model/config.loom' \
+  -F 'file=@advance.loombc;filename=model/advance.loombc'
+```
+
+Package filenames use `/` separators and contain no empty, `.` or `..`
+components, absolute paths, backslashes, drive prefixes or control characters.
+Authored relative references may use `..` to reach a shared provider inside the
+package, but cannot escape its root. Missing members fail without falling back
+to server-local files. Explicit absolute source paths still name server-local
+providers, so an upload may combine changed files with existing local inputs.
+Filenames are literal UTF-8, not URL-decoded.
+
+Parts may arrive in any order; duplicates and malformed/truncated bodies reject
+before registration or staging. File bytes are retained in memory independently
+of the request connection, including binary `.loombc`. Native staging releases
+its source ownership after constructing independent executables and copied
+diagnostics. Registration retains the package until the model retires, including
+when `admission:"drained"` defers preparation. These are code packages, not
+checkpoint transfers or a persistent package catalog.
+
+For `POST /v1/models/register`, the `request` part is the complete
+[model document](model-documents.md). Relative `prepare`, `control`, native
+providers, tokenizer metadata and source-declared weight-preparation policies
+resolve inside the package. An image or finite model's relative asset directory
+also applies within that namespace when loading metadata. Absolute locators
+still explicitly select server-local files.
+
+Parameter checkpoint bytes always use the server filesystem, independently of
+the package namespace. An absolute `base_directory` in the model document binds
+relative checkpoint paths there; it does not redirect relative code or metadata
+away from the package. For example, `checkpoint:"."` or `assets:"."` can let a
+model read uploaded tokenizer metadata while its source-declared weight files
+resolve under `base_directory:"/srv/checkpoints/model"`.
+
+The normal `--request_body_bytes` limit covers the complete multipart body;
+there is no implicit upload exception. HTTP requires `Content-Length` and does
+not accept `Expect: 100-continue`, hence the empty `Expect` header above. This
+endpoint loads executable code and has the same trusted-network boundary as
+model registration.
 
 ## Chat completions
 
@@ -64,11 +192,16 @@ through 16384; supplying both rejects. Omission uses the deployment default.
 The limit counts selected tokens, including terminal EOS when generated, so
 completion-token usage can exceed the number of visibly decoded tokens.
 
-The current execution profile is greedy: `temperature` may be omitted or zero.
-Nonzero temperature and other sampling controls are rejected. This is separate
-from thinking: `enable_thinking` and the `model_options` object are passed to
-source chat policy, which validates their meaning and renders the model's
-framing. Their presence does not add a native sampling mode.
+`temperature`, `top_p`, `top_k` and `seed` are numeric request fields interpreted
+by the model's source policy. Omission uses source-defined deployment defaults;
+unsupported values reject before admission. The server carries the validated
+policy to the model program without reading logits back to the host. Supported
+sampling algorithms and value ranges belong to the model package.
+
+Sampling is separate from thinking: `enable_thinking` and the `model_options`
+object are passed to source chat policy, which validates their meaning and
+renders the model's framing. Reasoning-aware models return `reasoning_content`
+separately from answer `content`, in both SSE deltas and complete messages.
 
 `tools` accepts up to 4096 function declarations. Omitted `tool_choice` or
 `"auto"` is supported; other choices reject. `store` may be omitted or false.

@@ -35,7 +35,7 @@ typedef struct loom_serve_module_options_t {
   // Every arity from zero through this value is available, including branches
   // whose stages are not loaded. UINT16_MAX is not a valid capacity.
   uint16_t binding_capacity;
-  // Immutable command table; indices are local to this module, not handles.
+  // Initial command table; indices are local to this module, not handles.
   struct {
     // Number of prepared stages.
     iree_host_size_t count;
@@ -73,6 +73,23 @@ iree_status_t loom_serve_module_create(const iree_hal_module_types_t* types,
                                        loom_serve_module_options_t options,
                                        iree_allocator_t host_allocator,
                                        iree_vm_module_t** out_module);
+
+// Rebinds the native stages of a module created above without changing its VM
+// declarations, process storage, feedback destinations or execution timeline.
+// The nonempty table may grow or shrink; each stage's model-buffer arity must
+// fit the original binding capacity. Commands, direct executables and private
+// workspace requirements may change. The owner updates source stage indices
+// together with the table, never midway through an invocation using them.
+// All validation and workspace reservation precede publication. Failure leaves
+// the previous bindings usable; success retains the new commands/executables.
+// Accepted queue work retains its previous resources independently.
+//
+// The model owner serializes this call with VM invocations at a semantic model
+// boundary. No device wait occurs. Buffer contents and parameter/state layout
+// compatibility belong to that owner, not the native submission module.
+iree_status_t loom_serve_module_bind_stages(iree_vm_module_t* module,
+                                            iree_host_size_t stage_count,
+                                            const loom_serve_stage_t* stages);
 
 #ifdef __cplusplus
 }  // extern "C"

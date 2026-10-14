@@ -16,11 +16,42 @@ loom_cc_library(
     "service.h"
   DEPS
     ::inspection
+    ::reconfiguration
     iree::base
     iree::tokenizer
     loom::serve::runtime::host::wake
     loom::serve::telemetry::stream
     loom::serve::transport::http::server
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    reconfiguration
+  HDRS
+    "reconfiguration.h"
+  DEPS
+    iree::base
+    loom::serve::runtime::program::sources
+    loom::serve::runtime::program::variant_pool
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    execution_reconfiguration
+  HDRS
+    "execution_reconfiguration.h"
+  SRCS
+    "execution_reconfiguration.c"
+  DEPS
+    ::reconfiguration
+    iree::base
+    loom::serve::runtime::host::wake
+    loom::serve::runtime::program::compilation
+    loom::serve::runtime::program::package
+    loom::serve::runtime::program::sources
+    loom::serve::runtime::program::variant_pool
   PUBLIC
 )
 

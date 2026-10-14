@@ -138,14 +138,6 @@ static iree_status_t loom_serve_jit_compiler_initialize(
   return loom_serve_compilation_result(status, result, report);
 }
 
-static iree_status_t loom_serve_jit_read_source(iree_string_view_t path,
-                                                iree_allocator_t host_allocator,
-                                                loomc_source_t** out_source) {
-  return iree_status_from_loomc(loomc_source_create_from_path(
-      loomc_string_view_from_iree(path), NULL,
-      loomc_allocator_from_iree(host_allocator), out_source));
-}
-
 static iree_status_t loom_serve_jit_index_sources(
     loom_serve_jit_t* jit, const loom_serve_sources_t* sources) {
   loomc_link_index_builder_t* builder = NULL;
@@ -155,15 +147,9 @@ static iree_status_t loom_serve_jit_index_sources(
           loomc_allocator_from_iree(jit->host_allocator), &builder));
   for (iree_host_size_t i = 0; i < sources->count && iree_status_is_ok(status);
        ++i) {
-    char* path = NULL;
-    status =
-        loom_serve_path_resolve(sources->base_directory, sources->values[i],
-                                jit->host_allocator, &path);
     loomc_source_t* source = NULL;
-    if (iree_status_is_ok(status)) {
-      status = loom_serve_jit_read_source(iree_make_cstring_view(path),
-                                          jit->host_allocator, &source);
-    }
+    status = loom_serve_sources_open(sources, sources->values[i],
+                                     jit->host_allocator, &source);
     if (iree_status_is_ok(status)) {
       const loomc_link_index_source_options_t options = {
           .provider_name = loomc_string_view_from_iree(sources->values[i]),
@@ -173,7 +159,6 @@ static iree_status_t loom_serve_jit_index_sources(
           loomc_link_index_builder_add_source(builder, source, &options, NULL));
     }
     loomc_source_release(source);
-    iree_allocator_free(jit->host_allocator, path);
   }
   if (iree_status_is_ok(status)) {
     loomc_result_t* result = NULL;
@@ -1190,7 +1175,8 @@ iree_status_t loom_serve_jit_stage_record(
       stage->entry_count, stage->entries, stage->host_allocator, out_command);
 }
 
-iree_status_t loom_serve_jit_compile_vm(iree_string_view_t source_path,
+iree_status_t loom_serve_jit_compile_vm(const loom_serve_sources_t* sources,
+                                        iree_string_view_t source_path,
                                         iree_host_size_t root_count,
                                         const iree_string_view_t* roots,
                                         loom_serve_compilation_report_t* report,
@@ -1217,7 +1203,8 @@ iree_status_t loom_serve_jit_compile_vm(iree_string_view_t source_path,
   }
   loomc_source_t* source = NULL;
   if (iree_status_is_ok(status)) {
-    status = loom_serve_jit_read_source(source_path, host_allocator, &source);
+    status =
+        loom_serve_sources_open(sources, source_path, host_allocator, &source);
   }
   loomc_target_specialization_t* specializations = NULL;
   if (iree_status_is_ok(status)) {

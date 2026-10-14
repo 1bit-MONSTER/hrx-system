@@ -7,6 +7,7 @@
 #ifndef LOOM_SERVE_SERVICE_TEXT_RESPONSE_H_
 #define LOOM_SERVE_SERVICE_TEXT_RESPONSE_H_
 
+#include "loom/serve/service/text/session.h"
 #include "loom/serve/service/text/telemetry.h"
 #include "loom/serve/transport/http/server.h"
 
@@ -28,6 +29,15 @@ iree_status_t loom_serve_text_response_reject(
     loom_serve_http_connection_t* connection, loom_serve_text_receipt_t receipt,
     int code, const char* reason, iree_status_t failure,
     iree_allocator_t host_allocator);
+
+// Translates selected tokens into the session packet. Translation failures
+// produce a terminal JSON/SSE error and retain diagnostics for owner
+// publication; transport and row retirement remain with the service. Scratch is
+// exclusively borrowed for this finite CPU operation.
+iree_status_t loom_serve_text_response_tokens(
+    loom_serve_text_session_t* session, iree_string_view_t name,
+    iree_host_size_t count, const int32_t* tokens,
+    iree_string_builder_t* scratch, iree_string_builder_t* tool_calls);
 
 #ifdef __cplusplus
 }  // extern "C"

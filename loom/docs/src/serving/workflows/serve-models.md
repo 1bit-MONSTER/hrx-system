@@ -138,5 +138,8 @@ supply any access-control boundary.
 fields, raw tokenizer utilities and retained-text checkpoint controls.
 [Connect model clients](connect-model-clients.md) configures Pi, Oh My Pi and
 Open WebUI against the mixed catalog without changing those clients.
-[Author serving model packages](../../integration/serving-models.md) traces the
+[Author serving model packages](../model-programs.md) traces the
 source, parameter and result ownership needed to replace the example's math.
+[Develop models on a live server](live-model-development.md) connects kernel
+checks and benchmarks to source uploads, retained-checkpoint comparisons and
+native executable selection without reloading weights.

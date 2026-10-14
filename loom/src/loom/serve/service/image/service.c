@@ -15,6 +15,7 @@
 #include "loom/serve/runtime/host/timer.h"
 #include "loom/serve/runtime/host/wake.h"
 #include "loom/serve/runtime/parameter/telemetry.h"
+#include "loom/serve/service/execution_reconfiguration.h"
 #include "loom/serve/service/image/output.h"
 #include "loom/serve/service/image/telemetry.h"
 #include "loom/util/json.h"
@@ -60,6 +61,8 @@ struct loom_serve_image_service_t {
   iree_allocator_t host_allocator;
   // Borrowed, serialized native model invocation.
   loom_serve_image_generator_t generator;
+  // Candidate ownership and pending selection, retired before the generator.
+  loom_serve_execution_reconfiguration_t* reconfiguration;
   // Copied model geometry and policy; the route name is borrowed.
   loom_serve_image_service_options_t options;
   // Borrowed application executor, shared with JIT and all CPU/model work.
@@ -753,6 +756,8 @@ static void loom_serve_image_set_observer(void* self,
   service->events.observer = observer;
   iree_slim_mutex_unlock(&service->events.mutex);
   loom_serve_timer_set_observer(&service->timer, observer);
+  loom_serve_execution_reconfiguration_set_observer(service->reconfiguration,
+                                                    observer);
 }
 
 static bool loom_serve_image_is_active(void* self) {
@@ -766,6 +771,8 @@ static bool loom_serve_image_is_active(void* self) {
 static bool loom_serve_image_is_pending(void* self) {
   loom_serve_image_service_t* service = self;
   return loom_serve_image_is_active(service) ||
+         loom_serve_execution_reconfiguration_pending(
+             service->reconfiguration) ||
          loom_serve_timer_is_pending(&service->timer);
 }
 
@@ -780,6 +787,12 @@ static iree_status_t loom_serve_image_advance(
   }
   loom_serve_image_prune(service, out_progress);
   loom_serve_image_collect(service, out_progress);
+  *out_progress |= loom_serve_execution_reconfiguration_advance(
+      service->reconfiguration,
+      iree_status_is_ok(service->status) &&
+          (service->phase == IMAGE_PHASE_IDLE ||
+           service->phase == IMAGE_PHASE_WAITING),
+      service->stopping || !iree_status_is_ok(service->status));
   if (!service->stopping && !iree_status_is_ok(service->status)) {
     service->telemetry.failure_code = iree_status_code(service->status);
     loom_serve_image_stop(service);
@@ -849,6 +862,8 @@ loom_serve_http_service_t loom_serve_image_service_interface(
                                              output_modalities}},
       .snapshot = loom_serve_image_snapshot,
       .inspection = {.request_at = loom_serve_image_request_at},
+      .reconfiguration = loom_serve_execution_reconfiguration_interface(
+          service->reconfiguration),
       .telemetry = {service->telemetry.stream, &service->telemetry.counters},
       .capacity_domain = service->generator.capacity_domain};
 }
@@ -868,6 +883,7 @@ void loom_serve_image_service_free(loom_serve_image_service_t* service) {
                                          ? LOOM_SERVE_TELEMETRY_FAILED
                                          : LOOM_SERVE_TELEMETRY_CANCELLED);
   }
+  loom_serve_execution_reconfiguration_free(service->reconfiguration);
   loom_serve_timer_deinitialize(&service->timer);
   iree_string_builder_deinitialize(&service->cpu.response);
   iree_string_builder_deinitialize(&service->response);
@@ -915,6 +931,11 @@ iree_status_t loom_serve_image_service_allocate(
   iree_status_t status = iree_allocator_malloc_array(
       host_allocator, options->pending_capacity, sizeof(*service->pending),
       (void**)&service->pending);
+  if (iree_status_is_ok(status)) {
+    status = loom_serve_execution_reconfiguration_allocate(
+        generator.execution_update, options->variant_capacity, host_allocator,
+        &service->reconfiguration);
+  }
   if (iree_status_is_ok(status) && !stream) {
     status = loom_serve_telemetry_stream_allocate(128, host_allocator,
                                                   &service->telemetry.stream);

@@ -40,8 +40,12 @@ loom_cc_library(
     loom::serve::runtime::host::wake
     loom::serve::runtime::parameter::residency
     loom::serve::runtime::program::compilation
+    loom::serve::runtime::program::variant_pool
     loom::serve::server::http::logs
+    loom::serve::server::http::package
+    loom::serve::server::http::response
     loom::serve::server::http::tokenization
+    loom::serve::server::http::variants
     loom::serve::service
     loom::serve::service::inspection
     loom::serve::telemetry::stream
@@ -97,6 +101,7 @@ loom_cc_test(
     "router_registration_test.cc"
     "router_test.cc"
     "router_test_fixture.h"
+    "router_variant_test.cc"
   DEPS
     ::registry
     ::router
@@ -112,6 +117,7 @@ loom_cc_test(
     iree::tokenizer
     iree::tokenizer::format::huggingface::tokenizer_json
     loom::serve::runtime::host::wake
+    loom::serve::runtime::program::variant_pool
     loom::serve::transport::http::listener
     loom::serve::transport::http::request
     loom::serve::transport::http::server

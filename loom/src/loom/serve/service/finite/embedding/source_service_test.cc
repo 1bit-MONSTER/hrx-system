@@ -19,6 +19,7 @@
 #include <vector>
 
 #include "iree/async/proactor.h"
+#include "iree/base/internal/json.h"
 #include "iree/base/tooling/flags.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
@@ -29,6 +30,7 @@
 #include "loom/serve/service/finite/service.h"
 #include "loom/serve/testing/http_harness.h"
 #include "loom/serve/testing/model.h"
+#include "loom/serve/testing/package.h"
 #include "loom/serve/testing/stalled_stderr.h"
 #include "loom/serve/transport/http/listener.h"
 
@@ -231,7 +233,7 @@ class SourceEmbeddingServiceTest : public ::testing::TestWithParam<uint32_t> {
   void CreateService(iree_duration_t heartbeat_interval) {
     IREE_ASSERT_OK(loom_serve_finite_service_allocate(
         host_, model_, loom_serve_embedding_protocol(), IREE_SV("fixture"), 16,
-        heartbeat_interval, nullptr, host_allocator_, &service_));
+        16, heartbeat_interval, nullptr, host_allocator_, &service_));
     interface_ = loom_serve_finite_service_interface(service_);
     EXPECT_EQ(interface_.capacity_domain,
               loom_serve_device_residency_cache(device_));
@@ -504,6 +506,67 @@ class SourceEmbeddingServiceTest : public ::testing::TestWithParam<uint32_t> {
                : std::stoull(metrics.substr(position + prefix.size()));
   }
 
+  static uint64_t Number(const std::string& response, const char* field,
+                         const char* object = nullptr) {
+    uint64_t result = 0;
+    [&] {
+      const auto start = response.find("\r\n\r\n");
+      ASSERT_NE(start, std::string::npos) << response;
+      auto value = iree_make_string_view(response.data() + start + 4,
+                                         response.size() - start - 4);
+      if (object) {
+        IREE_ASSERT_OK(iree_json_lookup_object_value(
+            value, iree_make_cstring_view(object), &value));
+      }
+      IREE_ASSERT_OK(iree_json_lookup_object_value(
+          value, iree_make_cstring_view(field), &value));
+      IREE_ASSERT_OK(iree_json_parse_uint64(value, &result));
+    }();
+    return result;
+  }
+
+  std::string UploadVariant(uint64_t base, const std::string& directory,
+                            const char* provider, const char* replacement,
+                            bool weighted = false) {
+    loom_serve::testing::SourcePackage package;
+    std::ifstream input(directory + "/" + provider);
+    EXPECT_TRUE(input.good());
+    std::string source((std::istreambuf_iterator<char>(input)), {});
+    const std::string original = "scalar.constant 1 : i32";
+    const size_t position = source.find(original);
+    EXPECT_NE(position, std::string::npos);
+    if (position == std::string::npos) {
+      return {};
+    }
+    source.replace(position, original.size(), replacement);
+    package.Add(std::string("model/") + provider, source);
+    [&] {
+      IREE_ASSERT_OK(
+          package.AddFile("model/config.loom", directory_ + "/config.loom"));
+      if (weighted) {
+        IREE_ASSERT_OK(
+            package.AddFile("model/weights.loom", directory + "/weights.loom"));
+      }
+    }();
+    const std::string json =
+        "{\"model\":\"fixture\",\"base\":" + std::to_string(base) +
+        ",\"sources\":[\"config.loom\",\"" + provider + "\"" +
+        (weighted ? ",\"weights.loom\"" : "") + "],\"wait\":true}";
+    int client = -1;
+    [&] {
+      IREE_ASSERT_OK(
+          http_.Send(package.Request("/v1/models/variants", json), &client));
+    }();
+    return Read(client);
+  }
+
+  std::string SelectVariant(uint64_t variant, uint64_t expected) {
+    return Read(
+        Send("{\"model\":\"fixture\",\"variant\":" + std::to_string(variant) +
+                 ",\"expected\":" + std::to_string(expected) + "}",
+             "/v1/models/variants/select"));
+  }
+
   // The replacement is ordinary model source and a tiny real checkpoint. Only
   // package files change; the same compiled native service loads both models.
   void WriteWeightedPackage(const std::string& target) {
@@ -646,6 +709,144 @@ global.rodata.def @policy = bytes("706f6c6963792e6c6f6f6d")
   // incarnations.
   loom_serve_telemetry_counters_t retired_counters_ = {};
 };
+
+TEST_P(SourceEmbeddingServiceTest,
+       ReconfiguresWeightedCommandsWithoutPreparingAgain) {
+  const std::string directory =
+      iree::testing::MakeTempFilePath("variant_weights");
+  ASSERT_NO_FATAL_FAILURE(WriteWeightedPackage(directory));
+  interface_.set_observer(interface_.self, {});
+  loom_serve_finite_service_free(std::exchange(service_, nullptr));
+  IREE_ASSERT_OK(loom_serve_finite_model_free(std::exchange(model_, nullptr)));
+  ASSERT_NO_FATAL_FAILURE(CreateModel(directory));
+  ASSERT_NO_FATAL_FAILURE(CreateService(0));
+  auto* residency = loom_serve_finite_model_residency(model_);
+  IREE_ASSERT_OK(loom_serve_residency_activate(residency));
+  const auto weights = loom_serve_residency_activity(residency);
+  StartRouter();
+  const auto inventory =
+      Read(Send({}, "/v1/models/variants", "GET", "X-Loom-Model: fixture\r\n"));
+  ASSERT_EQ(inventory.find("HTTP/1.1 200"), 0u) << inventory;
+  const uint64_t original = Number(inventory, "selected");
+  const std::string request = R"({"model":"fixture","input":"a"})";
+  EXPECT_NE(Read(Send(request)).find(R"("embedding":[2,2,2,2])"),
+            std::string::npos);
+  const auto staged = UploadVariant(original, directory, "embed.loom",
+                                    "scalar.constant 2 : i32", true);
+  ASSERT_EQ(staged.find("HTTP/1.1 200"), 0u) << staged;
+  const uint64_t candidate = Number(staged, "id", "variant");
+  EXPECT_EQ(Number(staged, "selected"), original);
+  EXPECT_NE(Read(Send(request)).find(R"("embedding":[2,2,2,2])"),
+            std::string::npos);
+  const auto selected = SelectVariant(candidate, original);
+  ASSERT_EQ(selected.find("HTTP/1.1 200"), 0u) << selected;
+  const auto changed = Read(Send(request));
+  EXPECT_NE(changed.find(R"("embedding":[4,2,4,2])"), std::string::npos)
+      << changed;
+  EXPECT_EQ(SelectVariant(original, original).find("HTTP/1.1 409"), 0u);
+  ASSERT_EQ(SelectVariant(original, candidate).find("HTTP/1.1 200"), 0u);
+  EXPECT_NE(Read(Send(request)).find(R"("embedding":[2,2,2,2])"),
+            std::string::npos);
+  const auto failed = UploadVariant(original, directory, "embed.loom",
+                                    "scalar.not_an_operation 1 : i32", true);
+  EXPECT_EQ(failed.find("HTTP/1.1 422"), 0u) << failed;
+  EXPECT_NE(failed.find("not_an_operation"), std::string::npos);
+  EXPECT_EQ(Number(failed, "selected"), original);
+  EXPECT_NE(Read(Send(request)).find(R"("embedding":[2,2,2,2])"),
+            std::string::npos);
+  loom_serve_http_server_request_stop(server_);
+  IREE_ASSERT_OK(http_.Join());
+  const auto retained = loom_serve_residency_activity(residency);
+  EXPECT_EQ(retained.activations, weights.activations);
+  EXPECT_EQ(retained.read_bytes, weights.read_bytes);
+  EXPECT_EQ(retained.prepared_bytes, weights.prepared_bytes);
+}
+
+TEST_P(SourceEmbeddingServiceTest, ReconfiguresDirectDispatchAndRollsBack) {
+  ASSERT_NO_FATAL_FAILURE(UseDirectPackage());
+  StartRouter();
+  const auto inventory =
+      Read(Send({}, "/v1/models/variants", "GET", "X-Loom-Model: fixture\r\n"));
+  ASSERT_EQ(inventory.find("HTTP/1.1 200"), 0u) << inventory;
+  const uint64_t original = Number(inventory, "selected");
+  const std::filesystem::path path = FLAG_direct_stage_source[0]
+                                         ? FLAG_direct_stage_source
+                                         : directory_ + "/variants/direct.loom";
+  const auto staged =
+      UploadVariant(original, path.parent_path().string(),
+                    path.filename().c_str(), "scalar.constant 2 : i32");
+  ASSERT_EQ(staged.find("HTTP/1.1 200"), 0u) << staged;
+  const uint64_t candidate = Number(staged, "id", "variant");
+  ASSERT_EQ(SelectVariant(candidate, original).find("HTTP/1.1 200"), 0u);
+  const std::string request = R"({"model":"fixture","input":"a"})";
+  const auto changed = Read(Send(request));
+  EXPECT_NE(changed.find(R"("embedding":[2,1,2,1])"), std::string::npos)
+      << changed;
+  ASSERT_EQ(SelectVariant(original, candidate).find("HTTP/1.1 200"), 0u);
+  EXPECT_NE(Read(Send(request)).find(R"("embedding":[1,1,1,1])"),
+            std::string::npos);
+}
+
+TEST_P(SourceEmbeddingServiceTest, UploadedPolicyPreparesServerLocalWeights) {
+  const std::string directory =
+      iree::testing::MakeTempFilePath("uploaded_weighted");
+  ASSERT_NO_FATAL_FAILURE(WriteWeightedPackage(directory));
+  const std::string checkpoints =
+      iree::testing::MakeTempFilePath("uploaded_checkpoint");
+  ASSERT_TRUE(std::filesystem::create_directory(checkpoints));
+  ASSERT_TRUE(std::filesystem::copy_file(directory + "/weights.safetensors",
+                                         checkpoints + "/weights.safetensors"));
+  StartManagedRouter();
+  {
+    loom_serve::testing::SourcePackage package;
+    for (const auto* file :
+         {"prepare.loom", "control.loom", "config.loom", "embed.loom",
+          "weights.loom", "policy.loom", "tokenizer.json"}) {
+      IREE_ASSERT_OK(package.AddFile(std::string("model/") + file,
+                                     directory + "/" + file));
+    }
+    int client = -1;
+    IREE_ASSERT_OK(http_.Send(
+        package.Request(
+            "/v1/models/register",
+            Declaration("weighted", directory, "drained", checkpoints)),
+        &client));
+    const auto registered = Read(client);
+    ASSERT_EQ(registered.find("HTTP/1.1 202"), 0u) << registered;
+  }
+  ASSERT_EQ(Read(Send(R"({"model":"weighted"})", "/v1/models/undrain"))
+                .find("HTTP/1.1 200"),
+            0u);
+  const auto response = Read(Send(R"({"model":"weighted","input":"a"})"));
+  EXPECT_NE(response.find(R"("embedding":[2,2,2,2])"), std::string::npos)
+      << response << ModelStatus("weighted");
+  // A model unregister joins accepted compiler borrowers even after the
+  // staging response and uploaded source package have left the client.
+  const uint64_t base = Number(Read(Send({}, "/v1/models/variants", "GET",
+                                         "X-Loom-Model: weighted\r\n")),
+                               "selected");
+  {
+    loom_serve::testing::SourcePackage package;
+    for (const char* file : {"config.loom", "embed.loom", "weights.loom"}) {
+      IREE_ASSERT_OK(package.AddFile(std::string("model/") + file,
+                                     directory + "/" + file));
+    }
+    int client = -1;
+    IREE_ASSERT_OK(http_.Send(
+        package.Request(
+            "/v1/models/variants",
+            "{\"model\":\"weighted\",\"base\":" + std::to_string(base) +
+                ",\"sources\":[\"config.loom\",\"embed.loom\",\"weights.loom\"]"
+                ",\"wait\":false}"),
+        &client));
+    const auto accepted = Read(client);
+    ASSERT_EQ(accepted.find("HTTP/1.1 202"), 0u) << accepted;
+  }
+  ASSERT_EQ(Read(Send(R"({"model":"weighted"})", "/v1/models/unregister"))
+                .find("HTTP/1.1 202"),
+            0u);
+  WaitModel("weighted", {});
+}
 
 TEST_P(SourceEmbeddingServiceTest,
        DynamicWeightedRegistrationOwnsItsOperationAndIncarnation) {

@@ -4,7 +4,7 @@ The serving implementation separates shared execution facilities, transport,
 model services and application composition. Numerical model programs are
 runtime inputs, not native server dependencies.
 
-The [model-package authoring guide](../../../docs/src/integration/serving-models.md)
+The [model-package authoring guide](../../../docs/src/serving/model-programs.md)
 traces source preparation, execution and final output. This page maps the
 native owners that implement those contracts.
 
@@ -64,6 +64,18 @@ The shared foundation consists of:
 Each component keeps its unit tests beside its implementation. Native headers
 describe ownership contracts; they are implementation interfaces rather than
 a separately versioned embedding SDK.
+
+Live execution replacement separates cached code from selection policy.
+[`variant_pool`](runtime/program/variant_pool.h) owns immutable choices and
+terminal compiler diagnostics; [`execution_reconfiguration`](service/execution_reconfiguration.h)
+captures provider locators, joins accepted compilation and retains the service's
+preferred choice. Each modality supplies the safe selection boundary and binds
+candidate execution to its existing resources. Image selection replaces all
+command parts together after the whole image and encoder retire, while finite
+services finish their cohort and text finishes its epoch. Preparation/control,
+parameter placement and retained state remain unchanged. The
+[live development workflow](../../../docs/src/serving/workflows/live-model-development.md)
+traces upload, comparison and rollback over the common HTTP endpoints.
 
 The [source fixtures](fixture/README.md) contain deterministic model documents,
 VM programs, device kernels and tokenizers. They exercise these same production

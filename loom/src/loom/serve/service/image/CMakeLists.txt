@@ -70,6 +70,7 @@ loom_cc_library(
     iree::tokenizer
     loom::serve::runtime::execution
     loom::serve::runtime::parameter::residency
+    loom::serve::service::execution_reconfiguration
   PUBLIC
 )
 
@@ -112,6 +113,7 @@ loom_cc_library(
     loom::serve::runtime::host::wake
     loom::serve::runtime::parameter::telemetry
     loom::serve::service
+    loom::serve::service::execution_reconfiguration
     loom::serve::telemetry::record
     loom::serve::telemetry::stream
     loom::serve::transport::http::request
@@ -133,7 +135,6 @@ loom_cc_library(
     ::generator
     iree::base
     iree::hal
-    iree::io::file_handle
     iree::module::hal::types
     iree::tokenizer
     iree::tokenizer::format::huggingface::tokenizer_json
@@ -152,8 +153,11 @@ loom_cc_library(
     loom::serve::runtime::program::jit
     loom::serve::runtime::program::json
     loom::serve::runtime::program::module
+    loom::serve::runtime::program::parameter_layout
     loom::serve::runtime::program::preparation
     loom::serve::runtime::program::sources
+    loom::serve::runtime::program::stage_set
+    loom::serve::runtime::program::variant_pool
     loom::util::stream
   PUBLIC
 )
@@ -169,6 +173,7 @@ loom_cc_library(
     iree::async
     iree::base
     iree::base::internal::base64
+    iree::base::internal::json
     iree::base::tooling::flags
     iree::hal
     iree::testing::gtest
@@ -177,6 +182,8 @@ loom_cc_library(
     loom::serve::runtime::execution
     loom::serve::runtime::host
     loom::serve::runtime::parameter::residency
+    loom::serve::runtime::program::sources
+    loom::serve::runtime::program::variant_pool
     loom::serve::server::model_registration
     loom::serve::server::registry
     loom::serve::server::router
@@ -184,8 +191,10 @@ loom_cc_library(
     loom::serve::service::image::output
     loom::serve::service::image::request
     loom::serve::service::image::service
+    loom::serve::service::reconfiguration
     loom::serve::testing::http_harness
     loom::serve::testing::model
+    loom::serve::testing::package
     loom::serve::testing::stalled_stderr
     loom::serve::transport::http::listener
     loom::serve::transport::http::server

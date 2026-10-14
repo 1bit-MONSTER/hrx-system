@@ -381,10 +381,11 @@ static const iree_vm_module_vtable_t preparation_module_vtable = {
 };
 
 iree_status_t loom_serve_preparation_allocate(
-    iree_vm_environment_t* environment, iree_string_view_t source_path,
-    iree_string_view_t entry, iree_vm_variant_span_t arguments,
-    iree_vm_variant_span_t results, iree_vm_module_span_t libraries,
-    loom_serve_compilation_report_t* report, iree_allocator_t host_allocator,
+    iree_vm_environment_t* environment, const loom_serve_sources_t* sources,
+    iree_string_view_t source_path, iree_string_view_t entry,
+    iree_vm_variant_span_t arguments, iree_vm_variant_span_t results,
+    iree_vm_module_span_t libraries, loom_serve_compilation_report_t* report,
+    iree_allocator_t host_allocator,
     loom_serve_preparation_t** out_preparation) {
   *out_preparation = NULL;
   loom_serve_preparation_t* preparation = NULL;
@@ -431,7 +432,7 @@ iree_status_t loom_serve_preparation_allocate(
       linked[i + 1] = libraries.data[i];
     }
     status = loom_serve_program_allocate(
-        environment, source_path, 1, &entry,
+        environment, sources, source_path, 1, &entry,
         (iree_vm_module_span_t){linked, libraries.count + 1}, report,
         host_allocator, &program);
   }

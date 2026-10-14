@@ -35,14 +35,14 @@ void loom_serve_program_free(loom_serve_program_t* program) {
 }
 
 iree_status_t loom_serve_program_compile(
-    iree_vm_environment_t* environment, iree_string_view_t source_path,
-    iree_host_size_t root_count, const iree_string_view_t* roots,
-    loom_serve_compilation_report_t* report, iree_allocator_t host_allocator,
-    iree_vm_module_t** out_module) {
+    iree_vm_environment_t* environment, const loom_serve_sources_t* sources,
+    iree_string_view_t source_path, iree_host_size_t root_count,
+    const iree_string_view_t* roots, loom_serve_compilation_report_t* report,
+    iree_allocator_t host_allocator, iree_vm_module_t** out_module) {
   *out_module = NULL;
   iree_const_byte_span_t image = iree_const_byte_span_empty();
   iree_status_t status = loom_serve_jit_compile_vm(
-      source_path, root_count, roots, report, host_allocator, &image);
+      sources, source_path, root_count, roots, report, host_allocator, &image);
   if (iree_status_is_ok(status)) {
     status = iree_vm_bytecode_module_create_trusted(
         environment, IREE_SV("model"),
@@ -86,15 +86,16 @@ iree_status_t loom_serve_program_link(iree_vm_module_t* module,
 }
 
 iree_status_t loom_serve_program_allocate(
-    iree_vm_environment_t* environment, iree_string_view_t source_path,
-    iree_host_size_t root_count, const iree_string_view_t* roots,
-    iree_vm_module_span_t libraries, loom_serve_compilation_report_t* report,
-    iree_allocator_t host_allocator, loom_serve_program_t** out_program) {
+    iree_vm_environment_t* environment, const loom_serve_sources_t* sources,
+    iree_string_view_t source_path, iree_host_size_t root_count,
+    const iree_string_view_t* roots, iree_vm_module_span_t libraries,
+    loom_serve_compilation_report_t* report, iree_allocator_t host_allocator,
+    loom_serve_program_t** out_program) {
   *out_program = NULL;
   iree_vm_module_t* module = NULL;
   iree_status_t status =
-      loom_serve_program_compile(environment, source_path, root_count, roots,
-                                 report, host_allocator, &module);
+      loom_serve_program_compile(environment, sources, source_path, root_count,
+                                 roots, report, host_allocator, &module);
   if (iree_status_is_ok(status)) {
     status =
         loom_serve_program_link(module, libraries, host_allocator, out_program);

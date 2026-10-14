@@ -6,6 +6,8 @@ func.decl import("prepare") @stage(%root: buffer, %tag: i64) -> (i32)
 
 func.decl import("prepare") @config_i64(%stage: i32, %key: buffer, %value: i64)
 
+func.decl import("prepare") @workspace_limit(%stage: i32, %byte_length: i64)
+
 global.rodata.def @root = bytes("67656e65726174655f696d616765")
 
 global.rodata.def @pixels = bytes("666978747572652e706978656c73")
@@ -49,6 +51,9 @@ func.def public @prepare(%height: i64, %width: i64, %text: i64, %directory: buff
   func.call @require(%valid_options32, %error) : (i32, buffer)
   %root = global.load @root : buffer
   %stage = func.call @stage(%root, %text) : (buffer, i64) -> (i32)
+  // Execution replacements may grow private workspace within this budget.
+  %workspace_limit = scalar.constant 8192 : i64
+  func.call @workspace_limit(%stage, %workspace_limit) : (i32, i64)
   %key = global.load @pixels : buffer
   %pixels = scalar.muli %height, %width : i64
   func.call @config_i64(%stage, %key, %pixels) : (i32, buffer, i64)

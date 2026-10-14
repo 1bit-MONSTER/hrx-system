@@ -56,6 +56,7 @@ array. Kinds are `text`, `image`, `embedding` and `decision`.
 | `sources` | Native command, kernel, configuration and motif providers. |
 | `options` | JSON object passed to source preparation unchanged; defaults to `{}`. |
 | `pending_requests` | Request credit, default `32`; positive integer. Text/image count queued requests, while embedding/decision also count the active cohort. |
+| `variant_capacity` | Retained native executable choices, default `16`, including the original, pending compilations and failed attempts; zero disables native reconfiguration. |
 
 Programs accept text or portable Loom bytecode (`.loom` or `.loombc`), detected
 from contents. Providers may mix formats. Bytecode is serialized IR, not a
@@ -71,6 +72,8 @@ the underlying source and dependency contract.
 
 Native configuration does not interpret `options` keys or rewrite strings
 inside that object. Their meaning belongs to the source program.
+Text control programs also receive this object to establish request defaults;
+model packages can define sampling defaults without native per-model flags.
 
 ## Text definitions
 
@@ -129,15 +132,25 @@ A file document resolves relative references from its own directory. For
 `/srv/models/vectors/prepare.loom`. References can reach shared providers outside
 that directory; this is not a filesystem sandbox.
 
-An absolute `base_directory` overrides the containing directory. HTTP has no
-containing file, so relative references need an explicit absolute base on the
-server machine. A document with only absolute references needs no base; source
-programs must also return absolute parameter and policy paths in that case.
+An absolute `base_directory` overrides the containing directory. A JSON-only HTTP
+request has no containing file, so relative references need an explicit absolute
+base on the server machine. A document with only absolute references needs no
+base; source programs must also return absolute parameter and policy paths in
+that case.
 
 Authored references are retained separately from the base and bound at file I/O.
 The loader does not rewrite JSON to machine-absolute paths, resolve symlinks or
 infer remote mounts. Source-returned parameter/policy references use the same
 base. Tokenizer paths returned relative to an asset directory use that directory.
+
+An [uploaded source package](http-profiles.md#uploaded-source-packages) supplies
+a separate namespace for relative programs and metadata, based on the `request`
+part's logical filename. It supports preparation/control VM programs, native
+providers, tokenizers and weight-preparation policies without placing them on the
+server filesystem. Missing members fail without a local-file fallback. Parameter
+checkpoints still use the filesystem base; explicit absolute program or metadata
+paths also select server-local files. Registration retains uploaded bytes through
+delayed preparation and final retirement.
 
 HTTP registration changes live state only. It does not rewrite model documents
 or flagfiles; persistence of operator changes belongs to the management client.

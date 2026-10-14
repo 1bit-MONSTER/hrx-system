@@ -38,10 +38,14 @@ extern "C" {
 // result length published. The operation allocates nothing and retains no
 // caller storage. An empty target is not a size-query request.
 //
-// json.parse_i64(buffer source, i64 offset, i64 length) -> i64 value
-// parses one complete raw JSON integer range. Fractional or exponent forms and
-// values outside the signed 64-bit range fail. The operation allocates nothing
-// and retains no caller storage.
+// json.parse_i64(buffer source, i64 offset, i64 length) -> i64
+// json.parse_f64(buffer source, i64 offset, i64 length) -> f64
+// parses one complete JSON number in the selected byte range. Integer parsing
+// requires an integer spelling in the signed 64-bit range. Floating parsing
+// rounds to finite F64; overflow and underflow to zero fail. Representable
+// subnormals and signed zero are preserved. Source policy owns narrower
+// application-specific ranges.
+// These operations allocate nothing and retain no caller storage.
 //
 // Request inputs and returned records are ordinary VM buffers. The environment
 // outlives the module and every returned reference; the module owns no model,

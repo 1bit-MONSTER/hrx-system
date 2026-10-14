@@ -7,6 +7,8 @@
 #include "loom/serve/runtime/program/json.h"
 
 #include <array>
+#include <cmath>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -75,6 +77,14 @@ class JsonTest : public ::testing::Test {
     arguments_[0] = Text(document);
     return Invoke(IREE_SV("compact"), 1, 1);
   }
+  iree_status_t Number(iree_string_view_t export_name, std::string_view input,
+                       int64_t offset, int64_t length) {
+    ResetCall();
+    arguments_[0] = Text(input);
+    arguments_[1] = iree_vm_variant_from_i64(offset);
+    arguments_[2] = iree_vm_variant_from_i64(length);
+    return Invoke(export_name, 3, 1);
+  }
   std::string CompactResult() {
     // Results own their backing after the call's input is released.
     iree_vm_variant_span_reset(iree_vm_variant_span_from_array(arguments_));
@@ -119,15 +129,6 @@ class JsonTest : public ::testing::Test {
     arguments_[4] = iree_vm_variant_from_i64(target_offset);
     return Invoke(IREE_SV("unescape"), 5, 1);
   }
-  iree_status_t ParseI64(std::string_view text, int64_t offset,
-                         int64_t length) {
-    ResetCall();
-    arguments_[0] = Text(text);
-    arguments_[1] = iree_vm_variant_from_i64(offset);
-    arguments_[2] = iree_vm_variant_from_i64(length);
-    return Invoke(IREE_SV("parse_i64"), 3, 1);
-  }
-
   // Allocation policy for the actual native module and VM process.
   const iree_allocator_t host_allocator_ = iree_allocator_system();
   // Environment outliving the process and all buffer references.
@@ -149,6 +150,73 @@ class JsonTest : public ::testing::Test {
   // Owned results, empty on failed invocation.
   iree_vm_variant_t results_[3] = {};
 };
+
+TEST_F(JsonTest, IntegerRangesRetainAllSeedBits) {
+  const std::pair<std::string_view, int64_t> cases[] = {
+      {"0", 0},
+      {"-0", 0},
+      {"9007199254740993", INT64_C(9007199254740993)},
+      {"9223372036854775807", INT64_MAX},
+      {"-9223372036854775808", INT64_MIN}};
+  for (const auto& [text, expected] : cases) {
+    SCOPED_TRACE(text);
+    const std::string input = "[" + std::string(text) + "]";
+    IREE_ASSERT_OK(Number(IREE_SV("parse_i64"), input, 1, text.size()));
+    int64_t value = 0;
+    IREE_ASSERT_OK(iree_vm_i64_from_variant(results_[0], &value));
+    EXPECT_EQ(value, expected);
+  }
+  for (std::string_view text :
+       {"9223372036854775808", "-9223372036854775809"}) {
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
+                          Number(IREE_SV("parse_i64"), text, 0, text.size()));
+  }
+  for (std::string_view text : {"1.0", "1e0"}) {
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                          Number(IREE_SV("parse_i64"), text, 0, text.size()));
+  }
+}
+
+TEST_F(JsonTest, FloatingRangesPreserveDecimalMagnitudeAndSignedZero) {
+  const std::pair<std::string_view, double> cases[] = {
+      {"0.7", 0.7},
+      {"-0", -0.0},
+      {"9.5e-1", 0.95},
+      {"1000000000000000000000000000000", 1e30},
+      {"0.000000000000000000000000000001", 1e-30},
+      {"5e-324", std::numeric_limits<double>::denorm_min()},
+      {"0e999", 0.0},
+      {"-0.0e-999", -0.0}};
+  for (const auto& [text, expected] : cases) {
+    SCOPED_TRACE(text);
+    const std::string input = "[" + std::string(text) + "]";
+    IREE_ASSERT_OK(Number(IREE_SV("parse_f64"), input, 1, text.size()));
+    double value = 0;
+    IREE_ASSERT_OK(iree_vm_f64_from_variant(results_[0], &value));
+    EXPECT_EQ(value, expected);
+    EXPECT_EQ(std::signbit(value), std::signbit(expected));
+  }
+  for (std::string_view text : {"1e999", "-1e999", "1e-999", "-1e-999"}) {
+    SCOPED_TRACE(text);
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
+                          Number(IREE_SV("parse_f64"), text, 0, text.size()));
+    IREE_ASSERT_OK(Number(IREE_SV("parse_f64"), "0.7", 0, 3));
+  }
+}
+
+TEST_F(JsonTest, NumberBoundaryRejectsMalformedRangesAndRecovers) {
+  for (iree_string_view_t name : {IREE_SV("parse_i64"), IREE_SV("parse_f64")}) {
+    for (std::string_view text : {"", "+1", "01", "1x", "1 2", "1e", "NaN",
+                                  "inf", "0x1p0", "true", "\"1\""}) {
+      SCOPED_TRACE(text);
+      IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                            Number(name, text, 0, text.size()));
+      IREE_ASSERT_OK(Number(name, "7", 0, 1));
+    }
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE, Number(name, "7", -1, 1));
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE, Number(name, "7", 0, 2));
+  }
+}
 
 TEST_F(JsonTest, CompactPreservesSignificantBytesAcrossAllValueTypes) {
   const std::pair<std::string_view, std::string_view> cases[] = {
@@ -343,7 +411,7 @@ TEST_F(JsonTest, ParseI64UsesOnlyTheProvidedRange) {
                             {"9223372036854775807", INT64_MAX},
                             {"-9223372036854775808", INT64_MIN}}) {
     const std::string source = "!!" + std::string(entry.first) + "!!";
-    IREE_ASSERT_OK(ParseI64(source, 2, entry.first.size()));
+    IREE_ASSERT_OK(Number(IREE_SV("parse_i64"), source, 2, entry.first.size()));
     int64_t value = 0;
     IREE_ASSERT_OK(iree_vm_i64_from_variant(results_[0], &value));
     EXPECT_EQ(value, entry.second);
@@ -354,13 +422,15 @@ TEST_F(JsonTest, ParseI64RejectsNonIntegersOverflowAndInvalidRanges) {
   for (const char* value : {"", "01", "1.0", "1e3", "true", "+1",
                             "9223372036854775808", "-9223372036854775809"}) {
     SCOPED_TRACE(value);
-    IREE_EXPECT_NOT_OK(ParseI64(value, 0, std::string_view(value).size()));
+    IREE_EXPECT_NOT_OK(
+        Number(IREE_SV("parse_i64"), value, 0, std::string_view(value).size()));
   }
   for (const auto& range : {std::array<int64_t, 2>{-1, 1}, {0, -1}, {2, 2}}) {
-    IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE,
-                          ParseI64("123", range[0], range[1]));
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_OUT_OF_RANGE,
+        Number(IREE_SV("parse_i64"), "123", range[0], range[1]));
   }
-  IREE_ASSERT_OK(ParseI64("123", 0, 3));
+  IREE_ASSERT_OK(Number(IREE_SV("parse_i64"), "123", 0, 3));
   int64_t value = 0;
   IREE_ASSERT_OK(iree_vm_i64_from_variant(results_[0], &value));
   EXPECT_EQ(value, 123);

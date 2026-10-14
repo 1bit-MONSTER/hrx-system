@@ -6,6 +6,9 @@
 
 #include "loom/serve/runtime/program/json.h"
 
+#include <math.h>
+#include <string.h>
+
 #include "iree/base/internal/json.h"
 #include "iree/base/internal/unicode.h"
 #include "iree/vm/buffer.h"
@@ -236,29 +239,55 @@ static iree_status_t loom_serve_json_unescape(const iree_vm_call_packet_t* call,
   return iree_ok_status();
 }
 
-static iree_status_t loom_serve_json_parse_i64(
-    const iree_vm_call_packet_t* call, iree_vm_buffer_t* input) {
+static iree_status_t loom_serve_json_parse_number(
+    const iree_vm_call_packet_t* call, iree_vm_buffer_t* input,
+    bool floating_point) {
   const uint64_t offset = iree_vm_call_value_argument_load(call, 0);
   const uint64_t length = iree_vm_call_value_argument_load(call, 1);
   if (offset > SIZE_MAX || length > SIZE_MAX) {
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "JSON integer range exceeds host storage");
+                            "JSON number range exceeds host storage");
   }
-  iree_const_byte_span_t source = iree_const_byte_span_empty();
-  IREE_RETURN_IF_ERROR(iree_vm_buffer_map_read(input, offset, length, &source));
-  const iree_string_view_t text =
-      iree_make_string_view((const char*)source.data, source.data_length);
-  iree_string_view_t cursor = text;
+  iree_const_byte_span_t bytes = iree_const_byte_span_empty();
+  IREE_RETURN_IF_ERROR(iree_vm_buffer_map_read(input, offset, length, &bytes));
+  iree_string_view_t cursor =
+      iree_make_string_view((const char*)bytes.data, bytes.data_length);
   iree_string_view_t number;
-  IREE_RETURN_IF_ERROR(iree_json_consume_value(&cursor, &number));
-  if (cursor.size || iree_json_infer_value_type(number.data[0]) !=
-                         IREE_JSON_VALUE_TYPE_NUMBER) {
+  IREE_RETURN_IF_ERROR(iree_json_consume_number(&cursor, &number));
+  if (cursor.size) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "expected one JSON integer");
+                            "trailing JSON number input");
   }
-  int64_t value = 0;
-  IREE_RETURN_IF_ERROR(iree_json_parse_int64(number, &value));
-  iree_vm_call_value_result_store(call, 0, value);
+  uint64_t bits = 0;
+  if (floating_point) {
+    double value = 0;
+    if (!iree_string_view_atod(number, &value)) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "JSON number cannot be represented as F64");
+    }
+    if (!isfinite(value)) {
+      return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                              "JSON number overflows F64");
+    }
+    if (value == 0.0) {
+      // A nonzero significand must not silently become a zero-valued policy,
+      // such as disabling sampling when a positive temperature underflows.
+      for (iree_host_size_t i = 0;
+           i < number.size && number.data[i] != 'e' && number.data[i] != 'E';
+           ++i) {
+        if (number.data[i] >= '1' && number.data[i] <= '9') {
+          return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                                  "JSON number underflows F64");
+        }
+      }
+    }
+    memcpy(&bits, &value, sizeof(bits));
+  } else {
+    int64_t value = 0;
+    IREE_RETURN_IF_ERROR(iree_json_parse_int64(number, &value));
+    bits = (uint64_t)value;
+  }
+  iree_vm_call_value_result_store(call, 0, bits);
   return iree_ok_status();
 }
 
@@ -288,8 +317,10 @@ static iree_status_t loom_serve_json_module_start(
       IREE_RETURN_IF_ERROR(loom_serve_json_unescape(call, input));
       break;
     }
-    case 3: {
-      IREE_RETURN_IF_ERROR(loom_serve_json_parse_i64(call, input));
+    case 3:
+    case 4: {
+      IREE_RETURN_IF_ERROR(loom_serve_json_parse_number(
+          call, input, params->function_ordinal == 4));
       break;
     }
     default:
@@ -313,17 +344,21 @@ static const iree_vm_module_signature_type_t json_unescape_arguments[] = {
     {IREE_VM_SCALAR_TYPE_I64, 0}};
 static const iree_vm_module_signature_type_t json_i64_result[] = {
     {IREE_VM_SCALAR_TYPE_I64, 0}};
-static const iree_vm_module_signature_type_t json_parse_i64_arguments[] = {
+static const iree_vm_module_signature_type_t json_number_arguments[] = {
     {IREE_VM_MODULE_SIGNATURE_TYPE_KIND_REF, 0},
     {IREE_VM_SCALAR_TYPE_I64, 0},
     {IREE_VM_SCALAR_TYPE_I64, 0}};
+static const iree_vm_module_signature_type_t json_float_result[] = {
+    {IREE_VM_SCALAR_TYPE_F64, 0}};
 static const iree_vm_module_callable_type_declaration_t json_callables[] = {
     {.signature = {.arguments = {json_buffer_type, 1, 0, 1, 0},
                    .results = {json_buffer_type, 1, 0, 1, 0}}},
     {.signature = {.arguments = {json_buffer_type, 1, 0, 1, 0},
                    .results = {json_members_results, 3, 2, 1, 0}}},
-    {.signature = {.arguments = {json_parse_i64_arguments, 3, 2, 1, 0},
+    {.signature = {.arguments = {json_number_arguments, 3, 2, 1, 0},
                    .results = {json_i64_result, 1, 1, 0, 0}}},
+    {.signature = {.arguments = {json_number_arguments, 3, 2, 1, 0},
+                   .results = {json_float_result, 1, 1, 0, 0}}},
     {.signature = {.arguments = {json_unescape_arguments, 5, 3, 2, 0},
                    .results = {json_i64_result, 1, 1, 0, 0}}},
 };
@@ -334,11 +369,14 @@ static const iree_vm_module_export_declaration_t json_exports[] = {
     {.export_name = IREE_SVL("members"),
      .callable_type_ordinal = 1,
      .function_ordinal = 1},
+    {.export_name = IREE_SVL("parse_f64"),
+     .callable_type_ordinal = 3,
+     .function_ordinal = 4},
     {.export_name = IREE_SVL("parse_i64"),
      .callable_type_ordinal = 2,
      .function_ordinal = 3},
     {.export_name = IREE_SVL("unescape"),
-     .callable_type_ordinal = 3,
+     .callable_type_ordinal = 4,
      .function_ordinal = 2},
 };
 
@@ -397,10 +435,10 @@ iree_status_t loom_serve_json_module_create(iree_vm_environment_t* environment,
       .name = IREE_SVL("json"),
       .flags = IREE_VM_MODULE_FLAG_LINKABLE,
       .ref_types = {&module->types.buffer, 1},
-      .counts = {.function_count = 4,
-                 .callable_type_count = 4,
-                 .export_count = 4,
-                 .callable_fields = {.value_count = 9, .ref_count = 7}},
+      .counts = {.function_count = 5,
+                 .callable_type_count = 5,
+                 .export_count = 5,
+                 .callable_fields = {.value_count = 12, .ref_count = 8}},
   };
   iree_status_t status = iree_vm_module_initialize(
       &json_module_vtable, &module->descriptor, &module->base);

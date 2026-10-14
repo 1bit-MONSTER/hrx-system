@@ -55,7 +55,7 @@ class RequestTest(unittest.TestCase):
         self.assertEqual(value["prompt"], "abxa")
         self.assertEqual(value["tokens"], [0, 1, 2, 0])
         self.assertEqual(value["checkpoint"], "abxabx")
-        self.assertEqual(value["text_end"], 2)
+        self.assertEqual(value["output_cursor"], 2)
         self.assertEqual(value["tool_calls"], [])
         result = self.execute(
             self.request(
@@ -124,6 +124,10 @@ class RequestTest(unittest.TestCase):
             self.request(model_options={"unknown": True}).replace(
                 "model_options", "model_opt\\u0069ons"
             ),
+            self.request(temperature=0.7),
+            self.request(top_p=0.95),
+            self.request(top_k=20),
+            self.request(seed=1.5),
         ]
         for request in requests:
             with self.subTest(request=request):
@@ -135,6 +139,13 @@ class RequestTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("input exceeds capacity", result.stderr)
         self.assertEqual(result.stdout, "")
+
+    def test_deterministic_sampling_options(self):
+        result = self.execute(
+            self.request(temperature=0, top_p=1, top_k=1, seed=9007199254740993)
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["prompt"], "abxa")
 
 
 if __name__ == "__main__":

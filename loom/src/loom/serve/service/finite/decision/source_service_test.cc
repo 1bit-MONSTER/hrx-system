@@ -8,6 +8,9 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
 
 #include "iree/async/proactor.h"
@@ -21,6 +24,7 @@
 #include "loom/serve/service/finite/service.h"
 #include "loom/serve/testing/http_harness.h"
 #include "loom/serve/testing/model.h"
+#include "loom/serve/testing/package.h"
 #include "loom/serve/transport/http/listener.h"
 
 IREE_FLAG(string, model_source, "", "Deterministic decision bootstrap source.");
@@ -58,7 +62,7 @@ class SourceDecisionServiceTest : public ::testing::TestWithParam<uint32_t> {
     ASSERT_NO_FATAL_FAILURE(CreateModel(FLAG_model_source, &models_[0]));
     IREE_ASSERT_OK(loom_serve_finite_service_allocate(
         host_, models_[0], loom_serve_decision_protocol(), IREE_SV("decisions"),
-        16, 0, nullptr, host_allocator_, &services_[0]));
+        16, 16, 0, nullptr, host_allocator_, &services_[0]));
     interfaces_[0] = loom_serve_finite_service_interface(services_[0]);
     EXPECT_EQ(interfaces_[0].capacity_domain,
               loom_serve_device_residency_cache(device_));
@@ -167,7 +171,7 @@ class SourceDecisionServiceTest : public ::testing::TestWithParam<uint32_t> {
     ASSERT_NO_FATAL_FAILURE(CreateModel(FLAG_embedding_source, &models_[1]));
     IREE_ASSERT_OK(loom_serve_finite_service_allocate(
         host_, models_[1], loom_serve_embedding_protocol(), IREE_SV("vectors"),
-        16, 0, nullptr, host_allocator_, &services_[1]));
+        16, 16, 0, nullptr, host_allocator_, &services_[1]));
     interfaces_[1] = loom_serve_finite_service_interface(services_[1]);
     interfaces_[0].set_observer(interfaces_[0].self, {});
     http_.Start([this]() -> iree_status_t {
@@ -310,6 +314,74 @@ TEST_P(SourceDecisionServiceTest,
   EXPECT_EQ(Read(next).find("HTTP/1.1 200"), 0u);
 }
 
+TEST_P(SourceDecisionServiceTest, SelectsUploadedDecisionExecution) {
+  ASSERT_NO_FATAL_FAILURE(StartRouter());
+  CheckSingleNoulResponse(Read(Send(kNoul)));
+  // With two routes, inventory requires an explicit model selector.
+  const std::string inventory_request =
+      "GET /v1/models/variants HTTP/1.1\r\nHost: local\r\n"
+      "X-Loom-Model: decisions\r\n\r\n";
+  int client = -1;
+  IREE_ASSERT_OK(http_.Send(inventory_request, &client));
+  const auto inventory = Read(client);
+  auto number = [](const std::string& response, const char* field,
+                   const char* object = nullptr) {
+    uint64_t result = 0;
+    [&] {
+      const auto start = response.find("\r\n\r\n");
+      ASSERT_NE(start, std::string::npos) << response;
+      auto value = iree_make_string_view(response.data() + start + 4,
+                                         response.size() - start - 4);
+      if (object) {
+        IREE_ASSERT_OK(iree_json_lookup_object_value(
+            value, iree_make_cstring_view(object), &value));
+      }
+      IREE_ASSERT_OK(iree_json_lookup_object_value(
+          value, iree_make_cstring_view(field), &value));
+      IREE_ASSERT_OK(iree_json_parse_uint64(value, &result));
+    }();
+    return result;
+  };
+  const uint64_t original = number(inventory, "selected");
+  const auto directory = std::filesystem::path(FLAG_model_source).parent_path();
+  std::ifstream input(directory / "decide.loom");
+  ASSERT_TRUE(input.good());
+  std::string source((std::istreambuf_iterator<char>(input)), {});
+  const std::string constant = "scalar.constant 1 : i32";
+  const auto position = source.find(constant);
+  ASSERT_NE(position, std::string::npos);
+  source.replace(position, constant.size(), "scalar.constant 2 : i32");
+  loom_serve::testing::SourcePackage package;
+  package.Add("model/decide.loom", source);
+  IREE_ASSERT_OK(package.AddFile("model/config.loom",
+                                 (directory / "config.loom").string()));
+  IREE_ASSERT_OK(http_.Send(
+      package.Request(
+          "/v1/models/variants",
+          "{\"model\":\"decisions\",\"base\":" + std::to_string(original) +
+              ",\"sources\":[\"config.loom\",\"decide.loom\"],\"wait\":true}"),
+      &client));
+  const auto staged = Read(client);
+  ASSERT_EQ(staged.find("HTTP/1.1 200"), 0u) << staged;
+  const uint64_t candidate = number(staged, "id", "variant");
+  const auto selected = Read(
+      Send("{\"model\":\"decisions\",\"variant\":" + std::to_string(candidate) +
+               ",\"expected\":" + std::to_string(original) + "}",
+           "/v1/models/variants/select"));
+  ASSERT_EQ(selected.find("HTTP/1.1 200"), 0u) << selected;
+  const auto changed = Read(Send(kNoul));
+  EXPECT_NE(changed.find(R"("noul":0.6)"), std::string::npos) << changed;
+  const auto restored = Read(
+      Send("{\"model\":\"decisions\",\"variant\":" + std::to_string(original) +
+               ",\"expected\":" + std::to_string(candidate) + "}",
+           "/v1/models/variants/select"));
+  ASSERT_EQ(restored.find("HTTP/1.1 200"), 0u) << restored;
+  CheckSingleNoulResponse(Read(Send(kNoul)));
+  EXPECT_NE(Read(Send(R"({"model":"vectors","input":"a"})", "/v1/embeddings"))
+                .find(R"("embedding":[1,1,1,1])"),
+            std::string::npos);
+}
+
 TEST_P(SourceDecisionServiceTest, SharesRouterWithEmbeddingsAndRawUtilities) {
   ASSERT_NO_FATAL_FAILURE(StartRouter());
   const int decision = Send(kNoul);
@@ -323,26 +395,36 @@ TEST_P(SourceDecisionServiceTest, SharesRouterWithEmbeddingsAndRawUtilities) {
   const std::string catalog = Read(Send("", "/v1/models", "GET"));
   EXPECT_NE(
       catalog.find(
-          R"("input_modalities":["text"],"output_modalities":["decision"],"loom":{"kind":"decision","endpoint":"/v1/systemone","tokenize":false}})"),
-      std::string::npos);
+          R"("input_modalities":["text"],"output_modalities":["decision"],"loom":{"kind":"decision","endpoint":"/v1/systemone","tokenize":false,"variants":)"),
+      std::string::npos)
+      << catalog;
   EXPECT_NE(
       catalog.find(
-          R"("input_modalities":["text"],"output_modalities":["embedding"],"loom":{"kind":"embedding","endpoint":"/v1/embeddings","tokenize":true}})"),
-      std::string::npos);
+          R"("input_modalities":["text"],"output_modalities":["embedding"],"loom":{"kind":"embedding","endpoint":"/v1/embeddings","tokenize":true,"variants":)"),
+      std::string::npos)
+      << catalog;
   EXPECT_NE(Read(tokenize).find(R"({"tokens":[0,1,0]})"), std::string::npos);
   CheckSingleNoulResponse(Read(decision));
   const std::string vectors = Read(embedding);
   EXPECT_NE(vectors.find(R"("embedding":[1,1])"), std::string::npos);
   EXPECT_NE(vectors.find(R"("embedding":[6,3])"), std::string::npos);
   const std::string snapshot = Read(Send("", "/v1/status", "GET"));
-  EXPECT_NE(
-      snapshot.find(
-          R"("input_modalities":["text"],"output_modalities":["decision"],"loom":{"kind":"decision","endpoint":"/v1/systemone","tokenize":false,"status":{"phase":"idle","queued_requests":0,"active_requests":0,"oldest_queued_age_seconds":0.000000000,"oldest_active_age_seconds":0.000000000,"admission":"open","held_requests":0,"tokenizer_requests":0}}})"),
-      std::string::npos);
-  EXPECT_NE(
-      snapshot.find(
-          R"("input_modalities":["text"],"output_modalities":["embedding"],"loom":{"kind":"embedding","endpoint":"/v1/embeddings","tokenize":true,"status":{"phase":"idle","queued_requests":0,"active_requests":0,"oldest_queued_age_seconds":0.000000000,"oldest_active_age_seconds":0.000000000,"admission":"open","held_requests":0,"tokenizer_requests":0}}})"),
-      std::string::npos);
+  // Variant identities are process-issued rather than baked model constants.
+  // Check each complete idle status within its own model object.
+  for (const char* name : {"decisions", "vectors"}) {
+    const auto begin = snapshot.find(std::string("\"id\":\"") + name + "\"");
+    ASSERT_NE(begin, std::string::npos) << snapshot;
+    const auto end = snapshot.find("{\"object\":\"model\"", begin);
+    const auto model =
+        snapshot.substr(begin, end == std::string::npos ? end : end - begin);
+    EXPECT_NE(model.find(R"("variants":{"selected":)"), std::string::npos)
+        << model;
+    EXPECT_NE(
+        model.find(
+            R"(,"count":1},"status":{"phase":"idle","queued_requests":0,"active_requests":0,"oldest_queued_age_seconds":0.000000000,"oldest_active_age_seconds":0.000000000,"admission":"open","held_requests":0,"tokenizer_requests":0}}})"),
+        std::string::npos)
+        << model;
+  }
   EXPECT_EQ(Read(Send(R"({"model":"decisions","content":"a"})", "/tokenize"))
                 .find("HTTP/1.1 404"),
             0u);

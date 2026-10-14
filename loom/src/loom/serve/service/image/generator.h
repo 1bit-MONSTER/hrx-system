@@ -10,6 +10,7 @@
 #include "iree/tokenizer/tokenizer.h"
 #include "loom/serve/runtime/execution/execution.h"
 #include "loom/serve/runtime/parameter/residency.h"
+#include "loom/serve/service/execution_reconfiguration.h"
 #include "loom/serve/service/image/request.h"
 
 #ifdef __cplusplus
@@ -71,6 +72,10 @@ typedef struct loom_serve_image_generator_t {
   // activation-owner data, even while CPU preparation borrows the invocation.
   // NULL means the generator does not expose weight activity, not zero work.
   loom_serve_weight_activity_t (*weight_activity)(void* self);
+  // Optional independent execution compiler over retained preparation/state.
+  // Selection occurs before submission or after the whole image and encoder
+  // retire, never between command parts or while CPU preparation borrows state.
+  loom_serve_execution_update_t execution_update;
   // Optional immutable input tokenizer, live through the model lifetime. Raw
   // HTTP utilities borrow it independently of the serialized invocation.
   const iree_tokenizer_t* tokenizer;

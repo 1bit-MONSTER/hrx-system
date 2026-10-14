@@ -126,27 +126,36 @@ iree_status_t loom_serve_text_session_begin(loom_serve_text_session_t* session,
   return iree_ok_status();
 }
 
-static iree_status_t loom_serve_text_emit_text(
+static iree_status_t loom_serve_text_emit_output(
     loom_serve_text_session_t* session,
-    const loom_serve_text_chat_response_t* response, iree_host_size_t end,
-    iree_string_builder_t* scratch) {
-  const iree_host_size_t start = session->request.emitted_length;
-  if (start == end) {
-    return iree_ok_status();
-  }
-  iree_string_builder_reset(scratch);
-  IREE_RETURN_IF_ERROR(
-      iree_string_builder_append_cstring(scratch, "{\"content\":"));
-  IREE_RETURN_IF_ERROR(loom_serve_text_session_quote(
-      scratch,
-      iree_string_view_substr(iree_string_builder_view(&session->response),
-                              start, end - start)));
-  IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(scratch, "}"));
-  IREE_RETURN_IF_ERROR(
-      loom_serve_text_chat_event(response, iree_string_builder_view(scratch),
-                                 iree_string_view_empty(), &session->packet));
-  session->request.emitted_length = end;
-  return iree_ok_status();
+    const loom_serve_text_chat_response_t* response,
+    loom_serve_text_chat_output_phase_t phase, iree_string_builder_t* scratch) {
+  iree_status_t status = iree_ok_status();
+  loom_serve_text_chat_output_t output;
+  do {
+    status = loom_serve_text_chat_output_next(
+        &session->request.chat, iree_string_builder_view(&session->response),
+        phase, &output);
+    if (iree_status_is_ok(status) && output.text.size) {
+      iree_string_builder_reset(scratch);
+      status = iree_string_builder_append_cstring(
+          scratch, output.kind == LOOM_SERVE_TEXT_CHAT_OUTPUT_REASONING
+                       ? "{\"reasoning_content\":"
+                       : "{\"content\":");
+      if (iree_status_is_ok(status)) {
+        status = loom_serve_text_session_quote(scratch, output.text);
+      }
+      if (iree_status_is_ok(status)) {
+        status = iree_string_builder_append_cstring(scratch, "}");
+      }
+      if (iree_status_is_ok(status)) {
+        status = loom_serve_text_chat_event(
+            response, iree_string_builder_view(scratch),
+            iree_string_view_empty(), &session->packet);
+      }
+    }
+  } while (iree_status_is_ok(status) && output.advanced);
+  return status;
 }
 
 static iree_status_t loom_serve_text_append_response(
@@ -169,11 +178,14 @@ static iree_status_t loom_serve_text_complete(
       &length));
   IREE_RETURN_IF_ERROR(loom_serve_text_append_response(
       session, iree_make_string_view(text, length)));
+  if (iree_any_bit_set(response->flags, LOOM_SERVE_TEXT_CHAT_FLAG_STREAM)) {
+    IREE_RETURN_IF_ERROR(loom_serve_text_emit_output(
+        session, response, LOOM_SERVE_TEXT_CHAT_OUTPUT_COMPLETE, scratch));
+  }
   iree_string_builder_reset(tool_calls);
   IREE_RETURN_IF_ERROR(loom_serve_text_chat_complete(
       &session->request.chat, iree_string_builder_view(&session->response),
-      session->request.emitted_length, session->lifetime.serial, tool_calls,
-      &session->completion));
+      session->lifetime.serial, tool_calls, &session->completion));
   const iree_host_size_t tool_count = session->completion.tool_count;
   session->request.finish_reason = tool_count ? "tool_calls"
                                    : loom_serve_text_row_is_eos(session->row)
@@ -182,8 +194,6 @@ static iree_status_t loom_serve_text_complete(
   const iree_string_view_t finish_reason =
       iree_make_cstring_view(session->request.finish_reason);
   if (iree_any_bit_set(response->flags, LOOM_SERVE_TEXT_CHAT_FLAG_STREAM)) {
-    IREE_RETURN_IF_ERROR(loom_serve_text_emit_text(
-        session, response, session->completion.text_end, scratch));
     if (tool_count) {
       iree_string_builder_reset(scratch);
       IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
@@ -212,8 +222,8 @@ static iree_status_t loom_serve_text_complete(
         "Connection: close\r\n\r\n"));
     IREE_RETURN_IF_ERROR(loom_serve_text_chat_response(
         response,
-        iree_string_view_substr(iree_string_builder_view(&session->response), 0,
-                                session->completion.text_end),
+        iree_string_builder_view(&session->request.chat.output.content),
+        iree_string_builder_view(&session->request.chat.output.reasoning),
         tool_count ? iree_string_builder_view(tool_calls)
                    : iree_string_view_empty(),
         finish_reason, &session->packet));
@@ -261,17 +271,8 @@ iree_status_t loom_serve_text_session_append_tokens(
           loom_serve_text_complete(session, &response, scratch, tool_calls);
     } else if (iree_any_bit_set(response.flags,
                                 LOOM_SERVE_TEXT_CHAT_FLAG_STREAM)) {
-      iree_host_size_t text_end = 0;
-      status = loom_serve_text_chat_text_end(
-          session->request.chat.policy,
-          iree_string_builder_view(&session->response),
-          session->request.emitted_length,
-          LOOM_SERVE_TEXT_CHAT_OUTPUT_STREAMING, session->host_allocator,
-          &text_end);
-      if (iree_status_is_ok(status)) {
-        status =
-            loom_serve_text_emit_text(session, &response, text_end, scratch);
-      }
+      status = loom_serve_text_emit_output(
+          session, &response, LOOM_SERVE_TEXT_CHAT_OUTPUT_STREAMING, scratch);
     }
   }
   return status;

@@ -8,6 +8,42 @@
 
 #include "loom/serve/service/text/state.h"
 
+static iree_status_t loom_serve_text_check_parameters(
+    const loom_cmd_program_t* baseline, const loom_cmd_program_t* candidate) {
+  if (baseline->parameter_roots.count != candidate->parameter_roots.count ||
+      baseline->parameters.count != candidate->parameters.count) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "stage parameter counts differ");
+  }
+  for (uint32_t i = 0; i < baseline->parameter_roots.count; ++i) {
+    const loom_cmd_program_parameter_root_t lhs =
+        loom_cmd_program_parameter_root_at(baseline, i);
+    const loom_cmd_program_parameter_root_t rhs =
+        loom_cmd_program_parameter_root_at(candidate, i);
+    if (lhs.fixed_buffer_index != rhs.fixed_buffer_index ||
+        lhs.required_byte_length != rhs.required_byte_length ||
+        lhs.minimum_alignment != rhs.minimum_alignment) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "stage parameter root %u differs", i);
+    }
+  }
+  for (uint32_t i = 0; i < baseline->parameters.count; ++i) {
+    const loom_cmd_program_parameter_t lhs =
+        loom_cmd_program_parameter_at(baseline, i);
+    const loom_cmd_program_parameter_t rhs =
+        loom_cmd_program_parameter_at(candidate, i);
+    if (!iree_string_view_equal(lhs.key, rhs.key) ||
+        lhs.fixed_buffer_index != rhs.fixed_buffer_index ||
+        lhs.byte_offset != rhs.byte_offset ||
+        lhs.byte_length != rhs.byte_length ||
+        lhs.minimum_alignment != rhs.minimum_alignment) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "stage parameter placement %u differs", i);
+    }
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_serve_text_check_layouts(
     const loom_serve_preparation_t* preparation, iree_host_size_t shared_count,
     iree_host_size_t stage_count, const loom_serve_text_stage_t* stages) {
@@ -66,37 +102,16 @@ static iree_status_t loom_serve_text_check_layouts(
           IREE_STATUS_INVALID_ARGUMENT,
           "shared target stages must use one checkpoint domain");
     }
-    if (prefill->parameters.count != program->parameters.count) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "stage parameter counts differ");
-    }
-    for (uint32_t i = 0; i < prefill->parameters.count; ++i) {
-      const loom_cmd_program_parameter_t lhs =
-          loom_cmd_program_parameter_at(prefill, i);
-      const loom_cmd_program_parameter_t rhs =
-          loom_cmd_program_parameter_at(program, i);
-      if (!iree_string_view_equal(lhs.key, rhs.key) ||
-          lhs.fixed_buffer_index != rhs.fixed_buffer_index ||
-          lhs.byte_offset != rhs.byte_offset ||
-          lhs.byte_length != rhs.byte_length ||
-          lhs.minimum_alignment != rhs.minimum_alignment) {
-        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                                "stage parameter placement %u differs", i);
-      }
-    }
+    IREE_RETURN_IF_ERROR(loom_serve_text_check_parameters(prefill, program));
   }
   return iree_ok_status();
 }
 
-// Group roots once during binding. The original stage order preserves the
-// identical-layout target prefix in the first domain.
-iree_status_t loom_serve_text_stages_bind(
-    loom_serve_device_t* device, const loom_serve_preparation_t* preparation,
-    iree_host_size_t shared_count, iree_host_size_t stage_count,
-    loom_serve_text_stage_t* stages, loom_serve_text_parameters_t* parameters,
-    iree_allocator_t host_allocator) {
+static iree_status_t loom_serve_text_stages_initialize(
+    iree_host_size_t stage_count, loom_serve_text_stage_t* stages,
+    iree_allocator_t host_allocator, iree_host_size_t* out_root_count) {
   iree_status_t status = iree_ok_status();
-  iree_host_size_t root_count = 0;
+  *out_root_count = 0;
   for (iree_host_size_t i = 0; i < stage_count && iree_status_is_ok(status);
        ++i) {
     loom_serve_text_stage_t* stage = &stages[i];
@@ -108,11 +123,23 @@ iree_status_t loom_serve_text_stages_bind(
                                            (void**)&stage->fixed_buffers);
       if (iree_status_is_ok(status)) {
         stage->fixed_buffer_count = count;
-        root_count += count;
+        *out_root_count += count;
       }
     }
   }
-  IREE_RETURN_IF_ERROR(status);
+  return status;
+}
+
+// Group roots once during binding. The original stage order preserves the
+// identical-layout target prefix in the first domain.
+iree_status_t loom_serve_text_stages_bind(
+    loom_serve_device_t* device, const loom_serve_preparation_t* preparation,
+    iree_host_size_t shared_count, iree_host_size_t stage_count,
+    loom_serve_text_stage_t* stages, loom_serve_text_parameters_t* parameters,
+    iree_allocator_t host_allocator) {
+  iree_host_size_t root_count = 0;
+  IREE_RETURN_IF_ERROR(loom_serve_text_stages_initialize(
+      stage_count, stages, host_allocator, &root_count));
   IREE_RETURN_IF_ERROR(loom_serve_text_check_layouts(preparation, shared_count,
                                                      stage_count, stages));
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(host_allocator, root_count,
@@ -125,8 +152,8 @@ iree_status_t loom_serve_text_stages_bind(
   iree_host_size_t* domains = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
       host_allocator, root_count, sizeof(*roots), (void**)&roots));
-  status = iree_allocator_malloc_array(host_allocator, root_count,
-                                       sizeof(*domains), (void**)&domains);
+  iree_status_t status = iree_allocator_malloc_array(
+      host_allocator, root_count, sizeof(*domains), (void**)&domains);
   if (iree_status_is_ok(status)) {
     iree_host_size_t root_index = 0;
     for (iree_host_size_t i = 0; i < stage_count; ++i) {
@@ -181,4 +208,51 @@ iree_status_t loom_serve_text_stages_bind(
   iree_allocator_free(host_allocator, domains);
   iree_allocator_free(host_allocator, roots);
   return status;
+}
+
+iree_status_t loom_serve_text_stages_rebind(
+    const loom_serve_preparation_t* preparation, iree_host_size_t shared_count,
+    iree_host_size_t stage_count, const loom_serve_text_stage_t* baseline,
+    loom_serve_text_stage_t* stages, iree_allocator_t host_allocator) {
+  iree_host_size_t root_count = 0;
+  IREE_RETURN_IF_ERROR(loom_serve_text_stages_initialize(
+      stage_count, stages, host_allocator, &root_count));
+  IREE_RETURN_IF_ERROR(loom_serve_text_check_layouts(preparation, shared_count,
+                                                     stage_count, stages));
+  for (iree_host_size_t i = 0; i < stage_count; ++i) {
+    const loom_cmd_program_requirements_t* original =
+        &baseline[i].program.requirements;
+    const loom_cmd_program_requirements_t* replacement =
+        &stages[i].program.requirements;
+    const uint32_t original_arity =
+        original->rebindable_binding_count -
+        (original->transient.required_byte_length != 0);
+    const uint32_t replacement_arity =
+        replacement->rebindable_binding_count -
+        (replacement->transient.required_byte_length != 0);
+    if (original_arity != replacement_arity) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "replacement stage %zu changes model bindings",
+                              i);
+    }
+    IREE_RETURN_IF_ERROR(loom_serve_text_check_parameters(&baseline[i].program,
+                                                          &stages[i].program));
+    for (uint32_t j = 0; j < stages[i].fixed_buffer_count; ++j) {
+      stages[i].fixed_buffers[j] = baseline[i].fixed_buffers[j];
+      iree_hal_buffer_retain(stages[i].fixed_buffers[j]);
+    }
+  }
+  return iree_ok_status();
+}
+
+loom_serve_stage_t loom_serve_text_stage_binding(
+    const loom_serve_text_stage_t* stage) {
+  const loom_cmd_program_requirements_t* requirements =
+      &stage->program.requirements;
+  return (loom_serve_stage_t){
+      .command_buffer = stage->command,
+      .binding_count = requirements->rebindable_binding_count -
+                       (requirements->transient.required_byte_length != 0),
+      .transient = requirements->transient,
+  };
 }

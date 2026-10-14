@@ -8,13 +8,12 @@
 
 #include <string.h>
 
-#include "iree/async/operations/semaphore.h"
 #include "iree/async/util/proactor_pool.h"
 #include "iree/base/threading/mutex.h"
-#include "iree/task/executor.h"
 #include "loom/serve/runtime/device/device.h"
 #include "loom/serve/runtime/host/host.h"
 #include "loom/serve/runtime/host/wake.h"
+#include "loom/serve/service/execution_reconfiguration.h"
 #include "loom/serve/service/text/admission.h"
 #include "loom/serve/service/text/chat.h"
 #include "loom/serve/service/text/checkpoint_registry.h"
@@ -24,6 +23,8 @@
 #include "loom/serve/service/text/input.h"
 #include "loom/serve/service/text/packing.h"
 #include "loom/serve/service/text/prefix_cache.h"
+#include "loom/serve/service/text/readiness.h"
+#include "loom/serve/service/text/reconfiguration.h"
 #include "loom/serve/service/text/response.h"
 #include "loom/serve/service/text/schedule.h"
 #include "loom/serve/service/text/session.h"
@@ -77,6 +78,8 @@ struct loom_serve_text_service_t {
   iree_allocator_t host_allocator;
   // Borrowed model residency and its single host execution owner.
   loom_serve_text_model_t* model;
+  // Native choice pool and text policy, joined before model retirement.
+  loom_serve_execution_reconfiguration_t* reconfiguration;
   // Borrowed deployment name, independent of the source policy identity.
   iree_string_view_t name;
   // Owned fallback shape for isolated execution.
@@ -91,43 +94,20 @@ struct loom_serve_text_service_t {
   iree_host_size_t cursor;
   // Proactor-timed reporting of copied state, independent of model readiness.
   loom_serve_text_heartbeat_t heartbeat;
-  // Completion publication only; model mutation remains on the router owner.
+  // Independent CPU/device publication; only the owner mutates model state.
+  loom_serve_text_readiness_t readiness;
+  // Owner's device operation, retained until readiness is consumed.
   struct {
     // Owner-only operation discriminator; NONE means no callback is accepted.
     text_work_t work;
-    // Joins device/CPU publication before the owner consumes either result.
-    iree_slim_mutex_t mutex;
-    // Borrowed shared host proactor outliving the service.
-    iree_async_proactor_t* proactor;
-    // Borrowed router wake target, attached only while the router owns turns.
-    loom_serve_wake_callback_t observer;
-    // One accepted ALL wait, reused after callback retirement.
-    iree_async_semaphore_wait_operation_t operation;
     // Exact work and feedback values captured by submission.
     loom_serve_execution_frontier_t frontier;
     // Host observation before registering this operation's readiness wait.
     iree_time_t start_time;
-    // Toll-free handles for asynchronous readiness registration.
-    iree_async_semaphore_t* semaphores[2];
-    // Callback-published result, consumed together with ready under mutex.
-    iree_status_t status;
-    // Callback has published its final result and wake.
-    bool ready;
   } completion;
-  // One finite CPU borrower, exclusive with owner model/VM mutation. Input
+  // Exclusive host/VM borrow, cleared only after task process release. Input
   // preparation uses an idle row and may overlap accepted device epoch work.
-  struct {
-    // Owner-only borrow discriminator, cleared only after process release.
-    text_cpu_work_t work;
-    // Shared host workers; no model-specific worker population.
-    iree_task_executor_t* executor;
-    // Reused only after its release callback publishes readiness.
-    iree_task_process_t process;
-    // Process-published result, protected by completion.mutex.
-    iree_status_t status;
-    // Release callback has relinquished all borrowed host/VM storage.
-    bool ready;
-  } cpu;
+  text_cpu_work_t cpu_work;
   // Retained cohort inputs and feedback through response CPU release.
   loom_serve_text_epoch_t epoch;
   // One control claim, including request-backed names through device readiness.
@@ -188,69 +168,23 @@ struct loom_serve_text_service_t {
 
 static bool loom_serve_text_has_work(const loom_serve_text_service_t* service) {
   return service->completion.work != TEXT_WORK_NONE ||
-         service->cpu.work != TEXT_CPU_WORK_NONE;
-}
-
-static void loom_serve_text_work_ready(void* user_data,
-                                       iree_async_operation_t* operation,
-                                       iree_status_t status,
-                                       iree_async_completion_flags_t flags) {
-  loom_serve_text_service_t* service = user_data;
-  iree_slim_mutex_lock(&service->completion.mutex);
-  service->completion.status = status;
-  service->completion.ready = true;
-  service->completion.observer.wake(service->completion.observer.user_data);
-  iree_slim_mutex_unlock(&service->completion.mutex);
+         service->cpu_work != TEXT_CPU_WORK_NONE;
 }
 
 static iree_status_t loom_serve_text_await_work(
     loom_serve_text_service_t* service, text_work_t work) {
-  iree_async_semaphore_wait_operation_t* wait = &service->completion.operation;
-  memset(wait, 0, sizeof(*wait));
-  iree_async_operation_initialize(
-      &wait->base, IREE_ASYNC_OPERATION_TYPE_SEMAPHORE_WAIT,
-      IREE_ASYNC_OPERATION_FLAG_NONE, loom_serve_text_work_ready, service);
-  for (iree_host_size_t i = 0; i < 2; ++i) {
-    service->completion.semaphores[i] =
-        (iree_async_semaphore_t*)service->completion.frontier.semaphores[i];
-  }
-  wait->semaphores = service->completion.semaphores;
-  wait->values = service->completion.frontier.values;
-  wait->count = 2;
-  wait->mode = IREE_ASYNC_WAIT_MODE_ALL;
   service->completion.start_time = iree_time_now();
-  IREE_RETURN_IF_ERROR(iree_async_proactor_submit_one(
-      service->completion.proactor, &wait->base));
+  IREE_RETURN_IF_ERROR(loom_serve_text_readiness_await(
+      &service->readiness, &service->completion.frontier));
   service->completion.work = work;
   return iree_ok_status();
 }
 
-static void loom_serve_text_cpu_completed(iree_task_process_t* process,
-                                          iree_status_t status) {
-  loom_serve_text_service_t* service = process->user_data;
-  iree_slim_mutex_lock(&service->completion.mutex);
-  service->cpu.status = status;
-  iree_slim_mutex_unlock(&service->completion.mutex);
-}
-
-static void loom_serve_text_cpu_released(iree_task_process_t* process) {
-  loom_serve_text_service_t* service = process->user_data;
-  iree_slim_mutex_lock(&service->completion.mutex);
-  service->cpu.ready = true;
-  service->completion.observer.wake(service->completion.observer.user_data);
-  iree_slim_mutex_unlock(&service->completion.mutex);
-}
-
 static void loom_serve_text_schedule_cpu(loom_serve_text_service_t* service,
                                          text_cpu_work_t work,
-                                         iree_task_process_drain_fn_t drain) {
-  service->cpu.work = work;
-  iree_task_process_initialize(drain, 0, 1, &service->cpu.process);
-  service->cpu.process.user_data = service;
-  service->cpu.process.completion_fn = loom_serve_text_cpu_completed;
-  service->cpu.process.release_fn = loom_serve_text_cpu_released;
-  iree_task_executor_schedule_process(service->cpu.executor,
-                                      &service->cpu.process);
+                                         loom_serve_text_cpu_work_fn_t run) {
+  service->cpu_work = work;
+  loom_serve_text_readiness_schedule(&service->readiness, run, service);
 }
 
 static void loom_serve_text_observe(loom_serve_text_service_t* service,
@@ -479,7 +413,7 @@ static void loom_serve_text_pending_cancel_failed(
   // Earlier cancellations retire after that finite borrower releases. Admitted
   // epoch/output work does not borrow the independently owned pending queue.
   const bool candidate_borrowed =
-      service->cpu.work == TEXT_CPU_WORK_PREPARE ||
+      service->cpu_work == TEXT_CPU_WORK_PREPARE ||
       service->completion.work == TEXT_WORK_RESERVE ||
       service->completion.work == TEXT_WORK_RETAIN;
   const iree_host_size_t first =
@@ -558,7 +492,7 @@ static bool loom_serve_text_cache_reclaim_request(void* self) {
     return false;
   }
   service->pool.trim.pending = true;
-  service->completion.observer.wake(service->completion.observer.user_data);
+  loom_serve_text_readiness_notify(&service->readiness);
   return true;
 }
 
@@ -650,12 +584,8 @@ static iree_status_t loom_serve_text_reclaim_idle(
 
 // One candidate borrows a row during this finite CPU job. It keeps compact
 // host input after that borrow ends, without extending native cache ownership.
-static iree_status_t loom_serve_text_prepare_admission(
-    iree_task_process_t* process, const iree_task_worker_context_t* context,
-    iree_task_process_drain_result_t* result) {
-  result->completed = true;
-  result->did_work = true;
-  loom_serve_text_service_t* service = process->user_data;
+static iree_status_t loom_serve_text_prepare_admission(void* user_data) {
+  loom_serve_text_service_t* service = user_data;
   loom_serve_text_session_t* session = service->pending.prepared.session;
   text_pending_request_t* pending =
       &service->pending.values[service->pending.admission.cursor];
@@ -663,8 +593,8 @@ static iree_status_t loom_serve_text_prepare_admission(
   if (!pending->chat.policy) {
     IREE_RETURN_IF_ERROR(loom_serve_text_chat_initialize(
         loom_serve_text_model_chat_policy(service->model), service->name,
-        pending->body, service->default_max_tokens, service->host_allocator,
-        &pending->chat));
+        pending->body, pending->receipt.serial, service->default_max_tokens,
+        service->host_allocator, &pending->chat));
   }
   IREE_RETURN_IF_ERROR(loom_serve_text_input_prepare(
       &pending->chat,
@@ -843,8 +773,13 @@ static iree_status_t loom_serve_text_admit_request(
   session->request.queue_duration =
       session->request.start_time - request.receipt.arrival_time;
   session->request.reserved_tokens = reservation;
-  iree_status_t status = loom_serve_text_session_begin(
-      session, loom_serve_text_model_tokenizer(service->model), service->name);
+  iree_status_t status =
+      loom_serve_text_row_bind_request(session->row, request.chat.options);
+  if (iree_status_is_ok(status)) {
+    status = loom_serve_text_session_begin(
+        session, loom_serve_text_model_tokenizer(service->model),
+        service->name);
+  }
   if (iree_status_is_ok(status)) {
     const loom_serve_text_pool_usage_t pool =
         loom_serve_text_model_pool_usage(service->model);
@@ -888,7 +823,7 @@ static iree_status_t loom_serve_text_retain_selected(
     loom_serve_text_service_t* service) {
   loom_serve_text_session_t* session = service->pending.prepared.session;
   if (!service->cache.capacity || !session->lifetime.name[0] ||
-      !session->completion.storage ||
+      !session->completion.reusable ||
       iree_string_view_equal(
           service->pending.values[service->pending.admission.cursor].name,
           iree_make_cstring_view(session->lifetime.name))) {
@@ -1144,44 +1079,6 @@ static iree_status_t loom_serve_text_enqueue(
   return iree_ok_status();
 }
 
-static iree_status_t loom_serve_text_selected_tokens(
-    loom_serve_text_service_t* service, loom_serve_text_session_t* session,
-    iree_host_size_t count, const int32_t* tokens) {
-  iree_status_t status = loom_serve_text_session_append_tokens(
-      session, service->name, count, tokens, &service->scratch,
-      &service->tool_calls);
-  if (!iree_status_is_ok(status)) {
-    // Device work completed, but translation cannot establish a client history.
-    // Streamed headers are already published; JSON headers are not. Keep the
-    // wire format honest without changing request or row retirement.
-    loom_serve_text_chat_completion_deinitialize(&session->completion);
-    loom_serve_telemetry_diagnostic_capture(status,
-                                            &session->request.diagnostic);
-    iree_string_builder_reset(&session->packet);
-    const bool streaming = iree_any_bit_set(session->request.chat.flags,
-                                            LOOM_SERVE_TEXT_CHAT_FLAG_STREAM);
-    iree_status_t packet_status = iree_string_builder_append_cstring(
-        &session->packet,
-        streaming
-            ? "data: "
-            : "HTTP/1.1 500 Internal Server Error\r\n"
-              "Content-Type: application/json\r\nConnection: close\r\n\r\n");
-    if (iree_status_is_ok(packet_status)) {
-      packet_status = loom_serve_text_response_error(status, &session->packet);
-    } else {
-      packet_status = iree_status_join(packet_status, status);
-    }
-    if (iree_status_is_ok(packet_status) && streaming) {
-      packet_status = iree_string_builder_append_cstring(
-          &session->packet, "\n\ndata: [DONE]\n\n");
-    }
-    session->request.finish_reason = "error";
-    session->request.phase = LOOM_SERVE_TEXT_REQUEST_FINISHING;
-    status = packet_status;
-  }
-  return status;
-}
-
 // Output credit and cancellation are settled before a row enters an epoch.
 // The carrier owns a copied send and the row owns one staging packet. An empty
 // staging packet is output credit even while the preceding send is in flight;
@@ -1325,12 +1222,8 @@ static void loom_serve_text_publish_epoch(loom_serve_text_service_t* service) {
   }
 }
 
-static iree_status_t loom_serve_text_process_output(
-    iree_task_process_t* process, const iree_task_worker_context_t* context,
-    iree_task_process_drain_result_t* result) {
-  result->completed = true;
-  result->did_work = true;
-  loom_serve_text_service_t* service = process->user_data;
+static iree_status_t loom_serve_text_process_output(void* user_data) {
+  loom_serve_text_service_t* service = user_data;
   iree_status_t status = iree_ok_status();
   for (iree_host_size_t i = 0;
        i < service->epoch.count && iree_status_is_ok(status); ++i) {
@@ -1338,8 +1231,9 @@ static iree_status_t loom_serve_text_process_output(
     if (output->output_count) {
       loom_serve_text_session_t* session =
           &service->sessions[service->epoch.spans[i].row_index];
-      status = loom_serve_text_selected_tokens(
-          service, session, output->output_count, output->tokens);
+      status = loom_serve_text_response_tokens(
+          session, service->name, output->output_count, output->tokens,
+          &service->scratch, &service->tool_calls);
     }
   }
   return status;
@@ -1449,11 +1343,6 @@ static iree_status_t loom_serve_text_service_initialize(
     loom_serve_text_service_t* service, loom_serve_telemetry_stream_t* stream) {
   IREE_RETURN_IF_ERROR(loom_serve_text_telemetry_initialize(
       stream, service->host_allocator, &service->telemetry));
-  loom_serve_host_t* host =
-      loom_serve_device_host(loom_serve_text_model_device(service->model));
-  service->cpu.executor = loom_serve_host_executor(host);
-  IREE_RETURN_IF_ERROR(iree_async_proactor_pool_get(
-      loom_serve_host_proactor_pool(host), 0, &service->completion.proactor));
   IREE_RETURN_IF_ERROR(loom_serve_text_checkpoint_registry_initialize(
       loom_serve_text_model_checkpoint_capacity(service->model) -
           (service->cache.capacity ? service->cache.capacity + 1 : 0) -
@@ -1527,10 +1416,11 @@ void loom_serve_text_service_free(loom_serve_text_service_t* service,
   }
   loom_serve_text_stop(service, terminal_code);
   const iree_allocator_t host_allocator = service->host_allocator;
+  loom_serve_execution_reconfiguration_free(service->reconfiguration);
   for (iree_host_size_t i = 0; i < service->row_count; ++i) {
     loom_serve_text_session_deinitialize(&service->sessions[i]);
   }
-  iree_slim_mutex_deinitialize(&service->completion.mutex);
+  loom_serve_text_readiness_deinitialize(&service->readiness);
   iree_string_builder_deinitialize(&service->tool_calls);
   iree_string_builder_deinitialize(&service->scratch);
   iree_allocator_free(host_allocator, service->pending.values);
@@ -1573,6 +1463,11 @@ iree_status_t loom_serve_text_service_allocate(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "prefix cache exceeds remaining native endpoints");
   }
+  loom_serve_host_t* host =
+      loom_serve_device_host(loom_serve_text_model_device(model));
+  iree_async_proactor_t* proactor = NULL;
+  IREE_RETURN_IF_ERROR(iree_async_proactor_pool_get(
+      loom_serve_host_proactor_pool(host), 0, &proactor));
   loom_serve_text_service_t* service = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_aligned(
       host_allocator, sizeof(*service), iree_alignof(loom_serve_text_service_t),
@@ -1604,15 +1499,20 @@ iree_status_t loom_serve_text_service_allocate(
     service->scheduling.shape_count = 1;
   }
   loom_serve_text_heartbeat_initialize(&service->heartbeat);
-  iree_slim_mutex_initialize(&service->completion.mutex);
+  loom_serve_text_readiness_initialize(loom_serve_host_executor(host), proactor,
+                                       &service->readiness);
   iree_string_builder_initialize(host_allocator, &service->scratch);
   iree_string_builder_initialize(host_allocator, &service->tool_calls);
   iree_status_t status = loom_serve_text_service_initialize(service, stream);
   if (iree_status_is_ok(status)) {
+    status = loom_serve_execution_reconfiguration_allocate(
+        loom_serve_text_model_execution_update(model),
+        options->variant_capacity, host_allocator, &service->reconfiguration);
+  }
+  if (iree_status_is_ok(status)) {
     loom_serve_text_heartbeat_configure(
-        &service->heartbeat, service->completion.proactor,
-        service->telemetry.stream, &service->telemetry.counters,
-        options->heartbeat_interval);
+        &service->heartbeat, proactor, service->telemetry.stream,
+        &service->telemetry.counters, options->heartbeat_interval);
     *out_service = service;
   } else {
     loom_serve_text_service_free(service, iree_status_code(status));
@@ -1623,9 +1523,9 @@ iree_status_t loom_serve_text_service_allocate(
 static void loom_serve_text_set_observer(void* self,
                                          loom_serve_wake_callback_t observer) {
   loom_serve_text_service_t* service = self;
-  iree_slim_mutex_lock(&service->completion.mutex);
-  service->completion.observer = observer;
-  iree_slim_mutex_unlock(&service->completion.mutex);
+  loom_serve_text_readiness_set_observer(&service->readiness, observer);
+  loom_serve_execution_reconfiguration_set_observer(service->reconfiguration,
+                                                    observer);
   loom_serve_residency_set_reclaimer(
       loom_serve_text_model_residency(service->model),
       observer.wake
@@ -1639,6 +1539,8 @@ static void loom_serve_text_set_observer(void* self,
 static bool loom_serve_text_is_pending(void* self) {
   loom_serve_text_service_t* service = self;
   return loom_serve_text_has_work(service) ||
+         loom_serve_execution_reconfiguration_pending(
+             service->reconfiguration) ||
          loom_serve_text_heartbeat_is_pending(&service->heartbeat);
 }
 
@@ -1662,18 +1564,13 @@ static iree_status_t loom_serve_text_advance_work(
   *out_progress = false;
   loom_serve_text_pending_cancel_failed(service, out_progress);
   bool yield_preparation = false;
-  if (service->cpu.work != TEXT_CPU_WORK_NONE) {
-    iree_slim_mutex_lock(&service->completion.mutex);
-    if (!service->cpu.ready) {
-      iree_slim_mutex_unlock(&service->completion.mutex);
+  if (service->cpu_work != TEXT_CPU_WORK_NONE) {
+    iree_status_t status = iree_ok_status();
+    if (!loom_serve_text_readiness_take_cpu(&service->readiness, &status)) {
       return iree_ok_status();
     }
-    iree_status_t status = service->cpu.status;
-    service->cpu.status = iree_ok_status();
-    service->cpu.ready = false;
-    iree_slim_mutex_unlock(&service->completion.mutex);
-    const text_cpu_work_t work = service->cpu.work;
-    service->cpu.work = TEXT_CPU_WORK_NONE;
+    const text_cpu_work_t work = service->cpu_work;
+    service->cpu_work = TEXT_CPU_WORK_NONE;
     *out_progress = true;
     if (work == TEXT_CPU_WORK_PREPARE) {
       status = loom_serve_text_complete_preparation(service, flags, status);
@@ -1687,19 +1584,14 @@ static iree_status_t loom_serve_text_advance_work(
     }
   }
   if (service->completion.work != TEXT_WORK_NONE) {
-    iree_slim_mutex_lock(&service->completion.mutex);
-    if (!service->completion.ready) {
-      iree_slim_mutex_unlock(&service->completion.mutex);
+    iree_status_t status = iree_ok_status();
+    if (!loom_serve_text_readiness_take_device(&service->readiness, &status)) {
       if (service->completion.work == TEXT_WORK_EPOCH &&
           !iree_any_bit_set(flags, LOOM_SERVE_HTTP_SERVICE_FLAG_STOPPING)) {
         *out_progress |= loom_serve_text_begin_preparation(service);
       }
       return iree_ok_status();
     }
-    iree_status_t status = service->completion.status;
-    service->completion.status = iree_ok_status();
-    service->completion.ready = false;
-    iree_slim_mutex_unlock(&service->completion.mutex);
     const text_work_t work = service->completion.work;
     service->completion.work = TEXT_WORK_NONE;
     *out_progress = true;
@@ -1755,6 +1647,8 @@ static iree_status_t loom_serve_text_advance_work(
     loom_serve_text_stop(service, service->telemetry.failure_code);
     return iree_ok_status();
   }
+  *out_progress |= loom_serve_execution_reconfiguration_advance(
+      service->reconfiguration, /*quiescent=*/true, /*stopping=*/false);
   // Release/suspend controls can free capacity for a stalled generation queue.
   // They run only after the previous epoch relinquishes its retained views.
   if (service->control.connection) {
@@ -1828,6 +1722,10 @@ static iree_status_t loom_serve_text_advance_work(
 static iree_status_t loom_serve_text_advance(
     void* self, loom_serve_http_service_flags_t flags, bool* out_progress) {
   loom_serve_text_service_t* service = self;
+  const bool configuration_progress =
+      loom_serve_execution_reconfiguration_advance(
+          service->reconfiguration, /*quiescent=*/false,
+          iree_any_bit_set(flags, LOOM_SERVE_HTTP_SERVICE_FLAG_STOPPING));
   iree_status_t status = loom_serve_text_heartbeat_advance(
       &service->heartbeat,
       iree_any_bit_set(flags, LOOM_SERVE_HTTP_SERVICE_FLAG_STOPPING),
@@ -1839,7 +1737,8 @@ static iree_status_t loom_serve_text_advance(
   iree_status_t work_status =
       loom_serve_text_advance_work(self, flags, &work_progress);
   // A new model failure needs another owner turn to stop a pending timer.
-  *out_progress |= work_progress || !iree_status_is_ok(work_status);
+  *out_progress |= configuration_progress || work_progress ||
+                   !iree_status_is_ok(work_status);
   status = iree_status_join(status, work_status);
   if (!iree_status_is_ok(status)) {
     loom_serve_text_telemetry_fail(&service->telemetry, status);
@@ -1861,7 +1760,7 @@ static iree_status_t loom_serve_text_accept(
                                            /*allow_preparation=*/true);
   } else if (iree_status_is_ok(status) &&
              service->completion.work == TEXT_WORK_EPOCH &&
-             service->cpu.work == TEXT_CPU_WORK_NONE &&
+             service->cpu_work == TEXT_CPU_WORK_NONE &&
              !iree_any_bit_set(flags, LOOM_SERVE_HTTP_SERVICE_FLAG_STOPPING)) {
     loom_serve_text_begin_preparation(service);
   }
@@ -1965,6 +1864,8 @@ loom_serve_http_service_t loom_serve_text_service_interface(
       .snapshot = loom_serve_text_snapshot,
       .inspection = {.request_at = loom_serve_text_request_at,
                      .session_at = loom_serve_text_session_at},
+      .reconfiguration = loom_serve_execution_reconfiguration_interface(
+          service->reconfiguration),
       .telemetry = {service->telemetry.stream, &service->telemetry.counters},
       .capacity_domain = loom_serve_residency_cache(
           loom_serve_text_model_residency(service->model))};

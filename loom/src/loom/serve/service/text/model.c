@@ -30,6 +30,7 @@
 #include "loom/serve/service/text/stages.h"
 #include "loom/serve/service/text/state.h"
 #include "loom/serve/service/text/storage.h"
+#include "loom/serve/service/text/variant.h"
 #include "loomc/iree.h"
 
 enum {
@@ -88,6 +89,8 @@ struct loom_serve_text_model_t {
   loom_serve_text_stage_t* stages;
   // Number of allocated stages, including partially initialized cold entries.
   iree_host_size_t stage_count;
+  // Original native bindings borrowing stages, retained for explicit restore.
+  loom_serve_stage_t* stage_bindings;
   // Number of target packed shapes, independent of auxiliary draft stages.
   iree_host_size_t shape_count;
   // Immutable prepared shape capacities, owned in epoch option order.
@@ -118,6 +121,8 @@ struct loom_serve_text_model_t {
   iree_vm_function_t publish_epoch;
   // Source-owned row-table encoding after recurrent slot ownership changes.
   iree_vm_function_t encode_state;
+  // Source-owned request policy binding into a retained row.
+  iree_vm_function_t bind_request;
   // Chat formatting functions borrowing the same model-wide VM process.
   loom_serve_text_chat_policy_t chat_policy;
   // Cold retained packet and feedback storage, reused by the single owner.
@@ -258,19 +263,12 @@ static iree_status_t loom_serve_text_create_program(
                .data,
            lengths[TEXT_HOST_STATE_ORIGINS]);
   }
-  loom_serve_stage_t* stages = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_allocator_malloc_array(runner->host_allocator, runner->stage_count,
-                                  sizeof(*stages), (void**)&stages));
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
+      runner->host_allocator, runner->stage_count,
+      sizeof(*runner->stage_bindings), (void**)&runner->stage_bindings));
   for (iree_host_size_t i = 0; i < runner->stage_count; ++i) {
-    const loom_cmd_program_requirements_t* requirements =
-        &runner->stages[i].program.requirements;
-    stages[i] = (loom_serve_stage_t){
-        .command_buffer = runner->stages[i].command,
-        .binding_count = requirements->rebindable_binding_count -
-                         (requirements->transient.required_byte_length != 0),
-        .transient = requirements->transient,
-    };
+    runner->stage_bindings[i] =
+        loom_serve_text_stage_binding(&runner->stages[i]);
   }
   const iree_byte_span_t feedback[] = {
       runner->host.bytes[TEXT_HOST_OUTPUTS],
@@ -279,13 +277,12 @@ static iree_status_t loom_serve_text_create_program(
   };
   const loom_serve_module_options_t options = {
       .binding_capacity = 7,
-      .stages = {runner->stage_count, stages},
+      .stages = {runner->stage_count, runner->stage_bindings},
       .feedback = {IREE_ARRAYSIZE(feedback), feedback},
   };
   status = loom_serve_module_create(&runner->source.types, runner->execution,
                                     options, runner->host_allocator,
                                     &runner->native_module);
-  iree_allocator_free(runner->host_allocator, stages);
   IREE_RETURN_IF_ERROR(status);
   iree_vm_module_t* libraries[] = {runner->native_module, NULL, NULL, NULL};
   status = loom_serve_input_module_create(
@@ -309,7 +306,8 @@ static iree_status_t loom_serve_text_create_program(
   iree_vm_module_release(libraries[1]);
   IREE_RETURN_IF_ERROR(status);
   IREE_RETURN_IF_ERROR(loom_serve_text_chat_policy_initialize(
-      runner->source.environment, runner->program, &runner->chat_policy));
+      runner->source.environment, runner->program, runner->source.options,
+      &runner->chat_policy));
   iree_vm_process_t* process = loom_serve_program_process(runner->program);
   IREE_RETURN_IF_ERROR(iree_vm_process_lookup_function(
       process, IREE_SV("model"), IREE_SV("step"), &runner->step));
@@ -322,6 +320,9 @@ static iree_status_t loom_serve_text_create_program(
   IREE_RETURN_IF_ERROR(iree_vm_process_lookup_function(
       process, IREE_SV("model"), IREE_SV("encode_state"),
       &runner->encode_state));
+  IREE_RETURN_IF_ERROR(iree_vm_process_lookup_function(
+      process, IREE_SV("model"), IREE_SV("bind_request"),
+      &runner->bind_request));
   return iree_vm_process_lookup_function(process, IREE_SV("model"),
                                          IREE_SV("epoch"), &runner->epoch_step);
 }
@@ -635,9 +636,8 @@ iree_status_t loom_serve_text_load_advance(loom_serve_text_load_t* load,
               model->parameters.sources[index];
           status = loom_serve_weights_prepare_async(
               model->parameters.plans[index], host, model->jit,
-              model->command_mode, load->options.sources.base_directory,
-              checkpoint->path, checkpoint->policy,
-              loom_serve_text_load_complete, load);
+              model->command_mode, &load->options.sources, checkpoint->path,
+              checkpoint->policy, loom_serve_text_load_complete, load);
           submitted = iree_status_is_ok(status);
         } else {
           load->phase = TEXT_LOAD_LINK;
@@ -794,6 +794,7 @@ iree_status_t loom_serve_text_model_free_retired(
   }
   iree_allocator_free(model->host_allocator, model->shapes);
   iree_allocator_free(model->host_allocator, model->stages);
+  iree_allocator_free(model->host_allocator, model->stage_bindings);
   iree_allocator_free(model->host_allocator, model->parameters.plans);
   iree_allocator_free(model->host_allocator, model->parameters.sources);
   loom_serve_jit_free(model->jit);
@@ -826,6 +827,26 @@ iree_status_t loom_serve_text_model_free(loom_serve_text_model_t* model) {
 loom_serve_device_t* loom_serve_text_model_device(
     const loom_serve_text_model_t* model) {
   return model->device_owner;
+}
+
+iree_status_t loom_serve_text_model_compile_variant_async(
+    loom_serve_text_model_t* model, const loom_serve_sources_t* sources,
+    const loomc_sanitizer_options_t* sanitizer,
+    loom_serve_variant_completion_fn_t completion, void* user_data) {
+  return loom_serve_text_variant_compile_async(
+      model, model->device_owner, model->source.preparation,
+      model->source.shared_stage_count, model->stage_count, model->stages,
+      model->command_mode, sources, sanitizer, completion, user_data,
+      model->host_allocator);
+}
+
+iree_status_t loom_serve_text_model_select_variant(
+    loom_serve_text_model_t* model, const loom_serve_text_variant_t* variant) {
+  return variant ? loom_serve_text_variant_bind(variant, model,
+                                                model->native_module)
+                 : loom_serve_module_bind_stages(model->native_module,
+                                                 model->stage_count,
+                                                 model->stage_bindings);
 }
 
 loom_serve_text_row_t* loom_serve_text_model_row(loom_serve_text_model_t* model,
@@ -1346,6 +1367,20 @@ static iree_status_t loom_serve_text_publish_state_bindings(
   return iree_ok_status();
 }
 
+iree_status_t loom_serve_text_row_bind_request(loom_serve_text_row_t* row,
+                                               iree_vm_buffer_t* options) {
+  loom_serve_text_model_t* model = row->model;
+  iree_vm_variant_t arguments[] = {
+      iree_vm_buffer_variant_from_ptr_borrowed(&model->source.vm_types,
+                                               model->source.control_state),
+      iree_vm_variant_from_i32((int32_t)(row - model->rows)),
+      iree_vm_buffer_variant_from_ptr_borrowed(&model->source.vm_types,
+                                               options)};
+  return loom_serve_text_invoke(model, model->bind_request,
+                                iree_vm_variant_span_from_array(arguments),
+                                iree_vm_variant_span_empty());
+}
+
 // The semantic host record is {length, position, row, input_begin, input_count,
 // flags, output_credit, first_span}. Known IDs are copied once into a
 // contiguous host stream. Source owns all device packet offsets and selection
@@ -1584,6 +1619,8 @@ iree_status_t loom_serve_text_model_submit_epoch(
                                  TEXT_ROW_CAPACITY, input_count);
   }
   iree_vm_variant_t encode_arguments[] = {
+      iree_vm_buffer_variant_from_ptr_borrowed(&model->source.vm_types,
+                                               model->source.control_state),
       iree_vm_buffer_variant_from_ptr_borrowed(
           &model->source.vm_types, model->host.buffers[TEXT_HOST_PLAN]),
       iree_vm_buffer_variant_from_ptr_borrowed(

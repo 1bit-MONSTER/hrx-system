@@ -27,6 +27,9 @@ typedef struct loom_serve_image_service_options_t {
   bool adapter_enabled;
   // Positive bound on requests queued behind the single active image.
   iree_host_size_t pending_capacity;
+  // Retained execution choices including original/pending/failed candidates;
+  // zero disables reconfiguration independently of request admission.
+  iree_host_size_t variant_capacity;
   // Periodic telemetry snapshot interval; zero disables periodic records,
   // not counters or lifecycle records. Consumers pull JSONL through /logz.
   iree_duration_t heartbeat_interval;

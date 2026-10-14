@@ -91,8 +91,6 @@ typedef struct loom_serve_text_session_t {
     iree_host_size_t retained_count;
     // Selected output tokens, including EOS.
     iree_host_size_t output_count;
-    // Ordinary response bytes already incorporated in copied SSE output.
-    iree_host_size_t emitted_length;
     // Terminal wire literal: stop, length, tool_calls, or error. NULL until
     // translation establishes a terminal response.
     const char* finish_reason;

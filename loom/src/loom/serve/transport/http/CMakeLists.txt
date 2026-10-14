@@ -11,6 +11,30 @@ iree_add_all_subdirs()
 
 loom_cc_library(
   NAME
+    multipart
+  HDRS
+    "multipart.h"
+  SRCS
+    "multipart.c"
+  DEPS
+    iree::base
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    multipart_test
+  SRCS
+    "multipart_test.cc"
+  DEPS
+    ::multipart
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_library(
+  NAME
     request
   HDRS
     "request.h"

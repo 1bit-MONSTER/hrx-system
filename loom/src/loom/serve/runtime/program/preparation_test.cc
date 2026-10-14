@@ -32,6 +32,8 @@ class PreparationTest : public ::testing::Test {
 
   // Allocation policy for the environment and owned declaration copies.
   const iree_allocator_t host_allocator = iree_allocator_system();
+  // Explicit local namespace for the authored boundary fixture.
+  const loom_serve_sources_t sources = {.base_directory = IREE_SV(".")};
   // Environment owning the reference types used during preparation.
   iree_vm_environment_t* environment = nullptr;
   // Owned declarations independent of the temporary source program.
@@ -40,7 +42,7 @@ class PreparationTest : public ::testing::Test {
 
 TEST_F(PreparationTest, TextConfigurationCopiesValueSpelling) {
   IREE_ASSERT_OK(loom_serve_preparation_allocate(
-      environment, iree_make_cstring_view(FLAG_boundary_source),
+      environment, &sources, iree_make_cstring_view(FLAG_boundary_source),
       IREE_SV("text_config"), iree_vm_variant_span_empty(),
       iree_vm_variant_span_empty(), iree_vm_module_span_empty(), &compilation,
       host_allocator, &preparation));
@@ -53,7 +55,7 @@ TEST_F(PreparationTest, TextConfigurationCopiesValueSpelling) {
 
 TEST_F(PreparationTest, DirectDeclarationRetainsProductAndSpecialization) {
   IREE_ASSERT_OK(loom_serve_preparation_allocate(
-      environment, iree_make_cstring_view(FLAG_boundary_source),
+      environment, &sources, iree_make_cstring_view(FLAG_boundary_source),
       IREE_SV("direct_config"), iree_vm_variant_span_empty(),
       iree_vm_variant_span_empty(), iree_vm_module_span_empty(), &compilation,
       host_allocator, &preparation));
@@ -69,7 +71,7 @@ TEST_F(PreparationTest, DirectDeclarationRetainsProductAndSpecialization) {
 
 TEST_F(PreparationTest, WorkspaceLimitConstrainsCompilerReflection) {
   IREE_ASSERT_OK(loom_serve_preparation_allocate(
-      environment, iree_make_cstring_view(FLAG_boundary_source),
+      environment, &sources, iree_make_cstring_view(FLAG_boundary_source),
       IREE_SV("workspace_constrained"), iree_vm_variant_span_empty(),
       iree_vm_variant_span_empty(), iree_vm_module_span_empty(), &compilation,
       host_allocator, &preparation));
@@ -99,7 +101,7 @@ TEST_F(PreparationTest, CatalogGrowthPreservesEveryDeclaration) {
         return system.ctl(system.self, command, params, inout_pointer);
       }};
   IREE_ASSERT_OK(loom_serve_preparation_allocate(
-      environment, iree_make_cstring_view(FLAG_boundary_source),
+      environment, &sources, iree_make_cstring_view(FLAG_boundary_source),
       IREE_SV("large_catalog"), iree_vm_variant_span_empty(),
       iree_vm_variant_span_empty(), iree_vm_module_span_empty(), &compilation,
       bounded_allocator, &preparation));
@@ -148,7 +150,7 @@ TEST_F(PreparationTest, InvalidDeclarationsReleasePartialOwnership) {
     IREE_EXPECT_STATUS_IS(
         test.code,
         loom_serve_preparation_allocate(
-            environment, iree_make_cstring_view(FLAG_boundary_source),
+            environment, &sources, iree_make_cstring_view(FLAG_boundary_source),
             iree_make_cstring_view(test.entry), iree_vm_variant_span_empty(),
             iree_vm_variant_span_empty(), iree_vm_module_span_empty(),
             &compilation, host_allocator, &preparation));
@@ -163,7 +165,7 @@ TEST_F(PreparationTest, EmbeddedNulCannotTruncateDeclarationStrings) {
     IREE_EXPECT_STATUS_IS(
         IREE_STATUS_INVALID_ARGUMENT,
         loom_serve_preparation_allocate(
-            environment, iree_make_cstring_view(FLAG_boundary_source),
+            environment, &sources, iree_make_cstring_view(FLAG_boundary_source),
             IREE_SV("nul_string"), iree_vm_variant_span_from_array(arguments),
             iree_vm_variant_span_empty(), iree_vm_module_span_empty(),
             &compilation, host_allocator, &preparation));

@@ -7,6 +7,7 @@
 // Observes the source chat/input/completion path without device execution.
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "iree/base/tooling/flags.h"
 #include "iree/io/file_contents.h"
@@ -20,9 +21,13 @@
 IREE_FLAG(string, control, "", "Chat control VM program (.loom or .loombc).");
 IREE_FLAG(string, tokenizer, "", "Hugging Face tokenizer.json path.");
 IREE_FLAG(string, request, "", "Chat Completions request JSON file.");
+IREE_FLAG(string, options, "{}", "Deployment options JSON object.");
 IREE_FLAG(string, response, "",
           "Optional raw generated text file to complete.");
 IREE_FLAG(int32_t, capacity, 262144, "Maximum complete prompt token count.");
+IREE_FLAG(
+    int32_t, response_chunk_size, 0,
+    "Incremental decoded output bytes per policy call; zero completes once.");
 
 static iree_string_view_t loom_serve_text_request_check_file_text(
     iree_io_file_contents_t* contents) {
@@ -56,9 +61,41 @@ static iree_status_t loom_serve_text_request_check_report(
   if (iree_status_is_ok(status)) {
     status = loom_json_array_end(&array);
   }
+  iree_const_byte_span_t options = iree_const_byte_span_empty();
+  if (iree_status_is_ok(status)) {
+    status = iree_vm_buffer_map_read(
+        chat->options, 0, iree_vm_buffer_length(chat->options), &options);
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_json_object_begin_field(&object, IREE_SV("request_options"));
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_json_array_begin(&stream, &array);
+  }
+  for (iree_host_size_t i = 0;
+       i < options.data_length && iree_status_is_ok(status); ++i) {
+    status = loom_json_array_write_int32_element(&array, options.data[i]);
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_json_array_end(&array);
+  }
   if (iree_status_is_ok(status) && completion) {
     status = loom_json_object_write_host_size_field(
-        &object, IREE_SV("text_end"), completion->text_end);
+        &object, IREE_SV("output_cursor"), chat->output.cursor);
+    if (iree_status_is_ok(status)) {
+      status = loom_json_object_write_string_field(
+          &object, IREE_SV("content"),
+          iree_string_builder_view(&chat->output.content));
+    }
+    if (iree_status_is_ok(status)) {
+      status = loom_json_object_write_string_field(
+          &object, IREE_SV("reasoning_content"),
+          iree_string_builder_view(&chat->output.reasoning));
+    }
+    if (iree_status_is_ok(status)) {
+      status = loom_json_object_write_bool_field(&object, IREE_SV("reusable"),
+                                                 completion->reusable);
+    }
     if (iree_status_is_ok(status)) {
       status = loom_json_object_write_string_field(
           &object, IREE_SV("checkpoint"), completion->transcript);
@@ -87,7 +124,8 @@ static iree_status_t loom_serve_text_request_check_run(
     iree_allocator_t host_allocator) {
   loom_serve_compilation_report_t compilation = {0};
   if (!FLAG_control[0] || !FLAG_tokenizer[0] || !FLAG_request[0] ||
-      FLAG_capacity <= 0 || FLAG_capacity > 262144) {
+      FLAG_capacity <= 0 || FLAG_capacity > 262144 ||
+      FLAG_response_chunk_size < 0) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "--control, --tokenizer and --request are required; "
@@ -121,23 +159,33 @@ static iree_status_t loom_serve_text_request_check_run(
         environment, host_allocator, &libraries[2]);
   }
   const iree_string_view_t roots[] = {
-      IREE_SVL("model_name"),    IREE_SVL("chat_begin"),
-      IREE_SVL("chat_message"),  IREE_SVL("chat_end"),
-      IREE_SVL("render_tool"),   IREE_SVL("parse_tools"),
-      IREE_SVL("prepare_input"), IREE_SVL("text_end"),
-      IREE_SVL("complete_text")};
+      IREE_SVL("model_name"),     IREE_SVL("chat_begin"),
+      IREE_SVL("chat_message"),   IREE_SVL("chat_end"),
+      IREE_SVL("render_tool"),    IREE_SVL("parse_tools"),
+      IREE_SVL("prepare_input"),  IREE_SVL("output_next"),
+      IREE_SVL("complete_text"),  IREE_SVL("request_defaults"),
+      IREE_SVL("request_options")};
   loom_serve_program_t* program = NULL;
+  const loom_serve_sources_t sources = {.base_directory = IREE_SV(".")};
   if (iree_status_is_ok(status)) {
     status = loom_serve_program_allocate(
-        environment, iree_make_cstring_view(FLAG_control),
+        environment, &sources, iree_make_cstring_view(FLAG_control),
         IREE_ARRAYSIZE(roots), roots, iree_vm_module_span_from_array(libraries),
         &compilation, host_allocator, &program);
   }
   loom_serve_text_chat_policy_t policy = {0};
+  iree_vm_buffer_t* options = NULL;
   if (iree_status_is_ok(status)) {
-    status =
-        loom_serve_text_chat_policy_initialize(environment, program, &policy);
+    status = iree_vm_buffer_clone(
+        IREE_VM_BUFFER_ACCESS_FLAG_READ,
+        iree_make_const_byte_span(FLAG_options, strlen(FLAG_options)), 1,
+        host_allocator, &options);
   }
+  if (iree_status_is_ok(status)) {
+    status = loom_serve_text_chat_policy_initialize(environment, program,
+                                                    options, &policy);
+  }
+  iree_vm_buffer_release(options);
   iree_io_file_contents_t* request = NULL;
   if (iree_status_is_ok(status)) {
     status = iree_io_file_contents_read(iree_make_cstring_view(FLAG_request),
@@ -148,7 +196,7 @@ static iree_status_t loom_serve_text_request_check_run(
   if (iree_status_is_ok(status)) {
     status = loom_serve_text_chat_initialize(
         &policy, policy.name, loom_serve_text_request_check_file_text(request),
-        128, host_allocator, &chat);
+        1, 128, host_allocator, &chat);
     chat_initialized = iree_status_is_ok(status);
   }
   int32_t* tokens = NULL;
@@ -172,9 +220,24 @@ static iree_status_t loom_serve_text_request_check_run(
   iree_string_builder_t tool_calls;
   iree_string_builder_initialize(host_allocator, &tool_calls);
   loom_serve_text_chat_completion_t completion = {0};
+  if (iree_status_is_ok(status) && response && FLAG_response_chunk_size) {
+    const iree_string_view_t text =
+        loom_serve_text_request_check_file_text(response);
+    for (iree_host_size_t length = 0;
+         length < text.size && iree_status_is_ok(status);) {
+      length += iree_min((iree_host_size_t)FLAG_response_chunk_size,
+                         text.size - length);
+      loom_serve_text_chat_output_t output;
+      do {
+        status = loom_serve_text_chat_output_next(
+            &chat, iree_string_view_substr(text, 0, length),
+            LOOM_SERVE_TEXT_CHAT_OUTPUT_STREAMING, &output);
+      } while (iree_status_is_ok(status) && output.advanced);
+    }
+  }
   if (iree_status_is_ok(status) && response) {
     status = loom_serve_text_chat_complete(
-        &chat, loom_serve_text_request_check_file_text(response), 0, 1,
+        &chat, loom_serve_text_request_check_file_text(response), 1,
         &tool_calls, &completion);
   }
   if (iree_status_is_ok(status)) {

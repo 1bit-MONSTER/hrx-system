@@ -98,7 +98,6 @@ nav:
           - GGML and llama.cpp: workflows/oracles/ggml-llama-cpp.md
   - Integration:
       - Integration map: integration/index.md
-      - Author serving model packages: integration/serving-models.md
       - Compose modules in memory: integration/module-composition.md
       - Parallelize kernel JIT compilation: integration/product-frontier.md
       - Use the JIT task pool: integration/jit-task-pool.md
@@ -106,12 +105,14 @@ nav:
   - Serving:
       - loom-serve: serving/index.md
       - Model documents: serving/model-documents.md
+      - Author model programs: serving/model-programs.md
       - HTTP profiles: serving/http-profiles.md
       - Workflows:
           - Serve source-defined models: serving/workflows/serve-models.md
           - Operate a model server: serving/workflows/operate-model-server.md
           - Observe a model server: serving/workflows/observe-model-server.md
           - Connect model clients: serving/workflows/connect-model-clients.md
+          - Develop models on a live server: serving/workflows/live-model-development.md
   - Targets:
       - Resident pipelines on XDNA: targets/xdna-pipelines.md
   - Reference:

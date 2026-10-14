@@ -39,7 +39,11 @@
           "/v1/models/register",
           ".loombc",
           "base_directory",
-          "trusted clients"
+          "trusted clients",
+          "Text, image, embedding and decision services support live updates.",
+          "/v1/models/variants",
+          "https://rocm.github.io/hrx-system/loom/serving/workflows/live-model-development/",
+          "https://rocm.github.io/hrx-system/loom/serving/model-programs/"
         ]
       },
       "stderr": {"empty": true}

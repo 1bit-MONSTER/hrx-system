@@ -11,6 +11,7 @@
 #include "iree/vm/program.h"
 #include "iree/vm/variant.h"
 #include "loom/serve/runtime/program/compilation.h"
+#include "loom/serve/runtime/program/sources.h"
 #include "loomc/config.h"
 
 #ifdef __cplusplus
@@ -54,8 +55,8 @@ typedef struct loom_serve_preparation_stage_t {
 // Cold declarations with no device or VM ownership after construction.
 typedef struct loom_serve_preparation_t loom_serve_preparation_t;
 
-// Invokes |entry| from |source_path| once with borrowed |arguments|. The source
-// imports runner-private "prepare" capabilities:
+// Invokes |entry| from |source_path| in |sources| once with borrowed
+// |arguments|. The source imports runner-private "prepare" capabilities:
 //   stage(buffer root, i64 tag) -> i32 stage
 //   dispatch(buffer root, i64 tag) -> i32 stage
 //   config(i32 stage, buffer key, buffer value)
@@ -65,9 +66,9 @@ typedef struct loom_serve_preparation_t loom_serve_preparation_t;
 //             buffer policy)
 // All string buffers exclude NUL bytes. Config values use the public loomc
 // textual value syntax; config_i64 formats signed decimal values. Parameter
-// paths join directory and path. Policy paths
-// are relative to the source directory. Declarations copy their strings and
-// retain no references to arguments, source mappings or the VM environment.
+// paths join directory and path in the server filesystem namespace. Policy
+// paths resolve through the source environment. Declarations copy their strings
+// and retain no references to arguments, source mappings or the VM environment.
 // Additional caller libraries are linked beside the prepare module. Results
 // are ordinary VM variants owned by the caller; the environment must outlive
 // any returned references. The source program is destroyed before return.
@@ -78,10 +79,11 @@ typedef struct loom_serve_preparation_t loom_serve_preparation_t;
 // NULL.
 // report receives copied compiler diagnostics independently of this outcome.
 iree_status_t loom_serve_preparation_allocate(
-    iree_vm_environment_t* environment, iree_string_view_t source_path,
-    iree_string_view_t entry, iree_vm_variant_span_t arguments,
-    iree_vm_variant_span_t results, iree_vm_module_span_t libraries,
-    loom_serve_compilation_report_t* report, iree_allocator_t host_allocator,
+    iree_vm_environment_t* environment, const loom_serve_sources_t* sources,
+    iree_string_view_t source_path, iree_string_view_t entry,
+    iree_vm_variant_span_t arguments, iree_vm_variant_span_t results,
+    iree_vm_module_span_t libraries, loom_serve_compilation_report_t* report,
+    iree_allocator_t host_allocator,
     loom_serve_preparation_t** out_preparation);
 
 void loom_serve_preparation_free(loom_serve_preparation_t* preparation);

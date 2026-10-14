@@ -96,6 +96,7 @@ static iree_status_t loom_serve_finite_registration_prepare(
             ? loom_serve_embedding_protocol()
             : loom_serve_decision_protocol(),
         configuration->name, configuration->pending_requests,
+        configuration->variant_capacity,
         registration->options->heartbeat_interval, registration->stream,
         registration->host_allocator, &registration->service);
   }
@@ -259,6 +260,7 @@ static iree_status_t loom_serve_image_registration_prepare(
         .height = configuration->image.height,
         .adapter_enabled = configuration->image.adapter.size != 0,
         .pending_capacity = configuration->pending_requests,
+        .variant_capacity = configuration->variant_capacity,
         .heartbeat_interval = registration->options->heartbeat_interval};
     status = loom_serve_image_service_allocate(
         loom_serve_device_host(registration->device),
@@ -426,6 +428,7 @@ static iree_status_t loom_serve_text_registration_prepare(
     const loom_serve_text_service_options_t options = {
         .name = configuration->name,
         .row_count = text->rows,
+        .variant_capacity = configuration->variant_capacity,
         .chunk_size = text->prefill_capacity,
         .default_max_tokens = text->max_tokens,
         .pending_capacity = configuration->pending_requests,

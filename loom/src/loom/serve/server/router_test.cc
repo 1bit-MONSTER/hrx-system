@@ -587,7 +587,12 @@ TEST_P(HttpRouterTest, ContinuouslyReadyOwnerYieldsToSharedCpuWork) {
   }
   const std::string body = R"({"model":"held"})";
   const int held = Send("POST", "/v1/chat/completions", body);
-  held_.WaitSubmitted();
+  {
+    // Admission is a separate owner turn from ready work. Establish the
+    // continuously-ready premise before another worker can release the request.
+    std::unique_lock<std::mutex> lock(held_.mutex);
+    held_.condition.wait(lock, [this] { return held_.ready_units != 0; });
+  }
   EXPECT_NE(Read(Send("GET", "/healthz")).find(R"({"status":"ready"})"),
             std::string::npos);
   CpuCompletion cpu{&held_};

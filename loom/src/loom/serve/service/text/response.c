@@ -6,6 +6,7 @@
 
 #include "loom/serve/service/text/response.h"
 
+#include "loom/serve/service/text/chat.h"
 #include "loom/util/json.h"
 
 static iree_status_t loom_serve_text_response_quote(
@@ -35,6 +36,44 @@ iree_status_t loom_serve_text_response_error(iree_status_t failure,
         output, ",\"type\":\"loom_request_error\"}}");
   }
   iree_status_free(failure);
+  return status;
+}
+
+iree_status_t loom_serve_text_response_tokens(
+    loom_serve_text_session_t* session, iree_string_view_t name,
+    iree_host_size_t count, const int32_t* tokens,
+    iree_string_builder_t* scratch, iree_string_builder_t* tool_calls) {
+  iree_status_t status = loom_serve_text_session_append_tokens(
+      session, name, count, tokens, scratch, tool_calls);
+  if (!iree_status_is_ok(status)) {
+    // Device work completed, but translation cannot establish a client history.
+    // Streamed headers are already published; JSON headers are not. Keep the
+    // wire format honest without changing request or row retirement.
+    loom_serve_text_chat_completion_deinitialize(&session->completion);
+    loom_serve_telemetry_diagnostic_capture(status,
+                                            &session->request.diagnostic);
+    iree_string_builder_reset(&session->packet);
+    const bool streaming = iree_any_bit_set(session->request.chat.flags,
+                                            LOOM_SERVE_TEXT_CHAT_FLAG_STREAM);
+    iree_status_t packet_status = iree_string_builder_append_cstring(
+        &session->packet,
+        streaming
+            ? "data: "
+            : "HTTP/1.1 500 Internal Server Error\r\n"
+              "Content-Type: application/json\r\nConnection: close\r\n\r\n");
+    if (iree_status_is_ok(packet_status)) {
+      packet_status = loom_serve_text_response_error(status, &session->packet);
+    } else {
+      packet_status = iree_status_join(packet_status, status);
+    }
+    if (iree_status_is_ok(packet_status) && streaming) {
+      packet_status = iree_string_builder_append_cstring(
+          &session->packet, "\n\ndata: [DONE]\n\n");
+    }
+    session->request.finish_reason = "error";
+    session->request.phase = LOOM_SERVE_TEXT_REQUEST_FINISHING;
+    status = packet_status;
+  }
   return status;
 }
 

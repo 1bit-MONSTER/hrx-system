@@ -60,10 +60,14 @@ their independently checkable results are useful when building a client or
 porting a model package.
 
 The same JSON object is accepted by `POST /v1/models/register`. File-document
-references resolve from the document directory. HTTP registration requires an
-explicit absolute `base_directory` when references are relative. Omitted
-`admission` defaults to `open`; `drained` retains metadata without loading source
-or weights. Registration returns HTTP 202 for accepted intent; status reports
+references resolve from the document directory. JSON-only HTTP registration
+requires an explicit absolute `base_directory` when references are relative.
+Multipart registration carries source and metadata files in a logical package;
+parameter checkpoints remain server-local. The
+[live development workflow](../../../../docs/src/serving/workflows/live-model-development.md)
+connects uploads to native variant selection and retained-checkpoint comparisons.
+Omitted `admission` defaults to `open`; `drained` retains metadata without loading
+source or weights. Registration returns HTTP 202 for accepted intent; status reports
 when preparation completes. Multiple startup models may be supplied through
 repeated flags or an ordinary newline-separated `--flagfile`.
 

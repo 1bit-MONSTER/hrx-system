@@ -69,14 +69,17 @@ loom_cc_library(
     "checkpoint_test.cc"
     "owner_turn_test_util.h"
     "prefix_service_test.cc"
+    "reconfiguration_http_test.cc"
     "service_test_fixture.h"
     "source_service_test.cc"
     "source_test_oracle.h"
     "stalled_client_test_util.h"
+    "variant_test.cc"
   DEPS
     iree::async
     iree::async::platform
     iree::base
+    iree::base::internal::json
     iree::base::threading
     iree::base::tooling::flags
     iree::net::carrier
@@ -84,8 +87,10 @@ loom_cc_library(
     iree::task
     iree::testing::gtest
     iree::testing::temp_file
+    loom::binding::c::loomc
     loom::serve::runtime::device
     loom::serve::runtime::host
+    loom::serve::runtime::program::variant_pool
     loom::serve::server::model_registration
     loom::serve::server::registry
     loom::serve::server::router
@@ -99,6 +104,7 @@ loom_cc_library(
     loom::serve::telemetry::stream
     loom::serve::testing::http_harness
     loom::serve::testing::model
+    loom::serve::testing::package
     loom::serve::testing::stalled_stderr
     loom::serve::transport::http::listener
     loom::serve::transport::http::server
@@ -177,11 +183,13 @@ loom_cc_library(
     "source.h"
     "stages.h"
     "state.h"
+    "variant.h"
   SRCS
     "model.c"
     "source.c"
     "stages.c"
     "state.c"
+    "variant.c"
   DEPS
     ::chat
     ::packing
@@ -190,7 +198,6 @@ loom_cc_library(
     iree::async::util::proactor_pool
     iree::base
     iree::hal
-    iree::io::file_handle
     iree::module::hal::types
     iree::tokenizer
     iree::tokenizer::format::huggingface::tokenizer_json
@@ -212,6 +219,7 @@ loom_cc_library(
     loom::serve::runtime::program::module
     loom::serve::runtime::program::preparation
     loom::serve::runtime::program::sources
+    loom::serve::runtime::program::variant_pool
     loom::serve::runtime::storage::block_pool
     loom::serve::runtime::storage::memory
     loom::serve::runtime::storage::relocation
@@ -415,12 +423,48 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    readiness
+  HDRS
+    "readiness.h"
+  SRCS
+    "readiness.c"
+  DEPS
+    iree::async
+    iree::base
+    iree::base::threading
+    iree::task
+    loom::serve::runtime::execution
+    loom::serve::runtime::host::wake
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    readiness_test
+  SRCS
+    "readiness_test.cc"
+  DEPS
+    ::readiness
+    iree::async
+    iree::async::util::proactor_pool
+    iree::base
+    iree::base::threading
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::serve::runtime::execution
+    loom::serve::runtime::host
+)
+
+loom_cc_library(
+  NAME
     response
   HDRS
     "response.h"
   SRCS
     "response.c"
   DEPS
+    ::chat
+    ::session
     ::telemetry
     iree::base
     loom::serve::telemetry::record
@@ -451,6 +495,22 @@ loom_cc_library(
   PUBLIC
 )
 
+loom_cc_library(
+  NAME
+    reconfiguration
+  HDRS
+    "reconfiguration.h"
+  SRCS
+    "reconfiguration.c"
+  DEPS
+    ::model
+    iree::base
+    loom::serve::runtime::program::sources
+    loom::serve::runtime::program::variant_pool
+    loom::serve::service::execution_reconfiguration
+  PUBLIC
+)
+
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
@@ -470,6 +530,8 @@ loom_cc_library(
     ::model
     ::packing
     ::prefix_cache
+    ::readiness
+    ::reconfiguration
     ::response
     ::schedule
     ::session
@@ -479,7 +541,6 @@ loom_cc_library(
     iree::async::util::proactor_pool
     iree::base
     iree::base::threading
-    iree::task
     iree::tokenizer
     iree::vm
     loom::serve::runtime::device
@@ -488,6 +549,7 @@ loom_cc_library(
     loom::serve::runtime::host::timer
     loom::serve::runtime::host::wake
     loom::serve::service
+    loom::serve::service::execution_reconfiguration
     loom::serve::telemetry::record
     loom::serve::telemetry::stream
     loom::serve::transport::http::request

@@ -38,6 +38,67 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    variant_pool
+  HDRS
+    "variant_pool.h"
+  SRCS
+    "variant_pool.c"
+  DEPS
+    ::compilation
+    iree::base
+    iree::base::threading
+    loom::serve::runtime::host::wake
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    variant_pool_test
+  SRCS
+    "variant_pool_test.cc"
+  DEPS
+    ::variant_pool
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_library(
+  NAME
+    parameter_layout
+  HDRS
+    "parameter_layout.h"
+  SRCS
+    "parameter_layout.c"
+  DEPS
+    iree::base
+    loom::target::arch::cmd::program
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
+    stage_set
+  HDRS
+    "stage_set.h"
+  SRCS
+    "stage_set.c"
+  DEPS
+    ::compilation
+    ::jit
+    ::preparation
+    ::sources
+    iree::base
+    loom::binding::c::loomc
+    loom::binding::c::task_pool
+    loom::serve::runtime::device
+    loom::serve::runtime::host
+    loom::target::arch::cmd::program
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     module
   HDRS
     "module.h"
@@ -111,14 +172,44 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    package
+  HDRS
+    "package.h"
+  SRCS
+    "package.c"
+  DEPS
+    iree::base
+    iree::base::internal::unicode
+    loom::binding::c::loomc
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    package_test
+  SRCS
+    "package_test.cc"
+  DEPS
+    ::package
+    ::sources
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::binding::c::loomc
+)
+
+loom_cc_library(
+  NAME
     sources
   HDRS
     "sources.h"
   SRCS
     "sources.c"
   DEPS
+    ::package
     iree::base
     iree::base::internal::path
+    loom::binding::c::loomc
   PUBLIC
 )
 
@@ -172,6 +263,7 @@ loom_cc_library(
   DEPS
     ::compilation
     ::jit
+    ::sources
     iree::base
     iree::vm
     iree::vm::bytecode::module
@@ -231,6 +323,7 @@ loom_cc_library(
   DEPS
     ::compilation
     ::program
+    ::sources
     iree::base
     iree::base::internal::path
     iree::vm

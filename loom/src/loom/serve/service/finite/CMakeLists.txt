@@ -43,6 +43,7 @@ loom_cc_library(
     loom::serve::runtime::host::wake
     loom::serve::runtime::parameter::residency
     loom::serve::service
+    loom::serve::service::execution_reconfiguration
     loom::serve::telemetry::stream
     loom::serve::transport::http::request
     loom::serve::transport::http::server
@@ -63,7 +64,6 @@ loom_cc_library(
     iree::base
     iree::base::threading
     iree::hal
-    iree::io::file_handle
     iree::module::hal::types
     iree::tokenizer
     iree::tokenizer::format::huggingface::tokenizer_json
@@ -82,8 +82,12 @@ loom_cc_library(
     loom::serve::runtime::program::jit
     loom::serve::runtime::program::json
     loom::serve::runtime::program::module
+    loom::serve::runtime::program::parameter_layout
     loom::serve::runtime::program::preparation
     loom::serve::runtime::program::sources
+    loom::serve::runtime::program::stage_set
+    loom::serve::runtime::program::variant_pool
+    loom::serve::service::execution_reconfiguration
     loom::util::stream
   PUBLIC
 )

@@ -74,6 +74,94 @@ func.def public @model_name() -> (buffer) {
   func.return %name : buffer
 }
 
+func.decl import("json") @parse_i64(%source: buffer, %offset: i64, %length: i64) -> (i64)
+
+func.decl import("json") @parse_f64(%source: buffer, %offset: i64, %length: i64) -> (f64)
+
+global.rodata.def @temperature = bytes("74656d7065726174757265")
+
+global.rodata.def @top_p = bytes("746f705f70")
+
+global.rodata.def @top_k = bytes("746f705f6b")
+
+global.rodata.def @seed = bytes("73656564")
+
+global.rodata.def @sampling_error = bytes("74657874206669787475726520737570706f7274732074656d70657261747572653d302c20746f705f703d312c20746f705f6b3d30206f72203120616e6420696e7465676572207365656473")
+
+func.def public @request_defaults(%options: buffer) -> (buffer) {
+  %fields, %type, %count = func.call @members(%options) : (buffer) -> (buffer, i32, i64)
+  %object = scalar.constant 2 : i32
+  %empty_count = scalar.constant 0 : i64
+  %typed = scalar.cmpi eq, %type, %object : i32
+  %empty_options = scalar.cmpi eq, %count, %empty_count : i64
+  %valid = scalar.andi %typed, %empty_options : i1
+  func.call @check(%valid) : (i1)
+  %empty = global.load @empty : buffer
+  func.return %empty : buffer
+}
+
+func.def public @request_options(%defaults: buffer, %request: buffer, %nonce: i64) -> (buffer) {
+  %origin = index.constant 0 : offset
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %zero64 = scalar.constant 0 : i64
+  %one64 = scalar.constant 1 : i64
+  %fields, %type, %count = func.call @members(%request) : (buffer) -> (buffer, i32, i64)
+  %bounded = scalar.assume %count [range(%count, 0, 2147483647)] : i64
+  %extent = index.cast %bounded : i64 to index
+  %records = buffer.view %fields[%origin] : buffer -> view<[%extent]x5xi64>
+  %capacity = buffer.length %request
+  %storage = buffer.alloca<private> align(1) %capacity : buffer
+  %temperature = global.load @temperature : buffer
+  %top_p = global.load @top_p : buffer
+  %top_k = global.load @top_k : buffer
+  %seed = global.load @seed : buffer
+  scf.for %i = [%c0 to %extent step %c1] {
+    %begin = view.load %records[%i, 0] : view<[%extent]x5xi64> -> i64
+    %length = view.load %records[%i, 1] : view<[%extent]x5xi64> -> i64
+    %used = func.call @unescape(%request, %begin, %length, %storage, %zero64) : (buffer, i64, i64, buffer, i64) -> (i64)
+    %bounded_used = scalar.assume %used [range(%used, 0, 9223372036854775807)] : i64
+    %key_length = index.cast %bounded_used : i64 to offset
+    %key = buffer.alloca<private> align(1) %key_length : buffer
+    buffer.copy %storage[%origin], %key[%origin], %key_length
+    %is_temperature = func.call @equal(%key, %temperature) : (buffer, buffer) -> (i1)
+    %is_p = func.call @equal(%key, %top_p) : (buffer, buffer) -> (i1)
+    %is_k = func.call @equal(%key, %top_k) : (buffer, buffer) -> (i1)
+    %is_seed = func.call @equal(%key, %seed) : (buffer, buffer) -> (i1)
+    %floating = scalar.ori %is_temperature, %is_p : i1
+    %integer = scalar.ori %is_k, %is_seed : i1
+    %value_begin = view.load %records[%i, 2] : view<[%extent]x5xi64> -> i64
+    %value_length = view.load %records[%i, 3] : view<[%extent]x5xi64> -> i64
+    %valid = scf.if %floating -> (i1) {
+      %value = func.call @parse_f64(%request, %value_begin, %value_length) : (buffer, i64, i64) -> (f64)
+      %greedy_temperature = scalar.constant 0.0 : f64
+      %full_probability = scalar.constant 1.0 : f64
+      %expected = scf.select %is_temperature, %greedy_temperature, %full_probability : f64
+      %valid = scalar.cmpf oeq, %value, %expected : f64
+      scf.yield %valid : i1
+    } else {
+      %valid = scf.if %integer -> (i1) {
+        %value = func.call @parse_i64(%request, %value_begin, %value_length) : (buffer, i64, i64) -> (i64)
+        %small = scalar.cmpi ule, %value, %one64 : i64
+        %valid = scalar.ori %small, %is_seed : i1
+        scf.yield %valid : i1
+      } else {
+        %true = scalar.constant true : i1
+        scf.yield %true : i1
+      }
+      scf.yield %valid : i1
+    }
+    %condition = scalar.extui %valid : i1 to i32
+    %error = global.load @sampling_error : buffer
+    func.call @require(%condition, %error) : (i32, buffer)
+  }
+  func.return %defaults : buffer
+}
+
+func.def public @bind_request(%state: buffer, %row: i32, %options: buffer) {
+  func.return
+}
+
 func.def public @chat_begin(%request: buffer, %tools: buffer) -> (buffer, i64) {
   %c0 = index.constant 0 : offset
   %c0_index = index.constant 0 : index
@@ -159,9 +247,9 @@ func.def public @chat_message(%raw: buffer, %role: buffer, %content: buffer, %re
   func.return %fragment, %state : buffer, i64
 }
 
-func.def public @chat_end(%state: i64) -> (buffer) {
+func.def public @chat_end(%state: i64) -> (buffer, i64) {
   %empty = global.load @empty : buffer
-  func.return %empty : buffer
+  func.return %empty, %state : buffer, i64
 }
 
 func.def public @render_tool(%name: buffer, %arguments: buffer, %ordinal: i64) -> (buffer, i64) {
@@ -228,15 +316,17 @@ func.def public @prepare_input(%text: buffer, %format: i32, %boundary: i32, %cap
   func.return %tokens, %count : buffer, i64
 }
 
-func.def public @text_end(%response: buffer, %previous: i64, %phase: i32) -> (i64) {
+func.def public @output_next(%response: buffer, %previous: i64, %state: i64, %phase: i32) -> (i64, i64, i64, i64) {
   %length = buffer.length %response
   %count = index.cast %length : offset to i64
-  func.return %count : i64
+  %content = scalar.constant 1 : i64
+  func.return %content, %previous, %count, %state : i64, i64, i64, i64
 }
 
-func.def public @complete_text(%prompt: buffer, %content: buffer, %tools: buffer) -> (buffer) {
+func.def public @complete_text(%prompt: buffer, %content: buffer, %reasoning: buffer, %tools: buffer, %initial_state: i64, %final_state: i64) -> (buffer, i32) {
   %result = func.call @join(%prompt, %content) : (buffer, buffer) -> (buffer)
-  func.return %result : buffer
+  %reusable = scalar.constant 1 : i32
+  func.return %result, %reusable : buffer, i32
 }
 
 func.def public @encode_state(%bindings: buffer, %count: i32, %origins: buffer) {
@@ -263,7 +353,7 @@ func.def public @encode_state(%bindings: buffer, %count: i32, %origins: buffer) 
 
 // Device packets retain the first cohort's eight-field plan records. Feedback
 // slots are span-indexed, including unselected input-only spans.
-func.def public @encode_epoch(%plan: buffer, %inputs: buffer, %first_count: i32, %next_count: i32, %eos: i32, %metadata: buffer, %tokens: buffer) -> (i32) {
+func.def public @encode_epoch(%control_state: buffer, %plan: buffer, %inputs: buffer, %first_count: i32, %next_count: i32, %eos: i32, %metadata: buffer, %tokens: buffer) -> (i32) {
   %origin = index.constant 0 : offset
   %header_bytes = index.constant 16 : offset
   %plan_bytes = index.constant 512 : offset

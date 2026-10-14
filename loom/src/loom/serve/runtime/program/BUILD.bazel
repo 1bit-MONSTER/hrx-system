@@ -50,6 +50,57 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "variant_pool",
+    srcs = ["variant_pool.c"],
+    hdrs = ["variant_pool.h"],
+    deps = [
+        ":compilation",
+        "//loom/src/loom/serve/runtime/host:wake",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/threading",
+    ],
+)
+
+loom_cc_test(
+    name = "variant_pool_test",
+    srcs = ["variant_pool_test.cc"],
+    deps = [
+        ":variant_pool",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
+    name = "parameter_layout",
+    srcs = ["parameter_layout.c"],
+    hdrs = ["parameter_layout.h"],
+    deps = [
+        "//loom/src/loom/target/arch/cmd:program",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
+    name = "stage_set",
+    srcs = ["stage_set.c"],
+    hdrs = ["stage_set.h"],
+    deps = [
+        ":compilation",
+        ":jit",
+        ":preparation",
+        ":sources",
+        "//loom/binding/c:loomc",
+        "//loom/binding/c:task_pool",
+        "//loom/src/loom/serve/runtime/device",
+        "//loom/src/loom/serve/runtime/host",
+        "//loom/src/loom/target/arch/cmd:program",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
     name = "module",
     srcs = ["module.c"],
     hdrs = ["module.h"],
@@ -110,10 +161,36 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "package",
+    srcs = ["package.c"],
+    hdrs = ["package.h"],
+    deps = [
+        "//loom/binding/c:loomc",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:unicode",
+    ],
+)
+
+loom_cc_test(
+    name = "package_test",
+    srcs = ["package_test.cc"],
+    deps = [
+        ":package",
+        ":sources",
+        "//loom/binding/c:loomc",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
     name = "sources",
     srcs = ["sources.c"],
     hdrs = ["sources.h"],
     deps = [
+        ":package",
+        "//loom/binding/c:loomc",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:path",
     ],
@@ -162,6 +239,7 @@ loom_cc_library(
     deps = [
         ":compilation",
         ":jit",
+        ":sources",
         "//runtime/src/iree/base",
         "//runtime/src/iree/vm",
         "//runtime/src/iree/vm/bytecode:module",
@@ -211,6 +289,7 @@ loom_cc_library(
     deps = [
         ":compilation",
         ":program",
+        ":sources",
         "//loom/binding/c:loomc",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:path",

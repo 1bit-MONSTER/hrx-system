@@ -168,7 +168,7 @@ The [held-device service check](../service/image/service_linux_test.cc) separate
 that readiness/status and heartbeat progress while a real HAL predecessor is
 held, then releases it and checks final output. It is not a timeout-based speed
 assertion. Real model quality and controlled performance runs follow the
-[authoring](../../../../docs/src/integration/serving-models.md) and
+[authoring](../../../../docs/src/serving/model-programs.md) and
 [measurement](../../../../docs/src/serving/workflows/observe-model-server.md#measure-the-user-visible-result) guides.
 
 ## Mixed lifecycle churn

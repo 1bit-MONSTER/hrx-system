@@ -14,6 +14,7 @@
 #include "loom/serve/runtime/parameter/weights.h"
 #include "loom/serve/runtime/program/compilation.h"
 #include "loom/serve/runtime/program/sources.h"
+#include "loom/serve/runtime/program/variant_pool.h"
 #include "loom/serve/runtime/storage/memory.h"
 #include "loom/serve/service/text/chat.h"
 #include "loom/serve/service/text/packing.h"
@@ -37,6 +38,46 @@ extern "C" {
 typedef struct loom_serve_text_model_t loom_serve_text_model_t;
 typedef struct loom_serve_text_row_t loom_serve_text_row_t;
 typedef struct loom_serve_text_checkpoint_t loom_serve_text_checkpoint_t;
+
+// Independently JITed native stages bound to one model's original parameters.
+// The author asserts that existing KV/recurrent state retains its meaning.
+// Candidates retain commands and weight-root references, never weight copies.
+typedef struct loom_serve_text_variant_t loom_serve_text_variant_t;
+
+// Compiles the native providers in sources against this model's original
+// stage roots/configuration. Cold preparation and warm control VM code remain
+// unchanged; sources.prepare/control are not consumed. A new catalog snapshots
+// native inputs independently while the model continues executing.
+//
+// Success accepts work and invokes completion once, possibly before return;
+// rejection owes no callback. The caller retains model, sources, sanitizer and
+// user_data through completion, and joins accepted jobs before model
+// retirement. Independent candidates may compile concurrently on the shared
+// compiler pool. No parameters are allocated, read, prepared or activated by
+// this operation.
+iree_status_t loom_serve_text_model_compile_variant_async(
+    loom_serve_text_model_t* model, const loom_serve_sources_t* sources,
+    const loomc_sanitizer_options_t* sanitizer,
+    loom_serve_variant_completion_fn_t completion, void* user_data);
+
+// Selects a ready same-model candidate at a completed model boundary, excluding
+// concurrent VM invocation. NULL restores the initial native stages. Existing
+// rows, pinned checkpoints, request policies and pending predictions survive.
+// Private workspace may grow through the ordinary execution pool. Failure
+// leaves current code usable. Selection does not wait or copy retained state.
+// The native module retains selected commands independently of variant
+// lifetime.
+iree_status_t loom_serve_text_model_select_variant(
+    loom_serve_text_model_t* model, const loom_serve_text_variant_t* variant);
+
+// Releases candidate code and references, including after failed compilation.
+// Join candidate compilation and release every candidate before model_retire;
+// candidate root references otherwise prevent parameter retirement.
+void loom_serve_text_variant_free(loom_serve_text_variant_t* variant);
+
+// Borrowed immutable terminal compilation evidence, retained with the variant.
+const loom_serve_compilation_report_t* loom_serve_text_variant_report(
+    const loom_serve_text_variant_t* variant);
 
 // Retained arenas are sized to row_count, not this control-payload bound.
 enum { LOOM_SERVE_TEXT_ROW_CAPACITY = 16 };
@@ -202,6 +243,12 @@ iree_status_t loom_serve_text_row_submit_reserve(
 // completes normally, then releases any admitted reservation.
 bool loom_serve_text_row_complete_reserve(loom_serve_text_row_t* row);
 
+// Copies source-validated request options into source-owned row state before
+// its next epoch. The caller excludes outstanding model work and other model
+// mutation. Options are borrowed only for the synchronous source invocation.
+iree_status_t loom_serve_text_row_bind_request(loom_serve_text_row_t* row,
+                                               iree_vm_buffer_t* options);
+
 // Synchronous outer-thread wrapper over reservation submission/completion.
 iree_status_t loom_serve_text_row_try_reserve(
     loom_serve_text_row_t* row, loom_serve_text_reserve_mode_t mode,
@@ -298,9 +345,10 @@ iree_status_t loom_serve_text_model_allocate(
     loom_serve_device_t* device, const loom_serve_text_options_t* options,
     iree_allocator_t host_allocator, loom_serve_text_model_t** out_model);
 
-// Begins irreversible removal after service CPU tasks, waits and external
-// tokenizer borrowers retire. No model, row or checkpoint mutation is allowed
-// afterward. Installs nonblocking wakes before releasing cached VM/command and
+// Begins irreversible removal after service CPU tasks, waits, candidate jobs
+// and external tokenizer borrowers retire, and candidate handles are released.
+// No model, row or checkpoint mutation is allowed afterward. Installs
+// nonblocking wakes before releasing cached VM/command and
 // buffer consumers. Host packets and backing survive actual queue retirement.
 // The wake only schedules the serialized owner, never reenters or tears down.
 void loom_serve_text_model_retire(loom_serve_text_model_t* model,

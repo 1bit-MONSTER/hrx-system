@@ -63,6 +63,18 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "package",
+    testonly = True,
+    srcs = ["package.cc"],
+    hdrs = ["package.h"],
+    visibility = ["//loom/src/loom/serve:implementation"],
+    deps = [
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/io:file_handle",
+    ],
+)
+
+loom_cc_library(
     name = "stalled_stderr",
     testonly = True,
     hdrs = ["stalled_stderr.h"],

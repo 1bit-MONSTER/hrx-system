@@ -40,6 +40,8 @@ typedef struct loom_serve_text_source_t {
   iree_vm_module_t* module;
   // Opaque source state retained independently of the bootstrap invocation.
   iree_vm_buffer_t* control_state;
+  // Owned deployment JSON shared with bootstrap and cold request policy.
+  iree_vm_buffer_t* options;
   // Owned parsed vocabulary reused across requests and tokenizer borrowers.
   iree_tokenizer_t* tokenizer;
   // Source terminal marker resolved once against the tokenizer.

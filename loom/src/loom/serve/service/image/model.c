@@ -9,7 +9,6 @@
 #include <inttypes.h>
 #include <stdio.h>
 
-#include "iree/io/file_contents.h"
 #include "iree/tokenizer/format/huggingface/tokenizer_json.h"
 #include "iree/tooling/device_util.h"
 #include "iree/vm/buffer.h"
@@ -20,8 +19,10 @@
 #include "loom/serve/runtime/program/input.h"
 #include "loom/serve/runtime/program/json.h"
 #include "loom/serve/runtime/program/module.h"
+#include "loom/serve/runtime/program/parameter_layout.h"
 #include "loom/serve/runtime/program/preparation.h"
 #include "loom/serve/runtime/program/program.h"
+#include "loom/serve/runtime/program/stage_set.h"
 #include "loomc/iree.h"
 
 typedef struct image_model_stage_t {
@@ -37,6 +38,17 @@ typedef struct image_model_stage_t {
     uint32_t first_stage;
   } parts;
 } image_model_stage_t;
+
+// Warm invocation facts remain owned by the model independently of candidate
+// compiler products. The runner separately retains the executable commands.
+typedef struct image_stage_launch_t {
+  // First entry of this stage in the selected flat runner table.
+  uint32_t first_part;
+  // Number of submissions in one complete image stage.
+  uint32_t part_count;
+  // Workspace shared by all parts of an invocation.
+  loom_cmd_program_transient_requirement_t transient;
+} image_stage_launch_t;
 
 struct loom_serve_image_model_t {
   // Allocator owning this model and its host feedback storage.
@@ -82,6 +94,12 @@ struct loom_serve_image_model_t {
     uint32_t count;
     // Owned stage array in source declaration order.
     image_model_stage_t* values;
+    // Original flat runner table, retained for rollback without recording.
+    loom_serve_stage_t* bindings;
+    // Recording policy shared by original and replacement commands.
+    iree_hal_command_buffer_mode_t command_mode;
+    // Owned warm launch facts matching the runner's active table.
+    image_stage_launch_t* selected;
   } stages;
   // Shared source control and its native submission capabilities.
   struct {
@@ -95,6 +113,8 @@ struct loom_serve_image_model_t {
     iree_vm_buffer_t* tags;
     // One source-JIT process for every serialized request in this residency.
     loom_serve_program_t* program;
+    // Retained native runner whose command table changes without VM relinking.
+    iree_vm_module_t* runner;
     // Opaque source-owned state, retained across serialized requests.
     iree_vm_buffer_t* state;
     // Cold-resolved request preparation function.
@@ -121,6 +141,8 @@ static void loom_serve_image_model_release_consumers(
     loom_serve_image_model_t* model) {
   loom_serve_program_free(model->control.program);
   model->control.program = NULL;
+  iree_vm_module_release(model->control.runner);
+  model->control.runner = NULL;
   for (uint32_t i = 0; i < model->stages.count; ++i) {
     image_model_stage_t* stage = &model->stages.values[i];
     for (uint32_t j = 0; j < stage->parts.count; ++j) {
@@ -198,6 +220,8 @@ static iree_status_t loom_serve_image_model_destroy_resources(
                           model->stages.values[i].parts.values);
     }
     iree_allocator_free(model->host_allocator, model->stages.values);
+    iree_allocator_free(model->host_allocator, model->stages.bindings);
+    iree_allocator_free(model->host_allocator, model->stages.selected);
     loom_serve_preparation_free(model->preparation);
     iree_vm_buffer_release(model->invocation.payload);
     iree_vm_environment_free(model->control.environment);
@@ -233,27 +257,21 @@ iree_status_t loom_serve_image_model_free(loom_serve_image_model_t* model) {
 }
 
 static iree_status_t loom_serve_image_load_tokenizer(
-    loom_serve_image_model_t* model, iree_string_view_t base_directory,
+    loom_serve_image_model_t* model, const loom_serve_sources_t* sources,
     iree_string_view_t directory, iree_string_view_t asset) {
-  char* resolved_directory = NULL;
-  IREE_RETURN_IF_ERROR(loom_serve_path_resolve(
-      base_directory, directory, model->host_allocator, &resolved_directory));
   char* path = NULL;
-  iree_status_t status =
-      loom_serve_path_resolve(iree_make_cstring_view(resolved_directory), asset,
-                              model->host_allocator, &path);
-  iree_allocator_free(model->host_allocator, resolved_directory);
-  IREE_RETURN_IF_ERROR(status);
-  iree_io_file_contents_t* contents = NULL;
-  status = iree_io_file_contents_read(iree_make_cstring_view(path),
-                                      model->host_allocator, &contents);
+  IREE_RETURN_IF_ERROR(
+      loom_serve_path_resolve(directory, asset, model->host_allocator, &path));
+  loomc_source_t* contents = NULL;
+  iree_status_t status = loom_serve_sources_open(
+      sources, iree_make_cstring_view(path), model->host_allocator, &contents);
   if (iree_status_is_ok(status)) {
+    const loomc_byte_span_t bytes = loomc_source_contents(contents);
     status = iree_tokenizer_from_huggingface_json(
-        iree_make_string_view((const char*)contents->const_buffer.data,
-                              contents->const_buffer.data_length),
+        iree_make_string_view((const char*)bytes.data, bytes.data_length),
         model->host_allocator, &model->tokenizer);
   }
-  iree_io_file_contents_free(contents);
+  loomc_source_release(contents);
   iree_allocator_free(model->host_allocator, path);
   return status;
 }
@@ -270,10 +288,6 @@ static iree_status_t loom_serve_image_prepare(
       iree_vm_ref_types_resolve(iree_vm_environment_lookup_ref_type_table(
                                     model->control.environment, IREE_SV("vm")),
                                 &model->control.vm_types));
-  char* path = NULL;
-  IREE_RETURN_IF_ERROR(loom_serve_path_resolve(options->sources.base_directory,
-                                               options->sources.prepare,
-                                               host_allocator, &path));
   iree_vm_module_t* modules[2] = {0};
   iree_status_t status = loom_serve_input_module_create(
       model->control.environment, NULL, host_allocator, &modules[0]);
@@ -309,7 +323,7 @@ static iree_status_t loom_serve_image_prepare(
   iree_vm_variant_t results[4] = {0};
   if (iree_status_is_ok(status)) {
     status = loom_serve_preparation_allocate(
-        model->control.environment, iree_make_cstring_view(path),
+        model->control.environment, &options->sources, options->sources.prepare,
         IREE_SV("prepare"), iree_vm_variant_span_from_array(arguments),
         iree_vm_variant_span_from_array(results),
         (iree_vm_module_span_t){modules, IREE_ARRAYSIZE(modules)},
@@ -359,7 +373,7 @@ static iree_status_t loom_serve_image_prepare(
   }
   if (iree_status_is_ok(status)) {
     status = loom_serve_image_load_tokenizer(
-        model, options->sources.base_directory, options->checkpoint_directory,
+        model, &options->sources, options->checkpoint_directory,
         iree_make_string_view((const char*)bytes[0].data,
                               bytes[0].data_length));
   }
@@ -368,7 +382,6 @@ static iree_status_t loom_serve_image_prepare(
   for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(modules); ++i) {
     iree_vm_module_release(modules[i]);
   }
-  iree_allocator_free(host_allocator, path);
   if (iree_status_is_ok(status)) {
     const iree_host_size_t count =
         loom_serve_preparation_stage_count(model->preparation);
@@ -467,6 +480,42 @@ static iree_status_t loom_serve_image_check_layouts(
   return iree_ok_status();
 }
 
+// Part indices belong to the execution catalog, not the source stage ABI.
+static uint32_t loom_serve_image_part_count(uint32_t count,
+                                            const image_model_stage_t* stages) {
+  const image_model_stage_t* last = &stages[count - 1];
+  return last->parts.first_stage + last->parts.count;
+}
+
+static void loom_serve_image_publish_stages(loom_serve_image_model_t* model,
+                                            const image_model_stage_t* stages) {
+  for (uint32_t i = 0; i < model->stages.count; ++i) {
+    model->stages.selected[i] = (image_stage_launch_t){
+        .first_part = stages[i].parts.first_stage,
+        .part_count = stages[i].parts.count,
+        .transient = loom_serve_jit_stage_program(stages[i].compiled)
+                         ->requirements.transient};
+  }
+}
+
+static iree_status_t loom_serve_image_flatten_stages(
+    uint32_t count, const image_model_stage_t* stages,
+    iree_allocator_t host_allocator, loom_serve_stage_t** out_bindings) {
+  *out_bindings = NULL;
+  loom_serve_stage_t* bindings = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
+      host_allocator, loom_serve_image_part_count(count, stages),
+      sizeof(*bindings), (void**)&bindings));
+  for (uint32_t i = 0; i < count; ++i) {
+    for (uint32_t j = 0; j < stages[i].parts.count; ++j) {
+      bindings[stages[i].parts.first_stage + j] = (loom_serve_stage_t){
+          .command_buffer = stages[i].parts.values[j], .binding_count = 3};
+    }
+  }
+  *out_bindings = bindings;
+  return iree_ok_status();
+}
+
 static iree_status_t loom_serve_image_create_control(
     loom_serve_image_model_t* model, iree_vm_module_t* module) {
   const iree_allocator_t host_allocator = model->host_allocator;
@@ -477,25 +526,19 @@ static iree_status_t loom_serve_image_create_control(
   IREE_RETURN_IF_ERROR(iree_vm_buffer_map_write(
       model->control.tags, 0, iree_vm_buffer_length(model->control.tags),
       &tags));
-  loom_serve_stage_t* stages = NULL;
-  const image_model_stage_t* last =
-      &model->stages.values[model->stages.count - 1];
-  const uint32_t command_count = last->parts.first_stage + last->parts.count;
-  IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
-      host_allocator, command_count, sizeof(*stages), (void**)&stages));
+  IREE_RETURN_IF_ERROR(
+      loom_serve_image_flatten_stages(model->stages.count, model->stages.values,
+                                      host_allocator, &model->stages.bindings));
   for (uint32_t i = 0; i < model->stages.count; ++i) {
-    const image_model_stage_t* stage = &model->stages.values[i];
-    for (uint32_t j = 0; j < stage->parts.count; ++j) {
-      stages[stage->parts.first_stage + j] = (loom_serve_stage_t){
-          .command_buffer = stage->parts.values[j], .binding_count = 3};
-    }
     iree_unaligned_store_le_u64(
         tags.data + i * sizeof(int64_t),
         (uint64_t)loom_serve_preparation_stage(model->preparation, i)->tag);
   }
   const loom_serve_module_options_t options = {
       .binding_capacity = 3,
-      .stages = {command_count, stages},
+      .stages = {loom_serve_image_part_count(model->stages.count,
+                                             model->stages.values),
+                 model->stages.bindings},
       .feedback = {1, &model->output},
   };
   iree_vm_module_t* native_modules[2] = {0};
@@ -510,7 +553,10 @@ static iree_status_t loom_serve_image_create_control(
         loom_serve_module_create(&model->control.hal_types, model->execution,
                                  options, host_allocator, &native_modules[0]);
   }
-  iree_allocator_free(host_allocator, stages);
+  if (iree_status_is_ok(status)) {
+    model->control.runner = native_modules[0];
+    iree_vm_module_retain(model->control.runner);
+  }
   if (iree_status_is_ok(status)) {
     status = loom_serve_input_module_create(model->control.environment,
                                             model->tokenizer, host_allocator,
@@ -572,14 +618,11 @@ static iree_status_t loom_serve_image_model_bind(
 // Cold partitioning preserves the compiler's full-barrier cuts and layout.
 // All part commands are owned immediately, including during partial failure.
 static iree_status_t loom_serve_image_record_stage(
-    loom_serve_image_model_t* model, image_model_stage_t* stage,
+    const loom_serve_image_model_t* model, image_model_stage_t* stage,
     iree_hal_command_buffer_mode_t command_mode) {
   iree_hal_queue_t* dispatch = loom_serve_device_dispatch_queue(model->owner);
   const loom_cmd_program_t* program =
       loom_serve_jit_stage_program(stage->compiled);
-  IREE_RETURN_IF_ERROR(loom_serve_execution_reserve_workspace(
-      model->execution, program->requirements.transient.required_byte_length,
-      program->requirements.transient.minimum_alignment));
   const uint32_t capacity =
       model->command_quantum ? iree_max(program->commands.count, 1) : 1;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
@@ -622,6 +665,10 @@ static iree_status_t loom_serve_image_model_link(
     loom_serve_image_model_t* model, iree_vm_module_t* module,
     iree_hal_command_buffer_mode_t command_mode) {
   const iree_allocator_t host_allocator = model->host_allocator;
+  model->stages.command_mode = command_mode;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
+      host_allocator, model->stages.count, sizeof(*model->stages.selected),
+      (void**)&model->stages.selected));
   IREE_RETURN_IF_ERROR(loom_serve_residency_allocate(
       loom_serve_device_residency_cache(model->owner), model->execution,
       model->weights.count, model->weights.plans, host_allocator,
@@ -632,7 +679,14 @@ static iree_status_t loom_serve_image_model_link(
        ++i) {
     image_model_stage_t* stage = &model->stages.values[i];
     stage->parts.first_stage = (uint32_t)part_count;
-    status = loom_serve_image_record_stage(model, stage, command_mode);
+    const loom_cmd_program_t* program =
+        loom_serve_jit_stage_program(stage->compiled);
+    status = loom_serve_execution_reserve_workspace(
+        model->execution, program->requirements.transient.required_byte_length,
+        program->requirements.transient.minimum_alignment);
+    if (iree_status_is_ok(status)) {
+      status = loom_serve_image_record_stage(model, stage, command_mode);
+    }
     part_count += stage->parts.count;
     if (iree_status_is_ok(status) && part_count > INT32_MAX) {
       status = iree_make_status(IREE_STATUS_OUT_OF_RANGE,
@@ -654,7 +708,159 @@ static iree_status_t loom_serve_image_model_link(
     model->bindings[i].length = length;
   }
   IREE_RETURN_IF_ERROR(status);
+  loom_serve_image_publish_stages(model, model->stages.values);
   return loom_serve_image_create_control(model, module);
+}
+
+// The catalog owns execution only. Parameter roots and source control remain
+// model-owned; selection copies only small warm launch facts into the model.
+typedef struct image_variant_t {
+  // Allocator owning candidate descriptors and command arrays.
+  iree_allocator_t host_allocator;
+  // Owned compiled stage roots and terminal compiler diagnostics.
+  loom_serve_stage_set_t* compiled;
+  // Owned command parts; compiled pointers borrow the stage set above.
+  image_model_stage_t* stages;
+  // Flat runner descriptors borrowing the retained parts.
+  loom_serve_stage_t* bindings;
+} image_variant_t;
+
+typedef struct image_variant_job_t {
+  // Borrowed immutable original declarations and parameter roots.
+  loom_serve_image_model_t* model;
+  // Owned candidate transferred at terminal completion, including failures.
+  image_variant_t* variant;
+  // Publishes the completed candidate after every compiler access retires.
+  loom_serve_variant_completion_fn_t completion;
+  // Borrowed publication state until completion.
+  void* user_data;
+} image_variant_job_t;
+
+static void loom_serve_image_variant_free(void* value) {
+  image_variant_t* variant = value;
+  if (!variant) {
+    return;
+  }
+  for (iree_host_size_t i = 0; variant->stages && i < variant->compiled->count;
+       ++i) {
+    image_model_stage_t* stage = &variant->stages[i];
+    for (uint32_t j = 0; j < stage->parts.count; ++j) {
+      iree_hal_command_buffer_release(stage->parts.values[j]);
+    }
+    iree_allocator_free(variant->host_allocator, stage->parts.values);
+  }
+  loom_serve_stage_set_free(variant->compiled);
+  iree_allocator_free(variant->host_allocator, variant->stages);
+  iree_allocator_free(variant->host_allocator, variant->bindings);
+  iree_allocator_free(variant->host_allocator, variant);
+}
+
+static iree_status_t loom_serve_image_variant_record(image_variant_job_t* job) {
+  const loom_serve_image_model_t* model = job->model;
+  image_variant_t* variant = job->variant;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
+      variant->host_allocator, model->stages.count, sizeof(*variant->stages),
+      (void**)&variant->stages));
+  uint64_t part_count = 0;
+  iree_status_t status = iree_ok_status();
+  for (uint32_t i = 0; i < model->stages.count && iree_status_is_ok(status);
+       ++i) {
+    image_model_stage_t* stage = &variant->stages[i];
+    stage->compiled = variant->compiled->values[i];
+    stage->parts.first_stage = (uint32_t)part_count;
+    const loom_cmd_program_t* program =
+        loom_serve_jit_stage_program(stage->compiled);
+    if (program->requirements.rebindable_binding_count != 3 ||
+        program->requirements.transient.binding_index != 2 ||
+        program->requirements.launch_counts.binding_index != UINT32_MAX) {
+      status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                "replacement changes image stage bindings");
+    } else {
+      status = loom_serve_parameter_layout_check(
+          loom_serve_jit_stage_program(model->stages.values[i].compiled),
+          program);
+    }
+    if (iree_status_is_ok(status)) {
+      status = loom_serve_image_record_stage(model, stage,
+                                             model->stages.command_mode);
+    }
+    part_count += stage->parts.count;
+    if (iree_status_is_ok(status) && part_count > INT32_MAX) {
+      status = iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                                "image command parts exceed VM stage capacity");
+    }
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_serve_image_flatten_stages(
+        model->stages.count, variant->stages, variant->host_allocator,
+        &variant->bindings);
+  }
+  return status;
+}
+
+static void loom_serve_image_variant_compiled(void* user_data,
+                                              iree_status_t status,
+                                              loom_serve_stage_set_t* stages) {
+  image_variant_job_t* job = user_data;
+  image_variant_t* variant = job->variant;
+  variant->compiled = stages;
+  if (iree_status_is_ok(status)) {
+    status = loom_serve_image_variant_record(job);
+  }
+  const loom_serve_variant_completion_fn_t completion = job->completion;
+  void* completion_data = job->user_data;
+  iree_allocator_free(variant->host_allocator, job);
+  completion(completion_data, status, variant, &stages->compilation);
+}
+
+static iree_status_t loom_serve_image_variant_compile(
+    void* self, const loom_serve_sources_t* sources,
+    loom_serve_variant_completion_fn_t completion, void* user_data) {
+  loom_serve_image_model_t* model = self;
+  image_variant_t* variant = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(
+      model->host_allocator, sizeof(*variant), (void**)&variant));
+  variant->host_allocator = model->host_allocator;
+  image_variant_job_t* job = NULL;
+  iree_status_t status =
+      iree_allocator_malloc(model->host_allocator, sizeof(*job), (void**)&job);
+  if (iree_status_is_ok(status)) {
+    *job = (image_variant_job_t){model, variant, completion, user_data};
+    status = loom_serve_stage_set_compile_async(
+        model->owner, model->preparation, sources,
+        loom_serve_image_variant_compiled, job, model->host_allocator);
+  }
+  if (!iree_status_is_ok(status)) {
+    iree_allocator_free(model->host_allocator, job);
+    loom_serve_image_variant_free(variant);
+  }
+  return status;
+}
+
+static iree_status_t loom_serve_image_variant_select(void* self, void* value) {
+  loom_serve_image_model_t* model = self;
+  const image_variant_t* variant = value;
+  const image_model_stage_t* stages =
+      variant ? variant->stages : model->stages.values;
+  // Image workspace escapes individual runner calls and spans all parts.
+  uint64_t workspace_length = 0;
+  uint64_t workspace_alignment = 0;
+  for (uint32_t i = 0; i < model->stages.count; ++i) {
+    const loom_cmd_program_t* program =
+        loom_serve_jit_stage_program(stages[i].compiled);
+    workspace_length = iree_max(
+        workspace_length, program->requirements.transient.required_byte_length);
+    workspace_alignment = iree_max(
+        workspace_alignment, program->requirements.transient.minimum_alignment);
+  }
+  IREE_RETURN_IF_ERROR(loom_serve_execution_reserve_workspace(
+      model->execution, workspace_length, workspace_alignment));
+  IREE_RETURN_IF_ERROR(loom_serve_module_bind_stages(
+      model->control.runner,
+      loom_serve_image_part_count(model->stages.count, stages),
+      variant ? variant->bindings : model->stages.bindings));
+  loom_serve_image_publish_stages(model, stages);
+  return iree_ok_status();
 }
 
 static iree_status_t loom_serve_image_model_write_residency(
@@ -776,17 +982,12 @@ static iree_status_t loom_serve_image_load_prepare(
       iree_hal_module_register_types(model->control.environment, &table));
   IREE_RETURN_IF_ERROR(
       iree_hal_module_types_resolve(table, &model->control.hal_types));
-  char* path = NULL;
-  IREE_RETURN_IF_ERROR(loom_serve_path_resolve(
-      load->options.sources.base_directory, load->options.sources.control,
-      host_allocator, &path));
   const iree_string_view_t roots[] = {IREE_SVL("prepare_request"),
                                       IREE_SVL("generate")};
   iree_status_t status = loom_serve_program_compile(
-      model->control.environment, iree_make_cstring_view(path),
-      IREE_ARRAYSIZE(roots), roots, &model->compilation, host_allocator,
-      &load->module);
-  iree_allocator_free(host_allocator, path);
+      model->control.environment, &load->options.sources,
+      load->options.sources.control, IREE_ARRAYSIZE(roots), roots,
+      &model->compilation, host_allocator, &load->module);
   IREE_RETURN_IF_ERROR(status);
   return loom_serve_jit_allocate(
       loom_serve_device_handle(model->owner),
@@ -928,8 +1129,8 @@ iree_status_t loom_serve_image_load_advance(loom_serve_image_load_t* load,
           iree_slim_mutex_unlock(&load->event.mutex);
           status = loom_serve_weights_prepare_async(
               model->weights.plans[i], host, model->jit, load->command_mode,
-              load->options.sources.base_directory, parameter->path,
-              parameter->policy, loom_serve_image_load_complete, load);
+              &load->options.sources, parameter->path, parameter->policy,
+              loom_serve_image_load_complete, load);
           submitted = iree_status_is_ok(status);
         } else {
           load->phase = IMAGE_LOAD_LINK;
@@ -1087,11 +1288,11 @@ static iree_status_t loom_serve_image_prepare_request(
 
 static iree_status_t loom_serve_image_model_submit_stage(
     loom_serve_image_model_t* model) {
-  const image_model_stage_t* stage =
-      &model->stages.values[model->invocation.stage];
+  const image_stage_launch_t* stage =
+      &model->stages.selected[model->invocation.stage];
   iree_vm_variant_t arguments[] = {
-      iree_vm_variant_from_i32((int32_t)stage->parts.first_stage),
-      iree_vm_variant_from_i32((int32_t)stage->parts.count),
+      iree_vm_variant_from_i32((int32_t)stage->first_part),
+      iree_vm_variant_from_i32((int32_t)stage->part_count),
       iree_vm_variant_from_i32(model->invocation.cursor),
       iree_vm_variant_from_i64((int64_t)model->output.data_length),
       iree_hal_buffer_variant_from_ptr_borrowed(&model->control.hal_types,
@@ -1167,12 +1368,11 @@ static iree_status_t loom_serve_image_begin(loom_serve_image_model_t* model) {
   iree_const_byte_span_t input = iree_const_byte_span_empty();
   IREE_RETURN_IF_ERROR(iree_vm_buffer_map_read(
       payload, 0, iree_vm_buffer_length(payload), &input));
-  const loom_cmd_program_t* program = loom_serve_jit_stage_program(
-      model->stages.values[model->invocation.stage].compiled);
+  const loom_cmd_program_transient_requirement_t* transient =
+      &model->stages.selected[model->invocation.stage].transient;
   const iree_hal_pool_reservation_request_t workspace =
-      iree_hal_make_pool_reservation_request(
-          program->requirements.transient.required_byte_length,
-          program->requirements.transient.minimum_alignment);
+      iree_hal_make_pool_reservation_request(transient->required_byte_length,
+                                             transient->minimum_alignment);
   IREE_RETURN_IF_ERROR(loom_serve_execution_alloca(
       model->execution, &workspace, &model->invocation.workspace));
   iree_hal_transfer_operation_t upload = {0};
@@ -1303,6 +1503,10 @@ loom_serve_image_generator_t loom_serve_image_model_generator(
       .submit = loom_serve_image_generator_submit,
       .complete = loom_serve_image_generator_complete,
       .weight_activity = loom_serve_image_generator_weight_activity,
+      .execution_update = {.self = model,
+                           .compile = loom_serve_image_variant_compile,
+                           .select = loom_serve_image_variant_select,
+                           .dispose = loom_serve_image_variant_free},
       .tokenizer = model->tokenizer,
       .capacity_domain = loom_serve_residency_cache(model->residency)};
 }

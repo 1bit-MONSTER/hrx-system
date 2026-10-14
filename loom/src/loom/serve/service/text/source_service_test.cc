@@ -192,16 +192,16 @@ TEST_P(SourceTextServiceTest,
               4);
   loom_serve_text_chat_t first = {}, next = {};
   IREE_ASSERT_OK(loom_serve_text_chat_initialize(
-      policy, policy->name, iree_make_cstring_view(first_body.c_str()), 4,
+      policy, policy->name, iree_make_cstring_view(first_body.c_str()), 1, 4,
       host_allocator_, &first));
   IREE_ASSERT_OK(loom_serve_text_chat_initialize(
-      policy, policy->name, iree_make_cstring_view(next_body.c_str()), 4,
+      policy, policy->name, iree_make_cstring_view(next_body.c_str()), 2, 4,
       host_allocator_, &next));
   iree_string_builder_t tools;
   iree_string_builder_initialize(host_allocator_, &tools);
   loom_serve_text_chat_completion_t completion = {};
-  IREE_ASSERT_OK(loom_serve_text_chat_complete(&first, IREE_SV("b"), 0, 1,
-                                               &tools, &completion));
+  IREE_ASSERT_OK(loom_serve_text_chat_complete(&first, IREE_SV("b"), 1, &tools,
+                                               &completion));
   const loom_serve_text_input_prefix_t prefix = {
       .completion = &completion,
       .position = 1,
@@ -229,6 +229,13 @@ TEST_P(SourceTextServiceTest,
       loom_serve_text_input_prepare(&next, {}, true, IREE_ARRAYSIZE(scratch),
                                     scratch, &input, host_allocator_));
   EXPECT_EQ(input.tokens, prepared);
+  completion.reusable = false;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        loom_serve_text_input_prepare(
+                            &next, prefix, true, IREE_ARRAYSIZE(scratch),
+                            scratch, &input, host_allocator_));
+  EXPECT_FALSE(loom_serve_text_input_is_current(&input, &next, prefix));
+  completion.reusable = true;
   loom_serve_text_chat_completion_deinitialize(&completion);
   // Eviction releases native history independently. The prepared input's host
   // identity remains valid, but its suffix cannot be replayed as a fresh row.

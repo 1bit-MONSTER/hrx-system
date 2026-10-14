@@ -58,8 +58,9 @@ class InputTest : public ::testing::TestWithParam<bool> {
                                                   host_allocator, &module));
     const iree_string_view_t roots[] = {IREE_SVL("tokens"), IREE_SVL("find"),
                                         IREE_SVL("check")};
+    const loom_serve_sources_t sources = {.base_directory = IREE_SV(".")};
     IREE_ASSERT_OK(loom_serve_program_allocate(
-        environment, iree_make_cstring_view(FLAG_input_source),
+        environment, &sources, iree_make_cstring_view(FLAG_input_source),
         IREE_ARRAYSIZE(roots), roots, (iree_vm_module_span_t){&module, 1},
         &compilation, host_allocator, &program));
   }

@@ -58,6 +58,20 @@ loom_cc_library(
   PUBLIC
 )
 
+loom_cc_library(
+  NAME
+    package
+  HDRS
+    "package.h"
+  SRCS
+    "package.cc"
+  DEPS
+    iree::base
+    iree::io::file_handle
+  TESTONLY
+  PUBLIC
+)
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_cc_library(
   NAME

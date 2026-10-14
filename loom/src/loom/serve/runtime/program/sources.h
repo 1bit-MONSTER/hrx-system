@@ -8,6 +8,7 @@
 #define LOOM_SERVE_RUNTIME_PROGRAM_SOURCES_H_
 
 #include "iree/base/api.h"
+#include "loom/serve/runtime/program/package.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,7 +18,8 @@ extern "C" {
 // The owner retains every view through asynchronous model preparation. Authored
 // locators remain separate from the local base used by an I/O consumer.
 typedef struct loom_serve_sources_t {
-  // Local model-document directory; empty requires absolute input paths.
+  // Local file base; empty requires absolute locators for filesystem inputs.
+  // Package-relative programs/metadata do not use this base.
   iree_string_view_t base_directory;
   // Cold VM program declaring stages and model metadata.
   iree_string_view_t prepare;
@@ -27,7 +29,18 @@ typedef struct loom_serve_sources_t {
   iree_host_size_t count;
   // Authored provider paths; symbols establish dependencies, not list order.
   const iree_string_view_t* values;
+  // Optional borrowed immutable package for relative source/metadata locators.
+  // Absolute locators still name server-local files. No missing-member
+  // fallback.
+  loom_serve_package_t* package;
 } loom_serve_sources_t;
+
+// Loads one source or metadata asset, retaining its bytes independently of the
+// environment. File reads belong on preparation workers, not a scheduler turn.
+iree_status_t loom_serve_sources_open(const loom_serve_sources_t* sources,
+                                      iree_string_view_t locator,
+                                      iree_allocator_t host_allocator,
+                                      loomc_source_t** out_source);
 
 // Reports whether a locator is absolute in the local filesystem namespace.
 bool loom_serve_path_is_absolute(iree_string_view_t path);
