@@ -91,15 +91,22 @@ iree_status_t loom_cmd_program_plan_build_from_index(
   iree_status_t status = loom_link_index_materialize(
       index, &link_options, materialization_environment,
       IREE_SV("command_program_roots"), &materialization);
+  bool source_valid = true;
+  if (iree_status_is_ok(status) && options != NULL &&
+      options->verification.fn != NULL) {
+    status =
+        options->verification.fn(options->verification.user_data,
+                                 materialization.product.module, &source_valid);
+  }
 
   loom_symbol_ref_t* target_root_refs = NULL;
-  if (iree_status_is_ok(status)) {
+  if (iree_status_is_ok(status) && source_valid) {
     status = iree_arena_allocate_array(scratch_arena, program_count,
                                        sizeof(*target_root_refs),
                                        (void**)&target_root_refs);
   }
-  for (iree_host_size_t i = 0; i < program_count && iree_status_is_ok(status);
-       ++i) {
+  for (iree_host_size_t i = 0;
+       i < program_count && iree_status_is_ok(status) && source_valid; ++i) {
     const iree_host_size_t source_ordinal = program_symbol_ordinals[i];
     IREE_ASSERT_LT(source_ordinal,
                    materialization.product.target_symbols.count);
@@ -110,7 +117,7 @@ iree_status_t loom_cmd_program_plan_build_from_index(
 
   loom_kernel_request_producer_t* kernel_request_producer = NULL;
   loom_cmd_program_kernel_source_t kernel_source = {0};
-  if (iree_status_is_ok(status) && options != NULL &&
+  if (iree_status_is_ok(status) && source_valid && options != NULL &&
       options->kernel_request_sink.publish != NULL &&
       loom_cmd_program_plan_has_source_kernels(index,
                                                &materialization.product)) {
@@ -133,7 +140,7 @@ iree_status_t loom_cmd_program_plan_build_from_index(
     }
   }
 
-  if (iree_status_is_ok(status)) {
+  if (iree_status_is_ok(status) && source_valid) {
     status = loom_cmd_program_plan_build_from_materialization(
         &materialization.product, target_root_refs, program_count,
         kernel_source.producer != NULL ? &kernel_source : NULL, pass_registry,

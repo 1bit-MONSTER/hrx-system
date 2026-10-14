@@ -613,4 +613,105 @@ TEST(TargetCmdProgramTest, RejectsUnresolvedPipelineSpecializations) {
   }
 }
 
+TEST(TargetCmdProgramTest, VerifiesLinkedSourcesBeforePublishingRequests) {
+  struct InvalidLaunch {
+    // Authored invocation crossing the public source boundary.
+    const char* source;
+    // Structured verifier identity retained in the public result.
+    const char* diagnostic_code;
+  };
+  const InvalidLaunch launches[] = {
+      {"kernel.launch @resident(%width, %output) : (index, buffer)",
+       "STRUCTURE/013"},
+      {"kernel.launch @resident[%width, %width](%output) : "
+       "[index, index](buffer)",
+       "STRUCTURE/013"},
+      {"kernel.launch @resident[%value](%output) : [f32](buffer)", "TYPE/001"},
+      {"kernel.launch @resident[%width]() : [index]()", "STRUCTURE/013"},
+      {"kernel.launch @resident[%width](%output, %output) : "
+       "[index](buffer, buffer)",
+       "STRUCTURE/013"},
+      {"kernel.launch @resident[%width](%value) : [index](f32)", "TYPE/001"},
+      {"kernel.launch @ordinary(%output) : (buffer)", "STRUCTURE/013"},
+      {"kernel.launch @ordinary[%value](%output) : [f32](buffer)", "TYPE/001"},
+      {"kernel.launch @ordinary[%width]() : [index]()", "STRUCTURE/013"},
+      {"kernel.launch @ordinary[%width](%value) : [index](f32)", "TYPE/001"},
+  };
+  for (const auto& launch : launches) {
+    SCOPED_TRACE(launch.source);
+    for (bool bytecode : {false, true}) {
+      SCOPED_TRACE(bytecode);
+      ContextPtr context = CreateContext();
+      WorkspacePtr workspace = CreateWorkspace();
+      std::string text = R"(
+pipeline.def<kernel> @resident(%width: index) run(%output: view<4xf32>) {
+  pipeline.finish
+}
+kernel.def @ordinary(%width: index) {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%width, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%output: buffer) {
+  kernel.return
+}
+command.program.def public @embed() launch(%output: buffer) {
+  %width = index.constant 64 : index
+  %value = scalar.constant 1.0 : f32
+)";
+      text += launch.source;
+      text += "\ncommand.return\n}\n";
+      SourcePtr source = CreateTextSource("invalid_launch.loom", text.c_str());
+      if (bytecode) {
+        ModulePtr module =
+            DeserializeModule(context.get(), workspace.get(), source.get());
+        source =
+            SerializeModuleToBytecode(module.get(), "invalid_launch.loombc");
+      }
+      BuilderPtr builder = CreateIndexBuilder(context.get());
+      loomc_link_index_source_options_t source_options = {
+          .provider_name = loomc_make_cstring_view("model"),
+          .role = LOOMC_LINK_PROVIDER_ROLE_INPUT,
+      };
+      LOOMC_ASSERT_OK(loomc_link_index_builder_add_source(
+          builder.get(), source.get(), &source_options, nullptr));
+      LinkIndexPtr index = FinishIndex(builder.get());
+      for (bool publish : {false, true}) {
+        SCOPED_TRACE(publish);
+        RequestCapture capture;
+        loomc_cmd_program_product_options_t options = {
+            .type = LOOMC_STRUCTURE_TYPE_CMD_PROGRAM_PRODUCT_OPTIONS,
+            .structure_size = sizeof(options),
+            .link_index = index.get(),
+            .flags = LOOMC_CMD_PROGRAM_PRODUCT_FLAG_INCLUDE_INPUT_EXPORTS,
+        };
+        if (publish) {
+          options.request_sink = {
+              .publish = CaptureRequest,
+              .user_data = &capture,
+          };
+        }
+        loomc_product_t* product_raw = nullptr;
+        loomc_result_t* result_raw = nullptr;
+        LOOMC_ASSERT_OK(loomc_cmd_program_product_build(
+            workspace.get(), &options, loomc_allocator_system(), &product_raw,
+            &result_raw));
+        ProductPtr product(product_raw);
+        ResultPtr result(result_raw);
+        EXPECT_EQ(product, nullptr);
+        ASSERT_NE(result, nullptr);
+        EXPECT_FALSE(loomc_result_succeeded(result.get()));
+        EXPECT_TRUE(capture.requests.empty());
+        ASSERT_GT(loomc_result_diagnostic_count(result.get()), 0u);
+        const loomc_diagnostic_t* diagnostic =
+            loomc_result_diagnostic_at(result.get(), 0);
+        EXPECT_EQ(ToString(diagnostic->code), launch.diagnostic_code);
+        ASSERT_NE(diagnostic->range.source, nullptr);
+        EXPECT_EQ(ToString(loomc_source_identifier(diagnostic->range.source)),
+                  "invalid_launch.loom");
+        EXPECT_GT(diagnostic->range.start_line, 0u);
+        EXPECT_GT(diagnostic->related_location_count, 0u);
+      }
+    }
+  }
+}
+
 }  // namespace

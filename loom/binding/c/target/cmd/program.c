@@ -408,6 +408,16 @@ static iree_status_t loomc_cmd_program_product_capture_diagnostic(
       LOOM_EMITTER_PASS, emission, emission->module ? &type_printer : NULL));
 }
 
+static iree_status_t loomc_cmd_program_product_verify_module(
+    void* user_data, const loom_module_t* module, bool* out_valid) {
+  loomc_result_t* result = (loomc_result_t*)user_data;
+  *out_valid = false;
+  IREE_RETURN_IF_ERROR(iree_status_from_loomc(loomc_result_verify_loom_module(
+      module, (loom_source_resolver_t){0}, result)));
+  *out_valid = loomc_result_succeeded(result);
+  return iree_ok_status();
+}
+
 static loomc_status_t loomc_cmd_program_product_translate_plan_status(
     loomc_cmd_program_product_invocation_t* invocation,
     loomc_host_size_t diagnostic_count_before, iree_status_t plan_status) {
@@ -497,6 +507,8 @@ static loomc_status_t loomc_cmd_program_product_build_indexed(
   loomc_status_t status = loomc_ok_status();
   loom_cmd_program_plan_index_options_t plan_options;
   loom_cmd_program_plan_index_options_initialize(&plan_options);
+  plan_options.verification.fn = loomc_cmd_program_product_verify_module;
+  plan_options.verification.user_data = result;
   if (request_sink.publish != NULL) {
     plan_options.kernel_request_sink = (loom_cmd_program_kernel_request_sink_t){
         .publish = loomc_cmd_program_product_publish_kernel_request,
@@ -512,8 +524,7 @@ static loomc_status_t loomc_cmd_program_product_build_indexed(
         loom_cmd_program_artifact_set_build_from_index(
             module_index, root_symbol_ordinals, root_symbol_count,
             &(loom_cmd_program_artifact_builder_options_t){
-                .plan_options =
-                    request_sink.publish != NULL ? &plan_options : NULL,
+                .plan_options = &plan_options,
                 .pass_registry = loom_pass_builtin_registry(),
                 .cleanup_pattern_provider_set =
                     loom_cleanup_configured_pattern_provider_set(),

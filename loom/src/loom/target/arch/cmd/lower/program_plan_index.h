@@ -23,6 +23,19 @@ extern "C" {
 
 // Optional indexed command-plan construction behavior.
 typedef struct loom_cmd_program_plan_index_options_t {
+  // Source-boundary verification after selective linking and specialization,
+  // before command normalization or request publication. Internal callers of
+  // already-verified sources may leave this empty. The callback borrows the
+  // linked module and reports source errors through its own diagnostics and
+  // |out_valid|; a non-OK status identifies an infrastructure failure.
+  struct {
+    // Invoked exactly once on the final linked command module.
+    iree_status_t (*fn)(void* user_data, const loom_module_t* module,
+                        bool* out_valid);
+    // Caller-owned verification and diagnostic context.
+    void* user_data;
+  } verification;
+
   // Sink enabling source-backed kernel request publication. A NULL callback
   // leaves command planning body-blind and publishes only binding requirements.
   loom_cmd_program_kernel_request_sink_t kernel_request_sink;
@@ -35,6 +48,7 @@ typedef struct loom_cmd_program_plan_index_options_t {
 static inline void loom_cmd_program_plan_index_options_initialize(
     loom_cmd_program_plan_index_options_t* options) {
   *options = (loom_cmd_program_plan_index_options_t){
+      /*.verification=*/{},
       /*.kernel_request_sink=*/{},
       /*.kernel_class_collection=*/
       loom_kernel_class_collection_options_default(),
