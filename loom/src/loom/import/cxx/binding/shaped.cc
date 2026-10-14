@@ -8,12 +8,10 @@
 
 #include <cxx/names.h>
 
-#include <algorithm>
 #include <array>
 #include <limits>
 #include <type_traits>
 #include <utility>
-#include <vector>
 
 #include "loom/import/cxx/binding/combining.h"
 #include "loom/import/cxx/binding/index_values.h"
@@ -167,23 +165,9 @@ ShapedIntrinsic ShapedIntrinsic::resolve(Operation operation,
                          "vector.splat result must be a semantic vector");
     }
     const auto& result = static_cast<const VectorPartition&>(admitted);
-    const auto* dimension_record =
-        types.record(signature->parameterTypes()[0], owner);
-    if (!dimension_record ||
-        dimension_record->component_count != result.component_count - 1) {
-      diagnostics.reject(unit, owner,
-                         "vector.splat dimensions have the wrong arity");
-    }
-    std::vector<loom_type_t> dimension_types;
-    types.append(signature->parameterTypes()[0], owner, dimension_types);
-    const auto index_type = loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
-    if (!std::all_of(dimension_types.begin(), dimension_types.end(),
-                     [&](loom_type_t type) {
-                       return loom_type_equal(type, index_type);
-                     })) {
-      diagnostics.reject(unit, owner,
-                         "vector.splat dimensions require logical indices");
-    }
+    require_logical_index_record(
+        unit, diagnostics, types, signature->parameterTypes()[0],
+        result.component_count - 1, owner, "vector.splat dimensions");
     if (types.unqualified(signature->parameterTypes()[1]) !=
         types.unqualified(result.element_type)) {
       diagnostics.reject(unit, owner,

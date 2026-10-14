@@ -61,8 +61,18 @@ template <class Result, class T, loom::type::size_type... Extents,
     loom::type::view<loom::type::shape<Extents...>, T, Role> source,
     Origin origin);
 
-// Stores one contiguous native C++ vector at a full-rank logical origin. Const
-// destination element types are rejected during source admission.
+// Loads one semantic vector at a full-rank logical origin. Dimensions supplies
+// one index for each dynamic result axis in source-axis order.
+template <class Result, class T, loom::type::size_type... Extents,
+          loom::encoding::role Role,
+          class Origin = loom::type::coordinates<sizeof...(Extents)>>
+[[loom::op("vector.load")]] Result load(
+    loom::type::view<loom::type::shape<Extents...>, T, Role> source,
+    Origin origin, loom::detail::vector_dimensions<Result> dimensions);
+
+// Stores one contiguous vector at a full-rank logical origin. A semantic value
+// carries its dynamic dimensions. Const destination element types are rejected
+// during source admission.
 template <class Vector, class T, loom::type::size_type... Extents,
           loom::encoding::role Role,
           class Origin = loom::type::coordinates<sizeof...(Extents)>>

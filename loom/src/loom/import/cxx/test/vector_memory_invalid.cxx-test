@@ -73,3 +73,58 @@ using View = loom::type::view<loom::type::shape<16>, const float>;
 // ERROR@+1: LOWERING/059 "masked vector store requires a mutable destination view"
 [[loom::op("vector.store.compress")]] void invalid(
     Vector, View, loom::type::coordinates<1>, Mask);
+
+// ====
+// A dependent load must bind every dynamic result axis.
+#include <loomcxx/vector.h>
+using Fragment = loom::type::vector<loom::type::shape<loom::type::dynamic>, float>;
+using View = loom::type::view<loom::type::shape<16>, const float>;
+// ERROR@+1: LOWERING/059 "dependent vector.load requires result dimensions"
+[[loom::op("vector.load")]] Fragment invalid(View, loom::type::coordinates<1>);
+
+// ====
+// Native vectors have no dependent result dimensions.
+#include <loomcxx/vector.h>
+using Vector = float __attribute__((ext_vector_type(4)));
+using View = loom::type::view<loom::type::shape<16>, const float>;
+// ERROR@+1: LOWERING/059 "native vector.load does not accept result dimensions"
+[[loom::op("vector.load")]] Vector invalid(
+    View, loom::type::coordinates<1>, loom::type::indices<1>);
+
+// ====
+// A semantic load supplies one result dimension per dynamic axis.
+#include <loomcxx/vector.h>
+using Tile = loom::type::vector<loom::type::shape<loom::type::dynamic, 4, loom::type::dynamic>, float>;
+using View = loom::type::view<loom::type::shape<64>, const float>;
+// ERROR@+1: LOWERING/059 "vector.load dimensions have the wrong arity"
+[[loom::op("vector.load")]] Tile invalid(
+    View, loom::type::coordinates<1>, loom::type::indices<1>);
+
+// ====
+// Dependent load result types require native index identities.
+#include <loomcxx/vector.h>
+using Fragment = loom::type::vector<loom::type::shape<loom::type::dynamic>, float>;
+using View = loom::type::view<loom::type::shape<16>, const float>;
+struct Dimensions { unsigned width; };
+// ERROR@+1: LOWERING/059 "vector.load dimensions require logical indices"
+[[loom::op("vector.load")]] Fragment invalid(
+    View, loom::type::coordinates<1>, Dimensions);
+
+// ====
+// Semantic vector stores preserve the view's scalar element type.
+#include <loomcxx/vector.h>
+using Fragment = loom::type::vector<loom::type::shape<loom::type::dynamic>, unsigned>;
+using View = loom::type::view<loom::type::shape<16>, float>;
+// ERROR@+1: LOWERING/059 "vector memory element type must match the view element type"
+[[loom::op("vector.store")]] void invalid(
+    Fragment, View, loom::type::coordinates<1>);
+
+// ====
+// Masked operations retain their static native-vector shape contract.
+#include <loomcxx/vector.h>
+using Fragment = loom::type::vector<loom::type::shape<loom::type::dynamic>, float>;
+using Mask = int __attribute__((ext_vector_type(4)));
+using View = loom::type::view<loom::type::shape<16>, const float>;
+// ERROR@+1: LOWERING/059 "masked vector memory requires a native vector value"
+[[loom::op("vector.load.mask")]] Fragment invalid(
+    View, loom::type::coordinates<1>, Mask, Fragment);

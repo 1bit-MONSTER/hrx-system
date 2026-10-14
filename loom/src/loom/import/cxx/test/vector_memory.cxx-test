@@ -138,3 +138,69 @@ func.def public @store_compressed(%value: vector<4xf32>, %output: buffer, %outpu
   vector.store.compress %value, %destination[%78], %80 : vector<4xf32>, view<64xf32, %destination_layout>, vector<4xi1>
   func.return
 }
+
+// ====
+// Semantic vector memory retains each dynamic result dimension and consumes the
+// same self-contained representation at a store.
+#include <loomcxx/vector.h>
+namespace loomt = loom::type;
+using Fragment = loomt::vector<loomt::shape<loomt::dynamic>, float>;
+using Tile = loomt::vector<loomt::shape<loomt::dynamic, 4, loomt::dynamic>, float>;
+using Block = loomt::vector<loomt::shape<2, 4>, float>;
+
+Fragment load_fragment(const float* input, loomt::size_type index, loomt::index width) {
+  auto source = loom::buffer::view<4096>(input, {}, loom::encoding::layout::dense<1>());
+  return loom::vector::load<Fragment>(source, {index}, {width});
+}
+
+void copy_fragment(const float* input, float* output, loomt::size_type index, loomt::index width) {
+  auto source = loom::buffer::view<4096>(input, {}, loom::encoding::layout::dense<1>());
+  auto destination = loom::buffer::view<4096>(output, {}, loom::encoding::layout::dense<1>());
+  auto value = loom::vector::load<Fragment>(source, {index}, {width});
+  loom::vector::store(value, destination, {index});
+}
+
+Tile load_tile(const float* input, loomt::index x, loomt::index y, loomt::index z, loomt::index rows, loomt::index columns) {
+  auto source = loom::buffer::view<64, 64, 64>(input, {}, loom::encoding::layout::dense<3>());
+  return loom::vector::load<Tile>(source, loomt::indices{x, y, z}, {rows, columns});
+}
+
+Block load_block(const float* input, loomt::index row, loomt::index column) {
+  auto source = loom::buffer::view<64, 64>(input, {}, loom::encoding::layout::dense<2>());
+  return loom::vector::load<Block>(source, loomt::indices{row, column});
+}
+
+// ----
+func.def public @load_fragment(%input: buffer, %input_byte_offset: offset, %index: i64, %width: index) -> (%4: index, vector<[%4]xf32>) {
+  %source_layout = encoding.layout.dense : encoding<layout>
+  %source = buffer.view %input[%input_byte_offset] : buffer -> view<4096xf32, %source_layout>
+  %8 = index.cast %index : i64 to index
+  %9 = vector.load %source[%8] : view<4096xf32, %source_layout> -> vector<[%width]xf32>
+  func.return %width, %9 : index, vector<[%width]xf32>
+}
+
+func.def public @copy_fragment(%input: buffer, %input_byte_offset: offset, %output: buffer, %output_byte_offset: offset, %index: i64, %width: index) {
+  %source_layout = encoding.layout.dense : encoding<layout>
+  %source = buffer.view %input[%input_byte_offset] : buffer -> view<4096xf32, %source_layout>
+  %destination_layout = encoding.layout.dense : encoding<layout>
+  %destination = buffer.view %output[%output_byte_offset] : buffer -> view<4096xf32, %destination_layout>
+  %20 = index.cast %index : i64 to index
+  %value = vector.load %source[%20] : view<4096xf32, %source_layout> -> vector<[%width]xf32>
+  %22 = index.cast %index : i64 to index
+  vector.store %value, %destination[%22] : vector<[%width]xf32>, view<4096xf32, %destination_layout>
+  func.return
+}
+
+func.def public @load_tile(%input: buffer, %input_byte_offset: offset, %x: index, %y: index, %z: index, %rows: index, %columns: index) -> (%30: index, %31: index, vector<[%30]x4x[%31]xf32>) {
+  %source_layout = encoding.layout.dense : encoding<layout>
+  %source = buffer.view %input[%input_byte_offset] : buffer -> view<64x64x64xf32, %source_layout>
+  %35 = vector.load %source[%x, %y, %z] : view<64x64x64xf32, %source_layout> -> vector<[%rows]x4x[%columns]xf32>
+  func.return %rows, %columns, %35 : index, index, vector<[%rows]x4x[%columns]xf32>
+}
+
+func.def public @load_block(%input: buffer, %input_byte_offset: offset, %row: index, %column: index) -> (vector<2x4xf32>) {
+  %source_layout = encoding.layout.dense : encoding<layout>
+  %source = buffer.view %input[%input_byte_offset] : buffer -> view<64x64xf32, %source_layout>
+  %43 = vector.load %source[%row, %column] : view<64x64xf32, %source_layout> -> vector<2x4xf32>
+  func.return %43 : vector<2x4xf32>
+}

@@ -437,7 +437,7 @@ IntrinsicCallResult Intrinsics::call(const Binding& admitted,
                        location)};
   }
   if (auto* memory = std::get_if<VectorMemoryIntrinsic>(binding)) {
-    return {memory->call(arguments, builder, location)};
+    return {memory->call(arguments, arena, builder, location)};
   }
   if (auto* async = std::get_if<AsyncIntrinsic>(binding)) {
     return {async->call(arguments, arena, builder, location)};

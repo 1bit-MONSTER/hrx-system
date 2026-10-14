@@ -11,10 +11,12 @@
 #include <cxx/symbols.h>
 #include <cxx/types.h>
 
+#include <algorithm>
 #include <array>
 #include <limits>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "loom/import/cxx/source/error.h"
 #include "loom/ops/index/ops.h"
@@ -168,6 +170,27 @@ uint16_t require_index_record(cxx::TranslationUnit& unit,
   require_index_components(unit, diagnostics, types, type, *record, owner, role,
                            unsigned_component_mask, component_index);
   return unsigned_component_mask;
+}
+
+void require_logical_index_record(cxx::TranslationUnit& unit,
+                                  Diagnostics& diagnostics, Types& types,
+                                  const cxx::Type* type, size_t count,
+                                  cxx::AST* owner, std::string_view role) {
+  auto* record = types.record(type, owner);
+  if (!record || record->component_count != count) {
+    diagnostics.reject(unit, owner,
+                       std::string(role) + " have the wrong arity");
+  }
+  std::vector<loom_type_t> component_types;
+  types.append(type, owner, component_types);
+  const auto index_type = loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
+  if (!std::all_of(component_types.begin(), component_types.end(),
+                   [&](loom_type_t component_type) {
+                     return loom_type_equal(component_type, index_type);
+                   })) {
+    diagnostics.reject(unit, owner,
+                       std::string(role) + " require logical indices");
+  }
 }
 
 bool is_unsigned_component(uint32_t mask, size_t index) {

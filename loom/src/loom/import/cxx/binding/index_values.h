@@ -43,6 +43,14 @@ uint16_t require_index_record(cxx::TranslationUnit& unit,
                               const cxx::Type* type, size_t count,
                               cxx::AST* owner, std::string_view role);
 
+// Requires an admitted record containing exactly |count| native Loom index
+// components. Dependent types use these identities directly and cannot accept
+// fixed-width C++ integer components that would require conversion.
+void require_logical_index_record(cxx::TranslationUnit& unit,
+                                  Diagnostics& diagnostics, Types& types,
+                                  const cxx::Type* type, size_t count,
+                                  cxx::AST* owner, std::string_view role);
+
 // Returns whether one flattened component was admitted as unsigned.
 bool is_unsigned_component(uint32_t mask, size_t index);
 
