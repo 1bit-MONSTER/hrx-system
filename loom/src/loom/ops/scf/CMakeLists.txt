@@ -102,6 +102,7 @@ loom_generated_cc_library(
     "canonicalize_loop.c"
     "facts.c"
     "forwarding_equivalence.c"
+    "selectify_facts.c"
     "traits.c"
     "verify.c"
   TEXTUAL_HDRS
@@ -116,6 +117,7 @@ loom_generated_cc_library(
     "canonicalize.h"
     "forwarding_equivalence.h"
     "ops.h"
+    "selectify_facts.h"
   ARGS
     "--dialect=scf"
   EXTRA_OUTPUT_FLAGS

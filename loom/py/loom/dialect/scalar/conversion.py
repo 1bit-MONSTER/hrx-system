@@ -49,6 +49,7 @@ scalar_sitofp = cast_op(
     to_constraint=FLOAT,
     doc="Signed integer to floating-point.",
     facts="loom_scalar_sitofp_facts",
+    traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%result = scalar.sitofp %input : i32 to f32"],
 )
 scalar_uitofp = cast_op(
@@ -59,6 +60,7 @@ scalar_uitofp = cast_op(
     to_constraint=FLOAT,
     doc="Unsigned integer to floating-point.",
     facts="loom_scalar_uitofp_facts",
+    traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%result = scalar.uitofp %input : i32 to f32"],
 )
 scalar_fptosi = cast_op(
@@ -103,6 +105,7 @@ scalar_extf = cast_op(
     constraints=[ElementWidthGreaterThan("result", "input")],
     input_role=OperandRole.FLOAT_EXTENSION_SOURCE,
     facts="loom_scalar_extf_facts",
+    traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%result = scalar.extf %input : f16 to f32"],
 )
 scalar_fptrunc = cast_op(
@@ -126,6 +129,7 @@ scalar_fptrunc = cast_op(
     constraints=[ElementWidthLessThan("result", "input")],
     canonicalize="loom_scalar_fptrunc_canonicalize",
     facts="loom_scalar_fptrunc_facts",
+    traits=[DISTRIBUTION_TRANSFER, SAFE_TO_SPECULATE],
     examples=["%result = scalar.fptrunc %input : f32 to f16"],
 )
 
