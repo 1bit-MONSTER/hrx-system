@@ -70,7 +70,7 @@ from thinking: `enable_thinking` and the `model_options` object are passed to
 source chat policy, which validates their meaning and renders the model's
 framing. Their presence does not add a native sampling mode.
 
-`tools` accepts up to 16 function declarations. Omitted `tool_choice` or
+`tools` accepts up to 4096 function declarations. Omitted `tool_choice` or
 `"auto"` is supported; other choices reject. `store` may be omitted or false.
 The source policy owns tool grammar, safe output boundaries and canonical
 history. Generated calls become structured `tool_calls`; the server never runs
