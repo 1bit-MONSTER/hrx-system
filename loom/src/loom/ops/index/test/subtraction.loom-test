@@ -162,6 +162,32 @@ func.def @retains_safe_negative_difference(%left: index, %right: index) -> (i64,
 
 // ====
 
+// A scoped range relation survives tuple aliases independently of the scalar
+// intervals. Both subtraction orientations recover the inclusive ordering
+// without revisiting the predicate-producing operations.
+func.def @retains_range_relation_across_aliases(%lower0: index, %value0: index, %upper0: index) -> (i64, i64, i64, i64) {
+  %lower1, %value1, %upper1 = index.assume %lower0, %value0, %upper0 [range(%lower0, 0, 32768), range(%value0, 0, 32768), range(%upper0, 0, 32768), range(%value0, %lower0, %upper0)] : index, index, index
+  %lower2, %value2, %upper2 = index.assume %lower1, %value1, %upper1 [] : index, index, index
+  %lower3, %value3, %upper3 = index.assume %lower2, %value2, %upper2 [] : index, index, index
+  %from_lower = index.sub %value3, %lower3 : index
+  %to_upper = index.sub %upper3, %value3 : index
+  %from_lower_lo = test.fact_range_lo %from_lower : index -> i64
+  %from_lower_hi = test.fact_range_hi %from_lower : index -> i64
+  %to_upper_lo = test.fact_range_lo %to_upper : index -> i64
+  %to_upper_hi = test.fact_range_hi %to_upper : index -> i64
+  func.return %from_lower_lo, %from_lower_hi, %to_upper_lo, %to_upper_hi : i64, i64, i64, i64
+}
+// ----
+func.def @retains_range_relation_across_aliases(%lower0: index, %value0: index, %upper0: index) -> (i64, i64, i64, i64) {
+  %from_lower_lo = scalar.constant 0 : i64
+  %from_lower_hi = scalar.constant 32768 : i64
+  %to_upper_lo = scalar.constant 0 : i64
+  %to_upper_hi = scalar.constant 32768 : i64
+  func.return %from_lower_lo, %from_lower_hi, %to_upper_lo, %to_upper_hi : i64, i64, i64, i64
+}
+
+// ====
+
 // RUN: with-checks pass canonicalize
 
 // Negative input makes the unsigned distance exceed INT64_MAX.
