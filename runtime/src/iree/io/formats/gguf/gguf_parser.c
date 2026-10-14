@@ -9,11 +9,11 @@
 #include <ctype.h>
 
 // File format:
-// https://github.com/ggerganov/ggml/blob/master/docs/gguf.md
+// https://github.com/ggml-org/ggml/blob/master/docs/gguf.md
 //
 // References:
-// https://github.com/ggerganov/ggml/blob/master/src/ggml.c
-// https://github.com/ggerganov/llama.cpp/blob/master/gguf-py/gguf/gguf.py
+// https://github.com/ggml-org/ggml/blob/master/src/ggml-common.h
+// https://github.com/ggml-org/llama.cpp/blob/master/gguf-py/gguf/constants.py
 //
 // Unfortunately they don't encode tensor sizes so we need to carry a ton of
 // logic/tables for calculating it. We could avoid this by just saying every
@@ -40,10 +40,8 @@
 //   arrays of strings are even worse - fixed size header fields with externally
 //   referenced variable-length data would make this easy
 //
-// The structs below are here for reference; some we use with slight
-// modifications for readability (easy to compare against reference code) but
-// others we just parse field-by-field due to the aforementioned nested
-// variable-sized craziness.
+// The parser reads serialized fields independently of host structure layout.
+// Tensor storage sizes come from the file ABI, not native decoder structs.
 
 #define GGUF_MAGIC 0x46554747
 #define GGUF_MIN_VERSION 2
@@ -93,215 +91,35 @@ enum ggml_type_e {
 };
 typedef uint32_t ggml_type_t;
 
-#define QK4_0 32
+// Encoded geometry for the current GGML file types. A block includes its scales
+// and quantized payload. Removed file type IDs retain zero entries and fail
+// before size arithmetic. Q8_1 uses two F16 fields, and K blocks have 256
+// values; neither depends on host compiler options or structure padding.
 typedef struct {
-  uint16_t d;
-  uint8_t qs[QK4_0 / 2];
-} block_q4_0;
-#define QK4_1 32
-typedef struct {
-  uint16_t d;
-  uint16_t m;
-  uint8_t qs[QK4_1 / 2];
-} block_q4_1;
-#define QK5_0 32
-typedef struct {
-  uint16_t d;
-  uint8_t qh[4];
-  uint8_t qs[QK5_0 / 2];
-} block_q5_0;
-#define QK5_1 32
-typedef struct {
-  uint16_t d;
-  uint16_t m;
-  uint8_t qh[4];
-  uint8_t qs[QK5_1 / 2];
-} block_q5_1;
-#define QK8_0 32
-typedef struct {
-  uint16_t d;
-  int8_t qs[QK8_0];
-} block_q8_0;
-#define QK8_1 32
-typedef struct {
-  float d;
-  float s;
-  int8_t qs[QK8_1];
-} block_q8_1;
-
-// Ugh, this file format is non-hermetic and the size of the k blocks is based
-// on compiler configuration. We pick one here that works for what we use but
-// have no way of knowing it's correct. LLAMA_QKK_64 is what controls this in
-// llama.cpp and it's off by default so we assume that here as well.
-#ifdef GGML_QKK_64
-#define QK_K 64
-#define K_SCALE_SIZE 4
-#else
-#define QK_K 256
-#define K_SCALE_SIZE 12
-#endif  // GGML_QKK_64
-typedef struct {
-  uint8_t scales[QK_K / 16];
-  uint8_t qs[QK_K / 4];
-  uint16_t d;
-  uint16_t dmin;
-} block_q2_K;
-#ifdef GGML_QKK_64
-typedef struct {
-  uint8_t hmask[QK_K / 8];
-  uint8_t qs[QK_K / 4];
-  uint8_t scales[2];
-  uint16_t d;
-} block_q3_K;
-typedef struct {
-  uint16_t d[2];
-  uint8_t scales[2];
-  uint8_t qs[QK_K / 2];
-} block_q4_K;
-typedef struct {
-  uint16_t d;
-  int8_t scales[QK_K / 16];
-  uint8_t qh[QK_K / 8];
-  uint8_t qs[QK_K / 2];
-} block_q5_K;
-#else
-typedef struct {
-  uint8_t hmask[QK_K / 8];
-  uint8_t qs[QK_K / 4];
-  uint8_t scales[12];
-  uint16_t d;
-} block_q3_K;
-typedef struct {
-  uint16_t d;
-  uint16_t dmin;
-  uint8_t scales[K_SCALE_SIZE];
-  uint8_t qs[QK_K / 2];
-} block_q4_K;
-typedef struct {
-  uint16_t d;
-  uint16_t dmin;
-  uint8_t scales[K_SCALE_SIZE];
-  uint8_t qh[QK_K / 8];
-  uint8_t qs[QK_K / 2];
-} block_q5_K;
-#endif
-typedef struct {
-  uint8_t ql[QK_K / 2];
-  uint8_t qh[QK_K / 4];
-  int8_t scales[QK_K / 16];
-  uint16_t d;
-} block_q6_K;
-typedef struct {
-  float d;
-  int8_t qs[QK_K];
-  int16_t bsums[QK_K / 16];
-} block_q8_K;
-
-typedef struct {
-  int blck_size;
-  size_t type_size;
+  // Number of logical tensor elements represented by one encoded block.
+  uint16_t block_elements;
+  // Number of serialized bytes in one complete block, including metadata.
+  uint16_t block_bytes;
 } ggml_type_traits_t;
 static const ggml_type_traits_t ggml_type_traits[GGML_TYPE_COUNT] = {
-    [GGML_TYPE_I8] =
-        {
-            .blck_size = 1,
-            .type_size = sizeof(int8_t),
-        },
-    [GGML_TYPE_I16] =
-        {
-            .blck_size = 1,
-            .type_size = sizeof(int16_t),
-        },
-    [GGML_TYPE_I32] =
-        {
-            .blck_size = 1,
-            .type_size = sizeof(int32_t),
-        },
-    [GGML_TYPE_I64] =
-        {
-            .blck_size = 1,
-            .type_size = sizeof(int64_t),
-        },
-    [GGML_TYPE_F32] =
-        {
-            .blck_size = 1,
-            .type_size = sizeof(float),
-        },
-    [GGML_TYPE_F16] =
-        {
-            .blck_size = 1,
-            .type_size = sizeof(uint16_t),
-        },
-    [GGML_TYPE_F64] =
-        {
-            .blck_size = 1,
-            .type_size = sizeof(double),
-        },
-    [GGML_TYPE_BF16] =
-        {
-            .blck_size = 1,
-            .type_size = sizeof(uint16_t),
-        },
-    [GGML_TYPE_Q4_0] =
-        {
-            .blck_size = QK4_0,
-            .type_size = sizeof(block_q4_0),
-        },
-    [GGML_TYPE_Q4_1] =
-        {
-            .blck_size = QK4_1,
-            .type_size = sizeof(block_q4_1),
-        },
-    [GGML_TYPE_Q5_0] =
-        {
-            .blck_size = QK5_0,
-            .type_size = sizeof(block_q5_0),
-        },
-    [GGML_TYPE_Q5_1] =
-        {
-            .blck_size = QK5_1,
-            .type_size = sizeof(block_q5_1),
-        },
-    [GGML_TYPE_Q8_0] =
-        {
-            .blck_size = QK8_0,
-            .type_size = sizeof(block_q8_0),
-        },
-    [GGML_TYPE_Q8_1] =
-        {
-            .blck_size = QK8_1,
-            .type_size = sizeof(block_q8_1),
-        },
-    [GGML_TYPE_Q2_K] =
-        {
-            .blck_size = QK_K,
-            .type_size = sizeof(block_q2_K),
-        },
-    [GGML_TYPE_Q3_K] =
-        {
-            .blck_size = QK_K,
-            .type_size = sizeof(block_q3_K),
-        },
-    [GGML_TYPE_Q4_K] =
-        {
-            .blck_size = QK_K,
-            .type_size = sizeof(block_q4_K),
-        },
-    [GGML_TYPE_Q5_K] =
-        {
-            .blck_size = QK_K,
-            .type_size = sizeof(block_q5_K),
-        },
-    [GGML_TYPE_Q6_K] =
-        {
-            .blck_size = QK_K,
-            .type_size = sizeof(block_q6_K),
-        },
-    [GGML_TYPE_Q8_K] =
-        {
-            .blck_size = QK_K,
-            .type_size = sizeof(block_q8_K),
-        },
+    [GGML_TYPE_F32] = {1, 4},        [GGML_TYPE_F16] = {1, 2},
+    [GGML_TYPE_Q4_0] = {32, 18},     [GGML_TYPE_Q4_1] = {32, 20},
+    [GGML_TYPE_Q5_0] = {32, 22},     [GGML_TYPE_Q5_1] = {32, 24},
+    [GGML_TYPE_Q8_0] = {32, 34},     [GGML_TYPE_Q8_1] = {32, 36},
+    [GGML_TYPE_Q2_K] = {256, 84},    [GGML_TYPE_Q3_K] = {256, 110},
+    [GGML_TYPE_Q4_K] = {256, 144},   [GGML_TYPE_Q5_K] = {256, 176},
+    [GGML_TYPE_Q6_K] = {256, 210},   [GGML_TYPE_Q8_K] = {256, 292},
+    [GGML_TYPE_IQ2_XXS] = {256, 66}, [GGML_TYPE_IQ2_XS] = {256, 74},
+    [GGML_TYPE_IQ3_XXS] = {256, 98}, [GGML_TYPE_IQ1_S] = {256, 50},
+    [GGML_TYPE_IQ4_NL] = {32, 18},   [GGML_TYPE_IQ3_S] = {256, 110},
+    [GGML_TYPE_IQ2_S] = {256, 82},   [GGML_TYPE_IQ4_XS] = {256, 136},
+    [GGML_TYPE_I8] = {1, 1},         [GGML_TYPE_I16] = {1, 2},
+    [GGML_TYPE_I32] = {1, 4},        [GGML_TYPE_I64] = {1, 8},
+    [GGML_TYPE_F64] = {1, 8},        [GGML_TYPE_IQ1_M] = {256, 56},
+    [GGML_TYPE_BF16] = {1, 2},       [GGML_TYPE_TQ1_0] = {256, 54},
+    [GGML_TYPE_TQ2_0] = {256, 66},   [GGML_TYPE_MXFP4] = {32, 17},
+    [GGML_TYPE_NVFP4] = {64, 36},    [GGML_TYPE_Q1_0] = {128, 18},
+    [GGML_TYPE_Q2_0] = {64, 18},
 };
 
 enum gguf_metadata_value_type_e {
@@ -474,30 +292,35 @@ static iree_status_t iree_io_gguf_calculate_storage_size(
                             (int)tensor_info->type);
   }
   const ggml_type_traits_t type_traits = ggml_type_traits[tensor_info->type];
-  if (type_traits.blck_size == 0 || type_traits.type_size == 0) {
+  if (type_traits.block_elements == 0 || type_traits.block_bytes == 0) {
     return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
                             "GGML tensor type %d not supported",
                             (int)tensor_info->type);
   }
 
+  uint64_t row_length = 1;
   uint64_t element_count = 1;
   for (uint32_t i = 0; i < tensor_info->dimension_count; ++i) {
     const uint64_t dimension = iree_unaligned_load_le_u64(
         tensor_info->dimension_data + i * sizeof(uint64_t));
+    if (i == 0) {
+      row_length = dimension;
+    }
     if (!iree_checked_mul_u64(element_count, dimension, &element_count)) {
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                               "GGML tensor element count overflow");
     }
   }
-  if (element_count % (uint64_t)type_traits.blck_size != 0) {
+  if (row_length % (uint64_t)type_traits.block_elements != 0) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "GGML tensor element count %" PRIu64
-                            " is not divisible by type %d block size %d",
-                            element_count, (int)tensor_info->type,
-                            type_traits.blck_size);
+                            "GGML tensor row length %" PRIu64
+                            " is not divisible by type %d block size %u",
+                            row_length, (int)tensor_info->type,
+                            (unsigned)type_traits.block_elements);
   }
-  const uint64_t block_count = element_count / (uint64_t)type_traits.blck_size;
-  if (!iree_checked_mul_u64(block_count, (uint64_t)type_traits.type_size,
+  const uint64_t block_count =
+      element_count / (uint64_t)type_traits.block_elements;
+  if (!iree_checked_mul_u64(block_count, (uint64_t)type_traits.block_bytes,
                             out_storage_size)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "GGML tensor storage size overflow");

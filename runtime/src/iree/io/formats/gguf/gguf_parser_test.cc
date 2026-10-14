@@ -371,20 +371,132 @@ TEST(GgufFormatTest, Bfloat16Tensor) {
   iree_io_parameter_index_release(index);
 }
 
-TEST(GgufFormatTest, UnsupportedModernQuantizedTensor) {
-  iree_io_parameter_index_t* index = NULL;
-  IREE_ASSERT_OK(
-      iree_io_parameter_index_create(iree_allocator_system(), &index));
+// Serialized GGML ABI, independently of the parser's private type table. The
+// logical row width exercises three blocks per row and two rows per tensor.
+// Q8_1's 36-byte block includes two F16 fields, not the old two-F32 layout.
+static constexpr struct {
+  // Stable file-format type ID.
+  uint32_t type;
+  // Logical values in one encoded block.
+  uint32_t block_elements;
+  // Complete encoded block length, including scales and other metadata.
+  uint32_t block_bytes;
+  // Format name for failure context.
+  const char* name;
+} kEncodedTypes[] = {
+    {0, 1, 4, "F32"},         {1, 1, 2, "F16"},
+    {2, 32, 18, "Q4_0"},      {3, 32, 20, "Q4_1"},
+    {6, 32, 22, "Q5_0"},      {7, 32, 24, "Q5_1"},
+    {8, 32, 34, "Q8_0"},      {9, 32, 36, "Q8_1"},
+    {10, 256, 84, "Q2_K"},    {11, 256, 110, "Q3_K"},
+    {12, 256, 144, "Q4_K"},   {13, 256, 176, "Q5_K"},
+    {14, 256, 210, "Q6_K"},   {15, 256, 292, "Q8_K"},
+    {16, 256, 66, "IQ2_XXS"}, {17, 256, 74, "IQ2_XS"},
+    {18, 256, 98, "IQ3_XXS"}, {19, 256, 50, "IQ1_S"},
+    {20, 32, 18, "IQ4_NL"},   {21, 256, 110, "IQ3_S"},
+    {22, 256, 82, "IQ2_S"},   {23, 256, 136, "IQ4_XS"},
+    {24, 1, 1, "I8"},         {25, 1, 2, "I16"},
+    {26, 1, 4, "I32"},        {27, 1, 8, "I64"},
+    {28, 1, 8, "F64"},        {29, 256, 56, "IQ1_M"},
+    {30, 1, 2, "BF16"},       {34, 256, 54, "TQ1_0"},
+    {35, 256, 66, "TQ2_0"},   {39, 32, 17, "MXFP4"},
+    {40, 64, 36, "NVFP4"},    {41, 128, 18, "Q1_0"},
+    {42, 64, 18, "Q2_0"},
+};
 
-  std::vector<uint8_t> file_contents;
-  iree_io_file_handle_t* file_handle = OpenTestFileWithFirstTensorType(
-      "single.gguf", /*GGML_TYPE_IQ2_XXS=*/16, &file_contents);
-  IREE_EXPECT_STATUS_IS(
-      IREE_STATUS_UNIMPLEMENTED,
-      iree_io_parse_gguf_index(file_handle, index, iree_allocator_system()));
-  iree_io_file_handle_release(file_handle);
+// Keeps the real writer's metadata and two-dimensional tensor header while
+// replacing its element representation and payload extent.
+static std::vector<uint8_t> MakeEncodedTensor(uint32_t type,
+                                              uint64_t row_length,
+                                              uint64_t row_count,
+                                              size_t payload_bytes) {
+  std::vector<uint8_t> contents = CopyTestFile("single.gguf");
+  const size_t dimensions_offset =
+      FindTextOffset(contents, "tensor0") + 7 + sizeof(uint32_t);
+  iree_unaligned_store_le_u64(contents.data() + dimensions_offset, row_length);
+  iree_unaligned_store_le_u64(
+      contents.data() + dimensions_offset + sizeof(uint64_t), row_count);
+  iree_unaligned_store_le_u32(
+      contents.data() + FindFirstTensorTypeOffset(contents), type);
+  contents.resize(384 + payload_bytes, 0xA5);
+  return contents;
+}
 
-  iree_io_parameter_index_release(index);
+TEST(GgufFormatTest, EncodedTensorExtents) {
+  for (const auto& type : kEncodedTypes) {
+    SCOPED_TRACE(type.name);
+    const size_t payload_bytes = 6 * type.block_bytes;
+    std::vector<uint8_t> contents =
+        MakeEncodedTensor(type.type, 3 * type.block_elements, 2, payload_bytes);
+    iree_io_parameter_index_t* index = NULL;
+    IREE_ASSERT_OK(
+        iree_io_parameter_index_create(iree_allocator_system(), &index));
+    iree_io_file_handle_t* file = OpenTestFileContents(
+        iree_make_byte_span(contents.data(), contents.size()));
+    IREE_ASSERT_OK(
+        iree_io_parse_gguf_index(file, index, iree_allocator_system()));
+    const iree_io_parameter_index_entry_t* entry = NULL;
+    IREE_ASSERT_OK(
+        iree_io_parameter_index_lookup(index, IREE_SV("tensor0"), &entry));
+    EXPECT_EQ(entry->storage.file.offset, 384u);
+    EXPECT_EQ(entry->length, payload_bytes);
+    iree_io_file_handle_release(file);
+    iree_io_parameter_index_release(index);
+
+    // The same complete header with its final payload byte missing must fail,
+    // including scalar types and formats with odd encoded block lengths.
+    contents.pop_back();
+    IREE_ASSERT_OK(
+        iree_io_parameter_index_create(iree_allocator_system(), &index));
+    file = OpenTestFileContents(
+        iree_make_byte_span(contents.data(), contents.size()));
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_INVALID_ARGUMENT,
+        iree_io_parse_gguf_index(file, index, iree_allocator_system()));
+    iree_io_file_handle_release(file);
+    iree_io_parameter_index_release(index);
+  }
+}
+
+TEST(GgufFormatTest, RejectsPartialQuantizedRows) {
+  for (const auto& type : kEncodedTypes) {
+    if (type.block_elements == 1) {
+      continue;
+    }
+    SCOPED_TRACE(type.name);
+    // Two half-block rows have a whole block of elements in total, but no
+    // legal encoded row. Checking only the tensor's element count misses this.
+    std::vector<uint8_t> contents = MakeEncodedTensor(
+        type.type, type.block_elements / 2, 2, type.block_bytes);
+    iree_io_parameter_index_t* index = NULL;
+    IREE_ASSERT_OK(
+        iree_io_parameter_index_create(iree_allocator_system(), &index));
+    iree_io_file_handle_t* file = OpenTestFileContents(
+        iree_make_byte_span(contents.data(), contents.size()));
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_INVALID_ARGUMENT,
+        iree_io_parse_gguf_index(file, index, iree_allocator_system()));
+    iree_io_file_handle_release(file);
+    iree_io_parameter_index_release(index);
+  }
+}
+
+TEST(GgufFormatTest, RejectsRemovedAndUnknownTypes) {
+  for (uint32_t type :
+       {4u, 5u, 31u, 32u, 33u, 36u, 37u, 38u, 43u, UINT32_MAX}) {
+    SCOPED_TRACE(type);
+    std::vector<uint8_t> contents = MakeEncodedTensor(type, 256, 2, 1024);
+    iree_io_parameter_index_t* index = NULL;
+    IREE_ASSERT_OK(
+        iree_io_parameter_index_create(iree_allocator_system(), &index));
+    iree_io_file_handle_t* file = OpenTestFileContents(
+        iree_make_byte_span(contents.data(), contents.size()));
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_UNIMPLEMENTED,
+        iree_io_parse_gguf_index(file, index, iree_allocator_system()));
+    iree_io_file_handle_release(file);
+    iree_io_parameter_index_release(index);
+  }
 }
 
 }  // namespace
