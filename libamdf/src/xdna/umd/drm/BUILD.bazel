@@ -172,6 +172,7 @@ amdf_cc_library(
     target_compatible_with = DRM_COMPATIBILITY,
     visibility = ["//libamdf/src/xdna:__pkg__"],
     deps = [
+        ":clock",
         ":context",
         ":device",
         ":firmware_trace",
@@ -289,6 +290,35 @@ amdf_cc_test(
         "//libamdf/src/xdna/umd:result_buffer",
         "//third_party:google_test",
         "//third_party:google_test_main",
+        "//third_party:linux_xdna_uapi",
+    ],
+)
+
+amdf_cc_library(
+    name = "clock",
+    srcs = ["clock.c"],
+    target_compatible_with = DRM_COMPATIBILITY,
+    deps = [
+        ":device_state",
+        "//libamdf/src/platform/linux:file",
+        "//libamdf/src/xdna/umd:clock",
+        "//third_party:linux_drm_uapi",
+        "//third_party:linux_xdna_uapi",
+    ],
+)
+
+amdf_cc_test(
+    name = "clock_test",
+    srcs = ["clock_test.cc"],
+    linkopts = ["-Wl,--wrap=ioctl"],
+    target_compatible_with = DRM_COMPATIBILITY,
+    deps = [
+        ":clock",
+        ":device_state",
+        "//libamdf/src/xdna/umd:clock",
+        "//third_party:google_test",
+        "//third_party:google_test_main",
+        "//third_party:linux_drm_uapi",
         "//third_party:linux_xdna_uapi",
     ],
 )

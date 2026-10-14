@@ -326,6 +326,7 @@ iree_cc_library(
   NAME
     mcdm
   DEPS
+    ::clock
     ::context
     ::device
     ::firmware_trace
@@ -539,6 +540,40 @@ iree_cc_library(
     amdf::headers
     libamdf::src::xdna::umd::result_buffer
   PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_library(
+  NAME
+    clock
+  SRCS
+    "clock.c"
+  DEPS
+    ::device_state
+    amdf::headers
+    libamdf::src::platform::windows::kmt_api
+    libamdf::src::xdna::umd::clock
+  PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_test(
+  NAME
+    clock_test
+  SRCS
+    "clock_test.cc"
+  DEPS
+    ::clock
+    ::device_state
+    amdf::headers
+    iree::third_party::google_test
+    iree::third_party::google_test_main
+    libamdf::src::xdna::umd::clock
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.xdna"
 )
 endif()
 

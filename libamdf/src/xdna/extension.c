@@ -11,6 +11,7 @@
 #include "amdf/xdna.h"
 #include "libamdf/src/endpoint.h"
 #include "libamdf/src/structure.h"
+#include "libamdf/src/xdna/clock.h"
 #include "libamdf/src/xdna/context.h"
 #include "libamdf/src/xdna/device.h"
 #include "libamdf/src/xdna/device_profile.h"
@@ -85,6 +86,7 @@ static const amdf_xdna_api_t amdf_xdna_api_v2 = {
     .context_attach_result_buffer = amdf_xdna_context_attach_result_buffer,
     .context_collect_result_buffer = amdf_xdna_context_collect_result_buffer,
     .context_detach_result_buffer = amdf_xdna_context_detach_result_buffer,
+    .device_query_timer_clock_info = amdf_xdna_device_query_timer_clock_info,
 };
 
 uint32_t amdf_xdna_extension_query_endpoint_queue_families(

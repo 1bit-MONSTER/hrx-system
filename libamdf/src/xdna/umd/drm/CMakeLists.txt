@@ -211,6 +211,7 @@ iree_cc_library(
   NAME
     drm
   DEPS
+    ::clock
     ::context
     ::device
     ::firmware_trace
@@ -370,6 +371,46 @@ iree_cc_test(
     iree::third_party::google_test
     iree::third_party::google_test_main
     libamdf::src::xdna::umd::result_buffer
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.xdna"
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_library(
+  NAME
+    clock
+  SRCS
+    "clock.c"
+  DEPS
+    $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_drm_uapi>
+    $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_xdna_uapi>
+    ::device_state
+    amdf::headers
+    libamdf::src::platform::linux::file
+    libamdf::src::xdna::umd::clock
+  PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_test(
+  NAME
+    clock_test
+  SRCS
+    "clock_test.cc"
+  LINKOPTS
+    "-Wl,--wrap=ioctl"
+  DEPS
+    $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_drm_uapi>
+    $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_xdna_uapi>
+    ::clock
+    ::device_state
+    amdf::headers
+    iree::third_party::google_test
+    iree::third_party::google_test_main
+    libamdf::src::xdna::umd::clock
   LABELS
     "iree-build-requirement=libamdf"
     "iree-build-requirement=libamdf.xdna"

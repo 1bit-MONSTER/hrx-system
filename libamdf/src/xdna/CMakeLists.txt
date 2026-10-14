@@ -158,6 +158,7 @@ iree_cc_library(
   SRCS
     "extension.c"
   DEPS
+    ::clock
     ::context
     ::device
     ::device_profile
@@ -317,6 +318,23 @@ iree_cc_library(
     libamdf::src::memory_resource
     libamdf::src::structure
     libamdf::src::xdna::umd::result_buffer
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_library(
+  NAME
+    clock
+  HDRS
+    "clock.h"
+  SRCS
+    "clock.c"
+  DEPS
+    ::device
+    amdf::headers
+    libamdf::src::device
+    libamdf::src::xdna::umd::clock
   PUBLIC
 )
 endif()

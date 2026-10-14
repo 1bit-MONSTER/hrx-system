@@ -635,6 +635,24 @@ typedef struct amdf_xdna_api_t {
   amdf_status_t(AMDF_CALL* context_detach_result_buffer)(
       amdf_xdna_context_t* context,
       const amdf_xdna_result_buffer_binding_t* binding);
+
+  /// Samples the native operating rate of the partition-shim RECORD_TIMER
+  /// counter. This explicit native query may wake the device; it allocates no
+  /// library objects, retains no state and changes no power policy. Failure
+  /// leaves out_info unchanged; absent rate metadata returns UNSUPPORTED.
+  ///
+  /// Query after workload/context admission: idle and active rates can differ.
+  /// A same-epoch delta at constant rate converts as ticks * 1e9 /
+  /// frequency_hz. This snapshot neither pins that rate nor records changes
+  /// between samples. The caller owns a controlled profiling interval or
+  /// accounts for rate changes and clock gating before interpreting this as
+  /// elapsed wall time. Equal before/after rates alone do not prove stability.
+  /// Reconfiguration can reset the timer; markers bracketing work belong after
+  /// that configuration and around the program's ordinary completion waits. The
+  /// rate supplies no shared epoch with another command, automatic firmware
+  /// events or the CPU.
+  amdf_status_t(AMDF_CALL* device_query_timer_clock_info)(
+      amdf_device_t* device, amdf_observation_clock_info_t* out_info);
 } amdf_xdna_api_t;
 
 #ifdef __cplusplus

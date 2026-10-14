@@ -49,7 +49,8 @@ typedef struct amdf_xdna_result_buffer_info_t {
   uint64_t byte_offset_alignment;
   /// Required nonzero multiple for the destination capacity.
   uint64_t byte_length_granularity;
-  /// RECORD_TIMER representation, not a continuous or host-correlated clock.
+  /// RECORD_TIMER width; frequency is zero in this cached geometry query.
+  /// device_query_timer_clock_info samples the separate operating rate.
   amdf_observation_clock_info_t timer_clock;
 } amdf_xdna_result_buffer_info_t;
 

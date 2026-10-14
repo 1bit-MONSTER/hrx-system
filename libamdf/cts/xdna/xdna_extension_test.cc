@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <string>
 #include <vector>
 
 #include "amdf/amdf.h"
@@ -55,6 +56,7 @@ TEST(XdnaExtensionTest, ReportsCompiledAvailabilityBeforeCreatingInstance) {
   EXPECT_NE(xdna_api->context_attach_result_buffer, nullptr);
   EXPECT_NE(xdna_api->context_collect_result_buffer, nullptr);
   EXPECT_NE(xdna_api->context_detach_result_buffer, nullptr);
+  EXPECT_NE(xdna_api->device_query_timer_clock_info, nullptr);
   EXPECT_NE(xdna_api->endpoint_query_info, nullptr);
   EXPECT_NE(xdna_api->device_create, nullptr);
   EXPECT_NE(xdna_api->context_query_placement_info, nullptr);
@@ -708,6 +710,29 @@ TEST_F(XdnaEndpointTest, RejectsMalformedDeviceInfoWithoutMutation) {
 }
 
 using XdnaFirmwareTraceTest = XdnaDeviceFixture;
+
+TEST_F(XdnaFirmwareTraceTest, QueriesNativeTimerUnits) {
+  amdf_observation_clock_info_t info = {};
+  const auto status = xdna_api_->device_query_timer_clock_info(device_, &info);
+  if (status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+    GTEST_SKIP() << "native driver supplies no timer operating rate";
+  }
+  ASSERT_EQ(status, AMDF_STATUS_OK);
+  EXPECT_GT(info.frequency_hz, 0u);
+  EXPECT_EQ(info.counter_bit_count, 64u);
+  EXPECT_EQ(info.reserved, 0u);
+  RecordProperty("timer_frequency_hz", std::to_string(info.frequency_hz));
+}
+
+TEST_F(XdnaFirmwareTraceTest, RejectsMissingClockQueryArguments) {
+  amdf_observation_clock_info_t info = {1234, 56, 99};
+  const auto original = info;
+  EXPECT_EQ(xdna_api_->device_query_timer_clock_info(nullptr, &info),
+            amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT));
+  EXPECT_EQ(std::memcmp(&info, &original, sizeof(info)), 0);
+  EXPECT_EQ(xdna_api_->device_query_timer_clock_info(device_, nullptr),
+            amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT));
+}
 
 TEST_F(XdnaFirmwareTraceTest, ValidatesCallerStorageWithoutChangingRecorder) {
   amdf_xdna_firmware_trace_info_t info = {
