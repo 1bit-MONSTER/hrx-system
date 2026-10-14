@@ -233,24 +233,38 @@ check.scenario @e8m0_mxfp8_bf16_values {
 func.def inline @e8m0_mxfp8_grouped_body(%payload_buffer: buffer, %scale_buffer: buffer, %output_buffer: buffer) {
   %payload_input, %scale_input, %output = buffer.assume.noalias %payload_buffer, %scale_buffer, %output_buffer : buffer, buffer, buffer
   %base = index.constant 0 : offset
-  %bf16_output_offset = index.constant 128 : offset
-  %f16_output_offset = index.constant 192 : offset
+  %e4_bf16_output_offset = index.constant 128 : offset
+  %e4_f16_output_offset = index.constant 192 : offset
+  %e5_f32_output_offset = index.constant 256 : offset
+  %e5_bf16_output_offset = index.constant 384 : offset
+  %e5_f16_output_offset = index.constant 448 : offset
   %origin = index.constant 0 : index
   %payload_view = buffer.view %payload_input[%base] : buffer -> view<32xi8>
   %scale_view = buffer.view %scale_input[%base] : buffer -> view<1xi32>
-  %f32_output_view = buffer.view %output[%base] : buffer -> view<32xf32>
-  %bf16_output_view = buffer.view %output[%bf16_output_offset] : buffer -> view<32xbf16>
-  %f16_output_view = buffer.view %output[%f16_output_offset] : buffer -> view<32xf16>
-  %schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=32, scale_format=e8m0, scale_group_elements=8, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %e4_f32_output_view = buffer.view %output[%base] : buffer -> view<32xf32>
+  %e4_bf16_output_view = buffer.view %output[%e4_bf16_output_offset] : buffer -> view<32xbf16>
+  %e4_f16_output_view = buffer.view %output[%e4_f16_output_offset] : buffer -> view<32xf16>
+  %e5_f32_output_view = buffer.view %output[%e5_f32_output_offset] : buffer -> view<32xf32>
+  %e5_bf16_output_view = buffer.view %output[%e5_bf16_output_offset] : buffer -> view<32xbf16>
+  %e5_f16_output_view = buffer.view %output[%e5_f16_output_offset] : buffer -> view<32xf16>
+  %e4_schema = encoding.define #encoding.f8e4m3fn<affine=scale_only, payload_elements=32, scale_format=e8m0, scale_group_elements=8, scale_operands=1, scale_topology=block_1d> : encoding<schema>
+  %e5_schema = encoding.define #encoding.f8e5m2<affine=scale_only, payload_elements=32, scale_format=e8m0, scale_group_elements=8, scale_operands=1, scale_topology=block_1d> : encoding<schema>
   %payload_bits = vector.load %payload_view[%origin] : view<32xi8> -> vector<32xi8>
-  %payload = vector.bitcast %payload_bits : vector<32xi8> to vector<32xf8E4M3>
+  %e4_payload = vector.bitcast %payload_bits : vector<32xi8> to vector<32xf8E4M3>
+  %e5_payload = vector.bitcast %payload_bits : vector<32xi8> to vector<32xf8E5M2>
   %scale = vector.load %scale_view[%origin] : view<1xi32> -> vector<1xi32>
-  %f32 = vector.decode %payload using %schema {scale = %scale : vector<1xi32>} : vector<32xf8E4M3>, encoding<schema> -> vector<32xf32>
-  %bf16 = vector.decode %payload using %schema {scale = %scale : vector<1xi32>} : vector<32xf8E4M3>, encoding<schema> -> vector<32xbf16>
-  %f16 = vector.decode %payload using %schema {scale = %scale : vector<1xi32>} : vector<32xf8E4M3>, encoding<schema> -> vector<32xf16>
-  vector.store %f32, %f32_output_view[%origin] : vector<32xf32>, view<32xf32>
-  vector.store %bf16, %bf16_output_view[%origin] : vector<32xbf16>, view<32xbf16>
-  vector.store %f16, %f16_output_view[%origin] : vector<32xf16>, view<32xf16>
+  %e4_f32 = vector.decode %e4_payload using %e4_schema {scale = %scale : vector<1xi32>} : vector<32xf8E4M3>, encoding<schema> -> vector<32xf32>
+  %e4_bf16 = vector.decode %e4_payload using %e4_schema {scale = %scale : vector<1xi32>} : vector<32xf8E4M3>, encoding<schema> -> vector<32xbf16>
+  %e4_f16 = vector.decode %e4_payload using %e4_schema {scale = %scale : vector<1xi32>} : vector<32xf8E4M3>, encoding<schema> -> vector<32xf16>
+  %e5_f32 = vector.decode %e5_payload using %e5_schema {scale = %scale : vector<1xi32>} : vector<32xf8E5M2>, encoding<schema> -> vector<32xf32>
+  %e5_bf16 = vector.decode %e5_payload using %e5_schema {scale = %scale : vector<1xi32>} : vector<32xf8E5M2>, encoding<schema> -> vector<32xbf16>
+  %e5_f16 = vector.decode %e5_payload using %e5_schema {scale = %scale : vector<1xi32>} : vector<32xf8E5M2>, encoding<schema> -> vector<32xf16>
+  vector.store %e4_f32, %e4_f32_output_view[%origin] : vector<32xf32>, view<32xf32>
+  vector.store %e4_bf16, %e4_bf16_output_view[%origin] : vector<32xbf16>, view<32xbf16>
+  vector.store %e4_f16, %e4_f16_output_view[%origin] : vector<32xf16>, view<32xf16>
+  vector.store %e5_f32, %e5_f32_output_view[%origin] : vector<32xf32>, view<32xf32>
+  vector.store %e5_bf16, %e5_bf16_output_view[%origin] : vector<32xbf16>, view<32xbf16>
+  vector.store %e5_f16, %e5_f16_output_view[%origin] : vector<32xf16>, view<32xf16>
   func.return
 }
 
@@ -273,22 +287,34 @@ check.scenario @e8m0_mxfp8_grouped_values {
     %expected_payload = check.generate.fill value(56) : tensor<32xi8>
     %scale = check.generate.fill value(-8356096) : tensor<1xi32>
     %expected_scale = check.generate.fill value(-8356096) : tensor<1xi32>
-    %output = check.generate.fill value(-123) : tensor<256xi8>
-    %f32_output = check.tensor.view %output offset(0) : tensor<256xi8> -> tensor<32xf32>
-    %bf16_output = check.tensor.view %output offset(128) : tensor<256xi8> -> tensor<32xbf16>
-    %f16_output = check.tensor.view %output offset(192) : tensor<256xi8> -> tensor<32xf16>
-    %finite_f32 = check.tensor.view %f32_output offset(0) : tensor<32xf32> -> tensor<24xf32>
-    %finite_bf16 = check.tensor.view %bf16_output offset(0) : tensor<32xbf16> -> tensor<24xbf16>
-    %finite_f16 = check.tensor.view %f16_output offset(0) : tensor<32xf16> -> tensor<24xf16>
-    check.compare<@e8m0_mxfp8_grouped, @e8m0_mxfp8_grouped_oracle>(%payload, %scale, %output) : (tensor<32xi8>, tensor<1xi32>, tensor<256xi8>) -> () {
+    %output = check.generate.fill value(-123) : tensor<512xi8>
+    %e4_f32_output = check.tensor.view %output offset(0) : tensor<512xi8> -> tensor<32xf32>
+    %e4_bf16_output = check.tensor.view %output offset(128) : tensor<512xi8> -> tensor<32xbf16>
+    %e4_f16_output = check.tensor.view %output offset(192) : tensor<512xi8> -> tensor<32xf16>
+    %e5_f32_output = check.tensor.view %output offset(256) : tensor<512xi8> -> tensor<32xf32>
+    %e5_bf16_output = check.tensor.view %output offset(384) : tensor<512xi8> -> tensor<32xbf16>
+    %e5_f16_output = check.tensor.view %output offset(448) : tensor<512xi8> -> tensor<32xf16>
+    %e4_finite_f32 = check.tensor.view %e4_f32_output offset(0) : tensor<32xf32> -> tensor<24xf32>
+    %e4_finite_bf16 = check.tensor.view %e4_bf16_output offset(0) : tensor<32xbf16> -> tensor<24xbf16>
+    %e4_finite_f16 = check.tensor.view %e4_f16_output offset(0) : tensor<32xf16> -> tensor<24xf16>
+    %e5_finite_f32 = check.tensor.view %e5_f32_output offset(0) : tensor<32xf32> -> tensor<24xf32>
+    %e5_finite_bf16 = check.tensor.view %e5_bf16_output offset(0) : tensor<32xbf16> -> tensor<24xbf16>
+    %e5_finite_f16 = check.tensor.view %e5_f16_output offset(0) : tensor<32xf16> -> tensor<24xf16>
+    check.compare<@e8m0_mxfp8_grouped, @e8m0_mxfp8_grouped_oracle>(%payload, %scale, %output) : (tensor<32xi8>, tensor<1xi32>, tensor<512xi8>) -> () {
       check.expect.bitwise actual(%payload) expected(%expected_payload) : tensor<32xi8>
       check.expect.bitwise actual(%scale) expected(%expected_scale) : tensor<1xi32>
-      check.expect.close actual(%f32_output) expected(%f32_output) atol(0.0) rtol(0.0) nan(same) : tensor<32xf32>
-      check.expect.close actual(%bf16_output) expected(%bf16_output) atol(0.0) rtol(0.0) nan(same) : tensor<32xbf16>
-      check.expect.close actual(%f16_output) expected(%f16_output) atol(0.0) rtol(0.0) nan(same) : tensor<32xf16>
-      check.expect.bitwise actual(%finite_f32) expected(%finite_f32) : tensor<24xf32>
-      check.expect.bitwise actual(%finite_bf16) expected(%finite_bf16) : tensor<24xbf16>
-      check.expect.bitwise actual(%finite_f16) expected(%finite_f16) : tensor<24xf16>
+      check.expect.close actual(%e4_f32_output) expected(%e4_f32_output) atol(0.0) rtol(0.0) nan(same) : tensor<32xf32>
+      check.expect.close actual(%e4_bf16_output) expected(%e4_bf16_output) atol(0.0) rtol(0.0) nan(same) : tensor<32xbf16>
+      check.expect.close actual(%e4_f16_output) expected(%e4_f16_output) atol(0.0) rtol(0.0) nan(same) : tensor<32xf16>
+      check.expect.close actual(%e5_f32_output) expected(%e5_f32_output) atol(0.0) rtol(0.0) nan(same) : tensor<32xf32>
+      check.expect.close actual(%e5_bf16_output) expected(%e5_bf16_output) atol(0.0) rtol(0.0) nan(same) : tensor<32xbf16>
+      check.expect.close actual(%e5_f16_output) expected(%e5_f16_output) atol(0.0) rtol(0.0) nan(same) : tensor<32xf16>
+      check.expect.bitwise actual(%e4_finite_f32) expected(%e4_finite_f32) : tensor<24xf32>
+      check.expect.bitwise actual(%e4_finite_bf16) expected(%e4_finite_bf16) : tensor<24xbf16>
+      check.expect.bitwise actual(%e4_finite_f16) expected(%e4_finite_f16) : tensor<24xf16>
+      check.expect.bitwise actual(%e5_finite_f32) expected(%e5_finite_f32) : tensor<24xf32>
+      check.expect.bitwise actual(%e5_finite_bf16) expected(%e5_finite_bf16) : tensor<24xbf16>
+      check.expect.bitwise actual(%e5_finite_f16) expected(%e5_finite_f16) : tensor<24xf16>
     }
   }
   check.trial[16](%trial: index, %entropy: check.entropy) {
@@ -300,16 +326,22 @@ check.scenario @e8m0_mxfp8_grouped_values {
     %expected_payload = check.generate.random.uniform seed(%payload_seed) range(-128 to 127) : tensor<32xi8>
     %scale = check.generate.random.uniform seed(%scale_seed) range(-2147483648 to 2147483647) : tensor<1xi32>
     %expected_scale = check.generate.random.uniform seed(%scale_seed) range(-2147483648 to 2147483647) : tensor<1xi32>
-    %output = check.generate.fill value(-123) : tensor<256xi8>
-    %f32_output = check.tensor.view %output offset(0) : tensor<256xi8> -> tensor<32xf32>
-    %bf16_output = check.tensor.view %output offset(128) : tensor<256xi8> -> tensor<32xbf16>
-    %f16_output = check.tensor.view %output offset(192) : tensor<256xi8> -> tensor<32xf16>
-    check.compare<@e8m0_mxfp8_grouped, @e8m0_mxfp8_grouped_oracle>(%payload, %scale, %output) : (tensor<32xi8>, tensor<1xi32>, tensor<256xi8>) -> () {
+    %output = check.generate.fill value(-123) : tensor<512xi8>
+    %e4_f32_output = check.tensor.view %output offset(0) : tensor<512xi8> -> tensor<32xf32>
+    %e4_bf16_output = check.tensor.view %output offset(128) : tensor<512xi8> -> tensor<32xbf16>
+    %e4_f16_output = check.tensor.view %output offset(192) : tensor<512xi8> -> tensor<32xf16>
+    %e5_f32_output = check.tensor.view %output offset(256) : tensor<512xi8> -> tensor<32xf32>
+    %e5_bf16_output = check.tensor.view %output offset(384) : tensor<512xi8> -> tensor<32xbf16>
+    %e5_f16_output = check.tensor.view %output offset(448) : tensor<512xi8> -> tensor<32xf16>
+    check.compare<@e8m0_mxfp8_grouped, @e8m0_mxfp8_grouped_oracle>(%payload, %scale, %output) : (tensor<32xi8>, tensor<1xi32>, tensor<512xi8>) -> () {
       check.expect.bitwise actual(%payload) expected(%expected_payload) : tensor<32xi8>
       check.expect.bitwise actual(%scale) expected(%expected_scale) : tensor<1xi32>
-      check.expect.close actual(%f32_output) expected(%f32_output) atol(0.0) rtol(0.0) nan(same) : tensor<32xf32>
-      check.expect.close actual(%bf16_output) expected(%bf16_output) atol(0.0) rtol(0.0) nan(same) : tensor<32xbf16>
-      check.expect.close actual(%f16_output) expected(%f16_output) atol(0.0) rtol(0.0) nan(same) : tensor<32xf16>
+      check.expect.close actual(%e4_f32_output) expected(%e4_f32_output) atol(0.0) rtol(0.0) nan(same) : tensor<32xf32>
+      check.expect.close actual(%e4_bf16_output) expected(%e4_bf16_output) atol(0.0) rtol(0.0) nan(same) : tensor<32xbf16>
+      check.expect.close actual(%e4_f16_output) expected(%e4_f16_output) atol(0.0) rtol(0.0) nan(same) : tensor<32xf16>
+      check.expect.close actual(%e5_f32_output) expected(%e5_f32_output) atol(0.0) rtol(0.0) nan(same) : tensor<32xf32>
+      check.expect.close actual(%e5_bf16_output) expected(%e5_bf16_output) atol(0.0) rtol(0.0) nan(same) : tensor<32xbf16>
+      check.expect.close actual(%e5_f16_output) expected(%e5_f16_output) atol(0.0) rtol(0.0) nan(same) : tensor<32xf16>
     }
   }
   check.return
