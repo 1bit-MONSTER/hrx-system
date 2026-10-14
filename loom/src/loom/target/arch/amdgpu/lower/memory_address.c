@@ -122,14 +122,14 @@ static void loom_amdgpu_memory_access_select_retained_component(
     loom_amdgpu_memory_access_t* access) {
   access->retained_component_kind = LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_NONE;
   const loom_low_source_memory_dynamic_component_t* component =
-      &access->source.retained_component;
+      &access->source->retained_component;
   if (component->term == NULL ||
       access->address_form == LOOM_AMDGPU_MEMORY_ADDRESS_FORM_DS_ADDTID) {
     return;
   }
   bool has_vaddr = false;
   bool has_soffset = false;
-  for (uint8_t i = 0; i < access->source.dynamic_term_count; ++i) {
+  for (uint8_t i = 0; i < access->source->dynamic_term_count; ++i) {
     if (!(component->term_mask & (1u << i))) {
       continue;
     }
@@ -143,7 +143,7 @@ static void loom_amdgpu_memory_access_select_retained_component(
       return;
     }
     bool has_other_vaddr = false;
-    for (uint8_t i = 0; i < access->source.dynamic_term_count; ++i) {
+    for (uint8_t i = 0; i < access->source->dynamic_term_count; ++i) {
       if (!(component->term_mask & (1u << i))) {
         has_other_vaddr |= access->dynamic_term_kinds[i] ==
                            LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR;
@@ -172,12 +172,12 @@ static void loom_amdgpu_memory_access_select_retained_component(
   loom_value_facts_t facts =
       loom_value_facts_exact_i64((int64_t)access->vaddr_static_byte_offset);
   loom_value_facts_addi(&facts, &component->term->byte_facts, &facts);
-  for (uint8_t i = 0; i < access->source.dynamic_term_count; ++i) {
+  for (uint8_t i = 0; i < access->source->dynamic_term_count; ++i) {
     if (!(component->term_mask & (1u << i)) &&
         access->dynamic_term_kinds[i] ==
             LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_VADDR) {
-      loom_value_facts_addi(&facts, &access->source.dynamic_terms[i].byte_facts,
-                            &facts);
+      loom_value_facts_addi(
+          &facts, &access->source->dynamic_terms[i].byte_facts, &facts);
     }
   }
   if (loom_value_facts_fit_unsigned_bit_count(facts, 32)) {
@@ -193,7 +193,7 @@ void loom_amdgpu_memory_access_select_vaddr_realizations(
       LOOM_AMDGPU_MEMORY_DYNAMIC_INDEX_NONE) {
     return;
   }
-  const loom_low_source_memory_access_plan_t* source = &access->source;
+  const loom_low_source_memory_access_plan_t* source = access->source;
   if (access->address_form != LOOM_AMDGPU_MEMORY_ADDRESS_FORM_GLOBAL_SADDR ||
       source->dynamic_realization_count == 0) {
     return;
@@ -277,7 +277,7 @@ void loom_amdgpu_memory_access_resolve_dynamic_terms(
   if (access->realization.vaddr) {
     return;
   }
-  const loom_low_source_memory_access_plan_t* source = &access->source;
+  const loom_low_source_memory_access_plan_t* source = access->source;
   const loom_amdgpu_memory_dynamic_index_kind_t* dynamic_term_kinds =
       access->dynamic_term_kinds;
   const uint16_t retained_mask =

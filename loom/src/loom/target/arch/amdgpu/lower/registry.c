@@ -1359,7 +1359,7 @@ static void loom_amdgpu_mark_sanitizer_access_plan_storage_demands(
     loom_low_lower_context_t* context,
     const loom_amdgpu_sanitizer_access_plan_t* plan) {
   loom_amdgpu_mark_source_memory_plan_storage_demands(context,
-                                                      &plan->address.source);
+                                                      plan->address.source);
 }
 
 static iree_status_t loom_amdgpu_select_dispatch_row(

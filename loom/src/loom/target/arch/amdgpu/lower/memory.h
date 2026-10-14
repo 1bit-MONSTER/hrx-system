@@ -34,6 +34,8 @@ typedef struct loom_amdgpu_source_value_analysis_t
 // Bounded caller-owned workspace for selecting one direct memory plan. The
 // workspace lives only for one selection call and is never retained.
 typedef struct loom_amdgpu_memory_access_selection_t {
+  // Canonical source access shared by all selected physical packet views.
+  loom_low_source_memory_access_plan_t source;
   // Packet candidates populated in increasing source-register order.
   loom_amdgpu_memory_packet_plan_t packets[LOOM_AMDGPU_MAX_MEMORY_PACKET_COUNT];
   // Number of populated packet candidates.
@@ -176,8 +178,8 @@ uint32_t loom_amdgpu_source_memory_scalar_term_mask(
     const loom_low_source_memory_access_plan_t* source);
 
 // Selects a complete AMDGPU memory packet sequence from a canonical source
-// access and facts into caller-owned bounded workspace. The mutable source
-// copy receives target visibility; operand paths use retained source placement.
+// access and facts into caller-owned bounded workspace. The selection owns the
+// source copy receiving target visibility and physical allocation offsets.
 bool loom_amdgpu_memory_access_plan_select(
     const loom_module_t* module, const loom_value_fact_table_t* fact_table,
     const loom_low_descriptor_set_t* descriptor_set,
@@ -187,7 +189,7 @@ bool loom_amdgpu_memory_access_plan_select(
     loom_amdgpu_instruction_constraint_bits_t instruction_constraints,
     const loom_amdgpu_source_alloca_layout_t* alloca_layout,
     uint8_t read_visibility_scope, const loom_op_t* source_op,
-    loom_low_source_memory_access_plan_t* source,
+    const loom_low_source_memory_access_plan_t* source,
     loom_amdgpu_memory_access_selection_t* out_selection,
     loom_amdgpu_memory_access_diagnostic_t* out_diagnostic);
 
@@ -218,7 +220,7 @@ bool loom_amdgpu_memory_access_select_flat_offset(
 bool loom_amdgpu_memory_access_select_u32_vaddr_byte_offset(
     const loom_module_t* module,
     const loom_amdgpu_source_alloca_layout_t* alloca_layout,
-    const loom_low_source_memory_access_plan_t* source,
+    loom_low_source_memory_access_plan_t* source,
     loom_amdgpu_memory_access_t* out_access,
     loom_amdgpu_memory_access_diagnostic_t* out_diagnostic);
 
@@ -227,7 +229,7 @@ bool loom_amdgpu_memory_access_select_u32_vaddr_byte_offset(
 // AMDGPU memory packets.
 bool loom_amdgpu_memory_access_include_alloca_root_byte_offset(
     const loom_amdgpu_source_alloca_layout_t* alloca_layout,
-    loom_amdgpu_memory_access_t* access,
+    loom_low_source_memory_access_plan_t* source,
     loom_amdgpu_memory_access_diagnostic_t* diagnostic);
 
 // Selects target operand paths for dynamic source memory address terms.

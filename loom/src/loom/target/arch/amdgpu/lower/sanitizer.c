@@ -655,6 +655,7 @@ static bool loom_amdgpu_sanitizer_access_byte_stride(
 static bool loom_amdgpu_sanitizer_assert_access_plan_build(
     const loom_module_t* module, const loom_value_fact_table_t* fact_table,
     const loom_view_region_table_t* view_regions, const loom_op_t* op,
+    loom_low_source_memory_access_plan_t* out_source,
     loom_amdgpu_sanitizer_access_plan_t* out_plan,
     loom_amdgpu_sanitizer_access_diagnostic_t* out_diagnostic) {
   *out_plan = (loom_amdgpu_sanitizer_access_plan_t){
@@ -730,22 +731,22 @@ static bool loom_amdgpu_sanitizer_assert_access_plan_build(
     return false;
   }
 
-  loom_low_source_memory_access_plan_t source = {0};
   loom_vector_memory_cache_policy_t cache_policy = {0};
   if (!loom_low_source_memory_access_plan_build_indexed(
           view_regions, source_kind, view_value_id, indices, static_indices,
-          base_vector_type, cache_policy, &source, &out_diagnostic->source)) {
+          base_vector_type, cache_policy, out_source,
+          &out_diagnostic->source)) {
     return false;
   }
 
   if (!loom_amdgpu_memory_access_select_flat_address(
-          module, &source, &out_plan->address, &out_diagnostic->memory)) {
+          module, out_source, &out_plan->address, &out_diagnostic->memory)) {
     return false;
   }
 
   out_plan->report_access_kind = report_kind;
   out_plan->access_size = access_size;
-  out_plan->minimum_alignment = source.minimum_alignment;
+  out_plan->minimum_alignment = out_source->minimum_alignment;
   out_plan->static_repeat_count = static_repeat_count;
   out_plan->static_repeat_byte_stride = static_repeat_byte_stride;
   return true;
@@ -768,7 +769,7 @@ static iree_status_t loom_amdgpu_sanitizer_assert_access_reject(
   if (diagnostic->memory.rejection_bits != 0) {
     bool handled = false;
     IREE_RETURN_IF_ERROR(loom_amdgpu_emit_memory_access_rejection_diagnostic(
-        context, op, &plan->address.source, &diagnostic->memory, &handled));
+        context, op, plan->address.source, &diagnostic->memory, &handled));
     if (handled) {
       return iree_ok_status();
     }
@@ -796,10 +797,11 @@ iree_status_t loom_amdgpu_select_sanitizer_assert_access_plan(
   const loom_view_region_table_t* view_regions = NULL;
   IREE_RETURN_IF_ERROR(
       loom_low_lower_context_view_regions(context, &view_regions));
+  loom_low_source_memory_access_plan_t source = {0};
   if (!loom_amdgpu_sanitizer_assert_access_plan_build(
           loom_low_lower_context_module(context),
           loom_low_lower_context_fact_table(context), view_regions, source_op,
-          out_plan, &diagnostic)) {
+          &source, out_plan, &diagnostic)) {
     return iree_ok_status();
   }
   const loom_sanitizer_reporting_mode_t reporting_mode =
@@ -812,9 +814,13 @@ iree_status_t loom_amdgpu_select_sanitizer_assert_access_plan(
       return iree_ok_status();
     }
   }
+  loom_low_source_memory_access_plan_t* retained_source = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_lower_allocate_plan_data(
+      context, sizeof(*retained_source), (void**)&retained_source));
+  *retained_source = source;
+  out_plan->address.source = retained_source;
   IREE_RETURN_IF_ERROR(loom_amdgpu_plan_memory_dynamic_terms(
-      context, &out_plan->address.source,
-      &out_plan->address.dynamic_term_plans));
+      context, retained_source, &out_plan->address.dynamic_term_plans));
   *out_selected = true;
   return iree_ok_status();
 }
@@ -832,13 +838,14 @@ iree_status_t loom_amdgpu_low_legality_verify_sanitizer_assert_access(
   *out_handled = true;
 
   loom_amdgpu_sanitizer_access_plan_t plan = {0};
+  loom_low_source_memory_access_plan_t source = {0};
   loom_amdgpu_sanitizer_access_diagnostic_t diagnostic = {0};
   const loom_view_region_table_t* view_regions =
       loom_target_low_legality_view_regions(context);
   if (!loom_amdgpu_sanitizer_assert_access_plan_build(
           loom_target_low_legality_module(context),
-          loom_target_low_legality_fact_table(context), view_regions, op, &plan,
-          &diagnostic)) {
+          loom_target_low_legality_fact_table(context), view_regions, op,
+          &source, &plan, &diagnostic)) {
     return loom_amdgpu_sanitizer_assert_access_reject(context, op, &plan,
                                                       &diagnostic);
   }
@@ -1247,7 +1254,7 @@ iree_status_t loom_amdgpu_lower_sanitizer_assert_access(
 
   loom_value_id_t low_resource = loom_low_lower_lookup_value(
       context,
-      loom_low_source_memory_access_base_view_value_id(&plan->address.source));
+      loom_low_source_memory_access_base_view_value_id(plan->address.source));
 
   loom_amdgpu_sanitizer_lower_state_t* state = NULL;
   IREE_RETURN_IF_ERROR(loom_amdgpu_sanitizer_lower_state(context, &state));

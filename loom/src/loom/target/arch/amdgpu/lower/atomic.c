@@ -958,10 +958,9 @@ static bool loom_amdgpu_atomic_select(
                                    LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL) {
     out_selection->address_form = LOOM_AMDGPU_MEMORY_ADDRESS_FORM_FLAT;
   }
-  loom_amdgpu_memory_access_t memory_access = {
-      .source = out_selection->source,
-      .address_form = out_selection->address_form,
-  };
+  loom_amdgpu_memory_access_t memory_access =
+      loom_amdgpu_memory_access_from_source(&out_selection->source);
+  memory_access.address_form = out_selection->address_form;
   if (out_selection->address_form == LOOM_AMDGPU_MEMORY_ADDRESS_FORM_FLAT) {
     if (!loom_amdgpu_memory_access_select_flat_address(
             module, &out_selection->source, &memory_access,
@@ -1327,16 +1326,15 @@ iree_status_t loom_amdgpu_lower_atomic(loom_low_lower_context_t* context,
   const uint32_t packet_byte_count =
       plan->source.element_byte_count * plan->source.vector_lane_count;
 
-  loom_amdgpu_memory_access_t access = {
-      .source = plan->source,
-      .dynamic_term_plans = plan->dynamic_term_plans,
-      .address_form = plan->address_form,
-      .immediate_offset = plan->immediate_offset,
-      .scalar_byte_offset = plan->scalar_byte_offset,
-      .vaddr_realization_mask = plan->vaddr_realization_mask,
-      .payload_register_count = payload_register_count,
-      .packet_byte_count = packet_byte_count,
-  };
+  loom_amdgpu_memory_access_t access =
+      loom_amdgpu_memory_access_from_source(&plan->source);
+  access.dynamic_term_plans = plan->dynamic_term_plans;
+  access.address_form = plan->address_form;
+  access.immediate_offset = plan->immediate_offset;
+  access.scalar_byte_offset = plan->scalar_byte_offset;
+  access.vaddr_realization_mask = plan->vaddr_realization_mask;
+  access.payload_register_count = payload_register_count;
+  access.packet_byte_count = packet_byte_count;
   if (loom_amdgpu_atomic_uses_flat_address(plan)) {
     access.vaddr_static_byte_offset =
         (uint64_t)(plan->source.static_byte_offset - plan->immediate_offset);
@@ -1388,7 +1386,7 @@ iree_status_t loom_amdgpu_lower_atomic(loom_low_lower_context_t* context,
   loom_value_id_t low_descriptor = LOOM_VALUE_ID_INVALID;
   if (loom_amdgpu_atomic_uses_buffer_resource(plan)) {
     IREE_RETURN_IF_ERROR(loom_amdgpu_emit_hal_buffer_descriptor(
-        context, source_op, low_resource, &access.source, plan->buffer_extent,
+        context, source_op, low_resource, access.source, plan->buffer_extent,
         &low_descriptor));
   }
   IREE_RETURN_IF_ERROR(loom_amdgpu_emit_atomic_pre_ordering(context, source_op,
@@ -1616,7 +1614,8 @@ iree_status_t loom_amdgpu_low_legality_verify_atomic(
                          LOOM_TARGET_LOW_LEGALITY_DIAGNOSTIC_MEMORY_ACCESS) &&
         loom_amdgpu_memory_cache_policy_is_present(
             &selection.source.cache_policy)) {
-      const loom_amdgpu_memory_access_t access = {.source = selection.source};
+      const loom_amdgpu_memory_access_t access =
+          loom_amdgpu_memory_access_from_source(&selection.source);
       return loom_amdgpu_record_memory_cache_policy_diagnostic(
           context, op, loom_target_low_legality_descriptor_set(context),
           &access, LOOM_AMDGPU_MEMORY_CACHE_POLICY_RESOLUTION_DROPPED,

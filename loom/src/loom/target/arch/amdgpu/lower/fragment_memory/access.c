@@ -86,17 +86,18 @@ static iree_status_t loom_amdgpu_record_fragment_memory_packet(
   const loom_low_descriptor_t* descriptor =
       loom_amdgpu_descriptor_ref_descriptor(
           loom_low_lower_context_descriptor_set(context), descriptor_ref);
-  loom_low_source_memory_access_plan_t packet_source = plan->source;
-  packet_source.static_byte_offset = static_byte_offset;
-  packet_source.element_byte_count = plan->element_byte_count;
-  packet_source.vector_lane_count = vector_lane_count;
-  packet_source.vector_lane_byte_stride = plan->element_byte_count;
+  const loom_low_lower_memory_packet_geometry_t geometry = {
+      .static_byte_offset = static_byte_offset,
+      .element_byte_count = plan->element_byte_count,
+      .vector_lane_count = vector_lane_count,
+      .vector_lane_byte_stride = plan->element_byte_count,
+  };
   const loom_amdgpu_fragment_memory_packet_offset_t runtime_packet_offset =
       loom_amdgpu_fragment_memory_runtime_packet_offset(
           plan, packet->register_index, element_index);
   return loom_low_lower_record_memory_packet(
       context, low_op, descriptor, loom_low_lower_source_memory_origin(context),
-      &packet_source, runtime_packet_offset.byte_facts);
+      &plan->source, &geometry, runtime_packet_offset.byte_facts);
 }
 
 static iree_status_t loom_amdgpu_make_fragment_memory_attrs(

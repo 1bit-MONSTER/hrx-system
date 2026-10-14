@@ -64,6 +64,7 @@ iree_status_t loom_low_lower_memory_origin_plan(
 bool loom_low_lower_memory_packet_interval(
     const loom_low_lower_memory_origin_t* origin,
     const loom_low_source_memory_access_plan_t* source_plan,
+    const loom_low_lower_memory_packet_geometry_t* geometry,
     loom_value_facts_t additional_offset,
     loom_low_memory_relative_interval_t* out_interval,
     int64_t* out_lane_byte_count) {
@@ -79,13 +80,23 @@ bool loom_low_lower_memory_packet_interval(
   }
   int64_t lane_begin = 0, lane_end = 0;
   int64_t lane_bytes = 0;
-  if (!loom_low_source_memory_access_plan_lane_byte_envelope(
-          source_plan, &lane_begin, &lane_end) ||
+  if (geometry->vector_lane_count == 0 || geometry->element_byte_count == 0) {
+    return false;
+  }
+  int64_t last_lane_offset = 0;
+  if (!iree_checked_mul_i64((int64_t)(geometry->vector_lane_count - 1),
+                            geometry->vector_lane_byte_stride,
+                            &last_lane_offset)) {
+    return false;
+  }
+  lane_begin = iree_min(0, last_lane_offset);
+  if (!iree_checked_add_i64(iree_max(0, last_lane_offset),
+                            (int64_t)geometry->element_byte_count, &lane_end) ||
       !iree_checked_sub_i64(lane_end, lane_begin, &lane_bytes)) {
     return false;
   }
   int64_t root_relative_byte_offset = 0;
-  if (!iree_checked_sub_i64(source_plan->static_byte_offset,
+  if (!iree_checked_sub_i64(geometry->static_byte_offset,
                             source_plan->physical_root_byte_offset,
                             &root_relative_byte_offset)) {
     return false;
@@ -175,11 +186,13 @@ iree_status_t loom_low_lower_record_memory_packet(
     const loom_low_descriptor_t* descriptor,
     const loom_low_lower_memory_origin_t* origin,
     const loom_low_source_memory_access_plan_t* source_plan,
+    const loom_low_lower_memory_packet_geometry_t* geometry,
     loom_value_facts_t additional_offset) {
   loom_low_memory_relative_interval_t relative;
   int64_t lane_byte_count = 0;
   const bool has_interval = loom_low_lower_memory_packet_interval(
-      origin, source_plan, additional_offset, &relative, &lane_byte_count);
+      origin, source_plan, geometry, additional_offset, &relative,
+      &lane_byte_count);
   relative.scope = context->source_function.op;
   return loom_low_lower_record_memory_packet_effects(
       context, low_op, descriptor,

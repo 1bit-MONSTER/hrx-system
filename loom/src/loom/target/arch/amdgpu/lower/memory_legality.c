@@ -36,14 +36,14 @@ static iree_status_t loom_amdgpu_emit_memory_cache_policy_rejection(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_amdgpu_memory_access_t* access) {
   const loom_vector_memory_cache_policy_t* policy =
-      &access->source.cache_policy;
+      &access->source->cache_policy;
   loom_diagnostic_param_t
       params[LOOM_AMDGPU_LOW_LEGALITY_CONTEXT_PARAM_COUNT + 5];
   loom_amdgpu_low_legality_make_context_params(context, op, params);
   params[LOOM_AMDGPU_LOW_LEGALITY_CONTEXT_PARAM_COUNT] = loom_param_string(
       loom_amdgpu_memory_cache_policy_rejection_key(descriptor_set, policy));
   params[LOOM_AMDGPU_LOW_LEGALITY_CONTEXT_PARAM_COUNT + 1] = loom_param_string(
-      loom_amdgpu_memory_space_name(access->source.memory_space));
+      loom_amdgpu_memory_space_name(access->source->memory_space));
   params[LOOM_AMDGPU_LOW_LEGALITY_CONTEXT_PARAM_COUNT + 2] =
       loom_param_string(loom_amdgpu_cache_policy_scope_param(policy));
   params[LOOM_AMDGPU_LOW_LEGALITY_CONTEXT_PARAM_COUNT + 3] =
@@ -153,7 +153,7 @@ iree_status_t loom_amdgpu_low_legality_verify_memory(
           context, op, descriptor_set, access, resolution, &cache_attrs));
     }
     IREE_RETURN_IF_ERROR(loom_amdgpu_record_memory_access_diagnostic(
-        context, op, descriptor_set, access, access->source.operation_kind));
+        context, op, descriptor_set, access, access->source->operation_kind));
   }
   return iree_ok_status();
 }

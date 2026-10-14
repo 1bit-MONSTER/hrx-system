@@ -19,6 +19,30 @@ extern "C" {
 typedef struct loom_low_lower_context_t loom_low_lower_context_t;
 typedef struct loom_low_lower_memory_origin_t loom_low_lower_memory_origin_t;
 
+// Physical instruction geometry projected over canonical source access facts.
+typedef struct loom_low_lower_memory_packet_geometry_t {
+  // Static byte offset selected for the instruction.
+  int64_t static_byte_offset;
+  // Number of bytes in each logical vector element.
+  uint32_t element_byte_count;
+  // Number of logical vector elements moved by the instruction.
+  uint32_t vector_lane_count;
+  // Byte distance between consecutive logical vector elements.
+  int64_t vector_lane_byte_stride;
+} loom_low_lower_memory_packet_geometry_t;
+
+// Returns the canonical instruction geometry represented by |source_plan|.
+static inline loom_low_lower_memory_packet_geometry_t
+loom_low_lower_memory_packet_geometry_from_source(
+    const loom_low_source_memory_access_plan_t* source_plan) {
+  return (loom_low_lower_memory_packet_geometry_t){
+      .static_byte_offset = source_plan->static_byte_offset,
+      .element_byte_count = source_plan->element_byte_count,
+      .vector_lane_count = source_plan->vector_lane_count,
+      .vector_lane_byte_stride = source_plan->vector_lane_byte_stride,
+  };
+}
+
 // Captures the canonical access's dynamic origin independently of its physical
 // instruction geometry. Only workgroup-uniform terms may retain correlations;
 // all other terms contribute to a conservative participant-varying envelope.
@@ -38,6 +62,7 @@ iree_status_t loom_low_lower_memory_origin_plan(
 bool loom_low_lower_memory_packet_interval(
     const loom_low_lower_memory_origin_t* origin,
     const loom_low_source_memory_access_plan_t* source_plan,
+    const loom_low_lower_memory_packet_geometry_t* geometry,
     loom_value_facts_t additional_offset,
     loom_low_memory_relative_interval_t* out_interval,
     int64_t* out_lane_byte_count);
@@ -56,6 +81,7 @@ iree_status_t loom_low_lower_record_memory_packet(
     const loom_low_descriptor_t* descriptor,
     const loom_low_lower_memory_origin_t* origin,
     const loom_low_source_memory_access_plan_t* source_plan,
+    const loom_low_lower_memory_packet_geometry_t* geometry,
     loom_value_facts_t additional_offset);
 
 #ifdef __cplusplus

@@ -522,9 +522,12 @@ static iree_status_t loom_low_lower_rule_emit_descriptor_op(
       emit->result_ref_count, tied_results, emit->tied_result_count,
       source_op->location, &low_op));
   if (emit_source_memory_access != NULL) {
+    const loom_low_lower_memory_packet_geometry_t geometry =
+        loom_low_lower_memory_packet_geometry_from_source(
+            emit_source_memory_access);
     IREE_RETURN_IF_ERROR(loom_low_lower_record_memory_packet(
         context, low_op, resolved_emit->descriptor.descriptor,
-        selected_source_memory->origin, emit_source_memory_access,
+        selected_source_memory->origin, emit_source_memory_access, &geometry,
         loom_value_facts_exact_i64(0)));
   }
   loom_value_slice_t low_results = loom_low_op_results(low_op);

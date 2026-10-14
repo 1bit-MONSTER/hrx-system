@@ -421,7 +421,7 @@ static iree_status_t loom_amdgpu_apply_global_address_realizations(
   candidate.scalar_byte_offset = replacement->scalar_byte_offset;
   candidate.scalar_base_byte_offset = 0;
   const loom_low_source_memory_access_plan_t* source =
-      &replacement->access->source;
+      replacement->access->source;
   IREE_RETURN_IF_ERROR(loom_amdgpu_request_address_component(
       context, source_op, NULL, source, NULL, replacement->invariant_mask, 0, 0,
       &candidate.realization.vaddr));
@@ -444,7 +444,7 @@ static iree_status_t loom_amdgpu_prepare_global_address_realizations(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_low_lower_realization_loop_t* loop,
     loom_amdgpu_memory_access_t* access) {
-  const loom_low_source_memory_access_plan_t* source = &access->source;
+  const loom_low_source_memory_access_plan_t* source = access->source;
   if (source->operation_kind != LOOM_LOW_SOURCE_MEMORY_OPERATION_LOAD ||
       access->address_form != LOOM_AMDGPU_MEMORY_ADDRESS_FORM_GLOBAL_SADDR ||
       source->dynamic_view_base_term_count != 0 ||
@@ -591,14 +591,13 @@ iree_status_t loom_amdgpu_prepare_memory_address_realizations(
   if (loop == NULL) {
     return iree_ok_status();
   }
-  if (access->source.memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL) {
+  if (access->source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL) {
     return loom_amdgpu_prepare_global_address_realizations(context, source_op,
                                                            loop, access);
   }
-  if (access->source.memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP ||
+  if (access->source->memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP ||
       access->address_form != LOOM_AMDGPU_MEMORY_ADDRESS_FORM_DEFAULT ||
-      access->source.static_byte_offset < 0 ||
-      access->vaddr_static_byte_offset != 0) {
+      access->static_byte_offset < 0 || access->vaddr_static_byte_offset != 0) {
     return iree_ok_status();
   }
   const uint16_t invariant_mask =
@@ -606,18 +605,18 @@ iree_status_t loom_amdgpu_prepare_memory_address_realizations(
   uint32_t bank_bit = 0;
   uint32_t initial_byte_offset = 0;
   uint64_t invariant_maximum = 0;
-  if (!loom_amdgpu_address_alternating_bank(context, loop, &access->source,
+  if (!loom_amdgpu_address_alternating_bank(context, loop, access->source,
                                             invariant_mask, &bank_bit,
                                             &initial_byte_offset) ||
-      !loom_amdgpu_address_invariant_bound(&access->source, invariant_mask,
+      !loom_amdgpu_address_invariant_bound(access->source, invariant_mask,
                                            &invariant_maximum) ||
-      invariant_maximum + (uint64_t)access->source.static_byte_offset +
+      invariant_maximum + (uint64_t)access->static_byte_offset +
               access->packet_byte_count >
           bank_bit) {
     return iree_ok_status();
   }
   return loom_amdgpu_request_address_component(
-      context, source_op, loop, &access->source, NULL, invariant_mask, bank_bit,
+      context, source_op, loop, access->source, NULL, invariant_mask, bank_bit,
       initial_byte_offset, &access->realization.vaddr);
 }
 

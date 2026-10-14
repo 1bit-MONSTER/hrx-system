@@ -36,7 +36,6 @@ static iree_status_t loom_amdgpu_memory_access_plan_select_from_context(
   if (retained_source == NULL) {
     return iree_ok_status();
   }
-  loom_low_source_memory_access_plan_t source = *retained_source;
   const loom_amdgpu_source_alloca_layout_t* alloca_layout = NULL;
   IREE_RETURN_IF_ERROR(loom_amdgpu_source_alloca_layout_for_lower_context(
       context, &alloca_layout));
@@ -51,7 +50,7 @@ static iree_status_t loom_amdgpu_memory_access_plan_select_from_context(
           loom_low_lower_context_bundle(context),
           target_facts->properties.instruction_constraints, alloca_layout,
           loom_low_lower_context_read_visibility_scope(context), source_op,
-          &source, out_selection, &diagnostic)) {
+          retained_source, out_selection, &diagnostic)) {
     return iree_ok_status();
   }
   *out_selected = true;
@@ -124,6 +123,7 @@ static iree_status_t loom_amdgpu_select_memory_plan(
   loom_amdgpu_memory_access_plan_t* retained_plan = NULL;
   IREE_RETURN_IF_ERROR(loom_low_lower_allocate_plan_data(
       context, plan_byte_length, (void**)&retained_plan));
+  retained_plan->source = selection.source;
   retained_plan->packet_count = selection.packet_count;
   loom_module_t* module = loom_low_lower_context_module(context);
   const loom_memory_access_t memory_access =
@@ -138,9 +138,10 @@ static iree_status_t loom_amdgpu_select_memory_plan(
   }
   const loom_amdgpu_memory_dynamic_term_plan_t* dynamic_term_plans = NULL;
   IREE_RETURN_IF_ERROR(loom_amdgpu_plan_memory_dynamic_terms(
-      context, &selection.packets[0].access.source, &dynamic_term_plans));
+      context, &retained_plan->source, &dynamic_term_plans));
   for (uint32_t i = 0; i < selection.packet_count; ++i) {
     retained_plan->packets[i] = selection.packets[i];
+    retained_plan->packets[i].access.source = &retained_plan->source;
     retained_plan->packets[i].access.buffer_extent = NULL;
     retained_plan->packets[i].access.dynamic_term_plans = dynamic_term_plans;
     retained_plan->packets[i].constant_words = NULL;
@@ -152,7 +153,7 @@ static iree_status_t loom_amdgpu_select_memory_plan(
         context, source_op, &retained_plan->packets[i].access));
   }
   *out_plan = loom_low_lower_plan_make(source_op->kind, retained_plan);
-  out_plan->access_flags = retained_plan->packets[0].access.source.access_flags;
+  out_plan->access_flags = retained_plan->source.access_flags;
   return iree_ok_status();
 }
 
@@ -175,10 +176,10 @@ iree_status_t loom_amdgpu_finalize_memory_plan(
   if ((first->address_form == LOOM_AMDGPU_MEMORY_ADDRESS_FORM_DEFAULT ||
        first->address_form ==
            LOOM_AMDGPU_MEMORY_ADDRESS_FORM_BUFFER_OFF_ZERO) &&
-      first->source.memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP &&
-      first->source.memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_PRIVATE) {
-    IREE_RETURN_IF_ERROR(loom_amdgpu_plan_buffer_extent(context, &first->source,
-                                                        &buffer_extent));
+      first->source->memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP &&
+      first->source->memory_space != LOOM_VALUE_FACT_MEMORY_SPACE_PRIVATE) {
+    IREE_RETURN_IF_ERROR(
+        loom_amdgpu_plan_buffer_extent(context, first->source, &buffer_extent));
   }
   for (uint32_t i = 0; i < plan->packet_count; ++i) {
     plan->packets[i].access.buffer_extent = buffer_extent;

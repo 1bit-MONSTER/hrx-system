@@ -167,14 +167,14 @@ loom_amdgpu_memory_cache_policy_resolve(
   *out_attrs = (loom_amdgpu_memory_cache_policy_attrs_t){0};
 
   const loom_vector_memory_cache_policy_t* policy =
-      &access->source.cache_policy;
+      &access->source->cache_policy;
   if (!loom_amdgpu_memory_cache_policy_is_present(policy)) {
     return LOOM_AMDGPU_MEMORY_CACHE_POLICY_RESOLUTION_ABSENT;
   }
   if (!loom_amdgpu_memory_cache_policy_is_complete(policy)) {
     return LOOM_AMDGPU_MEMORY_CACHE_POLICY_RESOLUTION_REJECTED;
   }
-  if (access->source.memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
+  if (access->source->memory_space == LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP) {
     return LOOM_AMDGPU_MEMORY_CACHE_POLICY_RESOLUTION_DROPPED;
   }
 
