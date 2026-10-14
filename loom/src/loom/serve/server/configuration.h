@@ -88,7 +88,8 @@ typedef struct loom_serve_model_configuration_t {
   // Device-group ordinal, or IREE_HOST_SIZE_MAX when the document omits it.
   // The registry replaces omission with zero only for a one-device group.
   iree_host_size_t device_index;
-  // Owned program role paths, provider array/strings, and local directory base.
+  // Owned program paths, provider array/strings, local directory base, and
+  // retained source package when registration supplied one.
   loom_serve_sources_t sources;
   // Owned JSON object interpreted by the source prepare program.
   iree_string_view_t options;
@@ -115,12 +116,15 @@ typedef struct loom_serve_model_configuration_t {
 // I/O. Admission defaults to "open"; "drained" defers preparation. Device
 // selection is a nonnegative group ordinal; membership is resolved separately.
 // document_directory supplies the local base for file input. HTTP passes an
-// empty base: relative references then require an explicit absolute
+// empty base: filesystem references then require an explicit absolute
 // base_directory in the document. That explicit base overrides the file base.
-// All strings are copied. Failure releases partial state and zeros the output.
+// package, when present, supplies a separate namespace for relative source and
+// metadata references; parameter checkpoints remain filesystem references.
+// All strings are copied and package is retained through deinitialization.
+// Failure releases partial state and zeros the output.
 iree_status_t loom_serve_model_configuration_initialize(
     iree_string_view_t json, iree_string_view_t document_directory,
-    iree_allocator_t host_allocator,
+    loom_serve_package_t* package, iree_allocator_t host_allocator,
     loom_serve_model_configuration_t* out_model);
 void loom_serve_model_configuration_deinitialize(
     loom_serve_model_configuration_t* model);

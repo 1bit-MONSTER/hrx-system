@@ -12,6 +12,7 @@
 #include "iree/base/threading/mutex.h"
 #include "loom/serve/runtime/host/wake.h"
 #include "loom/serve/server/http/logs.h"
+#include "loom/serve/server/http/package.h"
 #include "loom/serve/server/http/response.h"
 #include "loom/serve/server/http/tokenization.h"
 #include "loom/serve/server/http/variants.h"
@@ -1146,10 +1147,17 @@ static iree_status_t loom_serve_router_control(
 static iree_status_t loom_serve_router_register(
     router_t* router, loom_serve_http_connection_t* connection,
     const loom_serve_http_request_t* request) {
-  loom_serve_model_configuration_t configuration;
-  iree_status_t status = loom_serve_model_configuration_initialize(
-      request->body, iree_string_view_empty(), router->host_allocator,
-      &configuration);
+  loom_serve_model_configuration_t configuration = {0};
+  iree_string_view_t json;
+  loom_serve_package_t* package = NULL;
+  iree_status_t status = loom_serve_http_package_parse(
+      request, router->host_allocator, &json, &package);
+  if (iree_status_is_ok(status)) {
+    status = loom_serve_model_configuration_initialize(
+        json, iree_string_view_empty(), package, router->host_allocator,
+        &configuration);
+  }
+  loom_serve_package_release(package);
   iree_host_size_t index = 0;
   if (iree_status_is_ok(status)) {
     status =

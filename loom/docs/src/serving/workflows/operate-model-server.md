@@ -154,7 +154,9 @@ curl --fail-with-body --silent --show-error \
   -d "{\"model\":\"scout\",\"variant\":$candidate,\"expected\":$original}"
 ```
 
-The provider files must already exist on the server. Staging waits
+These JSON-only commands use provider files already on the server. A
+[multipart source package](../../reference/serving-http.md#uploaded-source-packages)
+instead carries client-local providers in the request. Staging waits
 asynchronously by default and returns retained compiler diagnostics on failure;
 `"wait":false` instead returns an ID immediately for later inspection.
 Existing inference can progress during JIT. Selection briefly quiesces that

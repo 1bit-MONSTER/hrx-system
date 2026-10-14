@@ -29,6 +29,7 @@
 #include "loom/serve/service/finite/service.h"
 #include "loom/serve/testing/http_harness.h"
 #include "loom/serve/testing/model.h"
+#include "loom/serve/testing/package.h"
 #include "loom/serve/testing/stalled_stderr.h"
 #include "loom/serve/transport/http/listener.h"
 
@@ -646,6 +647,45 @@ global.rodata.def @policy = bytes("706f6c6963792e6c6f6f6d")
   // incarnations.
   loom_serve_telemetry_counters_t retired_counters_ = {};
 };
+
+TEST_P(SourceEmbeddingServiceTest, UploadedPolicyPreparesServerLocalWeights) {
+  const std::string directory =
+      iree::testing::MakeTempFilePath("uploaded_weighted");
+  ASSERT_NO_FATAL_FAILURE(WriteWeightedPackage(directory));
+  const std::string checkpoints =
+      iree::testing::MakeTempFilePath("uploaded_checkpoint");
+  ASSERT_TRUE(std::filesystem::create_directory(checkpoints));
+  ASSERT_TRUE(std::filesystem::copy_file(directory + "/weights.safetensors",
+                                         checkpoints + "/weights.safetensors"));
+  StartManagedRouter();
+  {
+    loom_serve::testing::SourcePackage package;
+    for (const auto* file :
+         {"prepare.loom", "control.loom", "config.loom", "embed.loom",
+          "weights.loom", "policy.loom", "tokenizer.json"}) {
+      IREE_ASSERT_OK(package.AddFile(std::string("model/") + file,
+                                     directory + "/" + file));
+    }
+    int client = -1;
+    IREE_ASSERT_OK(http_.Send(
+        package.Request(
+            "/v1/models/register",
+            Declaration("weighted", directory, "drained", checkpoints)),
+        &client));
+    const auto registered = Read(client);
+    ASSERT_EQ(registered.find("HTTP/1.1 202"), 0u) << registered;
+  }
+  ASSERT_EQ(Read(Send(R"({"model":"weighted"})", "/v1/models/undrain"))
+                .find("HTTP/1.1 200"),
+            0u);
+  const auto response = Read(Send(R"({"model":"weighted","input":"a"})"));
+  EXPECT_NE(response.find(R"("embedding":[2,2,2,2])"), std::string::npos)
+      << response << ModelStatus("weighted");
+  ASSERT_EQ(Read(Send(R"({"model":"weighted"})", "/v1/models/unregister"))
+                .find("HTTP/1.1 202"),
+            0u);
+  WaitModel("weighted", {});
+}
 
 TEST_P(SourceEmbeddingServiceTest,
        DynamicWeightedRegistrationOwnsItsOperationAndIncarnation) {

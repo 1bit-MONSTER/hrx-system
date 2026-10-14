@@ -118,7 +118,8 @@ iree_status_t loom_serve_jit_stage_record(
 // Compiles named roots from the model's portable VM source into one image.
 // root_count is nonzero. On success, the caller owns
 // the image with host_allocator and can transfer it to the VM bytecode module.
-iree_status_t loom_serve_jit_compile_vm(iree_string_view_t source_path,
+iree_status_t loom_serve_jit_compile_vm(const loom_serve_sources_t* sources,
+                                        iree_string_view_t source_path,
                                         iree_host_size_t root_count,
                                         const iree_string_view_t* roots,
                                         loom_serve_compilation_report_t* report,

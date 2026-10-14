@@ -6,6 +6,7 @@
 
 #include "iree/base/internal/json.h"
 #include "loom/serve/service/text/service_test_fixture.h"
+#include "loom/serve/testing/package.h"
 #include "loomc/context.h"
 #include "loomc/iree.h"
 #include "loomc/module.h"
@@ -123,24 +124,13 @@ class ReconfigurationHttpTextTest : public SourceTextServiceTest {
       }
     }
     const std::string name = binary ? "native.loombc" : "native.loom";
-    const std::string body =
-        "--source-package\r\nContent-Disposition: form-data; name=\"request\"; "
-        "filename=\"model/variant.json\"\r\nContent-Type: "
-        "application/json\r\n\r\n"
-        "{\"model\":\"fixture-text\",\"base\":" +
-        std::to_string(base) + ",\"sources\":[\"" + name +
-        "\"],\"wait\":" + (wait ? "true" : "false") +
-        "}\r\n--source-package\r\n"
-        "Content-Disposition: form-data; name=\"file\"; filename=\"model/" +
-        name +
-        "\""
-        "\r\nContent-Type: application/octet-stream\r\n\r\n" +
-        source + "\r\n--source-package--\r\n";
-    const std::string request =
-        "POST /v1/models/variants HTTP/1.1\r\nHost: local\r\n"
-        "Content-Type: multipart/form-data; boundary=source-package\r\n"
-        "Content-Length: " +
-        std::to_string(body.size()) + "\r\n\r\n" + body;
+    const std::string json =
+        "{\"model\":\"fixture-text\",\"base\":" + std::to_string(base) +
+        ",\"sources\":[\"" + name +
+        "\"],\"wait\":" + (wait ? "true" : "false") + "}";
+    loom_serve::testing::SourcePackage package;
+    package.Add("model/" + name, source);
+    const auto request = package.Request("/v1/models/variants", json);
     int client = -1;
     [&] { IREE_ASSERT_OK(http_.Send(request, &client)); }();
     return Read(client);
@@ -159,6 +149,50 @@ class ReconfigurationHttpTextTest : public SourceTextServiceTest {
         "", "/v1/models/variants/remove"));
   }
 };
+
+TEST_P(ReconfigurationHttpTextTest,
+       UploadedRegistrationOwnsDeferredVmAndMetadata) {
+  StartManaged();
+  {
+    loom_serve::testing::SourcePackage package;
+    for (const auto* file :
+         {"prepare.loom", "advance.loom", "weights.loom", "tokenizer.json"}) {
+      IREE_ASSERT_OK(package.AddFile(std::string("model/") + file,
+                                     directory_ + "/" + file));
+    }
+    std::string bytecode;
+    IREE_ASSERT_OK(Bytecode(directory_ + "/control.loom", &bytecode));
+    package.Add("model/control.loombc", bytecode);
+    const std::string declaration =
+        R"({"name":"fixture-text","admission":"drained","definition":{)"
+        R"("kind":"text","prepare":"prepare.loom","control":"control.loombc",)"
+        R"("sources":["advance.loom"],"tokenizer":"tokenizer.json","weights":")" +
+        std::filesystem::absolute(weights_).string() +
+        R"(","rows":4,"context_capacity":96,"pool_capacity":256,"prefill_capacity":32}})";
+    int client = -1;
+    IREE_ASSERT_OK(http_.Send(
+        package.Request("/v1/models/register", declaration), &client));
+    const auto registered = Read(client);
+    ASSERT_EQ(registered.find("HTTP/1.1 202"), 0u) << registered;
+    EXPECT_NE(registered.find(R"("registration":"registered")"),
+              std::string::npos);
+  }
+  // Both the encoder and the upload socket are gone before VM preparation.
+  ASSERT_EQ(Read(Send(R"({"model":"fixture-text"})", "", "/v1/models/undrain"))
+                .find("HTTP/1.1 200"),
+            0u);
+  EXPECT_EQ(Content(Read(Send(Request(Message("user", "abxa"), 2)))),
+            Oracle::Complete("abxa", 2));
+  EXPECT_NE(
+      Read(Send(R"({"model":"fixture-text","content":"abx"})", "", "/tokenize"))
+          .find(R"({"tokens":[0,1,2]})"),
+      std::string::npos);
+  ASSERT_EQ(
+      Read(Send(R"({"model":"fixture-text"})", "", "/v1/models/unregister"))
+          .find("HTTP/1.1 202"),
+      0u);
+  WaitModel("fixture-text", {});
+}
 
 TEST_P(ReconfigurationHttpTextTest,
        StageSelectRollbackPreserveWeightsAndConversation) {

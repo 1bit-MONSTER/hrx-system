@@ -28,6 +28,7 @@
 #include "loom/serve/service/image/service.h"
 #include "loom/serve/testing/http_harness.h"
 #include "loom/serve/testing/model.h"
+#include "loom/serve/testing/package.h"
 #include "loom/serve/testing/stalled_stderr.h"
 #include "loom/serve/transport/http/listener.h"
 
@@ -644,6 +645,44 @@ TEST_P(SourceImageServiceTest, DynamicImageAdmissionRetirementAndReuse) {
             std::string::npos);
   EXPECT_EQ(Read(Send("POST", "/v1/models/unregister",
                       R"({"model":"pixels","mode":"abort"})"))
+                .find("HTTP/1.1 202"),
+            0u);
+  WaitModel("pixels", {});
+}
+
+TEST_P(SourceImageServiceTest, UploadedImageRegistrationProducesExactPixels) {
+  StartManaged();
+  {
+    loom_serve::testing::SourcePackage package;
+    for (const auto* file : {"prepare.loom", "control.loom", "config.loom",
+                             "generate.loom", "tokenizer.json"}) {
+      IREE_ASSERT_OK(package.AddFile(std::string("model/") + file,
+                                     directory_ + "/" + file));
+    }
+    const std::string declaration =
+        R"({"name":"pixels","admission":"drained","definition":{)"
+        R"("kind":"image","prepare":"prepare.loom","control":"control.loom",)"
+        R"("sources":["config.loom","generate.loom"],"checkpoint":".",)"
+        R"("width":7,"height":5,"text_tokens":32,"command_quantum":)" +
+        std::to_string(std::get<1>(GetParam())) + "}}";
+    int client = -1;
+    IREE_ASSERT_OK(http_.Send(
+        package.Request("/v1/models/register", declaration), &client));
+    const auto registered = Read(client);
+    ASSERT_EQ(registered.find("HTTP/1.1 202"), 0u) << registered;
+    EXPECT_NE(registered.find(R"("registration":"registered")"),
+              std::string::npos);
+  }
+  ASSERT_EQ(Read(Send("POST", "/v1/models/undrain", R"({"model":"pixels"})"))
+                .find("HTTP/1.1 200"),
+            0u);
+  const auto response =
+      Read(Send("POST", "/v1/images/generations",
+                R"({"model":"pixels","prompt":"aba","seed":1})"));
+  EXPECT_NE(response.find("\"b64_json\":\"" + EncodedPixels(3, 1) + "\""),
+            std::string::npos)
+      << response;
+  ASSERT_EQ(Read(Send("POST", "/v1/models/unregister", R"({"model":"pixels"})"))
                 .find("HTTP/1.1 202"),
             0u);
   WaitModel("pixels", {});

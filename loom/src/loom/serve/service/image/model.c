@@ -9,7 +9,6 @@
 #include <inttypes.h>
 #include <stdio.h>
 
-#include "iree/io/file_contents.h"
 #include "iree/tokenizer/format/huggingface/tokenizer_json.h"
 #include "iree/tooling/device_util.h"
 #include "iree/vm/buffer.h"
@@ -233,27 +232,21 @@ iree_status_t loom_serve_image_model_free(loom_serve_image_model_t* model) {
 }
 
 static iree_status_t loom_serve_image_load_tokenizer(
-    loom_serve_image_model_t* model, iree_string_view_t base_directory,
+    loom_serve_image_model_t* model, const loom_serve_sources_t* sources,
     iree_string_view_t directory, iree_string_view_t asset) {
-  char* resolved_directory = NULL;
-  IREE_RETURN_IF_ERROR(loom_serve_path_resolve(
-      base_directory, directory, model->host_allocator, &resolved_directory));
   char* path = NULL;
-  iree_status_t status =
-      loom_serve_path_resolve(iree_make_cstring_view(resolved_directory), asset,
-                              model->host_allocator, &path);
-  iree_allocator_free(model->host_allocator, resolved_directory);
-  IREE_RETURN_IF_ERROR(status);
-  iree_io_file_contents_t* contents = NULL;
-  status = iree_io_file_contents_read(iree_make_cstring_view(path),
-                                      model->host_allocator, &contents);
+  IREE_RETURN_IF_ERROR(
+      loom_serve_path_resolve(directory, asset, model->host_allocator, &path));
+  loomc_source_t* contents = NULL;
+  iree_status_t status = loom_serve_sources_open(
+      sources, iree_make_cstring_view(path), model->host_allocator, &contents);
   if (iree_status_is_ok(status)) {
+    const loomc_byte_span_t bytes = loomc_source_contents(contents);
     status = iree_tokenizer_from_huggingface_json(
-        iree_make_string_view((const char*)contents->const_buffer.data,
-                              contents->const_buffer.data_length),
+        iree_make_string_view((const char*)bytes.data, bytes.data_length),
         model->host_allocator, &model->tokenizer);
   }
-  iree_io_file_contents_free(contents);
+  loomc_source_release(contents);
   iree_allocator_free(model->host_allocator, path);
   return status;
 }
@@ -270,10 +263,6 @@ static iree_status_t loom_serve_image_prepare(
       iree_vm_ref_types_resolve(iree_vm_environment_lookup_ref_type_table(
                                     model->control.environment, IREE_SV("vm")),
                                 &model->control.vm_types));
-  char* path = NULL;
-  IREE_RETURN_IF_ERROR(loom_serve_path_resolve(options->sources.base_directory,
-                                               options->sources.prepare,
-                                               host_allocator, &path));
   iree_vm_module_t* modules[2] = {0};
   iree_status_t status = loom_serve_input_module_create(
       model->control.environment, NULL, host_allocator, &modules[0]);
@@ -309,7 +298,7 @@ static iree_status_t loom_serve_image_prepare(
   iree_vm_variant_t results[4] = {0};
   if (iree_status_is_ok(status)) {
     status = loom_serve_preparation_allocate(
-        model->control.environment, iree_make_cstring_view(path),
+        model->control.environment, &options->sources, options->sources.prepare,
         IREE_SV("prepare"), iree_vm_variant_span_from_array(arguments),
         iree_vm_variant_span_from_array(results),
         (iree_vm_module_span_t){modules, IREE_ARRAYSIZE(modules)},
@@ -359,7 +348,7 @@ static iree_status_t loom_serve_image_prepare(
   }
   if (iree_status_is_ok(status)) {
     status = loom_serve_image_load_tokenizer(
-        model, options->sources.base_directory, options->checkpoint_directory,
+        model, &options->sources, options->checkpoint_directory,
         iree_make_string_view((const char*)bytes[0].data,
                               bytes[0].data_length));
   }
@@ -368,7 +357,6 @@ static iree_status_t loom_serve_image_prepare(
   for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(modules); ++i) {
     iree_vm_module_release(modules[i]);
   }
-  iree_allocator_free(host_allocator, path);
   if (iree_status_is_ok(status)) {
     const iree_host_size_t count =
         loom_serve_preparation_stage_count(model->preparation);
@@ -776,17 +764,12 @@ static iree_status_t loom_serve_image_load_prepare(
       iree_hal_module_register_types(model->control.environment, &table));
   IREE_RETURN_IF_ERROR(
       iree_hal_module_types_resolve(table, &model->control.hal_types));
-  char* path = NULL;
-  IREE_RETURN_IF_ERROR(loom_serve_path_resolve(
-      load->options.sources.base_directory, load->options.sources.control,
-      host_allocator, &path));
   const iree_string_view_t roots[] = {IREE_SVL("prepare_request"),
                                       IREE_SVL("generate")};
   iree_status_t status = loom_serve_program_compile(
-      model->control.environment, iree_make_cstring_view(path),
-      IREE_ARRAYSIZE(roots), roots, &model->compilation, host_allocator,
-      &load->module);
-  iree_allocator_free(host_allocator, path);
+      model->control.environment, &load->options.sources,
+      load->options.sources.control, IREE_ARRAYSIZE(roots), roots,
+      &model->compilation, host_allocator, &load->module);
   IREE_RETURN_IF_ERROR(status);
   return loom_serve_jit_allocate(
       loom_serve_device_handle(model->owner),
@@ -928,8 +911,8 @@ iree_status_t loom_serve_image_load_advance(loom_serve_image_load_t* load,
           iree_slim_mutex_unlock(&load->event.mutex);
           status = loom_serve_weights_prepare_async(
               model->weights.plans[i], host, model->jit, load->command_mode,
-              load->options.sources.base_directory, parameter->path,
-              parameter->policy, loom_serve_image_load_complete, load);
+              &load->options.sources, parameter->path, parameter->policy,
+              loom_serve_image_load_complete, load);
           submitted = iree_status_is_ok(status);
         } else {
           load->phase = IMAGE_LOAD_LINK;

@@ -211,6 +211,7 @@ loom_cc_library(
     deps = [
         ":compilation",
         ":jit",
+        ":sources",
         "//runtime/src/iree/base",
         "//runtime/src/iree/vm",
         "//runtime/src/iree/vm/bytecode:module",
@@ -260,6 +261,7 @@ loom_cc_library(
     deps = [
         ":compilation",
         ":program",
+        ":sources",
         "//loom/binding/c:loomc",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:path",

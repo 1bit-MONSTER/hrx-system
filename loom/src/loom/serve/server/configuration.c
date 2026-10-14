@@ -391,6 +391,7 @@ void loom_serve_model_configuration_deinitialize(
                       (void*)model->sources.base_directory.data);
   iree_allocator_free(host_allocator, (void*)model->sources.prepare.data);
   iree_allocator_free(host_allocator, (void*)model->sources.control.data);
+  loom_serve_package_release(model->sources.package);
   for (iree_host_size_t i = 0;
        model->sources.values && i < model->sources.count; ++i) {
     iree_allocator_free(host_allocator, (void*)model->sources.values[i].data);
@@ -412,12 +413,14 @@ void loom_serve_model_configuration_deinitialize(
 
 static iree_status_t loom_serve_model_configuration_model_parse(
     iree_string_view_t json, iree_string_view_t document_directory,
-    iree_allocator_t host_allocator,
+    loom_serve_package_t* package, iree_allocator_t host_allocator,
     loom_serve_model_configuration_t* out_model) {
   *out_model =
       (loom_serve_model_configuration_t){.host_allocator = host_allocator,
                                          .device_index = IREE_HOST_SIZE_MAX,
                                          .pending_requests = 32};
+  out_model->sources.package = package;
+  loom_serve_package_retain(package);
   iree_string_view_t object;
   IREE_RETURN_IF_ERROR(iree_json_consume_object(&json, &object));
   IREE_RETURN_IF_ERROR(iree_json_consume_insignificant(&json));
@@ -472,6 +475,22 @@ static iree_status_t loom_serve_model_configuration_model_parse(
   if (out_model->sources.base_directory.size) {
     return iree_ok_status();
   }
+  if (package) {
+    // The package resolves program and metadata locators. Only explicit
+    // checkpoint files need a local base here; source-declared parameter paths
+    // are checked when their preparation declarations are consumed.
+    const iree_string_view_t checkpoint =
+        out_model->kind == LOOM_SERVE_MODEL_KIND_TEXT ? out_model->text.weights
+        : out_model->kind == LOOM_SERVE_MODEL_KIND_IMAGE
+            ? out_model->image.adapter
+            : iree_string_view_empty();
+    if (checkpoint.size && !loom_serve_path_is_absolute(checkpoint)) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "relative checkpoint paths require base_directory");
+    }
+    return iree_ok_status();
+  }
   // Without a document base, every native-owned locator must stand alone.
   // Source-declared checkpoint/policy paths are checked when they are bound.
   const iree_string_view_t paths[] = {
@@ -501,10 +520,10 @@ static iree_status_t loom_serve_model_configuration_model_parse(
 
 iree_status_t loom_serve_model_configuration_initialize(
     iree_string_view_t json, iree_string_view_t document_directory,
-    iree_allocator_t host_allocator,
+    loom_serve_package_t* package, iree_allocator_t host_allocator,
     loom_serve_model_configuration_t* out_model) {
   iree_status_t status = loom_serve_model_configuration_model_parse(
-      json, document_directory, host_allocator, out_model);
+      json, document_directory, package, host_allocator, out_model);
   if (!iree_status_is_ok(status)) {
     loom_serve_model_configuration_deinitialize(out_model);
   }
@@ -525,7 +544,7 @@ iree_status_t loom_serve_model_configuration_load(
   iree_status_t status = loom_serve_model_configuration_initialize(
       iree_make_string_view((const char*)contents->const_buffer.data,
                             contents->const_buffer.data_length),
-      directory, host_allocator, out_model);
+      directory, NULL, host_allocator, out_model);
   iree_io_file_contents_free(contents);
   return status;
 }

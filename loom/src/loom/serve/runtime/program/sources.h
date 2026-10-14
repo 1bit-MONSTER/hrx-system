@@ -18,7 +18,8 @@ extern "C" {
 // The owner retains every view through asynchronous model preparation. Authored
 // locators remain separate from the local base used by an I/O consumer.
 typedef struct loom_serve_sources_t {
-  // Local model-document directory; empty requires absolute input paths.
+  // Local file base; empty requires absolute locators for filesystem inputs.
+  // Package-relative programs/metadata do not use this base.
   iree_string_view_t base_directory;
   // Cold VM program declaring stages and model metadata.
   iree_string_view_t prepare;

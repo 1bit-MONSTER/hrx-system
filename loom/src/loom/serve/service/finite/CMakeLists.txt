@@ -63,7 +63,6 @@ loom_cc_library(
     iree::base
     iree::base::threading
     iree::hal
-    iree::io::file_handle
     iree::module::hal::types
     iree::tokenizer
     iree::tokenizer::format::huggingface::tokenizer_json

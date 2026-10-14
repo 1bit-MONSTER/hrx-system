@@ -215,9 +215,10 @@ class ControlTest
     const std::string path = directory_ + "/control.loom";
     iree_const_byte_span_t image;
     const iree_string_view_t roots[] = {IREE_SVL("step"), IREE_SVL("fork")};
+    const loom_serve_sources_t sources = {.base_directory = IREE_SV(".")};
     IREE_RETURN_IF_ERROR(loom_serve_jit_compile_vm(
-        iree_make_cstring_view(path.c_str()), IREE_ARRAYSIZE(roots), roots,
-        &compilation_, host_allocator_, &image));
+        &sources, iree_make_cstring_view(path.c_str()), IREE_ARRAYSIZE(roots),
+        roots, &compilation_, host_allocator_, &image));
     iree_status_t status = iree_vm_bytecode_module_create_trusted(
         environment_, IREE_SV("model"), {image, host_allocator_},
         host_allocator_, &bytecode_module_);

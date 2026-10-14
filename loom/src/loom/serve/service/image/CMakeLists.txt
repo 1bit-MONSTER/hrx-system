@@ -133,7 +133,6 @@ loom_cc_library(
     ::generator
     iree::base
     iree::hal
-    iree::io::file_handle
     iree::module::hal::types
     iree::tokenizer
     iree::tokenizer::format::huggingface::tokenizer_json
@@ -186,6 +185,7 @@ loom_cc_library(
     loom::serve::service::image::service
     loom::serve::testing::http_harness
     loom::serve::testing::model
+    loom::serve::testing::package
     loom::serve::testing::stalled_stderr
     loom::serve::transport::http::listener
     loom::serve::transport::http::server

@@ -46,6 +46,7 @@ loom_cc_library(
         "//loom/src/loom/serve/runtime/program:compilation",
         "//loom/src/loom/serve/runtime/program:variant_pool",
         "//loom/src/loom/serve/server/http:logs",
+        "//loom/src/loom/serve/server/http:package",
         "//loom/src/loom/serve/server/http:response",
         "//loom/src/loom/serve/server/http:tokenization",
         "//loom/src/loom/serve/server/http:variants",

@@ -17,7 +17,7 @@ no built-in authentication or TLS termination.
 | `GET /healthz`, `GET /readyz` | Server availability: `{"status":"ready"}`. |
 | `GET /v1/models` | Prepared deployments not being removed, with input/output modalities and a `loom` capability object. |
 | `GET /v1/status` | Every registration, progress/errors, admission, scheduler state and shared server resources. |
-| `POST /v1/models/register` | Complete model document; HTTP 202 accepts registration intent. |
+| `POST /v1/models/register` | Complete model document, optionally with uploaded source files; HTTP 202 accepts registration intent. |
 | `POST /v1/models/drain`, `POST /v1/models/undrain` | `{"model":"name"}`; HTTP 200 acknowledges the gate change. |
 | `POST /v1/models/unregister` | `{"model":"name","mode":"drain"}`; mode may instead be `"abort"`; HTTP 202 accepts removal. |
 | `POST /v1/models/activate`, `POST /v1/models/deactivate` | Model-only body; HTTP 202 accepts a residency operation on a healthy drained registration. |
@@ -98,12 +98,13 @@ until explicit removal or model retirement. Disconnect withdraws the reader,
 not accepted compilation or selection. Unregister withdraws waiting compilation
 readers with 410 while still joining the compiler's actual model ownership.
 
-#### Uploaded native source packages
+### Uploaded source packages
 
-The staging endpoint also accepts `multipart/form-data`: exactly one `request`
-part contains the same staging JSON, and repeated `file` parts carry its native
-providers. Each file's `filename` is a case-sensitive UTF-8 path inside the
-package, not a server filesystem destination. The request filename defaults to
+Registration and native staging also accept `multipart/form-data`: exactly one
+`request` part contains the same JSON as the corresponding endpoint, and repeated
+`file` parts carry programs and metadata. Each file's `filename` is a
+case-sensitive UTF-8 path inside the package, not a server filesystem
+destination. The request filename defaults to
 `request.json`; its directory is the base for relative source references.
 
 For a local `candidate.json` containing
@@ -126,10 +127,26 @@ providers, so an upload may combine changed files with existing local inputs.
 Filenames are literal UTF-8, not URL-decoded.
 
 Parts may arrive in any order; duplicates and malformed/truncated bodies reject
-before staging. File bytes are retained in memory independently of the request
-connection, including binary `.loombc`. The JIT releases its source ownership
-after constructing independent executables and copied diagnostics. These are
-code packages, not checkpoint transfers or a persistent package catalog.
+before registration or staging. File bytes are retained in memory independently
+of the request connection, including binary `.loombc`. Native staging releases
+its source ownership after constructing independent executables and copied
+diagnostics. Registration retains the package until the model retires, including
+when `admission:"drained"` defers preparation. These are code packages, not
+checkpoint transfers or a persistent package catalog.
+
+For `POST /v1/models/register`, the `request` part is the complete
+[model document](serving-models.md). Relative `prepare`, `control`, native
+providers, tokenizer metadata and source-declared weight-preparation policies
+resolve inside the package. An image or finite model's relative asset directory
+also applies within that namespace when loading metadata. Absolute locators
+still explicitly select server-local files.
+
+Parameter checkpoint bytes always use the server filesystem, independently of
+the package namespace. An absolute `base_directory` in the model document binds
+relative checkpoint paths there; it does not redirect relative code or metadata
+away from the package. For example, `checkpoint:"."` or `assets:"."` can let a
+model read uploaded tokenizer metadata while its source-declared weight files
+resolve under `base_directory:"/srv/checkpoints/model"`.
 
 The normal `--request_body_bytes` limit covers the complete multipart body;
 there is no implicit upload exception. HTTP requires `Content-Length` and does

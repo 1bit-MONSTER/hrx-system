@@ -56,6 +56,7 @@ loom_cc_library(
         "//loom/src/loom/serve/service/finite/embedding:protocol",
         "//loom/src/loom/serve/testing:http_harness",
         "//loom/src/loom/serve/testing:model",
+        "//loom/src/loom/serve/testing:package",
         "//loom/src/loom/serve/testing:stalled_stderr",
         "//loom/src/loom/serve/transport/http:listener",
         "//loom/src/loom/serve/transport/http:server",

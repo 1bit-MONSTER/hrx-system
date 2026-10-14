@@ -166,9 +166,10 @@ static iree_status_t loom_serve_text_request_check_run(
       IREE_SVL("complete_text"),  IREE_SVL("request_defaults"),
       IREE_SVL("request_options")};
   loom_serve_program_t* program = NULL;
+  const loom_serve_sources_t sources = {.base_directory = IREE_SV(".")};
   if (iree_status_is_ok(status)) {
     status = loom_serve_program_allocate(
-        environment, iree_make_cstring_view(FLAG_control),
+        environment, &sources, iree_make_cstring_view(FLAG_control),
         IREE_ARRAYSIZE(roots), roots, iree_vm_module_span_from_array(libraries),
         &compilation, host_allocator, &program);
   }

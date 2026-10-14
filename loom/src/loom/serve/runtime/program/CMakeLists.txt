@@ -229,6 +229,7 @@ loom_cc_library(
   DEPS
     ::compilation
     ::jit
+    ::sources
     iree::base
     iree::vm
     iree::vm::bytecode::module
@@ -288,6 +289,7 @@ loom_cc_library(
   DEPS
     ::compilation
     ::program
+    ::sources
     iree::base
     iree::base::internal::path
     iree::vm

@@ -35,7 +35,7 @@ struct Preparation {
     auto* self = static_cast<Preparation*>(process->user_data);
     auto status = loom_serve_weights_prepare_async(
         self->weights, self->host, self->jit,
-        IREE_HAL_COMMAND_BUFFER_MODE_DEFAULT, IREE_SV("."), self->checkpoint,
+        IREE_HAL_COMMAND_BUFFER_MODE_DEFAULT, &self->sources, self->checkpoint,
         self->policy, Complete, self);
     if (!iree_status_is_ok(status)) {
       Complete(self, status);
@@ -77,6 +77,8 @@ struct Preparation {
   loom_serve_host_t* host = nullptr;
   // Borrowed exclusive compiler catalog.
   loom_serve_jit_t* jit = nullptr;
+  // Explicit local namespace borrowed through asynchronous preparation.
+  const loom_serve_sources_t sources = {.base_directory = IREE_SV(".")};
   // Borrowed file locator retained by the outer test owner.
   iree_string_view_t checkpoint = {};
   // Borrowed source policy path retained through completion.

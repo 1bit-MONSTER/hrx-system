@@ -37,10 +37,11 @@ class ConfigurationTest : public ::testing::Test {
   }
 
   iree_status_t Parse(const std::string& json,
-                      iree_string_view_t directory = IREE_SV("models/local")) {
+                      iree_string_view_t directory = IREE_SV("models/local"),
+                      loom_serve_package_t* package = nullptr) {
     loom_serve_model_configuration_deinitialize(&model_);
     return loom_serve_model_configuration_initialize(
-        iree_make_string_view(json.data(), json.size()), directory,
+        iree_make_string_view(json.data(), json.size()), directory, package,
         iree_allocator_system(), &model_);
   }
 
@@ -87,6 +88,51 @@ TEST_F(ConfigurationTest, AdmissionIsAnIndependentRegistrationSetting) {
         Parse(Document("embedding", R"(,"assets":".")", field)));
     EXPECT_EQ(model_.name.data, nullptr);
   }
+}
+
+TEST_F(ConfigurationTest, UploadedSourcesSurviveTheirRegistrationRequest) {
+  const loom_serve_package_file_t file = {
+      IREE_SV("model/boot.loombc"), iree_make_const_byte_span("bytes", 5)};
+  loom_serve_package_t* package = nullptr;
+  IREE_ASSERT_OK(loom_serve_package_create(IREE_SV("model/model.json"), 1,
+                                           &file, iree_allocator_system(),
+                                           &package));
+  IREE_ASSERT_OK(Parse(
+      Document("embedding", R"(,"assets":".")", R"(,"admission":"drained")"),
+      {}, package));
+  loom_serve_package_release(package);
+  EXPECT_TRUE(model_.start_drained);
+  EXPECT_EQ(model_.sources.base_directory.size, 0u);
+  loomc_source_t* source = nullptr;
+  IREE_ASSERT_OK(loom_serve_sources_open(&model_.sources,
+                                         model_.sources.prepare,
+                                         iree_allocator_system(), &source));
+  loom_serve_model_configuration_deinitialize(&model_);
+  const auto bytes = loomc_source_contents(source);
+  EXPECT_EQ(
+      std::string(reinterpret_cast<const char*>(bytes.data), bytes.data_length),
+      "bytes");
+  loomc_source_release(source);
+}
+
+TEST_F(ConfigurationTest, PackagesDoNotSupplyAFileBaseForCheckpoints) {
+  loom_serve_package_t* package = nullptr;
+  IREE_ASSERT_OK(loom_serve_package_create(IREE_SV("model.json"), 0, nullptr,
+                                           iree_allocator_system(), &package));
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        Parse(Text(), {}, package));
+  EXPECT_EQ(model_.sources.package, nullptr);
+  IREE_ASSERT_OK(Parse(
+      Document(
+          "text",
+          R"(,"weights":"//files/model.gguf","tokenizer":"tokenizer.json")"),
+      {}, package));
+  IREE_ASSERT_OK(Parse(Image(), {}, package));
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_INVALID_ARGUMENT,
+      Parse(Image(R"(,"adapter":"adapter.gguf")"), {}, package));
+  IREE_ASSERT_OK(Parse(Text(), IREE_SV("//files/model"), package));
+  loom_serve_package_release(package);
 }
 
 TEST_F(ConfigurationTest, OmittedDeviceRequiresExactlyOneGroupMember) {
