@@ -36,6 +36,7 @@
 #include "loom/target/arch/amdgpu/planning/placement.h"
 #include "loom/target/arch/amdgpu/planning/storage_lease.h"
 #include "loom/target/arch/amdgpu/planning/vopd_plan.h"
+#include "loom/target/arch/amdgpu/refs/target_refs.h"
 #include "loom/target/emit/native/amdgpu/packet_plan_attention_bf16.h"
 #include "loom/target/low_descriptor_registry.h"
 #include "loom/target/provider.h"
@@ -77,6 +78,15 @@ struct FrameShape {
   iree_host_size_t packet_count;
   // Number of physical allocation assignments.
   iree_host_size_t assignment_count;
+  // Physical register extents used by the final allocation.
+  struct {
+    // Scalar register extent, excluding the separate ABI-fixed range.
+    uint32_t sgpr;
+    // Architectural vector register extent.
+    uint32_t vgpr;
+    // Accumulator register extent.
+    uint32_t agpr;
+  } physical_registers;
   // Number of finalized branch edge-copy segments.
   iree_host_size_t edge_copy_count;
   // Number of branch segments coalesced into destination storage.
@@ -207,12 +217,27 @@ struct FrameAnalysis {
 };
 
 static FrameAnalysis AnalyzeFrame(const loom_low_emission_frame_t& frame) {
+  const uint8_t agpr_class =
+      loom_amdgpu_agpr_reg_class_id(frame.schedule.target.descriptor_set);
   FrameAnalysis analysis = {
       .shape =
           {
               .block_count = frame.schedule.block_count,
               .packet_count = frame.schedule.scheduled_node_count,
               .assignment_count = frame.allocation.assignment_count,
+              .physical_registers =
+                  {
+                      .sgpr =
+                          frame.allocation.physical_extents
+                              .ends_by_reg_class[LOOM_AMDGPU_REG_CLASS_ID_SGPR],
+                      .vgpr =
+                          frame.allocation.physical_extents
+                              .ends_by_reg_class[LOOM_AMDGPU_REG_CLASS_ID_VGPR],
+                      .agpr = agpr_class == UINT8_MAX
+                                  ? 0
+                                  : frame.allocation.physical_extents
+                                        .ends_by_reg_class[agpr_class],
+                  },
               .edge_copy_count = frame.allocation.edge_copy_count,
               .coalesced_edge_copy_count = 0,
               .matrix_packet_count = 0,
@@ -847,6 +872,9 @@ static void RecordMetrics(benchmark::State& state,
   state.counters["assignments"] =
       static_cast<double>(analysis.shape.assignment_count);
   state.counters["blocks"] = static_cast<double>(analysis.shape.block_count);
+  state.counters["physical_sgprs"] = analysis.shape.physical_registers.sgpr;
+  state.counters["physical_vgprs"] = analysis.shape.physical_registers.vgpr;
+  state.counters["physical_agprs"] = analysis.shape.physical_registers.agpr;
   state.counters["coalesced_edge_copies"] =
       static_cast<double>(analysis.shape.coalesced_edge_copy_count);
   state.counters["edge_copies"] =

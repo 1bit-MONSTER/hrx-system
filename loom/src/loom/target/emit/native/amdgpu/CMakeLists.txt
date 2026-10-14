@@ -417,6 +417,7 @@ loom_cc_benchmark(
     loom::target::arch::amdgpu::planning::placement
     loom::target::arch::amdgpu::planning::storage_lease
     loom::target::arch::amdgpu::planning::vopd_plan
+    loom::target::arch::amdgpu::refs::target_refs
     loom::target::low_descriptor_registry
     loom::target::provider
   TESTONLY
