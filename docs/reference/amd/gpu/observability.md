@@ -126,6 +126,38 @@ physical package establishes per-XCC or cross-partition calibration. [ROCr
 frequency][rocr-frequency] · [Translation][rocr-clocks] · [Partition-aware
 reader][partition-clock]
 
+### Repeated native clock sampling
+
+ROCr's opt-in `hsaKmtGetClockCountersPrecise` performs up to four native queries
+for a GPU node, brackets each with `CLOCK_MONOTONIC_RAW`, and retains the
+complete tuple from the shortest successful query. CPU-only nodes receive one
+query. A later failure returns an earlier successful tuple when one exists;
+failure before any successful sample leaves the caller's output unchanged.
+The ordinary `hsaKmtGetClockCounters` remains a single query.
+[Linux sample selection][precise-clock-linux]
+
+The DXG implementation likewise selects among four complete samples, using
+its `TimeNanos` host clock around native GPU/CPU sampling. Its system-clock
+field is a separate host read after that native query. Neither implementation
+mixes the GPU value from one attempt with the host value from another.
+[DXG sample selection][precise-clock-dxg]
+
+Selecting the shortest bracket chooses the smallest observed upper bound on
+sampling displacement; it does not make the GPU and host reads simultaneous.
+These interfaces return the selected tuple without its measured bracket width,
+so the selection alone supplies no numeric uncertainty to the caller. It also
+does not establish that a queue-written clock shares the native query's epoch,
+or that a nominal rate exactly matches the host oscillator.
+
+The tools-only `hsa_amd_enable_high_precision_timestamps` sets a runtime flag
+for subsequent clock reads; `HSA_ENABLE_HIGH_PRECISION_TIMESTAMPS=1` selects
+the same policy during initialization. The KFD driver adapter uses the precise
+entry point only when the flag is set and the loaded thunk supplies it.
+This is extra host sampling work, separate from enabling dispatch timestamp
+writes in a queue. [Tool entry point][precise-clock-enable]
+[Environment selection][precise-clock-environment]
+[Driver selection][precise-clock-driver]
+
 ### Shader cycle counters
 
 Clang lowers `__builtin_readcyclecounter()` and
@@ -320,6 +352,14 @@ unavailable observation surface is not evidence that the event did not occur.
 This prerequisite is distinct from choosing a reproducible operating
 frequency. [AMD counter-clock requirement][pmc-clocks]
 
+The SDK's counter controller checks `power_dpm_force_performance_level` for
+agents satisfying `110000 <= gfx_target_version < 120500` and warns when the
+read value differs from `profile_standard`. It neither changes that policy
+nor rejects counter collection. This numeric predicate is the controller's
+warning policy; it is not a hardware capability query, and absence of a warning
+does not establish that a requested block's clocks are enabled.
+[Controller policy][sdk-counter-power-policy]
+
 ### DRM stable-pstate lifetime
 
 `AMDGPU_CTX_OP_SET_STABLE_PSTATE` operates through a DRM context, while Linux
@@ -414,6 +454,12 @@ Return to the [GPU index](README.md) or [primary source map](../sources.md).
 [rocr-frequency]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L287-L302
 [rocr-clocks]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L3196-L3329
 [partition-clock]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gfx_v9_4_3.c#L507-L519
+[precise-clock-linux]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/libhsakmt/src/time.c#L61-L123
+[precise-clock-dxg]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/libhsakmt/src/dxg/time.cpp#L32-L81
+[precise-clock-enable]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/hsa_ext_amd.cpp#L1675-L1682
+[precise-clock-environment]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/runtime/hsa-runtime/core/util/flag.h#L134-L138
+[precise-clock-driver]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/runtime/hsa-runtime/core/driver/kfd/amd_kfd_driver.cpp#L1003-L1018
+[sdk-counter-power-policy]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/counters/controller.cpp#L49-L110
 [kfd-profiler-uapi]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/include/uapi/linux/kfd_ioctl.h#L50-L58
 [kfd-profiler-protocol]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/include/uapi/linux/kfd_ioctl.h#L1560-L1588
 [sdk-profiler-request]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/counters/ioctl.cpp#L38-L99
