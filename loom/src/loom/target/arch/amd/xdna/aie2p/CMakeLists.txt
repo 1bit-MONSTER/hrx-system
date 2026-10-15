@@ -740,6 +740,31 @@ endif()
 if(LOOM_TARGET_ARCH_XDNA)
 iree_py_test(
   NAME
+    vector_construct_family_exhaustive_test
+  MAIN
+    "test/vector_construct_family_test.py"
+  SRCS
+    "test/vector_construct_family_test.py"
+  ARGS
+    "{{$<TARGET_FILE:loom::target::arch::amd::xdna::aie2p::loom-check>}}"
+    "--exhaustive"
+  DATA
+    "loom::target::arch::amd::xdna::aie2p::loom-check"
+  LABELS
+    "manual"
+    "stress"
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
+  TIMEOUT
+    60
+)
+endif()
+
+if(LOOM_TARGET_ARCH_XDNA)
+iree_py_test(
+  NAME
     interleave_family_test
   MAIN
     "test/interleave_family_test.py"
@@ -773,6 +798,7 @@ iree_py_test(
     "loom::target::arch::amd::xdna::aie2p::loom-check"
   LABELS
     "manual"
+    "stress"
   PACKAGE_DIRS
     "${PROJECT_SOURCE_DIR}/loom/py"
     "${PROJECT_BINARY_DIR}/loom/py"
@@ -818,6 +844,7 @@ iree_py_test(
     "loom::target::arch::amd::xdna::aie2p::loom-check"
   LABELS
     "manual"
+    "stress"
   PACKAGE_DIRS
     "${PROJECT_SOURCE_DIR}/loom/py"
     "${PROJECT_BINARY_DIR}/loom/py"

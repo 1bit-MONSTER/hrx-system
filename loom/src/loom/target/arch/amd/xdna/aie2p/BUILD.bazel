@@ -634,6 +634,23 @@ iree_py_test(
 )
 
 iree_py_test(
+    name = "vector_construct_family_exhaustive_test",
+    size = "small",
+    srcs = ["test/vector_construct_family_test.py"],
+    args = [
+        "$(location :loom-check)",
+        "--exhaustive",
+    ],
+    data = [":loom-check"],
+    main = "test/vector_construct_family_test.py",
+    tags = [
+        "manual",
+        "stress",
+    ],
+    target_compatible_with = _XDNA_TARGET_COMPATIBLE_WITH,
+)
+
+iree_py_test(
     name = "interleave_family_test",
     size = "small",
     srcs = ["test/interleave_family_test.py"],
@@ -653,7 +670,10 @@ iree_py_test(
     ],
     data = [":loom-check"],
     main = "test/interleave_family_test.py",
-    tags = ["manual"],
+    tags = [
+        "manual",
+        "stress",
+    ],
     target_compatible_with = _XDNA_TARGET_COMPATIBLE_WITH,
 )
 
@@ -677,7 +697,10 @@ iree_py_test(
     ],
     data = [":loom-check"],
     main = "test/transpose_family_test.py",
-    tags = ["manual"],
+    tags = [
+        "manual",
+        "stress",
+    ],
     target_compatible_with = _XDNA_TARGET_COMPATIBLE_WITH,
 )
 

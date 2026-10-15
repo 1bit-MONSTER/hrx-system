@@ -170,7 +170,10 @@ iree_py_test(
         "loom.target.arch.amd.xdna.aie2p.contracts.dynamic_slice_test",
     ],
     main = "pytest_style_runner.py",
-    tags = ["manual"],
+    tags = [
+        "manual",
+        "stress",
+    ],
     deps = [
         ":contracts",
         "//loom/py/loom/target/contracts",
