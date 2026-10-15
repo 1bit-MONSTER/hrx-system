@@ -116,7 +116,7 @@ TEST_F(ImageRequestTest, MixedCodecsAndChannelsPreserveExactSourcePackets) {
     EXPECT_EQ(bytes.data_length, (pixel_end + 15) & ~size_t{15});
     const uint32_t fields[] = {
         1,
-        info.format,
+        uint32_t(info.format),
         info.width,
         info.height,
         info.display_width,
@@ -127,7 +127,7 @@ TEST_F(ImageRequestTest, MixedCodecsAndChannelsPreserveExactSourcePackets) {
         metadata_length,
         pixel_offset,
         uint32_t(info.pixel_length),
-        info.pixel_format,
+        uint32_t(info.pixel_format),
         0,
         0,
         0,
