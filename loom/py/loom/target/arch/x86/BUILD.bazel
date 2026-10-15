@@ -18,6 +18,15 @@ iree_py_library(
 )
 
 iree_py_library(
+    name = "compile_report_suggestions",
+    srcs = ["compile_report_suggestions.py"],
+    deps = [
+        ":package_init",
+        "//loom/py/loom/reporting",
+    ],
+)
+
+iree_py_library(
     name = "target_info",
     srcs = [
         "feature_bits.py",

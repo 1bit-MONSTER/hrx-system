@@ -14,6 +14,9 @@ from loom.reporting.compile_report_boundary_projections import (
 )
 from loom.reporting.compile_report_expansions import suggest_expansions
 from loom.reporting.compile_report_loop_pipelines import suggest_loop_pipelines
+from loom.reporting.compile_report_math_relaxations import (
+    suggest_native_math_relaxations,
+)
 from loom.reporting.compile_report_scalarization import suggest_scalarization
 from loom.reporting.compile_report_suggestions import (
     CompileReportSuggestionOptions,
@@ -26,10 +29,14 @@ from loom.target.arch.amd.xdna.aie2p.compile_report_suggestions import (
 from loom.target.arch.amdgpu.compile_report_suggestions import (
     AMDGPU_COMPILE_REPORT_SUGGESTION_PROVIDER,
 )
+from loom.target.arch.x86.compile_report_suggestions import (
+    X86_COMPILE_REPORT_SUGGESTION_PROVIDER,
+)
 
 _PROVIDERS: tuple[CompileReportSuggestionProvider, ...] = (
     AMDGPU_COMPILE_REPORT_SUGGESTION_PROVIDER,
     AIE2P_COMPILE_REPORT_SUGGESTION_PROVIDER,
+    X86_COMPILE_REPORT_SUGGESTION_PROVIDER,
 )
 
 
@@ -45,6 +52,7 @@ def suggest_compile_report(
         + suggest_scalarization(document)
         + suggest_loop_pipelines(document)
         + suggest_boundary_projections(document)
+        + suggest_native_math_relaxations(document)
     )
     target_result = _suggest_target(document, options)
     if not source_suggestions:

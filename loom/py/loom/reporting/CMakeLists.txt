@@ -22,6 +22,7 @@ iree_py_library(
     "compile_report_execution_economics.py"
     "compile_report_expansions.py"
     "compile_report_loop_pipelines.py"
+    "compile_report_math_relaxations.py"
     "compile_report_move_causes.py"
     "compile_report_native_layout.py"
     "compile_report_pipelines.py"
