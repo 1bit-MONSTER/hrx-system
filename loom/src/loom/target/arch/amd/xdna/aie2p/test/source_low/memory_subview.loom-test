@@ -63,30 +63,30 @@ func.def @subview_vector_strided(%input: buffer, %output: buffer) {
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @subview_vector_strided() asm {
   %source_crop = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
   %destination_crop = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
-  %33 = mov.static-byte-offset 124
-  %34 = mov.address-index %33
-  %35 = lda.i32.index %source_crop, %34
-  %36 = mov.static-byte-offset 128
-  %37 = mov.address-index %36
-  %38 = lda.i32.index %source_crop, %37
-  %39 = mov.static-byte-offset 132
+  %23 = mov.static-byte-offset 124
+  %24 = mov.address-index %23
+  %25 = lda.i32.index %source_crop, %24
+  %26 = mov.static-byte-offset 128
+  %27 = mov.address-index %26
+  %28 = lda.i32.index %source_crop, %27
+  %29 = mov.static-byte-offset 132
+  %30 = mov.address-index %29
+  %31 = lda.i32.index %source_crop, %30
+  %32 = mov.static-byte-offset 136
+  %33 = mov.address-index %32
+  %34 = lda.i32.index %source_crop, %33
+  %35 = mov.static-byte-offset 88
+  %36 = mov.address-index %35
+  st.i32.index %25, %destination_crop, %36
+  %37 = mov.static-byte-offset 92
+  %38 = mov.address-index %37
+  st.i32.index %28, %destination_crop, %38
+  %39 = mov.static-byte-offset 96
   %40 = mov.address-index %39
-  %41 = lda.i32.index %source_crop, %40
-  %42 = mov.static-byte-offset 136
-  %43 = mov.address-index %42
-  %44 = lda.i32.index %source_crop, %43
-  %45 = mov.static-byte-offset 88
-  %46 = mov.address-index %45
-  st.i32.index %35, %destination_crop, %46
-  %47 = mov.static-byte-offset 92
-  %48 = mov.address-index %47
-  st.i32.index %38, %destination_crop, %48
-  %49 = mov.static-byte-offset 96
-  %50 = mov.address-index %49
-  st.i32.index %41, %destination_crop, %50
-  %51 = mov.static-byte-offset 100
-  %52 = mov.address-index %51
-  st.i32.index %44, %destination_crop, %52
+  st.i32.index %31, %destination_crop, %40
+  %41 = mov.static-byte-offset 100
+  %42 = mov.address-index %41
+  st.i32.index %34, %destination_crop, %42
   return
 }
 

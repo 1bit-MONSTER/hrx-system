@@ -1,0 +1,472 @@
+// Native pushes preserve scalar payloads and logical lane order across packet
+// boundaries, predicate packing, and accumulator carriers.
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
+func.def @construct_i8_3(%input0: i8, %input1: i8, %input2: i8, %input3: i8) -> (vector<3xi8>) {
+  %result = vector.from_elements %input0, %input3, %input2 : vector<3xi8>
+  func.return %result : vector<3xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @construct_i8_3(%input0: reg<aie2p.er>, %input1: reg<aie2p.er>, %input2: reg<aie2p.er>, %input3: reg<aie2p.er>) -> (reg<aie2p.vec256 x2>) asm {
+  %11 = vbcst.8 %input2
+  %12 = vpush.lo.8 %input3, %11
+  %result = vpush.lo.8 %input0, %12
+  return %result
+}
+
+// ====
+
+func.def @construct_i8_64(%input0: i8, %input1: i8, %input2: i8, %input3: i8) -> (vector<64xi8>) {
+  %result = vector.from_elements %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1 : vector<64xi8>
+  func.return %result : vector<64xi8>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @construct_i8_64(%input0: reg<aie2p.er>, %input1: reg<aie2p.er>, %input2: reg<aie2p.er>, %input3: reg<aie2p.er>) -> (reg<aie2p.vec256 x2>) asm {
+  %11 = vbcst.8 %input0
+  %12 = vpush.hi.8 %11, %input3
+  %13 = vpush.hi.8 %12, %input2
+  %14 = vpush.hi.8 %13, %input1
+  %15 = vpush.hi.8 %14, %input0
+  %16 = vpush.hi.8 %15, %input0
+  %17 = vpush.hi.8 %16, %input3
+  %18 = vpush.hi.8 %17, %input2
+  %19 = vpush.hi.8 %18, %input1
+  %20 = vpush.hi.8 %19, %input0
+  %21 = vpush.hi.8 %20, %input0
+  %22 = vpush.hi.8 %21, %input3
+  %23 = vpush.hi.8 %22, %input2
+  %24 = vpush.hi.8 %23, %input1
+  %25 = vpush.hi.8 %24, %input0
+  %26 = vpush.hi.8 %25, %input0
+  %27 = vpush.hi.8 %26, %input3
+  %28 = vpush.hi.8 %27, %input2
+  %29 = vpush.hi.8 %28, %input1
+  %30 = vpush.hi.8 %29, %input0
+  %31 = vpush.hi.8 %30, %input0
+  %32 = vpush.hi.8 %31, %input3
+  %33 = vpush.hi.8 %32, %input2
+  %34 = vpush.hi.8 %33, %input1
+  %35 = vpush.hi.8 %34, %input0
+  %36 = vpush.hi.8 %35, %input0
+  %37 = vpush.hi.8 %36, %input3
+  %38 = vpush.hi.8 %37, %input2
+  %39 = vpush.hi.8 %38, %input1
+  %40 = vpush.hi.8 %39, %input0
+  %41 = vpush.hi.8 %40, %input0
+  %42 = vpush.hi.8 %41, %input3
+  %43 = vpush.hi.8 %42, %input2
+  %44 = vpush.hi.8 %43, %input1
+  %45 = vpush.hi.8 %44, %input0
+  %46 = vpush.hi.8 %45, %input0
+  %47 = vpush.hi.8 %46, %input3
+  %48 = vpush.hi.8 %47, %input2
+  %49 = vpush.hi.8 %48, %input1
+  %50 = vpush.hi.8 %49, %input0
+  %51 = vpush.hi.8 %50, %input0
+  %52 = vpush.hi.8 %51, %input3
+  %53 = vpush.hi.8 %52, %input2
+  %54 = vpush.hi.8 %53, %input1
+  %55 = vpush.hi.8 %54, %input0
+  %56 = vpush.hi.8 %55, %input0
+  %57 = vpush.hi.8 %56, %input3
+  %58 = vpush.hi.8 %57, %input2
+  %59 = vpush.hi.8 %58, %input1
+  %60 = vpush.hi.8 %59, %input0
+  %61 = vpush.hi.8 %60, %input0
+  %62 = vpush.hi.8 %61, %input3
+  %63 = vpush.hi.8 %62, %input2
+  %64 = vpush.hi.8 %63, %input1
+  %65 = vpush.hi.8 %64, %input0
+  %66 = vpush.hi.8 %65, %input0
+  %67 = vpush.hi.8 %66, %input3
+  %68 = vpush.hi.8 %67, %input2
+  %69 = vpush.hi.8 %68, %input1
+  %70 = vpush.hi.8 %69, %input0
+  %71 = vpush.hi.8 %70, %input0
+  %72 = vpush.hi.8 %71, %input3
+  %73 = vpush.hi.8 %72, %input2
+  %result = vpush.hi.8 %73, %input1
+  return %result
+}
+
+// ====
+
+func.def @construct_i16_3(%input0: i16, %input1: i16, %input2: i16, %input3: i16) -> (vector<3xi16>) {
+  %result = vector.from_elements %input0, %input3, %input2 : vector<3xi16>
+  func.return %result : vector<3xi16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @construct_i16_3(%input0: reg<aie2p.er>, %input1: reg<aie2p.er>, %input2: reg<aie2p.er>, %input3: reg<aie2p.er>) -> (reg<aie2p.vec256 x2>) asm {
+  %11 = vbcst.16 %input2
+  %12 = vpush.lo.16 %input3, %11
+  %result = vpush.lo.16 %input0, %12
+  return %result
+}
+
+// ====
+
+func.def @construct_i16_32(%input0: i16, %input1: i16, %input2: i16, %input3: i16) -> (vector<32xi16>) {
+  %result = vector.from_elements %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3 : vector<32xi16>
+  func.return %result : vector<32xi16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @construct_i16_32(%input0: reg<aie2p.er>, %input1: reg<aie2p.er>, %input2: reg<aie2p.er>, %input3: reg<aie2p.er>) -> (reg<aie2p.vec256 x2>) asm {
+  %11 = vbcst.16 %input0
+  %12 = vpush.hi.16 %11, %input3
+  %13 = vpush.hi.16 %12, %input2
+  %14 = vpush.hi.16 %13, %input1
+  %15 = vpush.hi.16 %14, %input0
+  %16 = vpush.hi.16 %15, %input0
+  %17 = vpush.hi.16 %16, %input3
+  %18 = vpush.hi.16 %17, %input2
+  %19 = vpush.hi.16 %18, %input1
+  %20 = vpush.hi.16 %19, %input0
+  %21 = vpush.hi.16 %20, %input0
+  %22 = vpush.hi.16 %21, %input3
+  %23 = vpush.hi.16 %22, %input2
+  %24 = vpush.hi.16 %23, %input1
+  %25 = vpush.hi.16 %24, %input0
+  %26 = vpush.hi.16 %25, %input0
+  %27 = vpush.hi.16 %26, %input3
+  %28 = vpush.hi.16 %27, %input2
+  %29 = vpush.hi.16 %28, %input1
+  %30 = vpush.hi.16 %29, %input0
+  %31 = vpush.hi.16 %30, %input0
+  %32 = vpush.hi.16 %31, %input3
+  %33 = vpush.hi.16 %32, %input2
+  %34 = vpush.hi.16 %33, %input1
+  %35 = vpush.hi.16 %34, %input0
+  %36 = vpush.hi.16 %35, %input0
+  %37 = vpush.hi.16 %36, %input3
+  %38 = vpush.hi.16 %37, %input2
+  %39 = vpush.hi.16 %38, %input1
+  %40 = vpush.hi.16 %39, %input0
+  %41 = vpush.hi.16 %40, %input0
+  %result = vpush.hi.16 %41, %input3
+  return %result
+}
+
+// ====
+
+func.def @construct_i32_3(%input0: i32, %input1: i32, %input2: i32, %input3: i32) -> (vector<3xi32>) {
+  %result = vector.from_elements %input0, %input3, %input2 : vector<3xi32>
+  func.return %result : vector<3xi32>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @construct_i32_3(%input0: reg<aie2p.er>, %input1: reg<aie2p.er>, %input2: reg<aie2p.er>, %input3: reg<aie2p.er>) -> (reg<aie2p.vec256 x2>) asm {
+  %11 = vbcst.32 %input2
+  %12 = vpush.lo.32 %input3, %11
+  %result = vpush.lo.32 %input0, %12
+  return %result
+}
+
+// ====
+
+func.def @construct_i32_16(%input0: i32, %input1: i32, %input2: i32, %input3: i32) -> (vector<16xi32>) {
+  %result = vector.from_elements %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0 : vector<16xi32>
+  func.return %result : vector<16xi32>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @construct_i32_16(%input0: reg<aie2p.er>, %input1: reg<aie2p.er>, %input2: reg<aie2p.er>, %input3: reg<aie2p.er>) -> (reg<aie2p.vec256 x2>) asm {
+  %11 = vbcst.32 %input0
+  %12 = vpush.hi.32 %11, %input3
+  %13 = vpush.hi.32 %12, %input2
+  %14 = vpush.hi.32 %13, %input1
+  %15 = vpush.hi.32 %14, %input0
+  %16 = vpush.hi.32 %15, %input0
+  %17 = vpush.hi.32 %16, %input3
+  %18 = vpush.hi.32 %17, %input2
+  %19 = vpush.hi.32 %18, %input1
+  %20 = vpush.hi.32 %19, %input0
+  %21 = vpush.hi.32 %20, %input0
+  %22 = vpush.hi.32 %21, %input3
+  %23 = vpush.hi.32 %22, %input2
+  %24 = vpush.hi.32 %23, %input1
+  %25 = vpush.hi.32 %24, %input0
+  %result = vpush.hi.32 %25, %input0
+  return %result
+}
+
+// ====
+
+func.def @construct_i64_3(%input0: i64, %input1: i64, %input2: i64, %input3: i64) -> (vector<3xi64>) {
+  %result = vector.from_elements %input0, %input3, %input2 : vector<3xi64>
+  func.return %result : vector<3xi64>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @construct_i64_3(%input0: reg<aie2p.er x2>, %input1: reg<aie2p.er x2>, %input2: reg<aie2p.er x2>, %input3: reg<aie2p.er x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %11 = vbcst.64 %input2
+  %12 = vpush.lo.64 %input3, %11
+  %result = vpush.lo.64 %input0, %12
+  return %result
+}
+
+// ====
+
+func.def @construct_i64_8(%input0: i64, %input1: i64, %input2: i64, %input3: i64) -> (vector<8xi64>) {
+  %result = vector.from_elements %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2 : vector<8xi64>
+  func.return %result : vector<8xi64>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @construct_i64_8(%input0: reg<aie2p.er x2>, %input1: reg<aie2p.er x2>, %input2: reg<aie2p.er x2>, %input3: reg<aie2p.er x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %11 = vbcst.64 %input0
+  %12 = vpush.hi.64 %11, %input3
+  %13 = vpush.hi.64 %12, %input2
+  %14 = vpush.hi.64 %13, %input1
+  %15 = vpush.hi.64 %14, %input0
+  %16 = vpush.hi.64 %15, %input0
+  %17 = vpush.hi.64 %16, %input3
+  %result = vpush.hi.64 %17, %input2
+  return %result
+}
+
+// ====
+
+func.def @construct_i1_3(%input0: i1, %input1: i1, %input2: i1, %input3: i1) -> (vector<3xi1>) {
+  %result = vector.from_elements %input0, %input3, %input2 : vector<3xi1>
+  func.return %result : vector<3xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @construct_i1_3(%input0: reg<aie2p.er>, %input1: reg<aie2p.er>, %input2: reg<aie2p.er>, %input3: reg<aie2p.er>) -> (reg<aie2p.elpredicate>) asm {
+  %11 = vbcst.8 %input2
+  %12 = vpush.lo.8 %input3, %11
+  %13 = vpush.lo.8 %input0, %12
+  %14 = mov.short 1
+  %15 = vbcst.8 %14
+  %16 = vsub.8 %15, %15
+  %result = vlt.u8x64 %16, %13
+  return %result
+}
+
+// ====
+
+func.def @construct_i1_65(%input0: i1, %input1: i1, %input2: i1, %input3: i1) -> (vector<65xi1>) {
+  %result = vector.from_elements %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0 : vector<65xi1>
+  func.return %result : vector<65xi1>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @construct_i1_65(%input0: reg<aie2p.er>, %input1: reg<aie2p.er>, %input2: reg<aie2p.er>, %input3: reg<aie2p.er>) -> (reg<aie2p.elpredicate x2>) asm {
+  %11 = vbcst.8 %input0
+  %12 = vpush.hi.8 %11, %input3
+  %13 = vpush.hi.8 %12, %input2
+  %14 = vpush.hi.8 %13, %input1
+  %15 = vpush.hi.8 %14, %input0
+  %16 = vpush.hi.8 %15, %input0
+  %17 = vpush.hi.8 %16, %input3
+  %18 = vpush.hi.8 %17, %input2
+  %19 = vpush.hi.8 %18, %input1
+  %20 = vpush.hi.8 %19, %input0
+  %21 = vpush.hi.8 %20, %input0
+  %22 = vpush.hi.8 %21, %input3
+  %23 = vpush.hi.8 %22, %input2
+  %24 = vpush.hi.8 %23, %input1
+  %25 = vpush.hi.8 %24, %input0
+  %26 = vpush.hi.8 %25, %input0
+  %27 = vpush.hi.8 %26, %input3
+  %28 = vpush.hi.8 %27, %input2
+  %29 = vpush.hi.8 %28, %input1
+  %30 = vpush.hi.8 %29, %input0
+  %31 = vpush.hi.8 %30, %input0
+  %32 = vpush.hi.8 %31, %input3
+  %33 = vpush.hi.8 %32, %input2
+  %34 = vpush.hi.8 %33, %input1
+  %35 = vpush.hi.8 %34, %input0
+  %36 = vpush.hi.8 %35, %input0
+  %37 = vpush.hi.8 %36, %input3
+  %38 = vpush.hi.8 %37, %input2
+  %39 = vpush.hi.8 %38, %input1
+  %40 = vpush.hi.8 %39, %input0
+  %41 = vpush.hi.8 %40, %input0
+  %42 = vpush.hi.8 %41, %input3
+  %43 = vpush.hi.8 %42, %input2
+  %44 = vpush.hi.8 %43, %input1
+  %45 = vpush.hi.8 %44, %input0
+  %46 = vpush.hi.8 %45, %input0
+  %47 = vpush.hi.8 %46, %input3
+  %48 = vpush.hi.8 %47, %input2
+  %49 = vpush.hi.8 %48, %input1
+  %50 = vpush.hi.8 %49, %input0
+  %51 = vpush.hi.8 %50, %input0
+  %52 = vpush.hi.8 %51, %input3
+  %53 = vpush.hi.8 %52, %input2
+  %54 = vpush.hi.8 %53, %input1
+  %55 = vpush.hi.8 %54, %input0
+  %56 = vpush.hi.8 %55, %input0
+  %57 = vpush.hi.8 %56, %input3
+  %58 = vpush.hi.8 %57, %input2
+  %59 = vpush.hi.8 %58, %input1
+  %60 = vpush.hi.8 %59, %input0
+  %61 = vpush.hi.8 %60, %input0
+  %62 = vpush.hi.8 %61, %input3
+  %63 = vpush.hi.8 %62, %input2
+  %64 = vpush.hi.8 %63, %input1
+  %65 = vpush.hi.8 %64, %input0
+  %66 = vpush.hi.8 %65, %input0
+  %67 = vpush.hi.8 %66, %input3
+  %68 = vpush.hi.8 %67, %input2
+  %69 = vpush.hi.8 %68, %input1
+  %70 = vpush.hi.8 %69, %input0
+  %71 = vpush.hi.8 %70, %input0
+  %72 = vpush.hi.8 %71, %input3
+  %73 = vpush.hi.8 %72, %input2
+  %74 = vpush.hi.8 %73, %input1
+  %76 = mov.short 1
+  %77 = vbcst.8 %76
+  %78 = vsub.8 %77, %77
+  %79 = vlt.u8x64 %78, %74
+  %80 = vlt.u8x64 %78, %11
+  %result = concat(%79, %80) : (reg<aie2p.elpredicate>, reg<aie2p.elpredicate>) -> reg<aie2p.elpredicate x2>
+  return %result
+}
+
+// ====
+
+func.def @construct_f32_32(%input0: f32, %input1: f32, %input2: f32, %input3: f32) -> (vector<32xf32>) {
+  %result = vector.from_elements %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3 : vector<32xf32>
+  func.return %result : vector<32xf32>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @construct_f32_32(%input0: reg<aie2p.er>, %input1: reg<aie2p.er>, %input2: reg<aie2p.er>, %input3: reg<aie2p.er>) -> (reg<aie2p.mbms x2>) asm {
+  %11 = vbcst.32 %input0
+  %12 = vpush.hi.32 %11, %input3
+  %13 = vpush.hi.32 %12, %input2
+  %14 = vpush.hi.32 %13, %input1
+  %15 = vpush.hi.32 %14, %input0
+  %16 = vpush.hi.32 %15, %input0
+  %17 = vpush.hi.32 %16, %input3
+  %18 = vpush.hi.32 %17, %input2
+  %19 = vpush.hi.32 %18, %input1
+  %20 = vpush.hi.32 %19, %input0
+  %21 = vpush.hi.32 %20, %input0
+  %22 = vpush.hi.32 %21, %input3
+  %23 = vpush.hi.32 %22, %input2
+  %24 = vpush.hi.32 %23, %input1
+  %25 = vpush.hi.32 %24, %input0
+  %26 = vpush.hi.32 %25, %input0
+  %27 = vbcst.32 %input3
+  %28 = vpush.hi.32 %27, %input2
+  %29 = vpush.hi.32 %28, %input1
+  %30 = vpush.hi.32 %29, %input0
+  %31 = vpush.hi.32 %30, %input0
+  %32 = vpush.hi.32 %31, %input3
+  %33 = vpush.hi.32 %32, %input2
+  %34 = vpush.hi.32 %33, %input1
+  %35 = vpush.hi.32 %34, %input0
+  %36 = vpush.hi.32 %35, %input0
+  %37 = vpush.hi.32 %36, %input3
+  %38 = vpush.hi.32 %37, %input2
+  %39 = vpush.hi.32 %38, %input1
+  %40 = vpush.hi.32 %39, %input0
+  %41 = vpush.hi.32 %40, %input0
+  %42 = vpush.hi.32 %41, %input3
+  %43 = vmov.vector512.to.accumulator512 %26
+  %44 = vmov.vector512.to.accumulator512 %42
+  %result = concat(%43, %44) : (reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x2>
+  return %result
+}
+
+// ====
+
+func.def @construct_i32_33(%input0: i32, %input1: i32, %input2: i32, %input3: i32) -> (vector<33xi32>) {
+  %result = vector.from_elements %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2 : vector<33xi32>
+  func.return %result : vector<33xi32>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @construct_i32_33(%input0: reg<aie2p.er>, %input1: reg<aie2p.er>, %input2: reg<aie2p.er>, %input3: reg<aie2p.er>) -> (reg<aie2p.mbms x4>) asm {
+  %11 = vbcst.32 %input0
+  %12 = vpush.hi.32 %11, %input3
+  %13 = vpush.hi.32 %12, %input2
+  %14 = vpush.hi.32 %13, %input1
+  %15 = vpush.hi.32 %14, %input0
+  %16 = vpush.hi.32 %15, %input0
+  %17 = vpush.hi.32 %16, %input3
+  %18 = vpush.hi.32 %17, %input2
+  %19 = vpush.hi.32 %18, %input1
+  %20 = vpush.hi.32 %19, %input0
+  %21 = vpush.hi.32 %20, %input0
+  %22 = vpush.hi.32 %21, %input3
+  %23 = vpush.hi.32 %22, %input2
+  %24 = vpush.hi.32 %23, %input1
+  %25 = vpush.hi.32 %24, %input0
+  %26 = vpush.hi.32 %25, %input0
+  %27 = vbcst.32 %input3
+  %28 = vpush.hi.32 %27, %input2
+  %29 = vpush.hi.32 %28, %input1
+  %30 = vpush.hi.32 %29, %input0
+  %31 = vpush.hi.32 %30, %input0
+  %32 = vpush.hi.32 %31, %input3
+  %33 = vpush.hi.32 %32, %input2
+  %34 = vpush.hi.32 %33, %input1
+  %35 = vpush.hi.32 %34, %input0
+  %36 = vpush.hi.32 %35, %input0
+  %37 = vpush.hi.32 %36, %input3
+  %38 = vpush.hi.32 %37, %input2
+  %39 = vpush.hi.32 %38, %input1
+  %40 = vpush.hi.32 %39, %input0
+  %41 = vpush.hi.32 %40, %input0
+  %42 = vpush.hi.32 %41, %input3
+  %43 = vbcst.32 %input2
+  %44 = vmov.vector512.to.accumulator512 %26
+  %45 = vmov.vector512.to.accumulator512 %42
+  %46 = vmov.vector512.to.accumulator512 %43
+  %result = concat(%44, %45, %46, %46) : (reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>, reg<aie2p.mbms>) -> reg<aie2p.mbms x4>
+  return %result
+}
+
+// ====
+
+func.def @construct_f64_9(%input0: f64, %input1: f64, %input2: f64, %input3: f64) -> (vector<9xf64>) {
+  %result = vector.from_elements %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1 : vector<9xf64>
+  func.return %result : vector<9xf64>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @construct_f64_9(%input0: reg<aie2p.er x2>, %input1: reg<aie2p.er x2>, %input2: reg<aie2p.er x2>, %input3: reg<aie2p.er x2>) -> (reg<aie2p.vec256 x4>) asm {
+  %11 = vbcst.64 %input0
+  %12 = vpush.hi.64 %11, %input3
+  %13 = vpush.hi.64 %12, %input2
+  %14 = vpush.hi.64 %13, %input1
+  %15 = vpush.hi.64 %14, %input0
+  %16 = vpush.hi.64 %15, %input0
+  %17 = vpush.hi.64 %16, %input3
+  %18 = vpush.hi.64 %17, %input2
+  %19 = vbcst.64 %input1
+  %result = concat(%18, %19) : (reg<aie2p.vec256 x2>, reg<aie2p.vec256 x2>) -> reg<aie2p.vec256 x4>
+  return %result
+}
+
+// ====
+
+func.def @construct_bf16_2x2x3(%input0: bf16, %input1: bf16, %input2: bf16, %input3: bf16) -> (vector<2x2x3xbf16>) {
+  %result = vector.from_elements %input0, %input3, %input2, %input1, %input0, %input0, %input3, %input2, %input1, %input0, %input0, %input3 : vector<2x2x3xbf16>
+  func.return %result : vector<2x2x3xbf16>
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @construct_bf16_2x2x3(%input0: reg<aie2p.er>, %input1: reg<aie2p.er>, %input2: reg<aie2p.er>, %input3: reg<aie2p.er>) -> (reg<aie2p.vec256 x2>) asm {
+  %11 = vbcst.16 %input3
+  %12 = vpush.lo.16 %input0, %11
+  %13 = vpush.lo.16 %input0, %12
+  %14 = vpush.lo.16 %input1, %13
+  %15 = vpush.lo.16 %input2, %14
+  %16 = vpush.lo.16 %input3, %15
+  %17 = vpush.lo.16 %input0, %16
+  %18 = vpush.lo.16 %input0, %17
+  %19 = vpush.lo.16 %input1, %18
+  %20 = vpush.lo.16 %input2, %19
+  %21 = vpush.lo.16 %input3, %20
+  %result = vpush.lo.16 %input0, %21
+  return %result
+}

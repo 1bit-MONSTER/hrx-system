@@ -184,27 +184,21 @@ func.def @i32_configured_width_sum(%input: buffer) -> (i32) {
 // ----
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i32_configured_width_sum() -> (reg<aie2p.er>) asm {
   %input_view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
-  %21 = lda %input_view, 0
-  %22 = lda %input_view, 4
-  %23 = lda %input_view, 8
-  %24 = lda %input_view, 12
-  %25 = vbcst.32 %21
-  %26 = mov.short 1
-  %27 = copy %26 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %28 = vinsert.32.reg %25, %27, %22
-  %29 = mov.short 2
-  %30 = copy %29 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %31 = vinsert.32.reg %28, %30, %23
-  %32 = mov.short 3
-  %33 = copy %32 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %loaded = vinsert.32.reg %31, %33, %24
-  %35 = mova.i32 7
-  %36 = vshuffle %loaded, %loaded, %35
-  %37 = vadd.32 %loaded, %36
-  %38 = mova.i32 5
-  %39 = vshuffle %37, %37, %38
-  %40 = vadd.32 %37, %39
-  %sum = vextract.32.imm %40, 0
+  %17 = lda %input_view, 0
+  %18 = lda %input_view, 4
+  %19 = lda %input_view, 8
+  %20 = lda %input_view, 12
+  %21 = vbcst.32 %20
+  %22 = vpush.lo.32 %19, %21
+  %23 = vpush.lo.32 %18, %22
+  %loaded = vpush.lo.32 %17, %23
+  %25 = mova.i32 7
+  %26 = vshuffle %loaded, %loaded, %25
+  %27 = vadd.32 %loaded, %26
+  %28 = mova.i32 5
+  %29 = vshuffle %27, %27, %28
+  %30 = vadd.32 %27, %29
+  %sum = vextract.32.imm %30, 0
   return %sum
 }
 
@@ -226,31 +220,29 @@ func.def @i32_reduce_minui_select_sentinel(%values: vector<4xi32>) -> (i32) {
 
 // ----
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i32_reduce_minui_select_sentinel(%values: reg<aie2p.vec256 x2>) -> (reg<aie2p.er>) asm {
-  %26 = mov.short 0
-  %zeros = vbcst.32 %26
-  %28 = vsub.32 %values, %zeros
-  %29 = veqz.32.el.low32 %28
-  %is_zero = predicate.complete.zero.high32 %29, 0
-  %31 = mov.short 1
-  %32 = mov.short 2
-  %33 = mov.short 3
-  %35 = copy %31 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %36 = vinsert.32.reg %zeros, %35, %31
-  %38 = copy %32 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %39 = vinsert.32.reg %36, %38, %32
-  %41 = copy %33 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %indices = vinsert.32.reg %39, %41, %33
+  %21 = mov.short 0
+  %zeros = vbcst.32 %21
+  %23 = vsub.32 %values, %zeros
+  %24 = veqz.32.el.low32 %23
+  %is_zero = predicate.complete.zero.high32 %24, 0
+  %27 = mov.short 1
+  %28 = mov.short 2
+  %29 = mov.short 3
+  %30 = vbcst.32 %29
+  %31 = vpush.lo.32 %28, %30
+  %32 = vpush.lo.32 %27, %31
+  %indices = vpush.lo.32 %21, %32
   %sentinel = mov.i32 2147483647
   %sentinels = vbcst.32 %sentinel
   %selected = vsel.32.mask64 %sentinels, %indices, %is_zero
-  %48 = min.u32x16 %selected, %sentinels
-  %49 = mova.i32 8
-  %50 = vshift %48, %48, %49
-  %51 = min.u32x16 %48, %50
-  %52 = mova.i32 4
-  %53 = vshift %51, %51, %52
-  %54 = min.u32x16 %51, %53
-  %result = vextract.32.imm %54, 0
+  %39 = min.u32x16 %selected, %sentinels
+  %40 = mova.i32 8
+  %41 = vshift %39, %39, %40
+  %42 = min.u32x16 %39, %41
+  %43 = mova.i32 4
+  %44 = vshift %42, %42, %43
+  %45 = min.u32x16 %42, %44
+  %result = vextract.32.imm %45, 0
   return %result
 }
 

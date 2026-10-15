@@ -251,25 +251,25 @@ func.def @selected_under_aligned_packets(%input: buffer, %first_input: offset, %
 // ----
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @selected_under_aligned_packets(%first_origin: reg<aie2p.er>, %second_origin: reg<aie2p.er>, %read_first: reg<aie2p.er>, %write_first: reg<aie2p.er>) asm {
   %destination = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
-  %39 = copy %read_first : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %source_offset = sel.nez %first_origin, %second_origin, %39
-  %41 = copy %write_first : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %destination_offset = sel.nez %first_origin, %second_origin, %41
-  %43 = mov.address-index %source_offset
-  %44 = lda.i32.index %destination, %43
-  %45 = add.address-index.immediate %source_offset, 4
-  %46 = lda.i32.index %destination, %45
-  %47 = add.address-index.immediate %source_offset, 8
-  %48 = lda.i32.index %destination, %47
-  %49 = add.address-index.immediate %source_offset, 12
-  %50 = lda.i32.index %destination, %49
-  %51 = mov.address-index %destination_offset
-  st.i32.index %44, %destination, %51
-  %52 = add.address-index.immediate %destination_offset, 4
-  st.i32.index %46, %destination, %52
-  %53 = add.address-index.immediate %destination_offset, 8
-  st.i32.index %48, %destination, %53
-  %54 = add.address-index.immediate %destination_offset, 12
-  st.i32.index %50, %destination, %54
+  %29 = copy %read_first : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %source_offset = sel.nez %first_origin, %second_origin, %29
+  %31 = copy %write_first : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %destination_offset = sel.nez %first_origin, %second_origin, %31
+  %33 = mov.address-index %source_offset
+  %34 = lda.i32.index %destination, %33
+  %35 = add.address-index.immediate %source_offset, 4
+  %36 = lda.i32.index %destination, %35
+  %37 = add.address-index.immediate %source_offset, 8
+  %38 = lda.i32.index %destination, %37
+  %39 = add.address-index.immediate %source_offset, 12
+  %40 = lda.i32.index %destination, %39
+  %41 = mov.address-index %destination_offset
+  st.i32.index %34, %destination, %41
+  %42 = add.address-index.immediate %destination_offset, 4
+  st.i32.index %36, %destination, %42
+  %43 = add.address-index.immediate %destination_offset, 8
+  st.i32.index %38, %destination, %43
+  %44 = add.address-index.immediate %destination_offset, 12
+  st.i32.index %40, %destination, %44
   return
 }

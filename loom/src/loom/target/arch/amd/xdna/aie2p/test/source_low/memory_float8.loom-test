@@ -46,14 +46,14 @@ func.def @copy_float8_tail(%input: buffer, %output: buffer) {
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @copy_float8_tail() asm {
   %source_e5m2 = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
   %target_e5m2 = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
-  %28 = lda.u8 %source_e5m2, 1
-  %29 = lda.u8 %source_e5m2, 2
-  %30 = lda.u8 %source_e5m2, 3
-  %31 = lda.u8 %source_e5m2, 4
-  st.s8 %28, %target_e5m2, 1
-  st.s8 %29, %target_e5m2, 2
-  st.s8 %30, %target_e5m2, 3
-  st.s8 %31, %target_e5m2, 4
+  %22 = lda.u8 %source_e5m2, 1
+  %23 = lda.u8 %source_e5m2, 2
+  %24 = lda.u8 %source_e5m2, 3
+  %25 = lda.u8 %source_e5m2, 4
+  st.s8 %22, %target_e5m2, 1
+  st.s8 %23, %target_e5m2, 2
+  st.s8 %24, %target_e5m2, 3
+  st.s8 %25, %target_e5m2, 4
   return
 }
 

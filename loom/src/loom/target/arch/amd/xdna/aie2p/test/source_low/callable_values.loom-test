@@ -74,13 +74,10 @@ low.func.def public target<amd.xdna.aie2p.core> abi(object_function) @call_vecto
   %c1 = mov.short 1
   %c2 = mov.short 2
   %c3 = mov.short 3
-  %22 = vbcst.32 %input
-  %24 = copy %c1 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %25 = vinsert.32.reg %22, %24, %c1
-  %27 = copy %c2 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %28 = vinsert.32.reg %25, %27, %c2
-  %30 = copy %c3 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %values = vinsert.32.reg %28, %30, %c3
+  %18 = vbcst.32 %c3
+  %19 = vpush.lo.32 %c2, %18
+  %20 = vpush.lo.32 %c1, %19
+  %values = vpush.lo.32 %input, %20
   %result = vextract.32.reg %values, %lane
   return %result
 }

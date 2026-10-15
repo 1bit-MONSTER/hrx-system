@@ -64,20 +64,20 @@ func.def @copy_biased_vector(%source: buffer, %destination: buffer, %position: i
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @copy_biased_vector(%signed_position: reg<aie2p.er>) asm {
   %source_view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
   %destination_view = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
-  %56 = mov.i32 2
-  %57 = lshl %signed_position, %56
-  %58 = add.address-index.immediate %57, 16
-  %59 = lda.i32.index %source_view, %58
-  %62 = add.address-index.immediate %57, 20
-  %63 = lda.i32.index %source_view, %62
-  %66 = add.address-index.immediate %57, 24
-  %67 = lda.i32.index %source_view, %66
-  %70 = add.address-index.immediate %57, 28
-  %71 = lda.i32.index %source_view, %70
-  st.i32.index %59, %destination_view, %58
-  st.i32.index %63, %destination_view, %62
-  st.i32.index %67, %destination_view, %66
-  st.i32.index %71, %destination_view, %70
+  %46 = mov.i32 2
+  %47 = lshl %signed_position, %46
+  %48 = add.address-index.immediate %47, 16
+  %49 = lda.i32.index %source_view, %48
+  %52 = add.address-index.immediate %47, 20
+  %53 = lda.i32.index %source_view, %52
+  %56 = add.address-index.immediate %47, 24
+  %57 = lda.i32.index %source_view, %56
+  %60 = add.address-index.immediate %47, 28
+  %61 = lda.i32.index %source_view, %60
+  st.i32.index %49, %destination_view, %48
+  st.i32.index %53, %destination_view, %52
+  st.i32.index %57, %destination_view, %56
+  st.i32.index %61, %destination_view, %60
   return
 }
 
