@@ -14,6 +14,7 @@ loom_check_test_suite(
     test
   SRCS
     "canonicalize.loom-test"
+    "collective_facts.loom-test"
     "dce.loom-test"
     "facts.loom-test"
     "roundtrip.loom-test"

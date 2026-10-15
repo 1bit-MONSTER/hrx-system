@@ -1025,18 +1025,72 @@ iree_status_t loom_kernel_subgroup_broadcast_first_facts(
   return iree_ok_status();
 }
 
+// Bounds a sum of independently varying inputs, not a product of equal values.
+// Fixed-width overflow invalidates the interval and its divisibility proof.
+static loom_value_facts_t loom_kernel_integer_sum_facts(
+    const loom_module_t* module, loom_value_id_t result,
+    loom_value_facts_t input, uint32_t minimum_count, uint32_t maximum_count) {
+  loom_value_facts_t domain = {0};
+  if (!loom_kernel_value_integer_domain_facts(module, result, &domain)) {
+    return loom_value_facts_unknown();
+  }
+  if (maximum_count == 0) {
+    return loom_value_facts_exact_i64(0);
+  }
+  input =
+      loom_value_facts_clamp_domain(input, domain.range_lo, domain.range_hi);
+  int64_t lower_minimum = 0;
+  int64_t lower_maximum = 0;
+  int64_t upper_minimum = 0;
+  int64_t upper_maximum = 0;
+  if (!iree_checked_mul_i64(input.range_lo, minimum_count, &lower_minimum) ||
+      !iree_checked_mul_i64(input.range_lo, maximum_count, &lower_maximum) ||
+      !iree_checked_mul_i64(input.range_hi, minimum_count, &upper_minimum) ||
+      !iree_checked_mul_i64(input.range_hi, maximum_count, &upper_maximum)) {
+    return loom_value_facts_unknown();
+  }
+  const int64_t lower_bound = iree_min(lower_minimum, lower_maximum);
+  const int64_t upper_bound = iree_max(upper_minimum, upper_maximum);
+  if (lower_bound < domain.range_lo || upper_bound > domain.range_hi) {
+    return loom_value_facts_unknown();
+  }
+  return loom_value_facts_make(lower_bound, upper_bound, input.known_divisor);
+}
+
+// Active population is bounded by both execution width and workgroup size,
+// even when lane IDs are sparse and a dense subgroup partition is not promised.
+static uint32_t loom_kernel_max_active_subgroup_size(
+    const loom_fact_context_t* context, const loom_module_t* module,
+    int64_t cluster_size) {
+  uint32_t count = loom_kernel_max_subgroup_size(context);
+  const uint32_t workgroup_count =
+      loom_kernel_context_max_flat_workgroup_size(context, module);
+  if (workgroup_count != 0) {
+    count = iree_min(count, workgroup_count);
+  }
+  if (cluster_size > 0 && (uint64_t)cluster_size < count) {
+    count = (uint32_t)cluster_size;
+  }
+  return count;
+}
+
 iree_status_t loom_kernel_subgroup_reduce_facts(
     loom_fact_context_t* context, const loom_module_t* module,
     const loom_op_t* op, const loom_value_facts_t* operand_facts,
     loom_value_facts_t* result_facts) {
-  (void)context;
-  (void)module;
-  (void)operand_facts;
-  result_facts[0] = loom_value_facts_unknown();
   const bool has_cluster_size =
       loom_kernel_subgroup_reduce_has_cluster_size(op);
   const bool has_cluster_stride =
       loom_kernel_subgroup_reduce_has_cluster_stride(op);
+  result_facts[0] = loom_value_facts_unknown();
+  if (loom_kernel_subgroup_reduce_kind(op) == LOOM_COMBINING_KIND_ADDI) {
+    const uint32_t maximum_count = loom_kernel_max_active_subgroup_size(
+        context, module,
+        has_cluster_size ? loom_kernel_subgroup_reduce_cluster_size(op) : 0);
+    result_facts[0] = loom_kernel_integer_sum_facts(
+        module, loom_kernel_subgroup_reduce_result(op), operand_facts[0], 1,
+        maximum_count);
+  }
   if (!has_cluster_size && !has_cluster_stride) {
     loom_value_facts_mark_subgroup_uniform(&result_facts[0]);
   }
@@ -1047,11 +1101,22 @@ iree_status_t loom_kernel_workgroup_reduce_facts(
     loom_fact_context_t* context, const loom_module_t* module,
     const loom_op_t* op, const loom_value_facts_t* operand_facts,
     loom_value_facts_t* result_facts) {
-  (void)context;
-  (void)module;
-  (void)op;
-  (void)operand_facts;
   result_facts[0] = loom_value_facts_unknown();
+  const uint32_t maximum_count =
+      loom_kernel_workgroup_reduce_kind(op) == LOOM_COMBINING_KIND_ADDI
+          ? loom_kernel_context_max_flat_workgroup_size(context, module)
+          : 0;
+  if (maximum_count != 0) {
+    uint32_t exact_count = 0;
+    const uint32_t minimum_count =
+        loom_kernel_context_fixed_flat_workgroup_size(context, module,
+                                                      &exact_count)
+            ? exact_count
+            : 1;
+    result_facts[0] = loom_kernel_integer_sum_facts(
+        module, loom_kernel_workgroup_reduce_result(op), operand_facts[0],
+        minimum_count, maximum_count);
+  }
   loom_value_facts_mark_workgroup_uniform(&result_facts[0]);
   return iree_ok_status();
 }
@@ -1079,9 +1144,34 @@ iree_status_t loom_kernel_scan_facts(loom_fact_context_t* context,
                                      const loom_op_t* op,
                                      const loom_value_facts_t* operand_facts,
                                      loom_value_facts_t* result_facts) {
-  (void)context;
-  (void)operand_facts;
   result_facts[0] = loom_value_facts_unknown();
+  const bool subgroup = loom_kernel_subgroup_scan_isa(op);
+  const loom_combining_kind_t kind = subgroup
+                                         ? loom_kernel_subgroup_scan_kind(op)
+                                         : loom_kernel_workgroup_scan_kind(op);
+  if (kind == LOOM_COMBINING_KIND_ADDI) {
+    bool exclusive = false;
+    uint32_t maximum_count = 0;
+    if (subgroup) {
+      exclusive = loom_kernel_subgroup_scan_mode(op) ==
+                  LOOM_KERNEL_SUBGROUP_SCAN_MODE_EXCLUSIVE;
+      maximum_count = loom_kernel_max_active_subgroup_size(
+          context, module,
+          loom_kernel_subgroup_scan_has_cluster_size(op)
+              ? loom_kernel_subgroup_scan_cluster_size(op)
+              : 0);
+    } else {
+      exclusive = loom_kernel_workgroup_scan_mode(op) ==
+                  LOOM_KERNEL_WORKGROUP_SCAN_MODE_EXCLUSIVE;
+      maximum_count =
+          loom_kernel_context_max_flat_workgroup_size(context, module);
+    }
+    if (maximum_count != 0) {
+      result_facts[0] = loom_kernel_integer_sum_facts(
+          module, loom_op_const_results(op)[0], operand_facts[0],
+          exclusive ? 0 : 1, maximum_count - (exclusive ? 1 : 0));
+    }
+  }
   const loom_type_t result_type =
       loom_module_value_type(module, loom_op_const_results(op)[0]);
   if (loom_type_is_scalar(result_type) &&
