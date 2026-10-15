@@ -224,9 +224,11 @@ class NativePair {
     for (auto* completion_queue : completion_queues_) {
       bool joined = false;
       iree_net_rdma_completion_queue_deactivate(
-          completion_queue,
-          {+[](void* user_data) { *static_cast<bool*>(user_data) = true; },
-           &joined});
+          completion_queue, {+[](void* user_data, iree_status_t status) {
+                               IREE_CHECK_OK(status);
+                               *static_cast<bool*>(user_data) = true;
+                             },
+                             &joined});
       PollUntil(proactor_, [&] { return joined; });
       iree_net_rdma_completion_queue_free(completion_queue);
     }
@@ -547,9 +549,11 @@ TEST_P(CompletionQueueTest, DestructionDiscardsUnreadNativeNotification) {
   CheckNative(library->ibv_destroy_qp(queue));
   bool joined = false;
   iree_net_rdma_completion_queue_deactivate(
-      completions,
-      {+[](void* user_data) { *static_cast<bool*>(user_data) = true; },
-       &joined});
+      completions, {+[](void* user_data, iree_status_t status) {
+                      IREE_CHECK_OK(status);
+                      *static_cast<bool*>(user_data) = true;
+                    },
+                    &joined});
   PollUntil(proactor, [&] { return joined; });
   iree_net_rdma_completion_queue_free(completions);
   iree_async_proactor_release(proactor);
