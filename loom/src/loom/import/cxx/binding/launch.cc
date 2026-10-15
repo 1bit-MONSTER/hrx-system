@@ -239,19 +239,18 @@ LaunchConfiguration LaunchContracts::bind_configuration(
                         "kernel configuration requires a fixed function "
                         "signature");
   }
-  std::vector<loom_type_t> arguments;
+  std::vector<const cxx::Type*> workloads;
   for (auto* parameter : function->parameters()) {
     auto* parameter_type = types.unqualified(parameter->type());
-    if (!unit_.typeTraits().is_integral(parameter_type) ||
-        parameter_type->kind() == cxx::TypeKind::kBool ||
-        unit_.typeTraits().is_reference(parameter->type()) ||
+    if (unit_.typeTraits().is_reference(parameter->type()) ||
         unit_.typeTraits().is_volatile(parameter->type())) {
       diagnostics_.reject(
           unit_, definition,
-          "kernel configuration workloads require non-volatile non-boolean "
-          "integer value parameters");
+          "kernel configuration workloads require non-reference "
+          "non-volatile value parameters");
     }
-    arguments.push_back(types.get(parameter_type, definition));
+    types.partition(parameter_type, definition);
+    workloads.push_back(parameter_type);
   }
 
   auto* result_type = signature->returnType();
@@ -311,7 +310,7 @@ LaunchConfiguration LaunchContracts::bind_configuration(
       definition,
       body,
       result_type,
-      std::move(arguments),
+      std::move(workloads),
       clustered ? LaunchConfigurationKind::Clustered
                 : LaunchConfigurationKind::Standard,
   };

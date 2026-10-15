@@ -233,7 +233,7 @@ generation, fixtures, requirements, expectations, and benchmark records.
 A [`command.program.def`](../reference/dialects/command/ops/program-def.md)
 composes kernel launches, parameter views, resources, and serial or concurrent
 schedule regions into a reusable subgraph. Its leading specialization
-arguments participate in staged specialization and pure launch-count
+arguments participate in staged specialization and deterministic launch-count
 computation; its buffer bindings remain replaceable when the materialized
 program is issued. Exact counts become direct commands, while intentionally
 dynamic counts use an explicit `view<3xi32>` produced before an indirect
@@ -303,11 +303,11 @@ neither output is checked-in source.
 
 The GFX11 tab comes directly from the installed-tool workflow above. The
 documentation build lowers the same closed command root separately to produce
-the readable command-program tab: launch configuration is projected as pure
-caller IR, folded to an exact direct count, and lowered while the device
-implementation remains unopened. Production command construction uses the
-single LoomC transaction described in [Parallelize kernel JIT
-compilation](../integration/product-frontier.md).
+the readable command-program tab: this example's scalar launch configuration
+is projected as pure caller IR, folded to an exact direct count, and lowered
+while the device implementation remains unopened. Production command
+construction uses the single LoomC transaction described in [Parallelize
+kernel JIT compilation](../integration/product-frontier.md).
 
 ## Embedding chooses the deployment policy
 

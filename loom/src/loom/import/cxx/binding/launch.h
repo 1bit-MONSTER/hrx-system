@@ -39,8 +39,9 @@ struct LaunchConfiguration {
   cxx::CompoundStatementAST* body;
   // Aggregate source result retained for ordinary value translation.
   const cxx::Type* result_type;
-  // Native workload argument types in source parameter order.
-  std::vector<loom_type_t> arguments;
+  // Admitted workload source types in source parameter order. The function
+  // builder binds their flattened High signature to config-region identities.
+  std::vector<const cxx::Type*> workloads;
   // Selects the launch fields carried by the aggregate result.
   LaunchConfigurationKind kind;
 };

@@ -835,6 +835,7 @@ DefinedFunction Functions::define(cxx::FunctionSymbol* symbol, Types& types,
   std::vector<loom_type_t> results;
   std::vector<loom_predicate_t> predicates;
   std::optional<LaunchConfiguration> launch_configuration;
+  BoundSignature configuration_signature;
   BoundSignature callable_signature;
   if (kernel) {
     for (auto* parameter : parameters) {
@@ -907,19 +908,42 @@ DefinedFunction Functions::define(cxx::FunctionSymbol* symbol, Types& types,
     auto callee = callees_.at(symbol->canonical());
     auto target = target_definitions_.reference(symbol);
     auto name_id = module_->symbols.entries[callee.symbol_id].name_id;
-    std::span<const loom_type_t> configuration_arguments =
-        launch_configuration ? std::span(launch_configuration->arguments)
-                             : std::span<const loom_type_t>{};
+    size_t configuration_identity_count = 0;
+    bool configuration_requires_binding = false;
+    if (launch_configuration) {
+      for (const auto* workload : launch_configuration->workloads) {
+        configuration_identity_count +=
+            types.partition(workload, definition).component_count;
+        configuration_requires_binding |=
+            types.requires_binding(workload, definition);
+      }
+    }
     std::vector<loom_value_id_t> kernel_identities;
+    if (configuration_requires_binding || has_predicates) {
+      kernel_identities.resize(configuration_identity_count +
+                               (has_predicates ? arguments.size() : 0));
+      if (!kernel_identities.empty()) {
+        check(loom_builder_reserve_values(builder, kernel_identities.size(),
+                                          kernel_identities.data()));
+      }
+      if (launch_configuration) {
+        configuration_signature = bind_signature_to(
+            types, launch_configuration->workloads, definition,
+            std::span<const loom_value_id_t>(kernel_identities)
+                .first(configuration_identity_count));
+      }
+    } else if (launch_configuration) {
+      configuration_signature = bind_signature(
+          types, launch_configuration->workloads, definition, builder);
+    }
+    std::span<const loom_type_t> configuration_arguments =
+        launch_configuration ? std::span(configuration_signature.types)
+                             : std::span<const loom_type_t>{};
     if (has_predicates) {
-      kernel_identities.resize(configuration_arguments.size() +
-                               arguments.size());
-      check(loom_builder_reserve_values(builder, kernel_identities.size(),
-                                        kernel_identities.data()));
       predicates = function_contracts_.bind(
           symbol, types,
           std::span<const loom_value_id_t>(kernel_identities)
-              .subspan(configuration_arguments.size()),
+              .subspan(configuration_identity_count),
           FunctionContractSignature::Kernel, definition);
     }
     check(loom_kernel_def_build(

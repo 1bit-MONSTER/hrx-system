@@ -54,6 +54,14 @@ BoundSignature bind_signature(Types& types,
                               SignatureIdentityRequirement identities =
                                   SignatureIdentityRequirement::DependentTypes);
 
+// Projects |sources| onto caller-reserved destination identities. The span
+// contains exactly one identity per flattened component in source order and
+// remains available on the returned signature for predicate substitution.
+BoundSignature bind_signature_to(Types& types,
+                                 std::span<const cxx::Type* const> sources,
+                                 cxx::AST* owner,
+                                 std::span<const loom_value_id_t> identities);
+
 }  // namespace loom::cxx_import
 
 #endif  // LOOM_IMPORT_CXX_VALUE_SIGNATURE_H_

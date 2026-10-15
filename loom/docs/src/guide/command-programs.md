@@ -71,8 +71,8 @@ An opaque ordinary call is rejected inside nested control flow instead of
 surviving until command outlining or schedule materialization.
 
 Schedule topology and parameter identity must be closed after planning.
-Pure launch-count expressions either fold to exact direct counts or terminate
-in explicit indirect-count storage. They cannot leave an unresolved source
+Launch-count expressions either fold to exact direct counts or terminate in
+explicit indirect-count storage. They cannot leave an unresolved source
 branch, dynamic parameter key, or free scalar result in the materialized
 command program.
 
@@ -97,9 +97,8 @@ disagree about which ABI carries a value.
 ## Launch configuration stays with its caller
 
 Command planning does not open a selected kernel implementation. Linking
-projects only its logical contract and pure launch-configuration
-facet, then rewrites each workload-level launch at the same caller-owned CFG
-site:
+projects only its logical contract and launch-configuration facet, then
+rewrites each workload-level launch at the same caller-owned CFG site:
 
 ```loom
 %x, %y, %z = func.call pure @project_block$config(%element_count) : (index) -> (index, index, index)
@@ -111,6 +110,12 @@ before schedule construction. Equal calls with equal SSA inputs can collapse;
 calls in different branches or loop iterations retain the control-flow scope
 that gives their values meaning. There is no aggregate result function or
 command-specific memo table.
+
+A pure configuration call may move to the earliest scope that dominates its
+workloads. A read-only configuration call remains at its lexical launch so a
+storage producer cannot be crossed. Inlining preserves the same distinction:
+ordinary scalar arithmetic can fold freely, while loads retain their explicit
+buffer/view identities and schedule ordering.
 
 Exact scalar results become direct dispatch commands. An exact aligned
 `view<3xi32>` rooted in an immutable parameter or command input becomes a
@@ -273,7 +278,7 @@ compiler operations:
 
 1. Link the dependency closure of the requested roots.
 2. Flatten reachable command-program composition.
-3. Project each referenced kernel's logical contract and pure launch
+3. Project each referenced kernel's logical contract and deterministic launch
    configuration without opening its implementation.
 4. Rewrite launches in caller IR, then specialize, inline, canonicalize, CSE,
    and unroll the resulting ordinary dataflow.

@@ -361,14 +361,6 @@ class Translator final : private Initialization::Evaluation {
     auto defined = functions_.define(symbol, types_, locations_, &builder_);
     if (defined.configuration) {
       function_body(*defined.configuration);
-      auto* region = defined.configuration->region;
-      if (loom_region_has_read_effects(region) ||
-          loom_region_has_write_effects(region) ||
-          loom_region_has_convergent_effects(region) ||
-          loom_region_has_observable_effects(region)) {
-        fail(defined.configuration->source,
-             "kernel configuration body must be pure");
-      }
     }
     function_body(defined.body);
   }
@@ -453,11 +445,15 @@ class Translator final : private Initialization::Evaluation {
                defined.kind == FunctionKind::ClusteredLaunchConfiguration) {
       auto source = locations_.get(returned.source);
       std::array<loom_value_id_t, 9> dimensions = {};
+      auto i32_type = loom_type_scalar(LOOM_SCALAR_TYPE_I32);
+      auto i64_type = loom_type_scalar(LOOM_SCALAR_TYPE_I64);
       auto index_type = loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
       for (size_t i = 0; i < returned.values.size(); ++i) {
-        check(loom_index_cast_build(&builder_, returned.values[i],
-                                    value_type(returned.values[i]), index_type,
-                                    source, &terminator));
+        loom_op_t* extended;
+        check(loom_scalar_extui_build(&builder_, returned.values[i], i32_type,
+                                      i64_type, source, &extended));
+        check(loom_index_cast_build(&builder_, loom_op_results(extended)[0],
+                                    i64_type, index_type, source, &terminator));
         dimensions[i] = result(terminator);
       }
       bool clustered =

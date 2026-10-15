@@ -566,6 +566,32 @@ class CheckBody {
     return cxx::ast_cast<cxx::CallExpressionAST>(source);
   }
 
+  const cxx::Type* storage_element_type(const cxx::Type* source_type,
+                                        const Partition& partition) {
+    if (auto* pointer =
+            cxx::type_cast<cxx::PointerType>(types_.unqualified(source_type))) {
+      return pointer->elementType();
+    }
+    return partition.kind == ValueKind::Buffer
+               ? static_cast<const BufferPartition&>(partition).element_type
+               : nullptr;
+  }
+
+  bool tensor_matches_storage(const TensorPartition& tensor,
+                              const cxx::Type* source_type,
+                              const Partition& partition) {
+    auto* element = storage_element_type(source_type, partition);
+    if (!element) {
+      return false;
+    }
+    if (types_.unqualified(element) ==
+        types_.unqualified(tensor.element_type)) {
+      return true;
+    }
+    return partition.kind == ValueKind::Buffer && tensor.vector_lane_count &&
+           types_.unqualified(element) == types_.unqualified(tensor.lane_type);
+  }
+
   void append_workloads(cxx::ExpressionAST* source,
                         const CheckIntrinsic& binding,
                         std::vector<loom_value_id_t>& workloads) {
@@ -584,19 +610,40 @@ class CheckBody {
              "loom::kernel::workload argument count must match the "
              "kernel configuration");
       }
-      if (types_.unqualified(argument->value->type) !=
-          types_.unqualified(parameter->type())) {
+      auto* parameter_type = types_.unqualified(parameter->type());
+      const auto& parameter_partition =
+          types_.partition(parameter_type, argument->value);
+      auto value = expression(argument->value);
+      if (value.is_tensor() &&
+          (parameter_partition.kind == ValueKind::Pointer ||
+           parameter_partition.kind == ValueKind::Buffer)) {
+        const auto& tensor =
+            static_cast<const TensorPartition&>(value.partition());
+        if (!tensor_matches_storage(tensor, parameter_type,
+                                    parameter_partition)) {
+          fail(argument->value,
+               "check tensor element type must match the kernel "
+               "configuration storage element type");
+        }
+        workloads.push_back(tensor.tensor_value(value.components()));
+        if (parameter_partition.kind == ValueKind::Pointer) {
+          workloads.push_back(scalars_.integer(
+              0, LOOM_SCALAR_TYPE_OFFSET, locations_.get(argument->value)));
+        }
+        argument = argument->next;
+        continue;
+      }
+      if (types_.unqualified(argument->value->type) != parameter_type) {
         fail(argument->value,
              "loom::kernel::workload argument types must match the kernel "
              "configuration parameters");
       }
-      auto value = expression(argument->value);
-      if (value.components().size() != 1 ||
-          loom_type_kind(loom_module_value_type(
-              builder_.module, value.components()[0])) != LOOM_TYPE_SCALAR) {
-        fail(argument->value, "kernel workloads require scalar values");
+      if (value.components().size() != parameter_partition.component_count) {
+        fail(argument->value,
+             "kernel workload representation does not match the kernel "
+             "configuration parameter");
       }
-      workloads.push_back(value.components()[0]);
+      value.append_to(workloads);
       argument = argument->next;
     }
     if (argument) {
@@ -700,25 +747,10 @@ class CheckBody {
           types_.partition(parameter_type, source_arguments[index]);
       if (values[index].is_tensor() &&
           loom_type_kind(expected) == LOOM_TYPE_BUFFER) {
-        const cxx::Type* expected_element = nullptr;
-        if (auto* pointer = cxx::type_cast<cxx::PointerType>(
-                types_.unqualified(parameter_type))) {
-          expected_element = pointer->elementType();
-        } else if (expected_partition.kind == ValueKind::Buffer) {
-          expected_element =
-              static_cast<const BufferPartition&>(expected_partition)
-                  .element_type;
-        }
         const auto& tensor =
             static_cast<const TensorPartition&>(values[index].partition());
-        bool exact_object_type =
-            expected_element && types_.unqualified(expected_element) ==
-                                    types_.unqualified(tensor.element_type);
-        bool scalar_lane_view = expected_partition.kind == ValueKind::Buffer &&
-                                tensor.vector_lane_count && expected_element &&
-                                types_.unqualified(expected_element) ==
-                                    types_.unqualified(tensor.lane_type);
-        if (!exact_object_type && !scalar_lane_view) {
+        if (!tensor_matches_storage(tensor, parameter_type,
+                                    expected_partition)) {
           fail(source_arguments[index],
                "check tensor element type must match the subject buffer "
                "element type");
