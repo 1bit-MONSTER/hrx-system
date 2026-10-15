@@ -1358,11 +1358,29 @@ loom_cc_test(
     loop_domain_test
   SRCS
     "loop_domain_test.cc"
+    "loop_domain_test_util.cc"
+    "loop_domain_test_util.h"
   DEPS
     ::loop_domain
     iree::testing::gtest
     iree::testing::gtest_main
     loom::ir::facts
+)
+
+loom_cc_test(
+  NAME
+    loop_domain_stress_test
+  SRCS
+    "loop_domain_stress.cc"
+    "loop_domain_test_util.cc"
+    "loop_domain_test_util.h"
+  DEPS
+    ::loop_domain
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::ir::facts
+  LABELS
+    "manual"
 )
 
 loom_cc_library(

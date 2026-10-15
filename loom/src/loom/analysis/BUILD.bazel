@@ -1199,7 +1199,27 @@ loom_cc_library(
 
 loom_cc_test(
     name = "loop_domain_test",
-    srcs = ["loop_domain_test.cc"],
+    srcs = [
+        "loop_domain_test.cc",
+        "loop_domain_test_util.cc",
+        "loop_domain_test_util.h",
+    ],
+    deps = [
+        ":loop_domain",
+        "//loom/src/loom/ir:facts",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "loop_domain_stress_test",
+    srcs = [
+        "loop_domain_stress.cc",
+        "loop_domain_test_util.cc",
+        "loop_domain_test_util.h",
+    ],
+    tags = ["manual"],
     deps = [
         ":loop_domain",
         "//loom/src/loom/ir:facts",

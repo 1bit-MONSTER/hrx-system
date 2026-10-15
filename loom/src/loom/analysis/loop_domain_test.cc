@@ -11,6 +11,7 @@
 #include <numeric>
 
 #include "iree/testing/gtest.h"
+#include "loom/analysis/loop_domain_test_util.h"
 #include "loom/ir/facts.h"
 #include "loom/ir/float_facts.h"
 
@@ -80,6 +81,11 @@ constexpr loom_loop_bound_flags_t kComparisonFlags[] = {
     kSignedExclusive | LOOM_LOOP_BOUND_DESCENDING,
     kSignedInclusive | LOOM_LOOP_BOUND_DESCENDING,
 };
+
+// Three-bit carriers retain 4,672 complete tuples across comparison modes and
+// expose signed, unsigned, wrap, and interior values. The manual stress target
+// extends the same independent execution oracle through six-bit carriers.
+constexpr uint8_t kPresubmitCarrierBitwidth = 3;
 
 void ExpectCount(loom_loop_bound_flags_t bound_flags, uint8_t bitwidth,
                  uint64_t initial, uint64_t bound, uint64_t step,
@@ -781,134 +787,16 @@ TEST(LoopDomainRecurrenceTest, DescendingSourceAndCarrierDomainsStayDistinct) {
   EXPECT_EQ(outside.trip_count_kind, LOOM_LOOP_TRIP_COUNT_UNKNOWN);
 }
 
-struct ObservedLoop {
-  // Whether modular execution reaches a false guard before revisiting a value.
-  bool terminates;
-  // Whether every executed addition advances in the selected direction.
-  bool advances;
-  // Number of body executions before exit or recurrence.
-  uint64_t trip_count;
-  // Whether each increment stays monotonic in its signed source direction.
-  bool source_translations_fit;
-  // Smallest signed source value observed at the header, including its exit.
-  int64_t minimum;
-  // Largest signed source value observed at the header, including its exit.
-  int64_t maximum;
-  // Smallest signed source value observed during an executed body.
-  int64_t body_minimum;
-  // Largest signed source value observed during an executed body.
-  int64_t body_maximum;
-  // Signed source value at the first false guard, if execution terminates.
-  int64_t exit_value;
-};
-
-// Small-width interpretation is independent of the closed-form count proof.
-// Execute carrier additions and comparisons, stopping when a value repeats.
-ObservedLoop InterpretLoop(loom_loop_bound_flags_t bound_flags,
-                           uint8_t bitwidth, uint64_t initial, uint64_t bound,
-                           uint64_t step, bool guard_uses_next = false) {
-  const int64_t modulus = INT64_C(1) << bitwidth;
-  const bool is_signed = bound_flags & LOOM_LOOP_BOUND_SIGNED;
-  const bool inclusive = bound_flags & LOOM_LOOP_BOUND_INCLUSIVE;
-  const bool descending = bound_flags & LOOM_LOOP_BOUND_DESCENDING;
-  auto ordered_value = [&](uint64_t bits) -> int64_t {
-    return is_signed && bits >= uint64_t(modulus / 2) ? int64_t(bits) - modulus
-                                                      : int64_t(bits);
-  };
-  auto source_value = [&](uint64_t bits) -> int64_t {
-    return bits >= uint64_t(modulus / 2) ? int64_t(bits) - modulus
-                                         : int64_t(bits);
-  };
-  ObservedLoop observed = {true,
-                           true,
-                           0,
-                           true,
-                           source_value(initial),
-                           source_value(initial),
-                           INT64_MAX,
-                           INT64_MIN,
-                           0};
-  uint64_t value = initial;
-  do {
-    const uint64_t guard_value =
-        guard_uses_next ? (value + step) % modulus : value;
-    const int64_t current = ordered_value(guard_value);
-    const int64_t limit = ordered_value(bound);
-    const bool more = (descending ? current > limit : current < limit) ||
-                      (inclusive && current == limit);
-    if (!more) {
-      observed.exit_value = source_value(value);
-      return observed;
-    }
-    observed.body_minimum =
-        std::min(observed.body_minimum, source_value(value));
-    observed.body_maximum =
-        std::max(observed.body_maximum, source_value(value));
-    const uint64_t next = (value + step) % modulus;
-    const uint64_t next_guard =
-        guard_uses_next ? (next + step) % modulus : next;
-    observed.advances &= descending ? ordered_value(next_guard) < current
-                                    : ordered_value(next_guard) > current;
-    const int64_t source_step = source_value(step);
-    observed.source_translations_fit &=
-        source_step < 0 ? source_value(next) < source_value(value)
-                        : source_value(next) > source_value(value);
-    observed.minimum = std::min(observed.minimum, source_value(next));
-    observed.maximum = std::max(observed.maximum, source_value(next));
-    ++observed.trip_count;
-    value = next;
-  } while (value != initial);
-  observed.terminates = false;
-  return observed;
-}
-
-TEST(LoopDomainRecurrenceTest, ExhaustiveNextGuardExecution) {
-  for (uint8_t bitwidth = 1; bitwidth <= 6; ++bitwidth) {
+TEST(LoopDomainRecurrenceTest, SmallCarrierNextGuardExecution) {
+  for (uint8_t bitwidth = 1; bitwidth <= kPresubmitCarrierBitwidth;
+       ++bitwidth) {
     const uint64_t limit = UINT64_C(1) << bitwidth;
-    auto source_value = [&](uint64_t bits) -> int64_t {
-      return bits >= limit / 2 ? int64_t(bits) - int64_t(limit) : int64_t(bits);
-    };
     for (auto flags : kComparisonFlags) {
       for (uint64_t initial = 0; initial < limit; ++initial) {
         for (uint64_t bound = 0; bound < limit; ++bound) {
           for (uint64_t step = 0; step < limit; ++step) {
-            const ObservedLoop expected =
-                InterpretLoop(flags, bitwidth, initial, bound, step, true);
-            const auto facts = loom_loop_domain_next_guard_recurrence_facts(
-                flags, bitwidth,
-                loom_value_facts_exact_i64(source_value(initial)),
-                loom_value_facts_exact_i64(source_value(bound)),
-                loom_value_facts_exact_i64(source_value(step)));
-            const bool expected_exact =
-                expected.terminates && expected.advances;
-            const bool expected_range =
-                expected_exact &&
-                (expected.trip_count == 0 || expected.source_translations_fit);
-            if ((facts.trip_count_kind == LOOM_LOOP_TRIP_COUNT_EXACT) !=
-                    expected_exact ||
-                facts.trip_count !=
-                    (expected_exact ? expected.trip_count : 0) ||
-                (expected_range &&
-                 (facts.values.range_lo != expected.minimum ||
-                  facts.values.range_hi != expected.maximum ||
-                  facts.exit_value.range_lo != expected.exit_value ||
-                  facts.exit_value.range_hi != expected.exit_value)) ||
-                (!expected_range &&
-                 (!loom_value_facts_is_unknown(facts.values) ||
-                  !loom_value_facts_is_unknown(facts.body_values) ||
-                  !loom_value_facts_is_unknown(facts.exit_value)))) {
-              FAIL() << "width=" << int(bitwidth) << " flags=" << int(flags)
-                     << " initial=" << initial << " bound=" << bound
-                     << " step=" << step << " actual_count=" << facts.trip_count
-                     << " expected_count=" << expected.trip_count << " actual=["
-                     << facts.values.range_lo << "," << facts.values.range_hi
-                     << "] expected=[" << expected.minimum << ","
-                     << expected.maximum << "]";
-            }
-            if (expected_range && expected.trip_count != 0) {
-              EXPECT_EQ(facts.body_values.range_lo, expected.body_minimum);
-              EXPECT_EQ(facts.body_values.range_hi, expected.body_maximum);
-            }
+            ASSERT_TRUE(loom::testing::CheckNextGuardLoopDomainExecution(
+                flags, bitwidth, initial, bound, step));
           }
         }
       }
@@ -916,73 +804,16 @@ TEST(LoopDomainRecurrenceTest, ExhaustiveNextGuardExecution) {
   }
 }
 
-TEST(LoopDomainTripCountTest, ExhaustiveModularExecution) {
-  for (uint8_t bitwidth = 1; bitwidth <= 6; ++bitwidth) {
+TEST(LoopDomainTripCountTest, SmallCarrierModularExecution) {
+  for (uint8_t bitwidth = 1; bitwidth <= kPresubmitCarrierBitwidth;
+       ++bitwidth) {
     const uint64_t limit = UINT64_C(1) << bitwidth;
-    for (auto bound_flags : kComparisonFlags) {
+    for (auto flags : kComparisonFlags) {
       for (uint64_t initial = 0; initial < limit; ++initial) {
         for (uint64_t bound = 0; bound < limit; ++bound) {
           for (uint64_t step = 0; step < limit; ++step) {
-            const ObservedLoop expected =
-                InterpretLoop(bound_flags, bitwidth, initial, bound, step);
-            uint64_t actual = UINT64_MAX;
-            const bool exact = loom_loop_domain_trip_count(
-                bound_flags, bitwidth, initial, bound, step, &actual);
-            const bool expected_exact =
-                expected.terminates && expected.advances;
-            auto source_value = [&](uint64_t bits) -> int64_t {
-              return bits >= limit / 2 ? int64_t(bits) - int64_t(limit)
-                                       : int64_t(bits);
-            };
-            const auto facts = loom_loop_domain_recurrence_facts(
-                bound_flags, bitwidth,
-                loom_value_facts_exact_i64(source_value(initial)),
-                loom_value_facts_exact_i64(source_value(bound)),
-                loom_value_facts_exact_i64(source_value(step)));
-            const bool expected_range =
-                expected_exact && (expected.trip_count == 0 ||
-                                   ((bound_flags & LOOM_LOOP_BOUND_DESCENDING
-                                         ? source_value(step) < 0
-                                         : source_value(step) > 0) &&
-                                    expected.source_translations_fit));
-            if ((facts.trip_count_kind == LOOM_LOOP_TRIP_COUNT_EXACT) !=
-                    exact ||
-                facts.trip_count != actual ||
-                (expected_range &&
-                 (facts.values.range_lo != expected.minimum ||
-                  facts.values.range_hi != expected.maximum)) ||
-                (!expected_range &&
-                 !loom_value_facts_is_unknown(facts.values))) {
-              FAIL() << "range width=" << int(bitwidth)
-                     << " flags=" << int(bound_flags) << " initial=" << initial
-                     << " bound=" << bound << " step=" << step << " actual=["
-                     << facts.values.range_lo << "," << facts.values.range_hi
-                     << "] expected_range=" << expected_range << " expected=["
-                     << expected.minimum << "," << expected.maximum << "]";
-            }
-            if (exact != expected_exact ||
-                actual != (expected_exact ? expected.trip_count : 0)) {
-              FAIL() << "width=" << int(bitwidth)
-                     << " bound_flags=" << int(bound_flags)
-                     << " initial=" << initial << " bound=" << bound
-                     << " step=" << step << " exact=" << exact
-                     << " count=" << actual
-                     << " expected_exact=" << expected_exact
-                     << " expected_count=" << expected.trip_count;
-            }
-            if (expected_range) {
-              ASSERT_EQ(facts.exit_value.range_lo, expected.exit_value);
-              ASSERT_EQ(facts.exit_value.range_hi, expected.exit_value);
-              if (expected.trip_count != 0) {
-                ASSERT_EQ(facts.body_values.range_lo, expected.body_minimum);
-                ASSERT_EQ(facts.body_values.range_hi, expected.body_maximum);
-              } else {
-                ASSERT_TRUE(loom_value_facts_is_unknown(facts.body_values));
-              }
-            } else {
-              ASSERT_TRUE(loom_value_facts_is_unknown(facts.body_values));
-              ASSERT_TRUE(loom_value_facts_is_unknown(facts.exit_value));
-            }
+            ASSERT_TRUE(loom::testing::CheckLoopDomainExecution(
+                flags, bitwidth, initial, bound, step));
           }
         }
       }
@@ -1025,10 +856,11 @@ TEST(LoopDomainRecurrenceTest, SmallRangesContainEveryModularExecution) {
                      ++initial) {
                   for (int64_t bound = bound_lower; bound <= bound_upper;
                        ++bound) {
-                    const auto observed = InterpretLoop(
-                        flags, bitwidth, uint64_t(initial) & (modulus - 1),
-                        uint64_t(bound) & (modulus - 1),
-                        uint64_t(delta) & (modulus - 1));
+                    const auto observed =
+                        loom::testing::InterpretLoopDomainExecution(
+                            flags, bitwidth, uint64_t(initial) & (modulus - 1),
+                            uint64_t(bound) & (modulus - 1),
+                            uint64_t(delta) & (modulus - 1));
                     const bool exact =
                         facts.trip_count_kind == LOOM_LOOP_TRIP_COUNT_EXACT;
                     if (!observed.terminates || !observed.advances ||
