@@ -102,3 +102,43 @@ CHECK: %17 = OpPtrAccessChain.storage_buffer.i32.byte_offset %aligned, %16
 CHECK: %second = OpLoad.storage_buffer.i32<volatile> %17
 CHECK: return %first, %second
 CHECK-NOT: * = OpLoad.storage_buffer.i32 *
+
+// ====
+// RUN: emit source-low target=spirv:vulkan1.3+bda output=low
+
+// All volatile reads are captured before the overlapping writes. Native
+// arithmetic consumes the assembled snapshot once, and the final scalar
+// stores extract that result without rebuilding its producer per lane.
+func.def @volatile_overlapping_vector_rounding(%storage: buffer) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %storage {minimum_alignment = 4} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<4xf32>
+  %value = vector.load<volatile> %view[0] : view<4xf32> -> vector<3xf32>
+  %rounded = vector.roundevenf<nnan|ninf|nsz> %value : vector<3xf32>
+  vector.store<volatile> %rounded, %view[1] : vector<3xf32>, view<4xf32>
+  func.return
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @volatile_overlapping_vector_rounding(%aligned: reg<spirv.ptr.storage_buffer>) asm {
+  %14 = OpConstant.offset64 0
+  %15 = OpPtrAccessChain.storage_buffer.f32.byte_offset %aligned, %14
+  %16 = OpLoad.storage_buffer.f32<volatile> %15
+  %17 = OpConstant.offset64 4
+  %18 = OpPtrAccessChain.storage_buffer.f32.byte_offset %aligned, %17
+  %19 = OpLoad.storage_buffer.f32<volatile> %18
+  %20 = OpConstant.offset64 8
+  %21 = OpPtrAccessChain.storage_buffer.f32.byte_offset %aligned, %20
+  %22 = OpLoad.storage_buffer.f32<volatile> %21
+  %value = OpCompositeConstruct.v3f32 %16, %19, %22
+  %rounded = OpExtInst.GLSL.std.450.RoundEven.v3f32 %value
+  %25 = OpCompositeExtract.v3f32.f32 %rounded, 0
+  %26 = OpCompositeExtract.v3f32.f32 %rounded, 1
+  %27 = OpCompositeExtract.v3f32.f32 %rounded, 2
+  OpStore.storage_buffer.f32<volatile> %18, %25
+  OpStore.storage_buffer.f32<volatile> %21, %26
+  %32 = OpConstant.offset64 12
+  %33 = OpPtrAccessChain.storage_buffer.f32.byte_offset %aligned, %32
+  OpStore.storage_buffer.f32<volatile> %33, %27
+  return
+}

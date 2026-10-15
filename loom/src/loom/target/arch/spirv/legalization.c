@@ -50,6 +50,43 @@ static iree_status_t loom_spirv_legalize_vector_to_scalar(
   return iree_ok_status();
 }
 
+static bool loom_spirv_type_has_ordinary_vector_carrier(loom_type_t type) {
+  loom_spirv_value_type_t value_type = {0};
+  if (!loom_spirv_value_type_from_loom_type(type, &value_type)) {
+    return false;
+  }
+  return value_type.value_class == LOOM_SPIRV_VALUE_CLASS_VECTOR ||
+         value_type.value_class == LOOM_SPIRV_VALUE_CLASS_BOOL_VECTOR;
+}
+
+static iree_status_t loom_spirv_legalize_vector_store(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+  if (!loom_spirv_legalizer_descriptor_set_is_spirv(context->descriptor_set) ||
+      context->mode != LOOM_TARGET_LEGALIZATION_MODE_FINAL) {
+    return iree_ok_status();
+  }
+
+  const loom_type_t value_type =
+      loom_module_value_type(context->module, loom_vector_store_value(op));
+  if (!loom_spirv_type_has_ordinary_vector_carrier(value_type)) {
+    return iree_ok_status();
+  }
+
+  bool rewritten = false;
+  IREE_RETURN_IF_ERROR(loom_vector_store_captured_to_scalar_rewrite_op(
+      context->pass, context->rewriter, op, &rewritten));
+  if (rewritten) {
+    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_spirv_legalize_vector_concat(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
@@ -139,6 +176,10 @@ static const loom_target_legalizer_rule_t kSpirvLegalizerRules[] = {
     {
         .root_kind = LOOM_OP_VECTOR_LOAD,
         .legalize = loom_spirv_legalize_vector_to_scalar,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_STORE,
+        .legalize = loom_spirv_legalize_vector_store,
     },
     {
         .root_kind = LOOM_OP_VECTOR_CONCAT,
