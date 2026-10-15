@@ -12,6 +12,7 @@
 #include "iree/base/internal/base64.h"
 #include "loom/serve/media/image.h"
 #include "loom/serve/media/image_codec.h"
+#include "loom/serve/media/image_request.h"
 
 static void Exercise(iree_string_view_t input) {
   const loom_serve_media_image_limits_t limits = {
@@ -31,6 +32,22 @@ static void Exercise(iree_string_view_t input) {
         2, images, destinations, results, iree_allocator_system());
     for (auto result : results) {
       iree_status_free(result);
+    }
+    if (iree_status_is_ok(status)) {
+      // The same inspected input reaches the source-packet boundary with
+      // distinct metadata alignment and projection extents in one cohort.
+      const uint8_t metadata[] = {1, 2, 3};
+      const loom_serve_media_image_request_t requests[] = {
+          {&image, {}, 1},
+          {&image, iree_make_const_byte_span(metadata, sizeof(metadata)), 3},
+      };
+      iree_vm_buffer_t* packets[2];
+      status = loom_serve_media_image_request_create_batch(
+          2, requests, iree_allocator_system(), packets, results);
+      for (size_t i = 0; i < 2; ++i) {
+        iree_vm_buffer_release(packets[i]);
+        iree_status_free(results[i]);
+      }
     }
   }
   loom_serve_media_image_input_deinitialize(&image);

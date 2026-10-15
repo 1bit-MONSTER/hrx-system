@@ -209,6 +209,7 @@ loom_cc_library(
     testonly = True,
     srcs = [
         "media_execution_test.cc",
+        "projector_execution_test.cc",
         "source_execution_test.cc",
     ],
     target_compatible_with = _SOURCE_TEST_COMPATIBILITY,
@@ -217,6 +218,7 @@ loom_cc_library(
         ":epoch",
         ":model",
         ":source_service_fixture",
+        "//loom/src/loom/serve/media:image_request",
         "//loom/src/loom/serve/service/finite:model",
         "//loom/src/loom/serve/service/finite:result",
         "//loom/src/loom/serve/service/finite/embedding:protocol",

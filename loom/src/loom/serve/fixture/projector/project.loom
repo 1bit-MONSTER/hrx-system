@@ -1,0 +1,58 @@
+target.decl @fixture_target
+
+// One cohort-wide dispatch observes RGB/RGBA pixels and the request count.
+// This exact transport oracle preserves alpha instead of compositing it.
+kernel.def target(@fixture_target) @project() {
+  %c64 = index.constant 64 : index
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c64, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%input: buffer, %output: buffer) {
+  %row = kernel.workgroup.id<x> : index
+  %origin = index.constant 0 : offset
+  %header = buffer.view %input[%origin] : buffer -> view<4xi32>
+  %rows32 = view.load %header[0] : view<4xi32> -> i32
+  %bounded_rows = scalar.assume %rows32 [range(%rows32, 1, 64)] : i32
+  %rows = index.cast %bounded_rows : i32 to index
+  %live = index.cmp ult, %row, %rows : index
+  scf.if %live {
+    %c16_bytes = index.constant 16 : offset
+    %work = buffer.view %input[%c16_bytes] : buffer -> view<64x4xi32>
+    %offset32 = view.load %work[%row, 0] : view<64x4xi32> -> i32
+    %ordinal = view.load %work[%row, 1] : view<64x4xi32> -> i32
+    %format = view.load %work[%row, 2] : view<64x4xi32> -> i32
+    %cohort = view.load %work[%row, 3] : view<64x4xi32> -> i32
+    %offset64 = scalar.extui %offset32 : i32 to i64
+    %bounded_offset = scalar.assume %offset64 [range(%offset64, 0, 65535)] : i64
+    %offset = index.cast %bounded_offset : i64 to offset
+    %pixel = buffer.view %input[%offset] : buffer -> view<3xi8>
+    %red8 = view.load %pixel[0] : view<3xi8> -> i8
+    %green8 = view.load %pixel[1] : view<3xi8> -> i8
+    %blue8 = view.load %pixel[2] : view<3xi8> -> i8
+    %red = scalar.extui %red8 : i8 to i32
+    %green = scalar.extui %green8 : i8 to i32
+    %blue = scalar.extui %blue8 : i8 to i32
+    %c4_i32 = scalar.constant 4 : i32
+    %rgba = scalar.cmpi eq, %format, %c4_i32 : i32
+    %alpha = scf.if %rgba -> (i32) {
+      %pixel_rgba = buffer.view %input[%offset] : buffer -> view<4xi8>
+      %alpha8 = view.load %pixel_rgba[3] : view<4xi8> -> i8
+      %value = scalar.extui %alpha8 : i8 to i32
+      scf.yield %value : i32
+    } else {
+      %opaque = scalar.constant 255 : i32
+      scf.yield %opaque : i32
+    }
+    %colored = scalar.addi %red, %alpha : i32
+    %value = scalar.addi %colored, %ordinal : i32
+    %first = scalar.uitofp %value : i32 to f32
+    %second = scalar.uitofp %green : i32 to f32
+    %third = scalar.uitofp %blue : i32 to f32
+    %fourth = scalar.uitofp %cohort : i32 to f32
+    %result = buffer.view %output[%origin] : buffer -> view<[%rows]x4xf32>
+    view.store %first, %result[%row, 0] : f32, view<[%rows]x4xf32>
+    view.store %second, %result[%row, 1] : f32, view<[%rows]x4xf32>
+    view.store %third, %result[%row, 2] : f32, view<[%rows]x4xf32>
+    view.store %fourth, %result[%row, 3] : f32, view<[%rows]x4xf32>
+  }
+  kernel.return
+}

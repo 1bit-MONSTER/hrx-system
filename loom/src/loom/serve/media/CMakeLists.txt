@@ -216,6 +216,41 @@ loom_cc_test(
 endif()
 
 if(LOOM_TARGET_ARCH_VM)
+loom_cc_library(
+  NAME
+    image_request
+  HDRS
+    "image_request.h"
+  SRCS
+    "image_request.c"
+  DEPS
+    ::image
+    iree::base
+    iree::vm
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_test(
+  NAME
+    image_request_test
+  SRCS
+    "image_request_test.cc"
+  DEPS
+    ::image
+    ::image_request
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+    iree::vm
+    iree::vm::test_support
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_fuzz(
   NAME
     image_fuzz
@@ -225,8 +260,10 @@ loom_cc_fuzz(
     ::image
     ::image_codec
     ::image_codecs
+    ::image_request
     iree::base
     iree::base::internal::base64
+    iree::vm
   LABELS
     "iree-build-requirement=loom.target.arch.vm"
 )

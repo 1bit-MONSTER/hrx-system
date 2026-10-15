@@ -241,11 +241,13 @@ loom_cc_library(
     source_execution_tests
   SRCS
     "media_execution_test.cc"
+    "projector_execution_test.cc"
     "source_execution_test.cc"
   DEPS
     ::epoch
     ::model
     ::source_service_fixture
+    loom::serve::media::image_request
     loom::serve::service::finite::embedding::protocol
     loom::serve::service::finite::model
     loom::serve::service::finite::result
