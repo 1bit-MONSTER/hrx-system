@@ -341,6 +341,8 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/projector/model.json"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/projector/prepare.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/projector/project.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/projector/weighted_prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/projector/weighted_project.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/advance.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/control.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/model.json"

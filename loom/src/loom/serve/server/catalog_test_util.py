@@ -265,7 +265,7 @@ class Client:
             if state["parameter_operation"] == "idle":
                 assert state["registration"] == "ready", state
                 assert state["status"]["admission"] == "drained", state
-                assert state["parameters"]["active"], state
+                assert state["parameters"]["primary"]["active"], state
                 return state
 
     def activate(self, name):

@@ -273,6 +273,9 @@ A text definition's optional [image component](model-documents.md#image-input)
 implements the finite contract. It shares the deployment's device and numerical
 provider catalog, while owning separate preparation and parameter residency.
 Ordinary text and exact retained image-prefix hits do not prepare the projector.
+Explicit component warmup follows the same preparation boundary. Its parameter
+pin policy is independent of the primary language model's policy; deactivation
+does not discard retained text state.
 
 The text control program declares image limits and receives ordered text/image
 content records. It renders model framing and returns each image's projected

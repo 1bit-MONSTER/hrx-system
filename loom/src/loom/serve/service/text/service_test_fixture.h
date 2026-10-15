@@ -164,14 +164,21 @@ class SourceTextServiceTest : public ::testing::Test {
     });
   }
 
-  std::string Declaration(const std::string& name, const std::string& source,
-                          const char* admission = "open",
-                          const std::string& definition_fields = "") {
+  std::string Declaration(
+      const std::string& name, const std::string& source,
+      const char* admission = "open", const std::string& definition_fields = "",
+      const std::vector<std::string>& additional_sources = {}) {
+    std::string sources = "\"advance.loom\"";
+    for (const auto& path : additional_sources) {
+      sources += ",\"" + path + "\"";
+    }
     return "{\"name\":\"" + name + "\",\"base_directory\":\"" +
            std::filesystem::absolute(source).string() + "\",\"admission\":\"" +
            admission +
            "\",\"definition\":{\"kind\":\"text\",\"prepare\":\"prepare.loom\","
-           "\"control\":\"control.loom\",\"sources\":[\"advance.loom\"],"
+           "\"control\":\"control.loom\",\"sources\":[" +
+           sources +
+           "],"
            "\"weights\":\"" +
            weights_ + "\",\"tokenizer\":\"" +
            std::filesystem::absolute(tokenizer_).string() +

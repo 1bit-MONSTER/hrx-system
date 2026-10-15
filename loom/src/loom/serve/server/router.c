@@ -309,6 +309,10 @@ typedef struct router_selector_t {
   loom_serve_removal_t* removal;
   // Whether the optional removal mode has already occurred.
   iree_string_view_t mode;
+  // Optional parameter-component destination; other control routes reject it.
+  loom_serve_model_component_t* component;
+  // Raw component selector used to reject duplicate fields.
+  iree_string_view_t component_name;
 } router_selector_t;
 
 static iree_status_t loom_serve_router_model_visit(void* user_data,
@@ -317,6 +321,28 @@ static iree_status_t loom_serve_router_model_visit(void* user_data,
                                                    iree_string_view_t value) {
   router_selector_t* selector = user_data;
   iree_string_view_t* model = &selector->model;
+  if (selector->component &&
+      iree_string_view_equal(key, IREE_SV("component"))) {
+    if (selector->component_name.data || type != IREE_JSON_VALUE_TYPE_STRING) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "component must occur once as a string");
+    }
+    selector->component_name = value;
+    char decoded[7];
+    iree_host_size_t length = 0;
+    IREE_RETURN_IF_ERROR(
+        iree_json_unescape_string(value, sizeof(decoded), decoded, &length));
+    const iree_string_view_t name = iree_make_string_view(decoded, length);
+    if (iree_string_view_equal(name, IREE_SV("primary"))) {
+      *selector->component = LOOM_SERVE_MODEL_COMPONENT_PRIMARY;
+    } else if (iree_string_view_equal(name, IREE_SV("image"))) {
+      *selector->component = LOOM_SERVE_MODEL_COMPONENT_IMAGE;
+    } else {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "component must be primary or image");
+    }
+    return iree_ok_status();
+  }
   if (selector->removal && iree_string_view_equal(key, IREE_SV("mode"))) {
     if (selector->mode.data || type != IREE_JSON_VALUE_TYPE_STRING) {
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -350,7 +376,8 @@ static iree_status_t loom_serve_router_model_visit(void* user_data,
 
 static iree_status_t loom_serve_router_model(
     const loom_serve_http_request_t* request, bool control,
-    loom_serve_removal_t* removal, iree_string_builder_t* output) {
+    loom_serve_removal_t* removal, loom_serve_model_component_t* component,
+    iree_string_builder_t* output) {
   if (request->multipart) {
     if (control) {
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -380,7 +407,8 @@ static iree_status_t loom_serve_router_model(
   }
   iree_string_view_t cursor = request->body;
   iree_string_view_t object;
-  router_selector_t selector = {.control = control, .removal = removal};
+  router_selector_t selector = {
+      .control = control, .removal = removal, .component = component};
   IREE_RETURN_IF_ERROR(iree_json_consume_object(&cursor, &object));
   IREE_RETURN_IF_ERROR(iree_json_consume_insignificant(&cursor));
   if (cursor.size) {
@@ -446,13 +474,11 @@ static const char* loom_serve_router_admission_phase(
              : "drained";
 }
 
-static iree_status_t loom_serve_router_describe_parameters(
-    const loom_serve_registered_model_t* model, iree_string_builder_t* output) {
-  const loom_serve_residency_snapshot_t state =
-      model->registration.parameters(model->registration.self);
+static iree_status_t loom_serve_router_describe_residency(
+    loom_serve_residency_snapshot_t state, iree_string_builder_t* output) {
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       output,
-      ",\"parameters\":{\"active\":%s,\"backing\":\"%s\",\"activations\":"
+      ",\"active\":%s,\"backing\":\"%s\",\"activations\":"
       "%" PRIu64 ",\"deactivations\":%" PRIu64
       ",\"pins\":%zu,"
       "\"admission\":{\"waiting\":%s,\"count\":%" PRIu64
@@ -469,7 +495,71 @@ static iree_status_t loom_serve_router_describe_parameters(
         state.memory.reserved_bytes, state.memory.committed_bytes,
         state.memory.pending_bytes, state.memory.releasing_bytes));
   }
-  return iree_string_builder_append_cstring(output, "}");
+  return iree_ok_status();
+}
+
+static iree_status_t loom_serve_router_describe_parameters(
+    const loom_serve_registered_model_t* model, iree_string_builder_t* output) {
+  IREE_RETURN_IF_ERROR(
+      iree_string_builder_append_cstring(output, ",\"parameters\":{"));
+  iree_status_t status = iree_ok_status();
+  for (loom_serve_model_component_t component = 0;
+       component < LOOM_SERVE_MODEL_COMPONENT_COUNT &&
+       iree_status_is_ok(status);
+       ++component) {
+    if (!loom_serve_registry_has_component(model, component)) {
+      continue;
+    }
+    loom_serve_registration_parameters_t state = {
+        .phase = loom_serve_registry_phase(model)};
+    if (model->phase == LOOM_SERVE_REGISTRATION_READY &&
+        model->registration.parameters) {
+      state =
+          model->registration.parameters(model->registration.self, component);
+    } else if (component == LOOM_SERVE_MODEL_COMPONENT_IMAGE &&
+               (model->phase == LOOM_SERVE_REGISTRATION_DECLARED ||
+                model->phase == LOOM_SERVE_REGISTRATION_PREPARING)) {
+      state.phase = "declared";
+    }
+    status = iree_string_builder_append_format(
+        output, "%s\"%s\":{\"phase\":\"%s\",\"pinned\":%s",
+        component ? "," : "", loom_serve_model_component_name(component),
+        state.phase,
+        (model->pinned_components & (1u << component)) ? "true" : "false");
+    if (iree_status_is_ok(status) && state.prepared) {
+      status = loom_serve_router_describe_residency(state.parameters, output);
+    }
+    if (iree_status_is_ok(status) && !iree_status_is_ok(state.status)) {
+      status = iree_string_builder_append_format(
+          output, ",\"error\":{\"code\":%d,\"message\":",
+          iree_status_code(state.status));
+      if (iree_status_is_ok(status)) {
+        status =
+            loom_serve_router_quote(output, iree_status_message(state.status));
+      }
+      if (iree_status_is_ok(status)) {
+        status = iree_string_builder_append_cstring(output, "}");
+      }
+    }
+    const loom_serve_compilation_report_t* report = state.compilation;
+    if (iree_status_is_ok(status) && report &&
+        (report->commands || report->severities[0] || report->severities[1] ||
+         report->severities[2])) {
+      status = iree_string_builder_append_cstring(output, ",\"compilation\":");
+      if (iree_status_is_ok(status)) {
+        loom_output_stream_t stream;
+        loom_output_stream_for_builder(output, &stream);
+        status = loom_serve_compilation_write(report, &stream);
+      }
+    }
+    if (iree_status_is_ok(status)) {
+      status = iree_string_builder_append_cstring(output, "}");
+    }
+  }
+  if (iree_status_is_ok(status)) {
+    status = iree_string_builder_append_cstring(output, "}");
+  }
+  return status;
 }
 
 static iree_status_t loom_serve_router_describe_modalities(
@@ -540,11 +630,9 @@ static iree_status_t loom_serve_router_describe_service(
   if (admission->incarnation) {
     IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
         output,
-        ",\"incarnation\":%" PRIu64
-        ",\"device\":%zu,\"registration\":\"%s\",\"parameter_pinned\":%s",
+        ",\"incarnation\":%" PRIu64 ",\"device\":%zu,\"registration\":\"%s\"",
         admission->incarnation, admission->configuration.device_index,
-        loom_serve_registry_phase(admission),
-        admission->pinned ? "true" : "false"));
+        loom_serve_registry_phase(admission)));
     if (!iree_status_is_ok(admission->status)) {
       IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
           output, ",\"error\":{\"code\":%d,\"message\":",
@@ -568,11 +656,12 @@ static iree_status_t loom_serve_router_describe_service(
       static const char* const operations[] = {"idle", "waiting", "activating",
                                                "deactivating"};
       IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
-          output, ",\"parameter_operation\":\"%s\"",
-          operations[admission->parameter_operation]));
+          output,
+          ",\"parameter_operation\":\"%s\",\"parameter_component\":\"%s\"",
+          operations[admission->parameter_operation],
+          loom_serve_model_component_name(admission->parameter_component)));
     }
-    if (admission->phase == LOOM_SERVE_REGISTRATION_READY &&
-        admission->registration.parameters) {
+    if (admission->incarnation) {
       IREE_RETURN_IF_ERROR(
           loom_serve_router_describe_parameters(admission, output));
     }
@@ -1211,6 +1300,7 @@ static iree_status_t loom_serve_router_accept(
   }
   iree_string_view_t name;
   loom_serve_removal_t removal = LOOM_SERVE_REMOVAL_DRAIN;
+  loom_serve_model_component_t component = LOOM_SERVE_MODEL_COMPONENT_PRIMARY;
   if (checkpoint) {
     if (!loom_serve_http_request_lookup_header(request, IREE_SV("X-Loom-Model"),
                                                &name)) {
@@ -1229,11 +1319,12 @@ static iree_status_t loom_serve_router_accept(
       }
     }
   } else {
-    iree_status_t status =
-        loom_serve_router_model(request,
-                                drain || undrain || unregister || deactivate ||
-                                    activate || pin || unpin,
-                                unregister ? &removal : NULL, output);
+    iree_status_t status = loom_serve_router_model(
+        request,
+        drain || undrain || unregister || deactivate || activate || pin ||
+            unpin,
+        unregister ? &removal : NULL,
+        activate || deactivate || pin || unpin ? &component : NULL, output);
     if (!iree_status_is_ok(status)) {
       if (!iree_status_is_invalid_argument(status) &&
           !iree_status_is_out_of_range(status)) {
@@ -1262,7 +1353,8 @@ static iree_status_t loom_serve_router_accept(
         return loom_serve_router_control(router, i, connection, 202);
       }
       if (pin || unpin) {
-        iree_status_t status = loom_serve_registry_set_pinned(state, pin);
+        iree_status_t status =
+            loom_serve_registry_set_pinned(state, component, pin);
         if (!iree_status_is_ok(status)) {
           return loom_serve_http_response_error(router->server, connection,
                                                 status, &router->output);
@@ -1270,8 +1362,9 @@ static iree_status_t loom_serve_router_accept(
         return loom_serve_router_control(router, i, connection, 200);
       }
       if (deactivate || activate) {
-        iree_status_t status = activate ? loom_serve_registry_activate(state)
-                                        : loom_serve_registry_deactivate(state);
+        iree_status_t status =
+            activate ? loom_serve_registry_activate(state, component)
+                     : loom_serve_registry_deactivate(state, component);
         if (!iree_status_is_ok(status)) {
           return loom_serve_http_response_error(router->server, connection,
                                                 status, &router->output);

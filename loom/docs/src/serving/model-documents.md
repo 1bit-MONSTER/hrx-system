@@ -117,7 +117,9 @@ image-generation deployment.
 
 The component implements the finite request/cohort contract and owns independent
 preparation and parameter residency. Registration and ordinary text generation
-leave it dormant; an image not covered by retained state starts preparation.
+leave it dormant; an image not covered by retained state or an explicit
+[`component:"image"` activation](workflows/operate-model-server.md#control-weight-residency-independently)
+starts preparation. Primary warmup and pinning do not implicitly warm or pin it.
 The text source must also declare image limits and implement ordered media
 framing and mixed input. A declaration alone does not give a text program
 vision capability. See [image-conditioned text](model-programs.md#image-conditioned-text)

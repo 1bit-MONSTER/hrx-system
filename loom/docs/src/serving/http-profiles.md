@@ -37,8 +37,8 @@ header.
 | `POST /v1/models/register` | Complete model document, optionally with uploaded source files; HTTP 202 accepts registration intent. |
 | `POST /v1/models/drain`, `POST /v1/models/undrain` | `{"model":"name"}`; HTTP 200 acknowledges the gate change. |
 | `POST /v1/models/unregister` | `{"model":"name","mode":"drain"}`; mode may instead be `"abort"`; HTTP 202 accepts removal. |
-| `POST /v1/models/activate`, `POST /v1/models/deactivate` | Model-only body; HTTP 202 accepts a residency operation on a healthy drained registration. |
-| `POST /v1/models/pin`, `POST /v1/models/unpin` | Model-only body; HTTP 200 changes parameter eviction policy. |
+| `POST /v1/models/activate`, `POST /v1/models/deactivate` | `{"model":"name","component":"primary"}`; HTTP 202 accepts a residency operation on a healthy drained registration. |
+| `POST /v1/models/pin`, `POST /v1/models/unpin` | Same component selector; HTTP 200 changes parameter eviction policy. |
 | `GET /v1/models/variants` | Native executable inventory or one candidate's retained compilation diagnostics. |
 | `POST /v1/models/variants` | Stage native providers against a ready base without selecting them. |
 | `POST /v1/models/variants/select` | Select a ready candidate with expected-current protection. |
@@ -54,6 +54,12 @@ Prepared but drained or weight-evicted models remain discoverable.
 loaded tokenizer. Text also reports configured `context_length` and
 `limits.max_output_tokens`, not training context or total cache-pool capacity.
 Capabilities do not establish learned quality or support for every optional field.
+
+Residency controls default to `component:"primary"`. A text deployment with an
+image-input component also accepts `component:"image"`; an image-generation
+deployment's normal computation is still `primary`. An undeclared component
+returns 404; an invalid selector returns 400. Drain and unregister apply to the
+whole registration and do not accept a component selector.
 
 [Operation](workflows/operate-model-server.md) specifies asynchronous control
 completion, conflict and overload behavior. [Observation](workflows/observe-model-server.md)

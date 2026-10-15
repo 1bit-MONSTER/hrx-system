@@ -128,13 +128,24 @@ struct RegistrationDependency {
     ++operation->dependency->destroyed;
     delete operation;
   }
-  static loom_serve_residency_snapshot_t Parameters(void* self) {
-    return static_cast<Operation*>(self)->dependency->parameters;
+  static loom_serve_registration_parameters_t Parameters(
+      void* self, loom_serve_model_component_t component) {
+    const auto parameters =
+        static_cast<Operation*>(self)->dependency->parameters;
+    return {
+        .phase = "ready",
+        .prepared = true,
+        .deactivatable = parameters.elastic,
+        .parameters = parameters,
+    };
   }
-  static void SetPinned(void* self, bool pinned) {
+  static void SetPinned(void* self, loom_serve_model_component_t component,
+                        bool pinned) {
     static_cast<Operation*>(self)->dependency->pinned = pinned;
   }
-  static iree_status_t Deactivate(void* self, bool* out_complete) {
+  static iree_status_t Deactivate(void* self,
+                                  loom_serve_model_component_t component,
+                                  bool* out_complete) {
     *out_complete = true;
     auto* dependency = static_cast<Operation*>(self)->dependency;
     EXPECT_FALSE(ModelService::IsPending(&dependency->service));
@@ -149,8 +160,12 @@ struct RegistrationDependency {
     parameters.memory.committed_bytes = 0;
     return iree_ok_status();
   }
-  static iree_status_t Activate(void* self, loom_serve_activation_flags_t flags,
-                                loom_serve_activation_phase_t* phase) {
+  static iree_status_t Activate(void* self,
+                                loom_serve_model_component_t component,
+                                loom_serve_activation_flags_t flags,
+                                loom_serve_activation_phase_t* phase,
+                                iree_status_t* component_status) {
+    *component_status = iree_ok_status();
     auto* dependency = static_cast<Operation*>(self)->dependency;
     std::lock_guard<std::mutex> lock(dependency->mutex);
     auto& activation = dependency->activation;
@@ -431,12 +446,12 @@ TEST_P(HttpRouterRegistrationTest, PinningDoesNotPrepareOrActivateAModel) {
   for (int i = 0; i < 2; ++i) {
     const auto pinned = Control("pin", "dynamic");
     EXPECT_EQ(pinned.find("HTTP/1.1 200"), 0u);
-    EXPECT_NE(pinned.find(R"("parameter_pinned":true)"), std::string::npos);
+    EXPECT_NE(pinned.find(R"("pinned":true)"), std::string::npos);
     EXPECT_NE(pinned.find(R"("registration":"registered")"), std::string::npos);
     EXPECT_EQ(managed_.created.load(), 0u);
   }
   EXPECT_EQ(Control("deactivate", "dynamic").find("HTTP/1.1 409"), 0u);
-  EXPECT_NE(Control("unpin", "dynamic").find(R"("parameter_pinned":false)"),
+  EXPECT_NE(Control("unpin", "dynamic").find(R"("pinned":false)"),
             std::string::npos);
   EXPECT_EQ(managed_.created.load(), 0u);
   EXPECT_EQ(Control("pin", "dynamic").find("HTTP/1.1 200"), 0u);
@@ -639,7 +654,8 @@ TEST_P(HttpRouterRegistrationTest,
   EXPECT_EQ(Control("drain", "dynamic").find("HTTP/1.1 200"), 0u);
   const auto rejected = Control("deactivate", "dynamic");
   EXPECT_EQ(rejected.find("HTTP/1.1 409"), 0u);
-  EXPECT_NE(rejected.find("fixed parameter backing"), std::string::npos);
+  EXPECT_NE(rejected.find("cannot release its parameter backing"),
+            std::string::npos);
   const auto state = Read(Send("GET", "/v1/status"));
   EXPECT_NE(state.find(R"("active":true,"backing":"fixed")"),
             std::string::npos);

@@ -19,6 +19,8 @@ struct loom_serve_finite_component_t {
   loom_serve_finite_component_phase_t phase;
   // Irreversible deployment shutdown, independent of request cancellation.
   bool stopping;
+  // Persistent eviction policy, including before lazy preparation completes.
+  bool pinned;
   // Owned asynchronous load or terminal load whose cleanup failed.
   loom_serve_finite_load_t* load;
   // Owned prepared model, retained through actual queue ownership retirement.
@@ -61,6 +63,32 @@ const loom_serve_compilation_report_t* loom_serve_finite_component_report(
   return &component->report;
 }
 
+iree_status_t loom_serve_finite_component_status(
+    const loom_serve_finite_component_t* component) {
+  return component->status;
+}
+
+bool loom_serve_finite_component_parameters(
+    const loom_serve_finite_component_t* component,
+    loom_serve_residency_snapshot_t* out_parameters) {
+  *out_parameters = (loom_serve_residency_snapshot_t){0};
+  if (!component->model) {
+    return false;
+  }
+  *out_parameters = loom_serve_residency_snapshot(
+      loom_serve_finite_model_residency(component->model));
+  return true;
+}
+
+void loom_serve_finite_component_set_pinned(
+    loom_serve_finite_component_t* component, bool pinned) {
+  component->pinned = pinned;
+  if (component->model) {
+    loom_serve_residency_set_pinned(
+        loom_serve_finite_model_residency(component->model), pinned);
+  }
+}
+
 bool loom_serve_finite_component_advance(
     loom_serve_finite_component_t* component, bool stopping) {
   if (!component) {
@@ -81,6 +109,8 @@ bool loom_serve_finite_component_advance(
                                loom_serve_finite_load_report(component->load));
   if (iree_status_is_ok(component->status)) {
     component->model = loom_serve_finite_load_take_model(component->load);
+    loom_serve_residency_set_pinned(
+        loom_serve_finite_model_residency(component->model), component->pinned);
   }
   iree_status_t cleanup = loom_serve_finite_load_free(component->load);
   if (iree_status_is_ok(cleanup)) {
@@ -139,6 +169,10 @@ iree_status_t loom_serve_finite_component_trim(
   *out_complete = true;
   IREE_ASSERT(!component->stopping &&
               !loom_serve_finite_component_is_pending(component));
+  if (component->load) {
+    IREE_RETURN_IF_ERROR(loom_serve_finite_load_free(component->load));
+    component->load = NULL;
+  }
   if (!component->model) {
     return iree_ok_status();
   }

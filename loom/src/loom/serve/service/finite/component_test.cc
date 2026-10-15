@@ -436,19 +436,26 @@ TEST_F(FiniteComponentTest, DeviceResultSurvivesTrimReloadAndRemoval) {
 }
 
 TEST_F(FiniteComponentTest, TrimPreservesExplicitRetention) {
+  loom_serve_finite_component_set_pinned(component_, true);
+  EXPECT_EQ(loom_serve_finite_component_phase(component_),
+            LOOM_SERVE_FINITE_COMPONENT_DECLARED);
+  loom_serve_residency_snapshot_t parameters = {};
+  EXPECT_FALSE(loom_serve_finite_component_parameters(component_, &parameters));
   loom_serve_finite_model_t* model = nullptr;
   IREE_ASSERT_OK(Prepare(component_, &model));
   ASSERT_NO_FATAL_FAILURE(Invoke(model));
   auto* residency = loom_serve_finite_model_residency(model);
-  loom_serve_residency_set_pinned(residency, true);
   EXPECT_TRUE(loom_serve_residency_is_pinned(residency));
   IREE_ASSERT_OK(Trim());
   EXPECT_EQ(loom_serve_finite_component_phase(component_),
             LOOM_SERVE_FINITE_COMPONENT_READY);
   EXPECT_TRUE(loom_serve_residency_snapshot(residency).active);
-  loom_serve_residency_set_pinned(residency, false);
+  loom_serve_finite_component_set_pinned(component_, false);
   EXPECT_FALSE(loom_serve_residency_is_pinned(residency));
   IREE_ASSERT_OK(Trim());
+  IREE_ASSERT_OK(Prepare(component_, &model));
+  EXPECT_FALSE(
+      loom_serve_residency_is_pinned(loom_serve_finite_model_residency(model)));
 }
 
 }  // namespace

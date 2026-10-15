@@ -89,8 +89,8 @@ def check_parameter_residency(client, backing, workers):
 
     before = snapshot()
     memory_before = retained_memory()
-    assert before["parameters"]["active"], before
-    assert before["parameters"]["backing"] == backing, before
+    assert before["parameters"]["primary"]["active"], before
+    assert before["parameters"]["primary"]["backing"] == backing, before
     selector = {"model": "fixture-text"}
     client.request("/v1/models/deactivate", selector, status=409)
     client.request("/v1/models/drain", selector)
@@ -113,7 +113,7 @@ def check_parameter_residency(client, backing, workers):
                 cold = snapshot()
                 if cold["parameter_operation"] == "idle":
                     break
-            parameters = cold["parameters"]
+            parameters = cold["parameters"]["primary"]
             assert cold["incarnation"] == before["incarnation"], cold
             assert cold["compilation"] == before["compilation"], cold
             assert cold["status"]["admission"] == "drained", cold
@@ -134,11 +134,11 @@ def check_parameter_residency(client, backing, workers):
             if backing == "elastic":
                 assert not parameters["active"], cold
                 assert parameters["committed_bytes"] == 0, cold
-                assert before["parameters"]["committed_bytes"] > 0, before
+                assert before["parameters"]["primary"]["committed_bytes"] > 0, before
                 assert parameters["reserved_bytes"] > 0, cold
                 assert memory_before["limit_bytes"] is None, memory_before
                 assert memory_cold["reserved_bytes"] == memory_before["reserved_bytes"]
-                released = before["parameters"]["committed_bytes"]
+                released = before["parameters"]["primary"]["committed_bytes"]
                 assert (
                     memory_before["committed_bytes"] - memory_cold["committed_bytes"]
                     == released
@@ -148,17 +148,17 @@ def check_parameter_residency(client, backing, workers):
                     == released
                 ), (memory_before, memory_cold)
                 assert parameters["deactivations"] == (
-                    before["parameters"]["deactivations"] + 1
+                    before["parameters"]["primary"]["deactivations"] + 1
                 ), cold
                 # Repeating the operation cannot discard retained state or
                 # count another physical release of already-inactive weights.
                 client.request("/v1/models/deactivate", selector, status=202)
                 while snapshot()["parameter_operation"] != "idle":
                     pass
-                assert snapshot()["parameters"] == parameters
+                assert snapshot()["parameters"]["primary"] == parameters
             else:
                 assert memory_cold is memory_before is None
-                assert parameters == before["parameters"], cold
+                assert parameters == before["parameters"]["primary"], cold
                 assert "committed_bytes" not in parameters, cold
                 assert "reserved_bytes" not in parameters, cold
             peer = client.request(
@@ -172,18 +172,21 @@ def check_parameter_residency(client, backing, workers):
             assert warmed["incarnation"] == before["incarnation"], warmed
             assert warmed["compilation"] == before["compilation"], warmed
             assert warmed["status"]["held_requests"] == 1, warmed
-            assert warmed["parameters"]["activations"] == (
-                before["parameters"]["activations"] + (backing == "elastic")
+            assert warmed["parameters"]["primary"]["activations"] == (
+                before["parameters"]["primary"]["activations"] + (backing == "elastic")
             ), warmed
             if backing == "elastic":
                 assert (
                     memory_warmed["committed_bytes"] == memory_before["committed_bytes"]
                 ), (memory_before, memory_warmed)
                 assert (
-                    warmed["parameters"]["committed_bytes"]
-                    == (before["parameters"]["committed_bytes"])
+                    warmed["parameters"]["primary"]["committed_bytes"]
+                    == (before["parameters"]["primary"]["committed_bytes"])
                 ), warmed
-            assert client.activate("fixture-text")["parameters"] == warmed["parameters"]
+            assert (
+                client.activate("fixture-text")["parameters"]["primary"]
+                == warmed["parameters"]["primary"]
+            )
             assert not continuation.done()
         finally:
             client.request("/v1/models/undrain", selector)
@@ -193,14 +196,14 @@ def check_parameter_residency(client, backing, workers):
     after = snapshot()
     assert after["incarnation"] == before["incarnation"], after
     assert after["compilation"] == before["compilation"], after
-    assert after["parameters"]["active"], after
-    assert after["parameters"]["activations"] == (
-        before["parameters"]["activations"] + (backing == "elastic")
+    assert after["parameters"]["primary"]["active"], after
+    assert after["parameters"]["primary"]["activations"] == (
+        before["parameters"]["primary"]["activations"] + (backing == "elastic")
     ), after
     if backing == "elastic":
         assert (
-            after["parameters"]["committed_bytes"]
-            == (before["parameters"]["committed_bytes"])
+            after["parameters"]["primary"]["committed_bytes"]
+            == (before["parameters"]["primary"]["committed_bytes"])
         ), after
     assert client.request("/tokenize", {"model": "fixture-text", "content": "ab"}) == {
         "tokens": [0, 1]
@@ -212,10 +215,10 @@ def check_parameter_residency(client, backing, workers):
                 "event": "parameter_residency_resumed",
                 "workers": workers,
                 "backing": backing,
-                "before": before["parameters"],
-                "cold": cold["parameters"],
-                "warmed": warmed["parameters"],
-                "after": after["parameters"],
+                "before": before["parameters"]["primary"],
+                "cold": cold["parameters"]["primary"],
+                "warmed": warmed["parameters"]["primary"],
+                "after": after["parameters"]["primary"],
                 "cached_tokens": resumed["usage"]["prompt_tokens_details"][
                     "cached_tokens"
                 ],
@@ -271,7 +274,7 @@ def check_parameter_residency(client, backing, workers):
         )
         while True:
             state = snapshot(model)
-            parameters = state["parameters"]
+            parameters = state["parameters"]["primary"]
             if state["parameter_operation"] == "idle":
                 break
         if backing == "elastic":
@@ -457,9 +460,14 @@ def check_device_trim(client, backing, workers):
                 "/v1/devices/trim", {"device": 0, "target_bytes": 0}
             )
             assert pinned["target_bytes"] == pinned["device"]["index"] == 0, pinned
-            assert snapshot()["parameters"] == before["parameters"]
+            assert snapshot()["parameters"]["primary"] == {
+                **before["parameters"]["primary"],
+                "pinned": True,
+            }
             unpinned = client.request("/v1/models/unpin", selector)["loom"]
-            assert unpinned["parameters"] == before["parameters"], unpinned
+            assert (
+                unpinned["parameters"]["primary"] == before["parameters"]["primary"]
+            ), unpinned
             trimmed = client.request(
                 "/v1/devices/trim", {"device": 0, "target_bytes": 0}
             )
@@ -487,10 +495,10 @@ def check_device_trim(client, backing, workers):
                     workspace_cold,
                 )
             if backing == "elastic":
-                released = before["parameters"]["committed_bytes"]
+                released = before["parameters"]["primary"]["committed_bytes"]
                 assert released > 0, before
-                assert not cold["parameters"]["active"], cold
-                assert cold["parameters"]["committed_bytes"] == 0, cold
+                assert not cold["parameters"]["primary"]["active"], cold
+                assert cold["parameters"]["primary"]["committed_bytes"] == 0, cold
                 assert memory_pinned["reserved_bytes"] == memory_cold["reserved_bytes"]
                 assert (
                     memory_pinned["committed_bytes"] - memory_cold["committed_bytes"]
@@ -504,9 +512,11 @@ def check_device_trim(client, backing, workers):
                 assert memory_cold["committed_bytes"] > trimmed["target_bytes"], trimmed
             else:
                 assert memory_pinned is memory_cold is None
-                assert cold["parameters"] == before["parameters"], cold
+                assert (
+                    cold["parameters"]["primary"] == before["parameters"]["primary"]
+                ), cold
             client.request("/v1/devices/trim", {"device": 0, "target_bytes": 0})
-            assert snapshot()["parameters"] == cold["parameters"]
+            assert snapshot()["parameters"]["primary"] == cold["parameters"]["primary"]
             assert not continuation.done()
         finally:
             client.request("/v1/models/undrain", selector)
@@ -516,8 +526,8 @@ def check_device_trim(client, backing, workers):
     after = snapshot()
     assert after["incarnation"] == before["incarnation"], after
     assert after["compilation"] == before["compilation"], after
-    assert after["parameters"]["activations"] == (
-        before["parameters"]["activations"] + (backing == "elastic")
+    assert after["parameters"]["primary"]["activations"] == (
+        before["parameters"]["primary"]["activations"] + (backing == "elastic")
     ), after
     client.checkpoint("trim-prefix", "DELETE")
     vectors = client.request(
@@ -1138,10 +1148,10 @@ def check_dynamic_catalog(
             pinned = client.request("/v1/models/pin", {"model": declaration["name"]})[
                 "loom"
             ]
-            assert pinned["parameter_pinned"], pinned
+            assert pinned["parameters"]["primary"]["pinned"], pinned
             assert pinned["registration"] == "registered", pinned
             assert pinned["parameter_operation"] == "idle", pinned
-            assert "parameters" not in pinned, pinned
+            assert "active" not in pinned["parameters"]["primary"], pinned
             assert "compilation" not in pinned, pinned
         registered_threads = thread_snapshot(process)
         assert (
@@ -1161,12 +1171,15 @@ def check_dynamic_catalog(
         for declaration in declarations:
             warmed = client.wait_activation(declaration["name"])
             assert warmed["incarnation"] == identities[declaration["name"]], warmed
-            assert warmed["parameter_pinned"], warmed
+            assert warmed["parameters"]["primary"]["pinned"], warmed
             selector = {"model": declaration["name"]}
             client.request("/v1/models/deactivate", selector, status=409)
             unpinned = client.request("/v1/models/unpin", selector)["loom"]
-            assert not unpinned["parameter_pinned"], unpinned
-            assert unpinned["parameters"] == warmed["parameters"], unpinned
+            assert not unpinned["parameters"]["primary"]["pinned"], unpinned
+            assert unpinned["parameters"]["primary"] == {
+                **warmed["parameters"]["primary"],
+                "pinned": False,
+            }, unpinned
         reader = LogClient("http://" + address, timeout=None)
         warm_counters = next(
             record["values"]
@@ -1341,7 +1354,7 @@ def check_dynamic_catalog(
             for item in replaced:
                 if item["id"] not in peers:
                     assert item["loom"]["incarnation"] != identities[item["id"]]
-                    assert not item["loom"]["parameter_pinned"], item
+                    assert not item["loom"]["parameters"]["primary"]["pinned"], item
             work = [
                 executor.submit(infer, declaration, 2)
                 for declaration in declarations[:models_per_copy]

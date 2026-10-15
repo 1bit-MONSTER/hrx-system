@@ -1562,6 +1562,13 @@ static void loom_serve_text_stop(loom_serve_text_service_t* service,
       service, terminal_code == IREE_STATUS_OK ? "stopped" : "failed");
 }
 
+void loom_serve_text_service_release_projector(
+    loom_serve_text_service_t* service) {
+  loom_serve_text_media_projector_free(service->projector);
+  service->projector = NULL;
+  service->media_preparation_end = 0;
+}
+
 void loom_serve_text_service_free(loom_serve_text_service_t* service,
                                   iree_status_code_t terminal_code) {
   if (!service) {

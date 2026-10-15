@@ -21,7 +21,9 @@ TEST_F(SourceTextServiceTest, TextRegistrationDoesNotPrepareItsImageComponent) {
       Read(Send(declaration, "", "/v1/models/register")).find("HTTP/1.1 202"),
       0u);
   const auto prepared = WaitModel("fixture-text", R"("registration":"ready")");
-  EXPECT_NE(prepared.find(R"("parameters":{"active":false)"), std::string::npos)
+  EXPECT_NE(prepared.find(
+                R"("primary":{"phase":"ready","pinned":false,"active":false)"),
+            std::string::npos)
       << prepared;
   ASSERT_EQ(Read(Send(R"({"model":"fixture-text"})", "", "/v1/models/drain"))
                 .find("HTTP/1.1 200"),
@@ -31,7 +33,9 @@ TEST_F(SourceTextServiceTest, TextRegistrationDoesNotPrepareItsImageComponent) {
   ASSERT_EQ(activation.find("HTTP/1.1 202"), 0u) << activation;
   const auto active =
       WaitModel("fixture-text", R"("parameter_operation":"idle")");
-  EXPECT_NE(active.find(R"("parameters":{"active":true)"), std::string::npos)
+  EXPECT_NE(
+      active.find(R"("primary":{"phase":"ready","pinned":false,"active":true)"),
+      std::string::npos)
       << active;
   ASSERT_EQ(Read(Send(R"({"model":"fixture-text"})", "", "/v1/models/undrain"))
                 .find("HTTP/1.1 200"),

@@ -239,12 +239,41 @@ iree_status_t loom_serve_registry_remove(loom_serve_registered_model_t* model,
   return iree_ok_status();
 }
 
+const char* loom_serve_model_component_name(
+    loom_serve_model_component_t component) {
+  static const char* const names[] = {"primary", "image"};
+  return names[component];
+}
+
+bool loom_serve_registry_has_component(
+    const loom_serve_registered_model_t* model,
+    loom_serve_model_component_t component) {
+  return component == LOOM_SERVE_MODEL_COMPONENT_PRIMARY ||
+         (model->configuration.kind == LOOM_SERVE_MODEL_KIND_TEXT &&
+          model->configuration.text.image.prepare.size != 0);
+}
+
+static iree_status_t loom_serve_registry_require_component(
+    const loom_serve_registered_model_t* model,
+    loom_serve_model_component_t component) {
+  if (!loom_serve_registry_has_component(model, component)) {
+    return iree_make_status(IREE_STATUS_NOT_FOUND, "model has no %s component",
+                            loom_serve_model_component_name(component));
+  }
+  return iree_ok_status();
+}
+
 iree_status_t loom_serve_registry_deactivate(
-    loom_serve_registered_model_t* model) {
+    loom_serve_registered_model_t* model,
+    loom_serve_model_component_t component) {
+  IREE_RETURN_IF_ERROR(loom_serve_registry_require_component(model, component));
   if (!model->incarnation || !model->closed || model->removal ||
-      model->pinned || !iree_status_is_ok(model->status) ||
+      (model->pinned_components & (1u << component)) ||
+      !iree_status_is_ok(model->status) ||
       model->parameter_operation == LOOM_SERVE_PARAMETER_OPERATION_WAITING ||
-      model->parameter_operation == LOOM_SERVE_PARAMETER_OPERATION_ACTIVATING) {
+      model->parameter_operation == LOOM_SERVE_PARAMETER_OPERATION_ACTIVATING ||
+      (model->parameter_operation != LOOM_SERVE_PARAMETER_OPERATION_NONE &&
+       model->parameter_component != component)) {
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                             "deactivation requires a healthy, drained, "
                             "unpinned managed registration");
@@ -257,22 +286,26 @@ iree_status_t loom_serve_registry_deactivate(
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                             "registration has no prepared parameter residency");
   }
-  const loom_serve_residency_snapshot_t state =
-      model->registration.parameters(model->registration.self);
-  if (!state.elastic) {
+  const loom_serve_registration_parameters_t state =
+      model->registration.parameters(model->registration.self, component);
+  if (!state.deactivatable) {
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
-                            "fixed parameter backing cannot deactivate");
+                            "component cannot release its parameter backing");
   }
+  model->parameter_component = component;
   model->parameter_operation = LOOM_SERVE_PARAMETER_OPERATION_DEACTIVATING;
   return iree_ok_status();
 }
 
 iree_status_t loom_serve_registry_set_pinned(
-    loom_serve_registered_model_t* model, bool pinned) {
+    loom_serve_registered_model_t* model,
+    loom_serve_model_component_t component, bool pinned) {
+  IREE_RETURN_IF_ERROR(loom_serve_registry_require_component(model, component));
   if (!model->incarnation || model->removal ||
       !iree_status_is_ok(model->status) ||
-      (pinned && model->parameter_operation ==
-                     LOOM_SERVE_PARAMETER_OPERATION_DEACTIVATING)) {
+      (pinned && model->parameter_component == component &&
+       model->parameter_operation ==
+           LOOM_SERVE_PARAMETER_OPERATION_DEACTIVATING)) {
     return iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
         "pinning requires a healthy managed registration without pending "
@@ -283,18 +316,26 @@ iree_status_t loom_serve_registry_set_pinned(
       return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
                               "registration cannot pin parameters");
     }
-    model->registration.set_pinned(model->registration.self, pinned);
+    model->registration.set_pinned(model->registration.self, component, pinned);
   }
-  model->pinned = pinned;
+  if (pinned) {
+    model->pinned_components |= 1u << component;
+  } else {
+    model->pinned_components &= ~(1u << component);
+  }
   return iree_ok_status();
 }
 
 iree_status_t loom_serve_registry_activate(
-    loom_serve_registered_model_t* model) {
+    loom_serve_registered_model_t* model,
+    loom_serve_model_component_t component) {
+  IREE_RETURN_IF_ERROR(loom_serve_registry_require_component(model, component));
   if (!model->incarnation || !model->closed || model->removal ||
       !iree_status_is_ok(model->status) ||
       model->parameter_operation ==
-          LOOM_SERVE_PARAMETER_OPERATION_DEACTIVATING) {
+          LOOM_SERVE_PARAMETER_OPERATION_DEACTIVATING ||
+      (model->parameter_operation != LOOM_SERVE_PARAMETER_OPERATION_NONE &&
+       model->parameter_component != component)) {
     return iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
         "activation requires a healthy, drained managed registration without "
@@ -308,6 +349,7 @@ iree_status_t loom_serve_registry_activate(
                             "registration cannot activate parameters");
   }
   if (model->parameter_operation == LOOM_SERVE_PARAMETER_OPERATION_NONE) {
+    model->parameter_component = component;
     model->parameter_operation = LOOM_SERVE_PARAMETER_OPERATION_WAITING;
   }
   return iree_ok_status();
@@ -385,7 +427,7 @@ iree_status_t loom_serve_registry_advance(loom_serve_registry_t* registry,
         model->registration.self, model->removal != LOOM_SERVE_REMOVAL_NONE,
         &complete, &service, &model->compilation);
     if (complete) {
-      if (iree_status_is_ok(model->status) && model->pinned &&
+      if (iree_status_is_ok(model->status) && model->pinned_components &&
           !model->registration.set_pinned) {
         model->status = iree_make_status(IREE_STATUS_UNIMPLEMENTED,
                                          "registration cannot pin parameters");
@@ -400,8 +442,14 @@ iree_status_t loom_serve_registry_advance(loom_serve_registry_t* registry,
       }
       if (iree_status_is_ok(model->status)) {
         if (model->registration.set_pinned) {
-          model->registration.set_pinned(model->registration.self,
-                                         model->pinned);
+          for (loom_serve_model_component_t component = 0;
+               component < LOOM_SERVE_MODEL_COMPONENT_COUNT; ++component) {
+            if (loom_serve_registry_has_component(model, component)) {
+              model->registration.set_pinned(
+                  model->registration.self, component,
+                  (model->pinned_components & (1u << component)) != 0);
+            }
+          }
         }
         model->service = service;
         service.set_observer(service.self, observer);
@@ -428,9 +476,22 @@ iree_status_t loom_serve_registry_advance(loom_serve_registry_t* registry,
         (!snapshot.queued_requests && !snapshot.active_requests &&
          !model->service.is_active(model->service.self))) {
       loom_serve_activation_phase_t phase = LOOM_SERVE_ACTIVATION_COMPLETE;
+      iree_status_t component_status = iree_ok_status();
       model->status = model->registration.activate(
-          model->registration.self,
-          model->removal ? LOOM_SERVE_ACTIVATION_FLAG_CANCEL : 0, &phase);
+          model->registration.self, model->parameter_component,
+          model->removal ? LOOM_SERVE_ACTIVATION_FLAG_CANCEL : 0, &phase,
+          &component_status);
+      if (!iree_status_is_ok(component_status)) {
+        // The component retains its diagnostic and remains inspectable. Only
+        // its affected operation fails unless shared backing was disturbed.
+        loom_serve_registry_record_error(model, component_status);
+        iree_status_free(component_status);
+        if (registry->factory.query_status) {
+          model->status = iree_status_join(
+              model->status,
+              registry->factory.query_status(registry->factory.self));
+        }
+      }
       const loom_serve_parameter_operation_t operation =
           phase == LOOM_SERVE_ACTIVATION_COMPLETE
               ? LOOM_SERVE_PARAMETER_OPERATION_NONE
@@ -467,8 +528,8 @@ iree_status_t loom_serve_registry_advance(loom_serve_registry_t* registry,
     if (!snapshot.queued_requests && !snapshot.active_requests &&
         !model->service.is_active(model->service.self)) {
       bool complete = false;
-      model->status =
-          model->registration.deactivate(model->registration.self, &complete);
+      model->status = model->registration.deactivate(
+          model->registration.self, model->parameter_component, &complete);
       if (!iree_status_is_ok(model->status)) {
         loom_serve_registry_record_error(model, model->status);
         terminal_status = iree_status_clone(model->status);

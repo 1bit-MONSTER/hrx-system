@@ -162,7 +162,7 @@ def check(server, source, directory, workers, memory_bytes, retention):
                     body=json.dumps({"model": "alpha"}),
                     headers={"Content-Type": "application/json"},
                 )
-                assert state["loom"]["parameter_pinned"], state
+                assert state["loom"]["parameters"]["primary"]["pinned"], state
         elif retention == "checkpoint":
             # The oldest history has detached from its execution row. The
             # explicit pin shares its native state, not a second byte copy.
@@ -261,8 +261,11 @@ def check(server, source, directory, workers, memory_bytes, retention):
                     body=json.dumps({"model": "alpha"}),
                     headers={"Content-Type": "application/json"},
                 )["loom"]
-                assert not unpinned["parameter_pinned"], unpinned
-                assert unpinned["parameters"] == alpha["parameters"], unpinned
+                assert not unpinned["parameters"]["primary"]["pinned"], unpinned
+                assert unpinned["parameters"]["primary"] == {
+                    **alpha["parameters"]["primary"],
+                    "pinned": False,
+                }, unpinned
                 assert unpinned["incarnation"] == alpha["incarnation"], unpinned
             second_status, second = completion(address, "beta", messages, "peer")
             assert second_status == 200, second

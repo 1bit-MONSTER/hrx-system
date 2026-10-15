@@ -27,6 +27,15 @@ preparation, capacity waiting and output encoding. A disconnected peer can
 remain counted until its accepted work retires. These are scheduler ownership
 observations, not device busy time or completed-request latency percentiles.
 
+`loom.parameters` reports independent `primary` and, when declared, `image`
+component records. Each has a preparation `phase` and persistent `pinned`
+policy. A component without prepared residency has no `active`, `backing` or
+byte-accounting fields; absence is not a zero-byte measurement. Prepared
+records include activation/deactivation counts and, for elastic backing,
+reserved and committed parameter bytes. Image preparation failures and
+compilation diagnostics stay in the image record rather than masking healthy
+text service. Reading status never starts component preparation.
+
 `/metrics` uses Prometheus text format with `model`, `kind` and registration
 `incarnation` labels. Gauges report current phase and ownership counts.
 Work counters include requests, completed, rejected,

@@ -41,7 +41,8 @@ typedef struct loom_serve_text_configuration_t {
   iree_string_view_t weights;
   // Owned tokenizer JSON file path.
   iree_string_view_t tokenizer;
-  // Optional finite image component, prepared only by media demand.
+  // Optional finite image component, prepared by media demand or explicit
+  // component activation, independently of primary text preparation.
   loom_serve_finite_component_configuration_t image;
   // Maximum simultaneous execution rows for this model.
   iree_host_size_t rows;

@@ -240,6 +240,7 @@ loom_cc_library(
   NAME
     source_execution_tests
   SRCS
+    "managed_media_service_test.cc"
     "media_execution_test.cc"
     "media_service_test.cc"
     "projector_execution_test.cc"
@@ -248,6 +249,7 @@ loom_cc_library(
     ::epoch
     ::model
     ::source_service_fixture
+    iree::base::internal::json
     loom::serve::media::image_codec
     loom::serve::media::image_codecs
     loom::serve::media::image_request

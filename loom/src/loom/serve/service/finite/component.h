@@ -72,10 +72,27 @@ bool loom_serve_finite_component_is_pending(
 const loom_serve_compilation_report_t* loom_serve_finite_component_report(
     const loom_serve_finite_component_t* component);
 
+// Borrows the current preparation diagnostic on the serialized owner. The
+// component retains ownership; observation never starts or retries loading.
+iree_status_t loom_serve_finite_component_status(
+    const loom_serve_finite_component_t* component);
+
+// Copies parameter state when a prepared model exists, including during final
+// release. False means no residency exists; it is not an inactive fixed model.
+bool loom_serve_finite_component_parameters(
+    const loom_serve_finite_component_t* component,
+    loom_serve_residency_snapshot_t* out_parameters);
+
+// Persistent eviction policy for present and subsequently prepared parameters.
+// Does not start preparation, activate weights, or change invocation-owned
+// pins.
+void loom_serve_finite_component_set_pinned(
+    loom_serve_finite_component_t* component, bool pinned);
+
 // Quiescent policy boundary: all model CPU/device/variant borrowers have
 // retired and no new consumer or pin-policy change may begin until
-// *out_complete. Elastic backing
-// releases only unpinned weights, retaining compiled code and virtual roots.
+// *out_complete. Elastic backing releases only unpinned weights, retaining
+// compiled code and virtual roots.
 // Nonterminal release owes a pool-owner wake; subsequent calls join it.
 // Fixed backing retires the finite model; the next prepare recreates it.
 // Independent device results do not borrow the model or its parameters and

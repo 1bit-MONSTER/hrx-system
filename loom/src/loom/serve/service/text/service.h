@@ -98,8 +98,9 @@ iree_status_t loom_serve_text_service_allocate(
 // row must be recycled. They resume automatically without a checkpoint header,
 // preserving session accounting. LRU eviction yields to the shared pool budget.
 // Explicit pins and the current preparation/reservation borrower remain
-// protected. Parked inputs retain compact host tokens, not device pins. Idle
-// history eviction invalidates their suffix and requires fresh preparation;
+// protected. Parked inputs retain host tokens and any request-owned projected
+// device rows, without reserving language execution state. Idle history
+// eviction invalidates their suffix and requires fresh preparation;
 // unchanged capacity retries never tokenize again.
 // POST/DELETE /v1/checkpoints/NAME pin an idle completed X-Loom-Session or
 // release that pin. Deletion refuses while queued requests borrow the endpoint.
@@ -119,6 +120,13 @@ iree_status_t loom_serve_text_service_allocate(
 // Peer cancellation discards its live row, not independently pinned endpoints,
 // at a completed stage boundary. Capacities match the created model.
 loom_serve_http_service_t loom_serve_text_service_interface(
+    loom_serve_text_service_t* service);
+
+// Relinquishes the idle projector's model borrow before independent image
+// component release. Admission is closed and every request/CPU/device borrower
+// has retired. Text model, retained histories, and checkpoints are unchanged;
+// the next image demand creates a new projector around the prepared component.
+void loom_serve_text_service_release_projector(
     loom_serve_text_service_t* service);
 
 // Relinquishes every accepted connection after readiness retirement. On

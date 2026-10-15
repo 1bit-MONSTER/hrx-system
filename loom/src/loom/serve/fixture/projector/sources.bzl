@@ -11,6 +11,8 @@ SOURCE_FILES = [
     "model.json",
     "prepare.loom",
     "project.loom",
+    "weighted_prepare.loom",
+    "weighted_project.loom",
 ]
 
 SOURCES = ["//loom/src/loom/serve/fixture/projector:" + path for path in SOURCE_FILES]
