@@ -182,6 +182,8 @@ class StreamPortRange:
     port: StreamPort
     ordinal: int
     count: int
+    # Legal master ordinals for each slave channel; empty for master ranges.
+    connections: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -504,6 +506,8 @@ def _validate_stream_ports(family: ArrayFamily) -> None:
                         "are not dense"
                     )
                 expected_ordinal += row.count
+            if expected_ordinal > 32:
+                raise ValueError("stream ordinals exceed connection-mask width")
 
     ranges = {
         (row.tile_kind, row.direction, row.port): row for row in family.stream_ports
@@ -544,6 +548,18 @@ def _validate_stream_ports(family: ArrayFamily) -> None:
                     f"{tile.kind.value}.{direction.value}: DMA mapping exceeds "
                     f"stream port {port.value}"
                 )
+    for row in family.stream_ports:
+        expected_count = row.count if row.direction is StreamDirection.SLAVE else 0
+        master_count = sum(
+            master.count
+            for master in family.stream_ports
+            if master.tile_kind is row.tile_kind
+            and master.direction is StreamDirection.MASTER
+        )
+        if len(row.connections) != expected_count or any(
+            mask < 0 or mask >= 1 << master_count for mask in row.connections
+        ):
+            raise ValueError("invalid stream connection masks")
 
 
 def _register_offsets(pattern: RegisterPattern) -> tuple[int, ...]:

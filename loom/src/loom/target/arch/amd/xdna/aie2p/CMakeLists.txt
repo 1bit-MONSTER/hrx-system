@@ -381,6 +381,7 @@ loom_cc_library(
     ::array_descriptors
     ::array_local_memory
     iree::base
+    iree::base::internal
     iree::base::internal::arena
     loom::analysis::scc
     loom::analysis::storage_geometry
@@ -934,6 +935,7 @@ loom_check_test_suite(
     "test/native_local_buffers.loom-test"
     "test/native_repetition.loom-test"
     "test/native_strands.loom-test"
+    "test/native_stream_routes.loom-test"
     "test/operand_ties.loom-test"
     "test/source_low/bf16_vectors.loom-test"
     "test/source_low/buffer_selection.loom-test"

@@ -173,15 +173,20 @@ def emit_array_facts() -> str:
         )
 
     event_lines = [f"    {{.module = {_REGISTER_MODULE_IDS[event.module]}, .event_count = {event.event_count}, .named_event_count = {event.named_event_count}}}," for event in family.events]
-    stream_lines = [
-        "    {"
-        f".tile_kind = {_TILE_KIND_IDS[row.tile_kind]}, "
-        f".direction = {_STREAM_DIRECTION_IDS[row.direction]}, "
-        f".port = {_STREAM_PORT_IDS[row.port]}, "
-        f".ordinal = {row.ordinal}, .count = {row.count}"
-        "},"
-        for row in family.stream_ports
-    ]
+    stream_lines: list[str] = []
+    connection_lines: list[str] = []
+    for row in family.stream_ports:
+        connection_offset = len(connection_lines) if row.connections else 0
+        connection_lines.extend(f"    UINT32_C(0x{mask:08x})," for mask in row.connections)
+        stream_lines.append(
+            "    {"
+            f".tile_kind = {_TILE_KIND_IDS[row.tile_kind]}, "
+            f".direction = {_STREAM_DIRECTION_IDS[row.direction]}, "
+            f".port = {_STREAM_PORT_IDS[row.port]}, "
+            f".ordinal = {row.ordinal}, .count = {row.count}, "
+            f".connection_offset = {connection_offset}"
+            "},"
+        )
     lines = [
         *_header(),
         "static const loom_xdna_address_window_t kLoomXdnaNpu2AddressWindows[] = {",
@@ -198,6 +203,10 @@ def emit_array_facts() -> str:
         "",
         "static const loom_xdna_stream_port_range_t kLoomXdnaNpu2StreamPorts[] = {",
         *stream_lines,
+        "};",
+        "",
+        "static const uint32_t kLoomXdnaNpu2StreamConnections[] = {",
+        *connection_lines,
         "};",
         "",
         "static const loom_xdna_array_family_t kLoomXdnaNpu2ArrayFamily = {",
@@ -218,6 +227,7 @@ def emit_array_facts() -> str:
         f"    .event_count = {len(family.events)},",
         "    .stream_ports = kLoomXdnaNpu2StreamPorts,",
         f"    .stream_port_count = {len(family.stream_ports)},",
+        "    .stream_connections = kLoomXdnaNpu2StreamConnections,",
         f'    .aie_rt_source_commit = "{AIE_RT_SOURCE_COMMIT}",',
         f'    .mlir_aie_source_commit = "{MLIR_AIE_SOURCE_COMMIT}",',
         f'    .register_database_version = "{REGISTER_DATABASE_VERSION}",',

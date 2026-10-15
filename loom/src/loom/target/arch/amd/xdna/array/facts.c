@@ -52,6 +52,16 @@ const loom_xdna_stream_port_range_t* loom_xdna_array_stream_port_range(
   return NULL;
 }
 
+uint32_t loom_xdna_array_stream_destination_channels(
+    const loom_xdna_array_family_t* family,
+    const loom_xdna_stream_port_range_t* source, uint8_t source_channel,
+    const loom_xdna_stream_port_range_t* destination) {
+  return (family->stream_connections[source->connection_offset +
+                                     source_channel] >>
+          destination->ordinal) &
+         (UINT32_MAX >> (32 - destination->count));
+}
+
 iree_status_t loom_xdna_array_register_address(
     const loom_xdna_array_family_t* family,
     loom_xdna_tile_coordinate_t coordinate, loom_xdna_register_module_t module,

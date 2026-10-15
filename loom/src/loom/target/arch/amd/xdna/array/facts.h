@@ -241,6 +241,9 @@ typedef struct loom_xdna_stream_port_range_t {
   uint8_t ordinal;
   // Number of port channels.
   uint8_t count;
+  // First channel's master-ordinal mask in the family's stream_connections.
+  // Only slave ranges have connection masks; master ranges store zero here.
+  uint16_t connection_offset;
 } loom_xdna_stream_port_range_t;
 
 // Complete materialized physical-array facts shared by device profiles.
@@ -279,6 +282,8 @@ typedef struct loom_xdna_array_family_t {
   const loom_xdna_stream_port_range_t* stream_ports;
   // Number of stream-port range rows.
   uint8_t stream_port_count;
+  // Legal master-ordinal masks indexed by each slave range and channel.
+  const uint32_t* stream_connections;
   // Pinned aie-rt source revision.
   const char* aie_rt_source_commit;
   // Pinned MLIR-AIE target-model source revision.
@@ -318,6 +323,13 @@ const loom_xdna_tile_facts_t* loom_xdna_array_tile_kind_facts(
 const loom_xdna_stream_port_range_t* loom_xdna_array_stream_port_range(
     const loom_xdna_array_family_t* family, loom_xdna_tile_kind_t tile_kind,
     loom_xdna_stream_direction_t direction, loom_xdna_stream_port_t port);
+
+// Returns legal destination channels for an admitted source channel. Both
+// ranges belong to the same tile kind, with slave and master directions.
+uint32_t loom_xdna_array_stream_destination_channels(
+    const loom_xdna_array_family_t* family,
+    const loom_xdna_stream_port_range_t* source, uint8_t source_channel,
+    const loom_xdna_stream_port_range_t* destination);
 
 // Forms one absolute tile register address after validating the module.
 iree_status_t loom_xdna_array_register_address(

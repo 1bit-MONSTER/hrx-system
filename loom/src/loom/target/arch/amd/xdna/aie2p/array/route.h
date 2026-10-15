@@ -34,16 +34,19 @@ typedef struct loom_aie2p_array_route_builder_t {
     // Number of initialized nodes.
     iree_host_size_t node_count;
   } prefixes;
-  // Per-link channel allocation cursors grouped by traversal direction.
+  // Reusable suffix-planning storage, bounded by the array's Manhattan
+  // diameter.
+  struct loom_aie2p_array_route_step_t* steps;
+  // Per-link occupied channel masks grouped by traversal direction.
   struct {
-    // Next unallocated northbound channel for each vertical link.
-    uint8_t* northbound;
-    // Next unallocated southbound channel for each vertical link.
-    uint8_t* southbound;
-    // Next unallocated westbound channel for each horizontal link.
-    uint8_t* westbound;
-    // Next unallocated eastbound channel for each horizontal link.
-    uint8_t* eastbound;
+    // Occupied northbound channels for each vertical link.
+    uint32_t* northbound;
+    // Occupied southbound channels for each vertical link.
+    uint32_t* southbound;
+    // Occupied westbound channels for each horizontal link.
+    uint32_t* westbound;
+    // Occupied eastbound channels for each horizontal link.
+    uint32_t* eastbound;
   } link_channels;
 } loom_aie2p_array_route_builder_t;
 
@@ -58,8 +61,9 @@ iree_status_t loom_aie2p_array_route_builder_initialize(
 // Connects one shim memory-to-stream DMA channel to a worker
 // stream-to-memory DMA channel. |source_channel_index| is the topology-owned
 // canonical source; its shared prefixes are established by the first branch.
-// Returns false when a link has no free channels. The builder is construction
-// state and must be discarded on failure; only complete plans are published.
+// Returns false when no legal route has free channels. The builder is
+// construction state and must be discarded on failure; only complete plans are
+// published.
 bool loom_aie2p_array_route_ingress(
     loom_aie2p_array_route_builder_t* builder, uint32_t channel_index,
     uint32_t source_channel_index, loom_xdna_tile_coordinate_t shim_coordinate,
