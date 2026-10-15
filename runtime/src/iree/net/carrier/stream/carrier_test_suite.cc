@@ -14,6 +14,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <utility>
 
 #include "iree/async/proactor_platform.h"
 
@@ -1382,6 +1383,46 @@ TEST_P(StreamCarrierTest, PeerDeactivationDeliversOrderlyEof) {
       [&] { return server_deactivated_ && client_context_.eof_count == 1; });
 
   EXPECT_EQ(client_context_.error_count, 0);
+}
+
+struct CarrierReleaseResult {
+  // Final caller reference transferred to the deactivation callback.
+  iree_net_carrier_t* carrier = nullptr;
+  // Borrowed poll owner, kept alive until the callback and thread return.
+  iree_async_proactor_t* proactor = nullptr;
+  // Completion publication independent of the released carrier storage.
+  std::atomic<bool> released{false};
+
+  static void Complete(void* user_data) {
+    auto* result = static_cast<CarrierReleaseResult*>(user_data);
+    iree_net_carrier_release(result->carrier);
+    result->released.store(true);
+    iree_async_proactor_wake(result->proactor);
+  }
+};
+
+TEST_P(StreamCarrierTest,
+       LastReceiveRetirementRacesWithDeactivationAndRelease) {
+  ASSERT_NO_FATAL_FAILURE(CreateCarrierPair());
+  IREE_ASSERT_OK(iree_net_carrier_shutdown(client_carrier_));
+  CarrierReleaseResult result;
+  result.carrier = std::exchange(server_carrier_, nullptr);
+  result.proactor = proactor_;
+
+  // EOF retires the final receive while the carrier remains ACTIVE. Another
+  // thread may begin deactivation as soon as that operation count reaches zero,
+  // including before the retiring callback has returned to its proactor.
+  std::thread deactivator([&] {
+    while (iree_net_carrier_pending_operation_count(result.carrier) != 0) {
+      std::this_thread::yield();
+    }
+    iree_net_carrier_deactivate(result.carrier, CarrierReleaseResult::Complete,
+                                &result);
+  });
+  PollUntil([&] { return result.released.load(); });
+  deactivator.join();
+  EXPECT_EQ(server_context_.eof_count, 1);
+  EXPECT_EQ(server_context_.error_count, 0);
 }
 
 struct TestRegion {
