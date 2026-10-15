@@ -25,7 +25,8 @@ std::string Expansion() {
 }
 std::string Config(const std::string& normalizer,
                    const std::string& raw = "<aaaaaaaaa!>",
-                   const std::string& normalized = "[N]") {
+                   const std::string& normalized = "[N]",
+                   const std::string& merges = "[]") {
   return R"({"normalizer":)" + normalizer + R"(,
   "added_tokens":[
     {"id":8,"content":")" +
@@ -43,8 +44,13 @@ std::string Config(const std::string& normalizer,
       "EOS":{"id":"EOS","ids":[2],"tokens":["EOS"]},
       "TAIL":{"id":"TAIL","ids":[3],"tokens":["TAIL"]}}},
   "model":{"type":"BPE","vocab":{"c":0,"BOS":1,"EOS":2,"TAIL":3,
-    "<":4,"?":5,"☃":6,"☂":7,"[":10,"N":11,"]":12,")" +
-         raw + R"(":8,")" + normalized + R"(":9},"merges":[]}})";
+    "<":4,"?":5,"☃":6,"☂":7,"[":10,"N":11,"]":12,"cc":13,"c[":14,
+    "ᄀ":15,"ᅡ":16,"ᆨ":17,"가":18,"각":19,")" +
+         raw + R"(":8,")" + normalized + R"(":9},"merges":)" + merges + "}}";
+}
+
+std::string SpanConfig(const std::string& normalizer) {
+  return Config(normalizer, "<aaaaaaaaa!>", "[N]", R"([["c","c"],["c","["]])");
 }
 class TokenizerFinalizationTest : public ::testing::Test {
  protected:
@@ -203,5 +209,41 @@ TEST_F(TokenizerFinalizationTest, UnicodePartialAtEof) {
 }
 TEST_F(TokenizerFinalizationTest, EmptyInput) {
   Check(Config(Expansion()), "", {});
+}
+
+TEST_F(TokenizerFinalizationTest, ModelSpanCrossesInputChunks) {
+  std::vector<int32_t> body(1024, 13);
+  body.push_back(0);
+  Check(SpanConfig("null"), std::string(2049, 'c'), body);
+}
+
+TEST_F(TokenizerFinalizationTest, ModelSpanCrossesNormalizerOutputChunks) {
+  Check(SpanConfig(Expansion()), std::string(20, 'a'),
+        std::vector<int32_t>(20 * 512, 13));
+}
+
+TEST_F(TokenizerFinalizationTest, ModelSpanIncludesFinalDecomposition) {
+  Check(Config(R"({"type":"NFD"})", "<aaaaaaaaa!>", "[N]",
+               R"([["ᄀ","ᅡ"],["가","ᆨ"]])"),
+        "각", {19});
+}
+
+TEST_F(TokenizerFinalizationTest, RawTokenCompletesPreviousModelSpan) {
+  std::vector<int32_t> body(512, 13);
+  body.push_back(8);
+  body.insert(body.end(), 512, 13);
+  Check(SpanConfig(Expansion()), "a<aaaaaaaaa!>a", body);
+}
+
+TEST_F(TokenizerFinalizationTest, NormalizedTokenCompletesPreviousModelSpan) {
+  Check(SpanConfig("null"), "ccc[N]ccc", {13, 0, 9, 13, 0});
+}
+
+TEST_F(TokenizerFinalizationTest, FailedNormalizedPrefixKeepsModelSpanOpen) {
+  Check(SpanConfig("null"), "ccc[N?c", {13, 14, 11, 5, 0});
+}
+
+TEST_F(TokenizerFinalizationTest, NormalizedPrefixAtEofKeepsModelSpanOpen) {
+  Check(SpanConfig("null"), "ccc[N", {13, 14, 11});
 }
 }  // namespace

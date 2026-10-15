@@ -81,6 +81,19 @@ iree_runtime_cc_test(
 )
 
 iree_runtime_cc_test(
+    name = "bpe_encode_test",
+    srcs = ["bpe_encode_test.cc"],
+    deps = [
+        ":bpe",
+        ":model_test_util",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+        "//runtime/src/iree/tokenizer:model",
+    ],
+)
+
+iree_runtime_cc_test(
     name = "bpe_backtrack_test",
     srcs = ["bpe_backtrack_test.cc"],
     deps = [

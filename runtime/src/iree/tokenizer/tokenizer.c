@@ -142,9 +142,8 @@ struct iree_tokenizer_encode_state_t {
   // no-ops (either ADD_SPECIAL_TOKENS not set or template has no tokens).
   iree_tokenizer_postprocessor_encode_state_t postprocessor;
 
-  // True when the ring buffer is full and the segmenter hasn't produced
-  // boundaries (split=false). In this mode, the pump feeds available ring data
-  // directly to BPE as a partial segment, bypassing the segmenter.
+  // The model owns an unfinished span fed directly from the ring. Reclaiming
+  // its bytes does not retire the span; a producer boundary must complete it.
   bool has_partial_segment;
 
   // Deferred pre-normalization special token emission.
@@ -1324,6 +1323,9 @@ static inline bool iree_tokenizer_encode_state_pipeline_has_content(
   if (state->segment_count > 0) {
     return true;
   }
+  if (state->has_partial_segment) {
+    return true;
+  }
   if (state->normalizer_state &&
       iree_tokenizer_normalizer_state_has_pending(state->normalizer_state)) {
     return true;
@@ -1384,31 +1386,28 @@ bool iree_tokenizer_encode_state_has_pending(
   return false;
 }
 
-// Feeds ring buffer data [read_position, write_position) directly to the
+// Feeds ring buffer data [read_position, end_position) directly to the
 // model as a single segment, bypassing the segmenter. Handles physical
 // wrap-around via mirror copy. When |is_partial| is true, the model preserves
 // state for continuation (more bytes will follow); when false, the model
 // processes through to completion (FLUSH transition).
 static iree_status_t iree_tokenizer_encode_ring_as_segment(
-    iree_tokenizer_encode_state_t* state, bool is_partial,
-    iree_tokenizer_token_output_t sub_output,
+    iree_tokenizer_encode_state_t* state, iree_host_size_t end_position,
+    bool is_partial, iree_tokenizer_token_output_t sub_output,
     iree_host_size_t* out_tokens_written, bool* out_segment_complete) {
   *out_tokens_written = 0;
   *out_segment_complete = false;
 
-  // Guard against invariant violation: read_position must not exceed
-  // write_position. Check BEFORE subtraction to avoid underflow.
-  if (state->read_position >= state->write_position) {
-    return iree_ok_status();
-  }
-  iree_host_size_t data_length = state->write_position - state->read_position;
+  // An empty final span still retires model state after all accepted bytes
+  // have been reclaimed. Storage ownership and span lifetime are independent.
+  iree_host_size_t data_length = end_position - state->read_position;
   iree_host_size_t capacity = state->capacity_mask + 1;
   iree_host_size_t physical_read = state->read_position & state->capacity_mask;
-  iree_host_size_t physical_write =
-      state->write_position & state->capacity_mask;
+  iree_host_size_t physical_write = end_position & state->capacity_mask;
 
   // Mirror copy if data wraps around the physical buffer end.
-  if (physical_write <= physical_read && physical_write > 0) {
+  if (data_length > 0 && physical_write <= physical_read &&
+      physical_write > 0) {
     memcpy(state->transform_buffer.data + capacity,
            state->transform_buffer.data, physical_write);
   }
@@ -1525,6 +1524,9 @@ typedef enum iree_tokenizer_post_norm_match_result_e {
   // A special token could start at |out_segment_limit| bytes into the view.
   // Segmenter should only consume bytes up to that limit, then re-check.
   IREE_TOKENIZER_POST_NORM_LIMIT,
+  // A confirmed special token ends the ordinary span at out_segment_limit.
+  // Earlier model work must retire before the token can be emitted.
+  IREE_TOKENIZER_POST_NORM_BOUNDARY,
 } iree_tokenizer_post_norm_match_result_t;
 
 // Matches post-normalization special tokens in the ring buffer.
@@ -1543,11 +1545,12 @@ typedef enum iree_tokenizer_post_norm_match_result_e {
 //   NEED_MORE: Partial match. Block segmenter, wait for input.
 //   LIMIT: Potential match at *out_segment_limit. Segmenter should only
 //          process that many bytes, then re-check.
+//   BOUNDARY: Confirmed token at *out_segment_limit ends the ordinary span.
 static iree_tokenizer_post_norm_match_result_t
 iree_tokenizer_encode_state_match_post_norm_special_tokens(
     iree_tokenizer_encode_state_t* state, const iree_tokenizer_t* tokenizer,
-    iree_tokenizer_token_output_t output, iree_host_size_t* total_tokens,
-    iree_host_size_t* out_segment_limit) {
+    bool normalized_span_complete, iree_tokenizer_token_output_t output,
+    iree_host_size_t* total_tokens, iree_host_size_t* out_segment_limit) {
   *out_segment_limit = IREE_HOST_SIZE_MAX;
 
   // Skip if no post-norm tokens configured or matching disabled.
@@ -1580,7 +1583,7 @@ iree_tokenizer_encode_state_match_post_norm_special_tokens(
   if (already_matched > 0) {
     // Slice to only new bytes.
     if (already_matched >= normalized_text.size) {
-      if (state->phase >= IREE_TOKENIZER_ENCODE_PHASE_MATCH) {
+      if (normalized_span_complete) {
         iree_tokenizer_special_tokens_encode_state_clear_partial(
             &state->special_token_match_post);
         return IREE_TOKENIZER_POST_NORM_NO_MATCH;
@@ -1628,7 +1631,7 @@ iree_tokenizer_encode_state_match_post_norm_special_tokens(
       // prefix. This prevents " <" at end-of-input from being split into " " +
       // "<".
       if (check_result == IREE_TOKENIZER_SPECIAL_TOKENS_NEED_MORE &&
-          (state->phase >= IREE_TOKENIZER_ENCODE_PHASE_MATCH)) {
+          normalized_span_complete) {
         return IREE_TOKENIZER_POST_NORM_NO_MATCH;
       }
       // A special token matches or could match at position `safe`. Strip
@@ -1639,7 +1642,9 @@ iree_tokenizer_encode_state_match_post_norm_special_tokens(
       safe = iree_tokenizer_strip_lstrip_whitespace(
           &tokenizer->special_tokens_post_norm, normalized_text, safe,
           check_result, check_id, &check_state);
-      if (safe == 0 && original_safe > 0) {
+      bool confirmed = check_result == IREE_TOKENIZER_SPECIAL_TOKENS_MATCHED;
+      if (safe == 0 && original_safe > 0 && confirmed &&
+          !state->has_partial_segment) {
         // All prefix was whitespace. Skip those bytes and let the match
         // proceed on the next call. Update prev_byte context so LSTRIP check
         // succeeds when using the real state.
@@ -1654,20 +1659,30 @@ iree_tokenizer_encode_state_match_post_norm_special_tokens(
           state->read_position = state->segmenter_view_start;
         }
       }
-      // Return LIMIT so the segmenter processes the prefix bytes first. On
-      // the next call, `safe` will be 0 and we'll match/wait properly.
+      // Let the segmenter process the prefix first. Only a confirmed token
+      // completes that span; a possible prefix only limits available bytes.
       *out_segment_limit = safe;
-      return IREE_TOKENIZER_POST_NORM_LIMIT;
+      return confirmed ? IREE_TOKENIZER_POST_NORM_BOUNDARY
+                       : IREE_TOKENIZER_POST_NORM_LIMIT;
     }
   }
 
   // Attempt to match (handles both fresh and continued partial matches).
   iree_host_size_t match_length = 0;
   iree_tokenizer_token_id_t match_id = 0;
+  iree_tokenizer_special_tokens_encode_state_t match_state =
+      state->special_token_match_post;
   iree_tokenizer_special_tokens_match_result_t result =
-      iree_tokenizer_special_tokens_match(
-          &tokenizer->special_tokens_post_norm, normalized_text, &match_length,
-          &match_id, &state->special_token_match_post);
+      iree_tokenizer_special_tokens_match(&tokenizer->special_tokens_post_norm,
+                                          normalized_text, &match_length,
+                                          &match_id, &match_state);
+
+  if (result == IREE_TOKENIZER_SPECIAL_TOKENS_MATCHED &&
+      state->has_partial_segment) {
+    *out_segment_limit = 0;
+    return IREE_TOKENIZER_POST_NORM_BOUNDARY;
+  }
+  state->special_token_match_post = match_state;
 
   if (result == IREE_TOKENIZER_SPECIAL_TOKENS_MATCHED) {
     // Emit the special token.
@@ -1698,7 +1713,7 @@ iree_tokenizer_encode_state_match_post_norm_special_tokens(
 
   if (result == IREE_TOKENIZER_SPECIAL_TOKENS_NEED_MORE) {
     // Partial match in progress.
-    if (state->phase >= IREE_TOKENIZER_ENCODE_PHASE_MATCH) {
+    if (normalized_span_complete) {
       // After normalization completes, this cannot become a complete special
       // token. Clear any partial state and return NO_MATCH so the
       // segmenter processes these bytes normally.
@@ -1750,38 +1765,6 @@ static bool iree_tokenizer_try_emit_pending_special_token(
     return true;
   }
   return false;
-}
-
-// Strips trailing whitespace-only segments from the segment output.
-// When the segmenter finalizes due to a LIMIT constraint (e.g., a special token
-// could start at position N), trailing whitespace should stay with the next
-// segment rather than becoming a standalone segment. For example, " n " before
-// "<=" should produce " n" with the trailing space joining "<=".
-//
-// Modifies |segments_produced| and |bytes_consumed| to exclude any trailing
-// whitespace-only segments.
-static void iree_tokenizer_strip_trailing_whitespace_segments(
-    iree_string_view_t normalized_text,
-    iree_tokenizer_segment_output_t segment_output,
-    iree_host_size_t* segments_produced, iree_host_size_t* bytes_consumed) {
-  while (*segments_produced > 0) {
-    iree_tokenizer_segment_t* last_segment =
-        &segment_output.values[*segments_produced - 1];
-    bool all_whitespace = true;
-    for (iree_host_size_t i = last_segment->start; i < last_segment->end; i++) {
-      if (normalized_text.data[i] != ' ' && normalized_text.data[i] != '\t' &&
-          normalized_text.data[i] != '\n' && normalized_text.data[i] != '\r') {
-        all_whitespace = false;
-        break;
-      }
-    }
-    if (!all_whitespace) {
-      break;
-    }
-    // Remove this whitespace-only segment and don't consume those bytes.
-    *bytes_consumed = last_segment->start;
-    (*segments_produced)--;
-  }
 }
 
 // Internal helper: run one iteration of the encode pipeline.
@@ -1902,6 +1885,11 @@ static iree_status_t iree_tokenizer_encode_state_pump(
     }
   }
 
+  // Queued model output precedes every later span and added token.
+  if (state->segment_count > state->segments_consumed) {
+    return iree_ok_status();
+  }
+
   // A raw token boundary or final input completes normalization only after
   // every retained raw prefix byte has been accepted.
   bool finishing_normalizer =
@@ -1944,6 +1932,12 @@ static iree_status_t iree_tokenizer_encode_state_pump(
     return iree_ok_status();
   }
 
+  bool normalized_span_complete =
+      state->phase >= IREE_TOKENIZER_ENCODE_PHASE_MATCH ||
+      (state->pending_special_token >= 0 &&
+       (!state->normalizer_state ||
+        !iree_tokenizer_normalizer_state_has_pending(state->normalizer_state)));
+
   // Match post-normalization special tokens before segmenter runs.
   // These tokens have normalized=true and are matched after the normalizer
   // transforms the input. If matched, the token is emitted directly and we
@@ -1959,11 +1953,13 @@ static iree_status_t iree_tokenizer_encode_state_pump(
   // segmenter finish its pending work first; post-norm matching will run on
   // the next pump iteration after the segmenter commits its consumed bytes.
   iree_host_size_t post_norm_segment_limit = IREE_HOST_SIZE_MAX;
+  bool post_norm_boundary = false;
   if (!(state->segmenter_state &&
         iree_tokenizer_segmenter_state_has_pending(state->segmenter_state))) {
     iree_tokenizer_post_norm_match_result_t post_norm_result =
         iree_tokenizer_encode_state_match_post_norm_special_tokens(
-            state, tokenizer, *output, total_tokens, &post_norm_segment_limit);
+            state, tokenizer, normalized_span_complete, *output, total_tokens,
+            &post_norm_segment_limit);
     switch (post_norm_result) {
       case IREE_TOKENIZER_POST_NORM_MATCHED:
         // Token emitted. Re-enter loop to check for more matches.
@@ -1981,6 +1977,9 @@ static iree_status_t iree_tokenizer_encode_state_pump(
       case IREE_TOKENIZER_POST_NORM_LIMIT:
         // Special token could start at post_norm_segment_limit. Let segmenter
         // process only that many bytes (handled below).
+        break;
+      case IREE_TOKENIZER_POST_NORM_BOUNDARY:
+        post_norm_boundary = true;
         break;
       case IREE_TOKENIZER_POST_NORM_NO_MATCH:
         // No special token. Segmenter can process all bytes.
@@ -2010,6 +2009,9 @@ static iree_status_t iree_tokenizer_encode_state_pump(
   if (post_norm_segment_limit < normalized_text.size) {
     normalized_text.size = post_norm_segment_limit;
   }
+  iree_host_size_t normalized_end =
+      state->segmenter_view_start + normalized_text.size;
+  bool span_complete = post_norm_boundary || normalized_span_complete;
   if (!state->has_partial_segment &&
       state->segment_count < tokenizer->segment_batch_size &&
       normalized_text.size > 0) {
@@ -2024,64 +2026,23 @@ static iree_status_t iree_tokenizer_encode_state_pump(
       IREE_RETURN_IF_ERROR(iree_tokenizer_segmenter_state_process(
           state->segmenter_state, normalized_text, segment_output,
           &bytes_consumed, &segments_produced));
-    } else {
-      // NULL segmenter: passthrough mode - emit entire input as one segment.
+    } else if (span_complete) {
+      // Without a pre-tokenizer the entire unmatched span is one segment.
+      // Producer output chunks do not establish segmentation boundaries.
       segment_output.values[0].start = 0;
       segment_output.values[0].end = normalized_text.size;
       bytes_consumed = normalized_text.size;
       segments_produced = 1;
     }
 
-    // Handle post-norm LIMIT deadlock: when we limited the segmenter view due
-    // to a potential special token, but the segmenter couldn't make progress
-    // (the limited bytes don't form a complete segment), we force the segmenter
-    // to finalize on the limited view. This produces proper segment splits
-    // while keeping the special token position intact for matching.
-    //
-    // Example: for "hello <|special|>", after segmenting "hello", the remaining
-    // " <|special|>" has safe_prefix=1 (the space). The space alone doesn't
-    // form a complete segment boundary, so we finalize the segmenter to force
-    // it to produce segments up to the limit.
-    //
-    // Note: We must NOT create a synthetic segment for the entire prefix, as
-    // that would bypass proper segmentation. For example, "    if<" should
-    // produce segments [0,3) and [3,6) for "   " and " if", not a single [0,6).
-    if (bytes_consumed == 0 && segments_produced == 0 &&
-        post_norm_segment_limit < IREE_HOST_SIZE_MAX &&
-        post_norm_segment_limit > 0 && segment_output.capacity > 0 &&
-        state->segmenter_state) {
-      // Finalize the segmenter on the limited view to get proper splits.
+    // Only an established producer boundary can finish a pending segment.
+    // A possible added-token prefix reserves bytes without ending the span.
+    if (bytes_consumed == 0 && segments_produced == 0 && span_complete &&
+        segment_output.capacity > 0 && state->segmenter_state) {
       IREE_RETURN_IF_ERROR(iree_tokenizer_segmenter_state_finalize(
           state->segmenter_state, normalized_text, segment_output,
           &segments_produced));
       bytes_consumed = normalized_text.size;
-
-      // Preserve trailing whitespace until the following token is known.
-      // Once normalization completes, incomplete matches become ordinary
-      // text and only confirmed special tokens limit the segmenter view.
-      bool has_confirmed_special_token_waiting =
-          (bytes_consumed == post_norm_segment_limit &&
-           !iree_tokenizer_special_tokens_is_empty(
-               &tokenizer->special_tokens_post_norm) &&
-           (state->phase >= IREE_TOKENIZER_ENCODE_PHASE_MATCH));
-      if (!has_confirmed_special_token_waiting) {
-        iree_tokenizer_strip_trailing_whitespace_segments(
-            normalized_text, segment_output, &segments_produced,
-            &bytes_consumed);
-      }
-    }
-
-    // Handle pending special token deadlock: when a special token is waiting
-    // to be emitted but the segmenter didn't produce segments (waiting for
-    // word boundary), create a synthetic segment for all ring content. The
-    // special token itself acts as a word boundary.
-    if (bytes_consumed == 0 && segments_produced == 0 &&
-        state->pending_special_token >= 0 && normalized_text.size > 0 &&
-        segment_output.capacity > 0) {
-      segment_output.values[0].start = 0;
-      segment_output.values[0].end = normalized_text.size;
-      bytes_consumed = normalized_text.size;
-      segments_produced = 1;
     }
 
     // Capture segmenter_view_start before mutation for offset adjustment.
@@ -2413,23 +2374,13 @@ static iree_status_t iree_tokenizer_encode_state_pump(
   if (!*out_made_progress &&
       (chunk->size > 0 ||
        state->phase == IREE_TOKENIZER_ENCODE_PHASE_NORMALIZE) &&
-      state->write_position > state->read_position &&
+      normalized_end > state->read_position &&
       state->segment_count <= state->segments_consumed) {
     state->has_partial_segment = true;
   }
   if (state->has_partial_segment &&
-      state->write_position > state->read_position &&
+      (normalized_end > state->read_position || span_complete) &&
       output->capacity > *total_tokens) {
-    // A pending special token is a segment boundary: the ring content before
-    // it must be fully tokenized so the ring can drain and the special token
-    // can emit. Without this, the model's holdback zone (which reserves the
-    // last max_token_length bytes for future context) prevents progress when
-    // the ring has fewer bytes than max_token_length, creating a three-way
-    // deadlock: model won't process (holdback), normalizer won't feed
-    // (pending special token blocks it), special token won't emit (ring not
-    // empty).
-    bool force_complete = state->pending_special_token >= 0 ||
-                          state->phase >= IREE_TOKENIZER_ENCODE_PHASE_MATCH;
     iree_tokenizer_token_output_t sub_output = {
         .capacity = output->capacity - *total_tokens,
         .token_ids = &output->token_ids[*total_tokens],
@@ -2441,8 +2392,8 @@ static iree_status_t iree_tokenizer_encode_state_pump(
     iree_host_size_t tokens_written = 0;
     bool segment_complete = false;
     IREE_RETURN_IF_ERROR(iree_tokenizer_encode_ring_as_segment(
-        state, /*is_partial=*/!force_complete, sub_output, &tokens_written,
-        &segment_complete));
+        state, normalized_end, /*is_partial=*/!span_complete, sub_output,
+        &tokens_written, &segment_complete));
     iree_tokenizer_postprocessor_assign_type_ids(&state->postprocessor,
                                                  sub_output, 0, tokens_written);
     iree_tokenizer_postprocessor_trim_token_offsets(
@@ -2468,12 +2419,12 @@ static iree_status_t iree_tokenizer_encode_state_pump(
     // state_reclaim() returns 0 even though all bytes were fully processed.
     // If we leave the ring positions unchanged, the same bytes are re-encoded
     // on the next pump iteration and a pending special token can never flush.
-    if (force_complete && segment_complete) {
-      state->read_position = state->write_position;
-      state->segmenter_view_start = state->write_position;
+    if (span_complete && segment_complete) {
+      state->read_position = normalized_end;
+      state->segmenter_view_start = normalized_end;
       state->has_partial_segment = false;
     }
-    if (reclaimed > 0 || tokens_written > 0) {
+    if (reclaimed > 0 || tokens_written > 0 || segment_complete) {
       *out_made_progress = true;
     }
   }
@@ -2612,8 +2563,7 @@ static iree_status_t iree_tokenizer_encode_state_finalize_internal(
           state->write_position > state->segmenter_view_start) {
         break;
       }
-      if (state->has_partial_segment &&
-          state->write_position > state->read_position) {
+      if (state->has_partial_segment) {
         break;
       }
       state->phase = IREE_TOKENIZER_ENCODE_PHASE_SEGMENT;

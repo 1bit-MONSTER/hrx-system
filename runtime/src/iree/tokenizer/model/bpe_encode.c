@@ -52,8 +52,9 @@ static iree_status_t iree_tokenizer_bpe_encode_segment(
   *out_token_count = 0;
   *out_segment_complete = false;
 
-  if (segment.size == 0) {
-    *out_segment_complete = true;
+  if (segment.size == 0 &&
+      state->phase == IREE_TOKENIZER_BPE_PHASE_SEGMENT_START) {
+    *out_segment_complete = !is_partial;
     return iree_ok_status();
   }
 
