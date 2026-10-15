@@ -902,7 +902,8 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
   }
 
   void RunBatch(uint32_t generation, uint32_t iterations = 1,
-                uint32_t commands_per_submission = 1) {
+                uint32_t commands_per_submission = 1,
+                bool reuse_commands = false) {
     for (auto& memory : bindings_) {
       auto bytes = memory.bytes();
       std::fill(bytes.begin(), bytes.end(), 0xA5);
@@ -919,30 +920,34 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
           bindings_[1].bytes(),
           dispatch * kBindingStorageByteLength + kBindingByteOffset + 15 * 4,
           iterations);
-      auto addresses = binding_addresses_;
-      for (auto& address : addresses) {
-        address += dispatch * kBindingStorageByteLength;
+      if (!reuse_commands) {
+        auto addresses = binding_addresses_;
+        for (auto& address : addresses) {
+          address += dispatch * kBindingStorageByteLength;
+        }
+        ASSERT_TRUE(executable_.Bind(image_storage_, addresses));
+        const auto original = executable_.ResolveInvocation(image_storage_);
+        auto command = execution_.instructions.bytes().subspan(
+            command_offset_ + dispatch * command_stride_, command_length_);
+        std::copy_n(original.begin(), 16, command.begin());
+        StoreU32(command, 8, operation_count_ + 3);
+        StoreU32(command, 12, static_cast<uint32_t>(command_length_));
+        std::copy(original.begin() + 16, original.begin() + core_enable_offset_,
+                  command.begin() + 28);
+        std::copy(original.begin() + core_enable_offset_, original.end(),
+                  command.begin() + core_enable_offset_ + 24);
+        for (uint32_t marker = 0; marker < 3; ++marker) {
+          const size_t offset = marker == 0   ? 16
+                                : marker == 1 ? core_enable_offset_ + 12
+                                              : command_length_ - 12;
+          const uint32_t id = marker + 1;
+          StoreU32(command, offset, 0x83);  // RECORD_TIMER.
+          StoreU32(command, offset + 4, 12);
+          StoreU32(command, offset + 8, id);
+        }
       }
-      ASSERT_TRUE(executable_.Bind(image_storage_, addresses));
-      const auto original = executable_.ResolveInvocation(image_storage_);
-      auto command = execution_.instructions.bytes().subspan(
-          command_offset_ + dispatch * command_stride_, command_length_);
-      std::copy_n(original.begin(), 16, command.begin());
-      StoreU32(command, 8, operation_count_ + 3);
-      StoreU32(command, 12, static_cast<uint32_t>(command_length_));
-      std::copy(original.begin() + 16, original.begin() + core_enable_offset_,
-                command.begin() + 28);
-      std::copy(original.begin() + core_enable_offset_, original.end(),
-                command.begin() + core_enable_offset_ + 24);
       for (uint32_t marker = 0; marker < 3; ++marker) {
-        const size_t offset = marker == 0   ? 16
-                              : marker == 1 ? core_enable_offset_ + 12
-                                            : command_length_ - 12;
-        const uint32_t id = (generation << 16) | (dispatch << 8) | (marker + 1);
-        StoreU32(command, offset, 0x83);  // RECORD_TIMER.
-        StoreU32(command, offset + 4, 12);
-        StoreU32(command, offset + 8, id);
-        expected_ids_.push_back(id);
+        expected_ids_.push_back(marker + 1);
       }
     }
     for (size_t i = 0; i < bindings_.size(); ++i) {
@@ -951,11 +956,13 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
                     bindings_[i].host.byte_length),
                 AMDF_STATUS_OK);
     }
-    ASSERT_EQ(
-        api_->host_mapping_cache_control(
-            execution_.instructions.mapping, AMDF_HOST_CACHE_OPERATION_FLUSH,
-            command_offset_, dispatch_count_ * command_stride_),
-        AMDF_STATUS_OK);
+    if (!reuse_commands) {
+      ASSERT_EQ(
+          api_->host_mapping_cache_control(
+              execution_.instructions.mapping, AMDF_HOST_CACHE_OPERATION_FLUSH,
+              command_offset_, dispatch_count_ * command_stride_),
+          AMDF_STATUS_OK);
+    }
     const auto commands = execution_.instructions.bytes().subspan(
         command_offset_, dispatch_count_ * command_stride_);
     const std::vector<uint8_t> command_snapshot(commands.begin(),
@@ -1243,7 +1250,7 @@ TEST_F(FirmwareResultRecipeTest, NativeArraysAppendCollectAndRearm) {
       ASSERT_NO_FATAL_FAILURE(Attach());
     }
     ASSERT_NO_FATAL_FAILURE(
-        RunBatch(generation, 1, info.maximum_command_count));
+        RunBatch(generation, 1, info.maximum_command_count, generation != 1));
     ASSERT_NO_FATAL_FAILURE(Collect());
     const auto bytes = ResultBytes();
     const std::vector<uint8_t> snapshot(bytes.begin(), bytes.end());

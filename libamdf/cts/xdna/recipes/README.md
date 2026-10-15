@@ -87,6 +87,10 @@ up to the queue's queried native array limit, with one completion wait after
 the full batch. The finite destination covers two appended batches before
 rearming, including capacity beyond one page. This exercises marker publication
 across native command-array boundaries independently of host collection.
+Every command uses the same three marker IDs. Later batches reuse the exact
+command bytes without writes or cache publication, including after rearming;
+only the numerical input data changes. This establishes positional result
+attribution without submission-specific command patching.
 
 `MarkerTicksAndRateSnapshots` uses the native timer clock query after context
 admission. Three four-command batches execute 1, 4096 and 16384 recurrence
