@@ -10,7 +10,7 @@
  #endif
 
  #ifdef TRACY_MANUAL_LIFETIME
-@@ -66,7 +69,43 @@
+@@ -70,7 +73,43 @@
          : m_func( func )
          , m_ptr( ptr )
      {

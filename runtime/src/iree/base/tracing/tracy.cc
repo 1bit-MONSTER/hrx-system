@@ -40,9 +40,13 @@ void IREEDbgHelpUnlock(void) { ReleaseMutex(iree_dbghelp_mutex); }
 #if IREE_TRACING_FEATURES != 0
 
 typedef struct iree_tracing_source_file_t {
+  // Copied filename bytes stored immediately after this entry.
   uint8_t* filename;
+  // Filename length in bytes, without a NUL terminator.
   size_t filename_length;
+  // Copied source bytes stored immediately after the filename.
   uint8_t* content;
+  // Source length in bytes, without a NUL terminator.
   size_t content_length;
 } iree_tracing_source_file_t;
 
@@ -50,9 +54,13 @@ typedef struct iree_tracing_source_file_t {
 // and live for the entire lifetime of the program as Tracy will request the
 // contents long past tear-down.
 typedef struct iree_tracing_source_file_storage_t {
+  // Protects source publication and profiler lookup.
   tracy::TracyMutex mutex;
+  // Allocated entry slots in |files|.
   iree_host_size_t capacity;
+  // Published entries in |files|.
   iree_host_size_t count;
+  // Process-lifetime source entries owned by the Tracy allocator.
   iree_tracing_source_file_t** files;
 } iree_tracing_source_file_storage_t;
 static iree_tracing_source_file_storage_t iree_tracing_source_file_storage;
@@ -163,51 +171,16 @@ void iree_tracing_publish_source_file(const void* filename,
 iree_zone_id_t iree_tracing_zone_begin_impl(
     const iree_tracing_location_t* src_loc, const char* name,
     size_t name_length) {
-  const iree_zone_id_t zone_id = tracy::GetProfiler().GetNextZoneId();
-
-#ifndef TRACY_NO_VERIFY
-  {
-    TracyQueuePrepareC(tracy::QueueType::ZoneValidation);
-    tracy::MemWrite(&item->zoneValidation.id, zone_id);
-    TracyQueueCommitC(zoneValidationThread);
-  }
-#endif  // TRACY_NO_VERIFY
-
-  {
 #if IREE_TRACING_FEATURES & IREE_TRACING_FEATURE_INSTRUMENTATION_CALLSTACKS
-    TracyQueuePrepareC(tracy::QueueType::ZoneBeginCallstack);
+  const TracyCZoneCtx context = ___tracy_emit_zone_begin_callstack(
+      src_loc, IREE_TRACING_MAX_CALLSTACK_DEPTH, 1);
 #else
-    TracyQueuePrepareC(tracy::QueueType::ZoneBegin);
+  const TracyCZoneCtx context = ___tracy_emit_zone_begin(src_loc, 1);
 #endif  // IREE_TRACING_FEATURE_INSTRUMENTATION_CALLSTACKS
-    tracy::MemWrite(&item->zoneBegin.time, tracy::Profiler::GetTime());
-    tracy::MemWrite(&item->zoneBegin.srcloc,
-                    reinterpret_cast<uint64_t>(src_loc));
-    TracyQueueCommitC(zoneBeginThread);
-  }
-
-#if IREE_TRACING_FEATURES & IREE_TRACING_FEATURE_INSTRUMENTATION_CALLSTACKS
-  tracy::GetProfiler().SendCallstack(IREE_TRACING_MAX_CALLSTACK_DEPTH);
-#endif  // IREE_TRACING_FEATURE_INSTRUMENTATION_CALLSTACKS
-
   if (name_length) {
-#ifndef TRACY_NO_VERIFY
-    {
-      TracyQueuePrepareC(tracy::QueueType::ZoneValidation);
-      tracy::MemWrite(&item->zoneValidation.id, zone_id);
-      TracyQueueCommitC(zoneValidationThread);
-    }
-#endif  // TRACY_NO_VERIFY
-    auto name_ptr = reinterpret_cast<char*>(tracy::tracy_malloc(name_length));
-    memcpy(name_ptr, name, name_length);
-    TracyQueuePrepareC(tracy::QueueType::ZoneName);
-    tracy::MemWrite(&item->zoneTextFat.text,
-                    reinterpret_cast<uint64_t>(name_ptr));
-    tracy::MemWrite(&item->zoneTextFat.size,
-                    static_cast<uint64_t>(name_length));
-    TracyQueueCommitC(zoneTextFatThread);
+    ___tracy_emit_zone_name(context, name, name_length);
   }
-
-  return zone_id;
+  return context.id;
 }
 
 iree_zone_id_t iree_tracing_zone_begin_external_impl(
@@ -218,32 +191,13 @@ iree_zone_id_t iree_tracing_zone_begin_external_impl(
       line, file_name, file_name_length, function_name, function_name_length,
       name, name_length);
 
-  const iree_zone_id_t zone_id = tracy::GetProfiler().GetNextZoneId();
-
-#ifndef TRACY_NO_VERIFY
-  {
-    TracyQueuePrepareC(tracy::QueueType::ZoneValidation);
-    tracy::MemWrite(&item->zoneValidation.id, zone_id);
-    TracyQueueCommitC(zoneValidationThread);
-  }
-#endif  // TRACY_NO_VERIFY
-
-  {
 #if IREE_TRACING_FEATURES & IREE_TRACING_FEATURE_INSTRUMENTATION_CALLSTACKS
-    TracyQueuePrepareC(tracy::QueueType::ZoneBeginAllocSrcLocCallstack);
+  return ___tracy_emit_zone_begin_alloc_callstack(
+             src_loc, IREE_TRACING_MAX_CALLSTACK_DEPTH, 1)
+      .id;
 #else
-    TracyQueuePrepareC(tracy::QueueType::ZoneBeginAllocSrcLoc);
+  return ___tracy_emit_zone_begin_alloc(src_loc, 1).id;
 #endif  // IREE_TRACING_FEATURE_INSTRUMENTATION_CALLSTACKS
-    tracy::MemWrite(&item->zoneBegin.time, tracy::Profiler::GetTime());
-    tracy::MemWrite(&item->zoneBegin.srcloc, src_loc);
-    TracyQueueCommitC(zoneBeginThread);
-  }
-
-#if IREE_TRACING_FEATURES & IREE_TRACING_FEATURE_INSTRUMENTATION_CALLSTACKS
-  tracy::GetProfiler().SendCallstack(IREE_TRACING_MAX_CALLSTACK_DEPTH);
-#endif  // IREE_TRACING_FEATURE_INSTRUMENTATION_CALLSTACKS
-
-  return zone_id;
 }
 
 void iree_tracing_zone_end(iree_zone_id_t zone_id) {
@@ -339,9 +293,13 @@ void* iree_tracing_obscure_ptr(void* ptr) { return ptr; }
 #if IREE_TRACING_EXPERIMENTAL_CONTEXT_API
 
 struct iree_tracing_context_t {
+  // Monotonic identity space separate from operating-system thread IDs.
   inline static std::atomic<uint32_t> next_tracing_thread_id{0x80000000u};
+  // Owns the queue producer used for this external event stream.
   tracy::moodycamel::ProducerToken token_detail;
+  // Borrowed producer view used to append queue items.
   tracy::ProducerWrapper token;
+  // Stable trace lane identity for the lifetime of this context.
   uint32_t thread_id = 0;
   iree_tracing_context_t()
       : token_detail(tracy::GetQueue()),
@@ -383,8 +341,10 @@ void iree_tracing_context_calibrate_executor(
     iree_tracing_context_t* context, iree_tracing_executor_id_t executor_id,
     int64_t cpu_delta, uint64_t host_timestamp, uint64_t executor_timestamp) {
   IREE_TRACING_CONTEXT_BEGIN_WRITE(context, tracy::QueueType::GpuCalibration);
-  tracy::MemWrite(&item->gpuCalibration.gpuTime, executor_timestamp);
-  tracy::MemWrite(&item->gpuCalibration.cpuTime, host_timestamp);
+  tracy::MemWrite(&item->gpuCalibration.gpuTime,
+                  static_cast<int64_t>(executor_timestamp));
+  tracy::MemWrite(&item->gpuCalibration.cpuTime,
+                  static_cast<int64_t>(host_timestamp));
   tracy::MemWrite(&item->gpuCalibration.cpuDelta, cpu_delta);
   tracy::MemWrite(&item->gpuCalibration.context, executor_id);
   IREE_TRACING_CONTEXT_END_WRITE(context);
@@ -394,7 +354,7 @@ void iree_tracing_context_zone_begin(iree_tracing_context_t* context,
                                      uint64_t timestamp,
                                      const iree_tracing_location_t* src_loc) {
   IREE_TRACING_CONTEXT_BEGIN_WRITE(context, tracy::QueueType::ZoneBegin);
-  tracy::MemWrite(&item->zoneBegin.time, timestamp);
+  tracy::MemWrite(&item->zoneBegin.time, static_cast<int64_t>(timestamp));
   tracy::MemWrite(&item->zoneBegin.srcloc, reinterpret_cast<uint64_t>(src_loc));
   IREE_TRACING_CONTEXT_END_WRITE(context);
 }
@@ -402,7 +362,7 @@ void iree_tracing_context_zone_begin(iree_tracing_context_t* context,
 void iree_tracing_context_zone_end(iree_tracing_context_t* context,
                                    uint64_t timestamp) {
   IREE_TRACING_CONTEXT_BEGIN_WRITE(context, tracy::QueueType::ZoneEnd);
-  tracy::MemWrite(&item->zoneEnd.time, timestamp);
+  tracy::MemWrite(&item->zoneEnd.time, static_cast<int64_t>(timestamp));
   IREE_TRACING_CONTEXT_END_WRITE(context);
 }
 
@@ -441,19 +401,21 @@ void iree_tracing_context_execution_zone_begin(
 #if IREE_TRACING_CONTEXT_SERIAL_FALLBACK
   auto* item = tracy::Profiler::QueueSerial();
   tracy::MemWrite(&item->hdr.type, tracy::QueueType::GpuZoneBeginSerial);
-  tracy::MemWrite(&item->gpuZoneBegin.cpuTime, timestamp);
-  tracy::MemWrite(&item->gpuZoneBegin.srcloc, src_loc);
+  tracy::MemWrite(&item->gpuZoneBegin.cpuTime, static_cast<int64_t>(timestamp));
+  tracy::MemWrite(&item->gpuZoneBegin.srcloc,
+                  reinterpret_cast<uint64_t>(src_loc));
   tracy::MemWrite(&item->gpuZoneBegin.thread, context->thread_id);
   tracy::MemWrite(&item->gpuZoneBegin.queryId, query_id);
   tracy::MemWrite(&item->gpuZoneBegin.context, executor_id);
   tracy::Profiler::QueueSerialFinish();
 #else
   IREE_TRACING_CONTEXT_BEGIN_WRITE(context, tracy::QueueType::GpuZoneBegin);
-  tracy::MemWrite(&item->gpuZoneBegin.cpuTime, timestamp);
+  tracy::MemWrite(&item->gpuZoneBegin.cpuTime, static_cast<int64_t>(timestamp));
   tracy::MemWrite(&item->gpuZoneBegin.thread, context->thread_id);
   tracy::MemWrite(&item->gpuZoneBegin.queryId, query_id);
   tracy::MemWrite(&item->gpuZoneBegin.context, executor_id);
-  tracy::MemWrite(&item->gpuZoneBegin.srcloc, src_loc);
+  tracy::MemWrite(&item->gpuZoneBegin.srcloc,
+                  reinterpret_cast<uint64_t>(src_loc));
   IREE_TRACING_CONTEXT_END_WRITE(context);
 #endif  // IREE_TRACING_CONTEXT_SERIAL_FALLBACK
 }
@@ -464,14 +426,14 @@ void iree_tracing_context_execution_zone_end(
 #if IREE_TRACING_CONTEXT_SERIAL_FALLBACK
   auto* item = tracy::Profiler::QueueSerial();
   tracy::MemWrite(&item->hdr.type, tracy::QueueType::GpuZoneEndSerial);
-  tracy::MemWrite(&item->gpuZoneEnd.cpuTime, timestamp);
+  tracy::MemWrite(&item->gpuZoneEnd.cpuTime, static_cast<int64_t>(timestamp));
   tracy::MemWrite(&item->gpuZoneEnd.thread, context->thread_id);
   tracy::MemWrite(&item->gpuZoneEnd.queryId, query_id);
   tracy::MemWrite(&item->gpuZoneEnd.context, executor_id);
   tracy::Profiler::QueueSerialFinish();
 #else
   IREE_TRACING_CONTEXT_BEGIN_WRITE(context, tracy::QueueType::GpuZoneEnd);
-  tracy::MemWrite(&item->gpuZoneEnd.cpuTime, timestamp);
+  tracy::MemWrite(&item->gpuZoneEnd.cpuTime, static_cast<int64_t>(timestamp));
   tracy::MemWrite(&item->gpuZoneEnd.thread, context->thread_id);
   tracy::MemWrite(&item->gpuZoneEnd.queryId, query_id);
   tracy::MemWrite(&item->gpuZoneEnd.context, executor_id);
@@ -485,13 +447,15 @@ void iree_tracing_context_execution_zone_notify(
 #if IREE_TRACING_CONTEXT_SERIAL_FALLBACK
   auto* item = tracy::Profiler::QueueSerial();
   tracy::MemWrite(&item->hdr.type, tracy::QueueType::GpuTime);
-  tracy::MemWrite(&item->gpuTime.gpuTime, query_timestamp);
+  tracy::MemWrite(&item->gpuTime.gpuTime,
+                  static_cast<int64_t>(query_timestamp));
   tracy::MemWrite(&item->gpuTime.queryId, query_id);
   tracy::MemWrite(&item->gpuTime.context, executor_id);
   tracy::Profiler::QueueSerialFinish();
 #else
   IREE_TRACING_CONTEXT_BEGIN_WRITE(context, tracy::QueueType::GpuTime);
-  tracy::MemWrite(&item->gpuTime.gpuTime, query_timestamp);
+  tracy::MemWrite(&item->gpuTime.gpuTime,
+                  static_cast<int64_t>(query_timestamp));
   tracy::MemWrite(&item->gpuTime.queryId, query_id);
   tracy::MemWrite(&item->gpuTime.context, executor_id);
   IREE_TRACING_CONTEXT_END_WRITE(context);
@@ -518,8 +482,13 @@ void iree_tracing_context_message_literal(iree_tracing_context_t* context,
                                           uint64_t timestamp,
                                           const char* value) {
   IREE_TRACING_CONTEXT_BEGIN_WRITE(context, tracy::QueueType::MessageLiteral);
-  tracy::MemWrite(&item->messageLiteral.time, timestamp);
-  tracy::MemWrite(&item->messageLiteral.text, (uint64_t)value);
+  tracy::MemWrite(&item->messageLiteral.time, static_cast<int64_t>(timestamp));
+  tracy::MemWrite(
+      &item->messageLiteral.textAndMetadata,
+      tracy::TaggedUserlandAddress(
+          reinterpret_cast<uint64_t>(value),
+          tracy::MakeMessageMetadata(tracy::MessageSourceType::User,
+                                     tracy::MessageSeverity::Info)));
   IREE_TRACING_CONTEXT_END_WRITE(context);
 }
 
@@ -529,8 +498,13 @@ void iree_tracing_context_message_dynamic(iree_tracing_context_t* context,
   auto ptr = (char*)tracy::tracy_malloc(value_length);
   memcpy(ptr, value, value_length);
   IREE_TRACING_CONTEXT_BEGIN_WRITE(context, tracy::QueueType::Message);
-  tracy::MemWrite(&item->messageFat.time, timestamp);
-  tracy::MemWrite(&item->messageFat.text, (uint64_t)ptr);
+  tracy::MemWrite(&item->messageFat.time, static_cast<int64_t>(timestamp));
+  tracy::MemWrite(
+      &item->messageFat.textAndMetadata,
+      tracy::TaggedUserlandAddress(
+          reinterpret_cast<uint64_t>(ptr),
+          tracy::MakeMessageMetadata(tracy::MessageSourceType::User,
+                                     tracy::MessageSeverity::Info)));
   tracy::MemWrite(&item->messageFat.size, (uint16_t)value_length);
   IREE_TRACING_CONTEXT_END_WRITE(context);
 }
@@ -552,7 +526,7 @@ void iree_tracing_context_plot_value_i64(iree_tracing_context_t* context,
                                          const char* plot_name, int64_t value) {
   IREE_TRACING_CONTEXT_BEGIN_WRITE(context, tracy::QueueType::PlotDataInt);
   tracy::MemWrite(&item->plotDataInt.name, (uint64_t)plot_name);
-  tracy::MemWrite(&item->plotDataInt.time, timestamp);
+  tracy::MemWrite(&item->plotDataInt.time, static_cast<int64_t>(timestamp));
   tracy::MemWrite(&item->plotDataInt.val, value);
   IREE_TRACING_CONTEXT_END_WRITE(context);
 }
