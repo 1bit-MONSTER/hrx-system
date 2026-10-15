@@ -328,6 +328,7 @@ loom_cc_library(
     loom::format::bytecode::selected_reader
     loom::format::low_repr
     loom::ir
+    loom::ops::op_defs
   PUBLIC
 )
 

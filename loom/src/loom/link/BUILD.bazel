@@ -295,6 +295,7 @@ loom_cc_library(
         "//loom/src/loom/format/bytecode:reader",
         "//loom/src/loom/format/bytecode:selected_reader",
         "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
     ],
