@@ -88,11 +88,16 @@ typedef struct iree_hal_executable_environment_v0_t
 typedef uint32_t iree_hal_executable_library_version_t;
 
 #define IREE_HAL_EXECUTABLE_LIBRARY_VERSION_0_8 0x00000008u
+#define IREE_HAL_EXECUTABLE_LIBRARY_VERSION_0_9 0x00000009u
+
+// Oldest library version whose structure and semantics this runtime supports.
+#define IREE_HAL_EXECUTABLE_LIBRARY_VERSION_MINIMUM \
+  IREE_HAL_EXECUTABLE_LIBRARY_VERSION_0_8
 
 // The latest version of the library API; can be used to populate the
 // iree_hal_executable_library_header_t::version when building libraries.
 #define IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST \
-  IREE_HAL_EXECUTABLE_LIBRARY_VERSION_0_8
+  IREE_HAL_EXECUTABLE_LIBRARY_VERSION_0_9
 
 // A header present at the top of all versions of the library API used by the
 // runtime to ensure version compatibility.
@@ -332,6 +337,14 @@ enum iree_hal_executable_dispatch_flag_v0_bits_e {
   // The workgroup size specified on the dispatch info is the minimum size and
   // granularity and any dynamic workgroup size chosen must be a multiple.
   IREE_HAL_EXECUTABLE_DISPATCH_FLAG_V0_WORKGROUP_SIZE_DYNAMIC = 1ull << 1,
+  // Floating-point inputs must not be treated as zero merely because they are
+  // subnormal. Runtimes establish at least this behavior for the dispatch and
+  // restore the surrounding thread floating-point state after execution.
+  IREE_HAL_EXECUTABLE_DISPATCH_FLAG_V0_PRESERVE_SUBNORMAL_INPUTS = 1ull << 2,
+  // Floating-point results must not be flushed merely because they are
+  // subnormal. Runtimes establish at least this behavior for the dispatch and
+  // restore the surrounding thread floating-point state after execution.
+  IREE_HAL_EXECUTABLE_DISPATCH_FLAG_V0_PRESERVE_SUBNORMAL_RESULTS = 1ull << 3,
 };
 typedef uint64_t iree_hal_executable_dispatch_flags_v0_t;
 

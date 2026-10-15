@@ -7,6 +7,7 @@
 #include "iree/hal/drivers/task/executable/executable.h"
 
 #include "iree/base/internal/atomics.h"
+#include "iree/base/internal/fpu_state.h"
 #include "iree/hal/drivers/task/executable/environment.h"
 
 static iree_atomic_int64_t iree_hal_task_executable_next_profile_id =
@@ -77,7 +78,8 @@ iree_status_t iree_hal_task_executable_issue_call(
                    worker_id);
 }
 
-iree_status_t iree_hal_task_executable_issue_dispatch_inline(
+static iree_status_t
+iree_hal_task_executable_issue_dispatch_inline_current_fpu_state(
     iree_hal_task_executable_t* executable, iree_host_size_t ordinal,
     const iree_hal_executable_dispatch_state_v0_t* dispatch_state,
     uint32_t processor_id, iree_byte_span_t local_memory) {
@@ -126,5 +128,29 @@ iree_status_t iree_hal_task_executable_issue_dispatch_inline(
   }
 
   IREE_TRACE_ZONE_END(z0);
+  return status;
+}
+
+iree_status_t iree_hal_task_executable_issue_dispatch_inline(
+    iree_hal_task_executable_t* executable, iree_host_size_t ordinal,
+    const iree_hal_executable_dispatch_state_v0_t* dispatch_state,
+    uint32_t processor_id, iree_byte_span_t local_memory) {
+  const iree_hal_executable_dispatch_flags_v0_t preserve_subnormal_flags =
+      IREE_HAL_EXECUTABLE_DISPATCH_FLAG_V0_PRESERVE_SUBNORMAL_INPUTS |
+      IREE_HAL_EXECUTABLE_DISPATCH_FLAG_V0_PRESERVE_SUBNORMAL_RESULTS;
+  const bool preserve_subnormals =
+      executable->dispatch_attrs &&
+      iree_any_bit_set(executable->dispatch_attrs[ordinal].flags,
+                       preserve_subnormal_flags);
+  if (!preserve_subnormals) {
+    return iree_hal_task_executable_issue_dispatch_inline_current_fpu_state(
+        executable, ordinal, dispatch_state, processor_id, local_memory);
+  }
+  const iree_fpu_state_t fpu_state =
+      iree_fpu_state_push(IREE_FPU_STATE_DEFAULT);
+  iree_status_t status =
+      iree_hal_task_executable_issue_dispatch_inline_current_fpu_state(
+          executable, ordinal, dispatch_state, processor_id, local_memory);
+  iree_fpu_state_pop(fpu_state);
   return status;
 }

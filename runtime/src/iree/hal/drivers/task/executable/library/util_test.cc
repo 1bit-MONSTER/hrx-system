@@ -28,18 +28,42 @@ TEST(ExecutableLibraryUtilTest, AcceptsCurrentLibraryVersion) {
   EXPECT_EQ(&library, result);
 }
 
-TEST(ExecutableLibraryUtilTest, RejectsPreviousLibraryVersion) {
+TEST(ExecutableLibraryUtilTest, AcceptsMinimumLibraryVersion) {
   const iree_hal_executable_library_header_t header = {
-      .version = IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST - 1,
+      .version = IREE_HAL_EXECUTABLE_LIBRARY_VERSION_MINIMUM,
   };
   const iree_hal_executable_library_v0_t library = {
       .header = &header,
   };
   const iree_hal_executable_library_v0_t* result = nullptr;
 
+  IREE_ASSERT_OK(iree_hal_executable_library_validate_query_result(
+      &library.header, &result));
+  EXPECT_EQ(&library, result);
+}
+
+TEST(ExecutableLibraryUtilTest, RejectsLibraryVersionOutsideSupportedRange) {
+  const iree_hal_executable_library_header_t old_header = {
+      .version = IREE_HAL_EXECUTABLE_LIBRARY_VERSION_MINIMUM - 1,
+  };
+  const iree_hal_executable_library_v0_t old_library = {
+      .header = &old_header,
+  };
+  const iree_hal_executable_library_v0_t* result = nullptr;
   IREE_EXPECT_STATUS_IS(IREE_STATUS_FAILED_PRECONDITION,
                         iree_hal_executable_library_validate_query_result(
-                            &library.header, &result));
+                            &old_library.header, &result));
+  EXPECT_EQ(nullptr, result);
+
+  const iree_hal_executable_library_header_t future_header = {
+      .version = IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST + 1,
+  };
+  const iree_hal_executable_library_v0_t future_library = {
+      .header = &future_header,
+  };
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_FAILED_PRECONDITION,
+                        iree_hal_executable_library_validate_query_result(
+                            &future_library.header, &result));
   EXPECT_EQ(nullptr, result);
 }
 

@@ -65,6 +65,10 @@ enum iree_hal_cmd_flag_bits_e {
   IREE_HAL_CMD_FLAG_PREDICATED = 1u << 1,
   // Adjacent tiles share data (sequential dependency within the dispatch).
   IREE_HAL_CMD_FLAG_SEQUENTIAL = 1u << 2,
+  // Dispatch inputs require gradual floating-point underflow.
+  IREE_HAL_CMD_FLAG_PRESERVE_SUBNORMAL_INPUTS = 1u << 3,
+  // Dispatch results require gradual floating-point underflow.
+  IREE_HAL_CMD_FLAG_PRESERVE_SUBNORMAL_RESULTS = 1u << 4,
 };
 
 // Target byte length for each transfer tile. This is large enough to amortize

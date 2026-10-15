@@ -398,9 +398,19 @@ iree_status_t iree_hal_cmd_build_dispatch(
   // Append the command and reserve fixup storage for all bindings.
   iree_hal_cmd_dispatch_t* cmd = NULL;
   iree_hal_cmd_fixup_t* fixups = NULL;
-  const iree_hal_cmd_flags_t cmd_flags = uses_indirect_parameters
-                                             ? IREE_HAL_CMD_FLAG_INDIRECT
-                                             : IREE_HAL_CMD_FLAG_NONE;
+  iree_hal_cmd_flags_t cmd_flags = uses_indirect_parameters
+                                       ? IREE_HAL_CMD_FLAG_INDIRECT
+                                       : IREE_HAL_CMD_FLAG_NONE;
+  if (iree_any_bit_set(
+          dispatch_attrs.flags,
+          IREE_HAL_EXECUTABLE_DISPATCH_FLAG_V0_PRESERVE_SUBNORMAL_INPUTS)) {
+    cmd_flags |= IREE_HAL_CMD_FLAG_PRESERVE_SUBNORMAL_INPUTS;
+  }
+  if (iree_any_bit_set(
+          dispatch_attrs.flags,
+          IREE_HAL_EXECUTABLE_DISPATCH_FLAG_V0_PRESERVE_SUBNORMAL_RESULTS)) {
+    cmd_flags |= IREE_HAL_CMD_FLAG_PRESERVE_SUBNORMAL_RESULTS;
+  }
   out_token->command = NULL;
   out_token->cmd_bytes = cmd_bytes;
   out_token->flags = cmd_flags;

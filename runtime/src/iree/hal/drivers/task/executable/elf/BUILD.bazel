@@ -68,6 +68,7 @@ iree_runtime_cc_binary(
         "//runtime/src/iree/hal/drivers/task/executable:environment",
         "//runtime/src/iree/hal/drivers/task/executable/elf/testdata:compat_data",
         "//runtime/src/iree/hal/drivers/task/executable/library:abi",
+        "//runtime/src/iree/hal/drivers/task/executable/library:util",
     ],
 )
 
@@ -90,6 +91,7 @@ iree_runtime_cc_binary(
         "//runtime/src/iree/hal/drivers/task/executable/elf/testdata:elementwise_mul_native",
         "//runtime/src/iree/hal/drivers/task/executable/elf/testdata:initializers_native",
         "//runtime/src/iree/hal/drivers/task/executable/library:abi",
+        "//runtime/src/iree/hal/drivers/task/executable/library:util",
     ],
 )
 

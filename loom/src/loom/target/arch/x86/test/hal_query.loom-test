@@ -17,7 +17,7 @@ low.kernel.def target<x86.scalar.core>(@__loom_target_context_0_0) abi_layout({o
 global.rodata.decl @iree_hal_executable_library_v0
 
 low.func.def public retain target<x86.scalar.core>(@__loom_target_context_0_0) abi(object_function) @iree_hal_executable_library_query(%0: reg<x86.gpr32>, %1: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
-  %2 = cmp.uge.imm.gpr32 %0, 8
+  %2 = cmp.uge.imm.gpr32 %0, 9
   low.cond_br %2, ^_bb1, ^_bb2 : reg<x86.gpr32>
 ^_bb1:
   %3 = lea.symbol.gpr64 @iree_hal_executable_library_v0
@@ -79,7 +79,7 @@ low.kernel.def target<x86.scalar.core>(@__loom_target_context_0_0) abi_layout({o
 global.rodata.decl @iree_hal_executable_library_v0
 
 low.func.def public retain target<x86.scalar.core>(@__loom_target_context_0_0) abi(object_function) @iree_hal_executable_library_query(%4: reg<x86.gpr32>, %5: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
-  %6 = cmp.uge.imm.gpr32 %4, 8
+  %6 = cmp.uge.imm.gpr32 %4, 9
   low.cond_br %6, ^_bb1, ^_bb2 : reg<x86.gpr32>
 ^_bb1:
   %7 = lea.symbol.gpr64 @iree_hal_executable_library_v0

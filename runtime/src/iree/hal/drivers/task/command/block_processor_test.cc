@@ -9,6 +9,7 @@
 #include <cstring>
 #include <vector>
 
+#include "iree/base/internal/fpu_state.h"
 #include "iree/base/threading/thread.h"
 #include "iree/hal/drivers/task/command/block_builder.h"
 #include "iree/hal/drivers/task/command/block_command_ops.h"
@@ -46,6 +47,8 @@ static iree_hal_cmd_block_processor_worker_context_t worker_context(
 
 static int worker_thread_entry(void* arg) {
   WorkerArgs* worker_args = reinterpret_cast<WorkerArgs*>(arg);
+  const iree_fpu_state_t fpu_state =
+      iree_fpu_state_push(IREE_FPU_STATE_FLAG_FLUSH_DENORMALS_TO_ZERO);
   // Drain loop.
   iree_hal_cmd_block_processor_worker_state_t worker_state;
   memset(&worker_state, 0, sizeof(worker_state));
@@ -64,6 +67,7 @@ static int worker_thread_entry(void* arg) {
       iree_thread_yield();
     }
   } while (!result.completed);
+  iree_fpu_state_pop(fpu_state);
   return 0;
 }
 
@@ -134,6 +138,23 @@ static int kernel_fail(
     const iree_hal_executable_workgroup_state_v0_t* workgroup_state) {
   return -1;
 }
+
+#if defined(IREE_ARCH_X86_32) || defined(IREE_ARCH_X86_64)
+// Halves one F32 value per workgroup. Volatile accesses keep the arithmetic in
+// the native entry so the test observes the floating-point mode at invocation.
+static int kernel_halve_f32(
+    const iree_hal_executable_environment_v0_t* environment,
+    const iree_hal_executable_dispatch_state_v0_t* dispatch_state,
+    const iree_hal_executable_workgroup_state_v0_t* workgroup_state) {
+  const volatile float* input =
+      reinterpret_cast<const volatile float*>(dispatch_state->binding_ptrs[0]);
+  volatile float* output =
+      reinterpret_cast<volatile float*>(dispatch_state->binding_ptrs[1]);
+  const uint32_t i = workgroup_state->workgroup_id_x;
+  output[i] = input[i] * 0.5f;
+  return 0;
+}
+#endif  // IREE_ARCH_X86_*
 
 //===----------------------------------------------------------------------===//
 // Test fixture
@@ -477,6 +498,63 @@ TEST_P(BlockProcessorTest, DispatchWithByteConstants) {
     iree_hal_cmd_block_builder_deinitialize(&builder);
   }
 }
+
+#if defined(IREE_ARCH_X86_32) || defined(IREE_ARCH_X86_64)
+TEST_P(BlockProcessorTest, DispatchPreservesSubnormalsAndRestoresFpuState) {
+  float input = 0x1p-126f;
+  float output = 0.0f;
+  iree_hal_cmd_binding_entry_t table[] = {
+      {&input, sizeof(input)},
+      {&output, sizeof(output)},
+  };
+  iree_hal_executable_dispatch_attrs_v0_t attributes = {
+      .flags = IREE_HAL_EXECUTABLE_DISPATCH_FLAG_V0_PRESERVE_SUBNORMAL_INPUTS |
+               IREE_HAL_EXECUTABLE_DISPATCH_FLAG_V0_PRESERVE_SUBNORMAL_RESULTS,
+      .binding_count = 2,
+      .workgroup_size_x = 1,
+      .workgroup_size_y = 1,
+      .workgroup_size_z = 1,
+  };
+  const iree_hal_executable_dispatch_v0_t entry = kernel_halve_f32;
+  mock_executable_.export_count = 1;
+  mock_executable_.dispatch_attrs = &attributes;
+  mock_executable_.dispatch_ptrs = &entry;
+
+  iree_hal_cmd_block_builder_t builder;
+  iree_hal_cmd_block_builder_initialize(&block_pool_, &builder);
+  IREE_ASSERT_OK(iree_hal_cmd_block_builder_begin(&builder));
+  const iree_hal_dispatch_config_t config =
+      iree_hal_make_static_dispatch_config(1, 1, 1);
+  iree_hal_cmd_fixup_t* fixups = nullptr;
+  iree_hal_cmd_build_token_t token;
+  IREE_ASSERT_OK(iree_hal_cmd_build_dispatch(
+      &builder, &mock_executable_.base,
+      iree_hal_executable_function_from_index(0), config,
+      iree_const_byte_span_empty(), IREE_ARRAYSIZE(table),
+      IREE_HAL_DISPATCH_FLAG_NONE, &fixups, &token));
+  for (uint16_t i = 0; i < IREE_ARRAYSIZE(table); ++i) {
+    fixups[i].host_ptr = nullptr;
+    fixups[i].slot = i;
+    fixups[i].offset = 0;
+  }
+
+  iree_hal_cmd_block_recording_t recording;
+  IREE_ASSERT_OK(iree_hal_cmd_block_builder_end(&builder, &recording));
+
+  const iree_fpu_state_t fpu_state =
+      iree_fpu_state_push(IREE_FPU_STATE_FLAG_FLUSH_DENORMALS_TO_ZERO);
+  iree_status_t status = execute(&recording, table, IREE_ARRAYSIZE(table));
+  volatile float ambient_input = input;
+  volatile float ambient_output = ambient_input * 0.5f;
+  iree_fpu_state_pop(fpu_state);
+
+  iree_hal_cmd_block_recording_release(&recording);
+  iree_hal_cmd_block_builder_deinitialize(&builder);
+  IREE_ASSERT_OK(status);
+  EXPECT_EQ(output, 0x1p-127f);
+  EXPECT_EQ(ambient_output, 0.0f);
+}
+#endif  // IREE_ARCH_X86_*
 
 TEST_P(BlockProcessorTest, FillCommand) {
   uint8_t buffer[256];

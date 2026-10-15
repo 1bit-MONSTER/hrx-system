@@ -360,7 +360,7 @@ static iree_status_t loom_low_task_entry_build_query(
   loom_region_t* body = loom_low_func_def_body(query);
   loom_builder_enter_region(&builder->ir, query, body);
   IREE_RETURN_IF_ERROR(lowering->emit_query(
-      builder, body, library_symbol, IREE_HAL_EXECUTABLE_LIBRARY_VERSION_0_8));
+      builder, body, library_symbol, IREE_HAL_EXECUTABLE_LIBRARY_VERSION_0_9));
   *out_query = query;
   return iree_ok_status();
 }

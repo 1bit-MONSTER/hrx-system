@@ -9,6 +9,7 @@
 #include "iree/hal/drivers/task/executable/elf/elf_module.h"
 #include "iree/hal/drivers/task/executable/environment.h"
 #include "iree/hal/drivers/task/executable/library/abi.h"
+#include "iree/hal/drivers/task/executable/library/util.h"
 
 // ELF module embedded in the binary. ELF-producing hosts exercise a native
 // source-built fixture in addition to the checked-in compatibility artifacts
@@ -98,18 +99,10 @@ static iree_status_t run_module_test(iree_elf_module_t* module) {
       (const iree_hal_executable_library_header_t* const*)iree_elf_call_p_ip(
           query_fn_ptr, IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST,
           &environment);
-  if (query_result == NULL || *query_result == NULL) {
-    return iree_make_status(IREE_STATUS_NOT_FOUND,
-                            "library header is empty (version mismatch?)");
-  }
-
-  const iree_hal_executable_library_header_t* header = *query_result;
-  if (header->version != IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "library version %u does not match expected %u",
-                            header->version,
-                            IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST);
-  }
+  const iree_hal_executable_library_v0_t* library = NULL;
+  IREE_RETURN_IF_ERROR(iree_hal_executable_library_validate_query_result(
+      query_result, &library));
+  const iree_hal_executable_library_header_t* header = library->header;
 
   if (strcmp(header->name, "elementwise_mul") != 0) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -117,8 +110,6 @@ static iree_status_t run_module_test(iree_elf_module_t* module) {
                             header->name);
   }
 
-  const iree_hal_executable_library_v0_t* library =
-      iree_hal_executable_library_v0_from_query_result(query_result);
   if (library->exports.count != 1) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "library exports %u entry points instead of one",
