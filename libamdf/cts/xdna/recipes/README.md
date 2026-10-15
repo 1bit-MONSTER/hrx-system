@@ -50,6 +50,25 @@ thresholds or benchmark results. The case uses the same recorder and ordinary
 completion protocol as the streaming case, with bounded caller-owned calibration
 storage.
 
+`FirmwareTraceRecipeTest.AttributesConcurrentContextLifetimes` keeps two
+independent numeric programs and queues alive on the shared device. Both
+commands are submitted before either completion wait, with alternating host
+submission order and distinct guarded payloads. After eight rounds it destroys
+one context, creates another, and runs eight more rounds beside the survivor.
+Native context queries supply each owner's physical firmware slot; intact
+create/delete records and per-context command ordering supply the finite
+attribution interval. Slot reuse does not merge the retired and new owners.
+
+The case checks all 32 numeric results, unchanged command storage, complete
+lifetime and command pairs, native read continuity, and each firmware duration
+against its own host bracket. XML retains host clock units, per-owner intervals,
+queried identities, slot reuse, interval overlap, and constant-offset bounds.
+Concurrent queue ownership does not require simultaneous device execution.
+The proof requires a complete finite capture: loss, ambiguous lifetime records,
+or changed native identity cannot be interpreted as a successful historical
+join. It skips when either optional native recorder or identity service is
+unavailable, and restores recorder configuration during teardown.
+
 `FirmwareResultRecipeTest` attaches the smallest advertised finite result
 buffer through the dynamic XDNA API. Four useful numeric commands each emit
 three caller-identified timer records, with one host wait after the four

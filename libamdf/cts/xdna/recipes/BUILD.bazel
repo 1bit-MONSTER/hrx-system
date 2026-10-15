@@ -18,6 +18,7 @@ amdf_cts_test_suite(
     name = "execution",
     srcs = [
         "cpu_xdna_test.cc",
+        "firmware_trace_test.cc",
         "reservation_test.cc",
     ],
     target_compatible_with = select({
