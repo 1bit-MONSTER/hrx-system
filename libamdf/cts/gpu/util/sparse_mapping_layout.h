@@ -42,10 +42,29 @@ struct SparseMapping {
   uint32_t backing;
 };
 
-// Model-free sparse state and cache layout: 141 ranges, including a large state
-// image, page-sized cache fragments, and 12/32-byte metadata. Both reservations
-// extend above 4 GiB; offsets and command addresses must remain full-width.
-inline std::array<SparseRange, 141> SparseRanges(uint32_t generation) {
+// Compact semantic witness for sparse replacement. Both reservations extend
+// above 4 GiB, discontiguous metadata shares a slab, and the final range
+// crosses a slab boundary. The generation-dependent ranges move to different
+// slabs.
+inline std::array<SparseRange, 6> CompactSparseRanges(uint32_t generation) {
+  constexpr uint64_t kHigh = (uint64_t{1} << 32) + 4 * kSparseSlabByteLength;
+  return {{{0, kHigh + 512, 12},
+           {0, kHigh + (generation == 1 ? 2 : 4) * kSparseSlabByteLength + 256,
+            16 * 1024},
+           {0, kHigh + 64 * 1024, 2048},
+           {0, kHigh + 68 * 1024, 32},
+           {1, kHigh + 512, 20 * 1024},
+           {1,
+            kHigh + (generation == 1 ? 2 : 5) * kSparseSlabByteLength +
+                kSparseSlabByteLength - 64 * 1024,
+            128 * 1024}}};
+}
+
+// Model-scale sparse state and cache layout: 141 ranges, including a large
+// state image, page-sized cache fragments, and 12/32-byte metadata. Both
+// reservations extend above 4 GiB; offsets and command addresses must remain
+// full-width.
+inline std::array<SparseRange, 141> ModelSparseRanges(uint32_t generation) {
   constexpr uint64_t kHigh = (uint64_t{1} << 32) + 512;
   constexpr uint64_t kStateBytes = 156893184;
   constexpr uint64_t kStateStride = kStateBytes + 256 + 2048 + 256;

@@ -14,6 +14,12 @@ package(
     licenses = ["notice"],
 )
 
+_PM4_TEST_COMPATIBILITY = ["@platforms//cpu:x86_64"] + select({
+    "@platforms//os:linux": [],
+    "@platforms//os:windows": [],
+    "//conditions:default": ["@platforms//:incompatible"],
+})
+
 amdf_cc_library(
     name = "command_fixture",
     testonly = True,
@@ -32,6 +38,20 @@ amdf_cc_library(
         ":command_fixture",
         "//libamdf/cts/gpu/kernels:image",
         "//libamdf/cts/gpu/pm4/encoding:commands",
+    ],
+)
+
+amdf_cc_library(
+    name = "mapping_fixture",
+    testonly = True,
+    srcs = ["mapping_fixture.cc"],
+    hdrs = ["mapping_fixture.h"],
+    target_compatible_with = _PM4_TEST_COMPATIBILITY,
+    deps = [
+        ":dispatch_fixture",
+        "//libamdf/cts/gpu/kernels:byte_copy_unaligned",
+        "//libamdf/cts/gpu/kernels:byte_copy_unaligned_kernels",
+        "//libamdf/cts/gpu/util:sparse_mapping_layout",
     ],
 )
 
@@ -75,15 +95,12 @@ amdf_cts_test_suite(
         "wait_test.cc",
         "write_test.cc",
     ],
-    target_compatible_with = ["@platforms//cpu:x86_64"] + select({
-        "@platforms//os:linux": [],
-        "@platforms//os:windows": [],
-        "//conditions:default": ["@platforms//:incompatible"],
-    }),
+    target_compatible_with = _PM4_TEST_COMPATIBILITY,
     visibility = ["//visibility:public"],
     deps = [
         ":command_fixture",
         ":dispatch_fixture",
+        ":mapping_fixture",
         "//libamdf/cts/gpu/kernels:byte_copy_unaligned",
         "//libamdf/cts/gpu/kernels:byte_copy_unaligned_kernels",
         "//libamdf/cts/gpu/kernels:lds_exchange",
@@ -99,4 +116,19 @@ amdf_cts_test_suite(
         config: [":wave_mode_cases"]
         for config in AMDF_CTS_GPU_DUAL_WAVE_CONFIGS
     } | {"//conditions:default": []}),
+)
+
+amdf_cts_test_suite(
+    name = "pm4_stress",
+    srcs = ["mapping_stress_test.cc"],
+    tags = [
+        "manual",
+        "stress",
+    ],
+    target_compatible_with = _PM4_TEST_COMPATIBILITY,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":mapping_fixture",
+        "//third_party:google_test",
+    ],
 )
