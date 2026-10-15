@@ -1013,7 +1013,7 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
     EXPECT_EQ(status.terminal_status, AMDF_STATUS_OK);
   }
 
-  void RunTimerDurations(bool use_firmware_clock) {
+  void RunTimerObservations(bool use_firmware_clock) {
     ASSERT_NO_FATAL_FAILURE(PrepareResults());
     if (IsSkipped()) {
       return;
@@ -1053,9 +1053,11 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
       ASSERT_EQ(host_clock_.Read(&host_end), AMDF_STATUS_OK);
       const double host_duration_ns =
           host_clock_.Nanoseconds(host_end - host_begin);
+      ASSERT_GT(host_duration_ns, 0);
       amdf_observation_clock_info_t after = {};
       ASSERT_EQ(xdna_api_->device_query_timer_clock_info(device_, &after),
                 AMDF_STATUS_OK);
+      ASSERT_GT(after.frequency_hz, 0u);
       ASSERT_NO_FATAL_FAILURE(Collect());
       if (use_firmware_clock) {
         ASSERT_NO_FATAL_FAILURE(capture.Drain((batch + 1) * 4));
@@ -1066,12 +1068,13 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
                      std::to_string(before.frequency_hz));
       RecordProperty(prefix + "_frequency_after_hz",
                      std::to_string(after.frequency_hz));
-      if (before.frequency_hz != after.frequency_hz) {
-        GTEST_SKIP() << "operating rate changed; a controlled profiling "
-                        "interval is needed for fixed-rate conversion";
-      }
+      // Endpoint snapshots neither hold the rate nor report intervening
+      // changes. Retain this conversion as a model to evaluate against the
+      // independent brackets, without making it the marker transport oracle.
+      bool endpoint_rate_model_fits = before.frequency_hz == after.frequency_hz;
       const double nanoseconds_per_tick = 1e9 / before.frequency_hz;
-      double sum_ns = 0;
+      double estimated_sum_ns = 0;
+      uint64_t firmware_sum_ns = 0;
       for (uint32_t dispatch = 0; dispatch < 4; ++dispatch) {
         std::array<amdf_xdna_timer_record_t, 3> records;
         std::memcpy(records.data(),
@@ -1080,29 +1083,34 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
         const uint64_t begin = amdf_xdna_timer_record_timestamp(&records[1]);
         const uint64_t end = amdf_xdna_timer_record_timestamp(&records[2]);
         ASSERT_GT(end, begin);
-        const double duration_ns = (end - begin) * nanoseconds_per_tick;
-        sum_ns += duration_ns;
-        ASSERT_GT(duration_ns, 0);
-        ASSERT_LE(duration_ns, host_duration_ns);
+        const double estimate_ns = (end - begin) * nanoseconds_per_tick;
+        estimated_sum_ns += estimate_ns;
         const std::string sample =
             prefix + "_dispatch_" + std::to_string(dispatch);
+        RecordProperty(sample + "_begin_ticks", std::to_string(begin));
+        RecordProperty(sample + "_end_ticks", std::to_string(end));
         RecordProperty(sample + "_ticks", std::to_string(end - begin));
-        RecordProperty(sample + "_duration_ns", std::to_string(duration_ns));
+        RecordProperty(sample + "_endpoint_rate_estimate_ns",
+                       std::to_string(estimate_ns));
         if (use_firmware_clock) {
           const auto& interval =
               firmware_intervals[batch * 4 + dispatch].device;
           ASSERT_GT(interval.end, interval.begin);
           const uint64_t firmware_ns = interval.end - interval.begin;
-          ASSERT_LE(duration_ns, firmware_ns);
+          firmware_sum_ns += firmware_ns;
+          endpoint_rate_model_fits &= estimate_ns <= firmware_ns;
           RecordProperty(sample + "_firmware_duration_ns",
                          std::to_string(firmware_ns));
         }
       }
-      // Serial controller intervals must all fit in their enclosing host
-      // batch. This checks units/causality, not a latency threshold. Equal
-      // endpoint rates cannot prove absence of an intervening DPM transition;
-      // controlled power-mode qualification supplies that separate condition.
-      EXPECT_LE(sum_ns, host_duration_ns);
+      // Firmware events supply nanoseconds independently of the array clock.
+      // Their serial command intervals must fit the enclosing host batch.
+      if (use_firmware_clock) {
+        EXPECT_LE(double(firmware_sum_ns), host_duration_ns);
+      }
+      endpoint_rate_model_fits &= estimated_sum_ns <= host_duration_ns;
+      RecordProperty(prefix + "_endpoint_rate_model_fits",
+                     endpoint_rate_model_fits);
       RecordProperty(prefix + "_host_bracket_ns",
                      std::to_string(host_duration_ns));
       ASSERT_NO_FATAL_FAILURE(Detach());
@@ -1179,12 +1187,12 @@ TEST_F(FirmwareResultRecipeTest,
   ASSERT_NO_FATAL_FAILURE(Detach());
 }
 
-TEST_F(FirmwareResultRecipeTest, MarkerDurationsAtOperatingRate) {
-  RunTimerDurations(false);
+TEST_F(FirmwareResultRecipeTest, MarkerTicksAndRateSnapshots) {
+  RunTimerObservations(false);
 }
 
-TEST_F(FirmwareResultRecipeTest, MarkerDurationsInsideFirmwareIntervals) {
-  RunTimerDurations(true);
+TEST_F(FirmwareResultRecipeTest, MarkerTicksAndFirmwareIntervals) {
+  RunTimerObservations(true);
 }
 
 TEST_F(CpuXdnaRecipeTest, AllocatedRoundTrip) {

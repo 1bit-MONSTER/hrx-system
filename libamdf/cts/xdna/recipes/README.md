@@ -81,21 +81,26 @@ queue completion identity.
 Validation also rejects misaligned, empty and foreign-scope bindings before
 native effects. Failed controls preserve backing instead of guessing retirement.
 
-`MarkerDurationsAtOperatingRate` uses the native timer clock query after context
+`MarkerTicksAndRateSnapshots` uses the native timer clock query after context
 admission. Three four-command batches execute 1, 4096 and 16384 recurrence
 iterations per output word. Each batch has one completion wait, then finite
-collection and an independent numerical oracle. Converted same-command marker
-intervals must be positive and fit their enclosing host batch.
-`MarkerDurationsInsideFirmwareIntervals` additionally checks each interval
-against the independent automatic firmware clock when that service is admitted.
-Both retain raw ticks, queried rates, nanoseconds and enclosing widths in XML.
+collection and an independent numerical oracle. Same-command marker ticks
+must advance, with record IDs, numeric results, and storage guards preserved.
+`MarkerTicksAndFirmwareIntervals` also records the independent automatic
+firmware intervals when that service is admitted. Those serial nanosecond
+intervals must fit their enclosing host batch.
 
-The operating rate is a snapshot. A changed endpoint rate skips fixed-rate
-interpretation after checking the workload; equal endpoint values do not prove
-that no intervening change occurred. Controlled power-mode runs establish that
-separate condition without letting an ordinary test mutate machine power
-policy. These cases check clock units and causality, not performance thresholds
-or cross-command counter continuity.
+Both cases retain raw tick endpoints, queried rates, host brackets, and an
+explicit endpoint-rate estimate in XML. `endpoint_rate_model_fits` evaluates
+whether equal endpoint rates and that estimate are consistent with all
+available brackets. A false result rejects the fixed-rate interpretation;
+a true result does not establish constant frequency. A changed endpoint rate
+still runs all batches and checks their native records and numeric output.
+Ordinary execution supplies no controlled-rate interval, and these cases
+change no machine power policy. Nanosecond conversion of markers requires a
+separate rate/continuity contract; automatic firmware nanoseconds remain
+independent of the array rate. These cases do not qualify performance
+thresholds or cross-command counter continuity.
 
 `XdnaReservationTest` queries native reservation support and mapping-source
 eligibility before allocating backing. It keeps one command and queue alive
