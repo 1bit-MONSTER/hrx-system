@@ -65,6 +65,7 @@ _FILE_IO_CXX_COMPATIBILITY = (
 )
 
 _FILE_IO_DEPS = [
+    "//libamdf/cts/util:wait",
     ":file_io_fixture",
     "//libamdf/cts/gpu/kernels:file_demand",
     "//libamdf/cts/gpu/kernels:file_exchange",
@@ -84,6 +85,7 @@ amdf_cc_library(
         "//libamdf/cts/gpu:gpu_device_fixture",
         "//libamdf/cts/gpu/util:memory",
         "//libamdf/cts/gpu/util:user_queue",
+        "//libamdf/cts/util:wait",
         "//third_party:google_test",
         "//third_party:linux_io_uapi",
     ],
@@ -103,6 +105,7 @@ amdf_cc_library(
         "//libamdf/cts/gpu/kernels:kernel",
         "//libamdf/cts/gpu/pm4:dispatch_fixture",
         "//libamdf/cts/gpu/pm4/encoding:commands",
+        "//libamdf/cts/util:wait",
         "//third_party:google_test",
         "//third_party:linux_io_uapi",
     ],
@@ -149,6 +152,7 @@ amdf_cts_test_suite(
         "//libamdf/cts/gpu/kernels:file_staged_upload_kernels",
         "//libamdf/cts/gpu/recipes:device_sdma_fixture",
         "//libamdf/cts/gpu/sdma/encoding:commands",
+        "//libamdf/cts/util:wait",
         "//third_party:google_test",
     ],
 )

@@ -24,6 +24,7 @@ iree_cc_library(
     libamdf::cts::gpu::gpu_device_fixture
     libamdf::cts::gpu::util::memory
     libamdf::cts::gpu::util::user_queue
+    libamdf::cts::util::wait
   TESTONLY
   PUBLIC
 )
@@ -45,6 +46,7 @@ iree_cc_library(
     libamdf::cts::gpu::kernels::kernel
     libamdf::cts::gpu::pm4::dispatch_fixture
     libamdf::cts::gpu::pm4::encoding::commands
+    libamdf::cts::util::wait
   TESTONLY
   PUBLIC
 )
@@ -71,6 +73,7 @@ iree_cc_library(
     libamdf::cts::gpu::kernels::file_gather_kernels
     libamdf::cts::gpu::kernels::file_latency
     libamdf::cts::gpu::kernels::file_latency_kernels
+    libamdf::cts::util::wait
   TESTONLY
   ALWAYSLINK
   PUBLIC
@@ -159,6 +162,7 @@ iree_cc_library(
     libamdf::cts::gpu::kernels::file_gather_cxx_kernels
     libamdf::cts::gpu::kernels::file_latency
     libamdf::cts::gpu::kernels::file_latency_cxx_kernels
+    libamdf::cts::util::wait
   DEFINES
     "AMDF_FILE_IO_CXX_KERNELS=1"
   TESTONLY
@@ -245,6 +249,7 @@ iree_cc_library(
     libamdf::cts::gpu::kernels::file_staged_upload_kernels
     libamdf::cts::gpu::recipes::device_sdma_fixture
     libamdf::cts::gpu::sdma::encoding::commands
+    libamdf::cts::util::wait
   TESTONLY
   ALWAYSLINK
   PUBLIC

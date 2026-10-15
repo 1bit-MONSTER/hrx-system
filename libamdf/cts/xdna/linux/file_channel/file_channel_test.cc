@@ -92,10 +92,17 @@ void CopyWords(std::span<uint8_t> bytes, size_t offset,
 // Positive short transfers advance the exact file and memory extents. EOF and
 // zero-progress writes terminate the channel instead of retrying indefinitely.
 int ReadAll(int descriptor, std::span<uint8_t> bytes, off_t offset) {
+  const amdf::cts::WaitDeadline deadline;
   while (!bytes.empty()) {
+    if (deadline.remaining_ns() == 0) {
+      return -ETIMEDOUT;
+    }
     const ssize_t count = pread(descriptor, bytes.data(), bytes.size(), offset);
     if (count < 0) {
       if (errno == EINTR) {
+        if (!deadline.Pause()) {
+          return -ETIMEDOUT;
+        }
         continue;
       }
       return -errno;
@@ -110,11 +117,18 @@ int ReadAll(int descriptor, std::span<uint8_t> bytes, off_t offset) {
 }
 
 int WriteAll(int descriptor, std::span<const uint8_t> bytes, off_t offset) {
+  const amdf::cts::WaitDeadline deadline;
   while (!bytes.empty()) {
+    if (deadline.remaining_ns() == 0) {
+      return -ETIMEDOUT;
+    }
     const ssize_t count =
         pwrite(descriptor, bytes.data(), bytes.size(), offset);
     if (count < 0) {
       if (errno == EINTR) {
+        if (!deadline.Pause()) {
+          return -ETIMEDOUT;
+        }
         continue;
       }
       return -errno;
