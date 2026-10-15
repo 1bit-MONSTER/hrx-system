@@ -153,8 +153,8 @@ inline void ExecuteSparseTransfer(SparseMappingBackend& backend,
 }
 
 inline void ExerciseSparseMappingReplacement(SparseMappingBackend& backend) {
-  const auto original_ranges = SparseRanges(1);
-  const auto replacement_ranges = SparseRanges(2);
+  const auto original_ranges = ModelSparseRanges(1);
+  const auto replacement_ranges = ModelSparseRanges(2);
   auto original_mappings = SparseMappings(original_ranges);
   auto replacement_mappings = SparseMappings(replacement_ranges);
   const uint32_t original_count =
