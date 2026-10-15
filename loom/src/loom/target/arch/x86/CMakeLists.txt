@@ -343,6 +343,7 @@ loom_check_test_suite(
     "test/source_low/source_low_scalar_memory.loom-test"
     "test/source_low/source_low_scalar_read_memory.loom-test"
     "test/source_low/source_low_schedule_scopes.loom-test"
+    "test/source_low/source_low_transcendental_basis.loom-test"
     "test/source_low/source_low_v4.loom-test"
     "test/source_low/source_low_x86_shuffle.loom-test"
     "test/source_low/split_barrier.loom-test"

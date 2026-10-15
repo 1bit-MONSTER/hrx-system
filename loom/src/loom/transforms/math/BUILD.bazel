@@ -15,6 +15,8 @@ package(
 loom_cc_library(
     name = "legalize",
     srcs = [
+        "approximate_f32.c",
+        "approximate_f32.h",
         "evaluation.c",
         "evaluation.h",
         "legalize.c",
@@ -23,6 +25,11 @@ loom_cc_library(
         "patterns_elementwise.c",
     ],
     hdrs = ["legalize.h"],
+    textual_hdrs = [
+        "approximate_f32_cos_turns.inl",
+        "approximate_f32_exp2.inl",
+        "approximate_f32_sin_turns.inl",
+    ],
     deps = [
         "//loom/src/loom/error:error_defs",
         "//loom/src/loom/ir",

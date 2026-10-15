@@ -14,7 +14,13 @@ loom_cc_library(
     legalize
   HDRS
     "legalize.h"
+  TEXTUAL_HDRS
+    "approximate_f32_cos_turns.inl"
+    "approximate_f32_exp2.inl"
+    "approximate_f32_sin_turns.inl"
   SRCS
+    "approximate_f32.c"
+    "approximate_f32.h"
     "evaluation.c"
     "evaluation.h"
     "legalize.c"
