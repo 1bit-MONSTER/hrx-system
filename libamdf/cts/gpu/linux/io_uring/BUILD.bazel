@@ -31,8 +31,11 @@ _RDNA_COMPATIBILITY = {
 _RDNA_COMPATIBILITY["//conditions:default"] = ["@platforms//:incompatible"]
 
 _FILE_IO_SRCS = [
+    "file_gather_fixture.h",
     "file_gather_test.cc",
+    "file_exchange_fixture.h",
     "file_io_test.cc",
+    "file_latency_fixture.h",
     "file_latency_test.cc",
 ]
 
@@ -135,6 +138,30 @@ amdf_cts_test_suite(
         "//libamdf/cts/gpu/kernels:file_exchange_cxx_kernels",
         "//libamdf/cts/gpu/kernels:file_gather_cxx_kernels",
         "//libamdf/cts/gpu/kernels:file_latency_cxx_kernels",
+    ],
+)
+
+amdf_cts_test_suite(
+    name = "file_io_stress",
+    srcs = [
+        "file_exchange_fixture.h",
+        "file_gather_fixture.h",
+        "file_gather_stress_test.cc",
+        "file_io_stress_test.cc",
+        "file_latency_fixture.h",
+        "file_latency_stress_test.cc",
+    ],
+    tags = [
+        "manual",
+        "stress",
+    ],
+    target_compatible_with = _FILE_IO_COMPATIBILITY,
+    visibility = ["//visibility:public"],
+    deps = _FILE_IO_DEPS + [
+        "//libamdf/cts/gpu/kernels:file_demand_kernels",
+        "//libamdf/cts/gpu/kernels:file_exchange_kernels",
+        "//libamdf/cts/gpu/kernels:file_gather_kernels",
+        "//libamdf/cts/gpu/kernels:file_latency_kernels",
     ],
 )
 
