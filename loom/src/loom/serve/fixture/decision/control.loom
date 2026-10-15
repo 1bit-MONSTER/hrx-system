@@ -2,8 +2,6 @@ func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
 
 func.decl import("runner") @execute_2(%stage: i32, %input: hal.buffer, %output: hal.buffer) -> (i64)
 
-func.decl import("runner") @feedback(%slot: i32, %source: hal.buffer, %offset: i64, %length: i64) -> (i64)
-
 global.rodata.def @invalid = bytes("6465636973696f6e2066697874757265207265717569726573207175657374696f6e73202b206f7074696f6e732077697468696e2062617463685f756e697473")
 
 func.def @check(%condition: i1) {
@@ -164,9 +162,9 @@ func.def public @prepare_batch(%state: buffer, %tags: buffer, %ranges: buffer, %
   %plan = buffer.alloca<private> align(8) %plan_bytes : buffer
   %plan_header = buffer.view %plan[%origin] : buffer -> view<4xi64>
   %output64 = scalar.muli %units64, %c4_i64 : i64
-  %feedback64 = scalar.muli %scalars64, %c4_i64 : i64
+  %result64 = scalar.muli %scalars64, %c4_i64 : i64
   view.store %output64, %plan_header[0] : i64, view<4xi64>
-  view.store %feedback64, %plan_header[1] : i64, view<4xi64>
+  view.store %result64, %plan_header[1] : i64, view<4xi64>
   view.store %requests64, %plan_header[2] : i64, view<4xi64>
   view.store %rows64, %plan_header[3] : i64, view<4xi64>
   %request_records = buffer.view %plan[%c32] : buffer -> view<[%requests]x3xi64>
@@ -226,10 +224,7 @@ func.def public @prepare_batch(%state: buffer, %tags: buffer, %ranges: buffer, %
   func.return %c0_i32, %payload, %plan : i32, buffer, buffer
 }
 
-func.def public @run(%stage: i32, %feedback_bytes: i64, %input: hal.buffer, %output: hal.buffer) {
+func.def public @run(%stage: i32, %input: hal.buffer, %output: hal.buffer) {
   %work = func.call @execute_2(%stage, %input, %output) : (i32, hal.buffer, hal.buffer) -> (i64)
-  %slot = scalar.constant 0 : i32
-  %offset = scalar.constant 0 : i64
-  %done = func.call @feedback(%slot, %output, %offset, %feedback_bytes) : (i32, hal.buffer, i64, i64) -> (i64)
   func.return
 }

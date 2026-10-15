@@ -1,8 +1,9 @@
 # Source-defined finite vector models
 
-This service hosts computations whose final result is one or more
-small F32 vectors: an embedding is a final vector, while a decision model can
-produce question probabilities. The native runner owns source JIT, shared
+This service hosts computations whose result is one or more F32 vectors:
+an embedding is a final vector, a decision model produces question
+probabilities, and a model component can publish device-resident features.
+The native runner owns source JIT, shared
 parameter residency, stage submission and result lifetime. The source owns
 tokenization/task framing, model shapes, pooling, normalization and learned
 heads. It does not require a decode loop, KV reservation or VM process per
@@ -27,7 +28,7 @@ stages can also declare checkpoint domains and preparation policies. The result
 contains:
 
 * A positive additive batch-unit limit.
-* Maximum upload, physical device-output and compact host-feedback byte counts.
+* Maximum upload, physical device-output and live result byte counts.
 * A tokenizer asset path relative to `asset_root`, or an empty string.
 * A nonempty source name and an opaque source state buffer.
 
@@ -47,7 +48,7 @@ a source-owned placement contract before they can use this loader.
 prepare_request(state, input) -> (prepared_bytes, units, compatibility_tag)
 prepare_batch(state, stage_tags, ranges, prepared_bytes)
     -> (stage_index, upload_payload, result_plan)
-run(stage_index, feedback_bytes, input_buffer, output_buffer)
+run(stage_index, input_buffer, output_buffer)
 ```
 
 The native protocol provides ordered, indexed input records. Its layout is
@@ -75,15 +76,17 @@ The result plan contains little-endian i64 records:
 
 | Record | Fields |
 | --- | --- |
-| Header | physical output bytes, compact feedback bytes, request count, row count |
+| Header | physical output bytes, live result bytes, request count, row count |
 | Per request | first row, row count, input-token usage |
-| Per row | byte offset in feedback, F32 element count |
+| Per row | byte offset in device output, F32 element count |
 
 Rows are contiguous in original request order. Their physical output locations
 can be scattered or reordered. The native model boundary checks this external
-plan once against storage capacities and protocol row counts; the encoder then
-uses trusted row views. Physical output and live feedback extents are separate:
-stages may need padded binding storage without downloading the padding.
+plan once against storage capacities and protocol row counts, then copies the
+checked request and row metadata into an independent result. Subsequent source
+invocations can reuse their plan buffers without changing retained row views.
+Physical output and live result extents are separate: stages may need padded
+binding storage that a host consumer does not download.
 
 Both stage kinds have two dynamic roots (input/output). Commands additionally
 bind private workspace when the compiler reflects a nonzero requirement.
@@ -91,8 +94,8 @@ Direct native entries use their compiled launch-config companion and HAL
 logical-parameter reflection,
 submitting through `queue_dispatch` without a command buffer or invented host
 workspace. A resident array program uses this same path; source owns its
-device-local storage. Both kinds use the runner's `execute_2` and `feedback`
-imports with the same model timelines and retirement rules.
+device-local storage. Both kinds use the runner's `execute_2` import and publish
+device results. The source has no host-feedback destination in this ABI.
 
 Normalization, dimensional projection and other neural math execute in kernels.
 The CPU formats final vectors and computes the decision protocol's
@@ -100,14 +103,22 @@ answer/confidence statistics from final probabilities. Nonfinite values or a
 result width inconsistent with the request are model failures, not an excuse
 for native truncation or normalization.
 
-Input/output roots have 16-byte-aligned bases and borrow the device's shared
-queue pool only while executing. Interior record alignment remains source-owned.
-The input retires after work. Output retirement imports the feedback frontier
-onto the work timeline before `queue_dealloca`, so reuse follows the final
-reader rather than queue submission order. Private command workspace can retire
-earlier. The source payload survives upload; compact host feedback survives
-until the CPU encoding process's release callback. The transport copies final
-responses and does not retain a model's output allocation for a slow peer.
+Input/output roots have 16-byte-aligned bases and use the device's shared queue
+pool. Interior record alignment remains source-owned. The input and private
+command workspace retire after producer work. A result retains the output
+allocation independently of the producer's retirement-tracked views, allowing
+another cohort, parameter eviction, or model destruction while consumers keep
+the result. Device consumers import its accepted readiness frontier and use
+checked buffer ranges directly; no host completion wait or payload download is
+required to submit dependent work. The shared workspace retains each root's
+source pool through its final queue capture.
+
+HTTP consumers explicitly request an exact host snapshot. The download capture
+retains that snapshot through actual queue release, even when readiness fails
+or every client cancels. A successful snapshot survives until the CPU encoding
+process's release callback. The transport copies final responses and does not
+retain device output or snapshot storage for a slow peer. Results and snapshots
+are request/cohort ownership, not an implicit persistent cache.
 
 One reset client never edits an already submitted cohort. Its output is
 discarded while the other requests keep their original row associations.

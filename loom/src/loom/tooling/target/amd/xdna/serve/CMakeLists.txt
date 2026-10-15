@@ -54,6 +54,7 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/tokenizer.json"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/direct.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/fused.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/policy.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/weights.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/serve/testdata/resident_checkpoint.loom"

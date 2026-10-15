@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_config_compatible_with")
+load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
 
 package(
     default_visibility = ["//loom/src/loom/serve:implementation"],
@@ -28,6 +28,7 @@ loom_cc_library(
     deps = [
         ":model",
         ":protocol",
+        ":result",
         "//loom/src/loom/serve/runtime/execution",
         "//loom/src/loom/serve/runtime/host",
         "//loom/src/loom/serve/runtime/host:timer",
@@ -52,6 +53,18 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "result",
+    srcs = ["result.c"],
+    hdrs = ["result.h"],
+    deps = [
+        "//loom/src/loom/serve/runtime/execution",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/vm",
+    ],
+)
+
+loom_cc_library(
     name = "model",
     srcs = ["model.c"],
     hdrs = ["model.h"],
@@ -59,6 +72,7 @@ loom_cc_library(
         "//loom/config/target/arch:vm",
     ]),
     deps = [
+        ":result",
         "//loom/binding/c:loomc",
         "//loom/src/loom/serve/runtime/device",
         "//loom/src/loom/serve/runtime/execution",
@@ -86,6 +100,25 @@ loom_cc_library(
         "//runtime/src/iree/tokenizer",
         "//runtime/src/iree/tokenizer/format/huggingface:tokenizer_json",
         "//runtime/src/iree/tooling:device_profiling",
+        "//runtime/src/iree/vm",
+    ],
+)
+
+loom_cc_test(
+    name = "result_test",
+    srcs = ["result_test.cc"],
+    target_compatible_with = loom_config_compatible_with([
+        "//runtime/config/hal:driver_task",
+    ]),
+    deps = [
+        ":result",
+        "//loom/src/loom/serve/runtime/device",
+        "//loom/src/loom/serve/runtime/execution",
+        "//loom/src/loom/serve/runtime/host",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
         "//runtime/src/iree/vm",
     ],
 )

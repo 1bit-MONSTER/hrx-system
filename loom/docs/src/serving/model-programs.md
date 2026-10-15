@@ -137,14 +137,14 @@ text normalization, sentence boundaries, and capacity admission.
 
 The embedding package is the smallest complete example. Its cold entry is
 `prepare(asset_root, options)`. It returns a batch-unit limit, upload/output/
-feedback capacities, an optional tokenizer asset, a source name and opaque state.
+result capacities, an optional tokenizer asset, a source name and opaque state.
 Its control program exports:
 
 ```text
 prepare_request(state, input) -> (prepared_bytes, units, compatibility_tag)
 prepare_batch(state, stage_tags, ranges, prepared_bytes)
     -> (stage_index, upload_payload, result_plan)
-run(stage_index, feedback_bytes, input_buffer, output_buffer)
+run(stage_index, input_buffer, output_buffer)
 ```
 
 The HTTP parser provides indexed protocol records, not a source-private JSON
@@ -158,11 +158,14 @@ cohort from compatible waiting requests. It does not wait for hypothetical
 arrivals. Batch preparation receives stable request-order ranges over concatenated
 prepared bytes, selects a declared stage and maps physical output back to requests.
 
-The result plan describes physical output bytes separately from compact feedback
-bytes, then each request's rows and each row's offset/width. Device padding and
-activation storage need not be downloaded. Projection and normalization happen
-in the numerical program; the host encodes final F32 vectors. Decision encoding
-similarly consumes final probabilities, not hidden activations.
+The result plan describes physical output bytes separately from the live result
+prefix, then each request's rows and each row's offset/width. Results retain
+their device storage independently of the producing model. Device consumers
+import the producer's readiness and read those rows without a host roundtrip.
+HTTP consumers explicitly download a compact snapshot for encoding; device
+padding and activation storage need not be downloaded. Projection and
+normalization happen in the numerical program. Decision encoding similarly
+consumes final probabilities, not hidden activations.
 
 The example deliberately reverses physical output rows. Correct client indices
 therefore prove that result mapping works rather than merely agreeing with a
