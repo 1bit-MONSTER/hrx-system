@@ -4335,6 +4335,37 @@ def test_gfx125x_packed_fp8_to_f16_sources_use_low_half_window() -> None:
         assert source.descriptor_operand.addressable_unit_count == 128
 
 
+def test_compact_packed8_to_f32_sources_use_low_half_window() -> None:
+    for overlays, source_semantics in (
+        (_gfx940_core_overlays(), "fnuz"),
+        (_gfx950_core_overlays(), "ocp"),
+        (_gfx12_core_overlays(), "ocp"),
+        (_gfx125x_core_overlays(), "ocp"),
+        (_rdna4m_core_overlays(), "ocp"),
+    ):
+        descriptors = {descriptor.descriptor_key: descriptor for descriptor in overlays}
+        for source_type in ("fp8", "bf8"):
+            scalar_descriptor = descriptors[
+                f"amdgpu.v_cvt_f32_{source_type}.{source_semantics}"
+            ]
+            assert (
+                scalar_descriptor.operands[1].descriptor_operand.address_map_kind
+                is OperandAddressMapKind.DIRECT
+            )
+
+            descriptor = descriptors[
+                f"amdgpu.v_cvt_pk_f32_{source_type}.{source_semantics}"
+            ]
+            assert descriptor.encoding_name == "ENC_VOP1"
+            source = descriptor.operands[1]
+            assert source.xml_field_name == "SRC0"
+            assert (
+                source.descriptor_operand.address_map_kind
+                is OperandAddressMapKind.LOW_SUBSET
+            )
+            assert source.descriptor_operand.addressable_unit_count == 128
+
+
 def test_packed8_encode_descriptors_own_numeric_and_partial_result_semantics() -> None:
     for descriptor_set, target_semantics, op_sel_field in (
         (_gfx940_core_overlays(), "fnuz", "OP_SEL"),
