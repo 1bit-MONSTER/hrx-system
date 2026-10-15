@@ -189,7 +189,7 @@ def _json_request(address, request, body):
         )
         response = connection.getresponse()
         payload = response.read()
-        completed = time.monotonic_ns()
+        completed = time.perf_counter_ns()
         if response.status != 200:
             raise RuntimeError(f"HTTP {response.status}: {payload[:1024]!r}")
         result = json.loads(payload)
@@ -205,7 +205,7 @@ def _json_request(address, request, body):
 def _execute(address, request, scheduled, start):
     body = json.loads(request.body)
     request_hash = digest([request.path, body, dict(request.headers)])
-    launched = time.monotonic_ns()
+    launched = time.perf_counter_ns()
     record = {
         "event": "request",
         "id": request.identity,
@@ -279,7 +279,7 @@ def _execute(address, request, scheduled, start):
         TypeError,
         AttributeError,
     ) as error:
-        completed = time.monotonic_ns()
+        completed = time.perf_counter_ns()
         record.update(outcome="failed", error=f"{type(error).__name__}: {error}")
     record.update(
         completed_ms=(completed - start) / 1e6,
@@ -299,7 +299,7 @@ def replay(address, requests, concurrency, emit):
     """
     if type(concurrency) is not int or concurrency < 1:
         raise ValueError("concurrency must be a positive integer")
-    start = time.monotonic_ns()
+    start = time.perf_counter_ns()
     ready = []
     children = [[] for request in requests]
     for index, request in enumerate(requests):
@@ -311,7 +311,7 @@ def replay(address, requests, concurrency, emit):
     pending = {}
     with ThreadPoolExecutor(max_workers=concurrency) as workers:
         while ready or pending:
-            now = time.monotonic_ns()
+            now = time.perf_counter_ns()
             while ready and ready[0][0] <= now and len(pending) < concurrency:
                 scheduled, index = heapq.heappop(ready)
                 future = workers.submit(
@@ -320,7 +320,7 @@ def replay(address, requests, concurrency, emit):
                 pending[future] = index
             delay = None
             if ready and len(pending) < concurrency:
-                delay = max(0, (ready[0][0] - time.monotonic_ns()) / 1e9)
+                delay = max(0, (ready[0][0] - time.perf_counter_ns()) / 1e9)
             if not pending:
                 # This is the declared arrival delay, not a readiness guess.
                 time.sleep(delay)
@@ -352,7 +352,7 @@ def replay(address, requests, concurrency, emit):
                         records.append(record)
                         emit(record)
                         blocked.extend(children[child])
-    return summarize(records, (time.monotonic_ns() - start) / 1e6)
+    return summarize(records, (time.perf_counter_ns() - start) / 1e6)
 
 
 def _distribution(values):
@@ -369,7 +369,11 @@ def _distribution(values):
 
 
 def summarize(records, elapsed_ms):
-    """Report per-class results; absent token usage never becomes zero tokens."""
+    """Retain counts even when clock resolution cannot establish a rate.
+
+    A zero elapsed interval produces null rates, not a fabricated duration.
+    Absent token usage never becomes zero tokens.
+    """
     groups = {}
     for record in records:
         groups.setdefault((record["model"], record["path"]), []).append(record)
@@ -384,7 +388,9 @@ def summarize(records, elapsed_ms):
                 outcome: sum(sample["outcome"] == outcome for sample in samples)
                 for outcome in ("completed", "failed", "blocked")
             },
-            "completed_requests_per_second": len(completed) * 1000 / elapsed_ms,
+            "completed_requests_per_second": (
+                len(completed) * 1000 / elapsed_ms if elapsed_ms > 0 else None
+            ),
         }
         # Completion latency is success-only. All attempted requests contribute
         # launch lag, so overload failures cannot hide a saturated client.
@@ -406,7 +412,7 @@ def summarize(records, elapsed_ms):
                 "sum": sum(values) if values else None,
                 "per_second": (
                     sum(values) * 1000 / elapsed_ms
-                    if values and len(values) == len(completed)
+                    if values and len(values) == len(completed) and elapsed_ms > 0
                     else None
                 ),
             }

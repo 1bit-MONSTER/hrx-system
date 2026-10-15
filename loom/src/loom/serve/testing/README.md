@@ -15,8 +15,8 @@ this path without loading numerical weights or acquiring a device.
 
 The local `loom_serve_testing` Python package contains these helpers:
 
-- `http` owns child-process startup, HTTP control calls, joined shutdown and
-  explicitly fallible telemetry history. Readiness and completion come from
+- `http_harness` owns child-process startup, HTTP control calls, joined shutdown,
+  and explicitly fallible telemetry history. Readiness and completion come from
   server state and counters, not sleeps or promised event retention.
 - `logs` owns an observer's cursors. Gaps, model removal and stream reincarnation
   remain explicit; a reader never owns server resources.
@@ -79,8 +79,11 @@ The output starts with a workload fingerprint, emits each terminal request as
 it is collected, and ends with per-model/endpoint summaries. Summaries use
 nearest-rank percentiles; completion latencies include successful requests only,
 while launch lag includes all attempted requests. Rates use the entire workload
-duration, including declared idle periods. A nonzero exit means at least one
-request failed or was blocked by a failed predecessor. Independent requests keep
+duration, including declared idle periods. All client timestamps use the same
+high-resolution performance clock. When a run resolves no elapsed interval,
+counts remain available and rates are `null`; the tool does not invent a
+minimum duration. A nonzero exit means at least one request failed or was blocked
+by a failed predecessor. Independent requests keep
 running; requests are never retried. The outer job owns any deadline.
 
 Request hashes identify body/header changes without retaining their contents.

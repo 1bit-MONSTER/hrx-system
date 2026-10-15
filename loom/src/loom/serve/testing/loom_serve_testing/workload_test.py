@@ -13,6 +13,7 @@ import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 
 from loom_serve_testing import replay, workload
 
@@ -409,6 +410,49 @@ class WorkloadTest(unittest.TestCase):
             group["completion_tokens"],
             {"reported_requests": 0, "sum": None, "per_second": None},
         )
+
+    def test_zero_elapsed_replay_preserves_counts_without_inventing_rates(self):
+        requests = plan(
+            request("vector"),
+            request(
+                "chat",
+                path="/v1/chat/completions",
+                body={
+                    "model": "text",
+                    "stream": True,
+                    "stream_options": {"include_usage": True},
+                },
+            ),
+        )
+
+        def respond(path, body):
+            return (
+                chat_result(body)
+                if path.endswith("completions")
+                else vector_result(body)
+            )
+
+        records = []
+        with (
+            endpoint(respond) as (address, _),
+            patch("time.perf_counter_ns", return_value=123_456),
+        ):
+            summary = workload.replay(address, requests, 2, records.append)
+        self.assertEqual(summary["elapsed_ms"], 0)
+        self.assertEqual(len(records), 2)
+        for record in records:
+            self.assertEqual(record["outcome"], "completed")
+            self.assertEqual(record["request_ms"], 0)
+            self.assertEqual(record["started_ms"], 0)
+        groups = {group["model"]: group for group in summary["classes"]}
+        self.assertEqual(groups["vectors"]["prompt_tokens"]["sum"], 5)
+        self.assertEqual(groups["text"]["prompt_tokens"]["sum"], 9)
+        self.assertEqual(groups["text"]["completion_tokens"]["sum"], 7)
+        for group in groups.values():
+            self.assertEqual(group["completed"], 1)
+            self.assertIsNone(group["completed_requests_per_second"])
+            self.assertIsNone(group["prompt_tokens"]["per_second"])
+            self.assertIsNone(group["completion_tokens"]["per_second"])
 
     def test_tool_call_identity_is_not_an_output_divergence(self):
         def respond(path, body):

@@ -27,8 +27,8 @@ def request(
     The caller selects the deployment and owns any outer deadline. Session and
     checkpoint headers carry Loom retention identity; other compatible servers
     can ignore them. The returned text, tool calls, usage, terminal reason and
-    monotonic timestamps are copied before the connection closes. Incomplete
-    streams and endpoint errors raise instead of becoming successful samples.
+    performance-clock timestamps are copied before the connection closes.
+    Incomplete streams and endpoint errors raise instead of successful samples.
     """
     body = {
         "model": model,
@@ -61,7 +61,7 @@ def request_body(address, body, headers=None):
     )
     connection = connection_type(address.hostname, address.port)
     model = body["model"]
-    start = time.monotonic_ns()
+    start = time.perf_counter_ns()
     first = None
     chunks = []
     text = []
@@ -103,10 +103,10 @@ def request_body(address, body, headers=None):
                 content = delta.get("content", "")
                 thought = delta.get("reasoning_content", "")
                 if content or thought or delta.get("tool_calls"):
-                    chunks.append((time.monotonic_ns() - start) / 1e6)
+                    chunks.append((time.perf_counter_ns() - start) / 1e6)
                 if content:
                     if first is None:
-                        first = time.monotonic_ns()
+                        first = time.perf_counter_ns()
                     text.append(content)
                 if thought:
                     reasoning.append(thought)
@@ -134,7 +134,7 @@ def request_body(address, body, headers=None):
             raise RuntimeError("Tool deltas and terminal finish reason disagree")
         if sorted(tool_calls) != list(range(len(tool_calls))):
             raise RuntimeError("Tool delta indexes are not contiguous")
-        end = time.monotonic_ns()
+        end = time.perf_counter_ns()
         return {
             "text": "".join(text),
             "reasoning_content": "".join(reasoning),
