@@ -85,6 +85,7 @@ iree_cc_library(
     libamdf::cts::gpu::sdma::encoding::commands
     libamdf::cts::gpu::util::command_fixture
     libamdf::cts::gpu::util::user_queue
+    libamdf::cts::util::observation
     libamdf::cts::util::wait
   TESTONLY
   ALWAYSLINK

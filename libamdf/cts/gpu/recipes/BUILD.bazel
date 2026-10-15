@@ -80,6 +80,7 @@ amdf_cts_test_suite(
         "//libamdf/cts/gpu/sdma/encoding:commands",
         "//libamdf/cts/gpu/util:command_fixture",
         "//libamdf/cts/gpu/util:user_queue",
+        "//libamdf/cts/util:observation",
         "//libamdf/cts/util:wait",
         "//third_party:google_test",
     ],

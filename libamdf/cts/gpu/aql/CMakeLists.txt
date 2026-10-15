@@ -104,6 +104,7 @@ iree_cc_library(
     libamdf::cts::gpu::kernels::transform_alternate_kernels
     libamdf::cts::gpu::kernels::transform_kernels
     libamdf::cts::gpu::pm4::encoding::memory_commands
+    libamdf::cts::util::observation
   TESTONLY
   ALWAYSLINK
   PUBLIC

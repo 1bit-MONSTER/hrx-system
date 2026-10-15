@@ -137,9 +137,12 @@ amdf_cc_library(
     deps = [
         ":device_state",
         "//libamdf/src/gpu/umd:clock",
+        "//libamdf/src/platform:native_observation",
+        "//libamdf/src/platform:observation",
         "//libamdf/src/platform/linux:file",
         "//third_party:linux_amdgpu_uapi",
         "//third_party:linux_drm_uapi",
+        "//third_party:linux_kfd_uapi",
     ],
 )
 
@@ -156,6 +159,7 @@ amdf_cc_test(
         "//third_party:google_test_main",
         "//third_party:linux_amdgpu_uapi",
         "//third_party:linux_drm_uapi",
+        "//third_party:linux_kfd_uapi",
     ],
 )
 

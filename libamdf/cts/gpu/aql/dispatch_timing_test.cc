@@ -6,7 +6,6 @@
 
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -16,6 +15,7 @@
 #include "libamdf/cts/gpu/aql/dispatch_fixture.h"
 #include "libamdf/cts/gpu/kernels/transform.h"
 #include "libamdf/cts/gpu/kernels/transform_kernels.h"
+#include "util/observation.h"
 
 namespace {
 
@@ -27,12 +27,6 @@ struct alignas(64) TimingSlot {
 };
 static_assert(sizeof(TimingSlot) == 128);
 
-uint64_t HostNowNs() {
-  return std::chrono::duration_cast<std::chrono::nanoseconds>(
-             std::chrono::steady_clock::now().time_since_epoch())
-      .count();
-}
-
 class AqlDispatchTimingTest : public AqlDispatchTest {
  protected:
   AqlDispatchTimingTest()
@@ -40,6 +34,8 @@ class AqlDispatchTimingTest : public AqlDispatchTest {
 
   void Exercise(bool enabled, uint32_t dispatch_count) {
     ASSERT_GE(gpu_api_->extension_version, AMDF_GPU_EXTENSION_VERSION_2);
+    ObservationHostClock host_clock;
+    ASSERT_NO_FATAL_FAILURE(host_clock.Initialize(api_));
     amdf_observation_clock_info_t clock = {};
     ASSERT_EQ(gpu_api_->device_query_queue_clock_info(device_, family_.ordinal,
                                                       &clock),
@@ -106,6 +102,10 @@ class AqlDispatchTimingTest : public AqlDispatchTest {
     uint64_t descriptor = 0;
     ASSERT_NO_FATAL_FAILURE(PublishKernel(*queue, *kernel, "timing_kernel",
                                           &packet_index, &descriptor));
+    amdf_observation_clock_sample_t native_start = {};
+    ASSERT_EQ(gpu_api_->device_query_clock_sample(device_, family_.ordinal,
+                                                  &native_start),
+              AMDF_STATUS_OK);
 
     std::array<uint64_t, kSlotCount> host_before = {};
     std::array<uint64_t, kSlotCount> previous_end = {};
@@ -138,7 +138,7 @@ class AqlDispatchTimingTest : public AqlDispatchTest {
           0, kernel->group_segment_byte_length, descriptor,
           arguments->device_address + slot * 256,
           signals->device_address + 128 + slot * sizeof(TimingSlot));
-      host_before[slot] = HostNowNs();
+      ASSERT_EQ(host_clock.Read(&host_before[slot]), AMDF_STATUS_OK);
       GpuStoreRelease(queue->host.write_index_address, packet_index + 1);
       ASSERT_TRUE(aql::Publish(*queue, packet_index++, packet));
     };
@@ -148,7 +148,8 @@ class AqlDispatchTimingTest : public AqlDispatchTest {
       const auto& signal = slots[slot].signal;
       ASSERT_TRUE(
           GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0));
-      const uint64_t host_after = HostNowNs();
+      uint64_t host_after = 0;
+      ASSERT_EQ(host_clock.Read(&host_after), AMDF_STATUS_OK);
       const aql::Signal snapshot = signal;
       EXPECT_EQ(snapshot.kind, 1);
       EXPECT_EQ(snapshot.value, 0);
@@ -183,20 +184,21 @@ class AqlDispatchTimingTest : public AqlDispatchTest {
             (static_cast<long double>(snapshot.timestamps.end) -
              snapshot.timestamps.start) *
             1e9L / clock.frequency_hz;
-        EXPECT_LE(duration_ns, host_after - host_before[slot]);
+        EXPECT_LE(duration_ns,
+                  host_clock.Nanoseconds(host_after - host_before[slot]));
         if (sample_count == 0) {
           first_tick = snapshot.timestamps.start;
           first_host = host_before[slot];
           RecordProperty("first_start_ticks", std::to_string(first_tick));
-          RecordProperty("first_host_before_ns", std::to_string(first_host));
-          RecordProperty("first_host_after_ns", std::to_string(host_after));
+          RecordProperty("first_host_before_ticks", std::to_string(first_host));
+          RecordProperty("first_host_after_ticks", std::to_string(host_after));
         }
         if (sequence + 1 == dispatch_count) {
           RecordProperty("last_start_ticks",
                          std::to_string(snapshot.timestamps.start));
-          RecordProperty("last_host_before_ns",
+          RecordProperty("last_host_before_ticks",
                          std::to_string(host_before[slot]));
-          RecordProperty("last_host_after_ns", std::to_string(host_after));
+          RecordProperty("last_host_after_ticks", std::to_string(host_after));
         }
         const long double start_ns =
             (static_cast<long double>(snapshot.timestamps.start) - first_tick) *
@@ -204,13 +206,12 @@ class AqlDispatchTimingTest : public AqlDispatchTest {
         const long double end_ns =
             (static_cast<long double>(snapshot.timestamps.end) - first_tick) *
             1e9L / clock.frequency_hz;
-        minimum_offset =
-            std::max(minimum_offset,
-                     static_cast<long double>(host_before[slot] - first_host) -
-                         start_ns);
-        maximum_offset = std::min(
-            maximum_offset,
-            static_cast<long double>(host_after - first_host) - end_ns);
+        minimum_offset = std::max(
+            minimum_offset,
+            host_clock.Nanoseconds(host_before[slot] - first_host) - start_ns);
+        maximum_offset =
+            std::min(maximum_offset,
+                     host_clock.Nanoseconds(host_after - first_host) - end_ns);
         total_duration_ns += duration_ns;
       } else {
         EXPECT_EQ(snapshot.timestamps.start, 0u);
@@ -233,6 +234,16 @@ class AqlDispatchTimingTest : public AqlDispatchTest {
       }
     }
     ASSERT_NO_FATAL_FAILURE(queue->WaitConsumed(api_, packet_index));
+    amdf_observation_clock_sample_t native_end = {};
+    ASSERT_EQ(gpu_api_->device_query_clock_sample(device_, family_.ordinal,
+                                                  &native_end),
+              AMDF_STATUS_OK);
+    EXPECT_EQ(native_start.clock.frequency_hz, clock.frequency_hz);
+    EXPECT_EQ(native_end.clock.frequency_hz, clock.frequency_hz);
+    EXPECT_LE(native_start.timestamp, native_end.timestamp);
+    EXPECT_LE(native_start.host.after, native_end.host.before);
+    EXPECT_LE(native_start.host.timestamp, native_start.host.after);
+    EXPECT_LE(native_end.host.timestamp, native_end.host.after);
     EXPECT_EQ(sample_count, dispatch_count);
     for (uint32_t i = 0; i < kWords; ++i) {
       EXPECT_EQ(input_words[i], 0xfffffff0u + i * 17u);
@@ -250,7 +261,15 @@ class AqlDispatchTimingTest : public AqlDispatchTest {
     RecordProperty("signal_slot_count", kSlotCount);
     RecordProperty("numeric_checksum", std::to_string(numeric_sum));
     RecordProperty("frequency_hz", std::to_string(clock.frequency_hz));
+    RecordProperty("native_clock_before",
+                   std::to_string(native_start.timestamp));
+    RecordProperty("native_clock_after", std::to_string(native_end.timestamp));
     if (enabled) {
+      const uint64_t last_tick =
+          *std::max_element(previous_end.begin(), previous_end.end());
+      RecordProperty("native_clock_encloses_dispatches",
+                     native_start.timestamp <= first_tick &&
+                         last_tick <= native_end.timestamp);
       RecordProperty("duration_sum_ns", std::to_string(total_duration_ns));
       // Relative clock drift can reject a capture-wide fixed offset even when
       // every dispatch publishes its interval correctly.

@@ -21,6 +21,8 @@ iree_cc_library(
     libamdf::src::gpu::umd::clock
     libamdf::src::gpu::umd::wddm::wkmi::adapter
     libamdf::src::gpu::umd::wddm::wkmi::bridge_api
+    libamdf::src::platform::native_observation
+    libamdf::src::platform::observation
   PUBLIC
 )
 endif()

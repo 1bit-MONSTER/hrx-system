@@ -67,6 +67,7 @@ static const amdf_gpu_api_t amdf_gpu_api_v2 = {
     .kernel_queue_submit = amdf_gpu_kernel_queue_submit,
     .user_queue_create = amdf_gpu_user_queue_create,
     .device_query_queue_clock_info = amdf_gpu_device_query_queue_clock_info,
+    .device_query_clock_sample = amdf_gpu_device_query_clock_sample,
 };
 
 void amdf_gpu_extension_initialize_endpoint(amdf_endpoint_t* endpoint) {

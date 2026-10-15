@@ -38,13 +38,13 @@ amdf_status_t amdf_gpu_wddm_wkmi_adapter_initialize(
 amdf_status_t amdf_gpu_wddm_wkmi_adapter_deinitialize(
     amdf_gpu_wddm_wkmi_adapter_t* adapter);
 
-// Queries the selected queue scheduler's nominal clock rate without retaining
-// calibration state. Failure preserves out_frequency_hz.
-amdf_status_t amdf_gpu_wddm_wkmi_adapter_query_queue_clock_frequency(
+// Queries the selected queue scheduler's native calibration tuple without
+// retaining state. Failure preserves out_sample.
+amdf_status_t amdf_gpu_wddm_wkmi_adapter_query_clock_sample(
     const amdf_gpu_wddm_wkmi_adapter_t* adapter, D3DKMT_HANDLE adapter_handle,
     uint32_t physical_adapter_index,
     amdf_wkmi_bridge_gpu_queue_command_type_t command_type,
-    uint64_t* out_frequency_hz);
+    amdf_wkmi_bridge_gpu_clock_sample_t* out_sample);
 
 // Queries the native allocation layout for one aggregate allocation.
 amdf_status_t amdf_gpu_wddm_wkmi_adapter_query_allocation_layout(

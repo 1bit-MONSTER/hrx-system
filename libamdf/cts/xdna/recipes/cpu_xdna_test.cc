@@ -22,6 +22,7 @@
 #include "libamdf/cts/xdna/util/execution.h"
 #include "libamdf/cts/xdna/xdna_device_fixture.h"
 #include "util/mapped_memory.h"
+#include "util/observation.h"
 #include "util/wait.h"
 
 namespace {
@@ -56,12 +57,12 @@ void CheckTransition(const amdf_cache_transition_t& actual,
 // One caller-correlated command, with device timestamps in format-2
 // nanoseconds.
 struct FirmwareCommandInterval {
-  // Independent host observations in steady-clock nanoseconds.
+  // Independent observations in the common library host clock ticks.
   struct {
     // Lower bound, immediately before submitting the command.
-    int64_t begin = 0;
+    uint64_t begin = 0;
     // Upper bound, immediately after observing completion.
-    int64_t end = 0;
+    uint64_t end = 0;
   } host;
   // Firmware timestamps in this uninterrupted recorder's clock.
   struct {
@@ -72,19 +73,17 @@ struct FirmwareCommandInterval {
   } device;
 };
 
-int64_t HostTimestamp() {
-  return std::chrono::duration_cast<std::chrono::nanoseconds>(
-             std::chrono::steady_clock::now().time_since_epoch())
-      .count();
-}
-
 // Caller-owned global recorder and fixed read storage. The ordinary numeric
 // workload supplies execution and retirement; observation never gates its work.
 class FirmwareTraceCapture {
  public:
   FirmwareTraceCapture(const amdf_xdna_api_t* api, amdf_device_t* device,
+                       const ObservationHostClock& host_clock,
                        std::span<FirmwareCommandInterval> intervals = {})
-      : api_(api), device_(device), intervals_(intervals) {}
+      : api_(api),
+        device_(device),
+        host_clock_(host_clock),
+        intervals_(intervals) {}
   ~FirmwareTraceCapture() {
     if (owns_configuration_) {
       EXPECT_EQ(api_->device_configure_firmware_trace(device_, 0, 0),
@@ -193,13 +192,15 @@ class FirmwareTraceCapture {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     ASSERT_LT(ordinal, intervals_.size());
-    intervals_[ordinal].host.begin = HostTimestamp();
+    ASSERT_EQ(host_clock_.Read(&intervals_[ordinal].host.begin),
+              AMDF_STATUS_OK);
   }
 
   void EndCommand(uint32_t ordinal) {
     if (!intervals_.empty()) {
       ASSERT_LT(ordinal, intervals_.size());
-      intervals_[ordinal].host.end = HostTimestamp();
+      ASSERT_EQ(host_clock_.Read(&intervals_[ordinal].host.end),
+                AMDF_STATUS_OK);
     }
   }
 
@@ -210,6 +211,8 @@ class FirmwareTraceCapture {
   const amdf_xdna_api_t* api_;
   // Borrowed corpus device; configuration is explicitly scoped to this test.
   amdf_device_t* device_;
+  // Borrowed common host clock, live for the entire capture.
+  const ObservationHostClock& host_clock_;
   // Optional bounded caller storage for this isolated command sequence.
   std::span<FirmwareCommandInterval> intervals_;
   // True after this caller has attempted to enable its initially idle recorder.
@@ -241,12 +244,19 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
  protected:
   enum class RegisteredContents { kUntouched, kHostWritten };
 
+  // Portable clock used by finite markers and automatic firmware capture.
+  ObservationHostClock host_clock_;
+
   virtual const iree_file_toc_t* ProgramImages() const {
     return amdf_cts_xdna_mul_i32_create();
   }
 
   void SetUp() override {
     ASSERT_NO_FATAL_FAILURE(XdnaDeviceFixture::SetUp());
+    if (IsSkipped()) {
+      return;
+    }
+    ASSERT_NO_FATAL_FAILURE(host_clock_.Initialize(api_));
     amdf_xdna_endpoint_info_t endpoint_info = {
         .type = AMDF_STRUCTURE_TYPE_XDNA_ENDPOINT_INFO,
         .structure_size = sizeof(endpoint_info),
@@ -1009,7 +1019,8 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
       return;
     }
     std::array<FirmwareCommandInterval, 12> firmware_intervals;
-    FirmwareTraceCapture capture(xdna_api_, device_, firmware_intervals);
+    FirmwareTraceCapture capture(xdna_api_, device_, host_clock_,
+                                 firmware_intervals);
     if (use_firmware_clock) {
       amdf_xdna_firmware_trace_info_t info = {
           .type = AMDF_STRUCTURE_TYPE_XDNA_FIRMWARE_TRACE_INFO,
@@ -1035,9 +1046,13 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
       }
       ASSERT_EQ(status, AMDF_STATUS_OK);
       ASSERT_GT(before.frequency_hz, 0u);
-      const int64_t host_begin = HostTimestamp();
+      uint64_t host_begin = 0;
+      ASSERT_EQ(host_clock_.Read(&host_begin), AMDF_STATUS_OK);
       ASSERT_NO_FATAL_FAILURE(RunBatch(batch + 1, kIterations[batch]));
-      const int64_t host_end = HostTimestamp();
+      uint64_t host_end = 0;
+      ASSERT_EQ(host_clock_.Read(&host_end), AMDF_STATUS_OK);
+      const double host_duration_ns =
+          host_clock_.Nanoseconds(host_end - host_begin);
       amdf_observation_clock_info_t after = {};
       ASSERT_EQ(xdna_api_->device_query_timer_clock_info(device_, &after),
                 AMDF_STATUS_OK);
@@ -1068,7 +1083,7 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
         const double duration_ns = (end - begin) * nanoseconds_per_tick;
         sum_ns += duration_ns;
         ASSERT_GT(duration_ns, 0);
-        ASSERT_LE(duration_ns, host_end - host_begin);
+        ASSERT_LE(duration_ns, host_duration_ns);
         const std::string sample =
             prefix + "_dispatch_" + std::to_string(dispatch);
         RecordProperty(sample + "_ticks", std::to_string(end - begin));
@@ -1087,9 +1102,9 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
       // batch. This checks units/causality, not a latency threshold. Equal
       // endpoint rates cannot prove absence of an intervening DPM transition;
       // controlled power-mode qualification supplies that separate condition.
-      EXPECT_LE(sum_ns, host_end - host_begin);
+      EXPECT_LE(sum_ns, host_duration_ns);
       RecordProperty(prefix + "_host_bracket_ns",
-                     std::to_string(host_end - host_begin));
+                     std::to_string(host_duration_ns));
       ASSERT_NO_FATAL_FAILURE(Detach());
     }
   }
@@ -1187,7 +1202,7 @@ TEST_F(CpuXdnaRecipeTest, AllocatedRoundTripWithFirmwareTrace) {
     GTEST_SKIP() << "native driver does not expose firmware tracing";
   }
   ASSERT_EQ(status, AMDF_STATUS_OK);
-  FirmwareTraceCapture capture(xdna_api_, device_);
+  FirmwareTraceCapture capture(xdna_api_, device_, host_clock_);
   ASSERT_NO_FATAL_FAILURE(capture.Start(info));
   RunRoundTrips(AMDF_MEMORY_PROFILE_ROLE_CREATE, 16384, &capture);
   EXPECT_GT(capture.nonempty_reads(), 1u);
@@ -1205,7 +1220,7 @@ TEST_F(CpuXdnaRecipeTest, FirmwareDurationsAndHostClockBounds) {
   }
   ASSERT_EQ(status, AMDF_STATUS_OK);
   std::array<FirmwareCommandInterval, 32> intervals;
-  FirmwareTraceCapture capture(xdna_api_, device_, intervals);
+  FirmwareTraceCapture capture(xdna_api_, device_, host_clock_, intervals);
   ASSERT_NO_FATAL_FAILURE(capture.Start(info));
   ASSERT_NO_FATAL_FAILURE(RunRoundTrips(AMDF_MEMORY_PROFILE_ROLE_CREATE,
                                         static_cast<uint32_t>(intervals.size()),
@@ -1215,24 +1230,27 @@ TEST_F(CpuXdnaRecipeTest, FirmwareDurationsAndHostClockBounds) {
   // host_begin <= device_begin + offset and device_end + offset <= host_end.
   // Each command constrains a constant-offset model. Nanosecond units do not
   // guarantee a fixed offset against the host oscillator throughout a capture.
-  int64_t lower = std::numeric_limits<int64_t>::min();
-  int64_t upper = std::numeric_limits<int64_t>::max();
+  double lower = -std::numeric_limits<double>::infinity();
+  double upper = std::numeric_limits<double>::infinity();
+  const uint64_t host_origin = intervals.front().host.begin;
+  const uint64_t device_origin = intervals.front().device.begin;
   uint64_t minimum_duration = UINT64_MAX;
   uint64_t maximum_duration = 0;
   uint64_t previous_end = 0;
   for (const auto& interval : intervals) {
-    ASSERT_GE(interval.host.begin, 0);
+    ASSERT_GE(interval.host.begin, host_origin);
     ASSERT_GE(interval.host.end, interval.host.begin);
     ASSERT_GE(interval.device.begin, previous_end);
     ASSERT_GT(interval.device.end, interval.device.begin);
-    ASSERT_LE(interval.device.end, uint64_t{INT64_MAX});
     const uint64_t duration = interval.device.end - interval.device.begin;
     ASSERT_LE(duration,
-              static_cast<uint64_t>(interval.host.end - interval.host.begin));
-    lower = std::max(lower, interval.host.begin -
-                                static_cast<int64_t>(interval.device.begin));
-    upper = std::min(
-        upper, interval.host.end - static_cast<int64_t>(interval.device.end));
+              host_clock_.Nanoseconds(interval.host.end - interval.host.begin));
+    lower = std::max(
+        lower, host_clock_.Nanoseconds(interval.host.begin - host_origin) -
+                   double(interval.device.begin - device_origin));
+    upper = std::min(upper,
+                     host_clock_.Nanoseconds(interval.host.end - host_origin) -
+                         double(interval.device.end - device_origin));
     minimum_duration = std::min(minimum_duration, duration);
     maximum_duration = std::max(maximum_duration, duration);
     previous_end = interval.device.end;

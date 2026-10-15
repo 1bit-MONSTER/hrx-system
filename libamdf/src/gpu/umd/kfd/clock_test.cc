@@ -7,6 +7,7 @@
 #include "libamdf/src/gpu/umd/clock.h"
 
 #include <drm/amdgpu_drm.h>
+#include <linux/kfd_ioctl.h>
 
 #include <cerrno>
 #include <cstdarg>
@@ -22,6 +23,15 @@ struct NativeClockState {
   uint32_t frequency_khz = 99810;
   // Native ioctl error injected before output publication.
   int error = 0;
+  // Error from the KFD sample query after a successful frequency query.
+  int sample_error = 0;
+  // Complete native tuple, including the independently sampled system clock.
+  kfd_ioctl_get_clock_counters_args counters = {
+      .gpu_clock_counter = UINT64_C(0x1122334455667788),
+      .cpu_clock_counter = UINT64_C(0x2233445566778899),
+      .system_clock_counter = UINT64_C(0x33445566778899aa),
+      .system_clock_freq = UINT64_C(1000000000),
+  };
 };
 thread_local NativeClockState* native_state = nullptr;
 
@@ -35,6 +45,17 @@ extern "C" int __wrap_ioctl(int descriptor, unsigned long request, ...) {
   va_end(arguments);
   if (native_state == nullptr) {
     return __real_ioctl(descriptor, request, argument);
+  }
+  if (request == AMDKFD_IOC_GET_CLOCK_COUNTERS) {
+    EXPECT_EQ(descriptor, 29);
+    auto* query = static_cast<kfd_ioctl_get_clock_counters_args*>(argument);
+    EXPECT_EQ(query->gpu_id, 12345u);
+    if (native_state->sample_error != 0) {
+      errno = native_state->sample_error;
+      return -1;
+    }
+    *query = native_state->counters;
+    return 0;
   }
   EXPECT_EQ(descriptor, 23);
   EXPECT_EQ(request, DRM_IOCTL_AMDGPU_INFO);
@@ -58,6 +79,8 @@ class KfdClockTest : public ::testing::Test {
   void SetUp() override {
     native_state = &native_;
     device_.render_descriptor = 23;
+    device_.descriptor = 29;
+    device_.topology.gpu_id = 12345;
   }
   void TearDown() override { native_state = nullptr; }
   // Case-owned response at the native driver boundary.
@@ -95,6 +118,41 @@ TEST_F(KfdClockTest, PreservesOutputOnMissingRateAndNativeFailure) {
                 &device_, AMDF_QUEUE_COMMAND_TYPE_GPU_PM4, &info),
             amdf_make_status(AMDF_STATUS_DOMAIN_ERRNO, EIO));
   EXPECT_EQ(std::memcmp(&info, &sentinel, sizeof(info)), 0);
+}
+
+TEST_F(KfdClockTest, PreservesCompleteNativeClockTupleAndUnits) {
+  for (auto type :
+       {AMDF_QUEUE_COMMAND_TYPE_GPU_PM4, AMDF_QUEUE_COMMAND_TYPE_GPU_AQL,
+        AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA}) {
+    amdf_observation_clock_sample_t sample = {};
+    ASSERT_EQ(amdf_gpu_umd_query_clock_sample(&device_, type, &sample),
+              AMDF_STATUS_OK);
+    EXPECT_EQ(sample.clock.frequency_hz, UINT64_C(99810000));
+    EXPECT_EQ(sample.clock.counter_bit_count, 0u);
+    EXPECT_EQ(sample.clock.reserved, 0u);
+    EXPECT_EQ(sample.timestamp, native_.counters.gpu_clock_counter);
+    EXPECT_EQ(sample.host.timestamp, native_.counters.cpu_clock_counter);
+    EXPECT_LE(sample.host.before, sample.host.after);
+    EXPECT_EQ(sample.system.timestamp, native_.counters.system_clock_counter);
+    EXPECT_EQ(sample.system.frequency_hz, native_.counters.system_clock_freq);
+  }
+}
+
+TEST_F(KfdClockTest, FailedClockSamplePublishesNoPartialTuple) {
+  amdf_observation_clock_sample_t sentinel;
+  std::memset(&sentinel, 0x5a, sizeof(sentinel));
+  auto sample = sentinel;
+  native_.sample_error = EIO;
+  EXPECT_EQ(amdf_gpu_umd_query_clock_sample(
+                &device_, AMDF_QUEUE_COMMAND_TYPE_GPU_AQL, &sample),
+            amdf_make_status(AMDF_STATUS_DOMAIN_ERRNO, EIO));
+  EXPECT_EQ(std::memcmp(&sample, &sentinel, sizeof(sample)), 0);
+  native_.sample_error = 0;
+  native_.counters.gpu_clock_counter = 0;
+  EXPECT_EQ(amdf_gpu_umd_query_clock_sample(
+                &device_, AMDF_QUEUE_COMMAND_TYPE_GPU_AQL, &sample),
+            amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED));
+  EXPECT_EQ(std::memcmp(&sample, &sentinel, sizeof(sample)), 0);
 }
 
 }  // namespace

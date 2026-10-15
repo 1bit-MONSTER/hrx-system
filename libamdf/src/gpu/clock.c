@@ -11,10 +11,10 @@
 #include "libamdf/src/gpu/device.h"
 #include "libamdf/src/gpu/umd/clock.h"
 
-amdf_status_t AMDF_CALL amdf_gpu_device_query_queue_clock_info(
+static amdf_status_t amdf_gpu_clock_query_family(
     amdf_device_t* device, uint32_t queue_family_ordinal,
-    amdf_observation_clock_info_t* out_info) {
-  if (out_info == NULL || device == NULL) {
+    amdf_queue_command_type_t* out_command_type) {
+  if (device == NULL) {
     return amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT);
   }
   if (!amdf_device_is_engine(device, AMDF_ENGINE_KIND_GPU)) {
@@ -29,6 +29,38 @@ amdf_status_t AMDF_CALL amdf_gpu_device_query_queue_clock_info(
   if (!amdf_status_is_ok(status)) {
     return status;
   }
+  *out_command_type = family.command_type;
+  return AMDF_STATUS_OK;
+}
+
+amdf_status_t AMDF_CALL amdf_gpu_device_query_queue_clock_info(
+    amdf_device_t* device, uint32_t queue_family_ordinal,
+    amdf_observation_clock_info_t* out_info) {
+  if (out_info == NULL) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT);
+  }
+  amdf_queue_command_type_t command_type;
+  const amdf_status_t status =
+      amdf_gpu_clock_query_family(device, queue_family_ordinal, &command_type);
+  if (!amdf_status_is_ok(status)) {
+    return status;
+  }
   return amdf_gpu_umd_query_queue_clock_info(amdf_gpu_device_get_umd(device),
-                                             family.command_type, out_info);
+                                             command_type, out_info);
+}
+
+amdf_status_t AMDF_CALL amdf_gpu_device_query_clock_sample(
+    amdf_device_t* device, uint32_t queue_family_ordinal,
+    amdf_observation_clock_sample_t* out_sample) {
+  if (out_sample == NULL) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT);
+  }
+  amdf_queue_command_type_t command_type;
+  const amdf_status_t status =
+      amdf_gpu_clock_query_family(device, queue_family_ordinal, &command_type);
+  if (!amdf_status_is_ok(status)) {
+    return status;
+  }
+  return amdf_gpu_umd_query_clock_sample(amdf_gpu_device_get_umd(device),
+                                         command_type, out_sample);
 }

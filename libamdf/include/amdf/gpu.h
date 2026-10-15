@@ -19,7 +19,7 @@ extern "C" {
 /// The first supported GPU extension version.
 #define AMDF_GPU_EXTENSION_VERSION_1 1u
 
-/// First version exposing nominal queue-timestamp clock metadata.
+/// First version exposing nominal queue-clock units and native clock samples.
 #define AMDF_GPU_EXTENSION_VERSION_2 2u
 
 /// The most recent GPU extension version described by this header.
@@ -670,6 +670,28 @@ typedef struct amdf_gpu_api_t {
   amdf_status_t(AMDF_CALL* device_query_queue_clock_info)(
       amdf_device_t* device, uint32_t queue_family_ordinal,
       amdf_observation_clock_info_t* out_info);
+
+  /// Samples the native driver's device and host clocks for a queue family.
+  /// Available from GPU extension version 2. The host tuple uses the common
+  /// observation extension clock, so consumers need no native clock calls.
+  ///
+  /// The native service selects the device/partition clock on Linux and the
+  /// admitted engine node on Windows. This sample's device epoch is the native
+  /// query's epoch. Its relation to queue-written timestamps must be
+  /// established for that source; neither equal rates nor one physical device
+  /// implies it. host.before/after bracket the native query, including
+  /// scheduling delay; host.timestamp is the paired native host observation,
+  /// not a simultaneous sampling guarantee. No error bound on physical clock
+  /// drift is implied.
+  ///
+  /// This explicit cold operation enters the driver and reads host clocks.
+  /// It allocates nothing, retains no state, submits no commands, performs no
+  /// retries, and waits for no application work. The caller keeps device live
+  /// and owns sampling cadence and calibration. Failure leaves out_sample
+  /// unchanged; unavailable native sampling returns UNSUPPORTED.
+  amdf_status_t(AMDF_CALL* device_query_clock_sample)(
+      amdf_device_t* device, uint32_t queue_family_ordinal,
+      amdf_observation_clock_sample_t* out_sample);
 } amdf_gpu_api_t;
 
 #ifdef __cplusplus

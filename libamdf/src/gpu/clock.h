@@ -18,6 +18,11 @@ amdf_status_t AMDF_CALL amdf_gpu_device_query_queue_clock_info(
     amdf_device_t* device, uint32_t queue_family_ordinal,
     amdf_observation_clock_info_t* out_info);
 
+// Samples a native device/host tuple for an admitted queue family.
+amdf_status_t AMDF_CALL amdf_gpu_device_query_clock_sample(
+    amdf_device_t* device, uint32_t queue_family_ordinal,
+    amdf_observation_clock_sample_t* out_sample);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

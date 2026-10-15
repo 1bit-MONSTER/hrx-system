@@ -165,10 +165,13 @@ iree_cc_library(
   DEPS
     $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_amdgpu_uapi>
     $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_drm_uapi>
+    $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_kfd_uapi>
     ::device_state
     amdf::headers
     libamdf::src::gpu::umd::clock
     libamdf::src::platform::linux::file
+    libamdf::src::platform::native_observation
+    libamdf::src::platform::observation
   PUBLIC
 )
 endif()
@@ -184,6 +187,7 @@ iree_cc_test(
   DEPS
     $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_amdgpu_uapi>
     $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_drm_uapi>
+    $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_kfd_uapi>
     ::clock
     ::device_state
     amdf::headers

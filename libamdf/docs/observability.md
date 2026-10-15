@@ -79,6 +79,23 @@ partition-shim operating rate for `RECORD_TIMER`; the cached result-buffer
 geometry deliberately leaves that rate unspecified. These queries allocate
 no collector and retain no calibration history.
 
+`gpu->device_query_clock_sample(device, family_ordinal, &sample)` supplies a
+complete native device/host tuple through one portable operation. The sample
+contains device ticks and their nominal rate, the native paired host timestamp,
+and common host-clock reads bracketing the native operation. Linux retains all
+KFD counters, including the auxiliary system-clock timestamp and frequency;
+Windows retains the selected engine's KMT GPU/QPC pair. The primary host values
+always use the observation extension's clock. Clients need no native descriptor,
+ioctl, KMT call, or platform clock selection.
+
+This operation samples the native driver's counter. A queue or shader can use
+a different counter with the same frequency. A native tuple therefore does not
+establish the relation of every observation on that GPU. Actual source anchors
+supply that relation without a device-name or OS branch in the consumer. The
+query allocates nothing, retains no calibration state, and does not submit or
+wait for workload commands. It belongs at explicit sampling points, outside
+ordinary queue publication.
+
 A same-epoch, non-wrapping delta at a constant rate converts to nanoseconds as
 `delta_ticks * 1e9 / frequency_hz`. Subtract the source origin before converting
 to floating point or widening the arithmetic. A rate describes units; it does
@@ -101,8 +118,34 @@ calibration. Intersecting bounds from several observations can narrow a stable
 segment; an empty intersection exposes inconsistent attribution, rate, or
 epoch. A long capture needs a relation that accounts for drift and invalidates
 old segments after loss or reset. Each GPU/NPU source gets its own relation to
-the caller's chosen host clock before events from different sources are
-compared.
+the common observation host clock before events from different sources are
+compared. A host bracket remains a valid enclosing interval when a finer device
+clock relation is unavailable; its uncertainty stays visible in the output.
+
+## Multi-device timelines
+
+A CPU-to-GPU-to-NPU-to-GPU pipeline uses one host origin and a separate clock
+relation for each observed device source. The producer records host ticks before
+publishing an independently identified command; its completion observer records
+host ticks after acquiring that command's completion. The collector pairs the
+command's device interval with those host observations. The identity is supplied
+by the application, not inferred from adjacent records in a shared firmware log.
+
+The same procedure applies to PM4 and SDMA timestamp slots, AQL completion-signal
+timestamps, and attributed XDNA firmware events. For a finite `RECORD_TIMER`
+interval, the marker epoch and operating-rate condition additionally belong to
+that command. A kernel's shader-cycle counter requires its own source contract.
+Recording a GPU queue timestamp on either side of a GPU/NPU dependency can also
+measure the entire offload interval in one clock; the intervening NPU interval
+describes the work inside that envelope.
+
+Collection follows the existing completion protocol and may run in batches.
+Calibration does not require a host wait between each pipeline stage. Anchor
+cadence, retained history, and interpolation policy belong to the collector;
+native services, clock units, and platform clock reads belong to libamdf.
+Durations come from one continuous source. Cross-device edge latency comes from
+the mapped endpoints with both uncertainties retained. If those uncertainty
+ranges overlap, the observations do not resolve that edge's latency precisely.
 
 ## Sustained collection and storage
 

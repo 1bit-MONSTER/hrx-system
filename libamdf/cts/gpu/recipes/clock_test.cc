@@ -5,7 +5,6 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <limits>
 #include <string>
@@ -14,6 +13,7 @@
 #include "libamdf/cts/gpu/pm4/encoding/commands.h"
 #include "libamdf/cts/gpu/sdma/encoding/commands.h"
 #include "libamdf/cts/gpu/util/command_fixture.h"
+#include "util/observation.h"
 
 namespace {
 
@@ -37,6 +37,8 @@ TEST_P(QueueClockRecipeTest, NominalDurationsAndHostBounds) {
     GTEST_SKIP() << "no PM4 encoding profile";
   }
   ASSERT_GE(gpu_api_->extension_version, AMDF_GPU_EXTENSION_VERSION_2);
+  ObservationHostClock host_clock;
+  ASSERT_NO_FATAL_FAILURE(host_clock.Initialize(api_));
   amdf_observation_clock_info_t clock = {};
   const amdf_status_t status =
       gpu_api_->device_query_queue_clock_info(device_, family_.ordinal, &clock);
@@ -73,7 +75,8 @@ TEST_P(QueueClockRecipeTest, NominalDurationsAndHostBounds) {
   size_t published_words = 0;
   uint64_t first_ticks = 0;
   uint64_t previous_end = 0;
-  const auto host_origin = std::chrono::steady_clock::now();
+  uint64_t host_origin = 0;
+  ASSERT_EQ(host_clock.Read(&host_origin), AMDF_STATUS_OK);
   const double nanoseconds_per_tick = 1e9 / clock.frequency_hz;
   double lower_offset = -std::numeric_limits<double>::infinity();
   double upper_offset = std::numeric_limits<double>::infinity();
@@ -118,20 +121,38 @@ TEST_P(QueueClockRecipeTest, NominalDurationsAndHostBounds) {
       commands.Fence32(observations->device_address + 256, 1);
       published_words += commands.word_count();
     }
-    // Anchors come from this queue, not a native query whose epoch may differ.
-    // Host waiting is only the calibration witness, not a profiling submit API.
-    const auto host_before = std::chrono::steady_clock::now();
+    amdf_observation_clock_sample_t native_before = {};
+    ASSERT_EQ(gpu_api_->device_query_clock_sample(device_, family_.ordinal,
+                                                  &native_before),
+              AMDF_STATUS_OK);
+    uint64_t host_before = 0;
+    ASSERT_EQ(host_clock.Read(&host_before), AMDF_STATUS_OK);
     ASSERT_NO_FATAL_FAILURE(queue->Publish(api_, gpu_api_, published_words));
     ASSERT_TRUE(
         GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(samples + 32), 1));
-    const auto host_after = std::chrono::steady_clock::now();
+    uint64_t host_after = 0;
+    ASSERT_EQ(host_clock.Read(&host_after), AMDF_STATUS_OK);
     const uint64_t begin = samples[0];
     const uint64_t end = samples[8];
     EXPECT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
+    amdf_observation_clock_sample_t native_after = {};
+    ASSERT_EQ(gpu_api_->device_query_clock_sample(device_, family_.ordinal,
+                                                  &native_after),
+              AMDF_STATUS_OK);
     ASSERT_NE(begin, UINT64_MAX);
     ASSERT_NE(end, 0u);
     ASSERT_LE(previous_end, begin);
     ASSERT_LE(begin, end);
+    EXPECT_EQ(native_before.clock.frequency_hz, clock.frequency_hz);
+    EXPECT_EQ(native_after.clock.frequency_hz, clock.frequency_hz);
+    EXPECT_LE(native_before.host.before, native_before.host.after);
+    EXPECT_LE(native_before.host.after, host_before);
+    EXPECT_LE(host_after, native_after.host.before);
+    EXPECT_LE(native_after.host.before, native_after.host.after);
+    EXPECT_LE(native_before.timestamp, native_after.timestamp);
+    EXPECT_LE(native_before.host.timestamp, native_after.host.timestamp);
+    EXPECT_LE(native_before.host.timestamp, native_before.host.after);
+    EXPECT_LE(native_after.host.timestamp, native_after.host.after);
     for (size_t i = 0; i < kWordCount; ++i) {
       const uint64_t expected = kGuard + iteration * UINT64_C(0x102030405) + i;
       EXPECT_EQ(input[i], expected) << "source word " << i;
@@ -147,12 +168,8 @@ TEST_P(QueueClockRecipeTest, NominalDurationsAndHostBounds) {
       first_ticks = begin;
     }
     const double duration_ns = (end - begin) * nanoseconds_per_tick;
-    const double before_ns =
-        std::chrono::duration<double, std::nano>(host_before - host_origin)
-            .count();
-    const double after_ns =
-        std::chrono::duration<double, std::nano>(host_after - host_origin)
-            .count();
+    const double before_ns = host_clock.Nanoseconds(host_before - host_origin);
+    const double after_ns = host_clock.Nanoseconds(host_after - host_origin);
     EXPECT_TRUE(std::isfinite(duration_ns));
     EXPECT_LE(duration_ns, after_ns - before_ns);
     lower_offset = std::max(
@@ -161,6 +178,23 @@ TEST_P(QueueClockRecipeTest, NominalDurationsAndHostBounds) {
         upper_offset, after_ns - (end - first_ticks) * nanoseconds_per_tick);
     const std::string prefix = "clock_sample_" + std::to_string(iteration);
     RecordProperty(prefix + "_duration_ns", std::to_string(duration_ns));
+    RecordProperty(prefix + "_native_before",
+                   std::to_string(native_before.timestamp));
+    RecordProperty(prefix + "_queue_begin", std::to_string(begin));
+    RecordProperty(prefix + "_queue_end", std::to_string(end));
+    RecordProperty(prefix + "_native_after",
+                   std::to_string(native_after.timestamp));
+    // Native-query and queue clocks need not share an epoch. Retain the
+    // comparison while deriving the host relation from actual queue samples.
+    RecordProperty(
+        prefix + "_native_encloses_queue",
+        native_before.timestamp <= begin && end <= native_after.timestamp);
+    RecordProperty(prefix + "_native_host_before",
+                   std::to_string(native_before.host.before));
+    RecordProperty(prefix + "_native_host_paired",
+                   std::to_string(native_before.host.timestamp));
+    RecordProperty(prefix + "_native_host_after",
+                   std::to_string(native_before.host.after));
     RecordProperty(prefix + "_host_bracket_ns",
                    std::to_string(after_ns - before_ns));
     previous_end = end;

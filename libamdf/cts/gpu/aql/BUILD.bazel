@@ -95,6 +95,7 @@ amdf_cts_test_suite(
         "//libamdf/cts/gpu/kernels:transform_alternate_kernels",
         "//libamdf/cts/gpu/kernels:transform_kernels",
         "//libamdf/cts/gpu/pm4/encoding:memory_commands",
+        "//libamdf/cts/util:observation",
         "//third_party:google_test",
     ],
 )

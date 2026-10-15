@@ -116,15 +116,16 @@ GpuBufferPrepareImport(amdf_wkmi_bridge_gpu_adapter_t*,
   return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
 }
 
-amdf_wkmi_bridge_result_t AMDF_WKMI_BRIDGE_CALL GpuQueueClockFrequency(
-    amdf_wkmi_bridge_gpu_adapter_t*, uint32_t, uint32_t,
-    amdf_wkmi_bridge_gpu_queue_command_type_t, uint64_t*, uint32_t*) {
+amdf_wkmi_bridge_result_t AMDF_WKMI_BRIDGE_CALL
+GpuClockSample(amdf_wkmi_bridge_gpu_adapter_t*, uint32_t, uint32_t,
+               amdf_wkmi_bridge_gpu_queue_command_type_t,
+               amdf_wkmi_bridge_gpu_clock_sample_t*, uint32_t*) {
   return AMDF_WKMI_BRIDGE_RESULT_UNSUPPORTED;
 }
 
 amdf_wkmi_bridge_api_t api = {
     sizeof(amdf_wkmi_bridge_api_t),
-    AMDF_WKMI_BRIDGE_ABI_VERSION_7,
+    AMDF_WKMI_BRIDGE_ABI_VERSION_8,
     GpuAdapterOpen,
     GpuAdapterClose,
     GpuAllocationQueryLayout,
@@ -133,7 +134,7 @@ amdf_wkmi_bridge_api_t api = {
     GpuKernelQueueSubmit,
     GpuKernelQueueDestroy,
     GpuBufferPrepareImport,
-    GpuQueueClockFrequency,
+    GpuClockSample,
 };
 
 }  // namespace

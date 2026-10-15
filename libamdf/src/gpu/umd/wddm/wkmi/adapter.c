@@ -83,16 +83,15 @@ amdf_status_t amdf_gpu_wddm_wkmi_adapter_deinitialize(
   return status;
 }
 
-amdf_status_t amdf_gpu_wddm_wkmi_adapter_query_queue_clock_frequency(
+amdf_status_t amdf_gpu_wddm_wkmi_adapter_query_clock_sample(
     const amdf_gpu_wddm_wkmi_adapter_t* adapter, D3DKMT_HANDLE adapter_handle,
     uint32_t physical_adapter_index,
     amdf_wkmi_bridge_gpu_queue_command_type_t command_type,
-    uint64_t* out_frequency_hz) {
+    amdf_wkmi_bridge_gpu_clock_sample_t* out_sample) {
   uint32_t native_status = 0;
-  const amdf_wkmi_bridge_result_t result =
-      adapter->api->gpu_queue_clock_frequency(
-          adapter->native, adapter_handle, physical_adapter_index, command_type,
-          out_frequency_hz, &native_status);
+  const amdf_wkmi_bridge_result_t result = adapter->api->gpu_clock_sample(
+      adapter->native, adapter_handle, physical_adapter_index, command_type,
+      out_sample, &native_status);
   return amdf_gpu_wddm_wkmi_make_status(result, native_status);
 }
 

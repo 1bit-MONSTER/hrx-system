@@ -214,22 +214,21 @@ amdf_status_t amdf_gpu_wddm_wkmi_loader_query_api(
 
   const amdf_wkmi_bridge_api_t* api = NULL;
   const amdf_wkmi_bridge_result_t result =
-      query_api(AMDF_WKMI_BRIDGE_ABI_VERSION_7,
+      query_api(AMDF_WKMI_BRIDGE_ABI_VERSION_8,
                 AMDF_WKMI_BRIDGE_ABI_VERSION_LATEST, &api);
   if (result == AMDF_WKMI_BRIDGE_RESULT_VERSION_MISMATCH) {
     return amdf_make_api_status(AMDF_STATUS_CODE_VERSION_MISMATCH);
   }
   if (result != AMDF_WKMI_BRIDGE_RESULT_SUCCESS || api == NULL ||
       api->structure_size < sizeof(amdf_wkmi_bridge_api_t) ||
-      api->abi_version != AMDF_WKMI_BRIDGE_ABI_VERSION_7 ||
+      api->abi_version != AMDF_WKMI_BRIDGE_ABI_VERSION_8 ||
       api->gpu_adapter_open == NULL || api->gpu_adapter_close == NULL ||
       api->gpu_allocation_query_layout == NULL ||
       api->gpu_allocation_create == NULL ||
       api->gpu_kernel_queue_create == NULL ||
       api->gpu_kernel_queue_submit == NULL ||
       api->gpu_kernel_queue_destroy == NULL ||
-      api->gpu_buffer_prepare_import == NULL ||
-      api->gpu_queue_clock_frequency == NULL) {
+      api->gpu_buffer_prepare_import == NULL || api->gpu_clock_sample == NULL) {
     return amdf_make_api_status(AMDF_STATUS_CODE_INTERNAL);
   }
   *out_api = api;

@@ -30,6 +30,36 @@ typedef struct amdf_observation_clock_info_t {
   uint32_t reserved;
 } amdf_observation_clock_info_t;
 
+/// One native device/host correlation sample, without retained calibration.
+/// All primary host values use the observation extension's profiling clock.
+/// The native device source is identified by the operation returning this
+/// record; frequency equality alone does not identify a queue timestamp epoch.
+typedef struct amdf_observation_clock_sample_t {
+  /// Native device clock units, sampled or queried with this observation.
+  amdf_observation_clock_info_t clock;
+  /// Device counter value in clock's units.
+  uint64_t timestamp;
+  /// Host observations surrounding and returned by the native sampling call.
+  struct {
+    /// Host read before entering the native sampling call.
+    uint64_t before;
+    /// Host sample returned alongside the device value by the native service.
+    uint64_t timestamp;
+    /// Host read after the native sampling call returns.
+    uint64_t after;
+  } host;
+  /// Additional native system-clock observation, absent when frequency is zero.
+  /// Linux KFD supplies CLOCK_BOOTTIME nanoseconds. Windows KMT has no second
+  /// host sample. These values are auxiliary; ordinary CPU/device correlation
+  /// uses host, which is directly readable through the observation extension.
+  struct {
+    /// Additional native clock value, or zero when absent.
+    uint64_t timestamp;
+    /// Units per second for timestamp, or zero when absent.
+    uint64_t frequency_hz;
+  } system;
+} amdf_observation_clock_sample_t;
+
 /// Discontinuities accompanying an otherwise successful observation read.
 typedef uint32_t amdf_observation_read_flags_t;
 enum amdf_observation_read_flag_bits_e {

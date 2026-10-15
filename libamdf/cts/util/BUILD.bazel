@@ -44,6 +44,14 @@ amdf_cc_library(
 )
 
 amdf_cc_library(
+    name = "observation",
+    testonly = True,
+    hdrs = ["observation.h"],
+    includes = [".."],
+    deps = ["//third_party:google_test"],
+)
+
+amdf_cc_library(
     name = "wait",
     testonly = True,
     hdrs = ["wait.h"],

@@ -48,6 +48,7 @@ TEST(GpuExtensionTest, ReportsCompiledAvailabilityBeforeCreatingInstance) {
   EXPECT_NE(gpu_api->kernel_queue_submit, nullptr);
   EXPECT_NE(gpu_api->user_queue_create, nullptr);
   EXPECT_NE(gpu_api->device_query_queue_clock_info, nullptr);
+  EXPECT_NE(gpu_api->device_query_clock_sample, nullptr);
 }
 
 TEST(GpuExtensionTest, NegotiatesOriginalTableExtent) {
@@ -75,6 +76,12 @@ TEST(GpuExtensionTest, RejectsNullClockDeviceWithoutPublishingOutput) {
   EXPECT_EQ(gpu->device_query_queue_clock_info(nullptr, 0, &info),
             amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT));
   EXPECT_EQ(std::memcmp(&info, &sentinel, sizeof(info)), 0);
+  amdf_observation_clock_sample_t sample_sentinel;
+  std::memset(&sample_sentinel, 0x5a, sizeof(sample_sentinel));
+  auto sample = sample_sentinel;
+  EXPECT_EQ(gpu->device_query_clock_sample(nullptr, 0, &sample),
+            amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT));
+  EXPECT_EQ(std::memcmp(&sample, &sample_sentinel, sizeof(sample)), 0);
 }
 
 TEST(GpuExtensionTest, ReturnsStableImmutableTable) {
@@ -397,6 +404,14 @@ TEST_F(GpuEndpointTest, RejectsClockQueryArgumentsWithoutPublishingOutput) {
   EXPECT_EQ(gpu_api_->device_query_queue_clock_info(device_, UINT32_MAX, &info),
             amdf_make_api_status(AMDF_STATUS_CODE_OUT_OF_RANGE));
   EXPECT_EQ(std::memcmp(&info, &sentinel, sizeof(info)), 0);
+  EXPECT_EQ(gpu_api_->device_query_clock_sample(device_, 0, nullptr),
+            amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT));
+  amdf_observation_clock_sample_t sample_sentinel;
+  std::memset(&sample_sentinel, 0x5a, sizeof(sample_sentinel));
+  auto sample = sample_sentinel;
+  EXPECT_EQ(gpu_api_->device_query_clock_sample(device_, UINT32_MAX, &sample),
+            amdf_make_api_status(AMDF_STATUS_CODE_OUT_OF_RANGE));
+  EXPECT_EQ(std::memcmp(&sample, &sample_sentinel, sizeof(sample)), 0);
 }
 
 TEST_F(GpuEndpointTest, RejectsMalformedDeviceInfoWithoutMutation) {

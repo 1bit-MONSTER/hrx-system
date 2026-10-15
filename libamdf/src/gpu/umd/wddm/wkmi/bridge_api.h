@@ -42,8 +42,11 @@ extern "C" {
 // First version querying the selected queue engine's timestamp frequency.
 #define AMDF_WKMI_BRIDGE_ABI_VERSION_7 7u
 
+// First version preserving native GPU and host calibration timestamps.
+#define AMDF_WKMI_BRIDGE_ABI_VERSION_8 8u
+
 // Most recent private bridge ABI version described by this header.
-#define AMDF_WKMI_BRIDGE_ABI_VERSION_LATEST AMDF_WKMI_BRIDGE_ABI_VERSION_7
+#define AMDF_WKMI_BRIDGE_ABI_VERSION_LATEST AMDF_WKMI_BRIDGE_ABI_VERSION_8
 
 // Result of one bridge operation.
 typedef uint32_t amdf_wkmi_bridge_result_t;
@@ -72,6 +75,17 @@ enum amdf_wkmi_bridge_result_e {
 
 // Opaque parsed adapter state retained entirely inside the bridge.
 typedef struct amdf_wkmi_bridge_gpu_adapter_t amdf_wkmi_bridge_gpu_adapter_t;
+
+// Complete engine clock tuple returned by KMT calibration.
+typedef struct amdf_wkmi_bridge_gpu_clock_sample_t {
+  // GPU reference clock ticks per second.
+  uint64_t frequency_hz;
+  // GPU counter sampled by the native driver.
+  uint64_t timestamp;
+  // Paired CPU counter in QueryPerformanceCounter units.
+  uint64_t host_timestamp;
+} amdf_wkmi_bridge_gpu_clock_sample_t;
+
 // Opaque native GPU kernel queue retained entirely inside the bridge.
 typedef struct amdf_wkmi_bridge_gpu_kernel_queue_t
     amdf_wkmi_bridge_gpu_kernel_queue_t;
@@ -326,15 +340,15 @@ typedef struct amdf_wkmi_bridge_api_t {
       uint32_t* resource_handle, uint32_t* allocation_handle,
       uint64_t* out_native_byte_length, uint64_t* out_buffer_byte_length);
 
-  // Queries the nominal timestamp frequency for the admitted queue scheduler.
-  // Success publishes a nonzero engine-clock rate. Other results preserve the
-  // output; out_native_status receives NTSTATUS only for NATIVE_FAILURE.
-  // No calibration counter or cross-source epoch identity is published.
-  amdf_wkmi_bridge_result_t(AMDF_WKMI_BRIDGE_CALL* gpu_queue_clock_frequency)(
+  // Queries the native calibration tuple for the admitted queue scheduler.
+  // Other results preserve the output; out_native_status receives NTSTATUS
+  // only for NATIVE_FAILURE. No cross-source epoch identity is inferred.
+  amdf_wkmi_bridge_result_t(AMDF_WKMI_BRIDGE_CALL* gpu_clock_sample)(
       amdf_wkmi_bridge_gpu_adapter_t* adapter, uint32_t adapter_handle,
       uint32_t physical_adapter_index,
       amdf_wkmi_bridge_gpu_queue_command_type_t command_type,
-      uint64_t* out_frequency_hz, uint32_t* out_native_status);
+      amdf_wkmi_bridge_gpu_clock_sample_t* out_sample,
+      uint32_t* out_native_status);
 
 } amdf_wkmi_bridge_api_t;
 
