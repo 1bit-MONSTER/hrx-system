@@ -79,6 +79,30 @@ from the underlying engine clock, which may differ. The selected native queue
 scheduler determines the engine node; node zero is not a portable substitute.
 [Query identity][kmt-clock] · [Clock selection][kmt-clock-flags]
 
+### Native counter selection and power domains
+
+The cited Linux GFX11 reader selects between two hardware blocks. Its choice
+has both access and power-management consequences:
+
+| Native device mode | Counter source | Read protocol |
+| --- | --- | --- |
+| Physical function | SMUIO `GOLDEN_TSC_COUNT_UPPER/LOWER` | Reads the always-on block without waking graphics; disables host preemption around upper/lower/upper reads and rereads the lower half on carry. |
+| SR-IOV virtual function | GC `CP_MES_MTIME_HI/LO` | Inhibits graphics-off, serializes with the GPU-clock mutex, and uses upper/lower/upper reads with a lower-half reread on carry. |
+
+The upstream changes explain that GOLDEN_TSC is inaccessible to the virtual
+function, while SMUIO remains powered for physical-function reads. This is a
+native counter selection, not a guarantee that both counters share an epoch
+or remain synchronized. [Reader][gfx11-clock]
+[Virtual-function access][gfx11-clock-access]
+[Always-on read rationale][gfx11-clock-power]
+
+An upstream GC11.5+ proposal instead selects CP_MES_MTIME for physical
+functions after observing a mismatch between native calibrated queries and
+command-written timestamps. That proposal changes the native read path; its
+version predicate does not establish equality on every other GC revision.
+[Proposed source change][gfx11-clock-proposal]
+[Reported calibration failure][gfx11-clock-analysis]
+
 Native-query compatibility needs evidence at the packet source. In a bounded
 Linux GFX11.0.0 experiment, a confirmed PM4 clock pair was
 `80395912441212..80395912441500`, while the surrounding DRM samples were
@@ -115,6 +139,69 @@ it does not locate the individual command samples precisely. Packet execution,
 visibility, and storage lifetime remain prerequisites to interpreting those
 values. [Native sample source][drm-clock] · [Sample
 compatibility][pal-calibrated-type]
+
+### Rate estimation without an assumed epoch
+
+The same host brackets can test the reported rate instead of fixing it in
+advance. For `g1 > g0` and nonoverlapping brackets `a1 > b0`, the observed
+average rate relative to the host domain lies in:
+
+```text
+delta_ticks = g1 - g0
+rate_min_Hz = delta_ticks * 1,000,000,000 / (b1 - a0)
+rate_max_Hz = delta_ticks * 1,000,000,000 / (a1 - b0)
+```
+
+Here `a` and `b` are host nanoseconds, and each device sample is known to
+occur within its respective bracket. The bounds follow from the elapsed-time
+interval above. They retain query uncertainty; dividing two absolute device
+counter values says nothing about their relative rate or initialization epoch.
+
+For a capture-local affine model `host_ns = scale * (gpu_ticks - origin) +
+offset`, every ordered sample pair constrains `scale` to
+`[(a1 - b0) / delta_ticks, (b1 - a0) / delta_ticks]`. Intersecting these
+constraints tests whether one positive slope can explain the capture. At a
+candidate slope, each sample constrains `offset` to
+`[a - scale * (g - origin), b - scale * (g - origin)]`. An empty intersection
+rejects the model. A nonempty intersection establishes consistency with the
+observations, not an oscillator-accuracy bound or continuity outside them.
+
+Queue-written observations have their own bounds. If publication precedes
+`queue_begin` and acquired completion follows `queue_end`, a fixed candidate
+slope constrains the queue offset to
+`[host_before - scale * (queue_begin - origin),
+host_after - scale * (queue_end - origin)]`. Native and queue constraints stay
+separate until their clock relationship is established. Sampling overhead and
+completion latency widen these bounds; they do not become device execution
+time by subtracting a nominal query cost.
+
+A Windows GC11.5.0 observation illustrates the distinction. On PCI device
+`1002:150e`, revision `c1`, driver `32.0.21030.2001`, the engine query returned
+100 MHz and QPC used 10 MHz units. The first and last of sixteen native
+queries were:
+
+| Query | GPU ticks | QPC before | Returned QPC | QPC after |
+| --- | --- | --- | --- | --- |
+| First | 7212707335611 | 722581364629 | 722581364713 | 722581364722 |
+| Last | 7212719921763 | 722582625293 | 722582625731 | 722582625770 |
+
+Those outer brackets, approximately 0.13 seconds apart, bound the observed
+rate to 99.7997–99.8449 MHz. Combining all pair constraints admitted an affine
+model at
+99.8012–99.8187 MHz and rejected 100 MHz. The returned CPU samples lay inside
+their query brackets, and the native GPU ranges enclosed the intervening PM4
+timestamps. This is an observed relative-rate discrepancy; it does not select
+a replacement frequency or prove that the nominal correction in Linux's APU
+path is the cause. [Linux nominal correction][soc21-clock]
+
+Windows' native calibration contract explicitly uses paired GPU/CPU samples
+to estimate drift and asks the driver to acquire them as nearly simultaneously
+as possible. The documented periodic sampling policy is separate from a
+numeric error guarantee. D3D12 also warns that some GPU timestamp clocks stop
+while idle. Those contracts support refreshing a measured relationship, not
+extrapolating one fixed offset through an unobserved power or reset transition.
+[Native calibration contract][kmt-calibration]
+[Queue timing and idle behavior][d3d12-timing]
 
 ROCr obtains wallclock frequency separately and converts signal timestamps
 through paired GPU/system samples. It handles drift and bounded extrapolation,
@@ -442,6 +529,10 @@ payload and executable storage until their final consumer completes.
 Return to the [GPU index](README.md) or [primary source map](../sources.md).
 
 [gfx11-clock]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gfx_v11_0.c#L5301-L5342
+[gfx11-clock-access]: https://github.com/torvalds/linux/commit/5591a051b86be170a84943698ab140342602ff7b
+[gfx11-clock-power]: https://github.com/torvalds/linux/commit/d5aa417808cf14c052ca042920b3c6b9f1dc6aa4
+[gfx11-clock-proposal]: https://www.mail-archive.com/amd-gfx%40lists.freedesktop.org/msg141009.html
+[gfx11-clock-analysis]: https://www.spinics.net/lists/amd-gfx/attachments/pdf_mGL7vSii7.pdf
 [golden-width]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/include/asic_reg/smuio/smuio_13_0_6_sh_mask.h#L50-L55
 [radv-width]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/vulkan/radv_physical_device.c#L3008-3050
 [kfd-clocks]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_chardev.c#L701-L726
@@ -528,3 +619,5 @@ Return to the [GPU index](README.md) or [primary source map](../sources.md).
 
 [kmt-clock]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmdt/ns-d3dkmdt-_d3dkmt_queryclockcalibration
 [kmt-clock-flags]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmdt/ns-d3dkmdt-_dxgk_gpuclockdata_flags
+[kmt-calibration]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmddi/nc-d3dkmddi-dxgkddi_calibrategpuclock
+[d3d12-timing]: https://learn.microsoft.com/en-us/windows/win32/direct3d12/timing
