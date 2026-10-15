@@ -15,10 +15,13 @@ from loom.target.arch.spirv.ordinary_vector import (
     BOOLEAN_ORDINARY_VECTOR_COMPONENT_TYPE,
     NATIVE_ORDINARY_VECTOR_LANE_COUNTS,
     ORDINARY_VECTOR_COMPONENT_TYPES,
-    ORDINARY_VECTOR_SHUFFLE_INSTRUCTIONS,
+    ORDINARY_VECTOR_CONCAT_SHAPES,
+    ORDINARY_VECTOR_CONCAT_SHUFFLE_INSTRUCTIONS,
+    ORDINARY_VECTOR_SOURCE_SHUFFLE_INSTRUCTIONS,
     ORDINARY_VECTOR_TYPES,
     OrdinaryVectorComponentKind,
     OrdinaryVectorComponentType,
+    OrdinaryVectorConcatShape,
     OrdinaryVectorShuffleInstruction,
     OrdinaryVectorType,
 )
@@ -66,7 +69,7 @@ def _emit(
     operands: dict[str, ValueRef] | None = None,
     results: dict[str, ValueRef] | None = None,
     result_types: dict[str, ResultTypeBinding] | None = None,
-    immediates: dict[str, AttrProject | ValueProject] | None = None,
+    immediates: dict[str, AttrProject | ValueProject | int] | None = None,
     form: DescriptorEmitForm = DescriptorEmitForm.OP,
 ) -> EmitDescriptorOp:
     return EmitDescriptorOp(
@@ -255,12 +258,21 @@ def _dynamic_insert_descriptor(vector_type: OrdinaryVectorType) -> Descriptor:
 
 
 _SOURCE_SHUFFLE_BY_TYPE = {
-    instruction.source_type: instruction
-    for instruction in ORDINARY_VECTOR_SHUFFLE_INSTRUCTIONS
-    if instruction.source_type == instruction.result_type
+    instruction.source0_type: instruction
+    for instruction in ORDINARY_VECTOR_SOURCE_SHUFFLE_INSTRUCTIONS
 }
 if _SOURCE_SHUFFLE_BY_TYPE.keys() != set(ORDINARY_VECTOR_TYPES):
     raise ValueError("source vector shuffle instructions must cover native types")
+
+_CONCAT_SHUFFLE_BY_SHAPE = {
+    (
+        instruction.source0_type.component_type,
+        instruction.source0_type.lane_count,
+        instruction.source1_type.lane_count,
+        instruction.result_type.lane_count,
+    ): instruction
+    for instruction in ORDINARY_VECTOR_CONCAT_SHUFFLE_INSTRUCTIONS
+}
 
 
 def _splat_rule(vector_type: OrdinaryVectorType) -> DescriptorRule:
@@ -451,7 +463,7 @@ def _shuffle_rule(
     instruction: OrdinaryVectorShuffleInstruction,
 ) -> DescriptorRule:
     descriptor = _descriptor(instruction.key)
-    source_pattern = _vector_pattern(instruction.source_type)
+    source_pattern = _vector_pattern(instruction.source0_type)
     result_pattern = _vector_pattern(instruction.result_type)
     return DescriptorRule(
         source_op=vector.vector_shuffle,
@@ -461,7 +473,7 @@ def _shuffle_rule(
             Guard.value_type("result", result_pattern),
             Guard.i64_array_count("source_lanes", instruction.result_type.lane_count),
             Guard.i64_array_elements_range(
-                "source_lanes", 0, instruction.source_type.lane_count - 1
+                "source_lanes", 0, instruction.source0_type.lane_count - 1
             ),
             *_feature_guards(descriptor),
         ),
@@ -481,6 +493,113 @@ def _shuffle_rule(
                 },
             ),
         ),
+    )
+
+
+def _concat_rule(
+    component_type: OrdinaryVectorComponentType,
+    source_type: str,
+    shape: OrdinaryVectorConcatShape,
+) -> DescriptorRule:
+    left = ValueRef.operand("inputs", element=0)
+    right = ValueRef.operand("inputs", element=1)
+    guards = (
+        Guard.i64_range("axis", 0, 0),
+        Guard.operand_segment_count("inputs", 2),
+        Guard.value_type(
+            "inputs", Vector(source_type, lanes=shape.left_lane_count), element=0
+        ),
+        Guard.value_type(
+            "inputs", Vector(source_type, lanes=shape.right_lane_count), element=1
+        ),
+        Guard.value_type("result", Vector(source_type, lanes=shape.result_lane_count)),
+    )
+
+    if shape.result_lane_count == 2:
+        result_type = OrdinaryVectorType(component_type, 2)
+        descriptor = _construct_descriptor(result_type)
+        return DescriptorRule(
+            source_op=vector.vector_concat,
+            descriptor=descriptor,
+            guards=(*guards, *_feature_guards(descriptor)),
+            emit=(
+                _emit(
+                    descriptor,
+                    operands={"component0": left, "component1": right},
+                    results={"dst": ValueRef.result("result")},
+                ),
+            ),
+        )
+
+    instruction = _CONCAT_SHUFFLE_BY_SHAPE[
+        (
+            component_type,
+            shape.source0_lane_count,
+            shape.source1_lane_count,
+            shape.result_lane_count,
+        )
+    ]
+    descriptor = _descriptor(instruction.key)
+    source0 = left
+    source1 = right
+    supporting_descriptors: list[Descriptor] = []
+    emits: list[EmitDescriptorOp] = []
+    if shape.left_lane_count == 1:
+        source0_type = OrdinaryVectorType(component_type, 2)
+        source0_descriptor = _construct_descriptor(source0_type)
+        supporting_descriptors.append(source0_descriptor)
+        source0 = ValueRef.temporary("source0")
+        emits.append(
+            _emit(
+                source0_descriptor,
+                operands={"component0": left, "component1": left},
+                results={"dst": source0},
+                result_types={"dst": Vector(source_type, lanes=2)},
+            )
+        )
+    if shape.right_lane_count == 1:
+        source1_type = OrdinaryVectorType(component_type, 2)
+        source1_descriptor = _construct_descriptor(source1_type)
+        supporting_descriptors.append(source1_descriptor)
+        source1 = ValueRef.temporary("source1")
+        emits.append(
+            _emit(
+                source1_descriptor,
+                operands={"component0": right, "component1": right},
+                results={"dst": source1},
+                result_types={"dst": Vector(source_type, lanes=2)},
+            )
+        )
+    emits.append(
+        _emit(
+            descriptor,
+            operands={"source0": source0, "source1": source1},
+            results={"dst": ValueRef.result("result")},
+            immediates={
+                name: selector
+                for name, selector in zip(
+                    instruction.selector_names, shape.selectors, strict=True
+                )
+            },
+        )
+    )
+    return DescriptorRule(
+        source_op=vector.vector_concat,
+        descriptor=descriptor,
+        guards=(
+            *guards,
+            *_feature_guards(*supporting_descriptors, descriptor),
+        ),
+        emit=tuple(emits),
+    )
+
+
+def _concat_rules() -> tuple[DescriptorRule, ...]:
+    return tuple(
+        _concat_rule(component_type, source_type, shape)
+        for component_type in ORDINARY_VECTOR_COMPONENT_TYPES
+        for source_type in component_type.source_types
+        for shape in ORDINARY_VECTOR_CONCAT_SHAPES
     )
 
 
@@ -731,4 +850,5 @@ SPIRV_ORDINARY_VECTOR_CONTRACT_CASES: tuple[ContractCase, ...] = (
     ),
     *_constant_rules(),
     *_native_rules(),
+    *_concat_rules(),
 )

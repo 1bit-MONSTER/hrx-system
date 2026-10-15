@@ -17,7 +17,8 @@ from loom.target.arch.spirv.contracts.ordinary_vector import (
 from loom.target.arch.spirv.ordinary_vector import (
     NATIVE_ORDINARY_VECTOR_LANE_COUNTS,
     ORDINARY_VECTOR_COMPONENT_TYPES,
-    ORDINARY_VECTOR_SHUFFLE_INSTRUCTIONS,
+    ORDINARY_VECTOR_CONCAT_SHAPES,
+    ORDINARY_VECTOR_SOURCE_SHUFFLE_INSTRUCTIONS,
     ORDINARY_VECTOR_TYPES,
     OrdinaryVectorComponentKind,
 )
@@ -49,9 +50,10 @@ def test_every_owned_source_operation_has_a_closed_shape_matrix() -> None:
         vector.vector_extract.name: 61,
         vector.vector_insert.name: 61,
         vector.vector_shuffle.name: 30,
+        vector.vector_concat.name: 66,
         scf.scf_select.name: 40,
     }
-    assert len(SPIRV_ORDINARY_VECTOR_CONTRACT_CASES) == 450
+    assert len(SPIRV_ORDINARY_VECTOR_CONTRACT_CASES) == 516
 
 
 def test_aliases_cover_singletons_uniform_carriers_and_identity_bit_layouts() -> None:
@@ -244,10 +246,10 @@ def test_native_shuffle_rules_bind_each_selector_and_duplicate_the_source() -> N
         and contract_case.source_op is vector.vector_shuffle
     }
     assert rules.keys() == {
-        instruction.key for instruction in ORDINARY_VECTOR_SHUFFLE_INSTRUCTIONS
+        instruction.key for instruction in ORDINARY_VECTOR_SOURCE_SHUFFLE_INSTRUCTIONS
     }
 
-    for instruction in ORDINARY_VECTOR_SHUFFLE_INSTRUCTIONS:
+    for instruction in ORDINARY_VECTOR_SOURCE_SHUFFLE_INSTRUCTIONS:
         rule = rules[instruction.key]
         emit = rule.emit[0]
         assert emit.operands == {
@@ -258,6 +260,92 @@ def test_native_shuffle_rules_bind_each_selector_and_duplicate_the_source() -> N
         assert tuple(
             projection.element for projection in emit.immediates.values()
         ) == tuple(range(instruction.result_type.lane_count))
+
+
+def test_native_concat_rules_cover_every_component_and_binary_partition() -> None:
+    rules = tuple(
+        contract_case
+        for contract_case in SPIRV_ORDINARY_VECTOR_CONTRACT_CASES
+        if isinstance(contract_case, DescriptorRule)
+        and contract_case.source_op is vector.vector_concat
+    )
+    expected = {
+        (
+            source_type,
+            shape.left_lane_count,
+            shape.right_lane_count,
+            shape.result_lane_count,
+        )
+        for component_type in ORDINARY_VECTOR_COMPONENT_TYPES
+        for source_type in component_type.source_types
+        for shape in ORDINARY_VECTOR_CONCAT_SHAPES
+    }
+    actual = {}
+    for rule in rules:
+        patterns = {
+            (guard.field, guard.element): guard.type_pattern
+            for guard in rule.guards
+            if guard.kind is GuardKind.VALUE_TYPE
+        }
+        left = patterns[("inputs", 0)]
+        right = patterns[("inputs", 1)]
+        result = patterns[("result", 0)]
+        key = (left.element, left.lanes, right.lanes, result.lanes)
+        assert right.element == result.element == left.element
+        assert key not in actual
+        actual[key] = rule
+        assert any(
+            guard.kind is GuardKind.I64_RANGE
+            and guard.field == "axis"
+            and guard.minimum == 0
+            and guard.maximum == 0
+            for guard in rule.guards
+        )
+        assert any(
+            guard.kind is GuardKind.OPERAND_SEGMENT_COUNT
+            and guard.field == "inputs"
+            and guard.count == 2
+            for guard in rule.guards
+        )
+
+    assert actual.keys() == expected
+    shapes = {
+        (
+            shape.left_lane_count,
+            shape.right_lane_count,
+            shape.result_lane_count,
+        ): shape
+        for shape in ORDINARY_VECTOR_CONCAT_SHAPES
+    }
+    for (_, left_lanes, right_lanes, result_lanes), rule in actual.items():
+        shape = shapes[(left_lanes, right_lanes, result_lanes)]
+        if result_lanes == 2:
+            assert len(rule.emit) == 1
+            assert rule.emit[0].descriptor.key.startswith(
+                "spirv.op_composite_construct.v2"
+            )
+            assert rule.emit[0].operands == {
+                "component0": ValueRef.operand("inputs", element=0),
+                "component1": ValueRef.operand("inputs", element=1),
+            }
+            continue
+
+        assert len(rule.emit) == 1 + (left_lanes == 1) + (right_lanes == 1)
+        final_emit = rule.emit[-1]
+        assert final_emit.descriptor.key.startswith("spirv.op_vector_shuffle.")
+        assert tuple(final_emit.immediates.values()) == shape.selectors
+        assert final_emit.operands == {
+            "source0": (
+                ValueRef.temporary("source0")
+                if left_lanes == 1
+                else ValueRef.operand("inputs", element=0)
+            ),
+            "source1": (
+                ValueRef.temporary("source1")
+                if right_lanes == 1
+                else ValueRef.operand("inputs", element=1)
+            ),
+        }
 
 
 def test_vector_contract_is_bound_into_the_shipping_fragment() -> None:
@@ -359,6 +447,16 @@ def test_synthesized_results_preserve_exact_source_types() -> None:
                     TypePattern.scalar(component_type.source_types[0]),
                 )
             ] += len(NATIVE_ORDINARY_VECTOR_LANE_COUNTS)
+
+        concat_construct_key = f"spirv.op_composite_construct.v2{component_type.suffix}"
+        for source_type in component_type.source_types:
+            expected_types[
+                (
+                    concat_construct_key,
+                    "dst",
+                    TypePattern.vector(source_type, lanes=2),
+                )
+            ] += 4
 
     assert actual_types == expected_types
 

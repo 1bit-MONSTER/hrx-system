@@ -1,0 +1,50 @@
+// RUN: emit source-low target=spirv:vulkan1.3+bda output=low
+
+func.def @ordinary_vector_concat_i32(%a: i32, %b: i32, %c: i32, %d: i32) -> (i32, i32, i32, i32, i32, i32, i32) {
+  %a1 = vector.from_elements %a : vector<1xi32>
+  %b1 = vector.from_elements %b : vector<1xi32>
+  %pair0 = vector.from_elements %a, %c : vector<2xi32>
+  %pair1 = vector.from_elements %b, %d : vector<2xi32>
+  %triple0 = vector.from_elements %a, %b, %c : vector<3xi32>
+  %triple1 = vector.from_elements %b, %c, %d : vector<3xi32>
+  %one_one = vector.concat<0> %a1, %b1 : vector<1xi32>, vector<1xi32> -> vector<2xi32>
+  %one_two = vector.concat<0> %a1, %pair0 : vector<1xi32>, vector<2xi32> -> vector<3xi32>
+  %two_one = vector.concat<0> %pair0, %a1 : vector<2xi32>, vector<1xi32> -> vector<3xi32>
+  %one_three = vector.concat<0> %a1, %triple0 : vector<1xi32>, vector<3xi32> -> vector<4xi32>
+  %two_two = vector.concat<0> %pair0, %pair1 : vector<2xi32>, vector<2xi32> -> vector<4xi32>
+  %three_one = vector.concat<0> %triple1, %b1 : vector<3xi32>, vector<1xi32> -> vector<4xi32>
+  %variadic = vector.concat<0> %a1, %b1, %a1, %b1 : vector<1xi32>, vector<1xi32>, vector<1xi32>, vector<1xi32> -> vector<4xi32>
+  %result0 = vector.extract %one_one[1] : vector<2xi32> -> i32
+  %result1 = vector.extract %one_two[2] : vector<3xi32> -> i32
+  %result2 = vector.extract %two_one[2] : vector<3xi32> -> i32
+  %result3 = vector.extract %one_three[3] : vector<4xi32> -> i32
+  %result4 = vector.extract %two_two[3] : vector<4xi32> -> i32
+  %result5 = vector.extract %three_one[3] : vector<4xi32> -> i32
+  %result6 = vector.extract %variadic[3] : vector<4xi32> -> i32
+  func.return %result0, %result1, %result2, %result3, %result4, %result5, %result6 : i32, i32, i32, i32, i32, i32, i32
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @ordinary_vector_concat_i32(%a1: reg<spirv.id : i32>, %b1: reg<spirv.id : i32>, %c: reg<spirv.id : i32>, %d: reg<spirv.id : i32>) -> (reg<spirv.id : i32>, reg<spirv.id : i32>, reg<spirv.id : i32>, reg<spirv.id : i32>, reg<spirv.id : i32>, reg<spirv.id : i32>, reg<spirv.id : i32>) asm {
+  %pair0 = OpCompositeConstruct.v2i32 %a1, %c
+  %pair1 = OpCompositeConstruct.v2i32 %b1, %d
+  %triple0 = OpCompositeConstruct.v3i32 %a1, %b1, %c
+  %triple1 = OpCompositeConstruct.v3i32 %b1, %c, %d
+  %one_one = OpCompositeConstruct.v2i32 %a1, %b1
+  %52 = OpCompositeConstruct.v2i32 %a1, %a1
+  %one_two = OpVectorShuffle.v2i32.v3i32 %52, %pair0, 0, 2, 3
+  %two_one = OpVectorShuffle.v2i32.v3i32 %pair0, %52, 0, 1, 2
+  %one_three = OpVectorShuffle.v2i32.v3i32.v4i32 %52, %triple0, 0, 2, 3, 4
+  %two_two = OpVectorShuffle.v2i32.v4i32 %pair0, %pair1, 0, 1, 2, 3
+  %59 = OpCompositeConstruct.v2i32 %b1, %b1
+  %three_one = OpVectorShuffle.v3i32.v2i32.v4i32 %triple1, %59, 0, 1, 2, 3
+  %variadic = OpVectorShuffle.v2i32.v4i32 %one_one, %one_one, 0, 1, 2, 3
+  %result0 = OpCompositeExtract.v2i32.i32 %one_one, 1
+  %result1 = OpCompositeExtract.v3i32.i32 %one_two, 2
+  %result2 = OpCompositeExtract.v3i32.i32 %two_one, 2
+  %result3 = OpCompositeExtract.v4i32.i32 %one_three, 3
+  %result4 = OpCompositeExtract.v4i32.i32 %two_two, 3
+  %result5 = OpCompositeExtract.v4i32.i32 %three_one, 3
+  %result6 = OpCompositeExtract.v4i32.i32 %variadic, 3
+  return %result0, %result1, %result2, %result3, %result4, %result5, %result6
+}

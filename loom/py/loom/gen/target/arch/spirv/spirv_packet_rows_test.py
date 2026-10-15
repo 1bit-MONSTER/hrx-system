@@ -723,15 +723,17 @@ def test_generation_emits_complete_ordinary_vector_structural_matrix() -> None:
 
 def test_generation_emits_complete_ordinary_vector_shuffle_matrix() -> None:
     rows = {row.descriptor_key: row for row in _packet_rows() if row.descriptor_key in {instruction.key for instruction in ORDINARY_VECTOR_SHUFFLE_INSTRUCTIONS}}
-    assert len(rows) == len(ORDINARY_VECTOR_SHUFFLE_INSTRUCTIONS) == 30
+    assert len(rows) == len(ORDINARY_VECTOR_SHUFFLE_INSTRUCTIONS) == 70
 
     for instruction in ORDINARY_VECTOR_SHUFFLE_INSTRUCTIONS:
         row = rows[instruction.key]
-        source_value = _expected_ordinary_vector_value(instruction.source_type)
         assert row.opcode == instruction.opcode
         assert row.form == instruction.packet_form
         assert row.result_type == _expected_ordinary_vector_value(instruction.result_type)
-        assert row.operand_types == (source_value, source_value)
+        assert row.operand_types == (
+            _expected_ordinary_vector_value(instruction.source0_type),
+            _expected_ordinary_vector_value(instruction.source1_type),
+        )
         assert row.immediate_count == instruction.result_type.lane_count
 
 
