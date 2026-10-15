@@ -216,6 +216,16 @@ loom_serve_model_held_requests{model="other",kind="fixture"} 0
 loom_serve_model_admission_open{model="other",kind="fixture"} 1
 loom_serve_model_held_requests{model="quoted\"\\name",kind="fixture"} 0
 loom_serve_model_admission_open{model="quoted\"\\name",kind="fixture"} 1
+# HELP loom_serve_model_parameter_pins Accepted-consumer and explicit-retention pins, excluding persistent policy.
+# TYPE loom_serve_model_parameter_pins gauge
+# HELP loom_serve_model_parameter_admission_waiting Whether new work is waiting for parameter admission.
+# TYPE loom_serve_model_parameter_admission_waiting gauge
+# HELP loom_serve_model_parameter_admission_waits_total Distinct parameter admission waits, not repeated polls or request count.
+# TYPE loom_serve_model_parameter_admission_waits_total counter
+# HELP loom_serve_model_parameter_admission_wait_seconds_total Time waiting for parameter admission, including cancelled and open waits.
+# TYPE loom_serve_model_parameter_admission_wait_seconds_total counter
+# HELP loom_serve_model_parameter_admission_wait_age_seconds Current parameter admission wait age, or zero when not waiting.
+# TYPE loom_serve_model_parameter_admission_wait_age_seconds gauge
 # HELP loom_serve_server_counters_available Every model publishes work counters.
 # TYPE loom_serve_server_counters_available gauge
 loom_serve_server_counters_available 0

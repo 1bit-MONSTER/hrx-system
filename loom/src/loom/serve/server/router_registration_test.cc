@@ -333,6 +333,47 @@ TEST_P(HttpRouterRegistrationTest, StalledObserverDoesNotRetainRemovedModel) {
 }
 
 TEST_P(HttpRouterRegistrationTest,
+       ParameterPressureUsesModelObservationsAndRetiresWithIncarnation) {
+  managed_.parameters.pin_count = 3;
+  managed_.parameters.admission = {
+      .waiting = true,
+      .count = 7,
+      .duration_ns = 5000000000,
+      .age_ns = 2500000000,
+  };
+  Register();
+  const auto state = Read(Send("GET", "/v1/status"));
+  EXPECT_NE(
+      state.find(
+          R"("pins":3,"admission":{"waiting":true,"count":7,"duration_seconds":5.000000000,"age_seconds":2.500000000})"),
+      std::string::npos);
+  const auto metrics = Read(Send("GET", "/metrics"));
+  EXPECT_NE(metrics.find(
+                "loom_serve_model_parameter_pins{model=\"dynamic\",kind="
+                "\"fixture\",incarnation=\"1\"} 3\n"
+                "loom_serve_model_parameter_admission_waiting{model="
+                "\"dynamic\",kind=\"fixture\",incarnation=\"1\"} 1\n"
+                "loom_serve_model_parameter_admission_waits_total{model="
+                "\"dynamic\",kind=\"fixture\",incarnation=\"1\"} 7\n"
+                "loom_serve_model_parameter_admission_wait_seconds_total{model="
+                "\"dynamic\",kind=\"fixture\",incarnation=\"1\"} 5\n"
+                "loom_serve_model_parameter_admission_wait_age_seconds{model="
+                "\"dynamic\",kind=\"fixture\",incarnation=\"1\"} 2.5\n"),
+            std::string::npos);
+  // A dependency without parameter observations is absent, not a zero sample.
+  EXPECT_EQ(metrics.find("loom_serve_model_parameter_pins{model=\"a\""),
+            std::string::npos);
+  EXPECT_EQ(Control("unregister", "dynamic").find("HTTP/1.1 202"), 0u);
+  managed_.WaitRetiring();
+  EXPECT_EQ(Read(Send("GET", "/metrics"))
+                .find("loom_serve_model_parameter_pins{model=\"dynamic\""),
+            std::string::npos);
+  EXPECT_EQ(Read(Send("GET", "/v1/status")).find("\"parameters\":"),
+            std::string::npos);
+  managed_.ReleaseRetirement();
+}
+
+TEST_P(HttpRouterRegistrationTest,
        DrainedActivationSurvivesDisconnectAndPreservesPeerProgress) {
   {
     std::lock_guard<std::mutex> lock(managed_.mutex);

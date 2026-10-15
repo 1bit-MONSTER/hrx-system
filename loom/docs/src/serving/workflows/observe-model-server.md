@@ -29,7 +29,7 @@ observations, not device busy time or completed-request latency percentiles.
 
 `/metrics` uses Prometheus text format with `model`, `kind` and registration
 `incarnation` labels. Gauges report current phase and ownership counts.
-`loom_serve_model_*_total` counters include requests, completed, rejected,
+Work counters include requests, completed, rejected,
 cancelled, failed, input tokens, output tokens and batches.
 `loom_serve_server_*_total` includes final counters from removed registrations.
 Reusing a name creates a new incarnation rather than resetting the old series.
@@ -39,6 +39,39 @@ model-specific controls such as text checkpoints, but exclude router-owned raw
 tokenization, health/observation calls and unknown-route rejections. Unavailable
 counters are reported as unavailable, not zero. Disabling periodic heartbeats
 with `--heartbeat_ms=0` does not disable counting.
+
+## Distinguish parameter pressure from queued work
+
+Each prepared model's `loom.parameters` reports accepted-consumer `pins` and an
+`admission` snapshot: `waiting`, `count`, `duration_seconds`, and `age_seconds`.
+The snapshot describes the model's single outstanding interest in shared
+parameter admission. A wait can reflect physical backing pressure, an older
+waiting model, or asynchronous reclamation that must retire first. It is not
+one observation per request, and it ends before admitted parameter I/O and
+execution complete.
+
+The corresponding Prometheus series are:
+
+| Metric suffix after `loom_serve_model_` | Meaning |
+| --- | --- |
+| `parameter_pins` | Accepted-consumer and explicit-retention pins protecting parameters. |
+| `parameter_admission_waiting` | One when new work is waiting for parameter admission; otherwise zero. |
+| `parameter_admission_waits_total` | Distinct wait episodes, not repeated scheduler polls. |
+| `parameter_admission_wait_seconds_total` | Cumulative waiting, including cancelled waits and the currently open interval. |
+| `parameter_admission_wait_age_seconds` | Age of the current wait, or zero when none is open. |
+
+Accepted consumers can retain pins while new work for the same model waits;
+their nested execution does not queue behind the work it must unblock. These
+pins are separate from the persistent `loom.parameter_pinned` eviction policy.
+Releasing a consumer pin does not clear that policy, and cancelling a new-work
+interest does not release another consumer's pin.
+
+Parameter observations have the model's incarnation identity and disappear on
+removal. Unlike completed-request and work totals, they have no server-lifetime
+aggregate. A registration without parameter observations has no samples, not
+synthetic zero values. Polling snapshots neither admits work nor activates
+parameters. Current wait age and cumulative duration advance while a wait is
+open even when no request has completed.
 
 ## Measure completed-request latency
 
@@ -198,6 +231,7 @@ VRAM or immediately available memory. Status does not poll hardware sensors.
 | Question | Useful evidence |
 | --- | --- |
 | Is work waiting outside model admission? | Router-held counts versus queued/active model requests and their oldest ages. |
+| Are parameters preventing new work from admitting? | `parameters.admission.waiting`, its age, and peer consumer pins or persistent parameter pinning. |
 | Is logical KV capacity full? | `text_memory.pool` resident plus reserved token positions versus capacity. |
 | Is output backpressure retaining rows? | `text_activity.backpressured_rows`, separate from prefill/decode rows. |
 | Are smaller requests bypassing a blocked head? | `admit.queue_rank`, `overtakes` and `overtake_budget`. |

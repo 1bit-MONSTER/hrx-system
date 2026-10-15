@@ -83,6 +83,61 @@ static iree_status_t loom_serve_http_metrics_sample(
   return iree_string_builder_append_format(output, "} %.9g\n", value);
 }
 
+static iree_status_t loom_serve_http_metrics_integer(
+    iree_string_builder_t* output, const char* metric,
+    const loom_serve_registered_model_t* model, uint64_t value) {
+  IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+      output, "loom_serve_model_%s{", metric));
+  IREE_RETURN_IF_ERROR(loom_serve_http_metrics_identity(output, model));
+  return iree_string_builder_append_format(output, "} %" PRIu64 "\n", value);
+}
+
+static iree_status_t loom_serve_http_metrics_parameters(
+    loom_serve_registry_t* registry, iree_string_builder_t* output) {
+  IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(
+      output,
+      "# HELP loom_serve_model_parameter_pins Accepted-consumer and explicit-"
+      "retention pins, excluding persistent policy.\n"
+      "# TYPE loom_serve_model_parameter_pins gauge\n"
+      "# HELP loom_serve_model_parameter_admission_waiting Whether new work "
+      "is waiting for parameter admission.\n"
+      "# TYPE loom_serve_model_parameter_admission_waiting gauge\n"
+      "# HELP loom_serve_model_parameter_admission_waits_total Distinct "
+      "parameter admission waits, not repeated polls or request count.\n"
+      "# TYPE loom_serve_model_parameter_admission_waits_total counter\n"
+      "# HELP loom_serve_model_parameter_admission_wait_seconds_total Time "
+      "waiting for parameter admission, including cancelled and open waits.\n"
+      "# TYPE loom_serve_model_parameter_admission_wait_seconds_total counter\n"
+      "# HELP loom_serve_model_parameter_admission_wait_age_seconds Current "
+      "parameter admission wait age, or zero when not waiting.\n"
+      "# TYPE loom_serve_model_parameter_admission_wait_age_seconds gauge\n"));
+  for (iree_host_size_t i = 0; i < loom_serve_registry_capacity(registry);
+       ++i) {
+    const loom_serve_registered_model_t* model =
+        loom_serve_registry_at(registry, i);
+    if (model->phase != LOOM_SERVE_REGISTRATION_READY ||
+        !model->registration.parameters) {
+      continue;
+    }
+    const loom_serve_residency_snapshot_t state =
+        model->registration.parameters(model->registration.self);
+    IREE_RETURN_IF_ERROR(loom_serve_http_metrics_integer(
+        output, "parameter_pins", model, state.pin_count));
+    IREE_RETURN_IF_ERROR(loom_serve_http_metrics_integer(
+        output, "parameter_admission_waiting", model, state.admission.waiting));
+    IREE_RETURN_IF_ERROR(loom_serve_http_metrics_integer(
+        output, "parameter_admission_waits_total", model,
+        state.admission.count));
+    IREE_RETURN_IF_ERROR(loom_serve_http_metrics_sample(
+        output, "parameter_admission_wait_seconds_total", model, NULL,
+        state.admission.duration_ns / 1e9));
+    IREE_RETURN_IF_ERROR(loom_serve_http_metrics_sample(
+        output, "parameter_admission_wait_age_seconds", model, NULL,
+        state.admission.age_ns / 1e9));
+  }
+  return iree_ok_status();
+}
+
 typedef struct metrics_counter_field_t {
   // Suffix shared by model and server Prometheus metric names.
   const char* name;
@@ -380,6 +435,9 @@ iree_status_t loom_serve_http_metrics_format(loom_serve_registry_t* registry,
       status = loom_serve_http_metrics_sample(output, "admission_open", model,
                                               NULL, !model->closed);
     }
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_serve_http_metrics_parameters(registry, output);
   }
   if (iree_status_is_ok(status)) {
     status = loom_serve_http_metrics_counters(registry, output);

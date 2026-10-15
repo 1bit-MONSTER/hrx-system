@@ -182,12 +182,27 @@ typedef struct loom_serve_residency_snapshot_t {
   bool active;
   // Physical parameter backing can be reclaimed without destroying the model.
   bool elastic;
+  // Accepted-consumer and explicit-retention pins, excluding persistent policy.
+  iree_host_size_t pin_count;
+  // New-work FIFO waits, not request queue latency or activation I/O duration.
+  struct {
+    // One new-work interest is waiting for parameter admission.
+    bool waiting;
+    // Distinct wait episodes; retries of the same interest do not count again.
+    uint64_t count;
+    // Total nanoseconds waiting, including cancelled and currently open waits.
+    uint64_t duration_ns;
+    // Nanoseconds in the current wait, or zero when not waiting.
+    uint64_t age_ns;
+  } admission;
   // Parameter-only virtual accounting, available only with elastic backing.
   loom_serve_memory_statistics_t memory;
   // Cumulative activation and preparation work, independent of current backing.
   loom_serve_weight_activity_t activity;
 } loom_serve_residency_snapshot_t;
 
+// Copies current ownership and cumulative work without advancing admission or
+// retaining parameters. Reads the clock only while an admission wait is open.
 loom_serve_residency_snapshot_t loom_serve_residency_snapshot(
     const loom_serve_residency_t* residency);
 

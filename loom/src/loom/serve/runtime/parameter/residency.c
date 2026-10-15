@@ -48,12 +48,25 @@ struct loom_serve_residency_t {
     loom_serve_residency_t* previous;
     // Newer interest, or NULL at the tail/not queued.
     loom_serve_residency_t* next;
+    // Number of distinct wait episodes, independent of repeated admission
+    // polls.
+    uint64_t count;
+    // Accumulated completed waits, including withdrawals, in nanoseconds.
+    uint64_t duration_ns;
+    // Monotonic start of the current wait; meaningful only while queued.
+    iree_time_t start_time;
   } admission;
   // Number of borrowed checkpoint plans in the trailing array.
   iree_host_size_t weight_count;
   // Immutable checkpoint plans required together by each invocation.
   loom_serve_weights_t* weights[];
 };
+
+static bool loom_serve_residency_is_waiting(
+    const loom_serve_residency_t* residency) {
+  return residency->admission.previous ||
+         residency->cache->admission.first == residency;
+}
 
 loom_serve_residency_cache_t* loom_serve_residency_cache(
     const loom_serve_residency_t* residency) {
@@ -114,9 +127,17 @@ loom_serve_weight_activity_t loom_serve_residency_activity(
 
 loom_serve_residency_snapshot_t loom_serve_residency_snapshot(
     const loom_serve_residency_t* residency) {
+  const bool waiting = loom_serve_residency_is_waiting(residency);
+  const uint64_t age_ns =
+      waiting ? iree_time_now() - residency->admission.start_time : 0;
   return (loom_serve_residency_snapshot_t){
       .active = residency->active,
       .elastic = residency->cache->pool != NULL,
+      .pin_count = residency->pin_count,
+      .admission = {.waiting = waiting,
+                    .count = residency->admission.count,
+                    .duration_ns = residency->admission.duration_ns + age_ns,
+                    .age_ns = age_ns},
       .memory = loom_serve_residency_statistics(residency),
       .activity = loom_serve_residency_activity(residency)};
 }
@@ -291,9 +312,11 @@ iree_status_t loom_serve_residency_allocate(
 
 void loom_serve_residency_cancel_admission(loom_serve_residency_t* residency) {
   loom_serve_residency_cache_t* cache = residency->cache;
-  if (!residency->admission.previous && cache->admission.first != residency) {
+  if (!loom_serve_residency_is_waiting(residency)) {
     return;
   }
+  residency->admission.duration_ns +=
+      iree_time_now() - residency->admission.start_time;
   if (residency->admission.previous) {
     residency->admission.previous->admission.next = residency->admission.next;
   } else {
@@ -312,9 +335,11 @@ void loom_serve_residency_cancel_admission(loom_serve_residency_t* residency) {
 static void loom_serve_residency_queue_admission(
     loom_serve_residency_t* residency) {
   loom_serve_residency_cache_t* cache = residency->cache;
-  if (residency->admission.previous || cache->admission.first == residency) {
+  if (loom_serve_residency_is_waiting(residency)) {
     return;
   }
+  ++residency->admission.count;
+  residency->admission.start_time = iree_time_now();
   residency->admission.previous = cache->admission.last;
   if (cache->admission.last) {
     cache->admission.last->admission.next = residency;

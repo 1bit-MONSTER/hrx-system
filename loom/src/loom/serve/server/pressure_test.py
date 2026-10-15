@@ -193,6 +193,34 @@ def check(server, source, directory, workers, memory_bytes, retention):
         assert memory_after["peak_bytes"] <= memory_bytes, result
         expected = 503 if retention != "none" and memory_bytes == 4194304 else 200
         assert second_status == expected, second
+        beta = next(item["loom"] for item in after["data"] if item["id"] == "beta")
+        admission = beta["parameters"]["admission"]
+        assert not admission["waiting"] and admission["age_seconds"] == 0, beta
+        assert beta["parameters"]["pins"] == 0, beta
+        if expected == 503 and retention == "parameters":
+            assert admission["count"] >= 1, beta
+        elif expected == 503:
+            # A retained checkpoint can exhaust mutable KV backing after
+            # parameter admission succeeds. This is not a parameter wait.
+            assert admission["count"] == 0, beta
+            assert beta["parameters"]["active"], beta
+        assert admission["duration_seconds"] >= 0, beta
+        connection = http.client.HTTPConnection(address.hostname, address.port)
+        try:
+            connection.request("GET", "/metrics")
+            response = connection.getresponse()
+            metrics = response.read().decode()
+            assert response.status == 200, metrics
+        finally:
+            connection.close()
+        identity = f'model="beta",kind="text",incarnation="{beta["incarnation"]}"'
+        assert (
+            f"loom_serve_model_parameter_admission_waits_total{{{identity}}} "
+            f"{admission['count']}\n"
+        ) in metrics, metrics
+        assert (
+            f"loom_serve_model_parameter_admission_waiting{{{identity}}} 0\n"
+        ) in metrics, metrics
         if expected == 200:
             assert output(second) == oracle("abxa"), second
         history = [

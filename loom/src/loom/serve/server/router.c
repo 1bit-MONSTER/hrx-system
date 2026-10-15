@@ -450,9 +450,14 @@ static iree_status_t loom_serve_router_describe_parameters(
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       output,
       ",\"parameters\":{\"active\":%s,\"backing\":\"%s\",\"activations\":"
-      "%" PRIu64 ",\"deactivations\":%" PRIu64,
+      "%" PRIu64 ",\"deactivations\":%" PRIu64
+      ",\"pins\":%zu,"
+      "\"admission\":{\"waiting\":%s,\"count\":%" PRIu64
+      ",\"duration_seconds\":%.9f,\"age_seconds\":%.9f}",
       state.active ? "true" : "false", state.elastic ? "elastic" : "fixed",
-      state.activity.activations, state.activity.deactivations));
+      state.activity.activations, state.activity.deactivations, state.pin_count,
+      state.admission.waiting ? "true" : "false", state.admission.count,
+      state.admission.duration_ns / 1e9, state.admission.age_ns / 1e9));
   if (state.elastic) {
     IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
         output, ",\"reserved_bytes\":%" PRIu64 ",\"committed_bytes\":%" PRIu64,

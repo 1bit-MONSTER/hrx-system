@@ -110,12 +110,23 @@ TEST_F(ElasticEmbeddingServiceTest,
   EXPECT_EQ(waiting.active_requests, 1u);
   EXPECT_GT(waiting.oldest_active_age, 0);
   EXPECT_GE(waiting.oldest_active_age, queued.oldest_queued_age);
+  const auto pressure = loom_serve_residency_snapshot(residency);
+  EXPECT_TRUE(pressure.admission.waiting);
+  EXPECT_EQ(pressure.admission.count, 1u);
+  EXPECT_EQ(pressure.admission.duration_ns, pressure.admission.age_ns);
+  EXPECT_EQ(pressure.pin_count, 0u);
+  EXPECT_EQ(loom_serve_residency_snapshot(retained_residency).pin_count, 1u);
   const uint64_t wakes = wakes_.load();
   for (int i = 0; i < 3; ++i) {
     EXPECT_FALSE(Step(kShared));
     EXPECT_FALSE(interface_.is_active(interface_.self));
     EXPECT_GE(interface_.snapshot(interface_.self).oldest_active_age,
               waiting.oldest_active_age);
+    const auto retry = loom_serve_residency_snapshot(residency);
+    EXPECT_TRUE(retry.admission.waiting);
+    EXPECT_EQ(retry.admission.count, 1u);
+    EXPECT_EQ(retry.admission.duration_ns, retry.admission.age_ns);
+    EXPECT_GE(retry.admission.age_ns, pressure.admission.age_ns);
   }
   // No new CPU process or device submission occurred during those turns. The
   // source packet and result association were retained, not prepared again.
@@ -139,6 +150,12 @@ TEST_F(ElasticEmbeddingServiceTest,
   EXPECT_TRUE(Step(kShared));
   // Reset withdraws the older pressure interest. The still-pinned peer may
   // accept again without waiting for its existing invocation to finish.
+  const auto withdrawn = loom_serve_residency_snapshot(residency);
+  EXPECT_FALSE(withdrawn.admission.waiting);
+  EXPECT_EQ(withdrawn.admission.count, 1u);
+  EXPECT_EQ(withdrawn.admission.age_ns, 0u);
+  EXPECT_GE(withdrawn.admission.duration_ns, pressure.admission.duration_ns);
+  EXPECT_EQ(withdrawn.pin_count, 0u);
   IREE_ASSERT_OK(
       loom_serve_residency_try_admit(retained_residency, &admission));
   ASSERT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_ACQUIRED);
@@ -146,11 +163,18 @@ TEST_F(ElasticEmbeddingServiceTest,
   const auto cancelled_state = interface_.snapshot(interface_.self);
   EXPECT_EQ(cancelled_state.oldest_queued_age, 0);
   EXPECT_EQ(cancelled_state.oldest_active_age, 0);
+  EXPECT_EQ(loom_serve_residency_snapshot(residency).admission.duration_ns,
+            withdrawn.admission.duration_ns);
   const int request = Send(R"({"model":"fixture","input":["a","bbb"]})");
   ASSERT_NO_FATAL_FAILURE(Accept(request));
   EXPECT_TRUE(Step(kShared));
   EXPECT_TRUE(Step(kShared));
   EXPECT_TRUE(Step(kShared));
+  const auto second_wait = loom_serve_residency_snapshot(residency);
+  EXPECT_TRUE(second_wait.admission.waiting);
+  EXPECT_EQ(second_wait.admission.count, 2u);
+  EXPECT_EQ(second_wait.admission.duration_ns,
+            withdrawn.admission.duration_ns + second_wait.admission.age_ns);
   loom_serve_residency_release(retained_residency);
   Drain();
   const std::string result = Read(request);
@@ -159,6 +183,12 @@ TEST_F(ElasticEmbeddingServiceTest,
   EXPECT_EQ(idle.active_requests, 0u);
   EXPECT_EQ(idle.oldest_queued_age, 0);
   EXPECT_EQ(idle.oldest_active_age, 0);
+  const auto admitted = loom_serve_residency_snapshot(residency);
+  EXPECT_FALSE(admitted.admission.waiting);
+  EXPECT_EQ(admitted.admission.count, 2u);
+  EXPECT_EQ(admitted.admission.age_ns, 0u);
+  EXPECT_GE(admitted.admission.duration_ns, second_wait.admission.duration_ns);
+  EXPECT_EQ(admitted.pin_count, 0u);
   EXPECT_EQ(result.find("HTTP/1.1 200"), 0u);
   EXPECT_NE(result.find(R"("index":0,"embedding":[2,2,2,4])"),
             std::string::npos);
