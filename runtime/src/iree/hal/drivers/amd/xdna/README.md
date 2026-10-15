@@ -265,10 +265,12 @@ The names below follow the `XdnaQueueBenchmark/` prefix:
 | `ReadySubmitOnly` | One HAL dispatch with no unresolved waits. Checked completion is outside timing. |
 | `ReadyEndToEnd` | One ready HAL dispatch and its completion wait. |
 | `UnresolvedSubmitOnly` | Acceptance of a dispatch waiting on an unreached host gate. Gate signaling and completion are outside timing. |
-| `StreamingSubmitOnly` | Acceptance of eight multiply dispatches chained by semaphore dependencies. The terminal wait is outside timing. |
-| `StreamingEndToEnd` | The same eight-dispatch chain and its terminal wait. |
-| `SwitchingSubmitOnly` | Acceptance of eight dependent dispatches alternating multiply and add executables. The terminal wait is outside timing. |
+| `StreamingSubmitOnly` | Acceptance of multiply dispatches chained by semaphore dependencies. The terminal wait is outside timing. |
+| `StreamingEndToEnd` | The same dispatch chain and its terminal wait. |
+| `SwitchingSubmitOnly` | Acceptance of dependent dispatches alternating multiply and add executables. The terminal wait is outside timing. |
 | `SwitchingEndToEnd` | The same alternating chain and its terminal wait. |
+| `RecordedStreaming*`, `RecordedSwitching*` | The corresponding batch submitted through one reusable command buffer. |
+| `MeasuredStreaming*`, `MeasuredRecordedStreaming*` | The corresponding streaming batch with native invocation counters enabled. |
 
 These are HAL operation costs, including capture, causal admission and native
 publication or deferral. Completed rows also include checked retirement and
@@ -278,9 +280,20 @@ end-to-end here means dispatch through HAL completion, not an entire
 host-to-host application pipeline. Numerical output and memory lifetime are
 checked by the native CTS above.
 
-Streaming and switching times are per eight-dispatch batch; divide elapsed time
-by eight for per-dispatch comparisons. Their item rate already counts individual
-dispatches. Ready and unresolved rows measure one dispatch per iteration.
+Streaming and switching times are per batch; the benchmark's numeric argument
+gives its dispatch count. Divide elapsed time by that count for per-dispatch
+comparisons. Their item rate already counts individual dispatches. Ready and
+unresolved rows measure one dispatch per iteration.
+
+Measured variants begin capture before warmup and collect results after timing.
+They use one- and eight-dispatch batches with 32 fixed iterations so the warmup
+and measured commands fit the finite native result budget. Warmup materializes
+the optional command copies. Timed submissions reuse those copies, and result
+collection validates the native protocol before discarding the serialized
+records. Compare them with matching unmeasured cases at the same iteration count
+to isolate warm capture costs; neither case includes session setup or teardown.
+An unavailable native result service or insufficient permission skips the
+measured cases; execution, collection, and protocol failures remain errors.
 
 ```sh
 iree-bazel-build --config=opt \

@@ -53,6 +53,32 @@ bool HandleStatus(benchmark::State& state, iree_status_t status,
   return false;
 }
 
+// Collection runs after the timed region. The driver still validates the native
+// result protocol and emits every record; this consumer discards the payload.
+struct CounterSink {
+  // Stack-owned sink retained through the fixture's profiling session.
+  iree_hal_resource_t resource;
+
+  iree_hal_profile_sink_t* base() {
+    return reinterpret_cast<iree_hal_profile_sink_t*>(this);
+  }
+  CounterSink() {
+    static const iree_hal_profile_sink_vtable_t vtable = {
+        +[](iree_hal_profile_sink_t*) {},
+        +[](iree_hal_profile_sink_t*,
+            const iree_hal_profile_chunk_metadata_t*) {
+          return iree_ok_status();
+        },
+        +[](iree_hal_profile_sink_t*, const iree_hal_profile_chunk_metadata_t*,
+            iree_host_size_t,
+            const iree_const_byte_span_t*) { return iree_ok_status(); },
+        +[](iree_hal_profile_sink_t*, const iree_hal_profile_chunk_metadata_t*,
+            iree_status_code_t) { return iree_ok_status(); },
+    };
+    iree_hal_resource_initialize(&vtable, &resource);
+  }
+};
+
 class XdnaQueueBenchmark : public benchmark::Fixture {
  public:
   void SetUp(benchmark::State& state) override {
@@ -66,7 +92,11 @@ class XdnaQueueBenchmark : public benchmark::Fixture {
   }
 
   void TearDown(benchmark::State& state) override {
-    (void)state;
+    if (profiling_active_) {
+      HandleStatus(state, iree_hal_device_profiling_end(device_),
+                   "XDNA timer capture failed");
+      profiling_active_ = false;
+    }
     iree_hal_command_buffer_release(command_buffer_);
     command_buffer_ = nullptr;
     iree_hal_semaphore_release(gate_);
@@ -372,7 +402,8 @@ class XdnaQueueBenchmark : public benchmark::Fixture {
   }
 
   void RunBatchBenchmark(benchmark::State& state, SubmissionMode mode,
-                         ProgramSequence sequence, Measurement measurement) {
+                         ProgramSequence sequence, Measurement measurement,
+                         bool capture_counters) {
     if (!available_) {
       return;
     }
@@ -390,6 +421,25 @@ class XdnaQueueBenchmark : public benchmark::Fixture {
         !HandleStatus(state, RecordBatch(sequence, dispatch_count),
                       "XDNA command buffer recording failed")) {
       return;
+    }
+    if (capture_counters) {
+      const iree_hal_device_profiling_options_t options = {
+          .data_families = IREE_HAL_DEVICE_PROFILING_DATA_COUNTER_SAMPLES,
+          .sink = counter_sink_.base(),
+      };
+      iree_status_t status = iree_hal_device_profiling_begin(device_, &options);
+      if (iree_status_is_unimplemented(status) ||
+          iree_status_is_unavailable(status) ||
+          iree_status_is_permission_denied(status)) {
+        iree_status_fprint(stderr, status);
+        iree_status_free(status);
+        state.SkipWithMessage("native XDNA timer capture is unavailable");
+        return;
+      }
+      if (!HandleStatus(state, status, "XDNA timer capture setup failed")) {
+        return;
+      }
+      profiling_active_ = true;
     }
     iree_status_t status = iree_ok_status();
     for (uint64_t i = 0; i < kWarmupIterationCount && iree_status_is_ok(status);
@@ -430,6 +480,10 @@ class XdnaQueueBenchmark : public benchmark::Fixture {
     state.SetItemsProcessed(state.iterations() * dispatch_count);
   }
 
+  // Receives completed finite samples outside the measured queue path.
+  CounterSink counter_sink_;
+  // True after begin succeeds; teardown always consumes the session.
+  bool profiling_active_ = false;
   // True when setup produced a complete runnable fixture.
   bool available_ = false;
   // Driver owning native discovery and device creation.
@@ -523,49 +577,85 @@ BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
 BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
                    StreamingSubmitOnly)(benchmark::State& state) {
   RunBatchBenchmark(state, SubmissionMode::kDirect,
-                    ProgramSequence::kMultiplyOnly, Measurement::kSubmitOnly);
+                    ProgramSequence::kMultiplyOnly, Measurement::kSubmitOnly,
+                    /*capture_counters=*/false);
 }
 
 BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
                    StreamingEndToEnd)(benchmark::State& state) {
   RunBatchBenchmark(state, SubmissionMode::kDirect,
-                    ProgramSequence::kMultiplyOnly, Measurement::kEndToEnd);
+                    ProgramSequence::kMultiplyOnly, Measurement::kEndToEnd,
+                    /*capture_counters=*/false);
 }
 
 BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
                    SwitchingSubmitOnly)(benchmark::State& state) {
   RunBatchBenchmark(state, SubmissionMode::kDirect,
-                    ProgramSequence::kAlternating, Measurement::kSubmitOnly);
+                    ProgramSequence::kAlternating, Measurement::kSubmitOnly,
+                    /*capture_counters=*/false);
 }
 
 BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
                    SwitchingEndToEnd)(benchmark::State& state) {
   RunBatchBenchmark(state, SubmissionMode::kDirect,
-                    ProgramSequence::kAlternating, Measurement::kEndToEnd);
+                    ProgramSequence::kAlternating, Measurement::kEndToEnd,
+                    /*capture_counters=*/false);
 }
 
 BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
                    RecordedStreamingSubmitOnly)(benchmark::State& state) {
   RunBatchBenchmark(state, SubmissionMode::kRecorded,
-                    ProgramSequence::kMultiplyOnly, Measurement::kSubmitOnly);
+                    ProgramSequence::kMultiplyOnly, Measurement::kSubmitOnly,
+                    /*capture_counters=*/false);
 }
 
 BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
                    RecordedStreamingEndToEnd)(benchmark::State& state) {
   RunBatchBenchmark(state, SubmissionMode::kRecorded,
-                    ProgramSequence::kMultiplyOnly, Measurement::kEndToEnd);
+                    ProgramSequence::kMultiplyOnly, Measurement::kEndToEnd,
+                    /*capture_counters=*/false);
 }
 
 BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
                    RecordedSwitchingSubmitOnly)(benchmark::State& state) {
   RunBatchBenchmark(state, SubmissionMode::kRecorded,
-                    ProgramSequence::kAlternating, Measurement::kSubmitOnly);
+                    ProgramSequence::kAlternating, Measurement::kSubmitOnly,
+                    /*capture_counters=*/false);
 }
 
 BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
                    RecordedSwitchingEndToEnd)(benchmark::State& state) {
   RunBatchBenchmark(state, SubmissionMode::kRecorded,
-                    ProgramSequence::kAlternating, Measurement::kEndToEnd);
+                    ProgramSequence::kAlternating, Measurement::kEndToEnd,
+                    /*capture_counters=*/false);
+}
+
+BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
+                   MeasuredStreamingSubmitOnly)(benchmark::State& state) {
+  RunBatchBenchmark(state, SubmissionMode::kDirect,
+                    ProgramSequence::kMultiplyOnly, Measurement::kSubmitOnly,
+                    /*capture_counters=*/true);
+}
+
+BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
+                   MeasuredStreamingEndToEnd)(benchmark::State& state) {
+  RunBatchBenchmark(state, SubmissionMode::kDirect,
+                    ProgramSequence::kMultiplyOnly, Measurement::kEndToEnd,
+                    /*capture_counters=*/true);
+}
+
+BENCHMARK_DEFINE_F(XdnaQueueBenchmark, MeasuredRecordedStreamingSubmitOnly)(
+    benchmark::State& state) {
+  RunBatchBenchmark(state, SubmissionMode::kRecorded,
+                    ProgramSequence::kMultiplyOnly, Measurement::kSubmitOnly,
+                    /*capture_counters=*/true);
+}
+
+BENCHMARK_DEFINE_F(XdnaQueueBenchmark,
+                   MeasuredRecordedStreamingEndToEnd)(benchmark::State& state) {
+  RunBatchBenchmark(state, SubmissionMode::kRecorded,
+                    ProgramSequence::kMultiplyOnly, Measurement::kEndToEnd,
+                    /*capture_counters=*/true);
 }
 
 BENCHMARK_REGISTER_F(XdnaQueueBenchmark, ReadySubmitOnly)
@@ -658,6 +748,34 @@ BENCHMARK_REGISTER_F(XdnaQueueBenchmark, RecordedSwitchingEndToEnd)
     ->Arg(6)
     ->Arg(8)
     ->Arg(64)
+    ->UseRealTime()
+    ->Unit(benchmark::kMicrosecond);
+
+// Eight warmup batches plus 32 measured batches of up to eight commands fit
+// within both qualified native finite-result capacities. Fixed iterations also
+// keep submit-only timing from expanding into unbounded real device work.
+BENCHMARK_REGISTER_F(XdnaQueueBenchmark, MeasuredStreamingSubmitOnly)
+    ->Arg(1)
+    ->Arg(8)
+    ->Iterations(32)
+    ->UseRealTime()
+    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_REGISTER_F(XdnaQueueBenchmark, MeasuredStreamingEndToEnd)
+    ->Arg(1)
+    ->Arg(8)
+    ->Iterations(32)
+    ->UseRealTime()
+    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_REGISTER_F(XdnaQueueBenchmark, MeasuredRecordedStreamingSubmitOnly)
+    ->Arg(1)
+    ->Arg(8)
+    ->Iterations(32)
+    ->UseRealTime()
+    ->Unit(benchmark::kMicrosecond);
+BENCHMARK_REGISTER_F(XdnaQueueBenchmark, MeasuredRecordedStreamingEndToEnd)
+    ->Arg(1)
+    ->Arg(8)
+    ->Iterations(32)
     ->UseRealTime()
     ->Unit(benchmark::kMicrosecond);
 
