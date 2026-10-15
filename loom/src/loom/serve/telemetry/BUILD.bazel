@@ -29,6 +29,7 @@ loom_cc_library(
     hdrs = ["latency.h"],
     deps = [
         ":record",
+        ":stream",
         "//runtime/src/iree/base",
     ],
 )
@@ -38,6 +39,8 @@ loom_cc_test(
     srcs = ["latency_test.cc"],
     deps = [
         ":latency",
+        ":record",
+        ":stream",
         "//runtime/src/iree/base",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",

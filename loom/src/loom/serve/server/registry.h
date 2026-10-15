@@ -247,7 +247,7 @@ bool loom_serve_registry_counters(
     const loom_serve_registry_t* registry,
     loom_serve_telemetry_counters_t* out_counters);
 
-// Terminal latency totals include removed incarnations. False means a borrowed
+// Latency totals include removed incarnations. False means a borrowed
 // service omitted latency observations; the partial result must not be exposed
 // as a complete server distribution.
 bool loom_serve_registry_latency(const loom_serve_registry_t* registry,

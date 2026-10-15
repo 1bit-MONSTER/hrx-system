@@ -117,6 +117,7 @@ loom_cc_library(
     "source_lifecycle_test.cc"
   DEPS
     ::source_service_fixture
+    loom::serve::telemetry::latency
   TESTONLY
   ALWAYSLINK
   PUBLIC

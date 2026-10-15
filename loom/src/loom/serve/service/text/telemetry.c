@@ -276,7 +276,7 @@ void loom_serve_text_telemetry_end(loom_serve_text_telemetry_t* telemetry,
       .event = &LOOM_SERVE_TELEMETRY_REQUEST_END};
   record.data.end.outcome = outcome;
   record.data.end.duration_ns = record.time_ns - receipt.arrival_time;
-  loom_serve_telemetry_latency_observe(&telemetry->latency, outcome,
+  loom_serve_telemetry_latency_observe(&telemetry->latency.outcomes[outcome],
                                        record.data.end.duration_ns);
   record.data.end.input_tokens = input_tokens;
   loom_serve_telemetry_diagnostic_capture(borrowed_status,

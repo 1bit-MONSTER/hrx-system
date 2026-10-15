@@ -21,8 +21,7 @@ uint64_t loom_serve_telemetry_latency_bound_ns(iree_host_size_t index) {
 }
 
 void loom_serve_telemetry_latency_observe(
-    loom_serve_telemetry_latency_t* latency,
-    loom_serve_telemetry_outcome_t outcome, uint64_t duration_ns) {
+    loom_serve_telemetry_latency_histogram_t* histogram, uint64_t duration_ns) {
   iree_host_size_t first = 0;
   iree_host_size_t last =
       IREE_ARRAYSIZE(loom_serve_telemetry_latency_bounds_ns);
@@ -34,20 +33,41 @@ void loom_serve_telemetry_latency_observe(
       first = middle + 1;
     }
   }
-  loom_serve_telemetry_latency_histogram_t* histogram =
-      &latency->outcomes[outcome];
   ++histogram->buckets[first];
   histogram->sum_ns += duration_ns;
+}
+
+void loom_serve_telemetry_latency_publish_output(
+    loom_serve_telemetry_latency_t* latency,
+    loom_serve_telemetry_stream_t* stream, uint64_t request,
+    iree_time_t arrival_time) {
+  loom_serve_telemetry_record_t record = {
+      .time_ns = iree_time_now(),
+      .request = request,
+      .event = &LOOM_SERVE_TELEMETRY_FIRST_OUTPUT};
+  record.data.first_output.duration_ns = record.time_ns - arrival_time;
+  loom_serve_telemetry_latency_observe(&latency->first_output,
+                                       record.data.first_output.duration_ns);
+  loom_serve_telemetry_stream_append(stream, &record);
+}
+
+static void loom_serve_telemetry_latency_histogram_merge(
+    loom_serve_telemetry_latency_histogram_t* target,
+    const loom_serve_telemetry_latency_histogram_t* source) {
+  for (iree_host_size_t i = 0; i < LOOM_SERVE_TELEMETRY_LATENCY_BUCKET_COUNT;
+       ++i) {
+    target->buckets[i] += source->buckets[i];
+  }
+  target->sum_ns += source->sum_ns;
 }
 
 void loom_serve_telemetry_latency_merge(
     loom_serve_telemetry_latency_t* target,
     const loom_serve_telemetry_latency_t* source) {
   for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(target->outcomes); ++i) {
-    for (iree_host_size_t j = 0; j < LOOM_SERVE_TELEMETRY_LATENCY_BUCKET_COUNT;
-         ++j) {
-      target->outcomes[i].buckets[j] += source->outcomes[i].buckets[j];
-    }
-    target->outcomes[i].sum_ns += source->outcomes[i].sum_ns;
+    loom_serve_telemetry_latency_histogram_merge(&target->outcomes[i],
+                                                 &source->outcomes[i]);
   }
+  loom_serve_telemetry_latency_histogram_merge(&target->first_output,
+                                               &source->first_output);
 }

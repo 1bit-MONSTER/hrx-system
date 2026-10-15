@@ -235,11 +235,13 @@ loom_serve_server_counters_available 0
 # TYPE loom_serve_model_output_tokens_total counter
 # HELP loom_serve_model_batches_total Completed model invocations or cohorts, not HTTP requests.
 # TYPE loom_serve_model_batches_total counter
-# HELP loom_serve_server_latency_available Every model publishes terminal request durations.
+# HELP loom_serve_server_latency_available Every model publishes request latency distributions.
 # TYPE loom_serve_server_latency_available gauge
 loom_serve_server_latency_available 0
 # HELP loom_serve_model_request_duration_seconds Model protocol receipt through terminal owner retirement, not peer receipt.
 # TYPE loom_serve_model_request_duration_seconds histogram
+# HELP loom_serve_model_first_output_seconds Model protocol receipt through first meaningful output accepted by the carrier, not peer receipt.
+# TYPE loom_serve_model_first_output_seconds histogram
 )");
   const auto log = Read(Send("GET", "/logz"));
   EXPECT_NE(log.find("\"counters_available\":false"), std::string::npos);
@@ -701,7 +703,8 @@ class HttpRouterCountersTest : public HttpRouterTest {
       };
       for (uint64_t i = 0; i < value; ++i) {
         loom_serve_telemetry_latency_observe(
-            &latency_[index], LOOM_SERVE_TELEMETRY_COMPLETED, value * 2500000);
+            &latency_[index].outcomes[LOOM_SERVE_TELEMETRY_COMPLETED],
+            value * 2500000);
       }
       service->latency = &latency_[index];
       service->counters = &counters_[index++];

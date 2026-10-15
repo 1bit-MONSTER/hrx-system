@@ -32,6 +32,7 @@ loom_cc_library(
     "latency.c"
   DEPS
     ::record
+    ::stream
     iree::base
   PUBLIC
 )
@@ -43,6 +44,8 @@ loom_cc_test(
     "latency_test.cc"
   DEPS
     ::latency
+    ::record
+    ::stream
     iree::base
     iree::testing::gtest
     iree::testing::gtest_main

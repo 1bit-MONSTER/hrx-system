@@ -126,7 +126,7 @@ struct loom_serve_finite_service_t {
     bool owns_stream;
     // Cumulative work retained even when every event has been overwritten.
     loom_serve_telemetry_counters_t counters;
-    // Terminal request durations retained independently of log readers.
+    // Request latency distributions retained independently of log readers.
     loom_serve_telemetry_latency_t latency;
   } telemetry;
 };
@@ -155,8 +155,9 @@ static void loom_serve_finite_request_end(
       .data.end = {.outcome = outcome,
                    .duration_ns = now - arrival_time,
                    .input_tokens = input_tokens}};
-  loom_serve_telemetry_latency_observe(&service->telemetry.latency, outcome,
-                                       record.data.end.duration_ns);
+  loom_serve_telemetry_latency_observe(
+      &service->telemetry.latency.outcomes[outcome],
+      record.data.end.duration_ns);
   loom_serve_telemetry_diagnostic_capture(status, &record.data.end.diagnostic);
   loom_serve_telemetry_stream_append(service->telemetry.stream, &record);
 }
@@ -652,6 +653,11 @@ static iree_status_t loom_serve_finite_collect(
         job->outcome = loom_serve_finite_send(
             job->connection, iree_string_builder_view(&job->response),
             &job->status);
+        if (job->outcome == LOOM_SERVE_TELEMETRY_COMPLETED) {
+          loom_serve_telemetry_latency_publish_output(
+              &service->telemetry.latency, service->telemetry.stream, job->id,
+              job->arrival_time);
+        }
         job->connection = NULL;
       }
     }

@@ -8,6 +8,7 @@
 #define LOOM_SERVE_TELEMETRY_LATENCY_H_
 
 #include "loom/serve/telemetry/record.h"
+#include "loom/serve/telemetry/stream.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,14 +26,18 @@ typedef struct loom_serve_telemetry_latency_histogram_t {
   uint64_t sum_ns;
 } loom_serve_telemetry_latency_histogram_t;
 
-// Model protocol receipt through terminal owner retirement, not peer receipt or
-// device time. Stored separately from compact work counters and event records.
-// Updated and copied only by the serialized serving owner, without allocation,
-// locking, formatting, or consulting telemetry readers.
+// Model protocol receipt through observed request milestones, not peer receipt
+// or device time. Stored separately from compact work counters and event
+// records. Updated and copied only by the serialized serving owner, without
+// allocation, locking, formatting, or consulting telemetry readers.
 typedef struct loom_serve_telemetry_latency_t {
   // Exactly one duration per terminal request, indexed by its existing outcome.
   loom_serve_telemetry_latency_histogram_t
       outcomes[LOOM_SERVE_TELEMETRY_FAILED + 1];
+  // One duration per request whose first meaningful output reached the carrier,
+  // regardless of its eventual terminal outcome. Empty/error responses do not
+  // contribute a sample.
+  loom_serve_telemetry_latency_histogram_t first_output;
 } loom_serve_telemetry_latency_t;
 
 // Returns the inclusive upper bound in nanoseconds for a finite bucket. The
@@ -40,11 +45,20 @@ typedef struct loom_serve_telemetry_latency_t {
 // bucket has no numeric bound.
 uint64_t loom_serve_telemetry_latency_bound_ns(iree_host_size_t index);
 
-// Observes one nonnegative duration at the same ownership boundary that counts
-// the terminal outcome. The caller supplies trusted request lifetime state.
+// Observes one nonnegative duration at its owning milestone. The caller
+// supplies trusted request lifetime state and records each milestone exactly
+// once.
 void loom_serve_telemetry_latency_observe(
+    loom_serve_telemetry_latency_histogram_t* histogram, uint64_t duration_ns);
+
+// Records the first meaningful output accepted by the HTTP carrier, using one
+// timestamp for the histogram and event. The serialized owner calls this once
+// after a successful payload copy; framing, empty deltas, errors, and control
+// responses are not model output. A later failure does not undo this milestone.
+void loom_serve_telemetry_latency_publish_output(
     loom_serve_telemetry_latency_t* latency,
-    loom_serve_telemetry_outcome_t outcome, uint64_t duration_ns);
+    loom_serve_telemetry_stream_t* stream, uint64_t request,
+    iree_time_t arrival_time);
 
 // Adds a complete owner snapshot, including buckets and exact sums. Source and
 // target are distinct; neither is being concurrently updated.

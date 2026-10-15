@@ -14,6 +14,24 @@
 
 namespace {
 
+TEST(TelemetryRecord, FirstOutputIdentifiesTheRequestWithoutContent) {
+  loom_serve_telemetry_record_t record = {
+      .time_ns = 71,
+      .request = 5,
+      .event = &LOOM_SERVE_TELEMETRY_FIRST_OUTPUT,
+  };
+  record.data.first_output.duration_ns = 37;
+  iree_string_builder_t output;
+  iree_string_builder_initialize(iree_allocator_system(), &output);
+  IREE_ASSERT_OK(loom_serve_telemetry_record_format(2, &record, &output));
+  const auto text = iree_string_builder_view(&output);
+  EXPECT_EQ(
+      std::string(text.data, text.size),
+      "{\"event\":\"first_output\",\"sequence\":2,\"time_ns\":71,\"request\":5,"
+      "\"duration_ns\":37}\n");
+  iree_string_builder_deinitialize(&output);
+}
+
 TEST(TelemetryRecord, DiagnosticsOutliveTheirBorrowedStatus) {
   const std::string message(200, 'x');
   iree_status_t status =

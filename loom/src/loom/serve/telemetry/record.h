@@ -50,6 +50,7 @@ typedef struct loom_serve_telemetry_event_t {
 extern const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_STREAM_BEGIN;
 extern const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_SNAPSHOT;
 extern const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_REQUEST_BEGIN;
+extern const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_FIRST_OUTPUT;
 extern const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_REQUEST_END;
 extern const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_BATCH_SUBMIT;
 extern const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_BATCH_END;
@@ -117,6 +118,11 @@ struct loom_serve_telemetry_record_t {
       // Final status detail, bounded and independently owned.
       loom_serve_telemetry_diagnostic_t diagnostic;
     } end;
+    // First meaningful model output copied into the HTTP carrier.
+    struct {
+      // Model protocol receipt to carrier acceptance, not peer receipt.
+      uint64_t duration_ns;
+    } first_output;
     // Device invocation boundary, independent of the number of clients.
     struct {
       // Monotonic invocation ID within this stream.

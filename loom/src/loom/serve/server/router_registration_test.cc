@@ -918,11 +918,15 @@ TEST_P(HttpRouterRegistrationLatencyTest,
     std::lock_guard<std::mutex> lock(managed_.mutex);
     managed_.counters = {.requests = 3, .completed = 2, .rejected = 1};
     loom_serve_telemetry_latency_observe(
-        &managed_.latency, LOOM_SERVE_TELEMETRY_COMPLETED, 100000000);
+        &managed_.latency.outcomes[LOOM_SERVE_TELEMETRY_COMPLETED], 100000000);
     loom_serve_telemetry_latency_observe(
-        &managed_.latency, LOOM_SERVE_TELEMETRY_COMPLETED, 2000000000);
+        &managed_.latency.outcomes[LOOM_SERVE_TELEMETRY_COMPLETED], 2000000000);
     loom_serve_telemetry_latency_observe(
-        &managed_.latency, LOOM_SERVE_TELEMETRY_REJECTED, 3000000);
+        &managed_.latency.outcomes[LOOM_SERVE_TELEMETRY_REJECTED], 3000000);
+    loom_serve_telemetry_latency_observe(&managed_.latency.first_output,
+                                         10000000);
+    loom_serve_telemetry_latency_observe(&managed_.latency.first_output,
+                                         500000000);
   }
   Register();
   const auto live = Read(Send("GET", "/metrics"));
@@ -948,6 +952,12 @@ TEST_P(HttpRouterRegistrationLatencyTest,
     EXPECT_NE(response.find("loom_serve_server_request_duration_seconds_count{"
                             "outcome=\"rejected\"} 1\n"),
               std::string::npos);
+    EXPECT_NE(
+        response.find("loom_serve_server_first_output_seconds_count{} 2\n"),
+        std::string::npos);
+    EXPECT_NE(
+        response.find("loom_serve_server_first_output_seconds_sum{} 0.51\n"),
+        std::string::npos);
   }
   managed_.ReleaseRetirement();
   while (Read(Send("GET", "/v1/status")).find(R"("id":"dynamic")") !=
@@ -959,7 +969,9 @@ TEST_P(HttpRouterRegistrationLatencyTest,
     managed_.retiring = false;
     managed_.counters = {.requests = 1, .completed = 1};
     loom_serve_telemetry_latency_observe(
-        &managed_.latency, LOOM_SERVE_TELEMETRY_COMPLETED, 7000000000);
+        &managed_.latency.outcomes[LOOM_SERVE_TELEMETRY_COMPLETED], 7000000000);
+    loom_serve_telemetry_latency_observe(&managed_.latency.first_output,
+                                         1000000000);
   }
   // Declare() expects the initial factory creation count. Register explicitly
   // here to exercise reuse of a name without resetting its history.
@@ -993,6 +1005,10 @@ TEST_P(HttpRouterRegistrationLatencyTest,
                          "outcome=\"rejected\"} 1\n"),
             std::string::npos);
   EXPECT_EQ(removed.find("model=\"dynamic\""), std::string::npos);
+  EXPECT_NE(removed.find("loom_serve_server_first_output_seconds_count{} 3\n"),
+            std::string::npos);
+  EXPECT_NE(removed.find("loom_serve_server_first_output_seconds_sum{} 1.51\n"),
+            std::string::npos);
 }
 
 INSTANTIATE_TEST_SUITE_P(Workers, HttpRouterRegistrationLatencyTest,

@@ -110,6 +110,14 @@ static iree_status_t loom_serve_telemetry_record_request_end(
                                                 output);
 }
 
+static iree_status_t loom_serve_telemetry_record_first_output(
+    const loom_serve_telemetry_record_t* record,
+    iree_string_builder_t* output) {
+  return iree_string_builder_append_format(
+      output, ",\"duration_ns\":%" PRIu64,
+      record->data.first_output.duration_ns);
+}
+
 static iree_status_t loom_serve_telemetry_record_batch(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
@@ -130,6 +138,8 @@ const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_SNAPSHOT = {
     "snapshot", loom_serve_telemetry_record_snapshot};
 const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_REQUEST_BEGIN = {
     "request_begin", NULL};
+const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_FIRST_OUTPUT = {
+    "first_output", loom_serve_telemetry_record_first_output};
 const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_REQUEST_END = {
     "request_end", loom_serve_telemetry_record_request_end};
 const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_BATCH_SUBMIT = {

@@ -1128,6 +1128,15 @@ static iree_status_t loom_serve_text_prepare_ready(
       return iree_ok_status();
     }
     iree_string_builder_reset(&session->packet);
+    if (session->request.publication.pending &&
+        !session->request.publication.recorded) {
+      loom_serve_telemetry_latency_publish_output(
+          &service->telemetry.latency, service->telemetry.stream,
+          session->lifetime.serial,
+          session->request.start_time - session->request.queue_duration);
+      session->request.publication.recorded = true;
+    }
+    session->request.publication.pending = false;
     if (session->request.phase == LOOM_SERVE_TEXT_REQUEST_FINISHING) {
       loom_serve_text_request_finish(service, session);
       return iree_ok_status();

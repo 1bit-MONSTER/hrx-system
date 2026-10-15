@@ -73,8 +73,33 @@ percentiles are estimates; `_sum / _count` gives the mean without bucket
 rounding. An empty distribution is not a zero-latency observation. If a borrowed
 service does not publish durations, its histogram is absent and
 `loom_serve_server_latency_available` is zero instead of exposing an incomplete
-server total. First-output latency and client completion still require client
-measurement; this histogram does not claim to be TTFT or device execution time.
+server total. Client completion still requires client measurement; this
+histogram does not claim to be TTFT or device execution time.
+
+## Measure first meaningful output
+
+`loom_serve_model_first_output_seconds` measures model protocol receipt through
+the first meaningful result accepted by the HTTP carrier. It has the same
+identity labels and duration buckets, without an `outcome` label: a streaming
+request can publish output and later fail or be cancelled. The server-scoped
+`loom_serve_server_first_output_seconds` retains samples from removed models.
+Each request contributes at most one sample, independently of log retention.
+
+For streaming text, content, reasoning, or tool calls count as output; HTTP
+headers, assistant-role announcements, empty deltas, usage, and errors do not.
+An EOS-only empty completion has no sample. Nonstreaming text contributes when
+its nonempty response is accepted, not when internal generation first produces
+a token. Image, embedding, and decision requests contribute when their complete
+result is accepted. Checkpoint controls and raw tokenization are not inference
+output. These distinctions make the distributions useful across modalities
+without calling every response a token.
+
+The corresponding `first_output` event carries the request ID and `duration_ns`
+for correlation with `request_begin` and `request_end`. It reports server-side
+publication, not network delivery or client-visible TTFT. Text's separate
+`request_stats.first_token_ns` measures admission to host processing of the first
+selected token, including EOS; it is not the first-output metric. Router-held
+time remains outside both server-side latency distributions.
 
 ## Poll bounded history
 

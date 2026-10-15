@@ -122,7 +122,7 @@ typedef struct loom_serve_http_service_t {
     // owner turns, never replayed from history. Non-NULL whenever stream is
     // present; counters may also be published without an event stream.
     const loom_serve_telemetry_counters_t* counters;
-    // Optional cumulative terminal durations, independent of ring retention.
+    // Optional cumulative request latency, independent of ring retention.
     // Managed services publish this alongside counters. Borrowed application
     // services may omit it; missing observations are never reported as zero.
     const loom_serve_telemetry_latency_t* latency;

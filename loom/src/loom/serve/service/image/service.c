@@ -136,7 +136,7 @@ struct loom_serve_image_service_t {
     // Protocol outcomes and completed device work, never reconstructed from
     // logs.
     loom_serve_telemetry_counters_t counters;
-    // Terminal request durations retained independently of log readers.
+    // Request latency distributions retained independently of log readers.
     loom_serve_telemetry_latency_t latency;
     // Image-specific units, deliberately separate from token counters.
     loom_serve_image_totals_t totals;
@@ -188,8 +188,9 @@ static void loom_serve_image_request_end(loom_serve_image_service_t* service,
       .event = &LOOM_SERVE_TELEMETRY_REQUEST_END};
   record.data.end.outcome = outcome;
   record.data.end.duration_ns = record.time_ns - job->arrival_time;
-  loom_serve_telemetry_latency_observe(&service->telemetry.latency, outcome,
-                                       record.data.end.duration_ns);
+  loom_serve_telemetry_latency_observe(
+      &service->telemetry.latency.outcomes[outcome],
+      record.data.end.duration_ns);
   loom_serve_telemetry_diagnostic_capture(borrowed_status,
                                           &record.data.end.diagnostic);
   loom_serve_telemetry_stream_append(service->telemetry.stream, &record);
@@ -451,6 +452,11 @@ static void loom_serve_image_finish(loom_serve_image_service_t* service,
       outcome = loom_serve_image_response_send(
           service, service->connection, service->active,
           iree_string_builder_view(&service->cpu.response));
+      if (outcome == LOOM_SERVE_TELEMETRY_COMPLETED) {
+        loom_serve_telemetry_latency_publish_output(
+            &service->telemetry.latency, service->telemetry.stream,
+            service->job.id, service->job.arrival_time);
+      }
     } else {
       loom_serve_http_connection_abort(service->connection);
     }
@@ -645,8 +651,11 @@ static iree_status_t loom_serve_image_accept(
       .connection = connection,
       .job = {.id = ++service->telemetry.counters.requests,
               .arrival_time = iree_time_now()}};
-  loom_serve_image_event(service, &LOOM_SERVE_TELEMETRY_REQUEST_BEGIN,
-                         pending.job.id);
+  const loom_serve_telemetry_record_t begin = {
+      .time_ns = pending.job.arrival_time,
+      .request = pending.job.id,
+      .event = &LOOM_SERVE_TELEMETRY_REQUEST_BEGIN};
+  loom_serve_telemetry_stream_append(service->telemetry.stream, &begin);
   if (!iree_string_view_equal(request->method, IREE_SV("POST")) ||
       !iree_string_view_equal(request->target,
                               IREE_SV("/v1/images/generations"))) {

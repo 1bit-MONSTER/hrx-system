@@ -33,7 +33,7 @@ typedef struct loom_serve_text_telemetry_t {
   bool owns_stream;
   // Always-on model totals independent of heartbeat interval and readers.
   loom_serve_telemetry_counters_t counters;
-  // Terminal request durations, independent of event retention.
+  // Request latency distributions, independent of event retention.
   loom_serve_telemetry_latency_t latency;
   // Monotonic request identity independent of TCP connection identity.
   uint64_t next_serial;

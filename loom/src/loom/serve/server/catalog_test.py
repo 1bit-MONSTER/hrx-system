@@ -21,6 +21,7 @@ from catalog_test_util import (
     Client,
     check_counters,
     check_decision,
+    check_first_output,
     check_latency,
     check_pcm,
     check_png,
@@ -1325,7 +1326,9 @@ def check_dynamic_catalog(
         # scale complete while transport requests park.
         expected_requests = 1 + 2 * model_capacity + len(connection_counts)
         assert before["requests"] == before["completed"] == expected_requests, before
-        before_latency = check_latency(client.request("/metrics"), before)
+        before_metrics = client.request("/metrics")
+        before_latency = check_latency(before_metrics, before)
+        before_output = check_first_output(before_metrics)
         for index, declaration in enumerate(declarations):
             client.request(
                 "/v1/models/unregister",
@@ -1348,7 +1351,9 @@ def check_dynamic_catalog(
             if record["event"] == "counters"
         )
         assert before == after, (before, after)
-        assert check_latency(client.request("/metrics"), after) == before_latency
+        after_metrics = client.request("/metrics")
+        assert check_latency(after_metrics, after) == before_latency
+        assert check_first_output(after_metrics) == before_output
         retired_status = client.request("/v1/status")["server"]
         assert retired_status["resources"]["listeners"] == [
             {"address": address, "waiting_for_capacity": False}
