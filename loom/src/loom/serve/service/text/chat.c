@@ -294,7 +294,7 @@ iree_status_t loom_serve_text_chat_policy_initialize(
   const iree_vm_signature_type_t output_arguments[] = {buffer, i64, i64, i32};
   const iree_vm_signature_type_t output_results[] = {i64, i64, i64, i64};
   const iree_vm_signature_type_t completion_arguments[] = {
-      buffer, buffer, buffer, buffer, i64, i64};
+      buffer, buffer, buffer, buffer, buffer, i64, i64};
   const iree_vm_signature_type_t completion_results[] = {buffer, i32};
   const loom_serve_program_binding_t bindings[] = {
       {IREE_SVL("model_name"), {NULL, 0}, {&buffer, 1}, &name_function},
