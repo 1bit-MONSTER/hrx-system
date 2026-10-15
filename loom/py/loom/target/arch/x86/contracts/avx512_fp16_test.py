@@ -93,6 +93,36 @@ def _register_class(rule: DescriptorRule, field: str) -> str | None:
     )
 
 
+def _representation(rule: DescriptorRule, field: str) -> int:
+    return next(
+        guard.count
+        for guard in rule.guards
+        if guard.kind == GuardKind.LOW_VALUE_REPRESENTATION and guard.field == field
+    )
+
+
+def _predicate_representations(lane_count: int) -> set[tuple[str, int]]:
+    representations = {("x86.k", 1)}
+    for vector_bit_width in (16, 32, 64, 128, 256, 512):
+        if vector_bit_width % lane_count:
+            continue
+        element_bit_width = vector_bit_width // lane_count
+        if element_bit_width not in (8, 16, 32, 64):
+            continue
+        if vector_bit_width == 512 and lane_count != 64:
+            continue
+        register_class = {
+            16: "x86.xmm",
+            32: "x86.xmm",
+            64: "x86.xmm",
+            128: "x86.xmm",
+            256: "x86.ymm",
+            512: "x86.zmm",
+        }[vector_bit_width]
+        representations.add((register_class, element_bit_width))
+    return representations
+
+
 def _descriptor_keys(rule: DescriptorRule) -> tuple[str, ...]:
     return tuple(
         emit.descriptor.key for emit in rule.emit if isinstance(emit, EmitDescriptorOp)
@@ -196,17 +226,18 @@ def test_comparisons_cover_scalar_and_every_vector_representation() -> None:
             _value_type(rule, "lhs"),
             _value_type(rule, "result"),
             _register_class(rule, "result"),
+            _representation(rule, "result"),
         )
         for rule in _rules_for(vector.vector_cmpf)
     } == {
-        (Vector("f16", lanes=4), Vector("i1", lanes=4), "x86.k"),
-        (Vector("f16", lanes=4), Vector("i1", lanes=4), "x86.xmm"),
-        (Vector("f16", lanes=8), Vector("i1", lanes=8), "x86.k"),
-        (Vector("f16", lanes=8), Vector("i1", lanes=8), "x86.xmm"),
-        (Vector("f16", lanes=16), Vector("i1", lanes=16), "x86.k"),
-        (Vector("f16", lanes=16), Vector("i1", lanes=16), "x86.xmm"),
-        (Vector("f16", lanes=32), Vector("i1", lanes=32), "x86.k"),
-        (Vector("f16", lanes=32), Vector("i1", lanes=32), "x86.ymm"),
+        (
+            Vector("f16", lanes=lane_count),
+            Vector("i1", lanes=lane_count),
+            register_class,
+            representation,
+        )
+        for lane_count in (2, 4, 8, 16, 32)
+        for register_class, representation in _predicate_representations(lane_count)
     }
 
     assert {
@@ -214,11 +245,18 @@ def test_comparisons_cover_scalar_and_every_vector_representation() -> None:
             _value_type(rule, "condition"),
             _value_type(rule, "result"),
             _register_class(rule, "condition"),
+            _representation(rule, "condition"),
         )
         for rule in _rules_for(vector.vector_select)
     } == {
-        (Vector("i1", lanes=4), Vector("f16", lanes=4), "x86.k"),
-        (Vector("i1", lanes=4), Vector("f16", lanes=4), "x86.xmm"),
+        (
+            Vector("i1", lanes=lane_count),
+            Vector("f16", lanes=lane_count),
+            register_class,
+            representation,
+        )
+        for lane_count in (2, 4)
+        for register_class, representation in _predicate_representations(lane_count)
     }
 
 
@@ -304,11 +342,13 @@ def test_conversions_cover_every_representable_native_width() -> None:
     }
     assert vector_pairs == {
         vector.vector_extf: {
+            (Vector("f16", lanes=2), Vector("f32", lanes=2)),
             (Vector("f16", lanes=4), Vector("f32", lanes=4)),
             (Vector("f16", lanes=8), Vector("f32", lanes=8)),
             (Vector("f16", lanes=16), Vector("f32", lanes=16)),
         },
         vector.vector_fptrunc: {
+            (Vector("f32", lanes=2), Vector("f16", lanes=2)),
             (Vector("f32", lanes=4), Vector("f16", lanes=4)),
             (Vector("f32", lanes=8), Vector("f16", lanes=8)),
             (Vector("f32", lanes=16), Vector("f16", lanes=16)),
@@ -444,7 +484,9 @@ def test_extrema_cover_exact_and_native_fast_semantics() -> None:
         f"{AVX512_FP16_FLOAT_EXTREMA_MNEMONICS[operation]}."
         f"{register_suffix}"
         for operation in FLOAT_EXTREMA_OPERATIONS
-        for register_suffix in _REGISTER_SUFFIXES.values()
+        for register_suffix in {
+            _REGISTER_SUFFIXES[bit_width] for bit_width in AVX512_FP16_VECTOR_BIT_WIDTHS
+        }
     }
     assert {rule.descriptor.key for rule in fast_rules} == expected_fast_descriptors
 

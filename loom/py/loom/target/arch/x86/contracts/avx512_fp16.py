@@ -210,6 +210,7 @@ def _scalar_rules() -> tuple[DescriptorRule, ...]:
 def _vector_conversion_rules() -> tuple[DescriptorRule, ...]:
     cases: list[DirectDescriptorCase] = []
     for lane_count, input_suffix, result_suffix in (
+        (2, "xmm", "xmm"),
         (4, "xmm", "xmm"),
         (8, "xmm", "ymm"),
         (16, "ymm", "zmm"),

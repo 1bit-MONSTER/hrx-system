@@ -21,9 +21,9 @@ from loom.target.arch.x86.contracts.rule_builders import (
     zmm_reduction_emit_chain as _zmm_reduction_emit_chain,
 )
 from loom.target.arch.x86.vector_families import (
+    AVX2_FLOAT_VECTOR_BIT_WIDTHS,
     AVX2_PACKED_FLOAT_REDUCTION_OPERATIONS,
     AVX2_SCALAR_FLOAT_FMA_MNEMONICS,
-    AVX2_VECTOR_BIT_WIDTHS,
     AVX512_FP16_SCALAR_FLOAT_FMA_MNEMONIC,
     AVX512_FP16_VECTOR_BIT_WIDTHS,
     AVX512_VECTOR_BIT_WIDTHS,
@@ -386,6 +386,7 @@ def _float_reduction_rules(
         for operation in AVX2_PACKED_FLOAT_REDUCTION_OPERATIONS
         for element in elements
         for vector_bit_width in vector_bit_widths
+        if vector_bit_width >= element.bit_width
         for reassociated in (False, True)
     ) + tuple(
         _float_reduction_rule(
@@ -403,6 +404,7 @@ def _float_reduction_rules(
         for operation in FLOAT_EXTREMA_OPERATIONS
         for element in elements
         for vector_bit_width in vector_bit_widths
+        if vector_bit_width >= element.bit_width
     )
 
 
@@ -410,7 +412,7 @@ def avx2_float_reduction_rules(
     descriptor_lookup: _DescriptorLookup,
 ) -> tuple[DescriptorRule, ...]:
     """Generates ordered and reassociated AVX2 float reductions."""
-    return _float_reduction_rules(AVX2_VECTOR_BIT_WIDTHS, descriptor_lookup)
+    return _float_reduction_rules(AVX2_FLOAT_VECTOR_BIT_WIDTHS, descriptor_lookup)
 
 
 def avx512_float_reduction_rules(
@@ -541,6 +543,7 @@ def _float_dot_rules(
         )
         for element in elements
         for vector_bit_width in vector_bit_widths
+        if vector_bit_width >= element.bit_width
     )
 
 
@@ -548,7 +551,7 @@ def avx2_float_dot_rules(
     descriptor_lookup: _DescriptorLookup,
 ) -> tuple[DescriptorRule, ...]:
     """Generates exact ordered scalar-FMA dots for every AVX2 float shape."""
-    return _float_dot_rules(AVX2_VECTOR_BIT_WIDTHS, descriptor_lookup)
+    return _float_dot_rules(AVX2_FLOAT_VECTOR_BIT_WIDTHS, descriptor_lookup)
 
 
 def avx512_float_dot_rules(

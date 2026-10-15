@@ -263,3 +263,34 @@ low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({sig
   %f64 = vfmadd231sd.xmm %38, %39, %40
   return %f32, %f64
 }
+
+// ====
+
+x86.target<avx2> @target
+
+func.def target(@target) @subnative_float_reductions(%f32_lhs: vector<2xf32>, %f32_rhs: vector<2xf32>, %f32_init: f32, %f64_lhs: vector<1xf64>, %f64_rhs: vector<1xf64>, %f64_init: f64) -> (f32, f32, f32, f64, f64) {
+  %f32_ordered = vector.reduce<addf> %f32_lhs, %f32_init : vector<2xf32>, f32
+  %f32_reassociated = vector.reduce<mulf, reassoc> %f32_lhs, %f32_init : vector<2xf32>, f32
+  %f32_dot = vector.dotf %f32_lhs, %f32_rhs, %f32_init : vector<2xf32>, vector<2xf32>, f32
+  %f64_ordered = vector.reduce<addf> %f64_lhs, %f64_init : vector<1xf64>, f64
+  %f64_dot = vector.dotf %f64_lhs, %f64_rhs, %f64_init : vector<1xf64>, vector<1xf64>, f64
+  func.return %f32_ordered, %f32_reassociated, %f32_dot, %f64_ordered, %f64_dot : f32, f32, f32, f64, f64
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (vector<2xf32>, vector<2xf32>, f32, vector<1xf64>, vector<1xf64>, f64) -> (f32, f32, f32, f64, f64)}) @subnative_float_reductions(%f32_lhs: reg<x86.xmm>, %f32_rhs: reg<x86.xmm>, %f32_init: reg<x86.xmm>, %f64_lhs: reg<x86.xmm>, %f64_rhs: reg<x86.xmm>, %f64_init: reg<x86.xmm>) -> (reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>) asm {
+  %27 = vaddss.xmm %f32_init, %f32_lhs
+  %28 = vpermilps.xmm %f32_lhs, 1
+  %f32_ordered = vaddss.xmm %27, %28
+  %30 = vpsrldq.xmm %f32_lhs, 4
+  %31 = vmulps.xmm %f32_lhs, %30
+  %f32_reassociated = vmulss.xmm %f32_init, %31
+  %33 = copy %f32_init : reg<x86.xmm> -> reg<x86.xmm>
+  %34 = vfmadd231ss.xmm %33, %f32_lhs, %f32_rhs
+  %36 = vpermilps.xmm %f32_rhs, 1
+  %f32_dot = vfmadd231ss.xmm %34, %28, %36
+  %f64_ordered = vaddsd.xmm %f64_init, %f64_lhs
+  %39 = copy %f64_init : reg<x86.xmm> -> reg<x86.xmm>
+  %f64_dot = vfmadd231sd.xmm %39, %f64_lhs, %f64_rhs
+  return %f32_ordered, %f32_reassociated, %f32_dot, %f64_ordered, %f64_dot
+}

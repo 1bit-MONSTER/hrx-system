@@ -177,10 +177,12 @@ def _uniform_vector_constant_rules(
     descriptor_key_prefix: str,
     vector_bit_widths: tuple[int, ...],
     broadcast_source: _IntegerBroadcastSource,
+    integer_elements: Sequence[VectorElement] = INTEGER_ELEMENTS,
+    floating_elements: Sequence[VectorElement] = (*STORAGE_ELEMENTS, *FLOAT_ELEMENTS),
     priority: int = 0,
 ) -> tuple[DescriptorRule, ...]:
     rules: list[DescriptorRule] = []
-    for element in INTEGER_ELEMENTS:
+    for element in integer_elements:
         lane_type = _full_vector_type(element, 128)
         rules.extend(
             integer_vector_constant_rule(
@@ -206,7 +208,7 @@ def _uniform_vector_constant_rules(
             )
             for vector_bit_width in vector_bit_widths
         )
-    for element in (*STORAGE_ELEMENTS, *FLOAT_ELEMENTS):
+    for element in floating_elements:
         lane_type = _full_vector_type(element, 128)
         rules.extend(
             floating_vector_constant_bits_rule(
@@ -344,6 +346,8 @@ def _vector_bitcast_alias_rules(
         (("f64",), "i64", 64),
     ):
         for vector_bit_width in vector_bit_widths:
+            if vector_bit_width < element_bit_width:
+                continue
             lane_count = vector_bit_width // element_bit_width
             integer_type = Vector(integer_element, lanes=lane_count)
             float_type = Vector(float_elements, lanes=lane_count)
@@ -1153,6 +1157,14 @@ def avx2_vector_construction_rules(
             vector_bit_widths=AVX2_VECTOR_BIT_WIDTHS,
             broadcast_source=_IntegerBroadcastSource.XMM_LOW_LANE,
         ),
+        *_uniform_vector_constant_rules(
+            descriptor_lookup,
+            descriptor_key_prefix="x86.avx2",
+            vector_bit_widths=(64,),
+            broadcast_source=_IntegerBroadcastSource.XMM_LOW_LANE,
+            integer_elements=(),
+            floating_elements=FLOAT_ELEMENTS,
+        ),
         *_vector_splat_rules(
             descriptor_lookup,
             descriptor_key_prefix="x86.avx2",
@@ -1165,7 +1177,7 @@ def avx2_vector_construction_rules(
             load_descriptor_prefix="x86.avx2.vmovdqu.rodata",
             vector_bit_widths=AVX2_VECTOR_BIT_WIDTHS,
         ),
-        *_vector_bitcast_alias_rules(AVX2_VECTOR_BIT_WIDTHS),
+        *_vector_bitcast_alias_rules(AVX2_CARRIER_VECTOR_BIT_WIDTHS),
         *(
             _integer_iota_rule(
                 element,

@@ -16,6 +16,10 @@ AVX2_VECTOR_BIT_WIDTHS = (128, 256)
 # even though they are narrower than an architecturally native packed arithmetic
 # width.
 AVX2_CARRIER_VECTOR_BIT_WIDTHS = (8, 16, 32, 64, *AVX2_VECTOR_BIT_WIDTHS)
+# Packed floating-point instructions operate lane-wise over the low-XMM carrier,
+# so 64-bit logical packets use the same XMM descriptors as architecturally
+# native packed widths. One-lane f32 packets retain their scalar projection.
+AVX2_FLOAT_VECTOR_BIT_WIDTHS = (64, *AVX2_VECTOR_BIT_WIDTHS)
 AVX512_VECTOR_BIT_WIDTHS = (512,)
 AVX512_CARRIER_VECTOR_BIT_WIDTHS = (
     *AVX2_CARRIER_VECTOR_BIT_WIDTHS,

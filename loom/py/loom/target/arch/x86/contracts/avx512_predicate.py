@@ -169,18 +169,20 @@ _SELECT_GROUPS = tuple(
 )
 
 
-def _operation_representations(
+def _operation_representation_bit_widths(
     lane_count: int, vector_bit_width: int | None = None
-) -> tuple[str, ...]:
+) -> tuple[int | None, ...]:
     """Returns only representations not already implemented by AVX2."""
     if lane_count == 64 or vector_bit_width == 512:
-        return ("x86.k", _CARRIER_REGISTER_CLASSES[lane_count])
-    return ("x86.k",)
+        return (None, lane_count * _CARRIER_ELEMENT_BIT_WIDTHS[lane_count])
+    return (None,)
 
 
-def _all_operation_representations(lane_count: int) -> tuple[str, ...]:
-    """Returns the native mask and callable predicate representations."""
-    return ("x86.k", _CARRIER_REGISTER_CLASSES[lane_count])
+def _all_operation_representation_bit_widths(
+    lane_count: int,
+) -> tuple[int | None, ...]:
+    """Returns the native mask and every legal SIMD representation."""
+    return (None, *_predicate_simd_representation_bit_widths(lane_count))
 
 
 def _predicate_simd_representation_bit_widths(lane_count: int) -> tuple[int, ...]:
@@ -971,13 +973,13 @@ def _comparison_rule(
     operand_type: TypePattern,
     result_type: TypePattern,
     lane_count: int,
-    result_register_class: str,
+    result_vector_bit_width: int | None,
     compare: Descriptor,
     priority: int = 0,
 ) -> DescriptorRule:
     native_result = (
         ValueRef.result("result")
-        if result_register_class == "x86.k"
+        if result_vector_bit_width is None
         else ValueRef.temporary("mask")
     )
     emits = [
@@ -990,7 +992,7 @@ def _comparison_rule(
             results={"dst": native_result},
             result_types=(
                 None
-                if result_register_class == "x86.k"
+                if result_vector_bit_width is None
                 else {"dst": DescriptorResultType()}
             ),
             immediates={
@@ -999,14 +1001,18 @@ def _comparison_rule(
         )
     ]
     conversion = None
-    if result_register_class != "x86.k":
-        conversion = descriptor_lookup(_mask_to_carrier_descriptor_key(lane_count))
-        emits.extend(
-            _mask_to_carrier_emit(
-                descriptor_lookup,
-                lane_count,
-                native_result,
-                ValueRef.result("result"),
+    if result_vector_bit_width is not None:
+        conversion = descriptor_lookup(
+            _mask_to_vector_descriptor_key(
+                result_vector_bit_width // lane_count,
+                result_vector_bit_width,
+            )
+        )
+        emits.append(
+            _op_emit(
+                descriptor=conversion,
+                operands={"source": native_result},
+                results={"dst": ValueRef.result("result")},
             )
         )
     return DescriptorRule(
@@ -1020,8 +1026,8 @@ def _comparison_rule(
             ),
             *_typed_guards(("lhs", "rhs"), operand_type),
             Guard.value_type("result", result_type),
-            *_predicate_representation_guards(
-                "result", lane_count, result_register_class
+            *_conversion_representation_guards(
+                "result", lane_count, result_vector_bit_width
             ),
             *(
                 (Guard.descriptor_available(conversion),)
@@ -1059,10 +1065,10 @@ def _integer_compare_rules(
                         operand_type=operand_type,
                         result_type=result_type,
                         lane_count=lane_count,
-                        result_register_class=result_register_class,
+                        result_vector_bit_width=result_vector_bit_width,
                         compare=compare,
                     )
-                    for result_register_class in _operation_representations(
+                    for result_vector_bit_width in _operation_representation_bit_widths(
                         lane_count, vector_bit_width
                     )
                 )
@@ -1092,10 +1098,10 @@ def _float_compare_rules(
                     operand_type=operand_type,
                     result_type=result_type,
                     lane_count=lane_count,
-                    result_register_class=result_register_class,
+                    result_vector_bit_width=result_vector_bit_width,
                     compare=compare,
                 )
-                for result_register_class in _operation_representations(
+                for result_vector_bit_width in _operation_representation_bit_widths(
                     lane_count, vector_bit_width
                 )
             )
@@ -1124,11 +1130,13 @@ def avx512_fp16_compare_rules(
                 operand_type=operand_type,
                 result_type=result_type,
                 lane_count=lane_count,
-                result_register_class=result_register_class,
+                result_vector_bit_width=result_vector_bit_width,
                 compare=compare,
                 priority=1,
             )
-            for result_register_class in _all_operation_representations(lane_count)
+            for result_vector_bit_width in _all_operation_representation_bit_widths(
+                lane_count
+            )
         )
     return tuple(rules)
 
@@ -1188,24 +1196,29 @@ def _select_rule(
     lane_count: int,
     value_type: TypePattern,
     blend: Descriptor,
-    condition_register_class: str,
+    condition_vector_bit_width: int | None,
     priority: int = 0,
 ) -> DescriptorRule:
     mask = (
         ValueRef.operand("condition")
-        if condition_register_class == "x86.k"
+        if condition_vector_bit_width is None
         else ValueRef.temporary("mask")
     )
     conversion = None
     emits = []
-    if condition_register_class != "x86.k":
-        conversion = descriptor_lookup(_carrier_to_mask_descriptor_key(lane_count))
-        emits.extend(
-            avx512_predicate_carrier_to_mask_emits(
-                descriptor_lookup,
-                lane_count,
-                ValueRef.operand("condition"),
-                mask,
+    if condition_vector_bit_width is not None:
+        conversion = descriptor_lookup(
+            _vector_to_mask_descriptor_key(
+                condition_vector_bit_width // lane_count,
+                condition_vector_bit_width,
+            )
+        )
+        emits.append(
+            _op_emit(
+                descriptor=conversion,
+                operands={"source": ValueRef.operand("condition")},
+                results={"dst": mask},
+                result_types={"dst": DescriptorResultType()},
             )
         )
     emits.append(
@@ -1225,8 +1238,8 @@ def _select_rule(
         guards=(
             Guard.value_type("condition", _PREDICATE_TYPES[lane_count]),
             *_typed_guards(("true_value", "false_value", "result"), value_type),
-            *_predicate_representation_guards(
-                "condition", lane_count, condition_register_class
+            *_conversion_representation_guards(
+                "condition", lane_count, condition_vector_bit_width
             ),
             *((Guard.descriptor_available(conversion),) if conversion else ()),
         ),
@@ -1251,9 +1264,9 @@ def _select_rules(
                     lane_count=lane_count,
                     value_type=value_type,
                     blend=blend,
-                    condition_register_class=condition_register_class,
+                    condition_vector_bit_width=condition_vector_bit_width,
                 )
-                for condition_register_class in _operation_representations(
+                for condition_vector_bit_width in _operation_representation_bit_widths(
                     lane_count, vector_bit_width
                 )
             )
@@ -1263,20 +1276,22 @@ def _select_rules(
 def avx512_fp16_select_rules(
     descriptor_lookup: _DescriptorLookup,
 ) -> tuple[DescriptorRule, ...]:
-    """Selects four-lane FP16 values in the low half of XMM."""
-    lane_count = 4
-    value_type = Vector(FP16_ELEMENT.name, lanes=lane_count)
-    blend = descriptor_lookup("x86.avx512.vpblendmw.xmm")
+    """Selects subregister FP16 values with native masks."""
     return tuple(
         _select_rule(
             descriptor_lookup,
             lane_count=lane_count,
-            value_type=value_type,
-            blend=blend,
-            condition_register_class=condition_register_class,
+            value_type=Vector(FP16_ELEMENT.name, lanes=lane_count),
+            blend=descriptor_lookup("x86.avx512.vpblendmw.xmm"),
+            condition_vector_bit_width=condition_vector_bit_width,
             priority=1,
         )
-        for condition_register_class in _all_operation_representations(lane_count)
+        for vector_bit_width in AVX512_FP16_VECTOR_BIT_WIDTHS
+        if vector_bit_width < 128
+        for lane_count in (FP16_ELEMENT.lane_count(vector_bit_width),)
+        for condition_vector_bit_width in _all_operation_representation_bit_widths(
+            lane_count
+        )
     )
 
 
