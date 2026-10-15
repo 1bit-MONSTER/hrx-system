@@ -14,19 +14,15 @@ func.def target(@target) @overlapping_vector_copy(%buffer: buffer) -> (vector<3x
 // ----
 low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @overlapping_vector_copy() -> (reg<aie2p.vec256 x2>) asm {
   %view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
-  %21 = lda.u16 %view, 0
-  %22 = lda.u16 %view, 2
-  %23 = lda.u16 %view, 4
-  %24 = vbcst.16 %21
-  %25 = mov.short 1
-  %26 = copy %25 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %27 = vinsert.16.reg %24, %26, %22
-  %28 = mov.short 2
-  %29 = copy %28 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %value = vinsert.16.reg %27, %29, %23
-  st.s16 %21, %view, 2
-  st.s16 %22, %view, 4
-  st.s16 %23, %view, 6
+  %15 = lda.u16 %view, 0
+  %16 = lda.u16 %view, 2
+  %17 = lda.u16 %view, 4
+  %18 = vbcst.16 %17
+  %19 = vpush.lo.16 %16, %18
+  %value = vpush.lo.16 %15, %19
+  st.s16 %15, %view, 2
+  st.s16 %16, %view, 4
+  st.s16 %17, %view, 6
   return %value
 }
 
@@ -569,14 +565,14 @@ func.def target(@target) @roundtrip_f32x7(%input: buffer, %output: buffer) {
 low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @roundtrip_f32x7() asm {
   %input_view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
   %output_view = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
-  %28 = vlda.128.f32x4 %input_view, 0
-  %30 = lda %input_view, 16
-  %31 = lda %input_view, 20
-  %32 = lda %input_view, 24
-  vst.128.f32x4 %28, %output_view, 0
-  st %30, %output_view, 16
-  st %31, %output_view, 20
-  st %32, %output_view, 24
+  %22 = vlda.128.f32x4 %input_view, 0
+  %24 = lda %input_view, 16
+  %25 = lda %input_view, 20
+  %26 = lda %input_view, 24
+  vst.128.f32x4 %22, %output_view, 0
+  st %24, %output_view, 16
+  st %25, %output_view, 20
+  st %26, %output_view, 24
   return
 }
 
@@ -624,20 +620,20 @@ func.def target(@target) @roundtrip_f8e4m3x19(%input: buffer, %output: buffer) {
 low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @roundtrip_f8e4m3x19() asm {
   %input_view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
   %output_view = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
-  %28 = vlda.128.i8x16 %input_view, 0
-  %30 = mov.static-byte-offset 16
+  %22 = vlda.128.i8x16 %input_view, 0
+  %24 = mov.static-byte-offset 16
+  %25 = mov.address-index %24
+  %26 = lda.i8.index %input_view, %25
+  %27 = mov.static-byte-offset 17
+  %28 = mov.address-index %27
+  %29 = lda.i8.index %input_view, %28
+  %30 = mov.static-byte-offset 18
   %31 = mov.address-index %30
   %32 = lda.i8.index %input_view, %31
-  %33 = mov.static-byte-offset 17
-  %34 = mov.address-index %33
-  %35 = lda.i8.index %input_view, %34
-  %36 = mov.static-byte-offset 18
-  %37 = mov.address-index %36
-  %38 = lda.i8.index %input_view, %37
-  vst.128.i8x16 %28, %output_view, 0
+  vst.128.i8x16 %22, %output_view, 0
+  st.i8.index %26, %output_view, %25
+  st.i8.index %29, %output_view, %28
   st.i8.index %32, %output_view, %31
-  st.i8.index %35, %output_view, %34
-  st.i8.index %38, %output_view, %37
   return
 }
 
@@ -870,14 +866,12 @@ func.def target(@target) @roundtrip_i8x2(%input: buffer, %output: buffer) -> (ve
 low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @roundtrip_i8x2() -> (reg<aie2p.vec256 x2>) asm {
   %input_view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
   %output_view = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
-  %20 = lda.u8 %input_view, 0
-  %21 = lda.u8 %input_view, 1
-  %22 = vbcst.8 %20
-  %23 = mov.short 1
-  %24 = copy %23 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %value = vinsert.8.reg %22, %24, %21
-  st.s8 %20, %output_view, 0
-  st.s8 %21, %output_view, 1
+  %17 = lda.u8 %input_view, 0
+  %18 = lda.u8 %input_view, 1
+  %19 = vbcst.8 %18
+  %value = vpush.lo.8 %17, %19
+  st.s8 %17, %output_view, 0
+  st.s8 %18, %output_view, 1
   return %value
 }
 
@@ -900,25 +894,21 @@ func.def target(@target) @roundtrip_f16x3(%input: buffer, %output: buffer) -> (v
 low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @roundtrip_f16x3() -> (reg<aie2p.vec256 x2>) asm {
   %input_view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
   %output_view = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
-  %25 = lda.u16 %input_view, 0
-  %26 = lda.u16 %input_view, 2
-  %27 = lda.u16 %input_view, 4
-  %28 = vbcst.16 %25
-  %29 = mov.short 1
-  %30 = copy %29 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %31 = vinsert.16.reg %28, %30, %26
-  %32 = mov.short 2
-  %33 = copy %32 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %value = vinsert.16.reg %31, %33, %27
-  st.s16 %25, %output_view, 0
-  st.s16 %26, %output_view, 2
-  st.s16 %27, %output_view, 4
+  %19 = lda.u16 %input_view, 0
+  %20 = lda.u16 %input_view, 2
+  %21 = lda.u16 %input_view, 4
+  %22 = vbcst.16 %21
+  %23 = vpush.lo.16 %20, %22
+  %value = vpush.lo.16 %19, %23
+  st.s16 %19, %output_view, 0
+  st.s16 %20, %output_view, 2
+  st.s16 %21, %output_view, 4
   return %value
 }
 
 // ====
 
-// RUN: with-checks emit source-low output=low
+// RUN: emit source-low output=low
 
 aie2p.target<core> @target
 
@@ -939,22 +929,29 @@ func.def target(@target) @gather_scatter_i16x4(%input: buffer, %output: buffer) 
 }
 
 // ----
-CHECK: * = lda.u16 %input_view, 0
-CHECK: * = lda.u16 %input_view, 6
-CHECK: * = lda.u16 %input_view, 14
-CHECK: * = mov.static-byte-offset 24
-CHECK: * = mov.address-index *
-CHECK: * = lda.i16.index %input_view, *
-CHECK: %value = vinsert.16.reg *
-CHECK: st.s16 *, %output_view, 0
-CHECK: st.s16 *, %output_view, 6
-CHECK: st.s16 *, %output_view, 14
-CHECK: st.i16.index *, %output_view, *
-CHECK: return %value
+low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @gather_scatter_i16x4() -> (reg<aie2p.vec256 x2>) asm {
+  %input_view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %output_view = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %34 = lda.u16 %input_view, 0
+  %35 = lda.u16 %input_view, 6
+  %36 = lda.u16 %input_view, 14
+  %37 = mov.static-byte-offset 24
+  %38 = mov.address-index %37
+  %39 = lda.i16.index %input_view, %38
+  %40 = vbcst.16 %39
+  %41 = vpush.lo.16 %36, %40
+  %42 = vpush.lo.16 %35, %41
+  %value = vpush.lo.16 %34, %42
+  st.s16 %34, %output_view, 0
+  st.s16 %35, %output_view, 6
+  st.s16 %36, %output_view, 14
+  st.i16.index %39, %output_view, %38
+  return %value
+}
 
 // ====
 
-// RUN: with-checks emit source-low output=low
+// RUN: emit source-low output=low
 
 aie2p.target<core> @target
 
@@ -975,33 +972,83 @@ func.def target(@target) @masked_gather_scatter_i16x4(%input: buffer, %output: b
 }
 
 // ----
-CHECK: * = vsel.8 *, *, %mask
-CHECK: low.cond_br *
-CHECK: * = lda.u16 %input_view, 0
-CHECK: * = vextract.16.imm %old, 0
-CHECK: low.cond_br *
-CHECK: * = lda.u16 %input_view, 6
-CHECK: * = vextract.16.imm %old, 1
-CHECK: low.cond_br *
-CHECK: * = lda.u16 %input_view, 14
-CHECK: * = vextract.16.imm %old, 2
-CHECK: low.cond_br *
-CHECK: * = lda.i16.index %input_view, *
-CHECK: * = vextract.16.imm %old, 3
-CHECK: %gathered = vinsert.16.reg *
-CHECK: * = vextract.16.imm %value, 0
-CHECK: * = vextract.16.imm %value, 1
-CHECK: * = vextract.16.imm %value, 2
-CHECK: * = vextract.16.imm %value, 3
-CHECK: low.cond_br *
-CHECK: st.s16 *, %output_view, 0
-CHECK: low.cond_br *
-CHECK: st.s16 *, %output_view, 6
-CHECK: low.cond_br *
-CHECK: st.s16 *, %output_view, 14
-CHECK: low.cond_br *
-CHECK: st.i16.index *, %output_view, *
-CHECK: return %gathered
+low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @masked_gather_scatter_i16x4(%mask: reg<aie2p.elpredicate>, %old: reg<aie2p.vec256 x2>, %value: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %input_view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
+  %output_view = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
+  %64 = mov.short 1
+  %65 = vbcst.8 %64
+  %66 = vsub.8 %65, %65
+  %67 = vsel.8 %66, %65, %mask
+  %68 = vextract.8.imm %67, 0
+  low.cond_br %68, ^_bb1, ^_bb2 : reg<aie2p.er>
+^_bb1:
+  %69 = lda.u16 %input_view, 0
+  low.br ^_bb3(%69: reg<aie2p.er>)
+^_bb2:
+  %70 = vextract.16.imm %old, 0
+  low.br ^_bb3(%70: reg<aie2p.er>)
+^_bb3(%58: reg<aie2p.er>):
+  %75 = vextract.8.imm %67, 1
+  low.cond_br %75, ^_bb4, ^_bb5 : reg<aie2p.er>
+^_bb4:
+  %76 = lda.u16 %input_view, 6
+  low.br ^_bb6(%76: reg<aie2p.er>)
+^_bb5:
+  %77 = vextract.16.imm %old, 1
+  low.br ^_bb6(%77: reg<aie2p.er>)
+^_bb6(%59: reg<aie2p.er>):
+  %82 = vextract.8.imm %67, 2
+  low.cond_br %82, ^_bb7, ^_bb8 : reg<aie2p.er>
+^_bb7:
+  %83 = lda.u16 %input_view, 14
+  low.br ^_bb9(%83: reg<aie2p.er>)
+^_bb8:
+  %84 = vextract.16.imm %old, 2
+  low.br ^_bb9(%84: reg<aie2p.er>)
+^_bb9(%60: reg<aie2p.er>):
+  %89 = vextract.8.imm %67, 3
+  low.cond_br %89, ^_bb10, ^_bb11 : reg<aie2p.er>
+^_bb10:
+  %90 = mov.static-byte-offset 24
+  %91 = mov.address-index %90
+  %92 = lda.i16.index %input_view, %91
+  low.br ^_bb12(%92: reg<aie2p.er>)
+^_bb11:
+  %93 = vextract.16.imm %old, 3
+  low.br ^_bb12(%93: reg<aie2p.er>)
+^_bb12(%61: reg<aie2p.er>):
+  %94 = vbcst.16 %61
+  %95 = vpush.lo.16 %60, %94
+  %96 = vpush.lo.16 %59, %95
+  %gathered = vpush.lo.16 %58, %96
+  %98 = vextract.16.imm %value, 0
+  %99 = vextract.16.imm %value, 1
+  %100 = vextract.16.imm %value, 2
+  %101 = vextract.16.imm %value, 3
+  low.cond_br %68, ^_bb13, ^_bb14 : reg<aie2p.er>
+^_bb13:
+  st.s16 %98, %output_view, 0
+  low.br ^_bb14
+^_bb14:
+  low.cond_br %75, ^_bb15, ^_bb16 : reg<aie2p.er>
+^_bb15:
+  st.s16 %99, %output_view, 6
+  low.br ^_bb16
+^_bb16:
+  low.cond_br %82, ^_bb17, ^_bb18 : reg<aie2p.er>
+^_bb17:
+  st.s16 %100, %output_view, 14
+  low.br ^_bb18
+^_bb18:
+  low.cond_br %89, ^_bb19, ^_bb20 : reg<aie2p.er>
+^_bb19:
+  %102 = mov.static-byte-offset 24
+  %103 = mov.address-index %102
+  st.i16.index %101, %output_view, %103
+  low.br ^_bb20
+^_bb20:
+  return %gathered
+}
 
 // ====
 
@@ -1022,14 +1069,14 @@ func.def target(@target) @cached_local_i32(%input: buffer, %output: buffer) {
 low.func.def target<amd.xdna.aie2p.core>(@target) abi(object_function) @cached_local_i32() asm {
   %input_view = resource<native_pointer> {index = 0, source_type = buffer} : reg<aie2p.ep>
   %output_view = resource<native_pointer> {index = 1, source_type = buffer} : reg<aie2p.ep>
-  %29 = lda %input_view, 0
-  %30 = lda %input_view, 4
-  %31 = lda %input_view, 8
-  %32 = lda %input_view, 12
-  st %29, %output_view, 0
-  st %30, %output_view, 4
-  st %31, %output_view, 8
-  st %32, %output_view, 12
+  %19 = lda %input_view, 0
+  %20 = lda %input_view, 4
+  %21 = lda %input_view, 8
+  %22 = lda %input_view, 12
+  st %19, %output_view, 0
+  st %20, %output_view, 4
+  st %21, %output_view, 8
+  st %22, %output_view, 12
   return
 }
 

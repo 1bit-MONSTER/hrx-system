@@ -406,6 +406,7 @@ loom_cc_library(
         "lower/rodata.c",
         "lower/shuffle.c",
         "lower/transpose.c",
+        "lower/vector_construct.c",
         "lower/vector_packet.c",
     ],
     hdrs = [
@@ -416,6 +417,7 @@ loom_cc_library(
         "lower/rodata.h",
         "lower/shuffle.h",
         "lower/transpose.h",
+        "lower/vector_construct.h",
         "lower/vector_packet.h",
     ],
     textual_hdrs = ["//loom/src/loom/target/arch/amd/xdna/aie2p/contracts:core_index.inl"],
@@ -622,6 +624,16 @@ loom_cc_binary(
 )
 
 iree_py_test(
+    name = "vector_construct_family_test",
+    size = "small",
+    srcs = ["test/vector_construct_family_test.py"],
+    args = ["$(location :loom-check)"],
+    data = [":loom-check"],
+    main = "test/vector_construct_family_test.py",
+    target_compatible_with = _XDNA_TARGET_COMPATIBLE_WITH,
+)
+
+iree_py_test(
     name = "interleave_family_test",
     size = "small",
     srcs = ["test/interleave_family_test.py"],
@@ -746,6 +758,7 @@ loom_check_test_suite(
         "test/descriptors/scalar_immediates.loom-test",
         "test/descriptors/scalar_nonlinear.loom-test",
         "test/descriptors/scalar_stream.loom-test",
+        "test/descriptors/vector_push.loom-test",
         "test/expansion_report.loom-test",
         "test/kernel_realization.loom-test",
         "test/leaf_alignment.loom-test",
@@ -883,6 +896,7 @@ loom_check_test_suite(
         "test/source_low/vector_concat.loom-test",
         "test/source_low/vector_concat_accumulator.loom-test",
         "test/source_low/vector_constant.loom-test",
+        "test/source_low/vector_construct.loom-test",
         "test/source_low/vector_dot_interleave.loom-test",
         "test/source_low/vector_dynamic_slice.loom-test",
         "test/source_low/vector_float_comparison.loom-test",

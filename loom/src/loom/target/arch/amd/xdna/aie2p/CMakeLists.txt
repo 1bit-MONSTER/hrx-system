@@ -483,6 +483,7 @@ loom_cc_library(
     "lower/rodata.h"
     "lower/shuffle.h"
     "lower/transpose.h"
+    "lower/vector_construct.h"
     "lower/vector_packet.h"
   TEXTUAL_HDRS
     "${IREE_BINARY_DIR}/loom/src/loom/target/arch/amd/xdna/aie2p/contracts/core_index.inl"
@@ -494,6 +495,7 @@ loom_cc_library(
     "lower/rodata.c"
     "lower/shuffle.c"
     "lower/transpose.c"
+    "lower/vector_construct.c"
     "lower/vector_packet.c"
   DEPS
     ::core_descriptors
@@ -717,6 +719,27 @@ endif()
 if(LOOM_TARGET_ARCH_XDNA)
 iree_py_test(
   NAME
+    vector_construct_family_test
+  MAIN
+    "test/vector_construct_family_test.py"
+  SRCS
+    "test/vector_construct_family_test.py"
+  ARGS
+    "{{$<TARGET_FILE:loom::target::arch::amd::xdna::aie2p::loom-check>}}"
+  DATA
+    "loom::target::arch::amd::xdna::aie2p::loom-check"
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
+  TIMEOUT
+    60
+)
+endif()
+
+if(LOOM_TARGET_ARCH_XDNA)
+iree_py_test(
+  NAME
     interleave_family_test
   MAIN
     "test/interleave_family_test.py"
@@ -888,6 +911,7 @@ loom_check_test_suite(
     "test/descriptors/scalar_immediates.loom-test"
     "test/descriptors/scalar_nonlinear.loom-test"
     "test/descriptors/scalar_stream.loom-test"
+    "test/descriptors/vector_push.loom-test"
     "test/expansion_report.loom-test"
     "test/kernel_realization.loom-test"
     "test/leaf_alignment.loom-test"
@@ -1025,6 +1049,7 @@ loom_check_test_suite(
     "test/source_low/vector_concat.loom-test"
     "test/source_low/vector_concat_accumulator.loom-test"
     "test/source_low/vector_constant.loom-test"
+    "test/source_low/vector_construct.loom-test"
     "test/source_low/vector_dot_interleave.loom-test"
     "test/source_low/vector_dynamic_slice.loom-test"
     "test/source_low/vector_float_comparison.loom-test"

@@ -9,11 +9,11 @@ func.def @i32_bitfield_extractu(%value: i32) -> (i32) {
 
 // ----
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i32_bitfield_extractu(%value: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
-  %11 = mov.short 24
-  %12 = lshl %value, %11
-  %13 = mov.short -28
-  %14 = lshl %12, %13
-  return %14
+  %10 = mov.short 24
+  %11 = lshl %value, %10
+  %12 = mov.short -28
+  %13 = lshl %11, %12
+  return %13
 }
 
 // ====
@@ -27,11 +27,11 @@ func.def @i32_bitfield_extracts(%value: i32) -> (i32) {
 
 // ----
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i32_bitfield_extracts(%value: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
-  %11 = mov.short 24
-  %12 = lshl %value, %11
-  %13 = mov.short -28
-  %14 = ashl %12, %13
-  return %14
+  %10 = mov.short 24
+  %11 = lshl %value, %10
+  %12 = mov.short -28
+  %13 = ashl %11, %12
+  return %13
 }
 
 // ====
@@ -59,11 +59,11 @@ func.def @i32_bitfield_extracts_top_aligned(%value: i32) -> (i32) {
 
 // ----
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i32_bitfield_extracts_top_aligned(%value: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
-  %11 = mov.short 0
-  %12 = lshl %value, %11
-  %13 = mov.short -28
-  %14 = ashl %12, %13
-  return %14
+  %10 = mov.short 0
+  %11 = lshl %value, %10
+  %12 = mov.short -28
+  %13 = ashl %11, %12
+  return %13
 }
 
 // ====
@@ -78,14 +78,14 @@ func.def @i32_bitfield_insert(%field_value: i32, %base_value: i32) -> (i32) {
 
 // ----
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i32_bitfield_insert(%field_value: reg<aie2p.er>, %base_value: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
-  %24 = mov.short 15
-  %25 = and %field_value, %24
-  %26 = mov.short 8
-  %27 = lshl %25, %26
-  %28 = mov.i32 -3841
-  %29 = and %base_value, %28
-  %30 = or %29, %27
-  return %30
+  %23 = mov.short 15
+  %24 = and %field_value, %23
+  %25 = mov.short 8
+  %26 = lshl %24, %25
+  %27 = mov.i32 -3841
+  %28 = and %base_value, %27
+  %29 = or %28, %26
+  return %29
 }
 
 // ====
@@ -100,12 +100,12 @@ func.def @i32_bitfield_insert_offset0(%field_value: i32, %base_value: i32) -> (i
 
 // ----
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i32_bitfield_insert_offset0(%field_value: reg<aie2p.er>, %base_value: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
-  %22 = mov.short 15
-  %23 = and %field_value, %22
-  %24 = mov.short -16
-  %25 = and %base_value, %24
-  %26 = or %25, %23
-  return %26
+  %21 = mov.short 15
+  %22 = and %field_value, %21
+  %23 = mov.short -16
+  %24 = and %base_value, %23
+  %25 = or %24, %22
+  return %25
 }
 
 // ====
@@ -136,51 +136,45 @@ func.def @i32_bitfield_b128_shape(%loaded: vector<4xi32>) -> (vector<4xi32>) {
 
 // ----
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i32_bitfield_b128_shape(%loaded: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
-  %78 = vextract.32.imm %loaded, 0
-  %79 = mov.short 26
-  %80 = lshl %78, %79
-  %81 = mov.short -30
-  %82 = lshl %80, %81
-  %83 = mov.short 15
-  %84 = and %78, %83
-  %85 = mov.short 4
-  %86 = lshl %82, %85
-  %87 = mov.short -49
-  %88 = and %84, %87
-  %89 = or %88, %86
-  %90 = vextract.32.imm %loaded, 1
-  %92 = lshl %90, %79
-  %94 = lshl %92, %81
-  %95 = and %90, %83
-  %96 = lshl %94, %85
-  %97 = and %95, %87
-  %98 = or %97, %96
-  %99 = vextract.32.imm %loaded, 2
-  %101 = lshl %99, %79
-  %103 = lshl %101, %81
-  %104 = and %99, %83
-  %105 = lshl %103, %85
-  %106 = and %104, %87
-  %107 = or %106, %105
-  %108 = vextract.32.imm %loaded, 3
-  %110 = lshl %108, %79
-  %112 = lshl %110, %81
-  %113 = and %108, %83
-  %114 = lshl %112, %85
-  %115 = and %113, %87
-  %116 = or %115, %114
-  %117 = vbcst.32 %89
-  %118 = mov.short 1
-  %119 = copy %118 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %120 = vinsert.32.reg %117, %119, %98
-  %121 = mov.short 2
-  %122 = copy %121 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %123 = vinsert.32.reg %120, %122, %107
-  %124 = mov.short 3
-  %125 = copy %124 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %merged = vinsert.32.reg %123, %125, %116
-  %127 = mov.short 32
-  %bias = vbcst.32 %127
+  %74 = vextract.32.imm %loaded, 0
+  %75 = mov.short 26
+  %76 = lshl %74, %75
+  %77 = mov.short -30
+  %78 = lshl %76, %77
+  %79 = mov.short 15
+  %80 = and %74, %79
+  %81 = mov.short 4
+  %82 = lshl %78, %81
+  %83 = mov.short -49
+  %84 = and %80, %83
+  %85 = or %84, %82
+  %86 = vextract.32.imm %loaded, 1
+  %88 = lshl %86, %75
+  %90 = lshl %88, %77
+  %91 = and %86, %79
+  %92 = lshl %90, %81
+  %93 = and %91, %83
+  %94 = or %93, %92
+  %95 = vextract.32.imm %loaded, 2
+  %97 = lshl %95, %75
+  %99 = lshl %97, %77
+  %100 = and %95, %79
+  %101 = lshl %99, %81
+  %102 = and %100, %83
+  %103 = or %102, %101
+  %104 = vextract.32.imm %loaded, 3
+  %106 = lshl %104, %75
+  %108 = lshl %106, %77
+  %109 = and %104, %79
+  %110 = lshl %108, %81
+  %111 = and %109, %83
+  %112 = or %111, %110
+  %113 = vbcst.32 %112
+  %114 = vpush.lo.32 %103, %113
+  %115 = vpush.lo.32 %94, %114
+  %merged = vpush.lo.32 %85, %115
+  %117 = mov.short 32
+  %bias = vbcst.32 %117
   %result = vsub.32 %merged, %bias
   return %result
 }

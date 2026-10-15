@@ -1508,6 +1508,16 @@ _BASE_DESCRIPTOR_SPECS = (
         "II_VINSERT_64_mR29_insert",
         asm_mnemonic="vinsert.64.reg",
     ),
+    *(
+        _DescriptorSpec(
+            f"VPUSH_{direction}_{width}",
+            f"{_TARGET_KEY}.push.{direction}.i{width}",
+            f"integer.push.{direction}.i{width}",
+            f"II_VPUSH_{direction}_{width}",
+        )
+        for direction in ("hi", "lo")
+        for width in (8, 16, 32, 64)
+    ),
     *_vector_memory_descriptor_specs(),
     # Each gather selects four pointers from one 256-bit vector and returns
     # four 64-bit windows. The mode controls subword selection, not result

@@ -127,32 +127,27 @@ func.def @i8_table_lookup_constant_table() -> (vector<4xi8>) {
 
 // ----
 low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i8_table_lookup_constant_table() -> (reg<aie2p.vec256 x2>) asm {
+  %g0 = mov.short -4
   %g1 = mov.short -1
   %g2 = mov.short 2
   %g3 = mov.short 7
-  %22 = mov.short -4
-  %23 = vbcst.8 %22
-  %24 = mov.short 1
-  %25 = copy %24 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %26 = vinsert.8.reg %23, %25, %g1
-  %28 = copy %g2 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %29 = vinsert.8.reg %26, %28, %g2
-  %30 = mov.short 3
-  %31 = copy %30 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %grid = vinsert.8.reg %29, %31, %g3
-  %33 = vextbcst.8 %grid, 3
-  %34 = vextbcst.8 %grid, 2
-  %35 = predicate.constant.low32 2
-  %36 = predicate.complete.zero.high32 %35, 0
-  %37 = vsel.8 %33, %34, %36
-  %38 = vextbcst.8 %grid, 1
-  %39 = predicate.constant.low32 4
-  %40 = predicate.complete.zero.high32 %39, 0
-  %41 = vsel.8 %37, %38, %40
-  %42 = vextbcst.8 %grid, 0
-  %43 = predicate.constant.low32 8
-  %44 = predicate.complete.zero.high32 %43, 0
-  %decoded = vsel.8 %41, %42, %44
+  %18 = vbcst.8 %g3
+  %19 = vpush.lo.8 %g2, %18
+  %20 = vpush.lo.8 %g1, %19
+  %grid = vpush.lo.8 %g0, %20
+  %22 = vextbcst.8 %grid, 3
+  %23 = vextbcst.8 %grid, 2
+  %24 = predicate.constant.low32 2
+  %25 = predicate.complete.zero.high32 %24, 0
+  %26 = vsel.8 %22, %23, %25
+  %27 = vextbcst.8 %grid, 1
+  %28 = predicate.constant.low32 4
+  %29 = predicate.complete.zero.high32 %28, 0
+  %30 = vsel.8 %26, %27, %29
+  %31 = vextbcst.8 %grid, 0
+  %32 = predicate.constant.low32 8
+  %33 = predicate.complete.zero.high32 %32, 0
+  %decoded = vsel.8 %30, %31, %33
   return %decoded
 }
 
@@ -212,6 +207,8 @@ CHECK-NOT: %decoded = vinsert.8.reg *
 
 // ====
 
+// RUN: emit source-low target=amd.xdna.aie2p:core output=low
+
 func.def @i8_table_lookup_u4_constant_table(%packed: vector<2xi8>) -> (vector<4xi8>) {
   %g0 = scalar.constant 0 : i8
   %g1 = scalar.constant -1 : i8
@@ -236,15 +233,107 @@ func.def @i8_table_lookup_u4_constant_table(%packed: vector<2xi8>) -> (vector<4x
 }
 
 // ----
-CHECK: * = mov.short -15
-CHECK: %grid = vinsert.8.reg *
-CHECK: * = vextbcst.8 %grid, 0
-CHECK: * = vextbcst.8 %grid, 15
-CHECK: %decoded = vsel.8 *
-CHECK-NOT: * = vextract.8.reg %grid, *
-CHECK-NOT: %decoded = vinsert.8.reg *
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @i8_table_lookup_u4_constant_table(%packed: reg<aie2p.vec256 x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %g0 = mov.short 0
+  %g1 = mov.short -1
+  %g2 = mov.short 2
+  %g3 = mov.short -3
+  %g4 = mov.short 4
+  %g5 = mov.short -5
+  %g6 = mov.short 6
+  %g7 = mov.short -7
+  %g8 = mov.short 8
+  %g9 = mov.short -9
+  %g10 = mov.short 10
+  %g11 = mov.short -11
+  %g12 = mov.short 12
+  %g13 = mov.short -13
+  %g14 = mov.short 14
+  %g15 = mov.short -15
+  %124 = vbcst.8 %g15
+  %125 = vpush.lo.8 %g14, %124
+  %126 = vpush.lo.8 %g13, %125
+  %127 = vpush.lo.8 %g12, %126
+  %128 = vpush.lo.8 %g11, %127
+  %129 = vpush.lo.8 %g10, %128
+  %130 = vpush.lo.8 %g9, %129
+  %131 = vpush.lo.8 %g8, %130
+  %132 = vpush.lo.8 %g7, %131
+  %133 = vpush.lo.8 %g6, %132
+  %134 = vpush.lo.8 %g5, %133
+  %135 = vpush.lo.8 %g4, %134
+  %136 = vpush.lo.8 %g3, %135
+  %137 = vpush.lo.8 %g2, %136
+  %138 = vpush.lo.8 %g1, %137
+  %grid = vpush.lo.8 %g0, %138
+  %141 = vbcst.8 %g0
+  %142 = vextract.8.imm %packed, 0
+  %143 = vinsert.8.zero %141, %142
+  %144 = vextract.8.imm %packed, 1
+  %145 = mov.short 1
+  %146 = copy %145 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %147 = vinsert.8.reg %143, %146, %144
+  %148 = vextract.32.imm %147, 0
+  %149 = mov.i32 65535
+  %150 = and %148, %149
+  %152 = lshl %150, %g8
+  %153 = or %150, %152
+  %154 = mov.i32 16711935
+  %155 = and %153, %154
+  %157 = lshl %155, %g4
+  %158 = or %155, %157
+  %159 = mov.i32 252645135
+  %160 = and %158, %159
+  %codes = vbcst.32 %160
+  %163 = vbcst.8 %145
+  %164 = vband %codes, %163
+  %165 = vlt.u8x64 %141, %164
+  %167 = vbcst.8 %g2
+  %168 = vband %codes, %167
+  %169 = vlt.u8x64 %141, %168
+  %171 = vbcst.8 %g4
+  %172 = vband %codes, %171
+  %173 = vlt.u8x64 %141, %172
+  %175 = vbcst.8 %g8
+  %176 = vband %codes, %175
+  %177 = vlt.u8x64 %141, %176
+  %178 = vextbcst.8 %grid, 0
+  %179 = vextbcst.8 %grid, 1
+  %180 = vsel.8 %178, %179, %165
+  %181 = vextbcst.8 %grid, 2
+  %182 = vextbcst.8 %grid, 3
+  %183 = vsel.8 %181, %182, %165
+  %184 = vsel.8 %180, %183, %169
+  %185 = vextbcst.8 %grid, 4
+  %186 = vextbcst.8 %grid, 5
+  %187 = vsel.8 %185, %186, %165
+  %188 = vextbcst.8 %grid, 6
+  %189 = vextbcst.8 %grid, 7
+  %190 = vsel.8 %188, %189, %165
+  %191 = vsel.8 %187, %190, %169
+  %192 = vsel.8 %184, %191, %173
+  %193 = vextbcst.8 %grid, 8
+  %194 = vextbcst.8 %grid, 9
+  %195 = vsel.8 %193, %194, %165
+  %196 = vextbcst.8 %grid, 10
+  %197 = vextbcst.8 %grid, 11
+  %198 = vsel.8 %196, %197, %165
+  %199 = vsel.8 %195, %198, %169
+  %200 = vextbcst.8 %grid, 12
+  %201 = vextbcst.8 %grid, 13
+  %202 = vsel.8 %200, %201, %165
+  %203 = vextbcst.8 %grid, 14
+  %204 = vextbcst.8 %grid, 15
+  %205 = vsel.8 %203, %204, %165
+  %206 = vsel.8 %202, %205, %169
+  %207 = vsel.8 %199, %206, %173
+  %decoded = vsel.8 %192, %207, %177
+  return %decoded
+}
 
 // ====
+
+// RUN: with-checks emit source-low target=amd.xdna.aie2p:core output=low
 
 // Masked byte indices survive the promotions introduced by C++ subscripts.
 func.def @i8_table_indexed_bytes(%table: vector<16xi8>, %raw: vector<4xi8>) -> (vector<4xi8>) {

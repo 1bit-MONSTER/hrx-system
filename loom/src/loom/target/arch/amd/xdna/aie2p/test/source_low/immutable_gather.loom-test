@@ -199,9 +199,9 @@ func.def target(@target) @nonnative_lane_count() -> (vector<8xbf16>) {
 
 // ----
 CHECK-NOT: vector.gather
-CHECK: %result_i8 = vector.insert * : i8, vector<8xi8>
-CHECK: %result_index = vector.insert * : i64, vector<8xi64>
-CHECK: %result_bf16 = vector.insert * : bf16, vector<8xbf16>
+CHECK: %result_i8 = vector.from_elements * : vector<8xi8>
+CHECK: %result_index = vector.from_elements * : vector<8xi64>
+CHECK: %result_bf16 = vector.from_elements * : vector<8xbf16>
 
 // ====
 
@@ -223,7 +223,7 @@ func.def target(@target) @unproven_indices(%indices: vector<16xi32>) -> (vector<
 // ----
 CHECK-NOT: vector.gather
 CHECK: * = view.load %view[*] : view<8xi32> -> i32
-CHECK: %result = vector.insert * : i32, vector<16xi32>
+CHECK: %result = vector.from_elements * : vector<16xi32>
 
 // ====
 
@@ -248,7 +248,7 @@ func.def target(@target) @partial_block(%packed: vector<16xi8>) -> (vector<16xi3
 // ----
 CHECK-NOT: vector.gather
 CHECK: * = view.load %view[*] : view<9xi32> -> i32
-CHECK: %result = vector.insert * : i32, vector<16xi32>
+CHECK: %result = vector.from_elements * : vector<16xi32>
 
 // ====
 
@@ -270,4 +270,4 @@ func.def target(@target) @dynamic_root(%table: buffer, %packed: vector<16xi8>) -
 // ----
 CHECK-NOT: vector.gather
 CHECK: * = view.load %view[*] : view<8xi32> -> i32
-CHECK: %result = vector.insert * : i32, vector<16xi32>
+CHECK: %result = vector.from_elements * : vector<16xi32>

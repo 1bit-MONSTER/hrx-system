@@ -1,0 +1,18 @@
+// Both push directions retain scalar and vector operand encoding for every
+// native lane width, including paired 64-bit scalar storage.
+// RUN: emit aie2p-leaf @push_lanes report=code
+
+low.func.def target<amd.xdna.aie2p.core> @push_lanes(%input: reg<aie2p.vec256 x2>, %small: reg<aie2p.er>, %wide: reg<aie2p.er x2>) -> (reg<aie2p.vec256 x2>) asm {
+  %high8 = vpush.hi.8 %input, %small
+  %low8 = vpush.lo.8 %small, %high8
+  %high16 = vpush.hi.16 %low8, %small
+  %low16 = vpush.lo.16 %small, %high16
+  %high32 = vpush.hi.32 %low16, %small
+  %low32 = vpush.lo.32 %small, %high32
+  %high64 = vpush.hi.64 %low32, %wide
+  %low64 = vpush.lo.64 %wide, %high64
+  return %low64
+}
+
+// ----
+code: 78 07 00 18 78 0f 00 18 78 17 00 18 e4 3e 00 00 00 05 78 27 00 18 78 2f 00 18 78 b7 00 18 78 3f 08 18 00 00
