@@ -508,6 +508,60 @@ and drops its reference; the last reference invokes native finalization.
 [Context teardown][radv-context-destroy] [DRM forwarding][radv-context-ioctl]
 [Handle removal][drm-context-free] [Final-reference release][drm-context-put]
 
+### Windows profiling clock controls
+
+`D3DKMTSetStablePowerState` accepts an adapter handle and a Boolean request,
+and returns `NTSTATUS`. Its documented contract identifies stable-power
+selection, not AMD counter-clock enablement or exclusive profiler ownership.
+The separate `ID3D12Device::SetStablePowerState` contract describes a
+development-only policy affecting system-wide GPU clocks. It requires Windows
+developer mode and documents device removal when that prerequisite is absent;
+that D3D12 behavior does not by itself specify the direct KMT operation's
+failure semantics. [KMT operation][kmt-stable-power]
+[Request fields][kmt-stable-power-fields] [D3D12 contract][d3d12-stable-power]
+
+AMD GPUPerfAPI's D3D12 implementation instead obtains
+`IAmdExtGpaInterface` through `AmdExtD3DCreateInterface` in `amdxc64.dll`,
+using a caller-supplied `ID3D12Device`. The native interface's
+`SetClockMode` returns `void`; GPA's wrapper therefore reports no native
+clock-setting result. The mode table distinguishes sustainable profiling
+clocks from peak policy, which still permits reductions under power or thermal
+limits. Query modes return engine and memory ratios to peak, not a source
+epoch, frequency history, or counter-enable acknowledgment.
+[Interface acquisition][gpa-dx12-interface] [Clock method][gpa-dx12-clock-api]
+[Modes and ratios][gpa-dx12-clock-modes] [Wrapper][gpa-dx12-clock-wrapper]
+
+The `VK_AMD_gpa_interface` operation `vkSetGpaDeviceClockModeAMD` takes an
+existing `VkDevice` and returns `VkResult`. At the cited GPA revision, its
+wrapper caches the requested mode before calling the driver. A failed call
+leaves that mode cached, so a repeated request for the same mode skips the
+native call. Context opening logs a clock-setting error but continues.
+Consequently, a successful GPA context open or cached request is not evidence
+that the native clock policy took effect. These are wrapper behaviors, distinct
+from the extension's result contract. [Vulkan interface][gpa-vk-clock-api]
+[Request and open paths][gpa-vk-clock-wrapper]
+
+### GPA cooperating collector scope
+
+On Windows, GPA's `GpaContext::BeginSession` acquires the named mutex
+`Global\GpaSession` before beginning a session. This coordinates participants
+using that same mutex; it neither excludes other native counter users nor
+selects an adapter-specific owner. The source waits with `INFINITE` and accepts
+an abandoned mutex as acquired. Its non-Windows path has no corresponding
+inter-process mutex. [Host acquisition][gpa-session-owner]
+
+`EndSession` releases the mutex after the host session-end operation. Ordinary
+successful `GpaSession::End` enters `EndedPendingResults`. Its pass-completion
+check verifies ended command lists and samples, separately from result readiness.
+Releasing the host mutex therefore does not establish GPU retirement or result
+readiness. Clock policy is selected during context opening, outside this session
+interval.
+Native ownership, cooperating host serialization, clock selection, and final
+command completion remain separate boundaries.
+[Host release][gpa-session-release] [Pending results][gpa-session-end]
+[Pass completion and readiness][gpa-pass-readiness]
+[Context opening][gpa-vk-clock-wrapper]
+
 ### Event identity and aggregation
 
 | Property | Interpretation requirement |
@@ -653,3 +707,16 @@ Return to the [GPU index](README.md) or [primary source map](../sources.md).
 [kmt-clock-flags]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmdt/ns-d3dkmdt-_dxgk_gpuclockdata_flags
 [kmt-calibration]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmddi/nc-d3dkmddi-dxgkddi_calibrategpuclock
 [d3d12-timing]: https://learn.microsoft.com/en-us/windows/win32/direct3d12/timing
+[kmt-stable-power]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmthk/nf-d3dkmthk-d3dkmtsetstablepowerstate
+[kmt-stable-power-fields]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmthk/ns-d3dkmthk-_d3dkmt_setstablepowerstate
+[d3d12-stable-power]: https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device-setstablepowerstate
+[gpa-dx12-interface]: https://github.com/GPUOpen-Tools/gpu_performance_api/blob/5b7a7544eac3ebc7f0f62ff878c69f8f893f3583/source/gpu_perf_api_dx12/dx12_gpa_context.cc#L131-L185
+[gpa-dx12-clock-api]: https://github.com/GPUOpen-Tools/gpu_performance_api/blob/5b7a7544eac3ebc7f0f62ff878c69f8f893f3583/source/third_party/AmdDxExt/AmdExtGpaInterfaceApi.h#L77-L86
+[gpa-dx12-clock-modes]: https://github.com/GPUOpen-Tools/gpu_performance_api/blob/5b7a7544eac3ebc7f0f62ff878c69f8f893f3583/source/third_party/AmdDxExt/AmdExtGpaInterface.h#L375-L401
+[gpa-dx12-clock-wrapper]: https://github.com/GPUOpen-Tools/gpu_performance_api/blob/5b7a7544eac3ebc7f0f62ff878c69f8f893f3583/source/gpu_perf_api_dx12/dx12_gpa_context.cc#L261-L307
+[gpa-vk-clock-api]: https://github.com/GPUOpen-Tools/gpu_performance_api/blob/5b7a7544eac3ebc7f0f62ff878c69f8f893f3583/source/third_party/AmdVkExt/vk_amd_gpa_interface.h#L193-L248
+[gpa-vk-clock-wrapper]: https://github.com/GPUOpen-Tools/gpu_performance_api/blob/5b7a7544eac3ebc7f0f62ff878c69f8f893f3583/source/gpu_perf_api_vk/vk_gpa_context.cc#L97-L196
+[gpa-session-owner]: https://github.com/GPUOpen-Tools/gpu_performance_api/blob/5b7a7544eac3ebc7f0f62ff878c69f8f893f3583/source/gpu_perf_api_common/gpa_context.cc#L113-L191
+[gpa-session-release]: https://github.com/GPUOpen-Tools/gpu_performance_api/blob/5b7a7544eac3ebc7f0f62ff878c69f8f893f3583/source/gpu_perf_api_common/gpa_context.cc#L192-L235
+[gpa-session-end]: https://github.com/GPUOpen-Tools/gpu_performance_api/blob/5b7a7544eac3ebc7f0f62ff878c69f8f893f3583/source/gpu_perf_api_common/gpa_session.cc#L602-L647
+[gpa-pass-readiness]: https://github.com/GPUOpen-Tools/gpu_performance_api/blob/5b7a7544eac3ebc7f0f62ff878c69f8f893f3583/source/gpu_perf_api_common/gpa_pass.cc#L321-L379
