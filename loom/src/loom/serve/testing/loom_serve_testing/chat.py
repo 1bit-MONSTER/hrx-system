@@ -30,7 +30,37 @@ def request(
     monotonic timestamps are copied before the connection closes. Incomplete
     streams and endpoint errors raise instead of becoming successful samples.
     """
-    connection = http.client.HTTPConnection(address.hostname, address.port)
+    body = {
+        "model": model,
+        "messages": messages,
+        "stream": True,
+        "stream_options": {"include_usage": True},
+        "temperature": 0,
+        "enable_thinking": enable_thinking,
+        "max_tokens": maximum,
+    }
+    if tools is not None:
+        body["tools"] = tools
+    headers = {"X-Loom-Session": session}
+    if checkpoint is not None:
+        headers["X-Loom-Checkpoint"] = checkpoint
+    return request_body(address, body, headers)
+
+
+def request_body(address, body, headers=None):
+    """Measure a complete single-choice stream without rewriting its request.
+
+    Unlike the greedy convenience caller, this path preserves all model policy
+    and media fields in a captured request. The address is an HTTP(S) origin;
+    the caller owns its validation and any outer deadline.
+    """
+    connection_type = (
+        http.client.HTTPSConnection
+        if address.scheme == "https"
+        else http.client.HTTPConnection
+    )
+    connection = connection_type(address.hostname, address.port)
+    model = body["model"]
     start = time.monotonic_ns()
     first = None
     chunks = []
@@ -41,25 +71,11 @@ def request(
     reason = None
     done = False
     try:
-        body = {
-            "model": model,
-            "messages": messages,
-            "stream": True,
-            "stream_options": {"include_usage": True},
-            "temperature": 0,
-            "enable_thinking": enable_thinking,
-            "max_tokens": maximum,
-        }
-        if tools is not None:
-            body["tools"] = tools
-        headers = {"Content-Type": "application/json", "X-Loom-Session": session}
-        if checkpoint is not None:
-            headers["X-Loom-Checkpoint"] = checkpoint
         connection.request(
             "POST",
             "/v1/chat/completions",
             json.dumps(body),
-            headers,
+            {"Content-Type": "application/json", **(headers or {})},
         )
         response = connection.getresponse()
         if response.status != 200:
@@ -79,6 +95,8 @@ def request(
             if event.get("usage"):
                 usage = event["usage"]
             for choice in event.get("choices", []):
+                if choice.get("index") != 0:
+                    raise RuntimeError("Expected a single choice at index zero")
                 if choice.get("finish_reason"):
                     reason = choice["finish_reason"]
                 delta = choice.get("delta", {})

@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("@rules_python//python:defs.bzl", "py_library", "py_test")
+load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_binary", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
 
 package(
@@ -186,6 +186,34 @@ py_test(
     size = "small",
     srcs = ["loom_serve_testing/chat_test.py"],
     deps = [":chat"],
+)
+
+py_library(
+    name = "workload",
+    testonly = True,
+    srcs = ["loom_serve_testing/workload.py"],
+    imports = ["."],
+    visibility = ["//visibility:public"],
+    deps = [":chat"],
+)
+
+py_binary(
+    name = "replay",
+    testonly = True,
+    srcs = ["loom_serve_testing/replay.py"],
+    main = "loom_serve_testing/replay.py",
+    deps = [":workload"],
+)
+
+py_test(
+    name = "workload_test",
+    size = "small",
+    srcs = [
+        "loom_serve_testing/replay.py",
+        "loom_serve_testing/workload_test.py",
+    ],
+    main = "loom_serve_testing/workload_test.py",
+    deps = [":workload"],
 )
 
 py_library(

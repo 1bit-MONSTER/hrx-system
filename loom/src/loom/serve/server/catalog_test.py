@@ -30,6 +30,7 @@ from catalog_test_util import (
     telemetry_observation,
     write_startup,
 )
+from loom_serve_testing import workload
 from loom_serve_testing.http_harness import running_server as child_server
 from loom_serve_testing.http_harness import wait_counters, wait_status
 from loom_serve_testing.logs import LogClient
@@ -287,6 +288,118 @@ def check_parameter_residency(client, backing, workers):
         else:
             check_decision(result)
         assert snapshot(model)["incarnation"] == identity
+
+
+def check_workload_replay(client):
+    """Use the benchmark client against source models and independent oracles."""
+    root = [{"role": "user", "content": "abxa"}]
+    seed, _ = complete(root, 2)
+    history = root + [
+        {"role": "assistant", "content": seed},
+        {"role": "user", "content": "xx"},
+    ]
+    records = [
+        {
+            "id": "root",
+            "at_ms": 0,
+            "path": "/v1/chat/completions",
+            "body": Client.text_payload(root, 2),
+            "headers": {"X-Loom-Session": "replay-agent"},
+        },
+        {
+            "id": "follow",
+            "after": "root",
+            "delay_ms": 0,
+            "path": "/v1/chat/completions",
+            "body": Client.text_payload(history, 4),
+            "headers": {"X-Loom-Session": "replay-agent"},
+        },
+    ]
+    expected = {}
+    for identity, messages, maximum in (("root", root, 2), ("follow", history, 4)):
+        text, finish = complete(messages, maximum)
+        expected[identity] = workload.digest(
+            {
+                "text": text,
+                "reasoning_content": "",
+                "tool_calls": [],
+                "finish_reason": finish,
+            }
+        )
+    for identity, path, body in (
+        (
+            "vectors",
+            "/v1/embeddings",
+            {"model": "vectors", "input": "ab", "dimensions": 2},
+        ),
+        (
+            "pixels",
+            "/v1/images/generations",
+            {
+                "model": "pixels",
+                "prompt": "ab",
+                "seed": 1,
+                "response_format": "b64_json",
+            },
+        ),
+        (
+            "judge",
+            "/v1/systemone",
+            {
+                "model": "judge",
+                "state": "a",
+                "questions": {
+                    "truth": {
+                        "type": "noul",
+                        "instructions": "???",
+                        "criteria": {"false": "", "true": "x"},
+                    }
+                },
+            },
+        ),
+    ):
+        result = client.request(path, body)
+        if identity == "vectors":
+            assert result["data"][0]["embedding"] == [3, 2], result
+        elif identity == "pixels":
+            check_png(result["data"][0]["b64_json"], "ab", 1)
+        else:
+            check_decision(result)
+        expected[identity] = workload.digest(
+            {
+                name: value
+                for name, value in result.items()
+                if name not in ("id", "created", "model", "usage")
+            }
+        )
+        records.append({"id": identity, "at_ms": 0, "path": path, "body": body})
+    results = []
+    summary = workload.replay(
+        workload.origin("http://" + client.address),
+        workload.parse(json.dumps(record) for record in records),
+        4,
+        results.append,
+    )
+    assert len(results) == len(records), results
+    for result in results:
+        assert result["outcome"] == "completed", result
+        assert result["response_sha256"] == expected[result["id"]], result
+    follow = next(result for result in results if result["id"] == "follow")
+    assert follow["usage"]["prompt_tokens_details"]["cached_tokens"] == 5, follow
+    assert len(summary["classes"]) == 4, summary
+    client.idle()
+    print(
+        json.dumps(
+            {
+                "event": "workload_replayed",
+                "requests": len(results),
+                "classes": len(summary["classes"]),
+                "outputs_verified": True,
+                "cached_followup_tokens": 5,
+            }
+        ),
+        flush=True,
+    )
 
 
 def check_device_trim(client, backing, workers):
@@ -1354,6 +1467,7 @@ def run_from_command_line(*, stress=False):
             check_counters(client, arguments.rounds)
             check_parameter_residency(client, arguments.pool_backing, workers)
             check_device_trim(client, arguments.pool_backing, workers)
+            check_workload_replay(client)
         print(
             json.dumps(
                 {
