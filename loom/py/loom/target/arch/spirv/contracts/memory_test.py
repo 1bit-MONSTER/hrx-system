@@ -89,19 +89,19 @@ def test_cooperative_memory_uses_logical_shapes_without_carrier_widths() -> None
             )
         )
     expected = {
-        (family, role, element, rows, columns, workgroup, layout)
-        for family, source_element, accumulator_element, k_size in (
-            ("f16", "f16", "f32", 16),
-            ("bf16", "bf16", "f32", 16),
-            ("s8", "i8", "i32", 32),
-            ("u8", "i8", "i32", 32),
+        (scalar, role, element, rows, columns, workgroup, layout)
+        for scalar, element, rows, columns, roles in (
+            ("f16", "f16", 16, 16, ("lhs", "rhs", "init", "result")),
+            ("bf16", "bf16", 16, 16, ("lhs", "rhs")),
+            ("i8", "i8", 16, 32, ("lhs",)),
+            ("i8", "i8", 32, 16, ("rhs",)),
+            ("u8", "i8", 16, 32, ("lhs",)),
+            ("u8", "i8", 32, 16, ("rhs",)),
+            ("f32", "f32", 16, 16, ("init", "result")),
+            ("i32", "i32", 16, 16, ("init", "result")),
+            ("u32", "i32", 16, 16, ("init", "result")),
         )
-        for role, element, rows, columns in (
-            ("lhs", source_element, 16, k_size),
-            ("rhs", source_element, k_size, 16),
-            ("init", accumulator_element, 16, 16),
-            ("result", accumulator_element, 16, 16),
-        )
+        for role in roles
         for workgroup in (False, True)
         for layout in (0, 1)
     }
@@ -150,15 +150,18 @@ def test_cooperative_memory_uses_the_retained_allocation_carrier() -> None:
             }[carrier]
         )
     expected = {
-        (family, role, carrier, layout)
-        for family, inputs, accumulators in (
-            ("f16", ("f16", "i16"), ("f32", "i32")),
-            ("bf16", ("bf16", "i16"), ("f32", "i32")),
-            ("s8", ("i8",), ("i32",)),
-            ("u8", ("u8", "i8"), ("u32", "i32")),
+        (scalar, role, carrier, layout)
+        for scalar, roles, carriers in (
+            ("f16", ("lhs", "rhs", "init", "result"), ("f16", "i16")),
+            ("bf16", ("lhs", "rhs"), ("bf16", "i16")),
+            ("i8", ("lhs", "rhs"), ("i8",)),
+            ("u8", ("lhs", "rhs"), ("u8", "i8")),
+            ("f32", ("init", "result"), ("f32", "i32")),
+            ("i32", ("init", "result"), ("i32",)),
+            ("u32", ("init", "result"), ("u32", "i32")),
         )
-        for role in ("lhs", "rhs", "init", "result")
-        for carrier in (inputs if role in ("lhs", "rhs") else accumulators)
+        for role in roles
+        for carrier in carriers
         for layout in (0, 1)
     }
     assert signatures == expected

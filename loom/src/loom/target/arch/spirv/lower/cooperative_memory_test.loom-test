@@ -62,17 +62,17 @@ low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer) -> ()
   %46 = OpConstant.offset64 16
   %47 = OpUConvert.offset64.u32 %46
   %48 = OpAccessChain.workgroup.i32.byte_offset %view, %tile_offset
-  OpCooperativeMatrixStoreKHR.result.f16.16x16x16.f32.subgroup.workgroup.i32 %48, %result, %47, 1
+  OpCooperativeMatrixStoreKHR.result.f32.16x16.subgroup.workgroup.i32 %48, %result, %47, 1
   OpControlBarrier.subgroup.workgroup.acq_rel
   %49 = OpConstant.offset64 16
   %50 = OpUConvert.offset64.u32 %49
   %51 = OpAccessChain.workgroup.i32.byte_offset %view, %tile_offset
-  %loaded = OpCooperativeMatrixLoadKHR.init.f16.16x16x16.f32.subgroup.workgroup.i32 %51, %50, 1 : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
+  %loaded = OpCooperativeMatrixLoadKHR.init.f32.16x16.subgroup.workgroup.i32 %51, %50, 1 : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
   %accumulated = OpCooperativeMatrixMulAddKHR.f16.16x16x16.f32.subgroup %lhs, %rhs, %loaded : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
   %54 = OpConstant.offset64 16
   %55 = OpUConvert.offset64.u32 %54
   %56 = OpAccessChain.workgroup.i32.byte_offset %view, %tile_offset
-  OpCooperativeMatrixStoreKHR.result.f16.16x16x16.f32.subgroup.workgroup.i32 %56, %accumulated, %55, 1
+  OpCooperativeMatrixStoreKHR.result.f32.16x16.subgroup.workgroup.i32 %56, %accumulated, %55, 1
   OpControlBarrier.subgroup.workgroup.acq_rel
   %integer_view = storage_address %allocation : low.storage<workgroup> -> reg<spirv.ptr.workgroup.array.i32>
   %58 = OpConstant.i32 8 : reg<spirv.id : index>
@@ -156,17 +156,17 @@ low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer) -> ()
   %50 = OpConstant.offset64 16
   %51 = OpUConvert.offset64.u32 %50
   %52 = OpAccessChain.workgroup.i32.byte_offset %view, %tile_offset
-  OpCooperativeMatrixStoreKHR.result.u8.16x16x32.u32.subgroup.workgroup.i32 %52, %result, %51, 0
+  OpCooperativeMatrixStoreKHR.result.u32.16x16.subgroup.workgroup.i32 %52, %result, %51, 0
   OpControlBarrier.subgroup.workgroup.acq_rel
   %53 = OpConstant.offset64 16
   %54 = OpUConvert.offset64.u32 %53
   %55 = OpAccessChain.workgroup.i32.byte_offset %view, %tile_offset
-  %loaded = OpCooperativeMatrixLoadKHR.init.u8.16x16x32.u32.subgroup.workgroup.i32 %55, %54, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xu32, subgroup, matrix_accumulator>>
+  %loaded = OpCooperativeMatrixLoadKHR.init.u32.16x16.subgroup.workgroup.i32 %55, %54, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xu32, subgroup, matrix_accumulator>>
   %accumulated = OpCooperativeMatrixMulAddKHR.u8.16x16x32.u32.subgroup %lhs, %rhs, %loaded : reg<spirv.id : spirv.cooperative_matrix<16x16xu32, subgroup, matrix_accumulator>>
   %58 = OpConstant.offset64 16
   %59 = OpUConvert.offset64.u32 %58
   %60 = OpAccessChain.workgroup.i32.byte_offset %view, %tile_offset
-  OpCooperativeMatrixStoreKHR.result.u8.16x16x32.u32.subgroup.workgroup.i32 %60, %accumulated, %59, 0
+  OpCooperativeMatrixStoreKHR.result.u32.16x16.subgroup.workgroup.i32 %60, %accumulated, %59, 0
   OpControlBarrier.subgroup.workgroup.acq_rel
   %integer_view = storage_address %allocation : low.storage<workgroup> -> reg<spirv.ptr.workgroup.array.i32>
   %62 = OpConstant.i32 8 : reg<spirv.id : index>

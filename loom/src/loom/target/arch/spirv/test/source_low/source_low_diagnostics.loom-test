@@ -178,11 +178,11 @@ low.kernel.def target<spirv.logical.core>(@hal_target_compact_matrix) abi_layout
   %17 = OpConstant.offset64 16
   %18 = OpUConvert.offset64.u32 %17
   %19 = OpPtrAccessChain.storage_buffer.f32.byte_offset %input_aligned, %byte_offset_aligned
-  %fragment = OpCooperativeMatrixLoadKHR.init.f16.16x16x16.f32.subgroup.storage_buffer %19, %18, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
+  %fragment = OpCooperativeMatrixLoadKHR.init.f32.16x16.subgroup.storage_buffer %19, %18, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
   %21 = OpConstant.offset64 16
   %22 = OpUConvert.offset64.u32 %21
   %23 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_aligned, %byte_offset_aligned
-  OpCooperativeMatrixStoreKHR.result.f16.16x16x16.f32.subgroup.storage_buffer %23, %fragment, %22, 0
+  OpCooperativeMatrixStoreKHR.result.f32.16x16.subgroup.storage_buffer %23, %fragment, %22, 0
   return
 }
 

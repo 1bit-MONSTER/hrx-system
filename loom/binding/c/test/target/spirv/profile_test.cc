@@ -388,7 +388,7 @@ TEST_P(TargetSpirvNamedProfileTest, QueriesAndRefinesWithoutChangingContract) {
   EXPECT_EQ(info.memory_model, kSpirvMemoryModelVulkan);
   EXPECT_GT(info.minimum_spirv_version, 0u);
   // Model rows are enumerable even when their required features are absent.
-  EXPECT_EQ(info.cooperative_matrix_row_count, 4u);
+  EXPECT_EQ(info.cooperative_matrix_row_count, 5u);
   EXPECT_EQ(info.cooperative_vector_row_count, 4u);
   for (loomc_host_size_t i = 0; i < info.extension_count; ++i) {
     loomc_string_view_t extension = {};

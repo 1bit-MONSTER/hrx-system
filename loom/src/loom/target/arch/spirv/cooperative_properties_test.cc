@@ -276,6 +276,37 @@ TEST(SpirvCooperativePropertiesTest, SelectsCooperativeMatrixByShapeAndFacts) {
   EXPECT_EQ(diagnostic.status, LOOM_SPIRV_COOPERATIVE_SELECTION_MATCHED);
 }
 
+TEST(SpirvCooperativePropertiesTest, MatchesFloatingAccumulatorAndResultTypes) {
+  loom_spirv_cooperative_property_set_t property_set = {};
+  PreparePropertySet(kF16CooperativeMatrixFeatures, &property_set);
+  for (auto accumulator_type :
+       {LOOM_SPIRV_SCALAR_TYPE_F16, LOOM_SPIRV_SCALAR_TYPE_F32}) {
+    for (auto result_type :
+         {LOOM_SPIRV_SCALAR_TYPE_F16, LOOM_SPIRV_SCALAR_TYPE_F32}) {
+      auto query =
+          F16MatrixQuery(LOOM_LOWERING_POLICY_TARGET_PRIMITIVE_REQUIRED);
+      query.accumulator_type = accumulator_type;
+      query.result_type = result_type;
+      loom_spirv_cooperative_diagnostic_t diagnostic = {};
+      const auto* property = loom_spirv_cooperative_matrix_property_select(
+          &property_set, &query, &diagnostic);
+      if (accumulator_type == result_type) {
+        ASSERT_NE(property, nullptr);
+        EXPECT_EQ(property->accumulator_type, accumulator_type);
+        EXPECT_EQ(property->result_type, result_type);
+        EXPECT_EQ(diagnostic.status, LOOM_SPIRV_COOPERATIVE_SELECTION_MATCHED);
+      } else {
+        EXPECT_EQ(property, nullptr);
+        EXPECT_EQ(diagnostic.status,
+                  LOOM_SPIRV_COOPERATIVE_SELECTION_REQUIRED_PROPERTY_MISSING);
+        EXPECT_TRUE(
+            iree_any_bit_set(diagnostic.rejection_flags,
+                             LOOM_SPIRV_COOPERATIVE_REJECTION_COMPONENT_TYPE));
+      }
+    }
+  }
+}
+
 TEST(SpirvCooperativePropertiesTest, SelectsFromOwnedMatrixRowSubset) {
   iree_host_size_t model_count = 0;
   const loom_spirv_cooperative_matrix_property_t* model_rows =

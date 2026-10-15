@@ -25,9 +25,7 @@ from loom.target.arch.spirv.contracts.memory import (
     workgroup_carrier_guard,
 )
 from loom.target.arch.spirv.cooperative_matrix import (
-    COOPERATIVE_MATRIX_CASES,
     COOPERATIVE_MATRIX_TYPES,
-    CooperativeMatrixCase,
     CooperativeMatrixMemory,
     CooperativeMatrixType,
     cooperative_matrix_memory_variants,
@@ -184,26 +182,15 @@ COOPERATIVE_MATRIX_INITIALIZER_RULES = (
 
 
 def _memory_rule(
-    case: CooperativeMatrixCase,
+    matrix_type: CooperativeMatrixType,
     role: str,
     memory: CooperativeMatrixMemory,
-    element: str,
-    rows: int,
-    columns: int,
     leading_axis: int,
 ) -> DescriptorRule:
     scalar = memory.component
     is_load = role != "result"
     operation = SourceMemoryOperation.LOAD if is_load else SourceMemoryOperation.STORE
-    descriptor = logical_core_descriptor(
-        case.descriptor_key(
-            "op_cooperative_matrix_load_khr"
-            if is_load
-            else "op_cooperative_matrix_store_khr",
-            role=role,
-            memory_space=memory.descriptor_suffix,
-        )
-    )
+    descriptor = logical_core_descriptor(matrix_type.memory_key(role, memory))
     is_workgroup = memory.space == "workgroup"
     address_materializer = (
         workgroup_address_materializer(
@@ -260,13 +247,13 @@ def _memory_rule(
             Guard.value_type(
                 "result" if is_load else "value",
                 Vector(
-                    element,
+                    scalar.source_type,
                     minimum_lanes=1,
                     maximum_lanes="LOOM_DIM_MAX_STATIC_SIZE",
                 ),
             ),
-            Guard.value_i64_range("rows", rows, rows),
-            Guard.value_i64_range("columns", columns, columns),
+            Guard.value_i64_range("rows", matrix_type.rows, matrix_type.rows),
+            Guard.value_i64_range("columns", matrix_type.columns, matrix_type.columns),
             *(
                 (workgroup_carrier_guard(memory.carrier.suffix),)
                 if is_workgroup
@@ -299,39 +286,9 @@ def _memory_rule(
 
 
 COOPERATIVE_MATRIX_MEMORY_RULES = tuple(
-    _memory_rule(case, role, memory, element, rows, columns, leading_axis)
-    for case in COOPERATIVE_MATRIX_CASES
-    if case.source_rule_enabled
-    for role, scalar, element, rows, columns in (
-        (
-            "lhs",
-            case.lhs_scalar,
-            case.lhs_source_type,
-            case.lhs_rows,
-            case.lhs_columns,
-        ),
-        (
-            "rhs",
-            case.rhs_scalar,
-            case.rhs_source_type,
-            case.rhs_rows,
-            case.rhs_columns,
-        ),
-        (
-            "init",
-            case.accumulator_scalar,
-            case.accumulator_source_type,
-            case.accumulator_rows,
-            case.accumulator_columns,
-        ),
-        (
-            "result",
-            case.result_scalar,
-            case.result_source_type,
-            case.accumulator_rows,
-            case.accumulator_columns,
-        ),
-    )
-    for memory in cooperative_matrix_memory_variants(scalar)
+    _memory_rule(matrix_type, role, memory, leading_axis)
+    for matrix_type in COOPERATIVE_MATRIX_TYPES
+    for role in matrix_type.source_roles
+    for memory in cooperative_matrix_memory_variants(matrix_type.scalar)
     for leading_axis in (0, 1)
 )

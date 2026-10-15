@@ -148,3 +148,96 @@ check.case @staged_matrix64_case {
   check.expect.close actual(%output) expected(%expected) atol(0.5) rtol(0.001) nan(different) : tensor<64x16xf32>
   check.return
 }
+
+// F16 accumulators retain their type through global loads, multiply-add, and
+// column-major shared storage. Integer reads independently check the alias.
+template.decl @half_accumulator(%lhs_buffer: buffer, %rhs_buffer: buffer, %init_buffer: buffer, %output_buffer: buffer, %audit_buffer: buffer)
+
+template.def<@half_accumulator> @half_accumulator_impl(%lhs_buffer: buffer, %rhs_buffer: buffer, %init_buffer: buffer, %output_buffer: buffer, %audit_buffer: buffer) {
+  %base = index.constant 0 : offset
+  %size = index.constant 16 : index
+  %count = index.constant 256 : index
+  %bytes = index.constant 512 : offset
+  %lhs_aligned, %rhs_aligned, %init_aligned, %output_aligned = buffer.assume.alignment %lhs_buffer, %rhs_buffer, %init_buffer, %output_buffer {minimum_alignment = 16} : buffer, buffer, buffer, buffer
+  %lhs_view = buffer.view %lhs_aligned[%base] : buffer -> view<16x16xf16>
+  %rhs_view = buffer.view %rhs_aligned[%base] : buffer -> view<16x16xf16>
+  %init_view = buffer.view %init_aligned[%base] : buffer -> view<16x16xf16>
+  %output_view = buffer.view %output_aligned[%base] : buffer -> view<16x16xf16>
+  %audit_view = buffer.view %audit_buffer[%base] : buffer -> view<16x16xf16>
+  %lhs = vector.fragment.load<lhs> %lhs_view[0, 0] shape [%size, %size] : view<16x16xf16> -> vector<1xf16>
+  %rhs = vector.fragment.load<rhs> %rhs_view[0, 0] shape [%size, %size] : view<16x16xf16> -> vector<1xf16>
+  %init = vector.fragment.load<init> %init_view[0, 0] shape [%size, %size] : view<16x16xf16> -> vector<1xf16>
+  %result = vector.mma %lhs, %rhs, %init : vector<1xf16>, vector<1xf16>, vector<1xf16>
+  %stage = buffer.alloca<workgroup> align(16) %bytes : buffer
+  %layout = encoding.layout.strided [1, %size] : encoding<layout>
+  %stage_view = buffer.view %stage[%base] : buffer -> view<16x16xf16, %layout>
+  vector.fragment.store<result> %result, %stage_view[0, 0] shape [%size, %size] : vector<1xf16>, view<16x16xf16, %layout>
+  kernel.barrier<workgroup> scope(subgroup) ordering(acq_rel)
+  %loaded = vector.fragment.load<init> %stage_view[0, 0] shape [%size, %size] : view<16x16xf16, %layout> -> vector<1xf16>
+  vector.fragment.store<result> %loaded, %output_view[0, 0] shape [%size, %size] : vector<1xf16>, view<16x16xf16>
+  %bits_view = buffer.view %stage[%base] : buffer -> view<256xi16>
+  %thread = kernel.workitem.id<x> : index
+  %width = target.subgroup.size : index
+  scf.for %position = [%thread to %count step %width] {
+    %row = index.rem %position, %size : index
+    %column = index.div %position, %size : index
+    %bits = view.load %bits_view[%position] : view<256xi16> -> i16
+    %value = scalar.bitcast %bits : i16 to f16
+    view.store %value, %audit_view[%row, %column] : f16, view<16x16xf16>
+  }
+  template.return
+}
+
+kernel.def target(@wave32) @half_accumulator32() {
+  %unit = index.constant 1 : index
+  %width = target.subgroup.size : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%lhs: buffer, %rhs: buffer, %init: buffer, %output: buffer, %audit: buffer) {
+  template.apply<@half_accumulator>(%lhs, %rhs, %init, %output, %audit) : (buffer, buffer, buffer, buffer, buffer)
+  kernel.return
+}
+
+kernel.def target(@wave64) @half_accumulator64() {
+  %unit = index.constant 1 : index
+  %width = target.subgroup.size : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%lhs: buffer, %rhs: buffer, %init: buffer, %output: buffer, %audit: buffer) {
+  template.apply<@half_accumulator>(%lhs, %rhs, %init, %output, %audit) : (buffer, buffer, buffer, buffer, buffer)
+  kernel.return
+}
+
+check.case @half_accumulator32_case {
+  check.requires<hal.vulkan.feature> {feature = "cooperative_matrix_khr"}
+  check.requires<hal.vulkan.feature> {feature = "shader_float16"}
+  check.requires<hal.vulkan.feature> {feature = "shader_int16"}
+  check.requires<hal.vulkan.feature> {feature = "storage_buffer_16bit_access"}
+  check.requires<hal.spirv.cooperative_matrix> {row = "khr.cooperative_matrix.f16.16x16x16.f16.subgroup"}
+  %lhs = check.generate.iota offset(0.015625) step(0.015625) : tensor<16x16xf16>
+  %rhs = check.generate.iota offset(0.03125) step(0.03125) : tensor<16x16xf16>
+  %init = check.generate.iota offset(0.0625) step(0.0625) : tensor<16x16xf16>
+  %output = check.generate.fill value(0.0) : tensor<16x16xf16>
+  %audit = check.generate.fill value(0.0) : tensor<16x16xf16>
+  kernel.launch @half_accumulator32(%lhs, %rhs, %init, %output, %audit) : (tensor<16x16xf16>, tensor<16x16xf16>, tensor<16x16xf16>, tensor<16x16xf16>, tensor<16x16xf16>)
+  %expected = check.oracle.call<reference.matmul> {accumulator = "f64", lhs = "f16", result = "f16", rhs = "f16"} callee(@half_accumulator32) inputs(%lhs, %rhs, %init) : (tensor<16x16xf16>, tensor<16x16xf16>, tensor<16x16xf16>) -> (tensor<16x16xf16>)
+  check.expect.close actual(%output) expected(%expected) atol(0.0) rtol(0.001) nan(different) : tensor<16x16xf16>
+  check.expect.bitwise actual(%audit) expected(%output) : tensor<16x16xf16>
+  check.return
+}
+
+check.case @half_accumulator64_case {
+  check.requires<hal.vulkan.feature> {feature = "cooperative_matrix_khr"}
+  check.requires<hal.vulkan.feature> {feature = "shader_float16"}
+  check.requires<hal.vulkan.feature> {feature = "shader_int16"}
+  check.requires<hal.vulkan.feature> {feature = "storage_buffer_16bit_access"}
+  check.requires<hal.spirv.cooperative_matrix> {row = "khr.cooperative_matrix.f16.16x16x16.f16.subgroup"}
+  %lhs = check.generate.iota offset(0.015625) step(0.015625) : tensor<16x16xf16>
+  %rhs = check.generate.iota offset(0.03125) step(0.03125) : tensor<16x16xf16>
+  %init = check.generate.iota offset(0.0625) step(0.0625) : tensor<16x16xf16>
+  %output = check.generate.fill value(0.0) : tensor<16x16xf16>
+  %audit = check.generate.fill value(0.0) : tensor<16x16xf16>
+  kernel.launch @half_accumulator64(%lhs, %rhs, %init, %output, %audit) : (tensor<16x16xf16>, tensor<16x16xf16>, tensor<16x16xf16>, tensor<16x16xf16>, tensor<16x16xf16>)
+  %expected = check.oracle.call<reference.matmul> {accumulator = "f64", lhs = "f16", result = "f16", rhs = "f16"} callee(@half_accumulator64) inputs(%lhs, %rhs, %init) : (tensor<16x16xf16>, tensor<16x16xf16>, tensor<16x16xf16>) -> (tensor<16x16xf16>)
+  check.expect.close actual(%output) expected(%expected) atol(0.0) rtol(0.001) nan(different) : tensor<16x16xf16>
+  check.expect.bitwise actual(%audit) expected(%output) : tensor<16x16xf16>
+  check.return
+}

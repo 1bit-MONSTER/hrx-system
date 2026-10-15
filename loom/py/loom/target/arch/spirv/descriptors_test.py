@@ -320,32 +320,26 @@ def _extended_math_result_recipes() -> dict[str, AsmResultValueType]:
 
 def _cooperative_matrix_result_keys() -> list[str]:
     keys = [matrix_type.constructor_key for matrix_type in COOPERATIVE_MATRIX_TYPES]
-    for case in COOPERATIVE_MATRIX_CASES:
-        keys.extend(
-            case.descriptor_key(
-                "op_cooperative_matrix_load_khr",
-                role=role,
-                memory_space=memory.descriptor_suffix,
-            )
-            for role, scalar in (
-                ("lhs", case.lhs_scalar),
-                ("rhs", case.rhs_scalar),
-                ("init", case.accumulator_scalar),
-            )
-            for memory in cooperative_matrix_memory_variants(scalar)
+    keys.extend(
+        matrix_type.memory_key(role, memory)
+        for matrix_type in COOPERATIVE_MATRIX_TYPES
+        for role in matrix_type.source_roles
+        if role != "result"
+        for memory in cooperative_matrix_memory_variants(matrix_type.scalar)
+    )
+    keys.extend(
+        cooperative_matrix_descriptor_key(
+            "op_cooperative_matrix_mul_add_khr",
+            element=case.element,
+            m_size=case.m_size,
+            n_size=case.n_size,
+            k_size=case.k_size,
+            accumulator=case.accumulator,
+            scope="subgroup",
+            operand_mode=case.operand_mode,
         )
-        keys.append(
-            cooperative_matrix_descriptor_key(
-                "op_cooperative_matrix_mul_add_khr",
-                element=case.element,
-                m_size=case.m_size,
-                n_size=case.n_size,
-                k_size=case.k_size,
-                accumulator=case.accumulator,
-                scope="subgroup",
-                operand_mode=case.operand_mode,
-            )
-        )
+        for case in COOPERATIVE_MATRIX_CASES
+    )
     return keys
 
 
@@ -576,26 +570,15 @@ def test_workgroup_matrix_memory_needs_no_storage_buffer_features() -> None:
     storage_bits = feature_bits_value(
         ("storage_buffer_8bit_access", "storage_buffer_16bit_access")
     )
-    for case in COOPERATIVE_MATRIX_CASES:
-        for role, scalar in (
-            ("lhs", case.lhs_scalar),
-            ("rhs", case.rhs_scalar),
-            ("init", case.accumulator_scalar),
-            ("result", case.result_scalar),
-        ):
+    for matrix_type in COOPERATIVE_MATRIX_TYPES:
+        scalar = matrix_type.scalar
+        for role in matrix_type.source_roles:
             for memory in cooperative_matrix_memory_variants(scalar):
                 if memory.space != "workgroup":
                     continue
-                descriptor = descriptors[
-                    case.descriptor_key(
-                        "op_cooperative_matrix_store_khr"
-                        if role == "result"
-                        else "op_cooperative_matrix_load_khr",
-                        role=role,
-                        memory_space=memory.descriptor_suffix,
-                    )
-                ]
+                descriptor = descriptors[matrix_type.memory_key(role, memory)]
                 features = descriptor.feature_mask_words[0]
+                assert features == matrix_type.feature_bits | memory.feature_bits
                 assert not features & storage_bits
                 assert (
                     features & scalar.register_feature_bits

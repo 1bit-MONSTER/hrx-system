@@ -828,20 +828,20 @@ low.kernel.def target<spirv.logical.core>(@hal_target_coop_f16) abi_layout({sign
   %91 = OpConstant.offset64 16
   %92 = OpUConvert.offset64.u32 %91
   %93 = OpPtrAccessChain.storage_buffer.f16.byte_offset %lhs_aligned, %byte_offset_aligned
-  %lhs = OpCooperativeMatrixLoadKHR.lhs.f16.16x16x16.f32.subgroup.storage_buffer %93, %92, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xf16, subgroup, matrix_a>>
+  %lhs = OpCooperativeMatrixLoadKHR.lhs.f16.16x16.subgroup.storage_buffer %93, %92, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xf16, subgroup, matrix_a>>
   %95 = OpConstant.offset64 16
   %96 = OpUConvert.offset64.u32 %95
   %97 = OpPtrAccessChain.storage_buffer.f16.byte_offset %rhs_aligned, %byte_offset_aligned
-  %rhs = OpCooperativeMatrixLoadKHR.rhs.f16.16x16x16.f32.subgroup.storage_buffer %97, %96, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xf16, subgroup, matrix_b>>
+  %rhs = OpCooperativeMatrixLoadKHR.rhs.f16.16x16.subgroup.storage_buffer %97, %96, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xf16, subgroup, matrix_b>>
   %99 = OpConstant.offset64 16
   %100 = OpUConvert.offset64.u32 %99
   %101 = OpPtrAccessChain.storage_buffer.f32.byte_offset %init_aligned, %byte_offset_aligned
-  %init = OpCooperativeMatrixLoadKHR.init.f16.16x16x16.f32.subgroup.storage_buffer %101, %100, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
+  %init = OpCooperativeMatrixLoadKHR.init.f32.16x16.subgroup.storage_buffer %101, %100, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
   %result = OpCooperativeMatrixMulAddKHR.f16.16x16x16.f32.subgroup %lhs, %rhs, %init : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
   %104 = OpConstant.offset64 16
   %105 = OpUConvert.offset64.u32 %104
   %106 = OpPtrAccessChain.storage_buffer.f32.byte_offset %out_aligned, %byte_offset_aligned
-  OpCooperativeMatrixStoreKHR.result.f16.16x16x16.f32.subgroup.storage_buffer %106, %result, %105, 0
+  OpCooperativeMatrixStoreKHR.result.f32.16x16.subgroup.storage_buffer %106, %result, %105, 0
   return
 }
 
@@ -855,15 +855,15 @@ low.kernel.def target<spirv.logical.core>(@hal_target_coop_f16) abi_layout({sign
   %115 = OpConstant.offset64 16
   %116 = OpUConvert.offset64.u32 %115
   %117 = OpPtrAccessChain.storage_buffer.f16.byte_offset %lhs_aligned, %byte_offset_aligned
-  %lhs = OpCooperativeMatrixLoadKHR.lhs.f16.16x16x16.f32.subgroup.storage_buffer %117, %116, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xf16, subgroup, matrix_a>>
+  %lhs = OpCooperativeMatrixLoadKHR.lhs.f16.16x16.subgroup.storage_buffer %117, %116, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xf16, subgroup, matrix_a>>
   %119 = OpConstant.offset64 16
   %120 = OpUConvert.offset64.u32 %119
   %121 = OpPtrAccessChain.storage_buffer.f16.byte_offset %rhs_aligned, %byte_offset_aligned
-  %rhs = OpCooperativeMatrixLoadKHR.rhs.f16.16x16x16.f32.subgroup.storage_buffer %121, %120, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xf16, subgroup, matrix_b>>
+  %rhs = OpCooperativeMatrixLoadKHR.rhs.f16.16x16.subgroup.storage_buffer %121, %120, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xf16, subgroup, matrix_b>>
   %123 = OpConstant.offset64 16
   %124 = OpUConvert.offset64.u32 %123
   %125 = OpPtrAccessChain.storage_buffer.f32.byte_offset %init_aligned, %byte_offset_aligned
-  %init = OpCooperativeMatrixLoadKHR.init.f16.16x16x16.f32.subgroup.storage_buffer %125, %124, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
+  %init = OpCooperativeMatrixLoadKHR.init.f32.16x16.subgroup.storage_buffer %125, %124, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
   %result = low.scf.for signed [%loop_begin to %iteration_count step %loop_step] iter_args(%init: reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>) -> (reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>) do(%iteration: reg<spirv.id : index>, %accumulator: reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>) {
     %next = OpCooperativeMatrixMulAddKHR.f16.16x16x16.f32.subgroup %lhs, %rhs, %accumulator : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
     low.scf.yield %next : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
@@ -871,7 +871,7 @@ low.kernel.def target<spirv.logical.core>(@hal_target_coop_f16) abi_layout({sign
   %131 = OpConstant.offset64 16
   %132 = OpUConvert.offset64.u32 %131
   %133 = OpPtrAccessChain.storage_buffer.f32.byte_offset %out_aligned, %byte_offset_aligned
-  OpCooperativeMatrixStoreKHR.result.f16.16x16x16.f32.subgroup.storage_buffer %133, %result, %132, 0
+  OpCooperativeMatrixStoreKHR.result.f32.16x16.subgroup.storage_buffer %133, %result, %132, 0
   return
 }
 
@@ -887,23 +887,23 @@ low.kernel.def target<spirv.logical.core>(@hal_target_coop_f16) abi_layout({sign
   %145 = OpConstant.offset64 4
   %146 = OpIMul.offset64 %144, %145
   %147 = OpPtrAccessChain.storage_buffer.f32.byte_offset %input_aligned, %146
-  %fragment = OpCooperativeMatrixLoadKHR.init.f16.16x16x16.f32.subgroup.storage_buffer %147, %141, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
+  %fragment = OpCooperativeMatrixLoadKHR.init.f32.16x16.subgroup.storage_buffer %147, %141, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
   %149 = OpConstant.offset64 40
   %150 = OpUConvert.offset64.u32 %149
   %151 = OpConstant.offset64 2560
   %152 = OpAccessChain.workgroup.f32.byte_offset %scratch_view, %151
-  OpCooperativeMatrixStoreKHR.result.f16.16x16x16.f32.subgroup.workgroup %152, %fragment, %150, 1
+  OpCooperativeMatrixStoreKHR.result.f32.16x16.subgroup.workgroup %152, %fragment, %150, 1
   OpControlBarrier.workgroup.workgroup.acq_rel
   %153 = OpConstant.offset64 40
   %154 = OpUConvert.offset64.u32 %153
   %155 = OpConstant.offset64 2560
   %156 = OpAccessChain.workgroup.f32.byte_offset %scratch_view, %155
-  %reloaded = OpCooperativeMatrixLoadKHR.init.f16.16x16x16.f32.subgroup.workgroup %156, %154, 1 : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
+  %reloaded = OpCooperativeMatrixLoadKHR.init.f32.16x16.subgroup.workgroup %156, %154, 1 : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
   %158 = OpSConvert.i32.offset64 %row_stride
   %159 = OpUConvert.offset64.u32 %158
   %160 = OpConstant.offset64 0
   %161 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_aligned, %160
-  OpCooperativeMatrixStoreKHR.result.f16.16x16x16.f32.subgroup.storage_buffer %161, %reloaded, %159, 0
+  OpCooperativeMatrixStoreKHR.result.f32.16x16.subgroup.storage_buffer %161, %reloaded, %159, 0
   return
 }
 
@@ -913,12 +913,12 @@ low.kernel.def target<spirv.logical.core>(@hal_target_coop_f16) abi_layout({sign
   %164 = OpConstant.offset64 0
   %165 = OpUConvert.offset64.u32 %164
   %167 = OpPtrAccessChain.storage_buffer.f32.byte_offset %input_aligned, %164
-  %fragment = OpCooperativeMatrixLoadKHR.init.f16.16x16x16.f32.subgroup.storage_buffer %167, %165, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
+  %fragment = OpCooperativeMatrixLoadKHR.init.f32.16x16.subgroup.storage_buffer %167, %165, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
   %169 = OpConstant.offset64 16
   %170 = OpUConvert.offset64.u32 %169
   %171 = OpConstant.offset64 0
   %172 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_aligned, %171
-  OpCooperativeMatrixStoreKHR.result.f16.16x16x16.f32.subgroup.storage_buffer %172, %fragment, %170, 0
+  OpCooperativeMatrixStoreKHR.result.f32.16x16.subgroup.storage_buffer %172, %fragment, %170, 0
   return
 }
 
@@ -960,20 +960,20 @@ low.kernel.def target<spirv.logical.core>(@hal_target_coop_bf16) abi_layout({sig
   %28 = OpConstant.offset64 16
   %29 = OpUConvert.offset64.u32 %28
   %30 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %lhs_aligned, %byte_offset_aligned
-  %lhs = OpCooperativeMatrixLoadKHR.lhs.bf16.16x16x16.f32.subgroup.storage_buffer %30, %29, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xbf16, subgroup, matrix_a>>
+  %lhs = OpCooperativeMatrixLoadKHR.lhs.bf16.16x16.subgroup.storage_buffer %30, %29, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xbf16, subgroup, matrix_a>>
   %32 = OpConstant.offset64 16
   %33 = OpUConvert.offset64.u32 %32
   %34 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %rhs_aligned, %byte_offset_aligned
-  %rhs = OpCooperativeMatrixLoadKHR.rhs.bf16.16x16x16.f32.subgroup.storage_buffer %34, %33, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xbf16, subgroup, matrix_b>>
+  %rhs = OpCooperativeMatrixLoadKHR.rhs.bf16.16x16.subgroup.storage_buffer %34, %33, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xbf16, subgroup, matrix_b>>
   %36 = OpConstant.offset64 16
   %37 = OpUConvert.offset64.u32 %36
   %38 = OpPtrAccessChain.storage_buffer.f32.byte_offset %init_aligned, %byte_offset_aligned
-  %init = OpCooperativeMatrixLoadKHR.init.bf16.16x16x16.f32.subgroup.storage_buffer %38, %37, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
+  %init = OpCooperativeMatrixLoadKHR.init.f32.16x16.subgroup.storage_buffer %38, %37, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
   %result = OpCooperativeMatrixMulAddKHR.bf16.16x16x16.f32.subgroup %lhs, %rhs, %init : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
   %41 = OpConstant.offset64 16
   %42 = OpUConvert.offset64.u32 %41
   %43 = OpPtrAccessChain.storage_buffer.f32.byte_offset %out_aligned, %byte_offset_aligned
-  OpCooperativeMatrixStoreKHR.result.bf16.16x16x16.f32.subgroup.storage_buffer %43, %result, %42, 0
+  OpCooperativeMatrixStoreKHR.result.f32.16x16.subgroup.storage_buffer %43, %result, %42, 0
   return
 }
 
@@ -1046,20 +1046,20 @@ low.kernel.def target<spirv.logical.core>(@hal_target_coop_i8) abi_layout({signa
   %57 = OpConstant.offset64 32
   %58 = OpUConvert.offset64.u32 %57
   %59 = OpPtrAccessChain.storage_buffer.u8.byte_offset %lhs_aligned, %byte_offset_aligned
-  %lhs = OpCooperativeMatrixLoadKHR.lhs.u8.16x16x32.u32.subgroup.storage_buffer %59, %58, 0 : reg<spirv.id : spirv.cooperative_matrix<16x32xu8, subgroup, matrix_a>>
+  %lhs = OpCooperativeMatrixLoadKHR.lhs.u8.16x32.subgroup.storage_buffer %59, %58, 0 : reg<spirv.id : spirv.cooperative_matrix<16x32xu8, subgroup, matrix_a>>
   %61 = OpConstant.offset64 16
   %62 = OpUConvert.offset64.u32 %61
   %63 = OpPtrAccessChain.storage_buffer.u8.byte_offset %rhs_aligned, %byte_offset_aligned
-  %rhs = OpCooperativeMatrixLoadKHR.rhs.u8.16x16x32.u32.subgroup.storage_buffer %63, %62, 0 : reg<spirv.id : spirv.cooperative_matrix<32x16xu8, subgroup, matrix_b>>
+  %rhs = OpCooperativeMatrixLoadKHR.rhs.u8.32x16.subgroup.storage_buffer %63, %62, 0 : reg<spirv.id : spirv.cooperative_matrix<32x16xu8, subgroup, matrix_b>>
   %65 = OpConstant.offset64 16
   %66 = OpUConvert.offset64.u32 %65
   %67 = OpPtrAccessChain.storage_buffer.u32.byte_offset %init_aligned, %byte_offset_aligned
-  %init = OpCooperativeMatrixLoadKHR.init.u8.16x16x32.u32.subgroup.storage_buffer %67, %66, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xu32, subgroup, matrix_accumulator>>
+  %init = OpCooperativeMatrixLoadKHR.init.u32.16x16.subgroup.storage_buffer %67, %66, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xu32, subgroup, matrix_accumulator>>
   %result = OpCooperativeMatrixMulAddKHR.u8.16x16x32.u32.subgroup %lhs, %rhs, %init : reg<spirv.id : spirv.cooperative_matrix<16x16xu32, subgroup, matrix_accumulator>>
   %70 = OpConstant.offset64 16
   %71 = OpUConvert.offset64.u32 %70
   %72 = OpPtrAccessChain.storage_buffer.u32.byte_offset %out_aligned, %byte_offset_aligned
-  OpCooperativeMatrixStoreKHR.result.u8.16x16x32.u32.subgroup.storage_buffer %72, %result, %71, 0
+  OpCooperativeMatrixStoreKHR.result.u32.16x16.subgroup.storage_buffer %72, %result, %71, 0
   return
 }
 
@@ -1071,19 +1071,19 @@ low.kernel.def target<spirv.logical.core>(@hal_target_coop_i8) abi_layout({signa
   %78 = OpConstant.offset64 32
   %79 = OpUConvert.offset64.u32 %78
   %80 = OpPtrAccessChain.storage_buffer.i8.byte_offset %lhs_aligned, %byte_offset_aligned
-  %lhs = OpCooperativeMatrixLoadKHR.lhs.s8.16x16x32.s32.subgroup.storage_buffer %80, %79, 0 : reg<spirv.id : spirv.cooperative_matrix<16x32xs8, subgroup, matrix_a>>
+  %lhs = OpCooperativeMatrixLoadKHR.lhs.i8.16x32.subgroup.storage_buffer %80, %79, 0 : reg<spirv.id : spirv.cooperative_matrix<16x32xs8, subgroup, matrix_a>>
   %82 = OpConstant.offset64 16
   %83 = OpUConvert.offset64.u32 %82
   %84 = OpPtrAccessChain.storage_buffer.i8.byte_offset %rhs_aligned, %byte_offset_aligned
-  %rhs = OpCooperativeMatrixLoadKHR.rhs.s8.16x16x32.s32.subgroup.storage_buffer %84, %83, 0 : reg<spirv.id : spirv.cooperative_matrix<32x16xs8, subgroup, matrix_b>>
+  %rhs = OpCooperativeMatrixLoadKHR.rhs.i8.32x16.subgroup.storage_buffer %84, %83, 0 : reg<spirv.id : spirv.cooperative_matrix<32x16xs8, subgroup, matrix_b>>
   %86 = OpConstant.offset64 16
   %87 = OpUConvert.offset64.u32 %86
   %88 = OpPtrAccessChain.storage_buffer.i32.byte_offset %init_aligned, %byte_offset_aligned
-  %init = OpCooperativeMatrixLoadKHR.init.s8.16x16x32.s32.subgroup.storage_buffer %88, %87, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xs32, subgroup, matrix_accumulator>>
+  %init = OpCooperativeMatrixLoadKHR.init.i32.16x16.subgroup.storage_buffer %88, %87, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xs32, subgroup, matrix_accumulator>>
   %result = OpCooperativeMatrixMulAddKHR.s8.16x16x32.s32.subgroup.signed_saturating %lhs, %rhs, %init : reg<spirv.id : spirv.cooperative_matrix<16x16xs32, subgroup, matrix_accumulator>>
   %91 = OpConstant.offset64 16
   %92 = OpUConvert.offset64.u32 %91
   %93 = OpPtrAccessChain.storage_buffer.i32.byte_offset %out_aligned, %byte_offset_aligned
-  OpCooperativeMatrixStoreKHR.result.s8.16x16x32.s32.subgroup.storage_buffer %93, %result, %92, 0
+  OpCooperativeMatrixStoreKHR.result.i32.16x16.subgroup.storage_buffer %93, %result, %92, 0
   return
 }

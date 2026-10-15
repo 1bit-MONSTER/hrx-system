@@ -23,7 +23,7 @@ def test_constructor_types_cover_components_without_duplicate_accumulators() -> 
         (scalar, rows, columns, role)
         for scalar, reduction in (("f16", 16), ("bf16", 16), ("i8", 32), ("u8", 32))
         for rows, columns, role in ((16, reduction, "lhs"), (reduction, 16, "rhs"))
-    } | {(scalar, 16, 16, "accumulator") for scalar in ("f32", "i32", "u32")}
+    } | {(scalar, 16, 16, "accumulator") for scalar in ("f16", "f32", "i32", "u32")}
     assert actual == expected
     assert len(COOPERATIVE_MATRIX_TYPES) == len(expected)
     storage_bits = feature_bits_value(
@@ -91,4 +91,4 @@ def test_initializers_cover_constants_origins_schemas_and_both_accumulator_roles
         for constant in (True, False)
     }
     assert signatures == expected
-    assert len(signatures) == 48
+    assert len(signatures) == 56
