@@ -30,6 +30,15 @@ iree_status_t loom_vector_packet_rewrite_memory_load(
     const loom_vector_packet_shape_t* shape,
     loom_vector_memory_cache_policy_t cache_policy);
 
+// Rewrites a load into exact target-legal vector packets and a scalar terminal
+// suffix when no legal memory packet fits the remaining lanes.
+iree_status_t loom_vector_packet_rewrite_memory_load_components(
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    const loom_target_vector_packet_policy_t* policy,
+    const loom_vector_memory_footprint_t* footprint,
+    const loom_vector_packet_shape_t* shape,
+    loom_vector_memory_cache_policy_t cache_policy, bool* out_rewritten);
+
 iree_status_t loom_vector_packet_preserve_memory_loads(
     loom_vector_packetization_t* packetization,
     const loom_vector_packet_shape_t* shape, bool* out_rewritten);

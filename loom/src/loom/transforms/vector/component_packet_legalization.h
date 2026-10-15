@@ -50,15 +50,15 @@ loom_vector_component_packet_query_cache_lookup(
     const loom_vector_component_packet_query_cache_t* cache,
     const loom_op_t* op);
 
-// Plans and rewrites every profitable decomposable vector component in
-// |region|. The target contributes candidate lane counts through
-// |context->vector_packet_policy|; the target contract remains the sole source
-// of native legality. Authored-legal producers remain target snapshots and
-// narrower consumers slice their results without replaying native work. A
-// contract that consumes whole-vector lane provenance retains its producer
-// closure so each projected packet establishes a complete local origin.
-// Components requiring legalization are emitted packet-major so direct SSA
-// edges remain packet-local across mixed operations and fanout.
+// Plans and rewrites every profitable decomposable vector component in the
+// function-local value domain carried by |context|. The target contributes
+// candidate lane counts through |context->vector_packet_policy|; the target
+// contract remains the sole source of native legality. Authored-legal producers
+// remain target snapshots and narrower consumers slice their results without
+// replaying native work. A contract that consumes whole-vector lane provenance
+// retains its producer closure so each projected packet establishes a complete
+// local origin. Components requiring legalization are emitted packet-major so
+// direct SSA edges remain packet-local across mixed operations and fanout.
 //
 // |rewrite_callback| observes each authored operation only after its packet
 // rewrite has completed and receives the contract result established for the
@@ -72,7 +72,7 @@ loom_vector_component_packet_query_cache_lookup(
 // |out_rewritten_op_count|. A zero count means that no component admitted a
 // native candidate under the active legalization policy.
 iree_status_t loom_vector_component_packet_legalize(
-    loom_target_legalization_context_t* context, loom_region_t* region,
+    loom_target_legalization_context_t* context,
     loom_vector_component_packet_rewrite_callback_t rewrite_callback,
     loom_vector_component_packet_query_cache_t* out_query_cache,
     uint32_t* out_rewritten_op_count);

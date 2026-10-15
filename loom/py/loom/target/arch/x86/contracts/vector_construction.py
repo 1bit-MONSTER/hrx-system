@@ -612,6 +612,7 @@ def _iota_splat_emits(
     name: str,
     profile: _IotaProfile,
     descriptor_lookup: _DescriptorLookup,
+    result: ValueRef | None = None,
 ) -> tuple[list[EmitDescriptorOp], ValueRef]:
     broadcast = descriptor_lookup(
         _integer_broadcast_descriptor_key(
@@ -621,7 +622,7 @@ def _iota_splat_emits(
             broadcast_source=profile.broadcast_source,
         )
     )
-    result = ValueRef.temporary(name)
+    result = result or ValueRef.temporary(name)
     if profile.broadcast_source == _IntegerBroadcastSource.GPR:
         return [
             _op_emit(
@@ -687,9 +688,9 @@ def _avx2_iota_scale_i8_emits(
     )
     emits.extend(mask_emits)
     extract_chunk = (
-        None
-        if vector_bit_width == 128
-        else descriptor_lookup("x86.avx2.vextractf128.xmm.ymm")
+        descriptor_lookup("x86.avx2.vextractf128.xmm.ymm")
+        if vector_bit_width == 256
+        else None
     )
     shift = descriptor_lookup("x86.avx2.vpsrldq.xmm")
     widen = descriptor_lookup("x86.avx2.vpmovzxbw.xmm.xmm")
@@ -697,7 +698,9 @@ def _avx2_iota_scale_i8_emits(
     and_ = descriptor_lookup("x86.avx2.vpand.xmm")
     pack = descriptor_lookup("x86.avx2.vpackuswb.xmm")
     packed_chunks: list[ValueRef] = []
-    chunk_count = vector_bit_width // 128
+    # A 64-bit logical packet occupies the low half of one XMM carrier. Run the
+    # same physical 128-bit chunk program and retain its low eight byte lanes.
+    chunk_count = max(1, vector_bit_width // 128)
     for chunk_index in range(chunk_count):
         chunk = seed
         if extract_chunk is not None:
@@ -1004,6 +1007,36 @@ def _integer_iota_rule(
     profile: _IotaProfile,
     descriptor_lookup: _DescriptorLookup,
 ) -> DescriptorRule:
+    if vector_bit_width == element.bit_width:
+        emits, _ = _iota_splat_emits(
+            ValueRef.operand("base"),
+            element_bit_width=element.bit_width,
+            vector_bit_width=vector_bit_width,
+            name="result",
+            profile=profile,
+            descriptor_lookup=descriptor_lookup,
+            result=ValueRef.result("result"),
+        )
+        descriptor = emits[-1].descriptor
+        return DescriptorRule(
+            source_op=vector.vector_iota,
+            descriptor=descriptor,
+            guards=(
+                Guard.value_type("base", Scalar(element.name)),
+                Guard.value_type("step", Scalar(element.name)),
+                Guard.value_type(
+                    "result", _full_vector_type(element, vector_bit_width)
+                ),
+                *(
+                    Guard.descriptor_available(required_descriptor)
+                    for required_descriptor in _unique_emit_descriptors(emits)
+                    if required_descriptor != descriptor
+                ),
+            ),
+            emit=tuple(emits),
+            priority=0,
+        )
+
     emits, offsets = _iota_seed_emits(
         element.bit_width, vector_bit_width, profile, descriptor_lookup
     )
@@ -1131,8 +1164,9 @@ def avx2_vector_construction_rules(
                 descriptor_lookup=descriptor_lookup,
             )
             for element in INTEGER_ELEMENTS
-            for vector_bit_width in AVX2_VECTOR_BIT_WIDTHS
+            for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS
             for unit_step in (True, False)
+            if vector_bit_width != element.bit_width or not unit_step
         ),
     )
 

@@ -302,3 +302,28 @@ low.func.def target<x86.scalar.core>(@target) abi(object_function) abi_layout({s
 ^greater_equal:
   return %false_value, %condition
 }
+
+// ====
+
+x86.target<scalar> @target
+
+func.def target(@target) @select_storage_float_bits(%condition: i1, %true_e4m3: f8E4M3, %false_e4m3: f8E4M3, %true_e5m2: f8E5M2, %false_e5m2: f8E5M2, %true_f16: f16, %false_f16: f16, %true_bf16: bf16, %false_bf16: bf16) -> (f8E4M3, f8E5M2, f16, bf16) {
+  %e4m3 = scf.select %condition, %true_e4m3, %false_e4m3 : f8E4M3
+  %e5m2 = scf.select %condition, %true_e5m2, %false_e5m2 : f8E5M2
+  %f16 = scf.select %condition, %true_f16, %false_f16 : f16
+  %bf16 = scf.select %condition, %true_bf16, %false_bf16 : bf16
+  func.return %e4m3, %e5m2, %f16, %bf16 : f8E4M3, f8E5M2, f16, bf16
+}
+
+// ----
+low.func.def target<x86.scalar.core>(@target) abi(object_function) abi_layout({signature = (i1, f8E4M3, f8E4M3, f8E5M2, f8E5M2, f16, f16, bf16, bf16) -> (f8E4M3, f8E5M2, f16, bf16)}) @select_storage_float_bits(%condition: reg<x86.gpr32>, %true_e4m3: reg<x86.gpr32>, %false_e4m3: reg<x86.gpr32>, %true_e5m2: reg<x86.gpr32>, %false_e5m2: reg<x86.gpr32>, %true_f16: reg<x86.gpr32>, %false_f16: reg<x86.gpr32>, %true_bf16: reg<x86.gpr32>, %false_bf16: reg<x86.gpr32>) -> (reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>, reg<x86.gpr32>) asm {
+  %30 = copy %false_e4m3 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %e4m3 = select.gpr32 %condition, %true_e4m3, %30
+  %32 = copy %false_e5m2 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %e5m2 = select.gpr32 %condition, %true_e5m2, %32
+  %34 = copy %false_f16 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %f16 = select.gpr32 %condition, %true_f16, %34
+  %36 = copy %false_bf16 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %bf16 = select.gpr32 %condition, %true_bf16, %36
+  return %e4m3, %e5m2, %f16, %bf16
+}

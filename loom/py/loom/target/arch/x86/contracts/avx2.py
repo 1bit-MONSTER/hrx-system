@@ -45,6 +45,7 @@ from loom.target.arch.x86.contracts.vector_construction import (
     avx2_vector_construction_rules,
 )
 from loom.target.arch.x86.descriptors import X86_AVX2_DESCRIPTOR_SET
+from loom.target.arch.x86.vector_families import AVX2_CARRIER_VECTOR_BIT_WIDTHS
 from loom.target.contracts import (
     ContractCase,
     ContractFragment,
@@ -69,7 +70,7 @@ def _memory_rules() -> tuple[DescriptorRule, ...]:
     return x86_vector_memory_rules(
         _descriptor,
         descriptor_key_prefix="x86.avx2",
-        vector_bit_widths=(128, 256),
+        vector_bit_widths=AVX2_CARRIER_VECTOR_BIT_WIDTHS,
         diagnostic=_SOURCE_MEMORY_DIAGNOSTIC,
     )
 

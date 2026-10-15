@@ -57,17 +57,6 @@ iree_status_t loom_vector_packet_dynamic_window_owns_consumer_chain(
     const loom_target_vector_packet_policy_t* policy, const loom_op_t* op,
     bool* out_owns_consumer_chain);
 
-// Packetizes a static rank-one scalar insertion whose result spans more than
-// one target-native packet. Static insertion updates only the owning packet.
-// Dynamic insertion builds one native candidate per packet and selects the
-// candidate over that packet's lane interval before concatenating the result.
-// Returns false through |out_rewritten| when the result already fits one
-// packet, the operation is not a scalar insertion, or the expansion exceeds
-// the static bound.
-iree_status_t loom_vector_packet_legalize_insert(
-    loom_target_legalization_context_t* context, loom_op_t* op,
-    const loom_target_vector_packet_policy_t* policy, bool* out_rewritten);
-
 // Packetizes a rank-one dynamic slice by materializing its decomposable
 // producer graph directly at each runtime-selected result packet. The optional
 // |consumer_materializer| may fuse explicitly supported unary consumers into

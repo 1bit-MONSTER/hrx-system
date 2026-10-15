@@ -45,11 +45,16 @@ typedef struct loom_local_value_domain_t {
   loom_value_ordinal_t value_count;
   // Prefix of value_ids defined in the region or region tree at acquisition.
   // The remaining IDs are captures or values explicitly registered later.
+  // Definitions retain region traversal order even when first seen by a
+  // forward use; block arguments precede operations in their owning block.
   loom_value_ordinal_t definition_count;
   // Allocated capacity of value_ids.
   iree_host_size_t value_capacity;
   // Domain lifecycle flags.
   loom_local_value_domain_flags_t flags;
+  // Union of effective traits on operations covered by the definition scope.
+  // This is a source-topology snapshot with the same lifetime as value_ids.
+  loom_trait_flags_t operation_traits;
 } loom_local_value_domain_t;
 
 // Acquires a local value domain for |region| in |module|'s ordinal scratch.

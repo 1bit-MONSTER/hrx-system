@@ -163,6 +163,34 @@ TEST_F(FactTableComputeTest, InductionStepReadsCurrentFactsAndLiteralBits) {
       loom_value_fact_induction_step_facts(&table_, &induction)));
 }
 
+TEST_F(FactTableComputeTest, RetainsComputedResultTypeKindsUntilScopeClear) {
+  EXPECT_FALSE(
+      loom_value_fact_table_has_result_type_kind(&table_, LOOM_TYPE_SCALAR));
+  const loom_type_t result_types[] = {
+      loom_type_scalar(LOOM_SCALAR_TYPE_I32),
+      loom_type_shaped_1d(LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_I32,
+                          loom_dim_pack_static(4), 0),
+      loom_type_shaped_1d(LOOM_TYPE_TENSOR, LOOM_SCALAR_TYPE_I32,
+                          loom_dim_pack_static(4), 0),
+  };
+  for (loom_type_t result_type : result_types) {
+    loom_op_t* constant = nullptr;
+    IREE_ASSERT_OK(loom_test_constant_build(&builder_, loom_attr_i64(0),
+                                            result_type, LOOM_LOCATION_UNKNOWN,
+                                            &constant));
+    IREE_ASSERT_OK(
+        loom_value_fact_table_compute_op(&table_, module_, constant));
+    EXPECT_TRUE(loom_value_fact_table_has_result_type_kind(
+        &table_, loom_type_kind(result_type)));
+  }
+
+  loom_value_fact_table_clear_scope(&table_);
+  for (loom_type_t result_type : result_types) {
+    EXPECT_FALSE(loom_value_fact_table_has_result_type_kind(
+        &table_, loom_type_kind(result_type)));
+  }
+}
+
 TEST_F(FactTableComputeTest, IdentityOnlyMutationReportsChangedFacts) {
   EXPECT_EQ(table_.identities.entries, nullptr);
   EXPECT_EQ(loom_value_fact_table_query_identity(&table_, inputs_[0]),

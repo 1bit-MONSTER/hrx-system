@@ -59,16 +59,71 @@ bool loom_x86_avx512_predicate_type(loom_type_t source_type,
   return loom_x86_predicate_type(source_type, 64, out_lane_count);
 }
 
-static bool loom_x86_avx2_predicate_representation_available(
-    uint32_t lane_count, loom_low_representation_id_t representation) {
+#define LOOM_X86_PREDICATE_MAX_CANDIDATE_COUNT 5u
+
+static bool loom_x86_predicate_simd_bit_width(
+    uint32_t lane_count, loom_low_representation_id_t representation,
+    uint32_t* out_bit_width) {
   switch (representation) {
-    case LOOM_X86_PREDICATE_REPRESENTATION_XMM:
-      return lane_count <= 16;
-    case LOOM_X86_PREDICATE_REPRESENTATION_YMM:
-      return lane_count >= 4;
+    case LOOM_X86_PREDICATE_REPRESENTATION_SIMD8:
+    case LOOM_X86_PREDICATE_REPRESENTATION_SIMD16:
+    case LOOM_X86_PREDICATE_REPRESENTATION_SIMD32:
+    case LOOM_X86_PREDICATE_REPRESENTATION_SIMD64:
+      *out_bit_width = lane_count * (uint32_t)representation;
+      return true;
     default:
+      *out_bit_width = 0;
       return false;
   }
+}
+
+static bool loom_x86_predicate_representation_available(
+    const loom_x86_predicate_representation_policy_t* policy,
+    uint32_t lane_count, loom_low_representation_id_t representation) {
+  if (representation == LOOM_X86_PREDICATE_REPRESENTATION_MASK) {
+    return policy->profile == LOOM_X86_PREDICATE_PROFILE_AVX512;
+  }
+  uint32_t bit_width = 0;
+  if (!loom_x86_predicate_simd_bit_width(lane_count, representation,
+                                         &bit_width)) {
+    return false;
+  }
+  if (bit_width == 64 || bit_width == 128 || bit_width == 256) {
+    return true;
+  }
+  return policy->profile == LOOM_X86_PREDICATE_PROFILE_AVX512 &&
+         lane_count == 64 && bit_width == 512;
+}
+
+static loom_low_representation_id_t loom_x86_predicate_callable_representation(
+    uint32_t lane_count) {
+  const uint32_t bit_width = lane_count == 64   ? 512
+                             : lane_count == 32 ? 256
+                                                : 128;
+  return (loom_low_representation_id_t)(bit_width / lane_count);
+}
+
+static bool loom_x86_predicate_simd_register_class(
+    uint32_t lane_count, loom_low_representation_id_t representation,
+    loom_x86_register_class_t* out_register_class) {
+  uint32_t bit_width = 0;
+  if (!loom_x86_predicate_simd_bit_width(lane_count, representation,
+                                         &bit_width)) {
+    return false;
+  }
+  if (bit_width == 64 || bit_width == 128) {
+    *out_register_class = LOOM_X86_REGISTER_CLASS_XMM;
+    return true;
+  }
+  if (bit_width == 256) {
+    *out_register_class = LOOM_X86_REGISTER_CLASS_YMM;
+    return true;
+  }
+  if (bit_width == 512) {
+    *out_register_class = LOOM_X86_REGISTER_CLASS_ZMM;
+    return true;
+  }
+  return false;
 }
 
 bool loom_x86_avx2_predicate_register_class(
@@ -79,17 +134,18 @@ bool loom_x86_avx2_predicate_register_class(
     return false;
   }
   if (representation == LOOM_LOW_REPRESENTATION_ID_NONE) {
-    representation = lane_count == 32 ? LOOM_X86_PREDICATE_REPRESENTATION_YMM
-                                      : LOOM_X86_PREDICATE_REPRESENTATION_XMM;
+    representation = loom_x86_predicate_callable_representation(lane_count);
   }
-  if (!loom_x86_avx2_predicate_representation_available(lane_count,
-                                                        representation)) {
+  const loom_x86_predicate_representation_policy_t policy = {
+      .profile = LOOM_X86_PREDICATE_PROFILE_AVX2,
+      .maximum_lane_count = 32,
+  };
+  if (!loom_x86_predicate_representation_available(&policy, lane_count,
+                                                   representation)) {
     return false;
   }
-  *out_register_class = representation == LOOM_X86_PREDICATE_REPRESENTATION_XMM
-                            ? LOOM_X86_REGISTER_CLASS_XMM
-                            : LOOM_X86_REGISTER_CLASS_YMM;
-  return true;
+  return loom_x86_predicate_simd_register_class(lane_count, representation,
+                                                out_register_class);
 }
 
 bool loom_x86_avx512_predicate_register_class(
@@ -100,98 +156,123 @@ bool loom_x86_avx512_predicate_register_class(
     return false;
   }
   if (representation == LOOM_LOW_REPRESENTATION_ID_NONE) {
-    representation = LOOM_X86_AVX512_PREDICATE_REPRESENTATION_CARRIER;
+    representation = loom_x86_predicate_callable_representation(lane_count);
   }
-  if (representation == LOOM_X86_AVX512_PREDICATE_REPRESENTATION_MASK) {
+  if (representation == LOOM_X86_PREDICATE_REPRESENTATION_MASK) {
     *out_register_class = LOOM_X86_REGISTER_CLASS_K;
     return true;
   }
-  if (representation != LOOM_X86_AVX512_PREDICATE_REPRESENTATION_CARRIER) {
+  const loom_x86_predicate_representation_policy_t policy = {
+      .profile = LOOM_X86_PREDICATE_PROFILE_AVX512,
+      .maximum_lane_count = 64,
+  };
+  if (!loom_x86_predicate_representation_available(&policy, lane_count,
+                                                   representation)) {
     return false;
   }
-  *out_register_class = lane_count <= 16   ? LOOM_X86_REGISTER_CLASS_XMM
-                        : lane_count == 32 ? LOOM_X86_REGISTER_CLASS_YMM
-                                           : LOOM_X86_REGISTER_CLASS_ZMM;
-  return true;
+  return loom_x86_predicate_simd_register_class(lane_count, representation,
+                                                out_register_class);
 }
 
 static loom_low_representation_cost_t loom_x86_avx2_predicate_conversion_cost(
-    loom_low_representation_id_t source,
+    uint32_t lane_count, loom_low_representation_id_t source,
     loom_low_representation_id_t destination) {
   if (source == destination) {
     return (loom_low_representation_cost_t){0};
   }
-  if (source == LOOM_X86_PREDICATE_REPRESENTATION_XMM) {
-    return (loom_low_representation_cost_t){.runtime = 1, .code_size = 5};
+  uint32_t source_bit_width = 0;
+  uint32_t destination_bit_width = 0;
+  if (!loom_x86_predicate_simd_bit_width(lane_count, source,
+                                         &source_bit_width) ||
+      !loom_x86_predicate_simd_bit_width(lane_count, destination,
+                                         &destination_bit_width)) {
+    return (loom_low_representation_cost_t){.runtime = 1, .code_size = 6};
   }
-  return (loom_low_representation_cost_t){.runtime = 3, .code_size = 15};
+  uint16_t instruction_count = 1;
+  if (source_bit_width == 64 && destination_bit_width == 256) {
+    instruction_count = 2;
+  } else if (source_bit_width == 256 && destination_bit_width == 128) {
+    instruction_count = 3;
+  } else if (source_bit_width == 256 && destination_bit_width == 64) {
+    instruction_count = 4;
+  }
+  return (loom_low_representation_cost_t){
+      .runtime = instruction_count,
+      .code_size = (uint16_t)(instruction_count * 5u),
+  };
 }
 
 static loom_low_representation_cost_t loom_x86_predicate_conversion_cost(
     const loom_x86_predicate_representation_policy_t* policy,
-    loom_low_representation_id_t source,
+    uint32_t lane_count, loom_low_representation_id_t source,
     loom_low_representation_id_t destination) {
-  if (policy->profile == LOOM_X86_PREDICATE_PROFILE_AVX2) {
-    return loom_x86_avx2_predicate_conversion_cost(source, destination);
+  if (source == destination) {
+    return (loom_low_representation_cost_t){0};
   }
-  return source == destination
-             ? (loom_low_representation_cost_t){0}
-             : (loom_low_representation_cost_t){.runtime = 1, .code_size = 6};
-}
-
-static bool loom_x86_predicate_representation_available(
-    const loom_x86_predicate_representation_policy_t* policy,
-    uint32_t lane_count, loom_low_representation_id_t representation) {
-  if (policy->profile == LOOM_X86_PREDICATE_PROFILE_AVX2) {
-    return loom_x86_avx2_predicate_representation_available(lane_count,
-                                                            representation);
+  if (policy->profile == LOOM_X86_PREDICATE_PROFILE_AVX512 &&
+      (source == LOOM_X86_PREDICATE_REPRESENTATION_MASK ||
+       destination == LOOM_X86_PREDICATE_REPRESENTATION_MASK)) {
+    return (loom_low_representation_cost_t){.runtime = 1, .code_size = 6};
   }
-  return representation == LOOM_X86_AVX512_PREDICATE_REPRESENTATION_MASK ||
-         representation == LOOM_X86_AVX512_PREDICATE_REPRESENTATION_CARRIER;
-}
-
-static loom_low_representation_id_t loom_x86_predicate_callable_representation(
-    const loom_x86_predicate_representation_policy_t* policy,
-    uint32_t lane_count) {
-  if (policy->profile == LOOM_X86_PREDICATE_PROFILE_AVX512) {
-    return LOOM_X86_AVX512_PREDICATE_REPRESENTATION_CARRIER;
-  }
-  return lane_count == 32 ? LOOM_X86_PREDICATE_REPRESENTATION_YMM
-                          : LOOM_X86_PREDICATE_REPRESENTATION_XMM;
+  return loom_x86_avx2_predicate_conversion_cost(lane_count, source,
+                                                 destination);
 }
 
 static loom_low_representation_id_t loom_x86_predicate_native_representation(
     const loom_x86_predicate_representation_policy_t* policy,
-    uint32_t vector_bit_width) {
-  if (policy->profile == LOOM_X86_PREDICATE_PROFILE_AVX512) {
-    return LOOM_X86_AVX512_PREDICATE_REPRESENTATION_MASK;
+    uint32_t lane_count, uint32_t vector_bit_width) {
+  if (vector_bit_width != 64 && vector_bit_width != 128 &&
+      vector_bit_width != 256 && vector_bit_width != 512) {
+    return LOOM_LOW_REPRESENTATION_ID_NONE;
   }
-  if (vector_bit_width == 128) {
-    return LOOM_X86_PREDICATE_REPRESENTATION_XMM;
+  if (policy->profile == LOOM_X86_PREDICATE_PROFILE_AVX512 &&
+      vector_bit_width != 64) {
+    return LOOM_X86_PREDICATE_REPRESENTATION_MASK;
   }
-  if (vector_bit_width == 256) {
-    return LOOM_X86_PREDICATE_REPRESENTATION_YMM;
-  }
-  return LOOM_LOW_REPRESENTATION_ID_NONE;
+  return (loom_low_representation_id_t)(vector_bit_width / lane_count);
 }
 
 static iree_host_size_t loom_x86_predicate_candidates(
     const loom_x86_predicate_representation_policy_t* policy,
     uint32_t lane_count, loom_low_representation_id_t native_representation,
-    loom_low_representation_candidate_t candidates[2]) {
+    loom_low_representation_candidate_t
+        candidates[LOOM_X86_PREDICATE_MAX_CANDIDATE_COUNT]) {
+  static const loom_low_representation_id_t kRepresentations[] = {
+      LOOM_X86_PREDICATE_REPRESENTATION_MASK,
+      LOOM_X86_PREDICATE_REPRESENTATION_SIMD8,
+      LOOM_X86_PREDICATE_REPRESENTATION_SIMD16,
+      LOOM_X86_PREDICATE_REPRESENTATION_SIMD32,
+      LOOM_X86_PREDICATE_REPRESENTATION_SIMD64,
+  };
   iree_host_size_t candidate_count = 0;
-  for (loom_low_representation_id_t representation = 0; representation <= 1;
-       ++representation) {
+  for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(kRepresentations); ++i) {
+    const loom_low_representation_id_t representation = kRepresentations[i];
     if (!loom_x86_predicate_representation_available(policy, lane_count,
                                                      representation)) {
       continue;
+    }
+    if (policy->profile == LOOM_X86_PREDICATE_PROFILE_AVX512 &&
+        native_representation != LOOM_LOW_REPRESENTATION_ID_NONE) {
+      const bool native_is_mask =
+          native_representation == LOOM_X86_PREDICATE_REPRESENTATION_MASK;
+      if (native_is_mask &&
+          representation != LOOM_X86_PREDICATE_REPRESENTATION_MASK &&
+          representation !=
+              loom_x86_predicate_callable_representation(lane_count)) {
+        continue;
+      }
+      if (!native_is_mask &&
+          representation == LOOM_X86_PREDICATE_REPRESENTATION_MASK) {
+        continue;
+      }
     }
     candidates[candidate_count++] = (loom_low_representation_candidate_t){
         .representation = representation,
         .cost = native_representation == LOOM_LOW_REPRESENTATION_ID_NONE
                     ? (loom_low_representation_cost_t){0}
-                    : loom_x86_predicate_conversion_cost(
-                          policy, native_representation, representation),
+                    : loom_x86_predicate_conversion_cost(policy, lane_count,
+                                                         native_representation,
+                                                         representation),
     };
   }
   return candidate_count;
@@ -206,13 +287,10 @@ static void loom_x86_predicate_constrain_flexible(
                                policy->maximum_lane_count, &lane_count)) {
     return;
   }
-  loom_low_representation_candidate_t candidates[2];
-  const loom_low_representation_id_t native_representation =
-      policy->profile == LOOM_X86_PREDICATE_PROFILE_AVX512
-          ? LOOM_X86_AVX512_PREDICATE_REPRESENTATION_MASK
-          : LOOM_LOW_REPRESENTATION_ID_NONE;
+  loom_low_representation_candidate_t
+      candidates[LOOM_X86_PREDICATE_MAX_CANDIDATE_COUNT];
   const iree_host_size_t candidate_count = loom_x86_predicate_candidates(
-      policy, lane_count, native_representation, candidates);
+      policy, lane_count, LOOM_LOW_REPRESENTATION_ID_NONE, candidates);
   loom_low_lower_representation_record_candidates(recorder, value_id,
                                                   candidates, candidate_count);
 }
@@ -227,8 +305,7 @@ static void loom_x86_predicate_constrain_callable_value(
     return;
   }
   const loom_low_representation_candidate_t candidate = {
-      .representation =
-          loom_x86_predicate_callable_representation(policy, lane_count),
+      .representation = loom_x86_predicate_callable_representation(lane_count),
   };
   loom_low_lower_representation_record_candidates(recorder, value_id,
                                                   &candidate, 1);
@@ -292,11 +369,13 @@ static void loom_x86_predicate_observe_compare(
   }
   const uint32_t vector_bit_width = lane_count * (uint32_t)element_bit_width;
   const loom_low_representation_id_t native_representation =
-      loom_x86_predicate_native_representation(policy, vector_bit_width);
+      loom_x86_predicate_native_representation(policy, lane_count,
+                                               vector_bit_width);
   if (native_representation == LOOM_LOW_REPRESENTATION_ID_NONE) {
     return;
   }
-  loom_low_representation_candidate_t candidates[2];
+  loom_low_representation_candidate_t
+      candidates[LOOM_X86_PREDICATE_MAX_CANDIDATE_COUNT];
   const iree_host_size_t candidate_count = loom_x86_predicate_candidates(
       policy, lane_count, native_representation, candidates);
   loom_low_lower_representation_record_candidates(recorder, result, candidates,
@@ -327,11 +406,13 @@ static void loom_x86_predicate_observe_select(
   }
   const uint32_t vector_bit_width = lane_count * (uint32_t)element_bit_width;
   const loom_low_representation_id_t native_representation =
-      loom_x86_predicate_native_representation(policy, vector_bit_width);
+      loom_x86_predicate_native_representation(policy, lane_count,
+                                               vector_bit_width);
   if (native_representation == LOOM_LOW_REPRESENTATION_ID_NONE) {
     return;
   }
-  loom_low_representation_candidate_t candidates[2];
+  loom_low_representation_candidate_t
+      candidates[LOOM_X86_PREDICATE_MAX_CANDIDATE_COUNT];
   const iree_host_size_t candidate_count = loom_x86_predicate_candidates(
       policy, lane_count, native_representation, candidates);
   loom_low_lower_representation_record_costs(recorder, condition, candidates,
@@ -348,30 +429,26 @@ static void loom_x86_predicate_observe_lane_access(
                                policy->maximum_lane_count, &lane_count)) {
     return;
   }
-  loom_low_representation_candidate_t candidates[2];
-  iree_host_size_t candidate_count = 0;
-  if (policy->profile == LOOM_X86_PREDICATE_PROFILE_AVX512) {
-    // XMM/YMM carriers have direct lane operations. A K lane access requires
-    // moving the mask through a GPR and isolating the bit. The 64-lane carrier
-    // has no direct operation until the ZMM lane family is introduced, so its
-    // K representation remains cheaper.
-    candidates[candidate_count++] = (loom_low_representation_candidate_t){
-        .representation = LOOM_X86_AVX512_PREDICATE_REPRESENTATION_MASK,
-        .cost = lane_count == 64
-                    ? (loom_low_representation_cost_t){0}
-                    : (loom_low_representation_cost_t){.runtime = 3,
-                                                       .code_size = 12},
-    };
-    candidates[candidate_count++] = (loom_low_representation_candidate_t){
-        .representation = LOOM_X86_AVX512_PREDICATE_REPRESENTATION_CARRIER,
-        .cost =
-            lane_count == 64
-                ? (loom_low_representation_cost_t){.runtime = 1, .code_size = 6}
-                : (loom_low_representation_cost_t){0},
-    };
-  } else {
-    candidate_count = loom_x86_predicate_candidates(
-        policy, lane_count, LOOM_X86_PREDICATE_REPRESENTATION_XMM, candidates);
+  loom_low_representation_candidate_t
+      candidates[LOOM_X86_PREDICATE_MAX_CANDIDATE_COUNT];
+  const iree_host_size_t candidate_count = loom_x86_predicate_candidates(
+      policy, lane_count, LOOM_LOW_REPRESENTATION_ID_NONE, candidates);
+  for (iree_host_size_t i = 0; i < candidate_count; ++i) {
+    if (candidates[i].representation ==
+        LOOM_X86_PREDICATE_REPRESENTATION_MASK) {
+      candidates[i].cost =
+          lane_count == 64
+              ? (loom_low_representation_cost_t){0}
+              : (loom_low_representation_cost_t){.runtime = 3, .code_size = 12};
+      continue;
+    }
+    uint32_t bit_width = 0;
+    loom_x86_predicate_simd_bit_width(lane_count, candidates[i].representation,
+                                      &bit_width);
+    if (bit_width >= 256) {
+      candidates[i].cost =
+          (loom_low_representation_cost_t){.runtime = 1, .code_size = 6};
+    }
   }
   loom_low_lower_representation_record_costs(recorder, value_id, candidates,
                                              candidate_count);

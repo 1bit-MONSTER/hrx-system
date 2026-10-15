@@ -47,6 +47,9 @@
 extern "C" {
 #endif
 
+static_assert(LOOM_TYPE_COUNT_ <= 16,
+              "widen fact-table result type-kind storage");
+
 //===----------------------------------------------------------------------===//
 // Fact table
 //===----------------------------------------------------------------------===//
@@ -207,6 +210,9 @@ struct loom_value_fact_table_t {
   iree_host_size_t touched_count;
   // Allocated touched_values entry count.
   iree_host_size_t touched_capacity;
+  // Type kinds of results defined in the current scope. Incremental rewrites
+  // retain kinds until the scope is cleared, making this a conservative set.
+  uint16_t result_type_kind_bits;
   // Context object passed to op-specific fact inference callbacks.
   loom_fact_context_t context;
 
@@ -706,6 +712,14 @@ void loom_value_fact_table_contextual_query_values(
 void loom_value_fact_table_scope_values(const loom_value_fact_table_t* table,
                                         const loom_value_id_t** out_value_ids,
                                         iree_host_size_t* out_value_count);
+
+// Returns true when the populated scope has defined a result of |type_kind|.
+static inline bool loom_value_fact_table_has_result_type_kind(
+    const loom_value_fact_table_t* table, loom_type_kind_t type_kind) {
+  return table != NULL &&
+         iree_any_bit_set(table->result_type_kind_bits,
+                          (uint16_t)(UINT16_C(1) << type_kind));
+}
 
 // Returns the canonical SSA identity retained for |value_id|, or |value_id|
 // itself when the table is NULL or no identity has been established. This is

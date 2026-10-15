@@ -109,6 +109,12 @@ TEST_F(LocalValueDomainTest, RetainsNestedDefinitionsAndCapturedTypeProviders) {
   loom_builder_ip_t previous =
       loom_builder_enter_region(&builder_, inner, inner_body);
   const auto inner_value = Constant(2, LOOM_SCALAR_TYPE_INDEX);
+  const auto lhs = Constant(2, LOOM_SCALAR_TYPE_I32);
+  const auto rhs = Constant(3, LOOM_SCALAR_TYPE_I32);
+  loom_op_t* sum = nullptr;
+  IREE_ASSERT_OK(loom_test_addi_build(&builder_, lhs, rhs,
+                                      loom_type_scalar(LOOM_SCALAR_TYPE_I32),
+                                      LOOM_LOCATION_UNKNOWN, &sum));
   const loom_type_t tensor_type = loom_type_shaped_1d(
       LOOM_TYPE_TENSOR, LOOM_SCALAR_TYPE_I32, loom_dim_pack_dynamic(width), 0);
   loom_value_id_t argument = LOOM_VALUE_ID_INVALID;
@@ -122,13 +128,22 @@ TEST_F(LocalValueDomainTest, RetainsNestedDefinitionsAndCapturedTypeProviders) {
   IREE_ASSERT_OK(loom_local_value_domain_acquire_for_region(module_, body,
                                                             &arena_, &domain_));
   ExpectPartition({outer_value}, {condition, width});
+  EXPECT_TRUE(
+      iree_all_bits_set(domain_.operation_traits, LOOM_TRAIT_CONSTANT_LIKE));
+  EXPECT_FALSE(
+      iree_any_bit_set(domain_.operation_traits, LOOM_TRAIT_COMMUTATIVE));
   EXPECT_EQ(loom_local_value_domain_try_ordinal(&domain_, inner_value),
             LOOM_VALUE_ORDINAL_INVALID);
   loom_local_value_domain_release(&domain_);
 
   IREE_ASSERT_OK(loom_local_value_domain_acquire_for_region_tree(
       module_, body, &arena_, &domain_));
-  ExpectPartition({outer_value, inner_value, argument}, {condition, width});
+  ExpectPartition({outer_value, inner_value, lhs, rhs,
+                   loom_test_addi_result(sum), argument},
+                  {condition, width});
+  EXPECT_TRUE(
+      iree_all_bits_set(domain_.operation_traits,
+                        LOOM_TRAIT_CONSTANT_LIKE | LOOM_TRAIT_COMMUTATIVE));
   const std::vector<loom_value_id_t> ids(
       domain_.value_ids, domain_.value_ids + domain_.value_count);
   loom_local_value_domain_release(&domain_);
@@ -217,6 +232,8 @@ TEST_F(LocalValueDomainTest,
   IREE_ASSERT_OK(loom_local_value_domain_acquire_for_region_tree(
       module_, body, &arena_, &domain_));
   ExpectPartition({definition, loom_test_addi_result(sum)}, {capture});
+  EXPECT_EQ(domain_.value_ids[0], loom_test_addi_result(sum));
+  EXPECT_EQ(domain_.value_ids[1], definition);
   const std::vector<loom_value_id_t> ids(
       domain_.value_ids, domain_.value_ids + domain_.value_count);
   loom_value_id_t new_value = LOOM_VALUE_ID_INVALID;

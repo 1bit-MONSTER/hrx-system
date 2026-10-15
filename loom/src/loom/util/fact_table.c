@@ -384,6 +384,7 @@ void loom_value_fact_table_clear_scope(loom_value_fact_table_t* table) {
   table->has_boolean_branch_regions = false;
   table->has_counted_loop_domains = false;
   table->condition_integer_projection_count = 0;
+  table->result_type_kind_bits = 0;
   if (table->identities.capacity) {
     for (iree_host_size_t i = 0; i < table->touched_count; ++i) {
       const loom_value_id_t value_id = table->touched_values[i];

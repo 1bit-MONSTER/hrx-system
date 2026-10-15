@@ -17,18 +17,17 @@ extern "C" {
 #endif
 
 typedef enum loom_x86_predicate_representation_e {
-  // Full all-zero/all-one lanes in one XMM register.
-  LOOM_X86_PREDICATE_REPRESENTATION_XMM = 0,
-  // Full all-zero/all-one lanes in one YMM register.
-  LOOM_X86_PREDICATE_REPRESENTATION_YMM = 1,
+  // One predicate bit per lane in an AVX-512 K register.
+  LOOM_X86_PREDICATE_REPRESENTATION_MASK = 1,
+  // Full all-zero/all-one 8-bit lanes in a SIMD register.
+  LOOM_X86_PREDICATE_REPRESENTATION_SIMD8 = 8,
+  // Full all-zero/all-one 16-bit lanes in a SIMD register.
+  LOOM_X86_PREDICATE_REPRESENTATION_SIMD16 = 16,
+  // Full all-zero/all-one 32-bit lanes in a SIMD register.
+  LOOM_X86_PREDICATE_REPRESENTATION_SIMD32 = 32,
+  // Full all-zero/all-one 64-bit lanes in a SIMD register.
+  LOOM_X86_PREDICATE_REPRESENTATION_SIMD64 = 64,
 } loom_x86_predicate_representation_t;
-
-typedef enum loom_x86_avx512_predicate_representation_e {
-  // One predicate bit per lane in a K register.
-  LOOM_X86_AVX512_PREDICATE_REPRESENTATION_MASK = 0,
-  // Full all-zero/all-one lanes in the platform ABI SIMD carrier.
-  LOOM_X86_AVX512_PREDICATE_REPRESENTATION_CARRIER = 1,
-} loom_x86_avx512_predicate_representation_t;
 
 // Returns true for an AVX2 full-register predicate type and optionally returns
 // its logical lane count.

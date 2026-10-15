@@ -109,14 +109,19 @@ loom_cc_library(
     "legalization.h"
   SRCS
     "legalization.c"
+    "vector_insert.c"
+    "vector_insert.h"
   DEPS
     iree::base
     loom::ir
+    loom::ops::index
     loom::ops::scalar
+    loom::ops::scf
     loom::ops::vector
     loom::target::arch::x86::records::target_records
     loom::target::legalization
     loom::transforms::scalar::target_legalization
+    loom::transforms::vector::packet_legalization
     loom::transforms::vector::to_scalar
   PUBLIC
 )

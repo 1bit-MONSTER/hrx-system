@@ -553,6 +553,9 @@ def test_scalar_compare_branches_cover_native_carrier_matrix() -> None:
 
 
 def test_scalar_compare_select_rules_cover_native_carrier_matrix() -> None:
+    gpr32_result_types = Scalar(
+        ("i1", "i8", "i16", "i32", "f8E4M3", "f8E5M2", "f16", "bf16")
+    )
     rules = tuple(
         case
         for case in X86_SCALAR_CONTRACT_FRAGMENT.cases
@@ -570,7 +573,7 @@ def test_scalar_compare_select_rules_cover_native_carrier_matrix() -> None:
             (index.index_cmp, Scalar(("index", "offset")), 64),
         )
         for result_type, result_width in (
-            (Scalar(("i1", "i8", "i16", "i32")), 32),
+            (gpr32_result_types, 32),
             (Scalar(("i64", "index", "offset")), 64),
             (Buffer(), 64),
         )
@@ -623,7 +626,7 @@ def test_scalar_compare_select_rules_cover_native_carrier_matrix() -> None:
             assert not immediate_project.source_node
         else:
             assert emit.operands["rhs"] == ValueRef.operand("rhs")
-        result_width = 32 if result_type == Scalar(("i1", "i8", "i16", "i32")) else 64
+        result_width = 32 if result_type == gpr32_result_types else 64
         actual_cells.add(
             (
                 rule.source_op,
@@ -636,6 +639,35 @@ def test_scalar_compare_select_rules_cover_native_carrier_matrix() -> None:
         )
     assert actual_cells == expected_cells
     assert len(rules) == len(expected_cells)
+
+
+def test_scalar_select_rules_cover_native_carrier_families() -> None:
+    rules = tuple(
+        case
+        for case in X86_SCALAR_CONTRACT_FRAGMENT.cases
+        if isinstance(case, DescriptorRule) and case.source_op is scf.scf_select
+    )
+    assert {
+        (_value_type_guard(rule, "result"), rule.descriptor.key) for rule in rules
+    } == {
+        (
+            Scalar(
+                (
+                    "i1",
+                    "i8",
+                    "i16",
+                    "i32",
+                    "f8E4M3",
+                    "f8E5M2",
+                    "f16",
+                    "bf16",
+                )
+            ),
+            "x86.scalar.select.gpr32",
+        ),
+        (Scalar(("i64", "index", "offset")), "x86.scalar.select.gpr64"),
+        (Buffer(), "x86.scalar.select.gpr64"),
+    }
 
 
 def test_scalar_integer_read_memory_rules_cover_native_carriers() -> None:
@@ -946,6 +978,48 @@ def test_scalar_float_memory_covers_types_and_addressing_without_bitcasts() -> N
                     )
                     for emit in emitted
                 )
+
+
+def test_vector_memory_covers_storage_families_and_carrier_widths() -> None:
+    for source_op, type_field in (
+        (vector.vector_load, "result"),
+        (vector.vector_store, "value"),
+    ):
+        for family in X86_VECTOR_STORAGE_FAMILIES:
+            for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS:
+                value_type = Vector(
+                    family.element_names,
+                    lanes=vector_bit_width // family.element_bit_width,
+                )
+                rules = tuple(
+                    case
+                    for case in X86_AVX2_CONTRACT_FRAGMENT.cases
+                    if isinstance(case, DescriptorRule)
+                    and case.source_op is source_op
+                    and _value_type_guard(case, type_field) == value_type
+                )
+                assert len(rules) == 9
+                for rule in rules:
+                    memory = tuple(
+                        emit
+                        for emit in rule.emit
+                        if isinstance(emit, EmitDescriptorOp)
+                        and emit.descriptor.semantic_tag.startswith("memory.")
+                    )
+                    assert len(memory) == 1
+                    assert memory[0].source_memory is not None
+                    assert memory[0].source_memory.element_byte_count == (
+                        family.element_bit_width // 8
+                    )
+                    assert memory[0].source_memory.vector_lane_count == (
+                        vector_bit_width // family.element_bit_width
+                    )
+                    descriptor_prefix = (
+                        "x86.avx2.vmovsd."
+                        if vector_bit_width == 64
+                        else "x86.avx2.vmovdqu32."
+                    )
+                    assert memory[0].descriptor.key.startswith(descriptor_prefix)
 
 
 def test_avx2_lane_movement_covers_every_payload_type_and_width() -> None:
@@ -1418,8 +1492,9 @@ def test_avx2_iotas_cover_every_integer_element_and_width() -> None:
             priority,
         )
         for element in INTEGER_ELEMENTS
-        for vector_bit_width in AVX2_VECTOR_BIT_WIDTHS
+        for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS
         for priority in (0, 1)
+        if vector_bit_width != element.bit_width or priority == 0
     }
     assert actual == expected
     assert len(rules) == len(expected)

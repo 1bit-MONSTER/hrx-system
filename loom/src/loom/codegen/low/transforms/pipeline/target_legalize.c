@@ -1354,13 +1354,16 @@ static iree_status_t loom_low_target_legalize_packet_components(
     void* user_data, loom_greedy_rewrite_driver_t* driver,
     loom_region_t* region, loom_greedy_rewrite_result_t* result,
     bool* out_changed) {
+  (void)region;
   *out_changed = false;
   loom_low_target_legalize_function_state_t* state =
       (loom_low_target_legalize_function_state_t*)user_data;
   if (state->preflight.error_count != 0 ||
       state->legalization_context.vector_packet_policy == NULL ||
       state->legalization_context.policy ==
-          LOOM_TARGET_LEGALIZATION_POLICY_REFERENCE_ONLY) {
+          LOOM_TARGET_LEGALIZATION_POLICY_REFERENCE_ONLY ||
+      !loom_value_fact_table_has_result_type_kind(driver->fact_table,
+                                                  LOOM_TYPE_VECTOR)) {
     return iree_ok_status();
   }
 
@@ -1371,7 +1374,7 @@ static iree_status_t loom_low_target_legalize_packet_components(
       loom_low_target_legalize_ensure_query_scope(state, driver->fact_table));
   uint32_t rewritten_op_count = 0;
   iree_status_t packet_status = loom_vector_component_packet_legalize(
-      &state->legalization_context, region,
+      &state->legalization_context,
       state->compile_report != NULL
           ? (loom_vector_component_packet_rewrite_callback_t){
                 .fn = loom_low_target_legalize_report_packet_rewrite,

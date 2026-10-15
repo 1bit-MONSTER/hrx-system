@@ -261,7 +261,7 @@ iree_status_t loom_vector_packet_rewrite_memory_load(
       /*out_rewritten=*/NULL);
 }
 
-static iree_status_t loom_vector_packet_rewrite_memory_load_components(
+iree_status_t loom_vector_packet_rewrite_memory_load_components(
     loom_target_legalization_context_t* context, loom_op_t* load_op,
     const loom_target_vector_packet_policy_t* policy,
     const loom_vector_memory_footprint_t* footprint,

@@ -77,6 +77,19 @@ static bool loom_vector_packet_boundary_is_callable_role(
          role == LOOM_BOUNDARY_PROJECTION_SLOT_CALL_RESULT;
 }
 
+static bool loom_vector_packet_boundary_is_object_signature_role(
+    const loom_boundary_projection_function_t* function,
+    loom_boundary_projection_slot_role_t role) {
+  if (role != LOOM_BOUNDARY_PROJECTION_SLOT_FUNCTION_ARGUMENT &&
+      role != LOOM_BOUNDARY_PROJECTION_SLOT_FUNCTION_RESULT) {
+    return false;
+  }
+  const loom_target_bundle_t* bundle = loom_target_facts_bundle(
+      loom_vector_packet_boundary_target_facts(function));
+  return bundle != NULL && bundle->export_plan != NULL &&
+         bundle->export_plan->abi_kind == LOOM_TARGET_ABI_OBJECT_FUNCTION;
+}
+
 static bool loom_vector_packet_boundary_carrier_supported(
     const loom_boundary_projection_plan_t* plan,
     const loom_boundary_projection_function_t* function,
@@ -106,7 +119,8 @@ static bool loom_vector_packet_boundary_select_schema(
     uint32_t* out_packet_lane_count, uint16_t* out_component_count) {
   *out_packet_lane_count = 0;
   *out_component_count = 0;
-  if (!loom_type_is_vector(logical_type) || loom_type_rank(logical_type) != 1 ||
+  if (loom_vector_packet_boundary_is_object_signature_role(function, role) ||
+      !loom_type_is_vector(logical_type) || loom_type_rank(logical_type) != 1 ||
       !loom_type_is_all_static(logical_type) ||
       loom_vector_packet_boundary_carrier_supported(plan, function, role,
                                                     logical_type)) {
