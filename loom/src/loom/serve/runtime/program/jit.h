@@ -35,7 +35,8 @@ typedef struct loom_serve_jit_stage_t loom_serve_jit_stage_t;
 // ordinals; it outlives this catalog and every compilation completion.
 // Compilation uses the linked backend selected from immutable HAL device
 // facts, including its exact loader target and queue affinity. Source target
-// declarations are specialized to that profile at each command's kernel roots.
+// declarations and launch configurations are specialized to that profile at
+// each command's kernel roots before planning and native entry compilation.
 // report receives copied evidence even on failure and outlives the catalog.
 // Only the serialized compilation owner accesses it between completions.
 iree_status_t loom_serve_jit_allocate(

@@ -64,6 +64,10 @@ typedef struct loomc_link_materialization_state_t {
 
     // Resolved input identities retained after the first materialization.
     const loomc_link_target_specializations_t* indexed;
+
+    // Optional homogeneous kernel-entry profile applied after configuration.
+    // Mutually exclusive with nonempty explicit target assignments.
+    const loomc_target_profile_t* kernel_profile;
   } specialization;
 
   // Synchronous diagnostic destination and current provider source.

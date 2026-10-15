@@ -1,3 +1,38 @@
+// Launch counts and device geometry share the serving device's target facts.
+kernel.def @geometry_fill_tiles(%count: index) {
+  %c1 = index.constant 1 : index
+  %size = target.subgroup.size : index
+  %rounding = index.sub %size, %c1 : index
+  %rounded = index.add %count, %rounding : index
+  %groups = index.div %rounded, %size : index
+  kernel.launch.config workgroups(%groups, %c1, %c1) workgroup_size(%size, %c1, %c1) : index
+} launch(%output: buffer) {
+  %c0 = index.constant 0 : offset
+  %count = index.constant 127 : index
+  %output_view = buffer.view %output[%c0] : buffer -> view<129xi32>
+  %group = kernel.workgroup.id<x> : index
+  %size = kernel.workgroup.size<x> : index
+  %local = kernel.workitem.id<x> : index
+  %base = index.mul %group, %size : index
+  %item = index.add %base, %local : index
+  %in_bounds = index.cmp slt, %item, %count : index
+  scf.if %in_bounds {
+    %value = index.cast %item : index to i32
+    %c7 = scalar.constant 7 : i32
+    %c3 = scalar.constant 3 : i32
+    %scaled = scalar.muli %value, %c7 : i32
+    %result = scalar.addi %scaled, %c3 : i32
+    view.store %result, %output_view[%item] : i32, view<129xi32>
+  }
+  kernel.return
+}
+
+command.program.def public @geometry_fill() launch(%output: buffer) {
+  %count = index.constant 127 : index
+  kernel.launch @geometry_fill_tiles[%count](%output) : [index](buffer)
+  command.return
+}
+
 // Token-row transitions used to exercise retained device state.
 // Token history has 128 entries; callers admit work within that capacity.
 kernel.def @prefill_finish_control() {

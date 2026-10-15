@@ -51,6 +51,7 @@ loom_cc_test(
   SRCS
     "command_product_test.cc"
   DEPS
+    ::command_profile_testdata
     ::target_test_util
     iree::base
     iree::testing::gtest
@@ -62,6 +63,23 @@ loom_cc_test(
     loom::target::arch::cmd::program
 )
 endif()
+
+file(GLOB _GLOB_TESTDATA_COMMAND_PROFILE_X_LOOM LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS testdata/command_profile/*.loom)
+iree_c_embed_data(
+  NAME
+    command_profile_testdata
+  SRCS
+    "${_GLOB_TESTDATA_COMMAND_PROFILE_X_LOOM}"
+  C_FILE_OUTPUT
+    "command_profile_testdata.c"
+  H_FILE_OUTPUT
+    "command_profile_testdata.h"
+  IDENTIFIER
+    "loomc_amdgpu_command_profile_testdata"
+  TESTONLY
+  FLATTEN
+  PUBLIC
+)
 
 if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_IMPORT_CXX AND LOOM_IMPORT_CXX_EMBED_INCLUDES)
 loom_cc_test(

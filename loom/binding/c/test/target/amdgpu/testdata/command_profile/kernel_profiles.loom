@@ -1,0 +1,35 @@
+target.decl @device
+
+config.decl @test.count : index
+
+kernel.def target(@device) @tiles() {
+  %c1 = index.constant 1 : index
+  %size = target.subgroup.size : index
+  %count = config.get @test.count : index
+  %rounding = index.sub %size, %c1 : index
+  %rounded = index.add %count, %rounding : index
+  %groups = index.div %rounded, %size : index
+  kernel.launch.config workgroups(%groups, %c1, %c1) workgroup_size(%size, %c1, %c1) : index
+} launch() {
+  kernel.return
+}
+
+kernel.def @wide_tiles() {
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %subgroup = target.subgroup.size : index
+  %size = index.mul %subgroup, %c2 : index
+  %count = config.get @test.count : index
+  %rounding = index.sub %size, %c1 : index
+  %rounded = index.add %count, %rounding : index
+  %groups = index.div %rounded, %size : index
+  kernel.launch.config workgroups(%groups, %c1, %c1) workgroup_size(%size, %c1, %c1) : index
+} launch() {
+  kernel.return
+}
+
+command.program.def public @dispatch() launch() {
+  kernel.launch @tiles() : ()
+  kernel.launch @wide_tiles() : ()
+  command.return
+}
