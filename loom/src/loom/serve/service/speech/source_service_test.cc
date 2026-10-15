@@ -7,6 +7,8 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <filesystem>
 #include <fstream>
@@ -116,6 +118,12 @@ class SourceSpeechServiceTest
       loom_serve_http_server_request_stop(server_);
       IREE_EXPECT_OK(http_.Join());
     }
+    if (service_) {
+      AdvanceUntil([&] { return !interface_.is_pending(interface_.self); },
+                   LOOM_SERVE_HTTP_SERVICE_FLAG_STOPPING);
+      interface_.set_observer(interface_.self, {});
+      loom_serve_speech_service_free(service_);
+    }
     IREE_EXPECT_OK(loom_serve_http_listener_free(listener_));
     loom_serve_http_server_free(server_);
     IREE_EXPECT_OK(loom_serve_speech_model_free(model_));
@@ -152,6 +160,57 @@ class SourceSpeechServiceTest
     });
   }
 
+  void StartManual() {
+    ASSERT_NO_FATAL_FAILURE(CreateServer());
+    const loom_serve_speech_service_options_t options = {
+        .name = IREE_SV("speech"),
+        .pending_capacity = 4,
+        .heartbeat_interval = 0,
+    };
+    IREE_ASSERT_OK(loom_serve_speech_service_allocate(
+        host_, generator_, &options, nullptr, allocator_, &service_));
+    interface_ = loom_serve_speech_service_interface(service_);
+    interface_.set_observer(interface_.self,
+                            {[](void* self) {
+                               iree_notification_post(
+                                   static_cast<iree_notification_t*>(self),
+                                   IREE_ALL_WAITERS);
+                             },
+                             loom_serve_http_server_notification(server_)});
+  }
+
+  template <typename Predicate>
+  void AdvanceUntil(Predicate ready,
+                    loom_serve_http_service_flags_t flags = 0) {
+    auto* notification = loom_serve_http_server_notification(server_);
+    while (!ready()) {
+      const auto ticket = iree_notification_prepare_wait(notification);
+      bool progress = false;
+      auto status = interface_.advance(interface_.self, flags, &progress);
+      if (ready() || progress || !iree_status_is_ok(status)) {
+        iree_notification_cancel_wait(notification);
+      } else {
+        iree_notification_commit_wait(notification, ticket, IREE_DURATION_ZERO,
+                                      IREE_TIME_INFINITE_FUTURE);
+      }
+      IREE_ASSERT_OK(status);
+      loom_serve_telemetry_record_t record;
+      while (loom_serve_telemetry_stream_read(interface_.telemetry.stream,
+                                              &telemetry_cursor_, &record) ==
+             LOOM_SERVE_TELEMETRY_READ_RECORD) {
+        if (record.event == &LOOM_SERVE_TELEMETRY_BATCH_SUBMIT) {
+          largest_batch_ = std::max(largest_batch_, record.data.batch.requests);
+        }
+      }
+    }
+  }
+
+  void Accept(int client, loom_serve_http_connection_t** connection) {
+    const loom_serve_http_request_t* request = nullptr;
+    IREE_ASSERT_OK(http_.TakeRequest(client, connection, &request));
+    IREE_ASSERT_OK(interface_.accept(interface_.self, *connection, request, 0));
+  }
+
   int Send(const std::string& method, const std::string& target,
            const std::string& body = "") {
     const std::string request = method + " " + target +
@@ -169,20 +228,24 @@ class SourceSpeechServiceTest
     return response;
   }
 
-  static std::string Request(const char* voice = "positive") {
-    return std::string(R"({"model":"speech","input":"hi","voice":")") + voice +
-           R"(","seed":3,"response_format":"pcm"})";
+  static std::string Request(const char* voice = "positive",
+                             const std::string& input = "hi",
+                             uint64_t seed = 3) {
+    return std::string(R"({"model":"speech","input":")") + input +
+           R"(","voice":")" + voice + R"(","seed":")" + std::to_string(seed) +
+           R"(","response_format":"pcm"})";
   }
 
   static void CheckAudio(const std::string& response, size_t frames,
-                         int sign = 1) {
+                         int sign = 1, uint64_t seed = 3) {
     ASSERT_EQ(response.find("HTTP/1.1 200 OK\r\n"), 0u) << response;
     const size_t header_end = response.find("\r\n\r\n");
     ASSERT_NE(header_end, std::string::npos);
     const auto body = response.substr(header_end + 4);
     ASSERT_EQ(body.size(), frames * 2);
     for (size_t i = 0; i < frames; ++i) {
-      const int16_t expected = sign * static_cast<int16_t>((i + 3) % 8) * 4096;
+      const int16_t expected =
+          sign * static_cast<int16_t>((i + seed) % 8) * 4096;
       EXPECT_EQ(iree_unaligned_load_le_u16(body.data() + i * 2),
                 static_cast<uint16_t>(expected));
     }
@@ -291,6 +354,14 @@ class SourceSpeechServiceTest
   loom_serve_http_listener_t* listener_ = nullptr;
   // Readiness-driven client and optional outer router thread.
   loom_serve::testing::HttpHarness http_;
+  // Optional manually driven production service, joined before model teardown.
+  loom_serve_speech_service_t* service_ = nullptr;
+  // Borrowed service operations, used only by the serialized test owner.
+  loom_serve_http_service_t interface_ = {};
+  // Absolute cursor observing every numerical cohort at bounded owner turns.
+  uint64_t telemetry_cursor_ = 0;
+  // Largest actual source invocation observed through production telemetry.
+  uint64_t largest_batch_ = 0;
 };
 
 TEST_P(SourceSpeechServiceTest, SourceStagesPublishVariableAndEmptyBlocks) {
@@ -541,46 +612,13 @@ TEST_P(SourceSpeechServiceTest, UploadedRegistrationOwnsDeferredSpeechSources) {
 
 TEST_P(SourceSpeechServiceTest,
        FirstAudioPrecedesEofAndResetRetiresBeforeReuse) {
-  ASSERT_NO_FATAL_FAILURE(CreateServer());
-  loom_serve_speech_service_t* service = nullptr;
-  const loom_serve_speech_service_options_t options = {
-      .name = IREE_SV("speech"),
-      .pending_capacity = 4,
-      .heartbeat_interval = 0,
-  };
-  IREE_ASSERT_OK(loom_serve_speech_service_allocate(
-      host_, generator_, &options, nullptr, allocator_, &service));
-  const auto interface = loom_serve_speech_service_interface(service);
+  ASSERT_NO_FATAL_FAILURE(StartManual());
+  const auto& interface = interface_;
   auto* notification = loom_serve_http_server_notification(server_);
-  interface.set_observer(interface.self,
-                         {[](void* self) {
-                            iree_notification_post(
-                                static_cast<iree_notification_t*>(self),
-                                IREE_ALL_WAITERS);
-                          },
-                          notification});
-  auto advance_until = [&](auto ready) {
-    while (!ready()) {
-      const auto ticket = iree_notification_prepare_wait(notification);
-      bool progress = false;
-      IREE_ASSERT_OK(interface.advance(interface.self, 0, &progress));
-      if (ready() || progress) {
-        iree_notification_cancel_wait(notification);
-      } else {
-        iree_notification_commit_wait(notification, ticket, IREE_DURATION_ZERO,
-                                      IREE_TIME_INFINITE_FUTURE);
-      }
-    }
-  };
-  auto accept = [&](int client, loom_serve_http_connection_t** connection) {
-    const loom_serve_http_request_t* request = nullptr;
-    IREE_ASSERT_OK(http_.TakeRequest(client, connection, &request));
-    IREE_ASSERT_OK(interface.accept(interface.self, *connection, request, 0));
-  };
   int client = Send("POST", "/v1/audio/speech", Request());
   loom_serve_http_connection_t* connection = nullptr;
-  ASSERT_NO_FATAL_FAILURE(accept(client, &connection));
-  ASSERT_NO_FATAL_FAILURE(advance_until([&] {
+  ASSERT_NO_FATAL_FAILURE(Accept(client, &connection));
+  ASSERT_NO_FATAL_FAILURE(AdvanceUntil([&] {
     return interface.telemetry.counters->batches == 2 &&
            std::string(interface.snapshot(interface.self).phase) == "ready";
   }));
@@ -612,17 +650,120 @@ TEST_P(SourceSpeechServiceTest,
             static_cast<loom_serve_http_connection_t*>(self));
       },
       connection, iree_infinite_timeout());
-  ASSERT_NO_FATAL_FAILURE(advance_until(
+  ASSERT_NO_FATAL_FAILURE(AdvanceUntil(
       [&] { return interface.telemetry.counters->cancelled == 1; }));
   EXPECT_EQ(interface.telemetry.counters->batches, 2u);
   EXPECT_FALSE(interface.is_pending(interface.self));
   client = Send("POST", "/v1/audio/speech", Request());
-  ASSERT_NO_FATAL_FAILURE(accept(client, &connection));
-  ASSERT_NO_FATAL_FAILURE(advance_until(
+  ASSERT_NO_FATAL_FAILURE(Accept(client, &connection));
+  ASSERT_NO_FATAL_FAILURE(AdvanceUntil(
       [&] { return interface.telemetry.counters->completed == 1; }));
   CheckAudio(Read(client), 17);
-  interface.set_observer(interface.self, {});
-  loom_serve_speech_service_free(service);
+}
+
+TEST_P(SourceSpeechServiceTest,
+       StaggeredHttpCohortsPreserveVoicesAndIndependentCompletion) {
+  ASSERT_NO_FATAL_FAILURE(StartManual());
+  const std::array<size_t, 5> lengths = {6, 12, 16, 20, 3};
+  const std::array<uint64_t, 5> seeds = {1, 2, 5, 6, UINT64_MAX};
+  std::array<loom_serve::testing::HttpClient, 5> clients;
+  std::array<loom_serve_http_connection_t*, 5> connections = {};
+  auto send = [&](size_t i) {
+    *clients[i].put() = Send("POST", "/v1/audio/speech",
+                             Request(i % 2 ? "negative" : "positive",
+                                     std::string(lengths[i], 'a'), seeds[i]));
+    ASSERT_NO_FATAL_FAILURE(Accept(clients[i].get(), &connections[i]));
+  };
+  // Each later arrival follows real progress by the previous request. Their
+  // different positions cannot be represented by one shared source cursor.
+  for (size_t i = 0; i < 4; ++i) {
+    ASSERT_NO_FATAL_FAILURE(send(i));
+    ASSERT_NO_FATAL_FAILURE(AdvanceUntil([&] {
+      if (std::string(interface_.snapshot(interface_.self).phase) != "ready") {
+        return false;
+      }
+      loom_serve_http_request_snapshot_t request;
+      for (size_t index = 0;
+           interface_.inspection.request_at(interface_.self, index, &request);
+           ++index) {
+        if (request.id == i + 1) {
+          return request.counters.batches >= 2;
+        }
+      }
+      return false;
+    }));
+  }
+  ASSERT_NO_FATAL_FAILURE(AdvanceUntil(
+      [&] { return interface_.telemetry.counters->completed == 1; }));
+  CheckAudio(Read(clients[0].release()), lengths[0] * 8 + 1, 1, seeds[0]);
+  EXPECT_EQ(largest_batch_, 4u);
+  EXPECT_EQ(interface_.snapshot(interface_.self).active_requests, 3u);
+
+  const linger reset = {1, 0};
+  ASSERT_EQ(setsockopt(clients[1].get(), SOL_SOCKET, SO_LINGER, &reset,
+                       sizeof(reset)),
+            0);
+  ASSERT_EQ(close(clients[1].release()), 0);
+  iree_notification_await(
+      loom_serve_http_server_notification(server_),
+      [](void* self) {
+        return loom_serve_http_connection_failed(
+            static_cast<loom_serve_http_connection_t*>(self));
+      },
+      connections[1], iree_infinite_timeout());
+  ASSERT_NO_FATAL_FAILURE(AdvanceUntil(
+      [&] { return interface_.telemetry.counters->cancelled == 1; }));
+  ASSERT_NO_FATAL_FAILURE(send(4));
+  ASSERT_NO_FATAL_FAILURE(AdvanceUntil(
+      [&] { return interface_.telemetry.counters->completed == 4; }));
+  for (size_t i = 2; i < clients.size(); ++i) {
+    CheckAudio(Read(clients[i].release()), lengths[i] * 8 + 1, i % 2 ? -1 : 1,
+               seeds[i]);
+  }
+  EXPECT_EQ(interface_.telemetry.counters->requests, 5u);
+  EXPECT_EQ(interface_.telemetry.counters->failed, 0u);
+  EXPECT_FALSE(interface_.is_pending(interface_.self));
+}
+
+TEST_P(SourceSpeechServiceTest,
+       CancellationDuringPackingDiscardsUnsubmittedCohort) {
+  ASSERT_NO_FATAL_FAILURE(StartManual());
+  std::array<loom_serve::testing::HttpClient, 2> clients;
+  std::array<loom_serve_http_connection_t*, 2> connections = {};
+  for (size_t i = 0; i < clients.size(); ++i) {
+    *clients[i].put() = Send("POST", "/v1/audio/speech",
+                             Request(i ? "negative" : "positive", "abcdefgh"));
+    ASSERT_NO_FATAL_FAILURE(Accept(clients[i].get(), &connections[i]));
+  }
+  ASSERT_NO_FATAL_FAILURE(AdvanceUntil([&] {
+    return largest_batch_ == 2 &&
+           std::string(interface_.snapshot(interface_.self).phase) == "ready";
+  }));
+  const auto submitted = interface_.telemetry.counters->batches;
+  ASSERT_NO_FATAL_FAILURE(AdvanceUntil([&] {
+    return std::string(interface_.snapshot(interface_.self).phase) ==
+           "preparing_batch";
+  }));
+  // Packing can finish on its CPU worker, but no owner has submitted the plan.
+  // Observe the reset before resuming owner turns, preserving that boundary.
+  const linger reset = {1, 0};
+  ASSERT_EQ(setsockopt(clients[0].get(), SOL_SOCKET, SO_LINGER, &reset,
+                       sizeof(reset)),
+            0);
+  ASSERT_EQ(close(clients[0].release()), 0);
+  iree_notification_await(
+      loom_serve_http_server_notification(server_),
+      [](void* self) {
+        return loom_serve_http_connection_failed(
+            static_cast<loom_serve_http_connection_t*>(self));
+      },
+      connections[0], iree_infinite_timeout());
+  ASSERT_NO_FATAL_FAILURE(AdvanceUntil(
+      [&] { return interface_.telemetry.counters->cancelled == 1; }));
+  EXPECT_EQ(interface_.telemetry.counters->batches, submitted);
+  ASSERT_NO_FATAL_FAILURE(AdvanceUntil(
+      [&] { return interface_.telemetry.counters->completed == 1; }));
+  CheckAudio(Read(clients[1].release()), 65, -1);
 }
 
 // The numerical dependency is replaced; accepted HAL transfers, proactor
@@ -630,22 +771,28 @@ TEST_P(SourceSpeechServiceTest,
 class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
  protected:
   struct Invocation {
+    // Stable row retained independently of its ordinal in the current cohort.
+    size_t row = 0;
     // Source cursor advances only after retired feedback collection.
     uint64_t block = 0;
+    // Text-derived output length, independent of neighboring requests.
+    uint64_t blocks = 0;
+    // Immutable voice waveform borrowed by real upload operations.
+    std::vector<uint8_t> input;
+    // Per-request feedback borrowed through accepted queue retirement.
+    std::vector<uint8_t> output;
     // Actual queue allocation, retained through failure retirement.
     iree_hal_buffer_t* buffer = nullptr;
   };
 
   void Initialize(size_t frames = 3, uint64_t blocks = 4,
-                  uint64_t held_block = 1) {
+                  uint64_t held_block = 1, size_t capacity = 1,
+                  size_t held_members = 1, bool start = true) {
     frames_ = frames;
     blocks_ = blocks;
     held_block_ = held_block;
-    input_.resize(frames * 4);
-    output_.resize(input_.size());
-    for (size_t i = 0; i < frames; ++i) {
-      iree_unaligned_store_le_f32(input_.data() + i * 4, 0.5f);
-    }
+    held_members_ = held_members;
+    batch_.reserve(capacity);
     IREE_ASSERT_OK(loom_serve_host_create(GetParam(), allocator_, &host_));
     const loom_serve_device_options_t device_options = {
         .uri = iree_make_cstring_view(FLAG_test_device),
@@ -654,8 +801,8 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
                                                     allocator_, &group_));
     auto* device = loom_serve_device_group_at(group_, 0);
     IREE_ASSERT_OK(loom_serve_device_create_execution(device, &execution_));
-    IREE_ASSERT_OK(
-        loom_serve_execution_reserve_workspace(execution_, input_.size(), 16));
+    IREE_ASSERT_OK(loom_serve_execution_reserve_workspace(
+        execution_, frames * 4 * capacity, 16));
     IREE_ASSERT_OK(iree_hal_semaphore_create(
         loom_serve_device_handle(device), IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, 0,
         IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &gate_));
@@ -672,19 +819,37 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
         .self = this,
         .format = {24000, 1},
         .block_capacity = frames_,
-        .request_capacity = 1,
-        .batch_units = 1,
+        .request_capacity = capacity,
+        .batch_units = capacity,
         .prepare =
-            [](void* self, iree_host_size_t, const loom_serve_speech_request_t*,
-               void** out) {
+            [](void* self, iree_host_size_t row,
+               const loom_serve_speech_request_t* request, void** out) {
               auto* test = static_cast<SpeechReadinessTest*>(self);
-              test->invocation_ = std::make_unique<Invocation>();
-              *out = test->invocation_.get();
+              auto invocation = std::make_unique<Invocation>();
+              invocation->row = row;
+              invocation->blocks = iree_string_builder_size(&request->input);
+              invocation->input.resize(test->frames_ * 4);
+              invocation->output.resize(invocation->input.size());
+              const float sample =
+                  iree_string_view_equal(
+                      iree_string_builder_view(&request->voice),
+                      IREE_SV("negative"))
+                      ? -0.5f
+                      : 0.5f;
+              for (size_t i = 0; i < test->frames_; ++i) {
+                iree_unaligned_store_le_f32(invocation->input.data() + i * 4,
+                                            sample);
+              }
+              *out = invocation.get();
+              test->invocations_[row] = std::move(invocation);
+              test->row_submitted_[row].store(0);
               return iree_ok_status();
             },
         .discard =
-            [](void* self, void*) {
-              static_cast<SpeechReadinessTest*>(self)->invocation_.reset();
+            [](void* self, void* invocation) {
+              static_cast<SpeechReadinessTest*>(self)
+                  ->invocations_[static_cast<Invocation*>(invocation)->row]
+                  .reset();
             },
         .try_admit =
             [](void* self, void*, loom_serve_residency_admission_t* out,
@@ -700,22 +865,31 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
               *out = {.units = 1, .tag = 0};
               return iree_ok_status();
             },
-        .prepare_batch = [](void*, iree_host_size_t,
-                            void* const*) { return iree_ok_status(); },
+        .prepare_batch =
+            [](void* self, iree_host_size_t count, void* const* invocations) {
+              auto* test = static_cast<SpeechReadinessTest*>(self);
+              test->batch_.clear();
+              for (size_t i = 0; i < count; ++i) {
+                test->batch_.push_back(
+                    static_cast<Invocation*>(invocations[i]));
+              }
+              return iree_ok_status();
+            },
         .submit =
             [](void* self, loom_serve_execution_frontier_t* out) {
               return static_cast<SpeechReadinessTest*>(self)->Submit(out);
             },
         .collect =
-            [](void* self, iree_host_size_t, loom_serve_speech_block_t* out) {
+            [](void* self, iree_host_size_t ordinal,
+               loom_serve_speech_block_t* out) {
               auto* test = static_cast<SpeechReadinessTest*>(self);
-              auto& invocation = *test->invocation_;
+              auto& invocation = *test->batch_[ordinal];
               *out = {
                   .position = invocation.block * test->frames_,
                   .frame_count = test->frames_,
-                  .samples = iree_make_const_byte_span(test->output_.data(),
-                                                       test->output_.size()),
-                  .complete = invocation.block + 1 == test->blocks_,
+                  .samples = iree_make_const_byte_span(
+                      invocation.output.data(), invocation.output.size()),
+                  .complete = invocation.block + 1 == invocation.blocks,
               };
               ++invocation.block;
               return iree_ok_status();
@@ -723,13 +897,17 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
         .release_batch =
             [](void* self) {
               auto* test = static_cast<SpeechReadinessTest*>(self);
-              iree_hal_buffer_release(test->invocation_->buffer);
-              test->invocation_->buffer = nullptr;
+              for (auto* invocation : test->batch_) {
+                iree_hal_buffer_release(invocation->buffer);
+                invocation->buffer = nullptr;
+              }
+              test->batch_.clear();
             },
         .release =
-            [](void* self, void*) {
+            [](void* self, void* invocation) {
               auto* test = static_cast<SpeechReadinessTest*>(self);
-              test->invocation_.reset();
+              test->invocations_[static_cast<Invocation*>(invocation)->row]
+                  .reset();
               ++test->released_;
               test->http_.Notify();
               return iree_ok_status();
@@ -744,7 +922,8 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
         host_, generator, &service_options, nullptr, allocator_, &service_));
     actual_ = loom_serve_speech_service_interface(service_);
     // Observe completed owner turns without replacing any service behavior.
-    auto wrapped = actual_;
+    wrapped_ = actual_;
+    auto& wrapped = wrapped_;
     wrapped.self = this;
     wrapped.set_observer = [](void* self, loom_serve_wake_callback_t wake) {
       auto* test = static_cast<SpeechReadinessTest*>(self);
@@ -789,9 +968,41 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
           return test->actual_.inspection.request_at(test->actual_.self, index,
                                                      out);
         };
-    http_.Start([this, wrapped]() -> iree_status_t {
+    if (start) {
+      StartRouter();
+    } else {
+      actual_.set_observer(actual_.self,
+                           {[](void* self) {
+                              iree_notification_post(
+                                  static_cast<iree_notification_t*>(self),
+                                  IREE_ALL_WAITERS);
+                            },
+                            loom_serve_http_server_notification(server_)});
+    }
+  }
+
+  template <typename Predicate>
+  void AdvanceUntil(Predicate ready,
+                    loom_serve_http_service_flags_t flags = 0) {
+    auto* notification = loom_serve_http_server_notification(server_);
+    while (!ready()) {
+      const auto ticket = iree_notification_prepare_wait(notification);
+      bool progress = false;
+      auto status = actual_.advance(actual_.self, flags, &progress);
+      if (ready() || progress || !iree_status_is_ok(status)) {
+        iree_notification_cancel_wait(notification);
+      } else {
+        iree_notification_commit_wait(notification, ticket, IREE_DURATION_ZERO,
+                                      IREE_TIME_INFINITE_FUTURE);
+      }
+      IREE_ASSERT_OK(status);
+    }
+  }
+
+  void StartRouter() {
+    http_.Start([this]() -> iree_status_t {
       loom_serve_registry_t* registry = nullptr;
-      IREE_RETURN_IF_ERROR(loom_serve_registry_allocate(1, &wrapped, 0, {},
+      IREE_RETURN_IF_ERROR(loom_serve_registry_allocate(1, &wrapped_, 0, {},
                                                         allocator_, &registry));
       iree_status_t status = loom_serve_router_run(
           loom_serve_host_executor(host_), server_, registry,
@@ -801,50 +1012,72 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
   }
 
   iree_status_t Submit(loom_serve_execution_frontier_t* out) {
-    auto& invocation = *invocation_;
-    if (!invocation.buffer) {
+    iree_status_t status = iree_ok_status();
+    bool held = false;
+    std::array<iree_hal_transfer_operation_t, 4> uploads = {};
+    std::array<iree_hal_transfer_operation_t, 4> downloads = {};
+    for (size_t i = 0; i < batch_.size() && iree_status_is_ok(status); ++i) {
+      auto& invocation = *batch_[i];
       const auto reservation =
-          iree_hal_make_pool_reservation_request(input_.size(), 16);
-      IREE_RETURN_IF_ERROR(loom_serve_execution_alloca(execution_, &reservation,
-                                                       &invocation.buffer));
+          iree_hal_make_pool_reservation_request(invocation.input.size(), 16);
+      status = loom_serve_execution_alloca(execution_, &reservation,
+                                           &invocation.buffer);
+      held |= invocation.block == held_block_;
+      uploads[i] = {
+          .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
+          .upload =
+              {
+                  .source = invocation.input.data(),
+                  .target_buffer = invocation.buffer,
+                  .length = invocation.input.size(),
+              },
+      };
+      downloads[i] = {
+          .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
+          .download =
+              {
+                  .source_buffer = invocation.buffer,
+                  .target = invocation.output.data(),
+                  .length = invocation.output.size(),
+              },
+      };
     }
-    if (invocation.block == held_block_) {
-      uint64_t held = 1;
-      IREE_RETURN_IF_ERROR(
-          loom_serve_execution_barrier(execution_, {1, &gate_, &held}));
+    held &= batch_.size() >= held_members_;
+    if (iree_status_is_ok(status) && held) {
+      uint64_t value = 1;
+      status = loom_serve_execution_barrier(execution_, {1, &gate_, &value});
     }
-    iree_hal_transfer_operation_t upload = {
-        .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
-        .upload =
-            {
-                .source = input_.data(),
-                .target_buffer = invocation.buffer,
-                .length = input_.size(),
-            },
-    };
     uint64_t value = 0;
-    IREE_RETURN_IF_ERROR(
-        loom_serve_execution_transfer(execution_, 1, &upload, &value));
-    iree_hal_transfer_operation_t download = {
-        .type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
-        .download =
-            {
-                .source_buffer = invocation.buffer,
-                .target = output_.data(),
-                .length = output_.size(),
-            },
-    };
-    IREE_RETURN_IF_ERROR(
-        loom_serve_execution_feedback(execution_, 1, &download, &value));
-    auto frontier = loom_serve_execution_frontier(execution_);
-    IREE_RETURN_IF_ERROR(loom_serve_execution_barrier(
-        execution_, {1, &frontier.semaphores[1], &frontier.values[1]}));
-    IREE_RETURN_IF_ERROR(
-        loom_serve_execution_dealloca(execution_, invocation.buffer, &value));
-    *out = loom_serve_execution_frontier(execution_);
-    ++submitted_;
-    http_.Notify();
-    return iree_ok_status();
+    if (iree_status_is_ok(status)) {
+      status = loom_serve_execution_transfer(execution_, batch_.size(),
+                                             uploads.data(), &value);
+    }
+    if (iree_status_is_ok(status)) {
+      status = loom_serve_execution_feedback(execution_, batch_.size(),
+                                             downloads.data(), &value);
+    }
+    if (iree_status_is_ok(status)) {
+      auto frontier = loom_serve_execution_frontier(execution_);
+      status = loom_serve_execution_barrier(
+          execution_, {1, &frontier.semaphores[1], &frontier.values[1]});
+    }
+    for (size_t i = 0; i < batch_.size() && iree_status_is_ok(status); ++i) {
+      status =
+          loom_serve_execution_dealloca(execution_, batch_[i]->buffer, &value);
+    }
+    if (iree_status_is_ok(status)) {
+      *out = loom_serve_execution_frontier(execution_);
+      for (auto* invocation : batch_) {
+        row_submitted_[invocation->row].fetch_add(1);
+      }
+      largest_batch_.store(std::max(largest_batch_.load(), batch_.size()));
+      ++submitted_;
+      if (held) {
+        held_.store(true, std::memory_order_release);
+      }
+      http_.Notify();
+    }
+    return status;
   }
 
   void ReleaseDependency(bool fail = false) {
@@ -876,19 +1109,29 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
     ReleaseDependency();
     if (http_.joinable()) {
       CheckStatus(http_.Join());
+    } else if (service_ && !failed_) {
+      AdvanceUntil([&] { return !actual_.is_pending(actual_.self); },
+                   LOOM_SERVE_HTTP_SERVICE_FLAG_STOPPING);
+    }
+    if (service_) {
+      actual_.set_observer(actual_.self, {});
     }
     loom_serve_speech_service_free(service_);
     // Failed readiness transfers request ownership to the model. Release its
     // views, join actual queue retirement, then release borrowed host bytes.
-    if (invocation_) {
-      iree_hal_buffer_release(invocation_->buffer);
-      invocation_->buffer = nullptr;
+    for (auto& invocation : invocations_) {
+      if (invocation) {
+        iree_hal_buffer_release(invocation->buffer);
+        invocation->buffer = nullptr;
+      }
     }
     if (execution_) {
       CheckStatus(loom_serve_execution_drain(execution_));
       loom_serve_execution_release(execution_);
     }
-    invocation_.reset();
+    for (auto& invocation : invocations_) {
+      invocation.reset();
+    }
     IREE_EXPECT_OK(loom_serve_http_listener_free(listener_));
     loom_serve_http_server_free(server_);
     iree_hal_semaphore_release(gate_);
@@ -896,9 +1139,12 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
     loom_serve_host_release(host_);
   }
 
-  iree_status_t Send(loom_serve::testing::HttpClient* client) {
-    const std::string body =
-        R"({"model":"speech","input":"hi","voice":"positive","response_format":"pcm"})";
+  iree_status_t Send(loom_serve::testing::HttpClient* client,
+                     uint64_t blocks = 0, const char* voice = "positive") {
+    const std::string body = std::string(R"({"model":"speech","input":")") +
+                             std::string(blocks ? blocks : blocks_, 'a') +
+                             R"(","voice":")" + voice +
+                             R"(","response_format":"pcm"})";
     return http_.Send(
         "POST /v1/audio/speech HTTP/1.1\r\nHost: local\r\n"
         "Content-Type: application/json\r\nContent-Length: " +
@@ -915,13 +1161,15 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
     EXPECT_EQ(response.find("HTTP/1.1 200"), 0u);
   }
 
-  static void CheckPcm(const std::string& response, size_t frames) {
+  static void CheckPcm(const std::string& response, size_t frames,
+                       int sign = 1) {
     ASSERT_EQ(response.find("HTTP/1.1 200"), 0u);
     const auto begin = response.find("\r\n\r\n");
     ASSERT_NE(begin, std::string::npos);
     ASSERT_EQ(response.size() - begin - 4, frames * 2);
     for (size_t i = begin + 4; i < response.size(); i += 2) {
-      ASSERT_EQ(iree_unaligned_load_le_u16(response.data() + i), 16384);
+      ASSERT_EQ(iree_unaligned_load_le_u16(response.data() + i),
+                static_cast<uint16_t>(sign * 16384));
     }
   }
 
@@ -945,12 +1193,18 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
   uint64_t blocks_ = 0;
   // Per-request block index that imports gate_ before accepting transfers.
   uint64_t held_block_ = 0;
-  // Immutable upload storage borrowed through accepted work retirement.
-  std::vector<uint8_t> input_;
-  // Bounded feedback storage borrowed through accepted feedback retirement.
-  std::vector<uint8_t> output_;
-  // Model-owned request; terminal failures leave it here for actual teardown.
-  std::unique_ptr<Invocation> invocation_;
+  // Minimum cohort size importing the held dependency.
+  size_t held_members_ = 1;
+  // Model-owned rows; terminal failures leave them here for actual teardown.
+  std::array<std::unique_ptr<Invocation>, 4> invocations_;
+  // Original selected ordinals survive cancellation and feedback collection.
+  std::vector<Invocation*> batch_;
+  // Accepted work per resident row, published without exposing source cursors.
+  std::array<std::atomic<uint64_t>, 4> row_submitted_ = {};
+  // Largest accepted cohort, independent of request completion order.
+  std::atomic<size_t> largest_batch_{0};
+  // A complete numerical cohort has accepted the held dependency.
+  std::atomic<bool> held_{false};
   // Accepted generation count, published after both queues accept work.
   std::atomic<uint64_t> submitted_{0};
   // Successful release count, published by the serialized service owner.
@@ -965,6 +1219,8 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
   loom_serve_speech_service_t* service_ = nullptr;
   // Unmodified callbacks, forwarded by the observation wrapper.
   loom_serve_http_service_t actual_ = {};
+  // Production operations with observational forwarding on owner turns.
+  loom_serve_http_service_t wrapped_ = {};
   // Client readiness and the outer router thread.
   loom_serve::testing::HttpHarness http_;
 };
@@ -1015,7 +1271,7 @@ TEST_P(SpeechReadinessTest, FailedReadinessKeepsRequestForModelRetirement) {
   IREE_EXPECT_STATUS_IS(IREE_STATUS_ABORTED, http_.Join());
   EXPECT_EQ(submitted_.load(), 2u);
   EXPECT_EQ(released_.load(), 0u);
-  EXPECT_NE(invocation_, nullptr);
+  EXPECT_NE(invocations_[0], nullptr);
 }
 
 TEST_P(SpeechReadinessTest, SlowReaderResumesFromBoundedSendCredit) {
@@ -1031,6 +1287,79 @@ TEST_P(SpeechReadinessTest, SlowReaderResumesFromBoundedSendCredit) {
   CheckPcm(response, 65536 * 128);
   EXPECT_EQ(submitted_.load(), 128u);
   EXPECT_EQ(released_.load(), 1u);
+}
+
+TEST_P(SpeechReadinessTest, CancelledBatchMemberRetiresWithOriginalCohort) {
+  ASSERT_NO_FATAL_FAILURE(Initialize(3, 16, 1, 4, 4, false));
+  std::array<loom_serve::testing::HttpClient, 4> clients;
+  std::array<loom_serve_http_connection_t*, 4> connections = {};
+  for (size_t i = 0; i < clients.size(); ++i) {
+    IREE_ASSERT_OK(Send(&clients[i], 16 + i, i % 2 ? "negative" : "positive"));
+    const loom_serve_http_request_t* request = nullptr;
+    IREE_ASSERT_OK(
+        http_.TakeRequest(clients[i].get(), &connections[i], &request));
+    IREE_ASSERT_OK(actual_.accept(actual_.self, connections[i], request, 0));
+  }
+  ASSERT_NO_FATAL_FAILURE(
+      AdvanceUntil([&] { return held_.load(std::memory_order_acquire); }));
+  EXPECT_EQ(largest_batch_.load(), 4u);
+  const auto submitted = submitted_.load();
+  const linger reset = {1, 0};
+  ASSERT_EQ(setsockopt(clients[1].get(), SOL_SOCKET, SO_LINGER, &reset,
+                       sizeof(reset)),
+            0);
+  ASSERT_EQ(close(clients[1].release()), 0);
+  iree_notification_await(
+      loom_serve_http_server_notification(server_),
+      [](void* self) {
+        return loom_serve_http_connection_failed(
+            static_cast<loom_serve_http_connection_t*>(self));
+      },
+      connections[1], iree_infinite_timeout());
+  bool progress = false;
+  IREE_ASSERT_OK(actual_.advance(actual_.self, 0, &progress));
+  EXPECT_TRUE(progress);
+  EXPECT_EQ(released_.load(), 0u);
+  EXPECT_EQ(actual_.snapshot(actual_.self).active_requests, 4u);
+  EXPECT_EQ(submitted_.load(), submitted);
+  ReleaseDependency();
+  ASSERT_NO_FATAL_FAILURE(
+      AdvanceUntil([&] { return actual_.telemetry.counters->cancelled == 1; }));
+  EXPECT_EQ(released_.load(), 1u);
+  ASSERT_NO_FATAL_FAILURE(
+      AdvanceUntil([&] { return actual_.telemetry.counters->completed == 3; }));
+  for (size_t i : {0u, 2u, 3u}) {
+    std::string response;
+    IREE_ASSERT_OK(http_.Read(clients[i].release(), false, &response));
+    CheckPcm(response, 3 * (16 + i), i % 2 ? -1 : 1);
+  }
+  EXPECT_EQ(released_.load(), 4u);
+  EXPECT_FALSE(actual_.is_pending(actual_.self));
+}
+
+TEST_P(SpeechReadinessTest, StalledReaderDoesNotBlockOtherRequests) {
+  ASSERT_NO_FATAL_FAILURE(Initialize(65536, 128, UINT64_MAX, 4));
+  loom_serve::testing::HttpClient stalled;
+  IREE_ASSERT_OK(Send(&stalled));
+  IREE_ASSERT_OK(http_.Await(
+      -1, [&] { return credit_wait_.load(std::memory_order_acquire); }));
+  std::array<loom_serve::testing::HttpClient, 3> peers;
+  for (size_t i = 0; i < peers.size(); ++i) {
+    IREE_ASSERT_OK(Send(&peers[i], i + 1, i % 2 ? "positive" : "negative"));
+  }
+  for (size_t i = 0; i < peers.size(); ++i) {
+    std::string response;
+    IREE_ASSERT_OK(http_.Read(peers[i].release(), false, &response));
+    CheckPcm(response, 65536 * (i + 1), i % 2 ? 1 : -1);
+  }
+  EXPECT_EQ(released_.load(), 3u);
+  EXPECT_LT(row_submitted_[0].load(), 128u);
+  ASSERT_NO_FATAL_FAILURE(CheckHealth());
+  std::string response;
+  IREE_ASSERT_OK(http_.Read(stalled.release(), false, &response));
+  CheckPcm(response, 65536 * 128);
+  EXPECT_EQ(row_submitted_[0].load(), 128u);
+  EXPECT_EQ(released_.load(), 4u);
 }
 
 INSTANTIATE_TEST_SUITE_P(Workers, SpeechReadinessTest, ::testing::Values(1, 2));

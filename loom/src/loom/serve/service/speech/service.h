@@ -18,7 +18,7 @@ extern "C" {
 typedef struct loom_serve_speech_service_options_t {
   // Deployment selector borrowed through service retirement.
   iree_string_view_t name;
-  // Positive bound on requests queued behind one active synthesis stream.
+  // Positive bound on host-only requests beyond the model's resident slots.
   iree_host_size_t pending_capacity;
   // Periodic observation interval; zero disables periodic records only.
   iree_duration_t heartbeat_interval;
@@ -38,11 +38,13 @@ iree_status_t loom_serve_speech_service_allocate(
     loom_serve_telemetry_stream_t* stream, iree_allocator_t host_allocator,
     loom_serve_speech_service_t** out_service);
 
-// POST /v1/audio/speech owns at most one encoded block outside copied carrier
-// sends. No next synthesis unit starts before that block is admitted to the
-// carrier. EOF, reset peers and shutdown all join request-storage retirement
-// before releasing pins; failed readiness leaves actual ownership with model
-// teardown. Request validation precedes the first audio response byte.
+// POST /v1/audio/speech owns one bounded encoded block per resident request,
+// outside copied carrier sends. Each request's credit independently determines
+// eligibility for compatible source work. Original cohort membership survives
+// cancellation through collection; all copies finish before feedback reuse.
+// EOF, reset peers and shutdown release rows only at retired model cuts;
+// failed readiness leaves accepted ownership with model teardown. Validation
+// precedes the first audio response byte.
 loom_serve_http_service_t loom_serve_speech_service_interface(
     loom_serve_speech_service_t* service);
 
