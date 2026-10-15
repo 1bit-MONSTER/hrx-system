@@ -27,32 +27,42 @@ of the model contract. It generates deterministic samples, not learned speech.
 
 ## Model ownership
 
-The [model ABI](model.h) has separate cold preparation, CPU request preparation,
-bounded generation and retired-feedback interpretation. Source preparation
-chooses checkpoint domains, stages, capacities, waveform geometry and initial
-conditioning. The native model does not encode a particular vocoder, speaker
-vector, latent width, number of diffusion steps or waveform block size.
+The [model ABI](model.h) separates cold preparation, CPU request preparation,
+next-work selection, batch packing, numerical execution and retired-feedback
+interpretation. Source preparation chooses checkpoint domains, stages,
+capacities, waveform geometry and initial conditioning. The native model does
+not encode a particular vocoder, speaker vector, latent width, number of
+diffusion steps or waveform block size.
 
 Each stage binds its own checkpoint roots. Voice encoding, text prefill and
 waveform decoding can share a backbone while loading different phase weights.
-Roots with the same checkpoint path and preparation policy share compatible
-tensor placement and prepare each tensor once. Distinct paths or policies own
-independent storage, so a voice archive can reuse a tensor name from the base
-model without aliasing it. Incompatible overlapping layouts reject during
-preparation, before checkpoint payloads are loaded.
+Roots with the same ordered checkpoint file list and preparation policy share
+compatible tensor placement and prepare each tensor once. Distinct file lists
+or policies own independent storage, so a voice archive can reuse a tensor name
+from the base model without aliasing it. Incompatible overlapping layouts reject
+during preparation, before checkpoint payloads are loaded.
 
-Four dynamic roots carry immutable request bytes, reusable model conditioning,
-mutable per-request state and bounded device output. State crossing commands
-lives in the stream bank. Compiler-private workspace belongs to one complete
-command and is released by the shared runner. Explicit request objects can
-retain their own source state without VM-global stream cursors.
+Five dynamic roots carry compact batch work, immutable request rows, reusable
+model conditioning, mutable stream rows and bounded device output. Request and
+stream rows remain stable across changes in batch membership. State crossing
+commands lives in the stream bank; compiler-private workspace belongs to one
+complete command and is released by the shared runner. Each request retains its
+own source state, including cache positions and RNG progression.
 
-`generate` can advance a stage without publishing feedback. When it publishes
-feedback, `complete` returns an absolute frame position, byte range, live frame
-count and EOF. Zero frames are independent of EOF. Native code validates this
-external range once before encoding; subsequent consumers use those facts.
-Conditioning becomes reusable only after its producer retires. A cancelled
-partial computation cannot publish a valid cache entry.
+`prepare_work` describes the request's next operation without advancing it.
+Equal compatibility tags and additive work units within the declared batch
+capacity permit a cohort. Source owns phase and shape compatibility; differing
+request progress alone need not separate requests. `prepare_batch` packs the
+selected work while retaining its resident-row mapping.
+
+`generate` executes the batch. After retirement, `complete` runs for every
+original batch ordinal, including phases without audio or readback. It returns
+an absolute frame position, byte range, live frame count and EOF. Zero frames
+are independent of EOF. Native code validates the external range once before
+encoding; subsequent consumers use those facts. Every output copy finishes
+before the batch releases its feedback. Conditioning becomes reusable only
+after its producer retires; cancelled partial work cannot publish a valid cache
+entry.
 
 The [generator](generator.h) carries native sample rate and channel count.
 The PCM HTTP service currently requires 24 kHz mono at registration; this wire
@@ -62,18 +72,22 @@ path, including filter history and final tail handling.
 
 ## Scheduling and retirement
 
-One request per registration holds residency; a bounded host queue owns pending
-requests. Source preparation and feedback interpretation/encoding run on the
-shared CPU executor. Queue submission and admission run on the serialized
-service owner. Device work and feedback have independent completion frontiers,
-waited together by the shared proactor. No worker waits for a device or socket.
+Each registration admits independently resident requests up to its source-defined
+capacity; a bounded host queue owns pending requests. One model CPU operation
+and one accepted numerical batch serialize shared state. Source preparation,
+batch selection/packing and feedback interpretation/encoding run on the shared
+CPU executor. Queue submission and admission run on the serialized service
+owner. Device work and feedback have independent completion frontiers, waited
+together by the shared proactor. No worker waits for a device or socket.
 
-At most one encoded block waits outside copied transport sends. The next model
-unit starts after that block acquires send credit. A slow peer therefore cannot
-create an unbounded waveform queue. Peer reset and shutdown suppress subsequent
-model work, join accepted frontiers and queue request-storage release. Pins and
-request handles are released only after that cleanup retires. Failed readiness
-leaves ownership with the model's actual buffer-retirement path.
+Each resident request owns at most one encoded block outside copied transport
+sends. Its next model unit becomes eligible after that block acquires send
+credit. A slow peer therefore bounds its own waveform queue while other requests
+continue. Peer reset and shutdown suppress subsequent work for affected requests
+while preserving every original member of an accepted batch through collection.
+Pins, row storage and request handles release only after their accepted work and
+CPU borrowers retire. Failed readiness leaves ownership with the model's actual
+buffer-retirement path.
 
 Dynamic registration and removal use the same constructors and teardown as
 startup model documents. Protocol rejection preserves the prepared service;
