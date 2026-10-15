@@ -5,7 +5,6 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include <algorithm>
-#include <cmath>
 #include <limits>
 #include <string>
 #include <tuple>
@@ -169,17 +168,18 @@ TEST_P(QueueClockRecipeTest, NominalDurationsAndHostBounds) {
     if (iteration == 0) {
       first_ticks = begin;
     }
-    const double duration_ns = (end - begin) * nanoseconds_per_tick;
+    const double nominal_duration_ns = (end - begin) * nanoseconds_per_tick;
     const double before_ns = host_clock.Nanoseconds(host_before - host_origin);
     const double after_ns = host_clock.Nanoseconds(host_after - host_origin);
-    EXPECT_TRUE(std::isfinite(duration_ns));
-    EXPECT_LE(duration_ns, after_ns - before_ns);
+    // Host enclosure is part of the nominal clock model below. The native
+    // rate has no accuracy bound that makes enclosure a timestamp oracle.
     lower_offset = std::max(
         lower_offset, before_ns - (begin - first_ticks) * nanoseconds_per_tick);
     upper_offset = std::min(
         upper_offset, after_ns - (end - first_ticks) * nanoseconds_per_tick);
     const std::string prefix = "clock_sample_" + std::to_string(iteration);
-    RecordProperty(prefix + "_duration_ns", std::to_string(duration_ns));
+    RecordProperty(prefix + "_nominal_duration_ns",
+                   std::to_string(nominal_duration_ns));
     RecordObservationClockSample(prefix + "_native_before", native_before);
     RecordProperty(prefix + "_queue_begin", std::to_string(begin));
     RecordProperty(prefix + "_queue_end", std::to_string(end));

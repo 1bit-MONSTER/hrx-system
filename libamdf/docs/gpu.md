@@ -207,8 +207,9 @@ amdf_status_t status = gpu->device_query_queue_clock_info(
 // Handle a failed query before consuming clock. A successful rate is nonzero.
 if (amdf_status_is_ok(status)) {
   // Within one non-wrapping source epoch:
-  double duration_ns = (double)(end_ticks - begin_ticks) * 1e9 / clock.frequency_hz;
-  // Record duration_ns in caller-owned profiling storage.
+  double nominal_duration_ns =
+      (double)(end_ticks - begin_ticks) * 1e9 / clock.frequency_hz;
+  // Retain the raw ticks and this nominal estimate in caller-owned storage.
 }
 ```
 
@@ -221,9 +222,18 @@ counts use different units.
 
 A nominal rate supplies duration units, not bounded oscillator accuracy or a
 shared epoch. In particular, native driver counter samples need not share the
-epoch of queue-written timestamps. The caller can bracket an actual queue
-sample with its chosen host clock, or surround a source interval with host
-submission/completion observations. For an interval `(device_begin,
+epoch of queue-written timestamps. `device_query_clock_sample` returns the
+native device/host pair, host observations bracketing that query, and any
+additional native system-clock observation. All primary host fields use the
+observation extension's `query_host_clock` timebase, with units from
+`query_host_clock_info`. A collector can therefore retain complete samples
+across GPU and XDNA work without a platform-specific host clock or ioctl.
+An actual queue observation is still needed to establish the native-query
+source's relation to that queue's event source.
+
+The caller can bracket an actual queue sample with the observation host clock,
+or surround a source interval with host submission/completion observations.
+For an interval `(device_begin,
 device_end)` inside `(host_before, host_after)`, a constant-offset model at the
 selected rate gives `host_before - device_begin_ns <= offset <= host_after -
 device_end_ns`. Subtract a nearby source origin before conversion to retain
@@ -232,6 +242,16 @@ capture's offset range; an empty intersection rejects the model. This is not a
 guarantee about future drift, reset, wrap or power transitions. The caller owns
 refresh and uncertainty policy. Queue identity and event attribution remain
 explicit; equal rates alone correlate nothing.
+
+A nominal-rate conversion is an estimate even within one interval. A duration
+outside its independent host bracket rejects that rate/offset model; it does
+not by itself distinguish an inaccurate nominal rate from a discontinuity or
+incorrect source attribution. A collector can fit rate and offset from retained
+observations for a controlled capture, with the resulting uncertainty and
+validity interval kept alongside the model. The
+[clock-source and uncertainty reference](../../docs/reference/amd/gpu/observability.md#host-brackets-and-uncertainty)
+describes the constraints and observed source differences. libamdf retains no
+calibration history or fitted model.
 
 The [SDMA timing reference](../../docs/reference/amd/gpu/sdma/timing.md) describes
 sample placement, publication and instrumentation effects. A sample pair can

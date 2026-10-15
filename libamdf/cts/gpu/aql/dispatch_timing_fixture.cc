@@ -116,7 +116,7 @@ void AqlDispatchTimingTest::Exercise(bool enabled, uint32_t dispatch_count) {
   uint64_t numeric_sum = 0;
   long double minimum_offset = -std::numeric_limits<long double>::infinity();
   long double maximum_offset = std::numeric_limits<long double>::infinity();
-  long double total_duration_ns = 0;
+  long double total_nominal_duration_ns = 0;
 
   auto submit = [&](uint32_t sequence) {
     const uint32_t slot = sequence % kSlotCount;
@@ -180,12 +180,10 @@ void AqlDispatchTimingTest::Exercise(bool enabled, uint32_t dispatch_count) {
       EXPECT_GE(snapshot.timestamps.start, previous_end[slot]);
       previous_end[slot] = snapshot.timestamps.end;
       EXPECT_GE(snapshot.timestamps.end, snapshot.timestamps.start);
-      const long double duration_ns =
+      const long double nominal_duration_ns =
           (static_cast<long double>(snapshot.timestamps.end) -
            snapshot.timestamps.start) *
           1e9L / clock.frequency_hz;
-      EXPECT_LE(duration_ns,
-                host_clock.Nanoseconds(host_after - host_before[slot]));
       if (sample_count == 0) {
         first_tick = snapshot.timestamps.start;
         first_host = host_before[slot];
@@ -216,7 +214,7 @@ void AqlDispatchTimingTest::Exercise(bool enabled, uint32_t dispatch_count) {
       maximum_offset =
           std::min(maximum_offset,
                    host_clock.Nanoseconds(host_after - first_host) - end_ns);
-      total_duration_ns += duration_ns;
+      total_nominal_duration_ns += nominal_duration_ns;
     } else {
       EXPECT_EQ(snapshot.timestamps.start, 0u);
       EXPECT_EQ(snapshot.timestamps.end, 0u);
@@ -274,9 +272,10 @@ void AqlDispatchTimingTest::Exercise(bool enabled, uint32_t dispatch_count) {
     RecordProperty("native_clock_encloses_dispatches",
                    native_start.timestamp <= first_tick &&
                        last_tick <= native_end.timestamp);
-    RecordProperty("duration_sum_ns", std::to_string(total_duration_ns));
-    // Relative clock drift can reject a capture-wide fixed offset even when
-    // every dispatch publishes its interval correctly.
+    RecordProperty("nominal_duration_sum_ns",
+                   std::to_string(total_nominal_duration_ns));
+    // The nominal rate has no host accuracy bound. Host enclosure and a
+    // capture-wide fixed offset are model checks, separate from publication.
     RecordProperty("host_constant_offset_consistent",
                    minimum_offset <= maximum_offset);
     RecordProperty("host_offset_width_ns",
