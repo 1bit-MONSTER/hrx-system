@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include <loomcxx/check.h>
+#include <loomcxx/kernel.h>
 #include <loomcxx/view.h>
 
 unsigned break_while(unsigned count, unsigned stop) {
@@ -182,6 +183,101 @@ unsigned break_nested_oracle(unsigned count, unsigned stop) {
   return total + outer * 65537u;
 }
 
+// The device-wide scan uses this termination shape after observing a complete
+// predecessor prefix. The nearest complete prefix ends the reverse walk.
+void break_lookback(unsigned group, loom::type::buffer<unsigned> states,
+                    loom::type::buffer<unsigned> aggregates,
+                    loom::type::buffer<unsigned> prefixes,
+                    loom::type::buffer<unsigned> output) {
+  loom::assume(group <= 8u);
+  auto state_values =
+      loom::buffer::view<8>(states, {}, loom::encoding::layout::dense<1>());
+  auto aggregate_values =
+      loom::buffer::view<8>(aggregates, {}, loom::encoding::layout::dense<1>());
+  auto prefix_values =
+      loom::buffer::view<8>(prefixes, {}, loom::encoding::layout::dense<1>());
+  auto output_values =
+      loom::buffer::view<3>(output, {}, loom::encoding::layout::dense<1>());
+  unsigned carry = 0;
+  unsigned previous = group;
+  unsigned visits = 0;
+  while (previous > 0) {
+    --previous;
+    loom::assume(previous < 8u);
+    unsigned state = loom::view::load(state_values, previous);
+    unsigned value = 0;
+    if (state == 1u) {
+      value = loom::view::load(aggregate_values, previous);
+    }
+    if (state == 2u) {
+      value = loom::view::load(prefix_values, previous);
+    }
+    carry = value + carry;
+    ++visits;
+    if (state == 2u) {
+      break;
+    }
+  }
+  loom::view::store(carry, output_values, 0);
+  loom::view::store(previous, output_values, 1);
+  loom::view::store(visits, output_values, 2);
+}
+
+void break_lookback_oracle(unsigned group, loom::type::buffer<unsigned> states,
+                           loom::type::buffer<unsigned> aggregates,
+                           loom::type::buffer<unsigned> prefixes,
+                           loom::type::buffer<unsigned> output) {
+  loom::assume(group <= 8u);
+  auto state_values =
+      loom::buffer::view<8>(states, {}, loom::encoding::layout::dense<1>());
+  auto aggregate_values =
+      loom::buffer::view<8>(aggregates, {}, loom::encoding::layout::dense<1>());
+  auto prefix_values =
+      loom::buffer::view<8>(prefixes, {}, loom::encoding::layout::dense<1>());
+  auto output_values =
+      loom::buffer::view<3>(output, {}, loom::encoding::layout::dense<1>());
+  unsigned carry = 0;
+  unsigned previous = group;
+  unsigned visits = 0;
+  bool active = true;
+  for (unsigned position = group; position > 0; --position) {
+    if (active) {
+      previous = position - 1u;
+      loom::assume(previous < 8u);
+      unsigned state = loom::view::load(state_values, previous);
+      unsigned value = 0;
+      if (state == 1u) {
+        value = loom::view::load(aggregate_values, previous);
+      }
+      if (state == 2u) {
+        value = loom::view::load(prefix_values, previous);
+      }
+      carry = value + carry;
+      ++visits;
+      active = state != 2u;
+    }
+  }
+  loom::view::store(carry, output_values, 0);
+  loom::view::store(previous, output_values, 1);
+  loom::view::store(visits, output_values, 2);
+}
+
+void break_lookback_inputs(loom::type::buffer<unsigned> states,
+                           loom::type::buffer<unsigned> aggregates,
+                           loom::type::buffer<unsigned> prefixes) {
+  auto state_values =
+      loom::buffer::view<8>(states, {}, loom::encoding::layout::dense<1>());
+  auto aggregate_values =
+      loom::buffer::view<8>(aggregates, {}, loom::encoding::layout::dense<1>());
+  auto prefix_values =
+      loom::buffer::view<8>(prefixes, {}, loom::encoding::layout::dense<1>());
+  for (unsigned position = 0; position < 8u; ++position) {
+    loom::view::store(position % 3u == 0u ? 2u : 1u, state_values, position);
+    loom::view::store(position * 7u + 3u, aggregate_values, position);
+    loom::view::store(position * 29u + 11u, prefix_values, position);
+  }
+}
+
 void structured_break_observations(unsigned count, unsigned stop,
                                    loom::type::buffer<unsigned> output) {
   auto values =
@@ -206,6 +302,8 @@ unsigned structured_break_count(loom::check::ordinal trial) {
   unsigned value = trial;
   return value < 4u ? value : value + 1u;
 }
+
+unsigned structured_lookback_group(loom::check::ordinal trial) { return trial; }
 
 unsigned structured_break_stop(loom::check::ordinal trial) {
   unsigned value = trial;
@@ -244,4 +342,20 @@ LOOM_CHECK_SCENARIO(structured_break_functions) {
           loom::check::expect_bitwise(output, output);
         });
       });
+  loom::check::trial<9>([](loom::check::ordinal trial,
+                           loom::check::entropy entropy) {
+    const auto group = loom::check::generate<structured_lookback_group>(trial);
+    const auto states = loom::check::fill<8, unsigned>(0u);
+    const auto aggregates = loom::check::fill<8, unsigned>(0u);
+    const auto prefixes = loom::check::fill<8, unsigned>(0u);
+    loom::check::generate<break_lookback_inputs>(states, aggregates, prefixes);
+    const auto output = loom::check::fill<3, unsigned>(0xdeadbeefu);
+    loom::check::compare<break_lookback, break_lookback_oracle>(
+        group, states, aggregates, prefixes, output, [&] {
+          loom::check::expect_bitwise(states, states);
+          loom::check::expect_bitwise(aggregates, aggregates);
+          loom::check::expect_bitwise(prefixes, prefixes);
+          loom::check::expect_bitwise(output, output);
+        });
+  });
 }
