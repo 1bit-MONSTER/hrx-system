@@ -98,15 +98,31 @@ template <loom::memory_space Space, __SIZE_TYPE__ Alignment = 1>
 [[loom::op("buffer.alloca")]] unsigned char* alloca(
     loom::type::offset byte_length);
 
+namespace assume {
+
 // Promises that source identifies an independently comparable storage root in
 // the current scope while preserving its exact pointer origin.
 template <class T>
-[[loom::op("buffer.assume.noalias")]] T* assume_noalias(T* source);
+[[loom::op("buffer.assume.noalias")]] T* noalias(T* source);
 
 // Promises that source names the zero-origin buffer root with at least
 // Alignment-byte alignment in the current scope.
 template <__SIZE_TYPE__ Alignment, class T>
-[[loom::op("buffer.assume.alignment")]] T* assume_alignment(T* source);
+[[loom::op("buffer.assume.alignment")]] T* alignment(T* source);
+
+// Promises that source's existing storage belongs to Space in the current
+// scope. Preserves the element type, pointer origin, and storage identity;
+// neither allocates nor copies storage. Constant storage must remain immutable
+// for all accesses using the refined root, including through other aliases.
+template <loom::memory_space Space, class T>
+[[loom::op("buffer.assume.memory_space")]] T* memory_space(T* source);
+
+// Refines a borrowed zero-origin buffer with the same storage-domain promise.
+template <loom::memory_space Space, class T>
+[[loom::op("buffer.assume.memory_space")]] loom::type::buffer<T> memory_space(
+    loom::type::buffer<T> source);
+
+}  // namespace assume
 
 // Orders the executing thread's memory accesses across storage objects.
 // Ordering is acquire, release, acq_rel, or seq_cst. Matching atomic

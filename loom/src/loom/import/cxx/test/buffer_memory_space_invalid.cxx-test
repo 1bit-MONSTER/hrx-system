@@ -1,0 +1,109 @@
+// RUN: verify
+#include <loomcxx/buffer.h>
+void unknown(const unsigned* source) {
+  // ERROR@+1: LOWERING/059 "requires a concrete memory space"
+  loom::buffer::assume::memory_space<static_cast<loom::memory_space>(0)>(source);
+}
+
+// ====
+#include <loomcxx/buffer.h>
+void negative(const unsigned* source) {
+  // ERROR@+1: LOWERING/059 "requires a concrete memory space"
+  loom::buffer::assume::memory_space<static_cast<loom::memory_space>(-1)>(source);
+}
+
+// ====
+#include <loomcxx/buffer.h>
+void outside_enum(loom::type::buffer<unsigned> source) {
+  // ERROR@+1: LOWERING/059 "requires a concrete memory space"
+  loom::buffer::assume::memory_space<static_cast<loom::memory_space>(8)>(source);
+}
+
+// ====
+#include <loomcxx/buffer.h>
+void truncated_enum(unsigned* source) {
+  // ERROR@+1: LOWERING/059 "requires a concrete memory space"
+  loom::buffer::assume::memory_space<static_cast<loom::memory_space>(257)>(source);
+}
+
+// ====
+#include <loomcxx/buffer.h>
+template <loom::memory_space Space, class T>
+[[loom::op("buffer.assume.memory_space")]] T* change_qualifiers(const T*);
+void qualifiers(const unsigned* source) {
+  // ERROR@+1: LOWERING/059 "same result type"
+  change_qualifiers<loom::memory_space::global>(source);
+}
+
+// ====
+#include <loomcxx/buffer.h>
+template <loom::memory_space Space, class T>
+[[loom::op("buffer.assume.memory_space")]] T scalar(T);
+void source_kind(unsigned source) {
+  // ERROR@+1: LOWERING/059 "requires a pointer or typed buffer"
+  scalar<loom::memory_space::global>(source);
+}
+
+// ====
+#include <loomcxx/buffer.h>
+template <loom::memory_space Space, class T>
+[[loom::op("buffer.assume.memory_space")]] unsigned* wrong_element(unsigned*);
+void mismatched_element(unsigned* source) {
+  // ERROR@+1: LOWERING/059 "template arguments matching the source"
+  wrong_element<loom::memory_space::global, float>(source);
+}
+
+// ====
+#include <loomcxx/buffer.h>
+template <class T>
+[[loom::op("buffer.assume.memory_space")]] T* missing_space(T*);
+void template_arity(unsigned* source) {
+  // ERROR@+1: LOWERING/059 "template arguments matching the source"
+  missing_space(source);
+}
+
+// ====
+#include <loomcxx/buffer.h>
+template <loom::memory_space Space, class T>
+[[loom::op("buffer.assume.memory_space")]] T* variadic(T*, ...);
+void variadic_signature(unsigned* source) {
+  // ERROR@+1: LOWERING/059 "same result type"
+  variadic<loom::memory_space::global>(source);
+}
+
+// ====
+#include <loomcxx/buffer.h>
+void conflicting_storage() {
+  unsigned values[4];
+  // ERROR@+1: LOWERING/059 "conflicts with the source storage domain"
+  loom::buffer::assume::memory_space<loom::memory_space::workgroup>(values);
+}
+
+// ====
+#include <loomcxx/buffer.h>
+void conflicting_dynamic_storage(__SIZE_TYPE__ count) {
+  auto* values = loom::buffer::alloca<unsigned, loom::memory_space::private_>(
+      count);
+  auto* alias = loom::buffer::assume::noalias(values);
+  auto* aligned = loom::buffer::assume::alignment<16>(alias);
+  // ERROR@+1: LOWERING/059 "conflicts with the source storage domain"
+  loom::buffer::assume::memory_space<loom::memory_space::workgroup>(aligned);
+}
+
+// ====
+#include <loomcxx/buffer.h>
+#include <loomcxx/index.h>
+void conflicting_byte_storage(loom::type::offset byte_length) {
+  auto* values = loom::buffer::alloca<loom::memory_space::private_>(byte_length);
+  // ERROR@+1: LOWERING/059 "conflicts with the source storage domain"
+  loom::buffer::assume::memory_space<loom::memory_space::workgroup>(values);
+}
+
+// ====
+#include <loomcxx/buffer.h>
+void conflicting_refinement(loom::type::buffer<unsigned> source) {
+  auto refined = loom::buffer::assume::memory_space<loom::memory_space::global>(
+      source);
+  // ERROR@+1: LOWERING/059 "conflicts with the source storage domain"
+  loom::buffer::assume::memory_space<loom::memory_space::constant>(refined);
+}

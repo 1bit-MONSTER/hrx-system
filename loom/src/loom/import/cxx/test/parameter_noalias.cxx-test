@@ -186,8 +186,8 @@ kernel.def @instantiated_unsigned_int() {
 #include <loomcxx/buffer.h>
 
 unsigned scoped(const unsigned* input, unsigned* output) {
-  auto* unique_input = loom::buffer::assume_noalias(input + 1);
-  auto* unique_output = loom::buffer::assume_noalias(output + 2);
+  auto* unique_input = loom::buffer::assume::noalias(input + 1);
+  auto* unique_output = loom::buffer::assume::noalias(output + 2);
   unique_output[0] = unique_input[0];
   return unique_output[0];
 }
@@ -227,7 +227,7 @@ func.def public @scoped(%input: buffer, %input_byte_offset: offset, %output: buf
 [[loom::kernel, loom::workgroup_size(1, 1, 1), loom::workgroup_count(1, 1, 1)]]
 void scoped_alignment(bool active, const unsigned* input, unsigned* output) {
   if (active) {
-    auto* aligned = loom::buffer::assume_alignment<16>(input);
+    auto* aligned = loom::buffer::assume::alignment<16>(input);
     output[0] = aligned[0];
   }
 }

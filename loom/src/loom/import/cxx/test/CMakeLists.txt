@@ -37,6 +37,8 @@ loom_check_test_suite(
     "boolean_storage_cleanup.cxx-test"
     "buffer_alloca.cxx-test"
     "buffer_alloca_invalid.cxx-test"
+    "buffer_memory_space.cxx-test"
+    "buffer_memory_space_invalid.cxx-test"
     "check.cxx-test"
     "check_close.cxx-test"
     "check_close_invalid.cxx-test"
@@ -1120,6 +1122,15 @@ loom_test_module(
     assumptions_module
   SRCS
     "assumptions.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    borrowed_storage_module
+  SRCS
+    "borrowed_storage.cxx"
 )
 endif()
 

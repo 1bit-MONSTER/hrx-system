@@ -51,6 +51,8 @@ loom_check_test_suite(
         "boolean_storage_cleanup.cxx-test",
         "buffer_alloca.cxx-test",
         "buffer_alloca_invalid.cxx-test",
+        "buffer_memory_space.cxx-test",
+        "buffer_memory_space_invalid.cxx-test",
         "check.cxx-test",
         "check_close.cxx-test",
         "check_close_invalid.cxx-test",
@@ -584,6 +586,7 @@ loom_test_module(
     )
     for source in [
         "assumptions",
+        "borrowed_storage",
         "collective_scans",
         "constant_loops",
         "configured_workgroup_storage",

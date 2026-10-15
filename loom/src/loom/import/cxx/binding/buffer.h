@@ -38,8 +38,8 @@ class BufferIntrinsic {
 
   // Emits the selected buffer operation after arguments have been evaluated
   // using normal C++ rules.
-  Value call(std::span<const Value> arguments, Storage& storage,
-             cxx::AST* owner) const;
+  Value call(std::span<const Value> arguments, ValueArena& arena,
+             Storage& storage, cxx::AST* owner) const;
 
   bool equivalent(const BufferIntrinsic& other) const;
 
@@ -48,6 +48,7 @@ class BufferIntrinsic {
     AllocaBytes,
     AllocaElements,
     AssumeAlignment,
+    AssumeMemorySpace,
     AssumeNoalias,
   };
 
@@ -71,6 +72,11 @@ class BufferIntrinsic {
       : operation_(Operation::AssumeAlignment),
         element_type_(element_type),
         alignment_(alignment) {}
+  BufferIntrinsic(const cxx::Type* element_type,
+                  loom_value_fact_memory_space_t memory_space)
+      : operation_(Operation::AssumeMemorySpace),
+        element_type_(element_type),
+        memory_space_(memory_space) {}
 
   // Buffer operation selected by the source declaration.
   Operation operation_;
@@ -79,7 +85,7 @@ class BufferIntrinsic {
   const cxx::Type* element_type_ = nullptr;
   // Source size or native index type accepted by the runtime operand.
   const cxx::Type* element_count_type_ = nullptr;
-  // Allocatable High memory domain selected by the template.
+  // High storage domain selected for allocation or refinement.
   loom_value_fact_memory_space_t memory_space_ =
       LOOM_VALUE_FACT_MEMORY_SPACE_UNKNOWN;
   // Positive power-of-two minimum byte alignment.

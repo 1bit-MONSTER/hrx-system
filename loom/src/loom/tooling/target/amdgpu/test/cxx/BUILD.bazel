@@ -64,6 +64,7 @@ _MODULES = [
     "assumptions",
     "atomics",
     "boolean_storage",
+    "borrowed_storage",
     "collective_scans",
     "constant_loops",
     "control_flow",

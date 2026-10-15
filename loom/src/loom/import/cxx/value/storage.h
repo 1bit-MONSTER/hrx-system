@@ -146,6 +146,11 @@ class Storage {
   // Interior pointers cannot represent buffer-root alignment and are rejected.
   Pointer assume_alignment(Pointer pointer, int64_t minimum_alignment,
                            cxx::AST* owner);
+  // Refines a borrowed buffer root's storage domain, preserving its identity
+  // and compiler-owned allocation facts. This does not move or copy storage.
+  loom_value_id_t assume_memory_space(
+      loom_value_id_t root, loom_value_fact_memory_space_t memory_space,
+      cxx::AST* owner);
 
  private:
   StorageProjection subobject(StorageProjection base, uint64_t byte_offset,
@@ -155,6 +160,8 @@ class Storage {
   // through unchanged.
   Pointer constrain_access(Pointer pointer, int64_t access_bytes,
                            cxx::AST* owner);
+  // Copies producer-owned storage facts to a root refinement.
+  void inherit_root_facts(loom_value_id_t source, loom_value_id_t result);
 
   // Source memory layout for element sizes and allocation alignment.
   cxx::TranslationUnit& unit_;
@@ -168,7 +175,7 @@ class Storage {
   Locations& locations_;
   // Borrowed insertion point, controlled by the AST driver.
   loom_builder_t& builder_;
-  // Importer-owned allocation facts indexed by the stable buffer root.
+  // Fixed allocation footprint established by its source declaration.
   struct Allocation {
     // Declared allocation extent in bytes.
     int64_t byte_length;
@@ -179,8 +186,14 @@ class Storage {
     // Direct typed view for a scalar array; aggregate arrays use projections.
     std::optional<loom_value_id_t> array_view;
   };
-  // Allocation facts retained once at their allocating producer.
-  std::unordered_map<loom_value_id_t, Allocation> allocations_;
+  struct RootFacts {
+    // Domain established by the allocating producer or a source promise.
+    loom_value_fact_memory_space_t memory_space;
+    // Fixed declaration footprint, absent for external or dynamic storage.
+    std::optional<Allocation> allocation;
+  };
+  // Storage facts retained at their producer and inherited by root refinements.
+  std::unordered_map<loom_value_id_t, RootFacts> roots_;
   // Offsets proven to be the zero origin of their buffer root. Refining
   // assumptions retain this identity without downstream producer inspection.
   std::unordered_set<loom_value_id_t> zero_origin_offsets_;

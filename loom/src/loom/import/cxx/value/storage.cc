@@ -69,9 +69,9 @@ Pointer Storage::constrain_origin(Pointer pointer, cxx::AST* owner) {
 
 Pointer Storage::constrain_access(Pointer pointer, int64_t access_bytes,
                                   cxx::AST* owner) {
-  auto allocation = allocations_.find(pointer.root);
-  if (allocation == allocations_.end() ||
-      access_bytes > allocation->second.byte_length) {
+  auto root = roots_.find(pointer.root);
+  if (root == roots_.end() || !root->second.allocation ||
+      access_bytes > root->second.allocation->byte_length) {
     return pointer;
   }
   auto source = locations_.get(owner);
@@ -82,7 +82,7 @@ Pointer Storage::constrain_access(Pointer pointer, int64_t access_bytes,
       .arg_tags = {LOOM_PRED_ARG_VALUE, LOOM_PRED_ARG_CONST,
                    LOOM_PRED_ARG_CONST},
       .args = {pointer.byte_offset, 0,
-               allocation->second.byte_length - access_bytes},
+               root->second.allocation->byte_length - access_bytes},
   };
   loom_op_t* op;
   check(loom_index_assume_build(&builder_, &pointer.byte_offset, 1, &range, 1,
@@ -258,11 +258,13 @@ StorageAccess Storage::subscript(StorageProjection base, loom_value_id_t index,
   }
   auto* array =
       cxx::type_cast<cxx::BoundedArrayType>(types_.unqualified(base_type));
-  auto declared =
-      array ? allocations_.find(base.pointer.root) : allocations_.end();
-  if (declared != allocations_.end() && declared->second.array_type == array &&
-      declared->second.array_view.has_value() &&
-      declared->second.byte_offset == base.pointer.byte_offset) {
+  auto root = array ? roots_.find(base.pointer.root) : roots_.end();
+  const Allocation* declared = root != roots_.end() && root->second.allocation
+                                   ? &*root->second.allocation
+                                   : nullptr;
+  if (declared && declared->array_type == array &&
+      declared->array_view.has_value() &&
+      declared->byte_offset == base.pointer.byte_offset) {
     // Widen before expressing the source's in-bounds precondition in the
     // signed range domain. Narrow unsigned indices retain their high bit.
     index = scalars_.convert(index, subscript_type,
@@ -281,7 +283,7 @@ StorageAccess Storage::subscript(StorageProjection base, loom_value_id_t index,
     check(loom_index_cast_build(&builder_, loom_op_results(cast)[0], wide_type,
                                 loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
                                 locations_.get(owner), &cast));
-    return {*declared->second.array_view, loom_op_results(cast)[0]};
+    return {*declared->array_view, loom_op_results(cast)[0]};
   }
   auto advanced = advance(base, index, base_type, subscript_type,
                           cxx::TokenKind::T_PLUS, owner);
@@ -340,13 +342,17 @@ StorageAllocation Storage::allocate(const cxx::Type* type,
   check(loom_buffer_view_build(&builder_, root, base, view_type,
                                locations_.get(owner), &op));
   auto view = loom_op_results(op)[0];
-  allocations_[root] = {
-      .byte_length = bytes,
-      .array_type = array,
-      .byte_offset = base,
-      .array_view = array && !byte_footprint
-                        ? std::optional<loom_value_id_t>(view)
-                        : std::nullopt,
+  roots_[root] = {
+      .memory_space = memory_space,
+      .allocation =
+          Allocation{
+              .byte_length = bytes,
+              .array_type = array,
+              .byte_offset = base,
+              .array_view = array && !byte_footprint
+                                ? std::optional<loom_value_id_t>(view)
+                                : std::nullopt,
+          },
   };
   return {{root, base}, view};
 }
@@ -388,6 +394,7 @@ Pointer Storage::allocate_elements(const cxx::Type* element_type,
       std::max<int64_t>(*alignment, explicit_alignment), byte_length,
       loom_type_buffer(), source, &op));
   auto root = loom_op_results(op)[0];
+  roots_[root] = {.memory_space = memory_space, .allocation = std::nullopt};
   auto base = scalars_.integer(0, LOOM_SCALAR_TYPE_OFFSET, source);
   zero_origin_offsets_.insert(base);
   return {root, base};
@@ -402,6 +409,7 @@ Pointer Storage::allocate_bytes(loom_value_id_t byte_length,
                                  LOOM_VALUE_ID_INVALID, alignment, byte_length,
                                  loom_type_buffer(), source, &op));
   auto root = loom_op_results(op)[0];
+  roots_[root] = {.memory_space = memory_space, .allocation = std::nullopt};
   auto base = scalars_.integer(0, LOOM_SCALAR_TYPE_OFFSET, source);
   zero_origin_offsets_.insert(base);
   return {root, base};
@@ -413,10 +421,7 @@ Pointer Storage::assume_noalias(Pointer pointer, cxx::AST* owner) {
   check(loom_buffer_assume_noalias_build(&builder_, &pointer.root, 1, &type, 1,
                                          locations_.get(owner), &op));
   auto root = loom_op_results(op)[0];
-  if (auto allocation = allocations_.find(pointer.root);
-      allocation != allocations_.end()) {
-    allocations_.emplace(root, allocation->second);
-  }
+  inherit_root_facts(pointer.root, root);
   return {root, pointer.byte_offset};
 }
 
@@ -433,11 +438,35 @@ Pointer Storage::assume_alignment(Pointer pointer, int64_t minimum_alignment,
                                            minimum_alignment, &type, 1,
                                            locations_.get(owner), &op));
   auto root = loom_op_results(op)[0];
-  if (auto allocation = allocations_.find(pointer.root);
-      allocation != allocations_.end()) {
-    allocations_.emplace(root, allocation->second);
-  }
+  inherit_root_facts(pointer.root, root);
   return {root, pointer.byte_offset};
+}
+
+loom_value_id_t Storage::assume_memory_space(
+    loom_value_id_t root, loom_value_fact_memory_space_t memory_space,
+    cxx::AST* owner) {
+  auto facts = roots_.find(root);
+  if (facts != roots_.end() && facts->second.memory_space != memory_space) {
+    diagnostics_.reject(unit_, owner,
+                        "memory-space assumption conflicts with the "
+                        "source storage domain");
+  }
+  loom_op_t* op;
+  check(loom_buffer_assume_memory_space_build(&builder_, memory_space, root,
+                                              loom_type_buffer(),
+                                              locations_.get(owner), &op));
+  auto result = loom_op_results(op)[0];
+  roots_.emplace(result, facts != roots_.end()
+                             ? facts->second
+                             : RootFacts{memory_space, std::nullopt});
+  return result;
+}
+
+void Storage::inherit_root_facts(loom_value_id_t source,
+                                 loom_value_id_t result) {
+  if (auto facts = roots_.find(source); facts != roots_.end()) {
+    roots_.emplace(result, facts->second);
+  }
 }
 
 }  // namespace loom::cxx_import
