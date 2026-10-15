@@ -202,3 +202,27 @@ cached input is not newly computed prefill. Event gaps preserve counter totals
 but prevent exact event-by-event latency reconstruction. Hardware timing,
 bandwidth, power and peak-memory claims require corresponding measurements;
 queue phase, packed occupancy and allocated-byte accounting do not establish them.
+
+## Inspect host work in Tracy
+
+A Tracy-enabled `loom-serve` exposes serving zones alongside IREE's task,
+I/O, and HAL instrumentation. Start the server normally and attach the Tracy
+profiler. Worker lanes retain their actual thread identities; a model does not
+create a dedicated thread.
+
+Serving zones distinguish scheduler turns, source compilation, input preparation,
+output processing, queue submission, and completion handling. Image output has
+separate PNG and JSON encoding zones. Model turns carry the deployment name and
+registration incarnation. Service work carries the deployment name, the ordinal
+from its `/logz` stream identity, and the relevant request or cohort IDs. These
+numeric annotations appear in that order; CPU preparation and encoding zones
+also include the phase name. These serving annotations contain no prompts or
+generated content.
+
+Each CPU zone stays on the worker that began it and ends before the instrumented
+call returns. Asynchronous work gets its own zone on the worker that runs it.
+The gap between submission and completion handling can include device execution
+and readiness delivery; it is not a CPU zone or a device-duration measurement.
+Comparing those boundaries with `/logz` helps distinguish preparation, submission,
+and encoding from waiting. Tracing changes timing, so throughput comparisons use
+uninstrumented runs of the same workload.

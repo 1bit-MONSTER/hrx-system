@@ -159,18 +159,25 @@ static iree_status_t loom_serve_router_tokenization_run(
     iree_task_process_t* process, const iree_task_worker_context_t* context,
     iree_task_process_drain_result_t* result) {
   router_tokenization_t* job = process->user_data;
+  IREE_TRACE_ZONE_BEGIN(z0);
+  IREE_TRACE_ZONE_APPEND_TEXT(z0, job->request->target.data,
+                              job->request->target.size);
+  IREE_TRACE_ZONE_APPEND_VALUE_I64(z0, job->service_index);
   result->did_work = true;
   result->completed = true;
-  IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(
-      &job->output,
-      "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
-      "Connection: close\r\n\r\n"));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, iree_string_builder_append_cstring(
+              &job->output,
+              "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+              "Connection: close\r\n\r\n"));
   if (iree_string_view_equal(job->request->target, IREE_SV("/tokenize"))) {
-    return loom_serve_http_tokenize(job->tokenizer, job->request->body,
-                                    &job->output, job->host_allocator);
+    const iree_status_t status = loom_serve_http_tokenize(
+        job->tokenizer, job->request->body, &job->output, job->host_allocator);
+    IREE_RETURN_AND_END_ZONE(z0, status);
   }
-  return loom_serve_http_detokenize(job->tokenizer, job->request->body,
-                                    &job->output, job->host_allocator);
+  const iree_status_t status = loom_serve_http_detokenize(
+      job->tokenizer, job->request->body, &job->output, job->host_allocator);
+  IREE_RETURN_AND_END_ZONE(z0, status);
 }
 
 static void loom_serve_router_tokenization_completed(
@@ -1688,6 +1695,10 @@ static void loom_serve_router_advance(router_t* router, bool* out_progress) {
     if (!model->service.name.size) {
       continue;
     }
+    IREE_TRACE_ZONE_BEGIN_NAMED(z_model, "loom_serve_model_advance");
+    IREE_TRACE_ZONE_APPEND_TEXT(z_model, model->service.name.data,
+                                model->service.name.size);
+    IREE_TRACE_ZONE_APPEND_VALUE_I64(z_model, model->incarnation);
     router->stopping |= loom_serve_http_server_is_stopping(router->server);
     if (router->stopping && model->incarnation &&
         model->removal != LOOM_SERVE_REMOVAL_ABORT) {
@@ -1723,6 +1734,7 @@ static void loom_serve_router_advance(router_t* router, bool* out_progress) {
             &progress));
     router->stopping |= !iree_status_is_ok(router->status);
     *out_progress |= progress;
+    IREE_TRACE_ZONE_END(z_model);
   }
   if (++router->cursor >= router->capacity) {
     router->cursor = 0;
@@ -1772,11 +1784,13 @@ static iree_status_t loom_serve_router_drain(
   if (!iree_slim_mutex_try_lock(&router->mutex)) {
     return iree_ok_status();
   }
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (!router->completed) {
     loom_serve_router_advance(router, &result->did_work);
   }
   result->completed = router->completed;
   iree_slim_mutex_unlock(&router->mutex);
+  IREE_TRACE_ZONE_END(z0);
   // Service failures initiate draining, not premature process completion.
   return iree_ok_status();
 }

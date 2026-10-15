@@ -42,6 +42,8 @@ iree_status_t loom_serve_program_compile(
     iree_string_view_t source_path, iree_host_size_t root_count,
     const iree_string_view_t* roots, loom_serve_compilation_report_t* report,
     iree_allocator_t host_allocator, iree_vm_module_t** out_module) {
+  IREE_TRACE_ZONE_BEGIN(z0);
+  IREE_TRACE_ZONE_APPEND_TEXT(z0, source_path.data, source_path.size);
   *out_module = NULL;
   iree_const_byte_span_t image = iree_const_byte_span_empty();
   iree_status_t status = loom_serve_jit_compile_vm(
@@ -56,6 +58,7 @@ iree_status_t loom_serve_program_compile(
       iree_allocator_free(host_allocator, (void*)image.data);
     }
   }
+  IREE_TRACE_ZONE_END(z0);
   return status;
 }
 
