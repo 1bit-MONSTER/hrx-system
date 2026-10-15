@@ -9,18 +9,40 @@
 
 iree_add_all_subdirs()
 
-file(GLOB _GLOB_X_LOOM LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS *.loom)
+file(GLOB _GLOB_X_BENCHMARK_LOOM LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS *_benchmark.loom)
+file(GLOB _GLOB_X_LOOM_9E9500E4 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS *.loom)
+file(GLOB _GLOB_X_BENCHMARK_LOOM_9E9500E4 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS *_benchmark.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_9E9500E4 ${_GLOB_X_BENCHMARK_LOOM_9E9500E4})
 loom_module(
   NAME
     checked_benchmark_cases
   SRCS
-    "${_GLOB_X_LOOM}"
+    "${_GLOB_X_LOOM_9E9500E4}"
   MODE
     "merge"
   OUTPUT
     "checked_benchmark_cases.loombc"
   OUTPUT_FORMAT
     "bc"
+)
+
+loom_module(
+  NAME
+    checked_benchmark_library
+  SRCS
+    "${_GLOB_X_LOOM_9E9500E4}"
+  MODE merge
+  OUTPUT_FORMAT bc
+  STRICT_DEPS
+)
+
+loom_test_module(
+  NAME
+    checked_benchmark_workload_module
+  SRCS
+    "${_GLOB_X_BENCHMARK_LOOM}"
+  LIBRARIES
+    "::checked_benchmark_library"
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

@@ -9,12 +9,15 @@
 
 iree_add_all_subdirs()
 
-file(GLOB _GLOB_X_LOOM LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS *.loom)
+file(GLOB _GLOB_X_BENCHMARK_LOOM LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS *_benchmark.loom)
+file(GLOB _GLOB_X_LOOM_9E9500E4 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS *.loom)
+file(GLOB _GLOB_X_BENCHMARK_LOOM_9E9500E4 LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS *_benchmark.loom)
+list(REMOVE_ITEM _GLOB_X_LOOM_9E9500E4 ${_GLOB_X_BENCHMARK_LOOM_9E9500E4})
 loom_module(
   NAME
     authoring_cases
   SRCS
-    "${_GLOB_X_LOOM}"
+    "${_GLOB_X_LOOM_9E9500E4}"
   CONFIGS
     "indexed_row_gather_f32.column_capacity=4"
     "indexed_row_gather_f32.row_capacity=5"
@@ -28,6 +31,13 @@ loom_module(
   OUTPUT_FORMAT
     "bc"
   REQUIRE_RESOLVED_CONFIG
+)
+
+loom_test_module(
+  NAME
+    authoring_benchmark_workload_module
+  SRCS
+    "${_GLOB_X_BENCHMARK_LOOM}"
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

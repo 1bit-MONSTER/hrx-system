@@ -273,7 +273,22 @@ loom_test(
         "//loom/src/loom/test/corpus/checked_benchmarks:routed_row_combine_f32.loom",
         "//loom/src/loom/test/corpus/checked_benchmarks:sparse_token_attention_f32.loom",
     ],
+    benchmark_smoke = False,
     execution_profiles = [AMDGPU_ACCESS_PROFILE],
+)
+
+loom_test(
+    name = "checked_benchmark_workload_test",
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+    module = "//loom/src/loom/test/corpus/checked_benchmarks:checked_benchmark_workload_module",
+    tags = ["manual"],
+)
+
+loom_test(
+    name = "authoring_benchmark_workload_test",
+    execution_profiles = [AMDGPU_HARDWARE_PROFILE],
+    module = "//loom/src/loom/test/corpus/authoring:authoring_benchmark_workload_module",
+    tags = ["manual"],
 )
 
 loom_test(
