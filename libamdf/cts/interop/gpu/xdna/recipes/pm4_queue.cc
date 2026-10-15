@@ -12,6 +12,7 @@
 
 #include "libamdf/cts/gpu/gpu_device_fixture.h"
 #include "libamdf/cts/gpu/pm4/encoding/memory_commands.h"
+#include "util/wait.h"
 
 namespace {
 
@@ -185,12 +186,13 @@ void Pm4RecipeQueue::Initialize(
 ::testing::AssertionResult Pm4RecipeQueue::WaitComplete(const amdf_api_t* api) {
   if (kernel_queue_) {
     const auto status = api->kernel_queue_wait(kernel_queue_, submission_,
-                                               AMDF_TIMEOUT_INFINITE, 0);
+                                               amdf::cts::kWaitTimeoutNs,
+                                               amdf::cts::kWaitPollIntervalNs);
     if (!amdf_status_is_ok(status)) {
       return QueueStatusFailure("kernel_queue_wait", status);
     }
   } else {
-    GpuWaitEqual<uint32_t>(completion_host_address_, completion_value_);
+    return GpuWaitEqual<uint32_t>(completion_host_address_, completion_value_);
   }
   return ::testing::AssertionSuccess();
 }
@@ -217,7 +219,8 @@ void Pm4RecipeQueue::Initialize(
     }
   } else {
     const auto wait_status = api->user_queue_wait_consumed(
-        user_queue_.queue, published_index_, AMDF_TIMEOUT_INFINITE, 0);
+        user_queue_.queue, published_index_, amdf::cts::kWaitTimeoutNs,
+        amdf::cts::kWaitPollIntervalNs);
     if (!amdf_status_is_ok(wait_status)) {
       return QueueStatusFailure("user_queue_wait_consumed", wait_status);
     }

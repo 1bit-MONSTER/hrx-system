@@ -4,8 +4,11 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <string>
 #include <vector>
 
 #include "amdf/amdf.h"
@@ -45,7 +48,15 @@ TEST(XdnaExtensionTest, ReportsCompiledAvailabilityBeforeCreatingInstance) {
   const auto* xdna_api = static_cast<const amdf_xdna_api_t*>(extension_api);
   ASSERT_NE(xdna_api, nullptr);
   EXPECT_EQ(xdna_api->structure_size, sizeof(amdf_xdna_api_t));
-  EXPECT_EQ(xdna_api->extension_version, AMDF_XDNA_EXTENSION_VERSION_1);
+  EXPECT_EQ(xdna_api->extension_version, AMDF_XDNA_EXTENSION_VERSION_LATEST);
+  EXPECT_NE(xdna_api->device_query_firmware_trace_info, nullptr);
+  EXPECT_NE(xdna_api->device_configure_firmware_trace, nullptr);
+  EXPECT_NE(xdna_api->device_read_firmware_trace, nullptr);
+  EXPECT_NE(xdna_api->context_query_result_buffer_info, nullptr);
+  EXPECT_NE(xdna_api->context_attach_result_buffer, nullptr);
+  EXPECT_NE(xdna_api->context_collect_result_buffer, nullptr);
+  EXPECT_NE(xdna_api->context_detach_result_buffer, nullptr);
+  EXPECT_NE(xdna_api->device_query_timer_clock_info, nullptr);
   EXPECT_NE(xdna_api->endpoint_query_info, nullptr);
   EXPECT_NE(xdna_api->device_create, nullptr);
   EXPECT_NE(xdna_api->context_query_placement_info, nullptr);
@@ -66,6 +77,20 @@ TEST(XdnaExtensionTest, ReturnsStableImmutableTable) {
   const amdf_xdna_api_t* second_api = QueryXdnaApi(api);
 
   EXPECT_EQ(first_api, second_api);
+}
+
+TEST(XdnaExtensionTest, VersionOneRetainsItsOriginalTableExtent) {
+  const amdf_api_t* api = QueryApi();
+  const void* extension_api = nullptr;
+  ASSERT_EQ(
+      api->query_extension(AMDF_EXTENSION_XDNA, AMDF_XDNA_EXTENSION_VERSION_1,
+                           AMDF_XDNA_EXTENSION_VERSION_1, &extension_api),
+      AMDF_STATUS_OK);
+  const auto* xdna_api = static_cast<const amdf_xdna_api_t*>(extension_api);
+  EXPECT_EQ(xdna_api->extension_version, AMDF_XDNA_EXTENSION_VERSION_1);
+  EXPECT_EQ(xdna_api->structure_size,
+            offsetof(amdf_xdna_api_t, device_query_firmware_trace_info));
+  EXPECT_NE(xdna_api->context_destroy, nullptr);
 }
 
 TEST(XdnaExtensionTest, RejectsUnsupportedVersionWithoutPublishingOutput) {
@@ -682,6 +707,68 @@ TEST_F(XdnaEndpointTest, RejectsMalformedDeviceInfoWithoutMutation) {
   EXPECT_EQ(amdf_status_code(xdna_api_->device_query_info(device_, &info)),
             AMDF_STATUS_CODE_UNSUPPORTED);
   EXPECT_EQ(info.reset_epoch, UINT64_MAX);
+}
+
+using XdnaFirmwareTraceTest = XdnaDeviceFixture;
+
+TEST_F(XdnaFirmwareTraceTest, QueriesNativeTimerUnits) {
+  amdf_observation_clock_info_t info = {};
+  const auto status = xdna_api_->device_query_timer_clock_info(device_, &info);
+  if (status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+    GTEST_SKIP() << "native driver supplies no timer operating rate";
+  }
+  ASSERT_EQ(status, AMDF_STATUS_OK);
+  EXPECT_GT(info.frequency_hz, 0u);
+  EXPECT_EQ(info.counter_bit_count, 64u);
+  EXPECT_EQ(info.reserved, 0u);
+  RecordProperty("timer_frequency_hz", std::to_string(info.frequency_hz));
+}
+
+TEST_F(XdnaFirmwareTraceTest, RejectsMissingClockQueryArguments) {
+  amdf_observation_clock_info_t info = {1234, 56, 99};
+  const auto original = info;
+  EXPECT_EQ(xdna_api_->device_query_timer_clock_info(nullptr, &info),
+            amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT));
+  EXPECT_EQ(std::memcmp(&info, &original, sizeof(info)), 0);
+  EXPECT_EQ(xdna_api_->device_query_timer_clock_info(device_, nullptr),
+            amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT));
+}
+
+TEST_F(XdnaFirmwareTraceTest, ValidatesCallerStorageWithoutChangingRecorder) {
+  amdf_xdna_firmware_trace_info_t info = {
+      .structure_size = sizeof(info),
+      .enabled = UINT32_MAX,
+  };
+  EXPECT_EQ(xdna_api_->device_query_firmware_trace_info(device_, &info),
+            amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT));
+  EXPECT_EQ(info.enabled, UINT32_MAX);
+  info.type = AMDF_STRUCTURE_TYPE_XDNA_FIRMWARE_TRACE_INFO;
+  info.next = &info;
+  EXPECT_EQ(xdna_api_->device_query_firmware_trace_info(device_, &info),
+            amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED));
+  EXPECT_EQ(info.enabled, UINT32_MAX);
+  EXPECT_EQ(xdna_api_->device_configure_firmware_trace(device_, 2, 5),
+            amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT));
+  EXPECT_EQ(xdna_api_->device_configure_firmware_trace(device_, 1, 0),
+            amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT));
+
+  std::array<uint64_t, 32> storage = {};
+  amdf_observation_read_result_t result = {.next_position = UINT64_MAX};
+  const auto original = result;
+  EXPECT_EQ(xdna_api_->device_read_firmware_trace(
+                device_, AMDF_XDNA_FIRMWARE_TRACE_FORMAT_2_0, 1, storage.data(),
+                sizeof(storage), &result),
+            amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT));
+  EXPECT_EQ(xdna_api_->device_read_firmware_trace(
+                device_, AMDF_XDNA_FIRMWARE_TRACE_FORMAT_2_0, 0,
+                reinterpret_cast<uint8_t*>(storage.data()) + 1,
+                sizeof(storage) - 1, &result),
+            amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT));
+  EXPECT_EQ(
+      xdna_api_->device_read_firmware_trace(
+          device_, UINT32_MAX, 0, storage.data(), sizeof(storage), &result),
+      amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED));
+  EXPECT_EQ(std::memcmp(&result, &original, sizeof(result)), 0);
 }
 
 using XdnaContextTest = XdnaContextFixture;

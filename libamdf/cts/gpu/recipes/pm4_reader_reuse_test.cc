@@ -445,9 +445,9 @@ void Pm4ReaderReuseTest::Run() {
     ASSERT_NO_FATAL_FAILURE(
         queues[index - 1]->Publish(api_, gpu_api_, command_counts[index - 1]));
   }
-  GpuWaitEqual<uint32_t>(
+  ASSERT_TRUE(GpuWaitEqual<uint32_t>(
       reinterpret_cast<uintptr_t>(control.memory->host.pointer) + kFinalOffset,
-      1);
+      1));
   // Capture payload visibility at the in-stream completion, before native
   // retirement can supply any additional driver-owned synchronization.
   const std::array<const CheckedMemory*, 5> checked = {

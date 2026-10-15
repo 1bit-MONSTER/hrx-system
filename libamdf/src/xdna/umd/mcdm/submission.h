@@ -60,6 +60,14 @@ void amdf_windows_xdna_submission_build_accounting(
     const amdf_windows_xdna_private_allocation_t* instruction_allocation,
     uint64_t live_byte_length, amdf_windows_xdna_submission_t* out_submission);
 
+// Builds a Direct-protocol result control with a native allocation-relative
+// range. Opcode is attach (7), collect (1), or detach (8); collect reads from
+// the firmware result storage into the supplied host-visible aperture slice.
+void amdf_windows_xdna_submission_build_result_buffer(
+    uint32_t opcode, const amdf_windows_xdna_private_allocation_t* allocation,
+    uint64_t native_byte_offset, uint64_t byte_length,
+    amdf_windows_xdna_submission_t* out_submission);
+
 // Builds the private execution record adjoining one ERT packet. The caller
 // owns the eight-byte cell at response_byte_offset in response_allocation
 // through checked retirement; the offset is allocation-relative in bytes.

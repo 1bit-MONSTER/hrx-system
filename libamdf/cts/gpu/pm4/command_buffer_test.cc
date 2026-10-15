@@ -231,10 +231,10 @@ TEST_F(Pm4DispatchTest, ExecutesImmutableIndirectBufferAcrossEpochs) {
       };
       ASSERT_NO_FATAL_FAILURE(queue->Submit(gpu_api_, command));
     }
-    GpuWaitEqual<uint32_t>(
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
         reinterpret_cast<uintptr_t>(completion->host.pointer) +
             kCompletionWord * sizeof(uint32_t),
-        epoch + 1);
+        epoch + 1));
     // Capture every initialized owner and the complete command storage before
     // any diagnostic or retirement wait can add another observation boundary.
     std::memcpy(observed_output.data(), output->host.pointer,
@@ -541,10 +541,10 @@ TEST_F(Pm4DispatchTest, RebuildsIndirectBufferAfterCompletion) {
       };
       ASSERT_NO_FATAL_FAILURE(queue->Submit(gpu_api_, command));
     }
-    GpuWaitEqual<uint32_t>(
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
         reinterpret_cast<uintptr_t>(completion->host.pointer) +
             kCompletionWord * sizeof(uint32_t),
-        epoch + 1);
+        epoch + 1));
     // Observe all initialized storage before diagnostics or retirement can
     // create another completion/visibility boundary.
     std::memcpy(observed_output.data(), output->host.pointer,

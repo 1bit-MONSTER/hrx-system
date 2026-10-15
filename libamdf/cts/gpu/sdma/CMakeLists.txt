@@ -19,6 +19,7 @@ iree_cc_library(
     "fill_test.cc"
     "queued_mapping_test.cc"
     "rectangular_copy_test.cc"
+    "timestamp_stream_test.cc"
     "timestamp_test.cc"
     "wait_test.cc"
     "write_test.cc"
@@ -27,6 +28,7 @@ iree_cc_library(
     iree::third_party::google_test
     libamdf::cts::gpu::sdma::encoding::commands
     libamdf::cts::gpu::util::command_fixture
+    libamdf::cts::util::wait
   TESTONLY
   ALWAYSLINK
   PUBLIC

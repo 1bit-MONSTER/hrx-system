@@ -38,6 +38,7 @@
 #include "libamdf/cts/gpu/kernels/file_latency_kernels.h"
 #endif
 #include "libamdf/cts/gpu/linux/io_uring/file_io_fixture.h"
+#include "util/wait.h"
 
 namespace {
 
@@ -307,12 +308,12 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
   }
 
   void WaitIdle() {
-    while (
-        (ring_->parameters.flags & IORING_SETUP_SQPOLL) &&
-        !(GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.flags)) &
-          IORING_SQ_NEED_WAKEUP)) {
-      std::this_thread::yield();
-    }
+    ASSERT_TRUE(amdf::cts::WaitUntil("SQPOLL idle", [&] {
+      return !(ring_->parameters.flags & IORING_SETUP_SQPOLL) ||
+             (GpuLoadAcquire<uint32_t>(
+                  RingWord(ring_->parameters.sq_off.flags)) &
+              IORING_SQ_NEED_WAKEUP);
+    }));
   }
 
   void RunEpoch(GpuCommandQueue* queue, Pm4CommandWriter* commands,
@@ -325,7 +326,7 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
     commands->WriteData32(completion->device_address, 1);
     commands->PadToEightWords();
     ASSERT_LT(commands->word_count(), queue->words().size());
-    WaitIdle();
+    ASSERT_NO_FATAL_FAILURE(WaitIdle());
     std::optional<uint64_t> poller_before;
     uint64_t host_before = 0;
     ASSERT_NO_FATAL_FAILURE(PollerCpu(&poller_before));
@@ -339,12 +340,15 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
         queue->Publish(api_, gpu_api_, commands->word_count()));
     const uintptr_t completion_address =
         reinterpret_cast<uintptr_t>(completion->host.pointer);
+    const amdf::cts::WaitDeadline deadline;
     while (GpuLoadAcquire<uint32_t>(completion_address) != 1) {
+      ASSERT_NE(deadline.remaining_ns(), 0u)
+          << "timed out waiting for file workload completion";
       RelayFileIo();
       const uint32_t tail =
           GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.tail));
       if (!(ring_->parameters.flags & IORING_SETUP_SQPOLL)) {
-        ASSERT_NO_FATAL_FAILURE(ServiceHostIo(&sample->enter_calls));
+        ASSERT_NO_FATAL_FAILURE(ServiceHostIo(&sample->enter_calls, deadline));
       } else if (tail != wake_tail && (GpuLoadAcquire<uint32_t>(RingWord(
                                            ring_->parameters.sq_off.flags)) &
                                        IORING_SQ_NEED_WAKEUP)) {
@@ -362,8 +366,8 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
       if (service_microseconds_ == 0) {
         _mm_pause();
       } else {
-        // This is a polling policy, not a deadline on valid I/O. Actual
-        // scheduling and timer slack can exceed the requested interval.
+        // The measurement's service interval is separate from its overall
+        // progress deadline. Timer slack can exceed the requested interval.
         std::this_thread::sleep_for(
             std::chrono::microseconds(service_microseconds_));
       }
@@ -380,7 +384,7 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
       sample->poller_microseconds = *poller_after - *poller_before;
     }
     ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
-    WaitIdle();
+    ASSERT_NO_FATAL_FAILURE(WaitIdle());
     std::optional<uint64_t> poller_idle;
     ASSERT_NO_FATAL_FAILURE(PollerCpu(&poller_idle));
     if (poller_after && poller_idle) {
@@ -809,7 +813,7 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
   // Nominal reference-counter frequency from AMDGPU_INFO_DEV_INFO, in kHz.
   uint32_t frequency_khz_ = 0;
   // Requested delay between host service passes; zero selects busy polling.
-  uint32_t service_microseconds_ = 0;
+  uint32_t service_microseconds_ = 50;
   // SQPOLL thread ID, or -1 for ordinary submission or an unobserved owner.
   int poller_thread_ = -1;
   // SQPOLL's last reported CPU, not a promise of fixed affinity.
@@ -1292,7 +1296,11 @@ class GpuFileDemandTest : public GpuFileLatencyTest {
         const auto transport =
             transports[(epoch + direction * order) % transports.size()];
         const FileIoPath path = transport.path;
-        service_microseconds_ = transport.service_microseconds;
+        // Busy service is an explicit benchmark baseline, never the default
+        // correctness policy. Both policies retain the same progress deadline.
+        service_microseconds_ =
+            measurement ? transport.service_microseconds
+                        : std::max(50u, transport.service_microseconds);
         ring_ = path == FileIoPath::kHostWait   ? wait_ring
                 : path == FileIoPath::kHostPoll ? host_poll_ring
                                                 : poll_ring;
@@ -1375,9 +1383,18 @@ class GpuFileDemandTest : public GpuFileLatencyTest {
           const uintptr_t started =
               reinterpret_cast<uintptr_t>(background->host.pointer) +
               offsetof(demand::Background, started);
-          while (!GpuLoadAcquire<uint32_t>(started)) {
-            std::this_thread::yield();
+          const auto ready = amdf::cts::WaitUntil(
+              "background workload startup",
+              [&] { return GpuLoadAcquire<uint32_t>(started) != 0; });
+          if (!ready) {
+            const uintptr_t work =
+                reinterpret_cast<uintptr_t>(background->host.pointer);
+            GpuStoreRelease<uint32_t>(work + offsetof(demand::Background, run),
+                                      1);
+            GpuStoreRelease<uint32_t>(work + offsetof(demand::Background, stop),
+                                      1);
           }
+          ASSERT_TRUE(ready);
         }
         Pm4CommandWriter commands(queue->words().data(), *pm4_profile_);
         Sample sample;
@@ -1395,9 +1412,9 @@ class GpuFileDemandTest : public GpuFileLatencyTest {
           }
           const uintptr_t done =
               reinterpret_cast<uintptr_t>(background_completion->host.pointer);
-          while (!GpuLoadAcquire<uint32_t>(done)) {
-            std::this_thread::yield();
-          }
+          ASSERT_TRUE(amdf::cts::WaitUntil(
+              "background workload completion",
+              [&] { return GpuLoadAcquire<uint32_t>(done) != 0; }));
           ASSERT_NO_FATAL_FAILURE(background_queue->WaitRetired(api_));
           ASSERT_TRUE(background_queue->Release(api_));
         }

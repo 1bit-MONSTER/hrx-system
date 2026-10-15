@@ -332,18 +332,18 @@ class Pm4SdmaRecipeTest : public Pm4SdmaTest {
           reinterpret_cast<uintptr_t>(control.host.pointer) +
           (kGraphCount - 1) * 4096;
       const uint32_t last_generation = (epoch + 1) * kGraphCount;
-      GpuWaitEqual<uint32_t>(last_control + 128, last_generation);
+      ASSERT_TRUE(GpuWaitEqual<uint32_t>(last_control + 128, last_generation));
       // One final download joins the complete batch. Snapshot every readback
       // before any independent shader join: this is the dependency observation.
       std::memcpy(observed[kReadback].data(), readback.host.pointer,
                   sizeof(observed[kReadback]));
       // Independently join the shader before reading its other owners, even if
       // the dependency under test allowed SDMA to publish D prematurely.
-      GpuWaitEqual<uint32_t>(last_control + 64, last_generation);
+      ASSERT_TRUE(GpuWaitEqual<uint32_t>(last_control + 64, last_generation));
       // Upload has its own owner in the separate layout. Independently join
       // its final write before observing input backing, even if a dependency
       // under test allowed compute or download to advance prematurely.
-      GpuWaitEqual<uint32_t>(last_control, last_generation);
+      ASSERT_TRUE(GpuWaitEqual<uint32_t>(last_control, last_generation));
       for (size_t owner = kSource; owner <= kOutput; ++owner) {
         std::memcpy(observed[owner].data(),
                     backings[owner].memory->host.pointer,

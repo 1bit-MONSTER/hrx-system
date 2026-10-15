@@ -12,6 +12,22 @@ iree_add_all_subdirs()
 if(AMDF_BUILD)
 iree_cc_library(
   NAME
+    observation
+  HDRS
+    "observation.h"
+  SRCS
+    "observation.c"
+  DEPS
+    amdf::headers
+    libamdf::src::platform::native_observation
+    libamdf::src::platform::observation
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_library(
+  NAME
     atomics
   HDRS
     "atomics.h"

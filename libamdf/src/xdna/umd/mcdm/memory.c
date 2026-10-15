@@ -111,6 +111,11 @@ void* amdf_windows_xdna_memory_mapping_source(amdf_xdna_umd_memory_t* memory,
   return (uint8_t*)memory->host_pointer + byte_offset;
 }
 
+const amdf_windows_xdna_private_allocation_t*
+amdf_windows_xdna_memory_private_allocation(amdf_xdna_umd_memory_t* memory) {
+  return &memory->private_allocation;
+}
+
 static amdf_status_t amdf_windows_xdna_memory_map_device_address(
     amdf_xdna_umd_memory_t* memory,
     const amdf_memory_address_capabilities_t* address_capabilities,

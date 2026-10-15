@@ -259,9 +259,11 @@ void DeviceGeneratedSdmaSerialTest<DispatchTest>::RunDependentCopies() {
         control->device_address);
     GpuStoreRelease(producer.queue->host.write_index_address,
                     producer.packet_index + 1);
-    aql::Publish(*producer.queue, producer.packet_index++, dispatch);
+    ASSERT_TRUE(
+        aql::Publish(*producer.queue, producer.packet_index++, dispatch));
     auto& signal = *static_cast<aql::Signal*>(control->host.pointer);
-    GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0);
+    ASSERT_TRUE(
+        GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0));
   } else {
     ASSERT_GE(producer.queue->words().size(), 128u);
     Pm4CommandWriter commands(producer.queue->words().data(),
@@ -273,8 +275,8 @@ void DeviceGeneratedSdmaSerialTest<DispatchTest>::RunDependentCopies() {
     commands.PadToEightWords();
     ASSERT_NO_FATAL_FAILURE(producer.queue->Publish(this->api_, this->gpu_api_,
                                                     commands.word_count()));
-    GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(control->host.pointer),
-                           1);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+        reinterpret_cast<uintptr_t>(control->host.pointer), 1));
     this->RecordProperty("device_sdma_pm4_command_bytes",
                          commands.word_count() * sizeof(uint32_t));
   }

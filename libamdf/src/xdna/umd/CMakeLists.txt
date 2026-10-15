@@ -65,4 +65,44 @@ iree_cc_library(
 )
 endif()
 
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_library(
+  NAME
+    firmware_trace
+  HDRS
+    "firmware_trace.h"
+  DEPS
+    ::device
+    amdf::headers
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_library(
+  NAME
+    result_buffer
+  HDRS
+    "result_buffer.h"
+  DEPS
+    ::context
+    ::memory
+    amdf::headers
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_library(
+  NAME
+    clock
+  HDRS
+    "clock.h"
+  DEPS
+    ::device
+    amdf::headers
+  PUBLIC
+)
+endif()
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

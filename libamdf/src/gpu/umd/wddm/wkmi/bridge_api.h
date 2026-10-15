@@ -39,8 +39,14 @@ extern "C" {
 // First version exposing borrowed native queue handles for mapping ordering.
 #define AMDF_WKMI_BRIDGE_ABI_VERSION_6 6u
 
+// First version querying the selected queue engine's timestamp frequency.
+#define AMDF_WKMI_BRIDGE_ABI_VERSION_7 7u
+
+// First version preserving native GPU and host calibration timestamps.
+#define AMDF_WKMI_BRIDGE_ABI_VERSION_8 8u
+
 // Most recent private bridge ABI version described by this header.
-#define AMDF_WKMI_BRIDGE_ABI_VERSION_LATEST AMDF_WKMI_BRIDGE_ABI_VERSION_6
+#define AMDF_WKMI_BRIDGE_ABI_VERSION_LATEST AMDF_WKMI_BRIDGE_ABI_VERSION_8
 
 // Result of one bridge operation.
 typedef uint32_t amdf_wkmi_bridge_result_t;
@@ -69,6 +75,17 @@ enum amdf_wkmi_bridge_result_e {
 
 // Opaque parsed adapter state retained entirely inside the bridge.
 typedef struct amdf_wkmi_bridge_gpu_adapter_t amdf_wkmi_bridge_gpu_adapter_t;
+
+// Complete engine clock tuple returned by KMT calibration.
+typedef struct amdf_wkmi_bridge_gpu_clock_sample_t {
+  // GPU reference clock ticks per second.
+  uint64_t frequency_hz;
+  // GPU counter sampled by the native driver.
+  uint64_t timestamp;
+  // Paired CPU counter in QueryPerformanceCounter units.
+  uint64_t host_timestamp;
+} amdf_wkmi_bridge_gpu_clock_sample_t;
+
 // Opaque native GPU kernel queue retained entirely inside the bridge.
 typedef struct amdf_wkmi_bridge_gpu_kernel_queue_t
     amdf_wkmi_bridge_gpu_kernel_queue_t;
@@ -232,7 +249,7 @@ typedef struct amdf_wkmi_bridge_gpu_buffer_import_info_t {
   void* shared_handle;
 } amdf_wkmi_bridge_gpu_buffer_import_info_t;
 
-// Immutable entry-point table for private bridge ABI version 4.
+// Immutable entry-point table for the negotiated private bridge ABI.
 typedef struct amdf_wkmi_bridge_api_t {
   // Size in bytes of this table version.
   uint32_t structure_size;
@@ -323,13 +340,23 @@ typedef struct amdf_wkmi_bridge_api_t {
       uint32_t* resource_handle, uint32_t* allocation_handle,
       uint64_t* out_native_byte_length, uint64_t* out_buffer_byte_length);
 
+  // Queries the native calibration tuple for the admitted queue scheduler.
+  // Other results preserve the output; out_native_status receives NTSTATUS
+  // only for NATIVE_FAILURE. No cross-source epoch identity is inferred.
+  amdf_wkmi_bridge_result_t(AMDF_WKMI_BRIDGE_CALL* gpu_clock_sample)(
+      amdf_wkmi_bridge_gpu_adapter_t* adapter, uint32_t adapter_handle,
+      uint32_t physical_adapter_index,
+      amdf_wkmi_bridge_gpu_queue_command_type_t command_type,
+      amdf_wkmi_bridge_gpu_clock_sample_t* out_sample,
+      uint32_t* out_native_status);
+
 } amdf_wkmi_bridge_api_t;
 
 #ifdef __cplusplus
-static_assert(sizeof(amdf_wkmi_bridge_api_t) == 72,
+static_assert(sizeof(amdf_wkmi_bridge_api_t) == 80,
               "WKMI entry-point table ABI must remain stable");
 #else
-_Static_assert(sizeof(amdf_wkmi_bridge_api_t) == 72,
+_Static_assert(sizeof(amdf_wkmi_bridge_api_t) == 80,
                "WKMI entry-point table ABI must remain stable");
 #endif
 

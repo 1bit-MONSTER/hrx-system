@@ -19,6 +19,10 @@ _Static_assert(offsetof(amdf_gpu_kfd_aql_descriptor_t,
                "AMD queue inactive signal offset");
 _Static_assert(sizeof(amdf_gpu_kfd_aql_signal_t) == 64,
                "AMD signal block size");
+_Static_assert(offsetof(amdf_gpu_kfd_aql_signal_t, start_timestamp) == 32,
+               "AMD dispatch start timestamp offset");
+_Static_assert(offsetof(amdf_gpu_kfd_aql_signal_t, end_timestamp) == 40,
+               "AMD dispatch end timestamp offset");
 
 amdf_status_t amdf_gpu_kfd_aql_descriptor_initialize(
     const amdf_gpu_kfd_user_queue_plan_t* plan,
@@ -40,7 +44,8 @@ amdf_status_t amdf_gpu_kfd_aql_descriptor_initialize(
                                       plan->aql.scratch.resource_descriptor[1],
                                       plan->aql.scratch.resource_descriptor[2],
                                       plan->aql.scratch.resource_descriptor[3]},
-      .queue_properties = 1u << 1,
+      .queue_properties =
+          (1u << 1) | (create_info->dispatch_timestamps ? (1u << 3) : 0),
   };
   const amdf_gpu_umd_queue_scratch_t* scratch = &create_info->scratch;
   if (scratch->byte_length != 0) {

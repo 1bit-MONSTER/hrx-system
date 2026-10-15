@@ -51,15 +51,20 @@ amdf_native_event_type_t NativeEventType() {
   return ::testing::AssertionFailure() << "eventfd_read: errno " << errno;
 }
 
-::testing::AssertionResult WaitNativeEvent(const amdf_native_event_t& event) {
+::testing::AssertionResult WaitNativeEvent(const amdf_native_event_t& event,
+                                           WaitDeadline deadline) {
   struct pollfd poll_event = {
       .fd = static_cast<int>(event.payload.file_descriptor),
       .events = POLLIN,
   };
   int result;
   do {
-    result = poll(&poll_event, 1, -1);
-  } while (result < 0 && errno == EINTR);
+    result = poll(&poll_event, 1, static_cast<int>(deadline.remaining_ms()));
+  } while (result < 0 && errno == EINTR && deadline.remaining_ns() != 0);
+  if (result == 0 || (result < 0 && errno == EINTR)) {
+    return ::testing::AssertionFailure()
+           << "timed out waiting for eventfd " << poll_event.fd;
+  }
   if (result != 1 || poll_event.revents != POLLIN) {
     return ::testing::AssertionFailure()
            << "poll: result " << result << ", events " << poll_event.revents

@@ -26,6 +26,11 @@ TEST(AqlEncodingTest, BarrierSignalAddressesAndSystemScopes) {
   // ROCm 8d57824901ff, amd_hsa_signal.h, amd_signal_t.
   EXPECT_EQ(offsetof(aql::Signal, kind), 0u);
   EXPECT_EQ(offsetof(aql::Signal, value), 8u);
+  EXPECT_EQ(offsetof(aql::Signal, event), 16u);
+  EXPECT_EQ(offsetof(aql::Signal, timestamps.start), 32u);
+  EXPECT_EQ(offsetof(aql::Signal, timestamps.end), 40u);
+  EXPECT_EQ(offsetof(aql::Signal, queue_address), 48u);
+  EXPECT_EQ(offsetof(aql::Signal, reserved), 56u);
   EXPECT_EQ(sizeof(aql::Signal), 64u);
   EXPECT_EQ(alignof(aql::Signal), 64u);
 }

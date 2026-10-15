@@ -19,6 +19,7 @@
 #include "libamdf/cts/gpu/recipes/pm4_sdma_fixture.h"
 #include "libamdf/cts/gpu/sdma/encoding/commands.h"
 #include "libamdf/cts/gpu/util/user_queue.h"
+#include "util/wait.h"
 
 namespace {
 
@@ -461,10 +462,12 @@ class Pm4SdmaStreamingTest : public Pm4SdmaTest {
         }
         return progressed;
       };
+      const amdf::cts::WaitDeadline deadline;
       const auto drain_outputs = [&](uint32_t count) {
         while (output_consumed < count) {
           if (!service_host()) {
-            std::this_thread::yield();
+            ASSERT_TRUE(deadline.Pause()) << "timed out draining output "
+                                          << output_consumed << " of " << count;
           }
         }
       };
@@ -493,7 +496,9 @@ class Pm4SdmaStreamingTest : public Pm4SdmaTest {
                 break;
               }
               if (!service_host()) {
-                std::this_thread::yield();
+                ASSERT_TRUE(deadline.Pause())
+                    << "timed out waiting for queue " << queue
+                    << " capacity: consumed " << consumed << ", end " << end;
               }
             }
           }
@@ -518,7 +523,9 @@ class Pm4SdmaStreamingTest : public Pm4SdmaTest {
       if (closure == ProducerClosure::kUnusedInput) {
         while (input_published < ingress_limit) {
           if (!service_host()) {
-            std::this_thread::yield();
+            ASSERT_TRUE(deadline.Pause())
+                << "timed out publishing input " << input_published << " of "
+                << ingress_limit;
           }
         }
       }
@@ -534,7 +541,7 @@ class Pm4SdmaStreamingTest : public Pm4SdmaTest {
       // Closing acceptance preserves ingress and egress for accepted groups.
       // Extra preparation has no native consumer and needs no completion.
       ingress_limit = accepted_graphs;
-      drain_outputs(accepted_graphs);
+      ASSERT_NO_FATAL_FAILURE(drain_outputs(accepted_graphs));
       EXPECT_EQ(input_published, std::max(staged_at_close, accepted_graphs));
       EXPECT_EQ(output_consumed, accepted_graphs);
       for (uint32_t graph = 0; graph < input_published; ++graph) {
@@ -556,8 +563,10 @@ class Pm4SdmaStreamingTest : public Pm4SdmaTest {
         const uint64_t address =
             reinterpret_cast<uintptr_t>(control.host.pointer) +
             slot * kPageWordCount * sizeof(uint32_t);
-        GpuWaitEqual<uint32_t>(address + kComputeCompleteByteOffset, token);
-        GpuWaitEqual<uint32_t>(address + kUploadCompleteByteOffset, token);
+        ASSERT_TRUE(GpuWaitEqual<uint32_t>(address + kComputeCompleteByteOffset,
+                                           token));
+        ASSERT_TRUE(
+            GpuWaitEqual<uint32_t>(address + kUploadCompleteByteOffset, token));
         for (const uint32_t byte_offset : kControlByteOffsets) {
           const uint32_t control_generation =
               byte_offset == kSourceReadyByteOffset

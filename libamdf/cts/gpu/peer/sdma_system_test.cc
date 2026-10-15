@@ -331,8 +331,8 @@ class PeerSdmaSystemTest : public GpuPeerDeviceFixture {
     ASSERT_NO_FATAL_FAILURE(
         queues_[peer].Publish(api_, gpu_api_, word_frontiers_[peer]));
     const uintptr_t host = reinterpret_cast<uintptr_t>(backing_.host.pointer);
-    GpuWaitEqual<uint32_t>(host + ControlWord(0, kArrival) * sizeof(uint32_t),
-                           1);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+        host + ControlWord(0, kArrival) * sizeof(uint32_t), 1));
     EXPECT_EQ(GpuLoadAcquire<uint32_t>(host + ControlWord(0, kInitiatorReady) *
                                                   sizeof(uint32_t)),
               0u);
@@ -343,8 +343,8 @@ class PeerSdmaSystemTest : public GpuPeerDeviceFixture {
     // no host participation in any stage or slot dependency after this point.
     ASSERT_NO_FATAL_FAILURE(
         queues_[initiator].Publish(api_, gpu_api_, word_frontiers_[initiator]));
-    GpuWaitEqual<uint32_t>(
-        host + ControlWord(kSlotCount - 1, kPeerDone) * sizeof(uint32_t), 1);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+        host + ControlWord(kSlotCount - 1, kPeerDone) * sizeof(uint32_t), 1));
     std::vector<uint32_t> observed(expected.size());
     std::memcpy(observed.data(), backing_.host.pointer, creation_.byte_length);
     std::array<std::vector<uint32_t>, 2> observed_commands;

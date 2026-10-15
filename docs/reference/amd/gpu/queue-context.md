@@ -435,6 +435,37 @@ completion remain separate observations.
 [Destruction branches][pqm-retirement] ·
 [Save and retirement](context-save.md#save-resume-and-final-ownership)
 
+### Scheduler completion and failure diagnostics
+
+Linux's GFX11 MES submission path places two completion observations in one
+native command stream: the requested API's completion write and a subsequent
+`QUERY_SCHEDULER_STATUS` fence. It reports `MES failed to respond` when the
+latter fence times out or the former completion remains absent. That message
+identifies the outstanding API, not the first stalled packet or the firmware's
+reason for failing it. It does not distinguish an unresponsive command
+processor from a scheduler bookkeeping failure. [Submission and checks][mes-completion]
+
+AMD's April 2024 MES specification describes separate circular API, event and
+interrupt histories. Their indices identify the next entry to overwrite.
+API history contains the operation, start/end timestamps, status and error
+code. The documented `REMOVE_QUEUE` error codes are:
+
+| Code | Native classification |
+| --- | --- |
+| 0 | `API_REMOVEQUEUE_NOERROR` |
+| 1 | `API_REMOVEQUEUE_UNMAP_FAIL` |
+| 2 | `API_REMOVEQUEUE_HQDQUEUE_MAP_MISMATCH` |
+| 3 | `API_REMOVEQUEUE_CLEANUP_FAIL` |
+| 4 | `API_REMOVEQUEUE_QUEUE_NOT_FOUND` |
+| 5 | `API_REMOVEQUEUE_NULL_GANG` |
+
+For error 1, the corresponding `MES_EVT_LOG_UNMAP_QUEUE` event identifies
+the doorbell and command processor's unmap status. Other codes describe
+different failures; none identifies a particular application packet without
+additional execution state. These firmware records are distinct from the
+kernel's timeout message. Their availability depends on the native owner
+having supplied and enabled the log buffer. [MES specification, pp. 47–51][mes-diagnostics]
+
 [create-queue-nocpsch]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c#L736-L860
 [create-queue-cpsch]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c#L2221-L2332
 [native-input]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_chardev.c#L209-L336
@@ -540,3 +571,5 @@ completion remain separate observations.
 [v9-restore-relocate]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_mqd_manager_v9.c#L447-L491
 [v9-xcc-restore]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_mqd_manager_v9.c#L837-L876
 [direct-destroy]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c#L973-L1068
+[mes-completion]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/mes_v11_0.c#L176-L283
+[mes-diagnostics]: https://gpuopen.com/download/documentation/micro_engine_scheduler.pdf#page=47

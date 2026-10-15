@@ -199,10 +199,10 @@ class Pm4DmaTest : public Pm4CommandTest,
       expected_control[kCompletionWord] = epoch;
       ASSERT_NO_FATAL_FAILURE(
           queue->Publish(api_, gpu_api_, frontiers[epoch - 1]));
-      GpuWaitEqual<uint32_t>(
+      ASSERT_TRUE(GpuWaitEqual<uint32_t>(
           reinterpret_cast<uintptr_t>(completion->host.pointer) +
               kCompletionWord * sizeof(uint32_t),
-          epoch);
+          epoch));
 
       // Capture the final consumer first, then all backing, before diagnostics
       // or native retirement can add any other synchronization.
@@ -392,10 +392,10 @@ TEST_P(Pm4DmaFillTest, ImmediatePatternFeedsDependentCopyAcrossEpochs) {
     expected_control[kCompletionWord] = epoch + 1;
     ASSERT_NO_FATAL_FAILURE(
         queue->Publish(api_, gpu_api_, (epoch + 1) * kWordsPerEpoch));
-    GpuWaitEqual<uint32_t>(
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
         reinterpret_cast<uintptr_t>(completion->host.pointer) +
             kCompletionWord * sizeof(uint32_t),
-        epoch + 1);
+        epoch + 1));
 
     // Capture the final consumer before any other observation or retirement
     // could supply an extra synchronization edge.

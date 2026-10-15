@@ -63,6 +63,7 @@ iree_cc_library(
     libamdf::cts::gpu::pm4::encoding::memory_commands
     libamdf::cts::gpu::util::user_queue
     libamdf::cts::util::mapped_memory
+    libamdf::cts::util::wait
   TESTONLY
   PUBLIC
 )
@@ -99,6 +100,8 @@ iree_cc_library(
     libamdf::cts::gpu::util::user_queue
     libamdf::cts::util::device_cache
     libamdf::cts::util::mapped_memory
+    libamdf::cts::util::observation
+    libamdf::cts::util::wait
     libamdf::cts::xdna::programs::mul_i32
     libamdf::cts::xdna::programs::resident_channels
     libamdf::cts::xdna::programs::resident_exchange

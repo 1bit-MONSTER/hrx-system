@@ -16,6 +16,7 @@
 #include "libamdf/cts/xdna/programs/mul_i32.h"
 #include "libamdf/cts/xdna/util/executable.h"
 #include "libamdf/cts/xdna/util/execution.h"
+#include "util/wait.h"
 
 namespace {
 constexpr auto kReadWrite = AMDF_MEMORY_ACCESS_READ | AMDF_MEMORY_ACCESS_WRITE;
@@ -416,7 +417,8 @@ TEST_P(FabricReservationTest, NpuFirstWriterUsesFreshGpuBacking) {
   ASSERT_EQ(xdna_api_->kernel_queue_submit(execution_.queue, &submit, &point),
             AMDF_STATUS_OK);
   ASSERT_EQ(api_->kernel_queue_wait(execution_.queue, point,
-                                    AMDF_TIMEOUT_INFINITE, 0),
+                                    amdf::cts::kWaitTimeoutNs,
+                                    amdf::cts::kWaitPollIntervalNs),
             AMDF_STATUS_OK);
   ASSERT_EQ(api_->host_mapping_cache_control(
                 view_, AMDF_HOST_CACHE_OPERATION_INVALIDATE,
@@ -713,7 +715,8 @@ TEST_P(FabricReservationTest, ReplacesBackingAcrossCpuGpuNpuExecution) {
     ASSERT_EQ(xdna_api_->kernel_queue_submit(execution_.queue, &submit, &point),
               AMDF_STATUS_OK);
     ASSERT_EQ(api_->kernel_queue_wait(execution_.queue, point,
-                                      AMDF_TIMEOUT_INFINITE, 0),
+                                      amdf::cts::kWaitTimeoutNs,
+                                      amdf::cts::kWaitPollIntervalNs),
               AMDF_STATUS_OK);
     ASSERT_TRUE(queue_.Publish(api_, gpu_api_,
                                {egress_words.data(), egress.word_count()},

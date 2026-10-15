@@ -371,7 +371,7 @@ class PeerAqlMemoryTest : public GpuPeerDeviceFixture {
   void Publish(uint32_t device, const aql::Packet& packet) {
     const uint64_t index = indices_[device]++;
     GpuStoreRelease(queues_[device].host.write_index_address, index + 1);
-    aql::Publish(queues_[device], index, packet);
+    ASSERT_TRUE(aql::Publish(queues_[device], index, packet));
   }
 
   void Retire() {
@@ -400,9 +400,11 @@ class PeerAqlMemoryTest : public GpuPeerDeviceFixture {
       EXPECT_EQ(signal.kind, 1);
       EXPECT_EQ(signal.value, i == kInitialized ? initialized_value : 0);
       // Dispatch timestamps are native outputs, not unused guard bytes.
-      for (size_t field : {0u, 1u, 4u, 5u}) {
-        EXPECT_EQ(signal.reserved[field], 0u);
-      }
+      EXPECT_EQ(signal.event.mailbox_address, 0u);
+      EXPECT_EQ(signal.event.id, 0u);
+      EXPECT_EQ(signal.event.reserved, 0u);
+      EXPECT_EQ(signal.queue_address, 0u);
+      EXPECT_EQ(signal.reserved, 0u);
     }
     for (size_t i = kSignalCount * sizeof(aql::Signal); i < snapshot.size();
          ++i) {
@@ -592,7 +594,7 @@ class PeerAqlMemoryTest : public GpuPeerDeviceFixture {
     // peer edge.
     ASSERT_NO_FATAL_FAILURE(
         Publish(owner, Dispatch(owner, 0, word_count_, kInitialized)));
-    GpuWaitEqual<int64_t>(HostSignal(kInitialized), 0);
+    ASSERT_TRUE(GpuWaitEqual<int64_t>(HostSignal(kInitialized), 0));
     ASSERT_NO_FATAL_FAILURE(queues_[owner].WaitConsumed(api_, indices_[owner]));
     // Initialization kernargs stay immutable. Work uses the next aligned slot.
     ASSERT_NO_FATAL_FAILURE(
@@ -622,20 +624,20 @@ class PeerAqlMemoryTest : public GpuPeerDeviceFixture {
                      {SignalAddress(consumer, kProduced)}, kNoFences)));
     ASSERT_NO_FATAL_FAILURE(
         Publish(consumer, Dispatch(consumer, 64, word_count_, kConsumed)));
-    GpuWaitEqual<int64_t>(HostSignal(kArrival), 0);
+    ASSERT_TRUE(GpuWaitEqual<int64_t>(HostSignal(kArrival), 0));
     EXPECT_EQ(GpuLoadAcquire<int64_t>(HostSignal(kProduced)), 1);
     EXPECT_EQ(GpuLoadAcquire<int64_t>(HostSignal(kConsumed)), 1);
     ASSERT_NO_FATAL_FAILURE(
         Publish(producer, Dispatch(producer, 64, kProducerCount, kProduced)));
     // No host dependency or payload relay follows producer publication.
-    GpuWaitEqual<int64_t>(HostSignal(kConsumed), 0);
+    ASSERT_TRUE(GpuWaitEqual<int64_t>(HostSignal(kConsumed), 0));
     std::vector<uint32_t> observed(expected.size()),
         unchanged_input(input.size());
     std::memcpy(observed.data(), output_.host.pointer,
                 output_.info.byte_length);
     std::memcpy(unchanged_input.data(), input_.host.pointer,
                 input_.info.byte_length);
-    GpuWaitEqual<int64_t>(HostSignal(kProduced), 0);
+    ASSERT_TRUE(GpuWaitEqual<int64_t>(HostSignal(kProduced), 0));
     std::array<std::vector<uint8_t>, 2> observed_arguments;
     for (size_t i = 0; i < 2; ++i) {
       const auto* bytes =
@@ -717,15 +719,15 @@ TEST_F(PeerAqlMemoryTest, NativeSignalsAcrossBothDevices) {
         aql::Barrier(aql::BarrierType::kAnd, aql::HeaderBarrier::kDisabled,
                      SignalAddress(consumer, kConsumed),
                      {SignalAddress(consumer, kProduced)})));
-    GpuWaitEqual<int64_t>(HostSignal(kArrival), 0);
+    ASSERT_TRUE(GpuWaitEqual<int64_t>(HostSignal(kArrival), 0));
     EXPECT_EQ(GpuLoadAcquire<int64_t>(HostSignal(kProduced)), 1);
     EXPECT_EQ(GpuLoadAcquire<int64_t>(HostSignal(kConsumed)), 1);
     ASSERT_NO_FATAL_FAILURE(Publish(
         producer,
         aql::Barrier(aql::BarrierType::kAnd, aql::HeaderBarrier::kDisabled,
                      SignalAddress(producer, kProduced))));
-    GpuWaitEqual<int64_t>(HostSignal(kConsumed), 0);
-    GpuWaitEqual<int64_t>(HostSignal(kProduced), 0);
+    ASSERT_TRUE(GpuWaitEqual<int64_t>(HostSignal(kConsumed), 0));
+    ASSERT_TRUE(GpuWaitEqual<int64_t>(HostSignal(kProduced), 0));
     EXPECT_NO_FATAL_FAILURE(CheckControl(1));
     EXPECT_NO_FATAL_FAILURE(Retire());
     if (HasFailure()) {

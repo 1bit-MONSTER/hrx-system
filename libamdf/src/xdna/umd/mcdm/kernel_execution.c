@@ -210,6 +210,32 @@ static amdf_status_t amdf_windows_xdna_kernel_execution_submit_preparation(
   return status;
 }
 
+amdf_status_t amdf_windows_xdna_kernel_execution_result_buffer(
+    amdf_windows_xdna_kernel_execution_t* execution,
+    amdf_xdna_result_buffer_operation_t operation,
+    const amdf_windows_xdna_private_allocation_t* allocation,
+    uint64_t native_byte_offset, uint64_t byte_length) {
+  const uint32_t opcode =
+      operation == AMDF_XDNA_RESULT_BUFFER_OPERATION_ATTACH    ? 7
+      : operation == AMDF_XDNA_RESULT_BUFFER_OPERATION_COLLECT ? 1
+                                                               : 8;
+  amdf_windows_xdna_submission_t submission;
+  amdf_windows_xdna_submission_build_result_buffer(
+      opcode, allocation, native_byte_offset, byte_length, &submission);
+  // Public callers exclude queue publication. The state lock also excludes
+  // native preparation and teardown; this path owns no reusable packet slots.
+  AcquireSRWLockExclusive(&execution->state_lock);
+  uint64_t point = 0;
+  amdf_status_t status = amdf_windows_xdna_kernel_execution_submit_native(
+      execution, 0, 0, &submission, &point);
+  if (amdf_status_is_ok(status)) {
+    status =
+        amdf_windows_xdna_kernel_execution_wait_synchronous(execution, point);
+  }
+  ReleaseSRWLockExclusive(&execution->state_lock);
+  return status;
+}
+
 static amdf_status_t amdf_windows_xdna_kernel_execution_prepare_wait_state(
     amdf_windows_xdna_kernel_execution_t* execution) {
   if (execution->wait_event == NULL) {

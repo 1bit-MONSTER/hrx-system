@@ -68,6 +68,7 @@ iree_cc_library(
     "barrier_test.cc"
     "byte_copy_test.cc"
     "dispatch_test.cc"
+    "dispatch_timing_test.cc"
     "epoch_test.cc"
     "executable_test.cc"
     "fanin_test.cc"
@@ -103,6 +104,7 @@ iree_cc_library(
     libamdf::cts::gpu::kernels::transform_alternate_kernels
     libamdf::cts::gpu::kernels::transform_kernels
     libamdf::cts::gpu::pm4::encoding::memory_commands
+    libamdf::cts::util::observation
   TESTONLY
   ALWAYSLINK
   PUBLIC

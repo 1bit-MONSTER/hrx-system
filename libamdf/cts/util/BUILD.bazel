@@ -6,6 +6,7 @@
 
 load("//build_tools/bazel:select.bzl", "iree_select")
 load("//libamdf/build_tools/bazel:cc.bzl", "amdf_cc_library")
+load("//libamdf/build_tools/bazel:cts.bzl", "amdf_cts_test_suite")
 
 package(
     default_visibility = [
@@ -43,11 +44,41 @@ amdf_cc_library(
 )
 
 amdf_cc_library(
+    name = "observation",
+    testonly = True,
+    hdrs = ["observation.h"],
+    includes = [".."],
+    deps = ["//third_party:google_test"],
+)
+
+amdf_cc_library(
+    name = "wait",
+    testonly = True,
+    hdrs = ["wait.h"],
+    includes = [".."],
+    deps = ["//third_party:google_test"],
+)
+
+amdf_cts_test_suite(
+    name = "wait_test",
+    srcs = ["wait_test.cc"],
+    deps = [
+        ":native_event",
+        ":native_event_headers",
+        ":wait",
+        "//third_party:google_test",
+    ],
+)
+
+amdf_cc_library(
     name = "native_event_headers",
     testonly = True,
     hdrs = ["native_event.h"],
     includes = [".."],
-    deps = ["//third_party:google_test"],
+    deps = [
+        ":wait",
+        "//third_party:google_test",
+    ],
 )
 
 amdf_cc_library(

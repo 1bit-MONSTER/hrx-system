@@ -60,7 +60,7 @@ typedef struct amdf_gpu_kfd_aql_descriptor_t {
   uint64_t reserved_scratch_byte_length;
   // Scratch capacity per lane of a 64-lane wave.
   uint32_t scratch_wave64_lane_byte_length;
-  // Native properties, including 64-bit pointers and retained scratch policy.
+  // Native properties, including 64-bit pointers and dispatch timestamps.
   uint32_t queue_properties;
   // V2 scratch reclamation frontier, unused by this owner.
   uint64_t reserved_scratch_frontier;

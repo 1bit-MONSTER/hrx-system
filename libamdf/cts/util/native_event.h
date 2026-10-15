@@ -9,6 +9,7 @@
 
 #include "amdf/native_event.h"
 #include "gtest/gtest.h"
+#include "util/wait.h"
 
 namespace amdf::cts {
 
@@ -21,9 +22,9 @@ amdf_native_event_type_t NativeEventType();
 // Closes an event after the caller has reconciled its native notifications.
 ::testing::AssertionResult DestroyNativeEvent(amdf_native_event_t* event);
 
-// Waits indefinitely for a hint and consumes readiness. The outer CTS harness
-// bounds hangs; normal device work has no local wall-clock deadline.
-::testing::AssertionResult WaitNativeEvent(const amdf_native_event_t& event);
+// Waits for a hint and consumes readiness within the caller's progress budget.
+::testing::AssertionResult WaitNativeEvent(
+    const amdf_native_event_t& event, WaitDeadline deadline = WaitDeadline());
 
 // Consumes existing readiness without waiting, for one-shot/coalescing checks.
 ::testing::AssertionResult TryConsumeNativeEvent(

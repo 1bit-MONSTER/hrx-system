@@ -51,6 +51,7 @@ iree_cc_library(
   NAME
     recipes_cases
   SRCS
+    "clock_test.cc"
     "copy_dispatch_test.cc"
     "device_sdma_lookahead_test.cc"
     "device_sdma_serial_test.cc"
@@ -84,6 +85,8 @@ iree_cc_library(
     libamdf::cts::gpu::sdma::encoding::commands
     libamdf::cts::gpu::util::command_fixture
     libamdf::cts::gpu::util::user_queue
+    libamdf::cts::util::observation
+    libamdf::cts::util::wait
   TESTONLY
   ALWAYSLINK
   PUBLIC

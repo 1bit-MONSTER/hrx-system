@@ -289,13 +289,14 @@ TEST_F(AqlDispatchTest, IndependentWorksetReusePreservesPendingConsumer) {
   GpuStoreRelease(parked.queue->host.write_index_address,
                   parked.next_packet_index + packets[2].size());
   for (const auto& packet : packets[2]) {
-    aql::Publish(*parked.queue, parked.next_packet_index++, packet);
+    ASSERT_TRUE(
+        aql::Publish(*parked.queue, parked.next_packet_index++, packet));
   }
   // Join the finite producer before relying on independent queue progress.
   // G1 never passed through zero: its consumer remains pending, without any
   // claim that the CP has already begun monitoring the AND.
-  GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&parked_signals[0].value),
-                        0);
+  ASSERT_TRUE(GpuWaitEqual<int64_t>(
+      reinterpret_cast<uintptr_t>(&parked_signals[0].value), 0));
   observed_pending_gate[0] = GpuLoadAcquire<int64_t>(
       reinterpret_cast<uintptr_t>(&parked_signals[2].value));
   observed_pending_completion[0] = GpuLoadAcquire<int64_t>(
@@ -339,14 +340,15 @@ TEST_F(AqlDispatchTest, IndependentWorksetReusePreservesPendingConsumer) {
     GpuStoreRelease(reused.queue->host.write_index_address,
                     reused.next_packet_index + packets[generation].size());
     for (const auto& packet : packets[generation]) {
-      aql::Publish(*reused.queue, reused.next_packet_index++, packet);
+      ASSERT_TRUE(
+          aql::Publish(*reused.queue, reused.next_packet_index++, packet));
     }
-    GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&reused_signals[1].value),
-                          0);
+    ASSERT_TRUE(GpuWaitEqual<int64_t>(
+        reinterpret_cast<uintptr_t>(&reused_signals[1].value), 0));
     std::memcpy(observed_output.data(), reused.output->host.pointer,
                 sizeof(observed_output));
-    GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&reused_signals[0].value),
-                          0);
+    ASSERT_TRUE(GpuWaitEqual<int64_t>(
+        reinterpret_cast<uintptr_t>(&reused_signals[0].value), 0));
     std::memcpy(observed_intermediate.data(), reused.intermediate->host.pointer,
                 sizeof(observed_intermediate));
     for (uint32_t argument = 0; argument < observed_arguments.size();
@@ -376,12 +378,12 @@ TEST_F(AqlDispatchTest, IndependentWorksetReusePreservesPendingConsumer) {
   // valid graph; no failing generation is retried and Q1 is never rewritten.
   GpuStoreRelease<int64_t>(
       reinterpret_cast<uintptr_t>(&parked_signals[2].value), 0);
-  GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&parked_signals[1].value),
-                        0);
+  ASSERT_TRUE(GpuWaitEqual<int64_t>(
+      reinterpret_cast<uintptr_t>(&parked_signals[1].value), 0));
   std::memcpy(observed_output.data(), parked.output->host.pointer,
               sizeof(observed_output));
-  GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&parked_signals[0].value),
-                        0);
+  ASSERT_TRUE(GpuWaitEqual<int64_t>(
+      reinterpret_cast<uintptr_t>(&parked_signals[0].value), 0));
   std::memcpy(observed_intermediate.data(), parked.intermediate->host.pointer,
               sizeof(observed_intermediate));
   for (uint32_t argument = 0; argument < observed_arguments.size();

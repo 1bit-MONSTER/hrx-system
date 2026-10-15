@@ -12,6 +12,21 @@ iree_add_all_subdirs()
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD)
 iree_cc_library(
   NAME
+    observation
+  SRCS
+    "observation.c"
+  DEPS
+    amdf::headers
+    libamdf::src::platform::observation
+  LINKOPTS
+    "mincore.lib"
+  PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND AMDF_BUILD)
+iree_cc_library(
+  NAME
     wait
   SRCS
     "wait.c"

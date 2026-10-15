@@ -166,11 +166,12 @@ TEST_F(AqlDispatchTest, CoherentSystemPatternFillPreservesSubspanAcrossEpochs) {
         descriptor_address, arguments->device_address,
         completion->device_address, kScopes);
     GpuStoreRelease(queue->host.write_index_address, index + 1);
-    aql::Publish(*queue, index++, packet);
+    ASSERT_TRUE(aql::Publish(*queue, index++, packet));
 
     // Snapshot every workload page at direct completion, before diagnostics
     // or ring consumption can contribute another observation boundary.
-    GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0);
+    ASSERT_TRUE(
+        GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0));
     std::memcpy(observed_target.data(), target->host.pointer,
                 sizeof(observed_target));
     std::memcpy(observed_arguments.data(), arguments->host.pointer,

@@ -24,6 +24,7 @@
 #include "libamdf/cts/xdna/util/execution.h"
 #include "libamdf/cts/xdna/util/resident_transaction.h"
 #include "libamdf/cts/xdna/xdna_device_fixture.h"
+#include "util/wait.h"
 
 namespace {
 
@@ -91,10 +92,17 @@ void CopyWords(std::span<uint8_t> bytes, size_t offset,
 // Positive short transfers advance the exact file and memory extents. EOF and
 // zero-progress writes terminate the channel instead of retrying indefinitely.
 int ReadAll(int descriptor, std::span<uint8_t> bytes, off_t offset) {
+  const amdf::cts::WaitDeadline deadline;
   while (!bytes.empty()) {
+    if (deadline.remaining_ns() == 0) {
+      return -ETIMEDOUT;
+    }
     const ssize_t count = pread(descriptor, bytes.data(), bytes.size(), offset);
     if (count < 0) {
       if (errno == EINTR) {
+        if (!deadline.Pause()) {
+          return -ETIMEDOUT;
+        }
         continue;
       }
       return -errno;
@@ -109,11 +117,18 @@ int ReadAll(int descriptor, std::span<uint8_t> bytes, off_t offset) {
 }
 
 int WriteAll(int descriptor, std::span<const uint8_t> bytes, off_t offset) {
+  const amdf::cts::WaitDeadline deadline;
   while (!bytes.empty()) {
+    if (deadline.remaining_ns() == 0) {
+      return -ETIMEDOUT;
+    }
     const ssize_t count =
         pwrite(descriptor, bytes.data(), bytes.size(), offset);
     if (count < 0) {
       if (errno == EINTR) {
+        if (!deadline.Pause()) {
+          return -ETIMEDOUT;
+        }
         continue;
       }
       return -errno;
@@ -451,6 +466,7 @@ class NpuFileChannelTest : public XdnaDeviceFixture,
   }
 
   amdf_status_t AcquireRequest(uint32_t generation) {
+    const amdf::cts::WaitDeadline deadline;
     const auto* ready = reinterpret_cast<volatile const uint32_t*>(
         buffers_[kRequest].bytes().data() + kControlOffset);
     // This line has no live CPU writes. Invalidation cannot overwrite a
@@ -462,8 +478,13 @@ class NpuFileChannelTest : public XdnaDeviceFixture,
       if (status != AMDF_STATUS_OK) {
         return status;
       }
-    } while (*ready != generation);
-    return AMDF_STATUS_OK;
+      if (*ready == generation) {
+        return AMDF_STATUS_OK;
+      }
+      if (!deadline.Pause()) {
+        return amdf_make_api_status(AMDF_STATUS_CODE_DEADLINE_EXCEEDED);
+      }
+    } while (true);
   }
 
   std::span<uint32_t> Payload(size_t ordinal) {
@@ -493,51 +514,73 @@ class NpuFileChannelTest : public XdnaDeviceFixture,
     uint64_t point = 0;
     ASSERT_EQ(xdna_api_->kernel_queue_submit(execution_.queue, &submit, &point),
               AMDF_STATUS_OK);
-    ASSERT_EQ(Publish(kControl, kControlOffset, static_cast<uint32_t>(startup)),
-              AMDF_STATUS_OK);
-    uint64_t previous_ready = 0;
-    if (startup == Startup::kRun && rounds != 0) {
-      for (uint32_t generation = 1; generation <= rounds + 1; ++generation) {
-        ASSERT_EQ(AcquireRequest(generation), AMDF_STATUS_OK);
-        const uint64_t ready = WallNanoseconds();
-        if (previous_ready != 0) {
-          sample->cycles.push_back(ready - previous_ready);
-        }
-        previous_ready = ready;
-        ASSERT_EQ(Cache(kRequest, AMDF_HOST_CACHE_OPERATION_INVALIDATE,
-                        kPayloadOffset, GetParam().bytes()),
-                  AMDF_STATUS_OK);
-        const auto request = Payload(kRequest);
-        std::copy(request.begin(), request.end(),
-                  sample->transcript.begin() +
-                      size_t{sample->request_count++} * request.size());
-        if (generation > rounds) {
-          break;
-        }
-        sample->file_error = file_.Exchange(request, Payload(kResponse),
-                                            GetParam(), generation, fault);
-        if (sample->file_error != 0) {
-          ASSERT_EQ(Publish(kResponse, kControlOffset,
-                            static_cast<uint32_t>(sample->file_error)),
+    // Keep host-service failures inside this scope so every accepted command
+    // reaches cancellation and a checked native join before returning.
+    const auto service = [&] {
+      ASSERT_EQ(
+          Publish(kControl, kControlOffset, static_cast<uint32_t>(startup)),
+          AMDF_STATUS_OK);
+      uint64_t previous_ready = 0;
+      if (startup == Startup::kRun && rounds != 0) {
+        for (uint32_t generation = 1; generation <= rounds + 1; ++generation) {
+          ASSERT_EQ(AcquireRequest(generation), AMDF_STATUS_OK);
+          const uint64_t ready = WallNanoseconds();
+          if (previous_ready != 0) {
+            sample->cycles.push_back(ready - previous_ready);
+          }
+          previous_ready = ready;
+          ASSERT_EQ(Cache(kRequest, AMDF_HOST_CACHE_OPERATION_INVALIDATE,
+                          kPayloadOffset, GetParam().bytes()),
                     AMDF_STATUS_OK);
-          break;
+          const auto request = Payload(kRequest);
+          std::copy(request.begin(), request.end(),
+                    sample->transcript.begin() +
+                        size_t{sample->request_count++} * request.size());
+          if (generation > rounds) {
+            break;
+          }
+          sample->file_error = file_.Exchange(request, Payload(kResponse),
+                                              GetParam(), generation, fault);
+          if (sample->file_error != 0) {
+            ASSERT_EQ(Publish(kResponse, kControlOffset,
+                              static_cast<uint32_t>(sample->file_error)),
+                      AMDF_STATUS_OK);
+            break;
+          }
+          ASSERT_EQ(Cache(kResponse, AMDF_HOST_CACHE_OPERATION_FLUSH,
+                          kPayloadOffset, GetParam().bytes()),
+                    AMDF_STATUS_OK);
+          ASSERT_EQ(Publish(kResponse, kControlOffset, generation),
+                    AMDF_STATUS_OK);
         }
-        ASSERT_EQ(Cache(kResponse, AMDF_HOST_CACHE_OPERATION_FLUSH,
-                        kPayloadOffset, GetParam().bytes()),
-                  AMDF_STATUS_OK);
-        ASSERT_EQ(Publish(kResponse, kControlOffset, generation),
+      }
+      if (startup == Startup::kRun && sample->file_error == 0) {
+        ASSERT_EQ(Publish(kControl, kResidentFinalAckByteOffset, 1),
                   AMDF_STATUS_OK);
       }
-    }
-    if (startup == Startup::kRun && sample->file_error == 0) {
-      ASSERT_EQ(Publish(kControl, kResidentFinalAckByteOffset, 1),
+    };
+    service();
+    const bool service_failed = HasFatalFailure();
+    if (service_failed) {
+      // Cover the service's three possible peer waits: startup, a returned
+      // generation, and the final acknowledgement. Negative generations are
+      // the authored program's terminal I/O-error path; no payload is consumed.
+      EXPECT_EQ(Publish(kControl, kControlOffset,
+                        static_cast<uint32_t>(Startup::kAbort)),
+                AMDF_STATUS_OK);
+      EXPECT_EQ(
+          Publish(kResponse, kControlOffset, static_cast<uint32_t>(-ECANCELED)),
+          AMDF_STATUS_OK);
+      EXPECT_EQ(Publish(kControl, kResidentFinalAckByteOffset, 1),
                 AMDF_STATUS_OK);
     }
     // Even failed I/O takes the device's terminal path and drains DMA before
     // any error assertion or addressed-owner release.
     ASSERT_EQ(api_->kernel_queue_wait(execution_.queue, point,
-                                      AMDF_TIMEOUT_INFINITE, 0),
+                                      amdf::cts::kWaitTimeoutNs,
+                                      amdf::cts::kWaitPollIntervalNs),
               AMDF_STATUS_OK);
+    ASSERT_FALSE(service_failed);
     sample->wall_nanoseconds = WallNanoseconds() - wall_begin;
     uint64_t thread_end = 0;
     ASSERT_NO_FATAL_FAILURE(ThreadNanoseconds(&thread_end));

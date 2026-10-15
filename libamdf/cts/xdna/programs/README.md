@@ -7,6 +7,14 @@ The images and generated C source stay in the build tree. Source and compiler
 changes therefore regenerate the fixtures, including changes to the native
 file format.
 
+[recurrence_i32.loom](recurrence_i32.loom) uses the same bindings and completion
+protocol. For each word it starts with `lhs[i]` and applies
+`value = value * lhs[i] + rhs[i]` for `rhs[15]` iterations, modulo 2^32. Its
+data-dependent loop supplies bounded useful work for firmware marker timing.
+Every output is checked independently on the CPU. The worker contains no timer
+reads, delay instructions or extra profiling DMA; controller markers surround
+its ordinary execution.
+
 The build uses the shared `loom_kernel_binary` and `iree_c_embed_data` rules.
 Loom is a build-tool dependency of these corpora; the test executables load
 libamdf dynamically and use a constrained [CTS image reader](../util/executable.h).

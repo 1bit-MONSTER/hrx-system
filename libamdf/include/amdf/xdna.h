@@ -10,6 +10,8 @@
 #include <stdint.h>
 
 #include "amdf/amdf.h"
+#include "amdf/xdna_result.h"
+#include "amdf/xdna_trace.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,8 +20,11 @@ extern "C" {
 /// The first supported XDNA extension version.
 #define AMDF_XDNA_EXTENSION_VERSION_1 1u
 
+/// Device-wide firmware tracing and context firmware-result services.
+#define AMDF_XDNA_EXTENSION_VERSION_2 2u
+
 /// The most recent XDNA extension version described by this header.
-#define AMDF_XDNA_EXTENSION_VERSION_LATEST AMDF_XDNA_EXTENSION_VERSION_1
+#define AMDF_XDNA_EXTENSION_VERSION_LATEST AMDF_XDNA_EXTENSION_VERSION_2
 
 /// One program-independent schedulable XDNA context.
 typedef struct amdf_xdna_context_t amdf_xdna_context_t;
@@ -537,6 +542,117 @@ typedef struct amdf_xdna_api_t {
   /// teardown failure leaves the context live so destruction can be retried.
   /// The caller must otherwise have exclusive access.
   amdf_status_t(AMDF_CALL* context_destroy)(amdf_xdna_context_t* context);
+
+  /// Queries live firmware recorder state without changing its configuration.
+  /// Performs one native query, with no allocation or workload synchronization.
+  /// Unavailable native services return UNSUPPORTED. Other failures preserve
+  /// native permission/device errors. Failure leaves out_info unchanged.
+  amdf_status_t(AMDF_CALL* device_query_firmware_trace_info)(
+      amdf_device_t* device, amdf_xdna_firmware_trace_info_t* out_info);
+
+  /// Configures the device-wide firmware recorder. enabled is zero or one;
+  /// enabling requires a nonzero native category mask. Disabling ignores the
+  /// category argument. This changes global native state without acquiring an
+  /// exclusive session: the caller arranges configuration ownership across
+  /// processes and serializes reconfiguration against reads. Device destruction
+  /// does not disable tracing. An external recorder may own configuration while
+  /// a workload only reads, subject to its independent native permissions.
+  /// A configuration failure can have native effects; query the live state
+  /// before deciding cleanup. No array trace resources or workload code change.
+  amdf_status_t(AMDF_CALL* device_configure_firmware_trace)(
+      amdf_device_t* device, uint32_t enabled,
+      amdf_xdna_firmware_trace_categories_t categories);
+
+  /// Nonblocking read into caller-owned host storage. position begins at zero
+  /// for each newly enabled capture. format_version is that capture's queried
+  /// schema. The caller excludes external reconfiguration and owns its capture
+  /// generation: native byte positions cannot detect every external restart.
+  /// Reads allocate nothing, retain nothing and wait for no application queue.
+  ///
+  /// Success publishes decoded amdf_xdna_firmware_trace_event_t records at the
+  /// returned byte offset/length. Discontinuity flags precede those records;
+  /// a discarded copy returns zero records and advances beyond unsafe bytes.
+  /// This is a lossy observation transport, never a completion/credit channel.
+  /// Empty reads do not establish retirement or a final drain. The consumer's
+  /// work/completion protocol supplies that boundary. Simultaneous readers use
+  /// independent storage and positions. Storage is borrowed only for the call.
+  /// It obeys the queried size/alignment and is disjoint from out_result.
+  ///
+  /// BUFFER_TOO_SMALL means storage is below the minimum or capacity made the
+  /// native copy's position ambiguous. Retrying with larger storage leaves the
+  /// caller's prior progress valid.
+  /// The format-2 schema is supported; other schemas return UNSUPPORTED.
+  /// Native failures and unsupported schemas publish no result. Storage may
+  /// change on any native read, including failure; out_result changes only on
+  /// success. Source clock continuity never follows from cursor continuity.
+  amdf_status_t(AMDF_CALL* device_read_firmware_trace)(
+      amdf_device_t* device, uint32_t format_version, uint64_t position,
+      void* buffer, uint32_t buffer_byte_length,
+      amdf_observation_read_result_t* out_result);
+
+  /// Queries the cached backing/geometry requirements for finite firmware
+  /// results before the caller selects its memory layout. Performs no native
+  /// call, allocation or reservation. Failure leaves out_info unchanged.
+  amdf_status_t(AMDF_CALL* context_query_result_buffer_info)(
+      amdf_xdna_context_t* context, amdf_xdna_result_buffer_info_t* out_info);
+
+  /// Attaches one caller-owned finite result destination to this context.
+  /// The caller clears and publishes its destination beforehand, budgets every
+  /// possible result byte, and maintains only one active attachment per
+  /// context. The compiler/caller supplies RECORD_TIMER/READ_REGS instructions
+  /// and the record protocol; submission neither patches commands nor tracks
+  /// results.
+  ///
+  /// The caller serializes result controls with each other and queue
+  /// publication. The caller retires every result writer before collection,
+  /// rearm or detach. Controls can block on native commands; they allocate no
+  /// library objects and retain no memory/descriptor references. Native failure
+  /// may leave the association active: backing remains live until native
+  /// removal/retirement is established. Failure is not transactional rollback
+  /// or release proof.
+  amdf_status_t(AMDF_CALL* context_attach_result_buffer)(
+      amdf_xdna_context_t* context,
+      const amdf_xdna_result_buffer_binding_t* binding);
+
+  /// Completes the native result transfer for the same active binding. This
+  /// does not reset the append position, clear storage, decode records or
+  /// report a written extent. CPU access then performs the existing
+  /// host-mapping cache acquire. The caller's known finite record protocol
+  /// determines valid bytes; a successful transfer alone does not prove that
+  /// expected records exist. Failure invalidates this attempted snapshot and
+  /// preserves the backing obligation. Concurrent collection or live rearm is
+  /// not part of this mode.
+  amdf_status_t(AMDF_CALL* context_collect_result_buffer)(
+      amdf_xdna_context_t* context,
+      const amdf_xdna_result_buffer_binding_t* binding);
+
+  /// Removes the same active binding after writer retirement, leaving memory
+  /// allocated. Healthy native completion permits reuse or a fresh explicit
+  /// clear/publish/attach cycle. After an ambiguous native failure, a
+  /// subsequent successful control alone is not independent proof of writer
+  /// retirement. No implicit detach occurs during memory or context
+  /// destruction.
+  amdf_status_t(AMDF_CALL* context_detach_result_buffer)(
+      amdf_xdna_context_t* context,
+      const amdf_xdna_result_buffer_binding_t* binding);
+
+  /// Samples the native operating rate of the partition-shim RECORD_TIMER
+  /// counter. This explicit native query may wake the device; it allocates no
+  /// library objects, retains no state and changes no power policy. Failure
+  /// leaves out_info unchanged; absent rate metadata returns UNSUPPORTED.
+  ///
+  /// Query after workload/context admission: idle and active rates can differ.
+  /// A same-epoch delta at constant rate converts as ticks * 1e9 /
+  /// frequency_hz. This snapshot neither pins that rate nor records changes
+  /// between samples. The caller owns a controlled profiling interval or
+  /// accounts for rate changes and clock gating before interpreting this as
+  /// elapsed wall time. Equal before/after rates alone do not prove stability.
+  /// Reconfiguration can reset the timer; markers bracketing work belong after
+  /// that configuration and around the program's ordinary completion waits. The
+  /// rate supplies no shared epoch with another command, automatic firmware
+  /// events or the CPU.
+  amdf_status_t(AMDF_CALL* device_query_timer_clock_info)(
+      amdf_device_t* device, amdf_observation_clock_info_t* out_info);
 } amdf_xdna_api_t;
 
 #ifdef __cplusplus

@@ -194,10 +194,10 @@ class Pm4WaveModeTest : public Pm4DispatchTest {
                    std::to_string(commands.word_count()));
     ASSERT_NO_FATAL_FAILURE(
         queue->Publish(api_, gpu_api_, commands.word_count()));
-    GpuWaitEqual<uint32_t>(
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
         reinterpret_cast<uintptr_t>(completion->host.pointer) +
             kCompletionOffset,
-        1);
+        1));
 
     // Snapshot before retirement or diagnostics can add another visibility
     // edge. Immutable inputs and commands share the same final-use boundary.

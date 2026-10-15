@@ -94,8 +94,8 @@ TEST_F(SdmaTimestampTest, GlobalTimestampsOrderDependentCopies) {
   commands.Fence32(completion->device_address, 1);
   ASSERT_NO_FATAL_FAILURE(
       queue->Publish(api_, gpu_api_, commands.word_count()));
-  GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
-                         1);
+  ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+      reinterpret_cast<uintptr_t>(completion->host.pointer), 1));
   // Capture every observation before diagnostics or retirement can intervene.
   std::memcpy(observed_staging.data(), staging, kByteLength);
   std::memcpy(observed_output.data(), output, kByteLength);
@@ -124,7 +124,7 @@ TEST_F(SdmaTimestampTest, GlobalTimestampsOrderDependentCopies) {
   EXPECT_LE(observed_timestamps[8], observed_timestamps[12]);
   EXPECT_LT(observed_timestamps[4], observed_timestamps[12]);
   // These are raw correctness observations, not elapsed nanoseconds or a
-  // performance result. libamdf currently provides no clock conversion.
+  // performance result. Queue-clock conversion is a separate recipe.
   RecordProperty("sdma_timestamp_first",
                  std::to_string(observed_timestamps[4]));
   RecordProperty("sdma_timestamp_middle",

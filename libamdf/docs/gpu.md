@@ -143,6 +143,101 @@ Standard AQL dispatch and AND/OR barriers do not imply the optional vendor
 barrier-value packet. A caller using that packet additionally requires
 `AMDF_GPU_AQL_FORMAT_FEATURE_BARRIER_VALUE` in the family's `format_features`.
 
+## Queue timing
+
+### AQL dispatch timestamps
+
+An AQL family advertising
+`AMDF_GPU_AQL_FORMAT_FEATURE_DISPATCH_TIMESTAMPS` accepts
+`AMDF_GPU_USER_QUEUE_FLAG_DISPATCH_TIMESTAMPS` in its queue creation `flags`.
+The option enables native firmware capture for the queue lifetime. Zero flags
+leave capture disabled; the feature bit alone does not turn it on. PM4 and
+SDMA use explicit timestamp commands and reject this queue option.
+
+Each observed dispatch receives an exclusive caller-owned 64-byte native
+signal, with its start/end fields initialized to zero. Firmware writes the
+unsigned 64-bit start/end ticks at byte offsets 32/40. The caller acquires that
+dispatch's completion and copies the timestamps to its own sink before reusing
+the signal. Rearming only the signal value leaves old timestamp bytes intact.
+A signal shared by several dispatches, or attached only to a final barrier,
+does not identify individual dispatch intervals.
+
+Capture selection adds no libamdf call to submission or collection. The caller
+can cycle a bounded set of signals throughout execution, with completion and
+consumption preceding each reuse. A runtime can enable the queue property at
+creation and independently select which dispatches receive observation signals.
+Changing the native property on an already-used queue requires firmware state
+reload; queue creation establishes it before activation instead.
+
+The interval describes firmware packet processing, not exact first/last shader
+instructions. Resident programs produce one outer interval. The nominal queue
+clock rate supplies duration units; host correlation uses actual source
+observations and bounds as described below. The
+[hardware dispatch contract](../../docs/reference/amd/gpu/aql/profiling.md#dispatch-timestamps)
+describes native layout and sampling semantics separately from the API.
+
+### SDMA timestamps
+
+An admitted SDMA format-1 queue can write raw `TIMESTAMP_GET_GLOBAL` samples
+into caller-owned device-writable storage. The caller brackets its intended
+commands with samples and puts the payload's release and completion after the
+ending sample. The reader observes that completion and applies the queried
+memory edge before reading. Timestamp bytes themselves are not a publication
+flag, and command-ring consumption does not make a sample ready.
+
+A runtime can reuse a fixed number of sample slots while execution continues.
+The producer waits for each slot's returned credit before writing it. A
+separate ordered publication word identifies complete records; the consumer
+returns credit only after copying them. This protocol lives in the caller's
+command stream and memory layout. libamdf owns no query pool, result collector,
+record cursor or sample lifetime, and ordinary submission adds no profiling
+work. USER and KERNEL publication retain their native queue contracts.
+
+### Rates and host correlation
+
+GPU extension version 2 exposes the native nominal rate for an admitted queue
+family through `device_query_queue_clock_info`. The same passive clock record
+is used for XDNA observations. Query once at the caller's profiling setup
+boundary; ordinary submission performs no rate query or sampling:
+
+```c
+amdf_observation_clock_info_t clock = {0};
+amdf_status_t status = gpu->device_query_queue_clock_info(
+    device, family.ordinal, &clock);
+// Handle a failed query before consuming clock. A successful rate is nonzero.
+if (amdf_status_is_ok(status)) {
+  // Within one non-wrapping source epoch:
+  double duration_ns = (double)(end_ticks - begin_ticks) * 1e9 / clock.frequency_hz;
+  // Record duration_ns in caller-owned profiling storage.
+}
+```
+
+Linux supplies the selected render device's `gpu_counter_freq`, converted from
+kHz to Hz. Windows queries the engine node chosen for that family's native
+scheduler. An unavailable native rate returns `UNSUPPORTED`; failure leaves
+the output unchanged. Meaningful counter width remains zero when the native
+interface does not establish it. Shader cycle counters and performance-event
+counts use different units.
+
+A nominal rate supplies duration units, not bounded oscillator accuracy or a
+shared epoch. In particular, native driver counter samples need not share the
+epoch of queue-written timestamps. The caller can bracket an actual queue
+sample with its chosen host clock, or surround a source interval with host
+submission/completion observations. For an interval `(device_begin,
+device_end)` inside `(host_before, host_after)`, a constant-offset model at the
+selected rate gives `host_before - device_begin_ns <= offset <= host_after -
+device_end_ns`. Subtract a nearby source origin before conversion to retain
+precision and avoid overflow. Intersecting independent brackets narrows that
+capture's offset range; an empty intersection rejects the model. This is not a
+guarantee about future drift, reset, wrap or power transitions. The caller owns
+refresh and uncertainty policy. Queue identity and event attribution remain
+explicit; equal rates alone correlate nothing.
+
+The [SDMA timing reference](../../docs/reference/amd/gpu/sdma/timing.md) describes
+sample placement, publication and instrumentation effects. A sample pair can
+include drains and cache work, and its difference is not a measurement of the
+host cost of submitting the commands.
+
 ## Fixed private memory
 
 AQL kernels declare their private-segment requirement in compiler-produced

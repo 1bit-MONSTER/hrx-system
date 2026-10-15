@@ -173,10 +173,14 @@ void GpuFileIoResources::CreateFile(const std::vector<uint32_t>& words,
   size_t written = 0;
   const auto* bytes = reinterpret_cast<const uint8_t*>(words.data());
   const size_t byte_length = words.size() * sizeof(uint32_t);
+  const amdf::cts::WaitDeadline deadline;
   while (written < byte_length) {
+    ASSERT_NE(deadline.remaining_ns(), 0u)
+        << "timed out transferring file bytes";
     const ssize_t result =
         pwrite(data_file_, bytes + written, byte_length - written, written);
     if (result < 0 && errno == EINTR) {
+      ASSERT_TRUE(deadline.Pause()) << "interrupted file transfer timed out";
       continue;
     }
     ASSERT_GT(result, 0) << std::strerror(errno);
@@ -394,7 +398,8 @@ void GpuFileIoResources::RelayFileIo() {
   }
 }
 
-void GpuFileIoResources::ServiceHostIo(uint64_t* enter_calls) {
+void GpuFileIoResources::ServiceHostIo(uint64_t* enter_calls,
+                                       amdf::cts::WaitDeadline deadline) {
   const uint32_t tail =
       GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.tail));
   const uint32_t head =
@@ -409,8 +414,19 @@ void GpuFileIoResources::ServiceHostIo(uint64_t* enter_calls) {
   }
   ++*enter_calls;
   const uint32_t minimum = ring_->path == FileIoPath::kHostWait ? 1 : 0;
-  const long result = syscall(__NR_io_uring_enter, ring_->file, tail - head,
-                              minimum, IORING_ENTER_GETEVENTS, nullptr, 0);
+  const uint64_t remaining = deadline.remaining_ns();
+  ASSERT_NE(remaining, 0u) << "timed out servicing host I/O";
+  const __kernel_timespec timeout = {
+      .tv_sec = static_cast<__kernel_time64_t>(remaining / 1'000'000'000),
+      .tv_nsec = static_cast<long long>(remaining % 1'000'000'000),
+  };
+  const io_uring_getevents_arg arguments = {
+      .ts = reinterpret_cast<uintptr_t>(&timeout),
+  };
+  const long result =
+      syscall(__NR_io_uring_enter, ring_->file, tail - head, minimum,
+              IORING_ENTER_GETEVENTS | IORING_ENTER_EXT_ARG, &arguments,
+              sizeof(arguments));
   if (result < 0 && errno == EINTR) {
     return;
   }
@@ -420,7 +436,8 @@ void GpuFileIoResources::ServiceHostIo(uint64_t* enter_calls) {
 }
 
 void GpuFileIoResources::ServiceDeviceIo(uint64_t* enter_calls,
-                                         uint64_t* wait_calls) {
+                                         uint64_t* wait_calls,
+                                         amdf::cts::WaitDeadline deadline) {
   const uint32_t initial_completed =
       GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.cq_off.tail));
   if (GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.tail)) ==
@@ -428,6 +445,7 @@ void GpuFileIoResources::ServiceDeviceIo(uint64_t* enter_calls,
     return;
   }
   for (;;) {
+    ASSERT_NE(deadline.remaining_ns(), 0u) << "timed out servicing device I/O";
     // Drain notification before servicing work. Deferred task work signals
     // the eventfd even before a CQE exists; bounded task-work service can also
     // leave TASKRUN set without producing another notification edge.
@@ -458,6 +476,7 @@ void GpuFileIoResources::ServiceDeviceIo(uint64_t* enter_calls,
     }
     if (GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.flags)) &
         IORING_SQ_TASKRUN) {
+      ASSERT_TRUE(deadline.Pause()) << "timed out servicing deferred I/O work";
       continue;
     }
     // One CQE per accepted request makes this kernel-owned frontier immune
@@ -469,7 +488,8 @@ void GpuFileIoResources::ServiceDeviceIo(uint64_t* enter_calls,
     }
     pollfd notification = {ring_->notification, POLLIN, 0};
     ++*wait_calls;
-    const int ready = poll(&notification, 1, -1);
+    const int ready =
+        poll(&notification, 1, static_cast<int>(deadline.remaining_ms()));
     if (ready < 0 && errno == EINTR) {
       return;
     }
@@ -495,10 +515,14 @@ void GpuFileIoResources::VerifyFile(const std::vector<uint32_t>& expected_file,
   auto* bytes = reinterpret_cast<uint8_t*>(actual_file.data());
   const size_t byte_length = actual_file.size() * sizeof(uint32_t);
   size_t read = 0;
+  const amdf::cts::WaitDeadline deadline;
   while (read < byte_length) {
+    ASSERT_NE(deadline.remaining_ns(), 0u)
+        << "timed out transferring file bytes";
     const ssize_t result =
         pread(data_file_, bytes + read, byte_length - read, read);
     if (result < 0 && errno == EINTR) {
+      ASSERT_TRUE(deadline.Pause()) << "interrupted file transfer timed out";
       continue;
     }
     ASSERT_GT(result, 0) << std::strerror(errno);

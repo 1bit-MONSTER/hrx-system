@@ -437,7 +437,8 @@ class Pm4SdmaFiniteStreamTest : public Pm4SdmaTest {
           reinterpret_cast<uintptr_t>(control.host.pointer) +
           ((kGraphsPerStream - 1) % credits) * kPageByteLength +
           kDownloadByteOffset;
-      GpuWaitEqual<uint32_t>(last_download, kGraphsPerStream / credits);
+      ASSERT_TRUE(
+          GpuWaitEqual<uint32_t>(last_download, kGraphsPerStream / credits));
       // Retain every graph's decisive output before independent owner joins.
       std::memcpy(observed[kReadback].data(), readback.host.pointer,
                   backings[kReadback].byte_length);
@@ -445,10 +446,10 @@ class Pm4SdmaFiniteStreamTest : public Pm4SdmaTest {
         const uint64_t address =
             reinterpret_cast<uintptr_t>(control.host.pointer) +
             slot * kPageWordCount * sizeof(uint32_t);
-        GpuWaitEqual<uint32_t>(address + kComputeByteOffset,
-                               kGraphsPerStream / credits);
-        GpuWaitEqual<uint32_t>(address + kUploadByteOffset,
-                               kGraphsPerStream / credits);
+        ASSERT_TRUE(GpuWaitEqual<uint32_t>(address + kComputeByteOffset,
+                                           kGraphsPerStream / credits));
+        ASSERT_TRUE(GpuWaitEqual<uint32_t>(address + kUploadByteOffset,
+                                           kGraphsPerStream / credits));
       }
       for (size_t owner = kSource; owner <= kOutput; ++owner) {
         std::memcpy(observed[owner].data(),

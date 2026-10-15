@@ -111,10 +111,10 @@ TEST_F(SdmaCacheTest, UserGcrBracketsCopiesAcrossEpochs) {
     expected_completion[kCompletionWord] = marker;
     ASSERT_NO_FATAL_FAILURE(
         queue->Publish(api_, gpu_api_, (epoch + 1) * kWordsPerEpoch));
-    GpuWaitEqual<uint32_t>(
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
         reinterpret_cast<uintptr_t>(completion->host.pointer) +
             kCompletionWord * sizeof(uint32_t),
-        marker);
+        marker));
 
     // Capture payloads and guards before diagnostics or consumed-frontier
     // polling can supply any additional synchronization.

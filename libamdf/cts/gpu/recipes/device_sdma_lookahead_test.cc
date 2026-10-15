@@ -318,7 +318,7 @@ TEST_P(DeviceSdmaLookaheadTest, ReuseJoinsEveryIndependentReader) {
                 bytes);
     frontier += bytes;
     transfer->PublishStream(frontier);
-    GpuWaitEqual<uint32_t>(completion_host, generation);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(completion_host, generation));
     ASSERT_NO_FATAL_FAILURE(transfer->WaitConsumed(api_, frontier));
   };
   ASSERT_NO_FATAL_FAILURE(copy_slots(seed->device_address, 0,
@@ -482,7 +482,8 @@ TEST_P(DeviceSdmaLookaheadTest, ReuseJoinsEveryIndependentReader) {
   aql::PublishBatch(*publisher, publisher_index, uploads);
 
   // One terminal host join; no per-job refill, inspection or release.
-  GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&terminal_signal.value), 0);
+  ASSERT_TRUE(GpuWaitEqual<int64_t>(
+      reinterpret_cast<uintptr_t>(&terminal_signal.value), 0));
   EXPECT_NO_FATAL_FAILURE(CheckWords(output->host.pointer, expected_output));
   EXPECT_NO_FATAL_FAILURE(CheckWords(source->host.pointer, expected_source));
   EXPECT_NO_FATAL_FAILURE(

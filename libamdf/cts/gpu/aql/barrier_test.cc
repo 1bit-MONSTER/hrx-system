@@ -51,15 +51,15 @@ TEST_F(AqlQueueTest, BarrierAndJoinsFiveQueueDependencies) {
     // Publish the complete consumer chain before any producer packet. The
     // dependencies, not cross-queue submission order, connect their execution.
     GpuStoreRelease(consumer->host.write_index_address, consumer_index + 2);
-    aql::Publish(*consumer, consumer_index++, join);
-    aql::Publish(*consumer, consumer_index++, marker);
+    ASSERT_TRUE(aql::Publish(*consumer, consumer_index++, join));
+    ASSERT_TRUE(aql::Publish(*consumer, consumer_index++, marker));
     for (uint32_t i = 0; i < dependencies.size(); ++i) {
       const uint32_t slot = round == 0 ? i : 4 - i;
       const auto packet =
           aql::Barrier(aql::BarrierType::kAnd, aql::HeaderBarrier::kDisabled,
                        dependencies[slot]);
       GpuStoreRelease(producer->host.write_index_address, producer_index + 1);
-      aql::Publish(*producer, producer_index++, packet);
+      ASSERT_TRUE(aql::Publish(*producer, producer_index++, packet));
     }
 
     // AND/OR completion blocks later launches even with the header barrier
@@ -114,8 +114,8 @@ TEST_F(AqlQueueTest, BarrierOrAcceptsEachSatisfiedSlot) {
     // Exactly one live signal is zero. Positive, negative and high-word-only
     // nonzero signals remain unchanged; they must not prevent OR completion.
     GpuStoreRelease(queue->host.write_index_address, index + 2);
-    aql::Publish(*queue, index++, select);
-    aql::Publish(*queue, index++, marker);
+    ASSERT_TRUE(aql::Publish(*queue, index++, select));
+    ASSERT_TRUE(aql::Publish(*queue, index++, marker));
     ASSERT_NO_FATAL_FAILURE(
         WaitCompletionAndConsumption(*queue, signals[6], index));
     ASSERT_EQ(
@@ -161,10 +161,10 @@ TEST_F(AqlQueueTest, BarrierOrCompletesWithPublishedDependencyAndNullSlots) {
                      dependencies[selected]);
 
     GpuStoreRelease(consumer->host.write_index_address, consumer_index + 2);
-    aql::Publish(*consumer, consumer_index++, select);
-    aql::Publish(*consumer, consumer_index++, marker);
+    ASSERT_TRUE(aql::Publish(*consumer, consumer_index++, select));
+    ASSERT_TRUE(aql::Publish(*consumer, consumer_index++, marker));
     GpuStoreRelease(producer->host.write_index_address, producer_index + 1);
-    aql::Publish(*producer, producer_index++, produce);
+    ASSERT_TRUE(aql::Publish(*producer, producer_index++, produce));
 
     // The following marker supplies completion for the sparse OR, whose own
     // completion handle is null. Final values qualify completion of this legal
@@ -424,21 +424,22 @@ TEST_P(AqlOrPayloadTest, ReadsReadyPayloadWhileOtherProducersRemainPending) {
         signal_addresses[kConsumerSignal], kDispatchScopes);
 
     GpuStoreRelease(consumer->host.write_index_address, consumer_index + 2);
-    aql::Publish(*consumer, consumer_index++, select);
-    aql::Publish(*consumer, consumer_index++, consume);
+    ASSERT_TRUE(aql::Publish(*consumer, consumer_index++, select));
+    ASSERT_TRUE(aql::Publish(*consumer, consumer_index++, consume));
     GpuStoreRelease(pending->host.write_index_address,
                     pending_index + kProducerCount);
-    aql::Publish(*pending, pending_index++, hold);
+    ASSERT_TRUE(aql::Publish(*pending, pending_index++, hold));
     for (uint32_t p = 0; p < kProducerCount; ++p) {
       if (p != parameters.ready_slot) {
-        aql::Publish(*pending, pending_index++, produce[p]);
+        ASSERT_TRUE(aql::Publish(*pending, pending_index++, produce[p]));
       }
     }
     GpuStoreRelease(ready->host.write_index_address, ready_index + 1);
-    aql::Publish(*ready, ready_index++, produce[parameters.ready_slot]);
+    ASSERT_TRUE(
+        aql::Publish(*ready, ready_index++, produce[parameters.ready_slot]));
 
-    GpuWaitEqual<int64_t>(
-        reinterpret_cast<uintptr_t>(&signals[kConsumerSignal].value), 0);
+    ASSERT_TRUE(GpuWaitEqual<int64_t>(
+        reinterpret_cast<uintptr_t>(&signals[kConsumerSignal].value), 0));
     // Capture the selected result before another join or releasing held work
     // can add a synchronization edge. OR does not identify the ready slot
     // or cancel other producers.
@@ -455,7 +456,8 @@ TEST_P(AqlOrPayloadTest, ReadsReadyPayloadWhileOtherProducersRemainPending) {
     GpuStoreRelease<int64_t>(
         reinterpret_cast<uintptr_t>(&signals[kGateSignal].value), 0);
     for (uint32_t p = 0; p < kProducerCount; ++p) {
-      GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signals[p].value), 0);
+      ASSERT_TRUE(GpuWaitEqual<int64_t>(
+          reinterpret_cast<uintptr_t>(&signals[p].value), 0));
     }
     std::memcpy(observed_final_output.data(), output->host.pointer,
                 kDataByteLength);

@@ -207,14 +207,15 @@ TEST_F(AqlDispatchTest, AgentScopeOrdersShaderPayloadBeforeSystemCompletion) {
     signal.value = 1;
 
     GpuStoreRelease(queue->host.write_index_address, index + kPacketsPerEpoch);
-    aql::Publish(*queue, index++, produce);
-    aql::Publish(*queue, index++, consume);
-    aql::Publish(*queue, index++, complete);
+    ASSERT_TRUE(aql::Publish(*queue, index++, produce));
+    ASSERT_TRUE(aql::Publish(*queue, index++, consume));
+    ASSERT_TRUE(aql::Publish(*queue, index++, complete));
 
     // The enabled terminal AND joins both dispatches independently of the
     // middle data edge. Capture D first, then all remaining workload backing
     // before any diagnostic or consumed-frontier wait adds synchronization.
-    GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0);
+    ASSERT_TRUE(
+        GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0));
     std::memcpy(observed_output.data(), output->host.pointer,
                 sizeof(observed_output));
     std::memcpy(observed_intermediate.data(), intermediate->host.pointer,

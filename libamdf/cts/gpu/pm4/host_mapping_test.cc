@@ -242,8 +242,8 @@ TEST_P(Pm4HostMappingTest, ReplacesCpuAndGpuViewsBeforeImmediateUse) {
     commands.PadToEightWords();
     ASSERT_NO_FATAL_FAILURE(
         queue_->Publish(api_, gpu_api_, commands.word_count()));
-    GpuWaitEqual<uint32_t>(
-        reinterpret_cast<uintptr_t>(completion->host.pointer), epoch + 1);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+        reinterpret_cast<uintptr_t>(completion->host.pointer), epoch + 1));
     ASSERT_EQ(api_->host_mapping_cache_control(
                   view_, AMDF_HOST_CACHE_OPERATION_INVALIDATE, unit, unit),
               AMDF_STATUS_OK);

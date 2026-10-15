@@ -15,9 +15,12 @@ state.
 | SDMA global timestamp | GET_GLOBAL writes a raw timestamp. PAL orders preceding transfer work before its timestamp operation; host visibility and command storage lifetime remain separate obligations. |
 | AQL-carried CP timestamp | A native vendor IB executes a clock copy, with explicit virtual-XCC selection where needed and a native carrier completion. |
 | AQL dispatch profiling | A profiling-enabled queue captures start/end in the dispatch's native completion signal. That storage remains owned until the result is read. |
+| [Firmware dispatch logs](profiling/dispatch-log.md) | A vendor KFD service exposes per-process compute dispatch records in native overwrite rings, with source-specific clock, identity and collection rules. |
 | Shader cycle counter | A wave samples core cycles through the target's scalar-memory, shader-register or dedicated counter instruction. Width and SIMD epoch determine which samples can be compared. |
 | Shader realtime counter | A wave samples a fixed-frequency clock through S_MEMREALTIME or a returned REALTIME message. The result's readiness, frequency and correlation remain separate contracts. |
-| Programmable counters | A collection observes a specified event across selected hardware instances and a defined counting interval. |
+| [Programmable counter samples](profiling/counter-sampling.md) | Queue participation, shared event selection, and sample completion define the observed population and interval. Device-scoped observation queues and dispatch-local samples have different dependencies. |
+| [Program-counter sampling](profiling/pc-sampling.md) | Native triggers and a trap writer capture wave state; per-XCC buffer rotation publishes completed samples while the workload continues. |
+| [Shader thread traces](profiling/thread-trace.md) | SQTT token streams use source-specific finite drain or live buffer replacement, with explicit loss and decoding context. |
 | [Pipeline statistics](pm4/pipeline-statistics.md) | Beginning and ending counter samples, including CS invocations, with separate result records, availability and final-reader ownership. |
 | Host timing | A host clock measures publication, submission through observed completion, or another explicitly bounded host interval. |
 
@@ -69,6 +72,24 @@ documented as compatible with `CmdWriteTimestamp`. The implementation does not
 take an atomic host/GPU snapshot. [PAL bracketing][pal-calibrated] · [Sample
 contract][pal-calibrated-type]
 
+Windows `D3DKMTQueryClockCalibration` identifies the adapter, physical adapter
+and engine node, and returns GPU frequency plus GPU/CPU counter samples. Its
+`ContextManagementProcessor` flag distinguishes a context-management clock
+from the underlying engine clock, which may differ. The selected native queue
+scheduler determines the engine node; node zero is not a portable substitute.
+[Query identity][kmt-clock] · [Clock selection][kmt-clock-flags]
+
+Native-query compatibility needs evidence at the packet source. In a bounded
+Linux GFX11.0.0 experiment, a confirmed PM4 clock pair was
+`80395912441212..80395912441500`, while the surrounding DRM samples were
+`80395911298728..80395911507976`. The packet values exceeded even the later
+native sample despite normal copy completion and retirement. At the reported
+100 MHz rate, the discrepancy is millisecond scale. The result falsifies a
+universal shared-epoch assumption; it does not identify the source of the
+offset or establish a portable correction. Actual queue-written anchors avoid
+that assumption. A reported nominal rate is likewise not an oscillator-error
+bound against the host clock.
+
 ### Host brackets and uncertainty
 
 For one chosen host domain, retain `(host_before_ns, gpu_ticks,
@@ -104,6 +125,38 @@ variation and reads through GC instance 0. Neither a compiler target nor one
 physical package establishes per-XCC or cross-partition calibration. [ROCr
 frequency][rocr-frequency] · [Translation][rocr-clocks] · [Partition-aware
 reader][partition-clock]
+
+### Repeated native clock sampling
+
+ROCr's opt-in `hsaKmtGetClockCountersPrecise` performs up to four native queries
+for a GPU node, brackets each with `CLOCK_MONOTONIC_RAW`, and retains the
+complete tuple from the shortest successful query. CPU-only nodes receive one
+query. A later failure returns an earlier successful tuple when one exists;
+failure before any successful sample leaves the caller's output unchanged.
+The ordinary `hsaKmtGetClockCounters` remains a single query.
+[Linux sample selection][precise-clock-linux]
+
+The DXG implementation likewise selects among four complete samples, using
+its `TimeNanos` host clock around native GPU/CPU sampling. Its system-clock
+field is a separate host read after that native query. Neither implementation
+mixes the GPU value from one attempt with the host value from another.
+[DXG sample selection][precise-clock-dxg]
+
+Selecting the shortest bracket chooses the smallest observed upper bound on
+sampling displacement; it does not make the GPU and host reads simultaneous.
+These interfaces return the selected tuple without its measured bracket width,
+so the selection alone supplies no numeric uncertainty to the caller. It also
+does not establish that a queue-written clock shares the native query's epoch,
+or that a nominal rate exactly matches the host oscillator.
+
+The tools-only `hsa_amd_enable_high_precision_timestamps` sets a runtime flag
+for subsequent clock reads; `HSA_ENABLE_HIGH_PRECISION_TIMESTAMPS=1` selects
+the same policy during initialization. The KFD driver adapter uses the precise
+entry point only when the flag is set and the loaded thunk supplies it.
+This is extra host sampling work, separate from enabling dispatch timestamp
+writes in a queue. [Tool entry point][precise-clock-enable]
+[Environment selection][precise-clock-environment]
+[Driver selection][precise-clock-driver]
 
 ### Shader cycle counters
 
@@ -276,6 +329,11 @@ reference controls stable pstate; the mutex serializes participating query
 submissions. Every exposed counter is marked as affected by concurrent work.
 Neither owner establishes exclusion against all other collectors.
 
+[Streaming performance monitoring](profiling/spm.md) separates hardware ring
+layouts from the vendor KFD transport's asynchronous host-buffer rotation.
+Repeated snapshots, overwrite capture and native buffer rotation have different
+publication and storage-retirement boundaries.
+
 SDMA counters participate in that CP-managed lifecycle. PAL's GFX11 DMA block
 is global, with two counter modules per available instance and at most two
 instances; Mesa describes the same inventory. PAL selects instance-specific
@@ -293,6 +351,14 @@ AUTO mode and driver-controlled STABLE_STD enablement. A zero from an
 unavailable observation surface is not evidence that the event did not occur.
 This prerequisite is distinct from choosing a reproducible operating
 frequency. [AMD counter-clock requirement][pmc-clocks]
+
+The SDK's counter controller checks `power_dpm_force_performance_level` for
+agents satisfying `110000 <= gfx_target_version < 120500` and warns when the
+read value differs from `profile_standard`. It neither changes that policy
+nor rejects counter collection. This numeric predicate is the controller's
+warning policy; it is not a hardware capability query, and absence of a warning
+does not establish that a requested block's clocks are enabled.
+[Controller policy][sdk-counter-power-policy]
 
 ### DRM stable-pstate lifetime
 
@@ -388,6 +454,12 @@ Return to the [GPU index](README.md) or [primary source map](../sources.md).
 [rocr-frequency]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L287-L302
 [rocr-clocks]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/amd_gpu_agent.cpp#L3196-L3329
 [partition-clock]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gfx_v9_4_3.c#L507-L519
+[precise-clock-linux]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/libhsakmt/src/time.c#L61-L123
+[precise-clock-dxg]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/libhsakmt/src/dxg/time.cpp#L32-L81
+[precise-clock-enable]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/runtime/hsa-runtime/core/runtime/hsa_ext_amd.cpp#L1675-L1682
+[precise-clock-environment]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/runtime/hsa-runtime/core/util/flag.h#L134-L138
+[precise-clock-driver]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocr-runtime/runtime/hsa-runtime/core/driver/kfd/amd_kfd_driver.cpp#L1003-L1018
+[sdk-counter-power-policy]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/counters/controller.cpp#L49-L110
 [kfd-profiler-uapi]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/include/uapi/linux/kfd_ioctl.h#L50-L58
 [kfd-profiler-protocol]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/include/uapi/linux/kfd_ioctl.h#L1560-L1588
 [sdk-profiler-request]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/counters/ioctl.cpp#L38-L99
@@ -453,3 +525,6 @@ Return to the [GPU index](README.md) or [primary source map](../sources.md).
 [rdna35-time]: https://gpuopen.com/download/rdna35_instruction_set_architecture.pdf#page=36
 [rdna4-time]: https://gpuopen.com/download/rdna4-instruction-set-architecture.pdf#page=40
 [cdna5-time]: https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/instruction-set-architectures/amd-instinct-cdna5-instruction-set-architecture.pdf#page=37
+
+[kmt-clock]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmdt/ns-d3dkmdt-_d3dkmt_queryclockcalibration
+[kmt-clock-flags]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmdt/ns-d3dkmdt-_dxgk_gpuclockdata_flags

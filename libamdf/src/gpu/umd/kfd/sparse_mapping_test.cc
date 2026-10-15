@@ -19,10 +19,12 @@
 
 #include <array>
 #include <cerrno>
+#include <chrono>
 #include <cinttypes>
 #include <cstdlib>
 #include <cstring>
 #include <span>
+#include <thread>
 #include <vector>
 
 #include "gtest/gtest.h"
@@ -297,10 +299,17 @@ class KfdSparseMappingBackend final : public SparseMappingBackend {
     _mm_sfence();
     __atomic_store_n(reinterpret_cast<uint64_t*>(queue_view_.doorbell_address),
                      frontier_, __ATOMIC_RELEASE);
+    const auto completion_deadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(10);
     while (__atomic_load_n(completion_, __ATOMIC_ACQUIRE) != completion_value) {
-      _mm_pause();
+      Require(std::chrono::steady_clock::now() < completion_deadline,
+              "timed out observing sparse mapping copy completion");
+      std::this_thread::sleep_for(std::chrono::microseconds(50));
     }
-    const amdf_wait_deadline_t deadline = {UINT64_MAX, 0};
+    amdf_wait_deadline_t deadline = {};
+    RequireStatus(
+        amdf_wait_deadline_initialize(10'000'000'000, 50'000, &deadline),
+        "initialize queue retirement deadline");
     RequireStatus(
         amdf_gpu_umd_user_queue_wait_consumed(queue_, frontier_, &deadline),
         "retire submitted SDMA ring storage");

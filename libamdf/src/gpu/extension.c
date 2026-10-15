@@ -9,6 +9,7 @@
 #include <stddef.h>
 
 #include "amdf/gpu.h"
+#include "libamdf/src/gpu/clock.h"
 #include "libamdf/src/gpu/device.h"
 #include "libamdf/src/gpu/endpoint_profile.h"
 #include "libamdf/src/gpu/kernel_queue.h"
@@ -46,7 +47,7 @@ static amdf_status_t AMDF_CALL amdf_gpu_endpoint_query_info(
 }
 
 static const amdf_gpu_api_t amdf_gpu_api_v1 = {
-    .structure_size = sizeof(amdf_gpu_api_t),
+    .structure_size = offsetof(amdf_gpu_api_t, device_query_queue_clock_info),
     .extension_version = AMDF_GPU_EXTENSION_VERSION_1,
     .endpoint_query_info = amdf_gpu_endpoint_query_info,
     .device_create = amdf_gpu_device_create,
@@ -54,6 +55,19 @@ static const amdf_gpu_api_t amdf_gpu_api_v1 = {
     .kernel_queue_create = amdf_gpu_kernel_queue_create,
     .kernel_queue_submit = amdf_gpu_kernel_queue_submit,
     .user_queue_create = amdf_gpu_user_queue_create,
+};
+
+static const amdf_gpu_api_t amdf_gpu_api_v2 = {
+    .structure_size = sizeof(amdf_gpu_api_t),
+    .extension_version = AMDF_GPU_EXTENSION_VERSION_2,
+    .endpoint_query_info = amdf_gpu_endpoint_query_info,
+    .device_create = amdf_gpu_device_create,
+    .device_query_info = amdf_gpu_device_query_info,
+    .kernel_queue_create = amdf_gpu_kernel_queue_create,
+    .kernel_queue_submit = amdf_gpu_kernel_queue_submit,
+    .user_queue_create = amdf_gpu_user_queue_create,
+    .device_query_queue_clock_info = amdf_gpu_device_query_queue_clock_info,
+    .device_query_clock_sample = amdf_gpu_device_query_clock_sample,
 };
 
 void amdf_gpu_extension_initialize_endpoint(amdf_endpoint_t* endpoint) {
@@ -92,6 +106,11 @@ uint32_t amdf_gpu_extension_query_endpoint_queue_families(
 amdf_status_t amdf_gpu_extension_query(uint32_t minimum_version,
                                        uint32_t maximum_version,
                                        const void** out_extension_api) {
+  if (minimum_version <= AMDF_GPU_EXTENSION_VERSION_2 &&
+      maximum_version >= AMDF_GPU_EXTENSION_VERSION_2) {
+    *out_extension_api = &amdf_gpu_api_v2;
+    return AMDF_STATUS_OK;
+  }
   if (minimum_version > AMDF_GPU_EXTENSION_VERSION_1 ||
       maximum_version < AMDF_GPU_EXTENSION_VERSION_1) {
     return amdf_make_api_status(AMDF_STATUS_CODE_VERSION_MISMATCH);

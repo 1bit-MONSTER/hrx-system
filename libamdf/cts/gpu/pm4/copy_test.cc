@@ -50,8 +50,8 @@ TEST_F(Pm4CopyTest, CopiesBetweenExactAccessAttachments) {
   commands.PadToEightWords();
   ASSERT_NO_FATAL_FAILURE(
       queue->Publish(api_, gpu_api_, commands.word_count()));
-  GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
-                         1);
+  ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+      reinterpret_cast<uintptr_t>(completion->host.pointer), 1));
   // Capture every observation before diagnostics or retirement can intervene.
   std::array<uint32_t, kWordCount> observed_output;
   std::array<uint32_t, kWordCount> observed_input;
@@ -125,8 +125,8 @@ TEST_P(Pm4CopyWidthTest, PreservesAllWordsOutsideSelectedTransfers) {
   commands.PadToEightWords();
   ASSERT_NO_FATAL_FAILURE(
       queue->Publish(api_, gpu_api_, commands.word_count()));
-  GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
-                         1);
+  ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+      reinterpret_cast<uintptr_t>(completion->host.pointer), 1));
   // Capture every observation before diagnostics or retirement can intervene.
   std::array<uint32_t, kWordCount> observed_output;
   std::array<uint32_t, 2 * kWordCount> observed_input;
@@ -190,8 +190,8 @@ TEST_F(Pm4CopyTest, ConfirmedWideCopiesFeedTheNextCopy) {
   commands.PadToEightWords();
   ASSERT_NO_FATAL_FAILURE(
       queue->Publish(api_, gpu_api_, commands.word_count()));
-  GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
-                         1);
+  ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+      reinterpret_cast<uintptr_t>(completion->host.pointer), 1));
   // Capture every observation before diagnostics or retirement can intervene.
   std::array<uint64_t, kValueCount> observed_staging;
   std::array<uint64_t, kValueCount> observed_output;

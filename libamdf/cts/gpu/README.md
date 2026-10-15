@@ -130,6 +130,37 @@ replace the ordering operation under test. Query-driven compute compositions
 place required SDMA cache operations at each upload/download boundary; explicit
 GCR variants also exercise that stream when the backing permits a no-op.
 
+`SdmaTimestampStreamTest` consumes 16,387 timestamped copies from four reusable
+128-byte slots before one SDMA stream retires. GET_GLOBAL pairs surround each
+copy, a later FENCE publishes a complete record prefix, and CPU-returned
+credits prevent overwriting unread slots. The final credit wait keeps the
+producer live through consumption. Both publication modes have cases; native
+family admission decides which can execute. IDs, raw sample order, full copied
+payloads, untouched guards and source preservation form the oracle. Results
+establish sustained storage reuse, without inferring clock conversion or
+profiling overhead from correctness runs.
+
+`QueueClockRecipeTest` asks the public GPU extension for the selected family's
+nominal timestamp rate. Eight finite, guarded copies per PM4/SDMA publication
+mode produce durations and host brackets around actual queue samples. The
+constant-offset intersection reports whether that model fits the capture; an
+empty interval does not fail timestamp publication or establish its cause.
+Nominal rates supply no host-relative oscillator-accuracy guarantee. AQL's
+existing confirmed-copy timestamp cases also query the native rate and record
+converted durations. These observations are correctness evidence, not
+performance measurements.
+
+`AqlDispatchTimingTest` opts into native dispatch timestamps at queue creation.
+The default-off control checks untouched timestamp fields. Enabled finite and
+16,387-dispatch streaming cases consume four exclusive signal slots, copying
+each observation before rearming its signal. Target-selected Loom transforms,
+complete output checks, per-slot timestamp ordering, and signal/payload guards
+verify publication and reuse. Host brackets bound individual durations; a
+capture-wide constant-offset fit and first/last host-bracketed source anchors
+are reported separately. The anchors retain the information needed to bound
+the effective rate over the capture. The shared fixture retires queues before
+signal, argument, payload, or executable backing.
+
 PM4/SDMA batches publish four prepared upload/compute/download graphs with one
 publication per queue. Each graph has separate payload, arguments and progress
 records. With a shared transfer queue, SDMA observes one graph's shader

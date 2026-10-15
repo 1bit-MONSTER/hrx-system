@@ -334,8 +334,8 @@ TEST_P(Pm4ConditionalTest, ShaderPredicateControlsImmutableReplay) {
       };
       ASSERT_NO_FATAL_FAILURE(queue->Submit(gpu_api_, command));
     }
-    GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(control->host.pointer),
-                           epoch + 1);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+        reinterpret_cast<uintptr_t>(control->host.pointer), epoch + 1));
     // Observe the consumer first, before any other diagnostic or retirement
     // operation can become a substitute for the device completion edge.
     std::memcpy(observed_output.data(), output->host.pointer,

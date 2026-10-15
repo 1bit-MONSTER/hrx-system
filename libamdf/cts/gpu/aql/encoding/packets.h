@@ -21,8 +21,26 @@ struct alignas(64) Signal {
   int64_t kind;
   // Value atomically decremented by the command processor on completion.
   int64_t value;
-  // Mailbox, event, timestamps and reserved fields, unused by these witnesses.
-  uint64_t reserved[6];
+  // Native event payload; zero for these host-polled signals.
+  struct {
+    // GPU address of the event mailbox, or zero without an event.
+    uint64_t mailbox_address;
+    // Native event identifier, or zero without an event.
+    uint32_t id;
+    // Reserved; zero.
+    uint32_t reserved;
+  } event;
+  // Firmware writes on profiling-enabled dispatches, before completion.
+  struct {
+    // Packet-processing start in the queue's GPU clock ticks.
+    uint64_t start;
+    // Packet completion in the same clock domain.
+    uint64_t end;
+  } timestamps;
+  // Native queue pointer for queue signals; zero for USER signals.
+  uint64_t queue_address;
+  // Reserved; zero.
+  uint64_t reserved;
 };
 static_assert(sizeof(Signal) == 64);
 

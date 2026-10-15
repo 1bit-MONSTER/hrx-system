@@ -398,11 +398,12 @@ dependent lookups, 256 consumers per independent stream or 64 KiB chain, eight
 
 `AMDF_IO_IDLE_MS` selects the native SQPOLL idle policy (default 1 millisecond).
 `AMDF_IO_SERVICE_US` selects a requested delay between host service passes;
-omitting it selects busy polling between service calls. All transports use the
+omitting it selects a requested 50 µs sleep between service calls. All transports use the
 same selected policy; `host_wait` additionally sleeps for actual I/O completion.
 Scheduling and timer slack can exceed a requested polling interval. Wake calls
 are coalesced by published SQ tail, and SQPOLL samples begin with an observed
-sleeping poller. No policy value is a timeout on valid asynchronous work.
+sleeping poller. A separate ten-second progress deadline bounds each execution
+and its native waits; the service interval does not reset that deadline.
 `poller_idle_ms` identifies the shared comparison setting; `idle_ms` and
 `setup_flags` describe the actual ring, with zero idle time and no SQPOLL flag
 for `host_wait`.
@@ -509,6 +510,9 @@ one warm-up epoch. `AMDF_IO_REPETITIONS` selects the fixed measured count under
 the same benchmark-lease requirement as the causal cases. These scenarios
 fix SQPOLL idle at 1 ms and their own five-policy matrix; the causal cases'
 `AMDF_IO_SERVICE_US` and `AMDF_IO_IDLE_MS` overrides do not alter them.
+Ordinary correctness runs use at least a 50 µs sleep in every configuration;
+busy service is restricted to these explicitly requested, leased measurements.
+Both modes retain the ten-second execution deadline.
 
 Each `AMDF_IO_DEMAND` line contains all requests, with column names and times
 relative to the same GPU reference-clock origin. Reported `burst` is offered

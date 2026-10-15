@@ -8,6 +8,7 @@
 #define AMDF_SRC_XDNA_UMD_MCDM_MEMORY_H_
 
 #include "libamdf/src/xdna/umd/mcdm/device.h"
+#include "libamdf/src/xdna/umd/mcdm/private_allocation.h"
 #include "libamdf/src/xdna/umd/memory.h"
 
 #ifdef __cplusplus
@@ -27,6 +28,11 @@ amdf_status_t amdf_windows_xdna_memory_register_pages(
 // No mapping, reference, allocation, lookup or cache operation occurs here.
 void* amdf_windows_xdna_memory_mapping_source(amdf_xdna_umd_memory_t* memory,
                                               uint64_t byte_offset);
+
+// Borrows the allocation from already-admitted context-private memory. Logical
+// byte zero follows the context's reserved bootstrap prefix in this allocation.
+const amdf_windows_xdna_private_allocation_t*
+amdf_windows_xdna_memory_private_allocation(amdf_xdna_umd_memory_t* memory);
 
 #ifdef __cplusplus
 }  // extern "C"

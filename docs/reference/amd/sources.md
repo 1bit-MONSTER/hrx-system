@@ -12,13 +12,16 @@ specific definition, builder, caller, or resource owner that supports a claim.
 | [Mesa counter, barrier and shader policy][mesa-counter-barriers] | `44cc4ca677a4752a10c14194289bde5a6468675e` | GFX12 performance-query admission, event selection and SQG sample ordering; consumer-stage selection for graphics PWS waits; compiler-selected MEM_ORDERED mode, linked-program requirements and per-SA compute affinity. |
 | [ROCm systems][rocm] | `8d57824901ffa7d961c00a37d055a108723b93ca` | ROCr queue/signal/copy protocols, HIP/CLR consumers, native queue construction, and profiling. |
 | [ROCm sampling readback][rocm-sampling] | `e53154361af6ec17954c64c020e7c66701669ef4` | PC-sampling DMA chunk bounds, aggregate and record extents, profiler-selected buffer sizes, circular-buffer publication and the shared command-buffer owner. |
+| [ROCm profiling protocols][rocm-profiling] | `eab38980a6f5cc0e4b17ec5437345e7680bbc936` | Dispatch-log stream ABI v4 consumer, kept separate from the version-3 native driver below; PC-sampling phase, command ownership, atomic scope, and record validity; SPM interval clocks, producer/collector ordering, and drain policy; SQTT replacement, overflow, and per-XCC anchors; repeated native clock sampling, counter power policy, GFX11 counter reads, separate observation queues, and result reuse. |
+| [Tinygrad AMD runtime][tinygrad] | `e8308c08f77148dce3bfd141cbdfb1be66329a45` | Compute counter programming and reads, native profile-mode policy, physical WGP selection, dispatch sampling, and bounded result collection. |
 | [ROCm XIO][xio] | `cbe97e6392066bef7901121965ffadad19404da4` | Device-authored SDMA packets, reservation/commit protocols and native queue-resource ownership; compared with the related rocSHMEM Anvil implementation in ROCm systems. |
 | [ROCm native memory and engine policy][rocm-native] | `f9ba16bbe70e365b2f59b268e847bef19ad9db6e` | BO-backed queue storage, AQL metadata publication and scratch reclamation, signal/event notification and host waits, pageable host SVM allocation, context-save layout and ownership, DRM import/mapping ownership, CLR peer-engine selection, broadcast/multicast copy selection and completion ownership, indirect payload-address copies and HIP pointer-holder admission, buffer-exchange layouts and both-operand lifetimes, compute affinity, native queue priority, cooperative launch admission/ownership, and signal-backed AQL stream waits. |
 | [ROCm copy, cache and visibility policy][rocm-runtime-policy] | `105dd4ff35798f95646353bc08f6c885416ae17e` | HIP admission of device-to-device swap and indirect copies, operand-based executor selection, batch counts and descriptor-control propagation, CLR's indirect-copy ISA predicate, inbound RDMA visibility and the HDP mapping owner, SVM dependency publication, asynchronous results and accepted-work ownership, SYSTEM-scoped batch-memory dispatch, persisting-cache requests and HIP access-window admission. |
 | [ROCm compiler and device libraries][rocm-device-libs] | `8cd9ac8c8f12ab07e92229ea9d690b49e866b8ec` | OCKL hidden grid state, GWS versus atomic barrier selection, split arrival/wait, workgroup/agent/system fence composition, stream-memory polling and masked predicates, OpenCL child handles and device scheduler, and target-selected shader-cycle versus steady-time reads. |
 | [Linux][linux] | `50d05c7c76c96b90462f24debacca971d2e86713` | Native UAPI, queue descriptors, memory mappings, engine emitters, and driver resource lifetimes. |
+| [Linux profiling resume correction][linux-profile-resume] | `f931c54b241ce2f36bfc34955aec43a188276b8d` | Restoring native stable-pstate controls after runtime power transitions while the software profile level remains selected. |
 | [Linux memory transports][linux-memory-transports] | `fe2ec83746e501645709761605c2464a44fd2929` | Exporter runtime PM references and their relation to P2P eligibility and memory placement; KFD's noncached HDP remap, native availability and host flush sequence; SVM prefetch placement, partial migration and native completion; VM ioctl and cache-topology counterparts to runtime size requests. |
-| [ROCm AMDGPU native driver][rocm-amdgpu] | `820212794d184710298efcecce42c0215bfc9c6a` | Render-node VM ioctl, cache-topology publication, and MES V12.1 partition-level scheduler coordination. Compared with [the `releases/therock-7.14` revision][rocm-amdgpu-therock] `5081d704e60e807e9541c355c53df57d88ea8cde` for persisting-cache admission. |
+| [ROCm AMDGPU native driver][rocm-amdgpu] | `820212794d184710298efcecce42c0215bfc9c6a` | Render-node VM ioctl, cache-topology publication, MES V12.1 partition-level scheduler coordination, native SPM buffer rotation, PC-sampling source control, and firmware dispatch-log streams. Compared with [the `releases/therock-7.14` revision][rocm-amdgpu-therock] `5081d704e60e807e9541c355c53df57d88ea8cde` for persisting-cache admission. |
 | [Vulkan specification][vulkan] | `01aaacd99480487bf63830959513c5ca8ceb996d` | External memory and semaphore capabilities, handle ownership, host-pointer imports, buffer and address-range bounds, host-update capture, resource ownership transfers, host visibility, and performance-query lifetimes. |
 | [LLVM ABI and memory model][llvm-abi] | `6e714c8d91116794cb699cdf80c26afe9cda3ef3` | Kernel descriptors, initial registers, wave-mode availability and target-feature validation, address spaces, shader memory ordering, availability/visibility, the matching cache-control emitter and target predicates, and MLIR's LDS barrier representation and initialization contract. |
 | [LLVM compiler implementation][llvm-compiler] | `6dfe1677ab8dffbc6ec13d53a1e0215d75147689` | Executable fetch padding, dispatch inputs, partial workgroups, target feature selection, and XNACK replay-clause register retention. |
@@ -36,6 +39,7 @@ specific definition, builder, caller, or resource owner that supports a claim.
 | [MLIR-AIE][mlir-aie] | `c69fb4c8f2fb853d5ca62d19f829796d3ae4ba34` | Array register data, trace-flow construction, and trace decoding. |
 | [MLIR-AIE and IRON dataflow][mlir-aie-dataflow] | `41fa359ea1f66f7e5c572f8d0cc8c7646262adf5` | Object FIFOs, task ownership, descriptor allocation, DMA lowering, and stream routes. |
 | [XRT runtime][xrt] | `ecad6cf22171ffec754fdd36afc2ae200af5c3a6` | Buffer synchronization delegation, ZYNQ/ZOCL GMIO channel completion, and managed external-buffer task ownership. |
+| [AMD validation-data archive][vtd] | `fa945e489497397269cbb912e3e7cce33d1935ff` | Strix firmware trace schema, nanosecond timestamps, event attribution, and record framing. |
 | [XDP][xdp] | `03ba80bf6c4942f51eebc71f7d154d9254426396` | Array profiling, trace storage and offload, and host/device timeline consumers. |
 | [DynamicDispatch][dynamic-dispatch] | `b3051f03e20aab237cda3bbe4cd2081f76b72b06` | Firmware transaction construction and timestamp-marker encoding. |
 
@@ -108,11 +112,14 @@ executes. The corresponding chapter identifies those boundaries.
 [mesa-counter-barriers]: https://gitlab.freedesktop.org/mesa/mesa/-/tree/44cc4ca677a4752a10c14194289bde5a6468675e
 [rocm]: https://github.com/ROCm/rocm-systems/tree/8d57824901ffa7d961c00a37d055a108723b93ca
 [rocm-sampling]: https://github.com/ROCm/rocm-systems/tree/e53154361af6ec17954c64c020e7c66701669ef4
+[rocm-profiling]: https://github.com/ROCm/rocm-systems/tree/eab38980a6f5cc0e4b17ec5437345e7680bbc936
+[tinygrad]: https://github.com/tinygrad/tinygrad/tree/e8308c08f77148dce3bfd141cbdfb1be66329a45
 [xio]: https://github.com/ROCm/rocm-xio/tree/cbe97e6392066bef7901121965ffadad19404da4
 [rocm-native]: https://github.com/ROCm/rocm-systems/tree/f9ba16bbe70e365b2f59b268e847bef19ad9db6e
 [rocm-runtime-policy]: https://github.com/ROCm/rocm-systems/tree/105dd4ff35798f95646353bc08f6c885416ae17e
 [rocm-device-libs]: https://github.com/ROCm/llvm-project/tree/8cd9ac8c8f12ab07e92229ea9d690b49e866b8ec
 [linux]: https://github.com/torvalds/linux/tree/50d05c7c76c96b90462f24debacca971d2e86713
+[linux-profile-resume]: https://github.com/torvalds/linux/commit/f931c54b241ce2f36bfc34955aec43a188276b8d
 [linux-memory-transports]: https://github.com/torvalds/linux/tree/fe2ec83746e501645709761605c2464a44fd2929
 [rocm-amdgpu]: https://github.com/ROCm/amdgpu/tree/820212794d184710298efcecce42c0215bfc9c6a
 [rocm-amdgpu-therock]: https://github.com/ROCm/amdgpu/tree/5081d704e60e807e9541c355c53df57d88ea8cde
@@ -135,6 +142,7 @@ executes. The corresponding chapter identifies those boundaries.
 [mlir-aie]: https://github.com/Xilinx/mlir-aie/tree/c69fb4c8f2fb853d5ca62d19f829796d3ae4ba34
 [mlir-aie-dataflow]: https://github.com/Xilinx/mlir-aie/tree/41fa359ea1f66f7e5c572f8d0cc8c7646262adf5
 [xrt]: https://github.com/Xilinx/XRT/tree/ecad6cf22171ffec754fdd36afc2ae200af5c3a6
+[vtd]: https://github.com/Xilinx/VTD/tree/fa945e489497397269cbb912e3e7cce33d1935ff
 [xdp]: https://github.com/Xilinx/XDP/tree/03ba80bf6c4942f51eebc71f7d154d9254426396
 [dynamic-dispatch]: https://github.com/amd/DynamicDispatch/tree/b3051f03e20aab237cda3bbe4cd2081f76b72b06
 [hsa-system]: https://hsafoundation.com/wp-content/uploads/2021/02/HSA-SysArch-1.2.pdf

@@ -420,12 +420,12 @@ A cooperative machine benchmark lease serializes participating benchmarks, not
 all device users. libamdf issues no keepalive work and changes no machine
 power policy.
 
-## Observation result memory
+## Program-owned observation memory
 
-A counter-reply or trace destination is ordinary device-writable memory. The
-caller selects a scope and memory profile with the intended NPU and host or
-GPU consumers, then obtains backing with `memory_create`, registration, or
-`memory_import`.
+A program-owned counter-reply or trace destination is ordinary device-writable
+memory. The caller selects a scope and memory profile with the intended NPU
+and host or GPU consumers, then obtains backing with `memory_create`,
+registration, or `memory_import`.
 
 `memory_query_address(memory, access_ordinal, AMDF_MEMORY_ADDRESS_XDNA_DMA,
 &address)` returns the address interpretation used by shim DMA. An offset into
@@ -443,6 +443,234 @@ from `memory_query_pair_info`. A host acquire requiring cache invalidation uses
 visibility; it does not wait for a still-running writer. A GPU reader can
 consume the same backing under its own ordering and lifetime contract. The
 [memory reference](memory.md) describes those operations in detail.
+
+## Finite firmware results
+
+XDNA extension version 2 also exposes the context's finite firmware-result
+service. `context_query_result_buffer_info` describes its borrowed private
+memory scope, allocation profile, admitted range geometry and marker width.
+This passive query precedes memory layout decisions. Linux accepts a whole
+page-aligned private allocation; Windows Direct accepts an aligned slice of
+the context's private aperture. The caller keeps that slice disjoint from
+instructions and payloads. The Windows metadata protocols return `UNSUPPORTED`
+for this service; ordinary execution support does not imply result support.
+
+A caller creates admitted backing through the ordinary memory API, maps it,
+and clears and publishes the finite destination. The same binding then goes to
+each control:
+
+```c
+amdf_xdna_result_buffer_binding_t binding = {
+    .memory = result_memory,
+    .access_ordinal = result_access_ordinal,
+    .byte_offset = result_offset,
+    .byte_length = result_capacity,
+};
+amdf_status_t status = xdna->context_attach_result_buffer(context, &binding);
+// After successful attach, ordinary command streams may append RECORD_TIMER
+// and READ_REGS results. The caller budgets every possible emitted byte and
+// retires all writers before collecting. No per-submission host wait is added.
+if (amdf_status_is_ok(status)) {
+  status = xdna->context_collect_result_buffer(context, &binding);
+}
+// On successful collection, acquire the host mapping before reading records.
+// The caller's finite protocol supplies the record layout and valid count.
+```
+
+One attachment accepts several submissions before collection. Collection
+neither clears bytes nor resets the append position, and returns no live cursor
+or written extent. Repeated collection without new writes preserves the result.
+Explicit `context_detach_result_buffer`, followed by a new clear/publish/attach
+cycle, establishes a fresh finite capture. Every control uses the same exact
+binding and is externally serialized with other controls and queue publication.
+Native controls may block. They allocate no library objects, retain no memory
+references, and add no branch or wait to ordinary submission.
+
+The caller keeps the backing and context alive through writer retirement and
+native removal. A failed native control may have made progress; its error does
+not authorize freeing the destination. After an ambiguous native failure, a
+later successful control alone does not prove that old writers have retired.
+Neither memory release nor context destruction implicitly detaches a binding.
+
+`amdf_xdna_timer_record_t` describes the native `RECORD_TIMER` result: a caller
+ID followed by the timestamp's high and low words. The helper
+`amdf_xdna_timer_record_timestamp` combines them without converting units.
+This source is the partition-shim timer; it is distinct from the Windows KMT
+clock and automatic firmware trace clock. The cached geometry query leaves its
+frequency zero because operating rate changes independently of that geometry.
+`device_query_timer_clock_info` explicitly queries the native reported array
+rate on Linux and Windows, in the same `amdf_observation_clock_info_t` used by
+GPU observations. It creates no object, retains no sample history, and changes
+no power policy. Native errors leave the output unchanged.
+
+### Marker durations
+
+A caller queries the rate after admitting its ordinary context/workload. An
+idle-device snapshot can differ from the rate used by the active workload.
+For a controlled constant-rate interval, the caller retains that rate with its
+capture and converts records only after retirement, collection and acquisition:
+
+```c
+amdf_observation_clock_info_t clock;
+amdf_status_t status = xdna->device_query_timer_clock_info(device, &clock);
+// A successful rate query describes the operating snapshot. The caller owns
+// the interval's power policy and establishes that this rate applies to it.
+if (amdf_status_is_ok(status)) {
+  // Submit the prepared marker/work sequence, retire its writers, collect
+  // the finite results and acquire the host mapping before reading records.
+  uint64_t begin = amdf_xdna_timer_record_timestamp(&begin_record);
+  uint64_t end = amdf_xdna_timer_record_timestamp(&end_record);
+  double duration_ns = (double)(end - begin) * (1e9 / clock.frequency_hz);
+  // Consume duration_ns under that same-epoch, constant-rate contract.
+}
+```
+
+The query reports a nominal operating rate, not pinning or rate history.
+Equal endpoint readings alone cannot detect an intervening DPM change. Clock
+gating and preemption must also be accounted for before calling the result
+elapsed wall time. A caller requiring independent continuous nanoseconds uses
+an admitted automatic firmware trace source instead.
+
+Array reconfiguration may reset the timer even within a context. A marker
+immediately before core enable, after configuration, and another after the
+program's ordinary output completion wait bracket useful work in one program
+established epoch. Marker IDs identify caller regions but cannot repair a
+reset. The first marker's host submission/completion enclosure can place this
+interval on a bounded host timeline; it does not align another command's epoch.
+The [hardware timing reference](../../docs/reference/amd/xdna/observability.md)
+describes the native rate sources, explicit power modes and measured evidence.
+
+## Automatic firmware timing
+
+XDNA extension version 2 exposes the native device-wide firmware recorder.
+`device_query_firmware_trace_info` reports its live configuration, payload
+schema, timestamp units and caller read-storage requirements. A successful
+query establishes that the native service exists; configuration and reading
+have separate permission checks. Linux uses the AMD SDK DPT interface when
+the installed driver supplies it. Windows uses the native MCDM service.
+An absent service returns `UNSUPPORTED`; permission failures remain native
+errors instead of being treated as absence.
+
+The recorder observes native scheduling, command, power and other selected
+events without modifying tile code or reserving application DMA resources.
+It is global to the device. The application or an external recorder owns
+configuration authority across processes; opening or destroying a libamdf
+device neither acquires that authority nor changes the recorder. The same
+owner serializes reconfiguration against reads and assigns a new capture
+identity when it enables a new recording.
+
+A caller with configuration authority queries the initial state, arranges its
+aligned storage, enables the desired categories with
+`device_configure_firmware_trace`, and queries the active schema. An already
+enabled recorder may belong to another process. A configuration error may
+have native effects, so its owner queries state before deciding cleanup.
+Workloads continue through ordinary queues while readers keep independent
+storage and native byte positions:
+
+```c
+// The recorder's owner has enabled this capture. Storage satisfies the
+// queried requirements and remains separate from the result descriptor.
+amdf_observation_read_result_t result;
+amdf_status_t status = xdna->device_read_firmware_trace(
+    device, info.format_version, position, storage, storage_byte_length,
+    &result);
+if (amdf_status_is_ok(status)) {
+  // Process discontinuity flags before consuming this batch's events.
+  // Valid amdf_xdna_firmware_trace_event_t records occupy
+  // [storage + result.byte_offset, result.byte_length].
+  position = result.next_position;
+}
+```
+
+Reads allocate and retain nothing and wait for no application queue. Native
+format-2 frames are validated before events are published, then compacted in
+place. Overwritten history and invalid copies produce explicit gap flags and
+loss information. Consumers invalidate pending interval pairs across a gap.
+`BUFFER_TOO_SMALL` preserves the previous position and requires larger caller
+storage: some native interfaces cannot distinguish a capacity-limited copy
+from overwritten history without returning the entire retained window. The
+queried recommended capacity provides ordinary full-window storage. A read
+may modify storage even on failure, but publishes its result only on success.
+
+An empty read reports current availability, not producer retirement. The
+application's completion and expected-event protocol determines its final
+drain. Only the configuration owner disables the recorder after reading the
+required events. Neither observation records nor their cursors are completion
+signals or reliable feedback credits.
+
+Format 2 represents timestamps in nanoseconds. This describes units, not
+sampling resolution, accuracy, a shared CPU/GPU epoch or clock continuity.
+Command events preserve firmware context, virtual-context and opcode fields;
+those fields identify native execution within a firmware context lifetime.
+The trace interface supplies no mapping to the opaque public
+`amdf_xdna_context_info_t.id` or to a caller's submission identity. Public
+context IDs cannot be unpacked to recover firmware identities. The decoded
+stream supports device-wide observation independently of application
+attribution; configuration authority does not exclude other workloads.
+
+An application timeline additionally needs a native context mapping with its
+valid lifetime and the command protocol's ordering or submission identity.
+A current mapping alone cannot identify older records after context-ID reuse.
+Matching an opcode or assigning consecutive events to consecutive host
+submissions does not establish that relationship under concurrency. Finite
+result records instead have a caller-selected destination and marker protocol.
+
+These observations describe native command execution and scheduling. Internal
+regions of a resident program need a source that actually observes those
+regions, such as its own instrumentation. The [hardware timing reference](../../docs/reference/amd/xdna/observability.md)
+describes the separate firmware and array clocks and their native semantics.
+
+### Durations and host correlation
+
+A complete format-2 command pair supplies a duration directly:
+
+```c
+uint64_t duration_ns = end.timestamp - begin.timestamp;
+```
+
+The pair belongs to the same native context and opcode, has no intervening
+loss or restart, and follows that firmware protocol's ordering. The recorder
+observes the entire device. A consumer establishes ownership and submission
+attribution before pairing events; matching an opcode alone cannot distinguish
+commands from multiple contexts or processes. Its clock differs from the
+partition-shim clock returned by `RECORD_TIMER`.
+
+A caller can correlate an independently attributed command with its own
+monotonic host clock. Let `host_before_ns` precede submission and let
+`host_after_ns` follow observed completion. The command's source-to-host
+offset then satisfies:
+
+```text
+host_before_ns - begin.timestamp <= offset_ns
+offset_ns <= host_after_ns - end.timestamp
+```
+
+This is a bounded observation, not an exact offset returned by the driver.
+The width includes scheduling and host observation latency. A midpoint carries
+half that width as sampling uncertainty. Several observations in a stable
+clock segment can narrow the range by intersecting their bounds. An empty
+intersection exposes inconsistent attribution, epochs or relative clock rates;
+it cannot be repaired by averaging the samples and discarding the disagreement.
+Long captures need fresh observations and a relation that accounts for drift,
+instead of extrapolating one offset indefinitely. Source nanosecond units alone
+provide no bound on oscillator accuracy relative to the host.
+
+Calibration can use the caller's existing submission and completion edges at
+capture boundaries. Continuous collection and ordinary dispatches require no
+extra completion wait. The caller owns those observations and their lifetime;
+libamdf retains no calibration history and adds no sampling to submission.
+The same host clock can relate GPU observations to this capture, after the
+GPU's own source relation is established. Sharing a device or a nominal rate
+does not establish that relation.
+
+The finite marker service supports the constant-rate, same-epoch duration
+conversion described above through `device_query_timer_clock_info`. Its cached
+buffer geometry leaves frequency zero; the explicit operating-rate query
+supplies the conversion rate. Unlike automatic firmware timestamps, markers
+require the caller to account for array-clock changes, gating and timer resets.
+Sampling the H-clock before and after work does not reveal intervening changes.
+The automatic firmware source avoids that array-clock dependency; admission of
+its native trace service remains a separate driver capability.
 
 ## Asynchronous host observation
 

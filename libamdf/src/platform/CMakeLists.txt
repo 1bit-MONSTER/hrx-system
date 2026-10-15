@@ -83,6 +83,35 @@ endif()
 if(AMDF_BUILD)
 iree_cc_library(
   NAME
+    observation
+  HDRS
+    "observation.h"
+  DEPS
+    amdf::headers
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+set(_native_observation_platform_deps "")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  list(APPEND _native_observation_platform_deps libamdf::src::platform::linux::observation)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+  list(APPEND _native_observation_platform_deps libamdf::src::platform::windows::observation)
+endif()
+iree_cc_library(
+  NAME
+    native_observation
+  DEPS
+    amdf::headers
+    ${_native_observation_platform_deps}
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_library(
+  NAME
     wait
   HDRS
     "wait.h"

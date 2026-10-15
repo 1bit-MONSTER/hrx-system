@@ -167,7 +167,8 @@ TEST_P(Pm4WaitTest, AlreadySatisfiedOperandAllowsFollowingWork) {
   commands.PadToEightWords();
   ASSERT_NO_FATAL_FAILURE(
       queue->Publish(api_, gpu_api_, commands.word_count()));
-  GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(values + 16), 1);
+  ASSERT_TRUE(
+      GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(values + 16), 1));
   // Observe payload before retirement queries can add synchronization.
   EXPECT_EQ(ReadWords(*control), expected);
   RecordProperty("memory_checked_bytes", kMemoryByteLength);
@@ -260,16 +261,19 @@ TEST_P(Pm4WaitTest, ConsumerWaitPrecedesProducerPublication) {
   // retirement that could substitute for the tested memory dependency.
   ASSERT_NO_FATAL_FAILURE(
       consumer->Publish(api_, gpu_api_, consume.word_count()));
-  GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(milestones + 8), 1);
+  ASSERT_TRUE(
+      GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(milestones + 8), 1));
   EXPECT_EQ(
       GpuLoadAcquire<uint32_t>(reinterpret_cast<uintptr_t>(milestones + 24)),
       0u);
   ASSERT_NO_FATAL_FAILURE(
       producer->Publish(api_, gpu_api_, produce.word_count()));
-  GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(milestones + 24), 1);
+  ASSERT_TRUE(
+      GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(milestones + 24), 1));
   // The consumer's own marker must suffice for observing its output.
   EXPECT_EQ(ReadWords(*target), expected_target);
-  GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(milestones + 16), 1);
+  ASSERT_TRUE(
+      GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(milestones + 16), 1));
   EXPECT_EQ(ReadWords(*intermediate), expected_intermediate);
   EXPECT_EQ(ReadWords(*control), expected_control);
   EXPECT_EQ(ReadWords(*source), expected_source);
@@ -346,7 +350,8 @@ TEST_F(Pm4UnconditionalWaitTest, BothWidthsContinueForEveryOperandRelation) {
   commands.PadToEightWords();
   ASSERT_NO_FATAL_FAILURE(
       queue->Publish(api_, gpu_api_, commands.word_count()));
-  GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(values + 128), 1);
+  ASSERT_TRUE(
+      GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(values + 128), 1));
   EXPECT_EQ(ReadWords(*control), expected);
   RecordProperty("wait_comparison", 0);
   RecordProperty("wait_count", std::size(cases));

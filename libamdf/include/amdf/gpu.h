@@ -10,6 +10,7 @@
 #include <stdint.h>
 
 #include "amdf/amdf.h"
+#include "amdf/observation.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,8 +19,11 @@ extern "C" {
 /// The first supported GPU extension version.
 #define AMDF_GPU_EXTENSION_VERSION_1 1u
 
+/// First version exposing nominal queue-clock units and native clock samples.
+#define AMDF_GPU_EXTENSION_VERSION_2 2u
+
 /// The most recent GPU extension version described by this header.
-#define AMDF_GPU_EXTENSION_VERSION_LATEST AMDF_GPU_EXTENSION_VERSION_1
+#define AMDF_GPU_EXTENSION_VERSION_LATEST AMDF_GPU_EXTENSION_VERSION_2
 
 /// An `amdf_gpu_endpoint_info_t` output structure.
 #define AMDF_STRUCTURE_TYPE_GPU_ENDPOINT_INFO \
@@ -251,6 +255,13 @@ enum amdf_gpu_pm4_format_feature_bits_e {
 /// dword-aligned and never straddle ring wrap. NOP dwords have value zero.
 /// Optional commands and field layouts use the reported format features.
 /// Kernel publication accepts an immutable dword-aligned command stream.
+/// TIMESTAMP_GET_GLOBAL uses three dwords: opcode 13/suboperation 2 followed
+/// by the low and high halves of a 32-byte-aligned destination address. It
+/// writes eight raw GPU-clock bytes after preceding commands complete. The
+/// optional MEMORY_SCOPE feature places SYS (3) at header bits 25:24; other
+/// policy bits remain zero. A separate completion after the sample and the
+/// memory edge's cache actions establish result visibility. Sampling neither
+/// returns a host-correlated time nor supplies a slot-reuse notification.
 /// Device publication requires command stores to be visible at system scope
 /// before the write index is published; a device-scope release alone does not
 /// establish SDMA fetch visibility. The write index and doorbell use aligned
@@ -371,7 +382,7 @@ enum amdf_gpu_sdma_format_feature_bits_e {
 /// observes command-processor progress and does not complete shader work.
 #define AMDF_GPU_AQL_QUEUE_FORMAT_VERSION_1 1u
 
-/// Optional native AQL packets reported in `format_features`.
+/// Optional native AQL operations reported in `format_features`.
 enum amdf_gpu_aql_format_feature_bits_e {
   /// AMD vendor format 2 BARRIER_VALUE waits until (signal_value & mask)
   /// satisfies the signed 64-bit HSA comparison against its reference value.
@@ -380,6 +391,9 @@ enum amdf_gpu_aql_format_feature_bits_e {
   /// the last dependent execution completion. Ordinary dispatch, BARRIER_AND,
   /// and BARRIER_OR support does not imply this vendor extension.
   AMDF_GPU_AQL_FORMAT_FEATURE_BARRIER_VALUE = UINT64_C(1) << 4,
+  /// Queue creation accepts AMDF_GPU_USER_QUEUE_FLAG_DISPATCH_TIMESTAMPS.
+  /// Availability does not enable capture; the caller selects it at creation.
+  AMDF_GPU_AQL_FORMAT_FEATURE_DISPATCH_TIMESTAMPS = UINT64_C(1) << 5,
 };
 
 /// Scratch backing borrowed by one directly published compute queue.
@@ -418,6 +432,30 @@ typedef struct amdf_gpu_queue_scratch_t {
   uint32_t maximum_wave_count;
 } amdf_gpu_queue_scratch_t;
 
+/// Immutable options selected when a directly published GPU queue is created.
+typedef uint32_t amdf_gpu_user_queue_flags_t;
+enum amdf_gpu_user_queue_flag_bits_e {
+  /// Enables AQL firmware dispatch timestamps for the queue's lifetime.
+  /// Requires the AQL DISPATCH_TIMESTAMPS format feature. PM4 and SDMA use
+  /// explicit timestamp commands and reject this option.
+  ///
+  /// A dispatch with its own native completion signal writes unsigned 64-bit
+  /// start/end ticks at bytes 32/40 of that 64-byte signal block. The caller
+  /// initializes both fields to zero, gives the signal to only one outstanding
+  /// dispatch, acquires its completion, and consumes both fields before reuse.
+  /// Rearming the signal value does not clear old timestamps. A shared signal
+  /// or a later barrier's completion cannot identify individual intervals.
+  ///
+  /// The interval spans firmware packet processing, not exact first/last
+  /// shader instructions. device_query_queue_clock_info supplies the nominal
+  /// tick rate; it supplies no host epoch, cross-queue offset, or continuity
+  /// across device resets. A resident dispatch has only its outer interval.
+  ///
+  /// This option adds firmware timestamp writes, not library-owned signals,
+  /// collection, or synchronization. Zero flags leave capture disabled.
+  AMDF_GPU_USER_QUEUE_FLAG_DISPATCH_TIMESTAMPS = 1u << 0,
+};
+
 /// Parameters used to acquire one directly published GPU queue.
 typedef struct amdf_gpu_user_queue_create_info_t {
   /// Must be `AMDF_STRUCTURE_TYPE_GPU_USER_QUEUE_CREATE_INFO`.
@@ -432,8 +470,8 @@ typedef struct amdf_gpu_user_queue_create_info_t {
   amdf_queue_priority_t priority;
   /// Required producer reservation protocol.
   amdf_queue_producer_mode_t producer_mode;
-  /// Reserved for compatible growth and must be zero.
-  uint32_t reserved;
+  /// Immutable queue options. Unknown bits are invalid.
+  amdf_gpu_user_queue_flags_t flags;
   /// Direct producer capabilities that creation must achieve.
   /// Optional device publication must be requested here; mapping does not
   /// upgrade a queue's achieved capabilities. A family capability describes
@@ -609,6 +647,51 @@ typedef struct amdf_gpu_api_t {
       amdf_device_t* device,
       const amdf_gpu_user_queue_create_info_t* create_info,
       amdf_user_queue_t** out_queue);
+
+  /// Queries the nominal timestamp rate for an admitted queue family.
+  /// Available from GPU extension version 2.
+  ///
+  /// PM4/AQL GPU-clock samples and SDMA GET_GLOBAL samples use this rate;
+  /// shader cycle counters and performance-event counts do not. The family
+  /// ordinal belongs to device's endpoint. Success publishes a nonzero rate;
+  /// unavailable native metadata returns UNSUPPORTED. Meaningful counter width
+  /// is zero when the native interface does not establish it. Failure leaves
+  /// out_info unchanged.
+  ///
+  /// Rate does not establish a shared epoch between queues, devices or native
+  /// driver clock queries, nor bounded oscillator accuracy against a host
+  /// clock. Correlation uses independently attributed samples from the actual
+  /// event source. Reset or loss of that source invalidates its relation.
+  ///
+  /// This explicit cold query may enter the driver. It creates no queue,
+  /// allocation, collector or retained calibration state and waits for no
+  /// application work. It is thread-safe with submission and other queries;
+  /// the caller keeps device live through the call.
+  amdf_status_t(AMDF_CALL* device_query_queue_clock_info)(
+      amdf_device_t* device, uint32_t queue_family_ordinal,
+      amdf_observation_clock_info_t* out_info);
+
+  /// Samples the native driver's device and host clocks for a queue family.
+  /// Available from GPU extension version 2. The host tuple uses the common
+  /// observation extension clock, so consumers need no native clock calls.
+  ///
+  /// The native service selects the device/partition clock on Linux and the
+  /// admitted engine node on Windows. This sample's device epoch is the native
+  /// query's epoch. Its relation to queue-written timestamps must be
+  /// established for that source; neither equal rates nor one physical device
+  /// implies it. host.before/after bracket the native query, including
+  /// scheduling delay; host.timestamp is the paired native host observation,
+  /// not a simultaneous sampling guarantee. No error bound on physical clock
+  /// drift is implied.
+  ///
+  /// This explicit cold operation enters the driver and reads host clocks.
+  /// It allocates nothing, retains no state, submits no commands, performs no
+  /// retries, and waits for no application work. The caller keeps device live
+  /// and owns sampling cadence and calibration. Failure leaves out_sample
+  /// unchanged; unavailable native sampling returns UNSUPPORTED.
+  amdf_status_t(AMDF_CALL* device_query_clock_sample)(
+      amdf_device_t* device, uint32_t queue_family_ordinal,
+      amdf_observation_clock_sample_t* out_sample);
 } amdf_gpu_api_t;
 
 #ifdef __cplusplus

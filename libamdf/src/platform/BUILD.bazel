@@ -66,6 +66,27 @@ amdf_cc_library(
 )
 
 amdf_cc_library(
+    name = "observation",
+    hdrs = ["observation.h"],
+    visibility = ["//libamdf/src:__subpackages__"],
+)
+
+amdf_cc_library(
+    name = "native_observation",
+    target_compatible_with = select({
+        "@platforms//os:linux": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    visibility = ["//libamdf/src:__subpackages__"],
+    deps = select({
+        "@platforms//os:linux": ["//libamdf/src/platform/linux:observation"],
+        "@platforms//os:windows": ["//libamdf/src/platform/windows:observation"],
+        "//conditions:default": [],
+    }),
+)
+
+amdf_cc_library(
     name = "wait",
     hdrs = ["wait.h"],
     visibility = ["//libamdf/src:__subpackages__"],

@@ -15,6 +15,7 @@
 #include "amdf/gpu.h"
 #include "gpu_device_fixture.h"
 #include "gtest/gtest.h"
+#include "util/wait.h"
 
 namespace {
 
@@ -383,7 +384,8 @@ class GpuKernelQueueTest : public GpuDeviceFixture {
       // exact prefix before reporting rejection or reusing any backing.
       if (last_submission != 0) {
         const auto wait_status = api_->kernel_queue_wait(
-            queue_, last_submission, AMDF_TIMEOUT_INFINITE, 0);
+            queue_, last_submission, amdf::cts::kWaitTimeoutNs,
+            amdf::cts::kWaitPollIntervalNs);
         if (amdf_status_is_ok(wait_status)) {
           indirect_memory_may_be_in_use_ = false;
         }
@@ -528,14 +530,17 @@ TEST_F(Pm4KernelQueueTest, ExecutesMaterializedCopyData) {
   ASSERT_TRUE(amdf_status_is_ok(api_->host_mapping_destroy(mapping_)));
   mapping_ = nullptr;
 
-  // Poll checked progress without an exact-point native wait. The outer CTS
-  // harness bounds a hang; successful retirement still gates result access.
+  // Poll checked progress without an exact-point native wait. Successful
+  // retirement still gates result access, including after deadline failure.
+  const amdf::cts::WaitDeadline deadline;
   while (queue_status.retired_submission < submission) {
     ASSERT_EQ(api_->kernel_queue_refresh_status(queue_, &queue_status),
               AMDF_STATUS_OK);
     ASSERT_EQ(queue_status.terminal_status, AMDF_STATUS_OK);
     if (queue_status.retired_submission < submission) {
-      std::this_thread::yield();
+      ASSERT_TRUE(deadline.Pause())
+          << "retired " << queue_status.retired_submission << ", waiting for "
+          << submission;
     }
   }
   indirect_memory_may_be_in_use_ = false;
@@ -631,7 +636,7 @@ TEST_F(SdmaKernelQueueTest, ExecutesMaterializedSdmaCopy) {
       gpu_api_->kernel_queue_submit(queue_, &submission_info, &submission)));
   indirect_memory_may_be_in_use_ = true;
   ASSERT_TRUE(amdf_status_is_ok(api_->kernel_queue_wait(
-      queue_, submission, AMDF_TIMEOUT_INFINITE, UINT64_C(50000))));
+      queue_, submission, amdf::cts::kWaitTimeoutNs, UINT64_C(50000))));
   indirect_memory_may_be_in_use_ = false;
 
   ASSERT_TRUE(amdf_status_is_ok(api_->host_mapping_cache_control(
@@ -701,7 +706,7 @@ TEST_F(Pm4KernelQueueTest, CopiesThroughDeviceLocalExecutableMemory) {
   indirect_memory_may_be_in_use_ = true;
 
   ASSERT_TRUE(amdf_status_is_ok(api_->kernel_queue_wait(
-      queue_, submission, AMDF_TIMEOUT_INFINITE, UINT64_C(50000))));
+      queue_, submission, amdf::cts::kWaitTimeoutNs, UINT64_C(50000))));
   indirect_memory_may_be_in_use_ = false;
   ASSERT_TRUE(amdf_status_is_ok(api_->host_mapping_cache_control(
       mapping_, AMDF_HOST_CACHE_OPERATION_INVALIDATE, kTargetByteOffset,
@@ -782,7 +787,7 @@ TEST_F(Pm4KernelQueueTest, ExecutesDeviceLocalCommandStream) {
       queue_, &submission_info, &upload_submission)));
   indirect_memory_may_be_in_use_ = true;
   ASSERT_TRUE(amdf_status_is_ok(api_->kernel_queue_wait(
-      queue_, upload_submission, AMDF_TIMEOUT_INFINITE, UINT64_C(50000))));
+      queue_, upload_submission, amdf::cts::kWaitTimeoutNs, UINT64_C(50000))));
   indirect_memory_may_be_in_use_ = false;
   ASSERT_TRUE(amdf_status_is_ok(api_->host_mapping_cache_control(
       mapping_, AMDF_HOST_CACHE_OPERATION_INVALIDATE,
@@ -803,7 +808,7 @@ TEST_F(Pm4KernelQueueTest, ExecutesDeviceLocalCommandStream) {
       queue_, &submission_info, &local_submission)));
   indirect_memory_may_be_in_use_ = true;
   ASSERT_TRUE(amdf_status_is_ok(api_->kernel_queue_wait(
-      queue_, local_submission, AMDF_TIMEOUT_INFINITE, UINT64_C(50000))));
+      queue_, local_submission, amdf::cts::kWaitTimeoutNs, UINT64_C(50000))));
   indirect_memory_may_be_in_use_ = false;
 
   ASSERT_TRUE(amdf_status_is_ok(api_->host_mapping_cache_control(

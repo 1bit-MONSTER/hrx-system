@@ -412,4 +412,59 @@ iree_c_embed_data(
 )
 endif()
 
+if(AMDF_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND AMDF_FAMILY_XDNA)
+loom_kernel_binary(
+  NAME
+    "recurrence_i32_npu4"
+  COMPONENT
+    "//libamdf/cts/xdna/programs:recurrence_i32_npu4"
+  TARGET
+    "::npu4"
+  OUTPUT
+    "recurrence_i32_npu4.xdna"
+  SRCS
+    "recurrence_i32.loom"
+  ROOTS
+    "@recurrence_i32"
+  TESTONLY
+)
+endif()
+
+if(AMDF_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND AMDF_FAMILY_XDNA)
+loom_kernel_binary(
+  NAME
+    "recurrence_i32_npu5"
+  COMPONENT
+    "//libamdf/cts/xdna/programs:recurrence_i32_npu5"
+  TARGET
+    "::npu5"
+  OUTPUT
+    "recurrence_i32_npu5.xdna"
+  SRCS
+    "recurrence_i32.loom"
+  ROOTS
+    "@recurrence_i32"
+  TESTONLY
+)
+endif()
+
+if(AMDF_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND AMDF_FAMILY_XDNA)
+iree_c_embed_data(
+  NAME
+    recurrence_i32
+  SRCS
+    "${CMAKE_CURRENT_BINARY_DIR}/recurrence_i32_npu4.xdna"
+    "${CMAKE_CURRENT_BINARY_DIR}/recurrence_i32_npu5.xdna"
+  C_FILE_OUTPUT
+    "recurrence_i32.c"
+  H_FILE_OUTPUT
+    "recurrence_i32.h"
+  IDENTIFIER
+    "amdf_cts_xdna_recurrence_i32"
+  TESTONLY
+  FLATTEN
+  PUBLIC
+)
+endif()
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

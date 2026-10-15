@@ -16,6 +16,7 @@
 #include "amdf/xdna.h"
 #include "gtest/gtest.h"
 #include "util/native_event.h"
+#include "util/wait.h"
 #include "xdna_device_fixture.h"
 
 namespace {
@@ -329,7 +330,8 @@ class XdnaKernelQueueTest : public XdnaContextFixture {
       // A rejected suffix does not cancel its accepted prefix.
       if (last != 0) {
         ASSERT_EQ(
-            api_->kernel_queue_wait(queue_, last, AMDF_TIMEOUT_INFINITE, 0),
+            api_->kernel_queue_wait(queue_, last, amdf::cts::kWaitTimeoutNs,
+                                    amdf::cts::kWaitPollIntervalNs),
             AMDF_STATUS_OK);
       }
       ASSERT_EQ(status, AMDF_STATUS_OK);
@@ -403,8 +405,9 @@ class XdnaKernelQueueNotificationTest : public XdnaKernelQueueTest {
     notification_pending_ = true;
   }
 
-  void ConsumeNotification() {
-    ASSERT_TRUE(amdf::cts::WaitNativeEvent(event_));
+  void ConsumeNotification(
+      amdf::cts::WaitDeadline deadline = amdf::cts::WaitDeadline()) {
+    ASSERT_TRUE(amdf::cts::WaitNativeEvent(event_, deadline));
     notification_pending_ = false;
   }
 
@@ -415,10 +418,14 @@ class XdnaKernelQueueNotificationTest : public XdnaKernelQueueTest {
     };
     ASSERT_EQ(api_->kernel_queue_query_status(queue_, &checked),
               AMDF_STATUS_OK);
+    const amdf::cts::WaitDeadline deadline;
     while (checked.retired_submission < last) {
+      ASSERT_NE(deadline.remaining_ns(), 0u)
+          << "retired " << checked.retired_submission << ", waiting for "
+          << last;
       // Use an actual accepted point; public identities need not be dense.
       ASSERT_NO_FATAL_FAILURE(RequestNotification(last));
-      ASSERT_NO_FATAL_FAILURE(ConsumeNotification());
+      ASSERT_NO_FATAL_FAILURE(ConsumeNotification(deadline));
       ASSERT_EQ(api_->kernel_queue_refresh_status(queue_, &checked),
                 AMDF_STATUS_OK);
       ASSERT_EQ(checked.terminal_status, AMDF_STATUS_OK);
@@ -497,7 +504,8 @@ TEST_F(XdnaKernelQueueNotificationTest,
   uint64_t first = 0;
   ASSERT_EQ(xdna_api_->kernel_queue_submit(queue_, &submit, &first),
             AMDF_STATUS_OK);
-  ASSERT_EQ(api_->kernel_queue_wait(queue_, first, AMDF_TIMEOUT_INFINITE, 0),
+  ASSERT_EQ(api_->kernel_queue_wait(queue_, first, amdf::cts::kWaitTimeoutNs,
+                                    amdf::cts::kWaitPollIntervalNs),
             AMDF_STATUS_OK);
 
   // Already-checked requests signal before return, so both notifications are
@@ -563,7 +571,8 @@ TEST_F(XdnaKernelQueueTest, SubmitsImmutableRangesAndReacquiresQueue) {
     EXPECT_EQ(status.retired_submission, previous_submission);
     EXPECT_EQ(status.terminal_status, AMDF_STATUS_OK);
     ASSERT_EQ(
-        api_->kernel_queue_wait(queue_, submission, AMDF_TIMEOUT_INFINITE, 0),
+        api_->kernel_queue_wait(queue_, submission, amdf::cts::kWaitTimeoutNs,
+                                amdf::cts::kWaitPollIntervalNs),
         AMDF_STATUS_OK);
     ASSERT_EQ(api_->kernel_queue_query_status(queue_, &status), AMDF_STATUS_OK);
     EXPECT_EQ(status.retired_submission, submission);
@@ -587,7 +596,8 @@ TEST_F(XdnaKernelQueueTest, SubmitsImmutableRangesAndReacquiresQueue) {
             AMDF_STATUS_OK);
   EXPECT_NE(submission, 0u);
   ASSERT_EQ(
-      api_->kernel_queue_wait(queue_, submission, AMDF_TIMEOUT_INFINITE, 0),
+      api_->kernel_queue_wait(queue_, submission, amdf::cts::kWaitTimeoutNs,
+                              amdf::cts::kWaitPollIntervalNs),
       AMDF_STATUS_OK);
 }
 
@@ -632,8 +642,8 @@ TEST_F(XdnaKernelQueueTest, RefreshRetiresBatchesAndReusesPacketStorage) {
       ASSERT_EQ(xdna_api_->kernel_queue_submit(queue_, &submit, &last),
                 AMDF_STATUS_OK);
     }
-    // This caller explicitly polls checked progress. The outer CTS harness
-    // bounds a hang; no execution deadline or native wait changes the result.
+    // This caller explicitly polls checked progress with one bounded budget.
+    const amdf::cts::WaitDeadline deadline;
     while (checked.retired_submission < last) {
       const uint64_t previous = checked.retired_submission;
       ASSERT_EQ(api_->kernel_queue_refresh_status(queue_, &checked),
@@ -642,7 +652,9 @@ TEST_F(XdnaKernelQueueTest, RefreshRetiresBatchesAndReusesPacketStorage) {
       EXPECT_GE(checked.retired_submission, previous);
       ASSERT_LE(checked.retired_submission, last);
       if (checked.retired_submission < last) {
-        std::this_thread::yield();
+        ASSERT_TRUE(deadline.Pause())
+            << "retired " << checked.retired_submission << ", waiting for "
+            << last;
       }
     }
     ASSERT_EQ(api_->kernel_queue_query_status(queue_, &checked),
@@ -702,7 +714,8 @@ TEST_F(XdnaKernelQueueTest, PrivateBackingIsQualifiedByExactContext) {
   ASSERT_EQ(xdna_api_->kernel_queue_submit(queue_, &submit, &submission),
             AMDF_STATUS_OK);
   ASSERT_EQ(
-      api_->kernel_queue_wait(queue_, submission, AMDF_TIMEOUT_INFINITE, 0),
+      api_->kernel_queue_wait(queue_, submission, amdf::cts::kWaitTimeoutNs,
+                              amdf::cts::kWaitPollIntervalNs),
       AMDF_STATUS_OK);
 }
 
@@ -790,7 +803,8 @@ TEST_F(XdnaKernelQueueTest,
     ASSERT_EQ(xdna_api_->kernel_queue_submit(queue_, &submit, &submission),
               AMDF_STATUS_OK);
     ASSERT_EQ(
-        api_->kernel_queue_wait(queue_, submission, AMDF_TIMEOUT_INFINITE, 0),
+        api_->kernel_queue_wait(queue_, submission, amdf::cts::kWaitTimeoutNs,
+                                amdf::cts::kWaitPollIntervalNs),
         AMDF_STATUS_OK);
   }
   ASSERT_EQ(api_->host_mapping_cache_control(

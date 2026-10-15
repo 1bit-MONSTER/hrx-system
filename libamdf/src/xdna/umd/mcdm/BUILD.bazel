@@ -201,6 +201,7 @@ amdf_cc_library(
         "//libamdf/src/xdna:transaction_interpreter",
         "//libamdf/src/xdna/umd:context",
         "//libamdf/src/xdna/umd:kernel_queue",
+        "//libamdf/src/xdna/umd:result_buffer",
     ],
 )
 
@@ -248,10 +249,13 @@ amdf_cc_library(
     target_compatible_with = MCDM_COMPATIBILITY,
     visibility = ["//libamdf/src/xdna:__pkg__"],
     deps = [
+        ":clock",
         ":context",
         ":device",
+        ":firmware_trace",
         ":kernel_queue",
         ":memory",
+        ":result_buffer",
     ],
 )
 
@@ -356,10 +360,74 @@ amdf_cc_test(
         ":kernel_execution",
         ":kernel_queue",
         ":memory",
+        ":result_buffer",
         "//libamdf/src:allocator",
         "//libamdf/src/xdna:device_profile",
         "//libamdf/src/xdna/umd:kernel_queue",
         "//libamdf/src/xdna/umd:memory",
+        "//libamdf/src/xdna/umd:result_buffer",
+        "//third_party:google_test",
+        "//third_party:google_test_main",
+    ],
+)
+
+amdf_cc_library(
+    name = "firmware_trace",
+    srcs = ["firmware_trace.c"],
+    target_compatible_with = MCDM_COMPATIBILITY,
+    deps = [
+        ":device_state",
+        "//libamdf/src/platform/windows:kmt_api",
+        "//libamdf/src/xdna/umd:firmware_trace",
+    ],
+)
+
+amdf_cc_test(
+    name = "firmware_trace_test",
+    srcs = ["firmware_trace_test.cc"],
+    target_compatible_with = MCDM_COMPATIBILITY,
+    deps = [
+        ":device_state",
+        ":firmware_trace",
+        "//libamdf/src/platform/windows:kmt_api",
+        "//libamdf/src/xdna/umd:firmware_trace",
+        "//third_party:google_test",
+        "//third_party:google_test_main",
+    ],
+)
+
+amdf_cc_library(
+    name = "result_buffer",
+    srcs = ["result_buffer.c"],
+    target_compatible_with = MCDM_COMPATIBILITY,
+    deps = [
+        ":context_state",
+        ":kernel_execution",
+        ":memory",
+        ":memory_profile",
+        "//libamdf/src/xdna/umd:result_buffer",
+    ],
+)
+
+amdf_cc_library(
+    name = "clock",
+    srcs = ["clock.c"],
+    target_compatible_with = MCDM_COMPATIBILITY,
+    deps = [
+        ":device_state",
+        "//libamdf/src/platform/windows:kmt_api",
+        "//libamdf/src/xdna/umd:clock",
+    ],
+)
+
+amdf_cc_test(
+    name = "clock_test",
+    srcs = ["clock_test.cc"],
+    target_compatible_with = MCDM_COMPATIBILITY,
+    deps = [
+        ":clock",
+        ":device_state",
+        "//libamdf/src/xdna/umd:clock",
         "//third_party:google_test",
         "//third_party:google_test_main",
     ],

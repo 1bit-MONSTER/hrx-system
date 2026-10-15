@@ -210,7 +210,7 @@ TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
     signals[1].value = 1;
 
     GpuStoreRelease(queue->host.write_index_address, next_packet_index + 1);
-    aql::Publish(*queue, next_packet_index++, cache_packet);
+    ASSERT_TRUE(aql::Publish(*queue, next_packet_index++, cache_packet));
     // Ring consumption alone is not code publication. Complete the explicit
     // unpredicated cache command before making the dispatch reachable.
     ASSERT_NO_FATAL_FAILURE(
@@ -226,8 +226,9 @@ TEST_F(AqlDispatchTest, ReplacesCompletedExecutableAtSameAddress) {
         control->device_address + sizeof(aql::Signal),
         {aql::FenceScope::kSystem, aql::FenceScope::kSystem});
     GpuStoreRelease(queue->host.write_index_address, next_packet_index + 1);
-    aql::Publish(*queue, next_packet_index++, dispatch_packet);
-    GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signals[1].value), 0);
+    ASSERT_TRUE(aql::Publish(*queue, next_packet_index++, dispatch_packet));
+    ASSERT_TRUE(GpuWaitEqual<int64_t>(
+        reinterpret_cast<uintptr_t>(&signals[1].value), 0));
 
     // Capture every initialized extent before diagnostics or ring retirement.
     std::memcpy(observed_output.data(), output->host.pointer,
@@ -486,7 +487,7 @@ TEST_F(AqlDispatchTest, ReplacesCompletedImmutableDataAtSameAddress) {
     signals[1].value = 1;
 
     GpuStoreRelease(queue->host.write_index_address, next_packet_index + 1);
-    aql::Publish(*queue, next_packet_index++, cache_packet);
+    ASSERT_TRUE(aql::Publish(*queue, next_packet_index++, cache_packet));
     ASSERT_NO_FATAL_FAILURE(
         WaitCompletionAndConsumption(*queue, signals[0], next_packet_index));
     const auto dispatch_packet = aql::Dispatch(
@@ -500,8 +501,9 @@ TEST_F(AqlDispatchTest, ReplacesCompletedImmutableDataAtSameAddress) {
         control->device_address + sizeof(aql::Signal),
         {aql::FenceScope::kSystem, aql::FenceScope::kSystem});
     GpuStoreRelease(queue->host.write_index_address, next_packet_index + 1);
-    aql::Publish(*queue, next_packet_index++, dispatch_packet);
-    GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signals[1].value), 0);
+    ASSERT_TRUE(aql::Publish(*queue, next_packet_index++, dispatch_packet));
+    ASSERT_TRUE(GpuWaitEqual<int64_t>(
+        reinterpret_cast<uintptr_t>(&signals[1].value), 0));
 
     std::memcpy(observed_output.data(), output->host.pointer,
                 sizeof(observed_output));

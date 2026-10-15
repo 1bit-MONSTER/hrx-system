@@ -232,10 +232,10 @@ class SdmaRectangularCopyTest : public GpuCommandTest {
         ASSERT_EQ(commands.word_count(), (completed + 1) * words_per_transfer);
         ASSERT_NO_FATAL_FAILURE(
             queue->Publish(api_, gpu_api_, commands.word_count()));
-        GpuWaitEqual<uint32_t>(
+        ASSERT_TRUE(GpuWaitEqual<uint32_t>(
             reinterpret_cast<uintptr_t>(control->host.pointer) +
                 kCompletionOffset,
-            marker);
+            marker));
         // Capture complete backing before diagnostics or retirement can
         // intervene.
         std::memcpy(observed_source.data(), source->host.pointer,

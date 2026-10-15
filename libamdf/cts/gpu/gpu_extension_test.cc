@@ -4,6 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <vector>
@@ -39,13 +40,48 @@ TEST(GpuExtensionTest, ReportsCompiledAvailabilityBeforeCreatingInstance) {
 
   ASSERT_NE(gpu_api, nullptr);
   EXPECT_EQ(gpu_api->structure_size, sizeof(amdf_gpu_api_t));
-  EXPECT_EQ(gpu_api->extension_version, AMDF_GPU_EXTENSION_VERSION_1);
+  EXPECT_EQ(gpu_api->extension_version, AMDF_GPU_EXTENSION_VERSION_LATEST);
   EXPECT_NE(gpu_api->endpoint_query_info, nullptr);
   EXPECT_NE(gpu_api->device_create, nullptr);
   EXPECT_NE(gpu_api->device_query_info, nullptr);
   EXPECT_NE(gpu_api->kernel_queue_create, nullptr);
   EXPECT_NE(gpu_api->kernel_queue_submit, nullptr);
   EXPECT_NE(gpu_api->user_queue_create, nullptr);
+  EXPECT_NE(gpu_api->device_query_queue_clock_info, nullptr);
+  EXPECT_NE(gpu_api->device_query_clock_sample, nullptr);
+}
+
+TEST(GpuExtensionTest, NegotiatesOriginalTableExtent) {
+  const amdf_api_t* api = QueryApi();
+  ASSERT_NE(api, nullptr);
+  const void* extension = nullptr;
+  ASSERT_EQ(
+      api->query_extension(AMDF_EXTENSION_GPU, AMDF_GPU_EXTENSION_VERSION_1,
+                           AMDF_GPU_EXTENSION_VERSION_1, &extension),
+      AMDF_STATUS_OK);
+  const auto* gpu = static_cast<const amdf_gpu_api_t*>(extension);
+  EXPECT_EQ(gpu->extension_version, AMDF_GPU_EXTENSION_VERSION_1);
+  EXPECT_EQ(gpu->structure_size,
+            offsetof(amdf_gpu_api_t, device_query_queue_clock_info));
+  EXPECT_NE(gpu->user_queue_create, nullptr);
+}
+
+TEST(GpuExtensionTest, RejectsNullClockDeviceWithoutPublishingOutput) {
+  const amdf_api_t* api = QueryApi();
+  ASSERT_NE(api, nullptr);
+  const amdf_gpu_api_t* gpu = QueryGpuApi(api);
+  ASSERT_NE(gpu, nullptr);
+  const amdf_observation_clock_info_t sentinel = {UINT64_MAX, UINT32_MAX, 17};
+  amdf_observation_clock_info_t info = sentinel;
+  EXPECT_EQ(gpu->device_query_queue_clock_info(nullptr, 0, &info),
+            amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT));
+  EXPECT_EQ(std::memcmp(&info, &sentinel, sizeof(info)), 0);
+  amdf_observation_clock_sample_t sample_sentinel;
+  std::memset(&sample_sentinel, 0x5a, sizeof(sample_sentinel));
+  auto sample = sample_sentinel;
+  EXPECT_EQ(gpu->device_query_clock_sample(nullptr, 0, &sample),
+            amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT));
+  EXPECT_EQ(std::memcmp(&sample, &sample_sentinel, sizeof(sample)), 0);
 }
 
 TEST(GpuExtensionTest, ReturnsStableImmutableTable) {
@@ -349,6 +385,33 @@ TEST_F(GpuEndpointTest, MaterializesProgramIndependentDevice) {
 
   EXPECT_EQ(amdf_status_code(api_->endpoint_close(endpoint_)),
             AMDF_STATUS_CODE_BUSY);
+}
+
+TEST_F(GpuEndpointTest, RejectsClockQueryArgumentsWithoutPublishingOutput) {
+  bool engine_found = false;
+  ASSERT_EQ(OpenEngine(AMDF_ENGINE_KIND_GPU, &engine_found), AMDF_STATUS_OK);
+  if (!engine_found) {
+    GTEST_SKIP() << "no GPU endpoint present";
+  }
+  ASSERT_NO_FATAL_FAILURE(SetUpDevice());
+  if (IsSkipped()) {
+    return;
+  }
+  EXPECT_EQ(gpu_api_->device_query_queue_clock_info(device_, 0, nullptr),
+            amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT));
+  const amdf_observation_clock_info_t sentinel = {UINT64_MAX, UINT32_MAX, 17};
+  amdf_observation_clock_info_t info = sentinel;
+  EXPECT_EQ(gpu_api_->device_query_queue_clock_info(device_, UINT32_MAX, &info),
+            amdf_make_api_status(AMDF_STATUS_CODE_OUT_OF_RANGE));
+  EXPECT_EQ(std::memcmp(&info, &sentinel, sizeof(info)), 0);
+  EXPECT_EQ(gpu_api_->device_query_clock_sample(device_, 0, nullptr),
+            amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT));
+  amdf_observation_clock_sample_t sample_sentinel;
+  std::memset(&sample_sentinel, 0x5a, sizeof(sample_sentinel));
+  auto sample = sample_sentinel;
+  EXPECT_EQ(gpu_api_->device_query_clock_sample(device_, UINT32_MAX, &sample),
+            amdf_make_api_status(AMDF_STATUS_CODE_OUT_OF_RANGE));
+  EXPECT_EQ(std::memcmp(&sample, &sample_sentinel, sizeof(sample)), 0);
 }
 
 TEST_F(GpuEndpointTest, RejectsMalformedDeviceInfoWithoutMutation) {

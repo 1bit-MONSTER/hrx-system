@@ -12,6 +12,7 @@
 #include "amdf/gpu.h"
 #include "gpu_device_fixture.h"
 #include "gtest/gtest.h"
+#include "util/wait.h"
 
 namespace {
 
@@ -238,8 +239,9 @@ class GpuMemoryInteropTest : public GpuDeviceFixture {
     if (!amdf_status_is_ok(status)) {
       return status;
     }
-    status = api_->kernel_queue_wait(access.queue, access.pending_submission,
-                                     AMDF_TIMEOUT_INFINITE, UINT64_C(50000));
+    status =
+        api_->kernel_queue_wait(access.queue, access.pending_submission,
+                                amdf::cts::kWaitTimeoutNs, UINT64_C(50000));
     if (amdf_status_is_ok(status)) {
       access.pending_submission = 0;
     }

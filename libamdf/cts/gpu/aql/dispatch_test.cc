@@ -107,9 +107,10 @@ TEST_F(AqlDispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
                       kernel.group_segment_byte_length, descriptor_address,
                       arguments->device_address, completion->device_address);
     GpuStoreRelease(queue->host.write_index_address, index + 1);
-    aql::Publish(*queue, index++, packet);
+    ASSERT_TRUE(aql::Publish(*queue, index++, packet));
     // Snapshot completion-visible data before diagnostics or ring retirement.
-    GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0);
+    ASSERT_TRUE(
+        GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0));
     std::memcpy(download.data(), output->host.pointer, sizeof(download));
     std::memcpy(unchanged_input.data(), input->host.pointer,
                 sizeof(unchanged_input));
@@ -318,8 +319,9 @@ TEST_F(AqlDispatchTest, HostPublishesDeviceLocalKernargsAcrossEpochs) {
                       kernel.group_segment_byte_length, descriptor_address,
                       arguments->device_address, completion->device_address);
     GpuStoreRelease(queue->host.write_index_address, index + 1);
-    aql::Publish(*queue, index++, packet);
-    GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0);
+    ASSERT_TRUE(aql::Publish(*queue, index++, packet));
+    ASSERT_TRUE(
+        GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0));
     std::memcpy(download.data(), output->host.pointer, sizeof(download));
     for (uint32_t i = 0; i < kWordCount; ++i) {
       EXPECT_EQ(download[i], expected[i]) << "epoch=" << epoch << " word=" << i;
@@ -479,14 +481,15 @@ TEST_F(AqlDispatchTest,
     // Reserve only after constructing every packet. The consumer's header
     // joins producer completion; null dispatch completions keep their fences.
     GpuStoreRelease(queue->host.write_index_address, index + kPacketsPerEpoch);
-    aql::Publish(*queue, index++, produce);
-    aql::Publish(*queue, index++, consume);
-    aql::Publish(*queue, index++, complete);
+    ASSERT_TRUE(aql::Publish(*queue, index++, produce));
+    ASSERT_TRUE(aql::Publish(*queue, index++, consume));
+    ASSERT_TRUE(aql::Publish(*queue, index++, complete));
 
     // The terminal header independently joins both dispatches, even if the
     // middle edge produced wrong data. Snapshot before any diagnostic or
     // consumption operation can add synchronization to these observations.
-    GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0);
+    ASSERT_TRUE(
+        GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0));
     std::memcpy(output_words.data(), output->host.pointer,
                 sizeof(output_words));
     std::memcpy(intermediate_words.data(), intermediate->host.pointer,

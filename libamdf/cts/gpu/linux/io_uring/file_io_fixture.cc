@@ -14,6 +14,8 @@
 #include <string>
 #include <thread>
 
+#include "util/wait.h"
+
 void GpuFileIoFixture::SetUp() {
   Pm4DispatchTest::SetUp();
   if (HasFatalFailure() || IsSkipped()) {
@@ -54,26 +56,29 @@ void GpuFileIoFixture::Execute(const kernels::Kernel& kernel,
 
   // Observe the actual idle transition instead of assuming a delay sleeps
   // the poller. The shader's first request then needs the ordinary wake path.
-  while ((ring_->parameters.flags & IORING_SETUP_SQPOLL) &&
-         !(GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.flags)) &
-           IORING_SQ_NEED_WAKEUP)) {
-    std::this_thread::yield();
-  }
+  ASSERT_TRUE(amdf::cts::WaitUntil("SQPOLL idle", [&] {
+    return !(ring_->parameters.flags & IORING_SETUP_SQPOLL) ||
+           (GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.flags)) &
+            IORING_SQ_NEED_WAKEUP);
+  }));
   ASSERT_NO_FATAL_FAILURE(
       queue->Publish(api_, gpu_api_, commands.word_count()));
   uint64_t wake_count = 0;
   uint64_t enter_count = 0;
   uint64_t wait_count = 0;
+  const amdf::cts::WaitDeadline deadline;
   while (GpuLoadAcquire<uint32_t>(
              reinterpret_cast<uintptr_t>(completion->host.pointer)) != 1) {
+    ASSERT_TRUE(deadline.Pause())
+        << "timed out waiting for file workload completion";
     RelayFileIo();
     if (!(ring_->parameters.flags & IORING_SETUP_SQPOLL)) {
       if (ring_->path == FileIoPath::kDeviceWait) {
-        ASSERT_NO_FATAL_FAILURE(ServiceDeviceIo(&enter_count, &wait_count));
+        ASSERT_NO_FATAL_FAILURE(
+            ServiceDeviceIo(&enter_count, &wait_count, deadline));
       } else {
-        ASSERT_NO_FATAL_FAILURE(ServiceHostIo(&enter_count));
+        ASSERT_NO_FATAL_FAILURE(ServiceHostIo(&enter_count, deadline));
       }
-      std::this_thread::yield();
       continue;
     }
     // Waking an idle kernel owner is separate from the optional control-record
@@ -90,7 +95,6 @@ void GpuFileIoFixture::Execute(const kernels::Kernel& kernel,
       ASSERT_EQ(result, 0) << "wake SQPOLL: " << std::strerror(errno);
       ++wake_count;
     }
-    std::this_thread::yield();
   }
   ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
   if (device_ring_memory_ != ring_->memory) {

@@ -152,8 +152,8 @@ class MemoryPairRecipeTest : public Pm4CommandTest {
           consumer->Publish(api_, gpu_api_, consumer_index));
       ASSERT_NO_FATAL_FAILURE(
           producer->Publish(api_, gpu_api_, producer_index));
-      GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(milestones + 16),
-                             epoch);
+      ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+          reinterpret_cast<uintptr_t>(milestones + 16), epoch));
       for (size_t i = 0; i < kWordCount; ++i) {
         EXPECT_EQ(output[i], input[i]) << i;
       }

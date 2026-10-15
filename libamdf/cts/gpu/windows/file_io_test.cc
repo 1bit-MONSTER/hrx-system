@@ -27,6 +27,7 @@
 #include "libamdf/cts/gpu/pm4/encoding/commands.h"
 #include "libamdf/cts/gpu/sdma/encoding/commands.h"
 #include "libamdf/cts/gpu/util/command_fixture.h"
+#include "util/wait.h"
 
 namespace {
 
@@ -81,6 +82,27 @@ class GpuFileIoTest
   }
 
   void TearDown() override {
+    if (operation_ != nullptr) {
+      const BOOL cancelled = CancelIoEx(file_, operation_);
+      const DWORD error = cancelled ? ERROR_SUCCESS : GetLastError();
+      EXPECT_TRUE(cancelled || error == ERROR_NOT_FOUND) << error;
+      // Cancellation only requests completion. Retain the OVERLAPPED and all
+      // payload owners if no completion packet proves native access has ended.
+      DWORD completed_length = 0;
+      ULONG_PTR key = 0;
+      OVERLAPPED* completed = nullptr;
+      const BOOL success =
+          GetQueuedCompletionStatus(port_, &completed_length, &key, &completed,
+                                    amdf::cts::WaitDeadline().remaining_ms());
+      const DWORD completion_error = success ? ERROR_SUCCESS : GetLastError();
+      ASSERT_EQ(completed, operation_)
+          << "I/O cancellation did not retire: " << completion_error;
+      delete operation_;
+      operation_ = nullptr;
+      EXPECT_EQ(key, kCompletionKey);
+      EXPECT_TRUE(success || completion_error == ERROR_OPERATION_ABORTED)
+          << completion_error;
+    }
     // Queue retirement and checked native detach precede freeing caller pages.
     ASSERT_NO_FATAL_FAILURE(GpuCommandTest::TearDown());
     for (void* allocation : host_allocations_) {
@@ -222,22 +244,31 @@ class GpuFileIoTest
     ASSERT_EQ(reinterpret_cast<uintptr_t>(buffer) % buffer_alignment_, 0u);
     ASSERT_EQ(byte_length % transfer_alignment_, 0u);
     ASSERT_EQ(file_offset % transfer_alignment_, 0u);
-    OVERLAPPED operation = {};
-    operation.Offset = static_cast<DWORD>(file_offset);
-    operation.OffsetHigh = static_cast<DWORD>(file_offset >> 32);
+    ASSERT_EQ(operation_, nullptr);
+    operation_ = new OVERLAPPED{};
+    operation_->Offset = static_cast<DWORD>(file_offset);
+    operation_->OffsetHigh = static_cast<DWORD>(file_offset >> 32);
     const BOOL accepted =
-        write ? WriteFile(file_, buffer, byte_length, nullptr, &operation)
-              : ReadFile(file_, buffer, byte_length, nullptr, &operation);
+        write ? WriteFile(file_, buffer, byte_length, nullptr, operation_)
+              : ReadFile(file_, buffer, byte_length, nullptr, operation_);
     const DWORD immediate_error = accepted ? ERROR_SUCCESS : GetLastError();
+    if (!accepted && immediate_error != ERROR_IO_PENDING) {
+      delete operation_;
+      operation_ = nullptr;
+    }
     ASSERT_TRUE(accepted || immediate_error == ERROR_IO_PENDING)
         << immediate_error;
     DWORD completed_length = 0;
     ULONG_PTR key = 0;
     OVERLAPPED* completed = nullptr;
-    const BOOL success = GetQueuedCompletionStatus(port_, &completed_length,
-                                                   &key, &completed, INFINITE);
+    const BOOL success =
+        GetQueuedCompletionStatus(port_, &completed_length, &key, &completed,
+                                  amdf::cts::WaitDeadline().remaining_ms());
     const DWORD completion_error = success ? ERROR_SUCCESS : GetLastError();
-    ASSERT_EQ(completed, &operation);
+    ASSERT_EQ(completed, operation_)
+        << "waiting for file I/O: " << completion_error;
+    delete operation_;
+    operation_ = nullptr;
     ASSERT_EQ(key, kCompletionKey);
     ASSERT_TRUE(success) << completion_error;
     ASSERT_EQ(completed_length, byte_length);
@@ -374,6 +405,9 @@ class GpuFileIoTest
   HANDLE file_ = INVALID_HANDLE_VALUE;
   // Private IOCP retaining no outstanding requests at teardown.
   HANDLE port_ = nullptr;
+  // One outstanding native request, retained with its payload until an IOCP
+  // packet establishes completion, including after cancellation or timeout.
+  OVERLAPPED* operation_ = nullptr;
   // Owned temporary file, removed only after all handles close.
   wchar_t path_[MAX_PATH] = {};
   // Caller-owned native allocations retained through registration teardown.
@@ -434,8 +468,8 @@ TEST_P(GpuFileIoTest, IocpAndGpuShareBackingWithoutHostPayloadCopies) {
   ASSERT_NO_FATAL_FAILURE(CopySwappedBlocks(
       queue, source, target, completion,
       static_cast<uint32_t>(block_byte_length), cache_operations));
-  GpuWaitEqual<uint32_t>(reinterpret_cast<uintptr_t>(completion->host.pointer),
-                         1);
+  ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+      reinterpret_cast<uintptr_t>(completion->host.pointer), 1));
   ASSERT_NO_FATAL_FAILURE(Transfer(true, output + block_byte_length,
                                    payload_byte_length, 5 * block_byte_length));
   ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));

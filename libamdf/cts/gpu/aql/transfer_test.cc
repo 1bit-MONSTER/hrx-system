@@ -198,7 +198,8 @@ class AqlTransferTest
     std::array<uint32_t, kCompletionGuardWordCount> completion_words;
     // Acquire the native completion and capture all memory before diagnostics
     // or retirement can contribute any other observation boundary.
-    GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0);
+    ASSERT_TRUE(
+        GpuWaitEqual<int64_t>(reinterpret_cast<uintptr_t>(&signal.value), 0));
     std::memcpy(target_words.data(), target->host.pointer,
                 sizeof(target_words));
     std::memcpy(source_words.data(), source->host.pointer,
@@ -331,7 +332,7 @@ TEST_P(AqlTransferTest, ConfirmedWriteFeedsCopyAcrossEpochs) {
                 sizeof(target_words));
     signal.value = 1;
     GpuStoreRelease(queue->host.write_index_address, index + 1);
-    aql::Publish(*queue, index++, packets[epoch]);
+    ASSERT_TRUE(aql::Publish(*queue, index++, packets[epoch]));
 
     WaitForCompletionAndCheckPages(pages, expected_source, expected_target,
                                    expected_commands);
@@ -439,7 +440,7 @@ TEST_P(AqlTransferTest, CpuPublishedSourceFeedsCopyAcrossEpochs) {
                 sizeof(target_words));
     signal.value = 1;
     GpuStoreRelease(queue->host.write_index_address, index + 1);
-    aql::Publish(*queue, index++, packet);
+    ASSERT_TRUE(aql::Publish(*queue, index++, packet));
 
     WaitForCompletionAndCheckPages(pages, expected_source, expected_target,
                                    expected_commands);
@@ -566,7 +567,7 @@ TEST_P(AqlTransferTest, CompletedCarrierAllowsCopyAddressRebinding) {
                 sizeof(expected_commands[epoch]));
     signal.value = 1;
     GpuStoreRelease(queue->host.write_index_address, index + 1);
-    aql::Publish(*queue, index++, packet);
+    ASSERT_TRUE(aql::Publish(*queue, index++, packet));
 
     WaitForCompletionAndCheckPages(pages, expected_source, expected_target,
                                    expected_commands[epoch]);

@@ -52,8 +52,8 @@ TEST_P(Pm4WriteTest, WritesIncrementingPayloadAndPreservesGuards) {
     commands.PadToEightWords();
     ASSERT_NO_FATAL_FAILURE(
         queue->Publish(api_, gpu_api_, commands.word_count()));
-    GpuWaitEqual<uint32_t>(
-        reinterpret_cast<uintptr_t>(completion->host.pointer), epoch + 1);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+        reinterpret_cast<uintptr_t>(completion->host.pointer), epoch + 1));
     // Capture every observation before diagnostics or retirement intervene.
     std::array<uint32_t, kWordCount> observed_output;
     std::memcpy(observed_output.data(), output, sizeof(observed_output));

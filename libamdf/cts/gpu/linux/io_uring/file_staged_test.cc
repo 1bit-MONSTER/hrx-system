@@ -22,6 +22,7 @@
 #include "libamdf/cts/gpu/linux/io_uring/file_io_resources.h"
 #include "libamdf/cts/gpu/recipes/device_sdma_fixture.h"
 #include "libamdf/cts/gpu/sdma/encoding/commands.h"
+#include "util/wait.h"
 
 namespace {
 
@@ -403,7 +404,7 @@ void GpuFileStagedTest::Run(const StagedCase& test_case) {
                 bytes);
     frontier += bytes;
     transfer->PublishStream(frontier);
-    GpuWaitEqual<uint32_t>(completion_host, generation);
+    ASSERT_TRUE(GpuWaitEqual<uint32_t>(completion_host, generation));
     ASSERT_NO_FATAL_FAILURE(transfer->WaitConsumed(api_, frontier));
   };
   ASSERT_NO_FATAL_FAILURE(copy_slots(seed->device_address, 0,
@@ -565,16 +566,19 @@ void GpuFileStagedTest::Run(const StagedCase& test_case) {
       aql::PrepareBatch(*upload_queue, upload_index, uploads));
   ASSERT_NO_FATAL_FAILURE(
       aql::PrepareBatch(*reader_queue, reader_index, readers));
-  while (!(GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.flags)) &
-           IORING_SQ_NEED_WAKEUP)) {
-    std::this_thread::yield();
-  }
+  ASSERT_TRUE(amdf::cts::WaitUntil("SQPOLL idle", [&] {
+    return GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.flags)) &
+           IORING_SQ_NEED_WAKEUP;
+  }));
   aql::PublishBatch(*reader_queue, reader_index, readers);
   aql::PublishBatch(*upload_queue, upload_index, uploads);
   aql::PublishBatch(*file_queue, file_packet_index, files);
   uint64_t wake_count = 0;
+  const amdf::cts::WaitDeadline deadline;
   while (GpuLoadAcquire<int64_t>(reinterpret_cast<uintptr_t>(&joined.value)) !=
          0) {
+    ASSERT_TRUE(deadline.Pause())
+        << "timed out waiting for staged file completion";
     // Idle wake only: the GPU owns every SQE, CQE and dependent dispatch.
     if ((GpuLoadAcquire<uint32_t>(RingWord(ring_->parameters.sq_off.flags)) &
          IORING_SQ_NEED_WAKEUP) &&
@@ -588,7 +592,6 @@ void GpuFileStagedTest::Run(const StagedCase& test_case) {
       ASSERT_EQ(result, 0) << "wake SQPOLL: " << std::strerror(errno);
       ++wake_count;
     }
-    std::this_thread::yield();
   }
   ASSERT_NO_FATAL_FAILURE(
       file_queue->WaitConsumed(api_, file_packet_index + files.size()));

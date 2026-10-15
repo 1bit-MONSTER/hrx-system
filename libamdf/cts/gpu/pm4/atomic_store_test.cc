@@ -291,7 +291,7 @@ class Pm4AtomicStoreTest : public Pm4CommandTest,
       const uint64_t published_word_count = completion * kWordsPerEpoch;
       ASSERT_NO_FATAL_FAILURE(
           queue->Publish(api_, gpu_api_, published_word_count));
-      GpuWaitEqual<uint32_t>(completion_address, completion);
+      ASSERT_TRUE(GpuWaitEqual<uint32_t>(completion_address, completion));
       // Capture all initialized storage before diagnostics or retirement can
       // supply additional synchronization to the observation under test.
       std::memcpy(observed_target.data(), target->host.pointer,
