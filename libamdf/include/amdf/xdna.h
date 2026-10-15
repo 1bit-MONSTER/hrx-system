@@ -639,11 +639,14 @@ typedef struct amdf_xdna_api_t {
       amdf_xdna_context_t* context,
       const amdf_xdna_result_buffer_binding_t* binding);
 
-  /// Samples the native operating rate of the partition-shim RECORD_TIMER
-  /// counter. This explicit native query may wake the device; it allocates no
-  /// library objects, retains no state and changes no power policy. Failure
-  /// leaves out_info unchanged; absent rate metadata returns UNSUPPORTED.
+  /// Queries the native-reported array rate associated with the partition-shim
+  /// RECORD_TIMER counter. This explicit query may wake the device; it
+  /// allocates no library objects, retains no state and changes no power
+  /// policy. Failure leaves out_info unchanged; absent rate metadata returns
+  /// UNSUPPORTED.
   ///
+  /// Native metadata can retain a configured or previously sampled rate when
+  /// live telemetry is unavailable; the reply supplies no freshness indicator.
   /// Query after workload/context admission: idle and active rates can differ.
   /// A same-epoch delta at constant rate converts as ticks * 1e9 /
   /// frequency_hz. This snapshot neither pins that rate nor records changes

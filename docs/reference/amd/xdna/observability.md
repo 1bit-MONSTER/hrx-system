@@ -765,7 +765,8 @@ The first returned line is the array rate used by the observed marker counter.
 The other line varies independently and is not used for that conversion.
 Replies include `800\n400\n` in powersaver mode and `1810\n1\n` with the
 active default workload. Native error status, malformed output or a zero
-array rate cannot establish marker units. A successful query leaves power
+array rate cannot establish marker units. This text reply carries no sample
+timestamp, age, or telemetry-validity field. A successful query leaves power
 policy and context ownership unchanged.
 
 ### Controlled same-command durations
@@ -807,6 +808,58 @@ in the native operation. The source describes the requested level as an allowed
 clock range, so selecting a mode is not by itself a record of the actual rate
 through a capture. [Power-mode control][linux-power-mode],
 [XRT power-mode transport][linux-xrt-power-mode]
+
+### Rate history and independent interval bounds
+
+Under changing frequency, a same-epoch counter difference represents the
+integral of its advancing rate over the interval. Periods when that counter's
+clock is gated contribute no cycles. One frequency sample cannot recover that
+integral, and the values at both endpoints do not describe the path between
+them. An endpoint query after host-side processing can also occur after the
+device returns to an idle operating point.
+
+A finite Windows Strix Halo capture, PCI device `17f0` revision `11` with
+driver `32.0.20102.3930`, demonstrates the distinction. Native rate queries
+before and after each four-command arithmetic batch report 800 MHz. One
+same-command marker interval contains 1,056,369 ticks inside an independently
+observed firmware interval of 604,498 ns. At 800 MHz it would take
+1,320,461.25 ns, exceeding that enclosure. Four longer serial marker intervals
+total 16,809,096 ticks; the corresponding 800 MHz estimate is 21,011,370 ns
+inside an enclosing host bracket of 10,700,900 ns. Both observations reject
+applying the reported rate throughout those intervals.
+They do not identify a rate transition, stale native metadata, or a different
+source interpretation as the cause.
+
+For a marker interval enclosed by an independent interval of duration `T`,
+`delta_cycles / T` is a lower bound on its average advancing rate, assuming
+the established attribution and epoch. The first observation above requires
+at least approximately 1.747 GHz. This is a falsification bound, not a measured
+replacement frequency: the outer interval includes work beyond the markers,
+and neither observation supplies frequency history. A short interval passing
+the same enclosure check can simply reflect larger fixed overhead.
+
+The diagnostic trace's `CLKPWRGATING` category is also distinct from rate
+history. In the cited format-1 SDK and format-2 validation-data schemas, it
+contains these events. Each carries `start_col` in argument bits 7:0 and
+`num_cols` in bits 15:8. [SDK gating events][linux-trace-gating-events],
+[Format-2 gating events][vtd-trace-gating-events]
+
+| Event ID | Native event | Observation |
+| --- | --- | --- |
+| 10 | `GATE_AIE2_CLKS` | Array clocks gated for the column range. |
+| 11 | `UNGATE_AIE2_CLKS` | Array clocks ungated for the column range. |
+| 12 | `POWER_OFF_ONO` | Column-range power-off event. |
+| 13 | `POWER_ON_ONO` | Column-range power-on event. |
+
+These records contain no old/new frequency, DPM level, or rate-validity field.
+A complete stream of these events therefore does not describe frequency
+transitions. The schema also supplies no relation between event publication
+and the exact timer edge affected by gating.
+
+AMD's AI Analyzer converts collected cycle counts using an editable assumed
+NPU frequency and recalculates displayed times when that value changes. This
+is a visualization model; it supplies no frequency history for a capture.
+[Analyzer frequency model][ai-analyzer-frequency]
 
 Clock interpretation has independent requirements. A raw event observation
 needs a known sampling point and coherent record. Ordering observations by
@@ -1222,6 +1275,9 @@ positions alone cannot identify every externally restarted recording.
 
 [windows-node-clock]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmthk/ns-d3dkmthk-_d3dkmt_node_perfdata
 [xrt-clock-list-consumer]: https://github.com/Xilinx/XRT/blob/cdfbe96e394385702f377694d3875c57c3ef5b9d/src/runtime_src/core/common/api/xrt_device.cpp#L147-L153
+[linux-trace-gating-events]: https://github.com/amd/xdna-driver/blob/45d06428a8895f305822c1201e71582c01358052/tools/bins/configs/trace_events.json
+[vtd-trace-gating-events]: https://github.com/Xilinx/VTD/blob/fa945e489497397269cbb912e3e7cce33d1935ff/archive/strx/firmware_configs/trace_events.json#L826-L949
+[ai-analyzer-frequency]: https://ryzenai.docs.amd.com/en/main/ai_analyzer.html#summary
 [linux-power-mode]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_pm.c#L86-L149
 [linux-xrt-power-mode]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/src/shim/device.cpp#L842-L878
 [linux-aie2-context-power]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_pci.c#L466-L496
