@@ -109,6 +109,10 @@ enum loom_value_fact_flag_bits_e {
   // This is independent of whether each lane observes the same mask value.
   LOOM_VALUE_FACT_SUBGROUP_LANE_MASK = 1u << 10,
   // The value is the full x-dimension workitem id domain for a kernel launch.
+  // For floating-point facts, bits 14 through 19 instead encode the exact
+  // destination float-type set queried through
+  // loom_value_facts_exact_float_types(). Callers must not inspect these
+  // physical bits directly.
   LOOM_VALUE_FACT_TOPOLOGY_WORKITEM_X = 1u << 14,
   // The value is the full y-dimension workitem id domain for a kernel launch.
   LOOM_VALUE_FACT_TOPOLOGY_WORKITEM_Y = 1u << 15,
@@ -349,6 +353,27 @@ const loom_value_fact_topology_domain_t* loom_value_fact_topology_domain_lookup(
 bool loom_value_facts_mark_topology_domain(
     loom_value_facts_t* facts, loom_value_fact_topology_value_kind_t value_kind,
     loom_value_fact_topology_axis_t axis);
+
+// Returns the float types that can represent every finite value described by
+// |facts| without changing its numerical value. Returns an empty set for
+// integer facts. Float class predicates remain independent; consumers that
+// require finite values must also query FINITE.
+loom_scalar_type_set_t loom_value_facts_exact_float_types(
+    loom_value_facts_t facts);
+
+// Replaces the exact destination float-type set carried by |facts|. |facts|
+// must describe a floating-point value. Non-float type bits in |types| are
+// ignored.
+void loom_value_facts_set_exact_float_types(loom_value_facts_t* facts,
+                                            loom_scalar_type_set_t types);
+
+// Returns true when every finite value described by |facts| is exactly
+// representable in |type|.
+static inline bool loom_value_facts_is_exact_float_type(
+    loom_value_facts_t facts, loom_scalar_type_t type) {
+  return loom_scalar_type_set_contains(
+      loom_value_facts_exact_float_types(facts), type);
+}
 
 // Tightens facts to the dynamic extent domain. Extents are non-negative
 // integer sizes; incompatible float or negative-only facts degrade to the

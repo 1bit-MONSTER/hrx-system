@@ -1,5 +1,24 @@
 // RUN: pass canonicalize
 
+// Vector summaries retain one constant-time representability envelope for all
+// lanes. Complete byte domains convert exactly to F16, BF16, F32, and F64.
+func.def @integer_to_float_exact_formats(%signed: vector<8xi8>, %unsigned: vector<8xi8>) -> (i64, i64) {
+  %signed_float = vector.sitofp %signed : vector<8xi8> to vector<8xf32>
+  %unsigned_float = vector.uitofp %unsigned : vector<8xi8> to vector<8xf32>
+  %signed_types = test.fact_exact_float_types %signed_float : vector<8xf32> -> i64
+  %unsigned_types = test.fact_exact_float_types %unsigned_float : vector<8xf32> -> i64
+  func.return %signed_types, %unsigned_types : i64, i64
+}
+
+// ----
+func.def @integer_to_float_exact_formats(%signed: vector<8xi8>, %unsigned: vector<8xi8>) -> (i64, i64) {
+  %signed_types = scalar.constant 15360 : i64
+  %unsigned_types = scalar.constant 15360 : i64
+  func.return %signed_types, %unsigned_types : i64, i64
+}
+
+// ====
+
 // Every lane of a dynamic integer conversion is non-NaN. F32 covers the
 // complete i32 domain, while narrower formats may still overflow.
 func.def @integer_to_float_classes(%input: vector<4xi32>) -> (vector<4xi1>, vector<4xi1>, vector<4xi1>, vector<4xi1>) {

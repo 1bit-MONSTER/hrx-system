@@ -825,6 +825,18 @@ test_fact_not_subnormal = Op(
     examples=["%not_subnormal = test.fact_not_subnormal %x : f32 -> i1"],
 )
 
+test_fact_exact_float_types = Op(
+    "test.fact_exact_float_types",
+    group=test_ops,
+    doc="Exposes the exact destination float-type set as an i64 constant.",
+    operands=[Operand("value", ANY)],
+    results=[Result("result", INTEGER)],
+    traits=[PURE],
+    facts="loom_test_fact_exact_float_types_facts",
+    format=[Ref("value"), COLON, TypeOf("value"), ARROW, ResultType("result")],
+    examples=["%types = test.fact_exact_float_types %x : f32 -> i64"],
+)
+
 test_fact_subgroup_uniform = Op(
     "test.fact_subgroup_uniform",
     group=test_ops,
@@ -3281,4 +3293,5 @@ ALL_TEST_OPS: tuple[Op, ...] = (
     test_result_pair,
     test_block_arg_groups,
     test_signature_sink,
+    test_fact_exact_float_types,
 )

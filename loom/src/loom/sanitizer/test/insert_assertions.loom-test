@@ -106,9 +106,8 @@ func.def @fastmath_ninf_instruments_not_inf(%x: f32) -> (f32) {
 // ----
 func.def @fastmath_ninf_instruments_not_inf(%x: f32) -> (f32) {
   %3 = sanitizer.assert.value %x [not_inf(%x)] : f32
-  %neg$2 = scalar.negf<ninf> %3 : f32
-  %neg$4 = sanitizer.assert.value %neg$2 [not_inf(%neg$2)] : f32
-  func.return %neg$4 : f32
+  %neg = scalar.negf<ninf> %3 : f32
+  func.return %neg : f32
 }
 
 // ====
@@ -672,7 +671,6 @@ func.def @assertion_site_payload_locations(%n: index, %x: f32) -> (index, f32) {
 func.def @assertion_site_payload_locations(%n: index, %x: f32) -> (index, f32) {
   %bounded = sanitizer.assert.value %n [range(%n, 0, 1024)] : index loc(tagged<sanitizer_site, "0002030201010000", "sanitizer.loom":2:1>)
   %6 = sanitizer.assert.value %x [not_inf(%x)] : f32 loc(tagged<sanitizer_site, "00020a0601010000", "sanitizer.loom":3:1>)
-  %neg$5 = scalar.negf<ninf> %6 : f32 loc("sanitizer.loom":3:1)
-  %neg$7 = sanitizer.assert.value %neg$5 [not_inf(%neg$5)] : f32 loc(tagged<sanitizer_site, "00020a0601010000", "sanitizer.loom":3:1>)
-  func.return %bounded, %neg$7 : index, f32 loc("sanitizer.loom":4:1)
+  %neg = scalar.negf<ninf> %6 : f32 loc("sanitizer.loom":3:1)
+  func.return %bounded, %neg : index, f32 loc("sanitizer.loom":4:1)
 } loc("sanitizer.loom":1:1 to 5:1)

@@ -23,6 +23,45 @@ static bool loom_float_type_is_supported(loom_scalar_type_t scalar_type) {
          scalar_type == LOOM_SCALAR_TYPE_F64;
 }
 
+// Returns the formats that contain every finite value of |scalar_type|. This
+// is a partial order: F16 and BF16 do not contain one another, nor do the two
+// FP8 formats.
+static loom_scalar_type_set_t loom_float_type_exact_destinations(
+    loom_scalar_type_t scalar_type) {
+  switch (scalar_type) {
+    case LOOM_SCALAR_TYPE_F8E4M3:
+      return LOOM_SCALAR_TYPE_SET_F8E4M3 | LOOM_SCALAR_TYPE_SET_F16 |
+             LOOM_SCALAR_TYPE_SET_BF16 | LOOM_SCALAR_TYPE_SET_F32 |
+             LOOM_SCALAR_TYPE_SET_F64;
+    case LOOM_SCALAR_TYPE_F8E5M2:
+      return LOOM_SCALAR_TYPE_SET_F8E5M2 | LOOM_SCALAR_TYPE_SET_F16 |
+             LOOM_SCALAR_TYPE_SET_BF16 | LOOM_SCALAR_TYPE_SET_F32 |
+             LOOM_SCALAR_TYPE_SET_F64;
+    case LOOM_SCALAR_TYPE_F16:
+      return LOOM_SCALAR_TYPE_SET_F16 | LOOM_SCALAR_TYPE_SET_F32 |
+             LOOM_SCALAR_TYPE_SET_F64;
+    case LOOM_SCALAR_TYPE_BF16:
+      return LOOM_SCALAR_TYPE_SET_BF16 | LOOM_SCALAR_TYPE_SET_F32 |
+             LOOM_SCALAR_TYPE_SET_F64;
+    case LOOM_SCALAR_TYPE_F32:
+      return LOOM_SCALAR_TYPE_SET_F32 | LOOM_SCALAR_TYPE_SET_F64;
+    case LOOM_SCALAR_TYPE_F64:
+      return LOOM_SCALAR_TYPE_SET_F64;
+    default:
+      return LOOM_SCALAR_TYPE_SET_NONE;
+  }
+}
+
+static void loom_value_facts_add_exact_float_types(
+    loom_value_facts_t* facts, loom_scalar_type_set_t types) {
+  if (types == LOOM_SCALAR_TYPE_SET_NONE) {
+    return;
+  }
+  facts->flags |= LOOM_VALUE_FACT_FLOAT;
+  loom_value_facts_set_exact_float_types(
+      facts, loom_value_facts_exact_float_types(*facts) | types);
+}
+
 static double loom_float_type_minimum_normal(loom_scalar_type_t scalar_type) {
   switch (scalar_type) {
     case LOOM_SCALAR_TYPE_F8E4M3:
@@ -65,6 +104,30 @@ static double loom_float_round_to_type(loom_scalar_type_t scalar_type,
     default:
       return NAN;
   }
+}
+
+static bool loom_float_values_have_identical_bits(double lhs, double rhs) {
+  uint64_t lhs_bits = 0;
+  uint64_t rhs_bits = 0;
+  memcpy(&lhs_bits, &lhs, sizeof(lhs));
+  memcpy(&rhs_bits, &rhs, sizeof(rhs));
+  return lhs_bits == rhs_bits;
+}
+
+static loom_scalar_type_set_t loom_float_exact_value_destinations(
+    double value) {
+  if (!isfinite(value)) {
+    return LOOM_SCALAR_TYPE_SET_NONE;
+  }
+  loom_scalar_type_set_t result = LOOM_SCALAR_TYPE_SET_NONE;
+  for (loom_scalar_type_t type = LOOM_SCALAR_TYPE_F8E4M3;
+       type <= LOOM_SCALAR_TYPE_F64; ++type) {
+    if (loom_float_values_have_identical_bits(
+            loom_float_round_to_type(type, value), value)) {
+      result |= (loom_scalar_type_set_t)(1u << type);
+    }
+  }
+  return result;
 }
 
 // Converts one signed integer endpoint directly to its declared floating-point
@@ -139,6 +202,9 @@ loom_value_facts_exact_float(loom_scalar_type_t scalar_type, double value) {
   const double rounded_value = loom_float_round_to_type(scalar_type, value);
   loom_value_facts_t facts =
       loom_value_facts_exact_rounded_float(rounded_value);
+  loom_value_facts_add_exact_float_types(
+      &facts, loom_float_type_exact_destinations(scalar_type) |
+                  loom_float_exact_value_destinations(rounded_value));
   if (!loom_float_is_subnormal(scalar_type, rounded_value)) {
     facts.flags |= LOOM_VALUE_FACT_NOT_SUBNORMAL;
   }
@@ -174,6 +240,8 @@ loom_value_facts_t loom_value_facts_make_float_range(
       facts.flags |= LOOM_VALUE_FACT_NOT_SUBNORMAL;
     }
   }
+  loom_value_facts_add_exact_float_types(
+      &facts, loom_float_type_exact_destinations(scalar_type));
   return facts;
 }
 
@@ -258,6 +326,23 @@ void loom_value_facts_eval_float_conversion(
     loom_value_facts_add_signed_zero_alternative(
         result_type, result_type, out_result_facts, out_result_facts);
   }
+
+  loom_scalar_type_set_t result_exact_types =
+      loom_value_facts_exact_float_types(*out_result_facts) |
+      loom_float_type_exact_destinations(result_type);
+  const loom_scalar_type_set_t source_exact_types =
+      loom_value_facts_exact_float_types(*input_facts) |
+      loom_float_type_exact_destinations(source_type);
+  const bool preserves_input_value =
+      loom_scalar_type_set_contains(source_exact_types, result_type) &&
+      (!policy.may_flush_input_subnormal ||
+       loom_value_facts_is_not_subnormal(*input_facts)) &&
+      (!policy.may_flush_result_subnormal ||
+       loom_value_facts_is_not_subnormal(*out_result_facts));
+  if (preserves_input_value) {
+    result_exact_types |= source_exact_types;
+  }
+  loom_value_facts_add_exact_float_types(out_result_facts, result_exact_types);
   loom_value_facts_propagate_unary_distribution(*input_facts, out_result_facts);
 }
 
@@ -560,15 +645,27 @@ static void loom_value_facts_make_unmaterializable_nan(
   loom_value_facts_propagate_unary_distribution(input, out_facts);
 }
 
+// Negation, absolute value, and sign replacement preserve the magnitude's
+// floating-point class and exact destination formats. Their generic evaluators
+// may otherwise discard these properties when the payload is not exact.
+static void loom_value_facts_preserve_float_magnitude_properties(
+    loom_value_facts_t magnitude, loom_value_facts_t* out_facts) {
+  out_facts->flags |= magnitude.flags & LOOM_VALUE_FACT_FLOAT_PREDICATE_MASK;
+  loom_value_facts_add_exact_float_types(
+      out_facts, loom_value_facts_exact_float_types(magnitude));
+}
+
 void loom_value_facts_eval_float_negate(loom_scalar_type_t scalar_type,
                                         const loom_value_facts_t* input,
                                         loom_value_facts_t* out_facts) {
   if (loom_value_facts_is_nan(*input)) {
     loom_value_facts_make_unmaterializable_nan(*input, out_facts);
+    loom_value_facts_preserve_float_magnitude_properties(*input, out_facts);
     return;
   }
   loom_value_facts_eval_float_unary(scalar_type, input, loom_float_negate_f32,
                                     loom_float_negate_f64, out_facts);
+  loom_value_facts_preserve_float_magnitude_properties(*input, out_facts);
 }
 
 void loom_value_facts_eval_float_abs(loom_scalar_type_t scalar_type,
@@ -576,10 +673,12 @@ void loom_value_facts_eval_float_abs(loom_scalar_type_t scalar_type,
                                      loom_value_facts_t* out_facts) {
   if (loom_value_facts_is_nan(*input)) {
     loom_value_facts_make_unmaterializable_nan(*input, out_facts);
+    loom_value_facts_preserve_float_magnitude_properties(*input, out_facts);
     return;
   }
   loom_value_facts_eval_float_unary(scalar_type, input, loom_float_abs_f32,
                                     loom_float_abs_f64, out_facts);
+  loom_value_facts_preserve_float_magnitude_properties(*input, out_facts);
 }
 
 void loom_value_facts_eval_float_copysign(loom_scalar_type_t scalar_type,
@@ -588,6 +687,7 @@ void loom_value_facts_eval_float_copysign(loom_scalar_type_t scalar_type,
                                           loom_value_facts_t* out_facts) {
   if (loom_value_facts_is_nan(*magnitude)) {
     *out_facts = loom_value_facts_known_nan();
+    loom_value_facts_preserve_float_magnitude_properties(*magnitude, out_facts);
     loom_value_facts_propagate_binary_distribution(*magnitude, *sign,
                                                    out_facts);
     return;
@@ -595,6 +695,7 @@ void loom_value_facts_eval_float_copysign(loom_scalar_type_t scalar_type,
   loom_value_facts_eval_float_binary(scalar_type, magnitude, sign,
                                      loom_float_copysign_f32,
                                      loom_float_copysign_f64, out_facts);
+  loom_value_facts_preserve_float_magnitude_properties(*magnitude, out_facts);
 }
 
 static double loom_float_minimum(double lhs, double rhs) {
@@ -650,8 +751,9 @@ void loom_value_facts_eval_float_minmax(loom_scalar_type_t scalar_type,
   double rhs_value = 0.0;
   if (!loom_value_facts_as_exact_float(scalar_type, *lhs, &lhs_value) ||
       !loom_value_facts_as_exact_float(scalar_type, *rhs, &rhs_value)) {
-    *out_facts = loom_value_facts_unknown();
-    loom_value_facts_propagate_binary_distribution(*lhs, *rhs, out_facts);
+    // Every min/max result is selected from its operands. Their meet retains
+    // exactly the properties and interval that hold for either selection.
+    loom_value_facts_meet_float(lhs, rhs, out_facts);
     return;
   }
   const bool is_minimum =
@@ -666,22 +768,21 @@ static void loom_value_facts_eval_float_clamp_ordered(
     loom_scalar_type_t scalar_type, const loom_value_facts_t* value,
     const loom_value_facts_t* lower, const loom_value_facts_t* upper,
     loom_value_facts_t* out_facts) {
+  loom_value_facts_t common_facts = loom_value_facts_unknown();
+  loom_value_facts_meet_float(value, lower, &common_facts);
+  loom_value_facts_meet_float(&common_facts, upper, &common_facts);
   if (loom_value_facts_is_nan(*value)) {
     *out_facts = *value;
   } else {
     double result = 0.0;
     if (!loom_value_facts_as_exact_float(scalar_type, *value, &result)) {
-      *out_facts = loom_value_facts_unknown();
-      loom_value_facts_propagate_ternary_distribution(*value, *lower, *upper,
-                                                      out_facts);
+      *out_facts = common_facts;
       return;
     }
     if (!loom_value_facts_is_nan(*lower)) {
       double lower_value = 0.0;
       if (!loom_value_facts_as_exact_float(scalar_type, *lower, &lower_value)) {
-        *out_facts = loom_value_facts_unknown();
-        loom_value_facts_propagate_ternary_distribution(*value, *lower, *upper,
-                                                        out_facts);
+        *out_facts = common_facts;
         return;
       }
       if (result < lower_value) {
@@ -691,9 +792,7 @@ static void loom_value_facts_eval_float_clamp_ordered(
     if (!loom_value_facts_is_nan(*upper)) {
       double upper_value = 0.0;
       if (!loom_value_facts_as_exact_float(scalar_type, *upper, &upper_value)) {
-        *out_facts = loom_value_facts_unknown();
-        loom_value_facts_propagate_ternary_distribution(*value, *lower, *upper,
-                                                        out_facts);
+        *out_facts = common_facts;
         return;
       }
       if (result > upper_value) {
@@ -784,6 +883,126 @@ void loom_value_facts_eval_float_to_integer(
   }
 }
 
+static uint64_t loom_signed_integer_magnitude(int64_t value) {
+  return value < 0 ? (uint64_t)(-(value + 1)) + UINT64_C(1) : (uint64_t)value;
+}
+
+static uint32_t loom_integer_fact_trailing_zero_count(
+    loom_value_facts_t facts) {
+  int64_t exact_value = 0;
+  if (loom_value_facts_as_exact_i64(facts, &exact_value)) {
+    const uint64_t magnitude = loom_signed_integer_magnitude(exact_value);
+    return magnitude == 0
+               ? 64u
+               : (uint32_t)iree_math_count_trailing_zeros_u64(magnitude);
+  }
+  return (uint32_t)iree_math_count_trailing_zeros_u64(
+      (uint64_t)facts.known_divisor);
+}
+
+static uint64_t loom_integer_maximum_aligned_magnitude(
+    uint64_t maximum_magnitude, uint32_t trailing_zero_count) {
+  if (trailing_zero_count >= 64u) {
+    return 0;
+  }
+  return maximum_magnitude & (UINT64_MAX << trailing_zero_count);
+}
+
+static bool loom_float_integer_format_properties(
+    loom_scalar_type_t scalar_type, uint32_t* out_precision,
+    uint64_t* out_maximum_finite_integer) {
+  switch (scalar_type) {
+    case LOOM_SCALAR_TYPE_F8E4M3:
+      *out_precision = 4;
+      *out_maximum_finite_integer = 448;
+      return true;
+    case LOOM_SCALAR_TYPE_F8E5M2:
+      *out_precision = 3;
+      *out_maximum_finite_integer = 57344;
+      return true;
+    case LOOM_SCALAR_TYPE_F16:
+      *out_precision = 11;
+      *out_maximum_finite_integer = 65504;
+      return true;
+    case LOOM_SCALAR_TYPE_BF16:
+      *out_precision = 8;
+      *out_maximum_finite_integer = UINT64_MAX;
+      return true;
+    case LOOM_SCALAR_TYPE_F32:
+      *out_precision = 24;
+      *out_maximum_finite_integer = UINT64_MAX;
+      return true;
+    case LOOM_SCALAR_TYPE_F64:
+      *out_precision = 53;
+      *out_maximum_finite_integer = UINT64_MAX;
+      return true;
+    default:
+      return false;
+  }
+}
+
+static loom_scalar_type_set_t loom_integer_exact_float_destinations(
+    uint64_t maximum_magnitude, uint32_t trailing_zero_count) {
+  maximum_magnitude = loom_integer_maximum_aligned_magnitude(
+      maximum_magnitude, trailing_zero_count);
+  loom_scalar_type_set_t result = LOOM_SCALAR_TYPE_SET_NONE;
+  for (loom_scalar_type_t type = LOOM_SCALAR_TYPE_F8E4M3;
+       type <= LOOM_SCALAR_TYPE_F64; ++type) {
+    uint32_t precision = 0;
+    uint64_t maximum_finite_integer = 0;
+    if (!loom_float_integer_format_properties(type, &precision,
+                                              &maximum_finite_integer) ||
+        maximum_magnitude > maximum_finite_integer) {
+      continue;
+    }
+    const uint32_t exact_magnitude_exponent = precision + trailing_zero_count;
+    if (exact_magnitude_exponent >= 64u ||
+        maximum_magnitude <= (UINT64_C(1) << exact_magnitude_exponent)) {
+      result |= (loom_scalar_type_set_t)(1u << type);
+    }
+  }
+  return result;
+}
+
+static loom_scalar_type_set_t loom_signed_integer_exact_float_destinations(
+    loom_value_facts_t facts) {
+  const uint32_t trailing_zero_count =
+      loom_integer_fact_trailing_zero_count(facts);
+  const uint64_t maximum_magnitude =
+      iree_max(loom_signed_integer_magnitude(facts.range_lo),
+               loom_signed_integer_magnitude(facts.range_hi));
+  return loom_integer_exact_float_destinations(maximum_magnitude,
+                                               trailing_zero_count);
+}
+
+static loom_scalar_type_set_t loom_unsigned_integer_exact_float_destinations(
+    loom_value_facts_t facts, int32_t source_bit_count) {
+  uint64_t exact_bits = 0;
+  if (loom_value_facts_as_exact_raw_bits(facts, source_bit_count,
+                                         &exact_bits)) {
+    const uint32_t trailing_zero_count =
+        exact_bits == 0
+            ? 64u
+            : (uint32_t)iree_math_count_trailing_zeros_u64(exact_bits);
+    return loom_integer_exact_float_destinations(exact_bits,
+                                                 trailing_zero_count);
+  }
+
+  const uint32_t trailing_zero_count =
+      loom_integer_fact_trailing_zero_count(facts);
+  uint64_t maximum_value = 0;
+  if (facts.range_lo >= 0) {
+    maximum_value = (uint64_t)facts.range_hi;
+  } else if (facts.range_hi < 0) {
+    maximum_value =
+        iree_math_mask_low_bits_u64((uint64_t)facts.range_hi, source_bit_count);
+  } else {
+    maximum_value = iree_math_mask_low_bits_u64(UINT64_MAX, source_bit_count);
+  }
+  return loom_integer_exact_float_destinations(maximum_value,
+                                               trailing_zero_count);
+}
+
 void loom_value_facts_eval_integer_to_float(
     loom_scalar_type_t source_type, loom_scalar_type_t result_type,
     loom_float_integer_conversion_kind_t kind,
@@ -808,9 +1027,12 @@ void loom_value_facts_eval_integer_to_float(
   double result_lo = 0.0;
   double result_hi = 0.0;
   bool has_rounded_range = false;
+  loom_scalar_type_set_t integer_exact_types = LOOM_SCALAR_TYPE_SET_NONE;
   switch (kind) {
     case LOOM_FLOAT_INTEGER_CONVERSION_SIGNED: {
       bounded = loom_value_facts_sign_extend(bounded, source_bit_count);
+      integer_exact_types =
+          loom_signed_integer_exact_float_destinations(bounded);
       has_rounded_range = loom_signed_integer_to_rounded_float(
                               result_type, bounded.range_lo, &result_lo) &&
                           loom_signed_integer_to_rounded_float(
@@ -818,6 +1040,8 @@ void loom_value_facts_eval_integer_to_float(
       break;
     }
     case LOOM_FLOAT_INTEGER_CONVERSION_UNSIGNED: {
+      integer_exact_types = loom_unsigned_integer_exact_float_destinations(
+          bounded, source_bit_count);
       uint64_t exact_bits = 0;
       if (loom_value_facts_as_exact_raw_bits(bounded, source_bit_count,
                                              &exact_bits)) {
@@ -862,6 +1086,12 @@ void loom_value_facts_eval_integer_to_float(
     // cannot produce NaN even when no finite interval can be retained.
     out_result_facts->flags = LOOM_VALUE_FACT_FLOAT | LOOM_VALUE_FACT_NOT_NAN;
   }
+  loom_scalar_type_set_t result_exact_types =
+      loom_float_type_exact_destinations(result_type);
+  if (loom_scalar_type_set_contains(integer_exact_types, result_type)) {
+    result_exact_types |= integer_exact_types;
+  }
+  loom_value_facts_add_exact_float_types(out_result_facts, result_exact_types);
   // Integer values are zero or have magnitude at least one, so their rounded
   // floating-point conversions cannot be subnormal.
   out_result_facts->flags |= LOOM_VALUE_FACT_NOT_SUBNORMAL;

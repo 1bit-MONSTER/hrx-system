@@ -782,6 +782,59 @@ func.def @select_finite_constants(%condition: i1) -> (i1, i1, i1) {
 
 // ====
 
+// Selection intersects exact destination formats. One arm is exact in every
+// declared format, while 1.1 rounded to F32 remains exact only in F32 and F64.
+func.def @select_exact_float_formats(%condition: i1) -> (i64) {
+  %unit = scalar.constant 1.0 : f32
+  %fraction = scalar.constant 1.1000000000000001 : f32
+  %selected = scf.select %condition, %unit, %fraction : f32
+  %types = test.fact_exact_float_types %selected : f32 -> i64
+  func.return %types : i64
+}
+
+// ----
+func.def @select_exact_float_formats(%condition: i1) -> (i64) {
+  %types = scalar.constant 12288 : i64
+  func.return %types : i64
+}
+
+// ====
+
+// Loop-carried floating facts meet the initializer and recurrence. Negation
+// preserves every exact destination format established by the byte conversion.
+func.def @for_iter_arg_exact_float_formats(%n: index, %input: i8) -> (i64, i64) {
+  %lo = index.constant 0 : index
+  %n2 = index.assume %n [range(%n, 1, 4)] : index
+  %step = index.constant 1 : index
+  %initial = scalar.sitofp %input : i8 to f32
+  %c0 = scalar.constant 0 : i64
+  %final, %observed = scf.for %iv = [%lo to %n2 step %step](%carried = %initial : f32, %previous = %c0 : i64) -> (f32, i64) {
+    %body_types = test.fact_exact_float_types %carried : f32 -> i64
+    %next = scalar.negf %carried : f32
+    scf.yield %next, %body_types : f32, i64
+  }
+  %final_types = test.fact_exact_float_types %final : f32 -> i64
+  func.return %observed, %final_types : i64, i64
+}
+
+// ----
+func.def @for_iter_arg_exact_float_formats(%n: index, %input: i8) -> (i64, i64) {
+  %lo = index.constant 0 : index
+  %n2 = index.assume %n [range(%n, 1, 4)] : index
+  %step = index.constant 1 : index
+  %initial = scalar.sitofp %input : i8 to f32
+  %c0 = scalar.constant 0 : i64
+  %final, %observed = scf.for %iv = [%lo to %n2 step %step](%carried = %initial : f32, %previous = %c0 : i64) -> (f32, i64) {
+    %body_types = scalar.constant 15360 : i64
+    %next = scalar.negf %carried : f32
+    scf.yield %next, %body_types : f32, i64
+  }
+  %final_types = scalar.constant 15360 : i64
+  func.return %observed, %final_types : i64, i64
+}
+
+// ====
+
 // The selected value stays dynamic even when its class is known.
 func.def @select_opposite_infinities(%condition: i1) -> (i32, i1, i1, i1) {
   %positive_bits = scalar.constant 2139095040 : i32

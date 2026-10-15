@@ -10,6 +10,18 @@
 
 #include "iree/base/internal/math.h"
 
+// Float type ordinals 8 through 13 are encoded in fact flag bits 14 through
+// 19. Integer facts use the same physical bits for mutually exclusive topology
+// domains; LOOM_VALUE_FACT_FLOAT selects the interpretation.
+#define LOOM_VALUE_FACT_EXACT_FLOAT_TYPE_SHIFT 6
+#define LOOM_VALUE_FACT_EXACT_FLOAT_TYPE_MASK          \
+  ((loom_value_fact_flags_t)LOOM_SCALAR_TYPE_SET_FLOAT \
+   << LOOM_VALUE_FACT_EXACT_FLOAT_TYPE_SHIFT)
+
+static_assert((LOOM_VALUE_FACT_EXACT_FLOAT_TYPE_MASK &
+               ~LOOM_VALUE_FACT_TOPOLOGY_DOMAIN_MASK) == 0,
+              "exact float type set must share topology-only flag bits");
+
 // Computes flags from integer range facts. Does not set floating-point, float
 // predicate, or execution distribution flags; those are preserved by the caller
 // when appropriate.
@@ -120,7 +132,8 @@ void loom_value_facts_meet_float(const loom_value_facts_t* a,
                  (lhs.flags & rhs.flags &
                   (LOOM_VALUE_FACT_NAN | LOOM_VALUE_FACT_INF |
                    LOOM_VALUE_FACT_NOT_NAN | LOOM_VALUE_FACT_NOT_INF |
-                   LOOM_VALUE_FACT_FINITE | LOOM_VALUE_FACT_NOT_SUBNORMAL));
+                   LOOM_VALUE_FACT_FINITE | LOOM_VALUE_FACT_NOT_SUBNORMAL |
+                   LOOM_VALUE_FACT_EXACT_FLOAT_TYPE_MASK));
 
     double lhs_lo = 0.0;
     double lhs_hi = 0.0;
@@ -289,6 +302,9 @@ static const loom_value_fact_topology_domain_t kValueFactTopologyDomains[] = {
 
 const loom_value_fact_topology_domain_t*
 loom_value_fact_topology_domain_from_flags(loom_value_fact_flags_t flags) {
+  if (iree_any_bit_set(flags, LOOM_VALUE_FACT_FLOAT)) {
+    return NULL;
+  }
   flags &= LOOM_VALUE_FACT_TOPOLOGY_DOMAIN_MASK;
   if (flags == 0 || (flags & (flags - 1)) != 0) {
     return NULL;
@@ -325,6 +341,9 @@ bool loom_value_facts_mark_topology_domain(
     loom_value_facts_t* facts, loom_value_fact_topology_value_kind_t value_kind,
     loom_value_fact_topology_axis_t axis) {
   IREE_ASSERT_ARGUMENT(facts);
+  if (loom_value_facts_is_float(*facts)) {
+    return false;
+  }
   const loom_value_fact_topology_domain_t* domain =
       loom_value_fact_topology_domain_lookup(value_kind, axis);
   if (!domain) {
@@ -333,6 +352,26 @@ bool loom_value_facts_mark_topology_domain(
   facts->flags &= ~LOOM_VALUE_FACT_TOPOLOGY_DOMAIN_MASK;
   facts->flags |= domain->fact_flag;
   return true;
+}
+
+loom_scalar_type_set_t loom_value_facts_exact_float_types(
+    loom_value_facts_t facts) {
+  if (!loom_value_facts_is_float(facts)) {
+    return LOOM_SCALAR_TYPE_SET_NONE;
+  }
+  return (loom_scalar_type_set_t)((facts.flags &
+                                   LOOM_VALUE_FACT_EXACT_FLOAT_TYPE_MASK) >>
+                                  LOOM_VALUE_FACT_EXACT_FLOAT_TYPE_SHIFT);
+}
+
+void loom_value_facts_set_exact_float_types(loom_value_facts_t* facts,
+                                            loom_scalar_type_set_t types) {
+  IREE_ASSERT_ARGUMENT(facts);
+  IREE_ASSERT(loom_value_facts_is_float(*facts),
+              "exact float types require a floating-point fact");
+  facts->flags &= ~LOOM_VALUE_FACT_EXACT_FLOAT_TYPE_MASK;
+  facts->flags |= ((loom_value_fact_flags_t)(types & LOOM_SCALAR_TYPE_SET_FLOAT)
+                   << LOOM_VALUE_FACT_EXACT_FLOAT_TYPE_SHIFT);
 }
 
 loom_value_facts_t loom_value_facts_clamp_domain(loom_value_facts_t facts,

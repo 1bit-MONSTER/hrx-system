@@ -176,11 +176,18 @@ loom_amdgpu_value_participant_id_bits(const loom_value_fact_table_t* fact_table,
                                       loom_value_id_t value_id) {
   const loom_value_facts_t facts =
       loom_value_fact_table_lookup(fact_table, value_id);
+  const loom_value_fact_topology_domain_t* domain =
+      loom_value_facts_topology_domain(facts);
+  if (domain == NULL) {
+    return 0;
+  }
   loom_amdgpu_participant_zero_bits_t bits = 0;
-  if (iree_all_bits_set(facts.flags, LOOM_VALUE_FACT_TOPOLOGY_WORKITEM_X)) {
+  if (domain->value_kind == LOOM_VALUE_FACT_TOPOLOGY_VALUE_WORKITEM_ID &&
+      domain->axis == LOOM_VALUE_FACT_TOPOLOGY_AXIS_X) {
     bits |= LOOM_AMDGPU_PARTICIPANT_ZERO_WORKITEM_X;
   }
-  if (iree_all_bits_set(facts.flags, LOOM_VALUE_FACT_TOPOLOGY_SUBGROUP_LANE)) {
+  if (domain->value_kind == LOOM_VALUE_FACT_TOPOLOGY_VALUE_SUBGROUP_LANE_ID &&
+      domain->axis == LOOM_VALUE_FACT_TOPOLOGY_AXIS_LANE) {
     bits |= LOOM_AMDGPU_PARTICIPANT_ZERO_SUBGROUP_LANE;
   }
   return bits;
