@@ -48,7 +48,7 @@ loom_corpus_build(
     "loom::target::vm::all"
     "numeric/float/roots.loom"
     "@root_f64_boundary_observations"
-    "TARGET/002"
+    "LOWERING/036"
     "loom::target::vm::all"
     "numeric/float/rounding.loom"
     "@rounding_bf16_observations"

@@ -29,6 +29,7 @@ typedef enum loom_math_evaluation_unary_op_e {
   LOOM_MATH_EVALUATION_UNARY_LOGISTICF = 5,
   LOOM_MATH_EVALUATION_UNARY_TANHF = 6,
   LOOM_MATH_EVALUATION_UNARY_TRUNCF = 7,
+  LOOM_MATH_EVALUATION_UNARY_SQRTF = 8,
 } loom_math_evaluation_unary_op_t;
 
 typedef enum loom_math_evaluation_binary_op_e {

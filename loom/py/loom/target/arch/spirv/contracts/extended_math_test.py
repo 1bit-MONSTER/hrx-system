@@ -21,23 +21,27 @@ _OPERATIONS_BY_SOURCE_KEY = {
 def _expected_rule_matrix() -> set[tuple[str, TypePattern, str]]:
     expected: set[tuple[str, TypePattern, str]] = set()
     for operation in EXTENDED_MATH_OPERATIONS:
-        expected.add(
-            (
-                f"scalar.{operation.source_op_key}",
-                TypePattern.scalar("f32"),
-                f"spirv.op_ext_inst.glsl_std_450.{operation.source_op_key}.f32",
-            )
-        )
-        for lane_count in (1, 2, 3, 4):
-            suffix = "f32" if lane_count == 1 else f"v{lane_count}f32"
+        for source_type in operation.source_types:
             expected.add(
                 (
-                    f"vector.{operation.source_op_key}",
-                    TypePattern.vector("f32", lanes=lane_count),
+                    f"scalar.{operation.source_op_key}",
+                    TypePattern.scalar(source_type),
                     "spirv.op_ext_inst.glsl_std_450."
-                    f"{operation.source_op_key}.{suffix}",
+                    f"{operation.source_op_key}.{source_type}",
                 )
             )
+            for lane_count in (1, 2, 3, 4):
+                suffix = (
+                    source_type if lane_count == 1 else f"v{lane_count}{source_type}"
+                )
+                expected.add(
+                    (
+                        f"vector.{operation.source_op_key}",
+                        TypePattern.vector(source_type, lanes=lane_count),
+                        "spirv.op_ext_inst.glsl_std_450."
+                        f"{operation.source_op_key}.{suffix}",
+                    )
+                )
     return expected
 
 
@@ -79,7 +83,6 @@ def test_extended_math_contract_covers_scalar_and_native_vector_shapes() -> None
         assert emit.results == {"dst": ValueRef.result("result")}
 
     assert actual == _expected_rule_matrix()
-    assert len(SPIRV_EXTENDED_MATH_CONTRACT_CASES) == 20
 
 
 def test_extended_math_contract_is_bound_into_the_shipping_fragment() -> None:

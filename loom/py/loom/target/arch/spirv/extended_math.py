@@ -103,6 +103,22 @@ EXTENDED_MATH_OPERATIONS = (
         instruction_c_enum="LOOM_SPIRV_GLSL_STD_450_LOG2",
         required_fastmath_flags=("afn",),
     ),
+    ExtendedMathOperation(
+        source_op_key="sqrtf",
+        operand_names=("input",),
+        instruction_name="Sqrt",
+        instruction_c_enum="LOOM_SPIRV_GLSL_STD_450_SQRT",
+        required_fastmath_flags=("afn",),
+        source_types=("f16", "f32", "f64"),
+    ),
+    ExtendedMathOperation(
+        source_op_key="rsqrtf",
+        operand_names=("input",),
+        instruction_name="InverseSqrt",
+        instruction_c_enum="LOOM_SPIRV_GLSL_STD_450_INVERSE_SQRT",
+        required_fastmath_flags=("afn",),
+        source_types=("f16", "f32", "f64"),
+    ),
 )
 
 EXTREMA_MATH_OPERATIONS = (

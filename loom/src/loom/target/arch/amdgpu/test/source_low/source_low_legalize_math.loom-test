@@ -1264,3 +1264,76 @@ low.func.def target<amdgpu.cdna3.core>(@target) abi(hal_kernel) @cdna3_native_tu
   %cos = v_cos_f32 %input
   return %log, %sin, %cos
 }
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @scalar_rsqrt_precision(%input: f32) -> (f32, f32) {
+  %exact = scalar.rsqrtf %input : f32
+  %approximate = scalar.rsqrtf<afn> %input : f32
+  func.return %exact, %approximate : f32, f32
+}
+
+// ----
+low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @scalar_rsqrt_precision(%input: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %11 = v_mov_b32 1065353216
+  %12 = v_sqrt_f32 %input
+  %13, %14 = v_div_scale_f32 %12, %12, %11
+  %15 = v_rcp_f32 %13
+  %16 = v_fma_f32_neg_a_one %13, %15
+  %17 = v_fma_f32 %16, %15, %15
+  %18, %19 = v_div_scale_f32 %11, %12, %11
+  %20 = v_mul_f32 %18, %17
+  %21 = v_fma_f32_neg_a %13, %20, %18
+  %22 = v_fma_f32 %21, %17, %20
+  %23 = v_fma_f32_neg_a %13, %22, %18
+  %24 = v_div_fmas_f32 %23, %17, %22, %19
+  %exact = v_div_fixup_f32 %24, %12, %11
+  %approximate = v_rsq_f32 %input
+  return %exact, %approximate
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @vector_rsqrt_precision(%input: f32) -> (f32, f32) {
+  %value = vector.splat %input : vector<1xf32>
+  %exact_values = vector.rsqrtf %value : vector<1xf32>
+  %approximate_values = vector.rsqrtf<afn> %value : vector<1xf32>
+  %exact = vector.extract %exact_values[0] : vector<1xf32> -> f32
+  %approximate = vector.extract %approximate_values[0] : vector<1xf32> -> f32
+  func.return %exact, %approximate : f32, f32
+}
+
+// ----
+low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @vector_rsqrt_precision(%value: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) asm {
+  %14 = v_mov_b32 1065353216
+  %15 = v_sqrt_f32 %value
+  %16, %17 = v_div_scale_f32 %15, %15, %14
+  %18 = v_rcp_f32 %16
+  %19 = v_fma_f32_neg_a_one %16, %18
+  %20 = v_fma_f32 %19, %18, %18
+  %21, %22 = v_div_scale_f32 %14, %15, %14
+  %23 = v_mul_f32 %21, %20
+  %24 = v_fma_f32_neg_a %16, %23, %21
+  %25 = v_fma_f32 %24, %20, %23
+  %26 = v_fma_f32_neg_a %16, %25, %21
+  %27 = v_div_fmas_f32 %26, %20, %25, %22
+  %exact = v_div_fixup_f32 %27, %15, %14
+  %approximate = v_rsq_f32 %value
+  return %exact, %approximate
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target
+
+// The current AMDGPU source contract has no complete vector F64 arithmetic
+// family: exact division and the refined exact square root are scalar-only.
+func.def target(@target) @vector_f64_root_requires_complete_arithmetic(%input: vector<2xf64>) -> (vector<2xf64>) {
+  // ERROR@+1: LOWERING/036 {op_name="vector.rsqrtf", phase_name="legalize-math", policy_name="amdgpu-math", math_op="rsqrtf", lane_domain="vector", element_type="f64", constraint_key="math.root.f32_or_scalar_f64"}
+  %result = vector.rsqrtf %input : vector<2xf64>
+  func.return %result : vector<2xf64>
+}

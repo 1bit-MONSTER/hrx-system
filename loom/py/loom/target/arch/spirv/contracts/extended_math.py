@@ -40,6 +40,8 @@ _SCALAR_SOURCE_OPS = {
     "logf": scalar_math.scalar_logf,
     "exp2f": scalar_math.scalar_exp2f,
     "log2f": scalar_math.scalar_log2f,
+    "sqrtf": scalar_math.scalar_sqrtf,
+    "rsqrtf": scalar_math.scalar_rsqrtf,
 }
 
 _VECTOR_SOURCE_OPS = {
@@ -47,6 +49,8 @@ _VECTOR_SOURCE_OPS = {
     "logf": vector.vector_logf,
     "exp2f": vector.vector_exp2f,
     "log2f": vector.vector_log2f,
+    "sqrtf": vector.vector_sqrtf,
+    "rsqrtf": vector.vector_rsqrtf,
 }
 
 
@@ -90,19 +94,25 @@ def _extended_math_cases() -> tuple[ContractCase, ...]:
         operation_key = instruction.operation.source_op_key
         if instruction.operation not in EXTENDED_MATH_OPERATIONS:
             continue
+        component_type = (
+            instruction.value_type.component_type
+            if isinstance(instruction.value_type, OrdinaryVectorType)
+            else instruction.value_type
+        )
+        source_type = component_type.source_types[0]
         if isinstance(instruction.value_type, OrdinaryVectorComponentType):
             cases.append(
                 _extended_math_rule(
                     instruction,
                     _SCALAR_SOURCE_OPS[operation_key],
-                    Scalar("f32"),
+                    Scalar(source_type),
                 )
             )
             cases.append(
                 _extended_math_rule(
                     instruction,
                     _VECTOR_SOURCE_OPS[operation_key],
-                    Vector("f32", lanes=1),
+                    Vector(source_type, lanes=1),
                 )
             )
             continue
@@ -111,7 +121,7 @@ def _extended_math_cases() -> tuple[ContractCase, ...]:
             _extended_math_rule(
                 instruction,
                 _VECTOR_SOURCE_OPS[operation_key],
-                Vector("f32", lanes=instruction.value_type.lane_count),
+                Vector(source_type, lanes=instruction.value_type.lane_count),
             )
         )
     return tuple(cases)

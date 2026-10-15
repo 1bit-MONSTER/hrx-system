@@ -45,6 +45,22 @@ low.func.def target<wasm.core.simd128> abi(wasm_function) @f32x4_lane_extract(%v
 
 // ====
 
+func.def @f32_roots(%input: f32) -> (f32, f32) {
+  %sqrt = scalar.sqrtf %input : f32
+  %rsqrt = scalar.rsqrtf %input : f32
+  func.return %sqrt, %rsqrt : f32, f32
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @f32_roots(%input: reg<wasm.f32>) -> (reg<wasm.f32>, reg<wasm.f32>) asm {
+  %sqrt = f32.sqrt %input
+  %12 = f32.const 1065353216
+  %rsqrt = f32.div %12, %sqrt
+  return %sqrt, %rsqrt
+}
+
+// ====
+
 func.def @f32x4_lane_edit(%v: vector<4xf32>, %x: f32) -> (vector<4xf32>) {
   %lane = vector.extract %v[1] : vector<4xf32> -> f32
   %sum = scalar.addf %lane, %x : f32

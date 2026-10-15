@@ -102,6 +102,8 @@ struct loom_math_evaluation_lane_ops_t {
   loom_math_evaluation_unary_build_fn_t tanhf;
   // Builds lane-wise truncation toward zero.
   loom_math_evaluation_unary_build_fn_t truncf;
+  // Builds a lane-wise floating-point square root.
+  loom_math_evaluation_unary_build_fn_t sqrtf;
 };
 
 static iree_status_t loom_math_evaluation_scalar_clampf_build(
@@ -169,6 +171,7 @@ static const loom_math_evaluation_lane_ops_t kScalarLaneOps = {
     .logisticf = loom_scalar_logisticf_build,
     .tanhf = loom_scalar_tanhf_build,
     .truncf = loom_scalar_truncf_build,
+    .sqrtf = loom_scalar_sqrtf_build,
 };
 
 static const loom_math_evaluation_lane_ops_t kVectorLaneOps = {
@@ -191,6 +194,7 @@ static const loom_math_evaluation_lane_ops_t kVectorLaneOps = {
     .logisticf = loom_vector_logisticf_build,
     .tanhf = loom_vector_tanhf_build,
     .truncf = loom_vector_truncf_build,
+    .sqrtf = loom_vector_sqrtf_build,
 };
 
 static loom_type_t loom_math_evaluation_type_with_element(
@@ -545,6 +549,9 @@ iree_status_t loom_math_evaluation_build_unary(
       break;
     case LOOM_MATH_EVALUATION_UNARY_TRUNCF:
       build = evaluation->lane_ops->truncf;
+      break;
+    case LOOM_MATH_EVALUATION_UNARY_SQRTF:
+      build = evaluation->lane_ops->sqrtf;
       break;
   }
   IREE_ASSERT(build != NULL);

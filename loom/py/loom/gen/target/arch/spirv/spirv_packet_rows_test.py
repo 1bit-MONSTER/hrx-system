@@ -759,7 +759,6 @@ def test_generation_emits_complete_ordinary_vector_bit_layout_rows() -> None:
 
 
 def test_generation_emits_complete_extended_math_matrix() -> None:
-    assert len(EXTENDED_MATH_INSTRUCTIONS) == 92
     rows = {row.descriptor_key: row for row in _packet_rows()}
     descriptors = {descriptor.key: descriptor for descriptor in SPIRV_LOGICAL_CORE_DESCRIPTOR_SET.descriptors}
     for instruction in EXTENDED_MATH_INSTRUCTIONS:

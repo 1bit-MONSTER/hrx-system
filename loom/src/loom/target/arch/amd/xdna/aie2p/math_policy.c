@@ -107,6 +107,30 @@ static const loom_target_math_evaluation_t
 
 static const loom_aie2p_math_form_t kAie2pMathForms[] = {
     {
+        .math_op = LOOM_TARGET_MATH_OP_SQRTF,
+        .element_types = LOOM_SCALAR_TYPE_SET_F32,
+        .lane_domains = LOOM_AIE2P_MATH_LANE_DOMAIN_SET_SCALAR,
+        .minimum_lane_count = 1,
+        .maximum_lane_count = 1,
+        .element_constraint_key = IREE_SVL("math.element.f32"),
+        .shape_constraint_key = IREE_SVL("math.shape.aie2p_scalar_f32_root"),
+        .form_constraint_key = IREE_SVL("math.op.native_approximate_sqrt_f32"),
+        .required_fastmath_flags = LOOM_TARGET_MATH_FASTMATH_FLAG_AFN,
+        .permission_constraint_key = IREE_SVL("math.sqrt.exact_f32"),
+    },
+    {
+        .math_op = LOOM_TARGET_MATH_OP_RSQRTF,
+        .element_types = LOOM_SCALAR_TYPE_SET_F32,
+        .lane_domains = LOOM_AIE2P_MATH_LANE_DOMAIN_SET_SCALAR,
+        .minimum_lane_count = 1,
+        .maximum_lane_count = 1,
+        .element_constraint_key = IREE_SVL("math.element.f32"),
+        .shape_constraint_key = IREE_SVL("math.shape.aie2p_scalar_f32_root"),
+        .form_constraint_key = IREE_SVL("math.op.native_approximate_rsqrt_f32"),
+        .required_fastmath_flags = LOOM_TARGET_MATH_FASTMATH_FLAG_AFN,
+        .permission_constraint_key = IREE_SVL("math.rsqrt.exact_f32"),
+    },
+    {
         .math_op = LOOM_TARGET_MATH_OP_GELUF_ERF,
         .element_types = LOOM_AIE2P_APPROXIMATE_ACTIVATION_ELEMENT_TYPES,
         .lane_domains = LOOM_AIE2P_MATH_LANE_DOMAIN_SET_ALL,

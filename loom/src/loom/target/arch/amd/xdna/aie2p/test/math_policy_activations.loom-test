@@ -178,3 +178,43 @@ func.def @gelu_tanh_requires_approximation(%input: vector<16xf32>) {
   %result = vector.geluf<tanh> %input : vector<16xf32>
   func.return
 }
+
+// ====
+
+// RUN: pass target=amd.xdna.aie2p:core legalize-math
+
+func.def @sqrt_requires_approximation(%input: f32) {
+  // ERROR@+1: LOWERING/036 {op_name="scalar.sqrtf", phase_name="legalize-math", policy_name="aie2p-math", math_op="sqrtf", lane_domain="scalar", element_type="f32", constraint_key="math.sqrt.exact_f32"}
+  %result = scalar.sqrtf %input : f32
+  func.return
+}
+
+// ====
+
+// RUN: pass target=amd.xdna.aie2p:core legalize-math
+
+func.def @rsqrt_requires_approximation(%input: f32) {
+  // ERROR@+1: LOWERING/036 {op_name="scalar.rsqrtf", phase_name="legalize-math", policy_name="aie2p-math", math_op="rsqrtf", lane_domain="scalar", element_type="f32", constraint_key="math.rsqrt.exact_f32"}
+  %result = scalar.rsqrtf %input : f32
+  func.return
+}
+
+// ====
+
+// RUN: pass target=amd.xdna.aie2p:core legalize-math
+
+func.def @vector_sqrt_is_unsupported(%input: vector<4xf32>) {
+  // ERROR@+1: LOWERING/036 {op_name="vector.sqrtf", phase_name="legalize-math", policy_name="aie2p-math", math_op="sqrtf", lane_domain="vector", element_type="f32", constraint_key="math.op.supported"}
+  %result = vector.sqrtf<afn> %input : vector<4xf32>
+  func.return
+}
+
+// ====
+
+// RUN: pass target=amd.xdna.aie2p:core legalize-math
+
+func.def @binary64_rsqrt_is_unsupported(%input: f64) {
+  // ERROR@+1: LOWERING/036 {op_name="scalar.rsqrtf", phase_name="legalize-math", policy_name="aie2p-math", math_op="rsqrtf", lane_domain="scalar", element_type="f64", constraint_key="math.element.f32"}
+  %result = scalar.rsqrtf<afn> %input : f64
+  func.return
+}

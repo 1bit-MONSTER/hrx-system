@@ -747,6 +747,29 @@ def test_packed_bf16_arithmetic_rules_publish_native_pk_ops() -> None:
     )
 
 
+def test_native_reciprocal_root_rules_require_approximate_functions() -> None:
+    compiled = _compiled_arithmetic_rules()
+    expected_descriptors = {
+        scalar_math.scalar_rsqrtf: {
+            ("amdgpu.v_rsq_f32",),
+            ("amdgpu.v_rsq_f64",),
+        },
+        vector.vector_rsqrtf: {("amdgpu.v_rsq_f32",)},
+    }
+    for source_op, expected in expected_descriptors.items():
+        rules = _rules_for_source_op(compiled, source_op)
+        assert {_rule_descriptor_keys(compiled, rule) for rule in rules} == expected
+        for rule in rules:
+            guards = compiled.guards[
+                rule.guard_start : rule.guard_start + rule.guard_count
+            ]
+            assert any(
+                guard.kind == GuardKind.INSTANCE_FLAGS_HAS_ALL
+                and guard.u64 == _AFN_FASTMATH_FLAG
+                for guard in guards
+            )
+
+
 def test_f32_literal_fma_product_flushing_forms_require_afn() -> None:
     compiled = _compiled_arithmetic_rules()
     product_flushing_key = "amdgpu.v_fmamk_f32.flush_product"

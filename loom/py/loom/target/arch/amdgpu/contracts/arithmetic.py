@@ -4704,7 +4704,13 @@ def _rules() -> tuple[ContractCase, ...]:
             ),
             _unary_rule(vector.vector_truncf, _VEC_F32_STATIC, "amdgpu.v_trunc_f32"),
             _unary_rule(vector.vector_sqrtf, _VEC_F32_STATIC, "amdgpu.v_sqrt_f32"),
-            _unary_rule(vector.vector_rsqrtf, _VEC_F32_STATIC, "amdgpu.v_rsq_f32"),
+            _unary_rule(
+                vector.vector_rsqrtf,
+                _VEC_F32_STATIC,
+                "amdgpu.v_rsq_f32",
+                extra_guards=(Guard.instance_flags_has_all("fastmath", "afn"),),
+                report_key=_report_key(vector.vector_rsqrtf, "afn_f32"),
+            ),
         )
     )
     for source_op, descriptor_key in (
@@ -5037,13 +5043,26 @@ def _rules() -> tuple[ContractCase, ...]:
             _unary_rule(scalar_math.scalar_truncf, _F32, "amdgpu.v_trunc_f32"),
             _unary_rule(scalar_math.scalar_truncf, _F64, "amdgpu.v_trunc_f64"),
             _unary_rule(scalar_math.scalar_sqrtf, _F32, "amdgpu.v_sqrt_f32"),
-            _unary_rule(scalar_math.scalar_rsqrtf, _F32, "amdgpu.v_rsq_f32"),
+            _unary_rule(
+                scalar_math.scalar_rsqrtf,
+                _F32,
+                "amdgpu.v_rsq_f32",
+                extra_guards=(Guard.instance_flags_has_all("fastmath", "afn"),),
+                report_key=_report_key(scalar_math.scalar_rsqrtf, "afn_f32"),
+            ),
             _unary_rule(
                 scalar_math.scalar_sqrtf,
                 _F64,
                 "amdgpu.v_sqrt_f64",
                 extra_guards=(Guard.instance_flags_has_all("fastmath", "afn"),),
                 report_key=_report_key(scalar_math.scalar_sqrtf, "afn_f64"),
+            ),
+            _unary_rule(
+                scalar_math.scalar_rsqrtf,
+                _F64,
+                "amdgpu.v_rsq_f64",
+                extra_guards=(Guard.instance_flags_has_all("fastmath", "afn"),),
+                report_key=_report_key(scalar_math.scalar_rsqrtf, "afn_f64"),
             ),
             _sqrtf_exact_f64_rule(),
             _cast_rule(

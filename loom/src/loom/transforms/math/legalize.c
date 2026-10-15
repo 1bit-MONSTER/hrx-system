@@ -255,6 +255,10 @@ static loom_target_math_op_t loom_math_legalize_scalar_op_kind(
       return LOOM_TARGET_MATH_OP_ROUNDEVENF;
     case LOOM_OP_SCALAR_TRUNCF:
       return LOOM_TARGET_MATH_OP_TRUNCF;
+    case LOOM_OP_SCALAR_SQRTF:
+      return LOOM_TARGET_MATH_OP_SQRTF;
+    case LOOM_OP_SCALAR_RSQRTF:
+      return LOOM_TARGET_MATH_OP_RSQRTF;
     case LOOM_OP_SCALAR_SINF:
       return LOOM_TARGET_MATH_OP_SINF;
     case LOOM_OP_SCALAR_COSF:
@@ -307,6 +311,10 @@ static loom_target_math_op_t loom_math_legalize_vector_op_kind(
       return LOOM_TARGET_MATH_OP_ROUNDEVENF;
     case LOOM_OP_VECTOR_TRUNCF:
       return LOOM_TARGET_MATH_OP_TRUNCF;
+    case LOOM_OP_VECTOR_SQRTF:
+      return LOOM_TARGET_MATH_OP_SQRTF;
+    case LOOM_OP_VECTOR_RSQRTF:
+      return LOOM_TARGET_MATH_OP_RSQRTF;
     case LOOM_OP_VECTOR_SINF:
       return LOOM_TARGET_MATH_OP_SINF;
     case LOOM_OP_VECTOR_COSF:

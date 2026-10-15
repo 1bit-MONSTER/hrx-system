@@ -226,3 +226,61 @@ low.func.def target<amdgpu.cdna3.core> abi(hal_kernel) @approximate_sqrt_f64(%in
   %root = v_sqrt_f64 %input
   return %root
 }
+
+// ====
+
+func.def @rsqrt_precision_f64(%input: f64) -> (f64, f64) {
+  %exact = scalar.rsqrtf %input : f64
+  %approximate = scalar.rsqrtf<afn> %input : f64
+  func.return %exact, %approximate : f64, f64
+}
+
+// ----
+low.func.def target<amdgpu.cdna3.core> abi(hal_kernel) @rsqrt_precision_f64(%input: reg<amdgpu.vgpr x2>) -> (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) asm {
+  %11 = v_mov_b32 0
+  %12 = v_mov_b32 1072693248
+  %13 = concat(%11, %12) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %15 = v_mov_b32 268435456
+  %16 = v_mov_b32 1071644672
+  %17 = concat(%11, %15) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %18 = concat(%11, %16) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %19 = v_cmp_lt_f64 %input, %17
+  %20 = v_mov_b32 256
+  %21 = v_cndmask_b32 %11, %20, %19
+  %22 = v_ldexp_f64 %input, %21
+  %23 = v_rsq_f64 %22
+  %24 = v_mul_f64 %22, %23
+  %25 = v_mul_f64 %23, %18
+  %26 = v_fma_f64_neg_a %25, %24, %18
+  %27 = v_fma_f64 %25, %26, %25
+  %28 = v_fma_f64 %24, %26, %24
+  %29 = v_fma_f64_neg_a %28, %28, %22
+  %30 = v_fma_f64 %29, %27, %28
+  %31 = v_fma_f64_neg_a %30, %30, %22
+  %32 = v_fma_f64 %31, %27, %30
+  %33 = v_mov_b32 4294967168
+  %34 = v_cndmask_b32 %11, %33, %19
+  %35 = v_ldexp_f64 %32, %34
+  %36 = s_mov_b32 608
+  %37 = v_cmp_class_f64 %22, %36
+  %38 = slice %35[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %39 = slice %22[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %40 = v_cndmask_b32 %38, %39, %37
+  %41 = slice %35[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %42 = slice %22[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %43 = v_cndmask_b32 %41, %42, %37
+  %44 = concat(%40, %43) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %45, %46 = v_div_scale_f64 %44, %44, %13
+  %47 = v_rcp_f64 %45
+  %48 = v_fma_f64_neg_a_one %45, %47
+  %49 = v_fma_f64 %47, %48, %47
+  %50 = v_fma_f64_neg_a_one %45, %49
+  %51, %52 = v_div_scale_f64 %13, %44, %13
+  %53 = v_fma_f64 %49, %50, %49
+  %54 = v_mul_f64 %51, %53
+  %55 = v_fma_f64_neg_a %45, %54, %51
+  %56 = v_div_fmas_f64 %55, %53, %54, %52
+  %exact = v_div_fixup_f64 %56, %44, %13
+  %approximate = v_rsq_f64 %input
+  return %exact, %approximate
+}

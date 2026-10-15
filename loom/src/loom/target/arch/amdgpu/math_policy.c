@@ -63,6 +63,13 @@ static bool loom_amdgpu_math_query_has_afn(
                            LOOM_TARGET_MATH_FASTMATH_FLAG_AFN);
 }
 
+static bool loom_amdgpu_math_root_type_is_supported(
+    const loom_target_math_query_t* query) {
+  return query->element_type == LOOM_SCALAR_TYPE_F32 ||
+         (query->element_type == LOOM_SCALAR_TYPE_F64 &&
+          query->lane_domain == LOOM_TARGET_MATH_LANE_DOMAIN_SCALAR);
+}
+
 static loom_amdgpu_math_policy_flags_t loom_amdgpu_math_policy_flags(
     const loom_target_math_policy_t* policy) {
   const loom_amdgpu_math_policy_payload_t* payload =
@@ -162,6 +169,27 @@ static void loom_amdgpu_math_policy_query(
       return;
     }
     *out_decision = loom_amdgpu_math_keep(IREE_SV("math.basic.keep"));
+    return;
+  }
+
+  if (query->math_op == LOOM_TARGET_MATH_OP_SQRTF ||
+      query->math_op == LOOM_TARGET_MATH_OP_RSQRTF) {
+    if (!loom_amdgpu_math_root_type_is_supported(query)) {
+      *out_decision =
+          loom_amdgpu_math_reject(IREE_SV("math.root.f32_or_scalar_f64"));
+      return;
+    }
+    if (query->math_op == LOOM_TARGET_MATH_OP_SQRTF ||
+        loom_amdgpu_math_query_has_afn(query)) {
+      *out_decision =
+          loom_amdgpu_math_keep(query->math_op == LOOM_TARGET_MATH_OP_SQRTF
+                                    ? IREE_SV("math.op.native_sqrt")
+                                    : IREE_SV("math.op.native_rsqrt_afn"));
+      return;
+    }
+    *out_decision =
+        loom_amdgpu_math_rewrite(LOOM_TARGET_MATH_RECIPE_RSQRT_SQRT_DIV,
+                                 IREE_SV("math.recipe.rsqrt_sqrt_div"));
     return;
   }
 
@@ -281,6 +309,8 @@ static void loom_amdgpu_math_policy_query(
     case LOOM_TARGET_MATH_OP_MULF:
       *out_decision = loom_amdgpu_math_keep(IREE_SV("math.op.native_f32"));
       return;
+    case LOOM_TARGET_MATH_OP_SQRTF:
+    case LOOM_TARGET_MATH_OP_RSQRTF:
     case LOOM_TARGET_MATH_OP_UNKNOWN:
       break;
   }

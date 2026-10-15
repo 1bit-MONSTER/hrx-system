@@ -73,7 +73,7 @@ func.def target(@vm) @wide_exp2(%value: f64) -> (f64) {
 vm.target<core> @vm
 
 func.def target(@vm) @wide_sqrt(%value: f64) -> (f64) {
-  // ERROR@+1: TARGET/002 {target_key="vm", export_name="wide_sqrt", config_key="vm", function_name="wide_sqrt", op_name="scalar.sqrtf", field_name="input", actual_type="f64", expected_type="f32"}
+  // ERROR@+1: LOWERING/036 {op_name="scalar.sqrtf", phase_name="legalize-math", policy_name="vm-math", math_op="sqrtf", lane_domain="scalar", element_type="f64", constraint_key="math.root.f32"}
   %result = scalar.sqrtf %value : f64
   func.return %result : f64
 }
@@ -83,9 +83,41 @@ func.def target(@vm) @wide_sqrt(%value: f64) -> (f64) {
 vm.target<core> @vm
 
 func.def target(@vm) @wide_rsqrt(%value: f64) -> (f64) {
-  // ERROR@+1: TARGET/002 {target_key="vm", export_name="wide_rsqrt", config_key="vm", function_name="wide_rsqrt", op_name="scalar.rsqrtf", field_name="input", actual_type="f64", expected_type="f32"}
+  // ERROR@+1: LOWERING/036 {op_name="scalar.rsqrtf", phase_name="legalize-math", policy_name="vm-math", math_op="rsqrtf", lane_domain="scalar", element_type="f64", constraint_key="math.root.f32"}
   %result = scalar.rsqrtf %value : f64
   func.return %result : f64
+}
+
+// ====
+
+vm.target<core> @vm
+
+func.def target(@vm) @f32_roots(%value: f32) -> (f32, f32) {
+  %sqrt = scalar.sqrtf %value : f32
+  %rsqrt = scalar.rsqrtf %value : f32
+  func.return %sqrt, %rsqrt : f32, f32
+}
+
+// ----
+vm.target<core> @vm
+
+low.func.def target<vm.core>(@vm) abi(vm_function) @f32_roots(%value: reg<vm.value : f32>) -> (reg<vm.value : f32>, reg<vm.value : f32>) asm {
+  %3 = constant.i32 8388608 : reg<vm.value : f32>
+  %4 = constant.i32 1266679808 : reg<vm.value : f32>
+  %5 = constant.i32 964689920 : reg<vm.value : f32>
+  %6 = constant.i32 1065353216 : reg<vm.value : f32>
+  %7 = float.abs.f32 %value
+  %8 = float.compare.f32 %7, %3, "olt"
+  %9 = value.select %8, %4, %6 : reg<vm.value : f32>
+  %10 = value.select %8, %5, %6 : reg<vm.value : f32>
+  %11 = float.mul.f32 %value, %9
+  %12 = float.math.unary.f32 %11, "sqrt.approx"
+  %sqrt = float.mul.f32 %12, %10
+  %14 = constant.i32 1166016512 : reg<vm.value : f32>
+  %15 = value.select %8, %14, %6 : reg<vm.value : f32>
+  %16 = float.math.unary.f32 %11, "rsqrt.approx"
+  %rsqrt = float.mul.f32 %16, %15
+  return %sqrt, %rsqrt
 }
 
 // ====

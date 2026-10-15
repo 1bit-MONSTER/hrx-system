@@ -58,6 +58,8 @@ typedef enum loom_target_math_op_e {
   LOOM_TARGET_MATH_OP_ROUNDEVENF = 22,
   LOOM_TARGET_MATH_OP_TRUNCF = 23,
   LOOM_TARGET_MATH_OP_SUBF = 24,
+  LOOM_TARGET_MATH_OP_SQRTF = 25,
+  LOOM_TARGET_MATH_OP_RSQRTF = 26,
 } loom_target_math_op_t;
 
 typedef enum loom_target_math_lane_domain_e {
@@ -115,6 +117,7 @@ typedef enum loom_target_math_recipe_e {
   LOOM_TARGET_MATH_RECIPE_POW_LOG2_EXP2_F32 = 14,
   LOOM_TARGET_MATH_RECIPE_ROUND_AWAY = 15,
   LOOM_TARGET_MATH_RECIPE_LOGISTIC_TANH_F32 = 16,
+  LOOM_TARGET_MATH_RECIPE_RSQRT_SQRT_DIV = 17,
 } loom_target_math_recipe_t;
 
 // Representation used to evaluate a target-neutral math recipe.
