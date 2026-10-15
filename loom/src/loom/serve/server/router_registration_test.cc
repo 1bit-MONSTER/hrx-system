@@ -334,13 +334,16 @@ TEST_P(HttpRouterRegistrationTest, StalledObserverDoesNotRetainRemovedModel) {
 
 TEST_P(HttpRouterRegistrationTest,
        ParameterPressureUsesModelObservationsAndRetiresWithIncarnation) {
-  managed_.parameters.pin_count = 3;
-  managed_.parameters.admission = {
-      .waiting = true,
-      .count = 7,
-      .duration_ns = 5000000000,
-      .age_ns = 2500000000,
-  };
+  {
+    std::lock_guard<std::mutex> lock(managed_.mutex);
+    managed_.parameters.pin_count = 3;
+    managed_.parameters.admission = {
+        .waiting = true,
+        .count = 7,
+        .duration_ns = 5000000000,
+        .age_ns = 2500000000,
+    };
+  }
   Register();
   const auto state = Read(Send("GET", "/v1/status"));
   EXPECT_NE(
