@@ -27,26 +27,25 @@ iree_cc_library(
 
 iree_cc_library(
   NAME
-    passthrough
+    join
   HDRS
-    "passthrough.h"
+    "join.h"
   SRCS
-    "passthrough.c"
+    "join.c"
   DEPS
     iree::base
     iree::tokenizer::decoder
-  TESTONLY
   PUBLIC
 )
 
 iree_cc_test(
   NAME
-    passthrough_test
+    join_test
   SRCS
-    "passthrough_test.cc"
+    "join_test.cc"
   DEPS
     ::decoder_test_util
-    ::passthrough
+    ::join
     iree::base
     iree::testing::gtest
     iree::testing::gtest_main
@@ -209,8 +208,8 @@ iree_cc_test(
     ::byte_level
     ::ctc
     ::decoder_test_util
+    ::join
     ::metaspace
-    ::passthrough
     ::replace
     ::sequence
     ::strip

@@ -17,8 +17,8 @@
 #include "iree/tokenizer/decoder/byte_level.h"
 #include "iree/tokenizer/decoder/ctc.h"
 #include "iree/tokenizer/decoder/decoder_test_util.h"
+#include "iree/tokenizer/decoder/join.h"
 #include "iree/tokenizer/decoder/metaspace.h"
-#include "iree/tokenizer/decoder/passthrough.h"
 #include "iree/tokenizer/decoder/replace.h"
 #include "iree/tokenizer/decoder/strip.h"
 
@@ -78,8 +78,9 @@ TEST_F(SequenceDecoderTest, RejectsEmptySequence) {
 TEST_F(SequenceDecoderTest, RejectsSingleChild) {
   // Single child is rejected - return the child directly, no wrapper needed.
   ScopedDecoder passthrough;
-  IREE_ASSERT_OK(iree_tokenizer_decoder_passthrough_allocate(
-      iree_allocator_system(), passthrough.put()));
+  IREE_ASSERT_OK(iree_tokenizer_decoder_join_allocate(
+      IREE_TOKENIZER_DECODER_JOIN_CONCATENATE, iree_allocator_system(),
+      passthrough.put()));
 
   std::vector<iree_tokenizer_decoder_t*> raw_pointers = {passthrough.get()};
   iree_tokenizer_decoder_t* raw_decoder = nullptr;
@@ -108,11 +109,13 @@ TEST_F(SequenceDecoderTest, CreateWithMultipleChildren) {
 
 TEST_F(SequenceDecoderTest, StateSizeIncludesChildren) {
   ScopedDecoder passthrough1;
-  IREE_ASSERT_OK(iree_tokenizer_decoder_passthrough_allocate(
-      iree_allocator_system(), passthrough1.put()));
+  IREE_ASSERT_OK(iree_tokenizer_decoder_join_allocate(
+      IREE_TOKENIZER_DECODER_JOIN_CONCATENATE, iree_allocator_system(),
+      passthrough1.put()));
   ScopedDecoder passthrough2;
-  IREE_ASSERT_OK(iree_tokenizer_decoder_passthrough_allocate(
-      iree_allocator_system(), passthrough2.put()));
+  IREE_ASSERT_OK(iree_tokenizer_decoder_join_allocate(
+      IREE_TOKENIZER_DECODER_JOIN_CONCATENATE, iree_allocator_system(),
+      passthrough2.put()));
 
   // Get child state sizes before transferring ownership.
   iree_host_size_t child1_state_size =
@@ -140,8 +143,9 @@ TEST_F(SequenceDecoderTest, RejectsExcessiveDepth) {
 
   for (int i = 0; i < IREE_TOKENIZER_DECODER_SEQUENCE_MAX_DEPTH + 1; ++i) {
     ScopedDecoder passthrough;
-    IREE_ASSERT_OK(iree_tokenizer_decoder_passthrough_allocate(
-        iree_allocator_system(), passthrough.put()));
+    IREE_ASSERT_OK(iree_tokenizer_decoder_join_allocate(
+        IREE_TOKENIZER_DECODER_JOIN_CONCATENATE, iree_allocator_system(),
+        passthrough.put()));
     raw_pointers.push_back(passthrough.get());
     children.push_back(std::move(passthrough));
   }
@@ -432,8 +436,9 @@ TEST_F(SequenceDecoderTest, OverlapReplaceShrinking) {
       iree_allocator_system(), replace.put()));
 
   ScopedDecoder passthrough;
-  IREE_ASSERT_OK(iree_tokenizer_decoder_passthrough_allocate(
-      iree_allocator_system(), passthrough.put()));
+  IREE_ASSERT_OK(iree_tokenizer_decoder_join_allocate(
+      IREE_TOKENIZER_DECODER_JOIN_CONCATENATE, iree_allocator_system(),
+      passthrough.put()));
 
   std::vector<ScopedDecoder> children;
   children.push_back(std::move(replace));
@@ -492,8 +497,9 @@ TEST_F(SequenceDecoderTest, OverlapWithLargeDataReduction) {
       iree_allocator_system(), replace.put()));
 
   ScopedDecoder passthrough;
-  IREE_ASSERT_OK(iree_tokenizer_decoder_passthrough_allocate(
-      iree_allocator_system(), passthrough.put()));
+  IREE_ASSERT_OK(iree_tokenizer_decoder_join_allocate(
+      IREE_TOKENIZER_DECODER_JOIN_CONCATENATE, iree_allocator_system(),
+      passthrough.put()));
 
   std::vector<ScopedDecoder> children;
   children.push_back(std::move(replace));
@@ -514,16 +520,19 @@ TEST_F(SequenceDecoderTest, OverlapPassthroughPreservesData) {
   // Multiple passthrough decoders should preserve data exactly.
   // This verifies that passthrough's memmove doesn't corrupt data.
   ScopedDecoder pass1;
-  IREE_ASSERT_OK(iree_tokenizer_decoder_passthrough_allocate(
-      iree_allocator_system(), pass1.put()));
+  IREE_ASSERT_OK(iree_tokenizer_decoder_join_allocate(
+      IREE_TOKENIZER_DECODER_JOIN_CONCATENATE, iree_allocator_system(),
+      pass1.put()));
 
   ScopedDecoder pass2;
-  IREE_ASSERT_OK(iree_tokenizer_decoder_passthrough_allocate(
-      iree_allocator_system(), pass2.put()));
+  IREE_ASSERT_OK(iree_tokenizer_decoder_join_allocate(
+      IREE_TOKENIZER_DECODER_JOIN_CONCATENATE, iree_allocator_system(),
+      pass2.put()));
 
   ScopedDecoder pass3;
-  IREE_ASSERT_OK(iree_tokenizer_decoder_passthrough_allocate(
-      iree_allocator_system(), pass3.put()));
+  IREE_ASSERT_OK(iree_tokenizer_decoder_join_allocate(
+      IREE_TOKENIZER_DECODER_JOIN_CONCATENATE, iree_allocator_system(),
+      pass3.put()));
 
   std::vector<ScopedDecoder> children;
   children.push_back(std::move(pass1));
@@ -582,8 +591,9 @@ TEST_F(SequenceDecoderTest, PartialUtf8PlusStatelessPromotion) {
   IREE_ASSERT_OK(iree_tokenizer_decoder_byte_level_allocate(
       iree_allocator_system(), byte_level.put()));
   ScopedDecoder passthrough;
-  IREE_ASSERT_OK(iree_tokenizer_decoder_passthrough_allocate(
-      iree_allocator_system(), passthrough.put()));
+  IREE_ASSERT_OK(iree_tokenizer_decoder_join_allocate(
+      IREE_TOKENIZER_DECODER_JOIN_CONCATENATE, iree_allocator_system(),
+      passthrough.put()));
 
   std::vector<ScopedDecoder> children;
   children.push_back(std::move(byte_level));

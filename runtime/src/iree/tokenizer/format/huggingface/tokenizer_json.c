@@ -492,8 +492,10 @@ iree_status_t iree_tokenizer_parse_huggingface_json(
     iree_string_view_t decoder_value = iree_string_view_empty();
     status = iree_json_try_lookup_object_value(json, IREE_SV("decoder"),
                                                &decoder_value);
-    if (iree_status_is_ok(status) && decoder_value.size > 0 &&
-        !iree_string_view_equal(decoder_value, IREE_SV("null"))) {
+    if (iree_status_is_ok(status)) {
+      if (iree_string_view_is_empty(decoder_value)) {
+        decoder_value = IREE_SV("null");
+      }
       status = iree_tokenizer_huggingface_parse_decoder(decoder_value,
                                                         allocator, &decoder);
     }

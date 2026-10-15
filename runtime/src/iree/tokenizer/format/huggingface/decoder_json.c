@@ -10,6 +10,7 @@
 #include "iree/tokenizer/decoder/byte_fallback.h"
 #include "iree/tokenizer/decoder/byte_level.h"
 #include "iree/tokenizer/decoder/ctc.h"
+#include "iree/tokenizer/decoder/join.h"
 #include "iree/tokenizer/decoder/metaspace.h"
 #include "iree/tokenizer/decoder/replace.h"
 #include "iree/tokenizer/decoder/sequence.h"
@@ -349,7 +350,6 @@ static iree_status_t iree_tokenizer_parse_decoder_sequence_child_visitor(
 //     ]
 //   }
 //
-// NULL children (from no-op decoders like Fuse) are filtered out.
 static iree_status_t iree_tokenizer_parse_sequence_decoder(
     iree_string_view_t decoder_value, iree_allocator_t allocator,
     iree_tokenizer_decoder_t** out_decoder) {
@@ -399,29 +399,18 @@ static iree_status_t iree_tokenizer_parse_sequence_decoder(
                 iree_tokenizer_parse_decoder_sequence_child_visitor, &context)
           : iree_ok_status();
 
-  // Compact array: filter out NULL children (no-op decoders like Fuse).
-  iree_host_size_t non_null_count = 0;
-  if (iree_status_is_ok(status) && children) {
-    for (iree_host_size_t i = 0; i < json_child_count; ++i) {
-      if (children[i]) {
-        children[non_null_count++] = children[i];
-      }
-    }
-  }
-
-  // Dispatch based on child count after compaction:
-  //   0 children → NULL (passthrough)
-  //   1 child    → return the child directly (no sequence wrapper)
-  //   2+ children → create sequence
+  // An identity decoder sequence still joins token strings. It differs from
+  // an absent decoder, whose default format behavior inserts spaces.
   if (iree_status_is_ok(status)) {
-    if (non_null_count == 0) {
-      *out_decoder = NULL;
-    } else if (non_null_count == 1) {
+    if (json_child_count == 0) {
+      status = iree_tokenizer_decoder_join_allocate(
+          IREE_TOKENIZER_DECODER_JOIN_CONCATENATE, allocator, out_decoder);
+    } else if (json_child_count == 1) {
       *out_decoder = children[0];
       children[0] = NULL;  // Prevent cleanup from freeing it.
     } else {
       status = iree_tokenizer_decoder_sequence_allocate(
-          children, non_null_count, allocator, out_decoder);
+          children, json_child_count, allocator, out_decoder);
     }
   }
 
@@ -455,7 +444,8 @@ iree_status_t iree_tokenizer_huggingface_parse_decoder(
 
   // Handle null decoder.
   if (iree_string_view_equal(decoder_value, IREE_SV("null"))) {
-    return iree_ok_status();
+    return iree_tokenizer_decoder_join_allocate(
+        IREE_TOKENIZER_DECODER_JOIN_SPACE_SEPARATED, allocator, out_decoder);
   }
 
   // Get decoder type.
@@ -480,10 +470,8 @@ iree_status_t iree_tokenizer_huggingface_parse_decoder(
     return iree_tokenizer_parse_replace_decoder(decoder_value, allocator,
                                                 out_decoder);
   } else if (iree_string_view_equal(type_value, IREE_SV("Fuse"))) {
-    // Fuse concatenates tokens without separators. Our streaming architecture
-    // uses seen_first_output state instead, making Fuse a no-op.
-    *out_decoder = NULL;
-    return iree_ok_status();
+    return iree_tokenizer_decoder_join_allocate(
+        IREE_TOKENIZER_DECODER_JOIN_CONCATENATE, allocator, out_decoder);
   } else if (iree_string_view_equal(type_value, IREE_SV("Strip"))) {
     return iree_tokenizer_parse_strip_decoder(decoder_value, allocator,
                                               out_decoder);

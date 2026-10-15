@@ -6,6 +6,12 @@
 
 #include "iree/tokenizer/format/huggingface/tokenizer_json.h"
 
+#include <algorithm>
+#include <array>
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "iree/base/api.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
@@ -363,9 +369,87 @@ TEST_F(TokenizerJsonTest, NullDecoder) {
   iree_tokenizer_builder_initialize(allocator_, &builder);
 
   IREE_ASSERT_OK(iree_tokenizer_parse_huggingface_json(json, &builder));
-  EXPECT_EQ(builder.decoder, nullptr);
+  EXPECT_NE(builder.decoder, nullptr);
 
   iree_tokenizer_builder_deinitialize(&builder);
+}
+
+TEST_F(TokenizerJsonTest, DefaultAndExplicitJoiningDecodeAcrossCredit) {
+  struct Case {
+    // Optional complete decoder field, including its comma.
+    const char* field;
+    // Whether the format joins logical tokens with spaces.
+    bool spaced;
+  };
+  const Case cases[] = {
+      {"", true},
+      {R"(,"decoder":null)", true},
+      {R"(,"decoder":{"type":"Fuse"})", false},
+      {R"(,"decoder":{"type":"Sequence","decoders":[]})", false},
+      {R"(,"decoder":{"type":"Sequence","decoders":[{"type":"Fuse"}]})", false},
+  };
+  const std::array<int32_t, 7> tokens = {4, 0, 1, 4, 0, 3, 2};
+  for (const auto& test : cases) {
+    SCOPED_TRACE(test.field);
+    std::string json =
+        R"({"model":{"type":"BPE","vocab":{"":0,"a":1,"b":2,"\ud83d\udc08":3,"[skip]":4},"merges":[]},)"
+        R"("added_tokens":[{"id":4,"content":"[skip]","single_word":false,"lstrip":false,"rstrip":false,"normalized":false,"special":true}])";
+    json += test.field;
+    json += "}";
+    iree_tokenizer_t* tokenizer = nullptr;
+    IREE_ASSERT_OK(iree_tokenizer_from_huggingface_json(
+        iree_make_string_view(json.data(), json.size()), allocator_,
+        &tokenizer));
+    std::unique_ptr<iree_tokenizer_t, decltype(&iree_tokenizer_free)> owner(
+        tokenizer, iree_tokenizer_free);
+    const std::string expected = test.spaced ? " a  \xf0\x9f\x90\x88 b"
+                                             : "a\xf0\x9f\x90\x88"
+                                               "b";
+    char output[128];
+    iree_host_size_t written = 0;
+    IREE_ASSERT_OK(iree_tokenizer_decode(
+        tokenizer, {tokens.size(), tokens.data()},
+        IREE_TOKENIZER_DECODE_FLAG_SKIP_SPECIAL_TOKENS,
+        iree_make_mutable_string_view(output, sizeof(output)), allocator_,
+        &written));
+    EXPECT_EQ(std::string(output, written), expected);
+
+    for (size_t batch_size = 1; batch_size <= tokens.size(); ++batch_size) {
+      SCOPED_TRACE(batch_size);
+      iree_host_size_t state_size = 0;
+      IREE_ASSERT_OK(
+          iree_tokenizer_decode_state_calculate_size(tokenizer, &state_size));
+      std::vector<uint8_t> storage(state_size);
+      iree_tokenizer_decode_state_t* state = nullptr;
+      IREE_ASSERT_OK(iree_tokenizer_decode_state_initialize(
+          tokenizer, IREE_TOKENIZER_DECODE_FLAG_SKIP_SPECIAL_TOKENS,
+          iree_make_byte_span(storage.data(), storage.size()), &state));
+      const size_t credits[] = {0, 1, 5, 6, sizeof(output)};
+      size_t cursor = 0;
+      size_t turn = 0;
+      std::string actual;
+      while (cursor < tokens.size()) {
+        const size_t count = std::min(batch_size, tokens.size() - cursor);
+        const size_t capacity = credits[turn++ % IREE_ARRAYSIZE(credits)];
+        iree_host_size_t consumed = 0;
+        IREE_ASSERT_OK(iree_tokenizer_decode_state_feed(
+            state, {count, tokens.data() + cursor},
+            iree_make_mutable_string_view(output, capacity), &consumed,
+            &written));
+        cursor += consumed;
+        actual.append(output, written);
+        if (capacity == sizeof(output)) {
+          ASSERT_EQ(consumed, count);
+        }
+      }
+      IREE_ASSERT_OK(iree_tokenizer_decode_state_finalize(
+          state, iree_make_mutable_string_view(output, sizeof(output)),
+          &written));
+      actual.append(output, written);
+      iree_tokenizer_decode_state_deinitialize(state);
+      EXPECT_EQ(actual, expected);
+    }
+  }
 }
 
 TEST_F(TokenizerJsonTest, DecoderSuccess) {

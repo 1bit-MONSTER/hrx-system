@@ -59,6 +59,7 @@ iree_runtime_cc_library(
         "//runtime/src/iree/tokenizer/decoder:byte_fallback",
         "//runtime/src/iree/tokenizer/decoder:byte_level",
         "//runtime/src/iree/tokenizer/decoder:ctc",
+        "//runtime/src/iree/tokenizer/decoder:join",
         "//runtime/src/iree/tokenizer/decoder:metaspace",
         "//runtime/src/iree/tokenizer/decoder:replace",
         "//runtime/src/iree/tokenizer/decoder:sequence",

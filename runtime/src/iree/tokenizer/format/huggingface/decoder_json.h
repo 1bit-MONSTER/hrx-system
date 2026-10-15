@@ -19,7 +19,7 @@
 //   - Replace: String pattern replacement (String patterns only, not Regex)
 //   - Strip: Removes characters from token boundaries
 //   - WordPiece: Handles ## continuation prefixes
-//   - Fuse: No-op in streaming architecture (returns NULL)
+//   - Fuse: Concatenates token strings without separators
 
 #ifndef IREE_TOKENIZER_FORMAT_HUGGINGFACE_DECODER_JSON_H_
 #define IREE_TOKENIZER_FORMAT_HUGGINGFACE_DECODER_JSON_H_
@@ -38,19 +38,15 @@ extern "C" {
 // Parses a decoder from its JSON value (the object containing "type").
 //
 // Dispatches to type-specific parsers based on the "type" field. For Sequence
-// decoders, recursively parses children and compacts out NULL (no-op) children.
-// A sequence with 0 children after compaction returns NULL, and a sequence
-// with 1 child returns that child directly (no wrapper).
-//
-// The "Fuse" decoder type returns NULL (no-op) because our streaming
-// architecture handles first-token detection via state, not array indexing.
+// decoders, recursively parses children. An empty sequence concatenates token
+// strings; a sequence with one child returns that child directly.
 //
 // The |decoder_value| is the JSON text of the decoder object itself
 // (e.g., '{"type":"ByteFallback"}'), not the full tokenizer.json file.
-// Pass "null" to get a NULL (passthrough) decoder.
+// Pass "null" for the format's default space-separated token joining.
 //
 // Returns:
-//   - IREE_STATUS_OK on success (out_decoder may be NULL for passthrough)
+//   - IREE_STATUS_OK on success (out_decoder owns a decoder)
 //   - IREE_STATUS_INVALID_ARGUMENT for malformed JSON
 //   - IREE_STATUS_NOT_FOUND for missing required fields (e.g., CTC tokens)
 //   - IREE_STATUS_UNIMPLEMENTED for unsupported decoder types or Regex Replace

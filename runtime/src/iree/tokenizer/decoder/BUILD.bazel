@@ -34,15 +34,13 @@ iree_runtime_cc_library(
 )
 
 #===------------------------------------------------------------------------===#
-# Test-Only Implementations
+# String Joining
 #===------------------------------------------------------------------------===#
 
-# Production code uses NULL decoder for no-op.
 iree_runtime_cc_library(
-    name = "passthrough",
-    testonly = True,
-    srcs = ["passthrough.c"],
-    hdrs = ["passthrough.h"],
+    name = "join",
+    srcs = ["join.c"],
+    hdrs = ["join.h"],
     deps = [
         "//runtime/src/iree/base",
         "//runtime/src/iree/tokenizer:decoder",
@@ -50,11 +48,11 @@ iree_runtime_cc_library(
 )
 
 iree_runtime_cc_test(
-    name = "passthrough_test",
-    srcs = ["passthrough_test.cc"],
+    name = "join_test",
+    srcs = ["join_test.cc"],
     deps = [
         ":decoder_test_util",
-        ":passthrough",
+        ":join",
         "//runtime/src/iree/base",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
@@ -197,8 +195,8 @@ iree_runtime_cc_test(
         ":byte_level",
         ":ctc",
         ":decoder_test_util",
+        ":join",
         ":metaspace",
-        ":passthrough",
         ":replace",
         ":sequence",
         ":strip",

@@ -18,14 +18,15 @@ class DecoderJsonTest : public ::testing::Test {
 };
 
 //===----------------------------------------------------------------------===//
-// Null / Passthrough
+// Default Joining
 //===----------------------------------------------------------------------===//
 
 TEST_F(DecoderJsonTest, NullDecoder) {
   iree_tokenizer_decoder_t* decoder = nullptr;
   IREE_ASSERT_OK(iree_tokenizer_huggingface_parse_decoder(
       IREE_SV("null"), allocator_, &decoder));
-  EXPECT_EQ(decoder, nullptr);
+  EXPECT_NE(decoder, nullptr);
+  iree_tokenizer_decoder_free(decoder);
 }
 
 //===----------------------------------------------------------------------===//
@@ -154,14 +155,15 @@ TEST_F(DecoderJsonTest, WordPieceDecoderMissingFieldsError) {
 }
 
 //===----------------------------------------------------------------------===//
-// Fuse (No-op in streaming architecture)
+// Fuse
 //===----------------------------------------------------------------------===//
 
-TEST_F(DecoderJsonTest, FuseDecoderIsNoop) {
+TEST_F(DecoderJsonTest, FuseDecoder) {
   iree_tokenizer_decoder_t* decoder = nullptr;
   IREE_ASSERT_OK(iree_tokenizer_huggingface_parse_decoder(
       IREE_SV(R"({"type":"Fuse"})"), allocator_, &decoder));
-  EXPECT_EQ(decoder, nullptr);
+  EXPECT_NE(decoder, nullptr);
+  iree_tokenizer_decoder_free(decoder);
 }
 
 //===----------------------------------------------------------------------===//
@@ -169,11 +171,12 @@ TEST_F(DecoderJsonTest, FuseDecoderIsNoop) {
 //===----------------------------------------------------------------------===//
 
 TEST_F(DecoderJsonTest, SequenceDecoderEmpty) {
-  // Empty sequence compacts to NULL (passthrough).
+  // Empty sequences still concatenate token strings.
   iree_tokenizer_decoder_t* decoder = nullptr;
   IREE_ASSERT_OK(iree_tokenizer_huggingface_parse_decoder(
       IREE_SV(R"({"type":"Sequence","decoders":[]})"), allocator_, &decoder));
-  EXPECT_EQ(decoder, nullptr);
+  EXPECT_NE(decoder, nullptr);
+  iree_tokenizer_decoder_free(decoder);
 }
 
 TEST_F(DecoderJsonTest, SequenceDecoderSingleChild) {
@@ -212,16 +215,17 @@ TEST_F(DecoderJsonTest, SequenceDecoderWithReplace) {
 }
 
 TEST_F(DecoderJsonTest, SequenceDecoderWithFuse) {
-  // Fuse returns NULL → sequence compacts to empty → NULL.
+  // A single Fuse remains a concrete concatenating decoder.
   iree_tokenizer_decoder_t* decoder = nullptr;
   IREE_ASSERT_OK(iree_tokenizer_huggingface_parse_decoder(
       IREE_SV(R"({"type":"Sequence","decoders":[{"type":"Fuse"}]})"),
       allocator_, &decoder));
-  EXPECT_EQ(decoder, nullptr);
+  EXPECT_NE(decoder, nullptr);
+  iree_tokenizer_decoder_free(decoder);
 }
 
 TEST_F(DecoderJsonTest, SequenceDecoderReplacePlusFuse) {
-  // Replace + Fuse → Fuse compacted out → single Replace unwrapped.
+  // Explicit concatenation participates in the decoder chain.
   iree_tokenizer_decoder_t* decoder = nullptr;
   IREE_ASSERT_OK(iree_tokenizer_huggingface_parse_decoder(
       IREE_SV(
@@ -236,7 +240,6 @@ TEST_F(DecoderJsonTest, SequenceDecoderReplacePlusFuse) {
 
 TEST_F(DecoderJsonTest, MistralStyleDecoder) {
   // Full Mistral-style pipeline: Replace + ByteFallback + Fuse + Strip.
-  // After compaction: Replace + ByteFallback + Strip (3 children → sequence).
   iree_tokenizer_decoder_t* decoder = nullptr;
   IREE_ASSERT_OK(iree_tokenizer_huggingface_parse_decoder(
       IREE_SV(

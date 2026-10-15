@@ -59,6 +59,7 @@ iree_cc_library(
     iree::tokenizer::decoder::byte_fallback
     iree::tokenizer::decoder::byte_level
     iree::tokenizer::decoder::ctc
+    iree::tokenizer::decoder::join
     iree::tokenizer::decoder::metaspace
     iree::tokenizer::decoder::replace
     iree::tokenizer::decoder::sequence
