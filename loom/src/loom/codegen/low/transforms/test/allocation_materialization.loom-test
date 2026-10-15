@@ -1095,7 +1095,8 @@ CHECK: *"rematerializations":2,*"attempts":3,*
 // ====
 
 // Folding the fallback edge makes the late producer dominate the early loop.
-// Consumer-first repair must use CFG order after that change, not source points.
+// Spill repair must use that updated execution domain and retain the values
+// instead of replaying their definitions across loop iterations.
 // RUN: with-checks pass-report cfg-simplify,low-materialize-allocation{budgets=test.i32=2}
 
 test.target<low_core> @target
@@ -1132,7 +1133,7 @@ low.func.def target<test.low.core>(@target) @dependent_spills_reordered_cfg(%a: 
 }
 
 // ----
-CHECK: *"rematerializations":7,*"attempts":8,*
+CHECK: *"symbol":"dependent_spills_reordered_cfg"*"rematerializations":0,*
 
 // ====
 
@@ -1186,6 +1187,91 @@ test.target<low_core> @target
 low.func.def allocation(fixed) target<test.low.core>(@target) @fixed_input() asm {
   return
 }
+
+// ====
+
+// A multi-packet recipe defined before a loop must remain loop invariant when
+// ordinary spill traffic can carry it across the repeated execution boundary.
+// RUN: with-checks pass low-materialize-allocation
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @retain_loop_invariant_recipe(%repeat: reg<test.i32>, %block0: reg<test.explicit32>, %block1: reg<test.explicit32>, %block2: reg<test.explicit32>, %late_source: reg<test.i32>) -> (reg<test.i32>) asm {
+  %literal = test.const.i32 7
+  %recipe = test.rematerialize.spillable.explicit32 %literal
+  %late = copy %late_source : reg<test.i32> -> reg<test.explicit32>
+  %value0 = copy %block0 : reg<test.explicit32> -> reg<test.i32>
+  %value1 = copy %block1 : reg<test.explicit32> -> reg<test.i32>
+  %value2 = copy %block2 : reg<test.explicit32> -> reg<test.i32>
+  %value3 = copy %late : reg<test.explicit32> -> reg<test.i32>
+  %pair0 = test.add.i32 %value0, %value1
+  %pair1 = test.add.i32 %value2, %value3
+  %seed = test.add.i32 %pair0, %pair1
+  low.br ^loop
+^loop:
+  %recipe_value = copy %recipe : reg<test.spillable.explicit32> -> reg<test.i32>
+  %sum = test.add.i32 %seed, %recipe_value
+  low.cond_br %repeat, ^loop, ^exit : reg<test.i32>
+^exit:
+  return %sum
+}
+
+low.func.def target<test.low.core>(@target) @rematerialize_within_loop(%repeat: reg<test.i32>, %block0: reg<test.explicit32>, %block1: reg<test.explicit32>, %block2: reg<test.explicit32>, %late_source: reg<test.i32>) -> (reg<test.i32>) asm {
+  low.br ^header
+^header:
+  %literal = test.const.i32 11
+  %recipe = test.rematerialize.spillable.explicit32 %literal
+  %late = copy %late_source : reg<test.i32> -> reg<test.explicit32>
+  %value0 = copy %block0 : reg<test.explicit32> -> reg<test.i32>
+  %value1 = copy %block1 : reg<test.explicit32> -> reg<test.i32>
+  %value2 = copy %block2 : reg<test.explicit32> -> reg<test.i32>
+  %value3 = copy %late : reg<test.explicit32> -> reg<test.i32>
+  %pair0 = test.add.i32 %value0, %value1
+  %pair1 = test.add.i32 %value2, %value3
+  %seed = test.add.i32 %pair0, %pair1
+  low.br ^body
+^body:
+  %recipe_value = copy %recipe : reg<test.spillable.explicit32> -> reg<test.i32>
+  %sum = test.add.i32 %seed, %recipe_value
+  low.cond_br %repeat, ^header, ^exit : reg<test.i32>
+^exit:
+  return %sum
+}
+
+low.func.def target<test.low.core>(@target) @preserve_loop_invariant_recipe_source(%repeat: reg<test.i32>, %block0: reg<test.explicit32>, %block1: reg<test.explicit32>, %block2: reg<test.explicit32>, %late_source: reg<test.i32>) -> (reg<test.i32>) asm {
+  %literal = test.const.i32 13
+  low.br ^header
+^header:
+  %recipe = test.rematerialize.spillable.explicit32 %literal
+  %late = copy %late_source : reg<test.i32> -> reg<test.explicit32>
+  %value0 = copy %block0 : reg<test.explicit32> -> reg<test.i32>
+  %value1 = copy %block1 : reg<test.explicit32> -> reg<test.i32>
+  %value2 = copy %block2 : reg<test.explicit32> -> reg<test.i32>
+  %value3 = copy %late : reg<test.explicit32> -> reg<test.i32>
+  %pair0 = test.add.i32 %value0, %value1
+  %pair1 = test.add.i32 %value2, %value3
+  %seed = test.add.i32 %pair0, %pair1
+  low.br ^body
+^body:
+  %recipe_value = copy %recipe : reg<test.spillable.explicit32> -> reg<test.i32>
+  %sum = test.add.i32 %seed, %recipe_value
+  low.cond_br %repeat, ^header, ^exit : reg<test.i32>
+^exit:
+  return %sum
+}
+
+// ----
+CHECK: %retain_loop_invariant_recipe_spill_storage_0 = storage *
+CHECK: low.spill %recipe, %retain_loop_invariant_recipe_spill_storage_0 *
+CHECK: * = low.reload %retain_loop_invariant_recipe_spill_storage_0 *
+CHECK-NOT: %literal_remat = test.const.i32 7
+CHECK: %literal_remat = test.const.i32 11
+CHECK: %recipe_remat = test.rematerialize.spillable.explicit32 %literal_remat
+CHECK-NOT: %rematerialize_within_loop_spill_storage_0 = storage *
+CHECK: %literal = test.const.i32 13
+CHECK: %recipe_remat = test.rematerialize.spillable.explicit32 %literal
+CHECK-NOT: %literal_remat = test.const.i32 13
+CHECK-NOT: %preserve_loop_invariant_recipe_source_spill_storage_0 = storage *
 
 // ====
 
