@@ -92,6 +92,9 @@ loom_cc_library(
     name = "stage_set",
     srcs = ["stage_set.c"],
     hdrs = ["stage_set.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":compilation",
         ":jit",
@@ -186,6 +189,9 @@ loom_cc_library(
     name = "jit",
     srcs = ["jit.c"],
     hdrs = ["jit.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":command",
         ":compilation",
@@ -221,6 +227,9 @@ loom_cc_library(
     name = "program",
     srcs = ["program.c"],
     hdrs = ["program.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":compilation",
         ":jit",
@@ -326,6 +335,9 @@ loom_cc_library(
     name = "preparation",
     srcs = ["preparation.c"],
     hdrs = ["preparation.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":compilation",
         ":parameter_layout",

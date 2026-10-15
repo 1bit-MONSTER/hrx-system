@@ -32,6 +32,7 @@ loom_cc_library(
     testonly = True,
     srcs = ["test_compiler.c"],
     target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
         "//loom/config/target:amdgpu_artifacts",
     ]),
     deps = [
@@ -62,6 +63,7 @@ loom_cc_library(
     testonly = True,
     srcs = ["test_device.c"],
     target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_amdgpu",
     ]),
     deps = [
@@ -118,6 +120,7 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_amdgpu",
     ]),
     deps = [
@@ -500,6 +503,7 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_amdgpu",
     ]) + select({
         "@platforms//os:linux": [],
@@ -586,6 +590,7 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_amdgpu",
     ]),
     deps = [
@@ -649,6 +654,7 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_amdgpu",
     ]),
     deps = [
@@ -671,6 +677,7 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_amdgpu",
     ]),
     deps = [
@@ -695,6 +702,7 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_amdgpu",
     ]),
     deps = [

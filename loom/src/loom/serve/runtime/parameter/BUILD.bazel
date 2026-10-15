@@ -25,6 +25,9 @@ loom_cc_library(
     name = "activation",
     srcs = ["activation.c"],
     hdrs = ["activation.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":residency",
         "//loom/src/loom/serve/runtime/execution",
@@ -39,6 +42,9 @@ loom_cc_library(
     name = "residency",
     srcs = ["residency.c"],
     hdrs = ["residency.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":weights",
         "//loom/src/loom/serve/runtime/execution",
@@ -51,6 +57,7 @@ loom_cc_test(
     name = "activation_test",
     srcs = ["activation_test.cc"],
     target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_task",
     ]),
     deps = [
@@ -70,6 +77,9 @@ loom_cc_library(
     name = "weights",
     srcs = ["weights.c"],
     hdrs = ["weights.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         "//loom/binding/c:loomc",
         "//loom/src/loom/serve/runtime/execution",
@@ -94,6 +104,9 @@ loom_cc_library(
     name = "telemetry",
     srcs = ["telemetry.c"],
     hdrs = ["telemetry.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":weights",
         "//loom/src/loom/serve/telemetry:record",
@@ -105,6 +118,9 @@ loom_cc_library(
 loom_cc_test(
     name = "telemetry_test",
     srcs = ["telemetry_test.cc"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":telemetry",
         "//loom/src/loom/serve/telemetry:record",

@@ -37,6 +37,9 @@ loom_cc_library(
     name = "router",
     srcs = ["router.c"],
     hdrs = ["router.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":configuration",
         ":maintenance",
@@ -89,6 +92,9 @@ loom_cc_library(
     name = "resources",
     srcs = ["resources.c"],
     hdrs = ["resources.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         "//loom/src/loom/serve/runtime/device",
         "//loom/src/loom/serve/runtime/host:wake",
@@ -120,6 +126,7 @@ loom_cc_test(
     name = "resources_test",
     srcs = ["resources_test.cc"],
     target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_task",
     ]),
     deps = [
@@ -141,7 +148,9 @@ loom_cc_test(
         "router_test_fixture.h",
         "router_variant_test.cc",
     ],
-    target_compatible_with = select({
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]) + select({
         "@platforms//os:linux": [],
         "//conditions:default": ["@platforms//:incompatible"],
     }),
@@ -187,6 +196,9 @@ loom_cc_library(
     name = "registry",
     srcs = ["registry.c"],
     hdrs = ["registry.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":configuration",
         "//loom/src/loom/serve/runtime/host:wake",
@@ -205,6 +217,9 @@ loom_cc_library(
     name = "model_registration",
     srcs = ["model_registration.c"],
     hdrs = ["model_registration.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":configuration",
         ":registry",
@@ -234,6 +249,9 @@ loom_cc_library(
 loom_cc_test(
     name = "registry_test",
     srcs = ["registry_test.cc"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":configuration",
         ":registry",

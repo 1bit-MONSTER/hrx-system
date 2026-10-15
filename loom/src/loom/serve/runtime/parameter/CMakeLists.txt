@@ -9,6 +9,7 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     activation
@@ -25,7 +26,9 @@ loom_cc_library(
     loom::serve::runtime::execution
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     residency
@@ -40,8 +43,9 @@ loom_cc_library(
     loom::serve::runtime::storage::memory
   PUBLIC
 )
+endif()
 
-if(IREE_HAL_DRIVER_TASK)
+if(LOOM_TARGET_ARCH_VM AND IREE_HAL_DRIVER_TASK)
 loom_cc_test(
   NAME
     activation_test
@@ -60,6 +64,7 @@ loom_cc_test(
 )
 endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     weights
@@ -86,7 +91,9 @@ loom_cc_library(
     loom::serve::runtime::storage::memory
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     telemetry
@@ -101,7 +108,9 @@ loom_cc_library(
     loom::serve::telemetry::stream
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     telemetry_test
@@ -115,5 +124,6 @@ loom_cc_test(
     loom::serve::telemetry::record
     loom::serve::telemetry::stream
 )
+endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

@@ -23,6 +23,9 @@ loom_cc_library(
     name = "device",
     srcs = ["device.c"],
     hdrs = ["device.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         "//loom/src/loom/serve/runtime/execution",
         "//loom/src/loom/serve/runtime/execution:workspace",
@@ -41,6 +44,9 @@ loom_cc_library(
 loom_cc_test(
     name = "device_test",
     srcs = ["device_test.cc"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":device",
         "//runtime/src/iree/base",
@@ -53,6 +59,7 @@ loom_cc_test(
     name = "device_cpu_test",
     srcs = ["device_cpu_test.cc"],
     target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_task",
     ]),
     deps = [

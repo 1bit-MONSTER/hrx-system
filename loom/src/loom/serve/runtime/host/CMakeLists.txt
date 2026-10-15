@@ -9,6 +9,7 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     host
@@ -32,7 +33,9 @@ loom_cc_library(
     loom::binding::c::task_queue
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     host_test
@@ -46,6 +49,7 @@ loom_cc_test(
     iree::testing::gtest_main
     loom::binding::c::task_pool
 )
+endif()
 
 loom_cc_library(
   NAME

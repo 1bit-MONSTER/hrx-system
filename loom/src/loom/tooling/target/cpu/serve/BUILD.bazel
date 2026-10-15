@@ -19,6 +19,7 @@ loom_cc_library(
     testonly = True,
     srcs = ["test_compiler.c"],
     target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
         "//loom/config/target/arch:x86",
     ]),
     deps = [
@@ -34,6 +35,7 @@ loom_cc_library(
     testonly = True,
     srcs = ["test_device.c"],
     target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_task",
     ]),
     deps = [

@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test")
+load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
 
 package(
     default_visibility = ["//loom/src/loom/serve:implementation"],
@@ -16,6 +16,9 @@ loom_cc_library(
     name = "metrics",
     srcs = ["metrics.c"],
     hdrs = ["metrics.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         "//loom/src/loom/serve/server:registry",
         "//loom/src/loom/serve/telemetry:latency",
@@ -66,6 +69,9 @@ loom_cc_library(
     name = "variants",
     srcs = ["variants.c"],
     hdrs = ["variants.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":package",
         ":response",

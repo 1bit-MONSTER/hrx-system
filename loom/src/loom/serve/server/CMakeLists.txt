@@ -21,6 +21,7 @@ iree_py_library(
     loom::serve::testing::logs
 )
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     router
@@ -60,6 +61,7 @@ loom_cc_library(
     loom::util::stream
   PUBLIC
 )
+endif()
 
 loom_cc_library(
   NAME
@@ -79,6 +81,7 @@ loom_cc_library(
   PUBLIC
 )
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     resources
@@ -100,6 +103,7 @@ loom_cc_library(
     loom::util::stream
   PUBLIC
 )
+endif()
 
 loom_cc_test(
   NAME
@@ -114,7 +118,7 @@ loom_cc_test(
     loom::serve::runtime::device
 )
 
-if(IREE_HAL_DRIVER_TASK)
+if(LOOM_TARGET_ARCH_VM AND IREE_HAL_DRIVER_TASK)
 loom_cc_test(
   NAME
     resources_test
@@ -131,7 +135,7 @@ loom_cc_test(
 )
 endif()
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_cc_test(
   NAME
     router_test
@@ -181,6 +185,7 @@ loom_cc_library(
   PUBLIC
 )
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     registry
@@ -201,7 +206,9 @@ loom_cc_library(
     loom::serve::telemetry::stream
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     model_registration
@@ -234,7 +241,9 @@ loom_cc_library(
     loom::serve::service::text::service
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     registry_test
@@ -249,6 +258,7 @@ loom_cc_test(
     iree::testing::gtest_main
     iree::testing::temp_file
 )
+endif()
 
 loom_cc_test(
   NAME

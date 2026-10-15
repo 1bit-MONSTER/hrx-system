@@ -9,6 +9,7 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     maintenance_gate
@@ -36,7 +37,9 @@ loom_cc_library(
   TESTONLY
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     device
@@ -53,7 +56,9 @@ loom_cc_library(
   TESTONLY
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     jit
@@ -77,7 +82,9 @@ loom_cc_library(
   TESTONLY
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     jit_module
@@ -100,7 +107,9 @@ loom_cc_library(
   TESTONLY
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     service_application
@@ -119,7 +128,9 @@ loom_cc_library(
   TESTONLY
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     server_test_tool
@@ -134,6 +145,7 @@ loom_cc_library(
   TESTONLY
   PUBLIC
 )
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_cc_library(

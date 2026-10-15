@@ -59,6 +59,7 @@ loom_cc_test(
     iree::testing::gtest_main
 )
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     generator
@@ -73,7 +74,9 @@ loom_cc_library(
     loom::serve::service::execution_reconfiguration
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     telemetry
@@ -88,7 +91,9 @@ loom_cc_library(
     loom::serve::telemetry::stream
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     service
@@ -123,6 +128,7 @@ loom_cc_library(
     loom::util::stream
   PUBLIC
 )
+endif()
 
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(

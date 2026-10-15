@@ -243,6 +243,9 @@ loom_cc_library(
     name = "chat",
     srcs = ["chat.c"],
     hdrs = ["chat.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         "//loom/src/loom/serve/runtime/program",
         "//loom/src/loom/util:json",
@@ -258,6 +261,9 @@ loom_cc_library(
     name = "input",
     srcs = ["input.c"],
     hdrs = ["input.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":chat",
         "//runtime/src/iree/base",
@@ -268,6 +274,9 @@ loom_cc_library(
 loom_cc_test(
     name = "chat_test",
     srcs = ["chat_test.cc"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":chat",
         "//runtime/src/iree/base",
@@ -376,6 +385,9 @@ loom_cc_library(
     name = "telemetry",
     srcs = ["telemetry.c"],
     hdrs = ["telemetry.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":epoch",
         ":heartbeat",
@@ -394,6 +406,9 @@ loom_cc_library(
     name = "heartbeat",
     srcs = ["heartbeat.c"],
     hdrs = ["heartbeat.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         "//loom/src/loom/serve/runtime/device",
         "//loom/src/loom/serve/runtime/host:timer",
@@ -410,6 +425,9 @@ loom_cc_library(
 loom_cc_test(
     name = "heartbeat_test",
     srcs = ["heartbeat_test.cc"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":heartbeat",
         "//loom/src/loom/serve/runtime/host:timer",
@@ -481,6 +499,9 @@ loom_cc_library(
 loom_cc_test(
     name = "epoch_test",
     srcs = ["epoch_test.cc"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":epoch",
         ":model",
@@ -496,6 +517,9 @@ loom_cc_library(
     name = "session_cache",
     srcs = ["session_cache.c"],
     hdrs = ["session_cache.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     visibility = ["//visibility:private"],
     deps = [
         ":chat",
@@ -512,6 +536,9 @@ loom_cc_library(
     name = "prefix_cache",
     srcs = ["prefix_cache.c"],
     hdrs = ["prefix_cache.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     visibility = ["//visibility:private"],
     deps = [
         ":model",
@@ -537,6 +564,9 @@ loom_cc_library(
 loom_cc_test(
     name = "readiness_test",
     srcs = ["readiness_test.cc"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":readiness",
         "//loom/src/loom/serve/runtime/execution",
@@ -554,6 +584,9 @@ loom_cc_library(
     name = "response",
     srcs = ["response.c"],
     hdrs = ["response.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     visibility = ["//visibility:private"],
     deps = [
         ":chat",
@@ -571,6 +604,9 @@ loom_cc_library(
     name = "checkpoint_request",
     srcs = ["checkpoint_request.c"],
     hdrs = ["checkpoint_request.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     visibility = ["//visibility:private"],
     deps = [
         ":checkpoint_registry",
@@ -590,6 +626,9 @@ loom_cc_library(
     name = "reconfiguration",
     srcs = ["reconfiguration.c"],
     hdrs = ["reconfiguration.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":model",
         "//loom/src/loom/serve/runtime/program:sources",

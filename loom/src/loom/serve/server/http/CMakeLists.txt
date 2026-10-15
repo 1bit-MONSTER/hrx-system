@@ -9,6 +9,7 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     metrics
@@ -23,6 +24,7 @@ loom_cc_library(
     loom::serve::telemetry::record
   PUBLIC
 )
+endif()
 
 loom_cc_library(
   NAME
@@ -69,6 +71,7 @@ loom_cc_library(
   PUBLIC
 )
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     variants
@@ -95,6 +98,7 @@ loom_cc_library(
     loom::util::stream
   PUBLIC
 )
+endif()
 
 loom_cc_library(
   NAME

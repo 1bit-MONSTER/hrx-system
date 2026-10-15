@@ -265,6 +265,7 @@ loom_cc_library(
 )
 endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     chat
@@ -282,7 +283,9 @@ loom_cc_library(
     loom::util::stream
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     input
@@ -296,7 +299,9 @@ loom_cc_library(
     iree::vm
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     chat_test
@@ -308,6 +313,7 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
 )
+endif()
 
 loom_cc_library(
   NAME
@@ -410,6 +416,7 @@ loom_cc_library(
   PUBLIC
 )
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     telemetry
@@ -430,7 +437,9 @@ loom_cc_library(
     loom::serve::telemetry::stream
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     heartbeat
@@ -450,7 +459,9 @@ loom_cc_library(
     loom::serve::telemetry::stream
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     heartbeat_test
@@ -468,6 +479,7 @@ loom_cc_test(
     loom::serve::telemetry::record
     loom::serve::telemetry::stream
 )
+endif()
 
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
@@ -527,6 +539,7 @@ loom_cc_library(
 )
 endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     epoch_test
@@ -541,7 +554,9 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     session_cache
@@ -559,7 +574,9 @@ loom_cc_library(
     loom::serve::runtime::execution
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     prefix_cache
@@ -573,6 +590,7 @@ loom_cc_library(
     loom::serve::runtime::execution
   PUBLIC
 )
+endif()
 
 loom_cc_library(
   NAME
@@ -591,6 +609,7 @@ loom_cc_library(
   PUBLIC
 )
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     readiness_test
@@ -607,7 +626,9 @@ loom_cc_test(
     loom::serve::runtime::execution
     loom::serve::runtime::host
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     response
@@ -626,7 +647,9 @@ loom_cc_library(
     loom::util::stream
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     checkpoint_request
@@ -647,7 +670,9 @@ loom_cc_library(
     loom::serve::transport::http::server
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     reconfiguration
@@ -663,6 +688,7 @@ loom_cc_library(
     loom::serve::service::execution_reconfiguration
   PUBLIC
 )
+endif()
 
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(

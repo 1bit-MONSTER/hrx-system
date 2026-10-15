@@ -76,6 +76,7 @@ loom_cc_library(
   PUBLIC
 )
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     stage_set
@@ -96,6 +97,7 @@ loom_cc_library(
     loom::target::arch::cmd::program
   PUBLIC
 )
+endif()
 
 loom_cc_library(
   NAME
@@ -189,6 +191,7 @@ loom_cc_library(
   PUBLIC
 )
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     jit
@@ -213,6 +216,7 @@ loom_cc_library(
     loom::target::arch::cmd::program
   PUBLIC
 )
+endif()
 
 loom_cc_test(
   NAME
@@ -228,6 +232,7 @@ loom_cc_test(
     loom::util::stream
 )
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     program
@@ -245,6 +250,7 @@ loom_cc_library(
     loom::binding::c::loomc
   PUBLIC
 )
+endif()
 
 loom_cc_library(
   NAME
@@ -349,6 +355,7 @@ loom_cc_test(
     iree::vm
 )
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     preparation
@@ -368,6 +375,7 @@ loom_cc_library(
     loom::target::arch::cmd::program
   PUBLIC
 )
+endif()
 
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(

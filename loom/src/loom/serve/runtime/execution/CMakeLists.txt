@@ -68,7 +68,7 @@ loom_cc_test(
     iree::testing::gtest_main
 )
 
-if(IREE_HAL_DRIVER_TASK)
+if(LOOM_TARGET_ARCH_VM AND IREE_HAL_DRIVER_TASK)
 loom_cc_test(
   NAME
     workspace_test

@@ -9,6 +9,7 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     device
@@ -30,7 +31,9 @@ loom_cc_library(
     loom::serve::runtime::storage::memory
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     device_test
@@ -42,8 +45,9 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
 )
+endif()
 
-if(IREE_HAL_DRIVER_TASK)
+if(LOOM_TARGET_ARCH_VM AND IREE_HAL_DRIVER_TASK)
 loom_cc_test(
   NAME
     device_cpu_test

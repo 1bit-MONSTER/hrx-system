@@ -22,6 +22,9 @@ loom_cc_library(
     name = "options",
     srcs = ["options.c"],
     hdrs = ["options.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         "//loom/src/loom/serve/runtime/device",
         "//loom/src/loom/serve/runtime/host",
@@ -67,6 +70,9 @@ loom_cc_library(
     name = "main",
     srcs = ["main.c"],
     hdrs = ["main.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":options",
         ":signals",

@@ -37,6 +37,9 @@ loom_cc_test(
 loom_cc_library(
     name = "generator",
     hdrs = ["generator.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":request",
         "//loom/src/loom/serve/runtime/execution",
@@ -50,6 +53,9 @@ loom_cc_library(
     name = "state",
     srcs = ["state.c"],
     hdrs = ["state.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         "//loom/src/loom/serve/runtime/device",
         "//loom/src/loom/serve/runtime/execution",
@@ -163,6 +169,9 @@ loom_cc_library(
     name = "service",
     srcs = ["service.c"],
     hdrs = ["service.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":generator",
         ":output",

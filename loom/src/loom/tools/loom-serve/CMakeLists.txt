@@ -9,6 +9,7 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     options
@@ -26,6 +27,7 @@ loom_cc_library(
     loom::serve::runtime::host
   PUBLIC
 )
+endif()
 
 loom_cc_library(
   NAME
@@ -59,6 +61,7 @@ loom_cc_test(
 )
 endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     main
@@ -84,6 +87,7 @@ loom_cc_library(
     loom::util::stream
   PUBLIC
 )
+endif()
 
 if(LOOM_TARGET_ARCH_VM)
 set(_loom_serve_platform_copts "")

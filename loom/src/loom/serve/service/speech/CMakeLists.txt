@@ -35,6 +35,7 @@ loom_cc_test(
     iree::testing::gtest_main
 )
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     generator
@@ -48,7 +49,9 @@ loom_cc_library(
     loom::serve::runtime::parameter::residency
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     state
@@ -65,6 +68,7 @@ loom_cc_library(
     loom::serve::runtime::storage::memory
   PUBLIC
 )
+endif()
 
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
@@ -169,6 +173,7 @@ loom_cc_test(
     iree::testing::gtest_main
 )
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     service
@@ -200,5 +205,6 @@ loom_cc_library(
     loom::util::stream
   PUBLIC
 )
+endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

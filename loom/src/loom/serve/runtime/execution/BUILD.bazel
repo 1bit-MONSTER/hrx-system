@@ -72,6 +72,7 @@ loom_cc_test(
     name = "workspace_test",
     srcs = ["workspace_test.cc"],
     target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_task",
     ]),
     deps = [

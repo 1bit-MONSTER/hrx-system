@@ -20,6 +20,7 @@ loom_cc_library(
   PUBLIC
 )
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     service
@@ -53,6 +54,7 @@ loom_cc_library(
     loom::util::stream
   PUBLIC
 )
+endif()
 
 loom_cc_library(
   NAME
@@ -111,7 +113,7 @@ loom_cc_library(
 )
 endif()
 
-if(IREE_HAL_DRIVER_TASK)
+if(LOOM_TARGET_ARCH_VM AND IREE_HAL_DRIVER_TASK)
 loom_cc_test(
   NAME
     result_test

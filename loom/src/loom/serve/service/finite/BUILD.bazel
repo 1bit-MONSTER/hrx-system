@@ -25,6 +25,9 @@ loom_cc_library(
     name = "service",
     srcs = ["service.c"],
     hdrs = ["service.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
     deps = [
         ":model",
         ":protocol",
@@ -108,6 +111,7 @@ loom_cc_test(
     name = "result_test",
     srcs = ["result_test.cc"],
     target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_task",
     ]),
     deps = [
