@@ -26,6 +26,7 @@
 
 #include "iree/base/api.h"
 #include "iree/tokenizer/decoder.h"
+#include "iree/tokenizer/normalizer.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,9 +38,12 @@ extern "C" {
 
 // Parses a decoder from its JSON value (the object containing "type").
 //
-// Dispatches to type-specific parsers based on the "type" field. For Sequence
-// decoders, recursively parses children. An empty sequence concatenates token
-// strings; a sequence with one child returns that child directly.
+// Retains the semantic boundary introduced by Fuse. The token decoder owns
+// vocabulary-string transforms before fusion; the optional text transform
+// consumes the joined UTF-8 stream and finalizes only at decode EOF. Both
+// outputs transfer ownership to the caller on success and are NULL on failure.
+// Nested sequences are flattened without changing that boundary. An empty
+// sequence concatenates strings; an absent decoder inserts spaces.
 //
 // The |decoder_value| is the JSON text of the decoder object itself
 // (e.g., '{"type":"ByteFallback"}'), not the full tokenizer.json file.
@@ -52,7 +56,8 @@ extern "C" {
 //   - IREE_STATUS_UNIMPLEMENTED for unsupported decoder types or Regex Replace
 iree_status_t iree_tokenizer_huggingface_parse_decoder(
     iree_string_view_t decoder_value, iree_allocator_t allocator,
-    iree_tokenizer_decoder_t** out_decoder);
+    iree_tokenizer_decoder_t** out_decoder,
+    iree_tokenizer_normalizer_t** out_text_transform);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -464,7 +464,28 @@ TEST_F(SequenceNormalizerTest, ZeroCapacityOutput) {
   auto normalizer = CreateSequence(std::move(children));
   ASSERT_NE(normalizer.get(), nullptr);
 
-  TestZeroCapacityOutput(normalizer.get(), "hello");
+  ScopedNormalizerState state(normalizer.get());
+  char output[8];
+  iree_host_size_t consumed = 0;
+  iree_host_size_t written = 0;
+  IREE_ASSERT_OK(iree_tokenizer_normalizer_state_process(
+      state.get(), IREE_SV("hello"), iree_make_mutable_string_view(output, 0),
+      IREE_TOKENIZER_NORMALIZER_FLAG_NONE, &consumed, &written));
+  EXPECT_EQ(written, 0u);
+  ASSERT_LE(consumed, 5u);
+  const auto remaining =
+      iree_string_view_substr(IREE_SV("hello"), consumed, IREE_HOST_SIZE_MAX);
+  IREE_ASSERT_OK(iree_tokenizer_normalizer_state_process(
+      state.get(), remaining,
+      iree_make_mutable_string_view(output, sizeof(output)),
+      IREE_TOKENIZER_NORMALIZER_FLAG_NONE, &consumed, &written));
+  ASSERT_EQ(consumed, remaining.size);
+  std::string actual(output, written);
+  IREE_ASSERT_OK(iree_tokenizer_normalizer_state_finalize(
+      state.get(), iree_make_mutable_string_view(output, sizeof(output)),
+      &written));
+  actual.append(output, written);
+  EXPECT_EQ(actual, "hello");
 }
 
 TEST_F(SequenceNormalizerTest, LimitedOutputCapacity) {

@@ -71,6 +71,7 @@ iree_runtime_cc_library(
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:unicode",
         "//runtime/src/iree/tokenizer:decoder",
+        "//runtime/src/iree/tokenizer:normalizer",
     ],
 )
 
@@ -95,6 +96,7 @@ iree_runtime_cc_library(
         "//runtime/src/iree/base/internal:unicode",
         "//runtime/src/iree/tokenizer:byte_level_tables",
         "//runtime/src/iree/tokenizer:decoder",
+        "//runtime/src/iree/tokenizer:normalizer",
     ],
 )
 
@@ -115,6 +117,7 @@ iree_runtime_cc_library(
     srcs = ["ctc.c"],
     hdrs = ["ctc.h"],
     deps = [
+        ":wordpiece_cleanup",
         "//runtime/src/iree/base",
         "//runtime/src/iree/tokenizer:decoder",
     ],
@@ -229,12 +232,37 @@ iree_runtime_cc_test(
 )
 
 iree_runtime_cc_library(
+    name = "wordpiece_cleanup",
+    srcs = ["wordpiece_cleanup.c"],
+    hdrs = ["wordpiece_cleanup.h"],
+    deps = [
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/tokenizer:normalizer",
+        "//runtime/src/iree/tokenizer/normalizer:replace",
+        "//runtime/src/iree/tokenizer/normalizer:sequence",
+    ],
+)
+
+iree_runtime_cc_library(
     name = "wordpiece",
     srcs = ["wordpiece.c"],
     hdrs = ["wordpiece.h"],
     deps = [
+        ":wordpiece_cleanup",
         "//runtime/src/iree/base",
         "//runtime/src/iree/tokenizer:decoder",
+    ],
+)
+
+iree_runtime_cc_test(
+    name = "wordpiece_cleanup_test",
+    srcs = ["wordpiece_cleanup_test.cc"],
+    deps = [
+        ":wordpiece_cleanup",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+        "//runtime/src/iree/tokenizer/normalizer:normalizer_test_util",
     ],
 )
 

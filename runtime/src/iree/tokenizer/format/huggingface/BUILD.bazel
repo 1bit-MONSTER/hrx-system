@@ -55,7 +55,9 @@ iree_runtime_cc_library(
     deps = [
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:json",
+        "//runtime/src/iree/base/internal:unicode",
         "//runtime/src/iree/tokenizer:decoder",
+        "//runtime/src/iree/tokenizer:normalizer",
         "//runtime/src/iree/tokenizer/decoder:byte_fallback",
         "//runtime/src/iree/tokenizer/decoder:byte_level",
         "//runtime/src/iree/tokenizer/decoder:ctc",
@@ -65,6 +67,10 @@ iree_runtime_cc_library(
         "//runtime/src/iree/tokenizer/decoder:sequence",
         "//runtime/src/iree/tokenizer/decoder:strip",
         "//runtime/src/iree/tokenizer/decoder:wordpiece",
+        "//runtime/src/iree/tokenizer/decoder:wordpiece_cleanup",
+        "//runtime/src/iree/tokenizer/normalizer:replace",
+        "//runtime/src/iree/tokenizer/normalizer:sequence",
+        "//runtime/src/iree/tokenizer/normalizer:strip",
     ],
 )
 
@@ -76,6 +82,7 @@ iree_runtime_cc_test(
         "//runtime/src/iree/base",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
+        "//runtime/src/iree/tokenizer:normalizer",
     ],
 )
 
@@ -285,6 +292,7 @@ iree_runtime_cc_fuzz(
         ":decoder_json",
         "//runtime/src/iree/base",
         "//runtime/src/iree/tokenizer:decoder",
+        "//runtime/src/iree/tokenizer:normalizer",
     ],
 )
 

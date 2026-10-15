@@ -303,11 +303,6 @@ static iree_status_t iree_tokenizer_normalizer_sequence_state_process(
   iree_tokenizer_normalizer_sequence_state_t* state =
       (iree_tokenizer_normalizer_sequence_state_t*)base_state;
   state->flags |= flags;
-  if (output.size == 0) {
-    *out_consumed = 0;
-    *out_written = 0;
-    return iree_ok_status();
-  }
   return iree_tokenizer_normalizer_sequence_pump(
       state, input, output, /*finalizing=*/false, out_consumed, out_written);
 }

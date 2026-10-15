@@ -405,3 +405,151 @@ static const iree_tokenizer_decoder_vtable_t
             iree_tokenizer_decoder_byte_fallback_state_has_pending,
         .flags = IREE_TOKENIZER_DECODER_FLAG_SHRINKING,
 };
+
+//===----------------------------------------------------------------------===//
+// Joined Logical String
+//===----------------------------------------------------------------------===//
+
+typedef struct iree_tokenizer_byte_fallback_text_t {
+  // Continuing-text interface for one logical string.
+  iree_tokenizer_normalizer_t base;
+  // Allocator owning the immutable object.
+  iree_allocator_t allocator;
+} iree_tokenizer_byte_fallback_text_t;
+
+typedef struct iree_tokenizer_byte_fallback_text_state_t {
+  // Interface and immutable configuration back-pointer.
+  iree_tokenizer_normalizer_state_t base;
+  // Prefix retained until exact <0xHH> recognition is resolved.
+  char prefix[6];
+  // Number of retained prefix bytes, at most six.
+  uint8_t prefix_length;
+  // First retained byte not yet emitted after recognition fails.
+  uint8_t prefix_position;
+  // True once the logical string cannot be a byte token.
+  bool literal;
+} iree_tokenizer_byte_fallback_text_state_t;
+
+static const iree_tokenizer_normalizer_vtable_t
+    iree_tokenizer_byte_fallback_text_vtable;
+
+iree_status_t iree_tokenizer_decoder_byte_fallback_allocate_text_transform(
+    iree_allocator_t allocator, iree_tokenizer_normalizer_t** out_transform) {
+  *out_transform = NULL;
+  iree_tokenizer_byte_fallback_text_t* transform = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_allocator_malloc(allocator, sizeof(*transform), (void**)&transform));
+  iree_tokenizer_normalizer_initialize(
+      &transform->base, &iree_tokenizer_byte_fallback_text_vtable,
+      sizeof(iree_tokenizer_byte_fallback_text_state_t));
+  transform->allocator = allocator;
+  *out_transform = &transform->base;
+  return iree_ok_status();
+}
+
+static void iree_tokenizer_byte_fallback_text_destroy(
+    iree_tokenizer_normalizer_t* base_transform) {
+  iree_tokenizer_byte_fallback_text_t* transform =
+      (iree_tokenizer_byte_fallback_text_t*)base_transform;
+  iree_allocator_free(transform->allocator, transform);
+}
+
+static iree_status_t iree_tokenizer_byte_fallback_text_initialize(
+    const iree_tokenizer_normalizer_t* transform, void* storage,
+    iree_tokenizer_normalizer_state_t** out_state) {
+  iree_tokenizer_byte_fallback_text_state_t* state =
+      (iree_tokenizer_byte_fallback_text_state_t*)storage;
+  memset(state, 0, sizeof(*state));
+  state->base.normalizer = transform;
+  *out_state = &state->base;
+  return iree_ok_status();
+}
+
+static void iree_tokenizer_byte_fallback_text_deinitialize(
+    iree_tokenizer_normalizer_state_t* state) {}
+
+static iree_host_size_t iree_tokenizer_byte_fallback_text_drain(
+    iree_tokenizer_byte_fallback_text_state_t* state,
+    iree_mutable_string_view_t output) {
+  const iree_host_size_t count =
+      iree_min(output.size, state->prefix_length - state->prefix_position);
+  memcpy(output.data, state->prefix + state->prefix_position, count);
+  state->prefix_position += (uint8_t)count;
+  return count;
+}
+
+static iree_status_t iree_tokenizer_byte_fallback_text_process(
+    iree_tokenizer_normalizer_state_t* base_state, iree_string_view_t input,
+    iree_mutable_string_view_t output, iree_tokenizer_normalizer_flags_t flags,
+    iree_host_size_t* IREE_RESTRICT out_consumed,
+    iree_host_size_t* IREE_RESTRICT out_written) {
+  iree_tokenizer_byte_fallback_text_state_t* state =
+      (iree_tokenizer_byte_fallback_text_state_t*)base_state;
+  *out_consumed = 0;
+  *out_written = 0;
+  // Before EOF, at most six bytes can still form a byte token. Any seventh
+  // byte resolves the whole string to literal text, regardless of chunks.
+  if (!state->literal) {
+    const iree_host_size_t count =
+        iree_min(input.size, sizeof(state->prefix) - state->prefix_length);
+    memcpy(state->prefix + state->prefix_length, input.data, count);
+    state->prefix_length += (uint8_t)count;
+    *out_consumed = count;
+    input = iree_string_view_substr(input, count, IREE_HOST_SIZE_MAX);
+    if (input.size == 0) {
+      return iree_ok_status();
+    }
+    state->literal = true;
+  }
+  *out_written = iree_tokenizer_byte_fallback_text_drain(state, output);
+  if (state->prefix_position == state->prefix_length) {
+    const iree_host_size_t count =
+        iree_min(input.size, output.size - *out_written);
+    memcpy(output.data + *out_written, input.data, count);
+    *out_written += count;
+    *out_consumed += count;
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t iree_tokenizer_byte_fallback_text_finalize(
+    iree_tokenizer_normalizer_state_t* base_state,
+    iree_mutable_string_view_t output,
+    iree_host_size_t* IREE_RESTRICT out_written) {
+  iree_tokenizer_byte_fallback_text_state_t* state =
+      (iree_tokenizer_byte_fallback_text_state_t*)base_state;
+  if (!state->literal) {
+    uint8_t byte = 0;
+    if (iree_tokenizer_decoder_byte_fallback_parse_byte_token(
+            iree_make_string_view(state->prefix, state->prefix_length),
+            &byte)) {
+      if (byte < 0x80) {
+        state->prefix[0] = (char)byte;
+        state->prefix_length = 1;
+      } else {
+        memcpy(state->prefix, "\xEF\xBF\xBD", 3);
+        state->prefix_length = 3;
+      }
+    }
+    state->literal = true;
+  }
+  *out_written = iree_tokenizer_byte_fallback_text_drain(state, output);
+  return iree_ok_status();
+}
+
+static bool iree_tokenizer_byte_fallback_text_has_pending(
+    const iree_tokenizer_normalizer_state_t* base_state) {
+  const iree_tokenizer_byte_fallback_text_state_t* state =
+      (const iree_tokenizer_byte_fallback_text_state_t*)base_state;
+  return state->prefix_position < state->prefix_length;
+}
+
+static const iree_tokenizer_normalizer_vtable_t
+    iree_tokenizer_byte_fallback_text_vtable = {
+        .destroy = iree_tokenizer_byte_fallback_text_destroy,
+        .state_initialize = iree_tokenizer_byte_fallback_text_initialize,
+        .state_deinitialize = iree_tokenizer_byte_fallback_text_deinitialize,
+        .state_process = iree_tokenizer_byte_fallback_text_process,
+        .state_finalize = iree_tokenizer_byte_fallback_text_finalize,
+        .state_has_pending = iree_tokenizer_byte_fallback_text_has_pending,
+};

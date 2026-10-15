@@ -9,6 +9,7 @@
 
 #include "iree/base/api.h"
 #include "iree/tokenizer/decoder.h"
+#include "iree/tokenizer/normalizer.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,6 +35,12 @@ bool iree_tokenizer_decoder_byte_fallback_parse_byte_token(
 // - Incomplete sequences at stream end emit U+FFFD per remaining byte
 iree_status_t iree_tokenizer_decoder_byte_fallback_allocate(
     iree_allocator_t allocator, iree_tokenizer_decoder_t** out_decoder);
+
+// Allocates the same transformation for a single joined logical string.
+// Only an entire string equal to <0xHH> is decoded. A six-byte prefix remains
+// retained until EOF or a following byte proves that the string is literal.
+iree_status_t iree_tokenizer_decoder_byte_fallback_allocate_text_transform(
+    iree_allocator_t allocator, iree_tokenizer_normalizer_t** out_transform);
 
 #ifdef __cplusplus
 }  // extern "C"

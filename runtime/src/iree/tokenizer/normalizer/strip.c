@@ -405,3 +405,173 @@ static const iree_tokenizer_normalizer_vtable_t
         .state_finalize = iree_tokenizer_normalizer_strip_state_finalize,
         .state_has_pending = iree_tokenizer_normalizer_strip_state_has_pending,
 };
+
+//===----------------------------------------------------------------------===//
+// Counted Literal Strip
+//===----------------------------------------------------------------------===//
+
+typedef struct iree_tokenizer_normalizer_strip_literal_t {
+  // Streaming text-transform interface.
+  iree_tokenizer_normalizer_t base;
+  // Allocator owning this immutable configuration.
+  iree_allocator_t allocator;
+  // UTF-8 encoding of the scalar to strip.
+  char content[4];
+  // Encoded scalar length in bytes.
+  iree_host_size_t content_length;
+  // Maximum number of leading occurrences to remove.
+  iree_host_size_t start_count;
+  // Maximum number of trailing occurrences to remove.
+  iree_host_size_t stop_count;
+} iree_tokenizer_normalizer_strip_literal_t;
+
+typedef struct iree_tokenizer_normalizer_strip_literal_state_t {
+  // Interface and immutable configuration back-pointer.
+  iree_tokenizer_normalizer_state_t base;
+  // Remaining leading matches; zero after the first nonmatching scalar.
+  iree_host_size_t leading_remaining;
+  // Retained matching suffix, bounded by the configured stop count.
+  iree_host_size_t trailing_count;
+} iree_tokenizer_normalizer_strip_literal_state_t;
+
+static const iree_tokenizer_normalizer_vtable_t
+    iree_tokenizer_normalizer_strip_literal_vtable;
+
+iree_status_t iree_tokenizer_normalizer_strip_literal_allocate(
+    iree_string_view_t content, iree_host_size_t start_count,
+    iree_host_size_t stop_count, iree_allocator_t allocator,
+    iree_tokenizer_normalizer_t** out_normalizer) {
+  IREE_ASSERT_ARGUMENT(out_normalizer);
+  *out_normalizer = NULL;
+  iree_host_size_t position = 0;
+  uint32_t codepoint = iree_unicode_utf8_decode(content, &position);
+  char encoded[4];
+  int encoded_length = iree_unicode_utf8_encode(codepoint, encoded);
+  if (content.size == 0 || encoded_length <= 0 ||
+      (iree_host_size_t)encoded_length != content.size ||
+      memcmp(encoded, content.data, content.size) != 0) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "literal strip content must be one UTF-8 scalar");
+  }
+
+  iree_tokenizer_normalizer_strip_literal_t* normalizer = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(allocator, sizeof(*normalizer),
+                                             (void**)&normalizer));
+  iree_tokenizer_normalizer_initialize(
+      &normalizer->base, &iree_tokenizer_normalizer_strip_literal_vtable,
+      sizeof(iree_tokenizer_normalizer_strip_literal_state_t));
+  normalizer->allocator = allocator;
+  memcpy(normalizer->content, content.data, content.size);
+  normalizer->content_length = content.size;
+  normalizer->start_count = start_count;
+  normalizer->stop_count = stop_count;
+  *out_normalizer = &normalizer->base;
+  return iree_ok_status();
+}
+
+static void iree_tokenizer_normalizer_strip_literal_destroy(
+    iree_tokenizer_normalizer_t* base_normalizer) {
+  iree_tokenizer_normalizer_strip_literal_t* normalizer =
+      (iree_tokenizer_normalizer_strip_literal_t*)base_normalizer;
+  iree_allocator_free(normalizer->allocator, normalizer);
+}
+
+static iree_status_t iree_tokenizer_normalizer_strip_literal_initialize(
+    const iree_tokenizer_normalizer_t* base_normalizer, void* storage,
+    iree_tokenizer_normalizer_state_t** out_state) {
+  const iree_tokenizer_normalizer_strip_literal_t* normalizer =
+      (const iree_tokenizer_normalizer_strip_literal_t*)base_normalizer;
+  iree_tokenizer_normalizer_strip_literal_state_t* state =
+      (iree_tokenizer_normalizer_strip_literal_state_t*)storage;
+  memset(state, 0, sizeof(*state));
+  state->base.normalizer = base_normalizer;
+  state->leading_remaining = normalizer->start_count;
+  *out_state = &state->base;
+  return iree_ok_status();
+}
+
+static void iree_tokenizer_normalizer_strip_literal_deinitialize(
+    iree_tokenizer_normalizer_state_t* state) {}
+
+static iree_status_t iree_tokenizer_normalizer_strip_literal_process(
+    iree_tokenizer_normalizer_state_t* base_state, iree_string_view_t input,
+    iree_mutable_string_view_t output, iree_tokenizer_normalizer_flags_t flags,
+    iree_host_size_t* IREE_RESTRICT out_consumed,
+    iree_host_size_t* IREE_RESTRICT out_written) {
+  iree_tokenizer_normalizer_strip_literal_state_t* state =
+      (iree_tokenizer_normalizer_strip_literal_state_t*)base_state;
+  const iree_tokenizer_normalizer_strip_literal_t* normalizer =
+      (const iree_tokenizer_normalizer_strip_literal_t*)base_state->normalizer;
+  *out_consumed = 0;
+  *out_written = 0;
+  while (*out_consumed < input.size) {
+    iree_host_size_t next = *out_consumed;
+    iree_unicode_utf8_decode(input, &next);
+    iree_host_size_t length = next - *out_consumed;
+    const char* scalar = input.data + *out_consumed;
+    bool matches = length == normalizer->content_length &&
+                   memcmp(scalar, normalizer->content, length) == 0;
+    if (matches && state->leading_remaining) {
+      --state->leading_remaining;
+      *out_consumed = next;
+      continue;
+    }
+    state->leading_remaining = 0;
+    if (matches && state->trailing_count < normalizer->stop_count) {
+      ++state->trailing_count;
+      *out_consumed = next;
+      continue;
+    }
+    if (!matches) {
+      // Keep the nonmatching scalar unconsumed until its preceding suffix
+      // has drained. Finalization can never discard confirmed interior text.
+      while (state->trailing_count &&
+             normalizer->content_length <= output.size - *out_written) {
+        memcpy(output.data + *out_written, normalizer->content,
+               normalizer->content_length);
+        *out_written += normalizer->content_length;
+        --state->trailing_count;
+      }
+      if (state->trailing_count) {
+        break;
+      }
+    }
+    if (length > output.size - *out_written) {
+      break;
+    }
+    memcpy(output.data + *out_written, scalar, length);
+    *out_written += length;
+    *out_consumed = next;
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t iree_tokenizer_normalizer_strip_literal_finalize(
+    iree_tokenizer_normalizer_state_t* base_state,
+    iree_mutable_string_view_t output,
+    iree_host_size_t* IREE_RESTRICT out_written) {
+  iree_tokenizer_normalizer_strip_literal_state_t* state =
+      (iree_tokenizer_normalizer_strip_literal_state_t*)base_state;
+  state->trailing_count = 0;
+  *out_written = 0;
+  return iree_ok_status();
+}
+
+static bool iree_tokenizer_normalizer_strip_literal_has_pending(
+    const iree_tokenizer_normalizer_state_t* state) {
+  // A retained suffix disappears at EOF; interior text is never accepted
+  // until its entire preceding suffix has drained.
+  return false;
+}
+
+static const iree_tokenizer_normalizer_vtable_t
+    iree_tokenizer_normalizer_strip_literal_vtable = {
+        .destroy = iree_tokenizer_normalizer_strip_literal_destroy,
+        .state_initialize = iree_tokenizer_normalizer_strip_literal_initialize,
+        .state_deinitialize =
+            iree_tokenizer_normalizer_strip_literal_deinitialize,
+        .state_process = iree_tokenizer_normalizer_strip_literal_process,
+        .state_finalize = iree_tokenizer_normalizer_strip_literal_finalize,
+        .state_has_pending =
+            iree_tokenizer_normalizer_strip_literal_has_pending,
+};

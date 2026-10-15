@@ -2,8 +2,7 @@
 
 A high-performance streaming tokenizer library for ML inference and training,
 written in C. Loads HuggingFace `tokenizer.json` and OpenAI tiktoken
-`.tiktoken` files, producing identical output to the respective reference
-implementations, with full support for BPE, WordPiece, and Unigram models.
+`.tiktoken` files and implements BPE, WordPiece, and Unigram models.
 
 ## What This Is
 
@@ -23,16 +22,15 @@ across threads) as well as embedded systems (statically allocate everything).
 - **Streaming-first**: `encode(text)` is just `initialize() -> feed(text) ->
   finalize()`. Chunked input produces identical output regardless of chunk
   boundaries.
-- **Bounded memory**: Fixed-size state (~1-2KB) plus a caller-provided
-  transform buffer. No hidden allocations during encode/decode. Processes
-  infinite-length I/O with constant memory.
+- **Bounded memory**: State size depends on the tokenizer configuration, with
+  caller-provided storage and transform buffers. Feed calls allocate no memory,
+  and state size is independent of input length.
 - **Offset tracking**: Every token maps back to its exact byte range in the
   original input, propagated forward through normalization (NFC, lowercase,
   etc.) using run-length encoded offset maps. Essential for training data
   provenance and RAG chunking.
-- **HuggingFace compatible**: Bit-exact match against the HuggingFace
-  tokenizers library across all supported normalizers, pre-tokenizers, models,
-  and decoders.
+- **HuggingFace formats**: Loads vocabulary, normalization, segmentation,
+  model, decoder, and post-processing configuration from `tokenizer.json`.
 - **Tiktoken compatible**: Loads OpenAI tiktoken `.tiktoken` files
   (cl100k_base, o200k_base, r50k_base, p50k_base) and produces token-for-token
   identical output to the tiktoken Python library. Merge pairs are
@@ -160,36 +158,28 @@ needed to fill the output. Each stage maintains a small batch buffer (default
 
 ### Streaming Decode Pipeline
 
-```
-Token IDs ──┐
-            v
- ┌─────────────────────────────┐
- │ Vocabulary Lookup           │
- │ (id -> token string)        │
- └──────────────┬──────────────┘
-                │ token strings
-                v
-         ┌─────────────┐
-         │ UTF-8       │
-         │ Decoder     │
-         └──────┬──────┘
-                │ codepoints (batched)
-                v
- ┌──────────────────────────────┐
- │ Decoder Chain                │
- │ (ByteFallback, Metaspace,    │
- │  WordPiece strip, CTC, ...)  │
- └──────────────┬───────────────┘
-                │ codepoints (batched)
-                v
-         ┌─────────────┐
-         │ UTF-8       │
-         │ Encoder     │
-         └──────┬──────┘
-                │
-                v
-           Output bytes
-```
+Token IDs are looked up in the vocabulary and passed through token-local
+transforms such as ByteFallback, Metaspace, or WordPiece. When those transforms
+permit it, immutable predecoded vocabulary entries replace repeated decoding.
+First-position forms and byte-fallback state remain separate so incremental
+calls preserve the same text as one-shot decoding.
+
+HuggingFace `Fuse` joins the logical token strings. Transforms after that boundary
+consume one continuing text stream: for example, `Replace(▁, " ")`,
+`ByteFallback`, `Fuse`, `Strip(" ", 1, 0)` removes one leading space from the
+utterance while preserving spaces between words. ByteLevel also establishes a
+joined-string boundary. The native builder expresses the text stage with
+`iree_tokenizer_builder_set_decode_transform`.
+
+The token decoder retains accepted input, and a bounded byte buffer retains its
+output until the text transform accepts it. Finalization finishes the token
+decoder, drains that buffer, and then finalizes the text transform. Output credit
+can stop any stage without ending the logical string. A suffix strip therefore
+removes the utterance's suffix, independently of feed boundaries.
+
+An absent or null HuggingFace decoder joins tokens with ASCII spaces. An explicit
+`Fuse` or empty `Sequence` concatenates them. Native builders with no decoder
+create encode-only tokenizers.
 
 ### Data Flow
 
@@ -262,20 +252,21 @@ The tokenizer uses a fixed, small amount of memory for streaming state:
 |-----------|------|-------|
 | Encode state | ~1-2 KB | Pipeline stage batch buffers + state |
 | Transform buffer | 4-64 KB | Caller-provided, tunable |
-| Decode state | ~1 KB | Vocab string batch buffer + decoder state |
+| Decode state | Configuration-dependent | Token decoder state, optional text transform, and a retained edge sized from the vocabulary |
 | Tokenizer (shared) | Varies | Vocabulary + merge table + regex DFA |
 
 The encode and decode state sizes are independent of input length. A 1-byte
 input and a 1-GB input use the same state allocation. This makes the tokenizer
-suitable for streaming/speculative decoding where you process tokens
-incrementally without ever needing to re-decode previous output.
+suitable for processing accepted tokens incrementally without re-decoding the
+previous output.
 
 ### Composability with Streaming Workflows
 
 Because the tokenizer processes input incrementally with bounded state:
 
-- **Speculative decoding**: Decode tentative tokens, discard on misprediction,
-  continue from the same state. No re-decode of accepted prefix.
+- **Speculative decoding**: Feed accepted tokens into the continuing decode
+  state after verification. The state retains the committed prefix; it has no
+  rollback operation for tentative tokens that have already been fed.
 - **Streaming chat**: Feed each LLM-generated token to the decoder as it
   arrives. UTF-8 output is produced as soon as complete characters are
   available.
@@ -320,8 +311,7 @@ HuggingFace-compatible template pair support and type ID assignment.
 
 ### Format Loaders
 
-**HuggingFace `tokenizer.json`**: Full coverage of the HuggingFace tokenizers
-library's JSON format, including all normalizer types, pre-tokenizer
+**HuggingFace `tokenizer.json`**: Loads normalizer and pre-tokenizer
 configurations, model types (BPE, WordPiece, Unigram), decoder chains, added
 tokens, and post-processor templates. A single `tokenizer.json` is
 self-contained — it carries the vocabulary, merge list, regex patterns, special
@@ -354,7 +344,8 @@ backtracking.
 
 ```
 tokenizer/
-  tokenizer.h/c          Core API: encode, decode, streaming state
+  tokenizer.h/c          Core API, construction, and encode state
+  decode.c               Decode execution and streaming state
   types.h                Shared types (token_id_t, offset_t, etc.)
   model.h/c              Model vtable interface
   normalizer.h/c         Normalizer vtable interface

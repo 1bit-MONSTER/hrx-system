@@ -55,6 +55,7 @@ iree_cc_library(
   DEPS
     iree::base
     iree::base::internal::json
+    iree::base::internal::unicode
     iree::tokenizer::decoder
     iree::tokenizer::decoder::byte_fallback
     iree::tokenizer::decoder::byte_level
@@ -65,6 +66,11 @@ iree_cc_library(
     iree::tokenizer::decoder::sequence
     iree::tokenizer::decoder::strip
     iree::tokenizer::decoder::wordpiece
+    iree::tokenizer::decoder::wordpiece_cleanup
+    iree::tokenizer::normalizer
+    iree::tokenizer::normalizer::replace
+    iree::tokenizer::normalizer::sequence
+    iree::tokenizer::normalizer::strip
   PUBLIC
 )
 
@@ -78,6 +84,7 @@ iree_cc_test(
     iree::base
     iree::testing::gtest
     iree::testing::gtest_main
+    iree::tokenizer::normalizer
 )
 
 iree_cc_library(
@@ -307,6 +314,7 @@ iree_cc_fuzz(
     ::decoder_json
     iree::base
     iree::tokenizer::decoder
+    iree::tokenizer::normalizer
 )
 
 iree_cc_fuzz(

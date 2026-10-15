@@ -46,6 +46,8 @@ typedef struct iree_tokenizer_pre_decoded_t {
   const uint8_t* data;
   // Exact first-position forms, or NULL for position-independent decoding.
   iree_tokenizer_decoded_span_t* first_tokens;
+  // Largest complete token form (ordinary or first-position), in bytes.
+  iree_host_size_t maximum_token_length;
   // Enables raw UTF-8 accumulation for ByteFallback or partial ByteLevel
   // tokens. Other tokens use their complete predecoded forms directly.
   bool needs_byte_accumulator;
