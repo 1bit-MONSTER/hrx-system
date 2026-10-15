@@ -663,13 +663,109 @@ def test_packed_i16_arithmetic_rules_try_native_pk_ops_before_word_ops() -> None
         assert positions[(packed_descriptor,)] < positions[(word_descriptor,)]
 
     shift_cases = (
-        (vector.vector_shli, "amdgpu.v_pk_lshlrev_b16"),
-        (vector.vector_shrsi, "amdgpu.v_pk_ashrrev_i16"),
-        (vector.vector_shrui, "amdgpu.v_pk_lshrrev_b16"),
+        (
+            vector.vector_shli,
+            "amdgpu.v_pk_lshlrev_b16",
+            "amdgpu.v_lshlrev_b32",
+        ),
+        (
+            vector.vector_shrsi,
+            "amdgpu.v_pk_ashrrev_i16",
+            "amdgpu.v_ashrrev_i32",
+        ),
+        (
+            vector.vector_shrui,
+            "amdgpu.v_pk_lshrrev_b16",
+            "amdgpu.v_lshrrev_b32",
+        ),
     )
-    for source_op, packed_descriptor in shift_cases:
+    for source_op, packed_descriptor, word_descriptor in shift_cases:
         positions = _descriptor_sequence_positions(compiled, source_op)
-        assert positions[(packed_descriptor,)] == 3
+        assert positions[(packed_descriptor,)] < positions[(word_descriptor,)]
+
+
+def test_i64_vector_shifts_bind_exact_i32_count_origins() -> None:
+    compiled = _compiled_arithmetic_rules()
+    i32_vector = TypePattern.vector(
+        "i32",
+        minimum_static_elements=1,
+        maximum_static_elements="LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES",
+    )
+    i64_vector = TypePattern.vector(
+        "i64",
+        minimum_static_elements=1,
+        maximum_static_elements="(LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES / 2u)",
+    )
+
+    for source_op, descriptor_key in (
+        (vector.vector_shli, "amdgpu.v_lshlrev_b64"),
+        (vector.vector_shrsi, "amdgpu.v_ashrrev_i64"),
+        (vector.vector_shrui, "amdgpu.v_lshrrev_b64"),
+    ):
+        matches: dict[str, tuple[int, LowerRule]] = {}
+        for ordinal, rule in enumerate(_rules_for_source_op(compiled, source_op)):
+            descriptor_keys = _rule_descriptor_keys(compiled, rule)
+            if descriptor_keys in (
+                (descriptor_key,),
+                (f"{descriptor_key}.src0_inline",),
+            ):
+                assert descriptor_keys[0] not in matches
+                matches[descriptor_keys[0]] = (ordinal, rule)
+
+        assert set(matches) == {descriptor_key, f"{descriptor_key}.src0_inline"}
+        inline_ordinal, inline_rule = matches[f"{descriptor_key}.src0_inline"]
+        varying_ordinal, varying_rule = matches[descriptor_key]
+        assert inline_ordinal < varying_ordinal
+        assert _rule_type_patterns(compiled, inline_rule) == (
+            i64_vector,
+            i64_vector,
+            i64_vector,
+        )
+
+        inline_guards = compiled.guards[
+            inline_rule.guard_start : inline_rule.guard_start + inline_rule.guard_count
+        ]
+        exact_guard = next(
+            guard for guard in inline_guards if guard.kind is GuardKind.VALUE_EXACT_I64
+        )
+        range_guard = next(
+            guard for guard in inline_guards if guard.kind is GuardKind.VALUE_I64_RANGE
+        )
+        for guard in (exact_guard, range_guard):
+            count_ref = compiled.value_refs[guard.value_ref_index]
+            assert count_ref.kind is SourceValueKind.OPERAND
+            assert count_ref.index == 1
+        assert (range_guard.minimum_i64, range_guard.maximum_i64) == (0, 63)
+
+        origin_guards = tuple(
+            guard
+            for guard in compiled.guards[
+                varying_rule.guard_start : varying_rule.guard_start
+                + varying_rule.guard_count
+            ]
+            if guard.kind is GuardKind.VALUE_TYPE
+            and compiled.value_refs[guard.value_ref_index].kind
+            is SourceValueKind.EXACT_LANE_ORIGIN_OPERAND
+        )
+        assert len(origin_guards) == 1
+        origin_guard = origin_guards[0]
+        assert (
+            compiled.type_patterns[origin_guard.type_pattern_index].type_pattern
+            == i32_vector
+        )
+        origin_guard_ref = compiled.value_refs[origin_guard.value_ref_index]
+        assert origin_guard_ref.index == 1
+
+        emit = compiled.emits[varying_rule.emit_start]
+        assert emit.kind is LowerEmitKind.DESCRIPTOR_OP_PER_LANE
+        assert emit.operand_ref_count == 2
+        count_ref, value_ref = compiled.value_refs[
+            emit.operand_ref_start : emit.operand_ref_start + emit.operand_ref_count
+        ]
+        assert count_ref.kind is SourceValueKind.EXACT_LANE_ORIGIN_OPERAND
+        assert count_ref.index == 1
+        assert value_ref.kind is SourceValueKind.OPERAND
+        assert value_ref.index == 0
 
 
 def test_vector_vop2_rules_materialize_vsrc1_as_vgpr() -> None:

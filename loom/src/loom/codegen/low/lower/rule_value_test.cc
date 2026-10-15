@@ -66,6 +66,10 @@ class LowLowerRuleValueTest : public ::testing::Test {
         LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_BF16, loom_dim_pack_static(16), 0);
     const loom_type_t f32_vector_type = loom_type_shaped_1d(
         LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_F32, loom_dim_pack_static(16), 0);
+    const loom_type_t i32_vector_type = loom_type_shaped_1d(
+        LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_I32, loom_dim_pack_static(2), 0);
+    const loom_type_t i64_vector_type = loom_type_shaped_1d(
+        LOOM_TYPE_VECTOR, LOOM_SCALAR_TYPE_I64, loom_dim_pack_static(2), 0);
     const loom_type_t argument_types[] = {
         i32_type,
         i32_type,
@@ -83,6 +87,7 @@ class LowLowerRuleValueTest : public ::testing::Test {
         loom_type_scalar(LOOM_SCALAR_TYPE_F64),
         loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
         loom_type_scalar(LOOM_SCALAR_TYPE_I1),
+        i32_vector_type,
     };
     loom_op_t* function_op = nullptr;
     IREE_ASSERT_OK(loom_func_def_build(
@@ -96,7 +101,7 @@ class LowLowerRuleValueTest : public ::testing::Test {
 
     uint16_t argument_count = 0;
     arguments_ = loom_func_like_arg_ids(function_, &argument_count);
-    ASSERT_EQ(argument_count, 16u);
+    ASSERT_EQ(argument_count, 17u);
     loom_builder_t body_builder;
     loom_builder_initialize(
         module_, &module_->arena,
@@ -122,6 +127,12 @@ class LowLowerRuleValueTest : public ::testing::Test {
         &body_builder, /*instance_flags=*/0,
         loom_vector_extf_result(roundtrip_extf_op_), f32_vector_type,
         LOOM_LOCATION_UNKNOWN, &vector_consumer_op_));
+    IREE_ASSERT_OK(loom_vector_extsi_build(
+        &body_builder, arguments_[16], i32_vector_type, i64_vector_type,
+        LOOM_LOCATION_UNKNOWN, &integer_extsi_op_));
+    IREE_ASSERT_OK(loom_vector_extui_build(
+        &body_builder, arguments_[16], i32_vector_type, i64_vector_type,
+        LOOM_LOCATION_UNKNOWN, &integer_extui_op_));
     const loom_type_t assume_result_types[] = {i32_type, i32_type};
     IREE_ASSERT_OK(loom_scalar_assume_build(
         &body_builder, arguments_, 2, /*predicates=*/nullptr,
@@ -156,6 +167,8 @@ class LowLowerRuleValueTest : public ::testing::Test {
   loom_op_t* fptrunc_op_ = nullptr;
   loom_op_t* roundtrip_extf_op_ = nullptr;
   loom_op_t* vector_consumer_op_ = nullptr;
+  loom_op_t* integer_extsi_op_ = nullptr;
+  loom_op_t* integer_extui_op_ = nullptr;
   loom_value_fact_table_t fact_table_ = {};
 };
 
@@ -309,6 +322,28 @@ TEST_F(LowLowerRuleValueTest,
       /*source_nodes=*/nullptr, /*source_node_count=*/1,
       /*value_ref_index=*/0, &resolved));
   EXPECT_EQ(resolved, truncated);
+}
+
+TEST_F(LowLowerRuleValueTest, IntegerExtensionsRetainExactLaneOrigins) {
+  for (loom_op_t* extension_op : {integer_extsi_op_, integer_extui_op_}) {
+    IREE_ASSERT_OK(
+        loom_value_fact_table_compute_op(&fact_table_, module_, extension_op));
+    const loom_value_id_t result = loom_op_results(extension_op)[0];
+
+    loom_value_fact_static_lane_origin_t provenance_origin = {};
+    ASSERT_TRUE(loom_value_fact_table_query_static_lane_origin(
+        &fact_table_, module_, result, &provenance_origin));
+    EXPECT_EQ(provenance_origin.source_value_id, arguments_[16]);
+    EXPECT_EQ(provenance_origin.source_lane_offset, 0u);
+    EXPECT_EQ(provenance_origin.source_lane_stride, 1u);
+
+    loom_value_fact_exact_lane_origin_t exact_origin = {};
+    ASSERT_TRUE(loom_value_fact_table_query_exact_lane_origin(
+        &fact_table_, module_, result, &exact_origin));
+    EXPECT_EQ(exact_origin.source_value_id, arguments_[16]);
+    EXPECT_EQ(exact_origin.source_lane_offset, 0u);
+    EXPECT_EQ(exact_origin.source_lane_stride, 1u);
+  }
 }
 
 TEST_F(LowLowerRuleValueTest, ResolvesUniformElementOrigins) {
