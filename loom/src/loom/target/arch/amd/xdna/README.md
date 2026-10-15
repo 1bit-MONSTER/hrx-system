@@ -37,12 +37,14 @@ firmware protocol identity, partition constraints, and native memory alignment.
 | --- | --- | --- |
 | Strix NPU4 | `amd.xdna.strix.17f0_10` | `17f0:10` |
 | Strix Halo NPU5 | `amd.xdna.strix_halo.17f0_11` | `17f0:11` |
+| Krackan NPU6 | `amd.xdna.krackan.17f0_20` | `17f0:20` |
 
-Both profiles use the NPU2 array family and AIE2P cores. This does not make their
-executable images interchangeable: admission compares the exact profile,
-revision, firmware ABI, and context geometry. Tile memory, DMA engines, locks,
-stream switches, register fields, and instruction limits come from owned
-profile and family tables rather than assumptions about one attached device.
+All profiles use the NPU2 array family and AIE2P cores. Strix and Krackan share
+an executable profile identity; Strix Halo uses a separate identity. Admission
+compares the executable profile, revision, firmware ABI, and context geometry.
+Tile memory, DMA engines, locks, stream switches, register fields, and instruction
+limits come from owned profile and family tables rather than assumptions about
+one attached device.
 
 ## Compilation path
 

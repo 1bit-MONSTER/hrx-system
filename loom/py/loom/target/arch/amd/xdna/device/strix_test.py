@@ -11,11 +11,13 @@ from dataclasses import replace
 import pytest
 
 from loom.target.arch.amd.xdna.device.model import (
+    DeviceProfile,
     resolve_pci_profile,
     validate_device_profile,
 )
 from loom.target.arch.amd.xdna.device.strix import (
     DEVICE_PROFILES,
+    KRACKAN_PROFILE,
     NPU2_FIRMWARE_ABI_ID,
     STRIX_HALO_PROFILE,
     STRIX_HALO_PROFILE_ID,
@@ -40,9 +42,8 @@ def test_strix_halo_profile_reproduces_observed_device_identity() -> None:
     assert profile.array_family.column_count == 8
 
 
-def test_strix_profiles_share_array_and_protocol_facts() -> None:
-    profile = STRIX_PROFILE
-
+@pytest.mark.parametrize("profile", [STRIX_PROFILE, KRACKAN_PROFILE])
+def test_strix_profiles_share_array_and_protocol_facts(profile: DeviceProfile) -> None:
     assert profile.identity == STRIX_PROFILE_ID == 0x5354524958000001
     assert profile.identity != STRIX_HALO_PROFILE.identity
     assert profile.array_family is STRIX_HALO_PROFILE.array_family
@@ -59,6 +60,7 @@ def test_pci_resolution_is_exact_and_has_no_revision_fallback() -> None:
         resolve_pci_profile(DEVICE_PROFILES, 0x1022, 0x17F0, 0x11) is STRIX_HALO_PROFILE
     )
     assert resolve_pci_profile(DEVICE_PROFILES, 0x1022, 0x17F0, 0x10) is STRIX_PROFILE
+    assert resolve_pci_profile(DEVICE_PROFILES, 0x1022, 0x17F0, 0x20) is KRACKAN_PROFILE
 
     with pytest.raises(ValueError, match="unsupported XDNA PCI identity"):
         resolve_pci_profile(DEVICE_PROFILES, 0x1022, 0x17F0, 0x12)

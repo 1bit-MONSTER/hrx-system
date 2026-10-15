@@ -20,8 +20,9 @@ from loom.target.arch.amd.xdna.device.model import (
     validate_device_profile,
 )
 
-# The driver maps PCI 17f0:10 to npu4/Strix and 17f0:11 to npu5/Strix Halo.
-# Both use npu4_family.h's shared protocol, alignment, and context limits.
+# The driver maps PCI 17f0:10 to npu4/Strix, 17f0:11 to npu5/Strix Halo,
+# and 17f0:20 to npu6/Krackan. All use npu4_family.h's shared protocol,
+# alignment, and context limits.
 XDNA_DRIVER_SOURCE_COMMIT = "c8471cb3bbff3621bbe72cf7c9b3278f6fc23dc2"
 
 # ASCII `STRIX`, padded to six bytes, followed by the identity revision.
@@ -73,7 +74,16 @@ STRIX_PROFILE = replace(
     pci=PciIdentity(vendor_id=0x1022, device_id=0x17F0, revision=0x10),
 )
 
-DEVICE_PROFILES = (STRIX_HALO_PROFILE, STRIX_PROFILE)
+# NPU6 selects NPU4 firmware and hardware operations, so its exact deployment
+# identity shares the Strix executable contract.
+KRACKAN_PROFILE = replace(
+    STRIX_PROFILE,
+    key="amd.xdna.krackan.17f0_20",
+    display_name="NPU Krackan",
+    pci=PciIdentity(vendor_id=0x1022, device_id=0x17F0, revision=0x20),
+)
+
+DEVICE_PROFILES = (STRIX_HALO_PROFILE, STRIX_PROFILE, KRACKAN_PROFILE)
 
 for profile in DEVICE_PROFILES:
     validate_device_profile(profile)
