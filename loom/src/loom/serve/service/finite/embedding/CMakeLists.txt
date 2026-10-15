@@ -129,9 +129,9 @@ endif()
 if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_cc_library(
   NAME
-    weighted_dispatch_tests
+    checkpoint_preparation_tests
   SRCS
-    "weighted_dispatch_test.cc"
+    "checkpoint_preparation_test.cc"
   DEPS
     ::source_service_fixture
     iree::testing::gtest

@@ -257,7 +257,7 @@ pipeline_decl = Op(
     verify="loom_pipeline_signature_verify",
     format=[*_PIPELINE_MODIFIER_FORMAT, *_PIPELINE_SIGNATURE_FORMAT],
     examples=[
-        "pipeline.decl<kernel> @embed(%batch: index) run(%weights: buffer, %input: buffer, %output: buffer)",
+        "pipeline.decl<kernel> @resident(%width: index) run(%input: view<[%width]xi32>, %output: buffer)",
         "pipeline.decl @stage(%width: index) run(%input: channel<tile<[%width]xi32>>)",
     ],
 )

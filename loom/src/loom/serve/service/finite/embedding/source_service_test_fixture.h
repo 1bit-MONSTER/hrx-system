@@ -130,11 +130,13 @@ class SourceEmbeddingServiceTest : public ::testing::Test {
 
   std::string UploadVariant(uint64_t base, const std::string& directory,
                             const char* provider, const char* replacement,
-                            bool weighted = false);
+                            bool include_parameter_source = false);
 
   std::string SelectVariant(uint64_t variant, uint64_t expected);
 
-  void WriteWeightedPackage(const std::string& target);
+  // Writes a package with a scalar checkpoint initialized to 1.0. Its device
+  // preparation doubles the factor in place before serving scales the output.
+  void WriteCheckpointPackage(const std::string& target);
 
   void UseDirectPackage();
 

@@ -1,12 +1,15 @@
 config.decl @fixture.units : %value: index where [range(%value, 1, 256)]
 
-aie2p.target<array> @weighted_target
+aie2p.target<array> @parameter_target
 
-// The checkpoint is a runtime binding; its extent is a staged input. The
-// resident consumer shares packet and checkpoint ownership through channels.
-pipeline.def<kernel> public retain target(@weighted_target) @resident_weighted(%factor_width: index) run(%weights: buffer, %input: buffer, %output: buffer) {
+// The checkpoint contains one F32 scale factor, prepared from 1.0 to 2.0 on
+// first activation. Scaling the output detects missing or repeated preparation.
+// The parameter buffer is a runtime binding; its extent is a staged input.
+// The resident consumer transports the factor and packets through device-local
+// channels without a global workspace.
+pipeline.def<kernel> public retain target(@parameter_target) @resident_with_parameters(%factor_width: index) run(%parameters: buffer, %input: buffer, %output: buffer) {
   %input_aligned, %output_aligned = buffer.assume.alignment %input, %output {minimum_alignment = 16} : buffer, buffer
-  %weights_aligned = buffer.assume.alignment %weights {minimum_alignment = 4} : buffer
+  %parameters_aligned = buffer.assume.alignment %parameters {minimum_alignment = 4} : buffer
   %origin = index.constant 0 : offset
   %c0 = index.constant 0 : index
   %c1 = index.constant 1 : index
@@ -31,7 +34,7 @@ pipeline.def<kernel> public retain target(@weighted_target) @resident_weighted(%
   %output_slots = buffer.view %output_storage[%origin] : buffer -> view<1x[%output_words]xf32>
   %outputs = channel.bind<fifo> %output_slots, %c1 : view<1x[%output_words]xf32>, index -> channel<tile<[%output_words]xf32>>
   pipeline.strand workers([0, 2], [1, 1], [1, 1]) {
-    %external_factor = buffer.view %weights_aligned[%origin] : buffer -> view<[%factor_width]xf32>
+    %external_factor = buffer.view %parameters_aligned[%origin] : buffer -> view<[%factor_width]xf32>
     %factor_write, %factor_destination = channel.reserve %factors : channel<tile<[%factor_width]xf32>> -> (write<tile<[%factor_width]xf32>>, view<[%factor_width]xf32>)
     %factor_ingress = kernel.async.copy %external_factor to %factor_destination {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<[%factor_width]xf32> to view<[%factor_width]xf32> -> kernel.async.token
     %factor_incoming = kernel.async.group %factor_ingress : kernel.async.token -> kernel.async.group
@@ -130,7 +133,7 @@ pipeline.def<kernel> public retain target(@weighted_target) @resident_weighted(%
 }
 
 // Activation transforms the canonical checkpoint directly in its final buffer.
-pipeline.def<kernel> target(@weighted_target) @double_factor() run(%storage: buffer) {
+pipeline.def<kernel> target(@parameter_target) @double_factor() run(%storage: buffer) {
   %aligned = buffer.assume.alignment %storage {minimum_alignment = 4} : buffer
   %origin = index.constant 0 : offset
   %bytes = index.constant 4 : offset
@@ -172,9 +175,9 @@ command.program.def public @prepare_factor() launch(%storage: buffer) {
   command.return
 }
 
-command.program.def public @weighted_embed() launch(%weights: buffer, %input: buffer, %output: buffer) {
-  %factor = command.parameter %weights, "factor" : view<1xf32>
+command.program.def public @embed_with_parameters() launch(%parameters: buffer, %input: buffer, %output: buffer) {
+  %factor = command.parameter %parameters, "factor" : view<1xf32>
   %width = index.constant 1 : index
-  kernel.launch @resident_weighted[%width](%factor, %input, %output) : [index](view<1xf32>, buffer, buffer)
+  kernel.launch @resident_with_parameters[%width](%factor, %input, %output) : [index](view<1xf32>, buffer, buffer)
   command.return
 }

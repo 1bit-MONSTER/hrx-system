@@ -12,8 +12,8 @@ package(default_visibility = ["//visibility:private"])
 
 exports_files(
     [
+        "testdata/resident_checkpoint.loom",
         "testdata/resident_embedding.loom",
-        "testdata/weighted_embedding.loom",
     ],
     visibility = ["//visibility:public"],
 )
@@ -52,13 +52,13 @@ loom_cc_library(
 loom_cc_test(
     name = "source_embedding_service_test",
     data = EMBEDDING_SOURCES + EMBEDDING_VARIANT_SOURCES + [
+        "//loom/src/loom/tooling/target/amd/xdna/serve:testdata/resident_checkpoint.loom",
         "//loom/src/loom/tooling/target/amd/xdna/serve:testdata/resident_embedding.loom",
-        "//loom/src/loom/tooling/target/amd/xdna/serve:testdata/weighted_embedding.loom",
     ],
     env = {
+        "LOOM_SERVE_TEST_CHECKPOINT_STAGE_SOURCE": "$(rootpath //loom/src/loom/tooling/target/amd/xdna/serve:testdata/resident_checkpoint.loom)",
         "LOOM_SERVE_TEST_DIRECT_STAGE_SOURCE": "$(rootpath //loom/src/loom/tooling/target/amd/xdna/serve:testdata/resident_embedding.loom)",
         "LOOM_SERVE_TEST_MODEL_SOURCE": "$(rootpath //loom/src/loom/serve/fixture/embedding:prepare.loom)",
-        "LOOM_SERVE_TEST_WEIGHTED_STAGE_SOURCE": "$(rootpath //loom/src/loom/tooling/target/amd/xdna/serve:testdata/weighted_embedding.loom)",
     },
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = [
@@ -75,8 +75,8 @@ loom_cc_test(
     deps = [
         ":test_compiler",
         ":test_device",
+        "//loom/src/loom/serve/service/finite/embedding:checkpoint_preparation_tests",
         "//loom/src/loom/serve/service/finite/embedding:direct_dispatch_tests",
-        "//loom/src/loom/serve/service/finite/embedding:weighted_dispatch_tests",
         "//runtime/src/iree/testing:gtest_main",
     ],
 )

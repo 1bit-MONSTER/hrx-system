@@ -447,13 +447,13 @@ template.def<@request.schedule> priority(1) @small(%size: index) {
   EXPECT_GT(loomc_byte_sequence_length(private_program.artifact.contents), 0u);
 }
 
-TEST(TargetCmdProgramTest, PublishesOwnedWeightedPipelineSpecializations) {
+TEST(TargetCmdProgramTest, PublishesOwnedPipelineSpecializations) {
   ContextPtr context = CreateContext();
   WorkspacePtr workspace = CreateWorkspace();
-  SourcePtr source = CreateTextSource("weighted_pipeline.loom", R"(
-func.decl @consume(%width: index, %weights: view<[%width]xi8>, %pattern: vector<[%width]xi32>)
-pipeline.def<kernel> @resident(%pattern: vector<[%width]xi32>, %width: index) run(%weights: view<[%width]xi8>, %output: buffer) where [multiple_of(%width, 16)] {
-  func.call @consume(%width, %weights, %pattern) : (index, view<[%width]xi8>, vector<[%width]xi32>)
+  SourcePtr source = CreateTextSource("staged_pipeline.loom", R"(
+func.decl @consume(%width: index, %parameters: view<[%width]xi8>, %pattern: vector<[%width]xi32>)
+pipeline.def<kernel> @resident(%pattern: vector<[%width]xi32>, %width: index) run(%parameters: view<[%width]xi8>, %output: buffer) where [multiple_of(%width, 16)] {
+  func.call @consume(%width, %parameters, %pattern) : (index, view<[%width]xi8>, vector<[%width]xi32>)
   pipeline.finish
 }
 command.program.def public @embed() launch(%checkpoint: buffer, %output: buffer) {
@@ -463,13 +463,13 @@ command.program.def public @embed() launch(%checkpoint: buffer, %output: buffer)
   %pattern_small = vector.constant 7 : vector<[%small]xi32>
   %pattern_large = vector.constant 9 : vector<[%large]xi32>
   %pattern_empty = vector.constant 0 : vector<[%zero]xi32>
-  %weights_empty = command.parameter %checkpoint, "empty" : view<[%zero]xi8>
-  %weights_small = command.parameter %checkpoint, "small" : view<[%small]xi8>
-  %weights_large = command.parameter %checkpoint, "large" : view<[%large]xi8>
-  kernel.launch @resident[%pattern_small, %small](%weights_small, %output) : [vector<[%small]xi32>, index](view<[%small]xi8>, buffer)
-  kernel.launch @resident[%pattern_large, %large](%weights_large, %output) : [vector<[%large]xi32>, index](view<[%large]xi8>, buffer)
-  kernel.launch @resident[%pattern_small, %small](%weights_small, %output) : [vector<[%small]xi32>, index](view<[%small]xi8>, buffer)
-  kernel.launch @resident[%pattern_empty, %zero](%weights_empty, %output) : [vector<[%zero]xi32>, index](view<[%zero]xi8>, buffer)
+  %parameters_empty = command.parameter %checkpoint, "empty" : view<[%zero]xi8>
+  %parameters_small = command.parameter %checkpoint, "small" : view<[%small]xi8>
+  %parameters_large = command.parameter %checkpoint, "large" : view<[%large]xi8>
+  kernel.launch @resident[%pattern_small, %small](%parameters_small, %output) : [vector<[%small]xi32>, index](view<[%small]xi8>, buffer)
+  kernel.launch @resident[%pattern_large, %large](%parameters_large, %output) : [vector<[%large]xi32>, index](view<[%large]xi8>, buffer)
+  kernel.launch @resident[%pattern_small, %small](%parameters_small, %output) : [vector<[%small]xi32>, index](view<[%small]xi8>, buffer)
+  kernel.launch @resident[%pattern_empty, %zero](%parameters_empty, %output) : [vector<[%zero]xi32>, index](view<[%zero]xi8>, buffer)
   command.return
 }
 )");
@@ -498,6 +498,7 @@ command.program.def public @embed() launch(%checkpoint: buffer, %output: buffer)
   ResultPtr result(result_raw);
   ExpectSucceededResult(result.get());
   ASSERT_TRUE(result && loomc_result_succeeded(result.get()));
+  // Equal staged tuples share a request; distinct widths and literals do not.
   ASSERT_EQ(capture.requests.size(), 3u);
   EXPECT_EQ(loomc_cmd_program_product_program_count(product.get()), 1u);
   EXPECT_EQ(loomc_cmd_program_product_entry_requirement_count(product.get()),
@@ -521,6 +522,8 @@ command.program.def public @embed() launch(%checkpoint: buffer, %output: buffer)
   workspace.reset();
   context.reset();
 
+  // Requests retain their specialized source after every source owner is
+  // destroyed, including the originating workspace and context.
   ContextPtr restored_context = CreateContext();
   WorkspacePtr restored_workspace = CreateWorkspace();
   std::vector<std::string> sources;
@@ -550,13 +553,13 @@ command.program.def public @embed() launch(%checkpoint: buffer, %output: buffer)
                          contents.data_length);
   }
   EXPECT_NE(sources[0], sources[1]);
-  EXPECT_NE(sources[0].find("run(%weights: view<64xi8>, %output: buffer)"),
+  EXPECT_NE(sources[0].find("run(%parameters: view<64xi8>, %output: buffer)"),
             std::string::npos)
       << sources[0];
-  EXPECT_NE(sources[1].find("run(%weights: view<128xi8>, %output: buffer)"),
+  EXPECT_NE(sources[1].find("run(%parameters: view<128xi8>, %output: buffer)"),
             std::string::npos)
       << sources[1];
-  EXPECT_NE(sources[2].find("run(%weights: view<0xi8>, %output: buffer)"),
+  EXPECT_NE(sources[2].find("run(%parameters: view<0xi8>, %output: buffer)"),
             std::string::npos)
       << sources[2];
 }

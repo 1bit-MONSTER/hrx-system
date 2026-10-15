@@ -20,10 +20,10 @@ namespace loom_serve::testing::embedding {
 using loom_serve::testing::StalledStderr;
 
 TEST_F(SourceEmbeddingServiceTest,
-       WeightedLoadSharesTheServingWorkerAndNeverWritesStderr) {
+       CheckpointLoadSharesTheServingWorkerAndNeverWritesStderr) {
   const std::string package =
-      iree::testing::MakeTempFilePath("live_weighted_embedding");
-  ASSERT_NO_FATAL_FAILURE(WriteWeightedPackage(package));
+      iree::testing::MakeTempFilePath("live_checkpoint_embedding");
+  ASSERT_NO_FATAL_FAILURE(WriteCheckpointPackage(package));
   loom_serve::testing::ModelDocument document;
   IREE_ASSERT_OK(document.Load(package + "/model.json"));
   const loom_serve_finite_model_options_t options = {
@@ -49,8 +49,8 @@ TEST_F(SourceEmbeddingServiceTest,
   EXPECT_EQ(load.report.workers, 1u);
   EXPECT_EQ(load.report.diagnostic_count, 0u);
 
-  // Preparation has not loaded weights. First use activates and transforms
-  // canonical bytes in place; exact output distinguishes the prepared factor.
+  // Loading indexes the checkpoint without activating it. First use doubles
+  // the factor from 1.0 to 2.0 in place; later requests reuse that value.
   EXPECT_EQ(loom_serve_residency_activity(
                 loom_serve_finite_model_residency(retained_))
                 .activations,
@@ -73,10 +73,11 @@ TEST_F(SourceEmbeddingServiceTest,
       1u);
 }
 
-TEST_F(SourceEmbeddingServiceTest, WeightedCommandRetiresCancelledCohort) {
+TEST_F(SourceEmbeddingServiceTest,
+       PreparedParameterCommandRetiresCancelledCohort) {
   const std::string package =
-      iree::testing::MakeTempFilePath("cancelled_weighted_embedding");
-  ASSERT_NO_FATAL_FAILURE(WriteWeightedPackage(package));
+      iree::testing::MakeTempFilePath("cancelled_checkpoint_embedding");
+  ASSERT_NO_FATAL_FAILURE(WriteCheckpointPackage(package));
   retained_ = std::exchange(model_, nullptr);
   ASSERT_NO_FATAL_FAILURE(CreateModel(package));
   loom_serve_finite_service_free(std::exchange(service_, nullptr));
@@ -89,10 +90,10 @@ TEST_F(SourceEmbeddingServiceTest, WeightedCommandRetiresCancelledCohort) {
 }
 
 TEST_F(SourceEmbeddingServiceTest,
-       AdmissionDrainPreservesPreparedWeightsAndResumesHeldHttpRequests) {
+       AdmissionDrainPreservesPreparedParametersAndResumesHeldHttpRequests) {
   const std::string package =
-      iree::testing::MakeTempFilePath("drained_weighted_embedding");
-  ASSERT_NO_FATAL_FAILURE(WriteWeightedPackage(package));
+      iree::testing::MakeTempFilePath("drained_checkpoint_embedding");
+  ASSERT_NO_FATAL_FAILURE(WriteCheckpointPackage(package));
   retained_ = std::exchange(model_, nullptr);
   ASSERT_NO_FATAL_FAILURE(CreateModel(package));
   loom_serve_finite_service_free(std::exchange(service_, nullptr));

@@ -326,10 +326,10 @@ loom_cc_test(
     ::test_compiler
     ::test_device
     iree::testing::gtest_main
+    loom::serve::service::finite::embedding::checkpoint_preparation_tests
     loom::serve::service::finite::embedding::direct_dispatch_tests
     loom::serve::service::finite::embedding::elastic_storage_tests
     loom::serve::service::finite::embedding::source_execution_tests
-    loom::serve::service::finite::embedding::weighted_dispatch_tests
   ENV
     "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom}}"
   LABELS

@@ -489,7 +489,7 @@ uint64_t SourceEmbeddingServiceTest::Number(const std::string& response,
 
 std::string SourceEmbeddingServiceTest::UploadVariant(
     uint64_t base, const std::string& directory, const char* provider,
-    const char* replacement, bool weighted) {
+    const char* replacement, bool include_parameter_source) {
   loom_serve::testing::SourcePackage package;
   std::ifstream input(directory + "/" + provider);
   EXPECT_TRUE(input.good());
@@ -505,7 +505,7 @@ std::string SourceEmbeddingServiceTest::UploadVariant(
   [&] {
     IREE_ASSERT_OK(
         package.AddFile("model/config.loom", directory_ + "/config.loom"));
-    if (weighted) {
+    if (include_parameter_source) {
       IREE_ASSERT_OK(
           package.AddFile("model/weights.loom", directory + "/weights.loom"));
     }
@@ -513,7 +513,8 @@ std::string SourceEmbeddingServiceTest::UploadVariant(
   const std::string json =
       "{\"model\":\"fixture\",\"base\":" + std::to_string(base) +
       ",\"sources\":[\"config.loom\",\"" + provider + "\"" +
-      (weighted ? ",\"weights.loom\"" : "") + "],\"wait\":true}";
+      (include_parameter_source ? ",\"weights.loom\"" : "") +
+      "],\"wait\":true}";
   int client = -1;
   [&] {
     IREE_ASSERT_OK(
@@ -530,7 +531,7 @@ std::string SourceEmbeddingServiceTest::SelectVariant(uint64_t variant,
            "/v1/models/variants/select"));
 }
 
-void SourceEmbeddingServiceTest::WriteWeightedPackage(
+void SourceEmbeddingServiceTest::WriteCheckpointPackage(
     const std::string& target) {
   ASSERT_TRUE(std::filesystem::create_directory(target));
   for (const char* file :
@@ -538,12 +539,12 @@ void SourceEmbeddingServiceTest::WriteWeightedPackage(
     ASSERT_TRUE(std::filesystem::copy_file(directory_ + "/" + file,
                                            target + "/" + file));
   }
-  const char* weighted_source =
-      std::getenv("LOOM_SERVE_TEST_WEIGHTED_STAGE_SOURCE");
+  const char* checkpoint_source =
+      std::getenv("LOOM_SERVE_TEST_CHECKPOINT_STAGE_SOURCE");
   for (const char* file : {"weights.loom", "policy.loom"}) {
     const std::string source =
-        weighted_source && std::string(file) == "weights.loom"
-            ? weighted_source
+        checkpoint_source && std::string(file) == "weights.loom"
+            ? checkpoint_source
             : directory_ + "/variants/" + file;
     ASSERT_TRUE(std::filesystem::copy_file(source, target + "/" + file));
   }
@@ -554,7 +555,7 @@ void SourceEmbeddingServiceTest::WriteWeightedPackage(
   const auto root_position = prepare.find(root);
   ASSERT_NE(root_position, std::string::npos);
   prepare.replace(root_position, root.size(),
-                  "bytes(\"77656967687465645f656d626564\")");
+                  "bytes(\"656d6265645f776974685f706172616d6574657273\")");
   const auto result_position = prepare.find("  func.return %units,");
   ASSERT_NE(result_position, std::string::npos);
   prepare.insert(result_position, R"(
@@ -574,7 +575,7 @@ global.rodata.def @policy = bytes("706f6c6963792e6c6f6f6d")
   ASSERT_TRUE(bootstrap.good());
   std::ofstream manifest(target + "/model.json");
   manifest
-      << R"({"name":"weighted","definition":{"kind":"embedding","prepare":"prepare.loom","control":"control.loom","sources":["config.loom","embed.loom","weights.loom"],"assets":"."}})";
+      << R"({"name":"checkpoint","definition":{"kind":"embedding","prepare":"prepare.loom","control":"control.loom","sources":["config.loom","embed.loom","weights.loom"],"assets":"."}})";
   manifest.close();
   ASSERT_TRUE(manifest.good());
   std::string header =

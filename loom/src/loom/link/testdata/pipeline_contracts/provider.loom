@@ -4,13 +4,13 @@ func.def @implementation_only(%width: index) {
   func.return
 }
 
-pipeline.def<kernel> public retain target(@array) @resident(%width: index) run(%weights: view<[%width]xi8>, %input: buffer, %output: buffer) where [multiple_of(%width, 16)] {
+pipeline.def<kernel> public retain target(@array) @resident(%width: index) run(%parameters: view<[%width]xi8>, %input: buffer, %output: buffer) where [multiple_of(%width, 16)] {
   func.call @implementation_only(%width) : (index)
 }
 
 command.program.def public @embed(%width: index) launch(%checkpoint: buffer, %input: buffer, %output: buffer) {
   %offset = index.constant 0 : offset
-  %weights = buffer.view %checkpoint[%offset] : buffer -> view<[%width]xi8>
-  kernel.launch @resident[%width](%weights, %input, %output) : [index](view<[%width]xi8>, buffer, buffer)
+  %parameters = buffer.view %checkpoint[%offset] : buffer -> view<[%width]xi8>
+  kernel.launch @resident[%width](%parameters, %input, %output) : [index](view<[%width]xi8>, buffer, buffer)
   command.return
 }

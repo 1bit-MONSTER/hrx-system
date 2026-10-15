@@ -138,9 +138,9 @@ loom_cc_library(
 )
 
 loom_cc_library(
-    name = "weighted_dispatch_tests",
+    name = "checkpoint_preparation_tests",
     testonly = True,
-    srcs = ["weighted_dispatch_test.cc"],
+    srcs = ["checkpoint_preparation_test.cc"],
     target_compatible_with = loom_config_compatible_with([
         "//loom/config/target/arch:vm",
     ]) + select({

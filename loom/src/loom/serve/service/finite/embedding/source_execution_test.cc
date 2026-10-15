@@ -236,7 +236,7 @@ TEST_F(SourceEmbeddingServiceTest,
        CancelledAndFailedLoadsKeepTheirResidentPeerUsable) {
   const std::string package =
       iree::testing::MakeTempFilePath("invalid_embedding");
-  ASSERT_NO_FATAL_FAILURE(WriteWeightedPackage(package));
+  ASSERT_NO_FATAL_FAILURE(WriteCheckpointPackage(package));
   // copy_file preserves read-only runfile permissions on this owned copy.
   std::filesystem::permissions(package + "/control.loom",
                                std::filesystem::perms::owner_write,

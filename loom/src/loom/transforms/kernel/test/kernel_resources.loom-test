@@ -51,28 +51,28 @@ func.def device @library_user(%input: view<16xf32>) -> (f32) {
 
 // The artifact ABI begins at run arguments. Staged inputs and generic callable
 // pipelines keep their source signatures, including dependent view shapes.
-pipeline.def<kernel> @resident(%width: index, %staged: view<4xf32>) run(%weights: view<[%width]xi8>, %output: view<2x8xf32>, %scale: f32) {
+pipeline.def<kernel> @resident(%width: index, %staged: view<4xf32>) run(%parameters: view<[%width]xi8>, %output: view<2x8xf32>, %scale: f32) {
   pipeline.strand workers([0], [1], [1]) {
-    test.use %staged, %weights, %output, %scale : view<4xf32>, view<[%width]xi8>, view<2x8xf32>, f32
+    test.use %staged, %parameters, %output, %scale : view<4xf32>, view<[%width]xi8>, view<2x8xf32>, f32
   }
 }
 
-pipeline.def @generic(%width: index) run(%weights: view<[%width]xi8>) {
+pipeline.def @generic(%width: index) run(%parameters: view<[%width]xi8>) {
 }
 
-pipeline.decl<kernel> @external(%width: index) run(%weights: view<[%width]xi8>)
+pipeline.decl<kernel> @external(%width: index) run(%parameters: view<[%width]xi8>)
 
 // ----
-pipeline.def<kernel> @resident(%width: index, %staged: view<4xf32>) run(%weights: buffer, %output: buffer, %scale: f32) {
+pipeline.def<kernel> @resident(%width: index, %staged: view<4xf32>) run(%parameters: buffer, %output: buffer, %scale: f32) {
   %9 = index.constant 0 : offset
-  %10 = buffer.view %weights[%9] : buffer -> view<[%width]xi8>
+  %10 = buffer.view %parameters[%9] : buffer -> view<[%width]xi8>
   %11 = buffer.view %output[%9] : buffer -> view<2x8xf32>
   pipeline.strand workers([0], [1], [1]) {
     test.use %staged, %10, %11, %scale : view<4xf32>, view<[%width]xi8>, view<2x8xf32>, f32
   }
 }
 
-pipeline.def @generic(%width: index) run(%weights: view<[%width]xi8>) {
+pipeline.def @generic(%width: index) run(%parameters: view<[%width]xi8>) {
 }
 
-pipeline.decl<kernel> @external(%width: index) run(%weights: view<[%width]xi8>)
+pipeline.decl<kernel> @external(%width: index) run(%parameters: view<[%width]xi8>)

@@ -183,7 +183,7 @@ iree_status_t loom_pipeline_memory_verify(
     iree_diagnostic_emitter_t emitter);
 
 // LOOM_OP_PIPELINE_DECL: Bodyless persistent pipeline contract. The leading specialization arguments, invocation arguments, target, predicates, and optional artifact scope have the same meaning as on pipeline.def.
-// pipeline.decl<kernel> @embed(%batch: index) run(%weights: buffer, %input: buffer, %output: buffer)
+// pipeline.decl<kernel> @resident(%width: index) run(%input: view<[%width]xi32>, %output: buffer)
 LOOM_DEFINE_ISA(loom_pipeline_decl_isa, LOOM_OP_PIPELINE_DECL)
 LOOM_DEFINE_VARIADIC_OPERANDS(loom_pipeline_decl_args, 0)
 LOOM_DEFINE_ATTR_SYMBOL(loom_pipeline_decl_callee, 0)

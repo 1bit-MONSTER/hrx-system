@@ -32,7 +32,7 @@ TEST_F(ElasticEmbeddingServiceTest,
        EmptyServerReusesOneParameterSlabAcrossManagedLifetimes) {
   const std::string package =
       iree::testing::MakeTempFilePath("dynamic_pressure");
-  ASSERT_NO_FATAL_FAILURE(WriteWeightedPackage(package));
+  ASSERT_NO_FATAL_FAILURE(WriteCheckpointPackage(package));
   interface_.set_observer(interface_.self, {});
   loom_serve_finite_service_free(std::exchange(service_, nullptr));
   IREE_ASSERT_OK(loom_serve_finite_model_free(std::exchange(model_, nullptr)));
@@ -71,10 +71,10 @@ TEST_F(ElasticEmbeddingServiceTest,
 }
 
 TEST_F(ElasticEmbeddingServiceTest,
-       ExternalWeightedPackageRetainsPreparedCohortUnderPressure) {
+       CheckpointPackageRetainsPreparedCohortUnderPressure) {
   const std::string package =
-      iree::testing::MakeTempFilePath("weighted_embedding");
-  ASSERT_NO_FATAL_FAILURE(WriteWeightedPackage(package));
+      iree::testing::MakeTempFilePath("checkpoint_embedding");
+  ASSERT_NO_FATAL_FAILURE(WriteCheckpointPackage(package));
   interface_.set_observer(interface_.self, {});
   loom_serve_finite_service_free(std::exchange(service_, nullptr));
   IREE_ASSERT_OK(loom_serve_finite_model_free(std::exchange(model_, nullptr)));
@@ -173,8 +173,8 @@ TEST_F(ElasticEmbeddingServiceTest,
       loom_serve_residency_statistics(residency).reserved_bytes;
   const auto before_removal =
       loom_serve_device_memory_statistics(device_).retained;
-  // Retire the active weighted model on the same serialized owner that must
-  // admit its peer. The one-slab budget cannot hold both sets of weights.
+  // Retire the model with prepared parameters on the serialized owner that
+  // must admit its peer. The one-slab budget cannot hold both parameter sets.
   interface_.set_observer(interface_.self, {});
   loom_serve_finite_service_free(std::exchange(service_, nullptr));
   std::swap(model_, retained_);
