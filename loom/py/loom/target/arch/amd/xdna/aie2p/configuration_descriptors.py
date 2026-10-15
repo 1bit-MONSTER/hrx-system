@@ -111,6 +111,8 @@ def _instruction(
 
 
 _DESCRIPTORS = (
+    _instruction("measure.begin"),
+    _instruction("measure.end"),
     _instruction(
         "constant",
         (_result(_SCALAR),),

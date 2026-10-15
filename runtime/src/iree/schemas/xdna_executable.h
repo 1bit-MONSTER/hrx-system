@@ -55,7 +55,7 @@ enum {
   IREE_XDNA_ELF_PROGRAM_TYPE_LOAD = 1,
   IREE_XDNA_ELF_PROGRAM_TYPE_METADATA = 0x6C584408,
   IREE_XDNA_ELF_METADATA_MAGIC = 0x414E4458,
-  IREE_XDNA_ELF_METADATA_VERSION = 2,
+  IREE_XDNA_ELF_METADATA_VERSION = 3,
   IREE_XDNA_ELF_NATIVE_TRANSACTION_0_1 = 1,
 };
 
@@ -317,7 +317,7 @@ void iree_xdna_elf_encode_relocation(
 iree_xdna_elf_relocation_record_t iree_xdna_elf_decode_relocation(
     const uint8_t* storage);
 
-// Decoded 16-byte invocation row.
+// Decoded 24-byte invocation row.
 typedef struct iree_xdna_elf_invocation_record_t {
   // Entry-relative native-command allocation use.
   uint32_t allocation_use;
@@ -327,9 +327,21 @@ typedef struct iree_xdna_elf_invocation_record_t {
   uint32_t byte_length;
   // Entry-relative continuation requiring externally proven retained state.
   uint32_t next_invocation;
+  // Optional timer interval, as command-relative instruction boundaries. Both
+  // offsets are zero when absent. A present interval starts after the native
+  // header, ends no later than byte_length, and contains no shim timer reset.
+  // The complete command produces no other firmware-result records. A runtime
+  // may insert RECORD_TIMER at these boundaries in an exclusive command copy.
+  // Ordinary command bytes contain no measurement instructions.
+  struct {
+    // Byte offset immediately before the first measured instruction.
+    uint32_t begin;
+    // Byte offset immediately after the final measured instruction.
+    uint32_t end;
+  } measurement;
 } iree_xdna_elf_invocation_record_t;
 
-enum { IREE_XDNA_ELF_INVOCATION_RECORD_SIZE = 16 };
+enum { IREE_XDNA_ELF_INVOCATION_RECORD_SIZE = 24 };
 
 // Encodes one complete invocation row into caller-provided storage.
 void iree_xdna_elf_encode_invocation(

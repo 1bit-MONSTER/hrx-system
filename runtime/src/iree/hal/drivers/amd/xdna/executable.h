@@ -77,6 +77,15 @@ iree_status_t iree_hal_amd_xdna_function_prepare(
     iree_hal_amd_xdna_invocation_t** out_invocation,
     amdf_xdna_kernel_command_t* out_command);
 
+// Selects a measured command for an exclusively prepared invocation. First use
+// allocates a command copy with fixed timer IDs; later uses neither allocate
+// nor patch unless the ordinary invocation's bindings changed. Native retry
+// retains the prepared command unchanged. An undeclared timer interval is
+// UNAVAILABLE.
+iree_status_t iree_hal_amd_xdna_invocation_prepare_measurement(
+    iree_hal_amd_xdna_invocation_t* invocation,
+    amdf_xdna_kernel_command_t* out_command);
+
 // Returns exclusively owned storage after rejection or checked retirement.
 // Safe concurrently with acquisition on another queue; performs no native work.
 // A NULL invocation requires no action.

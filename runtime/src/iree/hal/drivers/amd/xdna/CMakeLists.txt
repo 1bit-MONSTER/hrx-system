@@ -349,6 +349,41 @@ endif()
 if(AMDF_BUILD)
 iree_cc_library(
   NAME
+    executable_measurement
+  HDRS
+    "executable_measurement.h"
+  SRCS
+    "executable_measurement.c"
+  DEPS
+    iree::base
+    iree::hal::drivers::amd::xdna::image::tables
+    iree::schemas::xdna_executable
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_test(
+  NAME
+    executable_measurement_test
+  SRCS
+    "executable_measurement_test.cc"
+  DEPS
+    ::executable_measurement
+    iree::base
+    iree::hal::drivers::amd::xdna::image
+    iree::hal::drivers::amd::xdna::image::testing::image_fixture
+    iree::schemas::xdna_executable
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=libamdf"
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_library(
+  NAME
     executable
   HDRS
     "executable.h"
@@ -357,6 +392,7 @@ iree_cc_library(
   DEPS
     ::command_arena
     ::context
+    ::executable_measurement
     ::executable_storage
     ::memory
     amdf::headers

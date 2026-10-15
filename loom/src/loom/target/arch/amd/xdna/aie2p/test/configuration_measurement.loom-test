@@ -1,0 +1,46 @@
+// RUN: format bytecode
+
+aie2p.target<configuration> @configuration_target {device_profile = "amd.xdna.strix_halo.17f0_11"}
+
+low.func.def public retain target<amd.xdna.aie2p.configuration>(@configuration_target) abi(array_program) @measured() asm {
+  %one = constant 1 : reg<aie2p.config.scalar : i64>
+  entry %one, @initialize, @invoke
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.configuration>(@configuration_target) @initialize() asm {
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.configuration>(@configuration_target) @invoke() asm {
+  measure.begin
+  %address = constant 2224132 : reg<aie2p.config.scalar : i64>
+  %value = constant 1 : reg<aie2p.config.scalar : i64>
+  write32 %address, %value
+  wait.mask32 %address, %value, %value
+  measure.end
+  return
+}
+
+// ----
+aie2p.target<configuration> @configuration_target {device_profile = "amd.xdna.strix_halo.17f0_11"}
+
+low.func.def public retain target<amd.xdna.aie2p.configuration>(@configuration_target) abi(array_program) @measured() asm {
+  %one = constant 1 : reg<aie2p.config.scalar : i64>
+  entry %one, @initialize, @invoke
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.configuration>(@configuration_target) @initialize() asm {
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.configuration>(@configuration_target) @invoke() asm {
+  measure.begin
+  %address = constant 2224132 : reg<aie2p.config.scalar : i64>
+  %value = constant 1 : reg<aie2p.config.scalar : i64>
+  write32 %address, %value
+  wait.mask32 %address, %value, %value
+  measure.end
+  return
+}

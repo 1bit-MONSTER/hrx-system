@@ -69,6 +69,7 @@ low.func.def target<amd.xdna.aie2p.configuration>(@__aie2p_worker_helper_5) @__a
   %57 = constant 36827136 : reg<aie2p.config.scalar : i64>
   %58 = constant 0 : reg<aie2p.config.scalar : i64>
   write32 %57, %58
+  measure.begin
   %59 = constant 36904960 : reg<aie2p.config.scalar : i64>
   %60 = constant 2 : reg<aie2p.config.scalar : i64>
   write.mask32 %59, %60, %58
@@ -76,6 +77,7 @@ low.func.def target<amd.xdna.aie2p.configuration>(@__aie2p_worker_helper_5) @__a
   write.mask32 %59, %61, %61
   %62 = constant 63 : reg<aie2p.config.scalar : i64>
   wait.mask32 %57, %62, %61
+  measure.end
   %63 = constant 3 : reg<aie2p.config.scalar : i64>
   write.mask32 %59, %63, %60
   return

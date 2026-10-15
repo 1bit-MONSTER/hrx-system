@@ -291,6 +291,7 @@ low.func.def target<amd.xdna.aie2p.configuration>(@__aie2p_worker_helper_10) @__
   write32 %293, %273
   %294 = constant 3272736 : reg<aie2p.config.scalar : i64>
   write32 %294, %273
+  measure.begin
   %295 = constant 2301952 : reg<aie2p.config.scalar : i64>
   write.mask32 %295, %274, %273
   %296 = constant 1 : reg<aie2p.config.scalar : i64>
@@ -315,12 +316,13 @@ low.func.def target<amd.xdna.aie2p.configuration>(@__aie2p_worker_helper_10) @__
   %304 = constant 63 : reg<aie2p.config.scalar : i64>
   wait.mask32 %293, %304, %296
   wait.mask32 %294, %304, %296
-  write.mask32 %295, %287, %274
   %305 = constant 2219792 : reg<aie2p.config.scalar : i64>
   %306 = constant 7864380 : reg<aie2p.config.scalar : i64>
   wait.mask32 %305, %306, %273
   %307 = constant 1705568 : reg<aie2p.config.scalar : i64>
   wait.mask32 %307, %306, %273
+  measure.end
+  write.mask32 %295, %287, %274
   write.mask32 %297, %287, %274
   return
 }
@@ -626,6 +628,7 @@ low.func.def target<amd.xdna.aie2p.configuration>(@__aie2p_worker_helper_10) @__
   write32 %293, %273
   %294 = constant 3272736 : reg<aie2p.config.scalar : i64>
   write32 %294, %273
+  measure.begin
   %295 = constant 2301952 : reg<aie2p.config.scalar : i64>
   write.mask32 %295, %274, %273
   %296 = constant 1 : reg<aie2p.config.scalar : i64>
@@ -658,12 +661,13 @@ low.func.def target<amd.xdna.aie2p.configuration>(@__aie2p_worker_helper_10) @__
   %304 = constant 63 : reg<aie2p.config.scalar : i64>
   wait.mask32 %293, %304, %296
   wait.mask32 %294, %304, %296
-  write.mask32 %295, %287, %274
   %305 = constant 2219792 : reg<aie2p.config.scalar : i64>
   %306 = constant 7864380 : reg<aie2p.config.scalar : i64>
   wait.mask32 %305, %306, %273
   %307 = constant 1705568 : reg<aie2p.config.scalar : i64>
   wait.mask32 %307, %306, %273
+  measure.end
+  write.mask32 %295, %287, %274
   write.mask32 %297, %287, %274
   return
 }
@@ -948,6 +952,7 @@ low.func.def target<amd.xdna.aie2p.configuration>(@__aie2p_worker_helper_10) @__
   write32 %264, %250
   %265 = constant 3272736 : reg<aie2p.config.scalar : i64>
   write32 %265, %250
+  measure.begin
   %266 = constant 2301952 : reg<aie2p.config.scalar : i64>
   write.mask32 %266, %251, %250
   write.mask32 %266, %258, %258
@@ -977,14 +982,15 @@ low.func.def target<amd.xdna.aie2p.configuration>(@__aie2p_worker_helper_10) @__
   %276 = constant 63 : reg<aie2p.config.scalar : i64>
   wait.mask32 %264, %276, %258
   wait.mask32 %265, %276, %258
-  %277 = constant 3 : reg<aie2p.config.scalar : i64>
-  write.mask32 %266, %277, %251
-  %278 = constant 2219792 : reg<aie2p.config.scalar : i64>
-  %279 = constant 7864380 : reg<aie2p.config.scalar : i64>
-  wait.mask32 %278, %279, %250
-  %280 = constant 1705568 : reg<aie2p.config.scalar : i64>
-  wait.mask32 %280, %279, %250
-  write.mask32 %267, %277, %251
+  %277 = constant 2219792 : reg<aie2p.config.scalar : i64>
+  %278 = constant 7864380 : reg<aie2p.config.scalar : i64>
+  wait.mask32 %277, %278, %250
+  %279 = constant 1705568 : reg<aie2p.config.scalar : i64>
+  wait.mask32 %279, %278, %250
+  measure.end
+  %280 = constant 3 : reg<aie2p.config.scalar : i64>
+  write.mask32 %266, %280, %251
+  write.mask32 %267, %280, %251
   return
 }
 
@@ -1311,6 +1317,7 @@ low.func.def target<amd.xdna.aie2p.configuration>(@__aie2p_worker_helper_10) @__
   write32 %307, %293
   %308 = constant 3272736 : reg<aie2p.config.scalar : i64>
   write32 %308, %293
+  measure.begin
   %309 = constant 2301952 : reg<aie2p.config.scalar : i64>
   write.mask32 %309, %294, %293
   %310 = constant 1 : reg<aie2p.config.scalar : i64>
@@ -1342,12 +1349,13 @@ low.func.def target<amd.xdna.aie2p.configuration>(@__aie2p_worker_helper_10) @__
   %321 = constant 63 : reg<aie2p.config.scalar : i64>
   wait.mask32 %307, %321, %310
   wait.mask32 %308, %321, %310
-  write.mask32 %309, %301, %294
   %322 = constant 2219792 : reg<aie2p.config.scalar : i64>
   %323 = constant 7864380 : reg<aie2p.config.scalar : i64>
   wait.mask32 %322, %323, %293
   %324 = constant 1705568 : reg<aie2p.config.scalar : i64>
   wait.mask32 %324, %323, %293
+  measure.end
+  write.mask32 %309, %301, %294
   write.mask32 %311, %301, %294
   return
 }

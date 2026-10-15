@@ -136,6 +136,15 @@ typedef struct loom_aie2p_array_program_t {
   const loom_aie2p_program_relocation_t* relocations;
   // Number of runtime patches.
   iree_host_size_t relocation_count;
+  // Optional same-epoch timer interval retained from ordered measure commands.
+  struct {
+    // True when the invocation declares a complete measurement interval.
+    bool present;
+    // Control-record boundary immediately before measured work.
+    uint32_t begin_record;
+    // Control-record boundary after measured work, possibly record_count.
+    uint32_t end_record;
+  } measurement;
 } loom_aie2p_array_program_t;
 
 #ifdef __cplusplus

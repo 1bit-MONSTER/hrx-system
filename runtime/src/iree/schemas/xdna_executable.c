@@ -162,6 +162,8 @@ void iree_xdna_elf_encode_invocation(
   iree_unaligned_store_le_u32(storage + 4, value->byte_offset);
   iree_unaligned_store_le_u32(storage + 8, value->byte_length);
   iree_unaligned_store_le_u32(storage + 12, value->next_invocation);
+  iree_unaligned_store_le_u32(storage + 16, value->measurement.begin);
+  iree_unaligned_store_le_u32(storage + 20, value->measurement.end);
 }
 
 iree_xdna_elf_invocation_record_t iree_xdna_elf_decode_invocation(
@@ -171,5 +173,10 @@ iree_xdna_elf_invocation_record_t iree_xdna_elf_decode_invocation(
       .byte_offset = iree_unaligned_load_le_u32(storage + 4),
       .byte_length = iree_unaligned_load_le_u32(storage + 8),
       .next_invocation = iree_unaligned_load_le_u32(storage + 12),
+      .measurement =
+          {
+              .begin = iree_unaligned_load_le_u32(storage + 16),
+              .end = iree_unaligned_load_le_u32(storage + 20),
+          },
   };
 }

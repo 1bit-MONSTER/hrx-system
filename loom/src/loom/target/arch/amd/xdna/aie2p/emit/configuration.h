@@ -75,6 +75,13 @@ typedef struct loom_aie2p_configuration_plan_t loom_aie2p_configuration_plan_t;
 //     their union. They emit no initialization writes and retain existing data.
 //     Worker storage and read-only data are packed into the remaining memory.
 //     All reservations apply regardless of their order among program loads.
+//   measure.begin; measure.end
+//     Declare one optional partition-shim timer interval in the invocation.
+//     Boundaries preserve command order and emit no ordinary instructions.
+//     Profiling may sample the timer at both boundaries. Work completes before
+//     measure.end, and the interval must not reset the timer or reconfigure its
+//     epoch. Nested, repeated, incomplete, or initialization intervals are
+//     invalid. An invocation without this contract has no timer measurement.
 //   dma.wait column, row, direction, channel, columns, rows
 //     Waits for task-completion tokens across the explicit rectangular range.
 //     Direction is memory-to-stream=1 or stream-to-memory=2.

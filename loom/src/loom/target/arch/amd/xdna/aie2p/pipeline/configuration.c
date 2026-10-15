@@ -869,6 +869,9 @@ iree_status_t loom_aie2p_native_emit_configuration(
           descriptor->completion_lock, 0));
     }
   }
+  IREE_RETURN_IF_ERROR(loom_aie2p_native_config_op(
+      &config, AIE2P_CONFIGURATION_DESCRIPTOR_REF_CONFIGURATION_MEASURE_BEGIN,
+      NULL, 0, loom_named_attr_slice_empty()));
   // Every semaphore is initialized before any worker can produce a credit.
   // Ingress completions can belong to a neighboring worker's memory tile.
   for (iree_host_size_t i = 0; i < realization->resources.strand_count; ++i) {
@@ -932,6 +935,12 @@ iree_status_t loom_aie2p_native_emit_configuration(
                 LOOM_XDNA_DMA_DIRECTION_STREAM_TO_MEMORY));
       }
     }
+  }
+  IREE_RETURN_IF_ERROR(loom_aie2p_native_config_op(
+      &config, AIE2P_CONFIGURATION_DESCRIPTOR_REF_CONFIGURATION_MEASURE_END,
+      NULL, 0, loom_named_attr_slice_empty()));
+  for (iree_host_size_t i = 0; i < realization->resources.strand_count; ++i) {
+    const loom_aie2p_native_worker_t* worker = &context->workers[i];
     if (worker->execution == LOOM_AIE2P_NATIVE_EXECUTION_CORE) {
       IREE_RETURN_IF_ERROR(loom_aie2p_native_config_reset_core(
           &config, worker->tile->coordinate));

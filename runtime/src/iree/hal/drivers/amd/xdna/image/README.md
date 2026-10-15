@@ -107,7 +107,7 @@ Admission validates untrusted file structure once. Indexed consumers use the
 established relationships. Native payload is executable code: these checks are
 not a sandbox and do not certify instruction semantics.
 
-## Wire format, metadata version 2
+## Wire format, metadata version 3
 
 All multibyte fields are little endian. Offsets below are byte offsets from the
 start of the relevant row; `u16`, `u32`, and `u64` are unsigned fixed-width
@@ -156,18 +156,18 @@ allocation_use[4] * U
 entry[48] * E
 binding[40] * B
 relocation[48] * R
-invocation[16] * I
+invocation[24] * I
 name_bytes[S]
 ```
 
-The exact length is `64 + 32*A + 4*U + 48*E + 40*B + 48*R + 16*I + S`.
+The exact length is `64 + 32*A + 4*U + 48*E + 40*B + 48*R + 24*I + S`.
 Each record count is at most 65,535; `A` and `E` are nonzero. The whole metadata
 extent is at most 16 MiB. Name bytes have no implicit terminators.
 
 | Offset | Type | Field | Meaning |
 | --- | --- | --- | --- |
 | 0 | u32 | magic | `0x414E4458`, bytes `XDNA`. |
-| 4 | u16 | version | `2`. |
+| 4 | u16 | version | `3`. |
 | 6 | u16 | native_encoding | `1`, native transaction protocol 0.1. |
 | 8 | u32 | target_generation | `3`, AIE2P. |
 | 12 | u32 | device_profile_revision | Exact incompatible profile revision. |
@@ -281,6 +281,23 @@ field; it does not search or decode native command streams.
 | 4 | u32 | byte_offset | Command range offset, aligned to the target's instruction requirement. |
 | 8 | u32 | byte_length | Nonzero byte length, a multiple of four. |
 | 12 | u32 | next_invocation | Valid entry-relative continuation ordinal. |
+| 16 | u32 | measurement.begin | Optional command-relative timer insertion boundary. |
+| 20 | u32 | measurement.end | Optional command-relative timer insertion boundary. |
+
+Both measurement offsets are zero when no timer interval is declared. Otherwise
+`16 <= begin <= end <= byte_length`, with four-byte alignment. These are
+instruction boundaries established by the compiler, enclosing work in one
+partition-shim timer epoch. The interval contains no timer reset, and the whole
+command emits no other firmware-result records. This is an executable semantic
+contract, like declared binding access, rather than instruction certification.
+The header and insertion/copy boundaries cannot intersect relocation word pairs.
+
+Ordinary commands contain no timer instructions. Optional profiling materializes
+an exclusive command copy with two fixed-ID `RECORD_TIMER` instructions at the
+declared boundaries. Original storage, relocations, and continuation identity
+remain valid. Measured copies consume 24 additional native command bytes and
+retain their ordinary allocation closure. Timer differences are cycle counters;
+these boundaries do not establish a continuous clock between invocations.
 
 The range fits its allocation and is fully initialized. Allocation alignment
 is at least the target instruction alignment. Ordinal zero and continuation
