@@ -780,5 +780,3 @@ BENCHMARK_REGISTER_F(XdnaQueueBenchmark, MeasuredRecordedStreamingEndToEnd)
     ->Unit(benchmark::kMicrosecond);
 
 }  // namespace
-
-BENCHMARK_MAIN();
