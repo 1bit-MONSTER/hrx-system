@@ -72,8 +72,9 @@ class ControlFlow final : private cxx::ASTVisitor {
   ControlFlow(const ControlFlow&) = delete;
   ControlFlow& operator=(const ControlFlow&) = delete;
 
-  // Unique bindings mutated under a structured statement or conditional value
-  // expression, in encounter order. Includes mutations in conditions.
+  // Unique bindings mutated under a structured statement, direct for-loop body,
+  // or conditional value expression, in encounter order. Includes mutations in
+  // conditions.
   std::span<cxx::Symbol* const> written(cxx::AST* owner) const;
   // Whether an evaluated address expression requires this binding's object
   // identity. The complete function is classified before translation begins.
@@ -132,7 +133,8 @@ class ControlFlow final : private cxx::ASTVisitor {
   Diagnostics& diagnostics_;
   // Admitted source member partitions outlive all retained destination slices.
   Types& types_;
-  // Active structured ancestors during construction only.
+  // Active write-summary owners during construction only, including direct
+  // for-loop bodies without a compound statement.
   std::vector<cxx::AST*> owners_;
   // Stable encounter order determines region argument/result order.
   std::unordered_map<cxx::AST*, std::vector<cxx::Symbol*>> writes_;

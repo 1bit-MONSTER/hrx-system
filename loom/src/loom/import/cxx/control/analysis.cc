@@ -121,7 +121,12 @@ bool ControlFlow::preVisit(cxx::AST* ast) {
     default:
       break;
   }
-  if (structured(ast)) {
+  // Counted-loop admission queries body writes separately from header writes.
+  // Keep that owner even when the body is a single unstructured statement.
+  auto* loop = owners_.empty()
+                   ? nullptr
+                   : cxx::ast_cast<cxx::ForStatementAST>(owners_.back());
+  if (structured(ast) || (loop && loop->statement == ast)) {
     owners_.push_back(ast);
   }
   return true;
@@ -169,7 +174,7 @@ void ControlFlow::postVisit(cxx::AST* ast) {
       counted_.emplace(loop, *counted);
     }
   }
-  if (structured(ast)) {
+  if (!owners_.empty() && owners_.back() == ast) {
     owners_.pop_back();
   }
 }
@@ -366,8 +371,7 @@ std::optional<CountedLoop> ControlFlow::classify(cxx::ForStatementAST* loop) {
       cxx::ast_cast<cxx::BinaryExpressionAST>(unwrapped(loop->condition));
   if (!initial || !initial->initDeclaratorList ||
       initial->initDeclaratorList->next || !condition || condition->symbol ||
-      condition->op != cxx::TokenKind::T_LESS ||
-      !cxx::ast_cast<cxx::CompoundStatementAST>(loop->statement)) {
+      condition->op != cxx::TokenKind::T_LESS) {
     return std::nullopt;
   }
   auto* induction = initial->initDeclaratorList->value->symbol;
