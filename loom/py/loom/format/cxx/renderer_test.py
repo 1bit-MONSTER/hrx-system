@@ -396,7 +396,7 @@ kernel.def @scoped_alignment() {
 
     assert "[[loom::assume_aligned" not in result
     assert "if (active) {" in result
-    assert "auto aligned = loom::buffer::assume_alignment<16>(input);" in result
+    assert "auto aligned = loom::buffer::assume::alignment<16>(input);" in result
 
 
 def test_projects_buffer_alias_contracts_at_their_lexical_scope() -> None:
@@ -406,6 +406,7 @@ kernel.def @aliases() {
   kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
 } launch(%active: i1, %input: buffer, %output: buffer) {
   %input_unique, %output_unique = buffer.assume.noalias %input, %output : buffer, buffer
+  %input_constant = buffer.assume.memory_space<constant> %input_unique : buffer
   scf.if %active {
     %scoped_input, %scoped_output = buffer.assume.noalias %input_unique, %output_unique : buffer, buffer
   }
@@ -417,8 +418,14 @@ kernel.def @aliases() {
 
     assert "[[loom::noalias]] const unsigned char* input_unique" in result
     assert "[[loom::noalias]] const unsigned char* output_unique" in result
-    assert "auto scoped_input = loom::buffer::assume_noalias(input_unique);" in result
-    assert "auto scoped_output = loom::buffer::assume_noalias(output_unique);" in result
+    assert "auto scoped_input = loom::buffer::assume::noalias(input_unique);" in result
+    assert (
+        "auto scoped_output = loom::buffer::assume::noalias(output_unique);" in result
+    )
+    assert (
+        "auto input_constant = loom::buffer::assume::memory_space<"
+        "loom::memory_space::constant>(input_unique);" in result
+    )
 
 
 def test_projects_atomic_memory_operations_and_fences() -> None:

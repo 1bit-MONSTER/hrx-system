@@ -532,13 +532,17 @@ class CxxRenderContext:
         if not is_parameter_contract:
             if operation.name == "buffer.assume.noalias":
                 self.scoped_noalias_operations.add(id(operation))
-            else:
+            elif operation.name == "buffer.assume.alignment":
                 self.scoped_alignment_operations.add(id(operation))
-        for source, result in zip(
-            resolved.value_ids("buffers"),
-            resolved.value_ids("results"),
-            strict=True,
-        ):
+        if operation.name == "buffer.assume.memory_space":
+            pairs = ((resolved.value_id("buffer"), resolved.value_id("result")),)
+        else:
+            pairs = zip(
+                resolved.value_ids("buffers"),
+                resolved.value_ids("results"),
+                strict=True,
+            )
+        for source, result in pairs:
             root = self.buffer_roots.get(source)
             if root is None:
                 continue
@@ -576,9 +580,15 @@ class CxxRenderContext:
             )
 
         for operation in walk_operations(entry):
-            if operation.name in {"buffer.assume.alignment", "buffer.assume.noalias"}:
+            if operation.name in {
+                "buffer.assume.alignment",
+                "buffer.assume.memory_space",
+                "buffer.assume.noalias",
+            }:
                 self._analyze_buffer_assumption(
-                    operation, id(operation) in direct_operations
+                    operation,
+                    operation.name != "buffer.assume.memory_space"
+                    and id(operation) in direct_operations,
                 )
                 continue
             if operation.name == "buffer.alloca":

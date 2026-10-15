@@ -22,7 +22,8 @@ namespace loom::cxx_import {
 
 bool BufferIntrinsic::supports(std::string_view name) {
   return name == "buffer.alloca" || name == "buffer.assume.alignment" ||
-         name == "buffer.assume.noalias";
+         name == "buffer.assume.noalias" ||
+         name == "buffer.assume.memory_space";
 }
 
 std::optional<BufferIntrinsic> BufferIntrinsic::resolve(
@@ -41,6 +42,57 @@ std::optional<BufferIntrinsic> BufferIntrinsic::resolve(
   auto parameters = signature->parameterTypes();
   auto* result = cxx::type_cast<cxx::PointerType>(
       types.unqualified(signature->returnType()));
+  if (name == "buffer.assume.memory_space") {
+    if (signature->isVariadic() || parameters.size() != 1 ||
+        !unit.typeTraits().is_same(
+            types.unqualified(parameters[0]),
+            types.unqualified(signature->returnType()))) {
+      diagnostics.reject(
+          unit, owner,
+          "buffer.assume.memory_space requires one pointer or typed buffer "
+          "and the same result type");
+    }
+    const cxx::Type* element_type = nullptr;
+    if (result) {
+      element_type = result->elementType();
+    } else {
+      const auto& partition = types.partition(parameters[0], owner);
+      if (partition.kind != ValueKind::Buffer) {
+        diagnostics.reject(
+            unit, owner,
+            "buffer.assume.memory_space requires a pointer or typed buffer");
+      }
+      element_type =
+          static_cast<const BufferPartition&>(partition).element_type;
+    }
+    auto arguments = function->templateArguments();
+    auto space_value = arguments.size() == 2
+                           ? cxx::template_argument_value(arguments[0])
+                           : std::nullopt;
+    auto* space =
+        space_value ? std::get_if<cxx::ConstInt>(&*space_value) : nullptr;
+    auto* template_element_type =
+        arguments.size() == 2 ? cxx::template_argument_as_type(arguments[1])
+                              : nullptr;
+    if (!template_element_type ||
+        !unit.typeTraits().is_same(template_element_type, element_type)) {
+      diagnostics.reject(
+          unit, owner,
+          "buffer.assume.memory_space requires memory space and element type "
+          "template arguments matching the source");
+    }
+    if (!space || space->isNegative() ||
+        space->toUWide() < LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL ||
+        space->toUWide() > LOOM_VALUE_FACT_MEMORY_SPACE_GENERIC) {
+      diagnostics.reject(
+          unit, owner,
+          "buffer.assume.memory_space requires a concrete memory space: "
+          "global, workgroup, private, constant, host, descriptor, or generic");
+    }
+    return BufferIntrinsic(
+        element_type,
+        static_cast<loom_value_fact_memory_space_t>(space->toUIntMax()));
+  }
   if (name == "buffer.assume.noalias" || name == "buffer.assume.alignment") {
     auto* source =
         parameters.size() == 1
@@ -170,8 +222,17 @@ std::optional<BufferIntrinsic> BufferIntrinsic::resolve(
                                static_cast<int64_t>(alignment_bytes));
 }
 
-Value BufferIntrinsic::call(std::span<const Value> arguments, Storage& storage,
-                            cxx::AST* owner) const {
+Value BufferIntrinsic::call(std::span<const Value> arguments, ValueArena& arena,
+                            Storage& storage, cxx::AST* owner) const {
+  if (operation_ == Operation::AssumeMemorySpace) {
+    auto source = arguments[0];
+    auto root = storage.assume_memory_space(source.components()[0],
+                                            memory_space_, owner);
+    if (source.is_pointer()) {
+      return Value(Pointer{root, source.pointer().byte_offset});
+    }
+    return arena.capture(source.partition(), {&root, 1});
+  }
   if (operation_ == Operation::AssumeNoalias) {
     return Value(storage.assume_noalias(arguments[0].pointer(), owner));
   }

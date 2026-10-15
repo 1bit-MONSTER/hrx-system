@@ -11,7 +11,11 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from loom.format.cxx.context import CxxRenderContext, _strip_outer_parentheses
+from loom.format.cxx.context import (
+    CxxRenderContext,
+    _memory_space,
+    _strip_outer_parentheses,
+)
 from loom.format.cxx.errors import CxxRenderError
 from loom.format.cxx.types import KERNEL_COORDINATE_CPP_TYPE
 from loom.ir import (
@@ -793,7 +797,7 @@ class CxxExpressionRenderer(CxxRenderContext):
             ):
                 self._declare(
                     result,
-                    "loom::buffer::assume_alignment<"
+                    "loom::buffer::assume::alignment<"
                     f"{alignment}>({self.expression(source)})",
                 )
                 self.expression_types[result] = self.expression_type(source)
@@ -806,10 +810,21 @@ class CxxExpressionRenderer(CxxRenderContext):
             ):
                 self._declare(
                     result,
-                    f"loom::buffer::assume_noalias({self.expression(source)})",
+                    f"loom::buffer::assume::noalias({self.expression(source)})",
                 )
                 self.expression_types[result] = self.expression_type(source)
             return ()
+        if operation.name == "buffer.assume.memory_space":
+            memory_space = resolved.attr("memory_space")
+            source = resolved.value_id("buffer")
+            result = resolved.value_id("result")
+            self._declare(
+                result,
+                "loom::buffer::assume::memory_space<"
+                f"{_memory_space(memory_space)}>({self.expression(source)})",
+            )
+            self.expression_types[result] = self.expression_type(source)
+            return ("memory_space",)
         for source, result in zip(
             resolved.value_ids("buffers"),
             resolved.value_ids("results"),
@@ -957,7 +972,11 @@ class CxxExpressionRenderer(CxxRenderContext):
             self.expressions[result] = result_name
             self.expression_types[result] = result_type
             return ()
-        if name in {"buffer.assume.alignment", "buffer.assume.noalias"}:
+        if name in {
+            "buffer.assume.alignment",
+            "buffer.assume.memory_space",
+            "buffer.assume.noalias",
+        }:
             return self._render_buffer_assumption(operation)
         if name == "encoding.define":
             return self._render_encoding_define(operation)

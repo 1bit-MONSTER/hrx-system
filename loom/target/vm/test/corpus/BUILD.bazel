@@ -127,7 +127,6 @@ loom_corpus_build(
             "memory/atomic/float64.loom",
             "numeric/conversion/float8_schema_conversion.loom",
             "numeric/float/activations.loom",
-            "numeric/integer/rotation.loom",
             "numeric/matrix/nvfp4.loom",
         ],
     },

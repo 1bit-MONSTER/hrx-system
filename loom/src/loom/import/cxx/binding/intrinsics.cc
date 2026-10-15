@@ -443,7 +443,7 @@ IntrinsicCallResult Intrinsics::call(const Binding& admitted,
     return {encoding->call(arguments, arena, builder, location)};
   }
   if (auto* buffer = std::get_if<BufferIntrinsic>(binding)) {
-    return {buffer->call(arguments, storage, owner)};
+    return {buffer->call(arguments, arena, storage, owner)};
   }
   if (auto* view = std::get_if<ViewIntrinsic>(binding)) {
     return {view->call(arguments, types_, arena, storage, owner, builder,

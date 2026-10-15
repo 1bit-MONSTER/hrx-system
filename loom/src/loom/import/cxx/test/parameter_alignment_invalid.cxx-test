@@ -148,12 +148,12 @@ LOOM_CHECK_CASE(check_statement_attribute) {
 #include <loomcxx/buffer.h>
 [[loom::kernel]] void invalid_scoped_alignment(unsigned* input) {
   // ERROR@+1: LOWERING/059 "buffer alignment must be a positive power-of-two byte count"
-  auto* aligned = loom::buffer::assume_alignment<48>(input);
+  auto* aligned = loom::buffer::assume::alignment<48>(input);
 }
 
 // ====
 #include <loomcxx/buffer.h>
 [[loom::kernel]] void interior_scoped_alignment(unsigned* input) {
   // ERROR@+1: LOWERING/059 "buffer alignment assumption requires a zero-origin pointer"
-  auto* aligned = loom::buffer::assume_alignment<16>(input + 1);
+  auto* aligned = loom::buffer::assume::alignment<16>(input + 1);
 }

@@ -1011,6 +1011,37 @@ in the preheader and after each body/increment, preserving side effects and
 Discarded template arms are not instantiated. Outside templates, both arms
 remain subject to C++ source checking even though only one is imported.
 
+## Borrowed storage domains
+
+Buffer-root promises mirror the `buffer.assume.*` IR family under
+`loom::buffer::assume`: `noalias(source)`, `alignment<Bytes>(source)`, and
+`memory_space<Space>(source)`.
+
+`loom::buffer::assume::memory_space<Space>(source)` publishes an existing
+storage-domain contract to Loom. It accepts a pointer or `loom::type::buffer<T>`
+and returns the same source type, preserving element qualifiers, storage
+identity, and pointer byte origin. The operation neither allocates nor copies
+storage. All `loom::memory_space` values are admitted: `global`, `workgroup`,
+`private_`, `constant`, `host`, `descriptor`, and `generic`. Target lowering
+determines which domains are legal for the program.
+
+```cpp
+#include <loomcxx/buffer.h>
+
+unsigned read_immutable(const unsigned* input, unsigned index) {
+  // The caller keeps this input immutable through completion of every access.
+  auto* values = loom::buffer::assume::memory_space<loom::memory_space::constant>(input);
+  return values[index];
+}
+```
+
+The `constant` promise applies to the storage, including other aliases, rather
+than merely preventing writes through this C++ pointer. This lets target
+lowering keep immutable input reads separate from synchronized mutable
+publication buffers. Conflicting known storage domains are rejected. The
+promise preserves the original extent, alignment, and nullability facts; it
+does not establish any of them independently.
+
 ## Typed views and layouts
 
 `<loomcxx/view.h>` exposes Loom views without hiding their shape and encoding

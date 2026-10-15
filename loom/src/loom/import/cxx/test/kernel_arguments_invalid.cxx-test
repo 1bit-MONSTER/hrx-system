@@ -1,0 +1,43 @@
+// RUN: verify
+// Dynamic vectors require extent bindings unavailable in the kernel ABI.
+#include <loomcxx/kernel.h>
+#include <loomcxx/vector.h>
+using Input = loom::type::vector<loom::type::shape<loom::type::dynamic>, float>;
+// ERROR@+1: LOWERING/059 "dynamic vector types require bound extent identities"
+LOOM_KERNEL void entry(Input input) {}
+
+// ====
+// Dynamic tensors require a bound extent rather than an implicit extra argument.
+#include <loomcxx/check.h>
+#include <loomcxx/kernel.h>
+using Input = loom::type::tensor<loom::type::shape<loom::type::dynamic>, unsigned>;
+// ERROR@+1: LOWERING/059 "dynamic tensor types require a bound extent identity"
+LOOM_KERNEL void entry(Input input) {}
+
+// ====
+// Views carry an encoding and cannot be reduced to one kernel argument.
+#include <loomcxx/kernel.h>
+#include <loomcxx/view.h>
+using Input = loom::type::view<loom::type::shape<4>, unsigned>;
+// ERROR@+1: LOWERING/059 "unsupported C++ type: ::loom::type::view<::loom::type::shape<4>, unsigned int, 0>"
+LOOM_KERNEL void entry(Input input) {}
+
+// ====
+// Encoding values require the ordinary callable transport contract.
+#include <loomcxx/kernel.h>
+#include <loomcxx/view.h>
+using Input = loom::type::encoding<loom::encoding::role::layout, 1>;
+// ERROR@+1: LOWERING/059 "unsupported C++ type: ::loom::type::encoding<0, 1>"
+LOOM_KERNEL void entry(Input input) {}
+
+// ====
+// Records are not implicitly flattened at the kernel entry ABI.
+#include <loomcxx/kernel.h>
+struct Input {
+  // First independent scalar component.
+  unsigned first;
+  // Second independent scalar component.
+  unsigned second;
+};
+// ERROR@+1: LOWERING/059 "unsupported C++ type: ::Input"
+LOOM_KERNEL void entry(Input input) {}
