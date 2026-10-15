@@ -167,7 +167,8 @@ class Pm4WaveModeTest : public Pm4DispatchTest {
     for (size_t stage = 0; stage < kGroups.size(); ++stage) {
       const auto& program = programs[stage == 1 ? 1 : 0];
       commands.BindCompute(program,
-                           inputs->device_address + stage * kArgumentStride);
+                           inputs->device_address + stage * kArgumentStride,
+                           family_.format_features);
       if (launch_kind == LaunchKind::kDirect) {
         commands.Dispatch(program, kGroups[stage] * kWorkgroupSize, 1, 1);
       } else {

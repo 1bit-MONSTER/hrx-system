@@ -173,7 +173,8 @@ TEST_P(Pm4ConditionalTest, ShaderPredicateControlsImmutableReplay) {
       indirect_buffer->info.byte_length / sizeof(uint32_t), 0);
   Pm4CommandWriter indirect(expected_indirect.data(), *pm4_profile_);
   indirect.SystemBarrier();
-  indirect.BindCompute(program, arguments->device_address);
+  indirect.BindCompute(program, arguments->device_address,
+                       family_.format_features);
   indirect.Dispatch(program, kGridSize, 1, 1);
   indirect.SystemBarrier();
 
@@ -210,8 +211,10 @@ TEST_P(Pm4ConditionalTest, ShaderPredicateControlsImmutableReplay) {
       parameters.body == ConditionalBody::kDispatchAndMarker ? 37u : 31u;
   indirect.ExecuteIfNonzero(condition_address, body_word_count);
   const size_t first_body_word = indirect.word_count();
-  indirect.BindCompute(program, arguments->device_address +
-                                    kConsumerArgumentWord * sizeof(uint32_t));
+  indirect.BindCompute(
+      program,
+      arguments->device_address + kConsumerArgumentWord * sizeof(uint32_t),
+      family_.format_features);
   indirect.Dispatch(program, kGridSize, 1, 1);
   if (parameters.body == ConditionalBody::kDispatchAndMarker) {
     indirect.CopyData32(epoch_address, control->device_address +

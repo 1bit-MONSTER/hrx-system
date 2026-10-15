@@ -67,7 +67,7 @@ TEST(Pm4EncodingTest, TargetProfilesEncodeCacheAndRegisterDifferences) {
     };
     Pm4CommandWriter commands(words.data() + 1,
                               Profile(test.target[0], test.target[1]));
-    commands.BindCompute(program, UINT64_C(0x00003456789abc00));
+    commands.BindCompute(program, UINT64_C(0x00003456789abc00), 0);
     commands.SystemBarrier();
     commands.ReleaseSystem32(UINT64_C(0x0000456789abcd00), 17);
     commands.WaitEndOfPipeAndWriteback(UINT64_C(0x0000456789abcd40), 19);
@@ -91,6 +91,84 @@ TEST(Pm4EncodingTest, TargetProfilesEncodeCacheAndRegisterDifferences) {
     ExpectWords(words.data() + 60, writeback);
     EXPECT_EQ(words.front(), 0x24681357u);
     EXPECT_EQ(words.back(), 0x24681357u);
+  }
+}
+
+TEST(Pm4EncodingTest, ComputeBindingAppliesOnlyTheNativeQueueTrapRequirements) {
+  struct Case {
+    // Register-layout generation, independent of native trap policy.
+    uint32_t major;
+    // Required native register settings returned for the selected queue.
+    amdf_queue_format_features_t features;
+    // Compiler resource word, including the GFX12 dynamic-VGPR bit.
+    uint32_t resource2;
+    // Complete expected RSRC1 and RSRC2 wire values after LDS realization.
+    std::array<uint32_t, 2> resources;
+  };
+  const Case cases[] = {
+      {11, 0, 0x84, {0xe0af0000, 0x8084}},
+      {11,
+       AMDF_GPU_PM4_FORMAT_FEATURE_COMPUTE_TRAP_PRESENT,
+       0x84,
+       {0xe0af0000, 0x80c4}},
+      {11,
+       AMDF_GPU_PM4_FORMAT_FEATURE_COMPUTE_TRAP_PRESENT |
+           AMDF_GPU_PM4_FORMAT_FEATURE_COMPUTE_PRIV,
+       0x84,
+       {0xe0bf0000, 0x80c4}},
+      {12, 0, 0x84, {0xe0af0000, 0x8084}},
+      {12, 0, 0xc4, {0xe0af0000, 0x80c4}},
+  };
+  for (const auto& test : cases) {
+    SCOPED_TRACE(test.major);
+    SCOPED_TRACE(test.features);
+    const Pm4ComputeProgram program = {
+        UINT64_C(0x0000123456789000),
+        0xe0af0000,
+        test.resource2,
+        0x30,
+        512,
+        32,
+        {128, 1, 1},
+    };
+    std::array<uint32_t, 28> words;
+    words.fill(0x24681357);
+    Pm4CommandWriter commands(words.data() + 1, Profile(test.major, 0));
+    commands.BindCompute(program, UINT64_C(0x00003456789abc00), test.features);
+    const std::array<uint32_t, 26> expected = {
+        0xc0027602,
+        0x20c,
+        0x34567890,
+        0x12,
+        0xc0027602,
+        0x212,
+        test.resources[0],
+        test.resources[1],
+        0xc0017602,
+        0x228,
+        0x30,
+        0xc0017602,
+        0x215,
+        0x00400000,
+        0xc0067602,
+        0x204,
+        0,
+        0,
+        0,
+        128,
+        1,
+        1,
+        0xc0027602,
+        0x240,
+        0x789abc00,
+        0x3456,
+    };
+    ASSERT_EQ(commands.word_count(), expected.size());
+    ExpectWords(words.data() + 1, expected);
+    EXPECT_EQ(words.front(), 0x24681357u);
+    EXPECT_EQ(words.back(), 0x24681357u);
+    EXPECT_EQ(program.resource1, 0xe0af0000u);
+    EXPECT_EQ(program.resource2, test.resource2);
   }
 }
 
@@ -147,7 +225,7 @@ TEST(Pm4EncodingTest, ComputeBindingPreservesNativeContextRegisters) {
       UINT64_C(0x0000123456789000), 0xe0af0000, 0x84, 0x20, 0, 32, {64, 1, 1},
   };
   Pm4CommandWriter commands(words.data(), Profile(11, 0));
-  commands.BindCompute(program, UINT64_C(0x00003456789abc00));
+  commands.BindCompute(program, UINT64_C(0x00003456789abc00), 0);
   // PAL's ordinary compute SET_SH_REG intervals contain only PGM_LO/HI,
   // RSRC1/2/3, RESOURCE_LIMITS, START/NUM_THREAD and two user-data words.
   // In particular, geometry ends at 0x2e09 before the profiling enables.
@@ -176,7 +254,7 @@ TEST(Pm4EncodingTest, ComputeBindingRealizesStaticLdsAndFourWavePolicy) {
       {128, 1, 1},
   };
   Pm4CommandWriter commands(words.data() + 1, Profile(11, 0));
-  commands.BindCompute(program, UINT64_C(0x00003456789abc00));
+  commands.BindCompute(program, UINT64_C(0x00003456789abc00), 0);
   // The compiler descriptor retains LDS_SIZE=0. PAL's HSA path derives one
   // 512-byte unit; the four-wave policy separately sets SIMD_DEST_CNTL bit 22.
   const std::array<uint32_t, 26> expected = {
@@ -208,7 +286,7 @@ TEST(Pm4EncodingTest, ComputeBindingReplacesDynamicLdsRequirement) {
   Pm4CommandWriter commands(words.data() + 1, Profile(11, 0));
   for (uint32_t group_byte_length : {1024u, 2048u, 1024u}) {
     program.group_segment_byte_length = group_byte_length;
-    commands.BindCompute(program, UINT64_C(0x00003456789abc00));
+    commands.BindCompute(program, UINT64_C(0x00003456789abc00), 0);
   }
   // Each complete binding replaces the launch requirement, including the
   // smaller final request. These words establish the emitted field values,
@@ -255,9 +333,9 @@ TEST(Pm4EncodingTest, ComputeBindingSwitchesImmutableProgramsAndRestoresState) {
       {128, 1, 1},
   };
   Pm4CommandWriter commands(words.data() + 1, Profile(11, 0));
-  commands.BindCompute(transform, UINT64_C(0x00003456789abc00));
-  commands.BindCompute(lds, UINT64_C(0x00003456789abc40));
-  commands.BindCompute(transform, UINT64_C(0x00003456789abc80));
+  commands.BindCompute(transform, UINT64_C(0x00003456789abc00), 0);
+  commands.BindCompute(lds, UINT64_C(0x00003456789abc40), 0);
+  commands.BindCompute(transform, UINT64_C(0x00003456789abc80), 0);
   // PAL's changed-pipeline binding and per-dispatch arguments restore the
   // complete selected state. The final transform has zero LDS, its original
   // prefetch size and two-wave scheduling policy, and a fresh kernarg address.
@@ -319,7 +397,7 @@ TEST(Pm4EncodingTest, ComputeBindingCountsWavesAcrossAllWorkgroupDimensions) {
          test.workgroup_size[2]},
     };
     Pm4CommandWriter commands(words.data() + 1, Profile(11, 0));
-    commands.BindCompute(program, UINT64_C(0x00003456789abc00));
+    commands.BindCompute(program, UINT64_C(0x00003456789abc00), 0);
     const std::array<uint32_t, 26> expected = {
         0xc0027602,
         0x20c,
@@ -370,7 +448,7 @@ TEST(Pm4EncodingTest, ComputeBindingRestoresWaveSizeSchedulingPolicy) {
   Pm4CommandWriter commands(words.data() + 1, Profile(11, 0));
   for (uint32_t wavefront_size : {32u, 64u, 32u}) {
     program.wavefront_size = wavefront_size;
-    commands.BindCompute(program, UINT64_C(0x00003456789abc00));
+    commands.BindCompute(program, UINT64_C(0x00003456789abc00), 0);
   }
   // The same 128-workitem group occupies four wave32s or two wave64s. Every
   // complete binding replaces the scheduling policy, including restoration.

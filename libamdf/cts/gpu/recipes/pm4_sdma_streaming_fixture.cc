@@ -348,7 +348,8 @@ void Pm4SdmaStreamingTest::RunStreaming(const StreamingWorkload& workload,
         pm4.AcquireFromSystem();
       }
       pm4.BindCompute(program,
-                      arguments.device_address + page * sizeof(uint32_t));
+                      arguments.device_address + page * sizeof(uint32_t),
+                      family_.format_features);
       pm4.Dispatch(program, kGridSize, 1, 1);
       pm4.ReleaseSystem32(progress + kComputeCompleteByteOffset, token);
       ASSERT_LE(pm4.word_count(), kPm4SlotWords);

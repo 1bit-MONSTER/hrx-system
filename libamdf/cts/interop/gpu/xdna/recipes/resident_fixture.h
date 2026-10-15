@@ -808,7 +808,7 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
         completion_address));
     Pm4CommandWriter writer(gpu_commands_.data(), *pm4_profile_);
     writer.SystemBarrier();
-    writer.BindCompute(program, argument_address);
+    writer.BindCompute(program, argument_address, gpu_family_.format_features);
     if (capture_timing) {
       writer.CopyGpuClock64(completion_address + 16);
     }

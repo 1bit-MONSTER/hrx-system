@@ -83,7 +83,8 @@ TEST_F(Pm4DispatchTest, ExecutesImmutableIndirectBufferAcrossEpochs) {
   std::array<uint32_t, kPageWordCount> expected_indirect = {};
   Pm4CommandWriter indirect(expected_indirect.data(), *pm4_profile_);
   indirect.SystemBarrier();
-  indirect.BindCompute(program, arguments->device_address);
+  indirect.BindCompute(program, arguments->device_address,
+                       family_.format_features);
   indirect.Dispatch(program, kGridSize, 1, 1);
   indirect.SystemBarrier();
   // The immutable IB reads its completion epoch separately from the shader's
@@ -389,7 +390,8 @@ TEST_F(Pm4DispatchTest, RebuildsIndirectBufferAfterCompletion) {
     Pm4CommandWriter indirect(indirect_images[epoch].data(), *pm4_profile_);
     indirect.SystemBarrier();
     indirect.BindCompute(
-        program, arguments->device_address + epoch * kArgumentByteStride);
+        program, arguments->device_address + epoch * kArgumentByteStride,
+        family_.format_features);
     indirect.Dispatch(program, kGridSizes[epoch], 1, 1);
     indirect.SystemBarrier();
     indirect.WriteData32(completion->device_address, epoch + 1);

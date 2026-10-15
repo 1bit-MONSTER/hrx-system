@@ -308,7 +308,8 @@ void Pm4SdmaFiniteStreamTest::RunCoherentStreams(
       pm4.WaitMemory32(progress + kDownloadByteOffset, generation - 1);
       pm4.SystemBarrier();
       pm4.BindCompute(program,
-                      arguments.device_address + page * sizeof(uint32_t));
+                      arguments.device_address + page * sizeof(uint32_t),
+                      family_.format_features);
       pm4.Dispatch(program, kGridSize, 1, 1);
       pm4.ReleaseSystem32(progress + kComputeByteOffset, generation);
       ASSERT_LE(pm4.word_count(), kPm4SlotWords);

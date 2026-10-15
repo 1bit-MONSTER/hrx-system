@@ -186,7 +186,8 @@ class Pm4SdmaRecipeTest : public Pm4SdmaTest {
           // after its initial publication in both layouts.
           pm4.AcquireFromSystem();
         }
-        pm4.BindCompute(program, arguments.device_address + page_offset);
+        pm4.BindCompute(program, arguments.device_address + page_offset,
+                        family_.format_features);
         pm4.Dispatch(program, kGridSize, 1, 1);
         pm4.ReleaseSystem32(progress_address + 64, generation);
         pm4.PadToEightWords();

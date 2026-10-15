@@ -203,7 +203,8 @@ void Pm4MappingFixture::Copy(uint64_t source, uint64_t target,
   Pm4CommandWriter commands(queue_->words().data() + command_word_count_,
                             *pm4_profile_);
   commands.SystemBarrier();
-  commands.BindCompute(program_, arguments_->device_address);
+  commands.BindCompute(program_, arguments_->device_address,
+                       family_.format_features);
   commands.Dispatch(program_, kGridSize, 1, 1);
   commands.SystemBarrier();
   commands.WriteData32(completion_->device_address, ++completed_);

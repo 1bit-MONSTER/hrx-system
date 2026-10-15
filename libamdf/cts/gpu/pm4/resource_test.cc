@@ -257,17 +257,20 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
     expected_control[kCompletionWordIndex] = epoch + 1;
 
     commands.SystemBarrier();
-    commands.BindCompute(transform_program, arguments->device_address);
+    commands.BindCompute(transform_program, arguments->device_address,
+                         family_.format_features);
     commands.Dispatch(transform_program, kTransformGridSize, 1, 1);
     // T0 -> L changes bindings after T0 completes; L has no input buffer.
     commands.SystemBarrier();
     commands.BindCompute(lds_program,
-                         arguments->device_address + kArgumentStride);
+                         arguments->device_address + kArgumentStride,
+                         family_.format_features);
     commands.Dispatch(lds_program, kLdsGridSize, 1, 1);
     // L -> T1 is the payload dependency. Restore T's full ordinary binding.
     commands.SystemBarrier();
     commands.BindCompute(transform_program,
-                         arguments->device_address + kArgumentStride * 2);
+                         arguments->device_address + kArgumentStride * 2,
+                         family_.format_features);
     commands.Dispatch(transform_program, kTransformGridSize, 1, 1);
     // This independent drain owns all shader lifetimes, even on a bad payload.
     commands.SystemBarrier();

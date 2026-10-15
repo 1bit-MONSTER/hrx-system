@@ -430,6 +430,33 @@ must be zero. The libhsakmt raw dispatch builder explicitly sets TRAP_PRESENT
 for pre-GFX12 targets. [Descriptor RSRC2][llvm-trap] [Descriptor RSRC3][llvm-prefetch]
 [Raw dispatch builder][hsakmt-trap]
 
+KFD's GC11 software context-save workaround also requires
+`COMPUTE_PGM_RSRC1.PRIV` (bit 20). The native queue manager disables hardware
+traps for GC11.0.0 through GC11.0.3, and ROCm's raw PM4 builder starts affected
+waves with PRIV set. The context-restore program retains PRIV when returning
+to a wave whose hardware traps are disabled. These are native execution-context
+requirements; the compiler descriptor does not select them.
+[Native predicate][linux-cwsr-workaround] [MES queue setup][linux-mes-traps]
+[Raw dispatch builder][hsakmt-trap] [Context restore][linux-cwsr-return]
+
+The native GC revision and the compiler target suffix are different identities:
+
+| Native GC | KFD compiler target | Software-trap PRIV requirement |
+| --- | --- | --- |
+| 11.0.0 | `gfx1100` | Set |
+| 11.0.1 | `gfx1103` | Set |
+| 11.0.2 | `gfx1102` | Set |
+| 11.0.3 | `gfx1101` | Set |
+| 11.0.4 | `gfx1103` | Absent |
+
+KFD's identity mapping and workaround predicate establish this table. ROCm's
+equivalent compiler-target predicate uses array count to distinguish the two
+`gfx1103` implementations. Its correction explicitly reports that applying
+PRIV to unaffected GFX11 parts can hang the system. Consequently, a general
+GFX11 check or a compiler-target suffix alone cannot select the workaround.
+[Native identity mapping][linux-gc11-targets] [ROCm predicate][hsakmt-cwsr-predicate]
+[ROCm correction][hsakmt-cwsr-correction]
+
 Linux GC9.4.3 gives a concrete conditional owner flow:
 
 1. Enabled CWSR selects KFD's built-in context-save handler.
@@ -561,6 +588,12 @@ join/writeback sequence.
 [pal-limits]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9PipelineChunkCs.cpp#L300-L345
 [llvm-trap]: https://github.com/llvm/llvm-project/blob/6dfe1677ab8dffbc6ec13d53a1e0215d75147689/llvm/docs/AMDGPUUsage.rst#L6564-L6670
 [hsakmt-trap]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/libhsakmt/tests/kfdtest/src/Dispatch.cpp#L131-L158
+[hsakmt-cwsr-predicate]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/libhsakmt/tests/kfdtest/src/KFDBaseComponentTest.cpp#L308-L325
+[hsakmt-cwsr-correction]: https://github.com/ROCm/rocm-systems/commit/0a8096b34ae025ce6cff57690157c6e16f9be71f
+[linux-cwsr-workaround]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_debug.h#L106-L110
+[linux-mes-traps]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c#L242-L254
+[linux-cwsr-return]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/cwsr_trap_handler_gfx10.asm#L1253-L1267
+[linux-gc11-targets]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_device.c#L417-L433
 [linux-cwsr-policy]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_device.c#L512-L575
 [linux-cwsr-aperture]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_flat_memory.c#L343-L360
 [linux-cwsr-vm]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_process.c#L1832-L1889

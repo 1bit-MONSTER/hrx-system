@@ -175,7 +175,8 @@ TEST_F(Pm4LdsTest, StaticGroupMemoryExchangesAcrossWaves) {
     expected_control[kCompletionWordIndex] = epoch + 1;
 
     commands.SystemBarrier();
-    commands.BindCompute(program, arguments->device_address);
+    commands.BindCompute(program, arguments->device_address,
+                         family_.format_features);
     commands.Dispatch(program, kGridSize, 1, 1);
     commands.SystemBarrier();
     commands.WriteData32(completion->device_address + kCompletionByteOffset,

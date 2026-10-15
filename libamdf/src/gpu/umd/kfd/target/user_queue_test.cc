@@ -14,6 +14,7 @@ namespace {
 static amdf_gpu_kfd_topology_t MakeTopology() {
   amdf_gpu_kfd_topology_t topology = {};
   topology.properties.gfx_ip = {11, 5, 1};
+  topology.gc_ip = {11, 5, 1, true};
   topology.properties.compute.wavefront_size = 32;
   topology.properties.compute.compute_unit_count = 2;
   topology.properties.compute.maximum_wave_count_per_compute_unit = 32;
@@ -132,6 +133,69 @@ TEST(KfdTargetUserQueueTest, CdnaDoesNotAdvertisePm4) {
     EXPECT_EQ(plans.values[1].family.command_type,
               AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
   }
+}
+
+TEST(KfdTargetUserQueueTest, Pm4TrapRequirementsFollowNativeGcIdentity) {
+  struct Case {
+    // Compiler target reported by KFD, distinct from native GC revision.
+    uint32_t target;
+    // Exact IP discovery identity used by KFD's trap policy.
+    amdf_gpu_kfd_ip_version_t gc_ip;
+    // Required native PM4 shader-register settings.
+    amdf_queue_format_features_t features;
+  };
+  constexpr auto kTrap = AMDF_GPU_PM4_FORMAT_FEATURE_COMPUTE_TRAP_PRESENT;
+  constexpr auto kPriv = AMDF_GPU_PM4_FORMAT_FEATURE_COMPUTE_PRIV;
+  constexpr Case kCases[] = {
+      {110000, {11, 0, 0, true}, kTrap | kPriv},
+      {110003, {11, 0, 1, true}, kTrap | kPriv},
+      {110002, {11, 0, 2, true}, kTrap | kPriv},
+      {110001, {11, 0, 3, true}, kTrap | kPriv},
+      {110003, {11, 0, 4, true}, kTrap},
+      {110500, {11, 5, 0, true}, kTrap},
+      {110501, {11, 5, 1, true}, kTrap},
+      {110502, {11, 5, 2, true}, kTrap},
+      {110503, {11, 5, 3, true}, kTrap},
+      {110700, {11, 7, 0, true}, kTrap},
+      {110701, {11, 7, 1, true}, kTrap},
+      {110702, {11, 7, 2, true}, kTrap},
+      {120000, {12, 0, 0, true}, 0},
+      {120001, {12, 0, 1, true}, 0},
+      {120500, {12, 1, 0, true}, 0},
+      {120501, {12, 1, 1, true}, 0},
+  };
+  for (const auto& test : kCases) {
+    SCOPED_TRACE(test.target);
+    SCOPED_TRACE(test.gc_ip.revision);
+    auto topology = MakeTopology();
+    topology.properties.gfx_ip = {test.target / 10000,
+                                  (test.target / 100) % 100, test.target % 100};
+    topology.gc_ip = test.gc_ip;
+    amdf_gpu_kfd_user_queue_plans_t plans;
+    amdf_gpu_kfd_target_user_queue_plans_initialize(&topology, 4096, 64,
+                                                    &plans);
+    ASSERT_EQ(plans.count, 3u);
+    EXPECT_EQ(plans.values[0].family.command_type,
+              AMDF_QUEUE_COMMAND_TYPE_GPU_PM4);
+    EXPECT_EQ(plans.values[0].family.format_features,
+              AMDF_GPU_PM4_FORMAT_FEATURE_ACQUIRE_MEM_GCR | test.features);
+    EXPECT_EQ(plans.values[1].family.command_type,
+              AMDF_QUEUE_COMMAND_TYPE_GPU_AQL);
+    EXPECT_EQ(plans.values[1].family.format_features,
+              AMDF_GPU_AQL_FORMAT_FEATURE_DISPATCH_TIMESTAMPS);
+  }
+}
+
+TEST(KfdTargetUserQueueTest, Gfx11Pm4RequiresNativeTrapPolicyIdentity) {
+  auto topology = MakeTopology();
+  topology.gc_ip = {};
+  amdf_gpu_kfd_user_queue_plans_t plans;
+  amdf_gpu_kfd_target_user_queue_plans_initialize(&topology, 4096, 64, &plans);
+  ASSERT_EQ(plans.count, 2u);
+  EXPECT_EQ(plans.values[0].family.command_type,
+            AMDF_QUEUE_COMMAND_TYPE_GPU_AQL);
+  EXPECT_EQ(plans.values[1].family.command_type,
+            AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
 }
 
 TEST(KfdTargetUserQueueTest,

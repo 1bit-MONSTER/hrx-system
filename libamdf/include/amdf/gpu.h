@@ -236,6 +236,16 @@ enum amdf_gpu_pm4_format_feature_bits_e {
   /// preceding compute completion. This does not select a cache policy for
   /// the caller: cache_operations and cache_transition_kinds remain required.
   AMDF_GPU_PM4_FORMAT_FEATURE_ACQUIRE_MEM_GCR = UINT64_C(1) << 0,
+  /// The native context requires COMPUTE_PGM_RSRC1.PRIV (bit 20) in each
+  /// shader binding for software context-save traps. This is a queue-context
+  /// requirement, not an ISA-wide shader property. The caller sets it in the
+  /// emitted register value without modifying the compiled kernel descriptor.
+  AMDF_GPU_PM4_FORMAT_FEATURE_COMPUTE_PRIV = UINT64_C(1) << 1,
+  /// The native context requires COMPUTE_PGM_RSRC2.TRAP_PRESENT (bit 6) in
+  /// each shader binding. This feature is absent on GFX12+, where that bit
+  /// instead controls dynamic VGPR allocation. The caller preserves the
+  /// compiler descriptor and adds the required bit to its emitted register.
+  AMDF_GPU_PM4_FORMAT_FEATURE_COMPUTE_TRAP_PRESENT = UINT64_C(1) << 2,
 };
 
 /// First native SDMA command-stream format.

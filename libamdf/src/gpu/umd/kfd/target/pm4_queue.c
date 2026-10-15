@@ -24,6 +24,7 @@ static bool amdf_gpu_kfd_pm4_queue_is_supported(
       topology->properties.compute.wavefront_size != 32 ||
       topology->properties.compute.compute_unit_count == 0 ||
       topology->properties.compute.maximum_wave_count_per_compute_unit == 0 ||
+      (topology->properties.gfx_ip.major == 11 && !topology->gc_ip.exact) ||
       (topology->properties.topology.xcc_count != 1 &&
        !(topology->properties.gfx_ip.major == 12 &&
          topology->properties.gfx_ip.minor == 5)) ||
@@ -34,11 +35,26 @@ static bool amdf_gpu_kfd_pm4_queue_is_supported(
 }
 
 static amdf_gpu_queue_family_properties_t
-amdf_gpu_kfd_pm4_queue_family_properties(void) {
+amdf_gpu_kfd_pm4_queue_family_properties(
+    const amdf_gpu_kfd_topology_t* topology) {
+  amdf_queue_format_features_t format_features =
+      AMDF_GPU_PM4_FORMAT_FEATURE_ACQUIRE_MEM_GCR;
+  if (topology->properties.gfx_ip.major < 12) {
+    // Raw PM4 replaces the compiler descriptor's runtime-owned trap bit.
+    format_features |= AMDF_GPU_PM4_FORMAT_FEATURE_COMPUTE_TRAP_PRESENT;
+  }
+  if (topology->gc_ip.major == 11 && topology->gc_ip.minor == 0 &&
+      topology->gc_ip.revision <= 3) {
+    // KFD's kfd_dbg_has_cwsr_workaround selects software traps for these
+    // native GC identities. Starting waves with PRIV=1 is part of that
+    // protocol. Compiler gfx suffixes differ, and unaffected GFX11 parts
+    // must not inherit this setting.
+    format_features |= AMDF_GPU_PM4_FORMAT_FEATURE_COMPUTE_PRIV;
+  }
   return (amdf_gpu_queue_family_properties_t){
       .command_type = AMDF_QUEUE_COMMAND_TYPE_GPU_PM4,
       .format_version = AMDF_GPU_PM4_QUEUE_FORMAT_VERSION_1,
-      .format_features = AMDF_GPU_PM4_FORMAT_FEATURE_ACQUIRE_MEM_GCR,
+      .format_features = format_features,
       .publication_modes = AMDF_QUEUE_PUBLICATION_MODE_USER,
       .roles = AMDF_QUEUE_ROLE_COMPUTE | AMDF_QUEUE_ROLE_TRANSFER |
                AMDF_QUEUE_ROLE_ATOMIC | AMDF_QUEUE_ROLE_CACHE_CONTROL,
@@ -71,7 +87,7 @@ bool amdf_gpu_kfd_pm4_queue_plan(const amdf_gpu_kfd_topology_t* topology,
       KFD_IOC_ALLOC_MEM_FLAGS_GTT | AMDF_GPU_KFD_ALLOC_MEM_FLAGS_WRITABLE |
       KFD_IOC_ALLOC_MEM_FLAGS_EXECUTABLE | KFD_IOC_ALLOC_MEM_FLAGS_COHERENT;
   const amdf_gpu_kfd_user_queue_plan_t plan = {
-      .family = amdf_gpu_kfd_pm4_queue_family_properties(),
+      .family = amdf_gpu_kfd_pm4_queue_family_properties(topology),
       .native_queue_type = KFD_IOC_QUEUE_TYPE_COMPUTE,
       .ring =
           {

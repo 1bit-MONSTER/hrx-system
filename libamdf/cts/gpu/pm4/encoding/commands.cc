@@ -29,8 +29,9 @@ void Pm4CommandWriter::SetComputeRegisters(uint32_t first_register,
   word_count_ += value_count;
 }
 
-void Pm4CommandWriter::BindCompute(const Pm4ComputeProgram& program,
-                                   uint64_t kernarg_address) {
+void Pm4CommandWriter::BindCompute(
+    const Pm4ComputeProgram& program, uint64_t kernarg_address,
+    amdf_queue_format_features_t format_features) {
   const uint32_t entry[] = {
       static_cast<uint32_t>(program.entry_address >> 8),
       static_cast<uint32_t>(program.entry_address >> 40),
@@ -40,8 +41,14 @@ void Pm4CommandWriter::BindCompute(const Pm4ComputeProgram& program,
   // group allocation in 512-byte units without changing the compiler image.
   const uint32_t lds_units = (program.group_segment_byte_length + 511u) / 512u;
   const uint32_t resources[] = {
-      program.resource1,
-      (program.resource2 & ~UINT32_C(0x00ff8000)) | (lds_units << 15),
+      program.resource1 |
+          ((format_features & AMDF_GPU_PM4_FORMAT_FEATURE_COMPUTE_PRIV)
+               ? UINT32_C(1) << 20
+               : 0),
+      (program.resource2 & ~UINT32_C(0x00ff8000)) | (lds_units << 15) |
+          ((format_features & AMDF_GPU_PM4_FORMAT_FEATURE_COMPUTE_TRAP_PRESENT)
+               ? UINT32_C(1) << 6
+               : 0),
   };
   SetComputeRegisters(0x2e12, resources, 2);
   SetComputeRegisters(profile_.resource3_register, &program.resource3, 1);

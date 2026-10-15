@@ -35,7 +35,8 @@ enum amdf_queue_command_type_e {
 /// Encoding features within a command format and version.
 ///
 /// Bit meanings belong to the command type and are documented by its extension.
-/// These describe native packet layouts, not additional publication services.
+/// These describe native packet layouts and required register settings, not
+/// additional publication services.
 /// A zero value reports the baseline encoding; it never means unqueried state.
 typedef uint64_t amdf_queue_format_features_t;
 

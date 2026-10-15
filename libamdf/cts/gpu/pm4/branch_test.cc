@@ -423,7 +423,8 @@ TEST_F(Pm4BranchTest, ShaderOperandMatrixSelectsRetainedGraphs) {
                                 *pm4_profile_);
       commands.BindCompute(program,
                            plan.argument_address +
-                               (arm + 1) * kArgumentStride * sizeof(uint32_t));
+                               (arm + 1) * kArgumentStride * sizeof(uint32_t),
+                           family_.format_features);
       commands.Dispatch(program, kGridSize, 1, 1);
       commands.CopyData32(
           epoch_address,
@@ -438,7 +439,7 @@ TEST_F(Pm4BranchTest, ShaderOperandMatrixSelectsRetainedGraphs) {
     }
     Pm4CommandWriter root(graph_page.data(), *pm4_profile_);
     root.SystemBarrier();
-    root.BindCompute(program, plan.argument_address);
+    root.BindCompute(program, plan.argument_address, family_.format_features);
     root.Dispatch(program, kGridSize, 1, 1);
     root.SystemBarrier();
     root.PadToEightWords(14);

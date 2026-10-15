@@ -314,7 +314,8 @@ class Pm4QueuedMappingTest : public Pm4DispatchTest,
         offsetof(kernels::byte_copy_unaligned::Arguments, workgroup_size_x) +
             sizeof(uint32_t));
     writer.SystemBarrier();
-    writer.BindCompute(program_, arguments_->device_address + offset);
+    writer.BindCompute(program_, arguments_->device_address + offset,
+                       family_.format_features);
     writer.Dispatch(program_, 1024, 1, 1);
     writer.SystemBarrier();
   }

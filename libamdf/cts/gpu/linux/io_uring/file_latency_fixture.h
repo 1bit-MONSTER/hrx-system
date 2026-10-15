@@ -248,7 +248,8 @@ class GpuFileLatencyTest : public GpuFileIoFixture,
                 const Pm4ComputeProgram& program, GpuMemory* arguments,
                 GpuMemory* completion, Sample* sample) {
     commands->SystemBarrier();
-    commands->BindCompute(program, arguments->device_address);
+    commands->BindCompute(program, arguments->device_address,
+                          family_.format_features);
     commands->Dispatch(program, 1, 1, 1);
     commands->SystemBarrier();
     commands->WriteData32(completion->device_address, 1);
@@ -1275,7 +1276,8 @@ class GpuFileDemandTest : public GpuFileLatencyTest {
                                                *pm4_profile_);
           background_commands.SystemBarrier();
           background_commands.BindCompute(program,
-                                          background_arguments->device_address);
+                                          background_arguments->device_address,
+                                          family_.format_features);
           background_commands.Dispatch(program, 1, 1, 1);
           background_commands.SystemBarrier();
           background_commands.WriteData32(background_completion->device_address,
