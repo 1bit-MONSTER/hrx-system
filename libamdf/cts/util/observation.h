@@ -7,6 +7,8 @@
 #ifndef AMDF_CTS_UTIL_OBSERVATION_H_
 #define AMDF_CTS_UTIL_OBSERVATION_H_
 
+#include <string>
+
 #include "amdf/amdf.h"
 #include "amdf/observation.h"
 #include "gtest/gtest.h"
@@ -43,5 +45,27 @@ class ObservationHostClock {
   // Native host tick units retained for this caller's observation lifetime.
   amdf_observation_clock_info_t info_ = {};
 };
+
+// Preserve the complete native tuple as integers. The caller records the
+// primary host frequency separately, alongside its queue-written observations.
+inline void RecordObservationClockSample(
+    const std::string& prefix, const amdf_observation_clock_sample_t& sample) {
+  ::testing::Test::RecordProperty(prefix + "_device_ticks",
+                                  std::to_string(sample.timestamp));
+  ::testing::Test::RecordProperty(prefix + "_frequency_hz",
+                                  std::to_string(sample.clock.frequency_hz));
+  ::testing::Test::RecordProperty(prefix + "_counter_bit_count",
+                                  sample.clock.counter_bit_count);
+  ::testing::Test::RecordProperty(prefix + "_host_before_ticks",
+                                  std::to_string(sample.host.before));
+  ::testing::Test::RecordProperty(prefix + "_host_ticks",
+                                  std::to_string(sample.host.timestamp));
+  ::testing::Test::RecordProperty(prefix + "_host_after_ticks",
+                                  std::to_string(sample.host.after));
+  ::testing::Test::RecordProperty(prefix + "_system_ticks",
+                                  std::to_string(sample.system.timestamp));
+  ::testing::Test::RecordProperty(prefix + "_system_frequency_hz",
+                                  std::to_string(sample.system.frequency_hz));
+}
 
 #endif  // AMDF_CTS_UTIL_OBSERVATION_H_

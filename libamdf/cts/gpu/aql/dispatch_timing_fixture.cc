@@ -190,12 +190,16 @@ void AqlDispatchTimingTest::Exercise(bool enabled, uint32_t dispatch_count) {
         first_tick = snapshot.timestamps.start;
         first_host = host_before[slot];
         RecordProperty("first_start_ticks", std::to_string(first_tick));
+        RecordProperty("first_end_ticks",
+                       std::to_string(snapshot.timestamps.end));
         RecordProperty("first_host_before_ticks", std::to_string(first_host));
         RecordProperty("first_host_after_ticks", std::to_string(host_after));
       }
       if (sequence + 1 == dispatch_count) {
         RecordProperty("last_start_ticks",
                        std::to_string(snapshot.timestamps.start));
+        RecordProperty("last_end_ticks",
+                       std::to_string(snapshot.timestamps.end));
         RecordProperty("last_host_before_ticks",
                        std::to_string(host_before[slot]));
         RecordProperty("last_host_after_ticks", std::to_string(host_after));
@@ -260,8 +264,10 @@ void AqlDispatchTimingTest::Exercise(bool enabled, uint32_t dispatch_count) {
   RecordProperty("signal_slot_count", kSlotCount);
   RecordProperty("numeric_checksum", std::to_string(numeric_sum));
   RecordProperty("frequency_hz", std::to_string(clock.frequency_hz));
-  RecordProperty("native_clock_before", std::to_string(native_start.timestamp));
-  RecordProperty("native_clock_after", std::to_string(native_end.timestamp));
+  RecordProperty("host_frequency_hz",
+                 std::to_string(host_clock.frequency_hz()));
+  RecordObservationClockSample("native_clock_before", native_start);
+  RecordObservationClockSample("native_clock_after", native_end);
   if (enabled) {
     const uint64_t last_tick =
         *std::max_element(previous_end.begin(), previous_end.end());
