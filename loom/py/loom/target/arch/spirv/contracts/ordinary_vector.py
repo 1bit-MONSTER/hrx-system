@@ -240,6 +240,20 @@ def _insert_descriptor(vector_type: OrdinaryVectorType) -> Descriptor:
     )
 
 
+def _dynamic_extract_descriptor(vector_type: OrdinaryVectorType) -> Descriptor:
+    return _descriptor(
+        f"spirv.op_vector_extract_dynamic.{vector_type.suffix}."
+        f"{vector_type.component_type.suffix}"
+    )
+
+
+def _dynamic_insert_descriptor(vector_type: OrdinaryVectorType) -> Descriptor:
+    return _descriptor(
+        f"spirv.op_vector_insert_dynamic.{vector_type.component_type.suffix}."
+        f"{vector_type.suffix}"
+    )
+
+
 _SOURCE_SHUFFLE_BY_TYPE = {
     instruction.source_type: instruction
     for instruction in ORDINARY_VECTOR_SHUFFLE_INSTRUCTIONS
@@ -367,6 +381,67 @@ def _insert_rule(vector_type: OrdinaryVectorType) -> DescriptorRule:
                         "static_indices", element=0
                     )
                 },
+            ),
+        ),
+    )
+
+
+def _dynamic_extract_rule(vector_type: OrdinaryVectorType) -> DescriptorRule:
+    descriptor = _dynamic_extract_descriptor(vector_type)
+    return DescriptorRule(
+        source_op=vector.vector_extract,
+        descriptor=descriptor,
+        guards=(
+            Guard.value_type("source", _vector_pattern(vector_type)),
+            Guard.value_type("result", _component_pattern(vector_type.component_type)),
+            Guard.value_type("indices", Scalar("index")),
+            Guard.operand_segment_count("indices", 1),
+            Guard.i64_array_count("static_indices", 1),
+            Guard.i64_array_element_range(
+                "static_indices", element=0, minimum=-(2**63), maximum=-(2**63)
+            ),
+            *_feature_guards(descriptor),
+        ),
+        emit=(
+            _emit(
+                descriptor,
+                operands={
+                    "vector": ValueRef.operand("source"),
+                    "index": ValueRef.operand("indices"),
+                },
+                results={"dst": ValueRef.result("result")},
+            ),
+        ),
+    )
+
+
+def _dynamic_insert_rule(vector_type: OrdinaryVectorType) -> DescriptorRule:
+    descriptor = _dynamic_insert_descriptor(vector_type)
+    vector_pattern = _vector_pattern(vector_type)
+    return DescriptorRule(
+        source_op=vector.vector_insert,
+        descriptor=descriptor,
+        guards=(
+            Guard.value_type("value", _component_pattern(vector_type.component_type)),
+            Guard.value_type("dest", vector_pattern),
+            Guard.value_type("result", vector_pattern),
+            Guard.value_type("indices", Scalar("index")),
+            Guard.operand_segment_count("indices", 1),
+            Guard.i64_array_count("static_indices", 1),
+            Guard.i64_array_element_range(
+                "static_indices", element=0, minimum=-(2**63), maximum=-(2**63)
+            ),
+            *_feature_guards(descriptor),
+        ),
+        emit=(
+            _emit(
+                descriptor,
+                operands={
+                    "vector": ValueRef.operand("dest"),
+                    "component": ValueRef.operand("value"),
+                    "index": ValueRef.operand("indices"),
+                },
+                results={"dst": ValueRef.result("result")},
             ),
         ),
     )
@@ -619,6 +694,8 @@ def _native_rules() -> tuple[DescriptorRule, ...]:
                     _from_elements_rule(vector_type),
                     _extract_rule(vector_type),
                     _insert_rule(vector_type),
+                    _dynamic_extract_rule(vector_type),
+                    _dynamic_insert_rule(vector_type),
                     _shuffle_rule(_SOURCE_SHUFFLE_BY_TYPE[vector_type]),
                     _select_rule(vector_type),
                 )

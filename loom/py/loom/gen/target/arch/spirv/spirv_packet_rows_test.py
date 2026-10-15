@@ -629,7 +629,7 @@ def test_generation_emits_complete_ordinary_vector_structural_matrix() -> None:
     packet_rows_by_key = {row.descriptor_key: row for row in _packet_rows() if row.descriptor_key in {instruction.key for instruction in ORDINARY_VECTOR_INSTRUCTIONS}}
 
     assert len(ORDINARY_VECTOR_TYPES) == 30
-    assert len(ORDINARY_VECTOR_INSTRUCTIONS) == 120
+    assert len(ORDINARY_VECTOR_INSTRUCTIONS) == 180
     assert len(packet_rows_by_key) == len(ORDINARY_VECTOR_INSTRUCTIONS)
     assert ('static_assert(LOOM_SPIRV_PACKET_MAX_OPERAND_COUNT == 4, "generated packet operand maximum");') in tables
     assert ('static_assert(LOOM_SPIRV_PACKET_OPERAND_TYPE_CAPACITY == 3, "generated packet operand-type capacity");') in tables
@@ -641,6 +641,8 @@ def test_generation_emits_complete_ordinary_vector_structural_matrix() -> None:
         construct_key = f"spirv.op_composite_construct.{vector_type.suffix}"
         extract_key = f"spirv.op_composite_extract.{vector_type.suffix}.{component_type.suffix}"
         insert_key = f"spirv.op_composite_insert.{component_type.suffix}.{vector_type.suffix}"
+        dynamic_extract_key = f"spirv.op_vector_extract_dynamic.{vector_type.suffix}.{component_type.suffix}"
+        dynamic_insert_key = f"spirv.op_vector_insert_dynamic.{component_type.suffix}.{vector_type.suffix}"
         select_key = f"spirv.op_select.{vector_type.suffix}"
 
         construct = packet_rows_by_key[construct_key]
@@ -661,6 +663,25 @@ def test_generation_emits_complete_ordinary_vector_structural_matrix() -> None:
         assert "LOOM_SPIRV_PACKET_FORM_COMPOSITE_INSERT" in insert
         assert ".operand_count = 2" in insert
 
+        dynamic_extract = packet_rows_by_key[dynamic_extract_key]
+        assert dynamic_extract.opcode == "LOOM_SPIRV_OP_VECTOR_EXTRACT_DYNAMIC"
+        assert dynamic_extract.form == "LOOM_SPIRV_PACKET_FORM_TYPED"
+        assert dynamic_extract.result_type == _expected_ordinary_vector_value(component_type)
+        assert dynamic_extract.operand_types == (
+            _expected_ordinary_vector_value(vector_type),
+            "{.value_class = LOOM_SPIRV_VALUE_CLASS_SCALAR, .scalar_type = LOOM_SPIRV_SCALAR_TYPE_S32}",
+        )
+
+        dynamic_insert = packet_rows_by_key[dynamic_insert_key]
+        assert dynamic_insert.opcode == "LOOM_SPIRV_OP_VECTOR_INSERT_DYNAMIC"
+        assert dynamic_insert.form == "LOOM_SPIRV_PACKET_FORM_TYPED"
+        assert dynamic_insert.result_type == _expected_ordinary_vector_value(vector_type)
+        assert dynamic_insert.operand_types == (
+            _expected_ordinary_vector_value(vector_type),
+            _expected_ordinary_vector_value(component_type),
+            "{.value_class = LOOM_SPIRV_VALUE_CLASS_SCALAR, .scalar_type = LOOM_SPIRV_SCALAR_TYPE_S32}",
+        )
+
         select = packet_rows_by_key[select_key]
         assert select.opcode == "LOOM_SPIRV_OP_SELECT"
         assert select.form == "LOOM_SPIRV_PACKET_FORM_SELECT"
@@ -668,7 +689,14 @@ def test_generation_emits_complete_ordinary_vector_structural_matrix() -> None:
         assert len(select.operand_types) == 3
 
         expected_features = (component_type.feature_bits,) if component_type.feature_bits else ()
-        for descriptor_key in (construct_key, extract_key, insert_key, select_key):
+        for descriptor_key in (
+            construct_key,
+            extract_key,
+            insert_key,
+            dynamic_extract_key,
+            dynamic_insert_key,
+            select_key,
+        ):
             assert _descriptor(descriptor_key).feature_mask_words == expected_features
 
         component_index_maximum = vector_type.lane_count - 1

@@ -109,6 +109,12 @@ SIGNED_INTEGER_ORDINARY_VECTOR_COMPONENT_TYPES = tuple(
     for scalar_pair in INTEGER_SCALAR_ALU_TYPE_PAIRS
 )
 
+INDEX_ORDINARY_VECTOR_COMPONENT_TYPE = next(
+    component_type
+    for component_type in SIGNED_INTEGER_ORDINARY_VECTOR_COMPONENT_TYPES
+    if "index" in component_type.source_types
+)
+
 _FLOAT_COMPONENTS = tuple(
     OrdinaryVectorComponentType(
         source_types=(scalar.source_type,),
@@ -301,6 +307,38 @@ def _structural_instructions(
             operand_names=("component", "composite"),
             operand_types=(component_type, vector_type),
             component_index_maximum=vector_type.lane_count - 1,
+        ),
+        OrdinaryVectorInstruction(
+            key=(
+                f"spirv.op_vector_extract_dynamic.{vector_type.suffix}."
+                f"{component_type.suffix}"
+            ),
+            mnemonic=(
+                f"OpVectorExtractDynamic.{vector_type.suffix}.{component_type.suffix}"
+            ),
+            opcode="LOOM_SPIRV_OP_VECTOR_EXTRACT_DYNAMIC",
+            packet_form="LOOM_SPIRV_PACKET_FORM_TYPED",
+            result_type=component_type,
+            operand_names=("vector", "index"),
+            operand_types=(vector_type, INDEX_ORDINARY_VECTOR_COMPONENT_TYPE),
+        ),
+        OrdinaryVectorInstruction(
+            key=(
+                f"spirv.op_vector_insert_dynamic.{component_type.suffix}."
+                f"{vector_type.suffix}"
+            ),
+            mnemonic=(
+                f"OpVectorInsertDynamic.{component_type.suffix}.{vector_type.suffix}"
+            ),
+            opcode="LOOM_SPIRV_OP_VECTOR_INSERT_DYNAMIC",
+            packet_form="LOOM_SPIRV_PACKET_FORM_TYPED",
+            result_type=vector_type,
+            operand_names=("vector", "component", "index"),
+            operand_types=(
+                vector_type,
+                component_type,
+                INDEX_ORDINARY_VECTOR_COMPONENT_TYPE,
+            ),
         ),
         OrdinaryVectorInstruction(
             key=f"spirv.op_select.{vector_type.suffix}",

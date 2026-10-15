@@ -64,6 +64,8 @@ enum loom_spirv_packet_form_e {
   LOOM_SPIRV_PACKET_FORM_VECTOR_SHUFFLE = 28,
   // Typed subgroup instruction with two value operands after its scope.
   LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BINARY = 29,
+  // Typed instruction whose result and operands are fully owned by the row.
+  LOOM_SPIRV_PACKET_FORM_TYPED = 30,
 };
 typedef uint8_t loom_spirv_packet_form_t;
 

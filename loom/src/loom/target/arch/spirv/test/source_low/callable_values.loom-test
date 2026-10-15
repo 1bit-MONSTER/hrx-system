@@ -43,7 +43,9 @@ func.def public @call_vector_result(%input: i32, %lane: index) -> (i32) where [r
 }
 
 func.def @select_lane(%values: vector<4xi32>, %lane: index) -> (i32) where [range(%lane, 0, 3)] {
-  %result = vector.extract %values[%lane] : vector<4xi32> -> i32
+  %replacement = vector.extract %values[0] : vector<4xi32> -> i32
+  %updated = vector.insert %replacement into %values[%lane] : i32, vector<4xi32>
+  %result = vector.extract %updated[%lane] : vector<4xi32> -> i32
   func.return %result : i32
 }
 
@@ -52,15 +54,9 @@ low.func.def public target<spirv.logical.core> abi(shader_entry_point) @call_vec
   %c1 = OpConstant.i32 1
   %c2 = OpConstant.i32 2
   %c3 = OpConstant.i32 3
-  %27 = OpConstant.i32 0 : reg<spirv.id : index>
-  %28 = OpIEqual %lane, %27
-  %29 = OpSelect %28, %input, %c3
-  %30 = OpConstant.i32 1 : reg<spirv.id : index>
-  %31 = OpIEqual %lane, %30
-  %32 = OpSelect %31, %c1, %29
-  %33 = OpConstant.i32 2 : reg<spirv.id : index>
-  %34 = OpIEqual %lane, %33
-  %result = OpSelect %34, %c2, %32
+  %values = OpCompositeConstruct.v4i32 %input, %c1, %c2, %c3
+  %updated = OpVectorInsertDynamic.i32.v4i32 %values, %input, %lane
+  %result = OpVectorExtractDynamic.v4i32.i32 %updated, %lane
   return %result
 }
 

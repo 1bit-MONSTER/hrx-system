@@ -76,8 +76,8 @@ def test_structural_instruction_matrix_is_closed_per_native_type() -> None:
         assert isinstance(vector_type, OrdinaryVectorType)
         instructions_by_type[vector_type] += 1
 
-    assert len(ORDINARY_VECTOR_INSTRUCTIONS) == 4 * len(ORDINARY_VECTOR_TYPES)
-    assert set(instructions_by_type.values()) == {4}
+    assert len(ORDINARY_VECTOR_INSTRUCTIONS) == 6 * len(ORDINARY_VECTOR_TYPES)
+    assert set(instructions_by_type.values()) == {6}
     assert len({row.key for row in ORDINARY_VECTOR_INSTRUCTIONS}) == len(
         ORDINARY_VECTOR_INSTRUCTIONS
     )
@@ -85,8 +85,24 @@ def test_structural_instruction_matrix_is_closed_per_native_type() -> None:
         "LOOM_SPIRV_PACKET_FORM_COMPOSITE_CONSTRUCT",
         "LOOM_SPIRV_PACKET_FORM_COMPOSITE_EXTRACT",
         "LOOM_SPIRV_PACKET_FORM_COMPOSITE_INSERT",
+        "LOOM_SPIRV_PACKET_FORM_TYPED",
         "LOOM_SPIRV_PACKET_FORM_SELECT",
     }
+
+    typed_instructions = tuple(
+        row
+        for row in ORDINARY_VECTOR_INSTRUCTIONS
+        if row.packet_form == "LOOM_SPIRV_PACKET_FORM_TYPED"
+    )
+    assert len(typed_instructions) == 2 * len(ORDINARY_VECTOR_TYPES)
+    assert {row.opcode for row in typed_instructions} == {
+        "LOOM_SPIRV_OP_VECTOR_EXTRACT_DYNAMIC",
+        "LOOM_SPIRV_OP_VECTOR_INSERT_DYNAMIC",
+    }
+    for row in typed_instructions:
+        index_type = row.operand_types[-1]
+        assert isinstance(index_type, OrdinaryVectorComponentType)
+        assert index_type.source_types == ("i32", "index")
 
 
 def test_shuffle_instruction_matrix_covers_every_native_type() -> None:

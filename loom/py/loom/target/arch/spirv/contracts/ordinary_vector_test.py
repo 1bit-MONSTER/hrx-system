@@ -46,12 +46,12 @@ def test_every_owned_source_operation_has_a_closed_shape_matrix() -> None:
         vector.vector_bitcast.name: 140,
         vector.vector_splat.name: 32,
         vector.vector_from_elements.name: 31,
-        vector.vector_extract.name: 31,
-        vector.vector_insert.name: 31,
+        vector.vector_extract.name: 61,
+        vector.vector_insert.name: 61,
         vector.vector_shuffle.name: 30,
         scf.scf_select.name: 40,
     }
-    assert len(SPIRV_ORDINARY_VECTOR_CONTRACT_CASES) == 390
+    assert len(SPIRV_ORDINARY_VECTOR_CONTRACT_CASES) == 450
 
 
 def test_aliases_cover_singletons_uniform_carriers_and_identity_bit_layouts() -> None:
@@ -143,6 +143,14 @@ def test_each_native_type_drives_all_descriptor_backed_structural_rules() -> Non
             f"spirv.op_composite_insert.{vector_type.component_type.suffix}."
             f"{vector_type.suffix}"
         )
+        dynamic_extract_key = (
+            f"spirv.op_vector_extract_dynamic.{vector_type.suffix}."
+            f"{vector_type.component_type.suffix}"
+        )
+        dynamic_insert_key = (
+            f"spirv.op_vector_insert_dynamic.{vector_type.component_type.suffix}."
+            f"{vector_type.suffix}"
+        )
         select_key = f"spirv.op_select.{vector_type.suffix}"
         shuffle_key = (
             f"spirv.op_vector_shuffle.{vector_type.suffix}.{vector_type.suffix}"
@@ -163,8 +171,69 @@ def test_each_native_type_drives_all_descriptor_backed_structural_rules() -> Non
         )
         assert descriptor_rule_counts[(vector.vector_extract.name, extract_key)] == 1
         assert descriptor_rule_counts[(vector.vector_insert.name, insert_key)] == 1
+        assert (
+            descriptor_rule_counts[(vector.vector_extract.name, dynamic_extract_key)]
+            == 1
+        )
+        assert (
+            descriptor_rule_counts[(vector.vector_insert.name, dynamic_insert_key)] == 1
+        )
         assert descriptor_rule_counts[(vector.vector_shuffle.name, shuffle_key)] == 1
         assert descriptor_rule_counts[(scf.scf_select.name, select_key)] == 1
+
+
+def test_dynamic_index_rules_bind_one_runtime_index_for_every_native_type() -> None:
+    rules = tuple(
+        contract_case
+        for contract_case in SPIRV_ORDINARY_VECTOR_CONTRACT_CASES
+        if isinstance(contract_case, DescriptorRule)
+        and contract_case.descriptor.key.startswith(
+            ("spirv.op_vector_extract_dynamic.", "spirv.op_vector_insert_dynamic.")
+        )
+    )
+    assert len(rules) == 2 * len(ORDINARY_VECTOR_TYPES)
+
+    for rule in rules:
+        index_type_guard = next(
+            guard
+            for guard in rule.guards
+            if guard.kind is GuardKind.VALUE_TYPE and guard.field == "indices"
+        )
+        assert index_type_guard.type_pattern == TypePattern.scalar("index")
+        assert any(
+            guard.kind is GuardKind.OPERAND_SEGMENT_COUNT
+            and guard.field == "indices"
+            and guard.count == 1
+            for guard in rule.guards
+        )
+        assert any(
+            guard.kind is GuardKind.I64_ARRAY_COUNT
+            and guard.field == "static_indices"
+            and guard.count == 1
+            for guard in rule.guards
+        )
+        assert any(
+            guard.kind is GuardKind.I64_ARRAY_ELEMENT_RANGE
+            and guard.field == "static_indices"
+            and guard.element == 0
+            and guard.minimum == -(2**63)
+            and guard.maximum == -(2**63)
+            for guard in rule.guards
+        )
+
+        emit = rule.emit[0]
+        if rule.source_op is vector.vector_extract:
+            assert emit.operands == {
+                "vector": ValueRef.operand("source"),
+                "index": ValueRef.operand("indices"),
+            }
+        else:
+            assert rule.source_op is vector.vector_insert
+            assert emit.operands == {
+                "vector": ValueRef.operand("dest"),
+                "component": ValueRef.operand("value"),
+                "index": ValueRef.operand("indices"),
+            }
 
 
 def test_native_shuffle_rules_bind_each_selector_and_duplicate_the_source() -> None:
@@ -305,6 +374,8 @@ def test_vector_contract_contains_only_structural_and_bit_layout_rows() -> None:
         "spirv.op_composite_construct",
         "spirv.op_composite_extract",
         "spirv.op_composite_insert",
+        "spirv.op_vector_extract_dynamic",
+        "spirv.op_vector_insert_dynamic",
         "spirv.op_vector_shuffle",
         "spirv.op_select",
         "spirv.op_bitcast",
