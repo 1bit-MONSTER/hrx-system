@@ -91,9 +91,11 @@ static bool loom_vector_packet_dynamic_element_operation_count(
     return false;
   }
   iree_host_size_t selection_operation_count = 0;
+  const iree_host_size_t materialization_operation_count =
+      packet_lane_count == 1u ? 1u : domain.lane_offset_count;
   return iree_host_size_checked_mul(domain.lane_offset_count - 1u, 3u,
                                     &selection_operation_count) &&
-         iree_host_size_checked_add(domain.lane_offset_count,
+         iree_host_size_checked_add(materialization_operation_count,
                                     selection_operation_count,
                                     out_operation_count);
 }
@@ -678,19 +680,30 @@ static iree_status_t loom_vector_packet_materialize_from_elements(
     loom_builder_t* builder = &context->rewriter->builder;
     const loom_type_t offset_type =
         loom_module_value_type(context->module, slice->dynamic_lane_offset);
-    loom_value_id_t selected_packet = LOOM_VALUE_ID_INVALID;
+    // A one-lane packet selects the source scalar directly and constructs its
+    // vector projection once. Wider packets select complete vector values.
+    // Both paths therefore retain the scalar projection without building a
+    // candidate vector merely to extract it again at a scalar consumer.
+    const bool selects_scalar = slice->lane_count == 1u;
+    const loom_type_t selection_type =
+        selects_scalar
+            ? loom_module_value_type(context->module, elements.values[0])
+            : packet_type;
+    loom_value_id_t selected_value = LOOM_VALUE_ID_INVALID;
     for (uint32_t candidate_index = 0;
          candidate_index < domain.lane_offset_count; ++candidate_index) {
       const uint32_t candidate_lane_offset =
           domain.first_lane_offset + candidate_index * domain.lane_offset_step;
-      loom_op_t* candidate_op = NULL;
-      IREE_RETURN_IF_ERROR(loom_vector_from_elements_build(
-          builder, elements.values + candidate_lane_offset, slice->lane_count,
-          packet_type, op->location, &candidate_op));
-      const loom_value_id_t candidate_packet =
-          loom_vector_from_elements_result(candidate_op);
+      loom_value_id_t candidate_value = elements.values[candidate_lane_offset];
+      if (!selects_scalar) {
+        loom_op_t* candidate_op = NULL;
+        IREE_RETURN_IF_ERROR(loom_vector_from_elements_build(
+            builder, elements.values + candidate_lane_offset, slice->lane_count,
+            packet_type, op->location, &candidate_op));
+        candidate_value = loom_vector_from_elements_result(candidate_op);
+      }
       if (candidate_index == 0) {
-        selected_packet = candidate_packet;
+        selected_value = candidate_value;
         continue;
       }
 
@@ -705,11 +718,21 @@ static iree_status_t loom_vector_packet_materialize_from_elements(
           &matches_offset_op));
       loom_op_t* select_op = NULL;
       IREE_RETURN_IF_ERROR(loom_scf_select_build(
-          builder, loom_index_cmp_result(matches_offset_op), candidate_packet,
-          selected_packet, packet_type, op->location, &select_op));
-      selected_packet = loom_scf_select_result(select_op);
+          builder, loom_index_cmp_result(matches_offset_op), candidate_value,
+          selected_value, selection_type, op->location, &select_op));
+      selected_value = loom_scf_select_result(select_op);
     }
-    packetized_value->packet.vector = selected_packet;
+    loom_value_id_t selected_packet = selected_value;
+    if (selects_scalar) {
+      loom_op_t* packet_op = NULL;
+      IREE_RETURN_IF_ERROR(loom_vector_from_elements_build(
+          builder, &selected_value, 1u, packet_type, op->location, &packet_op));
+      selected_packet = loom_vector_from_elements_result(packet_op);
+    }
+    packetized_value->packet = (loom_vector_packet_value_t){
+        .vector = selected_packet,
+        .scalar = selects_scalar ? selected_value : LOOM_VALUE_ID_INVALID,
+    };
     return iree_ok_status();
   }
 

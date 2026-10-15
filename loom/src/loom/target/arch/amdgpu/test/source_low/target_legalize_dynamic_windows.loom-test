@@ -363,3 +363,54 @@ func.def target(@target) @from_elements_unconstrained_window(%offset: index, %v0
   %window = scf.select %27, %25, %24 : vector<4xi32>
   func.return %window : vector<4xi32>
 }
+
+// ====
+
+// RUN: pass target-legalize{mode=final,policy=require-native}
+
+amdgpu.target<gfx11-generic> @target
+
+// A dynamic one-lane packet selects source scalars directly and constructs its
+// vector projection once instead of constructing every candidate vector.
+func.def target(@target) @from_elements_dynamic_lane(%offset0: index, %v0: i32, %v1: i32, %v2: i32, %v3: i32, %v4: i32, %v5: i32, %v6: i32, %v7: i32, %output: buffer) {
+  %offset = index.assume %offset0 [range(%offset0, 0, 7)] : index
+  %source = vector.from_elements %v0, %v1, %v2, %v3, %v4, %v5, %v6, %v7 : vector<8xi32>
+  %lane = vector.slice %source[%offset] : vector<8xi32> -> vector<1xi32>
+  %base = index.constant 0 : offset
+  %output_view = buffer.view %output[%base] : buffer -> view<1xi32>
+  vector.store %lane, %output_view[0] : vector<1xi32>, view<1xi32>
+  func.return
+}
+
+// ----
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @from_elements_dynamic_lane(%offset0: index, %v0: i32, %v1: i32, %v2: i32, %v3: i32, %v4: i32, %v5: i32, %v6: i32, %v7: i32, %output: buffer) {
+  %offset = index.assume %offset0 [range(%offset0, 0, 7)] : index
+  %15 = index.constant 1 : index
+  %16 = index.cmp eq, %offset, %15 : index
+  %17 = scf.select %16, %v1, %v0 : i32
+  %18 = index.constant 2 : index
+  %19 = index.cmp eq, %offset, %18 : index
+  %20 = scf.select %19, %v2, %17 : i32
+  %21 = index.constant 3 : index
+  %22 = index.cmp eq, %offset, %21 : index
+  %23 = scf.select %22, %v3, %20 : i32
+  %24 = index.constant 4 : index
+  %25 = index.cmp eq, %offset, %24 : index
+  %26 = scf.select %25, %v4, %23 : i32
+  %27 = index.constant 5 : index
+  %28 = index.cmp eq, %offset, %27 : index
+  %29 = scf.select %28, %v5, %26 : i32
+  %30 = index.constant 6 : index
+  %31 = index.cmp eq, %offset, %30 : index
+  %32 = scf.select %31, %v6, %29 : i32
+  %33 = index.constant 7 : index
+  %34 = index.cmp eq, %offset, %33 : index
+  %35 = scf.select %34, %v7, %32 : i32
+  %lane = vector.from_elements %35 : vector<1xi32>
+  %base = index.constant 0 : offset
+  %output_view = buffer.view %output[%base] : buffer -> view<1xi32>
+  vector.store %lane, %output_view[0] : vector<1xi32>, view<1xi32>
+  func.return
+}
