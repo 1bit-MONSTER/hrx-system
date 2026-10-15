@@ -1577,7 +1577,8 @@ static bool loom_amdgpu_sanitizer_race_access_plan_build(
           view_regions, source_kind, view_value_id,
           loom_sanitizer_race_access_indices(op),
           loom_sanitizer_race_access_static_indices(op), vector_type,
-          cache_policy, out_source, out_source_diagnostic)) {
+          cache_policy, /*axis_byte_strides=*/NULL, out_source,
+          out_source_diagnostic)) {
     return false;
   }
   out_plan->address = loom_amdgpu_memory_access_from_source(out_source);

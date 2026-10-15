@@ -504,19 +504,14 @@ def test_result_asm_recipes_cover_every_spirv_descriptor_family() -> None:
 
     for case in COOPERATIVE_MATRIX_CASES:
         for role in ("lhs", "rhs", "init"):
-            add_carrier_only(
-                cooperative_matrix_descriptor_key(
-                    "op_cooperative_matrix_load_khr",
-                    role=role,
-                    element=case.element,
-                    m_size=case.m_size,
-                    n_size=case.n_size,
-                    k_size=case.k_size,
-                    accumulator=case.accumulator,
-                    scope="subgroup",
-                    layout="row_major",
+            for memory_space in ("storage_buffer", "workgroup"):
+                add_carrier_only(
+                    case.descriptor_key(
+                        "op_cooperative_matrix_load_khr",
+                        role=role,
+                        memory_space=memory_space,
+                    )
                 )
-            )
         add_carrier_only(
             cooperative_matrix_descriptor_key(
                 "op_cooperative_matrix_mul_add_khr",
@@ -559,3 +554,29 @@ def test_raw_storage_byte_descriptors_do_not_require_int8() -> None:
     storage_feature_mask = feature_bits_value(("storage_buffer_8bit_access",))
     for key in keys:
         assert descriptors[key].feature_mask_words == (storage_feature_mask,)
+
+
+def test_workgroup_matrix_memory_needs_no_storage_buffer_features() -> None:
+    descriptors = {
+        row.key: row for row in SPIRV_LOGICAL_CORE_DESCRIPTOR_SET.descriptors
+    }
+    storage_bits = feature_bits_value(
+        ("storage_buffer_8bit_access", "storage_buffer_16bit_access")
+    )
+    for case in COOPERATIVE_MATRIX_CASES:
+        for role in ("lhs", "rhs", "init", "result"):
+            descriptor = descriptors[
+                case.descriptor_key(
+                    "op_cooperative_matrix_store_khr"
+                    if role == "result"
+                    else "op_cooperative_matrix_load_khr",
+                    role=role,
+                    memory_space="workgroup",
+                )
+            ]
+            assert not descriptor.feature_mask_words[0] & storage_bits
+            assert descriptor.immediates[0].unsigned_max == 1
+            memory_effect = next(
+                effect for effect in descriptor.effects if effect.is_memory_access
+            )
+            assert memory_effect.width_bits == 0

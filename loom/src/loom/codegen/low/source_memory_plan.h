@@ -139,7 +139,9 @@ typedef enum loom_low_source_memory_rejection_reason_e {
   LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ADDRESS_LAYOUT = 27,
   LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_BYTE_OFFSET_WIDTH = 28,
   LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ADDRESS_MATERIALIZATION = 29,
-  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_COUNT = 30,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_UNIFORMITY = 30,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_ELEMENT_STRIDE = 31,
+  LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_COUNT = 32,
 } loom_low_source_memory_rejection_reason_t;
 
 typedef struct loom_low_source_memory_access_diagnostic_t {
@@ -215,6 +217,13 @@ typedef struct loom_low_source_memory_access_plan_t {
   loom_value_fact_memory_space_t memory_space;
   // Proven target-independent address-layout classification.
   loom_low_source_memory_address_layout_t address_layout;
+  // Number of logical axes in the typed source view, or zero for byte access.
+  uint8_t view_rank;
+  // Participant domain in which the origin and retained strides are identical.
+  uint8_t uniform_scope;
+  // Optional caller-owned strides for all view axes, retained independently of
+  // the indexed origin. Fragment consumers require these even at zero origin.
+  const loom_low_source_memory_axis_byte_stride_t* axis_byte_strides;
   // Source SSA value that represents the storage root.
   loom_value_id_t root_value_id;
   // Producer-retained symbol that materializes the root, or null if unknown.
@@ -305,6 +314,14 @@ typedef struct loom_low_source_memory_access_plan_t {
   // means no per-access obligation. This is independent of advisory caching.
   uint8_t read_visibility_scope;
 } loom_low_source_memory_access_plan_t;
+
+// Scope over which the complete origin and retained view strides are identical.
+// Reads only canonical source facts; targets need no source-producer walk.
+static inline loom_value_fact_uniform_scope_t
+loom_low_source_memory_access_uniform_scope(
+    const loom_low_source_memory_access_plan_t* plan) {
+  return (loom_value_fact_uniform_scope_t)plan->uniform_scope;
+}
 
 // Returns a selected component when its complete member set remains in the
 // requested suffix and its byte coefficient converts exactly to coordinate
@@ -426,8 +443,12 @@ void loom_low_source_memory_access_plan_make_summary(
 // Returns false when the source op cannot be decomposed into a complete source
 // plan. Targets are responsible for checking their own memory spaces, address
 // forms, descriptor availability, immediate ranges, and register footprints.
+// When non-NULL, |axis_byte_strides| has room for the view's rank entries and
+// receives their complete materializable products. The plan borrows this
+// caller-owned storage; consumers needing only the origin may pass NULL.
 bool loom_low_source_memory_access_plan_build(
     const loom_view_region_table_t* view_regions, const loom_op_t* source_op,
+    loom_low_source_memory_axis_byte_stride_t* axis_byte_strides,
     loom_low_source_memory_access_plan_t* out_plan,
     loom_low_source_memory_access_diagnostic_t* out_diagnostic);
 
@@ -442,6 +463,7 @@ bool loom_low_source_memory_access_plan_build_indexed(
     loom_value_id_t view_value_id, loom_value_slice_t dynamic_indices,
     loom_attribute_t static_indices, loom_type_t vector_type,
     loom_vector_memory_cache_policy_t cache_policy,
+    loom_low_source_memory_axis_byte_stride_t* axis_byte_strides,
     loom_low_source_memory_access_plan_t* out_plan,
     loom_low_source_memory_access_diagnostic_t* out_diagnostic);
 

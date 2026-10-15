@@ -27,6 +27,14 @@ class StorageBufferScalar:
         return feature_bits_value(self.feature_atoms)
 
     @property
+    def workgroup_feature_bits(self) -> int:
+        return feature_bits_value(
+            atom
+            for atom in self.feature_atoms
+            if not atom.startswith("storage_buffer_")
+        )
+
+    @property
     def numeric_format_c_expression(self) -> str | None:
         return _NUMERIC_FORMAT_C_EXPRESSIONS.get(self.suffix)
 

@@ -138,13 +138,13 @@ func.def target(@target) @packed_storage_buffer_i32_requires_known_root_alignmen
 
 spirv.target<vulkan1_3> @target {contract_feature_bits = 2318}
 
-func.def target(@target) @cooperative_matrix_rejects_noncompact_storage_tile(%input: buffer, %byte_offset: offset) -> (vector<16xf16>) {
+func.def target(@target) @cooperative_matrix_rejects_unproven_uniform_address(%input: buffer, %byte_offset: offset) -> (vector<16xf16>) {
   %byte_offset_aligned = index.assume %byte_offset [multiple_of(%byte_offset, 16)] : offset
   %m = index.constant 16 : index
   %k = index.constant 16 : index
   %input_aligned = buffer.assume.alignment %input {minimum_alignment = 16} : buffer
   %input_view = buffer.view %input_aligned[%byte_offset_aligned] : buffer -> view<32x16xf16>
-  // ERROR@+1: TARGET/003 {subject_role="value", subject_name="view", constraint_key="cooperative_matrix.compact_storage_tile"}
+  // ERROR@+1: TARGET/003 {subject_role="source-memory", subject_name="access", constraint_key="source_memory.subgroup_uniform"}
   %fragment = vector.fragment.load<lhs> %input_view[0, 0] shape [%m, %k] : view<32x16xf16> -> vector<16xf16>
   func.return %fragment : vector<16xf16>
 }
@@ -175,10 +175,14 @@ kernel.def target(@hal_target_compact_matrix) @cooperative_matrix_accepts_explic
 low.kernel.def target<spirv.logical.core>(@hal_target_compact_matrix) abi_layout({signature = (buffer, buffer, offset) -> ()}) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @cooperative_matrix_accepts_explicit_compact_layout(%byte_offset_aligned: reg<spirv.offset64>) asm {
   %input_aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
   %output_aligned = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
-  %17 = OpPtrAccessChain.storage_buffer.f32.byte_offset %input_aligned, %byte_offset_aligned
-  %fragment = OpCooperativeMatrixLoadKHR.init.f16.16x16x16.f32.subgroup.row_major %17 : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
-  %19 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_aligned, %byte_offset_aligned
-  OpCooperativeMatrixStoreKHR.result.f16.16x16x16.f32.subgroup.row_major %19, %fragment
+  %17 = OpConstant.offset64 16
+  %18 = OpUConvert.offset64.u32 %17
+  %19 = OpPtrAccessChain.storage_buffer.f32.byte_offset %input_aligned, %byte_offset_aligned
+  %fragment = OpCooperativeMatrixLoadKHR.init.f16.16x16x16.f32.subgroup.storage_buffer %19, %18, 0 : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
+  %21 = OpConstant.offset64 16
+  %22 = OpUConvert.offset64.u32 %21
+  %23 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_aligned, %byte_offset_aligned
+  OpCooperativeMatrixStoreKHR.result.f16.16x16x16.f32.subgroup.storage_buffer %23, %fragment, %22, 0
   return
 }
 
@@ -186,14 +190,14 @@ low.kernel.def target<spirv.logical.core>(@hal_target_compact_matrix) abi_layout
 
 spirv.target<vulkan1_3> @target {contract_feature_bits = 2318}
 
-func.def target(@target) @cooperative_matrix_rejects_padded_storage_layout(%input: buffer, %byte_offset: offset) -> (vector<16xf16>) {
+func.def target(@target) @cooperative_matrix_rejects_gapped_storage_layout(%input: buffer, %byte_offset: offset) -> (vector<16xf16>) {
   %byte_offset_aligned = index.assume %byte_offset [multiple_of(%byte_offset, 16)] : offset
   %m = index.constant 16 : index
   %k = index.constant 16 : index
-  %layout = encoding.layout.strided [32, 1] : encoding<layout>
+  %layout = encoding.layout.strided [32, 2] : encoding<layout>
   %input_aligned = buffer.assume.alignment %input {minimum_alignment = 16} : buffer
   %input_view = buffer.view %input_aligned[%byte_offset_aligned] : buffer -> view<16x16xf16, %layout>
-  // ERROR@+1: TARGET/003 {subject_role="value", subject_name="view", constraint_key="cooperative_matrix.compact_storage_tile"}
+  // ERROR@+1: TARGET/003 {subject_role="source-memory", subject_name="access", constraint_key="source_memory.address_layout"}
   %fragment = vector.fragment.load<lhs> %input_view[0, 0] shape [%m, %k] : view<16x16xf16, %layout> -> vector<16xf16>
   func.return %fragment : vector<16xf16>
 }

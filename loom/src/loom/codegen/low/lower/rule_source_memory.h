@@ -55,6 +55,8 @@ typedef struct loom_low_lower_rule_source_memory_state_t {
   bool plan_available;
   // Caller-owned storage receiving the canonical source-memory plan.
   loom_low_source_memory_access_plan_t* access_plan;
+  // Optional caller-owned axis storage used by read-only fragment legality.
+  loom_low_source_memory_axis_byte_stride_t* axis_byte_strides;
   // Shared preselection's immutable source plan, or NULL in read-only legality.
   const loom_low_source_memory_access_plan_t* retained_access;
   // Exact source-access rejection facts when planning did not succeed.
@@ -147,6 +149,15 @@ iree_status_t loom_low_lower_rule_materialize_source_memory_address(
     const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
     const loom_low_lower_source_memory_t* source_memory,
     const loom_low_source_memory_access_plan_t* source_memory_access,
+    loom_type_t coordinate_type, loom_value_id_t* out_value_id);
+
+// Materializes a selected view-axis stride in element units, using the same
+// integer carrier and conversions as its source-memory address recipe.
+iree_status_t loom_low_lower_rule_materialize_source_memory_element_stride(
+    loom_low_lower_context_t* context,
+    const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
+    const loom_low_lower_source_memory_t* source_memory,
+    const loom_low_source_memory_access_plan_t* access, uint8_t axis,
     loom_type_t coordinate_type, loom_value_id_t* out_value_id);
 
 #ifdef __cplusplus

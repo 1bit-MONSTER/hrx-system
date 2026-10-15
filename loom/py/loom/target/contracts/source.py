@@ -142,6 +142,15 @@ class ValueRef:
         )
 
     @classmethod
+    def source_memory_element_stride(cls, *, axis: int) -> Self:
+        """Returns one retained view-axis stride in source element units."""
+        return cls(
+            kind=SourceValueKind.SOURCE_MEMORY_ELEMENT_STRIDE,
+            field="",
+            element=axis,
+        )
+
+    @classmethod
     def source_memory_root(cls) -> Self:
         """Returns the storage root selected by source-memory analysis."""
         return cls(
@@ -250,6 +259,13 @@ class ValueRef:
                 raise ValueError(
                     f"{source_op.name}: {subject} source-memory address must not "
                     "select an element"
+                )
+            return
+        if self.kind == SourceValueKind.SOURCE_MEMORY_ELEMENT_STRIDE:
+            if self.field or not 0 <= self.element <= 1:
+                raise ValueError(
+                    f"{source_op.name}: {subject} matrix stride requires axis 0 or 1 "
+                    "and no source field"
                 )
             return
         if self.kind == SourceValueKind.SOURCE_MEMORY_ROOT:

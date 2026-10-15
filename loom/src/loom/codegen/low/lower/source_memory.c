@@ -384,8 +384,20 @@ iree_status_t loom_low_lower_source_memory_observe(
       .source_op = source_op,
       .prepared_plan = loom_low_lower_plan_empty(),
   };
+  loom_low_source_memory_axis_byte_stride_t* axis_byte_strides = NULL;
+  if (loom_vector_memory_op_footprint_kind(context->module, source_op) ==
+      LOOM_VECTOR_MEMORY_FOOTPRINT_FRAGMENT) {
+    const loom_memory_access_t access =
+        loom_memory_access_cast(context->module, source_op);
+    const loom_type_t view_type = loom_module_value_type(
+        context->module, loom_memory_access_view(access));
+    IREE_RETURN_IF_ERROR(loom_low_lower_allocate_function_array(
+        context, loom_type_rank(view_type), sizeof(*axis_byte_strides),
+        (void**)&axis_byte_strides));
+  }
   record->available = loom_low_source_memory_access_plan_build(
-      view_regions, source_op, &record->access, &record->diagnostic);
+      view_regions, source_op, axis_byte_strides, &record->access,
+      &record->diagnostic);
   if (record->available) {
     if (loom_memory_access_isa(
             loom_memory_access_cast(context->module, source_op))) {

@@ -667,7 +667,8 @@ static inline bool loom_value_facts_as_exact_bool(loom_value_facts_t facts,
 
 static inline bool loom_value_facts_divisible_by(loom_value_facts_t facts,
                                                  int64_t divisor) {
-  return facts.known_divisor % divisor == 0;
+  // Exact zero's stored divisor of one does not constrain divisibility.
+  return loom_value_facts_is_zero(facts) || facts.known_divisor % divisor == 0;
 }
 
 // Returns true if all values described by |facts| fit in a signed integer with

@@ -663,6 +663,7 @@ static iree_status_t loom_amdgpu_legalize_packed_atomic(
   loom_low_source_memory_access_plan_t source = {0};
   loom_low_source_memory_access_diagnostic_t diagnostic = {0};
   if (!loom_low_source_memory_access_plan_build(context->view_regions, op,
+                                                /*axis_byte_strides=*/NULL,
                                                 &source, &diagnostic) ||
       !loom_amdgpu_atomic_packed_half_source_shape(&source, value_type) ||
       !loom_amdgpu_atomic_scope_supported(context->descriptor_set, &source,

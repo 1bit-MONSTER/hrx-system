@@ -741,22 +741,10 @@ static iree_status_t loom_spirv_emit_store_aligned_packet(
       row->opcode, instruction_operands, IREE_ARRAYSIZE(instruction_operands));
 }
 
-static iree_status_t loom_spirv_emit_cooperative_matrix_layout_operands(
-    loom_spirv_emit_state_t* state, const loom_spirv_packet_row_t* row,
-    uint32_t* out_layout_id, uint32_t* out_stride_id) {
-  const loom_spirv_packet_payload_t* payload =
-      loom_spirv_packet_row_payload(row);
-  IREE_RETURN_IF_ERROR(loom_spirv_emit_u32_constant(
-      state->type_context, payload->cooperative_matrix.layout, out_layout_id));
-  return loom_spirv_emit_u32_constant(
-      state->type_context, payload->cooperative_matrix.element_stride,
-      out_stride_id);
-}
-
 static iree_status_t loom_spirv_emit_cooperative_matrix_load_packet(
     loom_spirv_emit_state_t* state, const loom_low_descriptor_packet_t* packet,
     const loom_spirv_packet_row_t* row) {
-  loom_spirv_module_value_ref_t operands[1] = {0};
+  loom_spirv_module_value_ref_t operands[2] = {0};
   IREE_RETURN_IF_ERROR(
       loom_spirv_emit_load_packet_operands(state, packet, row, operands));
   uint32_t result_type_id = 0;
@@ -764,20 +752,17 @@ static iree_status_t loom_spirv_emit_cooperative_matrix_load_packet(
       state->type_context, loom_spirv_packet_row_result_type(row),
       &result_type_id));
   uint32_t layout_id = 0;
-  uint32_t stride_id = 0;
-  IREE_RETURN_IF_ERROR(loom_spirv_emit_cooperative_matrix_layout_operands(
-      state, row, &layout_id, &stride_id));
+  IREE_RETURN_IF_ERROR(loom_spirv_emit_u32_constant(
+      state->type_context, (uint32_t)loom_spirv_emit_packet_immediate(packet),
+      &layout_id));
   uint32_t result_id = 0;
   IREE_RETURN_IF_ERROR(loom_spirv_emit_prepare_packet_result(
       state, packet, result_type_id, loom_spirv_packet_row_result_type(row),
       &result_id));
   const uint32_t instruction_operands[] = {
-      result_type_id,
-      result_id,
-      operands[0].id,
-      layout_id,
-      stride_id,
-      loom_spirv_emit_packet_memory_access_mask(packet),
+      result_type_id,        result_id,
+      operands[0].id,        layout_id,
+      operands[1].id,        loom_spirv_emit_packet_memory_access_mask(packet),
       row->memory_alignment,
   };
   IREE_RETURN_IF_ERROR(loom_spirv_binary_write_instruction(
@@ -791,18 +776,18 @@ static iree_status_t loom_spirv_emit_cooperative_matrix_load_packet(
 static iree_status_t loom_spirv_emit_cooperative_matrix_store_packet(
     loom_spirv_emit_state_t* state, const loom_low_descriptor_packet_t* packet,
     const loom_spirv_packet_row_t* row) {
-  loom_spirv_module_value_ref_t operands[2] = {0};
+  loom_spirv_module_value_ref_t operands[3] = {0};
   IREE_RETURN_IF_ERROR(
       loom_spirv_emit_load_packet_operands(state, packet, row, operands));
   uint32_t layout_id = 0;
-  uint32_t stride_id = 0;
-  IREE_RETURN_IF_ERROR(loom_spirv_emit_cooperative_matrix_layout_operands(
-      state, row, &layout_id, &stride_id));
+  IREE_RETURN_IF_ERROR(loom_spirv_emit_u32_constant(
+      state->type_context, (uint32_t)loom_spirv_emit_packet_immediate(packet),
+      &layout_id));
   const uint32_t instruction_operands[] = {
       operands[0].id,
       operands[1].id,
       layout_id,
-      stride_id,
+      operands[2].id,
       loom_spirv_emit_packet_memory_access_mask(packet),
       row->memory_alignment,
   };

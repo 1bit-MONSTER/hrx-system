@@ -121,6 +121,8 @@ enum loom_low_lower_value_ref_kind_e {
   // operand field |index|, element |element_index|. This retains widening
   // conversions when the consumer requires the current arithmetic precision.
   LOOM_LOW_LOWER_VALUE_REF_UNIFORM_ELEMENT_ORIGIN_OPERAND = 11,
+  // Retained view-axis stride at |index|, in source element units.
+  LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ELEMENT_STRIDE = 12,
   // Maximum value-ref kind plus one.
   LOOM_LOW_LOWER_VALUE_REF_COUNT_,
 };
@@ -539,6 +541,10 @@ typedef enum loom_low_lower_source_memory_address_layout_e {
   LOOM_LOW_LOWER_SOURCE_MEMORY_ADDRESS_LAYOUT_ANY = 0,
   // The source-memory row requires a proven compact row-major layout.
   LOOM_LOW_LOWER_SOURCE_MEMORY_ADDRESS_LAYOUT_COMPACT_ROW_MAJOR = 1,
+  // Two-dimensional layout with contiguous columns and a leading row stride.
+  LOOM_LOW_LOWER_SOURCE_MEMORY_ADDRESS_LAYOUT_ROW_MAJOR = 2,
+  // Two-dimensional layout with contiguous rows and a leading column stride.
+  LOOM_LOW_LOWER_SOURCE_MEMORY_ADDRESS_LAYOUT_COLUMN_MAJOR = 3,
 } loom_low_lower_source_memory_address_layout_t;
 
 typedef enum loom_low_lower_source_memory_address_base_e {
@@ -602,6 +608,10 @@ typedef uint8_t loom_low_lower_source_memory_flags_t;
 // residual displacement not already embedded in that SSA value.
 #define LOOM_LOW_LOWER_SOURCE_MEMORY_FLAG_REUSE_VIEW_BASE \
   ((loom_low_lower_source_memory_flags_t)1u << 4)
+// Require the complete address and retained view strides to be
+// subgroup-uniform.
+#define LOOM_LOW_LOWER_SOURCE_MEMORY_FLAG_SUBGROUP_UNIFORM \
+  ((loom_low_lower_source_memory_flags_t)1u << 5)
 
 // Converts a fixed-width canonical integer term to the address carrier.
 // Symbolic analysis preserves signed numeric values (zero/one for i1), even
@@ -696,16 +706,16 @@ typedef struct loom_low_lower_source_memory_diagnostics_t {
   uint16_t rejection_diagnostic_indices
       [LOOM_LOW_SOURCE_MEMORY_REJECTION_REASON_COUNT];
 } loom_low_lower_source_memory_diagnostics_t;
-static_assert(sizeof(loom_low_lower_source_memory_diagnostics_t) == 60,
+static_assert(sizeof(loom_low_lower_source_memory_diagnostics_t) == 64,
               "source-memory diagnostic rows must remain compact");
 
 typedef struct loom_low_lower_source_memory_t {
   // Source memory operation category required by this row.
   uint8_t operation_kind;
   // Source provenance required for the root memory value.
-  uint8_t root_kind;
+  uint8_t root_kind : 4;
   // Target-independent address-layout classification required by this row.
-  uint8_t address_layout;
+  uint8_t address_layout : 4;
   // Required number of dynamic address terms.
   uint8_t dynamic_term_count;
   // Minimum accepted dynamic term count when dynamic_term_count is ANY.
@@ -726,6 +736,8 @@ typedef struct loom_low_lower_source_memory_t {
   uint8_t address_materializer_ordinal;
   // Bitfield of source-memory row option bits.
   loom_low_lower_source_memory_flags_t flags;
+  // Unsigned width of a row/column element stride, or zero if unconstrained.
+  uint8_t element_stride_unsigned_bit_count;
   // Rule-set source-memory diagnostic row index.
   uint16_t diagnostics_index;
   // Accepted target-independent source memory spaces.
@@ -734,7 +746,8 @@ typedef struct loom_low_lower_source_memory_t {
   uint16_t shape_index;
   // Required static number of vector lanes addressed by the operation.
   uint16_t vector_lane_count;
-  // Minimum required final address byte alignment, or zero if unconstrained.
+  // Minimum alignment of the origin and each row/column start for matrix
+  // layouts, or zero if unconstrained.
   uint16_t minimum_alignment;
   // Required byte count of one addressed view element.
   uint8_t element_byte_count;

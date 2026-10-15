@@ -237,9 +237,10 @@ loom_value_id_t loom_low_lower_rule_source_value_from_nodes(
       IREE_ASSERT_UNREACHABLE(
           "source-memory address value ref needs a selected memory plan");
       IREE_BUILTIN_UNREACHABLE();
+    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ELEMENT_STRIDE:
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ROOT:
       IREE_ASSERT_UNREACHABLE(
-          "source-memory root value ref needs a selected memory plan");
+          "source-memory geometry value ref needs a selected memory plan");
       IREE_BUILTIN_UNREACHABLE();
     case LOOM_LOW_LOWER_VALUE_REF_EXACT_LANE_ORIGIN_OPERAND:
       IREE_ASSERT_UNREACHABLE(
@@ -333,6 +334,7 @@ bool loom_low_lower_rule_resolve_source_value_from_nodes(
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET:
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_BYTE_OFFSET:
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ADDRESS:
+    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ELEMENT_STRIDE:
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ROOT:
       return false;
     default:
@@ -368,6 +370,7 @@ loom_value_slice_t loom_low_lower_rule_value_ref_field_span_from_nodes(
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET:
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_BYTE_OFFSET:
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ADDRESS:
+    case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ELEMENT_STRIDE:
     case LOOM_LOW_LOWER_VALUE_REF_SOURCE_MEMORY_ROOT:
     case LOOM_LOW_LOWER_VALUE_REF_EXACT_LANE_ORIGIN_OPERAND:
     case LOOM_LOW_LOWER_VALUE_REF_EXACT_UNIFORM_ELEMENT_ORIGIN_OPERAND:

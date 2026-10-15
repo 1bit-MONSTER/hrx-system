@@ -2553,6 +2553,57 @@ def test_compile_lower_rule_set_compiles_complete_source_memory_address() -> Non
     assert source_memory.address_materializer is materializer
 
 
+@pytest.mark.parametrize(
+    ("axis", "layout"),
+    [
+        (0, SourceMemoryAddressLayout.ROW_MAJOR),
+        (1, SourceMemoryAddressLayout.COLUMN_MAJOR),
+    ],
+)
+def test_element_stride_retains_its_layout_axis(axis, layout) -> None:
+    table = _source_memory_address_rule(
+        materializer=_i32_source_memory_address_materializer(),
+    )
+    rule = table.cases[0]
+    emit = rule.emit[0]
+    emit = replace(
+        emit,
+        operands={"address": ValueRef.source_memory_element_stride(axis=axis)},
+        source_memory=replace(
+            emit.source_memory, address_layout=layout, require_subgroup_uniform=True
+        ),
+    )
+    table = replace(table, cases=[replace(rule, emit=(emit,))])
+    compiled = compile_lower_rule_set(table, dialect_ops={"vector": ALL_VECTOR_OPS})
+    reference = compiled.value_refs[compiled.emits[0].operand_ref_start]
+    assert reference.kind == SourceValueKind.SOURCE_MEMORY_ELEMENT_STRIDE
+    assert reference.index == axis
+    assert compiled.source_memories[0].constraint.require_subgroup_uniform
+    _expect_value_error(
+        lambda: compile_lower_rule_set(
+            replace(
+                table,
+                cases=[
+                    replace(
+                        rule,
+                        emit=(
+                            replace(
+                                emit,
+                                source_memory=replace(
+                                    emit.source_memory,
+                                    address_layout=SourceMemoryAddressLayout.ANY,
+                                ),
+                            ),
+                        ),
+                    )
+                ],
+            ),
+            dialect_ops={"vector": ALL_VECTOR_OPS},
+        ),
+        "stride axis must be the leading axis of the source-memory layout",
+    )
+
+
 def test_compile_lower_rule_set_compiles_source_memory_root() -> None:
     compiled = compile_lower_rule_set(
         _source_memory_root_rule(with_source_memory=True),

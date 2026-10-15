@@ -273,7 +273,10 @@ def _source_value_index(
         ordinal = temporary_ordinals.get(value_ref.field)
         if ordinal is not None:
             return ordinal
-    if value_ref.kind == SourceValueKind.SOURCE_MEMORY_DYNAMIC_TERM:
+    if value_ref.kind in (
+        SourceValueKind.SOURCE_MEMORY_DYNAMIC_TERM,
+        SourceValueKind.SOURCE_MEMORY_ELEMENT_STRIDE,
+    ):
         return value_ref.element
     if value_ref.kind in (
         SourceValueKind.SOURCE_MEMORY_DYNAMIC_BYTE_OFFSET,

@@ -252,8 +252,6 @@ class _PacketRow:
     group_operation: str | None = None
     memory_scope: str | None = None
     memory_semantics: str | None = None
-    cooperative_matrix_layout: str | None = None
-    cooperative_matrix_element_stride: int = 0
     cooperative_matrix_operands: str | None = None
     atomic_scope: str | None = None
     atomic_storage_semantics: str | None = None
@@ -299,8 +297,6 @@ class _PacketRow:
                 "operation": self.group_operation,
             },
             "cooperative_matrix": {
-                "layout": self.cooperative_matrix_layout,
-                "element_stride": self.cooperative_matrix_element_stride or None,
                 "operands": self.cooperative_matrix_operands,
             },
             "atomic": {
@@ -713,6 +709,7 @@ def _workgroup_rows() -> list[_PacketRow]:
 
 
 def _cooperative_matrix_rows_for_case(case: CooperativeMatrixCase) -> list[_PacketRow]:
+    stride_type = _value_type("LOOM_SPIRV_VALUE_CLASS_SCALAR", "LOOM_SPIRV_SCALAR_TYPE_U32")
     lhs_scalar = case.lhs_scalar
     rhs_scalar = case.rhs_scalar
     accumulator_scalar = case.accumulator_scalar
@@ -741,83 +738,46 @@ def _cooperative_matrix_rows_for_case(case: CooperativeMatrixCase) -> list[_Pack
         columns=case.accumulator_columns,
         matrix_use="LOOM_SPIRV_COOPERATIVE_MATRIX_USE_MATRIX_ACCUMULATOR_KHR",
     )
-    row_major_layout = "LOOM_SPIRV_COOPERATIVE_MATRIX_LAYOUT_ROW_MAJOR_KHR"
-    lhs_element_stride = case.lhs_columns
-    rhs_element_stride = case.rhs_columns
-    accumulator_element_stride = case.accumulator_columns
-    result_element_stride = case.accumulator_columns
-    return [
+    rows = []
+    for memory_space in ("storage_buffer", "workgroup"):
+        pointer_type = _workgroup_pointer_value if memory_space == "workgroup" else _physical_storage_buffer_pointer_value
+        for role, scalar, value in (
+            ("lhs", lhs_scalar, lhs_value),
+            ("rhs", rhs_scalar, rhs_value),
+            ("init", accumulator_scalar, accumulator_value),
+        ):
+            rows.append(
+                _PacketRow(
+                    case.descriptor_key("op_cooperative_matrix_load_khr", role=role, memory_space=memory_space),
+                    opcode="LOOM_SPIRV_OP_COOPERATIVE_MATRIX_LOAD_KHR",
+                    form="LOOM_SPIRV_PACKET_FORM_COOPERATIVE_MATRIX_LOAD",
+                    result_type=value,
+                    operand_types=(pointer_type(scalar), stride_type),
+                    memory_alignment=16,
+                    has_immediate=True,
+                )
+            )
+        rows.append(
+            _PacketRow(
+                case.descriptor_key("op_cooperative_matrix_store_khr", role="result", memory_space=memory_space),
+                opcode="LOOM_SPIRV_OP_COOPERATIVE_MATRIX_STORE_KHR",
+                form="LOOM_SPIRV_PACKET_FORM_COOPERATIVE_MATRIX_STORE",
+                operand_types=(pointer_type(result_scalar), result_value, stride_type),
+                memory_alignment=16,
+                has_immediate=True,
+            )
+        )
+    rows.append(
         _PacketRow(
-            case.descriptor_key(
-                "op_cooperative_matrix_load_khr",
-                role="lhs",
-                layout="row_major",
-            ),
-            opcode="LOOM_SPIRV_OP_COOPERATIVE_MATRIX_LOAD_KHR",
-            form="LOOM_SPIRV_PACKET_FORM_COOPERATIVE_MATRIX_LOAD",
-            result_type=lhs_value,
-            operand_types=(_physical_storage_buffer_pointer_value(lhs_scalar),),
-            memory_alignment=16,
-            cooperative_matrix_layout=row_major_layout,
-            cooperative_matrix_element_stride=lhs_element_stride,
-        ),
-        _PacketRow(
-            case.descriptor_key(
-                "op_cooperative_matrix_load_khr",
-                role="rhs",
-                layout="row_major",
-            ),
-            opcode="LOOM_SPIRV_OP_COOPERATIVE_MATRIX_LOAD_KHR",
-            form="LOOM_SPIRV_PACKET_FORM_COOPERATIVE_MATRIX_LOAD",
-            result_type=rhs_value,
-            operand_types=(_physical_storage_buffer_pointer_value(rhs_scalar),),
-            memory_alignment=16,
-            cooperative_matrix_layout=row_major_layout,
-            cooperative_matrix_element_stride=rhs_element_stride,
-        ),
-        _PacketRow(
-            case.descriptor_key(
-                "op_cooperative_matrix_load_khr",
-                role="init",
-                layout="row_major",
-            ),
-            opcode="LOOM_SPIRV_OP_COOPERATIVE_MATRIX_LOAD_KHR",
-            form="LOOM_SPIRV_PACKET_FORM_COOPERATIVE_MATRIX_LOAD",
-            result_type=accumulator_value,
-            operand_types=(_physical_storage_buffer_pointer_value(accumulator_scalar),),
-            memory_alignment=16,
-            cooperative_matrix_layout=row_major_layout,
-            cooperative_matrix_element_stride=accumulator_element_stride,
-        ),
-        _PacketRow(
-            case.descriptor_key(
-                "op_cooperative_matrix_mul_add_khr",
-                role=None,
-                include_operand_mode=True,
-            ),
+            case.descriptor_key("op_cooperative_matrix_mul_add_khr", include_operand_mode=True),
             opcode="LOOM_SPIRV_OP_COOPERATIVE_MATRIX_MUL_ADD_KHR",
             form="LOOM_SPIRV_PACKET_FORM_COOPERATIVE_MATRIX_MUL_ADD",
             result_type=result_value,
             operand_types=(lhs_value, rhs_value, accumulator_value),
             cooperative_matrix_operands=case.packet_operand_mask,
-        ),
-        _PacketRow(
-            case.descriptor_key(
-                "op_cooperative_matrix_store_khr",
-                role="result",
-                layout="row_major",
-            ),
-            opcode="LOOM_SPIRV_OP_COOPERATIVE_MATRIX_STORE_KHR",
-            form="LOOM_SPIRV_PACKET_FORM_COOPERATIVE_MATRIX_STORE",
-            operand_types=(
-                _physical_storage_buffer_pointer_value(result_scalar),
-                result_value,
-            ),
-            memory_alignment=16,
-            cooperative_matrix_layout=row_major_layout,
-            cooperative_matrix_element_stride=result_element_stride,
-        ),
-    ]
+        )
+    )
+    return rows
 
 
 def _cooperative_matrix_rows() -> list[_PacketRow]:

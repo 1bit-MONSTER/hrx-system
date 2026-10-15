@@ -140,10 +140,6 @@ typedef union loom_spirv_packet_payload_t {
   } group_non_uniform;
   // Cooperative-matrix packet literals.
   struct {
-    // Cooperative matrix layout literal for load/store rows.
-    uint32_t layout;
-    // Row stride in elements of the load/store pointer's pointee type.
-    uint32_t element_stride;
     // Cooperative matrix operands mask literal for mul-add rows.
     uint32_t operands;
   } cooperative_matrix;

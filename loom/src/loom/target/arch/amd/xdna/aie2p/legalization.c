@@ -475,6 +475,7 @@ static iree_status_t loom_aie2p_legalize_vector_gather(
   loom_low_source_memory_access_diagnostic_t diagnostic = {0};
   loom_aie2p_immutable_gather_match_t match = {0};
   if (loom_low_source_memory_access_plan_build(context->view_regions, op,
+                                               /*axis_byte_strides=*/NULL,
                                                &access, &diagnostic) &&
       loom_aie2p_match_immutable_gather(context->module, context->fact_table,
                                         op, &access, &match)) {

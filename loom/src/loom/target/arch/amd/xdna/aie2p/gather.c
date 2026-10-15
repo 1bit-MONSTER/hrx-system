@@ -163,7 +163,8 @@ iree_status_t loom_aie2p_query_gather_contract(
   loom_low_source_memory_access_diagnostic_t diagnostic = {0};
   loom_aie2p_immutable_gather_match_t match = {0};
   if (loom_low_source_memory_access_plan_build(
-          environment->view_regions, source_op, &access, &diagnostic) &&
+          environment->view_regions, source_op, /*axis_byte_strides=*/NULL,
+          &access, &diagnostic) &&
       loom_aie2p_match_immutable_gather(environment->module,
                                         environment->fact_table, source_op,
                                         &access, &match)) {

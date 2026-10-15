@@ -336,6 +336,8 @@ def source_memory_row(
         flags.append("LOOM_LOW_LOWER_SOURCE_MEMORY_FLAG_DYNAMIC_STRIDE_VALUES")
     if constraint.preserve_source_index:
         flags.append("LOOM_LOW_LOWER_SOURCE_MEMORY_FLAG_PRESERVE_SOURCE_INDEX")
+    if constraint.require_subgroup_uniform:
+        flags.append("LOOM_LOW_LOWER_SOURCE_MEMORY_FLAG_SUBGROUP_UNIFORM")
     if constraint.reuse_view_base:
         flags.append("LOOM_LOW_LOWER_SOURCE_MEMORY_FLAG_REUSE_VIEW_BASE")
     if constraint.cache_policy_build_flags is None:
@@ -380,6 +382,7 @@ def source_memory_row(
     )
     _append_field(fields, "shape_index", shape_index, always=True)
     _append_field(fields, "minimum_alignment", constraint.minimum_alignment)
+    _append_field(fields, "element_stride_unsigned_bit_count", constraint.element_stride_unsigned_bit_count)
     _append_field(
         fields,
         "dynamic_term_count",

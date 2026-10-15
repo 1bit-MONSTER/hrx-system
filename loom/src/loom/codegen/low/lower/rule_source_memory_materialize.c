@@ -765,6 +765,44 @@ static iree_status_t loom_low_lower_rule_materialize_source_memory_address_term(
       accumulator, stride, source_op->location, out_value_id);
 }
 
+iree_status_t loom_low_lower_rule_materialize_source_memory_element_stride(
+    loom_low_lower_context_t* context,
+    const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
+    const loom_low_lower_source_memory_t* source_memory,
+    const loom_low_source_memory_access_plan_t* access, uint8_t axis,
+    loom_type_t coordinate_type, loom_value_id_t* out_value_id) {
+  const loom_low_source_memory_axis_byte_stride_t* stride =
+      &access->axis_byte_strides[axis];
+  const loom_low_lower_source_memory_address_materializer_t* materializer =
+      loom_low_lower_rule_set_source_memory_address_materializer(rule_set,
+                                                                 source_memory);
+  const int64_t coefficient =
+      stride->static_byte_coefficient / access->element_byte_count;
+  loom_value_id_t value = LOOM_VALUE_ID_INVALID;
+  if (coefficient != 1 || stride->dynamic_factor_count == 0) {
+    IREE_RETURN_IF_ERROR(
+        loom_low_lower_rule_source_memory_emit_address_coordinate_const(
+            context, rule_set, source_op, materializer, coordinate_type,
+            coefficient, &value));
+  }
+  for (uint8_t i = 0; i < stride->dynamic_factor_count; ++i) {
+    loom_value_id_t factor = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(
+        loom_low_lower_rule_materialize_source_memory_address_coordinate_value(
+            context, rule_set, source_op, materializer,
+            stride->dynamic_factors[i], &factor));
+    if (value == LOOM_VALUE_ID_INVALID) {
+      value = factor;
+    } else {
+      IREE_RETURN_IF_ERROR(loom_low_lower_rule_source_memory_emit_binary_op(
+          context, rule_set, materializer->mul_coordinate_descriptor_ref, value,
+          factor, source_op->location, &value));
+    }
+  }
+  *out_value_id = value;
+  return iree_ok_status();
+}
+
 static iree_status_t
 loom_low_lower_rule_materialize_source_memory_complete_coordinate(
     loom_low_lower_context_t* context,

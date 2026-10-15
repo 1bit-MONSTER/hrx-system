@@ -214,6 +214,10 @@ TEST(FactsExactI64, Zero) {
   EXPECT_FALSE(loom_value_facts_is_positive(f));
   EXPECT_FALSE(loom_value_facts_is_power_of_two(f));
   EXPECT_EQ(f.known_divisor, 1);
+  EXPECT_TRUE(loom_value_facts_divisible_by(f, 1));
+  EXPECT_TRUE(loom_value_facts_divisible_by(f, 3));
+  EXPECT_TRUE(loom_value_facts_divisible_by(f, 16));
+  EXPECT_TRUE(loom_value_facts_divisible_by(f, INT64_MAX));
 }
 
 TEST(FactsExactI64, One) {

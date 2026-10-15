@@ -307,6 +307,7 @@ loom_test_module(
     "test/multiple_entries.loom"
     "test/spirv_vulkan_atomic_hal_actual.loom"
     "test/spirv_vulkan_coop_hal_actual.loom"
+    "test/spirv_vulkan_coop_memory.loom"
     "test/spirv_vulkan_coop_u8_hal_actual.loom"
     "test/spirv_vulkan_hal_actual.loom"
     "test/spirv_vulkan_integer_hal_actual.loom"

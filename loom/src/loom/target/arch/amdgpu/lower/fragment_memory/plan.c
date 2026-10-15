@@ -152,11 +152,6 @@ typedef struct loom_amdgpu_fragment_memory_prepared_t {
   bool has_view_storage_schema;
   // Numeric interpretation derived from the view element and storage schema.
   loom_amdgpu_fragment_memory_view_numeric_t view_numeric;
-  // Target-neutral description of the source memory view.
-  loom_vector_memory_access_t access;
-  // Source view byte strides, including dynamic stride expressions.
-  loom_low_source_memory_axis_byte_stride_t
-      axis_byte_strides[LOOM_ENCODING_ADDRESS_LAYOUT_MAX_RANK];
   // Exact byte strides for static source view axes.
   uint32_t static_axis_byte_strides[LOOM_ENCODING_ADDRESS_LAYOUT_MAX_RANK];
   // Target-neutral indexed source memory access plan.
@@ -1190,43 +1185,13 @@ static bool loom_amdgpu_fragment_memory_target_layout(
                                                    rejection_flags, diagnostic);
 }
 
-static bool loom_amdgpu_fragment_memory_describe_view(
-    const loom_module_t* module, const loom_value_fact_table_t* fact_table,
-    loom_type_t view_type, uint8_t expected_view_rank,
-    loom_vector_memory_access_t* out_access) {
-  *out_access = (loom_vector_memory_access_t){0};
-  if (!loom_type_is_view(view_type) ||
-      loom_type_rank(view_type) != expected_view_rank) {
-    return false;
-  }
-  const loom_scalar_type_t view_element_type =
-      loom_type_element_type(view_type);
-  loom_type_t scalar_vector_type =
-      loom_type_shaped_1d(LOOM_TYPE_VECTOR, view_element_type,
-                          loom_dim_pack_static(1), /*encoding_id=*/0);
-  const loom_fact_context_t* fact_context =
-      fact_table ? &fact_table->context : NULL;
-  if (!loom_vector_memory_access_describe(fact_context, module, view_type,
-                                          scalar_vector_type, out_access)) {
-    return false;
-  }
-  return out_access->static_element_byte_count > 0 &&
-         out_access->static_element_byte_count <= UINT16_MAX &&
-         (out_access->layout_kind == LOOM_VECTOR_MEMORY_LAYOUT_DENSE ||
-          out_access->layout_kind == LOOM_VECTOR_MEMORY_LAYOUT_STRIDED);
-}
-
 static bool loom_amdgpu_fragment_memory_query_view_strides(
-    const loom_value_fact_table_t* fact_table,
-    const loom_vector_memory_access_t* access,
-    loom_low_source_memory_axis_byte_stride_t* out_axis_byte_strides,
+    const loom_low_source_memory_access_plan_t* access,
     uint32_t* out_static_axis_byte_strides,
     loom_amdgpu_fragment_memory_diagnostic_t* diagnostic) {
   for (uint8_t axis = 0; axis < access->view_rank; ++axis) {
-    loom_low_source_memory_axis_byte_stride_t* axis_stride =
-        &out_axis_byte_strides[axis];
-    loom_low_source_memory_query_axis_byte_stride(fact_table, access, axis,
-                                                  axis_stride);
+    const loom_low_source_memory_axis_byte_stride_t* axis_stride =
+        &access->axis_byte_strides[axis];
     if ((axis_stride->kind != LOOM_LOW_SOURCE_MEMORY_AXIS_BYTE_STRIDE_STATIC &&
          axis_stride->kind !=
              LOOM_LOW_SOURCE_MEMORY_AXIS_BYTE_STRIDE_DYNAMIC) ||
@@ -1353,17 +1318,6 @@ static bool loom_amdgpu_fragment_memory_fp8_load_scale_source(
   return true;
 }
 
-static bool loom_amdgpu_fragment_memory_dynamic_base_is_subgroup_uniform(
-    const loom_low_source_memory_access_plan_t* source) {
-  for (uint8_t i = 0; i < source->dynamic_term_count; ++i) {
-    if (!loom_value_facts_is_subgroup_uniform(
-            source->dynamic_terms[i].byte_facts)) {
-      return false;
-    }
-  }
-  return true;
-}
-
 static bool loom_amdgpu_fragment_memory_prepare(
     const loom_amdgpu_fragment_memory_environment_t* environment,
     const loom_amdgpu_fragment_memory_source_t* source,
@@ -1407,18 +1361,13 @@ static bool loom_amdgpu_fragment_memory_prepare(
         diagnostic, IREE_SV("fragment_memory.payload_storage"));
   }
 
-  const iree_host_size_t view_rank = loom_type_rank(out_prepared->view_type);
-  if (view_rank > LOOM_AMDGPU_FRAGMENT_MEMORY_VIEW_RANK_CAPACITY ||
-      !loom_amdgpu_fragment_memory_describe_view(
-          environment->module, environment->fact_table, out_prepared->view_type,
-          (uint8_t)view_rank, &out_prepared->access)) {
+  if (source_access->view_rank >
+      LOOM_AMDGPU_FRAGMENT_MEMORY_VIEW_RANK_CAPACITY) {
     return loom_amdgpu_fragment_memory_reject(diagnostic,
                                               IREE_SV("fragment_memory.view"));
   }
   if (!loom_amdgpu_fragment_memory_query_view_strides(
-          environment->fact_table, &out_prepared->access,
-          out_prepared->axis_byte_strides,
-          out_prepared->static_axis_byte_strides, diagnostic)) {
+          source_access, out_prepared->static_axis_byte_strides, diagnostic)) {
     return false;
   }
 
@@ -1535,7 +1484,7 @@ static bool loom_amdgpu_fragment_memory_evaluate_prepared(
       layout->tile_shape.block_count > 1
           ? LOOM_AMDGPU_FRAGMENT_BLOCKED_VIEW_RANK
           : LOOM_AMDGPU_FRAGMENT_UNBLOCKED_VIEW_RANK;
-  if (prepared->access.view_rank != expected_view_rank) {
+  if (prepared->source_access.view_rank != expected_view_rank) {
     return loom_amdgpu_fragment_memory_reject(diagnostic,
                                               IREE_SV("fragment_memory.view"));
   }
@@ -1563,14 +1512,15 @@ static bool loom_amdgpu_fragment_memory_evaluate_prepared(
       runtime_axes[LOOM_AMDGPU_FRAGMENT_MEMORY_VIEW_RANK_CAPACITY] = {0};
   if (!loom_amdgpu_fragment_memory_compile_address_layout(
           prepared->role, role_layout, representation_flags,
-          prepared->access.view_rank, prepared->axis_byte_strides,
-          &address_layout, runtime_axes,
+          prepared->source_access.view_rank,
+          prepared->source_access.axis_byte_strides, &address_layout,
+          runtime_axes,
           diagnostic != NULL ? &diagnostic->constraint_key : NULL)) {
     return false;
   }
   const bool dynamic_base_is_subgroup_uniform =
-      loom_amdgpu_fragment_memory_dynamic_base_is_subgroup_uniform(
-          &prepared->source_access);
+      (loom_low_source_memory_access_uniform_scope(&prepared->source_access) >=
+       LOOM_VALUE_FACT_UNIFORM_SCOPE_SUBGROUP);
   loom_amdgpu_fragment_memory_transpose_choice_t transpose_choice;
   bool use_transpose_load = false;
   if (iree_any_bit_set(
@@ -1583,7 +1533,7 @@ static bool loom_amdgpu_fragment_memory_evaluate_prepared(
         .source = prepared->source_access,
         .dynamic_base_is_subgroup_uniform = dynamic_base_is_subgroup_uniform,
         .payload = source->payload,
-        .view_rank = prepared->access.view_rank,
+        .view_rank = prepared->source_access.view_rank,
         .representation_flags = representation_flags,
         .register_count = role_layout->register_count,
         .payload_register_count = payload_register_count,
@@ -1609,8 +1559,8 @@ static bool loom_amdgpu_fragment_memory_evaluate_prepared(
   if (!use_transpose_load &&
       !loom_amdgpu_fragment_memory_select_packetization(
           prepared->role, role_layout, payload_form,
-          (uint16_t)prepared->access.static_element_byte_count, &address_layout,
-          runtime_axes, prepared->access.view_rank, &packetization,
+          (uint16_t)prepared->source_access.element_byte_count, &address_layout,
+          runtime_axes, prepared->source_access.view_rank, &packetization,
           diagnostic != NULL ? &diagnostic->constraint_key : NULL)) {
     return false;
   }
@@ -1629,7 +1579,7 @@ static bool loom_amdgpu_fragment_memory_evaluate_prepared(
   loom_amdgpu_fragment_memory_scalar_base_t scalar_base;
   if (!loom_amdgpu_fragment_memory_select_addressing(
           environment, &prepared->source_access, &address_layout, runtime_axes,
-          prepared->access.view_rank, layout->wave_size,
+          prepared->source_access.view_rank, layout->wave_size,
           role_layout->register_count, &scalar_base,
           diagnostic != NULL ? &diagnostic->constraint_key : NULL)) {
     return false;
@@ -1679,7 +1629,7 @@ static bool loom_amdgpu_fragment_memory_evaluate_prepared(
         .register_count = role_layout->register_count,
         .element_byte_count =
             (uint16_t)prepared->source_access.element_byte_count,
-        .view_rank = prepared->access.view_rank,
+        .view_rank = prepared->source_access.view_rank,
         .source_flags = publication_source_flags,
     };
     if (!loom_amdgpu_fragment_memory_select_publication(&publication_query,
@@ -1715,7 +1665,7 @@ static bool loom_amdgpu_fragment_memory_evaluate_prepared(
         .dynamic_base_is_subgroup_uniform = dynamic_base_is_subgroup_uniform,
         .payload = source->payload,
         .fp8_load_scale_source = fp8_load_scale_source,
-        .view_rank = prepared->access.view_rank,
+        .view_rank = prepared->source_access.view_rank,
         .representation_flags = representation_flags,
         .register_count = role_layout->register_count,
         .payload_register_count = payload_register_count,
@@ -1729,7 +1679,7 @@ static bool loom_amdgpu_fragment_memory_evaluate_prepared(
         .packetization = packetization,
         .narrowed_result = narrowed_result,
     };
-    for (uint8_t axis = 0; axis < prepared->access.view_rank; ++axis) {
+    for (uint8_t axis = 0; axis < prepared->source_access.view_rank; ++axis) {
       out_plan->static_axis_byte_strides[axis] =
           prepared->static_axis_byte_strides[axis];
     }
@@ -1822,8 +1772,8 @@ static iree_status_t loom_amdgpu_fragment_memory_selection_flags(
       !loom_vector_fragment_load_isa(source_op) ||
       (source->role != LOOM_CONTRACT_OPERAND_ROLE_LHS &&
        source->role != LOOM_CONTRACT_OPERAND_ROLE_RHS) ||
-      !loom_amdgpu_fragment_memory_dynamic_base_is_subgroup_uniform(
-          source_access)) {
+      loom_low_source_memory_access_uniform_scope(source_access) <
+          LOOM_VALUE_FACT_UNIFORM_SCOPE_SUBGROUP) {
     return iree_ok_status();
   }
   const bool rdna4_candidate =
@@ -1990,14 +1940,18 @@ static iree_status_t loom_amdgpu_fragment_memory_select(
     // A sanitizer observation is not a MemoryAccess operation. Its adapter
     // supplies the logical origin of the observed fragment movement.
     const loom_type_t view_type = loom_module_value_type(module, source.view);
+    loom_low_source_memory_axis_byte_stride_t* observation_strides = NULL;
+    IREE_RETURN_IF_ERROR(loom_low_lower_allocate_function_array(
+        context, loom_type_rank(view_type), sizeof(*observation_strides),
+        (void**)&observation_strides));
     const loom_type_t origin_type =
         loom_type_shaped_1d(LOOM_TYPE_VECTOR, loom_type_element_type(view_type),
                             loom_dim_pack_static(1), /*encoding_id=*/0);
     if (loom_low_source_memory_access_plan_build_indexed(
             view_regions, operation_kind, source.view, source.dynamic_indices,
             source.static_indices, origin_type,
-            (loom_vector_memory_cache_policy_t){0}, &observation_access,
-            &source_diagnostic)) {
+            (loom_vector_memory_cache_policy_t){0}, observation_strides,
+            &observation_access, &source_diagnostic)) {
       source_access = &observation_access;
     }
   } else {
@@ -2134,6 +2088,8 @@ iree_status_t loom_amdgpu_low_legality_verify_fragment_memory(
   loom_amdgpu_fragment_memory_source_from_op(module, op, operation_kind,
                                              &source);
   loom_low_source_memory_access_plan_t source_access = {0};
+  loom_low_source_memory_axis_byte_stride_t
+      axis_byte_strides[LOOM_ENCODING_ADDRESS_LAYOUT_MAX_RANK];
   loom_low_source_memory_access_diagnostic_t source_diagnostic = {0};
   const loom_type_t view_type = loom_module_value_type(module, source.view);
   const loom_type_t origin_type =
@@ -2142,8 +2098,8 @@ iree_status_t loom_amdgpu_low_legality_verify_fragment_memory(
   if (!loom_low_source_memory_access_plan_build_indexed(
           view_regions, operation_kind, source.view, source.dynamic_indices,
           source.static_indices, origin_type,
-          (loom_vector_memory_cache_policy_t){0}, &source_access,
-          &source_diagnostic)) {
+          (loom_vector_memory_cache_policy_t){0}, axis_byte_strides,
+          &source_access, &source_diagnostic)) {
     return loom_amdgpu_low_legality_reject(
         context, op,
         loom_low_source_memory_access_rejection_key(

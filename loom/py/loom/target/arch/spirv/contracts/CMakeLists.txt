@@ -16,6 +16,7 @@ iree_py_library(
     "__init__.py"
     "atomic.py"
     "bfloat.py"
+    "cooperative_matrix.py"
     "descriptor_rule.py"
     "extended_math.py"
     "extrema.py"
