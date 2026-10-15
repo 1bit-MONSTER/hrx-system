@@ -413,6 +413,8 @@ static iree_status_t loom_math_legalize_record_report_row(
       .recipe = decision->recipe,
       .source_fastmath_flags = query->fastmath_flags,
       .recipe_fastmath_flags = decision->recipe_fastmath_flags,
+      .native_required_fastmath_flags =
+          decision->native_required_fastmath_flags,
       .created_op_count = created_op_count,
       .erased_op_count = erased_op_count,
   };

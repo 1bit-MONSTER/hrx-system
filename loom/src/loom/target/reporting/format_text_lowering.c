@@ -1381,7 +1381,7 @@ static iree_status_t loom_target_compile_report_format_math_rows(
           "math_op=%.*s domain=%.*s element=%.*s recipe=%.*s "
           "constraint=%.*s bundle=%.*s config=%.*s source_fastmath=0x%02x "
           "recipe_fastmath=0x%02x created_ops=%" PRIu64 " erased_ops=%" PRIu64
-          "\n",
+          "",
           row_index, (int)function_name.size, function_name.data,
           (int)source_op_name.size, source_op_name.data, (int)action_name.size,
           action_name.data, (int)policy_name.size, policy_name.data,
@@ -1394,6 +1394,12 @@ static iree_status_t loom_target_compile_report_format_math_rows(
           (uint32_t)row->source_fastmath_flags,
           (uint32_t)row->recipe_fastmath_flags, row->created_op_count,
           row->erased_op_count));
+      if (row->native_required_fastmath_flags != 0) {
+        IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+            builder, " native_required_fastmath=0x%02x",
+            (uint32_t)row->native_required_fastmath_flags));
+      }
+      IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(builder, "\n"));
     }
   }
   return iree_ok_status();

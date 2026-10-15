@@ -499,10 +499,24 @@ TEST(CompileReportFormatTest, LegalizationPeaksDoNotRequireDetailedRows) {
   for (uint64_t created_op_count : {40, 2}) {
     loom_target_compile_report_math_row_t math = {
         .action = LOOM_TARGET_COMPILE_REPORT_MATH_ACTION_REWRITTEN,
+        .native_required_fastmath_flags = static_cast<uint8_t>(
+            created_op_count == 40 ? LOOM_TARGET_MATH_FASTMATH_FLAG_AFN : 0),
         .created_op_count = created_op_count,
         .erased_op_count = 1,
     };
-    IREE_ASSERT_OK(loom_target_compile_report_record_math_row(&report, &math));
+    if (created_op_count == 40) {
+      IREE_ASSERT_OK(
+          loom_target_compile_report_record_math_row(&report, &math));
+    } else {
+      loom_target_compile_report_t entry_report = {};
+      loom_target_compile_report_initialize(&entry_report,
+                                            iree_allocator_system());
+      IREE_ASSERT_OK(
+          loom_target_compile_report_record_math_row(&entry_report, &math));
+      IREE_ASSERT_OK(loom_target_compile_report_record_entry_report(
+          &report, &entry_report));
+      loom_target_compile_report_deinitialize(&entry_report);
+    }
     loom_target_compile_report_record_legalization_summary(
         &report, LOOM_TARGET_COMPILE_REPORT_LEGALIZATION_ACTION_REWRITTEN,
         LOOM_TARGET_COMPILE_REPORT_LEGALIZER_STRATEGY_REFERENCE,
@@ -527,6 +541,8 @@ TEST(CompileReportFormatTest, LegalizationPeaksDoNotRequireDetailedRows) {
     ExpectObjectUint64Equals(summary, IREE_SV("maximum_created_op_count"), 40);
     ExpectObjectUint64Equals(summary, IREE_SV("rewritten_op_count"), 2);
   }
+  ExpectObjectUint64Equals(LookupObject(root, IREE_SV("math_legalization")),
+                           IREE_SV("native_alternative_op_count"), 1);
   iree_string_builder_deinitialize(&builder);
   loom_target_compile_report_deinitialize(&report);
 }
@@ -605,6 +621,7 @@ TEST(CompileReportFormatTest, FormatsMathAndTargetLegalization) {
       .element_type = LOOM_SCALAR_TYPE_F32,
       .action = LOOM_TARGET_COMPILE_REPORT_MATH_ACTION_REWRITTEN,
       .recipe = LOOM_TARGET_MATH_RECIPE_ROUND_AWAY,
+      .native_required_fastmath_flags = LOOM_TARGET_MATH_FASTMATH_FLAG_AFN,
       .created_op_count = 10,
       .erased_op_count = 1,
   };
@@ -657,6 +674,9 @@ TEST(CompileReportFormatTest, FormatsMathAndTargetLegalization) {
                             0),
       IREE_STRING_VIEW_NPOS);
   EXPECT_NE(
+      iree_string_view_find(text, IREE_SV("native_required_fastmath=0x40"), 0),
+      IREE_STRING_VIEW_NPOS);
+  EXPECT_NE(
       iree_string_view_find(text,
                             IREE_SV("target_legalization[0] function=branchy "
                                     "source_op=vector.reduce.axes"),
@@ -683,8 +703,12 @@ TEST(CompileReportFormatTest, FormatsMathAndTargetLegalization) {
   const iree_string_view_t math_row =
       LookupArrayElement(LookupObject(math_json, IREE_SV("rows")), /*index=*/0);
   ExpectObjectValueEquals(math_row, IREE_SV("recipe"), IREE_SV("round-away"));
+  ExpectObjectUint64Equals(math_row, IREE_SV("native_required_fastmath_flags"),
+                           LOOM_TARGET_MATH_FASTMATH_FLAG_AFN);
   ExpectObjectUint64Equals(math_row, IREE_SV("created_op_count"), 10);
   ExpectObjectUint64Equals(math_json, IREE_SV("maximum_created_op_count"), 10);
+  ExpectObjectUint64Equals(math_json, IREE_SV("native_alternative_op_count"),
+                           1);
   const iree_string_view_t legalization_json =
       LookupObject(root, IREE_SV("target_legalization"));
   ExpectObjectUint64Equals(legalization_json, IREE_SV("scalarized_op_count"),

@@ -104,17 +104,22 @@ static void loom_x86_math_policy_query(
     *out_decision = loom_x86_math_keep(IREE_SV("math.op.native_float"));
     return;
   }
-  if (iree_all_bits_set(query->fastmath_flags,
-                        LOOM_TARGET_MATH_FASTMATH_FLAG_AFN) &&
-      loom_scalar_type_set_contains(
-          loom_x86_math_profile_element_types(policy, query,
-                                              /*approximate_rsqrt=*/true),
-          query->element_type)) {
+  const bool has_native_approximate_rsqrt = loom_scalar_type_set_contains(
+      loom_x86_math_profile_element_types(policy, query,
+                                          /*approximate_rsqrt=*/true),
+      query->element_type);
+  if (has_native_approximate_rsqrt &&
+      iree_all_bits_set(query->fastmath_flags,
+                        LOOM_TARGET_MATH_FASTMATH_FLAG_AFN)) {
     *out_decision = loom_x86_math_keep(IREE_SV("math.op.native_rsqrt_afn"));
     return;
   }
   *out_decision = loom_x86_math_rewrite(LOOM_TARGET_MATH_RECIPE_RSQRT_SQRT_DIV,
                                         IREE_SV("math.recipe.rsqrt_sqrt_div"));
+  if (has_native_approximate_rsqrt) {
+    out_decision->native_required_fastmath_flags =
+        LOOM_TARGET_MATH_FASTMATH_FLAG_AFN;
+  }
 }
 
 static bool loom_x86_math_prefer_scalar_fma(

@@ -2038,6 +2038,11 @@ static iree_status_t loom_target_compile_report_format_math_row_json(
       &object, IREE_SV("source_fastmath_flags"), row->source_fastmath_flags));
   IREE_RETURN_IF_ERROR(loom_json_object_write_uint32_field(
       &object, IREE_SV("recipe_fastmath_flags"), row->recipe_fastmath_flags));
+  if (row->native_required_fastmath_flags != 0) {
+    IREE_RETURN_IF_ERROR(loom_json_object_write_uint32_field(
+        &object, IREE_SV("native_required_fastmath_flags"),
+        row->native_required_fastmath_flags));
+  }
   IREE_RETURN_IF_ERROR(loom_json_object_write_uint64_field(
       &object, IREE_SV("created_op_count"), row->created_op_count));
   IREE_RETURN_IF_ERROR(loom_json_object_write_uint64_field(
@@ -2054,6 +2059,9 @@ static iree_status_t loom_target_compile_report_format_math_json(
   IREE_RETURN_IF_ERROR(loom_json_object_write_uint64_field(
       &object, IREE_SV("rewritten_op_count"),
       report->math_legalization_rewritten_op_count));
+  IREE_RETURN_IF_ERROR(loom_json_object_write_uint64_field(
+      &object, IREE_SV("native_alternative_op_count"),
+      report->math_legalization_native_alternative_op_count));
   IREE_RETURN_IF_ERROR(loom_json_object_write_uint64_field(
       &object, IREE_SV("maximum_created_op_count"),
       report->math_legalization_maximum_created_op_count));

@@ -177,6 +177,9 @@ typedef struct loom_target_math_policy_decision_t {
   // Recipe builders apply these only to generated operations covered by the
   // recipe's error contract.
   loom_target_math_fastmath_flags_t recipe_fastmath_flags;
+  // Source fast-math permissions required to select an available target-native
+  // form instead of this decision. Zero means no native alternative is known.
+  loom_target_math_fastmath_flags_t native_required_fastmath_flags;
   // Representation used while evaluating the selected recipe. A zero-
   // initialized descriptor preserves the authored source representation.
   loom_target_math_evaluation_t evaluation;

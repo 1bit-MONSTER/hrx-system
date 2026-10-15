@@ -1,0 +1,59 @@
+// AVX2 has native approximate F32 reciprocal-root forms but composes both F32
+// and F64 strict operations. The report preserves that distinction directly.
+// RUN: compile-report target=x86:avx2 legalize-math
+
+func.def @avx2_strict_rsqrt(%scalar_f32: f32, %scalar_f64: f64, %vector_f32: vector<8xf32>, %vector_f64: vector<4xf64>) -> (f32, f64, vector<8xf32>, vector<4xf64>) {
+  %scalar_f32_result = scalar.rsqrtf %scalar_f32 : f32
+  %scalar_f64_result = scalar.rsqrtf %scalar_f64 : f64
+  %vector_f32_result = vector.rsqrtf %vector_f32 : vector<8xf32>
+  %vector_f64_result = vector.rsqrtf %vector_f64 : vector<4xf64>
+  func.return %scalar_f32_result, %scalar_f64_result, %vector_f32_result, %vector_f64_result : f32, f64, vector<8xf32>, vector<4xf64>
+}
+
+// ----
+COMPILE-REPORT: summary artifact=none status=OK function=- backend=- bundle=- export=- export_symbol=- config=- lowered=-
+COMPILE-REPORT: math_legalization rewritten=4 rejected=0 missing_policy=0 missing_recipe=0 rows=4 maximum_created_ops=3
+COMPILE-REPORT: math_legalization[0] function=avx2_strict_rsqrt source_op=vector.rsqrtf action=rewritten policy=x86-math math_op=rsqrtf domain=vector element=f64 recipe=rsqrt-sqrt-div constraint=math.recipe.rsqrt_sqrt_div bundle=x86-avx2 config=x86.avx2.core source_fastmath=0x00 recipe_fastmath=0x00 created_ops=3 erased_ops=1
+COMPILE-REPORT: math_legalization[1] function=avx2_strict_rsqrt source_op=vector.rsqrtf action=rewritten policy=x86-math math_op=rsqrtf domain=vector element=f32 recipe=rsqrt-sqrt-div constraint=math.recipe.rsqrt_sqrt_div bundle=x86-avx2 config=x86.avx2.core source_fastmath=0x00 recipe_fastmath=0x00 created_ops=3 erased_ops=1 native_required_fastmath=0x40
+COMPILE-REPORT: math_legalization[2] function=avx2_strict_rsqrt source_op=scalar.rsqrtf action=rewritten policy=x86-math math_op=rsqrtf domain=scalar element=f64 recipe=rsqrt-sqrt-div constraint=math.recipe.rsqrt_sqrt_div bundle=x86-avx2 config=x86.avx2.core source_fastmath=0x00 recipe_fastmath=0x00 created_ops=3 erased_ops=1
+COMPILE-REPORT: math_legalization[3] function=avx2_strict_rsqrt source_op=scalar.rsqrtf action=rewritten policy=x86-math math_op=rsqrtf domain=scalar element=f32 recipe=rsqrt-sqrt-div constraint=math.recipe.rsqrt_sqrt_div bundle=x86-avx2 config=x86.avx2.core source_fastmath=0x00 recipe_fastmath=0x00 created_ops=3 erased_ops=1 native_required_fastmath=0x40
+
+// ====
+
+// AVX-512 has native approximate reciprocal-root forms for both F32 and F64.
+// RUN: compile-report target=x86:avx512 legalize-math
+
+func.def @avx512_strict_rsqrt(%scalar_f32: f32, %scalar_f64: f64, %vector_f32: vector<16xf32>, %vector_f64: vector<8xf64>) -> (f32, f64, vector<16xf32>, vector<8xf64>) {
+  %scalar_f32_result = scalar.rsqrtf %scalar_f32 : f32
+  %scalar_f64_result = scalar.rsqrtf %scalar_f64 : f64
+  %vector_f32_result = vector.rsqrtf %vector_f32 : vector<16xf32>
+  %vector_f64_result = vector.rsqrtf %vector_f64 : vector<8xf64>
+  func.return %scalar_f32_result, %scalar_f64_result, %vector_f32_result, %vector_f64_result : f32, f64, vector<16xf32>, vector<8xf64>
+}
+
+// ----
+COMPILE-REPORT: summary artifact=none status=OK function=- backend=- bundle=- export=- export_symbol=- config=- lowered=-
+COMPILE-REPORT: math_legalization rewritten=4 rejected=0 missing_policy=0 missing_recipe=0 rows=4 maximum_created_ops=3
+COMPILE-REPORT: math_legalization[0] function=avx512_strict_rsqrt source_op=vector.rsqrtf action=rewritten policy=x86-math math_op=rsqrtf domain=vector element=f64 recipe=rsqrt-sqrt-div constraint=math.recipe.rsqrt_sqrt_div bundle=x86-avx512 config=x86.avx512.core source_fastmath=0x00 recipe_fastmath=0x00 created_ops=3 erased_ops=1 native_required_fastmath=0x40
+COMPILE-REPORT: math_legalization[1] function=avx512_strict_rsqrt source_op=vector.rsqrtf action=rewritten policy=x86-math math_op=rsqrtf domain=vector element=f32 recipe=rsqrt-sqrt-div constraint=math.recipe.rsqrt_sqrt_div bundle=x86-avx512 config=x86.avx512.core source_fastmath=0x00 recipe_fastmath=0x00 created_ops=3 erased_ops=1 native_required_fastmath=0x40
+COMPILE-REPORT: math_legalization[2] function=avx512_strict_rsqrt source_op=scalar.rsqrtf action=rewritten policy=x86-math math_op=rsqrtf domain=scalar element=f64 recipe=rsqrt-sqrt-div constraint=math.recipe.rsqrt_sqrt_div bundle=x86-avx512 config=x86.avx512.core source_fastmath=0x00 recipe_fastmath=0x00 created_ops=3 erased_ops=1 native_required_fastmath=0x40
+COMPILE-REPORT: math_legalization[3] function=avx512_strict_rsqrt source_op=scalar.rsqrtf action=rewritten policy=x86-math math_op=rsqrtf domain=scalar element=f32 recipe=rsqrt-sqrt-div constraint=math.recipe.rsqrt_sqrt_div bundle=x86-avx512 config=x86.avx512.core source_fastmath=0x00 recipe_fastmath=0x00 created_ops=3 erased_ops=1 native_required_fastmath=0x40
+
+// ====
+
+// AVX-512 FP16 extends the same policy to scalar and packed F16 operations.
+// RUN: compile-report legalize-math
+
+x86.target<avx512_packed_dot> @target {contract_feature_bits = 130, contract_set_key = "x86.avx512_features.core"}
+
+func.def target(@target) @avx512_fp16_strict_rsqrt(%scalar: f16, %vector: vector<32xf16>) -> (f16, vector<32xf16>) {
+  %scalar_result = scalar.rsqrtf %scalar : f16
+  %vector_result = vector.rsqrtf %vector : vector<32xf16>
+  func.return %scalar_result, %vector_result : f16, vector<32xf16>
+}
+
+// ----
+COMPILE-REPORT: summary artifact=none status=OK function=- backend=- bundle=- export=- export_symbol=- config=- lowered=-
+COMPILE-REPORT: math_legalization rewritten=2 rejected=0 missing_policy=0 missing_recipe=0 rows=2 maximum_created_ops=3
+COMPILE-REPORT: math_legalization[0] function=avx512_fp16_strict_rsqrt source_op=vector.rsqrtf action=rewritten policy=x86-math math_op=rsqrtf domain=vector element=f16 recipe=rsqrt-sqrt-div constraint=math.recipe.rsqrt_sqrt_div bundle=target config=target source_fastmath=0x00 recipe_fastmath=0x00 created_ops=3 erased_ops=1 native_required_fastmath=0x40
+COMPILE-REPORT: math_legalization[1] function=avx512_fp16_strict_rsqrt source_op=scalar.rsqrtf action=rewritten policy=x86-math math_op=rsqrtf domain=scalar element=f16 recipe=rsqrt-sqrt-div constraint=math.recipe.rsqrt_sqrt_div bundle=target config=target source_fastmath=0x00 recipe_fastmath=0x00 created_ops=3 erased_ops=1 native_required_fastmath=0x40
