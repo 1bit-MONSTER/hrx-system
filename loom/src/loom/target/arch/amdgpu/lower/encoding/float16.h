@@ -72,6 +72,25 @@ bool loom_amdgpu_descriptor_set_can_emit_packed_u16_lane_pair(
 bool loom_amdgpu_bf16_descriptor_set_can_emit_f32_pair_to_packed_bf16(
     const loom_low_descriptor_set_t* descriptor_set);
 
+// Returns true when |descriptor_set| can pack |lane_count| exactly
+// representable F32 lanes as BF16 using integer bit packets.
+bool loom_amdgpu_bf16_descriptor_set_can_emit_exact_f32_pack(
+    const loom_low_descriptor_set_t* descriptor_set, uint32_t lane_count);
+
+// Packs the upper half of one exactly representable F32 lane as BF16. The
+// result is held in the low 16 bits of a one-unit VGPR.
+iree_status_t loom_amdgpu_emit_exact_f32_to_bf16_lane(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t source_lane, loom_type_t lane_type,
+    loom_value_id_t* out_lane);
+
+// Packs the upper halves of two exactly representable F32 lanes as BF16. The
+// low source becomes the low 16 bits of the result.
+iree_status_t loom_amdgpu_emit_exact_f32_pair_to_packed_bf16(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t low_source_lane, loom_value_id_t high_source_lane,
+    loom_type_t lane_type, loom_value_id_t* out_packed);
+
 // Returns true when |descriptor_set| can emit one f32-to-F16 lane conversion.
 bool loom_amdgpu_f16_descriptor_set_can_emit_f32_to_f16_lane(
     const loom_low_descriptor_set_t* descriptor_set);

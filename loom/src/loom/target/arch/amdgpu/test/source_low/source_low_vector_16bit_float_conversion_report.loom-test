@@ -2,6 +2,45 @@
 
 amdgpu.target<gfx1100> @target
 
+func.def target(@target) @report_exact_i8_to_bf16_pack(%input: vector<3xi8>) -> (vector<3xbf16>) {
+  %wide = vector.sitofp %input : vector<3xi8> to vector<3xf32>
+  %narrow = vector.fptrunc %wide : vector<3xf32> to vector<3xbf16>
+  func.return %narrow : vector<3xbf16>
+}
+
+// ----
+CHECK: COMPILE-REPORT: source_low[*] function=report_exact_i8_to_bf16_pack source_op=vector.fptrunc selection=plan plan_key=amdgpu.vector_16bit_float_conversion.strategy.f32_to_packed_bf16_exact_pack *
+
+// ====
+
+amdgpu.target<gfx1100> @target
+
+func.def target(@target) @report_rounded_i16_to_bf16_pack(%input: vector<2xi16>) -> (vector<2xbf16>) {
+  %wide = vector.sitofp %input : vector<2xi16> to vector<2xf32>
+  %narrow = vector.fptrunc %wide : vector<2xf32> to vector<2xbf16>
+  func.return %narrow : vector<2xbf16>
+}
+
+// ----
+CHECK: COMPILE-REPORT: source_low[*] function=report_rounded_i16_to_bf16_pack source_op=vector.fptrunc selection=plan plan_key=amdgpu.vector_16bit_float_conversion.strategy.f32_to_packed_bf16_integer_pack *
+
+// ====
+
+amdgpu.target<gfx950> @target
+
+func.def target(@target) @report_native_exact_i8_to_bf16_pack(%input: vector<3xi8>) -> (vector<3xbf16>) {
+  %wide = vector.sitofp %input : vector<3xi8> to vector<3xf32>
+  %narrow = vector.fptrunc %wide : vector<3xf32> to vector<3xbf16>
+  func.return %narrow : vector<3xbf16>
+}
+
+// ----
+CHECK: COMPILE-REPORT: source_low[*] function=report_native_exact_i8_to_bf16_pack source_op=vector.fptrunc selection=plan plan_key=amdgpu.vector_16bit_float_conversion.strategy.f32_to_packed_bf16_native *
+
+// ====
+
+amdgpu.target<gfx1100> @target
+
 kernel.def target(@target) @report_gfx1100_fp8_to_bf16_software_decode() {
   %unit = index.constant 1 : index
   %workgroup_size = index.constant 64 : index

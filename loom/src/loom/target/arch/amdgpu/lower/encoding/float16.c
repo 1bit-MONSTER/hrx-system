@@ -15,6 +15,43 @@
 #include "loom/target/arch/amdgpu/lower/types.h"
 #include "loom/target/arch/amdgpu/refs/target_refs.h"
 
+enum {
+  LOOM_AMDGPU_BF16_BIT_COUNT = 16u,
+  LOOM_AMDGPU_BF16_HIGH_BITS_MASK = UINT32_C(0xFFFF0000),
+};
+
+iree_status_t loom_amdgpu_emit_exact_f32_to_bf16_lane(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t source_lane, loom_type_t lane_type,
+    loom_value_id_t* out_lane) {
+  *out_lane = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_low_vgpr_b32(
+      context, source_op, source_lane, &source_lane));
+  return loom_amdgpu_emit_vgpr_shift(
+      context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_V_LSHRREV_B32_LIT,
+      LOOM_AMDGPU_BF16_BIT_COUNT, source_lane, lane_type, out_lane);
+}
+
+iree_status_t loom_amdgpu_emit_exact_f32_pair_to_packed_bf16(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t low_source_lane, loom_value_id_t high_source_lane,
+    loom_type_t lane_type, loom_value_id_t* out_packed) {
+  *out_packed = LOOM_VALUE_ID_INVALID;
+  loom_value_id_t low_bits = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_exact_f32_to_bf16_lane(
+      context, source_op, low_source_lane, lane_type, &low_bits));
+  IREE_RETURN_IF_ERROR(loom_amdgpu_materialize_low_vgpr_b32(
+      context, source_op, high_source_lane, &high_source_lane));
+  loom_value_id_t high_bits = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_vgpr_binary_immediate(
+      context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_V_AND_B32_LIT,
+      high_source_lane, LOOM_AMDGPU_BF16_HIGH_BITS_MASK, lane_type,
+      &high_bits));
+  return loom_amdgpu_emit_binary(context, source_op,
+                                 LOOM_AMDGPU_DESCRIPTOR_REF_V_OR_B32, low_bits,
+                                 high_bits, lane_type, out_packed);
+}
+
 iree_status_t loom_amdgpu_emit_f32_to_bf16_lane_with_descriptors(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_amdgpu_float16_pack_descriptors_t* descriptors,
@@ -205,6 +242,21 @@ bool loom_amdgpu_bf16_descriptor_set_can_emit_f32_pair_to_packed_bf16(
              descriptor_set) &&
          loom_amdgpu_descriptor_set_can_emit_packed_u16_lane_pair(
              descriptor_set);
+}
+
+bool loom_amdgpu_bf16_descriptor_set_can_emit_exact_f32_pack(
+    const loom_low_descriptor_set_t* descriptor_set, uint32_t lane_count) {
+  if (!loom_amdgpu_descriptor_set_can_emit_vgpr_binary_immediate(
+          descriptor_set, LOOM_AMDGPU_DESCRIPTOR_REF_V_LSHRREV_B32_LIT,
+          LOOM_AMDGPU_BF16_BIT_COUNT)) {
+    return false;
+  }
+  return lane_count < 2u ||
+         (loom_amdgpu_descriptor_set_can_emit_vgpr_binary_immediate(
+              descriptor_set, LOOM_AMDGPU_DESCRIPTOR_REF_V_AND_B32_LIT,
+              LOOM_AMDGPU_BF16_HIGH_BITS_MASK) &&
+          loom_amdgpu_descriptor_set_has_ref(
+              descriptor_set, LOOM_AMDGPU_DESCRIPTOR_REF_V_OR_B32));
 }
 
 bool loom_amdgpu_f16_descriptor_set_can_emit_f32_to_f16_lane(
