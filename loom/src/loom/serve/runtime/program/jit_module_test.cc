@@ -25,12 +25,19 @@ TEST_P(JitModuleTest, SourceDefaultsAndOverridesShareVmAndGpuState) {
   loom_serve::testing::StalledStderr blocked;
   ASSERT_NO_FATAL_FAILURE(blocked.Begin());
 #endif
+  // The parent fails after publishing a valid native request. The child still
+  // compiles and remains reusable even though no command product is returned.
+  IREE_ASSERT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        Compile("5", 0, IREE_SV("invalid_argument")));
+  ASSERT_EQ(commands_[0], nullptr);
+  EXPECT_EQ(compilation_.kernels, 1u);
+  EXPECT_EQ(compilation_.reused_kernels, 0u);
   // A failed native task must join its accepted siblings before compiler reuse.
   IREE_ASSERT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         Compile("5", 0, IREE_SV("invalid_native")));
   ASSERT_EQ(commands_[0], nullptr);
   EXPECT_EQ(compilation_.kernels, 9u);
-  EXPECT_EQ(compilation_.reused_kernels, 0u);
+  EXPECT_EQ(compilation_.reused_kernels, 1u);
   EXPECT_GT(compilation_.severities[LOOMC_DIAGNOSTIC_SEVERITY_ERROR], 0u);
   ASSERT_GT(compilation_.diagnostic_count, 0u);
   EXPECT_GT(compilation_.diagnostics[0].message_length, 0u);
@@ -38,18 +45,18 @@ TEST_P(JitModuleTest, SourceDefaultsAndOverridesShareVmAndGpuState) {
   IREE_ASSERT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
                         Compile("5", 0, IREE_SV("invalid_native")));
   EXPECT_EQ(compilation_.kernels, 10u);
-  EXPECT_EQ(compilation_.reused_kernels, 8u);
+  EXPECT_EQ(compilation_.reused_kernels, 9u);
   IREE_ASSERT_OK(Compile(nullptr, 0));
   EXPECT_EQ(compilation_.kernels, 10u);
-  EXPECT_EQ(compilation_.reused_kernels, 16u);
+  EXPECT_EQ(compilation_.reused_kernels, 17u);
   IREE_ASSERT_OK(Compile("7", 1));
   EXPECT_EQ(compilation_.kernels, 18u);
-  EXPECT_EQ(compilation_.reused_kernels, 16u);
+  EXPECT_EQ(compilation_.reused_kernels, 17u);
   IREE_ASSERT_OK(PrepareVm());
   // Prepared commands must outlive all compiler/source storage.
   loom_serve_jit_free(jit_);
   jit_ = nullptr;
-  EXPECT_EQ(compilation_.commands, 4u);
+  EXPECT_EQ(compilation_.commands, 5u);
   EXPECT_EQ(compilation_.entries, 16u);
   EXPECT_EQ(compilation_.workers, GetParam());
   EXPECT_GT(compilation_.duration_ns, 0u);

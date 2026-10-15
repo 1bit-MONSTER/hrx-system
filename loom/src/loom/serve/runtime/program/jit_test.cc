@@ -192,6 +192,27 @@ TEST_P(JitTest, InvalidConfigurationLeavesCompilerReusable) {
   IREE_ASSERT_OK(Compile("3", 0));
 }
 
+TEST_P(JitTest, FailedParentRetiresCatalogAfterAcceptedNativeTasks) {
+  const loomc_config_options_t config = {
+      nullptr, 0, {}, LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED};
+  Compilation job;
+  job.jit = jit_;
+  job.root = IREE_SV("invalid_argument");
+  job.config = &config;
+  job.retire_catalog = true;
+  jit_ = nullptr;
+  job.Start(loom_serve_host_executor(loom_serve_device_host(device_owner_)));
+  loom_serve_jit_stage_t* stage = nullptr;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT, job.Await(&stage));
+  EXPECT_EQ(stage, nullptr);
+  EXPECT_EQ(job.jit, nullptr);
+  EXPECT_EQ(compilation_.commands, 1u);
+  EXPECT_EQ(compilation_.kernels, 1u);
+  EXPECT_EQ(compilation_.entries, 0u);
+  EXPECT_GT(compilation_.severities[LOOMC_DIAGNOSTIC_SEVERITY_ERROR], 0u);
+  loom_serve_jit_stage_free(stage);
+}
+
 TEST_P(JitTest, InvalidRootLeavesCompilerReusable) {
   IREE_ASSERT_STATUS_IS(IREE_STATUS_NOT_FOUND,
                         Compile("3", 0, IREE_SV("absent")));
