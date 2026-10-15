@@ -515,6 +515,12 @@ loom_cc_test(
   NAME
     source_text_service_test
   DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/config.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/embed.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/model.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/tokenizer.json"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/advance.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/control.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/model.json"
@@ -528,6 +534,7 @@ loom_cc_test(
     loom::serve::service::text::elastic_storage_tests
     loom::serve::service::text::source_execution_tests
   ENV
+    "LOOM_SERVE_TEST_MEDIA_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/model.json}}"
     "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom}}"
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"

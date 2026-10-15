@@ -207,10 +207,20 @@ loom_cc_library(
 loom_cc_library(
     name = "source_execution_tests",
     testonly = True,
-    srcs = ["source_execution_test.cc"],
+    srcs = [
+        "media_execution_test.cc",
+        "source_execution_test.cc",
+    ],
     target_compatible_with = _SOURCE_TEST_COMPATIBILITY,
     visibility = ["//loom/src/loom/serve:implementation"],
-    deps = [":source_service_fixture"],
+    deps = [
+        ":epoch",
+        ":model",
+        ":source_service_fixture",
+        "//loom/src/loom/serve/service/finite:model",
+        "//loom/src/loom/serve/service/finite:result",
+        "//loom/src/loom/serve/service/finite/embedding:protocol",
+    ],
     alwayslink = True,
 )
 
@@ -335,6 +345,8 @@ loom_cc_library(
 loom_cc_library(
     name = "model",
     srcs = [
+        "epoch_plan.c",
+        "media_epoch.c",
         "model.c",
         "source.c",
         "stages.c",
@@ -342,6 +354,9 @@ loom_cc_library(
         "variant.c",
     ],
     hdrs = [
+        "epoch_plan.h",
+        "media_epoch.h",
+        "media_input.h",
         "model.h",
         "source.h",
         "stages.h",
@@ -374,6 +389,7 @@ loom_cc_library(
         "//loom/src/loom/serve/runtime/storage:memory",
         "//loom/src/loom/serve/runtime/storage:relocation",
         "//loom/src/loom/serve/runtime/storage:snapshot",
+        "//loom/src/loom/serve/service/finite:result",
         "//loom/src/loom/util:stream",
         "//runtime/src/iree/async",
         "//runtime/src/iree/async/util:proactor_pool",
@@ -511,7 +527,10 @@ loom_cc_library(
 
 loom_cc_test(
     name = "epoch_test",
-    srcs = ["epoch_test.cc"],
+    srcs = [
+        "epoch_plan_test.cc",
+        "epoch_test.cc",
+    ],
     deps = [
         ":epoch",
         ":model",

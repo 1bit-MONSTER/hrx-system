@@ -80,6 +80,9 @@ static void loom_serve_text_epoch_prepare_continuation(
                          : rows[row].input_tokens + spans[first].token_count,
         .flags = (select ? LOOM_SERVE_TEXT_SPAN_FLAG_SELECT : 0) |
                  (speculative ? LOOM_SERVE_TEXT_SPAN_FLAG_PROPOSE : 0),
+        .input_offset =
+            speculative ? 0 : rows[row].input_offset + spans[first].token_count,
+        .media = speculative ? NULL : rows[row].media,
     };
     next_limits[i] =
         speculative
@@ -133,6 +136,8 @@ void loom_serve_text_epoch_prepare(
         .token_ids = prefill ? input->input_tokens : &decode_tokens[i],
         .flags = (select ? LOOM_SERVE_TEXT_SPAN_FLAG_SELECT : 0) |
                  (output_limits[i] ? LOOM_SERVE_TEXT_SPAN_FLAG_PROPOSE : 0),
+        .input_offset = prefill ? input->input_offset : 0,
+        .media = prefill ? input->media : NULL,
     };
     input_count += spans[i].token_count;
   }
@@ -178,6 +183,10 @@ iree_status_t loom_serve_text_epoch_submit(
         out_frontier);
   }
   const loom_serve_text_span_t* span = &epoch->spans[epoch->cursor];
+  if (span->media) {
+    return loom_serve_text_model_submit_epoch(model, epoch->shape_index, 1,
+                                              span, NULL, NULL, out_frontier);
+  }
   loom_serve_text_row_t* row =
       loom_serve_text_model_row(model, span->row_index);
   if (epoch->prefill[epoch->cursor] ||
@@ -195,6 +204,12 @@ iree_status_t loom_serve_text_epoch_complete(
     return loom_serve_text_model_complete_epoch(model, epoch->results);
   }
   const loom_serve_text_span_t* span = &epoch->spans[epoch->cursor];
+  if (span->media) {
+    IREE_RETURN_IF_ERROR(loom_serve_text_model_complete_epoch(
+        model, &epoch->results[epoch->cursor]));
+    ++epoch->cursor;
+    return iree_ok_status();
+  }
   loom_serve_text_row_t* row =
       loom_serve_text_model_row(model, span->row_index);
   IREE_RETURN_IF_ERROR(loom_serve_text_row_complete_step(row));

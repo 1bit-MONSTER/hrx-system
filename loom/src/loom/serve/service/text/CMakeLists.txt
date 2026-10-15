@@ -240,9 +240,15 @@ loom_cc_library(
   NAME
     source_execution_tests
   SRCS
+    "media_execution_test.cc"
     "source_execution_test.cc"
   DEPS
+    ::epoch
+    ::model
     ::source_service_fixture
+    loom::serve::service::finite::embedding::protocol
+    loom::serve::service::finite::model
+    loom::serve::service::finite::result
   TESTONLY
   ALWAYSLINK
   PUBLIC
@@ -386,12 +392,17 @@ loom_cc_library(
   NAME
     model
   HDRS
+    "epoch_plan.h"
+    "media_epoch.h"
+    "media_input.h"
     "model.h"
     "source.h"
     "stages.h"
     "state.h"
     "variant.h"
   SRCS
+    "epoch_plan.c"
+    "media_epoch.c"
     "model.c"
     "source.c"
     "stages.c"
@@ -432,6 +443,7 @@ loom_cc_library(
     loom::serve::runtime::storage::memory
     loom::serve::runtime::storage::relocation
     loom::serve::runtime::storage::snapshot
+    loom::serve::service::finite::result
     loom::util::stream
   PUBLIC
 )
@@ -602,6 +614,7 @@ loom_cc_test(
   NAME
     epoch_test
   SRCS
+    "epoch_plan_test.cc"
     "epoch_test.cc"
   DEPS
     ::epoch

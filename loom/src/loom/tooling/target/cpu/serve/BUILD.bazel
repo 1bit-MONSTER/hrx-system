@@ -277,8 +277,9 @@ loom_cc_test(
 
 loom_cc_test(
     name = "source_text_service_test",
-    data = TEXT_SOURCES,
+    data = EMBEDDING_SOURCES + TEXT_SOURCES,
     env = {
+        "LOOM_SERVE_TEST_MEDIA_SOURCE": "$(rootpath //loom/src/loom/serve/fixture/embedding:model.json)",
         "LOOM_SERVE_TEST_MODEL_SOURCE": "$(rootpath //loom/src/loom/serve/fixture/text:prepare.loom)",
     },
     target_compatible_with = loom_config_compatible_with([
