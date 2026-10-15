@@ -43,6 +43,8 @@ check.scenario @x86_root_approximate_values {
   check.return
 }
 
+check.benchmark<@x86_root_approximate_values> @x86_root_approximate_benchmark
+
 // VRSQRT14PD/SD bounds relative error below 2^-14. The independent constants
 // keep the oracle available on VM, which does not implement F64 square root.
 func.def @x86_root_f64_approximate_observations(%first_bits: i64, %second_bits: i64, %output: buffer) {
@@ -81,3 +83,5 @@ check.scenario @x86_root_f64_approximate_values {
   }
   check.return
 }
+
+check.benchmark<@x86_root_f64_approximate_values> @x86_root_f64_approximate_benchmark

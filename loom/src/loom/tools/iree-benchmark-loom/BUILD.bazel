@@ -59,6 +59,16 @@ _XDNA_TARGET_DEPS = iree_select({
     "//conditions:default": [],
 })
 
+_TASK_TARGET_COPTS = iree_select({
+    "//loom/config/execute:task_hal": ["-DIREE_BENCHMARK_LOOM_HAVE_TASK=1"],
+    "//conditions:default": [],
+})
+
+_TASK_TARGET_DEPS = iree_select({
+    "//loom/config/execute:task_hal": ["//loom/binding/c/target/cpu:iree_hal"],
+    "//conditions:default": [],
+})
+
 _VM_TARGET_COPTS = iree_select({
     "//loom/config/target/arch:vm": ["-DIREE_BENCHMARK_LOOM_HAVE_VM=1"],
     "//conditions:default": [],
@@ -74,6 +84,7 @@ _VM_TARGET_DEPS = iree_select({
 _IREE_BENCHMARK_LOOM_TARGET_COPTS = (
     _AMDGPU_TARGET_COPTS +
     _SPIRV_VULKAN_TARGET_COPTS +
+    _TASK_TARGET_COPTS +
     _VM_TARGET_COPTS +
     _XDNA_TARGET_COPTS
 )
@@ -81,6 +92,7 @@ _IREE_BENCHMARK_LOOM_TARGET_COPTS = (
 _IREE_BENCHMARK_LOOM_TARGET_DEPS = (
     _AMDGPU_TARGET_DEPS +
     _SPIRV_VULKAN_TARGET_DEPS +
+    _TASK_TARGET_DEPS +
     _VM_TARGET_DEPS +
     _XDNA_TARGET_DEPS
 )
