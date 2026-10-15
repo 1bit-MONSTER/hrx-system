@@ -49,6 +49,22 @@ loom_cc_library(
   PUBLIC
 )
 
+loom_cc_library(
+  NAME
+    state
+  HDRS
+    "state.h"
+  SRCS
+    "state.c"
+  DEPS
+    iree::base
+    iree::hal
+    loom::serve::runtime::device
+    loom::serve::runtime::execution::retirement
+    loom::serve::runtime::storage::memory
+  PUBLIC
+)
+
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
@@ -59,6 +75,7 @@ loom_cc_library(
     "model.c"
   DEPS
     ::generator
+    ::state
     iree::base
     iree::base::threading
     iree::hal

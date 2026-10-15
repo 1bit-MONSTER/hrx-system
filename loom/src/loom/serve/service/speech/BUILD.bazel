@@ -47,6 +47,19 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "state",
+    srcs = ["state.c"],
+    hdrs = ["state.h"],
+    deps = [
+        "//loom/src/loom/serve/runtime/device",
+        "//loom/src/loom/serve/runtime/execution:retirement",
+        "//loom/src/loom/serve/runtime/storage:memory",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+    ],
+)
+
+loom_cc_library(
     name = "model",
     srcs = ["model.c"],
     hdrs = ["model.h"],
@@ -55,6 +68,7 @@ loom_cc_library(
     ]),
     deps = [
         ":generator",
+        ":state",
         "//loom/binding/c:loomc",
         "//loom/src/loom/serve/runtime/device",
         "//loom/src/loom/serve/runtime/execution",

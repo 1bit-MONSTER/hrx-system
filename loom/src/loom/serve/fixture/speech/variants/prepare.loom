@@ -24,7 +24,7 @@ global.rodata.def @empty = bytes("")
 
 global.rodata.def @invalid = bytes("7370656563682066697874757265206578706563747320656d707479206f7074696f6e73")
 
-func.def public @prepare(%directory: buffer, %options: buffer) -> (i64, i64, i64, i64, i64, i64, i64, i64, buffer, buffer, buffer, buffer) {
+func.def public @prepare(%directory: buffer, %options: buffer) -> (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, buffer, buffer, buffer, buffer) {
   %c0 = scalar.constant 0 : i64
   %c1 = scalar.constant 1 : i64
   %object_kind = scalar.constant 2 : i32
@@ -56,12 +56,14 @@ func.def public @prepare(%directory: buffer, %options: buffer) -> (i64, i64, i64
   func.call @parameter(%first, %binding0, %directory, %weights, %policy) : (i32, i32, buffer, buffer, buffer)
   func.call @parameter(%second, %binding1, %directory, %weights, %policy) : (i32, i32, buffer, buffer, buffer)
   func.call @parameter(%second, %binding0, %directory, %weights, %policy) : (i32, i32, buffer, buffer, buffer)
+  %rows = scalar.constant 4 : i64
+  %work_bytes = scalar.constant 64 : i64
   %input = scalar.constant 16 : i64
   %conditioning_bytes = scalar.constant 8 : i64
-  %stream = scalar.constant 8 : i64
-  %output = scalar.constant 36 : i64
+  %stream = scalar.constant 16 : i64
+  %output = scalar.constant 144 : i64
   %frames = scalar.constant 5 : i64
   %rate = scalar.constant 24000 : i64
   %name = global.load @name : buffer
-  func.return %input, %conditioning_bytes, %stream, %output, %output, %frames, %rate, %c1, %empty_buffer, %name, %empty_buffer, %empty_buffer : i64, i64, i64, i64, i64, i64, i64, i64, buffer, buffer, buffer, buffer
+  func.return %rows, %rows, %input, %conditioning_bytes, %stream, %work_bytes, %output, %output, %frames, %rate, %c1, %empty_buffer, %name, %empty_buffer, %empty_buffer : i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, buffer, buffer, buffer, buffer
 }

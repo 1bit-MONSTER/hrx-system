@@ -1,10 +1,10 @@
 target.decl @weighted_speech_target
 
-kernel.decl @initialize() launch(%request: buffer, %conditioning: buffer, %state: buffer, %output: buffer)
+kernel.decl @initialize() launch(%work: buffer, %request: buffer, %conditioning: buffer, %state: buffer, %output: buffer)
 
-kernel.decl @audio_block() launch(%request: buffer, %conditioning: buffer, %state: buffer, %output: buffer)
+kernel.decl @audio_block() launch(%work: buffer, %request: buffer, %conditioning: buffer, %state: buffer, %output: buffer)
 
-kernel.decl @publish_block() launch(%intermediate: buffer, %output: buffer)
+kernel.decl @publish_block() launch(%work: buffer, %intermediate: buffer, %output: buffer)
 
 // Non-idempotent preparation makes repeated transformation visible in audio.
 kernel.def target(@weighted_speech_target) @double_factor() {
@@ -45,45 +45,57 @@ kernel.def target(@weighted_speech_target) @condition_voice() {
   kernel.return
 }
 
-// Four fixed roots coexist with the ordinary four dynamic speech roots.
-command.program.def public @initialize_weighted_audio() launch(%encoder_weights: buffer, %base_weights: buffer, %voice_weights: buffer, %raw_weights: buffer, %request: buffer, %conditioning: buffer, %state: buffer, %output: buffer) {
+// Four fixed roots coexist with the five dynamic speech roots.
+command.program.def public @initialize_weighted_audio() launch(%encoder_weights: buffer, %base_weights: buffer, %voice_weights: buffer, %raw_weights: buffer, %work: buffer, %request: buffer, %conditioning: buffer, %state: buffer, %output: buffer) {
   %encoder = command.parameter %encoder_weights, "encoder" : view<1xf32>
   %base = command.parameter %base_weights, "factor" : view<1xf32>
   %voice = command.parameter %voice_weights, "factor" : view<1xf32>
   %raw = command.parameter %raw_weights, "factor" : view<1xf32>
-  kernel.launch @initialize(%request, %conditioning, %state, %output) : (buffer, buffer, buffer, buffer)
+  kernel.launch @initialize(%work, %request, %conditioning, %state, %output) : (buffer, buffer, buffer, buffer, buffer)
   kernel.launch @condition_voice(%encoder, %base, %voice, %raw, %conditioning) : (view<1xf32>, view<1xf32>, view<1xf32>, view<1xf32>, buffer)
   command.return
 }
 
 kernel.def target(@weighted_speech_target) @scale_audio() {
   %c1 = index.constant 1 : index
-  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
-} launch(%decoder: view<1xf32>, %base: view<1xf32>, %output: buffer) {
-  %samples_offset = index.constant 16 : offset
-  %samples = buffer.view %output[%samples_offset] : buffer -> view<5xf32>
-  %decoder_value = view.load %decoder[0] : view<1xf32> -> f32
-  %base_value = view.load %base[0] : view<1xf32> -> f32
-  %gain = scalar.mulf %decoder_value, %base_value : f32
-  %start = index.constant 0 : index
-  %end = index.constant 5 : index
-  %step = index.constant 1 : index
-  scf.for %i = [%start to %end step %step] {
-    %sample = view.load %samples[%i] : view<5xf32> -> f32
-    %scaled = scalar.mulf %sample, %gain : f32
-    view.store %scaled, %samples[%i] : f32, view<5xf32>
+  %rows = index.constant 4 : index
+  kernel.launch.config workgroups(%rows, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%decoder: view<1xf32>, %base: view<1xf32>, %work: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %ordinal = kernel.workgroup.id<x> : index
+  %work_header = buffer.view %work[%origin] : buffer -> view<2xi32>
+  %count32 = view.load %work_header[0] : view<2xi32> -> i32
+  %count = index.cast %count32 : i32 to index
+  %selected = index.cmp ult, %ordinal, %count : index
+  scf.if %selected {
+    %output_stride = index.constant 36 : offset
+    %output_offset = index.scale %ordinal, %output_stride : index, offset -> offset
+    %header_bytes = index.constant 16 : offset
+    %samples_offset = index.add %output_offset, %header_bytes : offset
+    %samples = buffer.view %output[%samples_offset] : buffer -> view<5xf32>
+    %decoder_value = view.load %decoder[0] : view<1xf32> -> f32
+    %base_value = view.load %base[0] : view<1xf32> -> f32
+    %gain = scalar.mulf %decoder_value, %base_value : f32
+    %start = index.constant 0 : index
+    %end = index.constant 5 : index
+    %step = index.constant 1 : index
+    scf.for %i = [%start to %end step %step] {
+      %sample = view.load %samples[%i] : view<5xf32> -> f32
+      %scaled = scalar.mulf %sample, %gain : f32
+      view.store %scaled, %samples[%i] : f32, view<5xf32>
+    }
   }
   kernel.return
 }
 
 // Decoding shares the prepared base factor but owns a disjoint phase tensor.
-command.program.def public @step_weighted_audio() launch(%decoder_weights: buffer, %base_weights: buffer, %request: buffer, %conditioning: buffer, %state: buffer, %output: buffer) {
+command.program.def public @step_weighted_audio() launch(%decoder_weights: buffer, %base_weights: buffer, %work: buffer, %request: buffer, %conditioning: buffer, %state: buffer, %output: buffer) {
   %decoder = command.parameter %decoder_weights, "decoder" : view<1xf32>
   %base = command.parameter %base_weights, "factor" : view<1xf32>
-  %length = index.constant 36 : offset
+  %length = index.constant 144 : offset
   %intermediate = buffer.alloca<global> align(16) %length : buffer
-  kernel.launch @audio_block(%request, %conditioning, %state, %intermediate) : (buffer, buffer, buffer, buffer)
-  kernel.launch @scale_audio(%decoder, %base, %intermediate) : (view<1xf32>, view<1xf32>, buffer)
-  kernel.launch @publish_block(%intermediate, %output) : (buffer, buffer)
+  kernel.launch @audio_block(%work, %request, %conditioning, %state, %intermediate) : (buffer, buffer, buffer, buffer, buffer)
+  kernel.launch @scale_audio(%decoder, %base, %work, %intermediate) : (view<1xf32>, view<1xf32>, buffer, buffer)
+  kernel.launch @publish_block(%work, %intermediate, %output) : (buffer, buffer, buffer)
   command.return
 }

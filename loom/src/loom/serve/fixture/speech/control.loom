@@ -1,6 +1,6 @@
 func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
 
-func.decl import("runner") @execute_4(%stage: i32, %request: hal.buffer, %conditioning: hal.buffer, %stream: hal.buffer, %output: hal.buffer) -> (i64)
+func.decl import("runner") @execute_5(%stage: i32, %work: hal.buffer, %request: hal.buffer, %conditioning: hal.buffer, %stream: hal.buffer, %output: hal.buffer) -> (i64)
 
 func.decl import("runner") @feedback(%slot: i32, %source: hal.buffer, %offset: i64, %length: i64) -> (i64)
 
@@ -79,34 +79,94 @@ func.def public @prepare_request(%model: buffer, %text: buffer, %voice: buffer, 
   func.return %state, %payload : buffer, buffer
 }
 
-func.def public @generate(%model: buffer, %state: buffer, %tags: buffer, %request: hal.buffer, %conditioning: hal.buffer, %stream: hal.buffer, %output: hal.buffer) -> (i32) {
+// A work offer observes the current phase without advancing the request.
+func.def public @prepare_work(%model: buffer, %state: buffer) -> (buffer, i64, i64) {
+  %origin = index.constant 0 : offset
+  %cursor = buffer.view %state[%origin] : buffer -> view<1xi32>
+  %stage = view.load %cursor[0] : view<1xi32> -> i32
+  %tag = scalar.extui %stage : i32 to i64
+  %unit = scalar.constant 1 : i64
+  func.return %state, %unit, %tag : buffer, i64, i64
+}
+
+// Only the small row map changes as independently resident requests join/leave.
+func.def public @prepare_batch(%model: buffer, %tags: buffer, %ranges: buffer, %packed: buffer) -> (buffer, buffer) {
+  %origin = index.constant 0 : offset
+  %map_offset = index.constant 8 : offset
+  %length = buffer.length %ranges
+  %bytes = index.cast %length : offset to i64
+  %record_bytes = scalar.constant 24 : i64
+  %count64 = scalar.divui %bytes, %record_bytes : i64
+  %bounded_count = scalar.assume %count64 [range(%count64, 1, 4)] : i64
+  %count = index.cast %bounded_count : i64 to index
+  %records = buffer.view %ranges[%origin] : buffer -> view<[%count]x3xi64>
+  %work_length = index.constant 24 : offset
+  %payload = buffer.alloca<private> align(8) %work_length : buffer
+  %header = buffer.view %payload[%origin] : buffer -> view<2xi32>
+  %map = buffer.view %payload[%map_offset] : buffer -> view<4xi32>
+  %count32 = scalar.trunci %count64 : i64 to i32
+  %first_work = buffer.view %packed[%origin] : buffer -> view<1xi32>
+  %stage = view.load %first_work[0] : view<1xi32> -> i32
+  view.store %count32, %header[0] : i32, view<2xi32>
+  view.store %stage, %header[1] : i32, view<2xi32>
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %limit = index.constant 4 : index
+  %c0_i32 = scalar.constant 0 : i32
+  scf.for %i = [%begin to %limit step %step] {
+    view.store %c0_i32, %map[%i] : i32, view<4xi32>
+  }
+  scf.for %i = [%begin to %count step %step] {
+    %row = view.load %records[%i, 0] : view<[%count]x3xi64> -> i64
+    %row32 = scalar.trunci %row : i64 to i32
+    view.store %row32, %map[%i] : i32, view<4xi32>
+  }
+  func.return %payload, %payload : buffer, buffer
+}
+
+func.def public @generate(%plan: buffer, %work: hal.buffer, %request: hal.buffer, %conditioning: hal.buffer, %stream: hal.buffer, %output: hal.buffer) {
+  %origin = index.constant 0 : offset
+  %header = buffer.view %plan[%origin] : buffer -> view<2xi32>
+  %count = view.load %header[0] : view<2xi32> -> i32
+  %stage = view.load %header[1] : view<2xi32> -> i32
+  %c0 = scalar.constant 0 : i32
+  %ready = scalar.cmpi ne, %stage, %c0 : i32
+  %execution = func.call @execute_5(%stage, %work, %request, %conditioning, %stream, %output) : (i32, hal.buffer, hal.buffer, hal.buffer, hal.buffer, hal.buffer) -> (i64)
+  scf.if %ready {
+    %begin = scalar.constant 0 : i64
+    %stride = scalar.constant 36 : i64
+    %count64 = scalar.extui %count : i32 to i64
+    %length = scalar.muli %count64, %stride : i64
+    %feedback = func.call @feedback(%c0, %output, %begin, %length) : (i32, hal.buffer, i64, i64) -> (i64)
+  }
+  func.return
+}
+
+func.def public @complete(%model: buffer, %state: buffer, %plan: buffer, %ordinal: i64, %feedback: buffer) -> (i64, i64, i64, i32) {
   %origin = index.constant 0 : offset
   %cursor = buffer.view %state[%origin] : buffer -> view<1xi32>
   %stage = view.load %cursor[0] : view<1xi32> -> i32
   %c0 = scalar.constant 0 : i32
   %c1 = scalar.constant 1 : i32
   %initial = scalar.cmpi eq, %stage, %c0 : i32
-  %work = func.call @execute_4(%stage, %request, %conditioning, %stream, %output) : (i32, hal.buffer, hal.buffer, hal.buffer, hal.buffer) -> (i64)
-  %ready = scf.if %initial -> (i32) {
+  %position, %offset, %count, %done = scf.if %initial -> (i64, i64, i64, i32) {
     view.store %c1, %cursor[0] : i32, view<1xi32>
-    scf.yield %c0 : i32
+    %c0_i64 = scalar.constant 0 : i64
+    scf.yield %c0_i64, %c0_i64, %c0_i64, %c0 : i64, i64, i64, i32
   } else {
-    %begin = scalar.constant 0 : i64
-    %length = scalar.constant 36 : i64
-    %feedback = func.call @feedback(%c0, %output, %begin, %length) : (i32, hal.buffer, i64, i64) -> (i64)
-    scf.yield %c1 : i32
+    %stride = scalar.constant 36 : i64
+    %row_offset = scalar.muli %ordinal, %stride : i64
+    %bounded = scalar.assume %row_offset [range(%row_offset, 0, 108)] : i64
+    %start = index.cast %bounded : i64 to offset
+    %header = buffer.view %feedback[%start] : buffer -> view<4xi32>
+    %position32 = view.load %header[0] : view<4xi32> -> i32
+    %count32 = view.load %header[1] : view<4xi32> -> i32
+    %last = view.load %header[2] : view<4xi32> -> i32
+    %position64 = scalar.extui %position32 : i32 to i64
+    %count64 = scalar.extui %count32 : i32 to i64
+    %header_bytes = scalar.constant 16 : i64
+    %sample_offset = scalar.addi %row_offset, %header_bytes : i64
+    scf.yield %position64, %sample_offset, %count64, %last : i64, i64, i64, i32
   }
-  func.return %ready : i32
-}
-
-func.def public @complete(%model: buffer, %state: buffer, %feedback: buffer) -> (i64, i64, i64, i32) {
-  %origin = index.constant 0 : offset
-  %header = buffer.view %feedback[%origin] : buffer -> view<4xi32>
-  %position = view.load %header[0] : view<4xi32> -> i32
-  %count = view.load %header[1] : view<4xi32> -> i32
-  %done = view.load %header[2] : view<4xi32> -> i32
-  %position64 = scalar.extui %position : i32 to i64
-  %count64 = scalar.extui %count : i32 to i64
-  %sample_offset = scalar.constant 16 : i64
-  func.return %position64, %sample_offset, %count64, %done : i64, i64, i64, i32
+  func.return %position, %offset, %count, %done : i64, i64, i64, i32
 }

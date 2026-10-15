@@ -349,6 +349,30 @@ loom_cc_test(
 )
 
 loom_cc_test(
+    name = "source_speech_service_elastic_test",
+    args = [
+        "--model_source=$(rootpath //loom/src/loom/serve/fixture/speech:prepare.loom)",
+        "--test_device=amdgpu",
+        "--test_elastic=true",
+        "--gtest_filter=WorkersAndParameters/SourceSpeechServiceTest.*",
+    ],
+    data = SPEECH_SOURCES + SPEECH_VARIANT_SOURCES,
+    resource_group = GPU_DEVICE_RESOURCE_GROUP,
+    tags = _ROCR_TEST_TAGS,
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+        "//loom/config/execute:amdgpu_hal",
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = [
+        "//loom/src/loom/serve/service/speech:source_service_tests",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
     name = "image_service_test",
     srcs = ["//loom/src/loom/serve/service/image:service_linux_test.cc"],
     resource_group = GPU_DEVICE_RESOURCE_GROUP,

@@ -30,12 +30,15 @@
 
 IREE_FLAG(string, model_source, "", "Speech fixture bootstrap source.");
 IREE_FLAG(string, test_device, "task", "Device executing the speech fixture.");
+IREE_FLAG(bool, test_elastic, false, "Use elastic backing for source speech.");
 
 namespace {
 
 class SourceSpeechServiceTest
     : public ::testing::TestWithParam<std::tuple<uint32_t, bool>> {
  protected:
+  static constexpr uint64_t kSlabSize = 2 * 1024 * 1024;
+
   static void WriteCheckpoint(const std::string& path, bool voice) {
     // Overlapping names belong to distinct archives. Only factor is prepared;
     // the encoder and decoder remain disjoint phase weights in the base file.
@@ -67,6 +70,9 @@ class SourceSpeechServiceTest
         loom_serve_host_create(std::get<0>(GetParam()), allocator_, &host_));
     const loom_serve_device_options_t device_options = {
         .uri = iree_make_cstring_view(FLAG_test_device),
+        .backing = FLAG_test_elastic ? LOOM_SERVE_DEVICE_BACKING_ELASTIC
+                                     : LOOM_SERVE_DEVICE_BACKING_FIXED,
+        .slab_size = FLAG_test_elastic ? kSlabSize : 0,
     };
     IREE_ASSERT_OK(loom_serve_device_group_allocate(host_, 1, &device_options,
                                                     allocator_, &group_));
@@ -101,6 +107,8 @@ class SourceSpeechServiceTest
     EXPECT_EQ(generator_.format.sample_rate, 24000u);
     EXPECT_EQ(generator_.format.channels, 1u);
     EXPECT_EQ(generator_.block_capacity, 5u);
+    EXPECT_EQ(generator_.request_capacity, 4u);
+    EXPECT_EQ(generator_.batch_units, 4u);
   }
 
   void TearDown() override {
@@ -180,25 +188,30 @@ class SourceSpeechServiceTest
     }
   }
 
-  iree_status_t Prepare(const char* voice, uint64_t seed, void** invocation) {
+  iree_status_t Prepare(const char* voice, uint64_t seed, void** invocation,
+                        size_t row = 0, const char* text = "hi") {
     loom_serve_speech_request_t request;
-    const std::string json =
-        std::string(R"({"model":"speech","input":"hi","voice":")") + voice +
-        R"(","response_format":"pcm","seed":")" + std::to_string(seed) + "\"}";
+    const std::string json = std::string(R"({"model":"speech","input":")") +
+                             text + R"(","voice":")" + voice +
+                             R"(","response_format":"pcm","seed":")" +
+                             std::to_string(seed) + "\"}";
     IREE_RETURN_IF_ERROR(loom_serve_speech_request_initialize(
         iree_make_string_view(json.data(), json.size()), IREE_SV("speech"),
         allocator_, &request));
     iree_status_t status =
-        generator_.prepare(generator_.self, &request, invocation);
+        generator_.prepare(generator_.self, row, &request, invocation);
     loom_serve_speech_request_deinitialize(&request);
     return status;
   }
 
   iree_status_t Admit(void* invocation) {
     loom_serve_residency_admission_t admission;
-    IREE_RETURN_IF_ERROR(
-        generator_.try_admit(generator_.self, invocation, &admission));
+    loom_serve_execution_frontier_t frontier;
+    IREE_RETURN_IF_ERROR(generator_.try_admit(generator_.self, invocation,
+                                              &admission, &frontier));
     EXPECT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_ACQUIRED);
+    IREE_RETURN_IF_ERROR(Wait(frontier));
+    EXPECT_TRUE(generator_.complete_admit(generator_.self, invocation));
     return iree_ok_status();
   }
 
@@ -213,12 +226,27 @@ class SourceSpeechServiceTest
   }
 
   iree_status_t Retire(void* invocation) {
-    loom_serve_execution_frontier_t frontier;
-    IREE_RETURN_IF_ERROR(
-        generator_.retire(generator_.self, invocation, &frontier));
-    IREE_RETURN_IF_ERROR(Wait(frontier));
-    generator_.release(generator_.self, invocation);
-    return iree_ok_status();
+    return generator_.release(generator_.self, invocation);
+  }
+
+  iree_status_t Submit(const std::vector<void*>& invocations,
+                       loom_serve_execution_frontier_t* frontier) {
+    uint64_t units = 0;
+    uint64_t tag = 0;
+    for (size_t i = 0; i < invocations.size(); ++i) {
+      loom_serve_speech_work_t work;
+      IREE_RETURN_IF_ERROR(
+          generator_.prepare_work(generator_.self, invocations[i], &work));
+      if (i) {
+        EXPECT_EQ(work.tag, tag);
+      }
+      tag = work.tag;
+      units += work.units;
+    }
+    EXPECT_LE(units, generator_.batch_units);
+    IREE_RETURN_IF_ERROR(generator_.prepare_batch(
+        generator_.self, invocations.size(), invocations.data()));
+    return generator_.submit(generator_.self, frontier);
   }
 
   iree_status_t Generate(void* invocation, size_t stop_frames,
@@ -227,16 +255,10 @@ class SourceSpeechServiceTest
     bool complete = false;
     while (!complete && samples->size() < stop_frames) {
       loom_serve_execution_frontier_t frontier;
-      bool feedback = false;
-      IREE_RETURN_IF_ERROR(
-          generator_.submit(generator_.self, invocation, &frontier, &feedback));
+      IREE_RETURN_IF_ERROR(Submit({invocation}, &frontier));
       IREE_RETURN_IF_ERROR(Wait(frontier));
-      if (!feedback) {
-        continue;
-      }
       loom_serve_speech_block_t block;
-      IREE_RETURN_IF_ERROR(
-          generator_.collect(generator_.self, invocation, &block));
+      IREE_RETURN_IF_ERROR(generator_.collect(generator_.self, 0, &block));
       EXPECT_EQ(block.position, samples->size());
       blocks->push_back(block.frame_count);
       for (size_t i = 0; i < block.frame_count; ++i) {
@@ -244,6 +266,7 @@ class SourceSpeechServiceTest
             iree_unaligned_load_le_f32(block.samples.data + i * 4));
       }
       complete = block.complete;
+      generator_.release_batch(generator_.self);
     }
     return iree_ok_status();
   }
@@ -279,7 +302,7 @@ TEST_P(SourceSpeechServiceTest, SourceStagesPublishVariableAndEmptyBlocks) {
     std::vector<float> samples;
     std::vector<size_t> blocks;
     IREE_ASSERT_OK(Generate(invocation, SIZE_MAX, &samples, &blocks));
-    EXPECT_EQ(blocks, (std::vector<size_t>{3, 0, 3, 5, 3, 3}));
+    EXPECT_EQ(blocks, (std::vector<size_t>{0, 3, 0, 3, 5, 3, 3}));
     ASSERT_EQ(samples.size(), 17u);
     for (size_t i = 0; i < samples.size(); ++i) {
       EXPECT_EQ(samples[i], sign * static_cast<float>((i + 3) % 8) * 0.125f);
@@ -311,6 +334,141 @@ TEST_P(SourceSpeechServiceTest, RejectionAndCancellationPreserveReusableModel) {
     EXPECT_EQ(samples[i], static_cast<float>((i + 1) % 8) * 0.125f);
   }
   IREE_ASSERT_OK(Retire(invocation));
+}
+
+TEST_P(SourceSpeechServiceTest, CohortsPreserveIndependentResidentProgress) {
+  struct Request {
+    // Source handle owns one stable row until completion or cancellation.
+    void* invocation = nullptr;
+    // Copied waveform survives cohort feedback reuse.
+    std::vector<float> samples;
+    // Request-specific voice and random sequence identity.
+    int sign = 1;
+    // Per-request seed, independent of neighbors and packed ordinal.
+    uint64_t seed = 0;
+    // Expected complete waveform length from immutable input.
+    size_t frames = 0;
+  } requests[5];
+  const char* texts[] = {"a", "abc", "abcdef", "abcdefgh", "new"};
+  auto start = [&](size_t index, size_t row) {
+    auto& request = requests[index];
+    request.sign = index % 2 ? -1 : 1;
+    request.seed = 17 + index * 13;
+    request.frames = std::string(texts[index]).size() * 8 + 1;
+    IREE_ASSERT_OK(Prepare(request.sign > 0 ? "positive" : "negative",
+                           request.seed, &request.invocation, row,
+                           texts[index]));
+    IREE_ASSERT_OK(Admit(request.invocation));
+    // Initialization is a distinct compatible phase, collected after
+    // retirement.
+    loom_serve_execution_frontier_t frontier;
+    IREE_ASSERT_OK(Submit({request.invocation}, &frontier));
+    IREE_ASSERT_OK(Wait(frontier));
+    loom_serve_speech_block_t block;
+    IREE_ASSERT_OK(generator_.collect(generator_.self, 0, &block));
+    EXPECT_EQ(block.frame_count, 0u);
+    EXPECT_FALSE(block.complete);
+    generator_.release_batch(generator_.self);
+  };
+  auto run = [&](const std::vector<size_t>& selected, size_t cancelled) {
+    std::vector<void*> invocations;
+    for (size_t index : selected) {
+      invocations.push_back(requests[index].invocation);
+    }
+    loom_serve_execution_frontier_t frontier;
+    IREE_ASSERT_OK(Submit(invocations, &frontier));
+    // Cancellation after acceptance cannot remove an original batch ordinal.
+    // Its storage remains live until the complete cohort has retired.
+    IREE_ASSERT_OK(Wait(frontier));
+    std::vector<size_t> finished;
+    for (size_t ordinal = 0; ordinal < selected.size(); ++ordinal) {
+      const size_t index = selected[ordinal];
+      auto& request = requests[index];
+      loom_serve_speech_block_t block;
+      IREE_ASSERT_OK(generator_.collect(generator_.self, ordinal, &block));
+      EXPECT_EQ(block.position, request.samples.size());
+      for (size_t i = 0; i < block.frame_count; ++i) {
+        request.samples.push_back(
+            iree_unaligned_load_le_f32(block.samples.data + i * 4));
+      }
+      if (block.complete || index == cancelled) {
+        finished.push_back(index);
+      }
+    }
+    generator_.release_batch(generator_.self);
+    for (size_t index : finished) {
+      IREE_ASSERT_OK(Retire(requests[index].invocation));
+      requests[index].invocation = nullptr;
+    }
+  };
+  size_t tick = 0;
+  size_t largest_cohort = 0;
+  size_t paused_samples = 0;
+  uint64_t full_commitment = 0;
+  auto* device = loom_serve_device_group_at(group_, 0);
+  const auto initial = loom_serve_device_memory_statistics(device).retained;
+  EXPECT_EQ(initial.committed_bytes, 0u);
+  bool live = true;
+  while (live) {
+    if (tick < 4) {
+      ASSERT_NO_FATAL_FAILURE(start(tick, tick));
+    } else if (tick == 4) {
+      ASSERT_EQ(requests[0].invocation, nullptr);
+      ASSERT_NO_FATAL_FAILURE(start(4, 0));
+      paused_samples = requests[2].samples.size();
+    }
+    std::vector<size_t> selected;
+    for (size_t i = 0; i < 5; ++i) {
+      const size_t index = tick % 2 ? 4 - i : i;
+      // A stalled consumer only makes its own request ineligible.
+      if (index == 2 && tick >= 4 && tick < 9) {
+        continue;
+      }
+      if (requests[index].invocation) {
+        selected.push_back(index);
+      }
+    }
+    if (selected.size() > largest_cohort) {
+      largest_cohort = selected.size();
+    }
+    if (!selected.empty()) {
+      ASSERT_NO_FATAL_FAILURE(run(selected, tick == 4 ? 1 : SIZE_MAX));
+    }
+    if (tick == 3) {
+      full_commitment =
+          loom_serve_device_memory_statistics(device).retained.committed_bytes;
+    }
+    if (tick >= 4 && tick < 9) {
+      EXPECT_EQ(requests[2].samples.size(), paused_samples);
+    }
+    live = tick < 4;
+    for (const auto& request : requests) {
+      live |= request.invocation != nullptr;
+    }
+    ++tick;
+  }
+  EXPECT_EQ(largest_cohort, 4u);
+  if (FLAG_test_elastic) {
+    const auto idle = loom_serve_device_memory_statistics(device).retained;
+    // Releasing an individual row cannot trim slabs shared by live neighbors.
+    // The last release reclaims input/history; reusable conditioning survives.
+    EXPECT_EQ(idle.reserved_bytes, initial.reserved_bytes);
+    EXPECT_EQ(full_commitment - idle.committed_bytes, 2 * kSlabSize);
+  }
+  for (size_t index = 0; index < 5; ++index) {
+    const auto& request = requests[index];
+    if (index == 1) {
+      EXPECT_LT(request.samples.size(), request.frames);
+    } else {
+      EXPECT_EQ(request.samples.size(), request.frames);
+    }
+    for (size_t i = 0; i < request.samples.size(); ++i) {
+      EXPECT_EQ(
+          request.samples[i],
+          request.sign * static_cast<float>((i + request.seed) % 8) * 0.125f)
+          << "request " << index << " sample " << i;
+    }
+  }
 }
 
 TEST_P(SourceSpeechServiceTest, DynamicRegistrationStandardEndpointAndRemoval) {
@@ -514,8 +672,11 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
         .self = this,
         .format = {24000, 1},
         .block_capacity = frames_,
+        .request_capacity = 1,
+        .batch_units = 1,
         .prepare =
-            [](void* self, const loom_serve_speech_request_t*, void** out) {
+            [](void* self, iree_host_size_t, const loom_serve_speech_request_t*,
+               void** out) {
               auto* test = static_cast<SpeechReadinessTest*>(self);
               test->invocation_ = std::make_unique<Invocation>();
               *out = test->invocation_.get();
@@ -526,18 +687,27 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
               static_cast<SpeechReadinessTest*>(self)->invocation_.reset();
             },
         .try_admit =
-            [](void*, void*, loom_serve_residency_admission_t* out) {
+            [](void* self, void*, loom_serve_residency_admission_t* out,
+               loom_serve_execution_frontier_t* frontier) {
+              auto* test = static_cast<SpeechReadinessTest*>(self);
               *out = LOOM_SERVE_RESIDENCY_ADMISSION_ACQUIRED;
+              *frontier = loom_serve_execution_frontier(test->execution_);
               return iree_ok_status();
             },
+        .complete_admit = [](void*, void*) { return true; },
+        .prepare_work =
+            [](void*, void*, loom_serve_speech_work_t* out) {
+              *out = {.units = 1, .tag = 0};
+              return iree_ok_status();
+            },
+        .prepare_batch = [](void*, iree_host_size_t,
+                            void* const*) { return iree_ok_status(); },
         .submit =
-            [](void* self, void*, loom_serve_execution_frontier_t* out,
-               bool* feedback) {
-              return static_cast<SpeechReadinessTest*>(self)->Submit(out,
-                                                                     feedback);
+            [](void* self, loom_serve_execution_frontier_t* out) {
+              return static_cast<SpeechReadinessTest*>(self)->Submit(out);
             },
         .collect =
-            [](void* self, void*, loom_serve_speech_block_t* out) {
+            [](void* self, iree_host_size_t, loom_serve_speech_block_t* out) {
               auto* test = static_cast<SpeechReadinessTest*>(self);
               auto& invocation = *test->invocation_;
               *out = {
@@ -550,19 +720,11 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
               ++invocation.block;
               return iree_ok_status();
             },
-        .retire =
-            [](void* self, void*, loom_serve_execution_frontier_t* out) {
+        .release_batch =
+            [](void* self) {
               auto* test = static_cast<SpeechReadinessTest*>(self);
-              uint64_t value = 0;
-              iree_status_t status = loom_serve_execution_dealloca(
-                  test->execution_, test->invocation_->buffer, &value);
               iree_hal_buffer_release(test->invocation_->buffer);
               test->invocation_->buffer = nullptr;
-              if (iree_status_is_ok(status)) {
-                *out = loom_serve_execution_frontier(test->execution_);
-                ++test->retired_;
-              }
-              return status;
             },
         .release =
             [](void* self, void*) {
@@ -570,6 +732,7 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
               test->invocation_.reset();
               ++test->released_;
               test->http_.Notify();
+              return iree_ok_status();
             },
     };
     const loom_serve_speech_service_options_t service_options = {
@@ -637,7 +800,7 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
     });
   }
 
-  iree_status_t Submit(loom_serve_execution_frontier_t* out, bool* feedback) {
+  iree_status_t Submit(loom_serve_execution_frontier_t* out) {
     auto& invocation = *invocation_;
     if (!invocation.buffer) {
       const auto reservation =
@@ -673,8 +836,12 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
     };
     IREE_RETURN_IF_ERROR(
         loom_serve_execution_feedback(execution_, 1, &download, &value));
+    auto frontier = loom_serve_execution_frontier(execution_);
+    IREE_RETURN_IF_ERROR(loom_serve_execution_barrier(
+        execution_, {1, &frontier.semaphores[1], &frontier.values[1]}));
+    IREE_RETURN_IF_ERROR(
+        loom_serve_execution_dealloca(execution_, invocation.buffer, &value));
     *out = loom_serve_execution_frontier(execution_);
-    *feedback = true;
     ++submitted_;
     http_.Notify();
     return iree_ok_status();
@@ -786,8 +953,6 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
   std::unique_ptr<Invocation> invocation_;
   // Accepted generation count, published after both queues accept work.
   std::atomic<uint64_t> submitted_{0};
-  // Accepted storage retirement count, observed without reading service state.
-  std::atomic<uint64_t> retired_{0};
   // Successful release count, published by the serialized service owner.
   std::atomic<uint64_t> released_{0};
   // An owner turn observed exhausted carrier send credit.
@@ -813,7 +978,6 @@ TEST_P(SpeechReadinessTest,
   IREE_ASSERT_OK(http_.AwaitResponse(client.get()));
   ASSERT_NO_FATAL_FAILURE(CheckHealth());
   EXPECT_EQ(released_.load(), 0u);
-  EXPECT_EQ(retired_.load(), 0u);
   const linger reset = {1, 0};
   ASSERT_EQ(
       setsockopt(client.get(), SOL_SOCKET, SO_LINGER, &reset, sizeof(reset)),
@@ -838,7 +1002,6 @@ TEST_P(SpeechReadinessTest, ShutdownJoinsAcceptedWorkWithoutFurtherSynthesis) {
   ReleaseDependency();
   IREE_ASSERT_OK(http_.Join());
   EXPECT_EQ(submitted_.load(), 2u);
-  EXPECT_EQ(retired_.load(), 1u);
   EXPECT_EQ(released_.load(), 1u);
 }
 
@@ -851,7 +1014,6 @@ TEST_P(SpeechReadinessTest, FailedReadinessKeepsRequestForModelRetirement) {
   ReleaseDependency(true);
   IREE_EXPECT_STATUS_IS(IREE_STATUS_ABORTED, http_.Join());
   EXPECT_EQ(submitted_.load(), 2u);
-  EXPECT_EQ(retired_.load(), 0u);
   EXPECT_EQ(released_.load(), 0u);
   EXPECT_NE(invocation_, nullptr);
 }

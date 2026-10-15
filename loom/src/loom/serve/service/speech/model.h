@@ -68,43 +68,61 @@ loom_serve_speech_model_t* loom_serve_speech_load_take_model(
 iree_status_t loom_serve_speech_load_free(loom_serve_speech_load_t* load);
 
 // Source ABI: cold prepare(asset_root, options: buffer) ->
-//   (input_capacity, conditioning_capacity, stream_capacity, output_capacity,
-//    feedback_capacity, block_frames, sample_rate, channels: i64,
+//   (request_capacity, batch_units, input_stride, conditioning_capacity,
+//    stream_stride, batch_input_capacity, output_capacity, feedback_capacity,
+//    block_frames, sample_rate, channels: i64,
 //    tokenizer_asset, name, model_state, initial_conditioning: buffer).
-// Byte capacities and waveform geometry are positive and bounded by host
-// representation. Tokenizer is optional and relative to asset_root. Opaque
-// model_state and initial_conditioning survive the cold program. Initial
-// conditioning may be empty; source then initializes its declared device bank
-// before use. Checkpoints use ordinary prepare.parameter declarations.
+// Capacities and geometry are positive host sizes. Input/stream strides are
+// alignment multiples; whole arenas fit signed device offsets. Tokenizer is
+// optional and relative to asset_root. Opaque model_state and
+// initial_conditioning survive the cold program. Empty initial conditioning
+// requires source to initialize its device bank before use. Checkpoints use
+// prepare.parameter.
 //
 // Warm prepare_request(model_state, input, voice, instructions: buffer,
 //                      seed: i64, speed: f32)
 //   -> (request_state, payload: buffer).
-// generate(model_state, request_state, stage_tags: buffer,
-//          request, conditioning, stream, output: hal.buffer) -> i32 ready.
-// complete(model_state, request_state, feedback: buffer)
+// prepare_work(model_state, request_state: buffer)
+//   -> (work: buffer, units, compatibility_tag: i64).
+// prepare_batch(model_state, stage_tags, ranges, packed_work: buffer)
+//   -> (payload, plan: buffer).
+// generate(plan: buffer, work, requests, conditioning, streams,
+//          output: hal.buffer).
+// complete(model_state, request_state, plan: buffer, ordinal: i64,
+//          feedback: buffer)
 //   -> (frame_position, pcm_byte_offset, frame_count: i64, complete: i32).
 //
-// generate imports runner.execute_4 and runner.feedback; zero ready continues
-// bounded work, one publishes feedback for complete after both frontiers
-// retire. The source owns generation/codec/cache positions and all stage
-// policy. complete publishes continuous interleaved F32 samples within feedback
-// and explicit EOF, independently of whether this unit emits any samples. Four
-// dynamic roots hold immutable request bytes, model conditioning, mutable
-// per-request stream state and output. Compiler-private workspace lives for one
-// command; state crossing commands belongs in the explicit stream bank.
-// Each command declares its own fixed parameter bindings. Roots sharing a
-// checkpoint path and preparation policy share compatible reflected storage;
-// disjoint roots retain their own placement. Distinct checkpoints or policies
-// own independent storage, even for identically named tensors. Direct stages
-// have the same four model roots and no checkpoint domains. No model math is
-// linked into the server.
+// prepare_work is CPU-only and does not advance request progress. Offers are
+// refreshed at a retired model cut. Equal tags and additive units fitting
+// batch_units permit a cohort; different progress alone need not separate it.
+// ranges has one little-endian i64 triple (resident_row, byte_offset,
+// byte_length) per selected request, indexing packed_work. The service owns
+// eligibility and selects distinct admitted rows; source owns shape/phase
+// selection and packing. Payload and plan survive accepted work and every
+// completion borrower.
 //
-// Source model-state changes and shared conditioning publication occur only
-// after their accepted producer retires. Partial preparation cannot mark an
-// unfinished conditioning entry reusable. The service serializes model calls
-// and has one active request; independent request objects avoid VM-global
-// stream state. Conditioned references and initial assets remain model-defined.
+// generate imports runner.execute_5 and runner.feedback. Five dynamic roots
+// hold compact batch work, stable request rows, shared conditioning, stable
+// stream rows and packed output. Rows survive batch membership changes.
+// Compiler-private workspace lasts for one command; persistent histories belong
+// in the stream bank. Each command declares its fixed parameter bindings. Roots
+// sharing a checkpoint path and preparation policy share compatible reflected
+// storage; disjoint roots retain their placement. Distinct checkpoints or
+// policies own independent storage, even for identically named tensors. Direct
+// stages use the same five dynamic roots without checkpoint domains.
+//
+// Every retired unit calls complete for each original batch ordinal, including
+// phases producing no audio or readback. Source owns generation, codec, RNG and
+// cache positions. Completion publishes continuous interleaved F32 samples and
+// explicit EOF independently of whether a unit emits samples. The CPU consumer
+// copies output before releasing the batch; request rows remain independently
+// resident. No model math is linked into the server.
+//
+// One model CPU owner and one accepted numerical batch serialize shared state.
+// Model-state changes and conditioning publication occur only after their
+// accepted producer retires. Partial preparation cannot mark an unfinished
+// conditioning entry reusable. Conditioned references and initial assets remain
+// model-defined, independently of per-request stream progress.
 //
 // Cold outer-owner constructor: joins the same asynchronous load, never on a
 // shared worker. Live registration uses load_advance. Creation reads metadata

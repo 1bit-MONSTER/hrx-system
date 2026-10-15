@@ -39,16 +39,18 @@ typedef enum speech_phase_e {
   SPEECH_PHASE_IDLE = 0,
   SPEECH_PHASE_PREPARING,
   SPEECH_PHASE_WAITING,
+  SPEECH_PHASE_RESERVING,
   SPEECH_PHASE_READY,
+  SPEECH_PHASE_PREPARING_BATCH,
   SPEECH_PHASE_GENERATING,
   SPEECH_PHASE_ENCODING,
   SPEECH_PHASE_DELIVERING,
-  SPEECH_PHASE_RETIRING,
 } speech_phase_t;
 
 static const char* const speech_phases[] = {
-    "idle",       "preparing", "waiting",    "ready",
-    "generating", "encoding",  "delivering", "retiring"};
+    "idle",       "preparing", "waiting",
+    "reserving",  "ready",     "preparing_batch",
+    "generating", "encoding",  "delivering"};
 
 enum { SPEECH_EVENT_CPU = 1u << 0, SPEECH_EVENT_DEVICE = 1u << 1 };
 
@@ -105,8 +107,6 @@ struct loom_serve_speech_service_t {
     loom_serve_execution_frontier_t frontier;
     // Toll-free semaphore handles for the proactor API.
     iree_async_semaphore_t* semaphores[2];
-    // Successful generation readiness authorizes source feedback collection.
-    bool feedback_ready;
   } device;
   // Periodic observation and its independently retired cancellation receipt.
   loom_serve_timer_t timer;
@@ -272,12 +272,20 @@ static iree_status_t loom_serve_speech_cpu_run(
   result->completed = true;
   result->did_work = true;
   if (service->cpu.phase == SPEECH_PHASE_PREPARING) {
-    return service->generator.prepare(
-        service->generator.self, &service->job.request, &service->invocation);
+    return service->generator.prepare(service->generator.self, 0,
+                                      &service->job.request,
+                                      &service->invocation);
+  }
+  if (service->cpu.phase == SPEECH_PHASE_PREPARING_BATCH) {
+    loom_serve_speech_work_t work;
+    IREE_RETURN_IF_ERROR(service->generator.prepare_work(
+        service->generator.self, service->invocation, &work));
+    return service->generator.prepare_batch(service->generator.self, 1,
+                                            &service->invocation);
   }
   iree_string_builder_reset(&service->cpu.response);
-  IREE_RETURN_IF_ERROR(service->generator.collect(
-      service->generator.self, service->invocation, &service->cpu.block));
+  IREE_RETURN_IF_ERROR(service->generator.collect(service->generator.self, 0,
+                                                  &service->cpu.block));
   if (!service->job.header_sent &&
       (service->cpu.block.frame_count || service->cpu.block.complete)) {
     IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(
@@ -336,18 +344,9 @@ static void loom_serve_speech_device_completed(
   iree_slim_mutex_unlock(&service->events.mutex);
 }
 
-// Both generation and cleanup owe the same two-frontier retirement. Cleanup
-// submits no new synthesis and remains legal after peer reset or STOPPING.
-static iree_status_t loom_serve_speech_submit(
-    loom_serve_speech_service_t* service, bool retire) {
-  iree_status_t status =
-      retire ? service->generator.retire(service->generator.self,
-                                         service->invocation,
-                                         &service->device.frontier)
-             : service->generator.submit(
-                   service->generator.self, service->invocation,
-                   &service->device.frontier, &service->device.feedback_ready);
-  IREE_RETURN_IF_ERROR(status);
+// Every accepted activation or numerical batch retains both queue frontiers.
+static iree_status_t loom_serve_speech_wait(
+    loom_serve_speech_service_t* service, speech_phase_t phase) {
   iree_async_semaphore_wait_operation_t* wait = &service->device.operation;
   memset(wait, 0, sizeof(*wait));
   iree_async_operation_initialize(&wait->base,
@@ -364,7 +363,7 @@ static iree_status_t loom_serve_speech_submit(
   wait->mode = IREE_ASYNC_WAIT_MODE_ALL;
   IREE_RETURN_IF_ERROR(
       iree_async_proactor_submit_one(service->proactor, &wait->base));
-  service->phase = retire ? SPEECH_PHASE_RETIRING : SPEECH_PHASE_GENERATING;
+  service->phase = phase;
   return iree_ok_status();
 }
 
@@ -392,6 +391,15 @@ static void loom_serve_speech_finish(loom_serve_speech_service_t* service,
   service->phase = SPEECH_PHASE_IDLE;
 }
 
+// Called only at a successfully retired cut, after all batch views are gone.
+static void loom_serve_speech_release(loom_serve_speech_service_t* service) {
+  service->status =
+      service->generator.release(service->generator.self, service->invocation);
+  loom_serve_speech_finish(service, iree_status_is_ok(service->status)
+                                        ? LOOM_SERVE_TELEMETRY_COMPLETED
+                                        : LOOM_SERVE_TELEMETRY_FAILED);
+}
+
 static void loom_serve_speech_prepared(loom_serve_speech_service_t* service,
                                        loom_serve_http_service_flags_t flags,
                                        bool* progress) {
@@ -404,11 +412,31 @@ static void loom_serve_speech_prepared(loom_serve_speech_service_t* service,
     return;
   }
   loom_serve_residency_admission_t admission;
+  const loom_serve_execution_frontier_t previous = service->device.frontier;
+  loom_serve_execution_frontier_t frontier;
   service->status = service->generator.try_admit(
-      service->generator.self, service->invocation, &admission);
+      service->generator.self, service->invocation, &admission, &frontier);
   if (iree_status_is_ok(service->status) &&
       admission == LOOM_SERVE_RESIDENCY_ADMISSION_DEFERRED) {
     return;
+  }
+  if (iree_status_is_ok(service->status) &&
+      admission == LOOM_SERVE_RESIDENCY_ADMISSION_ACQUIRED) {
+    // An unchanged successfully consumed frontier requires no new wait. In
+    // particular, warm state-capacity denial must not continually wake itself.
+    const bool complete = previous.semaphores[0] == frontier.semaphores[0] &&
+                          previous.semaphores[1] == frontier.semaphores[1] &&
+                          previous.values[0] == frontier.values[0] &&
+                          previous.values[1] == frontier.values[1];
+    if (!complete) {
+      service->device.frontier = frontier;
+      service->status = loom_serve_speech_wait(service, SPEECH_PHASE_RESERVING);
+    } else if (service->generator.complete_admit(service->generator.self,
+                                                 service->invocation)) {
+      service->phase = SPEECH_PHASE_READY;
+    } else {
+      admission = LOOM_SERVE_RESIDENCY_ADMISSION_CAPACITY;
+    }
   }
   if (iree_status_is_ok(service->status) &&
       admission == LOOM_SERVE_RESIDENCY_ADMISSION_CAPACITY) {
@@ -419,11 +447,10 @@ static void loom_serve_speech_prepared(loom_serve_speech_service_t* service,
     service->status = loom_serve_speech_rejection_response(
         service, service->connection, service->active,
         "503 Service Unavailable",
-        IREE_SV("model parameters exceed available capacity"));
+        IREE_SV(
+            "model parameters and request state exceed available capacity"));
     service->connection = NULL;
     loom_serve_speech_finish(service, LOOM_SERVE_TELEMETRY_REJECTED);
-  } else if (iree_status_is_ok(service->status)) {
-    service->status = loom_serve_speech_submit(service, false);
   }
   *progress = true;
   if (!iree_status_is_ok(service->status) && service->active) {
@@ -476,22 +503,36 @@ static void loom_serve_speech_collect(loom_serve_speech_service_t* service,
     return;
   }
   if (iree_any_bit_set(ready, SPEECH_EVENT_DEVICE)) {
-    if (service->phase == SPEECH_PHASE_RETIRING) {
-      service->generator.release(service->generator.self, service->invocation);
-      loom_serve_speech_finish(service, LOOM_SERVE_TELEMETRY_COMPLETED);
+    if (service->phase == SPEECH_PHASE_RESERVING) {
+      service->phase = service->generator.complete_admit(
+                           service->generator.self, service->invocation)
+                           ? SPEECH_PHASE_READY
+                           : SPEECH_PHASE_WAITING;
     } else {
       ++service->telemetry.counters.batches;
       ++service->job.completed_parts;
-      if (service->device.feedback_ready && service->connection &&
-          !service->stopping) {
-        loom_serve_speech_schedule_cpu(service, SPEECH_PHASE_ENCODING);
-      } else {
-        service->phase = SPEECH_PHASE_READY;
-      }
+      // Completion owns source progress even when cancellation discards audio.
+      loom_serve_speech_schedule_cpu(service, SPEECH_PHASE_ENCODING);
     }
   } else if (service->phase == SPEECH_PHASE_PREPARING) {
     service->phase = SPEECH_PHASE_WAITING;
+  } else if (service->phase == SPEECH_PHASE_PREPARING_BATCH) {
+    if (service->stopping || !service->connection) {
+      service->generator.release_batch(service->generator.self);
+      loom_serve_speech_release(service);
+    } else {
+      service->status = service->generator.submit(service->generator.self,
+                                                  &service->device.frontier);
+      if (iree_status_is_ok(service->status)) {
+        service->status =
+            loom_serve_speech_wait(service, SPEECH_PHASE_GENERATING);
+      }
+      if (!iree_status_is_ok(service->status)) {
+        loom_serve_speech_finish(service, LOOM_SERVE_TELEMETRY_FAILED);
+      }
+    }
   } else {
+    service->generator.release_batch(service->generator.self);
     service->phase = SPEECH_PHASE_DELIVERING;
   }
 }
@@ -524,12 +565,12 @@ static void loom_serve_speech_deliver(loom_serve_speech_service_t* service,
   if (iree_status_is_ok(service->status)) {
     if (!service->connection || service->stopping ||
         service->cpu.block.complete) {
-      service->status = loom_serve_speech_submit(service, true);
+      loom_serve_speech_release(service);
     } else {
       service->phase = SPEECH_PHASE_READY;
     }
   }
-  if (!iree_status_is_ok(service->status)) {
+  if (!iree_status_is_ok(service->status) && service->active) {
     loom_serve_speech_finish(service, LOOM_SERVE_TELEMETRY_FAILED);
   }
 }
@@ -732,12 +773,12 @@ static iree_status_t loom_serve_speech_advance(
   if (service->phase == SPEECH_PHASE_WAITING) {
     loom_serve_speech_prepared(service, flags, out_progress);
   } else if (service->phase == SPEECH_PHASE_READY) {
-    service->status = loom_serve_speech_submit(
-        service, service->stopping || !service->connection);
-    *out_progress = true;
-    if (!iree_status_is_ok(service->status)) {
-      loom_serve_speech_finish(service, LOOM_SERVE_TELEMETRY_FAILED);
+    if (service->stopping || !service->connection) {
+      loom_serve_speech_release(service);
+    } else {
+      loom_serve_speech_schedule_cpu(service, SPEECH_PHASE_PREPARING_BATCH);
     }
+    *out_progress = true;
   } else if (service->phase == SPEECH_PHASE_DELIVERING) {
     loom_serve_speech_deliver(service, out_progress);
   }
@@ -836,8 +877,11 @@ iree_status_t loom_serve_speech_service_allocate(
     loom_serve_speech_service_t** out_service) {
   *out_service = NULL;
   if (!generator.prepare || !generator.discard || !generator.try_admit ||
-      !generator.submit || !generator.collect || !generator.retire ||
-      !generator.release || !generator.block_capacity ||
+      !generator.complete_admit || !generator.prepare_work ||
+      !generator.prepare_batch || !generator.submit || !generator.collect ||
+      !generator.release_batch || !generator.release ||
+      !generator.block_capacity || !generator.request_capacity ||
+      !generator.batch_units ||
       generator.block_capacity > (SIZE_MAX - 128) / sizeof(int16_t) ||
       !options->name.size || !options->pending_capacity ||
       options->pending_capacity > SIZE_MAX / sizeof(speech_pending_t) ||
