@@ -375,9 +375,29 @@ def test_scan_family_covers_native_types_shapes_and_modes() -> None:
         for lanes in (None, 1, 2, 3, 4)
         for kind in kinds
         for mode in ("inclusive", "exclusive")
-        if kind != "addf" or mode != "exclusive"
     }
     assert actual == expected
+
+
+def test_native_float_arithmetic_never_claims_source_preservation() -> None:
+    for rule in SPIRV_SUBGROUP_CONTRACT_CASES:
+        if rule.source_op not in (
+            kernel.kernel_subgroup_reduce,
+            kernel.kernel_subgroup_scan,
+        ):
+            continue
+        kinds = next(
+            guard.enum_keywords
+            for guard in rule.guards
+            if guard.kind is GuardKind.ENUM_ATTR_IN
+        )
+        native_only = any(
+            guard.kind is GuardKind.INSTANCE_FLAGS_HAS_NONE
+            and guard.field == "math"
+            and guard.enum_keyword == "preserve"
+            for guard in rule.guards
+        )
+        assert native_only == (kinds in (("addf",), ("mulf",)))
 
 
 def test_arithmetic_types_require_logical_device_admission() -> None:

@@ -79,6 +79,8 @@ class KernelCollectiveIntrinsic {
     uint32_t cluster_size;
     // Static subgroup cluster lane stride, or zero when absent.
     uint32_t cluster_stride;
+    // Explicit collective arithmetic requirements in the High flag encoding.
+    uint8_t math_flags;
     // Prefix semantics, present exactly for scan operations.
     std::optional<Scan> scan;
   };

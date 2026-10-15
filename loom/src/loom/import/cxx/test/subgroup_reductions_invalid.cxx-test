@@ -60,3 +60,22 @@ LOOM_FORCE_INLINE float oversized_cluster(float value) {
 // Custom declarations take exactly one input.
 // ERROR@+1: LOWERING/059 "kernel collective declaration has the wrong operand count"
 [[loom::op("kernel.subgroup.reduce", "addf")]] float reduce(float, float);
+
+// ====
+#include <loomcxx/kernel.h>
+
+LOOM_FORCE_INLINE float invalid_arithmetic(float value) {
+  // ERROR@+1: LOWERING/059 "kernel collective arithmetic must be native or preserve"
+  return loom::kernel::workgroup::reduce::addf<static_cast<loom::kernel::collective_math>(2)>(value);
+}
+
+// ====
+#include <loomcxx/kernel.h>
+
+template <loom::kernel::collective_math Math, class T>
+[[loom::op("kernel.workgroup.reduce", "addi")]] T integer_reduce(T value);
+
+LOOM_FORCE_INLINE int invalid_integer_arithmetic(int value) {
+  // ERROR@+1: LOWERING/059 "preservation requirements apply only to floating-point collectives"
+  return integer_reduce<loom::kernel::collective_math::preserve>(value);
+}

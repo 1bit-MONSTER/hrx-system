@@ -528,11 +528,17 @@ def _arithmetic_rule(
         if scan_mode is not None
         else ()
     )
+    math_guards = (
+        (Guard.instance_flags_has_none("math", "preserve"),)
+        if component.kind == OrdinaryVectorComponentKind.FLOAT
+        else ()
+    )
     return DescriptorRule(
         source_op=source_op,
         descriptor=descriptor,
         guards=(
             Guard.enum_attr_in("kind", kinds),
+            *math_guards,
             Guard.value_type("value", pattern),
             cluster_guard,
             *scan_guards,

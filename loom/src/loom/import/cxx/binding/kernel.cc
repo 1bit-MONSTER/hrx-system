@@ -173,6 +173,7 @@ std::optional<KernelCollectiveIntrinsic> KernelCollectiveIntrinsic::resolve(
           .combining_kind = *parsed_kind,
           .cluster_size = 0,
           .cluster_stride = 0,
+          .math_flags = 0,
           .scan = std::nullopt,
       };
       if (types.unqualified(parameters[0]) != result ||
@@ -272,6 +273,25 @@ std::optional<KernelCollectiveIntrinsic> KernelCollectiveIntrinsic::resolve(
             unit, owner,
             "kernel collective cluster stride requires a cluster size");
       }
+      const size_t math_index = cluster_begin + (clustered ? 2u : 0u);
+      if (template_arguments.size() > math_index) {
+        auto value =
+            cxx::template_argument_value(template_arguments[math_index]);
+        if (value) {
+          auto* number = std::get_if<cxx::ConstInt>(&*value);
+          if (!number || number->isNegative() || number->toUWide() > 1) {
+            diagnostics.reject(
+                unit, owner,
+                "kernel collective arithmetic must be native or preserve");
+          }
+          semantics.math_flags = static_cast<uint8_t>(number->toUIntMax());
+          if (semantics.math_flags != 0 && !floating) {
+            diagnostics.reject(unit, owner,
+                               "preservation requirements apply only to "
+                               "floating-point collectives");
+          }
+        }
+      }
       combining = semantics;
       break;
     }
@@ -344,15 +364,15 @@ loom_value_id_t KernelCollectiveIntrinsic::call(
         flags |= LOOM_KERNEL_SUBGROUP_REDUCE_BUILD_FLAG_HAS_CLUSTER_STRIDE;
       }
       check(loom_kernel_subgroup_reduce_build(
-          builder, flags, reduction.combining_kind, arguments[0].ssa(),
-          reduction.cluster_size, reduction.cluster_stride, result_type_,
-          location, &op));
+          builder, flags, reduction.combining_kind, reduction.math_flags,
+          arguments[0].ssa(), reduction.cluster_size, reduction.cluster_stride,
+          result_type_, location, &op));
       break;
     }
     case Operation::WorkgroupReduce:
       check(loom_kernel_workgroup_reduce_build(
-          builder, combining_->combining_kind, arguments[0].ssa(), result_type_,
-          location, &op));
+          builder, combining_->combining_kind, combining_->math_flags,
+          arguments[0].ssa(), result_type_, location, &op));
       break;
     case Operation::SubgroupScan: {
       const auto& combining = *combining_;
@@ -364,8 +384,8 @@ loom_value_id_t KernelCollectiveIntrinsic::call(
         flags |= LOOM_KERNEL_SUBGROUP_SCAN_BUILD_FLAG_HAS_CLUSTER_STRIDE;
       }
       check(loom_kernel_subgroup_scan_build(
-          builder, flags, combining.combining_kind, arguments[0].ssa(),
-          combining.cluster_size, combining.cluster_stride,
+          builder, flags, combining.combining_kind, combining.math_flags,
+          arguments[0].ssa(), combining.cluster_size, combining.cluster_stride,
           static_cast<loom_kernel_subgroup_scan_mode_t>(combining.scan->mode),
           static_cast<loom_kernel_subgroup_scan_direction_t>(
               combining.scan->direction),
@@ -374,7 +394,8 @@ loom_value_id_t KernelCollectiveIntrinsic::call(
     }
     case Operation::WorkgroupScan:
       check(loom_kernel_workgroup_scan_build(
-          builder, combining_->combining_kind, arguments[0].ssa(),
+          builder, combining_->combining_kind, combining_->math_flags,
+          arguments[0].ssa(),
           static_cast<loom_kernel_workgroup_scan_mode_t>(
               combining_->scan->mode),
           static_cast<loom_kernel_workgroup_scan_direction_t>(
@@ -395,6 +416,7 @@ bool KernelCollectiveIntrinsic::equivalent(
     return true;
   }
   return combining_->combining_kind == other.combining_->combining_kind &&
+         combining_->math_flags == other.combining_->math_flags &&
          combining_->cluster_size == other.combining_->cluster_size &&
          combining_->cluster_stride == other.combining_->cluster_stride &&
          combining_->scan == other.combining_->scan;

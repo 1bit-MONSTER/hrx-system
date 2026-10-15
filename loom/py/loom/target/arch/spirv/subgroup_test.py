@@ -147,11 +147,11 @@ def test_arithmetic_rows_cover_reduction_and_scan_group_operations() -> None:
         "LOOM_SPIRV_GROUP_OPERATION_INCLUSIVE_SCAN",
         "LOOM_SPIRV_GROUP_OPERATION_EXCLUSIVE_SCAN",
     }
-    assert all(
-        row.combining_kinds != ("addf",)
-        for row in SPIRV_SUBGROUP_ARITHMETIC
-        if row.instruction.group_operation
+    assert any(
+        row.combining_kinds == ("addf",)
+        and row.instruction.group_operation
         == "LOOM_SPIRV_GROUP_OPERATION_EXCLUSIVE_SCAN"
+        for row in SPIRV_SUBGROUP_ARITHMETIC
     )
     for row in SPIRV_SUBGROUP_ARITHMETIC:
         instruction = row.instruction

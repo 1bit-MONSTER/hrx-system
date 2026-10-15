@@ -727,6 +727,13 @@ iree_status_t loom_kernel_target_legalize_subgroup_scan(
   *out_result = (loom_target_legalizer_result_t){
       .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
   };
+  const loom_combining_kind_t kind = loom_kernel_subgroup_scan_kind(op);
+  // Ordinary arithmetic support does not establish source-format preservation.
+  // Extrema retain their fixed semantics independently of arithmetic mode.
+  if (loom_kernel_subgroup_scan_math(op) != 0 &&
+      (kind == LOOM_COMBINING_KIND_ADDF || kind == LOOM_COMBINING_KIND_MULF)) {
+    return iree_ok_status();
+  }
   loom_kernel_scan_cluster_t cluster = {0};
   const bool has_cluster =
       loom_kernel_scan_cluster_from_op(context, op, &cluster);
@@ -751,7 +758,7 @@ iree_status_t loom_kernel_target_legalize_subgroup_scan(
       .i32_type = loom_type_scalar(LOOM_SCALAR_TYPE_I32),
       .mask_type = loom_type_scalar(subgroup_size <= 32 ? LOOM_SCALAR_TYPE_I32
                                                         : LOOM_SCALAR_TYPE_I64),
-      .kind = loom_kernel_subgroup_scan_kind(op),
+      .kind = kind,
       .subgroup_size = subgroup_size,
       .mask_bit_count = subgroup_size <= 32 ? 32u : 64u,
   };

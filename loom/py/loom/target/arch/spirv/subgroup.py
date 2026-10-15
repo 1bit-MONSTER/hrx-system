@@ -272,12 +272,9 @@ def _arithmetic_rows() -> tuple[SpirvSubgroupArithmetic, ...]:
         for kinds, key, mnemonic, opcode, native_component in _arithmetic_operations(
             component
         ):
-            modes = ["reduce", "clustered_reduce", "inclusive_scan"]
-            # Loom preserves negative zero as the exact additive identity.
-            # SPIR-V FAdd exclusive scans use positive zero, which changes an
-            # all-negative-zero prefix without an nsz-style source contract.
-            if key != "fadd":
-                modes.append("exclusive_scan")
+            # Native arithmetic permits the target's exclusive-scan seed.
+            # Source preservation requirements are enforced by contract guards.
+            modes = ("reduce", "clustered_reduce", "inclusive_scan", "exclusive_scan")
             for lane_count in (1, *NATIVE_ORDINARY_VECTOR_LANE_COUNTS):
                 value_type = (
                     native_component

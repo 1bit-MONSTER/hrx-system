@@ -1679,3 +1679,14 @@ func.def @async_copy_borrows_view_arguments(%source: view<256xi8>, %destination:
   kernel.async.wait %group {newer_groups = 0} : kernel.async.group
   func.return
 }
+
+// ====
+
+kernel.def @integer_preservation_is_invalid() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%value: i32) {
+  // ERROR@+1: STRUCTURE/014 "math" "1" "preservation requirements apply only to floating-point collectives"
+  %result = kernel.workgroup.reduce<addi, preserve> %value : i32
+  kernel.return
+}

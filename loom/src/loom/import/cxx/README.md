@@ -1399,6 +1399,27 @@ operation's native scope, inclusivity, direction, and cluster attributes in
 ordinary bytecode. Target support and convergence follow the High collective
 contract, including participation by a partially occupied final subgroup.
 
+Floating sums and products default to native target arithmetic, independently of
+the caller's lexical fast-math settings. This permits parallel association and
+the target's intermediate precision, signed-zero, subnormal, and nonfinite
+behavior. Floating extrema keep their selected kind's NaN and zero-ordering
+rules. Integer arithmetic remains exact at the source width.
+
+The optional final non-type template argument on floating collectives is
+`collective_math::{native,preserve}`. Preservation requires a parallel tree of
+source-format combines, including rounding and exceptional values. It does not
+promise serial evaluation, a fixed tree, or reproducibility. An unsupported
+request fails compilation instead of silently using weaker native arithmetic.
+
+```cpp
+using loom::kernel::collective_math;
+auto native_sum = loom::kernel::workgroup::reduce::addf(value);
+auto preserved_sum = loom::kernel::workgroup::reduce::addf<
+    collective_math::preserve>(value);
+auto preserved_cluster = loom::kernel::subgroup::reduce::mulf<
+    8, 1, collective_math::preserve>(value);
+```
+
 ## Target-selected template providers
 
 `LOOM_TEMPLATE_DECL` declares a typed family whose call sites remain
