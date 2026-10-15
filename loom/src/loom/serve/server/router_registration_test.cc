@@ -369,15 +369,19 @@ TEST_P(HttpRouterRegistrationTest,
   const auto metrics = Read(Send("GET", "/metrics"));
   EXPECT_NE(metrics.find(
                 "loom_serve_model_parameter_pins{model=\"dynamic\",kind="
-                "\"fixture\",incarnation=\"1\"} 3\n"
+                "\"fixture\",incarnation=\"1\",component=\"primary\"} 3\n"
                 "loom_serve_model_parameter_admission_waiting{model="
-                "\"dynamic\",kind=\"fixture\",incarnation=\"1\"} 1\n"
+                "\"dynamic\",kind=\"fixture\",incarnation=\"1\",component="
+                "\"primary\"} 1\n"
                 "loom_serve_model_parameter_admission_waits_total{model="
-                "\"dynamic\",kind=\"fixture\",incarnation=\"1\"} 7\n"
+                "\"dynamic\",kind=\"fixture\",incarnation=\"1\",component="
+                "\"primary\"} 7\n"
                 "loom_serve_model_parameter_admission_wait_seconds_total{model="
-                "\"dynamic\",kind=\"fixture\",incarnation=\"1\"} 5\n"
+                "\"dynamic\",kind=\"fixture\",incarnation=\"1\",component="
+                "\"primary\"} 5\n"
                 "loom_serve_model_parameter_admission_wait_age_seconds{model="
-                "\"dynamic\",kind=\"fixture\",incarnation=\"1\"} 2.5\n"),
+                "\"dynamic\",kind=\"fixture\",incarnation=\"1\",component="
+                "\"primary\"} 2.5\n"),
             std::string::npos);
   // A dependency without parameter observations is absent, not a zero sample.
   EXPECT_EQ(metrics.find("loom_serve_model_parameter_pins{model=\"a\""),
@@ -387,7 +391,7 @@ TEST_P(HttpRouterRegistrationTest,
   EXPECT_EQ(Read(Send("GET", "/metrics"))
                 .find("loom_serve_model_parameter_pins{model=\"dynamic\""),
             std::string::npos);
-  EXPECT_EQ(Read(Send("GET", "/v1/status")).find("\"parameters\":"),
+  EXPECT_EQ(Read(Send("GET", "/v1/status")).find("\"pins\":"),
             std::string::npos);
   managed_.ReleaseRetirement();
 }

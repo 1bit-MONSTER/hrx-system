@@ -51,15 +51,16 @@ with `--heartbeat_ms=0` does not disable counting.
 
 ## Distinguish parameter pressure from queued work
 
-Each prepared model's `loom.parameters` reports accepted-consumer `pins` and an
+Each prepared component in `loom.parameters` reports accepted-consumer `pins` and an
 `admission` snapshot: `waiting`, `count`, `duration_seconds`, and `age_seconds`.
-The snapshot describes the model's single outstanding interest in shared
+The snapshot describes the component's single outstanding interest in shared
 parameter admission. A wait can reflect physical backing pressure, an older
 waiting model, or asynchronous reclamation that must retire first. It is not
 one observation per request, and it ends before admitted parameter I/O and
 execution complete.
 
-The corresponding Prometheus series are:
+The corresponding Prometheus series have a `component` label (`primary` or
+`image`) in addition to the model identity:
 
 | Metric suffix after `loom_serve_model_` | Meaning |
 | --- | --- |
@@ -71,7 +72,7 @@ The corresponding Prometheus series are:
 
 Accepted consumers can retain pins while new work for the same model waits;
 their nested execution does not queue behind the work it must unblock. These
-pins are separate from the persistent `loom.parameter_pinned` eviction policy.
+pins are separate from the component's persistent `pinned` eviction policy.
 Releasing a consumer pin does not clear that policy, and cancelling a new-work
 interest does not release another consumer's pin.
 

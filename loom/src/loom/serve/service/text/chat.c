@@ -484,12 +484,12 @@ iree_status_t loom_serve_text_chat_policy_initialize(
   const iree_vm_signature_type_t fragment_results[] = {buffer, i64};
   const iree_vm_signature_type_t media_results[] = {buffer, i64, buffer};
   const iree_vm_signature_type_t image_limit_results[] = {i64, i64, i64, i64,
-                                                        i64};
+                                                          i64};
   const iree_vm_signature_type_t message_arguments[] = {
       buffer, buffer, buffer, buffer, buffer, buffer, i64, i64, i64, i64};
   const iree_vm_signature_type_t tool_arguments[] = {buffer, buffer, i64};
   const iree_vm_signature_type_t input_arguments[] = {buffer, buffer, i64,
-                                                     i32,    i32,    i64};
+                                                      i32,    i32,    i64};
   const iree_vm_signature_type_t output_arguments[] = {buffer, i64, i64, i32};
   const iree_vm_signature_type_t output_results[] = {i64, i64, i64, i64};
   const iree_vm_signature_type_t completion_arguments[] = {

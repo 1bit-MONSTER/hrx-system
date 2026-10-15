@@ -251,6 +251,11 @@ TEST_F(ManagedMediaServiceTest, ExplicitWarmupAndPinPolicyAreComponentScoped) {
   EXPECT_EQ(Field(Parameters("image"), "phase"), "declared");
   EXPECT_FALSE(HasField(Parameters("image"), "active"));
 
+  const auto primary_metrics = Read(Send("", "", "/metrics", "GET"));
+  EXPECT_EQ(primary_metrics.find("HTTP/1.1 200"), 0u) << primary_metrics;
+  EXPECT_NE(primary_metrics.find("component=\"primary\""), std::string::npos);
+  EXPECT_EQ(primary_metrics.find("component=\"image\""), std::string::npos);
+
   // JSON escapes select the same declared role, not a different key.
   ASSERT_NO_FATAL_FAILURE(Activate("\\u0069mage"));
   const auto image = Parameters("image");
@@ -258,6 +263,13 @@ TEST_F(ManagedMediaServiceTest, ExplicitWarmupAndPinPolicyAreComponentScoped) {
   EXPECT_EQ(Field(image, "active"), "true") << image;
   EXPECT_EQ(Field(image, "pinned"), "true") << image;
   EXPECT_EQ(Parameters("primary"), primary);
+  const auto image_metrics = Read(Send("", "", "/metrics", "GET"));
+  EXPECT_EQ(image_metrics.find("HTTP/1.1 200"), 0u) << image_metrics;
+  EXPECT_NE(image_metrics.find(
+                "loom_serve_model_parameter_pins{model=\"fixture-text\","
+                "kind=\"text\",incarnation=\"1\",component=\"image\"} 0\n"),
+            std::string::npos)
+      << image_metrics;
   EXPECT_EQ(Field(State(), "parameter_component"), "image");
   EXPECT_EQ(Field(Field(State(), "status"), "admission"), "drained");
   ASSERT_NO_FATAL_FAILURE(Control("deactivate", "image", 409));
@@ -346,6 +358,8 @@ TEST_F(ManagedMediaServiceTest, FailedImageWarmupLeavesTextAvailable) {
   EXPECT_EQ(Field(image, "phase"), "failed") << image;
   EXPECT_TRUE(HasField(image, "error")) << image;
   EXPECT_FALSE(HasField(image, "active")) << image;
+  const auto metrics = Read(Send("", "", "/metrics", "GET"));
+  EXPECT_EQ(metrics.find("component=\"image\""), std::string::npos) << metrics;
   // Repeated demand reports the retained failure without rerunning prepare.
   ASSERT_NO_FATAL_FAILURE(Activate("image"));
   EXPECT_EQ(Parameters("image"), image);

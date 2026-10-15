@@ -328,23 +328,27 @@ static iree_status_t loom_serve_text_create_program(
       .kind = IREE_VM_SIGNATURE_TYPE_KIND_SCALAR,
       .value.scalar = IREE_VM_SCALAR_TYPE_I64};
   const iree_vm_signature_type_t step_arguments[] = {
-      buffer,        i32,           device_buffer, device_buffer,
-      device_buffer, device_buffer, device_buffer, device_buffer};
+      buffer,        i32,           i32,           i32,
+      device_buffer, device_buffer, device_buffer, device_buffer,
+      device_buffer, device_buffer};
+  const iree_vm_signature_type_t step_results[] = {i64, i32};
   const iree_vm_signature_type_t encode_arguments[] = {
-      buffer, buffer, buffer, i32, i32, i32, buffer, buffer};
+      buffer, buffer, buffer, buffer, i32, i32,    i32,
+      i32,    i32,    i32,    i32,    i32, buffer, buffer};
   const iree_vm_signature_type_t publish_arguments[] = {
-      buffer, i32, i32, i32, i32, buffer, buffer, buffer, buffer};
+      buffer, buffer, i32,    i32,    i32,    i32,
+      i32,    i32,    buffer, buffer, buffer, buffer};
   const iree_vm_signature_type_t state_arguments[] = {buffer, i32, buffer};
   const iree_vm_signature_type_t epoch_arguments[] = {
       buffer,        i32,           i32,           i32,           i32,
-      i32,           i32,           i32,           i32,           device_buffer,
+      i32,           i32,           i32,           i32,           i32,
+      i32,           device_buffer, device_buffer, device_buffer, device_buffer,
       device_buffer, device_buffer, device_buffer, device_buffer, device_buffer,
-      device_buffer, device_buffer, device_buffer, device_buffer, device_buffer,
-      device_buffer};
+      device_buffer, device_buffer, device_buffer};
   const loom_serve_program_binding_t bindings[] = {
       {IREE_SVL("step"),
        {step_arguments, IREE_ARRAYSIZE(step_arguments)},
-       {&i64, 1},
+       {step_results, IREE_ARRAYSIZE(step_results)},
        &runner->step},
       {IREE_SVL("encode_epoch"),
        {encode_arguments, IREE_ARRAYSIZE(encode_arguments)},

@@ -891,16 +891,16 @@ def check_control_contracts(server_command, directory, catalog):
             "text",
             [
                 (
-                    "%capacity: i64) -> (buffer, i64) {",
-                    "%capacity: i64) -> (buffer, i64, i64) {",
+                    "%capacity: i64) -> (buffer, i64, buffer) {",
+                    "%capacity: i64) -> (buffer, i64, buffer, i64) {",
                 ),
                 (
-                    "func.return %tokens, %count : buffer, i64",
-                    "func.return %tokens, %count, %count : buffer, i64, i64",
+                    "func.return %tokens, %count, %spans : buffer, i64, buffer",
+                    "func.return %tokens, %count, %spans, %count : buffer, i64, buffer, i64",
                 ),
             ],
             "model export 'prepare_input' result count mismatch: "
-            "host expects 2, source declares 3",
+            "host expects 3, source declares 4",
         ),
         (
             "text",
@@ -1011,8 +1011,8 @@ def check_control_contracts(server_command, directory, catalog):
                 if ready["registration"] == "ready":
                     break
             assert ready["incarnation"] != state["incarnation"], ready
-            assert not ready["parameters"]["active"], ready
-            assert ready["parameters"]["activations"] == 0, ready
+            assert not ready["parameters"]["primary"]["active"], ready
+            assert ready["parameters"]["primary"]["activations"] == 0, ready
             if kind == "text":
                 messages = [{"role": "user", "content": "ab"}]
                 payload = {
