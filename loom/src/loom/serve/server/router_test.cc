@@ -822,7 +822,7 @@ TEST_P(HttpRouterCountersTest, ServerTotalsPreserveIntegerPrecisionAndScope) {
                                             : "} 0.0025\n");
       EXPECT_NE(metrics.find(expected), std::string::npos) << metrics;
     }
-    for (const std::string& sample : {
+    for (const std::string sample : {
              "bucket{outcome=\"completed\",le=\"0.001\"} 0\n",
              "bucket{outcome=\"completed\",le=\"0.0025\"} 1\n",
              "bucket{outcome=\"completed\",le=\"0.005\"} 3\n",
