@@ -183,7 +183,8 @@ func.def target(@target) @scalar_argument_contract(%value: index) -> (index) whe
 // ----
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @scalar_argument_contract(%value: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr>) where [range(%value, 1, 1024), multiple_of(%value, 16)] asm {
   %7 = low.assume %value [multiple_of(%value, 16)] : reg<amdgpu.sgpr>
-  return %7
+  %9 = copy %7 : reg<amdgpu.sgpr> -> reg<amdgpu.sgpr>
+  return %9
 }
 
 // ====

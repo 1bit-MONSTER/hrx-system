@@ -1736,6 +1736,7 @@ loom_cc_library(
     loom::ir
     loom::ir::facts
     loom::ops::buffer
+    loom::ops::callable_effects
     loom::ops::channel
     loom::ops::encoding
     loom::ops::kernel

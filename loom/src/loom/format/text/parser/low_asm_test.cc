@@ -270,6 +270,7 @@ TEST_F(LowAsmParserTest, EmbeddedAssemblyOwnsIrAndPreservesModule) {
       "// C++ wrapper\nR\"(\n"
       "(%value: reg<test.i32>) -> (reg<test.i32>) {\n"
       "  %sum = test.add.i32 %value, %value\n"
+      "  test.state.assign.i32.immediate 1\n"
       "  return %sum\n"
       "}\n)\"; trailing C++";
   loom_string_id_t name;
@@ -300,6 +301,9 @@ TEST_F(LowAsmParserTest, EmbeddedAssemblyOwnsIrAndPreservesModule) {
   EXPECT_EQ(loom_block_op(loom_module_block(module), 1), function);
   auto* body = loom_low_func_def_body(function);
   EXPECT_TRUE(body->source_flags & LOOM_REGION_SOURCE_FLAG_EXPLICIT_LOW_ASM);
+  EXPECT_EQ(body->observable_effect_count, 1u);
+  EXPECT_EQ(loom_module_block(module)->parent_region->observable_effect_count,
+            1u);
   auto* entry = loom_region_entry_block(body);
   ASSERT_EQ(entry->arg_count, 1);
   auto* add = loom_block_op(entry, 0);
@@ -310,13 +314,15 @@ TEST_F(LowAsmParserTest, EmbeddedAssemblyOwnsIrAndPreservesModule) {
   auto* sum = loom_module_value(module, loom_op_results(add)[0]);
   EXPECT_EQ(loom_value_def_op(sum), add);
   ASSERT_EQ(sum->use_count, 1u);
-  EXPECT_EQ(loom_use_user_op(loom_value_uses(sum)[0]), loom_block_op(entry, 1));
+  EXPECT_EQ(loom_use_user_op(loom_value_uses(sum)[0]), loom_block_op(entry, 2));
   EXPECT_EQ(StringFromId(module, loom_func_like_repr_contract(
                                      loom_func_like_cast(module, function))),
             "test.low.core");
   IREE_ASSERT_OK(loom_op_erase(module, function));
   EXPECT_EQ(loom_module_block(module)->op_count, 1u);
   EXPECT_EQ(loom_block_op(loom_module_block(module), 0), existing);
+  EXPECT_EQ(loom_module_block(module)->parent_region->observable_effect_count,
+            0u);
   loom_module_free(module);
 }
 

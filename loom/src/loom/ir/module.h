@@ -741,6 +741,13 @@ iree_status_t loom_block_insert_op(loom_module_t* module, loom_block_t* block,
 // only region presence transitions. Repeated recording is idempotent.
 void loom_module_record_op_summaries(loom_module_t* module, loom_op_t* op);
 
+// Propagates an already-counted detached region's summaries when it joins
+// |parent_op|. The region's children must now name |parent_op|, and their
+// summaries must not yet contribute to its ancestors. Uses retained aggregate
+// counts without visiting the region's operations.
+void loom_module_record_region_summaries(loom_op_t* parent_op,
+                                         const loom_region_t* region);
+
 // Removes |op|'s previously recorded direct summaries and all nested op
 // summaries from their region inventories.
 void loom_module_drop_op_summaries(loom_module_t* module, loom_op_t* op);

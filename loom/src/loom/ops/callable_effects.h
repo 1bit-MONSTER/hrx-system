@@ -31,6 +31,11 @@ bool loom_callable_effects_callee_is_pure(const loom_module_t* module,
 // does not imply purity: clocks, counters, and fences remain effectful.
 bool loom_callable_effects_may_access_memory(loom_func_like_t function);
 
+// Returns whether a callable can invalidate observed storage contents. Cached
+// body write effects include writes, unknown effects, and memory fences that
+// can import external writes. Declarations require an explicit pure contract.
+bool loom_callable_effects_may_write(loom_func_like_t function);
+
 // Returns the effective traits for a callable application with |purity|.
 // Its callable boundary remains independent of the selected effects.
 loom_trait_flags_t loom_callable_effects_traits(uint8_t purity);

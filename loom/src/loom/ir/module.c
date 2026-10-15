@@ -309,6 +309,25 @@ void loom_module_record_op_summaries(loom_module_t* module, loom_op_t* op) {
   op->flags |= LOOM_OP_FLAG_SUMMARIES_COUNTED;
 }
 
+void loom_module_record_region_summaries(loom_op_t* parent_op,
+                                         const loom_region_t* region) {
+  if (region->hint_source_count) {
+    loom_module_adjust_op_hint_sources(parent_op, +1);
+  }
+  for (loom_op_t* ancestor = parent_op; ancestor && ancestor->parent_block;
+       ancestor = ancestor->parent_op) {
+    loom_region_t* parent_region = ancestor->parent_block->parent_region;
+    if (!parent_region) {
+      break;
+    }
+    parent_region->read_effect_count += region->read_effect_count;
+    parent_region->write_effect_count += region->write_effect_count;
+    parent_region->convergent_effect_count += region->convergent_effect_count;
+    parent_region->observable_effect_count += region->observable_effect_count;
+    parent_region->memory_access_count += region->memory_access_count;
+  }
+}
+
 void loom_module_drop_op_summaries(loom_module_t* module, loom_op_t* op) {
   if (!op) {
     return;

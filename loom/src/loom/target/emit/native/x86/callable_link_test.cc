@@ -16,6 +16,8 @@ using F16 = _Float16;
 
 // These definitions are linked directly from the object emitted by Loom in a
 // separate build action. The compiler process exits before the link begins.
+extern "C" uint64_t reuse_mutated_argument(uint64_t value, uint64_t delta);
+extern "C" uint64_t reuse_aliased_arguments(uint64_t value);
 extern "C" uint64_t mix(uint64_t input, uint64_t delta);
 extern "C" void independent_integer_updates(uint32_t left32, uint32_t right32,
                                             uint64_t left64, uint64_t right64,
@@ -284,6 +286,17 @@ uint16_t ExpectedFiniteF32ToBf16Daz(float value) {
   }
   const uint32_t retained_lsb = (bits >> 16) & 1;
   return static_cast<uint16_t>((bits + UINT32_C(0x7fff) + retained_lsb) >> 16);
+}
+
+TEST(NativeCallableTest, InlinedLowArgumentsRetainIndependentContents) {
+  for (uint64_t value :
+       {0ull, 1ull, 0x123456789abcdef0ull, 0xffffffffffffffffull}) {
+    for (uint64_t delta : {0ull, 7ull, 0x8000000000000000ull}) {
+      EXPECT_EQ(reuse_mutated_argument(value, delta),
+                value ^ (value + value + delta));
+    }
+    EXPECT_EQ(reuse_aliased_arguments(value), value ^ (value + value + 1));
+  }
 }
 
 TEST(NativeCallableTest, ReadonlyDataOutlivesTheCompilerAndCrossesCalls) {

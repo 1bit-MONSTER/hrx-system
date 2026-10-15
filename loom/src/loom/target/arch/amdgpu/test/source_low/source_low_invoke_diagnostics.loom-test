@@ -89,7 +89,9 @@ func.def target(@target) @proven_relational_precondition(%lower: index, %upper: 
 // ----
 low.func.def target<amdgpu.gfx11.generic.core>(@target) abi(hal_kernel) @proven_relational_precondition(%lower: reg<amdgpu.sgpr>, %upper: reg<amdgpu.sgpr>) -> (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) where [lt(%lower, %upper)] asm {
   %14, %15 = low.assume %lower, %upper [le(%lower, %upper)] : reg<amdgpu.sgpr>, reg<amdgpu.sgpr>
-  return %14, %15
+  %18 = copy %14 : reg<amdgpu.sgpr> -> reg<amdgpu.sgpr>
+  %19 = copy %15 : reg<amdgpu.sgpr> -> reg<amdgpu.sgpr>
+  return %18, %19
 }
 
 // ====
