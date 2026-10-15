@@ -16,12 +16,14 @@ loom_cc_library(
     name = "projection_core",
     srcs = [
         "projection_apply.c",
+        "projection_branch.c",
         "projection_driver.c",
         "projection_loop.c",
         "projection_plan.c",
     ],
     hdrs = [
         "projection_apply.h",
+        "projection_branch.h",
         "projection_driver.h",
         "projection_loop.h",
         "projection_plan.h",

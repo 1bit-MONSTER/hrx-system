@@ -110,6 +110,8 @@ typedef struct loom_boundary_projection_block_t {
 } loom_boundary_projection_block_t;
 
 typedef struct loom_boundary_projection_loop_t loom_boundary_projection_loop_t;
+typedef struct loom_boundary_projection_branch_t
+    loom_boundary_projection_branch_t;
 
 struct loom_boundary_projection_function_t {
   // Original function-like operation.
@@ -190,6 +192,12 @@ struct loom_boundary_projection_function_t {
   iree_host_size_t loop_count;
   // Allocated loop plan capacity.
   iree_host_size_t loop_capacity;
+  // Original structured branch plans in dominance preorder.
+  loom_boundary_projection_branch_t* branches;
+  // Number of retained structured branches.
+  iree_host_size_t branch_count;
+  // Allocated structured branch capacity.
+  iree_host_size_t branch_capacity;
   // Whether this function participates in the rewrite batch.
   bool selected;
   // Whether at least one signature slot is projected.

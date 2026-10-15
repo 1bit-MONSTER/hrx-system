@@ -35,6 +35,8 @@ typedef enum loom_boundary_projection_slot_role_e {
   // loop result; the selected schema also applies to its condition-entry and
   // body-entry definitions.
   LOOM_BOUNDARY_PROJECTION_SLOT_LOOP_STATE = 4,
+  // One RegionBranch result and the corresponding yield in every region.
+  LOOM_BOUNDARY_PROJECTION_SLOT_BRANCH_RESULT = 5,
 } loom_boundary_projection_slot_role_t;
 
 // Boundary slot roles that a projection rule may claim. Bit i corresponds to
@@ -108,6 +110,8 @@ typedef bool (*loom_boundary_projection_slot_matches_fn_t)(
 // any slot. LOOP_STATE is queried once with the LoopLike result identity; the
 // engine applies the selected schema to every definition in that recurrence
 // column.
+// BRANCH_RESULT is queried once for the RegionBranch result; every region's
+// yield supplies that same selected schema.
 typedef iree_status_t (*loom_boundary_projection_plan_slot_fn_t)(
     const loom_boundary_projection_rule_t* rule,
     loom_boundary_projection_plan_t* plan,
@@ -117,9 +121,9 @@ typedef iree_status_t (*loom_boundary_projection_plan_slot_fn_t)(
     bool* out_claimed);
 
 // Plans the physical components supplied by one outgoing call, return, CFG
-// payload, or LoopLike recurrence edge. |destination| is present for CFG and
-// LoopLike slots and absent for callable signature slots. A false result
-// rejects the connected projection.
+// payload, LoopLike recurrence edge, or RegionBranch yield. |destination| is
+// present for CFG, LoopLike, and RegionBranch slots and absent for callable
+// signature slots. A false result rejects the connected projection.
 typedef iree_status_t (*loom_boundary_projection_plan_source_fn_t)(
     const loom_boundary_projection_rule_t* rule,
     loom_boundary_projection_plan_t* plan,

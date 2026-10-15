@@ -12,6 +12,7 @@
 #include "loom/ir/module.h"
 #include "loom/ops/cfg/ops.h"
 #include "loom/rewrite/remap.h"
+#include "loom/transforms/boundary/projection_branch.h"
 #include "loom/transforms/boundary/projection_loop.h"
 
 static iree_status_t loom_boundary_projection_name_component(
@@ -1136,6 +1137,8 @@ iree_status_t loom_boundary_projection_apply(
     }
     IREE_RETURN_IF_ERROR(loom_boundary_projection_preallocate_candidates(
         plan, &plan->functions[i]));
+    IREE_RETURN_IF_ERROR(loom_boundary_projection_preallocate_branches(
+        plan, &plan->functions[i]));
   }
   for (iree_host_size_t i = 0; i < plan->function_count; ++i) {
     if (!plan->functions[i].selected) {
@@ -1150,6 +1153,8 @@ iree_status_t loom_boundary_projection_apply(
     }
     IREE_RETURN_IF_ERROR(
         loom_boundary_projection_apply_loops(plan, &plan->functions[i]));
+    IREE_RETURN_IF_ERROR(
+        loom_boundary_projection_apply_branches(plan, &plan->functions[i]));
   }
   for (iree_host_size_t i = 0; i < plan->function_count; ++i) {
     if (!plan->functions[i].selected) {

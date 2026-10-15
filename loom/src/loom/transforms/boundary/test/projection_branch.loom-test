@@ -1,0 +1,247 @@
+// RUN: pass specialize-target-callgraph,project-boundary-representations
+
+// The branch retains its guarded memory read and scalar result while the
+// oversized vector result and both yields use the same two-packet schema.
+x86.target<avx2> @target
+
+func.def public target(@target) @guarded_vector(%input: buffer, %output: buffer, %condition: i1, %tag: i32) {
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input[%base] : buffer -> view<16xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<16xi32>
+  %values, %selected_tag = scf.if %condition -> (vector<16xi32>, i32) {
+    %loaded = vector.load %input_view[0] : view<16xi32> -> vector<16xi32>
+    scf.yield %loaded, %tag : vector<16xi32>, i32
+  } else {
+    %fallback = vector.constant 0 : vector<16xi32>
+    %other_tag = scalar.constant 7 : i32
+    scf.yield %fallback, %other_tag : vector<16xi32>, i32
+  }
+  vector.store %values, %output_view[0] : vector<16xi32>, view<16xi32>
+  view.store %selected_tag, %output_view[0] : i32, view<16xi32>
+  func.return
+}
+
+// ----
+x86.target<avx2> @target
+
+func.def public target(@target) @guarded_vector(%input: buffer, %output: buffer, %condition: i1, %tag: i32) {
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input[%base] : buffer -> view<16xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<16xi32>
+  %12, %13, %selected_tag = scf.if %condition -> (vector<8xi32>, vector<8xi32>, i32) {
+    %loaded = vector.load %input_view[0] : view<16xi32> -> vector<16xi32>
+    %15 = vector.slice %loaded[0] : vector<16xi32> -> vector<8xi32>
+    %16 = vector.slice %loaded[8] : vector<16xi32> -> vector<8xi32>
+    scf.yield %15, %16, %tag : vector<8xi32>, vector<8xi32>, i32
+  } else {
+    %fallback = vector.constant 0 : vector<16xi32>
+    %other_tag = scalar.constant 7 : i32
+    %17 = vector.slice %fallback[0] : vector<16xi32> -> vector<8xi32>
+    %18 = vector.slice %fallback[8] : vector<16xi32> -> vector<8xi32>
+    scf.yield %17, %18, %other_tag : vector<8xi32>, vector<8xi32>, i32
+  }
+  %values = vector.concat<0> %12, %13 : vector<8xi32>, vector<8xi32> -> vector<16xi32>
+  vector.store %values, %output_view[0] : vector<16xi32>, view<16xi32>
+  view.store %selected_tag, %output_view[0] : i32, view<16xi32>
+  func.return
+}
+
+// ====
+
+// Nested branches forward the same component identities through each join.
+// The keyed branch retains its cases, default, and short tail packet.
+// RUN: pass specialize-target-callgraph,project-boundary-representations
+
+x86.target<avx2> @target
+
+func.def public target(@target) @nested_switch(%input: buffer, %output: buffer, %condition: i1, %selector: index) {
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input[%base] : buffer -> view<10xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<10xi32>
+  %seed = vector.load %input_view[0] : view<10xi32> -> vector<10xi32>
+  %values = scf.switch %selector -> (vector<10xi32>) {
+    case 3 {
+      %nested = scf.if %condition -> (vector<10xi32>) {
+        scf.yield %seed : vector<10xi32>
+      } else {
+        %fallback = vector.constant 0 : vector<10xi32>
+        scf.yield %fallback : vector<10xi32>
+      }
+      scf.yield %nested : vector<10xi32>
+    }
+    case 9 {
+      %case_value = vector.constant 1 : vector<10xi32>
+      scf.yield %case_value : vector<10xi32>
+    }
+    default {
+      scf.yield %seed : vector<10xi32>
+    }
+  }
+  vector.store %values, %output_view[0] : vector<10xi32>, view<10xi32>
+  func.return
+}
+
+// ----
+x86.target<avx2> @target
+
+func.def public target(@target) @nested_switch(%input: buffer, %output: buffer, %condition: i1, %selector: index) {
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input[%base] : buffer -> view<10xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<10xi32>
+  %seed = vector.load %input_view[0] : view<10xi32> -> vector<10xi32>
+  %12, %13 = scf.switch %selector -> (vector<8xi32>, vector<2xi32>) {
+    case 3 {
+      %14, %15 = scf.if %condition -> (vector<8xi32>, vector<2xi32>) {
+        %21 = vector.slice %seed[0] : vector<10xi32> -> vector<8xi32>
+        %22 = vector.slice %seed[8] : vector<10xi32> -> vector<2xi32>
+        scf.yield %21, %22 : vector<8xi32>, vector<2xi32>
+      } else {
+        %fallback = vector.constant 0 : vector<10xi32>
+        %23 = vector.slice %fallback[0] : vector<10xi32> -> vector<8xi32>
+        %24 = vector.slice %fallback[8] : vector<10xi32> -> vector<2xi32>
+        scf.yield %23, %24 : vector<8xi32>, vector<2xi32>
+      }
+      %nested = vector.concat<0> %14, %15 : vector<8xi32>, vector<2xi32> -> vector<10xi32>
+      scf.yield %14, %15 : vector<8xi32>, vector<2xi32>
+    }
+    case 9 {
+      %case_value = vector.constant 1 : vector<10xi32>
+      %18 = vector.slice %case_value[0] : vector<10xi32> -> vector<8xi32>
+      %19 = vector.slice %case_value[8] : vector<10xi32> -> vector<2xi32>
+      scf.yield %18, %19 : vector<8xi32>, vector<2xi32>
+    }
+    default {
+      %16 = vector.slice %seed[0] : vector<10xi32> -> vector<8xi32>
+      %17 = vector.slice %seed[8] : vector<10xi32> -> vector<2xi32>
+      scf.yield %16, %17 : vector<8xi32>, vector<2xi32>
+    }
+  }
+  %values = vector.concat<0> %12, %13 : vector<8xi32>, vector<2xi32> -> vector<10xi32>
+  vector.store %values, %output_view[0] : vector<10xi32>, view<10xi32>
+  func.return
+}
+
+// ====
+
+// A branch inside a loop carries packets around the recurrence, and the loop
+// itself supplies a result to an enclosing branch.
+// RUN: pass specialize-target-callgraph,project-boundary-representations
+
+x86.target<avx2> @target
+
+func.def public target(@target) @loop_branch_transport(%input: buffer, %output: buffer, %condition: i1, %count: index) {
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input[%base] : buffer -> view<16xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<16xi32>
+  %seed = vector.load %input_view[0] : view<16xi32> -> vector<16xi32>
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %values = scf.if %condition -> (vector<16xi32>) {
+    %loop_result = scf.for %iteration = [%c0 to %count step %c1](%carried = %seed : vector<16xi32>) -> (vector<16xi32>) {
+      %first = index.cmp eq, %iteration, %c0 : index
+      %next = scf.if %first -> (vector<16xi32>) {
+        %fallback = vector.constant 0 : vector<16xi32>
+        scf.yield %fallback : vector<16xi32>
+      } else {
+        scf.yield %carried : vector<16xi32>
+      }
+      scf.yield %next : vector<16xi32>
+    }
+    scf.yield %loop_result : vector<16xi32>
+  } else {
+    scf.yield %seed : vector<16xi32>
+  }
+  vector.store %values, %output_view[0] : vector<16xi32>, view<16xi32>
+  func.return
+}
+
+// ----
+x86.target<avx2> @target
+
+func.def public target(@target) @loop_branch_transport(%input: buffer, %output: buffer, %condition: i1, %count: index) {
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input[%base] : buffer -> view<16xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<16xi32>
+  %seed = vector.load %input_view[0] : view<16xi32> -> vector<16xi32>
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %17, %18 = scf.if %condition -> (vector<8xi32>, vector<8xi32>) {
+    %21 = vector.slice %seed[0] : vector<16xi32> -> vector<8xi32>
+    %22 = vector.slice %seed[8] : vector<16xi32> -> vector<8xi32>
+    %23, %24 = scf.for %iteration = [%c0 to %count step %c1](%26 = %21 : vector<8xi32>, %27 = %22 : vector<8xi32>) -> (vector<8xi32>, vector<8xi32>) {
+      %carried = vector.concat<0> %26, %27 : vector<8xi32>, vector<8xi32> -> vector<16xi32>
+      %first = index.cmp eq, %iteration, %c0 : index
+      %19, %20 = scf.if %first -> (vector<8xi32>, vector<8xi32>) {
+        %fallback = vector.constant 0 : vector<16xi32>
+        %35 = vector.slice %fallback[0] : vector<16xi32> -> vector<8xi32>
+        %36 = vector.slice %fallback[8] : vector<16xi32> -> vector<8xi32>
+        scf.yield %35, %36 : vector<8xi32>, vector<8xi32>
+      } else {
+        %37 = vector.slice %carried[0] : vector<16xi32> -> vector<8xi32>
+        %38 = vector.slice %carried[8] : vector<16xi32> -> vector<8xi32>
+        scf.yield %37, %38 : vector<8xi32>, vector<8xi32>
+      }
+      %next = vector.concat<0> %19, %20 : vector<8xi32>, vector<8xi32> -> vector<16xi32>
+      scf.yield %19, %20 : vector<8xi32>, vector<8xi32>
+    }
+    %loop_result = vector.concat<0> %23, %24 : vector<8xi32>, vector<8xi32> -> vector<16xi32>
+    %30 = vector.slice %loop_result[0] : vector<16xi32> -> vector<8xi32>
+    %31 = vector.slice %loop_result[8] : vector<16xi32> -> vector<8xi32>
+    scf.yield %30, %31 : vector<8xi32>, vector<8xi32>
+  } else {
+    %32 = vector.slice %seed[0] : vector<16xi32> -> vector<8xi32>
+    %33 = vector.slice %seed[8] : vector<16xi32> -> vector<8xi32>
+    scf.yield %32, %33 : vector<8xi32>, vector<8xi32>
+  }
+  %values = vector.concat<0> %17, %18 : vector<8xi32>, vector<8xi32> -> vector<16xi32>
+  vector.store %values, %output_view[0] : vector<16xi32>, view<16xi32>
+  func.return
+}
+
+// ====
+
+// Retained results may name each other in their types. Their identities must
+// be remapped together while the independent vector result expands.
+// RUN: pass specialize-target-callgraph,project-boundary-representations
+
+x86.target<avx2> @target
+
+func.def public target(@target) @retained_result_types(%input: buffer, %output: buffer, %condition: i1, %left_size: index, %right_size: index) {
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input[%base] : buffer -> view<16xi32>
+  %seed = vector.load %input_view[0] : view<16xi32> -> vector<16xi32>
+  %values, %view, %size = scf.if %condition -> (vector<16xi32>, view<[%size]xi32>, index) {
+    %left = buffer.view %output[%base] : buffer -> view<[%left_size]xi32>
+    scf.yield %seed, %left, %left_size : vector<16xi32>, view<[%left_size]xi32>, index
+  } else {
+    %right = buffer.view %output[%base] : buffer -> view<[%right_size]xi32>
+    %fallback = vector.constant 0 : vector<16xi32>
+    scf.yield %fallback, %right, %right_size : vector<16xi32>, view<[%right_size]xi32>, index
+  }
+  vector.store %values, %view[0] : vector<16xi32>, view<[%size]xi32>
+  func.return
+}
+
+// ----
+x86.target<avx2> @target
+
+func.def public target(@target) @retained_result_types(%input: buffer, %output: buffer, %condition: i1, %left_size: index, %right_size: index) {
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input[%base] : buffer -> view<16xi32>
+  %seed = vector.load %input_view[0] : view<16xi32> -> vector<16xi32>
+  %14, %15, %view, %size = scf.if %condition -> (vector<8xi32>, vector<8xi32>, view<[%size]xi32>, index) {
+    %left = buffer.view %output[%base] : buffer -> view<[%left_size]xi32>
+    %18 = vector.slice %seed[0] : vector<16xi32> -> vector<8xi32>
+    %19 = vector.slice %seed[8] : vector<16xi32> -> vector<8xi32>
+    scf.yield %18, %19, %left, %left_size : vector<8xi32>, vector<8xi32>, view<[%left_size]xi32>, index
+  } else {
+    %right = buffer.view %output[%base] : buffer -> view<[%right_size]xi32>
+    %fallback = vector.constant 0 : vector<16xi32>
+    %20 = vector.slice %fallback[0] : vector<16xi32> -> vector<8xi32>
+    %21 = vector.slice %fallback[8] : vector<16xi32> -> vector<8xi32>
+    scf.yield %20, %21, %right, %right_size : vector<8xi32>, vector<8xi32>, view<[%right_size]xi32>, index
+  }
+  %values = vector.concat<0> %14, %15 : vector<8xi32>, vector<8xi32> -> vector<16xi32>
+  vector.store %values, %view[0] : vector<16xi32>, view<[%size]xi32>
+  func.return
+}

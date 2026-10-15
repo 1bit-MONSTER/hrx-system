@@ -14,12 +14,14 @@ loom_cc_library(
     projection_core
   HDRS
     "projection_apply.h"
+    "projection_branch.h"
     "projection_driver.h"
     "projection_loop.h"
     "projection_plan.h"
     "projection_rule.h"
   SRCS
     "projection_apply.c"
+    "projection_branch.c"
     "projection_driver.c"
     "projection_loop.c"
     "projection_plan.c"

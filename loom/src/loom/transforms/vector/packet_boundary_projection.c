@@ -405,7 +405,9 @@ static const loom_boundary_projection_rule_t
                           LOOM_BOUNDARY_PROJECTION_SLOT_ROLE_BIT(
                               LOOM_BOUNDARY_PROJECTION_SLOT_CALL_RESULT) |
                           LOOM_BOUNDARY_PROJECTION_SLOT_ROLE_BIT(
-                              LOOM_BOUNDARY_PROJECTION_SLOT_LOOP_STATE),
+                              LOOM_BOUNDARY_PROJECTION_SLOT_LOOP_STATE) |
+                          LOOM_BOUNDARY_PROJECTION_SLOT_ROLE_BIT(
+                              LOOM_BOUNDARY_PROJECTION_SLOT_BRANCH_RESULT),
         .function_applies = loom_vector_packet_boundary_function_applies,
         .slot_matches = loom_vector_packet_boundary_slot_matches,
         .plan_slot = loom_vector_packet_boundary_plan_slot,
