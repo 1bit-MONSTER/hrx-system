@@ -15,6 +15,21 @@ uint32_t amdf_gpu_umd_kernel_queue_mapping_capacity(
   return 0;
 }
 
+amdf_native_event_types_t amdf_gpu_umd_kernel_queue_query_notification_types(
+    const amdf_gpu_umd_kernel_queue_t* queue) {
+  (void)queue;
+  return 0;
+}
+
+amdf_status_t amdf_gpu_umd_kernel_queue_request_notification(
+    amdf_gpu_umd_kernel_queue_t* queue, uint64_t native_submission,
+    const amdf_native_event_t* event) {
+  (void)queue;
+  (void)native_submission;
+  (void)event;
+  return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+}
+
 amdf_status_t amdf_gpu_umd_kernel_queue_create(
     amdf_gpu_umd_device_t* device, amdf_queue_command_type_t command_type,
     amdf_gpu_umd_kernel_queue_t** out_queue) {

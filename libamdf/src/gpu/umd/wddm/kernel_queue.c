@@ -9,6 +9,7 @@
 #include "libamdf/src/allocator.h"
 #include "libamdf/src/atomics.h"
 #include "libamdf/src/gpu/umd/wddm/device.h"
+#include "libamdf/src/platform/native_event.h"
 #include "libamdf/src/platform/wait.h"
 #include "libamdf/src/wait.h"
 
@@ -201,6 +202,44 @@ uint64_t amdf_gpu_umd_kernel_queue_query_progress(
     const amdf_gpu_umd_kernel_queue_t* queue) {
   return amdf_kmt_device_status_query_fence_progress(
       &queue->device->status, queue->progress_fence_pointer);
+}
+
+amdf_native_event_types_t amdf_gpu_umd_kernel_queue_query_notification_types(
+    const amdf_gpu_umd_kernel_queue_t* queue) {
+  (void)queue;
+  return AMDF_NATIVE_EVENT_TYPE_BIT_WIN32_EVENT;
+}
+
+amdf_status_t amdf_gpu_umd_kernel_queue_request_notification(
+    amdf_gpu_umd_kernel_queue_t* queue, uint64_t native_submission,
+    const amdf_native_event_t* event) {
+  if (native_submission == 0) {
+    return amdf_platform_native_event_signal(event);
+  }
+  // Sampling progress detects the reset sentinel before the completion check.
+  // A reset wakes native waiters but never establishes successful retirement.
+  const uint64_t progress = amdf_gpu_umd_kernel_queue_query_progress(queue);
+  const amdf_status_t terminal_status =
+      amdf_gpu_umd_kernel_queue_query_terminal_status(queue);
+  if (!amdf_status_is_ok(terminal_status)) {
+    return terminal_status;
+  }
+  if (progress >= native_submission) {
+    return amdf_platform_native_event_signal(event);
+  }
+  D3DKMT_WAITFORSYNCHRONIZATIONOBJECTFROMCPU wait = {0};
+  wait.hDevice = queue->device->device;
+  wait.ObjectCount = 1;
+  wait.ObjectHandleArray = &queue->progress_fence;
+  wait.FenceValueArray = &native_submission;
+  wait.hAsyncEvent = event->payload.native_handle;
+  const amdf_status_t status =
+      amdf_kmt_make_status(queue->device->kmt->wait_from_cpu(&wait));
+  return amdf_status_is_ok(status)
+             ? status
+             : amdf_kmt_device_status_observe_error(
+                   &queue->device->status, queue->device->kmt,
+                   queue->device->device, status);
 }
 
 amdf_status_t amdf_gpu_umd_kernel_queue_wait(

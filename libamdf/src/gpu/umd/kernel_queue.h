@@ -24,6 +24,20 @@ typedef struct amdf_gpu_umd_kernel_queue_t amdf_gpu_umd_kernel_queue_t;
 uint32_t amdf_gpu_umd_kernel_queue_mapping_capacity(
     const amdf_gpu_umd_kernel_queue_t* queue);
 
+// Supported native wake destinations. Cached query without native work.
+amdf_native_event_types_t amdf_gpu_umd_kernel_queue_query_notification_types(
+    const amdf_gpu_umd_kernel_queue_t* queue);
+
+// Requests one native-progress hint into a validated supported event. Zero
+// means the shared owner already checked the public point and requires an
+// immediate hint. No event descriptor or subscription is retained. Explicit
+// native registration/signaling calls are allowed; library allocation, waits,
+// locks, retries and lazy setup are not. Concurrent calls are independent of
+// submission and the reusable synchronous-wait event.
+amdf_status_t amdf_gpu_umd_kernel_queue_request_notification(
+    amdf_gpu_umd_kernel_queue_t* queue, uint64_t native_submission,
+    const amdf_native_event_t* event);
+
 // Acquires one native kernel-mediated queue accepting |command_type|.
 // Cold path: command and completion resources are prepared before publication,
 // including reusable native wait state. No first-submit or first-wait setup.
