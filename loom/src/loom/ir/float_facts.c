@@ -106,24 +106,98 @@ static double loom_float_round_to_type(loom_scalar_type_t scalar_type,
   }
 }
 
-static bool loom_float_values_have_identical_bits(double lhs, double rhs) {
-  uint64_t lhs_bits = 0;
-  uint64_t rhs_bits = 0;
-  memcpy(&lhs_bits, &lhs, sizeof(lhs));
-  memcpy(&rhs_bits, &rhs, sizeof(rhs));
-  return lhs_bits == rhs_bits;
+typedef struct loom_float_exact_format_t {
+  // Number of significand bits, including the implicit leading bit.
+  uint8_t precision;
+  // Unbiased exponent of the format's smallest normal value.
+  int16_t minimum_normal_exponent;
+  // Largest finite magnitude represented by the format.
+  double maximum_finite_value;
+} loom_float_exact_format_t;
+
+static bool loom_float_exact_format(loom_scalar_type_t scalar_type,
+                                    loom_float_exact_format_t* out_format) {
+  switch (scalar_type) {
+    case LOOM_SCALAR_TYPE_F8E4M3:
+      *out_format = (loom_float_exact_format_t){4, -6, 0x1.Cp8};
+      return true;
+    case LOOM_SCALAR_TYPE_F8E5M2:
+      *out_format = (loom_float_exact_format_t){3, -14, 0x1.Cp15};
+      return true;
+    case LOOM_SCALAR_TYPE_F16:
+      *out_format = (loom_float_exact_format_t){11, -14, 0x1.FFCp15};
+      return true;
+    case LOOM_SCALAR_TYPE_BF16:
+      *out_format = (loom_float_exact_format_t){8, -126, 0x1.FEp127};
+      return true;
+    case LOOM_SCALAR_TYPE_F32:
+      *out_format = (loom_float_exact_format_t){24, -126, 0x1.FFFFFEp127};
+      return true;
+    case LOOM_SCALAR_TYPE_F64:
+      *out_format =
+          (loom_float_exact_format_t){53, -1022, 0x1.FFFFFFFFFFFFFp1023};
+      return true;
+    default:
+      return false;
+  }
+}
+
+// Returns whether the finite binary64 |value| is exactly representable in
+// |format|. A binary value is exact when its least significant set bit is no
+// smaller than the destination spacing at that magnitude. Working from the
+// retained binary64 payload avoids performing six narrowing conversions for
+// every constant encountered by fact analysis.
+static bool loom_float_value_is_exact_in_format(
+    double value, const loom_float_exact_format_t* format) {
+  uint64_t bits = 0;
+  memcpy(&bits, &value, sizeof(bits));
+  const uint64_t magnitude_bits = bits & UINT64_C(0x7FFFFFFFFFFFFFFF);
+  if (magnitude_bits == 0) {
+    return true;
+  }
+  if (!isfinite(value) || fabs(value) > format->maximum_finite_value) {
+    return false;
+  }
+
+  const uint64_t fraction = magnitude_bits & UINT64_C(0x000FFFFFFFFFFFFF);
+  const uint64_t encoded_exponent = magnitude_bits >> 52;
+  const uint64_t significand = encoded_exponent == 0
+                                   ? fraction
+                                   : fraction | UINT64_C(0x0010000000000000);
+  const int32_t significand_exponent =
+      encoded_exponent == 0 ? -1074 : (int32_t)encoded_exponent - 1023 - 52;
+  const int32_t most_significant_exponent =
+      significand_exponent + 63 -
+      (int32_t)iree_math_count_leading_zeros_u64(significand);
+  const int32_t least_significant_exponent =
+      significand_exponent +
+      (int32_t)iree_math_count_trailing_zeros_u64(significand);
+  const int32_t normal_spacing_exponent =
+      most_significant_exponent - ((int32_t)format->precision - 1);
+  const int32_t subnormal_spacing_exponent =
+      format->minimum_normal_exponent - ((int32_t)format->precision - 1);
+  return least_significant_exponent >=
+         iree_max(normal_spacing_exponent, subnormal_spacing_exponent);
 }
 
 static loom_scalar_type_set_t loom_float_exact_value_destinations(
-    double value) {
+    loom_scalar_type_t source_type, double value) {
+  loom_scalar_type_set_t result =
+      loom_float_type_exact_destinations(source_type);
   if (!isfinite(value)) {
-    return LOOM_SCALAR_TYPE_SET_NONE;
+    return result;
   }
-  loom_scalar_type_set_t result = LOOM_SCALAR_TYPE_SET_NONE;
+  if (value == 0.0) {
+    return LOOM_SCALAR_TYPE_SET_FLOAT;
+  }
   for (loom_scalar_type_t type = LOOM_SCALAR_TYPE_F8E4M3;
        type <= LOOM_SCALAR_TYPE_F64; ++type) {
-    if (loom_float_values_have_identical_bits(
-            loom_float_round_to_type(type, value), value)) {
+    if (loom_scalar_type_set_contains(result, type)) {
+      continue;
+    }
+    loom_float_exact_format_t format;
+    if (loom_float_exact_format(type, &format) &&
+        loom_float_value_is_exact_in_format(value, &format)) {
       result |= (loom_scalar_type_set_t)(1u << type);
     }
   }
@@ -203,8 +277,7 @@ loom_value_facts_exact_float(loom_scalar_type_t scalar_type, double value) {
   loom_value_facts_t facts =
       loom_value_facts_exact_rounded_float(rounded_value);
   loom_value_facts_add_exact_float_types(
-      &facts, loom_float_type_exact_destinations(scalar_type) |
-                  loom_float_exact_value_destinations(rounded_value));
+      &facts, loom_float_exact_value_destinations(scalar_type, rounded_value));
   if (!loom_float_is_subnormal(scalar_type, rounded_value)) {
     facts.flags |= LOOM_VALUE_FACT_NOT_SUBNORMAL;
   }

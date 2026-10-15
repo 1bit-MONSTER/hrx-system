@@ -12,6 +12,7 @@
 #include <limits>
 
 #include "iree/base/internal/fpu_state.h"
+#include "iree/base/internal/math.h"
 #include "iree/testing/gtest.h"
 
 namespace loom {
@@ -35,6 +36,45 @@ static uint64_t DoubleBits(double value) {
   uint64_t bits = 0;
   std::memcpy(&bits, &value, sizeof(bits));
   return bits;
+}
+
+static double RoundToScalarType(loom_scalar_type_t scalar_type, double value) {
+  switch (scalar_type) {
+    case LOOM_SCALAR_TYPE_F8E4M3:
+      return iree_math_f8e4m3fn_to_f64(iree_math_f64_to_f8e4m3fn(value));
+    case LOOM_SCALAR_TYPE_F8E5M2:
+      return iree_math_f8e5m2_to_f64(iree_math_f64_to_f8e5m2(value));
+    case LOOM_SCALAR_TYPE_F16:
+      return iree_math_f16_to_f64(iree_math_f64_to_f16(value));
+    case LOOM_SCALAR_TYPE_BF16:
+      return iree_math_bf16_to_f64(iree_math_f64_to_bf16(value));
+    case LOOM_SCALAR_TYPE_F32:
+      return static_cast<double>(static_cast<float>(value));
+    case LOOM_SCALAR_TYPE_F64:
+      return value;
+    default:
+      return std::numeric_limits<double>::quiet_NaN();
+  }
+}
+
+static void ExpectExactFloatTypesMatchRoundTrips(loom_scalar_type_t source_type,
+                                                 double source_value) {
+  const loom_value_facts_t facts =
+      loom_value_facts_exact_float(source_type, source_value);
+  const double rounded_source = ExactFloatValue(source_type, facts);
+  ASSERT_TRUE(std::isfinite(rounded_source));
+
+  loom_scalar_type_set_t expected = LOOM_SCALAR_TYPE_SET_NONE;
+  for (loom_scalar_type_t destination_type = LOOM_SCALAR_TYPE_F8E4M3;
+       destination_type <= LOOM_SCALAR_TYPE_F64; ++destination_type) {
+    if (DoubleBits(RoundToScalarType(destination_type, rounded_source)) ==
+        DoubleBits(rounded_source)) {
+      expected |= (loom_scalar_type_set_t)(1u << destination_type);
+    }
+  }
+  EXPECT_EQ(loom_value_facts_exact_float_types(facts), expected)
+      << "source type " << loom_scalar_type_name(source_type)
+      << ", binary64 bits " << DoubleBits(rounded_source);
 }
 
 static void ExpectFloatRange(loom_scalar_type_t scalar_type,
@@ -157,6 +197,83 @@ TEST(FloatFacts, TracksExactDestinationFormatsWithoutGrowingFacts) {
       LOOM_SCALAR_TYPE_SET_FLOAT);
   ExpectExactFloatTypes(loom_value_facts_exact_float(LOOM_SCALAR_TYPE_F32, 1.1),
                         LOOM_SCALAR_TYPE_SET_F32 | LOOM_SCALAR_TYPE_SET_F64);
+}
+
+TEST(FloatFacts, ExactDestinationFormatsMatchNarrowFormatRoundTrips) {
+  for (uint32_t bits = 0; bits <= UINT8_MAX; ++bits) {
+    const double e4m3 = iree_math_f8e4m3fn_to_f64((uint8_t)bits);
+    if (std::isfinite(e4m3)) {
+      ExpectExactFloatTypesMatchRoundTrips(LOOM_SCALAR_TYPE_F8E4M3, e4m3);
+    }
+    const double e5m2 = iree_math_f8e5m2_to_f64((uint8_t)bits);
+    if (std::isfinite(e5m2)) {
+      ExpectExactFloatTypesMatchRoundTrips(LOOM_SCALAR_TYPE_F8E5M2, e5m2);
+    }
+  }
+
+  for (uint32_t bits = 0; bits <= UINT16_MAX; ++bits) {
+    const double f16 = iree_math_f16_to_f64((uint16_t)bits);
+    if (std::isfinite(f16)) {
+      ExpectExactFloatTypesMatchRoundTrips(LOOM_SCALAR_TYPE_F16, f16);
+    }
+    const double bf16 = iree_math_bf16_to_f64((uint16_t)bits);
+    if (std::isfinite(bf16)) {
+      ExpectExactFloatTypesMatchRoundTrips(LOOM_SCALAR_TYPE_BF16, bf16);
+    }
+  }
+}
+
+TEST(FloatFacts, ExactDestinationFormatsMatchWideFormatRoundTrips) {
+  constexpr uint32_t kF32Fractions[] = {
+      0,
+      1,
+      2,
+      (UINT32_C(1) << 12) - 1,
+      UINT32_C(1) << 12,
+      (UINT32_C(1) << 13) - 1,
+      UINT32_C(1) << 13,
+      (UINT32_C(1) << 16) - 1,
+      UINT32_C(1) << 16,
+      UINT32_C(0x00400000),
+      UINT32_C(0x007FFFFE),
+      UINT32_C(0x007FFFFF),
+  };
+  for (uint32_t exponent = 0; exponent < UINT32_C(0xFF); ++exponent) {
+    for (uint32_t fraction : kF32Fractions) {
+      for (uint32_t sign = 0; sign <= 1; ++sign) {
+        const uint32_t bits = (sign << 31) | (exponent << 23) | fraction;
+        float value = 0.0f;
+        std::memcpy(&value, &bits, sizeof(value));
+        ExpectExactFloatTypesMatchRoundTrips(LOOM_SCALAR_TYPE_F32,
+                                             (double)value);
+      }
+    }
+  }
+
+  constexpr uint64_t kF64Fractions[] = {
+      0,
+      1,
+      2,
+      (UINT64_C(1) << 28) - 1,
+      UINT64_C(1) << 28,
+      (UINT64_C(1) << 29) - 1,
+      UINT64_C(1) << 29,
+      (UINT64_C(1) << 42) - 1,
+      UINT64_C(1) << 42,
+      UINT64_C(0x0008000000000000),
+      UINT64_C(0x000FFFFFFFFFFFFE),
+      UINT64_C(0x000FFFFFFFFFFFFF),
+  };
+  for (uint64_t exponent = 0; exponent < UINT64_C(0x7FF); ++exponent) {
+    for (uint64_t fraction : kF64Fractions) {
+      for (uint64_t sign = 0; sign <= 1; ++sign) {
+        const uint64_t bits = (sign << 63) | (exponent << 52) | fraction;
+        double value = 0.0;
+        std::memcpy(&value, &bits, sizeof(value));
+        ExpectExactFloatTypesMatchRoundTrips(LOOM_SCALAR_TYPE_F64, value);
+      }
+    }
+  }
 }
 
 TEST(FloatFacts, ExactDestinationFormatsJoinAndDoNotBecomeTopology) {
