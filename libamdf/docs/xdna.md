@@ -602,15 +602,49 @@ Format 2 represents timestamps in nanoseconds. This describes units, not
 sampling resolution, accuracy, a shared CPU/GPU epoch or clock continuity.
 Command events preserve firmware context, virtual-context and opcode fields;
 those fields identify native execution within a firmware context lifetime.
-The trace interface supplies no mapping to the opaque public
-`amdf_xdna_context_info_t.id` or to a caller's submission identity. Public
-context IDs cannot be unpacked to recover firmware identities. The decoded
-stream supports device-wide observation independently of application
+Public context IDs cannot be unpacked to recover firmware identities. The
+decoded stream supports device-wide observation independently of application
 attribution; configuration authority does not exclude other workloads.
+
+XDNA extension version 3 adds `context_query_firmware_trace_info`, an explicit
+native snapshot of a live context's current physical firmware slot:
+
+```c
+amdf_xdna_context_firmware_trace_info_t context_trace_info = {
+    .type = AMDF_STRUCTURE_TYPE_XDNA_CONTEXT_FIRMWARE_TRACE_INFO,
+    .structure_size = sizeof(context_trace_info),
+};
+amdf_status_t status = xdna->context_query_firmware_trace_info(
+    context, &context_trace_info);
+if (amdf_status_is_ok(status)) {
+  // Record this snapshot alongside the context's public identity.
+  // UNASSIGNED means that the native snapshot contains no firmware owner.
+  uint32_t firmware_id = context_trace_info.firmware_context_id;
+}
+```
+
+The query keeps native driver identifiers inside libamdf. It changes no
+recorder configuration, retains no resources, and adds no work to submission.
+It may wake the device or wait for native telemetry. The context remains live
+through the call; ordinary submission and other queries may proceed
+concurrently. A driver without the identity query returns `UNSUPPORTED`;
+other native errors remain errors, and every failure leaves output unchanged.
+The query can succeed independently of recorder availability.
+
+The Windows provider resolves the native context's selector through its
+telemetry map. The Linux provider returns `UNSUPPORTED` for this query: the
+SDK's global PID/context-ID lookup does not establish file ownership across
+PID namespaces and driver revisions. Recorder access and `RECORD_TIMER`
+remain independent services. Supporting this query on Linux requires a
+namespace-correct native owner key or a file-owned context lookup.
 
 An application timeline additionally needs a native context mapping with its
 valid lifetime and the command protocol's ordering or submission identity.
-A current mapping alone cannot identify older records after context-ID reuse.
+The snapshot supplies neither that validity interval nor a virtual-context ID
+or command sequence. Native suspension or recovery can replace the firmware
+owner while the public context remains live. A current mapping alone cannot
+identify older records after context-ID reuse, and matching snapshots before
+and after an interval do not rule out reuse within it.
 Matching an opcode or assigning consecutive events to consecutive host
 submissions does not establish that relationship under concurrency. Finite
 result records instead have a caller-selected destination and marker protocol.

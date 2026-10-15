@@ -63,7 +63,8 @@ static const amdf_xdna_api_t amdf_xdna_api_v1 = {
 };
 
 static const amdf_xdna_api_t amdf_xdna_api_v2 = {
-    .structure_size = sizeof(amdf_xdna_api_t),
+    .structure_size =
+        offsetof(amdf_xdna_api_t, context_query_firmware_trace_info),
     .extension_version = AMDF_XDNA_EXTENSION_VERSION_2,
     .endpoint_query_info = amdf_xdna_endpoint_query_info,
     .device_create = amdf_xdna_device_create,
@@ -87,6 +88,35 @@ static const amdf_xdna_api_t amdf_xdna_api_v2 = {
     .context_collect_result_buffer = amdf_xdna_context_collect_result_buffer,
     .context_detach_result_buffer = amdf_xdna_context_detach_result_buffer,
     .device_query_timer_clock_info = amdf_xdna_device_query_timer_clock_info,
+};
+
+static const amdf_xdna_api_t amdf_xdna_api_v3 = {
+    .structure_size = sizeof(amdf_xdna_api_t),
+    .extension_version = AMDF_XDNA_EXTENSION_VERSION_3,
+    .endpoint_query_info = amdf_xdna_endpoint_query_info,
+    .device_create = amdf_xdna_device_create,
+    .device_query_info = amdf_xdna_device_query_info,
+    .kernel_queue_create = amdf_xdna_kernel_queue_create,
+    .kernel_queue_submit = amdf_xdna_kernel_queue_submit,
+    .context_create = amdf_xdna_context_create,
+    .context_query_info = amdf_xdna_context_query_info,
+    .context_query_placement_info = amdf_xdna_context_query_placement_info,
+    .context_enumerate_memory_scopes =
+        amdf_xdna_context_enumerate_memory_scopes,
+    .context_destroy = amdf_xdna_context_destroy,
+    .device_query_firmware_trace_info =
+        amdf_xdna_device_query_firmware_trace_info,
+    .device_configure_firmware_trace =
+        amdf_xdna_device_configure_firmware_trace,
+    .device_read_firmware_trace = amdf_xdna_device_read_firmware_trace,
+    .context_query_result_buffer_info =
+        amdf_xdna_context_query_result_buffer_info,
+    .context_attach_result_buffer = amdf_xdna_context_attach_result_buffer,
+    .context_collect_result_buffer = amdf_xdna_context_collect_result_buffer,
+    .context_detach_result_buffer = amdf_xdna_context_detach_result_buffer,
+    .device_query_timer_clock_info = amdf_xdna_device_query_timer_clock_info,
+    .context_query_firmware_trace_info =
+        amdf_xdna_context_query_firmware_trace_info,
 };
 
 uint32_t amdf_xdna_extension_query_endpoint_queue_families(
@@ -116,6 +146,11 @@ uint32_t amdf_xdna_extension_query_endpoint_queue_families(
 amdf_status_t amdf_xdna_extension_query(uint32_t minimum_version,
                                         uint32_t maximum_version,
                                         const void** out_extension_api) {
+  if (minimum_version <= AMDF_XDNA_EXTENSION_VERSION_3 &&
+      maximum_version >= AMDF_XDNA_EXTENSION_VERSION_3) {
+    *out_extension_api = &amdf_xdna_api_v3;
+    return AMDF_STATUS_OK;
+  }
   if (minimum_version <= AMDF_XDNA_EXTENSION_VERSION_2 &&
       maximum_version >= AMDF_XDNA_EXTENSION_VERSION_2) {
     *out_extension_api = &amdf_xdna_api_v2;

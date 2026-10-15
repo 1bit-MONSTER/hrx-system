@@ -23,8 +23,11 @@ extern "C" {
 /// Device-wide firmware tracing and context firmware-result services.
 #define AMDF_XDNA_EXTENSION_VERSION_2 2u
 
+/// Explicit context-to-firmware trace identity snapshots.
+#define AMDF_XDNA_EXTENSION_VERSION_3 3u
+
 /// The most recent XDNA extension version described by this header.
-#define AMDF_XDNA_EXTENSION_VERSION_LATEST AMDF_XDNA_EXTENSION_VERSION_2
+#define AMDF_XDNA_EXTENSION_VERSION_LATEST AMDF_XDNA_EXTENSION_VERSION_3
 
 /// One program-independent schedulable XDNA context.
 typedef struct amdf_xdna_context_t amdf_xdna_context_t;
@@ -653,6 +656,26 @@ typedef struct amdf_xdna_api_t {
   /// events or the CPU.
   amdf_status_t(AMDF_CALL* device_query_timer_clock_info)(
       amdf_device_t* device, amdf_observation_clock_info_t* out_info);
+
+  /// Samples the current physical firmware slot assigned to a live context.
+  /// Performs an explicit native query, which may wake the device or wait for
+  /// native telemetry. It allocates no library objects, retains no state,
+  /// changes no recorder configuration, and synchronizes no application work.
+  /// The caller keeps context live through the call; concurrent queries and
+  /// ordinary submissions are permitted. Failure leaves out_info unchanged.
+  /// An unavailable native query returns UNSUPPORTED; permission and device
+  /// failures preserve their native status. An unassigned firmware slot is a
+  /// successful snapshot, represented by the UNASSIGNED sentinel.
+  ///
+  /// The snapshot is not a placement binding or a stable identity. Native
+  /// scheduling, suspension, or recovery can replace it without destroying
+  /// the public context. The caller may bracket the query with the portable
+  /// host clock, but this supplies neither an event-clock correlation nor a
+  /// historical mapping. Event attribution requires an independently known
+  /// lifetime interval; loss or restart invalidates joins that depend on it.
+  amdf_status_t(AMDF_CALL* context_query_firmware_trace_info)(
+      amdf_xdna_context_t* context,
+      amdf_xdna_context_firmware_trace_info_t* out_info);
 } amdf_xdna_api_t;
 
 #ifdef __cplusplus

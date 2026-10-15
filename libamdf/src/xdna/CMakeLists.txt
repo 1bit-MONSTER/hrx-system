@@ -277,6 +277,7 @@ iree_cc_library(
   SRCS
     "firmware_trace.c"
   DEPS
+    ::context
     ::device
     ::firmware_trace_format
     amdf::headers

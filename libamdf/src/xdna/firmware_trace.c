@@ -8,9 +8,34 @@
 
 #include "libamdf/src/device.h"
 #include "libamdf/src/structure.h"
+#include "libamdf/src/xdna/context.h"
 #include "libamdf/src/xdna/device.h"
 #include "libamdf/src/xdna/firmware_trace_format.h"
 #include "libamdf/src/xdna/umd/firmware_trace.h"
+
+amdf_status_t AMDF_CALL amdf_xdna_context_query_firmware_trace_info(
+    amdf_xdna_context_t* context,
+    amdf_xdna_context_firmware_trace_info_t* out_info) {
+  if (context == NULL) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT);
+  }
+  amdf_status_t status = amdf_structure_validate_output(
+      out_info, AMDF_STRUCTURE_TYPE_XDNA_CONTEXT_FIRMWARE_TRACE_INFO,
+      sizeof(amdf_xdna_context_firmware_trace_info_t));
+  if (!amdf_status_is_ok(status)) {
+    return status;
+  }
+  amdf_xdna_context_firmware_trace_info_t info = {0};
+  status = amdf_xdna_umd_context_query_firmware_trace_info(
+      amdf_xdna_context_get_umd(context), &info);
+  if (amdf_status_is_ok(status)) {
+    info.type = out_info->type;
+    info.structure_size = out_info->structure_size;
+    info.next = out_info->next;
+    *out_info = info;
+  }
+  return status;
+}
 
 amdf_status_t AMDF_CALL amdf_xdna_device_query_firmware_trace_info(
     amdf_device_t* device, amdf_xdna_firmware_trace_info_t* out_info) {
