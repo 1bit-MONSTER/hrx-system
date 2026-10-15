@@ -536,14 +536,36 @@ loom_cc_library(
     ],
 )
 
-loom_cc_test(
-    name = "cfg_regions_test",
-    srcs = ["cfg_regions_test.cc"],
+loom_cc_library(
+    name = "cfg_regions_test_util",
+    testonly = True,
+    srcs = ["cfg_regions_test_util.cc"],
+    hdrs = ["cfg_regions_test_util.h"],
     deps = [
         ":cfg_dominance",
         ":cfg_graph_test_util",
         ":cfg_regions",
         "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_test(
+    name = "cfg_regions_test",
+    srcs = ["cfg_regions_test.cc"],
+    deps = [
+        ":cfg_graph_test_util",
+        ":cfg_regions_test_util",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "cfg_regions_stress_test",
+    srcs = ["cfg_regions_stress_test.cc"],
+    tags = ["manual"],
+    deps = [
+        ":cfg_regions_test_util",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
     ],
@@ -649,13 +671,40 @@ loom_cc_library(
     ],
 )
 
+loom_cc_library(
+    name = "cfg_control_test_harness",
+    testonly = True,
+    srcs = ["cfg_control_test_harness.cc"],
+    hdrs = ["cfg_control_test_harness.h"],
+    deps = [
+        ":cfg_control",
+        ":cfg_control_test_util",
+        ":cfg_graph_test_util",
+        ":cfg_postdominance",
+        ":fact_control",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
 loom_cc_test(
     name = "cfg_control_test",
     srcs = ["cfg_control_test.cc"],
     deps = [
         ":cfg_control",
-        ":cfg_control_test_util",
+        ":cfg_control_test_harness",
         ":cfg_graph_test_util",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "cfg_control_stress_test",
+    srcs = ["cfg_control_stress_test.cc"],
+    tags = ["manual"],
+    deps = [
+        ":cfg_control_test_harness",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
     ],
@@ -692,6 +741,7 @@ loom_cc_test(
     srcs = ["fact_control_test.cc"],
     deps = [
         ":cfg_control",
+        ":cfg_control_test_harness",
         ":cfg_control_test_util",
         ":cfg_graph_test_util",
         ":fact_control",
@@ -727,7 +777,7 @@ loom_cc_test(
     name = "cfg_postdominance_test",
     srcs = ["cfg_postdominance_test.cc"],
     deps = [
-        ":cfg_control_test_util",
+        ":cfg_control_test_harness",
         ":cfg_graph",
         ":cfg_graph_test_util",
         ":cfg_postdominance",

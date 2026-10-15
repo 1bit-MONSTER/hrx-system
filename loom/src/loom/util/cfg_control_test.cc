@@ -11,7 +11,7 @@
 
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
-#include "loom/util/cfg_control_test_util.h"
+#include "loom/util/cfg_control_test_harness.h"
 #include "loom/util/cfg_graph_test_util.h"
 
 namespace loom {
@@ -19,37 +19,15 @@ namespace {
 
 class CfgControlTest : public ::testing::Test {
  protected:
-  void SetUp() override {
-    iree_arena_block_pool_initialize(4096, iree_allocator_system(), &pool_);
-    iree_arena_initialize(&pool_, &arena_);
-  }
-  void TearDown() override {
-    iree_arena_deinitialize(&arena_);
-    iree_arena_block_pool_deinitialize(&pool_);
-  }
-
-  void CheckPaths(const std::vector<std::vector<uint16_t>>& successors) {
-    testing::CfgGraph fixture(successors);
-    const auto* graph = fixture.get();
-    loom_cfg_control_t control;
-    IREE_ASSERT_OK(loom_cfg_control_build(graph, &arena_, &control));
-    testing::CfgControlOracle oracle(graph);
-    IREE_ASSERT_OK(oracle.CheckStructure(control));
-    iree_arena_reset(&arena_);
-  }
-
-  // Reusable backing storage for analysis allocations.
-  iree_arena_block_pool_t pool_;
-  // One result lifetime, reset between graph cases.
-  iree_arena_allocator_t arena_;
+  testing::CfgControlTestHarness harness_;
 };
 
 TEST_F(CfgControlTest, EmptyLinearDuplicateAndUnreachableGraphs) {
-  CheckPaths({});
-  CheckPaths({{}});
-  CheckPaths({{1}, {2}, {}});
-  CheckPaths({{1, 1}, {1}});
-  CheckPaths({{}, {2, 3}, {1}, {}});
+  IREE_ASSERT_OK(harness_.CheckStructure({}));
+  IREE_ASSERT_OK(harness_.CheckStructure({{}}));
+  IREE_ASSERT_OK(harness_.CheckStructure({{1}, {2}, {}}));
+  IREE_ASSERT_OK(harness_.CheckStructure({{1, 1}, {1}}));
+  IREE_ASSERT_OK(harness_.CheckStructure({{}, {2, 3}, {1}, {}}));
 }
 
 TEST_F(CfgControlTest, ExhaustiveThreeBlockGraphs) {
@@ -63,13 +41,15 @@ TEST_F(CfgControlTest, ExhaustiveThreeBlockGraphs) {
         }
       }
     }
-    CheckPaths(successors);
+    IREE_ASSERT_OK(harness_.CheckStructure(successors));
   }
 }
 
 TEST_F(CfgControlTest, RandomCyclesMultipleExitsAndReorderedBlocks) {
   std::mt19937 random(541213);
-  for (uint32_t trial = 0; trial < 4000; ++trial) {
+  // The manual stress test retains the full fixed-seed sequence, while
+  // fact_control_fuzz owns unbounded topology search through this builder.
+  for (uint32_t trial = 0; trial < 256; ++trial) {
     SCOPED_TRACE(trial);
     const uint32_t count = 1 + random() % 24;
     std::vector<std::vector<uint16_t>> successors(count);
@@ -79,7 +59,7 @@ TEST_F(CfgControlTest, RandomCyclesMultipleExitsAndReorderedBlocks) {
         edges.push_back(random() % count);
       }
     }
-    CheckPaths(successors);
+    IREE_ASSERT_OK(harness_.CheckStructure(successors));
   }
 }
 
@@ -95,14 +75,15 @@ TEST_F(CfgControlTest, SharedTailDoesNotMaterializeQuadraticControlRelation) {
     }
     testing::CfgGraph fixture(successors);
     loom_cfg_control_t control;
-    IREE_ASSERT_OK(loom_cfg_control_build(fixture.get(), &arena_, &control));
+    IREE_ASSERT_OK(
+        loom_cfg_control_build(fixture.get(), harness_.arena(), &control));
     EXPECT_LE(control.node_count, 2 * successors.size() + 1);
     uint32_t logarithm = 0;
     for (uint32_t n = width; n > 1; n /= 2) {
       ++logarithm;
     }
     EXPECT_LE(control.binding_count, width * (logarithm + 2));
-    iree_arena_reset(&arena_);
+    iree_arena_reset(harness_.arena());
   }
 }
 
@@ -114,7 +95,8 @@ TEST_F(CfgControlTest, FullBlockIndexSpaceWithDeepControl) {
   }
   testing::CfgGraph fixture(successors);
   loom_cfg_control_t control;
-  IREE_ASSERT_OK(loom_cfg_control_build(fixture.get(), &arena_, &control));
+  IREE_ASSERT_OK(
+      loom_cfg_control_build(fixture.get(), harness_.arena(), &control));
   EXPECT_TRUE(control.available);
   EXPECT_LE(control.node_count, 2 * successors.size() + 1);
 }

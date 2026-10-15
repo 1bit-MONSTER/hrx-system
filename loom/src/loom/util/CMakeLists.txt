@@ -609,18 +609,45 @@ loom_cc_library(
   PUBLIC
 )
 
+loom_cc_library(
+  NAME
+    cfg_regions_test_util
+  HDRS
+    "cfg_regions_test_util.h"
+  SRCS
+    "cfg_regions_test_util.cc"
+  DEPS
+    ::cfg_dominance
+    ::cfg_graph_test_util
+    ::cfg_regions
+    iree::base::internal::arena
+  TESTONLY
+  PUBLIC
+)
+
 loom_cc_test(
   NAME
     cfg_regions_test
   SRCS
     "cfg_regions_test.cc"
   DEPS
-    ::cfg_dominance
     ::cfg_graph_test_util
-    ::cfg_regions
-    iree::base::internal::arena
+    ::cfg_regions_test_util
     iree::testing::gtest
     iree::testing::gtest_main
+)
+
+loom_cc_test(
+  NAME
+    cfg_regions_stress_test
+  SRCS
+    "cfg_regions_stress_test.cc"
+  DEPS
+    ::cfg_regions_test_util
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "manual"
 )
 
 loom_cc_library(
@@ -744,6 +771,25 @@ loom_cc_library(
   PUBLIC
 )
 
+loom_cc_library(
+  NAME
+    cfg_control_test_harness
+  HDRS
+    "cfg_control_test_harness.h"
+  SRCS
+    "cfg_control_test_harness.cc"
+  DEPS
+    ::cfg_control
+    ::cfg_control_test_util
+    ::cfg_graph_test_util
+    ::cfg_postdominance
+    ::fact_control
+    iree::base
+    iree::base::internal::arena
+  TESTONLY
+  PUBLIC
+)
+
 loom_cc_test(
   NAME
     cfg_control_test
@@ -751,10 +797,23 @@ loom_cc_test(
     "cfg_control_test.cc"
   DEPS
     ::cfg_control
-    ::cfg_control_test_util
+    ::cfg_control_test_harness
     ::cfg_graph_test_util
     iree::testing::gtest
     iree::testing::gtest_main
+)
+
+loom_cc_test(
+  NAME
+    cfg_control_stress_test
+  SRCS
+    "cfg_control_stress_test.cc"
+  DEPS
+    ::cfg_control_test_harness
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "manual"
 )
 
 loom_cc_test(
@@ -794,6 +853,7 @@ loom_cc_test(
     "fact_control_test.cc"
   DEPS
     ::cfg_control
+    ::cfg_control_test_harness
     ::cfg_control_test_util
     ::cfg_graph_test_util
     ::fact_control
@@ -834,7 +894,7 @@ loom_cc_test(
   SRCS
     "cfg_postdominance_test.cc"
   DEPS
-    ::cfg_control_test_util
+    ::cfg_control_test_harness
     ::cfg_graph
     ::cfg_graph_test_util
     ::cfg_postdominance
