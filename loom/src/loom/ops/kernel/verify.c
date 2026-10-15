@@ -16,6 +16,7 @@
 #include "loom/ops/combining.h"
 #include "loom/ops/func/ops.h"
 #include "loom/ops/function_contract_verify.h"
+#include "loom/ops/kernel/launch_config_contract.h"
 #include "loom/ops/kernel/ops.h"
 #include "loom/ops/op_defs.h"
 #include "loom/ops/pipeline/ops.h"
@@ -73,25 +74,124 @@ static iree_status_t loom_kernel_verify_positive_u32_attr(
       emitter, op, attr_name, value, IREE_SV("positive u32"));
 }
 
-static iree_status_t loom_kernel_verify_launch_config_effect_contract(
+static iree_string_view_t loom_kernel_launch_config_effect_kind(
+    loom_trait_flags_t traits) {
+  if (iree_any_bit_set(traits, LOOM_TRAIT_WRITES_MEMORY)) {
+    return IREE_SV("memory writes");
+  } else if (iree_any_bit_set(traits, LOOM_TRAIT_NON_DETERMINISTIC)) {
+    return IREE_SV("non-deterministic behavior");
+  } else if (iree_any_bit_set(traits, LOOM_TRAIT_UNKNOWN_EFFECTS)) {
+    return IREE_SV("unknown effects");
+  } else if (iree_any_bit_set(traits, LOOM_TRAIT_UNIQUE_IDENTITY)) {
+    return IREE_SV("unique-identity behavior");
+  } else if (iree_any_bit_set(traits, LOOM_TRAIT_CONVERGENT)) {
+    return IREE_SV("convergent behavior");
+  } else if (iree_any_bit_set(traits, LOOM_TRAIT_MEMORY_FENCE)) {
+    return IREE_SV("memory-ordering effects");
+  } else if (iree_any_bit_set(traits, LOOM_TRAIT_OBSERVABLE_EFFECT)) {
+    return IREE_SV("independently observable effects");
+  }
+  return IREE_SV("unsupported effects");
+}
+
+static iree_string_view_t loom_kernel_launch_config_field_name(
+    loom_kernel_launch_config_contract_failure_t failure, uint8_t dimension) {
+  static const iree_string_view_t workgroup_count_names[] = {
+      IREE_SVL("workgroup_count[x]"),
+      IREE_SVL("workgroup_count[y]"),
+      IREE_SVL("workgroup_count[z]"),
+  };
+  static const iree_string_view_t workgroup_size_names[] = {
+      IREE_SVL("workgroup_size[x]"),
+      IREE_SVL("workgroup_size[y]"),
+      IREE_SVL("workgroup_size[z]"),
+  };
+  static const iree_string_view_t cluster_size_names[] = {
+      IREE_SVL("cluster_size[x]"),
+      IREE_SVL("cluster_size[y]"),
+      IREE_SVL("cluster_size[z]"),
+  };
+  IREE_ASSERT_LT(dimension, 3);
+  switch (failure) {
+    case LOOM_KERNEL_LAUNCH_CONFIG_CONTRACT_FAILURE_WORKGROUP_COUNT:
+      return workgroup_count_names[dimension];
+    case LOOM_KERNEL_LAUNCH_CONFIG_CONTRACT_FAILURE_WORKGROUP_SIZE:
+      return workgroup_size_names[dimension];
+    case LOOM_KERNEL_LAUNCH_CONFIG_CONTRACT_FAILURE_CLUSTER_SIZE:
+      return cluster_size_names[dimension];
+    default:
+      return IREE_SV("unknown");
+  }
+}
+
+static iree_status_t loom_kernel_verify_launch_config_contract(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter) {
-  const loom_region_t* config = loom_kernel_def_config(op);
-  if (!loom_region_has_read_effects(config) &&
-      !loom_region_has_write_effects(config) &&
-      !loom_region_has_convergent_effects(config) &&
-      !loom_region_has_observable_effects(config)) {
-    return iree_ok_status();
+  iree_arena_allocator_t arena;
+  iree_arena_initialize(module->arena.block_pool, &arena);
+  loom_kernel_launch_config_contract_t contract = {0};
+  iree_status_t status =
+      loom_kernel_launch_config_contract_analyze(module, op, &arena, &contract);
+  if (iree_status_is_ok(status)) {
+    switch (contract.failure) {
+      case LOOM_KERNEL_LAUNCH_CONFIG_CONTRACT_FAILURE_NONE:
+        break;
+      case LOOM_KERNEL_LAUNCH_CONFIG_CONTRACT_FAILURE_EFFECT: {
+        const loom_diagnostic_param_t params[] = {
+            loom_param_string(loom_op_name(module, contract.failure_op)),
+            loom_param_string(
+                loom_kernel_launch_config_effect_kind(contract.failure_traits)),
+        };
+        status = loom_kernel_emit(emitter, contract.failure_op,
+                                  LOOM_ERR_STRUCTURE_058, params,
+                                  IREE_ARRAYSIZE(params));
+        break;
+      }
+      case LOOM_KERNEL_LAUNCH_CONFIG_CONTRACT_FAILURE_READ_OPERATION: {
+        const loom_diagnostic_param_t params[] = {
+            loom_param_string(loom_op_name(module, contract.failure_op)),
+        };
+        status = loom_kernel_emit(emitter, contract.failure_op,
+                                  LOOM_ERR_STRUCTURE_059, params,
+                                  IREE_ARRAYSIZE(params));
+        break;
+      }
+      case LOOM_KERNEL_LAUNCH_CONFIG_CONTRACT_FAILURE_READ_ORIGIN: {
+        const loom_diagnostic_param_t params[] = {
+            loom_param_string(loom_op_name(module, contract.failure_op)),
+        };
+        status = loom_kernel_emit(emitter, contract.failure_op,
+                                  LOOM_ERR_STRUCTURE_060, params,
+                                  IREE_ARRAYSIZE(params));
+        break;
+      }
+      case LOOM_KERNEL_LAUNCH_CONFIG_CONTRACT_FAILURE_WORKGROUP_SIZE:
+      case LOOM_KERNEL_LAUNCH_CONFIG_CONTRACT_FAILURE_CLUSTER_SIZE: {
+        const loom_diagnostic_param_t params[] = {
+            loom_param_string(loom_kernel_launch_config_field_name(
+                contract.failure, contract.failure_dimension)),
+        };
+        status = loom_kernel_emit(emitter, contract.failure_op,
+                                  LOOM_ERR_STRUCTURE_061, params,
+                                  IREE_ARRAYSIZE(params));
+        break;
+      }
+      case LOOM_KERNEL_LAUNCH_CONFIG_CONTRACT_FAILURE_WORKGROUP_COUNT: {
+        const loom_diagnostic_param_t params[] = {
+            loom_param_string(loom_kernel_launch_config_field_name(
+                contract.failure, contract.failure_dimension)),
+            loom_param_i64(contract.failure_range_lower),
+            loom_param_i64(contract.failure_range_upper),
+        };
+        status = loom_kernel_emit(emitter, contract.failure_op,
+                                  LOOM_ERR_STRUCTURE_062, params,
+                                  IREE_ARRAYSIZE(params));
+        break;
+      }
+    }
   }
-  const loom_diagnostic_param_t params[] = {
-      loom_param_string(loom_op_name(module, op)),
-      loom_param_u32(config->read_effect_count),
-      loom_param_u32(config->write_effect_count),
-      loom_param_u32(config->convergent_effect_count),
-      loom_param_u32(config->observable_effect_count),
-  };
-  return loom_kernel_emit(emitter, op, LOOM_ERR_STRUCTURE_052, params,
-                          IREE_ARRAYSIZE(params));
+  iree_arena_deinitialize(&arena);
+  return status;
 }
 
 static iree_status_t loom_kernel_emit_entry_related(
@@ -1053,7 +1153,7 @@ iree_status_t loom_kernel_def_verify(const loom_module_t* module,
                                      iree_diagnostic_emitter_t emitter) {
   IREE_RETURN_IF_ERROR(loom_function_contract_verify(module, op, emitter));
   IREE_RETURN_IF_ERROR(
-      loom_kernel_verify_launch_config_effect_contract(module, op, emitter));
+      loom_kernel_verify_launch_config_contract(module, op, emitter));
   return loom_kernel_verify_barrier_controls(module, op, emitter);
 }
 

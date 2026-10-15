@@ -329,7 +329,15 @@ kernel_def = Op(
     regions=[
         RegionDef(
             "config",
-            doc=("Pure launch configuration region. The region computes launch parameters from its workload arguments and immutable compilation inputs and must terminate with kernel.launch.config."),
+            doc=(
+                "Deterministic launch configuration region. The region "
+                "computes launch parameters from its workload arguments and "
+                "immutable compilation inputs and must terminate with "
+                "kernel.launch.config. Workgroup counts may use deterministic "
+                "loads from explicit buffer or view workload arguments. "
+                "Workgroup and cluster sizes remain independent of loaded "
+                "workload data."
+            ),
             single_block=True,
             terminator="kernel.launch.config",
             buffer_arg_memory_space="global",

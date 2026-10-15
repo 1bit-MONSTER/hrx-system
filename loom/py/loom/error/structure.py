@@ -966,6 +966,89 @@ ERR_STRUCTURE_057 = ErrorDef(
     ),
 )
 
+# ERR_STRUCTURE_058: Forbidden effect in launch configuration.
+ERR_STRUCTURE_058 = ErrorDef(
+    domain=ErrorDomain.STRUCTURE,
+    code=58,
+    severity=Severity.ERROR,
+    summary="Forbidden effect in launch configuration.",
+    message="'{op_name}' has {effect_kind}, which launch configuration cannot execute",
+    params=(
+        ErrorParam("op_name", ParamKind.STRING),
+        ErrorParam("effect_kind", ParamKind.STRING),
+    ),
+    fix_hint=(
+        "Keep launch configuration deterministic and limit memory access to "
+        "loads from explicit workload buffers or views"
+    ),
+)
+
+# ERR_STRUCTURE_059: Unsupported read in launch configuration.
+ERR_STRUCTURE_059 = ErrorDef(
+    domain=ErrorDomain.STRUCTURE,
+    code=59,
+    severity=Severity.ERROR,
+    summary="Unsupported read in launch configuration.",
+    message=(
+        "'{op_name}' reads memory without exposing a deterministic load storage operand"
+    ),
+    params=(ErrorParam("op_name", ParamKind.STRING),),
+    fix_hint=(
+        "Use a MemoryAccess load from an explicit buffer or view workload argument"
+    ),
+)
+
+# ERR_STRUCTURE_060: Launch configuration reads hidden storage.
+ERR_STRUCTURE_060 = ErrorDef(
+    domain=ErrorDomain.STRUCTURE,
+    code=60,
+    severity=Severity.ERROR,
+    summary="Launch configuration reads hidden storage.",
+    message=(
+        "'{op_name}' reads storage that is not derived from a launch workload argument"
+    ),
+    params=(ErrorParam("op_name", ParamKind.STRING),),
+    fix_hint="Pass the buffer or view explicitly as a kernel workload argument",
+)
+
+# ERR_STRUCTURE_061: Static launch geometry depends on workload storage.
+ERR_STRUCTURE_061 = ErrorDef(
+    domain=ErrorDomain.STRUCTURE,
+    code=61,
+    severity=Severity.ERROR,
+    summary="Static launch geometry depends on workload storage.",
+    message=(
+        "kernel.launch.config field '{field_name}' depends on data read from "
+        "workload storage"
+    ),
+    params=(ErrorParam("field_name", ParamKind.STRING),),
+    fix_hint=(
+        "Keep workgroup and cluster sizes independent of workload storage; "
+        "only workgroup counts may depend on loaded data"
+    ),
+)
+
+# ERR_STRUCTURE_062: Workgroup count is not representable as u32.
+ERR_STRUCTURE_062 = ErrorDef(
+    domain=ErrorDomain.STRUCTURE,
+    code=62,
+    severity=Severity.ERROR,
+    summary="Workgroup count is not representable as u32.",
+    message=(
+        "kernel.launch.config field '{field_name}' depends on workload "
+        "storage and has inferred range [{range_lower}, {range_upper}]"
+    ),
+    params=(
+        ErrorParam("field_name", ParamKind.STRING),
+        ErrorParam("range_lower", ParamKind.I64),
+        ErrorParam("range_upper", ParamKind.I64),
+    ),
+    fix_hint=(
+        "Use unsigned 32-bit workload data or constrain the computed count "
+        "to the inclusive range [0, 4294967295]"
+    ),
+)
+
 ALL_STRUCTURE_ERRORS: tuple[ErrorDef, ...] = (
     ERR_STRUCTURE_001,
     ERR_STRUCTURE_002,
@@ -1023,4 +1106,9 @@ ALL_STRUCTURE_ERRORS: tuple[ErrorDef, ...] = (
     ERR_STRUCTURE_055,
     ERR_STRUCTURE_056,
     ERR_STRUCTURE_057,
+    ERR_STRUCTURE_058,
+    ERR_STRUCTURE_059,
+    ERR_STRUCTURE_060,
+    ERR_STRUCTURE_061,
+    ERR_STRUCTURE_062,
 )

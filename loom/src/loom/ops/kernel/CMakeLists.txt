@@ -18,6 +18,7 @@ loom_generated_cc_library(
     "canonicalize.c"
     "facts.c"
     "launch_config.c"
+    "launch_config_contract.c"
     "verify.c"
   TEXTUAL_HDRS
     "ops.inc"
@@ -29,6 +30,7 @@ loom_generated_cc_library(
     "tables.c"
   HDRS
     "launch_config.h"
+    "launch_config_contract.h"
     "ops.h"
   ARGS
     "--dialect=kernel"
@@ -37,9 +39,12 @@ loom_generated_cc_library(
   EXTRA_OUTPUTS
     "ops.inc"
   DEPS
+    iree::base
     iree::base::internal
+    iree::base::internal::arena
     loom::analysis::control_uniformity
     loom::analysis::symbol_facts
+    loom::analysis::value_relation
     loom::error::emitter
     loom::error::error_defs
     loom::error::parameter
@@ -63,6 +68,7 @@ loom_generated_cc_library(
     loom::target::facts
     loom::target::types
     loom::util::fact_table
+    loom::util::reference_facts
     loom::util::walk
 )
 
