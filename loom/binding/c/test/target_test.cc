@@ -1769,6 +1769,35 @@ func.def public target(@device) @entry() {
   expect_rejected(LOOMC_STATUS_INVALID_ARGUMENT, &specialization, 1,
                   &overlapping_binding, 1);
 
+  const loomc_target_specialization_t invalid_specializations[] = {
+      {
+          .function_symbol = loomc_make_cstring_view("missing"),
+          .target_profile = profile.get(),
+      },
+      {
+          .function_symbol = loomc_make_cstring_view("@ "),
+          .target_profile = profile.get(),
+      },
+      {
+          .function_symbol = loomc_make_cstring_view("device"),
+          .target_profile = profile.get(),
+      },
+  };
+  for (size_t i = 0; i < IREE_ARRAYSIZE(invalid_specializations); ++i) {
+    expect_rejected(
+        i == 0 ? LOOMC_STATUS_NOT_FOUND : LOOMC_STATUS_INVALID_ARGUMENT,
+        &invalid_specializations[i], 1, nullptr, 0);
+  }
+  const loomc_target_specialization_t duplicate_specializations[] = {
+      specialization,
+      {
+          .function_symbol = loomc_make_cstring_view(" @entry "),
+          .target_profile = profile.get(),
+      },
+  };
+  expect_rejected(LOOMC_STATUS_INVALID_ARGUMENT, duplicate_specializations,
+                  IREE_ARRAYSIZE(duplicate_specializations), nullptr, 0);
+
   const loomc_target_binding_t unused_binding = {
       .target_symbol = loomc_make_cstring_view("unused"),
       .target_profile = profile.get(),

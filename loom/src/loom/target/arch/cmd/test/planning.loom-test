@@ -909,3 +909,26 @@ low.func.def public retain target<cmd.core> abi(command_program) abi_layout({ent
   cmd.dispatch.indirect.dynamic<%14, %17>[%23](%10, %18, %19)
   return
 }
+
+// ====
+
+// A different construction context cannot provide an unresolved kernel width.
+// RUN: emit command-program @dispatch
+
+test.target<low_core> @construction {subgroup_size = 64}
+
+target.decl @device
+
+kernel.def target(@device) @configured() {
+  %width = target.subgroup.size : index
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%width, %c1, %c1) workgroup_size(%width, %c1, %c1) : index
+} launch() {
+  kernel.return
+}
+
+command.program.def public target(@construction) @dispatch() launch() {
+  // ERROR@+1: LOWERING/051 {kernel_name="configured", dimension="0", requirement="an exact unsigned 32-bit value"}
+  kernel.launch @configured() : ()
+  command.return
+}

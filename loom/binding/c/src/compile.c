@@ -799,7 +799,7 @@ static loomc_status_t loomc_compile_module_into_result(
   if (loomc_status_is_ok(status) && loomc_result_succeeded(result) &&
       target_specialization != NULL) {
     status = loomc_target_specialization_options_make_lists(
-        target_specialization, function_versions->arena,
+        target_specialization, internal_module, function_versions->arena,
         &target_specializations, &target_bindings);
   }
   if (loomc_status_is_ok(status)) {

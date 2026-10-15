@@ -367,12 +367,16 @@ func.def public @second() {
   module = Materialize(std::move(module), request, &specializations);
 
   ASSERT_EQ(specializations.count, 2u);
-  EXPECT_EQ(std::string(specializations.values[0].function_name.data,
-                        specializations.values[0].function_name.size),
-            "second");
-  EXPECT_EQ(std::string(specializations.values[1].function_name.data,
-                        specializations.values[1].function_name.size),
-            "first");
+  EXPECT_EQ(specializations.values[0].function_ref.module_id, 0u);
+  EXPECT_EQ(specializations.values[0].function_ref.symbol_id,
+            loom_module_find_symbol(
+                module.get(),
+                loom_module_lookup_string(module.get(), IREE_SV("second"))));
+  EXPECT_EQ(specializations.values[1].function_ref.module_id, 0u);
+  EXPECT_EQ(specializations.values[1].function_ref.symbol_id,
+            loom_module_find_symbol(
+                module.get(),
+                loom_module_lookup_string(module.get(), IREE_SV("first"))));
   EXPECT_EQ(specializations.values[0].target_profile, &kTargetProfile);
   EXPECT_EQ(specializations.values[1].target_profile, &kTargetProfile);
 }

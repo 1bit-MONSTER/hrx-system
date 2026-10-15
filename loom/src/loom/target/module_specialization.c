@@ -107,11 +107,8 @@ iree_status_t loom_target_specialize_module_kernel_entries(
         continue;
       }
       const loom_symbol_ref_t function_ref = loom_func_like_callee(function);
-      const loom_symbol_t* function_symbol =
-          &(*inout_module)->symbols.entries[function_ref.symbol_id];
       requests[request_ordinal++] = (loom_target_specialization_request_t){
-          .function_name = loom_string_table_get(&(*inout_module)->strings,
-                                                 function_symbol->name_id),
+          .function_ref = function_ref,
           .target_profile = target_profile,
       };
     }

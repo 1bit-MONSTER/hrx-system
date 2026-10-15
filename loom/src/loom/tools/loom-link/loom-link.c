@@ -341,8 +341,11 @@ static loom_diagnostic_sink_t loom_link_cli_materialization_diagnostic_sink(
 }
 
 static iree_status_t loom_link_cli_prepare_linked_module(
-    void* user_data, iree_arena_block_pool_t* block_pool,
-    iree_allocator_t allocator, loom_module_t** inout_module) {
+    void* user_data, const loom_link_module_index_t* index,
+    iree_arena_block_pool_t* block_pool, iree_allocator_t allocator,
+    loom_link_plan_materialization_t* materialization) {
+  (void)index;
+  loom_module_t** inout_module = &materialization->module;
   loom_link_cli_prepare_state_t* state =
       (loom_link_cli_prepare_state_t*)user_data;
   IREE_RETURN_IF_ERROR(loom_link_cli_materialize_config(

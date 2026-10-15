@@ -666,8 +666,7 @@ static iree_status_t loom_compile_request_build_specializations(
       }
       specializations[specialization_count++] =
           (loom_target_specialization_request_t){
-              .function_name =
-                  loom_string_table_get(&module->strings, symbol->name_id),
+              .function_ref = {.module_id = 0, .symbol_id = root.symbol_id},
               .target_profile = target_profile,
           };
     }
@@ -683,8 +682,7 @@ static iree_status_t loom_compile_request_build_specializations(
       }
       specializations[specialization_count++] =
           (loom_target_specialization_request_t){
-              .function_name =
-                  loom_string_table_get(&module->strings, symbol->name_id),
+              .function_ref = {.module_id = 0, .symbol_id = i},
               .target_profile = target_profile,
           };
     }

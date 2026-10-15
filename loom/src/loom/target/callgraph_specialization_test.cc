@@ -321,9 +321,18 @@ func.def public @wide() -> (index) {
   const TestTargetProfile wave32 = MakeTestProfile(32);
   const TestTargetProfile wave64 = MakeTestProfile(64);
   const loom_target_specialization_request_t requests[] = {
-      {.function_name = IREE_SV("left"), .target_profile = &wave32.base},
-      {.function_name = IREE_SV("right"), .target_profile = &wave32.base},
-      {.function_name = IREE_SV("wide"), .target_profile = &wave64.base},
+      {
+          .function_ref = SymbolRef(module.get(), IREE_SV("left")),
+          .target_profile = &wave32.base,
+      },
+      {
+          .function_ref = SymbolRef(module.get(), IREE_SV("right")),
+          .target_profile = &wave32.base,
+      },
+      {
+          .function_ref = SymbolRef(module.get(), IREE_SV("wide")),
+          .target_profile = &wave64.base,
+      },
   };
   SpecializationResult specialization =
       Specialize(module.get(), requests, IREE_ARRAYSIZE(requests));
@@ -449,8 +458,14 @@ func.def public @wave64_root() {
   const TestTargetProfile wave32 = MakeTestProfile(32);
   const TestTargetProfile wave64 = MakeTestProfile(64);
   const loom_target_specialization_request_t requests[] = {
-      {.function_name = IREE_SV("wave32_root"), .target_profile = &wave32.base},
-      {.function_name = IREE_SV("wave64_root"), .target_profile = &wave64.base},
+      {
+          .function_ref = SymbolRef(module.get(), IREE_SV("wave32_root")),
+          .target_profile = &wave32.base,
+      },
+      {
+          .function_ref = SymbolRef(module.get(), IREE_SV("wave64_root")),
+          .target_profile = &wave64.base,
+      },
   };
   SpecializationResult specialization =
       Specialize(module.get(), requests, IREE_ARRAYSIZE(requests));
@@ -492,11 +507,11 @@ func.def public @explicit_root() -> (index) {
   const TestTargetProfile explicit_wave32 = MakeTestProfile(32, true);
   const loom_target_specialization_request_t requests[] = {
       {
-          .function_name = IREE_SV("default_root"),
+          .function_ref = SymbolRef(module.get(), IREE_SV("default_root")),
           .target_profile = &default_wave32.base,
       },
       {
-          .function_name = IREE_SV("explicit_root"),
+          .function_ref = SymbolRef(module.get(), IREE_SV("explicit_root")),
           .target_profile = &explicit_wave32.base,
       },
   };
@@ -547,7 +562,7 @@ func.def public @root() {
 )");
   const TestTargetProfile wave32 = MakeTestProfile(32);
   const loom_target_specialization_request_t request = {
-      .function_name = IREE_SV("root"),
+      .function_ref = SymbolRef(module.get(), IREE_SV("root")),
       .target_profile = &wave32.base,
   };
   SpecializationResult specialization = Specialize(module.get(), &request, 1);
@@ -613,9 +628,12 @@ func.def public @host() {
   const TestTargetProfile host_profile = MakeTestProfile(64);
   const TestTargetProfile device_profile = MakeTestProfile(32);
   const loom_target_specialization_request_t requests[] = {
-      {.function_name = IREE_SV("host"), .target_profile = &host_profile.base},
       {
-          .function_name = IREE_SV("device_program"),
+          .function_ref = SymbolRef(module.get(), IREE_SV("host")),
+          .target_profile = &host_profile.base,
+      },
+      {
+          .function_ref = SymbolRef(module.get(), IREE_SV("device_program")),
           .target_profile = &device_profile.base,
       },
   };
@@ -726,8 +744,14 @@ func.def public @wave64_root() {
   const TestTargetProfile wave32 = MakeTestProfile(32);
   const TestTargetProfile wave64 = MakeTestProfile(64);
   const loom_target_specialization_request_t requests[] = {
-      {.function_name = IREE_SV("wave32_root"), .target_profile = &wave32.base},
-      {.function_name = IREE_SV("wave64_root"), .target_profile = &wave64.base},
+      {
+          .function_ref = SymbolRef(module.get(), IREE_SV("wave32_root")),
+          .target_profile = &wave32.base,
+      },
+      {
+          .function_ref = SymbolRef(module.get(), IREE_SV("wave64_root")),
+          .target_profile = &wave64.base,
+      },
   };
   SpecializationResult specialization =
       Specialize(module.get(), requests, IREE_ARRAYSIZE(requests));
@@ -771,7 +795,7 @@ func.def public @wave32_root() {
 )");
   const TestTargetProfile wave32 = MakeTestProfile(32);
   const loom_target_specialization_request_t request = {
-      .function_name = IREE_SV("wave32_root"),
+      .function_ref = SymbolRef(module.get(), IREE_SV("wave32_root")),
       .target_profile = &wave32.base,
   };
   SpecializationResult specialization = Specialize(module.get(), &request, 1);

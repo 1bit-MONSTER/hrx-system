@@ -19,22 +19,28 @@
 extern "C" {
 #endif
 
+typedef struct loom_link_plan_materialization_t
+    loom_link_plan_materialization_t;
+
 // Returns the diagnostic sink for one indexed bytecode provider.
 typedef loom_diagnostic_sink_t (*loom_link_plan_diagnostic_sink_fn_t)(
     void* user_data, const loom_link_module_index_provider_t* provider);
 
 // Applies caller-owned specialization to a newly linked module.
 //
-// The callback owns |*inout_module| for the duration of the call and may
-// replace it with a semantically equivalent standalone module that preserves
-// all existing symbol and source IDs. Replacements may append entries. On
-// failure the callback must leave an owned module in |*inout_module| for the
-// materializer to release. New module storage must use |block_pool| and
-// |allocator| so its lifetime remains coupled to the materialization
-// environment rather than to callback-local scratch.
+// The callback owns |materialization->module| for the duration of the call and
+// may replace it with a semantically equivalent standalone module that
+// preserves all existing symbol and source IDs. Replacements may append
+// entries. On failure the callback must leave an owned module in
+// |materialization| for the materializer to release. New module storage must
+// use |block_pool| and |allocator| so its lifetime remains coupled to the
+// materialization environment rather than to callback-local scratch. The other
+// fields are borrowed, immutable projections from |index| established by the
+// linker.
 typedef iree_status_t (*loom_link_plan_prepare_module_fn_t)(
-    void* user_data, iree_arena_block_pool_t* block_pool,
-    iree_allocator_t allocator, loom_module_t** inout_module);
+    void* user_data, const loom_link_module_index_t* index,
+    iree_arena_block_pool_t* block_pool, iree_allocator_t allocator,
+    loom_link_plan_materialization_t* materialization);
 
 // Environment shared by every source materialized for one plan.
 typedef struct loom_link_plan_materialization_environment_t {

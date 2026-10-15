@@ -79,6 +79,8 @@ typedef struct loom_symbol_reference_builder_t {
 
   // Number of valid module-local template providers.
   uint32_t template_provider_count;
+  // Symbols with contextual operations inheriting the symbol's target.
+  uint64_t* contextual_symbols;
 } loom_symbol_reference_builder_t;
 
 // Symbol definition and root region currently owning a reference occurrence.
@@ -583,6 +585,24 @@ static iree_status_t loom_symbol_reference_visit_region(
         loom_symbol_reference_count_template_provider(
             builder, &builder->module->symbols.entries[op_symbol_id]);
       }
+      if (iree_any_bit_set(op->traits, LOOM_TRAIT_CONTEXTUAL) &&
+          nested_source_scope.symbol_id != LOOM_SYMBOL_ID_INVALID &&
+          (nested_source_scope.execution_scope == 0 ||
+           !loom_symbol_ref_is_valid(
+               builder->execution_targets
+                   .values[nested_source_scope.execution_scope - 1]))) {
+        if (builder->contextual_symbols == NULL) {
+          const iree_host_size_t word_count =
+              builder->module->symbols.count / 64 +
+              (builder->module->symbols.count % 64 != 0);
+          IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
+              iree_arena_allocator(builder->arena), word_count,
+              sizeof(*builder->contextual_symbols),
+              (void**)&builder->contextual_symbols));
+        }
+        builder->contextual_symbols[nested_source_scope.symbol_id >> 6] |=
+            UINT64_C(1) << (nested_source_scope.symbol_id & 63u);
+      }
       if (loom_template_apply_isa(op)) {
         IREE_RETURN_IF_ERROR(loom_symbol_reference_append_template_demand(
             builder, nested_source_scope, op));
@@ -685,6 +705,7 @@ iree_status_t loom_symbol_reference_table_build(
       .module_occurrence_count = builder.module_occurrence_count,
       .calls = builder.calls,
       .template_provider_count = builder.template_provider_count,
+      .contextual_symbols = builder.contextual_symbols,
       .execution_targets =
           {
               .values = builder.execution_targets.values,

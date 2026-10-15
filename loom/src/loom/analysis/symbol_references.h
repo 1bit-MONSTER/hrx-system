@@ -192,6 +192,10 @@ typedef struct loom_symbol_reference_table_t {
   loom_symbol_reference_call_counts_t calls;
   // Number of valid module-local template providers.
   uint32_t template_provider_count;
+  // Dense membership of symbols containing contextual operations that inherit
+  // their target environment. Explicit nested execution targets are excluded.
+  // NULL when there are no such operations; storage belongs to the table arena.
+  const uint64_t* contextual_symbols;
   // Target environments selected by independently executing regions. Nested
   // regions inheriting an existing worker environment share its scope.
   struct {
@@ -220,6 +224,16 @@ typedef struct loom_symbol_reference_table_t {
   } template_demands;
 
 } loom_symbol_reference_table_t;
+
+// Returns whether this symbol directly contains source expansion depending on
+// its inherited target context. Calls contribute through the consumer's graph;
+// the structural producer does not recursively inspect their definitions.
+static inline bool loom_symbol_reference_symbol_is_contextual(
+    const loom_symbol_reference_table_t* table, loom_symbol_id_t symbol_id) {
+  return table->contextual_symbols &&
+         (table->contextual_symbols[symbol_id >> 6] &
+          (UINT64_C(1) << (symbol_id & 63u))) != 0;
+}
 
 // Returns occurrence heads for a valid module symbol ID. Symbols with no
 // incoming, outgoing, or template-demand occurrences return an empty row by

@@ -6,10 +6,11 @@
 
 // Per-function target specialization.
 //
-// Specialization is an invocation-local compiler action. Each request names
-// one function version and supplies the structured target profile that should
-// become its exact resolved target. It produces compiler-owned function
-// versions without creating target records or changing authored target attrs.
+// Specialization is an invocation-local compiler action. Each request
+// identifies one function version and supplies the structured target profile
+// that should become its exact resolved target. It produces compiler-owned
+// function versions without creating target records or changing authored target
+// attrs.
 
 #ifndef LOOM_TARGET_SPECIALIZATION_H_
 #define LOOM_TARGET_SPECIALIZATION_H_
@@ -29,8 +30,8 @@ typedef struct loom_target_environment_t loom_target_environment_t;
 
 // One function version to specialize to one structured target profile.
 typedef struct loom_target_specialization_request_t {
-  // Function symbol name, with an optional leading '@'.
-  iree_string_view_t function_name;
+  // Resolved target-assignable function in the input module.
+  loom_symbol_ref_t function_ref;
 
   // Structured target profile borrowed for the specialization lifetime.
   const loom_target_profile_t* target_profile;
@@ -47,8 +48,8 @@ typedef struct loom_target_specialization_request_list_t {
 
 // One authored target declaration to bind to one structured target profile.
 typedef struct loom_target_declaration_binding_t {
-  // Target declaration symbol name, with an optional leading '@'.
-  iree_string_view_t target_name;
+  // Resolved target.decl in the input module.
+  loom_symbol_ref_t target_ref;
 
   // Structured target profile borrowed for the specialization lifetime.
   const loom_target_profile_t* target_profile;
@@ -66,16 +67,18 @@ typedef struct loom_target_declaration_binding_list_t {
 // Resolves target specialization requests and declaration bindings into
 // function versions.
 //
-// The input module must be verified for this compiler invocation. All function
-// names, target declaration names, profiles, authored target requirements, and
-// function-local contracts are resolved before any versions are published. A
-// declaration binding seeds every target-assignable function authored against
-// that declaration. Direct function requests and declaration-derived requests
-// must be disjoint. Selected definitions become retained compiler entries
-// without changing source visibility, retention flags, or target witnesses.
-// Source incompatibilities emit structured diagnostics and return
-// OK with a nonzero |error_count|; malformed external requests and
-// infrastructure failures return a status.
+// The input module must be verified for this compiler invocation. Requests name
+// valid, distinct local function refs; bindings name valid, distinct local
+// target.decl refs. Profiles are complete and belong to the environment. The
+// caller resolves and validates external names before constructing these lists.
+// Authored target requirements and function-local contracts are checked before
+// any versions are published. A declaration binding seeds every
+// target-assignable function authored against that declaration. Direct and
+// declaration-derived requests must be disjoint. Selected definitions become
+// retained compiler entries without changing source visibility, retention
+// flags, or target witnesses. Source incompatibilities emit structured
+// diagnostics and return OK with a nonzero |error_count|; allocation and
+// projection failures return a status.
 //
 // |inout_function_versions| owns any versions retained by prior compiler
 // stages and receives the specialized versions. Re-specializing a live
