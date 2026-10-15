@@ -66,11 +66,14 @@ amdf_cts_test_suite(
         "//libamdf/cts/util:provider_headers",
         "//libamdf/cts/util:wait",
         "//third_party:google_test",
+    ] + extra_deps,
+) for name, extra_deps in {
+    "kernel_queue": [
+        "//libamdf/cts/util:native_event",
+        "//libamdf/cts/util:native_event_headers",
     ],
-) for name in [
-    "kernel_queue",
-    "memory_interop",
-]]
+    "memory_interop": [],
+}.items()]
 
 test_suite(
     name = "gpu",

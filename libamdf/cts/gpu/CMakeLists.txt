@@ -115,6 +115,8 @@ iree_cc_library(
     amdf::headers
     iree::third_party::google_test
     libamdf::cts::util::device_cache
+    libamdf::cts::util::native_event
+    libamdf::cts::util::native_event_headers
     libamdf::cts::util::provider_headers
     libamdf::cts::util::wait
   TESTONLY

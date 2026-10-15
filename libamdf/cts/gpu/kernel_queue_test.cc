@@ -15,6 +15,7 @@
 #include "amdf/gpu.h"
 #include "gpu_device_fixture.h"
 #include "gtest/gtest.h"
+#include "util/native_event.h"
 #include "util/wait.h"
 
 namespace {
@@ -430,6 +431,294 @@ class SdmaKernelQueueTest : public GpuKernelQueueTest {
   SdmaKernelQueueTest()
       : GpuKernelQueueTest(AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA) {}
 };
+
+class GpuKernelQueueNotificationTest
+    : public GpuKernelQueueTest,
+      public ::testing::WithParamInterface<amdf_queue_command_type_t> {
+ protected:
+  GpuKernelQueueNotificationTest() : GpuKernelQueueTest(GetParam()) {}
+
+  void SetUp() override {
+    GpuKernelQueueTest::SetUp();
+    if (HasFatalFailure() || IsSkipped()) {
+      return;
+    }
+    ASSERT_EQ(CreateQueue(family_.ordinal, 2), AMDF_STATUS_OK);
+    amdf_kernel_queue_info_t info = {
+        .type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_INFO,
+        .structure_size = sizeof(info),
+    };
+    ASSERT_EQ(api_->kernel_queue_query_info(queue_, &info), AMDF_STATUS_OK);
+    if ((info.notification_types &
+         (UINT64_C(1) << amdf::cts::NativeEventType())) == 0) {
+      GTEST_SKIP() << "kernel queue has no native event notification transport";
+    }
+    for (auto& event : events_) {
+      ASSERT_TRUE(amdf::cts::CreateNativeEvent(&event));
+    }
+    const uint64_t address = CreateCommandMemory();
+    ASSERT_NE(memory_, nullptr);
+    const auto mapping = MapCommandMemory();
+    ASSERT_NE(mapping.pointer, nullptr);
+    bytes_ = static_cast<uint8_t*>(mapping.pointer);
+    std::memset(bytes_, 0, kMemoryByteLength);
+    for (uint32_t i = 0; i < 2; ++i) {
+      const uint64_t source = address + kSourceByteOffset + i * 4;
+      const uint64_t target = address + kTargetByteOffset + i * 4;
+      if (command_type_ == AMDF_QUEUE_COMMAND_TYPE_GPU_PM4) {
+        const auto command = MakeCopyData32(source, target);
+        std::memcpy(bytes_ + i * 32, command.data(), sizeof(command));
+      } else {
+        const auto command =
+            MakeSdmaCopy32(family_.format_features, source, target);
+        std::memcpy(bytes_ + i * 32, command.data(), sizeof(command));
+      }
+    }
+  }
+
+  void TearDown() override {
+    // Accepted finite work and native event destinations stay live through
+    // queue teardown, including when an assertion interrupted observation.
+    for (uint32_t i = 0; i < 2; ++i) {
+      if (points_[i] != 0) {
+        const auto status = api_->kernel_queue_wait(
+            Queue(i), points_[i], amdf::cts::kWaitTimeoutNs, 0);
+        EXPECT_EQ(status, AMDF_STATUS_OK);
+        if (!amdf_status_is_ok(status)) {
+          return;
+        }
+      }
+    }
+    indirect_memory_may_be_in_use_ = false;
+    if (sibling_ != nullptr) {
+      const auto status = api_->kernel_queue_destroy(sibling_);
+      if (status != amdf_make_api_status(AMDF_STATUS_CODE_BUSY)) {
+        sibling_ = nullptr;
+      }
+      EXPECT_EQ(status, AMDF_STATUS_OK);
+      if (!amdf_status_is_ok(status)) {
+        return;
+      }
+    }
+    if (queue_ != nullptr) {
+      const auto status = DestroyQueue();
+      EXPECT_EQ(status, AMDF_STATUS_OK);
+      if (!amdf_status_is_ok(status)) {
+        return;
+      }
+    }
+    GpuKernelQueueTest::TearDown();
+    if (queue_ == nullptr) {
+      for (auto& event : events_) {
+        if (event.type != AMDF_NATIVE_EVENT_TYPE_NONE) {
+          EXPECT_TRUE(amdf::cts::DestroyNativeEvent(&event));
+        }
+      }
+    }
+  }
+
+  amdf_kernel_queue_t* Queue(uint32_t ordinal) {
+    return ordinal == 0 ? queue_ : sibling_;
+  }
+
+  void PrepareCopies(uint32_t seed) {
+    for (uint32_t i = 0; i < 2; ++i) {
+      expected_[i] = seed + i;
+      std::memcpy(bytes_ + kSourceByteOffset + i * 4, &expected_[i], 4);
+      std::memset(bytes_ + kTargetByteOffset + i * 4, 0xa5, 4);
+    }
+    ASSERT_EQ(
+        api_->host_mapping_cache_control(
+            mapping_, AMDF_HOST_CACHE_OPERATION_FLUSH, 0, kMemoryByteLength),
+        AMDF_STATUS_OK);
+  }
+
+  void SubmitCopy(uint32_t queue_ordinal, uint32_t command_ordinal) {
+    const amdf_gpu_kernel_command_t command = {
+        .memory = memory_,
+        .byte_offset = command_ordinal * 32u,
+        .byte_length = (command_type_ == AMDF_QUEUE_COMMAND_TYPE_GPU_PM4
+                            ? kCopyDataDwordCount
+                            : kSdmaCopyDwordCount) *
+                       sizeof(uint32_t),
+    };
+    const amdf_gpu_kernel_queue_submission_info_t submit = {
+        .type = AMDF_STRUCTURE_TYPE_GPU_KERNEL_QUEUE_SUBMISSION_INFO,
+        .structure_size = sizeof(submit),
+        .command_count = 1,
+        .commands = &command,
+    };
+    uint64_t point = 0;
+    ASSERT_EQ(
+        gpu_api_->kernel_queue_submit(Queue(queue_ordinal), &submit, &point),
+        AMDF_STATUS_OK);
+    EXPECT_GT(point, points_[queue_ordinal]);
+    points_[queue_ordinal] = point;
+    indirect_memory_may_be_in_use_ = true;
+  }
+
+  void Request(uint32_t queue_ordinal, uint64_t point, uint32_t event_ordinal) {
+    // Only the native object survives this call; its descriptor is borrowed.
+    const amdf_native_event_t event = events_[event_ordinal];
+    ASSERT_EQ(api_->kernel_queue_request_notification(Queue(queue_ordinal),
+                                                      point, &event),
+              AMDF_STATUS_OK);
+  }
+
+  void RefreshThrough(uint32_t queue_ordinal, uint64_t point) {
+    amdf_kernel_queue_status_t status = {
+        .type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_STATUS,
+        .structure_size = sizeof(status),
+    };
+    ASSERT_EQ(api_->kernel_queue_refresh_status(Queue(queue_ordinal), &status),
+              AMDF_STATUS_OK);
+    ASSERT_EQ(status.terminal_status, AMDF_STATUS_OK);
+    EXPECT_GE(status.retired_submission, point);
+  }
+
+  void VerifyCopy(uint32_t ordinal) {
+    ASSERT_EQ(api_->host_mapping_cache_control(
+                  mapping_, AMDF_HOST_CACHE_OPERATION_INVALIDATE,
+                  kTargetByteOffset + ordinal * 4, 4),
+              AMDF_STATUS_OK);
+    uint32_t actual = 0;
+    std::memcpy(&actual, bytes_ + kTargetByteOffset + ordinal * 4, 4);
+    EXPECT_EQ(actual, expected_[ordinal]);
+  }
+
+  // Optional second queue sharing the same device and caller-owned event.
+  amdf_kernel_queue_t* sibling_ = nullptr;
+  // Caller-owned destinations retained through final native queue release.
+  std::array<amdf_native_event_t, 2> events_ = {};
+  // Final accepted point per queue, including work awaiting notification.
+  std::array<uint64_t, 2> points_ = {};
+  // Expected output for the two disjoint finite copies.
+  std::array<uint32_t, 2> expected_ = {};
+  // Borrowed host view of command and payload backing owned by the base.
+  uint8_t* bytes_ = nullptr;
+};
+
+TEST_P(GpuKernelQueueNotificationTest, EventDrivenCopiesAndOldPoints) {
+  uint64_t oldest = 0;
+  for (uint32_t round = 0; round < 8; ++round) {
+    ASSERT_NO_FATAL_FAILURE(PrepareCopies(0x13579bdfu + round));
+    ASSERT_NO_FATAL_FAILURE(SubmitCopy(0, 0));
+    const uint64_t first = points_[0];
+    ASSERT_NO_FATAL_FAILURE(SubmitCopy(0, 1));
+    const uint64_t last = points_[0];
+    if (oldest == 0) {
+      oldest = first;
+    }
+    // Reverse registration order exercises earlier/later accepted points.
+    ASSERT_NO_FATAL_FAILURE(Request(0, last, 1));
+    ASSERT_NO_FATAL_FAILURE(Request(0, first, 0));
+    ASSERT_TRUE(amdf::cts::WaitNativeEvent(events_[0]));
+    ASSERT_TRUE(amdf::cts::WaitNativeEvent(events_[1]));
+    amdf_kernel_queue_status_t status = {
+        .type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_STATUS,
+        .structure_size = sizeof(status),
+    };
+    ASSERT_EQ(api_->kernel_queue_query_status(queue_, &status), AMDF_STATUS_OK);
+    EXPECT_LT(status.retired_submission, first);
+    ASSERT_NO_FATAL_FAILURE(RefreshThrough(0, last));
+    ASSERT_NO_FATAL_FAILURE(VerifyCopy(0));
+    ASSERT_NO_FATAL_FAILURE(VerifyCopy(1));
+    // The oldest point still produces independent immediate hints after reuse.
+    for (uint32_t i = 0; i < 2; ++i) {
+      ASSERT_NO_FATAL_FAILURE(Request(0, oldest, 0));
+      bool ready = false;
+      ASSERT_TRUE(amdf::cts::TryConsumeNativeEvent(events_[0], &ready));
+      ASSERT_TRUE(ready);
+    }
+  }
+}
+
+TEST_P(GpuKernelQueueNotificationTest, RepeatedRequestsKeepBothDestinations) {
+  ASSERT_NO_FATAL_FAILURE(PrepareCopies(0x10293847u));
+  ASSERT_NO_FATAL_FAILURE(SubmitCopy(0, 0));
+  ASSERT_NO_FATAL_FAILURE(Request(0, points_[0], 0));
+  ASSERT_NO_FATAL_FAILURE(Request(0, points_[0], 1));
+  ASSERT_TRUE(amdf::cts::WaitNativeEvent(events_[0]));
+  ASSERT_TRUE(amdf::cts::WaitNativeEvent(events_[1]));
+  ASSERT_NO_FATAL_FAILURE(RefreshThrough(0, points_[0]));
+  ASSERT_NO_FATAL_FAILURE(VerifyCopy(0));
+}
+
+TEST_P(GpuKernelQueueNotificationTest, IndependentQueuesShareOneWakeEvent) {
+  const amdf_gpu_kernel_queue_create_info_t create = {
+      .type = AMDF_STRUCTURE_TYPE_GPU_KERNEL_QUEUE_CREATE_INFO,
+      .structure_size = sizeof(create),
+      .queue_family_ordinal = family_.ordinal,
+      .maximum_pending_submission_count = 2,
+  };
+  ASSERT_EQ(gpu_api_->kernel_queue_create(device_, &create, &sibling_),
+            AMDF_STATUS_OK);
+  ASSERT_NO_FATAL_FAILURE(PrepareCopies(0x2468ace0u));
+  for (uint32_t i = 0; i < 2; ++i) {
+    ASSERT_NO_FATAL_FAILURE(SubmitCopy(i, i));
+    ASSERT_NO_FATAL_FAILURE(Request(i, points_[i], 0));
+  }
+  const amdf::cts::WaitDeadline deadline;
+  bool complete = false;
+  while (!complete) {
+    ASSERT_TRUE(amdf::cts::WaitNativeEvent(events_[0], deadline));
+    complete = true;
+    for (uint32_t i = 0; i < 2; ++i) {
+      amdf_kernel_queue_status_t status = {
+          .type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_STATUS,
+          .structure_size = sizeof(status),
+      };
+      ASSERT_EQ(api_->kernel_queue_refresh_status(Queue(i), &status),
+                AMDF_STATUS_OK);
+      ASSERT_EQ(status.terminal_status, AMDF_STATUS_OK);
+      complete &= status.retired_submission >= points_[i];
+    }
+  }
+  ASSERT_NO_FATAL_FAILURE(VerifyCopy(0));
+  ASSERT_NO_FATAL_FAILURE(VerifyCopy(1));
+}
+
+TEST_P(GpuKernelQueueNotificationTest, ConcurrentWaitRefreshAndRegistration) {
+  ASSERT_NO_FATAL_FAILURE(PrepareCopies(0x76543210u));
+  ASSERT_NO_FATAL_FAILURE(SubmitCopy(0, 0));
+  const uint64_t first = points_[0];
+  amdf_status_t wait_status = AMDF_STATUS_OK;
+  amdf_status_t refresh_status = AMDF_STATUS_OK;
+  amdf_kernel_queue_status_t observed = {
+      .type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_STATUS,
+      .structure_size = sizeof(observed),
+  };
+  std::jthread waiter([&] {
+    wait_status =
+        api_->kernel_queue_wait(queue_, first, amdf::cts::kWaitTimeoutNs, 0);
+  });
+  std::jthread observer([&] {
+    refresh_status = api_->kernel_queue_refresh_status(queue_, &observed);
+  });
+  std::jthread registrar([&] { Request(0, first, 0); });
+  ASSERT_NO_FATAL_FAILURE(SubmitCopy(0, 1));
+  ASSERT_NO_FATAL_FAILURE(Request(0, points_[0], 1));
+  registrar.join();
+  observer.join();
+  waiter.join();
+  ASSERT_FALSE(HasFatalFailure());
+  EXPECT_EQ(wait_status, AMDF_STATUS_OK);
+  EXPECT_EQ(refresh_status, AMDF_STATUS_OK);
+  EXPECT_EQ(observed.terminal_status, AMDF_STATUS_OK);
+  ASSERT_TRUE(amdf::cts::WaitNativeEvent(events_[0]));
+  ASSERT_TRUE(amdf::cts::WaitNativeEvent(events_[1]));
+  ASSERT_NO_FATAL_FAILURE(RefreshThrough(0, points_[0]));
+  ASSERT_NO_FATAL_FAILURE(VerifyCopy(0));
+  ASSERT_NO_FATAL_FAILURE(VerifyCopy(1));
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    CommandFormats, GpuKernelQueueNotificationTest,
+    ::testing::Values(AMDF_QUEUE_COMMAND_TYPE_GPU_PM4,
+                      AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA),
+    [](const ::testing::TestParamInfo<amdf_queue_command_type_t>& info) {
+      return info.param == AMDF_QUEUE_COMMAND_TYPE_GPU_PM4 ? "Pm4" : "Sdma";
+    });
 
 TEST_F(GpuDeviceFixture, RejectsOutOfRangeFamilyWithoutPublishingQueue) {
   amdf_endpoint_info_t info = {
