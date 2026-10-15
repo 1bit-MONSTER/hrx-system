@@ -48,7 +48,7 @@ NTSTATUS APIENTRY Escape(const D3DKMT_ESCAPE* request) {
       state->enabled = packet[23] != 0;
     } else {
       // Padding is not part of the native enabled byte.
-      packet[23] = 0xa5a5a500 | state->enabled;
+      packet[23] = 0xa5a5a500u | static_cast<uint32_t>(state->enabled);
       packet[24] = 5;
       packet[25] = 0x200;
     }
