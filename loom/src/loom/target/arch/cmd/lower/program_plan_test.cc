@@ -265,6 +265,40 @@ kernel.def @generated() {
   loom_kernel_class_product_deinitialize(&materialized_product);
 }
 
+TEST_F(CmdProgramPlanTest, PreservesProjectedBufferLaunchArguments) {
+  ModulePtr source_module = ParseAndVerify(R"(
+kernel.entry.decl @step(%storage: buffer)
+
+command.program.def public @root() launch(%storage: buffer) {
+  %global = buffer.assume.memory_space<global> %storage : buffer
+  %aligned = buffer.assume.alignment %global {minimum_alignment = 64} : buffer
+  %unique = buffer.assume.noalias %aligned : buffer
+  %same = buffer.assume.same_root %unique, %storage : buffer
+  %one = index.constant 1 : index
+  kernel.dispatch @step[%one](%same) : [index](buffer)
+  command.return
+}
+)");
+  ASSERT_NE(source_module, nullptr);
+  const loom_symbol_ref_t root_ref =
+      FindSymbolRef(source_module.get(), IREE_SV("root"));
+  loom_link_plan_materialization_t materialization = {
+      .module = source_module.release(),
+  };
+  loom_cmd_program_plan_t plan = {};
+  bool valid = false;
+  IREE_ASSERT_OK(loom_cmd_program_plan_build_from_materialization(
+      &materialization, &root_ref, /*program_count=*/1,
+      /*kernel_source=*/nullptr, loom_pass_builtin_registry(),
+      loom_cleanup_configured_pattern_provider_set(),
+      /*diagnostic_emitter=*/{}, &block_pool_, &valid, &plan,
+      iree_allocator_system()));
+  ASSERT_TRUE(valid);
+  ASSERT_EQ(plan.root_count, 1u);
+  EXPECT_EQ(plan.roots[0].abi_layout.rebindable_binding_count, 1u);
+  loom_cmd_program_plan_deinitialize(&plan);
+}
+
 TEST_F(CmdProgramPlanTest, RealizesStorageBackedLaunchCountsOnDevice) {
   ModulePtr source_module = ParseAndVerify(R"(
 test.target<device> @device
