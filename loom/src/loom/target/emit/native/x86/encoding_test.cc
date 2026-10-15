@@ -125,6 +125,29 @@ TEST(EncodingTest, IntegerToScalarFloat) {
                        {0x62, 0xc1, 0xef, 0x00, 0x7b, 0xcb});
 }
 
+TEST(EncodingTest, ScalarAndPackedFloatWidening) {
+  loom_x86_encoding_operands_t operands = {
+      .result = 1,
+      .inputs = {2, 3},
+  };
+  // Independent assembler bytes cover the scalar passthrough operand and the
+  // packed conversion's asymmetric source and destination widths.
+  ExpectVectorEncoding(0x8210, 0x095a, operands, {0xc5, 0xea, 0x5a, 0xcb});
+  ExpectVectorEncoding(0x8140, 0x015a, operands, {0xc5, 0xf8, 0x5a, 0xca});
+  ExpectVectorEncoding(0x8140, 0x415a, operands, {0xc5, 0xfc, 0x5a, 0xca});
+  operands.result = 17;
+  operands.inputs[0] = 18;
+  operands.inputs[1] = 19;
+  ExpectVectorEncoding(0x8210, 0x295a, operands,
+                       {0x62, 0xa1, 0x6e, 0x00, 0x5a, 0xcb});
+  ExpectVectorEncoding(0x8140, 0x215a, operands,
+                       {0x62, 0xa1, 0x7c, 0x08, 0x5a, 0xca});
+  ExpectVectorEncoding(0x8140, 0x615a, operands,
+                       {0x62, 0xa1, 0x7c, 0x28, 0x5a, 0xca});
+  ExpectVectorEncoding(0x8140, 0xa15a, operands,
+                       {0x62, 0xa1, 0x7c, 0x48, 0x5a, 0xca});
+}
+
 TEST(EncodingTest, EvexNdsMemoryBroadcastAndMaskModifiers) {
   // These bytes agree with independent LLVM and GNU assembler outputs.
   constexpr uint16_t kUnaryMerge = VectorRecipe(

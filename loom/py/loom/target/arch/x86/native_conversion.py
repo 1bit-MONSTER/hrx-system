@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Native GPR-to-scalar floating-point instruction family."""
+"""Native integer and floating-point conversion instruction families."""
 
 from loom.target.arch.x86.vector_encoding import (
     VectorEncoding,
@@ -16,6 +16,45 @@ from loom.target.arch.x86.vector_encoding import (
     vector_encoding_recipe,
 )
 from loom.target.low_descriptors import OperandRole
+
+
+def float_widening_instruction(*, scalar: bool) -> VectorMachineInstruction:
+    mnemonic = "vcvtss2sd" if scalar else "vcvtps2pd"
+    return VectorMachineInstruction(
+        descriptor_mnemonic=mnemonic,
+        encoding_mnemonic=mnemonic,
+        encoding_format_id=vector_encoding_recipe(
+            VectorRegisterSelector.RESULT,
+            VectorRegisterSelector.INPUT_0 if scalar else VectorRegisterSelector.NONE,
+            VectorRegisterSelector.INPUT_1
+            if scalar
+            else VectorRegisterSelector.INPUT_0,
+        ),
+        operands=(
+            VectorOperandShape(OperandRole.RESULT, ("x86.simd",)),
+            *(
+                (VectorOperandShape(OperandRole.OPERAND, ("x86.simd",)),)
+                if scalar
+                else ()
+            ),
+            VectorOperandShape(OperandRole.OPERAND, ("x86.simd",)),
+        ),
+        immediates=(),
+        encodings=tuple(
+            VectorEncoding(
+                prefix=prefix,
+                opcode_map=VectorOpcodeMap.MAP_0F,
+                mandatory_prefix=2 if scalar else 0,
+                w=0,
+                opcode=0x5A,
+                vector_bit_widths=(128,) if scalar else widths,
+            )
+            for prefix, widths in (
+                (VectorEncodingPrefix.VEX, (128, 256)),
+                (VectorEncodingPrefix.EVEX, (128, 256, 512)),
+            )
+        ),
+    )
 
 
 def integer_float_instruction(

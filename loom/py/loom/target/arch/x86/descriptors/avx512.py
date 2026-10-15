@@ -117,6 +117,7 @@ from .common import (
     _zmm_operand,
     _zmm_result,
 )
+from .float_widening import float_widening_descriptors
 from .integer_float import integer_float_descriptors
 from .memory import memory_descriptors
 from .scalar import X86_SCALAR_DESCRIPTOR_SET
@@ -581,6 +582,7 @@ X86_AVX512_CORE_DESCRIPTOR_SET = DescriptorSet(
     descriptors=(
         *X86_AVX2_DESCRIPTORS,
         *integer_float_descriptors(unsigned=True),
+        *float_widening_descriptors(evex=True),
         _evex_descriptor(
             Descriptor(
                 key="x86.avx512.vextractf32x4.xmm.zmm",
