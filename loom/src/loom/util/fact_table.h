@@ -90,11 +90,11 @@ typedef struct loom_value_fact_static_lane_origin_t {
   uint32_t source_lane_stride;
 } loom_value_fact_static_lane_origin_t;
 
-// Static strided logical-lane origin preserving each lane's floating-point
-// value exactly. Result lane N has the same value as source lane
-// source_lane_offset + N * source_lane_stride after conversion to the result
-// element type. The relation preserves signed zero and infinity; it does not
-// promise NaN payload identity.
+// Static strided logical-lane origin preserving each lane's scalar value
+// exactly. Result lane N has the same value as source lane source_lane_offset +
+// N * source_lane_stride after conversion to the result element type. For
+// floating-point values the relation preserves signed zero and infinity but
+// does not promise NaN payload identity.
 typedef struct loom_value_fact_exact_lane_origin_t {
   // Aggregate source value containing the exact lane values.
   loom_value_id_t source_value_id;
