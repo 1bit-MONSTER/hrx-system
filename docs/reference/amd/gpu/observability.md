@@ -360,6 +360,29 @@ does not prove unchanged state, and failed release does not prove that
 ownership remains held. This is not a transactional constructor/destructor
 pair. [Native state changes][kfd-profiler]
 
+On PTL-capable devices, the two error paths leave different state:
+
+| Failed operation | State after the PTL failure | Repeating the PMC operation |
+| --- | --- | --- |
+| Acquire | The PMC owner remains assigned; the failed PTL request rolls back its own reference. Queue updates have not run. | Returns `EALREADY` for the same owner. |
+| Release | The PMC owner is cleared; the failed final PTL release preserves its request and reference. Queue updates have not run. | Returns `EINVAL` without reaching that retained PTL request. |
+
+The separate `PTL_CONTROL` operation reaches the same per-process-device
+request, but does not perform the skipped queue update. These operations
+therefore have distinct retry and cleanup consequences.
+[PMC sequencing][kfd-profiler] [PTL transitions][kfd-ptl]
+
+PMC ownership and explicit PTL control share one `ptl_disable_req` Boolean per
+process-device record. Repeated disable requests through either path do not
+nest; either release path can consume that request. The device-wide reference
+count aggregates distinct process-device requests, not independent consumers
+within one record. [Shared request][kfd-ptl]
+
+After a successful owner transition, `perfcount_enable = 1` requests enable
+for existing queues and zero requests disable. Zero is not an owner-only or
+leave-unchanged operation. The traversal includes other processes' queues in
+the selected node. [Dispatch][kfd-profiler] [Queue traversal][kfd-perfcount]
+
 Queue creation and update differ. GFX9/GFX11 compute MQD initialization
 enables perfcount when the parent has an owner; their update paths also handle
 explicit enable/disable flags. The cited GFX12 initializer checks the owner
@@ -375,6 +398,13 @@ contract must include the actual update and cleanup implementation, not only
 its UAPI number. [Outer update][kfd-perfcount] · [Queue
 update][kfd-queue-update] · [Selected callback][kfd-update-callback] · [Mutex
 ownership][kfd-dqm-lock]
+
+The cited vendor implementation instead calls `update_queue_locked` while
+holding the DQM lock, avoiding that recursive locking path. It still discards
+individual queue-update results. The upstream lock finding consequently does
+not establish a defect in every backport, while a successful native request
+still does not report each queue's update outcome.
+[Vendor queue traversal][vendor-kfd-perfcount]
 
 ROCprofiler's device-counting path attempts ownership before starting counters
 and waits for stop before release, but continues after ownership failures. Its
@@ -555,10 +585,12 @@ Return to the [GPU index](README.md) or [primary source map](../sources.md).
 [kfd-profiler-protocol]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/include/uapi/linux/kfd_ioctl.h#L1560-L1588
 [sdk-profiler-request]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/counters/ioctl.cpp#L38-L99
 [kfd-profiler]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_chardev.c#L3333-L3432
+[kfd-ptl]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_chardev.c#L1778-L1884
 [perfmon]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/include/linux/capability.h#L195-L198
 [capable]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/kernel/capability.c#L403-L417
 [kfd-owner]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_priv.h#L325-L392
 [kfd-perfcount]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c#L331-L352
+[vendor-kfd-perfcount]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c#L1189-L1210
 [kfd-profiler-release]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_process.c#L1177-L1202
 [kfd-close]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_chardev.c#L145-L195
 [kfd-mqd9]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_mqd_manager_v9.c#L234-L325
