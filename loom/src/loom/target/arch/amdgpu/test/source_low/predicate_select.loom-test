@@ -176,10 +176,8 @@ func.def public target(@target) @predicate_select_crossing(%mask: vector<33xi1>,
 amdgpu.target<gfx11-generic> @target
 
 func.def public target(@target) @predicate_select_crossing(%13: vector<32xi1>, %14: vector<1xi1>, %15: vector<32xi1>, %16: vector<1xi1>, %17: vector<32xi1>, %18: vector<1xi1>) -> (vector<32xi1>, vector<1xi1>) {
-  cfg.br ^_bb1(%13: vector<32xi1>, %14: vector<1xi1>, %15: vector<32xi1>, %16: vector<1xi1>, %17: vector<32xi1>, %18: vector<1xi1>)
-^_bb1(%5: vector<32xi1>, %0: vector<1xi1>, %7: vector<32xi1>, %1: vector<1xi1>, %9: vector<32xi1>, %2: vector<1xi1>):
-  %21 = vector.select %5, %7, %9 : vector<32xi1>
-  %22 = vector.select %0, %1, %2 : vector<1xi1>
+  %21 = vector.select %13, %15, %17 : vector<32xi1>
+  %22 = vector.select %14, %16, %18 : vector<1xi1>
   func.return %21, %22 : vector<32xi1>, vector<1xi1>
 }
 
@@ -198,9 +196,7 @@ func.def public target(@target) @predicate_scf_select_crossing(%condition: i1, %
 amdgpu.target<gfx11-generic> @target
 
 func.def public target(@target) @predicate_scf_select_crossing(%condition: i1, %12: vector<32xi1>, %13: vector<1xi1>, %14: vector<32xi1>, %15: vector<1xi1>) -> (vector<32xi1>, vector<1xi1>) {
-  cfg.br ^_bb1(%condition: i1, %12: vector<32xi1>, %13: vector<1xi1>, %14: vector<32xi1>, %15: vector<1xi1>)
-^_bb1(%0: i1, %5: vector<32xi1>, %1: vector<1xi1>, %7: vector<32xi1>, %2: vector<1xi1>):
-  %18 = scf.select %0, %5, %7 : vector<32xi1>
-  %19 = scf.select %0, %1, %2 : vector<1xi1>
+  %18 = scf.select %condition, %12, %14 : vector<32xi1>
+  %19 = scf.select %condition, %13, %15 : vector<1xi1>
   func.return %18, %19 : vector<32xi1>, vector<1xi1>
 }

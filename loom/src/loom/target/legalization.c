@@ -316,14 +316,16 @@ bool loom_target_legalization_op_has_source_vector_carriers(
   const loom_value_id_t* operands = loom_op_const_operands(op);
   for (uint16_t i = 0; i < op->operand_count; ++i) {
     if (!loom_target_legalization_has_source_vector_carrier(
-            context, loom_module_value_type(context->module, operands[i]))) {
+            context, loom_module_value_type(context->module, operands[i]),
+            operands[i])) {
       return false;
     }
   }
   const loom_value_id_t* results = loom_op_const_results(op);
   for (uint16_t i = 0; i < op->result_count; ++i) {
     if (!loom_target_legalization_has_source_vector_carrier(
-            context, loom_module_value_type(context->module, results[i]))) {
+            context, loom_module_value_type(context->module, results[i]),
+            results[i])) {
       return false;
     }
   }
@@ -331,14 +333,18 @@ bool loom_target_legalization_op_has_source_vector_carriers(
 }
 
 bool loom_target_legalization_has_source_vector_carrier(
-    const loom_target_legalization_context_t* context, loom_type_t type) {
+    const loom_target_legalization_context_t* context, loom_type_t type,
+    loom_value_id_t value_id) {
   if (!loom_type_is_vector(type)) {
     return true;
   }
   const loom_target_vector_carrier_supported_callback_t callback =
       context->source_vector_carrier_supported;
   return callback.fn == NULL ||
-         callback.fn(callback.user_data, context->module, type);
+         callback.fn(
+             callback.user_data, context->module,
+             value_id != LOOM_VALUE_ID_INVALID ? context->fact_table : NULL,
+             value_id, type);
 }
 
 bool loom_target_legalization_op_has_bitstream_packet_carriers(
@@ -372,5 +378,6 @@ bool loom_target_legalization_has_bitstream_packet_carrier(
   const loom_target_vector_carrier_supported_callback_t callback =
       policy->packet_carrier_supported;
   IREE_ASSERT(callback.fn != NULL);
-  return callback.fn(callback.user_data, context->module, type);
+  return callback.fn(callback.user_data, context->module, NULL,
+                     LOOM_VALUE_ID_INVALID, type);
 }

@@ -72,6 +72,37 @@ def test_aliases_cover_singletons_uniform_carriers_and_identity_bit_layouts() ->
     assert len(alias_cases) == 37
 
 
+def test_fp8_structural_aliases_use_singleton_byte_carriers() -> None:
+    fp8_types = {"f8E4M3", "f8E5M2"}
+    covered_operations = set()
+    for case in SPIRV_ORDINARY_VECTOR_CONTRACT_CASES:
+        patterns = tuple(
+            guard.type_pattern
+            for guard in case.guards
+            if guard.kind is GuardKind.VALUE_TYPE
+        )
+        fp8_patterns = tuple(
+            pattern for pattern in patterns if fp8_types.intersection(pattern.elements)
+        )
+        if not fp8_patterns:
+            continue
+        assert all(fp8_types.issubset(pattern.elements) for pattern in fp8_patterns)
+        assert all(pattern.lanes in (None, 1) for pattern in fp8_patterns)
+        covered_operations.add(case.source_op)
+        if isinstance(case, DescriptorRule):
+            assert case.source_op is scf.scf_select
+            assert case.descriptor.key == "spirv.op_select.i8"
+        else:
+            assert isinstance(case, ValueAliasRule)
+    assert covered_operations == {
+        vector.vector_splat,
+        vector.vector_from_elements,
+        vector.vector_extract,
+        vector.vector_insert,
+        scf.scf_select,
+    }
+
+
 def test_bit_layout_contract_covers_the_exact_generated_matrix() -> None:
     bitcast_cases = tuple(
         contract_case

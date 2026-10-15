@@ -181,3 +181,50 @@ low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer) -> ()
   OpStore.storage_buffer.i32 %70, %bits
   return
 }
+
+// ====
+
+// RUN: emit spirv-low target=spirv:vulkan1.3+bda+hal features=COOPERATIVE_MATRIX_KHR
+
+kernel.def @cooperative_matrix_rejects_unproven_uniform_address() {
+  %unit = index.constant 1 : index
+  %width = index.constant 64 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer, %byte_offset: offset) {
+  %base = index.constant 0 : offset
+  %tile = index.constant 16 : index
+  %input_aligned = buffer.assume.alignment %input {minimum_alignment = 16} : buffer
+  %output_aligned = buffer.assume.alignment %output {minimum_alignment = 16} : buffer
+  %output_view = buffer.view %output_aligned[%base] : buffer -> view<16x16xf32>
+  %lane = kernel.workitem.id<x> : index
+  %stride = index.constant 16 : offset
+  %varying_offset = index.scale %lane, %stride : index, offset -> offset
+  %input_view = buffer.view %input_aligned[%varying_offset] : buffer -> view<32x16xf32>
+  // ERROR@+1: TARGET/003 {subject_role="source-memory", subject_name="access", constraint_key="source_memory.subgroup_uniform"}
+  %fragment = vector.fragment.load<init> %input_view[0, 0] shape [%tile, %tile] : view<32x16xf32> -> vector<8xf32>
+  vector.fragment.store<result> %fragment, %output_view[0, 0] shape [%tile, %tile] : vector<8xf32>, view<16x16xf32>
+  kernel.return
+}
+
+// ====
+
+// RUN: emit spirv-low target=spirv:vulkan1.3+bda+hal features=COOPERATIVE_MATRIX_KHR
+
+kernel.def @cooperative_matrix_rejects_gapped_storage_layout() {
+  %unit = index.constant 1 : index
+  %width = target.subgroup.size : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer, %byte_offset: offset) {
+  %base = index.constant 0 : offset
+  %tile = index.constant 16 : index
+  %input_aligned = buffer.assume.alignment %input {minimum_alignment = 16} : buffer
+  %output_aligned = buffer.assume.alignment %output {minimum_alignment = 16} : buffer
+  %output_view = buffer.view %output_aligned[%base] : buffer -> view<16x16xf32>
+  %byte_offset_aligned = index.assume %byte_offset [multiple_of(%byte_offset, 16)] : offset
+  %layout = encoding.layout.strided [32, 2] : encoding<layout>
+  %input_view = buffer.view %input_aligned[%byte_offset_aligned] : buffer -> view<16x16xf32, %layout>
+  // ERROR@+1: TARGET/003 {subject_role="source-memory", subject_name="access", constraint_key="source_memory.address_layout"}
+  %fragment = vector.fragment.load<init> %input_view[0, 0] shape [%tile, %tile] : view<16x16xf32, %layout> -> vector<8xf32>
+  vector.fragment.store<result> %fragment, %output_view[0, 0] shape [%tile, %tile] : vector<8xf32>, view<16x16xf32>
+  kernel.return
+}

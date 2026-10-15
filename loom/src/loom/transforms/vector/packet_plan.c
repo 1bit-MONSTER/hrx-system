@@ -137,8 +137,8 @@ bool loom_vector_packet_shape_from_type(
   uint32_t lane_count = 0;
   uint32_t chunk_lane_count = 0;
   if (!loom_vector_packet_static_lane_count(vector_type, &lane_count) ||
-      (loom_target_legalization_has_source_vector_carrier(context,
-                                                          vector_type) &&
+      (loom_target_legalization_has_source_vector_carrier(
+           context, vector_type, LOOM_VALUE_ID_INVALID) &&
        !loom_target_vector_packet_policy_requires_packets(policy,
                                                           vector_type)) ||
       !loom_vector_packet_select_native_chunk_lane_count(

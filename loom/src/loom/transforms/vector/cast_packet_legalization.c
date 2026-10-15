@@ -71,9 +71,10 @@ static iree_status_t loom_vector_packet_bitcast_candidate_is_legal(
       loom_vector_packet_type(source_type, packet_lane_count);
   const loom_type_t packet_result_type =
       loom_vector_packet_type(result_type, packet_lane_count);
-  *out_legal =
-      callback.fn(callback.user_data, context->module, packet_source_type) &&
-      callback.fn(callback.user_data, context->module, packet_result_type);
+  *out_legal = callback.fn(callback.user_data, context->module, NULL,
+                           LOOM_VALUE_ID_INVALID, packet_source_type) &&
+               callback.fn(callback.user_data, context->module, NULL,
+                           LOOM_VALUE_ID_INVALID, packet_result_type);
   return iree_ok_status();
 }
 
@@ -203,9 +204,11 @@ static bool loom_vector_packet_predicate_extension_carriers_supported(
     const loom_target_legalization_context_t* context, loom_type_t source_type,
     loom_type_t result_type, uint32_t lane_count) {
   return loom_target_legalization_has_source_vector_carrier(
-             context, loom_vector_packet_type(source_type, lane_count)) &&
+             context, loom_vector_packet_type(source_type, lane_count),
+             LOOM_VALUE_ID_INVALID) &&
          loom_target_legalization_has_source_vector_carrier(
-             context, loom_vector_packet_type(result_type, lane_count));
+             context, loom_vector_packet_type(result_type, lane_count),
+             LOOM_VALUE_ID_INVALID);
 }
 
 static bool loom_vector_predicate_extension_packet_matches(

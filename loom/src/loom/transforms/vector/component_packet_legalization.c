@@ -280,7 +280,8 @@ static bool loom_vector_component_packet_has_source_carriers(
     if (loom_type_is_vector(type) &&
         !loom_target_legalization_has_source_vector_carrier(
             plan->context,
-            loom_vector_component_packet_type(type, packet_lane_count))) {
+            loom_vector_component_packet_type(type, packet_lane_count),
+            LOOM_VALUE_ID_INVALID)) {
       return false;
     }
   }
@@ -291,7 +292,8 @@ static bool loom_vector_component_packet_has_source_carriers(
     if (loom_type_is_vector(type) &&
         !loom_target_legalization_has_source_vector_carrier(
             plan->context,
-            loom_vector_component_packet_type(type, packet_lane_count))) {
+            loom_vector_component_packet_type(type, packet_lane_count),
+            LOOM_VALUE_ID_INVALID)) {
       return false;
     }
   }
@@ -1157,9 +1159,10 @@ static bool loom_vector_component_result_escapes(
 }
 
 static bool loom_vector_component_requires_memory_packets(
-    const loom_vector_component_plan_t* plan, loom_type_t type) {
-  return !loom_target_legalization_has_source_vector_carrier(plan->context,
-                                                             type);
+    const loom_vector_component_plan_t* plan, loom_value_id_t value_id) {
+  return !loom_target_legalization_has_source_vector_carrier(
+      plan->context, loom_module_value_type(plan->context->module, value_id),
+      value_id);
 }
 
 static bool loom_vector_component_has_packetized_store_root(
@@ -1176,8 +1179,7 @@ static bool loom_vector_component_has_packetized_store_root(
       const loom_op_t* user_op = loom_use_user_op(*use);
       if (loom_vector_store_isa(user_op) &&
           loom_vector_store_value(user_op) == result &&
-          loom_vector_component_requires_memory_packets(
-              plan, loom_module_value_type(plan->context->module, result))) {
+          loom_vector_component_requires_memory_packets(plan, result)) {
         return true;
       }
     }
@@ -1256,8 +1258,7 @@ static iree_status_t loom_vector_component_prepare_packetized_load_roots(
                                   ? NULL
                                   : loom_value_def_op(operand_value);
       if (operand_op == NULL || !loom_vector_load_isa(operand_op) ||
-          !loom_vector_component_requires_memory_packets(
-              plan, loom_module_value_type(plan->context->module, operand))) {
+          !loom_vector_component_requires_memory_packets(plan, operand)) {
         continue;
       }
 

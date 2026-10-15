@@ -584,6 +584,12 @@ TEST_F(SourceTextServiceTest, TelemetryWrapDoesNotBlockTextOrChangeCounters) {
     input_tokens += 5;
     drain();
   }
+  // HTTP completion precedes asynchronous state trimming. Join maintenance
+  // through the owner status before asserting that no further events arrive.
+  const std::string idle =
+      R"("status":{"phase":"idle","queued_requests":0,"active_requests":0,)";
+  const std::string status = WaitModel("fixture-text", idle);
+  ASSERT_NE(status.find(idle), std::string::npos) << status;
   const std::string latest = drain();
   const std::string totals =
       R"("requests":49,"completed":48,"rejected":1,"cancelled":0,"failed":0,"input_tokens":)" +
@@ -612,7 +618,8 @@ TEST_F(SourceTextServiceTest, TelemetryWrapDoesNotBlockTextOrChangeCounters) {
   EXPECT_NE(resumed.find(R"({"event":"gap","from":1,)"), std::string::npos);
   EXPECT_NE(resumed.find(totals), std::string::npos);
   EXPECT_NE(poll("").find(R"("partial":true)"), std::string::npos);
-  EXPECT_EQ(cursor_of(poll(fast)), fast);
+  const std::string final_poll = poll(fast);
+  EXPECT_EQ(cursor_of(final_poll), fast) << final_poll;
   loom_serve_http_server_request_stop(server_);
   IREE_EXPECT_OK(http_.Join());
 }

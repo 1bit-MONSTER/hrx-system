@@ -59,6 +59,12 @@ iree_status_t loom_amdgpu_lower_vector_bitcast(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_amdgpu_vector_bitcast_plan_t* plan);
 
+// Plans a native register concatenation. Interior packed inputs must fill
+// registers so their padding does not become part of the logical payload.
+bool loom_amdgpu_vector_concat_plan_from_op(
+    const loom_module_t* module, const loom_op_t* source_op,
+    loom_amdgpu_vector_concat_plan_t* out_plan);
+
 // Selects an AMDGPU vector.concat register concatenation plan.
 iree_status_t loom_amdgpu_select_vector_concat_plan(
     loom_low_lower_context_t* context, const loom_op_t* source_op,

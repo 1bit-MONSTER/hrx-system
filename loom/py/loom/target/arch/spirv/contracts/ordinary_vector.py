@@ -88,7 +88,11 @@ _SOURCE_COMPONENT_TYPES = tuple(
     for source_type in component_type.source_types
 )
 _SOURCE_SCALAR_PATTERN = Scalar(_SOURCE_COMPONENT_TYPES)
-_SOURCE_V1_PATTERN = Vector(_SOURCE_COMPONENT_TYPES, lanes=1)
+# FP8 singleton transport shares the scalar byte carrier. It does not imply
+# native FP8 vector types or arithmetic support.
+_SINGLETON_COMPONENT_TYPES = (*_SOURCE_COMPONENT_TYPES, "f8E4M3", "f8E5M2")
+_SINGLETON_SCALAR_PATTERN = Scalar(_SINGLETON_COMPONENT_TYPES)
+_SOURCE_V1_PATTERN = Vector(_SINGLETON_COMPONENT_TYPES, lanes=1)
 
 
 def _singleton_rules() -> tuple[ValueAliasRule, ...]:
@@ -105,7 +109,7 @@ def _singleton_rules() -> tuple[ValueAliasRule, ...]:
             source=ValueRef.operand("scalar"),
             result=ValueRef.result("result"),
             guards=(
-                Guard.value_type("scalar", _SOURCE_SCALAR_PATTERN),
+                Guard.value_type("scalar", _SINGLETON_SCALAR_PATTERN),
                 Guard.value_type("result", _SOURCE_V1_PATTERN),
             ),
         ),
@@ -115,7 +119,7 @@ def _singleton_rules() -> tuple[ValueAliasRule, ...]:
             result=ValueRef.result("result"),
             guards=(
                 Guard.operand_segment_count("elements", 1),
-                Guard.value_type("elements", _SOURCE_SCALAR_PATTERN),
+                Guard.value_type("elements", _SINGLETON_SCALAR_PATTERN),
                 Guard.value_type("result", _SOURCE_V1_PATTERN),
             ),
         ),
@@ -125,7 +129,7 @@ def _singleton_rules() -> tuple[ValueAliasRule, ...]:
             result=ValueRef.result("result"),
             guards=(
                 Guard.value_type("source", _SOURCE_V1_PATTERN),
-                Guard.value_type("result", _SOURCE_SCALAR_PATTERN),
+                Guard.value_type("result", _SINGLETON_SCALAR_PATTERN),
                 *static_index_guards,
             ),
         ),
@@ -134,7 +138,7 @@ def _singleton_rules() -> tuple[ValueAliasRule, ...]:
             source=ValueRef.operand("value"),
             result=ValueRef.result("result"),
             guards=(
-                Guard.value_type("value", _SOURCE_SCALAR_PATTERN),
+                Guard.value_type("value", _SINGLETON_SCALAR_PATTERN),
                 Guard.value_type("dest", _SOURCE_V1_PATTERN),
                 Guard.value_type("result", _SOURCE_V1_PATTERN),
                 *static_index_guards,
@@ -153,7 +157,10 @@ def _singleton_select_rule(
     component_type: OrdinaryVectorComponentType,
 ) -> DescriptorRule:
     descriptor = _select_descriptor_for_component(component_type)
-    vector_pattern = Vector(component_type.source_types, lanes=1)
+    source_types = component_type.source_types
+    if component_type.suffix == "i8":
+        source_types = (*source_types, "f8E4M3", "f8E5M2")
+    vector_pattern = Vector(source_types, lanes=1)
     return DescriptorRule(
         source_op=scf.scf_select,
         descriptor=descriptor,

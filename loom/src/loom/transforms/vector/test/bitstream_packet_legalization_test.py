@@ -26,12 +26,10 @@ _FIELD_WIDTHS = {
     64: (1, 3, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64),
 }
 _BITSTREAM_OPERATIONS = ("bitpack", "bitunpacku", "bitunpacks")
-_TARGET_FEATURE_BITS = 1086626759166
+_TARGET = "spirv:vulkan1.3+bda+extended-types"
 
-_WIDE_MEMORY_SOURCE = f"""\
-spirv.target<vulkan1_3> @target {{contract_feature_bits = {_TARGET_FEATURE_BITS}}}
-
-func.def target(@target) @pack_128(%input: buffer, %output: buffer) {{
+_WIDE_MEMORY_SOURCE = """\
+func.def public @pack_128(%input: buffer, %output: buffer) {
   %base = index.constant 0 : offset
   %inputs = buffer.view %input[%base] : buffer -> view<128xi8>
   %outputs = buffer.view %output[%base] : buffer -> view<64xi8>
@@ -39,7 +37,7 @@ func.def target(@target) @pack_128(%input: buffer, %output: buffer) {{
   %packed = vector.bitpack<4> %bytes : vector<128xi8> -> vector<64xi8>
   vector.store %packed, %outputs[0] : vector<64xi8>, view<64xi8>
   func.return
-}}
+}
 """
 
 
@@ -92,14 +90,23 @@ class BitstreamCase:
 
         partition = _partition_lanes(source_lane_count)
         arguments = ", ".join(
-            f"%part{index}: {_vector_type(lanes, source_element_bit_count)}"
-            for index, lanes in enumerate(partition)
+            f"%element{index}: i{source_element_bit_count}"
+            for index in range(source_lane_count)
         )
         result_type = _vector_type(result_lane_count, result_element_bit_count)
         lines = [
-            f"func.def target(@target) @{self.name}({arguments}) -> "
-            f"(i{result_element_bit_count}) {{"
+            f"func.def @{self.name}({arguments}) -> (i{result_element_bit_count}) {{"
         ]
+        lane_offset = 0
+        for index, lanes in enumerate(partition):
+            elements = ", ".join(
+                f"%element{lane}" for lane in range(lane_offset, lane_offset + lanes)
+            )
+            lines.append(
+                f"  %part{index} = vector.from_elements {elements} : "
+                f"{_vector_type(lanes, source_element_bit_count)}"
+            )
+            lane_offset += lanes
         if len(partition) == 1:
             source = "%part0"
         else:
@@ -166,12 +173,11 @@ def _cases(exhaustive: bool) -> list[BitstreamCase]:
 
 
 def _test_source(cases: list[BitstreamCase]) -> str:
-    return (
-        "// RUN: compile-report target-legalize{mode=eager}\n\n"
-        f"spirv.target<vulkan1_3> @target "
-        f"{{contract_feature_bits = {_TARGET_FEATURE_BITS}}}\n\n"
-        + "\n\n".join(case.source() for case in cases)
+    return "\n// ====\n".join(
+        f"// RUN: compile-report target={_TARGET} target-legalize{{mode=eager}}\n\n"
+        + case.source()
         + "\n"
+        for case in cases
     )
 
 
@@ -238,6 +244,7 @@ class BitstreamPacketLegalizationTest(unittest.TestCase):
                     _ARGS.compiler,
                     str(source_path),
                     "--format=spirv",
+                    "--target=" + _TARGET,
                     "--output=" + str(artifact_path),
                     "--compile-report=details",
                     "--compile-report-output=" + str(report_path),

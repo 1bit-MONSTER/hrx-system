@@ -12,6 +12,7 @@
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/target/pass_environment.h"
+#include "loom/transforms/boundary/projection_branch.h"
 #include "loom/transforms/boundary/projection_loop.h"
 #include "loom/util/fact_cfg.h"
 #include "loom/util/walk.h"
@@ -76,7 +77,9 @@ static bool loom_boundary_projection_supports_function_local_slots(
       LOOM_BOUNDARY_PROJECTION_SLOT_ROLE_BIT(
           LOOM_BOUNDARY_PROJECTION_SLOT_BLOCK_ARGUMENT) |
       LOOM_BOUNDARY_PROJECTION_SLOT_ROLE_BIT(
-          LOOM_BOUNDARY_PROJECTION_SLOT_LOOP_STATE);
+          LOOM_BOUNDARY_PROJECTION_SLOT_LOOP_STATE) |
+      LOOM_BOUNDARY_PROJECTION_SLOT_ROLE_BIT(
+          LOOM_BOUNDARY_PROJECTION_SLOT_BRANCH_RESULT);
   for (iree_host_size_t i = 0; i < plan->rules.count; ++i) {
     const loom_boundary_projection_rule_t* rule = plan->rules.values[i];
     if (iree_any_bit_set(rule->slot_role_bits, local_role_bits) &&
@@ -579,7 +582,8 @@ iree_status_t loom_boundary_projection_add_provisional_slot(
     loom_boundary_projection_plan_t* plan,
     loom_boundary_projection_function_t* function, loom_value_id_t value_id,
     loom_boundary_projection_slot_role_t role, loom_block_t* block) {
-  IREE_ASSERT_EQ(role, LOOM_BOUNDARY_PROJECTION_SLOT_LOOP_STATE);
+  IREE_ASSERT(role == LOOM_BOUNDARY_PROJECTION_SLOT_LOOP_STATE ||
+              role == LOOM_BOUNDARY_PROJECTION_SLOT_BRANCH_RESULT);
   return loom_boundary_projection_append_slot(plan, function, value_id, role,
                                               block, /*call_op=*/NULL);
 }
@@ -702,6 +706,15 @@ static iree_status_t loom_boundary_projection_collect_op(
                                                  collect->function, loop);
   }
 
+  const loom_region_branch_t branch =
+      loom_region_branch_cast(collect->plan->module, op);
+  if (loom_region_branch_isa(branch) &&
+      loom_boundary_projection_supports_role(
+          collect->plan, LOOM_BOUNDARY_PROJECTION_SLOT_BRANCH_RESULT)) {
+    return loom_boundary_projection_collect_branch(collect->plan,
+                                                   collect->function, branch);
+  }
+
   const loom_call_like_t call = loom_call_like_cast(collect->plan->module, op);
   if (!loom_call_like_isa(call) ||
       loom_call_like_kind(call) != LOOM_CALL_LIKE_KIND_SEMANTIC) {
@@ -783,7 +796,9 @@ static iree_status_t loom_boundary_projection_collect_function(
   }
 
   if (plan->may_change_signatures ||
-      loom_boundary_projection_supports_loop_slots(plan)) {
+      loom_boundary_projection_supports_loop_slots(plan) ||
+      loom_boundary_projection_supports_role(
+          plan, LOOM_BOUNDARY_PROJECTION_SLOT_BRANCH_RESULT)) {
     loom_boundary_projection_collect_t collect = {
         .plan = plan,
         .function = function,
@@ -1549,6 +1564,10 @@ iree_status_t loom_boundary_projection_plan_prepare(
           status = rule->prepare_function(rule, plan, function);
         }
       }
+    }
+    if (iree_status_is_ok(status) && function->selected &&
+        loom_func_like_body(function->function)) {
+      status = loom_boundary_projection_plan_branches(plan, function);
     }
     if (iree_status_is_ok(status) && function->selected &&
         loom_func_like_body(function->function)) {

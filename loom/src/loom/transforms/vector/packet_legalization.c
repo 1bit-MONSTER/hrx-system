@@ -181,7 +181,8 @@ static bool loom_vector_packet_dynamic_window_consumers_support_packet(
     uint32_t lane_count) {
   if (lane_count == 0 ||
       !loom_target_legalization_has_source_vector_carrier(
-          context, loom_vector_packet_type(source_type, lane_count))) {
+          context, loom_vector_packet_type(source_type, lane_count),
+          LOOM_VALUE_ID_INVALID)) {
     return false;
   }
   for (uint32_t i = 0; i < consumer_count; ++i) {
@@ -1307,7 +1308,7 @@ static bool loom_vector_packet_captured_values_have_carriers(
       continue;
     }
     if (!loom_target_legalization_has_source_vector_carrier(
-            context, value->source_type)) {
+            context, value->source_type, value->source)) {
       return false;
     }
   }

@@ -73,8 +73,8 @@ static iree_status_t loom_vector_packet_legalize_partition_insert(
                                                 &component_lane_count) ||
           component_lane_count != component.lane_count ||
           !loom_type_element_type_equals(component_type, result_type) ||
-          !loom_target_legalization_has_source_vector_carrier(context,
-                                                              component_type)) {
+          !loom_target_legalization_has_source_vector_carrier(
+              context, component_type, component.value)) {
         return iree_ok_status();
       }
       ++aggregate_count;
@@ -251,7 +251,8 @@ iree_status_t loom_vector_packet_legalize_insert(
     const uint32_t packet_lane_count =
         iree_min(shape.lane_count - lane_offset, shape.chunk_lane_count);
     if (!loom_target_legalization_has_source_vector_carrier(
-            context, loom_vector_packet_type(result_type, packet_lane_count))) {
+            context, loom_vector_packet_type(result_type, packet_lane_count),
+            LOOM_VALUE_ID_INVALID)) {
       geometric_packets_supported = false;
       break;
     }

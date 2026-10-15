@@ -2476,13 +2476,29 @@ iree_status_t loom_vector_slice_facts(loom_fact_context_t* context,
   if (static_offsets.count != rank) {
     return loom_vector_make_unknown_facts(result_facts);
   }
-  for (uint8_t axis = 0; axis < rank; ++axis) {
-    if (static_offsets.i64_array[axis] == INT64_MIN) {
-      return loom_vector_make_unknown_facts(result_facts);
-    }
-  }
   const loom_value_id_t source = loom_vector_slice_source(op);
   const loom_value_id_t result = loom_vector_slice_result(op);
+  // Every valid slice of a repeated scalar has the same scalar origin,
+  // independently of the slice rank, shape, and runtime-selected offsets.
+  loom_value_id_t scalar_origin = LOOM_VALUE_ID_INVALID;
+  loom_value_id_t exact_scalar_origin = LOOM_VALUE_ID_INVALID;
+  if (loom_value_fact_table_query_uniform_element_origin(
+          context->table, module, source, &scalar_origin) &&
+      loom_value_fact_table_query_exact_uniform_element_origin(
+          context->table, module, source, &exact_scalar_origin)) {
+    IREE_RETURN_IF_ERROR(loom_value_fact_table_define_uniform_element_origin(
+        context->table, result, scalar_origin, exact_scalar_origin));
+  }
+  loom_value_facts_t uniform_element = {0};
+  const bool is_uniform = loom_vector_facts_query_uniform_element(
+      context, operand_facts[0], &uniform_element);
+  for (uint8_t axis = 0; axis < rank; ++axis) {
+    if (static_offsets.i64_array[axis] == INT64_MIN) {
+      return is_uniform ? loom_value_facts_make_uniform_element(
+                              context, uniform_element, &result_facts[0])
+                        : loom_vector_make_unknown_facts(result_facts);
+    }
+  }
   if (rank == 1 && static_offsets.i64_array[0] >= 0 &&
       static_offsets.i64_array[0] <= UINT32_MAX) {
     const uint32_t slice_offset = (uint32_t)static_offsets.i64_array[0];
@@ -2532,25 +2548,13 @@ iree_status_t loom_vector_slice_facts(loom_fact_context_t* context,
               .source_lane_stride = exact_source_origin.source_lane_stride,
           }));
     }
-
-    loom_value_id_t scalar_origin = LOOM_VALUE_ID_INVALID;
-    loom_value_id_t exact_scalar_origin = LOOM_VALUE_ID_INVALID;
-    if (loom_value_fact_table_query_uniform_element_origin(
-            context->table, module, source, &scalar_origin) &&
-        loom_value_fact_table_query_exact_uniform_element_origin(
-            context->table, module, source, &exact_scalar_origin)) {
-      IREE_RETURN_IF_ERROR(loom_value_fact_table_define_uniform_element_origin(
-          context->table, result, scalar_origin, exact_scalar_origin));
-    }
   }
 
   // Slicing a uniform vector preserves its element value regardless of the
   // result lane count. Keep this path independent of the bounded per-lane
   // representation below so large vectors do not discard an exact fact that
   // needs no lane enumeration.
-  loom_value_facts_t uniform_element = {0};
-  if (loom_vector_facts_query_uniform_element(context, operand_facts[0],
-                                              &uniform_element)) {
+  if (is_uniform) {
     return loom_value_facts_make_uniform_element(context, uniform_element,
                                                  &result_facts[0]);
   }
