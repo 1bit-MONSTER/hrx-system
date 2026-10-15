@@ -44,6 +44,8 @@ struct loom_serve_residency_t {
   bool active;
   // Logical release interest retained until an owner turn collects completion.
   bool releasing;
+  // Last final invocation release or explicit unpin, not observation time.
+  iree_time_t idle_since;
   // Borrowed model idle-cache owner, independent of parameter pins.
   loom_serve_residency_reclaimer_t reclaimer;
   // Independent of LRU membership and all already-accepted execution pins.
@@ -79,6 +81,9 @@ loom_serve_residency_cache_t* loom_serve_residency_cache(
 
 void loom_serve_residency_set_pinned(loom_serve_residency_t* residency,
                                      bool pinned) {
+  if (residency->pinned && !pinned) {
+    residency->idle_since = iree_time_now();
+  }
   residency->pinned = pinned;
 }
 
@@ -229,6 +234,30 @@ static uint64_t loom_serve_residency_cache_projected_bytes(
   const loom_serve_memory_statistics_t memory =
       loom_serve_memory_pool_statistics(cache->pool);
   return memory.committed_bytes - memory.releasing_bytes;
+}
+
+iree_status_t loom_serve_residency_cache_trim_idle(
+    loom_serve_residency_cache_t* cache, iree_time_t now,
+    iree_duration_t timeout, bool* out_pending) {
+  *out_pending = false;
+  if (!cache->pool) {
+    return iree_ok_status();
+  }
+  iree_status_t status = iree_ok_status();
+  for (loom_serve_residency_t* entry = cache->oldest;
+       entry && iree_status_is_ok(status); entry = entry->next) {
+    if (!entry->active || !entry->weight_count || entry->pin_count ||
+        entry->pinned) {
+      continue;
+    }
+    if (now - entry->idle_since < timeout) {
+      *out_pending = true;
+    } else {
+      bool complete = false;
+      status = loom_serve_residency_deactivate(entry, &complete);
+    }
+  }
+  return status;
 }
 
 iree_status_t loom_serve_residency_cache_trim(
@@ -533,6 +562,7 @@ loom_serve_execution_frontier_t loom_serve_residency_frontier(
 void loom_serve_residency_release(loom_serve_residency_t* residency) {
   IREE_ASSERT(residency->pin_count);
   if (!--residency->pin_count) {
+    residency->idle_since = iree_time_now();
     loom_serve_residency_unlink(residency);
     loom_serve_residency_append(residency);
   }

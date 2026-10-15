@@ -125,10 +125,10 @@ class SourceTextServiceTest : public ::testing::Test {
     });
   }
 
-  void StartManaged() {
+  void StartManaged(loom_serve_device_idle_policy_t idle = {}) {
     IREE_ASSERT_OK(loom_serve_text_model_free(model_));
     model_ = nullptr;
-    http_.Start([this]() -> iree_status_t {
+    http_.Start([this, idle]() -> iree_status_t {
       const loom_serve_model_registration_options_t options = {
           .device_group = group_, .heartbeat_interval = 0};
       loom_serve_registry_t* registry = nullptr;
@@ -141,6 +141,7 @@ class SourceTextServiceTest : public ::testing::Test {
               .request_quota = 16,
               .holding_capacity = 8,
               .resources = {.device_group = group_},
+              .idle = idle,
           },
           host_allocator_);
       return iree_status_join(status, loom_serve_registry_free(registry));

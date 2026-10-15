@@ -44,6 +44,16 @@ iree_status_t loom_serve_residency_cache_query_status(
 iree_status_t loom_serve_residency_cache_trim(
     loom_serve_residency_cache_t* cache, uint64_t target_bytes);
 
+// Schedules release of active, unpinned parameters idle for at least timeout
+// nanoseconds. The caller supplies a positive timeout and its current time.
+// Reports whether an eligible entry still awaits expiry. Active invocations,
+// explicit pins, fixed backing, and model-owned history are untouched. Reads
+// and repeated maintenance do not refresh age. Accepted releases finish through
+// query_status and the shared capacity wake, without polling or blocking here.
+iree_status_t loom_serve_residency_cache_trim_idle(
+    loom_serve_residency_cache_t* cache, iree_time_t now,
+    iree_duration_t timeout, bool* out_pending);
+
 // Registers the weight plans consumed together by one model invocation. Copies
 // the pointer array, not the plans. Plans belong to this cache's physical pool,
 // are initially inactive, belong exclusively to this registration, and outlive

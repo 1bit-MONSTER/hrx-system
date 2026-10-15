@@ -8,6 +8,7 @@
 #define LOOM_SERVE_SERVER_ROUTER_H_
 
 #include "iree/task/executor.h"
+#include "loom/serve/runtime/device/device.h"
 #include "loom/serve/server/registry.h"
 #include "loom/serve/server/resources.h"
 
@@ -26,6 +27,9 @@ typedef struct loom_serve_router_options_t {
   iree_host_size_t holding_capacity;
   // Application resources borrowed until the outer routing call returns.
   loom_serve_resources_t resources;
+  // Optional idle reclamation without changing model admission or retained
+  // sessions. Enabled policy requires resources.device_group.
+  loom_serve_device_idle_policy_t idle;
 } loom_serve_router_options_t;
 
 // Routes JSON request bodies by their model field and checkpoint operations by

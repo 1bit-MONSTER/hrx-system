@@ -319,7 +319,7 @@ iree_status_t loom_serve_text_heartbeat_advance(
     loom_serve_text_heartbeat_t* heartbeat, bool stopping, bool* out_progress) {
   bool tick = false;
   iree_status_t status = loom_serve_timer_advance(&heartbeat->timer, stopping,
-                                                  out_progress, &tick);
+                                                  true, out_progress, &tick);
   if (tick) {
     loom_serve_text_heartbeat_report(heartbeat);
   }

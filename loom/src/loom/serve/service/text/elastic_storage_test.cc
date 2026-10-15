@@ -105,6 +105,74 @@ TEST_F(ElasticTextServiceTest,
 }
 
 TEST_F(ElasticTextServiceTest,
+       IdleParametersReleaseWithoutBlockingPeersOrDiscardingHistory) {
+  StartManaged({.parameter_timeout = iree_make_duration_ms(1)});
+  for (const char* name : {"fixture-text", "warm"}) {
+    ASSERT_EQ(
+        Read(Send(Declaration(name, directory_), "", "/v1/models/register"))
+            .find("HTTP/1.1 202"),
+        0u);
+    ASSERT_NO_FATAL_FAILURE(WaitModel(name, R"("registration":"ready")"));
+    ASSERT_EQ(Read(Send("{\"model\":\"" + std::string(name) + "\"}", "",
+                        "/v1/models/pin"))
+                  .find("HTTP/1.1 200"),
+              0u);
+  }
+  const std::string prompt = "abxa";
+  const std::string request = Request(Message("user", prompt), 2);
+  const std::string first =
+      Content(Read(Send(request, "X-Loom-Session: retained\r\n")));
+  ASSERT_EQ(first, Oracle::Complete(prompt, 2));
+  ASSERT_EQ(
+      Read(Send("",
+                "X-Loom-Model: fixture-text\r\nX-Loom-Session: retained\r\n",
+                "/v1/checkpoints/base"))
+          .find("HTTP/1.1 201"),
+      0u);
+  std::string warm = request;
+  warm.replace(warm.find("fixture-text"), 12, "warm");
+  ASSERT_EQ(Content(Read(Send(warm, "X-Loom-Session: warm\r\n"))), first);
+  ASSERT_NO_FATAL_FAILURE(WaitModel("fixture-text", R"("phase":"idle")"));
+  ASSERT_NO_FATAL_FAILURE(WaitModel("warm", R"("phase":"idle")"));
+  {
+    loom_serve::testing::MaintenanceGate gate(
+        loom_serve_device_storage_pool(device_)->maintenance);
+    ASSERT_EQ(Read(Send(R"({"model":"fixture-text"})", "", "/v1/models/unpin"))
+                  .find("HTTP/1.1 200"),
+              0u);
+    // This poll does not keep parameters hot. Expiry schedules native release
+    // without closing admission or blocking the sole serving task worker.
+    const auto expired =
+        WaitModel("fixture-text", R"("parameters":{"active":false)");
+    ASSERT_NE(expired.find(R"("deactivations":1)"), std::string::npos)
+        << expired;
+    EXPECT_EQ(Content(Read(Send(warm, "X-Loom-Session: warm\r\n"))), first);
+    EXPECT_EQ(Read(Send("", "", "/healthz", "GET")).find("HTTP/1.1 200"), 0u);
+    const auto peer = WaitModel("warm", R"("phase":"idle")");
+    EXPECT_NE(peer.find(R"("parameters":{"active":true)"), std::string::npos);
+    EXPECT_NE(peer.find(R"("deactivations":0)"), std::string::npos);
+  }
+  const auto continuation =
+      Request(Message("user", prompt) + "," + Message("assistant", first) +
+                  "," + Message("user", "b"),
+              2);
+  const auto resumed = Read(Send(continuation, "X-Loom-Session: retained\r\n"));
+  EXPECT_EQ(Content(resumed), Oracle::Complete(prompt + first + "#b", 2));
+  EXPECT_NE(resumed.find(R"("cached_tokens":5)"), std::string::npos) << resumed;
+  const auto rewind = Read(Send(
+      continuation, "X-Loom-Session: fork\r\nX-Loom-Checkpoint: base\r\n"));
+  EXPECT_EQ(Content(rewind), Oracle::Complete(prompt + first + "#b", 2));
+  EXPECT_NE(rewind.find(R"("cached_tokens":5)"), std::string::npos) << rewind;
+  EXPECT_EQ(Read(Send("", "X-Loom-Model: fixture-text\r\n",
+                      "/v1/checkpoints/base", "DELETE"))
+                .find("HTTP/1.1 200"),
+            0u);
+  const auto status = Read(Send("", "", "/v1/status", "GET"));
+  EXPECT_NE(status.find(R"("idle":{"workspace_ms":0,"parameter_ms":1})"),
+            std::string::npos);
+}
+
+TEST_F(ElasticTextServiceTest,
        CompactionYieldsNativeReleasesAndPreservesSharedCheckpoint) {
   const iree_hal_physical_memory_params_t parameters = {
       .type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,

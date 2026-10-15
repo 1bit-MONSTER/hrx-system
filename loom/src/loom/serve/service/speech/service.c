@@ -1090,7 +1090,7 @@ static iree_status_t loom_serve_speech_advance(
       service->status,
       loom_serve_timer_advance(&service->timer,
                                service->stopping && !service->occupied_count,
-                               &timer_progress, &tick));
+                               true, &timer_progress, &tick));
   *out_progress |= timer_progress;
   if (tick) {
     loom_serve_speech_heartbeat(service);

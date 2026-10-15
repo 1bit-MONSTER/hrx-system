@@ -133,6 +133,38 @@ change eviction eligibility. Pinning is not activation: a cold registration
 can remember the pin without loading its weights. Status exposes this policy
 as `loom.parameter_pinned`. A pending deactivation cannot be pinned.
 
+## Return idle backing without removing models
+
+Automatic reclamation is opt-in. For example, this server releases unused
+command workspace after 30 seconds and unpinned weights after five minutes:
+
+```sh
+loom-serve --device=amdgpu --model=/srv/models/scout/model.json \
+  --workspace_idle_ms=30000 --parameter_idle_ms=300000
+```
+
+Each duration is independent; `0` disables that policy. Workspace expiry applies
+to each device's shared command pool after its last allocation actually retires.
+Weight expiry starts when a model's last invocation pin or explicit parameter
+pin is released. Polling status, receiving telemetry, and leaving a client
+connected do not keep idle resources hot. Explicitly pinned weights and active
+invocations remain protected. Fixed-backed weights cannot deactivate; workspace
+expiry works with either backing policy.
+
+Expiry queues native release without draining the server or waiting on unrelated
+requests. The next invocation reloads weights and reuses the compiled programs.
+Registrations, sessions, KV/prefix history, and named checkpoints stay intact:
+these policies release reloadable backing, not conversation history. They
+therefore need not reduce an idle process to its minimum possible footprint.
+
+`/v1/status` publishes the configured durations in `server.idle.workspace_ms`
+and `server.idle.parameter_ms`. Device workspace commitment and per-model
+parameter activity/accounting show reclamation and subsequent reloads. Expiry
+checks use the smaller enabled duration, capped at one second; physical release
+finishes asynchronously. When nothing awaits retirement or expiry, maintenance
+stops rearming its timer. Heartbeat reporting has an independent interval and
+can be disabled without disabling reclamation.
+
 ## Replace native code without reloading weights
 
 A prepared text deployment can JIT replacement command programs and kernels

@@ -67,7 +67,8 @@ class TimerTest : public ::testing::Test {
       bool progress = false;
       bool tick = false;
       status = iree_status_join(
-          status, loom_serve_timer_advance(&timer_, true, &progress, &tick));
+          status,
+          loom_serve_timer_advance(&timer_, true, true, &progress, &tick));
       EXPECT_FALSE(tick);
       if (!loom_serve_timer_is_pending(&timer_)) {
         iree_notification_cancel_wait(&notification_);
@@ -98,7 +99,8 @@ TEST_F(TimerTest, DisabledReportingAcceptsNoWork) {
   Configure(IREE_DURATION_ZERO);
   bool progress = false;
   bool tick = false;
-  IREE_ASSERT_OK(loom_serve_timer_advance(&timer_, false, &progress, &tick));
+  IREE_ASSERT_OK(
+      loom_serve_timer_advance(&timer_, false, true, &progress, &tick));
   EXPECT_FALSE(progress);
   EXPECT_FALSE(tick);
   EXPECT_FALSE(loom_serve_timer_is_pending(&timer_));
@@ -110,11 +112,13 @@ TEST_F(TimerTest, DeadlineProducesPeriodicTicks) {
   const uint32_t previous_count = wake_count_.load(std::memory_order_acquire);
   bool progress = false;
   bool tick = false;
-  IREE_ASSERT_OK(loom_serve_timer_advance(&timer_, false, &progress, &tick));
+  IREE_ASSERT_OK(
+      loom_serve_timer_advance(&timer_, false, true, &progress, &tick));
   EXPECT_TRUE(progress);
   EXPECT_TRUE(tick);
   AwaitWake(previous_count);
-  IREE_ASSERT_OK(loom_serve_timer_advance(&timer_, false, &progress, &tick));
+  IREE_ASSERT_OK(
+      loom_serve_timer_advance(&timer_, false, true, &progress, &tick));
   EXPECT_TRUE(progress);
   EXPECT_TRUE(tick);
 }
@@ -123,10 +127,40 @@ TEST_F(TimerTest, FarFutureTimerStopsWithoutWaitingForItsDeadline) {
   Configure(iree_make_duration_ms(3600000));
   bool progress = false;
   bool tick = false;
-  IREE_ASSERT_OK(loom_serve_timer_advance(&timer_, false, &progress, &tick));
+  IREE_ASSERT_OK(
+      loom_serve_timer_advance(&timer_, false, true, &progress, &tick));
   EXPECT_TRUE(loom_serve_timer_is_pending(&timer_));
   IREE_ASSERT_OK(Stop());
   EXPECT_FALSE(loom_serve_timer_is_pending(&timer_));
+}
+
+TEST_F(TimerTest, IneligibleTimerParksAndResumesWithoutStopping) {
+  Configure(iree_make_duration_ms(1));
+  bool progress = false;
+  bool tick = false;
+  IREE_ASSERT_OK(
+      loom_serve_timer_advance(&timer_, false, false, &progress, &tick));
+  EXPECT_FALSE(progress);
+  EXPECT_FALSE(tick);
+  EXPECT_FALSE(loom_serve_timer_is_pending(&timer_));
+  for (int iteration = 0; iteration < 2; ++iteration) {
+    const uint32_t before = wake_count_.load(std::memory_order_acquire);
+    IREE_ASSERT_OK(
+        loom_serve_timer_advance(&timer_, false, true, &progress, &tick));
+    EXPECT_TRUE(tick);
+    AwaitWake(before);
+    // Consume the accepted alarm without rearming. Neither observing nor
+    // remaining ineligible can manufacture another callback or refresh time.
+    IREE_ASSERT_OK(
+        loom_serve_timer_advance(&timer_, false, false, &progress, &tick));
+    EXPECT_TRUE(progress);
+    EXPECT_FALSE(tick);
+    EXPECT_FALSE(loom_serve_timer_is_pending(&timer_));
+    IREE_ASSERT_OK(
+        loom_serve_timer_advance(&timer_, false, false, &progress, &tick));
+    EXPECT_FALSE(progress);
+    EXPECT_FALSE(tick);
+  }
 }
 
 TEST_F(TimerTest, ExpiredTimerStopsWithoutRearming) {
@@ -134,7 +168,8 @@ TEST_F(TimerTest, ExpiredTimerStopsWithoutRearming) {
   const uint32_t previous_count = wake_count_.load(std::memory_order_acquire);
   bool progress = false;
   bool tick = false;
-  IREE_ASSERT_OK(loom_serve_timer_advance(&timer_, false, &progress, &tick));
+  IREE_ASSERT_OK(
+      loom_serve_timer_advance(&timer_, false, true, &progress, &tick));
   AwaitWake(previous_count);
   IREE_ASSERT_OK(Stop());
   EXPECT_FALSE(loom_serve_timer_is_pending(&timer_));
@@ -146,7 +181,8 @@ TEST_F(TimerTest, CancellationReceiptPermitsAddressReuse) {
     Configure(iteration % 2 ? 1 : iree_make_duration_ms(3600000));
     bool progress = false;
     bool tick = false;
-    IREE_ASSERT_OK(loom_serve_timer_advance(&timer_, false, &progress, &tick));
+    IREE_ASSERT_OK(
+        loom_serve_timer_advance(&timer_, false, true, &progress, &tick));
     IREE_ASSERT_OK(Stop());
     loom_serve_timer_deinitialize(&timer_);
     Initialize();

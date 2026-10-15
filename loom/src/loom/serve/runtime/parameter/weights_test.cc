@@ -1317,6 +1317,63 @@ TEST_P(WeightsTest, WarmAdmissionCollectsCompletedPeerRelease) {
   loom_serve_residency_release(residencies_[0]);
 }
 
+TEST_P(WeightsTest, IdleExpiryPreservesPinsAndReloadsWithoutRecompiling) {
+  for (iree_host_size_t i = 0; i < 2; ++i) {
+    IREE_ASSERT_OK(Compile(i, "target"));
+    const auto root = Root(i, 0);
+    IREE_ASSERT_OK(CreateRoots(0, 1, &root, {path_.path()}));
+    IREE_ASSERT_OK(Register(i, i, 1));
+    ASSERT_NO_FATAL_FAILURE(RunPinned(i, 70));
+  }
+  auto* cache = loom_serve_device_residency_cache(device_owner_);
+  const auto timeout = iree_make_duration_ms(3600000);
+  loom_serve_residency_set_pinned(residencies_[0], true);
+  IREE_ASSERT_OK(loom_serve_residency_acquire(residencies_[1]));
+  bool pending = true;
+  IREE_ASSERT_OK(loom_serve_residency_cache_trim_idle(
+      cache, iree_time_now() + 2 * timeout, timeout, &pending));
+  EXPECT_FALSE(pending);
+  EXPECT_TRUE(loom_serve_residency_snapshot(residencies_[0]).active);
+  EXPECT_TRUE(loom_serve_residency_snapshot(residencies_[1]).active);
+  loom_serve_residency_set_pinned(residencies_[0], false);
+  const auto unpinned = iree_time_now();
+  IREE_ASSERT_OK(
+      loom_serve_residency_cache_trim_idle(cache, unpinned, timeout, &pending));
+  EXPECT_EQ(pending, GetParam());
+  IREE_ASSERT_OK(loom_serve_residency_cache_trim_idle(
+      cache, unpinned + timeout / 2, timeout, &pending));
+  EXPECT_EQ(pending, GetParam());
+  {
+    loom_serve::testing::MaintenanceGate gate(
+        loom_serve_device_storage_pool(device_owner_)->maintenance);
+    IREE_ASSERT_OK(loom_serve_residency_cache_trim_idle(
+        cache, unpinned + timeout, timeout, &pending));
+    EXPECT_FALSE(pending);
+    EXPECT_EQ(loom_serve_residency_snapshot(residencies_[0]).active,
+              !GetParam());
+    EXPECT_TRUE(loom_serve_residency_snapshot(residencies_[1]).active);
+    if (GetParam()) {
+      EXPECT_EQ(loom_serve_weights_statistics(plans_[0]).releasing_bytes,
+                kSlabBytes);
+    }
+    // The independent consumer has no dependency on the held native release.
+    ASSERT_NO_FATAL_FAILURE(Run(1, 70));
+  }
+  if (pool_) {
+    IREE_ASSERT_OK(loom_serve_memory_pool_await(pool_));
+  }
+  IREE_ASSERT_OK(loom_serve_residency_cache_query_status(cache));
+  ASSERT_NO_FATAL_FAILURE(RunPinned(0, 70));
+  EXPECT_EQ(loom_serve_weights_activity(plans_[0]).activations,
+            GetParam() ? 2u : 1u);
+  loom_serve_residency_release(residencies_[1]);
+  const auto released = iree_time_now();
+  IREE_ASSERT_OK(
+      loom_serve_residency_cache_trim_idle(cache, released, timeout, &pending));
+  EXPECT_EQ(pending, GetParam());
+  EXPECT_TRUE(loom_serve_residency_snapshot(residencies_[1]).active);
+}
+
 TEST_P(WeightsTest, PinnedWeightsDeferIdleCacheReclamationUntilItCanHelp) {
   if (!GetParam()) {
     return;

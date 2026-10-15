@@ -267,6 +267,23 @@ iree_status_t loom_serve_device_trim(loom_serve_device_t* device,
                                          retained_target);
 }
 
+iree_status_t loom_serve_device_trim_idle(
+    loom_serve_device_t* device, loom_serve_device_idle_policy_t policy,
+    iree_time_t now, bool* out_pending) {
+  *out_pending = false;
+  if (policy.workspace_timeout) {
+    *out_pending = loom_serve_workspace_trim_idle(device->workspace, now,
+                                                  policy.workspace_timeout);
+  }
+  if (policy.parameter_timeout) {
+    bool pending = false;
+    IREE_RETURN_IF_ERROR(loom_serve_residency_cache_trim_idle(
+        device->residency_cache, now, policy.parameter_timeout, &pending));
+    *out_pending |= pending;
+  }
+  return iree_ok_status();
+}
+
 iree_hal_device_t* loom_serve_device_handle(const loom_serve_device_t* device) {
   return device->handle;
 }

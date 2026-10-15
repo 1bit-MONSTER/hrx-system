@@ -17,6 +17,7 @@
 #include "loom/serve/server/http/response.h"
 #include "loom/serve/server/http/tokenization.h"
 #include "loom/serve/server/http/variants.h"
+#include "loom/serve/server/maintenance.h"
 #include "loom/serve/transport/http/multipart.h"
 #include "loom/util/json.h"
 
@@ -88,6 +89,8 @@ typedef struct router_t {
   loom_serve_http_variants_t* variants;
   // Immutable borrowed resource view, outliving the outer routing call.
   loom_serve_resources_t resources;
+  // Shared-proactor expiry, joined before this owner's wake target disappears.
+  loom_serve_maintenance_t maintenance;
   // Number of stable slots, including vacant registration credit.
   iree_host_size_t capacity;
   // Maximum claims per turn, independent of model batch sizes.
@@ -605,13 +608,17 @@ static iree_status_t loom_serve_router_describe_server(
       "\"header_capacity\":%zu,\"multipart_header_byte_capacity\":%zu,"
       "\"multipart_part_capacity\":%zu},\"held_request_capacity\":%zu,"
       "\"held_requests\":%zu,\"observer_capacity\":%zu,\"observers\":%zu,"
+      "\"idle\":{\"workspace_ms\":%" PRId64 ",\"parameter_ms\":%" PRId64
+      "},"
       "\"resources\":",
       iree_task_executor_worker_count(router->executor), router->capacity,
       loom_serve_http_server_connection_capacity(router->server),
       limits.header_byte_capacity, limits.body_byte_capacity,
       limits.header_capacity, limits.multipart_header_byte_capacity,
       limits.multipart_part_capacity, router->held.capacity, router->held.count,
-      router->logs.capacity, router->logs.count));
+      router->logs.capacity, router->logs.count,
+      router->maintenance.policy.workspace_timeout / 1000000,
+      router->maintenance.policy.parameter_timeout / 1000000));
   loom_output_stream_t stream;
   loom_output_stream_for_builder(output, &stream);
   IREE_RETURN_IF_ERROR(
@@ -1397,6 +1404,13 @@ static void loom_serve_router_advance(router_t* router, bool* out_progress) {
   router->status = iree_status_join(
       router->status, loom_serve_router_logs_advance(router, out_progress));
   router->stopping |= !iree_status_is_ok(router->status);
+  bool maintenance_progress = false;
+  router->status = iree_status_join(
+      router->status,
+      loom_serve_maintenance_advance(&router->maintenance, router->stopping,
+                                     &maintenance_progress));
+  router->stopping |= !iree_status_is_ok(router->status);
+  *out_progress |= maintenance_progress;
   if (router->stopping) {
     loom_serve_router_held_collect(router, out_progress);
   }
@@ -1404,6 +1418,7 @@ static void loom_serve_router_advance(router_t* router, bool* out_progress) {
                  router->logs.count != 0 ||
                  loom_serve_http_variants_pending(router->variants);
   pending |= loom_serve_resources_is_pending(&router->resources);
+  pending |= loom_serve_maintenance_is_pending(&router->maintenance);
   for (iree_host_size_t i = 0; i < router->capacity; ++i) {
     loom_serve_registered_model_t* model =
         loom_serve_router_model_at(router, i);
@@ -1419,6 +1434,8 @@ static void loom_serve_router_advance(router_t* router, bool* out_progress) {
                 model->phase != LOOM_SERVE_REGISTRATION_RELEASE_FAILED);
   }
   if (router->stopping && !pending) {
+    loom_serve_maintenance_set_observer(&router->maintenance,
+                                        (loom_serve_wake_callback_t){0});
     loom_serve_resources_set_observer(&router->resources,
                                       (loom_serve_wake_callback_t){0});
     for (iree_host_size_t i = 0; i < router->capacity; ++i) {
@@ -1492,7 +1509,8 @@ iree_status_t loom_serve_router_run(iree_task_executor_t* executor,
       .held = {.capacity = options.holding_capacity},
       .logs = {.capacity =
                    loom_serve_http_server_connection_capacity(server) - 1}};
-  iree_status_t status = iree_ok_status();
+  iree_status_t status = loom_serve_maintenance_initialize(
+      options.resources.device_group, options.idle, &router.maintenance);
   if (iree_status_is_ok(status) && options.holding_capacity) {
     status = iree_allocator_malloc_array(
         host_allocator, options.holding_capacity, sizeof(*router.held.values),
@@ -1508,6 +1526,7 @@ iree_status_t loom_serve_router_run(iree_task_executor_t* executor,
                                                &router.variants);
   }
   if (!iree_status_is_ok(status)) {
+    loom_serve_maintenance_deinitialize(&router.maintenance);
     iree_allocator_free(host_allocator, router.logs.values);
     iree_allocator_free(host_allocator, router.held.values);
     return status;
@@ -1521,6 +1540,9 @@ iree_status_t loom_serve_router_run(iree_task_executor_t* executor,
                               IREE_TASK_PROCESS_FLAG_COMPUTE_SLOT);
   router.process.user_data = &router;
   router.process.release_fn = loom_serve_router_released;
+  loom_serve_maintenance_set_observer(
+      &router.maintenance,
+      (loom_serve_wake_callback_t){loom_serve_router_wake, &router});
   loom_serve_resources_set_observer(
       &router.resources,
       (loom_serve_wake_callback_t){loom_serve_router_wake, &router});
@@ -1539,6 +1561,7 @@ iree_status_t loom_serve_router_run(iree_task_executor_t* executor,
                           loom_serve_router_is_released, &router,
                           iree_infinite_timeout());
   iree_string_builder_deinitialize(&router.output);
+  loom_serve_maintenance_deinitialize(&router.maintenance);
   loom_serve_http_variants_free(router.variants);
   iree_allocator_free(host_allocator, router.logs.values);
   iree_allocator_free(host_allocator, router.held.values);

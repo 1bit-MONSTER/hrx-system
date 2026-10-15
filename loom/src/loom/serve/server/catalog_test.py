@@ -682,6 +682,7 @@ def check_empty_server(server_command, directory, device, backing):
                 "held_requests": 0,
                 "observer_capacity": 18,
                 "observers": 0,
+                "idle": {"workspace_ms": 0, "parameter_ms": 0},
             }, server
             assert resources["listeners"] == [
                 {"address": address, "waiting_for_capacity": False}

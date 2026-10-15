@@ -40,6 +40,13 @@ IREE_FLAG(int32_t, request_body_bytes, 8 * 1024 * 1024,
           "Maximum HTTP request body bytes per connection.");
 IREE_FLAG(int32_t, heartbeat_ms, 1000,
           "Per-model JSONL heartbeat interval; zero disables reporting.");
+IREE_FLAG(int32_t, workspace_idle_ms, 0,
+          "Release cached command-workspace backing after this idle interval; "
+          "zero disables automatic release.");
+IREE_FLAG(int32_t, parameter_idle_ms, 0,
+          "Deactivate unpinned elastic model parameters after this idle "
+          "interval; zero disables automatic deactivation. Sessions and "
+          "KV/prefix history remain resident.");
 
 static iree_status_t loom_serve_main_ready(loom_serve_http_listener_t* listener,
                                            iree_host_size_t model_count) {
@@ -192,12 +199,12 @@ int loom_serve_main(int argc, char** argv,
   }
   if (FLAG_model_capacity < 1 || FLAG_connections < 1 ||
       FLAG_held_requests < -1 || FLAG_held_requests >= FLAG_connections ||
-      FLAG_request_body_bytes < 1 || FLAG_heartbeat_ms < 0) {
-    fprintf(
-        stderr,
-        "Provide positive model/connection/body capacities and a nonnegative "
-        "heartbeat interval; held_requests must be -1 or below connection "
-        "capacity.\n");
+      FLAG_request_body_bytes < 1 || FLAG_heartbeat_ms < 0 ||
+      FLAG_workspace_idle_ms < 0 || FLAG_parameter_idle_ms < 0) {
+    fprintf(stderr,
+            "Provide positive model/connection/body capacities and nonnegative "
+            "heartbeat/idle intervals; held_requests must be -1 or below "
+            "connection capacity.\n");
     return EXIT_FAILURE;
   }
   const iree_allocator_t host_allocator = iree_allocator_system();
@@ -300,6 +307,10 @@ int loom_serve_main(int argc, char** argv,
             .resources = {.device_group = group,
                           .listener_count = listener_count,
                           .listeners = listeners},
+            .idle = {.workspace_timeout =
+                         iree_make_duration_ms(FLAG_workspace_idle_ms),
+                     .parameter_timeout =
+                         iree_make_duration_ms(FLAG_parameter_idle_ms)},
             .holding_capacity = (iree_host_size_t)(FLAG_held_requests < 0
                                                        ? FLAG_connections / 2
                                                        : FLAG_held_requests)},
