@@ -37,6 +37,7 @@
 #include "libamdf/cts/xdna/util/executable.h"
 #include "libamdf/cts/xdna/util/execution.h"
 #include "libamdf/cts/xdna/util/resident_transaction.h"
+#include "util/observation.h"
 #include "util/wait.h"
 
 namespace {
@@ -653,7 +654,7 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     RecordProperty("resident_npu_command_bytes", commands.size());
   }
 
-  void PrepareGpu(const ExchangePlan& plan) {
+  void PrepareGpu(const ExchangePlan& plan, bool capture_timing) {
     const auto shape = plan.shape;
     const bool independent = plan.service_count() == 2;
     const auto& products =
@@ -792,6 +793,11 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     ASSERT_EQ(completion_.host.cacheability, AMDF_HOST_CACHEABILITY_WRITE_BACK);
     ASSERT_LE(completion_.host.cache_line_size, 64u);
     std::fill(completion_.bytes().begin(), completion_.bytes().end(), 0);
+    if (capture_timing) {
+      auto* timestamps = static_cast<uint64_t*>(completion_.host.pointer);
+      timestamps[2] = UINT64_MAX;
+      timestamps[4] = UINT64_MAX;
+    }
     ASSERT_EQ(HostTransition(completion_, release), AMDF_STATUS_OK);
     ASSERT_NO_FATAL_FAILURE(gpu_queue_.Initialize(
         api_, gpu_api_, device_, system_scope_, gpu_family_, publication_mode_,
@@ -800,8 +806,14 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     Pm4CommandWriter writer(gpu_commands_.data(), *pm4_profile_);
     writer.SystemBarrier();
     writer.BindCompute(program, argument_address);
+    if (capture_timing) {
+      writer.CopyGpuClock64(completion_address + 16);
+    }
     writer.Dispatch(program, 1, 1, 1);
     writer.SystemBarrier();
+    if (capture_timing) {
+      writer.CopyGpuClock64(completion_address + 32);
+    }
     gpu_command_word_count_ = writer.word_count();
     RecordProperty("resident_gpu_target", product.target);
     RecordProperty("resident_gpu_hsaco_sha256", product.hsaco_sha256);
@@ -948,8 +960,23 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
            Participants participants = Participants::kBoth,
            ExchangeShape shape = {16, 16},
            ServiceSchedule schedule = ServiceSchedule::kWindow,
-           const ResidentImportPlan* import_plan = nullptr) {
+           const ResidentImportPlan* import_plan = nullptr,
+           bool capture_timing = false) {
     const ExchangePlan plan{shape, round_count, seed, schedule};
+    ObservationHostClock host_clock;
+    amdf_observation_clock_info_t queue_clock = {};
+    if (capture_timing) {
+      ASSERT_EQ(participants, Participants::kBoth);
+      ASSERT_NO_FATAL_FAILURE(host_clock.Initialize(api_));
+      ASSERT_GE(gpu_api_->extension_version, AMDF_GPU_EXTENSION_VERSION_2);
+      const auto status = gpu_api_->device_query_queue_clock_info(
+          device_, gpu_family_.ordinal, &queue_clock);
+      if (status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+        GTEST_SKIP() << "native queue-clock metadata unavailable";
+      }
+      ASSERT_EQ(status, AMDF_STATUS_OK);
+      ASSERT_GT(queue_clock.frequency_hz, 0u);
+    }
     ASSERT_GE(shape.word_count, 1u);
     ASSERT_LE(shape.word_count, 1024u);
     ASSERT_TRUE(shape.word_offset == 1 || shape.word_offset == 16);
@@ -972,7 +999,7 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     if (plan.npu_sdma()) {
       ASSERT_NO_FATAL_FAILURE(PrepareSdma(plan));
     }
-    ASSERT_NO_FATAL_FAILURE(PrepareGpu(plan));
+    ASSERT_NO_FATAL_FAILURE(PrepareGpu(plan, capture_timing));
     if (HasFailure()) {
       return;
     }
@@ -1026,6 +1053,10 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
                    : participants == Participants::kGpu ? "gpu"
                                                         : "npu");
 
+    uint64_t host_before = 0;
+    if (capture_timing) {
+      ASSERT_EQ(host_clock.Read(&host_before), AMDF_STATUS_OK);
+    }
     uint64_t npu_point = 0;
     amdf_status_t npu_submit_status = AMDF_STATUS_OK;
     auto gpu_submit_result = ::testing::AssertionSuccess();
@@ -1102,6 +1133,10 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
           GpuLoadAcquire<uint64_t>(sdma_.queue.host.write_index_address);
       ASSERT_NO_FATAL_FAILURE(sdma_.queue.WaitConsumed(api_, frontier));
       sdma_.pending = false;
+    }
+    uint64_t host_after = 0;
+    if (capture_timing) {
+      ASSERT_EQ(host_clock.Read(&host_after), AMDF_STATUS_OK);
     }
     EXPECT_TRUE(gpu_submit_result);
     EXPECT_EQ(npu_submit_status, AMDF_STATUS_OK);
@@ -1211,6 +1246,34 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
     ASSERT_EQ(HostTransition(completion_, completion_.host.invalidate),
               AMDF_STATUS_OK);
     std::vector<uint8_t> expected_completion(completion_.bytes().size(), 0);
+    if (capture_timing) {
+      const auto* timestamps =
+          static_cast<const uint64_t*>(completion_.host.pointer);
+      const uint64_t begin = timestamps[2];
+      const uint64_t end = timestamps[4];
+      ASSERT_NE(begin, UINT64_MAX);
+      ASSERT_NE(end, UINT64_MAX);
+      ASSERT_GT(end, begin);
+      ASSERT_GE(host_after, host_before);
+      const double duration_ns =
+          double(end - begin) * 1e9 / queue_clock.frequency_hz;
+      const double host_duration_ns =
+          host_clock.Nanoseconds(host_after - host_before);
+      EXPECT_LE(duration_ns, host_duration_ns);
+      RecordProperty("resident_queue_begin_ticks", std::to_string(begin));
+      RecordProperty("resident_queue_end_ticks", std::to_string(end));
+      RecordProperty("resident_queue_frequency_hz",
+                     std::to_string(queue_clock.frequency_hz));
+      RecordProperty("resident_queue_duration_ns", std::to_string(duration_ns));
+      RecordProperty("resident_host_before_ticks", std::to_string(host_before));
+      RecordProperty("resident_host_after_ticks", std::to_string(host_after));
+      RecordProperty("resident_host_frequency_hz",
+                     std::to_string(host_clock.frequency_hz()));
+      RecordProperty("resident_host_duration_ns",
+                     std::to_string(host_duration_ns));
+      std::memcpy(expected_completion.data() + 16, &begin, sizeof(begin));
+      std::memcpy(expected_completion.data() + 32, &end, sizeof(end));
+    }
     if (gpu_accepted && publication_mode_ == AMDF_QUEUE_PUBLICATION_MODE_USER) {
       StoreU32(expected_completion, 0, 1);
     }
@@ -1261,7 +1324,7 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
   CtsMappedMemory arguments_;
   // GPU-only full per-round transcript, with checked surrounding guards.
   CtsMappedMemory records_;
-  // GPU-only coherent queue completion line, separate from the transcript.
+  // GPU-only coherent completion marker and optional queue timestamp slots.
   CtsMappedMemory completion_;
   // Reference of immutable shader backing, including fetch padding.
   std::vector<uint8_t> original_code_;
@@ -1271,7 +1334,7 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
   std::vector<uint8_t> original_commands_;
   // Independent expected transcript bytes and complete allocation guards.
   std::vector<uint8_t> expected_records_;
-  // Cold PM4 dispatch and terminal cache operations copied by publication.
+  // Cold PM4 dispatch, optional observations and terminal cache operations.
   std::array<uint32_t, 64> gpu_commands_ = {};
   // Complete DWORD extent in gpu_commands_.
   size_t gpu_command_word_count_ = 0;
@@ -1280,6 +1343,12 @@ class ResidentGpuXdnaTest : public GpuXdnaDeviceFixture {
 TEST_F(ResidentGpuXdnaTest, RegisteredCausalRoundTrip) {
   Run(AMDF_MEMORY_PROFILE_ROLE_REGISTER, 17, 0x80000001u,
       LaunchOrder::kNpuFirst);
+}
+
+TEST_F(ResidentGpuXdnaTest, PortablePipelineTiming) {
+  Run(AMDF_MEMORY_PROFILE_ROLE_CREATE, 17, 0x80000001u, LaunchOrder::kNpuFirst,
+      Participants::kBoth, {16, 16}, ServiceSchedule::kWindow, nullptr,
+      /*capture_timing=*/true);
 }
 
 TEST_F(ResidentGpuXdnaTest, RegisteredTwoCreditCausalRoundTrip) {

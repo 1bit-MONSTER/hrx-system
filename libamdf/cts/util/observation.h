@@ -29,6 +29,9 @@ class ObservationHostClock {
     return api_->query_host_clock(out_timestamp);
   }
 
+  // Native units retained alongside raw host samples in result artifacts.
+  uint64_t frequency_hz() const { return info_.frequency_hz; }
+
   // Convert differences, never absolute epochs, before floating-point scaling.
   double Nanoseconds(uint64_t delta) const {
     return double(delta) * 1e9 / info_.frequency_hz;

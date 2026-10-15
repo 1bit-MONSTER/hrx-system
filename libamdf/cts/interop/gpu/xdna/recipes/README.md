@@ -151,6 +151,20 @@ retained as result properties. Their modular differences and correlation with
 external clocks require a separately established clock contract. The samples
 are observations from the correctness workload, not calibrated latency results.
 
+`ResidentGpuXdnaTest.PortablePipelineTiming` surrounds the same seventeen-round
+exchange with two confirmed PM4 clock writes. The ending write follows the
+existing shader-completion barrier. Aligned timestamp slots share the existing
+completion allocation while retaining distinct locations from its publication
+marker; all remaining bytes are checked. Queue clock units and the host clock
+come from libamdf's GPU and observation extensions. The case records the outer
+device duration and host interval, and checks their ordering and enclosure
+alongside the complete numeric transcript. It adds no per-round host action or
+inter-device synchronization. The PM4 interval includes the shader's peer waits;
+the host interval additionally encloses both publications and terminal joins.
+They measure the offload envelope, not isolated NPU compute time. These
+correctness observations are not isolated performance measurements or proof
+that the per-round shader samples share the PM4 clock's epoch.
+
 `StartupAndBacking/ResidentExchangeTest` varies allocated/registered backing,
 GPU-first/NPU-first submission, and zero/one/257 complete generations. These
 cases use the same compiled products and exercise unsigned payload wrapping.
