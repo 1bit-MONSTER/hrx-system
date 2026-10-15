@@ -169,7 +169,7 @@ loom_cc_library(
 
 iree_assert_dependency_boundary(
     name = "base_has_no_compiler_dependencies",
-    forbidden_dependencies = [":loomc"],
+    forbidden_dependencies = ["//loom/binding/c:loomc"],
     forbidden_subtrees = [
         "//loom/binding/c/target/...",
         "//loom/src/loom/...",
@@ -337,7 +337,7 @@ iree_assert_dependency_boundary(
         "//loom/src/loom/tooling/...",
         "//loom/src/loom/tools/...",
     ],
-    message = "Base LoomC must remain target-agnostic and independent of ejectable tooling adapters",
+    message = "The LoomC compiler must remain target-agnostic and independent of ejectable tooling adapters",
     target = ":loomc",
 )
 

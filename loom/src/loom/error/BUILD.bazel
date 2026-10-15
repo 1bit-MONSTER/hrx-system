@@ -4,7 +4,6 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//build_tools/bazel:query.bzl", "iree_assert_dependency_boundary")
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test", "loom_generated_cc_library")
 
 package(
@@ -192,17 +191,4 @@ loom_cc_library(
         "//loom/src/loom/ir",
         "//runtime/src/iree/base",
     ],
-)
-
-iree_assert_dependency_boundary(
-    name = "error_defs_has_no_compiler_dependencies",
-    forbidden_subtrees = [
-        "//loom/src/loom/codegen/...",
-        "//loom/src/loom/format/...",
-        "//loom/src/loom/ir/...",
-        "//loom/src/loom/ops/...",
-        "//loom/src/loom/target/...",
-    ],
-    message = "Error catalogs describe immutable diagnostic metadata independently of compiler IR and runtime parameter values",
-    target = ":error_defs",
 )

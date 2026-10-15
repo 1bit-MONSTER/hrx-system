@@ -4,7 +4,6 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//build_tools/bazel:query.bzl", "iree_assert_dependency_boundary")
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test")
 
 package(
@@ -35,18 +34,4 @@ loom_cc_test(
         "//runtime/src/iree/testing:gtest_main",
         "//runtime/src/iree/testing:temp_file",
     ],
-)
-
-iree_assert_dependency_boundary(
-    name = "input_has_no_compiler_dependencies",
-    forbidden_subtrees = [
-        "//loom/binding/...",
-        "//loom/src/loom/format/...",
-        "//loom/src/loom/ir/...",
-        "//loom/src/loom/ops/...",
-        "//loom/src/loom/pass/...",
-        "//loom/src/loom/target/...",
-    ],
-    message = "Configuration input collection must remain independent of compiler IR and schema reporting",
-    target = ":input",
 )

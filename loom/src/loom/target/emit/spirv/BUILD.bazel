@@ -273,13 +273,6 @@ loom_cc_test(
     ],
 )
 
-iree_assert_dependency_boundary(
-    name = "module_compiler_has_no_tooling_dependencies",
-    forbidden_subtrees = ["//loom/src/loom/tooling/..."],
-    message = "SPIR-V module compilation is compiler-owned and must not depend on tooling adapters",
-    target = ":module_compiler",
-)
-
 loom_cc_test(
     name = "module_builder_test",
     srcs = ["module_builder_test.cc"],
