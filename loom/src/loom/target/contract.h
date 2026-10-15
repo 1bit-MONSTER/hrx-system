@@ -93,6 +93,9 @@ typedef enum loom_target_vector_packet_policy_flag_bits_e {
   // LoopLike boundaries using native lane candidates. Object-function
   // signatures retain their authored platform ABI.
   LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_BOUNDARY_PROJECTION = 1u << 2,
+  // Selects fact-bounded dynamic windows directly from retained SSA packet
+  // snapshots instead of reifying those snapshots in private memory.
+  LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_DYNAMIC_SNAPSHOT_SELECTION = 1u << 3,
 } loom_target_vector_packet_policy_flag_bits_t;
 typedef uint8_t loom_target_vector_packet_policy_flags_t;
 

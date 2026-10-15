@@ -372,6 +372,7 @@ loom_cc_library(
     "legalization.c"
   DEPS
     ::features
+    ::value_types
     iree::base
     loom::ir
     loom::ops::scalar
@@ -380,6 +381,8 @@ loom_cc_library(
     loom::target::arch::spirv::descriptors
     loom::target::legalization
     loom::transforms::scalar::target_legalization
+    loom::transforms::vector::packet_legalization
+    loom::transforms::vector::shape_legalization
     loom::transforms::vector::target_legalization
     loom::transforms::vector::to_scalar
   PUBLIC
@@ -568,6 +571,7 @@ loom_check_test_suite(
     "test/source_low/numeric_scalar_f32_values.loom-test"
     "test/source_low/numeric_unsigned_remainder.loom-test"
     "test/source_low/ordinary_vector_alu.loom-test"
+    "test/source_low/ordinary_vector_concat.loom-test"
     "test/source_low/ordinary_vector_conversion.loom-test"
     "test/source_low/ordinary_vector_float.loom-test"
     "test/source_low/ordinary_vector_scale.loom-test"

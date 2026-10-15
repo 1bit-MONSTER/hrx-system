@@ -366,7 +366,7 @@ static iree_status_t loom_spirv_emit_unary_typed_packet(
       loom_spirv_packet_row_result_type(row));
 }
 
-static iree_status_t loom_spirv_emit_composite_construct_packet(
+static iree_status_t loom_spirv_emit_typed_packet(
     loom_spirv_emit_state_t* state, const loom_low_descriptor_packet_t* packet,
     const loom_spirv_packet_row_t* row) {
   loom_spirv_module_value_ref_t operands[LOOM_SPIRV_PACKET_MAX_OPERAND_COUNT] =
@@ -1020,7 +1020,8 @@ static iree_status_t loom_spirv_emit_descriptor_packet(
     case LOOM_SPIRV_PACKET_FORM_UNARY_TYPED:
       return loom_spirv_emit_unary_typed_packet(state, packet, row);
     case LOOM_SPIRV_PACKET_FORM_COMPOSITE_CONSTRUCT:
-      return loom_spirv_emit_composite_construct_packet(state, packet, row);
+    case LOOM_SPIRV_PACKET_FORM_TYPED:
+      return loom_spirv_emit_typed_packet(state, packet, row);
     case LOOM_SPIRV_PACKET_FORM_COMPOSITE_EXTRACT:
       return loom_spirv_emit_composite_extract_packet(state, packet, row);
     case LOOM_SPIRV_PACKET_FORM_COMPOSITE_INSERT:

@@ -687,8 +687,8 @@ def _ordinary_vector_shuffle_descriptor(
         semantic_tag=row.key,
         operands=(
             _ordinary_vector_result(row.result_type),
-            _ordinary_vector_operand("source0", row.source_type),
-            _ordinary_vector_operand("source1", row.source_type),
+            _ordinary_vector_operand("source0", row.source0_type),
+            _ordinary_vector_operand("source1", row.source1_type),
         ),
         immediates=tuple(
             Immediate(

@@ -11,11 +11,15 @@ import pytest
 from loom.target.arch.spirv.ordinary_vector import (
     NATIVE_ORDINARY_VECTOR_LANE_COUNTS,
     ORDINARY_VECTOR_COMPONENT_TYPES,
+    ORDINARY_VECTOR_CONCAT_SHAPES,
+    ORDINARY_VECTOR_CONCAT_SHUFFLE_INSTRUCTIONS,
     ORDINARY_VECTOR_INSTRUCTIONS,
     ORDINARY_VECTOR_SHUFFLE_INSTRUCTIONS,
+    ORDINARY_VECTOR_SOURCE_SHUFFLE_INSTRUCTIONS,
     ORDINARY_VECTOR_TYPES,
     OrdinaryVectorComponentKind,
     OrdinaryVectorComponentType,
+    OrdinaryVectorConcatShape,
     OrdinaryVectorShuffleInstruction,
     OrdinaryVectorType,
 )
@@ -76,8 +80,8 @@ def test_structural_instruction_matrix_is_closed_per_native_type() -> None:
         assert isinstance(vector_type, OrdinaryVectorType)
         instructions_by_type[vector_type] += 1
 
-    assert len(ORDINARY_VECTOR_INSTRUCTIONS) == 4 * len(ORDINARY_VECTOR_TYPES)
-    assert set(instructions_by_type.values()) == {4}
+    assert len(ORDINARY_VECTOR_INSTRUCTIONS) == 6 * len(ORDINARY_VECTOR_TYPES)
+    assert set(instructions_by_type.values()) == {6}
     assert len({row.key for row in ORDINARY_VECTOR_INSTRUCTIONS}) == len(
         ORDINARY_VECTOR_INSTRUCTIONS
     )
@@ -85,16 +89,51 @@ def test_structural_instruction_matrix_is_closed_per_native_type() -> None:
         "LOOM_SPIRV_PACKET_FORM_COMPOSITE_CONSTRUCT",
         "LOOM_SPIRV_PACKET_FORM_COMPOSITE_EXTRACT",
         "LOOM_SPIRV_PACKET_FORM_COMPOSITE_INSERT",
+        "LOOM_SPIRV_PACKET_FORM_TYPED",
         "LOOM_SPIRV_PACKET_FORM_SELECT",
     }
 
+    typed_instructions = tuple(
+        row
+        for row in ORDINARY_VECTOR_INSTRUCTIONS
+        if row.packet_form == "LOOM_SPIRV_PACKET_FORM_TYPED"
+    )
+    assert len(typed_instructions) == 2 * len(ORDINARY_VECTOR_TYPES)
+    assert {row.opcode for row in typed_instructions} == {
+        "LOOM_SPIRV_OP_VECTOR_EXTRACT_DYNAMIC",
+        "LOOM_SPIRV_OP_VECTOR_INSERT_DYNAMIC",
+    }
+    for row in typed_instructions:
+        index_type = row.operand_types[-1]
+        assert isinstance(index_type, OrdinaryVectorComponentType)
+        assert index_type.source_types == ("i32", "index")
 
-def test_shuffle_instruction_matrix_covers_every_native_type() -> None:
-    assert len(ORDINARY_VECTOR_SHUFFLE_INSTRUCTIONS) == len(ORDINARY_VECTOR_TYPES)
+
+def test_shuffle_instruction_matrix_covers_source_and_concat_shapes() -> None:
+    assert len(ORDINARY_VECTOR_SOURCE_SHUFFLE_INSTRUCTIONS) == len(
+        ORDINARY_VECTOR_TYPES
+    )
     assert {
-        (instruction.source_type, instruction.result_type)
-        for instruction in ORDINARY_VECTOR_SHUFFLE_INSTRUCTIONS
-    } == {(vector_type, vector_type) for vector_type in ORDINARY_VECTOR_TYPES}
+        (
+            instruction.source0_type,
+            instruction.source1_type,
+            instruction.result_type,
+        )
+        for instruction in ORDINARY_VECTOR_SOURCE_SHUFFLE_INSTRUCTIONS
+    } == {
+        (vector_type, vector_type, vector_type) for vector_type in ORDINARY_VECTOR_TYPES
+    }
+    assert len(ORDINARY_VECTOR_CONCAT_SHUFFLE_INSTRUCTIONS) == 4 * len(
+        ORDINARY_VECTOR_COMPONENT_TYPES
+    )
+    assert {
+        (
+            instruction.source0_type.lane_count,
+            instruction.source1_type.lane_count,
+            instruction.result_type.lane_count,
+        )
+        for instruction in ORDINARY_VECTOR_CONCAT_SHUFFLE_INSTRUCTIONS
+    } == {(2, 2, 3), (2, 2, 4), (2, 3, 4), (3, 2, 4)}
     assert len(
         {instruction.key for instruction in ORDINARY_VECTOR_SHUFFLE_INSTRUCTIONS}
     ) == len(ORDINARY_VECTOR_SHUFFLE_INSTRUCTIONS)
@@ -104,9 +143,35 @@ def test_shuffle_instruction_matrix_covers_every_native_type() -> None:
         assert instruction.selector_names == tuple(
             f"selector{lane_index}" for lane_index in range(lane_count)
         )
-        assert instruction.selector_maximum == 2 * lane_count - 1
+        assert instruction.selector_maximum == (
+            instruction.source0_type.lane_count
+            + instruction.source1_type.lane_count
+            - 1
+        )
         assert instruction.opcode == "LOOM_SPIRV_OP_VECTOR_SHUFFLE"
         assert instruction.packet_form == "LOOM_SPIRV_PACKET_FORM_VECTOR_SHUFFLE"
+
+
+def test_concat_shapes_cover_every_native_binary_partition() -> None:
+    assert {
+        (shape.left_lane_count, shape.right_lane_count, shape.result_lane_count)
+        for shape in ORDINARY_VECTOR_CONCAT_SHAPES
+    } == {
+        (1, 1, 2),
+        (1, 2, 3),
+        (2, 1, 3),
+        (1, 3, 4),
+        (2, 2, 4),
+        (3, 1, 4),
+    }
+    for shape in ORDINARY_VECTOR_CONCAT_SHAPES:
+        assert shape.selectors == (
+            *range(shape.left_lane_count),
+            *(
+                shape.source0_lane_count + lane
+                for lane in range(shape.right_lane_count)
+            ),
+        )
 
 
 def test_component_invariants_reject_invalid_records() -> None:
@@ -217,6 +282,14 @@ def test_shuffle_invariants_reject_mixed_component_types() -> None:
     )
     with pytest.raises(ValueError, match="component types must match"):
         OrdinaryVectorShuffleInstruction(
-            source_type=OrdinaryVectorType(i32_component, 4),
+            source0_type=OrdinaryVectorType(i32_component, 4),
+            source1_type=OrdinaryVectorType(i32_component, 4),
             result_type=OrdinaryVectorType(f32_component, 4),
         )
+
+
+def test_concat_shape_invariants_reject_non_native_partitions() -> None:
+    with pytest.raises(ValueError, match="must be nonempty"):
+        OrdinaryVectorConcatShape(0, 2)
+    with pytest.raises(ValueError, match="must have 2-4 lanes"):
+        OrdinaryVectorConcatShape(2, 3)

@@ -24,6 +24,23 @@ typedef struct loom_vector_packet_slice_t {
   uint32_t lane_count;
 } loom_vector_packet_slice_t;
 
+// Fact-bounded possible origins for a dynamic packet within a source vector.
+typedef struct loom_vector_packet_dynamic_lane_domain_t {
+  // First possible source lane selected by the dynamic offset.
+  uint32_t first_lane_offset;
+  // Distance between possible source lanes, or zero for a singleton domain.
+  uint32_t lane_offset_step;
+  // Number of possible source lanes.
+  uint32_t lane_offset_count;
+} loom_vector_packet_dynamic_lane_domain_t;
+
+// Intersects retained dynamic-offset facts with the valid origins for a packet
+// of |packet_lane_count| lanes within a |source_lane_count|-lane vector.
+bool loom_vector_packet_dynamic_lane_domain(
+    uint32_t source_lane_count, uint32_t packet_lane_count,
+    loom_value_facts_t offset_facts,
+    loom_vector_packet_dynamic_lane_domain_t* out_domain);
+
 iree_status_t loom_vector_packet_rewrite_memory_load(
     loom_target_legalization_context_t* context, loom_op_t* op,
     const loom_vector_memory_footprint_t* footprint,

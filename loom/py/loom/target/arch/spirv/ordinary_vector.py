@@ -109,6 +109,12 @@ SIGNED_INTEGER_ORDINARY_VECTOR_COMPONENT_TYPES = tuple(
     for scalar_pair in INTEGER_SCALAR_ALU_TYPE_PAIRS
 )
 
+INDEX_ORDINARY_VECTOR_COMPONENT_TYPE = next(
+    component_type
+    for component_type in SIGNED_INTEGER_ORDINARY_VECTOR_COMPONENT_TYPES
+    if "index" in component_type.source_types
+)
+
 _FLOAT_COMPONENTS = tuple(
     OrdinaryVectorComponentType(
         source_types=(scalar.source_type,),
@@ -214,23 +220,31 @@ class OrdinaryVectorShuffleInstruction:
     uses the equal-shape subset and binds the same value to both inputs.
     """
 
-    source_type: OrdinaryVectorType
+    source0_type: OrdinaryVectorType
+    source1_type: OrdinaryVectorType
     result_type: OrdinaryVectorType
 
     def __post_init__(self) -> None:
-        if self.source_type.component_type != self.result_type.component_type:
+        if not (
+            self.source0_type.component_type
+            == self.source1_type.component_type
+            == self.result_type.component_type
+        ):
             raise ValueError("vector shuffle component types must match")
 
     @property
     def key(self) -> str:
-        return (
-            f"spirv.op_vector_shuffle.{self.source_type.suffix}."
-            f"{self.result_type.suffix}"
-        )
+        source_suffix = self.source0_type.suffix
+        if self.source1_type != self.source0_type:
+            source_suffix = f"{source_suffix}.{self.source1_type.suffix}"
+        return f"spirv.op_vector_shuffle.{source_suffix}.{self.result_type.suffix}"
 
     @property
     def mnemonic(self) -> str:
-        return f"OpVectorShuffle.{self.source_type.suffix}.{self.result_type.suffix}"
+        source_suffix = self.source0_type.suffix
+        if self.source1_type != self.source0_type:
+            source_suffix = f"{source_suffix}.{self.source1_type.suffix}"
+        return f"OpVectorShuffle.{source_suffix}.{self.result_type.suffix}"
 
     @property
     def opcode(self) -> str:
@@ -248,11 +262,48 @@ class OrdinaryVectorShuffleInstruction:
 
     @property
     def selector_maximum(self) -> int:
-        return 2 * self.source_type.lane_count - 1
+        return self.source0_type.lane_count + self.source1_type.lane_count - 1
 
     @property
     def feature_bits(self) -> int:
-        return self.source_type.feature_bits | self.result_type.feature_bits
+        return (
+            self.source0_type.feature_bits
+            | self.source1_type.feature_bits
+            | self.result_type.feature_bits
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OrdinaryVectorConcatShape:
+    """One complete binary partition of a native ordinary-vector result."""
+
+    left_lane_count: int
+    right_lane_count: int
+
+    def __post_init__(self) -> None:
+        if self.left_lane_count <= 0 or self.right_lane_count <= 0:
+            raise ValueError("vector concat inputs must be nonempty")
+        if self.result_lane_count not in NATIVE_ORDINARY_VECTOR_LANE_COUNTS:
+            raise ValueError("vector concat result must have 2-4 lanes")
+
+    @property
+    def result_lane_count(self) -> int:
+        return self.left_lane_count + self.right_lane_count
+
+    @property
+    def source0_lane_count(self) -> int:
+        return max(2, self.left_lane_count)
+
+    @property
+    def source1_lane_count(self) -> int:
+        return max(2, self.right_lane_count)
+
+    @property
+    def selectors(self) -> tuple[int, ...]:
+        return (
+            *range(self.left_lane_count),
+            *(self.source0_lane_count + lane for lane in range(self.right_lane_count)),
+        )
 
 
 def _structural_instructions(
@@ -303,6 +354,38 @@ def _structural_instructions(
             component_index_maximum=vector_type.lane_count - 1,
         ),
         OrdinaryVectorInstruction(
+            key=(
+                f"spirv.op_vector_extract_dynamic.{vector_type.suffix}."
+                f"{component_type.suffix}"
+            ),
+            mnemonic=(
+                f"OpVectorExtractDynamic.{vector_type.suffix}.{component_type.suffix}"
+            ),
+            opcode="LOOM_SPIRV_OP_VECTOR_EXTRACT_DYNAMIC",
+            packet_form="LOOM_SPIRV_PACKET_FORM_TYPED",
+            result_type=component_type,
+            operand_names=("vector", "index"),
+            operand_types=(vector_type, INDEX_ORDINARY_VECTOR_COMPONENT_TYPE),
+        ),
+        OrdinaryVectorInstruction(
+            key=(
+                f"spirv.op_vector_insert_dynamic.{component_type.suffix}."
+                f"{vector_type.suffix}"
+            ),
+            mnemonic=(
+                f"OpVectorInsertDynamic.{component_type.suffix}.{vector_type.suffix}"
+            ),
+            opcode="LOOM_SPIRV_OP_VECTOR_INSERT_DYNAMIC",
+            packet_form="LOOM_SPIRV_PACKET_FORM_TYPED",
+            result_type=vector_type,
+            operand_names=("vector", "component", "index"),
+            operand_types=(
+                vector_type,
+                component_type,
+                INDEX_ORDINARY_VECTOR_COMPONENT_TYPE,
+            ),
+        ),
+        OrdinaryVectorInstruction(
             key=f"spirv.op_select.{vector_type.suffix}",
             mnemonic=f"OpSelect.{vector_type.suffix}",
             opcode="LOOM_SPIRV_OP_SELECT",
@@ -327,10 +410,48 @@ ORDINARY_VECTOR_INSTRUCTIONS = tuple(
     for instruction in _structural_instructions(vector_type)
 )
 
-ORDINARY_VECTOR_SHUFFLE_INSTRUCTIONS = tuple(
+ORDINARY_VECTOR_SOURCE_SHUFFLE_INSTRUCTIONS = tuple(
     OrdinaryVectorShuffleInstruction(
-        source_type=vector_type,
+        source0_type=vector_type,
+        source1_type=vector_type,
         result_type=vector_type,
     )
     for vector_type in ORDINARY_VECTOR_TYPES
+)
+
+ORDINARY_VECTOR_CONCAT_SHAPES = tuple(
+    OrdinaryVectorConcatShape(left_lane_count, result_lane_count - left_lane_count)
+    for result_lane_count in NATIVE_ORDINARY_VECTOR_LANE_COUNTS
+    for left_lane_count in range(1, result_lane_count)
+)
+
+_ORDINARY_VECTOR_CONCAT_SHUFFLE_LANE_SHAPES = tuple(
+    sorted(
+        {
+            (
+                shape.source0_lane_count,
+                shape.source1_lane_count,
+                shape.result_lane_count,
+            )
+            for shape in ORDINARY_VECTOR_CONCAT_SHAPES
+            if shape.result_lane_count > 2
+        }
+    )
+)
+
+ORDINARY_VECTOR_CONCAT_SHUFFLE_INSTRUCTIONS = tuple(
+    OrdinaryVectorShuffleInstruction(
+        source0_type=OrdinaryVectorType(component_type, source0_lane_count),
+        source1_type=OrdinaryVectorType(component_type, source1_lane_count),
+        result_type=OrdinaryVectorType(component_type, result_lane_count),
+    )
+    for component_type in ORDINARY_VECTOR_COMPONENT_TYPES
+    for source0_lane_count, source1_lane_count, result_lane_count in (
+        _ORDINARY_VECTOR_CONCAT_SHUFFLE_LANE_SHAPES
+    )
+)
+
+ORDINARY_VECTOR_SHUFFLE_INSTRUCTIONS = (
+    *ORDINARY_VECTOR_SOURCE_SHUFFLE_INSTRUCTIONS,
+    *ORDINARY_VECTOR_CONCAT_SHUFFLE_INSTRUCTIONS,
 )

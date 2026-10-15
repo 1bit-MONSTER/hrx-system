@@ -22,6 +22,12 @@ extern "C" {
 iree_status_t loom_vector_from_elements_linearize_rewrite_op(
     loom_rewriter_t* rewriter, loom_op_t* op, bool* out_rewritten);
 
+// Rewrites a verified static vector.concat with more than two inputs into a
+// balanced tree of binary concats. Dynamic and all-empty input partitions are
+// left unchanged for their owning target representation.
+iree_status_t loom_vector_variadic_concat_to_binary_rewrite_op(
+    loom_rewriter_t* rewriter, loom_op_t* op, bool* out_rewritten);
+
 // Rewrites a static vector.transpose as a row-major rank-one vector.shuffle,
 // surrounded by shape-only vector.bitcast operations when needed. Static
 // transposes with an identity lane permutation become a shape-only bitcast.

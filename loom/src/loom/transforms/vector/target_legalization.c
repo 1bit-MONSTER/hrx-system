@@ -23,6 +23,33 @@
 #include "loom/transforms/vector/to_scalar.h"
 #include "loom/util/numeric_format.h"
 
+iree_status_t loom_vector_variadic_concat_to_binary_rewrite_op(
+    loom_rewriter_t* rewriter, loom_op_t* op, bool* out_rewritten) {
+  *out_rewritten = false;
+  const loom_value_slice_t inputs = loom_vector_concat_inputs(op);
+  if (inputs.count <= 2) {
+    return iree_ok_status();
+  }
+
+  const uint8_t axis = (uint8_t)loom_vector_concat_axis(op);
+  bool has_nonempty_input = false;
+  for (iree_host_size_t i = 0; i < inputs.count; ++i) {
+    const loom_type_t input_type =
+        loom_module_value_type(rewriter->module, inputs.values[i]);
+    if (loom_type_dim_is_dynamic_at(input_type, axis)) {
+      return iree_ok_status();
+    }
+    has_nonempty_input |= loom_type_dim_static_size_at(input_type, axis) != 0;
+  }
+  if (!has_nonempty_input) {
+    return iree_ok_status();
+  }
+
+  IREE_RETURN_IF_ERROR(loom_vector_concat_canonicalize(op, rewriter));
+  *out_rewritten = true;
+  return iree_ok_status();
+}
+
 static loom_vector_mma_to_scalar_options_t loom_vector_mma_options(
     const loom_target_legalization_context_t* context) {
   const loom_target_contract_query_result_t* query_result =

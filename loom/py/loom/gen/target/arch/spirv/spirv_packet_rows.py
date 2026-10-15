@@ -951,8 +951,8 @@ def _ordinary_vector_shuffle_rows() -> list[_PacketRow]:
             form=row.packet_form,
             result_type=_ordinary_vector_instruction_value(row.result_type),
             operand_types=(
-                _ordinary_vector_instruction_value(row.source_type),
-                _ordinary_vector_instruction_value(row.source_type),
+                _ordinary_vector_instruction_value(row.source0_type),
+                _ordinary_vector_instruction_value(row.source1_type),
             ),
             immediate_count=len(row.selector_names),
         )

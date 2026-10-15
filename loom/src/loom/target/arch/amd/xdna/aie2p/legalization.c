@@ -326,33 +326,13 @@ static iree_status_t loom_aie2p_legalize_vector_concat(
     return iree_ok_status();
   }
 
-  const loom_value_slice_t inputs = loom_vector_concat_inputs(op);
-  if (inputs.count <= 2) {
-    return iree_ok_status();
-  }
-
   // AIE2P contracts describe binary carrier transitions. Normalize static
   // variadic inputs through the shared adjacent-pair canonicalizer before
   // selecting those contracts.
-  const loom_type_t result_type =
-      loom_module_value_type(context->module, loom_vector_concat_result(op));
-  const int64_t axis = loom_vector_concat_axis(op);
-  if (axis < 0 || axis >= loom_type_rank(result_type)) {
-    return iree_ok_status();
-  }
-  bool has_nonempty_input = false;
-  for (iree_host_size_t i = 0; i < inputs.count; ++i) {
-    const loom_type_t input_type =
-        loom_module_value_type(context->module, inputs.values[i]);
-    if (loom_type_dim_is_dynamic_at(input_type, (uint8_t)axis)) {
-      return iree_ok_status();
-    }
-    has_nonempty_input |=
-        loom_type_dim_static_size_at(input_type, (uint8_t)axis) != 0;
-  }
-  if (has_nonempty_input) {
-    IREE_RETURN_IF_ERROR(
-        loom_vector_concat_canonicalize(op, context->rewriter));
+  bool rewritten = false;
+  IREE_RETURN_IF_ERROR(loom_vector_variadic_concat_to_binary_rewrite_op(
+      context->rewriter, op, &rewritten));
+  if (rewritten) {
     out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
   }
   return iree_ok_status();

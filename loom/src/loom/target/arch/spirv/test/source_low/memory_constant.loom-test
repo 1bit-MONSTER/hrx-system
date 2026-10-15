@@ -25,36 +25,36 @@ func.def @constant_reads(%input: buffer, %output: buffer) {
 
 // ----
 low.func.def target<spirv.logical.core> abi(shader_entry_point) @constant_reads(%aligned: reg<spirv.ptr.storage_buffer>, %output_aligned: reg<spirv.ptr.storage_buffer>) asm {
-  %23 = OpConstant.offset64 12
-  %24 = OpPtrAccessChain.storage_buffer.i32.byte_offset %aligned, %23
-  %word = OpLoad.storage_buffer.i32 %24
-  %26 = OpConstant.offset64 0
-  %27 = OpPtrAccessChain.storage_buffer.f32.byte_offset %aligned, %26
-  %28 = OpLoad.storage_buffer.f32 %27
-  %29 = OpConstant.offset64 4
-  %30 = OpPtrAccessChain.storage_buffer.f32.byte_offset %aligned, %29
-  %31 = OpLoad.storage_buffer.f32 %30
-  %32 = OpConstant.offset64 8
-  %33 = OpPtrAccessChain.storage_buffer.f32.byte_offset %aligned, %32
-  %34 = OpLoad.storage_buffer.f32 %33
-  %36 = OpPtrAccessChain.storage_buffer.f32.byte_offset %aligned, %23
-  %37 = OpLoad.storage_buffer.f32 %36
-  %39 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %aligned, %26
-  %half = OpLoad.storage_buffer.bf16 %39
-  %41 = OpConstant.offset64 28
-  %42 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output_aligned, %41
-  OpStore.storage_buffer.i32 %42, %word
-  %44 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_aligned, %26
-  OpStore.storage_buffer.f32 %44, %28
-  %46 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_aligned, %29
-  OpStore.storage_buffer.f32 %46, %31
-  %48 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_aligned, %32
-  OpStore.storage_buffer.f32 %48, %34
-  %50 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_aligned, %23
-  OpStore.storage_buffer.f32 %50, %37
-  %51 = OpConstant.offset64 22
-  %52 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output_aligned, %51
-  OpStore.storage_buffer.bf16 %52, %half
+  %27 = OpConstant.offset64 12
+  %28 = OpPtrAccessChain.storage_buffer.i32.byte_offset %aligned, %27
+  %word = OpLoad.storage_buffer.i32 %28
+  %30 = OpConstant.offset64 0
+  %31 = OpPtrAccessChain.storage_buffer.f32.byte_offset %aligned, %30
+  %32 = OpLoad.storage_buffer.f32 %31
+  %33 = OpConstant.offset64 4
+  %34 = OpPtrAccessChain.storage_buffer.f32.byte_offset %aligned, %33
+  %35 = OpLoad.storage_buffer.f32 %34
+  %36 = OpConstant.offset64 8
+  %37 = OpPtrAccessChain.storage_buffer.f32.byte_offset %aligned, %36
+  %38 = OpLoad.storage_buffer.f32 %37
+  %40 = OpPtrAccessChain.storage_buffer.f32.byte_offset %aligned, %27
+  %41 = OpLoad.storage_buffer.f32 %40
+  %43 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %aligned, %30
+  %half = OpLoad.storage_buffer.bf16 %43
+  %45 = OpConstant.offset64 28
+  %46 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output_aligned, %45
+  OpStore.storage_buffer.i32 %46, %word
+  %48 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_aligned, %30
+  OpStore.storage_buffer.f32 %48, %32
+  %50 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_aligned, %33
+  OpStore.storage_buffer.f32 %50, %35
+  %52 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_aligned, %36
+  OpStore.storage_buffer.f32 %52, %38
+  %54 = OpPtrAccessChain.storage_buffer.f32.byte_offset %output_aligned, %27
+  OpStore.storage_buffer.f32 %54, %41
+  %55 = OpConstant.offset64 22
+  %56 = OpPtrAccessChain.storage_buffer.bf16.byte_offset %output_aligned, %55
+  OpStore.storage_buffer.bf16 %56, %half
   return
 }
 
