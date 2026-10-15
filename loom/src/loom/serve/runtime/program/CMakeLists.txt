@@ -261,6 +261,28 @@ loom_cc_library(
   PUBLIC
 )
 
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_test(
+  NAME
+    program_test
+  SRCS
+    "program_test.cc"
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/binding.loom"
+  DEPS
+    ::input
+    ::program
+    iree::base
+    iree::base::tooling::flags
+    iree::module::hal::types
+    iree::testing::gtest
+    iree::testing::gtest_main
+    iree::vm
+  ARGS
+    "--binding_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/binding.loom}}"
+)
+endif()
+
 loom_cc_library(
   NAME
     input

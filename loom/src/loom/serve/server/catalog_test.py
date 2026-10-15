@@ -858,6 +858,169 @@ def check_sporadic_connections(process, client, model, workers, target_counts=(8
             peer.close()
 
 
+def check_control_contracts(server_command, directory, catalog):
+    """Well-formed source with the wrong host ABI never becomes ready."""
+    catalog_path = directory / "contracts" / "models.flags"
+    catalog_path.parent.mkdir()
+    write_startup(catalog_path, catalog)
+    models = {entry["definition"]["kind"]: entry for entry in catalog["models"]}
+    cases = [
+        (
+            "text",
+            [
+                (
+                    "%capacity: i64) -> (buffer, i64) {",
+                    "%capacity: i64) -> (buffer, i64, i64) {",
+                ),
+                (
+                    "func.return %tokens, %count : buffer, i64",
+                    "func.return %tokens, %count, %count : buffer, i64, i64",
+                ),
+            ],
+            "model export 'prepare_input' result count mismatch: "
+            "host expects 2, source declares 3",
+        ),
+        (
+            "text",
+            [("%row: i32, %options: buffer", "%row: i64, %options: buffer")],
+            "model export 'bind_request' argument 1 type mismatch: "
+            "host expects i32, source declares i64",
+        ),
+        (
+            "image",
+            [("%tags: buffer, %stage_count", "%tags: hal.buffer, %stage_count")],
+            "model export 'prepare_request' argument 1 type mismatch: "
+            "host expects vm.buffer, source declares hal.buffer",
+        ),
+        (
+            "image",
+            [("%strength: f32", "%strength: i32")],
+            "model export 'prepare_request' argument 5 type mismatch: "
+            "host expects f32, source declares i32",
+        ),
+        (
+            "embedding",
+            [("%packed: buffer)", "%packed: buffer, %extra: i32)")],
+            "model export 'prepare_batch' argument count mismatch: "
+            "host expects 4, source declares 5",
+        ),
+        (
+            "decision",
+            [
+                (
+                    "%state: buffer, %request: buffer)",
+                    "%state: buffer, %request: buffer, %extra: i32)",
+                )
+            ],
+            "model export 'prepare_request' argument count mismatch: "
+            "host expects 2, source declares 3",
+        ),
+    ]
+    with running_server(server_command, directory, catalog_path, 1) as (client, _):
+        observer = LogClient("http://" + client.address, timeout=None)
+
+        def snapshot():
+            return next(
+                (
+                    item["loom"]
+                    for item in client.request("/v1/status")["data"]
+                    if item["id"] == "contract-check"
+                ),
+                None,
+            )
+
+        def remove():
+            client.request(
+                "/v1/models/unregister", {"model": "contract-check"}, status=202
+            )
+            while snapshot() is not None:
+                pass
+
+        for index, (kind, replacements, diagnostic) in enumerate(cases):
+            model = models[kind]
+            original = (Path(model["base_directory"]) / "control.loom").read_text()
+            source = original
+            for before, after in replacements:
+                assert source.count(before) == 1, (kind, before)
+                source = source.replace(before, after)
+            path = directory / f"contract-{index}.loom"
+            path.write_text(source)
+            declaration = {
+                **model,
+                "name": "contract-check",
+                "definition": {**model["definition"], "control": str(path)},
+            }
+            client.request("/v1/models/register", declaration, status=202)
+            while True:
+                state = snapshot()
+                assert state is not None, state
+                assert state["registration"] != "ready", state
+                if state["registration"] == "failed":
+                    break
+            assert state["error"]["code"] == 3, state
+            assert diagnostic in state["error"]["message"], state
+            counters = next(
+                record["values"]
+                for record in observer.poll("contract-check").records
+                if record["event"] == "counters"
+            )
+            assert counters["requests"] == counters["batches"] == 0, counters
+            # An incompatible candidate cannot disturb an already serving model.
+            client.text(f"contract-peer-{index}", [{"role": "user", "content": "ab"}])
+            remove()
+
+            # The retired name and all borrowed VM state can be reused normally.
+            path.write_text(original)
+            client.request("/v1/models/register", declaration, status=202)
+            while True:
+                ready = snapshot()
+                assert ready is not None and "error" not in ready, ready
+                if ready["registration"] == "ready":
+                    break
+            assert ready["incarnation"] != state["incarnation"], ready
+            assert not ready["parameters"]["active"], ready
+            assert ready["parameters"]["activations"] == 0, ready
+            if kind == "text":
+                messages = [{"role": "user", "content": "ab"}]
+                payload = {
+                    **client.text_payload(messages, 2),
+                    "model": "contract-check",
+                }
+                result = client.request("/v1/chat/completions", payload)
+                assert (result["text"], result["finish"]) == complete(messages, 2), (
+                    result
+                )
+            elif kind == "embedding":
+                result = client.request(
+                    "/v1/embeddings",
+                    {"model": "contract-check", "input": "ab", "dimensions": 2},
+                )
+                assert result["data"][0]["embedding"] == [3, 2], result
+            elif kind == "image":
+                result = client.request(
+                    "/v1/images/generations",
+                    {"model": "contract-check", "prompt": "ab", "seed": 1},
+                )
+                check_png(result["data"][0]["b64_json"], "ab", 1)
+            else:
+                result = client.request(
+                    "/v1/systemone",
+                    {
+                        "model": "contract-check",
+                        "state": "a",
+                        "questions": {
+                            "truth": {
+                                "type": "noul",
+                                "instructions": "???",
+                                "criteria": {"false": "", "true": "x"},
+                            }
+                        },
+                    },
+                )
+                check_decision(result)
+            remove()
+
+
 def check_dynamic_catalog(
     server_command,
     directory,
@@ -1439,6 +1602,7 @@ def run_from_command_line(*, stress=False):
             server_command, directory, arguments.device, arguments.pool_backing
         )
         check_startup_failures(server_command, directory, catalog)
+        check_control_contracts(server_command, directory, catalog)
         check_multiple_bindings(server_command, directory, catalog_path)
         check_dynamic_catalog(server_command, directory, catalog, workers)
         with running_server(server_command, directory, catalog_path, workers) as (
