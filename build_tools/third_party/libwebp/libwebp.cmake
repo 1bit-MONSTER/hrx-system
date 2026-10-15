@@ -43,7 +43,8 @@ function(iree_configure_libwebp)
 
   set(_binary_dir "${libwebp_BINARY_DIR}/project")
   if(MSVC OR CMAKE_C_SIMULATE_ID STREQUAL "MSVC")
-    set(_archive_name "webpdecoder${CMAKE_STATIC_LIBRARY_SUFFIX}")
+    # Upstream retains its nmake-style lib prefix for MSVC-compatible builds.
+    set(_archive_name "libwebpdecoder${CMAKE_STATIC_LIBRARY_SUFFIX}")
   else()
     set(_archive_name
       "${CMAKE_STATIC_LIBRARY_PREFIX}webpdecoder${CMAKE_STATIC_LIBRARY_SUFFIX}")
