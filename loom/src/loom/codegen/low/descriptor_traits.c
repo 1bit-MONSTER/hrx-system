@@ -116,13 +116,17 @@ loom_trait_flags_t loom_low_descriptor_effective_traits(
 bool loom_low_descriptor_result_can_rematerialize(
     const loom_low_descriptor_set_t* descriptor_set,
     const loom_low_descriptor_t* descriptor, uint16_t result_index) {
-  IREE_ASSERT_ARGUMENT(descriptor_set);
-  IREE_ASSERT_ARGUMENT(descriptor);
-  if (result_index >= descriptor->result_count) {
-    return false;
-  }
   return iree_any_bit_set(
       loom_low_descriptor_operand(descriptor_set, descriptor, result_index)
           ->flags,
       LOOM_LOW_OPERAND_FLAG_REMATERIALIZABLE);
+}
+
+uint16_t loom_low_descriptor_result_rematerialization_source_operand(
+    const loom_low_descriptor_set_t* descriptor_set,
+    const loom_low_descriptor_t* descriptor, uint16_t result_index) {
+  const uint16_t source_plus_one =
+      loom_low_descriptor_operand(descriptor_set, descriptor, result_index)
+          ->rematerialization_source_operand_plus_one;
+  return source_plus_one == 0 ? LOOM_LOW_ID_NONE : source_plus_one - 1;
 }

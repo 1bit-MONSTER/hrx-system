@@ -8,7 +8,6 @@
 
 #include <string.h>
 
-#include "loom/analysis/consumption.h"
 #include "loom/codegen/low/allocation/live_range.h"
 #include "loom/codegen/low/allocation/storage.h"
 #include "loom/codegen/low/descriptor_traits.h"
@@ -80,14 +79,91 @@ static bool loom_low_descriptor_packet_kind_may_rematerialize(
          kind == LOOM_LOW_DESCRIPTOR_PACKET_CONST;
 }
 
+#define LOOM_LOW_REMATERIALIZATION_INLINE_RESULT_COUNT 8
+
 typedef struct loom_low_rematerialization_recipe_t {
-  // Producer operations from the selected value toward its ownership root.
+  // Producer operations from the selected value toward its replay root.
   loom_op_t** packets;
-  // Number of packets in the ownership chain.
+  // Number of packets in the replay chain.
   iree_host_size_t packet_count;
+  // Arena-allocated result membership slots for longer recipes.
+  loom_value_id_t* result_slots;
+  // Power-of-two capacity of result_slots, or zero for inline membership.
+  iree_host_size_t result_slot_capacity;
+  // Direct result membership for short recipes.
+  loom_value_id_t
+      inline_results[LOOM_LOW_REMATERIALIZATION_INLINE_RESULT_COUNT];
   // Whether cloning the recipe would add a use of a register-required value.
   bool has_required_external_input;
+  // Whether the recipe followed an optional descriptor source edge.
+  bool followed_explicit_source;
 } loom_low_rematerialization_recipe_t;
+
+static iree_host_size_t loom_low_rematerialization_recipe_result_slot(
+    loom_value_id_t value_id, iree_host_size_t slot_capacity) {
+  const uint32_t hash =
+      loom_structural_hash_finalize(loom_structural_hash_mix_u32(
+          loom_structural_hash_initialize(), value_id));
+  return hash & (slot_capacity - 1);
+}
+
+static iree_status_t loom_low_rematerialization_index_recipe_results(
+    iree_arena_allocator_t* arena,
+    loom_low_rematerialization_recipe_t* recipe) {
+  if (recipe->packet_count <= LOOM_LOW_REMATERIALIZATION_INLINE_RESULT_COUNT) {
+    for (iree_host_size_t i = 0; i < recipe->packet_count; ++i) {
+      recipe->inline_results[i] = loom_op_const_results(recipe->packets[i])[0];
+    }
+    return iree_ok_status();
+  }
+  const iree_host_size_t packet_capacity =
+      iree_host_size_next_power_of_two(recipe->packet_count);
+  if (packet_capacity > IREE_HOST_SIZE_MAX / 2) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "rematerialization recipe index exceeds host size");
+  }
+  recipe->result_slot_capacity = packet_capacity * 2;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, recipe->result_slot_capacity, sizeof(*recipe->result_slots),
+      (void**)&recipe->result_slots));
+  loom_value_id_t* slots = recipe->result_slots;
+  memset(slots, 0xFF, recipe->result_slot_capacity * sizeof(*slots));
+  const iree_host_size_t slot_mask = recipe->result_slot_capacity - 1;
+  for (iree_host_size_t i = 0; i < recipe->packet_count; ++i) {
+    const loom_value_id_t result = loom_op_const_results(recipe->packets[i])[0];
+    iree_host_size_t slot = loom_low_rematerialization_recipe_result_slot(
+        result, recipe->result_slot_capacity);
+    while (slots[slot] != LOOM_VALUE_ID_INVALID) {
+      slot = (slot + 1) & slot_mask;
+    }
+    slots[slot] = result;
+  }
+  return iree_ok_status();
+}
+
+static bool loom_low_rematerialization_recipe_contains_result(
+    const loom_low_rematerialization_recipe_t* recipe,
+    loom_value_id_t value_id) {
+  if (recipe->result_slots == NULL) {
+    for (iree_host_size_t i = 0; i < recipe->packet_count; ++i) {
+      if (recipe->inline_results[i] == value_id) {
+        return true;
+      }
+    }
+    return false;
+  }
+  const loom_value_id_t* slots = recipe->result_slots;
+  const iree_host_size_t slot_mask = recipe->result_slot_capacity - 1;
+  iree_host_size_t slot = loom_low_rematerialization_recipe_result_slot(
+      value_id, recipe->result_slot_capacity);
+  while (slots[slot] != LOOM_VALUE_ID_INVALID) {
+    if (slots[slot] == value_id) {
+      return true;
+    }
+    slot = (slot + 1) & slot_mask;
+  }
+  return false;
+}
 
 typedef enum loom_low_rematerialization_action_e {
   LOOM_LOW_REMATERIALIZATION_ACTION_NONE = 0,
@@ -98,7 +174,7 @@ typedef enum loom_low_rematerialization_action_e {
 // One prepared value repair. Its recipe and captured uses remain valid until
 // application rewrites IR; placement retention leaves the snapshot unchanged.
 typedef struct loom_low_rematerialization_plan_t {
-  // Rematerializable ownership chain to recreate for each user.
+  // Rematerialization recipe to recreate for each user.
   loom_low_rematerialization_recipe_t recipe;
   // Existing uses captured once before deciding whether mutation is required.
   const loom_use_t* uses;
@@ -168,31 +244,37 @@ static loom_value_id_t loom_low_rematerialization_tied_source(
 }
 
 static bool loom_low_rematerialization_inputs_remain_available(
-    const loom_module_t* module, const loom_op_t* op,
-    loom_value_id_t tied_source_value_id,
+    const loom_module_t* module,
+    const loom_low_rematerialization_recipe_t* recipe,
     const iree_bitmap_t* required_register_values,
     bool* inout_has_required_external_input) {
-  const loom_value_id_t* operands = loom_op_const_operands(op);
-  for (uint16_t i = 0; i < op->operand_count; ++i) {
-    const loom_value_id_t operand = operands[i];
-    if (operand == tied_source_value_id) {
-      continue;
+  for (iree_host_size_t packet_index = 0; packet_index < recipe->packet_count;
+       ++packet_index) {
+    const loom_op_t* packet = recipe->packets[packet_index];
+    const loom_value_id_t* operands = loom_op_const_operands(packet);
+    for (uint16_t operand_index = 0; operand_index < packet->operand_count;
+         ++operand_index) {
+      const loom_value_id_t operand = operands[operand_index];
+      if (loom_low_rematerialization_recipe_contains_result(recipe, operand)) {
+        continue;
+      }
+      if (loom_value_consuming_use_count(loom_module_value(module, operand)) !=
+          0) {
+        return false;
+      }
+      *inout_has_required_external_input |=
+          required_register_values != NULL &&
+          operand < required_register_values->bit_count &&
+          iree_bitmap_test(*required_register_values, operand);
     }
-    if (loom_consumption_find_consuming_use(
-            module, loom_module_value(module, operand), NULL)) {
-      return false;
-    }
-    *inout_has_required_external_input |=
-        required_register_values != NULL &&
-        operand < required_register_values->bit_count &&
-        iree_bitmap_test(*required_register_values, operand);
   }
   return true;
 }
 
 static iree_status_t loom_low_rematerialization_plan_recipe(
     loom_module_t* module, const loom_low_resolved_target_t* target,
-    loom_value_id_t value_id, const iree_bitmap_t* required_register_values,
+    loom_value_id_t value_id, loom_op_t* root_defining_op,
+    const iree_bitmap_t* required_register_values, bool follow_explicit_sources,
     iree_arena_allocator_t* arena,
     loom_low_rematerialization_recipe_t* out_recipe) {
   *out_recipe = (loom_low_rematerialization_recipe_t){0};
@@ -200,10 +282,12 @@ static iree_status_t loom_low_rematerialization_plan_recipe(
   iree_host_size_t packet_count = 0;
   iree_host_size_t packet_capacity = 0;
   bool has_required_external_input = false;
+  bool followed_explicit_source = false;
   loom_value_id_t current_value_id = value_id;
+  loom_op_t* defining_op = root_defining_op;
   for (;;) {
-    loom_op_t* defining_op = NULL;
-    if (!loom_low_rematerialization_packet_is_eligible(
+    if (defining_op == NULL &&
+        !loom_low_rematerialization_packet_is_eligible(
             module, target, current_value_id, &defining_op)) {
       return iree_ok_status();
     }
@@ -213,26 +297,59 @@ static iree_status_t loom_low_rematerialization_plan_recipe(
           &packet_capacity, (void**)&packets));
     }
     packets[packet_count++] = defining_op;
-    loom_value_id_t tied_source_value_id = LOOM_VALUE_ID_INVALID;
+    loom_value_id_t recipe_source_value_id = LOOM_VALUE_ID_INVALID;
+    loom_op_t* source_op = NULL;
     if (defining_op->tied_result_count != 0) {
-      tied_source_value_id =
+      recipe_source_value_id =
           loom_low_rematerialization_tied_source(defining_op);
+      if (!loom_low_rematerialization_packet_is_eligible(
+              module, target, recipe_source_value_id, &source_op)) {
+        out_recipe->followed_explicit_source = followed_explicit_source;
+        return iree_ok_status();
+      }
+    } else if (follow_explicit_sources) {
+      loom_low_descriptor_packet_t packet = {0};
+      loom_low_descriptor_packet_initialize(target->descriptor_set, defining_op,
+                                            &packet);
+      if (packet.descriptor != NULL) {
+        const uint16_t source_operand_index =
+            loom_low_descriptor_result_rematerialization_source_operand(
+                target->descriptor_set, packet.descriptor,
+                loom_value_def_index(
+                    loom_module_value(module, current_value_id)));
+        if (source_operand_index != LOOM_LOW_ID_NONE) {
+          const loom_value_id_t source_value_id =
+              loom_op_const_operands(defining_op)[source_operand_index];
+          if (loom_low_rematerialization_packet_is_eligible(
+                  module, target, source_value_id, &source_op)) {
+            recipe_source_value_id = source_value_id;
+            followed_explicit_source = true;
+            out_recipe->followed_explicit_source = true;
+          }
+        }
+      }
     }
-    if (!loom_low_rematerialization_inputs_remain_available(
-            module, defining_op, tied_source_value_id, required_register_values,
-            &has_required_external_input)) {
-      return iree_ok_status();
-    }
-    if (tied_source_value_id == LOOM_VALUE_ID_INVALID) {
+    if (recipe_source_value_id == LOOM_VALUE_ID_INVALID) {
       break;
     }
-    current_value_id = tied_source_value_id;
+    current_value_id = recipe_source_value_id;
+    defining_op = source_op;
   }
-  *out_recipe = (loom_low_rematerialization_recipe_t){
+  loom_low_rematerialization_recipe_t recipe = {
       .packets = packets,
       .packet_count = packet_count,
-      .has_required_external_input = has_required_external_input,
+      .followed_explicit_source = followed_explicit_source,
   };
+  IREE_RETURN_IF_ERROR(
+      loom_low_rematerialization_index_recipe_results(arena, &recipe));
+  if (!loom_low_rematerialization_inputs_remain_available(
+          module, &recipe, required_register_values,
+          &has_required_external_input)) {
+    out_recipe->followed_explicit_source = followed_explicit_source;
+    return iree_ok_status();
+  }
+  recipe.has_required_external_input = has_required_external_input;
+  *out_recipe = recipe;
   return iree_ok_status();
 }
 
@@ -263,6 +380,83 @@ static bool loom_low_rematerialization_use_shortens_live_range(
   return user_op != NULL &&
          (user_op->parent_block != defining_op->parent_block ||
           user_op->prev_op != defining_op);
+}
+
+// Returns true when two blocks have the same repeated execution domain.
+// Same-block placement is exact without loop facts. Distinct blocks require
+// the same innermost canonical loop, or both must be outside every loop.
+static bool loom_low_rematerialization_blocks_share_execution_domain(
+    const loom_low_allocation_table_t* allocation,
+    const loom_block_t* reference_block, const loom_block_t* candidate_block) {
+  if (reference_block == candidate_block) {
+    return true;
+  }
+  const loom_cfg_graph_t* graph = &allocation->cfg_graph;
+  const loom_cfg_loop_forest_t* forest = &allocation->loop_forest;
+  if (forest->innermost_loop_indices == NULL) {
+    return false;
+  }
+  const iree_host_size_t reference_block_index =
+      loom_cfg_graph_block_index(graph, reference_block);
+  const iree_host_size_t candidate_block_index =
+      loom_cfg_graph_block_index(graph, candidate_block);
+  if (reference_block_index >= graph->block_count ||
+      candidate_block_index >= graph->block_count) {
+    return false;
+  }
+  const uint32_t reference_loop_index =
+      forest->innermost_loop_indices[reference_block_index];
+  if (reference_loop_index !=
+      forest->innermost_loop_indices[candidate_block_index]) {
+    return false;
+  }
+  return reference_loop_index == LOOM_CFG_LOOP_NONE ||
+         forest->intervals[reference_loop_index].is_canonical;
+}
+
+static bool loom_low_rematerialization_uses_share_execution_domain(
+    const loom_low_allocation_table_t* allocation, const loom_op_t* defining_op,
+    const loom_use_t* uses, uint32_t use_count) {
+  if (allocation == NULL || !allocation->cfg_graph.has_cycles) {
+    return true;
+  }
+  for (uint32_t i = 0; i < use_count; ++i) {
+    if (!loom_low_rematerialization_blocks_share_execution_domain(
+            allocation, defining_op->parent_block,
+            loom_use_user_op(uses[i])->parent_block)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Returns true when cloning |recipe| would keep every producer and user in the
+// selected packet's repeated execution domain. Acyclic control flow executes
+// each block at most once. Missing or noncanonical loop facts cannot justify
+// multiplying even one packet across loop iterations; allocation can retain
+// the original value and use ordinary spill traffic instead.
+static bool loom_low_rematerialization_preserves_execution_domain(
+    const loom_low_allocation_table_t* allocation,
+    const loom_low_rematerialization_recipe_t* recipe, const loom_use_t* uses,
+    uint32_t use_count) {
+  if (recipe->packet_count == 0) {
+    return false;
+  }
+  if (!loom_low_rematerialization_uses_share_execution_domain(
+          allocation, recipe->packets[0], uses, use_count)) {
+    return false;
+  }
+  if (allocation == NULL || !allocation->cfg_graph.has_cycles) {
+    return true;
+  }
+  const loom_block_t* selected_block = recipe->packets[0]->parent_block;
+  for (iree_host_size_t i = 1; i < recipe->packet_count; ++i) {
+    if (!loom_low_rematerialization_blocks_share_execution_domain(
+            allocation, selected_block, recipe->packets[i]->parent_block)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 static iree_status_t loom_low_rematerialization_clone_for_use(
@@ -319,6 +513,7 @@ static iree_status_t loom_low_rematerialization_clone_for_use(
 static iree_status_t loom_low_rematerialization_prepare_value(
     loom_module_t* module, const loom_low_resolved_target_t* target,
     loom_value_id_t value_id, const loom_low_schedule_table_t* schedule,
+    const loom_low_allocation_table_t* spill_allocation,
     loom_low_rematerialization_state_t* state, iree_arena_allocator_t* arena,
     loom_low_rematerialization_plan_t* out_plan) {
   *out_plan = (loom_low_rematerialization_plan_t){0};
@@ -332,35 +527,29 @@ static iree_status_t loom_low_rematerialization_prepare_value(
 
   const loom_value_t* value = loom_module_value(module, value_id);
   if (loom_value_is_block_arg(value) ||
-      loom_consumption_find_consuming_use(module, value, NULL) ||
+      loom_value_consuming_use_count(value) != 0 ||
       loom_value_has_attribute_uses(value) || value->use_count == 0 ||
       loom_module_value_has_type_uses(module, value_id)) {
     return iree_ok_status();
   }
 
-  loom_low_rematerialization_recipe_t recipe = {0};
-  IREE_RETURN_IF_ERROR(loom_low_rematerialization_plan_recipe(
-      module, target, value_id, state->required_register_values, arena,
-      &recipe));
-  if (recipe.packet_count == 0) {
+  loom_op_t* defining_op = NULL;
+  if (!loom_low_rematerialization_packet_is_eligible(module, target, value_id,
+                                                     &defining_op)) {
     return iree_ok_status();
   }
-  loom_op_t* defining_op = recipe.packets[0];
 
   const uint32_t use_count = value->use_count;
-  loom_use_t* uses = NULL;
-  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(arena, use_count,
-                                                 sizeof(*uses), (void**)&uses));
-  memcpy(uses, loom_value_uses(value), use_count * sizeof(*uses));
+  const loom_use_t* observed_uses = loom_value_uses(value);
   bool shortens_live_range = false;
   for (uint32_t i = 0; i < use_count; ++i) {
     if (!loom_low_rematerialization_use_is_eligible(value_id, defining_op,
-                                                    uses[i])) {
+                                                    observed_uses[i])) {
       return iree_ok_status();
     }
     shortens_live_range = shortens_live_range ||
                           loom_low_rematerialization_use_shortens_live_range(
-                              defining_op, uses[i]);
+                              defining_op, observed_uses[i]);
   }
   loom_low_rematerialization_action_t action =
       LOOM_LOW_REMATERIALIZATION_ACTION_CLONE;
@@ -379,8 +568,8 @@ static iree_status_t loom_low_rematerialization_prepare_value(
     if (producer == NULL) {
       return iree_ok_status();
     }
-    const loom_low_schedule_node_t* consumer =
-        loom_low_schedule_node_for_op(schedule, loom_use_user_op(uses[0]));
+    const loom_low_schedule_node_t* consumer = loom_low_schedule_node_for_op(
+        schedule, loom_use_user_op(observed_uses[0]));
     // Eligibility established that every use is the immediately following op
     // in the producer's block, so a scheduled producer has a scheduled user.
     IREE_ASSERT(consumer != NULL);
@@ -389,17 +578,64 @@ static iree_status_t loom_low_rematerialization_prepare_value(
     }
     action = LOOM_LOW_REMATERIALIZATION_ACTION_RETAIN_PLACEMENT;
   }
-  // Cloning removes one early use of each external input but adds a use at
-  // every cloned packet. Register-required values cannot themselves spill, so
-  // moving or multiplying their uses can only exchange spillable pressure for
-  // unspillable pressure. Leave this recipe for allocation repair instead.
+  // Replaying the selected packet across a repeated execution boundary is
+  // already disallowed, independent of any producer ancestry that may enrich
+  // its recipe. Reject it before constructing and indexing that ancestry.
   if (action == LOOM_LOW_REMATERIALIZATION_ACTION_CLONE &&
-      recipe.has_required_external_input) {
+      !loom_low_rematerialization_uses_share_execution_domain(
+          spill_allocation, defining_op, observed_uses, use_count)) {
     return iree_ok_status();
+  }
+
+  loom_low_rematerialization_recipe_t recipe = {0};
+  IREE_RETURN_IF_ERROR(loom_low_rematerialization_plan_recipe(
+      module, target, value_id, defining_op, state->required_register_values,
+      /*follow_explicit_sources=*/true, arena, &recipe));
+  if (recipe.packet_count == 0 && recipe.followed_explicit_source) {
+    // An authored source edge enriches the packet's replay recipe; it cannot
+    // revoke the packet-only rematerialization guarantee. Retry without
+    // optional edges when the enriched producer chain is unavailable.
+    IREE_RETURN_IF_ERROR(loom_low_rematerialization_plan_recipe(
+        module, target, value_id, defining_op, state->required_register_values,
+        /*follow_explicit_sources=*/false, arena, &recipe));
+  }
+  if (recipe.packet_count == 0) {
+    return iree_ok_status();
+  }
+  if (action == LOOM_LOW_REMATERIALIZATION_ACTION_CLONE) {
+    // Predicted-spill rematerialization is optional. Do not replace one reload
+    // with a multi-packet recipe in a different repeated execution domain.
+    // Cloning also multiplies external input uses; register-required values
+    // cannot spill to repair that pressure. An optional authored source may
+    // enrich the recipe only when it preserves both properties, otherwise the
+    // packet's original replay guarantee remains authoritative.
+    bool preserves_execution_domain =
+        loom_low_rematerialization_preserves_execution_domain(
+            spill_allocation, &recipe, observed_uses, use_count);
+    if (recipe.followed_explicit_source &&
+        (!preserves_execution_domain || recipe.has_required_external_input)) {
+      IREE_RETURN_IF_ERROR(loom_low_rematerialization_plan_recipe(
+          module, target, value_id, defining_op,
+          state->required_register_values, /*follow_explicit_sources=*/false,
+          arena, &recipe));
+      preserves_execution_domain =
+          loom_low_rematerialization_preserves_execution_domain(
+              spill_allocation, &recipe, observed_uses, use_count);
+    }
+    if (recipe.packet_count == 0 || !preserves_execution_domain ||
+        recipe.has_required_external_input) {
+      return iree_ok_status();
+    }
+  }
+  loom_use_t* captured_uses = NULL;
+  if (action == LOOM_LOW_REMATERIALIZATION_ACTION_CLONE) {
+    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+        arena, use_count, sizeof(*captured_uses), (void**)&captured_uses));
+    memcpy(captured_uses, observed_uses, use_count * sizeof(*captured_uses));
   }
   *out_plan = (loom_low_rematerialization_plan_t){
       .recipe = recipe,
-      .uses = uses,
+      .uses = captured_uses,
       .use_count = use_count,
       .action = action,
   };
@@ -434,10 +670,11 @@ static iree_status_t loom_low_rematerialization_apply_value(
   // available at its definition, which dominates each existing operand use.
   // Recipe planning rejects consumed external inputs, so cloning cannot cross
   // an ownership transfer.
-  // Clone tied ownership chains from their root so each tied packet consumes a
-  // private predecessor instead of consuming one source several times. Each
-  // eligible packet has one result and no regions. Reserve membership for the
-  // worst-case per-use clones before mutation changes the module value count.
+  // Clone recipes from their root so each tied packet consumes a private
+  // predecessor and each authored replay edge stays near the repaired use.
+  // Each eligible packet has one result and no regions. Reserve membership for
+  // the worst-case per-use clones before mutation changes the module value
+  // count.
   if (recipe->packet_count > UINT32_MAX / use_count) {
     return iree_make_status(
         IREE_STATUS_RESOURCE_EXHAUSTED,
@@ -518,18 +755,15 @@ static iree_status_t loom_low_rematerialization_apply_value(
       for (uint16_t operand_index = 0; operand_index < packet->operand_count;
            ++operand_index) {
         const loom_value_id_t operand = operands[operand_index];
-        bool is_recipe_result = false;
-        for (iree_host_size_t i = 0; i < recipe->packet_count; ++i) {
-          is_recipe_result |=
-              operand == loom_op_const_results(recipe->packets[i])[0];
-        }
-        if (!is_recipe_result && operand < state->per_user_values.bit_count) {
+        if (!loom_low_rematerialization_recipe_contains_result(recipe,
+                                                               operand) &&
+            operand < state->per_user_values.bit_count) {
           iree_bitmap_reset(state->per_user_values, operand);
         }
       }
     }
-    // Erase the selected packet and every ownership predecessor made dead by
-    // its removal. Stop at the first predecessor retained by another use.
+    // Erase the selected packet and every recipe predecessor made dead by its
+    // removal. Stop at the first predecessor retained by another use.
     IREE_ASSERT(loom_op_results_unused(module, defining_op));
     for (iree_host_size_t i = 0;
          i < recipe->packet_count && iree_status_is_ok(status); ++i) {
@@ -555,7 +789,8 @@ iree_status_t loom_low_rematerialize_value_uses(
   *out_result = loom_low_value_rematerialization_result_empty();
   loom_low_rematerialization_plan_t plan = {0};
   IREE_RETURN_IF_ERROR(loom_low_rematerialization_prepare_value(
-      module, target, value_id, schedule, state, arena, &plan));
+      module, target, value_id, schedule, /*spill_allocation=*/NULL, state,
+      arena, &plan));
   return loom_low_rematerialization_apply_value(module, value_id, &plan, state,
                                                 arena, out_result);
 }
@@ -776,9 +1011,10 @@ static iree_status_t loom_low_rematerialization_plan_failure_batch(
 }
 
 static iree_status_t loom_low_rematerialization_apply_batch(
-    loom_module_t* module, const loom_low_resolved_target_t* target,
+    loom_module_t* module, const loom_low_allocation_table_t* table,
     const loom_low_rematerialization_candidate_t* candidates,
     iree_host_size_t candidate_count, const loom_low_schedule_table_t* schedule,
+    bool preserve_spill_execution_domain,
     loom_low_rematerialization_state_t* state, iree_arena_allocator_t* arena,
     loom_low_rematerialization_batch_result_t* out_result) {
   // Consumer-first application lets producers see uses created by earlier
@@ -786,13 +1022,21 @@ static iree_status_t loom_low_rematerialization_apply_batch(
   // each individual rewrite captures its current uses immediately before apply.
   // Placement-only repairs can consult the completed schedule until the first
   // rewrite invalidates it. Later candidates still use fresh IR for cloning.
+  const loom_low_allocation_table_t* spill_allocation =
+      preserve_spill_execution_domain ? table : NULL;
   iree_status_t status = iree_ok_status();
   for (iree_host_size_t i = 0; i < candidate_count && iree_status_is_ok(status);
        ++i) {
     const loom_low_rematerialization_candidate_t* candidate = &candidates[i];
     loom_low_value_rematerialization_result_t result = {0};
-    status = loom_low_rematerialize_value_uses(
-        module, target, candidate->value_id, schedule, state, arena, &result);
+    loom_low_rematerialization_plan_t plan = {0};
+    status = loom_low_rematerialization_prepare_value(
+        module, &table->target, candidate->value_id, schedule, spill_allocation,
+        state, arena, &plan);
+    if (iree_status_is_ok(status)) {
+      status = loom_low_rematerialization_apply_value(
+          module, candidate->value_id, &plan, state, arena, &result);
+    }
     if (iree_status_is_ok(status)) {
       loom_low_rematerialization_accumulate_result(&result, out_result);
       if (result.rewritten_operand_count != 0) {
@@ -852,14 +1096,14 @@ iree_status_t loom_low_allocation_rematerialize_failure(
   IREE_RETURN_IF_ERROR(loom_low_rematerialization_plan_failure_batch(
       module, table, arena, &candidates, &candidate_count, &cross_block_count));
   iree_status_t status = loom_low_rematerialization_apply_batch(
-      module, &table->target, candidates, cross_block_count, schedule, state,
-      arena, out_result);
+      module, table, candidates, cross_block_count, schedule,
+      /*preserve_spill_execution_domain=*/false, state, arena, out_result);
   if (iree_status_is_ok(status) && out_result->repaired_value_count == 0 &&
       candidate_count != cross_block_count) {
     status = loom_low_rematerialization_apply_batch(
-        module, &table->target, candidates + cross_block_count,
-        candidate_count - cross_block_count, schedule, state, arena,
-        out_result);
+        module, table, candidates + cross_block_count,
+        candidate_count - cross_block_count, schedule,
+        /*preserve_spill_execution_domain=*/false, state, arena, out_result);
   }
   if (iree_status_is_ok(status)) {
     status = loom_low_allocation_rematerialization_emit_summary(
@@ -919,8 +1163,8 @@ iree_status_t loom_low_allocation_rematerialize_spill_plans(
   }
   loom_low_rematerialization_candidate_sort(candidates, count);
   IREE_RETURN_IF_ERROR(loom_low_rematerialization_apply_batch(
-      module, &table->target, candidates, count, /*schedule=*/NULL, state,
-      arena, out_result));
+      module, table, candidates, count, /*schedule=*/NULL,
+      /*preserve_spill_execution_domain=*/true, state, arena, out_result));
   // The first predicted spill triggers this repair; the batch can cover
   // additional classes from the same allocation snapshot.
   return loom_low_allocation_rematerialization_emit_summary(

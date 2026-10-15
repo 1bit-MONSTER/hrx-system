@@ -184,6 +184,7 @@ class CompiledDescriptorSet:
     operand_indices: list[int]
     operands: list[Operand]
     operand_source_value_indices: list[int | None]
+    operand_rematerialization_source_operand_indices: list[int | None]
     operand_alt_starts: list[int]
     operand_rematerializable: list[bool]
     immediates: list[Immediate]

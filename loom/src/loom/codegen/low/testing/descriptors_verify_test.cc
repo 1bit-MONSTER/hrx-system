@@ -1098,10 +1098,44 @@ TEST(LowDescriptorsTest, AcceptsFoldableResultConstraint) {
 TEST(LowDescriptorsTest, AcceptsRematerializableResultConstraint) {
   TestTables tables;
   InitializeTestTables(&tables);
+  tables.operands[1].flags = LOOM_LOW_OPERAND_FLAG_REMATERIALIZABLE;
   AddAddDescriptorConstraint(&tables, LOOM_LOW_CONSTRAINT_KIND_REMATERIALIZABLE,
                              0, LOOM_LOW_ID_NONE);
 
   IREE_ASSERT_OK(loom_low_descriptor_set_verify(&tables.set));
+}
+
+TEST(LowDescriptorsTest, AcceptsRematerializableRecipeSourceConstraint) {
+  TestTables tables;
+  InitializeTestTables(&tables);
+  tables.operands[1].flags = LOOM_LOW_OPERAND_FLAG_REMATERIALIZABLE;
+  tables.operands[1].rematerialization_source_operand_plus_one = 1;
+  AddAddDescriptorConstraint(&tables, LOOM_LOW_CONSTRAINT_KIND_REMATERIALIZABLE,
+                             0, 1);
+
+  IREE_ASSERT_OK(loom_low_descriptor_set_verify(&tables.set));
+}
+
+TEST(LowDescriptorsTest,
+     RejectsRematerializableRecipeSourceProjectionMismatch) {
+  TestTables tables;
+  InitializeTestTables(&tables);
+  tables.operands[1].flags = LOOM_LOW_OPERAND_FLAG_REMATERIALIZABLE;
+  AddAddDescriptorConstraint(&tables, LOOM_LOW_CONSTRAINT_KIND_REMATERIALIZABLE,
+                             0, 1);
+
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        loom_low_descriptor_set_verify(&tables.set));
+}
+
+TEST(LowDescriptorsTest, RejectsRematerializableSameOperand) {
+  TestTables tables;
+  InitializeTestTables(&tables);
+  AddAddDescriptorConstraint(&tables, LOOM_LOW_CONSTRAINT_KIND_REMATERIALIZABLE,
+                             0, 0);
+
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        loom_low_descriptor_set_verify(&tables.set));
 }
 
 TEST(LowDescriptorsTest, RejectsTiedConstraintWithoutRhs) {

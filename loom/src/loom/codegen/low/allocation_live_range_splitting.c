@@ -6,7 +6,6 @@
 
 #include "loom/codegen/low/allocation_live_range_splitting.h"
 
-#include "loom/analysis/consumption.h"
 #include "loom/codegen/low/allocation/live_range.h"
 #include "loom/codegen/low/allocation/storage.h"
 #include "loom/codegen/low/diagnostics.h"
@@ -289,7 +288,7 @@ static bool loom_low_allocation_pair_replication_source_is_eligible(
     loom_value_id_t source_value_id) {
   const loom_value_t* source_value = loom_module_value(module, source_value_id);
   IREE_ASSERT_NE(source_value->use_count, 0);
-  return !loom_consumption_find_consuming_use(module, source_value, NULL) &&
+  return loom_value_consuming_use_count(source_value) == 0 &&
          !loom_low_allocation_value_is_reference_register(module, table,
                                                           source_value_id);
 }
@@ -572,7 +571,7 @@ static iree_status_t loom_low_allocation_try_split_fixed_value(
   loom_module_t* module = rewriter->module;
   const loom_value_id_t value_id = fixed_value->assignment.value_id;
   const loom_value_t* value = loom_module_value(module, value_id);
-  if (loom_consumption_find_consuming_use(module, value, NULL) ||
+  if (loom_value_consuming_use_count(value) != 0 ||
       loom_value_has_attribute_uses(value) ||
       loom_module_value_has_type_uses(module, value_id) ||
       value->use_count == 0 ||

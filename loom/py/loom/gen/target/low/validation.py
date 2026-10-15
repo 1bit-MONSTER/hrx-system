@@ -1300,6 +1300,15 @@ class DescriptorOperandLayout:
     has_variadic_operands: bool
 
 
+@dataclass(frozen=True, slots=True)
+class DescriptorConstraintProjection:
+    """Validated descriptor facts consumed by compact runtime rows."""
+
+    rematerializable_results: tuple[int, ...]
+    # Descriptor operand supplying each result's optional replay source.
+    rematerialization_source_operand_indices: tuple[int | None, ...]
+
+
 def validate_descriptor_operands(descriptor: Descriptor) -> DescriptorOperandLayout:
     validate_u16(
         len(descriptor.operands),
@@ -1655,10 +1664,13 @@ def _validate_rematerializable_result(
 def validate_descriptor_constraints(
     descriptor: Descriptor,
     mutable_state_classes: frozenset[str],
-) -> tuple[int, ...]:
-    """Validates constraints and returns rematerializable result indices."""
+    result_count: int,
+) -> DescriptorConstraintProjection:
+    """Validates constraints and returns their compact runtime projections."""
 
     rematerializable_results: set[int] = set()
+    rematerialization_source_results: set[int] = set()
+    rematerialization_source_operand_indices: list[int | None] = [None] * result_count
     tied_inputs: dict[int, int] = {}
     tied_results: dict[int, int] = {}
     ownership_results: set[int] = set()
@@ -1733,24 +1745,46 @@ def validate_descriptor_constraints(
             rhs = descriptor.operands[rhs_operand_index]
             if (lhs.role is not OperandRole.RESULT and not operand_role_is_packet_input(lhs.role)) or (rhs.role is not OperandRole.RESULT and not operand_role_is_packet_input(rhs.role)):
                 raise ValueError(f"descriptor '{descriptor.key}' {constraint_name} constraint requires two result or packet operand rows")
+        elif constraint.kind is ConstraintKind.REMATERIALIZABLE:
+            if lhs.role is not OperandRole.RESULT:
+                raise ValueError(f"descriptor '{descriptor.key}' rematerializable constraint requires a result lhs")
+            if rhs_operand_index is not None:
+                rhs_operand_index = _validate_binary_constraint(
+                    descriptor,
+                    constraint_index,
+                    "rematerializable",
+                    lhs_operand_index,
+                    rhs_operand_index,
+                )
+                rhs = descriptor.operands[rhs_operand_index]
+                if not operand_role_is_packet_input(rhs.role):
+                    raise ValueError(f"descriptor '{descriptor.key}' rematerializable constraint requires a packet operand rhs")
+                rematerialization_source_results.add(lhs_operand_index)
+                rematerialization_source_operand_indices[lhs_operand_index] = rhs_operand_index
+            if lhs_operand_index in rematerializable_results:
+                raise ValueError(f"descriptor '{descriptor.key}' repeats rematerializable result {lhs_operand_index}")
+            _validate_rematerializable_result(
+                descriptor,
+                lhs_operand_index,
+                mutable_state_classes,
+            )
+            rematerializable_results.add(lhs_operand_index)
         elif constraint.kind in (
             ConstraintKind.EARLY_CLOBBER,
-            ConstraintKind.REMATERIALIZABLE,
             ConstraintKind.FOLDABLE,
         ):
             if rhs_operand_index is not None or lhs.role is not OperandRole.RESULT:
                 raise ValueError(f"descriptor '{descriptor.key}' {constraint.kind.name.lower()} constraint requires one result operand")
-            if constraint.kind is ConstraintKind.REMATERIALIZABLE:
-                if lhs_operand_index in rematerializable_results:
-                    raise ValueError(f"descriptor '{descriptor.key}' repeats rematerializable result {lhs_operand_index}")
-                _validate_rematerializable_result(
-                    descriptor,
-                    lhs_operand_index,
-                    mutable_state_classes,
-                )
-                rematerializable_results.add(lhs_operand_index)
 
-    return tuple(sorted(rematerializable_results))
+    conflicting_recipe_results = ownership_results & rematerialization_source_results
+    if conflicting_recipe_results:
+        result_index = min(conflicting_recipe_results)
+        raise ValueError(f"descriptor '{descriptor.key}' rematerializable result {result_index} cannot name a recipe source when its ownership tie already supplies one")
+
+    return DescriptorConstraintProjection(
+        rematerializable_results=tuple(sorted(rematerializable_results)),
+        rematerialization_source_operand_indices=tuple(rematerialization_source_operand_indices),
+    )
 
 
 def validate_descriptor_storage_continuations(
