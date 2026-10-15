@@ -1433,13 +1433,13 @@ def test_avx512_shuffles_cover_every_payload_type() -> None:
     } <= descriptor_keys
 
 
-def test_avx2_float_bitcasts_cover_every_storage_family_and_width() -> None:
+def test_avx2_bitcasts_cover_every_storage_family_and_width() -> None:
     rules = tuple(
         case
         for case in X86_AVX2_CONTRACT_FRAGMENT.cases
         if isinstance(case, ValueAliasRule) and case.source_op is vector.vector_bitcast
     )
-    expected = {
+    expected_float = {
         (source_type, result_type)
         for float_elements, integer_element, element_bit_width in (
             (("f8E4M3", "f8E5M2"), "i8", 8),
@@ -1461,6 +1461,25 @@ def test_avx2_float_bitcasts_cover_every_storage_family_and_width() -> None:
             ),
         )
     }
+    expected_integer = {
+        (
+            Vector(
+                source_element.name,
+                lanes=vector_bit_width // source_element.bit_width,
+            ),
+            Vector(
+                result_element.name,
+                lanes=vector_bit_width // result_element.bit_width,
+            ),
+        )
+        for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS
+        for source_element in INTEGER_ELEMENTS
+        if vector_bit_width >= source_element.bit_width
+        for result_element in INTEGER_ELEMENTS
+        if source_element != result_element
+        if vector_bit_width >= result_element.bit_width
+    }
+    expected = expected_float | expected_integer
     actual = {
         (
             _value_type_guard(rule, "input"),
@@ -1583,7 +1602,7 @@ def test_avx512_construction_covers_every_zmm_payload_type() -> None:
         for case in X86_AVX512_CONTRACT_FRAGMENT.cases
         if isinstance(case, ValueAliasRule) and case.source_op is vector.vector_bitcast
     )
-    expected_bitcasts = {
+    expected_float_bitcasts = {
         (source_type, result_type)
         for float_elements, integer_element, element_bit_width in (
             (("f8E4M3", "f8E5M2"), "i8", 8),
@@ -1603,6 +1622,16 @@ def test_avx512_construction_covers_every_zmm_payload_type() -> None:
             ),
         )
     }
+    expected_integer_bitcasts = {
+        (
+            Vector(source_element.name, lanes=512 // source_element.bit_width),
+            Vector(result_element.name, lanes=512 // result_element.bit_width),
+        )
+        for source_element in INTEGER_ELEMENTS
+        for result_element in INTEGER_ELEMENTS
+        if source_element != result_element
+    }
+    expected_bitcasts = expected_float_bitcasts | expected_integer_bitcasts
     assert {
         (
             _value_type_guard(rule, "input"),
