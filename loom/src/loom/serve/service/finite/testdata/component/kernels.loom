@@ -37,9 +37,9 @@ kernel.def target(@device) @scale() {
   kernel.return
 }
 
-kernel.def target(@device) @copy() {
+kernel.def target(@device) @copy(%count: index) {
   %c1 = index.constant 1 : index
-  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+  kernel.launch.config workgroups(%count, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
 } launch(%input: buffer, %output: buffer) {
   %origin = index.constant 0 : offset
   %input_view = buffer.view %input[%origin] : buffer -> view<4xf32>
@@ -58,7 +58,9 @@ command.program.def public @project() launch(%weights: buffer, %input: buffer, %
   %factor = command.parameter %weights, "factor" : view<1xf32>
   %c16 = index.constant 16 : offset
   %hidden = buffer.alloca<global> align(16) %c16 : buffer
+  // The real serving upload pool must also support device-read launch counts.
+  %counts = buffer.view %input[%c16] : buffer -> view<3xi32>
   kernel.launch @scale(%factor, %input, %hidden) : (view<1xf32>, buffer, buffer)
-  kernel.launch @copy(%hidden, %output) : (buffer, buffer)
+  kernel.dispatch @copy[%counts](%hidden, %output) : [view<3xi32>](buffer, buffer)
   command.return
 }

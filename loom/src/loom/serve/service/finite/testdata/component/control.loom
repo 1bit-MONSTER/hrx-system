@@ -1,9 +1,21 @@
 func.decl import("runner") @execute_2(%stage: i32, %input: hal.buffer, %output: hal.buffer) -> (i64)
 
 func.def public @prepare_request(%state: buffer, %input: buffer) -> (buffer, i64, i64) {
+  %origin = index.constant 0 : offset
+  %values_bytes = index.constant 16 : offset
+  %packet_bytes = index.constant 32 : offset
+  %packet = buffer.alloca<private> align(16) %packet_bytes : buffer
+  buffer.copy %input[%origin], %packet[%origin], %values_bytes
+  %counts = buffer.view %packet[%values_bytes] : buffer -> view<4xi32>
+  %workgroup_count = scalar.constant 1 : i32
+  %padding = scalar.constant 0 : i32
+  view.store %workgroup_count, %counts[0] : i32, view<4xi32>
+  view.store %workgroup_count, %counts[1] : i32, view<4xi32>
+  view.store %workgroup_count, %counts[2] : i32, view<4xi32>
+  view.store %padding, %counts[3] : i32, view<4xi32>
   %c1 = scalar.constant 1 : i64
   %c0 = scalar.constant 0 : i64
-  func.return %input, %c1, %c0 : buffer, i64, i64
+  func.return %packet, %c1, %c0 : buffer, i64, i64
 }
 
 func.def public @prepare_batch(%state: buffer, %tags: buffer, %ranges: buffer, %input: buffer) -> (i32, buffer, buffer) {

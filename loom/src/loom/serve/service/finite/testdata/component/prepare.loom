@@ -17,6 +17,7 @@ func.def public @prepare(%directory: buffer, %options: buffer) -> (i64, i64, i64
   %c0_i64 = scalar.constant 0 : i64
   %c1_i64 = scalar.constant 1 : i64
   %c16_i64 = scalar.constant 16 : i64
+  %c32_i64 = scalar.constant 32 : i64
   %root = global.load @root : buffer
   %stage = func.call @stage(%root, %c0_i64) : (buffer, i64) -> (i32)
   %checkpoint = global.load @checkpoint : buffer
@@ -24,5 +25,5 @@ func.def public @prepare(%directory: buffer, %options: buffer) -> (i64, i64, i64
   func.call @parameter(%stage, %c0_i32, %directory, %checkpoint, %policy) : (i32, i32, buffer, buffer, buffer)
   %empty = global.load @empty : buffer
   %name = global.load @name : buffer
-  func.return %c1_i64, %c16_i64, %c16_i64, %c16_i64, %empty, %name, %empty : i64, i64, i64, i64, buffer, buffer, buffer
+  func.return %c1_i64, %c32_i64, %c16_i64, %c16_i64, %empty, %name, %empty : i64, i64, i64, i64, buffer, buffer, buffer
 }

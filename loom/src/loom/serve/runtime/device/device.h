@@ -134,7 +134,8 @@ iree_status_t loom_serve_device_trim_idle(
 // the same HAL group; execution domains retain their own exact queues.
 iree_hal_device_t* loom_serve_device_handle(const loom_serve_device_t* device);
 // Borrowed native source for retained model buffers. Access is qualified for
-// this record's dispatch and transfer families, without public host mappings.
+// this record's dispatch and transfer families, including indirect dispatch
+// parameters, without public host mappings.
 // All allocated buffers must retire before the group is destroyed. Command
 // transients use the execution workspace instead of this unbounded source.
 iree_hal_pool_t* loom_serve_device_storage_pool(

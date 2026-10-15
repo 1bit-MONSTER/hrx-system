@@ -126,7 +126,9 @@ static void loom_serve_memory_pool_collect(loom_serve_memory_pool_t* pool);
 static iree_hal_physical_memory_params_t loom_serve_memory_params(void) {
   iree_hal_physical_memory_params_t params = {0};
   params.type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL;
-  params.usage = IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER;
+  params.usage = IREE_HAL_BUFFER_USAGE_STORAGE |
+                 IREE_HAL_BUFFER_USAGE_TRANSFER |
+                 IREE_HAL_BUFFER_USAGE_DISPATCH_INDIRECT_PARAMETERS;
   return params;
 }
 
