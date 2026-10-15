@@ -148,6 +148,9 @@ iree_status_t loom_serve_finite_model_free(loom_serve_finite_model_t* model);
 
 uint64_t loom_serve_finite_model_batch_limit(
     const loom_serve_finite_model_t* model);
+// Source-declared maximum upload extent, independent of prepared host packets.
+iree_host_size_t loom_serve_finite_model_input_capacity(
+    const loom_serve_finite_model_t* model);
 const iree_tokenizer_t* loom_serve_finite_model_tokenizer(
     const loom_serve_finite_model_t* model);
 loom_serve_residency_t* loom_serve_finite_model_residency(

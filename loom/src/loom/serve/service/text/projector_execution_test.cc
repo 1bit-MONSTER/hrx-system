@@ -161,8 +161,8 @@ TEST_F(PixelProjectorExecutionTest, RgbAndRgbaCohortConditionsRetainedText) {
   loom_serve_text_result_t results[2];
   IREE_ASSERT_OK(loom_serve_text_model_complete_epoch(model_, results));
   const int32_t expected[][4] = {
-      {Fingerprint(510, 0), Fingerprint(511, 1), Fingerprint(512, 2), 1},
-      {2, Fingerprint(10, 0), Fingerprint(11, 1), 1},
+      {Fingerprint(512, 0), Fingerprint(513, 1), Fingerprint(514, 2), 1},
+      {2, Fingerprint(12, 0), Fingerprint(13, 1), 1},
   };
   for (size_t i = 0; i < 2; ++i) {
     Oracle oracle;
@@ -187,7 +187,7 @@ TEST_F(PixelProjectorExecutionTest, RgbAndRgbaCohortConditionsRetainedText) {
       ASSERT_EQ(bytes.data_length, 4 * sizeof(float));
       float values[4];
       std::memcpy(values, bytes.data, sizeof(values));
-      EXPECT_EQ(values[0], (i ? 10.f : 510.f) + row);
+      EXPECT_EQ(values[0], (i ? 12.f : 512.f) + row);
       EXPECT_EQ(values[1], i ? 20.f : 0.f);
       EXPECT_EQ(values[2], i ? 30.f : 0.f);
       EXPECT_EQ(values[3], 2.f);

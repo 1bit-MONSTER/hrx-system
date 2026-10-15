@@ -8,18 +8,16 @@
 
 #include <string.h>
 
-static iree_status_t loom_serve_media_image_request_allocate(
-    const loom_serve_media_image_request_t* request,
-    iree_allocator_t host_allocator, iree_vm_buffer_t** out_packet,
-    iree_byte_span_t* out_pixels) {
-  const loom_serve_media_image_info_t* info = &request->image->info;
+iree_status_t loom_serve_media_image_request_size(
+    const loom_serve_media_image_info_t* info, iree_host_size_t metadata_length,
+    iree_host_size_t* out_length) {
+  *out_length = 0;
   iree_host_size_t metadata_end = 0;
   iree_host_size_t pixel_offset = 0;
   iree_host_size_t pixel_end = 0;
   iree_host_size_t packet_length = 0;
   if (!iree_host_size_checked_add(LOOM_SERVE_MEDIA_IMAGE_REQUEST_HEADER_BYTES,
-                                  request->metadata.data_length,
-                                  &metadata_end) ||
+                                  metadata_length, &metadata_end) ||
       !iree_host_size_checked_align(
           metadata_end, LOOM_SERVE_MEDIA_IMAGE_REQUEST_PIXEL_ALIGNMENT,
           &pixel_offset) ||
@@ -32,6 +30,24 @@ static iree_status_t loom_serve_media_image_request_allocate(
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "finite image request exceeds 32-bit extent");
   }
+  *out_length = packet_length;
+  return iree_ok_status();
+}
+
+static iree_status_t loom_serve_media_image_request_allocate(
+    const loom_serve_media_image_request_t* request,
+    iree_allocator_t host_allocator, iree_vm_buffer_t** out_packet,
+    iree_byte_span_t* out_pixels) {
+  const loom_serve_media_image_info_t* info = &request->image->info;
+  iree_host_size_t packet_length = 0;
+  IREE_RETURN_IF_ERROR(loom_serve_media_image_request_size(
+      info, request->metadata.data_length, &packet_length));
+  const iree_host_size_t metadata_end =
+      LOOM_SERVE_MEDIA_IMAGE_REQUEST_HEADER_BYTES +
+      request->metadata.data_length;
+  const iree_host_size_t pixel_offset = iree_host_align(
+      metadata_end, LOOM_SERVE_MEDIA_IMAGE_REQUEST_PIXEL_ALIGNMENT);
+  const iree_host_size_t pixel_end = pixel_offset + info->pixel_length;
   iree_vm_buffer_t* packet = NULL;
   IREE_RETURN_IF_ERROR(iree_vm_buffer_create(
       packet_length, LOOM_SERVE_MEDIA_IMAGE_REQUEST_PIXEL_ALIGNMENT,

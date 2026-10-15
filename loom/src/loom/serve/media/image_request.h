@@ -55,6 +55,12 @@ typedef struct loom_serve_media_image_request_t {
   uint32_t output_rows;
 } loom_serve_media_image_request_t;
 
+// Exact checked packet extent, available before transport or pixel allocation.
+// Admission uses the same layout calculation as packet realization.
+iree_status_t loom_serve_media_image_request_size(
+    const loom_serve_media_image_info_t* info, iree_host_size_t metadata_length,
+    iree_host_size_t* out_length);
+
 // Realizes a cohort directly into exact source packets, with no intermediate
 // pixel planes. Inputs/metadata remain borrowed through return. Each successful
 // output owns one VM buffer; a per-image error leaves that output null without

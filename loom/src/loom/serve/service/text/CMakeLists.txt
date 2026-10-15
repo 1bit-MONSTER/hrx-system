@@ -241,13 +241,17 @@ loom_cc_library(
     source_execution_tests
   SRCS
     "media_execution_test.cc"
+    "media_service_test.cc"
     "projector_execution_test.cc"
     "source_execution_test.cc"
   DEPS
     ::epoch
     ::model
     ::source_service_fixture
+    loom::serve::media::image_codec
+    loom::serve::media::image_codecs
     loom::serve::media::image_request
+    loom::serve::service::finite::component
     loom::serve::service::finite::embedding::protocol
     loom::serve::service::finite::model
     loom::serve::service::finite::result
@@ -563,6 +567,7 @@ loom_cc_library(
     "session.c"
   DEPS
     ::chat
+    ::media_projector
     ::model
     iree::base
     iree::tokenizer
@@ -773,6 +778,56 @@ endif()
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
+    media_projector
+  HDRS
+    "media_projector.h"
+  SRCS
+    "media_projector.c"
+  DEPS
+    ::chat
+    ::input
+    ::model
+    ::readiness
+    iree::base
+    iree::vm
+    loom::serve::media::image
+    loom::serve::media::image_request
+    loom::serve::runtime::execution
+    loom::serve::runtime::parameter::residency
+    loom::serve::service
+    loom::serve::service::finite::model
+    loom::serve::service::finite::result
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_library(
+  NAME
+    pending_request
+  HDRS
+    "pending_request.h"
+  SRCS
+    "pending_request.c"
+  DEPS
+    ::chat
+    ::checkpoint_registry
+    ::input
+    ::media_projector
+    ::model
+    ::response
+    ::schedule
+    ::telemetry
+    iree::base
+    loom::serve::telemetry::stream
+    loom::serve::transport::http::server
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_library(
+  NAME
     service
   HDRS
     "service.h"
@@ -786,8 +841,10 @@ loom_cc_library(
     ::epoch
     ::heartbeat
     ::input
+    ::media_projector
     ::model
     ::packing
+    ::pending_request
     ::prefix_cache
     ::readiness
     ::reconfiguration
@@ -802,6 +859,8 @@ loom_cc_library(
     iree::base::threading
     iree::tokenizer
     iree::vm
+    loom::serve::media::image_codec
+    loom::serve::media::image_codecs
     loom::serve::runtime::device
     loom::serve::runtime::execution
     loom::serve::runtime::host

@@ -43,7 +43,9 @@ kernel.def target(@fixture_target) @project() {
       scf.yield %opaque : i32
     }
     %colored = scalar.addi %red, %alpha : i32
-    %value = scalar.addi %colored, %ordinal : i32
+    %positioned = scalar.addi %colored, %ordinal : i32
+    // Text fingerprints the first component, including native cohort width.
+    %value = scalar.addi %positioned, %cohort : i32
     %first = scalar.uitofp %value : i32 to f32
     %second = scalar.uitofp %green : i32 to f32
     %third = scalar.uitofp %blue : i32 to f32

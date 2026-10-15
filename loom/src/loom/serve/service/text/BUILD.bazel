@@ -209,6 +209,7 @@ loom_cc_library(
     testonly = True,
     srcs = [
         "media_execution_test.cc",
+        "media_service_test.cc",
         "projector_execution_test.cc",
         "source_execution_test.cc",
     ],
@@ -218,7 +219,10 @@ loom_cc_library(
         ":epoch",
         ":model",
         ":source_service_fixture",
+        "//loom/src/loom/serve/media:image_codec",
+        "//loom/src/loom/serve/media:image_codecs",
         "//loom/src/loom/serve/media:image_request",
+        "//loom/src/loom/serve/service/finite:component",
         "//loom/src/loom/serve/service/finite:model",
         "//loom/src/loom/serve/service/finite:result",
         "//loom/src/loom/serve/service/finite/embedding:protocol",
@@ -488,6 +492,7 @@ loom_cc_library(
     hdrs = ["session.h"],
     deps = [
         ":chat",
+        ":media_projector",
         ":model",
         "//loom/src/loom/serve/service:inspection",
         "//loom/src/loom/serve/telemetry:record",
@@ -653,6 +658,53 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "media_projector",
+    srcs = ["media_projector.c"],
+    hdrs = ["media_projector.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
+    deps = [
+        ":chat",
+        ":input",
+        ":model",
+        ":readiness",
+        "//loom/src/loom/serve/media:image",
+        "//loom/src/loom/serve/media:image_request",
+        "//loom/src/loom/serve/runtime/execution",
+        "//loom/src/loom/serve/runtime/parameter:residency",
+        "//loom/src/loom/serve/service",
+        "//loom/src/loom/serve/service/finite:model",
+        "//loom/src/loom/serve/service/finite:result",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/vm",
+    ],
+)
+
+loom_cc_library(
+    name = "pending_request",
+    srcs = ["pending_request.c"],
+    hdrs = ["pending_request.h"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+    ]),
+    visibility = ["//visibility:private"],
+    deps = [
+        ":chat",
+        ":checkpoint_registry",
+        ":input",
+        ":media_projector",
+        ":model",
+        ":response",
+        ":schedule",
+        ":telemetry",
+        "//loom/src/loom/serve/telemetry:stream",
+        "//loom/src/loom/serve/transport/http:server",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
     name = "service",
     srcs = ["service.c"],
     hdrs = ["service.h"],
@@ -664,8 +716,10 @@ loom_cc_library(
         ":epoch",
         ":heartbeat",
         ":input",
+        ":media_projector",
         ":model",
         ":packing",
+        ":pending_request",
         ":prefix_cache",
         ":readiness",
         ":reconfiguration",
@@ -674,6 +728,8 @@ loom_cc_library(
         ":session",
         ":session_cache",
         ":telemetry",
+        "//loom/src/loom/serve/media:image_codec",
+        "//loom/src/loom/serve/media:image_codecs",
         "//loom/src/loom/serve/runtime/device",
         "//loom/src/loom/serve/runtime/execution",
         "//loom/src/loom/serve/runtime/host",
