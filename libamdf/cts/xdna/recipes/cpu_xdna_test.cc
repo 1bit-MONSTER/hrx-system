@@ -698,10 +698,11 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
     CpuXdnaRecipeTest::TearDown();
   }
 
-  void PrepareResults() {
-    ASSERT_NO_FATAL_FAILURE(CreateBindings(AMDF_MEMORY_PROFILE_ROLE_CREATE,
-                                           RegisteredContents::kUntouched,
-                                           4 * kBindingStorageByteLength));
+  void PrepareResults(uint32_t dispatch_count = 4) {
+    dispatch_count_ = dispatch_count;
+    ASSERT_NO_FATAL_FAILURE(CreateBindings(
+        AMDF_MEMORY_PROFILE_ROLE_CREATE, RegisteredContents::kUntouched,
+        dispatch_count_ * kBindingStorageByteLength));
     image_storage_.resize(executable_.allocation_byte_length());
     executable_.Load(image_storage_);
     ASSERT_TRUE(executable_.Bind(image_storage_, binding_addresses_));
@@ -734,8 +735,16 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
     ASSERT_EQ(status, AMDF_STATUS_OK);
     EXPECT_EQ(requirements_.timer_clock.counter_bit_count, 64u);
     EXPECT_EQ(requirements_.timer_clock.frequency_hz, 0u);
-    ASSERT_GE(requirements_.minimum_byte_length,
-              2 * 4 * 3 * sizeof(amdf_xdna_timer_record_t));
+    // Two complete batches append before rearming. Native collection does not
+    // reset the destination, so its capacity covers both batches together.
+    const uint64_t result_granularity = requirements_.byte_length_granularity;
+    const uint64_t result_length =
+        (std::max<uint64_t>(
+             requirements_.minimum_byte_length,
+             2 * dispatch_count_ * 3 * sizeof(amdf_xdna_timer_record_t)) +
+         result_granularity - 1) /
+        result_granularity * result_granularity;
+    ASSERT_LE(result_length, requirements_.maximum_byte_length);
     amdf_memory_device_access_t access = {.device = device_};
     access.requirements.access = AMDF_MEMORY_ACCESS_READ |
                                  AMDF_MEMORY_ACCESS_WRITE |
@@ -759,9 +768,9 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
     const uint64_t granularity = profile.allocation.byte_length_granularity;
     // Leave a guard page between instructions and the result slice. Whole-BO
     // providers instead use a separate allocation with the exact admitted size.
-    const uint64_t storage_length = 4 * command_stride_ + alignment +
-                                    2 * requirements_.byte_offset_alignment +
-                                    requirements_.minimum_byte_length;
+    const uint64_t storage_length =
+        dispatch_count_ * command_stride_ + alignment +
+        2 * requirements_.byte_offset_alignment + result_length;
     amdf_memory_create_info_t create = {
         .type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO,
         .structure_size = sizeof(create),
@@ -785,7 +794,7 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
     command_offset_ = (alignment - address % alignment) % alignment;
     if (requirements_.binding_mode ==
         AMDF_XDNA_RESULT_BUFFER_BINDING_WHOLE_MEMORY) {
-      create.byte_length = requirements_.minimum_byte_length;
+      create.byte_length = result_length;
       ASSERT_NO_FATAL_FAILURE(
           result_storage_.Create(api_, requirements_.memory_scope, create));
       result_memory_ = &result_storage_;
@@ -795,11 +804,12 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
       result_memory_ = &execution_.instructions;
       const uint64_t result_alignment = requirements_.byte_offset_alignment;
       binding_.byte_offset =
-          (command_offset_ + 4 * command_stride_ + 2 * result_alignment - 1) /
+          (command_offset_ + dispatch_count_ * command_stride_ +
+           2 * result_alignment - 1) /
           result_alignment * result_alignment;
     }
     binding_.memory = result_memory_->memory;
-    binding_.byte_length = requirements_.minimum_byte_length;
+    binding_.byte_length = result_length;
     execution_.command = {
         .memory = execution_.instructions.memory,
         .byte_offset = command_offset_,
@@ -809,7 +819,9 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
         .type = AMDF_STRUCTURE_TYPE_XDNA_KERNEL_QUEUE_CREATE_INFO,
         .structure_size = sizeof(queue),
         .queue_family_ordinal = family_ordinal_,
-        .maximum_pending_submission_count = 4,
+        // Arrays consume command packets as well as their carrier. Prepare
+        // enough native storage to publish the full batch before its one wait.
+        .maximum_pending_submission_count = 2 * dispatch_count_,
     };
     ASSERT_EQ(xdna_api_->kernel_queue_create(execution_.context, &queue,
                                              &execution_.queue),
@@ -870,7 +882,8 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
       previous = timestamp;
     }
     if (result_memory_ == &execution_.instructions) {
-      const uint64_t guard_offset = command_offset_ + 4 * command_stride_;
+      const uint64_t guard_offset =
+          command_offset_ + dispatch_count_ * command_stride_;
       const uint64_t guard_length = binding_.byte_offset - guard_offset;
       ASSERT_EQ(
           api_->host_mapping_cache_control(result_memory_->mapping,
@@ -888,12 +901,13 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
                             [](uint8_t value) { return value == 0; }));
   }
 
-  void RunBatch(uint32_t generation, uint32_t iterations = 1) {
+  void RunBatch(uint32_t generation, uint32_t iterations = 1,
+                uint32_t commands_per_submission = 1) {
     for (auto& memory : bindings_) {
       auto bytes = memory.bytes();
       std::fill(bytes.begin(), bytes.end(), 0xA5);
     }
-    for (uint32_t dispatch = 0; dispatch < 4; ++dispatch) {
+    for (uint32_t dispatch = 0; dispatch < dispatch_count_; ++dispatch) {
       for (uint32_t i = 0; i < 16; ++i) {
         const size_t offset =
             dispatch * kBindingStorageByteLength + kBindingByteOffset + i * 4;
@@ -938,22 +952,27 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
                 AMDF_STATUS_OK);
     }
     ASSERT_EQ(
-        api_->host_mapping_cache_control(execution_.instructions.mapping,
-                                         AMDF_HOST_CACHE_OPERATION_FLUSH,
-                                         command_offset_, 4 * command_stride_),
+        api_->host_mapping_cache_control(
+            execution_.instructions.mapping, AMDF_HOST_CACHE_OPERATION_FLUSH,
+            command_offset_, dispatch_count_ * command_stride_),
         AMDF_STATUS_OK);
     const auto commands = execution_.instructions.bytes().subspan(
-        command_offset_, 4 * command_stride_);
+        command_offset_, dispatch_count_ * command_stride_);
     const std::vector<uint8_t> command_snapshot(commands.begin(),
                                                 commands.end());
-    for (uint32_t dispatch = 0; dispatch < 4; ++dispatch) {
-      auto command = execution_.command;
-      command.byte_offset += dispatch * command_stride_;
+    std::vector<amdf_xdna_kernel_command_t> native_commands(dispatch_count_,
+                                                            execution_.command);
+    for (uint32_t dispatch = 0; dispatch < dispatch_count_; ++dispatch) {
+      native_commands[dispatch].byte_offset += dispatch * command_stride_;
+    }
+    for (uint32_t dispatch = 0; dispatch < dispatch_count_;) {
+      const uint32_t count =
+          std::min(commands_per_submission, dispatch_count_ - dispatch);
       const amdf_xdna_kernel_queue_submission_info_t submit = {
           .type = AMDF_STRUCTURE_TYPE_XDNA_KERNEL_QUEUE_SUBMISSION_INFO,
           .structure_size = sizeof(submit),
-          .command_count = 1,
-          .commands = &command,
+          .command_count = count,
+          .commands = native_commands.data() + dispatch,
       };
       uint64_t point = 0;
       ASSERT_EQ(
@@ -961,6 +980,7 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
           AMDF_STATUS_OK);
       ASSERT_GT(point, last_point_);
       last_point_ = point;
+      dispatch += count;
     }
     ASSERT_EQ(api_->kernel_queue_wait(execution_.queue, last_point_,
                                       amdf::cts::kWaitTimeoutNs,
@@ -977,7 +997,7 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
                   bindings_[2].mapping, egress_[2].acquire.host_operation, 0,
                   bindings_[2].host.byte_length),
               AMDF_STATUS_OK);
-    for (uint32_t dispatch = 0; dispatch < 4; ++dispatch) {
+    for (uint32_t dispatch = 0; dispatch < dispatch_count_; ++dispatch) {
       for (uint32_t i = 0; i < 16; ++i) {
         uint32_t actual;
         std::memcpy(&actual,
@@ -997,7 +1017,7 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
     }
     auto output = bindings_[2].bytes();
     for (size_t i = 0; i < output.size(); ++i) {
-      if (i >= 4 * kBindingStorageByteLength ||
+      if (i >= dispatch_count_ * kBindingStorageByteLength ||
           i % kBindingStorageByteLength < kBindingByteOffset ||
           i % kBindingStorageByteLength >= kBindingByteOffset + 64) {
         ASSERT_EQ(output[i], 0xA5) << i;
@@ -1131,7 +1151,9 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
   bool control_failed_ = false;
   // Last accepted application submission, independent of native control points.
   uint64_t last_point_ = 0;
-  // Case-owned image used to resolve the four distinct numeric invocations.
+  // Number of independently bound numeric invocations in each batch.
+  uint32_t dispatch_count_ = 0;
+  // Case-owned image used to resolve the distinct numeric invocations.
   std::vector<uint8_t> image_storage_;
   // Native operation count before inserting the three marker instructions.
   uint32_t operation_count_ = 0;
@@ -1139,7 +1161,7 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
   size_t core_enable_offset_ = 0;
   // Complete transaction length including markers.
   uint64_t command_length_ = 0;
-  // Firmware-aligned distance between the four immutable command instances.
+  // Firmware-aligned distance between immutable command instances.
   uint64_t command_stride_ = 0;
   // Offset aligning the first command to its queried firmware address.
   uint64_t command_offset_ = 0;
@@ -1193,6 +1215,42 @@ TEST_F(FirmwareResultRecipeTest, MarkerTicksAndRateSnapshots) {
 
 TEST_F(FirmwareResultRecipeTest, MarkerTicksAndFirmwareIntervals) {
   RunTimerObservations(true);
+}
+
+TEST_F(FirmwareResultRecipeTest, NativeArraysAppendCollectAndRearm) {
+  // Cross both the Linux 64-command and Windows 36-command packet boundaries.
+  ASSERT_NO_FATAL_FAILURE(PrepareResults(65));
+  if (IsSkipped()) {
+    return;
+  }
+  amdf_kernel_queue_info_t info = {
+      .type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_INFO,
+      .structure_size = sizeof(info),
+  };
+  ASSERT_EQ(api_->kernel_queue_query_info(execution_.queue, &info),
+            AMDF_STATUS_OK);
+  if (info.maximum_command_count < 2) {
+    GTEST_SKIP() << "queue does not support command arrays";
+  }
+  RecordProperty("commands_per_batch", dispatch_count_);
+  RecordProperty("maximum_command_count", info.maximum_command_count);
+  RecordProperty("result_capacity_bytes", std::to_string(binding_.byte_length));
+  ASSERT_NO_FATAL_FAILURE(Attach());
+  for (uint32_t generation = 1; generation <= 3; ++generation) {
+    SCOPED_TRACE(generation);
+    if (generation == 3) {
+      ASSERT_NO_FATAL_FAILURE(Detach());
+      ASSERT_NO_FATAL_FAILURE(Attach());
+    }
+    ASSERT_NO_FATAL_FAILURE(
+        RunBatch(generation, 1, info.maximum_command_count));
+    ASSERT_NO_FATAL_FAILURE(Collect());
+    const auto bytes = ResultBytes();
+    const std::vector<uint8_t> snapshot(bytes.begin(), bytes.end());
+    ASSERT_NO_FATAL_FAILURE(Collect());
+    EXPECT_TRUE(std::equal(snapshot.begin(), snapshot.end(), bytes.begin()));
+  }
+  ASSERT_NO_FATAL_FAILURE(Detach());
 }
 
 TEST_F(CpuXdnaRecipeTest, AllocatedRoundTrip) {

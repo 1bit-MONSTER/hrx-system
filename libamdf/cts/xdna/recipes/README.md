@@ -81,6 +81,13 @@ queue completion identity.
 Validation also rejects misaligned, empty and foreign-scope bindings before
 native effects. Failed controls preserve backing instead of guessing retirement.
 
+`NativeArraysAppendCollectAndRearm` applies the same numerical, identity,
+immutability, and lifetime checks to 65 commands per batch. Commands are grouped
+up to the queue's queried native array limit, with one completion wait after
+the full batch. The finite destination covers two appended batches before
+rearming, including capacity beyond one page. This exercises marker publication
+across native command-array boundaries independently of host collection.
+
 `MarkerTicksAndRateSnapshots` uses the native timer clock query after context
 admission. Three four-command batches execute 1, 4096 and 16384 recurrence
 iterations per output word. Each batch has one completion wait, then finite
