@@ -1217,24 +1217,6 @@ loomc_status_t loomc_compile_artifact(
   return status;
 }
 
-static loomc_status_t loomc_compile_validate_request_roots(
-    const loomc_module_t* module, const loomc_request_t* request) {
-  const loom_module_t* internal_module = loomc_module_const_loom_module(module);
-  const loomc_request_root_t* roots = loomc_request_roots(request);
-  const loomc_host_size_t root_count = loomc_request_root_count(request);
-  for (loomc_host_size_t i = 0; i < root_count; ++i) {
-    if (roots[i].module_ordinal != 0) {
-      return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                               "request root addresses an unavailable module");
-    }
-    if (roots[i].symbol_ordinal >= internal_module->symbols.count) {
-      return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                               "request root addresses an unavailable symbol");
-    }
-  }
-  return loomc_ok_status();
-}
-
 loomc_status_t loomc_compile_request(
     loomc_compiler_t* compiler, loomc_workspace_t* workspace,
     const loomc_pass_program_t* pass_program, const loomc_request_t* request,
@@ -1283,12 +1265,9 @@ loomc_status_t loomc_compile_request(
   loomc_module_t* module = NULL;
   loomc_result_t* result = NULL;
   loomc_product_t* product = NULL;
-  loomc_status_t status = loomc_module_deserialize_from_source(
-      compiler->context, workspace, loomc_request_source(request),
-      /*options=*/NULL, allocator, &module, &result);
-  if (loomc_status_is_ok(status) && loomc_result_succeeded(result)) {
-    status = loomc_compile_validate_request_roots(module, request);
-  }
+  loomc_status_t status = loomc_module_deserialize_request(
+      compiler->context, workspace, request, allocator, &module,
+      /*out_root_symbols=*/NULL, &result);
   if (loomc_status_is_ok(status) && loomc_result_succeeded(result)) {
     status =
         loomc_compile_module_into_result(compiler, workspace, pass_program,

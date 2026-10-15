@@ -104,6 +104,65 @@ loomc_status_t loomc_module_deserialize_from_source(
   return return_status;
 }
 
+loomc_status_t loomc_module_deserialize_request(
+    loomc_context_t* context, loomc_workspace_t* workspace,
+    const loomc_request_t* request, loomc_allocator_t host_allocator,
+    loomc_module_t** out_module, loomc_string_view_t* out_root_symbols,
+    loomc_result_t** out_result) {
+  IREE_TRACE_ZONE_BEGIN(z0);
+  if (out_module != NULL) {
+    *out_module = NULL;
+  }
+  if (out_result != NULL) {
+    *out_result = NULL;
+  }
+  if (request == NULL || out_module == NULL || out_result == NULL) {
+    IREE_TRACE_ZONE_END(z0);
+    return loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT,
+        "request, out_module, and out_result must not be NULL");
+  }
+
+  loomc_module_t* module = NULL;
+  loomc_result_t* result = NULL;
+  loomc_status_t status = loomc_module_deserialize_bytecode_from_source(
+      context, workspace, loomc_request_source(request), NULL, host_allocator,
+      &module, &result);
+  if (loomc_status_is_ok(status) && loomc_result_succeeded(result)) {
+    const loom_module_t* internal_module =
+        loomc_module_const_loom_module(module);
+    for (loomc_host_size_t i = 0;
+         i < loomc_request_root_count(request) && loomc_status_is_ok(status);
+         ++i) {
+      loomc_request_root_t root;
+      loomc_request_root_at(request, i, &root);
+      if (root.module_ordinal != 0) {
+        status =
+            loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                              "request root addresses an unavailable module");
+      } else if (root.symbol_ordinal >= internal_module->symbols.count) {
+        status =
+            loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                              "request root addresses an unavailable symbol");
+      } else if (out_root_symbols != NULL) {
+        const loom_symbol_t* symbol =
+            &internal_module->symbols.entries[root.symbol_ordinal];
+        out_root_symbols[i] = loomc_string_view_from_iree(
+            loom_string_table_get(&internal_module->strings, symbol->name_id));
+      }
+    }
+  }
+  if (loomc_status_is_ok(status)) {
+    *out_module = module;
+    *out_result = result;
+  } else {
+    loomc_module_release(module);
+    loomc_result_release(result);
+  }
+  IREE_TRACE_ZONE_END(z0);
+  return status;
+}
+
 loomc_status_t loomc_module_deserialize_from_file(
     loomc_context_t* context, loomc_workspace_t* workspace, FILE* file,
     const loomc_module_deserialize_options_t* options,
