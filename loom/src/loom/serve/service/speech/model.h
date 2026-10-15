@@ -106,10 +106,11 @@ iree_status_t loom_serve_speech_load_free(loom_serve_speech_load_t* load);
 // stream rows and packed output. Rows survive batch membership changes.
 // Compiler-private workspace lasts for one command; persistent histories belong
 // in the stream bank. Each command declares its fixed parameter bindings. Roots
-// sharing a checkpoint path and preparation policy share compatible reflected
-// storage; disjoint roots retain their placement. Distinct checkpoints or
-// policies own independent storage, even for identically named tensors. Direct
-// stages use the same five dynamic roots without checkpoint domains.
+// sharing an ordered checkpoint file list and preparation policy share
+// compatible reflected storage; disjoint roots retain their placement. Distinct
+// file lists or policies own independent storage, even for identically named
+// tensors. Direct stages use the same five dynamic roots without checkpoint
+// domains.
 //
 // Every retired unit calls complete for each original batch ordinal, including
 // phases producing no audio or readback. Source owns generation, codec, RNG and

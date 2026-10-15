@@ -14,7 +14,6 @@
 #include <fstream>
 #include <memory>
 #include <string>
-#include <tuple>
 #include <vector>
 
 #include "iree/base/threading/notification.h"
@@ -29,35 +28,44 @@
 #include "loom/serve/testing/http_harness.h"
 #include "loom/serve/testing/model.h"
 #include "loom/serve/testing/package.h"
+#include "loom/serve/testing/service_application.h"
 
 IREE_FLAG(string, model_source, "", "Speech fixture bootstrap source.");
-IREE_FLAG(string, test_device, "task", "Device executing the speech fixture.");
+IREE_FLAG(int32_t, test_workers, 1, "Workers in the speech test application.");
 IREE_FLAG(bool, test_elastic, false, "Use elastic backing for source speech.");
 
 namespace {
 
-class SourceSpeechServiceTest
-    : public ::testing::TestWithParam<std::tuple<uint32_t, bool>> {
+// The target leaf injects the compiler/driver pair. Each test process retains
+// one application; separate worker profiles preserve concurrent qualification.
+iree_status_t AcquireApplication(iree_allocator_t allocator,
+                                 loom_serve_host_t** out_host,
+                                 loom_serve_device_group_t** out_group) {
+  auto options = loom_serve_test_application_options_default();
+  options.worker_count = FLAG_test_workers;
+  options.backing = FLAG_test_elastic ? LOOM_SERVE_DEVICE_BACKING_ELASTIC
+                                      : LOOM_SERVE_DEVICE_BACKING_FIXED;
+  options.slab_size = FLAG_test_elastic ? 2 * 1024 * 1024 : 0;
+  loom_serve_test_application_t* application = nullptr;
+  IREE_RETURN_IF_ERROR(
+      loom_serve_test_application_acquire(&options, allocator, &application));
+  *out_host = loom_serve_test_application_host(application);
+  *out_group = loom_serve_test_application_device_group(application);
+  return iree_ok_status();
+}
+
+class SourceSpeechServiceTest : public ::testing::TestWithParam<bool> {
  protected:
   static constexpr uint64_t kSlabSize = 2 * 1024 * 1024;
 
-  static void WriteCheckpoint(const std::string& path, bool voice) {
-    // Overlapping names belong to distinct archives. Only factor is prepared;
-    // the encoder and decoder remain disjoint phase weights in the base file.
-    const std::string header =
-        voice
-            ? R"({"factor":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}})"
-            : R"({"factor":{"dtype":"F32","shape":[1],"data_offsets":[0,4]},)"
-              R"("encoder":{"dtype":"F32","shape":[1],"data_offsets":[4,8]},)"
-              R"("decoder":{"dtype":"F32","shape":[1],"data_offsets":[8,12]}})";
+  static void WriteCheckpoint(const std::string& path,
+                              const std::string& header,
+                              const std::vector<float>& values) {
     std::ofstream file(path, std::ios::binary);
     uint8_t length[8];
     iree_unaligned_store_le_u64(length, header.size());
     file.write(reinterpret_cast<const char*>(length), sizeof(length));
     file.write(header.data(), header.size());
-    const std::vector<float> values =
-        voice ? std::vector<float>{0.25f}
-              : std::vector<float>{0.5f, 0.125f, 4.0f};
     for (float value : values) {
       uint8_t bytes[4];
       iree_unaligned_store_le_f32(bytes, value);
@@ -68,26 +76,26 @@ class SourceSpeechServiceTest
   }
 
   void SetUp() override {
-    IREE_ASSERT_OK(
-        loom_serve_host_create(std::get<0>(GetParam()), allocator_, &host_));
-    const loom_serve_device_options_t device_options = {
-        .uri = iree_make_cstring_view(FLAG_test_device),
-        .backing = FLAG_test_elastic ? LOOM_SERVE_DEVICE_BACKING_ELASTIC
-                                     : LOOM_SERVE_DEVICE_BACKING_FIXED,
-        .slab_size = FLAG_test_elastic ? kSlabSize : 0,
-    };
-    IREE_ASSERT_OK(loom_serve_device_group_allocate(host_, 1, &device_options,
-                                                    allocator_, &group_));
+    IREE_ASSERT_OK(AcquireApplication(allocator_, &host_, &group_));
     directory_ =
         std::filesystem::path(FLAG_model_source).parent_path().string();
-    const bool weighted = std::get<1>(GetParam());
+    const bool weighted = GetParam();
     if (weighted) {
       assets_ = iree::testing::MakeTempFilePath("speech_assets");
       ASSERT_TRUE(std::filesystem::create_directory(assets_));
+      // Phase tensors span a second file in the same source-declared domain.
+      // The voice archive repeats a key but retains independent ownership.
+      const std::string factor =
+          R"({"factor":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}})";
       ASSERT_NO_FATAL_FAILURE(
-          WriteCheckpoint(assets_ + "/weights.safetensors", false));
+          WriteCheckpoint(assets_ + "/weights.safetensors", factor, {0.5f}));
       ASSERT_NO_FATAL_FAILURE(
-          WriteCheckpoint(assets_ + "/voices.safetensors", true));
+          WriteCheckpoint(assets_ + "/voices.safetensors", factor, {0.25f}));
+      ASSERT_NO_FATAL_FAILURE(WriteCheckpoint(
+          assets_ + "/phases.safetensors",
+          R"({"encoder":{"dtype":"F32","shape":[1],"data_offsets":[0,4]},)"
+          R"("decoder":{"dtype":"F32","shape":[1],"data_offsets":[4,8]}})",
+          {0.125f, 4.0f}));
     }
     const iree_string_view_t providers[] = {IREE_SVL("generate.loom"),
                                             IREE_SVL("variants/weights.loom")};
@@ -127,8 +135,6 @@ class SourceSpeechServiceTest
     IREE_EXPECT_OK(loom_serve_http_listener_free(listener_));
     loom_serve_http_server_free(server_);
     IREE_EXPECT_OK(loom_serve_speech_model_free(model_));
-    IREE_EXPECT_OK(loom_serve_device_group_free(group_));
-    loom_serve_host_release(host_);
   }
 
   void CreateServer() {
@@ -334,7 +340,7 @@ class SourceSpeechServiceTest
     return iree_ok_status();
   }
 
-  // Shared host/device own queues and model allocations through teardown.
+  // Process application owns the host/device through global test teardown.
   iree_allocator_t allocator_ = iree_allocator_system();
   // Shared worker owner, retained by the device group.
   loom_serve_host_t* host_ = nullptr;
@@ -545,7 +551,7 @@ TEST_P(SourceSpeechServiceTest, CohortsPreserveIndependentResidentProgress) {
 TEST_P(SourceSpeechServiceTest, DynamicRegistrationStandardEndpointAndRemoval) {
   ASSERT_NO_FATAL_FAILURE(StartManaged());
   const std::string definition =
-      std::get<1>(GetParam())
+      GetParam()
           ? R"({"kind":"speech","prepare":"variants/prepare.loom",)"
             R"("control":"control.loom","sources":["generate.loom",)"
             R"("variants/weights.loom"],"pending_requests":4,"assets":")" +
@@ -768,7 +774,7 @@ TEST_P(SourceSpeechServiceTest,
 
 // The numerical dependency is replaced; accepted HAL transfers, proactor
 // waits, CPU tasks, TCP credit and service retirement remain production paths.
-class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
+class SpeechReadinessTest : public ::testing::Test {
  protected:
   struct Invocation {
     // Stable row retained independently of its ordinal in the current cohort.
@@ -793,12 +799,7 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
     held_block_ = held_block;
     held_members_ = held_members;
     batch_.reserve(capacity);
-    IREE_ASSERT_OK(loom_serve_host_create(GetParam(), allocator_, &host_));
-    const loom_serve_device_options_t device_options = {
-        .uri = iree_make_cstring_view(FLAG_test_device),
-    };
-    IREE_ASSERT_OK(loom_serve_device_group_allocate(host_, 1, &device_options,
-                                                    allocator_, &group_));
+    IREE_ASSERT_OK(AcquireApplication(allocator_, &host_, &group_));
     auto* device = loom_serve_device_group_at(group_, 0);
     IREE_ASSERT_OK(loom_serve_device_create_execution(device, &execution_));
     IREE_ASSERT_OK(loom_serve_execution_reserve_workspace(
@@ -1135,8 +1136,6 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
     IREE_EXPECT_OK(loom_serve_http_listener_free(listener_));
     loom_serve_http_server_free(server_);
     iree_hal_semaphore_release(gate_);
-    IREE_EXPECT_OK(loom_serve_device_group_free(group_));
-    loom_serve_host_release(host_);
   }
 
   iree_status_t Send(loom_serve::testing::HttpClient* client,
@@ -1175,9 +1174,9 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
 
   // Model and service use the same application resource owners.
   iree_allocator_t allocator_ = iree_allocator_system();
-  // Shared task/proactor owner; one-worker cases detect blocking waits.
+  // Borrowed process task/proactor owner; one worker detects blocking waits.
   loom_serve_host_t* host_ = nullptr;
-  // Physical device group enclosing all execution allocations.
+  // Borrowed process device group enclosing all execution allocations.
   loom_serve_device_group_t* group_ = nullptr;
   // Actual queue dependencies and tracked request views.
   loom_serve_execution_t* execution_ = nullptr;
@@ -1225,7 +1224,7 @@ class SpeechReadinessTest : public ::testing::TestWithParam<uint32_t> {
   loom_serve::testing::HttpHarness http_;
 };
 
-TEST_P(SpeechReadinessTest,
+TEST_F(SpeechReadinessTest,
        HeldDeviceKeepsHealthLiveAndResetRetiresBeforeReuse) {
   ASSERT_NO_FATAL_FAILURE(Initialize());
   loom_serve::testing::HttpClient client;
@@ -1248,7 +1247,7 @@ TEST_P(SpeechReadinessTest,
   EXPECT_EQ(released_.load(), 2u);
 }
 
-TEST_P(SpeechReadinessTest, ShutdownJoinsAcceptedWorkWithoutFurtherSynthesis) {
+TEST_F(SpeechReadinessTest, ShutdownJoinsAcceptedWorkWithoutFurtherSynthesis) {
   ASSERT_NO_FATAL_FAILURE(Initialize());
   loom_serve::testing::HttpClient client;
   IREE_ASSERT_OK(Send(&client));
@@ -1261,7 +1260,7 @@ TEST_P(SpeechReadinessTest, ShutdownJoinsAcceptedWorkWithoutFurtherSynthesis) {
   EXPECT_EQ(released_.load(), 1u);
 }
 
-TEST_P(SpeechReadinessTest, FailedReadinessKeepsRequestForModelRetirement) {
+TEST_F(SpeechReadinessTest, FailedReadinessKeepsRequestForModelRetirement) {
   ASSERT_NO_FATAL_FAILURE(Initialize());
   loom_serve::testing::HttpClient client;
   IREE_ASSERT_OK(Send(&client));
@@ -1274,7 +1273,7 @@ TEST_P(SpeechReadinessTest, FailedReadinessKeepsRequestForModelRetirement) {
   EXPECT_NE(invocations_[0], nullptr);
 }
 
-TEST_P(SpeechReadinessTest, SlowReaderResumesFromBoundedSendCredit) {
+TEST_F(SpeechReadinessTest, SlowReaderResumesFromBoundedSendCredit) {
   ASSERT_NO_FATAL_FAILURE(Initialize(65536, 128, UINT64_MAX));
   loom_serve::testing::HttpClient client;
   IREE_ASSERT_OK(Send(&client));
@@ -1289,7 +1288,7 @@ TEST_P(SpeechReadinessTest, SlowReaderResumesFromBoundedSendCredit) {
   EXPECT_EQ(released_.load(), 1u);
 }
 
-TEST_P(SpeechReadinessTest, CancelledBatchMemberRetiresWithOriginalCohort) {
+TEST_F(SpeechReadinessTest, CancelledBatchMemberRetiresWithOriginalCohort) {
   ASSERT_NO_FATAL_FAILURE(Initialize(3, 16, 1, 4, 4, false));
   std::array<loom_serve::testing::HttpClient, 4> clients;
   std::array<loom_serve_http_connection_t*, 4> connections = {};
@@ -1337,7 +1336,7 @@ TEST_P(SpeechReadinessTest, CancelledBatchMemberRetiresWithOriginalCohort) {
   EXPECT_FALSE(actual_.is_pending(actual_.self));
 }
 
-TEST_P(SpeechReadinessTest, StalledReaderDoesNotBlockOtherRequests) {
+TEST_F(SpeechReadinessTest, StalledReaderDoesNotBlockOtherRequests) {
   ASSERT_NO_FATAL_FAILURE(Initialize(65536, 128, UINT64_MAX, 4));
   loom_serve::testing::HttpClient stalled;
   IREE_ASSERT_OK(Send(&stalled));
@@ -1362,10 +1361,7 @@ TEST_P(SpeechReadinessTest, StalledReaderDoesNotBlockOtherRequests) {
   EXPECT_EQ(released_.load(), 4u);
 }
 
-INSTANTIATE_TEST_SUITE_P(Workers, SpeechReadinessTest, ::testing::Values(1, 2));
-
-INSTANTIATE_TEST_SUITE_P(WorkersAndParameters, SourceSpeechServiceTest,
-                         ::testing::Combine(::testing::Values(1u, 2u),
-                                            ::testing::Bool()));
+INSTANTIATE_TEST_SUITE_P(Parameters, SourceSpeechServiceTest,
+                         ::testing::Bool());
 
 }  // namespace

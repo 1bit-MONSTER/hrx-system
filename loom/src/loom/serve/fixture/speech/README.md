@@ -46,15 +46,17 @@ The `source_speech_service_test` suites under
 `//loom/src/loom/tooling/target/{cpu,amdgpu,spirv}/serve` run this package on the
 selected native provider. Their shared tests cover exact variable/empty-block
 output, source rejection, first bytes before EOF, reset/reuse, dynamic model
-registration/removal and shutdown with one or two shared workers.
+registration/removal and shutdown. Each process owns one shared application;
+the base and `source_speech_service_parallel_test` registrations use one and
+two workers respectively.
 
 The same tests also run the weighted source variant. Initialization has four
 fixed roots, while decoding has two: a shared base factor, disjoint encoder and
-decoder tensors, a separate voice archive with the same factor key, and an
-unprepared view of the base factor. Source declarations intentionally use a
-different order from fixed bindings. In-place preparation doubles only the
-factor tensors; the exact waveform exposes repeated preparation, incorrect
-binding order or sharing across different checkpoint paths or policies.
+decoder tensors composed from a second file, a separate voice archive with the
+same factor key, and an unprepared view of the base factor. Source declarations
+intentionally use a different order from fixed bindings. In-place preparation
+doubles only the factor tensors; the exact waveform exposes repeated preparation, incorrect
+binding order or sharing across different checkpoint file lists or policies.
 The tiny checkpoints are authored by the test, without external downloads.
 
 Additional dependency-controlled cases use real held HAL transfers with the

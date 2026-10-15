@@ -12,6 +12,8 @@ global.rodata.def @step = bytes("737465705f77656967687465645f617564696f")
 
 global.rodata.def @weights = bytes("776569676874732e7361666574656e736f7273")
 
+global.rodata.def @phases = bytes("7068617365732e7361666574656e736f7273")
+
 global.rodata.def @voices = bytes("766f696365732e7361666574656e736f7273")
 
 global.rodata.def @policy = bytes("76617269616e74732f706f6c6963792e6c6f6f6d")
@@ -44,6 +46,7 @@ func.def public @prepare(%directory: buffer, %options: buffer) -> (i64, i64, i64
   %binding2 = scalar.constant 2 : i32
   %binding3 = scalar.constant 3 : i32
   %weights = global.load @weights : buffer
+  %phases = global.load @phases : buffer
   %voices = global.load @voices : buffer
   %policy = global.load @policy : buffer
   %identity = global.load @identity : buffer
@@ -53,9 +56,13 @@ func.def public @prepare(%directory: buffer, %options: buffer) -> (i64, i64, i64
   func.call @parameter(%first, %binding2, %directory, %voices, %policy) : (i32, i32, buffer, buffer, buffer)
   func.call @parameter(%first, %binding3, %directory, %weights, %identity) : (i32, i32, buffer, buffer, buffer)
   func.call @parameter(%first, %binding1, %directory, %weights, %policy) : (i32, i32, buffer, buffer, buffer)
+  func.call @parameter(%first, %binding1, %directory, %phases, %policy) : (i32, i32, buffer, buffer, buffer)
   func.call @parameter(%first, %binding0, %directory, %weights, %policy) : (i32, i32, buffer, buffer, buffer)
+  func.call @parameter(%first, %binding0, %directory, %phases, %policy) : (i32, i32, buffer, buffer, buffer)
   func.call @parameter(%second, %binding1, %directory, %weights, %policy) : (i32, i32, buffer, buffer, buffer)
+  func.call @parameter(%second, %binding1, %directory, %phases, %policy) : (i32, i32, buffer, buffer, buffer)
   func.call @parameter(%second, %binding0, %directory, %weights, %policy) : (i32, i32, buffer, buffer, buffer)
+  func.call @parameter(%second, %binding0, %directory, %phases, %policy) : (i32, i32, buffer, buffer, buffer)
   %rows = scalar.constant 4 : i64
   %work_bytes = scalar.constant 64 : i64
   %input = scalar.constant 16 : i64

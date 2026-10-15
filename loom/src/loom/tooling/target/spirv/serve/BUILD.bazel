@@ -90,7 +90,6 @@ loom_cc_test(
     name = "source_speech_service_test",
     args = [
         "--model_source=$(rootpath //loom/src/loom/serve/fixture/speech:prepare.loom)",
-        "--test_device=vulkan",
     ],
     data = SPEECH_SOURCES + SPEECH_VARIANT_SOURCES,
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
@@ -105,6 +104,34 @@ loom_cc_test(
         "//conditions:default": ["@platforms//:incompatible"],
     }),
     deps = [
+        ":test_compiler",
+        ":test_device",
+        "//loom/src/loom/serve/service/speech:source_service_tests",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "source_speech_service_parallel_test",
+    args = [
+        "--test_workers=2",
+        "--model_source=$(rootpath //loom/src/loom/serve/fixture/speech:prepare.loom)",
+    ],
+    data = SPEECH_SOURCES + SPEECH_VARIANT_SOURCES,
+    resource_group = GPU_DEVICE_RESOURCE_GROUP,
+    tags = [
+        "iree-run-requirement=vulkan.resource.device",
+    ],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:vm",
+        "//loom/config/execute:spirv_vulkan_hal",
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = [
+        ":test_compiler",
+        ":test_device",
         "//loom/src/loom/serve/service/speech:source_service_tests",
         "//runtime/src/iree/testing:gtest_main",
     ],

@@ -95,11 +95,42 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/variants/prepare.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/variants/weights.loom"
   DEPS
+    ::test_compiler
+    ::test_device
     iree::testing::gtest_main
     loom::serve::service::speech::source_service_tests
   ARGS
     "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/prepare.loom}}"
-    "--test_device=vulkan"
+  LABELS
+    "iree-run-requirement=vulkan.resource.device"
+    "iree-build-requirement=loom.target.arch.spirv"
+    "iree-build-requirement=loom.emit.spirv"
+  RESOURCE_GROUP
+    gpu-device
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_test(
+  NAME
+    source_speech_service_parallel_test
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/generate.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/model.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/variants/identity.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/variants/policy.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/variants/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/variants/weights.loom"
+  DEPS
+    ::test_compiler
+    ::test_device
+    iree::testing::gtest_main
+    loom::serve::service::speech::source_service_tests
+  ARGS
+    "--test_workers=2"
+    "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/prepare.loom}}"
   LABELS
     "iree-run-requirement=vulkan.resource.device"
     "iree-build-requirement=loom.target.arch.spirv"
