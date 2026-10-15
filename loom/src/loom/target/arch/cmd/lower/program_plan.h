@@ -37,21 +37,39 @@ typedef struct loom_cmd_entry_requirement_t {
   const loom_op_t* declaration_op;
 } loom_cmd_entry_requirement_t;
 
+// Source representation behind one command-plan kernel request.
+typedef enum loom_cmd_program_kernel_request_kind_e {
+  // Indexed source specialized through the ordinary kernel request producer.
+  LOOM_CMD_PROGRAM_KERNEL_REQUEST_KIND_INDEXED = 0,
+
+  // Already closed compiler-generated source product.
+  LOOM_CMD_PROGRAM_KERNEL_REQUEST_KIND_GENERATED = 1,
+} loom_cmd_program_kernel_request_kind_t;
+
 // One borrowed source request bound to a command-plan entry requirement.
 typedef struct loom_cmd_program_kernel_request_t {
   // Plan-wide logical executable-entry requirement for this request.
   uint32_t entry_requirement_index;
 
-  // Callback-lived class request supporting resolution before materialization.
-  const loom_kernel_request_t* kernel_request;
+  // Source representation selecting the active request union member.
+  loom_cmd_program_kernel_request_kind_t kind;
+
+  union {
+    // Callback-lived class request supporting resolution before
+    // materialization.
+    const loom_kernel_request_t* indexed;
+
+    // Callback-lived independently closed generated source product.
+    const loom_kernel_class_product_t* generated;
+  } source;
 } loom_cmd_program_kernel_request_t;
 
 // Visits one command-plan kernel request before source materialization.
 //
-// |request| and |request.kernel_request| remain valid only for the callback.
-// The callback may resolve an existing product from the class identity or
-// materialize an independently owned source product on a miss. A non-OK status
-// terminates command-plan construction.
+// |request| and its active source remain valid only for the callback. The
+// callback may resolve an indexed product from its class identity or call
+// loom_cmd_program_kernel_request_materialize() for an independently owned
+// source product. A non-OK status terminates command-plan construction.
 typedef iree_status_t (*loom_cmd_program_kernel_request_publish_fn_t)(
     void* user_data, const loom_cmd_program_kernel_request_t* request);
 
@@ -63,6 +81,17 @@ typedef struct loom_cmd_program_kernel_request_sink_t {
   // Opaque value passed to |publish|.
   void* user_data;
 } loom_cmd_program_kernel_request_sink_t;
+
+// Materializes an independently owned source product for |request|.
+//
+// Indexed requests delegate to their ordinary class materializer. Generated
+// requests exactly clone their already closed source product. The returned
+// product retains no callback-lived state and must be released with
+// loom_kernel_class_product_deinitialize().
+iree_status_t loom_cmd_program_kernel_request_materialize(
+    const loom_cmd_program_kernel_request_t* request,
+    iree_arena_block_pool_t* block_pool, iree_allocator_t allocator,
+    loom_kernel_class_product_t* out_product);
 
 // Optional indexed source environment for command-plan construction.
 typedef struct loom_cmd_program_kernel_source_t {

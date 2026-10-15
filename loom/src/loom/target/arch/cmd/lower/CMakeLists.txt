@@ -152,6 +152,7 @@ loom_cc_library(
     loom::pass::interpreter
     loom::pass::program
     loom::pass::registry
+    loom::rewrite::module_projection
     loom::target::arch::cmd::abi_layout
     loom::target::arch::cmd::program
     loom::transforms::cleanup::pass_environment

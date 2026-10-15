@@ -11,6 +11,47 @@
 #include "loom/ir/module.h"
 #include "loom/link/module_index.h"
 #include "loom/ops/op_defs.h"
+#include "loom/rewrite/module_projection.h"
+
+iree_status_t loom_cmd_program_kernel_request_materialize(
+    const loom_cmd_program_kernel_request_t* request,
+    iree_arena_block_pool_t* block_pool, iree_allocator_t allocator,
+    loom_kernel_class_product_t* out_product) {
+  IREE_ASSERT_ARGUMENT(request);
+  IREE_ASSERT_ARGUMENT(block_pool);
+  IREE_ASSERT_ARGUMENT(out_product);
+  *out_product = (loom_kernel_class_product_t){0};
+
+  switch (request->kind) {
+    case LOOM_CMD_PROGRAM_KERNEL_REQUEST_KIND_INDEXED:
+      IREE_ASSERT_ARGUMENT(request->source.indexed);
+      return loom_kernel_request_materialize(
+          request->source.indexed, block_pool, allocator, out_product);
+    case LOOM_CMD_PROGRAM_KERNEL_REQUEST_KIND_GENERATED: {
+      IREE_ASSERT_ARGUMENT(request->source.generated);
+      IREE_ASSERT_ARGUMENT(request->source.generated->module);
+      IREE_ASSERT(loom_symbol_ref_is_valid(request->source.generated->kernel));
+      iree_arena_allocator_t scratch_arena;
+      iree_arena_initialize(block_pool, &scratch_arena);
+      loom_ir_module_projection_t projection = {0};
+      loom_module_t* cloned_module = NULL;
+      iree_status_t status = loom_ir_module_clone(
+          request->source.generated->module, /*options=*/NULL, block_pool,
+          &scratch_arena, allocator, &projection, &cloned_module);
+      if (iree_status_is_ok(status)) {
+        *out_product = (loom_kernel_class_product_t){
+            .module = cloned_module,
+            .kernel = loom_ir_module_projection_target_symbol(
+                &projection, request->source.generated->kernel.symbol_id),
+        };
+      }
+      iree_arena_deinitialize(&scratch_arena);
+      return status;
+    }
+  }
+  IREE_ASSERT_UNREACHABLE();
+  return iree_ok_status();
+}
 
 typedef struct loom_cmd_program_kernel_request_bridge_t {
   // Plan receiving one requirement per published semantic class.
@@ -47,7 +88,8 @@ static iree_status_t loom_cmd_program_kernel_request_publish(
 
   const loom_cmd_program_kernel_request_t request = {
       .entry_requirement_index = requirement_index,
-      .kernel_request = source_request,
+      .kind = LOOM_CMD_PROGRAM_KERNEL_REQUEST_KIND_INDEXED,
+      .source.indexed = source_request,
   };
   return bridge->sink.publish(bridge->sink.user_data, &request);
 }

@@ -28,7 +28,6 @@
 #include "loom/target/arch/cmd/artifact_set.h"
 #include "loom/transforms/cleanup/configured.h"
 #include "loom/transforms/kernel/kernel_class_materializer.h"
-#include "loom/transforms/kernel/kernel_request_producer.h"
 #include "loomc/compile.h"
 #include "loomc/iree.h"
 
@@ -360,8 +359,8 @@ static iree_status_t loomc_cmd_program_product_publish_kernel_request(
       (loomc_cmd_program_product_invocation_t*)user_data;
   loom_kernel_class_product_t kernel_product = {0};
   loomc_status_t status =
-      loomc_status_from_iree(loom_kernel_request_materialize(
-          request->kernel_request, invocation->request.block_pool,
+      loomc_status_from_iree(loom_cmd_program_kernel_request_materialize(
+          request, invocation->request.block_pool,
           iree_allocator_from_loomc(invocation->request.allocator),
           &kernel_product));
   loomc_source_t* source = NULL;

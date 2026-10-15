@@ -32,7 +32,6 @@ loom_cc_library(
         "//loom/src/loom/target/arch/cmd:artifact_set",
         "//loom/src/loom/transforms/cleanup:configured",
         "//loom/src/loom/transforms/kernel:kernel_class_materializer",
-        "//loom/src/loom/transforms/kernel:kernel_request_producer",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal",
         "//runtime/src/iree/base/internal:arena",

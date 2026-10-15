@@ -56,15 +56,15 @@ typedef struct KernelRequestCapture {
 static iree_status_t CaptureKernelRequest(
     void* user_data, const loom_cmd_program_kernel_request_t* request) {
   KernelRequestCapture* capture = static_cast<KernelRequestCapture*>(user_data);
+  IREE_ASSERT_EQ(request->kind, LOOM_CMD_PROGRAM_KERNEL_REQUEST_KIND_INDEXED);
   loom_kernel_class_product_t product = {0};
-  IREE_RETURN_IF_ERROR(loom_kernel_request_materialize(
-      request->kernel_request, capture->block_pool, iree_allocator_system(),
-      &product));
+  IREE_RETURN_IF_ERROR(loom_cmd_program_kernel_request_materialize(
+      request, capture->block_pool, iree_allocator_system(), &product));
   capture->requests.push_back(CapturedKernelRequest{
       .entry_requirement_index = request->entry_requirement_index,
-      .source_symbol_ordinal = request->kernel_request->source_symbol_ordinal,
-      .class_ordinal = request->kernel_request->class_ordinal,
-      .member_count = request->kernel_request->member_count,
+      .source_symbol_ordinal = request->source.indexed->source_symbol_ordinal,
+      .class_ordinal = request->source.indexed->class_ordinal,
+      .member_count = request->source.indexed->member_count,
       .product = product,
   });
   return iree_ok_status();
@@ -205,6 +205,49 @@ class CmdProgramPlanTest : public ::testing::Test {
   // Source dialect context used by parsing, linking, and lowering.
   loom_context_t context_;
 };
+
+TEST_F(CmdProgramPlanTest, MaterializesGeneratedKernelRequests) {
+  ModulePtr source_module = ParseAndVerify(R"(
+kernel.def @generated() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%storage: buffer) {
+  kernel.return
+}
+)");
+  ASSERT_NE(source_module, nullptr);
+
+  const loom_kernel_class_product_t generated_product = {
+      .module = source_module.get(),
+      .kernel = FindSymbolRef(source_module.get(), IREE_SV("generated")),
+  };
+  const loom_cmd_program_kernel_request_t request = {
+      .entry_requirement_index = 7,
+      .kind = LOOM_CMD_PROGRAM_KERNEL_REQUEST_KIND_GENERATED,
+      .source = {.generated = &generated_product},
+  };
+  loom_kernel_class_product_t materialized_product = {};
+  IREE_ASSERT_OK(loom_cmd_program_kernel_request_materialize(
+      &request, &block_pool_, iree_allocator_system(), &materialized_product));
+  ASSERT_NE(materialized_product.module, nullptr);
+  EXPECT_NE(materialized_product.module, source_module.get());
+  EXPECT_EQ(materialized_product.kernel.symbol_id,
+            generated_product.kernel.symbol_id);
+  ASSERT_LT(materialized_product.kernel.symbol_id,
+            materialized_product.module->symbols.count);
+  EXPECT_TRUE(iree_string_view_equal(
+      loom_string_table_get(&materialized_product.module->strings,
+                            materialized_product.module->symbols
+                                .entries[materialized_product.kernel.symbol_id]
+                                .name_id),
+      IREE_SV("generated")));
+  loom_verify_options_t verify_options = {};
+  loom_verify_result_t verify_result = {};
+  IREE_ASSERT_OK(loom_verify_module(materialized_product.module,
+                                    &verify_options, &verify_result));
+  EXPECT_EQ(verify_result.error_count, 0u);
+  loom_kernel_class_product_deinitialize(&materialized_product);
+}
 
 TEST_F(CmdProgramPlanTest, UsesSelectedCleanupProvidersInNestedPipeline) {
   ModulePtr source_module = ParseAndVerify(R"(
