@@ -72,6 +72,8 @@ static inline iree_duration_t iree_make_duration_ms(int64_t timeout_ms) {
 // Converts a relative timeout duration to an absolute deadline time.
 // This handles the special cases of IREE_DURATION_ZERO and
 // IREE_DURATION_INFINITE to avoid extraneous time queries.
+// Finite timeouts exceeding the absolute clock range saturate to the latest
+// finite deadline, IREE_TIME_INFINITE_FUTURE - 1.
 IREE_API_EXPORT iree_time_t
 iree_relative_timeout_to_deadline_ns(iree_duration_t timeout_ns);
 

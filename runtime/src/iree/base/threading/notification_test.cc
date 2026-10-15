@@ -344,6 +344,44 @@ TEST(NotificationTest, PrepareCommitWaitTimeout) {
   iree_notification_deinitialize(&notification);
 }
 
+TEST(NotificationTest, PrepareCommitSpinWaitExpiredDeadline) {
+  const iree_duration_t spin_durations[] = {500, IREE_DURATION_INFINITE - 1,
+                                            IREE_DURATION_INFINITE};
+  for (iree_duration_t spin_ns : spin_durations) {
+    SCOPED_TRACE(spin_ns);
+    iree_notification_t notification;
+    iree_notification_initialize(&notification);
+    iree_wait_token_t token = iree_notification_prepare_wait(&notification);
+
+    // Even an unbounded active wait must respect a finite caller deadline.
+    // An expired deadline exercises the arithmetic without delaying the test.
+    EXPECT_FALSE(iree_notification_commit_wait(&notification, token, spin_ns,
+                                               iree_time_now()));
+
+    iree_notification_deinitialize(&notification);
+  }
+}
+
+TEST(NotificationTest, PrepareCommitSpinWaitFiniteTimeout) {
+  const iree_duration_t spin_durations[] = {500, IREE_DURATION_INFINITE - 1,
+                                            IREE_DURATION_INFINITE};
+  for (iree_duration_t spin_ns : spin_durations) {
+    SCOPED_TRACE(spin_ns);
+    iree_notification_t notification;
+    iree_notification_initialize(&notification);
+    iree_wait_token_t token = iree_notification_prepare_wait(&notification);
+    const iree_time_t deadline_ns = iree_time_now() + iree_make_duration_ms(1);
+
+    // Saturating the spin budget must neither return before the deadline nor
+    // turn a finite wait into an infinite one.
+    EXPECT_FALSE(iree_notification_commit_wait(&notification, token, spin_ns,
+                                               deadline_ns));
+    EXPECT_GE(iree_time_now(), deadline_ns);
+
+    iree_notification_deinitialize(&notification);
+  }
+}
+
 TEST(NotificationTest, PrepareCommitWaitWoken) {
   iree_notification_t notification;
   iree_notification_initialize(&notification);
