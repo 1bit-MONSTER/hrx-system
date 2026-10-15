@@ -141,10 +141,32 @@ bounded two-buffer streaming flow:
 
 The final step needs the producer-specific stop and write-completion boundary.
 Joining the kernel copy worker alone does not prove that the GPU cannot publish
-another sample. Native release stops SPM, joins the monitor and copy work, and
-frees the kernel rings; it does not publish a final user header or return a final
-valid extent. Releasing without prior collection can discard the tail.
+another sample. Native release requests SPM stop/reset, joins the monitor and
+copy work, and frees the kernel rings; it does not publish a final user header
+or return a final valid extent. Releasing without prior collection can discard
+the tail.
 [Rotation][spm-rotate] [Stop and release][spm-release]
+
+### Native stop status and host-storage retirement
+
+The lower-level RLC control chooses direct hardware callbacks when
+`set_spm_config_size` is zero. Otherwise it submits the control through KIQ and
+waits for a polling fence. Start/stop and read-pointer updates return `void`;
+fence-emission errors and fence timeouts only produce warnings. Release also
+continues to free the reserved VMID and restore the SPM VMID after those
+failures. Native release success therefore does not certify successful hardware
+stop. Acquisition differs: its KIQ fence errors propagate to the caller.
+[RLC control and acquisition][spm-rlc-control]
+[RLC release][spm-rlc-release]
+
+Host destinations have a separate, narrower lifetime. The GPU writes the
+kernel ring, and the kernel copy worker writes the borrowed host range.
+Successful rotation removes the old destination under that worker's mutex;
+release stops the monitor and joins the work before destroying its state.
+Those software boundaries retire host-range access without asserting that every
+hardware control succeeded or that every sample was delivered.
+[Host writer][spm-copy] [Destination removal][spm-header]
+[Worker retirement][spm-release]
 
 ## Device-scoped producer and collector sequence
 
@@ -220,6 +242,8 @@ alone do not establish safe concurrent use by competing profilers.
 [spm-copy]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_spm.c#L161-L308
 [spm-acquire]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_spm.c#L327-L415
 [spm-release]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_spm.c#L468-L522
+[spm-rlc-control]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdgpu/amdgpu_amdkfd_rlc_spm.c#L28-L134
+[spm-rlc-release]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdgpu/amdgpu_amdkfd_rlc_spm.c#L136-L171
 [spm-header]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_spm.c#L524-L570
 [spm-rotate]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_spm.c#L572-L702
 [spm-dispatch]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_spm.c#L704-L740
