@@ -10,20 +10,76 @@
 iree_add_all_subdirs()
 
 if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
+loom_cc_library(
+  NAME
+    target_test_util
+  HDRS
+    "target_test_util.h"
+  SRCS
+    "target_test_util.cc"
+  DEPS
+    iree::testing::gtest
+    loom::binding::c::loomc
+    loom::binding::c::target::amdgpu
+    loom::binding::c::test::test_util
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
 loom_cc_test(
   NAME
     amdgpu_test
   SRCS
     "amdgpu_test.cc"
   DEPS
+    ::target_test_util
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::binding::c::loomc
+    loom::binding::c::target::amdgpu
+    loom::binding::c::test::test_util
+)
+endif()
+
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
+loom_cc_test(
+  NAME
+    command_product_test
+  SRCS
+    "command_product_test.cc"
+  DEPS
+    ::command_profile_testdata
+    ::target_test_util
+    iree::base
     iree::testing::gtest
     iree::testing::gtest_main
     loom::binding::c::loomc
     loom::binding::c::target::amdgpu
     loom::binding::c::target::cmd
     loom::binding::c::test::test_util
+    loom::target::arch::cmd::program
 )
 endif()
+
+file(GLOB _GLOB_TESTDATA_COMMAND_PROFILE_X_LOOM LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS testdata/command_profile/*.loom)
+iree_c_embed_data(
+  NAME
+    command_profile_testdata
+  SRCS
+    "${_GLOB_TESTDATA_COMMAND_PROFILE_X_LOOM}"
+  C_FILE_OUTPUT
+    "command_profile_testdata.c"
+  H_FILE_OUTPUT
+    "command_profile_testdata.h"
+  IDENTIFIER
+    "loomc_amdgpu_command_profile_testdata"
+  TESTONLY
+  FLATTEN
+  PUBLIC
+)
 
 if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_IMPORT_CXX AND LOOM_IMPORT_CXX_EMBED_INCLUDES)
 loom_cc_test(

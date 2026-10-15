@@ -5,10 +5,12 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("//build_tools/bazel:test_resources.bzl", "GPU_DEVICE_RESOURCE_GROUP")
+load("//build_tools/embed_data:build_defs.bzl", "iree_c_embed_data")
 load("//build_tools/sanitizer:suppressions.bzl", "rocm_suppressions")
 load("//loom/build_tools/amdgpu:descriptor_sets.bzl", "loom_amdgpu_selected_descriptor_set_defines")
 load(
     "//loom/build_tools/bazel:build_defs.bzl",
+    "loom_cc_library",
     "loom_cc_test",
     "loom_config_compatible_with",
 )
@@ -27,18 +29,63 @@ _AMDGPU_HAL_COMPATIBLE_WITH = loom_config_compatible_with([
     "//loom/config/execute:amdgpu_hal",
 ])
 
+loom_cc_library(
+    name = "target_test_util",
+    testonly = True,
+    srcs = ["target_test_util.cc"],
+    hdrs = ["target_test_util.h"],
+    target_compatible_with = _AMDGPU_ARTIFACTS_COMPATIBLE_WITH,
+    visibility = ["//visibility:private"],
+    deps = [
+        "//loom/binding/c:loomc",
+        "//loom/binding/c/target/amdgpu",
+        "//loom/binding/c/test:test_util",
+        "//runtime/src/iree/testing:gtest",
+    ],
+)
+
 loom_cc_test(
     name = "amdgpu_test",
     srcs = ["amdgpu_test.cc"],
     target_compatible_with = _AMDGPU_ARTIFACTS_COMPATIBLE_WITH,
     deps = [
+        ":target_test_util",
+        "//loom/binding/c:loomc",
+        "//loom/binding/c/target/amdgpu",
+        "//loom/binding/c/test:test_util",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "command_product_test",
+    srcs = ["command_product_test.cc"],
+    target_compatible_with = _AMDGPU_ARTIFACTS_COMPATIBLE_WITH,
+    deps = [
+        ":command_profile_testdata",
+        ":target_test_util",
         "//loom/binding/c:loomc",
         "//loom/binding/c/target/amdgpu",
         "//loom/binding/c/target/cmd",
         "//loom/binding/c/test:test_util",
+        "//loom/src/loom/target/arch/cmd:program",
+        "//runtime/src/iree/base",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
     ],
+)
+
+iree_c_embed_data(
+    name = "command_profile_testdata",
+    testonly = True,
+    srcs = glob(["testdata/command_profile/*.loom"]),
+    c_file_output = "command_profile_testdata.c",
+    flatten = True,
+    h_file_output = "command_profile_testdata.h",
+    identifier = "loomc_amdgpu_command_profile_testdata",
+    visibility = ["//visibility:private"],
 )
 
 loom_cc_test(

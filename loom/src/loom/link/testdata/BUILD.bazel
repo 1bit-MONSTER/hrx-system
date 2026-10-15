@@ -104,3 +104,13 @@ iree_c_embed_data(
     h_file_output = "pipeline_contracts_testdata.h",
     identifier = "loom_link_pipeline_contracts_testdata",
 )
+
+iree_c_embed_data(
+    name = "kernel_contracts",
+    testonly = True,
+    srcs = glob(["kernel_contracts/*.loom"]),
+    c_file_output = "kernel_contracts_testdata.c",
+    flatten = True,
+    h_file_output = "kernel_contracts_testdata.h",
+    identifier = "loom_link_kernel_contracts_testdata",
+)

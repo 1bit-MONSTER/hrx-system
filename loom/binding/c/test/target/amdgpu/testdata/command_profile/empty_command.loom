@@ -1,0 +1,3 @@
+command.program.def public @dispatch() launch() {
+  command.return
+}

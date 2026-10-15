@@ -75,7 +75,8 @@ typedef struct loom_link_plan_materialization_t {
   // refs. Downstream transforms may append symbols while preserving this
   // stable linked prefix. This direct target-domain projection lets downstream
   // consumers resolve a linked kernel callee without rebuilding an inverse
-  // source-symbol map. Storage belongs to the caller's arena.
+  // source-symbol map. Helpers carry their kernel's target after caller-owned
+  // specialization. Storage belongs to the caller's arena.
   struct {
     // Arena-owned target-kernel-to-configuration-function projection.
     loom_symbol_ref_t* values;

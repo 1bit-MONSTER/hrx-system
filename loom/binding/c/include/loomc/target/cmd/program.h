@@ -13,6 +13,7 @@
 #include "loomc/link_index.h"
 #include "loomc/product.h"
 #include "loomc/result.h"
+#include "loomc/target.h"
 #include "loomc/workspace.h"
 
 /// @file
@@ -111,6 +112,16 @@ typedef struct loomc_cmd_program_product_options_t {
   /// Per-invocation config bindings applied during selective materialization.
   loomc_config_options_t config;
 
+  /// Optional profile for all selected kernel entries and their launch
+  /// configurations. Command roots remain target-neutral.
+  ///
+  /// Borrowed synchronously from a compatible context target environment.
+  /// Published requests own their concrete target definitions. NULL preserves
+  /// source target selection and explicit invocation specializations. A
+  /// non-NULL profile cannot be combined with nonempty per-function
+  /// specializations or target-declaration bindings in `next`.
+  const loomc_target_profile_t* kernel_target_profile;
+
   /// Optional sink enabling source-backed request publication.
   ///
   /// A NULL callback leaves kernel implementation bodies unopened and returns
@@ -143,6 +154,16 @@ typedef struct loomc_cmd_program_request_options_t {
 
   /// Per-invocation config bindings applied during selective materialization.
   loomc_config_options_t config;
+
+  /// Optional profile for all selected kernel entries and their launch
+  /// configurations. Command roots remain target-neutral.
+  ///
+  /// Borrowed synchronously from a compatible context target environment.
+  /// Published requests own their concrete target definitions. NULL preserves
+  /// source target selection and explicit invocation specializations. A
+  /// non-NULL profile cannot be combined with nonempty per-function
+  /// specializations or target-declaration bindings in `next`.
+  const loomc_target_profile_t* kernel_target_profile;
 
   /// Optional sink enabling source-backed kernel request publication.
   ///

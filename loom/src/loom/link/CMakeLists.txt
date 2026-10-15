@@ -328,6 +328,7 @@ loom_cc_library(
     loom::format::bytecode::selected_reader
     loom::format::low_repr
     loom::ir
+    loom::ops::op_defs
   PUBLIC
 )
 
@@ -379,6 +380,7 @@ loom_cc_test(
     loom::format::bytecode::writer
     loom::format::text::parser
     loom::ir
+    loom::link::testdata::kernel_contracts
     loom::link::testdata::pipeline_contracts
     loom::ops::config
     loom::ops::func

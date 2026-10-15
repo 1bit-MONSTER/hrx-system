@@ -298,29 +298,18 @@ static iree_status_t loomc_link_materialization_prepare_module(
 
   const loomc_target_specialization_options_t* target =
       state->specialization.target;
-  if (target == NULL || (target->specialization_count == 0 &&
-                         target->target_binding_count == 0)) {
+  const loomc_target_profile_t* kernel_profile =
+      state->specialization.kernel_profile;
+  if (kernel_profile == NULL &&
+      (target == NULL || (target->specialization_count == 0 &&
+                          target->target_binding_count == 0))) {
     return iree_ok_status();
   }
 
-  iree_arena_allocator_t arena;
-  iree_arena_initialize(block_pool, &arena);
-  loom_target_specialization_request_list_t requests = {0};
-  loom_target_declaration_binding_list_t bindings = {0};
-  if (state->specialization.indexed == NULL) {
-    status = loomc_target_specialization_options_make_lists(
-        target, *inout_module, &arena, &requests, &bindings);
-    if (loomc_status_is_ok(status)) {
-      status = loomc_status_from_iree(loomc_link_target_specializations_capture(
-          index, materialization, &requests, bindings, &arena, state->arena,
-          &state->specialization.indexed));
-    }
-  } else {
-    status = loomc_status_from_iree(loomc_link_target_specializations_project(
-        state->specialization.indexed, materialization, &arena, &requests,
-        &bindings));
-  }
   uint32_t error_count = 0;
+  const loom_target_environment_t* target_environment =
+      loomc_target_environment_loom_target_environment(
+          loomc_context_target_environment(state->composition.context));
   const loomc_target_pass_environment_t* pass_environment =
       loomc_context_target_pass_environment(state->composition.context);
   loomc_diagnostic_capture_t capture;
@@ -330,18 +319,43 @@ static iree_status_t loomc_link_materialization_prepare_module(
       pass_environment ? &pass_environment->diagnostic_type_print_options
                        : NULL,
       &capture);
-  if (loomc_status_is_ok(status)) {
-    status = loomc_status_from_iree(loom_target_specialize_module(
-        loomc_target_environment_loom_target_environment(
-            loomc_context_target_environment(state->composition.context)),
-        requests, bindings,
-        (iree_diagnostic_emitter_t){
-            .fn = loomc_diagnostic_capture_emission,
-            .user_data = &capture,
-        },
-        block_pool, allocator, inout_module, &error_count));
+  const iree_diagnostic_emitter_t diagnostic_emitter = {
+      .fn = loomc_diagnostic_capture_emission,
+      .user_data = &capture,
+  };
+  if (kernel_profile != NULL) {
+    status =
+        loomc_status_from_iree(loom_target_specialize_module_kernel_entries(
+            target_environment,
+            loomc_target_profile_loom_target_profile(kernel_profile),
+            diagnostic_emitter, block_pool, allocator, inout_module,
+            &error_count));
+  } else {
+    iree_arena_allocator_t arena;
+    iree_arena_initialize(block_pool, &arena);
+    loom_target_specialization_request_list_t requests = {0};
+    loom_target_declaration_binding_list_t bindings = {0};
+    if (state->specialization.indexed == NULL) {
+      status = loomc_target_specialization_options_make_lists(
+          target, *inout_module, &arena, &requests, &bindings);
+      if (loomc_status_is_ok(status)) {
+        status =
+            loomc_status_from_iree(loomc_link_target_specializations_capture(
+                index, materialization, &requests, bindings, &arena,
+                state->arena, &state->specialization.indexed));
+      }
+    } else {
+      status = loomc_status_from_iree(loomc_link_target_specializations_project(
+          state->specialization.indexed, materialization, &arena, &requests,
+          &bindings));
+    }
+    if (loomc_status_is_ok(status)) {
+      status = loomc_status_from_iree(loom_target_specialize_module(
+          target_environment, requests, bindings, diagnostic_emitter,
+          block_pool, allocator, inout_module, &error_count));
+    }
+    iree_arena_deinitialize(&arena);
   }
-  iree_arena_deinitialize(&arena);
   if (!loomc_status_is_ok(status)) {
     return iree_status_from_loomc(status);
   }

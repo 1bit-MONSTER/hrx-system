@@ -1049,6 +1049,7 @@ static void loom_serve_jit_job_execute(loomc_task_t* base,
         .root_symbol_ordinals = &root_ordinal,
         .root_symbol_count = 1,
         .config = *job->config,
+        .kernel_target_profile = jit->kernel.profile,
         .request_sink = {.publish = loom_serve_jit_publish, .user_data = job},
     };
     loomc_result_t* result = NULL;

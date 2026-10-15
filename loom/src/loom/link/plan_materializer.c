@@ -13,6 +13,7 @@
 #include "loom/link/kernel_config_materializer.h"
 #include "loom/link/linker.h"
 #include "loom/link/plan_projection.h"
+#include "loom/ops/op_defs.h"
 
 // Per-add source identity, retained before the linker releases its scratch map.
 typedef struct loom_link_plan_source_capture_t {
@@ -542,6 +543,29 @@ static iree_status_t loom_link_plan_materialize_with_scratch(
     status = environment->prepare_module(
         environment->user_data, index, environment->block_pool,
         environment->allocator, out_materialization);
+  }
+  if (iree_status_is_ok(status) && target_kernel_configurations != NULL) {
+    output_module = out_materialization->module;
+    // Configuration helpers execute with their kernel's target, including a
+    // profile assigned after the helper was projected from the source header.
+    for (iree_host_size_t symbol_id = 0; symbol_id < linked_symbol_count;
+         ++symbol_id) {
+      const loom_symbol_ref_t helper_ref =
+          target_kernel_configurations[symbol_id];
+      if (!loom_symbol_ref_is_valid(helper_ref)) {
+        continue;
+      }
+      const loom_func_like_t kernel = loom_func_like_cast(
+          output_module, output_module->symbols.entries[symbol_id].defining_op);
+      const loom_symbol_ref_t target = loom_func_like_target(kernel);
+      if (!loom_symbol_ref_is_valid(target)) {
+        continue;
+      }
+      const loom_func_like_t helper = loom_func_like_cast(
+          output_module,
+          output_module->symbols.entries[helper_ref.symbol_id].defining_op);
+      loom_func_like_set_target(output_module, helper, target);
+    }
   }
   if (!iree_status_is_ok(status)) {
     loom_module_free(out_materialization->module);

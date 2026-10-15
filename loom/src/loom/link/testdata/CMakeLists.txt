@@ -145,4 +145,21 @@ iree_c_embed_data(
   PUBLIC
 )
 
+file(GLOB _GLOB_KERNEL_CONTRACTS_X_LOOM LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS kernel_contracts/*.loom)
+iree_c_embed_data(
+  NAME
+    kernel_contracts
+  SRCS
+    "${_GLOB_KERNEL_CONTRACTS_X_LOOM}"
+  C_FILE_OUTPUT
+    "kernel_contracts_testdata.c"
+  H_FILE_OUTPUT
+    "kernel_contracts_testdata.h"
+  IDENTIFIER
+    "loom_link_kernel_contracts_testdata"
+  TESTONLY
+  FLATTEN
+  PUBLIC
+)
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###
