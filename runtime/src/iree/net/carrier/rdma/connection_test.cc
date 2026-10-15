@@ -556,9 +556,11 @@ class ConnectionTest
     if (listener_events_) {
       bool joined = false;
       iree_net_rdma_connection_events_deactivate(
-          listener_events_,
-          {+[](void* user_data) { *static_cast<bool*>(user_data) = true; },
-           &joined});
+          listener_events_, {+[](void* user_data, iree_status_t status) {
+                               IREE_CHECK_OK(status);
+                               *static_cast<bool*>(user_data) = true;
+                             },
+                             &joined});
       PollUntil(proactor_, [&] { return joined; });
       iree_net_rdma_connection_events_free(listener_events_);
       listener_events_ = nullptr;
@@ -1106,7 +1108,8 @@ TEST_P(ConnectionTest, NativeFailureHandoffJoinsIndependentPollOwners) {
     // Stop with a published callback still queued. Synchronous unsubscription
     // cannot authorize releasing the owner until that callback has run.
     iree_net_rdma_device_failure_deactivate(
-        monitors[2], {+[](void* user_data) {
+        monitors[2], {+[](void* user_data, iree_status_t status) {
+                        IREE_CHECK_OK(status);
                         static_cast<Owner*>(user_data)->stopped = true;
                       },
                       &owners[2]});
@@ -1130,7 +1133,8 @@ TEST_P(ConnectionTest, NativeFailureHandoffJoinsIndependentPollOwners) {
     for (uint32_t i = 0; i < monitors.size(); ++i) {
       if (!owners[i].stopped) {
         iree_net_rdma_device_failure_deactivate(
-            monitors[i], {+[](void* user_data) {
+            monitors[i], {+[](void* user_data, iree_status_t status) {
+                            IREE_CHECK_OK(status);
                             static_cast<Owner*>(user_data)->stopped = true;
                           },
                           &owners[i]});
