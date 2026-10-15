@@ -38,6 +38,22 @@ iree_cc_test(
 
 iree_cc_test(
   NAME
+    collective_trial_stress_tests
+  DEPS
+    ::backend
+    iree::async::cts::util::platform_backends
+    iree::async::cts::util::test_main
+    iree::net::carrier::shm::factory
+    iree::net::cts::collective_trial_stress_tests
+    iree::net::cts::transport_backend
+    iree::testing::temp_file
+  LABELS
+    "manual"
+    "stress"
+)
+
+iree_cc_test(
+  NAME
     transfer_trial_tests
   DEPS
     ::backend

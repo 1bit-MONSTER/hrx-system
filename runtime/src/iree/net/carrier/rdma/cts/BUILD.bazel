@@ -233,6 +233,28 @@ iree_runtime_cc_test(
 )
 
 iree_runtime_cc_test(
+    name = "collective_trial_stress_tests",
+    tags = [
+        "manual",
+        "stress",
+    ],
+    target_compatible_with = RDMA_COMPATIBILITY,
+    deps = [
+        ":backend",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/async/cts/util:platform_backends",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/net/carrier/rdma:factory",
+        "//runtime/src/iree/net/cts:collective_trial_stress_tests",
+        "//runtime/src/iree/net/cts:transport_backend",
+        "//runtime/src/iree/net/rdma:connection_test_main",
+        "//runtime/src/iree/net/rdma:context",
+        "//runtime/src/iree/net/rdma:region",
+        "//runtime/src/iree/net/rdma:test_context",
+    ],
+)
+
+iree_runtime_cc_test(
     name = "direct_transfer_trial_tests",
     target_compatible_with = RDMA_COMPATIBILITY,
     deps = [
@@ -321,6 +343,17 @@ iree_executable_test(
     name = "busy_poll_collective_trial_tests",
     src = ":collective_trial_tests",
     env = {"IREE_NET_RDMA_CTS_COMPLETION_MODE": "busy_poll"},
+    target_compatible_with = RDMA_COMPATIBILITY,
+)
+
+iree_executable_test(
+    name = "busy_poll_collective_trial_stress_tests",
+    src = ":collective_trial_stress_tests",
+    env = {"IREE_NET_RDMA_CTS_COMPLETION_MODE": "busy_poll"},
+    tags = [
+        "manual",
+        "stress",
+    ],
     target_compatible_with = RDMA_COMPATIBILITY,
 )
 

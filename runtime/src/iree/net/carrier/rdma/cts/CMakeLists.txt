@@ -284,6 +284,28 @@ endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_NET_RDMA)
 iree_cc_test(
   NAME
+    collective_trial_stress_tests
+  DEPS
+    ::backend
+    iree::async
+    iree::async::cts::util::platform_backends
+    iree::base
+    iree::net::carrier::rdma::factory
+    iree::net::cts::collective_trial_stress_tests
+    iree::net::cts::transport_backend
+    iree::net::rdma::connection_test_main
+    iree::net::rdma::context
+    iree::net::rdma::region
+    iree::net::rdma::test_context
+  LABELS
+    "manual"
+    "stress"
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_NET_RDMA)
+iree_cc_test(
+  NAME
     direct_transfer_trial_tests
   DEPS
     ::backend
@@ -386,6 +408,20 @@ iree_native_test(
     ::collective_trial_tests
   ENV
     "IREE_NET_RDMA_CTS_COMPLETION_MODE=busy_poll"
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_NET_RDMA)
+iree_native_test(
+  NAME
+    "busy_poll_collective_trial_stress_tests"
+  SRC
+    ::collective_trial_stress_tests
+  ENV
+    "IREE_NET_RDMA_CTS_COMPLETION_MODE=busy_poll"
+  LABELS
+    "manual"
+    "stress"
 )
 endif()
 

@@ -40,6 +40,23 @@ iree_runtime_cc_test(
 )
 
 iree_runtime_cc_test(
+    name = "collective_trial_stress_tests",
+    tags = [
+        "manual",
+        "stress",
+    ],
+    deps = [
+        ":backend",
+        "//runtime/src/iree/async/cts/util:platform_backends",
+        "//runtime/src/iree/async/cts/util:test_main",
+        "//runtime/src/iree/net/carrier/shm:factory",
+        "//runtime/src/iree/net/cts:collective_trial_stress_tests",
+        "//runtime/src/iree/net/cts:transport_backend",
+        "//runtime/src/iree/testing:temp_file",
+    ],
+)
+
+iree_runtime_cc_test(
     name = "transfer_trial_tests",
     deps = [
         ":backend",
