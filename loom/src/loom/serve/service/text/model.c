@@ -804,7 +804,7 @@ bool loom_serve_text_model_is_retired(loom_serve_text_model_t* model) {
   for (iree_host_size_t i = 0; i < model->parameters.count; ++i) {
     retired &= loom_serve_weights_is_retired(model->parameters.plans[i]);
   }
-  return retired && loom_serve_retirement_is_idle(&model->state.retirement);
+  return retired && loom_serve_text_state_is_retired(&model->state);
 }
 
 iree_status_t loom_serve_text_model_free_retired(
@@ -857,7 +857,7 @@ iree_status_t loom_serve_text_model_free(loom_serve_text_model_t* model) {
   for (iree_host_size_t i = 0; i < model->parameters.count; ++i) {
     loom_serve_weights_await_retirement(model->parameters.plans[i]);
   }
-  loom_serve_retirement_await(&model->state.retirement);
+  loom_serve_text_state_await_retirement(&model->state);
   return iree_status_join(status, loom_serve_text_model_free_retired(model));
 }
 

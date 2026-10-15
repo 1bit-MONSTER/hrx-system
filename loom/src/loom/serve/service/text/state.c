@@ -58,6 +58,11 @@ iree_status_t loom_serve_text_state_allocate(
   state->device = loom_serve_device_handle(device);
   state->execution = execution;
   state->memory.pool = loom_serve_device_memory_pool(device);
+  if (state->memory.pool) {
+    IREE_RETURN_IF_ERROR(iree_hal_semaphore_create(
+        state->device, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, 0,
+        IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &state->memory.commit.semaphore));
+  }
   if (state->cache.capacity) {
     IREE_RETURN_IF_ERROR(loom_serve_block_pool_initialize(
         (uint32_t)(state->cache.capacity / state->storage.block_size),
@@ -253,6 +258,8 @@ void loom_serve_text_state_retire(loom_serve_text_state_t* state,
                                   void (*wake)(void* user_data),
                                   void* user_data) {
   loom_serve_retirement_set_observer(&state->retirement, wake, user_data);
+  loom_serve_memory_operation_set_observer(state->memory.commit.operation, wake,
+                                           user_data);
   if (state->rows) {
     for (iree_host_size_t i = 0; i < state->row_count; ++i) {
       loom_serve_snapshot_release(state->rows[i].snapshot);
@@ -287,9 +294,24 @@ void loom_serve_text_state_retire(loom_serve_text_state_t* state,
   }
 }
 
+bool loom_serve_text_state_is_retired(loom_serve_text_state_t* state) {
+  return loom_serve_memory_operation_is_complete(
+             state->memory.commit.operation) &&
+         loom_serve_retirement_is_idle(&state->retirement);
+}
+
+void loom_serve_text_state_await_retirement(loom_serve_text_state_t* state) {
+  loom_serve_memory_operation_await(state->memory.commit.operation);
+  loom_serve_retirement_await(&state->retirement);
+}
+
 iree_status_t loom_serve_text_state_deinitialize(
     loom_serve_text_state_t* state) {
-  IREE_ASSERT(loom_serve_retirement_is_idle(&state->retirement));
+  IREE_ASSERT(loom_serve_text_state_is_retired(state));
+  loom_serve_memory_operation_free(state->memory.commit.operation);
+  state->memory.commit.operation = NULL;
+  iree_hal_semaphore_release(state->memory.commit.semaphore);
+  state->memory.commit.semaphore = NULL;
   iree_status_t status = iree_ok_status();
   for (iree_host_size_t i = 0; i < LOOM_SERVE_TEXT_STORAGE_ALLOCATION_COUNT &&
                                iree_status_is_ok(status);
@@ -1150,7 +1172,8 @@ uint32_t loom_serve_text_state_row_growth(
 }
 
 // COW copies only one partial logical page, across every source-declared plane.
-// The row retains the old page through the existing cohort completion.
+// Destinations are already backed or ordered behind mapping readiness. The row
+// retains the old page through the existing cohort completion.
 static iree_status_t loom_serve_text_fork_cache_block(
     loom_serve_text_state_t* state, uint32_t source, uint32_t target) {
   iree_hal_transfer_operation_t copies[64];
@@ -1168,22 +1191,15 @@ static iree_status_t loom_serve_text_fork_cache_block(
           region->blocks.origin + plane * region->blocks.stride;
       const iree_device_size_t target_offset =
           origin + target * region->blocks.block_bytes;
-      if (state->memory.buffers[region->allocation]) {
-        status = loom_serve_virtual_buffer_commit(
-            state->memory.buffers[region->allocation], target_offset,
-            region->blocks.block_bytes);
-      }
-      if (iree_status_is_ok(status)) {
-        copies[count++] = (iree_hal_transfer_operation_t){
-            .type = IREE_HAL_TRANSFER_OPERATION_TYPE_COPY,
-            .copy = {
-                .source_buffer = buffer,
-                .source_offset = origin + source * region->blocks.block_bytes,
-                .target_buffer = buffer,
-                .target_offset = target_offset,
-                .length = region->blocks.block_bytes}};
-      }
-      if (iree_status_is_ok(status) && count == IREE_ARRAYSIZE(copies)) {
+      copies[count++] = (iree_hal_transfer_operation_t){
+          .type = IREE_HAL_TRANSFER_OPERATION_TYPE_COPY,
+          .copy = {
+              .source_buffer = buffer,
+              .source_offset = origin + source * region->blocks.block_bytes,
+              .target_buffer = buffer,
+              .target_offset = target_offset,
+              .length = region->blocks.block_bytes}};
+      if (count == IREE_ARRAYSIZE(copies)) {
         status = loom_serve_execution_transfer(state->execution, count, copies,
                                                &completion);
         count = 0;
@@ -1391,8 +1407,14 @@ iree_status_t loom_serve_text_state_row_submit_reserve(
             (loom_serve_memory_range_t){buffer, range->offset, range->length};
       }
     }
-    status = loom_serve_memory_pool_try_commit(
-        state->memory.pool, commitment_count, commitments, &admitted);
+    IREE_ASSERT(!state->memory.commit.operation);
+    status = loom_serve_memory_pool_commit_async(
+        state->memory.pool, commitment_count, commitments,
+        state->memory.commit.semaphore, state->memory.commit.value + 1,
+        &admitted, &state->memory.commit.operation);
+    if (admitted) {
+      ++state->memory.commit.value;
+    }
   }
   // From here ordinary denial is impossible. Transfer/platform failure is
   // terminal and the installed owners retain every accepted-work resource.
@@ -1417,7 +1439,13 @@ iree_status_t loom_serve_text_state_row_submit_reserve(
     row->buffers[TEXT_RECURRENT] = state->recurrent.buffers[writer];
     state->recurrent.dirty_rows |= 1u << index;
     installed = true;
-    if (cold) {
+    if (state->memory.commit.operation) {
+      status = loom_serve_execution_barrier(
+          state->execution,
+          (iree_hal_semaphore_list_t){1, &state->memory.commit.semaphore,
+                                      &state->memory.commit.value});
+    }
+    if (iree_status_is_ok(status) && cold) {
       iree_hal_buffer_t* buffers[LOOM_SERVE_TEXT_STORAGE_ALLOCATION_COUNT];
       for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(buffers); ++i) {
         buffers[i] = *loom_serve_text_allocation(state, i);
@@ -1497,6 +1525,12 @@ iree_status_t loom_serve_text_state_row_submit_reserve(
 
 bool loom_serve_text_state_row_complete_reserve(
     loom_serve_text_state_row_t* row) {
+  loom_serve_text_state_t* state = row->owner;
+  const bool committed =
+      loom_serve_memory_operation_is_complete(state->memory.commit.operation);
+  IREE_ASSERT(committed);
+  loom_serve_memory_operation_free(state->memory.commit.operation);
+  state->memory.commit.operation = NULL;
   if (row->retiring_tail != UINT32_MAX) {
     loom_serve_block_pool_release(&row->owner->cache.pool, 1,
                                   &row->retiring_tail);
@@ -1543,8 +1577,6 @@ iree_status_t loom_serve_text_state_grow(loom_serve_text_state_t* state,
       uint32_t* tail = &state->cache.maps[row_map + first];
       row->retiring_tail = *tail;
       loom_serve_block_pool_acquire(&state->cache.pool, 1, tail);
-      IREE_RETURN_IF_ERROR(
-          loom_serve_text_fork_cache_block(state, row->retiring_tail, *tail));
     }
     const uint32_t new_count =
         iree_max(needed, row->block_count) - row->block_count;
@@ -1572,6 +1604,10 @@ iree_status_t loom_serve_text_state_grow(loom_serve_text_state_t* state,
               region->block_bytes));
         }
       }
+    }
+    if (row->retiring_tail != UINT32_MAX) {
+      IREE_RETURN_IF_ERROR(loom_serve_text_fork_cache_block(
+          state, row->retiring_tail, blocks[0]));
     }
     uploads[upload_count++] = (iree_hal_transfer_operation_t){
         .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,

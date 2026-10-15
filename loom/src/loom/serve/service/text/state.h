@@ -141,6 +141,15 @@ struct loom_serve_text_state_t {
     loom_serve_memory_pool_t* pool;
     // Mutable virtual state only, excluding weights and execution workspace.
     loom_serve_memory_statistics_t statistics;
+    // A reservation excludes further state mutation through mapping readiness.
+    struct {
+      // Owned native borrower, joined separately from failed queue readiness.
+      loom_serve_memory_operation_t* operation;
+      // Owned mapping timeline imported before initialization or restore.
+      iree_hal_semaphore_t* semaphore;
+      // Last admitted mapping readiness value.
+      uint64_t value;
+    } commit;
     // Optional reservations in source allocation order.
     loom_serve_virtual_buffer_t*
         buffers[LOOM_SERVE_TEXT_STORAGE_ALLOCATION_COUNT];
@@ -197,7 +206,14 @@ void loom_serve_text_state_retire(loom_serve_text_state_t* state,
                                   void (*wake)(void* user_data),
                                   void* user_data);
 
-// Final destruction after the state's retirement scope is idle. Never waits
+// Joins native backing borrowers as well as all exported device views.
+// Failed queue readiness alone does not make state safe to destroy.
+bool loom_serve_text_state_is_retired(loom_serve_text_state_t* state);
+
+// Outer-thread ownership join after retire; never used by scheduler tasks.
+void loom_serve_text_state_await_retirement(loom_serve_text_state_t* state);
+
+// Final destruction after state_is_retired succeeds. Never waits
 // for device work. On platform release failure, remaining handles and host
 // metadata stay intact for owner-side retry; otherwise state is consumed.
 iree_status_t loom_serve_text_state_deinitialize(
@@ -241,7 +257,9 @@ iree_status_t loom_serve_text_state_row_try_restore(
 // Starts at a successfully retired row boundary with a model parameter pin.
 // Extent and starting frontier have passed model validation. Denial changes no
 // selected row or checkpoint contents/ownership. Success installs ownership
-// before submitting transfers; all maps and backing survive until completion.
+// before submitting transfers; new backing becomes ready on the model timeline
+// before any initialization or restore. All maps and backing survive until
+// completion, including the native borrower after failed queue readiness.
 // CONTINUE may replace an active reservation while retaining its exact
 // frontier. out_reserved distinguishes admission from an unchanged earlier
 // reservation.

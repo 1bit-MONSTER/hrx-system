@@ -5,13 +5,104 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "loom/serve/service/text/service_test_fixture.h"
+#include "loom/serve/testing/maintenance_gate.h"
 
 namespace {
 
 using loom_serve::testing::text::Oracle;
 using loom_serve::testing::text::SourceTextServiceTest;
 
-class ElasticTextServiceTest : public SourceTextServiceTest {};
+class ElasticTextServiceTest : public SourceTextServiceTest {
+ protected:
+  static bool HasPendingBacking(const std::string& status) {
+    const std::string key = "\"pending_bytes\":";
+    size_t position = 0;
+    while ((position = status.find(key, position)) != std::string::npos) {
+      position += key.size();
+      if (status[position] != '0') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void CheckColdStateAdmission(bool cancel) {
+    StartManaged();
+    for (const char* name : {"fixture-text", "cold"}) {
+      ASSERT_EQ(
+          Read(Send(Declaration(name, directory_), "", "/v1/models/register"))
+              .find("HTTP/1.1 202"),
+          0u);
+      ASSERT_NO_FATAL_FAILURE(WaitModel(name, R"("registration":"ready")"));
+    }
+    // Explicit parameter activation leaves the cold model's KV untouched.
+    ASSERT_EQ(Read(Send(R"({"model":"cold"})", "", "/v1/models/drain"))
+                  .find("HTTP/1.1 200"),
+              0u);
+    ASSERT_EQ(Read(Send(R"({"model":"cold"})", "", "/v1/models/activate"))
+                  .find("HTTP/1.1 202"),
+              0u);
+    const auto activated = WaitModel("cold", R"("parameter_operation":"idle")");
+    ASSERT_NE(activated.find(R"("parameters":{"active":true)"),
+              std::string::npos)
+        << activated;
+    ASSERT_EQ(Read(Send(R"({"model":"cold"})", "", "/v1/models/undrain"))
+                  .find("HTTP/1.1 200"),
+              0u);
+    const std::string prompt = "abxa";
+    const std::string warm = Request(Message("user", prompt), 4);
+    std::string cold_request = warm;
+    cold_request.replace(cold_request.find("fixture-text"), 12, "cold");
+    ASSERT_EQ(Content(Read(Send(warm, "X-Loom-Session: warm\r\n"))),
+              Oracle::Complete(prompt, 4));
+    ASSERT_NO_FATAL_FAILURE(WaitModel("fixture-text", R"("phase":"idle")"));
+    ASSERT_FALSE(HasPendingBacking(Read(Send("", "", "/v1/status", "GET"))));
+    int cold = -1;
+    {
+      // The application has one task worker. Only the HAL's existing native
+      // cold executor is held; the normal router and warm model must progress.
+      loom_serve::testing::MaintenanceGate gate(
+          loom_serve_device_storage_pool(device_)->maintenance);
+      cold = Send(cold_request);
+      while (!http_.failed() && !HasFatalFailure()) {
+        if (HasPendingBacking(Read(Send("", "", "/v1/status", "GET")))) {
+          break;
+        }
+      }
+      ASSERT_FALSE(http_.failed());
+      if (cancel) {
+        // A disconnected peer does not release native mapping borrowers.
+        ASSERT_EQ(close(cold), 0);
+        ASSERT_EQ(Read(Send(R"({"model":"cold","mode":"abort"})", "",
+                            "/v1/models/unregister"))
+                      .find("HTTP/1.1 202"),
+                  0u);
+        ASSERT_NO_FATAL_FAILURE(WaitModel("cold", R"("admission":"removing")"));
+        EXPECT_TRUE(HasPendingBacking(Read(Send("", "", "/v1/status", "GET"))));
+      }
+      EXPECT_EQ(Content(Read(Send(warm, "X-Loom-Session: warm\r\n"))),
+                Oracle::Complete(prompt, 4));
+      EXPECT_EQ(Read(Send("", "", "/healthz", "GET")).find("HTTP/1.1 200"), 0u);
+    }
+    if (cancel) {
+      ASSERT_NO_FATAL_FAILURE(WaitModel("cold", {}));
+    } else {
+      EXPECT_EQ(Content(Read(cold)), Oracle::Complete(prompt, 4));
+      ASSERT_NO_FATAL_FAILURE(WaitModel("cold", R"("phase":"idle")"));
+    }
+    EXPECT_FALSE(HasPendingBacking(Read(Send("", "", "/v1/status", "GET"))));
+  }
+};
+
+TEST_F(ElasticTextServiceTest,
+       ColdStateCommitDoesNotBlockWarmHttpInferenceOnOneWorker) {
+  CheckColdStateAdmission(/*cancel=*/false);
+}
+
+TEST_F(ElasticTextServiceTest,
+       UnregisterJoinsPendingStateWithoutBlockingWarmInference) {
+  CheckColdStateAdmission(/*cancel=*/true);
+}
 
 TEST_F(ElasticTextServiceTest, RetirementOwnsAcceptedCheckpointCapture) {
   auto options = ModelOptions();
