@@ -216,10 +216,30 @@ iree_runtime_cc_library(
 )
 
 iree_runtime_cc_library(
+    name = "profile_counters",
+    srcs = ["profile_counters.c"],
+    hdrs = ["profile_counters.h"],
+    deps = [
+        ":command_arena",
+        ":context",
+        ":executable",
+        ":executable_measurement",
+        "//libamdf:headers",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/drivers/amd:status",
+        "//runtime/src/iree/hal/drivers/amd/fabric:memory",
+    ],
+)
+
+iree_runtime_cc_library(
     name = "profile",
     srcs = ["profile.c"],
     hdrs = ["profile.h"],
     deps = [
+        ":command_arena",
+        ":context",
+        ":profile_counters",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/threading",
         "//runtime/src/iree/hal",
@@ -243,10 +263,12 @@ iree_runtime_cc_library(
     ],
     deps = [
         ":barrier",
+        ":command_arena",
         ":command_buffer",
         ":context",
         ":executable",
         ":profile",
+        ":profile_counters",
         ":queue_frontier",
         ":queue_producer_index",
         ":queue_service",

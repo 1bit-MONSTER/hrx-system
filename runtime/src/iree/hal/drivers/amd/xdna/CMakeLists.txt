@@ -294,12 +294,37 @@ endif()
 if(AMDF_BUILD)
 iree_cc_library(
   NAME
+    profile_counters
+  HDRS
+    "profile_counters.h"
+  SRCS
+    "profile_counters.c"
+  DEPS
+    ::command_arena
+    ::context
+    ::executable
+    ::executable_measurement
+    amdf::headers
+    iree::base
+    iree::hal
+    iree::hal::drivers::amd::fabric::memory
+    iree::hal::drivers::amd::status
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_library(
+  NAME
     profile
   HDRS
     "profile.h"
   SRCS
     "profile.c"
   DEPS
+    ::command_arena
+    ::context
+    ::profile_counters
     iree::base
     iree::base::threading
     iree::hal
@@ -324,10 +349,12 @@ iree_cc_library(
     "queue_profile.c"
   DEPS
     ::barrier
+    ::command_arena
     ::command_buffer
     ::context
     ::executable
     ::profile
+    ::profile_counters
     ::queue_frontier
     ::queue_producer_index
     ::queue_service

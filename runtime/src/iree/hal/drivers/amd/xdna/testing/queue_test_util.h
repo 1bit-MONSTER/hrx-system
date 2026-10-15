@@ -147,6 +147,10 @@ struct NativeProvider {
     xdna.kernel_queue_create = QueueCreate;
     xdna.kernel_queue_submit = Submit;
     xdna.context_destroy = ContextDestroy;
+    xdna.context_query_result_buffer_info = ResultInfo;
+    xdna.context_attach_result_buffer = ResultAttach;
+    xdna.context_collect_result_buffer = ResultCollect;
+    xdna.context_detach_result_buffer = ResultDetach;
   }
 
   ~NativeProvider() {
@@ -211,6 +215,66 @@ struct NativeProvider {
   size_t FlushCount() {
     std::lock_guard<std::mutex> lock(mutex);
     return flushes.size();
+  }
+
+  // Finite result controls model the native dependency. Marker transport uses
+  // the explicit measured fixture layout; hardware CTS covers native decoding.
+  static amdf_status_t AMDF_CALL ResultInfo(
+      amdf_xdna_context_t* context, amdf_xdna_result_buffer_info_t* info) {
+    auto* self = reinterpret_cast<NativeProvider*>(context);
+    info->memory_scope = reinterpret_cast<amdf_memory_scope_t*>(self);
+    info->memory_profile_ordinal = 0;
+    info->binding_mode = self->enforce_single_command_memory
+                             ? AMDF_XDNA_RESULT_BUFFER_BINDING_RANGE
+                             : AMDF_XDNA_RESULT_BUFFER_BINDING_WHOLE_MEMORY;
+    info->minimum_byte_length = 24;
+    info->maximum_byte_length = self->result.capacity;
+    info->byte_offset_alignment = 4;
+    info->byte_length_granularity = 4;
+    info->timer_clock.counter_bit_count = 64;
+    return AMDF_STATUS_OK;
+  }
+  static amdf_status_t AMDF_CALL
+  ResultAttach(amdf_xdna_context_t* context,
+               const amdf_xdna_result_buffer_binding_t* binding) {
+    auto* self = reinterpret_cast<NativeProvider*>(context);
+    EXPECT_FALSE(self->result.binding.memory);
+    self->result.binding = *binding;
+    self->result.count = 0;
+    ++self->result.attaches;
+    return self->result.fail_control == 1
+               ? amdf_make_api_status(AMDF_STATUS_CODE_INTERNAL)
+               : AMDF_STATUS_OK;
+  }
+  static amdf_status_t AMDF_CALL
+  ResultCollect(amdf_xdna_context_t* context,
+                const amdf_xdna_result_buffer_binding_t* binding) {
+    auto* self = reinterpret_cast<NativeProvider*>(context);
+    EXPECT_EQ(binding->memory, self->result.binding.memory);
+    EXPECT_EQ(binding->byte_offset, self->result.binding.byte_offset);
+    EXPECT_EQ(binding->byte_length, self->result.binding.byte_length);
+    EXPECT_GE(self->checked_retired_submission.load(),
+              self->last_accepted_submission.load());
+    ++self->result.collects;
+    if (self->result.corrupt) {
+      auto* memory = reinterpret_cast<Memory*>(binding->memory);
+      memory->contents[binding->byte_offset] = 0;
+    }
+    return self->result.fail_control == 2
+               ? amdf_make_api_status(AMDF_STATUS_CODE_INTERNAL)
+               : AMDF_STATUS_OK;
+  }
+  static amdf_status_t AMDF_CALL
+  ResultDetach(amdf_xdna_context_t* context,
+               const amdf_xdna_result_buffer_binding_t* binding) {
+    auto* self = reinterpret_cast<NativeProvider*>(context);
+    EXPECT_EQ(binding->memory, self->result.binding.memory);
+    ++self->result.detaches;
+    if (self->result.fail_control == 3) {
+      return amdf_make_api_status(AMDF_STATUS_CODE_INTERNAL);
+    }
+    self->result.binding = {};
+    return AMDF_STATUS_OK;
   }
 
   static amdf_status_t AMDF_CALL MemoryCreate(
@@ -419,6 +483,7 @@ struct NativeProvider {
       for (uint32_t i = 0; i < info->command_count; ++i) {
         const auto& command = info->commands[i];
         auto* memory = reinterpret_cast<Memory*>(command.memory);
+        self->AppendTimerResults(command);
         self->pending_commands.push_back(
             {memory, submission_ordinal * self->point_stride,
              command.byte_offset,
@@ -447,6 +512,31 @@ struct NativeProvider {
       self->Wake();
     }
     return AMDF_STATUS_OK;
+  }
+
+  void AppendTimerResults(const amdf_xdna_kernel_command_t& command) {
+    if (!result.binding.memory || command.byte_length != 72) {
+      return;
+    }
+    auto* memory = reinterpret_cast<Memory*>(command.memory);
+    const uint8_t* bytes = memory->contents.data() + command.byte_offset;
+    EXPECT_EQ(iree_unaligned_load_le_u32(bytes + 16), 0x83u);
+    EXPECT_EQ(iree_unaligned_load_le_u32(bytes + 60), 0x83u);
+    auto* destination = reinterpret_cast<Memory*>(result.binding.memory);
+    ASSERT_LE((result.count + 1) * 24, result.binding.byte_length);
+    uint8_t* target = destination->contents.data() +
+                      result.binding.byte_offset + result.count * 24;
+    // Cross the low-word wrap so the consumer must combine both timer words.
+    const uint64_t begin = UINT64_C(0xFFFFFFFE);
+    const uint64_t end = begin + 100 + result.count;
+    iree_unaligned_store_le_u32(target, iree_unaligned_load_le_u32(bytes + 24));
+    iree_unaligned_store_le_u32(target + 4, begin >> 32);
+    iree_unaligned_store_le_u32(target + 8, (uint32_t)begin);
+    iree_unaligned_store_le_u32(target + 12,
+                                iree_unaligned_load_le_u32(bytes + 68));
+    iree_unaligned_store_le_u32(target + 16, end >> 32);
+    iree_unaligned_store_le_u32(target + 20, (uint32_t)end);
+    ++result.count;
   }
 
   void Wake() {
@@ -627,6 +717,25 @@ struct NativeProvider {
   size_t command_memory_create_count = 0;
   // True when the context accepts only one complete instruction aperture.
   bool enforce_single_command_memory = true;
+  // Native finite result association and failure injection.
+  struct {
+    // Active borrowed result destination.
+    amdf_xdna_result_buffer_binding_t binding = {};
+    // Maximum result bytes admitted by the dependency.
+    uint64_t capacity = 128 * 1024;
+    // Accepted measured commands appended in native order.
+    uint64_t count = 0;
+    // Number of attachment attempts.
+    uint32_t attaches = 0;
+    // Number of collection attempts.
+    uint32_t collects = 0;
+    // Number of removal attempts.
+    uint32_t detaches = 0;
+    // Native control to fail ambiguously: 1 attach, 2 collect, or 3 detach.
+    uint32_t fail_control = 0;
+    // Collection supplies a malformed marker when true.
+    bool corrupt = false;
+  } result;
   // Common native services consumed by the real HAL.
   amdf_api_t api = {};
   // Native XDNA services consumed by the real HAL.

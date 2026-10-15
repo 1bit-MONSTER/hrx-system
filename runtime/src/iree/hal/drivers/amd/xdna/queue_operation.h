@@ -101,6 +101,8 @@ enum iree_hal_amd_xdna_operation_profile_flag_bits_e {
   IREE_HAL_AMD_XDNA_OPERATION_PROFILE_FLAG_RECORDED = 1u << 0,
   // The current execution phase runs on a progress service.
   IREE_HAL_AMD_XDNA_OPERATION_PROFILE_FLAG_DEFERRED = 1u << 1,
+  // Current native array has already selected optional measurement commands.
+  IREE_HAL_AMD_XDNA_OPERATION_PROFILE_FLAG_NATIVE_PREPARED = 1u << 2,
 };
 
 // Optional operation-arena sidecar, accessed by the current execution owner.
@@ -279,6 +281,19 @@ static inline bool iree_hal_amd_xdna_operation_has_dispatch(
 // Captures profiling metadata before ownership transfers to queue execution.
 iree_status_t iree_hal_amd_xdna_operation_profile_capture(
     iree_hal_amd_xdna_operation_t* operation);
+
+// Prepares optional measurement once before native publication; BUSY retains
+// it.
+void iree_hal_amd_xdna_operation_profile_prepare_native(
+    iree_hal_amd_xdna_operation_t* operation, uint32_t count,
+    iree_hal_amd_xdna_invocation_t* const* invocations,
+    amdf_xdna_kernel_command_t* commands);
+
+// Commits native acceptance attribution before advancing the replay cursor.
+void iree_hal_amd_xdna_operation_profile_accept_native(
+    iree_hal_amd_xdna_operation_t* operation, uint32_t count,
+    iree_hal_amd_xdna_invocation_t* const* invocations,
+    const amdf_xdna_kernel_command_t* commands);
 
 // Records the first observed execution readiness; subsequent phases are no-ops.
 void iree_hal_amd_xdna_operation_profile_ready(

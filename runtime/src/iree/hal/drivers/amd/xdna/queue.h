@@ -9,7 +9,7 @@
 
 #include "iree/async/frontier_tracker.h"
 #include "iree/async/proactor.h"
-#include "iree/hal/drivers/amd/xdna/context.h"
+#include "iree/hal/drivers/amd/xdna/command_arena.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -51,6 +51,7 @@ bool iree_hal_amd_xdna_queue_try_wait_epoch(iree_hal_queue_t* queue,
 // NPU work.
 iree_status_t iree_hal_amd_xdna_queue_profiling_begin(
     iree_hal_queue_t* queue, uint32_t physical_device_ordinal,
+    iree_hal_amd_xdna_command_arena_t* command_arena,
     const iree_hal_device_profiling_options_t* options);
 iree_status_t iree_hal_amd_xdna_queue_profiling_flush(iree_hal_queue_t* queue);
 iree_status_t iree_hal_amd_xdna_queue_profiling_end(iree_hal_queue_t* queue);

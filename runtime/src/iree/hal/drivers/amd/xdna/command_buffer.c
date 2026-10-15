@@ -243,7 +243,7 @@ static void iree_hal_amd_xdna_command_buffer_append(
     buffer->head = record;
   }
   buffer->tail = record;
-  ++buffer->record_count;
+  record->ordinal = (uint32_t)buffer->record_count++;
   if (record->kind == IREE_HAL_AMD_XDNA_RECORD_DISPATCH) {
     if (!buffer->dispatch_run.first) {
       buffer->dispatch_run.first = record;
@@ -263,6 +263,10 @@ static iree_status_t iree_hal_amd_xdna_command_buffer_transfer(
     iree_host_size_t pattern_length, iree_const_byte_span_t update) {
   if (!target.length) {
     return iree_ok_status();
+  }
+  if (buffer->record_count == UINT32_MAX) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "XDNA command buffer operation limit reached");
   }
   IREE_RETURN_IF_ERROR(
       iree_hal_amd_xdna_command_buffer_capture_ref(buffer, target));
@@ -341,6 +345,10 @@ static iree_status_t iree_hal_amd_xdna_command_buffer_dispatch(
   if (!config.workgroup_count[0] || !config.workgroup_count[1] ||
       !config.workgroup_count[2]) {
     return iree_ok_status();
+  }
+  if (buffer->record_count == UINT32_MAX) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "XDNA command buffer operation limit reached");
   }
   iree_hal_amd_xdna_function_t* function = NULL;
   IREE_RETURN_IF_ERROR(

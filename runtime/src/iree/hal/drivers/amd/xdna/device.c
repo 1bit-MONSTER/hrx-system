@@ -140,6 +140,9 @@ static void iree_hal_amd_xdna_device_finalize(void* user_data) {
   iree_hal_queue_t* queue = device->queue;
   device->queue = NULL;
   iree_hal_queue_release(queue);
+  if (device->context->result_buffer_retained) {
+    return;
+  }
   iree_hal_allocator_release(device->allocator);
   iree_hal_amd_xdna_command_arena_free(device->command_arena);
   iree_hal_memory_maintenance_release(device->memory.maintenance);
@@ -423,7 +426,7 @@ static iree_status_t iree_hal_amd_xdna_device_profiling_begin(
   iree_hal_amd_xdna_device_t* self = (void*)device;
   return iree_hal_amd_xdna_queue_profiling_begin(
       self->queue, self->topology.topology ? self->topology.topology_index : 0,
-      options);
+      self->command_arena, options);
 }
 
 static iree_status_t iree_hal_amd_xdna_device_profiling_flush(

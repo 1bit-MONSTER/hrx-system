@@ -168,7 +168,7 @@ python dev.py bazel run --config=opt \
   //loom/src/loom/tools/iree-benchmark-loom -- \
   loom/src/loom/tooling/target/amd/xdna/test/hal_execution.loom \
   --device=xdna --benchmark=@serial_array_latency --batch-size=64 \
-  --profile-data=queue-events,host-execution
+  --profile-data=queue-events,host-execution,counters
 ```
 
 `QUEUE_EVENTS` describes public submissions, dependency deferral, payload
@@ -177,18 +177,53 @@ command preparation/publication and mapped host work. Native spans finish when
 publication returns; they exclude NPU execution and completion waits. Callback
 spans cover the callback body until it returns. File spans cover preparation and
 final cache publication, excluding asynchronous file I/O.
-`LIGHTWEIGHT_STATISTICS` selects these two host families. Device
-dispatch events, device timestamps, counters, and executable metadata are not
-provided by this recorder; requests for unsupported families fail explicitly.
-The benchmark's default device-dispatch profile therefore requires the explicit
-host-family selection above for XDNA.
+`LIGHTWEIGHT_STATISTICS` selects these two host families.
+
+`COUNTER_SAMPLES` records `invocation_cycles`: the partition-shim timer delta
+inside the compiler-declared invocation interval. Generated pipelines bracket
+worker activation through completion waits; array programs bracket their control
+phase after resident activation. Authored configuration declares the interval
+with `measure.begin` / `measure.end`. The interval cannot contain a timer reset,
+and ordinary executable commands contain no result-producing instructions.
+Missing interval metadata fails the capture while ordinary execution continues.
+These are cycle counts, not device-wide busy cycles or elapsed nanoseconds: no
+shared epoch or stable operating frequency is implied. Device dispatch timelines
+and clock correlations remain unsupported and requests fail explicitly.
+
+Counter captures include executable/function metadata for attribution;
+`EXECUTABLE_METADATA` also works alone without native instrumentation. Use the
+benchmark's reported `artifact_path` with `iree-profile counter --format=jsonl`
+to inspect per-function aggregates, or add `--counter_samples` for individual
+invocations. The benchmark's dispatch-time summary does not convert these cycle
+counters into a duration distribution. The counter name `invocation_cycles` may
+be requested explicitly, and capture filters select functions, command buffers,
+command indices, physical devices, and queues.
 
 Profiling begin/end follows the HAL idle-device contract. Begin allocates one
-packed session with 4096 records per enabled stream; completed records are
-appended without allocation or sink calls. Flush can run with work in flight
-and sends stable snapshots outside queue and recording locks. Full rings report
-dropped records through `TRUNCATED` chunks. Failed sink writes retain the
-snapshot for retry; end releases session storage even when a sink fails.
+packed host session with 4096 records per enabled host stream; completed records
+are appended without allocation or sink calls. Flush can run with work in flight
+and sends stable host snapshots outside queue and recording locks. Full host
+rings report dropped records through `TRUNCATED` chunks. Failed host sink writes
+retain the snapshot for retry.
+
+Native capture reserves a finite result destination and a placed attribution
+ledger for at most 4096 commands, reduced by native capacity. Attachment occurs
+once at begin; collection and removal occur at idle end. Flush neither collects
+native results nor recovers this budget. Selected prepared commands reserve
+capacity once, including across native BUSY retries; only accepted commands enter
+the result ledger. Capacity exhaustion stops adding timer instructions, preserves
+workload execution, and reports `RESOURCE_EXHAUSTED` at end. A rejected command
+conservatively consumes its reservation. Missing or extra native records fail
+the entire capture before cycle samples are published.
+
+The first measured use of each exclusive invocation allocates a reusable command
+copy containing two fixed timer instructions. Unchanged warm bindings reuse the
+copy without allocation, patching, or cache publication. Changed bindings patch
+only their admitted address fields. Native arrays and queue scheduling remain
+unchanged; there are no per-command result controls, waits, or extra thread hops.
+End retains executable metadata until serialization, then releases session
+resources even if a sink fails. An ambiguous native result-control failure
+retains the result backing, arena, context, and native parents with a diagnostic.
 Disabled profiling performs no clock reads or profile allocation.
 
 ## Verification

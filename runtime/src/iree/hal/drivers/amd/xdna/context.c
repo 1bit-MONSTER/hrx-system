@@ -17,7 +17,7 @@ void iree_hal_amd_xdna_context_report(
 }
 
 void iree_hal_amd_xdna_context_free(iree_hal_amd_xdna_context_t* context) {
-  if (!context) {
+  if (!context || context->result_buffer_retained) {
     return;
   }
   if (context->handle) {

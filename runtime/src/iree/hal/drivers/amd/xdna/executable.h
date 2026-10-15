@@ -86,6 +86,28 @@ iree_status_t iree_hal_amd_xdna_invocation_prepare_measurement(
     iree_hal_amd_xdna_invocation_t* invocation,
     amdf_xdna_kernel_command_t* out_command);
 
+// Borrowed attribution for an admitted invocation. Its executable dominates
+// the name and must be retained when this identity outlives queue retirement.
+typedef struct iree_hal_amd_xdna_invocation_info_t {
+  // Owning executable, borrowed.
+  iree_hal_executable_t* executable;
+  // Process-local stable identity, independent of pointer reuse.
+  uint64_t executable_id;
+  // Dense executable function ordinal.
+  uint32_t function_ordinal;
+  // Borrowed function name from the admitted image.
+  iree_string_view_t name;
+} iree_hal_amd_xdna_invocation_info_t;
+
+// Returns immutable attribution without reflection lookup or allocation.
+iree_hal_amd_xdna_invocation_info_t iree_hal_amd_xdna_invocation_info(
+    const iree_hal_amd_xdna_invocation_t* invocation);
+
+// Identifies which of the invocation's two prepared forms was submitted.
+bool iree_hal_amd_xdna_invocation_is_measured(
+    const iree_hal_amd_xdna_invocation_t* invocation,
+    const amdf_xdna_kernel_command_t* command);
+
 // Returns exclusively owned storage after rejection or checked retirement.
 // Safe concurrently with acquisition on another queue; performs no native work.
 // A NULL invocation requires no action.

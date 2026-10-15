@@ -69,6 +69,8 @@ struct iree_hal_amd_xdna_invocation_t {
 };
 
 struct iree_hal_amd_xdna_function_t {
+  // Borrowed executable identity, dominating the function lifetime.
+  iree_hal_executable_t* executable;
   // Borrowed native device owner.
   iree_hal_amd_xdna_context_t* context;
   // Host owner for cold invocation growth.
@@ -104,6 +106,8 @@ typedef struct iree_hal_amd_xdna_executable_t {
   iree_allocator_t host_allocator;
   // Immutable image retaining its copied source bytes.
   iree_hal_amd_xdna_image_t* image;
+  // Process-local identity used by optional profiling sessions.
+  uint64_t profile_id;
   // Number of entries in the admitted image.
   uint32_t function_count;
   // Owned function array; partially initialized during construction.
@@ -111,6 +115,8 @@ typedef struct iree_hal_amd_xdna_executable_t {
 } iree_hal_amd_xdna_executable_t;
 
 static const iree_hal_executable_vtable_t iree_hal_amd_xdna_executable_vtable;
+static iree_atomic_int64_t iree_hal_amd_xdna_next_executable_id =
+    IREE_ATOMIC_VAR_INIT(1);
 
 static iree_hal_memory_access_t iree_hal_amd_xdna_required_binding_access(
     iree_xdna_elf_binding_access_t access) {
@@ -316,6 +322,7 @@ static iree_status_t iree_hal_amd_xdna_function_initialize(
   const iree_hal_amd_xdna_image_tables_t* tables =
       iree_hal_amd_xdna_image_tables(executable->image);
   iree_hal_amd_xdna_function_t* function = &executable->functions[ordinal];
+  function->executable = &executable->base;
   function->context = context;
   function->host_allocator = executable->host_allocator;
   function->command_arena = command_arena;
@@ -396,6 +403,8 @@ iree_status_t iree_hal_amd_xdna_executable_create(
   iree_hal_executable_initialize(family, &iree_hal_amd_xdna_executable_vtable,
                                  &executable->base);
   executable->host_allocator = host_allocator;
+  executable->profile_id = iree_atomic_fetch_add(
+      &iree_hal_amd_xdna_next_executable_id, 1, iree_memory_order_relaxed);
   iree_byte_span_t source = {NULL, params->executable_data.data_length};
   iree_status_t status = iree_allocator_clone(
       host_allocator, params->executable_data, (void**)&source.data);
@@ -900,3 +909,25 @@ static const iree_hal_executable_vtable_t iree_hal_amd_xdna_executable_vtable =
         .global_info = iree_hal_amd_xdna_executable_global_info,
         .global_buffer = iree_hal_amd_xdna_executable_global_buffer,
 };
+
+iree_hal_amd_xdna_invocation_info_t iree_hal_amd_xdna_invocation_info(
+    const iree_hal_amd_xdna_invocation_t* invocation) {
+  const iree_hal_amd_xdna_function_t* function = invocation->function;
+  const iree_hal_amd_xdna_executable_t* executable =
+      (const iree_hal_amd_xdna_executable_t*)function->executable;
+  return (iree_hal_amd_xdna_invocation_info_t){
+      .executable = function->executable,
+      .executable_id = executable->profile_id,
+      .function_ordinal = function->ordinal,
+      .name = iree_hal_amd_xdna_image_tables_entry_name(
+          iree_hal_amd_xdna_image_tables(function->image), &function->record),
+  };
+}
+
+bool iree_hal_amd_xdna_invocation_is_measured(
+    const iree_hal_amd_xdna_invocation_t* invocation,
+    const amdf_xdna_kernel_command_t* command) {
+  return invocation->measurement &&
+         command->memory == invocation->measurement->command.memory &&
+         command->byte_offset == invocation->measurement->command.byte_offset;
+}
