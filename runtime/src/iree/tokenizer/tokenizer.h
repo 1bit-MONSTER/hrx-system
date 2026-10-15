@@ -598,7 +598,9 @@ iree_host_size_t iree_tokenizer_encode_state_pending_token_bound(
 //
 // The function always makes progress if possible: it will consume input
 // and/or produce tokens. Returns iree_ok_status() even if not all input
-// was consumed (check out_bytes_consumed).
+// was consumed (check out_bytes_consumed). If output has no credit or input
+// ends inside a UTF-8 codepoint, it may return without progress. Retain the
+// unconsumed bytes and supply more input or output capacity before retrying.
 iree_status_t iree_tokenizer_encode_state_feed(
     iree_tokenizer_encode_state_t* state, iree_string_view_t chunk,
     iree_tokenizer_token_output_t output, iree_host_size_t* out_bytes_consumed,

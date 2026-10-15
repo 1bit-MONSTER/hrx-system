@@ -5,6 +5,7 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "iree/base/api.h"
@@ -18,13 +19,19 @@ class TokenizerInputTokensTest : public ::testing::Test {
  protected:
   void SetUp() override {
     static constexpr char kJson[] = R"({
+      "normalizer":{"type":"Lowercase"},
       "added_tokens":[
         {"id":10,"content":"<R>","single_word":false,"lstrip":false,
          "rstrip":false,"normalized":false,"special":true},
         {"id":11,"content":"<S>","single_word":false,"lstrip":false,
-         "rstrip":false,"normalized":false,"special":true}],
+         "rstrip":false,"normalized":false,"special":true},
+        {"id":12,"content":"<n>","single_word":false,"lstrip":false,
+         "rstrip":false,"normalized":true,"special":true},
+        {"id":13,"content":"<t>","single_word":false,"lstrip":false,
+         "rstrip":false,"normalized":true,"special":true}],
       "model":{"type":"BPE","vocab":{
-        "a":1,"b":2,"c":3,"<":4,">":5,"Q":6},"merges":[]}})";
+        "a":1,"b":2,"c":3,"<":4,">":5,"q":6,"é":7,"中":8,"🙂":9},
+        "merges":[]}})";
     IREE_ASSERT_OK(iree_tokenizer_from_huggingface_json(
         IREE_SV(kJson), iree_allocator_system(), &tokenizer_));
     iree_host_size_t state_size = 0;
@@ -70,23 +77,29 @@ class TokenizerInputTokensTest : public ::testing::Test {
 };
 
 TEST_F(TokenizerInputTokensTest, AcceptedMatchWaitsForOutputCredit) {
-  int32_t output = -1;
-  iree_host_size_t consumed = 0;
-  iree_host_size_t count = 0;
-  IREE_ASSERT_OK(iree_tokenizer_encode_state_feed(
-      state_, IREE_SV("<R>"),
-      iree_tokenizer_make_token_output(&output, nullptr, nullptr, 0), &consumed,
-      &count));
-  EXPECT_EQ(consumed, 3u);
-  EXPECT_EQ(count, 0u);
-  EXPECT_EQ(output, -1);
-  EXPECT_TRUE(iree_tokenizer_encode_state_has_pending(state_));
-  EXPECT_GE(iree_tokenizer_encode_state_pending_token_bound(state_), 1u);
+  for (const auto& item :
+       {std::make_pair("<R>", 10), std::make_pair("<N>", 12)}) {
+    SCOPED_TRACE(item.first);
+    IREE_ASSERT_OK(iree_tokenizer_encode_state_reset(
+        state_, IREE_TOKENIZER_ENCODE_FLAG_NONE));
+    int32_t output = -1;
+    iree_host_size_t consumed = 0;
+    iree_host_size_t count = 0;
+    IREE_ASSERT_OK(iree_tokenizer_encode_state_feed(
+        state_, iree_make_cstring_view(item.first),
+        iree_tokenizer_make_token_output(&output, nullptr, nullptr, 0),
+        &consumed, &count));
+    EXPECT_EQ(consumed, 3u);
+    EXPECT_EQ(count, 0u);
+    EXPECT_EQ(output, -1);
+    EXPECT_TRUE(iree_tokenizer_encode_state_has_pending(state_));
+    EXPECT_GE(iree_tokenizer_encode_state_pending_token_bound(state_), 1u);
 
-  // Finalization supplies the first output slot; no new input is necessary.
-  std::vector<int32_t> tokens;
-  Finalize(&tokens);
-  EXPECT_EQ(tokens, (std::vector<int32_t>{10}));
+    // Finalization supplies the first output slot; no new input is necessary.
+    std::vector<int32_t> tokens;
+    Finalize(&tokens);
+    EXPECT_EQ(tokens, (std::vector<int32_t>{item.second}));
+  }
 }
 
 TEST_F(TokenizerInputTokensTest,
@@ -104,6 +117,15 @@ TEST_F(TokenizerInputTokensTest,
       {"a<R>b<S>c", {1, 10, 2, 11, 3}},
       {"<Q><R>", {4, 6, 5, 10}},
       {"<R><", {10, 4}},
+      {"<N>", {12}},
+      {"<N><T>", {12, 13}},
+      {"<T><N>", {13, 12}},
+      {"a<N>b<T>c", {1, 12, 2, 13, 3}},
+      {"<N><R><T><S>", {12, 10, 13, 11}},
+      {"É", {7}},
+      {"中", {8}},
+      {"🙂", {9}},
+      {"aÉ<N>中<R>🙂b", {1, 7, 12, 8, 10, 9, 2}},
   };
   for (const auto& item : cases) {
     std::string input = item.input;
@@ -138,6 +160,41 @@ TEST_F(TokenizerInputTokensTest,
       EXPECT_EQ(position, input.size());
       Finalize(&tokens);
       EXPECT_EQ(tokens, item.expected);
+    }
+  }
+}
+
+TEST_F(TokenizerInputTokensTest, CompleteInputRejectsTruncatedUTF8) {
+  std::vector<uint8_t> batch_state(state_storage_.size());
+  std::vector<uint8_t> batch_transform(transform_storage_.size());
+  for (const std::string& codepoint : {"é", "中", "🙂"}) {
+    for (size_t length = 1; length < codepoint.size(); ++length) {
+      SCOPED_TRACE(codepoint);
+      SCOPED_TRACE(length);
+      int32_t output[16] = {};
+      iree_tokenizer_token_output_t token_output =
+          iree_tokenizer_make_token_output(output, nullptr, nullptr,
+                                           IREE_ARRAYSIZE(output));
+      iree_string_view_t input =
+          iree_make_string_view(codepoint.data(), length);
+      iree_host_size_t count = 0;
+      IREE_EXPECT_STATUS_IS(
+          IREE_STATUS_INVALID_ARGUMENT,
+          iree_tokenizer_encode(tokenizer_, input,
+                                IREE_TOKENIZER_ENCODE_FLAG_NONE, token_output,
+                                iree_allocator_system(), &count));
+      iree_tokenizer_encode_batch_item_t item = {
+          .text = input,
+          .output = token_output,
+      };
+      IREE_EXPECT_STATUS_IS(
+          IREE_STATUS_INVALID_ARGUMENT,
+          iree_tokenizer_encode_batch(
+              tokenizer_, &item, 1, IREE_TOKENIZER_ENCODE_FLAG_NONE,
+              iree_make_byte_span(batch_state.data(), batch_state.size()),
+              iree_make_byte_span(batch_transform.data(),
+                                  batch_transform.size()),
+              iree_tokenizer_offset_run_list_empty()));
     }
   }
 }

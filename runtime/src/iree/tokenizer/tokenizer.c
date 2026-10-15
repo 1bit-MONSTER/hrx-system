@@ -555,6 +555,13 @@ iree_string_view_t iree_tokenizer_model_type_name(
 // Batch Encode/Decode
 //===----------------------------------------------------------------------===//
 
+// Complete-input callers can diagnose a stall as an exhausted output span or
+// incomplete final input. Incremental callers may supply more of either.
+static iree_status_t iree_tokenizer_encode_state_feed_internal(
+    iree_tokenizer_encode_state_t* state, iree_string_view_t chunk,
+    iree_tokenizer_token_output_t output, bool is_final_input,
+    iree_host_size_t* out_bytes_consumed, iree_host_size_t* out_token_count);
+
 iree_status_t iree_tokenizer_encode(const iree_tokenizer_t* tokenizer,
                                     iree_string_view_t text,
                                     iree_tokenizer_encode_flags_t flags,
@@ -621,8 +628,9 @@ iree_status_t iree_tokenizer_encode(const iree_tokenizer_t* tokenizer,
             output.token_offsets ? &output.token_offsets[total_tokens] : NULL,
         .type_ids = output.type_ids ? &output.type_ids[total_tokens] : NULL,
     };
-    status = iree_tokenizer_encode_state_feed(state, text, sub_output,
-                                              &bytes_consumed, &tokens_written);
+    status = iree_tokenizer_encode_state_feed_internal(
+        state, text, sub_output, /*is_final_input=*/true, &bytes_consumed,
+        &tokens_written);
     total_tokens += tokens_written;
     text.data += bytes_consumed;
     text.size -= bytes_consumed;
@@ -895,8 +903,9 @@ static iree_status_t iree_tokenizer_encode_batch_feed_sequence(
     iree_host_size_t tokens_written = 0;
     iree_tokenizer_token_output_t sub_output =
         iree_tokenizer_sub_token_output(output, *total_tokens);
-    iree_status_t status = iree_tokenizer_encode_state_feed(
-        state, text, sub_output, &bytes_consumed, &tokens_written);
+    iree_status_t status = iree_tokenizer_encode_state_feed_internal(
+        state, text, sub_output, /*is_final_input=*/true, &bytes_consumed,
+        &tokens_written);
     *total_tokens += tokens_written;
     if (!iree_status_is_ok(status)) {
       return status;
@@ -1617,6 +1626,9 @@ typedef enum iree_tokenizer_post_norm_match_result_e {
   IREE_TOKENIZER_POST_NORM_NO_MATCH = 0,
   // A special token was matched and emitted. Caller should re-enter loop.
   IREE_TOKENIZER_POST_NORM_MATCHED,
+  // Normalized input remains in the ring until token output has credit.
+  // Stop the pump without transferring those bytes to the segmenter/model.
+  IREE_TOKENIZER_POST_NORM_OUTPUT_FULL,
   // Partial match in progress - waiting for more normalized output. Block
   // segmenter from consuming partial match bytes.
   IREE_TOKENIZER_POST_NORM_NEED_MORE,
@@ -1665,6 +1677,9 @@ iree_tokenizer_encode_state_match_post_norm_special_tokens(
       iree_tokenizer_ring_get_segment_view(state);
   if (normalized_text.size == 0) {
     return IREE_TOKENIZER_POST_NORM_NO_MATCH;
+  }
+  if (*total_tokens == output.capacity) {
+    return IREE_TOKENIZER_POST_NORM_OUTPUT_FULL;
   }
 
   // When continuing a partial match (NEED_MORE), the match API contract
@@ -1761,19 +1776,17 @@ iree_tokenizer_encode_state_match_post_norm_special_tokens(
 
   if (result == IREE_TOKENIZER_SPECIAL_TOKENS_MATCHED) {
     // Emit the special token.
-    if (*total_tokens < output.capacity) {
-      output.token_ids[*total_tokens] = match_id;
-      iree_tokenizer_postprocessor_assign_type_ids(&state->postprocessor,
-                                                   output, *total_tokens, 1);
-      // Post-norm special tokens don't map directly to raw input bytes (they
-      // matched normalized text), so use zero-length offsets like the
-      // postprocessor does for added special tokens.
-      if (output.token_offsets) {
-        output.token_offsets[*total_tokens].start = 0;
-        output.token_offsets[*total_tokens].end = 0;
-      }
-      (*total_tokens)++;
+    output.token_ids[*total_tokens] = match_id;
+    iree_tokenizer_postprocessor_assign_type_ids(&state->postprocessor, output,
+                                                 *total_tokens, 1);
+    // Post-norm special tokens don't map directly to raw input bytes (they
+    // matched normalized text), so use zero-length offsets like the
+    // postprocessor does for added special tokens.
+    if (output.token_offsets) {
+      output.token_offsets[*total_tokens].start = 0;
+      output.token_offsets[*total_tokens].end = 0;
     }
+    (*total_tokens)++;
     // Advance segmenter_view_start past the matched bytes - the segmenter
     // won't see them. Include any bytes from a partial match continuation.
     iree_host_size_t skipped_bytes = already_matched + match_length;
@@ -2053,6 +2066,8 @@ static iree_status_t iree_tokenizer_encode_state_pump(
       case IREE_TOKENIZER_POST_NORM_MATCHED:
         // Token emitted. Re-enter loop to check for more matches.
         *out_made_progress = true;
+        return iree_ok_status();
+      case IREE_TOKENIZER_POST_NORM_OUTPUT_FULL:
         return iree_ok_status();
       case IREE_TOKENIZER_POST_NORM_NEED_MORE:
         // Partial match - waiting for more input. Block segmenter by setting
@@ -2576,10 +2591,10 @@ static iree_status_t iree_tokenizer_encode_state_pump(
   return iree_ok_status();
 }
 
-iree_status_t iree_tokenizer_encode_state_feed(
+static iree_status_t iree_tokenizer_encode_state_feed_internal(
     iree_tokenizer_encode_state_t* state, iree_string_view_t chunk,
-    iree_tokenizer_token_output_t output, iree_host_size_t* out_bytes_consumed,
-    iree_host_size_t* out_token_count) {
+    iree_tokenizer_token_output_t output, bool is_final_input,
+    iree_host_size_t* out_bytes_consumed, iree_host_size_t* out_token_count) {
   IREE_ASSERT_ARGUMENT(state);
   IREE_ASSERT_ARGUMENT(output.token_ids);
   IREE_ASSERT_ARGUMENT(out_bytes_consumed);
@@ -2612,23 +2627,24 @@ iree_status_t iree_tokenizer_encode_state_feed(
   *out_bytes_consumed = original_chunk_size - chunk.size;
   *out_token_count = total_tokens;
 
-  // Detect no-progress: input remains but feed() produced nothing.
-  // Disambiguate by the caller-supplied output capacity:
-  //   - capacity 0: the outer iree_tokenizer_encode loop has filled
-  //     the parent buffer; sub_output.capacity = output.capacity -
-  //     total_tokens reached 0 with input still pending. Caller
-  //     needs a bigger buffer (RESOURCE_EXHAUSTED).
-  //   - capacity > 0: pump had room and still didn't advance. A
-  //     real pump-invariant violation (ring smaller than
-  //     max_token_length, or a regression in partial-segment
-  //     handling). Surface as INTERNAL so the bug is loud.
-  if (iree_status_is_ok(status) && chunk.size > 0 && *out_bytes_consumed == 0 &&
-      total_tokens == 0) {
+  // Only complete-input callers know that no further input or output capacity
+  // will arrive. A streaming caller retains unconsumed bytes while waiting for
+  // more input (including a split UTF-8 codepoint) or output credit.
+  if (iree_status_is_ok(status) && is_final_input && chunk.size > 0 &&
+      *out_bytes_consumed == 0 && total_tokens == 0) {
     if (output.capacity == 0) {
       return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                               "encode: output buffer full with input remaining "
                               "(pending_input=%" PRIhsz " bytes)",
                               chunk.size);
+    }
+    if (iree_unicode_utf8_incomplete_tail_length(chunk.data, chunk.size) ==
+        chunk.size) {
+      return iree_make_status(
+          IREE_STATUS_INVALID_ARGUMENT,
+          "encode input ends with incomplete UTF-8 sequence "
+          "(%" PRIhsz " trailing bytes)",
+          chunk.size);
     }
     return iree_make_status(
         IREE_STATUS_INTERNAL,
@@ -2641,6 +2657,15 @@ iree_status_t iree_tokenizer_encode_state_feed(
   }
 
   return status;
+}
+
+iree_status_t iree_tokenizer_encode_state_feed(
+    iree_tokenizer_encode_state_t* state, iree_string_view_t chunk,
+    iree_tokenizer_token_output_t output, iree_host_size_t* out_bytes_consumed,
+    iree_host_size_t* out_token_count) {
+  return iree_tokenizer_encode_state_feed_internal(
+      state, chunk, output, /*is_final_input=*/false, out_bytes_consumed,
+      out_token_count);
 }
 
 static iree_status_t iree_tokenizer_encode_state_finalize_internal(
