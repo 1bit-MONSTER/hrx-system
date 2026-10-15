@@ -67,7 +67,7 @@ class ObservationClient {
     iree_net_carrier_retain(peer_);
     uint64_t wait_value = 0;
     const bool consumed =
-        loom_serve_http_server_try_accept(server, peer_, &wait_value);
+        loom_serve_http_server_try_accept(server, peer_, {}, &wait_value);
     if (!consumed) {
       iree_net_carrier_release(peer_);
     }

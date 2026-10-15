@@ -30,6 +30,8 @@ struct loom_serve_http_connection_t {
   http_connection_flags_t flags;
   // Carrier owns its socket and dedicated registered receive pool.
   iree_net_carrier_t* carrier;
+  // Returns exclusive transport resources after carrier retirement/release.
+  loom_serve_http_connection_release_callback_t release_callback;
   // Parser owns the complete request bytes through application release.
   loom_serve_http_request_parser_t* parser;
   // Borrowed complete request, published once under the mutex.
@@ -150,9 +152,10 @@ static void loom_serve_http_connection_send_completed(
   }
 }
 
-bool loom_serve_http_server_try_accept(loom_serve_http_server_t* server,
-                                       iree_net_carrier_t* carrier,
-                                       uint64_t* out_wait_value) {
+bool loom_serve_http_server_try_accept(
+    loom_serve_http_server_t* server, iree_net_carrier_t* carrier,
+    loom_serve_http_connection_release_callback_t release_callback,
+    uint64_t* out_wait_value) {
   *out_wait_value = 0;
   loom_serve_http_connection_t* connection = NULL;
   iree_slim_mutex_lock(&server->mutex);
@@ -163,6 +166,7 @@ bool loom_serve_http_server_try_accept(loom_serve_http_server_t* server,
         connection->flags =
             HTTP_CONNECTION_OCCUPIED | HTTP_CONNECTION_INITIALIZING;
         connection->carrier = carrier;
+        connection->release_callback = release_callback;
         break;
       }
     }
@@ -176,6 +180,9 @@ bool loom_serve_http_server_try_accept(loom_serve_http_server_t* server,
   iree_slim_mutex_unlock(&server->mutex);
   if (!connection) {
     iree_net_carrier_release(carrier);
+    if (release_callback.fn) {
+      release_callback.fn(release_callback.user_data);
+    }
     return true;
   }
 
@@ -231,6 +238,9 @@ static void loom_serve_http_connection_reclaim(
     loom_serve_http_connection_t* connection) {
   loom_serve_http_server_t* server = connection->server;
   iree_net_carrier_release(connection->carrier);
+  if (connection->release_callback.fn) {
+    connection->release_callback.fn(connection->release_callback.user_data);
+  }
   loom_serve_http_request_parser_free(connection->parser);
   if (!iree_status_is_ok(connection->failure)) {
     loom_serve_http_server_record_error(server, connection->failure);

@@ -27,6 +27,17 @@ extern "C" {
 typedef struct loom_serve_http_server_t loom_serve_http_server_t;
 typedef struct loom_serve_http_connection_t loom_serve_http_connection_t;
 
+// Releases resources borrowed by an accepted carrier after HTTP joins its I/O
+// and releases the carrier. The HTTP receiver never retains receive leases.
+// This returns exclusive receive storage to its originating cache without
+// coupling HTTP to a particular carrier or listener lifetime.
+typedef struct loom_serve_http_connection_release_callback_t {
+  // Optional resource release, called exactly once for a consumed carrier.
+  void (*fn)(void* user_data);
+  // Owned by the callback until invocation; may outlive the listener.
+  void* user_data;
+} loom_serve_http_connection_release_callback_t;
+
 // Transport budgets are independent of active model rows and queued admission.
 typedef struct loom_serve_http_server_options_t {
   // Maximum simultaneous connections, including queued and draining requests.
@@ -104,15 +115,17 @@ iree_async_semaphore_t* loom_serve_http_server_capacity_semaphore(
     loom_serve_http_server_t* server);
 
 // Tries to transfer a CREATED reliable ordered carrier to HTTP ownership. True
-// consumes it, activating it or releasing it if admission is closed/setup
-// fails. False leaves it caller-owned and sets out_wait_value to the next
-// capacity generation. No request bytes are consumed while waiting. Per-peer
-// failures are recorded without stopping other peers. Callers join all
-// accept/wait callbacks before destroying the server; concurrent accepts are
-// permitted.
-bool loom_serve_http_server_try_accept(loom_serve_http_server_t* server,
-                                       iree_net_carrier_t* carrier,
-                                       uint64_t* out_wait_value);
+// consumes it and |release_callback|, activating it or releasing it if
+// admission is closed/setup fails. The callback follows carrier release,
+// including these failure paths. False leaves both caller-owned and sets
+// out_wait_value to the next capacity generation. No request bytes are consumed
+// while waiting. Per-peer failures are recorded without stopping other peers.
+// Callers join all accept/wait callbacks before destroying the server;
+// concurrent accepts are permitted.
+bool loom_serve_http_server_try_accept(
+    loom_serve_http_server_t* server, iree_net_carrier_t* carrier,
+    loom_serve_http_connection_release_callback_t release_callback,
+    uint64_t* out_wait_value);
 
 // Collects retired connections and claims one completed request, or returns
 // null. The request and connection are borrowed until finish or abort. The

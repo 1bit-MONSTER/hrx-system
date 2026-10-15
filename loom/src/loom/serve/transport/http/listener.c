@@ -12,6 +12,7 @@
 
 #include "iree/async/api.h"
 #include "iree/base/threading/mutex.h"
+#include "loom/serve/transport/http/receive_cache.h"
 
 enum {
   HTTP_LISTENER_OPERATION = 1u << 0,
@@ -34,8 +35,8 @@ struct loom_serve_http_listener_t {
   iree_async_address_t address;
   // Exclusively owned filesystem path after successful Unix bind, else empty.
   char path[IREE_ASYNC_ADDRESS_MAX_FORMAT_LENGTH];
-  // Per-connection receive storage configuration, with default NUMA placement.
-  iree_async_slab_options_t receive;
+  // Idle registered receive storage, retained independently by acquired slots.
+  loom_serve_http_receive_cache_t* receive_cache;
   // Per-connection bounded send policy copied during construction.
   iree_net_stream_carrier_options_t send;
   // Joins publication and final callback accesses with retirement queries.
@@ -56,6 +57,8 @@ struct loom_serve_http_listener_t {
   struct {
     // Owned CREATED carrier until the server consumes it or the listener stops.
     iree_net_carrier_t* carrier;
+    // Exclusive receive slot transferred with the carrier to HTTP ownership.
+    loom_serve_http_receive_slot_t* receive_slot;
     // Borrowed capacity timeline and owned listener-local stop timeline.
     iree_async_semaphore_t* semaphores[2];
     // Next capacity generation and one-shot listener stop value (1).
@@ -70,29 +73,25 @@ struct loom_serve_http_listener_t {
 };
 
 static iree_status_t loom_serve_http_listener_create_carrier(
-    loom_serve_http_listener_t* listener, iree_async_socket_t* socket,
-    iree_net_carrier_t** out_carrier) {
-  *out_carrier = NULL;
-  iree_async_slab_t* slab = NULL;
-  IREE_RETURN_IF_ERROR(iree_async_slab_create(listener->receive,
-                                              listener->host_allocator, &slab));
-  iree_async_region_t* region = NULL;
-  iree_status_t status = iree_async_proactor_register_slab(
-      listener->proactor, slab, IREE_ASYNC_BUFFER_ACCESS_FLAG_WRITE, &region);
-  iree_async_buffer_pool_t* pool = NULL;
+    loom_serve_http_listener_t* listener, iree_async_socket_t* socket) {
+  IREE_TRACE_ZONE_BEGIN(z0);
+  loom_serve_http_receive_slot_t* slot = NULL;
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(z0, loom_serve_http_receive_cache_acquire(
+                                            listener->receive_cache, &slot));
+  iree_status_t status = iree_net_stream_carrier_create(
+      listener->proactor, socket, loom_serve_http_receive_slot_buffers(slot),
+      &listener->send, listener->host_allocator, &listener->admission.carrier);
   if (iree_status_is_ok(status)) {
-    status =
-        iree_async_buffer_pool_create(region, listener->host_allocator, &pool);
+    listener->admission.receive_slot = slot;
+  } else {
+    loom_serve_http_receive_slot_recycle(slot);
   }
-  if (iree_status_is_ok(status)) {
-    status = iree_net_stream_carrier_create(
-        listener->proactor, socket, pool, &listener->send,
-        listener->host_allocator, out_carrier);
-  }
-  iree_async_buffer_pool_release(pool);
-  iree_async_region_release(region);
-  iree_async_slab_release(slab);
+  IREE_TRACE_ZONE_END(z0);
   return status;
+}
+
+static void loom_serve_http_listener_recycle_receive_slot(void* user_data) {
+  loom_serve_http_receive_slot_recycle(user_data);
 }
 
 static void loom_serve_http_listener_cancel_retired(void* user_data) {
@@ -115,8 +114,7 @@ static void loom_serve_http_listener_completed(
   if (operation == &listener->accept.base) {
     if (admit) {
       iree_status_t peer_status = loom_serve_http_listener_create_carrier(
-          listener, listener->accept.accepted_socket,
-          &listener->admission.carrier);
+          listener, listener->accept.accepted_socket);
       if (!iree_status_is_ok(peer_status)) {
         loom_serve_http_server_record_error(listener->server, peer_status);
         iree_status_free(peer_status);
@@ -126,10 +124,14 @@ static void loom_serve_http_listener_completed(
     listener->accept.accepted_socket = NULL;
   }
   if (admit && listener->admission.carrier &&
-      loom_serve_http_server_try_accept(listener->server,
-                                        listener->admission.carrier,
-                                        &listener->admission.values[0])) {
+      loom_serve_http_server_try_accept(
+          listener->server, listener->admission.carrier,
+          (loom_serve_http_connection_release_callback_t){
+              loom_serve_http_listener_recycle_receive_slot,
+              listener->admission.receive_slot},
+          &listener->admission.values[0])) {
     listener->admission.carrier = NULL;
+    listener->admission.receive_slot = NULL;
   }
 
   iree_slim_mutex_lock(&listener->mutex);
@@ -170,6 +172,8 @@ static void loom_serve_http_listener_completed(
     // This carrier was never activated or transferred to the HTTP owner.
     iree_net_carrier_release(listener->admission.carrier);
     listener->admission.carrier = NULL;
+    loom_serve_http_receive_slot_recycle(listener->admission.receive_slot);
+    listener->admission.receive_slot = NULL;
   }
   const bool cancel_pending =
       iree_any_bit_set(listener->pending, HTTP_LISTENER_CANCEL);
@@ -270,6 +274,7 @@ iree_status_t loom_serve_http_listener_free(
                           loom_serve_http_listener_stopped, listener,
                           iree_infinite_timeout());
   iree_async_socket_release(listener->socket);
+  loom_serve_http_receive_cache_release(listener->receive_cache);
   iree_async_semaphore_release(listener->admission.semaphores[1]);
   iree_status_t status = listener->failure;
   if (listener->path[0] && remove(listener->path) != 0) {
@@ -328,8 +333,6 @@ iree_status_t loom_serve_http_listener_allocate(
   listener->admission.semaphores[0] =
       loom_serve_http_server_capacity_semaphore(server);
   listener->admission.values[1] = 1;
-  listener->receive.buffer_size = options->receive_buffer_size;
-  listener->receive.buffer_count = options->receive_buffer_count;
   listener->send = options->send;
   iree_slim_mutex_initialize(&listener->mutex);
   iree_notification_initialize(&listener->notification);
@@ -343,6 +346,12 @@ iree_status_t loom_serve_http_listener_allocate(
   if (iree_status_is_ok(status)) {
     listener->proactor =
         iree_async_proactor_pool_entry_proactor(listener->entry);
+    status = loom_serve_http_receive_cache_create(
+        listener->entry, options->receive_buffer_size,
+        options->receive_buffer_count, host_allocator,
+        &listener->receive_cache);
+  }
+  if (iree_status_is_ok(status)) {
     status =
         iree_async_semaphore_create(listener->proactor, 0, 0, host_allocator,
                                     &listener->admission.semaphores[1]);

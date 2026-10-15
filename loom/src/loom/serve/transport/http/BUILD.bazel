@@ -69,10 +69,36 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "receive_cache",
+    srcs = ["receive_cache.c"],
+    hdrs = ["receive_cache.h"],
+    deps = [
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/async/util:proactor_pool",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/threading",
+    ],
+)
+
+loom_cc_test(
+    name = "receive_cache_test",
+    srcs = ["receive_cache_test.cc"],
+    deps = [
+        ":receive_cache",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/async/util:proactor_pool",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
     name = "listener",
     srcs = ["listener.c"],
     hdrs = ["listener.h"],
     deps = [
+        ":receive_cache",
         ":server",
         "//runtime/src/iree/async",
         "//runtime/src/iree/async/util:proactor_pool",
