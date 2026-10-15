@@ -93,6 +93,8 @@ loom_cc_library(
     loom::serve::server::model_registration
     loom::serve::server::registry
     loom::serve::server::router
+    loom::serve::service::finite::component
+    loom::serve::service::finite::model
     loom::serve::service::text::chat
     loom::serve::service::text::input
     loom::serve::service::text::model
@@ -119,9 +121,11 @@ loom_cc_library(
   NAME
     source_lifecycle_tests
   SRCS
+    "component_service_test.cc"
     "source_lifecycle_test.cc"
   DEPS
     ::source_service_fixture
+    loom::serve::service::finite::component
     loom::serve::telemetry::latency
   TESTONLY
   ALWAYSLINK
@@ -752,6 +756,7 @@ loom_cc_library(
     loom::serve::runtime::host::wake
     loom::serve::service
     loom::serve::service::execution_reconfiguration
+    loom::serve::service::finite::component
     loom::serve::telemetry::record
     loom::serve::telemetry::stream
     loom::serve::transport::http::request
