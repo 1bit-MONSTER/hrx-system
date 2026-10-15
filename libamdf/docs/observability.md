@@ -12,11 +12,39 @@ Extension negotiation establishes that an API table is present. The selected
 queue family, live device, context, or native service establishes which
 operations are available.
 
+The device-independent `AMDF_EXTENSION_OBSERVATION` table supplies the profiling
+host clock. `query_host_clock_info` returns its frequency and counter width;
+`query_host_clock` reads its ticks. Neither requires an instance or device.
+CPU intervals and the host anchors for every GPU/NPU source can therefore use
+one portable timebase without calling native clock APIs. The caller queries
+units once and subtracts timestamps before converting a duration:
+
+```c
+const void* extension = NULL;
+amdf_status_t status = api->query_extension(
+    AMDF_EXTENSION_OBSERVATION, AMDF_OBSERVATION_EXTENSION_VERSION_1,
+    AMDF_OBSERVATION_EXTENSION_VERSION_LATEST, &extension);
+// Handle status before consuming extension or any subsequent output.
+const amdf_observation_api_t* observation = extension;
+amdf_observation_clock_info_t host_clock = {0};
+status = observation->query_host_clock_info(&host_clock);
+uint64_t before = 0, after = 0;
+status = observation->query_host_clock(&before);
+// Perform CPU work, or publish and observe the intended device work.
+status = observation->query_host_clock(&after);
+double duration_ns = (double)(after - before) * 1e9 / host_clock.frequency_hz;
+```
+
+The host clock is independent of wall-clock adjustments. Its epoch is shared
+by callers on that host within one boot, including separate provider instances.
+It does not establish a common epoch between network nodes. Suspend, device
+reset, and observation-source loss require refreshing device/host relations.
+
 ## Selecting a source
 
 | Observation | Selection and output | Readiness and reuse |
 | --- | --- | --- |
-| CPU submission and completion observation | The caller's monotonic host clock around its actual publication and completion operations. | Measures host-observed latency, including scheduling and observation delay. It does not supply device execution timestamps. |
+| CPU submission and completion observation | Observation extension host-clock reads around the caller's actual publication and completion operations. | Measures host-observed latency, including scheduling and observation delay. It does not supply device execution timestamps. |
 | GPU PM4 or AQL-carried command-processor clock | Caller-written native timestamp commands and destination storage. `device_query_queue_clock_info` supplies nominal units for the selected queue family. | The command's pipeline stage and explicit dependencies determine what it measures. Result-write completion and the memory edge precede collection. |
 | GPU SDMA clock | Caller-written `TIMESTAMP_GET_GLOBAL` commands around the intended transfer work. The same queue-clock query supplies nominal units. | The caller orders payload release and completion after the ending sample, then acquires the result before reuse. |
 | AQL dispatch interval | An AQL family advertises `DISPATCH_TIMESTAMPS`; queue creation selects `AMDF_GPU_USER_QUEUE_FLAG_DISPATCH_TIMESTAMPS`. Firmware writes the dispatch's native completion signal. | Each observed dispatch owns an exclusive signal through completion and timestamp consumption. Capture is a queue-lifetime option, while the caller chooses which dispatches receive observation signals. |

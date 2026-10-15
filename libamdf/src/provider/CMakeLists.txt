@@ -51,6 +51,7 @@ iree_cc_library(
     libamdf::src::memory_reservation
     libamdf::src::memory_scope
     libamdf::src::memory_scope_state
+    libamdf::src::observation
     libamdf::src::platform
     libamdf::src::structure
     libamdf::src::user_queue

@@ -16,6 +16,15 @@ package(
 WINDOWS_COMPATIBILITY = ["@platforms//os:windows"]
 
 amdf_cc_library(
+    name = "observation",
+    srcs = ["observation.c"],
+    linkopts = ["mincore.lib"],
+    target_compatible_with = WINDOWS_COMPATIBILITY,
+    visibility = ["//libamdf/src/platform:__pkg__"],
+    deps = ["//libamdf/src/platform:observation"],
+)
+
+amdf_cc_library(
     name = "wait",
     srcs = ["wait.c"],
     linkopts = ["mincore.lib"],
