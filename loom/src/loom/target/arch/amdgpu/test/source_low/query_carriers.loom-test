@@ -1,0 +1,349 @@
+// RUN: emit source-low target=amdgpu:gfx11-generic output=low
+
+// Hardware coordinates seed loops whose later iterations carry values above
+// 32 bits. Hardware imports and arithmetic remain one word; the loop entries
+// receive the zero-extended values selected by representation planning.
+kernel.def @wide_query_loops() {
+  %groups = index.constant 2 : index
+  %width = index.constant 8 : index
+  %height = index.constant 4 : index
+  kernel.launch.config workgroups(%groups, %groups, %groups) workgroup_size(%width, %height, %height) : index
+} launch(%output: buffer) {
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<1024x3x15xi64>
+  %row_width = index.constant 16 : index
+  %plane_rows = index.constant 128 : index
+  %iterations = scalar.constant 2 : i32
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %local_x = kernel.workitem.id<x> : index
+  %local_y = kernel.workitem.id<y> : index
+  %local_z = kernel.workitem.id<z> : index
+  %group_x = kernel.workgroup.id<x> : index
+  %group_y = kernel.workgroup.id<y> : index
+  %group_z = kernel.workgroup.id<z> : index
+  %group_size = kernel.workgroup.size<x> : index
+  %group_count = kernel.workgroup.count<x> : index
+  %global_x = kernel.workitem.dispatch.id<x> : index
+  %global_y = kernel.workitem.dispatch.id<y> : index
+  %global_z = kernel.workitem.dispatch.id<z> : index
+  %subgroup_size = kernel.subgroup.size : index
+  %subgroup_count = kernel.subgroup.count : index
+  %subgroup_id = kernel.subgroup.id : index
+  %lane = kernel.subgroup.lane.id : index
+  %row_y = index.madd %global_y, %row_width, %global_x : index
+  %row = index.madd %global_z, %plane_rows, %row_y : index
+  // Distinct backedge values keep the query carrier components independent.
+  %wide_local_x = index.constant 4294967303 : index
+  %wide_local_y = index.constant 4294967304 : index
+  %wide_local_z = index.constant 4294967305 : index
+  %wide_group_x = index.constant 4294967306 : index
+  %wide_group_y = index.constant 4294967307 : index
+  %wide_group_z = index.constant 4294967308 : index
+  %wide_group_size = index.constant 4294967309 : index
+  %wide_group_count = index.constant 4294967310 : index
+  %wide_global_x = index.constant 4294967311 : index
+  %wide_global_y = index.constant 4294967312 : index
+  %wide_global_z = index.constant 4294967313 : index
+  %wide_subgroup_size = index.constant 4294967314 : index
+  %wide_subgroup_count = index.constant 4294967315 : index
+  %wide_subgroup_id = index.constant 4294967316 : index
+  %wide_lane = index.constant 4294967317 : index
+  cfg.br ^loop(%iterations: i32, %local_x: index, %local_y: index, %local_z: index, %group_x: index, %group_y: index, %group_z: index, %group_size: index, %group_count: index, %global_x: index, %global_y: index, %global_z: index, %subgroup_size: index, %subgroup_count: index, %subgroup_id: index, %lane: index)
+^loop(%remaining: i32, %value_local_x: index, %value_local_y: index, %value_local_z: index, %value_group_x: index, %value_group_y: index, %value_group_z: index, %value_group_size: index, %value_group_count: index, %value_global_x: index, %value_global_y: index, %value_global_z: index, %value_subgroup_size: index, %value_subgroup_count: index, %value_subgroup_id: index, %value_lane: index):
+  %slot_value = index.cast %remaining : i32 to index
+  %slot = index.assume %slot_value [range(%slot_value, 0, 2)] : index
+  %bits_local_x = index.cast %value_local_x : index to i64
+  view.store %bits_local_x, %view[%row, %slot, 0] : i64, view<1024x3x15xi64>
+  %bits_local_y = index.cast %value_local_y : index to i64
+  view.store %bits_local_y, %view[%row, %slot, 1] : i64, view<1024x3x15xi64>
+  %bits_local_z = index.cast %value_local_z : index to i64
+  view.store %bits_local_z, %view[%row, %slot, 2] : i64, view<1024x3x15xi64>
+  %bits_group_x = index.cast %value_group_x : index to i64
+  view.store %bits_group_x, %view[%row, %slot, 3] : i64, view<1024x3x15xi64>
+  %bits_group_y = index.cast %value_group_y : index to i64
+  view.store %bits_group_y, %view[%row, %slot, 4] : i64, view<1024x3x15xi64>
+  %bits_group_z = index.cast %value_group_z : index to i64
+  view.store %bits_group_z, %view[%row, %slot, 5] : i64, view<1024x3x15xi64>
+  %bits_group_size = index.cast %value_group_size : index to i64
+  view.store %bits_group_size, %view[%row, %slot, 6] : i64, view<1024x3x15xi64>
+  %bits_group_count = index.cast %value_group_count : index to i64
+  view.store %bits_group_count, %view[%row, %slot, 7] : i64, view<1024x3x15xi64>
+  %bits_global_x = index.cast %value_global_x : index to i64
+  view.store %bits_global_x, %view[%row, %slot, 8] : i64, view<1024x3x15xi64>
+  %bits_global_y = index.cast %value_global_y : index to i64
+  view.store %bits_global_y, %view[%row, %slot, 9] : i64, view<1024x3x15xi64>
+  %bits_global_z = index.cast %value_global_z : index to i64
+  view.store %bits_global_z, %view[%row, %slot, 10] : i64, view<1024x3x15xi64>
+  %bits_subgroup_size = index.cast %value_subgroup_size : index to i64
+  view.store %bits_subgroup_size, %view[%row, %slot, 11] : i64, view<1024x3x15xi64>
+  %bits_subgroup_count = index.cast %value_subgroup_count : index to i64
+  view.store %bits_subgroup_count, %view[%row, %slot, 12] : i64, view<1024x3x15xi64>
+  %bits_subgroup_id = index.cast %value_subgroup_id : index to i64
+  view.store %bits_subgroup_id, %view[%row, %slot, 13] : i64, view<1024x3x15xi64>
+  %bits_lane = index.cast %value_lane : index to i64
+  view.store %bits_lane, %view[%row, %slot, 14] : i64, view<1024x3x15xi64>
+  %more = scalar.cmpi sgt, %remaining, %c0 : i32
+  cfg.cond_br %more, ^body, ^exit
+^body:
+  %next = scalar.subi %remaining, %c1 : i32
+  cfg.br ^loop(%next: i32, %wide_local_x: index, %wide_local_y: index, %wide_local_z: index, %wide_group_x: index, %wide_group_y: index, %wide_group_z: index, %wide_group_size: index, %wide_group_count: index, %wide_global_x: index, %wide_global_y: index, %wide_global_z: index, %wide_subgroup_size: index, %wide_subgroup_count: index, %wide_subgroup_id: index, %wide_lane: index)
+^exit:
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.gfx11.generic.core> abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 1, resource_count = 1, resource_offsets = [0], resource_parameter_indices = [0], uses_kernarg_segment_ptr = true}) workgroup_size(8, 4, 4) workgroup_count(2, 2, 2) @wide_query_loops() asm {
+  %189 = live_in<amdgpu.workgroup_id.x> : reg<amdgpu.sgpr>
+  %190 = live_in<amdgpu.workgroup_id.y> : reg<amdgpu.sgpr>
+  %191 = live_in<amdgpu.workgroup_id.z> : reg<amdgpu.sgpr>
+  %packed_tid = live_in<amdgpu.workitem_id.packed.xyz> : reg<amdgpu.vgpr>
+  %193 = s_mov_b32 0
+  %view = resource<hal_binding> {extent = 368640, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %iterations = s_mov_b32 2
+  %202 = v_and_b32_lit %packed_tid, 1023
+  %203 = v_mov_b32 0
+  %local_x = concat(%202, %203) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %205 = v_lshrrev_b32_src0_inline %packed_tid, 10
+  %206 = v_and_b32_lit %205, 1023
+  %local_y = concat(%206, %203) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %209 = v_lshrrev_b32_src0_inline %packed_tid, 20
+  %210 = v_and_b32_lit %209, 1023
+  %local_z = concat(%210, %203) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %213 = s_mov_b32 8
+  %220 = v_mov_b32_copy %189
+  %221 = v_lshlrev_b32_src0_inline %220, 3
+  %222 = v_add_u32 %221, %202
+  %global_x = concat(%222, %203) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %227 = v_mov_b32_copy %190
+  %228 = v_lshlrev_b32_src0_inline %227, 2
+  %229 = v_add_u32 %228, %206
+  %global_y = concat(%229, %203) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %234 = v_mov_b32_copy %191
+  %235 = v_lshlrev_b32_src0_inline %234, 2
+  %236 = v_add_u32 %235, %210
+  %global_z = concat(%236, %203) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %239 = s_mov_b32 32
+  %242 = s_mov_b32 4
+  %248 = v_lshlrev_b32_src0_inline %206, 3
+  %249 = v_add_u32 %202, %248
+  %252 = v_lshlrev_b32_src0_inline %210, 5
+  %253 = v_add_u32 %249, %252
+  %254 = v_lshrrev_b32_src0_inline %253, 5
+  %255 = v_readfirstlane_b32 %254
+  %256 = s_mov_b32 0
+  %258 = v_and_b32_lit %packed_tid, 1023
+  %259 = v_lshrrev_b32_src0_inline %packed_tid, 10
+  %260 = v_and_b32_lit %259, 1023
+  %261 = v_lshlrev_b32_src0_inline %260, 3
+  %262 = v_add_u32 %258, %261
+  %263 = v_lshrrev_b32_src0_inline %packed_tid, 20
+  %264 = v_and_b32_lit %263, 1023
+  %265 = v_lshlrev_b32_src0_inline %264, 5
+  %266 = v_add_u32 %262, %265
+  %267 = v_and_b32_src0_inline %266, 31
+  %268 = v_mov_b32 0
+  %lane = concat(%267, %268) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %row_y = v_lshl_add_u32_shift_imm %229, %222, 4
+  %row = v_lshl_add_u32_shift_imm %236, %row_y, 7
+  %275 = v_mov_b32 7
+  %276 = v_mov_b32 1
+  %wide_local_x = concat(%275, %276) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %278 = v_mov_b32 8
+  %wide_local_y = concat(%278, %276) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %281 = v_mov_b32 9
+  %wide_local_z = concat(%281, %276) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %284 = s_mov_b32 10
+  %285 = s_mov_b32 1
+  %287 = s_mov_b32 11
+  %290 = s_mov_b32 12
+  %293 = s_mov_b32 13
+  %296 = s_mov_b32 14
+  %299 = v_mov_b32 15
+  %wide_global_x = concat(%299, %276) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %302 = v_mov_b32 16
+  %wide_global_y = concat(%302, %276) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %305 = v_mov_b32 17
+  %wide_global_z = concat(%305, %276) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %308 = s_mov_b32 18
+  %311 = s_mov_b32 19
+  %314 = s_mov_b32 20
+  %317 = v_mov_b32 21
+  %wide_lane = concat(%317, %276) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  low.br ^loop(%iterations: reg<amdgpu.sgpr>, %local_x: reg<amdgpu.vgpr x2>, %local_y: reg<amdgpu.vgpr x2>, %local_z: reg<amdgpu.vgpr x2>, %189: reg<amdgpu.sgpr>, %193: reg<amdgpu.sgpr>, %190: reg<amdgpu.sgpr>, %191: reg<amdgpu.sgpr>, %213: reg<amdgpu.sgpr>, %iterations: reg<amdgpu.sgpr>, %global_x: reg<amdgpu.vgpr x2>, %global_y: reg<amdgpu.vgpr x2>, %global_z: reg<amdgpu.vgpr x2>, %239: reg<amdgpu.sgpr>, %242: reg<amdgpu.sgpr>, %255: reg<amdgpu.sgpr>, %256: reg<amdgpu.sgpr>, %lane: reg<amdgpu.vgpr x2>)
+^loop(%slot: reg<amdgpu.sgpr>, %bits_local_x: reg<amdgpu.vgpr x2>, %bits_local_y: reg<amdgpu.vgpr x2>, %bits_local_z: reg<amdgpu.vgpr x2>, %382: reg<amdgpu.sgpr>, %383: reg<amdgpu.sgpr>, %384: reg<amdgpu.sgpr>, %386: reg<amdgpu.sgpr>, %388: reg<amdgpu.sgpr>, %390: reg<amdgpu.sgpr>, %bits_global_x: reg<amdgpu.vgpr x2>, %bits_global_y: reg<amdgpu.vgpr x2>, %bits_global_z: reg<amdgpu.vgpr x2>, %392: reg<amdgpu.sgpr>, %394: reg<amdgpu.sgpr>, %396: reg<amdgpu.sgpr>, %397: reg<amdgpu.sgpr>, %bits_lane: reg<amdgpu.vgpr x2>):
+  %320 = s_mov_b32 15
+  %321 = s_mul_i32 %slot, %320
+  %322 = v_mov_b32_copy %321
+  %323 = v_mad_u32_u24_src1_lit %row, %322, 45
+  %324 = v_lshlrev_b32_src0_inline %323, 3
+  global_store_b64_saddr %324, %bits_local_x, %view
+  global_store_b64_saddr %324, %bits_local_y, %view {offset = 8}
+  global_store_b64_saddr %324, %bits_local_z, %view {offset = 16}
+  %328 = v_mov_b32_copy %382
+  %330 = v_mov_b32_copy %383
+  %331 = concat(%328, %330) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  global_store_b64_saddr %324, %331, %view {offset = 24}
+  %334 = v_mov_b32_copy %384
+  %337 = concat(%334, %330) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  global_store_b64_saddr %324, %337, %view {offset = 32}
+  %340 = v_mov_b32_copy %386
+  %343 = concat(%340, %330) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  global_store_b64_saddr %324, %343, %view {offset = 40}
+  %346 = v_mov_b32_copy %388
+  %349 = concat(%346, %330) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  global_store_b64_saddr %324, %349, %view {offset = 48}
+  %352 = v_mov_b32_copy %390
+  %355 = concat(%352, %330) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  global_store_b64_saddr %324, %355, %view {offset = 56}
+  global_store_b64_saddr %324, %bits_global_x, %view {offset = 64}
+  global_store_b64_saddr %324, %bits_global_y, %view {offset = 72}
+  global_store_b64_saddr %324, %bits_global_z, %view {offset = 80}
+  %361 = v_mov_b32_copy %392
+  %364 = concat(%361, %330) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  global_store_b64_saddr %324, %364, %view {offset = 88}
+  %367 = v_mov_b32_copy %394
+  %370 = concat(%367, %330) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  global_store_b64_saddr %324, %370, %view {offset = 96}
+  %373 = v_mov_b32_copy %396
+  %375 = v_mov_b32_copy %397
+  %bits_subgroup_id = concat(%373, %375) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  global_store_b64_saddr %324, %bits_subgroup_id, %view {offset = 104}
+  global_store_b64_saddr %324, %bits_lane, %view {offset = 112}
+  %more = s_cmp_gt_i32 %slot, %193
+  low.cond_br %more, ^body, ^exit : reg<amdgpu.scc>
+^body:
+  %380 = s_mov_b32 4294967295
+  %next = s_add_u32 %slot, %380
+  low.br ^loop(%next: reg<amdgpu.sgpr>, %wide_local_x: reg<amdgpu.vgpr x2>, %wide_local_y: reg<amdgpu.vgpr x2>, %wide_local_z: reg<amdgpu.vgpr x2>, %284: reg<amdgpu.sgpr>, %285: reg<amdgpu.sgpr>, %287: reg<amdgpu.sgpr>, %290: reg<amdgpu.sgpr>, %293: reg<amdgpu.sgpr>, %296: reg<amdgpu.sgpr>, %wide_global_x: reg<amdgpu.vgpr x2>, %wide_global_y: reg<amdgpu.vgpr x2>, %wide_global_z: reg<amdgpu.vgpr x2>, %308: reg<amdgpu.sgpr>, %311: reg<amdgpu.sgpr>, %314: reg<amdgpu.sgpr>, %285: reg<amdgpu.sgpr>, %wide_lane: reg<amdgpu.vgpr x2>)
+^exit:
+  return
+}
+
+// ====
+
+// RUN: emit source-low target=amdgpu:gfx11-generic output=low
+
+// Dynamic dispatch fields are loaded in their native widths even when a
+// connected control-flow component requires a wider published carrier.
+kernel.def @wide_dispatch_counts(%groups_x: index, %groups_y: index, %groups_z: index) {
+  %unit = index.constant 1 : index
+  %threads = index.constant 64 : index
+  kernel.launch.config workgroups(%groups_x, %groups_y, %groups_z) workgroup_size(%threads, %unit, %unit) : index
+} launch(%output: buffer) {
+  %group_x = kernel.workgroup.id<x> : index
+  %group_y = kernel.workgroup.id<y> : index
+  %group_z = kernel.workgroup.id<z> : index
+  %lane = kernel.workitem.id<x> : index
+  %c0_index = index.constant 0 : index
+  %first_x = index.cmp eq, %group_x, %c0_index : index
+  %first_y = index.cmp eq, %group_y, %c0_index : index
+  %first_z = index.cmp eq, %group_z, %c0_index : index
+  %first_lane = index.cmp eq, %lane, %c0_index : index
+  %first_xy = scalar.andi %first_x, %first_y : i1
+  %first_xyz = scalar.andi %first_xy, %first_z : i1
+  %leader = scalar.andi %first_xyz, %first_lane : i1
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %iterations = scalar.constant 2 : i32
+  %count_x = kernel.workgroup.count<x> : index
+  %count_y = kernel.workgroup.count<y> : index
+  %count_z = kernel.workgroup.count<z> : index
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<3x3xi64>
+  cfg.cond_br %leader, ^enter, ^exit
+^enter:
+  %wide_count_x = index.constant 4294967303 : index
+  %wide_count_y = index.constant 4294967304 : index
+  %wide_count_z = index.constant 4294967305 : index
+  cfg.br ^loop(%iterations: i32, %count_x: index, %count_y: index, %count_z: index)
+^loop(%remaining: i32, %value_count_x: index, %value_count_y: index, %value_count_z: index):
+  %slot_value = index.cast %remaining : i32 to index
+  %slot = index.assume %slot_value [range(%slot_value, 0, 2)] : index
+  %bits_count_x = index.cast %value_count_x : index to i64
+  view.store %bits_count_x, %view[%slot, 0] : i64, view<3x3xi64>
+  %bits_count_y = index.cast %value_count_y : index to i64
+  view.store %bits_count_y, %view[%slot, 1] : i64, view<3x3xi64>
+  %bits_count_z = index.cast %value_count_z : index to i64
+  view.store %bits_count_z, %view[%slot, 2] : i64, view<3x3xi64>
+  %more = scalar.cmpi sgt, %remaining, %c0 : i32
+  cfg.cond_br %more, ^body, ^exit
+^body:
+  %next = scalar.subi %remaining, %c1 : i32
+  cfg.br ^loop(%next: i32, %wide_count_x: index, %wide_count_y: index, %wide_count_z: index)
+^exit:
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.gfx11.generic.core> abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 1, resource_count = 1, resource_offsets = [0], resource_parameter_indices = [0], uses_kernarg_segment_ptr = true}) workgroup_size(64, 1, 1) @wide_dispatch_counts() asm {
+  %group_x = live_in<amdgpu.workgroup_id.x> : reg<amdgpu.sgpr>
+  %group_y = live_in<amdgpu.workgroup_id.y> : reg<amdgpu.sgpr>
+  %group_z = live_in<amdgpu.workgroup_id.z> : reg<amdgpu.sgpr>
+  %66 = live_in<amdgpu.dispatch_ptr> : reg<amdgpu.sgpr x2>
+  %lane = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
+  %view = resource<hal_binding> {extent = 72, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %69 = s_load_dword_offset_only %66 {offset = 12}
+  %70 = s_mov_b32 6
+  %71 = s_lshr_b32 %69, %70
+  %72 = s_load_dword_offset_only %66 {offset = 16}
+  %73 = s_load_dword_offset_only %66 {offset = 20}
+  %74 = v_mov_b32_copy %71
+  %75 = v_mov_b32 0
+  %count_x = concat(%74, %75) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %77 = v_mov_b32_copy %72
+  %count_y = concat(%77, %75) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %80 = v_mov_b32_copy %73
+  %count_z = concat(%80, %75) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %c0_index = s_mov_b32 0
+  %first_x = s_cmp_eq_i32 %group_x, %c0_index
+  %first_y = s_cmp_eq_i32 %group_y, %c0_index
+  %first_z = s_cmp_eq_i32 %group_z, %c0_index
+  %first_lane = v_cmp_eq_i32_src1_inline %lane {rhs = 0}
+  %89 = s_mov_b32 1
+  %90 = s_cselect_b32 %89, %c0_index, %first_x
+  %91 = s_cselect_b32 %89, %c0_index, %first_y
+  %92 = s_and_b32 %90, %91
+  %first_xy = s_cmp_lg_i32 %92, %c0_index
+  %96 = s_cselect_b32 %89, %c0_index, %first_xy
+  %97 = s_cselect_b32 %89, %c0_index, %first_z
+  %98 = s_and_b32 %96, %97
+  %first_xyz = s_cmp_lg_i32 %98, %c0_index
+  %102 = slice %first_lane[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %103 = s_cselect_b32 %102, %c0_index, %first_xyz
+  %104 = slice %first_lane[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %105 = s_cselect_b32 %104, %c0_index, %first_xyz
+  %leader = concat(%103, %105) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  %107, %108 = s_and_saveexec_b64 %leader
+  low.cond_br %108, ^enter, ^_bb4 : reg<amdgpu.scc>
+^enter:
+  %109 = v_mov_b32 7
+  %110 = v_mov_b32 1
+  %wide_count_x = concat(%109, %110) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %112 = v_mov_b32 8
+  %wide_count_y = concat(%112, %110) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %115 = v_mov_b32 9
+  %wide_count_z = concat(%115, %110) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %118 = v_mov_b32 2
+  %126 = s_mov_b64_exec_read
+  low.br ^loop(%118: reg<amdgpu.vgpr>, %count_x: reg<amdgpu.vgpr x2>, %count_y: reg<amdgpu.vgpr x2>, %count_z: reg<amdgpu.vgpr x2>)
+^loop(%remaining: reg<amdgpu.vgpr>, %bits_count_x: reg<amdgpu.vgpr x2>, %bits_count_y: reg<amdgpu.vgpr x2>, %bits_count_z: reg<amdgpu.vgpr x2>):
+  %119 = v_mov_b32 24
+  %120 = v_mul_lo_u32 %remaining, %119
+  global_store_b64_saddr %120, %bits_count_x, %view
+  global_store_b64_saddr %120, %bits_count_y, %view {offset = 8}
+  global_store_b64_saddr %120, %bits_count_z, %view {offset = 16}
+  %more = v_cmp_gt_i32_src1_inline %remaining {rhs = 0}
+  %127, %128 = s_and_saveexec_b64 %more
+  low.cond_br %128, ^body, ^_bb5 : reg<amdgpu.scc>
+^body:
+  %130 = v_mov_b32 4294967295
+  %next = v_add_u32 %remaining, %130
+  low.br ^loop(%next: reg<amdgpu.vgpr>, %wide_count_x: reg<amdgpu.vgpr x2>, %wide_count_y: reg<amdgpu.vgpr x2>, %wide_count_z: reg<amdgpu.vgpr x2>)
+^_bb4:
+  s_mov_b64_exec %107
+  return
+^_bb5:
+  s_mov_b64_exec %126
+  low.br ^_bb4
+}

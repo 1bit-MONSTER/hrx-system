@@ -1,0 +1,236 @@
+// RUN: emit source-low target=amdgpu:gfx1250 output=low
+
+// Dynamic dispatch fields are loaded in their native widths even when a
+// connected control-flow component requires a wider published carrier.
+kernel.def @wide_cluster_queries(%groups_x: index, %groups_y: index, %groups_z: index) {
+  %unit = index.constant 1 : index
+  %threads = index.constant 64 : index
+  %cluster_width = index.constant 2 : index
+  kernel.launch.config workgroups(%groups_x, %groups_y, %groups_z) workgroup_size(%threads, %unit, %unit) cluster_size(%cluster_width, %cluster_width, %cluster_width) : index
+} launch(%output: buffer) {
+  %group_x = kernel.workgroup.id<x> : index
+  %group_y = kernel.workgroup.id<y> : index
+  %group_z = kernel.workgroup.id<z> : index
+  %lane = kernel.workitem.id<x> : index
+  %c0_index = index.constant 0 : index
+  %first_x = index.cmp eq, %group_x, %c0_index : index
+  %first_y = index.cmp eq, %group_y, %c0_index : index
+  %first_z = index.cmp eq, %group_z, %c0_index : index
+  %first_lane = index.cmp eq, %lane, %c0_index : index
+  %first_xy = scalar.andi %first_x, %first_y : i1
+  %first_xyz = scalar.andi %first_xy, %first_z : i1
+  %leader = scalar.andi %first_xyz, %first_lane : i1
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %iterations = scalar.constant 2 : i32
+  %count_x = kernel.workgroup.count<x> : index
+  %count_y = kernel.workgroup.count<y> : index
+  %count_z = kernel.workgroup.count<z> : index
+  %cluster_x = kernel.cluster.id<x> : index
+  %cluster_y = kernel.cluster.id<y> : index
+  %cluster_z = kernel.cluster.id<z> : index
+  %local_x = kernel.cluster.workgroup.id<x> : index
+  %local_y = kernel.cluster.workgroup.id<y> : index
+  %local_z = kernel.cluster.workgroup.id<z> : index
+  %local_flat = kernel.cluster.workgroup.flat_id : index
+  %size = kernel.cluster.size<x> : index
+  %clusters_x = kernel.cluster.count<x> : index
+  %clusters_y = kernel.cluster.count<y> : index
+  %clusters_z = kernel.cluster.count<z> : index
+  %origin = index.constant 0 : offset
+  %view = buffer.view %output[%origin] : buffer -> view<3x14xi64>
+  cfg.cond_br %leader, ^enter, ^exit
+^enter:
+  %wide_count_x = index.constant 4294967303 : index
+  %wide_count_y = index.constant 4294967304 : index
+  %wide_count_z = index.constant 4294967305 : index
+  %wide_cluster_x = index.constant 4294967306 : index
+  %wide_cluster_y = index.constant 4294967307 : index
+  %wide_cluster_z = index.constant 4294967308 : index
+  %wide_local_x = index.constant 4294967309 : index
+  %wide_local_y = index.constant 4294967310 : index
+  %wide_local_z = index.constant 4294967311 : index
+  %wide_local_flat = index.constant 4294967312 : index
+  %wide_size = index.constant 4294967313 : index
+  %wide_clusters_x = index.constant 4294967314 : index
+  %wide_clusters_y = index.constant 4294967315 : index
+  %wide_clusters_z = index.constant 4294967316 : index
+  cfg.br ^loop(%iterations: i32, %count_x: index, %count_y: index, %count_z: index, %cluster_x: index, %cluster_y: index, %cluster_z: index, %local_x: index, %local_y: index, %local_z: index, %local_flat: index, %size: index, %clusters_x: index, %clusters_y: index, %clusters_z: index)
+^loop(%remaining: i32, %value_count_x: index, %value_count_y: index, %value_count_z: index, %value_cluster_x: index, %value_cluster_y: index, %value_cluster_z: index, %value_local_x: index, %value_local_y: index, %value_local_z: index, %value_local_flat: index, %value_size: index, %value_clusters_x: index, %value_clusters_y: index, %value_clusters_z: index):
+  %slot_value = index.cast %remaining : i32 to index
+  %slot = index.assume %slot_value [range(%slot_value, 0, 2)] : index
+  %bits_count_x = index.cast %value_count_x : index to i64
+  view.store %bits_count_x, %view[%slot, 0] : i64, view<3x14xi64>
+  %bits_count_y = index.cast %value_count_y : index to i64
+  view.store %bits_count_y, %view[%slot, 1] : i64, view<3x14xi64>
+  %bits_count_z = index.cast %value_count_z : index to i64
+  view.store %bits_count_z, %view[%slot, 2] : i64, view<3x14xi64>
+  %bits_cluster_x = index.cast %value_cluster_x : index to i64
+  view.store %bits_cluster_x, %view[%slot, 3] : i64, view<3x14xi64>
+  %bits_cluster_y = index.cast %value_cluster_y : index to i64
+  view.store %bits_cluster_y, %view[%slot, 4] : i64, view<3x14xi64>
+  %bits_cluster_z = index.cast %value_cluster_z : index to i64
+  view.store %bits_cluster_z, %view[%slot, 5] : i64, view<3x14xi64>
+  %bits_local_x = index.cast %value_local_x : index to i64
+  view.store %bits_local_x, %view[%slot, 6] : i64, view<3x14xi64>
+  %bits_local_y = index.cast %value_local_y : index to i64
+  view.store %bits_local_y, %view[%slot, 7] : i64, view<3x14xi64>
+  %bits_local_z = index.cast %value_local_z : index to i64
+  view.store %bits_local_z, %view[%slot, 8] : i64, view<3x14xi64>
+  %bits_local_flat = index.cast %value_local_flat : index to i64
+  view.store %bits_local_flat, %view[%slot, 9] : i64, view<3x14xi64>
+  %bits_size = index.cast %value_size : index to i64
+  view.store %bits_size, %view[%slot, 10] : i64, view<3x14xi64>
+  %bits_clusters_x = index.cast %value_clusters_x : index to i64
+  view.store %bits_clusters_x, %view[%slot, 11] : i64, view<3x14xi64>
+  %bits_clusters_y = index.cast %value_clusters_y : index to i64
+  view.store %bits_clusters_y, %view[%slot, 12] : i64, view<3x14xi64>
+  %bits_clusters_z = index.cast %value_clusters_z : index to i64
+  view.store %bits_clusters_z, %view[%slot, 13] : i64, view<3x14xi64>
+  %more = scalar.cmpi sgt, %remaining, %c0 : i32
+  cfg.cond_br %more, ^body, ^exit
+^body:
+  %next = scalar.subi %remaining, %c1 : i32
+  cfg.br ^loop(%next: i32, %wide_count_x: index, %wide_count_y: index, %wide_count_z: index, %wide_cluster_x: index, %wide_cluster_y: index, %wide_cluster_z: index, %wide_local_x: index, %wide_local_y: index, %wide_local_z: index, %wide_local_flat: index, %wide_size: index, %wide_clusters_x: index, %wide_clusters_y: index, %wide_clusters_z: index)
+^exit:
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.rdna4.gfx125x.core> abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 1, resource_count = 1, resource_offsets = [0], resource_parameter_indices = [0], uses_kernarg_segment_ptr = true}) workgroup_size(64, 1, 1) cluster_size(2, 2, 2) @wide_cluster_queries() asm {
+  %186 = live_in<amdgpu.cluster_workgroup_info> : reg<amdgpu.sgpr>
+  %187 = live_in<amdgpu.cluster_id_yz> : reg<amdgpu.sgpr>
+  %188 = live_in<amdgpu.cluster_id_x> : reg<amdgpu.sgpr>
+  %189 = live_in<amdgpu.dispatch_ptr> : reg<amdgpu.sgpr x2>
+  %lane = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
+  %view = resource<hal_binding> {extent = 336, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %192 = s_and_b32_rhs_inline %186, 15
+  %group_x = s_lshl1_add_u32 %188, %192
+  %194 = s_and_b32_lit %187, 65535
+  %195 = s_bfe_u32_lit %186, 262148
+  %group_y = s_lshl1_add_u32 %194, %195
+  %197 = s_lshr_b32_rhs_inline %187, 16
+  %198 = s_bfe_u32_lit %186, 262152
+  %group_z = s_lshl1_add_u32 %197, %198
+  %200 = s_getreg_b32_cluster_workgroup_flat_id
+  %201 = v_mov_b32_copy %188
+  %202 = v_mov_b32 0
+  %cluster_x = concat(%201, %202) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %204 = v_mov_b32_copy %194
+  %cluster_y = concat(%204, %202) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %207 = v_mov_b32_copy %197
+  %cluster_z = concat(%207, %202) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %210 = v_mov_b32_copy %192
+  %local_x = concat(%210, %202) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %213 = v_mov_b32_copy %195
+  %local_y = concat(%213, %202) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %216 = v_mov_b32_copy %198
+  %local_z = concat(%216, %202) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %219 = v_mov_b32_copy %200
+  %local_flat = concat(%219, %202) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %222 = s_load_dword_offset_only %189 {offset = 12}
+  %223 = s_lshl_b32_rhs_inline %222, 1
+  %224 = s_load_dword_offset_only %189 {offset = 16}
+  %225 = s_and_b32_lit %224, 65535
+  %226 = s_lshl_b32_rhs_inline %225, 1
+  %227 = s_lshr_b32_rhs_inline %224, 16
+  %228 = s_lshl_b32_rhs_inline %227, 1
+  %229 = v_mov_b32_copy %223
+  %count_x = concat(%229, %202) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %232 = v_mov_b32_copy %226
+  %count_y = concat(%232, %202) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %235 = v_mov_b32_copy %228
+  %count_z = concat(%235, %202) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %238 = v_mov_b32_copy %222
+  %clusters_x = concat(%238, %202) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %241 = v_mov_b32_copy %225
+  %clusters_y = concat(%241, %202) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %244 = v_mov_b32_copy %227
+  %clusters_z = concat(%244, %202) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %c0_index = s_mov_b32 0
+  %first_x = s_cmp_eq_i32 %group_x, %c0_index
+  %first_y = s_cmp_eq_i32 %group_y, %c0_index
+  %first_z = s_cmp_eq_i32 %group_z, %c0_index
+  %first_lane = v_cmp_eq_i32_src1_inline %lane {rhs = 0}
+  %253 = s_mov_b32 1
+  %254 = s_cselect_b32 %253, %c0_index, %first_x
+  %255 = s_cselect_b32 %253, %c0_index, %first_y
+  %256 = s_and_b32 %254, %255
+  %first_xy = s_cmp_lg_i32 %256, %c0_index
+  %260 = s_cselect_b32 %253, %c0_index, %first_xy
+  %261 = s_cselect_b32 %253, %c0_index, %first_z
+  %262 = s_and_b32 %260, %261
+  %first_xyz = s_cmp_lg_i32 %262, %c0_index
+  %265 = v_mov_b32 2
+  %size = concat(%265, %202) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %269 = slice %first_lane[0] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %270 = s_cselect_b32 %269, %c0_index, %first_xyz
+  %271 = slice %first_lane[1] : reg<amdgpu.sgpr x2> -> reg<amdgpu.sgpr>
+  %272 = s_cselect_b32 %271, %c0_index, %first_xyz
+  %leader = concat(%270, %272) : (reg<amdgpu.sgpr>, reg<amdgpu.sgpr>) -> reg<amdgpu.sgpr x2>
+  %274, %275 = s_and_saveexec_b64 %leader
+  low.cond_br %275, ^enter, ^_bb4 : reg<amdgpu.scc>
+^enter:
+  %276 = v_mov_b32 7
+  %277 = v_mov_b32 1
+  %wide_count_x = concat(%276, %277) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %279 = v_mov_b32 8
+  %wide_count_y = concat(%279, %277) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %282 = v_mov_b32 9
+  %wide_count_z = concat(%282, %277) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %285 = v_mov_b32 10
+  %wide_cluster_x = concat(%285, %277) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %288 = v_mov_b32 11
+  %wide_cluster_y = concat(%288, %277) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %291 = v_mov_b32 12
+  %wide_cluster_z = concat(%291, %277) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %294 = v_mov_b32 13
+  %wide_local_x = concat(%294, %277) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %297 = v_mov_b32 14
+  %wide_local_y = concat(%297, %277) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %300 = v_mov_b32 15
+  %wide_local_z = concat(%300, %277) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %303 = v_mov_b32 16
+  %wide_local_flat = concat(%303, %277) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %306 = v_mov_b32 17
+  %wide_size = concat(%306, %277) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %309 = v_mov_b32 18
+  %wide_clusters_x = concat(%309, %277) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %312 = v_mov_b32 19
+  %wide_clusters_y = concat(%312, %277) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %315 = v_mov_b32 20
+  %wide_clusters_z = concat(%315, %277) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %318 = v_mov_b32 2
+  %348 = s_mov_b64_exec_read
+  low.br ^loop(%318: reg<amdgpu.vgpr>, %count_x: reg<amdgpu.vgpr x2>, %count_y: reg<amdgpu.vgpr x2>, %count_z: reg<amdgpu.vgpr x2>, %cluster_x: reg<amdgpu.vgpr x2>, %cluster_y: reg<amdgpu.vgpr x2>, %cluster_z: reg<amdgpu.vgpr x2>, %local_x: reg<amdgpu.vgpr x2>, %local_y: reg<amdgpu.vgpr x2>, %local_z: reg<amdgpu.vgpr x2>, %local_flat: reg<amdgpu.vgpr x2>, %size: reg<amdgpu.vgpr x2>, %clusters_x: reg<amdgpu.vgpr x2>, %clusters_y: reg<amdgpu.vgpr x2>, %clusters_z: reg<amdgpu.vgpr x2>)
+^loop(%remaining: reg<amdgpu.vgpr>, %bits_count_x: reg<amdgpu.vgpr x2>, %bits_count_y: reg<amdgpu.vgpr x2>, %bits_count_z: reg<amdgpu.vgpr x2>, %bits_cluster_x: reg<amdgpu.vgpr x2>, %bits_cluster_y: reg<amdgpu.vgpr x2>, %bits_cluster_z: reg<amdgpu.vgpr x2>, %bits_local_x: reg<amdgpu.vgpr x2>, %bits_local_y: reg<amdgpu.vgpr x2>, %bits_local_z: reg<amdgpu.vgpr x2>, %bits_local_flat: reg<amdgpu.vgpr x2>, %bits_size: reg<amdgpu.vgpr x2>, %bits_clusters_x: reg<amdgpu.vgpr x2>, %bits_clusters_y: reg<amdgpu.vgpr x2>, %bits_clusters_z: reg<amdgpu.vgpr x2>):
+  %319 = v_mov_b32 112
+  %320 = v_mul_lo_u32 %remaining, %319
+  global_store_b64_saddr %320, %bits_count_x, %view
+  global_store_b64_saddr %320, %bits_count_y, %view {offset = 8}
+  global_store_b64_saddr %320, %bits_count_z, %view {offset = 16}
+  global_store_b64_saddr %320, %bits_cluster_x, %view {offset = 24}
+  global_store_b64_saddr %320, %bits_cluster_y, %view {offset = 32}
+  global_store_b64_saddr %320, %bits_cluster_z, %view {offset = 40}
+  global_store_b64_saddr %320, %bits_local_x, %view {offset = 48}
+  global_store_b64_saddr %320, %bits_local_y, %view {offset = 56}
+  global_store_b64_saddr %320, %bits_local_z, %view {offset = 64}
+  global_store_b64_saddr %320, %bits_local_flat, %view {offset = 72}
+  global_store_b64_saddr %320, %bits_size, %view {offset = 80}
+  global_store_b64_saddr %320, %bits_clusters_x, %view {offset = 88}
+  global_store_b64_saddr %320, %bits_clusters_y, %view {offset = 96}
+  global_store_b64_saddr %320, %bits_clusters_z, %view {offset = 104}
+  %more = v_cmp_gt_i32_src1_inline %remaining {rhs = 0}
+  %349, %350 = s_and_saveexec_b64 %more
+  low.cond_br %350, ^body, ^_bb5 : reg<amdgpu.scc>
+^body:
+  %352 = v_mov_b32 4294967295
+  %next = v_add_u32 %remaining, %352
+  low.br ^loop(%next: reg<amdgpu.vgpr>, %wide_count_x: reg<amdgpu.vgpr x2>, %wide_count_y: reg<amdgpu.vgpr x2>, %wide_count_z: reg<amdgpu.vgpr x2>, %wide_cluster_x: reg<amdgpu.vgpr x2>, %wide_cluster_y: reg<amdgpu.vgpr x2>, %wide_cluster_z: reg<amdgpu.vgpr x2>, %wide_local_x: reg<amdgpu.vgpr x2>, %wide_local_y: reg<amdgpu.vgpr x2>, %wide_local_z: reg<amdgpu.vgpr x2>, %wide_local_flat: reg<amdgpu.vgpr x2>, %wide_size: reg<amdgpu.vgpr x2>, %wide_clusters_x: reg<amdgpu.vgpr x2>, %wide_clusters_y: reg<amdgpu.vgpr x2>, %wide_clusters_z: reg<amdgpu.vgpr x2>)
+^_bb4:
+  s_mov_b64_exec %274
+  return
+^_bb5:
+  s_mov_b64_exec %348
+  low.br ^_bb4
+}

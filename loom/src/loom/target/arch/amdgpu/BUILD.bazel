@@ -570,6 +570,9 @@ loom_check_test_suite(
             "//loom/target/amdgpu:gfx1200",
             "//loom/target/amdgpu:gfx1250",
         ],
+        "test/source_low/cluster_query_carriers.loom-test": [
+            "//loom/target/amdgpu:gfx1250",
+        ],
         "test/source_low/float64_narrow.loom-test": [
             "//loom/target/amdgpu:" + target
             for target in LOOM_AMDGPU_SUPPORTED_TARGETS
@@ -594,6 +597,13 @@ loom_check_test_suite(
         "test/source_low/predicate_truncation.loom-test": [
             "//loom/target/amdgpu:" + target
             for target in LOOM_AMDGPU_SUPPORTED_TARGETS
+        ],
+        "test/source_low/query_carriers.loom-test": [
+            "//loom/target/amdgpu:gfx942",
+            "//loom/target/amdgpu:gfx1100",
+            "//loom/target/amdgpu:gfx1151",
+            "//loom/target/amdgpu:gfx1200",
+            "//loom/target/amdgpu:gfx1250",
         ],
         "test/source_low/source_low_system_scope_store_wait.loom-test": [
             "//loom/target/amdgpu:gfx1200",

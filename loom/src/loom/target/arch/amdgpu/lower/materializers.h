@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// AMDGPU source value materializers used by generated lower-rule tables.
+// AMDGPU source value and scalar register-carrier materializers.
 
 #ifndef LOOM_TARGET_ARCH_AMDGPU_LOWER_MATERIALIZERS_H_
 #define LOOM_TARGET_ARCH_AMDGPU_LOWER_MATERIALIZERS_H_
@@ -148,6 +148,16 @@ iree_status_t loom_amdgpu_lookup_or_materialize_sgpr_address(
 iree_status_t loom_amdgpu_materialize_uniform_sgpr_address(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_value_id_t source_value, loom_value_id_t* out_low_value);
+
+// Converts a one- or two-word scalar register payload to its selected carrier.
+// Widening zero-extends; narrowing retains the low word. Selection must prove
+// subgroup uniformity before requesting an SGPR for a VGPR payload. Consumes
+// only Low values and the retained destination type, preserving source
+// bindings.
+iree_status_t loom_amdgpu_materialize_low_scalar_carrier(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t low_value, loom_type_t required_type,
+    loom_value_id_t* out_low_value);
 
 // Projects an i1 predicate to the numeric value zero or one in the requested
 // SGPR or VGPR bank. Native lane masks require a VGPR result; uniform SCC and
