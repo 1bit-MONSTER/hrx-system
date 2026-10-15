@@ -93,6 +93,48 @@ low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_c
 
 // ====
 
+amdgpu.target<gfx11-generic> @target
+
+// Non-power-of-two dimensions must linearize before selecting the subgroup.
+kernel.def target(@target) @subgroup_id_xyz_non_power_of_two() {
+  %c1 = index.constant 1 : index
+  %c3 = index.constant 3 : index
+  %c5 = index.constant 5 : index
+  %c7 = index.constant 7 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c3, %c5, %c7) : index
+} launch(%output: buffer) {
+  %subgroup_id = kernel.subgroup.id : index
+  %output_base = index.constant 0 : offset
+  %output_view = buffer.view %output[%output_base] : buffer -> view<4xi32>
+  %marker_value = vector.constant 1 : vector<1xi32>
+  vector.store %marker_value, %output_view[%subgroup_id] : vector<1xi32>, view<4xi32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 1, resource_count = 1, resource_offsets = [0], resource_parameter_indices = [0], uses_kernarg_segment_ptr = true}) workgroup_size(3, 5, 7) workgroup_count(1, 1, 1) @subgroup_id_xyz_non_power_of_two() asm {
+  %packed_tid = live_in<amdgpu.workitem_id.packed.xyz> : reg<amdgpu.vgpr>
+  %output_view = resource<hal_binding> {extent = 16, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %11 = v_and_b32_lit %packed_tid, 1023
+  %12 = v_lshrrev_b32_src0_inline %packed_tid, 10
+  %13 = v_and_b32_lit %12, 1023
+  %14 = v_mov_b32 3
+  %15 = v_mul_lo_u32 %13, %14
+  %16 = v_add_u32 %11, %15
+  %17 = v_lshrrev_b32_src0_inline %packed_tid, 20
+  %18 = v_and_b32_lit %17, 1023
+  %19 = v_mov_b32 15
+  %20 = v_mul_lo_u32 %18, %19
+  %21 = v_add_u32 %16, %20
+  %subgroup_id = v_lshrrev_b32_src0_inline %21, 5
+  %marker_value = v_mov_b32 1
+  %24 = v_lshlrev_b32_src0_inline %subgroup_id, 2
+  global_store_b32_saddr %24, %marker_value, %output_view
+  return
+}
+
+// ====
+
 amdgpu.target<gfx1200> @target
 
 kernel.def target(@target) @subgroup_lane_id_xyz_wave32_gfx12() {

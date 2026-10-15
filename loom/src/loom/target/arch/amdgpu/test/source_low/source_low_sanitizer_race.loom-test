@@ -66,3 +66,33 @@ CHECK: * = global_atomic_swap* *
 CHECK: ds_write_b8 *
 CHECK-NOT: * = v_cndmask_b32 *
 CHECK-NOT: *sanitizer.race.access*
+
+// ====
+
+amdgpu.target<gfx11-generic> @target {subgroup_size = 32}
+
+kernel.def target(@target) @race_non_power_of_two_shared_store() {
+  %c1 = index.constant 1 : index
+  %x = index.constant 3 : index
+  %y = index.constant 5 : index
+  %z = index.constant 7 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%x, %y, %z) : index
+} launch() {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 4 : offset
+  %value = scalar.constant 1 : i32
+  %scratch = buffer.alloca<workgroup> align(4) %bytes : buffer
+  %view = buffer.view %scratch[%base] : buffer -> view<1xi32>
+  view.store %value, %view[0] : i32, view<1xi32>
+  kernel.return
+}
+
+// ----
+// Select stable boundaries from the large instrumentation body: accepting the
+// shape, deriving dynamic workgroup counts, exchanging one shadow entry, and
+// retaining the physical access.
+CHECK: low.kernel.def target<amdgpu.gfx11.generic.core>(@target) workgroup_size(3, 5, 7) workgroup_count(1, 1, 1) @race_non_power_of_two_shared_store() asm {
+CHECK: * = s_mul_hi_u32 *
+CHECK: * = global_atomic_swap_b64_rtn_saddr *
+CHECK: ds_write_b32 *
+CHECK-NOT: *sanitizer.race.access*

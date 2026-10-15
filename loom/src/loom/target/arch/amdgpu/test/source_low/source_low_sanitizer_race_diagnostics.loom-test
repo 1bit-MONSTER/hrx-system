@@ -16,9 +16,24 @@ func.def target(@target) @race_access_global_rejected(%input: buffer) {
 amdgpu.target<gfx11-generic> @target
 
 func.def target(@target) @race_sync_requires_fixed_workgroup() {
-  // ERROR@+1: AMDGPU/023 {constraint_key="target_contract.sanitizer_race.fixed_power_of_two_workgroup_required"}
+  // ERROR@+1: AMDGPU/023 {constraint_key="target_contract.sanitizer_race.fixed_workgroup_required"}
   sanitizer.race.sync<workgroup> scope(workgroup) ordering(acq_rel)
   func.return
+}
+
+// ====
+
+amdgpu.target<gfx11-generic> @target {max_flat_workgroup_size = 2048}
+
+kernel.def target(@target) @race_sync_exceeds_workitem_capacity() {
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %c1024 = index.constant 1024 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1024, %c2, %c1) : index
+} launch() {
+  // ERROR@+1: AMDGPU/023 {constraint_key="target_contract.sanitizer_race.workitem_capacity"}
+  sanitizer.race.sync<workgroup> scope(workgroup) ordering(acq_rel)
+  kernel.return
 }
 
 // ====

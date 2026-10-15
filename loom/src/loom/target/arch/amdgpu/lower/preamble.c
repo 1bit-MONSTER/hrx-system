@@ -360,12 +360,7 @@ static bool loom_amdgpu_preamble_query_launch_facts_satisfied(
         *out_reason = IREE_SV("launch.workgroup_count_fixed_workgroup_size");
         return false;
       }
-      const bool satisfied = loom_amdgpu_u32_is_power_of_two(workgroup_size);
-      if (!satisfied) {
-        *out_reason =
-            IREE_SV("launch.workgroup_count_power_of_two_workgroup_size");
-      }
-      return satisfied;
+      return true;
     }
     case LOOM_AMDGPU_PREAMBLE_QUERY_KIND_WORKITEM_DISPATCH_ID: {
       if (has_nontrivial_cluster && !supports_cluster_launch_state) {
@@ -1541,17 +1536,9 @@ static iree_status_t loom_amdgpu_emit_workgroup_count(
   loom_value_id_t grid_size = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_amdgpu_emit_dispatch_packet_grid_size(
       context, source_op, dispatch_ptr, dimension, result_type, &grid_size));
-  if (workgroup_size == 1) {
-    *out_low_value_id = grid_size;
-    return iree_ok_status();
-  }
-  loom_value_id_t shift = LOOM_VALUE_ID_INVALID;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_const_u32(
-      context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_S_MOV_B32,
-      loom_amdgpu_u32_log2(workgroup_size), result_type, &shift));
-  return loom_amdgpu_emit_binary(
-      context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_S_LSHR_B32, grid_size,
-      shift, result_type, out_low_value_id);
+  return loom_amdgpu_emit_sgpr_divide_u32_constant(
+      context, source_op, grid_size, workgroup_size, result_type,
+      out_low_value_id);
 }
 
 iree_status_t loom_amdgpu_emit_current_workgroup_linear_id(

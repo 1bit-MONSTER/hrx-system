@@ -817,20 +817,51 @@ static iree_status_t loom_amdgpu_sanitizer_race_get_trap_island(
   return iree_ok_status();
 }
 
-static bool loom_amdgpu_sanitizer_race_workgroup_size_supported(
+typedef enum loom_amdgpu_sanitizer_race_workgroup_support_e {
+  LOOM_AMDGPU_SANITIZER_RACE_WORKGROUP_SUPPORTED = 0,
+  LOOM_AMDGPU_SANITIZER_RACE_WORKGROUP_FIXED_SIZE_REQUIRED,
+  LOOM_AMDGPU_SANITIZER_RACE_WORKGROUP_WORKITEM_CAPACITY_EXCEEDED,
+} loom_amdgpu_sanitizer_race_workgroup_support_t;
+
+static loom_amdgpu_sanitizer_race_workgroup_support_t
+loom_amdgpu_sanitizer_race_workgroup_support(
     const loom_module_t* module, loom_func_like_t function,
     const loom_target_bundle_t* bundle) {
   loom_target_workgroup_size_t workgroup_size = {0};
-  uint32_t flat_workgroup_size = 0;
-  return loom_amdgpu_required_workgroup_size(module, function, bundle,
-                                             &workgroup_size) &&
-         loom_amdgpu_required_flat_workgroup_size(module, function, bundle,
-                                                  &flat_workgroup_size) &&
-         workgroup_size.x != 0 && workgroup_size.y != 0 &&
-         workgroup_size.z != 0 && flat_workgroup_size <= 1024 &&
-         loom_amdgpu_u32_is_power_of_two(workgroup_size.x) &&
-         loom_amdgpu_u32_is_power_of_two(workgroup_size.y) &&
-         loom_amdgpu_u32_is_power_of_two(workgroup_size.z);
+  if (!loom_amdgpu_required_workgroup_size(module, function, bundle,
+                                           &workgroup_size) ||
+      workgroup_size.x == 0 || workgroup_size.y == 0 || workgroup_size.z == 0) {
+    return LOOM_AMDGPU_SANITIZER_RACE_WORKGROUP_FIXED_SIZE_REQUIRED;
+  }
+
+  const uint64_t flat_workgroup_size =
+      (uint64_t)workgroup_size.x * workgroup_size.y * workgroup_size.z;
+  if (flat_workgroup_size > LOOM_AMDGPU_TSAN_SHADOW_ENTRY_WORKITEM_CAPACITY) {
+    return LOOM_AMDGPU_SANITIZER_RACE_WORKGROUP_WORKITEM_CAPACITY_EXCEEDED;
+  }
+  return LOOM_AMDGPU_SANITIZER_RACE_WORKGROUP_SUPPORTED;
+}
+
+static iree_status_t loom_amdgpu_sanitizer_race_verify_workgroup(
+    loom_target_low_legality_context_t* context, const loom_op_t* op) {
+  switch (loom_amdgpu_sanitizer_race_workgroup_support(
+      loom_target_low_legality_module(context),
+      loom_target_low_legality_function(context),
+      loom_target_low_legality_bundle(context))) {
+    case LOOM_AMDGPU_SANITIZER_RACE_WORKGROUP_SUPPORTED:
+      return iree_ok_status();
+    case LOOM_AMDGPU_SANITIZER_RACE_WORKGROUP_FIXED_SIZE_REQUIRED:
+      return loom_amdgpu_low_legality_reject(
+          context, op,
+          IREE_SV("target_contract.sanitizer_race.fixed_workgroup_required"));
+    case LOOM_AMDGPU_SANITIZER_RACE_WORKGROUP_WORKITEM_CAPACITY_EXCEEDED:
+      return loom_amdgpu_low_legality_reject(
+          context, op,
+          IREE_SV("target_contract.sanitizer_race.workitem_capacity"));
+    default:
+      IREE_ASSERT_UNREACHABLE("valid AMDGPU race sanitizer workgroup support");
+      IREE_BUILTIN_UNREACHABLE();
+  }
 }
 
 static bool loom_amdgpu_sanitizer_race_required_descriptors_present(
@@ -854,6 +885,7 @@ static bool loom_amdgpu_sanitizer_race_required_descriptors_present(
       LOOM_AMDGPU_DESCRIPTOR_REF_S_GETPC_B64,
       LOOM_AMDGPU_DESCRIPTOR_REF_S_LOAD_DWORD_OFFSET_ONLY,
       LOOM_AMDGPU_DESCRIPTOR_REF_S_LSHR_B32,
+      LOOM_AMDGPU_DESCRIPTOR_REF_S_MUL_HI_U32,
       LOOM_AMDGPU_DESCRIPTOR_REF_S_MUL_I32,
       LOOM_AMDGPU_DESCRIPTOR_REF_S_MOV_B32,
       LOOM_AMDGPU_DESCRIPTOR_REF_S_MOV_B32_M0_IMM,
@@ -1664,15 +1696,7 @@ static iree_status_t loom_amdgpu_sanitizer_race_verify_access_address(
         loom_amdgpu_sanitizer_race_source_memory_rejection_key(
             &source_diagnostic));
   }
-  if (!loom_amdgpu_sanitizer_race_workgroup_size_supported(
-          module, loom_target_low_legality_function(context),
-          loom_target_low_legality_bundle(context))) {
-    return loom_amdgpu_low_legality_reject(
-        context, op,
-        IREE_SV("target_contract.sanitizer_race.fixed_power_of_two_workgroup_"
-                "required"));
-  }
-  return iree_ok_status();
+  return loom_amdgpu_sanitizer_race_verify_workgroup(context, op);
 }
 
 iree_status_t loom_amdgpu_select_sanitizer_race_access_plan(
@@ -1687,10 +1711,11 @@ iree_status_t loom_amdgpu_select_sanitizer_race_access_plan(
           loom_low_lower_context_descriptor_set(context))) {
     return iree_ok_status();
   }
-  if (!loom_amdgpu_sanitizer_race_workgroup_size_supported(
+  if (loom_amdgpu_sanitizer_race_workgroup_support(
           loom_low_lower_context_module(context),
           loom_low_lower_context_source_function(context),
-          loom_low_lower_context_bundle(context))) {
+          loom_low_lower_context_bundle(context)) !=
+      LOOM_AMDGPU_SANITIZER_RACE_WORKGROUP_SUPPORTED) {
     return iree_ok_status();
   }
 
@@ -1736,10 +1761,11 @@ iree_status_t loom_amdgpu_select_sanitizer_race_fragment_access_plan(
   }
   if (!loom_amdgpu_sanitizer_race_required_descriptors_present(
           loom_low_lower_context_descriptor_set(context)) ||
-      !loom_amdgpu_sanitizer_race_workgroup_size_supported(
+      loom_amdgpu_sanitizer_race_workgroup_support(
           loom_low_lower_context_module(context),
           loom_low_lower_context_source_function(context),
-          loom_low_lower_context_bundle(context))) {
+          loom_low_lower_context_bundle(context)) !=
+          LOOM_AMDGPU_SANITIZER_RACE_WORKGROUP_SUPPORTED) {
     return iree_ok_status();
   }
 
@@ -2288,10 +2314,11 @@ iree_status_t loom_amdgpu_select_sanitizer_race_sync_plan(
       ordering != LOOM_ATOMIC_ORDERING_SEQ_CST) {
     return iree_ok_status();
   }
-  if (!loom_amdgpu_sanitizer_race_workgroup_size_supported(
+  if (loom_amdgpu_sanitizer_race_workgroup_support(
           loom_low_lower_context_module(context),
           loom_low_lower_context_source_function(context),
-          loom_low_lower_context_bundle(context))) {
+          loom_low_lower_context_bundle(context)) !=
+      LOOM_AMDGPU_SANITIZER_RACE_WORKGROUP_SUPPORTED) {
     return iree_ok_status();
   }
   IREE_RETURN_IF_ERROR(
@@ -2502,16 +2529,7 @@ iree_status_t loom_amdgpu_low_legality_verify_sanitizer_race_fragment_access(
       provider, context, op, &fragment_memory_handled));
   IREE_ASSERT_TRUE(fragment_memory_handled);
   *out_handled = true;
-  if (!loom_amdgpu_sanitizer_race_workgroup_size_supported(
-          loom_target_low_legality_module(context),
-          loom_target_low_legality_function(context),
-          loom_target_low_legality_bundle(context))) {
-    return loom_amdgpu_low_legality_reject(
-        context, op,
-        IREE_SV("target_contract.sanitizer_race.fixed_power_of_two_workgroup_"
-                "required"));
-  }
-  return iree_ok_status();
+  return loom_amdgpu_sanitizer_race_verify_workgroup(context, op);
 }
 
 iree_status_t loom_amdgpu_low_legality_verify_sanitizer_race_sync(
@@ -2550,15 +2568,8 @@ iree_status_t loom_amdgpu_low_legality_verify_sanitizer_race_sync(
           context, op,
           IREE_SV("target_contract.sanitizer_race.acq_rel_sync_required"));
   }
-  if (!loom_amdgpu_sanitizer_race_workgroup_size_supported(
-          loom_target_low_legality_module(context),
-          loom_target_low_legality_function(context),
-          loom_target_low_legality_bundle(context))) {
-    return loom_amdgpu_low_legality_reject(
-        context, op,
-        IREE_SV("target_contract.sanitizer_race.fixed_power_of_two_workgroup_"
-                "required"));
-  }
+  IREE_RETURN_IF_ERROR(
+      loom_amdgpu_sanitizer_race_verify_workgroup(context, op));
   if (!loom_amdgpu_workgroup_barrier_lowering_available(
           loom_target_low_legality_descriptor_set(context))) {
     return loom_amdgpu_low_legality_reject(

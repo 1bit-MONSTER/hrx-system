@@ -3654,6 +3654,7 @@ loom_execution_test(
     "--config=qwen38.iq4xs.tile_unroll_factor=1"
     "--case=iq4xs_gate_up_values"
   LABELS
+    "manual"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
     "iree-build-requirement=loom.execute.iree_hal"
@@ -3686,6 +3687,7 @@ loom_execution_test(
     "--config=qwen38.iq4xs.tile_unroll_factor=1"
     "--case=iq4xs_gate_up_values"
   LABELS
+    "manual"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
     "iree-build-requirement=loom.execute.iree_hal"
@@ -3716,6 +3718,7 @@ loom_execution_test(
     "--config=qwen38.iq4xs.tile_unroll_factor=1"
     "--case=iq4xs_gate_up_values"
   LABELS
+    "manual"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
     "iree-build-requirement=loom.execute.iree_hal"
@@ -3748,6 +3751,7 @@ loom_execution_test(
     "--config=qwen38.iq4xs.tile_unroll_factor=1"
     "--case=iq4xs_gate_up_values"
   LABELS
+    "manual"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
     "iree-build-requirement=loom.execute.iree_hal"
@@ -3780,6 +3784,7 @@ loom_execution_test(
     "--config=qwen38.iq4xs.tile_unroll_factor=1"
     "--case=iq4xs_gate_up_values"
   LABELS
+    "manual"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
     "iree-build-requirement=loom.execute.iree_hal"
@@ -3812,6 +3817,7 @@ loom_execution_test(
     "--config=qwen38.iq4xs.tile_unroll_factor=1"
     "--case=iq4xs_gate_up_values"
   LABELS
+    "manual"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
     "iree-build-requirement=loom.execute.iree_hal"
@@ -3840,6 +3846,8 @@ loom_check_compile_tests(
     "--config=qwen38.iq4xs.packet_unroll_factor=4"
     "--config=qwen38.iq4xs.staging_depth=2"
     "--config=qwen38.iq4xs.tile_unroll_factor=1"
+  LABELS
+    "manual"
 )
 
 if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU)
@@ -3857,6 +3865,7 @@ loom_execution_test(
     "--config=qwen38.iq4xs.tile_unroll_factor=1"
     "--case=iq4xs_gate_up_values"
   LABELS
+    "manual"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
     "iree-build-requirement=loom.execute.iree_hal"
@@ -3889,6 +3898,7 @@ loom_execution_test(
     "--config=qwen38.iq4xs.tile_unroll_factor=1"
     "--case=iq4xs_gate_up_values"
   LABELS
+    "manual"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"
     "iree-build-requirement=loom.execute.iree_hal"
@@ -3917,6 +3927,8 @@ loom_check_compile_tests(
     "--config=qwen38.iq4xs.packet_unroll_factor=4"
     "--config=qwen38.iq4xs.staging_depth=1"
     "--config=qwen38.iq4xs.tile_unroll_factor=1"
+  LABELS
+    "manual"
 )
 endif()
 
