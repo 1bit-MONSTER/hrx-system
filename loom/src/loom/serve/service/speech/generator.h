@@ -109,9 +109,12 @@ typedef struct loom_serve_speech_generator_t {
   // CPU/encoding borrower releases its feedback views. Request rows survive.
   void (*release_batch)(void* self);
   // Releases an admitted request at a successfully retired cut, after its
-  // batch/CPU borrowers stop. Reclaims row backing and releases its pin/handle.
-  // Platform failure retains the handle for model teardown.
-  iree_status_t (*release)(void* self, void* invocation);
+  // batch/CPU borrowers stop. True consumes the pin/handle. False retains it
+  // through the returned borrowed frontier; call again after successful ALL
+  // readiness, excluding other model mutation. Backing release never blocks
+  // the owner. Platform failure retains the handle for model teardown.
+  iree_status_t (*release)(void* self, void* invocation, bool* out_complete,
+                           loom_serve_execution_frontier_t* out_frontier);
   // Optional immutable tokenizer, live through model retirement.
   const iree_tokenizer_t* tokenizer;
   // Shared admission identity; equal non-NULL domains can release each other's

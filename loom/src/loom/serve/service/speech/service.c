@@ -76,11 +76,12 @@ typedef enum speech_phase_e {
   SPEECH_PHASE_PREPARING_BATCH,
   SPEECH_PHASE_GENERATING,
   SPEECH_PHASE_ENCODING,
+  SPEECH_PHASE_RELEASING,
 } speech_phase_t;
 
-static const char* const speech_phases[] = {"idle",       "preparing",
-                                            "reserving",  "preparing_batch",
-                                            "generating", "encoding"};
+static const char* const speech_phases[] = {
+    "idle",       "preparing", "reserving", "preparing_batch",
+    "generating", "encoding",  "releasing"};
 
 enum { SPEECH_EVENT_CPU = 1u << 0, SPEECH_EVENT_DEVICE = 1u << 1 };
 
@@ -109,6 +110,8 @@ struct loom_serve_speech_service_t {
   iree_host_size_t occupied_count;
   // At most one prepared admission waiter, retaining FIFO position on pressure.
   speech_row_t* admission;
+  // Request retained through asynchronous row-backing release readiness.
+  speech_row_t* retiring;
   // Next ready row considered first when selecting compatible numerical work.
   iree_host_size_t cursor;
   // Admission gets at most one turn between batches when work is ready.
@@ -492,13 +495,34 @@ static void loom_serve_speech_finish(loom_serve_speech_service_t* service,
   --service->occupied_count;
 }
 
+// Returns false while the model still owns asynchronous row release. The
+// existing wait retains the request independently of its connection lifetime.
+static bool loom_serve_speech_release(loom_serve_speech_service_t* service,
+                                      speech_row_t* row) {
+  bool complete = false;
+  service->status =
+      service->generator.release(service->generator.self, row->invocation,
+                                 &complete, &service->device.frontier);
+  if (iree_status_is_ok(service->status) && !complete) {
+    service->retiring = row;
+    service->status = loom_serve_speech_wait(service, SPEECH_PHASE_RELEASING);
+    if (iree_status_is_ok(service->status)) {
+      return false;
+    }
+    service->retiring = NULL;
+  }
+  return true;
+}
+
 // Whole-arena roots can be borrowed by another row's accepted batch. All
 // source releases therefore happen at a retired model cut, even for peers
 // whose final encoded output was delivered while that batch was running.
 static void loom_serve_speech_release_finished(
     loom_serve_speech_service_t* service, bool* progress) {
   for (iree_host_size_t i = 0;
-       service->rows && i < service->generator.request_capacity; ++i) {
+       service->rows && i < service->generator.request_capacity &&
+       service->phase == SPEECH_PHASE_IDLE;
+       ++i) {
     speech_row_t* row = &service->rows[i];
     if (row->phase == SPEECH_ROW_EMPTY ||
         (row->connection && !service->stopping &&
@@ -511,8 +535,10 @@ static void loom_serve_speech_release_finished(
       if (row->phase == SPEECH_ROW_WAITING) {
         service->generator.discard(service->generator.self, row->invocation);
       } else if (row->phase != SPEECH_ROW_QUEUED) {
-        service->status = service->generator.release(service->generator.self,
-                                                     row->invocation);
+        if (!loom_serve_speech_release(service, row)) {
+          *progress = true;
+          continue;
+        }
       }
     }
     loom_serve_speech_finish(service, row,
@@ -625,9 +651,19 @@ static void loom_serve_speech_collect(loom_serve_speech_service_t* service,
   }
   service->status = iree_status_join(service->status, cpu_status);
   if (!iree_status_is_ok(service->status)) {
+    service->retiring = NULL;
     return;
   }
-  if (phase == SPEECH_PHASE_RESERVING) {
+  if (phase == SPEECH_PHASE_RELEASING) {
+    speech_row_t* row = service->retiring;
+    service->retiring = NULL;
+    if (loom_serve_speech_release(service, row)) {
+      loom_serve_speech_finish(service, row,
+                               iree_status_is_ok(service->status)
+                                   ? LOOM_SERVE_TELEMETRY_COMPLETED
+                                   : LOOM_SERVE_TELEMETRY_FAILED);
+    }
+  } else if (phase == SPEECH_PHASE_RESERVING) {
     speech_row_t* row = service->admission;
     if (service->generator.complete_admit(service->generator.self,
                                           row->invocation)) {
@@ -1038,7 +1074,8 @@ static iree_status_t loom_serve_speech_advance(
   }
   if (service->phase == SPEECH_PHASE_IDLE) {
     loom_serve_speech_release_finished(service, out_progress);
-    if (!service->stopping && iree_status_is_ok(service->status)) {
+    if (!service->stopping && iree_status_is_ok(service->status) &&
+        service->phase == SPEECH_PHASE_IDLE) {
       loom_serve_speech_fill_rows(service);
       // Delivery publication ends this bounded owner turn. The router observes
       // progress and rotates before the next admission/numerical selection.

@@ -60,6 +60,7 @@ loom_cc_library(
     iree::base
     iree::hal
     loom::serve::runtime::device
+    loom::serve::runtime::execution
     loom::serve::runtime::execution::retirement
     loom::serve::runtime::storage::memory
   PUBLIC
@@ -132,6 +133,7 @@ loom_cc_library(
     loom::serve::service
     loom::serve::telemetry::latency
     loom::serve::testing::http_harness
+    loom::serve::testing::maintenance_gate
     loom::serve::testing::model
     loom::serve::testing::package
     loom::serve::testing::service_application

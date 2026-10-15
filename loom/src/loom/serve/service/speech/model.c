@@ -282,7 +282,7 @@ iree_status_t loom_serve_speech_model_free(loom_serve_speech_model_t* model) {
   for (iree_host_size_t i = 0; i < model->weights.count; ++i) {
     loom_serve_weights_await_retirement(model->weights.plans[i]);
   }
-  loom_serve_retirement_await(&model->state.retirement);
+  loom_serve_speech_state_await_retirement(&model->state);
   return iree_status_join(status,
                           loom_serve_speech_model_destroy_resources(model));
 }
@@ -761,7 +761,7 @@ static iree_status_t loom_serve_speech_model_link(
       iree_max(model->batch_input_capacity, model->output_capacity),
       LOOM_SERVE_SPEECH_BUFFER_ALIGNMENT));
   IREE_RETURN_IF_ERROR(loom_serve_speech_state_allocate(
-      &model->state, model->owner, model->request_capacity,
+      &model->state, model->owner, model->execution, model->request_capacity,
       model->input_capacity, model->stream_capacity,
       model->conditioning_capacity, LOOM_SERVE_SPEECH_BUFFER_ALIGNMENT));
   IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
@@ -1225,6 +1225,7 @@ static bool loom_serve_speech_generator_complete_admit(
     void* self, void* opaque_invocation) {
   loom_serve_speech_model_t* model = self;
   speech_invocation_t* invocation = opaque_invocation;
+  loom_serve_speech_state_complete_backing(&model->state);
   if (!invocation->reserved) {
     loom_serve_residency_release(model->residency);
   }
@@ -1509,11 +1510,17 @@ static iree_status_t loom_serve_speech_generator_collect(
 }
 
 static iree_status_t loom_serve_speech_generator_release(
-    void* self, void* opaque_invocation) {
+    void* self, void* opaque_invocation, bool* out_complete,
+    loom_serve_execution_frontier_t* out_frontier) {
+  *out_frontier = (loom_serve_execution_frontier_t){0};
   loom_serve_speech_model_t* model = self;
   speech_invocation_t* invocation = opaque_invocation;
   IREE_RETURN_IF_ERROR(loom_serve_speech_state_release_row(
-      &model->state, invocation->row_index));
+      &model->state, invocation->row_index, out_complete));
+  if (!*out_complete) {
+    *out_frontier = loom_serve_execution_frontier(model->execution);
+    return iree_ok_status();
+  }
   loom_serve_residency_release(model->residency);
   loom_serve_speech_invocation_free(model, invocation);
   return iree_ok_status();

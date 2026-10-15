@@ -8,6 +8,7 @@
 #define LOOM_SERVE_SERVICE_SPEECH_STATE_H_
 
 #include "loom/serve/runtime/device/device.h"
+#include "loom/serve/runtime/execution/execution.h"
 #include "loom/serve/runtime/execution/retirement.h"
 
 #ifdef __cplusplus
@@ -28,10 +29,21 @@ typedef struct loom_serve_speech_state_t {
   iree_allocator_t host_allocator;
   // Borrowed shared commitment owner; NULL selects fixed backing.
   loom_serve_memory_pool_t* pool;
+  // Borrowed model timeline, enclosing state mapping and release readiness.
+  loom_serve_execution_t* execution;
   // Accounting shared by all virtual reservations below.
   loom_serve_memory_statistics_t statistics;
   // Final queue ownership, independent of success/failure readiness.
   loom_serve_retirement_t retirement;
+  // One native capacity transition, serialized with other model mutation.
+  struct {
+    // Owned immutable native borrower, joined independently of queue failure.
+    loom_serve_memory_operation_t* operation;
+    // Owned readiness timeline imported into model execution.
+    iree_hal_semaphore_t* semaphore;
+    // Last admitted native readiness value.
+    uint64_t value;
+  } backing;
   // Whole-arena roots lent to numerical commands and transfers.
   iree_hal_buffer_t* buffers[LOOM_SERVE_SPEECH_STATE_BUFFER_COUNT];
   // Optional stable address reservations, owned through actual retirement.
@@ -56,9 +68,9 @@ void loom_serve_speech_state_initialize(iree_allocator_t host_allocator,
 // partial construction and remains safe to retire and deinitialize.
 iree_status_t loom_serve_speech_state_allocate(
     loom_serve_speech_state_t* state, loom_serve_device_t* device,
-    iree_host_size_t row_count, iree_device_size_t input_stride,
-    iree_device_size_t stream_stride, iree_device_size_t conditioning_length,
-    iree_device_size_t alignment);
+    loom_serve_execution_t* execution, iree_host_size_t row_count,
+    iree_device_size_t input_stride, iree_device_size_t stream_stride,
+    iree_device_size_t conditioning_length, iree_device_size_t alignment);
 
 // Borrows a tracked whole-arena root until state retirement. The index names
 // one of the state buffers above; row offsets remain source-owned facts.
@@ -68,16 +80,23 @@ iree_hal_buffer_t* loom_serve_speech_state_buffer(
 // At a retired model cut, admits one unowned row and the conditioning bank in
 // one physical commitment transaction. Parameter pins already protect needed
 // weights. A false result owns no row and commits no new destination backing.
+// Mapping readiness precedes initialization on the model execution timeline.
 // Actual platform failures retain any partial backing for terminal teardown.
 iree_status_t loom_serve_speech_state_try_reserve(
     loom_serve_speech_state_t* state, iree_host_size_t row_index,
     bool* out_reserved);
 
+// Joins a native backing change after successful model readiness, or a no-op.
+void loom_serve_speech_state_complete_backing(loom_serve_speech_state_t* state);
+
 // Releases a reserved row only after its accepted work and host borrowers
 // retire. Surviving rows retain their contents and addresses. Shared slabs stay
 // backed while any row needs them; conditioning remains reusable model state.
+// False requires successful model readiness before calling again for this row.
+// No other state mutation occurs until completion; failure retains all owners.
 iree_status_t loom_serve_speech_state_release_row(
-    loom_serve_speech_state_t* state, iree_host_size_t row_index);
+    loom_serve_speech_state_t* state, iree_host_size_t row_index,
+    bool* out_complete);
 
 // Relinquishes caller roots after all CPU borrowers stop. Accepted queues can
 // still retain tracked views. The observer only schedules the serialized owner.
@@ -85,6 +104,9 @@ void loom_serve_speech_state_retire(loom_serve_speech_state_t* state,
                                     void (*wake)(void* user_data),
                                     void* user_data);
 bool loom_serve_speech_state_is_retired(loom_serve_speech_state_t* state);
+
+// Explicit outer-thread join; scheduler tasks observe is_retired instead.
+void loom_serve_speech_state_await_retirement(loom_serve_speech_state_t* state);
 
 // Requires actual retirement, independently of failed semaphore readiness.
 // A platform release failure preserves remaining reservations for retry.

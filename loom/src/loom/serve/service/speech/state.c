@@ -14,11 +14,17 @@ void loom_serve_speech_state_initialize(iree_allocator_t host_allocator,
 
 iree_status_t loom_serve_speech_state_allocate(
     loom_serve_speech_state_t* state, loom_serve_device_t* device,
-    iree_host_size_t row_count, iree_device_size_t input_stride,
-    iree_device_size_t stream_stride, iree_device_size_t conditioning_length,
-    iree_device_size_t alignment) {
+    loom_serve_execution_t* execution, iree_host_size_t row_count,
+    iree_device_size_t input_stride, iree_device_size_t stream_stride,
+    iree_device_size_t conditioning_length, iree_device_size_t alignment) {
   const iree_allocator_t host_allocator = state->host_allocator;
   state->pool = loom_serve_device_memory_pool(device);
+  state->execution = execution;
+  if (state->pool) {
+    IREE_RETURN_IF_ERROR(iree_hal_semaphore_create(
+        loom_serve_device_handle(device), IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, 0,
+        IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &state->backing.semaphore));
+  }
   state->row_count = row_count;
   state->strides[LOOM_SERVE_SPEECH_STATE_INPUT] = input_stride;
   state->strides[LOOM_SERVE_SPEECH_STATE_CONDITIONING] = conditioning_length;
@@ -76,24 +82,50 @@ iree_status_t loom_serve_speech_state_try_reserve(
           .length = state->strides[i],
       };
     }
-    IREE_RETURN_IF_ERROR(loom_serve_memory_pool_try_commit(
-        state->pool, IREE_ARRAYSIZE(ranges), ranges, &reserved));
+    IREE_ASSERT(!state->backing.operation);
+    IREE_RETURN_IF_ERROR(loom_serve_memory_pool_commit_async(
+        state->pool, IREE_ARRAYSIZE(ranges), ranges, state->backing.semaphore,
+        state->backing.value + 1, &reserved, &state->backing.operation));
+    if (reserved) {
+      ++state->backing.value;
+    }
   }
   if (reserved) {
     state->rows[row_index] = true;
   }
   *out_reserved = reserved;
+  if (state->backing.operation) {
+    return loom_serve_execution_barrier(
+        state->execution,
+        (iree_hal_semaphore_list_t){1, &state->backing.semaphore,
+                                    &state->backing.value});
+  }
   return iree_ok_status();
 }
 
+void loom_serve_speech_state_complete_backing(
+    loom_serve_speech_state_t* state) {
+  const bool complete =
+      loom_serve_memory_operation_is_complete(state->backing.operation);
+  IREE_ASSERT(complete);
+  loom_serve_memory_operation_free(state->backing.operation);
+  state->backing.operation = NULL;
+}
+
 iree_status_t loom_serve_speech_state_release_row(
-    loom_serve_speech_state_t* state, iree_host_size_t row_index) {
+    loom_serve_speech_state_t* state, iree_host_size_t row_index,
+    bool* out_complete) {
+  *out_complete = false;
+  if (state->backing.operation) {
+    loom_serve_speech_state_complete_backing(state);
+    *out_complete = true;
+    return iree_ok_status();
+  }
   state->rows[row_index] = false;
-  iree_status_t status = iree_ok_status();
+  loom_serve_virtual_buffer_t* buffers[2];
+  iree_host_size_t count = 0;
   for (iree_host_size_t i = 0;
-       state->pool && i < LOOM_SERVE_SPEECH_STATE_BUFFER_COUNT &&
-       iree_status_is_ok(status);
-       ++i) {
+       state->pool && i < LOOM_SERVE_SPEECH_STATE_BUFFER_COUNT; ++i) {
     if (i == LOOM_SERVE_SPEECH_STATE_CONDITIONING) {
       continue;
     }
@@ -104,15 +136,30 @@ iree_status_t loom_serve_speech_state_release_row(
             state->reservations[i], row * state->strides[i], state->strides[i]);
       }
     }
-    status = loom_serve_virtual_buffer_trim(state->reservations[i]);
+    buffers[count++] = state->reservations[i];
   }
-  return status;
+  if (count) {
+    IREE_RETURN_IF_ERROR(loom_serve_memory_pool_trim_async(
+        state->pool, count, buffers, state->backing.semaphore,
+        state->backing.value + 1, &state->backing.operation));
+    ++state->backing.value;
+  }
+  *out_complete = state->backing.operation == NULL;
+  if (!*out_complete) {
+    return loom_serve_execution_barrier(
+        state->execution,
+        (iree_hal_semaphore_list_t){1, &state->backing.semaphore,
+                                    &state->backing.value});
+  }
+  return iree_ok_status();
 }
 
 void loom_serve_speech_state_retire(loom_serve_speech_state_t* state,
                                     void (*wake)(void* user_data),
                                     void* user_data) {
   loom_serve_retirement_set_observer(&state->retirement, wake, user_data);
+  loom_serve_memory_operation_set_observer(state->backing.operation, wake,
+                                           user_data);
   for (iree_host_size_t i = 0; i < LOOM_SERVE_SPEECH_STATE_BUFFER_COUNT; ++i) {
     iree_hal_buffer_release(state->buffers[i]);
     state->buffers[i] = NULL;
@@ -120,12 +167,23 @@ void loom_serve_speech_state_retire(loom_serve_speech_state_t* state,
 }
 
 bool loom_serve_speech_state_is_retired(loom_serve_speech_state_t* state) {
-  return loom_serve_retirement_is_idle(&state->retirement);
+  return loom_serve_memory_operation_is_complete(state->backing.operation) &&
+         loom_serve_retirement_is_idle(&state->retirement);
+}
+
+void loom_serve_speech_state_await_retirement(
+    loom_serve_speech_state_t* state) {
+  loom_serve_memory_operation_await(state->backing.operation);
+  loom_serve_retirement_await(&state->retirement);
 }
 
 iree_status_t loom_serve_speech_state_deinitialize(
     loom_serve_speech_state_t* state) {
   IREE_ASSERT(loom_serve_speech_state_is_retired(state));
+  loom_serve_memory_operation_free(state->backing.operation);
+  state->backing.operation = NULL;
+  iree_hal_semaphore_release(state->backing.semaphore);
+  state->backing.semaphore = NULL;
   iree_status_t status = iree_ok_status();
   for (iree_host_size_t i = 0;
        i < LOOM_SERVE_SPEECH_STATE_BUFFER_COUNT && iree_status_is_ok(status);
