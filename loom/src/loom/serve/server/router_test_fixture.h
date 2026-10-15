@@ -13,6 +13,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -21,6 +22,7 @@
 
 #include "iree/async/proactor.h"
 #include "iree/async/proactor_platform.h"
+#include "iree/async/semaphore.h"
 #include "iree/net/carrier/loopback/carrier.h"
 #include "iree/task/topology.h"
 #include "iree/testing/gtest.h"
@@ -51,7 +53,8 @@ class ObservationClient {
     iree_async_proactor_release(proactor_);
   }
 
-  void Open(loom_serve_http_server_t* server, const std::string& headers = "") {
+  void Open(loom_serve_http_server_t* server, const std::string& headers = "",
+            const std::function<void()>& capacity_wait = {}) {
     auto options = iree_async_proactor_options_default();
     options.threading_mode = IREE_ASYNC_PROACTOR_THREADING_CROSS_THREAD;
     IREE_ASSERT_OK(iree_async_proactor_create_platform(
@@ -66,12 +69,23 @@ class ObservationClient {
         &carrier_, &peer_));
     iree_net_carrier_retain(peer_);
     uint64_t wait_value = 0;
-    const bool consumed =
-        loom_serve_http_server_try_accept(server, peer_, {}, &wait_value);
-    if (!consumed) {
-      iree_net_carrier_release(peer_);
+    auto* capacity = loom_serve_http_server_capacity_semaphore(server);
+    while (!loom_serve_http_server_try_accept(server, peer_, {}, &wait_value)) {
+      // Like the production listener, retain the unadmitted carrier until a
+      // capacity generation advances. Client EOF does not join reclamation of
+      // the previous HTTP connection's server-side slot.
+      if (capacity_wait) {
+        capacity_wait();
+      }
+      iree_status_t status = iree_async_semaphore_multi_wait(
+          IREE_ASYNC_WAIT_MODE_ALL, &capacity, &wait_value, 1,
+          iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE,
+          iree_allocator_system());
+      if (!iree_status_is_ok(status)) {
+        iree_net_carrier_release(peer_);
+        IREE_ASSERT_OK(status);
+      }
     }
-    ASSERT_TRUE(consumed);
     IREE_ASSERT_OK(iree_net_carrier_set_handlers(
         carrier_,
         {[](void* self, iree_async_span_t bytes,

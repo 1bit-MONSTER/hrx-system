@@ -92,7 +92,7 @@ TEST_P(HttpRouterTest, MultipartRejectsMissingDuplicateOrFileModelSelectors) {
 TEST_P(HttpRouterTest,
        LiveReadersResumeAndYieldToPeersWhenTheirRingOverwrites) {
   ObservationClient slow;
-  slow.Open(server_);
+  ASSERT_NO_FATAL_FAILURE(slow.Open(server_));
   const auto initial = slow.Frame();
   const auto cursor = ObservationClient::Cursor(initial);
   EXPECT_NE(initial.find("Content-Type: text/event-stream\r\n"),
@@ -114,7 +114,8 @@ TEST_P(HttpRouterTest,
       Read(Send("POST", "/v1/test", R"({"model":"a"})")).find("HTTP/1.1 200"),
       0u);
   ObservationClient resumed;
-  resumed.Open(server_, "Last-Event-ID: " + cursor + "\r\n");
+  ASSERT_NO_FATAL_FAILURE(
+      resumed.Open(server_, "Last-Event-ID: " + cursor + "\r\n"));
   EXPECT_NE(resumed.Frame().find("\"event\":\"gap\""), std::string::npos);
   EXPECT_NE(slow.Frame().find("stream probe"), std::string::npos);
   EXPECT_NE(slow.Frame().find("\"event\":\"gap\""), std::string::npos);
@@ -138,13 +139,13 @@ TEST_P(HttpRouterTest,
 
 TEST_P(HttpRouterTest, IdleObserverDoesNotProduceCompletionDrivenEmptyFrames) {
   ObservationClient observer;
-  observer.Open(server_);
+  ASSERT_NO_FATAL_FAILURE(observer.Open(server_));
   const auto first = observer.Frame();
   observer.WaitCredit(true);
   EXPECT_EQ(Read(Send("GET", "/healthz")).find("HTTP/1.1 200"), 0u);
   ObservationClient resumed;
-  resumed.Open(server_,
-               "X-Loom-Cursor: " + ObservationClient::Cursor(first) + "\r\n");
+  ASSERT_NO_FATAL_FAILURE(resumed.Open(
+      server_, "X-Loom-Cursor: " + ObservationClient::Cursor(first) + "\r\n"));
   EXPECT_EQ(ObservationClient::Cursor(resumed.Frame()),
             ObservationClient::Cursor(first));
   resumed.WaitCredit(true);
@@ -757,7 +758,7 @@ TEST_P(HttpRouterTightCapacityTest, ObservationAndHoldingShareControlCredit) {
   WaitHeld("a", 1);
   {
     ObservationClient observer;
-    observer.Open(server_);
+    ASSERT_NO_FATAL_FAILURE(observer.Open(server_));
     observer.WaitCredit(false);
     const auto status = Read(Send("GET", "/v1/status"));
     EXPECT_NE(
@@ -771,6 +772,36 @@ TEST_P(HttpRouterTightCapacityTest, ObservationAndHoldingShareControlCredit) {
     EXPECT_EQ(Control("undrain", "a").find("HTTP/1.1 200"), 0u);
     EXPECT_NE(Read(held).find("a:/v1/test:"), std::string::npos);
     // Client departure returns observation ownership independently of shutdown.
+  }
+  EXPECT_EQ(Read(Send("GET", "/healthz")).find("HTTP/1.1 200"), 0u);
+}
+
+TEST_P(HttpRouterTightCapacityTest, ObservationWaitsForTransportReclamation) {
+  const std::string body = R"({"model":"held"})";
+  const int first = Send("POST", "/v1/test", body);
+  held_.WaitSubmitted();
+  const int second = Send("POST", "/v1/test", body);
+  const int third = Send("POST", "/v1/test", body);
+  held_.WaitAccepted(3);
+
+  // All transport slots belong to accepted model work. Only admission pressure
+  // releases the first completion, making the capacity edge deterministic.
+  ObservationClient observer;
+  size_t capacity_waits = 0;
+  ASSERT_NO_FATAL_FAILURE(observer.Open(server_, "", [&] {
+    if (++capacity_waits == 1) {
+      held_.Release();
+    }
+  }));
+  EXPECT_EQ(capacity_waits, 1u);
+  EXPECT_NE(observer.Frame().find("Content-Type: text/event-stream\r\n"),
+            std::string::npos);
+  EXPECT_NE(Read(first).find("held:/v1/test:" + body), std::string::npos);
+
+  for (int client : {second, third}) {
+    held_.WaitSubmitted();
+    held_.Release();
+    EXPECT_NE(Read(client).find("held:/v1/test:" + body), std::string::npos);
   }
   EXPECT_EQ(Read(Send("GET", "/healthz")).find("HTTP/1.1 200"), 0u);
 }

@@ -296,7 +296,7 @@ class HttpRouterRegistrationTest : public HttpRouterTest {
 TEST_P(HttpRouterRegistrationTest, StalledObserverDoesNotRetainRemovedModel) {
   Register();
   ObservationClient observer;
-  observer.Open(server_, "X-Loom-Model: dynamic\r\n");
+  ASSERT_NO_FATAL_FAILURE(observer.Open(server_, "X-Loom-Model: dynamic\r\n"));
   observer.WaitCredit(false);
   // The first response is already copied, but its only send credit remains
   // occupied throughout native model retirement and independent peer output.
