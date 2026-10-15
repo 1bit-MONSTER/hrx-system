@@ -11,6 +11,17 @@ iree_add_all_subdirs()
 
 loom_cc_library(
   NAME
+    maintenance_gate
+  HDRS
+    "maintenance_gate.h"
+  DEPS
+    iree::hal::memory::maintenance
+  TESTONLY
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     compiler
   HDRS
     "compiler.h"

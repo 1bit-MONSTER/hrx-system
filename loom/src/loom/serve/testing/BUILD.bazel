@@ -14,6 +14,14 @@ package(
 )
 
 loom_cc_library(
+    name = "maintenance_gate",
+    testonly = True,
+    hdrs = ["maintenance_gate.h"],
+    visibility = ["//loom/src/loom/serve:implementation"],
+    deps = ["//runtime/src/iree/hal/memory:maintenance"],
+)
+
+loom_cc_library(
     name = "compiler",
     testonly = True,
     srcs = ["compiler.c"],

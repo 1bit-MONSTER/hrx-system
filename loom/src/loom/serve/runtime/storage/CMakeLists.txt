@@ -18,7 +18,9 @@ loom_cc_library(
     "memory.c"
   DEPS
     iree::base
+    iree::base::threading
     iree::hal
+    iree::hal::memory::maintenance
   PUBLIC
 )
 

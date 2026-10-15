@@ -692,6 +692,7 @@ def check_empty_server(server_command, directory, device, backing):
                     "limit_bytes": memory_limit or None,
                     "reserved_bytes": 0,
                     "committed_bytes": 0,
+                    "pending_bytes": 0,
                     "peak_bytes": 0,
                     "released_bytes": 0,
                 }

@@ -469,6 +469,12 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
     loom_serve_residency_release(residencies_[index]);
   }
 
+  void ExpectBacking(iree_host_size_t index, uint64_t bytes) {
+    const auto memory = loom_serve_weights_statistics(plans_[index]);
+    // Accepted native work owns budget before physical results are published.
+    EXPECT_EQ(memory.committed_bytes + memory.pending_bytes, bytes);
+  }
+
   void DrainMaintenance() {
     // Native returns and cascading cache sweeps complete independently of
     // model consumers. Join them only for final backing-byte observations.
@@ -748,8 +754,7 @@ TEST_P(WeightsTest, RejectedActivationRetainsProtectionUntilActualRetirement) {
   // It preserves a terminal pin even though no invocation was admitted.
   IREE_ASSERT_OK(loom_serve_residency_cache_trim(
       loom_serve_device_residency_cache(device_owner_), 0));
-  EXPECT_EQ(loom_serve_weights_statistics(plans_[0]).committed_bytes,
-            GetParam() ? kSlabBytes : 0);
+  ExpectBacking(0, GetParam() ? kSlabBytes : 0);
   IREE_EXPECT_STATUS_IS(IREE_STATUS_NOT_FOUND,
                         loom_serve_weights_await(plans_[0]));
   loom_serve_residency_free(residencies_[0]);
@@ -822,8 +827,7 @@ TEST_P(WeightsTest, CachedConsumersSurviveBackingReuseAndPreparationReplay) {
   EXPECT_EQ(replay_activity.groups, first_activity.groups * 2);
   EXPECT_EQ(buffers_[0][0], root);
   EXPECT_EQ(commands_[0], command);
-  EXPECT_EQ(loom_serve_weights_statistics(plans_[0]).committed_bytes,
-            2 * kSlabBytes);
+  ExpectBacking(0, 2 * kSlabBytes);
   Run(0, 70);
   Run(1, 70);
   Run(2, 93);
@@ -947,8 +951,7 @@ TEST_P(WeightsTest, ExplicitActivationCancellationJoinsAcceptedReadiness) {
   EXPECT_EQ(phase, LOOM_SERVE_ACTIVATION_LOADING);
   IREE_ASSERT_OK(loom_serve_residency_cache_trim(
       loom_serve_device_residency_cache(device_owner_), 0));
-  EXPECT_EQ(loom_serve_weights_statistics(plans_[0]).committed_bytes,
-            GetParam() ? kSlabBytes : 0u);
+  ExpectBacking(0, GetParam() ? kSlabBytes : 0u);
   IREE_ASSERT_OK(iree_hal_semaphore_signal(gate, gate_value, nullptr));
   wake.Await();
   IREE_ASSERT_OK(loom_serve_activation_advance(
@@ -1033,8 +1036,7 @@ TEST_P(WeightsTest, RejectedWarmupKeepsAcceptedLoadsProtectedUntilRetirement) {
   loom_serve_activation_free(activation);
   IREE_ASSERT_OK(loom_serve_residency_cache_trim(
       loom_serve_device_residency_cache(device_owner_), 0));
-  EXPECT_EQ(loom_serve_weights_statistics(plans_[0]).committed_bytes,
-            GetParam() ? kSlabBytes : 0u);
+  ExpectBacking(0, GetParam() ? kSlabBytes : 0u);
   IREE_EXPECT_STATUS_IS(IREE_STATUS_NOT_FOUND,
                         loom_serve_weights_await(plans_[0]));
 }

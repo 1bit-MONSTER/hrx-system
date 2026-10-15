@@ -460,8 +460,11 @@ static iree_status_t loom_serve_router_describe_parameters(
       state.admission.duration_ns / 1e9, state.admission.age_ns / 1e9));
   if (state.elastic) {
     IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
-        output, ",\"reserved_bytes\":%" PRIu64 ",\"committed_bytes\":%" PRIu64,
-        state.memory.reserved_bytes, state.memory.committed_bytes));
+        output,
+        ",\"reserved_bytes\":%" PRIu64 ",\"committed_bytes\":%" PRIu64
+        ",\"pending_bytes\":%" PRIu64,
+        state.memory.reserved_bytes, state.memory.committed_bytes,
+        state.memory.pending_bytes));
   }
   return iree_string_builder_append_cstring(output, "}");
 }

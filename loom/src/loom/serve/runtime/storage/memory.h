@@ -15,16 +15,21 @@ extern "C" {
 #endif
 
 // Single-owner physical allocation domain shared by independent virtual
-// buffers. Logical blocks and model geometry belong to its callers. Mapping
-// operations are synchronous capacity transitions, not per-token operations.
+// buffers. Logical blocks and model geometry belong to its callers. Admission
+// and result publication stay on that owner; asynchronous native work uses the
+// storage pool's cold-memory executor. These are capacity transitions, not
+// per-token operations.
 typedef struct loom_serve_memory_pool_t loom_serve_memory_pool_t;
 typedef struct loom_serve_virtual_buffer_t loom_serve_virtual_buffer_t;
+typedef struct loom_serve_memory_operation_t loom_serve_memory_operation_t;
 
 typedef struct loom_serve_memory_statistics_t {
   // Reserved virtual bytes, including final slab alignment.
   uint64_t reserved_bytes;
-  // Unique physical bytes currently owned by the pool.
+  // Unique physical bytes published to the serialized pool owner.
   uint64_t committed_bytes;
+  // Budget charged to accepted native commitments not yet published by owner.
+  uint64_t pending_bytes;
   // Maximum simultaneously committed physical bytes.
   uint64_t peak_bytes;
   // Cumulative physical bytes successfully returned to the allocator.
@@ -46,18 +51,18 @@ iree_status_t loom_serve_memory_pool_allocate(
 void loom_serve_memory_pool_free(loom_serve_memory_pool_t* pool);
 
 loom_serve_memory_statistics_t loom_serve_memory_pool_statistics(
-    const loom_serve_memory_pool_t* pool);
+    loom_serve_memory_pool_t* pool);
 
 // Immutable physical commitment ceiling in bytes; UINT64_MAX is unbounded.
 // This is the configured budget, not currently available backing.
 uint64_t loom_serve_memory_pool_limit(const loom_serve_memory_pool_t* pool);
 
-// Clones the first failure from the shared reclaimer, or returns OK. Such a
-// failure may have partially released another owner's backing; it is not
+// Clones the first failure from native work or reclamation, or returns OK. Such
+// a failure may have partially changed another owner's backing; it is not
 // scoped to the caller requesting capacity. The serialized owner stops new
 // work and drains all consumers before cleanup. Querying does not clear it.
 iree_status_t loom_serve_memory_pool_query_status(
-    const loom_serve_memory_pool_t* pool);
+    loom_serve_memory_pool_t* pool);
 
 // Cold pressure policy, independent of logical storage geometry. The callback
 // may trim eligible reservations toward target_bytes of total commitment; it
@@ -74,11 +79,11 @@ void loom_serve_memory_pool_set_reclaimer(
     loom_serve_memory_pool_t* pool, loom_serve_memory_reclaimer_t reclaimer);
 
 // Makes room for additional physical bytes using the installed cold policy.
-// Does not allocate or reserve credit: the single owner commits before yielding
-// admission to another caller. False means ordinary capacity backpressure, not
-// an allocation failure. Consumers pin every residency they need before asking
-// for capacity, including already backed ranges the policy could otherwise
-// trim.
+// Includes pending commitments but does not itself allocate or reserve credit:
+// the single owner commits before yielding admission to another caller. False
+// means ordinary capacity backpressure, not an allocation failure. Consumers
+// pin every residency they need before asking for capacity, including already
+// backed ranges the policy could otherwise trim.
 iree_status_t loom_serve_memory_pool_prepare(loom_serve_memory_pool_t* pool,
                                              uint64_t additional_bytes,
                                              bool* out_admitted);
@@ -124,6 +129,49 @@ typedef struct loom_serve_memory_range_t {
 iree_status_t loom_serve_memory_pool_try_commit(
     loom_serve_memory_pool_t* pool, iree_host_size_t range_count,
     const loom_serve_memory_range_t* ranges, bool* out_admitted);
+
+// Admits the missing slab union on the serialized owner, then allocates, maps,
+// and publishes it on the native pool's shared cold-memory executor. Pending
+// bytes consume budget immediately. No worker accesses caller accounting or
+// invokes the pressure policy. On success, readiness reaches value only after
+// mappings are usable; failure fails readiness and preserves partial ownership
+// for teardown. Existing ready ranges need no operation and signal immediately.
+// Capacity denial returns admitted=false and no operation or readiness signal.
+//
+// The caller keeps every reservation and its accounting alive until the
+// returned operation retires, independently of readiness success/failure. No
+// other commitment or trim may touch its pending slabs. Ranges are copied; the
+// readiness semaphore is retained. Completion may precede return.
+iree_status_t loom_serve_memory_pool_commit_async(
+    loom_serve_memory_pool_t* pool, iree_host_size_t range_count,
+    const loom_serve_memory_range_t* ranges, iree_hal_semaphore_t* readiness,
+    uint64_t value, bool* out_admitted,
+    loom_serve_memory_operation_t** out_operation);
+
+// Installs a nonblocking ownership wake, or detaches it with NULL. The observer
+// only schedules its owner; it cannot reenter the operation. Set before
+// querying completion to avoid losing the last wake. NULL operations are
+// accepted.
+void loom_serve_memory_operation_set_observer(
+    loom_serve_memory_operation_t* operation, void (*wake)(void* user_data),
+    void* user_data);
+
+// Publishes completed native results and accounting on the serialized owner.
+// True joins the worker's final access, not merely its readiness signal. NULL
+// is complete. A failed operation is reported by pool_query_status and
+// readiness.
+bool loom_serve_memory_operation_is_complete(
+    loom_serve_memory_operation_t* operation);
+
+// Cold outer-thread join, never used by scheduler tasks or completion
+// callbacks. Publishes the same results as is_complete; failure remains on
+// pool/readiness.
+void loom_serve_memory_operation_await(
+    loom_serve_memory_operation_t* operation);
+
+// Releases a completed operation. Caller-owned reservations may then be trimmed
+// or destroyed. NULL is accepted; this never waits for native work.
+void loom_serve_memory_operation_free(loom_serve_memory_operation_t* operation);
 
 // At a retired maintenance cut, clear the keep set, mark all still-live byte
 // ranges, then trim. Marking does not commit memory. A physical slab shared by

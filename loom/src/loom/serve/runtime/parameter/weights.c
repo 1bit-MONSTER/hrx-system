@@ -71,6 +71,10 @@ struct loom_serve_weights_t {
   loom_serve_retirement_t retirement;
   // Activation lanes retained independently of their submitting host turn.
   struct {
+    // Native backing work, joined independently of queue readiness on failure.
+    loom_serve_memory_operation_t* backing;
+    // Owned native mapping readiness imported by the file-loading lanes.
+    iree_hal_semaphore_t* backing_ready;
     // Accepted I/O/preparation views, including after failed readiness.
     loom_serve_retirement_t retirement;
     // Owned lane readiness handles imported into the consuming model timeline.
@@ -609,6 +613,15 @@ static iree_status_t loom_serve_weight_stream(loom_serve_weights_t* weights) {
           IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &ready[i]);
       if (iree_status_is_ok(status)) {
         ++weights->activation.count;
+        if (weights->activation.backing_ready) {
+          frontiers[i] = 1;
+          status = iree_hal_queue_barrier(
+              weights->transfer,
+              (iree_hal_semaphore_list_t){1, &weights->activation.backing_ready,
+                                          &frontiers[i]},
+              (iree_hal_semaphore_list_t){1, &ready[i], &frontiers[i]}, NULL,
+              IREE_HAL_QUEUE_BARRIER_FLAG_NONE);
+        }
       }
     }
   }
@@ -786,14 +799,33 @@ iree_status_t loom_serve_weights_activate(loom_serve_weights_t* weights,
   IREE_TRACE_ZONE_APPEND_VALUE_I64(z0,
                                    (int64_t)weights->statistics.reserved_bytes);
   iree_status_t status = iree_ok_status();
-  for (iree_host_size_t i = 0;
-       i < weights->storage_count && iree_status_is_ok(status); ++i) {
-    weight_storage_t* storage = &weights->storages[i];
-    if (storage->reservation) {
-      status = loom_serve_virtual_buffer_commit(
-          storage->reservation, 0,
-          iree_hal_buffer_byte_length(storage->buffer));
+  if (weights->pool && weights->storage_count) {
+    loom_serve_memory_range_t* ranges = NULL;
+    status = iree_allocator_malloc_array(weights->host_allocator,
+                                         weights->storage_count,
+                                         sizeof(*ranges), (void**)&ranges);
+    if (iree_status_is_ok(status)) {
+      status = iree_hal_semaphore_create(
+          weights->device, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, 0,
+          IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &weights->activation.backing_ready);
     }
+    if (iree_status_is_ok(status)) {
+      for (iree_host_size_t i = 0; i < weights->storage_count; ++i) {
+        ranges[i] = (loom_serve_memory_range_t){
+            weights->storages[i].reservation, 0,
+            iree_hal_buffer_byte_length(weights->storages[i].buffer)};
+      }
+      bool admitted = false;
+      status = loom_serve_memory_pool_commit_async(
+          weights->pool, weights->storage_count, ranges,
+          weights->activation.backing_ready, 1, &admitted,
+          &weights->activation.backing);
+      if (iree_status_is_ok(status) && !admitted) {
+        status = iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                                  "physical pool cannot back model parameters");
+      }
+    }
+    iree_allocator_free(weights->host_allocator, ranges);
   }
   if (iree_status_is_ok(status)) {
     status = loom_serve_weight_stream(weights);
@@ -819,6 +851,7 @@ iree_status_t loom_serve_weights_await(loom_serve_weights_t* weights) {
                                   weights->activation.values},
       iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE);
   loom_serve_retirement_await(&weights->activation.retirement);
+  loom_serve_memory_operation_await(weights->activation.backing);
   return status;
 }
 
@@ -831,6 +864,9 @@ iree_status_t loom_serve_weights_deactivate(loom_serve_weights_t* weights) {
   IREE_TRACE_ZONE_APPEND_VALUE_I64(
       z0, (int64_t)weights->statistics.committed_bytes);
   iree_status_t status = iree_ok_status();
+  const bool backing_complete =
+      loom_serve_memory_operation_is_complete(weights->activation.backing);
+  IREE_ASSERT(backing_complete);
   for (iree_host_size_t i = 0;
        i < weights->storage_count && iree_status_is_ok(status); ++i) {
     loom_serve_virtual_buffer_t* reservation = weights->storages[i].reservation;
@@ -846,6 +882,10 @@ iree_status_t loom_serve_weights_deactivate(loom_serve_weights_t* weights) {
       weights->activation.values[i] = 0;
     }
     weights->activation.count = 0;
+    loom_serve_memory_operation_free(weights->activation.backing);
+    weights->activation.backing = NULL;
+    iree_hal_semaphore_release(weights->activation.backing_ready);
+    weights->activation.backing_ready = NULL;
   }
   IREE_TRACE_ZONE_END(z0);
   return status;
@@ -853,6 +893,8 @@ iree_status_t loom_serve_weights_deactivate(loom_serve_weights_t* weights) {
 
 loom_serve_memory_statistics_t loom_serve_weights_statistics(
     const loom_serve_weights_t* weights) {
+  // Accounting is published by the serialized owner, never the cold executor.
+  loom_serve_memory_operation_is_complete(weights->activation.backing);
   return weights->statistics;
 }
 
@@ -865,6 +907,8 @@ void loom_serve_weights_set_retirement_observer(loom_serve_weights_t* weights,
                                                 void (*wake)(void* user_data),
                                                 void* user_data) {
   if (weights) {
+    loom_serve_memory_operation_set_observer(weights->activation.backing, wake,
+                                             user_data);
     loom_serve_retirement_set_observer(&weights->retirement, wake, user_data);
     loom_serve_retirement_set_observer(&weights->activation.retirement, wake,
                                        user_data);
@@ -873,12 +917,15 @@ void loom_serve_weights_set_retirement_observer(loom_serve_weights_t* weights,
 
 bool loom_serve_weights_is_retired(loom_serve_weights_t* weights) {
   return !weights ||
-         (loom_serve_retirement_is_idle(&weights->retirement) &&
+         (loom_serve_memory_operation_is_complete(
+              weights->activation.backing) &&
+          loom_serve_retirement_is_idle(&weights->retirement) &&
           loom_serve_retirement_is_idle(&weights->activation.retirement));
 }
 
 void loom_serve_weights_await_retirement(loom_serve_weights_t* weights) {
   if (weights) {
+    loom_serve_memory_operation_await(weights->activation.backing);
     loom_serve_retirement_await(&weights->retirement);
     loom_serve_retirement_await(&weights->activation.retirement);
   }
@@ -888,7 +935,8 @@ iree_status_t loom_serve_weights_free(loom_serve_weights_t* weights) {
   if (!weights) {
     return iree_ok_status();
   }
-  IREE_ASSERT(loom_serve_weights_is_retired(weights));
+  const bool retired = loom_serve_weights_is_retired(weights);
+  IREE_ASSERT(retired);
   iree_status_t status = iree_ok_status();
   for (iree_host_size_t i = 0;
        i < weights->storage_count && iree_status_is_ok(status); ++i) {
@@ -898,6 +946,8 @@ iree_status_t loom_serve_weights_free(loom_serve_weights_t* weights) {
     }
   }
   if (iree_status_is_ok(status)) {
+    loom_serve_memory_operation_free(weights->activation.backing);
+    iree_hal_semaphore_release(weights->activation.backing_ready);
     loom_serve_retirement_deinitialize(&weights->retirement);
     loom_serve_retirement_deinitialize(&weights->activation.retirement);
     for (iree_host_size_t i = 0; i < weights->activation.count; ++i) {

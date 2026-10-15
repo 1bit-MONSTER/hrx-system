@@ -18,6 +18,7 @@
 #include "iree/testing/status_matchers.h"
 #include "iree/testing/temp_file.h"
 #include "loom/serve/service/finite/embedding/source_service_test_fixture.h"
+#include "loom/serve/testing/maintenance_gate.h"
 #include "loom/serve/testing/model.h"
 #include "loom/serve/testing/package.h"
 #include "loom/serve/testing/stalled_stderr.h"
@@ -27,6 +28,79 @@ namespace loom_serve::testing::embedding {
 using loom_serve::testing::StalledStderr;
 
 class ElasticEmbeddingServiceTest : public SourceEmbeddingServiceTest {};
+
+TEST_F(ElasticEmbeddingServiceTest,
+       ColdParameterCommitDoesNotBlockWarmHttpInferenceOnOneWorker) {
+  const std::string package =
+      iree::testing::MakeTempFilePath("cold_parameter_progress");
+  ASSERT_NO_FATAL_FAILURE(WriteCheckpointPackage(package));
+  StartManagedRouter();
+  ASSERT_EQ(Read(Send(Declaration("cold", package), "/v1/models/register"))
+                .find("HTTP/1.1 202"),
+            0u);
+  ASSERT_NO_FATAL_FAILURE(WaitModel("cold", R"("registration":"ready")"));
+  // Populate the shared workspace and the warm service's feedback path before
+  // holding cold memory. Its next request needs no additional physical storage.
+  ASSERT_NE(Read(Send(R"({"model":"fixture","input":"a"})"))
+                .find(R"("embedding":[1,1,1,1])"),
+            std::string::npos);
+  int cold = -1;
+  {
+    loom_serve::testing::MaintenanceGate gate(
+        loom_serve_device_storage_pool(device_)->maintenance);
+    cold = Send(R"({"model":"cold","input":"a"})");
+    const auto waiting = WaitModel("cold", R"("pending_bytes":2097152)");
+    EXPECT_NE(waiting.find(R"("committed_bytes":0)"), std::string::npos);
+    EXPECT_NE(Read(Send(R"({"model":"fixture","input":"a"})"))
+                  .find(R"("embedding":[1,1,1,1])"),
+              std::string::npos);
+    EXPECT_EQ(Read(Send({}, "/healthz", "GET")).find("HTTP/1.1 200"), 0u);
+  }
+  EXPECT_NE(Read(cold).find(R"("embedding":[2,2,2,2])"), std::string::npos);
+  EXPECT_EQ(Read(Send(R"({"model":"cold"})", "/v1/models/unregister"))
+                .find("HTTP/1.1 202"),
+            0u);
+  ASSERT_NO_FATAL_FAILURE(WaitModel("cold", {}));
+}
+
+TEST_F(ElasticEmbeddingServiceTest,
+       UnregisterJoinsPendingBackingWithoutBlockingWarmInference) {
+  const std::string package =
+      iree::testing::MakeTempFilePath("cancel_cold_parameters");
+  ASSERT_NO_FATAL_FAILURE(WriteCheckpointPackage(package));
+  StartManagedRouter();
+  ASSERT_EQ(Read(Send(Declaration("cold", package), "/v1/models/register"))
+                .find("HTTP/1.1 202"),
+            0u);
+  ASSERT_NO_FATAL_FAILURE(WaitModel("cold", R"("registration":"ready")"));
+  ASSERT_NE(Read(Send(R"({"model":"fixture","input":"a"})"))
+                .find(R"("embedding":[1,1,1,1])"),
+            std::string::npos);
+  int cold = -1;
+  {
+    loom_serve::testing::MaintenanceGate gate(
+        loom_serve_device_storage_pool(device_)->maintenance);
+    cold = Send(R"({"model":"cold","input":"a"})");
+    ASSERT_NO_FATAL_FAILURE(WaitModel("cold", R"("pending_bytes":2097152)"));
+    EXPECT_EQ(Read(Send(R"({"model":"cold","mode":"abort"})",
+                        "/v1/models/unregister"))
+                  .find("HTTP/1.1 202"),
+              0u);
+    // Abort closes the peer, but accepted device work still owns the model.
+    // Registration enters retirement only after that service work has drained.
+    EXPECT_TRUE(Read(cold, /*allow_empty=*/true).empty());
+    const auto removing = ModelStatus("cold");
+    EXPECT_NE(removing.find(R"("pending_bytes":2097152)"), std::string::npos);
+    EXPECT_NE(removing.find(R"("admission":"removing")"), std::string::npos);
+    EXPECT_NE(Read(Send(R"({"model":"fixture","input":"a"})"))
+                  .find(R"("embedding":[1,1,1,1])"),
+              std::string::npos);
+    EXPECT_FALSE(ModelStatus("cold").empty());
+  }
+  ASSERT_NO_FATAL_FAILURE(WaitModel("cold", {}));
+  const auto status = Read(Send({}, "/v1/status", "GET"));
+  EXPECT_NE(status.find(R"("pending_bytes":0)"), std::string::npos);
+}
 
 TEST_F(ElasticEmbeddingServiceTest,
        EmptyServerReusesOneParameterSlabAcrossManagedLifetimes) {

@@ -104,6 +104,7 @@ loom_serve_memory_statistics_t loom_serve_residency_statistics(
         loom_serve_weights_statistics(residency->weights[i]);
     total.reserved_bytes += domain.reserved_bytes;
     total.committed_bytes += domain.committed_bytes;
+    total.pending_bytes += domain.pending_bytes;
     total.peak_bytes += domain.peak_bytes;
     total.released_bytes += domain.released_bytes;
   }

@@ -123,9 +123,9 @@ iree_status_t loom_serve_weights_prepare(
 // Commits storage and streams/prepares directly into final roots through four
 // independent queue lanes, importing readiness into the consuming execution
 // domain. An already active plan is unchanged. Success means submission, not
-// completion; consuming commands use that same domain. Native backing
-// allocation and mapping are synchronous cold operations and can block the
-// caller. Submitted I/O and preparation never wait for device completion here.
+// completion; consuming commands use that same domain. Native backing runs on
+// the shared cold-memory executor and gates file loading through a semaphore.
+// Neither native preparation nor device completion blocks the submitting owner.
 // The caller pins backing until consuming work retires. Failure is terminal,
 // preserving backing and accepted I/O ownership until final plan destruction.
 iree_status_t loom_serve_weights_activate(loom_serve_weights_t* weights,
@@ -165,8 +165,9 @@ bool loom_serve_weights_is_retired(loom_serve_weights_t* weights);
 // Live owners use the wake and query instead of waiting on a shared worker.
 void loom_serve_weights_await_retirement(loom_serve_weights_t* weights);
 
-// Nonblocking destruction after is_retired or await_retirement proved every
-// consumer and activation view retired. A platform cleanup failure preserves
+// Destruction after is_retired or await_retirement proved every consumer and
+// activation view retired. Native unmapping/release is synchronous; no queue or
+// callback completion is waited on here. A platform cleanup failure preserves
 // the plan and outstanding reservations. NULL is accepted.
 iree_status_t loom_serve_weights_free(loom_serve_weights_t* weights);
 

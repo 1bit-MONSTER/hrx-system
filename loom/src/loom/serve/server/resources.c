@@ -65,9 +65,11 @@ static iree_status_t loom_serve_resources_write_memory(
     IREE_RETURN_IF_ERROR(loom_output_stream_write_format(
         output,
         ",\"reserved_bytes\":%" PRIu64 ",\"committed_bytes\":%" PRIu64
-        ",\"peak_bytes\":%" PRIu64 ",\"released_bytes\":%" PRIu64 "}",
+        ",\"pending_bytes\":%" PRIu64 ",\"peak_bytes\":%" PRIu64
+        ",\"released_bytes\":%" PRIu64 "}",
         memory.retained.reserved_bytes, memory.retained.committed_bytes,
-        memory.retained.peak_bytes, memory.retained.released_bytes));
+        memory.retained.pending_bytes, memory.retained.peak_bytes,
+        memory.retained.released_bytes));
   } else {
     IREE_RETURN_IF_ERROR(loom_output_stream_write_cstring(output, "null"));
   }

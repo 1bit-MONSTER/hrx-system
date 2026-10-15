@@ -27,7 +27,9 @@ loom_cc_library(
     hdrs = ["memory.h"],
     deps = [
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base/threading",
         "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/memory:maintenance",
     ],
 )
 

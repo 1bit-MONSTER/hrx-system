@@ -45,7 +45,8 @@ iree_status_t loom_serve_activation_allocate(
     iree_allocator_t host_allocator, loom_serve_activation_t** out_activation);
 
 // Attempts FIFO admission or consumes readiness without waiting for device
-// completion. Initial admission can synchronously allocate/map native backing.
+// completion. Accepted backing work runs on the native cold-memory executor;
+// its readiness gates loading on the model timeline.
 // WAITING needs another owner activity/capacity change, not a polling timer.
 // LOADING owes a wake. COMPLETE transfers terminal status and permits
 // destruction. The next pressure event may evict successfully warmed
