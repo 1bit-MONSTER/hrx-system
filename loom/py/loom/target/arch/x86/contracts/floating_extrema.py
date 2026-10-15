@@ -45,7 +45,13 @@ from loom.target.contracts import (
 )
 from loom.target.low_descriptors import Descriptor
 
-_REGISTER_SUFFIXES = {64: "xmm", 128: "xmm", 256: "ymm", 512: "zmm"}
+_REGISTER_SUFFIXES = {
+    32: "xmm",
+    64: "xmm",
+    128: "xmm",
+    256: "ymm",
+    512: "zmm",
+}
 _FLOAT_COMPARE_IMMEDIATES = {
     "oeq": 0,
     "ogt": 30,

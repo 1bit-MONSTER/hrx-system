@@ -327,6 +327,7 @@ loom_check_test_suite(
     "test/source_low/source_low_avx_ne_convert.loom-test"
     "test/source_low/source_low_avx_vnni.loom-test"
     "test/source_low/source_low_contraction.loom-test"
+    "test/source_low/source_low_float_roots.loom-test"
     "test/source_low/source_low_invoke.loom-test"
     "test/source_low/source_low_packed_dot.loom-test"
     "test/source_low/source_low_scalar_addressing.loom-test"

@@ -46,6 +46,15 @@ def test_avx512_fp16_rows_cover_the_native_scalar_and_vector_family() -> None:
     for mnemonic, opcode in scalar_opcodes.items():
         add(f"{mnemonic}.xmm", opcode | 0x0800, FEATURE_AVX512_FP16)
 
+    for mnemonic, opcode in (("vsqrtph", 0x51), ("vrsqrtph", 0x244E)):
+        for suffix, length_bits in (("xmm", 0), ("ymm", 0x4000), ("zmm", 0x8000)):
+            feature_bits = FEATURE_AVX512_FP16
+            if suffix != "zmm":
+                feature_bits |= FEATURE_AVX512_VL
+            add(f"{mnemonic}.{suffix}", opcode | length_bits, feature_bits)
+    add("vsqrtsh.xmm", 0x0851, FEATURE_AVX512_FP16)
+    add("vrsqrtsh.xmm", 0x244F, FEATURE_AVX512_FP16)
+
     for suffix, length_bits in (("xmm", 0), ("ymm", 0x4000), ("zmm", 0x8000)):
         feature_bits = FEATURE_AVX512_FP16
         if suffix != "zmm":

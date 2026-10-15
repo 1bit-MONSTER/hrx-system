@@ -28,6 +28,10 @@ from loom.target.arch.x86.contracts.constants import (
     floating_scalar_constant_bits_rule,
     floating_scalar_zero_rule,
 )
+from loom.target.arch.x86.contracts.float_roots import (
+    scalar_float_root_rules,
+    vector_float_root_rules,
+)
 from loom.target.arch.x86.contracts.floating_extrema import (
     avx512_fp16_float_extrema_rules,
 )
@@ -61,8 +65,10 @@ from loom.target.arch.x86.descriptors import X86_AVX512_FEATURES_DESCRIPTOR_SET
 from loom.target.arch.x86.vector_families import (
     AVX512_FP16_FLOAT_BINARY_FAMILIES,
     AVX512_FP16_FLOAT_FMA_MNEMONIC,
+    AVX512_FP16_FLOAT_ROOT_FAMILIES,
     AVX512_FP16_SCALAR_FLOAT_BINARY_FAMILIES,
     AVX512_FP16_SCALAR_FLOAT_FMA_MNEMONIC,
+    AVX512_FP16_SCALAR_FLOAT_ROOT_FAMILIES,
     AVX512_FP16_VECTOR_BIT_WIDTHS,
     FP16_ELEMENT,
 )
@@ -90,7 +96,13 @@ _I16 = Scalar("i16")
 _I32 = Scalar("i32")
 _F16 = Scalar("f16")
 _F32 = Scalar("f32")
-_REGISTER_SUFFIXES = {64: "xmm", 128: "xmm", 256: "ymm", 512: "zmm"}
+_REGISTER_SUFFIXES = {
+    32: "xmm",
+    64: "xmm",
+    128: "xmm",
+    256: "ymm",
+    512: "zmm",
+}
 
 _SOURCE_MEMORY_DIAGNOSTIC = GuardDiagnostic(
     subject_role="source-memory",
@@ -191,6 +203,12 @@ def _scalar_rules() -> tuple[DescriptorRule, ...]:
             descriptor_b="rhs",
             descriptor_c="acc",
         ),
+        *scalar_float_root_rules(
+            _descriptor,
+            descriptor_key_prefix="x86.avx512_fp16",
+            families=AVX512_FP16_SCALAR_FLOAT_ROOT_FAMILIES,
+            priority=1,
+        ),
         avx512_fp16_scalar_compare_rule(_descriptor),
         _scalar_float_conversion_rule(
             scalar_conversion.scalar_extf,
@@ -260,6 +278,13 @@ def _vector_rules() -> tuple[DescriptorRule, ...]:
             vector_bit_widths=AVX512_FP16_VECTOR_BIT_WIDTHS,
             fma_mnemonics={"f16": AVX512_FP16_FLOAT_FMA_MNEMONIC},
             elements=(FP16_ELEMENT,),
+            priority=1,
+        ),
+        *vector_float_root_rules(
+            _descriptor,
+            descriptor_key_prefix="x86.avx512_fp16",
+            families=AVX512_FP16_FLOAT_ROOT_FAMILIES,
+            vector_bit_widths=AVX512_FP16_VECTOR_BIT_WIDTHS,
             priority=1,
         ),
         *avx512_fp16_compare_rules(_descriptor),

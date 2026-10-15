@@ -1870,6 +1870,62 @@ VPXORD = _instruction(
     _IMMEDIATES_0,
     _encoding(_EVEX, _MAP_1, 1, 0, 0xEF, (512,)),
 )
+VRSQRTPH = _instruction(
+    "vrsqrtph",
+    _UNARY,
+    _OPERANDS_13,
+    _IMMEDIATES_0,
+    _encoding(_EVEX, _MAP_6, 1, 0, 0x4E, (128, 256, 512)),
+)
+VRSQRTPS = _instruction(
+    "vrsqrtps",
+    _UNARY,
+    _OPERANDS_13,
+    _IMMEDIATES_0,
+    _encoding(_VEX, _MAP_1, 0, 0, 0x52, (128, 256)),
+)
+VRSQRTSH = _instruction(
+    "vrsqrtsh",
+    _NDS,
+    _OPERANDS_16,
+    _IMMEDIATES_0,
+    _encoding(_EVEX, _MAP_6, 1, 0, 0x4F, (128,)),
+)
+VRSQRTSS = _instruction(
+    "vrsqrtss",
+    _NDS,
+    _OPERANDS_16,
+    _IMMEDIATES_0,
+    _encoding(_VEX, _MAP_1, 2, 0, 0x52, (128,)),
+)
+VRSQRT14PD = _instruction(
+    "vrsqrt14pd",
+    _UNARY,
+    _OPERANDS_13,
+    _IMMEDIATES_0,
+    _encoding(_EVEX, _MAP_2, 1, 1, 0x4E, (128, 256, 512)),
+)
+VRSQRT14PS = _instruction(
+    "vrsqrt14ps",
+    _UNARY,
+    _OPERANDS_13,
+    _IMMEDIATES_0,
+    _encoding(_EVEX, _MAP_2, 1, 0, 0x4E, (128, 256, 512)),
+)
+VRSQRT14SD = _instruction(
+    "vrsqrt14sd",
+    _NDS,
+    _OPERANDS_16,
+    _IMMEDIATES_0,
+    _encoding(_EVEX, _MAP_2, 1, 1, 0x4F, (128,)),
+)
+VRSQRT14SS = _instruction(
+    "vrsqrt14ss",
+    _NDS,
+    _OPERANDS_16,
+    _IMMEDIATES_0,
+    _encoding(_EVEX, _MAP_2, 1, 0, 0x4F, (128,)),
+)
 VSHUFI64X2 = _instruction(
     "vshufi64x2",
     _NDS_IMMEDIATE,
@@ -1890,6 +1946,50 @@ VSHUFPS = _instruction(
     _OPERANDS_16,
     _IMMEDIATES_5,
     _encoding(_VEX, _MAP_1, 0, 0, 0xC6, (128,)),
+)
+VSQRTPD = _instruction(
+    "vsqrtpd",
+    _UNARY,
+    _OPERANDS_13,
+    _IMMEDIATES_0,
+    _encoding(_EVEX, _MAP_1, 1, 1, 0x51, (512,)),
+    _encoding(_VEX, _MAP_1, 1, 0, 0x51, (128, 256)),
+)
+VSQRTPH = _instruction(
+    "vsqrtph",
+    _UNARY,
+    _OPERANDS_13,
+    _IMMEDIATES_0,
+    _encoding(_EVEX, _MAP_5, 0, 0, 0x51, (128, 256, 512)),
+)
+VSQRTPS = _instruction(
+    "vsqrtps",
+    _UNARY,
+    _OPERANDS_13,
+    _IMMEDIATES_0,
+    _encoding(_EVEX, _MAP_1, 0, 0, 0x51, (512,)),
+    _encoding(_VEX, _MAP_1, 0, 0, 0x51, (128, 256)),
+)
+VSQRTSD = _instruction(
+    "vsqrtsd",
+    _NDS,
+    _OPERANDS_16,
+    _IMMEDIATES_0,
+    _encoding(_VEX, _MAP_1, 3, 0, 0x51, (128,)),
+)
+VSQRTSH = _instruction(
+    "vsqrtsh",
+    _NDS,
+    _OPERANDS_16,
+    _IMMEDIATES_0,
+    _encoding(_EVEX, _MAP_5, 2, 0, 0x51, (128,)),
+)
+VSQRTSS = _instruction(
+    "vsqrtss",
+    _NDS,
+    _OPERANDS_16,
+    _IMMEDIATES_0,
+    _encoding(_VEX, _MAP_1, 2, 0, 0x51, (128,)),
 )
 VSUBPD = _instruction(
     "vsubpd",
@@ -2029,6 +2129,10 @@ AVX2_SCALAR_FLOAT_BINARY = (
     VDIVSS,
     VDIVSD,
 )
+AVX2_FLOAT_ROOT = (VSQRTPS, VSQRTPD, VRSQRTPS)
+AVX2_SCALAR_FLOAT_ROOT = (VSQRTSS, VSQRTSD, VRSQRTSS)
+AVX512_FLOAT_ROOT = (VSQRTPS, VSQRTPD, VRSQRT14PS, VRSQRT14PD)
+AVX512_SCALAR_FLOAT_ROOT = (VRSQRT14SS, VRSQRT14SD)
 AVX2_BITWISE = (VPAND, VPOR, VPXOR)
 AVX512_BITWISE = (VPANDD, VPORD, VPXORD)
 AVX2_LANE = (
@@ -2053,6 +2157,8 @@ AVX2_FLOAT_COMPARE = (VCMPPS_VECTOR_BINARY, VCMPPD_VECTOR_BINARY)
 AVX512_FLOAT_COMPARE = (VCMPPS_MASK_COMPARE, VCMPPD_MASK_COMPARE)
 AVX512_FP16_FLOAT_BINARY = (VADDPH, VSUBPH, VMULPH, VDIVPH)
 AVX512_FP16_SCALAR_FLOAT_BINARY = (VADDSH, VSUBSH, VMULSH, VDIVSH)
+AVX512_FP16_FLOAT_ROOT = (VSQRTPH, VRSQRTPH)
+AVX512_FP16_SCALAR_FLOAT_ROOT = (VSQRTSH, VRSQRTSH)
 AVX512_FP16_FLOAT_EXTREMA = (VMINPH, VMAXPH)
 AVX512_FP16_SCALAR_FLOAT_EXTREMA = (VMINSH, VMAXSH)
 AVX512_FP16_FLOAT_FMA = VFMADD231PH

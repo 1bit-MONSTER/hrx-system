@@ -25,10 +25,12 @@ from loom.target.arch.x86.vector_families import (
     AVX512_FP16_FLOAT_COMPARE_MNEMONIC,
     AVX512_FP16_FLOAT_EXTREMA_MNEMONICS,
     AVX512_FP16_FLOAT_FMA_MNEMONIC,
+    AVX512_FP16_FLOAT_ROOT_FAMILIES,
     AVX512_FP16_SCALAR_FLOAT_BINARY_FAMILIES,
     AVX512_FP16_SCALAR_FLOAT_COMPARE_MNEMONIC,
     AVX512_FP16_SCALAR_FLOAT_EXTREMA_MNEMONICS,
     AVX512_FP16_SCALAR_FLOAT_FMA_MNEMONIC,
+    AVX512_FP16_SCALAR_FLOAT_ROOT_FAMILIES,
 )
 from loom.target.low_descriptors import (
     Descriptor,
@@ -42,8 +44,10 @@ from .common import (
     _asm,
     _descriptor_support_tables,
     _scalar_float_binary_descriptor,
+    _scalar_float_unary_descriptor,
     _vector_f32_binary_descriptor,
     _vector_f32_schedule_class,
+    _vector_float_unary_descriptor,
     _vector_fma_descriptor,
     _vector_mask_compare_descriptor,
     _vector_operand,
@@ -160,6 +164,44 @@ def _descriptors() -> tuple[Descriptor, ...]:
         for family, instruction in zip(
             AVX512_FP16_SCALAR_FLOAT_BINARY_FAMILIES,
             native.AVX512_FP16_SCALAR_FLOAT_BINARY,
+            strict=True,
+        )
+    )
+    packed_root = tuple(
+        _bind(
+            _vector_float_unary_descriptor(
+                vector_bit_width=vector_bit_width,
+                key=(
+                    f"x86.avx512_fp16.{family.mnemonic}."
+                    f"{_REGISTER_SUFFIXES[vector_bit_width]}"
+                ),
+                mnemonic=family.mnemonic,
+                semantic_tag=(f"{family.semantic}.f16x{vector_bit_width // 16}"),
+            ),
+            instruction,
+            vector_bit_width=vector_bit_width,
+        )
+        for family, instruction in zip(
+            AVX512_FP16_FLOAT_ROOT_FAMILIES,
+            native.AVX512_FP16_FLOAT_ROOT,
+            strict=True,
+        )
+        for vector_bit_width in _VECTOR_BIT_WIDTHS
+    )
+    scalar_root = tuple(
+        _bind(
+            _scalar_float_unary_descriptor(
+                key=f"x86.avx512_fp16.{family.mnemonic}.xmm",
+                mnemonic=family.mnemonic,
+                semantic_tag=f"{family.semantic}.f16",
+            ),
+            instruction,
+            vector_bit_width=128,
+            scalar=True,
+        )
+        for family, instruction in zip(
+            AVX512_FP16_SCALAR_FLOAT_ROOT_FAMILIES,
+            native.AVX512_FP16_SCALAR_FLOAT_ROOT,
             strict=True,
         )
     )
@@ -313,6 +355,8 @@ def _descriptors() -> tuple[Descriptor, ...]:
     return (
         *packed_binary,
         *scalar_binary,
+        *packed_root,
+        *scalar_root,
         *packed_fma,
         scalar_fma,
         *packed_compare,

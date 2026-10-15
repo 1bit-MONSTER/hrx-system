@@ -15,6 +15,16 @@ low.func.def target<x86.avx512_features.core>(@target) abi(object_function) abi_
 
 // ====
 
+x86.target<avx512_packed_dot> @target {contract_feature_bits = 0, contract_set_key = "x86.avx512_features.core"}
+
+func.def target(@target) @root_without_fp16(%value: f16) -> (f16) {
+  // ERROR@+1: LOWERING/036 {op_name="scalar.sqrtf", element_type="f16", constraint_key="math.element.native_float"}
+  %result = scalar.sqrtf %value : f16
+  func.return %result : f16
+}
+
+// ====
+
 // Native scalar FP16 retains XMM ownership through arithmetic, conversion,
 // selection, bitcasts, and sign legalization.
 x86.target<avx512_packed_dot> @target {contract_feature_bits = 130, contract_set_key = "x86.avx512_features.core"}

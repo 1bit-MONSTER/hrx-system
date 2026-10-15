@@ -27,6 +27,7 @@ from loom.target.arch.x86.vector_families import (
     AVX512_FP16_SCALAR_FLOAT_BINARY_FAMILIES,
     AVX512_FP16_SCALAR_FLOAT_EXTREMA_MNEMONICS,
     AVX512_FP16_SCALAR_FLOAT_FMA_MNEMONIC,
+    AVX512_FP16_VECTOR_BIT_WIDTHS,
     FLOAT_EXTREMA_OPERATIONS,
 )
 from loom.target.contracts import (
@@ -51,7 +52,13 @@ _VECTOR_BINARY_OPS = {
     vector.vector_mulf: "mulf",
     vector.vector_divf: "divf",
 }
-_REGISTER_SUFFIXES = {64: "xmm", 128: "xmm", 256: "ymm", 512: "zmm"}
+_REGISTER_SUFFIXES = {
+    32: "xmm",
+    64: "xmm",
+    128: "xmm",
+    256: "ymm",
+    512: "zmm",
+}
 _SCALAR_EXTREMA_OPS = {
     scalar_arithmetic.scalar_minimumf: "minimumf",
     scalar_arithmetic.scalar_maximumf: "maximumf",
@@ -193,7 +200,7 @@ def test_vector_arithmetic_covers_every_native_fp16_width() -> None:
             Vector("f16", lanes=bit_width // 16),
         )
         for row in AVX512_FP16_FLOAT_BINARY_FAMILIES
-        for bit_width in _REGISTER_SUFFIXES
+        for bit_width in AVX512_FP16_VECTOR_BIT_WIDTHS
     }
     actual_binary = {
         (rule.source_op, rule.descriptor.key, _value_type(rule, "result"))
@@ -211,7 +218,7 @@ def test_vector_arithmetic_covers_every_native_fp16_width() -> None:
             f"{AVX512_FP16_FLOAT_FMA_MNEMONIC}.{_REGISTER_SUFFIXES[bit_width]}",
             Vector("f16", lanes=bit_width // 16),
         )
-        for bit_width in _REGISTER_SUFFIXES
+        for bit_width in AVX512_FP16_VECTOR_BIT_WIDTHS
     }
 
 
@@ -278,6 +285,7 @@ def test_scalar_carrier_rules_preserve_the_existing_fp16_surface() -> None:
     assert {
         _value_type(rule, "result") for rule in _rules_for(vector.vector_splat)
     } == {
+        Vector("f16", lanes=2),
         Vector("f16", lanes=4),
         Vector("f16", lanes=8),
         Vector("f16", lanes=16),
@@ -432,6 +440,7 @@ def test_lane_movement_preserves_the_xmm_scalar_carrier() -> None:
             (_value_type(rule, vector_field), _value_type(rule, scalar_field))
             for rule in rules
         } == {
+            (Vector("f16", lanes=2), Scalar("f16")),
             (Vector("f16", lanes=4), Scalar("f16")),
             (Vector("f16", lanes=8), Scalar("f16")),
             (Vector("f16", lanes=16), Scalar("f16")),
@@ -448,7 +457,7 @@ def test_extrema_cover_exact_and_native_fast_semantics() -> None:
     } | {
         (source_op, Vector("f16", lanes=bit_width // 16), priority)
         for source_op in _VECTOR_EXTREMA_OPS
-        for bit_width in _REGISTER_SUFFIXES
+        for bit_width in AVX512_FP16_VECTOR_BIT_WIDTHS
         for priority in (1, 2)
     }
     rules = tuple(
@@ -516,7 +525,7 @@ def test_reductions_preserve_fp16_accumulation_semantics() -> None:
             reassociation_guard,
         )
         for operation in AVX2_PACKED_FLOAT_REDUCTION_OPERATIONS
-        for bit_width in _REGISTER_SUFFIXES
+        for bit_width in AVX512_FP16_VECTOR_BIT_WIDTHS
         for reassociation_guard in (
             GuardKind.INSTANCE_FLAGS_HAS_NONE,
             GuardKind.INSTANCE_FLAGS_HAS_ALL,
@@ -536,7 +545,7 @@ def test_reductions_preserve_fp16_accumulation_semantics() -> None:
     } == {
         (operation, Vector("f16", lanes=bit_width // 16))
         for operation in FLOAT_EXTREMA_OPERATIONS
-        for bit_width in _REGISTER_SUFFIXES
+        for bit_width in AVX512_FP16_VECTOR_BIT_WIDTHS
     }
     assert all(
         {
@@ -605,7 +614,7 @@ def test_dots_accumulate_with_ordered_scalar_fp16_fma() -> None:
             Scalar("f16"),
             Scalar("f16"),
         )
-        for bit_width in _REGISTER_SUFFIXES
+        for bit_width in AVX512_FP16_VECTOR_BIT_WIDTHS
     }
     assert all(
         rule.descriptor.key

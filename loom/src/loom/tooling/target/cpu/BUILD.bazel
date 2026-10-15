@@ -93,5 +93,9 @@ _X86_TASK_HARDWARE_PROFILE = loom_execution_profile(
         ("uniform_qword_shifts", "//loom/src/loom/test/corpus/numeric:vector/integer_bitwise.loom", "uniform_qword_shift_values"),
         ("rodata", "//loom/src/loom/test/corpus/function:rodata.loom", "rodata_values"),
         ("scalar_division", "//loom/src/loom/test/corpus/numeric:integer/constant_division.loom", "constant_scalar_quotient_values"),
+        ("float_roots", "//loom/src/loom/test/corpus/numeric:float/roots.loom", "root_values"),
+        ("float_approximate_roots", "//loom/src/loom/tooling/target/cpu:test/x86_approximate_roots.loom", "x86_root_approximate_values"),
+        ("float64_roots", "//loom/src/loom/test/corpus/numeric:float/roots.loom", "root_f64_values"),
+        ("float64_approximate_roots", "//loom/src/loom/tooling/target/cpu:test/x86_approximate_roots.loom", "x86_root_f64_approximate_values"),
     ]
 ]

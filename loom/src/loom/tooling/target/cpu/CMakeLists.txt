@@ -207,4 +207,64 @@ iree_native_test(
 )
 endif()
 
+if(LOOM_TARGET_ARCH_X86 AND IREE_HAL_EXECUTABLE_LOADER_EMBEDDED_ELF AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND LOOM_TARGET_ARCH_VM AND IREE_ARCH STREQUAL "x86_64")
+iree_native_test(
+  NAME
+    "float_roots_scenario_test"
+  ARGS
+    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/float/roots.loom}}"
+    "--device=task"
+    "--case=@root_values"
+  SRC
+    loom::tools::iree-test-loom
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/float/roots.loom"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_X86 AND IREE_HAL_EXECUTABLE_LOADER_EMBEDDED_ELF AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND LOOM_TARGET_ARCH_VM AND IREE_ARCH STREQUAL "x86_64")
+iree_native_test(
+  NAME
+    "float_approximate_roots_scenario_test"
+  ARGS
+    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/cpu/test/x86_approximate_roots.loom}}"
+    "--device=task"
+    "--case=@x86_root_approximate_values"
+  SRC
+    loom::tools::iree-test-loom
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/cpu/test/x86_approximate_roots.loom"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_X86 AND IREE_HAL_EXECUTABLE_LOADER_EMBEDDED_ELF AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND LOOM_TARGET_ARCH_VM AND IREE_ARCH STREQUAL "x86_64")
+iree_native_test(
+  NAME
+    "float64_roots_scenario_test"
+  ARGS
+    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/float/roots.loom}}"
+    "--device=task"
+    "--case=@root_f64_values"
+  SRC
+    loom::tools::iree-test-loom
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/float/roots.loom"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_X86 AND IREE_HAL_EXECUTABLE_LOADER_EMBEDDED_ELF AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND LOOM_TARGET_ARCH_VM AND IREE_ARCH STREQUAL "x86_64")
+iree_native_test(
+  NAME
+    "float64_approximate_roots_scenario_test"
+  ARGS
+    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/cpu/test/x86_approximate_roots.loom}}"
+    "--device=task"
+    "--case=@x86_root_f64_approximate_values"
+  SRC
+    loom::tools::iree-test-loom
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/cpu/test/x86_approximate_roots.loom"
+)
+endif()
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

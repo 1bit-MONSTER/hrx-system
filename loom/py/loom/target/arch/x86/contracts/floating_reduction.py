@@ -48,7 +48,13 @@ _FLOAT_SUFFIXES = {
     "f32": ("ps", "ss"),
     "f64": ("pd", "sd"),
 }
-_REGISTER_SUFFIXES = {64: "xmm", 128: "xmm", 256: "ymm", 512: "zmm"}
+_REGISTER_SUFFIXES = {
+    32: "xmm",
+    64: "xmm",
+    128: "xmm",
+    256: "ymm",
+    512: "zmm",
+}
 _OPERATION_STEMS = {
     "addf": "add",
     "mulf": "mul",
