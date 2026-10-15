@@ -28,6 +28,51 @@ namespace loom_serve::testing::embedding {
 
 using loom_serve::testing::StalledStderr;
 
+TEST_F(SourceEmbeddingServiceTest, ReconfiguresCommandToEliminateWorkspace) {
+  StartRouter();
+  const auto inventory =
+      Read(Send({}, "/v1/models/variants", "GET", "X-Loom-Model: fixture\r\n"));
+  ASSERT_EQ(inventory.find("HTTP/1.1 200"), 0u) << inventory;
+  const uint64_t original = Number(inventory, "selected");
+  const std::string request =
+      R"({"model":"fixture","input":["a","bbb"],"dimensions":2})";
+  const auto baseline = Read(Send(request));
+  EXPECT_NE(baseline.find(R"("index":0,"embedding":[1,1])"), std::string::npos)
+      << baseline;
+  EXPECT_NE(baseline.find(R"("index":1,"embedding":[6,3])"), std::string::npos)
+      << baseline;
+  loom_serve::testing::SourcePackage package;
+  IREE_ASSERT_OK(
+      package.AddFile("model/config.loom", directory_ + "/config.loom"));
+  IREE_ASSERT_OK(package.AddFile("model/direct.loom",
+                                 directory_ + "/variants/direct.loom"));
+  IREE_ASSERT_OK(
+      package.AddFile("model/fused.loom", directory_ + "/variants/fused.loom"));
+  int client = -1;
+  IREE_ASSERT_OK(http_.Send(
+      package.Request(
+          "/v1/models/variants",
+          "{\"model\":\"fixture\",\"base\":" + std::to_string(original) +
+              ",\"sources\":[\"config.loom\",\"direct.loom\",\"fused.loom\"],"
+              "\"wait\":true}"),
+      &client));
+  const auto staged = Read(client);
+  ASSERT_EQ(staged.find("HTTP/1.1 200"), 0u) << staged;
+  const uint64_t candidate = Number(staged, "id", "variant");
+  ASSERT_EQ(SelectVariant(candidate, original).find("HTTP/1.1 200"), 0u);
+  const auto fused = Read(Send(request));
+  EXPECT_NE(fused.find(R"("index":0,"embedding":[1,1])"), std::string::npos)
+      << fused;
+  EXPECT_NE(fused.find(R"("index":1,"embedding":[6,3])"), std::string::npos)
+      << fused;
+  ASSERT_EQ(SelectVariant(original, candidate).find("HTTP/1.1 200"), 0u);
+  const auto restored = Read(Send(request));
+  EXPECT_NE(restored.find(R"("index":0,"embedding":[1,1])"), std::string::npos)
+      << restored;
+  EXPECT_NE(restored.find(R"("index":1,"embedding":[6,3])"), std::string::npos)
+      << restored;
+}
+
 TEST_F(SourceEmbeddingServiceTest,
        CoalescesRaggedRequestsAndDropsOnlyResetPeer) {
   const int a = Send(R"({"model":"fixture","input":["a","bbb"]})");

@@ -623,8 +623,11 @@ static iree_status_t loom_serve_finite_variant_record(
     loom_serve_jit_stage_t* compiled = variant->stages->values[i];
     const loom_cmd_program_t* program = loom_serve_jit_stage_program(compiled);
     if (program) {
-      if (program->requirements.rebindable_binding_count != 3 ||
-          program->requirements.transient.binding_index != 2 ||
+      const bool has_workspace =
+          program->requirements.transient.required_byte_length != 0;
+      if (program->requirements.rebindable_binding_count != 2 + has_workspace ||
+          (has_workspace &&
+           program->requirements.transient.binding_index != 2) ||
           program->requirements.launch_counts.binding_index != UINT32_MAX) {
         status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                                   "replacement changes finite stage bindings");

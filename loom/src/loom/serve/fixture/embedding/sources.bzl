@@ -17,6 +17,7 @@ SOURCE_FILES = [
 
 VARIANT_FILES = [
     "variants/direct.loom",
+    "variants/fused.loom",
     "variants/policy.loom",
     "variants/weights.loom",
 ]
