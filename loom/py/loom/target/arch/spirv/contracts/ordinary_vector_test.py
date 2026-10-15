@@ -395,7 +395,8 @@ def test_shipping_float_arithmetic_covers_widths_lanes_and_capabilities() -> Non
     rules = [
         case
         for case in SPIRV_LOGICAL_CORE_CONTRACT_FRAGMENT.cases
-        if case.source_op.name in operations
+        if isinstance(case, DescriptorRule)
+        and case.source_op.name in operations
         and not case.descriptor.key.startswith("spirv.op_vector_times_scalar.")
     ]
     actual = set()

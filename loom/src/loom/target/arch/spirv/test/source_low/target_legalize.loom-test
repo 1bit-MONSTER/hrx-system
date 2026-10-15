@@ -178,6 +178,27 @@ func.def target(@target) @keeps_supported_cooperative_matrix_contract(%lhs_data:
 }
 
 // ====
+// RUN: pass target-legalize{mode=final}
+
+spirv.target<vulkan1_3> @target
+
+func.def target(@target) @reference_fallback_for_vector_transpose(%first: i32, %second: i32, %third: i32) -> (i32) {
+  %source = vector.from_elements %first, %second, %third : vector<3xi32>
+  %transposed = vector.transpose<[0]> %source : vector<3xi32> -> vector<3xi32>
+  %result = vector.extract %transposed[1] : vector<3xi32> -> i32
+  func.return %result : i32
+}
+
+// ----
+spirv.target<vulkan1_3> @target
+
+func.def target(@target) @reference_fallback_for_vector_transpose(%first: i32, %second: i32, %third: i32) -> (i32) {
+  %source = vector.from_elements %first, %second, %third : vector<3xi32>
+  %result = vector.extract %source[1] : vector<3xi32> -> i32
+  func.return %result : i32
+}
+
+// ====
 // RUN: with-checks pass target-legalize{mode=final}
 
 // Shared fact-identity lowering accepts every result of a variadic refinement.
