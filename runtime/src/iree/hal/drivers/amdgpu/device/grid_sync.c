@@ -44,7 +44,7 @@ iree_status_t iree_hal_amdgpu_grid_sync_info_initialize(
   if (IREE_UNLIKELY(total_workgroup_count > maximum_workgroup_count)) {
     return iree_make_status(
         IREE_STATUS_OUT_OF_RANGE,
-        "cooperative dispatch has %" PRIu64
+        "cooperative dispatch has %" PRIdsz
         " workgroups but the grid sync strategy supports at most %" PRIu64,
         total_workgroup_count, maximum_workgroup_count);
   }
