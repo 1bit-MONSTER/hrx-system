@@ -123,8 +123,11 @@ static iree_status_t loom_serve_device_initialize(
       .family_count = dispatch_family == transfer_family ? 1 : 2,
       .families = families,
   };
+  // This provider traces physical backing for ordinary retained buffers and
+  // workspace slabs, including reusable idle slabs. Elastic VMM weights/state
+  // are accounted separately by memory_pool, not by this native provider.
   const iree_hal_slab_pool_options_t storage_options = {
-      .trace_name = IREE_SVL("loom_serve_retained_storage"),
+      .trace_name = IREE_SVL("loom_serve_storage_backing"),
   };
   IREE_RETURN_IF_ERROR(
       iree_hal_slab_pool_create(group->handle, scope, &storage_options,
