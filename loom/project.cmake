@@ -152,6 +152,33 @@ option(LOOM_IMPORT_MLIR
 option(LOOM_IMPORT_TILELANG
   "Enables the Loom TileLang importer package and importer tests." OFF)
 
+set(_LOOM_SERVE_IMAGE_HOST OFF)
+if(CMAKE_SYSTEM_NAME MATCHES "^(Linux|Darwin|Windows)$")
+  set(_LOOM_SERVE_IMAGE_HOST ON)
+endif()
+option(LOOM_SERVE_IMAGE_INPUT
+  "Enables image inputs to Loom serving deployments."
+  ${_LOOM_SERVE_IMAGE_HOST})
+set(LOOM_SERVE_IMAGE_CODECS "png;jpeg;gif;webp" CACHE STRING
+  "Image input codecs registered in Loom serving deployments.")
+if(LOOM_BUILD AND LOOM_SERVE_IMAGE_INPUT AND NOT _LOOM_SERVE_IMAGE_HOST)
+  message(FATAL_ERROR
+    "Loom image input requires Linux, macOS, or Windows. Set LOOM_SERVE_IMAGE_INPUT=OFF to build other serving modalities.")
+endif()
+foreach(_codec png jpeg gif webp)
+  string(TOUPPER "${_codec}" _codec_upper)
+  set(LOOM_SERVE_IMAGE_CODEC_${_codec_upper} OFF)
+  if(LOOM_BUILD AND LOOM_SERVE_IMAGE_INPUT AND
+      _codec IN_LIST LOOM_SERVE_IMAGE_CODECS)
+    set(LOOM_SERVE_IMAGE_CODEC_${_codec_upper} ON)
+  endif()
+endforeach()
+foreach(_codec IN LISTS LOOM_SERVE_IMAGE_CODECS)
+  if(NOT _codec MATCHES "^(png|jpeg|gif|webp)$")
+    message(FATAL_ERROR "Unknown Loom image input codec: ${_codec}")
+  endif()
+endforeach()
+
 if(LOOM_EMIT_AMDGPU AND NOT LOOM_TARGET_ARCH_AMDGPU)
   message(FATAL_ERROR
     "LOOM_EMIT_AMDGPU=ON requires LOOM_TARGET_ARCH_AMDGPU=ON.")
@@ -175,5 +202,17 @@ endif()
 function(loom_configure_project)
   if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
     iree_configure_rocm_hsa_runtime_headers()
+  endif()
+  if(LOOM_SERVE_IMAGE_CODEC_PNG)
+    iree_configure_libpng()
+  endif()
+  if(LOOM_SERVE_IMAGE_CODEC_JPEG)
+    iree_configure_libjpeg_turbo()
+  endif()
+  if(LOOM_SERVE_IMAGE_CODEC_GIF)
+    iree_configure_giflib()
+  endif()
+  if(LOOM_SERVE_IMAGE_CODEC_WEBP)
+    iree_configure_libwebp()
   endif()
 endfunction()

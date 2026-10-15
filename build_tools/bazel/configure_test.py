@@ -38,6 +38,36 @@ class ConfigureBazelTest(unittest.TestCase):
         (rocm_root / "include").mkdir(parents=True)
         return rocm_root
 
+    def test_loom_image_configuration_is_portable_and_independent(self):
+        for arguments in (
+            ["-DLOOM_SERVE_IMAGE_INPUT=OFF", "-DLOOM_SERVE_IMAGE_CODECS=png;jpeg"],
+            [
+                "--//loom/config/serve:image_input=false",
+                "--//loom/config/serve:image_codecs=png,jpeg",
+            ],
+        ):
+            with self.subTest(arguments=arguments):
+                request = self.configure_bazel.parse_arguments(arguments)
+                config = self.configure_bazel.generate_config(request)
+                self.assertIn("--//loom/config/serve:image_input=false", config)
+                self.assertIn("--//loom/config/serve:image_codecs=png,jpeg", config)
+                self.assertIn("--//loom/config/execute:enable=iree_hal", config)
+
+    def test_loom_image_configuration_rejects_unknown_and_mixed_options(self):
+        for arguments in (
+            ["-DLOOM_SERVE_IMAGE_CODECS=png;typo"],
+            ["--//loom/config/serve:image_codecs=typo"],
+            ["-DLOOM_SERVE_IMAGE_INPUT=ON", "--//loom/config/serve:image_input=false"],
+            [
+                "-DLOOM_SERVE_IMAGE_CODECS=png",
+                "--//loom/config/serve:image_codecs=jpeg",
+            ],
+        ):
+            with self.subTest(arguments=arguments), self.assertRaises(SystemExit):
+                self.configure_bazel.generate_config(
+                    self.configure_bazel.parse_arguments(arguments)
+                )
+
     def assert_rocm_path(self, config: str, rocm_root: Path) -> None:
         self.assertIn(
             self.configure_bazel.bazelrc_line(

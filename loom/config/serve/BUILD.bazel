@@ -1,0 +1,97 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+#
+# bazel-to-cmake: skip
+
+load("@bazel_skylib//lib:selects.bzl", "selects")
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+load("//build_tools/bazel:settings.bzl", "iree_string_list_flag")
+
+package(default_visibility = ["//visibility:public"])
+
+bool_flag(
+    name = "image_input",
+    build_setting_default = True,
+)
+
+iree_string_list_flag(
+    name = "image_codecs",
+    build_setting_default = [
+        "png",
+        "jpeg",
+        "gif",
+        "webp",
+    ],
+    values = [
+        "png",
+        "jpeg",
+        "gif",
+        "webp",
+    ],
+)
+
+config_setting(
+    name = "image_input_requested",
+    flag_values = {":image_input": "true"},
+)
+
+[
+    config_setting(
+        name = "image_host_" + os,
+        constraint_values = ["@platforms//os:" + os],
+    )
+    for os in [
+        "linux",
+        "osx",
+        "windows",
+    ]
+]
+
+selects.config_setting_group(
+    name = "image_host",
+    match_any = [
+        ":image_host_linux",
+        ":image_host_osx",
+        ":image_host_windows",
+    ],
+)
+
+selects.config_setting_group(
+    name = "image_input_enabled",
+    match_all = [
+        ":image_input_requested",
+        ":image_host",
+    ],
+)
+
+[
+    config_setting(
+        name = codec + "_requested",
+        flag_values = {":image_codecs": codec},
+    )
+    for codec in [
+        "png",
+        "jpeg",
+        "gif",
+        "webp",
+    ]
+]
+
+[
+    selects.config_setting_group(
+        name = codec,
+        match_all = [
+            ":image_input_enabled",
+            ":" + codec + "_requested",
+        ],
+    )
+    for codec in [
+        "png",
+        "jpeg",
+        "gif",
+        "webp",
+    ]
+]
