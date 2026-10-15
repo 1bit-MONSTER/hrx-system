@@ -434,15 +434,24 @@ def check_startup_failures(server_command, directory, catalog):
         (model, Path(model["base_directory"]) / "control.loom") for model in models
     ]
     cases.append((models[-1], Path("providers/text/advance.loom")))
-    for model, missing in cases:
-        source = directory / missing
-        saved = source.with_suffix(".saved")
-        broken = {"models": [entry for entry in models if entry is not model] + [model]}
-        name = f"missing-{model['definition']['kind']}-{missing.stem}"
+    # One process covers every model factory's missing control program. A
+    # second keeps healthy peers live while the text model loses an external
+    # numerical provider. Rebuilding all healthy peers once per diagnostic
+    # adds no distinct startup behavior.
+    for name, batch in (
+        ("missing-controls", cases[:-1]),
+        ("missing-provider", cases[-1:]),
+    ):
+        broken = {"models": models}
         catalog_path = directory / "configuration" / f"{name}.json"
         write_startup(catalog_path, broken)
         log_path = catalog_path.with_suffix(".log")
-        source.rename(saved)
+        saved_sources = []
+        for _, missing in batch:
+            source = directory / missing
+            saved = source.with_suffix(".saved")
+            source.rename(saved)
+            saved_sources.append((source, saved))
         try:
             with child_server(
                 [
@@ -456,24 +465,24 @@ def check_startup_failures(server_command, directory, catalog):
             ) as (_, address):
                 assert address is not None, log_path.read_text()
                 client = Client(address)
-                while True:
+                failures = {}
+                while len(failures) != len(batch):
                     listing = client.request("/v1/status")
-                    failed = next(
-                        item["loom"]
-                        for item in listing["data"]
-                        if item["id"] == model["name"]
-                    )
-                    if failed["registration"] == "failed":
-                        break
-                assert missing.name in failed["error"]["message"], failed
-                assert failed["error"]["code"] == 5, failed
+                    for model, missing in batch:
+                        state = next(
+                            item["loom"]
+                            for item in listing["data"]
+                            if item["id"] == model["name"]
+                        )
+                        if state["registration"] == "failed":
+                            failures[model["name"]] = (state, missing)
+                for failed, missing in failures.values():
+                    assert missing.name in failed["error"]["message"], failed
+                    assert failed["error"]["code"] == 5, failed
                 assert client.request("/readyz") == {"status": "ready"}
-                # A failed source package does not terminate peer models.
-                if model["definition"]["kind"] != "text":
-                    client.text(
-                        "load-failure-peer", [{"role": "user", "content": "ab"}]
-                    )
-                else:
+                # The provider failure occurs after three peer models have
+                # registered. It cannot terminate their serving path.
+                if name == "missing-provider":
                     result = client.request(
                         "/v1/embeddings",
                         {"model": "vectors", "input": "ab", "dimensions": 2},
@@ -484,18 +493,20 @@ def check_startup_failures(server_command, directory, catalog):
                 "Sanitizer" not in diagnostic and "runtime error:" not in diagnostic
             ), diagnostic
         finally:
-            saved.rename(source)
-        print(
-            json.dumps(
-                {
-                    "event": "catalog_startup_rejected",
-                    "model": model["name"],
-                    "missing": str(missing),
-                    "earlier_models": len(models) - 1,
-                }
-            ),
-            flush=True,
-        )
+            for source, saved in saved_sources:
+                saved.rename(source)
+        for model, missing in batch:
+            print(
+                json.dumps(
+                    {
+                        "event": "catalog_startup_rejected",
+                        "model": model["name"],
+                        "missing": str(missing),
+                        "earlier_models": len(models) - len(batch),
+                    }
+                ),
+                flush=True,
+            )
 
 
 def check_empty_server(server_command, directory, device, backing):
@@ -663,13 +674,13 @@ def thread_snapshot(process):
     return snapshot
 
 
-def check_sporadic_connections(process, client, model, workers):
+def check_sporadic_connections(process, client, model, workers, target_counts=(8, 32)):
     expected_threads = thread_snapshot(process)
 
     address = urlsplit("http://" + client.address)
     peers = []
     try:
-        for target_count in (64, 256):
+        for target_count in target_counts:
             while len(peers) < target_count:
                 peer = socket.create_connection((address.hostname, address.port))
                 peers.append(peer)
@@ -707,7 +718,7 @@ def check_sporadic_connections(process, client, model, workers):
                     response.close()
                     peer.close()
             assert client.request("/readyz") == {"status": "ready"}
-        assert completed == 256
+        assert completed == target_counts[-1]
         current_threads = thread_snapshot(process)
         assert (
             current_threads["userspace"].keys() == expected_threads["userspace"].keys()
@@ -733,24 +744,34 @@ def check_sporadic_connections(process, client, model, workers):
             peer.close()
 
 
-def check_dynamic_catalog(server_command, directory, catalog, workers):
-    """Three copies of each modality share workers and retirement accounting."""
+def check_dynamic_catalog(
+    server_command,
+    directory,
+    catalog,
+    workers,
+    *,
+    copies=2,
+    connection_counts=(8, 32),
+):
+    """Repeated real model owners share workers, clients and retirement state."""
+    models_per_copy = len(catalog["models"])
     declarations = [
         {
             **model,
             "name": f"{model['definition']['kind']}-{index}",
             "admission": "drained",
         }
-        for index in range(3)
+        for index in range(copies)
         for model in catalog["models"]
     ]
-    modality_count = len(catalog["models"])
+    model_capacity = len(declarations)
+    connection_capacity = connection_counts[-1] + 64
     log_path = directory / f"dynamic-catalog-{workers}.log"
     arguments = [
         "--listen=127.0.0.1:0",
         f"--workers={workers}",
-        f"--model_capacity={len(declarations)}",
-        "--connections=320",
+        f"--model_capacity={model_capacity}",
+        f"--connections={connection_capacity}",
         "--heartbeat_ms=0",
     ]
     if workers == 4:
@@ -774,8 +795,10 @@ def check_dynamic_catalog(server_command, directory, catalog, workers):
         assert client.request("/v1/models")["data"] == []
         initial_status = client.request("/v1/status")["server"]
         assert initial_status["worker_count"] == workers, initial_status
-        assert initial_status["model_capacity"] == len(declarations), initial_status
-        assert initial_status["connection_capacity"] == 320, initial_status
+        assert initial_status["model_capacity"] == model_capacity, initial_status
+        assert initial_status["connection_capacity"] == connection_capacity, (
+            initial_status
+        )
         for declaration in declarations:
             client.request("/v1/models/register", declaration, status=202)
         client.request(
@@ -785,7 +808,7 @@ def check_dynamic_catalog(server_command, directory, catalog, workers):
         )
         registered = client.request("/v1/status")["data"]
         identities = {item["id"]: item["loom"]["incarnation"] for item in registered}
-        assert len(identities) == len(declarations)
+        assert len(identities) == model_capacity
         assert all(
             item["loom"]["registration"] == "registered"
             and item["loom"]["status"]["admission"] == "drained"
@@ -818,7 +841,7 @@ def check_dynamic_catalog(server_command, directory, catalog, workers):
         )
 
         # Preparation and parameter I/O need no inference or open admission.
-        # Submit all intents before awaiting any individual completion.
+        # Submit every activation intent before awaiting any completion.
         for declaration in declarations:
             client.request(
                 "/v1/models/activate", {"model": declaration["name"]}, status=202
@@ -945,7 +968,7 @@ def check_dynamic_catalog(server_command, directory, catalog, workers):
             if declaration is not first:
                 client.request("/v1/models/undrain", {"model": declaration["name"]})
 
-        with ThreadPoolExecutor(max_workers=len(declarations)) as executor:
+        with ThreadPoolExecutor(max_workers=model_capacity) as executor:
             work = [
                 executor.submit(infer, declaration, 0) for declaration in declarations
             ]
@@ -961,22 +984,28 @@ def check_dynamic_catalog(server_command, directory, catalog, workers):
                 activated_threads,
                 loaded_threads,
             )
-            check_sporadic_connections(process, client, "embedding-0", workers)
+            check_sporadic_connections(
+                process,
+                client,
+                "embedding-0",
+                workers,
+                connection_counts,
+            )
 
             # Keep independent model work live while the first copy of each
             # modality retires. No client, public name or model kind owns peers.
             work = [
                 executor.submit(infer, declaration, 1)
-                for declaration in declarations[modality_count:]
+                for declaration in declarations[models_per_copy:]
             ]
-            for declaration in declarations[:modality_count]:
+            for declaration in declarations[:models_per_copy]:
                 client.request(
                     "/v1/models/unregister", {"model": declaration["name"]}, status=202
                 )
             for future in work:
                 future.result()
             peers = {
-                declaration["name"] for declaration in declarations[modality_count:]
+                declaration["name"] for declaration in declarations[models_per_copy:]
             }
             while True:
                 discovered = client.request("/v1/status")["data"]
@@ -990,7 +1019,7 @@ def check_dynamic_catalog(server_command, directory, catalog, workers):
             # owns only copied output and its connection, not that model/ring.
             while observer.read():
                 pass
-            for declaration in declarations[:modality_count]:
+            for declaration in declarations[:models_per_copy]:
                 client.request(
                     "/v1/models/register",
                     {**declaration, "admission": "open"},
@@ -1003,7 +1032,7 @@ def check_dynamic_catalog(server_command, directory, catalog, workers):
                     assert not item["loom"]["parameter_pinned"], item
             work = [
                 executor.submit(infer, declaration, 2)
-                for declaration in declarations[:modality_count]
+                for declaration in declarations[:models_per_copy]
             ]
             for future in work:
                 future.result()
@@ -1014,11 +1043,11 @@ def check_dynamic_catalog(server_command, directory, catalog, workers):
             for record in reader.poll().records
             if record["event"] == "counters"
         )
-        # Two requests per declaration, one activation request and two embedding
-        # probes while transport requests park.
-        assert before["requests"] == before["completed"] == 2 * len(declarations) + 3, (
-            before
-        )
+        # One activation request, every initial and peer request, one
+        # replacement per modality, and one embedding probe per connection
+        # scale complete while transport requests park.
+        expected_requests = 1 + 2 * model_capacity + len(connection_counts)
+        assert before["requests"] == before["completed"] == expected_requests, before
         for index, declaration in enumerate(declarations):
             client.request(
                 "/v1/models/unregister",
@@ -1086,7 +1115,7 @@ def check_dynamic_catalog(server_command, directory, catalog, workers):
         )
 
 
-def check_multiple_bindings(server_command, directory, catalog):
+def check_multiple_bindings(server_command, directory, catalog, connection_counts=(8,)):
     socket_path = directory / 'serve "local".sock'
     log_path = directory / "multiple-bindings.log"
     settings = directory / "configuration" / "listeners.flags"
@@ -1097,7 +1126,7 @@ def check_multiple_bindings(server_command, directory, catalog):
                 "--listen=127.0.0.1:0",
                 f"--listen=unix:{socket_path}",
                 "--workers=1",
-                "--connections=320",
+                f"--connections={connection_counts[-1] + 64}",
                 "--heartbeat_ms=0",
             ]
         )
@@ -1227,7 +1256,7 @@ def check_multiple_bindings(server_command, directory, catalog):
             model="vectors",
         )
         assert client.request("/v1/models") == expected_models
-        check_sporadic_connections(process, client, "vectors", 1)
+        check_sporadic_connections(process, client, "vectors", 1, connection_counts)
     assert not socket_path.exists()
     locators = [
         json.loads(line)
@@ -1241,7 +1270,7 @@ def check_multiple_bindings(server_command, directory, catalog):
     print(json.dumps({"event": "multiple_bindings_joined", "bindings": 2}), flush=True)
 
 
-def main():
+def run_from_command_line(*, stress=False):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--server", type=Path, required=True)
     parser.add_argument("--fixture", type=Path, action="append", required=True)
@@ -1256,13 +1285,45 @@ def main():
     ]
     with tempfile.TemporaryDirectory(prefix="loom catalog ") as temporary:
         directory = Path(temporary)
+        catalog, catalog_path = prepare_catalog(arguments.fixture, directory)
+        workers = 1
+        if stress:
+            check_dynamic_catalog(
+                server_command,
+                directory,
+                catalog,
+                workers,
+                copies=3,
+                connection_counts=(64, 256),
+            )
+            with running_server(server_command, directory, catalog_path, workers) as (
+                client,
+                observations,
+            ):
+                with paused_log_reader(client, arguments.rounds):
+                    for iteration in range(arguments.rounds):
+                        print(
+                            json.dumps(
+                                {
+                                    "event": "catalog_stress_churn",
+                                    "workers": workers,
+                                    **run_round(
+                                        client,
+                                        iteration,
+                                        observations,
+                                        conversation_count=12,
+                                        fork_count=3,
+                                    ),
+                                }
+                            ),
+                            flush=True,
+                        )
+            return
         check_empty_server(
             server_command, directory, arguments.device, arguments.pool_backing
         )
-        catalog, catalog_path = prepare_catalog(arguments.fixture, directory)
         check_startup_failures(server_command, directory, catalog)
         check_multiple_bindings(server_command, directory, catalog_path)
-        workers = 1
         check_dynamic_catalog(server_command, directory, catalog, workers)
         with running_server(server_command, directory, catalog_path, workers) as (
             client,
@@ -1279,18 +1340,18 @@ def main():
                     "fixture-text",
                 ]
             )
-            with paused_log_reader(client, arguments.rounds):
-                for iteration in range(arguments.rounds):
-                    print(
-                        json.dumps(
-                            {
-                                "event": "catalog_churn",
-                                "workers": workers,
-                                **run_round(client, iteration, observations),
-                            }
-                        ),
-                        flush=True,
-                    )
+            for iteration in range(arguments.rounds):
+                print(
+                    json.dumps(
+                        {
+                            "event": "catalog_churn",
+                            "workers": workers,
+                            **run_round(client, iteration, observations),
+                        }
+                    ),
+                    flush=True,
+                )
+            check_counters(client, arguments.rounds)
             check_parameter_residency(client, arguments.pool_backing, workers)
             check_device_trim(client, arguments.pool_backing, workers)
         print(
@@ -1306,4 +1367,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    run_from_command_line()

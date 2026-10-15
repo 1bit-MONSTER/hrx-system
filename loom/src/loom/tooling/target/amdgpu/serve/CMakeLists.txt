@@ -253,6 +253,71 @@ endif()
 if(LOOM_TARGET_ARCH_VM AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 iree_py_test(
   NAME
+    catalog_stress_test
+  MAIN
+    "catalog_stress_test.py"
+  SRCS
+    "catalog_stress_test.py"
+    "../../../../serve/server/catalog_test.py"
+  ARGS
+    "--server={{$<TARGET_FILE:loom::tooling::target::amdgpu::serve::loom-serve-test-tool>}}"
+    "--fixture={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/model.json}}"
+    "--fixture={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/model.json}}"
+    "--fixture={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/decision/model.json}}"
+    "--fixture={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/model.json}}"
+    "--fixture={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/model.json}}"
+    "--device=amdgpu"
+    "--pool_backing=fixed"
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/decision/config.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/decision/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/decision/decide.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/decision/model.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/decision/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/config.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/embed.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/model.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/tokenizer.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/config.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/generate.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/model.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/image/tokenizer.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/generate.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/model.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/advance.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/model.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/tokenizer.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/weights.loom"
+    "loom::tooling::target::amdgpu::serve::loom-serve-test-tool"
+  DEPS
+    loom::serve::server::catalog_test_util
+    loom::serve::testing::http
+    loom::serve::testing::logs
+  LABELS
+    "iree-run-requirement=runtime.resource.amd_gpu"
+    "notsan"
+    "manual"
+    "resource_group:gpu-device"
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
+  TIMEOUT
+    300
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_AMDGPU AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+iree_py_test(
+  NAME
     pressure_test
   MAIN
     "../../../../serve/server/pressure_test.py"
