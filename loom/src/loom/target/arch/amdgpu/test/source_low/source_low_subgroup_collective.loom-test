@@ -445,15 +445,15 @@ low.kernel.def target<amdgpu.gfx11.generic.core>(@target) abi_layout({constant_c
   ds_write_b32 %63, %56
   s_mov_b64_exec %61
   s_barrier
-  %64 = v_mov_b32 32
-  %65 = v_cmp_lt_u32 %tid, %64
-  %66 = v_mov_b32 0
-  %68 = v_add_u32 %21, %66
-  %69 = ds_read_b32 %68
-  %70 = v_cndmask_b32 %69, %66, %65
-  %result = v_add_u32 %56, %70
-  %72 = v_lshlrev_b32_src0_inline %tid, 2
-  global_store_b32_saddr %72, %result, %output_view
+  %64 = v_mov_b32 0
+  %65 = v_add_u32 %21, %64
+  %66 = ds_read_b32 %65
+  %67 = v_mov_b32 32
+  %68 = v_cmp_ge_u32 %tid, %67
+  %69 = v_add_u32 %56, %66
+  %result = v_cndmask_b32 %56, %69, %68
+  %71 = v_lshlrev_b32_src0_inline %tid, 2
+  global_store_b32_saddr %71, %result, %output_view
   return
 }
 

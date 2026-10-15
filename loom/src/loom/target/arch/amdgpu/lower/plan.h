@@ -1282,8 +1282,8 @@ typedef struct loom_amdgpu_subgroup_scan_plan_t {
   loom_kernel_subgroup_scan_mode_t mode;
   // Lane order selected by the source op.
   loom_kernel_subgroup_scan_direction_t direction;
-  // 32-bit identity element bit pattern used by exclusive scans.
-  uint32_t identity_bits;
+  // 32-bit value produced for an empty exclusive prefix.
+  uint32_t empty_prefix_bits;
   // Exact subgroup width selected by the active target bundle.
   uint32_t wavefront_size;
   // Number of low-numbered lanes participating in the emitted scan tree.
@@ -1319,8 +1319,10 @@ typedef struct loom_amdgpu_workgroup_scan_plan_t {
   loom_kernel_subgroup_scan_mode_t mode;
   // Lane order selected by the source op.
   loom_kernel_subgroup_scan_direction_t direction;
-  // 32-bit identity element bit pattern used by exclusive or cross-wave scans.
-  uint32_t identity_bits;
+  // 32-bit value produced for an empty exclusive or cross-partition prefix.
+  uint32_t empty_prefix_bits;
+  // Whether the empty-prefix value can contribute to a nonempty scan unchanged.
+  bool empty_prefix_is_identity;
   // Native cross-lane width used to partition workgroup scan staging.
   uint32_t partition_wavefront_size;
   // Exact flattened workgroup size selected by launch configuration.

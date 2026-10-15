@@ -40,15 +40,16 @@ bool loom_amdgpu_collective_combine_dpp_descriptor_ref(
     loom_amdgpu_collective_combine_dpp_form_t dpp_form,
     loom_amdgpu_descriptor_ref_t* out_descriptor_ref);
 
-// Returns the 32-bit empty-prefix bit pattern for a native AMDGPU scan.
-// Floating values are not general identities: a missing reduction peer must
-// leave the accumulator unchanged instead of contributing this value.
-bool loom_amdgpu_collective_combine_identity_bits(loom_combining_kind_t kind,
-                                                  uint32_t* out_bits);
+// Returns the 32-bit empty-prefix bit pattern for an admitted native scan kind.
+// Descriptor selection establishes that the combining kind has a native row.
+uint32_t loom_amdgpu_collective_scan_empty_prefix_bits(
+    loom_combining_kind_t kind);
 
-// Returns the 32-bit empty-prefix seed for a native AMDGPU scan packet.
-bool loom_amdgpu_collective_combine_scan_seed_bits(loom_combining_kind_t kind,
-                                                   uint32_t* out_bits);
+// Returns whether the empty-prefix value is also an arithmetic identity. The
+// infinities used by number-preferring extrema are boundary outputs, not
+// neutral inputs for NaNs.
+bool loom_amdgpu_collective_scan_empty_prefix_is_identity(
+    loom_combining_kind_t kind);
 
 #ifdef __cplusplus
 }  // extern "C"
