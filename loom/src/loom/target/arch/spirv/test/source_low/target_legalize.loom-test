@@ -1,30 +1,42 @@
-// RUN: pass target-legalize{mode=final},dce,canonicalize
+// RUN: pass target=spirv:vulkan1.3+bda+extended-types target-legalize{mode=final},dce,canonicalize
 
-spirv.target<vulkan1_3> @target {contract_feature_bits = 33278}
-
-func.def target(@target) @scalarizes_unavailable_float_narrowing(%input: vector<2xf32>) -> (vector<2xf16>) {
-  %result = vector.fptrunc %input : vector<2xf32> to vector<2xf16>
-  func.return %result : vector<2xf16>
+func.def @scalarizes_unavailable_float_narrowing(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<2xf32>
+  %destination = buffer.view %output[%base] : buffer -> view<2xf16>
+  %values = vector.load %source[0] : view<2xf32> -> vector<2xf32>
+  %result = vector.fptrunc %values : vector<2xf32> to vector<2xf16>
+  vector.store %result, %destination[0] : vector<2xf16>, view<2xf16>
+  func.return
 }
 
 // ----
-spirv.target<vulkan1_3> @target {contract_feature_bits = 33278}
-
-func.def target(@target) @scalarizes_unavailable_float_narrowing(%input: vector<2xf32>) -> (vector<2xf16>) {
-  %3 = vector.extract %input[0] : vector<2xf32> -> f32
-  %4 = scalar.fptrunc %3 : f32 to f16
-  %5 = vector.extract %input[1] : vector<2xf32> -> f32
-  %6 = scalar.fptrunc %5 : f32 to f16
-  %result = vector.from_elements %4, %6 : vector<2xf16>
-  func.return %result : vector<2xf16>
+func.def @scalarizes_unavailable_float_narrowing(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<2xf32>
+  %destination = buffer.view %output[%base] : buffer -> view<2xf16>
+  %14 = view.load %source[0] : view<2xf32> -> f32
+  %15 = view.load %source[1] : view<2xf32> -> f32
+  %10 = scalar.fptrunc %14 : f32 to f16
+  %12 = scalar.fptrunc %15 : f32 to f16
+  view.store %10, %destination[0] : f16, view<2xf16>
+  view.store %12, %destination[1] : f16, view<2xf16>
+  func.return
 }
 
 // ====
+
 // RUN: pass target-legalize{mode=final},dce,canonicalize
 
 spirv.target<vulkan1_3> @target
 
-func.def target(@target) @reference_fallback_for_dense_logical_mma(%lhs_data: vector<4xi32>, %rhs_data: vector<4xi32>, %init_data: vector<4xi32>) -> (vector<4xi32>) {
+func.def target(@target) @reference_fallback_for_dense_logical_mma(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<12xi32>
+  %destination = buffer.view %output[%base] : buffer -> view<4xi32>
+  %lhs_data = vector.load %source[0] : view<12xi32> -> vector<4xi32>
+  %rhs_data = vector.load %source[4] : view<12xi32> -> vector<4xi32>
+  %init_data = vector.load %source[8] : view<12xi32> -> vector<4xi32>
   %m = index.constant 2 : index
   %n = index.constant 2 : index
   %k = index.constant 2 : index
@@ -32,152 +44,248 @@ func.def target(@target) @reference_fallback_for_dense_logical_mma(%lhs_data: ve
   %rhs = vector.fragment<rhs> %rhs_data shape [%k, %n] : vector<4xi32>
   %init = vector.fragment<init> %init_data shape [%m, %n] : vector<4xi32>
   %result = vector.mma %lhs, %rhs, %init : vector<4xi32>, vector<4xi32>, vector<4xi32>
-  func.return %result : vector<4xi32>
+  vector.store %result, %destination[0] : vector<4xi32>, view<4xi32>
+  func.return
 }
 
 // ----
 spirv.target<vulkan1_3> @target
 
-func.def target(@target) @reference_fallback_for_dense_logical_mma(%lhs_data: vector<4xi32>, %rhs_data: vector<4xi32>, %init_data: vector<4xi32>) -> (vector<4xi32>) {
-  %m = index.constant 2 : index
-  %n = index.constant 2 : index
-  %11 = vector.extract %init_data[0] : vector<4xi32> -> i32
-  %12 = vector.extract %lhs_data[0] : vector<4xi32> -> i32
-  %13 = vector.extract %rhs_data[0] : vector<4xi32> -> i32
-  %55 = scalar.muli %12, %13 : i32
-  %56 = scalar.addi %11, %55 : i32
-  %15 = vector.extract %lhs_data[1] : vector<4xi32> -> i32
-  %16 = vector.extract %rhs_data[2] : vector<4xi32> -> i32
-  %53 = scalar.muli %15, %16 : i32
+func.def target(@target) @reference_fallback_for_dense_logical_mma(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<12xi32>
+  %destination = buffer.view %output[%base] : buffer -> view<4xi32>
+  %75 = view.load %source[0] : view<12xi32> -> i32
+  %76 = view.load %source[1] : view<12xi32> -> i32
+  %77 = view.load %source[2] : view<12xi32> -> i32
+  %78 = view.load %source[3] : view<12xi32> -> i32
+  %70 = view.load %source[4] : view<12xi32> -> i32
+  %71 = view.load %source[5] : view<12xi32> -> i32
+  %72 = view.load %source[6] : view<12xi32> -> i32
+  %73 = view.load %source[7] : view<12xi32> -> i32
+  %65 = view.load %source[8] : view<12xi32> -> i32
+  %66 = view.load %source[9] : view<12xi32> -> i32
+  %67 = view.load %source[10] : view<12xi32> -> i32
+  %68 = view.load %source[11] : view<12xi32> -> i32
+  %63 = scalar.muli %75, %70 : i32
+  %64 = scalar.addi %65, %63 : i32
+  %61 = scalar.muli %76, %72 : i32
+  %62 = scalar.addi %64, %61 : i32
+  %59 = scalar.muli %75, %71 : i32
+  %60 = scalar.addi %66, %59 : i32
+  %57 = scalar.muli %76, %73 : i32
+  %58 = scalar.addi %60, %57 : i32
+  %55 = scalar.muli %77, %70 : i32
+  %56 = scalar.addi %67, %55 : i32
+  %53 = scalar.muli %78, %72 : i32
   %54 = scalar.addi %56, %53 : i32
-  %18 = vector.extract %init_data[1] : vector<4xi32> -> i32
-  %19 = vector.extract %lhs_data[0] : vector<4xi32> -> i32
-  %20 = vector.extract %rhs_data[1] : vector<4xi32> -> i32
-  %51 = scalar.muli %19, %20 : i32
-  %52 = scalar.addi %18, %51 : i32
-  %22 = vector.extract %lhs_data[1] : vector<4xi32> -> i32
-  %23 = vector.extract %rhs_data[3] : vector<4xi32> -> i32
-  %49 = scalar.muli %22, %23 : i32
+  %51 = scalar.muli %77, %71 : i32
+  %52 = scalar.addi %68, %51 : i32
+  %49 = scalar.muli %78, %73 : i32
   %50 = scalar.addi %52, %49 : i32
-  %25 = vector.extract %init_data[2] : vector<4xi32> -> i32
-  %26 = vector.extract %lhs_data[2] : vector<4xi32> -> i32
-  %27 = vector.extract %rhs_data[0] : vector<4xi32> -> i32
-  %47 = scalar.muli %26, %27 : i32
-  %48 = scalar.addi %25, %47 : i32
-  %29 = vector.extract %lhs_data[3] : vector<4xi32> -> i32
-  %30 = vector.extract %rhs_data[2] : vector<4xi32> -> i32
-  %45 = scalar.muli %29, %30 : i32
-  %46 = scalar.addi %48, %45 : i32
-  %32 = vector.extract %init_data[3] : vector<4xi32> -> i32
-  %33 = vector.extract %lhs_data[2] : vector<4xi32> -> i32
-  %34 = vector.extract %rhs_data[1] : vector<4xi32> -> i32
-  %43 = scalar.muli %33, %34 : i32
-  %44 = scalar.addi %32, %43 : i32
-  %36 = vector.extract %lhs_data[3] : vector<4xi32> -> i32
-  %37 = vector.extract %rhs_data[3] : vector<4xi32> -> i32
-  %41 = scalar.muli %36, %37 : i32
-  %42 = scalar.addi %44, %41 : i32
-  %39 = vector.from_elements %54, %50, %46, %42 : vector<4xi32>
-  %result = vector.fragment<result> %39 shape [%m, %n] : vector<4xi32>
-  func.return %result : vector<4xi32>
+  view.store %62, %destination[0] : i32, view<4xi32>
+  view.store %58, %destination[1] : i32, view<4xi32>
+  view.store %54, %destination[2] : i32, view<4xi32>
+  view.store %50, %destination[3] : i32, view<4xi32>
+  func.return
 }
 
 // ====
-// RUN: pass target-legalize{mode=final}
 
-spirv.target<vulkan1_3> @target
+// RUN: emit spirv-low target=spirv:vulkan1.3+bda+hal features=FLOAT16,-COOPERATIVE_MATRIX_KHR
 
-func.def target(@target) @rejects_missing_cooperative_matrix_feature(%lhs_data: vector<16xf16>, %rhs_data: vector<16xf16>, %init_data: vector<8xf32>) -> (vector<8xf32>) {
+kernel.def @rejects_missing_cooperative_matrix_feature() {
+  %unit = index.constant 1 : index
+  %width = target.subgroup.size : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer, %left: f16, %right: f16, %initial: f32) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %output {minimum_alignment = 16} : buffer
+  %destination = buffer.view %aligned[%base] : buffer -> view<16x16xf32>
   %m = index.constant 16 : index
   %n = index.constant 16 : index
   %k = index.constant 16 : index
+  %lhs_data = vector.splat %left : vector<16xf16>
+  %rhs_data = vector.splat %right : vector<16xf16>
+  %init_data = vector.splat %initial : vector<8xf32>
   %lhs = vector.fragment<lhs> %lhs_data shape [%m, %k] : vector<16xf16>
   %rhs = vector.fragment<rhs> %rhs_data shape [%k, %n] : vector<16xf16>
   %init = vector.fragment<init> %init_data shape [%m, %n] : vector<8xf32>
   // ERROR@+1: TARGET/039 {source_contract="spirv.cooperative_matrix", matrix_constraint="spirv.cooperative_matrix.khr"}
   %result = vector.mma %lhs, %rhs, %init : vector<16xf16>, vector<16xf16>, vector<8xf32>
-  func.return %result : vector<8xf32>
+  // ERROR@+1: TARGET/003 {constraint_key="descriptor_available", subject_name="spirv.op_cooperative_matrix_store_khr.result.f32.16x16.subgroup.storage_buffer"}
+  vector.fragment.store<result> %result, %destination[0, 0] shape [%m, %n] : vector<8xf32>, view<16x16xf32>
+  kernel.return
 }
 
 // ====
-// RUN: pass target-legalize{mode=final}
 
-spirv.target<vulkan1_3> @target {contract_feature_bits = 2058}
+// RUN: emit spirv-low target=spirv:vulkan1.3+bda+hal features=FLOAT16,COOPERATIVE_MATRIX_KHR
 
-func.def target(@target) @rejects_missing_cooperative_matrix_shape(%lhs_data: vector<8xf16>, %rhs_data: vector<16xf16>, %init_data: vector<4xf32>) -> (vector<4xf32>) {
+kernel.def @rejects_missing_cooperative_matrix_shape() {
+  %unit = index.constant 1 : index
+  %width = target.subgroup.size : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer, %left: f16, %right: f16, %initial: f32) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %output {minimum_alignment = 16} : buffer
+  %destination = buffer.view %aligned[%base] : buffer -> view<8x16xf32>
   %m = index.constant 8 : index
   %n = index.constant 16 : index
   %k = index.constant 16 : index
+  %lhs_data = vector.splat %left : vector<8xf16>
+  %rhs_data = vector.splat %right : vector<16xf16>
+  %init_data = vector.splat %initial : vector<4xf32>
   %lhs = vector.fragment<lhs> %lhs_data shape [%m, %k] : vector<8xf16>
   %rhs = vector.fragment<rhs> %rhs_data shape [%k, %n] : vector<16xf16>
   %init = vector.fragment<init> %init_data shape [%m, %n] : vector<4xf32>
   // ERROR@+1: TARGET/039 {source_contract="spirv.cooperative_matrix", matrix_constraint="cooperative_matrix.shape"}
   %result = vector.mma %lhs, %rhs, %init : vector<8xf16>, vector<16xf16>, vector<4xf32>
-  func.return %result : vector<4xf32>
+  // ERROR@+1: TARGET/005 {subject_name="rows", constraint_key="i64_range"}
+  vector.fragment.store<result> %result, %destination[0, 0] shape [%m, %n] : vector<4xf32>, view<8x16xf32>
+  kernel.return
 }
 
 // ====
-// RUN: pass target-legalize{mode=final}
 
-spirv.target<vulkan1_3> @target {contract_feature_bits = 2058}
+// RUN: emit spirv-low target=spirv:vulkan1.3+bda+hal features=FLOAT16,COOPERATIVE_MATRIX_KHR
 
-func.def target(@target) @rejects_missing_cooperative_matrix_scalar_type(%lhs_data: vector<16xf32>, %rhs_data: vector<16xf32>, %init_data: vector<8xf32>) -> (vector<8xf32>) {
+kernel.def @rejects_missing_cooperative_matrix_scalar_type() {
+  %unit = index.constant 1 : index
+  %width = target.subgroup.size : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer, %left: f32, %right: f32, %initial: f32) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %output {minimum_alignment = 16} : buffer
+  %destination = buffer.view %aligned[%base] : buffer -> view<16x16xf32>
   %m = index.constant 16 : index
   %n = index.constant 16 : index
   %k = index.constant 16 : index
+  %lhs_data = vector.splat %left : vector<16xf32>
+  %rhs_data = vector.splat %right : vector<16xf32>
+  %init_data = vector.splat %initial : vector<8xf32>
   %lhs = vector.fragment<lhs> %lhs_data shape [%m, %k] : vector<16xf32>
   %rhs = vector.fragment<rhs> %rhs_data shape [%k, %n] : vector<16xf32>
   %init = vector.fragment<init> %init_data shape [%m, %n] : vector<8xf32>
   // ERROR@+1: TARGET/039 {source_contract="spirv.cooperative_matrix", matrix_constraint="cooperative_matrix.scalar_type"}
   %result = vector.mma %lhs, %rhs, %init : vector<16xf32>, vector<16xf32>, vector<8xf32>
-  func.return %result : vector<8xf32>
+  vector.fragment.store<result> %result, %destination[0, 0] shape [%m, %n] : vector<8xf32>, view<16x16xf32>
+  kernel.return
 }
 
 // ====
-// RUN: pass target-legalize{mode=final}
 
-spirv.target<vulkan1_3> @target {contract_feature_bits = 2210}
+// RUN: emit spirv-low target=spirv:vulkan1.3+bda+hal features=INT8,COOPERATIVE_MATRIX_KHR
 
-func.def target(@target) @rejects_missing_cooperative_matrix_operand_flags(%lhs_data: vector<32xi8>, %rhs_data: vector<32xi8>, %init_data: vector<8xi32>) -> (vector<8xi32>) {
+kernel.def @rejects_missing_cooperative_matrix_operand_flags() {
+  %unit = index.constant 1 : index
+  %width = target.subgroup.size : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer, %left: i8, %right: i8, %initial: i32) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %output {minimum_alignment = 16} : buffer
+  %storage = encoding.define #encoding.storage<layout=#encoding.layout.dense, schema=#encoding.operand<element_format=i32, payload_elements=8, payload_registers=8>> : encoding<storage>
+  %destination = buffer.view %aligned[%base] : buffer -> view<16x16xi32, %storage>
   %m = index.constant 16 : index
   %n = index.constant 16 : index
   %k = index.constant 32 : index
+  %lhs_data = vector.splat %left : vector<32xi8>
+  %rhs_data = vector.splat %right : vector<32xi8>
+  %init_data = vector.splat %initial : vector<8xi32>
   %lhs = vector.fragment<lhs> %lhs_data shape [%m, %k] : vector<32xi8>
   %rhs = vector.fragment<rhs> %rhs_data shape [%k, %n] : vector<32xi8>
   %init = vector.fragment<init> %init_data shape [%m, %n] : vector<8xi32>
   // ERROR@+1: TARGET/039 {source_contract="spirv.cooperative_matrix", matrix_constraint="cooperative_matrix.operands"}
   %result = vector.mma %lhs, %rhs, %init : vector<32xi8>, vector<32xi8>, vector<8xi32>
-  func.return %result : vector<8xi32>
+  vector.fragment.store<result> %result, %destination[0, 0] shape [%m, %n] : vector<8xi32>, view<16x16xi32, %storage>
+  kernel.return
 }
 
-func.def target(@target) @keeps_supported_saturating_cooperative_matrix_contract(%lhs_data: vector<32xi8>, %rhs_data: vector<32xi8>, %init_data: vector<8xi32>) -> (vector<8xi32>) {
+// ====
+
+// RUN: emit spirv-low target=spirv:vulkan1.3+bda+hal features=INT8,COOPERATIVE_MATRIX_KHR
+
+kernel.def @keeps_supported_saturating_cooperative_matrix_contract() {
+  %unit = index.constant 1 : index
+  %width = target.subgroup.size : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer, %left: i8, %right: i8, %initial: i32) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %output {minimum_alignment = 16} : buffer
+  %storage = encoding.define #encoding.storage<layout=#encoding.layout.dense, schema=#encoding.operand<element_format=i32, payload_elements=8, payload_registers=8>> : encoding<storage>
+  %destination = buffer.view %aligned[%base] : buffer -> view<16x16xi32, %storage>
   %m = index.constant 16 : index
   %n = index.constant 16 : index
   %k = index.constant 32 : index
+  %lhs_data = vector.splat %left : vector<32xi8>
+  %rhs_data = vector.splat %right : vector<32xi8>
+  %init_data = vector.splat %initial : vector<8xi32>
   %lhs = vector.fragment<lhs> %lhs_data shape [%m, %k] : vector<32xi8>
   %rhs = vector.fragment<rhs> %rhs_data shape [%k, %n] : vector<32xi8>
   %init = vector.fragment<init> %init_data shape [%m, %n] : vector<8xi32>
   %result = vector.mma<saturate> %lhs, %rhs, %init : vector<32xi8>, vector<32xi8>, vector<8xi32>
-  func.return %result : vector<8xi32>
+  vector.fragment.store<result> %result, %destination[0, 0] shape [%m, %n] : vector<8xi32>, view<16x16xi32, %storage>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer, i8, i8, i32) -> ()}) workgroup_count(1, 1, 1) @keeps_supported_saturating_cooperative_matrix_contract(%left: reg<spirv.id : i8>, %right: reg<spirv.id : i8>, %initial: reg<spirv.id : i32>) asm {
+  %aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %lhs = OpCompositeConstruct.cooperative.i8.16x32.lhs %left : reg<spirv.id : spirv.cooperative_matrix<16x32xs8, subgroup, matrix_a>>
+  %rhs = OpCompositeConstruct.cooperative.i8.32x16.rhs %right : reg<spirv.id : spirv.cooperative_matrix<32x16xs8, subgroup, matrix_b>>
+  %init = OpCompositeConstruct.cooperative.i32.16x16.accumulator %initial : reg<spirv.id : spirv.cooperative_matrix<16x16xs32, subgroup, matrix_accumulator>>
+  %result = OpCooperativeMatrixMulAddKHR.s8.16x16x32.s32.subgroup.signed_saturating %lhs, %rhs, %init : reg<spirv.id : spirv.cooperative_matrix<16x16xs32, subgroup, matrix_accumulator>>
+  %28 = OpConstant.offset64 16
+  %29 = OpUConvert.offset64.u32 %28
+  %30 = OpConstant.offset64 0
+  %31 = OpPtrAccessChain.storage_buffer.i32.byte_offset %aligned, %30
+  OpCooperativeMatrixStoreKHR.result.i32.16x16.subgroup.storage_buffer %31, %result, %29, 0
+  return
 }
 
 // ====
-// RUN: pass target-legalize{mode=final}
 
-spirv.target<vulkan1_3> @target {contract_feature_bits = 2058}
+// RUN: emit spirv-low target=spirv:vulkan1.3+bda+hal features=FLOAT16,COOPERATIVE_MATRIX_KHR
 
-func.def target(@target) @keeps_supported_cooperative_matrix_contract(%lhs_data: vector<16xf16>, %rhs_data: vector<16xf16>, %init_data: vector<8xf32>) -> (vector<8xf32>) {
+kernel.def @keeps_supported_cooperative_matrix_contract() {
+  %unit = index.constant 1 : index
+  %width = target.subgroup.size : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer, %left: f16, %right: f16, %initial: f32) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %output {minimum_alignment = 16} : buffer
+  %destination = buffer.view %aligned[%base] : buffer -> view<16x16xf32>
   %m = index.constant 16 : index
   %n = index.constant 16 : index
   %k = index.constant 16 : index
+  %lhs_data = vector.splat %left : vector<16xf16>
+  %rhs_data = vector.splat %right : vector<16xf16>
+  %init_data = vector.splat %initial : vector<8xf32>
   %lhs = vector.fragment<lhs> %lhs_data shape [%m, %k] : vector<16xf16>
   %rhs = vector.fragment<rhs> %rhs_data shape [%k, %n] : vector<16xf16>
   %init = vector.fragment<init> %init_data shape [%m, %n] : vector<8xf32>
   %result = vector.mma %lhs, %rhs, %init : vector<16xf16>, vector<16xf16>, vector<8xf32>
-  func.return %result : vector<8xf32>
+  vector.fragment.store<result> %result, %destination[0, 0] shape [%m, %n] : vector<8xf32>, view<16x16xf32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer, f16, f16, f32) -> ()}) workgroup_count(1, 1, 1) @keeps_supported_cooperative_matrix_contract(%left: reg<spirv.id : f16>, %right: reg<spirv.id : f16>, %initial: reg<spirv.id : f32>) asm {
+  %aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %lhs = OpCompositeConstruct.cooperative.f16.16x16.lhs %left : reg<spirv.id : spirv.cooperative_matrix<16x16xf16, subgroup, matrix_a>>
+  %rhs = OpCompositeConstruct.cooperative.f16.16x16.rhs %right : reg<spirv.id : spirv.cooperative_matrix<16x16xf16, subgroup, matrix_b>>
+  %init = OpCompositeConstruct.cooperative.f32.16x16.accumulator %initial : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
+  %result = OpCooperativeMatrixMulAddKHR.f16.16x16x16.f32.subgroup %lhs, %rhs, %init : reg<spirv.id : spirv.cooperative_matrix<16x16xf32, subgroup, matrix_accumulator>>
+  %27 = OpConstant.offset64 16
+  %28 = OpUConvert.offset64.u32 %27
+  %29 = OpConstant.offset64 0
+  %30 = OpPtrAccessChain.storage_buffer.f32.byte_offset %aligned, %29
+  OpCooperativeMatrixStoreKHR.result.f32.16x16.subgroup.storage_buffer %30, %result, %28, 0
+  return
 }
 
 // ====
+
 // RUN: pass target-legalize{mode=final}
 
 spirv.target<vulkan1_3> @target
@@ -199,6 +307,7 @@ func.def target(@target) @reference_fallback_for_vector_transpose(%first: i32, %
 }
 
 // ====
+
 // RUN: with-checks pass target-legalize{mode=final}
 
 // Shared fact-identity lowering accepts every result of a variadic refinement.
@@ -218,3 +327,141 @@ func.def target(@target) @variadic_buffer_alignment(%first: buffer, %second: buf
 // ----
 CHECK: %aligned_first, %aligned_second = buffer.assume.alignment %first, %second {minimum_alignment = 16} : buffer, buffer
 CHECK: func.return %sum : i32
+
+// ====
+// RUN: pass target=spirv:vulkan1.3+bda+extended-types target-legalize{mode=final},dce,canonicalize
+
+// A table is a transient aggregate, not a native value required by the
+// reference lookup decomposition. Its indexed extracts can use packet lanes.
+func.def @decomposes_wide_table(%input: buffer, %position: i32) -> (i8) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<5xi8>
+  %table = vector.load %source[0] : view<5xi8> -> vector<5xi8>
+  %indices = vector.splat %position : vector<1xi32>
+  %values = vector.table.lookup %table[%indices] : vector<5xi8>, vector<1xi32> -> vector<1xi8>
+  %value = vector.extract %values[0] : vector<1xi8> -> i8
+  func.return %value : i8
+}
+
+// ----
+func.def @decomposes_wide_table(%input: buffer, %position: i32) -> (i8) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<5xi8>
+  %12 = view.load %source[0] : view<5xi8> -> i8
+  %13 = view.load %source[1] : view<5xi8> -> i8
+  %14 = view.load %source[2] : view<5xi8> -> i8
+  %15 = view.load %source[3] : view<5xi8> -> i8
+  %16 = view.load %source[4] : view<5xi8> -> i8
+  %9 = index.cast %position : i32 to index
+  %18 = index.constant 0 : index
+  %19 = index.cmp eq, %9, %18 : index
+  %20 = scf.select %19, %12, %16 : i8
+  %21 = index.constant 1 : index
+  %22 = index.cmp eq, %9, %21 : index
+  %23 = scf.select %22, %13, %20 : i8
+  %24 = index.constant 2 : index
+  %25 = index.cmp eq, %9, %24 : index
+  %26 = scf.select %25, %14, %23 : i8
+  %27 = index.constant 3 : index
+  %28 = index.cmp eq, %9, %27 : index
+  %29 = scf.select %28, %15, %26 : i8
+  func.return %29 : i8
+}
+
+// ====
+// RUN: pass target=spirv:vulkan1.3+bda+extended-types target-legalize{mode=eager},dce,canonicalize
+
+// Quantization owns the same independently sized table boundary as lookup.
+func.def @decomposes_wide_thresholds(%value: f32, %floor: f32, %lower: f32, %middle: f32, %upper: f32, %ceiling: f32) -> (i32) {
+  %thresholds = vector.from_elements %floor, %lower, %middle, %upper, %ceiling : vector<5xf32>
+  %values = vector.splat %value : vector<1xf32>
+  %codes = vector.table.quantize %values, %thresholds {nan = max, tie = upper} : vector<1xf32>, vector<5xf32> -> vector<1xi32>
+  %code = vector.extract %codes[0] : vector<1xi32> -> i32
+  func.return %code : i32
+}
+
+// ----
+func.def @decomposes_wide_thresholds(%value: f32, %floor: f32, %lower: f32, %middle: f32, %upper: f32, %ceiling: f32) -> (i32) {
+  %11 = scalar.constant 0 : i32
+  %12 = scalar.cmpf ole, %floor, %value : f32
+  %41 = scalar.constant 1 : i32
+  %15 = scf.select %12, %41, %11 : i32
+  %16 = scalar.cmpf ole, %lower, %value : f32
+  %17 = scalar.constant 1 : i32
+  %18 = scalar.addi %15, %17 : i32
+  %19 = scf.select %16, %18, %15 : i32
+  %20 = scalar.cmpf ole, %middle, %value : f32
+  %21 = scalar.constant 1 : i32
+  %22 = scalar.addi %19, %21 : i32
+  %23 = scf.select %20, %22, %19 : i32
+  %24 = scalar.cmpf ole, %upper, %value : f32
+  %25 = scalar.constant 1 : i32
+  %26 = scalar.addi %23, %25 : i32
+  %27 = scf.select %24, %26, %23 : i32
+  %28 = scalar.cmpf ole, %ceiling, %value : f32
+  %29 = scalar.constant 1 : i32
+  %30 = scalar.addi %27, %29 : i32
+  %31 = scf.select %28, %30, %27 : i32
+  %32 = scalar.constant 5 : i32
+  %36 = scalar.bitcast %value : f32 to i32
+  %37 = scalar.constant 2147483647 : i32
+  %38 = scalar.andi %36, %37 : i32
+  %39 = scalar.constant 2139095040 : i32
+  %40 = scalar.cmpi ugt, %38, %39 : i32
+  %34 = scf.select %40, %32, %31 : i32
+  func.return %34 : i32
+}
+
+// ====
+
+// RUN: pass target=spirv:vulkan1.3+bda+extended-types target-legalize{mode=final},dce,canonicalize
+
+// The reference recipe eliminates the rank-two aggregate before Low typing.
+func.def @decomposes_rank_two_divrem(%a: i32, %b: i32, %c: i32, %d: i32, %divisor: i32) -> (i32) {
+  %values = vector.from_elements %a, %b, %c, %d : vector<2x2xi32>
+  %divisors = vector.splat %divisor : vector<2x2xi32>
+  %quotients, %remainders = vector.divremui %values, %divisors : vector<2x2xi32>
+  %quotient = vector.extract %quotients[0, 1] : vector<2x2xi32> -> i32
+  %remainder = vector.extract %remainders[1, 0] : vector<2x2xi32> -> i32
+  %result = scalar.xori %quotient, %remainder : i32
+  func.return %result : i32
+}
+
+// ----
+func.def @decomposes_rank_two_divrem(%a: i32, %b: i32, %c: i32, %d: i32, %divisor: i32) -> (i32) {
+  %31 = scalar.divui %b, %divisor : i32
+  %28 = scalar.divui %c, %divisor : i32
+  %29 = scalar.muli %28, %divisor : i32
+  %30 = scalar.subi %c, %29 : i32
+  %result = scalar.xori %31, %30 : i32
+  func.return %result : i32
+}
+
+// ====
+
+// RUN: pass target=spirv:vulkan1.3+bda+extended-types target-legalize{mode=final},dce,canonicalize
+
+// Transpose and axis reduction consume shaped values without a native carrier.
+func.def @decomposes_shaped_reduction(%a: i32, %b: i32, %c: i32, %d: i32, %e: i32, %f: i32) -> (i32) {
+  %matrix = vector.from_elements %a, %b, %c, %d, %e, %f : vector<2x3xi32>
+  %transpose = vector.transpose<[1, 0]> %matrix : vector<2x3xi32> -> vector<3x2xi32>
+  %initial = vector.constant 0 : vector<2xi32>
+  %rows = vector.reduce.axes<addi> %transpose, %initial axes [0] : vector<3x2xi32>, vector<2xi32>
+  %left = vector.extract %rows[0] : vector<2xi32> -> i32
+  %right = vector.extract %rows[1] : vector<2xi32> -> i32
+  %result = scalar.subi %left, %right : i32
+  func.return %result : i32
+}
+
+// ----
+func.def @decomposes_shaped_reduction(%a: i32, %b: i32, %c: i32, %d: i32, %e: i32, %f: i32) -> (i32) {
+  %23 = vector.from_elements %a, %d : vector<2xi32>
+  %22 = vector.from_elements %b, %e : vector<2xi32>
+  %21 = vector.from_elements %c, %f : vector<2xi32>
+  %18 = vector.addi %22, %21 : vector<2xi32>
+  %19 = vector.addi %23, %18 : vector<2xi32>
+  %left = vector.extract %19[0] : vector<2xi32> -> i32
+  %right = vector.extract %19[1] : vector<2xi32> -> i32
+  %result = scalar.subi %left, %right : i32
+  func.return %result : i32
+}

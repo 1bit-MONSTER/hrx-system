@@ -81,6 +81,10 @@ loom_corpus_build(
     "numeric/vector/floating.loom"
     "@vector_scale_f64"
     "TARGET/001"
+    "loom::target::vm::all"
+    "numeric/vector/insertion.loom"
+    "@dynamic_byte_lane_values"
+    "TARGET/001"
   ALL_ROOTS_XFAIL
     "loom::target::vm::all"
     "memory/atomic/float64.loom"

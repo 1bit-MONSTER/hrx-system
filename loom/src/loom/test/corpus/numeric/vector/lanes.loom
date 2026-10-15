@@ -172,3 +172,105 @@ check.scenario @word_lanes_all_bits {
   }
   check.return
 }
+
+// Concatenation joins partial register payloads without retaining their padding.
+func.def @partial_concat_values(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %byte_origin = index.constant 0 : offset
+  %byte_source = buffer.view %input[%base] : buffer -> view<32xi8>
+  %byte_output = buffer.view %output[%byte_origin] : buffer -> view<8xi8>
+  %byte_head = vector.load %byte_source[1] : view<32xi8> -> vector<3xi8>
+  %byte_middle = vector.load %byte_source[7] : view<32xi8> -> vector<3xi8>
+  %byte_tail = vector.load %byte_source[13] : view<32xi8> -> vector<2xi8>
+  %byte_result = vector.concat<0> %byte_head, %byte_middle, %byte_tail : vector<3xi8>, vector<3xi8>, vector<2xi8> -> vector<8xi8>
+  vector.store %byte_result, %byte_output[0] : vector<8xi8>, view<8xi8>
+  %e4_origin = index.constant 8 : offset
+  %e4_source = buffer.view %input[%base] : buffer -> view<32xf8E4M3>
+  %e4_output = buffer.view %output[%e4_origin] : buffer -> view<8xf8E4M3>
+  %e4_head = vector.load %e4_source[1] : view<32xf8E4M3> -> vector<3xf8E4M3>
+  %e4_middle = vector.load %e4_source[7] : view<32xf8E4M3> -> vector<3xf8E4M3>
+  %e4_tail = vector.load %e4_source[13] : view<32xf8E4M3> -> vector<2xf8E4M3>
+  %e4_result = vector.concat<0> %e4_head, %e4_middle, %e4_tail : vector<3xf8E4M3>, vector<3xf8E4M3>, vector<2xf8E4M3> -> vector<8xf8E4M3>
+  vector.store %e4_result, %e4_output[0] : vector<8xf8E4M3>, view<8xf8E4M3>
+  %e5_origin = index.constant 16 : offset
+  %e5_source = buffer.view %input[%base] : buffer -> view<32xf8E5M2>
+  %e5_output = buffer.view %output[%e5_origin] : buffer -> view<8xf8E5M2>
+  %e5_head = vector.load %e5_source[1] : view<32xf8E5M2> -> vector<3xf8E5M2>
+  %e5_middle = vector.load %e5_source[7] : view<32xf8E5M2> -> vector<3xf8E5M2>
+  %e5_tail = vector.load %e5_source[13] : view<32xf8E5M2> -> vector<2xf8E5M2>
+  %e5_result = vector.concat<0> %e5_head, %e5_middle, %e5_tail : vector<3xf8E5M2>, vector<3xf8E5M2>, vector<2xf8E5M2> -> vector<8xf8E5M2>
+  vector.store %e5_result, %e5_output[0] : vector<8xf8E5M2>, view<8xf8E5M2>
+  %word_origin = index.constant 24 : offset
+  %word_source = buffer.view %input[%base] : buffer -> view<16xi16>
+  %word_output = buffer.view %output[%word_origin] : buffer -> view<4xi16>
+  %word_head = vector.load %word_source[1] : view<16xi16> -> vector<1xi16>
+  %word_middle = vector.load %word_source[5] : view<16xi16> -> vector<2xi16>
+  %word_tail = vector.load %word_source[13] : view<16xi16> -> vector<1xi16>
+  %word_result = vector.concat<0> %word_head, %word_middle, %word_tail : vector<1xi16>, vector<2xi16>, vector<1xi16> -> vector<4xi16>
+  vector.store %word_result, %word_output[0] : vector<4xi16>, view<4xi16>
+  %half_origin = index.constant 32 : offset
+  %half_source = buffer.view %input[%base] : buffer -> view<16xf16>
+  %half_output = buffer.view %output[%half_origin] : buffer -> view<4xf16>
+  %half_head = vector.load %half_source[1] : view<16xf16> -> vector<1xf16>
+  %half_middle = vector.load %half_source[5] : view<16xf16> -> vector<2xf16>
+  %half_tail = vector.load %half_source[13] : view<16xf16> -> vector<1xf16>
+  %half_result = vector.concat<0> %half_head, %half_middle, %half_tail : vector<1xf16>, vector<2xf16>, vector<1xf16> -> vector<4xf16>
+  vector.store %half_result, %half_output[0] : vector<4xf16>, view<4xf16>
+  %bfloat_origin = index.constant 40 : offset
+  %bfloat_source = buffer.view %input[%base] : buffer -> view<16xbf16>
+  %bfloat_output = buffer.view %output[%bfloat_origin] : buffer -> view<4xbf16>
+  %bfloat_head = vector.load %bfloat_source[1] : view<16xbf16> -> vector<1xbf16>
+  %bfloat_middle = vector.load %bfloat_source[5] : view<16xbf16> -> vector<2xbf16>
+  %bfloat_tail = vector.load %bfloat_source[13] : view<16xbf16> -> vector<1xbf16>
+  %bfloat_result = vector.concat<0> %bfloat_head, %bfloat_middle, %bfloat_tail : vector<1xbf16>, vector<2xbf16>, vector<1xbf16> -> vector<4xbf16>
+  vector.store %bfloat_result, %bfloat_output[0] : vector<4xbf16>, view<4xbf16>
+  func.return
+}
+
+func.def @partial_concat_oracle(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 48 : index
+  %step = index.constant 1 : index
+  %lane_mask = index.constant 7 : index
+  %byte_end = index.constant 24 : index
+  %head_end = index.constant 3 : index
+  %middle_end = index.constant 6 : index
+  %word_head_end = index.constant 2 : index
+  %byte_middle_delta = index.constant 4 : index
+  %byte_tail_delta = index.constant 7 : index
+  %word_middle_delta = index.constant 8 : index
+  %word_tail_delta = index.constant 20 : index
+  %source = buffer.view %input[%base] : buffer -> view<32xi8>
+  %destination = buffer.view %output[%base] : buffer -> view<48xi8>
+  scf.for %i = [%begin to %end step %step] {
+    %lane = index.andi %i, %lane_mask : index
+    %is_byte = index.cmp ult, %i, %byte_end : index
+    %is_head = index.cmp ult, %lane, %head_end : index
+    %is_middle = index.cmp ult, %lane, %middle_end : index
+    %is_word_head = index.cmp ult, %lane, %word_head_end : index
+    %byte_later_delta = scf.select %is_middle, %byte_middle_delta, %byte_tail_delta : index
+    %byte_delta = scf.select %is_head, %step, %byte_later_delta : index
+    %word_later_delta = scf.select %is_middle, %word_middle_delta, %word_tail_delta : index
+    %word_delta = scf.select %is_word_head, %word_head_end, %word_later_delta : index
+    %delta = scf.select %is_byte, %byte_delta, %word_delta : index
+    %position = index.add %lane, %delta : index
+    %value = view.load %source[%position] : view<32xi8> -> i8
+    view.store %value, %destination[%i] : i8, view<48xi8>
+  }
+  func.return
+}
+
+check.scenario @partial_concat_payloads {
+  check.trial[16](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%seed) range(-128 to 127) : tensor<32xi8>
+    %storage = check.generate.fill value(91) : tensor<64xi8>
+    %output = check.tensor.view %storage offset(8) : tensor<64xi8> -> tensor<48xi8>
+    check.compare<@partial_concat_values, @partial_concat_oracle>(%input, %output) : (tensor<32xi8>, tensor<48xi8>) -> () {
+      check.expect.bitwise actual(%input) expected(%input) : tensor<32xi8>
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<64xi8>
+    }
+  }
+  check.return
+}

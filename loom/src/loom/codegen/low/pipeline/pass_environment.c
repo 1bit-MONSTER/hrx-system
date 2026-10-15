@@ -125,6 +125,7 @@ loom_low_pass_capability_vector_packet_policy(
 bool loom_low_pass_capability_source_vector_carrier_supported(
     const loom_low_pass_capability_t* capability,
     const loom_target_facts_t* target_facts, const loom_module_t* module,
+    const loom_value_fact_table_t* fact_table, loom_value_id_t value_id,
     loom_type_t type) {
   const loom_low_lower_policy_t* policy =
       loom_low_pass_capability_lower_policy_for_target_facts(capability,
@@ -134,12 +135,14 @@ bool loom_low_pass_capability_source_vector_carrier_supported(
   }
   const loom_target_vector_carrier_supported_callback_t callback =
       policy->source_vector_carrier_supported;
-  return callback.fn == NULL || callback.fn(callback.user_data, module, type);
+  return callback.fn == NULL ||
+         callback.fn(callback.user_data, module, fact_table, value_id, type);
 }
 
 bool loom_low_pass_capability_source_function_vector_carrier_supported(
     const loom_low_pass_capability_t* capability,
     const loom_target_facts_t* target_facts, const loom_module_t* module,
+    const loom_value_fact_table_t* fact_table, loom_value_id_t value_id,
     loom_type_t type) {
   const loom_low_lower_policy_t* policy =
       loom_low_pass_capability_lower_policy_for_target_facts(capability,
@@ -152,5 +155,6 @@ bool loom_low_pass_capability_source_function_vector_carrier_supported(
   if (callback.fn == NULL) {
     callback = policy->source_vector_carrier_supported;
   }
-  return callback.fn == NULL || callback.fn(callback.user_data, module, type);
+  return callback.fn == NULL ||
+         callback.fn(callback.user_data, module, fact_table, value_id, type);
 }

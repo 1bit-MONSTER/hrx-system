@@ -243,7 +243,7 @@ static bool loom_amdgpu_static_32bit_vector_register_shape(
          *out_register_count <= LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES;
 }
 
-static bool loom_amdgpu_vector_concat_plan_from_op(
+bool loom_amdgpu_vector_concat_plan_from_op(
     const loom_module_t* module, const loom_op_t* source_op,
     loom_amdgpu_vector_concat_plan_t* out_plan) {
   *out_plan = (loom_amdgpu_vector_concat_plan_t){0};

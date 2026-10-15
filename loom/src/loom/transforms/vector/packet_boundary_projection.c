@@ -93,16 +93,21 @@ static bool loom_vector_packet_boundary_is_object_signature_role(
 static bool loom_vector_packet_boundary_carrier_supported(
     const loom_boundary_projection_plan_t* plan,
     const loom_boundary_projection_function_t* function,
-    loom_boundary_projection_slot_role_t role, loom_type_t type) {
+    loom_boundary_projection_slot_role_t role, loom_type_t type,
+    loom_value_id_t value_id) {
   const loom_low_pass_capability_t* capability =
       loom_vector_packet_boundary_low_capability(plan);
   const loom_target_facts_t* target_facts =
       loom_vector_packet_boundary_target_facts(function);
   return loom_vector_packet_boundary_is_callable_role(role)
              ? loom_low_pass_capability_source_function_vector_carrier_supported(
-                   capability, target_facts, plan->module, type)
+                   capability, target_facts, plan->module,
+                   value_id != LOOM_VALUE_ID_INVALID ? function->facts : NULL,
+                   value_id, type)
              : loom_low_pass_capability_source_vector_carrier_supported(
-                   capability, target_facts, plan->module, type);
+                   capability, target_facts, plan->module,
+                   value_id != LOOM_VALUE_ID_INVALID ? function->facts : NULL,
+                   value_id, type);
 }
 
 static loom_type_t loom_vector_packet_boundary_type(loom_type_t source_type,
@@ -116,14 +121,15 @@ static bool loom_vector_packet_boundary_select_schema(
     const loom_boundary_projection_plan_t* plan,
     const loom_boundary_projection_function_t* function,
     loom_boundary_projection_slot_role_t role, loom_type_t logical_type,
-    uint32_t* out_packet_lane_count, uint16_t* out_component_count) {
+    loom_value_id_t value_id, uint32_t* out_packet_lane_count,
+    uint16_t* out_component_count) {
   *out_packet_lane_count = 0;
   *out_component_count = 0;
   if (loom_vector_packet_boundary_is_object_signature_role(function, role) ||
       !loom_type_is_vector(logical_type) || loom_type_rank(logical_type) != 1 ||
       !loom_type_is_all_static(logical_type) ||
       loom_vector_packet_boundary_carrier_supported(plan, function, role,
-                                                    logical_type)) {
+                                                    logical_type, value_id)) {
     return false;
   }
 
@@ -148,8 +154,8 @@ static bool loom_vector_packet_boundary_select_schema(
     }
     const loom_type_t packet_type =
         loom_vector_packet_boundary_type(logical_type, candidate_lane_count);
-    if (!loom_vector_packet_boundary_carrier_supported(plan, function, role,
-                                                       packet_type)) {
+    if (!loom_vector_packet_boundary_carrier_supported(
+            plan, function, role, packet_type, LOOM_VALUE_ID_INVALID)) {
       continue;
     }
     const uint32_t tail_lane_count =
@@ -157,7 +163,8 @@ static bool loom_vector_packet_boundary_select_schema(
     if (tail_lane_count != 0 &&
         !loom_vector_packet_boundary_carrier_supported(
             plan, function, role,
-            loom_vector_packet_boundary_type(logical_type, tail_lane_count))) {
+            loom_vector_packet_boundary_type(logical_type, tail_lane_count),
+            LOOM_VALUE_ID_INVALID)) {
       continue;
     }
     packet_lane_count = candidate_lane_count;
@@ -201,7 +208,7 @@ static bool loom_vector_packet_boundary_slot_matches(
   uint16_t component_count = 0;
   return loom_vector_packet_boundary_select_schema(
       plan, function, role, loom_module_value_type(plan->module, value_id),
-      &packet_lane_count, &component_count);
+      LOOM_VALUE_ID_INVALID, &packet_lane_count, &component_count);
 }
 
 static iree_status_t loom_vector_packet_boundary_plan_slot(
@@ -219,7 +226,7 @@ static iree_status_t loom_vector_packet_boundary_plan_slot(
   uint32_t packet_lane_count = 0;
   uint16_t component_count = 0;
   if (!loom_vector_packet_boundary_select_schema(
-          plan, function, role, logical_type, &packet_lane_count,
+          plan, function, role, logical_type, value_id, &packet_lane_count,
           &component_count)) {
     return iree_ok_status();
   }

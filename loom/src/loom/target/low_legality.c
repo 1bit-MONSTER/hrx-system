@@ -543,7 +543,7 @@ static iree_status_t loom_target_low_legality_verify_registered_type(
 
 static iree_status_t loom_target_low_legality_verify_type(
     loom_target_low_legality_context_t* context, const loom_op_t* op,
-    loom_type_t type,
+    loom_type_t type, loom_value_id_t value_id,
     loom_target_vector_carrier_supported_callback_t vector_carrier_supported) {
   if (loom_type_is_scalar(type)) {
     return loom_target_low_legality_verify_scalar_type(context, op, type);
@@ -570,8 +570,9 @@ static iree_status_t loom_target_low_legality_verify_type(
           context, op, type, IREE_SV("vector.lane_count_u32"));
     }
     if (vector_carrier_supported.fn != NULL &&
-        !vector_carrier_supported.fn(vector_carrier_supported.user_data,
-                                     context->module, type)) {
+        !vector_carrier_supported.fn(
+            vector_carrier_supported.user_data, context->module,
+            context->options->environment->fact_table, value_id, type)) {
       return loom_target_low_legality_emit_type_constraint(
           context, op, type, IREE_SV("vector.target_carrier"));
     }
@@ -592,7 +593,7 @@ static iree_status_t loom_target_low_legality_verify_value(
     loom_value_id_t value_id,
     loom_target_vector_carrier_supported_callback_t vector_carrier_supported) {
   const loom_type_t type = loom_module_value_type(context->module, value_id);
-  return loom_target_low_legality_verify_type(context, op, type,
+  return loom_target_low_legality_verify_type(context, op, type, value_id,
                                               vector_carrier_supported);
 }
 

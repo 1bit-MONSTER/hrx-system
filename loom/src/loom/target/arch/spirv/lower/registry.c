@@ -76,9 +76,13 @@ static bool loom_spirv_source_type_supported(void* user_data,
 }
 
 static bool loom_spirv_bitstream_packet_carrier_supported(
-    void* user_data, const loom_module_t* module, loom_type_t source_type) {
+    void* user_data, const loom_module_t* module,
+    const loom_value_fact_table_t* fact_table, loom_value_id_t value_id,
+    loom_type_t source_type) {
   (void)user_data;
   (void)module;
+  (void)fact_table;
+  (void)value_id;
   if (!loom_type_is_vector(source_type) || loom_type_rank(source_type) != 1 ||
       loom_type_dim_is_dynamic_at(source_type, 0)) {
     return false;
@@ -106,7 +110,7 @@ static const loom_target_bitstream_policy_t kSpirvBitstreamPolicy = {
 static const uint16_t kSpirvVectorPacketBitCounts[] = {
     256u, 128u, 64u, 32u, 16u, 8u,
 };
-static const uint16_t kSpirvVectorPacketLaneCounts[] = {4u, 3u, 2u};
+static const uint16_t kSpirvVectorPacketLaneCounts[] = {4u, 3u, 2u, 1u};
 static const loom_target_vector_packet_lane_limit_t
     kSpirvVectorPacketStructuralLaneLimits[] = {
         {LOOM_SCALAR_TYPE_I1, 4u},     {LOOM_SCALAR_TYPE_I8, 4u},
@@ -128,7 +132,8 @@ static const loom_target_vector_packet_policy_t kSpirvVectorPacketPolicy = {
     .offset_bit_count = 64u,
     .flags = LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_DYNAMIC_WINDOW_REPLAY |
              LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_MEMORY_ROOT_COMPONENTS |
-             LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_DYNAMIC_SNAPSHOT_SELECTION,
+             LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_DYNAMIC_SNAPSHOT_SELECTION |
+             LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_BOUNDARY_PROJECTION,
     .structural_lane_limits = kSpirvVectorPacketStructuralLaneLimits,
     .maximum_unpacketized_bit_count = 256u,
     .native_bit_count_count = IREE_ARRAYSIZE(kSpirvVectorPacketBitCounts),
@@ -145,6 +150,30 @@ static bool loom_spirv_source_value_fragment(
   return loom_vector_fragment_fact_query_value_facts(&fact_table->context,
                                                      facts, out_fragment) &&
          loom_vector_fragment_fact_has_matrix_shape(*out_fragment);
+}
+
+static bool loom_spirv_source_vector_carrier_supported(
+    void* user_data, const loom_module_t* module,
+    const loom_value_fact_table_t* fact_table, loom_value_id_t value_id,
+    loom_type_t source_type) {
+  loom_vector_fragment_fact_t fragment = {0};
+  return (fact_table != NULL && value_id != LOOM_VALUE_ID_INVALID &&
+          loom_spirv_source_value_fragment(fact_table, value_id, &fragment)) ||
+         loom_spirv_bitstream_packet_carrier_supported(
+             user_data, module, NULL, LOOM_VALUE_ID_INVALID, source_type);
+}
+
+static bool loom_spirv_source_function_vector_carrier_supported(
+    void* user_data, const loom_module_t* module,
+    const loom_value_fact_table_t* fact_table, loom_value_id_t value_id,
+    loom_type_t source_type) {
+  (void)user_data;
+  (void)module;
+  (void)fact_table;
+  (void)value_id;
+  (void)source_type;
+  // Callable imports and exits have no vector ABI, including matrix fragments.
+  return false;
 }
 
 static bool loom_spirv_fragment_dimension(
@@ -506,6 +535,11 @@ static const loom_low_lower_policy_t kSpirvLowLowerPolicy = {
     .error_catalog = &loom_spirv_error_catalog,
     .vector_packet_policy = &kSpirvVectorPacketPolicy,
     .bitstream_policy = &kSpirvBitstreamPolicy,
+    .source_vector_carrier_supported =
+        {.fn = loom_spirv_source_vector_carrier_supported, .user_data = NULL},
+    .source_function_vector_carrier_supported =
+        {.fn = loom_spirv_source_function_vector_carrier_supported,
+         .user_data = NULL},
     .map_abi_layout = {.fn = loom_spirv_map_abi_layout, .user_data = NULL},
     .map_type = {.fn = loom_spirv_map_type, .user_data = NULL},
     .map_value = {.fn = loom_spirv_map_value, .user_data = NULL},

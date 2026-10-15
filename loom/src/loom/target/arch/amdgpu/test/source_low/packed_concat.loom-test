@@ -1,0 +1,64 @@
+// RUN: pass target-legalize{mode=final}
+
+amdgpu.target<gfx11-generic> @target
+
+// Interior byte padding cannot survive a native register-tuple join.
+func.def target(@target) @interior_byte(%head: vector<1xi8>, %body: vector<4xi8>) -> (vector<5xi8>) {
+  %result = vector.concat<0> %head, %body : vector<1xi8>, vector<4xi8> -> vector<5xi8>
+  func.return %result : vector<5xi8>
+}
+
+// ----
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @interior_byte(%head: vector<1xi8>, %body: vector<4xi8>) -> (vector<5xi8>) {
+  %4 = vector.extract %head[0] : vector<1xi8> -> i8
+  %5 = vector.extract %body[0] : vector<4xi8> -> i8
+  %6 = vector.extract %body[1] : vector<4xi8> -> i8
+  %7 = vector.extract %body[2] : vector<4xi8> -> i8
+  %8 = vector.extract %body[3] : vector<4xi8> -> i8
+  %result = vector.from_elements %4, %5, %6, %7, %8 : vector<5xi8>
+  func.return %result : vector<5xi8>
+}
+
+// ====
+
+// RUN: pass target-legalize{mode=final}
+
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @interior_halfword(%head: vector<1xi16>, %body: vector<2xi16>) -> (vector<3xi16>) {
+  %result = vector.concat<0> %head, %body : vector<1xi16>, vector<2xi16> -> vector<3xi16>
+  func.return %result : vector<3xi16>
+}
+
+// ----
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @interior_halfword(%head: vector<1xi16>, %body: vector<2xi16>) -> (vector<3xi16>) {
+  %4 = vector.extract %head[0] : vector<1xi16> -> i16
+  %5 = vector.extract %body[0] : vector<2xi16> -> i16
+  %6 = vector.extract %body[1] : vector<2xi16> -> i16
+  %result = vector.from_elements %4, %5, %6 : vector<3xi16>
+  func.return %result : vector<3xi16>
+}
+
+// ====
+
+// RUN: pass target-legalize{mode=final}
+
+amdgpu.target<gfx11-generic> @target
+
+// Terminal padding stays outside the logical payload; this join remains native.
+func.def target(@target) @terminal_padding(%body: vector<4xi8>, %tail: vector<1xi8>) -> (vector<5xi8>) {
+  %result = vector.concat<0> %body, %tail : vector<4xi8>, vector<1xi8> -> vector<5xi8>
+  func.return %result : vector<5xi8>
+}
+
+// ----
+amdgpu.target<gfx11-generic> @target
+
+func.def target(@target) @terminal_padding(%body: vector<4xi8>, %tail: vector<1xi8>) -> (vector<5xi8>) {
+  %result = vector.concat<0> %body, %tail : vector<4xi8>, vector<1xi8> -> vector<5xi8>
+  func.return %result : vector<5xi8>
+}

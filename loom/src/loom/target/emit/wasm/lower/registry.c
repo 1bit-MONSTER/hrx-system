@@ -64,16 +64,24 @@ static bool loom_wasm_source_type_supported(void* user_data,
 }
 
 static bool loom_wasm_source_function_vector_carrier_supported(
-    void* user_data, const loom_module_t* module, loom_type_t source_type) {
+    void* user_data, const loom_module_t* module,
+    const loom_value_fact_table_t* fact_table, loom_value_id_t value_id,
+    loom_type_t source_type) {
   (void)user_data;
   (void)module;
+  (void)fact_table;
+  (void)value_id;
   return loom_wasm_vector_type_is_callable(source_type);
 }
 
 static bool loom_wasm_source_vector_carrier_supported(
-    void* user_data, const loom_module_t* module, loom_type_t source_type) {
+    void* user_data, const loom_module_t* module,
+    const loom_value_fact_table_t* fact_table, loom_value_id_t value_id,
+    loom_type_t source_type) {
   (void)user_data;
   (void)module;
+  (void)fact_table;
+  (void)value_id;
   return loom_wasm_vector_carrier_for_type(source_type).packet_count != 0;
 }
 

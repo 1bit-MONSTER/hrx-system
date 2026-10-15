@@ -150,6 +150,7 @@ loom_corpus_build(
             "numeric/vector/floating.loom:@vector_scale_f16": "TARGET/001",
             "numeric/vector/floating.loom:@vector_scale_f32": "TARGET/001",
             "numeric/vector/floating.loom:@vector_scale_f64": "TARGET/001",
+            "numeric/vector/insertion.loom:@dynamic_byte_lane_values": "TARGET/001",
         },
     },
 )

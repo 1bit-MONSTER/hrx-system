@@ -1964,9 +1964,13 @@ static_assert(IREE_ARRAYSIZE(kAmdgpuVectorPacketLaneCounts) <=
               "packet lane candidates exceed the shared planner capacity");
 
 static bool loom_amdgpu_source_vector_carrier_supported(
-    void* user_data, const loom_module_t* module, loom_type_t source_type) {
+    void* user_data, const loom_module_t* module,
+    const loom_value_fact_table_t* fact_table, loom_value_id_t value_id,
+    loom_type_t source_type) {
   (void)user_data;
   (void)module;
+  (void)fact_table;
+  (void)value_id;
   loom_amdgpu_vector_storage_t storage;
   return loom_amdgpu_type_vector_storage(source_type, &storage);
 }

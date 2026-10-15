@@ -2,7 +2,9 @@
 
 spirv.target<vulkan1_3> @target
 
-func.def target(@target) @require_native_vector_atomic(%view: view<2xi32>, %value: vector<2xi32>, %offsets: vector<2xindex>) {
+func.def target(@target) @require_native_vector_atomic(%view: view<2xi32>, %element: i32, %position: index) {
+  %value = vector.splat %element : vector<2xi32>
+  %offsets = vector.splat %position : vector<2xindex>
   // ERROR@+1: TARGET/039 {source_contract="target.reference", matrix_constraint="reference.policy"}
   vector.atomic.reduce<addi> %value, %view[0][%offsets] {ordering = relaxed, scope = workgroup} : vector<2xi32>, view<2xi32>, vector<2xindex>
   func.return

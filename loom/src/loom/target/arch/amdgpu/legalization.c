@@ -317,6 +317,13 @@ static iree_status_t loom_amdgpu_legalize_static_vector_shape(
         context, op, context->vector_packet_policy,
         /*insert_materializer=*/NULL, &rewritten));
   }
+  if (!rewritten && loom_vector_concat_isa(op)) {
+    loom_amdgpu_vector_concat_plan_t plan = {0};
+    if (!loom_amdgpu_vector_concat_plan_from_op(context->module, op, &plan)) {
+      IREE_RETURN_IF_ERROR(loom_vector_descriptor_to_scalar_rewrite_op(
+          context->pass, context->rewriter, op, &rewritten));
+    }
+  }
   if (!rewritten && loom_vector_slice_isa(op) &&
       loom_vector_slice_offsets(op).count != 0) {
     const loom_vector_packet_consumer_materializer_t materializer =

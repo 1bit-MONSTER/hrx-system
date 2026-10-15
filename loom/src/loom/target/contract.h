@@ -42,9 +42,14 @@ typedef struct loom_native_contraction_facts_t loom_native_contraction_facts_t;
 typedef struct loom_local_value_domain_t loom_local_value_domain_t;
 
 // Returns true when |type| has a complete vector-carrier mapping under the
-// selected target policy.
+// selected target policy. A concrete source value retains its identity and
+// optional analysis facts so targets can admit value-dependent representations.
+// Hypothetical packet types use NULL facts and LOOM_VALUE_ID_INVALID; they must
+// not inherit the representation of the aggregate they will replace.
 typedef bool (*loom_target_vector_carrier_supported_fn_t)(
-    void* user_data, const loom_module_t* module, loom_type_t type);
+    void* user_data, const loom_module_t* module,
+    const loom_value_fact_table_t* fact_table, loom_value_id_t value_id,
+    loom_type_t type);
 
 typedef struct loom_target_vector_carrier_supported_callback_t {
   // Optional target query for complete vector-carrier admission.
@@ -89,9 +94,9 @@ typedef enum loom_target_vector_packet_policy_flag_bits_e {
   // Coordinates components touching oversized memory roots with the memory
   // packet planner so they never slice an unsupported memory snapshot.
   LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_MEMORY_ROOT_COMPONENTS = 1u << 1,
-  // Projects unsupported static vector carriers across callable, CFG, and
-  // LoopLike boundaries using native lane candidates. Object-function
-  // signatures retain their authored platform ABI.
+  // Projects unsupported static vector carriers across callable, CFG,
+  // LoopLike, and RegionBranch boundaries using native lane candidates.
+  // Object-function signatures retain their authored platform ABI.
   LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_BOUNDARY_PROJECTION = 1u << 2,
   // Selects fact-bounded dynamic windows directly from retained SSA packet
   // snapshots instead of reifying those snapshots in private memory.

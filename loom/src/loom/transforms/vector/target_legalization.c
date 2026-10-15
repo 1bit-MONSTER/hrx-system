@@ -94,8 +94,7 @@ static iree_status_t loom_vector_legalize_reduce_axes(
   *out_result = (loom_target_legalizer_result_t){
       .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
   };
-  if (context->source_function_has_unsupported_vector_carrier ||
-      !loom_target_legalization_op_has_source_vector_carriers(context, op)) {
+  if (context->source_function_has_unsupported_vector_carrier) {
     return iree_ok_status();
   }
   bool rewritten = false;
@@ -140,8 +139,9 @@ static iree_status_t loom_vector_legalize_descriptor(
   *out_result = (loom_target_legalizer_result_t){
       .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
   };
-  if (context->source_function_has_unsupported_vector_carrier ||
-      !loom_target_legalization_op_has_source_vector_carriers(context, op)) {
+  // Lane programs may eliminate transient aggregates with no target carrier.
+  // The callable boundary still needs a complete representation.
+  if (context->source_function_has_unsupported_vector_carrier) {
     return iree_ok_status();
   }
   bool rewritten = false;
@@ -275,9 +275,11 @@ static bool loom_vector_shift_packet_carriers_supported(
     const loom_target_legalization_context_t* context, loom_type_t source_type,
     loom_type_t working_type, uint32_t lane_count) {
   return loom_target_legalization_has_source_vector_carrier(
-             context, loom_vector_shift_packet_type(source_type, lane_count)) &&
+             context, loom_vector_shift_packet_type(source_type, lane_count),
+             LOOM_VALUE_ID_INVALID) &&
          loom_target_legalization_has_source_vector_carrier(
-             context, loom_vector_shift_packet_type(working_type, lane_count));
+             context, loom_vector_shift_packet_type(working_type, lane_count),
+             LOOM_VALUE_ID_INVALID);
 }
 
 // Selects the widest declared packet width that admits both the authored
@@ -499,7 +501,8 @@ static iree_status_t loom_vector_legalize_shift(
       loom_type_kind(result_type), LOOM_SCALAR_TYPE_I16,
       loom_type_rank(result_type), loom_type_flags(result_type));
   const bool working_carrier_supported =
-      loom_target_legalization_has_source_vector_carrier(context, working_type);
+      loom_target_legalization_has_source_vector_carrier(context, working_type,
+                                                         LOOM_VALUE_ID_INVALID);
   const uint32_t packet_lane_count =
       working_carrier_supported ? 0
                                 : loom_vector_shift_select_packet_lane_count(
@@ -757,8 +760,7 @@ static iree_status_t loom_vector_legalize_transpose(
   *out_result = (loom_target_legalizer_result_t){
       .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
   };
-  if (context->source_function_has_unsupported_vector_carrier ||
-      !loom_target_legalization_op_has_source_vector_carriers(context, op)) {
+  if (context->source_function_has_unsupported_vector_carrier) {
     return iree_ok_status();
   }
   bool rewritten = false;

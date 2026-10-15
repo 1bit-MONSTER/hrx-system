@@ -374,9 +374,12 @@ loom_target_legalization_query_contract_with_vector_lane_projection(
     loom_target_contract_query_result_t* out_result);
 
 // Returns true when |type| has a source vector carrier under the selected
-// target lowering policy. Non-vector types always return true.
+// target lowering policy. Non-vector types always return true. A concrete
+// source passes its value identity; hypothetical types use
+// LOOM_VALUE_ID_INVALID.
 bool loom_target_legalization_has_source_vector_carrier(
-    const loom_target_legalization_context_t* context, loom_type_t type);
+    const loom_target_legalization_context_t* context, loom_type_t type,
+    loom_value_id_t value_id);
 
 // Returns true when every vector operand and result of |op| has a source
 // carrier under the selected target lowering policy.

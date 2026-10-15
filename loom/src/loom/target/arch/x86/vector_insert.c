@@ -373,8 +373,8 @@ static iree_status_t loom_x86_legalize_dynamic_vector_insert(
   if (indices.count != 1 || static_indices.kind != LOOM_ATTR_I64_ARRAY ||
       static_indices.count != 1 || static_indices.i64_array[0] != INT64_MIN ||
       !loom_type_is_scalar(value_type) || lane_count == 0 ||
-      !loom_target_legalization_has_source_vector_carrier(context,
-                                                          result_type) ||
+      !loom_target_legalization_has_source_vector_carrier(
+          context, result_type, loom_vector_insert_result(op)) ||
       !loom_x86_dynamic_insert_ordinal_type(context->vector_packet_policy,
                                             result_type, lane_count,
                                             &ordinal_type)) {
