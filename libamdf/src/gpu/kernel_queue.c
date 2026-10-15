@@ -82,10 +82,18 @@ static amdf_status_t amdf_gpu_kernel_queue_refresh_status(
 static amdf_status_t amdf_gpu_kernel_queue_request_notification(
     amdf_kernel_queue_t* base_queue, uint64_t submission,
     const amdf_native_event_t* event) {
-  (void)base_queue;
-  (void)submission;
-  (void)event;
-  return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+  amdf_gpu_kernel_queue_t* queue = (amdf_gpu_kernel_queue_t*)base_queue;
+  if (submission > amdf_atomic_uint64_load_acquire(&queue->submitted)) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_OUT_OF_RANGE);
+  }
+  // Native GPU points have the same identity as public points. A checked old
+  // point remains immediately signalable even if later work fails.
+  const uint64_t native_submission =
+      amdf_atomic_uint64_load_acquire(&queue->retired) >= submission
+          ? 0
+          : submission;
+  return amdf_gpu_umd_kernel_queue_request_notification(
+      queue->umd, native_submission, event);
 }
 
 static amdf_status_t amdf_gpu_kernel_queue_wait(
@@ -264,6 +272,8 @@ amdf_status_t AMDF_CALL amdf_gpu_kernel_queue_create(
         amdf_gpu_device_get_umd(device), family_info.command_type, &queue->umd);
   }
   if (amdf_status_is_ok(status)) {
+    queue->base.info.notification_types =
+        amdf_gpu_umd_kernel_queue_query_notification_types(queue->umd);
     if (amdf_gpu_umd_kernel_queue_mapping_capacity(queue->umd) != 0) {
       queue->base.info.capabilities |=
           AMDF_KERNEL_QUEUE_CAPABILITY_VIRTUAL_MEMORY;

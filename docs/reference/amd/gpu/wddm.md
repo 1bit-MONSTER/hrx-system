@@ -135,6 +135,39 @@ The submitting thread can continue, but this scheduling dependency is not a
 native device-only wait. CPU waits can block or arrange event notification.
 [Legacy wait ownership][monitoring]
 
+## Asynchronous CPU notification
+
+`D3DKMTWaitForSynchronizationObjectFromCpu` accepts a device handle, an array of
+monitored-fence handles, corresponding 64-bit values, and `hAsyncEvent`. A nonnull
+event requests notification when the condition is satisfied; a null event makes
+the call wait. With `WaitAny = 0`, every supplied fence must reach at least its
+requested value. The one-fence form observes an exact point without a host polling
+loop. Native registration can fail with an NTSTATUS result independently of the
+commands already submitted to that fence. [CPU wait][cpu-wait]
+[Event and threshold fields][cpu-wait-fields]
+
+The event is a wake destination, not fence-value storage or an execution-result
+record. An auto-reset event releases one waiter and consumes its signaled state;
+a manual-reset event remains signaled until its owner resets it. Repeated signals
+can coalesce. Sharing an event across fences therefore requires resampling the
+participating fences after each wake rather than identifying a completion from
+the event alone. The caller owns the event through pending native delivery and
+separately joins any host event-loop callbacks. The DDI has no cancellation token
+or callback-drain operation; observing a fence value does not count outstanding
+event signals. [Win32 event semantics][event-objects]
+
+Microsoft's Direct3D 12 device-removal contract signals monitored fences to
+`UINT64_MAX`, which also satisfies pending wait events. That value is a failure
+sentinel rather than successful command execution. Removal notification and
+successful resource retirement remain separate observations. This contract does
+not turn an arbitrary user-mode validation or publication error into a native
+device-removal event. [Removal and waited events][removed-events]
+
+This mechanism belongs to the monitored-fence scheduler protocol. It does not
+require a command processor interrupt payload, a shader dispatch, or a directly
+mapped user-mode command ring, and it does not describe intermediate notifications
+inside a still-running persistent invocation.
+
 ## Native GPU-fence protocol
 
 Microsoft's native-fence guide describes the extended protocol for WDDM 3.2 /
@@ -183,3 +216,8 @@ values remain in system memory. [Storage and notification ordering][native-order
 [native-enable]: https://github.com/MicrosoftDocs/windows-driver-docs/blob/2d03b8b58143ec94b2ae56e2ddc11ec64133fb2c/windows-driver-docs-pr/display/native-gpu-fence-objects.md#L133-L149
 [native-design]: https://github.com/MicrosoftDocs/windows-driver-docs/blob/2d03b8b58143ec94b2ae56e2ddc11ec64133fb2c/windows-driver-docs-pr/display/native-gpu-fence-objects.md#L14-L46
 [native-ordering]: https://github.com/MicrosoftDocs/windows-driver-docs/blob/2d03b8b58143ec94b2ae56e2ddc11ec64133fb2c/windows-driver-docs-pr/display/native-gpu-fence-objects.md#L63-L130
+
+[cpu-wait]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmthk/nf-d3dkmthk-d3dkmtwaitforsynchronizationobjectfromcpu
+[cpu-wait-fields]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmthk/ns-d3dkmthk-_d3dkmt_waitforsynchronizationobjectfromcpu
+[event-objects]: https://learn.microsoft.com/en-us/windows/win32/sync/event-objects
+[removed-events]: https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device5-removedevice

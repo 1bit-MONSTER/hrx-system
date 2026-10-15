@@ -41,6 +41,16 @@ struct amdf_gpu_umd_kernel_queue_t {
   amdf_status_t mapping_order_status = AMDF_STATUS_OK;
   // Number of final native release attempts.
   uint32_t destroy_count = 0;
+  // Native destination representations advertised at queue creation.
+  amdf_native_event_types_t notification_types = 0;
+  // Native point requested by the latest registration, or zero for a hint.
+  uint64_t notification_submission = UINT64_MAX;
+  // Borrowed event value captured by the controlled native dependency.
+  amdf_native_event_t notification_event = {};
+  // Number of independent native notification requests.
+  uint32_t notification_count = 0;
+  // Registration result independent of accepted work and retirement.
+  amdf_status_t notification_status = AMDF_STATUS_OK;
   // Native publication schedule controlled by the concurrency scenario.
   enum class PublicationPhase { kOpen, kPauseOnAccept, kWaiting, kResume };
   // Protects the test dependency's publication schedule, not the queue under
@@ -277,6 +287,99 @@ TEST_P(GpuKernelQueueTest, UnsupportedNotificationDoesNotChangeAcceptedWork) {
   EXPECT_EQ(Query().retired_submission, submission);
 }
 
+TEST_P(GpuKernelQueueTest, NotificationsPreserveAcceptedIdentityAndRetirement) {
+  auto& native = device.native.queue;
+  native.notification_types = AMDF_NATIVE_EVENT_TYPE_BIT_EVENTFD;
+  ASSERT_EQ(CreateQueue(2), AMDF_STATUS_OK);
+  amdf_kernel_queue_info_t info = {
+      .type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_INFO,
+      .structure_size = sizeof(info),
+  };
+  ASSERT_EQ(amdf_kernel_queue_query_info(queue, &info), AMDF_STATUS_OK);
+  EXPECT_EQ(info.notification_types, native.notification_types);
+  amdf_native_event_t event = {.type = AMDF_NATIVE_EVENT_TYPE_EVENTFD};
+  event.payload.file_descriptor = 5;
+  uint64_t first = 0;
+  uint64_t second = 0;
+  ASSERT_EQ(Submit(&first), AMDF_STATUS_OK);
+  ASSERT_EQ(Submit(&second), AMDF_STATUS_OK);
+  for (uint64_t point : {second, first, second}) {
+    ASSERT_EQ(amdf_kernel_queue_request_notification(queue, point, &event),
+              AMDF_STATUS_OK);
+    EXPECT_EQ(native.notification_submission, point);
+    EXPECT_EQ(native.notification_event.payload.file_descriptor, 5);
+    EXPECT_EQ(Query().retired_submission, 0u);
+  }
+  EXPECT_EQ(native.notification_count, 3u);
+  EXPECT_EQ(native.submitted, second);
+  native.progress = second;
+  ASSERT_EQ(amdf_kernel_queue_request_notification(queue, second, &event),
+            AMDF_STATUS_OK);
+  EXPECT_EQ(native.notification_submission, second);
+  EXPECT_EQ(Query().retired_submission, 0u);
+  EXPECT_EQ(Refresh().retired_submission, second);
+}
+
+TEST_P(GpuKernelQueueTest,
+       CheckedPointSignalsAfterStorageReuseAndLaterFailure) {
+  auto& native = device.native.queue;
+  native.notification_types = AMDF_NATIVE_EVENT_TYPE_BIT_EVENTFD;
+  ASSERT_EQ(CreateQueue(1), AMDF_STATUS_OK);
+  amdf_native_event_t event = {.type = AMDF_NATIVE_EVENT_TYPE_EVENTFD};
+  event.payload.file_descriptor = 5;
+  uint64_t first = 0;
+  ASSERT_EQ(Submit(&first), AMDF_STATUS_OK);
+  native.progress = first;
+  EXPECT_EQ(Refresh().retired_submission, first);
+  uint64_t second = 0;
+  ASSERT_EQ(Submit(&second), AMDF_STATUS_OK);
+  native.terminal_status = amdf_make_api_status(AMDF_STATUS_CODE_DEVICE_LOST);
+  for (int i = 0; i < 2; ++i) {
+    EXPECT_EQ(amdf_kernel_queue_request_notification(queue, first, &event),
+              AMDF_STATUS_OK);
+    EXPECT_EQ(native.notification_submission, 0u);
+  }
+  EXPECT_EQ(Query().retired_submission, first);
+  EXPECT_EQ(Query().terminal_status, native.terminal_status);
+  EXPECT_EQ(native.submitted, second);
+}
+
+TEST_P(GpuKernelQueueTest, RejectedNotificationDoesNotReplayOrRetireWork) {
+  auto& native = device.native.queue;
+  native.notification_types = AMDF_NATIVE_EVENT_TYPE_BIT_EVENTFD;
+  ASSERT_EQ(CreateQueue(1), AMDF_STATUS_OK);
+  amdf_native_event_t event = {.type = AMDF_NATIVE_EVENT_TYPE_EVENTFD};
+  event.payload.file_descriptor = 5;
+  uint64_t point = 0;
+  ASSERT_EQ(Submit(&point), AMDF_STATUS_OK);
+  native.notification_status =
+      amdf_make_status(AMDF_STATUS_DOMAIN_NTSTATUS, 0xc0000017);
+  EXPECT_EQ(amdf_kernel_queue_request_notification(queue, point, &event),
+            native.notification_status);
+  EXPECT_EQ(native.submitted, point);
+  EXPECT_EQ(Query().retired_submission, 0u);
+  EXPECT_EQ(Query().terminal_status, AMDF_STATUS_OK);
+  EXPECT_EQ(amdf_kernel_queue_wait(queue, point, 0, 0), AMDF_STATUS_OK);
+  EXPECT_EQ(Query().retired_submission, point);
+}
+
+TEST_P(GpuKernelQueueTest, UnacceptedNotificationNeverReachesNativeQueue) {
+  auto& native = device.native.queue;
+  native.notification_types = AMDF_NATIVE_EVENT_TYPE_BIT_EVENTFD;
+  ASSERT_EQ(CreateQueue(1), AMDF_STATUS_OK);
+  amdf_native_event_t event = {.type = AMDF_NATIVE_EVENT_TYPE_EVENTFD};
+  event.payload.file_descriptor = 5;
+  EXPECT_EQ(amdf_kernel_queue_request_notification(queue, 0, &event),
+            amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT));
+  EXPECT_EQ(amdf_kernel_queue_request_notification(queue, 1, &event),
+            amdf_make_api_status(AMDF_STATUS_CODE_OUT_OF_RANGE));
+  uint64_t point = 0;
+  ASSERT_EQ(Submit(&point), AMDF_STATUS_OK);
+  EXPECT_EQ(amdf_kernel_queue_request_notification(queue, point + 1, &event),
+            amdf_make_api_status(AMDF_STATUS_CODE_OUT_OF_RANGE));
+  EXPECT_EQ(native.notification_count, 0u);
+}
+
 TEST_P(GpuKernelQueueTest, DefaultCapacityAcceptsAnEntirePendingWindow) {
   amdf_kernel_queue_info_t info = {
       .type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_INFO,
@@ -415,6 +518,7 @@ TEST_P(GpuKernelQueueTest, WaitingForPrefixDoesNotRetireLaterWork) {
 }
 
 TEST_P(GpuKernelQueueTest, NativeCompletionCannotExposeUnpublishedAcceptance) {
+  device.native.queue.notification_types = AMDF_NATIVE_EVENT_TYPE_BIT_EVENTFD;
   ASSERT_EQ(CreateQueue(3), AMDF_STATUS_OK);
   uint64_t first = 0;
   ASSERT_EQ(Submit(&first), AMDF_STATUS_OK);
@@ -430,6 +534,11 @@ TEST_P(GpuKernelQueueTest, NativeCompletionCannotExposeUnpublishedAcceptance) {
         lock, std::chrono::seconds(10),
         [&] { return native.publication_phase == Phase::kWaiting; }));
   }
+  amdf_native_event_t event = {.type = AMDF_NATIVE_EVENT_TYPE_EVENTFD};
+  event.payload.file_descriptor = 5;
+  EXPECT_EQ(amdf_kernel_queue_request_notification(queue, first + 1, &event),
+            amdf_make_api_status(AMDF_STATUS_CODE_OUT_OF_RANGE));
+  EXPECT_EQ(native.notification_count, 0u);
   EXPECT_EQ(Refresh().retired_submission, first);
   EXPECT_EQ(amdf_kernel_queue_wait(queue, first, 0, 0), AMDF_STATUS_OK);
   EXPECT_EQ(Query().retired_submission, first);
@@ -516,6 +625,20 @@ extern "C" {
 uint32_t amdf_gpu_umd_kernel_queue_mapping_capacity(
     const amdf_gpu_umd_kernel_queue_t*) {
   return 128;
+}
+
+amdf_native_event_types_t amdf_gpu_umd_kernel_queue_query_notification_types(
+    const amdf_gpu_umd_kernel_queue_t* queue) {
+  return queue->notification_types;
+}
+
+amdf_status_t amdf_gpu_umd_kernel_queue_request_notification(
+    amdf_gpu_umd_kernel_queue_t* queue, uint64_t native_submission,
+    const amdf_native_event_t* event) {
+  queue->notification_submission = native_submission;
+  queue->notification_event = *event;
+  ++queue->notification_count;
+  return queue->notification_status;
 }
 
 amdf_status_t amdf_gpu_memory_reservation_update_on_queue(

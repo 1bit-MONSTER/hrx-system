@@ -317,6 +317,54 @@ including native cleanup errors. The caller follows the
 [release-failure contract](memory.md#lifetime-and-failure) for any storage that
 may remain reachable.
 
+### Event-driven KERNEL completion
+
+Windows GPU KERNEL queues report `AMDF_NATIVE_EVENT_TYPE_BIT_WIN32_EVENT` in
+`kernel_queue_query_info().notification_types`. The same operation serves PM4
+and SDMA families admitted by discovery. The caller creates an auto-reset or
+manual-reset event, establishes event-loop ownership, and requests a wake with
+`kernel_queue_request_notification(queue, accepted_point, &event)`. The event
+needs `EVENT_MODIFY_STATE` access; the caller separately owns wait/reset access
+and event-loop registration.
+
+An unchecked point registers the event against the queue's stable monitored
+fence using the native asynchronous CPU-wait operation. An already-completed
+point signals immediately; delivery can precede return. Earlier checked points
+remain valid after command storage is reused or later work fails. Registration
+neither consumes command results nor advances checked retirement. A registration
+error preserves its native status and leaves accepted work accepted.
+
+A typical completion worker arms an accepted point, sleeps on its event, consumes
+readiness, and calls `kernel_queue_refresh_status`. If more accepted work remains,
+it arms the next unchecked point before sleeping again. Several queues can share
+one event: a wake prompts a refresh of all participating queues. Repeated requests
+are independent and signals may coalesce, so the wake count identifies neither
+a queue nor a completed submission. Host control can also wake the worker without
+implying device progress. Submission never implicitly arms the event.
+
+The event descriptor is borrowed only for the call. The native event remains live
+through outstanding delivery; cancelling a host callback does not cancel native
+registrations. For a shared completion worker, its event outlives the participating
+native queues: stop new arms, reconcile accepted work and notification delivery,
+detach and join host callbacks, release the queues, then close the event. Checked
+progress alone is not a count or cancellation of native notifications. Native
+destruction failure follows the existing release-failure contract; it is not a
+successful join. This ownership belongs to the caller, with no subscription or
+lifetime registry inside libamdf.
+
+A device-reset fence sentinel wakes native monitored-fence waiters but produces
+terminal failure, not successful retirement. A cached terminal failure rejects
+new requests for unchecked work. Queue-local submission or mapping errors do not
+promise a device-wide wake; their synchronous status and subsequent checked status
+remain authoritative. The [native fence reference](../../docs/reference/amd/gpu/wddm.md#asynchronous-cpu-notification)
+describes the OS mechanism and its distinction from packet-originated interrupts.
+
+Explicit arming pays either a native registration or an immediate event signal.
+It uses no library allocation, lock, polling loop, worker, or retained descriptor.
+The native driver may allocate wait state. Synchronous `kernel_queue_wait` retains
+its separate private event and serialization, so it can coexist with caller-event
+registration without stealing a wake.
+
 ## USER completion and release
 
 AQL completion and barrier dependencies reference complete native 64-byte AMD
