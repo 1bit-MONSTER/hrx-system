@@ -893,9 +893,9 @@ iree_status_t loom_serve_weights_deactivate(loom_serve_weights_t* weights,
       reservations[i] = weights->storages[i].reservation;
       loom_serve_virtual_buffer_begin_trim(reservations[i]);
     }
-    status =
-        loom_serve_memory_pool_trim_async(weights->pool, weights->storage_count,
-                                          reservations, &weights->deactivation);
+    status = loom_serve_memory_pool_trim_async(
+        weights->pool, weights->storage_count, reservations, NULL, 0,
+        &weights->deactivation);
   }
   iree_allocator_free(weights->host_allocator, reservations);
   if (iree_status_is_ok(status)) {

@@ -1019,8 +1019,13 @@ iree_status_t loom_serve_text_model_submit_trim(
 }
 
 iree_status_t loom_serve_text_model_complete_trim(
-    loom_serve_text_model_t* model, loom_serve_text_trim_result_t* result) {
-  return loom_serve_text_state_complete_trim(&model->state, result);
+    loom_serve_text_model_t* model, loom_serve_text_trim_result_t* result,
+    bool* out_complete, loom_serve_execution_frontier_t* out_frontier) {
+  *out_frontier = (loom_serve_execution_frontier_t){0};
+  IREE_RETURN_IF_ERROR(
+      loom_serve_text_state_complete_trim(&model->state, result, out_complete));
+  *out_frontier = loom_serve_execution_frontier(model->execution);
+  return iree_ok_status();
 }
 
 iree_status_t loom_serve_text_model_trim(
@@ -1029,11 +1034,15 @@ iree_status_t loom_serve_text_model_trim(
   loom_serve_execution_frontier_t frontier;
   iree_status_t status =
       loom_serve_text_model_submit_trim(model, out_result, &frontier);
-  status =
-      iree_status_join(status, loom_serve_execution_drain(model->execution));
-  if (iree_status_is_ok(status)) {
-    status = loom_serve_text_model_complete_trim(model, out_result);
-  }
+  bool complete = false;
+  do {
+    status =
+        iree_status_join(status, loom_serve_execution_drain(model->execution));
+    if (iree_status_is_ok(status)) {
+      status = loom_serve_text_model_complete_trim(model, out_result, &complete,
+                                                   &frontier);
+    }
+  } while (iree_status_is_ok(status) && !complete);
   return status;
 }
 

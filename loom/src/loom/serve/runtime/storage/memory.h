@@ -175,11 +175,14 @@ iree_status_t loom_serve_memory_pool_commit_async(
 // keeps reservations/accounting alive through operation completion. Kept slabs
 // remain usable. No other operation may edit selected slabs before completion.
 // Committed bytes stay charged; releasing_bytes describes the pending subset,
-// not available capacity. An empty set returns NULL. Native failures preserve
-// unreleased ownership and poison the pool for normal owner-driven shutdown.
+// not available capacity. Optional readiness is retained and reaches value only
+// after native release; an empty set returns NULL and signals immediately.
+// Native failures fail readiness, preserve unreleased ownership, and poison
+// the pool for normal owner-driven shutdown.
 iree_status_t loom_serve_memory_pool_trim_async(
     loom_serve_memory_pool_t* pool, iree_host_size_t buffer_count,
     loom_serve_virtual_buffer_t* const* buffers,
+    iree_hal_semaphore_t* readiness, uint64_t value,
     loom_serve_memory_operation_t** out_operation);
 
 // Installs a nonblocking ownership wake, or detaches it with NULL. The observer

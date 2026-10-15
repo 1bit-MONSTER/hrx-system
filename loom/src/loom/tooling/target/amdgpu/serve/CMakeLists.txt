@@ -854,6 +854,7 @@ loom_cc_test(
     loom::serve::runtime::storage::memory
     loom::serve::runtime::storage::relocation
     loom::serve::testing::device
+    loom::serve::testing::maintenance_gate
   LABELS
     "iree-run-requirement=runtime.resource.amd_gpu"
     "notsan"

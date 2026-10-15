@@ -104,6 +104,183 @@ TEST_F(ElasticTextServiceTest,
   CheckColdStateAdmission(/*cancel=*/true);
 }
 
+TEST_F(ElasticTextServiceTest,
+       CompactionYieldsNativeReleasesAndPreservesSharedCheckpoint) {
+  const iree_hal_physical_memory_params_t parameters = {
+      .type = IREE_HAL_MEMORY_TYPE_DEVICE_LOCAL,
+      .usage = IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER,
+  };
+  iree_device_size_t minimum = 0;
+  iree_device_size_t slab_size = 0;
+  IREE_ASSERT_OK(iree_hal_allocator_virtual_memory_query_granularity(
+      iree_hal_device_allocator(loom_serve_device_handle(device_)), parameters,
+      &minimum, &slab_size));
+  auto options = ModelOptions();
+  // Four full reservations cover two slabs of KV plus the private prefix.
+  // Only three tokens in the upper half survive; no long prompt is executed.
+  options.context_capacity = slab_size / 8;
+  options.pool_capacity = 4 * options.context_capacity;
+  loom_serve_text_model_t* sparse = nullptr;
+  IREE_ASSERT_OK(loom_serve_text_model_allocate(device_, &options,
+                                                host_allocator_, &sparse));
+  const auto release_model = [](loom_serve_text_model_t* model) {
+    IREE_EXPECT_OK(loom_serve_text_model_free(model));
+  };
+  const std::unique_ptr<loom_serve_text_model_t, decltype(release_model)>
+      sparse_owner(sparse, release_model);
+  for (size_t i = 0; i < 4; ++i) {
+    bool admitted = false;
+    IREE_ASSERT_OK(loom_serve_text_row_try_reserve(
+        loom_serve_text_model_row(sparse, i), LOOM_SERVE_TEXT_RESERVE_FRESH,
+        nullptr, options.context_capacity, &admitted));
+    ASSERT_TRUE(admitted);
+  }
+  auto* row = loom_serve_text_model_row(sparse, 2);
+  const int32_t tokens[] = {0, 1, 2};
+  IREE_ASSERT_OK(
+      loom_serve_text_row_prefill(row, IREE_ARRAYSIZE(tokens), tokens));
+  Oracle reference;
+  reference.Consume("abx");
+  ASSERT_EQ(loom_serve_text_row_token(row), reference.Predict());
+  for (size_t i : {0u, 1u, 3u}) {
+    IREE_ASSERT_OK(
+        loom_serve_text_row_reset(loom_serve_text_model_row(sparse, i)));
+  }
+  loom_serve_text_row_release_reservation(row);
+  loom_serve_text_checkpoint_t* checkpoint = nullptr;
+  IREE_ASSERT_OK(loom_serve_text_row_try_pin(row, &checkpoint));
+  ASSERT_NE(checkpoint, nullptr);
+  const auto before = loom_serve_text_model_memory_statistics(sparse);
+  ASSERT_EQ(before.committed_bytes, 3 * slab_size);
+
+  auto* warm = loom_serve_text_model_row(model_, 0);
+  IREE_ASSERT_OK(
+      loom_serve_text_row_prefill(warm, IREE_ARRAYSIZE(tokens), tokens));
+  Oracle warm_reference = reference;
+  const auto advance_warm = [&] {
+    const int32_t token = 1;
+    IREE_ASSERT_OK(loom_serve_text_row_prefill(warm, 1, &token));
+    warm_reference.Consume(token);
+    EXPECT_EQ(loom_serve_text_row_token(warm), warm_reference.Predict());
+  };
+  loom_serve_text_trim_result_t result;
+  loom_serve_execution_frontier_t frontier;
+  const auto wait_frontier = [&] {
+    IREE_ASSERT_OK(iree_hal_semaphore_list_wait(
+        {IREE_ARRAYSIZE(frontier.semaphores), frontier.semaphores,
+         frontier.values},
+        iree_infinite_timeout(), IREE_ASYNC_WAIT_FLAG_NONE));
+  };
+  {
+    loom_serve::testing::MaintenanceGate gate(
+        loom_serve_device_storage_pool(device_)->maintenance);
+    IREE_ASSERT_OK(
+        loom_serve_text_model_submit_trim(sparse, &result, &frontier));
+    const auto pending = loom_serve_text_model_memory_statistics(sparse);
+    EXPECT_EQ(pending.committed_bytes, before.committed_bytes);
+    EXPECT_EQ(pending.releasing_bytes, slab_size);
+    ASSERT_NO_FATAL_FAILURE(advance_warm());
+  }
+  ASSERT_NO_FATAL_FAILURE(wait_frontier());
+  bool complete = true;
+  IREE_ASSERT_OK(loom_serve_text_model_complete_trim(sparse, &result, &complete,
+                                                     &frontier));
+  ASSERT_FALSE(complete);
+  EXPECT_EQ(result.moved_blocks, 1u);
+  EXPECT_EQ(result.copied_bytes, 16u);
+  ASSERT_NO_FATAL_FAILURE(wait_frontier());
+  {
+    loom_serve::testing::MaintenanceGate gate(
+        loom_serve_device_storage_pool(device_)->maintenance);
+    IREE_ASSERT_OK(loom_serve_text_model_complete_trim(sparse, &result,
+                                                       &complete, &frontier));
+    ASSERT_FALSE(complete);
+    const auto pending = loom_serve_text_model_memory_statistics(sparse);
+    EXPECT_EQ(pending.committed_bytes, 2 * slab_size);
+    EXPECT_EQ(pending.releasing_bytes, slab_size);
+    ASSERT_NO_FATAL_FAILURE(advance_warm());
+  }
+  ASSERT_NO_FATAL_FAILURE(wait_frontier());
+  IREE_ASSERT_OK(loom_serve_text_model_complete_trim(sparse, &result, &complete,
+                                                     &frontier));
+  ASSERT_TRUE(complete);
+  EXPECT_EQ(result.released_bytes, 2 * slab_size);
+  EXPECT_EQ(loom_serve_text_model_memory_statistics(sparse).committed_bytes,
+            slab_size);
+
+  // The compacted page is still shared. Appending detaches its partial tail;
+  // restoring the immutable endpoint must retain the original prediction.
+  const int32_t a = 0;
+  IREE_ASSERT_OK(loom_serve_text_row_prefill(row, 1, &a));
+  Oracle continued = reference;
+  continued.Consume(a);
+  EXPECT_EQ(loom_serve_text_row_token(row), continued.Predict());
+  auto* fork = loom_serve_text_model_row(sparse, 0);
+  bool restored = false;
+  IREE_ASSERT_OK(loom_serve_text_row_try_restore(fork, checkpoint, &restored));
+  ASSERT_TRUE(restored);
+  EXPECT_EQ(loom_serve_text_row_token(fork), reference.Predict());
+  const int32_t b = 1;
+  IREE_ASSERT_OK(loom_serve_text_row_prefill(fork, 1, &b));
+  reference.Consume(b);
+  EXPECT_EQ(loom_serve_text_row_token(fork), reference.Predict());
+  loom_serve_text_checkpoint_release(checkpoint);
+}
+
+TEST_F(ElasticTextServiceTest, RetirementJoinsAcceptedStateTrim) {
+  auto options = ModelOptions();
+  loom_serve_text_model_t* retiring = nullptr;
+  IREE_ASSERT_OK(loom_serve_text_model_allocate(device_, &options,
+                                                host_allocator_, &retiring));
+  const auto release_model = [](loom_serve_text_model_t* model) {
+    IREE_EXPECT_OK(loom_serve_text_model_free(model));
+  };
+  std::unique_ptr<loom_serve_text_model_t, decltype(release_model)> owner(
+      retiring, release_model);
+  const int32_t tokens[] = {0, 1, 2};
+  auto* row = loom_serve_text_model_row(retiring, 0);
+  IREE_ASSERT_OK(
+      loom_serve_text_row_prefill(row, IREE_ARRAYSIZE(tokens), tokens));
+  IREE_ASSERT_OK(loom_serve_text_row_reset(row));
+  auto* warm = loom_serve_text_model_row(model_, 0);
+  IREE_ASSERT_OK(
+      loom_serve_text_row_prefill(warm, IREE_ARRAYSIZE(tokens), tokens));
+  loom_serve_text_trim_result_t result;
+  loom_serve_execution_frontier_t frontier;
+  iree_notification_t notification;
+  iree_notification_initialize(&notification);
+  {
+    loom_serve::testing::MaintenanceGate gate(
+        loom_serve_device_storage_pool(device_)->maintenance);
+    IREE_ASSERT_OK(
+        loom_serve_text_model_submit_trim(retiring, &result, &frontier));
+    EXPECT_GT(loom_serve_text_model_memory_statistics(retiring).releasing_bytes,
+              0u);
+    loom_serve_text_model_retire(
+        retiring,
+        [](void* payload) {
+          iree_notification_post(static_cast<iree_notification_t*>(payload),
+                                 IREE_ALL_WAITERS);
+        },
+        &notification);
+    EXPECT_FALSE(loom_serve_text_model_is_retired(retiring));
+    const int32_t token = 1;
+    IREE_ASSERT_OK(loom_serve_text_row_prefill(warm, 1, &token));
+    Oracle reference;
+    reference.Consume("abxb");
+    EXPECT_EQ(loom_serve_text_row_token(warm), reference.Predict());
+  }
+  EXPECT_TRUE(iree_notification_await(
+      &notification,
+      [](void* payload) {
+        return loom_serve_text_model_is_retired(
+            static_cast<loom_serve_text_model_t*>(payload));
+      },
+      retiring, iree_infinite_timeout()));
+  IREE_ASSERT_OK(loom_serve_text_model_free_retired(owner.release()));
+  iree_notification_deinitialize(&notification);
+}
+
 TEST_F(ElasticTextServiceTest, RetirementOwnsAcceptedCheckpointCapture) {
   auto options = ModelOptions();
   const std::string prompt = "abxabbaaxbabx";

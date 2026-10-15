@@ -44,7 +44,6 @@ loom_cc_library(
   SRCS
     "relocation.c"
   DEPS
-    ::memory
     iree::base
     iree::hal
     loom::serve::runtime::execution

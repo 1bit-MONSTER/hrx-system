@@ -569,6 +569,7 @@ iree_status_t loom_serve_memory_pool_commit_async(
 iree_status_t loom_serve_memory_pool_trim_async(
     loom_serve_memory_pool_t* pool, iree_host_size_t buffer_count,
     loom_serve_virtual_buffer_t* const* buffers,
+    iree_hal_semaphore_t* readiness, uint64_t value,
     loom_serve_memory_operation_t** out_operation) {
   IREE_TRACE_ZONE_BEGIN(z0);
   *out_operation = NULL;
@@ -589,8 +590,11 @@ iree_status_t loom_serve_memory_pool_trim_async(
     }
   }
   if (!count) {
+    iree_status_t status =
+        readiness ? iree_hal_semaphore_signal(readiness, value, NULL)
+                  : iree_ok_status();
     IREE_TRACE_ZONE_END(z0);
-    return iree_ok_status();
+    return status;
   }
   loom_serve_memory_operation_t* operation = NULL;
   IREE_RETURN_AND_END_ZONE_IF_ERROR(
@@ -599,6 +603,9 @@ iree_status_t loom_serve_memory_pool_trim_async(
               sizeof(memory_edit_t), (void**)&operation));
   operation->count = count;
   operation->releasing = true;
+  operation->readiness = readiness;
+  operation->value = value;
+  iree_hal_semaphore_retain(readiness);
   iree_host_size_t index = 0;
   for (iree_host_size_t b = 0; b < buffer_count; ++b) {
     loom_serve_virtual_buffer_t* buffer = buffers[b];

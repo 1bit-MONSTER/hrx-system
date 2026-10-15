@@ -61,7 +61,7 @@ iree_status_t loom_serve_text_state_allocate(
   if (state->memory.pool) {
     IREE_RETURN_IF_ERROR(iree_hal_semaphore_create(
         state->device, IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, 0,
-        IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &state->memory.commit.semaphore));
+        IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &state->memory.backing.semaphore));
   }
   if (state->cache.capacity) {
     IREE_RETURN_IF_ERROR(loom_serve_block_pool_initialize(
@@ -258,8 +258,8 @@ void loom_serve_text_state_retire(loom_serve_text_state_t* state,
                                   void (*wake)(void* user_data),
                                   void* user_data) {
   loom_serve_retirement_set_observer(&state->retirement, wake, user_data);
-  loom_serve_memory_operation_set_observer(state->memory.commit.operation, wake,
-                                           user_data);
+  loom_serve_memory_operation_set_observer(state->memory.backing.operation,
+                                           wake, user_data);
   if (state->rows) {
     for (iree_host_size_t i = 0; i < state->row_count; ++i) {
       loom_serve_snapshot_release(state->rows[i].snapshot);
@@ -296,22 +296,22 @@ void loom_serve_text_state_retire(loom_serve_text_state_t* state,
 
 bool loom_serve_text_state_is_retired(loom_serve_text_state_t* state) {
   return loom_serve_memory_operation_is_complete(
-             state->memory.commit.operation) &&
+             state->memory.backing.operation) &&
          loom_serve_retirement_is_idle(&state->retirement);
 }
 
 void loom_serve_text_state_await_retirement(loom_serve_text_state_t* state) {
-  loom_serve_memory_operation_await(state->memory.commit.operation);
+  loom_serve_memory_operation_await(state->memory.backing.operation);
   loom_serve_retirement_await(&state->retirement);
 }
 
 iree_status_t loom_serve_text_state_deinitialize(
     loom_serve_text_state_t* state) {
   IREE_ASSERT(loom_serve_text_state_is_retired(state));
-  loom_serve_memory_operation_free(state->memory.commit.operation);
-  state->memory.commit.operation = NULL;
-  iree_hal_semaphore_release(state->memory.commit.semaphore);
-  state->memory.commit.semaphore = NULL;
+  loom_serve_memory_operation_free(state->memory.backing.operation);
+  state->memory.backing.operation = NULL;
+  iree_hal_semaphore_release(state->memory.backing.semaphore);
+  state->memory.backing.semaphore = NULL;
   iree_status_t status = iree_ok_status();
   for (iree_host_size_t i = 0; i < LOOM_SERVE_TEXT_STORAGE_ALLOCATION_COUNT &&
                                iree_status_is_ok(status);
@@ -389,15 +389,27 @@ static iree_status_t loom_serve_text_trim_backing(
       }
     }
   }
-  iree_status_t status = iree_ok_status();
-  for (iree_host_size_t i = 0; i < LOOM_SERVE_TEXT_STORAGE_ALLOCATION_COUNT &&
-                               iree_status_is_ok(status);
+  loom_serve_virtual_buffer_t*
+      buffers[LOOM_SERVE_TEXT_STORAGE_ALLOCATION_COUNT];
+  iree_host_size_t count = 0;
+  for (iree_host_size_t i = 0; i < LOOM_SERVE_TEXT_STORAGE_ALLOCATION_COUNT;
        ++i) {
     if (state->memory.buffers[i]) {
-      status = loom_serve_virtual_buffer_trim(state->memory.buffers[i]);
+      buffers[count++] = state->memory.buffers[i];
     }
   }
-  return status;
+  IREE_ASSERT(!state->memory.backing.operation);
+  IREE_RETURN_IF_ERROR(loom_serve_memory_pool_trim_async(
+      state->memory.pool, count, buffers, state->memory.backing.semaphore,
+      state->memory.backing.value + 1, &state->memory.backing.operation));
+  ++state->memory.backing.value;
+  if (!state->memory.backing.operation) {
+    return iree_ok_status();
+  }
+  return loom_serve_execution_barrier(
+      state->execution,
+      (iree_hal_semaphore_list_t){1, &state->memory.backing.semaphore,
+                                  &state->memory.backing.value});
 }
 
 static iree_status_t loom_serve_text_try_back_compaction(
@@ -430,8 +442,20 @@ static iree_status_t loom_serve_text_try_back_compaction(
           state->memory.buffers[ranges[i].buffer_index], ranges[i].offset,
           ranges[i].length};
     }
-    status = loom_serve_memory_pool_try_commit(state->memory.pool, range_count,
-                                               commitments, out_admitted);
+    IREE_ASSERT(!state->memory.backing.operation);
+    status = loom_serve_memory_pool_commit_async(
+        state->memory.pool, range_count, commitments,
+        state->memory.backing.semaphore, state->memory.backing.value + 1,
+        out_admitted, &state->memory.backing.operation);
+    if (*out_admitted) {
+      ++state->memory.backing.value;
+    }
+    if (iree_status_is_ok(status) && state->memory.backing.operation) {
+      status = loom_serve_execution_barrier(
+          state->execution,
+          (iree_hal_semaphore_list_t){1, &state->memory.backing.semaphore,
+                                      &state->memory.backing.value});
+    }
   }
   iree_allocator_free(state->host_allocator, commitments);
   iree_allocator_free(state->host_allocator, ranges);
@@ -476,12 +500,17 @@ static void loom_serve_text_plan_compaction_copies(
 iree_status_t loom_serve_text_state_submit_trim(
     loom_serve_text_state_t* state, loom_serve_text_trim_result_t* out_result) {
   *out_result = (loom_serve_text_trim_result_t){0};
+  state->memory.trim.released_before = state->memory.statistics.released_bytes;
+  state->memory.trim.phase = LOOM_SERVE_TEXT_TRIM_COMPLETE;
   if (!state->memory.buffers[1]) {
     return iree_ok_status();
   }
-  const uint64_t released_before =
-      loom_serve_memory_pool_statistics(state->memory.pool).released_bytes;
-  IREE_RETURN_IF_ERROR(loom_serve_text_trim_backing(state));
+  state->memory.trim.phase = LOOM_SERVE_TEXT_TRIM_RELOCATE;
+  return loom_serve_text_trim_backing(state);
+}
+
+static iree_status_t loom_serve_text_submit_compaction(
+    loom_serve_text_state_t* state, loom_serve_text_trim_result_t* out_result) {
   out_result->moved_blocks = loom_serve_block_pool_plan_compaction(
       &state->cache.pool, state->cache.destinations);
   iree_status_t status = iree_ok_status();
@@ -509,7 +538,7 @@ iree_status_t loom_serve_text_state_submit_trim(
     const loom_serve_text_cache_region_t* region = &state->storage.regions[i];
     uint64_t copied_bytes = 0;
     status = loom_serve_block_region_relocate(
-        state->execution, state->memory.buffers[region->allocation],
+        state->execution,
         *loom_serve_text_allocation(state, region->allocation), &region->blocks,
         state->cache.pool.capacity, copy_destinations, &copied_bytes);
     out_result->copied_bytes += copied_bytes;
@@ -557,27 +586,50 @@ iree_status_t loom_serve_text_state_submit_trim(
                                                                          : 1,
         uploads, &completion);
   }
-  out_result->released_bytes =
-      loom_serve_memory_pool_statistics(state->memory.pool).released_bytes -
-      released_before;
   iree_allocator_free(state->host_allocator, copy_destinations);
   return status;
 }
 
+// Successful model readiness includes the native signal; join its final access
+// before reusing the state-owned operation slot or editing its slabs again.
+static void loom_serve_text_complete_backing(loom_serve_text_state_t* state) {
+  const bool complete =
+      loom_serve_memory_operation_is_complete(state->memory.backing.operation);
+  IREE_ASSERT(complete);
+  loom_serve_memory_operation_free(state->memory.backing.operation);
+  state->memory.backing.operation = NULL;
+}
+
 iree_status_t loom_serve_text_state_complete_trim(
-    loom_serve_text_state_t* state, loom_serve_text_trim_result_t* result) {
-  if (!result->moved_blocks) {
-    return iree_ok_status();
+    loom_serve_text_state_t* state, loom_serve_text_trim_result_t* result,
+    bool* out_complete) {
+  *out_complete = false;
+  loom_serve_text_complete_backing(state);
+  switch (state->memory.trim.phase) {
+    case LOOM_SERVE_TEXT_TRIM_RELOCATE: {
+      IREE_RETURN_IF_ERROR(loom_serve_text_submit_compaction(state, result));
+      state->memory.trim.phase = result->moved_blocks
+                                     ? LOOM_SERVE_TEXT_TRIM_RELEASE
+                                     : LOOM_SERVE_TEXT_TRIM_COMPLETE;
+      break;
+    }
+    case LOOM_SERVE_TEXT_TRIM_RELEASE: {
+      loom_serve_block_pool_commit_compaction(&state->cache.pool,
+                                              state->cache.destinations);
+      IREE_RETURN_IF_ERROR(loom_serve_text_trim_backing(state));
+      state->memory.trim.phase = LOOM_SERVE_TEXT_TRIM_COMPLETE;
+      break;
+    }
+    case LOOM_SERVE_TEXT_TRIM_COMPLETE:
+      break;
   }
-  loom_serve_block_pool_commit_compaction(&state->cache.pool,
-                                          state->cache.destinations);
-  const uint64_t released_before =
-      loom_serve_memory_pool_statistics(state->memory.pool).released_bytes;
-  iree_status_t status = loom_serve_text_trim_backing(state);
-  result->released_bytes +=
-      loom_serve_memory_pool_statistics(state->memory.pool).released_bytes -
-      released_before;
-  return status;
+  *out_complete = state->memory.trim.phase == LOOM_SERVE_TEXT_TRIM_COMPLETE &&
+                  !state->memory.backing.operation;
+  if (*out_complete) {
+    result->released_bytes = state->memory.statistics.released_bytes -
+                             state->memory.trim.released_before;
+  }
+  return iree_ok_status();
 }
 
 // Only a retired frontier may release pages. A rejected suffix within the
@@ -1407,13 +1459,13 @@ iree_status_t loom_serve_text_state_row_submit_reserve(
             (loom_serve_memory_range_t){buffer, range->offset, range->length};
       }
     }
-    IREE_ASSERT(!state->memory.commit.operation);
+    IREE_ASSERT(!state->memory.backing.operation);
     status = loom_serve_memory_pool_commit_async(
         state->memory.pool, commitment_count, commitments,
-        state->memory.commit.semaphore, state->memory.commit.value + 1,
-        &admitted, &state->memory.commit.operation);
+        state->memory.backing.semaphore, state->memory.backing.value + 1,
+        &admitted, &state->memory.backing.operation);
     if (admitted) {
-      ++state->memory.commit.value;
+      ++state->memory.backing.value;
     }
   }
   // From here ordinary denial is impossible. Transfer/platform failure is
@@ -1439,11 +1491,11 @@ iree_status_t loom_serve_text_state_row_submit_reserve(
     row->buffers[TEXT_RECURRENT] = state->recurrent.buffers[writer];
     state->recurrent.dirty_rows |= 1u << index;
     installed = true;
-    if (state->memory.commit.operation) {
+    if (state->memory.backing.operation) {
       status = loom_serve_execution_barrier(
           state->execution,
-          (iree_hal_semaphore_list_t){1, &state->memory.commit.semaphore,
-                                      &state->memory.commit.value});
+          (iree_hal_semaphore_list_t){1, &state->memory.backing.semaphore,
+                                      &state->memory.backing.value});
     }
     if (iree_status_is_ok(status) && cold) {
       iree_hal_buffer_t* buffers[LOOM_SERVE_TEXT_STORAGE_ALLOCATION_COUNT];
@@ -1526,11 +1578,7 @@ iree_status_t loom_serve_text_state_row_submit_reserve(
 bool loom_serve_text_state_row_complete_reserve(
     loom_serve_text_state_row_t* row) {
   loom_serve_text_state_t* state = row->owner;
-  const bool committed =
-      loom_serve_memory_operation_is_complete(state->memory.commit.operation);
-  IREE_ASSERT(committed);
-  loom_serve_memory_operation_free(state->memory.commit.operation);
-  state->memory.commit.operation = NULL;
+  loom_serve_text_complete_backing(state);
   if (row->retiring_tail != UINT32_MAX) {
     loom_serve_block_pool_release(&row->owner->cache.pool, 1,
                                   &row->retiring_tail);

@@ -217,8 +217,8 @@ typedef enum loom_serve_text_reserve_mode_e {
 // caller-computed speculative slack. CHECKPOINT supplies a same-model endpoint;
 // other modes supply NULL. Fresh replaces the selected row, CONTINUE preserves
 // it, and CHECKPOINT restores then branches. Starts at a successfully completed
-// model frontier. No model-completion wait occurs; native allocation/remapping
-// remains synchronous cold work. Only one reservation may own a row.
+// model frontier. No model-completion or native backing wait occurs. Only one
+// reservation may own a row.
 //
 // CAPACITY/DEFERRED mean parameter admission is pending without a pin or state
 // change; abandoning the request cancels its residency admission interest.
@@ -272,24 +272,23 @@ typedef struct loom_serve_text_trim_result_t {
 
 // Starts maintenance at a successfully completed model frontier, releasing
 // unowned slabs and enqueuing compaction when the temporary destination union
-// fits. Target/draft map uploads follow the copies on the model timeline; no
-// model-completion wait occurs. Native allocation/remapping calls are still
-// synchronous cold operations. The owner excludes other model mutation until
-// the returned borrowed frontier succeeds and complete_trim consumes the
-// result. Live rows and cached commands survive; reset rows can regrow in the
-// same VA. Fixed/dense backing is unchanged and reports zero reclamation.
-// Submission failure is terminal and preserves accepted work for outer model
-// destruction.
+// fits. Target/draft map uploads follow the copies on the model timeline;
+// native release and allocation run asynchronously. The owner excludes other
+// model mutation until complete_trim finishes all returned frontiers. Live rows
+// and cached commands survive; reset rows can regrow in the same VA.
+// Fixed/dense backing is unchanged and reports zero reclamation. Submission
+// failure is terminal and preserves accepted work for outer model destruction.
 iree_status_t loom_serve_text_model_submit_trim(
     loom_serve_text_model_t* model, loom_serve_text_trim_result_t* out_result,
     loom_serve_execution_frontier_t* out_frontier);
 
-// After successful ALL readiness, commits block ownership and reclaims old
-// backing. Consumes the unchanged submission record and adds final reclaimed
-// bytes. Failed readiness never calls this entry. No model-completion wait
-// occurs; native unmapping/allocation failures remain terminal.
+// After successful ALL readiness, advances relocation or old-backing release.
+// False returns the next borrowed frontier to await before advancing again.
+// True finalizes the unchanged submission record. Failed readiness never calls
+// this entry; native failures remain terminal and preserve retirement owners.
 iree_status_t loom_serve_text_model_complete_trim(
-    loom_serve_text_model_t* model, loom_serve_text_trim_result_t* result);
+    loom_serve_text_model_t* model, loom_serve_text_trim_result_t* result,
+    bool* out_complete, loom_serve_execution_frontier_t* out_frontier);
 
 // Synchronous outer-thread wrapper over submission and completion. Explicit
 // maintenance, not ordinary decoding or a task-worker entry point.

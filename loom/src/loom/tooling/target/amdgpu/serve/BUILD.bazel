@@ -681,6 +681,7 @@ loom_cc_test(
         "//loom/src/loom/serve/runtime/storage:memory",
         "//loom/src/loom/serve/runtime/storage:relocation",
         "//loom/src/loom/serve/testing:device",
+        "//loom/src/loom/serve/testing:maintenance_gate",
         "//runtime/src/iree/base",
         "//runtime/src/iree/hal",
         "//runtime/src/iree/testing:gtest",

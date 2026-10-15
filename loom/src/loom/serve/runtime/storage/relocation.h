@@ -8,7 +8,6 @@
 #define LOOM_SERVE_RUNTIME_STORAGE_RELOCATION_H_
 
 #include "loom/serve/runtime/execution/execution.h"
-#include "loom/serve/runtime/storage/memory.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,7 +26,8 @@ typedef struct loom_serve_block_region_t {
   iree_device_size_t block_bytes;
 } loom_serve_block_region_t;
 
-// Commits destinations and queues copies on the execution dependency chain.
+// Queues copies on the execution dependency chain. The caller has admitted
+// destination backing and imported its readiness before this call.
 // The map has block_count entries: UINT32_MAX omits a source whose contents
 // need not survive; otherwise the entry names its destination. Moved
 // destinations have no live contents and are disjoint from every preserved
@@ -36,15 +36,14 @@ typedef struct loom_serve_block_region_t {
 // changes here. The caller excludes model work, drains accepted copies even on
 // failure, then publishes new logical maps before reclaiming old storage. Host
 // metadata is captured before return. out_copied_bytes counts successfully
-// submitted copy bytes. reservation owns physical commitment; buffer is its
-// whole exported view, including the caller's retirement tracking. Copies
+// submitted copy bytes. buffer is the whole exported reservation view,
+// including the caller's retirement tracking. Copies
 // retain that exact view, not the reservation's raw root, through terminal
 // queue completion.
 iree_status_t loom_serve_block_region_relocate(
-    loom_serve_execution_t* execution, loom_serve_virtual_buffer_t* reservation,
-    iree_hal_buffer_t* buffer, const loom_serve_block_region_t* region,
-    uint32_t block_count, const uint32_t* destinations,
-    uint64_t* out_copied_bytes);
+    loom_serve_execution_t* execution, iree_hal_buffer_t* buffer,
+    const loom_serve_block_region_t* region, uint32_t block_count,
+    const uint32_t* destinations, uint64_t* out_copied_bytes);
 
 #ifdef __cplusplus
 }  // extern "C"

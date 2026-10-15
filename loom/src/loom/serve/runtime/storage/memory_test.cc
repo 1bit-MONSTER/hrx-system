@@ -153,13 +153,17 @@ TEST_F(MemoryTest, PendingReleaseRetainsBudgetAndLeavesKeptSlabsUsable) {
       },
       &wakes);
   loom_serve_memory_operation_t* operation = nullptr;
+  iree_hal_semaphore_t* ready = nullptr;
+  IREE_ASSERT_OK(iree_hal_semaphore_create(
+      loom_serve_device_handle(device), IREE_HAL_QUEUE_FAMILY_AFFINITY_ANY, 0,
+      IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &ready));
   {
     loom_serve::testing::MaintenanceGate gate(
         loom_serve_device_storage_pool(device)->maintenance);
     loom_serve_virtual_buffer_begin_trim(first);
     loom_serve_virtual_buffer_keep(first, 0, kSlabSize);
-    IREE_ASSERT_OK(
-        loom_serve_memory_pool_trim_async(pool, 1, &first, &operation));
+    IREE_ASSERT_OK(loom_serve_memory_pool_trim_async(pool, 1, &first, ready, 1,
+                                                     &operation));
     ASSERT_NE(operation, nullptr);
     EXPECT_FALSE(loom_serve_memory_operation_is_complete(operation));
     const auto memory = loom_serve_memory_pool_statistics(pool);
@@ -173,8 +177,12 @@ TEST_F(MemoryTest, PendingReleaseRetainsBudgetAndLeavesKeptSlabsUsable) {
     ASSERT_NO_FATAL_FAILURE(
         CheckRetained(loom_serve_virtual_buffer_handle(first), 0, 0xA1B2C3D4));
     EXPECT_EQ(wakes.load(), 0u);
+    uint64_t value = 0;
+    IREE_EXPECT_OK(iree_hal_semaphore_query(ready, &value));
+    EXPECT_EQ(value, 0u);
   }
-  IREE_ASSERT_OK(loom_serve_memory_pool_await(pool));
+  IREE_ASSERT_OK(iree_hal_semaphore_wait(ready, 1, iree_infinite_timeout(),
+                                         IREE_ASYNC_WAIT_FLAG_NONE));
   EXPECT_TRUE(loom_serve_memory_operation_is_complete(operation));
   EXPECT_EQ(wakes.load(), 1u);
   EXPECT_EQ(statistics[0].releasing_bytes, 0u);
@@ -182,6 +190,18 @@ TEST_F(MemoryTest, PendingReleaseRetainsBudgetAndLeavesKeptSlabsUsable) {
   EXPECT_EQ(statistics[0].released_bytes, 2 * kSlabSize);
   loom_serve_memory_operation_free(operation);
   loom_serve_memory_pool_set_observer(pool, nullptr, nullptr);
+  operation = nullptr;
+  {
+    loom_serve::testing::MaintenanceGate gate(
+        loom_serve_device_storage_pool(device)->maintenance);
+    IREE_ASSERT_OK(loom_serve_memory_pool_trim_async(pool, 1, &first, ready, 2,
+                                                     &operation));
+    EXPECT_EQ(operation, nullptr);
+    uint64_t value = 0;
+    IREE_EXPECT_OK(iree_hal_semaphore_query(ready, &value));
+    EXPECT_EQ(value, 2u);
+  }
+  iree_hal_semaphore_release(ready);
   IREE_ASSERT_OK(loom_serve_virtual_buffer_commit(second, 0, 2 * kSlabSize));
   ASSERT_NO_FATAL_FAILURE(
       RoundTrip(loom_serve_virtual_buffer_handle(second), 0, 0x55667788));
@@ -203,8 +223,8 @@ TEST_F(MemoryTest, PoolObserverDetachesFromAlreadyAcceptedNativeWork) {
     loom_serve::testing::MaintenanceGate gate(
         loom_serve_device_storage_pool(device)->maintenance);
     loom_serve_virtual_buffer_begin_trim(first);
-    IREE_ASSERT_OK(
-        loom_serve_memory_pool_trim_async(pool, 1, &first, &operation));
+    IREE_ASSERT_OK(loom_serve_memory_pool_trim_async(pool, 1, &first, nullptr,
+                                                     0, &operation));
     loom_serve_memory_pool_set_observer(pool, nullptr, nullptr);
   }
   IREE_ASSERT_OK(loom_serve_memory_pool_await(pool));
