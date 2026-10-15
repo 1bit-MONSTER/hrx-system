@@ -86,6 +86,7 @@ _MODULES = [
     "shaped_intrinsics",
     "short_circuit",
     "storage_updates",
+    "structured_break",
     "structured_continue",
     "symbol_exports",
     "typed_views",

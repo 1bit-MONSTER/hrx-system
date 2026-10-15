@@ -92,9 +92,21 @@ class ControlFlow final : private cxx::ASTVisitor {
   // Continues escaping this statement to its enclosing loop. A nested loop
   // consumes its own continues rather than propagating them to its parent.
   ExitFlow continues(cxx::StatementAST* statement) const;
+  // Breaks escaping this statement to its enclosing loop. A nested loop
+  // consumes its own breaks rather than propagating them to its parent.
+  ExitFlow breaks(cxx::StatementAST* statement) const;
+  // Continue or break exits escaping this statement. This combined query
+  // distinguishes a branch whose arms take different iteration exits from one
+  // that can fall through.
+  ExitFlow iteration_exits(cxx::StatementAST* statement) const;
 
  private:
-  enum Path : unsigned { Fallthrough = 1, Return = 2, Continue = 4 };
+  enum Path : unsigned {
+    Fallthrough = 1,
+    Return = 2,
+    Continue = 4,
+    Break = 8,
+  };
 
   bool preVisit(cxx::AST* ast) override;
   void postVisit(cxx::AST* ast) override;
@@ -112,7 +124,7 @@ class ControlFlow final : private cxx::ASTVisitor {
   std::optional<CountedLoop> classify(cxx::ForStatementAST* loop);
   unsigned paths(cxx::StatementAST* statement) const;
   unsigned classify_paths(cxx::StatementAST* statement) const;
-  ExitFlow exits(cxx::StatementAST* statement, Path path) const;
+  ExitFlow exits(cxx::StatementAST* statement, unsigned selected_paths) const;
 
   // Resolved source types and literal interpretation for loop admission.
   cxx::TranslationUnit& unit_;

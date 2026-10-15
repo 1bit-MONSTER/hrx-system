@@ -132,15 +132,14 @@
         "args": ["--cleanup=false", "-"]
       },
       "stdin": {
-        "text": "int entry(int x) { while (x) { break; } return x; }\n"
+        "text": "int entry(int x) { switch (x) {} return x; }\n"
       },
       "exit": {"code": 1},
       "stdout": {"empty": true},
       "stderr": {
         "contains": [
-          "-:1:32: error [LOWERING/059]: cannot import source construct: unsupported statement: break-statement",
-          "while (x) { break; }",
-          "^^^^^"
+          "error [LOWERING/059]: cannot import source construct: unsupported statement: switch-statement",
+          "switch (x) {}"
         ],
         "not_contains": ["INVALID_ARGUMENT", "C/C++ source rejected", "stack:"]
       }
