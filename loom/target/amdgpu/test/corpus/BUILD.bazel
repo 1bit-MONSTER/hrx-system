@@ -201,8 +201,6 @@ loom_scenario_test(
             "numeric/vector/float_extrema.loom:@vector_float_extrema_finite_f16_values": "TARGET/002,TARGET/003",
             "numeric/vector/float_extrema.loom:@vector_float_extrema_finite_f64_values": "TARGET/002",
             "numeric/vector/interleave.loom:@irregular_byte_row_mask_values": "AMDGPU/023,TARGET/002",
-            "numeric/vector/packed/narrowing.loom:@packed_nibble_values": "AMDGPU/023,TARGET/003",
-            "numeric/vector/packed/narrowing.loom:@saturating_nibble_values": "AMDGPU/023,TARGET/002,TARGET/031",
         },
     },
 )

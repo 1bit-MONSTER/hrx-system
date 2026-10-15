@@ -180,6 +180,23 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "bitstream_packet_legalization",
+    srcs = ["bitstream_packet_legalization.c"],
+    hdrs = ["bitstream_packet_legalization.h"],
+    deps = [
+        ":packet_legalization",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/scalar",
+        "//loom/src/loom/ops/vector",
+        "//loom/src/loom/rewrite:rewriter",
+        "//loom/src/loom/target:legalization",
+        "//loom/src/loom/util:fact_table",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
     name = "cast_packet_legalization",
     srcs = ["cast_packet_legalization.c"],
     hdrs = ["cast_packet_legalization.h"],
@@ -306,7 +323,9 @@ loom_cc_library(
     srcs = ["target_legalization.c"],
     hdrs = ["target_legalization.h"],
     deps = [
+        ":bitstream_packet_legalization",
         ":cast_packet_legalization",
+        ":packet_legalization",
         ":reduction_legalization",
         ":to_scalar",
         "//loom/src/loom/ir",

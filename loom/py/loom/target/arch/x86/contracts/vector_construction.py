@@ -337,7 +337,7 @@ def _exact_lane_vector_rules(
 def _vector_bitcast_alias_rules(
     vector_bit_widths: tuple[int, ...],
 ) -> tuple[ValueAliasRule, ...]:
-    """Aliases bit-compatible full-register float and integer payloads."""
+    """Aliases bit-compatible vector payloads carried by one register."""
     rules: list[ValueAliasRule] = []
     for float_elements, integer_element, element_bit_width in (
         (("f8E4M3", "f8E5M2"), "i8", 8),
@@ -363,6 +363,31 @@ def _vector_bitcast_alias_rules(
                         guards=(
                             Guard.value_type("input", source_type),
                             Guard.value_type("result", result_type),
+                        ),
+                    )
+                )
+    for vector_bit_width in vector_bit_widths:
+        for source_element in INTEGER_ELEMENTS:
+            if vector_bit_width < source_element.bit_width:
+                continue
+            source_type = _full_vector_type(source_element, vector_bit_width)
+            for result_element in INTEGER_ELEMENTS:
+                if (
+                    source_element == result_element
+                    or vector_bit_width < result_element.bit_width
+                ):
+                    continue
+                rules.append(
+                    ValueAliasRule(
+                        source_op=vector.vector_bitcast,
+                        source=ValueRef.operand("input"),
+                        result=ValueRef.result("result"),
+                        guards=(
+                            Guard.value_type("input", source_type),
+                            Guard.value_type(
+                                "result",
+                                _full_vector_type(result_element, vector_bit_width),
+                            ),
                         ),
                     )
                 )

@@ -4,6 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+load("//build_tools/bazel:python.bzl", "iree_py_test")
 load("//loom/build_tools/bazel:loom_check.bzl", "loom_check_test_suite")
 
 package(
@@ -40,4 +41,36 @@ loom_check_test_suite(
         "to_scalar_e8m0.loom-test",
         "to_scalar_float_formats.loom-test",
     ],
+)
+
+iree_py_test(
+    name = "bitstream_packet_legalization_test",
+    size = "small",
+    srcs = ["bitstream_packet_legalization_test.py"],
+    args = [
+        "$(location //loom/src/loom/tools/loom-check:loom-check-test)",
+        "$(location //loom/src/loom/tools/loom-compile)",
+    ],
+    data = [
+        "//loom/src/loom/tools/loom-check:loom-check-test",
+        "//loom/src/loom/tools/loom-compile",
+    ],
+    main = "bitstream_packet_legalization_test.py",
+)
+
+iree_py_test(
+    name = "bitstream_packet_legalization_exhaustive_test",
+    size = "small",
+    srcs = ["bitstream_packet_legalization_test.py"],
+    args = [
+        "$(location //loom/src/loom/tools/loom-check:loom-check-test)",
+        "$(location //loom/src/loom/tools/loom-compile)",
+        "--exhaustive",
+    ],
+    data = [
+        "//loom/src/loom/tools/loom-check:loom-check-test",
+        "//loom/src/loom/tools/loom-compile",
+    ],
+    main = "bitstream_packet_legalization_test.py",
+    tags = ["manual"],
 )

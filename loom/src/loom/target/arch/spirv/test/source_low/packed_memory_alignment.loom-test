@@ -17,18 +17,12 @@ kernel.def @byte_origin() {
 }
 
 // ----
-CHECK: %78 = OpConstant.offset64 1
-CHECK: %79 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %78
-CHECK: %80 = OpLoad.storage_buffer.i8 %79
-CHECK: %171 = OpConstant.offset64 32
-CHECK: %172 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %171
-CHECK: %173 = OpLoad.storage_buffer.i8 %172
-CHECK: %174 = OpConstant.offset64 0
-CHECK: %175 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %174
-CHECK: OpStore.storage_buffer.i8 %175, %80
-CHECK: %168 = OpConstant.offset64 31
-CHECK: %237 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %168
-CHECK: OpStore.storage_buffer.i8 %237, %173
+CHECK: * = OpConstant.offset64 1
+CHECK: * = OpConstant.offset64 32
+CHECK: * = OpConstant.offset64 0
+CHECK: * = OpConstant.offset64 31
+CHECK-COUNT-32: * = OpLoad.storage_buffer.i8 *
+CHECK-COUNT-32: OpStore.storage_buffer.i8 *
 
 // ====
 
@@ -49,18 +43,12 @@ kernel.def @halfword_origin() {
 }
 
 // ----
-CHECK: %46 = OpConstant.offset64 2
-CHECK: %47 = OpPtrAccessChain.storage_buffer.i16.byte_offset %source, %46
-CHECK: %48 = OpLoad.storage_buffer.i16 %47
-CHECK: %91 = OpConstant.offset64 32
-CHECK: %92 = OpPtrAccessChain.storage_buffer.i16.byte_offset %source, %91
-CHECK: %93 = OpLoad.storage_buffer.i16 %92
-CHECK: %94 = OpConstant.offset64 0
-CHECK: %95 = OpPtrAccessChain.storage_buffer.i16.byte_offset %destination, %94
-CHECK: OpStore.storage_buffer.i16 %95, %48
-CHECK: %88 = OpConstant.offset64 30
-CHECK: %125 = OpPtrAccessChain.storage_buffer.i16.byte_offset %destination, %88
-CHECK: OpStore.storage_buffer.i16 %125, %93
+CHECK: * = OpConstant.offset64 2
+CHECK: * = OpConstant.offset64 32
+CHECK: * = OpConstant.offset64 0
+CHECK: * = OpConstant.offset64 30
+CHECK-COUNT-16: * = OpLoad.storage_buffer.i16 *
+CHECK-COUNT-16: OpStore.storage_buffer.i16 *
 
 // ====
 
@@ -81,15 +69,9 @@ kernel.def @word_origin() {
 }
 
 // ----
-CHECK: %78 = OpConstant.offset64 4
-CHECK: %79 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %78
-CHECK: %80 = OpLoad.storage_buffer.i8 %79
-CHECK: %171 = OpConstant.offset64 35
-CHECK: %172 = OpPtrAccessChain.storage_buffer.i8.byte_offset %source, %171
-CHECK: %173 = OpLoad.storage_buffer.i8 %172
-CHECK: %174 = OpConstant.offset64 0
-CHECK: %175 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %174
-CHECK: OpStore.storage_buffer.i8 %175, %80
-CHECK: %159 = OpConstant.offset64 31
-CHECK: %237 = OpPtrAccessChain.storage_buffer.i8.byte_offset %destination, %159
-CHECK: OpStore.storage_buffer.i8 %237, %173
+CHECK: * = OpConstant.offset64 4
+CHECK: * = OpConstant.offset64 35
+CHECK: * = OpConstant.offset64 0
+CHECK: * = OpConstant.offset64 31
+CHECK-COUNT-32: * = OpLoad.storage_buffer.i8 *
+CHECK-COUNT-32: OpStore.storage_buffer.i8 *

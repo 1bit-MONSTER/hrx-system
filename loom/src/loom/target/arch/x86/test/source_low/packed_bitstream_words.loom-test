@@ -1,0 +1,57 @@
+// RUN: emit source-low target=x86:avx2 output=low
+
+// The AVX2 policy assembles packed streams in 64-bit words while retaining
+// the two-lane plus one-lane partition of a three-byte source tail.
+func.def @unpack_q3(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input[%base] : buffer -> view<3xi8>
+  %output_view = buffer.view %output[%base] : buffer -> view<8xi32>
+  %source = vector.load %input_view[0] : view<3xi8> -> vector<3xi8>
+  %result = vector.bitunpacku<3> %source : vector<3xi8> -> vector<8xi32>
+  vector.store %result, %output_view[0] : vector<8xi32>, view<8xi32>
+  func.return
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) @unpack_q3(%input: reg<x86.gpr64>, %output: reg<x86.gpr64>) asm {
+  %42 = movzx.load.u8.gpr32 %input {disp32 = 0}
+  %43 = movzx.load.u8.gpr32 %input {disp32 = 1}
+  %44 = movzx.load.u8.gpr32 %input {disp32 = 2}
+  %45 = movzx.u8.gpr64 %42
+  %46 = movzx.u8.gpr64 %43
+  %47 = copy %46 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %48 = shl.imm.gpr64 %47 {shift = 8}
+  %49 = copy %45 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %50 = or.gpr64 %49, %48
+  %51 = movzx.u8.gpr64 %44
+  %52 = copy %51 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %53 = shl.imm.gpr64 %52 {shift = 16}
+  %54 = copy %50 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %55 = or.gpr64 %54, %53
+  %56 = copy %55 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %57 = shl.imm.gpr64 %56 {shift = 20}
+  %58 = copy %55 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %59 = or.gpr64 %58, %57
+  %60 = mov.imm64 17587891081215
+  %61 = copy %59 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %62 = and.gpr64 %61, %60
+  %63 = copy %62 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %64 = shl.imm.gpr64 %63 {shift = 10}
+  %65 = copy %62 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %66 = or.gpr64 %65, %64
+  %67 = mov.imm64 17733194119839807
+  %68 = copy %66 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %69 = and.gpr64 %68, %67
+  %70 = copy %69 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %71 = shl.imm.gpr64 %70 {shift = 5}
+  %72 = copy %69 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %73 = or.gpr64 %72, %71
+  %74 = mov.imm64 506381209866536711
+  %75 = copy %73 : reg<x86.gpr64> -> reg<x86.gpr64>
+  %76 = and.gpr64 %75, %74
+  %77 = vmovq.xmm.gpr64 %76
+  %78 = avx2.vpbroadcastq.xmm %77
+  %result = vpmovzxbd.ymm %78
+  vmovdqu32.store.ymm %result, %output {disp32 = 0}
+  return
+}

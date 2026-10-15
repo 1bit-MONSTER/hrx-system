@@ -351,6 +351,15 @@ static const loom_target_vector_packet_policy_t kAie2pVectorPacketPolicy = {
         IREE_ARRAYSIZE(kAie2pVectorPacketStructuralLaneLimits),
 };
 
+static const loom_target_bitstream_policy_t kAie2pBitstreamPolicy = {
+    .word_bit_count = 32u,
+    .packet_carrier_supported =
+        {
+            .fn = loom_aie2p_source_vector_carrier_supported,
+            .user_data = NULL,
+        },
+};
+
 static const loom_low_lower_function_storage_mapping_t kAie2pFunctionStorage[] =
     {
         {LOOM_VALUE_FACT_MEMORY_SPACE_PRIVATE, LOOM_STORAGE_SPACE_PRIVATE,
@@ -363,6 +372,7 @@ static const loom_low_lower_policy_t kAie2pCoreLowLowerPolicy = {
     .name = IREE_SVL("amd-xdna-aie2p-core-low-lower"),
     .error_catalog = &loom_xdna_error_catalog,
     .vector_packet_policy = &kAie2pVectorPacketPolicy,
+    .bitstream_policy = &kAie2pBitstreamPolicy,
     .function_storage = {kAie2pFunctionStorage,
                          IREE_ARRAYSIZE(kAie2pFunctionStorage)},
     .source_type_supported =

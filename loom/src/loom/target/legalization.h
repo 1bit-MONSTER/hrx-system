@@ -130,10 +130,13 @@ typedef struct loom_target_legalization_context_t {
   const loom_low_descriptor_set_t* descriptor_set;
   // Target packet candidates selected for |descriptor_set|, or NULL.
   const loom_target_vector_packet_policy_t* vector_packet_policy;
+  // Target packet and scalar-word representation contract for shared
+  // packed-bitstream legalization, or NULL when disabled.
+  const loom_target_bitstream_policy_t* bitstream_policy;
   // Complete target admission query for authored source vector carriers.
   // Semantic rewrites that consume an aggregate may precede this admission;
   // scalar fallback must not.
-  loom_target_source_vector_carrier_supported_callback_t
+  loom_target_vector_carrier_supported_callback_t
       source_vector_carrier_supported;
   // True when the source function signature contains a vector outside the
   // target's callable carrier domain. Reference fallback leaves the body
@@ -378,6 +381,16 @@ bool loom_target_legalization_has_source_vector_carrier(
 // Returns true when every vector operand and result of |op| has a source
 // carrier under the selected target lowering policy.
 bool loom_target_legalization_op_has_source_vector_carriers(
+    const loom_target_legalization_context_t* context, const loom_op_t* op);
+
+// Returns true when |type| has a packet carrier under the target's dedicated
+// packed-bitstream policy. Non-vector types always return true.
+bool loom_target_legalization_has_bitstream_packet_carrier(
+    const loom_target_legalization_context_t* context, loom_type_t type);
+
+// Returns true when every vector operand and result of |op| has a carrier
+// under the target's dedicated packed-bitstream policy.
+bool loom_target_legalization_op_has_bitstream_packet_carriers(
     const loom_target_legalization_context_t* context, const loom_op_t* op);
 
 #ifdef __cplusplus

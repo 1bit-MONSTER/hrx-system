@@ -95,6 +95,107 @@ check.scenario @packed_nibble_values {
   check.return
 }
 
+// Packs sixteen three-bit fields across a 32-bit word boundary, then observes
+// the same 48-bit stream through unsigned and signed unpacking. A one-bit
+// signed unpack also covers the predicate result boundary.
+func.def @odd_width_bitstream(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %inputs = buffer.view %input[%base] : buffer -> view<16xi8>
+  %outputs = buffer.view %output[%base] : buffer -> view<56xi8>
+  %values = vector.load %inputs[0] : view<16xi8> -> vector<16xi8>
+  %packed = vector.bitpack<3> %values : vector<16xi8> -> vector<6xi8>
+  %unsigned = vector.bitunpacku<3> %packed : vector<6xi8> -> vector<16xi8>
+  %signed = vector.bitunpacks<3> %packed : vector<6xi8> -> vector<16xi8>
+  %predicate_storage = vector.slice %values[0] : vector<16xi8> -> vector<2xi8>
+  %predicates = vector.bitunpacks<1> %predicate_storage : vector<2xi8> -> vector<16xi1>
+  %predicate_bytes = vector.extui %predicates : vector<16xi1> to vector<16xi8>
+  vector.store %packed, %outputs[0] : vector<6xi8>, view<56xi8>
+  vector.store %unsigned, %outputs[6] : vector<16xi8>, view<56xi8>
+  vector.store %signed, %outputs[22] : vector<16xi8>, view<56xi8>
+  vector.store %predicate_bytes, %outputs[40] : vector<16xi8>, view<56xi8>
+  func.return
+}
+
+func.def @odd_width_bitstream_oracle(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %group_count = index.constant 2 : index
+  %group_lane_count = index.constant 8 : index
+  %group_byte_count = index.constant 3 : index
+  %unsigned_offset = index.constant 6 : index
+  %signed_offset = index.constant 22 : index
+  %c0 = scalar.constant 0 : i32
+  %field_mask = scalar.constant 7 : i32
+  %field_bit_count = scalar.constant 3 : i32
+  %byte_bit_count = scalar.constant 8 : i32
+  %sign_shift = scalar.constant 29 : i32
+  %c1 = scalar.constant 1 : i32
+  %predicate_offset = index.constant 40 : index
+  %inputs = buffer.view %input[%base] : buffer -> view<16xi8>
+  %outputs = buffer.view %output[%base] : buffer -> view<56xi8>
+  scf.for %group = [%begin to %group_count step %step] {
+    %group_origin = index.mul %group, %group_lane_count : index
+    %word = scf.for %lane = [%begin to %group_lane_count step %step](%partial = %c0 : i32) -> (i32) {
+      %position = index.add %group_origin, %lane : index
+      %value = view.load %inputs[%position] : view<16xi8> -> i8
+      %wide_value = scalar.extui %value : i8 to i32
+      %field = scalar.andi %wide_value, %field_mask : i32
+      %lane_i32 = index.cast %lane : index to i32
+      %field_shift = scalar.muli %lane_i32, %field_bit_count : i32
+      %shifted_field = scalar.shli %field, %field_shift : i32
+      %next = scalar.ori %partial, %shifted_field : i32
+      %unsigned_value = scalar.trunci %field : i32 to i8
+      %sign_aligned = scalar.shli %field, %sign_shift : i32
+      %signed_value_i32 = scalar.shrsi %sign_aligned, %sign_shift : i32
+      %signed_value = scalar.trunci %signed_value_i32 : i32 to i8
+      %unsigned_position = index.add %position, %unsigned_offset : index
+      %signed_position = index.add %position, %signed_offset : index
+      view.store %unsigned_value, %outputs[%unsigned_position] : i8, view<56xi8>
+      view.store %signed_value, %outputs[%signed_position] : i8, view<56xi8>
+      scf.yield %next : i32
+    }
+    %byte_origin = index.mul %group, %group_byte_count : index
+    scf.for %byte = [%begin to %group_byte_count step %step] {
+      %byte_i32 = index.cast %byte : index to i32
+      %byte_shift = scalar.muli %byte_i32, %byte_bit_count : i32
+      %shifted_word = scalar.shrui %word, %byte_shift : i32
+      %value = scalar.trunci %shifted_word : i32 to i8
+      %position = index.add %byte_origin, %byte : index
+      view.store %value, %outputs[%position] : i8, view<56xi8>
+    }
+  }
+  scf.for %byte = [%begin to %group_count step %step] {
+    %value = view.load %inputs[%byte] : view<16xi8> -> i8
+    %wide_value = scalar.extui %value : i8 to i32
+    %byte_origin = index.mul %byte, %group_lane_count : index
+    scf.for %bit = [%begin to %group_lane_count step %step] {
+      %bit_i32 = index.cast %bit : index to i32
+      %shifted_value = scalar.shrui %wide_value, %bit_i32 : i32
+      %predicate = scalar.andi %shifted_value, %c1 : i32
+      %predicate_byte = scalar.trunci %predicate : i32 to i8
+      %position_in_predicates = index.add %byte_origin, %bit : index
+      %position = index.add %predicate_offset, %position_in_predicates : index
+      view.store %predicate_byte, %outputs[%position] : i8, view<56xi8>
+    }
+  }
+  func.return
+}
+
+check.scenario @odd_width_bitstream_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-8) step(1) : tensor<16xi8>
+    %expected_input = check.generate.iota offset(-8) step(1) : tensor<16xi8>
+    %storage = check.generate.fill value(-91) : tensor<64xi8>
+    %output = check.tensor.view %storage offset(4) : tensor<64xi8> -> tensor<56xi8>
+    check.compare<@odd_width_bitstream, @odd_width_bitstream_oracle>(%input, %output) : (tensor<16xi8>, tensor<56xi8>) -> () {
+      check.expect.bitwise actual(%input) expected(%expected_input) : tensor<16xi8>
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<64xi8>
+    }
+  }
+  check.return
+}
+
 // Clamps one native packet to the signed i4 range before packing. Four
 // scenario invocations cover the complete byte domain.
 func.def @saturating_nibble_pack(%input: buffer, %output: buffer) {
