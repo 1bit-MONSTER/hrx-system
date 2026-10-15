@@ -19,6 +19,7 @@
 #include "loom/target/function_version_projection.h"
 #include "loom/util/stream.h"
 #include "loomc/iree.h"
+#include "option_chain.h"
 #include "result.h"
 #include "source.h"
 #include "target.h"
@@ -626,16 +627,17 @@ void loomc_module_clear_sources(loomc_module_t* module,
   module->sources.table.module = internal_module;
 }
 
-loomc_status_t loomc_module_verify_structural(loomc_module_t* module,
-                                              loomc_result_t* result) {
+loomc_status_t loomc_module_admit_structural(loomc_module_t* module,
+                                             loomc_result_t* result) {
   IREE_TRACE_ZONE_BEGIN(z0);
   if (module->verification.structural) {
     IREE_TRACE_ZONE_END(z0);
     return loomc_ok_status();
   }
   IREE_RETURN_AND_END_ZONE_IF_ERROR(
-      z0, loomc_result_verify_loom_module(
-              module->module, loomc_module_source_resolver(module), result));
+      z0, loomc_result_verify_loom_module(module->module,
+                                          loomc_module_source_resolver(module),
+                                          /*max_errors=*/0, result));
   if (loomc_result_succeeded(result)) {
     module->verification.structural = true;
   }
@@ -643,25 +645,11 @@ loomc_status_t loomc_module_verify_structural(loomc_module_t* module,
   return loomc_ok_status();
 }
 
-loomc_status_t loomc_module_verify(
+static loomc_status_t loomc_module_verify_target_into_result(
     loomc_module_t* module,
-    const loomc_target_environment_t* target_environment,
+    const loomc_target_environment_t* target_environment, uint32_t max_errors,
     loomc_result_t* result) {
   IREE_TRACE_ZONE_BEGIN(z0);
-  const bool context_environment =
-      target_environment == loomc_context_target_environment(module->context);
-  if (module->verification.context_target && context_environment) {
-    IREE_TRACE_ZONE_END(z0);
-    return loomc_ok_status();
-  }
-
-  IREE_RETURN_AND_END_ZONE_IF_ERROR(
-      z0, loomc_module_verify_structural(module, result));
-  if (!loomc_result_succeeded(result)) {
-    IREE_TRACE_ZONE_END(z0);
-    return loomc_ok_status();
-  }
-
   const loomc_target_pass_environment_t* pass_environment =
       loomc_target_environment_pass_environment(target_environment);
   loomc_diagnostic_capture_t capture;
@@ -682,7 +670,7 @@ loomc_status_t loomc_module_verify(
                            ? loom_target_environment_low_verify_provider_list(
                                  pass_environment->target_environment)
                            : loom_low_verify_provider_list_empty(),
-      .max_errors = 20,
+      .max_errors = max_errors ? max_errors : 20,
   };
   loom_low_verify_scratch_t scratch =
       loom_low_verify_scratch_for_module(module->module);
@@ -696,11 +684,78 @@ loomc_status_t loomc_module_verify(
     IREE_TRACE_ZONE_END(z0);
     return return_status;
   }
-  if (context_environment) {
+  if (target_environment == loomc_context_target_environment(module->context)) {
     module->verification.context_target = true;
   }
   IREE_TRACE_ZONE_END(z0);
   return loomc_ok_status();
+}
+
+loomc_status_t loomc_module_admit(
+    loomc_module_t* module,
+    const loomc_target_environment_t* target_environment,
+    loomc_result_t* result) {
+  if (module->verification.context_target &&
+      target_environment == loomc_context_target_environment(module->context)) {
+    return loomc_ok_status();
+  }
+  LOOMC_RETURN_IF_ERROR(loomc_module_admit_structural(module, result));
+  return loomc_result_succeeded(result)
+             ? loomc_module_verify_target_into_result(
+                   module, target_environment, /*max_errors=*/0, result)
+             : loomc_ok_status();
+}
+
+loomc_status_t loomc_module_verify(loomc_module_t* module,
+                                   const loomc_module_verify_options_t* options,
+                                   loomc_allocator_t allocator,
+                                   loomc_result_t** out_result) {
+  if (out_result == NULL) {
+    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                             "out_result must not be NULL");
+  }
+  *out_result = NULL;
+  if (module == NULL) {
+    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                             "module must not be NULL");
+  }
+  if (options != NULL) {
+    if (options->type != LOOMC_STRUCTURE_TYPE_NONE &&
+        options->type != LOOMC_STRUCTURE_TYPE_MODULE_VERIFY_OPTIONS) {
+      return loomc_make_status(
+          LOOMC_STATUS_INVALID_ARGUMENT,
+          "module verify options have an unknown structure type");
+    }
+    if (options->structure_size != 0 &&
+        options->structure_size < sizeof(*options)) {
+      return loomc_make_status(
+          LOOMC_STATUS_INVALID_ARGUMENT,
+          "module verify options structure_size is too small");
+    }
+    loomc_option_chain_t option_chain = {0};
+    LOOMC_RETURN_IF_ERROR(loomc_option_chain_resolve(
+        options->next, /*allowed_options=*/0, &option_chain));
+  }
+  loomc_result_t* result = NULL;
+  LOOMC_RETURN_IF_ERROR(loomc_result_create(
+      LOOMC_RESULT_STATE_SUCCEEDED,
+      loomc_context_source_retention(module->context), allocator, &result));
+  const uint32_t max_errors = options ? options->max_errors : 0;
+  loomc_module_invalidate_verification(module);
+  loomc_status_t status = loomc_result_verify_loom_module(
+      module->module, loomc_module_source_resolver(module), max_errors, result);
+  if (loomc_status_is_ok(status) && loomc_result_succeeded(result)) {
+    module->verification.structural = true;
+    status = loomc_module_verify_target_into_result(
+        module, loomc_context_target_environment(module->context), max_errors,
+        result);
+  }
+  if (loomc_status_is_ok(status)) {
+    *out_result = result;
+  } else {
+    loomc_result_release(result);
+  }
+  return status;
 }
 
 void loomc_module_invalidate_verification(loomc_module_t* module) {

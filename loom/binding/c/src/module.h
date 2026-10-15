@@ -127,16 +127,16 @@ LOOMC_API_PRIVATE void loomc_module_clear_sources(
 // Establishes target-independent structural input invariants. Diagnostics mark
 // |result| failed; status is reserved for infrastructure failures.
 LOOMC_API_PRIVATE loomc_status_t
-loomc_module_verify_structural(loomc_module_t* module, loomc_result_t* result);
+loomc_module_admit_structural(loomc_module_t* module, loomc_result_t* result);
 
 // Establishes structural and target-Low input invariants before compilation or
 // direct emission. Other target environments are checked without retaining
 // their lifetime. Diagnostics mark |result| failed; status is reserved for
 // infrastructure failures.
 LOOMC_API_PRIVATE loomc_status_t
-loomc_module_verify(loomc_module_t* module,
-                    const loomc_target_environment_t* target_environment,
-                    loomc_result_t* result);
+loomc_module_admit(loomc_module_t* module,
+                   const loomc_target_environment_t* target_environment,
+                   loomc_result_t* result);
 
 // Invalidates input verification after an unsuccessful mutating operation.
 LOOMC_API_PRIVATE void loomc_module_invalidate_verification(

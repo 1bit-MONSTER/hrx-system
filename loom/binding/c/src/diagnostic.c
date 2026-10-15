@@ -354,11 +354,7 @@ iree_status_t loomc_diagnostic_capture_emission(
 
 loomc_status_t loomc_result_verify_loom_module(
     const loom_module_t* module, loom_source_resolver_t source_resolver,
-    loomc_result_t* result) {
-  if (module == NULL || result == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "module and result must not be NULL");
-  }
+    uint32_t max_errors, loomc_result_t* result) {
   loomc_diagnostic_capture_t capture;
   loomc_diagnostic_capture_initialize(result, /*source=*/NULL, module,
                                       source_resolver, LOOM_EMITTER_VERIFIER,
@@ -369,7 +365,7 @@ loomc_status_t loomc_result_verify_loom_module(
               .fn = loomc_diagnostic_capture,
               .user_data = &capture,
           },
-      .max_errors = 20,
+      .max_errors = max_errors ? max_errors : 20,
       .source_resolver = source_resolver,
   };
   loom_verify_result_t verify_result = {0};

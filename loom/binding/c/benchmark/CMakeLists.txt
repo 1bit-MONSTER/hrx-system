@@ -76,8 +76,10 @@ loom_cc_benchmark(
   NAME
     compile_throughput_benchmark
   SRCS
+    "pass_program_benchmark.cc"
     "targetless_compile_throughput_benchmark.cc"
   DEPS
+    ::benchmark_support
     ::compile_throughput_benchmark_harness
     iree::base
     iree::testing::benchmark_main

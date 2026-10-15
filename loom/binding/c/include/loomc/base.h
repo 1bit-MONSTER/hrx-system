@@ -301,6 +301,12 @@ typedef enum loomc_structure_type_e {
 
   /// `loomc_pass_trace_options_t`.
   LOOMC_STRUCTURE_TYPE_PASS_TRACE_OPTIONS = 43,
+
+  /// `loomc_pass_run_options_t`.
+  LOOMC_STRUCTURE_TYPE_PASS_RUN_OPTIONS = 44,
+
+  /// `loomc_module_verify_options_t`.
+  LOOMC_STRUCTURE_TYPE_MODULE_VERIFY_OPTIONS = 45,
 } loomc_structure_type_t;
 
 /// One loose string option entry.

@@ -169,6 +169,107 @@ kernel.def export("dispatch") @entry() {
   return DeserializeTextModule(context, workspace, source.get());
 }
 
+TEST(ModuleTest, VerifiesModuleWithDefaultAndVersionedOptions) {
+  auto context = CreateContext();
+  auto workspace = CreateWorkspace();
+  auto module = CreateFunctionModule(context.get(), workspace.get());
+  const loomc_module_verify_options_t options = {
+      .type = LOOMC_STRUCTURE_TYPE_MODULE_VERIFY_OPTIONS,
+      .structure_size = sizeof(options),
+      .max_errors = 1,
+  };
+  for (const auto* selected_options :
+       {static_cast<const loomc_module_verify_options_t*>(nullptr), &options}) {
+    loomc_result_t* result = nullptr;
+    LOOMC_ASSERT_OK(loomc_module_verify(module.get(), selected_options,
+                                        loomc_allocator_system(), &result));
+    ResultPtr result_owner(result);
+    ExpectSucceededResult(result);
+    EXPECT_EQ(loomc_result_diagnostic_count(result), 0u);
+    EXPECT_EQ(loomc_result_artifact_count(result), 0u);
+  }
+}
+
+TEST(ModuleTest, VerificationBoundsAndRetainsDiagnostics) {
+  auto context = CreateContext();
+  auto workspace = CreateWorkspace();
+  auto source = CreateTextSource("invalid_returns.loom", R"(
+func.def @first() -> (i32) { func.return }
+func.def @second() -> (i32) { func.return }
+)");
+  auto module =
+      DeserializeTextModule(context.get(), workspace.get(), source.get());
+  std::vector<ResultPtr> results;
+  for (uint32_t max_errors : {1u, 2u, 0u}) {
+    const loomc_module_verify_options_t options = {.max_errors = max_errors};
+    loomc_result_t* result = nullptr;
+    LOOMC_ASSERT_OK(loomc_module_verify(module.get(), &options,
+                                        loomc_allocator_system(), &result));
+    results.emplace_back(result);
+    EXPECT_FALSE(loomc_result_succeeded(result));
+    EXPECT_EQ(loomc_result_diagnostic_count(result), max_errors == 1 ? 1u : 2u);
+  }
+  module.reset();
+  source.reset();
+  workspace.reset();
+  context.reset();
+  for (const auto& result : results) {
+    const auto* diagnostic = loomc_result_diagnostic_at(result.get(), 0);
+    ASSERT_NE(diagnostic, nullptr);
+    EXPECT_FALSE(ToString(diagnostic->code).empty());
+    ASSERT_NE(diagnostic->range.source, nullptr);
+    EXPECT_EQ(ToString(loomc_source_identifier(diagnostic->range.source)),
+              "invalid_returns.loom");
+  }
+}
+
+TEST(ModuleTest, VerificationRejectsInvalidArgumentsAndAllocationFailure) {
+  auto context = CreateContext();
+  auto workspace = CreateWorkspace();
+  auto module = CreateFunctionModule(context.get(), workspace.get());
+  const loomc_module_verify_options_t invalid_options[] = {
+      {.type = LOOMC_STRUCTURE_TYPE_COMPILE_OPTIONS},
+      {.structure_size = sizeof(loomc_module_verify_options_t) - 1},
+  };
+  for (const auto& options : invalid_options) {
+    loomc_result_t* result = reinterpret_cast<loomc_result_t*>(0x1);
+    LOOMC_EXPECT_STATUS_IS(
+        LOOMC_STATUS_INVALID_ARGUMENT,
+        loomc_module_verify(module.get(), &options, loomc_allocator_system(),
+                            &result));
+    EXPECT_EQ(result, nullptr);
+  }
+  const loomc_module_verify_options_t extension = {
+      .type = LOOMC_STRUCTURE_TYPE_MODULE_VERIFY_OPTIONS,
+      .structure_size = sizeof(extension),
+  };
+  const loomc_module_verify_options_t options = {.next = &extension};
+  loomc_result_t* result = nullptr;
+  LOOMC_EXPECT_STATUS_IS(
+      LOOMC_STATUS_UNIMPLEMENTED,
+      loomc_module_verify(module.get(), &options, loomc_allocator_system(),
+                          &result));
+  EXPECT_EQ(result, nullptr);
+  LOOMC_EXPECT_STATUS_IS(
+      LOOMC_STATUS_INVALID_ARGUMENT,
+      loomc_module_verify(nullptr, nullptr, loomc_allocator_system(), &result));
+  EXPECT_EQ(result, nullptr);
+  LOOMC_EXPECT_STATUS_IS(
+      LOOMC_STATUS_INVALID_ARGUMENT,
+      loomc_module_verify(module.get(), nullptr, loomc_allocator_system(),
+                          nullptr));
+  const loomc_allocator_t allocator = {
+      .ctl =
+          [](void*, loomc_allocator_command_t, const void*, void**) {
+            return loomc_status_from_code(LOOMC_STATUS_RESOURCE_EXHAUSTED);
+          },
+  };
+  LOOMC_EXPECT_STATUS_IS(
+      LOOMC_STATUS_RESOURCE_EXHAUSTED,
+      loomc_module_verify(module.get(), nullptr, allocator, &result));
+  EXPECT_EQ(result, nullptr);
+}
+
 TEST(ModuleTest, ExplicitSourceFormatsBypassMetadataAndRoundTrip) {
   ContextPtr context = CreateContext();
   WorkspacePtr workspace = CreateWorkspace();

@@ -122,9 +122,10 @@ typedef struct loomc_pass_trace_artifact_sink_t {
   void* user_data;
 } loomc_pass_trace_artifact_sink_t;
 
-/// Pass trace options for one compile artifact invocation.
+/// Pass trace options for one pipeline or compile artifact invocation.
 ///
-/// Attach this descriptor to `loomc_compile_artifact_options_t::next`.
+/// Attach this descriptor to `loomc_pass_run_options_t::next` or
+/// `loomc_compile_artifact_options_t::next`.
 /// Before and after filters match a pass key, an authored `pass.pipeline`
 /// symbol, or the compiler-defined stage name. The compiler supplies stage
 /// names and target-aware textual assembly; callers do not reconstruct either
@@ -140,7 +141,7 @@ typedef struct loomc_pass_trace_options_t {
   /// Size of this structure in bytes.
   loomc_host_size_t structure_size;
 
-  /// Next compile-artifact option extension.
+  /// Next invocation option extension.
   const void* next;
 
   /// Formatted representation written to `sink`.

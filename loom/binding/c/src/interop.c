@@ -46,8 +46,8 @@ loomc_status_t loomc_module_get_interop_view(
       loomc_context_target_environment(loomc_module_context(module));
   loomc_status_t status =
       target_environment != NULL
-          ? loomc_module_verify(module, target_environment, result)
-          : loomc_module_verify_structural(module, result);
+          ? loomc_module_admit(module, target_environment, result)
+          : loomc_module_admit_structural(module, result);
   if (loomc_status_is_ok(status)) {
     if (loomc_result_succeeded(result)) {
       *out_view = (loomc_module_interop_view_t){
