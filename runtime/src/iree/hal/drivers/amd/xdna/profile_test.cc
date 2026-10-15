@@ -28,6 +28,15 @@ struct ProfileSink {
   std::function<void()> during_write;
   // Successfully reported dropped queue records.
   uint64_t dropped = 0;
+  // Loss metadata reported independently of retained counter sample payloads.
+  struct {
+    // Accepted selected invocations with no retained counter sample.
+    uint64_t dropped_record_count = 0;
+    // Counter chunks marking a discontinuity in capture coverage.
+    uint64_t truncated_chunk_count = 0;
+  } counter_loss;
+  // True when omitted attribution leaves executable metadata incomplete.
+  bool executable_metadata_truncated = false;
   // Number of observed session begin callbacks.
   int begins = 0;
   // Number of observed session end callbacks.
@@ -121,6 +130,18 @@ struct ProfileSink {
       sink.dropped += metadata->dropped_record_count;
       EXPECT_EQ(metadata->dropped_record_count != 0,
                 (metadata->flags & IREE_HAL_PROFILE_CHUNK_FLAG_TRUNCATED) != 0);
+    }
+    if (iree_string_view_equal(metadata->content_type,
+                               IREE_HAL_PROFILE_CONTENT_TYPE_COUNTER_SAMPLES)) {
+      sink.counter_loss.dropped_record_count += metadata->dropped_record_count;
+      sink.counter_loss.truncated_chunk_count +=
+          (metadata->flags & IREE_HAL_PROFILE_CHUNK_FLAG_TRUNCATED) != 0;
+    }
+    if (iree_string_view_equal(metadata->content_type,
+                               IREE_HAL_PROFILE_CONTENT_TYPE_EXECUTABLES) &&
+        (metadata->flags & IREE_HAL_PROFILE_CHUNK_FLAG_TRUNCATED)) {
+      sink.executable_metadata_truncated = true;
+      EXPECT_EQ(metadata->dropped_record_count, 0u);
     }
     return iree_ok_status();
   }
@@ -411,7 +432,8 @@ TEST(XdnaProfileTest,
     harness.native.pending_capacity = 24;
     harness.native.maximum_command_count = 8;
     harness.native.hold_retirement = true;
-    harness.native.result.capacity = 24 * 24;
+    // The second array crosses the capacity boundary before its BUSY retry.
+    harness.native.result.capacity = 10 * 24;
     if (reject) {
       harness.native.reject_submission_attempt = 3;
     } else {
@@ -454,49 +476,93 @@ TEST(XdnaProfileTest,
     iree_hal_buffer_release(buffer);
     IREE_ASSERT_OK(iree_hal_device_profiling_end(harness.device));
     const uint32_t accepted = reject ? 16 : 24;
-    ASSERT_EQ(sink.samples.size(), accepted);
-    for (uint32_t i = 0; i < accepted; ++i) {
+    ASSERT_EQ(sink.samples.size(), 10u);
+    EXPECT_EQ(sink.counter_loss.dropped_record_count, accepted - 10);
+    EXPECT_EQ(sink.counter_loss.truncated_chunk_count, 1u);
+    EXPECT_EQ(sink.end_status, IREE_STATUS_OK);
+    for (uint32_t i = 0; i < 10; ++i) {
       EXPECT_EQ(sink.samples[i].command_index, i);
       EXPECT_EQ(sink.cycles[i], 100u + i);
     }
   }
 }
 
-TEST(XdnaProfileTest,
-     FiniteBudgetAndMalformedResultsFailCaptureAfterWorkCompletes) {
-  for (bool corrupt : {false, true}) {
-    ProfileSink sink;
-    QueueHarness harness;
-    harness.native.result.capacity = corrupt ? 128 : 48;
-    harness.native.result.corrupt = corrupt;
-    ASSERT_NO_FATAL_FAILURE(harness.Initialize());
-    ASSERT_NO_FATAL_FAILURE(harness.RegisterNativeObserver());
-    iree_hal_command_buffer_t* command_buffer = nullptr;
-    ASSERT_NO_FATAL_FAILURE(
-        RecordMeasuredDispatches(harness, 3, &command_buffer));
-    iree_hal_buffer_t* buffer = nullptr;
-    ASSERT_NO_FATAL_FAILURE(harness.MakeBuffer(&buffer));
-    const iree_hal_device_profiling_options_t options = {
-        .data_families = IREE_HAL_DEVICE_PROFILING_DATA_COUNTER_SAMPLES,
-        .sink = sink.base(),
-    };
-    IREE_ASSERT_OK(iree_hal_device_profiling_begin(harness.device, &options));
-    const iree_hal_buffer_binding_t binding = {buffer, 0, 64};
-    uint64_t value = 1;
+TEST(XdnaProfileTest, FiniteBudgetPreservesSamplesAcrossLaterSubmissions) {
+  ProfileSink sink;
+  QueueHarness harness;
+  harness.native.pending_capacity = harness.native.maximum_command_count = 3;
+  harness.native.result.capacity = 48;
+  ASSERT_NO_FATAL_FAILURE(harness.Initialize());
+  ASSERT_NO_FATAL_FAILURE(harness.RegisterNativeObserver());
+  iree_hal_command_buffer_t* command_buffer = nullptr;
+  ASSERT_NO_FATAL_FAILURE(
+      RecordMeasuredDispatches(harness, 3, &command_buffer));
+  iree_hal_buffer_t* buffer = nullptr;
+  ASSERT_NO_FATAL_FAILURE(harness.MakeBuffer(&buffer));
+  const iree_hal_device_profiling_options_t options = {
+      .data_families = IREE_HAL_DEVICE_PROFILING_DATA_COUNTER_SAMPLES,
+      .sink = sink.base(),
+  };
+  IREE_ASSERT_OK(iree_hal_device_profiling_begin(harness.device, &options));
+  const iree_hal_buffer_binding_t binding = {buffer, 0, 64};
+  for (uint64_t value = 1; value <= 2; ++value) {
     IREE_ASSERT_OK(iree_hal_queue_execute(harness.queue, {},
                                           {1, &harness.done, &value},
                                           command_buffer, {1, &binding}, 0));
     ASSERT_NO_FATAL_FAILURE(harness.PollUntilValue(harness.done, value));
-    EXPECT_EQ(harness.native.submission_count, 3u);
-    IREE_EXPECT_STATUS_IS(
-        corrupt ? IREE_STATUS_DATA_LOSS : IREE_STATUS_RESOURCE_EXHAUSTED,
-        iree_hal_device_profiling_end(harness.device));
-    EXPECT_TRUE(sink.samples.empty());
-    EXPECT_EQ(harness.native.result.detaches, 1u);
-    EXPECT_FALSE(harness.native.result.binding.memory);
-    iree_hal_command_buffer_release(command_buffer);
-    iree_hal_buffer_release(buffer);
+    IREE_ASSERT_OK(iree_hal_device_profiling_flush(harness.device));
+    EXPECT_EQ(harness.native.result.collects, 0u);
   }
+  IREE_ASSERT_OK(iree_hal_device_profiling_end(harness.device));
+  // Short recorded runs retain their ordinary singleton publication policy.
+  EXPECT_EQ(harness.native.submission_count, 6u);
+  EXPECT_EQ(sink.end_status, IREE_STATUS_OK);
+  EXPECT_EQ(sink.names, std::vector<std::string>{"main"});
+  ASSERT_EQ(sink.samples.size(), 2u);
+  for (uint32_t i = 0; i < 2; ++i) {
+    EXPECT_EQ(sink.samples[i].command_index, i);
+    EXPECT_EQ(sink.samples[i].submission_id, 1u);
+    EXPECT_EQ(sink.cycles[i], 100u + i);
+  }
+  EXPECT_EQ(sink.counter_loss.dropped_record_count, 4u);
+  EXPECT_EQ(sink.counter_loss.truncated_chunk_count, 1u);
+  EXPECT_EQ(harness.native.result.collects, 1u);
+  EXPECT_EQ(harness.native.result.detaches, 1u);
+  EXPECT_FALSE(harness.native.result.binding.memory);
+  iree_hal_command_buffer_release(command_buffer);
+  iree_hal_buffer_release(buffer);
+}
+
+TEST(XdnaProfileTest, MalformedResultsFailCaptureAfterWorkCompletes) {
+  ProfileSink sink;
+  QueueHarness harness;
+  harness.native.result.corrupt = true;
+  ASSERT_NO_FATAL_FAILURE(harness.Initialize());
+  ASSERT_NO_FATAL_FAILURE(harness.RegisterNativeObserver());
+  iree_hal_command_buffer_t* command_buffer = nullptr;
+  ASSERT_NO_FATAL_FAILURE(
+      RecordMeasuredDispatches(harness, 3, &command_buffer));
+  iree_hal_buffer_t* buffer = nullptr;
+  ASSERT_NO_FATAL_FAILURE(harness.MakeBuffer(&buffer));
+  const iree_hal_device_profiling_options_t options = {
+      .data_families = IREE_HAL_DEVICE_PROFILING_DATA_COUNTER_SAMPLES,
+      .sink = sink.base(),
+  };
+  IREE_ASSERT_OK(iree_hal_device_profiling_begin(harness.device, &options));
+  const iree_hal_buffer_binding_t binding = {buffer, 0, 64};
+  uint64_t value = 1;
+  IREE_ASSERT_OK(iree_hal_queue_execute(harness.queue, {},
+                                        {1, &harness.done, &value},
+                                        command_buffer, {1, &binding}, 0));
+  ASSERT_NO_FATAL_FAILURE(harness.PollUntilValue(harness.done, value));
+  EXPECT_EQ(harness.native.submission_count, 3u);
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_DATA_LOSS,
+                        iree_hal_device_profiling_end(harness.device));
+  EXPECT_TRUE(sink.samples.empty());
+  EXPECT_EQ(harness.native.result.detaches, 1u);
+  EXPECT_FALSE(harness.native.result.binding.memory);
+  iree_hal_command_buffer_release(command_buffer);
+  iree_hal_buffer_release(buffer);
 }
 
 TEST(XdnaProfileTest, FilteredCaptureCopiesSelectionAndBudgetsOnlyMatches) {
@@ -527,15 +593,17 @@ TEST(XdnaProfileTest, FilteredCaptureCopiesSelectionAndBudgetsOnlyMatches) {
   IREE_ASSERT_OK(iree_hal_device_profiling_begin(harness.device, &options));
   pattern[0] = 'x';
   const iree_hal_buffer_binding_t binding = {buffer, 0, 64};
-  uint64_t value = 1;
-  IREE_ASSERT_OK(iree_hal_queue_execute(harness.queue, {},
-                                        {1, &harness.done, &value},
-                                        command_buffer, {1, &binding}, 0));
-  ASSERT_NO_FATAL_FAILURE(harness.PollUntilValue(harness.done, value));
+  for (uint64_t value = 1; value <= 2; ++value) {
+    IREE_ASSERT_OK(iree_hal_queue_execute(harness.queue, {},
+                                          {1, &harness.done, &value},
+                                          command_buffer, {1, &binding}, 0));
+    ASSERT_NO_FATAL_FAILURE(harness.PollUntilValue(harness.done, value));
+  }
   IREE_ASSERT_OK(iree_hal_device_profiling_end(harness.device));
   ASSERT_EQ(sink.samples.size(), 1u);
   EXPECT_EQ(sink.samples[0].command_index, 3u);
-  EXPECT_EQ(harness.native.submission_count, 1u);
+  EXPECT_EQ(harness.native.submission_count, 2u);
+  EXPECT_EQ(sink.counter_loss.dropped_record_count, 1u);
   iree_hal_command_buffer_release(command_buffer);
   iree_hal_buffer_release(buffer);
 }
@@ -628,6 +696,38 @@ TEST(XdnaProfileTest,
   ASSERT_NO_FATAL_FAILURE(harness.PollUntilDone(IREE_STATUS_OK));
   IREE_ASSERT_OK(iree_hal_device_profiling_end(harness.device));
   EXPECT_EQ(sink.names, std::vector<std::string>{"main"});
+  EXPECT_EQ(harness.native.result.attaches, 0u);
+  EXPECT_EQ(harness.native.result.collects, 0u);
+}
+
+TEST(XdnaProfileTest, MetadataOverflowPreservesRetainedNames) {
+  ProfileSink sink;
+  QueueHarness harness;
+  harness.native.pending_capacity = harness.native.maximum_command_count = 8;
+  ASSERT_NO_FATAL_FAILURE(harness.Initialize());
+  ASSERT_NO_FATAL_FAILURE(harness.RegisterNativeObserver());
+  iree_hal_command_buffer_t* command_buffer = nullptr;
+  ASSERT_NO_FATAL_FAILURE(
+      RecordMeasuredDispatches(harness, 4097, &command_buffer));
+  iree_hal_buffer_t* buffer = nullptr;
+  ASSERT_NO_FATAL_FAILURE(harness.MakeBuffer(&buffer));
+  const iree_hal_buffer_binding_t binding = {buffer, 0, 64};
+  const iree_hal_device_profiling_options_t options = {
+      .data_families = IREE_HAL_DEVICE_PROFILING_DATA_EXECUTABLE_METADATA,
+      .sink = sink.base(),
+  };
+  IREE_ASSERT_OK(iree_hal_device_profiling_begin(harness.device, &options));
+  uint64_t value = 1;
+  IREE_ASSERT_OK(iree_hal_queue_execute(harness.queue, {},
+                                        {1, &harness.done, &value},
+                                        command_buffer, {1, &binding}, 0));
+  ASSERT_NO_FATAL_FAILURE(harness.PollUntilValue(harness.done, value));
+  iree_hal_command_buffer_release(command_buffer);
+  iree_hal_buffer_release(buffer);
+  IREE_ASSERT_OK(iree_hal_device_profiling_end(harness.device));
+  EXPECT_EQ(sink.end_status, IREE_STATUS_OK);
+  EXPECT_EQ(sink.names, std::vector<std::string>{"main"});
+  EXPECT_TRUE(sink.executable_metadata_truncated);
   EXPECT_EQ(harness.native.result.attaches, 0u);
   EXPECT_EQ(harness.native.result.collects, 0u);
 }

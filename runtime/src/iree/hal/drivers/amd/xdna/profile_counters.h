@@ -32,6 +32,8 @@ iree_status_t iree_hal_amd_xdna_profile_counters_begin(
 
 // Selects measured bytes once per prepared command, before its first native
 // submit attempt. Retry preserves this descriptor and does not call again.
+// Exhausted storage leaves the ordinary command unchanged and reports loss
+// only if that command is accepted. Previously captured data remains valid.
 // Failures stop capture, preserve ordinary execution, and surface at end.
 void iree_hal_amd_xdna_profile_counters_prepare(
     iree_hal_amd_xdna_profile_counters_t* counters,
@@ -48,9 +50,11 @@ void iree_hal_amd_xdna_profile_counters_accept(
     const amdf_xdna_kernel_command_t* command);
 
 // Collects after all writers retire, validates the complete native protocol,
-// and emits executable metadata and cycle deltas. Consumes counters on every
-// path. Ambiguous native controls retain backing and mark the context's parent
-// graph for retention; neither sink failure nor invalid bytes require a leak.
+// and emits retained executable metadata and cycle deltas. Capacity loss emits
+// a TRUNCATED chunk after the retained data without failing the session.
+// Consumes counters on every path. Ambiguous native controls retain backing
+// and mark the context's parent graph for retention; neither sink failure nor
+// invalid bytes require a leak.
 iree_status_t iree_hal_amd_xdna_profile_counters_end(
     iree_hal_amd_xdna_profile_counters_t* counters);
 

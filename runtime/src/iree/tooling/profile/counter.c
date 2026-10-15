@@ -842,6 +842,15 @@ iree_status_t iree_profile_counter_process_sample_records(
 
   const bool is_truncated = iree_any_bit_set(
       record->header.chunk_flags, IREE_HAL_PROFILE_CHUNK_FLAG_TRUNCATED);
+  if (is_truncated) {
+    ++counter_context->truncated_chunk_count;
+    if (!iree_checked_add_u64(counter_context->dropped_record_count,
+                              record->header.dropped_record_count,
+                              &counter_context->dropped_record_count)) {
+      return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                              "counter dropped record count overflows");
+    }
+  }
   iree_profile_typed_record_iterator_t iterator;
   iree_profile_typed_record_iterator_initialize(
       record, sizeof(iree_hal_profile_counter_sample_record_t), &iterator);
@@ -1038,6 +1047,11 @@ static void iree_profile_counter_print_text_summary(
           counter_context->truncated_sample_count,
           counter_context->counter_set_count, counter_context->counter_count,
           counter_context->aggregate_count);
+  fprintf(file,
+          "capture_loss: truncated_chunks=%" PRIu64 " dropped_records=%" PRIu64
+          " (before filtering)\n",
+          counter_context->truncated_chunk_count,
+          counter_context->dropped_record_count);
 }
 
 static void iree_profile_counter_print_text_group(
@@ -1108,18 +1122,20 @@ static void iree_profile_counter_print_jsonl_summary(
     FILE* file) {
   fprintf(file, "{\"type\":\"counter_summary\",\"filter\":");
   iree_profile_fprint_json_string(file, filter);
-  fprintf(file,
-          ",\"id_filter\":%" PRId64
-          ",\"mode\":\"%s\",\"total_samples\":%" PRIu64
-          ",\"matched_samples\":%" PRIu64
-          ",\"truncated_matched_samples\":%" PRIu64 ",\"counter_sets\":%" PRIhsz
-          ",\"counters\":%" PRIhsz ",\"aggregate_groups\":%" PRIhsz "}\n",
-          id_filter, emit_samples ? "samples" : "aggregate",
-          counter_context->total_sample_count,
-          counter_context->matched_sample_count,
-          counter_context->truncated_sample_count,
-          counter_context->counter_set_count, counter_context->counter_count,
-          counter_context->aggregate_count);
+  fprintf(
+      file,
+      ",\"id_filter\":%" PRId64 ",\"mode\":\"%s\",\"total_samples\":%" PRIu64
+      ",\"matched_samples\":%" PRIu64 ",\"truncated_matched_samples\":%" PRIu64
+      ",\"truncated_chunk_count\":%" PRIu64 ",\"dropped_record_count\":%" PRIu64
+      ",\"counter_sets\":%" PRIhsz ",\"counters\":%" PRIhsz
+      ",\"aggregate_groups\":%" PRIhsz "}\n",
+      id_filter, emit_samples ? "samples" : "aggregate",
+      counter_context->total_sample_count,
+      counter_context->matched_sample_count,
+      counter_context->truncated_sample_count,
+      counter_context->truncated_chunk_count,
+      counter_context->dropped_record_count, counter_context->counter_set_count,
+      counter_context->counter_count, counter_context->aggregate_count);
 }
 
 static void iree_profile_counter_print_jsonl_group(

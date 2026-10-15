@@ -211,10 +211,15 @@ ledger for at most 4096 commands, reduced by native capacity. Attachment occurs
 once at begin; collection and removal occur at idle end. Flush neither collects
 native results nor recovers this budget. Selected prepared commands reserve
 capacity once, including across native BUSY retries; only accepted commands enter
-the result ledger. Capacity exhaustion stops adding timer instructions, preserves
-workload execution, and reports `RESOURCE_EXHAUSTED` at end. A rejected command
-conservatively consumes its reservation. Missing or extra native records fail
-the entire capture before cycle samples are published.
+the result ledger. Capacity exhaustion stops adding timer instructions and
+preserves workload execution and all retained samples. End emits the retained
+data followed by a `TRUNCATED` chunk with the number of accepted selected
+dispatches that could not be captured; overflow alone succeeds. Unmatched
+dispatches, BUSY retries, and rejected commands do not count as dropped samples.
+A rejected command conservatively consumes its reservation. Metadata-only
+capture reports truncation without a count because the missing executable
+identities were not retained. Missing or extra native records fail the capture
+before cycle samples are published.
 
 The first measured use of each exclusive invocation allocates a reusable command
 copy containing two fixed timer instructions. Unchanged warm bindings reuse the

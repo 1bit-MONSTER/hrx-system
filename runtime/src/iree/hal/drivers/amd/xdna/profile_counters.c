@@ -47,8 +47,8 @@ struct iree_hal_amd_xdna_profile_counters_t {
   bool measuring;
   // First capture preparation failure, reported and consumed at end.
   iree_status_t failure;
-  // The finite reservation budget was exceeded by selected work.
-  bool exhausted;
+  // Accepted matching invocations omitted from the finite attribution ledger.
+  uint64_t dropped_count;
   // Available reservations; rejected commands conservatively consume a slot.
   uint32_t remaining;
   // Number of accepted rows in the ledger.
@@ -336,11 +336,7 @@ static bool iree_hal_amd_xdna_profile_counters_matches(
 
 static bool iree_hal_amd_xdna_profile_counters_reserve(
     iree_hal_amd_xdna_profile_counters_t* counters) {
-  if (!iree_status_is_ok(counters->failure) || counters->exhausted) {
-    return false;
-  }
-  if (!counters->remaining) {
-    counters->exhausted = true;
+  if (!counters->remaining || !iree_status_is_ok(counters->failure)) {
     return false;
   }
   --counters->remaining;
@@ -377,11 +373,17 @@ void iree_hal_amd_xdna_profile_counters_accept(
       iree_hal_amd_xdna_invocation_info(invocation);
   if (counters->measuring) {
     if (!iree_hal_amd_xdna_invocation_is_measured(invocation, command)) {
+      if (iree_hal_amd_xdna_profile_counters_matches(
+              counters, event, command_index, info.name)) {
+        ++counters->dropped_count;
+      }
       return;
     }
   } else if (!iree_hal_amd_xdna_profile_counters_matches(
-                 counters, event, command_index, info.name) ||
-             !iree_hal_amd_xdna_profile_counters_reserve(counters)) {
+                 counters, event, command_index, info.name)) {
+    return;
+  } else if (!iree_hal_amd_xdna_profile_counters_reserve(counters)) {
+    ++counters->dropped_count;
     return;
   }
   iree_hal_amd_xdna_counter_entry_t* entry =
@@ -566,6 +568,25 @@ static iree_status_t iree_hal_amd_xdna_profile_counters_emit_samples(
   return status;
 }
 
+static iree_status_t iree_hal_amd_xdna_profile_counters_emit_loss(
+    iree_hal_amd_xdna_profile_counters_t* counters) {
+  if (!counters->dropped_count) {
+    return iree_ok_status();
+  }
+  iree_hal_profile_chunk_metadata_t metadata = counters->metadata;
+  metadata.flags |= IREE_HAL_PROFILE_CHUNK_FLAG_TRUNCATED;
+  if (counters->measuring) {
+    metadata.content_type = IREE_HAL_PROFILE_CONTENT_TYPE_COUNTER_SAMPLES;
+    metadata.dropped_record_count = counters->dropped_count;
+  } else {
+    // Omitted invocations may reuse already-emitted executables. Without
+    // retaining their identities, the number of missing metadata rows is
+    // unknown.
+    metadata.content_type = IREE_HAL_PROFILE_CONTENT_TYPE_EXECUTABLES;
+  }
+  return iree_hal_profile_sink_write(counters->sink, &metadata, 0, NULL);
+}
+
 iree_status_t iree_hal_amd_xdna_profile_counters_end(
     iree_hal_amd_xdna_profile_counters_t* counters) {
   if (!counters) {
@@ -573,11 +594,6 @@ iree_status_t iree_hal_amd_xdna_profile_counters_end(
   }
   iree_status_t status = counters->failure;
   counters->failure = iree_ok_status();
-  if (counters->exhausted) {
-    status = iree_status_join(
-        status, iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                                 "XDNA finite timer capture budget exhausted"));
-  }
   if (counters->measuring) {
     iree_hal_amd_xdna_context_t* context = counters->context;
     iree_status_t collect_status =
@@ -611,6 +627,9 @@ iree_status_t iree_hal_amd_xdna_profile_counters_end(
   }
   if (iree_status_is_ok(status) && counters->measuring) {
     status = iree_hal_amd_xdna_profile_counters_emit_samples(counters);
+  }
+  if (iree_status_is_ok(status)) {
+    status = iree_hal_amd_xdna_profile_counters_emit_loss(counters);
   }
   iree_hal_amd_xdna_profile_counters_free(counters);
   return status;
