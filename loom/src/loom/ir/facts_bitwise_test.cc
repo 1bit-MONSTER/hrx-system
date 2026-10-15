@@ -6,10 +6,12 @@
 
 #include <climits>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 #include "iree/testing/gtest.h"
 #include "loom/ir/facts.h"
+#include "loom/ir/facts_bitwise_test_util.h"
 
 namespace loom {
 namespace {
@@ -482,66 +484,19 @@ TEST(BitwiseTransfer, SignedBoundaryConstantsFoldExactly) {
   }
 }
 
-TEST(BitwiseTransfer, BoundedIntervalsAndDivisorsContainEveryConcreteResult) {
+TEST(BitwiseTransfer,
+     RepresentativeIntervalsAndDivisorsContainEveryConcreteResult) {
   std::vector<loom_value_facts_t> inputs;
-  for (int64_t lower = -8; lower <= 8; ++lower) {
-    for (int64_t upper = lower; upper <= 8; ++upper) {
-      for (int64_t divisor = 1; divisor <= 8; ++divisor) {
-        // Exact constructors derive their divisor from the value.
-        if (lower == upper && divisor != 1) {
-          continue;
-        }
-        bool has_value = false;
-        for (int64_t value = lower; value <= upper; ++value) {
-          has_value |= value % divisor == 0;
-        }
-        if (has_value) {
-          inputs.push_back(loom_value_facts_make(lower, upper, divisor));
-        }
-      }
+  for (int64_t value : {-8, -1, 0, 1, 8}) {
+    inputs.push_back(loom_value_facts_exact_i64(value));
+  }
+  for (const auto& [lower, upper] : {std::pair{-8, -1}, std::pair{-8, 8},
+                                     std::pair{0, 8}, std::pair{1, 8}}) {
+    for (int64_t divisor = 1; divisor <= 8; ++divisor) {
+      inputs.push_back(loom_value_facts_make(lower, upper, divisor));
     }
   }
-  for (const auto& left : inputs) {
-    for (const auto& right : inputs) {
-      loom_value_facts_t result_and;
-      loom_value_facts_t result_or;
-      loom_value_facts_t result_xor;
-      loom_value_facts_andi(&left, &right, &result_and);
-      loom_value_facts_ori(&left, &right, &result_or);
-      loom_value_facts_xori(&left, &right, &result_xor);
-      ASSERT_GE(result_and.known_divisor, 1);
-      ASSERT_GE(result_or.known_divisor, 1);
-      ASSERT_GE(result_xor.known_divisor, 1);
-      for (int64_t lhs = left.range_lo; lhs <= left.range_hi; ++lhs) {
-        if (lhs % left.known_divisor != 0) {
-          continue;
-        }
-        for (int64_t rhs = right.range_lo; rhs <= right.range_hi; ++rhs) {
-          if (rhs % right.known_divisor != 0) {
-            continue;
-          }
-          const int64_t value_and = lhs & rhs;
-          const int64_t value_or = lhs | rhs;
-          const int64_t value_xor = lhs ^ rhs;
-          ASSERT_LE(result_and.range_lo, value_and) << lhs << " & " << rhs;
-          ASSERT_GE(result_and.range_hi, value_and) << lhs << " & " << rhs;
-          ASSERT_LE(result_or.range_lo, value_or) << lhs << " | " << rhs;
-          ASSERT_GE(result_or.range_hi, value_or) << lhs << " | " << rhs;
-          ASSERT_LE(result_xor.range_lo, value_xor) << lhs << " ^ " << rhs;
-          ASSERT_GE(result_xor.range_hi, value_xor) << lhs << " ^ " << rhs;
-          ASSERT_EQ(value_and % result_and.known_divisor, 0);
-          ASSERT_EQ(value_or % result_or.known_divisor, 0);
-          ASSERT_EQ(value_xor % result_xor.known_divisor, 0);
-          ASSERT_TRUE(!loom_value_facts_is_non_zero(result_and) ||
-                      value_and != 0);
-          ASSERT_TRUE(!loom_value_facts_is_non_zero(result_or) ||
-                      value_or != 0);
-          ASSERT_TRUE(!loom_value_facts_is_non_zero(result_xor) ||
-                      value_xor != 0);
-        }
-      }
-    }
-  }
+  testing::CheckBoundedBitwiseConcreteResults(inputs.size(), inputs.data());
 }
 
 TEST(BitwiseTransfer, InPlaceTransferPreservesEveryFact) {
