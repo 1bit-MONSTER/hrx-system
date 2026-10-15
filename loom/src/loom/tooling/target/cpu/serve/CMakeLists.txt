@@ -85,6 +85,27 @@ iree_py_test(
 )
 endif()
 
+if(LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND LOOM_TARGET_ARCH_VM)
+loom_cc_test(
+  NAME
+    finite_component_test
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/service/finite/testdata/component/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/service/finite/testdata/component/kernels.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/service/finite/testdata/component/policy.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/service/finite/testdata/component/prepare.loom"
+  DEPS
+    ::test_compiler
+    ::test_device
+    iree::testing::gtest_main
+    loom::serve::service::finite::component_tests
+  ENV
+    "LOOM_SERVE_TEST_COMPONENT_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/service/finite/testdata/component/prepare.loom}}"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+)
+endif()
+
 if(LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 iree_py_test(
   NAME

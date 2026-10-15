@@ -5,11 +5,56 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
+load(":testdata/component/sources.bzl", "SOURCE_FILES")
 
 package(
     default_visibility = ["//loom/src/loom/serve:implementation"],
     features = ["layering_check"],
     licenses = ["notice"],
+)
+
+exports_files(
+    SOURCE_FILES,
+    visibility = ["//loom/src/loom/serve:implementation"],
+)
+
+loom_cc_library(
+    name = "component_tests",
+    testonly = True,
+    srcs = ["component_test.cc"],
+    deps = [
+        ":component",
+        ":model",
+        ":result",
+        "//loom/src/loom/serve/runtime/device",
+        "//loom/src/loom/serve/runtime/execution",
+        "//loom/src/loom/serve/runtime/host",
+        "//loom/src/loom/serve/runtime/parameter:residency",
+        "//loom/src/loom/serve/runtime/storage:memory",
+        "//loom/src/loom/serve/testing:device",
+        "//loom/src/loom/serve/testing:service_application",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/task",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:temp_file",
+        "//runtime/src/iree/vm",
+    ],
+    alwayslink = True,
+)
+
+loom_cc_library(
+    name = "component",
+    srcs = ["component.c"],
+    hdrs = ["component.h"],
+    deps = [
+        ":model",
+        "//loom/src/loom/serve/runtime/device",
+        "//loom/src/loom/serve/runtime/host:wake",
+        "//loom/src/loom/serve/runtime/parameter:residency",
+        "//loom/src/loom/serve/runtime/program:compilation",
+        "//runtime/src/iree/base",
+    ],
 )
 
 loom_cc_library(

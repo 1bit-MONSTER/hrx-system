@@ -11,6 +11,7 @@ load("//loom/src/loom/serve/fixture/embedding:sources.bzl", EMBEDDING_SOURCES = 
 load("//loom/src/loom/serve/fixture/image:sources.bzl", IMAGE_SOURCES = "SOURCES")
 load("//loom/src/loom/serve/fixture/speech:sources.bzl", SPEECH_SOURCES = "SOURCES", SPEECH_VARIANT_SOURCES = "VARIANT_SOURCES")
 load("//loom/src/loom/serve/fixture/text:sources.bzl", TEXT_SOURCES = "SOURCES")
+load("//loom/src/loom/serve/service/finite:testdata/component/sources.bzl", COMPONENT_SOURCES = "SOURCES")
 
 package(default_visibility = ["//visibility:private"])
 
@@ -81,6 +82,24 @@ loom_py_test(
         "//conditions:default": ["@platforms//:incompatible"],
     }),
     deps = ["//loom/src/loom/serve/testing:http"],
+)
+
+loom_cc_test(
+    name = "finite_component_test",
+    data = COMPONENT_SOURCES,
+    env = {
+        "LOOM_SERVE_TEST_COMPONENT_SOURCE": "$(rootpath //loom/src/loom/serve/service/finite:testdata/component/prepare.loom)",
+    },
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:x86",
+        "//loom/config/execute:task_hal",
+    ]),
+    deps = [
+        ":test_compiler",
+        ":test_device",
+        "//loom/src/loom/serve/service/finite:component_tests",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
 )
 
 loom_py_test(

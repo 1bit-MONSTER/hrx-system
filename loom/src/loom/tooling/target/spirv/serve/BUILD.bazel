@@ -12,6 +12,7 @@ load("//loom/src/loom/serve/fixture/embedding:sources.bzl", EMBEDDING_SOURCES = 
 load("//loom/src/loom/serve/fixture/image:sources.bzl", IMAGE_SOURCES = "SOURCES")
 load("//loom/src/loom/serve/fixture/speech:sources.bzl", SPEECH_SOURCES = "SOURCES", SPEECH_VARIANT_SOURCES = "VARIANT_SOURCES")
 load("//loom/src/loom/serve/fixture/text:sources.bzl", TEXT_SOURCES = "SOURCES")
+load("//loom/src/loom/serve/service/finite:testdata/component/sources.bzl", COMPONENT_SOURCES = "SOURCES")
 
 package(default_visibility = ["//visibility:private"])
 
@@ -100,6 +101,25 @@ loom_cc_test(
         "//runtime/src/iree/testing:gtest_main",
         "//runtime/src/iree/vm",
         "//runtime/src/iree/vm/bytecode:module",
+    ],
+)
+
+loom_cc_test(
+    name = "finite_component_test",
+    data = COMPONENT_SOURCES,
+    env = {
+        "LOOM_SERVE_TEST_COMPONENT_SOURCE": "$(rootpath //loom/src/loom/serve/service/finite:testdata/component/prepare.loom)",
+    },
+    resource_group = GPU_DEVICE_RESOURCE_GROUP,
+    tags = ["iree-run-requirement=vulkan.resource.device"],
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/execute:spirv_vulkan_hal",
+    ]),
+    deps = [
+        ":test_compiler",
+        ":test_device",
+        "//loom/src/loom/serve/service/finite:component_tests",
+        "//runtime/src/iree/testing:gtest_main",
     ],
 )
 
