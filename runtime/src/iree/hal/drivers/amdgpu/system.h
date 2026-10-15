@@ -8,6 +8,7 @@
 #define IREE_HAL_DRIVERS_AMDGPU_SYSTEM_H_
 
 #include "iree/base/api.h"
+#include "iree/hal/drivers/amdgpu/host_memory_pools.h"
 #include "iree/hal/drivers/amdgpu/util/agent_target.h"
 #include "iree/hal/drivers/amdgpu/util/device_clock.h"
 #include "iree/hal/drivers/amdgpu/util/device_library.h"
@@ -29,35 +30,6 @@ typedef struct iree_hal_amdgpu_system_options_t {
   // aggressively scheduling queue entries out-of-order.
   uint64_t exclusive_execution : 1;
 } iree_hal_amdgpu_system_options_t;
-
-// A set of queried HSA regions and memory pools for a particular CPU agent.
-// In a NUMA topology each CPU agent has memory that is faster to access and
-// GPU agents attached to a particular CPU agent will require fewer hops to
-// access the CPU memory. We try to allocate resources that may be used
-// frequently on a particular cluster of CPU/GPU agents closest to the agents.
-typedef struct iree_hal_amdgpu_host_memory_pools_t {
-  // Coarse-grained shared host memory pool used for write-once/read-many data.
-  hsa_amd_memory_pool_t coarse_pool;
-  // Shared host memory pool suitable for kernel argument storage.
-  // Allocations from this pool must have
-  // HSA_AMD_MEMORY_POOL_GLOBAL_FLAG_KERNARG_INIT so dispatch packets can use
-  // them as kernarg segment storage.
-  hsa_amd_memory_pool_t kernarg_pool;
-  // Memory pool used for various system-level resources.
-  // Allocations from this pool must be accessible to all agents. Must have the
-  // HSA_REGION_GLOBAL_FLAG_FINE_GRAINED region flag as memory within this
-  // pool will be used cross-agent with atomics. This is likely to be located
-  // in host memory and we take the hit for device accesses for the ability to
-  // share access with the host. For resources we expect to only be accessed on
-  // a particular agent we instead allocate from there.
-  hsa_amd_memory_pool_t fine_pool;
-  // Memory region used for various system-level resources.
-  // Allocations from this pool must be accessible to all agents.
-  // The more modern memory pool API and `shared_fine_pool` should be used
-  // unless the particular HSA API requires a region.
-  hsa_region_t fine_region;
-  // TODO(benvanik): coarse/readonly host regions for bulk buffers/constants.
-} iree_hal_amdgpu_host_memory_pools_t;
 
 // An initialized AMDGPU system topology and agent resources.
 // This is the authoritative list of available devices and their configuration.
