@@ -12,6 +12,11 @@ static void loom_vm_math_policy_query(
     loom_target_math_policy_decision_t* out_decision) {
   loom_target_math_recipe_t recipe = LOOM_TARGET_MATH_RECIPE_UNKNOWN;
   switch (query->math_op) {
+    case LOOM_TARGET_MATH_OP_ASINHF:
+    case LOOM_TARGET_MATH_OP_ACOSHF:
+    case LOOM_TARGET_MATH_OP_ATANHF:
+      *out_decision = loom_target_math_inverse_hyperbolic_decision(query);
+      return;
     case LOOM_TARGET_MATH_OP_ADDF:
     case LOOM_TARGET_MATH_OP_SUBF:
     case LOOM_TARGET_MATH_OP_MULF:

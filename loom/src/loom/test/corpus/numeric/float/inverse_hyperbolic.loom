@@ -1,0 +1,1396 @@
+// Inverse hyperbolic source semantics across scalar and vector lanes. Runtime
+// inputs preserve subnormal, threshold, domain, and finite-overflow boundaries.
+
+func.def @inverse_f32_observations(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %source = buffer.view %input[%origin] : buffer -> view<64xf32>
+  %results = buffer.view %output[%origin] : buffer -> view<6x64xf32>
+  %begin = index.constant 0 : index
+  %end = index.constant 64 : index
+  %step = index.constant 4 : index
+  %lane_step = index.constant 1 : index
+  scf.for %i = [%begin to %end step %step] {
+    %value = vector.load %source[%i] : view<64xf32> -> vector<4xf32>
+    %asinhf = vector.asinhf<afn> %value : vector<4xf32>
+    vector.store %asinhf, %results[0, %i] : vector<4xf32>, view<6x64xf32>
+    %acoshf = vector.acoshf<afn> %value : vector<4xf32>
+    vector.store %acoshf, %results[1, %i] : vector<4xf32>, view<6x64xf32>
+    %atanhf = vector.atanhf<afn> %value : vector<4xf32>
+    vector.store %atanhf, %results[2, %i] : vector<4xf32>, view<6x64xf32>
+    %limit = index.add %i, %step : index
+    scf.for %j = [%i to %limit step %lane_step] {
+      %lane = view.load %source[%j] : view<64xf32> -> f32
+      %scalar_asinhf = scalar.asinhf<afn> %lane : f32
+      view.store %scalar_asinhf, %results[3, %j] : f32, view<6x64xf32>
+      %scalar_acoshf = scalar.acoshf<afn> %lane : f32
+      view.store %scalar_acoshf, %results[4, %j] : f32, view<6x64xf32>
+      %scalar_atanhf = scalar.atanhf<afn> %lane : f32
+      view.store %scalar_atanhf, %results[5, %j] : f32, view<6x64xf32>
+    }
+  }
+  func.return
+}
+
+// Signed zeros, subnormal limits, maximum finite values, infinities, NaNs,
+// neighbors of the polynomial and logarithm thresholds, and interior values.
+// Expected boundaries below are independently rounded from double libm.
+// Entropy trials separately compare native targets with the VM implementation.
+check.scenario @inverse_f32_boundaries {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(0) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(0) : tensor<64xi32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(0) : tensor<64xi32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xi32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xi32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xi32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xi32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.bitwise actual(%actual0) expected(%expected0) : tensor<64xi32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.bitwise actual(%actual2) expected(%expected2) : tensor<64xi32>
+      check.expect.bitwise actual(%actual3) expected(%expected0) : tensor<64xi32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.bitwise actual(%actual5) expected(%expected2) : tensor<64xi32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-2147483648) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-2147483648) : tensor<64xi32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(-2147483648) : tensor<64xi32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xi32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xi32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xi32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xi32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.bitwise actual(%actual0) expected(%expected0) : tensor<64xi32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.bitwise actual(%actual2) expected(%expected2) : tensor<64xi32>
+      check.expect.bitwise actual(%actual3) expected(%expected0) : tensor<64xi32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.bitwise actual(%actual5) expected(%expected2) : tensor<64xi32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(1.4012984643248171e-45) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(1.4012984643248171e-45) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(2) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(2.8025969286496341e-45) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(2.8025969286496341e-45) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(8388607) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(1.1754942106924411e-38) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(1.1754942106924411e-38) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(8388608) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(1.1754943508222875e-38) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(1.1754943508222875e-38) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(8388609) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(1.1754944909521339e-38) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(1.1754944909521339e-38) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(2139095039) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(89.415985107421875) : tensor<64xf32>
+    %expected1 = check.generate.fill value(89.415985107421875) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(2139095040) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(inf) : tensor<64xf32>
+    %expected1 = check.generate.fill value(inf) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-8388608) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-inf) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(2143289344) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-4194304) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(2139095041) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-8388607) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1056964607) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(0.48121181130409241) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(0.54930609464645386) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-1090519041) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-0.48121181130409241) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(-0.54930609464645386) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1056964608) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(0.48121181130409241) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(0.54930615425109863) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-1090519040) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-0.48121181130409241) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(-0.54930615425109863) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1056964609) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(0.48121187090873718) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(0.54930621385574341) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-1090519039) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-0.48121187090873718) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(-0.54930621385574341) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1065353215) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(0.88137352466583252) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(8.6643400192260742) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-1082130433) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-0.88137352466583252) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(-8.6643400192260742) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1065353216) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(0.88137358427047729) : tensor<64xf32>
+    %expected1 = check.generate.fill value(0) : tensor<64xi32>
+    %expected2 = check.generate.fill value(inf) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xi32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xi32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.bitwise actual(%actual1) expected(%expected1) : tensor<64xi32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.bitwise actual(%actual4) expected(%expected1) : tensor<64xi32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-1082130432) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-0.88137358427047729) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(-inf) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1065353217) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(0.88137364387512207) : tensor<64xf32>
+    %expected1 = check.generate.fill value(0.00048828125) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-1082130431) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-0.88137364387512207) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1069547519) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(1.19476318359375) : tensor<64xf32>
+    %expected1 = check.generate.fill value(0.96242356300354004) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-1077936129) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-1.19476318359375) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1069547520) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(1.19476318359375) : tensor<64xf32>
+    %expected1 = check.generate.fill value(0.96242362260818481) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-1077936128) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-1.19476318359375) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1069547521) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(1.1947633028030396) : tensor<64xf32>
+    %expected1 = check.generate.fill value(0.96242374181747437) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-1077936127) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-1.1947633028030396) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1166016511) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(9.0109128952026367) : tensor<64xf32>
+    %expected1 = check.generate.fill value(9.0109128952026367) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-981467137) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-9.0109128952026367) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1166016512) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(9.0109128952026367) : tensor<64xf32>
+    %expected1 = check.generate.fill value(9.0109128952026367) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-981467136) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-9.0109128952026367) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1166016513) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(9.0109138488769531) : tensor<64xf32>
+    %expected1 = check.generate.fill value(9.0109138488769531) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-981467135) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-9.0109138488769531) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1602224127) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(45.0545654296875) : tensor<64xf32>
+    %expected1 = check.generate.fill value(45.0545654296875) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-545259521) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-45.0545654296875) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1602224128) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(45.0545654296875) : tensor<64xf32>
+    %expected1 = check.generate.fill value(45.0545654296875) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-545259520) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-45.0545654296875) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1602224129) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(45.0545654296875) : tensor<64xf32>
+    %expected1 = check.generate.fill value(45.0545654296875) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-545259519) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-45.0545654296875) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(953267991) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(9.9999997473787516e-05) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(9.9999997473787516e-05) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-1194215657) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-9.9999997473787516e-05) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(-9.9999997473787516e-05) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1040187392) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(0.12467674911022186) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(0.12565721571445465) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-1107296256) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-0.12467674911022186) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(-0.12565721571445465) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1048576000) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(0.24746645987033844) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(0.25541281700134277) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-1098907648) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-0.24746645987033844) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(-0.25541281700134277) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1061158912) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(0.69314718246459961) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(0.97295504808425903) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-1086324736) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-0.69314718246459961) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(-0.97295504808425903) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1073741824) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(1.4436354637145996) : tensor<64xf32>
+    %expected1 = check.generate.fill value(1.316957950592041) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-1073741824) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-1.4436354637145996) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1092616192) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(2.9982230663299561) : tensor<64xf32>
+    %expected1 = check.generate.fill value(2.9932229518890381) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-1054867456) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-2.9982230663299561) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1120403456) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(5.298342227935791) : tensor<64xf32>
+    %expected1 = check.generate.fill value(5.2982921600341797) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-1027080192) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-5.298342227935791) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1343554297) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(23.718997955322266) : tensor<64xf32>
+    %expected1 = check.generate.fill value(23.718997955322266) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-803929351) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-23.718997955322266) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1621981420) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(46.744850158691406) : tensor<64xf32>
+    %expected1 = check.generate.fill value(46.744850158691406) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-525502228) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-46.744850158691406) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(1900671690) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(69.770698547363281) : tensor<64xf32>
+    %expected1 = check.generate.fill value(69.770698547363281) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-246811958) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    %expected0 = check.generate.fill value(-69.770698547363281) : tensor<64xf32>
+    %expected1 = check.generate.fill value(nan) : tensor<64xf32>
+    %expected2 = check.generate.fill value(nan) : tensor<64xf32>
+    %actual0 = check.tensor.view %output offset(0) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual1 = check.tensor.view %output offset(256) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual2 = check.tensor.view %output offset(512) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual3 = check.tensor.view %output offset(768) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual4 = check.tensor.view %output offset(1024) : tensor<6x64xf32> -> tensor<64xf32>
+    %actual5 = check.tensor.view %output offset(1280) : tensor<6x64xf32> -> tensor<64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%actual0) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual1) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual2) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual3) expected(%expected0) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual4) expected(%expected1) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+      check.expect.close actual(%actual5) expected(%expected2) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<64xf32>
+    }
+  }
+  check.return
+}
+
+check.scenario @inverse_f32_entropy {
+  check.trial[32](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%seed) range(-2147483648 to 2147483647) : tensor<64xi32>
+    %output = check.generate.fill value(0.0) : tensor<6x64xf32>
+    check.compare<@inverse_f32_observations>(%input, %output) : (tensor<64xi32>, tensor<6x64xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(1.4012984643248171e-45) rtol(9.9999999999999995e-07) nan(same) : tensor<6x64xf32>
+    }
+  }
+  check.return
+}

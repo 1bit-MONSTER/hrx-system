@@ -1,0 +1,273 @@
+// Exhaustive narrow source encodings cross a runtime buffer boundary. Finite
+// results are measured as unsigned encodings, exactly represented in f32. An
+// absolute distance of one is one source-format ULP, independent of binade.
+// Zero signs stay distinct; infinities and NaNs preserve their classification.
+// AFN permits the f32 approximation to round across a narrow-format midpoint.
+
+func.def inline @inverse_f8e4m3_scalar_measure(%value: f8E4M3) -> (f32) {
+  %wide = scalar.extf %value : f8E4M3 to f32
+  %finite = scalar.isfinitef %wide : f32
+  %bits = scalar.bitcast %value : f8E4M3 to i8
+  %unsigned = scalar.extui %bits : i8 to i32
+  %ordinal = scalar.uitofp %unsigned : i32 to f32
+  %result = scf.select %finite, %ordinal, %wide : f32
+  func.return %result : f32
+}
+
+func.def inline @inverse_f8e4m3_vector_measure(%value: vector<4xf8E4M3>) -> (vector<4xf32>) {
+  %wide = vector.extf %value : vector<4xf8E4M3> to vector<4xf32>
+  %finite = vector.isfinitef %wide : vector<4xf32> -> vector<4xi1>
+  %bits = vector.bitcast %value : vector<4xf8E4M3> to vector<4xi8>
+  %unsigned = vector.extui %bits : vector<4xi8> to vector<4xi32>
+  %ordinal = vector.uitofp %unsigned : vector<4xi32> to vector<4xf32>
+  %result = vector.select %finite, %ordinal, %wide : vector<4xf32>
+  func.return %result : vector<4xf32>
+}
+
+func.def inline @inverse_f8e5m2_scalar_measure(%value: f8E5M2) -> (f32) {
+  %wide = scalar.extf %value : f8E5M2 to f32
+  %finite = scalar.isfinitef %wide : f32
+  %bits = scalar.bitcast %value : f8E5M2 to i8
+  %unsigned = scalar.extui %bits : i8 to i32
+  %ordinal = scalar.uitofp %unsigned : i32 to f32
+  %result = scf.select %finite, %ordinal, %wide : f32
+  func.return %result : f32
+}
+
+func.def inline @inverse_f8e5m2_vector_measure(%value: vector<4xf8E5M2>) -> (vector<4xf32>) {
+  %wide = vector.extf %value : vector<4xf8E5M2> to vector<4xf32>
+  %finite = vector.isfinitef %wide : vector<4xf32> -> vector<4xi1>
+  %bits = vector.bitcast %value : vector<4xf8E5M2> to vector<4xi8>
+  %unsigned = vector.extui %bits : vector<4xi8> to vector<4xi32>
+  %ordinal = vector.uitofp %unsigned : vector<4xi32> to vector<4xf32>
+  %result = vector.select %finite, %ordinal, %wide : vector<4xf32>
+  func.return %result : vector<4xf32>
+}
+
+func.def inline @inverse_f16_scalar_measure(%value: f16) -> (f32) {
+  %wide = scalar.extf %value : f16 to f32
+  %finite = scalar.isfinitef %wide : f32
+  %bits = scalar.bitcast %value : f16 to i16
+  %unsigned = scalar.extui %bits : i16 to i32
+  %ordinal = scalar.uitofp %unsigned : i32 to f32
+  %result = scf.select %finite, %ordinal, %wide : f32
+  func.return %result : f32
+}
+
+func.def inline @inverse_f16_vector_measure(%value: vector<4xf16>) -> (vector<4xf32>) {
+  %wide = vector.extf %value : vector<4xf16> to vector<4xf32>
+  %finite = vector.isfinitef %wide : vector<4xf32> -> vector<4xi1>
+  %bits = vector.bitcast %value : vector<4xf16> to vector<4xi16>
+  %unsigned = vector.extui %bits : vector<4xi16> to vector<4xi32>
+  %ordinal = vector.uitofp %unsigned : vector<4xi32> to vector<4xf32>
+  %result = vector.select %finite, %ordinal, %wide : vector<4xf32>
+  func.return %result : vector<4xf32>
+}
+
+func.def inline @inverse_bf16_scalar_measure(%value: bf16) -> (f32) {
+  %wide = scalar.extf %value : bf16 to f32
+  %finite = scalar.isfinitef %wide : f32
+  %bits = scalar.bitcast %value : bf16 to i16
+  %unsigned = scalar.extui %bits : i16 to i32
+  %ordinal = scalar.uitofp %unsigned : i32 to f32
+  %result = scf.select %finite, %ordinal, %wide : f32
+  func.return %result : f32
+}
+
+func.def inline @inverse_bf16_vector_measure(%value: vector<4xbf16>) -> (vector<4xf32>) {
+  %wide = vector.extf %value : vector<4xbf16> to vector<4xf32>
+  %finite = vector.isfinitef %wide : vector<4xf32> -> vector<4xi1>
+  %bits = vector.bitcast %value : vector<4xbf16> to vector<4xi16>
+  %unsigned = vector.extui %bits : vector<4xi16> to vector<4xi32>
+  %ordinal = vector.uitofp %unsigned : vector<4xi32> to vector<4xf32>
+  %result = vector.select %finite, %ordinal, %wide : vector<4xf32>
+  func.return %result : vector<4xf32>
+}
+
+func.def @inverse_f8e4m3_observations(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %source = buffer.view %input[%origin] : buffer -> view<256xf8E4M3>
+  %results = buffer.view %output[%origin] : buffer -> view<6x256xf32>
+  %begin = index.constant 0 : index
+  %end = index.constant 256 : index
+  %step = index.constant 4 : index
+  %lane_step = index.constant 1 : index
+  scf.for %i = [%begin to %end step %step] {
+    %value = vector.load %source[%i] : view<256xf8E4M3> -> vector<4xf8E4M3>
+    %asinhf = vector.asinhf<afn> %value : vector<4xf8E4M3>
+    %asinhf_wide = func.call @inverse_f8e4m3_vector_measure(%asinhf) : (vector<4xf8E4M3>) -> (vector<4xf32>)
+    vector.store %asinhf_wide, %results[0, %i] : vector<4xf32>, view<6x256xf32>
+    %acoshf = vector.acoshf<afn> %value : vector<4xf8E4M3>
+    %acoshf_wide = func.call @inverse_f8e4m3_vector_measure(%acoshf) : (vector<4xf8E4M3>) -> (vector<4xf32>)
+    vector.store %acoshf_wide, %results[1, %i] : vector<4xf32>, view<6x256xf32>
+    %atanhf = vector.atanhf<afn> %value : vector<4xf8E4M3>
+    %atanhf_wide = func.call @inverse_f8e4m3_vector_measure(%atanhf) : (vector<4xf8E4M3>) -> (vector<4xf32>)
+    vector.store %atanhf_wide, %results[2, %i] : vector<4xf32>, view<6x256xf32>
+    %limit = index.add %i, %step : index
+    scf.for %j = [%i to %limit step %lane_step] {
+      %lane = view.load %source[%j] : view<256xf8E4M3> -> f8E4M3
+      %scalar_asinhf = scalar.asinhf<afn> %lane : f8E4M3
+      %scalar_asinhf_wide = func.call @inverse_f8e4m3_scalar_measure(%scalar_asinhf) : (f8E4M3) -> (f32)
+      view.store %scalar_asinhf_wide, %results[3, %j] : f32, view<6x256xf32>
+      %scalar_acoshf = scalar.acoshf<afn> %lane : f8E4M3
+      %scalar_acoshf_wide = func.call @inverse_f8e4m3_scalar_measure(%scalar_acoshf) : (f8E4M3) -> (f32)
+      view.store %scalar_acoshf_wide, %results[4, %j] : f32, view<6x256xf32>
+      %scalar_atanhf = scalar.atanhf<afn> %lane : f8E4M3
+      %scalar_atanhf_wide = func.call @inverse_f8e4m3_scalar_measure(%scalar_atanhf) : (f8E4M3) -> (f32)
+      view.store %scalar_atanhf_wide, %results[5, %j] : f32, view<6x256xf32>
+    }
+  }
+  func.return
+}
+
+check.scenario @inverse_f8e4m3_all_bits {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-128) step(1) : tensor<256xi8>
+    %output = check.generate.fill value(0.0) : tensor<6x256xf32>
+    check.compare<@inverse_f8e4m3_observations>(%input, %output) : (tensor<256xi8>, tensor<6x256xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(1.0) rtol(0.0) nan(same) : tensor<6x256xf32>
+    }
+  }
+  check.return
+}
+
+func.def @inverse_f8e5m2_observations(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %source = buffer.view %input[%origin] : buffer -> view<256xf8E5M2>
+  %results = buffer.view %output[%origin] : buffer -> view<6x256xf32>
+  %begin = index.constant 0 : index
+  %end = index.constant 256 : index
+  %step = index.constant 4 : index
+  %lane_step = index.constant 1 : index
+  scf.for %i = [%begin to %end step %step] {
+    %value = vector.load %source[%i] : view<256xf8E5M2> -> vector<4xf8E5M2>
+    %asinhf = vector.asinhf<afn> %value : vector<4xf8E5M2>
+    %asinhf_wide = func.call @inverse_f8e5m2_vector_measure(%asinhf) : (vector<4xf8E5M2>) -> (vector<4xf32>)
+    vector.store %asinhf_wide, %results[0, %i] : vector<4xf32>, view<6x256xf32>
+    %acoshf = vector.acoshf<afn> %value : vector<4xf8E5M2>
+    %acoshf_wide = func.call @inverse_f8e5m2_vector_measure(%acoshf) : (vector<4xf8E5M2>) -> (vector<4xf32>)
+    vector.store %acoshf_wide, %results[1, %i] : vector<4xf32>, view<6x256xf32>
+    %atanhf = vector.atanhf<afn> %value : vector<4xf8E5M2>
+    %atanhf_wide = func.call @inverse_f8e5m2_vector_measure(%atanhf) : (vector<4xf8E5M2>) -> (vector<4xf32>)
+    vector.store %atanhf_wide, %results[2, %i] : vector<4xf32>, view<6x256xf32>
+    %limit = index.add %i, %step : index
+    scf.for %j = [%i to %limit step %lane_step] {
+      %lane = view.load %source[%j] : view<256xf8E5M2> -> f8E5M2
+      %scalar_asinhf = scalar.asinhf<afn> %lane : f8E5M2
+      %scalar_asinhf_wide = func.call @inverse_f8e5m2_scalar_measure(%scalar_asinhf) : (f8E5M2) -> (f32)
+      view.store %scalar_asinhf_wide, %results[3, %j] : f32, view<6x256xf32>
+      %scalar_acoshf = scalar.acoshf<afn> %lane : f8E5M2
+      %scalar_acoshf_wide = func.call @inverse_f8e5m2_scalar_measure(%scalar_acoshf) : (f8E5M2) -> (f32)
+      view.store %scalar_acoshf_wide, %results[4, %j] : f32, view<6x256xf32>
+      %scalar_atanhf = scalar.atanhf<afn> %lane : f8E5M2
+      %scalar_atanhf_wide = func.call @inverse_f8e5m2_scalar_measure(%scalar_atanhf) : (f8E5M2) -> (f32)
+      view.store %scalar_atanhf_wide, %results[5, %j] : f32, view<6x256xf32>
+    }
+  }
+  func.return
+}
+
+check.scenario @inverse_f8e5m2_all_bits {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-128) step(1) : tensor<256xi8>
+    %output = check.generate.fill value(0.0) : tensor<6x256xf32>
+    check.compare<@inverse_f8e5m2_observations>(%input, %output) : (tensor<256xi8>, tensor<6x256xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(1.0) rtol(0.0) nan(same) : tensor<6x256xf32>
+    }
+  }
+  check.return
+}
+
+func.def @inverse_f16_observations(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %source = buffer.view %input[%origin] : buffer -> view<65536xf16>
+  %results = buffer.view %output[%origin] : buffer -> view<6x65536xf32>
+  %begin = index.constant 0 : index
+  %end = index.constant 65536 : index
+  %step = index.constant 4 : index
+  %lane_step = index.constant 1 : index
+  scf.for %i = [%begin to %end step %step] {
+    %value = vector.load %source[%i] : view<65536xf16> -> vector<4xf16>
+    %asinhf = vector.asinhf<afn> %value : vector<4xf16>
+    %asinhf_wide = func.call @inverse_f16_vector_measure(%asinhf) : (vector<4xf16>) -> (vector<4xf32>)
+    vector.store %asinhf_wide, %results[0, %i] : vector<4xf32>, view<6x65536xf32>
+    %acoshf = vector.acoshf<afn> %value : vector<4xf16>
+    %acoshf_wide = func.call @inverse_f16_vector_measure(%acoshf) : (vector<4xf16>) -> (vector<4xf32>)
+    vector.store %acoshf_wide, %results[1, %i] : vector<4xf32>, view<6x65536xf32>
+    %atanhf = vector.atanhf<afn> %value : vector<4xf16>
+    %atanhf_wide = func.call @inverse_f16_vector_measure(%atanhf) : (vector<4xf16>) -> (vector<4xf32>)
+    vector.store %atanhf_wide, %results[2, %i] : vector<4xf32>, view<6x65536xf32>
+    %limit = index.add %i, %step : index
+    scf.for %j = [%i to %limit step %lane_step] {
+      %lane = view.load %source[%j] : view<65536xf16> -> f16
+      %scalar_asinhf = scalar.asinhf<afn> %lane : f16
+      %scalar_asinhf_wide = func.call @inverse_f16_scalar_measure(%scalar_asinhf) : (f16) -> (f32)
+      view.store %scalar_asinhf_wide, %results[3, %j] : f32, view<6x65536xf32>
+      %scalar_acoshf = scalar.acoshf<afn> %lane : f16
+      %scalar_acoshf_wide = func.call @inverse_f16_scalar_measure(%scalar_acoshf) : (f16) -> (f32)
+      view.store %scalar_acoshf_wide, %results[4, %j] : f32, view<6x65536xf32>
+      %scalar_atanhf = scalar.atanhf<afn> %lane : f16
+      %scalar_atanhf_wide = func.call @inverse_f16_scalar_measure(%scalar_atanhf) : (f16) -> (f32)
+      view.store %scalar_atanhf_wide, %results[5, %j] : f32, view<6x65536xf32>
+    }
+  }
+  func.return
+}
+
+check.scenario @inverse_f16_all_bits {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-32768) step(1) : tensor<65536xi16>
+    %output = check.generate.fill value(0.0) : tensor<6x65536xf32>
+    check.compare<@inverse_f16_observations>(%input, %output) : (tensor<65536xi16>, tensor<6x65536xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(1.0) rtol(0.0) nan(same) : tensor<6x65536xf32>
+    }
+  }
+  check.return
+}
+
+func.def @inverse_bf16_observations(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %source = buffer.view %input[%origin] : buffer -> view<65536xbf16>
+  %results = buffer.view %output[%origin] : buffer -> view<6x65536xf32>
+  %begin = index.constant 0 : index
+  %end = index.constant 65536 : index
+  %step = index.constant 4 : index
+  %lane_step = index.constant 1 : index
+  scf.for %i = [%begin to %end step %step] {
+    %value = vector.load %source[%i] : view<65536xbf16> -> vector<4xbf16>
+    %asinhf = vector.asinhf<afn> %value : vector<4xbf16>
+    %asinhf_wide = func.call @inverse_bf16_vector_measure(%asinhf) : (vector<4xbf16>) -> (vector<4xf32>)
+    vector.store %asinhf_wide, %results[0, %i] : vector<4xf32>, view<6x65536xf32>
+    %acoshf = vector.acoshf<afn> %value : vector<4xbf16>
+    %acoshf_wide = func.call @inverse_bf16_vector_measure(%acoshf) : (vector<4xbf16>) -> (vector<4xf32>)
+    vector.store %acoshf_wide, %results[1, %i] : vector<4xf32>, view<6x65536xf32>
+    %atanhf = vector.atanhf<afn> %value : vector<4xbf16>
+    %atanhf_wide = func.call @inverse_bf16_vector_measure(%atanhf) : (vector<4xbf16>) -> (vector<4xf32>)
+    vector.store %atanhf_wide, %results[2, %i] : vector<4xf32>, view<6x65536xf32>
+    %limit = index.add %i, %step : index
+    scf.for %j = [%i to %limit step %lane_step] {
+      %lane = view.load %source[%j] : view<65536xbf16> -> bf16
+      %scalar_asinhf = scalar.asinhf<afn> %lane : bf16
+      %scalar_asinhf_wide = func.call @inverse_bf16_scalar_measure(%scalar_asinhf) : (bf16) -> (f32)
+      view.store %scalar_asinhf_wide, %results[3, %j] : f32, view<6x65536xf32>
+      %scalar_acoshf = scalar.acoshf<afn> %lane : bf16
+      %scalar_acoshf_wide = func.call @inverse_bf16_scalar_measure(%scalar_acoshf) : (bf16) -> (f32)
+      view.store %scalar_acoshf_wide, %results[4, %j] : f32, view<6x65536xf32>
+      %scalar_atanhf = scalar.atanhf<afn> %lane : bf16
+      %scalar_atanhf_wide = func.call @inverse_bf16_scalar_measure(%scalar_atanhf) : (bf16) -> (f32)
+      view.store %scalar_atanhf_wide, %results[5, %j] : f32, view<6x65536xf32>
+    }
+  }
+  func.return
+}
+
+check.scenario @inverse_bf16_all_bits {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-32768) step(1) : tensor<65536xi16>
+    %output = check.generate.fill value(0.0) : tensor<6x65536xf32>
+    check.compare<@inverse_bf16_observations>(%input, %output) : (tensor<65536xi16>, tensor<6x65536xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(1.0) rtol(0.0) nan(same) : tensor<6x65536xf32>
+    }
+  }
+  check.return
+}

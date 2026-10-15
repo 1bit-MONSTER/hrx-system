@@ -73,6 +73,8 @@ _ADAPTER_ONLY_SCENARIOS = [
     "numeric/float/exponential.loom",
     "numeric/float/extrema.loom",
     "numeric/float/half_extrema.loom",
+    "numeric/float/inverse_hyperbolic.loom",
+    "numeric/float/inverse_hyperbolic_narrow.loom",
     "numeric/float/logarithm.loom",
     "numeric/float/rounding.loom",
     "numeric/float/roots.loom",

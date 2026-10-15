@@ -38,6 +38,8 @@ loom_corpus_sources(
     "float/exponential.loom"
     "float/extrema.loom"
     "float/half_extrema.loom"
+    "float/inverse_hyperbolic.loom"
+    "float/inverse_hyperbolic_narrow.loom"
     "float/logarithm.loom"
     "float/narrow_reduction.loom"
     "float/rounding.loom"

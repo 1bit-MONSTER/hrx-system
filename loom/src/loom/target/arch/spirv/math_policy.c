@@ -57,6 +57,11 @@ static void loom_spirv_math_policy_query(
   // Contracts implement every source format with native IEEE instructions
   // guarded by integer edge handling, or with integer-carrier rounding.
   switch (query->math_op) {
+    case LOOM_TARGET_MATH_OP_ASINHF:
+    case LOOM_TARGET_MATH_OP_ACOSHF:
+    case LOOM_TARGET_MATH_OP_ATANHF:
+      *out_decision = loom_target_math_inverse_hyperbolic_decision(query);
+      return;
     case LOOM_TARGET_MATH_OP_CEILF:
     case LOOM_TARGET_MATH_OP_FLOORF:
     case LOOM_TARGET_MATH_OP_ROUNDF:

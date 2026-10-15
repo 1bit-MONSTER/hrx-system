@@ -410,4 +410,28 @@ loom_corpus_build(
     "VM has no kernel artifact format."
 )
 
+loom_corpus_test(
+  NAME
+    "execution"
+  PROFILE
+    "vm_reference"
+  MANIFESTS
+    "numeric"
+    "control"
+    "memory"
+    "kernel"
+    "function"
+  SOURCES
+    "numeric/float/inverse_hyperbolic.loom"
+    "numeric/float/inverse_hyperbolic_narrow.loom"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+    "loom-execution-profile=vm_reference"
+    "loom-target-family=vm"
+    "loom-target-class=cpu"
+    "loom-executor=reference"
+  REQUIRES
+    LOOM_TARGET_ARCH_VM
+)
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

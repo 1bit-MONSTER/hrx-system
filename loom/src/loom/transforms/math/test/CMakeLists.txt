@@ -14,6 +14,7 @@ loom_check_test_suite(
     test
   SRCS
     "grouped_product_evaluation.loom-test"
+    "inverse_hyperbolic.loom-test"
     "legalize.loom-test"
     "widen_f32_round.loom-test"
 )

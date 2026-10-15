@@ -11,6 +11,7 @@
 #include "loom/rewrite/rewriter.h"
 #include "loom/transforms/math/approximate_f32.h"
 #include "loom/transforms/math/evaluation.h"
+#include "loom/transforms/math/inverse_hyperbolic.h"
 #include "loom/transforms/math/patterns.h"
 
 typedef iree_status_t (*loom_math_legalize_binary_build_fn_t)(
@@ -851,6 +852,9 @@ static iree_status_t loom_math_legalize_build_evaluated_recipe(
     loom_rewriter_t* rewriter, loom_math_legalize_source_t* source,
     loom_math_legalize_value_t* out_value) {
   switch (context->decision.recipe) {
+    case LOOM_TARGET_MATH_RECIPE_INVERSE_HYPERBOLIC_F32:
+      return loom_math_build_inverse_hyperbolic(context->query.math_op, source,
+                                                out_value);
     case LOOM_TARGET_MATH_RECIPE_EXP_EXP2_F32:
       return loom_math_legalize_build_exp_exp2(&rewriter->builder, source,
                                                out_value);
@@ -956,6 +960,7 @@ static iree_status_t loom_math_legalize_rewrite_math_op(
 static bool loom_math_legalize_elementwise_recipe_is_supported(
     loom_target_math_recipe_t recipe) {
   switch (recipe) {
+    case LOOM_TARGET_MATH_RECIPE_INVERSE_HYPERBOLIC_F32:
     case LOOM_TARGET_MATH_RECIPE_EXP_EXP2_F32:
     case LOOM_TARGET_MATH_RECIPE_LOG_LOG2_F32:
     case LOOM_TARGET_MATH_RECIPE_SIN_TURNS_F32:

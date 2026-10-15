@@ -106,6 +106,23 @@ static void loom_test_grouped_product_evaluation_math_policy_query(
   }
 }
 
+static void loom_test_inverse_hyperbolic_math_policy_query(
+    const loom_target_math_policy_t* policy,
+    const loom_target_math_query_t* query,
+    loom_target_math_policy_decision_t* out_decision) {
+  (void)policy;
+  if (query->math_op == LOOM_TARGET_MATH_OP_ASINHF ||
+      query->math_op == LOOM_TARGET_MATH_OP_ACOSHF ||
+      query->math_op == LOOM_TARGET_MATH_OP_ATANHF) {
+    *out_decision = loom_target_math_inverse_hyperbolic_decision(query);
+  } else {
+    *out_decision = (loom_target_math_policy_decision_t){
+        .action = LOOM_TARGET_MATH_POLICY_ACTION_KEEP,
+        .constraint_key = IREE_SVL("test.math.inverse_hyperbolic.primitive"),
+    };
+  }
+}
+
 static bool loom_test_math_prefer_fma(
     const loom_target_math_policy_t* policy,
     const loom_target_bundle_t* target_bundle, loom_type_t value_type,
@@ -150,11 +167,19 @@ static void loom_test_math_policy_registry_initialize(
       .query = loom_test_grouped_product_evaluation_math_policy_query,
       .user_data = &kF16x4Evaluation,
   };
+  static const loom_target_math_policy_t kInverseHyperbolicPolicy = {
+      .name = IREE_SVL("test-inverse-hyperbolic"),
+      .query = loom_test_inverse_hyperbolic_math_policy_query,
+  };
   static const loom_target_math_policy_t kPreferFmaPolicy = {
       .name = IREE_SVL("test-prefer-fma"),
       .prefer_fma = loom_test_math_prefer_fma,
   };
   static const loom_target_math_policy_registry_entry_t kEntries[] = {
+      {
+          .contract_set_key = IREE_SVL("test.math.inverse_hyperbolic"),
+          .policy = &kInverseHyperbolicPolicy,
+      },
       {
           .contract_set_key = IREE_SVL("test.math.widen_f32_round"),
           .policy = &kWidenF32RoundPolicy,
