@@ -1,5 +1,5 @@
 // One multicast receiver is a compute tile; the other forwards through SRAM.
-// Three records over two slots exercise ring reuse and memory-tile passthrough.
+// Configured record and ring sizes cross DMA task and descriptor boundaries.
 // Every case changes all inputs and output buffers on invocation replay.
 aie2p.target<array> @array_target
 
@@ -134,7 +134,7 @@ pipeline.def<kernel> public retain target(@array_target) @fanout_3_2() run(%inpu
   pipeline.compose @finite_fanout[%records, %capacity](%input, %left, %right) : [index, index](buffer, buffer, buffer)
 }
 
-check.case public @rotating_channel_fanout {
+check.case public @fanout_3_2_replay {
   %first_input = check.generate.iota offset(7) step(3) : tensor<3x16xi32>
   %first_left = check.generate.fill value(-1) : tensor<3x16xi32>
   %first_right = check.generate.fill value(-1) : tensor<3x16xi32>
@@ -153,5 +153,145 @@ check.case public @rotating_channel_fanout {
   check.expect.equal actual(%first_right) expected(%first_right_expected) : tensor<3x16xi32>
   check.expect.equal actual(%second_left) expected(%second_left_expected) : tensor<3x16xi32>
   check.expect.equal actual(%second_right) expected(%second_right_expected) : tensor<3x16xi32>
+  check.return
+}
+
+pipeline.def<kernel> public retain target(@array_target) @fanout_256_1() run(%input: buffer, %left: buffer, %right: buffer) {
+  %records = index.constant 256 : index
+  %capacity = index.constant 1 : index
+  pipeline.compose @finite_fanout[%records, %capacity](%input, %left, %right) : [index, index](buffer, buffer, buffer)
+}
+
+check.case public @fanout_256_1_replay {
+  %first_input = check.generate.iota offset(7) step(3) : tensor<256x16xi32>
+  %first_left = check.generate.fill value(-1) : tensor<256x16xi32>
+  %first_right = check.generate.fill value(-1) : tensor<256x16xi32>
+  %second_input = check.generate.iota offset(-101) step(5) : tensor<256x16xi32>
+  %second_left = check.generate.fill value(-2) : tensor<256x16xi32>
+  %second_right = check.generate.fill value(-2) : tensor<256x16xi32>
+  kernel.launch.serial {
+    kernel.launch @fanout_256_1(%first_input, %first_left, %first_right) : (tensor<256x16xi32>, tensor<256x16xi32>, tensor<256x16xi32>)
+    kernel.launch @fanout_256_1(%second_input, %second_left, %second_right) : (tensor<256x16xi32>, tensor<256x16xi32>, tensor<256x16xi32>)
+  }
+  %first_left_expected = check.generate.iota offset(1007) step(3) : tensor<256x16xi32>
+  %first_right_expected = check.generate.iota offset(2007) step(3) : tensor<256x16xi32>
+  %second_left_expected = check.generate.iota offset(899) step(5) : tensor<256x16xi32>
+  %second_right_expected = check.generate.iota offset(1899) step(5) : tensor<256x16xi32>
+  check.expect.equal actual(%first_left) expected(%first_left_expected) : tensor<256x16xi32>
+  check.expect.equal actual(%first_right) expected(%first_right_expected) : tensor<256x16xi32>
+  check.expect.equal actual(%second_left) expected(%second_left_expected) : tensor<256x16xi32>
+  check.expect.equal actual(%second_right) expected(%second_right_expected) : tensor<256x16xi32>
+  check.return
+}
+
+pipeline.def<kernel> public retain target(@array_target) @fanout_257_3() run(%input: buffer, %left: buffer, %right: buffer) {
+  %records = index.constant 257 : index
+  %capacity = index.constant 3 : index
+  pipeline.compose @finite_fanout[%records, %capacity](%input, %left, %right) : [index, index](buffer, buffer, buffer)
+}
+
+check.case public @fanout_257_3_replay {
+  %first_input = check.generate.iota offset(7) step(3) : tensor<257x16xi32>
+  %first_left = check.generate.fill value(-1) : tensor<257x16xi32>
+  %first_right = check.generate.fill value(-1) : tensor<257x16xi32>
+  %second_input = check.generate.iota offset(-101) step(5) : tensor<257x16xi32>
+  %second_left = check.generate.fill value(-2) : tensor<257x16xi32>
+  %second_right = check.generate.fill value(-2) : tensor<257x16xi32>
+  kernel.launch.serial {
+    kernel.launch @fanout_257_3(%first_input, %first_left, %first_right) : (tensor<257x16xi32>, tensor<257x16xi32>, tensor<257x16xi32>)
+    kernel.launch @fanout_257_3(%second_input, %second_left, %second_right) : (tensor<257x16xi32>, tensor<257x16xi32>, tensor<257x16xi32>)
+  }
+  %first_left_expected = check.generate.iota offset(1007) step(3) : tensor<257x16xi32>
+  %first_right_expected = check.generate.iota offset(2007) step(3) : tensor<257x16xi32>
+  %second_left_expected = check.generate.iota offset(899) step(5) : tensor<257x16xi32>
+  %second_right_expected = check.generate.iota offset(1899) step(5) : tensor<257x16xi32>
+  check.expect.equal actual(%first_left) expected(%first_left_expected) : tensor<257x16xi32>
+  check.expect.equal actual(%first_right) expected(%first_right_expected) : tensor<257x16xi32>
+  check.expect.equal actual(%second_left) expected(%second_left_expected) : tensor<257x16xi32>
+  check.expect.equal actual(%second_right) expected(%second_right_expected) : tensor<257x16xi32>
+  check.return
+}
+
+pipeline.def<kernel> public retain target(@array_target) @fanout_1024_3() run(%input: buffer, %left: buffer, %right: buffer) {
+  %records = index.constant 1024 : index
+  %capacity = index.constant 3 : index
+  pipeline.compose @finite_fanout[%records, %capacity](%input, %left, %right) : [index, index](buffer, buffer, buffer)
+}
+
+check.case public @fanout_1024_3_replay {
+  %first_input = check.generate.iota offset(7) step(3) : tensor<1024x16xi32>
+  %first_left = check.generate.fill value(-1) : tensor<1024x16xi32>
+  %first_right = check.generate.fill value(-1) : tensor<1024x16xi32>
+  %second_input = check.generate.iota offset(-101) step(5) : tensor<1024x16xi32>
+  %second_left = check.generate.fill value(-2) : tensor<1024x16xi32>
+  %second_right = check.generate.fill value(-2) : tensor<1024x16xi32>
+  kernel.launch.serial {
+    kernel.launch @fanout_1024_3(%first_input, %first_left, %first_right) : (tensor<1024x16xi32>, tensor<1024x16xi32>, tensor<1024x16xi32>)
+    kernel.launch @fanout_1024_3(%second_input, %second_left, %second_right) : (tensor<1024x16xi32>, tensor<1024x16xi32>, tensor<1024x16xi32>)
+  }
+  %first_left_expected = check.generate.iota offset(1007) step(3) : tensor<1024x16xi32>
+  %first_right_expected = check.generate.iota offset(2007) step(3) : tensor<1024x16xi32>
+  %second_left_expected = check.generate.iota offset(899) step(5) : tensor<1024x16xi32>
+  %second_right_expected = check.generate.iota offset(1899) step(5) : tensor<1024x16xi32>
+  check.expect.equal actual(%first_left) expected(%first_left_expected) : tensor<1024x16xi32>
+  check.expect.equal actual(%first_right) expected(%first_right_expected) : tensor<1024x16xi32>
+  check.expect.equal actual(%second_left) expected(%second_left_expected) : tensor<1024x16xi32>
+  check.expect.equal actual(%second_right) expected(%second_right_expected) : tensor<1024x16xi32>
+  check.return
+}
+
+pipeline.def<kernel> public retain target(@array_target) @fanout_1120_1() run(%input: buffer, %left: buffer, %right: buffer) {
+  %records = index.constant 1120 : index
+  %capacity = index.constant 1 : index
+  pipeline.compose @finite_fanout[%records, %capacity](%input, %left, %right) : [index, index](buffer, buffer, buffer)
+}
+
+check.case public @fanout_1120_1_replay {
+  %first_input = check.generate.iota offset(7) step(3) : tensor<1120x16xi32>
+  %first_left = check.generate.fill value(-1) : tensor<1120x16xi32>
+  %first_right = check.generate.fill value(-1) : tensor<1120x16xi32>
+  %second_input = check.generate.iota offset(-101) step(5) : tensor<1120x16xi32>
+  %second_left = check.generate.fill value(-2) : tensor<1120x16xi32>
+  %second_right = check.generate.fill value(-2) : tensor<1120x16xi32>
+  kernel.launch.serial {
+    kernel.launch @fanout_1120_1(%first_input, %first_left, %first_right) : (tensor<1120x16xi32>, tensor<1120x16xi32>, tensor<1120x16xi32>)
+    kernel.launch @fanout_1120_1(%second_input, %second_left, %second_right) : (tensor<1120x16xi32>, tensor<1120x16xi32>, tensor<1120x16xi32>)
+  }
+  %first_left_expected = check.generate.iota offset(1007) step(3) : tensor<1120x16xi32>
+  %first_right_expected = check.generate.iota offset(2007) step(3) : tensor<1120x16xi32>
+  %second_left_expected = check.generate.iota offset(899) step(5) : tensor<1120x16xi32>
+  %second_right_expected = check.generate.iota offset(1899) step(5) : tensor<1120x16xi32>
+  check.expect.equal actual(%first_left) expected(%first_left_expected) : tensor<1120x16xi32>
+  check.expect.equal actual(%first_right) expected(%first_right_expected) : tensor<1120x16xi32>
+  check.expect.equal actual(%second_left) expected(%second_left_expected) : tensor<1120x16xi32>
+  check.expect.equal actual(%second_right) expected(%second_right_expected) : tensor<1120x16xi32>
+  check.return
+}
+
+pipeline.def<kernel> public retain target(@array_target) @fanout_1123_3() run(%input: buffer, %left: buffer, %right: buffer) {
+  %records = index.constant 1123 : index
+  %capacity = index.constant 3 : index
+  pipeline.compose @finite_fanout[%records, %capacity](%input, %left, %right) : [index, index](buffer, buffer, buffer)
+}
+
+check.case public @fanout_1123_3_replay {
+  %first_input = check.generate.iota offset(7) step(3) : tensor<1123x16xi32>
+  %first_left = check.generate.fill value(-1) : tensor<1123x16xi32>
+  %first_right = check.generate.fill value(-1) : tensor<1123x16xi32>
+  %second_input = check.generate.iota offset(-101) step(5) : tensor<1123x16xi32>
+  %second_left = check.generate.fill value(-2) : tensor<1123x16xi32>
+  %second_right = check.generate.fill value(-2) : tensor<1123x16xi32>
+  kernel.launch.serial {
+    kernel.launch @fanout_1123_3(%first_input, %first_left, %first_right) : (tensor<1123x16xi32>, tensor<1123x16xi32>, tensor<1123x16xi32>)
+    kernel.launch @fanout_1123_3(%second_input, %second_left, %second_right) : (tensor<1123x16xi32>, tensor<1123x16xi32>, tensor<1123x16xi32>)
+  }
+  %first_left_expected = check.generate.iota offset(1007) step(3) : tensor<1123x16xi32>
+  %first_right_expected = check.generate.iota offset(2007) step(3) : tensor<1123x16xi32>
+  %second_left_expected = check.generate.iota offset(899) step(5) : tensor<1123x16xi32>
+  %second_right_expected = check.generate.iota offset(1899) step(5) : tensor<1123x16xi32>
+  check.expect.equal actual(%first_left) expected(%first_left_expected) : tensor<1123x16xi32>
+  check.expect.equal actual(%first_right) expected(%first_right_expected) : tensor<1123x16xi32>
+  check.expect.equal actual(%second_left) expected(%second_left_expected) : tensor<1123x16xi32>
+  check.expect.equal actual(%second_right) expected(%second_right_expected) : tensor<1123x16xi32>
   check.return
 }

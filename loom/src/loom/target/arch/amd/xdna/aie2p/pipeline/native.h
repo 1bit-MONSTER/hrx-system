@@ -114,6 +114,15 @@ typedef struct loom_aie2p_native_memory_layout_t {
     // Current ring slot reset at invocation boundaries.
     loom_xdna_register_field_id_t current;
   } iteration;
+  // Word and fields linking descriptors within one finite DMA task.
+  struct {
+    // Word containing both chain fields.
+    uint8_t word;
+    // Next descriptor ordinal.
+    loom_xdna_register_field_id_t next;
+    // The current task continues at the next descriptor.
+    loom_xdna_register_field_id_t enable;
+  } chain;
   // Word containing lock actions and descriptor validity.
   uint8_t lock_word;
   // Lock action and validity fields.
@@ -300,10 +309,18 @@ typedef struct loom_aie2p_native_distribution_endpoint_t {
   loom_aie2p_native_tile_t* tile;
   // Direction-specific DMA engine.
   uint8_t engine;
-  // Descriptor iterating through this FIFO's physical ring.
+  // First descriptor in the contiguous allocation owned by this endpoint.
   uint16_t descriptor;
-  // Complete on-chip DMA descriptor image.
-  uint32_t words[8];
+  // Number of descriptors, including any separately terminating final prefix.
+  uint16_t descriptor_count;
+  // Arena-owned complete descriptor images in physical ordinal order.
+  uint32_t (*words)[8];
+  // Number of start tasks, bounded by the hardware queue depth.
+  uint8_t task_count;
+  // Arena-owned encoded task words in FIFO publication order.
+  uint32_t* tasks;
+  // The single iterating descriptor ends away from the initial ring slot.
+  bool rewind_iteration;
   // Invocation retirement must explicitly observe this DMA channel idle.
   bool wait_for_idle;
 } loom_aie2p_native_distribution_endpoint_t;

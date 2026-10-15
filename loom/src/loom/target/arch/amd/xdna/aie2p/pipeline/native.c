@@ -33,6 +33,14 @@ static const loom_aie2p_native_memory_layout_t loom_aie2p_compute_memory = {
                 LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_BD_WORD4_ITERATION_CURRENT,
         },
     .lock_word = 5,
+    .chain =
+        {
+            .word = 5,
+            .next =
+                LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_BD_WORD5_NEXT_BD,
+            .enable =
+                LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_BD_WORD5_USE_NEXT_BD,
+        },
     .locks =
         {
             .acquire_id =
@@ -105,6 +113,13 @@ static const loom_aie2p_native_memory_layout_t loom_aie2p_sram_memory = {
                 LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_BD_WORD6_ITERATION_CURRENT,
         },
     .lock_word = 7,
+    .chain =
+        {
+            .word = 1,
+            .next = LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_BD_WORD1_NEXT_BD,
+            .enable =
+                LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_BD_WORD1_USE_NEXT_BD,
+        },
     .locks =
         {
             .acquire_id =
@@ -433,13 +448,11 @@ static iree_status_t loom_aie2p_native_claim_transport_cursor(
       &context->channels[bound - realization->resources.channels];
   loom_aie2p_native_cursor_t* cursor =
       reader ? &channel->cursor.reader : &channel->cursor.writer;
-  const loom_xdna_dma_facts_t* dma =
-      &context->pool_tiles[channel->pool_index]->facts->dma;
-  if (!admissions || admissions > dma->maximum_task_repeat_count) {
+  if (!admissions || admissions > UINT32_MAX) {
     return loom_aie2p_native_reject(
         context, op,
-        IREE_SV("a positive channel-copy count within the native DMA "
-                "task-repeat range"));
+        IREE_SV(
+            "a positive channel-copy count representable by native cursors"));
   }
   if (cursor->worker != UINT32_MAX) {
     return loom_aie2p_native_reject(
