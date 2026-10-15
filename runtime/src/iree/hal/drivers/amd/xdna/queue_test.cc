@@ -166,6 +166,28 @@ TEST(XdnaQueueTest, DeviceCreatesOwnedDeviceCompatibleSemaphores) {
             IREE_HAL_SEMAPHORE_COMPATIBILITY_ALL);
 }
 
+TEST(XdnaQueueTest, UnsupportedNativeQueueReportsDriverRequirementAndUnwinds) {
+  QueueHarness harness;
+  ASSERT_NO_FATAL_FAILURE(harness.Initialize());
+  harness.native.xdna.kernel_queue_create =
+      +[](amdf_xdna_context_t*, const amdf_xdna_kernel_queue_create_info_t*,
+          amdf_kernel_queue_t**) -> amdf_status_t {
+    return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+  };
+  HostAllocationCounters counters;
+  iree_hal_queue_t* queue = nullptr;
+  iree::Status status = iree_hal_amd_xdna_queue_create(
+      iree_hal_queue_family(harness.queue), harness.context, harness.proactor,
+      TrackingAllocator(&counters), &queue);
+  EXPECT_EQ(status.code(), iree::StatusCode::kUnimplemented);
+  EXPECT_THAT(
+      status.ToString(),
+      ::testing::HasSubstr("update the NPU driver and matching firmware"));
+  EXPECT_EQ(queue, nullptr);
+  EXPECT_EQ(counters.live_allocations.load(), 0);
+  EXPECT_EQ(harness.native.submission_count, 0u);
+}
+
 TEST(XdnaQueueTest, QueueBarrierPreservesGlobalBoundaryOrdering) {
   QueueHarness harness;
   ASSERT_NO_FATAL_FAILURE(harness.Initialize());

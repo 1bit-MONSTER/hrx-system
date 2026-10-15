@@ -26,6 +26,16 @@ context. The default is one column. The context width must equal the compiled
 array's width; a wider context does not implicitly pad the program. Endpoint
 identity, firmware ABI, and geometry are checked when an executable is loaded.
 
+The [native execution requirements](../../../../../../../libamdf/docs/xdna.md#native-requirements)
+must be available before HAL device creation succeeds. On Linux, libamdf
+qualifies the required direct instruction transport with a no-effect transaction
+when creating the first queue for a context. Unsupported transport produces an
+explicit update-driver diagnostic during device creation, before loading or
+submitting application work. Install the NPU driver and its matching firmware;
+discovering the device or successfully creating a native context is insufficient.
+This startup check runs once per context and adds no steady-state submission
+work. Optional profiling services have separate capability requirements.
+
 The normal tool accepts finite `pipeline.def<kernel>` subjects with buffer
 launch bindings and no leading specialization arguments. Specialization
 arguments need a compiler preparation step that binds the scenario's

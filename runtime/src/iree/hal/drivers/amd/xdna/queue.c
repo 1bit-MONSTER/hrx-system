@@ -1463,6 +1463,14 @@ iree_status_t iree_hal_amd_xdna_queue_create(
       context->xdna->kernel_queue_create(context->handle, &create_info,
                                          &queue->handle),
       "xdna.kernel_queue_create");
+  if (iree_status_is_unimplemented(status)) {
+    status = iree_status_annotate(
+        status,
+        IREE_SV("XDNA requires native instruction submission and completion "
+                "support; update the NPU driver and matching firmware. See "
+                "https://github.com/ROCm/hrx-system/blob/main/libamdf/docs/"
+                "xdna.md#native-requirements"));
+  }
   amdf_kernel_queue_info_t info = {
       .type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_INFO,
       .structure_size = sizeof(info),
