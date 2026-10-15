@@ -46,6 +46,7 @@ _PIPELINE_ARTIFACTS = select({
             "@reordered_publication",
             "@reordered_retirement",
             "@rotating_retirement",
+            "@reuse_dma_descriptors",
         ],
         target = ":" + profile,
         target_compatible_with = _PIPELINE_ARTIFACTS,
@@ -86,6 +87,29 @@ xdna_cc_test(
         "//runtime/src/iree/base",
         "//runtime/src/iree/testing:gtest",
     ],
+)
+
+iree_py_binary(
+    name = "dma_geometry_test",
+    testonly = True,
+    srcs = ["dma_geometry_test.py"],
+    main = "dma_geometry_test.py",
+)
+
+xdna_execution_test_suite(
+    name = "dma_geometry_npu2_test",
+    manifests = ["dma_geometry_npu2.test.json"],
+    target_compatible_with = _PIPELINE_ARTIFACTS + select({
+        "@platforms//os:linux": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    tools = {
+        "amdf-enumerate": "//libamdf/examples:enumerate",
+        "check-geometry": ":dma_geometry_test",
+        "iree-xdna-run": "//experimental/xdna:iree-xdna-run",
+        "loom-compile": "//loom/src/loom/tools/loom-compile",
+    },
 )
 
 iree_py_binary(

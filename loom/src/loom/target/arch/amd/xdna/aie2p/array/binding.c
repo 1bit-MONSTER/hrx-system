@@ -54,12 +54,16 @@ static bool loom_aie2p_array_binding_address_dimension(
 
   const uint64_t step_size = step_bits / address_granularity_bits;
   const uint64_t maximum_step_size = UINT64_C(1) << dma_facts->step_size_bits;
-  const uint64_t maximum_wrap = UINT64_C(1) << dma_facts->wrap_bits;
-  if (step_size == 0 || step_size > maximum_step_size ||
-      (has_outer_dimension && (wrap == 0 || wrap > maximum_wrap))) {
+  const uint64_t maximum_wrap = (UINT64_C(1) << dma_facts->wrap_bits) - 1;
+  if (step_size == 0 || step_size > maximum_step_size) {
     return loom_aie2p_array_reject_binding_transfer(
-        IREE_SV("an address dimension exceeds the shim DMA step or wrap "
-                "field"),
+        IREE_SV("an address dimension exceeds the DMA step field"), out_reason);
+  }
+  // Step fields encode step_size - 1; wrap fields encode the actual count.
+  // Zero disables wrapping and cannot represent one past the field maximum.
+  if (has_outer_dimension && (wrap == 0 || wrap > maximum_wrap)) {
+    return loom_aie2p_array_reject_binding_transfer(
+        IREE_SV("an address dimension exceeds the nonzero DMA wrap field"),
         out_reason);
   }
   *out_dimension = (loom_aie2p_array_binding_dma_dimension_t){
@@ -87,7 +91,7 @@ bool loom_aie2p_array_resolve_binding_transfer(
   uint64_t task_repeat_count = 1;
   uint8_t dma_dimension_count = 0;
   loom_aie2p_array_binding_dma_dimension_t
-      dma_dimensions[LOOM_AIE2P_ARRAY_BINDING_DMA_DIMENSION_COUNT] = {0};
+      dma_dimensions[LOOM_AIE2P_ARRAY_BINDING_DMA_DIMENSION_CAPACITY] = {0};
 
   if (geometry->layout_kind == LOOM_VALUE_FACT_ADDRESS_LAYOUT_DENSE) {
     if (partitioned) {
@@ -176,7 +180,7 @@ bool loom_aie2p_array_resolve_binding_transfer(
       if (transfer_rank > dma_facts->address_dimension_count) {
         return loom_aie2p_array_reject_binding_transfer(
             IREE_SV("the strided transfer requires more address dimensions "
-                    "than shim DMA provides"),
+                    "than DMA provides"),
             out_reason);
       }
       dma_dimension_count = transfer_rank;
@@ -206,13 +210,13 @@ bool loom_aie2p_array_resolve_binding_transfer(
       scaled_transfer_length < minimum_transfer_units ||
       scaled_transfer_length > maximum_transfer_units) {
     return loom_aie2p_array_reject_binding_transfer(
-        IREE_SV("the transfer length must fit the shim DMA length field in "
+        IREE_SV("the transfer length must fit the DMA length field in "
                 "native units"),
         out_reason);
   }
   if (task_repeat_count > dma_facts->maximum_task_repeat_count) {
     return loom_aie2p_array_reject_binding_transfer(
-        IREE_SV("the repeated task count exceeds the shim DMA queue field"),
+        IREE_SV("the repeated task count exceeds the DMA queue field"),
         out_reason);
   }
   if (binding_byte_offset > INT64_MAX ||
@@ -222,7 +226,7 @@ bool loom_aie2p_array_resolve_binding_transfer(
           dma_facts->address_maximum - binding_span_byte_length) {
     return loom_aie2p_array_reject_binding_transfer(
         IREE_SV("the aligned binding offset and reachable span must fit the "
-                "shim DMA address domain"),
+                "DMA address domain"),
         out_reason);
   }
 

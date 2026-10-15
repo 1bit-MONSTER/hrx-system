@@ -128,6 +128,40 @@ TEST_F(XdnaPipelineCompletionTest, PublishesReservationOrder) {
   CheckPipeline(IREE_SV("reordered_publication"), results);
 }
 
+TEST_F(XdnaPipelineCompletionTest, ReusesOnlyRetiredDmaDescriptors) {
+  ASSERT_NO_FATAL_FAILURE(LoadPipeline(IREE_SV("reuse_dma_descriptors")));
+  ASSERT_NO_FATAL_FAILURE(CreateBindings(AMDF_MEMORY_PROFILE_ROLE_CREATE));
+  ASSERT_NO_FATAL_FAILURE(PrepareExecution(resolved_bindings_, &first_));
+  for (size_t generation = 0; generation < 3; ++generation) {
+    SCOPED_TRACE(generation);
+    const size_t first_input = generation;
+    const size_t second_input = (generation + 1) % resolved_bindings_.size();
+    const size_t output = (generation + 2) % resolved_bindings_.size();
+    std::array<BindingValues, 3> expected;
+    for (size_t binding = 0; binding < expected.size(); ++binding) {
+      for (size_t i = 0; i < kElementCount; ++i) {
+        expected[binding][i] =
+            kValues[(i + binding + generation) % kElementCount];
+      }
+      ASSERT_NO_FATAL_FAILURE(WriteBinding(binding, expected[binding]));
+    }
+    const ResolvedBindings bindings = {resolved_bindings_[first_input],
+                                       resolved_bindings_[second_input],
+                                       resolved_bindings_[output]};
+    ASSERT_NO_FATAL_FAILURE(BindPipeline(bindings));
+    for (size_t pair = 0; pair < 7; ++pair) {
+      const size_t input = pair == 1 || pair == 3 ? second_input : first_input;
+      const uint32_t increment = pair < 5 ? pair + 1 : pair;
+      for (size_t field = 0; field < 2; ++field) {
+        const size_t index = pair * 2 + field;
+        expected[output][index] = expected[input][index] + increment;
+      }
+    }
+    ASSERT_NO_FATAL_FAILURE(RunExecution(first_));
+    ASSERT_NO_FATAL_FAILURE(VerifyBindings(expected));
+  }
+}
+
 TEST_F(XdnaPipelineCompletionTest, UsesFirstSlotOfMultiSlotChannel) {
   constexpr std::array<uint32_t, 1> results = {13};
   CheckPipeline(IREE_SV("single_admission"), results);

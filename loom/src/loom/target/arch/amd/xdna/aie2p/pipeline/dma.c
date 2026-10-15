@@ -25,7 +25,7 @@ static uint32_t loom_aie2p_native_register_offset(
 static iree_status_t loom_aie2p_native_dma_local_word(
     const loom_aie2p_native_transfer_t* transfer, loom_builder_t* builder,
     loom_value_id_t* out_word) {
-  const loom_aie2p_native_dma_path_t* path = transfer->path;
+  const loom_aie2p_native_dma_path_t* path = transfer->descriptor->path;
   const loom_location_id_t location = transfer->source->request.op->location;
   const loom_type_t offset_type = loom_type_scalar(LOOM_SCALAR_TYPE_OFFSET);
   const loom_type_t word_type = loom_type_scalar(LOOM_SCALAR_TYPE_I32);
@@ -65,8 +65,8 @@ static iree_status_t loom_aie2p_native_dma_local_word(
       builder, 0, loom_index_cast_result(integer),
       loom_scalar_constant_result(shift), word_type, location, &address_bits));
   IREE_RETURN_IF_ERROR(loom_scalar_constant_build(
-      builder, loom_attr_i64((int32_t)transfer->local_words[0]), word_type,
-      location, &length));
+      builder, loom_attr_i64((int32_t)transfer->descriptor->local_words[0]),
+      word_type, location, &length));
   IREE_RETURN_IF_ERROR(loom_scalar_ori_build(
       builder, loom_scalar_shli_result(address_bits),
       loom_scalar_constant_result(length), word_type, location, &word));
@@ -78,9 +78,8 @@ static iree_status_t loom_aie2p_native_dma_submit_helper(
     loom_aie2p_native_context_t* context,
     loom_aie2p_native_transfer_t* transfer) {
   loom_aie2p_worker_builder_t* code = &context->code;
-  const loom_aie2p_native_dma_path_t* path = transfer->path;
-  const bool external_dynamic = !loom_symbolic_expr_is_constant(
-      &transfer->external_view->begin_byte_offset);
+  const loom_aie2p_native_dma_path_t* path = transfer->descriptor->path;
+  const bool external_dynamic = transfer->descriptor->external_address_dynamic;
   const bool projection_dynamic = !loom_symbolic_expr_is_constant(
       &transfer->local_view->projection_byte_offset);
   const bool record_dynamic = transfer->record_dynamic;
@@ -140,7 +139,7 @@ static iree_status_t loom_aie2p_native_dma_submit_helper(
     const uint32_t local_descriptor = loom_aie2p_native_register_offset(
         context, path->local,
         LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_BD_WORD0_BASE_ADDRESS,
-        transfer->local_descriptor);
+        transfer->descriptor->local_descriptor);
     IREE_RETURN_IF_ERROR(loom_aie2p_worker_control_write(
         code, &builder, path->control.local, local_descriptor, &local_word, 1));
   }
@@ -148,7 +147,7 @@ static iree_status_t loom_aie2p_native_dma_submit_helper(
     const uint32_t shim_descriptor = loom_aie2p_native_register_offset(
         context, path->shim,
         LOOM_XDNA_REGISTER_FIELD_SHIM_NOC_DMA_BD_WORD1_BASE_ADDRESS_LOW,
-        transfer->shim_descriptor);
+        transfer->descriptor->shim_descriptor);
     const loom_value_id_t external_words[] = {external_low, external_high};
     IREE_RETURN_IF_ERROR(
         loom_aie2p_worker_control_write(code, &builder, path->control.shim,
@@ -163,13 +162,13 @@ static iree_status_t loom_aie2p_native_dma_submit_helper(
           ? LOOM_XDNA_REGISTER_FIELD_SHIM_NOC_DMA_CHANNEL_MM2S_TASK_QUEUE_START_BD_ID
           : LOOM_XDNA_REGISTER_FIELD_SHIM_NOC_DMA_CHANNEL_S2MM_TASK_QUEUE_START_BD_ID;
   loom_value_id_t local_task, shim_task;
-  IREE_RETURN_IF_ERROR(
-      loom_aie2p_worker_constant(code, &builder,
-                                 loom_xdna_register_field_encode_admitted(
-                                     local_queue, transfer->local_descriptor),
-                                 &local_task));
+  IREE_RETURN_IF_ERROR(loom_aie2p_worker_constant(
+      code, &builder,
+      loom_xdna_register_field_encode_admitted(
+          local_queue, transfer->descriptor->local_descriptor),
+      &local_task));
   uint32_t shim_bits = loom_xdna_register_field_encode_admitted(
-      shim_queue, transfer->shim_descriptor);
+      shim_queue, transfer->descriptor->shim_descriptor);
   if (!path->ingress) {
     shim_bits |= loom_xdna_register_field_encode_admitted(
         LOOM_XDNA_REGISTER_FIELD_SHIM_NOC_DMA_CHANNEL_S2MM_TASK_QUEUE_ENABLE_TOKEN_ISSUE,
@@ -202,10 +201,10 @@ static iree_status_t loom_aie2p_native_dma_wait_helper(
   loom_op_t* function;
   IREE_RETURN_IF_ERROR(loom_aie2p_worker_helper(
       code, NULL, 0, NULL, 0, &builder, &transfer->wait, &function));
-  if (transfer->path->ingress) {
+  if (transfer->descriptor->path->ingress) {
     IREE_RETURN_IF_ERROR(loom_aie2p_worker_lock(
         code, &builder, AIE2P_CORE_DESCRIPTOR_REF_LOCK_ACQUIRE_IMMEDIATE,
-        transfer->completion_selector, -1));
+        transfer->descriptor->completion_selector, -1));
   } else {
     loom_value_id_t completed;
     IREE_RETURN_IF_ERROR(loom_aie2p_worker_op(
@@ -229,8 +228,7 @@ iree_status_t loom_aie2p_native_emit_transfers(
     IREE_RETURN_IF_ERROR(loom_aie2p_native_dma_wait_helper(context, transfer));
     loom_value_id_t arguments[2];
     iree_host_size_t argument_count = 0;
-    if (!loom_symbolic_expr_is_constant(
-            &transfer->external_view->begin_byte_offset)) {
+    if (transfer->descriptor->external_address_dynamic) {
       loom_value_id_t offset;
       IREE_RETURN_IF_ERROR(loom_view_materialize_offset_expression(
           builder, &transfer->external_view->begin_byte_offset,

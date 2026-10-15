@@ -415,11 +415,11 @@ typedef struct loom_aie2p_array_completion_route_t {
 } loom_aie2p_array_completion_route_t;
 
 enum {
-  // AIE2P shim DMA buffer descriptors expose three address dimensions.
-  LOOM_AIE2P_ARRAY_BINDING_DMA_DIMENSION_COUNT = 3,
+  // Memory-tile DMA exposes four dimensions; compute and shim DMA expose three.
+  LOOM_AIE2P_ARRAY_BINDING_DMA_DIMENSION_CAPACITY = 4,
 };
 
-// One innermost-first shim DMA address dimension.
+// One innermost-first DMA address dimension.
 typedef struct loom_aie2p_array_binding_dma_dimension_t {
   // Actual address-generation step in family-native address units.
   uint32_t step_size;
@@ -455,7 +455,7 @@ typedef struct loom_aie2p_array_binding_plan_t {
   uint8_t dma_dimension_count;
   // Innermost-first multidimensional address-generator rows.
   loom_aie2p_array_binding_dma_dimension_t
-      dma_dimensions[LOOM_AIE2P_ARRAY_BINDING_DMA_DIMENSION_COUNT];
+      dma_dimensions[LOOM_AIE2P_ARRAY_BINDING_DMA_DIMENSION_CAPACITY];
 } loom_aie2p_array_binding_plan_t;
 
 // Complete arena-owned logical topology and deterministic NPU2 physical plan.
