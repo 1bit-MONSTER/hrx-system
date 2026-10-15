@@ -445,7 +445,7 @@ TEST(HttpRequestTest, BoundsDecodedContentAndCumulativeFramingIndependently) {
   RequestSnapshot actual;
   IREE_ASSERT_OK(ParseRequest({StringSpan(exact_body)}, limits, &actual));
   EXPECT_EQ(actual.body, "abcd");
-  for (const std::string& encoded_body : {"5\r\n", "2\r\nab\r\n3\r\n"}) {
+  for (const char* encoded_body : {"5\r\n", "2\r\nab\r\n3\r\n"}) {
     const std::string wire_request = ChunkedRequest(encoded_body);
     RequestSnapshot ignored;
     IREE_EXPECT_STATUS_IS(

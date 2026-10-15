@@ -168,7 +168,7 @@ TEST_F(TokenizerInputTokensTest,
 TEST_F(TokenizerInputTokensTest, CompleteInputRejectsTruncatedUTF8) {
   std::vector<uint8_t> batch_state(state_storage_.size());
   std::vector<uint8_t> batch_transform(transform_storage_.size());
-  for (const std::string& codepoint : {"é", "中", "🙂"}) {
+  for (const std::string codepoint : {"é", "中", "🙂"}) {
     for (size_t length = 1; length < codepoint.size(); ++length) {
       SCOPED_TRACE(codepoint);
       SCOPED_TRACE(length);

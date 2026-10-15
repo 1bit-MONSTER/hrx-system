@@ -103,7 +103,10 @@ loom_cc_library(
     srcs = ["source_service_test.cc"],
     target_compatible_with = loom_config_compatible_with([
         "//loom/config/target/arch:vm",
-    ]),
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
     visibility = ["//visibility:public"],
     deps = [
         ":generator",
