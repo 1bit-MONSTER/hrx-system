@@ -57,7 +57,10 @@ loom_cc_test(
         "facts_division_test_util.cc",
         "facts_division_test_util.h",
     ],
-    tags = ["manual"],
+    tags = [
+        "manual",
+        "stress",
+    ],
     deps = [
         ":facts",
         "//runtime/src/iree/testing:gtest",

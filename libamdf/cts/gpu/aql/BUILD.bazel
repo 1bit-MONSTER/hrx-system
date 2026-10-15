@@ -138,7 +138,10 @@ amdf_cts_test_suite(
         "barrier_or_payload_stress_test.cc",
         "dispatch_timing_stress_test.cc",
     ],
-    tags = ["manual"],
+    tags = [
+        "manual",
+        "stress",
+    ],
     target_compatible_with = _AQL_TEST_COMPATIBILITY,
     visibility = ["//visibility:public"],
     deps = [

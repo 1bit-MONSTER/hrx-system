@@ -306,6 +306,7 @@ iree_py_test(
     "notsan"
     "manual"
     "resource_group:gpu-device"
+    "stress"
   PACKAGE_DIRS
     "${PROJECT_SOURCE_DIR}/loom/py"
     "${PROJECT_BINARY_DIR}/loom/py"
@@ -376,6 +377,7 @@ iree_py_test(
     "notsan"
     "manual"
     "resource_group:gpu-device"
+    "stress"
   PACKAGE_DIRS
     "${PROJECT_SOURCE_DIR}/loom/py"
     "${PROJECT_BINARY_DIR}/loom/py"

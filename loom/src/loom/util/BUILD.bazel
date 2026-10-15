@@ -193,7 +193,10 @@ loom_cc_test(
 loom_cc_test(
     name = "segmented_storage_stress_test",
     srcs = ["segmented_storage_stress.cc"],
-    tags = ["manual"],
+    tags = [
+        "manual",
+        "stress",
+    ],
     deps = [
         ":segmented_storage_test_util",
         "//runtime/src/iree/testing:gtest",
@@ -586,7 +589,10 @@ loom_cc_test(
 loom_cc_test(
     name = "cfg_regions_stress_test",
     srcs = ["cfg_regions_stress_test.cc"],
-    tags = ["manual"],
+    tags = [
+        "manual",
+        "stress",
+    ],
     deps = [
         ":cfg_regions_test_util",
         "//runtime/src/iree/testing:gtest",
@@ -725,7 +731,10 @@ loom_cc_test(
 loom_cc_test(
     name = "cfg_control_stress_test",
     srcs = ["cfg_control_stress_test.cc"],
-    tags = ["manual"],
+    tags = [
+        "manual",
+        "stress",
+    ],
     deps = [
         ":cfg_control_test_harness",
         "//runtime/src/iree/testing:gtest",

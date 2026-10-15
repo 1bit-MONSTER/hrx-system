@@ -1216,9 +1216,10 @@ loom_cc_test(
 
 loom_cc_test(
   NAME
-    source_lowering_stress_test
+    source_lowering_test
   SRCS
-    "source_lowering_stress_test.cc"
+    "source_lowering_test.cc"
+    "source_lowering_test_util.h"
   DEPS
     iree::base::internal::arena
     iree::testing::gtest
@@ -1234,6 +1235,28 @@ loom_cc_test(
     loom::target::test::low_registry
     loom::target::test::lower
     loom::testing::module_ptr
+)
+
+loom_cc_test(
+  NAME
+    source_lowering_stress_test
+  SRCS
+    "source_lowering_stress_test.cc"
+    "source_lowering_test_util.h"
+  DEPS
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::codegen::low::testing::source_workload
+    loom::codegen::low::testing::source_workload_pipeline
+    loom::ir
+    loom::pass::builtin_registry
+    loom::target::test::low_registry
+    loom::target::test::lower
+    loom::testing::module_ptr
+  LABELS
+    "manual"
+    "stress"
 )
 
 loom_cc_fuzz(

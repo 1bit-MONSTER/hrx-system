@@ -402,7 +402,10 @@ hrx_cc_test(
     },
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     sanitizer_suppressions = hsa_suppressions,
-    tags = AMD_GPU_CTS_TAGS + ["manual"],
+    tags = AMD_GPU_CTS_TAGS + [
+        "manual",
+        "stress",
+    ],
     target_compatible_with = _HIP_GPU_COMPATIBILITY,
     deps = [
         ":amdgpu_hip_printf_test_kernels",

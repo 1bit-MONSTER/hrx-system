@@ -378,6 +378,7 @@ iree_native_test(
     "amdf::amdf"
   LABELS
     "manual"
+    "stress"
     "iree-build-requirement=libamdf"
     "iree-build-requirement=libamdf.gpu"
     "iree-build-requirement=loom.target.arch.amdgpu"
@@ -402,6 +403,7 @@ iree_native_test(
     "amdf::amdf"
   LABELS
     "manual"
+    "stress"
     "iree-build-requirement=libamdf"
     "iree-build-requirement=libamdf.gpu"
     "iree-build-requirement=loom.target.arch.amdgpu"

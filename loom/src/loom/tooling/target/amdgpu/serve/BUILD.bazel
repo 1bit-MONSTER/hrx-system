@@ -228,6 +228,7 @@ py_test(
     tags = _ROCR_TEST_TAGS + [
         "manual",
         "resource_group:" + GPU_DEVICE_RESOURCE_GROUP,
+        "stress",
     ],
     target_compatible_with = loom_config_compatible_with([
         "//loom/config/target/arch:vm",
@@ -286,6 +287,7 @@ py_test(
     tags = _ROCR_TEST_TAGS + [
         "manual",
         "resource_group:" + GPU_DEVICE_RESOURCE_GROUP,
+        "stress",
     ],
     target_compatible_with = loom_config_compatible_with([
         "//loom/config/target/arch:vm",

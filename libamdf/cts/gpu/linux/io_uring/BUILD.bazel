@@ -172,7 +172,10 @@ amdf_cts_test_suite(
 amdf_cts_test_suite(
     name = "file_staged_stress",
     srcs = ["file_staged_stress_test.cc"],
-    tags = ["manual"],
+    tags = [
+        "manual",
+        "stress",
+    ],
     target_compatible_with = _FILE_IO_HOST_COMPATIBILITY,
     visibility = ["//visibility:public"],
     deps = [

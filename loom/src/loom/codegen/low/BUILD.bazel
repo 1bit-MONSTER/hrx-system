@@ -1133,8 +1133,11 @@ loom_cc_test(
 )
 
 loom_cc_test(
-    name = "source_lowering_stress_test",
-    srcs = ["source_lowering_stress_test.cc"],
+    name = "source_lowering_test",
+    srcs = [
+        "source_lowering_test.cc",
+        "source_lowering_test_util.h",
+    ],
     deps = [
         "//loom/src/loom/codegen/low/testing:source_workload",
         "//loom/src/loom/codegen/low/testing:source_workload_pipeline",
@@ -1144,6 +1147,30 @@ loom_cc_test(
         "//loom/src/loom/pass:builtin_registry",
         "//loom/src/loom/pass:registry",
         "//loom/src/loom/pass:types",
+        "//loom/src/loom/target/test:low_registry",
+        "//loom/src/loom/target/test:lower",
+        "//loom/src/loom/testing:module_ptr",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "source_lowering_stress_test",
+    srcs = [
+        "source_lowering_stress_test.cc",
+        "source_lowering_test_util.h",
+    ],
+    tags = [
+        "manual",
+        "stress",
+    ],
+    deps = [
+        "//loom/src/loom/codegen/low/testing:source_workload",
+        "//loom/src/loom/codegen/low/testing:source_workload_pipeline",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/pass:builtin_registry",
         "//loom/src/loom/target/test:low_registry",
         "//loom/src/loom/target/test:lower",
         "//loom/src/loom/testing:module_ptr",

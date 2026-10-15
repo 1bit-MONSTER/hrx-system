@@ -1381,6 +1381,7 @@ loom_cc_test(
     loom::ir::facts
   LABELS
     "manual"
+    "stress"
 )
 
 loom_cc_library(

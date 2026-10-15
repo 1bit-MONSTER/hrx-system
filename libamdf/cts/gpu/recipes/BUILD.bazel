@@ -179,7 +179,10 @@ amdf_cts_test_suite(
         "pm4_sdma_finite_stress_test.cc",
         "pm4_sdma_streaming_stress_test.cc",
     ],
-    tags = ["manual"],
+    tags = [
+        "manual",
+        "stress",
+    ],
     target_compatible_with = _RECIPES_TEST_COMPATIBILITY,
     visibility = ["//visibility:public"],
     deps = [

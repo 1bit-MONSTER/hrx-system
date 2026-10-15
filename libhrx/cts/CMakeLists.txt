@@ -593,6 +593,7 @@ iree_cc_test(
     "iree-run-requirement=runtime.resource.amd_gpu"
     "runtime-resource=amd-gpu"
     "manual"
+    "stress"
   RESOURCE_GROUP
     gpu-device
   SANITIZER_SUPPRESSIONS

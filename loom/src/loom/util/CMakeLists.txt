@@ -235,6 +235,7 @@ loom_cc_test(
     iree::testing::gtest_main
   LABELS
     "manual"
+    "stress"
 )
 
 loom_cc_test(
@@ -676,6 +677,7 @@ loom_cc_test(
     iree::testing::gtest_main
   LABELS
     "manual"
+    "stress"
 )
 
 loom_cc_library(
@@ -842,6 +844,7 @@ loom_cc_test(
     iree::testing::gtest_main
   LABELS
     "manual"
+    "stress"
 )
 
 loom_cc_test(
