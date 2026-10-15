@@ -12,9 +12,9 @@ baseline. The examples use `scout` for text, `illustrator` for image generation
 and `vectors` for embeddings; replace those names with IDs from the live
 catalog.
 
-The [speech profile](../http-profiles.md#speech-synthesis) currently supplies raw
-PCM streaming. Open WebUI's ordinary audio playback expects an encoded file,
-so the client setup below covers chat, images and embeddings.
+The [speech workflow](stream-speech.md) covers clients that consume raw PCM
+incrementally. Open WebUI's ordinary audio playback uses a completed audio file,
+so its configuration below covers chat, images and embeddings.
 
 ## Inspect the client-visible contract
 
@@ -223,6 +223,28 @@ Open WebUI persists administrator changes. On an existing data volume, set the
 same values in its OpenAI connection, Images and Documents settings; a stored
 value takes precedence over a changed environment default. Keep nonzero
 sampling controls disabled in model settings.
+
+## Speech clients
+
+A client that accepts raw audio can use `POST /v1/audio/speech` directly with an
+explicit `response_format:"pcm"`. Each response is a continuous stream of
+signed little-endian PCM16 at 24 kHz, mono. The
+[speech walkthrough](stream-speech.md#play-a-learned-models-output) shows a
+complete request and a streaming player. It also explains independent requests,
+backpressure and cancellation. Available voice IDs and conditioning behavior
+belong to the selected package.
+
+Open WebUI's [ordinary TTS adapter](https://github.com/open-webui/open-webui/blob/f8ae8a6c328946dc62cd0712961a0632574581bf/backend/open_webui/routers/audio/__init__.py#L431)
+awaits the complete provider response before returning a cached audio file.
+Its full installation can transcode declared `audio/pcm` to MP3, while Loom's
+current raw-PCM profile returns `application/octet-stream` and requires an
+explicit format. That integration needs an agreed media type and request format;
+incremental server output alone does not start this adapter's playback early.
+
+Its [realtime voice path](https://github.com/open-webui/open-webui/blob/f8ae8a6c328946dc62cd0712961a0632574581bf/backend/open_webui/routers/audio/realtime.py#L403)
+additionally needs session events, microphone input, transcription, turn
+detection and interruption. Configuring a speech model on the ordinary OpenAI
+chat connection does not supply those capabilities.
 
 ## Diagnose the boundary
 

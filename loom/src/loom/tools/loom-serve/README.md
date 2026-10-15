@@ -9,6 +9,8 @@ not require rebuilding the server.
 The website owns the [installed-user walkthrough](../../../../docs/src/serving/workflows/serve-models.md),
 [command reference](../../../../docs/src/serving/index.md) and
 [model-document format](../../../../docs/src/serving/model-documents.md).
+The [speech workflow](../../../../docs/src/serving/workflows/stream-speech.md)
+covers incremental PCM, independent client progress and source-defined batching.
 This page describes the executable's source ownership and repository entry points.
 
 ## Start an empty server

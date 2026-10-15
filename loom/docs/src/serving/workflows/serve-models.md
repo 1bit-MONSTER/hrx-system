@@ -138,6 +138,8 @@ supply any access-control boundary.
 fields, raw tokenizer utilities and retained-text checkpoint controls.
 [Connect model clients](connect-model-clients.md) configures Pi, Oh My Pi and
 Open WebUI against the mixed catalog without changing those clients.
+[Stream speech](stream-speech.md) demonstrates incremental audio, concurrent
+voices and playback through the speech profile.
 [Author serving model packages](../model-programs.md) traces the
 source, parameter and result ownership needed to replace the example's math.
 [Develop models on a live server](live-model-development.md) connects kernel

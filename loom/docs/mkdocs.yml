@@ -109,6 +109,7 @@ nav:
       - HTTP profiles: serving/http-profiles.md
       - Workflows:
           - Serve source-defined models: serving/workflows/serve-models.md
+          - Stream speech: serving/workflows/stream-speech.md
           - Operate a model server: serving/workflows/operate-model-server.md
           - Observe a model server: serving/workflows/observe-model-server.md
           - Connect model clients: serving/workflows/connect-model-clients.md

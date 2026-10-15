@@ -10,6 +10,23 @@ but are not the entire OpenAI API. Supported fields are explicit; unsupported
 execution options reject rather than being silently ignored. The server has
 no built-in authentication or TLS termination.
 
+## Request framing
+
+Request bodies accept either `Content-Length` or HTTP/1.1
+`Transfer-Encoding: chunked`. Supplying both rejects. Chunked transfer is decoded
+incrementally into the same bounded request body; the complete request is
+validated before routing. `--request_body_bytes` bounds decoded body bytes,
+independently of bounded HTTP/chunk framing and multipart metadata. This permits
+upload clients that do not know the body length in advance; it does not turn an
+inference endpoint into a continuing microphone-input session.
+
+Multipart fields retain their names, ordering and binary contents through
+request ownership. Consumers use those parsed fields without interpreting MIME
+boundaries again. Part order does not control routing. Unsupported transfer
+encodings, ambiguous framing and malformed/truncated multipart bodies reject.
+`Expect: 100-continue` is unsupported; upload examples explicitly clear that
+header.
+
 ## Discovery and administration
 
 | Method and path | Input or result |
@@ -161,10 +178,10 @@ model read uploaded tokenizer metadata while its source-declared weight files
 resolve under `base_directory:"/srv/checkpoints/model"`.
 
 The normal `--request_body_bytes` limit covers the complete multipart body;
-there is no implicit upload exception. HTTP requires `Content-Length` and does
-not accept `Expect: 100-continue`, hence the empty `Expect` header above. This
-endpoint loads executable code and has the same trusted-network boundary as
-model registration.
+there is no implicit upload exception. Both content-length and chunked framing
+are accepted. The empty `Expect` header above suppresses an unsupported
+100-continue handshake. This endpoint loads executable code and has the same
+trusted-network boundary as model registration.
 
 ## Chat completions
 
@@ -271,6 +288,15 @@ The response streams signed little-endian PCM16 at 24 kHz, mono, with
 Network reads need not coincide with waveform blocks; consumers retain any
 partial sample between reads. Disconnection suppresses further generation
 while already accepted work retires.
+
+Requests have independent voice, progress and output credit. Compatible next
+operations may share numerical batches, including requests arriving after
+generation has begun. A stalled reader excludes its own request from further
+work while peers continue. Batch boundaries are internal execution boundaries;
+they do not add a multiplexing protocol to the client's PCM stream. The
+[streaming walkthrough](workflows/stream-speech.md) shows complete requests and
+playback, and the [source contract](model-programs.md#stream-speech-with-independent-requests)
+explains how packages define compatible work.
 
 `model`, nonempty UTF-8 `input`, `voice` and explicit `response_format: "pcm"`
 are required. `voice` is a package-supported identifier or an object containing

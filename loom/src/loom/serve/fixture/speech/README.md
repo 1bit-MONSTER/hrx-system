@@ -55,8 +55,9 @@ fixed roots, while decoding has two: a shared base factor, disjoint encoder and
 decoder tensors composed from a second file, a separate voice archive with the
 same factor key, and an unprepared view of the base factor. Source declarations
 intentionally use a different order from fixed bindings. In-place preparation
-doubles only the factor tensors; the exact waveform exposes repeated preparation, incorrect
-binding order or sharing across different checkpoint file lists or policies.
+doubles only the factor tensors; the exact waveform exposes repeated preparation,
+incorrect binding order or sharing across different checkpoint file lists or
+policies.
 The tiny checkpoints are authored by the test, without external downloads.
 
 Additional dependency-controlled cases use real held HAL transfers with the

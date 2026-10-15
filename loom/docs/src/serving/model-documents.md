@@ -134,11 +134,39 @@ capacities, voices and preparation policy. The package declares reusable voice
 conditioning, separate mutable state for each request, waveform geometry and a
 bounded output block. A model may perform several stages before producing audio.
 
+For example, the [speech walkthrough](workflows/stream-speech.md) uses:
+
+```json
+{
+  "name": "speech",
+  "definition": {
+    "kind": "speech",
+    "prepare": "prepare.loom",
+    "control": "control.loom",
+    "sources": ["generate.loom"],
+    "assets": ".",
+    "pending_requests": 4
+  }
+}
+```
+
+`pending_requests` bounds additional host-queued requests. Resident request
+capacity and numerical batch capacity are separate source declarations; they
+are not inferred from this queue limit. Each request retains its row across
+changing compatible batches, and different voices or playback positions need
+not require separate registrations. A package supplies compatibility tags and
+additive work units for its next operations.
+
 The [speech HTTP profile](http-profiles.md#speech-synthesis) exposes incremental
 24 kHz mono PCM; a package producing other geometry rejects during preparation.
 Voice identifiers and conditioning assets belong to the package. The service
 keeps request state alive until accepted device work and output copies retire,
 allowing subsequent requests to reuse the model safely.
+
+The normal pin/unpin, activation, drain and removal controls also apply to
+speech. Pinning governs parameter residency, independently of mutable-state
+admission and compute scheduling. Speech does not currently accept
+`variant_capacity`; replacing its execution contract requires a new registration.
 
 ## Local path binding
 
