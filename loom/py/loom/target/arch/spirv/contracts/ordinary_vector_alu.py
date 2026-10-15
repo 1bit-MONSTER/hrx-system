@@ -70,6 +70,21 @@ _VECTOR_BINARY_SOURCE_OPS: dict[str, Op] = {
     "shrui": vector.vector_shrui,
 }
 
+_INTEGER_COMPARE_PREDICATE_BY_SOURCE = {
+    predicate.source_predicate: predicate
+    for predicate in (
+        *SIGNED_INTEGER_COMPARE_PREDICATES,
+        *UNSIGNED_ORDERED_INTEGER_COMPARE_PREDICATES,
+    )
+}
+
+_INTEGER_EXTREMA_OPERATIONS = (
+    (vector.vector_minsi, _INTEGER_COMPARE_PREDICATE_BY_SOURCE["slt"], False),
+    (vector.vector_maxsi, _INTEGER_COMPARE_PREDICATE_BY_SOURCE["sgt"], False),
+    (vector.vector_minui, _INTEGER_COMPARE_PREDICATE_BY_SOURCE["ult"], True),
+    (vector.vector_maxui, _INTEGER_COMPARE_PREDICATE_BY_SOURCE["ugt"], True),
+)
+
 _FLOAT_COMPONENT_BY_SUFFIX = {
     component.suffix: component
     for component in ORDINARY_VECTOR_COMPONENT_TYPES
@@ -343,6 +358,98 @@ def _integer_compare_rules() -> tuple[DescriptorRule, ...]:
     return tuple(rules)
 
 
+def _integer_extrema_rule(
+    source_op: Op,
+    component_pair: OrdinaryVectorIntegerComponentTypePair,
+    lane_count: int,
+    predicate: ComparePredicate,
+    uses_unsigned_ordering: bool,
+) -> DescriptorRule:
+    signed_suffix = _suffix(component_pair.signed, lane_count)
+    compare_component = (
+        component_pair.unsigned if uses_unsigned_ordering else component_pair.signed
+    )
+    compare = _descriptor(
+        f"spirv.op_{predicate.descriptor_suffix}."
+        f"{_suffix(compare_component, lane_count)}"
+    )
+    select = _descriptor(f"spirv.op_select.{signed_suffix}")
+    pattern = _source_vector_pattern(component_pair.source_type, lane_count)
+    condition_pattern = _source_vector_pattern("i1", lane_count)
+
+    lhs = ValueRef.operand("lhs")
+    rhs = ValueRef.operand("rhs")
+    emits: list[EmitDescriptorOp] = []
+    if uses_unsigned_ordering:
+        unsigned_lhs = ValueRef.temporary("unsigned_lhs")
+        unsigned_rhs = ValueRef.temporary("unsigned_rhs")
+        emits.extend(
+            (
+                _integer_view_emit(
+                    component_pair.signed,
+                    component_pair.unsigned,
+                    lane_count,
+                    input_ref=lhs,
+                    output_ref=unsigned_lhs,
+                ),
+                _integer_view_emit(
+                    component_pair.signed,
+                    component_pair.unsigned,
+                    lane_count,
+                    input_ref=rhs,
+                    output_ref=unsigned_rhs,
+                ),
+            )
+        )
+        lhs = unsigned_lhs
+        rhs = unsigned_rhs
+
+    condition = ValueRef.temporary("condition")
+    emits.extend(
+        (
+            _descriptor_emit(
+                descriptor=compare,
+                operands={"lhs": lhs, "rhs": rhs},
+                results={"dst": condition},
+                result_types={"dst": condition_pattern},
+            ),
+            _descriptor_emit(
+                descriptor=select,
+                operands={
+                    "condition": condition,
+                    "true_value": ValueRef.operand("lhs"),
+                    "false_value": ValueRef.operand("rhs"),
+                },
+                results={"dst": ValueRef.result("result")},
+            ),
+        )
+    )
+    return DescriptorRule(
+        source_op=source_op,
+        descriptor=select,
+        guards=(
+            *_typed_guards(("lhs", "rhs", "result"), pattern),
+            *_feature_guards(*(emit.descriptor for emit in emits)),
+        ),
+        emit=tuple(emits),
+    )
+
+
+def _integer_extrema_rules() -> tuple[DescriptorRule, ...]:
+    return tuple(
+        _integer_extrema_rule(
+            source_op,
+            component_pair,
+            lane_count,
+            predicate,
+            uses_unsigned_ordering,
+        )
+        for component_pair in ORDINARY_VECTOR_INTEGER_COMPONENT_TYPE_PAIRS
+        for lane_count in _LANE_COUNTS
+        for source_op, predicate, uses_unsigned_ordering in _INTEGER_EXTREMA_OPERATIONS
+    )
+
+
 def _float_compare_rules() -> tuple[DescriptorRule, ...]:
     return tuple(
         _direct_compare_rule(
@@ -395,6 +502,7 @@ def _select_rules() -> tuple[DescriptorRule, ...]:
 
 SPIRV_ORDINARY_VECTOR_ALU_CONTRACT_CASES: tuple[ContractCase, ...] = (
     *_integer_binary_rules(),
+    *_integer_extrema_rules(),
     *_integer_compare_rules(),
     *_float_compare_rules(),
     *_select_rules(),

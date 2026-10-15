@@ -1,4 +1,4 @@
-// RUN: with-checks emit source-low target=spirv:vulkan1.3+bda output=low
+// RUN: emit source-low target=spirv:vulkan1.3+bda output=low
 
 func.def @integer_extrema_i32(%lhs: i32, %rhs: i32) -> (i32, i32, i32, i32) {
   %signed_min = scalar.minsi %lhs, %rhs : i32
@@ -9,15 +9,19 @@ func.def @integer_extrema_i32(%lhs: i32, %rhs: i32) -> (i32, i32, i32, i32) {
 }
 
 // ----
-CHECK: * = OpSLessThan %lhs, %rhs
-CHECK: * = OpSGreaterThan %lhs, %rhs
-CHECK: * = OpULessThan.u32 *
-CHECK: * = OpUGreaterThan.u32 *
-CHECK: %signed_min = OpSelect *, %lhs, %rhs
-CHECK: %signed_max = OpSelect *, %lhs, %rhs
-CHECK: %unsigned_min = OpSelect *, %lhs, %rhs
-CHECK: %unsigned_max = OpSelect *, %lhs, %rhs
-CHECK: return %signed_min, %signed_max, %unsigned_min, %unsigned_max
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @integer_extrema_i32(%lhs: reg<spirv.id : i32>, %rhs: reg<spirv.id : i32>) -> (reg<spirv.id : i32>, reg<spirv.id : i32>, reg<spirv.id : i32>, reg<spirv.id : i32>) asm {
+  %24 = OpSLessThan %lhs, %rhs
+  %signed_min = OpSelect %24, %lhs, %rhs
+  %26 = OpSGreaterThan %lhs, %rhs
+  %signed_max = OpSelect %26, %lhs, %rhs
+  %28 = OpBitcast.i32.u32 %lhs
+  %29 = OpBitcast.i32.u32 %rhs
+  %30 = OpULessThan.u32 %28, %29
+  %unsigned_min = OpSelect %30, %lhs, %rhs
+  %34 = OpUGreaterThan.u32 %28, %29
+  %unsigned_max = OpSelect %34, %lhs, %rhs
+  return %signed_min, %signed_max, %unsigned_min, %unsigned_max
+}
 
 // ====
 
@@ -30,12 +34,53 @@ func.def @integer_extrema_i64(%lhs: i64, %rhs: i64) -> (i64, i64, i64, i64) {
 }
 
 // ----
-CHECK: * = OpSLessThan.i64 %lhs, %rhs
-CHECK: * = OpSGreaterThan.i64 %lhs, %rhs
-CHECK: * = OpULessThan.u64 *
-CHECK: * = OpUGreaterThan.u64 *
-CHECK: %signed_min = OpSelect.i64 *, %lhs, %rhs
-CHECK: %signed_max = OpSelect.i64 *, %lhs, %rhs
-CHECK: %unsigned_min = OpSelect.i64 *, %lhs, %rhs
-CHECK: %unsigned_max = OpSelect.i64 *, %lhs, %rhs
-CHECK: return %signed_min, %signed_max, %unsigned_min, %unsigned_max
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @integer_extrema_i64(%lhs: reg<spirv.id : i64>, %rhs: reg<spirv.id : i64>) -> (reg<spirv.id : i64>, reg<spirv.id : i64>, reg<spirv.id : i64>, reg<spirv.id : i64>) asm {
+  %24 = OpSLessThan.i64 %lhs, %rhs
+  %signed_min = OpSelect.i64 %24, %lhs, %rhs
+  %26 = OpSGreaterThan.i64 %lhs, %rhs
+  %signed_max = OpSelect.i64 %26, %lhs, %rhs
+  %28 = OpBitcast.i64.u64 %lhs
+  %29 = OpBitcast.i64.u64 %rhs
+  %30 = OpULessThan.u64 %28, %29
+  %unsigned_min = OpSelect.i64 %30, %lhs, %rhs
+  %34 = OpUGreaterThan.u64 %28, %29
+  %unsigned_max = OpSelect.i64 %34, %lhs, %rhs
+  return %signed_min, %signed_max, %unsigned_min, %unsigned_max
+}
+
+// ====
+
+func.def @vector_integer_extrema_i64(%first: i64, %second: i64, %third: i64) -> (i64, i64, i64, i64) {
+  %lhs = vector.from_elements %first, %second, %third : vector<3xi64>
+  %rhs = vector.from_elements %third, %first, %second : vector<3xi64>
+  %signed_min = vector.minsi %lhs, %rhs : vector<3xi64>
+  %signed_max = vector.maxsi %lhs, %rhs : vector<3xi64>
+  %unsigned_min = vector.minui %lhs, %rhs : vector<3xi64>
+  %unsigned_max = vector.maxui %lhs, %rhs : vector<3xi64>
+  %signed_min_lane = vector.extract %signed_min[0] : vector<3xi64> -> i64
+  %signed_max_lane = vector.extract %signed_max[1] : vector<3xi64> -> i64
+  %unsigned_min_lane = vector.extract %unsigned_min[2] : vector<3xi64> -> i64
+  %unsigned_max_lane = vector.extract %unsigned_max[0] : vector<3xi64> -> i64
+  func.return %signed_min_lane, %signed_max_lane, %unsigned_min_lane, %unsigned_max_lane : i64, i64, i64, i64
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @vector_integer_extrema_i64(%first: reg<spirv.id : i64>, %second: reg<spirv.id : i64>, %third: reg<spirv.id : i64>) -> (reg<spirv.id : i64>, reg<spirv.id : i64>, reg<spirv.id : i64>, reg<spirv.id : i64>) asm {
+  %lhs = OpCompositeConstruct.v3i64 %first, %second, %third
+  %rhs = OpCompositeConstruct.v3i64 %third, %first, %second
+  %26 = OpSLessThan.v3i64 %lhs, %rhs
+  %signed_min = OpSelect.v3i64 %26, %lhs, %rhs
+  %28 = OpSGreaterThan.v3i64 %lhs, %rhs
+  %signed_max = OpSelect.v3i64 %28, %lhs, %rhs
+  %30 = OpBitcast.v3i64.v3u64 %lhs
+  %31 = OpBitcast.v3i64.v3u64 %rhs
+  %32 = OpULessThan.v3u64 %30, %31
+  %unsigned_min = OpSelect.v3i64 %32, %lhs, %rhs
+  %36 = OpUGreaterThan.v3u64 %30, %31
+  %unsigned_max = OpSelect.v3i64 %36, %lhs, %rhs
+  %signed_min_lane = OpCompositeExtract.v3i64.i64 %signed_min, 0
+  %signed_max_lane = OpCompositeExtract.v3i64.i64 %signed_max, 1
+  %unsigned_min_lane = OpCompositeExtract.v3i64.i64 %unsigned_min, 2
+  %unsigned_max_lane = OpCompositeExtract.v3i64.i64 %unsigned_max, 0
+  return %signed_min_lane, %signed_max_lane, %unsigned_min_lane, %unsigned_max_lane
+}

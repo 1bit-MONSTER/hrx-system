@@ -102,11 +102,15 @@ def test_contract_has_a_closed_operation_matrix() -> None:
         vector.vector_shli.name: 16,
         vector.vector_shrsi.name: 16,
         vector.vector_shrui.name: 16,
+        vector.vector_minsi.name: 16,
+        vector.vector_maxsi.name: 16,
+        vector.vector_minui.name: 16,
+        vector.vector_maxui.name: 16,
         vector.vector_cmpi.name: 160,
         vector.vector_cmpf.name: 168,
         vector.vector_select.name: 40,
     }
-    assert len(SPIRV_ORDINARY_VECTOR_ALU_CONTRACT_CASES) == 588
+    assert len(SPIRV_ORDINARY_VECTOR_ALU_CONTRACT_CASES) == 652
 
 
 def test_integer_binary_rules_cover_types_lanes_and_unsigned_views() -> None:
@@ -203,6 +207,98 @@ def test_integer_binary_rules_cover_types_lanes_and_unsigned_views() -> None:
         assert _available_descriptor_keys(rule) == (
             _expected_available_descriptor_keys(
                 lhs_view.descriptor, operation.descriptor, result_view.descriptor
+            )
+        )
+
+
+def test_integer_extrema_rules_cover_types_lanes_ordering_and_selection() -> None:
+    operation_properties = {
+        vector.vector_minsi: ("s_less_than", False),
+        vector.vector_maxsi: ("s_greater_than", False),
+        vector.vector_minui: ("u_less_than", True),
+        vector.vector_maxui: ("u_greater_than", True),
+    }
+    actual = {}
+    for case in SPIRV_ORDINARY_VECTOR_ALU_CONTRACT_CASES:
+        if case.source_op not in operation_properties:
+            continue
+        patterns = _type_patterns(case)
+        assert patterns.keys() == {"lhs", "rhs", "result"}
+        assert patterns["lhs"] == patterns["rhs"] == patterns["result"]
+        pattern = patterns["result"]
+        key = (case.source_op.name, pattern.element, pattern.lanes)
+        assert key not in actual
+        actual[key] = case
+
+    expected = {
+        (source_op.name, component_pair.source_type, lane_count): (
+            component_pair,
+            compare_suffix,
+            uses_unsigned_ordering,
+        )
+        for component_pair in ORDINARY_VECTOR_INTEGER_COMPONENT_TYPE_PAIRS
+        for lane_count in _LANE_COUNTS
+        for source_op, (compare_suffix, uses_unsigned_ordering) in (
+            operation_properties.items()
+        )
+    }
+    assert len(actual) == len(expected) == 64
+    assert actual.keys() == expected.keys()
+
+    for key, (
+        component_pair,
+        compare_suffix,
+        uses_unsigned_ordering,
+    ) in expected.items():
+        rule = actual[key]
+        lane_count = key[2]
+        signed_suffix = _suffix(component_pair.signed.suffix, lane_count)
+        compare_component = (
+            component_pair.unsigned if uses_unsigned_ordering else component_pair.signed
+        )
+        compare_key = (
+            f"spirv.op_{compare_suffix}.{_suffix(compare_component.suffix, lane_count)}"
+        )
+        assert rule.descriptor.key == f"spirv.op_select.{signed_suffix}"
+
+        if uses_unsigned_ordering:
+            lhs_view, rhs_view, comparison, selection = rule.emit
+            unsigned_suffix = _suffix(component_pair.unsigned.suffix, lane_count)
+            view_key = f"spirv.op_bitcast.{signed_suffix}.{unsigned_suffix}"
+            assert lhs_view.descriptor.key == view_key
+            assert lhs_view.operands == {"input": ValueRef.operand("lhs")}
+            assert lhs_view.results == {"dst": ValueRef.temporary("unsigned_lhs")}
+            assert lhs_view.result_types == {"dst": DescriptorResultType()}
+            assert rhs_view.descriptor.key == view_key
+            assert rhs_view.operands == {"input": ValueRef.operand("rhs")}
+            assert rhs_view.results == {"dst": ValueRef.temporary("unsigned_rhs")}
+            assert rhs_view.result_types == {"dst": DescriptorResultType()}
+            assert comparison.operands == {
+                "lhs": ValueRef.temporary("unsigned_lhs"),
+                "rhs": ValueRef.temporary("unsigned_rhs"),
+            }
+        else:
+            comparison, selection = rule.emit
+            assert comparison.operands == {
+                "lhs": ValueRef.operand("lhs"),
+                "rhs": ValueRef.operand("rhs"),
+            }
+
+        assert comparison.descriptor.key == compare_key
+        assert comparison.results == {"dst": ValueRef.temporary("condition")}
+        assert comparison.result_types == {
+            "dst": TypePattern.vector("i1", lanes=lane_count)
+        }
+        assert selection.descriptor is rule.descriptor
+        assert selection.operands == {
+            "condition": ValueRef.temporary("condition"),
+            "true_value": ValueRef.operand("lhs"),
+            "false_value": ValueRef.operand("rhs"),
+        }
+        assert selection.results == {"dst": ValueRef.result("result")}
+        assert _available_descriptor_keys(rule) == (
+            _expected_available_descriptor_keys(
+                *(emit.descriptor for emit in rule.emit)
             )
         )
 
