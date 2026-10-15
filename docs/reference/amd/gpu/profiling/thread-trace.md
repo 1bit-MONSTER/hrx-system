@@ -163,6 +163,42 @@ snapshot twice can advance that counter twice. The caller's swap generation,
 status-query completion and buffer-address phase remain part of the protocol.
 [Status consumer][status-consumer] [Caller phase check][phase-check]
 
+## Copy completion and native queue retirement
+
+In the successful replacement sequence above, command completion retires the
+trace writer's use of the collected backing. A subsequent transfer still reads
+that backing and writes a CPU staging slot. Transfer completion permits reuse
+of the GPU backing; the CPU consumer's last read separately permits reuse of
+its staging slot. Stopping the trace does not replace either transfer or
+consumer completion.
+[Producer ordering][transfer-producer] [Consumer release][transfer-consumer]
+
+The SDK's copy wrapper returns a Boolean. Its HSA path reports rejected
+asynchronous copies and waits for accepted copies; its direct KFD path rejects
+invalid requests before publication and otherwise waits for the SDMA fence.
+However, the producer discards that return value and publishes the requested
+byte count with `filled = true` even after failure. That software readiness
+flag therefore does not prove that the slot contains the requested payload.
+The successful-copy sequence above and this failure path have different data
+validity guarantees. [Copy wrapper][transfer-wrapper]
+[Direct copy][direct-copy] [Slot publication][transfer-publication]
+
+Direct KFD signal and ring-space waits use a loop with a 30-second diagnostic
+interval. The interval is a logging cadence, not a timeout or a native failure
+observation. The wait terminates only when its memory predicate changes.
+[Wait implementation][direct-wait] [Signal wait][direct-signal]
+
+The direct collector attempts SDMA and AQL queue removal before destroying
+command, signal and trace allocations. Each native queue close reports failure
+and leaves its software `created` flag set, but the collector's destruction paths
+do not use that result to gate deallocation. The ordering of destructor calls
+alone therefore supplies neither successful queue removal nor acknowledgement
+that a failed trace writer has stopped. Normal trace drain, transfer retirement
+and native queue removal remain separate observations.
+[Collector destruction][direct-agent-destroy]
+[Native queue close][direct-close] [Transfer owner][direct-owner-close]
+[Staging destruction][direct-staging-destroy]
+
 ## Clock anchors and chunk timing
 
 The embedded AQLProfile adds two 64-bit fields to its `TraceControl` record:
@@ -296,3 +332,14 @@ need that context; a byte buffer alone is not a resolved instruction timeline.
 [clock12]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/pm4/gfx12_cmd_builder.h#L804-L819
 [clock-final]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/thread_trace/threading.cpp#L239-L274
 [clock-convert]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/thread_trace/threading.cpp#L44-L68
+[transfer-producer]: https://github.com/ROCm/rocm-systems/blob/51ec055f9e83ea5090aea479982400bd30e31b26/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/thread_trace/threading.cpp#L339-L390
+[transfer-consumer]: https://github.com/ROCm/rocm-systems/blob/51ec055f9e83ea5090aea479982400bd30e31b26/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/thread_trace/threading.cpp#L95-L147
+[transfer-wrapper]: https://github.com/ROCm/rocm-systems/blob/51ec055f9e83ea5090aea479982400bd30e31b26/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/thread_trace/hsa_util.cpp#L270-L296
+[direct-copy]: https://github.com/ROCm/rocm-systems/blob/51ec055f9e83ea5090aea479982400bd30e31b26/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/kfd/resource.cpp#L1060-L1087
+[transfer-publication]: https://github.com/ROCm/rocm-systems/blob/51ec055f9e83ea5090aea479982400bd30e31b26/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/thread_trace/threading.cpp#L203-L237
+[direct-wait]: https://github.com/ROCm/rocm-systems/blob/51ec055f9e83ea5090aea479982400bd30e31b26/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/kfd/resource.cpp#L87-L104
+[direct-signal]: https://github.com/ROCm/rocm-systems/blob/51ec055f9e83ea5090aea479982400bd30e31b26/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/kfd/resource.cpp#L702-L736
+[direct-agent-destroy]: https://github.com/ROCm/rocm-systems/blob/51ec055f9e83ea5090aea479982400bd30e31b26/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/thread_trace/core.cpp#L206-L227
+[direct-close]: https://github.com/ROCm/rocm-systems/blob/51ec055f9e83ea5090aea479982400bd30e31b26/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/kfd/resource.cpp#L859-L882
+[direct-owner-close]: https://github.com/ROCm/rocm-systems/blob/51ec055f9e83ea5090aea479982400bd30e31b26/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/kfd/resource.cpp#L1135-L1143
+[direct-staging-destroy]: https://github.com/ROCm/rocm-systems/blob/51ec055f9e83ea5090aea479982400bd30e31b26/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/thread_trace/hsa_util.cpp#L210-L233
