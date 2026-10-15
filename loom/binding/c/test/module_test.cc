@@ -12,8 +12,10 @@
 #include <vector>
 
 #include "iree/testing/gtest.h"
+#include "loomc/compile.h"
 #include "loomc/context.h"
 #include "loomc/diagnostic.h"
+#include "loomc/link_index.h"
 #include "loomc/result.h"
 #include "loomc/source.h"
 #include "module.h"
@@ -254,6 +256,74 @@ TEST(ModuleTest, RejectsContradictoryExplicitSerializeFormat) {
       module.get(), &options, loomc_allocator_system(), &serialized_source);
   LOOMC_EXPECT_STATUS_IS(LOOMC_STATUS_INVALID_ARGUMENT, status);
   EXPECT_EQ(serialized_source, nullptr);
+}
+
+TEST(ModuleTest, DeserializeRequestPreservesExactRootOrderAndOwnership) {
+  auto context = CreateContext();
+  auto workspace = CreateWorkspace();
+  auto authored = CreateMixedSymbolModule(context.get(), workspace.get());
+  loomc_source_t* source = nullptr;
+  LOOMC_ASSERT_OK(loomc_module_serialize_bytecode_to_source(
+      authored.get(), nullptr, loomc_allocator_system(), &source));
+  SourcePtr source_owner(source);
+  authored.reset();
+
+  // Resolve source-local addresses through the same public index available to
+  // request producers. Include non-functions and a repeated out-of-order root.
+  loomc_link_index_builder_t* builder = nullptr;
+  LOOMC_ASSERT_OK(loomc_link_index_builder_allocate(
+      context.get(), nullptr, loomc_allocator_system(), &builder));
+  HandlePtr<loomc_link_index_builder_t, loomc_link_index_builder_free>
+      builder_owner(builder);
+  LOOMC_ASSERT_OK(
+      loomc_link_index_builder_add_source(builder, source, nullptr, nullptr));
+  loomc_link_index_t* index = nullptr;
+  loomc_result_t* result = nullptr;
+  LOOMC_ASSERT_OK(loomc_link_index_builder_finish(builder, &index, &result));
+  HandlePtr<loomc_link_index_t, loomc_link_index_release> index_owner(index);
+  ResultPtr result_owner(result);
+  ExpectSucceededResult(result);
+  const char* names[] = {"entry", "answer", "helper", "entry"};
+  loomc_request_root_t roots[4] = {};
+  for (size_t i = 0; i < 4; ++i) {
+    bool found = false;
+    for (loomc_host_size_t j = 0; j < loomc_link_index_symbol_count(index);
+         ++j) {
+      loomc_link_index_symbol_t symbol;
+      ASSERT_TRUE(loomc_link_index_symbol_at(index, j, &symbol));
+      if (ToString(symbol.name) == names[i]) {
+        roots[i] = {static_cast<uint32_t>(symbol.provider_module_ordinal),
+                    static_cast<uint32_t>(symbol.module_symbol_ordinal)};
+        found = true;
+        break;
+      }
+    }
+    ASSERT_TRUE(found) << names[i];
+  }
+  loomc_request_t* request = nullptr;
+  LOOMC_ASSERT_OK(loomc_request_create(
+      loomc_compiled_module_product_descriptor(), source, roots, 4, nullptr, 0,
+      loomc_allocator_system(), &request));
+  HandlePtr<loomc_request_t, loomc_request_release> request_owner(request);
+  index_owner.reset();
+  builder_owner.reset();
+  source_owner.reset();
+
+  loomc_module_t* module = nullptr;
+  loomc_string_view_t symbols[4] = {};
+  result = nullptr;
+  LOOMC_ASSERT_OK(loomc_module_deserialize_request(
+      context.get(), workspace.get(), request, loomc_allocator_system(),
+      &module, symbols, &result));
+  ModulePtr module_owner(module);
+  result_owner.reset(result);
+  ExpectSucceededResult(result);
+  request_owner.reset();
+  result_owner.reset();
+  workspace.reset();
+  for (size_t i = 0; i < 4; ++i) {
+    EXPECT_EQ(ToString(symbols[i]), names[i]);
+  }
 }
 
 TEST(ModuleTest, ParseDiagnosticRetainsRemappedIdentityAndText) {

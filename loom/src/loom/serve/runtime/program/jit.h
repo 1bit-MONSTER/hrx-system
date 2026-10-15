@@ -23,7 +23,7 @@ extern "C" {
 // shared host compiler sink and catalog-local worker scratch. Compilation calls
 // on a catalog are serialized by the caller; native requests run concurrently.
 // Execution of already prepared commands does not access this object.
-// Native requests with identical source bytes, roots and specialization names
+// Native requests with identical source bytes and ordered source roots
 // share loaded executables inside this catalog's fixed target/pipeline domain.
 // Prepared stages retain their executables independently of catalog lifetime.
 typedef struct loom_serve_jit_t loom_serve_jit_t;
@@ -68,6 +68,10 @@ typedef void (*loom_serve_jit_completion_fn_t)(void* user_data,
 
 // Accepts a compilation without waiting. Product construction, native kernel
 // compilation and final binding all run on the caller's shared executor.
+// Published native requests are deduplicated and submitted during command
+// construction; their compilation does not depend on the completed parent.
+// Completion joins all accepted native work even when parent construction
+// fails, retaining successfully loaded natives for subsequent compilations.
 // Success invokes completion exactly once, possibly before return. Rejection
 // invokes no callback. The caller keeps jit, root, config and its referenced
 // storage alive through completion, and submits at most one compile per jit

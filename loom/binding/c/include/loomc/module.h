@@ -10,6 +10,7 @@
 #include <stdio.h>
 
 #include "loomc/context.h"
+#include "loomc/product.h"
 #include "loomc/result.h"
 #include "loomc/source.h"
 #include "loomc/workspace.h"
@@ -821,6 +822,44 @@ LOOMC_API_EXPORT loomc_status_t loomc_module_deserialize_from_source(
     const loomc_source_t* source,
     const loomc_module_deserialize_options_t* options,
     loomc_allocator_t allocator, loomc_module_t** out_module,
+    loomc_result_t** out_result);
+
+/// Deserializes an immutable request and resolves its exact source roots.
+///
+/// This is the mutable-module entry point for hosts composing request
+/// compilation with target specialization and native emission. Root names are
+/// projected directly from the decoded bytecode symbol table in request order;
+/// no parent product, source indexing, or function enumeration is required.
+/// The operation accepts any request product descriptor and validates source
+/// root addresses, not the root operation kinds required by a later compiler.
+///
+/// @param context Context used to resolve dialect and bytecode metadata.
+/// @param workspace Invocation-local workspace used for module storage.
+/// @param request Immutable request supplying bytecode and source-local roots.
+/// @param host_allocator Allocator used for module and result handles.
+/// @param out_module Receives an owned module when the result succeeds, or
+/// NULL.
+/// @param out_root_symbols Optional caller-owned array with room for
+/// `loomc_request_root_count(request)` names. NULL validates roots without
+/// projecting names. Names are valid only when the operation and result
+/// succeed.
+/// @param out_result Receives an owned result on an OK return.
+/// @return OK when deserialization ran to a result, INVALID_ARGUMENT for an
+/// unavailable root address, or another non-OK status for infrastructure
+/// failure.
+///
+/// @ownership
+/// Release returned handles with `loomc_module_release` and
+/// `loomc_result_release`. Names borrow from the returned module, not the
+/// request. Copy names needed across module mutation or release. The returned
+/// handles do not borrow the request; diagnostics may retain its source.
+///
+/// @thread_safety
+/// Concurrent calls may share context and request with distinct workspaces.
+LOOMC_API_EXPORT loomc_status_t loomc_module_deserialize_request(
+    loomc_context_t* context, loomc_workspace_t* workspace,
+    const loomc_request_t* request, loomc_allocator_t host_allocator,
+    loomc_module_t** out_module, loomc_string_view_t* out_root_symbols,
     loomc_result_t** out_result);
 
 /// Deserializes a source handle as textual `.loom` into a mutable module.
