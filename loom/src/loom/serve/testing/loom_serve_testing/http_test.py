@@ -4,10 +4,13 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+import http.server
+import json
 import sys
 import tempfile
 import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -18,9 +21,111 @@ from loom_serve_testing.http_harness import (
     running_server,
     wait_status,
 )
+from loom_serve_testing.logs import LogClient
 
 
 class HttpTest(unittest.TestCase):
+    def test_live_capture_keeps_connections_and_drains_interrupted_frames(self):
+        requests = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                model = self.headers.get("X-Loom-Model")
+                identity = "100:1" if model is None else "100:2"
+                streaming = self.path == "/logz/stream"
+                position = 0 if streaming else 1
+                requests.append((self.path, model, self.headers.get("X-Loom-Cursor")))
+                records = [
+                    {
+                        "event": "stream",
+                        "scope": "server" if model is None else "model",
+                        "model": model,
+                        "identity": identity,
+                        "head": position + 1,
+                    },
+                    {"event": "sample", "sequence": position},
+                    {
+                        "event": "cursor",
+                        "value": f"{identity}:{position + 1}",
+                        "next": position + 1,
+                    },
+                ]
+                payload = b"".join(
+                    json.dumps(record).encode() + b"\n" for record in records
+                )
+                self.send_response(200)
+                if streaming:
+                    self.send_header("Content-Type", "text/event-stream")
+                    payload = (
+                        b"event: telemetry\n"
+                        + b"".join(
+                            b"data: " + line + b"\n" for line in payload.splitlines()
+                        )
+                        + f"id: {identity}:1\n\n".encode()
+                        + b"event: telemetry\ndata: {"
+                    )
+                else:
+                    self.send_header("Content-Length", str(len(payload)))
+                self.end_headers()
+                self.wfile.write(payload)
+                self.wfile.flush()
+                if streaming:
+                    # The client must wake its blocked readers by closing the
+                    # stream, not by waiting for a server heartbeat or timeout.
+                    self.rfile.read(1)
+
+            def log_message(self, *_):
+                pass
+
+        with http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+            listener = threading.Thread(
+                target=server.serve_forever, kwargs={"poll_interval": 0.01}
+            )
+            listener.start()
+            stopped, ready = threading.Event(), threading.Event()
+            records = []
+            client = LogClient(f"http://127.0.0.1:{server.server_port}")
+            try:
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(
+                        collect_events,
+                        client,
+                        [None, "chat"],
+                        stopped,
+                        records.append,
+                        ready=ready,
+                    )
+                    try:
+                        ready.wait()
+                        self.assertEqual(len(requests), 2)
+                        self.assertEqual(len(records), 2)
+                    finally:
+                        stopped.set()
+                    future.result()
+                self.assertEqual(client.cursors, {None: "100:1:2", "chat": "100:2:2"})
+                self.assertEqual(len(requests), 4)
+                for model, identity in ((None, "100:1"), ("chat", "100:2")):
+                    self.assertEqual(
+                        [
+                            (path, cursor)
+                            for path, selected, cursor in requests
+                            if selected == model
+                        ],
+                        [("/logz/stream", None), ("/logz", f"{identity}:1")],
+                    )
+                    self.assertEqual(
+                        [
+                            record["sequence"]
+                            for record in records[:-1]
+                            if record["model"] == model
+                        ],
+                        [0, 1],
+                    )
+                self.assertIsNone(records[-1])
+            finally:
+                server.shutdown()
+                listener.join()
+
     def test_status_waits_for_model_preparation(self):
         states = [
             {"phase": "preparing", "queued_requests": 0, "active_requests": 0},
@@ -148,14 +253,16 @@ class HttpTest(unittest.TestCase):
                 )
 
         events = Events()
+        stopped = threading.Event()
+        stopped.set()
         with self.assertRaisesRegex(RuntimeError, "stream restarted"):
-            collect_events(Client(), ["chat"], threading.Event(), events.record)
+            collect_events(Client(), ["chat"], stopped, events.record)
         self.assertEqual(len(polls), 2)
         self.assertTrue(events.closed)
 
     def test_observation_failure_closes_waiters_and_propagates(self):
         class Client:
-            def poll(self, model):
+            def stream(self, model):
                 raise OSError("reader disconnected")
 
         events = Events()

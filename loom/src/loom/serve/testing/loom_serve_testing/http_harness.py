@@ -141,40 +141,83 @@ class Events:
                 self.condition.wait()
 
 
-def collect_events(client, models, stopped, record, *, ready=None):
-    """Capture native history, then finish through one fixed head per stream.
+def _record_batch(batch, model, record):
+    for event in batch.records:
+        if event["event"] not in ("stream", "cursor", "counters"):
+            record({**event, **batch.stream, "model": model})
 
-    Poll envelopes and fresh counter probes are not history. Omitting them keeps
-    idle polling from growing a check artifact; wait_counters reads owner totals
-    independently. Native records and explicit gaps/resets retain their identity.
-    """
-    try:
+
+def drain_events(client, models, record):
+    """Finish through one fixed head without following future heartbeats."""
+    for model in models:
+        batch = client.poll(model)
+        identity = batch.stream["identity"]
+        head = next(
+            event["head"] for event in batch.records if event["event"] == "stream"
+        )
         while True:
-            finishing = stopped.is_set()
-            for model in models:
-                batch = client.poll(model)
-                identity = batch.stream["identity"]
-                # A fixed fence drains responses capped below the ring capacity
-                # without following a heartbeat producer forever at shutdown.
-                head = next(
-                    event["head"]
-                    for event in batch.records
-                    if event["event"] == "stream"
-                )
-                while True:
-                    for event in batch.records:
-                        if event["event"] not in ("stream", "cursor", "counters"):
-                            record({**event, **batch.stream, "model": model})
-                    if batch.stream["identity"] != identity:
-                        raise RuntimeError("stream restarted while capturing its head")
-                    if batch.records[-1]["next"] >= head:
-                        break
-                    batch = client.poll(model)
-            if ready is not None:
-                ready.set()
-            if finishing:
+            if batch.stream["identity"] != identity:
+                raise RuntimeError("stream restarted while capturing its head")
+            _record_batch(batch, model, record)
+            if batch.records[-1]["next"] >= head:
                 break
-            stopped.wait(0.01)
+            batch = client.poll(model)
+
+
+def collect_events(client, models, stopped, record, *, ready=None):
+    """Follow SSE, join cancelled readers, then snapshot each final ring head.
+
+    The test-only client uses one blocking reader per selected stream, not a
+    server thread or a polling timer. Each reader holds one bounded batch;
+    callbacks serialize directly without an unbounded cross-thread event queue.
+    Poll envelopes and fresh counter probes are not retained history.
+    """
+    callbacks = threading.Lock()
+    pending = len(models)
+
+    def consume(model, stream):
+        nonlocal pending
+        initial = True
+        try:
+            while (batch := stream.read()) is not None:
+                with callbacks:
+                    _record_batch(batch, model, record)
+                    if initial:
+                        initial = False
+                        pending -= 1
+                        if not pending and ready is not None:
+                            ready.set()
+        except BaseException:
+            stopped.set()
+            raise
+
+    try:
+        active = models
+        with contextlib.ExitStack() as ownership:
+            if not stopped.is_set():
+                streams = [
+                    (model, ownership.enter_context(client.stream(model)))
+                    for model in models
+                ]
+
+                def cancel_readers():
+                    stopped.wait()
+                    for _, stream in streams:
+                        stream.cancel()
+
+                with ThreadPoolExecutor(max_workers=len(streams) + 1) as readers:
+                    cancellation = readers.submit(cancel_readers)
+                    futures = [readers.submit(consume, *entry) for entry in streams]
+                    try:
+                        for future in futures:
+                            future.result()
+                    finally:
+                        stopped.set()
+                        cancellation.result()
+                active = [model for model, stream in streams if not stream.ended]
+        # No live reader can advance these cursors after its cancellation join.
+        # The one-shot drain also records history beyond an interrupted frame.
+        drain_events(client, active, record)
     finally:
         try:
             record(None)
@@ -188,7 +231,7 @@ def running_server(command, log_path, on_event=None, *, cwd=None):
     """Own a child and optional independent HTTP capture through joined shutdown.
 
     log_path holds cold stdout/stderr diagnostics. Its .events.jsonl sibling
-    holds scoped native /logz records. Both are test artifacts, not server sinks.
+    holds scoped native telemetry records. Both are test artifacts, not sinks.
     Observation ends before shutdown: teardown-only records are not promised by
     a pull endpoint whose lifetime ends with the server.
     An explicit cwd selects the child's deployment root without changing the

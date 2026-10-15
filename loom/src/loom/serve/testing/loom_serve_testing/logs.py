@@ -4,18 +4,20 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Independent, bounded /logz reader for tools and model harnesses.
+"""Independent, bounded snapshot and SSE readers for model harnesses.
 
-Each client owns its cursors. The server never retains reader state. Responses
-are copied and closed before the caller sees them; a slow consumer can lose
-records, but cannot retain a server connection or block publication. A changed
-stream incarnation is reported explicitly, never spliced into the old history.
+Each selector owns a cursor. Live streams retain one transport connection but
+never ring slots or model lifetime. A slow consumer can lose records without
+blocking publication. Incarnation changes are explicit, never silently spliced.
 """
 
+import contextlib
 import dataclasses
+import errno
 import http.client
 import json
 import socket
+import threading
 from urllib.parse import urlsplit
 
 
@@ -33,6 +35,102 @@ class ModelNotFound(RuntimeError):
     def __init__(self, model):
         super().__init__(f"GET /logz ({model!r}): HTTP 404: model is not registered")
         self.model = model
+
+
+class LogStream:
+    """One reader's SSE connection; cancel before joining a blocked read.
+
+    The enclosing LogClient.stream context owns transport destruction and must
+    outlive the reader. Only cancel may be called concurrently with read.
+    """
+
+    def __init__(self, client, model, response, transport):
+        self.client = client
+        self.model = model
+        self.response = response
+        self.transport = transport
+        self.cancelled = threading.Event()
+        self.ended = False
+
+    def cancel(self):
+        self.cancelled.set()
+        try:
+            # Closing HTTPResponse concurrently can block on its buffered read.
+            # Shutdown wakes that read; the owner closes it only after joining.
+            self.transport.shutdown(socket.SHUT_RDWR)
+        except OSError as error:
+            # HTTPResponse may have already closed its file after peer EOF.
+            closed = error.errno == errno.EBADF and self.transport.fileno() == -1
+            if error.errno != errno.ENOTCONN and not closed:
+                raise
+
+    def read(self):
+        """Return one validated batch, or None after cancellation/stream_end."""
+        if self.cancelled.is_set() or self.ended:
+            return None
+        try:
+            return self._read_frame()
+        except (OSError, ValueError, http.client.HTTPException):
+            if self.cancelled.is_set():
+                return None
+            raise
+
+    def _read_frame(self):
+        remaining = 1024 * 1024
+        fields = {}
+        records = []
+        while True:
+            line = self.response.readline(remaining + 1)
+            if not line:
+                raise ValueError("/logz/stream: EOF before a complete stream_end")
+            remaining -= len(line)
+            if remaining < 0:
+                raise ValueError("/logz/stream: frame exceeds 1 MiB")
+            if not line.endswith(b"\n"):
+                raise ValueError("/logz/stream: truncated frame")
+            line = line.rstrip(b"\r\n")
+            if not line:
+                break
+            if line.startswith(b":"):
+                continue
+            name, separator, value = line.partition(b":")
+            if value.startswith(b" "):
+                value = value[1:]
+            if not separator or name not in (b"event", b"id", b"data"):
+                raise ValueError("/logz/stream: invalid telemetry field")
+            if name == b"data":
+                records.append(json.loads(value))
+            else:
+                if name in fields:
+                    raise ValueError("/logz/stream: duplicate telemetry field")
+                fields[name] = value.decode()
+        if fields.get(b"event") == "stream_end":
+            previous = self.client.cursors.get(self.model)
+            if (
+                len(records) != 1
+                or not isinstance(records[0], dict)
+                or records[0].get("reason") != "model_unregistered"
+                or not isinstance(records[0].get("identity"), str)
+                or (previous and records[0]["identity"] != previous.rsplit(":", 1)[0])
+            ):
+                raise ValueError("/logz/stream: invalid stream_end")
+            self.ended = True
+            return LogBatch(
+                {
+                    "scope": "model",
+                    "model": self.model,
+                    "identity": records[0]["identity"],
+                },
+                [{"event": "stream_end", **records[0]}],
+            )
+        if fields.get(b"event") != "telemetry" or b"id" not in fields:
+            raise ValueError("/logz/stream: expected telemetry with a resume id")
+        return self.client._accept_batch(
+            self.model,
+            records,
+            self.client.cursors.get(self.model),
+            event_id=fields[b"id"],
+        )
 
 
 class LogClient:
@@ -67,11 +165,12 @@ class LogClient:
         self.address = address
         # Literal local filesystem path, or None for the origin's TCP endpoint.
         self.unix_socket = unix_socket
-        # Network observation deadline, not a deadline on submitted model work.
+        # Snapshot/connection deadline, never a deadline on an idle SSE stream.
         self.timeout = timeout
         self.cursors = {}
 
-    def _get(self, path, headers=None):
+    @contextlib.contextmanager
+    def _connection(self):
         connection_type = (
             http.client.HTTPSConnection
             if self.address.scheme == "https"
@@ -85,6 +184,12 @@ class LogClient:
                 connection.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                 connection.sock.settimeout(self.timeout)
                 connection.sock.connect(self.unix_socket)
+            yield connection
+        finally:
+            connection.close()
+
+    def _get(self, path, headers=None):
+        with self._connection() as connection:
             connection.request("GET", path, headers=headers or {})
             response = connection.getresponse()
             # /logz currently renders at most 64 fixed-size records per poll.
@@ -93,8 +198,37 @@ class LogClient:
             if len(payload) > 1024 * 1024:
                 raise ValueError(f"{path}: observation response exceeds 1 MiB")
             return response.status, payload
-        finally:
-            connection.close()
+
+    @contextlib.contextmanager
+    def stream(self, model=None):
+        """Follow one incarnation, resuming its cursor without polling/retries.
+
+        One reader at a time owns this selector's cursor. Rejected resumes are
+        errors; the caller decides whether to forget the previous incarnation.
+        Cancellation does not advance past an incomplete frame.
+        """
+        headers = {} if model is None else {"X-Loom-Model": model}
+        previous = self.cursors.get(model)
+        if previous is not None:
+            headers["Last-Event-ID"] = previous
+        with self._connection() as connection:
+            connection.request("GET", "/logz/stream", headers=headers)
+            # Connection: close transfers the socket to the response reader.
+            # Keep its object for shutdown while the response retains the FD.
+            transport = connection.sock
+            with connection.getresponse() as response:
+                if response.status == 404 and model is not None:
+                    raise ModelNotFound(model)
+                if response.status != 200:
+                    raise RuntimeError(
+                        f"GET /logz/stream ({model!r}): HTTP {response.status}"
+                    )
+                if response.getheader("Content-Type") != "text/event-stream":
+                    raise ValueError("/logz/stream: expected text/event-stream")
+                # Idle streams have no periodic traffic. Only cancellation or
+                # peer closure ends a read after the response is established.
+                transport.settimeout(None)
+                yield LogStream(self, model, response, transport)
 
     def models(self):
         """List registered models, including preparation and retirement.
@@ -137,10 +271,14 @@ class LogClient:
             raise ModelNotFound(model)
         if status != 200:
             raise RuntimeError(f"GET /logz ({model!r}): HTTP {status}: {payload!r}")
+        if not payload.endswith(b"\n"):
+            raise ValueError("/logz: incomplete observation batch")
         records = [json.loads(line) for line in payload.splitlines()]
+        return self._accept_batch(model, records, previous, reset=reset)
+
+    def _accept_batch(self, model, records, previous, *, reset=False, event_id=None):
         if (
-            not payload.endswith(b"\n")
-            or len(records) < 2
+            len(records) < 2
             or any(not isinstance(record, dict) for record in records)
             or records[0].get("event") != "stream"
             or records[-1].get("event") != "cursor"
@@ -186,6 +324,8 @@ class LogClient:
         cursor = footer.get("value")
         if footer.get("next") != position or cursor != f"{identity}:{position}":
             raise ValueError("/logz: cursor does not cover the copied records")
+        if event_id is not None and event_id != cursor:
+            raise ValueError("/logz/stream: event id does not match batch cursor")
         stream = {"scope": header["scope"], "identity": identity}
         if model is not None:
             stream["model"] = model

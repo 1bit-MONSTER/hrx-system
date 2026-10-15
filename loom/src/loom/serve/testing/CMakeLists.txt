@@ -338,6 +338,7 @@ iree_py_test(
     "loom_serve_testing/http_test.py"
   DEPS
     loom::serve::testing::http
+    loom::serve::testing::logs
   PACKAGE_DIRS
     "${PROJECT_SOURCE_DIR}/loom/py"
     "${PROJECT_BINARY_DIR}/loom/py"
