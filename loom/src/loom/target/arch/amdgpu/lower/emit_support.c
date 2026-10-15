@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 #include "loom/codegen/low/builder.h"
+#include "loom/codegen/low/lower/rule_value.h"
 #include "loom/ir/context.h"
 #include "loom/target/arch/amdgpu/lower/constants.h"
 #include "loom/target/arch/amdgpu/lower/emit.h"
@@ -160,6 +161,66 @@ iree_status_t loom_amdgpu_emit_sgpr_binary_immediate(
       lane_type, &low_immediate));
   return loom_amdgpu_emit_binary(context, source_op, descriptor_ref, value,
                                  low_immediate, lane_type, out_value);
+}
+
+iree_status_t loom_amdgpu_emit_sgpr_divide_u32_constant(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t value, uint32_t divisor, loom_type_t lane_type,
+    loom_value_id_t* out_value) {
+  *out_value = LOOM_VALUE_ID_INVALID;
+  IREE_ASSERT_NE(divisor, 0u);
+  if (divisor == 1u) {
+    *out_value = value;
+    return iree_ok_status();
+  }
+  if (loom_amdgpu_u32_is_power_of_two(divisor)) {
+    uint32_t shift = 0;
+    for (uint32_t remaining = divisor; remaining > 1u; remaining >>= 1u) {
+      ++shift;
+    }
+    loom_value_id_t low_shift = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_const_u32(
+        context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_S_MOV_B32, shift,
+        lane_type, &low_shift));
+    return loom_amdgpu_emit_binary(context, source_op,
+                                   LOOM_AMDGPU_DESCRIPTOR_REF_S_LSHR_B32, value,
+                                   low_shift, lane_type, out_value);
+  }
+
+  const loom_low_lower_unsigned_divisor_magic_info_t magic_info =
+      loom_low_lower_unsigned_divisor_magic_info(divisor, 32, UINT32_MAX);
+  loom_value_id_t low_multiplier = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_const_u32(
+      context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_S_MOV_B32,
+      (uint32_t)magic_info.multiplier, lane_type, &low_multiplier));
+  loom_value_id_t quotient = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_binary(
+      context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_S_MUL_HI_U32, value,
+      low_multiplier, lane_type, &quotient));
+
+  if (magic_info.is_add) {
+    loom_value_id_t difference = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_binary(
+        context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_S_SUB_U32, value,
+        quotient, lane_type, &difference));
+    loom_value_id_t half_difference = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_sgpr_binary_immediate(
+        context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_S_LSHR_B32, difference,
+        1u, lane_type, &half_difference));
+    loom_value_id_t adjusted_quotient = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_binary(
+        context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_S_ADD_U32,
+        half_difference, quotient, lane_type, &adjusted_quotient));
+    quotient = adjusted_quotient;
+  }
+
+  if (magic_info.post_shift == 0u) {
+    *out_value = quotient;
+    return iree_ok_status();
+  }
+  return loom_amdgpu_emit_sgpr_binary_immediate(
+      context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_S_LSHR_B32, quotient,
+      magic_info.post_shift, lane_type, out_value);
 }
 
 iree_status_t loom_amdgpu_emit_sgpr_scale_u32(loom_low_lower_context_t* context,

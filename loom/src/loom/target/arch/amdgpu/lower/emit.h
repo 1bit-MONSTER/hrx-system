@@ -273,6 +273,13 @@ iree_status_t loom_amdgpu_emit_sgpr_binary_immediate(
     loom_amdgpu_descriptor_ref_t descriptor_ref, loom_value_id_t value,
     uint32_t immediate, loom_type_t lane_type, loom_value_id_t* out_value);
 
+// Emits an exact unsigned quotient of |value| by the nonzero constant
+// |divisor| into a one-unit SGPR.
+iree_status_t loom_amdgpu_emit_sgpr_divide_u32_constant(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t value, uint32_t divisor, loom_type_t lane_type,
+    loom_value_id_t* out_value);
+
 // Emits |value| scaled by an unsigned 32-bit constant into a one-unit SGPR.
 iree_status_t loom_amdgpu_emit_sgpr_scale_u32(loom_low_lower_context_t* context,
                                               const loom_op_t* source_op,
