@@ -2308,20 +2308,18 @@ static iree_status_t iree_tokenizer_encode_state_pump(
           }
         }
 
-        // Check if pipeline has content that must be emitted first.
+        // Retain the accepted match until earlier content has drained and an
+        // output slot is available. Consuming input transfers ownership even
+        // when the caller currently has no output credit.
         bool pipeline_has_content =
             iree_tokenizer_encode_state_pipeline_has_content(state);
-        if (pipeline_has_content) {
-          // Defer emission until pipeline flushes.
+        if (pipeline_has_content || output->capacity == *total_tokens) {
           state->pending_special_token = match_id;
         } else {
-          // Pipeline empty, emit immediately.
-          if (output->capacity > *total_tokens) {
-            output->token_ids[*total_tokens] = match_id;
-            iree_tokenizer_postprocessor_assign_type_ids(
-                &state->postprocessor, *output, *total_tokens, 1);
-            (*total_tokens)++;
-          }
+          output->token_ids[*total_tokens] = match_id;
+          iree_tokenizer_postprocessor_assign_type_ids(
+              &state->postprocessor, *output, *total_tokens, 1);
+          (*total_tokens)++;
         }
         return iree_ok_status();
       } else if (result == IREE_TOKENIZER_SPECIAL_TOKENS_NEED_MORE) {
