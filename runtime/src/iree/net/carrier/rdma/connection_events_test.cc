@@ -69,8 +69,11 @@ static void StopEvents(iree_async_proactor_t* proactor,
                        iree_net_rdma_connection_events_t* events) {
   bool joined = false;
   iree_net_rdma_connection_events_deactivate(
-      events,
-      {+[](void* value) { *static_cast<bool*>(value) = true; }, &joined});
+      events, {+[](void* value, iree_status_t status) {
+                 IREE_CHECK_OK(status);
+                 *static_cast<bool*>(value) = true;
+               },
+               &joined});
   PollUntil(proactor, [&] { return joined; });
   iree_net_rdma_connection_events_free(events);
 }
@@ -144,8 +147,11 @@ class NativeConnection {
     RetireControl();
     bool joined = false;
     iree_net_rdma_completion_queue_deactivate(
-        completions_,
-        {+[](void* value) { *static_cast<bool*>(value) = true; }, &joined});
+        completions_, {+[](void* value, iree_status_t status) {
+                         IREE_CHECK_OK(status);
+                         *static_cast<bool*>(value) = true;
+                       },
+                       &joined});
     PollUntil(proactor_, [&] { return joined; });
     iree_net_rdma_completion_queue_free(completions_);
     iree_async_region_release(region_);
@@ -671,7 +677,10 @@ TEST_P(ConnectionEventsTest, ColdDeactivationCompletesInline) {
   CreateColdEvents(proactor_, &resolved_count, &events);
   bool joined = false;
   iree_net_rdma_connection_events_deactivate(
-      events, {+[](void* user_data) { *static_cast<bool*>(user_data) = true; },
+      events, {+[](void* user_data, iree_status_t status) {
+                 IREE_CHECK_OK(status);
+                 *static_cast<bool*>(user_data) = true;
+               },
                &joined});
   EXPECT_TRUE(joined);
   IREE_EXPECT_STATUS_IS(IREE_STATUS_FAILED_PRECONDITION,

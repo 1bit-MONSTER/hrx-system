@@ -269,7 +269,8 @@ class ControlPeer {
       iree_net_rdma_direct_endpoint_join_deactivation(data_endpoint_);
     }
     iree_net_rdma_connection_control_deactivate(
-        control_, {+[](void* user_data) {
+        control_, {+[](void* user_data, iree_status_t status) {
+                     IREE_CHECK_OK(status);
                      auto* self = static_cast<ControlPeer*>(user_data);
                      self->flags_ |= kStopped;
                      if (self->has(kDestroyOnStop)) {
@@ -737,8 +738,11 @@ class ConnectionControlTest
     if (listener_events_) {
       bool stopped = false;
       iree_net_rdma_connection_events_deactivate(
-          listener_events_,
-          {+[](void* value) { *static_cast<bool*>(value) = true; }, &stopped});
+          listener_events_, {+[](void* value, iree_status_t status) {
+                               IREE_CHECK_OK(status);
+                               *static_cast<bool*>(value) = true;
+                             },
+                             &stopped});
       PollUntil(proactor_, [&] { return stopped; });
       iree_net_rdma_connection_events_free(listener_events_);
       listener_events_ = nullptr;
