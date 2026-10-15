@@ -23,4 +23,20 @@ loom_cc_test(
     loom::binding::c::test::test_util
 )
 
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
+loom_cc_test(
+  NAME
+    specialization_test
+  SRCS
+    "specialization_test.cc"
+  DEPS
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::binding::c::loomc
+    loom::binding::c::target::amdgpu
+    loom::binding::c::target::cmd
+    loom::binding::c::test::test_util
+)
+endif()
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

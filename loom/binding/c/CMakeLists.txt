@@ -152,6 +152,7 @@ loom_cc_library(
     loom::link::index_materializer
     loom::link::materialization_environment
     loom::link::module_index
+    loom::link::plan_materializer
     loom::ops::func
     loom::ops::global
     loom::ops::kernel

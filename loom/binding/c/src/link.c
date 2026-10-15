@@ -584,7 +584,8 @@ loomc_status_t loomc_link_module(loomc_linker_t* linker,
   loomc_module_t* module = NULL;
   loomc_link_materialization_state_initialize(
       linker->context, workspace, options->link_index, &options->config,
-      target_specialization, result, linker->allocator, &materialization_state);
+      target_specialization, result, &arena, linker->allocator,
+      &materialization_state);
   loomc_status_t status = loomc_link_module_overlay_initialize(
       linker, workspace, options, &overlay);
 
@@ -747,7 +748,8 @@ loomc_status_t loomc_link_request(loomc_linker_t* linker,
   loomc_link_materialization_state_initialize_overlay(
       linker->context, workspace, library_index,
       request_overlay.request_provider_ordinal, input_source, config,
-      target_specialization, result, allocator, &materialization_state);
+      target_specialization, result, &scratch_arena, allocator,
+      &materialization_state);
   const loom_link_plan_materialization_environment_t environment =
       loomc_link_materialization_state_environment(&materialization_state);
   const loomc_host_size_t before_diagnostics =

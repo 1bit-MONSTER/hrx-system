@@ -516,11 +516,6 @@ static iree_status_t loom_link_plan_materialize_with_scratch(
   }
   const iree_host_size_t linked_symbol_count =
       output_module != NULL ? output_module->symbols.count : 0;
-  if (iree_status_is_ok(status) && environment->prepare_module != NULL) {
-    status = environment->prepare_module(
-        environment->user_data, environment->block_pool, environment->allocator,
-        &output_module);
-  }
   loom_linker_free(linker);
 
   if (!iree_status_is_ok(status)) {
@@ -543,7 +538,16 @@ static iree_status_t loom_link_plan_materialize_with_scratch(
       target_kernel_configurations;
   out_materialization->target_kernel_configurations.count =
       target_kernel_configurations ? linked_symbol_count : 0;
-  return iree_ok_status();
+  if (environment->prepare_module != NULL) {
+    status = environment->prepare_module(
+        environment->user_data, index, environment->block_pool,
+        environment->allocator, out_materialization);
+  }
+  if (!iree_status_is_ok(status)) {
+    loom_module_free(out_materialization->module);
+    *out_materialization = (loom_link_plan_materialization_t){0};
+  }
+  return status;
 }
 
 iree_status_t loom_link_plan_materialize(

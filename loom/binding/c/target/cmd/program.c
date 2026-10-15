@@ -602,7 +602,7 @@ loomc_status_t loomc_cmd_program_product_build(
     loomc_link_materialization_state_initialize(
         loomc_link_index_context(options->link_index), workspace,
         options->link_index, &options->config, target_specialization, result,
-        allocator, &materialization_state);
+        &scratch_arena, allocator, &materialization_state);
     const loom_link_plan_materialization_environment_t
         materialization_environment =
             loomc_link_materialization_state_environment(
@@ -664,8 +664,8 @@ loomc_status_t loomc_cmd_program_product_build_request(
     loomc_link_materialization_state_initialize_overlay(
         context, workspace, options->library_index,
         request_overlay.request_provider_ordinal, loomc_request_source(request),
-        &options->config, target_specialization, result, allocator,
-        &materialization_state);
+        &options->config, target_specialization, result, &scratch_arena,
+        allocator, &materialization_state);
     const loom_link_plan_materialization_environment_t
         materialization_environment =
             loomc_link_materialization_state_environment(
