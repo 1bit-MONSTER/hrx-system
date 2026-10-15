@@ -32,6 +32,7 @@
 #include "loom/import/cxx/binding/shaped.h"
 #include "loom/import/cxx/binding/target.h"
 #include "loom/import/cxx/binding/template_apply.h"
+#include "loom/import/cxx/binding/vector_arithmetic.h"
 #include "loom/import/cxx/binding/vector_memory.h"
 #include "loom/import/cxx/binding/view.h"
 #include "loom/import/cxx/source/source.h"
@@ -83,10 +84,11 @@ class Intrinsics {
   using Binding =
       std::variant<ScalarBinding, ShapedIntrinsic, EncodingIntrinsic,
                    DecodeIntrinsic, FragmentIntrinsic, BufferIntrinsic,
-                   ViewIntrinsic, VectorMemoryIntrinsic, AsyncIntrinsic,
-                   AtomicIntrinsic, FenceIntrinsic, SubgroupIntrinsic,
-                   BarrierIntrinsic, TargetIntrinsic, AssemblyIntrinsic,
-                   TemplateApplyIntrinsic, CheckIntrinsic, AddressIntrinsic>;
+                   ViewIntrinsic, VectorArithmeticIntrinsic,
+                   VectorMemoryIntrinsic, AsyncIntrinsic, AtomicIntrinsic,
+                   FenceIntrinsic, SubgroupIntrinsic, BarrierIntrinsic,
+                   TargetIntrinsic, AssemblyIntrinsic, TemplateApplyIntrinsic,
+                   CheckIntrinsic, AddressIntrinsic>;
 
   Intrinsics(cxx::TranslationUnit& unit, Diagnostics& diagnostics, Types& types,
              Locations& locations, SymbolNames& names,
@@ -138,6 +140,7 @@ class Intrinsics {
     // Type-independent semantics established at primary admission. Other
     // bindings resolve their complete contract at concrete specialization.
     std::variant<std::monostate, ScalarOperation, ShapedIntrinsic::Operation,
+                 VectorArithmeticIntrinsic::Operation,
                  EncodingIntrinsic::Family>
         operation;
   };

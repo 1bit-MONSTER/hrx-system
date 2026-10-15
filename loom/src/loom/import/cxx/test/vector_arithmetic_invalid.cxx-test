@@ -1,0 +1,39 @@
+// RUN: verify
+#include <loomcxx/vector.h>
+
+namespace loomt = loom::type;
+using DynamicFloat = loomt::vector<loomt::shape<loomt::dynamic>, float>;
+using StaticFloat = loomt::vector<loomt::shape<4>, float>;
+using Signed = loomt::vector<loomt::shape<4>, int>;
+using Unsigned = loomt::vector<loomt::shape<4>, unsigned>;
+
+// ERROR@+1: LOWERING/059 "vector arithmetic operands and result must have one vector type"
+[[loom::op("vector.add")]] DynamicFloat mismatched(DynamicFloat, StaticFloat);
+
+// ====
+#include <loomcxx/vector.h>
+namespace loomt = loom::type;
+using Bool = loomt::vector<loomt::shape<4>, bool>;
+// ERROR@+1: LOWERING/059 "vector arithmetic requires floating-point or non-boolean integer elements"
+[[loom::op("vector.add")]] Bool boolean_arithmetic(Bool, Bool);
+
+// ====
+#include <loomcxx/vector.h>
+namespace loomt = loom::type;
+using Float = loomt::vector<loomt::shape<4>, float>;
+// ERROR@+1: LOWERING/059 "integer vector arithmetic requires non-boolean integer elements"
+[[loom::op("vector.and")]] Float floating_bitwise(Float, Float);
+
+// ====
+#include <loomcxx/vector.h>
+namespace loomt = loom::type;
+using Float = loomt::vector<loomt::shape<4>, float>;
+// ERROR@+1: LOWERING/059 "vector arithmetic has the wrong operand count"
+[[loom::op("vector.add")]] Float missing_rhs(Float);
+
+// ====
+#include <loomcxx/vector.h>
+namespace loomt = loom::type;
+using Signed = loomt::vector<loomt::shape<4>, int>;
+// ERROR@+1: LOWERING/059 "integer vector arithmetic has no semantic arguments"
+[[loom::op("vector.add", "nnan")]] Signed flagged_integer(Signed, Signed);

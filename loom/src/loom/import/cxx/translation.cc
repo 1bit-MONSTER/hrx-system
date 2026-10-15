@@ -1370,8 +1370,8 @@ class Translator final : private Initialization::Evaluation {
       if (binary->symbol) {
         auto* function = cxx::symbol_cast<cxx::FunctionSymbol>(binary->symbol);
         auto* binding = function ? intrinsics_.lookup(function, ast) : nullptr;
-        if (!binding || !std::holds_alternative<AddressIntrinsic>(*binding)) {
-          fail(ast, "overloaded arithmetic requires a Loom address operation");
+        if (!binding) {
+          fail(ast, "overloaded binary operation requires a Loom operation");
         }
         std::array<Value, 2> arguments = {
             expression(binary->leftExpression),
@@ -1381,7 +1381,7 @@ class Translator final : private Initialization::Evaluation {
             intrinsics_.call(*binding, arguments, value_arena_, storage_, ast,
                              lexical_fastmath_flags_, &builder_, source);
         if (!called.value) {
-          fail(ast, "address operator must produce a value");
+          fail(ast, "overloaded binary operation must produce a value");
         }
         return *called.value;
       }
@@ -1449,7 +1449,19 @@ class Translator final : private Initialization::Evaluation {
     }
     if (auto* unary = cxx::ast_cast<cxx::UnaryExpressionAST>(ast)) {
       if (unary->symbol) {
-        fail(ast, "overloaded unary operations are not supported");
+        auto* function = cxx::symbol_cast<cxx::FunctionSymbol>(unary->symbol);
+        auto* binding = function ? intrinsics_.lookup(function, ast) : nullptr;
+        if (!binding) {
+          fail(ast, "overloaded unary operation requires a Loom operation");
+        }
+        std::array<Value, 1> arguments = {expression(unary->expression)};
+        auto called =
+            intrinsics_.call(*binding, arguments, value_arena_, storage_, ast,
+                             lexical_fastmath_flags_, &builder_, source);
+        if (!called.value) {
+          fail(ast, "overloaded unary operation must produce a value");
+        }
+        return *called.value;
       }
       if (unary->op == cxx::TokenKind::T_PLUS_PLUS ||
           unary->op == cxx::TokenKind::T_MINUS_MINUS) {

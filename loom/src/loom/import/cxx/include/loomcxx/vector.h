@@ -9,6 +9,17 @@
 
 #include <loomcxx/view.h>
 
+namespace loom::detail {
+
+template <class T>
+concept vector_arithmetic_element =
+    __is_floating_point(T) || (__is_integral(T) && !__is_same(T, bool));
+
+template <class T>
+concept vector_integer_element = __is_integral(T) && !__is_same(T, bool);
+
+}  // namespace loom::detail
+
 namespace loom::type {
 
 // A rank-generic register value whose logical dimensions precede its element
@@ -17,6 +28,57 @@ namespace loom::type {
 // through functions, records, templates, and structured control flow.
 template <class Shape, class T>
 class [[loom::type("vector")]] vector {};
+
+// Lanewise arithmetic preserves Shape and T. For dependent shapes, binary
+// results retain the left value's dynamic dimensions and assert that the right
+// value describes the same logical lane grid.
+template <class Shape, class T>
+  requires(loom::detail::vector_arithmetic_element<T>)
+[[loom::op("vector.add")]] vector<Shape, T> operator+(vector<Shape, T> lhs,
+                                                      vector<Shape, T> rhs);
+template <class Shape, class T>
+  requires(loom::detail::vector_arithmetic_element<T>)
+[[loom::op("vector.sub")]] vector<Shape, T> operator-(vector<Shape, T> lhs,
+                                                      vector<Shape, T> rhs);
+template <class Shape, class T>
+  requires(loom::detail::vector_arithmetic_element<T>)
+[[loom::op("vector.mul")]] vector<Shape, T> operator*(vector<Shape, T> lhs,
+                                                      vector<Shape, T> rhs);
+template <class Shape, class T>
+  requires(loom::detail::vector_arithmetic_element<T>)
+[[loom::op("vector.div")]] vector<Shape, T> operator/(vector<Shape, T> lhs,
+                                                      vector<Shape, T> rhs);
+template <class Shape, class T>
+  requires(loom::detail::vector_arithmetic_element<T>)
+[[loom::op("vector.rem")]] vector<Shape, T> operator%(vector<Shape, T> lhs,
+                                                      vector<Shape, T> rhs);
+template <class Shape, class T>
+  requires(loom::detail::vector_arithmetic_element<T>)
+[[loom::op("vector.neg")]] vector<Shape, T> operator-(vector<Shape, T> input);
+template <class Shape, class T>
+  requires(loom::detail::vector_integer_element<T>)
+[[loom::op("vector.and")]] vector<Shape, T> operator&(vector<Shape, T> lhs,
+                                                      vector<Shape, T> rhs);
+template <class Shape, class T>
+  requires(loom::detail::vector_integer_element<T>)
+[[loom::op("vector.or")]] vector<Shape, T> operator|(vector<Shape, T> lhs,
+                                                     vector<Shape, T> rhs);
+template <class Shape, class T>
+  requires(loom::detail::vector_integer_element<T>)
+[[loom::op("vector.xor")]] vector<Shape, T> operator^(vector<Shape, T> lhs,
+                                                      vector<Shape, T> rhs);
+template <class Shape, class T>
+  requires(loom::detail::vector_integer_element<T>)
+[[loom::op("vector.complement")]] vector<Shape, T> operator~(
+    vector<Shape, T> input);
+template <class Shape, class T>
+  requires(loom::detail::vector_integer_element<T>)
+[[loom::op("vector.shl")]] vector<Shape, T> operator<<(vector<Shape, T> lhs,
+                                                       vector<Shape, T> rhs);
+template <class Shape, class T>
+  requires(loom::detail::vector_integer_element<T>)
+[[loom::op("vector.shr")]] vector<Shape, T> operator>>(vector<Shape, T> lhs,
+                                                       vector<Shape, T> rhs);
 
 }  // namespace loom::type
 
