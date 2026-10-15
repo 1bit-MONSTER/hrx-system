@@ -14,6 +14,12 @@ from loom.target.arch.amd.xdna.aie2p.core_descriptor_spec import _DescriptorSpec
 from loom.target.low_descriptors import DescriptorFlag, Effect, EffectKind
 
 _TARGET_KEY = "amd.xdna.aie2p"
+_SCALAR_STREAM_ISSUE_EVENT = f"{_TARGET_KEY}.scalar-stream.issue"
+_SCALAR_STREAM_EFFECT = Effect(
+    EffectKind.BARRIER,
+    producer_event=_SCALAR_STREAM_ISSUE_EVENT,
+    consumer_event=_SCALAR_STREAM_ISSUE_EVENT,
+)
 
 
 def _scalar_stream_descriptor_specs() -> tuple[_DescriptorSpec, ...]:
@@ -22,7 +28,9 @@ def _scalar_stream_descriptor_specs() -> tuple[_DescriptorSpec, ...]:
     # Stream traffic participates in a device protocol even when the payload
     # has no SSA consumer. Preserve its issue order with memory and other
     # protocol effects; this annotation does not add a hardware memory fence.
-    effects = (Effect(EffectKind.BARRIER),)
+    # Consecutive scalar transfers can issue every cycle. The independent
+    # srMS0/srSS0 register dependencies protect observations of their status.
+    effects = (_SCALAR_STREAM_EFFECT,)
     result = []
     for nonblocking in (False, True):
         form_infix = "nb_" if nonblocking else ""
