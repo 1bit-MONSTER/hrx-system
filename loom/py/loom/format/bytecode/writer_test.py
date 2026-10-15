@@ -592,7 +592,7 @@ class TestFileHeader:
 
 
 class TestSymbolReferencesSection:
-    def test_oracle_dependency_role_survives_projection(self) -> None:
+    def test_support_dependency_roles_survive_projection(self) -> None:
         module = _text_parser(include_check=True).parse(
             "func.def @subject(%x: i32) -> (i32) {\n"
             "  func.return %x : i32\n"
@@ -600,10 +600,15 @@ class TestSymbolReferencesSection:
             "func.def @oracle(%x: i32) -> (i32) {\n"
             "  func.return %x : i32\n"
             "}\n"
+            "func.def @generator(%seed: i32) -> (i32) {\n"
+            "  func.return %seed : i32\n"
+            "}\n"
             "check.scenario @scenario {\n"
             "  check.trial[1](%trial: index, %entropy: check.entropy) {\n"
-            "    %input = check.literal value(1) : i32\n"
-            "    check.compare<@subject, @oracle>(%input) : (i32) -> "
+            "    %seed = check.literal value(1) : i32\n"
+            "    %input = check.generate<@generator>(%seed) : (i32) -> (i32)\n"
+            "    %shared = check.generate<@subject>(%input) : (i32) -> (i32)\n"
+            "    check.compare<@subject, @oracle>(%shared) : (i32) -> "
             "[actual(%actual: i32), expected(%expected: i32)] {\n"
             "      check.expect.equal actual(%actual) expected(%expected) : i32\n"
             "    }\n"
@@ -620,10 +625,10 @@ class TestSymbolReferencesSection:
         dependency_count, offset = decode_varint(data, offset)
         template_demand_count, offset = decode_varint(data, offset)
         module_dependency_count, offset = decode_varint(data, offset)
-        assert (symbol_count, dependency_count, template_demand_count) == (3, 2, 0)
+        assert (symbol_count, dependency_count, template_demand_count) == (4, 4, 0)
         assert module_dependency_count == 0
 
-        roles_by_target: dict[int, int] = {}
+        roles_by_target: set[tuple[int, int]] = set()
         for _ in range(symbol_count):
             row_dependency_count, offset = decode_varint(data, offset)
             for _ in range(row_dependency_count):
@@ -631,11 +636,11 @@ class TestSymbolReferencesSection:
                 target_symbol, offset = decode_varint(data, offset)
                 contract, offset = decode_varint(data, offset)
                 _interfaces, role = symbol_reference_dependency_contract_parts(contract)
-                roles_by_target[target_symbol] = role
+                roles_by_target.add((target_symbol, role))
             row_template_demand_count, offset = decode_varint(data, offset)
             assert row_template_demand_count == 0
 
-        assert roles_by_target == {0: 0, 1: 2}
+        assert roles_by_target == {(0, 0), (0, 2), (1, 2), (2, 2)}
         assert offset == len(data)
 
     def test_records_retain_contract_and_root_region_origins(self) -> None:

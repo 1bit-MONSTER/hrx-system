@@ -81,9 +81,9 @@ enum loom_symbol_reference_role_e {
   LOOM_SYMBOL_REFERENCE_ROLE_DEPENDENCY = 0,
   // The reference records where a symbol may be found without retaining it.
   LOOM_SYMBOL_REFERENCE_ROLE_AVAILABILITY = 1,
-  // The reference contributes to test reachability through the independent
-  // oracle profile but is not a deployable subject of the test.
-  LOOM_SYMBOL_REFERENCE_ROLE_ORACLE_DEPENDENCY = 2,
+  // The reference retains test support, such as an input generator or oracle,
+  // without making it a deployable subject when the test is stripped.
+  LOOM_SYMBOL_REFERENCE_ROLE_TEST_SUPPORT_DEPENDENCY = 2,
   LOOM_SYMBOL_REFERENCE_ROLE_COUNT_ = 3,
 };
 typedef uint8_t loom_symbol_reference_role_t;
@@ -92,7 +92,7 @@ typedef uint8_t loom_symbol_reference_role_t;
 static inline bool loom_symbol_reference_role_is_dependency(
     loom_symbol_reference_role_t role) {
   return role == LOOM_SYMBOL_REFERENCE_ROLE_DEPENDENCY ||
-         role == LOOM_SYMBOL_REFERENCE_ROLE_ORACLE_DEPENDENCY;
+         role == LOOM_SYMBOL_REFERENCE_ROLE_TEST_SUPPORT_DEPENDENCY;
 }
 
 // Compact durable contract for one dependency occurrence. The low 14 bits
