@@ -224,8 +224,10 @@ TEST_F(Pm4LdsTest, StaticGroupMemoryExchangesAcrossWaves) {
     RecordProperty(prefix + "_group_byte_length",
                    program.group_segment_byte_length);
     RecordProperty(prefix + "_bound_compute_pgm_rsrc2",
-                   kernel.program.resource2 |
-                       ((program.group_segment_byte_length / 512u) << 15));
+                   (kernel.program.resource2 & ~UINT32_C(0x00ff8000)) |
+                       (pm4_profile_->EncodeGroupSegmentByteLength(
+                            program.group_segment_byte_length)
+                        << 15));
     RecordProperty(prefix + "_published_word_count",
                    std::to_string(commands.word_count()));
   }

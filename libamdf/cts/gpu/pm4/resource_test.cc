@@ -142,8 +142,10 @@ TEST_F(Pm4DispatchTest, SwitchesBetweenTransformAndLdsKernels) {
   RecordProperty(
       "pm4_mixed_bound_rsrc2_sequence",
       std::to_string(transform.program.resource2) + "," +
-          std::to_string(lds.program.resource2 |
-                         ((lds.group_segment_byte_length / 512u) << 15)) +
+          std::to_string((lds.program.resource2 & ~UINT32_C(0x00ff8000)) |
+                         (pm4_profile_->EncodeGroupSegmentByteLength(
+                              lds.group_segment_byte_length)
+                          << 15)) +
           "," + std::to_string(transform.program.resource2));
   RecordProperty("pm4_mixed_bound_rsrc3_sequence",
                  std::to_string(transform.program.resource3) + "," +

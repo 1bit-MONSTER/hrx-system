@@ -317,6 +317,36 @@ TEST(Pm4EncodingTest, ComputeBindingReplacesDynamicLdsRequirement) {
   EXPECT_EQ(program.resource2, 0x84u);
 }
 
+TEST(Pm4EncodingTest, ComputeBindingUsesTargetGroupSegmentUnits) {
+  const struct {
+    // Compiler target family selecting the native LDS representation.
+    std::array<uint32_t, 2> target;
+    // Group-segment byte length realized by the PM4 binding.
+    uint32_t group_segment_byte_length;
+    // Literal final RSRC2 word, including the preserved compiler fields.
+    uint32_t resource2;
+  } cases[] = {
+      {{11, 0}, 1, 0x00008084},    {{11, 0}, 512, 0x00008084},
+      {{11, 0}, 513, 0x00010084},  {{12, 0}, 2048, 0x00020084},
+      {{12, 5}, 1, 0x00008084},    {{12, 5}, 2048, 0x00008084},
+      {{12, 5}, 2049, 0x00010084},
+  };
+  for (const auto& test : cases) {
+    SCOPED_TRACE(::testing::Message() << test.target[0] << '.' << test.target[1]
+                                      << ':' << test.group_segment_byte_length);
+    std::array<uint32_t, 27> words = {};
+    const Pm4ComputeProgram program = {
+        UINT64_C(0x0000123456789000),   0xe0af0000, 0x84,       0x30,
+        test.group_segment_byte_length, 32,         {64, 1, 1},
+    };
+    Pm4CommandWriter commands(words.data(),
+                              Profile(test.target[0], test.target[1]));
+    commands.BindCompute(program, UINT64_C(0x00003456789abc00), 0);
+    ASSERT_EQ(commands.word_count(), 26u);
+    EXPECT_EQ(words[7], test.resource2);
+  }
+}
+
 TEST(Pm4EncodingTest, ComputeBindingSwitchesImmutableProgramsAndRestoresState) {
   std::array<uint32_t, 80> words;
   words.fill(0x24681357);

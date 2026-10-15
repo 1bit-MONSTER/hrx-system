@@ -38,8 +38,10 @@ void Pm4CommandWriter::BindCompute(
   };
   SetComputeRegisters(0x2e0c, entry, 2);
   // HSA descriptors leave LDS_SIZE zero. The PM4 caller realizes the total
-  // group allocation in 512-byte units without changing the compiler image.
-  const uint32_t lds_units = (program.group_segment_byte_length + 511u) / 512u;
+  // group allocation in the target's units without changing the compiler
+  // image.
+  const uint32_t lds_units =
+      profile_.EncodeGroupSegmentByteLength(program.group_segment_byte_length);
   const uint32_t resources[] = {
       program.resource1 |
           ((format_features & AMDF_GPU_PM4_FORMAT_FEATURE_COMPUTE_PRIV)
