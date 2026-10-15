@@ -591,6 +591,30 @@ def prepare_catalog(fixtures, directory):
     return catalog, catalog_path
 
 
+def check_latency(metrics, counts, model=None):
+    """Every terminal owner outcome contributes exactly one duration sample."""
+    scope = "server" if model is None else "model"
+    prefix = f"loom_serve_{scope}_request_duration_seconds_"
+    samples = [
+        line
+        for line in metrics.splitlines()
+        if line.startswith(prefix) and (model is None or f'model="{model}",' in line)
+    ]
+    for outcome in ("completed", "rejected", "cancelled", "failed"):
+        values = [line for line in samples if f'outcome="{outcome}"' in line]
+        buckets = [line for line in values if line.startswith(prefix + "bucket{")]
+        bounds = [float(line.split('le="')[1].split('"')[0]) for line in buckets]
+        assert len(bounds) == 20 and sorted(bounds) == bounds, buckets
+        numbers = [int(line.rsplit(" ", 1)[1]) for line in buckets]
+        assert sorted(numbers) == numbers and numbers[-1] == counts[outcome], buckets
+        count = [line for line in values if line.startswith(prefix + "count{")]
+        total = [line for line in values if line.startswith(prefix + "sum{")]
+        assert len(count) == len(total) == 1, values
+        assert int(count[0].rsplit(" ", 1)[1]) == counts[outcome], values
+        assert float(total[0].rsplit(" ", 1)[1]) >= 0, values
+    return samples
+
+
 def check_counters(client, rounds):
     """Compare independent model snapshots, server totals and metrics."""
     url = "http://" + client.address
@@ -633,9 +657,12 @@ def check_counters(client, rounds):
         )
         metrics = client.request("/metrics")
         assert "loom_serve_server_counters_available 1\n" in metrics
+        assert "loom_serve_server_latency_available 1\n" in metrics
+        check_latency(metrics, total)
         for key, value in total.items():
             assert f"loom_serve_server_{key}_total {value}\n" in metrics
         for model, counts in expected.items():
+            check_latency(metrics, counts, model)
             for key, value in counts.items():
                 prefix = f'loom_serve_model_{key}_total{{model="{model}",kind="'
                 assert any(

@@ -24,6 +24,8 @@ struct RegistrationDependency {
   // Model-protocol counters supplied by the dependency, not synthesized by
   // routing.
   loom_serve_telemetry_counters_t counters = {};
+  // Historical terminal observations owned by the dependency until retirement.
+  loom_serve_telemetry_latency_t latency = {};
   // Serializes retirement readiness and wake detachment with the owner.
   std::mutex mutex;
   // Outer-test synchronization on actual retirement entry.
@@ -188,6 +190,7 @@ struct RegistrationDependency {
     std::lock_guard<std::mutex> lock(dependency->mutex);
     dependency->service.name = configuration->name.data;
     dependency->service.counters = &dependency->counters;
+    dependency->service.latency = &dependency->latency;
     dependency->observer = observer;
     dependency->stream = stream;
     ++dependency->created;
@@ -896,6 +899,104 @@ TEST_P(HttpRouterRegistrationTest,
   EXPECT_EQ(managed_.destroyed.load(), 1u);
 }
 
+class HttpRouterRegistrationLatencyTest : public HttpRouterRegistrationTest {
+ protected:
+  void SetUp() override {
+    for (auto* service : {&a_, &b_, &held_, &other_, &escaped_}) {
+      service->latency = &empty_latency_;
+    }
+    HttpRouterRegistrationTest::SetUp();
+  }
+
+  // Immutable empty history for the externally owned peer dependencies.
+  loom_serve_telemetry_latency_t empty_latency_ = {};
+};
+
+TEST_P(HttpRouterRegistrationLatencyTest,
+       TerminalDistributionsSurviveDestructionAndNameReuse) {
+  {
+    std::lock_guard<std::mutex> lock(managed_.mutex);
+    managed_.counters = {.requests = 3, .completed = 2, .rejected = 1};
+    loom_serve_telemetry_latency_observe(
+        &managed_.latency, LOOM_SERVE_TELEMETRY_COMPLETED, 100000000);
+    loom_serve_telemetry_latency_observe(
+        &managed_.latency, LOOM_SERVE_TELEMETRY_COMPLETED, 2000000000);
+    loom_serve_telemetry_latency_observe(
+        &managed_.latency, LOOM_SERVE_TELEMETRY_REJECTED, 3000000);
+  }
+  Register();
+  const auto live = Read(Send("GET", "/metrics"));
+  EXPECT_NE(live.find("loom_serve_model_request_duration_seconds_count{"
+                      "model=\"dynamic\",kind=\"fixture\",incarnation=\"1\","
+                      "outcome=\"completed\"} 2\n"),
+            std::string::npos);
+  EXPECT_EQ(Control("unregister", "dynamic").find("HTTP/1.1 202"), 0u);
+  managed_.WaitRetiring();
+  // The registry copied the distributions before entering model retirement.
+  // Reusing dependency storage cannot mutate that terminal snapshot.
+  {
+    std::lock_guard<std::mutex> lock(managed_.mutex);
+    managed_.latency = {};
+  }
+  for (const auto& response : {Read(Send("GET", "/metrics")), live}) {
+    EXPECT_NE(response.find("loom_serve_server_request_duration_seconds_count{"
+                            "outcome=\"completed\"} 2\n"),
+              std::string::npos);
+    EXPECT_NE(response.find("loom_serve_server_request_duration_seconds_sum{"
+                            "outcome=\"completed\"} 2.1\n"),
+              std::string::npos);
+    EXPECT_NE(response.find("loom_serve_server_request_duration_seconds_count{"
+                            "outcome=\"rejected\"} 1\n"),
+              std::string::npos);
+  }
+  managed_.ReleaseRetirement();
+  while (Read(Send("GET", "/v1/status")).find(R"("id":"dynamic")") !=
+         std::string::npos) {
+  }
+  {
+    std::lock_guard<std::mutex> lock(managed_.mutex);
+    managed_.retired = false;
+    managed_.retiring = false;
+    managed_.counters = {.requests = 1, .completed = 1};
+    loom_serve_telemetry_latency_observe(
+        &managed_.latency, LOOM_SERVE_TELEMETRY_COMPLETED, 7000000000);
+  }
+  // Declare() expects the initial factory creation count. Register explicitly
+  // here to exercise reuse of a name without resetting its history.
+  EXPECT_EQ(
+      Read(
+          Send(
+              "POST", "/v1/models/register",
+              R"({"name":"dynamic","definition":{"kind":"embedding","prepare":"/model/prepare.loom","control":"/model/control.loom","sources":["/model/kernel.loom"],"assets":"/assets"}})"))
+          .find("HTTP/1.1 202"),
+      0u);
+  while (managed_.created.load() != 2) {
+    Read(Send("GET", "/v1/status"));
+  }
+  while (Read(Send("GET", "/v1/status")).find(R"("registration":"ready")") ==
+         std::string::npos) {
+  }
+  EXPECT_NE(Read(Send("GET", "/metrics"))
+                .find("loom_serve_model_request_duration_seconds_count{"
+                      "model=\"dynamic\",kind=\"fixture\",incarnation=\"2\","
+                      "outcome=\"completed\"} 1\n"),
+            std::string::npos);
+  Remove();
+  const auto removed = Read(Send("GET", "/metrics"));
+  EXPECT_NE(removed.find("loom_serve_server_request_duration_seconds_count{"
+                         "outcome=\"completed\"} 3\n"),
+            std::string::npos);
+  EXPECT_NE(removed.find("loom_serve_server_request_duration_seconds_sum{"
+                         "outcome=\"completed\"} 9.1\n"),
+            std::string::npos);
+  EXPECT_NE(removed.find("loom_serve_server_request_duration_seconds_count{"
+                         "outcome=\"rejected\"} 1\n"),
+            std::string::npos);
+  EXPECT_EQ(removed.find("model=\"dynamic\""), std::string::npos);
+}
+
+INSTANTIATE_TEST_SUITE_P(Workers, HttpRouterRegistrationLatencyTest,
+                         ::testing::Values(1, 4));
 INSTANTIATE_TEST_SUITE_P(Workers, HttpRouterRegistrationTest,
                          ::testing::Values(1, 4));
 

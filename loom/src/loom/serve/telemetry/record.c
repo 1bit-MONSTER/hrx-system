@@ -11,6 +11,13 @@
 
 #include "loom/util/json.h"
 
+const char* loom_serve_telemetry_outcome_name(
+    loom_serve_telemetry_outcome_t outcome) {
+  static const char* const outcomes[] = {"completed", "rejected", "cancelled",
+                                         "failed"};
+  return outcomes[outcome];
+}
+
 void loom_serve_telemetry_count_outcome(
     loom_serve_telemetry_counters_t* counters,
     loom_serve_telemetry_outcome_t outcome) {
@@ -92,14 +99,13 @@ static iree_status_t loom_serve_telemetry_record_snapshot(
 static iree_status_t loom_serve_telemetry_record_request_end(
     const loom_serve_telemetry_record_t* record,
     iree_string_builder_t* output) {
-  static const char* const outcomes[] = {"completed", "rejected", "cancelled",
-                                         "failed"};
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       output,
       ",\"outcome\":\"%s\",\"duration_ns\":%" PRIu64
       ",\"input_tokens\":%" PRIu64,
-      outcomes[record->data.end.outcome], record->data.end.duration_ns,
-      record->data.end.input_tokens));
+      loom_serve_telemetry_outcome_name(
+          (loom_serve_telemetry_outcome_t)record->data.end.outcome),
+      record->data.end.duration_ns, record->data.end.input_tokens));
   return loom_serve_telemetry_diagnostic_format(&record->data.end.diagnostic,
                                                 output);
 }

@@ -763,6 +763,91 @@ static iree_status_t loom_serve_router_metric_counters(router_t* router) {
   return iree_ok_status();
 }
 
+static iree_status_t loom_serve_router_metric_latency_prefix(
+    iree_string_builder_t* output, const char* suffix,
+    const loom_serve_registered_model_t* model,
+    loom_serve_telemetry_outcome_t outcome) {
+  IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+      output, "loom_serve_%s_request_duration_seconds_%s{",
+      model ? "model" : "server", suffix));
+  if (model) {
+    IREE_RETURN_IF_ERROR(loom_serve_router_metric_identity(output, model));
+    IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(output, ","));
+  }
+  return iree_string_builder_append_format(
+      output, "outcome=\"%s\"", loom_serve_telemetry_outcome_name(outcome));
+}
+
+static iree_status_t loom_serve_router_metric_latency_values(
+    iree_string_builder_t* output, const loom_serve_registered_model_t* model,
+    const loom_serve_telemetry_latency_t* latency) {
+  for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(latency->outcomes); ++i) {
+    const loom_serve_telemetry_outcome_t outcome =
+        (loom_serve_telemetry_outcome_t)i;
+    const loom_serve_telemetry_latency_histogram_t* histogram =
+        &latency->outcomes[i];
+    uint64_t count = 0;
+    for (iree_host_size_t j = 0; j < LOOM_SERVE_TELEMETRY_LATENCY_BUCKET_COUNT;
+         ++j) {
+      count += histogram->buckets[j];
+      IREE_RETURN_IF_ERROR(loom_serve_router_metric_latency_prefix(
+          output, "bucket", model, outcome));
+      if (j + 1 == LOOM_SERVE_TELEMETRY_LATENCY_BUCKET_COUNT) {
+        IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+            output, ",le=\"+Inf\"} %" PRIu64 "\n", count));
+      } else {
+        IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+            output, ",le=\"%.9g\"} %" PRIu64 "\n",
+            loom_serve_telemetry_latency_bound_ns(j) / 1e9, count));
+      }
+    }
+    IREE_RETURN_IF_ERROR(loom_serve_router_metric_latency_prefix(
+        output, "count", model, outcome));
+    IREE_RETURN_IF_ERROR(
+        iree_string_builder_append_format(output, "} %" PRIu64 "\n", count));
+    IREE_RETURN_IF_ERROR(
+        loom_serve_router_metric_latency_prefix(output, "sum", model, outcome));
+    IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+        output, "} %.9g\n", histogram->sum_ns / 1e9));
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_serve_router_metric_latency(router_t* router) {
+  iree_string_builder_t* output = &router->output;
+  loom_serve_telemetry_latency_t total;
+  const bool available = loom_serve_registry_latency(router->registry, &total);
+  IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
+      output,
+      "# HELP loom_serve_server_latency_available Every model publishes "
+      "terminal request durations.\n"
+      "# TYPE loom_serve_server_latency_available gauge\n"
+      "loom_serve_server_latency_available %d\n"
+      "# HELP loom_serve_model_request_duration_seconds Model protocol receipt "
+      "through terminal owner retirement, not peer receipt.\n"
+      "# TYPE loom_serve_model_request_duration_seconds histogram\n",
+      available));
+  for (iree_host_size_t i = 0; i < router->capacity; ++i) {
+    const loom_serve_registered_model_t* model =
+        loom_serve_router_model_at(router, i);
+    if (model->service.telemetry.latency) {
+      IREE_RETURN_IF_ERROR(loom_serve_router_metric_latency_values(
+          output, model, model->service.telemetry.latency));
+    }
+  }
+  if (available) {
+    IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(
+        output,
+        "# HELP loom_serve_server_request_duration_seconds Model protocol "
+        "receipt through terminal owner retirement, including removed "
+        "registrations.\n"
+        "# TYPE loom_serve_server_request_duration_seconds histogram\n"));
+    IREE_RETURN_IF_ERROR(
+        loom_serve_router_metric_latency_values(output, NULL, &total));
+  }
+  return iree_ok_status();
+}
+
 static iree_status_t loom_serve_router_metrics(router_t* router) {
   for (iree_host_size_t i = 0; i < router->capacity; ++i) {
     loom_serve_registered_model_t* model =
@@ -871,6 +956,9 @@ static iree_status_t loom_serve_router_metrics(router_t* router) {
   }
   if (iree_status_is_ok(status)) {
     status = loom_serve_router_metric_counters(router);
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_serve_router_metric_latency(router);
   }
   return status;
 }

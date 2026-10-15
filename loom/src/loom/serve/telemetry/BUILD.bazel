@@ -24,6 +24,27 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "latency",
+    srcs = ["latency.c"],
+    hdrs = ["latency.h"],
+    deps = [
+        ":record",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_test(
+    name = "latency_test",
+    srcs = ["latency_test.cc"],
+    deps = [
+        ":latency",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
     name = "stream",
     srcs = ["stream.c"],
     hdrs = ["stream.h"],

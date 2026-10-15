@@ -62,6 +62,10 @@ typedef enum loom_serve_telemetry_outcome_e {
   LOOM_SERVE_TELEMETRY_FAILED,
 } loom_serve_telemetry_outcome_t;
 
+// Stable wire label for a trusted terminal outcome.
+const char* loom_serve_telemetry_outcome_name(
+    loom_serve_telemetry_outcome_t outcome);
+
 // Counts one owner's terminal request outcome independently of event retention.
 void loom_serve_telemetry_count_outcome(
     loom_serve_telemetry_counters_t* counters,

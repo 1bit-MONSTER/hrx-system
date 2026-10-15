@@ -1866,7 +1866,9 @@ loom_serve_http_service_t loom_serve_text_service_interface(
                      .session_at = loom_serve_text_session_at},
       .reconfiguration = loom_serve_execution_reconfiguration_interface(
           service->reconfiguration),
-      .telemetry = {service->telemetry.stream, &service->telemetry.counters},
+      .telemetry = {.stream = service->telemetry.stream,
+                    .counters = &service->telemetry.counters,
+                    .latency = &service->telemetry.latency},
       .capacity_domain = loom_serve_residency_cache(
           loom_serve_text_model_residency(service->model))};
 }

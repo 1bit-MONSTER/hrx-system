@@ -40,6 +40,42 @@ tokenization, health/observation calls and unknown-route rejections. Unavailable
 counters are reported as unavailable, not zero. Disabling periodic heartbeats
 with `--heartbeat_ms=0` does not disable counting.
 
+## Measure completed-request latency
+
+`loom_serve_model_request_duration_seconds` is a cumulative histogram with the
+same model identity labels plus `outcome`: `completed`, `rejected`, `cancelled`
+or `failed`. Its `_bucket`, `_count` and `_sum` series count each terminal
+request once. `loom_serve_server_request_duration_seconds` retains durations
+from removed registrations, just like server work counters. Both are independent
+of event-ring retention and heartbeat frequency.
+
+For example, this PromQL expression estimates the recent p95 for successful
+requests, keeping each model incarnation separate:
+
+```promql
+histogram_quantile(0.95,
+  sum by (model, kind, incarnation, le) (
+    rate(loom_serve_model_request_duration_seconds_bucket{outcome="completed"}[5m])
+  )
+)
+```
+
+Duration starts when a request reaches its model protocol and ends when that
+owner retires it. It includes preparation, model admission waits, execution and
+encoding. Successful retirement means the response was accepted by the HTTP
+carrier, not received by the peer. Time held by a drained router before model
+admission is outside this measurement. Cancellation durations include any work
+that must retire after the peer leaves. Router-owned utilities and unknown-route
+rejections are outside the model protocol, as with work counters.
+
+Buckets span 1 millisecond through 1000 seconds plus an unbounded bucket. Bucket
+percentiles are estimates; `_sum / _count` gives the mean without bucket
+rounding. An empty distribution is not a zero-latency observation. If a borrowed
+service does not publish durations, its histogram is absent and
+`loom_serve_server_latency_available` is zero instead of exposing an incomplete
+server total. First-output latency and client completion still require client
+measurement; this histogram does not claim to be TTFT or device execution time.
+
 ## Poll bounded history
 
 Without a selector, `/logz` reads server scope. `X-Loom-Model` selects a model:

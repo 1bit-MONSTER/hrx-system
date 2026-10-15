@@ -136,6 +136,8 @@ struct loom_serve_image_service_t {
     // Protocol outcomes and completed device work, never reconstructed from
     // logs.
     loom_serve_telemetry_counters_t counters;
+    // Terminal request durations retained independently of log readers.
+    loom_serve_telemetry_latency_t latency;
     // Image-specific units, deliberately separate from token counters.
     loom_serve_image_totals_t totals;
     // This model's terminal failure, distinct from a sibling's shutdown.
@@ -186,6 +188,8 @@ static void loom_serve_image_request_end(loom_serve_image_service_t* service,
       .event = &LOOM_SERVE_TELEMETRY_REQUEST_END};
   record.data.end.outcome = outcome;
   record.data.end.duration_ns = record.time_ns - job->arrival_time;
+  loom_serve_telemetry_latency_observe(&service->telemetry.latency, outcome,
+                                       record.data.end.duration_ns);
   loom_serve_telemetry_diagnostic_capture(borrowed_status,
                                           &record.data.end.diagnostic);
   loom_serve_telemetry_stream_append(service->telemetry.stream, &record);
@@ -864,7 +868,9 @@ loom_serve_http_service_t loom_serve_image_service_interface(
       .inspection = {.request_at = loom_serve_image_request_at},
       .reconfiguration = loom_serve_execution_reconfiguration_interface(
           service->reconfiguration),
-      .telemetry = {service->telemetry.stream, &service->telemetry.counters},
+      .telemetry = {.stream = service->telemetry.stream,
+                    .counters = &service->telemetry.counters,
+                    .latency = &service->telemetry.latency},
       .capacity_domain = service->generator.capacity_domain};
 }
 

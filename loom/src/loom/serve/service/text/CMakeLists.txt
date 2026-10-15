@@ -422,6 +422,7 @@ loom_cc_library(
     ::session
     iree::base
     iree::base::threading
+    loom::serve::telemetry::latency
     loom::serve::telemetry::record
     loom::serve::telemetry::stream
   PUBLIC

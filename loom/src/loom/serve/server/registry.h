@@ -26,8 +26,8 @@ typedef struct loom_serve_registration_t {
   void* self;
   // Advances preparation or irrevocable cancellation. A nonterminal result
   // owes a wake after accepted work retires. Only terminal success publishes
-  // a service using the supplied stream and cumulative counters; terminal
-  // failure still requires retire.
+  // a service using the supplied stream, cumulative counters and terminal
+  // latency distributions; terminal failure still requires retire.
   // Copies compilation evidence on terminal completion, including failure.
   iree_status_t (*prepare)(void* self, bool cancel, bool* out_complete,
                            loom_serve_http_service_t* out_service,
@@ -146,6 +146,9 @@ typedef struct loom_serve_registered_model_t {
   loom_serve_http_service_snapshot_t snapshot;
   // Final work totals after service destruction, or zero before publication.
   loom_serve_telemetry_counters_t counters;
+  // Final duration distributions after service destruction, or zero before
+  // publication. Separate from counters copied into compact event records.
+  loom_serve_telemetry_latency_t latency;
   // Owned history shared with the live service; identity survives preparation.
   loom_serve_telemetry_stream_t* stream;
   // Terminal load/release evidence, owned until removal or explicit retry.
@@ -243,6 +246,12 @@ const char* loom_serve_registry_phase(
 bool loom_serve_registry_counters(
     const loom_serve_registry_t* registry,
     loom_serve_telemetry_counters_t* out_counters);
+
+// Terminal latency totals include removed incarnations. False means a borrowed
+// service omitted latency observations; the partial result must not be exposed
+// as a complete server distribution.
+bool loom_serve_registry_latency(const loom_serve_registry_t* registry,
+                                 loom_serve_telemetry_latency_t* out_latency);
 
 #ifdef __cplusplus
 }  // extern "C"

@@ -126,6 +126,8 @@ struct loom_serve_finite_service_t {
     bool owns_stream;
     // Cumulative work retained even when every event has been overwritten.
     loom_serve_telemetry_counters_t counters;
+    // Terminal request durations retained independently of log readers.
+    loom_serve_telemetry_latency_t latency;
   } telemetry;
 };
 
@@ -153,6 +155,8 @@ static void loom_serve_finite_request_end(
       .data.end = {.outcome = outcome,
                    .duration_ns = now - arrival_time,
                    .input_tokens = input_tokens}};
+  loom_serve_telemetry_latency_observe(&service->telemetry.latency, outcome,
+                                       record.data.end.duration_ns);
   loom_serve_telemetry_diagnostic_capture(status, &record.data.end.diagnostic);
   loom_serve_telemetry_stream_append(service->telemetry.stream, &record);
 }
@@ -815,7 +819,8 @@ loom_serve_http_service_t loom_serve_finite_service_interface(
       .capacity_domain = loom_serve_residency_cache(
           loom_serve_finite_model_residency(service->model)),
       .telemetry = {.stream = service->telemetry.stream,
-                    .counters = &service->telemetry.counters}};
+                    .counters = &service->telemetry.counters,
+                    .latency = &service->telemetry.latency}};
 }
 
 void loom_serve_finite_service_free(loom_serve_finite_service_t* service) {

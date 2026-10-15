@@ -235,6 +235,11 @@ loom_serve_server_counters_available 0
 # TYPE loom_serve_model_output_tokens_total counter
 # HELP loom_serve_model_batches_total Completed model invocations or cohorts, not HTTP requests.
 # TYPE loom_serve_model_batches_total counter
+# HELP loom_serve_server_latency_available Every model publishes terminal request durations.
+# TYPE loom_serve_server_latency_available gauge
+loom_serve_server_latency_available 0
+# HELP loom_serve_model_request_duration_seconds Model protocol receipt through terminal owner retirement, not peer receipt.
+# TYPE loom_serve_model_request_duration_seconds histogram
 )");
   const auto log = Read(Send("GET", "/logz"));
   EXPECT_NE(log.find("\"counters_available\":false"), std::string::npos);
@@ -694,12 +699,19 @@ class HttpRouterCountersTest : public HttpRouterTest {
           .output_tokens = 7 * value,
           .batches = value,
       };
+      for (uint64_t i = 0; i < value; ++i) {
+        loom_serve_telemetry_latency_observe(
+            &latency_[index], LOOM_SERVE_TELEMETRY_COMPLETED, value * 2500000);
+      }
+      service->latency = &latency_[index];
       service->counters = &counters_[index++];
     }
     HttpRouterTest::SetUp();
   }
   // Distinct service owners, unchanged by cold observation/utility requests.
   loom_serve_telemetry_counters_t counters_[5] = {};
+  // Fixed historical samples supplied by the same dependency owners.
+  loom_serve_telemetry_latency_t latency_[5] = {};
 };
 
 class HttpRouterTightCapacityTest : public HttpRouterTest {
@@ -784,6 +796,34 @@ TEST_P(HttpRouterCountersTest, ServerTotalsPreserveIntegerPrecisionAndScope) {
     EXPECT_NE(metrics.find(
                   "loom_serve_server_input_tokens_total 45035996273704975\n"),
               std::string::npos);
+    EXPECT_NE(metrics.find("loom_serve_server_latency_available 1\n"),
+              std::string::npos);
+    const std::string model = "loom_serve_model_request_duration_seconds_";
+    const std::string labels =
+        "{model=\"a\",kind=\"fixture\",outcome=\"completed\"";
+    for (const auto& suffix : {"bucket", "count", "sum"}) {
+      const std::string expected =
+          model + suffix + labels +
+          (std::string(suffix) == "bucket"  ? ",le=\"0.0025\"} 1\n"
+           : std::string(suffix) == "count" ? "} 1\n"
+                                            : "} 0.0025\n");
+      EXPECT_NE(metrics.find(expected), std::string::npos) << metrics;
+    }
+    for (const std::string& sample : {
+             "bucket{outcome=\"completed\",le=\"0.001\"} 0\n",
+             "bucket{outcome=\"completed\",le=\"0.0025\"} 1\n",
+             "bucket{outcome=\"completed\",le=\"0.005\"} 3\n",
+             "bucket{outcome=\"completed\",le=\"0.01\"} 10\n",
+             "bucket{outcome=\"completed\",le=\"+Inf\"} 15\n",
+             "count{outcome=\"completed\"} 15\n",
+             "sum{outcome=\"completed\"} 0.1375\n",
+             "count{outcome=\"cancelled\"} 0\n",
+         }) {
+      EXPECT_NE(
+          metrics.find("loom_serve_server_request_duration_seconds_" + sample),
+          std::string::npos)
+          << sample;
+    }
     const auto log = Read(Send("GET", "/logz"));
     EXPECT_NE(log.find("\"counters_available\":true"), std::string::npos);
     EXPECT_NE(

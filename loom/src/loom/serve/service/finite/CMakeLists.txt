@@ -44,6 +44,7 @@ loom_cc_library(
     loom::serve::runtime::parameter::residency
     loom::serve::service
     loom::serve::service::execution_reconfiguration
+    loom::serve::telemetry::latency
     loom::serve::telemetry::stream
     loom::serve::transport::http::request
     loom::serve::transport::http::server

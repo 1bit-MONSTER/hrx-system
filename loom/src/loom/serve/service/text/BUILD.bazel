@@ -375,6 +375,7 @@ loom_cc_library(
         ":model",
         ":schedule",
         ":session",
+        "//loom/src/loom/serve/telemetry:latency",
         "//loom/src/loom/serve/telemetry:record",
         "//loom/src/loom/serve/telemetry:stream",
         "//runtime/src/iree/base",

@@ -48,6 +48,8 @@ loom_cc_library(
     loom::serve::server::http::variants
     loom::serve::service
     loom::serve::service::inspection
+    loom::serve::telemetry::latency
+    loom::serve::telemetry::record
     loom::serve::telemetry::stream
     loom::serve::transport::http::multipart
     loom::serve::transport::http::request
@@ -119,6 +121,7 @@ loom_cc_test(
     iree::tokenizer::format::huggingface::tokenizer_json
     loom::serve::runtime::host::wake
     loom::serve::runtime::program::variant_pool
+    loom::serve::telemetry::latency
     loom::serve::transport::http::listener
     loom::serve::transport::http::multipart
     loom::serve::transport::http::request
@@ -158,6 +161,7 @@ loom_cc_library(
     loom::serve::runtime::parameter::residency
     loom::serve::runtime::program::compilation
     loom::serve::service
+    loom::serve::telemetry::latency
     loom::serve::telemetry::record
     loom::serve::telemetry::stream
   PUBLIC
