@@ -12,6 +12,7 @@
 #include "loom/sanitizer/options.h"
 #include "loom/target/pipeline_options.h"
 #include "loom/tools/loom-check/execute.h"
+#include "loomc/target.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -59,6 +60,13 @@ typedef struct loom_check_source_low_request_t {
 // requires target=family:selector; pipeline-text modes accept neither.
 iree_status_t loom_check_source_low_parse(
     iree_string_view_t text, loom_check_source_low_request_t* request);
+
+// Runs source lowering and compares IR using an optional caller-owned profile.
+// Target providers can refine public feature facts before entering this path.
+iree_status_t loom_check_source_low_execute(
+    const loom_check_emit_provider_request_t* provider_request,
+    const loom_check_source_low_request_t* request,
+    loomc_target_profile_t* target_profile);
 
 // Source-consuming emit provider for source-low and source-to-low targets.
 extern const loom_check_emit_provider_t loom_check_source_low_emit_provider;

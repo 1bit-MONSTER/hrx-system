@@ -7,10 +7,12 @@
 #include "loom/tooling/target/spirv/check/provider.h"
 
 #include "loom/tooling/target/spirv/check/loom_check.h"
+#include "loom/tooling/target/spirv/check/source_low.h"
 
 static const loom_check_emit_provider_t* const kLoomSpirvCheckEmitProviders[] =
     {
         &loom_spirv_loom_check_emit_provider,
+        &loom_spirv_loom_check_lower_provider,
 };
 
 static const loom_check_requirement_provider_t* const

@@ -79,8 +79,8 @@ typedef struct loom_check_compile_artifact_options_t {
   iree_string_view_t artifact_format;
   // Optional explicit root function symbol.
   iree_string_view_t root;
-  // Optional public target profile borrowed until artifact compilation returns.
-  loomc_target_profile_t* target_profile;
+  // Optional complete family:selector target profile specification.
+  iree_string_view_t target;
   // Whether to lower source IR to Low before target emission.
   bool lower_source_to_low;
   // Source-to-Low control-flow shape when lowering source IR.
@@ -113,8 +113,8 @@ typedef struct loom_check_compile_source_low_options_t {
   loom_sanitizer_options_t sanitizer;
   // Optional function symbol to specialize.
   iree_string_view_t function_name;
-  // Optional complete target profile specification.
-  iree_string_view_t target;
+  // Optional public target profile borrowed until source lowering returns.
+  loomc_target_profile_t* target_profile;
   // Optional caller-owned native compile report populated by the pipeline.
   loom_target_compile_report_t* report;
 } loom_check_compile_source_low_options_t;

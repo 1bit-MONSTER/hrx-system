@@ -441,10 +441,10 @@ iree_status_t loom_check_compile_source_low(
         session, options, request->diagnostic_collector, &pass_program);
   }
 
-  loomc_target_profile_t* target_profile = NULL;
+  loomc_target_profile_t* target_profile = options->target_profile;
   iree_string_view_t function_name = options->function_name;
   if (iree_status_is_ok(status) && pass_program != NULL &&
-      !iree_string_view_is_empty(options->target)) {
+      target_profile != NULL) {
     loomc_module_interop_view_t native_view = {0};
     bool projected = false;
     if (iree_string_view_is_empty(function_name)) {
@@ -461,10 +461,6 @@ iree_status_t loom_check_compile_source_low(
         !projected) {
       loomc_pass_program_release(pass_program);
       pass_program = NULL;
-    }
-    if (iree_status_is_ok(status) && pass_program != NULL) {
-      status = loom_check_compile_session_select_target_profile(
-          session, options->target, &target_profile);
     }
   }
 
@@ -526,7 +522,6 @@ iree_status_t loom_check_compile_source_low(
   }
 
   loomc_result_release(result);
-  loomc_target_profile_release(target_profile);
   loomc_pass_program_release(pass_program);
   return status;
 }
@@ -618,6 +613,13 @@ iree_status_t loom_check_compile_artifact(
         session, options, request->diagnostic_collector, &pass_program);
   }
 
+  loomc_target_profile_t* target_profile = NULL;
+  if (iree_status_is_ok(status) && pass_program != NULL &&
+      !iree_string_view_is_empty(options->target)) {
+    status = loom_check_compile_session_select_target_profile(
+        session, options->target, &target_profile);
+  }
+
   const loomc_emit_options_t emit_options = {
       .type = LOOMC_STRUCTURE_TYPE_EMIT_OPTIONS,
       .structure_size = sizeof(emit_options),
@@ -630,7 +632,7 @@ iree_status_t loom_check_compile_artifact(
       .structure_size = sizeof(compile_options),
       .roots = iree_string_view_is_empty(options->root) ? NULL : &root,
       .root_count = iree_string_view_is_empty(options->root) ? 0 : 1,
-      .target_profile = options->target_profile,
+      .target_profile = target_profile,
       .emit_options = &emit_options,
   };
   loomc_result_t* result = NULL;
@@ -662,6 +664,7 @@ iree_status_t loom_check_compile_artifact(
   }
 
   loomc_result_release(result);
+  loomc_target_profile_release(target_profile);
   return status;
 }
 

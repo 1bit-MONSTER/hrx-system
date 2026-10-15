@@ -8,7 +8,7 @@
           "name": "fixture",
           "write": {
             "path": "{tmp}/fixture.loom-test",
-            "text": "// RUN: emit spirv-dis input=source-low target=spirv:vulkan1.3+bda+hal features=MISSING\n// REQUIRES: spirv-dis\n\nfunc.def @entry() {\n  func.return\n}\n"
+            "text": "// RUN: emit spirv-low target=spirv:vulkan1.3+bda+hal features=MISSING\n\nfunc.def @entry() {\n  func.return\n}\n"
           }
         },
         {
@@ -26,9 +26,6 @@
             "contains": [
               "unknown or duplicate SPIR-V feature 'MISSING'"
             ]
-          },
-          "env": {
-            "LOOM_SPIRV_DIS": "{tool:spirv-dis}"
           }
         }
       ]
@@ -40,7 +37,7 @@
           "name": "fixture",
           "write": {
             "path": "{tmp}/fixture.loom-test",
-            "text": "// RUN: emit spirv-dis input=source-low target=spirv:vulkan1.3+bda+hal features=FLOAT16,FLOAT16\n// REQUIRES: spirv-dis\n\nfunc.def @entry() {\n  func.return\n}\n"
+            "text": "// RUN: emit spirv-low target=spirv:vulkan1.3+bda+hal features=FLOAT16,FLOAT16\n\nfunc.def @entry() {\n  func.return\n}\n"
           }
         },
         {
@@ -58,9 +55,6 @@
             "contains": [
               "unknown or duplicate SPIR-V feature 'FLOAT16'"
             ]
-          },
-          "env": {
-            "LOOM_SPIRV_DIS": "{tool:spirv-dis}"
           }
         }
       ]
@@ -72,7 +66,7 @@
           "name": "fixture",
           "write": {
             "path": "{tmp}/fixture.loom-test",
-            "text": "// RUN: emit spirv-dis input=source-low target=spirv:vulkan1.3+bda+hal features=FLOAT16,-FLOAT16\n// REQUIRES: spirv-dis\n\nfunc.def @entry() {\n  func.return\n}\n"
+            "text": "// RUN: emit spirv-low target=spirv:vulkan1.3+bda+hal features=FLOAT16,-FLOAT16\n\nfunc.def @entry() {\n  func.return\n}\n"
           }
         },
         {
@@ -90,9 +84,6 @@
             "contains": [
               "unknown or duplicate SPIR-V feature 'FLOAT16'"
             ]
-          },
-          "env": {
-            "LOOM_SPIRV_DIS": "{tool:spirv-dis}"
           }
         }
       ]
@@ -104,7 +95,7 @@
           "name": "fixture",
           "write": {
             "path": "{tmp}/fixture.loom-test",
-            "text": "// RUN: emit spirv-dis input=source-low target=spirv:vulkan1.3+bda+hal features=\n// REQUIRES: spirv-dis\n\nfunc.def @entry() {\n  func.return\n}\n"
+            "text": "// RUN: emit spirv-low target=spirv:vulkan1.3+bda+hal features=\n\nfunc.def @entry() {\n  func.return\n}\n"
           }
         },
         {
@@ -120,11 +111,8 @@
           },
           "stderr": {
             "contains": [
-              "spirv-dis requires one nonempty features list"
+              "spirv-low requires one nonempty features list"
             ]
-          },
-          "env": {
-            "LOOM_SPIRV_DIS": "{tool:spirv-dis}"
           }
         }
       ]
@@ -136,7 +124,7 @@
           "name": "fixture",
           "write": {
             "path": "{tmp}/fixture.loom-test",
-            "text": "// RUN: emit spirv-dis input=source-low target=spirv:vulkan1.3+bda+hal features=FLOAT16,\n// REQUIRES: spirv-dis\n\nfunc.def @entry() {\n  func.return\n}\n"
+            "text": "// RUN: emit spirv-low target=spirv:vulkan1.3+bda+hal features=FLOAT16,\n\nfunc.def @entry() {\n  func.return\n}\n"
           }
         },
         {
@@ -152,11 +140,8 @@
           },
           "stderr": {
             "contains": [
-              "spirv-dis requires one nonempty features list"
+              "spirv-low requires one nonempty features list"
             ]
-          },
-          "env": {
-            "LOOM_SPIRV_DIS": "{tool:spirv-dis}"
           }
         }
       ]
@@ -168,7 +153,7 @@
           "name": "fixture",
           "write": {
             "path": "{tmp}/fixture.loom-test",
-            "text": "// RUN: emit spirv-dis input=source-low target=spirv:vulkan1.3+bda+hal features=FLOAT16,,INT8\n// REQUIRES: spirv-dis\n\nfunc.def @entry() {\n  func.return\n}\n"
+            "text": "// RUN: emit spirv-low target=spirv:vulkan1.3+bda+hal features=FLOAT16,,INT8\n\nfunc.def @entry() {\n  func.return\n}\n"
           }
         },
         {
@@ -186,9 +171,6 @@
             "contains": [
               "unknown or duplicate SPIR-V feature ''"
             ]
-          },
-          "env": {
-            "LOOM_SPIRV_DIS": "{tool:spirv-dis}"
           }
         }
       ]
@@ -200,7 +182,7 @@
           "name": "fixture",
           "write": {
             "path": "{tmp}/fixture.loom-test",
-            "text": "// RUN: emit spirv-dis input=source-low target=spirv:vulkan1.3+bda+hal features=FLOAT16 features=INT8\n// REQUIRES: spirv-dis\n\nfunc.def @entry() {\n  func.return\n}\n"
+            "text": "// RUN: emit spirv-low target=spirv:vulkan1.3+bda+hal features=FLOAT16 features=INT8\n\nfunc.def @entry() {\n  func.return\n}\n"
           }
         },
         {
@@ -216,11 +198,8 @@
           },
           "stderr": {
             "contains": [
-              "spirv-dis requires one nonempty features list"
+              "spirv-low requires one nonempty features list"
             ]
-          },
-          "env": {
-            "LOOM_SPIRV_DIS": "{tool:spirv-dis}"
           }
         }
       ]
@@ -232,7 +211,7 @@
           "name": "fixture",
           "write": {
             "path": "{tmp}/fixture.loom-test",
-            "text": "// RUN: emit spirv-dis input=source-low features=FLOAT16\n// REQUIRES: spirv-dis\n\nfunc.def @entry() {\n  func.return\n}\n"
+            "text": "// RUN: emit spirv-low features=FLOAT16\n\nfunc.def @entry() {\n  func.return\n}\n"
           }
         },
         {
@@ -248,11 +227,8 @@
           },
           "stderr": {
             "contains": [
-              "spirv-dis @function or features requires target=family:selector"
+              "spirv-low @function or features requires target=family:selector"
             ]
-          },
-          "env": {
-            "LOOM_SPIRV_DIS": "{tool:spirv-dis}"
           }
         }
       ]
@@ -264,7 +240,7 @@
           "name": "fixture",
           "write": {
             "path": "{tmp}/fixture.loom-test",
-            "text": "// RUN: emit spirv-dis input=source-low target=spirv:vulkan1.3+bda+hal target=spirv:vulkan1.3\n// REQUIRES: spirv-dis\n\nfunc.def @entry() {\n  func.return\n}\n"
+            "text": "// RUN: emit spirv-low target=spirv:vulkan1.3+bda+hal target=spirv:vulkan1.3\n\nfunc.def @entry() {\n  func.return\n}\n"
           }
         },
         {
@@ -280,11 +256,8 @@
           },
           "stderr": {
             "contains": [
-              "spirv-dis requires one nonempty target"
+              "spirv-low requires one nonempty target"
             ]
-          },
-          "env": {
-            "LOOM_SPIRV_DIS": "{tool:spirv-dis}"
           }
         }
       ]
@@ -296,7 +269,7 @@
           "name": "fixture",
           "write": {
             "path": "{tmp}/fixture.loom-test",
-            "text": "// RUN: emit spirv-dis input=source-low target=\n// REQUIRES: spirv-dis\n\nfunc.def @entry() {\n  func.return\n}\n"
+            "text": "// RUN: emit spirv-low target=\n\nfunc.def @entry() {\n  func.return\n}\n"
           }
         },
         {
@@ -312,11 +285,8 @@
           },
           "stderr": {
             "contains": [
-              "spirv-dis requires one nonempty target"
+              "spirv-low requires one nonempty target"
             ]
-          },
-          "env": {
-            "LOOM_SPIRV_DIS": "{tool:spirv-dis}"
           }
         }
       ]
@@ -328,7 +298,7 @@
           "name": "fixture",
           "write": {
             "path": "{tmp}/fixture.loom-test",
-            "text": "// RUN: emit spirv-dis input=source-low target=spirv:vulkan1.3+bda+hal features=-PHYSICAL_STORAGE_BUFFER\n// REQUIRES: spirv-dis\n\nfunc.def @entry() {\n  func.return\n}\n"
+            "text": "// RUN: emit spirv-low target=spirv:vulkan1.3+bda+hal features=-PHYSICAL_STORAGE_BUFFER\n\nfunc.def @entry() {\n  func.return\n}\n"
           }
         },
         {
@@ -346,11 +316,66 @@
             "contains": [
               "SPIR-V feature 'spirv.physical_storage_buffer' has contradictory facts",
               "'spirv:vulkan1.3+bda+hal' says true",
-              "'spirv-dis features option' says false"
+              "'spirv-low features option' says false"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "ambiguous private source root",
+      "steps": [
+        {
+          "name": "fixture",
+          "write": {
+            "path": "{tmp}/fixture.loom-test",
+            "text": "// RUN: emit source-low target=spirv:vulkan1.3+bda\nfunc.def @first() { func.return }\nfunc.def @second() { func.return }\n"
+          }
+        },
+        {
+          "name": "execute",
+          "run": {
+            "tool": "loom-check",
+            "args": [
+              "{tmp}/fixture.loom-test"
             ]
           },
-          "env": {
-            "LOOM_SPIRV_DIS": "{tool:spirv-dis}"
+          "exit": {
+            "nonzero": true
+          },
+          "stderr": {
+            "contains": [
+              "specify @function for an ambiguous module"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "ambiguous public source root",
+      "steps": [
+        {
+          "name": "fixture",
+          "write": {
+            "path": "{tmp}/fixture.loom-test",
+            "text": "// RUN: emit source-low target=spirv:vulkan1.3+bda\nfunc.def public @first() { func.return }\nfunc.def public @second() { func.return }\n"
+          }
+        },
+        {
+          "name": "execute",
+          "run": {
+            "tool": "loom-check",
+            "args": [
+              "{tmp}/fixture.loom-test"
+            ]
+          },
+          "exit": {
+            "nonzero": true
+          },
+          "stderr": {
+            "contains": [
+              "specify @function for an ambiguous module"
+            ]
           }
         }
       ]

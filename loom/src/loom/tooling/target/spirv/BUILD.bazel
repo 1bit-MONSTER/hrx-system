@@ -58,10 +58,21 @@ loom_cc_library(
     srcs = ["check/loom_check.c"],
     hdrs = ["check/loom_check.h"],
     deps = [
-        "//loom/binding/c:loomc",
-        "//loom/binding/c/target/spirv",
         "//loom/src/loom/target/tool:spirv",
         "//loom/src/loom/tools/loom-check:execute",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
+    name = "check_source_low",
+    srcs = ["check/source_low.c"],
+    hdrs = ["check/source_low.h"],
+    deps = [
+        "//loom/binding/c:loomc",
+        "//loom/binding/c/target/spirv",
+        "//loom/src/loom/tools/loom-check:execute",
+        "//loom/src/loom/tools/loom-check:source_low",
         "//runtime/src/iree/base",
     ],
 )
@@ -72,6 +83,7 @@ loom_cc_library(
     hdrs = ["check/provider.h"],
     visibility = _SPIRV_CHECK_VISIBILITY,
     deps = [
+        ":check_source_low",
         ":loom_check",
         "//loom/src/loom/tools/loom-check:provider",
         "//runtime/src/iree/base",
@@ -79,13 +91,12 @@ loom_cc_library(
 )
 
 iree_execution_test_suite(
-    name = "check_profile_test",
-    manifests = ["check/profile.test.json"],
+    name = "check_source_low_test",
+    manifests = ["check/source_low.test.json"],
     tags = ["hostonly"],
     target_compatible_with = _SPIRV_COMPILE_COMPATIBLE_WITH,
     tools = {
         "loom-check": "//loom/src/loom/tools/loom-check",
-        "spirv-dis": "//third_party:spirv_dis",
     },
 )
 

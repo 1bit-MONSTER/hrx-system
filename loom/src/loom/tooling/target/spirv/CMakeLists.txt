@@ -19,10 +19,26 @@ loom_cc_library(
     "check/loom_check.c"
   DEPS
     iree::base
-    loom::binding::c::loomc
-    loom::binding::c::target::spirv
     loom::target::tool::spirv
     loom::tools::loom-check::execute
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
+loom_cc_library(
+  NAME
+    check_source_low
+  HDRS
+    "check/source_low.h"
+  SRCS
+    "check/source_low.c"
+  DEPS
+    iree::base
+    loom::binding::c::loomc
+    loom::binding::c::target::spirv
+    loom::tools::loom-check::execute
+    loom::tools::loom-check::source_low
   PUBLIC
 )
 endif()
@@ -36,6 +52,7 @@ loom_cc_library(
   SRCS
     "check/provider.c"
   DEPS
+    ::check_source_low
     ::loom_check
     iree::base
     loom::tools::loom-check::provider
@@ -46,12 +63,11 @@ endif()
 if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
 iree_execution_test_suite(
   NAME
-    check_profile_test
+    check_source_low_test
   MANIFESTS
-    "check/profile.test.json"
+    "check/source_low.test.json"
   TOOLS
     "loom-check=loom::tools::loom-check"
-    "spirv-dis=iree::third_party::spirv_dis"
   LABELS
     "hostonly"
 )
