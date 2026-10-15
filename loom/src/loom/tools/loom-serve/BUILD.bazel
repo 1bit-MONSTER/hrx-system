@@ -110,6 +110,7 @@ loom_cc_binary(
         ":main",
         "//loom/binding/c/target/configured",
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base:core_headers",
         "//runtime/src/iree/tooling:device_util",
     ] + iree_select({
         "//loom/config/target/arch:x86": ["//loom/binding/c/target/cpu:iree_hal"],

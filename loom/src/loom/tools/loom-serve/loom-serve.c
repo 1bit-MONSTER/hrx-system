@@ -4,6 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include "iree/base/tracing.h"
 #include "iree/tooling/device_util.h"
 #include "loom/tools/loom-serve/main.h"
 #include "loomc/target/configured.h"
@@ -39,6 +40,7 @@
 #endif  // LOOM_SERVE_CONFIG_HAVE_XDNA
 
 int main(int argc, char** argv) {
+  IREE_TRACE_APP_ENTER();
   const loom_serve_compiler_options_t* compiler_options = NULL;
 #if LOOM_SERVE_CONFIG_HAVE_ANY_TARGET
   const loomc_iree_hal_target_provider_t* target_providers[] = {
@@ -66,5 +68,7 @@ int main(int argc, char** argv) {
       .compiler_options = compiler_options,
       .driver_registry = iree_hal_available_driver_registry(),
   };
-  return loom_serve_main(argc, argv, &configuration);
+  int exit_code = loom_serve_main(argc, argv, &configuration);
+  IREE_TRACE_APP_EXIT(exit_code);
+  return exit_code;
 }

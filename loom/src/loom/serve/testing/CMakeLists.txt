@@ -70,6 +70,7 @@ loom_cc_library(
     ::compiler
     ::device
     iree::base
+    iree::base::core_headers
     loom::tools::loom-serve::main
   TESTONLY
   PUBLIC

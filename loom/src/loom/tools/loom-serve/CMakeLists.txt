@@ -122,6 +122,7 @@ loom_cc_binary(
   DEPS
     ::main
     iree::base
+    iree::base::core_headers
     iree::tooling::device_util
     loom::binding::c::target::configured
     ${_loom_serve_platform_deps}

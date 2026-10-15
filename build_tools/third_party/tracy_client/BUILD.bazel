@@ -7,4 +7,9 @@
 
 package(default_visibility = ["//visibility:public"])
 
-exports_files(["tracy_client.BUILD.bazel"])
+exports_files([
+    "instruction_symbols.patch",
+    "tracy_client.BUILD.bazel",
+    "windows_exception_handler.patch",
+    "worker_signal_mask.patch",
+])
