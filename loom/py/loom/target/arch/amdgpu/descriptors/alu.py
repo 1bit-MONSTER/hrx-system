@@ -5937,6 +5937,9 @@ def _v_pack_b32_f16_overlay() -> AmdgpuDescriptorOverlay:
 
 
 _PACKED8_SOURCE_SIZE_REASON = "packed8-conversion-reads-byte-lanes-of-b32-source"
+# Compact packed conversion sources use bit 7 to select a register half,
+# leaving seven bits for the physical register index.
+_PACKED8_COMPACT_SOURCE_ADDRESSABLE_UNIT_COUNT = 128
 
 
 def _v_cvt_f32_packed8_overlay(
@@ -5975,7 +5978,13 @@ def _v_cvt_pk_f32_packed8_overlay(
             AmdgpuOperandOverlay("VDST", _vgpr_result(units=2)),
             AmdgpuOperandOverlay(
                 "SRC0",
-                _sgpr_vgpr_operand("input"),
+                replace(
+                    _sgpr_vgpr_operand("input"),
+                    address_map_kind=OperandAddressMapKind.LOW_SUBSET,
+                    addressable_unit_count=(
+                        _PACKED8_COMPACT_SOURCE_ADDRESSABLE_UNIT_COUNT
+                    ),
+                ),
                 size_exception_reason=_PACKED8_SOURCE_SIZE_REASON,
             ),
         ),
@@ -6002,7 +6011,7 @@ def _v_cvt_pk_f16_packed8_overlay(
                     register_part=_REG_PART_VGPR_LOW16,
                     address_map_kind=OperandAddressMapKind.LOW_SUBSET,
                     addressable_unit_count=(
-                        _D16_PARTIAL_REGISTER_ADDRESSABLE_UNIT_COUNT
+                        _PACKED8_COMPACT_SOURCE_ADDRESSABLE_UNIT_COUNT
                     ),
                 ),
                 size_exception_reason=_PACKED8_SOURCE_SIZE_REASON,
