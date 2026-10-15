@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test")
+load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_fuzz", "loom_cc_library", "loom_cc_test")
 load("//loom/build_tools/bazel:python.bzl", "loom_py_test")
 load("//loom/src/loom/serve/fixture/text:sources.bzl", TEXT_SOURCES = "SOURCES")
 
@@ -126,7 +126,11 @@ loom_cc_library(
     srcs = ["source_cache_test.cc"],
     target_compatible_with = _SOURCE_TEST_COMPATIBILITY,
     visibility = ["//loom/src/loom/serve:implementation"],
-    deps = [":source_service_fixture"],
+    deps = [
+        ":source_service_fixture",
+        "//loom/src/loom/serve/media:image_codec",
+        "//loom/src/loom/serve/media:image_codecs",
+    ],
     alwayslink = True,
 )
 
@@ -239,9 +243,17 @@ loom_cc_library(
 
 loom_cc_library(
     name = "chat",
-    srcs = ["chat.c"],
-    hdrs = ["chat.h"],
+    srcs = [
+        "chat.c",
+        "media.c",
+    ],
+    hdrs = [
+        "chat.h",
+        "media.h",
+    ],
     deps = [
+        "//loom/src/loom/serve/media:digest",
+        "//loom/src/loom/serve/media:image",
         "//loom/src/loom/serve/runtime/program",
         "//loom/src/loom/util:json",
         "//loom/src/loom/util:stream",
@@ -271,6 +283,39 @@ loom_cc_test(
         "//runtime/src/iree/base",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "media_test",
+    srcs = ["media_test.cc"],
+    deps = [
+        ":chat",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_fuzz(
+    name = "media_fuzz",
+    srcs = ["media_fuzz.cc"],
+    deps = [
+        ":chat",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/vm",
+    ],
+)
+
+loom_py_test(
+    name = "media_fuzz_test",
+    size = "small",
+    srcs = ["media_fuzz_test.py"],
+    args = ["$(rootpath :media_fuzz)"],
+    data = [":media_fuzz"],
+    tags = [
+        "manual",
+        "skip-bazel_to_cmake",
     ],
 )
 
@@ -500,6 +545,7 @@ loom_cc_library(
     hdrs = ["prefix_cache.h"],
     visibility = ["//visibility:private"],
     deps = [
+        ":chat",
         ":model",
         "//loom/src/loom/serve/runtime/execution",
         "//runtime/src/iree/base",

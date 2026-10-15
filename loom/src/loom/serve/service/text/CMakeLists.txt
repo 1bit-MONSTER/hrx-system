@@ -141,6 +141,8 @@ loom_cc_library(
     "source_cache_test.cc"
   DEPS
     ::source_service_fixture
+    loom::serve::media::image_codec
+    loom::serve::media::image_codecs
   TESTONLY
   ALWAYSLINK
   PUBLIC
@@ -280,13 +282,17 @@ loom_cc_library(
     chat
   HDRS
     "chat.h"
+    "media.h"
   SRCS
     "chat.c"
+    "media.c"
   DEPS
     iree::base
     iree::base::internal::json
     iree::base::internal::unicode
     iree::vm
+    loom::serve::media::digest
+    loom::serve::media::image
     loom::serve::runtime::program
     loom::util::json
     loom::util::stream
@@ -321,6 +327,37 @@ loom_cc_test(
     iree::base
     iree::testing::gtest
     iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_test(
+  NAME
+    media_test
+  SRCS
+    "media_test.cc"
+  DEPS
+    ::chat
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_fuzz(
+  NAME
+    media_fuzz
+  SRCS
+    "media_fuzz.cc"
+  DEPS
+    ::chat
+    iree::base
+    iree::vm
   LABELS
     "iree-build-requirement=loom.target.arch.vm"
 )
@@ -608,6 +645,7 @@ loom_cc_library(
   SRCS
     "prefix_cache.c"
   DEPS
+    ::chat
     ::model
     iree::base
     loom::serve::runtime::execution

@@ -6,6 +6,7 @@
 
 #include <cerrno>
 
+#include "loom/serve/media/image_codec.h"
 #include "loom/serve/service/text/service_test_fixture.h"
 
 namespace {
@@ -399,6 +400,144 @@ TEST_F(RegisteredSourceTextServiceTest,
            "X-Loom-Session: conversation0\r\n"));
   EXPECT_EQ(Content(replay), Oracle::Complete("abxa" + first + "#b", 2));
   EXPECT_NE(replay.find("\"cached_tokens\":0}"), std::string::npos);
+}
+
+TEST_F(SourceTextServiceTest, OrderedImagesReachSourceDefinedInputSpans) {
+  const auto* policy = loom_serve_text_model_chat_policy(model_);
+  const std::string body =
+      Request(ImageMessage("a", "image/png", kPng, "high", "b") + "," +
+                  ImageMessage("", "image/png", kPng, "low", ""),
+              4);
+  loom_serve_text_chat_t chat = {};
+  if (!loom_serve_media_image_codec(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG)) {
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_UNIMPLEMENTED,
+        loom_serve_text_chat_initialize(policy, policy->name,
+                                        iree_make_cstring_view(body.c_str()),
+                                        10, 4, host_allocator_, &chat));
+    EXPECT_EQ(chat.images.count, 0u);
+    return;
+  }
+  IREE_ASSERT_OK(loom_serve_text_chat_initialize(
+      policy, policy->name, iree_make_cstring_view(body.c_str()), 10, 4,
+      host_allocator_, &chat));
+  EXPECT_TRUE(iree_string_view_equal(iree_string_builder_view(&chat.prompt),
+                                     IREE_SV("axbx")));
+  loom_serve_text_input_t input = {};
+  int32_t scratch[96];
+  IREE_ASSERT_OK(loom_serve_text_input_prepare(&chat, {}, false,
+                                               IREE_ARRAYSIZE(scratch), scratch,
+                                               &input, host_allocator_));
+  EXPECT_EQ(std::vector<int32_t>(input.tokens, input.tokens + input.count),
+            (std::vector<int32_t>{0, 2, 1, 2}));
+  ASSERT_EQ(input.media_span_count, 2u);
+  EXPECT_EQ(input.media_spans[0].image_index, 0u);
+  EXPECT_EQ(input.media_spans[0].input_offset, 1u);
+  EXPECT_EQ(input.media_spans[0].input_count, 1u);
+  EXPECT_EQ(input.media_spans[1].image_index, 1u);
+  EXPECT_EQ(input.media_spans[1].input_offset, 3u);
+  EXPECT_EQ(input.media_spans[1].input_count, 1u);
+  loom_serve_text_input_deinitialize(&input, host_allocator_);
+  loom_serve_text_chat_deinitialize(&chat);
+}
+
+TEST_F(SourceTextServiceTest, RetainedHistoryRequiresExactOrderedMedia) {
+  const auto* policy = loom_serve_text_model_chat_policy(model_);
+  const std::string first_body =
+      Request(ImageMessage("x", "image/png", kPng, "low", ""), 4);
+  const auto continuation =
+      [&](const std::string& before, const std::string& mime_type,
+          const std::string& base64, const std::string& detail,
+          const std::string& after) {
+        return Request(ImageMessage(before, mime_type, base64, detail, after) +
+                           "," + Message("assistant", "b") + "," +
+                           Message("user", "x"),
+                       4);
+      };
+  loom_serve_text_chat_t first = {};
+  loom_serve_text_chat_t matching = {};
+  loom_serve_text_chat_t different_image = {};
+  loom_serve_text_chat_t different_detail = {};
+  loom_serve_text_chat_t different_placement = {};
+  if (!loom_serve_media_image_codec(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG)) {
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_UNIMPLEMENTED,
+        loom_serve_text_chat_initialize(
+            policy, policy->name, iree_make_cstring_view(first_body.c_str()),
+            10, 4, host_allocator_, &first));
+    return;
+  }
+  IREE_ASSERT_OK(loom_serve_text_chat_initialize(
+      policy, policy->name, iree_make_cstring_view(first_body.c_str()), 10, 4,
+      host_allocator_, &first));
+  const std::string matching_body =
+      continuation("x", "image/png", kPng, "low", "");
+  IREE_ASSERT_OK(loom_serve_text_chat_initialize(
+      policy, policy->name, iree_make_cstring_view(matching_body.c_str()), 11,
+      4, host_allocator_, &matching));
+  const std::string different_image_body =
+      continuation("x", "image/png", kAlphaPng, "low", "");
+  IREE_ASSERT_OK(loom_serve_text_chat_initialize(
+      policy, policy->name,
+      iree_make_cstring_view(different_image_body.c_str()), 12, 4,
+      host_allocator_, &different_image));
+  const std::string different_detail_body =
+      continuation("x", "image/png", kPng, "high", "");
+  IREE_ASSERT_OK(loom_serve_text_chat_initialize(
+      policy, policy->name,
+      iree_make_cstring_view(different_detail_body.c_str()), 13, 4,
+      host_allocator_, &different_detail));
+  const std::string different_placement_body =
+      continuation("", "image/png", kPng, "low", "x");
+  IREE_ASSERT_OK(loom_serve_text_chat_initialize(
+      policy, policy->name,
+      iree_make_cstring_view(different_placement_body.c_str()), 14, 4,
+      host_allocator_, &different_placement));
+
+  iree_string_builder_t tools;
+  iree_string_builder_initialize(host_allocator_, &tools);
+  loom_serve_text_chat_completion_t completion = {};
+  IREE_ASSERT_OK(loom_serve_text_chat_complete(&first, IREE_SV("b"), 10, &tools,
+                                               &completion));
+  loom_serve_text_chat_completion_t retained = {};
+  loom_serve_text_chat_completion_retain(&completion, &retained);
+  loom_serve_text_chat_completion_deinitialize(&completion);
+  const loom_serve_text_input_prefix_t prefix = {
+      .completion = &retained,
+      .position = 1,
+      .token = Oracle::Id('b'),
+      .boundary = LOOM_SERVE_TEXT_CHAT_BOUNDARY_OPEN,
+  };
+  loom_serve_text_input_t input = {};
+  int32_t scratch[96];
+  IREE_ASSERT_OK(loom_serve_text_input_prepare(&matching, prefix, true,
+                                               IREE_ARRAYSIZE(scratch), scratch,
+                                               &input, host_allocator_));
+  EXPECT_EQ(input.retained_count, 1u);
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_INVALID_ARGUMENT,
+      loom_serve_text_input_prepare(&different_image, prefix, true,
+                                    IREE_ARRAYSIZE(scratch), scratch, &input,
+                                    host_allocator_));
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_INVALID_ARGUMENT,
+      loom_serve_text_input_prepare(&different_detail, prefix, true,
+                                    IREE_ARRAYSIZE(scratch), scratch, &input,
+                                    host_allocator_));
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_INVALID_ARGUMENT,
+      loom_serve_text_input_prepare(&different_placement, prefix, true,
+                                    IREE_ARRAYSIZE(scratch), scratch, &input,
+                                    host_allocator_));
+
+  loom_serve_text_input_deinitialize(&input, host_allocator_);
+  loom_serve_text_chat_completion_deinitialize(&retained);
+  iree_string_builder_deinitialize(&tools);
+  loom_serve_text_chat_deinitialize(&different_placement);
+  loom_serve_text_chat_deinitialize(&different_detail);
+  loom_serve_text_chat_deinitialize(&different_image);
+  loom_serve_text_chat_deinitialize(&matching);
+  loom_serve_text_chat_deinitialize(&first);
 }
 
 }  // namespace

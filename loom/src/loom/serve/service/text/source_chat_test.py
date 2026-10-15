@@ -105,6 +105,25 @@ class RequestTest(unittest.TestCase):
         self.assertIn("at most 4096 function objects", result.stderr)
         self.assertEqual(result.stdout, "")
 
+    def test_rejects_remote_image_urls(self):
+        malformed = self.request(
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "https://example.com/a.png"},
+                        }
+                    ],
+                }
+            ]
+        )
+        result = self.execute(malformed)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("base64 PNG, JPEG, GIF or WebP data URL", result.stderr)
+        self.assertEqual(result.stdout, "")
+
     def test_policy_errors_publish_no_partial_success(self):
         requests = [
             self.request(enable_thinking=True),

@@ -10,6 +10,7 @@
 #include "iree/base/api.h"
 #include "iree/vm/buffer.h"
 #include "loom/serve/runtime/program/program.h"
+#include "loom/serve/service/text/media.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,6 +22,11 @@ extern "C" {
 // Protocol resource bound for declared or generated function tools. Storage is
 // allocated only for the declarations present in a request.
 #define LOOM_SERVE_TEXT_CHAT_MAX_TOOL_COUNT 4096
+
+// Protocol resource bound for ordered content parts in one message. The HTTP
+// body has an independent byte bound; this limits the compact source-policy
+// record set created from pathologically small JSON objects.
+#define LOOM_SERVE_TEXT_CHAT_MAX_CONTENT_PART_COUNT 4096
 
 // Cold-resolved chat functions in the model's shared source VM. The model
 // serializes calls and outlives every request borrowing this policy.
@@ -37,9 +43,22 @@ typedef struct loom_serve_text_chat_policy_t {
   iree_vm_buffer_t* defaults;
   // Resolves request JSON and nonce against defaults into owned opaque bytes.
   iree_vm_function_t request_options;
+  // chat_image_limits() returns five i64 bounds: occurrence count, compressed
+  // bytes, encoded width, encoded height, and pixels. All zero disables images;
+  // otherwise each is positive and count is at most MAX_CONTENT_PART_COUNT.
+  struct {
+    // Maximum image occurrences in one request.
+    iree_host_size_t maximum_count;
+    // Per-image compressed-byte and encoded-geometry bounds.
+    loom_serve_media_image_limits_t limits;
+  } images;
   // Initial prompt fragment and opaque rendering state.
   iree_vm_function_t chat_begin;
-  // Message fragment and next opaque rendering state.
+  // chat_message(raw, role, text, parts, reasoning, calls, state, ordinal,
+  // fields, part_count) returns (fragment, next_state, marker_plan). The first
+  // six arguments and fragment/plan are buffers; the others are i64. fields
+  // reports the presence of reasoning, calls, and tool ID in bits 0, 1, and 2.
+  // parts and marker_plan use the ordered records defined in media.h.
   iree_vm_function_t chat_message;
   // Final prompt fragment, conversation validation and initial output state.
   iree_vm_function_t chat_end;
@@ -47,7 +66,10 @@ typedef struct loom_serve_text_chat_policy_t {
   iree_vm_function_t parse_tools;
   // Canonical tool formatter shared by input history and generated output.
   iree_vm_function_t render_tool;
-  // Turn framing and complete raw-token encoding shared by all text callers.
+  // prepare_input(text, markers, marker_count, format, boundary, capacity)
+  // returns (tokens, count, spans). Buffers carry text, the native marker plan,
+  // i32 token IDs, and media.h spans. Counts/capacity are i64; format/boundary
+  // are i32. Source determines exact logical image rows without token scanning.
   iree_vm_function_t prepare_input;
   // Next typed output span and opaque parser state.
   iree_vm_function_t output_next;
@@ -98,16 +120,20 @@ typedef enum loom_serve_text_chat_boundary_e {
   LOOM_SERVE_TEXT_CHAT_BOUNDARY_TERMINATED = 2,
 } loom_serve_text_chat_boundary_t;
 
-// Frames and encodes the complete input in the shared source VM. Text is
-// borrowed only during this synchronous call. On success, copies at most
-// capacity IDs into tokens; on failure, tokens is untouched and count is zero.
-// Incomplete prefixes are rejected. No VM reference escapes into session state.
+// Frames and encodes the rendered prompt suffix beginning at prompt_offset in
+// the shared source VM. Source receives the exact checked marker plan and
+// returns token IDs plus one logical input span per included image. On success,
+// copies at most capacity IDs into tokens and allocates any media spans; on
+// failure all outputs are empty and tokens is untouched. input_shift accounts
+// for a retained prediction prepended by native code. No VM reference escapes.
 iree_status_t loom_serve_text_chat_prepare_input(
-    const loom_serve_text_chat_policy_t* policy, iree_string_view_t text,
+    const loom_serve_text_chat_t* chat, iree_host_size_t prompt_offset,
     loom_serve_text_chat_input_format_t format,
     loom_serve_text_chat_boundary_t boundary, iree_host_size_t capacity,
-    iree_allocator_t host_allocator, int32_t* out_tokens,
-    iree_host_size_t* out_count);
+    iree_host_size_t input_shift, iree_allocator_t host_allocator,
+    int32_t* out_tokens, iree_host_size_t* out_count,
+    loom_serve_text_media_span_t** out_media_spans,
+    iree_host_size_t* out_media_span_count);
 
 // Indexed function-tool schema borrowing the request body. Names are literal
 // ASCII identifiers. The optional XML codec uses property types to recover
@@ -129,8 +155,8 @@ enum loom_serve_text_chat_flag_bits_e {
 };
 typedef uint32_t loom_serve_text_chat_flags_t;
 
-// One validated text chat request. The
-// prompt owns its canonical rendered text; tool views borrow the HTTP body.
+// One validated chat request. The prompt owns its canonical rendered
+// text; tool and encoded-image views borrow the HTTP body.
 typedef struct loom_serve_text_chat_t {
   // Source policy borrowed from the model for the request lifetime.
   const loom_serve_text_chat_policy_t* policy;
@@ -165,6 +191,17 @@ typedef struct loom_serve_text_chat_t {
   iree_host_size_t tool_capacity;
   // Dynamically sized validated tool descriptors sorted by literal name.
   loom_serve_text_chat_tool_t* tools;
+  // Ordered inspected image occurrences.
+  struct {
+    // Number of populated image descriptors.
+    iree_host_size_t count;
+    // Allocated descriptor capacity.
+    iree_host_size_t capacity;
+    // Dynamically sized descriptors in message/part order.
+    loom_serve_text_chat_image_t* values;
+    // Owned concatenated source-private preprocessing metadata.
+    iree_string_builder_t metadata;
+  } images;
 } loom_serve_text_chat_t;
 
 // Validates and renders the supported chat request. Unknown execution options
@@ -230,6 +267,8 @@ typedef struct loom_serve_text_chat_completion_t {
   // Source authorization to reuse device state for this canonical transcript.
   // A truncated source construct can require replay despite valid wire output.
   bool reusable;
+  // Exact ordered media identity contributing to this completed history.
+  loom_serve_text_chat_media_identity_t media;
   // Number of validated structured tool calls.
   iree_host_size_t tool_count;
 } loom_serve_text_chat_completion_t;
@@ -237,6 +276,18 @@ typedef struct loom_serve_text_chat_completion_t {
 // Releases a completed checkpoint; zero-initialized values are accepted.
 void loom_serve_text_chat_completion_deinitialize(
     loom_serve_text_chat_completion_t* completion);
+
+// Copies a completed checkpoint reference. Source and target may be released
+// independently; transcript and media remain immutable.
+void loom_serve_text_chat_completion_retain(
+    const loom_serve_text_chat_completion_t* source,
+    loom_serve_text_chat_completion_t* out_completion);
+
+// Whether the request extends both the canonical transcript and exact ordered
+// media identity of a completed checkpoint.
+bool loom_serve_text_chat_completion_is_prefix(
+    const loom_serve_text_chat_completion_t* completion,
+    const loom_serve_text_chat_t* chat);
 
 // Invokes source parsing of the generated suffix into typed function calls.
 // Returns the source-owned canonical completed transcript and appends an OpenAI

@@ -610,6 +610,11 @@ static iree_status_t loom_serve_text_prepare_admission(void* user_data) {
             pending->body, pending->receipt.serial, service->default_max_tokens,
             service->host_allocator, &pending->chat));
   }
+  if (pending->chat.images.count) {
+    IREE_RETURN_AND_END_ZONE(
+        z0, iree_make_status(IREE_STATUS_UNIMPLEMENTED,
+                              "image input requires device projection"));
+  }
   IREE_RETURN_AND_END_ZONE_IF_ERROR(
       z0, loom_serve_text_input_prepare(
               &pending->chat,
@@ -685,9 +690,22 @@ static iree_status_t loom_serve_text_complete_preparation(
       iree_any_bit_set(flags, LOOM_SERVE_HTTP_SERVICE_FLAG_STOPPING) ||
       loom_serve_http_connection_failed(pending->connection);
   if (!iree_status_is_ok(status)) {
-    if (!iree_status_is_invalid_argument(status) &&
-        !iree_status_is_out_of_range(status)) {
-      return status;
+    int code = 400;
+    const char* reason = "Bad Request";
+    switch (iree_status_code(status)) {
+      case IREE_STATUS_INVALID_ARGUMENT:
+      case IREE_STATUS_OUT_OF_RANGE:
+        break;
+      case IREE_STATUS_UNIMPLEMENTED:
+        code = 501;
+        reason = "Not Implemented";
+        break;
+      case IREE_STATUS_RESOURCE_EXHAUSTED:
+        code = 503;
+        reason = "Service Unavailable";
+        break;
+      default:
+        return status;
     }
     if (cancelled) {
       loom_serve_text_telemetry_diagnose(&service->telemetry,
@@ -701,7 +719,7 @@ static iree_status_t loom_serve_text_complete_preparation(
     loom_serve_text_chat_deinitialize(&pending->chat);
     loom_serve_text_pending_remove(service, service->pending.admission.cursor);
     return loom_serve_text_response_reject(&service->telemetry, connection,
-                                           receipt, 400, "Bad Request", status,
+                                           receipt, code, reason, status,
                                            service->host_allocator);
   }
   if (cancelled) {
@@ -915,7 +933,8 @@ static iree_status_t loom_serve_text_admit_pending(
     }
     if (!checkpoint && !retained_count) {
       service->pending.prepared.prefix = loom_serve_text_prefix_cache_find(
-          &service->prefixes, pending->input.count, pending->input.tokens);
+          &service->prefixes, &pending->chat, pending->input.count,
+          pending->input.tokens);
       if (service->pending.prepared.prefix) {
         checkpoint = service->pending.prepared.prefix->state;
       }
@@ -1342,8 +1361,8 @@ static iree_status_t loom_serve_text_capture_prefix(
     bool evicted = false;
     loom_serve_execution_frontier_t frontier;
     status = loom_serve_text_prefix_cache_submit(
-        &service->prefixes, session->row, count, session->tokens,
-        service->pending.prepared.prefix, &evicted, &frontier);
+        &service->prefixes, &session->request.chat, session->row, count,
+        session->tokens, service->pending.prepared.prefix, &evicted, &frontier);
     service->pool.trim.pending |= evicted;
     if (iree_status_is_ok(status) && frontier.semaphores[0]) {
       service->completion.frontier = frontier;
