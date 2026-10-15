@@ -587,73 +587,59 @@ TEST_F(StripNormalizerTest, AllWhitespaceInputBufferedInternally) {
 }
 
 //===----------------------------------------------------------------------===//
-// SEGMENT_END Flag
+// Finalization Boundaries
 //===----------------------------------------------------------------------===//
 
-TEST_F(StripNormalizerTest, SegmentEndDiscardsBufferedWhitespace) {
-  // With internal buffering, whitespace is always consumed.
-  // Without SEGMENT_END, it's buffered (might be intermediate).
-  // With SEGMENT_END, the buffer is cleared (confirmed trailing).
+TEST_F(StripNormalizerTest, FinalizeDiscardsBufferedWhitespace) {
   auto normalizer = CreateStrip(false, true);
   ScopedNormalizerState state(normalizer.get());
-
   char output[64];
   iree_host_size_t consumed = 0, written = 0;
-
-  // Without SEGMENT_END: whitespace consumed and buffered.
   IREE_ASSERT_OK(iree_tokenizer_normalizer_state_process(
       state.get(), IREE_SV("     "),
       iree_make_mutable_string_view(output, sizeof(output)),
       IREE_TOKENIZER_NORMALIZER_FLAG_NONE, &consumed, &written));
-  EXPECT_EQ(consumed, 5u);  // All consumed (buffered internally).
-  EXPECT_EQ(written, 0u);   // Nothing emitted yet.
-
-  // With SEGMENT_END: whitespace consumed and buffer cleared (trailing).
-  IREE_ASSERT_OK(iree_tokenizer_normalizer_state_process(
-      state.get(), IREE_SV("     "),
-      iree_make_mutable_string_view(output, sizeof(output)),
-      IREE_TOKENIZER_NORMALIZER_FLAG_SEGMENT_END, &consumed, &written));
-  EXPECT_EQ(consumed, 5u);  // All consumed.
-  EXPECT_EQ(written, 0u);   // Nothing emitted (trailing whitespace stripped).
+  EXPECT_EQ(consumed, 5u);
+  EXPECT_EQ(written, 0u);
+  IREE_ASSERT_OK(iree_tokenizer_normalizer_state_finalize(
+      state.get(), iree_make_mutable_string_view(output, sizeof(output)),
+      &written));
+  EXPECT_EQ(written, 0u);
 }
 
-TEST_F(StripNormalizerTest, SegmentEndWithMixedContent) {
-  // "hello   " with SEGMENT_END: trailing spaces consumed but not emitted.
+TEST_F(StripNormalizerTest, FinalizeWithMixedContent) {
   auto normalizer = CreateStrip(false, true);
   ScopedNormalizerState state(normalizer.get());
-
   char output[64];
   iree_host_size_t consumed = 0, written = 0;
-
   IREE_ASSERT_OK(iree_tokenizer_normalizer_state_process(
       state.get(), IREE_SV("hello   "),
       iree_make_mutable_string_view(output, sizeof(output)),
-      IREE_TOKENIZER_NORMALIZER_FLAG_SEGMENT_END, &consumed, &written));
-  EXPECT_EQ(consumed, 8u);  // All 8 bytes consumed.
-  EXPECT_EQ(written, 5u);   // Only "hello" emitted.
+      IREE_TOKENIZER_NORMALIZER_FLAG_NONE, &consumed, &written));
+  EXPECT_EQ(consumed, 8u);
   EXPECT_EQ(std::string(output, written), "hello");
+  IREE_ASSERT_OK(iree_tokenizer_normalizer_state_finalize(
+      state.get(), iree_make_mutable_string_view(output, sizeof(output)),
+      &written));
+  EXPECT_EQ(written, 0u);
 }
 
-TEST_F(StripNormalizerTest, SegmentEndResetsAtStart) {
-  // After SEGMENT_END, at_start resets to true. Leading whitespace in the next
-  // segment should be stripped by strip_left.
-  auto normalizer =
-      CreateStrip(true, true);  // Both strip_left and strip_right.
+TEST_F(StripNormalizerTest, FinalizeResetsAtStart) {
+  auto normalizer = CreateStrip(true, true);
   ScopedNormalizerState state(normalizer.get());
-
   char output[64];
   iree_host_size_t consumed = 0, written = 0;
-
-  // Segment 1: "hello " - emits "hello", trailing space consumed by
-  // SEGMENT_END.
   IREE_ASSERT_OK(iree_tokenizer_normalizer_state_process(
       state.get(), IREE_SV("hello "),
       iree_make_mutable_string_view(output, sizeof(output)),
-      IREE_TOKENIZER_NORMALIZER_FLAG_SEGMENT_END, &consumed, &written));
+      IREE_TOKENIZER_NORMALIZER_FLAG_NONE, &consumed, &written));
   EXPECT_EQ(consumed, 6u);
   EXPECT_EQ(std::string(output, written), "hello");
+  IREE_ASSERT_OK(iree_tokenizer_normalizer_state_finalize(
+      state.get(), iree_make_mutable_string_view(output, sizeof(output)),
+      &written));
+  EXPECT_EQ(written, 0u);
 
-  // Segment 2: "  world" - at_start was reset, so leading spaces are stripped.
   IREE_ASSERT_OK(iree_tokenizer_normalizer_state_process(
       state.get(), IREE_SV("  world"),
       iree_make_mutable_string_view(output, sizeof(output)),
@@ -662,22 +648,21 @@ TEST_F(StripNormalizerTest, SegmentEndResetsAtStart) {
   EXPECT_EQ(std::string(output, written), "world");
 }
 
-TEST_F(StripNormalizerTest, SegmentEndWithUnicodeWhitespace) {
-  // Unicode whitespace (U+3000, ideographic space) at segment end.
+TEST_F(StripNormalizerTest, FinalizeWithUnicodeWhitespace) {
   auto normalizer = CreateStrip(false, true);
   ScopedNormalizerState state(normalizer.get());
-
   char output[64];
   iree_host_size_t consumed = 0, written = 0;
-
-  // U+3000 is E3 80 80 in UTF-8 (ideographic space, 3 bytes).
   IREE_ASSERT_OK(iree_tokenizer_normalizer_state_process(
       state.get(), IREE_SV("A\xe3\x80\x80"),
       iree_make_mutable_string_view(output, sizeof(output)),
-      IREE_TOKENIZER_NORMALIZER_FLAG_SEGMENT_END, &consumed, &written));
-  EXPECT_EQ(consumed, 4u);  // 'A' + 3-byte Unicode space.
-  EXPECT_EQ(written, 1u);   // Only 'A' emitted.
-  EXPECT_EQ(output[0], 'A');
+      IREE_TOKENIZER_NORMALIZER_FLAG_NONE, &consumed, &written));
+  EXPECT_EQ(consumed, 4u);
+  EXPECT_EQ(std::string(output, written), "A");
+  IREE_ASSERT_OK(iree_tokenizer_normalizer_state_finalize(
+      state.get(), iree_make_mutable_string_view(output, sizeof(output)),
+      &written));
+  EXPECT_EQ(written, 0u);
 }
 
 }  // namespace

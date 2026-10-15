@@ -3380,7 +3380,7 @@ TEST_F(TokenizerStripNormalizerSpecialTokenTest,
 }
 
 // Verify streaming API (feed/finalize) handles trailing whitespace without
-// deadlocking. This exercises the retry-with-SEGMENT_END path in the pump.
+// deadlocking. Trailing whitespace remains buffered until finalization.
 TEST_F(TokenizerStripNormalizerSpecialTokenTest,
        StripNormalizerStreamingTrailingWhitespace) {
   ScopedVocabBuilder vocab_builder(256);
@@ -3434,8 +3434,7 @@ TEST_F(TokenizerStripNormalizerSpecialTokenTest,
       &bytes_consumed, &token_count));
   total_tokens += token_count;
 
-  // Feed should have consumed all input (retry-with-SEGMENT_END handles the
-  // trailing whitespace).
+  // Feed accepts the trailing whitespace; finalization decides to discard it.
   EXPECT_EQ(bytes_consumed, 8u);
 
   // Finalize to flush remaining tokens.
@@ -3650,11 +3649,8 @@ class TokenizerNFCNormalizerSpecialTokenTest : public ::testing::Test {};
 // account for the normalizer's pending buffered data — otherwise the special
 // token is emitted before the normalizer's output, producing wrong token order.
 //
-// This bug only manifests with the streaming API: when the combining sequence
-// and special token arrive in separate feed() calls, the SEGMENT_END flag
-// (which forces NFC to flush) is NOT set because no special token start byte
-// appears within the first chunk. The one-shot API sets SEGMENT_END because
-// the special token is in the same chunk as the combining sequence.
+// The combining sequence and special token arrive in separate feed calls.
+// Only acceptance of the special token establishes the normalization boundary.
 TEST_F(TokenizerNFCNormalizerSpecialTokenTest,
        StreamingNFCPendingDataBeforeSpecialToken) {
   // Byte-level ASCII vocab + composed é + special token.
@@ -3714,8 +3710,7 @@ TEST_F(TokenizerNFCNormalizerSpecialTokenTest,
   iree_host_size_t total_tokens = 0;
 
   // Feed 1: decomposed é (e + combining acute U+0301).
-  // No special token start byte in this chunk, so safe_prefix covers the whole
-  // chunk and SEGMENT_END is NOT set. NFC buffers e+U+0301 without flushing.
+  // No input boundary is known yet, so NFC retains the combining sequence.
   iree_host_size_t bytes_consumed = 0;
   iree_host_size_t token_count = 0;
   IREE_ASSERT_OK(iree_tokenizer_encode_state_feed(
@@ -3860,9 +3855,8 @@ TEST_F(TokenizerNFCNormalizerSpecialTokenTest,
   iree_tokenizer_free(tokenizer);
 }
 
-// One-shot API should also produce correct order. With the entire input in one
-// chunk, SEGMENT_END is set before the special token boundary, forcing NFC to
-// flush. This verifies the one-shot path is not regressed.
+// Complete input uses the same accepted-token boundary and output order as
+// incremental input.
 TEST_F(TokenizerNFCNormalizerSpecialTokenTest, OneShotNFCWithSpecialToken) {
   ScopedVocabBuilder vocab_builder(256);
   for (int i = 0; i < 128; ++i) {
@@ -3900,7 +3894,7 @@ TEST_F(TokenizerNFCNormalizerSpecialTokenTest, OneShotNFCWithSpecialToken) {
   iree_tokenizer_t* tokenizer = BuildTokenizer(builder.get());
   ASSERT_NE(tokenizer, nullptr);
 
-  // One-shot: SEGMENT_END forces NFC to flush before special token match.
+  // The normalized span drains before the accepted special token is emitted.
   auto result = Encode(tokenizer, "e\xCC\x81[MASK]");
   EXPECT_THAT(result, ::testing::ElementsAre(200, 50256));
 

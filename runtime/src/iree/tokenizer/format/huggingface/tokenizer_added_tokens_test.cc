@@ -202,6 +202,39 @@ TEST(TokenizerAddedTokensTest, ErasedSuffixAtPatternCapacity) {
   iree_tokenizer_free(tokenizer);
 }
 
+TEST(TokenizerAddedTokensTest, ComposedExpansionExceedsMatchingCapacity) {
+  std::string normalizer =
+      R"({"type":"Sequence","normalizers":[
+        {"type":"Replace","pattern":{"String":"a"},"content":")" +
+      std::string(32, 'b') +
+      R"("},{"type":"Replace","pattern":{"String":"b"},"content":")" +
+      std::string(32, 'c') + R"("}]})";
+  std::string json = TokenizerJson(normalizer, "a");
+  iree_tokenizer_t* tokenizer = nullptr;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                        iree_tokenizer_from_huggingface_json(
+                            iree_make_string_view(json.data(), json.size()),
+                            iree_allocator_system(), &tokenizer));
+  EXPECT_EQ(tokenizer, nullptr);
+}
+
+TEST(TokenizerAddedTokensTest, ComposedExpansionThenContractionMatches) {
+  std::string normalizer =
+      R"({"type":"Sequence","normalizers":[
+        {"type":"Replace","pattern":{"String":"a"},"content":")" +
+      std::string(32, 'b') + R"("},{"type":"Replace","pattern":{"String":")" +
+      std::string(32, 'b') + R"("},"content":"c"}]})";
+  std::string input(20, 'a');
+  std::string json = TokenizerJson(normalizer, input);
+  iree_tokenizer_t* tokenizer = nullptr;
+  IREE_ASSERT_OK(iree_tokenizer_from_huggingface_json(
+      iree_make_string_view(json.data(), json.size()), iree_allocator_system(),
+      &tokenizer));
+  ExpectEncoding(tokenizer, input, {11});
+  ExpectStreamingEncoding(tokenizer, input, {11});
+  iree_tokenizer_free(tokenizer);
+}
+
 TEST(TokenizerAddedTokensTest,
      FailedNormalizedCollectionReleasesRawCollection) {
   // The raw collection is built first. Exceed the normalized collection's

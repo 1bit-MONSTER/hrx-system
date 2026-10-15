@@ -634,53 +634,6 @@ iree_status_t iree_tokenizer_encode(const iree_tokenizer_t* tokenizer,
     total_tokens += tokens_written;
     text.data += bytes_consumed;
     text.size -= bytes_consumed;
-
-    // Handle no-progress case: normalizer waiting for lookahead at stream end.
-    // Since this is batch encode (all input provided at once), remaining bytes
-    // after no-progress are definitively at end-of-stream. Force them through
-    // the normalizer with SEGMENT_END flag.
-    //
-    // First check for incomplete UTF-8 at end of input. The normalizer contract
-    // requires input to end on codepoint boundaries. If the remaining bytes are
-    // an incomplete sequence, this is a caller error (batch API expects
-    // complete UTF-8 input). Return INVALID_ARGUMENT rather than corrupting
-    // output.
-    if (iree_status_is_ok(status) && bytes_consumed == 0 && text.size > 0) {
-      iree_host_size_t incomplete =
-          iree_unicode_utf8_incomplete_tail_length(text.data, text.size);
-      if (incomplete == text.size) {
-        // All remaining bytes are an incomplete UTF-8 sequence.
-        status = iree_make_status(
-            IREE_STATUS_INVALID_ARGUMENT,
-            "batch encode input ends with incomplete UTF-8 sequence "
-            "(%" PRIhsz " trailing bytes)",
-            text.size);
-      } else if (state->normalizer_state) {
-        // Truncate to complete codepoints before feeding to normalizer.
-        iree_string_view_t safe_text = {text.data, text.size - incomplete};
-        iree_host_size_t write_space =
-            iree_tokenizer_ring_writable_space(state);
-        if (write_space > 0) {
-          iree_host_size_t physical_write = iree_tokenizer_ring_to_physical(
-              state->write_position, state->capacity_mask);
-          iree_mutable_string_view_t norm_output = {
-              .data = (char*)state->transform_buffer.data + physical_write,
-              .size = write_space,
-          };
-          iree_host_size_t norm_consumed = 0;
-          iree_host_size_t norm_written = 0;
-          status = iree_tokenizer_normalizer_state_process(
-              state->normalizer_state, safe_text, norm_output,
-              IREE_TOKENIZER_NORMALIZER_FLAG_SEGMENT_END, &norm_consumed,
-              &norm_written);
-          iree_tokenizer_ring_fixup_write_wrap(state, physical_write,
-                                               norm_written);
-          state->write_position += norm_written;
-          text.data += norm_consumed;
-          text.size -= norm_consumed;
-        }
-      }
-    }
   }
 
   // Finalize to flush remaining tokens.
@@ -2007,22 +1960,9 @@ static iree_status_t iree_tokenizer_encode_state_pump(
     }
   }
 
-  // Emit deferred pre-norm special token if pipeline has flushed.
-  if (iree_tokenizer_try_emit_pending_special_token(state, *output,
-                                                    total_tokens)) {
-    *out_made_progress = true;
-    return iree_ok_status();
-  }
-
-  // Force-flush normalizer when a special token is pending but the normalizer
-  // holds data that blocks pipeline drain. The special token boundary acts as
-  // a segment end for the normalizer's combining sequence.
-  //
-  // We use state_finalize() rather than state_process() with SEGMENT_END
-  // because Sequence normalizers don't process the SEGMENT_END flag when given
-  // empty input (the processing loop requires input.size > 0 to run).
-  if (state->pending_special_token >= 0 && state->normalizer_state &&
-      iree_tokenizer_normalizer_state_has_pending(state->normalizer_state)) {
+  // An accepted raw token ends the preceding normalizer input span, including
+  // state that finalize discards instead of emitting (such as trailing spaces).
+  if (state->pending_special_token >= 0 && state->normalizer_state) {
     iree_host_size_t write_space = iree_tokenizer_ring_writable_space(state);
     if (write_space > 0) {
       iree_host_size_t physical_write = iree_tokenizer_ring_to_physical(
@@ -2040,6 +1980,13 @@ static iree_status_t iree_tokenizer_encode_state_pump(
         return iree_ok_status();
       }
     }
+  }
+
+  // Emit the retained token after the preceding span and pipeline have drained.
+  if (iree_tokenizer_try_emit_pending_special_token(state, *output,
+                                                    total_tokens)) {
+    *out_made_progress = true;
+    return iree_ok_status();
   }
 
   // Match post-normalization special tokens before segmenter runs.
@@ -2328,7 +2275,8 @@ static iree_status_t iree_tokenizer_encode_state_pump(
         // when the caller currently has no output credit.
         bool pipeline_has_content =
             iree_tokenizer_encode_state_pipeline_has_content(state);
-        if (pipeline_has_content || output->capacity == *total_tokens) {
+        if (state->normalizer_state || pipeline_has_content ||
+            output->capacity == *total_tokens) {
           state->pending_special_token = match_id;
         } else {
           output->token_ids[*total_tokens] = match_id;
@@ -2462,15 +2410,8 @@ static iree_status_t iree_tokenizer_encode_state_pump(
           .data = (char*)state->transform_buffer.data + physical_write,
           .size = write_space,
       };
-      // Signal segment end when normalize_limit restricts us to less than the
-      // full input (indicates special token boundary ahead). This prevents
-      // deadlocks in normalizers that use lazy consumption (e.g., Strip
-      // normalizer waiting for lookahead that will never arrive because the
-      // tokenizer won't feed past the special token boundary).
       iree_tokenizer_normalizer_flags_t flags =
-          (normalize_limit < chunk->size)
-              ? IREE_TOKENIZER_NORMALIZER_FLAG_SEGMENT_END
-              : IREE_TOKENIZER_NORMALIZER_FLAG_NONE;
+          IREE_TOKENIZER_NORMALIZER_FLAG_NONE;
 
       // Signal to prepend normalizer that position 0 was consumed by a special
       // token, so prepend_scheme="first" should skip prepending for this text.
@@ -2483,20 +2424,6 @@ static iree_status_t iree_tokenizer_encode_state_pump(
       IREE_RETURN_IF_ERROR(iree_tokenizer_normalizer_state_process(
           state->normalizer_state, safe_chunk, norm_output, flags,
           &bytes_consumed, &bytes_written));
-
-      // Handle normalizer stuck on potential trailing content. If no bytes were
-      // consumed and this is the only remaining input (normalize_limit covers
-      // all input, meaning no special token boundary), the normalizer is
-      // waiting for lookahead that won't arrive. Retry with SEGMENT_END to
-      // force it to treat the content as definitely trailing.
-      if (bytes_consumed == 0 && bytes_written == 0 && max_consume > 0 &&
-          normalize_limit >= chunk->size &&
-          (flags & IREE_TOKENIZER_NORMALIZER_FLAG_SEGMENT_END) == 0) {
-        IREE_RETURN_IF_ERROR(iree_tokenizer_normalizer_state_process(
-            state->normalizer_state, safe_chunk, norm_output,
-            flags | IREE_TOKENIZER_NORMALIZER_FLAG_SEGMENT_END, &bytes_consumed,
-            &bytes_written));
-      }
     } else {
       // Passthrough: copy raw bytes directly to the ring buffer. Partial
       // UTF-8 sequences at the end are fine here - the ring accumulates bytes
@@ -2732,10 +2659,10 @@ static iree_status_t iree_tokenizer_encode_state_finalize_internal(
       };
       iree_host_size_t bytes_consumed = 0;
       iree_host_size_t bytes_written = 0;
-      // Finalize: this is the end of the input stream, so signal segment end.
+      // Pass the recovered prefix as ordinary normalization input.
       IREE_RETURN_IF_ERROR(iree_tokenizer_normalizer_state_process(
           state->normalizer_state, partial_view, norm_output,
-          IREE_TOKENIZER_NORMALIZER_FLAG_SEGMENT_END, &bytes_consumed,
+          IREE_TOKENIZER_NORMALIZER_FLAG_NONE, &bytes_consumed,
           &bytes_written));
       iree_tokenizer_ring_fixup_write_wrap(state, physical_write,
                                            bytes_written);

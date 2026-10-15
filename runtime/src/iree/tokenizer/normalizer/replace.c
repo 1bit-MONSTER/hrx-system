@@ -20,16 +20,16 @@ static const iree_tokenizer_normalizer_vtable_t
 // Normalizer struct shared by both single-byte and multi-byte implementations.
 // Pattern and content data follow immediately after this struct.
 typedef struct iree_tokenizer_normalizer_replace_t {
+  // Immutable normalizer interface.
   iree_tokenizer_normalizer_t base;
+  // Allocator owning this object and its trailing pattern/content bytes.
   iree_allocator_t allocator;
+  // Pattern length in bytes.
   uint8_t pattern_length;
+  // Replacement length in bytes.
   uint8_t content_length;
   // Trailing data: [pattern][content]
 } iree_tokenizer_normalizer_replace_t;
-
-// Maximum overlap buffer size = max pattern length - 1.
-#define IREE_TOKENIZER_REPLACE_MAX_OVERLAP \
-  (IREE_TOKENIZER_REPLACE_MAX_PATTERN - 1)
 
 //===----------------------------------------------------------------------===//
 // Single-Byte State Structure
@@ -38,13 +38,14 @@ typedef struct iree_tokenizer_normalizer_replace_t {
 // only tracks partial content emission when output is smaller than content.
 
 typedef struct iree_tokenizer_replace_single_state_t {
+  // Interface and immutable normalizer back-pointer.
   iree_tokenizer_normalizer_state_t base;
-  // Control fields (hot, first cache line).
+  // Single byte matched by this specialization.
   uint8_t target_byte;
+  // Replacement length in bytes.
   uint8_t content_length;
-  // 0 in 98% of calls.
+  // Bytes of the current replacement already emitted, or zero when idle.
   uint8_t content_emitted;
-  uint8_t _pad;
   // Points to normalizer trailing data.
   const uint8_t* content;
 } iree_tokenizer_replace_single_state_t;
@@ -56,6 +57,7 @@ typedef struct iree_tokenizer_replace_single_state_t {
 // and memchr + memcmp for SIMD-accelerated scanning.
 
 typedef struct iree_tokenizer_replace_multi_state_t {
+  // Interface and immutable normalizer back-pointer.
   iree_tokenizer_normalizer_state_t base;
 
   // === Control fields (hot, first cache line) ===
@@ -63,19 +65,22 @@ typedef struct iree_tokenizer_replace_multi_state_t {
   const uint8_t* pattern;
   // Points to normalizer trailing data.
   const uint8_t* content;
-  uint8_t pattern_length;  // 2-32.
-  uint8_t content_length;  // 0-32.
-  // Current overlap buffer fill (0 to pattern_length-1).
+  // Pattern length in bytes, between 2 and 32.
+  uint8_t pattern_length;
+  // Replacement length in bytes, between 0 and 32.
+  uint8_t content_length;
+  // Retained prefix length; reaches pattern_length while comparing a match.
   uint8_t overlap_length;
-  // 0 in 98% of calls (fast path).
+  // First pending replacement byte not yet emitted.
   uint8_t pending_offset;
-  // 0 in 98% of calls (fast path).
+  // Number of replacement bytes not yet emitted.
   uint8_t pending_length;
-  uint8_t _pad[3];
 
   // === Buffers (rarely accessed in hot path) ===
-  uint8_t overlap_buffer[IREE_TOKENIZER_REPLACE_MAX_OVERLAP];  // 31 bytes.
-  uint8_t pending_buffer[IREE_TOKENIZER_REPLACE_MAX_CONTENT];  // 32 bytes.
+  // Partial pattern plus room to compare its final incoming byte.
+  uint8_t overlap_buffer[IREE_TOKENIZER_REPLACE_MAX_PATTERN];
+  // Accepted replacement output retained across output backpressure.
+  uint8_t pending_buffer[IREE_TOKENIZER_REPLACE_MAX_CONTENT];
 } iree_tokenizer_replace_multi_state_t;
 
 //===----------------------------------------------------------------------===//
@@ -449,125 +454,50 @@ static iree_status_t iree_tokenizer_replace_multi_state_process(
     return iree_ok_status();
   }
 
-  // Phase 1: Handle cross-boundary matches using overlap buffer.
-  // The overlap buffer holds the last (pattern_length - 1) bytes from the
-  // previous chunk that might be the start of a pattern spanning chunks.
-  if (state->overlap_length > 0) {
-    iree_host_size_t total_available = state->overlap_length + input.size;
-    iree_host_size_t max_overlap = pattern_length - 1;
-
-    if (total_available < pattern_length) {
-      // Not enough data yet to check for a match. Append input to overlap.
-      // If this would overflow, emit oldest bytes first.
-      while (state->overlap_length + input.size > max_overlap &&
-             out_ptr < out_end && state->pending_length == 0) {
-        iree_tokenizer_replace_multi_emit_byte(state, state->overlap_buffer[0],
-                                               &out_ptr, out_end);
-        memmove(state->overlap_buffer, state->overlap_buffer + 1,
-                state->overlap_length - 1);
-        state->overlap_length--;
-      }
-      // Append remaining input to overlap.
-      if (state->overlap_length + input.size <= max_overlap) {
-        memcpy(state->overlap_buffer + state->overlap_length, in_ptr,
-               input.size);
-        state->overlap_length += (uint8_t)input.size;
-        *out_consumed = input.size;
-        *out_written = (iree_host_size_t)(out_ptr - (uint8_t*)output.data);
-        return iree_ok_status();
-      } else {
-        // Output buffer full before we could make room. Return to let caller
-        // flush output and retry with the same input.
-        *out_consumed = 0;
-        *out_written = (iree_host_size_t)(out_ptr - (uint8_t*)output.data);
-        return iree_ok_status();
-      }
+  // Retained input precedes every byte in this call. Resolve it before the
+  // bulk scan; a short output span cannot discard or bypass an unchecked byte.
+  while (state->overlap_length > 0 && out_ptr < out_end &&
+         state->pending_length == 0) {
+    const uint8_t* found = (const uint8_t*)memchr(
+        state->overlap_buffer, first_byte, state->overlap_length);
+    iree_host_size_t literal_length =
+        found ? (iree_host_size_t)(found - state->overlap_buffer)
+              : state->overlap_length;
+    if (literal_length > 0) {
+      iree_host_size_t written =
+          iree_min(literal_length, (iree_host_size_t)(out_end - out_ptr));
+      memcpy(out_ptr, state->overlap_buffer, written);
+      out_ptr += written;
+      state->overlap_length -= (uint8_t)written;
+      memmove(state->overlap_buffer, state->overlap_buffer + written,
+              state->overlap_length);
+      continue;
     }
 
-    // We have enough data to check for cross-boundary matches.
-    // Build a temporary buffer: [overlap] + [enough input bytes to check]
-    uint8_t cross_buffer[2 * IREE_TOKENIZER_REPLACE_MAX_PATTERN];
-    iree_host_size_t cross_length = state->overlap_length;
-    memcpy(cross_buffer, state->overlap_buffer, cross_length);
-
-    // Add bytes from input. We need pattern_length bytes to fully check
-    // patterns that could start at any position in the overlap. A pattern
-    // starting at the LAST overlap position needs all pattern_length bytes
-    // from input to complete.
-    iree_host_size_t bytes_to_add = pattern_length;
-    if (bytes_to_add > input.size) {
-      bytes_to_add = input.size;
-    }
-    memcpy(cross_buffer + cross_length, in_ptr, bytes_to_add);
-    cross_length += bytes_to_add;
-
-    // Scan cross buffer for matches, processing positions from overlap.
-    // We can only check positions where we have pattern_length bytes available.
-    iree_host_size_t i = 0;
-    iree_host_size_t original_overlap_length = state->overlap_length;
-    while (i + pattern_length <= cross_length && out_ptr < out_end &&
-           state->pending_length == 0) {
-      if (cross_buffer[i] == first_byte &&
-          memcmp(cross_buffer + i, pattern, pattern_length) == 0) {
-        // Match found! Emit content.
-        iree_tokenizer_replace_multi_emit_content(state, &out_ptr, out_end);
-        i += pattern_length;
-      } else {
-        // No match at position i. Emit the byte.
-        iree_tokenizer_replace_multi_emit_byte(state, cross_buffer[i], &out_ptr,
-                                               out_end);
-        ++i;
-      }
+    iree_host_size_t accepted =
+        iree_min((iree_host_size_t)(pattern_length - state->overlap_length),
+                 (iree_host_size_t)(in_end - in_ptr));
+    memcpy(state->overlap_buffer + state->overlap_length, in_ptr, accepted);
+    state->overlap_length += (uint8_t)accepted;
+    in_ptr += accepted;
+    if (state->overlap_length < pattern_length) {
+      break;
     }
 
-    // After scanning, bytes from position i to cross_length-1 haven't been
-    // checked (not enough bytes for a full pattern check). These could be
-    // the start of a pattern spanning to the next chunk, so save them to
-    // the overlap buffer.
-    iree_host_size_t unchecked_length = cross_length - i;
-    if (unchecked_length > max_overlap) {
-      // Can't fit all unchecked bytes. Emit the oldest ones that can't
-      // possibly start a match (would need more than max_overlap bytes).
-      iree_host_size_t to_emit = unchecked_length - max_overlap;
-      for (iree_host_size_t j = 0;
-           j < to_emit && out_ptr < out_end && state->pending_length == 0;
-           ++j) {
-        iree_tokenizer_replace_multi_emit_byte(state, cross_buffer[i + j],
-                                               &out_ptr, out_end);
-      }
-      i += to_emit;
-      unchecked_length = max_overlap;
+    if (memcmp(state->overlap_buffer, pattern, pattern_length) == 0) {
+      iree_tokenizer_replace_multi_emit_content(state, &out_ptr, out_end);
+      state->overlap_length = 0;
+    } else {
+      *out_ptr++ = state->overlap_buffer[0];
+      --state->overlap_length;
+      memmove(state->overlap_buffer, state->overlap_buffer + 1,
+              state->overlap_length);
     }
-
-    // Save unchecked suffix to overlap buffer for next chunk.
-    if (unchecked_length > 0) {
-      memcpy(state->overlap_buffer, cross_buffer + i, unchecked_length);
-    }
-    state->overlap_length = (uint8_t)unchecked_length;
-
-    // Calculate how many input bytes were consumed.
-    // Input bytes start at position original_overlap_length in cross_buffer.
-    // We're keeping bytes from position i onwards in overlap.
-    // So input bytes consumed = min(i, original_overlap_length) input bytes
-    // that were checked/emitted, plus any that are now in the new overlap.
-    iree_host_size_t total_processed = i + unchecked_length;
-    iree_host_size_t input_bytes_in_cross = bytes_to_add;
-    if (total_processed > original_overlap_length) {
-      // We processed beyond the original overlap, consuming some input.
-      iree_host_size_t input_consumed_from_cross =
-          total_processed - original_overlap_length;
-      if (input_consumed_from_cross > input_bytes_in_cross) {
-        input_consumed_from_cross = input_bytes_in_cross;
-      }
-      in_ptr += input_consumed_from_cross;
-    }
-
-    // Check if we ran out of output space.
-    if (out_ptr >= out_end || state->pending_length > 0) {
-      *out_consumed = (iree_host_size_t)(in_ptr - (const uint8_t*)input.data);
-      *out_written = (iree_host_size_t)(out_ptr - (uint8_t*)output.data);
-      return iree_ok_status();
-    }
+  }
+  if (state->overlap_length > 0 || state->pending_length > 0) {
+    *out_consumed = (iree_host_size_t)(in_ptr - (const uint8_t*)input.data);
+    *out_written = (iree_host_size_t)(out_ptr - (uint8_t*)output.data);
+    return iree_ok_status();
   }
 
   // Phase 2: Main chunk scan with memchr + memcmp.
@@ -636,75 +566,21 @@ static iree_status_t iree_tokenizer_replace_multi_state_process(
   // lead byte (0xC2-0xF4), never a continuation byte (0x80-0xBF). Any
   // continuation bytes at the start of the remaining tail belong to a character
   // whose lead byte was already emitted by Phase 2. Emitting them ensures the
-  // output ends on a UTF-8 character boundary, which is required by the
-  // normalizer interface contract (downstream normalizers in a sequence expect
-  // complete codepoints).
+  // output ends on a UTF-8 character boundary when output credit permits.
+  // Sequence retains any incomplete trailing codepoint before its next child.
   while (in_ptr < in_end && (*in_ptr & 0xC0) == 0x80 && out_ptr < out_end &&
          state->pending_length == 0) {
     *out_ptr++ = *in_ptr++;
   }
 
-  // Phase 3: Buffer tail bytes for next chunk.
-  // The last (pattern_length - 1) bytes may be the start of a cross-boundary
-  // match, so append them to the overlap buffer. Note: Phase 1 may have
-  // already placed bytes in the overlap buffer, so we APPEND rather than
-  // overwrite.
-  iree_host_size_t tail_length = (iree_host_size_t)(in_end - in_ptr);
+  // Retain a bounded unchecked prefix. Any later bytes remain caller-owned
+  // until a future call resolves this prefix or makes output credit available.
+  iree_host_size_t tail_length = iree_min((iree_host_size_t)(in_end - in_ptr),
+                                          (iree_host_size_t)pattern_length - 1);
   if (tail_length > 0) {
-    iree_host_size_t max_overlap = pattern_length - 1;
-    iree_host_size_t current_overlap = state->overlap_length;
-    iree_host_size_t available_space = max_overlap - current_overlap;
-
-    if (tail_length <= available_space) {
-      // All remaining bytes fit in overlap buffer.
-      memcpy(state->overlap_buffer + current_overlap, in_ptr, tail_length);
-      state->overlap_length = (uint8_t)(current_overlap + tail_length);
-      in_ptr = in_end;
-    } else {
-      // Not all bytes fit - emit the excess, keep max_overlap bytes total.
-      // First, emit bytes that definitely can't be part of a cross-boundary
-      // match (too far from end to start a pattern).
-      iree_host_size_t total_needed = current_overlap + tail_length;
-      iree_host_size_t excess = total_needed - max_overlap;
-
-      // Emit from oldest data first (current overlap buffer).
-      iree_host_size_t emit_from_overlap =
-          excess < current_overlap ? excess : current_overlap;
-      for (iree_host_size_t j = 0; j < emit_from_overlap && out_ptr < out_end &&
-                                   state->pending_length == 0;
-           ++j) {
-        iree_tokenizer_replace_multi_emit_byte(state, state->overlap_buffer[j],
-                                               &out_ptr, out_end);
-      }
-      if (emit_from_overlap > 0 && emit_from_overlap < current_overlap) {
-        memmove(state->overlap_buffer,
-                state->overlap_buffer + emit_from_overlap,
-                current_overlap - emit_from_overlap);
-      }
-      current_overlap -= emit_from_overlap;
-      excess -= emit_from_overlap;
-
-      // Then emit from input if still have excess.
-      iree_host_size_t emit_from_input = excess;
-      iree_host_size_t output_available = (iree_host_size_t)(out_end - out_ptr);
-      iree_host_size_t to_emit = emit_from_input < output_available
-                                     ? emit_from_input
-                                     : output_available;
-      if (to_emit > 0 && state->pending_length == 0) {
-        memcpy(out_ptr, in_ptr, to_emit);
-        out_ptr += to_emit;
-        in_ptr += to_emit;
-      }
-
-      // Append remaining input to overlap buffer.
-      tail_length = (iree_host_size_t)(in_end - in_ptr);
-      available_space = max_overlap - current_overlap;
-      if (tail_length > 0 && tail_length <= available_space) {
-        memcpy(state->overlap_buffer + current_overlap, in_ptr, tail_length);
-        state->overlap_length = (uint8_t)(current_overlap + tail_length);
-        in_ptr = in_end;
-      }
-    }
+    memcpy(state->overlap_buffer, in_ptr, tail_length);
+    state->overlap_length = (uint8_t)tail_length;
+    in_ptr += tail_length;
   }
 
   *out_consumed = (iree_host_size_t)(in_ptr - (const uint8_t*)input.data);
@@ -754,11 +630,8 @@ static bool iree_tokenizer_replace_multi_state_has_pending(
     const iree_tokenizer_normalizer_state_t* base_state) {
   const iree_tokenizer_replace_multi_state_t* state =
       (const iree_tokenizer_replace_multi_state_t*)base_state;
-  // Returns true only if there's content that couldn't fit in output
-  // (pending_buffer). The overlap_buffer holds data waiting for more INPUT
-  // to complete pattern matching, not waiting for more OUTPUT space.
-  // Callers should continue providing input or call finalize() to flush.
-  return state->pending_length > 0;
+  // Both replacement output and unmatched input can produce final bytes.
+  return state->pending_length > 0 || state->overlap_length > 0;
 }
 
 //===----------------------------------------------------------------------===//

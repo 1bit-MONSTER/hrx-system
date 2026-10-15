@@ -74,8 +74,8 @@ static iree_status_t iree_tokenizer_huggingface_normalize_added_token(
     if (content.size > 0) {
       iree_host_size_t consumed = 0;
       status = iree_tokenizer_normalizer_state_process(
-          state, content, chunk_output,
-          IREE_TOKENIZER_NORMALIZER_FLAG_SEGMENT_END, &consumed, &written);
+          state, content, chunk_output, IREE_TOKENIZER_NORMALIZER_FLAG_NONE,
+          &consumed, &written);
       // Complete input and space for every codepoint remove both reasons for
       // a streaming normalizer to wait without advancing.
       IREE_ASSERT(!iree_status_is_ok(status) || consumed > 0 || written > 0);

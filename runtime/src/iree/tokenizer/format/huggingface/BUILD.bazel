@@ -146,6 +146,20 @@ iree_runtime_cc_test(
     ],
 )
 
+iree_runtime_cc_test(
+    name = "normalizer_streaming_test",
+    srcs = ["normalizer_streaming_test.cc"],
+    deps = [
+        ":normalizer_json",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:unicode",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+        "//runtime/src/iree/tokenizer:normalizer",
+        "//runtime/src/iree/tokenizer/normalizer:normalizer_test_util",
+    ],
+)
+
 iree_runtime_cc_library(
     name = "postprocessor_json",
     srcs = ["postprocessor_json.c"],

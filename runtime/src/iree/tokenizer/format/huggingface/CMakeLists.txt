@@ -155,6 +155,21 @@ iree_cc_test(
     iree::testing::gtest_main
 )
 
+iree_cc_test(
+  NAME
+    normalizer_streaming_test
+  SRCS
+    "normalizer_streaming_test.cc"
+  DEPS
+    ::normalizer_json
+    iree::base
+    iree::base::internal::unicode
+    iree::testing::gtest
+    iree::testing::gtest_main
+    iree::tokenizer::normalizer
+    iree::tokenizer::normalizer::normalizer_test_util
+)
+
 iree_cc_library(
   NAME
     postprocessor_json
