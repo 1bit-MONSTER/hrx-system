@@ -529,11 +529,11 @@ TEST_F(XdnaNativeTest, RecordedHostAndNativePhasesReplayWithIndirectBindings) {
     }
     ASSERT_NO_FATAL_FAILURE(MakeSemaphore(&completions[i]));
   }
-  iree_hal_command_buffer_t* command_buffer = nullptr;
+  iree::hal::cts::Ref<iree_hal_command_buffer_t> command_buffer;
   IREE_ASSERT_OK(iree_hal_command_buffer_create(
       iree_hal_queue_family(queue_), IREE_HAL_COMMAND_BUFFER_MODE_DEFAULT,
       IREE_HAL_COMMAND_CATEGORY_DISPATCH | IREE_HAL_COMMAND_CATEGORY_TRANSFER,
-      5, &command_buffer));
+      5, command_buffer.out()));
   IREE_ASSERT_OK(iree_hal_command_buffer_begin(command_buffer));
   std::array<iree_hal_buffer_ref_t, 5> refs;
   for (uint32_t i = 0; i < refs.size(); ++i) {
@@ -607,7 +607,7 @@ TEST_F(XdnaNativeTest, RecordedHostAndNativePhasesReplayWithIndirectBindings) {
       table.fill({});
     }
     if (iteration == 3) {
-      iree_hal_command_buffer_release(command_buffer);
+      command_buffer.reset();
     }
     for (size_t i = 0; i < buffers.size(); ++i) {
       IREE_ASSERT_OK(iree_hal_semaphore_wait(completions[i], iteration,
@@ -637,10 +637,10 @@ TEST_F(XdnaNativeTest, RecordedArraysPreserveDependenciesAcrossPendingWindows) {
     }
     ASSERT_NO_FATAL_FAILURE(MakeSemaphore(&completions[i]));
   }
-  iree_hal_command_buffer_t* command_buffer = nullptr;
+  iree::hal::cts::Ref<iree_hal_command_buffer_t> command_buffer;
   IREE_ASSERT_OK(iree_hal_command_buffer_create(
       iree_hal_queue_family(queue_), IREE_HAL_COMMAND_BUFFER_MODE_DEFAULT,
-      IREE_HAL_COMMAND_CATEGORY_DISPATCH, 2, &command_buffer));
+      IREE_HAL_COMMAND_CATEGORY_DISPATCH, 2, command_buffer.out()));
   IREE_ASSERT_OK(iree_hal_command_buffer_begin(command_buffer));
   const iree_hal_buffer_ref_t refs[] = {
       iree_hal_make_indirect_buffer_ref(0, 0, kBytes),
@@ -696,7 +696,7 @@ TEST_F(XdnaNativeTest, RecordedArraysPreserveDependenciesAcrossPendingWindows) {
       }
     }
     if (iteration == 3) {
-      iree_hal_command_buffer_release(command_buffer);
+      command_buffer.reset();
     }
     for (size_t i = 0; i < buffers.size(); ++i) {
       IREE_ASSERT_OK(iree_hal_semaphore_wait(completions[i], iteration,
