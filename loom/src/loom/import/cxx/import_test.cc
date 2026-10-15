@@ -411,7 +411,7 @@ TEST_F(ImportTest, RejectedSourceDoesNotPoisonNextImport) {
 
 TEST_F(ImportTest, UnsupportedSourceHasDiagnosticInsteadOfInvalidModule) {
   IREE_ASSERT_OK(
-      Import(IREE_SV("int entry(int x) { while (x) { break; } return x; }")));
+      Import(IREE_SV("int entry(int x) { switch (x) {} return x; }")));
   EXPECT_EQ(module_, nullptr);
   EXPECT_EQ(diagnostic_count_, 1);
   EXPECT_EQ(diagnostic_filename_, "/app/source.cpp");

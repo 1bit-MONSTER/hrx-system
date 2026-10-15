@@ -261,6 +261,21 @@ unsigned entry(unsigned count) {
 
 // ====
 // RUN: verify
+// Explicit scheduling is never discarded to accommodate an early exit.
+unsigned entry(unsigned count, unsigned stop) {
+  unsigned total = 0;
+  // ERROR@+1: LOWERING/059 "loop scheduling cannot preserve break exits"
+  [[loom::unroll(2)]] for (unsigned i = 0; i < count; ++i) {
+    total += i;
+    if (i == stop) {
+      break;
+    }
+  }
+  return total;
+}
+
+// ====
+// RUN: verify
 // Invalid loop schedules are not silently discarded.
 unsigned entry(unsigned count) {
   // ERROR@+1: LOWERING/059 "loop scheduling requires a nonwrapping unsigned counted for loop"

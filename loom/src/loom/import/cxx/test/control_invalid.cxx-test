@@ -1,23 +1,15 @@
 // RUN: verify
-// Continue does not admit other unsupported transfers or conditions.
+// Structured iteration exits remain valid only inside a loop.
 // ERROR@+1: LOWERING/059 "unsupported statement: continue-statement"
 void entry() { continue; }
 
 // ====
-// Continue does not admit other unsupported transfers or conditions.
-void entry(unsigned count) {
-  while (count) {
-    if (--count) {
-      continue;
-    } else {
-      // ERROR@+1: LOWERING/059 "unsupported statement: break-statement"
-      break;
-    }
-  }
-}
+// Structured iteration exits remain valid only inside a loop.
+// ERROR@+1: LOWERING/059 "unsupported statement: break-statement"
+void entry() { break; }
 
 // ====
-// Continue does not admit other unsupported transfers or conditions.
+// Structured iteration exits do not admit unsupported switch conditions.
 void entry(unsigned count) {
   while (count) {
     // ERROR@+1: LOWERING/059 "unsupported statement: switch-statement"

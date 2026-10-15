@@ -595,6 +595,20 @@ class Translator final : private Initialization::Evaluation {
     return constexpr_contract;
   }
 
+  void reinitialize_condition(cxx::ConditionExpressionAST* declaration,
+                              ConstexprContract constexpr_contract,
+                              cxx::AST* owner) {
+    auto* decision = declaration->symbol;
+    auto value = apply_constexpr_contract(expression(declaration->initializer),
+                                          constexpr_contract);
+    if (auto found = locals_.find(decision); found != locals_.end()) {
+      storage_.store({found->second.view, std::nullopt}, value.ssa(),
+                     decision->type(), owner);
+    } else {
+      values_[decision] = name(value, cxx::to_string(decision->name()));
+    }
+  }
+
   // Source-selected branches are transparent to every statement/exit path.
   // Their initializers still execute once; a discarded arm contributes no IR.
   cxx::StatementAST* selected_statement(cxx::StatementAST* ast) {
@@ -1733,15 +1747,49 @@ class Translator final : private Initialization::Evaluation {
          "unsupported expression: " + std::string(cxx::to_string(ast->kind())));
   }
 
-  // Each arm yields whether its remaining iteration may execute, followed by
-  // the live bindings it changed. Arm-local declarations stay inside the arm.
+  struct IterationFlow {
+    // Whether execution reaches the remaining source statements in the body.
+    loom_value_id_t reaches_tail;
+    // Whether execution reaches the step or trailing condition. Invalid when
+    // the body contains no break and only tail reachability is required.
+    loom_value_id_t reaches_latch;
+  };
+
+  ExitFlow iteration_exit_flow(cxx::StatementAST* statement,
+                               bool tracks_break) {
+    return tracks_break ? control_->iteration_exits(statement)
+                        : control_->continues(statement);
+  }
+
+  IterationFlow constant_iteration_flow(bool reaches_tail, bool reaches_latch,
+                                        bool tracks_break, cxx::AST* owner) {
+    auto source = locations_.get(owner);
+    auto tail = scalars_.integer(reaches_tail, LOOM_SCALAR_TYPE_I1, source);
+    if (!tracks_break) {
+      return {tail, LOOM_VALUE_ID_INVALID};
+    }
+    auto latch =
+        reaches_tail == reaches_latch
+            ? tail
+            : scalars_.integer(reaches_latch, LOOM_SCALAR_TYPE_I1, source);
+    return {tail, latch};
+  }
+
+  // Each arm yields body-tail reachability and, for break-bearing bodies,
+  // latch reachability followed by the live bindings it changed. Arm-local
+  // declarations stay inside the arm.
   template <typename Then, typename Else>
-  loom_value_id_t continuing_branch(cxx::AST* owner, loom_value_id_t condition,
-                                    Then then_statement, Else else_statement) {
+  IterationFlow iteration_branch(cxx::AST* owner, loom_value_id_t condition,
+                                 bool tracks_break, Then then_statement,
+                                 Else else_statement) {
     auto written = live_mutations(owner);
     auto outer_values = values_;
     std::vector<const cxx::Type*> sources = {unit_.control()->getBoolType()};
-    sources.reserve(1 + written.size());
+    if (tracks_break) {
+      sources.push_back(unit_.control()->getBoolType());
+    }
+    const size_t control_count = sources.size();
+    sources.reserve(control_count + written.size());
     for (auto* symbol : written) {
       sources.push_back(symbol->type());
     }
@@ -1754,7 +1802,11 @@ class Translator final : private Initialization::Evaluation {
                             &op));
     auto saved =
         loom_builder_enter_region(&builder_, op, loom_scf_if_then_region(op));
-    std::vector<loom_value_id_t> yielded = {then_statement()};
+    auto then_flow = then_statement();
+    std::vector<loom_value_id_t> yielded = {then_flow.reaches_tail};
+    if (tracks_break) {
+      yielded.push_back(then_flow.reaches_latch);
+    }
     auto mutations = current(written);
     yielded.insert(yielded.end(), mutations.begin(), mutations.end());
     loom_op_t* yield;
@@ -1764,125 +1816,141 @@ class Translator final : private Initialization::Evaluation {
     values_ = outer_values;
     saved =
         loom_builder_enter_region(&builder_, op, loom_scf_if_else_region(op));
-    yielded = {else_statement()};
+    auto else_flow = else_statement();
+    yielded = {else_flow.reaches_tail};
+    if (tracks_break) {
+      yielded.push_back(else_flow.reaches_latch);
+    }
     mutations = current(written);
     yielded.insert(yielded.end(), mutations.begin(), mutations.end());
     check(loom_scf_yield_build(&builder_, yielded.data(), yielded.size(),
                                source, &yield));
     loom_builder_restore(&builder_, saved);
     values_ = std::move(outer_values);
-    bind_values(written, loom_op_results(op) + 1);
-    return loom_op_results(op)[0];
+    bind_values(written, loom_op_results(op) + control_count);
+    return {loom_op_results(op)[0],
+            tracks_break ? loom_op_results(op)[1] : LOOM_VALUE_ID_INVALID};
   }
 
-  loom_value_id_t continuing_sequence(cxx::CompoundStatementAST* owner,
-                                      cxx::List<cxx::StatementAST*>* remaining,
-                                      uint8_t fastmath) {
+  IterationFlow iteration_sequence(cxx::CompoundStatementAST* owner,
+                                   cxx::List<cxx::StatementAST*>* remaining,
+                                   uint8_t fastmath, bool tracks_break) {
     FastMathScope math_scope(lexical_fastmath_flags_, fastmath);
     while (remaining) {
       auto* child = remaining->value;
       remaining = remaining->next;
-      auto flow = control_->continues(child);
+      auto flow = iteration_exit_flow(child, tracks_break);
       if (flow == ExitFlow::None) {
         statement(child);
         continue;
       }
-      return continuing_tail(owner, child, remaining, fastmath);
+      return iteration_tail(owner, child, remaining, fastmath, tracks_break);
     }
-    return scalars_.integer(true, LOOM_SCALAR_TYPE_I1, locations_.get(owner));
+    return constant_iteration_flow(true, true, tracks_break, owner);
   }
 
   // A tail enters at most one arm directly. When both arms can reach it, join
   // their fallthrough values first and emit the shared source just once.
-  loom_value_id_t continuing_tail(cxx::CompoundStatementAST* owner,
-                                  cxx::StatementAST* ast,
-                                  cxx::List<cxx::StatementAST*>* remaining,
-                                  uint8_t continuation_fastmath) {
+  IterationFlow iteration_tail(cxx::CompoundStatementAST* owner,
+                               cxx::StatementAST* ast,
+                               cxx::List<cxx::StatementAST*>* remaining,
+                               uint8_t continuation_fastmath,
+                               bool tracks_break) {
     FastMathScope math_scope(
         lexical_fastmath_flags_,
         resolve_fastmath(ast ? fastmath_.statement(ast) : std::nullopt));
     ast = selected_statement(ast);
-    auto flow = control_->continues(ast);
+    auto flow = iteration_exit_flow(ast, tracks_break);
     if (flow == ExitFlow::None) {
       if (ast) {
         statement(ast);
       }
-      return continuing_sequence(owner, remaining, continuation_fastmath);
+      return iteration_sequence(owner, remaining, continuation_fastmath,
+                                tracks_break);
     }
     if (flow == ExitFlow::All || !remaining) {
-      return continuing_statement(ast);
+      return iteration_statement(ast, tracks_break);
     }
     if (auto* branch = cxx::ast_cast<cxx::IfStatementAST>(ast);
-        branch &&
-        (control_->continues(branch->statement) == ExitFlow::All ||
-         control_->continues(branch->elseStatement) == ExitFlow::All)) {
+        branch && (iteration_exit_flow(branch->statement, tracks_break) ==
+                       ExitFlow::All ||
+                   iteration_exit_flow(branch->elseStatement, tracks_break) ==
+                       ExitFlow::All)) {
       auto condition = branch_condition(branch);
-      return continuing_branch(
-          owner, condition,
+      return iteration_branch(
+          owner, condition, tracks_break,
           [&] {
-            return continuing_tail(owner, branch->statement, remaining,
-                                   continuation_fastmath);
+            return iteration_tail(owner, branch->statement, remaining,
+                                  continuation_fastmath, tracks_break);
           },
           [&] {
-            return continuing_tail(owner, branch->elseStatement, remaining,
-                                   continuation_fastmath);
+            return iteration_tail(owner, branch->elseStatement, remaining,
+                                  continuation_fastmath, tracks_break);
           });
     }
-    auto fallthrough = continuing_statement(ast);
-    return continuing_branch(
-        owner, fallthrough,
+    auto fallthrough = iteration_statement(ast, tracks_break);
+    return iteration_branch(
+        owner, fallthrough.reaches_tail, tracks_break,
         [&] {
-          return continuing_sequence(owner, remaining, continuation_fastmath);
+          return iteration_sequence(owner, remaining, continuation_fastmath,
+                                    tracks_break);
         },
         [&] {
-          return scalars_.integer(false, LOOM_SCALAR_TYPE_I1,
-                                  locations_.get(ast));
+          auto stopped =
+              constant_iteration_flow(false, false, tracks_break, ast);
+          stopped.reaches_latch = fallthrough.reaches_latch;
+          return stopped;
         });
   }
 
-  loom_value_id_t continuing_statement(cxx::StatementAST* ast) {
+  IterationFlow iteration_statement(cxx::StatementAST* ast, bool tracks_break) {
     auto* source = ast;
     FastMathScope math_scope(
         lexical_fastmath_flags_,
         resolve_fastmath(ast ? fastmath_.statement(ast) : std::nullopt));
     ast = selected_statement(ast);
     if (!ast) {
-      return scalars_.integer(true, LOOM_SCALAR_TYPE_I1,
-                              locations_.get(source));
+      return constant_iteration_flow(true, true, tracks_break, source);
     }
-    if (control_->continues(ast) == ExitFlow::None) {
+    if (iteration_exit_flow(ast, tracks_break) == ExitFlow::None) {
       statement(ast);
-      return scalars_.integer(true, LOOM_SCALAR_TYPE_I1, locations_.get(ast));
+      return constant_iteration_flow(true, true, tracks_break, ast);
     }
     if (cxx::ast_cast<cxx::ContinueStatementAST>(ast)) {
-      return scalars_.integer(false, LOOM_SCALAR_TYPE_I1, locations_.get(ast));
+      return constant_iteration_flow(false, true, tracks_break, ast);
+    }
+    if (cxx::ast_cast<cxx::BreakStatementAST>(ast)) {
+      return constant_iteration_flow(false, false, tracks_break, ast);
     }
     if (auto* compound = cxx::ast_cast<cxx::CompoundStatementAST>(ast)) {
-      return continuing_sequence(compound, compound->statementList,
-                                 lexical_fastmath_flags_);
+      return iteration_sequence(compound, compound->statementList,
+                                lexical_fastmath_flags_, tracks_break);
     }
     // The retained path analysis propagates iteration exits through blocks
-    // and conditionals only; nested loops consume their own continues.
+    // and conditionals only; nested loops consume their own exits.
     auto* branch = cxx::ast_cast<cxx::IfStatementAST>(ast);
     auto condition = branch_condition(branch);
-    return continuing_branch(
-        ast, condition, [&] { return continuing_statement(branch->statement); },
+    return iteration_branch(
+        ast, condition, tracks_break,
+        [&] { return iteration_statement(branch->statement, tracks_break); },
         [&] {
           return branch->elseStatement
-                     ? continuing_statement(branch->elseStatement)
-                     : scalars_.integer(true, LOOM_SCALAR_TYPE_I1,
-                                        locations_.get(ast));
+                     ? iteration_statement(branch->elseStatement, tracks_break)
+                     : constant_iteration_flow(true, true, tracks_break, ast);
         });
   }
 
-  // Continue ends only this body. The caller still emits the for step or the
-  // do condition, and ordinary bodies preserve their existing structured IR.
-  void loop_body(cxx::StatementAST* body) {
-    if (control_->continues(body) == ExitFlow::None) {
+  // Iteration transfers end only this body. The caller decides whether the
+  // flow reaches the for step or do condition. Break-free bodies preserve
+  // their existing structured IR and carry no latch value.
+  IterationFlow loop_body(cxx::StatementAST* body, bool tracks_break = false) {
+    if (iteration_exit_flow(body, tracks_break) == ExitFlow::None) {
       statement(body);
-    } else {
-      continuing_statement(body);
+      return tracks_break
+                 ? constant_iteration_flow(true, true, tracks_break, body)
+                 : IterationFlow{LOOM_VALUE_ID_INVALID, LOOM_VALUE_ID_INVALID};
     }
+    return iteration_statement(body, tracks_break);
   }
 
   void statement(cxx::StatementAST* ast) {
@@ -2029,6 +2097,14 @@ class Translator final : private Initialization::Evaluation {
       if (loop->initializer) {
         statement(loop->initializer);
       }
+      if (control_->breaks(loop->statement) != ExitFlow::None) {
+        if (!schedule.empty()) {
+          fail(ast, "loop scheduling cannot preserve break exits");
+        }
+        conditional_loop(ast, loop->condition, loop->statement,
+                         loop->expression, LoopTest::BeforeBody);
+        return;
+      }
       if (auto* counted = control_->counted(loop)) {
         counted_loop(loop, *counted, schedule);
         return;
@@ -2073,6 +2149,87 @@ class Translator final : private Initialization::Evaluation {
 
   enum class LoopTest { BeforeBody, AfterBody };
 
+  // Evaluates a source condition only when its loop remains active. The
+  // inactive arm yields false and forwards source state without evaluating
+  // condition side effects.
+  template <typename Evaluate>
+  loom_value_id_t guarded_condition(cxx::AST* owner, loom_value_id_t active,
+                                    Evaluate evaluate) {
+    auto written = live_mutations(owner);
+    auto outer_values = values_;
+    std::vector<const cxx::Type*> sources = {unit_.control()->getBoolType()};
+    sources.reserve(1 + written.size());
+    for (auto* symbol : written) {
+      sources.push_back(symbol->type());
+    }
+    auto source = locations_.get(owner);
+    auto result_signature = bind_signature(types_, sources, owner, &builder_);
+    loom_op_t* op;
+    check(loom_scf_if_build(&builder_, LOOM_SCF_IF_BUILD_FLAG_HAS_ELSE_REGION,
+                            active, result_signature.types.data(),
+                            result_signature.types.size(), nullptr, 0, source,
+                            &op));
+    auto saved =
+        loom_builder_enter_region(&builder_, op, loom_scf_if_then_region(op));
+    std::vector<loom_value_id_t> yielded = {evaluate()};
+    auto mutations = current(written);
+    yielded.insert(yielded.end(), mutations.begin(), mutations.end());
+    loom_op_t* yield;
+    check(loom_scf_yield_build(&builder_, yielded.data(), yielded.size(),
+                               source, &yield));
+    loom_builder_restore(&builder_, saved);
+    values_ = outer_values;
+    saved =
+        loom_builder_enter_region(&builder_, op, loom_scf_if_else_region(op));
+    yielded = {
+        scalars_.integer(false, LOOM_SCALAR_TYPE_I1, locations_.get(owner))};
+    mutations = current(written);
+    yielded.insert(yielded.end(), mutations.begin(), mutations.end());
+    check(loom_scf_yield_build(&builder_, yielded.data(), yielded.size(),
+                               source, &yield));
+    loom_builder_restore(&builder_, saved);
+    values_ = std::move(outer_values);
+    bind_values(written, loom_op_results(op) + 1);
+    return loom_op_results(op)[0];
+  }
+
+  // Executes a loop latch only when the body reaches it. The inactive arm
+  // forwards source state, skipping a for step and condition reinitialization.
+  template <typename Execute>
+  void guarded_latch(cxx::AST* owner, const std::vector<cxx::Symbol*>& written,
+                     loom_value_id_t active, Execute execute) {
+    auto outer_values = values_;
+    std::vector<const cxx::Type*> sources;
+    sources.reserve(written.size());
+    for (auto* symbol : written) {
+      sources.push_back(symbol->type());
+    }
+    auto source = locations_.get(owner);
+    auto result_signature = bind_signature(types_, sources, owner, &builder_);
+    loom_op_t* op;
+    check(loom_scf_if_build(&builder_, LOOM_SCF_IF_BUILD_FLAG_HAS_ELSE_REGION,
+                            active, result_signature.types.data(),
+                            result_signature.types.size(), nullptr, 0, source,
+                            &op));
+    auto saved =
+        loom_builder_enter_region(&builder_, op, loom_scf_if_then_region(op));
+    execute();
+    auto yielded = current(written);
+    loom_op_t* yield;
+    check(loom_scf_yield_build(&builder_, yielded.data(), yielded.size(),
+                               source, &yield));
+    loom_builder_restore(&builder_, saved);
+    values_ = outer_values;
+    saved =
+        loom_builder_enter_region(&builder_, op, loom_scf_if_else_region(op));
+    yielded = current(written);
+    check(loom_scf_yield_build(&builder_, yielded.data(), yielded.size(),
+                               source, &yield));
+    loom_builder_restore(&builder_, saved);
+    values_ = std::move(outer_values);
+    bind_values(written, loom_op_results(op));
+  }
+
   // The before region's forwarded values are also the loop's final results.
   // A post-test loop therefore runs its body there and uses an identity after
   // region; the final body mutations survive the false condition.
@@ -2091,6 +2248,96 @@ class Translator final : private Initialization::Evaluation {
     auto initial = current(written);
     auto outer_values = values_;
     auto source = locations_.get(ast);
+
+    if (control_->breaks(body) != ExitFlow::None) {
+      loom_op_t* op;
+      if (test == LoopTest::BeforeBody) {
+        auto active =
+            scalars_.integer(true, LOOM_SCALAR_TYPE_I1, locations_.get(ast));
+        auto header_initial = initial;
+        header_initial.push_back(active);
+        std::vector<const cxx::Type*> result_sources;
+        result_sources.reserve(written.size());
+        for (auto* symbol : written) {
+          result_sources.push_back(symbol->type());
+        }
+        auto result_signature =
+            bind_signature(types_, result_sources, ast, &builder_);
+        check(loom_scf_while_build(
+            &builder_, header_initial.data(), header_initial.size(),
+            /*iter_args_types=*/nullptr, result_signature.types.data(),
+            result_signature.types.size(), nullptr, 0, source, &op));
+        auto* before = loom_scf_while_before(op);
+        auto saved = loom_builder_enter_region(&builder_, op, before);
+        bind(written, before);
+        auto header_active =
+            loom_region_entry_arg_id(before, header_initial.size() - 1u);
+        auto condition = guarded_condition(ast, header_active, [&] {
+          return expression(condition_expression).ssa();
+        });
+        auto forwarded = current(written);
+        loom_op_t* terminator;
+        check(loom_scf_condition_build(&builder_, condition, forwarded.data(),
+                                       forwarded.size(), source, &terminator));
+        loom_builder_restore(&builder_, saved);
+        auto* after = loom_scf_while_after(op);
+        saved = loom_builder_enter_region(&builder_, op, after);
+        values_ = outer_values;
+        bind(written, after);
+        auto flow = loop_body(body, /*tracks_break=*/true);
+        if (step || decision) {
+          guarded_latch(ast, written, flow.reaches_latch, [&] {
+            if (step) {
+              effect(step);
+            }
+            if (decision) {
+              reinitialize_condition(declaration, constexpr_contract, ast);
+            }
+          });
+        }
+        auto yielded = current(written);
+        yielded.push_back(flow.reaches_latch);
+        check(loom_scf_yield_build(&builder_, yielded.data(), yielded.size(),
+                                   source, &terminator));
+        loom_builder_restore(&builder_, saved);
+      } else {
+        check(loom_scf_while_build(&builder_, initial.data(), initial.size(),
+                                   /*iter_args_types=*/nullptr,
+                                   /*result_types=*/nullptr, initial.size(),
+                                   nullptr, 0, source, &op));
+        auto* before = loom_scf_while_before(op);
+        auto saved = loom_builder_enter_region(&builder_, op, before);
+        bind(written, before);
+        auto flow = loop_body(body, /*tracks_break=*/true);
+        auto condition = guarded_condition(ast, flow.reaches_latch, [&] {
+          return expression(condition_expression).ssa();
+        });
+        auto forwarded = current(written);
+        loom_op_t* terminator;
+        check(loom_scf_condition_build(&builder_, condition, forwarded.data(),
+                                       forwarded.size(), source, &terminator));
+        loom_builder_restore(&builder_, saved);
+        auto* after = loom_scf_while_after(op);
+        saved = loom_builder_enter_region(&builder_, op, after);
+        values_ = outer_values;
+        bind(written, after);
+        if (decision) {
+          reinitialize_condition(declaration, constexpr_contract, ast);
+        }
+        auto yielded = current(written);
+        check(loom_scf_yield_build(&builder_, yielded.data(), yielded.size(),
+                                   source, &terminator));
+        loom_builder_restore(&builder_, saved);
+      }
+      values_ = outer_values;
+      bind_values(written, loom_op_results(op));
+      if (decision) {
+        values_.erase(decision);
+        locals_.erase(decision);
+      }
+      return;
+    }
+
     loom_op_t* op;
     check(loom_scf_while_build(&builder_, initial.data(), initial.size(),
                                /*iter_args_types=*/nullptr,
@@ -2121,14 +2368,7 @@ class Translator final : private Initialization::Evaluation {
     // A decision object is recreated after the body and for-loop increment.
     // The preheader supplied its first value, so every check sees a real value.
     if (decision) {
-      auto value = apply_constexpr_contract(
-          expression(declaration->initializer), constexpr_contract);
-      if (auto found = locals_.find(decision); found != locals_.end()) {
-        storage_.store({found->second.view, std::nullopt}, value.ssa(),
-                       decision->type(), ast);
-      } else {
-        values_[decision] = name(value, cxx::to_string(decision->name()));
-      }
+      reinitialize_condition(declaration, constexpr_contract, ast);
     }
     auto yielded = current(written);
     check(loom_scf_yield_build(&builder_, yielded.data(), yielded.size(),
