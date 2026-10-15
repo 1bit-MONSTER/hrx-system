@@ -77,6 +77,26 @@ low.func.def target<wasm.core.simd128> abi(wasm_function) @narrow_f32_to_bf16(%i
 
 // ====
 
+func.def @narrow_exact_i8_to_bf16(%input: i8) -> (bf16) {
+  %wide = scalar.sitofp %input : i8 to f32
+  %result = scalar.fptrunc %wide : f32 to bf16
+  func.return %result : bf16
+}
+
+// ----
+low.func.def target<wasm.core.simd128> abi(wasm_function) @narrow_exact_i8_to_bf16(%input: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
+  %6 = i32.const 24
+  %7 = i32.shl %input, %6
+  %8 = i32.shr_s %7, %6
+  %wide = f32.convert_i32_s %8
+  %10 = i32.reinterpret_f32 %wide
+  %11 = i32.const 16
+  %result = i32.shr_u %10, %11
+  return %result
+}
+
+// ====
+
 func.def @narrow_f32_to_f8e4m3(%input: f32) -> (f8E4M3) {
   %result = scalar.fptrunc %input : f32 to f8E4M3
   func.return %result : f8E4M3

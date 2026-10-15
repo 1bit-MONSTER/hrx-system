@@ -153,6 +153,26 @@ def test_scalar_float_narrowing_rules_cover_the_complete_type_matrix() -> None:
     assert actual_pairs == expected_pairs
 
 
+def test_exact_bfloat_value_rule_uses_reinterpret_and_shift() -> None:
+    rule = next(
+        rule
+        for rule in WASM_CORE_SIMD128_CONTRACT_FRAGMENT.cases
+        if isinstance(rule, DescriptorRule)
+        and rule.report_key == "exactly_representable_binary32_to_bfloat16"
+    )
+
+    assert any(
+        guard.kind is GuardKind.VALUE_FLOAT_EXACTLY_REPRESENTABLE_AS
+        for guard in rule.guards
+    )
+    assert tuple(emit.descriptor.key for emit in rule.emit) == (
+        "wasm.i32.reinterpret_f32",
+        "wasm.i32.const",
+        "wasm.i32.shr_u",
+    )
+    assert rule.emit[1].immediates == {"i32_value": 16}
+
+
 def test_scalar_integer_constants_cover_every_fixed_width_type() -> None:
     actual = {}
     for rule in WASM_CORE_SIMD128_CONTRACT_FRAGMENT.cases:

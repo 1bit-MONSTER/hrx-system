@@ -360,6 +360,30 @@ def _f32_to_bf16_rule() -> DescriptorRule:
     )
 
 
+def _representable_f32_to_bf16_rule() -> DescriptorRule:
+    """Narrows a finite F32 value already known to be exact in BF16."""
+
+    program = ScalarProgram()
+    shift = program.constant("shift", -16)
+    program.binary(
+        None,
+        "lshl.i32",
+        ValueRef.operand("input"),
+        shift,
+    )
+    return DescriptorRule(
+        source_op=scalar_conversion.scalar_fptrunc,
+        descriptor=program.emits[-1].descriptor,
+        guards=(
+            Guard.value_type("input", _F32),
+            Guard.value_type("result", _BF16),
+            Guard.value_float_exactly_representable_as("input", "result"),
+        ),
+        emit=tuple(program.emits),
+        report_key="exactly_representable_binary32_to_bfloat16",
+    )
+
+
 def emit_fp8_to_f32(
     program: ScalarProgram,
     input_value: ValueRef,
@@ -1533,6 +1557,7 @@ AIE2P_CONVERSION_RULES = (
     _f32_to_narrow_unsigned_integer_rule(),
     _f32_to_unsigned_i32_rule(),
     _bf16_to_f32_rule(),
+    _representable_f32_to_bf16_rule(),
     _f32_to_bf16_rule(),
     _f16_to_f32_rule(),
     _f32_to_f16_rule(),

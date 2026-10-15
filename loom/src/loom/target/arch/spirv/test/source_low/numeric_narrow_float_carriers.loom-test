@@ -440,3 +440,25 @@ low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @narrow
   %e5m2_bits = OpSConvert.i32.i8 %120
   return %e4m3_bits, %e5m2_bits
 }
+
+// ====
+
+// Extended scalar types without SPV_KHR_bfloat16.
+spirv.target<vulkan1_3> @target {contract_feature_bits = 33278}
+
+func.def target(@target) @narrow_exact_i8_bfloat_carrier(%input: i8) -> (i16) {
+  %wide = scalar.sitofp %input : i8 to f32
+  %narrow = scalar.fptrunc %wide : f32 to bf16
+  %bits = scalar.bitcast %narrow : bf16 to i16
+  func.return %bits : i16
+}
+
+// ----
+low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @narrow_exact_i8_bfloat_carrier(%input: reg<spirv.id : i8>) -> (reg<spirv.id : i16>) asm {
+  %wide = OpConvertSToF.i8.f32 %input
+  %8 = OpBitcast.f32.i32 %wide : reg<spirv.id>
+  %9 = OpConstant.i32 16 : reg<spirv.id>
+  %narrow = OpShiftRightLogical %8, %9
+  %bits = OpSConvert.i32.i16 %narrow
+  return %bits
+}

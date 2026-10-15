@@ -4382,6 +4382,40 @@ def test_compile_lower_rule_set_compiles_value_range_relation_guard() -> None:
     assert compiled.guards[0].other_value_ref_index == 1
 
 
+def test_compile_lower_rule_set_compiles_exact_float_type_guard() -> None:
+    table = ContractFragment(
+        name="test.exact-float-type",
+        descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+        cases=[
+            RecipeRule(
+                source_op=scalar_conversion.scalar_fptrunc,
+                guards=(
+                    Guard.value_float_exactly_representable_as("input", "result"),
+                    Guard.value_type("input", Scalar("f32")),
+                    Guard.value_type("result", Scalar("bf16")),
+                ),
+            )
+        ],
+    )
+
+    compiled = compile_lower_rule_set(table, dialect_ops={"scalar": ALL_SCALAR_OPS})
+
+    assert compiled.rules[0].flags == LOWER_RULE_FLAG_CONTRACT_ONLY
+    assert compiled.rules[0].guard_count == 3
+    assert compiled.guards[0].kind == (GuardKind.VALUE_FLOAT_EXACTLY_REPRESENTABLE_AS)
+    assert compiled.guards[0].value_ref_index == 0
+    assert compiled.guards[0].other_value_ref_index == 1
+    diagnostic = compiled.diagnostics[compiled.guards[0].diagnostic_index]
+    assert (
+        next(
+            param.string_value
+            for param in diagnostic.params
+            if param.name == "constraint_key"
+        )
+        == "finite_exactly_representable_as_result"
+    )
+
+
 def test_compile_lower_rule_set_compiles_static_element_count_relation_guard() -> None:
     table = ContractFragment(
         name="test.static-element-count-relation",

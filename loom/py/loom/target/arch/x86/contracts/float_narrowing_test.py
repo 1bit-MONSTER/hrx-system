@@ -113,3 +113,27 @@ def test_rules_fold_static_literals_and_copy_dynamic_shift_counts(
             shift = emit.operands["rhs"]
             assert shift.kind is SourceValueKind.TEMPORARY
             assert shift.field not in constant_temporaries
+
+
+@pytest.mark.parametrize(
+    "descriptor_set",
+    [X86_AVX2_DESCRIPTOR_SET, X86_AVX512_CORE_DESCRIPTOR_SET],
+)
+def test_exact_bfloat_value_rule_uses_move_and_shift(
+    descriptor_set: DescriptorSet,
+) -> None:
+    rule = next(
+        rule
+        for rule in _rules(descriptor_set)
+        if rule.report_key == "exactly_representable_binary32_to_bfloat16"
+    )
+
+    assert any(
+        guard.kind is GuardKind.VALUE_FLOAT_EXACTLY_REPRESENTABLE_AS
+        for guard in rule.guards
+    )
+    assert tuple(emit.descriptor.key for emit in rule.emit) == (
+        "x86.avx2.vmovd.gpr32.xmm",
+        "x86.scalar.shr.imm.gpr32",
+    )
+    assert rule.emit[-1].immediates == {"shift": 16}

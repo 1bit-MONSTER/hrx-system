@@ -117,6 +117,7 @@ class GuardKind(Enum):
     VALUE_U32_DIVISOR_MAGIC_KIND = "value_u32_divisor_magic_kind"
     VALUE_I32_DIVISOR_MAGIC_KIND = "value_i32_divisor_magic_kind"
     VALUE_EXACT_FLOAT = "value_exact_float"
+    VALUE_FLOAT_EXACTLY_REPRESENTABLE_AS = "value_float_exactly_representable_as"
     VALUE_EXACT_POWER_OF_TWO_FLOAT = "value_exact_power_of_two_float"
     VALUE_NOT_NAN = "value_not_nan"
     VALUE_NOT_SUBNORMAL_OR_INSTANCE_FLAGS_HAS_ALL = (
@@ -672,6 +673,22 @@ class Guard:
         )
 
     @classmethod
+    def value_float_exactly_representable_as(
+        cls,
+        field: str,
+        type_field: str,
+        *,
+        diagnostic: GuardDiagnostic | None = None,
+    ) -> Self:
+        """Requires finite values exact in another value's float element type."""
+        return cls(
+            kind=GuardKind.VALUE_FLOAT_EXACTLY_REPRESENTABLE_AS,
+            field=field,
+            other_field=type_field,
+            diagnostic=diagnostic,
+        )
+
+    @classmethod
     def value_exact_power_of_two_float(
         cls,
         field: str,
@@ -1134,6 +1151,7 @@ class Guard:
             GuardKind.VALUE_U32_DIVISOR_MAGIC_KIND,
             GuardKind.VALUE_I32_DIVISOR_MAGIC_KIND,
             GuardKind.VALUE_EXACT_FLOAT,
+            GuardKind.VALUE_FLOAT_EXACTLY_REPRESENTABLE_AS,
             GuardKind.VALUE_EXACT_POWER_OF_TWO_FLOAT,
             GuardKind.VALUE_NOT_NAN,
             GuardKind.VALUE_I64_RANGE,
@@ -1335,6 +1353,7 @@ def _validate_value_fact_guard(
         GuardKind.VALUE_I64_RANGE_LE,
         GuardKind.VALUE_I64_RANGE_GE,
         GuardKind.VALUE_STATIC_ELEMENT_COUNT_EQ,
+        GuardKind.VALUE_FLOAT_EXACTLY_REPRESENTABLE_AS,
     ):
         if guard.other_field is None:
             raise ValueError(f"{source_op.name}: {subject} needs another value")

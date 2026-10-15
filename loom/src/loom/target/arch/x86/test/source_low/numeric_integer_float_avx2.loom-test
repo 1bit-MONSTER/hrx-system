@@ -127,3 +127,46 @@ low.func.def target<x86.avx2.core> abi(object_function) abi_layout({signature = 
   %unsigned64 = vblendvpd.xmm %signed64, %37, %27
   return %signed32, %signed64, %unsigned32, %unsigned64
 }
+
+// ====
+
+func.def @narrow_exact_byte_to_bfloat(%input: i8) -> (bf16) {
+  %wide = scalar.sitofp %input : i8 to f32
+  %result = scalar.fptrunc %wide : f32 to bf16
+  func.return %result : bf16
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) abi_layout({signature = (i8) -> (bf16)}) @narrow_exact_byte_to_bfloat(%input: reg<x86.gpr32>) -> (reg<x86.gpr32>) asm {
+  %6 = movsx.i8.gpr32 %input
+  %7 = vxorps.zero.xmm
+  %wide = vcvtsi2ss.xmm.gpr32 %7, %6
+  %9 = vmovd.gpr32.xmm %wide
+  %result = shr.imm.gpr32 %9 {shift = 16}
+  return %result
+}
+
+// ====
+
+func.def @narrow_unknown_float_to_bfloat(%input: f32) -> (bf16) {
+  %result = scalar.fptrunc %input : f32 to bf16
+  func.return %result : bf16
+}
+
+// ----
+low.func.def target<x86.avx2.core> abi(object_function) abi_layout({signature = (f32) -> (bf16)}) @narrow_unknown_float_to_bfloat(%input: reg<x86.xmm>) -> (reg<x86.gpr32>) asm {
+  %5 = vmovd.gpr32.xmm %input
+  %6 = copy %5 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %7 = shr.imm.gpr32 %6 {shift = 16}
+  %8 = copy %7 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %9 = and.imm.gpr32 %8 {imm32 = 1}
+  %10 = add.imm.gpr32 %9 {imm32 = 32767}
+  %11 = copy %5 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %12 = add.gpr32 %11, %10
+  %13 = shr.imm.gpr32 %12 {shift = 16}
+  %14 = and.imm.gpr32 %5 {imm32 = 2147483647}
+  %15 = cmp.sgt.imm.gpr32 %14, 2139095040
+  %16 = or.imm.gpr32 %7 {imm32 = 64}
+  %result = select.gpr32 %15, %16, %13
+  return %result
+}

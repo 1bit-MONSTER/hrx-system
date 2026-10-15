@@ -53,6 +53,7 @@ from loom.target.contracts import (
     EmitRegisterConcat,
     EmitRegisterSlice,
     Guard,
+    GuardKind,
     ValueAliasRule,
     ValueRef,
     Vector,
@@ -2719,6 +2720,20 @@ def test_binary32_to_bfloat16_program_matches_rounding_oracle() -> None:
     }
     for bits in values:
         assert _evaluate(rule, bits) == _reference_f32_to_bf16(bits)
+
+
+def test_exact_bfloat_value_program_uses_only_shift() -> None:
+    rule = _rule("exactly_representable_binary32_to_bfloat16")
+
+    assert any(
+        guard.kind is GuardKind.VALUE_FLOAT_EXACTLY_REPRESENTABLE_AS
+        for guard in rule.guards
+    )
+    assert tuple(emit.descriptor.key for emit in rule.emit) == (
+        "amd.xdna.aie2p.constant.i32.short",
+        "amd.xdna.aie2p.lshl.i32",
+    )
+    assert _evaluate(rule, 0xC2F60000) == 0xC2F6
 
 
 def test_binary32_to_f16_program_matches_rounding_oracle() -> None:

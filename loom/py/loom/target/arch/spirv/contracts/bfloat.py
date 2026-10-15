@@ -47,6 +47,7 @@ from loom.target.emit.float_narrowing import (
     NarrowFloatSubnormalRounding,
     build_f32_to_bf16_emits,
     build_float_to_narrow_float_emits,
+    build_representable_f32_to_bf16_emits,
 )
 
 
@@ -54,6 +55,13 @@ from loom.target.emit.float_narrowing import (
 class _BfloatNarrowResult(Enum):
     NATIVE = "native"
     I32_CARRIER = "i32_carrier"
+
+
+@unique
+class _BfloatNarrowSemantics(Enum):
+    EXACTLY_REPRESENTABLE = "exactly_representable"
+    RNE_NOT_NAN = "rne_not_nan"
+    RNE_PRESERVE_NAN = "rne_preserve_nan"
 
 
 def bfloat_to_f32_emits(
@@ -148,10 +156,14 @@ def _bfloat_narrow_rule(
     source_format: BinaryFloatFormat,
     integer_suffix: str,
     descriptors: FloatNarrowingDescriptors,
-    preserve_nan: bool,
     result_kind: _BfloatNarrowResult,
+    semantics: _BfloatNarrowSemantics,
 ) -> DescriptorRule:
     """Rounds one binary source format to BF16 with exact RNE semantics."""
+    exactly_representable = semantics is _BfloatNarrowSemantics.EXACTLY_REPRESENTABLE
+    preserve_nan = semantics is _BfloatNarrowSemantics.RNE_PRESERVE_NAN
+    if exactly_representable and source_format != F32_FORMAT:
+        raise ValueError("representable BF16 shortcut requires a binary32 source")
     direct_carrier_result = (
         result_kind is _BfloatNarrowResult.I32_CARRIER and integer_suffix == "i32"
     )
@@ -163,7 +175,15 @@ def _bfloat_narrow_rule(
 
     # Binary32 and BF16 have the same exponent field, so the compact bias-add
     # recipe avoids the general normal/subnormal selection.
-    if source_format == F32_FORMAT:
+    if exactly_representable:
+        emits = list(
+            build_representable_f32_to_bf16_emits(
+                descriptors,
+                ValueRef.operand("input"),
+                carrier_ref,
+            )
+        )
+    elif source_format == F32_FORMAT:
         emits = list(
             build_f32_to_bf16_emits(
                 descriptors,
@@ -230,11 +250,24 @@ def _bfloat_narrow_rule(
         guards=(
             Guard.value_type("input", Scalar(source_type)),
             Guard.value_type("result", Scalar("bf16")),
-            *((Guard.value_not_nan("input"),) if not preserve_nan else ()),
+            *(
+                (Guard.value_float_exactly_representable_as("input", "result"),)
+                if exactly_representable
+                else ()
+            ),
+            *(
+                (Guard.value_not_nan("input"),)
+                if semantics is _BfloatNarrowSemantics.RNE_NOT_NAN
+                else ()
+            ),
             *descriptor_feature_guards(*(step.descriptor for step in emits)),
         ),
         emit=tuple(emits),
-        report_key=f"exact_{source_name}_to_bfloat16",
+        report_key=(
+            f"exactly_representable_{source_name}_to_bfloat16"
+            if exactly_representable
+            else f"exact_{source_name}_to_bfloat16"
+        ),
     )
 
 
@@ -256,24 +289,54 @@ def bfloat_narrow_rules() -> tuple[DescriptorRule, ...]:
             float_narrowing_descriptors("i32", "f32"),
         ),
     )
-    return tuple(
-        _bfloat_narrow_rule(
-            source_type=source_type,
-            source_name=source_name,
-            source_format=source_format,
-            integer_suffix=integer_suffix,
-            descriptors=descriptors,
-            preserve_nan=preserve_nan,
-            result_kind=result_kind,
+    rules = []
+    for source_type, source_name, source_format, integer_suffix, descriptors in rows:
+        if source_format == F32_FORMAT:
+            rules.extend(
+                _bfloat_narrow_rule(
+                    source_type=source_type,
+                    source_name=source_name,
+                    source_format=source_format,
+                    integer_suffix=integer_suffix,
+                    descriptors=descriptors,
+                    result_kind=result_kind,
+                    semantics=_BfloatNarrowSemantics.EXACTLY_REPRESENTABLE,
+                )
+                for result_kind in (
+                    _BfloatNarrowResult.NATIVE,
+                    _BfloatNarrowResult.I32_CARRIER,
+                )
+            )
+        rules.extend(
+            _bfloat_narrow_rule(
+                source_type=source_type,
+                source_name=source_name,
+                source_format=source_format,
+                integer_suffix=integer_suffix,
+                descriptors=descriptors,
+                result_kind=result_kind,
+                semantics=semantics,
+            )
+            for result_kind, semantics in (
+                (
+                    _BfloatNarrowResult.NATIVE,
+                    _BfloatNarrowSemantics.RNE_NOT_NAN,
+                ),
+                (
+                    _BfloatNarrowResult.NATIVE,
+                    _BfloatNarrowSemantics.RNE_PRESERVE_NAN,
+                ),
+                (
+                    _BfloatNarrowResult.I32_CARRIER,
+                    _BfloatNarrowSemantics.RNE_NOT_NAN,
+                ),
+                (
+                    _BfloatNarrowResult.I32_CARRIER,
+                    _BfloatNarrowSemantics.RNE_PRESERVE_NAN,
+                ),
+            )
         )
-        for source_type, source_name, source_format, integer_suffix, descriptors in rows
-        for result_kind, preserve_nan in (
-            (_BfloatNarrowResult.NATIVE, False),
-            (_BfloatNarrowResult.NATIVE, True),
-            (_BfloatNarrowResult.I32_CARRIER, False),
-            (_BfloatNarrowResult.I32_CARRIER, True),
-        )
-    )
+    return tuple(rules)
 
 
 def _bfloat_carrier_to_i16_emits(

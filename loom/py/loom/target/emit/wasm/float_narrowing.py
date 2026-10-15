@@ -35,6 +35,7 @@ from loom.target.emit.float_narrowing import (
     build_f32_to_bf16_emits,
     build_float_to_narrow_float_emits,
     build_integer_bits_to_narrow_float_emits,
+    build_representable_f32_to_bf16_emits,
 )
 from loom.target.low_descriptors import Descriptor
 
@@ -99,6 +100,28 @@ def _f32_to_bf16_rule(
         ),
         emit=emits,
         report_key="exact_binary32_to_bfloat16",
+    )
+
+
+def _representable_f32_to_bf16_rule(
+    descriptors: FloatNarrowingDescriptors,
+    type_guard: Callable[[str, TypePattern], Guard],
+) -> DescriptorRule:
+    emits = build_representable_f32_to_bf16_emits(
+        descriptors,
+        ValueRef.operand("input"),
+        ValueRef.result("result"),
+    )
+    return DescriptorRule(
+        source_op=scalar_conversion.scalar_fptrunc,
+        descriptor=emits[-1].descriptor,
+        guards=(
+            type_guard("input", _F32),
+            type_guard("result", _BF16),
+            Guard.value_float_exactly_representable_as("input", "result"),
+        ),
+        emit=emits,
+        report_key="exactly_representable_binary32_to_bfloat16",
     )
 
 
@@ -223,6 +246,7 @@ def float_narrowing_rules(
     i32_descriptors = f32_descriptors.integer
     i64_descriptors = _integer_narrowing_descriptors(descriptor_lookup, 64)
     rules = [
+        _representable_f32_to_bf16_rule(f32_descriptors, type_guard),
         _f32_to_bf16_rule(f32_descriptors, type_guard),
         _f32_to_narrow_float_rule(
             f32_descriptors,
