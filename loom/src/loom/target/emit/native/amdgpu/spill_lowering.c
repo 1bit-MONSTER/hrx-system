@@ -76,6 +76,12 @@ typedef struct loom_amdgpu_spill_lowering_context_t {
   iree_host_size_t required_register_value_count;
   // Capacity of |required_register_value_ids|.
   iree_host_size_t required_register_value_capacity;
+  // Register values created as private setup for one reload consumer.
+  loom_value_id_t* per_user_placement_value_ids;
+  // Number of entries in |per_user_placement_value_ids|.
+  iree_host_size_t per_user_placement_value_count;
+  // Capacity of |per_user_placement_value_ids|.
+  iree_host_size_t per_user_placement_value_capacity;
   // VGPR values defined while spill lowering has widened EXEC.
   loom_value_id_t* expanded_execution_value_ids;
   // Number of entries in |expanded_execution_value_ids|.
@@ -99,6 +105,46 @@ static iree_status_t loom_amdgpu_spill_lowering_record_required_register_value(
   context
       ->required_register_value_ids[context->required_register_value_count++] =
       value_id;
+  return iree_ok_status();
+}
+
+static iree_status_t
+loom_amdgpu_spill_lowering_record_per_user_placement_values(
+    loom_amdgpu_spill_lowering_context_t* context,
+    loom_value_id_t first_value_id) {
+  const loom_module_t* module = context->module;
+  for (loom_value_id_t value_id = first_value_id;
+       value_id < module->values.count; ++value_id) {
+    const loom_value_t* value = loom_module_value(module, value_id);
+    const loom_op_t* defining_op = loom_value_def_op(value);
+    if (!loom_low_type_is_register(loom_module_value_type(module, value_id)) ||
+        defining_op == NULL || defining_op->result_count != 1 ||
+        value->use_count == 0 || loom_value_has_attribute_uses(value) ||
+        loom_module_value_has_type_uses(module, value_id)) {
+      continue;
+    }
+    const loom_use_t* uses = loom_value_uses(value);
+    const loom_op_t* user = loom_use_user_op(uses[0]);
+    bool has_private_placement = user != NULL;
+    for (uint32_t i = 1; i < value->use_count; ++i) {
+      has_private_placement &= loom_use_user_op(uses[i]) == user;
+    }
+    if (!has_private_placement) {
+      continue;
+    }
+    const iree_host_size_t minimum_capacity =
+        context->per_user_placement_value_count + 1;
+    if (minimum_capacity > context->per_user_placement_value_capacity) {
+      IREE_RETURN_IF_ERROR(iree_arena_grow_array(
+          context->scratch_arena, context->per_user_placement_value_count,
+          iree_max(minimum_capacity, 8u),
+          sizeof(*context->per_user_placement_value_ids),
+          &context->per_user_placement_value_capacity,
+          (void**)&context->per_user_placement_value_ids));
+    }
+    context->per_user_placement_value_ids
+        [context->per_user_placement_value_count++] = value_id;
+  }
   return iree_ok_status();
 }
 
@@ -943,8 +989,10 @@ static iree_status_t loom_amdgpu_spill_lowering_rewrite_reload(
   }
   IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
       rewriter, op, &replacement, 1, value_checkpoint));
-  return loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement,
-                                                  1);
+  IREE_RETURN_IF_ERROR(
+      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
+  return loom_amdgpu_spill_lowering_record_per_user_placement_values(
+      context, value_checkpoint);
 }
 
 static iree_status_t loom_amdgpu_spill_lowering_collect_ops(
@@ -1075,6 +1123,9 @@ iree_status_t loom_amdgpu_lower_spill_traffic(
   for (loom_value_id_t value_id = first_generated_value_id;
        value_id < module->values.count && iree_status_is_ok(status);
        ++value_id) {
+    if (!loom_low_type_is_register(loom_module_value_type(module, value_id))) {
+      continue;
+    }
     status = loom_amdgpu_spill_lowering_record_required_register_value(
         &context, value_id);
   }
@@ -1088,6 +1139,10 @@ iree_status_t loom_amdgpu_lower_spill_traffic(
         context.expanded_execution_value_ids;
     out_result->expanded_execution_value_count =
         context.expanded_execution_value_count;
+    out_result->per_user_placement_value_ids =
+        context.per_user_placement_value_ids;
+    out_result->per_user_placement_value_count =
+        context.per_user_placement_value_count;
   }
   return status;
 }

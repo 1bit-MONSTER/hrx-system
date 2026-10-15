@@ -551,6 +551,50 @@ low.func.def target<amdgpu.rdna3.core>(@gfx11_target) @later_block_storage_survi
 
 // ====
 
+// Four lowered reload results are register-required. The derived value is the
+// only legal spill victim; cloning it at its late user would instead extend
+// the first reload across the other three required values.
+// RUN: emit amdgpu-assembly @required_reload_rematerialization strategy=source amdgpu.vgpr=3
+
+amdgpu.target<gfx1100> @target
+
+low.func.def target<amdgpu.rdna3.core>(@target) @required_reload_rematerialization(%seed: reg<amdgpu.vgpr>) -> (reg<amdgpu.vgpr>) asm {
+  %storage = storage {byte_alignment = 4, byte_length = 4} : low.storage<private>
+  low.spill %seed, %storage : reg<amdgpu.vgpr>, low.storage<private>
+  %captured = low.reload %storage : low.storage<private> -> reg<amdgpu.vgpr>
+  %derived = v_add_u32_lit %captured, 12345
+  %first = low.reload %storage : low.storage<private> -> reg<amdgpu.vgpr>
+  %second = low.reload %storage : low.storage<private> -> reg<amdgpu.vgpr>
+  %third = low.reload %storage : low.storage<private> -> reg<amdgpu.vgpr>
+  low.schedule.fence
+  %pair = v_add_u32 %first, %second
+  %triple = v_add_u32 %pair, %third
+  %result = v_add_u32 %triple, %derived
+  return %result
+}
+
+// ----
+  scratch_store_b32 off, v0, off offset:0
+  scratch_load_b32 v0, off, off offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  v_add_u32 v0, 12345, v0
+  scratch_store_b32 off, v0, off offset:4
+  scratch_load_b32 v0, off, off offset:0
+  scratch_load_b32 v1, off, off offset:0
+  scratch_load_b32 v2, off, off offset:0
+  s_waitcnt vmcnt(1) lgkmcnt(63)
+  v_add_u32 v0, v0, v1
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  s_delay_alu instid0(VALU_DEP_1)
+  v_add_u32 v0, v0, v2
+  scratch_load_b32 v1, off, off offset:4
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  v_add_u32 v0, v0, v1
+  s_waitcnt_vscnt vscnt(0)
+  s_endpgm
+
+// ====
+
 // Private and scratch declarations share a segment; nested views keep their
 // original alignment and byte range when repair extends that segment.
 // RUN: emit amdgpu-assembly @storage_views_survive_spill_repair strategy=source amdgpu.sgpr=8
@@ -851,19 +895,18 @@ low.func.def target<amdgpu.rdna3.core>(@target) @retained_arithmetic_after_spill
   s_barrier
   v_add_u32 v2, 12345, v0
   s_waitcnt vmcnt(0) lgkmcnt(63)
-  s_delay_alu instid0(VALU_DEP_1) | instskip(SKIP_4) | instid1(VALU_DEP_1)
-  v_add_u32 v1, v1, v2
-  global_store_b32 v0, v1, s[2:3] offset:0
-  scratch_load_b32 v1, off, off offset:0
-  v_add_u32 v2, 12346, v0
-  s_waitcnt vmcnt(0) lgkmcnt(63)
-  v_add_u32 v1, v1, v2
-  global_store_b32 v0, v1, s[2:3] offset:4
-  scratch_load_b32 v1, off, off offset:4
-  v_add_u32 v2, 12347, v0
-  s_waitcnt vmcnt(0) lgkmcnt(63)
   s_delay_alu instid0(VALU_DEP_1)
   v_add_u32 v1, v1, v2
+  global_store_b32 v0, v1, s[2:3] offset:0
+  v_add_u32 v1, 12346, v0
+  scratch_load_b32 v2, off, off offset:0
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  v_add_u32 v1, v2, v1
+  global_store_b32 v0, v1, s[2:3] offset:4
+  v_add_u32 v1, 12347, v0
+  scratch_load_b32 v2, off, off offset:4
+  s_waitcnt vmcnt(0) lgkmcnt(63)
+  v_add_u32 v1, v2, v1
   global_store_b32 v0, v1, s[2:3] offset:8
   s_waitcnt_vscnt vscnt(0)
   s_endpgm

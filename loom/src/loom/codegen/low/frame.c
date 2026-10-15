@@ -1000,6 +1000,10 @@ static iree_status_t loom_low_emission_frame_build_spill_free_impl(
       spill_lowering_result.expanded_execution_value_ids,
       spill_lowering_result.expanded_execution_value_count, repair_arena,
       &expanded_execution_values));
+  IREE_RETURN_IF_ERROR(loom_low_emission_frame_record_value_list(
+      spill_lowering_result.per_user_placement_value_ids,
+      spill_lowering_result.per_user_placement_value_count, repair_arena,
+      &rematerialization.per_user_values));
   iree_host_size_t value_repair_iteration_count = 0;
   iree_host_size_t value_repair_iteration_limit = 0;
   iree_host_size_t last_rematerialized_spill_plan_count = IREE_HOST_SIZE_MAX;
@@ -1205,6 +1209,10 @@ static iree_status_t loom_low_emission_frame_build_spill_free_impl(
         spill_lowering_result.expanded_execution_value_ids,
         spill_lowering_result.expanded_execution_value_count, repair_arena,
         &expanded_execution_values));
+    IREE_RETURN_IF_ERROR(loom_low_emission_frame_record_value_list(
+        spill_lowering_result.per_user_placement_value_ids,
+        spill_lowering_result.per_user_placement_value_count, repair_arena,
+        &rematerialization.per_user_values));
     loom_low_emission_frame_advance_repair_iteration(statistics);
     restore_frame_before_build = true;
   }

@@ -66,6 +66,10 @@ typedef struct loom_low_allocation_unit_liveness_t {
   // Values whose concrete storage lifetime is not fully represented by their
   // semantic sparse segments.
   iree_bitmap_t values_with_incomplete_storage_segments;
+  // Values whose incomplete storage lifetime has a cause independent of
+  // decomposed structural edge observations. Allocated only when a decomposed
+  // observation requires distinguishing removable and persistent obligations.
+  iree_bitmap_t values_with_independent_storage_extensions;
   // Required-component observations retained by the existing edge-use producer.
   // One-based nodes 1..V identify SSA values; V+1..V+D identify decomposed
   // reads. Each component starts at its origin value and ends at node zero.

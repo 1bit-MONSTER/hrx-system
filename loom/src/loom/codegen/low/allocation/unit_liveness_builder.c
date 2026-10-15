@@ -18,6 +18,42 @@
 #include "loom/target/registers.h"
 #include "loom/util/cfg_graph.h"
 
+static void
+loom_low_allocation_unit_liveness_mark_independent_storage_extension(
+    loom_low_allocation_unit_liveness_t* unit_liveness,
+    loom_value_ordinal_t value_ordinal) {
+  iree_bitmap_set(unit_liveness->values_with_incomplete_storage_segments,
+                  value_ordinal);
+  if (unit_liveness->values_with_independent_storage_extensions.words != NULL) {
+    iree_bitmap_set(unit_liveness->values_with_independent_storage_extensions,
+                    value_ordinal);
+  }
+}
+
+// Starts distinguishing decomposed observations from every incomplete storage
+// fact accumulated so far. Later independent extensions update both bitmaps.
+static iree_status_t
+loom_low_allocation_unit_liveness_prepare_decomposed_observations(
+    loom_low_allocation_unit_liveness_t* unit_liveness,
+    iree_arena_allocator_t* decision_arena) {
+  if (unit_liveness->values_with_independent_storage_extensions.words != NULL) {
+    return iree_ok_status();
+  }
+  const iree_bitmap_t incomplete =
+      unit_liveness->values_with_incomplete_storage_segments;
+  const iree_host_size_t word_count =
+      iree_bitmap_calculate_words(incomplete.bit_count);
+  uint64_t* words = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      decision_arena, word_count, sizeof(*words), (void**)&words));
+  memcpy(words, incomplete.words, word_count * sizeof(*words));
+  unit_liveness->values_with_independent_storage_extensions = (iree_bitmap_t){
+      .bit_count = incomplete.bit_count,
+      .words = words,
+  };
+  return iree_ok_status();
+}
+
 static iree_status_t loom_low_allocation_unit_liveness_note_clobber(
     loom_low_allocation_unit_liveness_t* unit_liveness,
     loom_low_allocation_clobber_builder_t* clobber_builder,
@@ -73,11 +109,19 @@ static bool loom_low_allocation_unit_liveness_value_ordinal_for_value(
   return true;
 }
 
+enum {
+  // This demand remains after decomposed edge reads are materialized.
+  LOOM_LOW_ALLOCATION_UNIT_USE_FLAG_INDEPENDENT_STORAGE_DEMAND = 1u << 0,
+};
+typedef uint8_t loom_low_allocation_unit_use_flags_t;
+
 typedef struct loom_low_allocation_unit_use_t {
   // Next upward-exposed use of the same unit, or UINT32_MAX.
   uint32_t next;
   // Block containing this unit use.
   uint16_t block_index;
+  // Properties accumulated for every demand in this block.
+  loom_low_allocation_unit_use_flags_t flags;
 } loom_low_allocation_unit_use_t;
 
 // Sparse physical-storage demands that refine canonical value dataflow.
@@ -203,7 +247,8 @@ static iree_status_t loom_low_allocation_unit_use_index_mark_physical_read(
 IREE_ATTRIBUTE_NOINLINE static iree_status_t
 loom_low_allocation_unit_use_index_record(
     loom_low_allocation_unit_use_index_t* index, uint32_t definition_point,
-    iree_host_size_t unit_start, uint32_t unit_count) {
+    iree_host_size_t unit_start, uint32_t unit_count,
+    loom_low_allocation_unit_use_flags_t flags) {
   if (loom_low_allocation_unit_use_is_defined_in_block(
           definition_point, &index->liveness->blocks[index->block_index])) {
     return iree_ok_status();
@@ -212,6 +257,7 @@ loom_low_allocation_unit_use_index_record(
     uint32_t* head = &index->heads[unit_start + i];
     if (*head != UINT32_MAX &&
         index->entries[*head].block_index == index->block_index) {
+      index->entries[*head].flags |= flags;
       continue;
     }
     if (index->count == UINT32_MAX) {
@@ -227,6 +273,7 @@ loom_low_allocation_unit_use_index_record(
     index->entries[entry_index] = (loom_low_allocation_unit_use_t){
         .next = *head,
         .block_index = index->block_index,
+        .flags = flags,
     };
     *head = entry_index;
   }
@@ -243,8 +290,8 @@ static iree_status_t loom_low_allocation_unit_use_index_record_decomposed_use(
     IREE_RETURN_IF_ERROR(
         loom_low_allocation_unit_use_index_allocate_heads(index));
   }
-  return loom_low_allocation_unit_use_index_record(index, definition_point,
-                                                   unit_start, unit_count);
+  return loom_low_allocation_unit_use_index_record(
+      index, definition_point, unit_start, unit_count, /*flags=*/0);
 }
 
 static iree_status_t loom_low_allocation_unit_use_index_extend_boundaries(
@@ -271,37 +318,53 @@ static iree_status_t loom_low_allocation_unit_use_index_extend_boundaries(
         loom_liveness_interval_for_value_ordinal(liveness, value);
     for (uint32_t i = 0; i < interval->unit_count; ++i) {
       const iree_host_size_t unit = (iree_host_size_t)unit_start + i;
-      iree_host_size_t worklist_count = 0;
-      for (uint32_t entry = index->heads[unit]; entry != UINT32_MAX;
-           entry = index->entries[entry].next) {
-        const uint16_t block = index->entries[entry].block_index;
-        if (marks[block] != unit) {
-          marks[block] = unit;
-          worklist[worklist_count++] = block;
-        }
-      }
-      while (worklist_count > 0) {
-        const uint16_t block = worklist[--worklist_count];
-        const loom_cfg_block_index_span_t predecessors =
-            loom_cfg_graph_predecessors(index->cfg_graph, block);
-        for (iree_host_size_t predecessor_index = 0;
-             predecessor_index < predecessors.count; ++predecessor_index) {
-          const uint16_t predecessor = predecessors.values[predecessor_index];
-          const uint32_t predecessor_end_point =
-              liveness->blocks[predecessor].end_point + 1u;
-          unit_liveness->end_points[unit] =
-              iree_max(unit_liveness->end_points[unit], predecessor_end_point);
-          if (predecessor_end_point > interval->end_point) {
-            iree_bitmap_set(
-                unit_liveness->values_with_incomplete_storage_segments, value);
-          }
-          if (loom_low_allocation_unit_use_is_defined_in_block(
-                  interval->definition_point, &liveness->blocks[predecessor]) ||
-              marks[predecessor] == unit) {
+      // Independent demands claim their complete predecessor closure first.
+      // Decomposed-only demands then fill the remaining closure. This retains
+      // the reason for each boundary extension without revisiting a block or
+      // growing the worklist beyond the function's block count.
+      for (uint32_t phase = 0; phase < 2; ++phase) {
+        const bool has_independent_storage_demand = phase == 0;
+        iree_host_size_t worklist_count = 0;
+        for (uint32_t entry = index->heads[unit]; entry != UINT32_MAX;
+             entry = index->entries[entry].next) {
+          const bool entry_has_independent_storage_demand = iree_any_bit_set(
+              index->entries[entry].flags,
+              LOOM_LOW_ALLOCATION_UNIT_USE_FLAG_INDEPENDENT_STORAGE_DEMAND);
+          if (entry_has_independent_storage_demand !=
+              has_independent_storage_demand) {
             continue;
           }
-          marks[predecessor] = unit;
-          worklist[worklist_count++] = predecessor;
+          const uint16_t block = index->entries[entry].block_index;
+          if (marks[block] != unit) {
+            marks[block] = unit;
+            worklist[worklist_count++] = block;
+          }
+        }
+        while (worklist_count > 0) {
+          const uint16_t block = worklist[--worklist_count];
+          const loom_cfg_block_index_span_t predecessors =
+              loom_cfg_graph_predecessors(index->cfg_graph, block);
+          for (iree_host_size_t predecessor_index = 0;
+               predecessor_index < predecessors.count; ++predecessor_index) {
+            const uint16_t predecessor = predecessors.values[predecessor_index];
+            const uint32_t predecessor_end_point =
+                liveness->blocks[predecessor].end_point + 1u;
+            unit_liveness->end_points[unit] = iree_max(
+                unit_liveness->end_points[unit], predecessor_end_point);
+            if (has_independent_storage_demand &&
+                predecessor_end_point > interval->end_point) {
+              loom_low_allocation_unit_liveness_mark_independent_storage_extension(
+                  unit_liveness, value);
+            }
+            if (loom_low_allocation_unit_use_is_defined_in_block(
+                    interval->definition_point,
+                    &liveness->blocks[predecessor]) ||
+                marks[predecessor] == unit) {
+              continue;
+            }
+            marks[predecessor] = unit;
+            worklist[worklist_count++] = predecessor;
+          }
         }
       }
     }
@@ -312,7 +375,8 @@ static iree_status_t loom_low_allocation_unit_use_index_extend_boundaries(
 static iree_status_t loom_low_allocation_unit_liveness_record_unit_use_at_point(
     loom_low_allocation_unit_use_index_t* unit_use_index,
     const loom_liveness_interval_t* interval, uint32_t unit_point_start,
-    uint32_t unit_offset, uint32_t unit_count, uint32_t point) {
+    uint32_t unit_offset, uint32_t unit_count, uint32_t point,
+    loom_low_allocation_unit_use_flags_t flags) {
   loom_low_allocation_unit_liveness_t* unit_liveness =
       unit_use_index->unit_liveness;
   const uint32_t end_point = point + 1u;
@@ -327,7 +391,7 @@ static iree_status_t loom_low_allocation_unit_liveness_record_unit_use_at_point(
   if (unit_use_index->heads != NULL && interval->unit_count > 1) {
     return loom_low_allocation_unit_use_index_record(
         unit_use_index, interval->definition_point,
-        (iree_host_size_t)unit_point_start + unit_offset, unit_count);
+        (iree_host_size_t)unit_point_start + unit_offset, unit_count, flags);
   }
   return iree_ok_status();
 }
@@ -336,7 +400,8 @@ static iree_status_t loom_low_allocation_unit_liveness_note_unit_use_at_point(
     loom_low_allocation_unit_use_index_t* unit_use_index,
     const loom_liveness_analysis_t* liveness,
     loom_value_ordinal_t value_ordinal, uint32_t unit_offset,
-    uint32_t unit_count, uint32_t point) {
+    uint32_t unit_count, uint32_t point,
+    loom_low_allocation_unit_use_flags_t flags) {
   loom_low_allocation_unit_liveness_t* unit_liveness =
       unit_use_index->unit_liveness;
   if (unit_count == 0) {
@@ -369,12 +434,19 @@ static iree_status_t loom_low_allocation_unit_liveness_note_unit_use_at_point(
     // its sparse semantic segments no longer fully describe storage
     // conflicts. Loop-carried storage can outlive its old SSA value while
     // awaiting the parallel move that starts the next iteration.
-    iree_bitmap_set(unit_liveness->values_with_incomplete_storage_segments,
-                    value_ordinal);
+    if (!iree_any_bit_set(
+            flags,
+            LOOM_LOW_ALLOCATION_UNIT_USE_FLAG_INDEPENDENT_STORAGE_DEMAND)) {
+      iree_bitmap_set(unit_liveness->values_with_incomplete_storage_segments,
+                      value_ordinal);
+    } else {
+      loom_low_allocation_unit_liveness_mark_independent_storage_extension(
+          unit_liveness, value_ordinal);
+    }
   }
   return loom_low_allocation_unit_liveness_record_unit_use_at_point(
       unit_use_index, interval, unit_point_start, unit_offset, unit_count,
-      point);
+      point, flags);
 }
 
 static iree_status_t
@@ -393,7 +465,8 @@ loom_low_allocation_unit_liveness_note_value_ordinal_use_at_point(
   }
   return loom_low_allocation_unit_liveness_note_unit_use_at_point(
       unit_use_index, liveness, value_ordinal, /*unit_offset=*/0,
-      interval->unit_count, point);
+      interval->unit_count, point,
+      LOOM_LOW_ALLOCATION_UNIT_USE_FLAG_INDEPENDENT_STORAGE_DEMAND);
 }
 
 // Extends a whole-value read into an instruction's target-visible read phase.
@@ -427,7 +500,8 @@ loom_low_allocation_unit_liveness_note_value_ordinal_physical_read(
   IREE_ASSERT_NE(unit_point_start, UINT32_MAX);
   return loom_low_allocation_unit_liveness_record_unit_use_at_point(
       unit_use_index, interval, unit_point_start, /*unit_offset=*/0,
-      interval->unit_count, physical_point);
+      interval->unit_count, physical_point,
+      LOOM_LOW_ALLOCATION_UNIT_USE_FLAG_INDEPENDENT_STORAGE_DEMAND);
 }
 
 static iree_status_t loom_low_allocation_unit_liveness_note_value_use_at_point(
@@ -493,12 +567,15 @@ loom_low_allocation_unit_liveness_note_contiguous_part_uses_at_point(
     }
     const loom_low_placement_concat_source_t source =
         loom_low_placement_concat_source(placement, range.start + i);
+    IREE_RETURN_IF_ERROR(
+        loom_low_allocation_unit_liveness_prepare_decomposed_observations(
+            unit_liveness, arena));
     iree_bitmap_set(unit_liveness->values_with_incomplete_storage_segments,
                     source.value_ordinal);
     IREE_RETURN_IF_ERROR(
         loom_low_allocation_unit_liveness_note_unit_use_at_point(
             unit_use_index, liveness, source.value_ordinal, source.unit_offset,
-            relation->unit_count, point));
+            relation->unit_count, point, /*flags=*/0));
     if (source.value_ordinal == aggregate_ordinal) {
       // This read observes the aggregate's own captured storage and is
       // already represented by its direct SSA use at the edge.
@@ -988,7 +1065,8 @@ static iree_status_t loom_low_allocation_unit_liveness_note_slice_unit_uses(
   }
   return loom_low_allocation_unit_liveness_note_unit_use_at_point(
       unit_use_index, liveness, source_ordinal, (uint32_t)offset,
-      result_interval->unit_count, point);
+      result_interval->unit_count, point,
+      LOOM_LOW_ALLOCATION_UNIT_USE_FLAG_INDEPENDENT_STORAGE_DEMAND);
 }
 
 static iree_status_t
@@ -1399,8 +1477,8 @@ iree_status_t loom_low_allocation_unit_liveness_initialize(
         initial_end_point =
             iree_max(initial_end_point, interval->definition_point + 1u);
         if (initial_end_point > interval->end_point) {
-          iree_bitmap_set(
-              out_unit_liveness->values_with_incomplete_storage_segments, i);
+          loom_low_allocation_unit_liveness_mark_independent_storage_extension(
+              out_unit_liveness, (loom_value_ordinal_t)i);
         }
       }
     }
@@ -1779,8 +1857,8 @@ iree_status_t loom_low_allocation_unit_liveness_retain_tied_storage(
   for (iree_host_size_t i = 0; i < placement->relation_count; ++i) {
     const loom_low_placement_relation_t* relation = &placement->relations[i];
     if (relation->cause == LOOM_LOW_PLACEMENT_CAUSE_TIED_RESULT) {
-      iree_bitmap_set(unit_liveness->values_with_incomplete_storage_segments,
-                      relation->source_ordinal);
+      loom_low_allocation_unit_liveness_mark_independent_storage_extension(
+          unit_liveness, relation->source_ordinal);
     }
   }
   return iree_ok_status();

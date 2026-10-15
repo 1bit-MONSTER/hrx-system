@@ -284,6 +284,19 @@ loom_cc_test(
     ],
 )
 
+loom_cc_test(
+    name = "search_covering_spill_test",
+    srcs = ["search_covering_spill_test.cc"],
+    deps = [
+        ":search",
+        ":storage_lease",
+        "//loom/src/loom/ir",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
 loom_cc_library(
     name = "edge_alias",
     srcs = ["edge_alias.c"],

@@ -108,6 +108,10 @@ typedef struct loom_low_allocation_interval_assignment_result_t {
   uint32_t* assignment_indices_by_value_ordinal;
   // Lookup table over assignments and liveness-local value ordinals.
   loom_low_allocation_assignment_map_t assignment_map;
+  // Per-unit end points selected by this assignment attempt. This normally
+  // borrows the input analysis and owns a private copy only when spill
+  // materialization retires a structural source observation.
+  const uint32_t* unit_end_points;
   // Spill materialization plan records in spill-decision order. Null when no
   // assignment spills; otherwise sized to |spill_count|.
   loom_low_allocation_spill_plan_t* spill_plans;

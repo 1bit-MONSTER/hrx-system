@@ -420,7 +420,7 @@ class WriteInterferenceTest : public ::testing::Test {
     auto candidate = assignments_[ordinal];
     candidate.location_base = base;
     return loom_low_allocation_write_interference_conflicting_read(
-        table_, &map_, &candidate);
+        table_, &map_, unit_liveness_.end_points, &candidate);
   }
 
   void Publish(uint32_t ordinal, uint32_t base) {

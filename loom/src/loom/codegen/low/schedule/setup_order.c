@@ -25,11 +25,39 @@ iree_status_t loom_low_schedule_setup_order_initialize(
   return iree_ok_status();
 }
 
+static bool loom_low_schedule_setup_order_has_per_user_placement(
+    const loom_low_schedule_build_state_t* state,
+    const loom_low_schedule_node_t* node, bool* out_requires_register) {
+  *out_requires_register = false;
+  const iree_bitmap_t per_user_placement_values =
+      state->options->per_user_placement_values;
+  if (node->result_count != 1 || per_user_placement_values.bit_count == 0) {
+    return false;
+  }
+  const loom_value_id_t value_id =
+      state->value_domain
+          ->value_ids[loom_low_schedule_node_const_result_ordinals(node)[0]];
+  if (value_id >= per_user_placement_values.bit_count ||
+      !iree_bitmap_test(per_user_placement_values, value_id)) {
+    return false;
+  }
+  *out_requires_register =
+      value_id < state->options->required_register_values.bit_count &&
+      iree_bitmap_test(state->options->required_register_values, value_id);
+  return true;
+}
+
 static bool loom_low_schedule_setup_order_is_member(
     const loom_low_schedule_build_state_t* state,
     const loom_low_schedule_node_t* node, bool order_structural_setup) {
   if (node->kind == LOOM_LOW_SCHEDULE_NODE_STRUCTURAL) {
     if (order_structural_setup) {
+      return true;
+    }
+    bool requires_register = false;
+    if (loom_low_schedule_setup_order_has_per_user_placement(
+            state, node, &requires_register) &&
+        requires_register) {
       return true;
     }
     if (!iree_any_bit_set(node->flags,
@@ -51,17 +79,18 @@ static bool loom_low_schedule_setup_order_is_member(
            state->pressure_limits.unspillable_completion_domains[domain]
                    .capacity == 1;
   }
-  // Input-free materializations carry no source register lifetime. Leave them
-  // available to pressure scheduling: delaying a wide clear behind its peers
-  // can let narrow producers fragment the register bank that it needs.
-  if (node->result_count != 1 || node->operand_count == 0) {
+  if (node->result_count != 1) {
     return false;
   }
-  const loom_value_id_t value_id =
-      state->value_domain
-          ->value_ids[loom_low_schedule_node_const_result_ordinals(node)[0]];
-  return value_id < state->options->per_user_placement_values.bit_count &&
-         iree_bitmap_test(state->options->per_user_placement_values, value_id);
+  // Input-free rematerializable values remain pressure-scheduled. A required
+  // private value cannot be cloned and instead retains the complete target
+  // setup chain that produced it.
+  bool requires_register = false;
+  const bool has_per_user_placement =
+      loom_low_schedule_setup_order_has_per_user_placement(state, node,
+                                                           &requires_register);
+  return has_per_user_placement &&
+         (node->operand_count != 0 || requires_register);
 }
 
 void loom_low_schedule_setup_order_classify_node(

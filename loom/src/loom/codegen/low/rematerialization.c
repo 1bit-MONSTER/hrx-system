@@ -83,6 +83,8 @@ typedef struct loom_low_rematerialization_recipe_t {
   loom_op_t** packets;
   // Number of packets in the ownership chain.
   iree_host_size_t packet_count;
+  // Whether cloning the recipe would add a use of a register-required value.
+  bool has_required_external_input;
 } loom_low_rematerialization_recipe_t;
 
 typedef enum loom_low_rematerialization_action_e {
@@ -155,26 +157,37 @@ static loom_value_id_t loom_low_rematerialization_tied_source(
 
 static bool loom_low_rematerialization_inputs_remain_available(
     const loom_module_t* module, const loom_op_t* op,
-    loom_value_id_t tied_source_value_id) {
+    loom_value_id_t tied_source_value_id,
+    const iree_bitmap_t* required_register_values,
+    bool* inout_has_required_external_input) {
   const loom_value_id_t* operands = loom_op_const_operands(op);
   for (uint16_t i = 0; i < op->operand_count; ++i) {
-    if (operands[i] != tied_source_value_id &&
-        loom_consumption_find_consuming_use(
-            module, loom_module_value(module, operands[i]), NULL)) {
+    const loom_value_id_t operand = operands[i];
+    if (operand == tied_source_value_id) {
+      continue;
+    }
+    if (loom_consumption_find_consuming_use(
+            module, loom_module_value(module, operand), NULL)) {
       return false;
     }
+    *inout_has_required_external_input |=
+        required_register_values != NULL &&
+        operand < required_register_values->bit_count &&
+        iree_bitmap_test(*required_register_values, operand);
   }
   return true;
 }
 
 static iree_status_t loom_low_rematerialization_plan_recipe(
     loom_module_t* module, const loom_low_resolved_target_t* target,
-    loom_value_id_t value_id, iree_arena_allocator_t* arena,
+    loom_value_id_t value_id, const iree_bitmap_t* required_register_values,
+    iree_arena_allocator_t* arena,
     loom_low_rematerialization_recipe_t* out_recipe) {
   *out_recipe = (loom_low_rematerialization_recipe_t){0};
   loom_op_t** packets = NULL;
   iree_host_size_t packet_count = 0;
   iree_host_size_t packet_capacity = 0;
+  bool has_required_external_input = false;
   loom_value_id_t current_value_id = value_id;
   for (;;) {
     loom_op_t* defining_op = NULL;
@@ -194,7 +207,8 @@ static iree_status_t loom_low_rematerialization_plan_recipe(
           loom_low_rematerialization_tied_source(defining_op);
     }
     if (!loom_low_rematerialization_inputs_remain_available(
-            module, defining_op, tied_source_value_id)) {
+            module, defining_op, tied_source_value_id, required_register_values,
+            &has_required_external_input)) {
       return iree_ok_status();
     }
     if (tied_source_value_id == LOOM_VALUE_ID_INVALID) {
@@ -205,6 +219,7 @@ static iree_status_t loom_low_rematerialization_plan_recipe(
   *out_recipe = (loom_low_rematerialization_recipe_t){
       .packets = packets,
       .packet_count = packet_count,
+      .has_required_external_input = has_required_external_input,
   };
   return iree_ok_status();
 }
@@ -313,7 +328,8 @@ static iree_status_t loom_low_rematerialization_prepare_value(
 
   loom_low_rematerialization_recipe_t recipe = {0};
   IREE_RETURN_IF_ERROR(loom_low_rematerialization_plan_recipe(
-      module, target, value_id, arena, &recipe));
+      module, target, value_id, state->required_register_values, arena,
+      &recipe));
   if (recipe.packet_count == 0) {
     return iree_ok_status();
   }
@@ -353,10 +369,21 @@ static iree_status_t loom_low_rematerialization_prepare_value(
     }
     const loom_low_schedule_node_t* consumer =
         loom_low_schedule_node_for_op(schedule, loom_use_user_op(uses[0]));
+    // Eligibility established that every use is the immediately following op
+    // in the producer's block, so a scheduled producer has a scheduled user.
+    IREE_ASSERT(consumer != NULL);
     if (consumer->scheduled_ordinal <= producer->scheduled_ordinal + 1u) {
       return iree_ok_status();
     }
     action = LOOM_LOW_REMATERIALIZATION_ACTION_RETAIN_PLACEMENT;
+  }
+  // Cloning removes one early use of each external input but adds a use at
+  // every cloned packet. Register-required values cannot themselves spill, so
+  // moving or multiplying their uses can only exchange spillable pressure for
+  // unspillable pressure. Leave this recipe for allocation repair instead.
+  if (action == LOOM_LOW_REMATERIALIZATION_ACTION_CLONE &&
+      recipe.has_required_external_input) {
+    return iree_ok_status();
   }
   *out_plan = (loom_low_rematerialization_plan_t){
       .recipe = recipe,

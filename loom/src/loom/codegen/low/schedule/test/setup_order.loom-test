@@ -20,6 +20,53 @@ node 3 <- none
 
 // ====
 
+// A retained structural producer follows the same private setup contract
+// without enabling the function-wide structural repair policy.
+// RUN: emit low-schedule-query @retained_structural_placement kind=order consumer=1 per-user-placement-values=%private required-register-values=%private
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @retained_structural_placement(%lhs: reg<test.i32>, %rhs: reg<test.i32>, %seed: reg<test.i32>) -> (reg<test.i32>) asm {
+  %dependency = test.add.i32 %lhs, %rhs
+  %private = copy %seed : reg<test.i32> -> reg<test.i32>
+  %result = test.add.i32 %private, %dependency
+  return %result
+}
+
+// ----
+node 1 <- 0
+
+// ====
+
+// Input-free target packets remain in one retained setup chain ending at an
+// unmarked structural result. That result may have several users, so the chain
+// carries no downstream consumer prerequisite.
+// RUN: emit low-schedule-query @retained_structural_setup kind=order consumer=1,2,3,4,5 per-user-placement-values=%lane0,%lane1,%lane2,%lane3 required-register-values=%lane0,%lane1,%lane2,%lane3
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @retained_structural_setup(%lhs: reg<test.i32 x4>, %rhs: reg<test.i32 x4>) -> (reg<test.i32 x4>, reg<test.i32 x4>, reg<test.i32 x4>) asm {
+  %dependency = test.add.v4i32 %lhs, %rhs
+  %lane0 = test.const.i32 0
+  %lane1 = test.const.i32 1
+  %lane2 = test.const.i32 2
+  %lane3 = test.const.i32 3
+  %packed = concat(%lane0, %lane1, %lane2, %lane3) : (reg<test.i32>, reg<test.i32>, reg<test.i32>, reg<test.i32>) -> reg<test.i32 x4>
+  %result = test.add.v4i32 %packed, %dependency
+  %second_result = test.add.v4i32 %packed, %rhs
+  %unrelated = test.add.v4i32 %lhs, %rhs
+  return %result, %second_result, %unrelated
+}
+
+// ----
+node 1 <- none
+node 2 <- 1
+node 3 <- 2
+node 4 <- 3
+node 5 <- none
+
+// ====
+
 // The transient structural policy and retained producer membership can
 // contribute independent setup chains to the same schedule.
 // RUN: emit low-schedule-query @structural_repair_with_retained_placement kind=order consumer=1,3 per-user-placement-values=%private order-structural-setup

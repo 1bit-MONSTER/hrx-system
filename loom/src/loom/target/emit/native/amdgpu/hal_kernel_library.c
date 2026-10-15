@@ -660,6 +660,10 @@ static iree_status_t loom_amdgpu_hal_kernel_library_lower_spill_traffic(
       result.expanded_execution_value_ids;
   out_result->expanded_execution_value_count =
       result.expanded_execution_value_count;
+  out_result->per_user_placement_value_ids =
+      result.per_user_placement_value_ids;
+  out_result->per_user_placement_value_count =
+      result.per_user_placement_value_count;
   return iree_ok_status();
 }
 
