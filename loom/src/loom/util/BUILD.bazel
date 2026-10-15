@@ -168,11 +168,34 @@ loom_cc_library(
     ],
 )
 
+loom_cc_library(
+    name = "segmented_storage_test_util",
+    testonly = True,
+    srcs = ["segmented_storage_test_util.cc"],
+    hdrs = ["segmented_storage_test_util.h"],
+    deps = [
+        ":segmented_storage",
+        "//runtime/src/iree/testing:gtest",
+    ],
+)
+
 loom_cc_test(
     name = "segmented_storage_test",
     srcs = ["segmented_storage_test.cc"],
     deps = [
         ":segmented_storage",
+        ":segmented_storage_test_util",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "segmented_storage_stress_test",
+    srcs = ["segmented_storage_stress.cc"],
+    tags = ["manual"],
+    deps = [
+        ":segmented_storage_test_util",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
     ],

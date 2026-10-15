@@ -198,6 +198,20 @@ loom_cc_library(
   PUBLIC
 )
 
+loom_cc_library(
+  NAME
+    segmented_storage_test_util
+  HDRS
+    "segmented_storage_test_util.h"
+  SRCS
+    "segmented_storage_test_util.cc"
+  DEPS
+    ::segmented_storage
+    iree::testing::gtest
+  TESTONLY
+  PUBLIC
+)
+
 loom_cc_test(
   NAME
     segmented_storage_test
@@ -205,8 +219,22 @@ loom_cc_test(
     "segmented_storage_test.cc"
   DEPS
     ::segmented_storage
+    ::segmented_storage_test_util
     iree::testing::gtest
     iree::testing::gtest_main
+)
+
+loom_cc_test(
+  NAME
+    segmented_storage_stress_test
+  SRCS
+    "segmented_storage_stress.cc"
+  DEPS
+    ::segmented_storage_test_util
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "manual"
 )
 
 loom_cc_test(
