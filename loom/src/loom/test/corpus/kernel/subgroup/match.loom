@@ -1,19 +1,48 @@
-// A partial wave64 and a complete wave32 both expose 32 participating lanes.
-// Small random value domains create multiple equivalence classes while every
-// lane remains its own representative, making all match.any lane steps
-// observable. The i64 result also exposes any nonzero inactive upper lanes.
+// Compare match masks with a serial scan of the actual invocation topology.
+// Workitem coordinates index memory; subgroup and lane IDs only identify mask
+// bits. This covers partial subgroups without assuming dense lanes or a mapping
+// between workitem and lane IDs. Small random domains form multiple classes.
 kernel.def @subgroup_match_any_i32() {
   %unit = index.constant 1 : index
   %items = index.constant 32 : index
   kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%items, %unit, %unit) : index
 } launch(%input: buffer, %output: buffer) {
   %base = index.constant 0 : offset
+  %item = kernel.workitem.id<x> : index
   %lane = kernel.subgroup.lane.id : index
+  %subgroup = kernel.subgroup.id : index
+  %lane_i32 = index.cast %lane : index to i32
+  %subgroup_i32 = index.cast %subgroup : index to i32
+  %bytes = index.constant 256 : offset
+  %scratch = buffer.alloca<workgroup> align(4) %bytes : buffer
+  %topology = buffer.view %scratch[%base] : buffer -> view<32x2xi32>
+  view.store %lane_i32, %topology[%item, 0] : i32, view<32x2xi32>
+  view.store %subgroup_i32, %topology[%item, 1] : i32, view<32x2xi32>
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
   %input_view = buffer.view %input[%base] : buffer -> view<32xi32>
   %output_view = buffer.view %output[%base] : buffer -> view<32xi64>
-  %value = view.load %input_view[%lane] : view<32xi32> -> i32
+  %value = view.load %input_view[%item] : view<32xi32> -> i32
   %mask = kernel.subgroup.match.any %value : i32 -> i64
-  view.store %mask, %output_view[%lane] : i64, view<32xi64>
+  %begin = index.constant 0 : index
+  %end = index.constant 32 : index
+  %step = index.constant 1 : index
+  %empty_mask = scalar.constant 0 : i64
+  %lane_bit = scalar.constant 1 : i64
+  %expected = scf.for %other = [%begin to %end step %step](%current = %empty_mask : i64) -> (i64) {
+    %other_value = view.load %input_view[%other] : view<32xi32> -> i32
+    %other_lane = view.load %topology[%other, 0] : view<32x2xi32> -> i32
+    %other_subgroup = view.load %topology[%other, 1] : view<32x2xi32> -> i32
+    %equal = scalar.cmpi eq, %value, %other_value : i32
+    %same_subgroup = scalar.cmpi eq, %subgroup_i32, %other_subgroup : i32
+    %matches = scalar.andi %equal, %same_subgroup : i1
+    %shift = scalar.extui %other_lane : i32 to i64
+    %bit = scalar.shli %lane_bit, %shift : i64
+    %selected = scf.select %matches, %bit, %empty_mask : i64
+    %next = scalar.ori %current, %selected : i64
+    scf.yield %next : i64
+  }
+  %difference = scalar.xori %mask, %expected : i64
+  view.store %difference, %output_view[%item] : i64, view<32xi64>
   kernel.return
 }
 
@@ -23,21 +52,9 @@ func.def @subgroup_match_any_i32_oracle(%input: buffer, %output: buffer) {
   %end = index.constant 32 : index
   %step = index.constant 1 : index
   %c0_i64 = scalar.constant 0 : i64
-  %c1_i64 = scalar.constant 1 : i64
-  %input_view = buffer.view %input[%base] : buffer -> view<32xi32>
   %output_view = buffer.view %output[%base] : buffer -> view<32xi64>
-  scf.for %lane = [%begin to %end step %step] {
-    %value = view.load %input_view[%lane] : view<32xi32> -> i32
-    %mask = scf.for %other = [%begin to %end step %step](%current = %c0_i64 : i64) -> (i64) {
-      %other_value = view.load %input_view[%other] : view<32xi32> -> i32
-      %equal = scalar.cmpi eq, %value, %other_value : i32
-      %shift = index.cast %other : index to i64
-      %bit = scalar.shli %c1_i64, %shift : i64
-      %selected = scf.select %equal, %bit, %c0_i64 : i64
-      %next = scalar.ori %current, %selected : i64
-      scf.yield %next : i64
-    }
-    view.store %mask, %output_view[%lane] : i64, view<32xi64>
+  scf.for %item = [%begin to %end step %step] {
+    view.store %c0_i64, %output_view[%item] : i64, view<32xi64>
   }
   func.return
 }
@@ -54,23 +71,56 @@ check.scenario @subgroup_match_any_i32_values {
   check.return
 }
 
-// A 32-workitem launch gives match.all the same active mask on wave32 and on
-// a partial wave64 while exercising both the mask and predicate results.
+// The same topology scan checks both match.all results, including subgroups
+// with only one active invocation and implementations with inactive lane holes.
 kernel.def @subgroup_match_all_i32() {
   %unit = index.constant 1 : index
   %items = index.constant 32 : index
   kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%items, %unit, %unit) : index
 } launch(%input: buffer, %mask_output: buffer, %all_output: buffer) {
   %base = index.constant 0 : offset
+  %item = kernel.workitem.id<x> : index
   %lane = kernel.subgroup.lane.id : index
+  %subgroup = kernel.subgroup.id : index
+  %lane_i32 = index.cast %lane : index to i32
+  %subgroup_i32 = index.cast %subgroup : index to i32
+  %bytes = index.constant 256 : offset
+  %scratch = buffer.alloca<workgroup> align(4) %bytes : buffer
+  %topology = buffer.view %scratch[%base] : buffer -> view<32x2xi32>
+  view.store %lane_i32, %topology[%item, 0] : i32, view<32x2xi32>
+  view.store %subgroup_i32, %topology[%item, 1] : i32, view<32x2xi32>
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
   %input_view = buffer.view %input[%base] : buffer -> view<32xi32>
   %mask_view = buffer.view %mask_output[%base] : buffer -> view<32xi64>
   %all_view = buffer.view %all_output[%base] : buffer -> view<32xi32>
-  %value = view.load %input_view[%lane] : view<32xi32> -> i32
+  %value = view.load %input_view[%item] : view<32xi32> -> i32
   %mask, %all = kernel.subgroup.match.all %value : i32 -> i64, i1
-  %all_i32 = scalar.extui %all : i1 to i32
-  view.store %mask, %mask_view[%lane] : i64, view<32xi64>
-  view.store %all_i32, %all_view[%lane] : i32, view<32xi32>
+  %begin = index.constant 0 : index
+  %end = index.constant 32 : index
+  %step = index.constant 1 : index
+  %empty_mask = scalar.constant 0 : i64
+  %lane_bit = scalar.constant 1 : i64
+  %true = scalar.constant true : i1
+  %active_mask, %expected_all = scf.for %other = [%begin to %end step %step](%current_mask = %empty_mask : i64, %current_all = %true : i1) -> (i64, i1) {
+    %other_value = view.load %input_view[%other] : view<32xi32> -> i32
+    %other_lane = view.load %topology[%other, 0] : view<32x2xi32> -> i32
+    %other_subgroup = view.load %topology[%other, 1] : view<32x2xi32> -> i32
+    %equal = scalar.cmpi eq, %value, %other_value : i32
+    %same_subgroup = scalar.cmpi eq, %subgroup_i32, %other_subgroup : i32
+    %accepts = scf.select %same_subgroup, %equal, %true : i1
+    %next_all = scalar.andi %current_all, %accepts : i1
+    %shift = scalar.extui %other_lane : i32 to i64
+    %bit = scalar.shli %lane_bit, %shift : i64
+    %selected = scf.select %same_subgroup, %bit, %empty_mask : i64
+    %next_mask = scalar.ori %current_mask, %selected : i64
+    scf.yield %next_mask, %next_all : i64, i1
+  }
+  %expected_mask = scf.select %expected_all, %active_mask, %empty_mask : i64
+  %mask_difference = scalar.xori %mask, %expected_mask : i64
+  %all_difference = scalar.xori %all, %expected_all : i1
+  %all_i32 = scalar.extui %all_difference : i1 to i32
+  view.store %mask_difference, %mask_view[%item] : i64, view<32xi64>
+  view.store %all_i32, %all_view[%item] : i32, view<32xi32>
   kernel.return
 }
 
@@ -79,25 +129,13 @@ func.def @subgroup_match_all_i32_oracle(%input: buffer, %mask_output: buffer, %a
   %begin = index.constant 0 : index
   %end = index.constant 32 : index
   %step = index.constant 1 : index
-  %first = index.constant 0 : index
-  %true = scalar.constant true : i1
   %zero_mask = scalar.constant 0 : i64
-  %active_mask = scalar.constant 4294967295 : i64
-  %input_view = buffer.view %input[%base] : buffer -> view<32xi32>
+  %no_difference = scalar.constant 0 : i32
   %mask_view = buffer.view %mask_output[%base] : buffer -> view<32xi64>
   %all_view = buffer.view %all_output[%base] : buffer -> view<32xi32>
-  %first_value = view.load %input_view[%first] : view<32xi32> -> i32
-  %all = scf.for %lane = [%begin to %end step %step](%current = %true : i1) -> (i1) {
-    %value = view.load %input_view[%lane] : view<32xi32> -> i32
-    %equal = scalar.cmpi eq, %value, %first_value : i32
-    %next = scalar.andi %current, %equal : i1
-    scf.yield %next : i1
-  }
-  %mask = scf.select %all, %active_mask, %zero_mask : i64
-  %all_i32 = scalar.extui %all : i1 to i32
-  scf.for %lane = [%begin to %end step %step] {
-    view.store %mask, %mask_view[%lane] : i64, view<32xi64>
-    view.store %all_i32, %all_view[%lane] : i32, view<32xi32>
+  scf.for %item = [%begin to %end step %step] {
+    view.store %zero_mask, %mask_view[%item] : i64, view<32xi64>
+    view.store %no_difference, %all_view[%item] : i32, view<32xi32>
   }
   func.return
 }

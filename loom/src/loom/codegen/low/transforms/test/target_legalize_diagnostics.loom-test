@@ -203,13 +203,13 @@ kernel.def target(@test_target) @rejects_workgroup_id_assume_excluding_static_co
 
 test.target<low_core> @test_target
 
-kernel.def target(@test_target) @rejects_subgroup_lane_id_assume_excluding_static_workgroup() {
+kernel.def target(@test_target) @rejects_subgroup_lane_id_assume_excluding_execution_width() {
   %c1 = index.constant 1 : index
   %c64 = index.constant 64 : index
   kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c64, %c1, %c1) : index
 } launch() {
   %lane0 = kernel.subgroup.lane.id : index
-  // ERROR@+1: TARGET/058 {value_kind="subgroup.lane.id", axis="lane", required_min="0", required_max="63", assumed_min="0", assumed_max="31"}
+  // ERROR@+1: TARGET/058 {value_kind="subgroup.lane.id", axis="lane", required_min="0", required_max="127", assumed_min="0", assumed_max="31"}
   %lane = index.assume %lane0 [range(%lane0, 0, 31)] : index
   test.use %lane : index
   kernel.return

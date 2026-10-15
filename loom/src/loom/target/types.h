@@ -208,6 +208,11 @@ typedef struct loom_target_snapshot_t {
   loom_target_codegen_format_t codegen_format;
   // Linkable or loadable artifact format produced for this snapshot.
   loom_target_artifact_format_t artifact_format;
+  // Whether invocations fill successive subgroups with consecutive lane IDs
+  // starting at zero, leaving at most one partial subgroup. This does not
+  // establish any ordering of workitem IDs. A fixed subgroup size alone does
+  // not establish dense packing.
+  bool dense_subgroup_partition;
   // Default pointer bit width for target-independent layout decisions.
   uint32_t default_pointer_bitwidth;
   // Index bit width chosen for lowered index values.

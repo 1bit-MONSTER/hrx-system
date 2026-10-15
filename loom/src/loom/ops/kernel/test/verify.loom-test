@@ -1026,7 +1026,7 @@ kernel.def @barrier_scope_distinguishes_subgroup_control() {
 
 test.target<low_core> @test_target {abi = hal_kernel, subgroup_size = 64}
 
-kernel.def target(@test_target) @workgroup_barrier_accepts_exact_single_subgroup_control() {
+kernel.def target(@test_target) @workgroup_barrier_rejects_unproven_single_subgroup_control() {
   %c1 = index.constant 1 : index
   %c64 = index.constant 64 : index
   kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c64, %c1, %c1) : index
@@ -1035,6 +1035,7 @@ kernel.def target(@test_target) @workgroup_barrier_accepts_exact_single_subgroup
   %subgroup = kernel.subgroup.id : index
   %is_first_subgroup = index.cmp eq, %subgroup, %first_subgroup : index
   scf.if %is_first_subgroup {
+    // ERROR@+1: STRUCTURE/038 {op_name="kernel.barrier", required_uniform_scope="workgroup", control_kind="region_selector", control_value="is_first_subgroup", control_op_name="scf.if", control_distribution="subgroup"}
     kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
   }
   kernel.return

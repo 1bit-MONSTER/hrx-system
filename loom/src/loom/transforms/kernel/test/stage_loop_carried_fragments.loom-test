@@ -484,7 +484,8 @@ kernel.def target(@target) @decline_lane_dependent_cfg_arm() {
   kernel.return
 }
 
-kernel.def target(@target) @stage_exact_single_subgroup_control() {
+// Width alone does not prove that subgroup zero contains the whole workgroup.
+kernel.def target(@target) @decline_unproven_single_subgroup_control() {
   %unit_extent = index.constant 1 : index
   %workgroup_size = index.constant 64 : index
   kernel.launch.config workgroups(%unit_extent, %unit_extent, %unit_extent) workgroup_size(%workgroup_size, %unit_extent, %unit_extent) : index
@@ -517,7 +518,7 @@ COMPILE-REPORT: source_low_transforms rows=4
 COMPILE-REPORT: source_low_transform[0] function=decline_subgroup_dependent_loop_bound source_op=scf.for transform=stage-loop-carried-fragments outcome=declined reason=control_not_workgroup_uniform candidates=1 selected=1 removed_loop_carried=1 removed_payload_registers=8 shape=16x16 inserted_loads=2 inserted_stores=2 barriers=2
 COMPILE-REPORT: source_low_transform[1] function=decline_subgroup_dependent_branch source_op=scf.for transform=stage-loop-carried-fragments outcome=declined reason=control_not_workgroup_uniform candidates=1 selected=1 removed_loop_carried=1 removed_payload_registers=8 shape=16x16 inserted_loads=2 inserted_stores=2 barriers=2
 COMPILE-REPORT: source_low_transform[2] function=decline_lane_dependent_cfg_arm source_op=scf.for transform=stage-loop-carried-fragments outcome=declined reason=control_not_workgroup_uniform candidates=1 selected=1 removed_loop_carried=1 removed_payload_registers=8 shape=16x16 inserted_loads=2 inserted_stores=2 barriers=2
-COMPILE-REPORT: source_low_transform[3] function=stage_exact_single_subgroup_control source_op=scf.for transform=stage-loop-carried-fragments outcome=selected reason=staged_workgroup_memory candidates=1 selected=1 removed_loop_carried=1 removed_payload_registers=8 shape=16x16 workgroup_bytes=1024 inserted_loads=2 inserted_stores=2 barriers=2
+COMPILE-REPORT: source_low_transform[3] function=decline_unproven_single_subgroup_control source_op=scf.for transform=stage-loop-carried-fragments outcome=declined reason=control_not_workgroup_uniform candidates=1 selected=1 removed_loop_carried=1 removed_payload_registers=8 shape=16x16 inserted_loads=2 inserted_stores=2 barriers=2
 
 // ====
 // RUN: compile-report stage-loop-carried-fragments,dce

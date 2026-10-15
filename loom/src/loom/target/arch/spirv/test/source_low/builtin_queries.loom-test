@@ -82,3 +82,54 @@ low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer) -> ()
   OpStore.storage_buffer.i32 %112, %lane_word
   return
 }
+
+// ====
+// RUN: emit source-low target=spirv:vulkan1.3+bda+subgroup32+ballot+hal output=low control-flow=structured-low
+
+// A fixed execution width does not identify which lane runs a small workgroup
+// or how many partially occupied subgroups the implementation dispatches.
+kernel.def @partial_subgroup_queries() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 3 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch(%output: buffer) {
+  %thread = kernel.workitem.id<x> : index
+  %lane = kernel.subgroup.lane.id : index
+  %subgroup = kernel.subgroup.id : index
+  %count = kernel.subgroup.count : index
+  %base = index.constant 0 : offset
+  %view = buffer.view %output[%base] : buffer -> view<3x3xi32>
+  %lane_word = index.cast %lane : index to i32
+  %subgroup_word = index.cast %subgroup : index to i32
+  %count_word = index.cast %count : index to i32
+  view.store %lane_word, %view[%thread, 0] : i32, view<3x3xi32>
+  view.store %subgroup_word, %view[%thread, 1] : i32, view<3x3xi32>
+  view.store %count_word, %view[%thread, 2] : i32, view<3x3xi32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer) -> ()}) workgroup_size(3, 1, 1) workgroup_count(1, 1, 1) @partial_subgroup_queries() asm {
+  %output = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %thread = OpLoadBuiltin.local_invocation_id.x
+  %lane = OpLoadBuiltin.subgroup_local_invocation_id
+  %subgroup = OpLoadBuiltin.subgroup_id
+  %count = OpLoadBuiltin.num_subgroups
+  %lane_word = OpCopyObject.i32 %lane
+  %subgroup_word = OpCopyObject.i32 %subgroup
+  %count_word = OpCopyObject.i32 %count
+  %33 = OpSConvert.i32.offset64 %thread
+  %34 = OpConstant.offset64 12
+  %35 = OpIMul.offset64 %33, %34
+  %36 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output, %35
+  OpStore.storage_buffer.i32 %36, %lane_word
+  %40 = OpConstant.offset64 4
+  %41 = OpIAdd.offset64 %35, %40
+  %42 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output, %41
+  OpStore.storage_buffer.i32 %42, %subgroup_word
+  %46 = OpConstant.offset64 8
+  %47 = OpIAdd.offset64 %35, %46
+  %48 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output, %47
+  OpStore.storage_buffer.i32 %48, %count_word
+  return
+}

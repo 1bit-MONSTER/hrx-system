@@ -427,7 +427,7 @@ kernel.def @small_workgroup_lane_facts() {
   kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c8, %c1, %c1) : index
 } launch() {
   %lane_lo = scalar.constant 0 : i64
-  %lane_hi = scalar.constant 7 : i64
+  %lane_hi = scalar.constant 127 : i64
   test.use %lane_lo, %lane_hi : i64, i64
   kernel.return
 }
