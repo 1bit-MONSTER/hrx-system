@@ -209,7 +209,7 @@ kernel.def @workgroup_tree_three_waves() {
   %input_view = buffer.view %input[%start] : buffer -> view<96xf32>
   %output_view = buffer.view %output[%start] : buffer -> view<1xf32>
   %value = view.load %input_view[%tid] : view<96xf32> -> f32
-  %reduced = kernel.workgroup.reduce<addf> %value : f32
+  %reduced = kernel.workgroup.reduce<addf, preserve> %value : f32
   %leader_index = index.constant 0 : index
   %is_leader = index.cmp eq, %tid, %leader_index : index
   scf.if %is_leader {
