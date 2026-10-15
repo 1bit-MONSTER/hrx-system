@@ -46,6 +46,18 @@ static loom_target_math_policy_decision_t loom_amdgpu_math_rewrite(
 }
 
 static loom_target_math_policy_decision_t
+loom_amdgpu_math_rewrite_with_native_required_fastmath(
+    loom_target_math_recipe_t recipe, iree_string_view_t constraint_key,
+    loom_target_math_fastmath_flags_t native_required_fastmath_flags) {
+  return (loom_target_math_policy_decision_t){
+      .action = LOOM_TARGET_MATH_POLICY_ACTION_REWRITE,
+      .recipe = recipe,
+      .native_required_fastmath_flags = native_required_fastmath_flags,
+      .constraint_key = constraint_key,
+  };
+}
+
+static loom_target_math_policy_decision_t
 loom_amdgpu_math_rewrite_with_recipe_fastmath(
     loom_target_math_recipe_t recipe, iree_string_view_t constraint_key,
     loom_target_math_fastmath_flags_t recipe_fastmath_flags) {
@@ -187,9 +199,10 @@ static void loom_amdgpu_math_policy_query(
                                     : IREE_SV("math.op.native_rsqrt_afn"));
       return;
     }
-    *out_decision =
-        loom_amdgpu_math_rewrite(LOOM_TARGET_MATH_RECIPE_RSQRT_SQRT_DIV,
-                                 IREE_SV("math.recipe.rsqrt_sqrt_div"));
+    *out_decision = loom_amdgpu_math_rewrite_with_native_required_fastmath(
+        LOOM_TARGET_MATH_RECIPE_RSQRT_SQRT_DIV,
+        IREE_SV("math.recipe.rsqrt_sqrt_div"),
+        LOOM_TARGET_MATH_FASTMATH_FLAG_AFN);
     return;
   }
 
@@ -258,8 +271,10 @@ static void loom_amdgpu_math_policy_query(
       *out_decision =
           loom_amdgpu_math_query_has_afn(query)
               ? loom_amdgpu_math_keep(IREE_SV("math.op.native_approx_f32"))
-              : loom_amdgpu_math_rewrite(LOOM_TARGET_MATH_RECIPE_ROUND_AWAY,
-                                         IREE_SV("math.recipe.round_away"));
+              : loom_amdgpu_math_rewrite_with_native_required_fastmath(
+                    LOOM_TARGET_MATH_RECIPE_ROUND_AWAY,
+                    IREE_SV("math.recipe.round_away"),
+                    LOOM_TARGET_MATH_FASTMATH_FLAG_AFN);
       return;
     case LOOM_TARGET_MATH_OP_CEILF:
     case LOOM_TARGET_MATH_OP_FLOORF:
