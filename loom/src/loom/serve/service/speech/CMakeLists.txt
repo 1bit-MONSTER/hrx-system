@@ -100,6 +100,7 @@ loom_cc_library(
     loom::serve::runtime::program::module
     loom::serve::runtime::program::preparation
     loom::serve::runtime::program::sources
+    loom::serve::runtime::program::stage_set
   PUBLIC
 )
 endif()

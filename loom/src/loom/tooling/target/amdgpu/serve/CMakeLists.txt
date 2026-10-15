@@ -695,10 +695,12 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/jit_module_test.cc"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/jit_test.cc"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/jit_workspace_test.cc"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/stage_set_test.cc"
   DATA
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/compilation/invalid.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/jit/config.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/jit/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/jit/preparation.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/jit/private_vm_helper.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/jit/stage.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/jit/vm_helpers.loom"
@@ -717,6 +719,8 @@ loom_cc_test(
     loom::serve::runtime::execution
     loom::serve::runtime::program::jit
     loom::serve::runtime::program::module
+    loom::serve::runtime::program::preparation
+    loom::serve::runtime::program::stage_set
     loom::serve::testing::jit
     loom::serve::testing::jit_module
     ${_jit_test_platform_deps}

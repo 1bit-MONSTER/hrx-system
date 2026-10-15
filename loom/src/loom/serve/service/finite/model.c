@@ -717,6 +717,7 @@ loom_serve_execution_update_t loom_serve_finite_model_execution_update(
 typedef enum finite_load_phase_e {
   FINITE_LOAD_PREPARE,
   FINITE_LOAD_STAGES,
+  FINITE_LOAD_BIND,
   FINITE_LOAD_WEIGHTS,
   FINITE_LOAD_LINK,
   FINITE_LOAD_COMPLETE,
@@ -733,7 +734,7 @@ struct loom_serve_finite_load_t {
   loom_serve_finite_model_options_t options;
   // Owner-only next phase; callbacks never make shared-state transitions.
   finite_load_phase_t phase;
-  // Next stage or weight domain within the current phase.
+  // Next parameter domain during checkpoint preparation.
   uint32_t index;
   // Recording policy shared by consumer and weight preparation commands.
   iree_hal_command_buffer_mode_t command_mode;
@@ -811,9 +812,13 @@ static const loomc_task_vtable_t finite_load_vtable = {
 
 static void loom_serve_finite_load_compiled(void* user_data,
                                             iree_status_t status,
-                                            loom_serve_jit_stage_t* compiled) {
+                                            loom_serve_stage_set_t* compiled) {
   loom_serve_finite_load_t* load = user_data;
-  load->model->stages.values[load->index - 1].compiled = compiled;
+  for (iree_host_size_t i = 0; i < compiled->count; ++i) {
+    load->model->stages.values[i].compiled = compiled->values[i];
+    compiled->values[i] = NULL;
+  }
+  loom_serve_stage_set_free(compiled);
   loom_serve_finite_load_complete(load, status);
 }
 
@@ -886,26 +891,18 @@ iree_status_t loom_serve_finite_load_advance(
         submitted = iree_status_is_ok(status);
         break;
       case FINITE_LOAD_STAGES:
-        if (load->index < model->stages.count) {
-          const loom_serve_preparation_stage_t* declaration =
-              loom_serve_preparation_stage(model->preparation, load->index++);
-          iree_slim_mutex_lock(&load->event.mutex);
-          load->event.pending = true;
-          iree_slim_mutex_unlock(&load->event.mutex);
-          status =
-              declaration->kind == LOOM_SERVE_PREPARATION_STAGE_DISPATCH
-                  ? loom_serve_jit_compile_dispatch_async(
-                        model->jit, declaration->root, &declaration->config,
-                        loom_serve_finite_load_compiled, load)
-                  : loom_serve_jit_compile_async(
-                        model->jit, declaration->root, &declaration->config,
-                        loom_serve_finite_load_compiled, load);
-          submitted = iree_status_is_ok(status);
-        } else {
-          status = loom_serve_finite_model_bind(model);
-          load->index = 0;
-          load->phase = FINITE_LOAD_WEIGHTS;
-        }
+        load->phase = FINITE_LOAD_BIND;
+        iree_slim_mutex_lock(&load->event.mutex);
+        load->event.pending = true;
+        iree_slim_mutex_unlock(&load->event.mutex);
+        status = loom_serve_stage_set_compile_catalog_async(
+            model->jit, model->preparation, loom_serve_finite_load_compiled,
+            load, load->host_allocator);
+        submitted = iree_status_is_ok(status);
+        break;
+      case FINITE_LOAD_BIND:
+        status = loom_serve_finite_model_bind(model);
+        load->phase = FINITE_LOAD_WEIGHTS;
         break;
       case FINITE_LOAD_WEIGHTS:
         if (load->index < model->weights.count) {

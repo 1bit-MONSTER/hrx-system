@@ -6,6 +6,7 @@
 
 #include "loom/serve/service/text/variant.h"
 
+#include "loom/serve/runtime/program/stage_set.h"
 #include "loomc/iree.h"
 
 struct loom_serve_text_variant_t {
@@ -46,8 +47,6 @@ typedef struct loom_serve_text_variant_job_t {
   const loomc_sanitizer_options_t* sanitizer;
   // Private source catalog, released before completion.
   loom_serve_jit_t* jit;
-  // Next stage to compile; at most one compilation uses jit at a time.
-  iree_host_size_t index;
   // Initial task outcome, consumed by its final release.
   iree_status_t status;
   // Terminal ownership transfer, invoked after all compiler work retires.
@@ -131,35 +130,14 @@ static void loom_serve_text_variant_finish(loom_serve_text_variant_job_t* job,
 
 static void loom_serve_text_variant_compiled(void* user_data,
                                              iree_status_t status,
-                                             loom_serve_jit_stage_t* stage);
-
-static void loom_serve_text_variant_next(loom_serve_text_variant_job_t* job) {
-  if (job->index == job->variant->stage_count) {
-    loom_serve_text_variant_finish(job, iree_ok_status());
-    return;
-  }
-  const loom_serve_preparation_stage_t* declaration =
-      loom_serve_preparation_stage(job->preparation, job->index);
-  iree_status_t status = loom_serve_jit_compile_async(
-      job->jit, declaration->root, &declaration->config,
-      loom_serve_text_variant_compiled, job);
-  // An accepted callback may already have destroyed job. Rejection owes no
-  // callback and leaves ownership here.
-  if (!iree_status_is_ok(status)) {
-    loom_serve_text_variant_finish(job, status);
-  }
-}
-
-static void loom_serve_text_variant_compiled(void* user_data,
-                                             iree_status_t status,
-                                             loom_serve_jit_stage_t* stage) {
+                                             loom_serve_stage_set_t* stages) {
   loom_serve_text_variant_job_t* job = user_data;
-  job->variant->stages[job->index++].compiled = stage;
-  if (iree_status_is_ok(status)) {
-    loom_serve_text_variant_next(job);
-  } else {
-    loom_serve_text_variant_finish(job, status);
+  for (iree_host_size_t i = 0; i < stages->count; ++i) {
+    job->variant->stages[i].compiled = stages->values[i];
+    stages->values[i] = NULL;
   }
+  loom_serve_stage_set_free(stages);
+  loom_serve_text_variant_finish(job, status);
 }
 
 static void loom_serve_text_variant_execute(loomc_task_t* task,
@@ -174,10 +152,14 @@ static void loom_serve_text_variant_execute(loomc_task_t* task,
 
 static void loom_serve_text_variant_release(loomc_task_t* task) {
   loom_serve_text_variant_job_t* job = (loom_serve_text_variant_job_t*)task;
-  if (iree_status_is_ok(job->status)) {
-    loom_serve_text_variant_next(job);
-  } else {
-    loom_serve_text_variant_finish(job, job->status);
+  iree_status_t status = job->status;
+  if (iree_status_is_ok(status)) {
+    status = loom_serve_stage_set_compile_catalog_async(
+        job->jit, job->preparation, loom_serve_text_variant_compiled, job,
+        job->variant->host_allocator);
+  }
+  if (!iree_status_is_ok(status)) {
+    loom_serve_text_variant_finish(job, status);
   }
 }
 
