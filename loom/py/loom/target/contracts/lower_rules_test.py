@@ -2209,6 +2209,7 @@ def test_compile_lower_rule_set_selects_variadic_value_type_element() -> None:
                         element=1,
                     ),
                     Guard.value_type("result", Vector("i32", lanes=5)),
+                    Guard.value_no_uses("result"),
                 ),
                 emit=(
                     EmitDescriptorOp(
@@ -3032,6 +3033,7 @@ def test_compile_lower_rule_set_rejects_descriptor_rule_without_emit() -> None:
             DescriptorRule(
                 source_op=scalar_arithmetic.scalar_addi,
                 descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+                guards=(Guard.value_no_uses("result"),),
             )
         ],
     )
@@ -3741,6 +3743,7 @@ def test_compile_lower_rule_set_projects_guarded_variadic_value_type_dimension()
                         Vector("i32", dims=(2, 4)),
                         element=1,
                     ),
+                    Guard.value_no_uses("result"),
                 ),
                 emit=(
                     EmitDescriptorOp(
@@ -3800,6 +3803,7 @@ def test_compile_lower_rule_set_projects_guarded_variadic_value_type_dimension()
                 Vector("i32", lanes=4),
                 element=1,
             ),
+            Guard.value_no_uses("result"),
         ),
     )
     with pytest.raises(
