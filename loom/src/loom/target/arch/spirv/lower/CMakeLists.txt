@@ -63,4 +63,23 @@ loom_cc_library(
 )
 endif()
 
+if(LOOM_TARGET_ARCH_SPIRV)
+loom_cc_library(
+  NAME
+    cooperative_initializer
+  HDRS
+    "cooperative_initializer.h"
+  SRCS
+    "cooperative_initializer.c"
+  DEPS
+    iree::base
+    loom::codegen::low::lower
+    loom::ir
+    loom::ir::facts
+    loom::ops::vector
+    loom::util::fact_table
+  PUBLIC
+)
+endif()
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

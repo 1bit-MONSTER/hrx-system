@@ -146,6 +146,12 @@ accept `@function` for an explicit entry. The selected entry remains a compiler
 root even when private; specialization does not change source visibility or
 add an export. Its reachable helpers may be inlined and removed normally.
 
+SPIR-V emission fixtures can refine the selected profile with named feature
+facts. `features=FLOAT16,COOPERATIVE_MATRIX_KHR,-INT16` uses the suffixes of the
+public `loomc_spirv_feature_t` constants; a leading `-` records an unavailable
+feature. The profile API validates these facts before compilation. This permits
+exact-output tests for optional capabilities without requiring a live device.
+
 `emit cxx` projects an admitted High module through the public
 `loom-export-cxx` tool. A `.cxx-test` therefore places authored C++ before
 `// ----` and its canonical readable C++ projection after it; a `.loom-test`

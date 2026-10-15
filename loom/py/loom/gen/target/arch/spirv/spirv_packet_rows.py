@@ -50,6 +50,7 @@ from loom.target.arch.spirv.builtins import (  # noqa: E402
 )
 from loom.target.arch.spirv.cooperative_matrix import (  # noqa: E402
     COOPERATIVE_MATRIX_CASES,
+    COOPERATIVE_MATRIX_TYPES,
     CooperativeMatrixCase,
 )
 from loom.target.arch.spirv.descriptors import SPIRV_LOGICAL_CORE_DESCRIPTOR_SET  # noqa: E402
@@ -781,7 +782,21 @@ def _cooperative_matrix_rows_for_case(case: CooperativeMatrixCase) -> list[_Pack
 
 
 def _cooperative_matrix_rows() -> list[_PacketRow]:
-    rows: list[_PacketRow] = []
+    rows: list[_PacketRow] = [
+        _PacketRow(
+            matrix_type.constructor_key,
+            opcode="LOOM_SPIRV_OP_COMPOSITE_CONSTRUCT",
+            form="LOOM_SPIRV_PACKET_FORM_COMPOSITE_CONSTRUCT",
+            result_type=_cooperative_matrix_value(
+                scalar_enum=matrix_type.scalar.scalar_enum,
+                rows=matrix_type.rows,
+                columns=matrix_type.columns,
+                matrix_use=matrix_type.use_c_expression,
+            ),
+            operand_types=(_scalar_value(matrix_type.scalar),),
+        )
+        for matrix_type in COOPERATIVE_MATRIX_TYPES
+    ]
     for case in COOPERATIVE_MATRIX_CASES:
         rows.extend(_cooperative_matrix_rows_for_case(case))
     return rows

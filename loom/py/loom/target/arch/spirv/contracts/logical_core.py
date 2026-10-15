@@ -45,6 +45,8 @@ from loom.target.arch.spirv.contracts.bfloat import (
     bfloat_widen_rules,
 )
 from loom.target.arch.spirv.contracts.cooperative_matrix import (
+    COOPERATIVE_INITIALIZER_MATERIALIZER,
+    COOPERATIVE_MATRIX_INITIALIZER_RULES,
     COOPERATIVE_MATRIX_MEMORY_RULES,
 )
 from loom.target.arch.spirv.contracts.descriptor_rule import (
@@ -1340,6 +1342,7 @@ SPIRV_LOGICAL_CORE_CONTRACT_FRAGMENT = ContractFragment(
     name="spirv.logical.core",
     descriptor_set=SPIRV_LOGICAL_CORE_DESCRIPTOR_SET,
     public_header="loom/target/arch/spirv/contracts/logical_core.h",
+    materializers=(COOPERATIVE_INITIALIZER_MATERIALIZER,),
     cases=(
         *_scalar_constant_rules(),
         *SPIRV_INDEX_CONVERSION_RULES,
@@ -1371,6 +1374,7 @@ SPIRV_LOGICAL_CORE_CONTRACT_FRAGMENT = ContractFragment(
         *SPIRV_SUBGROUP_CONTRACT_CASES,
         *_control_barrier_rules(),
         *COOPERATIVE_MATRIX_MEMORY_RULES,
+        *COOPERATIVE_MATRIX_INITIALIZER_RULES,
         DescriptorMatrixRule(
             source_op=vector.vector_mma,
             source="vector_mma",

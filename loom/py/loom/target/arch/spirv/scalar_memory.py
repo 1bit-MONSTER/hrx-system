@@ -27,7 +27,7 @@ class StorageBufferScalar:
         return feature_bits_value(self.feature_atoms)
 
     @property
-    def workgroup_feature_bits(self) -> int:
+    def register_feature_bits(self) -> int:
         return feature_bits_value(
             atom
             for atom in self.feature_atoms

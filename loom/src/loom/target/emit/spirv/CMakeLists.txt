@@ -353,6 +353,8 @@ loom_check_test_suite(
     "test/scalar_abi.loom-test"
     "test/scalar_operations.loom-test"
     "test/schedule_scopes.loom-test"
+    "test/source_low/cooperative_initializer_diagnostics.loom-test"
+    "test/source_low/cooperative_initializers.loom-test"
     "test/source_low/numeric_bfloat_narrow.loom-test"
     "test/source_low/numeric_bfloat_widen.loom-test"
     "test/source_low/numeric_float_narrow.loom-test"

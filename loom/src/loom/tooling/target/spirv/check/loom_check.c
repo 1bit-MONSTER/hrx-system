@@ -10,7 +10,10 @@
 
 #include "loom/target/tool/spirv.h"
 #include "loom/tools/loom-check/compile.h"
+#include "loom/tools/loom-check/compile_diagnostics.h"
 #include "loom/tools/loom-check/requirements.h"
+#include "loomc/iree.h"
+#include "loomc/target/spirv/profile.h"
 
 typedef struct loom_spirv_loom_check_emit_request_t {
   // Whether to lower source IR to Low before SPIR-V emission.
@@ -23,6 +26,8 @@ typedef struct loom_spirv_loom_check_emit_request_t {
   iree_string_view_t function_name;
   // Complete family:selector target spelling when the TARGET flag is present.
   iree_string_view_t target_specification;
+  // Comma-separated public feature names; a leading '-' records a false fact.
+  iree_string_view_t features;
 } loom_spirv_loom_check_emit_request_t;
 
 static bool loom_spirv_loom_check_emit_provider_matches(
@@ -43,6 +48,7 @@ static iree_status_t loom_spirv_loom_check_parse_emit_request(
     LOOM_SPIRV_LOOM_CHECK_PARSE_OPTION_CONTROL_FLOW = 1u << 1,
     LOOM_SPIRV_LOOM_CHECK_PARSE_OPTION_TARGET = 1u << 2,
     LOOM_SPIRV_LOOM_CHECK_PARSE_OPTION_VALIDATE = 1u << 3,
+    LOOM_SPIRV_LOOM_CHECK_PARSE_OPTION_FEATURES = 1u << 4,
   };
   uint32_t parse_options = 0;
   target_options = iree_string_view_trim(target_options);
@@ -74,11 +80,25 @@ static iree_status_t loom_spirv_loom_check_parse_emit_request(
     iree_string_view_t option_name = iree_string_view_empty();
     iree_string_view_t option_value = iree_string_view_empty();
     iree_string_view_split(token, '=', &option_name, &option_value);
+    if (iree_string_view_equal(option_name, IREE_SV("features"))) {
+      if (iree_any_bit_set(parse_options,
+                           LOOM_SPIRV_LOOM_CHECK_PARSE_OPTION_FEATURES) ||
+          iree_string_view_is_empty(option_value) ||
+          iree_string_view_ends_with(option_value, IREE_SV(","))) {
+        return iree_make_status(
+            IREE_STATUS_INVALID_ARGUMENT,
+            "spirv-dis requires one nonempty features list");
+      }
+      out_request->features = option_value;
+      parse_options |= LOOM_SPIRV_LOOM_CHECK_PARSE_OPTION_FEATURES;
+      continue;
+    }
     if (iree_string_view_equal(option_name, IREE_SV("target"))) {
       if (iree_any_bit_set(parse_options,
-                           LOOM_SPIRV_LOOM_CHECK_PARSE_OPTION_TARGET)) {
+                           LOOM_SPIRV_LOOM_CHECK_PARSE_OPTION_TARGET) ||
+          iree_string_view_is_empty(option_value)) {
         return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                                "duplicate spirv-dis option 'target'");
+                                "spirv-dis requires one nonempty target");
       }
       out_request->target_specification = option_value;
       parse_options |= LOOM_SPIRV_LOOM_CHECK_PARSE_OPTION_TARGET;
@@ -131,12 +151,13 @@ static iree_status_t loom_spirv_loom_check_parse_emit_request(
                             "unknown spirv-dis option '%.*s'", (int)token.size,
                             token.data);
   }
-  if (!iree_string_view_is_empty(out_request->function_name) &&
+  if ((!iree_string_view_is_empty(out_request->function_name) ||
+       !iree_string_view_is_empty(out_request->features)) &&
       !iree_any_bit_set(parse_options,
                         LOOM_SPIRV_LOOM_CHECK_PARSE_OPTION_TARGET)) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
-        "spirv-dis @function requires target=family:selector");
+        "spirv-dis @function or features requires target=family:selector");
   }
   if (!out_request->lower_source_to_low &&
       iree_any_bit_set(parse_options,
@@ -185,6 +206,126 @@ static iree_status_t loom_spirv_loom_check_strip_disassembly_comments(
   return iree_ok_status();
 }
 
+// The checker spells feature IDs using their public enum suffixes. This table
+// belongs to fixture setup; production profiles use the typed LoomC API.
+#define LOOM_SPIRV_CHECK_FEATURE(name) \
+  [LOOMC_SPIRV_FEATURE_##name] = IREE_SVL(#name)
+static const iree_string_view_t kFeatureNames[] = {
+    LOOM_SPIRV_CHECK_FEATURE(VULKAN_SHADER),
+    LOOM_SPIRV_CHECK_FEATURE(PHYSICAL_STORAGE_BUFFER),
+    LOOM_SPIRV_CHECK_FEATURE(FLOAT16),
+    LOOM_SPIRV_CHECK_FEATURE(FLOAT64),
+    LOOM_SPIRV_CHECK_FEATURE(INT8),
+    LOOM_SPIRV_CHECK_FEATURE(INT16),
+    LOOM_SPIRV_CHECK_FEATURE(STORAGE_BUFFER_8BIT_ACCESS),
+    LOOM_SPIRV_CHECK_FEATURE(STORAGE_BUFFER_16BIT_ACCESS),
+    LOOM_SPIRV_CHECK_FEATURE(COOPERATIVE_VECTOR_NV),
+    LOOM_SPIRV_CHECK_FEATURE(COOPERATIVE_VECTOR_TRAINING_NV),
+    LOOM_SPIRV_CHECK_FEATURE(COOPERATIVE_MATRIX_KHR),
+    LOOM_SPIRV_CHECK_FEATURE(BFLOAT16_TYPE_KHR),
+    LOOM_SPIRV_CHECK_FEATURE(BFLOAT16_DOT_PRODUCT_KHR),
+    LOOM_SPIRV_CHECK_FEATURE(BFLOAT16_COOPERATIVE_MATRIX_KHR),
+    LOOM_SPIRV_CHECK_FEATURE(INT64),
+    LOOM_SPIRV_CHECK_FEATURE(GROUP_NON_UNIFORM),
+    LOOM_SPIRV_CHECK_FEATURE(VULKAN_MEMORY_MODEL_DEVICE_SCOPE),
+    LOOM_SPIRV_CHECK_FEATURE(STORAGE_BUFFER_INT64_ATOMICS),
+    LOOM_SPIRV_CHECK_FEATURE(WORKGROUP_INT64_ATOMICS),
+    LOOM_SPIRV_CHECK_FEATURE(STORAGE_BUFFER_FLOAT16_ATOMICS),
+    LOOM_SPIRV_CHECK_FEATURE(WORKGROUP_FLOAT16_ATOMICS),
+    LOOM_SPIRV_CHECK_FEATURE(STORAGE_BUFFER_FLOAT16_ATOMIC_ADD),
+    LOOM_SPIRV_CHECK_FEATURE(WORKGROUP_FLOAT16_ATOMIC_ADD),
+    LOOM_SPIRV_CHECK_FEATURE(STORAGE_BUFFER_FLOAT32_ATOMICS),
+    LOOM_SPIRV_CHECK_FEATURE(WORKGROUP_FLOAT32_ATOMICS),
+    LOOM_SPIRV_CHECK_FEATURE(STORAGE_BUFFER_FLOAT32_ATOMIC_ADD),
+    LOOM_SPIRV_CHECK_FEATURE(WORKGROUP_FLOAT32_ATOMIC_ADD),
+    LOOM_SPIRV_CHECK_FEATURE(STORAGE_BUFFER_FLOAT64_ATOMICS),
+    LOOM_SPIRV_CHECK_FEATURE(WORKGROUP_FLOAT64_ATOMICS),
+    LOOM_SPIRV_CHECK_FEATURE(STORAGE_BUFFER_FLOAT64_ATOMIC_ADD),
+    LOOM_SPIRV_CHECK_FEATURE(WORKGROUP_FLOAT64_ATOMIC_ADD),
+    LOOM_SPIRV_CHECK_FEATURE(FLOAT32_DENORM_PRESERVE),
+    LOOM_SPIRV_CHECK_FEATURE(GROUP_NON_UNIFORM_BALLOT),
+    LOOM_SPIRV_CHECK_FEATURE(FLOAT16_64_DENORM_PRESERVE),
+    LOOM_SPIRV_CHECK_FEATURE(FLOAT16_64_ROUNDING_RTE),
+    LOOM_SPIRV_CHECK_FEATURE(FLOAT32_ROUNDING_RTE),
+    LOOM_SPIRV_CHECK_FEATURE(FLOAT16_SIGNED_ZERO_INF_NAN_PRESERVE),
+    LOOM_SPIRV_CHECK_FEATURE(FLOAT32_SIGNED_ZERO_INF_NAN_PRESERVE),
+    LOOM_SPIRV_CHECK_FEATURE(FLOAT64_SIGNED_ZERO_INF_NAN_PRESERVE),
+    LOOM_SPIRV_CHECK_FEATURE(FLOAT64_TO_FLOAT16_CONVERSION),
+    LOOM_SPIRV_CHECK_FEATURE(GROUP_NON_UNIFORM_VOTE),
+    LOOM_SPIRV_CHECK_FEATURE(GROUP_NON_UNIFORM_ARITHMETIC),
+    LOOM_SPIRV_CHECK_FEATURE(GROUP_NON_UNIFORM_CLUSTERED),
+    LOOM_SPIRV_CHECK_FEATURE(SUBGROUP_EXTENDED_TYPES),
+};
+#undef LOOM_SPIRV_CHECK_FEATURE
+static_assert(IREE_ARRAYSIZE(kFeatureNames) == LOOMC_SPIRV_FEATURE_COUNT,
+              "all public SPIR-V feature IDs need checker spellings");
+
+static iree_status_t loom_spirv_loom_check_select_profile(
+    const loom_check_emit_provider_request_t* request,
+    const loom_spirv_loom_check_emit_request_t* emit_request,
+    loomc_target_profile_t** out_profile) {
+  *out_profile = NULL;
+  if (iree_string_view_is_empty(emit_request->target_specification)) {
+    return iree_ok_status();
+  }
+
+  loomc_spirv_feature_fact_t facts[LOOMC_SPIRV_FEATURE_COUNT] = {0};
+  bool seen[LOOMC_SPIRV_FEATURE_COUNT] = {false};
+  iree_host_size_t fact_count = 0;
+  iree_string_view_t remaining = emit_request->features;
+  while (!iree_string_view_is_empty(remaining)) {
+    iree_string_view_t name;
+    iree_string_view_split(remaining, ',', &name, &remaining);
+    const bool enabled = !iree_string_view_consume_prefix(&name, IREE_SV("-"));
+    uint32_t feature = 1;
+    for (; feature < IREE_ARRAYSIZE(kFeatureNames); ++feature) {
+      if (iree_string_view_equal(name, kFeatureNames[feature])) {
+        break;
+      }
+    }
+    if (feature == IREE_ARRAYSIZE(kFeatureNames) || seen[feature]) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "unknown or duplicate SPIR-V feature '%.*s'",
+                              (int)name.size, name.data);
+    }
+    seen[feature] = true;
+    facts[fact_count++] = (loomc_spirv_feature_fact_t){
+        .feature = (loomc_spirv_feature_t)feature,
+        .state = enabled ? LOOMC_TARGET_FACT_STATE_TRUE
+                         : LOOMC_TARGET_FACT_STATE_FALSE,
+        .provenance = loomc_make_cstring_view("spirv-dis features option"),
+    };
+  }
+
+  loomc_target_profile_t* base_profile = NULL;
+  IREE_RETURN_IF_ERROR(loom_check_compile_session_select_target_profile(
+      request->environment->compile_session, emit_request->target_specification,
+      &base_profile));
+  if (!fact_count) {
+    *out_profile = base_profile;
+    return iree_ok_status();
+  }
+  const loomc_spirv_profile_options_t profile_options = {
+      .type = LOOMC_STRUCTURE_TYPE_SPIRV_PROFILE_OPTIONS,
+      .structure_size = sizeof(profile_options),
+      .feature_facts = facts,
+      .feature_fact_count = fact_count,
+  };
+  loomc_result_t* result = NULL;
+  iree_status_t status =
+      iree_status_from_loomc(loomc_spirv_target_profile_refine(
+          base_profile, &profile_options,
+          loomc_allocator_from_iree(request->host_allocator), out_profile,
+          &result));
+  if (iree_status_is_ok(status)) {
+    status = loom_check_compile_append_result_diagnostics(
+        request->diagnostic_collector, result);
+  }
+  loomc_result_release(result);
+  loomc_target_profile_release(base_profile);
+  return status;
+}
+
 static iree_status_t loom_spirv_loom_check_emit_provider_execute(
     const loom_check_emit_provider_t* provider,
     const loom_check_emit_provider_request_t* request) {
@@ -192,17 +333,24 @@ static iree_status_t loom_spirv_loom_check_emit_provider_execute(
   IREE_RETURN_IF_ERROR(loom_spirv_loom_check_parse_emit_request(
       request->target_options, &emit_request));
 
+  loomc_target_profile_t* target_profile = NULL;
+  iree_status_t status = loom_spirv_loom_check_select_profile(
+      request, &emit_request, &target_profile);
   const loom_check_compile_artifact_options_t compile_options = {
       .artifact_format = IREE_SV("spirv"),
       .root = emit_request.function_name,
-      .target = emit_request.target_specification,
+      .target_profile = target_profile,
       .lower_source_to_low = emit_request.lower_source_to_low,
       .control_flow_lowering = emit_request.control_flow_lowering,
   };
   loomc_source_t* artifact_source = NULL;
-  iree_status_t status =
-      loom_check_compile_artifact(request, &compile_options, &artifact_source,
-                                  /*out_report_source=*/NULL);
+  if (iree_status_is_ok(status) &&
+      (iree_string_view_is_empty(emit_request.target_specification) ||
+       target_profile != NULL)) {
+    status =
+        loom_check_compile_artifact(request, &compile_options, &artifact_source,
+                                    /*out_report_source=*/NULL);
+  }
 
   const loomc_byte_span_t source_contents =
       loomc_source_contents(artifact_source);
@@ -230,6 +378,7 @@ static iree_status_t loom_spirv_loom_check_emit_provider_execute(
 
   loom_tool_output_deinitialize(&disassembly, request->host_allocator);
   loomc_source_release(artifact_source);
+  loomc_target_profile_release(target_profile);
   return status;
 }
 

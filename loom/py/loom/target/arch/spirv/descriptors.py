@@ -45,6 +45,7 @@ from loom.target.arch.spirv.builtins import (
 )
 from loom.target.arch.spirv.cooperative_matrix import (
     COOPERATIVE_MATRIX_CASES,
+    COOPERATIVE_MATRIX_TYPES,
     CooperativeMatrixCase,
     cooperative_matrix_descriptor_key,
 )
@@ -1266,8 +1267,8 @@ def _access_chain_workgroup_descriptor(
             if coordinate == "byte_offset"
             else _id_operand(coordinate),
         ),
-        feature_mask_words=(scalar.workgroup_feature_bits,)
-        if scalar.workgroup_feature_bits
+        feature_mask_words=(scalar.register_feature_bits,)
+        if scalar.register_feature_bits
         else (),
         asm_forms=_asm(results=("ptr",), operands=("base", coordinate)),
         schedule_class=_SCHEDULE_VARIABLE,
@@ -1288,8 +1289,8 @@ def _load_workgroup_descriptor(scalar: StorageBufferScalar) -> Descriptor:
         semantic_tag=f"spirv.op_load.workgroup.{scalar.suffix}",
         operands=(_id_result(), _ptr_workgroup_scalar_operand(scalar, "ptr")),
         effects=(_workgroup_effect(EffectKind.READ, scalar),),
-        feature_mask_words=(scalar.workgroup_feature_bits,)
-        if scalar.workgroup_feature_bits
+        feature_mask_words=(scalar.register_feature_bits,)
+        if scalar.register_feature_bits
         else (),
         asm_forms=_asm(
             results=("dst",),
@@ -1311,8 +1312,8 @@ def _store_workgroup_descriptor(scalar: StorageBufferScalar) -> Descriptor:
             _id_operand("value"),
         ),
         effects=(_workgroup_effect(EffectKind.WRITE, scalar),),
-        feature_mask_words=(scalar.workgroup_feature_bits,)
-        if scalar.workgroup_feature_bits
+        feature_mask_words=(scalar.register_feature_bits,)
+        if scalar.register_feature_bits
         else (),
         asm_forms=_asm(operands=("ptr", "value")),
         schedule_class=_SCHEDULE_STORE,
@@ -1380,7 +1381,7 @@ def _cooperative_matrix_load_descriptor(
         "op_cooperative_matrix_load_khr", role=role, memory_space=memory_space
     )
     feature_bits = case.feature_bits | (
-        scalar.workgroup_feature_bits
+        scalar.register_feature_bits
         if memory_space == "workgroup"
         else scalar.feature_bits
     )
@@ -1422,7 +1423,7 @@ def _cooperative_matrix_store_descriptor(
         "op_cooperative_matrix_store_khr", role="result", memory_space=memory_space
     )
     feature_bits = case.feature_bits | (
-        scalar.workgroup_feature_bits
+        scalar.register_feature_bits
         if memory_space == "workgroup"
         else scalar.feature_bits
     )
@@ -1517,7 +1518,22 @@ def _cooperative_matrix_descriptors_for_case(
 
 
 def _cooperative_matrix_descriptors() -> tuple[Descriptor, ...]:
-    descriptors: list[Descriptor] = []
+    descriptors = [
+        Descriptor(
+            key=matrix_type.constructor_key,
+            mnemonic=matrix_type.constructor_key.replace(
+                "spirv.op_composite_construct", "OpCompositeConstruct"
+            ),
+            semantic_tag=matrix_type.constructor_key,
+            operands=(_id_result(), _id_operand("component")),
+            feature_mask_words=(matrix_type.feature_bits,),
+            effects=(Effect(EffectKind.CONVERGENT, flags=(EffectFlag.ORDERED,)),),
+            asm_forms=_asm(results=("dst",), operands=("component",)),
+            schedule_class=_SCHEDULE_ALU,
+            flags=(DescriptorFlag.DEAD_REMOVABLE,),
+        )
+        for matrix_type in COOPERATIVE_MATRIX_TYPES
+    ]
     for case in COOPERATIVE_MATRIX_CASES:
         descriptors.extend(_cooperative_matrix_descriptors_for_case(case))
     return tuple(descriptors)
