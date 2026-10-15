@@ -30,6 +30,13 @@ iree_status_t loom_serve_residency_cache_allocate(
 // All registered residencies must have been destroyed. Removes pressure policy.
 void loom_serve_residency_cache_free(loom_serve_residency_cache_t* cache);
 
+// Collects completed parameter releases on the serialized owner without
+// starting new release work. Call on native-capacity wakes before advancing
+// services, even when no cold activation is waiting. Native failure propagates
+// to the owner for ordinary draining. With no releases this is constant-time.
+iree_status_t loom_serve_residency_cache_query_status(
+    loom_serve_residency_cache_t* cache);
+
 // Best-effort trim toward total pool commitment of target_bytes. Pinned
 // parameters and model-owned mutable state survive. The pool statistics report
 // completed and releasing extents; only real platform failures return a failing

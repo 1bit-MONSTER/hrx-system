@@ -9,6 +9,7 @@
 #include <inttypes.h>
 
 #include "iree/base/internal/json.h"
+#include "loom/serve/runtime/parameter/residency.h"
 #include "loom/util/json.h"
 
 void loom_serve_resources_set_observer(const loom_serve_resources_t* resources,
@@ -35,11 +36,15 @@ iree_status_t loom_serve_resources_query_status(
   iree_status_t status = iree_ok_status();
   for (iree_host_size_t i = 0;
        i < loom_serve_device_group_count(resources->device_group); ++i) {
-    loom_serve_memory_pool_t* pool = loom_serve_device_memory_pool(
-        loom_serve_device_group_at(resources->device_group, i));
+    loom_serve_device_t* device =
+        loom_serve_device_group_at(resources->device_group, i);
+    loom_serve_memory_pool_t* pool = loom_serve_device_memory_pool(device);
     if (pool) {
       status =
           iree_status_join(status, loom_serve_memory_pool_query_status(pool));
+      status = iree_status_join(status,
+                                loom_serve_residency_cache_query_status(
+                                    loom_serve_device_residency_cache(device)));
     }
   }
   return status;

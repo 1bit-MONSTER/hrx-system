@@ -33,7 +33,8 @@ typedef struct loom_serve_resources_t {
 void loom_serve_resources_set_observer(const loom_serve_resources_t* resources,
                                        loom_serve_wake_callback_t observer);
 
-// Publishes completed native capacity work. A terminal platform failure stops
+// Publishes completed native capacity work and retires its parameter admission
+// interests before services advance. A terminal platform failure stops
 // admission and initiates ordinary draining; it never destroys shared owners.
 iree_status_t loom_serve_resources_query_status(
     const loom_serve_resources_t* resources);

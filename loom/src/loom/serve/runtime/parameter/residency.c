@@ -14,6 +14,8 @@ struct loom_serve_residency_cache_t {
   loom_serve_residency_t* oldest;
   // Most recently used registration.
   loom_serve_residency_t* newest;
+  // Registrations with a logical release interest awaiting owner collection.
+  iree_host_size_t releasing_count;
   // Explicit new-work interests after a physical weight-capacity denial.
   struct {
     // Oldest waiting service, retried by the shared host owner.
@@ -194,8 +196,30 @@ iree_status_t loom_serve_residency_deactivate(loom_serve_residency_t* residency,
   }
   if (iree_status_is_ok(status)) {
     residency->active = false;
+    if (residency->releasing && complete) {
+      --residency->cache->releasing_count;
+    } else if (!residency->releasing && !complete) {
+      ++residency->cache->releasing_count;
+    }
     residency->releasing = !complete;
     *out_complete = complete;
+  }
+  return status;
+}
+
+iree_status_t loom_serve_residency_cache_query_status(
+    loom_serve_residency_cache_t* cache) {
+  if (!cache->releasing_count) {
+    return iree_ok_status();
+  }
+  iree_status_t status = iree_ok_status();
+  for (loom_serve_residency_t* entry = cache->oldest; entry;
+       entry = entry->next) {
+    if (entry->releasing) {
+      bool complete = false;
+      status = iree_status_join(
+          status, loom_serve_residency_deactivate(entry, &complete));
+    }
   }
   return status;
 }
@@ -378,6 +402,9 @@ void loom_serve_residency_free(loom_serve_residency_t* residency) {
   }
   loom_serve_residency_cancel_admission(residency);
   loom_serve_residency_unlink(residency);
+  if (residency->releasing) {
+    --residency->cache->releasing_count;
+  }
   iree_allocator_free(residency->host_allocator, residency);
 }
 
@@ -393,13 +420,8 @@ iree_status_t loom_serve_residency_try_acquire(
   // Collect only before attempting admission. A release accepted during this
   // attempt remains a logical pending interest even if its callback wins the
   // race with the capacity-denial query that follows.
-  for (loom_serve_residency_t* entry = residency->cache->oldest; entry;
-       entry = entry->next) {
-    if (entry->releasing) {
-      bool complete = false;
-      IREE_RETURN_IF_ERROR(loom_serve_residency_deactivate(entry, &complete));
-    }
-  }
+  IREE_RETURN_IF_ERROR(
+      loom_serve_residency_cache_query_status(residency->cache));
   if (residency->releasing) {
     return iree_ok_status();
   }
@@ -435,6 +457,10 @@ iree_status_t loom_serve_residency_try_admit(
     loom_serve_residency_admission_t* out_admission) {
   *out_admission = LOOM_SERVE_RESIDENCY_ADMISSION_CAPACITY;
   loom_serve_residency_cache_t* cache = residency->cache;
+  // Mutable-state denial may follow even a warm parameter acquisition. Retire
+  // completed peer releases before that attempt so its backpressure cannot
+  // wait on logical interest whose native completion wake already happened.
+  IREE_RETURN_IF_ERROR(loom_serve_residency_cache_query_status(cache));
   if (cache->admission.first && cache->admission.first != residency &&
       loom_serve_residency_statistics(residency).reserved_bytes) {
     loom_serve_residency_queue_admission(residency);

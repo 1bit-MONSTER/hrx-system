@@ -1267,6 +1267,56 @@ TEST_P(WeightsTest, NewAdmissionsCoexistWithoutPhysicalPressure) {
   }
 }
 
+TEST_P(WeightsTest, WarmAdmissionCollectsCompletedPeerRelease) {
+  if (!GetParam()) {
+    return;
+  }
+  for (iree_host_size_t i = 0; i < 2; ++i) {
+    IREE_ASSERT_OK(Compile(i, "target"));
+    const auto root = Root(i, 0);
+    IREE_ASSERT_OK(CreateRoots(0, 1, &root, {path_.path()}));
+    IREE_ASSERT_OK(Register(i, i, 1));
+    ASSERT_NO_FATAL_FAILURE(RunPinned(i, 70));
+  }
+  IREE_ASSERT_OK(loom_serve_residency_acquire(residencies_[0]));
+  IREE_ASSERT_OK(loom_serve_virtual_buffer_allocate(
+      pool_, 2 * kSlabBytes, 256, &state_statistics_, &state_));
+  auto* cache = loom_serve_device_residency_cache(device_owner_);
+  bool admitted = false;
+  const loom_serve_memory_range_t first = {state_, 0, kSlabBytes};
+  {
+    loom_serve::testing::MaintenanceGate gate(
+        loom_serve_device_storage_pool(device_owner_)->maintenance);
+    IREE_ASSERT_OK(
+        loom_serve_memory_pool_try_commit(pool_, 1, &first, &admitted));
+    EXPECT_FALSE(admitted);
+    IREE_ASSERT_OK(loom_serve_residency_cache_query_status(cache));
+    EXPECT_TRUE(loom_serve_residency_cache_is_reclaiming(cache));
+    EXPECT_EQ(loom_serve_weights_statistics(plans_[1]).releasing_bytes,
+              kSlabBytes);
+  }
+  IREE_ASSERT_OK(loom_serve_memory_pool_await(pool_));
+  IREE_ASSERT_OK(
+      loom_serve_memory_pool_try_commit(pool_, 1, &first, &admitted));
+  ASSERT_TRUE(admitted);
+  // A warm admission must retire the peer's logical release interest too.
+  // The following state denial has no pending work that could wake a retry.
+  loom_serve_residency_admission_t admission;
+  IREE_ASSERT_OK(loom_serve_residency_try_admit(residencies_[0], &admission));
+  EXPECT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_ACQUIRED);
+  const loom_serve_memory_range_t both = {state_, 0, 2 * kSlabBytes};
+  IREE_ASSERT_OK(loom_serve_memory_pool_try_commit(pool_, 1, &both, &admitted));
+  EXPECT_FALSE(admitted);
+  EXPECT_FALSE(loom_serve_memory_pool_is_pending(pool_));
+  EXPECT_FALSE(loom_serve_residency_cache_is_reclaiming(cache));
+  IREE_ASSERT_OK(loom_serve_residency_cache_query_status(cache));
+  EXPECT_EQ(loom_serve_residency_snapshot(residencies_[0]).pin_count, 2u);
+  EXPECT_EQ(loom_serve_weights_activity(plans_[1]).deactivations, 1u);
+  ASSERT_NO_FATAL_FAILURE(Run(0, 70));
+  loom_serve_residency_release(residencies_[0]);
+  loom_serve_residency_release(residencies_[0]);
+}
+
 TEST_P(WeightsTest, PinnedWeightsDeferIdleCacheReclamationUntilItCanHelp) {
   if (!GetParam()) {
     return;

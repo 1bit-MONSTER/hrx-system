@@ -73,6 +73,7 @@ loom_cc_library(
     iree::hal
     loom::serve::runtime::device
     loom::serve::runtime::host::wake
+    loom::serve::runtime::parameter::residency
     loom::serve::runtime::storage::memory
     loom::serve::transport::http::listener
     loom::util::json
