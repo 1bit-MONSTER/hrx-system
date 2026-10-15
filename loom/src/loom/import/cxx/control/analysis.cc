@@ -87,11 +87,12 @@ unsigned ControlFlow::paths(cxx::StatementAST* statement) const {
   return found == paths_.end() ? unsigned(Fallthrough) : found->second;
 }
 
-ExitFlow ControlFlow::exits(cxx::StatementAST* statement, Path path) const {
+ExitFlow ControlFlow::exits(cxx::StatementAST* statement,
+                            unsigned selected_paths) const {
   auto outcomes = paths(statement);
-  return !(outcomes & path) ? ExitFlow::None
-         : outcomes == path ? ExitFlow::All
-                            : ExitFlow::Some;
+  return !(outcomes & selected_paths)    ? ExitFlow::None
+         : !(outcomes & ~selected_paths) ? ExitFlow::All
+                                         : ExitFlow::Some;
 }
 
 ExitFlow ControlFlow::returns(cxx::StatementAST* statement) const {
@@ -100,6 +101,14 @@ ExitFlow ControlFlow::returns(cxx::StatementAST* statement) const {
 
 ExitFlow ControlFlow::continues(cxx::StatementAST* statement) const {
   return exits(statement, Continue);
+}
+
+ExitFlow ControlFlow::breaks(cxx::StatementAST* statement) const {
+  return exits(statement, Break);
+}
+
+ExitFlow ControlFlow::iteration_exits(cxx::StatementAST* statement) const {
+  return exits(statement, Continue | Break);
 }
 
 bool ControlFlow::preVisit(cxx::AST* ast) {
@@ -172,6 +181,9 @@ unsigned ControlFlow::classify_paths(cxx::StatementAST* statement) const {
   if (cxx::ast_cast<cxx::ContinueStatementAST>(statement)) {
     return Continue;
   }
+  if (cxx::ast_cast<cxx::BreakStatementAST>(statement)) {
+    return Break;
+  }
   if (auto* compound = cxx::ast_cast<cxx::CompoundStatementAST>(statement)) {
     unsigned outcomes = Fallthrough;
     for (auto* child : cxx::ListView{compound->statementList}) {
@@ -197,7 +209,9 @@ unsigned ControlFlow::classify_paths(cxx::StatementAST* statement) const {
   } else if (auto* loop = cxx::ast_cast<cxx::DoStatementAST>(statement)) {
     auto body_paths = paths(loop->statement);
     return (body_paths & Return) |
-           (body_paths & (Fallthrough | Continue) ? unsigned(Fallthrough) : 0);
+           (body_paths & (Fallthrough | Continue | Break)
+                ? unsigned(Fallthrough)
+                : 0);
   }
   return Fallthrough | (paths(body) & Return);
 }
