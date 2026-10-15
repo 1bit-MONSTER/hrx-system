@@ -378,7 +378,11 @@ static iree_status_t loom_vector_packet_legalize_dynamic_snapshot(
                   source_chunk, &packet));
         }
         IREE_RETURN_IF_ERROR(loom_vector_packet_staging_store(
-            packetization, staging_views[group_index], &packet_slice, packet,
+            packetization, staging_views[group_index], &packet_slice,
+            (loom_vector_packet_value_t){
+                .vector = packet,
+                .scalar = LOOM_VALUE_ID_INVALID,
+            },
             snapshot_op));
       }
     }
@@ -418,11 +422,12 @@ static iree_status_t loom_vector_packet_legalize_dynamic_snapshot(
                                result_shape->chunk_lane_count),
     };
     for (uint32_t group_index = 0; group_index < group_count; ++group_index) {
+      loom_vector_packet_value_t result_packet = {0};
       IREE_RETURN_IF_ERROR(loom_vector_packet_staging_load(
           packetization, staging_views[group_index], staging_types[group_index],
-          &packet_slice, snapshot_op,
-          &result_packets[group_index * result_shape->chunk_count +
-                          chunk_index]));
+          &packet_slice, snapshot_op, &result_packet));
+      result_packets[group_index * result_shape->chunk_count + chunk_index] =
+          result_packet.vector;
     }
   }
 
@@ -703,7 +708,7 @@ iree_status_t loom_vector_packet_legalize_dynamic_slice(
     IREE_RETURN_IF_ERROR(loom_vector_packet_materialize(
         &packetization, source, &packet_slice, &packetized_source));
     if (consumer_branch_count == 0) {
-      result_packets[chunk_index] = packetized_source->packet;
+      result_packets[chunk_index] = packetized_source->packet.vector;
       continue;
     }
     for (uint32_t branch_index = 0; branch_index < consumer_branch_count;
@@ -714,7 +719,7 @@ iree_status_t loom_vector_packet_legalize_dynamic_slice(
           loom_vector_packet_materialize_dynamic_window_consumers(
               context, consumers + branch.consumer_start, branch.consumer_count,
               packet_slice.lane_count, consumer_materializer,
-              packetized_source->packet,
+              packetized_source->packet.vector,
               &result_packets[branch_index * result_shape.chunk_count +
                               chunk_index]));
     }
@@ -851,7 +856,7 @@ iree_status_t loom_vector_packet_legalize_table_lookup(
       loom_vector_packetized_value_t* packetized_indices = NULL;
       IREE_RETURN_IF_ERROR(loom_vector_packet_materialize(
           &packetization, indices, &slice, &packetized_indices));
-      packet_indices = packetized_indices->packet;
+      packet_indices = packetized_indices->packet.vector;
     } else {
       const int64_t static_offset = lane_offset;
       const loom_type_t packet_index_type =
@@ -1564,7 +1569,7 @@ iree_status_t loom_vector_packet_legalize_reduce(
       &packetization, input, &loop_slice, &packetized_input));
   loom_op_t* packet_reduce_op = NULL;
   IREE_RETURN_IF_ERROR(loom_vector_reduce_build(
-      builder, kind, fastmath_flags, packetized_input->packet,
+      builder, kind, fastmath_flags, packetized_input->packet.vector,
       loom_region_entry_arg_id(loom_scf_for_body(loop_op), 1), result_type,
       op->location, &packet_reduce_op));
   const loom_value_id_t next_accumulator =
@@ -1585,8 +1590,8 @@ iree_status_t loom_vector_packet_legalize_reduce(
         &packetization, input, &tail_slice, &packetized_input));
     loom_op_t* tail_reduce_op = NULL;
     IREE_RETURN_IF_ERROR(loom_vector_reduce_build(
-        builder, kind, fastmath_flags, packetized_input->packet, accumulator,
-        result_type, op->location, &tail_reduce_op));
+        builder, kind, fastmath_flags, packetized_input->packet.vector,
+        accumulator, result_type, op->location, &tail_reduce_op));
     accumulator = loom_vector_reduce_result(tail_reduce_op);
   }
 

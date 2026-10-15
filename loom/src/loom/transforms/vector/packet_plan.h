@@ -80,6 +80,13 @@ typedef enum loom_vector_packet_selection_flag_bits_e {
 } loom_vector_packet_selection_flag_bits_t;
 typedef uint8_t loom_vector_packet_selection_flags_t;
 
+typedef struct loom_vector_packet_value_t {
+  // Target-legal vector value for the materialized packet.
+  loom_value_id_t vector;
+  // Direct scalar value for a one-lane packet, or invalid when unavailable.
+  loom_value_id_t scalar;
+} loom_vector_packet_value_t;
+
 typedef struct loom_vector_packetized_value_t {
   // Original oversized source value represented by a native packet.
   loom_value_id_t source;
@@ -93,7 +100,7 @@ typedef struct loom_vector_packetized_value_t {
   // Authored packet tuple retained for snapshot materialization.
   loom_value_fact_vector_partition_t source_partition;
   // Native packet materialized for the current physical loop iteration.
-  loom_value_id_t packet;
+  loom_vector_packet_value_t packet;
 } loom_vector_packetized_value_t;
 
 // A 64-byte directory selects the first four bits without tree traversal.

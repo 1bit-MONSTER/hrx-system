@@ -1138,7 +1138,11 @@ static iree_status_t loom_vector_packet_record(
   packetization->values[value_index] = (loom_vector_packetized_value_t){
       .source = source,
       .source_type = source_type,
-      .packet = LOOM_VALUE_ID_INVALID,
+      .packet =
+          (loom_vector_packet_value_t){
+              .vector = LOOM_VALUE_ID_INVALID,
+              .scalar = LOOM_VALUE_ID_INVALID,
+          },
   };
   *index = value_index + 1u;
   return iree_ok_status();

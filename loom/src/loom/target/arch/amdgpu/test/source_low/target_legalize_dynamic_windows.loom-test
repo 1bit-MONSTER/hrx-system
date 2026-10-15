@@ -276,6 +276,7 @@ func.def target(@target) @store_streamed_wide_predicate_window(%source: buffer, 
   vector.store %156, %output_view[16] : vector<16xi8>, view<65xi8>
   vector.store %157, %output_view[32] : vector<16xi8>, view<65xi8>
   vector.store %158, %output_view[48] : vector<16xi8>, view<65xi8>
-  vector.store %145, %output_view[64] : vector<1xi8>, view<65xi8>
+  %167 = vector.extract %145[0] : vector<1xi8> -> i8
+  view.store %167, %output_view[64] : i8, view<65xi8>
   func.return
 }
