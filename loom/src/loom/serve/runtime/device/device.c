@@ -127,7 +127,7 @@ static iree_status_t loom_serve_device_initialize(
   // workspace slabs, including reusable idle slabs. Elastic VMM weights/state
   // are accounted separately by memory_pool, not by this native provider.
   const iree_hal_slab_pool_options_t storage_options = {
-      .trace_name = IREE_SVL("loom_serve_storage_backing"),
+      .trace_name = IREE_SVL("loom-serve-storage-backing"),
   };
   IREE_RETURN_IF_ERROR(
       iree_hal_slab_pool_create(group->handle, scope, &storage_options,
