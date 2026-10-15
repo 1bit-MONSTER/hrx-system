@@ -17,11 +17,11 @@ low.kernel.def target<spirv.logical.core>(@hal_target_coop_f16) workgroup_size(3
   %input_stride = OpUConvert.offset64.u32 %input_stride_offset
   %output_stride_offset = OpConstant.offset64 16
   %output_stride = OpUConvert.offset64.u32 %output_stride_offset
-  %lhs = OpCooperativeMatrixLoadKHR.lhs.f16.16x16x16.f32.subgroup.storage_buffer %lhs_view, %input_stride, 0
-  %rhs = OpCooperativeMatrixLoadKHR.rhs.f16.16x16x16.f32.subgroup.storage_buffer %rhs_view, %output_stride, 0
-  %init = OpCooperativeMatrixLoadKHR.init.f16.16x16x16.f32.subgroup.storage_buffer %init_view, %output_stride, 0
+  %lhs = OpCooperativeMatrixLoadKHR.lhs.f16.16x16.subgroup.storage_buffer %lhs_view, %input_stride, 0
+  %rhs = OpCooperativeMatrixLoadKHR.rhs.f16.16x16.subgroup.storage_buffer %rhs_view, %output_stride, 0
+  %init = OpCooperativeMatrixLoadKHR.init.f32.16x16.subgroup.storage_buffer %init_view, %output_stride, 0
   %result = OpCooperativeMatrixMulAddKHR.f16.16x16x16.f32.subgroup %lhs, %rhs, %init
-  OpCooperativeMatrixStoreKHR.result.f16.16x16x16.f32.subgroup.storage_buffer %out_view, %result, %output_stride, 0
+  OpCooperativeMatrixStoreKHR.result.f32.16x16.subgroup.storage_buffer %out_view, %result, %output_stride, 0
   return
 }
 
@@ -176,11 +176,11 @@ low.kernel.def target<spirv.logical.core>(@hal_target_coop_s8) workgroup_size(32
   %input_stride = OpUConvert.offset64.u32 %input_stride_offset
   %output_stride_offset = OpConstant.offset64 16
   %output_stride = OpUConvert.offset64.u32 %output_stride_offset
-  %lhs = OpCooperativeMatrixLoadKHR.lhs.s8.16x16x32.s32.subgroup.storage_buffer %lhs_view, %input_stride, 0
-  %rhs = OpCooperativeMatrixLoadKHR.rhs.s8.16x16x32.s32.subgroup.storage_buffer %rhs_view, %output_stride, 0
-  %init = OpCooperativeMatrixLoadKHR.init.s8.16x16x32.s32.subgroup.storage_buffer %init_view, %output_stride, 0
+  %lhs = OpCooperativeMatrixLoadKHR.lhs.i8.16x32.subgroup.storage_buffer %lhs_view, %input_stride, 0
+  %rhs = OpCooperativeMatrixLoadKHR.rhs.i8.32x16.subgroup.storage_buffer %rhs_view, %output_stride, 0
+  %init = OpCooperativeMatrixLoadKHR.init.i32.16x16.subgroup.storage_buffer %init_view, %output_stride, 0
   %result = OpCooperativeMatrixMulAddKHR.s8.16x16x32.s32.subgroup.signed_saturating %lhs, %rhs, %init
-  OpCooperativeMatrixStoreKHR.result.s8.16x16x32.s32.subgroup.storage_buffer %out_view, %result, %output_stride, 0
+  OpCooperativeMatrixStoreKHR.result.i32.16x16.subgroup.storage_buffer %out_view, %result, %output_stride, 0
   return
 }
 
@@ -335,11 +335,11 @@ low.kernel.def target<spirv.logical.core>(@hal_target_coop_u8) workgroup_size(32
   %input_stride = OpUConvert.offset64.u32 %input_stride_offset
   %output_stride_offset = OpConstant.offset64 16
   %output_stride = OpUConvert.offset64.u32 %output_stride_offset
-  %lhs = OpCooperativeMatrixLoadKHR.lhs.u8.16x16x32.u32.subgroup.storage_buffer %lhs_view, %input_stride, 0
-  %rhs = OpCooperativeMatrixLoadKHR.rhs.u8.16x16x32.u32.subgroup.storage_buffer %rhs_view, %output_stride, 0
-  %init = OpCooperativeMatrixLoadKHR.init.u8.16x16x32.u32.subgroup.storage_buffer %init_view, %output_stride, 0
+  %lhs = OpCooperativeMatrixLoadKHR.lhs.u8.16x32.subgroup.storage_buffer %lhs_view, %input_stride, 0
+  %rhs = OpCooperativeMatrixLoadKHR.rhs.u8.32x16.subgroup.storage_buffer %rhs_view, %output_stride, 0
+  %init = OpCooperativeMatrixLoadKHR.init.u32.16x16.subgroup.storage_buffer %init_view, %output_stride, 0
   %result = OpCooperativeMatrixMulAddKHR.u8.16x16x32.u32.subgroup %lhs, %rhs, %init
-  OpCooperativeMatrixStoreKHR.result.u8.16x16x32.u32.subgroup.storage_buffer %out_view, %result, %output_stride, 0
+  OpCooperativeMatrixStoreKHR.result.u32.16x16.subgroup.storage_buffer %out_view, %result, %output_stride, 0
   return
 }
 
@@ -494,11 +494,11 @@ low.kernel.def target<spirv.logical.core>(@hal_target_coop_bf16) workgroup_size(
   %input_stride = OpUConvert.offset64.u32 %input_stride_offset
   %output_stride_offset = OpConstant.offset64 16
   %output_stride = OpUConvert.offset64.u32 %output_stride_offset
-  %lhs = OpCooperativeMatrixLoadKHR.lhs.bf16.16x16x16.f32.subgroup.storage_buffer %lhs_view, %input_stride, 0
-  %rhs = OpCooperativeMatrixLoadKHR.rhs.bf16.16x16x16.f32.subgroup.storage_buffer %rhs_view, %output_stride, 0
-  %init = OpCooperativeMatrixLoadKHR.init.bf16.16x16x16.f32.subgroup.storage_buffer %init_view, %output_stride, 0
+  %lhs = OpCooperativeMatrixLoadKHR.lhs.bf16.16x16.subgroup.storage_buffer %lhs_view, %input_stride, 0
+  %rhs = OpCooperativeMatrixLoadKHR.rhs.bf16.16x16.subgroup.storage_buffer %rhs_view, %output_stride, 0
+  %init = OpCooperativeMatrixLoadKHR.init.f32.16x16.subgroup.storage_buffer %init_view, %output_stride, 0
   %result = OpCooperativeMatrixMulAddKHR.bf16.16x16x16.f32.subgroup %lhs, %rhs, %init
-  OpCooperativeMatrixStoreKHR.result.bf16.16x16x16.f32.subgroup.storage_buffer %out_view, %result, %output_stride, 0
+  OpCooperativeMatrixStoreKHR.result.f32.16x16.subgroup.storage_buffer %out_view, %result, %output_stride, 0
   return
 }
 

@@ -39,7 +39,6 @@ from loom.target.arch.spirv.builtins import (
     BUILTIN_SCALAR_INDEX_QUERIES,
 )
 from loom.target.arch.spirv.cooperative_matrix import (
-    COOPERATIVE_MATRIX_CASES,
     COOPERATIVE_MATRIX_TYPES,
     cooperative_matrix_memory_variants,
 )
@@ -325,30 +324,21 @@ def test_generation_emits_complete_float_constant_packet_rows() -> None:
 
 def test_cooperative_matrix_memory_packets_preserve_runtime_stride() -> None:
     rows = {row.descriptor_key: row for row in _packet_rows()}
-    for case in COOPERATIVE_MATRIX_CASES:
-        for role, scalar in (
-            ("lhs", case.lhs_scalar),
-            ("rhs", case.rhs_scalar),
-            ("init", case.accumulator_scalar),
-            ("result", case.result_scalar),
-        ):
+    for matrix_type in COOPERATIVE_MATRIX_TYPES:
+        scalar = matrix_type.scalar
+        for role in matrix_type.source_roles:
             for memory in cooperative_matrix_memory_variants(scalar):
                 is_load = role != "result"
-                row = rows[
-                    case.descriptor_key(
-                        "op_cooperative_matrix_load_khr" if is_load else "op_cooperative_matrix_store_khr",
-                        role=role,
-                        memory_space=memory.descriptor_suffix,
-                    )
-                ]
+                row = rows[matrix_type.memory_key(role, memory)]
                 assert row.form == ("LOOM_SPIRV_PACKET_FORM_COOPERATIVE_MATRIX_LOAD" if is_load else "LOOM_SPIRV_PACKET_FORM_COOPERATIVE_MATRIX_STORE")
                 assert len(row.operand_types) == (2 if is_load else 3)
                 pointer_class = "PTR_WORKGROUP" if memory.space == "workgroup" else "PTR_PHYSICAL_STORAGE_BUFFER"
                 assert f"LOOM_SPIRV_VALUE_CLASS_{pointer_class}" in row.operand_types[0]
                 assert memory.carrier.scalar_enum in row.operand_types[0]
-                matrix_type = row.result_type if is_load else row.operand_types[1]
-                assert "LOOM_SPIRV_VALUE_CLASS_COOPERATIVE_MATRIX" in matrix_type
-                assert scalar.scalar_enum in matrix_type
+                value_type = row.result_type if is_load else row.operand_types[1]
+                assert "LOOM_SPIRV_VALUE_CLASS_COOPERATIVE_MATRIX" in value_type
+                assert scalar.scalar_enum in value_type
+                assert matrix_type.use_c_expression in value_type
                 assert "LOOM_SPIRV_VALUE_CLASS_SCALAR" in row.operand_types[-1]
                 assert "LOOM_SPIRV_SCALAR_TYPE_U32" in row.operand_types[-1]
                 assert row.memory_alignment == 16

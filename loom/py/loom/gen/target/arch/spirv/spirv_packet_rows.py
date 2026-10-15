@@ -710,8 +710,7 @@ def _workgroup_rows() -> list[_PacketRow]:
     return rows
 
 
-def _cooperative_matrix_rows_for_case(case: CooperativeMatrixCase) -> list[_PacketRow]:
-    stride_type = _value_type("LOOM_SPIRV_VALUE_CLASS_SCALAR", "LOOM_SPIRV_SCALAR_TYPE_U32")
+def _cooperative_matrix_mul_add_row(case: CooperativeMatrixCase) -> _PacketRow:
     lhs_scalar = case.lhs_scalar
     rhs_scalar = case.rhs_scalar
     accumulator_scalar = case.accumulator_scalar
@@ -740,68 +739,52 @@ def _cooperative_matrix_rows_for_case(case: CooperativeMatrixCase) -> list[_Pack
         columns=case.accumulator_columns,
         matrix_use="LOOM_SPIRV_COOPERATIVE_MATRIX_USE_MATRIX_ACCUMULATOR_KHR",
     )
-    rows = []
-    for role, scalar, value in (
-        ("lhs", lhs_scalar, lhs_value),
-        ("rhs", rhs_scalar, rhs_value),
-        ("init", accumulator_scalar, accumulator_value),
-    ):
-        for memory in cooperative_matrix_memory_variants(scalar):
-            pointer_type = _workgroup_pointer_value if memory.space == "workgroup" else _physical_storage_buffer_pointer_value
-            rows.append(
-                _PacketRow(
-                    case.descriptor_key("op_cooperative_matrix_load_khr", role=role, memory_space=memory.descriptor_suffix),
-                    opcode="LOOM_SPIRV_OP_COOPERATIVE_MATRIX_LOAD_KHR",
-                    form="LOOM_SPIRV_PACKET_FORM_COOPERATIVE_MATRIX_LOAD",
-                    result_type=value,
-                    operand_types=(pointer_type(memory.carrier), stride_type),
-                    memory_alignment=16,
-                    has_immediate=True,
-                )
-            )
-    for memory in cooperative_matrix_memory_variants(result_scalar):
-        pointer_type = _workgroup_pointer_value if memory.space == "workgroup" else _physical_storage_buffer_pointer_value
-        rows.append(
-            _PacketRow(
-                case.descriptor_key("op_cooperative_matrix_store_khr", role="result", memory_space=memory.descriptor_suffix),
-                opcode="LOOM_SPIRV_OP_COOPERATIVE_MATRIX_STORE_KHR",
-                form="LOOM_SPIRV_PACKET_FORM_COOPERATIVE_MATRIX_STORE",
-                operand_types=(pointer_type(memory.carrier), result_value, stride_type),
-                memory_alignment=16,
-                has_immediate=True,
-            )
-        )
-    rows.append(
-        _PacketRow(
-            case.descriptor_key("op_cooperative_matrix_mul_add_khr", include_operand_mode=True),
-            opcode="LOOM_SPIRV_OP_COOPERATIVE_MATRIX_MUL_ADD_KHR",
-            form="LOOM_SPIRV_PACKET_FORM_COOPERATIVE_MATRIX_MUL_ADD",
-            result_type=result_value,
-            operand_types=(lhs_value, rhs_value, accumulator_value),
-            cooperative_matrix_operands=case.packet_operand_mask,
-        )
+    return _PacketRow(
+        case.descriptor_key("op_cooperative_matrix_mul_add_khr", include_operand_mode=True),
+        opcode="LOOM_SPIRV_OP_COOPERATIVE_MATRIX_MUL_ADD_KHR",
+        form="LOOM_SPIRV_PACKET_FORM_COOPERATIVE_MATRIX_MUL_ADD",
+        result_type=result_value,
+        operand_types=(lhs_value, rhs_value, accumulator_value),
+        cooperative_matrix_operands=case.packet_operand_mask,
     )
-    return rows
 
 
 def _cooperative_matrix_rows() -> list[_PacketRow]:
-    rows: list[_PacketRow] = [
-        _PacketRow(
-            matrix_type.constructor_key,
-            opcode="LOOM_SPIRV_OP_COMPOSITE_CONSTRUCT",
-            form="LOOM_SPIRV_PACKET_FORM_COMPOSITE_CONSTRUCT",
-            result_type=_cooperative_matrix_value(
-                scalar_enum=matrix_type.scalar.scalar_enum,
-                rows=matrix_type.rows,
-                columns=matrix_type.columns,
-                matrix_use=matrix_type.use_c_expression,
-            ),
-            operand_types=(_scalar_value(matrix_type.scalar),),
+    rows: list[_PacketRow] = []
+    stride_type = _value_type("LOOM_SPIRV_VALUE_CLASS_SCALAR", "LOOM_SPIRV_SCALAR_TYPE_U32")
+    for matrix_type in COOPERATIVE_MATRIX_TYPES:
+        value = _cooperative_matrix_value(
+            scalar_enum=matrix_type.scalar.scalar_enum,
+            rows=matrix_type.rows,
+            columns=matrix_type.columns,
+            matrix_use=matrix_type.use_c_expression,
         )
-        for matrix_type in COOPERATIVE_MATRIX_TYPES
-    ]
-    for case in COOPERATIVE_MATRIX_CASES:
-        rows.extend(_cooperative_matrix_rows_for_case(case))
+        rows.append(
+            _PacketRow(
+                matrix_type.constructor_key,
+                opcode="LOOM_SPIRV_OP_COMPOSITE_CONSTRUCT",
+                form="LOOM_SPIRV_PACKET_FORM_COMPOSITE_CONSTRUCT",
+                result_type=value,
+                operand_types=(_scalar_value(matrix_type.scalar),),
+            )
+        )
+        for role in matrix_type.source_roles:
+            is_load = role != "result"
+            for memory in cooperative_matrix_memory_variants(matrix_type.scalar):
+                pointer_type = _workgroup_pointer_value if memory.space == "workgroup" else _physical_storage_buffer_pointer_value
+                pointer = pointer_type(memory.carrier)
+                rows.append(
+                    _PacketRow(
+                        matrix_type.memory_key(role, memory),
+                        opcode="LOOM_SPIRV_OP_COOPERATIVE_MATRIX_LOAD_KHR" if is_load else "LOOM_SPIRV_OP_COOPERATIVE_MATRIX_STORE_KHR",
+                        form="LOOM_SPIRV_PACKET_FORM_COOPERATIVE_MATRIX_LOAD" if is_load else "LOOM_SPIRV_PACKET_FORM_COOPERATIVE_MATRIX_STORE",
+                        result_type=value if is_load else None,
+                        operand_types=(pointer, stride_type) if is_load else (pointer, value, stride_type),
+                        memory_alignment=16,
+                        has_immediate=True,
+                    )
+                )
+    rows.extend(_cooperative_matrix_mul_add_row(case) for case in COOPERATIVE_MATRIX_CASES)
     return rows
 
 
