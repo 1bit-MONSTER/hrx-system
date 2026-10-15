@@ -911,6 +911,18 @@ opcode and context lifetime together supply their native attribution. The
 sequence number belongs to the trace entry, not to an application submission.
 [Application-message fields][vtd-strix-trace-events]
 
+Driver and firmware context identities have separate lifetimes. The Linux SDK
+context-status query publishes the driver's `context_id` alongside the
+firmware's `hwctx_id`. That association is a snapshot: the driver can retain
+its context while destroying and recreating the firmware context during
+restart. A current mapping therefore cannot identify historical records after
+an ID has been reused. An application timeline needs the association valid at
+the event, together with the command protocol's identity or ordering rules;
+an opcode or recorder sequence alone supplies neither. Lost context-lifetime
+records also invalidate joins that depended on them.
+[Context status][linux-fw-context-status],
+[firmware context restart][linux-fw-context-restart]
+
 Nanosecond units do not establish nanosecond resolution, a CPU-clock epoch or
 a relation to the shim timer used by `RECORD_TIMER`. The AIE2 trace-start reply
 contains `current_timestamp`, but the cited Linux driver forwards only the
@@ -1086,6 +1098,8 @@ positions alone cannot identify every externally restarted recording.
 [linux-fw-trace-messages]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_msg_priv.h#L645-L689
 [linux-driver-version]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_drm.c#L30-L55
 [linux-fw-trace-features]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/npu4_regs.c#L94-L109
+[linux-fw-context-status]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_ctx_status.c#L49-L54
+[linux-fw-context-restart]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_ctx.c#L148-L181
 [firmware-trace-events]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/tools/bins/configs/trace_events.json
 [xrt-fw-trace-records]: https://github.com/Xilinx/XRT/blob/5a97d152f6dd93709406e8d7c0eac8bc8407f9f2/src/runtime_src/core/tools/xbutil2/EventTracing/EventTraceStrix.cpp#L231-L338
 [xrt-fw-trace-framing]: https://github.com/Xilinx/XRT/blob/15e6319be8de1e76a6150111a3861729e988fdb5/src/runtime_src/core/tools/xbutil2/EventTracing/EventTraceStrix.cpp#L308-L338
