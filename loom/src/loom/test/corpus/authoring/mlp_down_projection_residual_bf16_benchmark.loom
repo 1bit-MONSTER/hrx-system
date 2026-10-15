@@ -1,0 +1,20 @@
+kernel.decl @mlp_down_projection_residual_bf16(%workload_rows: index) launch(%launch_rows: index, %input: buffer, %down_weight: buffer, %residual: buffer, %output: buffer)
+
+// Retain both decode-like and full production projections for explicit
+// benchmarking without dispatching the production grid in ordinary tests.
+check.case public @mlp_down_projection_residual_benchmark_case {
+  %rows = check.param.choice values([2, 3584]) name("rows") : index
+  %input = check.generate.iota offset(-0.25) step(0.000244140625) : tensor<18944xf32>
+  %down_weight = check.generate.fill value(0.0) : tensor<[%rows]x18944xbf16>
+  %residual = check.generate.iota offset(-1.0) step(0.00048828125) : tensor<[%rows]xf32>
+  %output = check.generate.fill value(0.0) : tensor<[%rows]xf32>
+  kernel.launch @mlp_down_projection_residual_bf16[%rows](%rows, %input, %down_weight, %residual, %output) : [index](index, tensor<18944xf32>, tensor<[%rows]x18944xbf16>, tensor<[%rows]xf32>, tensor<[%rows]xf32>)
+  check.expect.close actual(%output) expected(%residual) atol(0.0) rtol(0.0) nan(same) : tensor<[%rows]xf32>
+  check.return
+}
+
+check.benchmark<@mlp_down_projection_residual_benchmark_case> @mlp_down_projection_residual
+
+check.benchmark<@mlp_down_projection_residual_benchmark_case> @mlp_down_projection_residual_decode {rows = 2}
+
+check.benchmark<@mlp_down_projection_residual_benchmark_case> @mlp_down_projection_residual_full {rows = 3584}
