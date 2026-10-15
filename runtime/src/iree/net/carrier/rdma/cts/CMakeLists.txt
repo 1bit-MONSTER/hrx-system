@@ -90,6 +90,8 @@ iree_cc_binary_benchmark(
     iree::net::rdma::region
     iree::net::rdma::test_context
     iree::third_party::google_benchmark
+  ARGS
+    "--benchmark_filter=^(TensorAllReduce/.*/ranks:2/tensor_bytes:8192/block_bytes:4096/window:1/rounds:32/|Pipeline/.*/stages:2/activation_bytes:8192/block_bytes:4096/window:1/microbatches:32/depth:1/)"
   TESTONLY
 )
 endif()
@@ -111,6 +113,8 @@ iree_cc_binary_benchmark(
     iree::net::rdma::region
     iree::net::rdma::test_context
     iree::third_party::google_benchmark
+  ARGS
+    "--benchmark_filter=^ExpertRoundTrip/.*/ranks:4/tokens:1/"
   TESTONLY
 )
 endif()
@@ -132,6 +136,8 @@ iree_cc_binary_benchmark(
     iree::net::rdma::region
     iree::net::rdma::test_context
     iree::third_party::google_benchmark
+  ARGS
+    "--benchmark_filter=^RetainedGather/.*/ranks:2/shard_bytes:8192/block_bytes:4096/window:1/depth:1/gathers:16/"
   TESTONLY
 )
 endif()
@@ -153,6 +159,8 @@ iree_cc_binary_benchmark(
     iree::net::rdma::region
     iree::net::rdma::test_context
     iree::third_party::google_benchmark
+  ARGS
+    "--benchmark_filter=^BidirectionalPipeline/.*/stages:2/activation_bytes:8192/gradient_bytes:4096/block_bytes:4096/window:1/depth:1/microbatches:16/"
   TESTONLY
 )
 endif()
@@ -248,6 +256,8 @@ iree_cc_binary_benchmark(
     iree::net::rdma::region
     iree::net::rdma::test_context
     iree::third_party::google_benchmark
+  ARGS
+    "--benchmark_filter=^CheckedTransfer/.*/peers:1/bytes:64/batch:32/window:128/sg:1/records:2048/"
   TESTONLY
 )
 endif()

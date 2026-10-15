@@ -61,6 +61,7 @@ iree_runtime_cc_library(
 
 iree_runtime_cc_benchmark(
     name = "collective_benchmarks",
+    args = ["--benchmark_filter=^(TensorAllReduce/.*/ranks:2/tensor_bytes:8192/block_bytes:4096/window:1/rounds:32/|Pipeline/.*/stages:2/activation_bytes:8192/block_bytes:4096/window:1/microbatches:32/depth:1/)"],
     target_compatible_with = RDMA_COMPATIBILITY,
     deps = [
         ":backend",
@@ -79,6 +80,7 @@ iree_runtime_cc_benchmark(
 
 iree_runtime_cc_benchmark(
     name = "expert_benchmarks",
+    args = ["--benchmark_filter=^ExpertRoundTrip/.*/ranks:4/tokens:1/"],
     target_compatible_with = RDMA_COMPATIBILITY,
     deps = [
         ":backend",
@@ -97,6 +99,7 @@ iree_runtime_cc_benchmark(
 
 iree_runtime_cc_benchmark(
     name = "gather_benchmarks",
+    args = ["--benchmark_filter=^RetainedGather/.*/ranks:2/shard_bytes:8192/block_bytes:4096/window:1/depth:1/gathers:16/"],
     target_compatible_with = RDMA_COMPATIBILITY,
     deps = [
         ":backend",
@@ -115,6 +118,7 @@ iree_runtime_cc_benchmark(
 
 iree_runtime_cc_benchmark(
     name = "pipeline_round_trip_benchmarks",
+    args = ["--benchmark_filter=^BidirectionalPipeline/.*/stages:2/activation_bytes:8192/gradient_bytes:4096/block_bytes:4096/window:1/depth:1/microbatches:16/"],
     target_compatible_with = RDMA_COMPATIBILITY,
     deps = [
         ":backend",
@@ -193,6 +197,7 @@ iree_executable_test(
 
 iree_runtime_cc_benchmark(
     name = "transfer_benchmarks",
+    args = ["--benchmark_filter=^CheckedTransfer/.*/peers:1/bytes:64/batch:32/window:128/sg:1/records:2048/"],
     target_compatible_with = RDMA_COMPATIBILITY,
     deps = [
         ":backend",
