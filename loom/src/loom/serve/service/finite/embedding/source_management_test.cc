@@ -442,5 +442,4 @@ TEST_F(SourceEmbeddingServiceTest,
   IREE_EXPECT_OK(http_.Join());
 }
 
-
 }  // namespace loom_serve::testing::embedding
