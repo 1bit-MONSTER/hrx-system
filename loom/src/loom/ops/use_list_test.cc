@@ -75,10 +75,11 @@ class UseListTest : public ::testing::Test {
   }
 
   void ExpectUses(loom_value_id_t value_id, uint32_t count,
-                  uint32_t ownership_count) {
+                  uint32_t ownership_count, uint32_t consuming_count = 0) {
     const loom_value_t* value = loom_module_value(module_, value_id);
     EXPECT_EQ(value->use_count, count);
     EXPECT_EQ(loom_value_ownership_use_count(value), ownership_count);
+    EXPECT_EQ(loom_value_consuming_use_count(value), consuming_count);
     const loom_use_t* uses = loom_value_uses(value);
     for (uint32_t i = 0; i < count; ++i) {
       loom_op_t* op = loom_use_user_op(uses[i]);
@@ -119,11 +120,11 @@ TEST_F(UseListTest, InlineOverflowAndRemovalPreserveOwnership) {
     ExpectUses(source, i + 2, 1);
   }
   loom_op_t* moved = Move(source);
-  ExpectUses(source, 10, 2);
+  ExpectUses(source, 10, 2, 1);
   IREE_ASSERT_OK(loom_op_erase(module_, reads[1]));
-  ExpectUses(source, 9, 2);
+  ExpectUses(source, 9, 2, 1);
   IREE_ASSERT_OK(loom_op_erase(module_, alias));
-  ExpectUses(source, 8, 1);
+  ExpectUses(source, 8, 1, 1);
   IREE_ASSERT_OK(loom_op_erase(module_, moved));
   ExpectUses(source, 7, 0);
   IREE_ASSERT_OK(loom_module_compute_uses(module_));
@@ -137,13 +138,13 @@ TEST_F(UseListTest, OperandReplacementCarriesClassification) {
     Borrow(source);
   }
   loom_op_t* moved = Move(source);
-  ExpectUses(source, 5, 1);
+  ExpectUses(source, 5, 1, 1);
   IREE_ASSERT_OK(loom_op_set_operand(module_, moved, 0, replacement));
   ExpectUses(source, 4, 0);
-  ExpectUses(replacement, 1, 1);
+  ExpectUses(replacement, 1, 1, 1);
   IREE_ASSERT_OK(loom_module_compute_uses(module_));
   ExpectUses(source, 4, 0);
-  ExpectUses(replacement, 1, 1);
+  ExpectUses(replacement, 1, 1, 1);
   IREE_ASSERT_OK(loom_op_erase(module_, moved));
   ExpectUses(replacement, 0, 0);
 }
@@ -156,13 +157,13 @@ TEST_F(UseListTest, FullReplacementTransfersInlineOwnershipIntoOverflow) {
   }
   Borrow(source);
   Move(source);
-  ExpectUses(source, 2, 1);
+  ExpectUses(source, 2, 1, 1);
   IREE_ASSERT_OK(
       loom_value_replace_all_uses_with(module_, source, replacement));
   ExpectUses(source, 0, 0);
-  ExpectUses(replacement, 5, 1);
+  ExpectUses(replacement, 5, 1, 1);
   IREE_ASSERT_OK(loom_module_compute_uses(module_));
-  ExpectUses(replacement, 5, 1);
+  ExpectUses(replacement, 5, 1, 1);
 }
 
 TEST_F(UseListTest, FilteredReplacementLeavesConsumptionWithItsValue) {
@@ -174,7 +175,7 @@ TEST_F(UseListTest, FilteredReplacementLeavesConsumptionWithItsValue) {
   loom_op_t* moved = Move(source);
   IREE_ASSERT_OK(
       loom_value_replace_all_uses_except(module_, source, replacement, moved));
-  ExpectUses(source, 1, 1);
+  ExpectUses(source, 1, 1, 1);
   ExpectUses(replacement, 4, 0);
   IREE_ASSERT_OK(loom_value_replace_uses_if(
       module_, source, replacement,
@@ -183,10 +184,10 @@ TEST_F(UseListTest, FilteredReplacementLeavesConsumptionWithItsValue) {
       },
       nullptr));
   ExpectUses(source, 0, 0);
-  ExpectUses(replacement, 5, 1);
+  ExpectUses(replacement, 5, 1, 1);
   IREE_ASSERT_OK(loom_module_compute_uses(module_));
   ExpectUses(source, 0, 0);
-  ExpectUses(replacement, 5, 1);
+  ExpectUses(replacement, 5, 1, 1);
 }
 
 TEST_F(UseListTest, SourceFactIdentityDoesNotConstrainStorageOwnership) {
@@ -226,7 +227,7 @@ TEST_F(UseListTest, DirectConsumptionHasNoResultDependency) {
   loom_op_t* consumer = nullptr;
   IREE_ASSERT_OK(loom_test_resource_consume_build(
       &builder_, source, LOOM_LOCATION_UNKNOWN, &consumer));
-  ExpectUses(source, 1, 1);
+  ExpectUses(source, 1, 1, 1);
   EXPECT_EQ(
       loom_use_flags(loom_value_uses(loom_module_value(module_, source))[0]),
       LOOM_USE_FLAG_CONSUMES);
@@ -244,7 +245,7 @@ TEST_F(UseListTest, EveryTerminalOwnershipEffectIsClassified) {
     const loom_value_id_t source = Allocate();
     loom_op_t* consumer = nullptr;
     IREE_ASSERT_OK(build(&builder_, source, LOOM_LOCATION_UNKNOWN, &consumer));
-    ExpectUses(source, 1, 1);
+    ExpectUses(source, 1, 1, 1);
     IREE_ASSERT_OK(loom_op_erase(module_, consumer));
     ExpectUses(source, 0, 0);
   }
@@ -256,9 +257,9 @@ TEST_F(UseListTest, PopulatingClearedOperandReclassifiesItsUse) {
   IREE_ASSERT_OK(loom_op_set_operand(module_, moved, 0, LOOM_VALUE_ID_INVALID));
   ExpectUses(source, 0, 0);
   IREE_ASSERT_OK(loom_op_set_operand(module_, moved, 0, source));
-  ExpectUses(source, 1, 1);
+  ExpectUses(source, 1, 1, 1);
   IREE_ASSERT_OK(loom_module_compute_uses(module_));
-  ExpectUses(source, 1, 1);
+  ExpectUses(source, 1, 1, 1);
 }
 
 TEST_F(UseListTest, FullReplacementTransfersOverflowOwnership) {
@@ -271,13 +272,13 @@ TEST_F(UseListTest, FullReplacementTransfersOverflowOwnership) {
   IREE_ASSERT_OK(loom_test_resource_alias_build(
       &builder_, source, ResourceType(), LOOM_LOCATION_UNKNOWN, &alias));
   Move(source);
-  ExpectUses(source, 11, 2);
+  ExpectUses(source, 11, 2, 1);
   IREE_ASSERT_OK(
       loom_value_replace_all_uses_with(module_, source, replacement));
   ExpectUses(source, 0, 0);
-  ExpectUses(replacement, 11, 2);
+  ExpectUses(replacement, 11, 2, 1);
   IREE_ASSERT_OK(loom_module_compute_uses(module_));
-  ExpectUses(replacement, 11, 2);
+  ExpectUses(replacement, 11, 2, 1);
 }
 
 TEST_F(UseListTest, ResultCompactionPreservesExplicitTieClassification) {
@@ -291,7 +292,7 @@ TEST_F(UseListTest, ResultCompactionPreservesExplicitTieClassification) {
   loom_op_t* sink = nullptr;
   IREE_ASSERT_OK(loom_test_signature_sink_build(
       &builder_, &source, 1, types, 2, &tie, 1, LOOM_LOCATION_UNKNOWN, &sink));
-  ExpectUses(source, 5, 1);
+  ExpectUses(source, 5, 1, 1);
   const bool remove[] = {true, false};
   uint16_t removed_count = 0;
   iree_arena_allocator_t scratch;
@@ -301,9 +302,9 @@ TEST_F(UseListTest, ResultCompactionPreservesExplicitTieClassification) {
   iree_arena_deinitialize(&scratch);
   EXPECT_EQ(removed_count, 1);
   EXPECT_EQ(loom_op_tied_results(sink)[0].result_index, 0);
-  ExpectUses(source, 5, 1);
+  ExpectUses(source, 5, 1, 1);
   IREE_ASSERT_OK(loom_module_compute_uses(module_));
-  ExpectUses(source, 5, 1);
+  ExpectUses(source, 5, 1, 1);
   IREE_ASSERT_OK(loom_op_erase(module_, sink));
   ExpectUses(source, 4, 0);
 }

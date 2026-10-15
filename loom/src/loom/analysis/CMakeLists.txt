@@ -659,7 +659,6 @@ loom_cc_library(
     "consumption.c"
   DEPS
     ::liveness
-    ::ownership
     iree::base
     iree::base::internal::arena
     loom::ir

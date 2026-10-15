@@ -8,7 +8,6 @@
 
 #include <string.h>
 
-#include "loom/analysis/consumption.h"
 #include "loom/codegen/low/allocation/live_range.h"
 #include "loom/codegen/low/allocation/storage.h"
 #include "loom/codegen/low/descriptor_traits.h"
@@ -178,8 +177,8 @@ static bool loom_low_rematerialization_inputs_remain_available(
     if (operand == tied_source_value_id) {
       continue;
     }
-    if (loom_consumption_find_consuming_use(
-            module, loom_module_value(module, operand), NULL)) {
+    if (loom_value_consuming_use_count(loom_module_value(module, operand)) !=
+        0) {
       return false;
     }
     *inout_has_required_external_input |=
@@ -332,7 +331,7 @@ static iree_status_t loom_low_rematerialization_prepare_value(
 
   const loom_value_t* value = loom_module_value(module, value_id);
   if (loom_value_is_block_arg(value) ||
-      loom_consumption_find_consuming_use(module, value, NULL) ||
+      loom_value_consuming_use_count(value) != 0 ||
       loom_value_has_attribute_uses(value) || value->use_count == 0 ||
       loom_module_value_has_type_uses(module, value_id)) {
     return iree_ok_status();

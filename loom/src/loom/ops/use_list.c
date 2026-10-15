@@ -17,6 +17,21 @@
 // reallocation. Values used more than 8 times get geometric growth.
 #define LOOM_USE_INITIAL_OVERFLOW_CAPACITY 8
 
+// Updates exact ownership summaries retained beside an overflow use list.
+static void loom_value_update_overflow_use_counts(loom_value_t* value,
+                                                  loom_use_flags_t old_flags,
+                                                  loom_use_flags_t new_flags) {
+  if (old_flags == new_flags || !loom_value_has_overflow_uses(value)) {
+    return;
+  }
+  value->overflow_ownership_use_count -= old_flags != 0;
+  value->overflow_ownership_use_count += new_flags != 0;
+  value->overflow_consuming_use_count -=
+      iree_any_bit_set(old_flags, LOOM_USE_FLAG_CONSUMES);
+  value->overflow_consuming_use_count +=
+      iree_any_bit_set(new_flags, LOOM_USE_FLAG_CONSUMES);
+}
+
 static iree_status_t loom_value_add_use(loom_module_t* module,
                                         loom_value_id_t value_id,
                                         loom_op_t* user_op,
@@ -51,10 +66,14 @@ static iree_status_t loom_value_add_use(loom_module_t* module,
     }
     const uint32_t ownership_use_count =
         loom_value_ownership_use_count(value) + (flags != 0);
+    const uint32_t consuming_use_count =
+        loom_value_consuming_use_count(value) +
+        iree_any_bit_set(flags, LOOM_USE_FLAG_CONSUMES);
     overflow[use_index] = use;
     value->overflow_uses = overflow;
     value->overflow_capacity = capacity;
     value->overflow_ownership_use_count = ownership_use_count;
+    value->overflow_consuming_use_count = consuming_use_count;
     value->flags |= LOOM_VALUE_FLAG_OVERFLOW_USES;
     operand_use_indices[operand_index] = use_index;
     ++value->use_count;
@@ -65,7 +84,7 @@ static iree_status_t loom_value_add_use(loom_module_t* module,
   if (value->use_count < value->overflow_capacity) {
     // Space available: append.
     value->overflow_uses[use_index] = use;
-    value->overflow_ownership_use_count += flags != 0;
+    loom_value_update_overflow_use_counts(value, 0, flags);
     operand_use_indices[operand_index] = use_index;
     ++value->use_count;
     return iree_ok_status();
@@ -88,7 +107,7 @@ static iree_status_t loom_value_add_use(loom_module_t* module,
   new_overflow[use_index] = use;
   value->overflow_uses = new_overflow;
   value->overflow_capacity = new_capacity;
-  value->overflow_ownership_use_count += flags != 0;
+  loom_value_update_overflow_use_counts(value, 0, flags);
   operand_use_indices[operand_index] = use_index;
   ++value->use_count;
   return iree_ok_status();
@@ -112,10 +131,9 @@ static void loom_op_mark_operand_ownership(loom_module_t* module,
       loom_op_operand_use_indices(op)[operand_index];
   loom_use_t* use = &loom_value_uses_mutable(value)[use_index];
   const loom_use_flags_t old_flags = loom_use_flags(*use);
-  *use = loom_use_with_flags(*use, old_flags | flags);
-  if (loom_value_has_overflow_uses(value) && old_flags == 0) {
-    ++value->overflow_ownership_use_count;
-  }
+  const loom_use_flags_t new_flags = old_flags | flags;
+  *use = loom_use_with_flags(*use, new_flags);
+  loom_value_update_overflow_use_counts(value, old_flags, new_flags);
 }
 
 // Ownership classification is produced once from the complete operation, not
@@ -229,9 +247,7 @@ void loom_op_refresh_operand_ownership(loom_module_t* module,
     }
     loom_value_t* value = loom_module_value(module, operands[i]);
     loom_use_t* use = &loom_value_uses_mutable(value)[indices[i]];
-    if (loom_value_has_overflow_uses(value)) {
-      value->overflow_ownership_use_count -= loom_use_flags(*use) != 0;
-    }
+    loom_value_update_overflow_use_counts(value, loom_use_flags(*use), 0);
     *use = loom_use_with_flags(*use, 0);
   }
   loom_op_record_operand_ownership(module, op);
@@ -258,9 +274,8 @@ void loom_value_remove_use(loom_module_t* module, loom_value_id_t value_id,
   IREE_ASSERT(use_index < value->use_count &&
               loom_use_user_op(uses[use_index]) == user_op &&
               loom_use_operand_index(uses[use_index]) == operand_index);
-  if (loom_value_has_overflow_uses(value)) {
-    value->overflow_ownership_use_count -= loom_use_flags(uses[use_index]) != 0;
-  }
+  loom_value_update_overflow_use_counts(value, loom_use_flags(uses[use_index]),
+                                        0);
   // Swap with last and decrement. Update the moved user's backpointer so
   // future removals stay O(1).
   loom_use_index_t last_index = value->use_count - 1;
@@ -328,9 +343,11 @@ static iree_status_t loom_value_ensure_use_capacity(loom_module_t* module,
       overflow[i] = value->inline_uses[i];
     }
     const uint32_t ownership_use_count = loom_value_ownership_use_count(value);
+    const uint32_t consuming_use_count = loom_value_consuming_use_count(value);
     value->overflow_uses = overflow;
     value->overflow_capacity = capacity;
     value->overflow_ownership_use_count = ownership_use_count;
+    value->overflow_consuming_use_count = consuming_use_count;
     value->flags |= LOOM_VALUE_FLAG_OVERFLOW_USES;
     return iree_ok_status();
   }
@@ -418,6 +435,8 @@ iree_status_t loom_value_replace_all_uses_with(loom_module_t* module,
   if (loom_value_has_overflow_uses(new_value)) {
     new_value->overflow_ownership_use_count +=
         loom_value_ownership_use_count(old_value);
+    new_value->overflow_consuming_use_count +=
+        loom_value_consuming_use_count(old_value);
   }
   new_value->use_count += old_use_count;
 
@@ -469,14 +488,9 @@ iree_status_t loom_value_replace_all_uses_except(loom_module_t* module,
     uint16_t operand_index = loom_use_operand_index(old_uses_mutable[i]);
     loom_op_operands(user_op)[operand_index] = new_id;
     // Add to new's list.
-    if (loom_use_flags(old_uses_mutable[i])) {
-      if (loom_value_has_overflow_uses(new_value)) {
-        ++new_value->overflow_ownership_use_count;
-      }
-      if (loom_value_has_overflow_uses(old_value)) {
-        --old_value->overflow_ownership_use_count;
-      }
-    }
+    const loom_use_flags_t flags = loom_use_flags(old_uses_mutable[i]);
+    loom_value_update_overflow_use_counts(new_value, 0, flags);
+    loom_value_update_overflow_use_counts(old_value, flags, 0);
     uint32_t new_use_index = new_value->use_count;
     new_uses[new_use_index] = old_uses_mutable[i];
     loom_op_operand_use_indices(user_op)[operand_index] = new_use_index;
@@ -540,14 +554,9 @@ iree_status_t loom_value_replace_uses_if(loom_module_t* module,
     loom_op_t* user_op = loom_use_user_op(old_uses_mutable[i]);
     uint16_t operand_index = loom_use_operand_index(old_uses_mutable[i]);
     loom_op_operands(user_op)[operand_index] = new_id;
-    if (loom_use_flags(old_uses_mutable[i])) {
-      if (loom_value_has_overflow_uses(new_value)) {
-        ++new_value->overflow_ownership_use_count;
-      }
-      if (loom_value_has_overflow_uses(old_value)) {
-        --old_value->overflow_ownership_use_count;
-      }
-    }
+    const loom_use_flags_t flags = loom_use_flags(old_uses_mutable[i]);
+    loom_value_update_overflow_use_counts(new_value, 0, flags);
+    loom_value_update_overflow_use_counts(old_value, flags, 0);
     uint32_t new_use_index = new_value->use_count;
     new_uses[new_use_index] = old_uses_mutable[i];
     loom_op_operand_use_indices(user_op)[operand_index] = new_use_index;

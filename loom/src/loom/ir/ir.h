@@ -477,8 +477,10 @@ typedef iree_alignas(64) struct loom_value_t {
       uint32_t overflow_capacity;
       // Number of occurrences carrying consumption or identity ownership.
       uint32_t overflow_ownership_use_count;
+      // Number of occurrences that consume the value.
+      uint32_t overflow_consuming_use_count;
       // Padding preserving the same union layout as three inline uses.
-      uint64_t _reserved_1;
+      uint32_t _reserved_1;
     };
   };
 
@@ -533,6 +535,22 @@ static inline uint32_t loom_value_ownership_use_count(
   for (uint32_t i = 0; i < LOOM_VALUE_INLINE_USE_COUNT && i < value->use_count;
        ++i) {
     count += loom_use_flags(value->inline_uses[i]) != 0;
+  }
+  return count;
+}
+
+// Exact consuming occurrence count. Inline storage requires at most three
+// cached-tag reads; overflow storage retains the count during mutation.
+static inline uint32_t loom_value_consuming_use_count(
+    const loom_value_t* value) {
+  if (loom_value_has_overflow_uses(value)) {
+    return value->overflow_consuming_use_count;
+  }
+  uint32_t count = 0;
+  for (uint32_t i = 0; i < LOOM_VALUE_INLINE_USE_COUNT && i < value->use_count;
+       ++i) {
+    count += iree_any_bit_set(loom_use_flags(value->inline_uses[i]),
+                              LOOM_USE_FLAG_CONSUMES);
   }
   return count;
 }
