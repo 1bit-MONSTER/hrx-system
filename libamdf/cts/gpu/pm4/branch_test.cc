@@ -117,6 +117,7 @@ TEST_F(Pm4BranchTest, ShaderOperandMatrixSelectsRetainedGraphs) {
   constexpr uint32_t kEpochArgumentWord = 48;
   constexpr uint32_t kEpochCount = 5;
   constexpr uint32_t kBlockStride = 256;
+  constexpr uint32_t kPublicationCompletionWord = 1;
   constexpr uint32_t kCommandWordsPerPublication = 8;
   constexpr size_t kCaseCount =
       kComparisons.size() * kOperands.size() * kPredicateWords.size();
@@ -181,8 +182,12 @@ TEST_F(Pm4BranchTest, ShaderOperandMatrixSelectsRetainedGraphs) {
 
   GpuCommandQueue* queue = nullptr;
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue, kCommandByteLength));
-  const size_t command_capacity = queue->words().size();
-  ASSERT_GT(command_capacity, kRequiredCommandWords);
+  const bool primary_ring =
+      queue->publication_mode() == AMDF_QUEUE_PUBLICATION_MODE_USER;
+  const size_t command_capacity = primary_ring ? queue->words().size() : 0;
+  if (primary_ring) {
+    ASSERT_GT(command_capacity, kRequiredCommandWords);
+  }
   const size_t batch_word_count = kBatchByteLength / sizeof(uint32_t);
   std::vector<uint32_t> expected_input(batch_word_count);
   std::vector<uint32_t> expected_output(batch_word_count);
@@ -361,19 +366,24 @@ TEST_F(Pm4BranchTest, ShaderOperandMatrixSelectsRetainedGraphs) {
           publication_completion_addresses[publication_index] =
               reinterpret_cast<uintptr_t>(
                   static_cast<uint8_t*>(control->host.pointer) +
-                  page_byte_offset);
-          publication_completion_values[publication_index] = epoch + 1;
+                  page_byte_offset) +
+              kPublicationCompletionWord * sizeof(uint32_t);
+          publication_completion_values[publication_index] =
+              static_cast<uint32_t>(publication_index + 1);
           ++execution_index;
         }
+        expected_control[(execution_index - 1) * kPageWordCount +
+                         kPublicationCompletionWord] =
+            publication_completion_values[publication_index];
         RecordProperty(property_prefix + "_completed_epochs", kEpochCount);
       }
     }
   }
   ASSERT_EQ(execution_index, kExecutionCount);
 
-  // Construct each case's epoch chain backward so every continuation owns the
-  // already-complete root it will enter. The final epoch returns to the single
-  // top-level call; earlier epochs chain at the same IB level.
+  // Build backward so each nonterminal join can continue at the same IB level
+  // through the already-complete next epoch. The final join publishes every
+  // payload in the semantic case before its completion marker becomes visible.
   for (size_t reverse_index = kExecutionCount; reverse_index > 0;
        --reverse_index) {
     const size_t plan_index = reverse_index - 1;
@@ -390,13 +400,15 @@ TEST_F(Pm4BranchTest, ShaderOperandMatrixSelectsRetainedGraphs) {
                                   *pm4_profile_);
     continuation.SystemBarrier();
     continuation.CopyData32(epoch_address, plan.control_address);
-    const bool has_next_epoch =
-        plan_index + 1 < kExecutionCount &&
-        (plan_index + 1) % kExecutionsPerPublication != 0;
+    const bool has_next_epoch = plan.epoch + 1 < kEpochCount;
     if (has_next_epoch) {
       continuation.PadToEightWords(4);
       continuation.ChainIndirectBuffer(roots[plan_index + 1]);
     } else {
+      const size_t publication_index = plan_index / kEpochCount;
+      continuation.ReleaseSystem32(
+          plan.control_address + kPublicationCompletionWord * sizeof(uint32_t),
+          publication_completion_values[publication_index]);
       continuation.PadToEightWords();
     }
     ASSERT_EQ(continuation.word_count() % 8, 0u);
@@ -450,36 +462,38 @@ TEST_F(Pm4BranchTest, ShaderOperandMatrixSelectsRetainedGraphs) {
     }
   }
 
-  Pm4CommandWriter stream(expected_commands.data(), *pm4_profile_);
-  for (size_t publication_index = 0; publication_index < kPublicationCount;
-       ++publication_index) {
-    const size_t first_execution =
-        publication_index * kExecutionsPerPublication;
-    stream.CallIndirectBuffer(roots[first_execution].address,
-                              roots[first_execution].word_count);
-    stream.PadToEightWords();
-    publication_frontiers[publication_index] = stream.word_count();
-    ASSERT_EQ(stream.word_count(),
-              (publication_index + 1) * kCommandWordsPerPublication);
+  size_t command_word_count = 0;
+  if (primary_ring) {
+    Pm4CommandWriter stream(expected_commands.data(), *pm4_profile_);
+    for (size_t publication_index = 0; publication_index < kPublicationCount;
+         ++publication_index) {
+      const auto& root = roots[publication_index * kExecutionsPerPublication];
+      stream.CallIndirectBuffer(root.address, root.word_count);
+      stream.PadToEightWords();
+      publication_frontiers[publication_index] = stream.word_count();
+      ASSERT_EQ(stream.word_count(),
+                (publication_index + 1) * kCommandWordsPerPublication);
+    }
+    command_word_count = stream.word_count();
+    ASSERT_EQ(command_word_count, kRequiredCommandWords);
+    std::memcpy(queue->words().data(), expected_commands.data(),
+                queue->words().size_bytes());
   }
-  ASSERT_EQ(stream.word_count(), kRequiredCommandWords);
   std::memcpy(graph->host.pointer, expected_graph.data(),
               graph->info.byte_length);
-  std::memcpy(queue->words().data(), expected_commands.data(),
-              queue->words().size_bytes());
 
   RecordProperty("pm4_branch_entry",
-                 queue->publication_mode() == AMDF_QUEUE_PUBLICATION_MODE_USER
-                     ? "primary_ring_batch"
-                     : "kernel_command_batch");
+                 primary_ring ? "primary_ring_case_call" : "kernel_graph_root");
   RecordProperty("pm4_branch_case_count", kCaseCount);
   RecordProperty("pm4_branch_epochs_per_case", kEpochCount);
   RecordProperty("pm4_branch_total_execution_count", kExecutionCount);
   RecordProperty("pm4_branch_publication_count", kPublicationCount);
+  RecordProperty("pm4_branch_publication_completion_byte_offset",
+                 kPublicationCompletionWord * sizeof(uint32_t));
   RecordProperty("pm4_branch_command_capacity_dwords",
                  std::to_string(command_capacity));
   RecordProperty("pm4_branch_command_word_count",
-                 std::to_string(stream.word_count()));
+                 std::to_string(command_word_count));
   RecordProperty(
       "pm4_branch_observed_byte_length",
       std::to_string(input->info.byte_length + output->info.byte_length +
@@ -502,8 +516,20 @@ TEST_F(Pm4BranchTest, ShaderOperandMatrixSelectsRetainedGraphs) {
     const auto& first_plan = execution_plans[first_execution];
     SCOPED_TRACE(BranchCaseName(*first_plan.comparison, *first_plan.operand,
                                 first_plan.predicate_word));
-    ASSERT_NO_FATAL_FAILURE(queue->Publish(
-        api_, gpu_api_, publication_frontiers[publication_index]));
+    if (primary_ring) {
+      ASSERT_NO_FATAL_FAILURE(queue->Publish(
+          api_, gpu_api_, publication_frontiers[publication_index]));
+    } else {
+      // KERNEL consumes the graph root itself. A ring-style call inside that
+      // submission would incorrectly request compute IB2 nesting.
+      const auto& root = roots[first_execution];
+      const amdf_gpu_kernel_command_t command = {
+          .memory = graph->memory,
+          .byte_offset = uint64_t{first_execution} * kPageByteLength,
+          .byte_length = root.word_count * sizeof(uint32_t),
+      };
+      ASSERT_NO_FATAL_FAILURE(queue->Submit(gpu_api_, command));
+    }
     ASSERT_TRUE(GpuWaitEqual<uint32_t>(
         publication_completion_addresses[publication_index],
         publication_completion_values[publication_index]));
@@ -530,23 +556,27 @@ TEST_F(Pm4BranchTest, ShaderOperandMatrixSelectsRetainedGraphs) {
     std::memcpy(observed_graph.data() + page_word_offset,
                 static_cast<uint8_t*>(graph->host.pointer) + page_byte_offset,
                 page_byte_length);
-    const size_t first_command_word =
-        publication_index == 0 ? 0
-                               : publication_frontiers[publication_index - 1];
-    const size_t command_word_count =
-        publication_frontiers[publication_index] - first_command_word;
-    std::memcpy(observed_commands.data() + first_command_word,
-                queue->words().data() + first_command_word,
-                command_word_count * sizeof(uint32_t));
+    if (primary_ring) {
+      const size_t first_command_word =
+          publication_index == 0 ? 0
+                                 : publication_frontiers[publication_index - 1];
+      const size_t publication_command_word_count =
+          publication_frontiers[publication_index] - first_command_word;
+      std::memcpy(observed_commands.data() + first_command_word,
+                  queue->words().data() + first_command_word,
+                  publication_command_word_count * sizeof(uint32_t));
+    }
     if (publication_index + 1 == kPublicationCount) {
       std::memcpy(observed_code.data(), code->host.pointer,
                   code->info.byte_length);
-      const size_t trailing_command_word_count =
-          command_capacity - publication_frontiers[publication_index];
-      std::memcpy(
-          observed_commands.data() + publication_frontiers[publication_index],
-          queue->words().data() + publication_frontiers[publication_index],
-          trailing_command_word_count * sizeof(uint32_t));
+      if (primary_ring) {
+        const size_t trailing_command_word_count =
+            command_capacity - publication_frontiers[publication_index];
+        std::memcpy(
+            observed_commands.data() + publication_frontiers[publication_index],
+            queue->words().data() + publication_frontiers[publication_index],
+            trailing_command_word_count * sizeof(uint32_t));
+      }
     }
     ASSERT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
   }
@@ -589,19 +619,23 @@ TEST_F(Pm4BranchTest, ShaderOperandMatrixSelectsRetainedGraphs) {
                       "immutable graph");
           ++execution_index;
         }
-        const size_t command_word_offset =
-            publication_index * kCommandWordsPerPublication;
-        ExpectWords(
-            std::span(observed_commands)
-                .subspan(command_word_offset, kCommandWordsPerPublication),
-            std::span(expected_commands)
-                .subspan(command_word_offset, kCommandWordsPerPublication),
-            "case entry call");
+        if (primary_ring) {
+          const size_t command_word_offset =
+              publication_index * kCommandWordsPerPublication;
+          ExpectWords(
+              std::span(observed_commands)
+                  .subspan(command_word_offset, kCommandWordsPerPublication),
+              std::span(expected_commands)
+                  .subspan(command_word_offset, kCommandWordsPerPublication),
+              "case graph entry");
+        }
       }
     }
   }
   ExpectWords(observed_code, expected_code, "code");
-  ExpectWords(observed_commands, expected_commands, "finite command stream");
+  if (primary_ring) {
+    ExpectWords(observed_commands, expected_commands, "finite primary ring");
+  }
   if (HasFailure()) {
     return;
   }
