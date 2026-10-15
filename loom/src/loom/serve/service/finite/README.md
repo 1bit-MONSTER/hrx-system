@@ -32,13 +32,14 @@ contains:
 * A nonempty source name and an opaque source state buffer.
 
 Device kernels and command programs come from the model document's
-`definition.sources` array. Weighted command stages use the same fixed parameter layout. The cold
-loader validates this before sharing checkpoint storage. It indexes weights
-without activating them; admission later streams them into their final storage.
+`definition.sources` array. Command stages that bind checkpoint parameters
+share the same fixed parameter layout. The cold loader validates this before
+sharing checkpoint storage. It indexes weights without activating them;
+admission later streams them into their final storage.
 Direct stages currently accept only input/output buffers, without checkpoint
 domains. Native argument reflection cannot supply checkpoint tensor names,
-placement or lengths; weighted native entries require a source-owned placement
-contract before they can use this loader.
+placement or lengths; native entries that consume checkpoint parameters require
+a source-owned placement contract before they can use this loader.
 
 `control.loom` exports three functions, resolved once in one shared VM process:
 
@@ -85,8 +86,9 @@ uses trusted row views. Physical output and live feedback extents are separate:
 stages may need padded binding storage without downloading the padding.
 
 Both stage kinds have two dynamic roots (input/output). Commands additionally
-have compiler-reflected private workspace. Direct native entries instead use
-their compiled launch-config companion and HAL logical-parameter reflection,
+bind private workspace when the compiler reflects a nonzero requirement.
+Direct native entries use their compiled launch-config companion and HAL
+logical-parameter reflection,
 submitting through `queue_dispatch` without a command buffer or invented host
 workspace. A resident array program uses this same path; source owns its
 device-local storage. Both kinds use the runner's `execute_2` and `feedback`
@@ -122,12 +124,12 @@ allocation; model programs are not protocol callbacks. Embeddings and decisions
 share preparation, admission, device readiness, encoding lifetime and retirement.
 
 The fixture runs actual source JIT, two GPU kernels, private workspace, compact
-feedback and HTTP encoding with one/four workers. Its weighted source variant
-adds a checkpoint-backed head without changing native code and exercises
-admission behind another pinned residency. These are ABI and ownership tests,
-not model-quality or throughput measurements. The decision source fixture adds
-variable question/option counts, exact typed answers and a mixed-model HTTP gate
-through the same service.
+feedback and HTTP encoding with one/four workers. Its checkpoint variant loads
+a scalar scale factor, doubles it on first device activation, and applies it to
+the output vectors. It also exercises admission behind another pinned residency.
+These are ABI and ownership tests, not model-quality or throughput measurements.
+The decision source fixture adds variable question/option counts, exact typed
+answers and a mixed-model HTTP gate through the same service.
 
 The embedding fixture's [direct variant](../../fixture/embedding/variants/direct.loom)
 fuses the same ragged computation into one native dispatch on CPU, AMDGPU and
@@ -135,8 +137,13 @@ Vulkan. Its HTTP checks cover compact row ordering, repeated requests,
 cancellation and retirement with one/four workers. Its
 [XDNA variant](../../../tooling/target/amd/xdna/serve/testdata/resident_embedding.loom) executes the same
 HTTP contract with a resident array program and DMA/channel packet transport.
-These prove direct-stage ownership, including untouched first output, not
-learned embedding quality or checkpoint-backed resident stages.
+The [resident checkpoint fixture](../../../tooling/target/amd/xdna/serve/testdata/resident_checkpoint.loom)
+loads the same scalar checkpoint, prepares it on device, and binds it to a
+staged resident pipeline through a command stage with no global workspace. Its
+HTTP checks cover changed inputs, batching, cancellation, and retained
+preparation across reuse.
+These fixtures qualify source and resource ownership; their deterministic
+outputs have no learned embedding meaning.
 
 A real embedding port must still supply its source package, checkpoint policy,
 input/task policy, numerical oracle and shape coverage. Target-family selection

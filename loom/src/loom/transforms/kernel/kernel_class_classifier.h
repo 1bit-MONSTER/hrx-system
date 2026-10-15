@@ -16,6 +16,7 @@
 #include "loom/analysis/symbol_references.h"
 #include "loom/analysis/symbolic_expr.h"
 #include "loom/decision/class_partition.h"
+#include "loom/transforms/kernel/kernel_specialization.h"
 #include "loom/transforms/symbol/template_decision_model.h"
 #include "loom/util/fact_table.h"
 
@@ -199,18 +200,9 @@ typedef struct loom_kernel_class_classifier_t {
   // Kernel ABI argument count expected at every launch site.
   uint16_t kernel_argument_count;
 
-  // Reserved bytes. Always zero.
-  uint8_t reserved[2];
+  // Leading source arguments bound while compiling the artifact.
+  uint16_t specialization_count;
 } loom_kernel_class_classifier_t;
-
-// One command-side launch fact environment.
-typedef struct loom_kernel_class_site_t {
-  // Existing O(1) fact table for the containing command function.
-  const loom_value_fact_table_t* facts;
-
-  // Kernel ABI argument value IDs in signature order.
-  const loom_value_id_t* argument_values;
-} loom_kernel_class_site_t;
 
 // Class collection policy.
 typedef struct loom_kernel_class_collection_options_t {
@@ -279,12 +271,19 @@ typedef struct loom_kernel_class_t {
   // Final trace node describing all accepted decisions for this class.
   loom_kernel_class_trace_id_t trace_id;
 
+  // Mandatory staged values shared by every site in this class.
+  const loom_kernel_specialization_value_t* specializations;
+
   // Number of launch sites assigned to this class.
   iree_host_size_t member_count;
 } loom_kernel_class_t;
 
 // Transient live classes collected for one command workload.
 typedef struct loom_kernel_class_collection_t {
+  // Module owning literal specialization values; borrowed until
+  // materialization.
+  const loom_module_t* specialization_module;
+
   // Dense final class ordinal for every input site.
   const loom_decision_class_ordinal_t* site_classes;
 
@@ -331,13 +330,15 @@ iree_status_t loom_kernel_class_classifier_build(
 
 // Collects the finite live quotient of |sites| under |classifier|.
 //
-// All collection storage is allocated from |arena| before site evaluation. The
-// site loop performs no allocation, IR traversal, string work, hashing, or
-// fact-table cloning. A decision can remain generic only when its kernel-source
-// facts select a valid residual provider.
+// Mandatory staged values are interned from |site_module| before optional
+// decision refinement. |site_module| is required when the source has staged
+// arguments. Optional decision evaluation performs no allocation, IR traversal,
+// string work, hashing, or fact-table cloning. A decision can remain generic
+// only when its kernel-source facts select a valid residual provider.
 iree_status_t loom_kernel_class_classifier_collect(
     const loom_kernel_class_classifier_t* classifier,
-    const loom_kernel_class_site_t* sites, iree_host_size_t site_count,
+    const loom_module_t* site_module, const loom_kernel_class_site_t* sites,
+    iree_host_size_t site_count,
     const loom_kernel_class_collection_options_t* options,
     iree_arena_allocator_t* arena,
     loom_kernel_class_collection_t* out_collection);

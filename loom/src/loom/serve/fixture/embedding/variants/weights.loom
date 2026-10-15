@@ -1,13 +1,13 @@
 config.decl @fixture.units : %value: index where [range(%value, 1, 256)]
 
-target.decl @weighted_target
+target.decl @parameter_target
 
 kernel.decl @pool() launch(%input: buffer, %hidden: buffer)
 
 kernel.decl @project() launch(%input: buffer, %hidden: buffer, %output: buffer)
 
 // Converts the checkpoint scalar directly in final storage on activation.
-kernel.def target(@weighted_target) @double_factor() {
+kernel.def target(@parameter_target) @double_factor() {
   %c1 = index.constant 1 : index
   kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
 } launch(%storage: buffer) {
@@ -27,7 +27,7 @@ command.program.def public @prepare_factor() launch(%storage: buffer) {
 
 // A replacement package can add immutable parameters without changing the
 // native finite-vector ABI. This head scales all live vectors on device.
-kernel.def target(@weighted_target) @scale() {
+kernel.def target(@parameter_target) @scale() {
   %units = config.get @fixture.units : index
   %c1 = index.constant 1 : index
   kernel.launch.config workgroups(%units, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
@@ -66,8 +66,8 @@ kernel.def target(@weighted_target) @scale() {
   kernel.return
 }
 
-command.program.def public @weighted_embed() launch(%weights: buffer, %input: buffer, %output: buffer) {
-  %factor = command.parameter %weights, "factor" : view<1xf32>
+command.program.def public @embed_with_parameters() launch(%parameters: buffer, %input: buffer, %output: buffer) {
+  %factor = command.parameter %parameters, "factor" : view<1xf32>
   %units = config.get @fixture.units : index
   %c16 = index.constant 16 : offset
   %length = index.scale %units, %c16 : index, offset -> offset

@@ -119,7 +119,8 @@ static iree_status_t loom_kernel_verify_entry_operand_group(
     iree_string_view_t actual_field_name,
     iree_string_view_t expected_field_name, loom_value_slice_t actual_values,
     const loom_value_id_t* expected_values, uint16_t expected_value_count,
-    uint16_t flat_operand_offset) {
+    uint16_t flat_operand_offset,
+    const loom_type_value_remap_t* enclosing_remap) {
   if (actual_values.count != expected_value_count) {
     loom_diagnostic_param_t params[] = {
         loom_param_string(actual_field_name),
@@ -136,6 +137,7 @@ static iree_status_t loom_kernel_verify_entry_operand_group(
       .source_values = expected_values,
       .target_values = actual_values.values,
       .count = actual_values.count,
+      .next = enclosing_remap,
   };
   for (uint16_t i = 0; i < actual_values.count; ++i) {
     loom_type_t actual_type =
@@ -1115,9 +1117,10 @@ iree_status_t loom_kernel_launch_verify(const loom_module_t* module,
   iree_string_view_t workload_name = IREE_SV("kernel workload");
   iree_string_view_t argument_name = IREE_SV("kernel ABI argument");
   if (is_pipeline) {
-    const loom_pipeline_def_scope_t scope =
-        loom_pipeline_def_scope(definition_op);
-    if (scope != LOOM_PIPELINE_DEF_SCOPE_KERNEL) {
+    const loom_symbol_product_carrier_t scope =
+        loom_symbol_definition_product_carrier(
+            loom_op_vtable(module, definition_op)->symbol_def, definition_op);
+    if (scope != LOOM_PIPELINE_SCOPE_KERNEL) {
       const loom_diagnostic_param_t params[] = {
           loom_param_string(IREE_SV("pipeline scope")),
           loom_param_i64(scope),
@@ -1154,12 +1157,20 @@ iree_status_t loom_kernel_launch_verify(const loom_module_t* module,
   IREE_RETURN_IF_ERROR(loom_kernel_verify_entry_operand_group(
       module, op, definition_op, emitter, IREE_SV("workload"), workload_name,
       workloads, workload_arg_ids, workload_arg_count,
-      /*flat_operand_offset=*/0));
+      /*flat_operand_offset=*/0, /*enclosing_remap=*/NULL));
 
+  // Pipeline run types may reference the leading staged arguments. Both
+  // groups belong to one signature, even though the launch spells them apart.
+  const loom_type_value_remap_t specialization_remap = {
+      .source_values = workload_arg_ids,
+      .target_values = workloads.values,
+      .count = iree_min(workloads.count, workload_arg_count),
+  };
   const loom_value_slice_t arguments = loom_kernel_launch_arguments(op);
   return loom_kernel_verify_entry_operand_group(
       module, op, definition_op, emitter, IREE_SV("argument"), argument_name,
-      arguments, argument_ids, argument_count, workloads.count);
+      arguments, argument_ids, argument_count, workloads.count,
+      is_pipeline ? &specialization_remap : NULL);
 }
 
 iree_status_t loom_kernel_dispatch_verify(const loom_module_t* module,
@@ -1188,7 +1199,7 @@ iree_status_t loom_kernel_dispatch_verify(const loom_module_t* module,
   return loom_kernel_verify_entry_operand_group(
       module, op, symbol->defining_op, emitter, IREE_SV("argument"),
       IREE_SV("kernel entry ABI argument"), arguments, argument_ids,
-      argument_count, workgroup_counts.count);
+      argument_count, workgroup_counts.count, /*enclosing_remap=*/NULL);
 }
 
 iree_status_t loom_kernel_launch_yield_verify(

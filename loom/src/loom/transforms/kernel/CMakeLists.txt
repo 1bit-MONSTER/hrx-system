@@ -11,12 +11,38 @@ iree_add_all_subdirs()
 
 loom_cc_library(
   NAME
+    kernel_specialization
+  HDRS
+    "kernel_specialization.h"
+  SRCS
+    "kernel_specialization.c"
+  DEPS
+    iree::base
+    iree::base::internal::arena
+    loom::analysis::type_refinement
+    loom::decision::class_partition
+    loom::ir
+    loom::ops::op_defs
+    loom::ops::scalar
+    loom::ops::special_values
+    loom::ops::vector
+    loom::ops::view
+    loom::rewrite::remap
+    loom::rewrite::rewriter
+    loom::util::fact_table
+    loom::util::predicate_facts
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     kernel_class_classifier
   HDRS
     "kernel_class_classifier.h"
   SRCS
     "kernel_class_classifier.c"
   DEPS
+    ::kernel_specialization
     iree::base
     iree::base::internal
     iree::base::internal::arena
@@ -77,6 +103,7 @@ loom_cc_library(
     "kernel_class_materializer.c"
   DEPS
     ::kernel_class_classifier
+    ::kernel_specialization
     iree::base
     iree::base::internal::arena
     loom::ir
@@ -193,6 +220,7 @@ loom_cc_test(
     loom::link::module_index
     loom::ops::kernel
     loom::ops::op_registry
+    loom::ops::scalar
     loom::testing::module_ptr
     loom::util::fact_table
     loom::verify
@@ -229,6 +257,7 @@ loom_cc_library(
     loom::ops::buffer
     loom::ops::index
     loom::ops::op_defs
+    loom::ops::pipeline
     loom::pass::types
     loom::pass::value_facts
   PUBLIC
@@ -252,6 +281,7 @@ loom_cc_library(
     loom::ops::func
     loom::ops::kernel
     loom::ops::op_defs
+    loom::ops::pipeline
     loom::rewrite::remap
     loom::rewrite::rewriter
   PUBLIC

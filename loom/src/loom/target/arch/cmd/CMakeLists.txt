@@ -47,7 +47,6 @@ loom_cc_library(
   DEPS
     iree::base
     loom::ir
-    loom::ops::kernel
     loom::ops::op_defs
     loom::target::arch::cmd::lower::program_plan
     loom::target::arch::cmd::lower::serialize

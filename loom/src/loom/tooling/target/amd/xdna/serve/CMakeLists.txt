@@ -56,13 +56,16 @@ loom_cc_test(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/direct.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/policy.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/variants/weights.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/serve/testdata/resident_checkpoint.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/serve/testdata/resident_embedding.loom"
   DEPS
     ::test_compiler
     ::test_device
     iree::testing::gtest_main
+    loom::serve::service::finite::embedding::checkpoint_preparation_tests
     loom::serve::service::finite::embedding::direct_dispatch_tests
   ENV
+    "LOOM_SERVE_TEST_CHECKPOINT_STAGE_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/serve/testdata/resident_checkpoint.loom}}"
     "LOOM_SERVE_TEST_DIRECT_STAGE_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/serve/testdata/resident_embedding.loom}}"
     "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom}}"
   LABELS

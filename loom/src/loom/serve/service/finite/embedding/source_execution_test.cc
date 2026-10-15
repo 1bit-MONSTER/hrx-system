@@ -233,55 +233,10 @@ TEST_F(SourceEmbeddingServiceTest,
 }
 
 TEST_F(SourceEmbeddingServiceTest,
-       WeightedLoadSharesTheServingWorkerAndNeverWritesStderr) {
-  const std::string package =
-      iree::testing::MakeTempFilePath("live_weighted_embedding");
-  ASSERT_NO_FATAL_FAILURE(WriteWeightedPackage(package));
-  loom_serve::testing::ModelDocument document;
-  IREE_ASSERT_OK(document.Load(package + "/model.json"));
-  const loom_serve_finite_model_options_t options = {
-      .sources = document.value().sources,
-      .asset_directory = IREE_SV("."),
-      .options = IREE_SV("{}"),
-  };
-  const int resident = Send(R"({"model":"fixture","input":"a"})");
-  ASSERT_NO_FATAL_FAILURE(Accept(resident));
-  ModelLifecycle load;
-  load.service = &interface_;
-  iree_status_t status;
-  {
-    StalledStderr stalled;
-    ASSERT_NO_FATAL_FAILURE(stalled.Begin());
-    status = load.Run(device_, options);
-  }
-  retained_ = load.model;
-  IREE_ASSERT_OK(status);
-  ASSERT_NE(retained_, nullptr);
-  EXPECT_NE(Read(resident).find(R"("embedding":[1,1,1,1])"), std::string::npos);
-  EXPECT_EQ(load.report.commands, 2u);  // Consumer and in-place preparer.
-  EXPECT_EQ(load.report.workers, 1u);
-  EXPECT_EQ(load.report.diagnostic_count, 0u);
-
-  // Preparation has not loaded weights. First use activates and transforms
-  // canonical bytes in place; exact output distinguishes the prepared factor.
-  EXPECT_EQ(loom_serve_residency_activity(
-                loom_serve_finite_model_residency(retained_))
-                .activations,
-            0u);
-  loom_serve_finite_service_free(std::exchange(service_, nullptr));
-  std::swap(model_, retained_);
-  ASSERT_NO_FATAL_FAILURE(CreateService(0));
-  const int prepared = Send(R"({"model":"fixture","input":"a"})");
-  ASSERT_NO_FATAL_FAILURE(Accept(prepared));
-  Drain();
-  EXPECT_NE(Read(prepared).find(R"("embedding":[2,2,2,2])"), std::string::npos);
-}
-
-TEST_F(SourceEmbeddingServiceTest,
        CancelledAndFailedLoadsKeepTheirResidentPeerUsable) {
   const std::string package =
       iree::testing::MakeTempFilePath("invalid_embedding");
-  ASSERT_NO_FATAL_FAILURE(WriteWeightedPackage(package));
+  ASSERT_NO_FATAL_FAILURE(WriteCheckpointPackage(package));
   // copy_file preserves read-only runfile permissions on this owned copy.
   std::filesystem::permissions(package + "/control.loom",
                                std::filesystem::perms::owner_write,

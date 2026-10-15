@@ -373,7 +373,7 @@ static iree_status_t loom_serve_finite_check_layouts(
     loom_serve_finite_model_t* model) {
   const loom_cmd_program_t* canonical =
       loom_serve_jit_stage_program(model->stages.values[0].compiled);
-  const iree_host_size_t binding_count = 3;
+  const iree_host_size_t binding_count = 2;
   const uint32_t roots =
       canonical ? canonical->requirements.fixed_buffer_count : 0;
   for (uint32_t i = 0; i < model->stages.count; ++i) {
@@ -394,8 +394,12 @@ static iree_status_t loom_serve_finite_check_layouts(
     }
     IREE_RETURN_IF_ERROR(loom_serve_preparation_stage_check_workspace(
         declaration, program->requirements.transient.required_byte_length));
-    if (program->requirements.rebindable_binding_count != binding_count ||
-        program->requirements.transient.binding_index != 2 ||
+    const bool has_workspace =
+        program->requirements.transient.required_byte_length != 0;
+    if (program->requirements.rebindable_binding_count !=
+            binding_count + has_workspace ||
+        (has_workspace &&
+         program->requirements.transient.binding_index != binding_count) ||
         program->requirements.fixed_buffer_count != roots ||
         program->parameter_roots.count != roots ||
         declaration->parameter_count != roots ||

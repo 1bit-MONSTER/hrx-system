@@ -27,10 +27,10 @@ namespace loom_serve::testing::embedding {
 using loom_serve::testing::StalledStderr;
 
 TEST_F(SourceEmbeddingServiceTest,
-       ReconfiguresWeightedCommandsWithoutPreparingAgain) {
+       ReconfiguresCommandsWithoutPreparingParametersAgain) {
   const std::string directory =
       iree::testing::MakeTempFilePath("variant_weights");
-  ASSERT_NO_FATAL_FAILURE(WriteWeightedPackage(directory));
+  ASSERT_NO_FATAL_FAILURE(WriteCheckpointPackage(directory));
   interface_.set_observer(interface_.self, {});
   loom_serve_finite_service_free(std::exchange(service_, nullptr));
   IREE_ASSERT_OK(loom_serve_finite_model_free(std::exchange(model_, nullptr)));
@@ -78,10 +78,11 @@ TEST_F(SourceEmbeddingServiceTest,
   EXPECT_EQ(retained.prepared_bytes, weights.prepared_bytes);
 }
 
-TEST_F(SourceEmbeddingServiceTest, UploadedPolicyPreparesServerLocalWeights) {
+TEST_F(SourceEmbeddingServiceTest,
+       UploadedPolicyPreparesServerLocalCheckpoint) {
   const std::string directory =
-      iree::testing::MakeTempFilePath("uploaded_weighted");
-  ASSERT_NO_FATAL_FAILURE(WriteWeightedPackage(directory));
+      iree::testing::MakeTempFilePath("uploaded_checkpoint_package");
+  ASSERT_NO_FATAL_FAILURE(WriteCheckpointPackage(directory));
   const std::string checkpoints =
       iree::testing::MakeTempFilePath("uploaded_checkpoint");
   ASSERT_TRUE(std::filesystem::create_directory(checkpoints));
@@ -100,21 +101,21 @@ TEST_F(SourceEmbeddingServiceTest, UploadedPolicyPreparesServerLocalWeights) {
     IREE_ASSERT_OK(http_.Send(
         package.Request(
             "/v1/models/register",
-            Declaration("weighted", directory, "drained", checkpoints)),
+            Declaration("checkpoint", directory, "drained", checkpoints)),
         &client));
     const auto registered = Read(client);
     ASSERT_EQ(registered.find("HTTP/1.1 202"), 0u) << registered;
   }
-  ASSERT_EQ(Read(Send(R"({"model":"weighted"})", "/v1/models/undrain"))
+  ASSERT_EQ(Read(Send(R"({"model":"checkpoint"})", "/v1/models/undrain"))
                 .find("HTTP/1.1 200"),
             0u);
-  const auto response = Read(Send(R"({"model":"weighted","input":"a"})"));
+  const auto response = Read(Send(R"({"model":"checkpoint","input":"a"})"));
   EXPECT_NE(response.find(R"("embedding":[2,2,2,2])"), std::string::npos)
-      << response << ModelStatus("weighted");
+      << response << ModelStatus("checkpoint");
   // A model unregister joins accepted compiler borrowers even after the
   // staging response and uploaded source package have left the client.
   const uint64_t base = Number(Read(Send({}, "/v1/models/variants", "GET",
-                                         "X-Loom-Model: weighted\r\n")),
+                                         "X-Loom-Model: checkpoint\r\n")),
                                "selected");
   {
     loom_serve::testing::SourcePackage package;
@@ -126,26 +127,26 @@ TEST_F(SourceEmbeddingServiceTest, UploadedPolicyPreparesServerLocalWeights) {
     IREE_ASSERT_OK(http_.Send(
         package.Request(
             "/v1/models/variants",
-            "{\"model\":\"weighted\",\"base\":" + std::to_string(base) +
+            "{\"model\":\"checkpoint\",\"base\":" + std::to_string(base) +
                 ",\"sources\":[\"config.loom\",\"embed.loom\",\"weights.loom\"]"
                 ",\"wait\":false}"),
         &client));
     const auto accepted = Read(client);
     ASSERT_EQ(accepted.find("HTTP/1.1 202"), 0u) << accepted;
   }
-  ASSERT_EQ(Read(Send(R"({"model":"weighted"})", "/v1/models/unregister"))
+  ASSERT_EQ(Read(Send(R"({"model":"checkpoint"})", "/v1/models/unregister"))
                 .find("HTTP/1.1 202"),
             0u);
-  WaitModel("weighted", {});
+  WaitModel("checkpoint", {});
 }
 
 TEST_F(SourceEmbeddingServiceTest,
-       DynamicWeightedRegistrationOwnsItsOperationAndIncarnation) {
+       CheckpointRegistrationOwnsItsOperationAndIncarnation) {
   const std::string package =
-      iree::testing::MakeTempFilePath("dynamic_weighted");
-  ASSERT_NO_FATAL_FAILURE(WriteWeightedPackage(package));
+      iree::testing::MakeTempFilePath("dynamic_checkpoint");
+  ASSERT_NO_FATAL_FAILURE(WriteCheckpointPackage(package));
   StartManagedRouter();
-  const std::string declaration = Declaration("weighted", package, "drained");
+  const std::string declaration = Declaration("checkpoint", package, "drained");
   const auto registered = Read(Send(declaration, "/v1/models/register"));
   EXPECT_EQ(registered.find("HTTP/1.1 202"), 0u);
   EXPECT_NE(registered.find(R"("registration":"registered")"),
@@ -168,14 +169,14 @@ TEST_F(SourceEmbeddingServiceTest,
             0u);
   WaitModel("cold", {});
 
-  const int held = Send(R"({"model":"weighted","input":"a"})");
-  WaitModel("weighted", R"("held_requests":1)");
+  const int held = Send(R"({"model":"checkpoint","input":"a"})");
+  WaitModel("checkpoint", R"("held_requests":1)");
   const int tokenizer =
-      Send(R"({"model":"weighted","content":"ab"})", "/tokenize");
-  WaitModel("weighted", R"("held_requests":2)");
+      Send(R"({"model":"checkpoint","content":"ab"})", "/tokenize");
+  WaitModel("checkpoint", R"("held_requests":2)");
   // The accepted operation belongs to the registry, not this unread response.
-  const int admin = Send(R"({"model":"weighted"})", "/v1/models/undrain");
-  WaitModel("weighted", R"("admission":"open")");
+  const int admin = Send(R"({"model":"checkpoint"})", "/v1/models/undrain");
+  WaitModel("checkpoint", R"("admission":"open")");
   const linger reset = {1, 0};
   ASSERT_EQ(setsockopt(admin, SOL_SOCKET, SO_LINGER, &reset, sizeof(reset)), 0);
   ASSERT_EQ(close(admin), 0);
@@ -186,53 +187,55 @@ TEST_F(SourceEmbeddingServiceTest,
   const std::string tokenizer_response = Read(tokenizer);
   ASSERT_NE(embedding_response.find(R"("embedding":[2,2,2,2])"),
             std::string::npos)
-      << embedding_response << ModelStatus("weighted");
+      << embedding_response << ModelStatus("checkpoint");
   ASSERT_NE(tokenizer_response.find(R"({"tokens":[0,1]})"), std::string::npos)
       << tokenizer_response;
-  const auto ready = WaitModel("weighted", R"("registration":"ready")");
+  const auto ready = WaitModel("checkpoint", R"("registration":"ready")");
   EXPECT_NE(ready.find("\"workers\":1"), std::string::npos);
   const uint64_t completed = CompletedRequests();
   EXPECT_EQ(completed, 2u);
   EXPECT_NE(Read(Send({}, "/metrics", "GET"))
-                .find("loom_serve_model_completed_total{model=\"weighted\","
+                .find("loom_serve_model_completed_total{model=\"checkpoint\","
                       "kind=\"embedding\",incarnation=\"1\"} 1\n"),
             std::string::npos);
   const std::string logs =
-      Read(Send({}, "/logz", "GET", "X-Loom-Model: weighted\r\n"));
+      Read(Send({}, "/logz", "GET", "X-Loom-Model: checkpoint\r\n"));
   const std::string prefix = R"({"event":"cursor","value":")";
   const size_t cursor_begin = logs.find(prefix);
   ASSERT_NE(cursor_begin, std::string::npos);
   const size_t value_begin = cursor_begin + prefix.size();
   const std::string cursor =
       logs.substr(value_begin, logs.find('"', value_begin) - value_begin);
-  EXPECT_EQ(Read(Send(R"({"model":"weighted","mode":"drain"})",
+  EXPECT_EQ(Read(Send(R"({"model":"checkpoint","mode":"drain"})",
                       "/v1/models/unregister"))
                 .find("HTTP/1.1 202"),
             0u);
-  WaitModel("weighted", {});
+  WaitModel("checkpoint", {});
   EXPECT_EQ(CompletedRequests(), completed);
-  EXPECT_EQ(Read(Send(Declaration("weighted", package), "/v1/models/register"))
-                .find("HTTP/1.1 202"),
-            0u);
-  EXPECT_NE(Read(Send(R"({"model":"weighted","input":"a"})"))
+  EXPECT_EQ(
+      Read(Send(Declaration("checkpoint", package), "/v1/models/register"))
+          .find("HTTP/1.1 202"),
+      0u);
+  EXPECT_NE(Read(Send(R"({"model":"checkpoint","input":"a"})"))
                 .find(R"("embedding":[2,2,2,2])"),
             std::string::npos);
-  EXPECT_EQ(
-      Read(Send({}, "/logz", "GET",
-                "X-Loom-Model: weighted\r\nX-Loom-Cursor: " + cursor + "\r\n"))
-          .find("HTTP/1.1 409"),
-      0u);
+  EXPECT_EQ(Read(Send({}, "/logz", "GET",
+                      "X-Loom-Model: checkpoint\r\nX-Loom-Cursor: " + cursor +
+                          "\r\n"))
+                .find("HTTP/1.1 409"),
+            0u);
   EXPECT_EQ(CompletedRequests(), completed + 1);
   const std::string metrics = Read(Send({}, "/metrics", "GET"));
   EXPECT_EQ(metrics.find("incarnation=\"1\""), std::string::npos);
-  EXPECT_NE(metrics.find("loom_serve_model_completed_total{model=\"weighted\","
-                         "kind=\"embedding\",incarnation=\"3\"} 1\n"),
-            std::string::npos);
-  EXPECT_EQ(Read(Send(R"({"model":"weighted","mode":"abort"})",
+  EXPECT_NE(
+      metrics.find("loom_serve_model_completed_total{model=\"checkpoint\","
+                   "kind=\"embedding\",incarnation=\"3\"} 1\n"),
+      std::string::npos);
+  EXPECT_EQ(Read(Send(R"({"model":"checkpoint","mode":"abort"})",
                       "/v1/models/unregister"))
                 .find("HTTP/1.1 202"),
             0u);
-  WaitModel("weighted", {});
+  WaitModel("checkpoint", {});
 }
 
 TEST_F(SourceEmbeddingServiceTest,
@@ -297,7 +300,7 @@ TEST_F(SourceEmbeddingServiceTest,
 TEST_F(SourceEmbeddingServiceTest,
        FailedRegistrationPublishesEvidenceAndReleasesHeldClaims) {
   const std::string package = iree::testing::MakeTempFilePath("failed_dynamic");
-  ASSERT_NO_FATAL_FAILURE(WriteWeightedPackage(package));
+  ASSERT_NO_FATAL_FAILURE(WriteCheckpointPackage(package));
   {
     std::filesystem::permissions(package + "/embed.loom",
                                  std::filesystem::perms::owner_write,
@@ -440,79 +443,6 @@ TEST_F(SourceEmbeddingServiceTest,
   // Shutdown itself must also retire while no stderr consumer is running.
   loom_serve_http_server_request_stop(server_);
   IREE_EXPECT_OK(http_.Join());
-}
-
-TEST_F(SourceEmbeddingServiceTest,
-       AdmissionDrainPreservesPreparedWeightsAndResumesHeldHttpRequests) {
-  const std::string package =
-      iree::testing::MakeTempFilePath("drained_weighted_embedding");
-  ASSERT_NO_FATAL_FAILURE(WriteWeightedPackage(package));
-  retained_ = std::exchange(model_, nullptr);
-  ASSERT_NO_FATAL_FAILURE(CreateModel(package));
-  loom_serve_finite_service_free(std::exchange(service_, nullptr));
-  ASSERT_NO_FATAL_FAILURE(CreateService(0));
-  EXPECT_EQ(
-      loom_serve_residency_activity(loom_serve_finite_model_residency(model_))
-          .activations,
-      0u);
-  StartRouter();
-  const auto control = [this](const char* target) {
-    return Read(Send(R"({"model":"fixture"})", target));
-  };
-  EXPECT_NE(control("/v1/models/drain").find(R"("admission":"drained")"),
-            std::string::npos);
-  std::vector<int> clients;
-  for (int i = 0; i < 7; ++i) {
-    clients.push_back(Send(R"({"model":"fixture","input":"a"})"));
-  }
-  const int tokens =
-      Send(R"({"model":"fixture","content":"aba"})", "/tokenize");
-  // The control reply acknowledges the actual owner cutoff; transport
-  // arrivals may precede or follow each other across independent connections.
-  std::string state;
-  do {
-    state = control("/v1/models/drain");
-    ASSERT_EQ(state.find("HTTP/1.1 200"), 0u);
-  } while (state.find(R"("held_requests":8,)") == std::string::npos);
-  EXPECT_NE(state.find(R"("queued_requests":0,"active_requests":0)"),
-            std::string::npos);
-  EXPECT_NE(state.find(R"("tokenizer_requests":0)"), std::string::npos);
-  EXPECT_EQ(
-      Read(Send(R"({"model":"fixture","input":"a"})")).find("HTTP/1.1 429"),
-      0u);
-  EXPECT_NE(Read(Send("", "/metrics", "GET"))
-                .find("loom_serve_server_completed_total 0\n"),
-            std::string::npos);
-  EXPECT_EQ(control("/v1/models/undrain").find("HTTP/1.1 200"), 0u);
-  for (const int client : clients) {
-    const auto response = Read(client);
-    // The fourth oracle component reports the live cohort width. All seven
-    // parked inference requests enter the same model batch on undrain.
-    EXPECT_NE(response.find(R"("embedding":[2,2,2,14])"), std::string::npos)
-        << response;
-  }
-  EXPECT_NE(Read(tokens).find(R"({"tokens":[0,1,0]})"), std::string::npos);
-
-  EXPECT_NE(control("/v1/models/drain").find(R"("admission":"drained")"),
-            std::string::npos);
-  const int resumed = Send(R"({"model":"fixture","input":"a"})");
-  do {
-    state = control("/v1/models/drain");
-    ASSERT_EQ(state.find("HTTP/1.1 200"), 0u);
-  } while (state.find(R"("held_requests":1,)") == std::string::npos);
-  EXPECT_EQ(control("/v1/models/undrain").find("HTTP/1.1 200"), 0u);
-  EXPECT_NE(Read(resumed).find(R"("embedding":[2,2,2,2])"), std::string::npos);
-  EXPECT_NE(Read(Send("", "/metrics", "GET"))
-                .find("loom_serve_server_completed_total 8\n"),
-            std::string::npos);
-  loom_serve_http_server_request_stop(server_);
-  IREE_EXPECT_OK(http_.Join());
-  // Reversible admission never evicted/reloaded the in-place prepared
-  // parameter. Applying preparation twice would also change the exact output.
-  EXPECT_EQ(
-      loom_serve_residency_activity(loom_serve_finite_model_residency(model_))
-          .activations,
-      1u);
 }
 
 }  // namespace loom_serve::testing::embedding

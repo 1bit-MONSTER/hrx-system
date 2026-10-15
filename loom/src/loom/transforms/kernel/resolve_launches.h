@@ -44,6 +44,9 @@ typedef struct loom_kernel_launch_entry_table_t {
 // transform inserts ordinary pure calls at their caller-owned CFG sites,
 // derives one executable-entry declaration per logical kernel, and replaces
 // each kernel.launch with a kernel.dispatch targeting that entry.
+// Kernel-scoped pipelines retain their logical launches and declaration in
+// the entry table: their workload prefix specializes an independently compiled
+// artifact and does not compute a physical dispatch grid.
 //
 // Calls for launches nested only in kernel launch-schedule regions are placed
 // immediately before the outermost schedule. Schedule regions describe command

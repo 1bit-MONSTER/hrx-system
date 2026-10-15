@@ -1128,9 +1128,9 @@ static iree_status_t loom_aie2p_kernel_apply(
   loom_op_t* pipeline_op = NULL;
   if (iree_status_is_ok(status)) {
     status = loom_pipeline_def_build(
-        ir, build_flags, LOOM_PIPELINE_DEF_SCOPE_KERNEL,
-        LOOM_PIPELINE_DEF_VISIBILITY_PUBLIC,
-        retained ? LOOM_PIPELINE_DEF_RETAIN_RETAIN : 0, target, callee, NULL, 0,
+        ir, build_flags, LOOM_PIPELINE_SCOPE_KERNEL,
+        LOOM_PIPELINE_VISIBILITY_PUBLIC,
+        retained ? LOOM_PIPELINE_RETAIN_RETAIN : 0, target, callee, NULL, 0,
         binding_types, source_argument_count, predicates, predicate_count,
         builder.location, &pipeline_op);
   }

@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Body-blind kernel contract and launch-configuration facet projection.
+// Body-blind launch contract and kernel configuration facet projection.
 
 #ifndef LOOM_LINK_KERNEL_CONFIG_MATERIALIZER_H_
 #define LOOM_LINK_KERNEL_CONFIG_MATERIALIZER_H_
@@ -17,7 +17,7 @@ extern "C" {
 #endif
 
 // Compact ordinary IR reconstructed for one source module containing partial
-// kernel entry or configuration selections.
+// kernel entry, kernel configuration or pipeline contract selections.
 typedef struct loom_link_kernel_config_module_projection_t {
   // Standalone compact module owned by the caller.
   loom_module_t* module;
@@ -36,13 +36,15 @@ typedef struct loom_link_kernel_config_module_projection_t {
   } configuration_functions;
 } loom_link_kernel_config_module_projection_t;
 
-// Projects every partial kernel contract selected from one source module.
+// Projects every partial launch contract selected from one source module.
 //
 // Complete dependency symbols are materialized once in canonical source order.
 // A configuration selection contributes an ordinary private kernel.decl and
 // pure inline func.def. An entry-only selection contributes kernel.entry.decl
-// without opening its configuration or implementation regions. Source
-// symbols use the exact compact ordinals assigned by |selection|, allowing the
+// without opening its configuration or implementation regions. A pipeline
+// contract contributes pipeline.decl with its full staged and run signature
+// without opening the implementation. Source symbols use the exact compact
+// ordinals assigned by |selection|, allowing the
 // generic plan materializer to pass this module directly to the incremental
 // linker without name lookup or a second reachability pass.
 iree_status_t loom_link_plan_project_kernel_config_module(

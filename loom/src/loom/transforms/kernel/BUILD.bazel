@@ -13,10 +13,33 @@ package(
 )
 
 loom_cc_library(
+    name = "kernel_specialization",
+    srcs = ["kernel_specialization.c"],
+    hdrs = ["kernel_specialization.h"],
+    deps = [
+        "//loom/src/loom/analysis:type_refinement",
+        "//loom/src/loom/decision:class_partition",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops:special_values",
+        "//loom/src/loom/ops/scalar",
+        "//loom/src/loom/ops/vector",
+        "//loom/src/loom/ops/view",
+        "//loom/src/loom/rewrite:remap",
+        "//loom/src/loom/rewrite:rewriter",
+        "//loom/src/loom/util:fact_table",
+        "//loom/src/loom/util:predicate_facts",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
     name = "kernel_class_classifier",
     srcs = ["kernel_class_classifier.c"],
     hdrs = ["kernel_class_classifier.h"],
     deps = [
+        ":kernel_specialization",
         "//loom/src/loom/analysis:symbol_references",
         "//loom/src/loom/analysis:symbolic_expr",
         "//loom/src/loom/decision:class_partition",
@@ -71,6 +94,7 @@ loom_cc_library(
     hdrs = ["kernel_class_materializer.h"],
     deps = [
         ":kernel_class_classifier",
+        ":kernel_specialization",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/index",
         "//loom/src/loom/ops/scalar",
@@ -175,6 +199,7 @@ loom_cc_test(
         "//loom/src/loom/link:module_index",
         "//loom/src/loom/ops:op_registry",
         "//loom/src/loom/ops/kernel",
+        "//loom/src/loom/ops/scalar",
         "//loom/src/loom/testing:module_ptr",
         "//loom/src/loom/util:fact_table",
         "//loom/src/loom/verify",
@@ -209,6 +234,7 @@ loom_cc_library(
         "//loom/src/loom/ops:op_defs",
         "//loom/src/loom/ops/buffer",
         "//loom/src/loom/ops/index",
+        "//loom/src/loom/ops/pipeline",
         "//loom/src/loom/pass:types",
         "//loom/src/loom/pass:value_facts",
         "//runtime/src/iree/base",
@@ -228,6 +254,7 @@ loom_cc_library(
         "//loom/src/loom/ops:op_defs",
         "//loom/src/loom/ops/func",
         "//loom/src/loom/ops/kernel",
+        "//loom/src/loom/ops/pipeline",
         "//loom/src/loom/rewrite:remap",
         "//loom/src/loom/rewrite:rewriter",
         "//runtime/src/iree/base",

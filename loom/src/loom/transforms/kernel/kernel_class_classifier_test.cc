@@ -309,7 +309,7 @@ class ManualBinaryClassifier {
         .decision_count = 2,
         .maximum_provider_count = 2,
         .kernel_argument_count = 2,
-        .reserved = {},
+        .specialization_count = 0,
     };
 
     fact_table_.entries = fact_entries_;
@@ -445,8 +445,8 @@ TEST_F(KernelClassClassifierTest,
       loom_kernel_class_collection_options_default();
   loom_kernel_class_collection_t collection = {};
   IREE_ASSERT_OK(loom_kernel_class_classifier_collect(
-      &classifier, sites.data(), sites.size(), &options, &analysis_arena_,
-      &collection));
+      &classifier, nullptr, sites.data(), sites.size(), &options,
+      &analysis_arena_, &collection));
   ASSERT_EQ(collection.class_count, 2u);
   ASSERT_EQ(collection.accepted_decision_count, 1u);
   ASSERT_EQ(collection.skipped_decision_count, 0u);
@@ -513,8 +513,8 @@ TEST_F(KernelClassClassifierTest, CorrelatedDecisionsRetainObservedQuotient) {
       loom_kernel_class_collection_options_default();
   loom_kernel_class_collection_t collection = {};
   IREE_ASSERT_OK(loom_kernel_class_classifier_collect(
-      fixture.classifier(), fixture.sites(), /*site_count=*/4, &options,
-      &analysis_arena_, &collection));
+      fixture.classifier(), nullptr, fixture.sites(), /*site_count=*/4,
+      &options, &analysis_arena_, &collection));
   EXPECT_EQ(collection.class_count, 2u);
   EXPECT_EQ(collection.accepted_decision_count, 2u);
   EXPECT_EQ(collection.skipped_decision_count, 0u);
@@ -534,8 +534,8 @@ TEST_F(KernelClassClassifierTest,
       loom_kernel_class_collection_options_default();
   loom_kernel_class_collection_t collection = {};
   IREE_ASSERT_OK(loom_kernel_class_classifier_collect(
-      fixture.classifier(), fixture.sites(), /*site_count=*/4, &options,
-      &analysis_arena_, &collection));
+      fixture.classifier(), nullptr, fixture.sites(), /*site_count=*/4,
+      &options, &analysis_arena_, &collection));
   EXPECT_EQ(collection.class_count, 2u);
   EXPECT_EQ(collection.accepted_decision_count, kDecisionCount);
   EXPECT_EQ(collection.skipped_decision_count, 0u);
@@ -550,8 +550,8 @@ TEST_F(KernelClassClassifierTest,
   options.class_limit = 2;
   loom_kernel_class_collection_t collection = {};
   IREE_ASSERT_OK(loom_kernel_class_classifier_collect(
-      fixture.classifier(), fixture.sites(), /*site_count=*/4, &options,
-      &analysis_arena_, &collection));
+      fixture.classifier(), nullptr, fixture.sites(), /*site_count=*/4,
+      &options, &analysis_arena_, &collection));
 
   ASSERT_EQ(collection.class_count, 2u);
   EXPECT_EQ(collection.accepted_decision_count, 1u);
@@ -575,8 +575,8 @@ TEST_F(KernelClassClassifierTest,
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_RESOURCE_EXHAUSTED,
       loom_kernel_class_classifier_collect(
-          fixture.classifier(), fixture.sites(), /*site_count=*/4, &options,
-          &analysis_arena_, &collection));
+          fixture.classifier(), nullptr, fixture.sites(), /*site_count=*/4,
+          &options, &analysis_arena_, &collection));
 }
 
 TEST_F(KernelClassClassifierTest,
@@ -589,8 +589,8 @@ TEST_F(KernelClassClassifierTest,
       loom_kernel_class_collection_options_default();
   loom_kernel_class_collection_t collection = {};
   IREE_ASSERT_OK(loom_kernel_class_classifier_collect(
-      fixture.classifier(), fixture.sites(), /*site_count=*/4, &options,
-      &analysis_arena_, &collection));
+      fixture.classifier(), nullptr, fixture.sites(), /*site_count=*/4,
+      &options, &analysis_arena_, &collection));
   EXPECT_EQ(collection.class_count, 1u);
   EXPECT_EQ(collection.accepted_decision_count, 0u);
   EXPECT_EQ(collection.skipped_decision_count, 1u);
@@ -615,8 +615,8 @@ TEST_F(KernelClassClassifierTest,
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_FAILED_PRECONDITION,
       loom_kernel_class_classifier_collect(
-          fixture.classifier(), fixture.sites(), /*site_count=*/4, &options,
-          &analysis_arena_, &collection));
+          fixture.classifier(), nullptr, fixture.sites(), /*site_count=*/4,
+          &options, &analysis_arena_, &collection));
 }
 
 TEST_F(KernelClassClassifierTest,
@@ -629,8 +629,8 @@ TEST_F(KernelClassClassifierTest,
       loom_kernel_class_collection_options_default();
   loom_kernel_class_collection_t collection = {};
   IREE_ASSERT_OK(loom_kernel_class_classifier_collect(
-      fixture.classifier(), fixture.sites(), /*site_count=*/4, &options,
-      &analysis_arena_, &collection));
+      fixture.classifier(), nullptr, fixture.sites(), /*site_count=*/4,
+      &options, &analysis_arena_, &collection));
   EXPECT_EQ(collection.class_count, 1u);
   EXPECT_EQ(collection.accepted_decision_count, 0u);
   EXPECT_EQ(collection.skipped_decision_count, 1u);
@@ -649,8 +649,8 @@ TEST_F(KernelClassClassifierTest,
       loom_kernel_class_collection_options_default();
   loom_kernel_class_collection_t collection = {};
   IREE_ASSERT_OK(loom_kernel_class_classifier_collect(
-      fixture.classifier(), fixture.sites(), /*site_count=*/2, &options,
-      &analysis_arena_, &collection));
+      fixture.classifier(), nullptr, fixture.sites(), /*site_count=*/2,
+      &options, &analysis_arena_, &collection));
   EXPECT_EQ(collection.class_count, 1u);
   EXPECT_EQ(collection.accepted_decision_count, 1u);
   EXPECT_EQ(collection.skipped_decision_count, 0u);

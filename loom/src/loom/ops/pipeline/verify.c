@@ -40,9 +40,9 @@ static iree_status_t loom_pipeline_emit_count_mismatch(
                             IREE_ARRAYSIZE(params));
 }
 
-iree_status_t loom_pipeline_def_verify(const loom_module_t* module,
-                                       const loom_op_t* op,
-                                       iree_diagnostic_emitter_t emitter) {
+iree_status_t loom_pipeline_signature_verify(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter) {
   IREE_RETURN_IF_ERROR(loom_function_contract_verify(module, op, emitter));
   const loom_func_like_t pipeline = loom_func_like_const_cast(module, op);
   uint16_t argument_count = 0;
@@ -134,7 +134,7 @@ iree_status_t loom_pipeline_memory_verify(const loom_module_t* module,
     pipeline = pipeline->parent_op;
   }
   if (!pipeline || !loom_pipeline_def_has_scope(pipeline) ||
-      loom_pipeline_def_scope(pipeline) != LOOM_PIPELINE_DEF_SCOPE_KERNEL) {
+      loom_pipeline_def_scope(pipeline) != LOOM_PIPELINE_SCOPE_KERNEL) {
     const loom_diagnostic_param_t params[] = {
         loom_param_string(loom_op_name(module, op)),
         loom_param_string(IREE_SV("required")),

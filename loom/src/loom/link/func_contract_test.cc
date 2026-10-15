@@ -139,6 +139,42 @@ TEST_F(LinkFuncContractTest, ReportsFieldMismatch) {
       iree_string_view_equal(mismatch.field_name, IREE_SV("temperature")));
 }
 
+TEST_F(LinkFuncContractTest, MergesPipelineScopeAndPreservesStagedSignature) {
+  loom_op_t* source_op = FindOp(IREE_SV("pipeline_source"));
+  loom_op_t* selected_op = FindOp(IREE_SV("pipeline_selected"));
+  loom_link_func_contract_t source =
+      loom_link_func_contract_from_op(module_, source_op);
+  loom_link_func_contract_t selected =
+      loom_link_func_contract_from_op(module_, selected_op);
+  const uint8_t source_scope =
+      loom_symbol_definition_product_carrier_attr_index(
+          source.symbol_definition);
+  const uint8_t selected_scope =
+      loom_symbol_definition_product_carrier_attr_index(
+          selected.symbol_definition);
+  EXPECT_FALSE(AttrPresent(selected_op, selected_scope));
+  const auto checked =
+      Check(IREE_SV("pipeline_source"), IREE_SV("pipeline_selected"));
+  EXPECT_EQ(checked.kind, LOOM_LINK_FUNC_CONTRACT_MISMATCH_NONE);
+  EXPECT_FALSE(AttrPresent(selected_op, selected_scope));
+
+  loom_ir_remap_t remap = {};
+  IREE_ASSERT_OK(loom_ir_remap_initialize(module_, module_, &scratch_arena_,
+                                          nullptr, &remap));
+  loom_link_func_contract_mismatch_t mismatch = {};
+  IREE_ASSERT_OK(
+      loom_link_func_contract_merge(&source, &selected, &remap, 0, &mismatch));
+  EXPECT_EQ(mismatch.kind, LOOM_LINK_FUNC_CONTRACT_MISMATCH_NONE);
+  EXPECT_TRUE(loom_attribute_equal(&source.attributes[source_scope],
+                                   &selected.attributes[selected_scope]));
+
+  const auto staged =
+      Check(IREE_SV("pipeline_source"), IREE_SV("pipeline_stage_mismatch"));
+  EXPECT_EQ(staged.kind, LOOM_LINK_FUNC_CONTRACT_MISMATCH_FIELD);
+  EXPECT_TRUE(iree_string_view_equal(staged.field_name,
+                                     IREE_SV("specialization_count")));
+}
+
 TEST_F(LinkFuncContractTest, ReportsArgumentCountMismatch) {
   const loom_link_func_contract_mismatch_t mismatch =
       Check(IREE_SV("source"), IREE_SV("argument_count_mismatch"));

@@ -276,12 +276,18 @@ iree_status_t loom_cmd_dispatch_count_table_build(
       const iree_host_size_t command_index = wave.command_offset + i;
       const loom_cmd_schedule_command_t* command =
           &schedule->commands[command_index];
-      IREE_ASSERT(loom_kernel_dispatch_isa(command->source_op));
-      if (loom_kernel_dispatch_workgroup_size(command->source_op).count != 0) {
+      if (command->kind != LOOM_CMD_SCHEDULE_COMMAND_KIND_PIPELINE_LAUNCH &&
+          loom_kernel_dispatch_workgroup_size(command->source_op).count != 0) {
         status = loom_cmd_dispatch_count_emit_override_error(&build, command);
         continue;
       }
       switch (command->kind) {
+        case LOOM_CMD_SCHEDULE_COMMAND_KIND_PIPELINE_LAUNCH:
+          counts[command_index] = (loom_cmd_dispatch_count_t){
+              .kind = LOOM_CMD_DISPATCH_COUNT_KIND_DIRECT,
+              .payload.direct = {.x = 1, .y = 1, .z = 1},
+          };
+          break;
         case LOOM_CMD_SCHEDULE_COMMAND_KIND_KERNEL_DISPATCH_DIRECT:
           status = loom_cmd_dispatch_count_record_direct(
               &build, command, &counts[command_index]);

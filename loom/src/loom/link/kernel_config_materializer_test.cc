@@ -20,11 +20,13 @@
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/link/plan_materializer.h"
+#include "loom/link/testdata/pipeline_contracts_testdata.h"
 #include "loom/ops/config/ops.h"
 #include "loom/ops/func/ops.h"
 #include "loom/ops/index/ops.h"
 #include "loom/ops/kernel/ops.h"
 #include "loom/ops/op_registry.h"
+#include "loom/ops/pipeline/ops.h"
 #include "loom/ops/target/ops.h"
 #include "loom/verify/verify.h"
 
@@ -187,6 +189,103 @@ class KernelConfigMaterializerTest : public ::testing::Test {
   iree_arena_block_pool_t block_pool_;
   loom_context_t context_;
 };
+
+TEST_F(KernelConfigMaterializerTest,
+       ProjectsPipelineLaunchContractAcrossProviderForms) {
+  const iree_file_toc_t* files = loom_link_pipeline_contracts_testdata_create();
+  ASSERT_EQ(loom_link_pipeline_contracts_testdata_size(), 2u);
+  ASSERT_STREQ(files[0].name, "caller.loom");
+  ASSERT_STREQ(files[1].name, "provider.loom");
+  const iree_string_view_t source =
+      iree_make_string_view(files[1].data, files[1].size);
+  const iree_string_view_t caller =
+      iree_make_string_view(files[0].data, files[0].size);
+  loom_module_t* source_module = Parse(source);
+  Verify(source_module);
+  const std::vector<uint8_t> bytecode = Write(source_module);
+  for (const auto form :
+       {LOOM_LINK_PROVIDER_MATERIALIZED, LOOM_LINK_PROVIDER_TEXT,
+        LOOM_LINK_PROVIDER_BYTECODE}) {
+    for (const auto root_name : {IREE_SV("embed"), IREE_SV("external_embed")}) {
+      IndexPtr index = CreateIndex();
+      switch (form) {
+        case LOOM_LINK_PROVIDER_MATERIALIZED:
+          IREE_ASSERT_OK(loom_link_module_index_add_materialized(
+              index.get(), source_module, nullptr, nullptr));
+          break;
+        case LOOM_LINK_PROVIDER_TEXT:
+          AddText(index.get(), source);
+          break;
+        case LOOM_LINK_PROVIDER_BYTECODE:
+          IREE_ASSERT_OK(loom_link_module_index_add_bytecode(
+              index.get(),
+              iree_make_const_byte_span(bytecode.data(), bytecode.size()),
+              IREE_SV("provider.loombc"), nullptr, nullptr, nullptr));
+          break;
+      }
+      if (iree_string_view_equal(root_name, IREE_SV("external_embed"))) {
+        AddText(index.get(), caller);
+      }
+      const auto* pipeline =
+          loom_link_module_index_lookup_name(index.get(), IREE_SV("resident"));
+      const auto* implementation = loom_link_module_index_lookup_name(
+          index.get(), IREE_SV("implementation_only"));
+      ASSERT_NE(pipeline, nullptr);
+      ASSERT_NE(implementation, nullptr);
+      EXPECT_EQ(pipeline->facets.schema.facet_count, 2u);
+      EXPECT_EQ(loom_link_module_index_symbol_facet_kind_at(pipeline, 0),
+                LOOM_LINK_SYMBOL_FACET_PIPELINE_CONTRACT);
+      EXPECT_EQ(loom_link_module_index_symbol_facet_kind_at(pipeline, 1),
+                LOOM_LINK_SYMBOL_FACET_PIPELINE_IMPLEMENTATION);
+
+      const iree_string_view_t roots[] = {root_name};
+      const loom_link_plan_options_t options = {
+          .mode = LOOM_LINK_PLAN_LINK,
+          .root_symbols = {1, roots},
+          .dependency_policy = LOOM_LINK_PLAN_DEPENDENCY_REQUESTED_FACETS,
+      };
+      loom_link_plan_t* raw_plan = nullptr;
+      IREE_ASSERT_OK(loom_link_plan_build(index.get(), &options,
+                                          iree_allocator_system(), &raw_plan));
+      PlanPtr plan(raw_plan);
+      EXPECT_TRUE(loom_link_plan_contains_facet(
+          plan.get(), pipeline->ordinal,
+          LOOM_LINK_SYMBOL_FACET_PIPELINE_CONTRACT));
+      EXPECT_FALSE(loom_link_plan_contains_facet(
+          plan.get(), pipeline->ordinal,
+          LOOM_LINK_SYMBOL_FACET_PIPELINE_IMPLEMENTATION));
+      EXPECT_FALSE(
+          loom_link_plan_contains_symbol(plan.get(), implementation->ordinal));
+      const loom_link_plan_materialization_environment_t environment = {
+          .context = &context_,
+          .block_pool = &block_pool_,
+          .allocator = iree_allocator_system(),
+      };
+      iree_arena_allocator_t arena;
+      iree_arena_initialize(&block_pool_, &arena);
+      loom_link_plan_materialization_t product = {};
+      IREE_ASSERT_OK(loom_link_plan_materialize(
+          plan.get(), &environment, IREE_SV("launch"), &arena, &product));
+      Verify(product.module);
+      const auto* declaration = FindSymbol(product.module, IREE_SV("resident"));
+      ASSERT_NE(declaration, nullptr);
+      ASSERT_TRUE(loom_pipeline_decl_isa(declaration->defining_op));
+      const auto* op = declaration->defining_op;
+      EXPECT_EQ(loom_pipeline_decl_scope(op), LOOM_PIPELINE_SCOPE_KERNEL);
+      EXPECT_EQ(loom_pipeline_decl_specialization_count(op), 1);
+      EXPECT_EQ(loom_pipeline_decl_args(op).count, 4u);
+      EXPECT_EQ(loom_pipeline_decl_predicates(op).count, 1u);
+      EXPECT_TRUE(loom_symbol_ref_is_valid(loom_pipeline_decl_target(op)));
+      EXPECT_EQ(product.target_kernel_configurations.count, 0u);
+      EXPECT_EQ(FindSymbol(product.module, IREE_SV("implementation_only")),
+                nullptr);
+      VerifyBytecodeRoundTrip(product.module);
+      loom_module_free(product.module);
+      iree_arena_deinitialize(&arena);
+    }
+  }
+  loom_module_free(source_module);
+}
 
 TEST_F(KernelConfigMaterializerTest,
        IndexesKernelFacetSchemaAcrossProviderForms) {

@@ -15,3 +15,10 @@ kernel.decl @kernel_source(%workload_count: index) launch(%value: i32)
 kernel.decl @kernel_count_mismatch(%workload_x: index, %workload_y: index) launch(%value: i32)
 
 kernel.decl @kernel_type_mismatch(%workload_count: i32) launch(%value: i32)
+
+pipeline.decl<kernel> @pipeline_source(%width: index) run(%input: view<[%width]xi8>)
+
+pipeline.def @pipeline_selected(%width: index) run(%input: view<[%width]xi8>) {
+}
+
+pipeline.decl<kernel> @pipeline_stage_mismatch() run(%width: index, %input: view<[%width]xi8>)

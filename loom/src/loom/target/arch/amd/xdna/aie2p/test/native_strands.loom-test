@@ -2,10 +2,11 @@
 
 // A service strand gathers panels from padded rows and scatters the results.
 // Its neighboring compute strand retains channel storage while slots rotate.
-// Unused arguments preserve their ABI ordinals around the actual DMA buffers.
+// Unused arguments, including a typed view, preserve their ABI ordinals around
+// the actual DMA buffers after resource normalization.
 aie2p.target<array> @npu {device_profile = "amd.xdna.strix.17f0_10"}
 
-pipeline.def<kernel> public retain target(@npu) @scale_panels() run(%unused_first: buffer, %input_arg: buffer, %unused_middle: buffer, %output_arg: buffer, %unused_last: buffer) {
+pipeline.def<kernel> public retain target(@npu) @scale_panels() run(%unused_first: buffer, %input_arg: buffer, %unused_middle: view<4xi32>, %output_arg: buffer, %unused_last: buffer) {
   %input, %output = buffer.assume.alignment %input_arg, %output_arg {minimum_alignment = 64} : buffer, buffer
   %memory = pipeline.memory<workgroup>[0, 3] : pool
   %origin = index.constant 0 : offset

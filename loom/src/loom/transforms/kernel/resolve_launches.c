@@ -13,6 +13,7 @@
 #include "loom/ops/func/ops.h"
 #include "loom/ops/kernel/ops.h"
 #include "loom/ops/op_defs.h"
+#include "loom/ops/pipeline/ops.h"
 #include "loom/rewrite/remap.h"
 #include "loom/rewrite/rewriter.h"
 
@@ -162,6 +163,13 @@ static iree_status_t loom_kernel_launch_resolution_rewrite_launch(
   IREE_ASSERT(loom_symbol_ref_is_valid(kernel_ref));
   IREE_ASSERT_EQ(kernel_ref.module_id, 0u);
   IREE_ASSERT_LT(kernel_ref.symbol_id, resolution->module->symbols.count);
+  loom_op_t* source_op =
+      resolution->module->symbols.entries[kernel_ref.symbol_id].defining_op;
+  if (loom_pipeline_decl_isa(source_op)) {
+    resolution->entry_ops[kernel_ref.symbol_id] = source_op;
+    *out_valid = true;
+    return iree_ok_status();
+  }
   if (kernel_ref.symbol_id >= resolution->configuration_function_count ||
       !loom_symbol_ref_is_valid(
           resolution->configuration_functions[kernel_ref.symbol_id])) {

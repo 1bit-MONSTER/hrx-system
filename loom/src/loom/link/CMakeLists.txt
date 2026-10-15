@@ -351,6 +351,7 @@ loom_cc_library(
     loom::ops::func
     loom::ops::kernel
     loom::ops::op_defs
+    loom::ops::pipeline
     loom::ops::type_registry
     loom::rewrite::materialize
     loom::rewrite::remap
@@ -378,11 +379,13 @@ loom_cc_test(
     loom::format::bytecode::writer
     loom::format::text::parser
     loom::ir
+    loom::link::testdata::pipeline_contracts
     loom::ops::config
     loom::ops::func
     loom::ops::index
     loom::ops::kernel
     loom::ops::op_registry
+    loom::ops::pipeline
     loom::ops::target
     loom::verify
 )

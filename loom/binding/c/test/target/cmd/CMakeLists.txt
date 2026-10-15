@@ -17,6 +17,7 @@ loom_cc_test(
   DEPS
     iree::testing::gtest
     iree::testing::gtest_main
+    loom::binding::c::interop
     loom::binding::c::loomc
     loom::binding::c::target::cmd
     loom::binding::c::test::test_util

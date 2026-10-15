@@ -31,6 +31,8 @@ enum loom_link_symbol_facet_kind_e {
   LOOM_LINK_SYMBOL_FACET_KERNEL_IMPLEMENTATION = 0x1003,
   LOOM_LINK_SYMBOL_FACET_COMMAND_CONTRACT = 0x1E01,
   LOOM_LINK_SYMBOL_FACET_COMMAND_IMPLEMENTATION = 0x1E02,
+  LOOM_LINK_SYMBOL_FACET_PIPELINE_CONTRACT = 0x2301,
+  LOOM_LINK_SYMBOL_FACET_PIPELINE_IMPLEMENTATION = 0x2302,
 };
 
 // Compact source-role schema used to classify one indexed symbol's facets.
@@ -54,8 +56,8 @@ static_assert(sizeof(loom_link_symbol_facet_schema_t) == 8,
               "link symbol facet schemas must remain 8 bytes");
 
 // Classifies existing structural symbol metadata into a compact linker
-// schema. Kernel and command interfaces currently own every root on their
-// defining operations; adding an auxiliary root to either interface must
+// schema. Kernel, command and pipeline interfaces own every root on their
+// defining operations; adding an auxiliary root to these interfaces must
 // update this classifier rather than creating another physical-root facet.
 loom_link_symbol_facet_schema_t loom_link_symbol_facet_schema_classify(
     loom_symbol_interface_flags_t interfaces, uint8_t root_region_count,

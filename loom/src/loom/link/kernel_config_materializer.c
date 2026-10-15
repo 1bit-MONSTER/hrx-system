@@ -19,6 +19,7 @@
 #include "loom/ops/kernel/launch_config.h"
 #include "loom/ops/kernel/ops.h"
 #include "loom/ops/op_defs.h"
+#include "loom/ops/pipeline/ops.h"
 #include "loom/ops/type_registry.h"
 #include "loom/rewrite/materialize.h"
 #include "loom/rewrite/remap.h"
@@ -153,6 +154,8 @@ static iree_status_t loom_link_kernel_config_build_declaration(
   }
   const bool is_entry =
       projection == LOOM_LINK_PLAN_SYMBOL_PROJECTION_KERNEL_ENTRY;
+  const bool is_pipeline =
+      projection == LOOM_LINK_PLAN_SYMBOL_PROJECTION_PIPELINE_CONTRACT;
   const uint16_t workload_count =
       is_entry ? 0 : header->workload_argument_count;
   const iree_host_size_t operand_count =
@@ -161,13 +164,14 @@ static iree_status_t loom_link_kernel_config_build_declaration(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "kernel signature exceeds operand capacity");
   }
-  const loom_op_kind_t op_kind =
-      is_entry ? LOOM_OP_KERNEL_ENTRY_DECL : LOOM_OP_KERNEL_DECL;
+  const loom_op_kind_t op_kind = is_pipeline ? LOOM_OP_PIPELINE_DECL
+                                 : is_entry  ? LOOM_OP_KERNEL_ENTRY_DECL
+                                             : LOOM_OP_KERNEL_DECL;
   const loom_op_vtable_t* vtable =
       loom_context_resolve_op(module->context, op_kind);
   IREE_ASSERT(vtable != NULL);
   loom_op_t* declaration = NULL;
-  if (is_entry) {
+  if (is_entry || is_pipeline) {
     IREE_RETURN_IF_ERROR(loom_builder_allocate_op(
         builder, op_kind, (uint16_t)operand_count, /*result_count=*/0,
         /*region_count=*/0, /*tied_result_count=*/0, vtable->attribute_count,
@@ -198,11 +202,22 @@ static iree_status_t loom_link_kernel_config_build_declaration(
       header
           ->attributes[header->vtable->symbol_def->retain_attr_index_plus_one -
                        1];
-  if (!is_entry) {
+  if (is_pipeline) {
+    attributes[vtable->func_like->visibility_attr_index] =
+        header->attributes[header->func_like->visibility_attr_index];
+    attributes[vtable->func_like->specialization_count_attr_index] =
+        header->attributes[header->func_like->specialization_count_attr_index];
+    attributes[loom_symbol_definition_product_carrier_attr_index(
+        vtable->symbol_def)] =
+        header->attributes[loom_symbol_definition_product_carrier_attr_index(
+            header->vtable->symbol_def)];
+  } else if (!is_entry) {
     attributes[vtable->func_like->export_symbol_attr_index] =
         header->attributes[header->func_like->export_symbol_attr_index];
     attributes[vtable->func_like->export_linkage_attr_index] =
         header->attributes[header->func_like->export_linkage_attr_index];
+  }
+  if (!is_entry) {
     const loom_attribute_t source_predicates =
         header->attributes[header->func_like->predicates_attr_index];
     if (!loom_attr_is_absent(source_predicates)) {
@@ -605,8 +620,10 @@ static iree_status_t loom_link_kernel_config_build_ir_declaration(
       loom_func_like_const_cast(projection->source_module, source_op);
   const bool is_entry =
       selected->projection == LOOM_LINK_PLAN_SYMBOL_PROJECTION_KERNEL_ENTRY;
+  const bool is_pipeline = selected->projection ==
+                           LOOM_LINK_PLAN_SYMBOL_PROJECTION_PIPELINE_CONTRACT;
   const loom_value_slice_t source_workloads =
-      is_entry
+      is_entry || is_pipeline
           ? (loom_value_slice_t){0}
           : loom_kernel_workload_arg_ids(projection->source_module, source_op);
   uint16_t source_argument_count = 0;
@@ -638,7 +655,32 @@ static iree_status_t loom_link_kernel_config_build_ir_declaration(
       .module_id = 0,
       .symbol_id = (uint16_t)selected->materialized_symbol_ordinal,
   };
-  if (is_entry) {
+  if (is_pipeline) {
+    loom_pipeline_decl_build_flags_t build_flags = 0;
+    if (loom_pipeline_def_has_scope(source_op)) {
+      build_flags |= LOOM_PIPELINE_DECL_BUILD_FLAG_HAS_SCOPE;
+    }
+    if (loom_pipeline_def_has_visibility(source_op)) {
+      build_flags |= LOOM_PIPELINE_DECL_BUILD_FLAG_HAS_VISIBILITY;
+    }
+    if (loom_pipeline_def_has_retain(source_op)) {
+      build_flags |= LOOM_PIPELINE_DECL_BUILD_FLAG_HAS_RETAIN;
+    }
+    if (loom_symbol_ref_is_valid(target)) {
+      build_flags |= LOOM_PIPELINE_DECL_BUILD_FLAG_HAS_TARGET;
+    }
+    const uint16_t specialization_count =
+        (uint16_t)loom_func_like_specialization_count(source_function);
+    IREE_RETURN_IF_ERROR(loom_pipeline_decl_build(
+        builder, build_flags, loom_pipeline_def_scope(source_op),
+        loom_pipeline_def_visibility(source_op),
+        loom_pipeline_def_retain(source_op), target, target_callee,
+        argument_types, specialization_count,
+        argument_types ? argument_types + specialization_count : NULL,
+        source_argument_count - specialization_count,
+        /*predicates=*/NULL, /*predicates_count=*/0, location,
+        out_declaration));
+  } else if (is_entry) {
     loom_kernel_entry_decl_build_flags_t build_flags = 0;
     if (loom_kernel_def_has_retain(source_op)) {
       build_flags |= LOOM_KERNEL_ENTRY_DECL_BUILD_FLAG_HAS_RETAIN;
@@ -677,7 +719,9 @@ static iree_status_t loom_link_kernel_config_build_ir_declaration(
   }
 
   const loom_value_slice_t target_workloads =
-      loom_kernel_workload_arg_ids(projection->target_module, *out_declaration);
+      is_pipeline ? (loom_value_slice_t){0}
+                  : loom_kernel_workload_arg_ids(projection->target_module,
+                                                 *out_declaration);
   loom_func_like_t target_function =
       loom_func_like_cast(projection->target_module, *out_declaration);
   uint16_t target_argument_count = 0;
@@ -1011,12 +1055,11 @@ iree_status_t loom_link_plan_project_kernel_config_module(
     const loom_link_plan_module_symbol_t* symbol =
         &selection->symbols.values[i];
     if (symbol->projection == LOOM_LINK_PLAN_SYMBOL_PROJECTION_UNSUPPORTED) {
-      return iree_make_status(
-          IREE_STATUS_UNIMPLEMENTED,
-          "partial materialization of symbol '@%.*s' is not a kernel entry "
-          "or configuration projection",
-          (int)symbol->source_symbol->name.size,
-          symbol->source_symbol->name.data);
+      return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
+                              "partial materialization of symbol '@%.*s' has "
+                              "no contract projection",
+                              (int)symbol->source_symbol->name.size,
+                              symbol->source_symbol->name.data);
     }
   }
 

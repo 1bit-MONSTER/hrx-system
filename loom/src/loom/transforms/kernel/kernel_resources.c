@@ -12,6 +12,7 @@
 #include "loom/ops/buffer/ops.h"
 #include "loom/ops/index/ops.h"
 #include "loom/ops/op_defs.h"
+#include "loom/ops/pipeline/ops.h"
 
 #define LOOM_KERNEL_RESOURCES_STATISTICS(V, statistics_type)                 \
   V(statistics_type, kernel_entries_normalized, "kernel-entries-normalized", \
@@ -72,7 +73,10 @@ static iree_status_t loom_kernel_resources_normalize_view_arg(
 iree_status_t loom_normalize_kernel_resources_run(loom_pass_t* pass,
                                                   loom_module_t* module,
                                                   loom_func_like_t function) {
-  if (!loom_func_like_is_kernel_entry(function)) {
+  const bool is_kernel_pipeline =
+      loom_pipeline_def_isa(function.op) &&
+      loom_pipeline_def_scope(function.op) == LOOM_PIPELINE_SCOPE_KERNEL;
+  if (!loom_func_like_is_kernel_entry(function) && !is_kernel_pipeline) {
     return iree_ok_status();
   }
   loom_region_t* body = loom_func_like_body(function);
@@ -97,7 +101,9 @@ iree_status_t loom_normalize_kernel_resources_run(loom_pass_t* pass,
 
   bool changed_function = false;
   loom_value_id_t zero_offset = LOOM_VALUE_ID_INVALID;
-  for (uint16_t i = 0; i < arg_count; ++i) {
+  const uint16_t specialization_count =
+      (uint16_t)loom_func_like_specialization_count(function);
+  for (uint16_t i = specialization_count; i < arg_count; ++i) {
     loom_value_id_t arg_id = arg_ids[i];
     loom_type_t arg_type = loom_module_value_type(module, arg_id);
     if (!loom_type_is_view(arg_type)) {

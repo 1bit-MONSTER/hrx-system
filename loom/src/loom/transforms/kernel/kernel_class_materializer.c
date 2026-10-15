@@ -417,12 +417,22 @@ iree_status_t loom_kernel_class_materialize(
         operation_projections[i].target_op, &rewriter);
   }
 
-  loom_rewriter_deinitialize(&rewriter);
   const loom_symbol_ref_t target_kernel =
       target_module != NULL
           ? loom_ir_module_projection_target_symbol(
                 &module_projection, classifier->kernel_symbol_id)
           : loom_symbol_ref_null();
+  if (iree_status_is_ok(status) && classifier->specialization_count != 0) {
+    status = loom_kernel_specializations_apply(
+        collection->specialization_module,
+        collection->classes[class_ordinal].specializations,
+        classifier->specialization_count,
+        loom_func_like_cast(target_module, target_module->symbols
+                                               .entries[target_kernel.symbol_id]
+                                               .defining_op),
+        &rewriter, &scratch_arena);
+  }
+  loom_rewriter_deinitialize(&rewriter);
   iree_arena_deinitialize(&scratch_arena);
   if (iree_status_is_ok(status)) {
     *out_product = (loom_kernel_class_product_t){

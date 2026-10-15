@@ -263,6 +263,15 @@ static iree_status_t loom_link_func_contract_apply(
 
   const loom_link_func_contract_attr_t attrs[] = {
       {
+          .source_attr_index =
+              loom_symbol_definition_product_carrier_attr_index(
+                  source->symbol_definition),
+          .selected_attr_index =
+              loom_symbol_definition_product_carrier_attr_index(
+                  selected->symbol_definition),
+          .field_name = IREE_SV("scope"),
+      },
+      {
           .source_attr_index = source->function->cc_attr_index,
           .selected_attr_index = selected->function->cc_attr_index,
           .field_name = IREE_SV("cc"),

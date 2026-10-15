@@ -179,6 +179,7 @@ loom_cc_test(
     ::test_compiler
     ::test_device
     iree::testing::gtest_main
+    loom::serve::service::finite::embedding::checkpoint_preparation_tests
     loom::serve::service::finite::embedding::direct_dispatch_tests
     loom::serve::service::finite::embedding::source_execution_tests
   ENV

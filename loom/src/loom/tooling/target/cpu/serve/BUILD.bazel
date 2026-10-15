@@ -169,6 +169,7 @@ loom_cc_test(
     deps = [
         ":test_compiler",
         ":test_device",
+        "//loom/src/loom/serve/service/finite/embedding:checkpoint_preparation_tests",
         "//loom/src/loom/serve/service/finite/embedding:direct_dispatch_tests",
         "//loom/src/loom/serve/service/finite/embedding:source_execution_tests",
         "//runtime/src/iree/testing:gtest_main",

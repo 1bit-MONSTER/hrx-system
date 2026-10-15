@@ -10,7 +10,7 @@
 
 #include "loom/ir/module.h"
 #include "loom/link/module_index.h"
-#include "loom/ops/kernel/ops.h"
+#include "loom/ops/op_defs.h"
 
 typedef struct loom_cmd_program_kernel_request_bridge_t {
   // Plan receiving one requirement per published semantic class.
@@ -147,7 +147,7 @@ iree_status_t loom_cmd_program_plan_publish_kernel_requests(
       const iree_host_size_t site_ordinal = site_cursors[symbol_id]++;
       sites[site_ordinal] = (loom_kernel_class_site_t){
           .facts = source_facts,
-          .argument_values = command->arguments.values,
+          .argument_values = command->source_arguments.values,
       };
       requirement_locations[site_ordinal] =
           &root->requirement_indices[command_ordinal];
@@ -168,7 +168,6 @@ iree_status_t loom_cmd_program_plan_publish_kernel_requests(
                    LOOM_LINK_MODULE_INDEX_INVALID_ORDINAL);
     const loom_op_t* declaration_op =
         plan_module->symbols.entries[symbol_id].defining_op;
-    IREE_ASSERT(loom_kernel_entry_decl_isa(declaration_op));
 
     uint32_t* requirement_by_class = NULL;
     IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
@@ -184,7 +183,7 @@ iree_status_t loom_cmd_program_plan_publish_kernel_requests(
     loom_kernel_class_collection_t collection = {0};
     IREE_RETURN_IF_ERROR(loom_kernel_request_producer_publish(
         kernel_source->producer, kernel_source->environment,
-        source_symbol_ordinal, &sites[site_offset], site_count,
+        source_symbol_ordinal, plan_module, &sites[site_offset], site_count,
         &kernel_source->collection_options,
         (loom_kernel_request_sink_t){
             .publish = loom_cmd_program_kernel_request_publish,

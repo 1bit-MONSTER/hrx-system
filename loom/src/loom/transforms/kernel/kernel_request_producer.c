@@ -106,26 +106,24 @@ static iree_status_t loom_kernel_request_source_prepare(
     loom_link_index_materialization_t* out_materialization) {
   *out_source = (loom_kernel_request_source_t){0};
   *out_materialization = (loom_link_index_materialization_t){0};
-  const loom_link_plan_root_facet_t root_facets[] = {
-      {
-          .symbol_ordinal = source_symbol_ordinal,
-          .kind = LOOM_LINK_SYMBOL_FACET_KERNEL_CONTRACT,
-      },
-      {
-          .symbol_ordinal = source_symbol_ordinal,
-          .kind = LOOM_LINK_SYMBOL_FACET_KERNEL_CONFIGURATION,
-      },
-      {
-          .symbol_ordinal = source_symbol_ordinal,
-          .kind = LOOM_LINK_SYMBOL_FACET_KERNEL_IMPLEMENTATION,
-      },
-  };
+  const loom_link_module_index_symbol_t* source_symbol =
+      loom_link_module_index_symbol_at(producer->index, source_symbol_ordinal);
+  const uint8_t facet_count = source_symbol->facets.schema.facet_count;
+  loom_link_plan_root_facet_t* root_facets = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      scratch_arena, facet_count, sizeof(*root_facets), (void**)&root_facets));
+  for (uint8_t i = 0; i < facet_count; ++i) {
+    root_facets[i] = (loom_link_plan_root_facet_t){
+        .symbol_ordinal = source_symbol_ordinal,
+        .kind = loom_link_module_index_symbol_facet_kind_at(source_symbol, i),
+    };
+  }
   const loom_link_plan_options_t link_options = {
       .mode = LOOM_LINK_PLAN_LINK,
       .unresolved_policy = LOOM_LINK_PLAN_UNRESOLVED_ALLOW,
       .root_facets =
           {
-              .count = IREE_ARRAYSIZE(root_facets),
+              .count = facet_count,
               .values = root_facets,
           },
       .dependency_policy = LOOM_LINK_PLAN_DEPENDENCY_REQUESTED_FACETS,
@@ -150,7 +148,6 @@ static iree_status_t loom_kernel_request_source_prepare(
         materialization.product.module,
         materialization.product.module->symbols.entries[kernel_ref.symbol_id]
             .defining_op);
-    IREE_ASSERT(loom_func_like_is_kernel_entry(kernel));
     IREE_ASSERT(loom_func_like_body(kernel) != NULL);
   }
 
@@ -238,7 +235,7 @@ iree_status_t loom_kernel_request_materialize(
 iree_status_t loom_kernel_request_producer_publish(
     loom_kernel_request_producer_t* producer,
     const loom_link_plan_materialization_environment_t* environment,
-    iree_host_size_t source_symbol_ordinal,
+    iree_host_size_t source_symbol_ordinal, const loom_module_t* site_module,
     const loom_kernel_class_site_t* sites, iree_host_size_t site_count,
     const loom_kernel_class_collection_options_t* collection_options,
     loom_kernel_request_sink_t sink, iree_arena_allocator_t* scratch_arena,
@@ -261,7 +258,7 @@ iree_status_t loom_kernel_request_producer_publish(
   loom_kernel_class_collection_t collection = {0};
   if (iree_status_is_ok(status)) {
     status = loom_kernel_class_classifier_collect(
-        &source.classifier, sites, site_count, collection_options,
+        &source.classifier, site_module, sites, site_count, collection_options,
         scratch_arena, &collection);
   }
 
