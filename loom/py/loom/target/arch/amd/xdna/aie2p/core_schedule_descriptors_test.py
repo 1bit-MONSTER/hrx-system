@@ -478,12 +478,14 @@ def test_scalar_stream_transfers_preserve_protocol_and_status_dependencies() -> 
         if row.name == "OP_mMvSclSrc"
     )
     source_encodings = dict(source_adapter.effective_register_encodings)
+    traffic = []
     for spec in _DESCRIPTOR_SPECS:
         form = _MACHINE_FORMS[spec.form_name]
         status_registers = {"srMS0", "srSS0"} & set(form.implicit_defs)
         if not status_registers:
             continue
         descriptor = descriptors[spec.key]
+        traffic.append(descriptor)
         assert DescriptorFlag.SIDE_EFFECTING in descriptor.flags
         assert DescriptorFlag.DEAD_REMOVABLE not in descriptor.flags
         assert [effect.kind for effect in descriptor.effects] == [EffectKind.BARRIER]
@@ -503,6 +505,18 @@ def test_scalar_stream_transfers_preserve_protocol_and_status_dependencies() -> 
         assert separations[state_write.write_event, state_read.read_event] == (
             8 if direction == "read" else 3
         )
+        assert separations[state_write.write_event, state_write.write_event] == 1
+
+    # Both directions, blocking/nonblocking forms, all six payload banks,
+    # packet/control headers, and immediate/register termination share scalar
+    # stream issue ordering. Status observation above still waits for writeback.
+    assert len(traffic) == 50
+    for producer, consumer in product(traffic, repeat=2):
+        producer_event = producer.effects[0].producer_event
+        consumer_event = consumer.effects[0].consumer_event
+        assert producer_event == "amd.xdna.aie2p.scalar-stream.issue"
+        assert consumer_event == producer_event
+        assert separations[producer_event, consumer_event] == 1
 
 
 def test_cascade_transfers_preserve_protocol_and_enable_dependencies() -> None:

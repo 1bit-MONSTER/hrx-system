@@ -68,7 +68,7 @@ low.func.def inline target<amd.xdna.aie2p.core> @__pipeline_worker_1() asm {
   %280 = lt %record, %273
   low.cond_br %280, ^_bb2, ^_bb9 : reg<aie2p.er>
 ^_bb2:
-  %166 = mov.i32 -1
+  %166 = mov.short -1
   acq %166, 49
   %281 = mov.short 16
   %282 = mov.short 48
@@ -120,28 +120,26 @@ low.func.def inline target<amd.xdna.aie2p.core> @__pipeline_worker_1() asm {
   mov.ms %134
   mov.ms %135
   mov.ms.last %312
-  %136 = mov.i32 1
   %137 = mov.i32 1167396
-  mov.ms %136
+  mov.ms %275
   mov.ms %137
   mov.ms %131
   mov.ms.last %133
   %139 = mov.i32 -2147483647
   %141 = mov.i32 -2147364348
-  mov.ms %136
+  mov.ms %275
   mov.ms %141
   mov.ms.last %139
   %143 = mov.i32 122388
   mov.ms %134
   mov.ms %143
-  mov.ms.last %136
+  mov.ms.last %275
   %144 = mov.ss
-  rel %136, 48
+  rel %275, 48
   %313 = add.rr %record, %275
   low.br ^_bb1(%313: reg<aie2p.er>, %286: reg<aie2p.er>)
 ^_bb9:
-  %124 = mov.i32 1
-  rel %124, 50
+  rel %275, 50
   low.br ^_bb10
 ^_bb10:
   %125 = mov.ss
@@ -348,7 +346,7 @@ low.func.def inline target<amd.xdna.aie2p.core> @__pipeline_worker_1() asm {
   %251 = lt %record, %245
   low.cond_br %251, ^_bb2, ^_bb9 : reg<aie2p.er>
 ^_bb2:
-  %148 = mov.i32 -1
+  %148 = mov.short -1
   acq %148, 49
   low.br ^_bb3(%246: reg<aie2p.er>)
 ^_bb3(%row: reg<aie2p.er>):
@@ -382,29 +380,27 @@ low.func.def inline target<amd.xdna.aie2p.core> @__pipeline_worker_1() asm {
   %128 = add.rr %126, %271
   %129 = ltu %128, %126
   %130 = add.rr %127, %129
-  %131 = mov.i32 1
   %132 = mov.i32 1167396
-  mov.ms %131
+  mov.ms %247
   mov.ms %132
   mov.ms %128
   mov.ms.last %130
   %134 = mov.i32 -2147483647
   %136 = mov.i32 -2147364348
-  mov.ms %131
+  mov.ms %247
   mov.ms %136
   mov.ms.last %134
   %137 = mov.i32 -2147483648
   %138 = mov.i32 122388
   mov.ms %137
   mov.ms %138
-  mov.ms.last %131
+  mov.ms.last %247
   %139 = mov.ss
-  rel %131, 48
+  rel %247, 48
   %272 = add.rr %record, %247
   low.br ^_bb1(%272: reg<aie2p.er>)
 ^_bb9:
-  %122 = mov.i32 1
-  rel %122, 50
+  rel %247, 50
   low.br ^_bb10
 ^_bb10:
   %123 = mov.ss

@@ -87,13 +87,15 @@ iree_status_t loom_aie2p_worker_helper(
 iree_status_t loom_aie2p_worker_constant(loom_aie2p_worker_builder_t* context,
                                          loom_builder_t* builder, int32_t value,
                                          loom_value_id_t* out_value) {
+  const uint32_t descriptor = value >= -1024 && value <= 1023
+                                  ? AIE2P_CORE_DESCRIPTOR_REF_CONSTANT_I32_SHORT
+                                  : AIE2P_CORE_DESCRIPTOR_REF_CONSTANT_I32;
   const loom_named_attr_t attribute = {.name_id = context->integer_name,
                                        .value = loom_attr_i64(value)};
   loom_op_t* op = NULL;
   IREE_RETURN_IF_ERROR(loom_low_build_resolved_descriptor_const(
       builder, context->descriptors,
-      &context->descriptors
-           ->descriptors[AIE2P_CORE_DESCRIPTOR_REF_CONSTANT_I32],
+      &context->descriptors->descriptors[descriptor],
       loom_make_named_attr_slice(&attribute, 1), context->scalar_type,
       LOOM_LOCATION_UNKNOWN, &op));
   *out_value = loom_low_const_result(op);

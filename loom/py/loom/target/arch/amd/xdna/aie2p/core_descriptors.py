@@ -39,6 +39,9 @@ from loom.target.arch.amd.xdna.aie2p.core_descriptor_constraints import (
 from loom.target.arch.amd.xdna.aie2p.core_encoding_data import CORE_ENCODING_TABLE
 from loom.target.arch.amd.xdna.aie2p.core_machine_data import CORE_MACHINE_TABLE
 from loom.target.arch.amd.xdna.aie2p.core_schedule_data import CORE_SCHEDULE_TABLE
+from loom.target.arch.amd.xdna.aie2p.core_stream_descriptors import (
+    _SCALAR_STREAM_ISSUE_EVENT,
+)
 from loom.target.low_descriptors import (
     AsmForm,
     AsmImmediate,
@@ -1752,6 +1755,17 @@ def _event_separations() -> tuple[EventSeparation, ...]:
                 for producer_access in ("read", "write")
                 for consumer_access in ("read", "write")
             )
+    # Scalar stream order is an issue constraint, not a wait for the status
+    # result. Other protocols retain their own timing: cascade instructions
+    # consume data at different stages, and locks order memory retirement.
+    result.append(
+        EventSeparation(
+            _SCALAR_STREAM_ISSUE_EVENT,
+            _SCALAR_STREAM_ISSUE_EVENT,
+            1,
+            ModelQuality.EXACT,
+        )
+    )
     lock_producer_event = descriptor_specs._LOCK_EFFECT.producer_event
     lock_consumer_event = descriptor_specs._LOCK_EFFECT.consumer_event
     if lock_producer_event is None or lock_consumer_event is None:
