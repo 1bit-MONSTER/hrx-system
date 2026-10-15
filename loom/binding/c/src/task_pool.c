@@ -51,30 +51,44 @@ static loomc_status_t loomc_task_pool_allocate_with_executor(
 loomc_status_t loomc_task_pool_allocate(
     const loomc_task_pool_options_t* options, loomc_allocator_t allocator,
     loomc_task_pool_t** out_pool) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (out_pool == NULL || !loomc_allocator_is_valid(allocator)) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "allocator and out_pool are required");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "allocator and out_pool are required");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_pool = NULL;
   if (options != NULL) {
     if (options->type != LOOMC_STRUCTURE_TYPE_NONE &&
         options->type != LOOMC_STRUCTURE_TYPE_TASK_POOL_OPTIONS) {
-      return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                               "task pool options have an unknown type");
+      loomc_status_t return_status =
+          loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                            "task pool options have an unknown type");
+      IREE_TRACE_ZONE_END(z0);
+      return return_status;
     }
     if (options->structure_size != 0 &&
         options->structure_size < sizeof(*options)) {
-      return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                               "task pool options structure_size is too small");
+      loomc_status_t return_status =
+          loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                            "task pool options structure_size is too small");
+      IREE_TRACE_ZONE_END(z0);
+      return return_status;
     }
     if (options->next != NULL) {
-      return loomc_make_status(LOOMC_STATUS_UNIMPLEMENTED,
-                               "task pool option extensions are not supported");
+      loomc_status_t return_status =
+          loomc_make_status(LOOMC_STATUS_UNIMPLEMENTED,
+                            "task pool option extensions are not supported");
+      IREE_TRACE_ZONE_END(z0);
+      return return_status;
     }
     if (options->max_worker_count > IREE_TASK_EXECUTOR_MAX_WORKER_COUNT) {
-      return loomc_make_status(
-          LOOMC_STATUS_OUT_OF_RANGE,
-          "task pool worker count exceeds executor limits");
+      loomc_status_t return_status =
+          loomc_make_status(LOOMC_STATUS_OUT_OF_RANGE,
+                            "task pool worker count exceeds executor limits");
+      IREE_TRACE_ZONE_END(z0);
+      return return_status;
     }
   }
 
@@ -106,12 +120,15 @@ loomc_status_t loomc_task_pool_allocate(
     iree_task_topology_deinitialize(&topology);
   }
   if (!iree_status_is_ok(status)) {
-    return loomc_status_from_iree(status);
+    loomc_status_t return_status = loomc_status_from_iree(status);
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
 
   loomc_status_t public_status =
       loomc_task_pool_allocate_with_executor(executor, allocator, out_pool);
   iree_task_executor_release(executor);
+  IREE_TRACE_ZONE_END(z0);
   return public_status;
 }
 
@@ -132,13 +149,20 @@ void loomc_task_pool_free(loomc_task_pool_t* pool) {
 loomc_status_t loomc_task_pool_allocate_from_iree_executor(
     iree_task_executor_t* executor, loomc_allocator_t allocator,
     loomc_task_pool_t** out_pool) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (executor == NULL || out_pool == NULL ||
       !loomc_allocator_is_valid(allocator)) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "executor, allocator, and out_pool are required");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                          "executor, allocator, and out_pool are required");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_pool = NULL;
-  return loomc_task_pool_allocate_with_executor(executor, allocator, out_pool);
+  loomc_status_t return_status =
+      loomc_task_pool_allocate_with_executor(executor, allocator, out_pool);
+  IREE_TRACE_ZONE_END(z0);
+  return return_status;
 }
 
 iree_task_executor_t* iree_task_executor_from_loomc_task_pool(

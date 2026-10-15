@@ -307,23 +307,60 @@ static iree_status_t loom_serve_text_create_program(
   IREE_RETURN_IF_ERROR(loom_serve_text_chat_policy_initialize(
       runner->source.environment, runner->program, runner->source.options,
       &runner->chat_policy));
-  iree_vm_process_t* process = loom_serve_program_process(runner->program);
-  IREE_RETURN_IF_ERROR(iree_vm_process_lookup_function(
-      process, IREE_SV("model"), IREE_SV("step"), &runner->step));
-  IREE_RETURN_IF_ERROR(iree_vm_process_lookup_function(
-      process, IREE_SV("model"), IREE_SV("encode_epoch"),
-      &runner->encode_epoch));
-  IREE_RETURN_IF_ERROR(iree_vm_process_lookup_function(
-      process, IREE_SV("model"), IREE_SV("publish_epoch"),
-      &runner->publish_epoch));
-  IREE_RETURN_IF_ERROR(iree_vm_process_lookup_function(
-      process, IREE_SV("model"), IREE_SV("encode_state"),
-      &runner->encode_state));
-  IREE_RETURN_IF_ERROR(iree_vm_process_lookup_function(
-      process, IREE_SV("model"), IREE_SV("bind_request"),
-      &runner->bind_request));
-  return iree_vm_process_lookup_function(process, IREE_SV("model"),
-                                         IREE_SV("epoch"), &runner->epoch_step);
+  const iree_vm_signature_type_t buffer = {
+      .kind = IREE_VM_SIGNATURE_TYPE_KIND_REF,
+      .value.ref = runner->source.vm_types.buffer};
+  const iree_vm_signature_type_t device_buffer = {
+      .kind = IREE_VM_SIGNATURE_TYPE_KIND_REF,
+      .value.ref = runner->source.types.buffer};
+  const iree_vm_signature_type_t i32 = {
+      .kind = IREE_VM_SIGNATURE_TYPE_KIND_SCALAR,
+      .value.scalar = IREE_VM_SCALAR_TYPE_I32};
+  const iree_vm_signature_type_t i64 = {
+      .kind = IREE_VM_SIGNATURE_TYPE_KIND_SCALAR,
+      .value.scalar = IREE_VM_SCALAR_TYPE_I64};
+  const iree_vm_signature_type_t step_arguments[] = {
+      buffer,        i32,           device_buffer, device_buffer,
+      device_buffer, device_buffer, device_buffer, device_buffer};
+  const iree_vm_signature_type_t encode_arguments[] = {
+      buffer, buffer, buffer, i32, i32, i32, buffer, buffer};
+  const iree_vm_signature_type_t publish_arguments[] = {
+      buffer, i32, i32, i32, i32, buffer, buffer, buffer, buffer};
+  const iree_vm_signature_type_t state_arguments[] = {buffer, i32, buffer};
+  const iree_vm_signature_type_t epoch_arguments[] = {
+      buffer,        i32,           i32,           i32,           i32,
+      i32,           i32,           i32,           i32,           device_buffer,
+      device_buffer, device_buffer, device_buffer, device_buffer, device_buffer,
+      device_buffer, device_buffer, device_buffer, device_buffer, device_buffer,
+      device_buffer};
+  const loom_serve_program_binding_t bindings[] = {
+      {IREE_SVL("step"),
+       {step_arguments, IREE_ARRAYSIZE(step_arguments)},
+       {&i64, 1},
+       &runner->step},
+      {IREE_SVL("encode_epoch"),
+       {encode_arguments, IREE_ARRAYSIZE(encode_arguments)},
+       {&i32, 1},
+       &runner->encode_epoch},
+      {IREE_SVL("publish_epoch"),
+       {publish_arguments, IREE_ARRAYSIZE(publish_arguments)},
+       {NULL, 0},
+       &runner->publish_epoch},
+      {IREE_SVL("encode_state"),
+       {state_arguments, IREE_ARRAYSIZE(state_arguments)},
+       {NULL, 0},
+       &runner->encode_state},
+      {IREE_SVL("bind_request"),
+       {state_arguments, IREE_ARRAYSIZE(state_arguments)},
+       {NULL, 0},
+       &runner->bind_request},
+      {IREE_SVL("epoch"),
+       {epoch_arguments, IREE_ARRAYSIZE(epoch_arguments)},
+       {&i64, 1},
+       &runner->epoch_step},
+  };
+  return loom_serve_program_bind(runner->program, IREE_ARRAYSIZE(bindings),
+                                 bindings);
 }
 
 typedef enum text_load_phase_e {

@@ -117,6 +117,7 @@ loom_cc_library(
     "source_lifecycle_test.cc"
   DEPS
     ::source_service_fixture
+    loom::serve::telemetry::latency
   TESTONLY
   ALWAYSLINK
   PUBLIC
@@ -422,6 +423,7 @@ loom_cc_library(
     ::session
     iree::base
     iree::base::threading
+    loom::serve::telemetry::latency
     loom::serve::telemetry::record
     loom::serve::telemetry::stream
   PUBLIC

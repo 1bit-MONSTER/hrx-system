@@ -10,6 +10,7 @@
 #include "loom/serve/service/text/epoch.h"
 #include "loom/serve/service/text/heartbeat.h"
 #include "loom/serve/service/text/session.h"
+#include "loom/serve/telemetry/latency.h"
 #include "loom/serve/telemetry/stream.h"
 
 #ifdef __cplusplus
@@ -32,6 +33,8 @@ typedef struct loom_serve_text_telemetry_t {
   bool owns_stream;
   // Always-on model totals independent of heartbeat interval and readers.
   loom_serve_telemetry_counters_t counters;
+  // Request latency distributions, independent of event retention.
+  loom_serve_telemetry_latency_t latency;
   // Monotonic request identity independent of TCP connection identity.
   uint64_t next_serial;
   // This model's terminal failure, distinct from another model's shutdown.

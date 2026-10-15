@@ -21,6 +21,8 @@ from catalog_test_util import (
     Client,
     check_counters,
     check_decision,
+    check_first_output,
+    check_latency,
     check_pcm,
     check_png,
     complete,
@@ -30,6 +32,7 @@ from catalog_test_util import (
     telemetry_observation,
     write_startup,
 )
+from loom_serve_testing import workload
 from loom_serve_testing.http_harness import running_server as child_server
 from loom_serve_testing.http_harness import wait_counters, wait_status
 from loom_serve_testing.logs import LogClient
@@ -287,6 +290,118 @@ def check_parameter_residency(client, backing, workers):
         else:
             check_decision(result)
         assert snapshot(model)["incarnation"] == identity
+
+
+def check_workload_replay(client):
+    """Use the benchmark client against source models and independent oracles."""
+    root = [{"role": "user", "content": "abxa"}]
+    seed, _ = complete(root, 2)
+    history = root + [
+        {"role": "assistant", "content": seed},
+        {"role": "user", "content": "xx"},
+    ]
+    records = [
+        {
+            "id": "root",
+            "at_ms": 0,
+            "path": "/v1/chat/completions",
+            "body": Client.text_payload(root, 2),
+            "headers": {"X-Loom-Session": "replay-agent"},
+        },
+        {
+            "id": "follow",
+            "after": "root",
+            "delay_ms": 0,
+            "path": "/v1/chat/completions",
+            "body": Client.text_payload(history, 4),
+            "headers": {"X-Loom-Session": "replay-agent"},
+        },
+    ]
+    expected = {}
+    for identity, messages, maximum in (("root", root, 2), ("follow", history, 4)):
+        text, finish = complete(messages, maximum)
+        expected[identity] = workload.digest(
+            {
+                "text": text,
+                "reasoning_content": "",
+                "tool_calls": [],
+                "finish_reason": finish,
+            }
+        )
+    for identity, path, body in (
+        (
+            "vectors",
+            "/v1/embeddings",
+            {"model": "vectors", "input": "ab", "dimensions": 2},
+        ),
+        (
+            "pixels",
+            "/v1/images/generations",
+            {
+                "model": "pixels",
+                "prompt": "ab",
+                "seed": 1,
+                "response_format": "b64_json",
+            },
+        ),
+        (
+            "judge",
+            "/v1/systemone",
+            {
+                "model": "judge",
+                "state": "a",
+                "questions": {
+                    "truth": {
+                        "type": "noul",
+                        "instructions": "???",
+                        "criteria": {"false": "", "true": "x"},
+                    }
+                },
+            },
+        ),
+    ):
+        result = client.request(path, body)
+        if identity == "vectors":
+            assert result["data"][0]["embedding"] == [3, 2], result
+        elif identity == "pixels":
+            check_png(result["data"][0]["b64_json"], "ab", 1)
+        else:
+            check_decision(result)
+        expected[identity] = workload.digest(
+            {
+                name: value
+                for name, value in result.items()
+                if name not in ("id", "created", "model", "usage")
+            }
+        )
+        records.append({"id": identity, "at_ms": 0, "path": path, "body": body})
+    results = []
+    summary = workload.replay(
+        workload.origin("http://" + client.address),
+        workload.parse(json.dumps(record) for record in records),
+        4,
+        results.append,
+    )
+    assert len(results) == len(records), results
+    for result in results:
+        assert result["outcome"] == "completed", result
+        assert result["response_sha256"] == expected[result["id"]], result
+    follow = next(result for result in results if result["id"] == "follow")
+    assert follow["usage"]["prompt_tokens_details"]["cached_tokens"] == 5, follow
+    assert len(summary["classes"]) == 4, summary
+    client.idle()
+    print(
+        json.dumps(
+            {
+                "event": "workload_replayed",
+                "requests": len(results),
+                "classes": len(summary["classes"]),
+                "outputs_verified": True,
+                "cached_followup_tokens": 5,
+            }
+        ),
+        flush=True,
+    )
 
 
 def check_device_trim(client, backing, workers):
@@ -744,6 +859,192 @@ def check_sporadic_connections(process, client, model, workers, target_counts=(8
             peer.close()
 
 
+def check_control_contracts(server_command, directory, catalog):
+    """Well-formed source with the wrong host ABI never becomes ready."""
+    catalog_path = directory / "contracts" / "models.flags"
+    catalog_path.parent.mkdir()
+    write_startup(catalog_path, catalog)
+    models = {entry["definition"]["kind"]: entry for entry in catalog["models"]}
+    cases = [
+        (
+            "text",
+            [
+                (
+                    "%capacity: i64) -> (buffer, i64) {",
+                    "%capacity: i64) -> (buffer, i64, i64) {",
+                ),
+                (
+                    "func.return %tokens, %count : buffer, i64",
+                    "func.return %tokens, %count, %count : buffer, i64, i64",
+                ),
+            ],
+            "model export 'prepare_input' result count mismatch: "
+            "host expects 2, source declares 3",
+        ),
+        (
+            "text",
+            [("%row: i32, %options: buffer", "%row: i64, %options: buffer")],
+            "model export 'bind_request' argument 1 type mismatch: "
+            "host expects i32, source declares i64",
+        ),
+        (
+            "image",
+            [("%tags: buffer, %stage_count", "%tags: hal.buffer, %stage_count")],
+            "model export 'prepare_request' argument 1 type mismatch: "
+            "host expects vm.buffer, source declares hal.buffer",
+        ),
+        (
+            "image",
+            [("%strength: f32", "%strength: i32")],
+            "model export 'prepare_request' argument 5 type mismatch: "
+            "host expects f32, source declares i32",
+        ),
+        (
+            "embedding",
+            [("%packed: buffer)", "%packed: buffer, %extra: i32)")],
+            "model export 'prepare_batch' argument count mismatch: "
+            "host expects 4, source declares 5",
+        ),
+        (
+            "decision",
+            [
+                (
+                    "%state: buffer, %request: buffer)",
+                    "%state: buffer, %request: buffer, %extra: i32)",
+                )
+            ],
+            "model export 'prepare_request' argument count mismatch: "
+            "host expects 2, source declares 3",
+        ),
+        (
+            "speech",
+            [
+                (
+                    "@prepare_work(%model: buffer, %state: buffer)",
+                    "@prepare_work(%model: buffer, %state: buffer, %extra: i32)",
+                )
+            ],
+            "model export 'prepare_work' argument count mismatch: "
+            "host expects 2, source declares 3",
+        ),
+    ]
+    with running_server(server_command, directory, catalog_path, 1) as (client, _):
+        observer = LogClient("http://" + client.address, timeout=None)
+
+        def snapshot():
+            return next(
+                (
+                    item["loom"]
+                    for item in client.request("/v1/status")["data"]
+                    if item["id"] == "contract-check"
+                ),
+                None,
+            )
+
+        def remove():
+            client.request(
+                "/v1/models/unregister", {"model": "contract-check"}, status=202
+            )
+            while snapshot() is not None:
+                pass
+
+        for index, (kind, replacements, diagnostic) in enumerate(cases):
+            model = models[kind]
+            original = (Path(model["base_directory"]) / "control.loom").read_text()
+            source = original
+            for before, after in replacements:
+                assert source.count(before) == 1, (kind, before)
+                source = source.replace(before, after)
+            path = directory / f"contract-{index}.loom"
+            path.write_text(source)
+            declaration = {
+                **model,
+                "name": "contract-check",
+                "definition": {**model["definition"], "control": str(path)},
+            }
+            client.request("/v1/models/register", declaration, status=202)
+            while True:
+                state = snapshot()
+                assert state is not None, state
+                assert state["registration"] != "ready", state
+                if state["registration"] == "failed":
+                    break
+            assert state["error"]["code"] == 3, state
+            assert diagnostic in state["error"]["message"], state
+            counters = next(
+                record["values"]
+                for record in observer.poll("contract-check").records
+                if record["event"] == "counters"
+            )
+            assert counters["requests"] == counters["batches"] == 0, counters
+            # An incompatible candidate cannot disturb an already serving model.
+            client.text(f"contract-peer-{index}", [{"role": "user", "content": "ab"}])
+            remove()
+
+            # The retired name and all borrowed VM state can be reused normally.
+            path.write_text(original)
+            client.request("/v1/models/register", declaration, status=202)
+            while True:
+                ready = snapshot()
+                assert ready is not None and "error" not in ready, ready
+                if ready["registration"] == "ready":
+                    break
+            assert ready["incarnation"] != state["incarnation"], ready
+            assert not ready["parameters"]["active"], ready
+            assert ready["parameters"]["activations"] == 0, ready
+            if kind == "text":
+                messages = [{"role": "user", "content": "ab"}]
+                payload = {
+                    **client.text_payload(messages, 2),
+                    "model": "contract-check",
+                }
+                result = client.request("/v1/chat/completions", payload)
+                assert (result["text"], result["finish"]) == complete(messages, 2), (
+                    result
+                )
+            elif kind == "embedding":
+                result = client.request(
+                    "/v1/embeddings",
+                    {"model": "contract-check", "input": "ab", "dimensions": 2},
+                )
+                assert result["data"][0]["embedding"] == [3, 2], result
+            elif kind == "image":
+                result = client.request(
+                    "/v1/images/generations",
+                    {"model": "contract-check", "prompt": "ab", "seed": 1},
+                )
+                check_png(result["data"][0]["b64_json"], "ab", 1)
+            elif kind == "speech":
+                result = client.request(
+                    "/v1/audio/speech",
+                    {
+                        "model": "contract-check",
+                        "input": "ab",
+                        "voice": "positive",
+                        "response_format": "pcm",
+                        "seed": 1,
+                    },
+                )
+                check_pcm(result, "ab", 1)
+            else:
+                result = client.request(
+                    "/v1/systemone",
+                    {
+                        "model": "contract-check",
+                        "state": "a",
+                        "questions": {
+                            "truth": {
+                                "type": "noul",
+                                "instructions": "???",
+                                "criteria": {"false": "", "true": "x"},
+                            }
+                        },
+                    },
+                )
+                check_decision(result)
+            remove()
+
+
 def check_dynamic_catalog(
     server_command,
     directory,
@@ -1048,6 +1349,9 @@ def check_dynamic_catalog(
         # scale complete while transport requests park.
         expected_requests = 1 + 2 * model_capacity + len(connection_counts)
         assert before["requests"] == before["completed"] == expected_requests, before
+        before_metrics = client.request("/metrics")
+        before_latency = check_latency(before_metrics, before)
+        before_output = check_first_output(before_metrics)
         for index, declaration in enumerate(declarations):
             client.request(
                 "/v1/models/unregister",
@@ -1070,6 +1374,9 @@ def check_dynamic_catalog(
             if record["event"] == "counters"
         )
         assert before == after, (before, after)
+        after_metrics = client.request("/metrics")
+        assert check_latency(after_metrics, after) == before_latency
+        assert check_first_output(after_metrics) == before_output
         retired_status = client.request("/v1/status")["server"]
         assert retired_status["resources"]["listeners"] == [
             {"address": address, "waiting_for_capacity": False}
@@ -1323,6 +1630,7 @@ def run_from_command_line(*, stress=False):
             server_command, directory, arguments.device, arguments.pool_backing
         )
         check_startup_failures(server_command, directory, catalog)
+        check_control_contracts(server_command, directory, catalog)
         check_multiple_bindings(server_command, directory, catalog_path)
         check_dynamic_catalog(server_command, directory, catalog, workers)
         with running_server(server_command, directory, catalog_path, workers) as (
@@ -1354,6 +1662,7 @@ def run_from_command_line(*, stress=False):
             check_counters(client, arguments.rounds)
             check_parameter_residency(client, arguments.pool_backing, workers)
             check_device_trim(client, arguments.pool_backing, workers)
+            check_workload_replay(client)
         print(
             json.dumps(
                 {

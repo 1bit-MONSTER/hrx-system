@@ -198,31 +198,29 @@ static iree_net_stream_carrier_t* iree_net_stream_carrier_cast(
   return (iree_net_stream_carrier_t*)base_carrier;
 }
 
-static void iree_net_stream_carrier_maybe_complete_deactivation(
-    iree_net_stream_carrier_t* carrier) {
-  if (iree_atomic_load(&carrier->base.pending_operations,
-                       iree_memory_order_acquire) != 0) {
-    return;
-  }
-  if (!iree_net_carrier_try_transition_state(
-          &carrier->base, IREE_NET_CARRIER_STATE_DRAINING,
-          IREE_NET_CARRIER_STATE_DEACTIVATED)) {
-    return;
-  }
-
-  iree_net_carrier_deactivate_callback_fn_t callback =
-      carrier->deactivate_callback.fn;
-  void* user_data = carrier->deactivate_callback.user_data;
-  carrier->deactivate_callback.fn = NULL;
-  carrier->deactivate_callback.user_data = NULL;
-  callback(user_data);
-}
-
+// Retirement and the lifecycle decision share the admission mutex. An active
+// carrier may reach zero operations before another thread begins deactivation;
+// publishing zero without this lock would let that thread drain and free the
+// carrier before the retiring operation finishes inspecting it.
 // Retirement must be the caller's final carrier access.
 static void iree_net_stream_carrier_retire_pending_operation(
     iree_net_stream_carrier_t* carrier) {
-  if (iree_net_carrier_retire_pending_operation(&carrier->base)) {
-    iree_net_stream_carrier_maybe_complete_deactivation(carrier);
+  iree_net_carrier_deactivate_callback_fn_t callback = NULL;
+  void* user_data = NULL;
+  iree_slim_mutex_lock(&carrier->mutex);
+  if (iree_net_carrier_retire_pending_operation(&carrier->base) &&
+      iree_net_carrier_state(&carrier->base) ==
+          IREE_NET_CARRIER_STATE_DRAINING) {
+    iree_net_carrier_set_state(&carrier->base,
+                               IREE_NET_CARRIER_STATE_DEACTIVATED);
+    callback = carrier->deactivate_callback.fn;
+    user_data = carrier->deactivate_callback.user_data;
+    carrier->deactivate_callback.fn = NULL;
+    carrier->deactivate_callback.user_data = NULL;
+  }
+  iree_slim_mutex_unlock(&carrier->mutex);
+  if (callback) {
+    callback(user_data);
   }
 }
 

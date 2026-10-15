@@ -26,6 +26,8 @@ struct VariantDependency : ModelService {
   std::atomic<unsigned> destroyed{0};
   // Service counters retained until the registry copies terminal totals.
   loom_serve_telemetry_counters_t totals = {};
+  // Terminal duration storage obeying the managed-service publication contract.
+  loom_serve_telemetry_latency_t durations = {};
   // Registration-owned stream borrowed through service retirement.
   loom_serve_telemetry_stream_t* stream = nullptr;
   // Simulated compiler borrows protected by the inherited mutex.
@@ -169,6 +171,7 @@ struct VariantDependency : ModelService {
     dependency->original.store(Selected(self));
     dependency->name = configuration->name.data;
     dependency->counters = &dependency->totals;
+    dependency->latency = &dependency->durations;
     dependency->stream = stream;
     dependency->stopping = false;
     *out_registration = {

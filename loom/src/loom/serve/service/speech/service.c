@@ -13,6 +13,7 @@
 #include "loom/serve/runtime/host/timer.h"
 #include "loom/serve/runtime/parameter/telemetry.h"
 #include "loom/serve/service/speech/output.h"
+#include "loom/serve/telemetry/latency.h"
 #include "loom/util/json.h"
 
 typedef struct speech_job_t {
@@ -64,6 +65,8 @@ typedef struct speech_row_t {
   iree_string_builder_t response;
   // CPU-published EOF for the current encoded block.
   bool last_block;
+  // The encoded block contains waveform bytes, not just HTTP framing.
+  bool has_audio;
 } speech_row_t;
 
 typedef enum speech_phase_e {
@@ -162,6 +165,8 @@ struct loom_serve_speech_service_t {
     bool owns_stream;
     // HTTP outcomes and completed numerical cohorts.
     loom_serve_telemetry_counters_t counters;
+    // Request latency distributions retained independently of log readers.
+    loom_serve_telemetry_latency_t latency;
     // Persistent terminal failure distinct from orderly server shutdown.
     iree_status_code_t failure_code;
   } telemetry;
@@ -209,6 +214,9 @@ static void loom_serve_speech_request_end(
       .event = &LOOM_SERVE_TELEMETRY_REQUEST_END};
   record.data.end.outcome = outcome;
   record.data.end.duration_ns = record.time_ns - job->arrival_time;
+  loom_serve_telemetry_latency_observe(
+      &service->telemetry.latency.outcomes[outcome],
+      record.data.end.duration_ns);
   loom_serve_telemetry_diagnostic_capture(borrowed_status,
                                           &record.data.end.diagnostic);
   loom_serve_telemetry_stream_append(service->telemetry.stream, &record);
@@ -305,12 +313,22 @@ static iree_status_t loom_serve_speech_cpu_run(
     iree_task_process_t* process, const iree_task_worker_context_t* context,
     iree_task_process_drain_result_t* result) {
   loom_serve_speech_service_t* service = process->user_data;
+  IREE_TRACE_ZONE_BEGIN(z0);
+  IREE_TRACE_ZONE_APPEND_TEXT(z0, service->options.name.data,
+                              service->options.name.size);
+  IREE_TRACE_ZONE_APPEND_TEXT(z0, speech_phases[service->cpu.phase]);
+  IREE_TRACE_ZONE_APPEND_VALUE_I64(
+      z0,
+      loom_serve_telemetry_stream_identity(service->telemetry.stream).ordinal);
   result->completed = true;
   result->did_work = true;
   if (service->cpu.phase == SPEECH_PHASE_PREPARING) {
     speech_row_t* row = service->admission;
-    return service->generator.prepare(service->generator.self, row->index,
-                                      &row->job.request, &row->invocation);
+    IREE_TRACE_ZONE_APPEND_VALUE_I64(z0, row->job.id);
+    const iree_status_t status =
+        service->generator.prepare(service->generator.self, row->index,
+                                   &row->job.request, &row->invocation);
+    IREE_RETURN_AND_END_ZONE(z0, status);
   }
   if (service->cpu.phase == SPEECH_PHASE_PREPARING_BATCH) {
     uint64_t tag = 0;
@@ -339,7 +357,7 @@ static iree_status_t loom_serve_speech_cpu_run(
       status = service->generator.prepare_batch(
           service->generator.self, selected, service->batch.invocations);
     }
-    return status;
+    IREE_RETURN_AND_END_ZONE(z0, status);
   }
   iree_status_t status = iree_ok_status();
   for (iree_host_size_t i = 0;
@@ -358,8 +376,10 @@ static iree_status_t loom_serve_speech_cpu_run(
     if (iree_status_is_ok(status)) {
       status = loom_serve_speech_encode_pcm16(block.samples, &row->response);
       row->last_block = block.complete;
+      row->has_audio = block.frame_count != 0;
     }
   }
+  IREE_TRACE_ZONE_END(z0);
   return status;
 }
 
@@ -464,6 +484,7 @@ static void loom_serve_speech_finish(loom_serve_speech_service_t* service,
   row->invocation = NULL;
   row->phase = SPEECH_ROW_EMPTY;
   row->last_block = false;
+  row->has_audio = false;
   iree_string_builder_reset(&row->response);
   if (service->admission == row) {
     service->admission = NULL;
@@ -683,6 +704,14 @@ static void loom_serve_speech_deliver(loom_serve_speech_service_t* service,
       } else if (!iree_status_is_ok(status)) {
         service->status = status;
       } else {
+        // Headers accompany the first waveform block or an empty final block.
+        // Only the former is meaningful output; subsequent blocks never add
+        // another first-output sample, even if the request later fails.
+        if (row->has_audio && !row->job.header_sent) {
+          loom_serve_telemetry_latency_publish_output(
+              &service->telemetry.latency, service->telemetry.stream,
+              row->job.id, row->job.arrival_time);
+        }
         row->job.header_sent = true;
       }
     }
@@ -1067,7 +1096,9 @@ loom_serve_http_service_t loom_serve_speech_service_interface(
                                              output_modalities}},
       .snapshot = loom_serve_speech_snapshot,
       .inspection = {.request_at = loom_serve_speech_request_at},
-      .telemetry = {service->telemetry.stream, &service->telemetry.counters},
+      .telemetry = {.stream = service->telemetry.stream,
+                    .counters = &service->telemetry.counters,
+                    .latency = &service->telemetry.latency},
       .capacity_domain = service->generator.capacity_domain};
 }
 

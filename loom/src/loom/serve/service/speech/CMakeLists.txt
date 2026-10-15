@@ -129,6 +129,7 @@ loom_cc_library(
     loom::serve::server::registry
     loom::serve::server::router
     loom::serve::service
+    loom::serve::telemetry::latency
     loom::serve::testing::http_harness
     loom::serve::testing::model
     loom::serve::testing::package
@@ -187,6 +188,7 @@ loom_cc_library(
     loom::serve::runtime::host::wake
     loom::serve::runtime::parameter::telemetry
     loom::serve::service
+    loom::serve::telemetry::latency
     loom::serve::telemetry::record
     loom::serve::telemetry::stream
     loom::serve::transport::http::request

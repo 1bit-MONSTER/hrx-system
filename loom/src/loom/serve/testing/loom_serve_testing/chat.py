@@ -27,11 +27,41 @@ def request(
     The caller selects the deployment and owns any outer deadline. Session and
     checkpoint headers carry Loom retention identity; other compatible servers
     can ignore them. The returned text, tool calls, usage, terminal reason and
-    monotonic timestamps are copied before the connection closes. Incomplete
-    streams and endpoint errors raise instead of becoming successful samples.
+    performance-clock timestamps are copied before the connection closes.
+    Incomplete streams and endpoint errors raise instead of successful samples.
     """
-    connection = http.client.HTTPConnection(address.hostname, address.port)
-    start = time.monotonic_ns()
+    body = {
+        "model": model,
+        "messages": messages,
+        "stream": True,
+        "stream_options": {"include_usage": True},
+        "temperature": 0,
+        "enable_thinking": enable_thinking,
+        "max_tokens": maximum,
+    }
+    if tools is not None:
+        body["tools"] = tools
+    headers = {"X-Loom-Session": session}
+    if checkpoint is not None:
+        headers["X-Loom-Checkpoint"] = checkpoint
+    return request_body(address, body, headers)
+
+
+def request_body(address, body, headers=None):
+    """Measure a complete single-choice stream without rewriting its request.
+
+    Unlike the greedy convenience caller, this path preserves all model policy
+    and media fields in a captured request. The address is an HTTP(S) origin;
+    the caller owns its validation and any outer deadline.
+    """
+    connection_type = (
+        http.client.HTTPSConnection
+        if address.scheme == "https"
+        else http.client.HTTPConnection
+    )
+    connection = connection_type(address.hostname, address.port)
+    model = body["model"]
+    start = time.perf_counter_ns()
     first = None
     chunks = []
     text = []
@@ -41,25 +71,11 @@ def request(
     reason = None
     done = False
     try:
-        body = {
-            "model": model,
-            "messages": messages,
-            "stream": True,
-            "stream_options": {"include_usage": True},
-            "temperature": 0,
-            "enable_thinking": enable_thinking,
-            "max_tokens": maximum,
-        }
-        if tools is not None:
-            body["tools"] = tools
-        headers = {"Content-Type": "application/json", "X-Loom-Session": session}
-        if checkpoint is not None:
-            headers["X-Loom-Checkpoint"] = checkpoint
         connection.request(
             "POST",
             "/v1/chat/completions",
             json.dumps(body),
-            headers,
+            {"Content-Type": "application/json", **(headers or {})},
         )
         response = connection.getresponse()
         if response.status != 200:
@@ -79,16 +95,18 @@ def request(
             if event.get("usage"):
                 usage = event["usage"]
             for choice in event.get("choices", []):
+                if choice.get("index") != 0:
+                    raise RuntimeError("Expected a single choice at index zero")
                 if choice.get("finish_reason"):
                     reason = choice["finish_reason"]
                 delta = choice.get("delta", {})
                 content = delta.get("content", "")
                 thought = delta.get("reasoning_content", "")
                 if content or thought or delta.get("tool_calls"):
-                    chunks.append((time.monotonic_ns() - start) / 1e6)
+                    chunks.append((time.perf_counter_ns() - start) / 1e6)
                 if content:
                     if first is None:
-                        first = time.monotonic_ns()
+                        first = time.perf_counter_ns()
                     text.append(content)
                 if thought:
                     reasoning.append(thought)
@@ -116,7 +134,7 @@ def request(
             raise RuntimeError("Tool deltas and terminal finish reason disagree")
         if sorted(tool_calls) != list(range(len(tool_calls))):
             raise RuntimeError("Tool delta indexes are not contiguous")
-        end = time.monotonic_ns()
+        end = time.perf_counter_ns()
         return {
             "text": "".join(text),
             "reasoning_content": "".join(reasoning),

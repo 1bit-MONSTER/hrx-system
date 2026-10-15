@@ -425,6 +425,57 @@ TEST_F(HttpServerTest, PeerResetReturnsOwnershipAndListenerSurvives) {
   ASSERT_EQ(close(client), 0);
 }
 
+TEST_F(HttpServerTest, PendingReceiveOutlivesListenerAndOtherPoolReuse) {
+  const int pending = Connect();
+  const std::string prefix(8192, 'p');
+  const std::string suffix(20000, 's');
+  ASSERT_TRUE(Write(
+      pending, "POST /pending HTTP/1.1\r\nHost: local\r\nContent-Length: " +
+                   std::to_string(prefix.size() + suffix.size()) + "\r\n\r\n" +
+                   prefix));
+  // Accepts are serialized. Receiving this later peer proves the partial
+  // request's carrier is active before its listener and cache owner retire.
+  const int fence = Connect();
+  ASSERT_TRUE(Write(fence, "GET /fence HTTP/1.1\r\nHost: local\r\n\r\n"));
+  const loom_serve_http_request_t* request = nullptr;
+  auto* connection = Take(&request);
+  ASSERT_NE(connection, nullptr);
+  EXPECT_TRUE(iree_string_view_equal(request->target, IREE_SV("/fence")));
+  loom_serve_http_connection_abort(connection);
+  EXPECT_EQ(Read(fence), "");
+  EXPECT_EQ(close(fence), 0);
+  IREE_ASSERT_OK(loom_serve_http_listener_free(listener_));
+  listener_ = nullptr;
+
+  loom_serve_http_listener_t* other = nullptr;
+  IREE_ASSERT_OK(Listen(IREE_SV("127.0.0.1:0"), &other, 1));
+  additional_listeners_.push_back(other);
+  for (int i = 0; i < 32; ++i) {
+    const int peer = Connect(other);
+    ASSERT_TRUE(Write(peer, "GET /reused HTTP/1.1\r\nHost: local\r\n\r\n"));
+    connection = Take(&request);
+    ASSERT_NE(connection, nullptr);
+    EXPECT_TRUE(iree_string_view_equal(request->target, IREE_SV("/reused")));
+    IREE_ASSERT_OK(loom_serve_http_connection_send(
+        connection, IREE_SV("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK")));
+    loom_serve_http_connection_finish(connection);
+    EXPECT_EQ(Read(peer), "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK");
+    EXPECT_EQ(close(peer), 0);
+  }
+
+  ASSERT_TRUE(Write(pending, suffix));
+  connection = Take(&request);
+  ASSERT_NE(connection, nullptr);
+  EXPECT_TRUE(iree_string_view_equal(request->target, IREE_SV("/pending")));
+  EXPECT_EQ(std::string(request->body.data, request->body.size),
+            prefix + suffix);
+  IREE_ASSERT_OK(loom_serve_http_connection_send(
+      connection, IREE_SV("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK")));
+  loom_serve_http_connection_finish(connection);
+  EXPECT_EQ(Read(pending), "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK");
+  EXPECT_EQ(close(pending), 0);
+}
+
 TEST_F(HttpServerTest, ShutdownDrainsOpenConnectionAndAccept) {
   int client = Connect();
   ASSERT_TRUE(Write(client, "GET /healthz HTTP/1.1\r\nHost: local\r\n\r\n"));

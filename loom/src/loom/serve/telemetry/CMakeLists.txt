@@ -25,6 +25,34 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    latency
+  HDRS
+    "latency.h"
+  SRCS
+    "latency.c"
+  DEPS
+    ::record
+    ::stream
+    iree::base
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    latency_test
+  SRCS
+    "latency_test.cc"
+  DEPS
+    ::latency
+    ::record
+    ::stream
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_library(
+  NAME
     stream
   HDRS
     "stream.h"

@@ -115,7 +115,10 @@ loom_cc_library(
     srcs = ["source_lifecycle_test.cc"],
     target_compatible_with = _SOURCE_TEST_COMPATIBILITY,
     visibility = ["//visibility:private"],
-    deps = [":source_service_fixture"],
+    deps = [
+        ":source_service_fixture",
+        "//loom/src/loom/serve/telemetry:latency",
+    ],
     alwayslink = True,
 )
 
@@ -375,6 +378,7 @@ loom_cc_library(
         ":model",
         ":schedule",
         ":session",
+        "//loom/src/loom/serve/telemetry:latency",
         "//loom/src/loom/serve/telemetry:record",
         "//loom/src/loom/serve/telemetry:stream",
         "//runtime/src/iree/base",

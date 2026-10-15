@@ -1,0 +1,18 @@
+func.def public @scalars(%a: i8, %b: i16, %c: i32, %d: i64, %e: f8E4M3, %f: f8E5M2, %g: f16, %h: bf16, %i: f32, %j: f64) -> (i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64) {
+  func.return %a, %b, %c, %d, %e, %f, %g, %h, %i, %j : i8, i16, i32, i64, f8E4M3, f8E5M2, f16, bf16, f32, f64
+}
+
+func.def public @references(%host: buffer, %device: hal.buffer) -> (buffer, hal.buffer) {
+  func.return %host, %device : buffer, hal.buffer
+}
+
+func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+
+global.rodata.def @unexpected_call = bytes("62696e64696e67206d757374206e6f742065786563757465")
+
+func.def public @empty() {
+  %c0 = scalar.constant 0 : i32
+  %diagnostic = global.load @unexpected_call : buffer
+  func.call @require(%c0, %diagnostic) : (i32, buffer)
+  func.return
+}

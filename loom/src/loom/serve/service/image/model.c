@@ -513,13 +513,38 @@ static iree_status_t loom_serve_image_create_control(
   iree_vm_module_release(native_modules[0]);
   iree_vm_module_release(native_modules[1]);
   IREE_RETURN_IF_ERROR(status);
-  iree_vm_process_t* process =
-      loom_serve_program_process(model->control.program);
-  IREE_RETURN_IF_ERROR(iree_vm_process_lookup_function(
-      process, IREE_SV("model"), IREE_SV("prepare_request"),
-      &model->control.prepare_request));
-  return iree_vm_process_lookup_function(
-      process, IREE_SV("model"), IREE_SV("generate"), &model->control.generate);
+  const iree_vm_signature_type_t buffer = {
+      .kind = IREE_VM_SIGNATURE_TYPE_KIND_REF,
+      .value.ref = model->control.vm_types.buffer};
+  const iree_vm_signature_type_t device_buffer = {
+      .kind = IREE_VM_SIGNATURE_TYPE_KIND_REF,
+      .value.ref = model->control.hal_types.buffer};
+  const iree_vm_signature_type_t i32 = {
+      .kind = IREE_VM_SIGNATURE_TYPE_KIND_SCALAR,
+      .value.scalar = IREE_VM_SCALAR_TYPE_I32};
+  const iree_vm_signature_type_t i64 = {
+      .kind = IREE_VM_SIGNATURE_TYPE_KIND_SCALAR,
+      .value.scalar = IREE_VM_SCALAR_TYPE_I64};
+  const iree_vm_signature_type_t f32 = {
+      .kind = IREE_VM_SIGNATURE_TYPE_KIND_SCALAR,
+      .value.scalar = IREE_VM_SCALAR_TYPE_F32};
+  const iree_vm_signature_type_t request_arguments[] = {buffer, buffer, i32,
+                                                        buffer, i64,    f32};
+  const iree_vm_signature_type_t request_results[] = {i32, buffer};
+  const iree_vm_signature_type_t generate_arguments[] = {
+      i32, i32, i32, i64, device_buffer, device_buffer, device_buffer};
+  const loom_serve_program_binding_t bindings[] = {
+      {IREE_SVL("prepare_request"),
+       {request_arguments, IREE_ARRAYSIZE(request_arguments)},
+       {request_results, IREE_ARRAYSIZE(request_results)},
+       &model->control.prepare_request},
+      {IREE_SVL("generate"),
+       {generate_arguments, IREE_ARRAYSIZE(generate_arguments)},
+       {&i32, 1},
+       &model->control.generate},
+  };
+  return loom_serve_program_bind(model->control.program,
+                                 IREE_ARRAYSIZE(bindings), bindings);
 }
 
 static iree_status_t loom_serve_image_model_bind(

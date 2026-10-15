@@ -820,19 +820,26 @@ loomc_status_t loomc_compiler_create(loomc_context_t* context,
                                      const loomc_compiler_options_t* options,
                                      loomc_allocator_t allocator,
                                      loomc_compiler_t** out_compiler) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (out_compiler == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "out_compiler must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "out_compiler must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_compiler = NULL;
   if (context == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "context must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "context must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
-  LOOMC_RETURN_IF_ERROR(loomc_compile_validate_compiler_options(options));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_compile_validate_compiler_options(options));
 
   loomc_compiler_t* compiler = NULL;
-  LOOMC_RETURN_IF_ERROR(
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0,
       loomc_allocator_malloc(allocator, sizeof(*compiler), (void**)&compiler));
   memset(compiler, 0, sizeof(*compiler));
   iree_atomic_ref_count_init(&compiler->ref_count);
@@ -840,6 +847,7 @@ loomc_status_t loomc_compiler_create(loomc_context_t* context,
   compiler->context = context;
   loomc_context_retain(context);
   *out_compiler = compiler;
+  IREE_TRACE_ZONE_END(z0);
   return loomc_ok_status();
 }
 
@@ -905,9 +913,12 @@ loomc_status_t loomc_compile_module(loomc_compiler_t* compiler,
                                     const loomc_compile_options_t* options,
                                     loomc_allocator_t allocator,
                                     loomc_result_t** out_result) {
-  return loomc_compile_module_impl(compiler, workspace, pass_program, module,
-                                   options, /*compile_report=*/NULL, allocator,
-                                   out_result);
+  IREE_TRACE_ZONE_BEGIN(z0);
+  loomc_status_t return_status = loomc_compile_module_impl(
+      compiler, workspace, pass_program, module, options,
+      /*compile_report=*/NULL, allocator, out_result);
+  IREE_TRACE_ZONE_END(z0);
+  return return_status;
 }
 
 loomc_status_t loomc_compile_module_with_native_report(
@@ -916,12 +927,18 @@ loomc_status_t loomc_compile_module_with_native_report(
     const loomc_compile_options_t* options,
     loom_target_compile_report_t* report, loomc_allocator_t allocator,
     loomc_result_t** out_result) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (report == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "report must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "report must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
-  return loomc_compile_module_impl(compiler, workspace, pass_program, module,
-                                   options, report, allocator, out_result);
+  loomc_status_t return_status =
+      loomc_compile_module_impl(compiler, workspace, pass_program, module,
+                                options, report, allocator, out_result);
+  IREE_TRACE_ZONE_END(z0);
+  return return_status;
 }
 
 loomc_status_t loomc_compile_artifact(
@@ -929,43 +946,62 @@ loomc_status_t loomc_compile_artifact(
     const loomc_pass_program_t* pass_program, loomc_module_t* module,
     const loomc_compile_artifact_options_t* options,
     loomc_allocator_t allocator, loomc_result_t** out_result) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (out_result == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "out_result must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "out_result must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_result = NULL;
   if (compiler == NULL || workspace == NULL || module == NULL) {
-    return loomc_make_status(
-        LOOMC_STATUS_INVALID_ARGUMENT,
-        "compiler, workspace, and module must not be NULL");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                          "compiler, workspace, and module must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   if (loomc_module_context(module) != compiler->context) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "module was created with another context");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                          "module was created with another context");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   if (pass_program != NULL &&
       loomc_pass_program_context(pass_program) != compiler->context) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "pass program was created with another context");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                          "pass program was created with another context");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   loomc_target_environment_t* target_environment =
       loomc_context_target_environment(compiler->context);
   if (target_environment == NULL) {
-    return loomc_make_status(LOOMC_STATUS_FAILED_PRECONDITION,
-                             "compiler context has no target environment");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_FAILED_PRECONDITION,
+                          "compiler context has no target environment");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   loomc_option_chain_t option_chain = {0};
-  LOOMC_RETURN_IF_ERROR(loomc_compile_validate_artifact_options(
-      compiler, options, &option_chain));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(z0, loomc_compile_validate_artifact_options(
+                                            compiler, options, &option_chain));
   if (pass_program != NULL && option_chain.has_sanitizer) {
-    return loomc_make_status(
+    loomc_status_t return_status = loomc_make_status(
         LOOMC_STATUS_INVALID_ARGUMENT,
         "sanitizer options require the emitter default pass program");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   loom_module_t* internal_module = loomc_module_loom_module(module);
   if (internal_module == NULL) {
-    return loomc_make_status(LOOMC_STATUS_FAILED_PRECONDITION,
-                             "module does not contain internal IR");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_FAILED_PRECONDITION,
+                          "module does not contain internal IR");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   const loomc_config_options_t* config = options ? options->config : NULL;
   const bool require_resolved_config =
@@ -1177,6 +1213,7 @@ loomc_status_t loomc_compile_artifact(
     result = NULL;
   }
   loomc_result_release(result);
+  IREE_TRACE_ZONE_END(z0);
   return status;
 }
 
@@ -1203,33 +1240,45 @@ loomc_status_t loomc_compile_request(
     const loomc_pass_program_t* pass_program, const loomc_request_t* request,
     const loomc_compile_options_t* options, loomc_allocator_t allocator,
     loomc_product_t** out_product, loomc_result_t** out_result) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (out_product == NULL || out_result == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "out_product and out_result must not be NULL");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                          "out_product and out_result must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_product = NULL;
   *out_result = NULL;
   if (compiler == NULL || workspace == NULL || pass_program == NULL ||
       request == NULL) {
-    return loomc_make_status(
+    loomc_status_t return_status = loomc_make_status(
         LOOMC_STATUS_INVALID_ARGUMENT,
         "compiler, workspace, pass_program, and request must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   if (loomc_request_product_descriptor(request) !=
       loomc_compiled_module_product_descriptor()) {
-    return loomc_make_status(
-        LOOMC_STATUS_INVALID_ARGUMENT,
-        "request does not require a compiled module product");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                          "request does not require a compiled module product");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   if (loomc_pass_program_context(pass_program) != compiler->context) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "pass program was created with another context");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                          "pass program was created with another context");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   const loomc_target_specialization_options_t* target_specialization = NULL;
-  LOOMC_RETURN_IF_ERROR(loomc_compile_resolve_target_specialization(
-      compiler, options, &target_specialization));
-  LOOMC_RETURN_IF_ERROR(
-      loomc_compile_validate_config_module(compiler, NULL, options));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_compile_resolve_target_specialization(compiler, options,
+                                                      &target_specialization));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_compile_validate_config_module(compiler, NULL, options));
 
   loomc_module_t* module = NULL;
   loomc_result_t* result = NULL;
@@ -1262,6 +1311,7 @@ loomc_status_t loomc_compile_request(
   loomc_product_release(product);
   loomc_result_release(result);
   loomc_module_release(module);
+  IREE_TRACE_ZONE_END(z0);
   return status;
 }
 

@@ -20,6 +20,7 @@ loom_cc_library(
     iree::base
     iree::tokenizer
     loom::serve::runtime::host::wake
+    loom::serve::telemetry::latency
     loom::serve::telemetry::stream
     loom::serve::transport::http::server
   PUBLIC

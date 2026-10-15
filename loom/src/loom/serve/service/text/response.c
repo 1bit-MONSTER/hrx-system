@@ -53,6 +53,7 @@ iree_status_t loom_serve_text_response_tokens(
     loom_serve_telemetry_diagnostic_capture(status,
                                             &session->request.diagnostic);
     iree_string_builder_reset(&session->packet);
+    session->request.publication.pending = false;
     const bool streaming = iree_any_bit_set(session->request.chat.flags,
                                             LOOM_SERVE_TEXT_CHAT_FLAG_STREAM);
     iree_status_t packet_status = iree_string_builder_append_cstring(

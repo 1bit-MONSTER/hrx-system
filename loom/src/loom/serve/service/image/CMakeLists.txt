@@ -114,6 +114,7 @@ loom_cc_library(
     loom::serve::runtime::parameter::telemetry
     loom::serve::service
     loom::serve::service::execution_reconfiguration
+    loom::serve::telemetry::latency
     loom::serve::telemetry::record
     loom::serve::telemetry::stream
     loom::serve::transport::http::request

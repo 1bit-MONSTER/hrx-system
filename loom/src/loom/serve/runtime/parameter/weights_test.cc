@@ -1114,28 +1114,67 @@ TEST_P(WeightsTest, PressureAdmissionDrainsNewPinsButNotAcceptedConsumers) {
   IREE_ASSERT_OK(loom_serve_residency_try_admit(residencies_[0], &admission));
   ASSERT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_ACQUIRED);
   ASSERT_NO_FATAL_FAILURE(Run(0, 90));
+  const auto initial = loom_serve_residency_snapshot(residencies_[0]);
+  EXPECT_EQ(initial.pin_count, 1u);
+  EXPECT_FALSE(initial.admission.waiting);
+  EXPECT_EQ(initial.admission.count, 0u);
+  EXPECT_EQ(initial.admission.duration_ns, 0u);
+  EXPECT_EQ(initial.admission.age_ns, 0u);
+  const iree_time_t first_wait_start = iree_time_now();
   IREE_ASSERT_OK(loom_serve_residency_try_admit(residencies_[1], &admission));
   if (!GetParam()) {
     ASSERT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_ACQUIRED);
+    const auto fixed = loom_serve_residency_snapshot(residencies_[1]);
+    EXPECT_EQ(fixed.pin_count, 1u);
+    EXPECT_FALSE(fixed.admission.waiting);
+    EXPECT_EQ(fixed.admission.count, 0u);
+    EXPECT_EQ(fixed.admission.duration_ns, 0u);
     ASSERT_NO_FATAL_FAILURE(Run(1, 290));
     loom_serve_residency_release(residencies_[1]);
     loom_serve_residency_release(residencies_[0]);
     return;
   }
   ASSERT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_CAPACITY);
+  const auto waiting = loom_serve_residency_snapshot(residencies_[1]);
+  EXPECT_EQ(waiting.pin_count, 0u);
+  EXPECT_TRUE(waiting.admission.waiting);
+  EXPECT_EQ(waiting.admission.count, 1u);
+  EXPECT_EQ(waiting.admission.duration_ns, waiting.admission.age_ns);
+  EXPECT_LE(waiting.admission.age_ns, iree_time_now() - first_wait_start);
   IREE_ASSERT_OK(loom_serve_residency_try_admit(residencies_[0], &admission));
   EXPECT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_DEFERRED);
   // The already-admitted consumer still takes its nested execution pin and
   // produces exact device output. A parameter-free peer cannot obstruct it.
   ASSERT_NO_FATAL_FAILURE(RunPinned(0, 90));
+  const auto retained = loom_serve_residency_snapshot(residencies_[0]);
+  EXPECT_TRUE(retained.admission.waiting);
+  EXPECT_EQ(retained.admission.count, 1u);
+  EXPECT_EQ(retained.pin_count, 1u);
   IREE_ASSERT_OK(loom_serve_residency_try_admit(residencies_[2], &admission));
   EXPECT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_ACQUIRED);
+  EXPECT_EQ(loom_serve_residency_snapshot(residencies_[2]).admission.count, 0u);
   loom_serve_residency_release(residencies_[2]);
   // Withdraw both tail and head, including repeated withdrawal. No owned
   // invocation pin is released by cancellation of a new request.
   loom_serve_residency_cancel_admission(residencies_[0]);
+  const auto withdrawn = loom_serve_residency_snapshot(residencies_[0]);
+  EXPECT_FALSE(withdrawn.admission.waiting);
+  EXPECT_EQ(withdrawn.admission.count, 1u);
+  EXPECT_EQ(withdrawn.admission.age_ns, 0u);
+  EXPECT_GE(withdrawn.admission.duration_ns, retained.admission.duration_ns);
+  EXPECT_EQ(withdrawn.pin_count, 1u);
   loom_serve_residency_cancel_admission(residencies_[0]);
+  EXPECT_EQ(
+      loom_serve_residency_snapshot(residencies_[0]).admission.duration_ns,
+      withdrawn.admission.duration_ns);
   loom_serve_residency_cancel_admission(residencies_[1]);
+  const auto first_wait = loom_serve_residency_snapshot(residencies_[1]);
+  EXPECT_FALSE(first_wait.admission.waiting);
+  EXPECT_EQ(first_wait.admission.count, 1u);
+  EXPECT_EQ(first_wait.admission.age_ns, 0u);
+  EXPECT_GE(first_wait.admission.duration_ns, waiting.admission.duration_ns);
+  EXPECT_LE(first_wait.admission.duration_ns,
+            iree_time_now() - first_wait_start);
   IREE_ASSERT_OK(loom_serve_residency_try_admit(residencies_[0], &admission));
   ASSERT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_ACQUIRED);
   loom_serve_residency_release(residencies_[0]);
@@ -1146,14 +1185,25 @@ TEST_P(WeightsTest, PressureAdmissionDrainsNewPinsButNotAcceptedConsumers) {
   loom_serve_residency_release(residencies_[0]);
   IREE_ASSERT_OK(loom_serve_residency_try_admit(residencies_[1], &admission));
   ASSERT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_ACQUIRED);
+  const auto admitted = loom_serve_residency_snapshot(residencies_[1]);
+  EXPECT_FALSE(admitted.admission.waiting);
+  EXPECT_EQ(admitted.admission.count, 2u);
+  EXPECT_EQ(admitted.admission.age_ns, 0u);
+  EXPECT_GE(admitted.admission.duration_ns, first_wait.admission.duration_ns);
+  EXPECT_EQ(admitted.pin_count, 1u);
   ASSERT_NO_FATAL_FAILURE(Run(1, 290));
   IREE_ASSERT_OK(loom_serve_residency_try_admit(residencies_[0], &admission));
   ASSERT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_CAPACITY);
+  EXPECT_EQ(loom_serve_residency_snapshot(residencies_[0]).admission.count, 2u);
   loom_serve_residency_release(residencies_[1]);
   IREE_ASSERT_OK(loom_serve_residency_try_admit(residencies_[0], &admission));
   ASSERT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_ACQUIRED);
   ASSERT_NO_FATAL_FAILURE(Run(0, 90));
   loom_serve_residency_release(residencies_[0]);
+  EXPECT_EQ(loom_serve_residency_snapshot(residencies_[0]).pin_count, 0u);
+  EXPECT_EQ(
+      loom_serve_residency_snapshot(residencies_[1]).admission.duration_ns,
+      admitted.admission.duration_ns);
 }
 
 TEST_P(WeightsTest, NewAdmissionsCoexistWithoutPhysicalPressure) {
@@ -1170,6 +1220,12 @@ TEST_P(WeightsTest, NewAdmissionsCoexistWithoutPhysicalPressure) {
     IREE_ASSERT_OK(loom_serve_residency_try_admit(residencies_[i], &admission));
     ASSERT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_ACQUIRED);
     ASSERT_NO_FATAL_FAILURE(Run(i, 70));
+    const auto active = loom_serve_residency_snapshot(residencies_[i]);
+    EXPECT_EQ(active.pin_count, 2u);
+    EXPECT_FALSE(active.admission.waiting);
+    EXPECT_EQ(active.admission.count, 0u);
+    EXPECT_EQ(active.admission.duration_ns, 0u);
+    EXPECT_EQ(active.admission.age_ns, 0u);
     loom_serve_residency_release(residencies_[i]);
     loom_serve_residency_release(residencies_[i]);
   }

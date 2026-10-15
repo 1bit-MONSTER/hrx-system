@@ -19,6 +19,8 @@ extern "C" {
 // Owns accept/cancellation storage, never the accepted HTTP connections. At
 // shared capacity it retains one unadmitted carrier and waits asynchronously;
 // further peers stay in the configured kernel backlog.
+// Registered receive pools grow to peak overlap and recycle after carrier
+// retirement. Acquired slots retain their cache independently of this listener.
 typedef struct loom_serve_http_listener_t loom_serve_http_listener_t;
 
 typedef struct loom_serve_http_listener_options_t {
@@ -28,7 +30,7 @@ typedef struct loom_serve_http_listener_options_t {
   iree_host_size_t proactor_index;
   // Kernel listen backlog, independent of the shared HTTP connection budget.
   int backlog;
-  // Bytes in each dedicated per-connection receive buffer.
+  // Bytes in each exclusive receive buffer, reused after connection retirement.
   iree_host_size_t receive_buffer_size;
   // Receive buffers per connection; power of two for provided-buffer backends.
   iree_host_size_t receive_buffer_count;

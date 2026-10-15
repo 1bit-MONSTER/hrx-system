@@ -7,12 +7,111 @@
 #include <cerrno>
 
 #include "loom/serve/service/text/service_test_fixture.h"
+#include "loom/serve/telemetry/latency.h"
 
 namespace {
 
 using loom_serve::testing::text::Oracle;
 using loom_serve::testing::text::SourceTextServiceTest;
 using loom_serve::testing::text::StalledClient;
+
+uint64_t FirstOutputCount(const loom_serve_http_service_t& interface) {
+  uint64_t count = 0;
+  for (const auto bucket : interface.telemetry.latency->first_output.buckets) {
+    count += bucket;
+  }
+  return count;
+}
+
+TEST_F(SourceTextServiceTest, FirstOutputExcludesFramingAndEmptyCompletions) {
+  for (const bool streaming : {false, true}) {
+    SCOPED_TRACE(streaming ? "streaming" : "nonstreaming");
+    const auto options = ServiceOptions();
+    loom_serve_text_service_t* value = nullptr;
+    IREE_ASSERT_OK(loom_serve_text_service_allocate(model_, &options, nullptr,
+                                                    host_allocator_, &value));
+    auto destroy = [](loom_serve_text_service_t* service) {
+      loom_serve_text_service_free(service, IREE_STATUS_OK);
+    };
+    std::unique_ptr<loom_serve_text_service_t, decltype(destroy)> service(
+        value, destroy);
+    const auto interface = loom_serve_text_service_interface(value);
+    Observe(interface);
+    const auto idle = [&] {
+      return !interface.is_pending(interface.self) &&
+             !interface.is_active(interface.self) &&
+             !interface.snapshot(interface.self).queued_requests;
+    };
+    const auto request = [streaming](const char* prompt) {
+      return std::string(R"({"model":"fixture-text","stream":)") +
+             (streaming ? "true" : "false") +
+             R"(,"max_tokens":4,"messages":[{"role":"user","content":")" +
+             prompt + R"("}]})";
+    };
+    loom_serve_http_connection_t* connection = nullptr;
+    const int first = Send(request("abxa"));
+    ASSERT_NO_FATAL_FAILURE(Accept(first, interface, &connection));
+    ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, [&] {
+      return std::string(interface.snapshot(interface.self).phase) == "execute";
+    }));
+    // Streaming headers and the assistant-role event have carrier acceptance,
+    // but the owner has not consumed any model result yet.
+    EXPECT_EQ(FirstOutputCount(interface), 0u);
+    ASSERT_NO_FATAL_FAILURE(AdvanceUntil(
+        interface, [&] { return FirstOutputCount(interface) == 1; }));
+    if (streaming) {
+      EXPECT_EQ(interface.telemetry.counters->completed, 0u);
+    }
+    ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, idle));
+    const auto first_response = Read(first);
+    if (streaming) {
+      EXPECT_EQ(Content(first_response), Oracle::Complete("abxa", 4));
+    } else {
+      EXPECT_NE(first_response.find("\"content\":\"" +
+                                    Oracle::Complete("abxa", 4) + "\""),
+                std::string::npos);
+    }
+    EXPECT_EQ(FirstOutputCount(interface), 1u);
+
+    // Eleven consumed positions select EOS immediately, producing a successful
+    // empty response. Neither its stop event nor usage is meaningful output.
+    const int empty = Send(request("aaaaaaaaaaa"));
+    ASSERT_NO_FATAL_FAILURE(Accept(empty, interface, &connection));
+    ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, idle));
+    const auto empty_response = Read(empty);
+    if (streaming) {
+      EXPECT_TRUE(Content(empty_response).empty());
+    } else {
+      EXPECT_NE(empty_response.find("\"content\":\"\""), std::string::npos);
+    }
+    EXPECT_EQ(FirstOutputCount(interface), 1u);
+    EXPECT_EQ(interface.telemetry.counters->completed, 2u);
+    if (streaming) {
+      const int abandoned = Send(request("abxa"));
+      ASSERT_NO_FATAL_FAILURE(Accept(abandoned, interface, &connection));
+      ASSERT_NO_FATAL_FAILURE(AdvanceUntil(
+          interface, [&] { return FirstOutputCount(interface) == 2; }));
+      const linger reset = {1, 0};
+      ASSERT_EQ(
+          setsockopt(abandoned, SOL_SOCKET, SO_LINGER, &reset, sizeof(reset)),
+          0);
+      ASSERT_EQ(close(abandoned), 0);
+      ASSERT_TRUE(iree_notification_await(
+          loom_serve_http_server_notification(server_),
+          [](void* self) {
+            return loom_serve_http_connection_failed(
+                static_cast<loom_serve_http_connection_t*>(self));
+          },
+          connection, iree_infinite_timeout()));
+      ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface, idle));
+      EXPECT_EQ(interface.telemetry.counters->cancelled, 1u);
+      // Accepted output remains an observation even when its request later
+      // cancels; it cannot become a completed-only latency sample.
+      EXPECT_EQ(FirstOutputCount(interface), 2u);
+    }
+    interface.set_observer(interface.self, {});
+  }
+}
 
 TEST_F(SourceTextServiceTest, DiscoveryReportsConfiguredSessionCapacity) {
   Start();
@@ -67,6 +166,7 @@ TEST_F(SourceTextServiceTest, NonstreamingDisconnectRetiresAnAcceptedEpoch) {
   }));
   EXPECT_EQ(interface.telemetry.counters->completed, 0u);
   EXPECT_EQ(interface.telemetry.counters->cancelled, 1u);
+  EXPECT_EQ(FirstOutputCount(interface), 0u);
   EXPECT_EQ(loom_serve_text_model_pool_usage(model_).pending, 0u);
 
   const int next = Send(request);
@@ -85,6 +185,7 @@ TEST_F(SourceTextServiceTest, NonstreamingDisconnectRetiresAnAcceptedEpoch) {
   EXPECT_EQ(interface.telemetry.counters->completed, 1u);
   EXPECT_EQ(interface.telemetry.counters->cancelled, 1u);
   EXPECT_EQ(interface.telemetry.counters->failed, 0u);
+  EXPECT_EQ(FirstOutputCount(interface), 1u);
   interface.set_observer(interface.self, {});
 }
 

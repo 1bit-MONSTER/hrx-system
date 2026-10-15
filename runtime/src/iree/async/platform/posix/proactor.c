@@ -3178,6 +3178,7 @@ static iree_host_size_t iree_async_proactor_posix_drain_pending_cancellations(
 static iree_status_t iree_async_proactor_posix_poll(
     iree_async_proactor_t* base_proactor, iree_timeout_t timeout,
     iree_host_size_t* out_completed_count) {
+  IREE_TRACE_ZONE_BEGIN_NAMED(z0, "iree_async_proactor_posix_prepare");
   iree_convert_timeout_to_absolute(&timeout);
   iree_async_proactor_posix_t* proactor =
       iree_async_proactor_posix_cast(base_proactor);
@@ -3188,7 +3189,8 @@ static iree_status_t iree_async_proactor_posix_poll(
 
   if (iree_atomic_load(&proactor->shutdown_requested,
                        iree_memory_order_acquire)) {
-    return iree_make_status(IREE_STATUS_ABORTED, "proactor is shutting down");
+    IREE_RETURN_AND_END_ZONE(
+        z0, iree_make_status(IREE_STATUS_ABORTED, "proactor is shutting down"));
   }
 
   // Drain pending_queue first: register newly submitted operations with
@@ -3222,6 +3224,7 @@ static iree_status_t iree_async_proactor_posix_poll(
     if (out_completed_count) {
       *out_completed_count = completed_count;
     }
+    IREE_TRACE_ZONE_END(z0);
     return progress_status;
   }
 
@@ -3241,6 +3244,7 @@ static iree_status_t iree_async_proactor_posix_poll(
     if (out_completed_count) {
       *out_completed_count = completed_count;
     }
+    IREE_TRACE_ZONE_END(z0);
     return cancel_status;
   }
 
@@ -3255,6 +3259,7 @@ static iree_status_t iree_async_proactor_posix_poll(
   // Poll for ready fds.
   iree_host_size_t ready_count = 0;
   bool timed_out = false;
+  IREE_TRACE_ZONE_END(z0);
   iree_status_t poll_status = iree_async_posix_event_set_wait(
       proactor->event_set, timeout_ms, &ready_count, &timed_out);
   if (!iree_status_is_ok(poll_status)) {
@@ -3263,6 +3268,7 @@ static iree_status_t iree_async_proactor_posix_poll(
     }
     return poll_status;
   }
+  IREE_TRACE_ZONE_BEGIN_NAMED(z1, "iree_async_proactor_posix_dispatch");
   if (timed_out) {
     iree_async_posix_wake_drain(&proactor->wake);
 
@@ -3292,6 +3298,7 @@ static iree_status_t iree_async_proactor_posix_poll(
     if (out_completed_count) {
       *out_completed_count = completed_count;
     }
+    IREE_TRACE_ZONE_END(z1);
     if (completed_count > 0) {
       return iree_ok_status();
     }
@@ -3415,6 +3422,7 @@ static iree_status_t iree_async_proactor_posix_poll(
   }
   // A native interruption yields control even when no descriptor was ready.
   // The event set explicitly distinguishes this from an expired wait.
+  IREE_TRACE_ZONE_END(z1);
   return iree_ok_status();
 }
 

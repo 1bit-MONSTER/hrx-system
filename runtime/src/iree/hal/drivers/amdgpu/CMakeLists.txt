@@ -12,6 +12,41 @@ iree_add_all_subdirs()
 if(IREE_HAL_DRIVER_AMDGPU)
 iree_cc_library(
   NAME
+    host_memory_pools
+  HDRS
+    "host_memory_pools.h"
+  SRCS
+    "host_memory_pools.c"
+  DEPS
+    iree::base
+    iree::hal::drivers::amdgpu::util::libhsa
+  PUBLIC
+)
+endif()
+
+if(IREE_HAL_DRIVER_AMDGPU)
+iree_cc_test(
+  NAME
+    host_memory_pools_test
+  SRCS
+    "host_memory_pools_test.cc"
+  DEPS
+    ::host_memory_pools
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=runtime.hal.amdgpu"
+    "iree-run-requirement=runtime.resource.amd_gpu"
+    "runtime-resource=amd-gpu"
+  RESOURCE_GROUP
+    gpu-device
+)
+endif()
+
+if(IREE_HAL_DRIVER_AMDGPU)
+iree_cc_library(
+  NAME
     queue_execution_resources
   HDRS
     "queue_execution_resources.h"
@@ -368,6 +403,7 @@ iree_cc_library(
     ::executable_global_resolver
     ::executable_metadata
     ::executable_metadata_hsaco
+    ::host_memory_pools
     ::kernarg_layout
     ::profile_events
     ::queue_execution_resources
@@ -493,6 +529,7 @@ iree_cc_library(
     "virtual_memory.h"
   DEPS
     ::dispatch_concurrency
+    ::host_memory_pools
     ::profile_events
     iree::base
     iree::base::internal

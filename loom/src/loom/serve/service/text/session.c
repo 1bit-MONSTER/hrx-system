@@ -152,6 +152,9 @@ static iree_status_t loom_serve_text_emit_output(
         status = loom_serve_text_chat_event(
             response, iree_string_builder_view(scratch),
             iree_string_view_empty(), &session->packet);
+        if (iree_status_is_ok(status)) {
+          session->request.publication.pending = true;
+        }
       }
     }
   } while (iree_status_is_ok(status) && output.advanced);
@@ -203,6 +206,7 @@ static iree_status_t loom_serve_text_complete(
       IREE_RETURN_IF_ERROR(loom_serve_text_chat_event(
           response, iree_string_builder_view(scratch), iree_string_view_empty(),
           &session->packet));
+      session->request.publication.pending = true;
     }
     IREE_RETURN_IF_ERROR(loom_serve_text_chat_event(
         response, IREE_SV("{}"), finish_reason, &session->packet));
@@ -227,6 +231,10 @@ static iree_status_t loom_serve_text_complete(
         tool_count ? iree_string_builder_view(tool_calls)
                    : iree_string_view_empty(),
         finish_reason, &session->packet));
+    session->request.publication.pending =
+        iree_string_builder_size(&session->request.chat.output.content) ||
+        iree_string_builder_size(&session->request.chat.output.reasoning) ||
+        tool_count;
   }
   session->request.phase = LOOM_SERVE_TEXT_REQUEST_FINISHING;
   return iree_ok_status();

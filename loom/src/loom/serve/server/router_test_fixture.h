@@ -67,7 +67,7 @@ class ObservationClient {
     iree_net_carrier_retain(peer_);
     uint64_t wait_value = 0;
     const bool consumed =
-        loom_serve_http_server_try_accept(server, peer_, &wait_value);
+        loom_serve_http_server_try_accept(server, peer_, {}, &wait_value);
     if (!consumed) {
       iree_net_carrier_release(peer_);
     }
@@ -193,6 +193,8 @@ struct ModelService {
   } admission;
   // Optional immutable historical work, published before owner startup.
   const loom_serve_telemetry_counters_t* counters = nullptr;
+  // Optional immutable duration distributions published before owner startup.
+  const loom_serve_telemetry_latency_t* latency = nullptr;
 
   static void SetObserver(void* self, loom_serve_wake_callback_t observer) {
     auto* service = static_cast<ModelService*>(self);
@@ -355,7 +357,7 @@ struct ModelService {
             .endpoint = "/v1/test",
             .snapshot = Snapshot,
             .capacity_domain = capacity_domain,
-            .telemetry = {.counters = counters}};
+            .telemetry = {.counters = counters, .latency = latency}};
   }
 };
 

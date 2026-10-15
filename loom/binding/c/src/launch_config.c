@@ -359,8 +359,11 @@ static loomc_status_t loomc_launch_config_program_load_impl(
 loomc_status_t loomc_launch_config_program_load(
     const loomc_artifact_t* artifact, loomc_allocator_t allocator,
     loomc_launch_config_program_t** out_program) {
-  return loomc_launch_config_program_load_impl(artifact, allocator,
-                                               out_program);
+  IREE_TRACE_ZONE_BEGIN(z0);
+  loomc_status_t return_status =
+      loomc_launch_config_program_load_impl(artifact, allocator, out_program);
+  IREE_TRACE_ZONE_END(z0);
+  return return_status;
 }
 
 void loomc_launch_config_program_retain(
@@ -385,30 +388,41 @@ loomc_status_t loomc_launch_config_program_lookup_function(
     const loomc_launch_config_program_t* program,
     loomc_string_view_t export_name,
     loomc_launch_config_function_t* out_function) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (out_function == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "out_function must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "out_function must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_function = loomc_launch_config_function_invalid();
   if (program == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "launch config program must not be NULL");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                          "launch config program must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   if (!loomc_launch_config_string_view_is_well_formed(export_name) ||
       loomc_string_view_is_empty(export_name)) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "export_name must be non-empty");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "export_name must be non-empty");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
 
   const iree_string_view_t name = iree_string_view_from_loomc(export_name);
   for (iree_host_size_t i = 0; i < program->function_count; ++i) {
     if (iree_string_view_equal(program->functions[i].name, name)) {
       *out_function = (loomc_launch_config_function_t){.value = i};
+      IREE_TRACE_ZONE_END(z0);
       return loomc_ok_status();
     }
   }
-  return loomc_make_status(LOOMC_STATUS_NOT_FOUND,
-                           "launch config function was not found");
+  loomc_status_t return_status = loomc_make_status(
+      LOOMC_STATUS_NOT_FOUND, "launch config function was not found");
+  IREE_TRACE_ZONE_END(z0);
+  return return_status;
 }
 
 static loomc_status_t loomc_launch_config_validate_result(
@@ -440,20 +454,30 @@ loomc_status_t loomc_launch_config_program_invoke(
     const uint64_t* workload_argument_bits,
     loomc_host_size_t workload_argument_count,
     loomc_launch_config_t* out_config) {
-  LOOMC_RETURN_IF_ERROR(loomc_launch_config_validate_result(out_config));
+  IREE_TRACE_ZONE_BEGIN(z0);
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_launch_config_validate_result(out_config));
   if (program == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "launch config program must not be NULL");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                          "launch config program must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   if (function.value >= program->function_count) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "launch config function token is out of range");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                          "launch config function token is out of range");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   if (workload_argument_count != 0 && workload_argument_bits == NULL) {
-    return loomc_make_status(
+    loomc_status_t return_status = loomc_make_status(
         LOOMC_STATUS_INVALID_ARGUMENT,
         "workload_argument_count is non-zero but workload_argument_bits is "
         "NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
 
   loom_kernel_launch_config_t evaluated = {0};
@@ -488,5 +512,6 @@ loomc_status_t loomc_launch_config_program_invoke(
         .workgroup_storage_bytes = evaluated.workgroup_storage_bytes,
     };
   }
+  IREE_TRACE_ZONE_END(z0);
   return status;
 }

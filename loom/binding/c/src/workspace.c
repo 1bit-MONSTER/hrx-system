@@ -68,16 +68,21 @@ static loomc_status_t loomc_workspace_validate_options(
 loomc_status_t loomc_workspace_create(const loomc_workspace_options_t* options,
                                       loomc_allocator_t allocator,
                                       loomc_workspace_t** out_workspace) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (out_workspace == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "out_workspace must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "out_workspace must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_workspace = NULL;
-  LOOMC_RETURN_IF_ERROR(loomc_workspace_validate_options(options));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(z0,
+                                    loomc_workspace_validate_options(options));
 
   loomc_workspace_t* workspace = NULL;
-  LOOMC_RETURN_IF_ERROR(loomc_allocator_malloc(allocator, sizeof(*workspace),
-                                               (void**)&workspace));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_allocator_malloc(allocator, sizeof(*workspace),
+                                 (void**)&workspace));
   iree_atomic_ref_count_init(&workspace->ref_count);
   workspace->allocator = allocator;
   iree_host_size_t block_size = LOOMC_WORKSPACE_DEFAULT_BLOCK_SIZE;
@@ -88,6 +93,7 @@ loomc_status_t loomc_workspace_create(const loomc_workspace_options_t* options,
                                    loomc_workspace_iree_allocator(allocator),
                                    &workspace->block_pool);
   *out_workspace = workspace;
+  IREE_TRACE_ZONE_END(z0);
   return loomc_ok_status();
 }
 
@@ -126,7 +132,9 @@ void loomc_workspace_trim(loomc_workspace_t* workspace) {
   if (workspace == NULL) {
     return;
   }
+  IREE_TRACE_ZONE_BEGIN(z0);
   iree_arena_block_pool_trim(&workspace->block_pool);
+  IREE_TRACE_ZONE_END(z0);
 }
 
 void loomc_workspace_release(loomc_workspace_t* workspace) {
@@ -136,9 +144,11 @@ void loomc_workspace_release(loomc_workspace_t* workspace) {
   if (iree_atomic_ref_count_dec(&workspace->ref_count) != 1) {
     return;
   }
+  IREE_TRACE_ZONE_BEGIN(z0);
   loomc_allocator_t allocator = workspace->allocator;
   iree_arena_block_pool_deinitialize(&workspace->block_pool);
   loomc_allocator_free(allocator, workspace);
+  IREE_TRACE_ZONE_END(z0);
 }
 
 iree_arena_block_pool_t* loomc_workspace_block_pool(

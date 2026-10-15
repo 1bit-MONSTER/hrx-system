@@ -276,28 +276,71 @@ iree_status_t loom_serve_text_chat_policy_initialize(
   out_policy->invocation = loom_serve_program_invocation(program);
   iree_vm_function_t name_function = {0};
   iree_vm_function_t defaults_function = {0};
-  const char* names[] = {"model_name",       "chat_begin",     "chat_message",
-                         "chat_end",         "parse_tools",    "render_tool",
-                         "prepare_input",    "output_next",    "complete_text",
-                         "request_defaults", "request_options"};
-  iree_vm_function_t* functions[] = {&name_function,
-                                     &out_policy->chat_begin,
-                                     &out_policy->chat_message,
-                                     &out_policy->chat_end,
-                                     &out_policy->parse_tools,
-                                     &out_policy->render_tool,
-                                     &out_policy->prepare_input,
-                                     &out_policy->output_next,
-                                     &out_policy->complete_text,
-                                     &defaults_function,
-                                     &out_policy->request_options};
-  iree_status_t status = iree_ok_status();
-  for (iree_host_size_t i = 0;
-       i < IREE_ARRAYSIZE(names) && iree_status_is_ok(status); ++i) {
-    status = iree_vm_process_lookup_function(
-        loom_serve_program_process(program), IREE_SV("model"),
-        iree_make_cstring_view(names[i]), functions[i]);
-  }
+  const iree_vm_signature_type_t buffer = {
+      .kind = IREE_VM_SIGNATURE_TYPE_KIND_REF,
+      .value.ref = out_policy->types.buffer};
+  const iree_vm_signature_type_t i32 = {
+      .kind = IREE_VM_SIGNATURE_TYPE_KIND_SCALAR,
+      .value.scalar = IREE_VM_SCALAR_TYPE_I32};
+  const iree_vm_signature_type_t i64 = {
+      .kind = IREE_VM_SIGNATURE_TYPE_KIND_SCALAR,
+      .value.scalar = IREE_VM_SCALAR_TYPE_I64};
+  const iree_vm_signature_type_t buffers[] = {buffer, buffer};
+  const iree_vm_signature_type_t fragment_results[] = {buffer, i64};
+  const iree_vm_signature_type_t message_arguments[] = {
+      buffer, buffer, buffer, buffer, buffer, i64, i64, i64};
+  const iree_vm_signature_type_t tool_arguments[] = {buffer, buffer, i64};
+  const iree_vm_signature_type_t input_arguments[] = {buffer, i32, i32, i64};
+  const iree_vm_signature_type_t output_arguments[] = {buffer, i64, i64, i32};
+  const iree_vm_signature_type_t output_results[] = {i64, i64, i64, i64};
+  const iree_vm_signature_type_t completion_arguments[] = {
+      buffer, buffer, buffer, buffer, buffer, i64, i64};
+  const iree_vm_signature_type_t completion_results[] = {buffer, i32};
+  const loom_serve_program_binding_t bindings[] = {
+      {IREE_SVL("model_name"), {NULL, 0}, {&buffer, 1}, &name_function},
+      {IREE_SVL("chat_begin"),
+       {buffers, IREE_ARRAYSIZE(buffers)},
+       {fragment_results, IREE_ARRAYSIZE(fragment_results)},
+       &out_policy->chat_begin},
+      {IREE_SVL("chat_message"),
+       {message_arguments, IREE_ARRAYSIZE(message_arguments)},
+       {fragment_results, IREE_ARRAYSIZE(fragment_results)},
+       &out_policy->chat_message},
+      {IREE_SVL("chat_end"),
+       {&i64, 1},
+       {fragment_results, IREE_ARRAYSIZE(fragment_results)},
+       &out_policy->chat_end},
+      {IREE_SVL("parse_tools"),
+       {buffers, IREE_ARRAYSIZE(buffers)},
+       {&buffer, 1},
+       &out_policy->parse_tools},
+      {IREE_SVL("render_tool"),
+       {tool_arguments, IREE_ARRAYSIZE(tool_arguments)},
+       {fragment_results, IREE_ARRAYSIZE(fragment_results)},
+       &out_policy->render_tool},
+      {IREE_SVL("prepare_input"),
+       {input_arguments, IREE_ARRAYSIZE(input_arguments)},
+       {fragment_results, IREE_ARRAYSIZE(fragment_results)},
+       &out_policy->prepare_input},
+      {IREE_SVL("output_next"),
+       {output_arguments, IREE_ARRAYSIZE(output_arguments)},
+       {output_results, IREE_ARRAYSIZE(output_results)},
+       &out_policy->output_next},
+      {IREE_SVL("complete_text"),
+       {completion_arguments, IREE_ARRAYSIZE(completion_arguments)},
+       {completion_results, IREE_ARRAYSIZE(completion_results)},
+       &out_policy->complete_text},
+      {IREE_SVL("request_defaults"),
+       {&buffer, 1},
+       {&buffer, 1},
+       &defaults_function},
+      {IREE_SVL("request_options"),
+       {tool_arguments, IREE_ARRAYSIZE(tool_arguments)},
+       {&buffer, 1},
+       &out_policy->request_options},
+  };
+  iree_status_t status =
+      loom_serve_program_bind(program, IREE_ARRAYSIZE(bindings), bindings);
   iree_vm_variant_t result = {0};
   if (iree_status_is_ok(status)) {
     status = iree_vm_invoke(out_policy->invocation, name_function,

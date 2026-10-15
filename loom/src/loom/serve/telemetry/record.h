@@ -50,6 +50,7 @@ typedef struct loom_serve_telemetry_event_t {
 extern const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_STREAM_BEGIN;
 extern const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_SNAPSHOT;
 extern const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_REQUEST_BEGIN;
+extern const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_FIRST_OUTPUT;
 extern const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_REQUEST_END;
 extern const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_BATCH_SUBMIT;
 extern const loom_serve_telemetry_event_t LOOM_SERVE_TELEMETRY_BATCH_END;
@@ -61,6 +62,10 @@ typedef enum loom_serve_telemetry_outcome_e {
   LOOM_SERVE_TELEMETRY_CANCELLED,
   LOOM_SERVE_TELEMETRY_FAILED,
 } loom_serve_telemetry_outcome_t;
+
+// Stable wire label for a trusted terminal outcome.
+const char* loom_serve_telemetry_outcome_name(
+    loom_serve_telemetry_outcome_t outcome);
 
 // Counts one owner's terminal request outcome independently of event retention.
 void loom_serve_telemetry_count_outcome(
@@ -113,6 +118,11 @@ struct loom_serve_telemetry_record_t {
       // Final status detail, bounded and independently owned.
       loom_serve_telemetry_diagnostic_t diagnostic;
     } end;
+    // First meaningful model output copied into the HTTP carrier.
+    struct {
+      // Model protocol receipt to carrier acceptance, not peer receipt.
+      uint64_t duration_ns;
+    } first_output;
     // Device invocation boundary, independent of the number of clients.
     struct {
       // Monotonic invocation ID within this stream.

@@ -201,6 +201,10 @@ class ChatTest(unittest.TestCase):
                 "wrong model",
             ),
             (stream({"error": {"message": "device failed"}}), "device failed"),
+            (
+                stream({"model": "reviewer", "choices": [{"index": 1}]}),
+                "single choice",
+            ),
             (stream(event(reason="tool_calls", usage=usage)), "Tool deltas"),
             (
                 stream(

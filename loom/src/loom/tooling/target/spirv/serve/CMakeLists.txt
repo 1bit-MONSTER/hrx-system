@@ -190,6 +190,7 @@ iree_py_test(
     loom::serve::server::catalog_test_util
     loom::serve::testing::http
     loom::serve::testing::logs
+    loom::serve::testing::workload
   LABELS
     "iree-run-requirement=vulkan.resource.device"
     "resource_group:gpu-device"

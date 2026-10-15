@@ -172,16 +172,19 @@ static void loomc_source_release_file_contents(void* user_data,
 loomc_status_t loomc_source_create(const loomc_source_options_t* options,
                                    loomc_allocator_t allocator,
                                    loomc_source_t** out_source) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (out_source == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "out_source must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "out_source must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_source = NULL;
-  LOOMC_RETURN_IF_ERROR(loomc_source_validate_options(options));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(z0, loomc_source_validate_options(options));
 
   loomc_source_t* source = NULL;
-  LOOMC_RETURN_IF_ERROR(
-      loomc_allocator_malloc(allocator, sizeof(*source), (void**)&source));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_allocator_malloc(allocator, sizeof(*source), (void**)&source));
   iree_atomic_ref_count_init(&source->ref_count);
   source->allocator = allocator;
   source->format = options->format;
@@ -217,6 +220,7 @@ loomc_status_t loomc_source_create(const loomc_source_options_t* options,
   } else {
     loomc_source_destroy(source);
   }
+  IREE_TRACE_ZONE_END(z0);
   return status;
 }
 
@@ -281,24 +285,31 @@ loomc_status_t loomc_source_read_file_to_storage(
 loomc_status_t loomc_source_create_from_file(
     FILE* file, const loomc_source_load_options_t* options,
     loomc_allocator_t allocator, loomc_source_t** out_source) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (out_source == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "out_source must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "out_source must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_source = NULL;
   if (file == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "file must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "file must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
 
   loomc_source_resolved_load_options_t resolved_options = {0};
-  LOOMC_RETURN_IF_ERROR(loomc_source_resolve_load_options(
-      options, loomc_string_view_empty(), &resolved_options));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_source_resolve_load_options(options, loomc_string_view_empty(),
+                                            &resolved_options));
 
   uint8_t* contents = NULL;
   loomc_host_size_t contents_length = 0;
-  LOOMC_RETURN_IF_ERROR(loomc_source_read_file_to_storage(
-      file, allocator, &contents, &contents_length));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_source_read_file_to_storage(file, allocator, &contents,
+                                            &contents_length));
 
   loomc_status_t status = loomc_source_create_take_contents(
       resolved_options.format, resolved_options.identifier,
@@ -307,38 +318,49 @@ loomc_status_t loomc_source_create_from_file(
     contents = NULL;
   }
   loomc_allocator_free(allocator, contents);
+  IREE_TRACE_ZONE_END(z0);
   return status;
 }
 
 loomc_status_t loomc_source_create_from_path(
     loomc_string_view_t path, const loomc_source_load_options_t* options,
     loomc_allocator_t allocator, loomc_source_t** out_source) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (out_source == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "out_source must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "out_source must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_source = NULL;
   if (path.data == NULL && path.size != 0) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "path has length but no data");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "path has length but no data");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   if (loomc_string_view_is_empty(path)) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "path must not be empty");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "path must not be empty");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
 
   loomc_source_resolved_load_options_t resolved_options = {0};
-  LOOMC_RETURN_IF_ERROR(
-      loomc_source_resolve_load_options(options, path, &resolved_options));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_source_resolve_load_options(options, path, &resolved_options));
 
   if (!loomc_allocator_is_valid(allocator)) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "allocator.ctl must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "allocator.ctl must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   iree_io_file_contents_t* file_contents = NULL;
-  LOOMC_RETURN_IF_ERROR(loomc_status_from_iree(iree_io_file_contents_read(
-      iree_string_view_from_loomc(path), iree_allocator_from_loomc(allocator),
-      &file_contents)));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_status_from_iree(iree_io_file_contents_read(
+              iree_string_view_from_loomc(path),
+              iree_allocator_from_loomc(allocator), &file_contents)));
 
   loomc_source_t* source = NULL;
   loomc_byte_span_t contents =
@@ -362,6 +384,7 @@ loomc_status_t loomc_source_create_from_path(
   }
   loomc_source_release(source);
   iree_io_file_contents_free(file_contents);
+  IREE_TRACE_ZONE_END(z0);
   return status;
 }
 

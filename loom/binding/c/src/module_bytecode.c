@@ -363,16 +363,22 @@ loomc_status_t loomc_module_deserialize_bytecode_from_source(
     const loomc_module_deserialize_options_t* options,
     loomc_allocator_t allocator, loomc_module_t** out_module,
     loomc_result_t** out_result) {
-  return loomc_module_deserialize_explicit_source(
+  IREE_TRACE_ZONE_BEGIN(z0);
+  loomc_status_t return_status = loomc_module_deserialize_explicit_source(
       context, workspace, source, options, LOOMC_SOURCE_FORMAT_BYTECODE,
       loomc_module_decode_bytecode_source, allocator, out_module, out_result);
+  IREE_TRACE_ZONE_END(z0);
+  return return_status;
 }
 
 loomc_status_t loomc_module_serialize_bytecode_to_source(
     const loomc_module_t* module,
     const loomc_module_serialize_options_t* options,
     loomc_allocator_t allocator, loomc_source_t** out_source) {
-  return loomc_module_serialize_explicit_source(
+  IREE_TRACE_ZONE_BEGIN(z0);
+  loomc_status_t return_status = loomc_module_serialize_explicit_source(
       module, options, LOOMC_SOURCE_FORMAT_BYTECODE,
       loomc_module_encode_bytecode_source, allocator, out_source);
+  IREE_TRACE_ZONE_END(z0);
+  return return_status;
 }

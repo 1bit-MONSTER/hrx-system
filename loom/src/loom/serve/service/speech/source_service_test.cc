@@ -25,6 +25,7 @@
 #include "loom/serve/server/router.h"
 #include "loom/serve/service/speech/model.h"
 #include "loom/serve/service/speech/service.h"
+#include "loom/serve/telemetry/latency.h"
 #include "loom/serve/testing/http_harness.h"
 #include "loom/serve/testing/model.h"
 #include "loom/serve/testing/package.h"
@@ -35,6 +36,15 @@ IREE_FLAG(int32_t, test_workers, 1, "Workers in the speech test application.");
 IREE_FLAG(bool, test_elastic, false, "Use elastic backing for source speech.");
 
 namespace {
+
+uint64_t ObservationCount(
+    const loom_serve_telemetry_latency_histogram_t& histogram) {
+  uint64_t count = 0;
+  for (uint64_t bucket : histogram.buckets) {
+    count += bucket;
+  }
+  return count;
+}
 
 // The target leaf injects the compiler/driver pair. Each test process retains
 // one application; separate worker profiles preserve concurrent qualification.
@@ -586,6 +596,15 @@ TEST_P(SourceSpeechServiceTest, DynamicRegistrationStandardEndpointAndRemoval) {
       break;
     }
   }
+  const auto retired = Read(Send("GET", "/metrics"));
+  EXPECT_NE(retired.find("loom_serve_server_request_duration_seconds_count{"
+                         "outcome=\"completed\"} 2\n"),
+            std::string::npos);
+  EXPECT_NE(retired.find("loom_serve_server_request_duration_seconds_count{"
+                         "outcome=\"rejected\"} 1\n"),
+            std::string::npos);
+  EXPECT_NE(retired.find("loom_serve_server_first_output_seconds_count{} 2\n"),
+            std::string::npos);
   EXPECT_EQ(Read(Send("POST", "/v1/models/register", declaration))
                 .find("HTTP/1.1 202"),
             0u);
@@ -627,6 +646,13 @@ TEST_P(SourceSpeechServiceTest,
   int client = Send("POST", "/v1/audio/speech", Request());
   loom_serve_http_connection_t* connection = nullptr;
   ASSERT_NO_FATAL_FAILURE(Accept(client, &connection));
+  ASSERT_NE(interface.telemetry.latency, nullptr);
+  ASSERT_NO_FATAL_FAILURE(AdvanceUntil([&] {
+    return interface.telemetry.counters->batches == 1 &&
+           std::string(interface.snapshot(interface.self).phase) == "ready";
+  }));
+  // The first source block is empty and publishes neither headers nor audio.
+  EXPECT_EQ(ObservationCount(interface.telemetry.latency->first_output), 0u);
   ASSERT_NO_FATAL_FAILURE(AdvanceUntil([&] {
     return interface.telemetry.counters->batches == 2 &&
            std::string(interface.snapshot(interface.self).phase) == "ready";
@@ -648,6 +674,10 @@ TEST_P(SourceSpeechServiceTest,
   }
   CheckAudio(prefix, 3);
   EXPECT_EQ(interface.telemetry.counters->completed, 0u);
+  EXPECT_EQ(ObservationCount(interface.telemetry.latency->first_output), 1u);
+  EXPECT_EQ(ObservationCount(interface.telemetry.latency
+                                 ->outcomes[LOOM_SERVE_TELEMETRY_COMPLETED]),
+            0u);
   const linger reset = {1, 0};
   ASSERT_EQ(setsockopt(client, SOL_SOCKET, SO_LINGER, &reset, sizeof(reset)),
             0);
@@ -663,11 +693,19 @@ TEST_P(SourceSpeechServiceTest,
       [&] { return interface.telemetry.counters->cancelled == 1; }));
   EXPECT_EQ(interface.telemetry.counters->batches, 2u);
   EXPECT_FALSE(interface.is_pending(interface.self));
+  EXPECT_EQ(ObservationCount(interface.telemetry.latency
+                                 ->outcomes[LOOM_SERVE_TELEMETRY_CANCELLED]),
+            1u);
+  EXPECT_EQ(ObservationCount(interface.telemetry.latency->first_output), 1u);
   client = Send("POST", "/v1/audio/speech", Request());
   ASSERT_NO_FATAL_FAILURE(Accept(client, &connection));
   ASSERT_NO_FATAL_FAILURE(AdvanceUntil(
       [&] { return interface.telemetry.counters->completed == 1; }));
   CheckAudio(Read(client), 17);
+  EXPECT_EQ(ObservationCount(interface.telemetry.latency
+                                 ->outcomes[LOOM_SERVE_TELEMETRY_COMPLETED]),
+            1u);
+  EXPECT_EQ(ObservationCount(interface.telemetry.latency->first_output), 2u);
 }
 
 TEST_P(SourceSpeechServiceTest,
@@ -888,11 +926,12 @@ class SpeechReadinessTest : public ::testing::Test {
                loom_serve_speech_block_t* out) {
               auto* test = static_cast<SpeechReadinessTest*>(self);
               auto& invocation = *test->batch_[ordinal];
+              const size_t frames = test->empty_output_ ? 0 : test->frames_;
               *out = {
-                  .position = invocation.block * test->frames_,
-                  .frame_count = test->frames_,
-                  .samples = iree_make_const_byte_span(
-                      invocation.output.data(), invocation.output.size()),
+                  .position = invocation.block * frames,
+                  .frame_count = frames,
+                  .samples = iree_make_const_byte_span(invocation.output.data(),
+                                                       frames * sizeof(float)),
                   .complete = invocation.block + 1 == invocation.blocks,
               };
               ++invocation.block;
@@ -1191,6 +1230,8 @@ class SpeechReadinessTest : public ::testing::Test {
   bool failed_ = false;
   // Frames in every deterministic feedback block.
   size_t frames_ = 0;
+  // Source completion produces no waveform despite its retired device work.
+  bool empty_output_ = false;
   // Terminal block count for each request.
   uint64_t blocks_ = 0;
   // Per-request block index that imports gate_ before accepting transfers.
@@ -1261,6 +1302,12 @@ TEST_F(SpeechReadinessTest, ShutdownJoinsAcceptedWorkWithoutFurtherSynthesis) {
   IREE_ASSERT_OK(http_.Join());
   EXPECT_EQ(submitted_.load(), 2u);
   EXPECT_EQ(released_.load(), 1u);
+  ASSERT_NE(actual_.telemetry.latency, nullptr);
+  EXPECT_EQ(ObservationCount(actual_.telemetry.latency->first_output), 1u);
+  EXPECT_EQ(
+      ObservationCount(
+          actual_.telemetry.latency->outcomes[LOOM_SERVE_TELEMETRY_CANCELLED]),
+      1u);
 }
 
 TEST_F(SpeechReadinessTest, FailedReadinessKeepsRequestForModelRetirement) {
@@ -1274,6 +1321,30 @@ TEST_F(SpeechReadinessTest, FailedReadinessKeepsRequestForModelRetirement) {
   EXPECT_EQ(submitted_.load(), 2u);
   EXPECT_EQ(released_.load(), 0u);
   EXPECT_NE(invocations_[0], nullptr);
+  ASSERT_NE(actual_.telemetry.latency, nullptr);
+  EXPECT_EQ(ObservationCount(actual_.telemetry.latency->first_output), 1u);
+  EXPECT_EQ(
+      ObservationCount(
+          actual_.telemetry.latency->outcomes[LOOM_SERVE_TELEMETRY_FAILED]),
+      1u);
+}
+
+TEST_F(SpeechReadinessTest, EmptyFinalResponseHasNoFirstAudioMilestone) {
+  empty_output_ = true;
+  ASSERT_NO_FATAL_FAILURE(Initialize(3, 1, UINT64_MAX));
+  loom_serve::testing::HttpClient client;
+  IREE_ASSERT_OK(Send(&client));
+  std::string response;
+  IREE_ASSERT_OK(http_.Read(client.release(), false, &response));
+  CheckPcm(response, 0);
+  loom_serve_http_server_request_stop(server_);
+  IREE_ASSERT_OK(http_.Join());
+  ASSERT_NE(actual_.telemetry.latency, nullptr);
+  EXPECT_EQ(ObservationCount(actual_.telemetry.latency->first_output), 0u);
+  EXPECT_EQ(
+      ObservationCount(
+          actual_.telemetry.latency->outcomes[LOOM_SERVE_TELEMETRY_COMPLETED]),
+      1u);
 }
 
 TEST_F(SpeechReadinessTest, SlowReaderResumesFromBoundedSendCredit) {

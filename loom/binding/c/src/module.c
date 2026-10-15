@@ -107,6 +107,7 @@ static loomc_status_t loomc_module_capture_source(
 }
 
 static void loomc_module_destroy(loomc_module_t* module) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   loomc_allocator_t allocator = module->allocator;
   loom_source_storage_deinitialize(&module->sources);
   iree_arena_deinitialize(&module->compilation.arena);
@@ -114,6 +115,7 @@ static void loomc_module_destroy(loomc_module_t* module) {
   loomc_workspace_release(module->workspace);
   loomc_context_release(module->context);
   loomc_allocator_free(allocator, module);
+  IREE_TRACE_ZONE_END(z0);
 }
 
 static loomc_string_view_t loomc_module_default_identifier(
@@ -482,16 +484,20 @@ loomc_status_t loomc_module_create_empty(loomc_context_t* context,
                                          loomc_workspace_t* workspace,
                                          loomc_allocator_t allocator,
                                          loomc_module_t** out_module) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (context == NULL || workspace == NULL || out_module == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "context, workspace, and out_module must not be "
-                             "NULL");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                          "context, workspace, and out_module must not be "
+                          "NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_module = NULL;
 
   loomc_module_t* module = NULL;
-  LOOMC_RETURN_IF_ERROR(
-      loomc_allocator_malloc(allocator, sizeof(*module), (void**)&module));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_allocator_malloc(allocator, sizeof(*module), (void**)&module));
   memset(module, 0, sizeof(*module));
   iree_atomic_ref_count_init(&module->ref_count);
   module->allocator = allocator;
@@ -507,6 +513,7 @@ loomc_status_t loomc_module_create_empty(loomc_context_t* context,
       &module->compilation.arena, &module->compilation.function_versions);
 
   *out_module = module;
+  IREE_TRACE_ZONE_END(z0);
   return loomc_ok_status();
 }
 
@@ -621,14 +628,18 @@ void loomc_module_clear_sources(loomc_module_t* module,
 
 loomc_status_t loomc_module_verify_structural(loomc_module_t* module,
                                               loomc_result_t* result) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (module->verification.structural) {
+    IREE_TRACE_ZONE_END(z0);
     return loomc_ok_status();
   }
-  LOOMC_RETURN_IF_ERROR(loomc_result_verify_loom_module(
-      module->module, loomc_module_source_resolver(module), result));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_result_verify_loom_module(
+              module->module, loomc_module_source_resolver(module), result));
   if (loomc_result_succeeded(result)) {
     module->verification.structural = true;
   }
+  IREE_TRACE_ZONE_END(z0);
   return loomc_ok_status();
 }
 
@@ -636,14 +647,18 @@ loomc_status_t loomc_module_verify(
     loomc_module_t* module,
     const loomc_target_environment_t* target_environment,
     loomc_result_t* result) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   const bool context_environment =
       target_environment == loomc_context_target_environment(module->context);
   if (module->verification.context_target && context_environment) {
+    IREE_TRACE_ZONE_END(z0);
     return loomc_ok_status();
   }
 
-  LOOMC_RETURN_IF_ERROR(loomc_module_verify_structural(module, result));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_module_verify_structural(module, result));
   if (!loomc_result_succeeded(result)) {
+    IREE_TRACE_ZONE_END(z0);
     return loomc_ok_status();
   }
 
@@ -672,14 +687,19 @@ loomc_status_t loomc_module_verify(
   loom_low_verify_scratch_t scratch =
       loom_low_verify_scratch_for_module(module->module);
   loom_low_verify_result_t verify_result = {0};
-  LOOMC_RETURN_IF_ERROR(loomc_status_from_iree(loom_low_verify_module(
-      module->module, &options, &scratch, &verify_result)));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_status_from_iree(loom_low_verify_module(
+              module->module, &options, &scratch, &verify_result)));
   if (verify_result.error_count != 0) {
-    return loomc_result_set_state(result, LOOMC_RESULT_STATE_FAILED);
+    loomc_status_t return_status =
+        loomc_result_set_state(result, LOOMC_RESULT_STATE_FAILED);
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   if (context_environment) {
     module->verification.context_target = true;
   }
+  IREE_TRACE_ZONE_END(z0);
   return loomc_ok_status();
 }
 
@@ -763,18 +783,24 @@ loomc_status_t loomc_module_clone(const loomc_module_t* source_module,
                                   loomc_workspace_t* workspace,
                                   loomc_allocator_t allocator,
                                   loomc_module_t** out_module) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (out_module == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "out_module must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "out_module must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_module = NULL;
   if (workspace == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "workspace must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "workspace must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
 
   const loom_module_t* source_internal_module = NULL;
-  LOOMC_RETURN_IF_ERROR(
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0,
       loomc_module_require_internal(source_module, &source_internal_module));
 
   loomc_module_t* module = NULL;
@@ -814,5 +840,6 @@ loomc_status_t loomc_module_clone(const loomc_module_t* source_module,
 
   loom_module_free(cloned_internal_module);
   loomc_module_release(module);
+  IREE_TRACE_ZONE_END(z0);
   return status;
 }

@@ -10,6 +10,7 @@
 #include "iree/vm/invocation.h"
 #include "iree/vm/process.h"
 #include "iree/vm/program.h"
+#include "iree/vm/reflection.h"
 #include "loom/serve/runtime/program/compilation.h"
 #include "loom/serve/runtime/program/sources.h"
 #include "loomc/target.h"
@@ -22,6 +23,21 @@ extern "C" {
 // requests. Native modules own any asynchronous resources submitted by the
 // program.
 typedef struct loom_serve_program_t loom_serve_program_t;
+
+// One synchronous host call into a source-defined model program. Scalar fields
+// have exact VM widths; reference fields carry canonical environment
+// identities. Function-valued arguments and results are not part of the serving
+// host ABI.
+typedef struct loom_serve_program_binding_t {
+  // Exact export name in the model module.
+  iree_string_view_t name;
+  // Source-ordered argument types supplied by the host caller.
+  iree_vm_signature_type_span_t arguments;
+  // Source-ordered result types consumed by the host caller.
+  iree_vm_signature_type_span_t results;
+  // Borrowed destination for the process-bound function on successful binding.
+  iree_vm_function_t* function;
+} loom_serve_program_binding_t;
 
 // Compiles source into an owned module named "model" without linking native
 // libraries or creating a process. The environment supplies reference types;
@@ -65,6 +81,16 @@ iree_status_t loom_serve_program_allocate(
 // Releases VM ownership only. The caller joins native asynchronous work before
 // destroying the program or any host payloads that work borrows.
 void loom_serve_program_free(loom_serve_program_t* program);
+
+// Validates and binds host entry points without invoking source code. Missing
+// exports, incompatible signatures, and yielding functions fail with the export
+// name and expected contract. Earlier destinations may be set if a later
+// binding fails; none may be used until the complete call succeeds. Bound
+// functions borrow program. This cold operation runs before publishing a
+// service.
+iree_status_t loom_serve_program_bind(
+    loom_serve_program_t* program, iree_host_size_t binding_count,
+    const loom_serve_program_binding_t* bindings);
 
 // Borrowed process and invocation for ordinary VM lookup/invoke APIs. Calls
 // using this invocation are serialized by its owner; sessions are plain data.

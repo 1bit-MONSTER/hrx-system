@@ -80,12 +80,42 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    receive_cache
+  HDRS
+    "receive_cache.h"
+  SRCS
+    "receive_cache.c"
+  DEPS
+    iree::async
+    iree::async::util::proactor_pool
+    iree::base
+    iree::base::threading
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    receive_cache_test
+  SRCS
+    "receive_cache_test.cc"
+  DEPS
+    ::receive_cache
+    iree::async
+    iree::async::util::proactor_pool
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+)
+
+loom_cc_library(
+  NAME
     listener
   HDRS
     "listener.h"
   SRCS
     "listener.c"
   DEPS
+    ::receive_cache
     ::server
     iree::async
     iree::async::util::proactor_pool

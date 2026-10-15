@@ -21,8 +21,13 @@ struct loom_serve_registry_t {
   iree_host_size_t count;
   // Next identity assigned to a managed registration, independent of its name.
   uint64_t next_incarnation;
-  // Work from removed incarnations, accumulated exactly once before slot reuse.
-  loom_serve_telemetry_counters_t retired;
+  // Final observations accumulated exactly once before registration slot reuse.
+  struct {
+    // Completed work from removed incarnations.
+    loom_serve_telemetry_counters_t counters;
+    // Terminal duration distributions from removed incarnations.
+    loom_serve_telemetry_latency_t latency;
+  } retired;
 };
 
 static void loom_serve_registry_add_counters(
@@ -132,6 +137,14 @@ loom_serve_registered_model_t* loom_serve_registry_at(
   return &registry->models[index];
 }
 
+loom_serve_http_service_snapshot_t loom_serve_registry_snapshot(
+    const loom_serve_registered_model_t* model) {
+  return model->phase == LOOM_SERVE_REGISTRATION_READY
+             ? model->service.snapshot(model->service.self)
+             : (loom_serve_http_service_snapshot_t){
+                   .phase = loom_serve_registry_phase(model)};
+}
+
 iree_status_t loom_serve_registry_register(
     loom_serve_registry_t* registry,
     loom_serve_model_configuration_t* configuration,
@@ -193,6 +206,7 @@ iree_status_t loom_serve_registry_register(
       break;
   }
   model->service.telemetry.counters = &model->counters;
+  model->service.telemetry.latency = &model->latency;
   model->service.telemetry.stream = model->stream;
   const loom_serve_telemetry_record_t begin = {
       .time_ns = iree_time_now(),
@@ -318,12 +332,15 @@ loom_serve_http_service_flags_t loom_serve_registry_service_flags(
 static void loom_serve_registry_release_service(
     loom_serve_registered_model_t* model) {
   model->counters = *model->service.telemetry.counters;
+  model->latency = *model->service.telemetry.latency;
   model->service = (loom_serve_http_service_t){
       .name = model->service.name,
       .kind = model->service.kind,
       .endpoint = model->service.endpoint,
       .capacity_domain = model->service.capacity_domain,
-      .telemetry = {.stream = model->stream, .counters = &model->counters}};
+      .telemetry = {.stream = model->stream,
+                    .counters = &model->counters,
+                    .latency = &model->latency}};
 }
 
 static void loom_serve_registry_record_error(
@@ -485,7 +502,10 @@ iree_status_t loom_serve_registry_advance(loom_serve_registry_t* registry,
   }
   if (model->removal && !model->registration.self && !model->held_count &&
       !model->tokenizer_count) {
-    loom_serve_registry_add_counters(&registry->retired, &model->counters);
+    loom_serve_registry_add_counters(&registry->retired.counters,
+                                     &model->counters);
+    loom_serve_telemetry_latency_merge(&registry->retired.latency,
+                                       &model->latency);
     iree_status_free(model->status);
     loom_serve_telemetry_stream_free(model->stream);
     loom_serve_model_configuration_deinitialize(&model->configuration);
@@ -516,7 +536,7 @@ const char* loom_serve_registry_phase(
 bool loom_serve_registry_counters(
     const loom_serve_registry_t* registry,
     loom_serve_telemetry_counters_t* out_counters) {
-  *out_counters = registry->retired;
+  *out_counters = registry->retired.counters;
   for (iree_host_size_t i = 0; i < registry->capacity; ++i) {
     const loom_serve_http_service_t* service = &registry->models[i].service;
     if (!service->name.size) {
@@ -526,6 +546,22 @@ bool loom_serve_registry_counters(
       return false;
     }
     loom_serve_registry_add_counters(out_counters, service->telemetry.counters);
+  }
+  return true;
+}
+
+bool loom_serve_registry_latency(const loom_serve_registry_t* registry,
+                                 loom_serve_telemetry_latency_t* out_latency) {
+  *out_latency = registry->retired.latency;
+  for (iree_host_size_t i = 0; i < registry->capacity; ++i) {
+    const loom_serve_http_service_t* service = &registry->models[i].service;
+    if (!service->name.size) {
+      continue;
+    }
+    if (!service->telemetry.latency) {
+      return false;
+    }
+    loom_serve_telemetry_latency_merge(out_latency, service->telemetry.latency);
   }
   return true;
 }

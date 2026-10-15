@@ -206,6 +206,46 @@ iree_py_test(
 
 iree_py_library(
   NAME
+    workload
+  SRCS
+    "loom_serve_testing/workload.py"
+  IMPORTS
+    "."
+  DEPS
+    loom::serve::testing::chat
+)
+
+iree_py_library(
+  NAME
+    replay
+  MAIN
+    "loom_serve_testing/replay.py"
+  SRCS
+    "loom_serve_testing/replay.py"
+  DEPS
+    loom::serve::testing::workload
+)
+
+iree_py_test(
+  NAME
+    workload_test
+  MAIN
+    "loom_serve_testing/workload_test.py"
+  SRCS
+    "loom_serve_testing/replay.py"
+    "loom_serve_testing/workload_test.py"
+  DEPS
+    loom::serve::testing::workload
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
+  TIMEOUT
+    60
+)
+
+iree_py_library(
+  NAME
     logs
   SRCS
     "loom_serve_testing/logs.py"

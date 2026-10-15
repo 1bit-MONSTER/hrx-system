@@ -102,6 +102,14 @@ typedef struct loom_serve_text_session_t {
     iree_host_size_t reserved_tokens;
     // First selected token time, including a possible immediate EOS.
     iree_time_t first_token_time;
+    // CPU-produced packet metadata consumed only after its borrow returns.
+    struct {
+      // The staged packet contains content, reasoning, or tool calls. Cleared
+      // when the carrier copies the packet or translation discards it.
+      bool pending;
+      // The owner already recorded this request's first accepted output.
+      bool recorded;
+    } publication;
     // Owner-only completed work, independent of client output translation.
     loom_serve_telemetry_counters_t counters;
     // CPU output failure copied before consuming its status; owner publishes

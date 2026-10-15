@@ -133,15 +133,14 @@ set(IREE_DEP_TRACY_CLIENT_VERSION "")
 set(IREE_DEP_TRACY_CLIENT_DEV_DEPENDENCY "FALSE")
 set(IREE_DEP_TRACY_CLIENT_SOURCE_URL "")
 set(IREE_DEP_TRACY_CLIENT_URLS
-  "https://github.com/wolfpld/tracy/archive/5479a42ef9346b64e6d1b860ae58aa8abdb0c7f6.tar.gz"
+  "https://github.com/wolfpld/tracy/archive/refs/tags/v0.14.1.tar.gz"
 )
-set(IREE_DEP_TRACY_CLIENT_SHA256 "0b8a3929ffd53217b4183064ed0585f6179e7c5f9ae5b832d4153c3ba8ce37d3")
-set(IREE_DEP_TRACY_CLIENT_STRIP_PREFIX "tracy-5479a42ef9346b64e6d1b860ae58aa8abdb0c7f6")
+set(IREE_DEP_TRACY_CLIENT_SHA256 "bf4af567e9c7524d07f3caa745fad02fb33bd5694f11910750382d1efbb251c1")
+set(IREE_DEP_TRACY_CLIENT_STRIP_PREFIX "tracy-0.14.1")
 set(IREE_DEP_TRACY_CLIENT_BUILD_FILE "//build_tools/third_party/tracy_client:tracy_client.BUILD.bazel")
 set(IREE_DEP_TRACY_CLIENT_PATCHES
   "//build_tools/third_party/tracy_client:worker_signal_mask.patch"
   "//build_tools/third_party/tracy_client:instruction_symbols.patch"
-  "//build_tools/third_party/tracy_client:windows_exception_handler.patch"
 )
 set(IREE_DEP_TRACY_CLIENT_PATCH_ARGS
   "-p1"
