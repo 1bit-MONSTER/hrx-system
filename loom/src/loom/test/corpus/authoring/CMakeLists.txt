@@ -23,7 +23,7 @@ loom_module(
     "indexed_row_gather_f32.row_capacity=5"
     "indexed_row_gather_f32.source_row_capacity=2"
     "memset_i8.element_capacity=1009"
-    "mlp_down_projection_residual_bf16.row_capacity=3584"
+    "mlp_down_projection_residual_bf16.row_capacity=2"
   MODE
     "merge"
   OUTPUT
@@ -33,11 +33,23 @@ loom_module(
   REQUIRE_RESOLVED_CONFIG
 )
 
+loom_module(
+  NAME
+    mlp_down_projection_residual_bf16_library
+  SRCS
+    "mlp_down_projection_residual_bf16.loom"
+  MODE merge
+  OUTPUT_FORMAT bc
+  STRICT_DEPS
+)
+
 loom_test_module(
   NAME
     authoring_benchmark_workload_module
   SRCS
     "${_GLOB_X_BENCHMARK_LOOM}"
+  LIBRARIES
+    "::mlp_down_projection_residual_bf16_library"
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

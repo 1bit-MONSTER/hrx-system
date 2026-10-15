@@ -923,6 +923,7 @@ loom_execution_test(
     "loom::test::corpus::authoring::authoring_benchmark_workload_module"
   RUNNER_ARGS
     "--device=amdgpu"
+    "--config=mlp_down_projection_residual_bf16.row_capacity=3584"
   LABELS
     "manual"
     "iree-build-requirement=loom.target.arch.amdgpu"
