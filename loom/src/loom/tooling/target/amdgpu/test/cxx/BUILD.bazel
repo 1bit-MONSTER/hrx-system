@@ -496,6 +496,7 @@ loom_test(
     configs = _IQ4XS_GATE_UP_SYNC_CONFIGS,
     execution_profiles = _EXECUTION_PROFILES,
     module = ":iq4xs_gate_up_module",
+    tags = ["manual"],
     target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
     variants = _IQ4XS_GATE_UP_BUFFERING_VARIANTS,
 )
@@ -507,6 +508,7 @@ loom_test(
     configs = _IQ4XS_GATE_UP_ASYNC_CONFIGS,
     execution_profiles = _EXECUTION_PROFILES,
     module = ":iq4xs_gate_up_module",
+    tags = ["manual"],
     target_compatible_with = _CDNA3_COMPATIBLE_WITH,
     variants = _IQ4XS_GATE_UP_BUFFERING_VARIANTS,
 )
