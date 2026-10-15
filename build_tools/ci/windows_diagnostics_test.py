@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import contextlib
+import datetime as dt
 import hashlib
 import io
 import json
@@ -108,7 +109,9 @@ class WindowsDiagnosticsTest(unittest.TestCase):
                 mock.patch.object(subprocess, "run", side_effect=native_tool),
                 mock.patch.object(diagnostics, "MAX_CAPTURE_BYTES", capture_budget),
             ):
-                diagnostics.capture_failure(artifacts, root, {}, build)
+                diagnostics.capture_failure(
+                    artifacts, root, {}, build, started_at=dt.datetime.now(dt.UTC)
+                )
             manifest = json.loads((artifacts / "manifest.json").read_text())
             records = {
                 Path(record["path"]).name: record for record in manifest["files"]
@@ -158,6 +161,7 @@ class WindowsDiagnosticsTest(unittest.TestCase):
                 root,
                 {"Include": str(sdk), "A_SECRET": "not captured", "PATH": ""},
                 None,
+                started_at=dt.datetime.now(dt.UTC),
             )
             manifest_text = (artifacts / "manifest.json").read_text()
             manifest = json.loads(manifest_text)
@@ -179,6 +183,54 @@ class WindowsDiagnosticsTest(unittest.TestCase):
             )
             self.assertNotIn("A_SECRET", manifest_text)
             self.assertNotIn("not captured", manifest_text)
+
+    def test_policy_capture_failure_preserves_command_and_other_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            denied = "Failed to open log. Access is denied.\r\n".encode("utf-16")
+            policies = b'{"Policies": [{"PolicyID": "blocked-policy"}]}\r\n'
+
+            def native_tool(argv, **kwargs):
+                if argv[0] == "wevtutil.exe":
+                    kwargs["stdout"].write(denied)
+                    return subprocess.CompletedProcess(argv, 5)
+                kwargs["stdout"].write(policies)
+                return subprocess.CompletedProcess(argv, 0)
+
+            # Only native diagnostic tools are substituted. The failed child,
+            # log capture, command timestamps, and artifact writing are real.
+            with (
+                mock.patch.object(subprocess, "run", side_effect=native_tool),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                result = diagnostics.run(
+                    [
+                        sys.executable,
+                        "-c",
+                        "import sys; print('CreateProcessW failed (error: 4551)'); "
+                        "sys.exit(3)",
+                    ],
+                    cwd=root,
+                    env=None,
+                    artifact_dir=root / "artifacts",
+                    label="Test",
+                )
+            self.assertEqual(result, 3)
+            phase = next((root / "artifacts").iterdir())
+            command = json.loads((phase / "command.json").read_text())
+            manifest = json.loads((phase / "manifest.json").read_text())
+            events, policy_list = manifest["tools"]
+            self.assertEqual(events["returncode"], 5)
+            self.assertEqual((phase / events["output"]).read_bytes(), denied)
+            self.assertEqual(policy_list["returncode"], 0)
+            self.assertEqual((phase / policy_list["output"]).read_bytes(), policies)
+            started_at = dt.datetime.fromisoformat(command["started_at"])
+            timestamp = started_at.isoformat(timespec="milliseconds").replace(
+                "+00:00", "Z"
+            )
+            self.assertIn(
+                f"TimeCreated[@SystemTime >= '{timestamp}']", events["argv"][3]
+            )
 
     def test_unreadable_files_and_limits_are_explicit(self):
         with tempfile.TemporaryDirectory() as directory:

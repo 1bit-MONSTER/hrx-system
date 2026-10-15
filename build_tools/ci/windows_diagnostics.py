@@ -8,8 +8,9 @@
 
 The caller owns the build command and its exit status. Collection is read-only:
 Ninja's input query enumerates the failed link's objects and archives without
-running actions, and symbol tools inspect copies of those inputs. Missing files,
-access errors, and capture limits are evidence and appear in the manifest.
+running actions, and symbol tools inspect copies of those inputs. Application
+Control launch failures capture native block events and policy identities.
+Missing files, access errors, and capture limits appear in the manifest.
 """
 
 from __future__ import annotations
@@ -266,8 +267,52 @@ def symbol_tool(environment: Mapping[str, str], cache: Mapping[str, str]) -> str
     )
 
 
+def capture_application_control(
+    capture: Capture, cwd: Path, output: str, started_at: dt.datetime
+) -> None:
+    if not re.search(
+        r"(?:error:\s*|\[WinError\s+)4551\b|"
+        r"An Application Control policy has blocked this file",
+        output,
+        re.IGNORECASE,
+    ):
+        return
+    timestamp = (
+        started_at.astimezone(dt.UTC)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
+    # Retain the latest 256 block/signature/reputation events from this command.
+    # Raw XML preserves policy IDs and ActivityIDs for signature correlation.
+    query = (
+        "*[System[(EventID=3033 or EventID=3077 or EventID=3089 or EventID=3092)"
+        f" and TimeCreated[@SystemTime >= '{timestamp}']]]"
+    )
+    capture.tool(
+        [
+            "wevtutil.exe",
+            "qe",
+            "Microsoft-Windows-CodeIntegrity/Operational",
+            "/q:" + query,
+            "/rd:true",
+            "/c:256",
+            "/f:xml",
+            "/e:Events",
+            "/uni:true",
+        ],
+        cwd,
+        "code-integrity-events",
+    )
+    capture.tool(["CiTool.exe", "-lp", "-json"], cwd, "application-control-policies")
+
+
 def capture_failure(
-    directory: Path, cwd: Path, environment: Mapping[str, str], build_dir: Path | None
+    directory: Path,
+    cwd: Path,
+    environment: Mapping[str, str],
+    build_dir: Path | None,
+    *,
+    started_at: dt.datetime,
 ) -> None:
     capture = Capture(directory, environment)
     metadata = {
@@ -280,6 +325,7 @@ def capture_failure(
     output = (directory / "output.log").read_text(encoding="utf-8", errors="replace")
     output = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", output)
     try:
+        capture_application_control(capture, cwd, output, started_at)
         capture_access_failures(capture, cwd, output)
         cache = capture_cmake(capture, build_dir, output) if build_dir else {}
         tool = symbol_tool(environment, cache)
@@ -324,10 +370,11 @@ def run(
     artifact_dir.mkdir(parents=True, exist_ok=True)
     prefix = re.sub(r"[^A-Za-z0-9]+", "-", label).strip("-") or "phase"
     directory = Path(tempfile.mkdtemp(prefix=prefix + "-", dir=artifact_dir)).resolve()
+    started_at = dt.datetime.now(dt.UTC)
     command = {
         "argv": list(argv),
         "cwd": str(cwd),
-        "started_at": dt.datetime.now(dt.UTC).isoformat(),
+        "started_at": started_at.isoformat(),
     }
     log_error = None
     output = (directory / "output.log").open("wb", buffering=0)
@@ -375,7 +422,9 @@ def run(
         )
         if returncode:
             print(f"[diagnostics] Capturing failed inputs in {directory}", flush=True)
-            capture_failure(directory, cwd, environment, build_dir)
+            capture_failure(
+                directory, cwd, environment, build_dir, started_at=started_at
+            )
     except Exception:
         # Diagnostic IO can fail on the same worker as the build. Report it
         # without replacing a failure's exit code or accidentally passing it.
