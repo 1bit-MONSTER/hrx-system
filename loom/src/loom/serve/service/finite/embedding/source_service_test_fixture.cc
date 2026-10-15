@@ -421,7 +421,7 @@ std::string SourceEmbeddingServiceTest::WaitModel(const std::string& name,
   return {};
 }
 
-void SourceEmbeddingServiceTest::CheckInvalidFeedbackRetirement(
+void SourceEmbeddingServiceTest::CheckInvalidSubmissionRetirement(
     const std::string& package) {
   StartManagedRouter();
   ASSERT_EQ(Read(Send(Declaration("broken", package, "drained"),
@@ -442,7 +442,7 @@ void SourceEmbeddingServiceTest::CheckInvalidFeedbackRetirement(
                 .find("HTTP/1.1 200"),
             0u);
 
-  // Only successfully admitted work can reach the malformed feedback and
+  // Only successfully admitted work can reach the invalid second stage and
   // terminate the router. Assertion exits instead stop it in TearDown.
   IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE, http_.Join());
   EXPECT_TRUE(Read(broken.release(), /*allow_empty=*/true).empty());

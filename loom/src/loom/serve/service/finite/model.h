@@ -13,6 +13,7 @@
 #include "loom/serve/runtime/program/compilation.h"
 #include "loom/serve/runtime/program/sources.h"
 #include "loom/serve/service/execution_reconfiguration.h"
+#include "loom/serve/service/finite/result.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -87,13 +88,13 @@ iree_status_t loom_serve_finite_load_free(loom_serve_finite_load_t* load);
 
 // Source ABI (all metadata integers and F32 results are little-endian):
 // prepare.loom: prepare(asset_root, options: buffer) ->
-//   (batch_units, upload_capacity, output_capacity, feedback_capacity: i64,
+//   (batch_units, upload_capacity, output_capacity, result_capacity: i64,
 //    tokenizer_asset, name, state: buffer).
 // control.loom:
 //   prepare_request(state, input: buffer) -> (bytes: buffer, units, tag: i64)
 //   prepare_batch(state, stage_tags, ranges, bytes: buffer) ->
 //     (stage: i32, payload, result_plan: buffer)
-//   run(stage: i32, feedback_bytes: i64, input, output: hal.buffer)
+//   run(stage: i32, input, output: hal.buffer)
 // Cold prepare imports declare command or direct-dispatch stages and their
 // configuration. Command stages can also declare checkpoint parameter domains.
 // Tokenizer asset is relative to asset_root; empty omits tokenization support.
@@ -105,9 +106,9 @@ iree_status_t loom_serve_finite_load_free(loom_serve_finite_load_t* load);
 // stages use their compiled launch configuration without a command buffer or
 // runner workspace.
 // Command stages share the same fixed placement for checkpoint parameters.
-// Direct stages have no checkpoint parameters. Source run uses the same runner
-// execute_2/feedback imports for both kinds; only compact final vectors cross
-// to the host.
+// Direct stages have no checkpoint parameters. Source run uses runner.execute_2
+// for both kinds and publishes device results. Native consumers choose whether
+// to compose device work or explicitly download a host snapshot.
 // The cold outer-application constructor drives the same asynchronous load and
 // joins it outside the shared worker pool. Creation indexes weights without
 // loading them. The shared device outlives this model. Failure releases partial
@@ -122,7 +123,7 @@ iree_status_t loom_serve_finite_model_allocate(
 // Begins irreversible removal after service CPU tasks, waits and external
 // tokenizer borrowers retire. No further invocation/admission is allowed.
 // Attaches nonblocking ownership wakes before releasing cached VM/command/root
-// consumers. Payloads, feedback and residency protection remain until actual
+// consumers. Payloads and residency protection remain until actual
 // queue ownership retires, independently of success/failure readiness. The wake
 // only schedules the serialized owner; it must not reenter or destroy
 // resources.
@@ -173,10 +174,11 @@ iree_status_t loom_serve_finite_model_prepare_request(
 // Builds one retained cohort from prepared requests in stable client order.
 // expected_rows is protocol-derived, one count per request. The source result
 // plan is checked once at this boundary: header [device_output_bytes,
-// feedback_bytes, request_count, row_count], request records
+// result_bytes, request_count, row_count], request records
 // [first_row, row_count, input_tokens], then rows [byte_offset, f32_count].
-// Device extent may exceed compact feedback; it is never inferred from rows.
-// A prior cohort must have been released. Failure leaves no prepared cohort.
+// Device extent may exceed the live result prefix; it is never inferred from
+// rows. A prior cohort must have been released. Failure leaves no prepared
+// cohort.
 iree_status_t loom_serve_finite_model_prepare_batch(
     loom_serve_finite_model_t* model, iree_host_size_t count,
     const loom_serve_finite_prepared_t* requests,
@@ -184,30 +186,20 @@ iree_status_t loom_serve_finite_model_prepare_batch(
 
 // Scheduler-only submission after residency_try_acquire succeeds. Acquires
 // input/output roots from the shared queue pool, uploads and invokes source,
-// then releases input after work and output after feedback via a semaphore
-// edge. Returns accepted work/feedback frontiers without a host wait. Failure
-// is terminal; payload and parameter protection remain until destruction.
+// then releases input after work. Success transfers a device result that can
+// be composed before host completion by importing its ready frontier. Results
+// retain neither model parameters nor command programs. Failure is terminal;
+// payload and parameter protection remain until actual producer retirement.
 iree_status_t loom_serve_finite_model_submit(
-    loom_serve_finite_model_t* model,
+    loom_serve_finite_model_t* model, loom_serve_finite_result_t** out_result,
     loom_serve_execution_frontier_t* out_frontier);
 
-// Scheduler consumes successful ALL readiness, releasing the residency pin.
-// Borrowed result rows remain live until release_batch. If a CPU encoder has
-// accepted those views, release_batch follows its process release callback, not
-// merely its completion callback. When no consumers remain, the owner may
-// release the batch immediately.
+// Scheduler consumes successful producer readiness, releasing the residency pin
+// and uploaded payload. Independent results may remain live across subsequent
+// cohorts, parameter eviction, reconfiguration, and model destruction.
 void loom_serve_finite_model_complete(loom_serve_finite_model_t* model);
 
-// Trusted queries into the checked plan. Request ordinals name the original
-// prepared cohort, not a filtered set of surviving clients. Row ordinals are
-// local to each original HTTP request.
-uint64_t loom_serve_finite_model_input_tokens(
-    const loom_serve_finite_model_t* model, iree_host_size_t request);
-iree_const_byte_span_t loom_serve_finite_model_row(
-    const loom_serve_finite_model_t* model, iree_host_size_t request,
-    iree_host_size_t row);
-
-// Releases an unsubmitted or successfully completed cohort. Never used after
+// Releases an unsubmitted cohort. Never used after
 // partial submission failure, where outer teardown must join real ownership.
 void loom_serve_finite_model_release_batch(loom_serve_finite_model_t* model);
 

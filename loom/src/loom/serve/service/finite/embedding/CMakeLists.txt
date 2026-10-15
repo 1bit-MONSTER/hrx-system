@@ -95,9 +95,11 @@ loom_cc_library(
   SRCS
     "source_execution_test.cc"
   DEPS
+    ::protocol
     ::source_service_fixture
     iree::testing::gtest
     iree::testing::temp_file
+    loom::serve::service::finite::result
     loom::serve::testing::model
     loom::serve::testing::package
     loom::serve::testing::stalled_stderr

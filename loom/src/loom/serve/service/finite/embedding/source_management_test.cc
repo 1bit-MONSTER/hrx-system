@@ -239,9 +239,8 @@ TEST_F(SourceEmbeddingServiceTest,
 }
 
 TEST_F(SourceEmbeddingServiceTest,
-       InvalidFeedbackAfterExecutionRetiresManagedRequests) {
-  const std::string package =
-      iree::testing::MakeTempFilePath("invalid_feedback");
+       InvalidStageAfterExecutionRetiresManagedRequests) {
+  const std::string package = iree::testing::MakeTempFilePath("invalid_stage");
   ASSERT_TRUE(std::filesystem::create_directory(package));
   for (const char* file : {"config.loom", "control.loom", "embed.loom",
                            "prepare.loom", "model.json", "tokenizer.json"}) {
@@ -254,16 +253,16 @@ TEST_F(SourceEmbeddingServiceTest,
     ASSERT_TRUE(input.good());
     std::string source((std::istreambuf_iterator<char>(input)), {});
     const std::string original =
-        "  %done = func.call @feedback(%slot, %output, %offset, "
-        "%feedback_bytes)";
+        "  %work = func.call @execute_2(%stage, %input, %output) : "
+        "(i32, hal.buffer, hal.buffer) -> (i64)";
     const size_t position = source.find(original);
     ASSERT_NE(position, std::string::npos);
-    // The command has already been accepted when the source exceeds its
-    // declared 1024-byte host destination. No invalid transfer is submitted.
-    source.replace(position, original.size(),
-                   "  %oversized = scalar.constant 4096 : i64\n"
-                   "  %done = func.call @feedback(%slot, %output, %offset, "
-                   "%oversized)");
+    // One valid command has been accepted before the source selects an
+    // undeclared second stage. Retirement must join that accepted command.
+    source.insert(position + original.size(),
+                  "\n  %invalid = scalar.constant 4096 : i32\n"
+                  "  %rejected = func.call @execute_2(%invalid, %input, "
+                  "%output) : (i32, hal.buffer, hal.buffer) -> (i64)");
     input.close();
     std::filesystem::permissions(path, std::filesystem::perms::owner_write,
                                  std::filesystem::perm_options::add);
@@ -271,7 +270,7 @@ TEST_F(SourceEmbeddingServiceTest,
     output << source;
     ASSERT_TRUE(output.good());
   }
-  CheckInvalidFeedbackRetirement(package);
+  CheckInvalidSubmissionRetirement(package);
 }
 
 TEST_F(SourceEmbeddingServiceTest,
@@ -283,7 +282,7 @@ TEST_F(SourceEmbeddingServiceTest,
         ::testing::ScopedFakeTestPartResultReporter::
             INTERCEPT_ONLY_CURRENT_THREAD,
         &failures);
-    CheckInvalidFeedbackRetirement(directory_);
+    CheckInvalidSubmissionRetirement(directory_);
   }
   ASSERT_EQ(failures.size(), 2);
   EXPECT_TRUE(failures.GetTestPartResult(0).fatally_failed());

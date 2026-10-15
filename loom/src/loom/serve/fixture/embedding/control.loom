@@ -4,8 +4,6 @@ func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
 
 func.decl import("runner") @execute_2(%stage: i32, %input: hal.buffer, %output: hal.buffer) -> (i64)
 
-func.decl import("runner") @feedback(%slot: i32, %source: hal.buffer, %offset: i64, %length: i64) -> (i64)
-
 global.rodata.def @invalid = bytes("6669787475726520726571756972657320312d333120746f6b656e732070657220726f772c2064696d656e73696f6e732032206f7220342c20616e64206120726571756573742077697468696e2062617463685f756e697473")
 
 func.def @check(%condition: i1) {
@@ -175,10 +173,10 @@ func.def public @prepare_batch(%state: buffer, %tags: buffer, %ranges: buffer, %
   %plan = buffer.alloca<private> align(8) %plan_bytes : buffer
   %plan_header = buffer.view %plan[%origin] : buffer -> view<4xi64>
   %output_bytes64 = scalar.muli %units64, %c16_i64 : i64
-  %feedback_bytes64 = scalar.muli %scalars64, %c4_i64 : i64
+  %result_bytes64 = scalar.muli %scalars64, %c4_i64 : i64
   %request_count64 = index.cast %request_count : index to i64
   view.store %output_bytes64, %plan_header[0] : i64, view<4xi64>
-  view.store %feedback_bytes64, %plan_header[1] : i64, view<4xi64>
+  view.store %result_bytes64, %plan_header[1] : i64, view<4xi64>
   view.store %request_count64, %plan_header[2] : i64, view<4xi64>
   view.store %rows64, %plan_header[3] : i64, view<4xi64>
   %requests = buffer.view %plan[%c32_bytes] : buffer -> view<[%request_count]x3xi64>
@@ -238,10 +236,7 @@ func.def public @prepare_batch(%state: buffer, %tags: buffer, %ranges: buffer, %
   func.return %c0_i32, %payload, %plan : i32, buffer, buffer
 }
 
-func.def public @run(%stage: i32, %feedback_bytes: i64, %input: hal.buffer, %output: hal.buffer) {
+func.def public @run(%stage: i32, %input: hal.buffer, %output: hal.buffer) {
   %work = func.call @execute_2(%stage, %input, %output) : (i32, hal.buffer, hal.buffer) -> (i64)
-  %slot = scalar.constant 0 : i32
-  %offset = scalar.constant 0 : i64
-  %done = func.call @feedback(%slot, %output, %offset, %feedback_bytes) : (i32, hal.buffer, i64, i64) -> (i64)
   func.return
 }

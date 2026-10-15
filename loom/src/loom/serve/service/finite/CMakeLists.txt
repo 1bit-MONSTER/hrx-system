@@ -30,6 +30,7 @@ loom_cc_library(
   DEPS
     ::model
     ::protocol
+    ::result
     iree::async
     iree::async::util::proactor_pool
     iree::base
@@ -53,6 +54,21 @@ loom_cc_library(
   PUBLIC
 )
 
+loom_cc_library(
+  NAME
+    result
+  HDRS
+    "result.h"
+  SRCS
+    "result.c"
+  DEPS
+    iree::base
+    iree::hal
+    iree::vm
+    loom::serve::runtime::execution
+  PUBLIC
+)
+
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
@@ -62,6 +78,7 @@ loom_cc_library(
   SRCS
     "model.c"
   DEPS
+    ::result
     iree::base
     iree::base::threading
     iree::hal
@@ -91,6 +108,25 @@ loom_cc_library(
     loom::serve::service::execution_reconfiguration
     loom::util::stream
   PUBLIC
+)
+endif()
+
+if(IREE_HAL_DRIVER_TASK)
+loom_cc_test(
+  NAME
+    result_test
+  SRCS
+    "result_test.cc"
+  DEPS
+    ::result
+    iree::base
+    iree::hal
+    iree::testing::gtest
+    iree::testing::gtest_main
+    iree::vm
+    loom::serve::runtime::device
+    loom::serve::runtime::execution
+    loom::serve::runtime::host
 )
 endif()
 

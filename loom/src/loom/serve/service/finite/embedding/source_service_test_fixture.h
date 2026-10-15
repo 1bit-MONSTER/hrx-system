@@ -121,7 +121,7 @@ class SourceEmbeddingServiceTest : public ::testing::Test {
 
   std::string WaitModel(const std::string& name, const std::string& marker);
 
-  void CheckInvalidFeedbackRetirement(const std::string& package);
+  void CheckInvalidSubmissionRetirement(const std::string& package);
 
   uint64_t CompletedRequests();
 

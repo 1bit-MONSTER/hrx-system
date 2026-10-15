@@ -33,7 +33,7 @@ typedef struct finite_model_stage_t {
 } finite_model_stage_t;
 
 struct loom_serve_finite_model_t {
-  // Allocator owning this model and its host feedback storage.
+  // Allocator owning this model and its invocation metadata.
   iree_allocator_t host_allocator;
   // Copied startup evidence, independent of every compiler result lifetime.
   loom_serve_compilation_report_t compilation;
@@ -43,8 +43,10 @@ struct loom_serve_finite_model_t {
   uint64_t batch_limit;
   // Maximum uploaded bytes, including source-defined padding.
   iree_host_size_t input_capacity;
-  // Maximum device output geometry, independent of compact feedback.
+  // Maximum device output geometry, independent of the live result prefix.
   iree_host_size_t output_capacity;
+  // Maximum live result bytes within the physical device output.
+  iree_host_size_t result_capacity;
   // Immutable tokenizer reused by each independent request encoder.
   iree_tokenizer_t* tokenizer;
   // Borrowed shared device/backing owner, outliving the model.
@@ -53,22 +55,14 @@ struct loom_serve_finite_model_t {
   loom_serve_execution_t* execution;
   // Shared-device admission group protecting every checkpoint domain together.
   loom_serve_residency_t* residency;
-  // Cohort storage remains live through device retirement and CPU encoding.
+  // Cohort input remains live through actual producer retirement.
   struct {
     // Prepared upload, retained even after partial enqueue failure.
     iree_vm_buffer_t* payload;
-    // Owned source metadata describing compact result rows.
-    iree_vm_buffer_t* plan;
-    // Borrowed checked plan records, whose owner is plan.
-    iree_const_byte_span_t records;
+    // Owned checked result metadata until successful submission transfers it.
+    loom_serve_finite_result_t* result;
     // Source-selected retained command ordinal.
     uint32_t stage;
-    // Physical output allocation extent required by the selected command.
-    iree_host_size_t output_length;
-    // Live compact feedback bytes written by source.run.
-    iree_host_size_t feedback_length;
-    // Original HTTP request count in stable cohort order.
-    iree_host_size_t request_count;
   } invocation;
   // Cold live-source compiler borrowing the shared host task pool.
   loom_serve_jit_t* jit;
@@ -105,7 +99,7 @@ struct loom_serve_finite_model_t {
     iree_vm_function_t prepare_request;
     // Cold-resolved cohort construction function.
     iree_vm_function_t prepare_batch;
-    // Cold-resolved command submission and compact feedback function.
+    // Cold-resolved device command submission function.
     iree_vm_function_t run;
   } control;
   // Shared immutable parameter domains in command reflection order.
@@ -119,11 +113,9 @@ struct loom_serve_finite_model_t {
   } weights;
   // Queue-allocated cohort input/output roots, released before execution drain.
   iree_hal_buffer_t* buffers[2];
-  // Compact vector feedback, exclusive through the encoder process release.
-  iree_byte_span_t output;
 };
 
-// Releases model-owned consumers, not borrowed upload/feedback payloads or the
+// Releases model-owned consumers, not borrowed upload payloads or the
 // storage protection those consumers still require. Partial loads use this same
 // sequence, with no submitted queue work to retire.
 static void loom_serve_finite_model_release_consumers(
@@ -201,16 +193,21 @@ static iree_status_t loom_serve_finite_model_destroy_resources(
     iree_allocator_free(model->host_allocator, model->stages.values);
     iree_allocator_free(model->host_allocator, model->stages.bindings);
     loom_serve_preparation_free(model->preparation);
-    iree_vm_buffer_release(model->invocation.plan);
+    loom_serve_finite_result_release(model->invocation.result);
     iree_vm_buffer_release(model->invocation.payload);
     iree_vm_environment_free(model->control.environment);
+    if (model->execution) {
+      // Results can retain the timeline after this model and its wake payload
+      // are gone. No producer views remain, so detach the completed observer.
+      loom_serve_execution_set_retirement_observer(model->execution, NULL,
+                                                   NULL);
+    }
     loom_serve_execution_release(model->execution);
     iree_allocator_free(model->host_allocator, model->weights.values);
     iree_allocator_free(model->host_allocator, model->weights.plans);
     iree_allocator_free(model->host_allocator, (void*)model->name.data);
     loom_serve_jit_free(model->jit);
     iree_tokenizer_free(model->tokenizer);
-    iree_allocator_free(model->host_allocator, model->output.data);
     iree_allocator_free(model->host_allocator, model);
   }
   return status;
@@ -336,7 +333,7 @@ static iree_status_t loom_serve_finite_prepare(
     model->batch_limit = (uint64_t)capacities[0];
     model->input_capacity = (iree_host_size_t)capacities[1];
     model->output_capacity = (iree_host_size_t)capacities[2];
-    model->output.data_length = (iree_host_size_t)capacities[3];
+    model->result_capacity = (iree_host_size_t)capacities[3];
   }
   if (iree_status_is_ok(status)) {
     status = iree_vm_buffer_ptr_from_variant_move(
@@ -442,7 +439,6 @@ static iree_status_t loom_serve_finite_create_control(
   const loom_serve_module_options_t options = {
       .binding_capacity = 2,
       .stages = {model->stages.count, stages},
-      .feedback = {1, &model->output},
   };
   iree_vm_module_t* native_modules[3] = {0};
   iree_vm_buffer_t* read_only_tags = NULL;
@@ -496,7 +492,7 @@ static iree_status_t loom_serve_finite_create_control(
   const iree_vm_signature_type_t batch_arguments[] = {buffer, buffer, buffer,
                                                       buffer};
   const iree_vm_signature_type_t batch_results[] = {i32, buffer, buffer};
-  const iree_vm_signature_type_t run_arguments[] = {i32, i64, device_buffer,
+  const iree_vm_signature_type_t run_arguments[] = {i32, device_buffer,
                                                     device_buffer};
   const loom_serve_program_binding_t bindings[] = {
       {IREE_SVL("prepare_request"),
@@ -774,8 +770,6 @@ static iree_status_t loom_serve_finite_load_prepare(
   loom_serve_finite_model_t* model = load->model;
   const iree_allocator_t host_allocator = model->host_allocator;
   IREE_RETURN_IF_ERROR(loom_serve_finite_prepare(model, &load->options));
-  IREE_RETURN_IF_ERROR(iree_allocator_malloc(
-      host_allocator, model->output.data_length, (void**)&model->output.data));
   const iree_vm_ref_type_table_t* table = NULL;
   IREE_RETURN_IF_ERROR(
       iree_hal_module_register_types(model->control.environment, &table));
@@ -1068,67 +1062,9 @@ iree_status_t loom_serve_finite_model_prepare_request(
   return status;
 }
 
-// This is the external source-plan boundary. Native queries below directly
-// consume the checked offsets; they neither rescan nor revalidate the plan.
-static iree_status_t loom_serve_finite_check_plan(
-    loom_serve_finite_model_t* model, iree_host_size_t request_count,
-    const iree_host_size_t* expected_rows) {
-  iree_const_byte_span_t bytes;
-  IREE_RETURN_IF_ERROR(iree_vm_buffer_map_read(
-      model->invocation.plan, 0, iree_vm_buffer_length(model->invocation.plan),
-      &bytes));
-  if (bytes.data_length < 32) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "source result plan requires a complete header");
-  }
-  const uint64_t output_length = iree_unaligned_load_le_u64(bytes.data);
-  const uint64_t feedback_length = iree_unaligned_load_le_u64(bytes.data + 8);
-  const uint64_t count = iree_unaligned_load_le_u64(bytes.data + 16);
-  const uint64_t rows = iree_unaligned_load_le_u64(bytes.data + 24);
-  if (!output_length || output_length > model->output_capacity ||
-      !feedback_length || feedback_length > model->output.data_length ||
-      feedback_length > output_length || count != request_count ||
-      count > (bytes.data_length - 32) / 24 ||
-      rows != (bytes.data_length - 32 - count * 24) / 16 ||
-      bytes.data_length != 32 + count * 24 + rows * 16) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "source result plan has invalid extents");
-  }
-  uint64_t first_row = 0;
-  for (iree_host_size_t i = 0; i < request_count; ++i) {
-    const uint8_t* record = bytes.data + 32 + i * 24;
-    const uint64_t row_count = iree_unaligned_load_le_u64(record + 8);
-    if (iree_unaligned_load_le_u64(record) != first_row ||
-        row_count != expected_rows[i] || row_count > rows - first_row) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "source result rows differ from request %zu", i);
-    }
-    first_row += row_count;
-  }
-  if (first_row != rows) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "source result plan contains unclaimed rows");
-  }
-  for (uint64_t i = 0; i < rows; ++i) {
-    const uint8_t* record = bytes.data + 32 + count * 24 + i * 16;
-    const uint64_t offset = iree_unaligned_load_le_u64(record);
-    const uint64_t width = iree_unaligned_load_le_u64(record + 8);
-    if (offset % 4 || offset > feedback_length || !width ||
-        width > (feedback_length - offset) / 4) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "source vector lies outside compact feedback");
-    }
-  }
-  model->invocation.records = bytes;
-  model->invocation.output_length = (iree_host_size_t)output_length;
-  model->invocation.feedback_length = (iree_host_size_t)feedback_length;
-  model->invocation.request_count = request_count;
-  return iree_ok_status();
-}
-
 void loom_serve_finite_model_release_batch(loom_serve_finite_model_t* model) {
   iree_vm_buffer_release(model->invocation.payload);
-  iree_vm_buffer_release(model->invocation.plan);
+  loom_serve_finite_result_release(model->invocation.result);
   memset(&model->invocation, 0, sizeof(model->invocation));
 }
 
@@ -1179,6 +1115,7 @@ iree_status_t loom_serve_finite_model_prepare_batch(
       iree_vm_buffer_variant_from_ptr_move(&model->control.vm_types, &ranges),
       iree_vm_buffer_variant_from_ptr_move(&model->control.vm_types, &packed)};
   iree_vm_variant_t results[3] = {0};
+  iree_vm_buffer_t* plan = NULL;
   if (iree_status_is_ok(status)) {
     status =
         iree_vm_invoke(loom_serve_program_invocation(model->control.program),
@@ -1200,11 +1137,11 @@ iree_status_t loom_serve_finite_model_prepare_batch(
         &model->control.vm_types, &results[1], &model->invocation.payload);
   }
   if (iree_status_is_ok(status)) {
-    status = iree_vm_buffer_ptr_from_variant_move(
-        &model->control.vm_types, &results[2], &model->invocation.plan);
+    status = iree_vm_buffer_ptr_from_variant_borrowed(&model->control.vm_types,
+                                                      results[2], &plan);
   }
   if (iree_status_is_ok(status) &&
-      (!model->invocation.payload || !model->invocation.plan ||
+      (!model->invocation.payload || !plan ||
        !iree_vm_buffer_length(model->invocation.payload) ||
        iree_vm_buffer_length(model->invocation.payload) >
            model->input_capacity)) {
@@ -1213,7 +1150,9 @@ iree_status_t loom_serve_finite_model_prepare_batch(
   }
   if (iree_status_is_ok(status)) {
     model->invocation.stage = (uint32_t)stage;
-    status = loom_serve_finite_check_plan(model, count, expected_rows);
+    status = loom_serve_finite_result_create(
+        plan, model->output_capacity, model->result_capacity, count,
+        expected_rows, model->host_allocator, &model->invocation.result);
   }
   iree_vm_variant_span_reset(iree_vm_variant_span_from_array(arguments));
   iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
@@ -1224,8 +1163,9 @@ iree_status_t loom_serve_finite_model_prepare_batch(
 }
 
 iree_status_t loom_serve_finite_model_submit(
-    loom_serve_finite_model_t* model,
+    loom_serve_finite_model_t* model, loom_serve_finite_result_t** out_result,
     loom_serve_execution_frontier_t* out_frontier) {
+  *out_result = NULL;
   *out_frontier = (loom_serve_execution_frontier_t){0};
   iree_const_byte_span_t input;
   IREE_RETURN_IF_ERROR(iree_vm_buffer_map_read(
@@ -1235,7 +1175,8 @@ iree_status_t loom_serve_finite_model_submit(
   iree_status_t status = iree_ok_status();
   for (iree_host_size_t i = 0; i < 2 && iree_status_is_ok(status); ++i) {
     const iree_host_size_t length =
-        i ? model->invocation.output_length : input.data_length;
+        i ? loom_serve_finite_result_output_length(model->invocation.result)
+          : input.data_length;
     const iree_hal_pool_reservation_request_t request = {
         .allocation_size = length,
         .min_alignment = LOOM_SERVE_FINITE_BUFFER_ALIGNMENT,
@@ -1255,7 +1196,6 @@ iree_status_t loom_serve_finite_model_submit(
   if (iree_status_is_ok(status)) {
     iree_vm_variant_t arguments[] = {
         iree_vm_variant_from_i32((int32_t)model->invocation.stage),
-        iree_vm_variant_from_i64((int64_t)model->invocation.feedback_length),
         iree_hal_buffer_variant_from_ptr_borrowed(&model->control.hal_types,
                                                   model->buffers[0]),
         iree_hal_buffer_variant_from_ptr_borrowed(&model->control.hal_types,
@@ -1271,49 +1211,23 @@ iree_status_t loom_serve_finite_model_submit(
         loom_serve_execution_dealloca(execution, model->buffers[0], &value);
   }
   if (iree_status_is_ok(status)) {
-    // The final device reader is on the feedback branch, not the work branch.
-    // Neither shared queue affinity nor submission order implies this edge.
-    loom_serve_execution_frontier_t frontier =
-        loom_serve_execution_frontier(execution);
-    status = loom_serve_execution_barrier(
-        execution, (iree_hal_semaphore_list_t){1, &frontier.semaphores[1],
-                                               &frontier.values[1]});
+    loom_serve_finite_result_bind(model->invocation.result, execution,
+                                  model->buffers[1]);
+    *out_result = model->invocation.result;
+    model->invocation.result = NULL;
+    *out_frontier = loom_serve_finite_result_ready(*out_result);
   }
-  if (iree_status_is_ok(status)) {
-    status =
-        loom_serve_execution_dealloca(execution, model->buffers[1], &value);
-  }
-  // Execution tracks final queue ownership on both success and failure. Caller
-  // roots must be released before outer drain can join that ownership.
+  // Producer captures retain tracked views through actual queue retirement.
+  // The result owns the raw output root independently, so its later consumers
+  // cannot keep source parameters or command programs alive.
   for (iree_host_size_t i = 0; i < 2; ++i) {
     iree_hal_buffer_release(model->buffers[i]);
     model->buffers[i] = NULL;
-  }
-  if (iree_status_is_ok(status)) {
-    *out_frontier = loom_serve_execution_frontier(execution);
   }
   return status;
 }
 
 void loom_serve_finite_model_complete(loom_serve_finite_model_t* model) {
   loom_serve_residency_release(model->residency);
-}
-
-uint64_t loom_serve_finite_model_input_tokens(
-    const loom_serve_finite_model_t* model, iree_host_size_t request) {
-  return iree_unaligned_load_le_u64(model->invocation.records.data + 32 +
-                                    request * 24 + 16);
-}
-
-iree_const_byte_span_t loom_serve_finite_model_row(
-    const loom_serve_finite_model_t* model, iree_host_size_t request,
-    iree_host_size_t row) {
-  const uint8_t* records = model->invocation.records.data;
-  const uint64_t first =
-      iree_unaligned_load_le_u64(records + 32 + request * 24);
-  const uint8_t* vector =
-      records + 32 + model->invocation.request_count * 24 + (first + row) * 16;
-  return iree_make_const_byte_span(
-      model->output.data + iree_unaligned_load_le_u64(vector),
-      iree_unaligned_load_le_u64(vector + 8) * 4);
+  loom_serve_finite_model_release_batch(model);
 }
