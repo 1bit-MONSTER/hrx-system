@@ -2,6 +2,16 @@ target.decl @device
 
 config.decl @test.count : index
 
+template.decl @subgroup_body(%size: index)
+
+template.def<@subgroup_body> requires [#target.subgroup.size<32>] @subgroup32(%size: index) where [eq(%size, 32)] {
+  template.return
+}
+
+template.def<@subgroup_body> requires [#target.subgroup.size<64>] @subgroup64(%size: index) where [eq(%size, 64)] {
+  template.return
+}
+
 kernel.def target(@device) @tiles() {
   %c1 = index.constant 1 : index
   %size = target.subgroup.size : index
@@ -11,6 +21,8 @@ kernel.def target(@device) @tiles() {
   %groups = index.div %rounded, %size : index
   kernel.launch.config workgroups(%groups, %c1, %c1) workgroup_size(%size, %c1, %c1) : index
 } launch() {
+  %subgroup = target.subgroup.size : index
+  template.apply<@subgroup_body>(%subgroup) : (index)
   kernel.return
 }
 
@@ -25,6 +37,8 @@ kernel.def @wide_tiles() {
   %groups = index.div %rounded, %size : index
   kernel.launch.config workgroups(%groups, %c1, %c1) workgroup_size(%size, %c1, %c1) : index
 } launch() {
+  %subgroup = target.subgroup.size : index
+  template.apply<@subgroup_body>(%subgroup) : (index)
   kernel.return
 }
 

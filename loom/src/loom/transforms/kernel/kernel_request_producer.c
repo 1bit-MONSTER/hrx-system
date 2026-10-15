@@ -180,6 +180,11 @@ static iree_status_t loom_kernel_request_source_prepare(
         scratch_arena, &decision_models);
   }
 
+  loom_template_applicability_target_t kernel_target = {0};
+  if (iree_status_is_ok(status)) {
+    status = loom_kernel_request_resolve_target(
+        materialization.product.module, kernel, &symbol_facts, &kernel_target);
+  }
   loom_value_fact_table_t kernel_facts = {0};
   if (iree_status_is_ok(status)) {
     status = loom_value_fact_table_initialize(
@@ -188,6 +193,8 @@ static iree_status_t loom_kernel_request_source_prepare(
   }
   if (iree_status_is_ok(status)) {
     loom_type_registry_configure_fact_context(&kernel_facts.context);
+    // Query operands and direct target requirements share the bound target.
+    kernel_facts.context.target_facts = kernel_target.facts;
     status = loom_value_fact_table_compute(
         &kernel_facts, materialization.product.module, kernel);
   }
@@ -197,12 +204,6 @@ static iree_status_t loom_kernel_request_source_prepare(
                                           /*value_domain=*/NULL, &kernel_facts,
                                           scratch_arena, &expression_context);
   }
-  loom_template_applicability_target_t kernel_target = {0};
-  if (iree_status_is_ok(status)) {
-    status = loom_kernel_request_resolve_target(
-        materialization.product.module, kernel, &symbol_facts, &kernel_target);
-  }
-
   if (iree_status_is_ok(status)) {
     status = loom_kernel_class_classifier_build(
         materialization.product.module, kernel_ref.symbol_id, &references,
