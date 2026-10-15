@@ -19,6 +19,7 @@
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/link/module_index.h"
+#include "loom/ops/buffer/ops.h"
 #include "loom/ops/index/ops.h"
 #include "loom/ops/kernel/ops.h"
 #include "loom/ops/low/ops.h"
@@ -271,11 +272,19 @@ test.target<device> @device
 kernel.def target(@device) @consume(%count_storage: buffer) {
   %base = index.constant 0 : offset
   %index = index.constant 0 : index
-  %raw_counts = buffer.view %count_storage[%base] : buffer -> view<2xi32>
+  %global = buffer.assume.memory_space<global> %count_storage : buffer
+  %aligned = buffer.assume.alignment %global {minimum_alignment = 4} : buffer
+  %unique = buffer.assume.noalias %aligned : buffer
+  %same = buffer.assume.same_root %unique, %count_storage : buffer
+  %raw_words = buffer.view %same[%base] : buffer -> view<2xi32>
+  %raw_bytes = view.bitcast %raw_words : view<2xi32> -> view<8xi8>
+  %reinterpreted = view.bitcast %raw_bytes : view<8xi8> -> view<2xi32>
+  %refined = view.refine %reinterpreted : view<2xi32> -> view<2xi32>
+  %raw_counts = view.subview %refined[0] : view<2xi32> -> view<2xi32>
   %extent_i32 = view.load %raw_counts[%index] : view<2xi32> -> i32
   %extent_i64 = scalar.extui %extent_i32 : i32 to i64
   %extent = index.cast %extent_i64 : i64 to index
-  %counts = buffer.view %count_storage[%base] : buffer -> view<[%extent]xi32>
+  %counts = buffer.view %same[%base] : buffer -> view<[%extent]xi32>
   %count_i32 = view.load %counts[%index] : view<[%extent]xi32> -> i32
   %count_i64 = scalar.extui %count_i32 : i32 to i64
   %count = index.cast %count_i64 : i64 to index
@@ -393,16 +402,12 @@ command.program.def public @root() launch(%count_storage: buffer, %output: buffe
   uint16_t generated_argument_count = 0;
   const loom_value_id_t* generated_arguments =
       loom_func_like_arg_ids(generated_function, &generated_argument_count);
-  ASSERT_EQ(generated_argument_count, 3u);
+  ASSERT_EQ(generated_argument_count, 2u);
   EXPECT_TRUE(loom_type_equal(
       loom_module_value_type(generated_module, generated_arguments[0]),
       loom_type_buffer()));
   EXPECT_TRUE(loom_type_equal(
       loom_module_value_type(generated_module, generated_arguments[1]),
-      loom_type_shaped_1d(LOOM_TYPE_VIEW, LOOM_SCALAR_TYPE_I32,
-                          loom_dim_pack_static(2), /*encoding_id=*/0)));
-  EXPECT_TRUE(loom_type_equal(
-      loom_module_value_type(generated_module, generated_arguments[2]),
       loom_type_shaped_1d(LOOM_TYPE_VIEW, LOOM_SCALAR_TYPE_I32,
                           loom_dim_pack_static(3), /*encoding_id=*/0)));
 
@@ -424,6 +429,14 @@ command.program.def public @root() launch(%count_storage: buffer, %output: buffe
 
   iree_host_size_t load_count = 0;
   iree_host_size_t store_count = 0;
+  bool has_alignment = false;
+  bool has_memory_space = false;
+  bool has_noalias = false;
+  bool has_same_root = false;
+  bool has_buffer_view = false;
+  bool has_subview = false;
+  bool has_refine = false;
+  bool has_bitcast = false;
   loom_block_t* body_block =
       loom_region_entry_block(loom_kernel_def_body(generated_kernel));
   loom_op_t* body_op = nullptr;
@@ -432,11 +445,27 @@ command.program.def public @root() launch(%count_storage: buffer, %output: buffe
       ++load_count;
     } else if (loom_view_store_isa(body_op)) {
       ++store_count;
-      EXPECT_EQ(loom_view_store_view(body_op), generated_arguments[2]);
+      EXPECT_EQ(loom_view_store_view(body_op), generated_arguments[1]);
     }
+    has_alignment |= loom_buffer_assume_alignment_isa(body_op);
+    has_memory_space |= loom_buffer_assume_memory_space_isa(body_op);
+    has_noalias |= loom_buffer_assume_noalias_isa(body_op);
+    has_same_root |= loom_buffer_assume_same_root_isa(body_op);
+    has_buffer_view |= loom_buffer_view_isa(body_op);
+    has_subview |= loom_view_subview_isa(body_op);
+    has_refine |= loom_view_refine_isa(body_op);
+    has_bitcast |= loom_view_bitcast_isa(body_op);
   }
   EXPECT_EQ(load_count, 2u);
   EXPECT_EQ(store_count, 3u);
+  EXPECT_TRUE(has_alignment);
+  EXPECT_TRUE(has_memory_space);
+  EXPECT_TRUE(has_noalias);
+  EXPECT_TRUE(has_same_root);
+  EXPECT_TRUE(has_buffer_view);
+  EXPECT_TRUE(has_subview);
+  EXPECT_TRUE(has_refine);
+  EXPECT_TRUE(has_bitcast);
 
   ASSERT_EQ(plan.root_count, 1u);
   ASSERT_EQ(plan.entry_requirement_count, 2u);

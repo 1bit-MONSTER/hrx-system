@@ -172,6 +172,20 @@ static iree_status_t loom_cmd_launch_count_append_operation(
   return iree_ok_status();
 }
 
+// Returns true when |operation| projects an existing reference without creating
+// a new storage root. These operations must be cloned into a generated count
+// producer so local views and their refinement facts remain local instead of
+// leaking into its ABI as independently bindable arguments.
+static bool loom_cmd_launch_count_is_reference_projection(
+    const loom_op_t* operation) {
+  return loom_buffer_assume_alignment_isa(operation) ||
+         loom_buffer_assume_memory_space_isa(operation) ||
+         loom_buffer_assume_noalias_isa(operation) ||
+         loom_buffer_assume_same_root_isa(operation) ||
+         loom_buffer_view_isa(operation) || loom_view_subview_isa(operation) ||
+         loom_view_refine_isa(operation) || loom_view_bitcast_isa(operation);
+}
+
 static iree_status_t loom_cmd_launch_count_visit_value(
     loom_cmd_launch_count_closure_t* closure, loom_value_id_t value_id);
 
@@ -285,6 +299,11 @@ static iree_status_t loom_cmd_launch_count_visit_value(
     return loom_cmd_launch_count_append_value(
         closure->arena, value_id, &closure->constants, &closure->constant_count,
         &closure->constant_capacity);
+  }
+
+  if (defining_op != NULL &&
+      loom_cmd_launch_count_is_reference_projection(defining_op)) {
+    return loom_cmd_launch_count_visit_operation(closure, defining_op);
   }
 
   if (loom_type_is_buffer(type) ||

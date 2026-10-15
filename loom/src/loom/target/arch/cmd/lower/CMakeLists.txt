@@ -261,6 +261,7 @@ loom_cc_test(
     loom::format::text::parser
     loom::ir
     loom::link::module_index
+    loom::ops::buffer
     loom::ops::index
     loom::ops::kernel
     loom::ops::low
