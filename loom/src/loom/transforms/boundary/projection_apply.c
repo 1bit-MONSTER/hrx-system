@@ -1076,7 +1076,31 @@ static iree_status_t loom_boundary_projection_replace_function(
         &plan->rewriter, function->results[i], target_results[target_index]));
   }
 
-  if (source_body) {
+  if (source_body &&
+      !iree_any_bit_set(source_body->flags, LOOM_REGION_INSTANCE_FLAG_CFG)) {
+    // A structured body has one entry with no backedges. Retarget its uses to
+    // the rebuilt signature directly instead of introducing a CFG trampoline.
+    loom_block_t* source_entry = loom_region_entry_block(source_body);
+    target_body->flags = source_body->flags;
+    target_body->source_flags = source_body->source_flags;
+    target_entry->label_id = source_entry->label_id;
+    target_entry->flags = source_entry->flags;
+    iree_host_size_t comment_count = 0;
+    const iree_string_view_t* comments =
+        loom_module_block_comments(plan->module, source_entry, &comment_count);
+    if (comment_count != 0) {
+      IREE_RETURN_IF_ERROR(loom_module_attach_block_comments(
+          plan->module, target_entry, comments, comment_count));
+    }
+    for (uint16_t i = 0; i < function->final_argument_count; ++i) {
+      IREE_RETURN_IF_ERROR(loom_rewriter_replace_all_uses_with(
+          &plan->rewriter, source_entry->arg_ids[i], target_arguments[i]));
+    }
+    while (source_entry->first_op != NULL) {
+      IREE_RETURN_IF_ERROR(loom_rewriter_move_to_block_end(
+          &plan->rewriter, source_entry->first_op, target_entry, target));
+    }
+  } else if (source_body) {
     loom_block_t* moved_entry = NULL;
     IREE_RETURN_IF_ERROR(loom_rewriter_move_region_blocks(
         &plan->rewriter, source_body, source, target_body,

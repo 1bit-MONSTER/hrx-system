@@ -37,9 +37,7 @@ pipeline.def public target(@carrier_target) @consume(%input: view<1xi32>) run() 
 test.target<low_core> @carrier_target
 
 pipeline.def public target(@carrier_target) @consume(%input_root: buffer, %input_offset: offset) run() {
-  cfg.br ^_bb1(%input_root: buffer, %input_offset: offset)
-^_bb1(%1: buffer, %0: offset):
-  %input = buffer.view %1[%0] : buffer -> view<1xi32>
+  %input = buffer.view %input_root[%input_offset] : buffer -> view<1xi32>
 }
 
 // ====
@@ -62,10 +60,8 @@ test.target<low_core> @carrier_target
 func.decl target(@carrier_target) @external_identity(%input_root: buffer, %input_offset: offset) -> (buffer, offset)
 
 func.def public target(@carrier_target) @call_external(%storage: buffer, %offset: offset) -> (buffer, offset) {
-  cfg.br ^_bb1(%storage: buffer, %offset: offset)
-^_bb1(%2: buffer, %3: offset):
-  %input = buffer.view %2[%3] : buffer -> view<1xi32>
-  %result_root, %result_offset = func.call @external_identity(%2, %3) : (buffer, offset) -> (buffer, offset)
+  %input = buffer.view %storage[%offset] : buffer -> view<1xi32>
+  %result_root, %result_offset = func.call @external_identity(%storage, %offset) : (buffer, offset) -> (buffer, offset)
   %result = buffer.view %result_root[%result_offset] : buffer -> view<1xi32>
   func.return %result_root, %result_offset : buffer, offset
 }
@@ -86,23 +82,21 @@ func.def public target(@carrier_target) @choose_nested(%left: view<1xi32>, %midd
 test.target<low_core> @carrier_target
 
 func.def public target(@carrier_target) @choose_nested(%left_root: buffer, %left_offset: offset, %middle_root: buffer, %middle_offset: offset, %right_root: buffer, %right_offset: offset, %choose_middle: i1, %choose_right: i1) -> (buffer, offset) {
-  cfg.br ^_bb1(%left_root: buffer, %left_offset: offset, %middle_root: buffer, %middle_offset: offset, %right_root: buffer, %right_offset: offset, %choose_middle: i1, %choose_right: i1)
-^_bb1(%8: buffer, %0: offset, %10: buffer, %1: offset, %12: buffer, %2: offset, %3: i1, %4: i1):
-  %left = buffer.view %8[%0] : buffer -> view<1xi32>
-  %middle = buffer.view %10[%1] : buffer -> view<1xi32>
-  %right = buffer.view %12[%2] : buffer -> view<1xi32>
-  %left_or_middle_root, %left_or_middle_offset = scf.if %3 -> (buffer, offset) {
-    scf.yield %10, %1 : buffer, offset
+  %left = buffer.view %left_root[%left_offset] : buffer -> view<1xi32>
+  %middle = buffer.view %middle_root[%middle_offset] : buffer -> view<1xi32>
+  %right = buffer.view %right_root[%right_offset] : buffer -> view<1xi32>
+  %left_or_middle_root, %left_or_middle_offset = scf.if %choose_middle -> (buffer, offset) {
+    scf.yield %middle_root, %middle_offset : buffer, offset
   } else {
-    scf.yield %8, %0 : buffer, offset
+    scf.yield %left_root, %left_offset : buffer, offset
   }
-  %left_or_middle = scf.select %3, %middle, %left : view<1xi32>
-  %selected_root, %selected_offset = scf.if %4 -> (buffer, offset) {
-    scf.yield %12, %2 : buffer, offset
+  %left_or_middle = scf.select %choose_middle, %middle, %left : view<1xi32>
+  %selected_root, %selected_offset = scf.if %choose_right -> (buffer, offset) {
+    scf.yield %right_root, %right_offset : buffer, offset
   } else {
     scf.yield %left_or_middle_root, %left_or_middle_offset : buffer, offset
   }
-  %selected = scf.select %4, %right, %left_or_middle : view<1xi32>
+  %selected = scf.select %choose_right, %right, %left_or_middle : view<1xi32>
   func.return %selected_root, %selected_offset : buffer, offset
 }
 
@@ -172,19 +166,15 @@ func.def public target(@carrier_target) @call_shuffle(%left_storage: buffer, %le
 test.target<low_core> @carrier_target
 
 func.def noinline target(@carrier_target) @shuffle(%tag: i32, %left_root: buffer, %left_offset: offset, %middle: i64, %right_root: buffer, %right_offset: offset) -> (buffer, offset, i32, buffer, offset, i64) {
-  cfg.br ^_bb1(%tag: i32, %left_root: buffer, %left_offset: offset, %middle: i64, %right_root: buffer, %right_offset: offset)
-^_bb1(%0: i32, %30: buffer, %1: offset, %2: i64, %32: buffer, %3: offset):
-  %left = buffer.view %30[%1] : buffer -> view<1xi32>
-  %right = buffer.view %32[%3] : buffer -> view<1xi32>
-  func.return %32, %3, %0, %30, %1, %2 : buffer, offset, i32, buffer, offset, i64
+  %left = buffer.view %left_root[%left_offset] : buffer -> view<1xi32>
+  %right = buffer.view %right_root[%right_offset] : buffer -> view<1xi32>
+  func.return %right_root, %right_offset, %tag, %left_root, %left_offset, %middle : buffer, offset, i32, buffer, offset, i64
 }
 
 func.def public target(@carrier_target) @call_shuffle(%left_storage: buffer, %left_offset: offset, %right_storage: buffer, %right_offset: offset, %tag: i32, %middle: i64) -> (buffer, offset, i32, buffer, offset, i64) {
-  cfg.br ^_bb1(%left_storage: buffer, %left_offset: offset, %right_storage: buffer, %right_offset: offset, %tag: i32, %middle: i64)
-^_bb1(%8: buffer, %9: offset, %10: buffer, %11: offset, %12: i32, %13: i64):
-  %left = buffer.view %8[%9] : buffer -> view<1xi32>
-  %right = buffer.view %10[%11] : buffer -> view<1xi32>
-  %first_root, %first_offset, %tag_result, %second_root, %second_offset, %middle_result = func.call @shuffle(%12, %8, %9, %13, %10, %11) : (i32, buffer, offset, i64, buffer, offset) -> (buffer, offset, i32, buffer, offset, i64)
+  %left = buffer.view %left_storage[%left_offset] : buffer -> view<1xi32>
+  %right = buffer.view %right_storage[%right_offset] : buffer -> view<1xi32>
+  %first_root, %first_offset, %tag_result, %second_root, %second_offset, %middle_result = func.call @shuffle(%tag, %left_storage, %left_offset, %middle, %right_storage, %right_offset) : (i32, buffer, offset, i64, buffer, offset) -> (buffer, offset, i32, buffer, offset, i64)
   %second = buffer.view %second_root[%second_offset] : buffer -> view<1xi32>
   %first = buffer.view %first_root[%first_offset] : buffer -> view<1xi32>
   func.return %first_root, %first_offset, %tag_result, %second_root, %second_offset, %middle_result : buffer, offset, i32, buffer, offset, i64
@@ -211,24 +201,20 @@ func.def public target(@carrier_target) @call_window(%storage: buffer, %base: of
 test.target<low_core> @carrier_target
 
 func.def noinline target(@carrier_target) @forward_window(%input_root: buffer, %input_offset: offset) -> (buffer, offset) {
-  cfg.br ^_bb1(%input_root: buffer, %input_offset: offset)
-^_bb1(%11: buffer, %0: offset):
-  %input = buffer.view %11[%0] : buffer -> view<1xi32>
-  func.return %11, %0 : buffer, offset
+  %input = buffer.view %input_root[%input_offset] : buffer -> view<1xi32>
+  func.return %input_root, %input_offset : buffer, offset
 }
 
 func.def public target(@carrier_target) @call_window(%storage: buffer, %base: offset, %position: index) -> (buffer, offset) {
-  cfg.br ^_bb1(%storage: buffer, %base: offset, %position: index)
-^_bb1(%2: buffer, %3: offset, %4: index):
-  %whole = buffer.view %2[%3] : buffer -> view<8xi32>
-  %window = view.subview %whole[%4] : view<8xi32> -> view<1xi32>
-  %13 = index.cast %3 : offset to i64
-  %14 = index.cast %4 : index to i64
+  %whole = buffer.view %storage[%base] : buffer -> view<8xi32>
+  %window = view.subview %whole[%position] : view<8xi32> -> view<1xi32>
+  %13 = index.cast %base : offset to i64
+  %14 = index.cast %position : index to i64
   %15 = scalar.constant 4 : i64
   %16 = scalar.muli %14, %15 : i64
   %17 = scalar.addi %13, %16 : i64
   %18 = index.cast %17 : i64 to offset
-  %result_root, %result_offset = func.call @forward_window(%2, %18) : (buffer, offset) -> (buffer, offset)
+  %result_root, %result_offset = func.call @forward_window(%storage, %18) : (buffer, offset) -> (buffer, offset)
   %result = buffer.view %result_root[%result_offset] : buffer -> view<1xi32>
   func.return %result_root, %result_offset : buffer, offset
 }
@@ -278,17 +264,15 @@ func.def public target(@carrier_target) @choose_crops(%left: view<8xi32>, %right
 test.target<low_core> @carrier_target
 
 func.def public target(@carrier_target) @choose_crops(%left_root: buffer, %left_offset: offset, %right_root: buffer, %right_offset: offset, %condition: i1, %position: index) -> (buffer, offset, buffer, offset, buffer, offset) {
-  cfg.br ^_bb1(%left_root: buffer, %left_offset: offset, %right_root: buffer, %right_offset: offset, %condition: i1, %position: index)
-^_bb1(%12: buffer, %0: offset, %14: buffer, %1: offset, %2: i1, %3: index):
-  %selected_root, %selected_offset = scf.if %2 -> (buffer, offset) {
-    scf.yield %12, %0 : buffer, offset
+  %selected_root, %selected_offset = scf.if %condition -> (buffer, offset) {
+    scf.yield %left_root, %left_offset : buffer, offset
   } else {
-    scf.yield %14, %1 : buffer, offset
+    scf.yield %right_root, %right_offset : buffer, offset
   }
   %18 = index.cast %selected_offset : offset to i64
   %19 = scalar.constant 4 : i64
   %20 = scalar.addi %18, %19 : i64
-  %21 = index.cast %3 : index to i64
+  %21 = index.cast %position : index to i64
   %22 = scalar.constant 4 : i64
   %23 = scalar.muli %21, %22 : i64
   %24 = scalar.addi %20, %23 : i64

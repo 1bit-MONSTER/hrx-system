@@ -760,3 +760,29 @@ func.def public target(@carrier_target) @nested_layout_transport(%limit: index, 
   test.use %outer_result : encoding<layout>
   func.return
 }
+
+// ====
+
+// Projecting a structured function's view argument and result preserves its
+// single-entry body, including guarded effects and retained scalar arguments.
+// RUN: pass specialize-target-callgraph,project-boundary-representations
+
+test.target<low_core> @carrier_target
+
+func.def public target(@carrier_target) @structured_view_identity(%input: view<4xi32>, %condition: i1, %value: i32) -> (view<4xi32>) {
+  scf.if %condition {
+    view.store %value, %input[0] : i32, view<4xi32>
+  }
+  func.return %input : view<4xi32>
+}
+
+// ----
+test.target<low_core> @carrier_target
+
+func.def public target(@carrier_target) @structured_view_identity(%input_root: buffer, %input_offset: offset, %condition: i1, %value: i32) -> (buffer, offset) {
+  %input = buffer.view %input_root[%input_offset] : buffer -> view<4xi32>
+  scf.if %condition {
+    view.store %value, %input[0] : i32, view<4xi32>
+  }
+  func.return %input_root, %input_offset : buffer, offset
+}
