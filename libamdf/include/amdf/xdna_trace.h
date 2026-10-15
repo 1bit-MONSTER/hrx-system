@@ -60,7 +60,11 @@ typedef struct amdf_xdna_firmware_trace_info_t {
 
 /// One decoded event. Unknown event identifiers and their arguments survive
 /// unchanged, so schema consumers can retain events they do not interpret.
-/// Application message IDs are firmware operations, not HAL submission IDs.
+/// Command opcodes identify firmware operations, not caller submissions.
+/// Context fields belong to the firmware's namespace, independently of the
+/// opaque amdf_xdna_context_info_t.id. This interface supplies no mapping
+/// between those identities. Recorder ownership does not exclude other
+/// applications' work from the stream.
 typedef struct amdf_xdna_firmware_trace_event_t {
   /// Source timestamp in the units reported by the active clock description.
   uint64_t timestamp;

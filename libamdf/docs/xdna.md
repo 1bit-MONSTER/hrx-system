@@ -601,10 +601,23 @@ signals or reliable feedback credits.
 Format 2 represents timestamps in nanoseconds. This describes units, not
 sampling resolution, accuracy, a shared CPU/GPU epoch or clock continuity.
 Command events preserve firmware context, virtual-context and opcode fields;
-those fields do not identify a HAL submission by themselves. These observations
-describe native command execution and scheduling. Internal regions of a
-resident program need a source that actually observes those regions, such as
-its own instrumentation. The [hardware timing reference](../../docs/reference/amd/xdna/observability.md)
+those fields identify native execution within a firmware context lifetime.
+The trace interface supplies no mapping to the opaque public
+`amdf_xdna_context_info_t.id` or to a caller's submission identity. Public
+context IDs cannot be unpacked to recover firmware identities. The decoded
+stream supports device-wide observation independently of application
+attribution; configuration authority does not exclude other workloads.
+
+An application timeline additionally needs a native context mapping with its
+valid lifetime and the command protocol's ordering or submission identity.
+A current mapping alone cannot identify older records after context-ID reuse.
+Matching an opcode or assigning consecutive events to consecutive host
+submissions does not establish that relationship under concurrency. Finite
+result records instead have a caller-selected destination and marker protocol.
+
+These observations describe native command execution and scheduling. Internal
+regions of a resident program need a source that actually observes those
+regions, such as its own instrumentation. The [hardware timing reference](../../docs/reference/amd/xdna/observability.md)
 describes the separate firmware and array clocks and their native semantics.
 
 ### Durations and host correlation

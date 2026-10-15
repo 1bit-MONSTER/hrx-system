@@ -49,7 +49,7 @@ reset, and observation-source loss require refreshing device/host relations.
 | GPU SDMA clock | Caller-written `TIMESTAMP_GET_GLOBAL` commands around the intended transfer work. The same queue-clock query supplies nominal units. | The caller orders payload release and completion after the ending sample, then acquires the result before reuse. |
 | AQL dispatch interval | An AQL family advertises `DISPATCH_TIMESTAMPS`; queue creation selects `AMDF_GPU_USER_QUEUE_FLAG_DISPATCH_TIMESTAMPS`. Firmware writes the dispatch's native completion signal. | Each observed dispatch owns an exclusive signal through completion and timestamp consumption. Capture is a queue-lifetime option, while the caller chooses which dispatches receive observation signals. |
 | XDNA transaction marker | `context_query_result_buffer_info` supplies destination geometry. The caller attaches backing and supplies `RECORD_TIMER` instructions and the finite record protocol. | Every result writer retires before native collection and host cache acquire. Valid extent follows the caller's record protocol. |
-| XDNA automatic firmware events | `device_query_firmware_trace_info` reports recorder state, schema, clock, and read-storage requirements. `device_read_firmware_trace` returns decoded events incrementally. | Native transport can lose data. Read flags and native byte positions describe progress; neither an event nor an empty read retires application work. |
+| XDNA automatic firmware events | `device_query_firmware_trace_info` reports recorder state, schema, clock, and read-storage requirements. `device_read_firmware_trace` returns device-wide events with native context and opcode fields, without application-submission attribution. | Native transport can lose data. Read flags and native byte positions describe progress; neither an event nor an empty read retires application work. |
 
 The [GPU timing contract](gpu.md#queue-timing) describes explicit timestamps
 and AQL signal ownership. [XDNA result buffers](xdna.md#finite-firmware-results)
@@ -63,6 +63,15 @@ the Linux driver. An absent trace service returns `UNSUPPORTED`. A permission
 failure remains a native error and is not evidence that the hardware lacks
 the source. Finite transaction markers have their own admission independently
 of that recorder.
+
+Explicit timestamp destinations, finite marker IDs, and exclusive AQL
+completion signals associate observations with the caller's work. Automatic
+XDNA records instead expose firmware identities. The trace interface supplies
+no mapping from those identities to a public XDNA context or submission.
+Enabling the recorder establishes configuration ownership, not exclusive
+workload execution. A device-wide diagnostic trace is therefore available
+independently of an attributed application timeline; an arbitrary concurrent
+dispatch cannot be identified from an opcode or its position in that trace.
 
 ## Clock units and correlation
 
@@ -87,6 +96,11 @@ KFD counters, including the auxiliary system-clock timestamp and frequency;
 Windows retains the selected engine's KMT GPU/QPC pair. The primary host values
 always use the observation extension's clock. Clients need no native descriptor,
 ioctl, KMT call, or platform clock selection.
+
+An application's existing host clock can use a different epoch or rate. Its
+own portable reads can bracket the libamdf sampling call to relate the returned
+observations to that clock. Scaling ticks to nanoseconds changes units; it does
+not make timestamps from distinct host clocks interchangeable.
 
 This operation samples the native driver's counter. A queue or shader can use
 a different counter with the same frequency. A native tuple therefore does not
