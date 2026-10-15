@@ -418,6 +418,11 @@ typedef struct amdf_xdna_api_t {
   /// Native packet storage, completion resources and required bootstrap are
   /// ready before success; libamdf does not defer preparation to submission or
   /// wait. A live queue does not prevent native idle suspension.
+  /// A missing required execution interface returns
+  /// `AMDF_STATUS_CODE_UNSUPPORTED`. On Linux, the first queue submits and
+  /// retires a provider-owned no-effect transaction to qualify the direct
+  /// instruction transport. This check is independent of optional profiling
+  /// services and is not repeated when a queue is reacquired on that context.
   amdf_status_t(AMDF_CALL* kernel_queue_create)(
       amdf_xdna_context_t* context,
       const amdf_xdna_kernel_queue_create_info_t* create_info,

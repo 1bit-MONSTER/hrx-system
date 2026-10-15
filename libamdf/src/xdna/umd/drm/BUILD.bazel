@@ -89,11 +89,33 @@ amdf_cc_library(
     srcs = ["context.c"],
     target_compatible_with = DRM_COMPATIBILITY,
     deps = [
+        ":buffer",
+        ":context_state",
+        ":device_state",
+        ":elf_packet",
+        "//libamdf/src:allocator",
+        "//libamdf/src/platform/linux:file",
+        "//libamdf/src/platform/linux:host_cache",
+        "//libamdf/src/xdna/umd:context",
+        "//third_party:linux_xdna_uapi",
+    ],
+)
+
+amdf_cc_test(
+    name = "context_test",
+    srcs = ["context_test.cc"],
+    linkopts = ["-Wl,--wrap=ioctl"],
+    target_compatible_with = DRM_COMPATIBILITY,
+    deps = [
+        ":context",
         ":context_state",
         ":device_state",
         "//libamdf/src:allocator",
-        "//libamdf/src/platform/linux:file",
+        "//libamdf/src:atomics",
+        "//libamdf/src/xdna:device_profile",
         "//libamdf/src/xdna/umd:context",
+        "//third_party:google_test",
+        "//third_party:google_test_main",
         "//third_party:linux_xdna_uapi",
     ],
 )
@@ -152,6 +174,7 @@ amdf_cc_library(
     target_compatible_with = DRM_COMPATIBILITY,
     deps = [
         ":buffer",
+        ":context",
         ":context_state",
         ":device_state",
         ":elf_packet",

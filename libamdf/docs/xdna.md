@@ -126,7 +126,7 @@ separately scoped source contracts, not additional execution admission.
 
 | Boundary | Linux modern DRM | Windows MCDM |
 | --- | --- | --- |
-| Context admission | Native hardware context and negotiated execution support. | Native private adapter query selects direct or metadata partition admission. |
+| Context admission | Native hardware context; queue creation qualifies direct instruction execution and completion. | Native private adapter query selects direct or metadata partition admission. |
 | Instruction storage | Context-qualified DEV backing, with sizes and alignment from its scope. | One 64 MiB native aperture per context; a reserved 32 KiB bootstrap prefix is excluded from the caller's usable range. |
 | Instruction submission | Mandatory DRM execution record and command BO referencing the caller's instruction range. | Mandatory native transport record and transaction-interpreter packet referencing that range. |
 | Ordinary data addresses | Firmware and shim-DMA address interpretations. | Firmware and shim-DMA address interpretations for standard system backing. |
@@ -140,6 +140,29 @@ translation so the complete range fits every advertised address interpretation.
 Linux checks the opened device file and driver identity, then requires the
 native array metadata and allocation/context operations used by its hardware
 architecture. DRM release metadata does not determine admission.
+
+Before returning the first queue for a Linux context, libamdf submits a small
+transaction containing only no-op instructions through the required
+`ERT_START_NPU_PREEMPT_ELF` transport. Queue creation waits for native completion
+and checks the execution result. A driver that rejects this known-valid
+submission as unsupported returns `AMDF_STATUS_CODE_UNSUPPORTED`; permission,
+resource, device, and completion failures preserve their own errors. Update the
+NPU driver and matching firmware when this execution requirement is missing.
+Creating a native context alone does not prove execution support.
+
+The transaction modifies no application memory, tile program, DMA, or array
+state; native scheduling still follows the context-isolation contract above.
+Admission uses two temporary BOs and one native submission per context, before
+any caller work. Reacquiring a queue reuses the completed admission. Submission and
+retirement paths perform no additional checks or allocations. An uncertain
+completion retains the temporary backing on the context until native context
+destruction proves it safe to release. Ordinary memory use does not perform
+execution admission.
+
+Result-buffer capture, firmware tracing, and clock correlation are separate
+optional services. Their availability does not determine whether ordinary
+instruction execution is supported. Hardware identity and a loaded `amdxdna`
+module establish neither the required transport nor these optional services.
 
 Windows queries the native private adapter interface before preparing a context.
 Its reply presence and required size distinguish three coupled context and
