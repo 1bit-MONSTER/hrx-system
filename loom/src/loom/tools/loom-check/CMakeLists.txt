@@ -88,6 +88,7 @@ loom_cc_library(
     loom::error::emitter
     loom::error::error_defs
     loom::error::json_sink
+    loom::error::parameter
     loom::error::renderer
     loom::error::source
     loom::format::text::parser
@@ -188,7 +189,7 @@ loom_cc_test(
     iree::testing::gtest_main
     loom::binding::c::interop
     loom::binding::c::loomc
-    loom::error::error_defs
+    loom::error::parameter
     loom::ir
     loom::target::provider
     loom::target::test::provider
@@ -357,7 +358,7 @@ loom_cc_library(
     loom::sanitizer::options
     loom::tooling::cli::help
     loom::tooling::cli::loomc_options
-    loom::tooling::config
+    loom::tooling::config::input
     loom::tooling::context
   PUBLIC
 )

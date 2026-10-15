@@ -110,6 +110,7 @@ loom_cc_library(
     loom::analysis::symbol_facts
     loom::error::emitter
     loom::error::error_defs
+    loom::error::parameter
     loom::ir
     loom::ops::func
     loom::ops::op_defs
@@ -150,6 +151,7 @@ loom_cc_library(
     loom::ops::scf
     loom::ops::target
     loom::ops::template
+    loom::pass::options
     loom::pass::pipeline
     loom::pass::registry
     loom::pass::report
@@ -247,6 +249,7 @@ loom_cc_library(
     loom::ops::func
     loom::ops::low
     loom::ops::op_defs
+    loom::pass::options
     loom::pass::pipeline
     loom::pass::types
     loom::rewrite::callable
@@ -301,6 +304,7 @@ loom_cc_library(
     loom::analysis::scc
     loom::analysis::type_refinement
     loom::error::error_defs
+    loom::error::parameter
     loom::ir
     loom::ir::facts
     loom::ir::type_refinement
@@ -308,6 +312,7 @@ loom_cc_library(
     loom::ops::op_defs
     loom::ops::special_values
     loom::ops::type_registry
+    loom::pass::options
     loom::pass::pipeline
     loom::pass::registry
     loom::pass::types

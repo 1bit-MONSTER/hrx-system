@@ -17,6 +17,7 @@
 #include "loom/codegen/low/verify.h"
 #include "loom/codegen/pass_environment.h"
 #include "loom/config/application.h"
+#include "loom/config/schema.h"
 #include "loom/config/text.h"
 #include "loom/config/text_binding.h"
 #include "loom/error/diagnostic.h"
@@ -38,7 +39,7 @@
 #include "loom/tooling/cli/help.h"
 #include "loom/tooling/cli/loomc_diagnostic_json.h"
 #include "loom/tooling/cli/loomc_result.h"
-#include "loom/tooling/config/config.h"
+#include "loom/tooling/config/input.h"
 #include "loom/tooling/io/file.h"
 #include "loom/tooling/pass/trace_cli.h"
 #include "loom/transforms/cleanup/configured.h"
@@ -338,87 +339,15 @@ static iree_string_view_t loom_opt_pipeline_kind_stage_name(
   }
 }
 
-static bool loom_opt_resolve_emission_location(
-    const loom_opt_diagnostic_emitter_t* emitter, const loom_module_t* module,
-    const loom_op_t* op, loom_source_range_t* out_source_location) {
-  if (!emitter || !op) {
-    return false;
-  }
-  module = module ? module : emitter->module;
-  if (!loom_source_resolve(emitter->source_resolver, module, op->location,
-                           out_source_location)) {
-    return false;
-  }
-  return true;
-}
-
-static iree_host_size_t loom_opt_collect_related_locations(
-    const loom_opt_diagnostic_emitter_t* emitter,
-    const loom_diagnostic_related_op_t* related_ops,
-    iree_host_size_t related_op_count,
-    loom_diagnostic_related_location_t* out_related_locations,
-    iree_host_size_t* out_omitted_count) {
-  *out_omitted_count = 0;
-  if (!related_ops || related_op_count == 0) {
-    return 0;
-  }
-  iree_host_size_t related_location_count = 0;
-  for (iree_host_size_t i = 0; i < related_op_count; ++i) {
-    loom_source_range_t source_location = {
-        .provenance = LOOM_SOURCE_PROVENANCE_UNAVAILABLE_SOURCE,
-    };
-    if (!loom_opt_resolve_emission_location(emitter, related_ops[i].module,
-                                            related_ops[i].op,
-                                            &source_location)) {
-      continue;
-    }
-    if (related_location_count >= LOOM_DIAGNOSTIC_MAX_RELATED_LOCATIONS) {
-      ++*out_omitted_count;
-      continue;
-    }
-    out_related_locations[related_location_count++] =
-        (loom_diagnostic_related_location_t){
-            .label = related_ops[i].label,
-            .source_location = source_location,
-        };
-  }
-  return related_location_count;
-}
-
 static iree_status_t loom_opt_diagnostic_emitter_emit(
     void* user_data, const loom_diagnostic_emission_t* emission) {
-  loom_opt_diagnostic_emitter_t* emitter =
-      (loom_opt_diagnostic_emitter_t*)user_data;
-  if (!emitter || !emission || !emission->error) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "diagnostic emitter requires an emission");
-  }
-
-  loom_diagnostic_t diagnostic = {
-      .severity = loom_error_def_severity(emission->error),
-      .error = emission->error,
-      .params = emission->params,
-      .param_count = emission->param_count,
-      .emitter = emitter->emitter,
-      .origin = {.provenance = LOOM_SOURCE_PROVENANCE_UNAVAILABLE_SOURCE},
-      .source_location = {.provenance =
-                              LOOM_SOURCE_PROVENANCE_UNAVAILABLE_SOURCE},
-  };
-
+  const loom_opt_diagnostic_emitter_t* emitter = user_data;
+  loom_diagnostic_t diagnostic;
   loom_diagnostic_related_location_t
       related_locations[LOOM_DIAGNOSTIC_MAX_RELATED_LOCATIONS];
-  diagnostic.related_location_count = loom_opt_collect_related_locations(
-      emitter, emission->related_ops, emission->related_op_count,
-      related_locations, &diagnostic.related_location_omitted_count);
-  if (diagnostic.related_location_count > 0) {
-    diagnostic.related_locations = related_locations;
-  }
-
-  if (loom_opt_resolve_emission_location(emitter, emission->module,
-                                         emission->op,
-                                         &diagnostic.source_location)) {
-    diagnostic.origin = diagnostic.source_location;
-  }
+  loom_source_resolve_diagnostic(emitter->module, emitter->source_resolver,
+                                 emitter->emitter, emission, related_locations,
+                                 &diagnostic);
   return loom_diagnostic_emit(&emitter->diagnostic_sink, &diagnostic);
 }
 
@@ -634,11 +563,8 @@ static iree_status_t loom_opt_build_reproducer_synthetic_pipeline(
       break;
     }
 
-    const loom_pass_descriptor_t* descriptor = NULL;
-    status = loom_pass_registry_lookup(registry, spec.name, &descriptor);
-    if (!iree_status_is_ok(status)) {
-      break;
-    }
+    const loom_pass_descriptor_t* descriptor =
+        loom_pass_registry_lookup(registry, spec.name);
     const loom_pass_info_t* info = descriptor ? descriptor->info() : NULL;
     if (info && info->kind == LOOM_PASS_FUNCTION) {
       status = loom_opt_reproducer_function_group_open(&pipeline_builder,
@@ -1159,8 +1085,7 @@ static iree_status_t loom_opt_print_config_schema(
   iree_string_builder_initialize(allocator, &builder);
   loom_output_stream_t stream;
   loom_output_stream_for_builder(&builder, &stream);
-  iree_status_t status =
-      loom_tooling_config_format_schema_json(module, &stream);
+  iree_status_t status = loom_config_format_schema_json(module, &stream);
   if (iree_status_is_ok(status)) {
     status = iree_string_builder_append_string(&builder, IREE_SV("\n"));
   }
@@ -1226,8 +1151,8 @@ static void loom_opt_print_pass_option_schema(
 
 static iree_status_t loom_opt_print_pass_help(
     const loom_pass_registry_t* registry, iree_string_view_t key) {
-  const loom_pass_descriptor_t* descriptor = NULL;
-  IREE_RETURN_IF_ERROR(loom_pass_registry_lookup(registry, key, &descriptor));
+  const loom_pass_descriptor_t* descriptor =
+      loom_pass_registry_lookup(registry, key);
   if (!descriptor) {
     return iree_make_status(IREE_STATUS_NOT_FOUND, "unknown pass '%.*s'",
                             (int)key.size, key.data);

@@ -23,6 +23,7 @@
 #include "loom/ops/low/capture.h"
 #include "loom/ops/low/ops.h"
 #include "loom/ops/op_defs.h"
+#include "loom/pass/options.h"
 #include "loom/pass/pipeline.h"
 #include "loom/rewrite/callable.h"
 #include "loom/rewrite/rewriter.h"

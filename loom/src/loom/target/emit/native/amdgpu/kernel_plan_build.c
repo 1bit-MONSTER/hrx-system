@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "loom/codegen/low/diagnostics.h"
+#include "loom/error/parameter.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/target/arch/amdgpu/error_catalog.h"

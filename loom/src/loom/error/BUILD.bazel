@@ -26,7 +26,7 @@ loom_cc_library(
     hdrs = ["diagnostic.h"],
     deps = [
         ":emitter",
-        ":error_defs",
+        ":parameter",
         ":renderer",
         "//loom/src/loom/util:stream",
         "//runtime/src/iree/base",
@@ -38,7 +38,7 @@ loom_cc_test(
     srcs = ["diagnostic_test.cc"],
     deps = [
         ":diagnostic",
-        ":error_defs",
+        ":parameter",
         ":renderer",
         "//loom/src/loom/util:stream",
         "//runtime/src/iree/testing:gtest",
@@ -63,6 +63,7 @@ loom_cc_test(
     name = "source_test",
     srcs = ["source_test.cc"],
     deps = [
+        ":parameter",
         ":source",
         "//loom/src/loom/ir",
         "//loom/src/loom/link:linker",
@@ -101,8 +102,6 @@ loom_generated_cc_library(
     generator = "//loom/py/loom/gen/error:c_errors",
     source = "error_catalog.c",
     deps = [
-        ":emitter",
-        "//loom/src/loom/ir",
         "//runtime/src/iree/base",
     ],
 )
@@ -152,8 +151,8 @@ loom_cc_test(
     name = "json_sink_test",
     srcs = ["json_sink_test.cc"],
     deps = [
-        ":error_defs",
         ":json_sink",
+        ":parameter",
         "//loom/src/loom/util:stream",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
@@ -165,7 +164,7 @@ loom_cc_library(
     srcs = ["renderer.c"],
     hdrs = ["renderer.h"],
     deps = [
-        ":error_defs",
+        ":parameter",
         "//loom/src/loom/util:stream",
         "//runtime/src/iree/base",
     ],
@@ -180,5 +179,16 @@ loom_cc_test(
         "//loom/src/loom/util:stream",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
+    name = "parameter",
+    hdrs = ["parameter.h"],
+    deps = [
+        ":emitter",
+        ":error_defs",
+        "//loom/src/loom/ir",
+        "//runtime/src/iree/base",
     ],
 )

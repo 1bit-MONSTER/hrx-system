@@ -29,14 +29,13 @@ loom_cc_library(
     alwayslink = True,
 )
 
+# This public composition root covers the enabled compiler providers and their
+# transitive planning and emission dependencies.
 iree_assert_dependency_boundary(
     name = "configured_has_only_core_target_dependencies",
+    allowed_dependencies = ["//loom/binding/c/target/configured:configured"],
     forbidden_subtrees = [
-        "//loom/binding/c/target/amd/xdna/...",
-        "//loom/binding/c/target/amdgpu/...",
-        "//loom/binding/c/target/spirv/...",
-        "//loom/binding/c/target/vm/...",
-        "//loom/binding/c/target/wasm/...",
+        "//loom/binding/c/target/...",
         "//loom/src/loom/tooling/...",
     ],
     message = "The configured LoomC target package must depend on core target composition instead of target bindings or tooling adapters",

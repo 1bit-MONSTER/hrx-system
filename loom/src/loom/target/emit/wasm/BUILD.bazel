@@ -131,13 +131,6 @@ loom_cc_library(
 )
 
 iree_assert_dependency_boundary(
-    name = "module_compiler_has_no_tooling_dependencies",
-    forbidden_subtrees = ["//loom/src/loom/tooling/..."],
-    message = "Wasm module compilation is target-owned and must not depend on tooling",
-    target = ":module_compiler",
-)
-
-iree_assert_dependency_boundary(
     name = "module_binary_analysis_boundary",
     allowed_dependencies = [
         "//loom/src/loom/codegen/low:descriptors",

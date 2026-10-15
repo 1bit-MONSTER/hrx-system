@@ -26,7 +26,6 @@ loom_cc_library(
     hdrs = ["types.h"],
     deps = [
         "//loom/src/loom/error:emitter",
-        "//loom/src/loom/ir",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:arena",
     ],
@@ -129,6 +128,7 @@ loom_cc_library(
     hdrs = ["predicate.h"],
     deps = [
         ":types",
+        "//loom/src/loom/ir",
         "//runtime/src/iree/base",
     ],
 )
@@ -138,11 +138,21 @@ loom_cc_library(
     srcs = ["registry.c"],
     hdrs = ["registry.h"],
     deps = [
-        ":environment",
-        ":pipeline",
         ":types",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
+    name = "options",
+    srcs = ["options.c"],
+    hdrs = ["options.h"],
+    deps = [
+        ":pipeline",
+        ":registry",
         "//loom/src/loom/ir",
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
     ],
 )
 
@@ -151,6 +161,7 @@ loom_cc_library(
     srcs = ["invocation.c"],
     hdrs = ["invocation.h"],
     deps = [
+        ":options",
         ":registry",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops/pass",
@@ -181,6 +192,7 @@ loom_cc_library(
     deps = [
         ":environment",
         ":invocation",
+        ":options",
         ":registry",
         ":verify",
         "//loom/src/loom/ir",
@@ -196,7 +208,6 @@ loom_cc_library(
     hdrs = ["report.h"],
     deps = [
         ":environment",
-        ":program",
         ":registry",
         ":types",
         "//loom/src/loom/util:json",
@@ -350,6 +361,7 @@ loom_cc_test(
     srcs = ["invocation_test.cc"],
     deps = [
         ":invocation",
+        ":options",
         "//loom/src/loom/ops/pass",
         "//loom/src/loom/pass/test:harness",
         "//loom/src/loom/pass/test:registry",
@@ -379,7 +391,7 @@ loom_cc_test(
         ":interpreter",
         ":program",
         ":report",
-        "//loom/src/loom/error:error_defs",
+        "//loom/src/loom/error:parameter",
         "//loom/src/loom/ir",
         "//loom/src/loom/ops:op_defs",
         "//loom/src/loom/ops/test",
@@ -451,6 +463,7 @@ loom_cc_test(
     name = "program_test",
     srcs = ["program_test.cc"],
     deps = [
+        ":options",
         ":program",
         "//loom/src/loom/ops/pass",
         "//loom/src/loom/pass/test:harness",
@@ -464,6 +477,7 @@ loom_cc_test(
     srcs = ["builtin_registry_test.cc"],
     deps = [
         ":builtin_registry",
+        ":options",
         ":registry",
         "//loom/src/loom/codegen/low/pipeline:pass_environment",
         "//loom/src/loom/pass/testing:registry_verify",

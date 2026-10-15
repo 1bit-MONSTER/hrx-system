@@ -21,12 +21,14 @@
 #include "loom/tooling/cli/help.h"
 #include "loom/tooling/cli/loomc_options.h"
 #include "loom/tooling/cli/loomc_result.h"
-#include "loom/tooling/config/config.h"
+#include "loom/tooling/config/input.h"
 #include "loom/tooling/execution/hal/invocation.h"
 #include "loom/tooling/execution/hal/runtime.h"
 #include "loom/tooling/input/flags.h"
 #include "loom/tooling/input/loomc.h"
 #include "loom/tooling/io/file.h"
+#include "loomc/compile.h"
+#include "loomc/compile_report.h"
 #include "loomc/launch_config.h"
 
 IREE_FLAG(string, pipeline, "default",
