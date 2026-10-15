@@ -643,12 +643,6 @@ static void loom_aie2p_program_encode_admitted_field(
   *inout_word |= loom_xdna_register_field_encode_admitted(field_id, value);
 }
 
-static uint32_t loom_aie2p_program_encode_dma_wrap(uint32_t wrap,
-                                                   uint8_t field_bits) {
-  const uint32_t field_mask = (UINT32_C(1) << field_bits) - 1u;
-  return wrap & field_mask;
-}
-
 static const loom_xdna_register_field_id_t
     loom_aie2p_program_shim_dma_step_fields[] = {
         LOOM_XDNA_REGISTER_FIELD_SHIM_NOC_DMA_BD_WORD3_D0_STEP_SIZE,
@@ -662,11 +656,11 @@ static const loom_xdna_register_field_id_t
         LOOM_XDNA_REGISTER_FIELD_SHIM_NOC_DMA_BD_WORD4_D1_WRAP,
 };
 
-static_assert(IREE_ARRAYSIZE(loom_aie2p_program_shim_dma_step_fields) ==
-                  LOOM_AIE2P_ARRAY_BINDING_DMA_DIMENSION_COUNT,
-              "one shim DMA step field is required per address dimension");
+static_assert(IREE_ARRAYSIZE(loom_aie2p_program_shim_dma_step_fields) <=
+                  LOOM_AIE2P_ARRAY_BINDING_DMA_DIMENSION_CAPACITY,
+              "retained dimensions must fit every shim DMA step field");
 static_assert(IREE_ARRAYSIZE(loom_aie2p_program_shim_dma_wrap_fields) + 1u ==
-                  LOOM_AIE2P_ARRAY_BINDING_DMA_DIMENSION_COUNT,
+                  IREE_ARRAYSIZE(loom_aie2p_program_shim_dma_step_fields),
               "the outermost shim DMA address dimension does not wrap");
 
 static uint32_t loom_aie2p_program_compute_dma_buffer_descriptor_address(
@@ -839,9 +833,7 @@ static void loom_aie2p_program_build_shim_dma_descriptor(
         &words[word_index]);
     if (dimension->wrap != 0) {
       loom_aie2p_program_encode_admitted_field(
-          loom_aie2p_program_shim_dma_wrap_fields[i],
-          loom_aie2p_program_encode_dma_wrap(dimension->wrap,
-                                             tile->dma.wrap_bits),
+          loom_aie2p_program_shim_dma_wrap_fields[i], dimension->wrap,
           &words[word_index]);
     }
   }

@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// External AIE2P array binding transfer planning.
+// AIE2P DMA transfer planning from endpoint storage geometry.
 
 #ifndef LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_ARRAY_BINDING_H_
 #define LOOM_TARGET_ARCH_AMD_XDNA_AIE2P_ARRAY_BINDING_H_
@@ -18,7 +18,7 @@
 extern "C" {
 #endif
 
-// Admits the physical shim DMA transfer for retained external storage geometry.
+// Admits a DMA transfer for retained endpoint storage geometry and tile facts.
 // Logical topology validation has proved the trailing record rank and sequence
 // count. This consumes exact coordinates; it does not resolve source IR or
 // facts. Returns false with a static reason when native DMA cannot express the

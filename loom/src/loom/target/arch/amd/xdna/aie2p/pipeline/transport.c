@@ -85,8 +85,7 @@ static bool loom_aie2p_native_descriptor(
           step[i], layout.dma_dimensions[i].step_size - 1);
       if (i + 1 < layout.dma_dimension_count) {
         words[3 + i] |= loom_xdna_register_field_encode_admitted(
-            wrap[i],
-            layout.dma_dimensions[i].wrap & ((1u << dma->wrap_bits) - 1));
+            wrap[i], layout.dma_dimensions[i].wrap);
       }
     }
   } else if (kind == LOOM_XDNA_TILE_KIND_MEMORY) {
@@ -106,8 +105,7 @@ static bool loom_aie2p_native_descriptor(
           step[i], layout.dma_dimensions[i].step_size - 1);
       if (i + 1 < layout.dma_dimension_count) {
         words[2 + i] |= loom_xdna_register_field_encode_admitted(
-            wrap[i],
-            layout.dma_dimensions[i].wrap & ((1u << dma->wrap_bits) - 1));
+            wrap[i], layout.dma_dimensions[i].wrap);
       }
     }
   } else {
@@ -125,8 +123,7 @@ static bool loom_aie2p_native_descriptor(
           step[i], layout.dma_dimensions[i].step_size - 1);
       if (i + 1 < layout.dma_dimension_count) {
         words[3] |= loom_xdna_register_field_encode_admitted(
-            wrap[i],
-            layout.dma_dimensions[i].wrap & ((1u << dma->wrap_bits) - 1));
+            wrap[i], layout.dma_dimensions[i].wrap);
       }
     }
   }

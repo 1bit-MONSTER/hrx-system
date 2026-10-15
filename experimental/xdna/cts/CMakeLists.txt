@@ -121,6 +121,36 @@ endif()
 
 iree_py_library(
   NAME
+    dma_geometry_test
+  MAIN
+    "dma_geometry_test.py"
+  SRCS
+    "dma_geometry_test.py"
+)
+
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+iree_execution_test_suite(
+  NAME
+    dma_geometry_npu2_test
+  MANIFESTS
+    "dma_geometry_npu2.test.json"
+  TOOLS
+    "amdf-enumerate=libamdf::examples::enumerate"
+    "check-geometry=::dma_geometry_test"
+    "iree-xdna-run=iree::experimental::xdna::iree-xdna-run"
+    "loom-compile=loom::tools::loom-compile"
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.xdna"
+    "iree-run-requirement=libamdf.resource.xdna"
+    "runtime-resource=amd-xdna"
+  RESOURCE_GROUP
+    gpu-device
+)
+endif()
+
+iree_py_library(
+  NAME
     assembly_pack_cases
   MAIN
     "assembly_pack_cases.py"
