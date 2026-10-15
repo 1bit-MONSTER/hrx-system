@@ -11,7 +11,6 @@
 #include <cstdlib>
 #include <string>
 #include <thread>
-#include <tuple>
 #include <utility>
 
 #include "iree/async/proactor.h"
@@ -114,19 +113,33 @@ struct ImageGate {
 // order.
 class ImageServiceFixture : public ::testing::Test {
  protected:
-  void Initialize(uint32_t worker_count, bool independent) {
-    IREE_ASSERT_OK(
-        loom_serve_host_create(worker_count, nullptr, host_allocator_, &host_));
+  static iree_status_t AllocateGroup(uint32_t worker_count,
+                                     iree_host_size_t device_count,
+                                     loom_serve_device_group_t** out_group) {
+    *out_group = nullptr;
+    loom_serve_host_t* host = nullptr;
+    iree_status_t status = loom_serve_host_create(
+        worker_count, nullptr, iree_allocator_system(), &host);
     iree_hal_driver_t* driver = nullptr;
-    IREE_ASSERT_OK(
-        loom_serve_test_driver_create(host_, host_allocator_, &driver));
+    if (iree_status_is_ok(status)) {
+      status =
+          loom_serve_test_driver_create(host, iree_allocator_system(), &driver);
+    }
     const auto uri = loom_serve_test_device()->device_uri;
     const loom_serve_device_options_t options[] = {
         {.driver = driver, .uri = uri}, {.driver = driver, .uri = uri}};
-    iree_status_t status = loom_serve_device_group_allocate(
-        host_, independent ? 2 : 1, options, host_allocator_, &group_);
+    if (iree_status_is_ok(status)) {
+      status = loom_serve_device_group_allocate(
+          host, device_count, options, iree_allocator_system(), out_group);
+    }
     iree_hal_driver_release(driver);
-    IREE_ASSERT_OK(status);
+    loom_serve_host_release(host);
+    return status;
+  }
+
+  void Initialize(loom_serve_device_group_t* group) {
+    group_ = group;
+    host_ = loom_serve_device_host(loom_serve_device_group_at(group_, 0));
     for (iree_host_size_t i = 0; i < loom_serve_device_group_count(group_);
          ++i) {
       IREE_ASSERT_OK(loom_serve_device_create_execution(
@@ -169,8 +182,11 @@ class ImageServiceFixture : public ::testing::Test {
       }
     }
     iree_hal_semaphore_release(predecessor_);
-    IREE_EXPECT_OK(loom_serve_device_group_free(group_));
-    loom_serve_host_release(host_);
+    for (iree_host_size_t i = 0; i < loom_serve_device_group_count(group_);
+         ++i) {
+      IREE_EXPECT_OK(
+          loom_serve_device_trim(loom_serve_device_group_at(group_, i), 0));
+    }
   }
 
   void ReleaseDependency(bool fail = false) {
@@ -326,9 +342,9 @@ class ImageServiceFixture : public ::testing::Test {
 
   // Allocator shared by every fixture-owned production object.
   const iree_allocator_t host_allocator_ = iree_allocator_system();
-  // CPU executor and asynchronous I/O infrastructure.
+  // Borrowed suite CPU executor and asynchronous I/O infrastructure.
   loom_serve_host_t* host_ = nullptr;
-  // One device group, optionally with a second independent placement.
+  // Borrowed suite group, optionally with a second independent placement.
   loom_serve_device_group_t* group_ = nullptr;
   // Independently drained execution timelines; the second may be absent.
   loom_serve_execution_t* executions_[2] = {};
@@ -358,17 +374,50 @@ class ImageServiceFixture : public ::testing::Test {
   uint64_t cursor_ = 0;
 };
 
+template <uint32_t WorkerCount, iree_host_size_t DeviceCount>
+class SharedImageServiceFixture : public ImageServiceFixture {
+ protected:
+  static void SetUpTestSuite() {
+    IREE_ASSERT_OK(AllocateGroup(WorkerCount, DeviceCount, &shared_group_));
+  }
+
+  static void TearDownTestSuite() {
+    IREE_EXPECT_OK(loom_serve_device_group_free(shared_group_));
+    shared_group_ = nullptr;
+  }
+
+  void InitializeSharedGroup() {
+    ASSERT_NO_FATAL_FAILURE(Initialize(shared_group_));
+  }
+
+ private:
+  // One physical device topology shared by every case in the concrete suite.
+  inline static loom_serve_device_group_t* shared_group_ = nullptr;
+};
+
 enum class CompletionMode { kResponse, kShutdown, kDeviceFailure };
 
-class ImageServiceTest : public ImageServiceFixture,
-                         public ::testing::WithParamInterface<
-                             std::tuple<CompletionMode, uint32_t>> {
+template <uint32_t WorkerCount>
+class ImageServiceTestBase : public SharedImageServiceFixture<WorkerCount, 1> {
  protected:
+  using ImageServiceFixture::device_failed_;
+  using ImageServiceFixture::ExpectCompletion;
+  using ImageServiceFixture::fail_listener_allocations_;
+  using ImageServiceFixture::gates_;
+  using ImageServiceFixture::Get;
+  using ImageServiceFixture::http_;
+  using ImageServiceFixture::ReleaseDependency;
+  using ImageServiceFixture::SendImage;
+  using ImageServiceFixture::server_;
+  using ImageServiceFixture::services_;
+  using ImageServiceFixture::WaitEvent;
+
   void SetUp() override {
-    ASSERT_NO_FATAL_FAILURE(Initialize(std::get<1>(GetParam()), false));
-    gates_[0].execution = executions_[0];
-    ASSERT_NO_FATAL_FAILURE(AddImage(0, IREE_SV("image-witness"), 1000000));
-    Start(1, 1);
+    ASSERT_NO_FATAL_FAILURE(this->InitializeSharedGroup());
+    this->gates_[0].execution = this->executions_[0];
+    ASSERT_NO_FATAL_FAILURE(
+        this->AddImage(0, IREE_SV("image-witness"), 1000000));
+    this->Start(1, 1);
   }
 
   void ExerciseCompletion(CompletionMode mode) {
@@ -459,11 +508,23 @@ class ImageServiceTest : public ImageServiceFixture,
   }
 };
 
-TEST_P(ImageServiceTest, HttpAndHeartbeatStayLiveDuringDeviceWait) {
-  ExerciseCompletion(std::get<0>(GetParam()));
+class ImageServiceTest : public ImageServiceTestBase<1> {};
+
+class ImageParallelServiceTest : public ImageServiceTestBase<4> {};
+
+TEST_F(ImageServiceTest, ResponseAndHeartbeatStayLiveDuringDeviceWait) {
+  ExerciseCompletion(CompletionMode::kResponse);
 }
 
-TEST_P(ImageServiceTest, TransportFailureReleasesHeldDeviceDependency) {
+TEST_F(ImageServiceTest, ShutdownAndHeartbeatStayLiveDuringDeviceWait) {
+  ExerciseCompletion(CompletionMode::kShutdown);
+}
+
+TEST_F(ImageServiceTest, DeviceFailureAndHeartbeatStayLiveDuringDeviceWait) {
+  ExerciseCompletion(CompletionMode::kDeviceFailure);
+}
+
+TEST_F(ImageServiceTest, TransportFailureReleasesHeldDeviceDependency) {
   fail_listener_allocations_.store(true);
   ::testing::TestPartResultArray failures;
   {
@@ -482,7 +543,7 @@ TEST_P(ImageServiceTest, TransportFailureReleasesHeldDeviceDependency) {
   EXPECT_EQ(gates_[0].events.load() & ImageGate::kSubmitted, 0u);
 }
 
-TEST_P(ImageServiceTest, TransportFailureTerminatesHeartbeatWait) {
+TEST_F(ImageServiceTest, TransportFailureTerminatesHeartbeatWait) {
   fail_listener_allocations_.store(true);
   ::testing::TestPartResultArray failures;
   {
@@ -507,27 +568,34 @@ TEST_P(ImageServiceTest, TransportFailureTerminatesHeartbeatWait) {
   EXPECT_EQ(gates_[0].events.load() & ImageGate::kSubmitted, 0u);
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    Completion, ImageServiceTest,
-    ::testing::Combine(::testing::Values(CompletionMode::kResponse,
-                                         CompletionMode::kShutdown,
-                                         CompletionMode::kDeviceFailure),
-                       ::testing::Values(1u, 4u)));
+TEST_F(ImageParallelServiceTest, ResponseCompletesWithFourWorkers) {
+  ExerciseCompletion(CompletionMode::kResponse);
+}
 
 enum class AdmissionMode { kResponse, kCancel, kShutdown, kIndependent };
 
-class ImageAdmissionTest : public ImageServiceFixture,
-                           public ::testing::WithParamInterface<
-                               std::tuple<AdmissionMode, uint32_t>> {
+template <uint32_t WorkerCount, iree_host_size_t DeviceCount>
+class ImageAdmissionTestBase
+    : public SharedImageServiceFixture<WorkerCount, DeviceCount> {
  protected:
+  using ImageServiceFixture::fail_listener_allocations_;
+  using ImageServiceFixture::gates_;
+  using ImageServiceFixture::GeneratedEvents;
+  using ImageServiceFixture::Get;
+  using ImageServiceFixture::http_;
+  using ImageServiceFixture::occupied_;
+  using ImageServiceFixture::ReleaseDependency;
+  using ImageServiceFixture::RetireImages;
+  using ImageServiceFixture::SendImage;
+  using ImageServiceFixture::server_;
+
   void SetUp() override {
-    const bool independent =
-        std::get<0>(GetParam()) == AdmissionMode::kIndependent;
-    ASSERT_NO_FATAL_FAILURE(Initialize(std::get<1>(GetParam()), independent));
+    constexpr bool independent = DeviceCount == 2;
+    ASSERT_NO_FATAL_FAILURE(this->InitializeSharedGroup());
     if (independent) {
-      auto* first = loom_serve_device_group_at(group_, 0);
-      auto* second = loom_serve_device_group_at(group_, 1);
-      EXPECT_EQ(loom_serve_device_group_count(group_), 2u);
+      auto* first = loom_serve_device_group_at(this->group_, 0);
+      auto* second = loom_serve_device_group_at(this->group_, 1);
+      EXPECT_EQ(loom_serve_device_group_count(this->group_), 2u);
       EXPECT_EQ(loom_serve_device_group(first),
                 loom_serve_device_group(second));
       EXPECT_NE(loom_serve_device_residency_cache(first),
@@ -535,12 +603,13 @@ class ImageAdmissionTest : public ImageServiceFixture,
     }
     for (size_t i = 0; i < 2; ++i) {
       const bool separate = i == 1 && independent;
-      gates_[i].execution = separate ? executions_[1] : executions_[0];
-      gates_[i].occupied = separate ? nullptr : &occupied_;
+      this->gates_[i].execution =
+          separate ? this->executions_[1] : this->executions_[0];
+      this->gates_[i].occupied = separate ? nullptr : &this->occupied_;
       ASSERT_NO_FATAL_FAILURE(
-          AddImage(i, i == 0 ? IREE_SV("first") : IREE_SV("second"), 0));
+          this->AddImage(i, i == 0 ? IREE_SV("first") : IREE_SV("second"), 0));
     }
-    Start(2, 8);
+    this->Start(2, 8);
   }
 
   void ExerciseAdmission(AdmissionMode mode) {
@@ -606,11 +675,30 @@ class ImageAdmissionTest : public ImageServiceFixture,
   }
 };
 
-TEST_P(ImageAdmissionTest, PreparedPayloadWaitsWithoutPinningSharedCapacity) {
-  ExerciseAdmission(std::get<0>(GetParam()));
+class ImageAdmissionTest : public ImageAdmissionTestBase<1, 1> {};
+
+class ImageIndependentAdmissionTest : public ImageAdmissionTestBase<1, 2> {};
+
+class ImageParallelAdmissionTest : public ImageAdmissionTestBase<4, 1> {};
+
+TEST_F(ImageAdmissionTest, ResponseWaitsWithoutPinningSharedCapacity) {
+  ExerciseAdmission(AdmissionMode::kResponse);
 }
 
-TEST_P(ImageAdmissionTest, TransportFailureTerminatesDependencyWait) {
+TEST_F(ImageAdmissionTest, CancellationWaitsWithoutPinningSharedCapacity) {
+  ExerciseAdmission(AdmissionMode::kCancel);
+}
+
+TEST_F(ImageAdmissionTest, ShutdownWaitsWithoutPinningSharedCapacity) {
+  ExerciseAdmission(AdmissionMode::kShutdown);
+}
+
+TEST_F(ImageIndependentAdmissionTest,
+       IndependentDeviceWaitsWithoutPinningSharedCapacity) {
+  ExerciseAdmission(AdmissionMode::kIndependent);
+}
+
+TEST_F(ImageAdmissionTest, TransportFailureTerminatesDependencyWait) {
   fail_listener_allocations_.store(true);
   ::testing::TestPartResultArray failures;
   {
@@ -618,7 +706,7 @@ TEST_P(ImageAdmissionTest, TransportFailureTerminatesDependencyWait) {
         ::testing::ScopedFakeTestPartResultReporter::
             INTERCEPT_ONLY_CURRENT_THREAD,
         &failures);
-    ExerciseAdmission(std::get<0>(GetParam()));
+    ExerciseAdmission(AdmissionMode::kResponse);
   }
   ASSERT_EQ(failures.size(), 1);
   EXPECT_TRUE(failures.GetTestPartResult(0).fatally_failed());
@@ -629,12 +717,8 @@ TEST_P(ImageAdmissionTest, TransportFailureTerminatesDependencyWait) {
   EXPECT_EQ(gates_[0].events.load() & ImageGate::kSubmitted, 0u);
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    Capacity, ImageAdmissionTest,
-    ::testing::Combine(::testing::Values(AdmissionMode::kResponse,
-                                         AdmissionMode::kCancel,
-                                         AdmissionMode::kShutdown,
-                                         AdmissionMode::kIndependent),
-                       ::testing::Values(1u, 4u)));
+TEST_F(ImageParallelAdmissionTest, ResponseCompletesWithFourWorkers) {
+  ExerciseAdmission(AdmissionMode::kResponse);
+}
 
 }  // namespace
