@@ -28,16 +28,48 @@ endif()
 if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
 loom_cc_library(
   NAME
+    check_source_low
+  HDRS
+    "check/source_low.h"
+  SRCS
+    "check/source_low.c"
+  DEPS
+    iree::base
+    loom::binding::c::loomc
+    loom::binding::c::target::spirv
+    loom::tools::loom-check::execute
+    loom::tools::loom-check::source_low
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
+loom_cc_library(
+  NAME
     check_provider
   HDRS
     "check/provider.h"
   SRCS
     "check/provider.c"
   DEPS
+    ::check_source_low
     ::loom_check
     iree::base
     loom::tools::loom-check::provider
   PUBLIC
+)
+endif()
+
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
+iree_execution_test_suite(
+  NAME
+    check_source_low_test
+  MANIFESTS
+    "check/source_low.test.json"
+  TOOLS
+    "loom-check=loom::tools::loom-check"
+  LABELS
+    "hostonly"
 )
 endif()
 
@@ -312,6 +344,7 @@ loom_test_module(
     "test/spirv_vulkan_hal_actual.loom"
     "test/spirv_vulkan_integer_hal_actual.loom"
     "test/spirv_vulkan_quantized_hal_actual.loom"
+    "test/spirv_vulkan_scalar_abi.loom"
     "test/spirv_vulkan_vector_float.loom"
     "test/spirv_vulkan_workgroup_offsets.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/checked_benchmarks/moe_routed_combine_loop_f32.loom"
@@ -328,6 +361,98 @@ loom_execution_test(
   RUNNER_ARGS
     "--device=vulkan"
     "--vulkan_validation_layers=false"
+  LABELS
+    "iree-build-requirement=loom.target.arch.spirv"
+    "iree-build-requirement=loom.emit.spirv"
+    "iree-build-requirement=loom.execute.iree_hal"
+    "iree-build-requirement=runtime.hal.vulkan"
+    "iree-run-requirement=vulkan.resource.device"
+    "runtime-resource=vulkan-device"
+    "loom-execution-profile=spirv_vulkan_hardware"
+    "loom-target-family=spirv"
+    "loom-target-class=gpu"
+    "loom-executor=hardware"
+  RESOURCE_GROUP
+    "gpu-device"
+)
+endif()
+endif()
+
+if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
+loom_test_module(
+  NAME
+    cooperative_initializer_tests_module
+  SRCS
+    "test/cooperative_initializers.loom"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV)
+if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN)
+loom_execution_test(
+  NAME
+    cooperative_initializer_tests_carrier_1_execute_spirv_vulkan_hardware_test
+  CORRECTNESS_ONLY
+  MODULE
+    "::cooperative_initializer_tests_module"
+  RUNNER_ARGS
+    "--device=vulkan"
+    "--vulkan_validation_layers=false"
+    "--config=initializer.carrier_width=1"
+  LABELS
+    "iree-build-requirement=loom.target.arch.spirv"
+    "iree-build-requirement=loom.emit.spirv"
+    "iree-build-requirement=loom.execute.iree_hal"
+    "iree-build-requirement=runtime.hal.vulkan"
+    "iree-run-requirement=vulkan.resource.device"
+    "runtime-resource=vulkan-device"
+    "loom-execution-profile=spirv_vulkan_hardware"
+    "loom-target-family=spirv"
+    "loom-target-class=gpu"
+    "loom-executor=hardware"
+  RESOURCE_GROUP
+    "gpu-device"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN)
+loom_execution_test(
+  NAME
+    cooperative_initializer_tests_carrier_4_execute_spirv_vulkan_hardware_test
+  CORRECTNESS_ONLY
+  MODULE
+    "::cooperative_initializer_tests_module"
+  RUNNER_ARGS
+    "--device=vulkan"
+    "--vulkan_validation_layers=false"
+    "--config=initializer.carrier_width=4"
+  LABELS
+    "iree-build-requirement=loom.target.arch.spirv"
+    "iree-build-requirement=loom.emit.spirv"
+    "iree-build-requirement=loom.execute.iree_hal"
+    "iree-build-requirement=runtime.hal.vulkan"
+    "iree-run-requirement=vulkan.resource.device"
+    "runtime-resource=vulkan-device"
+    "loom-execution-profile=spirv_vulkan_hardware"
+    "loom-target-family=spirv"
+    "loom-target-class=gpu"
+    "loom-executor=hardware"
+  RESOURCE_GROUP
+    "gpu-device"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN)
+loom_execution_test(
+  NAME
+    cooperative_initializer_tests_carrier_8_execute_spirv_vulkan_hardware_test
+  CORRECTNESS_ONLY
+  MODULE
+    "::cooperative_initializer_tests_module"
+  RUNNER_ARGS
+    "--device=vulkan"
+    "--vulkan_validation_layers=false"
+    "--config=initializer.carrier_width=8"
   LABELS
     "iree-build-requirement=loom.target.arch.spirv"
     "iree-build-requirement=loom.emit.spirv"

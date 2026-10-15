@@ -38,7 +38,7 @@ from loom.target.arch.spirv.builtins import (
     BUILTIN_INDEX_QUERIES,
     BUILTIN_SCALAR_INDEX_QUERIES,
 )
-from loom.target.arch.spirv.cooperative_matrix import COOPERATIVE_MATRIX_CASES
+from loom.target.arch.spirv.cooperative_matrix import COOPERATIVE_MATRIX_CASES, COOPERATIVE_MATRIX_TYPES
 from loom.target.arch.spirv.descriptors import SPIRV_LOGICAL_CORE_DESCRIPTOR_SET
 from loom.target.arch.spirv.extended_math import EXTENDED_MATH_INSTRUCTIONS
 from loom.target.arch.spirv.ordinary_vector import (
@@ -360,6 +360,20 @@ def test_cooperative_matrix_memory_packets_preserve_runtime_stride() -> None:
             assert "LOOM_SPIRV_VALUE_CLASS_SCALAR" in store.operand_types[2]
             assert "LOOM_SPIRV_SCALAR_TYPE_U32" in store.operand_types[2]
             assert store.has_immediate
+
+
+def test_cooperative_constructors_use_one_exact_scalar_component() -> None:
+    rows = {row.descriptor_key: row for row in _packet_rows()}
+    for value in COOPERATIVE_MATRIX_TYPES:
+        row = rows[value.constructor_key]
+        assert row.form == "LOOM_SPIRV_PACKET_FORM_COMPOSITE_CONSTRUCT"
+        assert row.opcode == "LOOM_SPIRV_OP_COMPOSITE_CONSTRUCT"
+        assert len(row.operand_types) == 1
+        assert "LOOM_SPIRV_VALUE_CLASS_SCALAR" in row.operand_types[0]
+        assert value.scalar.scalar_enum in row.operand_types[0]
+        assert "LOOM_SPIRV_VALUE_CLASS_COOPERATIVE_MATRIX" in row.result_type
+        assert value.scalar.scalar_enum in row.result_type
+        assert value.use_c_expression in row.result_type
 
 
 def test_generation_offsets_storage_buffer_address_before_pointer_conversion() -> None:

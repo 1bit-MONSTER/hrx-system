@@ -135,6 +135,7 @@ iree_py_test(
   SRCS
     "comparison_test.py"
     "conversion_test.py"
+    "cooperative_matrix_test.py"
     "float_narrowing_test.py"
     "float_payload_test.py"
     "index_test.py"
@@ -143,6 +144,7 @@ iree_py_test(
     "../../../../tools/pytest_style_runner.py"
   ARGS
     "loom.target.arch.spirv.contracts.comparison_test"
+    "loom.target.arch.spirv.contracts.cooperative_matrix_test"
     "loom.target.arch.spirv.contracts.conversion_test"
     "loom.target.arch.spirv.contracts.float_narrowing_test"
     "loom.target.arch.spirv.contracts.float_payload_test"

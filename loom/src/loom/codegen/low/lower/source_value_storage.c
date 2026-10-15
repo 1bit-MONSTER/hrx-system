@@ -34,6 +34,24 @@ bool loom_low_lower_source_value_storage_op_requires_emission(
   return loom_traits_may_read(traits) || loom_traits_may_write(traits);
 }
 
+bool loom_low_lower_source_value_storage_op_is_identity(
+    const loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_trait_flags_t traits) {
+  if ((!loom_traits_are_fact_identity(traits) &&
+       !loom_traits_are_value_alias(traits)) ||
+      loom_low_lower_source_value_storage_op_requires_emission(source_op,
+                                                               traits)) {
+    return false;
+  }
+  if (loom_traits_are_fact_identity(traits)) {
+    return true;
+  }
+  const loom_target_contract_index_t* index = context->policy->contract.index;
+  return index == NULL ||
+         loom_target_contract_index_lookup_kind(index, source_op->kind)
+                 .case_count == 0;
+}
+
 static void loom_low_lower_mark_value_storage_required(
     loom_low_lower_context_t* context, loom_value_id_t source_value_id) {
   const loom_low_lower_value_flags_t required_flags =
@@ -66,6 +84,12 @@ static void loom_low_lower_mark_value_storage_required(
     }
     const loom_trait_flags_t traits = defining_op->traits;
     const uint16_t result_ordinal = loom_value_def_index(source_value);
+    if ((loom_traits_are_fact_identity(traits) ||
+         loom_traits_are_value_alias(traits)) &&
+        !loom_low_lower_source_value_storage_op_is_identity(
+            context, defining_op, traits)) {
+      return;
+    }
     if (loom_traits_are_fact_identity(traits)) {
       IREE_ASSERT_EQ(defining_op->operand_count, defining_op->result_count);
       IREE_ASSERT_LT(result_ordinal, defining_op->operand_count);

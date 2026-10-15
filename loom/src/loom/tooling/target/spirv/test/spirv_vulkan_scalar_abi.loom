@@ -1,0 +1,147 @@
+// Scalar argument payloads retain low bits, signs, and subnormals across the
+// raw-BDA word ABI. Distinct adjacent arguments expose offset and width errors.
+spirv.target<vulkan1_3> @target {abi = hal_kernel}
+
+kernel.def target(@target) @scalar_payload_i8() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%value0: i8, %value1: i8, %value2: i8, %output0: buffer, %output1: buffer, %output2: buffer) {
+  %base = index.constant 0 : offset
+  %aligned0 = buffer.assume.alignment %output0 {minimum_alignment = 1} : buffer
+  %view0 = buffer.view %aligned0[%base] : buffer -> view<1xi8>
+  view.store %value0, %view0[0] : i8, view<1xi8>
+  %aligned1 = buffer.assume.alignment %output1 {minimum_alignment = 1} : buffer
+  %view1 = buffer.view %aligned1[%base] : buffer -> view<1xi8>
+  view.store %value1, %view1[0] : i8, view<1xi8>
+  %aligned2 = buffer.assume.alignment %output2 {minimum_alignment = 1} : buffer
+  %view2 = buffer.view %aligned2[%base] : buffer -> view<1xi8>
+  view.store %value2, %view2[0] : i8, view<1xi8>
+  kernel.return
+}
+
+check.case @scalar_payload_i8_case {
+  check.requires<hal.vulkan.feature> {feature = "shader_int8"}
+  check.requires<hal.vulkan.feature> {feature = "storage_buffer_8bit_access"}
+  %value0 = check.literal value(-128) : i8
+  %output0 = check.generate.fill value(19) : tensor<1xi8>
+  %expected0 = check.generate.fill value(-128) : tensor<1xi8>
+  %value1 = check.literal value(127) : i8
+  %output1 = check.generate.fill value(19) : tensor<1xi8>
+  %expected1 = check.generate.fill value(127) : tensor<1xi8>
+  %value2 = check.literal value(-91) : i8
+  %output2 = check.generate.fill value(19) : tensor<1xi8>
+  %expected2 = check.generate.fill value(-91) : tensor<1xi8>
+  kernel.launch @scalar_payload_i8(%value0, %value1, %value2, %output0, %output1, %output2) : (i8, i8, i8, tensor<1xi8>, tensor<1xi8>, tensor<1xi8>)
+  check.expect.bitwise actual(%output0) expected(%expected0) : tensor<1xi8>
+  check.expect.bitwise actual(%output1) expected(%expected1) : tensor<1xi8>
+  check.expect.bitwise actual(%output2) expected(%expected2) : tensor<1xi8>
+  check.return
+}
+
+kernel.def target(@target) @scalar_payload_i16() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%value0: i16, %value1: i16, %value2: i16, %output0: buffer, %output1: buffer, %output2: buffer) {
+  %base = index.constant 0 : offset
+  %aligned0 = buffer.assume.alignment %output0 {minimum_alignment = 2} : buffer
+  %view0 = buffer.view %aligned0[%base] : buffer -> view<1xi16>
+  view.store %value0, %view0[0] : i16, view<1xi16>
+  %aligned1 = buffer.assume.alignment %output1 {minimum_alignment = 2} : buffer
+  %view1 = buffer.view %aligned1[%base] : buffer -> view<1xi16>
+  view.store %value1, %view1[0] : i16, view<1xi16>
+  %aligned2 = buffer.assume.alignment %output2 {minimum_alignment = 2} : buffer
+  %view2 = buffer.view %aligned2[%base] : buffer -> view<1xi16>
+  view.store %value2, %view2[0] : i16, view<1xi16>
+  kernel.return
+}
+
+check.case @scalar_payload_i16_case {
+  check.requires<hal.vulkan.feature> {feature = "shader_int16"}
+  check.requires<hal.vulkan.feature> {feature = "storage_buffer_16bit_access"}
+  %value0 = check.literal value(-32768) : i16
+  %output0 = check.generate.fill value(19) : tensor<1xi16>
+  %expected0 = check.generate.fill value(-32768) : tensor<1xi16>
+  %value1 = check.literal value(32767) : i16
+  %output1 = check.generate.fill value(19) : tensor<1xi16>
+  %expected1 = check.generate.fill value(32767) : tensor<1xi16>
+  %value2 = check.literal value(-23101) : i16
+  %output2 = check.generate.fill value(19) : tensor<1xi16>
+  %expected2 = check.generate.fill value(-23101) : tensor<1xi16>
+  kernel.launch @scalar_payload_i16(%value0, %value1, %value2, %output0, %output1, %output2) : (i16, i16, i16, tensor<1xi16>, tensor<1xi16>, tensor<1xi16>)
+  check.expect.bitwise actual(%output0) expected(%expected0) : tensor<1xi16>
+  check.expect.bitwise actual(%output1) expected(%expected1) : tensor<1xi16>
+  check.expect.bitwise actual(%output2) expected(%expected2) : tensor<1xi16>
+  check.return
+}
+
+kernel.def target(@target) @scalar_payload_f16() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%value0: f16, %value1: f16, %value2: f16, %output0: buffer, %output1: buffer, %output2: buffer) {
+  %base = index.constant 0 : offset
+  %aligned0 = buffer.assume.alignment %output0 {minimum_alignment = 2} : buffer
+  %view0 = buffer.view %aligned0[%base] : buffer -> view<1xf16>
+  view.store %value0, %view0[0] : f16, view<1xf16>
+  %aligned1 = buffer.assume.alignment %output1 {minimum_alignment = 2} : buffer
+  %view1 = buffer.view %aligned1[%base] : buffer -> view<1xf16>
+  view.store %value1, %view1[0] : f16, view<1xf16>
+  %aligned2 = buffer.assume.alignment %output2 {minimum_alignment = 2} : buffer
+  %view2 = buffer.view %aligned2[%base] : buffer -> view<1xf16>
+  view.store %value2, %view2[0] : f16, view<1xf16>
+  kernel.return
+}
+
+check.case @scalar_payload_f16_case {
+  check.requires<hal.vulkan.feature> {feature = "shader_float16"}
+  check.requires<hal.vulkan.feature> {feature = "storage_buffer_16bit_access"}
+  %value0 = check.literal value(-0.0) : f16
+  %output0 = check.generate.fill value(19.0) : tensor<1xf16>
+  %expected0 = check.generate.fill value(-0.0) : tensor<1xf16>
+  %value1 = check.literal value(5.9604644775390625e-08) : f16
+  %output1 = check.generate.fill value(19.0) : tensor<1xf16>
+  %expected1 = check.generate.fill value(5.9604644775390625e-08) : tensor<1xf16>
+  %value2 = check.literal value(-7.25) : f16
+  %output2 = check.generate.fill value(19.0) : tensor<1xf16>
+  %expected2 = check.generate.fill value(-7.25) : tensor<1xf16>
+  kernel.launch @scalar_payload_f16(%value0, %value1, %value2, %output0, %output1, %output2) : (f16, f16, f16, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>)
+  check.expect.bitwise actual(%output0) expected(%expected0) : tensor<1xf16>
+  check.expect.bitwise actual(%output1) expected(%expected1) : tensor<1xf16>
+  check.expect.bitwise actual(%output2) expected(%expected2) : tensor<1xf16>
+  check.return
+}
+
+kernel.def target(@target) @scalar_payload_bf16() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%value0: bf16, %value1: bf16, %value2: bf16, %output0: buffer, %output1: buffer, %output2: buffer) {
+  %base = index.constant 0 : offset
+  %aligned0 = buffer.assume.alignment %output0 {minimum_alignment = 2} : buffer
+  %view0 = buffer.view %aligned0[%base] : buffer -> view<1xbf16>
+  view.store %value0, %view0[0] : bf16, view<1xbf16>
+  %aligned1 = buffer.assume.alignment %output1 {minimum_alignment = 2} : buffer
+  %view1 = buffer.view %aligned1[%base] : buffer -> view<1xbf16>
+  view.store %value1, %view1[0] : bf16, view<1xbf16>
+  %aligned2 = buffer.assume.alignment %output2 {minimum_alignment = 2} : buffer
+  %view2 = buffer.view %aligned2[%base] : buffer -> view<1xbf16>
+  view.store %value2, %view2[0] : bf16, view<1xbf16>
+  kernel.return
+}
+
+check.case @scalar_payload_bf16_case {
+  check.requires<hal.vulkan.feature> {feature = "shader_bfloat16_type"}
+  check.requires<hal.vulkan.feature> {feature = "storage_buffer_16bit_access"}
+  %value0 = check.literal value(-0.0) : bf16
+  %output0 = check.generate.fill value(19.0) : tensor<1xbf16>
+  %expected0 = check.generate.fill value(-0.0) : tensor<1xbf16>
+  %value1 = check.literal value(9.1835496157991212e-41) : bf16
+  %output1 = check.generate.fill value(19.0) : tensor<1xbf16>
+  %expected1 = check.generate.fill value(9.1835496157991212e-41) : tensor<1xbf16>
+  %value2 = check.literal value(-7.25) : bf16
+  %output2 = check.generate.fill value(19.0) : tensor<1xbf16>
+  %expected2 = check.generate.fill value(-7.25) : tensor<1xbf16>
+  kernel.launch @scalar_payload_bf16(%value0, %value1, %value2, %output0, %output1, %output2) : (bf16, bf16, bf16, tensor<1xbf16>, tensor<1xbf16>, tensor<1xbf16>)
+  check.expect.bitwise actual(%output0) expected(%expected0) : tensor<1xbf16>
+  check.expect.bitwise actual(%output1) expected(%expected1) : tensor<1xbf16>
+  check.expect.bitwise actual(%output2) expected(%expected2) : tensor<1xbf16>
+  check.return
+}

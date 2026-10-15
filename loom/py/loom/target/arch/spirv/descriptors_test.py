@@ -24,6 +24,7 @@ from loom.target.arch.spirv.builtins import (
 )
 from loom.target.arch.spirv.cooperative_matrix import (
     COOPERATIVE_MATRIX_CASES,
+    COOPERATIVE_MATRIX_TYPES,
     cooperative_matrix_descriptor_key,
 )
 from loom.target.arch.spirv.descriptors import SPIRV_LOGICAL_CORE_DESCRIPTOR_SET
@@ -316,6 +317,33 @@ def _extended_math_result_recipes() -> dict[str, AsmResultValueType]:
     return recipes
 
 
+def _cooperative_matrix_result_keys() -> list[str]:
+    keys = [matrix_type.constructor_key for matrix_type in COOPERATIVE_MATRIX_TYPES]
+    for case in COOPERATIVE_MATRIX_CASES:
+        keys.extend(
+            case.descriptor_key(
+                "op_cooperative_matrix_load_khr",
+                role=role,
+                memory_space=memory_space,
+            )
+            for role in ("lhs", "rhs", "init")
+            for memory_space in ("storage_buffer", "workgroup")
+        )
+        keys.append(
+            cooperative_matrix_descriptor_key(
+                "op_cooperative_matrix_mul_add_khr",
+                element=case.element,
+                m_size=case.m_size,
+                n_size=case.n_size,
+                k_size=case.k_size,
+                accumulator=case.accumulator,
+                scope="subgroup",
+                operand_mode=case.operand_mode,
+            )
+        )
+    return keys
+
+
 def test_result_asm_recipes_cover_every_spirv_descriptor_family() -> None:
     expected_recipes: dict[str, AsmResultValueType] = {}
     carrier_only_keys: set[str] = set()
@@ -502,28 +530,8 @@ def test_result_asm_recipes_cover_every_spirv_descriptor_family() -> None:
     add_carrier_only(f"spirv.op_uconvert.{raw_byte_suffix}.u32")
     add_carrier_only(f"spirv.op_uconvert.u32.{raw_byte_suffix}")
 
-    for case in COOPERATIVE_MATRIX_CASES:
-        for role in ("lhs", "rhs", "init"):
-            for memory_space in ("storage_buffer", "workgroup"):
-                add_carrier_only(
-                    case.descriptor_key(
-                        "op_cooperative_matrix_load_khr",
-                        role=role,
-                        memory_space=memory_space,
-                    )
-                )
-        add_carrier_only(
-            cooperative_matrix_descriptor_key(
-                "op_cooperative_matrix_mul_add_khr",
-                element=case.element,
-                m_size=case.m_size,
-                n_size=case.n_size,
-                k_size=case.k_size,
-                accumulator=case.accumulator,
-                scope="subgroup",
-                operand_mode=case.operand_mode,
-            )
-        )
+    for key in _cooperative_matrix_result_keys():
+        add_carrier_only(key)
     add_carrier_only("spirv.op_variable.function.ptr")
 
     actual_forms = {

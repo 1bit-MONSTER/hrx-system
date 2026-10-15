@@ -554,9 +554,9 @@ func.def target(@target) @index_shift_requires_bounded_amount(%input: index, %am
 
 spirv.target<vulkan1_3> @target
 
-func.def target(@target) @ordinary_vector_rejects_five_lanes() -> (vector<5xi32>) {
-  // ERROR@+1: TARGET/002 {field_name="result", actual_type="vector<5xi32>"}
+func.def target(@target) @ordinary_vector_rejects_wide_return() -> (vector<5xi32>) {
   %value = vector.constant 0 : vector<5xi32>
+  // ERROR@+1: TARGET/033 {field_name="source", actual_type="vector<5xi32>"}
   func.return %value : vector<5xi32>
 }
 

@@ -25,6 +25,13 @@ extern "C" {
 bool loom_low_lower_source_value_storage_op_requires_emission(
     const loom_op_t* source_op, loom_trait_flags_t traits);
 
+// Returns true when a source identity also aliases its target storage. Fact
+// refinements preserve storage; an explicit value-alias target contract may own
+// a physical realization at its boundary.
+bool loom_low_lower_source_value_storage_op_is_identity(
+    const loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_trait_flags_t traits);
+
 // Returns true when |source_value_id| needs a materialized target-Low result.
 bool loom_low_lower_source_value_storage_result_required(
     const loom_low_lower_context_t* context, loom_value_id_t source_value_id);

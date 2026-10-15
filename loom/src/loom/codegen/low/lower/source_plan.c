@@ -176,9 +176,7 @@ static bool loom_low_lower_supported_structured_source_op(
 static bool loom_low_lower_op_is_structural(
     const loom_low_lower_context_t* context, const loom_op_t* op,
     loom_trait_flags_t traits, bool is_callable_exit) {
-  if ((loom_traits_are_fact_identity(traits) ||
-       loom_traits_are_value_alias(traits)) &&
-      !loom_low_lower_source_value_storage_op_requires_emission(op, traits)) {
+  if (loom_low_lower_source_value_storage_op_is_identity(context, op, traits)) {
     return true;
   }
   if (is_callable_exit) {

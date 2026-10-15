@@ -37,6 +37,7 @@ loom_target_contract_table_cc_libraries(
     loom::ops::vector
     loom::ops::view
     loom::target::arch::spirv::descriptors::descriptors_ids
+    loom::target::arch::spirv::lower::cooperative_initializer
 )
 endif()
 

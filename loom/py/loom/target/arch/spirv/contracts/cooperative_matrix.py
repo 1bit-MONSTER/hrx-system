@@ -4,7 +4,9 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Cooperative matrix memory contracts over retained source geometry."""
+"""Cooperative matrix construction and memory over retained source facts."""
+
+from dataclasses import replace
 
 from loom.dialect.vector import defs as vector
 from loom.target.arch.spirv.contracts.descriptor_rule import (
@@ -24,22 +26,159 @@ from loom.target.arch.spirv.contracts.memory import (
 )
 from loom.target.arch.spirv.cooperative_matrix import (
     COOPERATIVE_MATRIX_CASES,
+    COOPERATIVE_MATRIX_TYPES,
     CooperativeMatrixCase,
+    CooperativeMatrixType,
 )
 from loom.target.arch.spirv.scalar_memory import StorageBufferScalar
 from loom.target.contracts import (
+    DescriptorEmitForm,
     DescriptorResultType,
     DescriptorRule,
+    EmitDescriptorOp,
     Guard,
+    Scalar,
     SourceMemoryAddressCoordinateType,
     SourceMemoryAddressLayout,
     SourceMemoryConstraint,
     SourceMemoryDynamicIndexSource,
     SourceMemoryOperation,
     SourceMemoryRootKind,
+    ValueAliasRule,
+    ValueMaterializer,
+    ValueProject,
     ValueRef,
     Vector,
     View,
+)
+
+COOPERATIVE_INITIALIZER_MATERIALIZER = ValueMaterializer(
+    name="spirv.cooperative_initializer_component",
+    can_materialize="loom_spirv_can_materialize_cooperative_initializer_component",
+    result_type="loom_spirv_cooperative_initializer_component_type",
+    materialize="loom_spirv_materialize_cooperative_initializer_component",
+    header="loom/target/arch/spirv/lower/cooperative_initializer.h",
+)
+
+
+def _initializer_rule(
+    matrix_type: CooperativeMatrixType, role: str, *, constant: bool, schema: bool
+) -> DescriptorRule:
+    scalar = matrix_type.scalar
+    construct = logical_core_descriptor(matrix_type.constructor_key)
+    descriptors = [construct]
+    guards = [
+        Guard.enum_attr_equals("role", role),
+        Guard.value_type(
+            "data",
+            Vector(
+                scalar.source_type,
+                minimum_lanes=1,
+                maximum_lanes="LOOM_DIM_MAX_STATIC_SIZE",
+            ),
+        ),
+        Guard.value_i64_range("rows", matrix_type.rows, matrix_type.rows),
+        Guard.value_i64_range("columns", matrix_type.columns, matrix_type.columns),
+        Guard.operand_segment_count("params", 1 if schema else 0),
+    ]
+    if schema:
+        guards.append(
+            Guard.value_storage_element_format(
+                "params", scalar.numeric_format_c_expression
+            )
+        )
+    emit = []
+    if constant:
+        scalar_constant = logical_core_descriptor(
+            f"spirv.op_constant.{scalar.source_type}"
+        )
+        descriptors.append(scalar_constant)
+        is_float = scalar.source_type in ("f16", "bf16", "f32")
+        guards.append(
+            Guard.value_exact_float("data")
+            if is_float
+            else Guard.value_exact_i64("data")
+        )
+        component = ValueRef.temporary("component")
+        immediate_suffix = "bits" if is_float else "value"
+        immediate_value = (
+            ValueProject.float_bits("data")
+            if is_float
+            else ValueProject.exact_i64("data")
+        )
+        emit.append(
+            EmitDescriptorOp(
+                descriptor=scalar_constant,
+                results={"dst": component},
+                result_types={"dst": DescriptorResultType()},
+                immediates={
+                    f"{scalar.source_type}_{immediate_suffix}": immediate_value
+                },
+                form=DescriptorEmitForm.CONST,
+            )
+        )
+    else:
+        guards.append(
+            Guard.uniform_element_origin_type("data", Scalar(scalar.source_type))
+        )
+        component = replace(
+            ValueRef.uniform_element_origin_operand("data"),
+            materializer=COOPERATIVE_INITIALIZER_MATERIALIZER.name,
+        )
+    if scalar.suffix != scalar.source_type:
+        bitcast = logical_core_descriptor(
+            f"spirv.op_bitcast.{scalar.source_type}.{scalar.suffix}"
+        )
+        descriptors.append(bitcast)
+        emit.append(
+            emit_descriptor_op(
+                descriptor=bitcast,
+                operands={"input": component},
+                results={"dst": ValueRef.temporary("unsigned_component")},
+                result_types={"dst": DescriptorResultType()},
+            )
+        )
+        component = ValueRef.temporary("unsigned_component")
+    emit.append(
+        emit_descriptor_op(
+            descriptor=construct,
+            operands={"component": component},
+            results={"dst": ValueRef.result("result")},
+        )
+    )
+    guards.extend(
+        (
+            *descriptor_feature_guards(*descriptors),
+            Guard.value_materializable(
+                "data", COOPERATIVE_INITIALIZER_MATERIALIZER.name
+            ),
+        )
+    )
+    return DescriptorRule(
+        source_op=vector.vector_fragment,
+        descriptor=construct,
+        guards=tuple(guards),
+        emit=tuple(emit),
+    )
+
+
+COOPERATIVE_MATRIX_INITIALIZER_RULES = (
+    *(
+        _initializer_rule(matrix_type, role, constant=constant, schema=schema)
+        for matrix_type in COOPERATIVE_MATRIX_TYPES
+        for role in matrix_type.source_roles
+        for schema in (
+            (True,) if matrix_type.scalar.suffix.startswith("u") else (False, True)
+        )
+        for constant in (True, False)
+    ),
+    # Loaded opaque fragments and ordinary physical interpretations retain their
+    # existing storage when no uniform constructor applies.
+    ValueAliasRule(
+        source_op=vector.vector_fragment,
+        source=ValueRef.operand("data"),
+        result=ValueRef.result("result"),
+    ),
 )
 
 

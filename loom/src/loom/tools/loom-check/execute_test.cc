@@ -1607,17 +1607,6 @@ TEST_F(ExecuteTest, EmitSourceLowRejectsIncompleteOrConflictingTargets) {
       "requires module, low, or none output");
 }
 
-TEST_F(ExecuteTest, EmitSourceLowImplicitEntryRejectsAmbiguousModules) {
-  for (const char* visibility : {"", "public "}) {
-    const std::string source =
-        std::string("// RUN: emit source-low target=vm:core\nfunc.def ") +
-        visibility + "@first() { func.return }\nfunc.def " + visibility +
-        "@second() { func.return }\n";
-    ExpectFirstFailsWithDetail(source.c_str(),
-                               "specify @function for an ambiguous module");
-  }
-}
-
 TEST_F(ExecuteTest, EmitSourceLowCanSuppressSuccessfulOutput) {
   loom_check_result_t result;
   IREE_ASSERT_OK(

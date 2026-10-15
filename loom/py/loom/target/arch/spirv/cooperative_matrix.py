@@ -274,3 +274,70 @@ COOPERATIVE_MATRIX_CASES = (
         property_storage_flags="STORAGE_BUFFER_OR_BDA",
     ),
 )
+
+
+@dataclass(frozen=True, slots=True)
+class CooperativeMatrixType:
+    """One native value type shared by the declared matrix operations."""
+
+    scalar: StorageBufferScalar
+    rows: int
+    columns: int
+    role: str
+
+    @property
+    def constructor_key(self) -> str:
+        return (
+            f"spirv.op_composite_construct.cooperative.{self.scalar.suffix}."
+            f"{self.rows}x{self.columns}.{self.role}"
+        )
+
+    @property
+    def feature_bits(self) -> int:
+        atoms = ["cooperative_matrix_khr"]
+        if self.scalar.source_type == "bf16":
+            atoms.append("bfloat16_cooperative_matrix_khr")
+        return feature_bits_value(atoms) | self.scalar.register_feature_bits
+
+    @property
+    def source_roles(self) -> tuple[str, ...]:
+        return ("init", "result") if self.role == "accumulator" else (self.role,)
+
+    @property
+    def use_c_expression(self) -> str:
+        return {
+            "lhs": "LOOM_SPIRV_COOPERATIVE_MATRIX_USE_MATRIX_AKHR",
+            "rhs": "LOOM_SPIRV_COOPERATIVE_MATRIX_USE_MATRIX_BKHR",
+            "accumulator": "LOOM_SPIRV_COOPERATIVE_MATRIX_USE_MATRIX_ACCUMULATOR_KHR",
+        }[self.role]
+
+
+# Distinct contractions can share a native accumulator type. Constructors are
+# properties of that type, independent of the contraction that consumes it.
+COOPERATIVE_MATRIX_TYPES = tuple(
+    dict.fromkeys(
+        matrix_type
+        for case in COOPERATIVE_MATRIX_CASES
+        if case.source_rule_enabled
+        for matrix_type in (
+            CooperativeMatrixType(
+                case.lhs_scalar, case.lhs_rows, case.lhs_columns, "lhs"
+            ),
+            CooperativeMatrixType(
+                case.rhs_scalar, case.rhs_rows, case.rhs_columns, "rhs"
+            ),
+            CooperativeMatrixType(
+                case.accumulator_scalar,
+                case.accumulator_rows,
+                case.accumulator_columns,
+                "accumulator",
+            ),
+            CooperativeMatrixType(
+                case.result_scalar,
+                case.accumulator_rows,
+                case.accumulator_columns,
+                "accumulator",
+            ),
+        )
+    )
+)

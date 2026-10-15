@@ -41,18 +41,18 @@ def test_every_owned_source_operation_has_a_closed_shape_matrix() -> None:
         for contract_case in SPIRV_ORDINARY_VECTOR_CONTRACT_CASES
     )
     assert case_counts == {
-        vector.vector_constant.name: 44,
+        vector.vector_constant.name: 55,
         vector.vector_bitcast.name: 140,
-        vector.vector_splat.name: 31,
+        vector.vector_splat.name: 32,
         vector.vector_from_elements.name: 31,
         vector.vector_extract.name: 31,
         vector.vector_insert.name: 31,
         scf.scf_select.name: 40,
     }
-    assert len(SPIRV_ORDINARY_VECTOR_CONTRACT_CASES) == 348
+    assert len(SPIRV_ORDINARY_VECTOR_CONTRACT_CASES) == 360
 
 
-def test_aliases_cover_singletons_and_identity_bit_layouts() -> None:
+def test_aliases_cover_singletons_uniform_carriers_and_identity_bit_layouts() -> None:
     alias_cases = tuple(
         contract_case
         for contract_case in SPIRV_ORDINARY_VECTOR_CONTRACT_CASES
@@ -65,7 +65,7 @@ def test_aliases_cover_singletons_and_identity_bit_layouts() -> None:
         vector.vector_insert,
         vector.vector_bitcast,
     }
-    assert len(alias_cases) == 36
+    assert len(alias_cases) == 37
 
 
 def test_bit_layout_contract_covers_the_exact_generated_matrix() -> None:

@@ -29,6 +29,7 @@ from loom.target.contracts import (
     AttrProject,
     ContractCase,
     DescriptorEmitForm,
+    DescriptorResultType,
     DescriptorRule,
     EmitDescriptorOp,
     Guard,
@@ -466,15 +467,23 @@ def _constant_immediates(
 
 def _constant_rule(
     component_type: OrdinaryVectorComponentType,
-    lane_count: int,
+    lane_count: int | None,
     *,
     boolean_value: int | None = None,
 ) -> DescriptorRule:
     scalar_descriptor = _constant_descriptor(
         component_type, boolean_value=boolean_value
     )
-    result_pattern = Vector(component_type.source_types, lanes=lane_count)
-    if lane_count == 1:
+    result_pattern = (
+        Vector(component_type.source_types, lanes=lane_count)
+        if lane_count is not None
+        else Vector(
+            component_type.source_types,
+            minimum_lanes=5,
+            maximum_lanes="LOOM_DIM_MAX_STATIC_SIZE",
+        )
+    )
+    if lane_count is None or lane_count == 1:
         return DescriptorRule(
             source_op=vector.vector_constant,
             descriptor=scalar_descriptor,
@@ -488,6 +497,7 @@ def _constant_rule(
                 _emit(
                     scalar_descriptor,
                     results={"dst": ValueRef.result("result")},
+                    result_types={"dst": DescriptorResultType()},
                     immediates=_constant_immediates(component_type),
                     form=DescriptorEmitForm.CONST,
                 ),
@@ -537,7 +547,7 @@ def _constant_rules() -> tuple[DescriptorRule, ...]:
             if component_type.kind == OrdinaryVectorComponentKind.BOOLEAN
             else (None,)
         )
-        for lane_count in (1, *NATIVE_ORDINARY_VECTOR_LANE_COUNTS):
+        for lane_count in (1, *NATIVE_ORDINARY_VECTOR_LANE_COUNTS, None):
             rules.extend(
                 _constant_rule(
                     component_type,
@@ -568,6 +578,24 @@ def _native_rules() -> tuple[DescriptorRule, ...]:
 
 SPIRV_ORDINARY_VECTOR_CONTRACT_CASES: tuple[ContractCase, ...] = (
     *_singleton_rules(),
+    # Wider ordinary operations are legalized before selection. A surviving
+    # uniform producer carries its one component for fact-based consumers.
+    ValueAliasRule(
+        source_op=vector.vector_splat,
+        source=ValueRef.operand("scalar"),
+        result=ValueRef.result("result"),
+        guards=(
+            Guard.value_type("scalar", _SOURCE_SCALAR_PATTERN),
+            Guard.value_type(
+                "result",
+                Vector(
+                    _SOURCE_COMPONENT_TYPES,
+                    minimum_lanes=5,
+                    maximum_lanes="LOOM_DIM_MAX_STATIC_SIZE",
+                ),
+            ),
+        ),
+    ),
     *(_bitcast_alias_rule(case) for case in ORDINARY_VECTOR_BIT_LAYOUT_ALIAS_CASES),
     *(_bitcast_rule(case) for case in ORDINARY_VECTOR_BIT_LAYOUT_DIRECT_CASES),
     *(

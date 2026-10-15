@@ -368,13 +368,11 @@ static bool loom_check_source_low_emit_provider_matches(
          iree_string_view_equal(target_name, IREE_SV("source-to-low"));
 }
 
-static iree_status_t loom_check_source_low_emit_provider_execute(
-    const loom_check_emit_provider_t* provider,
-    const loom_check_emit_provider_request_t* provider_request) {
-  (void)provider;
-  loom_check_source_low_request_t request;
-  IREE_RETURN_IF_ERROR(
-      loom_check_source_low_parse(provider_request->target_options, &request));
+iree_status_t loom_check_source_low_execute(
+    const loom_check_emit_provider_request_t* provider_request,
+    const loom_check_source_low_request_t* source_request,
+    loomc_target_profile_t* target_profile) {
+  const loom_check_source_low_request_t request = *source_request;
   if (request.output == LOOM_CHECK_EMIT_SOURCE_LOW_OUTPUT_PIPELINE ||
       request.output == LOOM_CHECK_EMIT_SOURCE_LOW_OUTPUT_PREPARED_PIPELINE) {
     return loom_check_emit_write_source_low_pipeline_text(&request,
@@ -408,7 +406,7 @@ static iree_status_t loom_check_source_low_emit_provider_execute(
       .control_flow_lowering = request.control_flow_lowering,
       .sanitizer = request.sanitizer,
       .function_name = request.function_name,
-      .target = request.target,
+      .target_profile = target_profile,
   };
   const loom_check_source_low_consumer_t consumer = {
       .provider_request = provider_request,
@@ -417,6 +415,25 @@ static iree_status_t loom_check_source_low_emit_provider_execute(
   return loom_check_compile_source_low(provider_request, &compile_options,
                                        loom_check_emit_write_source_low_module,
                                        (void*)&consumer);
+}
+
+static iree_status_t loom_check_source_low_emit_provider_execute(
+    const loom_check_emit_provider_t* provider,
+    const loom_check_emit_provider_request_t* provider_request) {
+  (void)provider;
+  loom_check_source_low_request_t request;
+  IREE_RETURN_IF_ERROR(
+      loom_check_source_low_parse(provider_request->target_options, &request));
+  loomc_target_profile_t* target_profile = NULL;
+  if (!iree_string_view_is_empty(request.target)) {
+    IREE_RETURN_IF_ERROR(loom_check_compile_session_select_target_profile(
+        provider_request->environment->compile_session, request.target,
+        &target_profile));
+  }
+  iree_status_t status =
+      loom_check_source_low_execute(provider_request, &request, target_profile);
+  loomc_target_profile_release(target_profile);
+  return status;
 }
 
 static iree_status_t loom_check_source_low_emit_provider_append_names(
