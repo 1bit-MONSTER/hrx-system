@@ -1345,6 +1345,29 @@ HIP-style global-and-workgroup-memory contract. Native payload widths and
 synchronization support follow the corresponding High operations; source import
 does not split values or insert target-specific instructions.
 
+Subgroup and workgroup prefixes are available under
+`loom::kernel::{subgroup,workgroup}::scan`. Their combining names match High
+(`addi`, `addf`, `minsi`, `maxui`, and the other reduction kinds). The first
+two template arguments select `scan_mode::{inclusive,exclusive}` and
+`scan_direction::{forward,reverse}`; defaults are inclusive and forward.
+Subgroup scans additionally accept cluster size and stride after those two
+selectors. Workgroup reductions use `loom::kernel::workgroup::reduce`.
+
+```cpp
+using loom::kernel::scan_direction;
+using loom::kernel::scan_mode;
+auto offset = loom::kernel::workgroup::scan::addi<scan_mode::exclusive>(count);
+auto suffix = loom::kernel::subgroup::scan::addf<
+    scan_mode::inclusive, scan_direction::reverse>(value);
+```
+
+Each operation preserves its scalar or rank-one vector type; an explicit cast
+before the collective selects a wider accumulator. Signed and unsigned minimum
+and maximum kinds require matching source signedness. The compiler retains the
+operation's native scope, inclusivity, direction, and cluster attributes in
+ordinary bytecode. Target support and convergence follow the High collective
+contract, including participation by a partially occupied final subgroup.
+
 ## Target-selected template providers
 
 `LOOM_TEMPLATE_DECL` declares a typed family whose call sites remain

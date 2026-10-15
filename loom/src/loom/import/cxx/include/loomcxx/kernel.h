@@ -265,7 +265,190 @@ template <unsigned long long ClusterSize = 0,
 
 }  // namespace subgroup::reduce
 
-// Topology queries and subgroup intrinsics require a kernel body or a
+// Prefix operations preserve each invocation's scalar or rank-one vector type.
+// Exclusive scans supply the combining operation's identity at the first
+// participating position. Direction describes logical invocation order, not
+// execution order. These collectives do not imply memory synchronization.
+enum class scan_mode : unsigned char {
+  inclusive = 0,
+  exclusive = 1,
+};
+
+enum class scan_direction : unsigned char {
+  forward = 0,
+  reverse = 1,
+};
+
+namespace subgroup::scan {
+
+// ClusterSize and ClusterStride have the same contract as subgroup reductions.
+// The defaults scan all participating lanes in increasing lane order.
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward,
+          unsigned long long ClusterSize = 0,
+          unsigned long long ClusterStride = 0, class T>
+[[loom::op("kernel.subgroup.scan", "addi")]] T addi(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward,
+          unsigned long long ClusterSize = 0,
+          unsigned long long ClusterStride = 0, class T>
+[[loom::op("kernel.subgroup.scan", "addf")]] T addf(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward,
+          unsigned long long ClusterSize = 0,
+          unsigned long long ClusterStride = 0, class T>
+[[loom::op("kernel.subgroup.scan", "muli")]] T muli(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward,
+          unsigned long long ClusterSize = 0,
+          unsigned long long ClusterStride = 0, class T>
+[[loom::op("kernel.subgroup.scan", "mulf")]] T mulf(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward,
+          unsigned long long ClusterSize = 0,
+          unsigned long long ClusterStride = 0, class T>
+[[loom::op("kernel.subgroup.scan", "minsi")]] T minsi(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward,
+          unsigned long long ClusterSize = 0,
+          unsigned long long ClusterStride = 0, class T>
+[[loom::op("kernel.subgroup.scan", "maxsi")]] T maxsi(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward,
+          unsigned long long ClusterSize = 0,
+          unsigned long long ClusterStride = 0, class T>
+[[loom::op("kernel.subgroup.scan", "minui")]] T minui(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward,
+          unsigned long long ClusterSize = 0,
+          unsigned long long ClusterStride = 0, class T>
+[[loom::op("kernel.subgroup.scan", "maxui")]] T maxui(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward,
+          unsigned long long ClusterSize = 0,
+          unsigned long long ClusterStride = 0, class T>
+[[loom::op("kernel.subgroup.scan", "andi")]] T andi(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward,
+          unsigned long long ClusterSize = 0,
+          unsigned long long ClusterStride = 0, class T>
+[[loom::op("kernel.subgroup.scan", "ori")]] T ori(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward,
+          unsigned long long ClusterSize = 0,
+          unsigned long long ClusterStride = 0, class T>
+[[loom::op("kernel.subgroup.scan", "xori")]] T xori(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward,
+          unsigned long long ClusterSize = 0,
+          unsigned long long ClusterStride = 0, class T>
+[[loom::op("kernel.subgroup.scan", "minimumf")]] T minimumf(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward,
+          unsigned long long ClusterSize = 0,
+          unsigned long long ClusterStride = 0, class T>
+[[loom::op("kernel.subgroup.scan", "maximumf")]] T maximumf(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward,
+          unsigned long long ClusterSize = 0,
+          unsigned long long ClusterStride = 0, class T>
+[[loom::op("kernel.subgroup.scan", "minnumf")]] T minnumf(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward,
+          unsigned long long ClusterSize = 0,
+          unsigned long long ClusterStride = 0, class T>
+[[loom::op("kernel.subgroup.scan", "maxnumf")]] T maxnumf(T value);
+
+}  // namespace subgroup::scan
+
+namespace workgroup::reduce {
+
+template <class T>
+[[loom::op("kernel.workgroup.reduce", "addi")]] T addi(T value);
+template <class T>
+[[loom::op("kernel.workgroup.reduce", "addf")]] T addf(T value);
+template <class T>
+[[loom::op("kernel.workgroup.reduce", "muli")]] T muli(T value);
+template <class T>
+[[loom::op("kernel.workgroup.reduce", "mulf")]] T mulf(T value);
+template <class T>
+[[loom::op("kernel.workgroup.reduce", "minsi")]] T minsi(T value);
+template <class T>
+[[loom::op("kernel.workgroup.reduce", "maxsi")]] T maxsi(T value);
+template <class T>
+[[loom::op("kernel.workgroup.reduce", "minui")]] T minui(T value);
+template <class T>
+[[loom::op("kernel.workgroup.reduce", "maxui")]] T maxui(T value);
+template <class T>
+[[loom::op("kernel.workgroup.reduce", "andi")]] T andi(T value);
+template <class T>
+[[loom::op("kernel.workgroup.reduce", "ori")]] T ori(T value);
+template <class T>
+[[loom::op("kernel.workgroup.reduce", "xori")]] T xori(T value);
+template <class T>
+[[loom::op("kernel.workgroup.reduce", "minimumf")]] T minimumf(T value);
+template <class T>
+[[loom::op("kernel.workgroup.reduce", "maximumf")]] T maximumf(T value);
+template <class T>
+[[loom::op("kernel.workgroup.reduce", "minnumf")]] T minnumf(T value);
+template <class T>
+[[loom::op("kernel.workgroup.reduce", "maxnumf")]] T maxnumf(T value);
+
+}  // namespace workgroup::reduce
+
+namespace workgroup::scan {
+
+// All workitems participate, in linear workitem order, including a partial
+// final subgroup. Clusters belong only to subgroup collectives.
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward, class T>
+[[loom::op("kernel.workgroup.scan", "addi")]] T addi(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward, class T>
+[[loom::op("kernel.workgroup.scan", "addf")]] T addf(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward, class T>
+[[loom::op("kernel.workgroup.scan", "muli")]] T muli(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward, class T>
+[[loom::op("kernel.workgroup.scan", "mulf")]] T mulf(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward, class T>
+[[loom::op("kernel.workgroup.scan", "minsi")]] T minsi(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward, class T>
+[[loom::op("kernel.workgroup.scan", "maxsi")]] T maxsi(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward, class T>
+[[loom::op("kernel.workgroup.scan", "minui")]] T minui(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward, class T>
+[[loom::op("kernel.workgroup.scan", "maxui")]] T maxui(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward, class T>
+[[loom::op("kernel.workgroup.scan", "andi")]] T andi(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward, class T>
+[[loom::op("kernel.workgroup.scan", "ori")]] T ori(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward, class T>
+[[loom::op("kernel.workgroup.scan", "xori")]] T xori(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward, class T>
+[[loom::op("kernel.workgroup.scan", "minimumf")]] T minimumf(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward, class T>
+[[loom::op("kernel.workgroup.scan", "maximumf")]] T maximumf(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward, class T>
+[[loom::op("kernel.workgroup.scan", "minnumf")]] T minnumf(T value);
+template <scan_mode Mode = scan_mode::inclusive,
+          scan_direction Direction = scan_direction::forward, class T>
+[[loom::op("kernel.workgroup.scan", "maxnumf")]] T maxnumf(T value);
+
+}  // namespace workgroup::scan
+
+// Topology queries and collective intrinsics require a kernel body or a
 // force-inline helper. Other helpers receive topology values as arguments.
 namespace workitem {
 
