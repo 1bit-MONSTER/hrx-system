@@ -97,10 +97,11 @@ LOOMC_API_PRIVATE loomc_status_t loomc_result_add_loom_diagnostic_emission(
     const loom_diagnostic_emission_t* emission,
     const loomc_diagnostic_type_printer_t* type_printer);
 
-// Verifies a Loom module and adds verifier diagnostics to result.
+// Verifies a Loom module and adds verifier diagnostics to result. A zero error
+// limit selects the binding's default diagnostic limit.
 LOOMC_API_PRIVATE loomc_status_t loomc_result_verify_loom_module(
     const loom_module_t* module, loom_source_resolver_t source_resolver,
-    loomc_result_t* result);
+    uint32_t max_errors, loomc_result_t* result);
 
 // Adds a rendered status as a result diagnostic without consuming status.
 LOOMC_API_PRIVATE loomc_status_t loomc_result_add_status_diagnostic(

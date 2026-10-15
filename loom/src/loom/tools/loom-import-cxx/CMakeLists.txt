@@ -18,22 +18,13 @@ loom_cc_binary(
   DEPS
     iree::base
     iree::base::tooling::flags
-    iree::io::stream
-    loom::codegen::low::text_asm
-    loom::format::bytecode::writer
-    loom::format::text::printer
-    loom::import::cxx
-    loom::pass::builtin_registry
-    loom::pass::tooling
+    loom::binding::c::import::cxx
+    loom::binding::c::interop
+    loom::binding::c::loomc
     loom::target::configured::provider_set
-    loom::target::provider
     loom::tooling::cli::help
-    loom::tooling::context
+    loom::tooling::cli::loomc_result
     loom::tooling::io::file
-    loom::transforms::cleanup::configured
-    loom::transforms::cleanup::pass_environment
-    loom::transforms::cleanup::patterns
-    loom::verify
 )
 endif()
 

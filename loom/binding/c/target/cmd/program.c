@@ -431,7 +431,7 @@ static iree_status_t loomc_cmd_program_product_verify_module(
   loomc_result_t* result = (loomc_result_t*)user_data;
   *out_valid = false;
   IREE_RETURN_IF_ERROR(iree_status_from_loomc(loomc_result_verify_loom_module(
-      module, (loom_source_resolver_t){0}, result)));
+      module, (loom_source_resolver_t){0}, /*max_errors=*/0, result)));
   *out_valid = loomc_result_succeeded(result);
   return iree_ok_status();
 }

@@ -1343,12 +1343,31 @@ config.def @unused = 9 : index
   ASSERT_TRUE(loomc_result_succeeded(compile_result.get()));
   compile_result.reset();
 
-  // Continue through another compiler invocation, then clone the prepared
-  // product into independent storage before releasing its original workspace.
+  // Continue through both compilation and prepared execution. Serialization
+  // must preserve live schedules and configuration for subsequent emission.
   raw_compile_result = nullptr;
   LOOMC_ASSERT_OK(loomc_compile_module(
       compiler.get(), workspace.get(), pass_program.get(), module.get(),
       nullptr, loomc_allocator_system(), &raw_compile_result));
+  compile_result.reset(raw_compile_result);
+  ExpectSucceededResult(compile_result.get());
+  ASSERT_TRUE(loomc_result_succeeded(compile_result.get()));
+  compile_result.reset();
+  SourcePtr serialized[] = {
+      SerializeModule(module.get(), LOOMC_SOURCE_FORMAT_TEXT),
+      SerializeModule(module.get(), LOOMC_SOURCE_FORMAT_BYTECODE),
+  };
+  raw_compile_result = nullptr;
+  LOOMC_ASSERT_OK(loomc_pass_program_run(
+      pass_program.get(), workspace.get(), module.get(), nullptr,
+      loomc_allocator_system(), &raw_compile_result));
+  compile_result.reset(raw_compile_result);
+  ExpectSucceededResult(compile_result.get());
+  ASSERT_TRUE(loomc_result_succeeded(compile_result.get()));
+  compile_result.reset();
+  raw_compile_result = nullptr;
+  LOOMC_ASSERT_OK(loomc_module_verify(
+      module.get(), nullptr, loomc_allocator_system(), &raw_compile_result));
   compile_result.reset(raw_compile_result);
   ExpectSucceededResult(compile_result.get());
   ASSERT_TRUE(loomc_result_succeeded(compile_result.get()));
@@ -1412,6 +1431,32 @@ config.def @unused = 9 : index
     }
     emitted.reset();
     loomc_workspace_trim(workspace.get());
+  }
+
+  module.reset();
+  workspace.reset();
+  context.reset();
+  target_environment.reset();
+  for (const auto& snapshot : serialized) {
+    auto replay_environment = CreateAmdgpuTargetEnvironment();
+    auto replay_context = CreateAmdgpuContext(replay_environment.get());
+    auto replay_workspace = CreateWorkspace();
+    auto replay_module = DeserializeModule(
+        replay_context.get(), replay_workspace.get(), snapshot.get());
+    auto replay_program = CreatePreparedLowPassProgram(replay_context.get());
+    loomc_result_t* result = nullptr;
+    LOOMC_ASSERT_OK(loomc_pass_program_run(
+        replay_program.get(), replay_workspace.get(), replay_module.get(),
+        nullptr, loomc_allocator_system(), &result));
+    ResultPtr result_owner(result);
+    ExpectSucceededResult(result);
+    ASSERT_TRUE(loomc_result_succeeded(result));
+    auto emitted = EmitModule(replay_environment.get(), replay_workspace.get(),
+                              replay_module.get());
+    ExpectSucceededResult(emitted.get());
+    ASSERT_NE(FindArtifact(emitted.get(), LOOMC_ARTIFACT_KIND_EXECUTABLE,
+                           LOOMC_ARTIFACT_FORMAT_AMDGPU_HSACO),
+              nullptr);
   }
 }
 

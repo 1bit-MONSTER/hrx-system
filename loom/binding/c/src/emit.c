@@ -839,7 +839,7 @@ loomc_status_t loomc_emit_transaction_emit(
                                                 target_environment);
 
   loomc_status_t status =
-      loomc_module_verify(module, target_environment, result);
+      loomc_module_admit(module, target_environment, result);
   if (loomc_status_is_ok(status) && !loomc_result_succeeded(result)) {
     loomc_emit_transaction_record_status(transaction,
                                          IREE_STATUS_FAILED_PRECONDITION);

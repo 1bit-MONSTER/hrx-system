@@ -89,6 +89,45 @@ extern "C" {
 /// such as compiling a module require exclusive access to that module handle.
 typedef struct loomc_module_t loomc_module_t;
 
+/// Options for an explicit structural and target-Low verification operation.
+typedef struct loomc_module_verify_options_t {
+  /// Structure type; LOOMC_STRUCTURE_TYPE_MODULE_VERIFY_OPTIONS when nonzero.
+  loomc_structure_type_t type;
+  /// Size of this structure in bytes, or zero.
+  loomc_host_size_t structure_size;
+  /// Reserved extension chain. Must be NULL.
+  const void* next;
+  /// Maximum errors to report; zero selects the library default.
+  uint32_t max_errors;
+} loomc_module_verify_options_t;
+
+/// Checks the module's structural and target-Low invariants explicitly.
+///
+/// Every call performs verification and returns its diagnostics, even when a
+/// prior operation established cached admission facts. Target checks use the
+/// module's context and retained function-version facts. Successful
+/// verification establishes admission for subsequent compilation or pipeline
+/// execution.
+///
+/// @param module Module to check, without modifying its IR.
+/// @param options Verification options, or NULL for defaults.
+/// @param allocator Host allocator used for result-owned storage.
+/// @param out_result Receives one owned verification result on an OK return.
+/// @return OK for successful verification or diagnosed invalid IR. API misuse
+/// and infrastructure failures return non-OK with NULL result.
+///
+/// @ownership
+/// The caller retains the module and releases the result with
+/// loomc_result_release. Diagnostics retain their own source information.
+///
+/// @thread_safety
+/// Verification uses module scratch and updates admission facts, requiring
+/// exclusive access to the module and its workspace for the duration of the
+/// call.
+LOOMC_API_EXPORT loomc_status_t loomc_module_verify(
+    loomc_module_t* module, const loomc_module_verify_options_t* options,
+    loomc_allocator_t allocator, loomc_result_t** out_result);
+
 /// Public function category reported from a module query.
 typedef enum loomc_module_function_kind_e {
   /// No specific function kind was requested or reported.

@@ -434,6 +434,7 @@ loom_cc_test(
     ::interpreter
     ::program
     ::report
+    ::trace
     iree::testing::gtest
     iree::testing::gtest_main
     loom::error::parameter
@@ -442,6 +443,7 @@ loom_cc_test(
     loom::ops::test
     loom::pass::test::harness
     loom::rewrite::rewriter
+    loom::util::stream
 )
 
 loom_cc_test(

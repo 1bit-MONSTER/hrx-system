@@ -431,20 +431,6 @@ static iree_status_t loom_pass_interpreter_invoke(
   if (state->options->report) {
     start_time = iree_time_now();
   }
-  iree_arena_allocator_t instance_arena;
-  iree_arena_initialize(state->options->block_pool, &instance_arena);
-
-  loom_pass_interpreter_diagnostic_counter_t diagnostic_counter = {
-      .module = state->module,
-      .target = state->options->diagnostic_emitter,
-  };
-  iree_diagnostic_emitter_t pass_diagnostic_emitter = {
-      .fn = loom_pass_interpreter_count_diagnostic,
-      .user_data = &diagnostic_counter,
-  };
-
-  loom_pass_t pass = {0};
-  loom_pass_value_fact_lifecycle_counts_t value_fact_lifecycle_counts = {0};
   iree_status_t trace_status = loom_pass_trace_emit(
       state->options->trace, &(loom_pass_trace_event_t){
                                  .module = state->module,
@@ -458,16 +444,32 @@ static iree_status_t loom_pass_interpreter_invoke(
                                  .changed = false,
                                  .status_code = IREE_STATUS_OK,
                              });
-  iree_status_t status = iree_ok_status();
-  bool pass_execution_allowed = iree_status_is_ok(trace_status);
-  if (state->options->report && pass_execution_allowed) {
+  if (!iree_status_is_ok(trace_status)) {
+    return iree_status_annotate_f(
+        trace_status, "while tracing pass '%.*s' at %s anchor on @%.*s",
+        (int)invoke->descriptor->key.size, invoke->descriptor->key.data,
+        loom_pass_interpreter_anchor_name(frame->kind), (int)symbol_name.size,
+        symbol_name.data);
+  }
+
+  iree_arena_allocator_t instance_arena;
+  iree_arena_initialize(state->options->block_pool, &instance_arena);
+  loom_pass_interpreter_diagnostic_counter_t diagnostic_counter = {
+      .module = state->module,
+      .target = state->options->diagnostic_emitter,
+  };
+  iree_diagnostic_emitter_t pass_diagnostic_emitter = {
+      .fn = loom_pass_interpreter_count_diagnostic,
+      .user_data = &diagnostic_counter,
+  };
+  loom_pass_t pass = {0};
+  loom_pass_value_fact_lifecycle_counts_t value_fact_lifecycle_counts = {0};
+  if (state->options->report) {
     state->value_facts.lifecycle_counts = &value_fact_lifecycle_counts;
   }
-  if (pass_execution_allowed) {
-    status = loom_pass_interpreter_make_pass(
-        state, instruction, pass_diagnostic_emitter, &instance_arena, &pass);
-    pass.function_version = frame->function_version;
-  }
+  iree_status_t status = loom_pass_interpreter_make_pass(
+      state, instruction, pass_diagnostic_emitter, &instance_arena, &pass);
+  pass.function_version = frame->function_version;
   diagnostic_counter.pass = &pass;
 
   bool created = false;
@@ -503,30 +505,28 @@ static iree_status_t loom_pass_interpreter_invoke(
 
   iree_status_code_t status_code = loom_pass_interpreter_invocation_status_code(
       iree_status_code(status), &diagnostic_counter);
-  if (iree_status_is_ok(trace_status)) {
-    trace_status = loom_pass_trace_emit(
-        state->options->trace,
-        &(loom_pass_trace_event_t){
-            .module = state->module,
-            .instruction = instruction,
-            .instruction_index = instruction_index,
-            .invocation_ordinal = invocation_ordinal,
-            .pipeline_symbol = pipeline_symbol,
-            .symbol_name = symbol_name,
-            .anchor_kind = frame->kind,
-            .point = LOOM_PASS_TRACE_POINT_AFTER,
-            .changed = invocation_changed,
-            .status_code = status_code,
-            .error_count = diagnostic_counter.error_count,
-            .warning_count = diagnostic_counter.warning_count,
-            .remark_count = diagnostic_counter.remark_count,
-        });
-  }
+  trace_status = loom_pass_trace_emit(
+      state->options->trace,
+      &(loom_pass_trace_event_t){
+          .module = state->module,
+          .instruction = instruction,
+          .instruction_index = instruction_index,
+          .invocation_ordinal = invocation_ordinal,
+          .pipeline_symbol = pipeline_symbol,
+          .symbol_name = symbol_name,
+          .anchor_kind = frame->kind,
+          .point = LOOM_PASS_TRACE_POINT_AFTER,
+          .changed = invocation_changed,
+          .status_code = status_code,
+          .error_count = diagnostic_counter.error_count,
+          .warning_count = diagnostic_counter.warning_count,
+          .remark_count = diagnostic_counter.remark_count,
+      });
 
   iree_status_t report_status = iree_ok_status();
   loom_pass_interpreter_accumulate_diagnostics(state, &diagnostic_counter);
 
-  if (state->options->report && pass_execution_allowed) {
+  if (state->options->report) {
     iree_duration_t duration_nanoseconds = iree_time_now() - start_time;
     report_status = loom_pass_interpreter_append_value_fact_lifecycle_detail(
         &pass, &value_fact_lifecycle_counts);

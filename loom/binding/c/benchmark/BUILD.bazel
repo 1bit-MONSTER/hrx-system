@@ -70,11 +70,15 @@ loom_cc_library(
 
 loom_cc_benchmark(
     name = "compile_throughput_benchmark",
-    srcs = ["targetless_compile_throughput_benchmark.cc"],
+    srcs = [
+        "pass_program_benchmark.cc",
+        "targetless_compile_throughput_benchmark.cc",
+    ],
     args = [
         "--benchmark_filter=Smoke",
     ],
     deps = [
+        ":benchmark_support",
         ":compile_throughput_benchmark_harness",
         "//loom/binding/c:loomc",
         "//runtime/src/iree/base",
