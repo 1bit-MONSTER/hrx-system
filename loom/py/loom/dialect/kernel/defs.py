@@ -2241,7 +2241,7 @@ def _launch_schedule(name: str, doc: str) -> Op:
         regions=[
             RegionDef(
                 "body",
-                doc="Nested kernel launches and launch schedules.",
+                doc=("Nested kernel launches, launch schedules, and pure or deterministic read-only launch preparation."),
                 single_block=True,
                 terminator="kernel.launch.yield",
             ),

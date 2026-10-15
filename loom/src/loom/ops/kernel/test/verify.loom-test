@@ -545,10 +545,12 @@ func.def @yield_requires_launch_schedule() {
 
 // ====
 
-func.def @launch_schedule_rejects_other_operations() {
+func.decl @unknown_launch_preparation() -> (index)
+
+func.def @launch_schedule_rejects_effectful_preparation() {
   kernel.launch.serial {
-    // ERROR@+1: STRUCTURE/029 "index.constant" "direct" "kernel launch schedule" "kernel.launch.serial"
-    %unused = index.constant 0 : index
+    // ERROR@+1: STRUCTURE/029 "func.call" "direct" "kernel launch schedule" "kernel.launch.serial"
+    %unused = func.call @unknown_launch_preparation() : () -> (index)
   }
   func.return
 }

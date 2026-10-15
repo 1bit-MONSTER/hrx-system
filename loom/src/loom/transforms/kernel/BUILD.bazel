@@ -280,6 +280,25 @@ loom_cc_library(
     ],
 )
 
+loom_cc_test(
+    name = "resolve_launches_test",
+    srcs = ["resolve_launches_test.cc"],
+    deps = [
+        ":resolve_launches",
+        "//loom/src/loom/analysis:symbol_references",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:op_registry",
+        "//loom/src/loom/ops/command",
+        "//loom/src/loom/ops/func",
+        "//loom/src/loom/ops/index",
+        "//loom/src/loom/ops/kernel",
+        "//loom/src/loom/verify",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
 loom_cc_library(
     name = "promote_private_fragments",
     srcs = [

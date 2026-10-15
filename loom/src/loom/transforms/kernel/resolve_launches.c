@@ -8,6 +8,7 @@
 
 #include "loom/error/error_catalog.h"
 #include "loom/error/parameter.h"
+#include "loom/ir/ancestry.h"
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/ops/func/ops.h"
@@ -142,14 +143,28 @@ static bool loom_kernel_launch_resolution_is_schedule(const loom_op_t* op) {
          loom_kernel_launch_concurrent_isa(op);
 }
 
-// Returns the earliest schedule wrapper containing |launch_op|. Ordinary CFG
+// Returns the earliest schedule wrapper that a pure configuration call can
+// cross without moving above one of its workload definitions. Ordinary CFG
 // parents stop the ascent so the configuration remains branch/loop local.
 static loom_op_t* loom_kernel_launch_resolution_call_insertion_op(
-    loom_op_t* launch_op) {
+    const loom_module_t* module, loom_op_t* launch_op,
+    loom_value_slice_t workloads) {
   loom_op_t* insertion_op = launch_op;
   while (insertion_op->parent_op &&
          loom_kernel_launch_resolution_is_schedule(insertion_op->parent_op)) {
-    insertion_op = insertion_op->parent_op;
+    loom_op_t* parent_schedule = insertion_op->parent_op;
+    bool schedule_defines_workload = false;
+    for (uint16_t i = 0; i < workloads.count; ++i) {
+      if (loom_op_subtree_defines_value(module, parent_schedule,
+                                        workloads.values[i])) {
+        schedule_defines_workload = true;
+        break;
+      }
+    }
+    if (schedule_defines_workload) {
+      break;
+    }
+    insertion_op = parent_schedule;
   }
   return insertion_op;
 }
@@ -192,6 +207,12 @@ static iree_status_t loom_kernel_launch_resolution_rewrite_launch(
           .defining_op;
   IREE_ASSERT(configuration_op != NULL);
   IREE_ASSERT(loom_func_def_isa(configuration_op));
+  const loom_callable_effect_contract_t configuration_effect_contract =
+      loom_func_like_effect_contract(
+          loom_func_like_const_cast(resolution->module, configuration_op));
+  IREE_ASSERT(
+      configuration_effect_contract == LOOM_CALLABLE_EFFECT_CONTRACT_PURE ||
+      configuration_effect_contract == LOOM_CALLABLE_EFFECT_CONTRACT_READONLY);
 
   loom_op_t* entry_op = resolution->entry_ops[kernel_ref.symbol_id];
   if (entry_op == NULL) {
@@ -216,14 +237,18 @@ static iree_status_t loom_kernel_launch_resolution_rewrite_launch(
       loom_type_scalar(LOOM_SCALAR_TYPE_INDEX),
   };
   loom_builder_t* builder = &resolution->rewriter.builder;
-  loom_builder_set_before(
-      builder, loom_kernel_launch_resolution_call_insertion_op(launch_op));
+  loom_op_t* call_insertion_op = launch_op;
+  if (configuration_effect_contract == LOOM_CALLABLE_EFFECT_CONTRACT_PURE) {
+    call_insertion_op = loom_kernel_launch_resolution_call_insertion_op(
+        resolution->module, launch_op, workloads);
+  }
+  loom_builder_set_before(builder, call_insertion_op);
   loom_op_t* call_op = NULL;
   IREE_RETURN_IF_ERROR(loom_func_call_build(
       builder,
       LOOM_FUNC_CALL_BUILD_FLAG_HAS_EFFECT_CONTRACT |
           LOOM_FUNC_CALL_BUILD_FLAG_HAS_INLINE_POLICY,
-      LOOM_CALLABLE_EFFECT_CONTRACT_PURE, /*temperature=*/0,
+      configuration_effect_contract, /*temperature=*/0,
       LOOM_INLINE_POLICY_INLINE, configuration_ref, workloads.values,
       workloads.count, count_types, IREE_ARRAYSIZE(count_types),
       /*tied_results=*/NULL,

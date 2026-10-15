@@ -13,6 +13,7 @@
 #include "loom/ir/module.h"
 #include "loom/ir/scalar_type.h"
 #include "loom/ops/cache.h"
+#include "loom/ops/callable_effects.h"
 #include "loom/ops/combining.h"
 #include "loom/ops/func/ops.h"
 #include "loom/ops/function_contract_verify.h"
@@ -1334,6 +1335,10 @@ iree_status_t loom_kernel_launch_schedule_verify(
         loom_kernel_launch_serial_isa(child_op) ||
         loom_kernel_launch_concurrent_isa(child_op) ||
         loom_kernel_launch_yield_isa(child_op)) {
+      continue;
+    }
+    if (loom_callable_effects_classify_traits(loom_op_effective_traits(
+            module, child_op)) != LOOM_CALLABLE_EFFECT_CONTRACT_UNSPECIFIED) {
       continue;
     }
     return loom_kernel_emit_launch_placement_error(

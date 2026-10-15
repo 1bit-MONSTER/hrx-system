@@ -94,6 +94,24 @@ command.program.def @pure_preparation_and_explicit_commands(%element_count: inde
 
 // ====
 
+func.decl readonly @readonly_command_extent(%storage: buffer) -> (index)
+
+kernel.decl @command_effect_kernel(%element_count: index) launch(%scratch: buffer)
+
+command.program.def @readonly_preparation() launch(%storage: buffer) {
+  kernel.launch.serial {
+    %base = index.constant 0 : offset
+    %element = index.constant 0 : index
+    %view = buffer.view %storage[%base] : buffer -> view<1xi32>
+    %value = view.load %view[%element] : view<1xi32> -> i32
+    %count = func.call readonly @readonly_command_extent(%storage) : (buffer) -> (index)
+    kernel.launch @command_effect_kernel[%count](%storage) : [index](buffer)
+  }
+  command.return
+}
+
+// ====
+
 func.decl @unknown_command_extent(%value: index) -> (index)
 
 command.program.def @nested_unknown_effect(%condition: i1, %value: index) launch() {
@@ -122,11 +140,10 @@ command.program.def @observable_preparation() launch() {
 
 // ====
 
-command.program.def @memory_effects_are_not_preparation() launch(%storage: buffer) {
+command.program.def @memory_writes_are_not_preparation() launch(%storage: buffer) {
   %base = index.constant 0 : offset
   %element = index.constant 0 : index
   %view = buffer.view %storage[%base] : buffer -> view<1xi32>
-  // ERROR@+1: STRUCTURE/053 {op_name="view.load"}
   %value = view.load %view[%element] : view<1xi32> -> i32
   // ERROR@+1: STRUCTURE/053 {op_name="view.store"}
   view.store %value, %view[%element] : i32, view<1xi32>

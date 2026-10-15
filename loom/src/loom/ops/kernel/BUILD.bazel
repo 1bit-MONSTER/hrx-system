@@ -50,6 +50,7 @@ loom_generated_cc_library(
         "//loom/src/loom/ir:facts",
         "//loom/src/loom/ops:atomic",
         "//loom/src/loom/ops:cache",
+        "//loom/src/loom/ops:callable_effects",
         "//loom/src/loom/ops:combining",
         "//loom/src/loom/ops:func_symbol_facts",
         "//loom/src/loom/ops:function_contract_verify",

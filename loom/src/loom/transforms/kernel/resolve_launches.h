@@ -37,22 +37,22 @@ typedef struct loom_kernel_launch_entry_table_t {
 //
 // |configuration_functions| is a dense prefix projection indexed by the
 // module-local logical-kernel symbol IDs present when linking completed. Each
-// valid entry names a private pure function accepting the kernel workload
-// signature and returning exact XYZ workgroup counts. Caller-owned target
-// specialization may append symbols while preserving every linked symbol ID;
-// those appended symbols intentionally lie outside the projection. The
-// transform inserts ordinary pure calls at their caller-owned CFG sites,
-// derives one executable-entry declaration per logical kernel, and replaces
-// each kernel.launch with a kernel.dispatch targeting that entry.
+// valid entry names a private pure or deterministic read-only function
+// accepting the kernel workload signature and returning exact XYZ workgroup
+// counts. Caller-owned target specialization may append symbols while
+// preserving every linked symbol ID; those appended symbols intentionally lie
+// outside the projection. The transform inserts ordinary calls at their
+// caller-owned CFG sites, derives one executable-entry declaration per logical
+// kernel, and replaces each kernel.launch with a kernel.dispatch targeting that
+// entry.
 // Kernel-scoped pipelines retain their logical launches and declaration in
 // the entry table: their workload prefix specializes an independently compiled
 // artifact and does not compute a physical dispatch grid.
 //
-// Calls for launches nested only in kernel launch-schedule regions are placed
-// immediately before the outermost schedule. Schedule regions describe command
-// ordering and cannot contain ordinary computation; their launch operands are
-// necessarily defined outside the schedule. Calls otherwise remain in the
-// launch's original control-flow scope.
+// Pure calls cross containing launch-schedule regions only while every workload
+// is defined outside the crossed region. Read-only calls remain at the lexical
+// launch so they cannot move ahead of command producers. Ordinary CFG parents
+// keep both kinds of calls in the launch's original control-flow scope.
 //
 // The immutable reference table must describe |module| immediately before the
 // transform begins. It is stale after any launch is replaced. Callers may

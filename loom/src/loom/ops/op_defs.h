@@ -1089,6 +1089,14 @@ bool loom_func_like_region_projects_args(const loom_module_t* module,
 loom_callable_effect_contract_t loom_func_like_effect_contract(
     loom_func_like_t func);
 
+// Sets the callable effect contract on a function-like operation.
+//
+// The operation must expose an effect-contract attribute. This refreshes the
+// operation's effective traits and its containing-region effect summaries.
+void loom_func_like_set_effect_contract(
+    loom_module_t* module, loom_func_like_t func,
+    loom_callable_effect_contract_t effect_contract);
+
 // Returns the temperature attr value (0 = unspecified).
 uint8_t loom_func_like_temperature(loom_func_like_t func);
 

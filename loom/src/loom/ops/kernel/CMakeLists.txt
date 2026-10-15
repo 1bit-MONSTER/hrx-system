@@ -53,6 +53,7 @@ loom_generated_cc_library(
     loom::ops::atomic
     loom::ops::buffer
     loom::ops::cache
+    loom::ops::callable_effects
     loom::ops::combining
     loom::ops::func
     loom::ops::func_symbol_facts

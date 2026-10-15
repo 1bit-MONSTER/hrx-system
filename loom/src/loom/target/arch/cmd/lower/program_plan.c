@@ -159,7 +159,7 @@ static iree_status_t loom_cmd_program_plan_build_normalization_body(
 
 // Resolves caller-owned configuration dataflow before schedule construction.
 // A single module run normalizes all selected callables, inlines the projected
-// pure configuration functions at their command CFG sites, and cleans only
+// configuration functions at their command CFG sites, and cleans only
 // functions changed by inlining. The body-blind selective product contains no
 // device implementation IR.
 static iree_status_t loom_cmd_program_plan_normalize_roots(

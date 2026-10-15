@@ -145,12 +145,14 @@ loom_verify_command_effect_scope(loom_verify_state_t* state,
   if (!state->region_scope.command_effects_only) {
     return;
   }
-  if (!loom_traits_may_read(traits) && !loom_traits_may_write(traits) &&
-      !loom_traits_are_convergent(traits) &&
-      !loom_traits_have_observable_effects(traits)) {
+  if (iree_any_bit_set(vtable->traits, LOOM_TRAIT_COMMAND_EFFECT)) {
     return;
   }
-  if (iree_any_bit_set(vtable->traits, LOOM_TRAIT_COMMAND_EFFECT)) {
+  const loom_trait_flags_t forbidden_traits =
+      LOOM_TRAIT_WRITES_MEMORY | LOOM_TRAIT_NON_DETERMINISTIC |
+      LOOM_TRAIT_UNKNOWN_EFFECTS | LOOM_TRAIT_CONVERGENT |
+      LOOM_TRAIT_MEMORY_FENCE | LOOM_TRAIT_OBSERVABLE_EFFECT;
+  if (!iree_any_bit_set(traits, forbidden_traits)) {
     return;
   }
   loom_verify_emit_non_command_effect(state, op, vtable);
@@ -501,9 +503,10 @@ IREE_ATTRIBUTE_ALWAYS_INLINE static inline iree_status_t loom_verify_op(
       loom_verify_op_effective_trait_consistency(state, op, vtable);
   IREE_RETURN_IF_ERROR(loom_verify_pending_diagnostic_status(state));
 
-  // Command programs may perform observable work only through explicit
-  // command operations. This consumes the effective trait word already cached
-  // on the op while the ordinary verifier traversal is visiting it.
+  // Command programs may perform writes and other observable work only through
+  // explicit command operations. Ordinary preparation may be deterministic
+  // and read-only. This consumes the effective trait word already cached on
+  // the op while the ordinary verifier traversal is visiting it.
   loom_verify_command_effect_scope(state, op, vtable, effective_traits);
   IREE_RETURN_IF_ERROR(loom_verify_pending_diagnostic_status(state));
 

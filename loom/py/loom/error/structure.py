@@ -883,13 +883,13 @@ ERR_STRUCTURE_053 = ErrorDef(
     severity=Severity.ERROR,
     summary="Non-command effect in a command program.",
     message=(
-        "'{op_name}' has observable effects in a command-program body but "
-        "does not represent an explicit command"
+        "'{op_name}' has effects that are neither deterministic read-only "
+        "preparation nor an explicit command"
     ),
     params=(ErrorParam("op_name", ParamKind.STRING),),
     fix_hint=(
-        "Use an explicit command operation or declare the computation pure "
-        "when it has no observable effects"
+        "Use an explicit command operation for writes and observable work, or "
+        "declare deterministic reads with a read-only callable contract"
     ),
 )
 

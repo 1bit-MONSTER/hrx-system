@@ -308,6 +308,26 @@ loom_cc_library(
   PUBLIC
 )
 
+loom_cc_test(
+  NAME
+    resolve_launches_test
+  SRCS
+    "resolve_launches_test.cc"
+  DEPS
+    ::resolve_launches
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::analysis::symbol_references
+    loom::ir
+    loom::ops::command
+    loom::ops::func
+    loom::ops::index
+    loom::ops::kernel
+    loom::ops::op_registry
+    loom::verify
+)
+
 loom_cc_library(
   NAME
     promote_private_fragments
