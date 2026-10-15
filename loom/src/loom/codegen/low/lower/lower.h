@@ -1293,9 +1293,10 @@ const loom_value_fact_table_t* loom_low_lower_context_fact_table(
 const loom_value_fact_cfg_region_t* loom_low_lower_context_cfg(
     const loom_low_lower_context_t* context);
 
-// Returns reusable traversal state for planning-only condition-fact queries.
-loom_condition_query_t* loom_low_lower_context_condition_query(
-    loom_low_lower_context_t* context);
+// Acquires reusable traversal state for planning-only condition-fact queries.
+// Read-only source scopes acquire compact function-local ordinals on demand.
+iree_status_t loom_low_lower_context_condition_query(
+    loom_low_lower_context_t* context, loom_condition_query_t** out_query);
 
 // Returns the function-local symbolic expression context during planning.
 loom_symbolic_expr_context_t* loom_low_lower_context_symbolic_expr_context(

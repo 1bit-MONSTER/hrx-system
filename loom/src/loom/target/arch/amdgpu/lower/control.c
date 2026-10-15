@@ -208,9 +208,12 @@ static iree_status_t loom_amdgpu_cfg_cond_br_edge_implied_bool(
   loom_condition_fact_set_initialize(
       relation_storage, IREE_ARRAYSIZE(relation_storage), &edge_facts);
   bool complete = false;
-  IREE_RETURN_IF_ERROR(loom_condition_facts_query(
-      loom_low_lower_context_condition_query(context), fact_table,
-      edge_condition, edge_assumed_truth, &edge_facts, &complete));
+  loom_condition_query_t* condition_query = NULL;
+  IREE_RETURN_IF_ERROR(
+      loom_low_lower_context_condition_query(context, &condition_query));
+  IREE_RETURN_IF_ERROR(
+      loom_condition_facts_query(condition_query, fact_table, edge_condition,
+                                 edge_assumed_truth, &edge_facts, &complete));
   if (!complete) {
     return iree_ok_status();
   }
@@ -218,9 +221,9 @@ static iree_status_t loom_amdgpu_cfg_cond_br_edge_implied_bool(
     return iree_ok_status();
   }
 
-  return loom_condition_fact_set_proves_condition(
-      loom_low_lower_context_condition_query(context), fact_table, &edge_facts,
-      condition, out_condition, out_proven);
+  return loom_condition_fact_set_proves_condition(condition_query, fact_table,
+                                                  &edge_facts, condition,
+                                                  out_condition, out_proven);
 }
 
 static iree_status_t loom_amdgpu_emit_sgpr_bool_cond_branch(

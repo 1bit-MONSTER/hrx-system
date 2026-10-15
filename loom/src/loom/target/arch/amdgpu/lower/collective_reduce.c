@@ -226,9 +226,12 @@ static iree_status_t loom_amdgpu_condition_participant_zero_bits(
   loom_condition_fact_set_initialize(
       relation_storage, IREE_ARRAYSIZE(relation_storage), &condition_facts);
   bool complete = false;
-  IREE_RETURN_IF_ERROR(loom_condition_facts_query(
-      loom_low_lower_context_condition_query(context), fact_table, condition,
-      assumed_truth, &condition_facts, &complete));
+  loom_condition_query_t* condition_query = NULL;
+  IREE_RETURN_IF_ERROR(
+      loom_low_lower_context_condition_query(context, &condition_query));
+  IREE_RETURN_IF_ERROR(loom_condition_facts_query(condition_query, fact_table,
+                                                  condition, assumed_truth,
+                                                  &condition_facts, &complete));
   if (!complete) {
     return iree_ok_status();
   }

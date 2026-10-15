@@ -279,6 +279,16 @@ loom_target_legalizer_registry_storage_registry(
   return &storage->registry;
 }
 
+iree_status_t loom_target_legalization_resolve_function_analysis(
+    loom_target_legalization_context_t* context) {
+  if (context->view_regions != NULL || context->function_analysis.fn == NULL) {
+    return iree_ok_status();
+  }
+  return context->function_analysis.fn(context->function_analysis.user_data,
+                                       &context->value_domain,
+                                       &context->view_regions);
+}
+
 iree_status_t loom_target_legalization_query_contract(
     loom_target_legalization_context_t* context, const loom_op_t* op,
     loom_target_contract_query_result_t* out_result) {
@@ -305,6 +315,7 @@ loom_target_legalization_query_contract_with_vector_lane_projection(
       .vector_lane_projection = vector_lane_projection,
       .value_domain = context->value_domain,
       .view_regions = context->view_regions,
+      .function_analysis = context->function_analysis,
       .arena = context->arena,
   };
   return context->contract_query.fn(context->contract_query.user_data,

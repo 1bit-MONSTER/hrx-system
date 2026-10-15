@@ -905,6 +905,10 @@ iree_status_t loom_amdgpu_query_scalar_conversion_contract(
     return iree_ok_status();
   }
 
+  loom_target_contract_query_environment_t analyzed_environment = *environment;
+  IREE_RETURN_IF_ERROR(loom_target_contract_query_resolve_function_analysis(
+      &analyzed_environment));
+  environment = &analyzed_environment;
   loom_amdgpu_scalar_conversion_query_state_t* state = NULL;
   if (environment->value_domain != NULL &&
       environment->target_state_allocator.fn != NULL) {

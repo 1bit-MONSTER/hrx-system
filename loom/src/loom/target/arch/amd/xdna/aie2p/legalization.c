@@ -456,6 +456,8 @@ static iree_status_t loom_aie2p_legalize_vector_gather(
   loom_low_source_memory_access_plan_t access = {0};
   loom_low_source_memory_access_diagnostic_t diagnostic = {0};
   loom_aie2p_immutable_gather_match_t match = {0};
+  IREE_RETURN_IF_ERROR(
+      loom_target_legalization_resolve_function_analysis(context));
   if (loom_low_source_memory_access_plan_build(context->view_regions, op,
                                                /*axis_byte_strides=*/NULL,
                                                &access, &diagnostic) &&

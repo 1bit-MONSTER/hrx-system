@@ -359,10 +359,27 @@ const loom_value_fact_cfg_region_t* loom_low_lower_context_cfg(
       context->fact_table, loom_func_like_body(context->source_function));
 }
 
-loom_condition_query_t* loom_low_lower_context_condition_query(
+static iree_status_t loom_low_lower_context_acquire_value_domain(
     loom_low_lower_context_t* context) {
+  if (loom_local_value_domain_is_acquired(&context->lowering->value_domain)) {
+    return iree_ok_status();
+  }
+  return loom_local_value_domain_acquire_for_region_tree(
+      context->module, loom_func_like_body(context->source_function),
+      &context->analysis_arena, &context->lowering->value_domain);
+}
+
+iree_status_t loom_low_lower_context_condition_query(
+    loom_low_lower_context_t* context, loom_condition_query_t** out_query) {
   IREE_ASSERT(context->low_func_op == NULL);
-  return &context->condition_query;
+  if (context->condition_query.module == NULL) {
+    IREE_RETURN_IF_ERROR(loom_low_lower_context_acquire_value_domain(context));
+    loom_condition_query_initialize(
+        context->module, &context->lowering->value_domain,
+        &context->analysis_arena, &context->condition_query);
+  }
+  *out_query = &context->condition_query;
+  return iree_ok_status();
 }
 
 loom_symbolic_expr_context_t* loom_low_lower_context_symbolic_expr_context(
@@ -372,7 +389,9 @@ loom_symbolic_expr_context_t* loom_low_lower_context_symbolic_expr_context(
   if (analysis->phase < LOOM_LOW_LOWER_FUNCTION_ANALYSIS_EXPRESSIONS) {
     loom_symbolic_expr_context_initialize(
         loom_low_lower_context_module(context),
-        &context->lowering->value_domain,
+        loom_local_value_domain_is_acquired(&context->lowering->value_domain)
+            ? &context->lowering->value_domain
+            : NULL,
         loom_low_lower_context_fact_table(context), &context->analysis_arena,
         &analysis->expression_context);
     analysis->expression_context.value_identities = &analysis->value_identities;
@@ -393,6 +412,7 @@ iree_status_t loom_low_lower_context_view_regions(
   *out_view_regions = NULL;
   loom_low_lower_function_analysis_t* analysis = &context->function_analysis;
   if (analysis->phase < LOOM_LOW_LOWER_FUNCTION_ANALYSIS_VIEW_REGIONS) {
+    IREE_RETURN_IF_ERROR(loom_low_lower_context_acquire_value_domain(context));
     loom_symbolic_expr_context_t* expression_context =
         loom_low_lower_context_symbolic_expr_context(context);
     IREE_RETURN_IF_ERROR(loom_view_region_table_initialize(

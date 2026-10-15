@@ -366,6 +366,16 @@ static iree_status_t loom_low_lower_source_query_allocate_target_state(
       (loom_low_lower_context_t*)user_data, key, data_length, out_data);
 }
 
+static iree_status_t loom_low_lower_source_query_function_analysis(
+    void* user_data, loom_local_value_domain_t** out_value_domain,
+    const loom_view_region_table_t** out_view_regions) {
+  loom_low_lower_context_t* context = user_data;
+  IREE_RETURN_IF_ERROR(
+      loom_low_lower_context_view_regions(context, out_view_regions));
+  *out_value_domain = &context->lowering->value_domain;
+  return iree_ok_status();
+}
+
 iree_status_t loom_low_lower_source_query_environment_initialize(
     loom_low_lower_context_t* context,
     const loom_low_descriptor_set_t* descriptor_set,
@@ -478,7 +488,8 @@ static iree_status_t loom_low_lower_source_query_contract(
   iree_status_t status = iree_ok_status();
   loom_target_contract_query_environment_t query_environment = *environment;
   query_environment.storage_access = context->storage_access;
-  if (query_environment.value_domain == NULL) {
+  if (query_environment.value_domain == NULL &&
+      loom_local_value_domain_is_acquired(&context->lowering->value_domain)) {
     query_environment.value_domain =
         loom_low_lower_context_value_domain(context);
   }
@@ -488,11 +499,11 @@ static iree_status_t loom_low_lower_source_query_contract(
           .fn = loom_low_lower_source_query_allocate_target_state,
           .user_data = context,
       };
-  if (query_environment.view_regions == NULL) {
-    const loom_view_region_table_t* view_regions = NULL;
-    status = loom_low_lower_context_view_regions(context, &view_regions);
-    query_environment.view_regions = view_regions;
-  }
+  query_environment.function_analysis =
+      (loom_target_contract_function_analysis_callback_t){
+          .fn = loom_low_lower_source_query_function_analysis,
+          .user_data = context,
+      };
 
   loom_low_lower_contract_query_state_t state = {
       .context = context,
@@ -526,9 +537,13 @@ static iree_status_t loom_low_lower_source_query_contract(
   loom_low_lower_source_query_coverage_t* coverage = NULL;
   if (iree_status_is_ok(status) && !fact_table_changed &&
       query_environment.vector_lane_projection.source_lane_count == 0 &&
-      loom_local_value_domain_is_acquired(&context->lowering->value_domain)) {
-    status = loom_low_lower_source_query_prepare_coverage(
-        context, &query_environment, &query_options, &coverage);
+      loom_low_lower_source_query_has_related_rules(&query_options)) {
+    status = loom_target_contract_query_resolve_function_analysis(
+        &query_environment);
+    if (iree_status_is_ok(status)) {
+      status = loom_low_lower_source_query_prepare_coverage(
+          context, &query_environment, &query_options, &coverage);
+    }
   }
   if (iree_status_is_ok(status) && coverage != NULL && coverage->prepared) {
     const loom_low_lower_source_graph_node_t* node =
@@ -599,8 +614,6 @@ struct loom_low_lower_source_query_scope_t {
   loom_storage_access_scope_t storage_access;
   // Diagnostic and result scratch required by the lowering context.
   loom_low_lower_result_t result;
-  // True while the frame's value domain owns module ordinal scratch.
-  bool value_domain_initialized;
 };
 
 iree_status_t loom_low_lower_source_query_scope_allocate(
@@ -644,20 +657,6 @@ iree_status_t loom_low_lower_source_query_scope_allocate(
           options->descriptor_registry,
           loom_target_facts_bundle(options->target_facts),
           &scope->context.descriptor_set);
-  loom_region_t* source_body = loom_func_like_body(source_function);
-  if (iree_status_is_ok(status) && source_body != NULL) {
-    status = loom_local_value_domain_acquire_for_region_tree(
-        module, source_body, scope->context.function_arena,
-        &scope->context.lowering->value_domain);
-    scope->value_domain_initialized = iree_status_is_ok(status);
-  }
-  if (iree_status_is_ok(status)) {
-    loom_condition_query_initialize(
-        module,
-        scope->value_domain_initialized ? &scope->context.lowering->value_domain
-                                        : NULL,
-        &scope->context.analysis_arena, &scope->context.condition_query);
-  }
   if (!iree_status_is_ok(status)) {
     loom_low_lower_source_query_scope_deinitialize(scope);
     return status;
@@ -672,9 +671,9 @@ void loom_low_lower_source_query_scope_deinitialize(
   if (scope == NULL) {
     return;
   }
-  if (scope->value_domain_initialized) {
+  if (loom_local_value_domain_is_acquired(
+          &scope->context.lowering->value_domain)) {
     loom_local_value_domain_release(&scope->context.lowering->value_domain);
-    scope->value_domain_initialized = false;
   }
   loom_low_lower_result_deinitialize(&scope->result);
   iree_arena_deinitialize(&scope->context.analysis_arena);
@@ -696,7 +695,8 @@ iree_status_t loom_low_lower_source_query_scope_environment_initialize(
 
 loom_local_value_domain_t* loom_low_lower_source_query_scope_value_domain(
     loom_low_lower_source_query_scope_t* scope) {
-  return scope->value_domain_initialized
+  return loom_local_value_domain_is_acquired(
+             &scope->context.lowering->value_domain)
              ? &scope->context.lowering->value_domain
              : NULL;
 }

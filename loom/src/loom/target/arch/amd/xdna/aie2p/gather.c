@@ -159,6 +159,10 @@ iree_status_t loom_aie2p_query_gather_contract(
     return iree_ok_status();
   }
 
+  loom_target_contract_query_environment_t analyzed_environment = *environment;
+  IREE_RETURN_IF_ERROR(loom_target_contract_query_resolve_function_analysis(
+      &analyzed_environment));
+  environment = &analyzed_environment;
   loom_low_source_memory_access_plan_t access = {0};
   loom_low_source_memory_access_diagnostic_t diagnostic = {0};
   loom_aie2p_immutable_gather_match_t match = {0};

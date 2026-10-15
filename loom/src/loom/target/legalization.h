@@ -147,6 +147,8 @@ typedef struct loom_target_legalization_context_t {
   const loom_value_fact_table_t* fact_table;
   // Analyzed view-region table visible to legalizers.
   const loom_view_region_table_t* view_regions;
+  // Immutable-snapshot owner for legalizers requiring function analyses.
+  loom_target_contract_function_analysis_callback_t function_analysis;
   // Lazy block-local read motion barriers visible to legalizers.
   loom_motion_read_barrier_table_t* read_motion_barriers;
   // Function-local value domain extendable during the current callback.
@@ -359,6 +361,10 @@ void loom_target_legalizer_registry_storage_deinitialize(
 const loom_target_legalizer_registry_t*
 loom_target_legalizer_registry_storage_registry(
     const loom_target_legalizer_registry_storage_t* storage);
+
+// Acquires complete function analyses for a memory or component legalizer.
+iree_status_t loom_target_legalization_resolve_function_analysis(
+    loom_target_legalization_context_t* context);
 
 // Queries whether |op| is already legal for the selected target contract.
 iree_status_t loom_target_legalization_query_contract(

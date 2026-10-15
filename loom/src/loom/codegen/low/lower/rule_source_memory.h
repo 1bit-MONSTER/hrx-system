@@ -82,9 +82,9 @@ typedef struct loom_low_lower_rule_source_memory_match_t {
 } loom_low_lower_rule_source_memory_match_t;
 
 // Returns the source-memory-plan alignment used by generated diagnostics.
-uint32_t loom_low_lower_rule_source_memory_minimum_alignment(
+iree_status_t loom_low_lower_rule_source_memory_minimum_alignment(
     const loom_low_lower_rule_match_context_t* match_context,
-    const loom_op_t* source_op);
+    const loom_op_t* source_op, uint32_t* out_alignment);
 
 // Returns true when |memory_space| is present in the generated mask.
 bool loom_low_lower_rule_memory_space_matches(
@@ -103,11 +103,11 @@ bool loom_low_lower_rule_source_memory_matches(
     uint16_t* out_diagnostic_index);
 
 // Matches every source-memory emit attached to |rule|.
-loom_low_lower_rule_source_memory_match_t
-loom_low_lower_rule_source_memory_emits_match(
+iree_status_t loom_low_lower_rule_source_memory_emits_match(
     const loom_low_lower_rule_match_context_t* match_context,
     const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
-    const loom_low_lower_rule_t* rule);
+    const loom_low_lower_rule_t* rule,
+    loom_low_lower_rule_source_memory_match_t* out_match);
 
 // Resolves one canonical dynamic address term in the descriptor-declared byte
 // arithmetic carrier. Fixed-width source integers use the selected memory

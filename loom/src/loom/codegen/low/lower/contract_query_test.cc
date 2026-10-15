@@ -339,8 +339,8 @@ TEST_F(LowContractQuerySourceMemoryTest,
   };
   loom_diagnostic_param_t params[8] = {};
 
-  loom_low_lower_rule_materialize_diagnostic_params(
-      &match_context, &rule_set, source_op, &diagnostic, params);
+  IREE_ASSERT_OK(loom_low_lower_rule_materialize_diagnostic_params(
+      &match_context, &rule_set, source_op, &diagnostic, params));
 
   EXPECT_TRUE(iree_string_view_equal(params[0].string, IREE_SV("test-target")));
   EXPECT_TRUE(iree_string_view_equal(params[1].string, IREE_SV("test-export")));
@@ -411,8 +411,8 @@ TEST_F(LowContractQuerySourceMemoryTest,
       .bundle = &kTargetBundle,
   };
   loom_diagnostic_param_t params[IREE_ARRAYSIZE(refs)] = {};
-  loom_low_lower_rule_materialize_diagnostic_params(
-      &match_context, &rule_set, source_op, &diagnostic, params);
+  IREE_ASSERT_OK(loom_low_lower_rule_materialize_diagnostic_params(
+      &match_context, &rule_set, source_op, &diagnostic, params));
 
   EXPECT_EQ(params[0].kind, LOOM_PARAM_U64);
   EXPECT_EQ(params[0].u64, UINT64_MAX);

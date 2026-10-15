@@ -35,8 +35,8 @@ static iree_status_t loom_low_lower_contract_query_make_rejection(
     IREE_RETURN_IF_ERROR(iree_arena_allocate(
         environment->arena, diagnostic->param_count * sizeof(*params),
         (void**)&params));
-    loom_low_lower_rule_materialize_diagnostic_params(
-        match_context, rule_set, source_op, diagnostic, params);
+    IREE_RETURN_IF_ERROR(loom_low_lower_rule_materialize_diagnostic_params(
+        match_context, rule_set, source_op, diagnostic, params));
   }
   *rejection = (loom_target_contract_rejection_t){
       .error_ref = diagnostic->error_ref,
@@ -806,6 +806,7 @@ static void loom_low_lower_contract_query_match_state_initialize(
       .descriptor_ref = options->descriptor_ref,
       .fact_table = environment->fact_table,
       .view_regions = environment->view_regions,
+      .function_analysis = environment->function_analysis,
       .source_memory_state = &out_state->source_memory_state,
       .symbolic_expr_context = expression_context,
       .flags = LOOM_LOW_LOWER_RULE_MATCH_FLAG_CONTRACT_ONLY,

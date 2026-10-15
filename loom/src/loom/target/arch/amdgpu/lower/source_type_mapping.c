@@ -641,8 +641,12 @@ iree_status_t loom_amdgpu_map_contract_value(
   const loom_type_t source_type = loom_target_contract_query_value_type(
       environment->vector_lane_projection, environment->module,
       source_value_id);
+  loom_target_contract_query_environment_t analyzed_environment = *environment;
   loom_amdgpu_source_value_analysis_t* analysis = NULL;
   if (loom_amdgpu_source_value_register_shape_needs_analysis(source_type)) {
+    IREE_RETURN_IF_ERROR(loom_target_contract_query_resolve_function_analysis(
+        &analyzed_environment));
+    environment = &analyzed_environment;
     IREE_RETURN_IF_ERROR(loom_amdgpu_source_value_analysis_for_contract_query(
         environment, &analysis));
   }

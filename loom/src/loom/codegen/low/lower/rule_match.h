@@ -120,6 +120,8 @@ struct loom_low_lower_rule_match_context_t {
   const loom_value_fact_table_t* fact_table;
   // Optional precomputed view summaries used by source-memory guard rows.
   const loom_view_region_table_t* view_regions;
+  // Optional immutable-snapshot owner used only by source-memory matches.
+  loom_target_contract_function_analysis_callback_t function_analysis;
   // Caller-owned state retaining the canonical source-memory plan for the
   // source op being matched. Required for rule sets with source-memory rows.
   loom_low_lower_rule_source_memory_state_t* source_memory_state;
@@ -266,7 +268,7 @@ const loom_low_lower_diagnostic_t* loom_low_lower_rule_set_failure_diagnostic(
     loom_low_lower_rule_failure_t failure);
 
 // Materializes generated diagnostic parameter projections for a rejected rule.
-void loom_low_lower_rule_materialize_diagnostic_params(
+iree_status_t loom_low_lower_rule_materialize_diagnostic_params(
     const loom_low_lower_rule_match_context_t* match_context,
     const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
     const loom_low_lower_diagnostic_t* diagnostic,

@@ -70,8 +70,8 @@ iree_status_t loom_low_lower_source_query_scope_environment_initialize(
     loom_low_lower_source_query_scope_t* scope,
     loom_target_contract_query_environment_t* out_environment);
 
-// Returns the function-local value domain owned by |scope|, or NULL when the
-// source function has no body.
+// Returns the function-local value domain after function analyses have been
+// acquired, or NULL while the scope has only answered point queries.
 loom_local_value_domain_t* loom_low_lower_source_query_scope_value_domain(
     loom_low_lower_source_query_scope_t* scope);
 

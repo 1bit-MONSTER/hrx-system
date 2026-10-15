@@ -977,10 +977,6 @@ static iree_status_t loom_low_target_legalize_refresh_query_scope(
   IREE_RETURN_IF_ERROR(loom_low_lower_source_query_scope_allocate(
       state->module, state->selection->func, &state->lower_options,
       state->query_scope_arena, &state->query_scope));
-  state->legalization_context.value_domain =
-      loom_low_lower_source_query_scope_value_domain(state->query_scope);
-  IREE_RETURN_IF_ERROR(loom_low_lower_source_query_scope_view_regions(
-      state->query_scope, &state->legalization_context.view_regions));
   return iree_ok_status();
 }
 
@@ -992,6 +988,19 @@ static iree_status_t loom_low_target_legalize_ensure_query_scope(
     return iree_ok_status();
   }
   return loom_low_target_legalize_refresh_query_scope(state, fact_table);
+}
+
+static iree_status_t loom_low_target_legalize_function_analysis(
+    void* user_data, loom_local_value_domain_t** out_value_domain,
+    const loom_view_region_table_t** out_view_regions) {
+  loom_low_target_legalize_function_state_t* state = user_data;
+  IREE_RETURN_IF_ERROR(loom_low_target_legalize_ensure_query_scope(
+      state, state->legalization_context.fact_table));
+  IREE_RETURN_IF_ERROR(loom_low_lower_source_query_scope_view_regions(
+      state->query_scope, out_view_regions));
+  *out_value_domain =
+      loom_low_lower_source_query_scope_value_domain(state->query_scope);
+  return iree_ok_status();
 }
 
 static iree_status_t loom_low_target_legalize_query_contract(
@@ -1370,8 +1379,8 @@ static iree_status_t loom_low_target_legalize_packet_components(
   state->legalization_context.fact_table = driver->fact_table;
   state->legalization_context.rewriter = &driver->rewriter;
   state->legalization_context.arena = driver->scratch_arena;
-  IREE_RETURN_IF_ERROR(
-      loom_low_target_legalize_ensure_query_scope(state, driver->fact_table));
+  IREE_RETURN_IF_ERROR(loom_target_legalization_resolve_function_analysis(
+      &state->legalization_context));
   uint32_t rewritten_op_count = 0;
   iree_status_t packet_status = loom_vector_component_packet_legalize(
       &state->legalization_context,
@@ -1552,6 +1561,11 @@ IREE_ATTRIBUTE_NOINLINE static iree_status_t loom_low_target_legalize_function(
       .contract_query =
           {
               .fn = loom_low_target_legalize_query_contract,
+              .user_data = &state,
+          },
+      .function_analysis =
+          {
+              .fn = loom_low_target_legalize_function_analysis,
               .user_data = &state,
           },
   };
