@@ -72,18 +72,16 @@ endif()
 if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND AMDF_FAMILY_XDNA AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX11_GENERIC_CORE AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_GENERIC_CORE AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_5_GENERIC_CORE AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
 iree_cc_library(
   NAME
-    execution_cases
-  SRCS
-    "gpu_xdna_test.cc"
-    "reservation_test.cc"
-    "resident_test.cc"
+    resident_fixture
+  HDRS
+    "resident_cases.h"
+    "resident_fixture.h"
   DEPS
     ::device_fixture
     ::pm4_queue
     ::resident_memory
     amdf::headers
     iree::third_party::google_test
-    libamdf::cts::gpu::gpu_device_fixture
     libamdf::cts::gpu::kernels::resident_channels
     libamdf::cts::gpu::kernels::resident_channels_kernels
     libamdf::cts::gpu::kernels::resident_exchange
@@ -92,17 +90,12 @@ iree_cc_library(
     libamdf::cts::gpu::kernels::resident_npu_initiated_kernels
     libamdf::cts::gpu::kernels::resident_npu_sdma
     libamdf::cts::gpu::kernels::resident_npu_sdma_kernels
-    libamdf::cts::gpu::kernels::transform
-    libamdf::cts::gpu::kernels::transform_kernels
     libamdf::cts::gpu::pm4::encoding::commands
     libamdf::cts::gpu::sdma::encoding::commands
     libamdf::cts::gpu::util::command_fixture
     libamdf::cts::gpu::util::user_queue
-    libamdf::cts::util::device_cache
-    libamdf::cts::util::mapped_memory
     libamdf::cts::util::observation
     libamdf::cts::util::wait
-    libamdf::cts::xdna::programs::mul_i32
     libamdf::cts::xdna::programs::resident_channels
     libamdf::cts::xdna::programs::resident_exchange
     libamdf::cts::xdna::programs::resident_npu_initiated
@@ -111,6 +104,33 @@ iree_cc_library(
     libamdf::cts::xdna::util::executable
     libamdf::cts::xdna::util::execution
     libamdf::cts::xdna::util::resident_transaction
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND AMDF_FAMILY_XDNA AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX11_GENERIC_CORE AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_GENERIC_CORE AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_5_GENERIC_CORE AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+iree_cc_library(
+  NAME
+    execution_cases
+  SRCS
+    "gpu_xdna_test.cc"
+    "reservation_test.cc"
+    "resident_test.cc"
+  DEPS
+    ::device_fixture
+    ::pm4_queue
+    ::resident_fixture
+    amdf::headers
+    iree::third_party::google_test
+    libamdf::cts::gpu::kernels::transform
+    libamdf::cts::gpu::kernels::transform_kernels
+    libamdf::cts::gpu::pm4::encoding::commands
+    libamdf::cts::util::mapped_memory
+    libamdf::cts::util::wait
+    libamdf::cts::xdna::programs::mul_i32
+    libamdf::cts::xdna::util::executable
+    libamdf::cts::xdna::util::execution
   TESTONLY
   ALWAYSLINK
   PUBLIC
@@ -161,17 +181,50 @@ iree_native_test(
 endif()
 
 if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND AMDF_FAMILY_XDNA AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX11_GENERIC_CORE AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_GENERIC_CORE AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_5_GENERIC_CORE AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+iree_cc_library(
+  NAME
+    execution_stress_cases
+  SRCS
+    "resident_stress_test.cc"
+  DEPS
+    ::resident_fixture
+    amdf::headers
+    iree::third_party::google_test
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND AMDF_FAMILY_XDNA AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX11_GENERIC_CORE AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_GENERIC_CORE AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_5_GENERIC_CORE AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+amdf_cts_binary(
+  NAME
+    execution_stress_dynamic_bin
+  DATA
+    amdf::amdf
+  DEPS
+    ::execution_stress_cases
+    amdf::headers
+    libamdf::cts::util::dynamic_provider
+    libamdf::cts::util::test_main
+  TESTONLY
+)
+endif()
+
+if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND AMDF_FAMILY_XDNA AND LOOM_TARGET_ARCH_XDNA AND LOOM_BUILD AND LOOM_EMIT_XDNA AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX11_GENERIC_CORE AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_GENERIC_CORE AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_GFX12_5_GENERIC_CORE AND LOOM_TARGET_AMDGPU_DESCRIPTOR_SET_RDNA4M_CORE AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
 iree_native_test(
   NAME
-    "execution_dynamic_instance"
+    "execution_stress_dynamic"
   ARGS
-    "--amdf_native_lifetime=instance"
+    "--amdf_native_lifetime=process"
     "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
   SRC
-    ::execution_dynamic_bin
+    ::execution_stress_dynamic_bin
   DATA
     "amdf::amdf"
   LABELS
+    "manual"
+    "stress"
     "iree-build-requirement=libamdf"
     "iree-build-requirement=loom.target.arch.amdgpu"
     "iree-build-requirement=loom.emit.amdgpu"

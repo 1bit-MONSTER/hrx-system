@@ -190,29 +190,6 @@ iree_native_test(
 endif()
 
 if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
-iree_native_test(
-  NAME
-    "aql_dynamic_instance"
-  ARGS
-    "--amdf_native_lifetime=instance"
-    "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
-  SRC
-    ::aql_dynamic_bin
-  DATA
-    "amdf::amdf"
-  LABELS
-    "iree-build-requirement=libamdf"
-    "iree-build-requirement=libamdf.gpu"
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-run-requirement=libamdf.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-  RESOURCE_GROUP
-    gpu-device
-)
-endif()
-
-if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
 iree_cc_library(
   NAME
     aql_stress_cases
@@ -251,31 +228,6 @@ iree_native_test(
     "aql_stress_dynamic"
   ARGS
     "--amdf_native_lifetime=process"
-    "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
-  SRC
-    ::aql_stress_dynamic_bin
-  DATA
-    "amdf::amdf"
-  LABELS
-    "manual"
-    "stress"
-    "iree-build-requirement=libamdf"
-    "iree-build-requirement=libamdf.gpu"
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-run-requirement=libamdf.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-  RESOURCE_GROUP
-    gpu-device
-)
-endif()
-
-if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
-iree_native_test(
-  NAME
-    "aql_stress_dynamic_instance"
-  ARGS
-    "--amdf_native_lifetime=instance"
     "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
   SRC
     ::aql_stress_dynamic_bin

@@ -152,27 +152,4 @@ iree_native_test(
 )
 endif()
 
-if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
-iree_native_test(
-  NAME
-    "pm4_dynamic_instance"
-  ARGS
-    "--amdf_native_lifetime=instance"
-    "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
-  SRC
-    ::pm4_dynamic_bin
-  DATA
-    "amdf::amdf"
-  LABELS
-    "iree-build-requirement=libamdf"
-    "iree-build-requirement=libamdf.gpu"
-    "iree-build-requirement=loom.target.arch.amdgpu"
-    "iree-build-requirement=loom.emit.amdgpu"
-    "iree-run-requirement=libamdf.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-  RESOURCE_GROUP
-    gpu-device
-)
-endif()
-
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

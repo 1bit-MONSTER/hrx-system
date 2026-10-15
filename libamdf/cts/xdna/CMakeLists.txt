@@ -28,6 +28,79 @@ endif()
 if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
 iree_cc_library(
   NAME
+    native_lifetime_cases
+  SRCS
+    "native_lifetime_test.cc"
+  DEPS
+    ::xdna_device_fixture
+    amdf::headers
+    iree::third_party::google_test
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+amdf_cts_binary(
+  NAME
+    native_lifetime_dynamic_bin
+  DATA
+    amdf::amdf
+  DEPS
+    ::native_lifetime_cases
+    amdf::headers
+    libamdf::cts::util::dynamic_provider
+    libamdf::cts::util::test_main
+  TESTONLY
+)
+endif()
+
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+iree_native_test(
+  NAME
+    "native_lifetime_dynamic"
+  ARGS
+    "--amdf_native_lifetime=process"
+    "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
+  SRC
+    ::native_lifetime_dynamic_bin
+  DATA
+    "amdf::amdf"
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.xdna"
+    "iree-run-requirement=libamdf.resource.xdna"
+    "runtime-resource=amd-xdna"
+  RESOURCE_GROUP
+    gpu-device
+)
+endif()
+
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+iree_native_test(
+  NAME
+    "native_lifetime_dynamic_instance"
+  ARGS
+    "--amdf_native_lifetime=instance"
+    "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
+  SRC
+    ::native_lifetime_dynamic_bin
+  DATA
+    "amdf::amdf"
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.xdna"
+    "iree-run-requirement=libamdf.resource.xdna"
+    "runtime-resource=amd-xdna"
+  RESOURCE_GROUP
+    gpu-device
+)
+endif()
+
+if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+iree_cc_library(
+  NAME
     kernel_queue_cases
   SRCS
     "kernel_queue_test.cc"
@@ -67,27 +140,6 @@ iree_native_test(
     "kernel_queue_dynamic"
   ARGS
     "--amdf_native_lifetime=process"
-    "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
-  SRC
-    ::kernel_queue_dynamic_bin
-  DATA
-    "amdf::amdf"
-  LABELS
-    "iree-build-requirement=libamdf"
-    "iree-build-requirement=libamdf.xdna"
-    "iree-run-requirement=libamdf.resource.xdna"
-    "runtime-resource=amd-xdna"
-  RESOURCE_GROUP
-    gpu-device
-)
-endif()
-
-if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
-iree_native_test(
-  NAME
-    "kernel_queue_dynamic_instance"
-  ARGS
-    "--amdf_native_lifetime=instance"
     "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
   SRC
     ::kernel_queue_dynamic_bin
@@ -159,27 +211,6 @@ iree_native_test(
 endif()
 
 if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
-iree_native_test(
-  NAME
-    "memory_dynamic_instance"
-  ARGS
-    "--amdf_native_lifetime=instance"
-    "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
-  SRC
-    ::memory_dynamic_bin
-  DATA
-    "amdf::amdf"
-  LABELS
-    "iree-build-requirement=libamdf"
-    "iree-build-requirement=libamdf.xdna"
-    "iree-run-requirement=libamdf.resource.xdna"
-    "runtime-resource=amd-xdna"
-  RESOURCE_GROUP
-    gpu-device
-)
-endif()
-
-if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
 iree_cc_library(
   NAME
     xdna_extension_cases
@@ -219,27 +250,6 @@ iree_native_test(
     "xdna_extension_dynamic"
   ARGS
     "--amdf_native_lifetime=process"
-    "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
-  SRC
-    ::xdna_extension_dynamic_bin
-  DATA
-    "amdf::amdf"
-  LABELS
-    "iree-build-requirement=libamdf"
-    "iree-build-requirement=libamdf.xdna"
-    "iree-run-requirement=libamdf.resource.xdna"
-    "runtime-resource=amd-xdna"
-  RESOURCE_GROUP
-    gpu-device
-)
-endif()
-
-if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
-iree_native_test(
-  NAME
-    "xdna_extension_dynamic_instance"
-  ARGS
-    "--amdf_native_lifetime=instance"
     "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
   SRC
     ::xdna_extension_dynamic_bin

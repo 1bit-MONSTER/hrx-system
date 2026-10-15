@@ -58,20 +58,4 @@ iree_native_test(
 )
 endif()
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND AMDF_BUILD)
-iree_native_test(
-  NAME
-    "memory_dynamic_instance"
-  ARGS
-    "--amdf_native_lifetime=instance"
-    "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
-  SRC
-    ::memory_dynamic_bin
-  DATA
-    "amdf::amdf"
-  LABELS
-    "iree-build-requirement=libamdf"
-)
-endif()
-
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

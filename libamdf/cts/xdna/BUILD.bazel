@@ -28,6 +28,25 @@ amdf_cc_library(
     ],
 )
 
+amdf_cts_test_suite(
+    name = "native_lifetime",
+    srcs = ["native_lifetime_test.cc"],
+    native_lifetimes = [
+        "process",
+        "instance",
+    ],
+    target_compatible_with = select({
+        "@platforms//os:linux": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    visibility = ["//visibility:public"],
+    deps = [
+        ":xdna_device_fixture",
+        "//third_party:google_test",
+    ],
+)
+
 [amdf_cts_test_suite(
     name = name,
     srcs = [name + "_test.cc"],
@@ -58,6 +77,7 @@ test_suite(
     tests = [
         ":kernel_queue",
         ":memory",
+        ":native_lifetime",
         ":xdna_extension",
         "//libamdf/cts/xdna/linux:memory",
         "//libamdf/cts/xdna/linux/file_channel",

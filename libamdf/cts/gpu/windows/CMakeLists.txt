@@ -65,27 +65,6 @@ iree_native_test(
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
-iree_native_test(
-  NAME
-    "file_io_dynamic_instance"
-  ARGS
-    "--amdf_native_lifetime=instance"
-    "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
-  SRC
-    ::file_io_dynamic_bin
-  DATA
-    "amdf::amdf"
-  LABELS
-    "iree-build-requirement=libamdf"
-    "iree-build-requirement=libamdf.gpu"
-    "iree-run-requirement=libamdf.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-  RESOURCE_GROUP
-    gpu-device
-)
-endif()
-
-if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
 iree_cc_library(
   NAME
     memory_cases
@@ -122,27 +101,6 @@ iree_native_test(
     "memory_dynamic"
   ARGS
     "--amdf_native_lifetime=process"
-    "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
-  SRC
-    ::memory_dynamic_bin
-  DATA
-    "amdf::amdf"
-  LABELS
-    "iree-build-requirement=libamdf"
-    "iree-build-requirement=libamdf.gpu"
-    "iree-run-requirement=libamdf.resource.amd_gpu"
-    "runtime-resource=amd-gpu"
-  RESOURCE_GROUP
-    gpu-device
-)
-endif()
-
-if(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA))
-iree_native_test(
-  NAME
-    "memory_dynamic_instance"
-  ARGS
-    "--amdf_native_lifetime=instance"
     "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
   SRC
     ::memory_dynamic_bin

@@ -207,12 +207,14 @@ failure durability: this program issues no storage flush or checkpoint commit.
 
 ## Build and qualification
 
-The Linux x86-64 corpus is `//libamdf/cts/gpu/linux/io_uring:file_io_dynamic`; the
-`_instance` invocation independently checks lifetime capability discovery.
-Caller-page registration requires the advertised host-registration capability.
-On the current Linux KFD path, it is available with process lifetime; instance
-lifetime reports that absence instead of substituting another backing route.
-The dispatch requires a qualified RDNA PM4 compute/cache profile and its exact
+The Linux x86-64 corpus is
+`//libamdf/cts/gpu/linux/io_uring:file_io_dynamic`. Caller-page registration
+requires the advertised host-registration capability. The focused
+`//libamdf/cts/gpu:native_lifetime_dynamic` and `_instance` tests qualify
+lifetime discovery without rerunning this corpus. On the current Linux KFD
+path, host registration is available with process lifetime; instance lifetime
+reports that absence instead of substituting another backing route. The
+dispatch requires a qualified RDNA PM4 compute/cache profile and its exact
 compiled shader product.
 
 For a hardware runner with the required direct-I/O filesystem:
@@ -253,11 +255,19 @@ Concurrent cases additionally record peak outstanding requests, unique input
 reads, deduplicated demand, peer reloads with a held reference, observed CQ
 reordering, and the number of accepted requests drained after failure.
 
+Ordinary execution keeps fixed ownership and failure anchors plus explicit
+pairwise progress-path and ring-boundary cases. The manual `file_io_stress`
+target retains the complete matrices: all held slots and file modes over all
+four alternate progress paths, every failure phase over those paths, every
+progress workload, every native ring geometry, and every latency and demand
+profile. The ordinary and stress targets share the same fixtures and oracles;
+only their selected cases and workload scales differ.
+
 The generated CMake executable is
-`libamdf_cts_gpu_linux_io_uring_file_io_dynamic_bin`; its CTest names are
-`libamdf/cts/gpu/linux/io_uring/file_io_dynamic` and the `_instance` variant.
-The ordinary kernel-product test checks the same authored fixtures without
-activating a GPU.
+`libamdf_cts_gpu_linux_io_uring_file_io_dynamic_bin`; its CTest name is
+`libamdf/cts/gpu/linux/io_uring/file_io_dynamic`. The manual stress executable
+and CTest use `file_io_stress_dynamic`. The ordinary kernel-product test checks
+the same authored fixtures without activating a GPU.
 
 Production integration still needs the caller's actual request identity,
 cache admission/eviction and final-reader lifecycle, plus a matched host-issued
@@ -360,10 +370,11 @@ intervening migration.
 
 ## Completion driven latency comparison
 
-[file_latency_test.cc](file_latency_test.cc) runs one through four causal streams
-with the same [GPU program](../../kernels/file_latency.loom) on all four transports.
-Each completion immediately admits its stream's successor. File keys depend on
-three words from the previous response; the host has no prepared request list.
+[file_latency_fixture.h](file_latency_fixture.h) runs one through four causal
+streams with the same [GPU program](../../kernels/file_latency.loom) on all four
+transports. Each completion immediately admits its stream's successor. File
+keys depend on three words from the previous response; the host has no prepared
+request list.
 Read/write/reload cases write disjoint scattered output blocks and reload into
 separate guarded windows. Payload consumption is a three-word probe, not a
 matmul. The CPU oracle checks every probe and dependency, every final payload
@@ -374,14 +385,17 @@ Linux's [iomap completion][iomap] trims the reported count to file length after
 transfer. Only returned bytes are meaningful; guards outside the entire
 submitted destination remain protected and incomplete inputs are never consumed.
 
-The six profiles cover dependent 4 KiB lookups, four independent 4 KiB streams,
-64 KiB block round trips, four 4 MiB block streams, and 4 KiB arrivals separated
-by 200 microseconds or 2 milliseconds. The buffered files are warm page-cache
-controls. `O_DIRECT` exercises the filesystem's direct path; neither mode
-establishes cold controller caches or a production model's access distribution.
-The largest private file is 128 MiB. No model, raw device or existing file is
-modified. File initialization and between-sample writeback flushing occur
-outside timing; timed write completion is not a durability boundary.
+The manual stress and measurement corpus has six profiles: dependent 4 KiB
+lookups, four independent 4 KiB streams, 64 KiB block round trips, four 4 MiB
+block streams, and 4 KiB arrivals separated by 200 microseconds or 2
+milliseconds. The ordinary corpus retains both causal lookup shapes, the 64
+KiB round trip, the 2 millisecond arrival gap, and both failure drains. The
+buffered files are warm page-cache controls. `O_DIRECT` exercises the
+filesystem's direct path; neither mode establishes cold controller caches or a
+production model's access distribution. The largest manual private file is 128
+MiB. No model, raw device, or existing file is modified. File initialization
+and between-sample writeback flushing occur outside timing; timed write
+completion is not a durability boundary.
 
 Ordinary CTS performs eight rounds per stream without printing performance
 samples. An optimized run sets `AMDF_IO_REPETITIONS` (1 through 31) and requires
@@ -447,21 +461,24 @@ describes those domains. Request timestamp and transcript overhead is shared
 by all paths; results characterize this instrumented native boundary, not a
 complete serving engine or contention with independent compute workers.
 
-The runnable target is `:file_io_dynamic_bin`; the ordinary `:file_io_dynamic`
-target supplies ASAN correctness. Optimized builds use the repository benchmark
-flags and an explicit runner ISA. A measurement invocation supplies the built
-library with `--amdf_library`, selects the physical GPU, and filters
+The ordinary `:file_io_dynamic` target supplies bounded ASAN correctness. The
+runnable `:file_io_stress_dynamic_bin` retains the complete profiles for manual
+stress and measurement. Optimized builds use the repository benchmark flags
+and an explicit runner ISA. A measurement invocation supplies the built library
+with `--amdf_library`, selects the physical GPU, and filters
 `FileModes/GpuFileLatencyTest.*`. The file's XML retains device, filesystem,
-kernel and compiled-image identity. Performance results require the matched
+kernel, and compiled-image identity. Performance results require the matched
 JSON samples plus artifact digests, compiler flags, broker lease, machine
-state and the exact policy settings; a successful CTS run alone is insufficient.
+state, and the exact policy settings; a successful CTS run alone is
+insufficient.
 
 ## Scheduled demand and bounded backing
 
-`FileModes/GpuFileDemandTest.*` uses [file_demand.loom](../../kernels/file_demand.loom)
-to measure demand latency with 32, 64, 128 or 256 logical arrivals in each burst.
-Four bursts form an epoch. Their offered times are fixed before execution and
-do not wait for I/O completion or free backing. The primary interval is
+`FileModes/GpuFileDemandTest.*` uses
+[file_demand.loom](../../kernels/file_demand.loom) to measure demand latency.
+The complete manual profiles use 32, 64, 128, or 256 logical arrivals in each
+burst. Four bursts form an epoch. Their offered times are fixed before execution
+and do not wait for I/O completion or free backing. The primary interval is
 `ready - arrival`: scheduled GPU demand through the consumer's first returned
 payload probe. `admitted - arrival` exposes queueing before a credit is acquired;
 `released - ready` includes deliberately retained readers. Physical read, write
@@ -475,6 +492,13 @@ and reload intervals remain separate from logical request latency.
 | `expert_tiles` | 256 KiB read | 256-demand bursts over 16 keys, 32 credits, every seventh reader retained for 2 ms. |
 | `expert_pressure` | 256 KiB read | 256-demand bursts over 64 keys, eight credits, retained readers and independent arithmetic. |
 | `kv_blocks` | 64 KiB read/write/reload | 256-demand bursts, 64 credits, scattered output blocks and a separate reload bank. |
+
+Ordinary correctness retains the same mechanisms with bounded data: 32-reader
+lookup and staggered bursts, a 64-reader burst over eight credits, 64 KiB expert
+reads with four or eight credits, and 16 KiB scattered read/write/reload over
+eight credits. The absent-file and partial-input cases use at most 32 readers.
+The manual target keeps the table's exact production-scale profiles for stress
+and measurement.
 
 The GPU hashes each offered key seed and looks up a direct key-to-credit map.
 Matching immutable demands join an existing read, including already completed

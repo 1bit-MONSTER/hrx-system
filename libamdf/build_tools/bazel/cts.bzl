@@ -18,6 +18,7 @@ def amdf_cts_test_suite(
         defines = None,
         linkage_modes = ["dynamic"],
         linkopts = None,
+        native_lifetimes = ["process"],
         tags = None,
         resource_group = None,
         target_compatible_with = None,
@@ -32,6 +33,9 @@ def amdf_cts_test_suite(
       linkage_modes: Providers to link: dynamic (runtime-loaded, the default),
         shared (link-time shared), or static. Each mode adds one executable.
       linkopts: Native libraries required by the foreign API under test.
+      native_lifetimes: Native ownership policies to exercise. Ordinary
+        corpora use process lifetime; focused lifetime tests may also select
+        instance lifetime.
       tags: Additional tags applied to every generated test target.
       resource_group: Shared native resource used by the test invocations.
       target_compatible_with: Constraints required by every test mode.
@@ -77,7 +81,10 @@ def amdf_cts_test_suite(
             provider_args = [
                 "--amdf_library=$(rootpath //libamdf:amdf_shared_artifact)",
             ]
-        for lifetime, suffix in [("process", ""), ("instance", "_instance")]:
+        for lifetime in native_lifetimes:
+            if lifetime not in ["process", "instance"]:
+                fail("unsupported libamdf native lifetime: " + lifetime)
+            suffix = "" if lifetime == "process" else "_" + lifetime
             test_name = name + "_" + mode + suffix
             iree_executable_test(
                 name = test_name,

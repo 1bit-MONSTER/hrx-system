@@ -51,6 +51,25 @@ amdf_cts_test_suite(
     ],
 )
 
+amdf_cts_test_suite(
+    name = "native_lifetime",
+    srcs = ["native_lifetime_test.cc"],
+    native_lifetimes = [
+        "process",
+        "instance",
+    ],
+    target_compatible_with = ["@platforms//cpu:x86_64"] + select({
+        "@platforms//os:linux": [],
+        "@platforms//os:windows": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    visibility = ["//visibility:public"],
+    deps = [
+        ":gpu_device_fixture",
+        "//third_party:google_test",
+    ],
+)
+
 [amdf_cts_test_suite(
     name = name,
     srcs = [name + "_test.cc"],
@@ -81,6 +100,7 @@ test_suite(
         ":gpu_extension",
         ":kernel_queue",
         ":memory_interop",
+        ":native_lifetime",
         "//libamdf/cts/gpu/aql",
         "//libamdf/cts/gpu/aql/encoding:packets_test",
         "//libamdf/cts/gpu/linux:memory",
