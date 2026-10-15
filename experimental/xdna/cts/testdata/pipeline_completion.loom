@@ -6,6 +6,84 @@
 
 aie2p.target<array> @npu
 
+func.def inline @copy_pair(%first_records: channel<tile<1xi32>>, %second_records: channel<tile<1xi32>>, %input: buffer, %output: buffer, %offset: offset, %increment: i32) {
+  %word_bytes = index.constant 4 : offset
+  %second_offset = index.add %offset, %word_bytes : offset
+  %first_input = buffer.view %input[%offset] : buffer -> view<1xi32>
+  %second_input = buffer.view %input[%second_offset] : buffer -> view<1xi32>
+  %first_output = buffer.view %output[%offset] : buffer -> view<1xi32>
+  %second_output = buffer.view %output[%second_offset] : buffer -> view<1xi32>
+  %first_write, %first_destination = channel.reserve %first_records : channel<tile<1xi32>> -> (write<tile<1xi32>>, view<1xi32>)
+  %second_write, %second_destination = channel.reserve %second_records : channel<tile<1xi32>> -> (write<tile<1xi32>>, view<1xi32>)
+  %first_ingress = kernel.async.copy %first_input to %first_destination {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<1xi32> to view<1xi32> -> kernel.async.token
+  %second_ingress = kernel.async.copy %second_input to %second_destination {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<1xi32> to view<1xi32> -> kernel.async.token
+  %incoming = kernel.async.group %first_ingress, %second_ingress : kernel.async.token, kernel.async.token -> kernel.async.group
+  kernel.async.wait %incoming {newer_groups = 0} : kernel.async.group
+  channel.publish %first_write : write<tile<1xi32>>
+  channel.publish %second_write : write<tile<1xi32>>
+  %first_read, %first_source = channel.acquire<mutable> %first_records : channel<tile<1xi32>> -> (read<tile<1xi32>, mutable>, view<1xi32>)
+  %second_read, %second_source = channel.acquire<mutable> %second_records : channel<tile<1xi32>> -> (read<tile<1xi32>, mutable>, view<1xi32>)
+  %first_value = view.load %first_source[0] : view<1xi32> -> i32
+  %second_value = view.load %second_source[0] : view<1xi32> -> i32
+  %first_result = scalar.addi %first_value, %increment : i32
+  %second_result = scalar.addi %second_value, %increment : i32
+  view.store %first_result, %first_source[0] : i32, view<1xi32>
+  view.store %second_result, %second_source[0] : i32, view<1xi32>
+  %first_egress = kernel.async.copy %first_source to %first_output {cache_scope = workgroup, cache_temporal = regular, direction = workgroup_to_global} : view<1xi32> to view<1xi32> -> kernel.async.token
+  %second_egress = kernel.async.copy %second_source to %second_output {cache_scope = workgroup, cache_temporal = regular, direction = workgroup_to_global} : view<1xi32> to view<1xi32> -> kernel.async.token
+  %outgoing = kernel.async.group %first_egress, %second_egress : kernel.async.token, kernel.async.token -> kernel.async.group
+  kernel.async.wait %outgoing {newer_groups = 0} : kernel.async.group
+  channel.release %first_read : read<tile<1xi32>, mutable>
+  channel.release %second_read : read<tile<1xi32>, mutable>
+  func.return
+}
+
+// Six static pairs of grouped ingress/egress sites exceed the column's sixteen
+// descriptors. Retired sites reuse their pairs; the two live copies in each
+// group must remain distinct. Fixed and varying offsets address two independent
+// inputs while the three-slot local rings finish at partial revolutions.
+pipeline.def<kernel> public retain target(@npu) @reuse_dma_descriptors() run(%first_arg: buffer, %second_arg: buffer, %output_arg: buffer) {
+  %first_unique, %second_unique, %output_unique = buffer.assume.noalias %first_arg, %second_arg, %output_arg : buffer, buffer, buffer
+  %first, %second, %output = buffer.assume.alignment %first_unique, %second_unique, %output_unique {minimum_alignment = 4} : buffer, buffer, buffer
+  %memory = pipeline.memory<workgroup>[0, 3] : pool
+  %origin = index.constant 0 : offset
+  %storage_bytes = index.constant 12 : offset
+  %capacity = index.constant 3 : index
+  %first_storage = buffer.alloca<workgroup> pool(%memory) align(4) %storage_bytes : buffer
+  %second_storage = buffer.alloca<workgroup> pool(%memory) align(4) %storage_bytes : buffer
+  %first_slots = buffer.view %first_storage[%origin] : buffer -> view<3x1xi32>
+  %second_slots = buffer.view %second_storage[%origin] : buffer -> view<3x1xi32>
+  %first_records = channel.bind<fifo> %first_slots, %capacity : view<3x1xi32>, index -> channel<tile<1xi32>>
+  %second_records = channel.bind<fifo> %second_slots, %capacity : view<3x1xi32>, index -> channel<tile<1xi32>>
+  pipeline.strand workers([0, 3], [1, 1], [1, 1]) {
+    %offset0 = index.constant 0 : offset
+    %offset1 = index.constant 8 : offset
+    %offset2 = index.constant 16 : offset
+    %offset3 = index.constant 24 : offset
+    %offset4 = index.constant 32 : offset
+    %increment0 = scalar.constant 1 : i32
+    %increment1 = scalar.constant 2 : i32
+    %increment2 = scalar.constant 3 : i32
+    %increment3 = scalar.constant 4 : i32
+    %increment4 = scalar.constant 5 : i32
+    func.call @copy_pair(%first_records, %second_records, %first, %output, %offset0, %increment0) : (channel<tile<1xi32>>, channel<tile<1xi32>>, buffer, buffer, offset, i32)
+    func.call @copy_pair(%first_records, %second_records, %second, %output, %offset1, %increment1) : (channel<tile<1xi32>>, channel<tile<1xi32>>, buffer, buffer, offset, i32)
+    func.call @copy_pair(%first_records, %second_records, %first, %output, %offset2, %increment2) : (channel<tile<1xi32>>, channel<tile<1xi32>>, buffer, buffer, offset, i32)
+    func.call @copy_pair(%first_records, %second_records, %second, %output, %offset3, %increment3) : (channel<tile<1xi32>>, channel<tile<1xi32>>, buffer, buffer, offset, i32)
+    func.call @copy_pair(%first_records, %second_records, %first, %output, %offset4, %increment4) : (channel<tile<1xi32>>, channel<tile<1xi32>>, buffer, buffer, offset, i32)
+    %begin = index.constant 5 : index
+    %end = index.constant 7 : index
+    %step = index.constant 1 : index
+    %pair_bytes = index.constant 8 : index
+    scf.for %pair = [%begin to %end step %step] {
+      %byte_index = index.mul %pair, %pair_bytes : index
+      %offset = index.cast %byte_index : index to offset
+      %increment = index.cast %pair : index to i32
+      func.call @copy_pair(%first_records, %second_records, %first, %output, %offset, %increment) : (channel<tile<1xi32>>, channel<tile<1xi32>>, buffer, buffer, offset, i32)
+    }
+  }
+}
+
 // Autonomous ingress rotates three slots while computation mutates each record
 // and drains it to a padded external layout. Five records leave a partial ring
 // revolution; each independent invocation must start with slot zero again.

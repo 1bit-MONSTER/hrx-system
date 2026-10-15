@@ -47,6 +47,7 @@ loom_kernel_binary(
     "@reordered_publication"
     "@reordered_retirement"
     "@rotating_retirement"
+    "@reuse_dma_descriptors"
   TESTONLY
 )
 endif()
@@ -71,6 +72,7 @@ loom_kernel_binary(
     "@reordered_publication"
     "@reordered_retirement"
     "@rotating_retirement"
+    "@reuse_dma_descriptors"
   TESTONLY
 )
 endif()
