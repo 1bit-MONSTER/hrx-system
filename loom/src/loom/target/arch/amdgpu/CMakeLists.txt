@@ -337,6 +337,7 @@ loom_cc_library(
   DEPS
     ::facts
     iree::base
+    loom::analysis::control_uniformity
     loom::analysis::symbolic_expr
     loom::codegen::low::descriptors
     loom::codegen::low::source_memory_plan
@@ -356,6 +357,7 @@ loom_cc_library(
     loom::target::arch::amdgpu::target_info_defs
     loom::target::legalization
     loom::transforms::conversion::target_legalization
+    loom::transforms::kernel::target_legalization
     loom::transforms::scalar::target_legalization
     loom::transforms::vector::cast_packet_legalization
     loom::transforms::vector::packet_legalization

@@ -90,6 +90,53 @@ low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer, buffe
 
 // ====
 
+// Inclusive and exclusive forward scans map to the matching native group
+// operations. Unsigned ordering retains the source integer bit pattern.
+kernel.def @native_scans() {
+  %unit = index.constant 1 : index
+  %width = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %lane = kernel.workitem.id<x> : index
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<32xi64>
+  %destination = buffer.view %output[%base] : buffer -> view<32x2xi64>
+  %value = view.load %source[%lane] : view<32xi64> -> i64
+  %sum = kernel.subgroup.scan<addi> %value {direction = forward, mode = inclusive} : i64
+  %minimum = kernel.subgroup.scan<minui> %value {direction = forward, mode = exclusive} : i64
+  view.store %sum, %destination[%lane, 0] : i64, view<32x2xi64>
+  view.store %minimum, %destination[%lane, 1] : i64, view<32x2xi64>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer, buffer) -> ()}) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @native_scans() asm {
+  %input = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %output = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %lane = OpLoadBuiltin.local_invocation_id.x
+  %24 = OpSConvert.i32.offset64 %lane
+  %25 = OpConstant.offset64 8
+  %26 = OpIMul.offset64 %24, %25
+  %27 = OpPtrAccessChain.storage_buffer.i64.byte_offset %input, %26
+  %value = OpLoad.storage_buffer.i64 %27
+  %sum = OpGroupNonUniformIAdd.inclusive_scan.i64 %value : reg<spirv.id>
+  %30 = OpBitcast.i64.u64 %value
+  %31 = OpGroupNonUniformUMin.exclusive_scan.u64 %30
+  %minimum = OpBitcast.u64.i64 %31
+  %33 = OpSConvert.i32.offset64 %lane
+  %34 = OpConstant.offset64 16
+  %35 = OpIMul.offset64 %33, %34
+  %36 = OpPtrAccessChain.storage_buffer.i64.byte_offset %output, %35
+  OpStore.storage_buffer.i64 %36, %sum
+  %40 = OpConstant.offset64 8
+  %41 = OpIAdd.offset64 %35, %40
+  %42 = OpPtrAccessChain.storage_buffer.i64.byte_offset %output, %41
+  OpStore.storage_buffer.i64 %42, %minimum
+  return
+}
+
+// ====
+
 // Number-preferring extrema use integer ordering so all-NaN groups, signed
 // zeros, and subnormal payloads retain the source semantics.
 kernel.def @number_minimum() {

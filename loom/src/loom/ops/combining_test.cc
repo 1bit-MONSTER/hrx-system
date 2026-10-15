@@ -104,4 +104,38 @@ TEST(CombiningTest, FloatingIdentitiesCoverArithmeticKinds) {
   }
 }
 
+TEST(CombiningTest, FloatingScanSeedsCoverEveryKind) {
+  double seed = 0.0;
+  ASSERT_TRUE(
+      loom_combining_kind_float_scan_seed(LOOM_COMBINING_KIND_ADDF, &seed));
+  EXPECT_EQ(seed, 0.0);
+  EXPECT_TRUE(std::signbit(seed));
+
+  ASSERT_TRUE(
+      loom_combining_kind_float_scan_seed(LOOM_COMBINING_KIND_MULF, &seed));
+  EXPECT_EQ(seed, 1.0);
+
+  for (const loom_combining_kind_t kind :
+       {LOOM_COMBINING_KIND_MINIMUMF, LOOM_COMBINING_KIND_MINNUMF}) {
+    ASSERT_TRUE(loom_combining_kind_float_scan_seed(kind, &seed));
+    EXPECT_TRUE(std::isinf(seed));
+    EXPECT_FALSE(std::signbit(seed));
+  }
+  for (const loom_combining_kind_t kind :
+       {LOOM_COMBINING_KIND_MAXIMUMF, LOOM_COMBINING_KIND_MAXNUMF}) {
+    ASSERT_TRUE(loom_combining_kind_float_scan_seed(kind, &seed));
+    EXPECT_TRUE(std::isinf(seed));
+    EXPECT_TRUE(std::signbit(seed));
+  }
+
+  for (const loom_combining_kind_t kind :
+       {LOOM_COMBINING_KIND_ADDI, LOOM_COMBINING_KIND_MULI,
+        LOOM_COMBINING_KIND_MINSI, LOOM_COMBINING_KIND_MAXSI,
+        LOOM_COMBINING_KIND_MINUI, LOOM_COMBINING_KIND_MAXUI,
+        LOOM_COMBINING_KIND_ANDI, LOOM_COMBINING_KIND_ORI,
+        LOOM_COMBINING_KIND_XORI}) {
+    EXPECT_FALSE(loom_combining_kind_float_scan_seed(kind, &seed));
+  }
+}
+
 }  // namespace

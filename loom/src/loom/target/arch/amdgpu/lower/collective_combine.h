@@ -44,6 +44,10 @@ bool loom_amdgpu_collective_combine_dpp_descriptor_ref(
 bool loom_amdgpu_collective_combine_identity_bits(loom_combining_kind_t kind,
                                                   uint32_t* out_bits);
 
+// Returns the 32-bit empty-prefix seed for a native AMDGPU scan packet.
+bool loom_amdgpu_collective_combine_scan_seed_bits(loom_combining_kind_t kind,
+                                                   uint32_t* out_bits);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

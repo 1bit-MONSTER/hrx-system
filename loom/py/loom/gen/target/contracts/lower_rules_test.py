@@ -1931,6 +1931,20 @@ def test_guard_row_emits_target_subgroup_size_range() -> None:
     ) == [".i64_range = {.minimum = INT64_C(1), .maximum = INT64_C(64)}"]
 
 
+def test_guard_row_emits_value_equal_to_target_subgroup_size() -> None:
+    row = LowerGuard(
+        kind=GuardKind.VALUE_I64_EQUALS_TARGET_SUBGROUP_SIZE,
+        value_ref_index=3,
+    )
+
+    fields = guard_row({}, row)
+
+    assert ".kind = LOOM_LOW_LOWER_GUARD_VALUE_I64_EQUALS_TARGET_SUBGROUP_SIZE" in fields
+    assert ".selector.value.value_ref_index = 3" in fields
+    assert not any("payload_ordinal" in field for field in fields)
+    assert guard_payload_row(row) == []
+
+
 def test_attr_copy_row_emits_portable_signed_i64_literal() -> None:
     fields = attr_copy_row(
         LowerAttrCopy(

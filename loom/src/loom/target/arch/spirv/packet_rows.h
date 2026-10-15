@@ -62,6 +62,8 @@ enum loom_spirv_packet_form_e {
   LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_ARITHMETIC = 27,
   // Typed two-input vector shuffle with one selector per result lane.
   LOOM_SPIRV_PACKET_FORM_VECTOR_SHUFFLE = 28,
+  // Typed subgroup instruction with two value operands after its scope.
+  LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BINARY = 29,
 };
 typedef uint8_t loom_spirv_packet_form_t;
 

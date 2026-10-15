@@ -877,6 +877,64 @@ TEST_F(LowLowerRuleMatchTest, MatchesBiasedPowersWithoutSignedOverflow) {
   }
 }
 
+TEST_F(LowLowerRuleMatchTest, MatchesValueEqualToTargetSubgroupSize) {
+  loom_low_lower_guard_t guard = {
+      .kind = LOOM_LOW_LOWER_GUARD_VALUE_I64_EQUALS_TARGET_SUBGROUP_SIZE,
+      .diagnostic_index = LOOM_LOW_LOWER_DIAGNOSTIC_NONE,
+  };
+  const loom_low_lower_guard_ref_t guard_ref = 0;
+  const loom_low_lower_value_ref_t value_ref = {
+      .kind = LOOM_LOW_LOWER_VALUE_REF_RESULT,
+  };
+  const loom_low_lower_rule_t rule = {.guard_count = 1};
+  const loom_low_lower_rule_span_t span = {
+      .source_op_kind = LOOM_OP_INDEX_CONSTANT,
+      .rule_start = 0,
+      .rule_count = 1,
+  };
+  const loom_low_lower_rule_set_t rule_set = {
+      .spans = &span,
+      .span_count = 1,
+      .rules = &rule,
+      .rule_count = 1,
+      .value_refs = &value_ref,
+      .value_ref_count = 1,
+      .guards = &guard,
+      .guard_count = 1,
+      .guard_refs = &guard_ref,
+      .guard_ref_count = 1,
+  };
+  const loom_op_t* source_op = BuildConstant(32);
+  loom_value_fact_table_t facts = {};
+  IREE_ASSERT_OK(loom_value_fact_table_initialize(&facts, &module_->arena,
+                                                  module_->values.count));
+  IREE_ASSERT_OK(loom_value_fact_table_define(
+      &facts, loom_index_constant_result(source_op),
+      loom_value_facts_exact_i64(32)));
+  loom_target_snapshot_t snapshot = {.subgroup_size = 32};
+  const loom_target_bundle_t bundle = {.snapshot = &snapshot};
+
+  const auto matches = [&](const loom_value_fact_table_t* fact_table) {
+    const loom_low_lower_rule_match_context_t match_context = {
+        .module = module_,
+        .bundle = &bundle,
+        .fact_table = fact_table,
+    };
+    loom_low_lower_rule_selection_t selection = {};
+    IREE_EXPECT_OK(loom_low_lower_rule_set_select_with_match_context(
+        &match_context, &rule_set, source_op, &selection));
+    return selection.rule != nullptr;
+  };
+
+  EXPECT_TRUE(matches(&facts));
+  snapshot.subgroup_size = 64;
+  EXPECT_FALSE(matches(&facts));
+  snapshot.subgroup_size = 0;
+  EXPECT_FALSE(matches(&facts));
+  snapshot.subgroup_size = 32;
+  EXPECT_FALSE(matches(nullptr));
+}
+
 TEST_F(LowLowerRuleMatchTest, MatchesFloatingPowersInExponentRange) {
   loom_low_lower_guard_t guard = {
       .kind = LOOM_LOW_LOWER_GUARD_VALUE_EXACT_POWER_OF_TWO_FLOAT,

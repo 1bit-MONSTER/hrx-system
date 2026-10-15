@@ -265,6 +265,27 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    target_legalization
+  HDRS
+    "target_legalization.h"
+  SRCS
+    "target_legalization.c"
+  DEPS
+    iree::base
+    loom::ir
+    loom::ops::combining
+    loom::ops::index
+    loom::ops::kernel
+    loom::ops::scalar
+    loom::ops::scf
+    loom::ops::vector
+    loom::rewrite::rewriter
+    loom::target::legalization
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     resolve_launches
   HDRS
     "resolve_launches.h"

@@ -908,6 +908,9 @@ typedef enum loom_low_lower_guard_kind_e {
   // Source value facts must prove finite values exactly representable in the
   // other source value's floating-point element type.
   LOOM_LOW_LOWER_GUARD_VALUE_FLOAT_EXACTLY_REPRESENTABLE_AS = 48,
+  // Source value facts must prove an exact integer equal to the selected
+  // target subgroup size.
+  LOOM_LOW_LOWER_GUARD_VALUE_I64_EQUALS_TARGET_SUBGROUP_SIZE = 49,
   // Maximum guard kind value plus one.
   LOOM_LOW_LOWER_GUARD_COUNT_,
 } loom_low_lower_guard_kind_t;

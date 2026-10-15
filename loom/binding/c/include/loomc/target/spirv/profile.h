@@ -224,8 +224,14 @@ typedef enum loomc_spirv_feature_e {
   /// Logical Vulkan device enables subgroup operations on I8/I16/I64 and F16.
   LOOMC_SPIRV_FEATURE_SUBGROUP_EXTENDED_TYPES = 44,
 
+  /// Subgroup indexed and XOR shuffle operations.
+  LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_SHUFFLE = 45,
+
+  /// Subgroup up and down shuffle operations.
+  LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_SHUFFLE_RELATIVE = 46,
+
   /// Number of public SPIR-V feature identifiers.
-  LOOMC_SPIRV_FEATURE_COUNT = 45,
+  LOOMC_SPIRV_FEATURE_COUNT = 47,
 } loomc_spirv_feature_t;
 
 /// Bitset of `loomc_spirv_feature_t` values.

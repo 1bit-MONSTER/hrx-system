@@ -7,8 +7,12 @@
 from loom.target.arch.spirv.features import feature_bits_value
 from loom.target.arch.spirv.ordinary_vector import OrdinaryVectorType
 from loom.target.arch.spirv.subgroup import (
+    SPIRV_SUBGROUP_ARITHMETIC,
+    SPIRV_SUBGROUP_BALLOT_BIT_EXTRACT_INSTRUCTION,
     SPIRV_SUBGROUP_BALLOT_INSTRUCTION,
     SPIRV_SUBGROUP_BALLOT_PACKING_INSTRUCTIONS,
+    SPIRV_SUBGROUP_SHUFFLES,
+    SPIRV_SUBGROUP_U32_TYPE,
     SPIRV_SUBGROUP_U64_TYPE,
     SPIRV_SUBGROUP_V2U32_TYPE,
     SPIRV_SUBGROUP_V4U32_TYPE,
@@ -22,6 +26,18 @@ def test_ballot_uses_the_native_spirv_four_word_result() -> None:
     assert ballot.result_type.suffix == "v4u32"
     assert ballot.operand_types[0].suffix == "bool"
     assert ballot.feature_bits == feature_bits_value(("group_non_uniform_ballot",))
+
+
+def test_ballot_bit_extract_uses_the_native_mask_and_lane_types() -> None:
+    extract = SPIRV_SUBGROUP_BALLOT_BIT_EXTRACT_INSTRUCTION
+    assert extract.result_type.suffix == "bool"
+    assert extract.operand_names == ("mask", "index")
+    assert extract.operand_types == (
+        SPIRV_SUBGROUP_V4U32_TYPE,
+        SPIRV_SUBGROUP_U32_TYPE,
+    )
+    assert extract.packet_form == ("LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BINARY")
+    assert extract.feature_bits == feature_bits_value(("group_non_uniform_ballot",))
 
 
 def test_ballot_packing_preserves_the_low_64_lane_bits() -> None:
@@ -60,3 +76,89 @@ def test_boolean_votes_have_native_capability_and_scalar_result() -> None:
         assert row.result_type.suffix == "bool"
         assert row.operand_types == (row.result_type,)
         assert row.feature_bits == feature_bits_value(("group_non_uniform_vote",))
+
+
+def test_shuffle_rows_cover_every_native_type_shape_and_mode() -> None:
+    actual = set()
+    for row in SPIRV_SUBGROUP_SHUFFLES:
+        instruction = row.instruction
+        value_type = instruction.result_type
+        component = (
+            value_type.component_type
+            if isinstance(value_type, OrdinaryVectorType)
+            else value_type
+        )
+        lanes = (
+            value_type.lane_count if isinstance(value_type, OrdinaryVectorType) else 1
+        )
+        cell = (component.suffix, lanes, row.mode)
+        assert cell not in actual, cell
+        actual.add(cell)
+        assert instruction.operand_names == ("value", "offset")
+        assert instruction.operand_types == (value_type, SPIRV_SUBGROUP_U32_TYPE)
+        assert instruction.packet_form == (
+            "LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BINARY"
+        )
+        capability = (
+            "group_non_uniform_shuffle_relative"
+            if row.mode in ("up", "down")
+            else "group_non_uniform_shuffle"
+        )
+        assert instruction.feature_bits & feature_bits_value((capability,))
+
+    assert actual == {
+        (component, lanes, mode)
+        for component in (
+            "bool",
+            "i8",
+            "i16",
+            "i32",
+            "i64",
+            "offset64",
+            "f16",
+            "bf16",
+            "f32",
+            "f64",
+        )
+        for lanes in (1, 2, 3, 4)
+        for mode in ("index", "xor", "up", "down")
+    }
+
+
+def test_shuffle_extended_payloads_require_device_admission() -> None:
+    extended_types = feature_bits_value(("subgroup_extended_types",))
+    for row in SPIRV_SUBGROUP_SHUFFLES:
+        value_type = row.instruction.result_type
+        component = (
+            value_type.component_type
+            if isinstance(value_type, OrdinaryVectorType)
+            else value_type
+        )
+        assert bool(row.instruction.feature_bits & extended_types) == (
+            component.suffix in ("i8", "i16", "i64", "offset64", "f16", "bf16")
+        )
+
+
+def test_arithmetic_rows_cover_reduction_and_scan_group_operations() -> None:
+    operations = {row.instruction.group_operation for row in SPIRV_SUBGROUP_ARITHMETIC}
+    assert operations == {
+        "LOOM_SPIRV_GROUP_OPERATION_REDUCE",
+        "LOOM_SPIRV_GROUP_OPERATION_CLUSTERED_REDUCE",
+        "LOOM_SPIRV_GROUP_OPERATION_INCLUSIVE_SCAN",
+        "LOOM_SPIRV_GROUP_OPERATION_EXCLUSIVE_SCAN",
+    }
+    assert all(
+        row.combining_kinds != ("addf",)
+        for row in SPIRV_SUBGROUP_ARITHMETIC
+        if row.instruction.group_operation
+        == "LOOM_SPIRV_GROUP_OPERATION_EXCLUSIVE_SCAN"
+    )
+    for row in SPIRV_SUBGROUP_ARITHMETIC:
+        instruction = row.instruction
+        assert instruction.feature_bits & feature_bits_value(
+            (
+                "group_non_uniform_clustered"
+                if instruction.clustered
+                else "group_non_uniform_arithmetic",
+            )
+        )

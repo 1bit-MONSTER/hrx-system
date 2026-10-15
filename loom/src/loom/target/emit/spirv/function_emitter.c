@@ -895,7 +895,7 @@ static iree_status_t loom_spirv_emit_control_barrier_packet(
 static iree_status_t loom_spirv_emit_group_non_uniform_packet(
     loom_spirv_emit_state_t* state, const loom_low_descriptor_packet_t* packet,
     const loom_spirv_packet_row_t* row) {
-  loom_spirv_module_value_ref_t operands[1] = {0};
+  loom_spirv_module_value_ref_t operands[2] = {0};
   IREE_RETURN_IF_ERROR(
       loom_spirv_emit_load_packet_operands(state, packet, row, operands));
   uint32_t result_type_id = 0;
@@ -923,6 +923,9 @@ static iree_status_t loom_spirv_emit_group_non_uniform_packet(
         payload->group_non_uniform.operation;
   }
   instruction_operands[instruction_operand_count++] = operands[0].id;
+  if (row->form == LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BINARY) {
+    instruction_operands[instruction_operand_count++] = operands[1].id;
+  }
   if (row->form == LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_ARITHMETIC &&
       payload->group_non_uniform.operation ==
           LOOM_SPIRV_GROUP_OPERATION_CLUSTERED_REDUCE) {
@@ -1053,6 +1056,7 @@ static iree_status_t loom_spirv_emit_descriptor_packet(
       return loom_spirv_emit_control_barrier_packet(state, row);
     case LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_UNARY:
     case LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_ARITHMETIC:
+    case LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BINARY:
       return loom_spirv_emit_group_non_uniform_packet(state, packet, row);
     case LOOM_SPIRV_PACKET_FORM_ATOMIC:
       return loom_spirv_emit_atomic_packet(state, packet, row);

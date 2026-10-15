@@ -7,8 +7,10 @@
 #include "loom/target/arch/amdgpu/lower/collective_combine.h"
 
 #include <stdint.h>
+#include <string.h>
 
 #include "iree/base/api.h"
+#include "loom/ops/combining.h"
 #include "loom/target/arch/amdgpu/lower/collective_payload.h"
 
 typedef uint8_t loom_amdgpu_collective_combine_row_flags_t;
@@ -18,11 +20,11 @@ enum loom_amdgpu_collective_combine_row_flags_e {
   LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_FLOAT_PAYLOAD = 1u << 1,
   LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_HAS_IDENTITY = 1u << 2,
   LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_INTEGER =
-      LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_INTEGER_PAYLOAD |
-      LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_HAS_IDENTITY,
+      (LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_INTEGER_PAYLOAD |
+       LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_HAS_IDENTITY),
   LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_FLOAT =
-      LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_FLOAT_PAYLOAD |
-      LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_HAS_IDENTITY,
+      (LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_FLOAT_PAYLOAD |
+       LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_HAS_IDENTITY),
 };
 
 typedef struct loom_amdgpu_collective_combine_row_t {
@@ -179,5 +181,32 @@ bool loom_amdgpu_collective_combine_identity_bits(loom_combining_kind_t kind,
     return false;
   }
   *out_bits = row->identity_bits;
+  return true;
+}
+
+bool loom_amdgpu_collective_combine_scan_seed_bits(loom_combining_kind_t kind,
+                                                   uint32_t* out_bits) {
+  *out_bits = 0;
+  const loom_amdgpu_collective_combine_row_t* row =
+      loom_amdgpu_collective_combine_row(kind);
+  if (row == NULL) {
+    return false;
+  }
+  if (iree_all_bits_set(row->flags,
+                        LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_INTEGER_PAYLOAD)) {
+    int64_t seed = 0;
+    if (!loom_combining_kind_integer_identity(kind, LOOM_SCALAR_TYPE_I32,
+                                              &seed)) {
+      return false;
+    }
+    *out_bits = (uint32_t)seed;
+    return true;
+  }
+  double seed = 0.0;
+  if (!loom_combining_kind_float_scan_seed(kind, &seed)) {
+    return false;
+  }
+  const float f32_seed = (float)seed;
+  memcpy(out_bits, &f32_seed, sizeof(*out_bits));
   return true;
 }

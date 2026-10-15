@@ -4298,6 +4298,34 @@ def test_compile_lower_rule_set_compiles_target_subgroup_size_range_guard() -> N
     assert guard.diagnostic_index != 0xFFFF
 
 
+def test_compile_lower_rule_set_compiles_value_target_subgroup_size_guard() -> None:
+    table = ContractFragment(
+        name="test.value-target-subgroup-size",
+        descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+        cases=[
+            RecipeRule(
+                source_op=scalar_arithmetic.scalar_addi,
+                guards=(
+                    Guard.value_i64_equals_target_subgroup_size("lhs"),
+                    Guard.value_type("lhs", Scalar("i32")),
+                    Guard.value_type("rhs", Scalar("i32")),
+                    Guard.value_type("result", Scalar("i32")),
+                ),
+            )
+        ],
+    )
+
+    compiled = compile_lower_rule_set(table, dialect_ops={"scalar": ALL_SCALAR_OPS})
+
+    guard = next(
+        guard
+        for guard in compiled.guards
+        if guard.kind == GuardKind.VALUE_I64_EQUALS_TARGET_SUBGROUP_SIZE
+    )
+    assert guard.value_ref_index == 0
+    assert guard.diagnostic_index != 0xFFFF
+
+
 def test_compile_lower_rule_set_compiles_packed_integer_storage_guards() -> None:
     table = ContractFragment(
         name="test.packed-integer-storage",

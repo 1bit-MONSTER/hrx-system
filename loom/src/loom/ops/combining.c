@@ -6,6 +6,8 @@
 
 #include "loom/ops/combining.h"
 
+#include <math.h>
+
 typedef enum loom_combining_identity_e {
   LOOM_COMBINING_IDENTITY_NONE = 0,
   LOOM_COMBINING_IDENTITY_ZERO,
@@ -14,6 +16,8 @@ typedef enum loom_combining_identity_e {
   LOOM_COMBINING_IDENTITY_SIGNED_MAXIMUM,
   LOOM_COMBINING_IDENTITY_ALL_ONES,
   LOOM_COMBINING_IDENTITY_NEGATIVE_ZERO,
+  LOOM_COMBINING_IDENTITY_POSITIVE_INFINITY,
+  LOOM_COMBINING_IDENTITY_NEGATIVE_INFINITY,
 } loom_combining_identity_t;
 
 enum loom_combining_property_flag_bits_e {
@@ -26,10 +30,12 @@ typedef uint8_t loom_combining_property_flags_t;
 typedef struct loom_combining_descriptor_t {
   // Accepted operand family and algebraic properties.
   loom_combining_property_flags_t flags;
-  // Compact loom_combining_identity_t ordinal.
+  // Algebraic identity used when padding reductions.
   uint8_t identity;
+  // Empty-prefix seed used by exclusive scans.
+  uint8_t scan_seed;
 } loom_combining_descriptor_t;
-static_assert(sizeof(loom_combining_descriptor_t) == 2,
+static_assert(sizeof(loom_combining_descriptor_t) == 3,
               "combining descriptors must stay compact");
 
 // One row owns the algebraic properties of each public combining kind. Keep
@@ -37,49 +43,64 @@ static_assert(sizeof(loom_combining_descriptor_t) == 2,
 // cannot silently omit an identity or idempotence classification.
 static const loom_combining_descriptor_t kCombiningDescriptors[] = {
     [LOOM_COMBINING_KIND_ADDI] = {LOOM_COMBINING_PROPERTY_FLAG_INTEGER,
+                                  LOOM_COMBINING_IDENTITY_ZERO,
                                   LOOM_COMBINING_IDENTITY_ZERO},
     [LOOM_COMBINING_KIND_ADDF] = {LOOM_COMBINING_PROPERTY_FLAG_FLOAT,
+                                  LOOM_COMBINING_IDENTITY_NEGATIVE_ZERO,
                                   LOOM_COMBINING_IDENTITY_NEGATIVE_ZERO},
     [LOOM_COMBINING_KIND_MULI] = {LOOM_COMBINING_PROPERTY_FLAG_INTEGER,
+                                  LOOM_COMBINING_IDENTITY_ONE,
                                   LOOM_COMBINING_IDENTITY_ONE},
     [LOOM_COMBINING_KIND_MULF] = {LOOM_COMBINING_PROPERTY_FLAG_FLOAT,
+                                  LOOM_COMBINING_IDENTITY_ONE,
                                   LOOM_COMBINING_IDENTITY_ONE},
     [LOOM_COMBINING_KIND_MINSI] = {LOOM_COMBINING_PROPERTY_FLAG_INTEGER |
                                        LOOM_COMBINING_PROPERTY_FLAG_IDEMPOTENT,
+                                   LOOM_COMBINING_IDENTITY_SIGNED_MAXIMUM,
                                    LOOM_COMBINING_IDENTITY_SIGNED_MAXIMUM},
     [LOOM_COMBINING_KIND_MAXSI] = {LOOM_COMBINING_PROPERTY_FLAG_INTEGER |
                                        LOOM_COMBINING_PROPERTY_FLAG_IDEMPOTENT,
+                                   LOOM_COMBINING_IDENTITY_SIGNED_MINIMUM,
                                    LOOM_COMBINING_IDENTITY_SIGNED_MINIMUM},
     [LOOM_COMBINING_KIND_MINUI] = {LOOM_COMBINING_PROPERTY_FLAG_INTEGER |
                                        LOOM_COMBINING_PROPERTY_FLAG_IDEMPOTENT,
+                                   LOOM_COMBINING_IDENTITY_ALL_ONES,
                                    LOOM_COMBINING_IDENTITY_ALL_ONES},
     [LOOM_COMBINING_KIND_MAXUI] = {LOOM_COMBINING_PROPERTY_FLAG_INTEGER |
                                        LOOM_COMBINING_PROPERTY_FLAG_IDEMPOTENT,
+                                   LOOM_COMBINING_IDENTITY_ZERO,
                                    LOOM_COMBINING_IDENTITY_ZERO},
     [LOOM_COMBINING_KIND_ANDI] = {LOOM_COMBINING_PROPERTY_FLAG_INTEGER |
                                       LOOM_COMBINING_PROPERTY_FLAG_IDEMPOTENT,
+                                  LOOM_COMBINING_IDENTITY_ALL_ONES,
                                   LOOM_COMBINING_IDENTITY_ALL_ONES},
     [LOOM_COMBINING_KIND_ORI] = {LOOM_COMBINING_PROPERTY_FLAG_INTEGER |
                                      LOOM_COMBINING_PROPERTY_FLAG_IDEMPOTENT,
+                                 LOOM_COMBINING_IDENTITY_ZERO,
                                  LOOM_COMBINING_IDENTITY_ZERO},
     [LOOM_COMBINING_KIND_XORI] = {LOOM_COMBINING_PROPERTY_FLAG_INTEGER,
+                                  LOOM_COMBINING_IDENTITY_ZERO,
                                   LOOM_COMBINING_IDENTITY_ZERO},
     [LOOM_COMBINING_KIND_MINIMUMF] =
         {LOOM_COMBINING_PROPERTY_FLAG_FLOAT |
              LOOM_COMBINING_PROPERTY_FLAG_IDEMPOTENT,
-         LOOM_COMBINING_IDENTITY_NONE},
+         LOOM_COMBINING_IDENTITY_NONE,
+         LOOM_COMBINING_IDENTITY_POSITIVE_INFINITY},
     [LOOM_COMBINING_KIND_MAXIMUMF] =
         {LOOM_COMBINING_PROPERTY_FLAG_FLOAT |
              LOOM_COMBINING_PROPERTY_FLAG_IDEMPOTENT,
-         LOOM_COMBINING_IDENTITY_NONE},
+         LOOM_COMBINING_IDENTITY_NONE,
+         LOOM_COMBINING_IDENTITY_NEGATIVE_INFINITY},
     [LOOM_COMBINING_KIND_MINNUMF] =
         {LOOM_COMBINING_PROPERTY_FLAG_FLOAT |
              LOOM_COMBINING_PROPERTY_FLAG_IDEMPOTENT,
-         LOOM_COMBINING_IDENTITY_NONE},
+         LOOM_COMBINING_IDENTITY_NONE,
+         LOOM_COMBINING_IDENTITY_POSITIVE_INFINITY},
     [LOOM_COMBINING_KIND_MAXNUMF] =
         {LOOM_COMBINING_PROPERTY_FLAG_FLOAT |
              LOOM_COMBINING_PROPERTY_FLAG_IDEMPOTENT,
-         LOOM_COMBINING_IDENTITY_NONE},
+         LOOM_COMBINING_IDENTITY_NONE,
+         LOOM_COMBINING_IDENTITY_NEGATIVE_INFINITY},
 };
 static_assert(IREE_ARRAYSIZE(kCombiningDescriptors) ==
                   LOOM_COMBINING_KIND_COUNT_,
@@ -155,6 +176,8 @@ bool loom_combining_kind_integer_identity(loom_combining_kind_t kind,
       return true;
     case LOOM_COMBINING_IDENTITY_NONE:
     case LOOM_COMBINING_IDENTITY_NEGATIVE_ZERO:
+    case LOOM_COMBINING_IDENTITY_POSITIVE_INFINITY:
+    case LOOM_COMBINING_IDENTITY_NEGATIVE_INFINITY:
       return false;
   }
   return false;
@@ -175,6 +198,40 @@ bool loom_combining_kind_float_identity(loom_combining_kind_t kind,
       return true;
     case LOOM_COMBINING_IDENTITY_NEGATIVE_ZERO:
       *out_identity = -0.0;
+      return true;
+    case LOOM_COMBINING_IDENTITY_NONE:
+    case LOOM_COMBINING_IDENTITY_ZERO:
+    case LOOM_COMBINING_IDENTITY_SIGNED_MINIMUM:
+    case LOOM_COMBINING_IDENTITY_SIGNED_MAXIMUM:
+    case LOOM_COMBINING_IDENTITY_ALL_ONES:
+    case LOOM_COMBINING_IDENTITY_POSITIVE_INFINITY:
+    case LOOM_COMBINING_IDENTITY_NEGATIVE_INFINITY:
+      return false;
+  }
+  return false;
+}
+
+bool loom_combining_kind_float_scan_seed(loom_combining_kind_t kind,
+                                         double* out_seed) {
+  const loom_combining_descriptor_t* descriptor =
+      loom_combining_descriptor(kind);
+  if (!out_seed || descriptor == NULL ||
+      !iree_any_bit_set(descriptor->flags,
+                        LOOM_COMBINING_PROPERTY_FLAG_FLOAT)) {
+    return false;
+  }
+  switch (descriptor->scan_seed) {
+    case LOOM_COMBINING_IDENTITY_ONE:
+      *out_seed = 1.0;
+      return true;
+    case LOOM_COMBINING_IDENTITY_NEGATIVE_ZERO:
+      *out_seed = -0.0;
+      return true;
+    case LOOM_COMBINING_IDENTITY_POSITIVE_INFINITY:
+      *out_seed = INFINITY;
+      return true;
+    case LOOM_COMBINING_IDENTITY_NEGATIVE_INFINITY:
+      *out_seed = -INFINITY;
       return true;
     case LOOM_COMBINING_IDENTITY_NONE:
     case LOOM_COMBINING_IDENTITY_ZERO:

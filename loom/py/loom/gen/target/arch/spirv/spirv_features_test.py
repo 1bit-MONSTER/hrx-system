@@ -43,6 +43,10 @@ def test_generation_emits_compact_feature_tables() -> None:
     assert "LOOM_SPIRV_OP_COOPERATIVE_VECTOR_MATRIX_MUL_ADD_NV" in tables
     assert "LOOM_SPIRV_CAPABILITY_GROUP_NON_UNIFORM_BALLOT" in tables
     assert "LOOM_SPIRV_OP_GROUP_NON_UNIFORM_BALLOT" in tables
+    assert "LOOM_SPIRV_CAPABILITY_GROUP_NON_UNIFORM_SHUFFLE" in tables
+    assert "LOOM_SPIRV_OP_GROUP_NON_UNIFORM_SHUFFLE_XOR" in tables
+    assert "LOOM_SPIRV_CAPABILITY_GROUP_NON_UNIFORM_SHUFFLE_RELATIVE" in tables
+    assert "LOOM_SPIRV_OP_GROUP_NON_UNIFORM_SHUFFLE_DOWN" in tables
     assert "#ifndef LOOM_TARGET_ARCH_SPIRV_FEATURES_H_" not in tables
     assert "typedef enum loom_spirv_feature_bit_e" not in tables
     assert "loom_spirv_feature_set_prepare" not in tables
