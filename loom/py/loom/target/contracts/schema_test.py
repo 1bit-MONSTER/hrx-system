@@ -700,6 +700,17 @@ def test_target_subgroup_size_range_guard_requires_positive_u32_bounds() -> None
         Guard.target_subgroup_size_range(1, 2**32)
 
 
+def test_value_target_subgroup_size_guard_requires_a_source_value() -> None:
+    guard = Guard.value_i64_equals_target_subgroup_size("lhs")
+
+    guard.validate(scalar_arithmetic.scalar_addi)
+
+    with pytest.raises(ValueError, match="field 'missing' is not an operand or result"):
+        Guard.value_i64_equals_target_subgroup_size("missing").validate(
+            scalar_arithmetic.scalar_addi
+        )
+
+
 def test_recipe_rule_validates_guards() -> None:
     table = ContractFragment(
         name="test.recipe",

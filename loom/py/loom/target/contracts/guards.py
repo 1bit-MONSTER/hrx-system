@@ -126,6 +126,7 @@ class GuardKind(Enum):
     VALUE_I64_RANGE = "value_i64_range"
     VALUE_I64_RANGE_LE = "value_i64_range_le"
     VALUE_I64_RANGE_GE = "value_i64_range_ge"
+    VALUE_I64_EQUALS_TARGET_SUBGROUP_SIZE = "value_i64_equals_target_subgroup_size"
     VALUE_FLOAT_EQUALS = "value_float_equals"
     VALUE_STORAGE_ELEMENT_FORMAT = "value_storage_element_format"
     VALUE_STORAGE_OPERAND_SCHEMA = "value_storage_operand_schema"
@@ -786,6 +787,20 @@ class Guard:
         )
 
     @classmethod
+    def value_i64_equals_target_subgroup_size(
+        cls,
+        field: str,
+        *,
+        diagnostic: GuardDiagnostic | None = None,
+    ) -> Self:
+        """Requires an exact integer value equal to the target subgroup size."""
+        return cls(
+            kind=GuardKind.VALUE_I64_EQUALS_TARGET_SUBGROUP_SIZE,
+            field=field,
+            diagnostic=diagnostic,
+        )
+
+    @classmethod
     def value_float_equals(
         cls,
         field: str,
@@ -1157,6 +1172,7 @@ class Guard:
             GuardKind.VALUE_I64_RANGE,
             GuardKind.VALUE_I64_RANGE_LE,
             GuardKind.VALUE_I64_RANGE_GE,
+            GuardKind.VALUE_I64_EQUALS_TARGET_SUBGROUP_SIZE,
             GuardKind.VALUE_FLOAT_EQUALS,
             GuardKind.VALUE_STORAGE_ELEMENT_FORMAT,
             GuardKind.VALUE_STORAGE_OPERAND_SCHEMA,

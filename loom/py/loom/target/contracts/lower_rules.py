@@ -1104,6 +1104,7 @@ class _LowerRuleSetCompiler:
             GuardKind.VALUE_I64_RANGE,
             GuardKind.VALUE_I64_RANGE_LE,
             GuardKind.VALUE_I64_RANGE_GE,
+            GuardKind.VALUE_I64_EQUALS_TARGET_SUBGROUP_SIZE,
             GuardKind.VALUE_FLOAT_EQUALS,
             GuardKind.VALUE_STORAGE_ELEMENT_FORMAT,
             GuardKind.VALUE_STORAGE_OPERAND_SCHEMA,
@@ -1590,6 +1591,25 @@ class _LowerRuleSetCompiler:
                     ),
                     minimum_i64=guard.minimum,
                     maximum_i64=guard.maximum,
+                )
+            )
+            return
+        if guard.kind == GuardKind.VALUE_I64_EQUALS_TARGET_SUBGROUP_SIZE:
+            self._guards.append(
+                LowerGuard(
+                    kind=guard.kind,
+                    value_ref_index=value_ref_index,
+                    diagnostic_index=self._append_diagnostic_ref(
+                        source_op,
+                        _guard_diagnostic(
+                            guard,
+                            _named_constraint_diagnostic(
+                                "value_fact",
+                                guard.field,
+                                "equals_target_subgroup_size",
+                            ),
+                        ),
+                    ),
                 )
             )
             return
