@@ -1,9 +1,7 @@
 // Signed division rounds toward zero; unsigned division reads all cell bits.
 func.def public @division_i32(%dividend: i32, %divisor: i32) -> (i32, i32, i32, i32) {
-  %signed_quotient = scalar.divsi %dividend, %divisor : i32
-  %signed_remainder = scalar.remsi %dividend, %divisor : i32
-  %unsigned_quotient = scalar.divui %dividend, %divisor : i32
-  %unsigned_remainder = scalar.remui %dividend, %divisor : i32
+  %signed_quotient, %signed_remainder = scalar.divremsi %dividend, %divisor : i32
+  %unsigned_quotient, %unsigned_remainder = scalar.divremui %dividend, %divisor : i32
   func.return %signed_quotient, %signed_remainder, %unsigned_quotient, %unsigned_remainder : i32, i32, i32, i32
 }
 
@@ -14,7 +12,7 @@ func.def public @minimum_remainder_i32(%dividend: i32, %divisor: i32) -> (i32) {
 }
 
 // Signed division rounds toward zero; unsigned division reads all cell bits.
-func.def public @division_i64(%dividend: i64, %divisor: i64) -> (i64, i64, i64, i64) {
+func.def @division_i64(%dividend: i64, %divisor: i64) -> (i64, i64, i64, i64) {
   %signed_quotient = scalar.divsi %dividend, %divisor : i64
   %signed_remainder = scalar.remsi %dividend, %divisor : i64
   %unsigned_quotient = scalar.divui %dividend, %divisor : i64
@@ -23,7 +21,7 @@ func.def public @division_i64(%dividend: i64, %divisor: i64) -> (i64, i64, i64, 
 }
 
 // Unlike signed quotient, signed minimum remainder by -1 is exactly zero.
-func.def public @minimum_remainder_i64(%dividend: i64, %divisor: i64) -> (i64) {
+func.def @minimum_remainder_i64(%dividend: i64, %divisor: i64) -> (i64) {
   %remainder = scalar.remsi %dividend, %divisor : i64
   func.return %remainder : i64
 }
@@ -45,6 +43,74 @@ func.def @random_division_i32_observations(%dividend_bits: i64, %divisor_bits: i
   %safe_divisor = scf.select %would_overflow, %safe_divisor_fallback, %nonzero_divisor : i32
   %signed_quotient, %signed_remainder, %unsigned_quotient, %unsigned_remainder = func.call @division_i32(%dividend, %safe_divisor) : (i32, i32) -> (i32, i32, i32, i32)
   func.return %signed_quotient, %signed_remainder, %unsigned_quotient, %unsigned_remainder : i32, i32, i32, i32
+}
+
+// Buffer loads force varying division while narrow values exercise the shared
+// widening legalization. Divisors remain runtime values after invalid signed
+// and zero cases are mapped into the operation domains.
+func.def @varying_dynamic_division_observations(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %inputs = buffer.view %input[%base] : buffer -> view<2xi32>
+  %outputs = buffer.view %output[%base] : buffer -> view<12xi32>
+  %dividend_i32 = view.load %inputs[0] : view<2xi32> -> i32
+  %divisor_i32 = view.load %inputs[1] : view<2xi32> -> i32
+
+  %c0_i32 = scalar.constant 0 : i32
+  %c1_i32 = scalar.constant 1 : i32
+  %cn1_i32 = scalar.constant -1 : i32
+  %minimum_i32 = scalar.constant -2147483648 : i32
+  %divisor_i32_is_zero = scalar.cmpi eq, %divisor_i32, %c0_i32 : i32
+  %unsigned_divisor_i32 = scf.select %divisor_i32_is_zero, %c1_i32, %divisor_i32 : i32
+  %dividend_i32_is_minimum = scalar.cmpi eq, %dividend_i32, %minimum_i32 : i32
+  %divisor_i32_is_negative_one = scalar.cmpi eq, %unsigned_divisor_i32, %cn1_i32 : i32
+  %division_i32_would_overflow = scalar.andi %dividend_i32_is_minimum, %divisor_i32_is_negative_one : i1
+  %signed_divisor_i32 = scf.select %division_i32_would_overflow, %c1_i32, %unsigned_divisor_i32 : i32
+  %signed_quotient_i32 = scalar.divsi %dividend_i32, %signed_divisor_i32 : i32
+  %signed_remainder_i32 = scalar.remsi %dividend_i32, %signed_divisor_i32 : i32
+  %unsigned_quotient_i32 = scalar.divui %dividend_i32, %unsigned_divisor_i32 : i32
+  %unsigned_remainder_i32 = scalar.remui %dividend_i32, %unsigned_divisor_i32 : i32
+
+  %dividend_i16 = scalar.trunci %dividend_i32 : i32 to i16
+  %divisor_i16 = scalar.trunci %divisor_i32 : i32 to i16
+  %c0_i16 = scalar.constant 0 : i16
+  %c1_i16 = scalar.constant 1 : i16
+  %cn1_i16 = scalar.constant -1 : i16
+  %minimum_i16 = scalar.constant -32768 : i16
+  %divisor_i16_is_zero = scalar.cmpi eq, %divisor_i16, %c0_i16 : i16
+  %unsigned_divisor_i16 = scf.select %divisor_i16_is_zero, %c1_i16, %divisor_i16 : i16
+  %dividend_i16_is_minimum = scalar.cmpi eq, %dividend_i16, %minimum_i16 : i16
+  %divisor_i16_is_negative_one = scalar.cmpi eq, %unsigned_divisor_i16, %cn1_i16 : i16
+  %division_i16_would_overflow = scalar.andi %dividend_i16_is_minimum, %divisor_i16_is_negative_one : i1
+  %signed_divisor_i16 = scf.select %division_i16_would_overflow, %c1_i16, %unsigned_divisor_i16 : i16
+  %signed_quotient_i16, %signed_remainder_i16 = scalar.divremsi %dividend_i16, %signed_divisor_i16 : i16
+  %unsigned_quotient_i16, %unsigned_remainder_i16 = scalar.divremui %dividend_i16, %unsigned_divisor_i16 : i16
+  %signed_quotient_i16_word = scalar.extsi %signed_quotient_i16 : i16 to i32
+  %signed_remainder_i16_word = scalar.extsi %signed_remainder_i16 : i16 to i32
+  %unsigned_quotient_i16_word = scalar.extui %unsigned_quotient_i16 : i16 to i32
+  %unsigned_remainder_i16_word = scalar.extui %unsigned_remainder_i16 : i16 to i32
+
+  %dividend_i8 = scalar.trunci %dividend_i32 : i32 to i8
+  %divisor_i8 = scalar.trunci %divisor_i32 : i32 to i8
+  %c0_i8 = scalar.constant 0 : i8
+  %c1_i8 = scalar.constant 1 : i8
+  %cn1_i8 = scalar.constant -1 : i8
+  %minimum_i8 = scalar.constant -128 : i8
+  %divisor_i8_is_zero = scalar.cmpi eq, %divisor_i8, %c0_i8 : i8
+  %unsigned_divisor_i8 = scf.select %divisor_i8_is_zero, %c1_i8, %divisor_i8 : i8
+  %dividend_i8_is_minimum = scalar.cmpi eq, %dividend_i8, %minimum_i8 : i8
+  %divisor_i8_is_negative_one = scalar.cmpi eq, %unsigned_divisor_i8, %cn1_i8 : i8
+  %division_i8_would_overflow = scalar.andi %dividend_i8_is_minimum, %divisor_i8_is_negative_one : i1
+  %signed_divisor_i8 = scf.select %division_i8_would_overflow, %c1_i8, %unsigned_divisor_i8 : i8
+  %signed_quotient_i8, %signed_remainder_i8 = scalar.divremsi %dividend_i8, %signed_divisor_i8 : i8
+  %unsigned_quotient_i8, %unsigned_remainder_i8 = scalar.divremui %dividend_i8, %unsigned_divisor_i8 : i8
+  %signed_quotient_i8_word = scalar.extsi %signed_quotient_i8 : i8 to i32
+  %signed_remainder_i8_word = scalar.extsi %signed_remainder_i8 : i8 to i32
+  %unsigned_quotient_i8_word = scalar.extui %unsigned_quotient_i8 : i8 to i32
+  %unsigned_remainder_i8_word = scalar.extui %unsigned_remainder_i8 : i8 to i32
+
+  %observations = vector.from_elements %signed_quotient_i32, %signed_remainder_i32, %unsigned_quotient_i32, %unsigned_remainder_i32, %signed_quotient_i16_word, %signed_remainder_i16_word, %unsigned_quotient_i16_word, %unsigned_remainder_i16_word, %signed_quotient_i8_word, %signed_remainder_i8_word, %unsigned_quotient_i8_word, %unsigned_remainder_i8_word : vector<12xi32>
+  vector.store %observations, %outputs[0] : vector<12xi32>, view<12xi32>
+  func.return
 }
 
 // Exercises constant index divisors whose lowering differs from runtime scalar
@@ -187,7 +253,7 @@ func.def @division_i64_boundary(%ordinal: index) -> (i64, i64, i64, i64) {
   func.return %signed_quotient, %signed_remainder, %unsigned_quotient, %unsigned_remainder : i64, i64, i64, i64
 }
 
-check.scenario @integer_division_values {
+check.scenario @integer_division_i32_values {
   check.trial[10](%trial: index, %entropy: check.entropy) {
     check.compare<@division_i32_boundary>(%trial) : (index) -> [actual(%actual_signed_quotient: i32, %actual_signed_remainder: i32, %actual_unsigned_quotient: i32, %actual_unsigned_remainder: i32), expected(%expected_signed_quotient: i32, %expected_signed_remainder: i32, %expected_unsigned_quotient: i32, %expected_unsigned_remainder: i32)] {
       check.expect.equal actual(%actual_signed_quotient) expected(%expected_signed_quotient) : i32
@@ -208,6 +274,36 @@ check.scenario @integer_division_values {
       check.expect.equal actual(%actual_unsigned_remainder) expected(%expected_unsigned_remainder) : i32
     }
   }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-2147483648) step(2147483647) : tensor<2xi32>
+    %output = check.generate.fill value(-123) : tensor<12xi32>
+    check.compare<@varying_dynamic_division_observations>(%input, %output) : (tensor<2xi32>, tensor<12xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<12xi32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-32768) step(32771) : tensor<2xi32>
+    %output = check.generate.fill value(-123) : tensor<12xi32>
+    check.compare<@varying_dynamic_division_observations>(%input, %output) : (tensor<2xi32>, tensor<12xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<12xi32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-128) step(131) : tensor<2xi32>
+    %output = check.generate.fill value(-123) : tensor<12xi32>
+    check.compare<@varying_dynamic_division_observations>(%input, %output) : (tensor<2xi32>, tensor<12xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<12xi32>
+    }
+  }
+  check.trial[256](%trial: index, %entropy: check.entropy) {
+    %input_entropy = check.entropy.fork %entropy name("varying_division_input") : check.entropy
+    %seed = check.entropy.read %input_entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%seed) range(-2147483648 to 2147483647) : tensor<2xi32>
+    %output = check.generate.fill value(-123) : tensor<12xi32>
+    check.compare<@varying_dynamic_division_observations>(%input, %output) : (tensor<2xi32>, tensor<12xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<12xi32>
+    }
+  }
   check.trial[256](%trial: index, %entropy: check.entropy) {
     %input_entropy = check.entropy.fork %entropy name("constant_index_input") : check.entropy
     %input = check.entropy.read %input_entropy[%trial] : check.entropy -> i64
@@ -222,6 +318,18 @@ check.scenario @integer_division_values {
       check.expect.equal actual(%actual_remainder_largest) expected(%expected_remainder_largest) : index
     }
   }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %minimum = check.literal value(-2147483648) : i32
+    %negative_one = check.literal value(-1) : i32
+    check.compare<@minimum_remainder_i32>(%minimum, %negative_one) : (i32, i32) -> [actual(%actual: i32), expected(%expected: i32)] {
+      check.expect.equal actual(%actual) expected(%expected) : i32
+    }
+  }
+
+  check.return
+}
+
+check.scenario @integer_division_i64_values {
   check.trial[10](%trial: index, %entropy: check.entropy) {
     check.compare<@division_i64_boundary>(%trial) : (index) -> [actual(%actual_signed_quotient: i64, %actual_signed_remainder: i64, %actual_unsigned_quotient: i64, %actual_unsigned_remainder: i64), expected(%expected_signed_quotient: i64, %expected_signed_remainder: i64, %expected_unsigned_quotient: i64, %expected_unsigned_remainder: i64)] {
       check.expect.equal actual(%actual_signed_quotient) expected(%expected_signed_quotient) : i64
@@ -240,13 +348,6 @@ check.scenario @integer_division_values {
       check.expect.equal actual(%actual_signed_remainder) expected(%expected_signed_remainder) : i64
       check.expect.equal actual(%actual_unsigned_quotient) expected(%expected_unsigned_quotient) : i64
       check.expect.equal actual(%actual_unsigned_remainder) expected(%expected_unsigned_remainder) : i64
-    }
-  }
-  check.trial[1](%trial: index, %entropy: check.entropy) {
-    %minimum = check.literal value(-2147483648) : i32
-    %negative_one = check.literal value(-1) : i32
-    check.compare<@minimum_remainder_i32>(%minimum, %negative_one) : (i32, i32) -> [actual(%actual: i32), expected(%expected: i32)] {
-      check.expect.equal actual(%actual) expected(%expected) : i32
     }
   }
   check.trial[1](%trial: index, %entropy: check.entropy) {

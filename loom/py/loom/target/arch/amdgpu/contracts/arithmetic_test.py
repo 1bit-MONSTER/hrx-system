@@ -246,7 +246,11 @@ def test_index_bit_operations_cover_scalar_and_vector_registers() -> None:
 
 def test_constant_unsigned_quotients_cover_both_register_classes() -> None:
     compiled = _compiled_integer_rules()
-    scalar_rules = _rules_for_source_op(compiled, scalar_arithmetic.scalar_divui)
+    scalar_rules = tuple(
+        rule
+        for rule in _rules_for_source_op(compiled, scalar_arithmetic.scalar_divui)
+        if not rule.flags & LOWER_RULE_FLAG_CONTRACT_ONLY
+    )
     scalar_sequences = tuple(
         _rule_descriptor_keys(compiled, rule) for rule in scalar_rules
     )
@@ -282,6 +286,93 @@ def test_constant_unsigned_quotients_cover_both_register_classes() -> None:
     )
     for rule in scalar_rules:
         assert set(_rule_type_patterns(compiled, rule)) == {Scalar("i32")}
+
+
+def test_dynamic_integer_division_recipes_cover_banks_and_result_forms() -> None:
+    compiled = _compiled_integer_rules()
+    common_descriptors = {
+        "amdgpu.v_cvt_f32_u32",
+        "amdgpu.v_rcp_f32",
+        "amdgpu.v_mul_f32.lit",
+        "amdgpu.v_cvt_u32_f32",
+    }
+    scalar_descriptors = common_descriptors | {
+        "amdgpu.v_readfirstlane_b32",
+        "amdgpu.s_mov_b32",
+        "amdgpu.s_mul_i32",
+        "amdgpu.s_mul_hi_u32",
+        "amdgpu.s_add_u32",
+        "amdgpu.s_sub_u32",
+        "amdgpu.s_sub_co_u32",
+        "amdgpu.s_cselect_b32",
+    }
+    vector_descriptors = common_descriptors | {
+        "amdgpu.v_mov_b32",
+        "amdgpu.v_mul_lo_u32",
+        "amdgpu.v_mul_hi_u32",
+        "amdgpu.v_add_u32",
+        "amdgpu.v_sub_u32",
+        "amdgpu.v_sub_co_u32",
+        "amdgpu.v_cndmask_b32",
+    }
+    combined_ops = {
+        index.index_divrem,
+        scalar_arithmetic.scalar_divremsi,
+        scalar_arithmetic.scalar_divremui,
+    }
+
+    for source_op, type_pattern, signed in (
+        (index.index_div, Scalar("index"), False),
+        (index.index_rem, Scalar("index"), False),
+        (index.index_divrem, Scalar("index"), False),
+        (scalar_arithmetic.scalar_divui, Scalar("i32"), False),
+        (scalar_arithmetic.scalar_remui, Scalar("i32"), False),
+        (scalar_arithmetic.scalar_divremui, Scalar("i32"), False),
+        (scalar_arithmetic.scalar_divsi, Scalar("i32"), True),
+        (scalar_arithmetic.scalar_remsi, Scalar("i32"), True),
+        (scalar_arithmetic.scalar_divremsi, Scalar("i32"), True),
+    ):
+        recipes = tuple(
+            rule
+            for rule in _rules_for_source_op(compiled, source_op)
+            if rule.flags & LOWER_RULE_FLAG_CONTRACT_ONLY
+        )
+        assert len(recipes) == 2
+        expected_scalar_descriptors = set(scalar_descriptors)
+        expected_vector_descriptors = set(vector_descriptors)
+        if signed:
+            expected_scalar_descriptors.update(
+                ("amdgpu.s_xor_b32", "amdgpu.s_ashr_i32")
+            )
+            expected_vector_descriptors.update(
+                ("amdgpu.v_xor_b32", "amdgpu.v_ashrrev_i32.src0_inline")
+            )
+        descriptor_sets = set()
+        for recipe in recipes:
+            assert recipe.emit_count == 0
+            guards = compiled.guards[
+                recipe.guard_start : recipe.guard_start + recipe.guard_count
+            ]
+            assert (
+                sum(guard.kind == GuardKind.VALUE_NOT_EXACT_I64 for guard in guards)
+                == 1
+            )
+            descriptor_sets.add(
+                frozenset(
+                    guard.descriptor.key
+                    for guard in guards
+                    if guard.kind == GuardKind.DESCRIPTOR_AVAILABLE
+                    and guard.descriptor is not None
+                )
+            )
+            expected_type_count = 4 if source_op in combined_ops else 3
+            assert _rule_type_patterns(compiled, recipe) == (type_pattern,) * (
+                expected_type_count
+            )
+        assert descriptor_sets == {
+            frozenset(expected_scalar_descriptors),
+            frozenset(expected_vector_descriptors),
+        }
 
 
 def test_unsigned_bitfield_extract_rules_try_native_bfe_before_shift_mask() -> None:

@@ -17,6 +17,7 @@ from .categories import *
 from .common import *
 from .integer_multiply import *
 from .matrix import *
+from .scalar_carry import *
 from .scalar_float import *
 from .sets import *
 
@@ -43,6 +44,7 @@ _AMDGPU_CONTRACT_DESCRIPTOR_OVERLAY_BUILDERS: dict[
     "amdgpu.s_mov_b64_exec_read": _s_mov_b64_exec_read_contract_overlay,
     "amdgpu.s_add_u32": _s_add_u32_overlay,
     "amdgpu.s_sub_u32": _s_sub_u32_overlay,
+    "amdgpu.s_sub_co_u32": _s_sub_co_u32_overlay,
     "amdgpu.s_mul_i32": _s_mul_i32_overlay,
     "amdgpu.s_mul_hi_u32": _s_mul_hi_u32_overlay,
     "amdgpu.s_mul_hi_u32.lit": _s_mul_hi_u32_literal_overlay,
@@ -58,6 +60,7 @@ _AMDGPU_CONTRACT_DESCRIPTOR_OVERLAY_BUILDERS: dict[
     **_contract_overlay_builders_from_overlays(_s_float_conversion_overlays()),
     "amdgpu.v_mov_b32": _v_mov_b32_literal_overlay,
     "amdgpu.v_mov_b32_copy": _v_mov_b32_copy_overlay,
+    "amdgpu.v_readfirstlane_b32": _v_readfirstlane_b32_overlay,
     "amdgpu.v_cndmask_b32": _v_cndmask_b32_overlay,
     "amdgpu.v_add_u32": lambda: _v_add_u32_overlay("V_ADD_NC_U32"),
     "amdgpu.v_add_u32.rhs_tied": lambda: _v_add_u32_rhs_tied_overlay("V_ADD_NC_U32"),
@@ -72,6 +75,7 @@ _AMDGPU_CONTRACT_DESCRIPTOR_OVERLAY_BUILDERS: dict[
     "amdgpu.v_sub_u32.lhs_tied": lambda: _v_sub_u32_lhs_tied_overlay(
         "V_SUB_NC_U32", "v_sub_nc_u32"
     ),
+    "amdgpu.v_sub_co_u32": _v_sub_co_u32_overlay,
     **_contract_overlay_builders_from_overlays(_v_mul_integer_overlays()),
     "amdgpu.v_mul_u32_u24": _v_mul_u32_u24_overlay,
     "amdgpu.v_mul_u32_u24.src0_inline": _v_mul_u32_u24_src0_inline_overlay,

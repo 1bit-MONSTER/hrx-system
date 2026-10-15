@@ -5,6 +5,6 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 [[loom::kernel, loom::workgroup_count(1, 1, 1), loom::workgroup_size(64, 1, 1)]]
-void divide(const unsigned* input, unsigned* output) {
+void divide(const unsigned long long* input, unsigned long long* output) {
   output[0] = input[0] / input[1];
 }

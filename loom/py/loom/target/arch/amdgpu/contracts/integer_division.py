@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-"""Exact constant division and remainder source-to-low rules."""
+"""Exact constant and runtime division source-to-low rules."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from loom.target.contracts import (
     EmitDescriptorOp,
     Guard,
     GuardDiagnostic,
+    RecipeRule,
     Scalar,
     SignedDivisorMagicKind,
     TypePattern,
@@ -899,8 +900,121 @@ def _signed_magic_rule(
     )
 
 
-def integer_division_rules(descriptor_set: DescriptorSet) -> tuple[DescriptorRule, ...]:
-    """Builds exact 32-bit constant division and remainder rules."""
+def _dynamic_division_descriptors(
+    descriptor_set: DescriptorSet, *, register_class: str, signed: bool
+) -> tuple[Descriptor, ...]:
+    keys = [
+        "amdgpu.v_cvt_f32_u32",
+        "amdgpu.v_rcp_f32",
+        "amdgpu.v_mul_f32.lit",
+        "amdgpu.v_cvt_u32_f32",
+    ]
+    if register_class == "amdgpu.sgpr":
+        keys.extend(
+            (
+                "amdgpu.v_readfirstlane_b32",
+                "amdgpu.s_mov_b32",
+                "amdgpu.s_mul_i32",
+                "amdgpu.s_mul_hi_u32",
+                "amdgpu.s_add_u32",
+                "amdgpu.s_sub_u32",
+                "amdgpu.s_sub_co_u32",
+                "amdgpu.s_cselect_b32",
+            )
+        )
+        if signed:
+            keys.extend(("amdgpu.s_xor_b32", "amdgpu.s_ashr_i32"))
+    else:
+        keys.extend(
+            (
+                "amdgpu.v_mov_b32",
+                "amdgpu.v_mul_lo_u32",
+                "amdgpu.v_mul_hi_u32",
+                "amdgpu.v_add_u32",
+                "amdgpu.v_sub_u32",
+                "amdgpu.v_sub_co_u32",
+                "amdgpu.v_cndmask_b32",
+            )
+        )
+        if signed:
+            keys.extend(("amdgpu.v_xor_b32", "amdgpu.v_ashrrev_i32.src0_inline"))
+    return tuple(descriptor_by_key(descriptor_set, key) for key in keys)
+
+
+def _dynamic_division_rule(
+    descriptor_set: DescriptorSet,
+    source_op: Op,
+    type_pattern: TypePattern,
+    *,
+    register_class: str,
+    signed: bool,
+) -> RecipeRule:
+    result_fields = (
+        ("quotient", "remainder")
+        if source_op
+        in (
+            scalar_arithmetic.scalar_divremsi,
+            scalar_arithmetic.scalar_divremui,
+            index.index_divrem,
+        )
+        else ("result",)
+    )
+    value_fields = ("lhs", "rhs", *result_fields)
+    guards = [Guard.value_type(field, type_pattern) for field in value_fields]
+    guards.append(Guard.value_not_exact_i64("rhs"))
+    if type_pattern == _INDEX:
+        guards.extend(
+            (
+                Guard.value_unsigned_bit_count(
+                    "lhs", 32, diagnostic=_ADDRESS_U32_DIAGNOSTIC
+                ),
+                Guard.value_i64_range(
+                    "rhs",
+                    1,
+                    _UINT32_MAX,
+                    diagnostic=_POSITIVE_U32_DIVISOR_DIAGNOSTIC,
+                ),
+                *(
+                    Guard.value_unsigned_bit_count(
+                        field, 32, diagnostic=_ADDRESS_U32_DIAGNOSTIC
+                    )
+                    for field in result_fields
+                ),
+            )
+        )
+    if register_class == "amdgpu.sgpr":
+        guards.extend(
+            Guard.low_value_register_class(field, register_class)
+            for field in value_fields
+        )
+    else:
+        materializer = (
+            ADDRESS_VGPR_MATERIALIZER
+            if type_pattern == _INDEX
+            else I32_VGPR_MATERIALIZER
+        )
+        guards.extend(
+            Guard.value_materializable(field, materializer.name)
+            for field in ("lhs", "rhs")
+        )
+        guards.extend(
+            Guard.low_value_register_class(field, register_class)
+            for field in result_fields
+        )
+    guards.extend(
+        _descriptor_available_guards(
+            *_dynamic_division_descriptors(
+                descriptor_set, register_class=register_class, signed=signed
+            )
+        )
+    )
+    return RecipeRule(source_op=source_op, guards=guards)
+
+
+def integer_division_rules(
+    descriptor_set: DescriptorSet,
+) -> tuple[DescriptorRule | RecipeRule, ...]:
+    """Builds exact 32-bit constant and runtime division rules."""
     rules = [
         _magic_remainder_vgpr_rule(
             descriptor_set, source_op, type_pattern, kind=kind, product_shift=1
@@ -977,5 +1091,26 @@ def integer_division_rules(descriptor_set: DescriptorSet) -> tuple[DescriptorRul
         )
         for register_class in ("amdgpu.sgpr", "amdgpu.vgpr")
         for kind in SignedDivisorMagicKind
+    )
+    rules.extend(
+        _dynamic_division_rule(
+            descriptor_set,
+            source_op,
+            type_pattern,
+            register_class=register_class,
+            signed=signed,
+        )
+        for source_op, type_pattern, signed in (
+            (index.index_div, _INDEX, False),
+            (index.index_rem, _INDEX, False),
+            (index.index_divrem, _INDEX, False),
+            (scalar_arithmetic.scalar_divui, _I32, False),
+            (scalar_arithmetic.scalar_remui, _I32, False),
+            (scalar_arithmetic.scalar_divremui, _I32, False),
+            (scalar_arithmetic.scalar_divsi, _I32, True),
+            (scalar_arithmetic.scalar_remsi, _I32, True),
+            (scalar_arithmetic.scalar_divremsi, _I32, True),
+        )
+        for register_class in ("amdgpu.sgpr", "amdgpu.vgpr")
     )
     return tuple(rules)
