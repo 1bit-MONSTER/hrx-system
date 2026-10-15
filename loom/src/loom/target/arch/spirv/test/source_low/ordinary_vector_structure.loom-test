@@ -95,3 +95,64 @@ low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer, buffe
   OpStore.storage_buffer.i32 %77, %result3
   return
 }
+
+// ====
+// RUN: emit source-low target=spirv:vulkan1.3+bda output=low
+
+// A dynamic window crossing retained load packets stays in native SSA vectors
+// instead of staging the authored memory snapshot through private memory.
+func.def @dynamic_snapshot_window(%input: buffer, %offset0: index) -> (i32) {
+  %base = index.constant 0 : offset
+  %aligned = buffer.assume.alignment %input {minimum_alignment = 16} : buffer
+  %input_view = buffer.view %aligned[%base] : buffer -> view<8xi32>
+  %low = vector.load %input_view[0] : view<8xi32> -> vector<4xi32>
+  %high = vector.load %input_view[4] : view<8xi32> -> vector<4xi32>
+  %source = vector.concat<0> %low, %high : vector<4xi32>, vector<4xi32> -> vector<8xi32>
+  %offset = index.assume %offset0 [range(%offset0, 0, 4), multiple_of(%offset0, 2)] : index
+  %window = vector.slice %source[%offset] : vector<8xi32> -> vector<4xi32>
+  %result = vector.extract %window[0] : vector<4xi32> -> i32
+  func.return %result : i32
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @dynamic_snapshot_window(%aligned: reg<spirv.ptr.storage_buffer>, %offset: reg<spirv.id : index>) -> (reg<spirv.id : i32>) asm {
+  %36 = OpConstant.offset64 0
+  %37 = OpPtrAccessChain.storage_buffer.i32.byte_offset %aligned, %36
+  %38 = OpLoad.storage_buffer.i32 %37
+  %39 = OpConstant.offset64 4
+  %40 = OpPtrAccessChain.storage_buffer.i32.byte_offset %aligned, %39
+  %41 = OpLoad.storage_buffer.i32 %40
+  %42 = OpConstant.offset64 8
+  %43 = OpPtrAccessChain.storage_buffer.i32.byte_offset %aligned, %42
+  %44 = OpLoad.storage_buffer.i32 %43
+  %45 = OpConstant.offset64 12
+  %46 = OpPtrAccessChain.storage_buffer.i32.byte_offset %aligned, %45
+  %47 = OpLoad.storage_buffer.i32 %46
+  %low = OpCompositeConstruct.v4i32 %38, %41, %44, %47
+  %49 = OpConstant.offset64 16
+  %50 = OpPtrAccessChain.storage_buffer.i32.byte_offset %aligned, %49
+  %51 = OpLoad.storage_buffer.i32 %50
+  %52 = OpConstant.offset64 20
+  %53 = OpPtrAccessChain.storage_buffer.i32.byte_offset %aligned, %52
+  %54 = OpLoad.storage_buffer.i32 %53
+  %55 = OpConstant.offset64 24
+  %56 = OpPtrAccessChain.storage_buffer.i32.byte_offset %aligned, %55
+  %57 = OpLoad.storage_buffer.i32 %56
+  %58 = OpConstant.offset64 28
+  %59 = OpPtrAccessChain.storage_buffer.i32.byte_offset %aligned, %58
+  %60 = OpLoad.storage_buffer.i32 %59
+  %high = OpCompositeConstruct.v4i32 %51, %54, %57, %60
+  %62 = OpConstant.i32 2 : reg<spirv.id : index>
+  %63 = OpIEqual %offset, %62
+  %64 = OpConstant.i32 4 : reg<spirv.id : index>
+  %65 = OpIEqual %offset, %64
+  %66 = OpCompositeConstruct.v2i32 %44, %47
+  %67 = OpCompositeConstruct.v2i32 %51, %54
+  %68 = OpVectorShuffle.v2i32.v4i32 %66, %67, 0, 1, 2, 3
+  %69 = OpCompositeConstruct.v4bool %63, %63, %63, %63
+  %70 = OpSelect.v4i32 %69, %68, %low
+  %71 = OpCompositeConstruct.v4bool %65, %65, %65, %65
+  %window = OpSelect.v4i32 %71, %high, %70
+  %result = OpCompositeExtract.v4i32.i32 %window, 0
+  return %result
+}

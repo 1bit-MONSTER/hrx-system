@@ -381,6 +381,8 @@ loom_cc_library(
     loom::target::arch::spirv::descriptors
     loom::target::legalization
     loom::transforms::scalar::target_legalization
+    loom::transforms::vector::packet_legalization
+    loom::transforms::vector::shape_legalization
     loom::transforms::vector::target_legalization
     loom::transforms::vector::to_scalar
   PUBLIC

@@ -103,6 +103,40 @@ static const loom_target_bitstream_policy_t kSpirvBitstreamPolicy = {
         },
 };
 
+static const uint16_t kSpirvVectorPacketBitCounts[] = {
+    256u, 128u, 64u, 32u, 16u, 8u,
+};
+static const uint16_t kSpirvVectorPacketLaneCounts[] = {4u, 3u, 2u};
+static const loom_target_vector_packet_lane_limit_t
+    kSpirvVectorPacketStructuralLaneLimits[] = {
+        {LOOM_SCALAR_TYPE_I1, 4u},     {LOOM_SCALAR_TYPE_I8, 4u},
+        {LOOM_SCALAR_TYPE_F8E4M3, 1u}, {LOOM_SCALAR_TYPE_F8E5M2, 1u},
+        {LOOM_SCALAR_TYPE_I16, 4u},    {LOOM_SCALAR_TYPE_I32, 4u},
+        {LOOM_SCALAR_TYPE_INDEX, 4u},  {LOOM_SCALAR_TYPE_I64, 4u},
+        {LOOM_SCALAR_TYPE_OFFSET, 4u}, {LOOM_SCALAR_TYPE_F16, 4u},
+        {LOOM_SCALAR_TYPE_BF16, 4u},   {LOOM_SCALAR_TYPE_F32, 4u},
+        {LOOM_SCALAR_TYPE_F64, 4u},
+};
+static_assert(IREE_ARRAYSIZE(kSpirvVectorPacketLaneCounts) <=
+                  LOOM_TARGET_VECTOR_PACKET_LANE_COUNT_LIMIT,
+              "packet lane candidates exceed the shared planner capacity");
+
+static const loom_target_vector_packet_policy_t kSpirvVectorPacketPolicy = {
+    .native_bit_counts = kSpirvVectorPacketBitCounts,
+    .native_lane_counts = kSpirvVectorPacketLaneCounts,
+    .index_bit_count = 32u,
+    .offset_bit_count = 64u,
+    .flags = LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_DYNAMIC_WINDOW_REPLAY |
+             LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_MEMORY_ROOT_COMPONENTS |
+             LOOM_TARGET_VECTOR_PACKET_POLICY_FLAG_DYNAMIC_SNAPSHOT_SELECTION,
+    .structural_lane_limits = kSpirvVectorPacketStructuralLaneLimits,
+    .maximum_unpacketized_bit_count = 256u,
+    .native_bit_count_count = IREE_ARRAYSIZE(kSpirvVectorPacketBitCounts),
+    .native_lane_count_count = IREE_ARRAYSIZE(kSpirvVectorPacketLaneCounts),
+    .structural_lane_limit_count =
+        IREE_ARRAYSIZE(kSpirvVectorPacketStructuralLaneLimits),
+};
+
 static bool loom_spirv_source_value_fragment(
     const loom_value_fact_table_t* fact_table, loom_value_id_t source_value_id,
     loom_vector_fragment_fact_t* out_fragment) {
@@ -470,6 +504,7 @@ static void loom_spirv_mark_plan_storage_demands(
 static const loom_low_lower_policy_t kSpirvLowLowerPolicy = {
     .name = IREE_SVL("spirv-logical-lower"),
     .error_catalog = &loom_spirv_error_catalog,
+    .vector_packet_policy = &kSpirvVectorPacketPolicy,
     .bitstream_policy = &kSpirvBitstreamPolicy,
     .map_abi_layout = {.fn = loom_spirv_map_abi_layout, .user_data = NULL},
     .map_type = {.fn = loom_spirv_map_type, .user_data = NULL},

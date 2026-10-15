@@ -337,6 +337,8 @@ loom_cc_library(
         "//loom/src/loom/target:legalization",
         "//loom/src/loom/target/arch/spirv/descriptors",
         "//loom/src/loom/transforms/scalar:target_legalization",
+        "//loom/src/loom/transforms/vector:packet_legalization",
+        "//loom/src/loom/transforms/vector:shape_legalization",
         "//loom/src/loom/transforms/vector:target_legalization",
         "//loom/src/loom/transforms/vector:to_scalar",
         "//runtime/src/iree/base",
