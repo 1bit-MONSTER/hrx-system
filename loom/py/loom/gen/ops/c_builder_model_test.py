@@ -96,6 +96,9 @@ def test_projected_block_argument_builders_derive_group_boundary() -> None:
     assert "_i < expected_arg_types_count" in source
     assert "actual_arg_types_count + expected_arg_types_count, UINT16_MAX" in source
     assert ("loom_op_attrs(*out_op)[0] = loom_attr_i64((int64_t)(actual_arg_types_count));") in source
+    assert "loom_builder_define_value(" in source
+    assert "loom_block_add_arg(" in source
+    assert "loom_builder_define_block_arg(" not in source
 
 
 def test_projected_block_argument_builders_omit_empty_optional_boundary() -> None:

@@ -722,12 +722,17 @@ def _generate_builder_implementation(
         binding = param.get("binding")
         block_args = param.get("block_args")
         if block_args:
+            # Explicit BlockArgs are caller-typed region signatures. Consume
+            # their reserved identities so dependent types can refer to peer
+            # arguments before the operation is built.
             for block_args_param in block_args:
                 block_args_name = _c_parameter_name(block_args_param["name"])
                 lines.append(f"{inner_indent}for (iree_host_size_t _i = 0; _i < {block_args_name}_count; ++_i) {{")
                 lines.append(f"{inner_indent}  loom_value_id_t _arg_id = LOOM_VALUE_ID_INVALID;")
-                lines.append(f"{inner_indent}  IREE_RETURN_IF_ERROR(loom_builder_define_block_arg(")
-                lines.append(f"{inner_indent}      builder, _block, {block_args_name}[_i], &_arg_id));")
+                lines.append(f"{inner_indent}  IREE_RETURN_IF_ERROR(loom_builder_define_value(")
+                lines.append(f"{inner_indent}      builder, {block_args_name}[_i], &_arg_id));")
+                lines.append(f"{inner_indent}  IREE_RETURN_IF_ERROR(loom_block_add_arg(")
+                lines.append(f"{inner_indent}      builder->module, _block, _arg_id));")
                 lines.append(f"{inner_indent}}}")
         elif binding:
             binding_name = _c_parameter_name(binding["name"])
