@@ -41,6 +41,7 @@ iree_cc_binary(
     iree::hal::drivers::task::executable::elf::testdata::compat_data
     iree::hal::drivers::task::executable::environment
     iree::hal::drivers::task::executable::library::abi
+    iree::hal::drivers::task::executable::library::util
   TESTONLY
 )
 
@@ -67,6 +68,7 @@ iree_cc_binary(
     iree::hal::drivers::task::executable::elf::testdata::initializers_native
     iree::hal::drivers::task::executable::environment
     iree::hal::drivers::task::executable::library::abi
+    iree::hal::drivers::task::executable::library::util
   TESTONLY
 )
 endif()

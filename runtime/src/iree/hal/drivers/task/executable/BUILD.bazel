@@ -65,6 +65,7 @@ iree_runtime_cc_library(
         ":environment",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal",
+        "//runtime/src/iree/base/internal:fpu_state",
         "//runtime/src/iree/hal",
         "//runtime/src/iree/hal/drivers/task/executable/library:abi",
     ],

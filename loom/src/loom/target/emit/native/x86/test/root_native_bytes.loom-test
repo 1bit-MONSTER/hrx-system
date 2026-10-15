@@ -1,0 +1,120 @@
+// RUN: emit x86-native-bytes @avx2_xmm
+x86.target<avx2> @target
+
+low.func.def target<x86.avx2.core>(@target) @avx2_xmm(%input: reg<x86.xmm>) -> (reg<x86.xmm>) asm {
+  %sqrt_f32 = vsqrtps.xmm %input
+  %sqrt_f64 = vsqrtpd.xmm %sqrt_f32
+  %rsqrt_f32 = vrsqrtps.xmm %sqrt_f64
+  %sqrt_scalar_f32 = vsqrtss.xmm %rsqrt_f32, %rsqrt_f32
+  %sqrt_scalar_f64 = vsqrtsd.xmm %sqrt_scalar_f32, %sqrt_scalar_f32
+  %rsqrt_scalar_f32 = vrsqrtss.xmm %sqrt_scalar_f64, %sqrt_scalar_f64
+  return %rsqrt_scalar_f32
+}
+
+// ----
+code: c5 f8 51 c0 c5 f9 51 c0 c5 f8 52 c0 c5 fa 51 c0 c5 fb 51 c0 c5 fa 52 c0 c3
+
+// ====
+
+// RUN: emit x86-native-bytes @avx2_ymm
+x86.target<avx2> @target
+
+low.func.def target<x86.avx2.core>(@target) @avx2_ymm(%input: reg<x86.ymm>) -> (reg<x86.ymm>) asm {
+  %sqrt_f32 = vsqrtps.ymm %input
+  %sqrt_f64 = vsqrtpd.ymm %sqrt_f32
+  %rsqrt_f32 = vrsqrtps.ymm %sqrt_f64
+  return %rsqrt_f32
+}
+
+// ----
+code: c5 fc 51 c0 c5 fd 51 c0 c5 fc 52 c0 c3
+
+// ====
+
+// RUN: emit x86-native-bytes @avx512_xmm
+x86.target<avx512> @target
+
+low.func.def target<x86.avx512.core>(@target) @avx512_xmm(%input: reg<x86.xmm>) -> (reg<x86.xmm>) asm {
+  %rsqrt_f32 = vrsqrt14ps.xmm %input
+  %rsqrt_f64 = vrsqrt14pd.xmm %rsqrt_f32
+  %rsqrt_scalar_f32 = vrsqrt14ss.xmm %rsqrt_f64, %rsqrt_f64
+  %rsqrt_scalar_f64 = vrsqrt14sd.xmm %rsqrt_scalar_f32, %rsqrt_scalar_f32
+  return %rsqrt_scalar_f64
+}
+
+// ----
+code: 62 f2 7d 08 4e c0 62 f2 fd 08 4e c0 62 f2 7d 08 4f c0 62 f2 fd 08 4f c0 c3
+
+// ====
+
+// RUN: emit x86-native-bytes @avx512_ymm
+x86.target<avx512> @target
+
+low.func.def target<x86.avx512.core>(@target) @avx512_ymm(%input: reg<x86.ymm>) -> (reg<x86.ymm>) asm {
+  %rsqrt_f32 = vrsqrt14ps.ymm %input
+  %rsqrt_f64 = vrsqrt14pd.ymm %rsqrt_f32
+  return %rsqrt_f64
+}
+
+// ----
+code: 62 f2 7d 28 4e c0 62 f2 fd 28 4e c0 c3
+
+// ====
+
+// RUN: emit x86-native-bytes @avx512_zmm
+x86.target<avx512> @target
+
+low.func.def target<x86.avx512.core>(@target) @avx512_zmm(%input: reg<x86.zmm>) -> (reg<x86.zmm>) asm {
+  %sqrt_f32 = vsqrtps %input
+  %sqrt_f64 = vsqrtpd %sqrt_f32
+  %rsqrt_f32 = vrsqrt14ps %sqrt_f64
+  %rsqrt_f64 = vrsqrt14pd %rsqrt_f32
+  return %rsqrt_f64
+}
+
+// ----
+code: 62 f1 7c 48 51 c0 62 f1 fd 48 51 c0 62 f2 7d 48 4e c0 62 f2 fd 48 4e c0 c3
+
+// ====
+
+// RUN: emit x86-native-bytes @fp16_xmm
+x86.target<avx512_packed_dot> @target {contract_feature_bits = 130, contract_set_key = "x86.avx512_features.core"}
+
+low.func.def target<x86.avx512_features.core>(@target) @fp16_xmm(%input: reg<x86.xmm>) -> (reg<x86.xmm>) asm {
+  %sqrt = vsqrtph.xmm %input
+  %rsqrt = vrsqrtph.xmm %sqrt
+  %sqrt_scalar = vsqrtsh.xmm %rsqrt, %rsqrt
+  %rsqrt_scalar = vrsqrtsh.xmm %sqrt_scalar, %sqrt_scalar
+  return %rsqrt_scalar
+}
+
+// ----
+code: 62 f5 7c 08 51 c0 62 f6 7d 08 4e c0 62 f5 7e 08 51 c0 62 f6 7d 08 4f c0 c3
+
+// ====
+
+// RUN: emit x86-native-bytes @fp16_ymm
+x86.target<avx512_packed_dot> @target {contract_feature_bits = 130, contract_set_key = "x86.avx512_features.core"}
+
+low.func.def target<x86.avx512_features.core>(@target) @fp16_ymm(%input: reg<x86.ymm>) -> (reg<x86.ymm>) asm {
+  %sqrt = vsqrtph.ymm %input
+  %rsqrt = vrsqrtph.ymm %sqrt
+  return %rsqrt
+}
+
+// ----
+code: 62 f5 7c 28 51 c0 62 f6 7d 28 4e c0 c3
+
+// ====
+
+// RUN: emit x86-native-bytes @fp16_zmm
+x86.target<avx512_packed_dot> @target {contract_feature_bits = 130, contract_set_key = "x86.avx512_features.core"}
+
+low.func.def target<x86.avx512_features.core>(@target) @fp16_zmm(%input: reg<x86.zmm>) -> (reg<x86.zmm>) asm {
+  %sqrt = vsqrtph %input
+  %rsqrt = vrsqrtph %sqrt
+  return %rsqrt
+}
+
+// ----
+code: 62 f5 7c 48 51 c0 62 f6 7d 48 4e c0 c3

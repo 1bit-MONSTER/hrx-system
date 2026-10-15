@@ -338,9 +338,9 @@ class DescriptorRule:
             )
             defined_temporaries.update(produced_temporaries)
         self._validate_operand_segment_projections()
-        self._validate_related_results()
         self._validate_source_memory_preservation()
         self._validate_per_lane_sequence()
+        self._validate_source_results(source_ops)
         self._validate_terminator_emit()
 
     def _validate_operand_segment_projections(self) -> None:
@@ -422,7 +422,7 @@ class DescriptorRule:
                     + ", ".join(live_sibling_fields)
                 )
 
-    def _validate_related_results(self) -> None:
+    def _validate_source_results(self, source_ops: Mapping[str, Op]) -> None:
         covered_results = set[tuple[str, str, int]]()
         for source_node in self.source_nodes:
             if source_node.node_value.kind is SourceValueKind.RESULT:
@@ -433,9 +433,7 @@ class DescriptorRule:
                         source_node.node_value.element,
                     )
                 )
-            if source_node.parent and (
-                source_node.parent_value.kind is SourceValueKind.RESULT
-            ):
+            if source_node.parent_value.kind is SourceValueKind.RESULT:
                 covered_results.add(
                     (
                         source_node.parent,
@@ -443,14 +441,6 @@ class DescriptorRule:
                         source_node.parent_value.element,
                     )
                 )
-            for guard in source_node.guards:
-                if (
-                    guard.kind is GuardKind.VALUE_NO_USES
-                    and source_node.source_op.result(guard.field) is not None
-                ):
-                    covered_results.add(
-                        (source_node.name, guard.field, guard.element or 0)
-                    )
         for emit in self.emit:
             if isinstance(emit, EmitDescriptorOp):
                 result_refs = tuple(emit.results.values())
@@ -469,19 +459,44 @@ class DescriptorRule:
             covered_results.update(
                 (value_ref.source_node, value_ref.field, value_ref.element)
                 for value_ref in result_refs
-                if value_ref.kind is SourceValueKind.RESULT and value_ref.source_node
+                if value_ref.kind is SourceValueKind.RESULT
             )
-        for source_node in self.source_nodes:
-            for result in source_node.source_op.results:
-                if result.variadic:
-                    raise ValueError(
-                        f"{source_node.source_op.name}: related source node "
-                        f"'{source_node.name}' cannot have variadic results"
+        for source_node_name, source_op in source_ops.items():
+            endpoint = source_node_name or "root"
+            endpoint_guards = (
+                self.guards
+                if not source_node_name
+                else next(
+                    node.guards
+                    for node in self.source_nodes
+                    if node.name == source_node_name
+                )
+            )
+            for guard in endpoint_guards:
+                if (
+                    guard.kind is GuardKind.VALUE_NO_USES
+                    and source_op.result(guard.field) is not None
+                ):
+                    covered_results.add(
+                        (
+                            source_node_name,
+                            guard.field,
+                            guard.element if guard.element is not None else 0,
+                        )
                     )
-                if (source_node.name, result.name, 0) not in covered_results:
+            for result in source_op.results:
+                if result.variadic:
+                    if source_node_name:
+                        raise ValueError(
+                            f"{source_op.name}: source node '{endpoint}' cannot "
+                            "have variadic results"
+                        )
+                    continue
+                if (source_node_name, result.name, 0) not in covered_results:
+                    rule_key = self.descriptor.key if self.descriptor else "<none>"
                     raise ValueError(
-                        f"{source_node.source_op.name}: related source node "
-                        f"'{source_node.name}' result '{result.name}' is neither "
+                        f"{source_op.name}: descriptor rule '{rule_key}' source "
+                        f"node '{endpoint}' result '{result.name}' is neither "
                         "internal nor bound by the emit program"
                     )
 

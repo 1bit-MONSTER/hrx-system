@@ -11,6 +11,7 @@
 #include <string.h>
 
 #include "iree/base/internal/cpu.h"
+#include "iree/base/internal/fpu_state.h"
 #include "iree/base/threading/wait_address.h"
 #include "iree/hal/drivers/task/atomic.h"
 #include "iree/hal/drivers/task/executable/executable.h"
@@ -740,7 +741,7 @@ static uint32_t iree_hal_cmd_dispatch_tiles_per_reservation(
 //
 // For single-worker mode (worker_count==1): the tile_index atomic is not
 // touched (unnecessary overhead). All tiles are executed sequentially.
-static iree_status_t iree_hal_cmd_execute_dispatch_tiles(
+static iree_status_t iree_hal_cmd_execute_dispatch_tiles_current_fpu_state(
     const iree_hal_cmd_dispatch_t* dispatch, void** binding_ptrs,
     size_t* binding_lengths, iree_atomic_int64_t* tile_index,
     int32_t region_epoch,
@@ -878,6 +879,32 @@ static iree_status_t iree_hal_cmd_execute_dispatch_tiles(
   }
 
   return iree_ok_status();
+}
+
+// Establishes dispatch floating-point semantics once around all tiles claimed
+// by this worker. Task workers normally flush subnormals for general runtime
+// work; exact kernels opt into gradual underflow through executable metadata.
+static iree_status_t iree_hal_cmd_execute_dispatch_tiles(
+    const iree_hal_cmd_dispatch_t* dispatch, void** binding_ptrs,
+    size_t* binding_lengths, iree_atomic_int64_t* tile_index,
+    int32_t region_epoch,
+    const iree_hal_cmd_block_processor_worker_context_t* worker_context,
+    uint32_t worker_count, uint32_t* out_tiles_completed) {
+  const iree_hal_cmd_flags_t preserve_subnormal_flags =
+      IREE_HAL_CMD_FLAG_PRESERVE_SUBNORMAL_INPUTS |
+      IREE_HAL_CMD_FLAG_PRESERVE_SUBNORMAL_RESULTS;
+  if (!iree_any_bit_set(dispatch->header.flags, preserve_subnormal_flags)) {
+    return iree_hal_cmd_execute_dispatch_tiles_current_fpu_state(
+        dispatch, binding_ptrs, binding_lengths, tile_index, region_epoch,
+        worker_context, worker_count, out_tiles_completed);
+  }
+  const iree_fpu_state_t fpu_state =
+      iree_fpu_state_push(IREE_FPU_STATE_DEFAULT);
+  iree_status_t status = iree_hal_cmd_execute_dispatch_tiles_current_fpu_state(
+      dispatch, binding_ptrs, binding_lengths, tile_index, region_epoch,
+      worker_context, worker_count, out_tiles_completed);
+  iree_fpu_state_pop(fpu_state);
+  return status;
 }
 
 static bool iree_hal_cmd_transfer_claim_tile(iree_atomic_int64_t* tile_index,

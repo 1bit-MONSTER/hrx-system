@@ -98,6 +98,54 @@ low.func.def target<spirv.logical.core>(@target) abi(shader_entry_point) @vector
 }
 
 // ====
+// RUN: emit source-low target=spirv:vulkan1.3+bda+extended-types output=low
+
+func.def @approximate_roots(%half: f16, %single0: f32, %single1: f32, %double: f64) -> (f16, f32, f64) {
+  %half_sqrt = scalar.sqrtf<afn> %half : f16
+  %half_rsqrt = scalar.rsqrtf<afn> %half_sqrt : f16
+  %single = vector.from_elements %single0, %single1 : vector<2xf32>
+  %single_sqrt = vector.sqrtf<afn> %single : vector<2xf32>
+  %single_rsqrt = vector.rsqrtf<afn> %single_sqrt : vector<2xf32>
+  %single_result = vector.extract %single_rsqrt[1] : vector<2xf32> -> f32
+  %double_sqrt = scalar.sqrtf<afn> %double : f64
+  %double_rsqrt = scalar.rsqrtf<afn> %double_sqrt : f64
+  func.return %half_rsqrt, %single_result, %double_rsqrt : f16, f32, f64
+}
+
+// ----
+low.func.def target<spirv.logical.core> abi(shader_entry_point) @approximate_roots(%half: reg<spirv.id : f16>, %single0: reg<spirv.id : f32>, %single1: reg<spirv.id : f32>, %double: reg<spirv.id : f64>) -> (reg<spirv.id : f16>, reg<spirv.id : f32>, reg<spirv.id : f64>) asm {
+  %half_sqrt = OpExtInst.GLSL.std.450.Sqrt.f16 %half
+  %half_rsqrt = OpExtInst.GLSL.std.450.InverseSqrt.f16 %half_sqrt
+  %single = OpCompositeConstruct.v2f32 %single0, %single1
+  %single_sqrt = OpExtInst.GLSL.std.450.Sqrt.v2f32 %single
+  %single_rsqrt = OpExtInst.GLSL.std.450.InverseSqrt.v2f32 %single_sqrt
+  %single_result = OpCompositeExtract.v2f32.f32 %single_rsqrt, 1
+  %double_sqrt = OpExtInst.GLSL.std.450.Sqrt.f64 %double
+  %double_rsqrt = OpExtInst.GLSL.std.450.InverseSqrt.f64 %double_sqrt
+  return %half_rsqrt, %single_result, %double_rsqrt
+}
+
+// ====
+
+spirv.target<vulkan1_3> @target
+
+func.def target(@target) @exact_root(%input: f32) -> (f32) {
+  // ERROR@+1: LOWERING/036 {op_name="scalar.sqrtf", phase_name="legalize-math", policy_name="spirv-math", math_op="sqrtf", lane_domain="scalar", element_type="f32", constraint_key="math.root.afn"}
+  %result = scalar.sqrtf %input : f32
+  func.return %result : f32
+}
+
+// ====
+
+spirv.target<vulkan1_3> @target
+
+func.def target(@target) @unsupported_root_format(%input: bf16) -> (bf16) {
+  // ERROR@+1: LOWERING/036 {op_name="scalar.rsqrtf", phase_name="legalize-math", policy_name="spirv-math", math_op="rsqrtf", lane_domain="scalar", element_type="bf16", constraint_key="math.root.f16_f32_f64"}
+  %result = scalar.rsqrtf<afn> %input : bf16
+  func.return %result : bf16
+}
+
+// ====
 
 spirv.target<vulkan1_3> @target
 

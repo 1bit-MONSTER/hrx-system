@@ -375,6 +375,28 @@ def test_descriptor_rule_rejects_unbound_related_result() -> None:
         )
 
 
+def test_descriptor_rule_rejects_unbound_root_result() -> None:
+    rule = _fused_scalar_rule(source_nodes=())
+    emit = replace(
+        rule.emit[0],
+        operands={
+            "lhs": ValueRef.operand("lhs"),
+            "rhs": ValueRef.operand("rhs"),
+        },
+        results={"dst": ValueRef.temporary("unpublished")},
+        result_types={"dst": Scalar("i32")},
+    )
+    with pytest.raises(
+        ValueError,
+        match="source node 'root' result 'result' is neither internal",
+    ):
+        ContractFragment(
+            name="test-low.unbound-root-result",
+            descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+            cases=(replace(rule, emit=(emit,)),),
+        )
+
+
 def test_descriptor_rule_rejects_too_many_source_nodes() -> None:
     source_nodes = tuple(
         replace(_forward_source_node(), name=f"consumer{index}") for index in range(8)

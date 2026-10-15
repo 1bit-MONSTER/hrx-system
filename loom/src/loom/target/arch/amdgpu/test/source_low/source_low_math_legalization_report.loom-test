@@ -9,7 +9,7 @@ func.def target(@target) @report_scalar_round_away_recipe(%input: f32) -> (f32) 
 
 // ----
 CHECK: COMPILE-REPORT: math_legalization rewritten=1 rejected=0 missing_policy=0 missing_recipe=0 rows=1 *
-CHECK: COMPILE-REPORT: math_legalization[*] * source_op=scalar.roundf action=rewritten policy=amdgpu-math math_op=roundf domain=scalar element=f32 recipe=round-away constraint=math.recipe.round_away * source_fastmath=0x00 recipe_fastmath=0x00 *
+CHECK: COMPILE-REPORT: math_legalization[*] * source_op=scalar.roundf action=rewritten policy=amdgpu-math math_op=roundf domain=scalar element=f32 recipe=round-away constraint=math.recipe.round_away * source_fastmath=0x00 recipe_fastmath=0x00 * native_required_fastmath=0x40
 CHECK-NOT: COMPILE-REPORT: source_low[*] * source_op=scalar.roundf *
 
 // ====
@@ -23,7 +23,7 @@ func.def target(@target) @report_vector_round_away_recipe(%input: vector<2xf32>)
 
 // ----
 CHECK: COMPILE-REPORT: math_legalization rewritten=1 rejected=0 missing_policy=0 missing_recipe=0 rows=1 *
-CHECK: COMPILE-REPORT: math_legalization[*] * source_op=vector.roundf action=rewritten policy=amdgpu-math math_op=roundf domain=vector element=f32 recipe=round-away constraint=math.recipe.round_away * source_fastmath=0x00 recipe_fastmath=0x00 *
+CHECK: COMPILE-REPORT: math_legalization[*] * source_op=vector.roundf action=rewritten policy=amdgpu-math math_op=roundf domain=vector element=f32 recipe=round-away constraint=math.recipe.round_away * source_fastmath=0x00 recipe_fastmath=0x00 * native_required_fastmath=0x40
 CHECK-NOT: COMPILE-REPORT: source_low[*] * source_op=vector.roundf *
 
 // ====
@@ -38,6 +38,23 @@ func.def target(@target) @report_vector_roundeven_native(%input: vector<2xf32>) 
 // ----
 CHECK: COMPILE-REPORT: source_low[*] * source_op=vector.roundevenf selection=rule plan_key=amdgpu.vector_roundevenf.strategy.rndne descriptor_key=amdgpu.v_rndne_f32 descriptor_semantic_tag=float.round_even.f32 *
 CHECK-NOT: COMPILE-REPORT: math_legalization[*] *
+
+// ====
+
+amdgpu.target<gfx942> @target
+
+func.def target(@target) @report_strict_rsqrt_native_alternatives(%scalar_f32: f32, %vector_f32: vector<2xf32>, %scalar_f64: f64) -> (f32, vector<2xf32>, f64) {
+  %scalar_f32_result = scalar.rsqrtf %scalar_f32 : f32
+  %vector_f32_result = vector.rsqrtf %vector_f32 : vector<2xf32>
+  %scalar_f64_result = scalar.rsqrtf %scalar_f64 : f64
+  func.return %scalar_f32_result, %vector_f32_result, %scalar_f64_result : f32, vector<2xf32>, f64
+}
+
+// ----
+CHECK: COMPILE-REPORT: math_legalization rewritten=3 rejected=0 missing_policy=0 missing_recipe=0 rows=3 *
+CHECK: COMPILE-REPORT: math_legalization[*] * source_op=scalar.rsqrtf action=rewritten policy=amdgpu-math math_op=rsqrtf domain=scalar element=f32 recipe=rsqrt-sqrt-div constraint=math.recipe.rsqrt_sqrt_div * source_fastmath=0x00 recipe_fastmath=0x00 * native_required_fastmath=0x40
+CHECK: COMPILE-REPORT: math_legalization[*] * source_op=vector.rsqrtf action=rewritten policy=amdgpu-math math_op=rsqrtf domain=vector element=f32 recipe=rsqrt-sqrt-div constraint=math.recipe.rsqrt_sqrt_div * source_fastmath=0x00 recipe_fastmath=0x00 * native_required_fastmath=0x40
+CHECK: COMPILE-REPORT: math_legalization[*] * source_op=scalar.rsqrtf action=rewritten policy=amdgpu-math math_op=rsqrtf domain=scalar element=f64 recipe=rsqrt-sqrt-div constraint=math.recipe.rsqrt_sqrt_div * source_fastmath=0x00 recipe_fastmath=0x00 * native_required_fastmath=0x40
 
 // ====
 

@@ -22,6 +22,7 @@ iree_py_library(
     "avx_ne_convert.py"
     "constants.py"
     "float_narrowing.py"
+    "float_roots.py"
     "floating_extrema.py"
     "floating_reduction.py"
     "integer_bits.py"
@@ -260,6 +261,27 @@ iree_py_test(
     loom::py::loom::target::arch::x86::contracts::contracts
     loom::py::loom::dialect::scalar::scalar
     loom::py::loom::target::arch::x86::descriptors
+    loom::py::loom::target::contracts::contracts
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
+)
+
+iree_py_test(
+  NAME
+    float_roots_test
+  MAIN
+    "../../../../tools/pytest_style_runner.py"
+  SRCS
+    "float_roots_test.py"
+    "../../../../tools/pytest_style_runner.py"
+  ARGS
+    "loom.target.arch.x86.contracts.float_roots_test"
+  DEPS
+    loom::py::loom::target::arch::x86::contracts::contracts
+    loom::py::loom::dialect::scalar::scalar
+    loom::py::loom::dialect::vector::vector
     loom::py::loom::target::contracts::contracts
   PACKAGE_DIRS
     "${PROJECT_SOURCE_DIR}/loom/py"

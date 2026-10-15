@@ -110,11 +110,18 @@ iree_status_t loom_task_parameter_layout_parse(
   iree_hal_executable_dispatch_parameter_v0_t* rows = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(arena, signature->arg_count,
                                                  sizeof(*rows), (void**)&rows));
+  // Loom's default floating-point contract uses gradual underflow. Per-op
+  // permissions cannot weaken the surrounding entry's exact operations, so
+  // generated task entries request subnormal preservation from the runtime.
   loom_task_parameter_layout_t abi = {
-      .attributes = {.workgroup_size_x = 1,
-                     .workgroup_size_y = 1,
-                     .workgroup_size_z = 1,
-                     .parameter_count = signature->arg_count},
+      .attributes =
+          {.flags =
+               IREE_HAL_EXECUTABLE_DISPATCH_FLAG_V0_PRESERVE_SUBNORMAL_INPUTS |
+               IREE_HAL_EXECUTABLE_DISPATCH_FLAG_V0_PRESERVE_SUBNORMAL_RESULTS,
+           .workgroup_size_x = 1,
+           .workgroup_size_y = 1,
+           .workgroup_size_z = 1,
+           .parameter_count = signature->arg_count},
       .parameters = rows,
   };
   bool accepted = true;

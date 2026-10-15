@@ -35,6 +35,25 @@ iree_py_library(
     loom::py::loom::reporting::reporting
     loom::py::loom::target::arch::amd::xdna::aie2p::compile_report_suggestions
     loom::py::loom::target::arch::amdgpu::compile_report_suggestions
+    loom::py::loom::target::arch::x86::compile_report_suggestions
+)
+
+iree_py_test(
+  NAME
+    compile_report_suggestions_test
+  MAIN
+    "../../tools/pytest_style_runner.py"
+  SRCS
+    "compile_report_suggestions_test.py"
+    "../../tools/pytest_style_runner.py"
+  ARGS
+    "loom.target.arch.compile_report_suggestions_test"
+  DEPS
+    loom::py::loom::target::arch::compile_report_suggestions
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
 )
 
 iree_py_library(

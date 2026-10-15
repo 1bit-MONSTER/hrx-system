@@ -74,6 +74,7 @@ iree_cc_library(
     ::environment
     iree::base
     iree::base::internal
+    iree::base::internal::fpu_state
     iree::hal
     iree::hal::drivers::task::executable::library::abi
   PUBLIC

@@ -169,3 +169,19 @@ low.func.def target<x86.scalar.core>(@target) abi(object_function) @scalar_i64_d
   mov.store.indexed.gpr64 %incremented, %output, %bounded_i {disp32 = 0, scale = 8}
   return
 }
+
+// ====
+
+x86.target<scalar> @target
+
+func.def target(@target) @signed_carrier_lower_bound() -> (i64, index) {
+  %scalar = scalar.constant -9223372036854775808 : i64
+  %index = index.constant -9223372036854775808 : index
+  func.return %scalar, %index : i64, index
+}
+
+// ----
+low.func.def target<x86.scalar.core>(@target) abi(object_function) @signed_carrier_lower_bound() -> (reg<x86.gpr64>, reg<x86.gpr64>) asm {
+  %scalar = mov.imm64 -9223372036854775808
+  return %scalar, %scalar
+}

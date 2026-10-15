@@ -190,10 +190,12 @@ def test_compile_contract_fragment_uses_supplied_descriptor_rule_rows() -> None:
             DescriptorRule(
                 source_op=vector.vector_reduce,
                 descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
+                guards=(Guard.value_no_uses("result"),),
             ),
             DescriptorRule(
                 source_op=vector.vector_addi,
                 descriptor=TEST_LOW_ADD_V4I32_DESCRIPTOR,
+                guards=(Guard.value_no_uses("result"),),
                 target_query=False,
             ),
         ],
@@ -236,6 +238,7 @@ def test_compile_contract_fragment_tracks_query_visible_source_graphs() -> None:
                 node_result=ValueRef.result("result"),
             ),
         ),
+        guards=(Guard.value_no_uses("result"),),
         target_query=False,
     )
 
@@ -269,15 +272,18 @@ def test_compile_contract_fragment_orders_cases_by_priority() -> None:
             DescriptorRule(
                 source_op=vector.vector_addi,
                 descriptor=TEST_LOW_ADD_V4I32_DESCRIPTOR,
+                guards=(Guard.value_no_uses("result"),),
             ),
             DescriptorRule(
                 source_op=vector.vector_addi,
                 descriptor=TEST_LOW_ADD_V4I32_DESCRIPTOR,
+                guards=(Guard.value_no_uses("result"),),
                 priority=2,
             ),
             DescriptorRule(
                 source_op=vector.vector_addi,
                 descriptor=TEST_LOW_ADD_V4I32_DESCRIPTOR,
+                guards=(Guard.value_no_uses("result"),),
                 priority=2,
             ),
         ],

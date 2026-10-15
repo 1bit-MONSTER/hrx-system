@@ -201,6 +201,16 @@ source operations on every target using those stages. A scalar software recipe
 can be expensive without scalarizing a vector; fast-math flags do not prove
 that a compact implementation was selected.
 
+A strict math operation may expand even when the selected target has a native
+form under a relaxed floating-point contract. When target policy proves that an
+explicit source permission selects that form, `loom-compile-report suggest`
+aggregates repeated operations, names the exact flag to try, and asks the
+author to validate numerical error and measured runtime. Detailed reports carry
+the proof as `native_required_fastmath_flags`; its absence does not invite the
+tool to infer ISA support from a target name or operation mnemonic.
+Summary reports retain the number of such operations and direct the author to
+details without guessing which permissions apply.
+
 For example, a long scalar multiply recipe appears as:
 
 ```text

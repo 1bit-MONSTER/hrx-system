@@ -665,6 +665,31 @@ def _vector_f32_binary_descriptor(
     )
 
 
+def _vector_float_unary_descriptor(
+    *,
+    vector_bit_width: int,
+    key: str,
+    mnemonic: str,
+    semantic_tag: str,
+) -> Descriptor:
+    return Descriptor(
+        key=key,
+        mnemonic=mnemonic,
+        semantic_tag=semantic_tag,
+        operands=(
+            _vector_result(vector_bit_width),
+            _vector_operand(vector_bit_width, "input"),
+        ),
+        asm_forms=_asm(
+            mnemonic=_vector_asm_mnemonic(mnemonic, vector_bit_width),
+            results=("dst",),
+            operands=("input",),
+        ),
+        schedule_class=_vector_f32_schedule_class(vector_bit_width),
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+    )
+
+
 def _vector_fma_descriptor(
     *,
     vector_bit_width: int,
@@ -732,6 +757,31 @@ def _scalar_float_binary_descriptor(
             mnemonic=f"{mnemonic}.xmm",
             results=("dst",),
             operands=("lhs", "rhs"),
+        ),
+        schedule_class=_SCHEDULE_VECTOR_F32_XMM,
+        flags=(DescriptorFlag.DEAD_REMOVABLE,),
+    )
+
+
+def _scalar_float_unary_descriptor(
+    *,
+    key: str,
+    mnemonic: str,
+    semantic_tag: str,
+) -> Descriptor:
+    return Descriptor(
+        key=key,
+        mnemonic=mnemonic,
+        semantic_tag=semantic_tag,
+        operands=(
+            _xmm_result(),
+            _xmm_operand("passthrough"),
+            _xmm_operand("input"),
+        ),
+        asm_forms=_asm(
+            mnemonic=f"{mnemonic}.xmm",
+            results=("dst",),
+            operands=("passthrough", "input"),
         ),
         schedule_class=_SCHEDULE_VECTOR_F32_XMM,
         flags=(DescriptorFlag.DEAD_REMOVABLE,),

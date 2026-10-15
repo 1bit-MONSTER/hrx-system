@@ -1,0 +1,120 @@
+// RUN: emit source-low output=low
+
+// AVX2 exposes exact square root for F32/F64, a native approximate F32
+// reciprocal root, and the shared exact reciprocal-root composition. The
+// packed cases cover the low-XMM carrier and both native vector widths.
+x86.target<avx2> @target
+
+func.def target(@target) @avx2_root_family(%scalar_f32: f32, %scalar_f64: f64, %low_f32: vector<2xf32>, %xmm_f32: vector<4xf32>, %ymm_f32: vector<8xf32>, %ymm_f64: vector<4xf64>) -> (f32, f64, f32, f64, vector<2xf32>, vector<4xf32>, vector<8xf32>, vector<4xf64>) {
+  %scalar_sqrt_f32 = scalar.sqrtf %scalar_f32 : f32
+  %scalar_sqrt_f64 = scalar.sqrtf %scalar_f64 : f64
+  %scalar_fast_rsqrt_f32 = scalar.rsqrtf<afn> %scalar_f32 : f32
+  %scalar_exact_rsqrt_f64 = scalar.rsqrtf %scalar_f64 : f64
+  %low_sqrt_f32 = vector.sqrtf %low_f32 : vector<2xf32>
+  %xmm_fast_rsqrt_f32 = vector.rsqrtf<afn> %xmm_f32 : vector<4xf32>
+  %ymm_exact_rsqrt_f32 = vector.rsqrtf %ymm_f32 : vector<8xf32>
+  %ymm_sqrt_f64 = vector.sqrtf %ymm_f64 : vector<4xf64>
+  func.return %scalar_sqrt_f32, %scalar_sqrt_f64, %scalar_fast_rsqrt_f32, %scalar_exact_rsqrt_f64, %low_sqrt_f32, %xmm_fast_rsqrt_f32, %ymm_exact_rsqrt_f32, %ymm_sqrt_f64 : f32, f64, f32, f64, vector<2xf32>, vector<4xf32>, vector<8xf32>, vector<4xf64>
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (f32, f64, vector<2xf32>, vector<4xf32>, vector<8xf32>, vector<4xf64>) -> (f32, f64, f32, f64, vector<2xf32>, vector<4xf32>, vector<8xf32>, vector<4xf64>)}) @avx2_root_family(%scalar_f32: reg<x86.xmm>, %scalar_f64: reg<x86.xmm>, %low_f32: reg<x86.xmm>, %xmm_f32: reg<x86.xmm>, %ymm_f32: reg<x86.ymm>, %ymm_f64: reg<x86.ymm>) -> (reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.ymm>, reg<x86.ymm>) asm {
+  %scalar_sqrt_f32 = vsqrtss.xmm %scalar_f32, %scalar_f32
+  %scalar_sqrt_f64 = vsqrtsd.xmm %scalar_f64, %scalar_f64
+  %scalar_fast_rsqrt_f32 = vrsqrtss.xmm %scalar_f32, %scalar_f32
+  %45 = mov.imm64 4607182418800017408
+  %46 = vmovq.xmm.gpr64 %45
+  %scalar_exact_rsqrt_f64 = vdivsd.xmm %46, %scalar_sqrt_f64
+  %low_sqrt_f32 = vsqrtps.xmm %low_f32
+  %xmm_fast_rsqrt_f32 = vrsqrtps.xmm %xmm_f32
+  %50 = mov.imm32 1065353216
+  %51 = vmovd.xmm.gpr32 %50
+  %52 = vpbroadcastd.ymm %51
+  %53 = vsqrtps.ymm %ymm_f32
+  %ymm_exact_rsqrt_f32 = vdivps.ymm %52, %53
+  %ymm_sqrt_f64 = vsqrtpd.ymm %ymm_f64
+  return %scalar_sqrt_f32, %scalar_sqrt_f64, %scalar_fast_rsqrt_f32, %scalar_exact_rsqrt_f64, %low_sqrt_f32, %xmm_fast_rsqrt_f32, %ymm_exact_rsqrt_f32, %ymm_sqrt_f64
+}
+
+// ====
+
+// AVX-512 retains AVX2 roots for narrow exact packets, adds native ZMM square
+// roots, and selects VRSQRT14 across XMM/YMM/ZMM and both precisions.
+x86.target<avx512> @target
+
+func.def target(@target) @avx512_packed_root_family(%low_f32: vector<2xf32>, %xmm_f64: vector<2xf64>, %ymm_f32: vector<8xf32>, %zmm_f32: vector<16xf32>, %zmm_f64: vector<8xf64>) -> (vector<2xf32>, vector<2xf64>, vector<8xf32>, vector<16xf32>, vector<8xf64>, vector<16xf32>) {
+  %low_fast_rsqrt_f32 = vector.rsqrtf<afn> %low_f32 : vector<2xf32>
+  %xmm_fast_rsqrt_f64 = vector.rsqrtf<afn> %xmm_f64 : vector<2xf64>
+  %ymm_fast_rsqrt_f32 = vector.rsqrtf<afn> %ymm_f32 : vector<8xf32>
+  %zmm_sqrt_f32 = vector.sqrtf %zmm_f32 : vector<16xf32>
+  %zmm_fast_rsqrt_f64 = vector.rsqrtf<afn> %zmm_f64 : vector<8xf64>
+  %zmm_exact_rsqrt_f32 = vector.rsqrtf %zmm_f32 : vector<16xf32>
+  func.return %low_fast_rsqrt_f32, %xmm_fast_rsqrt_f64, %ymm_fast_rsqrt_f32, %zmm_sqrt_f32, %zmm_fast_rsqrt_f64, %zmm_exact_rsqrt_f32 : vector<2xf32>, vector<2xf64>, vector<8xf32>, vector<16xf32>, vector<8xf64>, vector<16xf32>
+}
+
+// ----
+low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = (vector<2xf32>, vector<2xf64>, vector<8xf32>, vector<16xf32>, vector<8xf64>) -> (vector<2xf32>, vector<2xf64>, vector<8xf32>, vector<16xf32>, vector<8xf64>, vector<16xf32>)}) @avx512_packed_root_family(%low_f32: reg<x86.xmm>, %xmm_f64: reg<x86.xmm>, %ymm_f32: reg<x86.ymm>, %zmm_f32: reg<x86.zmm>, %zmm_f64: reg<x86.zmm>) -> (reg<x86.xmm>, reg<x86.xmm>, reg<x86.ymm>, reg<x86.zmm>, reg<x86.zmm>, reg<x86.zmm>) asm {
+  %low_fast_rsqrt_f32 = vrsqrt14ps.xmm %low_f32
+  %xmm_fast_rsqrt_f64 = vrsqrt14pd.xmm %xmm_f64
+  %ymm_fast_rsqrt_f32 = vrsqrt14ps.ymm %ymm_f32
+  %zmm_sqrt_f32 = vsqrtps %zmm_f32
+  %zmm_fast_rsqrt_f64 = vrsqrt14pd %zmm_f64
+  %36 = mov.imm32 1065353216
+  %37 = vpbroadcastd %36
+  %zmm_exact_rsqrt_f32 = vdivps %37, %zmm_sqrt_f32
+  return %low_fast_rsqrt_f32, %xmm_fast_rsqrt_f64, %ymm_fast_rsqrt_f32, %zmm_sqrt_f32, %zmm_fast_rsqrt_f64, %zmm_exact_rsqrt_f32
+}
+
+// ====
+
+x86.target<avx512> @target
+
+func.def target(@target) @avx512_scalar_root_family(%f32_value: f32, %f64_value: f64) -> (f32, f64, f32, f64) {
+  %sqrt_f32 = scalar.sqrtf %f32_value : f32
+  %sqrt_f64 = scalar.sqrtf %f64_value : f64
+  %fast_rsqrt_f32 = scalar.rsqrtf<afn> %f32_value : f32
+  %fast_rsqrt_f64 = scalar.rsqrtf<afn> %f64_value : f64
+  func.return %sqrt_f32, %sqrt_f64, %fast_rsqrt_f32, %fast_rsqrt_f64 : f32, f64, f32, f64
+}
+
+// ----
+low.func.def target<x86.avx512.core>(@target) abi(object_function) abi_layout({signature = (f32, f64) -> (f32, f64, f32, f64)}) @avx512_scalar_root_family(%f32_value: reg<x86.xmm>, %f64_value: reg<x86.xmm>) -> (reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>) asm {
+  %sqrt_f32 = vsqrtss.xmm %f32_value, %f32_value
+  %sqrt_f64 = vsqrtsd.xmm %f64_value, %f64_value
+  %fast_rsqrt_f32 = vrsqrt14ss.xmm %f32_value, %f32_value
+  %fast_rsqrt_f64 = vrsqrt14sd.xmm %f64_value, %f64_value
+  return %sqrt_f32, %sqrt_f64, %fast_rsqrt_f32, %fast_rsqrt_f64
+}
+
+// ====
+
+// AVX-512 FP16 supplies native roots across scalar, low-XMM, XMM, YMM, and ZMM
+// forms. Strict reciprocal root remains the source-level composition.
+x86.target<avx512_packed_dot> @target {contract_feature_bits = 130, contract_set_key = "x86.avx512_features.core"}
+
+func.def target(@target) @avx512_fp16_root_family(%scalar_value: f16, %low_value: vector<2xf16>, %xmm_value: vector<8xf16>, %ymm_value: vector<16xf16>, %zmm_value: vector<32xf16>) -> (f16, f16, f16, vector<2xf16>, vector<8xf16>, vector<16xf16>, vector<32xf16>) {
+  %scalar_sqrt = scalar.sqrtf %scalar_value : f16
+  %scalar_fast_rsqrt = scalar.rsqrtf<afn> %scalar_value : f16
+  %scalar_exact_rsqrt = scalar.rsqrtf %scalar_value : f16
+  %low_sqrt = vector.sqrtf %low_value : vector<2xf16>
+  %xmm_fast_rsqrt = vector.rsqrtf<afn> %xmm_value : vector<8xf16>
+  %ymm_exact_rsqrt = vector.rsqrtf %ymm_value : vector<16xf16>
+  %zmm_fast_rsqrt = vector.rsqrtf<afn> %zmm_value : vector<32xf16>
+  func.return %scalar_sqrt, %scalar_fast_rsqrt, %scalar_exact_rsqrt, %low_sqrt, %xmm_fast_rsqrt, %ymm_exact_rsqrt, %zmm_fast_rsqrt : f16, f16, f16, vector<2xf16>, vector<8xf16>, vector<16xf16>, vector<32xf16>
+}
+
+// ----
+low.func.def target<x86.avx512_features.core>(@target) abi(object_function) abi_layout({signature = (f16, vector<2xf16>, vector<8xf16>, vector<16xf16>, vector<32xf16>) -> (f16, f16, f16, vector<2xf16>, vector<8xf16>, vector<16xf16>, vector<32xf16>)}) @avx512_fp16_root_family(%scalar_value: reg<x86.xmm>, %low_value: reg<x86.xmm>, %xmm_value: reg<x86.xmm>, %ymm_value: reg<x86.ymm>, %zmm_value: reg<x86.zmm>) -> (reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.ymm>, reg<x86.zmm>) asm {
+  %scalar_sqrt = vsqrtsh.xmm %scalar_value, %scalar_value
+  %scalar_fast_rsqrt = vrsqrtsh.xmm %scalar_value, %scalar_value
+  %39 = mov.imm32 15360
+  %40 = vmovd.xmm.gpr32 %39
+  %scalar_exact_rsqrt = vdivsh.xmm %40, %scalar_sqrt
+  %low_sqrt = vsqrtph.xmm %low_value
+  %xmm_fast_rsqrt = vrsqrtph.xmm %xmm_value
+  %45 = avx512.vpbroadcastw.ymm %39
+  %46 = vsqrtph.ymm %ymm_value
+  %ymm_exact_rsqrt = vdivph.ymm %45, %46
+  %zmm_fast_rsqrt = vrsqrtph %zmm_value
+  return %scalar_sqrt, %scalar_fast_rsqrt, %scalar_exact_rsqrt, %low_sqrt, %xmm_fast_rsqrt, %ymm_exact_rsqrt, %zmm_fast_rsqrt
+}

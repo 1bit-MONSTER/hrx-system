@@ -816,6 +816,16 @@ static void loom_target_compile_report_merge_entry_summary(
   report->math_legalization_maximum_created_op_count =
       iree_max(report->math_legalization_maximum_created_op_count,
                entry_report->math_legalization_maximum_created_op_count);
+  report->math_legalization_rewritten_op_count +=
+      entry_report->math_legalization_rewritten_op_count;
+  report->math_legalization_native_alternative_op_count +=
+      entry_report->math_legalization_native_alternative_op_count;
+  report->math_legalization_rejected_op_count +=
+      entry_report->math_legalization_rejected_op_count;
+  report->math_legalization_missing_policy_op_count +=
+      entry_report->math_legalization_missing_policy_op_count;
+  report->math_legalization_missing_recipe_op_count +=
+      entry_report->math_legalization_missing_recipe_op_count;
   if (first_entry) {
     report->function_name = entry_report->function_name;
     report->lowered_symbol = entry_report->lowered_symbol;
@@ -883,14 +893,6 @@ static void loom_target_compile_report_merge_entry_summary(
     if (report->workload.flags == LOOM_TARGET_COMPILE_REPORT_WORKLOAD_NONE) {
       report->detail_flags &= ~LOOM_TARGET_COMPILE_REPORT_DETAIL_WORKLOAD;
     }
-    report->math_legalization_rewritten_op_count =
-        entry_report->math_legalization_rewritten_op_count;
-    report->math_legalization_rejected_op_count =
-        entry_report->math_legalization_rejected_op_count;
-    report->math_legalization_missing_policy_op_count =
-        entry_report->math_legalization_missing_policy_op_count;
-    report->math_legalization_missing_recipe_op_count =
-        entry_report->math_legalization_missing_recipe_op_count;
     memcpy(report->move_causes, entry_report->move_causes,
            sizeof(report->move_causes));
     if (entry_has_source_low_data) {
@@ -1008,14 +1010,6 @@ static void loom_target_compile_report_merge_entry_summary(
     report->detail_flags &= ~LOOM_TARGET_COMPILE_REPORT_DETAIL_LOW_PLANNING;
     report->low_planning = (loom_low_planning_statistics_t){0};
   }
-  report->math_legalization_rewritten_op_count +=
-      entry_report->math_legalization_rewritten_op_count;
-  report->math_legalization_rejected_op_count +=
-      entry_report->math_legalization_rejected_op_count;
-  report->math_legalization_missing_policy_op_count +=
-      entry_report->math_legalization_missing_policy_op_count;
-  report->math_legalization_missing_recipe_op_count +=
-      entry_report->math_legalization_missing_recipe_op_count;
   report->source_low_selected_op_count +=
       entry_report->source_low_selected_op_count;
   report->source_low_emitted_op_count +=
@@ -1661,6 +1655,9 @@ iree_status_t loom_target_compile_report_record_math_row(
   report->detail_flags |=
       LOOM_TARGET_COMPILE_REPORT_DETAIL_MATH_LEGALIZATION_ROWS;
   loom_target_compile_report_count_math_action(report, row->action);
+  if (row->native_required_fastmath_flags != 0) {
+    ++report->math_legalization_native_alternative_op_count;
+  }
   report->math_legalization_maximum_created_op_count =
       iree_max(report->math_legalization_maximum_created_op_count,
                row->created_op_count);

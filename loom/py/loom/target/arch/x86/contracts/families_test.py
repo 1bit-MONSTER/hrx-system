@@ -30,7 +30,10 @@ from loom.target.arch.x86.scalar_families import (
 )
 from loom.target.arch.x86.vector_families import (
     AVX2_CARRIER_VECTOR_BIT_WIDTHS,
+    AVX2_FLOAT_BINARY_FAMILIES,
+    AVX2_FLOAT_FMA_MNEMONICS,
     AVX2_FLOAT_REDUCTION_OPERATIONS,
+    AVX2_FLOAT_VECTOR_BIT_WIDTHS,
     AVX2_INTEGER_REDUCTION_FAMILIES,
     AVX2_PACKED_FLOAT_REDUCTION_OPERATIONS,
     AVX2_PAYLOAD_ELEMENT_NAMES,
@@ -1381,7 +1384,8 @@ def test_avx2_float_bitcasts_cover_every_storage_family_and_width() -> None:
             (("f32",), "i32", 32),
             (("f64",), "i64", 64),
         )
-        for vector_bit_width in AVX2_VECTOR_BIT_WIDTHS
+        for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS
+        if vector_bit_width >= element_bit_width
         for lane_count in (vector_bit_width // element_bit_width,)
         for source_type, result_type in (
             (
@@ -1403,6 +1407,65 @@ def test_avx2_float_bitcasts_cover_every_storage_family_and_width() -> None:
     }
     assert actual == expected
     assert len(rules) == len(expected)
+
+
+def test_avx2_float_arithmetic_covers_every_carrier_width() -> None:
+    rules = tuple(
+        case
+        for case in X86_AVX2_CONTRACT_FRAGMENT.cases
+        if isinstance(case, DescriptorRule)
+    )
+    register_suffixes = {32: "xmm", 64: "xmm", 128: "xmm", 256: "ymm"}
+    expected_direct = {
+        (
+            f"vector.{family.source_operation}",
+            f"x86.avx2.{family.mnemonic}.{register_suffixes[vector_bit_width]}",
+            Vector(
+                family.element.name,
+                lanes=vector_bit_width // family.element.bit_width,
+            ),
+        )
+        for family in AVX2_FLOAT_BINARY_FAMILIES
+        for vector_bit_width in AVX2_FLOAT_VECTOR_BIT_WIDTHS
+        if vector_bit_width >= family.element.bit_width
+    }
+    assert {
+        (rule.source_op.name, rule.descriptor.key, _value_type_guard(rule, "result"))
+        for rule in rules
+        if rule.source_op.name
+        in {
+            f"vector.{family.source_operation}" for family in AVX2_FLOAT_BINARY_FAMILIES
+        }
+    } == expected_direct
+
+    expected_fma = {
+        (
+            f"x86.avx2.{AVX2_FLOAT_FMA_MNEMONICS[element.name]}."
+            f"{register_suffixes[vector_bit_width]}",
+            Vector(element.name, lanes=vector_bit_width // element.bit_width),
+        )
+        for element in FLOAT_ELEMENTS
+        for vector_bit_width in AVX2_FLOAT_VECTOR_BIT_WIDTHS
+        if vector_bit_width >= element.bit_width
+    }
+    assert {
+        (rule.descriptor.key, _value_type_guard(rule, "result"))
+        for rule in rules
+        if rule.source_op is vector.vector_fmaf
+    } == expected_fma
+
+    expected_constant_types = {
+        Vector(element.name, lanes=vector_bit_width // element.bit_width)
+        for element in FLOAT_ELEMENTS
+        for vector_bit_width in AVX2_FLOAT_VECTOR_BIT_WIDTHS
+        if vector_bit_width >= element.bit_width
+    }
+    assert {
+        _value_type_guard(rule, "result")
+        for rule in rules
+        if rule.source_op is vector.vector_constant
+        and _value_type_guard(rule, "result") in expected_constant_types
+    } == expected_constant_types
 
 
 def test_avx512_construction_covers_every_zmm_payload_type() -> None:
@@ -1651,7 +1714,7 @@ def test_float_extrema_cover_every_semantic_and_width() -> None:
         vector.vector_maxnumf: "maxnumf",
     }
     for fragment, vector_bit_widths in (
-        (X86_AVX2_CONTRACT_FRAGMENT, AVX2_VECTOR_BIT_WIDTHS),
+        (X86_AVX2_CONTRACT_FRAGMENT, AVX2_FLOAT_VECTOR_BIT_WIDTHS),
         (X86_AVX512_CONTRACT_FRAGMENT, AVX512_VECTOR_BIT_WIDTHS),
     ):
         extrema_rules = tuple(
@@ -1677,6 +1740,7 @@ def test_float_extrema_cover_every_semantic_and_width() -> None:
             for operation in FLOAT_EXTREMA_OPERATIONS
             for element in FLOAT_ELEMENTS
             for vector_bit_width in vector_bit_widths
+            if vector_bit_width >= element.bit_width
         }
         priorities_by_cell = {}
         for rule in extrema_rules:
@@ -1797,9 +1861,15 @@ def test_integer_reductions_cover_every_native_combine_family() -> None:
 
 def test_float_reductions_and_dots_cover_both_types_and_all_widths() -> None:
     for fragment, vector_bit_widths in (
-        (X86_AVX2_CONTRACT_FRAGMENT, AVX2_VECTOR_BIT_WIDTHS),
+        (X86_AVX2_CONTRACT_FRAGMENT, AVX2_FLOAT_VECTOR_BIT_WIDTHS),
         (X86_AVX512_CONTRACT_FRAGMENT, AVX512_VECTOR_BIT_WIDTHS),
     ):
+        valid_shapes = tuple(
+            (element, vector_bit_width)
+            for element in FLOAT_ELEMENTS
+            for vector_bit_width in vector_bit_widths
+            if vector_bit_width >= element.bit_width
+        )
         reduction_rules = tuple(
             rule
             for rule in fragment.cases
@@ -1822,10 +1892,7 @@ def test_float_reductions_and_dots_cover_both_types_and_all_widths() -> None:
             in AVX2_PACKED_FLOAT_REDUCTION_OPERATIONS
         )
         assert len(packed_reduction_rules) == (
-            len(AVX2_PACKED_FLOAT_REDUCTION_OPERATIONS)
-            * len(FLOAT_ELEMENTS)
-            * len(vector_bit_widths)
-            * 2
+            len(AVX2_PACKED_FLOAT_REDUCTION_OPERATIONS) * len(valid_shapes) * 2
         )
         assert {
             (
@@ -1856,8 +1923,7 @@ def test_float_reductions_and_dots_cover_both_types_and_all_widths() -> None:
                 fastmath_guard,
             )
             for operation in AVX2_PACKED_FLOAT_REDUCTION_OPERATIONS
-            for element in FLOAT_ELEMENTS
-            for vector_bit_width in vector_bit_widths
+            for element, vector_bit_width in valid_shapes
             for fastmath_guard in (
                 GuardKind.INSTANCE_FLAGS_HAS_NONE,
                 GuardKind.INSTANCE_FLAGS_HAS_ALL,
@@ -1875,7 +1941,7 @@ def test_float_reductions_and_dots_cover_both_types_and_all_widths() -> None:
             in FLOAT_EXTREMA_OPERATIONS
         )
         assert len(fast_extrema_rules) == (
-            len(FLOAT_EXTREMA_OPERATIONS) * len(FLOAT_ELEMENTS) * len(vector_bit_widths)
+            len(FLOAT_EXTREMA_OPERATIONS) * len(valid_shapes)
         )
         assert {
             (
@@ -1902,8 +1968,7 @@ def test_float_reductions_and_dots_cover_both_types_and_all_widths() -> None:
                 frozenset(("reassoc", "nnan", "nsz")),
             )
             for operation in FLOAT_EXTREMA_OPERATIONS
-            for element in FLOAT_ELEMENTS
-            for vector_bit_width in vector_bit_widths
+            for element, vector_bit_width in valid_shapes
         }
 
         dot_rules = tuple(
@@ -1911,7 +1976,7 @@ def test_float_reductions_and_dots_cover_both_types_and_all_widths() -> None:
             for rule in fragment.cases
             if isinstance(rule, DescriptorRule) and rule.source_op is vector.vector_dotf
         )
-        assert len(dot_rules) == len(FLOAT_ELEMENTS) * len(vector_bit_widths)
+        assert len(dot_rules) == len(valid_shapes)
         assert {
             (
                 _value_type_guard(rule, "lhs"),
@@ -1922,8 +1987,7 @@ def test_float_reductions_and_dots_cover_both_types_and_all_widths() -> None:
             for rule in dot_rules
         } == {
             (vector_type, vector_type, scalar_type, scalar_type)
-            for element in FLOAT_ELEMENTS
-            for vector_bit_width in vector_bit_widths
+            for element, vector_bit_width in valid_shapes
             for vector_type in (
                 Vector(
                     element.name,

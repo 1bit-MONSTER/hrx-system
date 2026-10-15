@@ -124,7 +124,12 @@ def test_summary_includes_lowerings_without_recipe_or_descriptor_keys() -> None:
 @pytest.mark.parametrize("mode", ["summary", "details"])
 def test_math_recipe_growth_is_visible_before_source_to_low(mode: str) -> None:
     report = _report(mode=mode)
-    section = {"rewritten_op_count": 1, "maximum_created_op_count": 40, "count": 0}
+    section = {
+        "rewritten_op_count": 1,
+        "maximum_created_op_count": 40,
+        "native_alternative_op_count": 0,
+        "count": 0,
+    }
     if mode == "details":
         section.update(
             count=1,

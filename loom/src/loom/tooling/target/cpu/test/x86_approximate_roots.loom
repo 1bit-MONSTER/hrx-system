@@ -1,0 +1,87 @@
+// Exercises the accuracy contracts of native x86 reciprocal-root estimates.
+// The F32 contract covers the AVX/AVX2 estimate; AVX-512 estimates are tighter.
+func.def @x86_root_approximate_observations(%first_bits: i32, %second_bits: i32, %output: buffer) {
+  %first = scalar.bitcast %first_bits : i32 to f32
+  %second = scalar.bitcast %second_bits : i32 to f32
+  %scalar_inverse = scalar.rsqrtf<afn> %first : f32
+  %values = vector.from_elements %first, %second : vector<2xf32>
+  %inverses = vector.rsqrtf<afn> %values : vector<2xf32>
+  %inverse0 = vector.extract %inverses[0] : vector<2xf32> -> f32
+  %inverse1 = vector.extract %inverses[1] : vector<2xf32> -> f32
+  %results = vector.from_elements %scalar_inverse, %inverse0, %inverse1 : vector<3xf32>
+  %origin = index.constant 0 : offset
+  %result_view = buffer.view %output[%origin] : buffer -> view<3xf32>
+  vector.store %results, %result_view[0] : vector<3xf32>, view<3xf32>
+  func.return
+}
+
+func.def @x86_root_approximate_oracle(%first_bits: i32, %second_bits: i32, %output: buffer) {
+  %first = scalar.bitcast %first_bits : i32 to f32
+  %second = scalar.bitcast %second_bits : i32 to f32
+  %scalar_inverse = scalar.rsqrtf %first : f32
+  %values = vector.from_elements %first, %second : vector<2xf32>
+  %inverses = vector.rsqrtf %values : vector<2xf32>
+  %inverse0 = vector.extract %inverses[0] : vector<2xf32> -> f32
+  %inverse1 = vector.extract %inverses[1] : vector<2xf32> -> f32
+  %results = vector.from_elements %scalar_inverse, %inverse0, %inverse1 : vector<3xf32>
+  %origin = index.constant 0 : offset
+  %result_view = buffer.view %output[%origin] : buffer -> view<3xf32>
+  vector.store %results, %result_view[0] : vector<3xf32>, view<3xf32>
+  func.return
+}
+
+check.scenario @x86_root_approximate_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %first_bits = check.literal value(1056964608) : i32
+    %second_bits = check.literal value(1077936128) : i32
+    %output = check.generate.fill value(0.0) : tensor<3xf32>
+    check.compare<@x86_root_approximate_observations, @x86_root_approximate_oracle>(%first_bits, %second_bits, %output) : (i32, i32, tensor<3xf32>) -> () {
+      // VRSQRTPS/SS bounds relative error by 1.5 * 2^-12.
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0003662109375) nan(same) : tensor<3xf32>
+    }
+  }
+  check.return
+}
+
+check.benchmark<@x86_root_approximate_values> @x86_root_approximate_benchmark
+
+// VRSQRT14PD/SD bounds relative error below 2^-14. The independent constants
+// keep the oracle available on VM, which does not implement F64 square root.
+func.def @x86_root_f64_approximate_observations(%first_bits: i64, %second_bits: i64, %output: buffer) {
+  %first = scalar.bitcast %first_bits : i64 to f64
+  %second = scalar.bitcast %second_bits : i64 to f64
+  %scalar_inverse = scalar.rsqrtf<afn> %first : f64
+  %values = vector.from_elements %first, %second : vector<2xf64>
+  %inverses = vector.rsqrtf<afn> %values : vector<2xf64>
+  %inverse0 = vector.extract %inverses[0] : vector<2xf64> -> f64
+  %inverse1 = vector.extract %inverses[1] : vector<2xf64> -> f64
+  %results = vector.from_elements %scalar_inverse, %inverse0, %inverse1 : vector<3xf64>
+  %origin = index.constant 0 : offset
+  %output_view = buffer.view %output[%origin] : buffer -> view<3xf64>
+  vector.store %results, %output_view[0] : vector<3xf64>, view<3xf64>
+  func.return
+}
+
+func.def @x86_root_f64_approximate_oracle(%first_bits: i64, %second_bits: i64, %output: buffer) {
+  %first_inverse = scalar.constant 1.4142135623730951 : f64
+  %second_inverse = scalar.constant 0.57735026918962584 : f64
+  %results = vector.from_elements %first_inverse, %first_inverse, %second_inverse : vector<3xf64>
+  %origin = index.constant 0 : offset
+  %output_view = buffer.view %output[%origin] : buffer -> view<3xf64>
+  vector.store %results, %output_view[0] : vector<3xf64>, view<3xf64>
+  func.return
+}
+
+check.scenario @x86_root_f64_approximate_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %first_bits = check.literal value(4602678819172646912) : i64
+    %second_bits = check.literal value(4613937818241073152) : i64
+    %output = check.generate.fill value(0.0) : tensor<3xf64>
+    check.compare<@x86_root_f64_approximate_observations, @x86_root_f64_approximate_oracle>(%first_bits, %second_bits, %output) : (i64, i64, tensor<3xf64>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(6.103515625e-05) nan(same) : tensor<3xf64>
+    }
+  }
+  check.return
+}
+
+check.benchmark<@x86_root_f64_approximate_values> @x86_root_f64_approximate_benchmark

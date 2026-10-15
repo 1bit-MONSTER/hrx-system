@@ -18,8 +18,8 @@ from loom.target.arch.x86.contracts.rule_builders import (
 )
 from loom.target.arch.x86.vector_families import (
     AVX2_FLOAT_COMPARE_MNEMONICS,
+    AVX2_FLOAT_VECTOR_BIT_WIDTHS,
     AVX2_SCALAR_FLOAT_EXTREMA_MNEMONICS,
-    AVX2_VECTOR_BIT_WIDTHS,
     AVX512_FLOAT_COMPARE_MNEMONICS,
     AVX512_FP16_FLOAT_COMPARE_MNEMONIC,
     AVX512_FP16_FLOAT_EXTREMA_MNEMONICS,
@@ -45,7 +45,13 @@ from loom.target.contracts import (
 )
 from loom.target.low_descriptors import Descriptor
 
-_REGISTER_SUFFIXES = {64: "xmm", 128: "xmm", 256: "ymm", 512: "zmm"}
+_REGISTER_SUFFIXES = {
+    32: "xmm",
+    64: "xmm",
+    128: "xmm",
+    256: "ymm",
+    512: "zmm",
+}
 _FLOAT_COMPARE_IMMEDIATES = {
     "oeq": 0,
     "ogt": 30,
@@ -333,7 +339,8 @@ def avx2_float_extrema_rules(
         )
         for operation in FLOAT_EXTREMA_OPERATIONS
         for element in FLOAT_ELEMENTS
-        for vector_bit_width in AVX2_VECTOR_BIT_WIDTHS
+        for vector_bit_width in AVX2_FLOAT_VECTOR_BIT_WIDTHS
+        if vector_bit_width >= element.bit_width
     )
     exact_vector_rules = (
         _float_extrema_rule(
@@ -346,7 +353,8 @@ def avx2_float_extrema_rules(
         )
         for operation in FLOAT_EXTREMA_OPERATIONS
         for element in FLOAT_ELEMENTS
-        for vector_bit_width in AVX2_VECTOR_BIT_WIDTHS
+        for vector_bit_width in AVX2_FLOAT_VECTOR_BIT_WIDTHS
+        if vector_bit_width >= element.bit_width
     )
     return (
         *fast_scalar_rules,

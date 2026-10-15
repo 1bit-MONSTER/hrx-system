@@ -87,7 +87,7 @@ iree_status_t loom_native_task_library_build_64le(
                                    section_index, 0, library_symbol_index,
                                    header_offset);
   iree_unaligned_store_le_u32(contents + header_offset,
-                              IREE_HAL_EXECUTABLE_LIBRARY_VERSION_0_8);
+                              IREE_HAL_EXECUTABLE_LIBRARY_VERSION_0_9);
   loom_native_task_library_pointer(pointer_relocation_kind, out_data,
                                    section_index,
                                    header_offset + LOOM_TASK_ABI64_HEADER_NAME,

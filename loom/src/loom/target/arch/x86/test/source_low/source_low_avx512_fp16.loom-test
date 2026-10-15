@@ -15,6 +15,16 @@ low.func.def target<x86.avx512_features.core>(@target) abi(object_function) abi_
 
 // ====
 
+x86.target<avx512_packed_dot> @target {contract_feature_bits = 0, contract_set_key = "x86.avx512_features.core"}
+
+func.def target(@target) @root_without_fp16(%value: f16) -> (f16) {
+  // ERROR@+1: LOWERING/036 {op_name="scalar.sqrtf", element_type="f16", constraint_key="math.element.native_float"}
+  %result = scalar.sqrtf %value : f16
+  func.return %result : f16
+}
+
+// ====
+
 // Native scalar FP16 retains XMM ownership through arithmetic, conversion,
 // selection, bitcasts, and sign legalization.
 x86.target<avx512_packed_dot> @target {contract_feature_bits = 130, contract_set_key = "x86.avx512_features.core"}
@@ -161,6 +171,64 @@ low.func.def target<x86.avx512_features.core>(@target) abi(object_function) abi_
   %with_zero = vaddph.xmm %shuffled, %c0
   %result = vaddph.xmm %with_zero, %constant
   return %result, %ymm_sub, %zmm_div, %cmp, %extended, %truncated
+}
+
+// ====
+
+// Two packed halves exercise the smallest direct FP16 family, including its
+// word predicate representation, conversions, roots, reductions, and memory.
+x86.target<avx512_packed_dot> @target {contract_feature_bits = 130, contract_set_key = "x86.avx512_features.core"}
+
+func.def target(@target) @two_lane_fp16_family(%lhs: vector<2xf16>, %rhs: vector<2xf16>, %wide: vector<2xf32>, %scalar: f16, %input: buffer, %output: buffer) -> (vector<2xf16>, vector<2xf32>, f16, f16) {
+  %add = vector.addf %lhs, %rhs : vector<2xf16>
+  %fma = vector.fmaf %lhs, %rhs, %add : vector<2xf16>
+  %cmp = vector.cmpf olt, %lhs, %rhs : vector<2xf16> -> vector<2xi1>
+  %splat = vector.splat %scalar : vector<2xf16>
+  %selected = vector.select %cmp, %fma, %splat : vector<2xf16>
+  %extended = vector.extf %selected : vector<2xf16> to vector<2xf32>
+  %truncated = vector.fptrunc %wide : vector<2xf32> to vector<2xf16>
+  %lane = vector.extract %truncated[1] : vector<2xf16> -> f16
+  %inserted = vector.insert %lane into %selected[0] : f16, vector<2xf16>
+  %root = vector.sqrtf %inserted : vector<2xf16>
+  %dot = vector.dotf %root, %rhs, %scalar : vector<2xf16>, vector<2xf16>, f16
+  %reduced = vector.reduce<addf> %root, %scalar : vector<2xf16>, f16
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input[%base] : buffer -> view<4xf16>
+  %output_view = buffer.view %output[%base] : buffer -> view<4xf16>
+  %loaded = vector.load %input_view[0] : view<4xf16> -> vector<2xf16>
+  %result = vector.addf %loaded, %root : vector<2xf16>
+  vector.store %result, %output_view[2] : vector<2xf16>, view<4xf16>
+  func.return %result, %extended, %dot, %reduced : vector<2xf16>, vector<2xf32>, f16, f16
+}
+
+// ----
+low.func.def target<x86.avx512_features.core>(@target) abi(object_function) abi_layout({signature = (vector<2xf16>, vector<2xf16>, vector<2xf32>, f16, buffer, buffer) -> (vector<2xf16>, vector<2xf32>, f16, f16)}) @two_lane_fp16_family(%lhs: reg<x86.xmm>, %rhs: reg<x86.xmm>, %wide: reg<x86.xmm>, %scalar: reg<x86.xmm>, %input: reg<x86.gpr64>, %output: reg<x86.gpr64>) -> (reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>) asm {
+  %add = vaddph.xmm %lhs, %rhs
+  %38 = copy %add : reg<x86.xmm> -> reg<x86.xmm>
+  %fma = vfmadd231ph.xmm %38, %lhs, %rhs
+  %40 = vcmpph.xmm %lhs, %rhs, 17
+  %cmp = avx512.vpmovm2w.xmm.k %40
+  %splat = vpbroadcastw.xmm %scalar
+  %43 = avx512.vpmovw2m.k.xmm %cmp
+  %selected = vpblendmw.xmm %43, %fma, %splat
+  %extended = vcvtph2psx.xmm.xmm %selected
+  %truncated = vcvtps2phx.xmm.xmm %wide
+  %47 = vpextrw.xmm %truncated, 1
+  %lane = vmovd.xmm.gpr32 %47
+  %49 = vmovd.gpr32.xmm %lane
+  %inserted = vpinsrw.xmm %selected, %49, 0
+  %root = vsqrtph.xmm %inserted
+  %52 = copy %scalar : reg<x86.xmm> -> reg<x86.xmm>
+  %53 = vfmadd231sh.xmm %52, %root, %rhs
+  %54 = vpsrldq.xmm %root, 2
+  %55 = vpsrldq.xmm %rhs, 2
+  %dot = vfmadd231sh.xmm %53, %54, %55
+  %57 = vaddsh.xmm %scalar, %root
+  %reduced = vaddsh.xmm %57, %54
+  %loaded = vmovss.load.xmm %input {disp32 = 0}
+  %result = vaddph.xmm %loaded, %root
+  vmovss.store.xmm %result, %output {disp32 = 4}
+  return %result, %extended, %dot, %reduced
 }
 
 // ====

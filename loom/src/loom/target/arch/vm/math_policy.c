@@ -32,6 +32,16 @@ static void loom_vm_math_policy_query(
     case LOOM_TARGET_MATH_OP_TRUNCF:
     case LOOM_TARGET_MATH_OP_LOG2F:
       break;
+    case LOOM_TARGET_MATH_OP_SQRTF:
+    case LOOM_TARGET_MATH_OP_RSQRTF:
+      if (query->element_type != LOOM_SCALAR_TYPE_F32) {
+        *out_decision = (loom_target_math_policy_decision_t){
+            .action = LOOM_TARGET_MATH_POLICY_ACTION_REJECT,
+            .constraint_key = IREE_SVL("math.root.f32"),
+        };
+        return;
+      }
+      break;
     case LOOM_TARGET_MATH_OP_EXPF:
       recipe = LOOM_TARGET_MATH_RECIPE_EXP_EXP2_F32;
       break;

@@ -114,6 +114,7 @@ iree_cc_library(
     iree::async
     iree::base
     iree::base::internal::cpu
+    iree::base::internal::fpu_state
     iree::base::threading
     iree::base::threading::thread
     iree::hal
@@ -135,6 +136,7 @@ iree_cc_test(
     ::block_isa
     ::block_processor
     iree::base::internal::arena
+    iree::base::internal::fpu_state
     iree::base::threading::thread
     iree::hal::drivers::task::executable
     iree::testing::gtest

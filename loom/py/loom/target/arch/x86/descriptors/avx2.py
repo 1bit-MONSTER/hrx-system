@@ -20,11 +20,13 @@ from loom.target.arch.x86.vector_families import (
     AVX2_FLOAT_BINARY_FAMILIES,
     AVX2_FLOAT_COMPARE_MNEMONICS,
     AVX2_FLOAT_FMA_MNEMONICS,
+    AVX2_FLOAT_ROOT_FAMILIES,
     AVX2_INTEGER_BINARY_FAMILIES,
     AVX2_INTEGER_COMPARE_MNEMONICS,
     AVX2_SCALAR_FLOAT_BINARY_FAMILIES,
     AVX2_SCALAR_FLOAT_EXTREMA_MNEMONICS,
     AVX2_SCALAR_FLOAT_FMA_MNEMONICS,
+    AVX2_SCALAR_FLOAT_ROOT_FAMILIES,
     AVX2_UNIFORM_SHIFT_FAMILIES,
     AVX2_VECTOR_BIT_WIDTHS,
     FLOAT_ELEMENTS,
@@ -84,6 +86,8 @@ from .common import (
     _gpr64_operand,
     _gpr64_result,
     _scalar_float_binary_descriptor,
+    _scalar_float_unary_descriptor,
+    _vector_float_unary_descriptor,
     _vector_lane_units,
     _vector_operand,
     _vector_result,
@@ -187,6 +191,32 @@ def _vector_float_binary_family_descriptors(
             instruction=instruction,
         )
         for row, instruction in zip(rows, instructions, strict=True)
+        for vector_bit_width in AVX2_VECTOR_BIT_WIDTHS
+    )
+
+
+def _vector_float_root_family_descriptors() -> tuple[Descriptor, ...]:
+    return tuple(
+        _vex_descriptor(
+            _vector_float_unary_descriptor(
+                vector_bit_width=vector_bit_width,
+                key=(
+                    f"x86.avx2.{row.mnemonic}."
+                    f"{_VECTOR_REGISTER_SUFFIXES[vector_bit_width]}"
+                ),
+                mnemonic=row.mnemonic,
+                semantic_tag=(
+                    f"{row.semantic}.{row.element.name}x"
+                    f"{row.element.lane_count(vector_bit_width)}"
+                ),
+            ),
+            instruction,
+        )
+        for row, instruction in zip(
+            AVX2_FLOAT_ROOT_FAMILIES,
+            native.AVX2_FLOAT_ROOT,
+            strict=True,
+        )
         for vector_bit_width in AVX2_VECTOR_BIT_WIDTHS
     )
 
@@ -1048,6 +1078,7 @@ _X86_AVX2_VECTOR_DESCRIPTORS = (
     *_vector_float_binary_family_descriptors(
         AVX2_FLOAT_BINARY_FAMILIES, native.AVX2_FLOAT_BINARY
     ),
+    *_vector_float_root_family_descriptors(),
     *(
         _vector_binary_descriptor(
             vector_bit_width=vector_bit_width,
@@ -1086,6 +1117,21 @@ _X86_AVX2_VECTOR_DESCRIPTORS = (
         for row, instruction in zip(
             AVX2_SCALAR_FLOAT_BINARY_FAMILIES,
             native.AVX2_SCALAR_FLOAT_BINARY,
+            strict=True,
+        )
+    ),
+    *(
+        _vex_descriptor(
+            _scalar_float_unary_descriptor(
+                key=f"x86.avx2.{row.mnemonic}.xmm",
+                mnemonic=row.mnemonic,
+                semantic_tag=f"{row.semantic}.{row.element.name}",
+            ),
+            instruction,
+        )
+        for row, instruction in zip(
+            AVX2_SCALAR_FLOAT_ROOT_FAMILIES,
+            native.AVX2_SCALAR_FLOAT_ROOT,
             strict=True,
         )
     ),

@@ -27,6 +27,7 @@ from loom.target.arch.x86.vector_families import (
     AVX2_BITWISE_FAMILIES,
     AVX2_FLOAT_BINARY_FAMILIES,
     AVX2_FLOAT_FMA_MNEMONICS,
+    AVX2_FLOAT_VECTOR_BIT_WIDTHS,
     AVX2_INTEGER_BINARY_FAMILIES,
     AVX2_PAYLOAD_ELEMENT_NAMES,
     AVX2_UNIFORM_SHIFT_FAMILIES,
@@ -61,7 +62,13 @@ from loom.target.contracts.templates import (
     ternary_descriptor_rules,
 )
 
-_REGISTER_SUFFIXES = {64: "xmm", 128: "xmm", 256: "ymm", 512: "zmm"}
+_REGISTER_SUFFIXES = {
+    32: "xmm",
+    64: "xmm",
+    128: "xmm",
+    256: "ymm",
+    512: "zmm",
+}
 _REGISTER_CLASSES = {
     64: "x86.xmm",
     128: "x86.xmm",
@@ -126,6 +133,7 @@ def direct_vector_family_rules(
         )
         for family in float_families
         for vector_bit_width in vector_bit_widths
+        if vector_bit_width >= family.element.bit_width
     )
     return binary_descriptor_rules(cases, form=DescriptorEmitForm.OP)
 
@@ -198,6 +206,7 @@ def vector_fma_family_rules(
             )
             for element in elements
             for vector_bit_width in vector_bit_widths
+            if vector_bit_width >= element.bit_width
         ),
         form=DescriptorEmitForm.OP,
         descriptor_a="lhs",
@@ -331,6 +340,13 @@ def avx2_vector_arithmetic_rules(
             descriptor_key_prefix="x86.avx2",
             vector_bit_widths=AVX2_VECTOR_BIT_WIDTHS,
             integer_families=AVX2_INTEGER_BINARY_FAMILIES,
+            float_families=(),
+        ),
+        *direct_vector_family_rules(
+            descriptor_lookup,
+            descriptor_key_prefix="x86.avx2",
+            vector_bit_widths=AVX2_FLOAT_VECTOR_BIT_WIDTHS,
+            integer_families=(),
             float_families=AVX2_FLOAT_BINARY_FAMILIES,
         ),
         *_bitwise_vector_family_rules(
@@ -343,7 +359,7 @@ def avx2_vector_arithmetic_rules(
         *vector_fma_family_rules(
             descriptor_lookup,
             descriptor_key_prefix="x86.avx2",
-            vector_bit_widths=AVX2_VECTOR_BIT_WIDTHS,
+            vector_bit_widths=AVX2_FLOAT_VECTOR_BIT_WIDTHS,
             fma_mnemonics=AVX2_FLOAT_FMA_MNEMONICS,
         ),
     )

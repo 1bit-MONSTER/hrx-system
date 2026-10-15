@@ -75,7 +75,7 @@ loom_corpus_test(
     "LOWERING/036"
     "numeric/vector/f32.loom"
     "@vector_f32_square_root_values"
-    "TARGET/001"
+    "LOWERING/036"
     "numeric/vector/float_partial_load_reductions.loom"
     "@partial_load_float_signed_zero"
     "EXPECT/002"

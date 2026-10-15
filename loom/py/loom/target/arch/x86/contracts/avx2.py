@@ -17,6 +17,10 @@ from loom.dialect.view import ALL_VIEW_OPS
 from loom.target.arch.x86.contracts.float_narrowing import (
     x86_float_narrowing_rules,
 )
+from loom.target.arch.x86.contracts.float_roots import (
+    scalar_float_root_rules,
+    vector_float_root_rules,
+)
 from loom.target.arch.x86.contracts.floating_extrema import (
     avx2_float_extrema_rules,
 )
@@ -49,7 +53,12 @@ from loom.target.arch.x86.contracts.vector_integer_conversion import (
     vector_integer_widening_rules,
 )
 from loom.target.arch.x86.descriptors import X86_AVX2_DESCRIPTOR_SET
-from loom.target.arch.x86.vector_families import AVX2_CARRIER_VECTOR_BIT_WIDTHS
+from loom.target.arch.x86.vector_families import (
+    AVX2_CARRIER_VECTOR_BIT_WIDTHS,
+    AVX2_FLOAT_ROOT_FAMILIES,
+    AVX2_ROOT_VECTOR_BIT_WIDTHS,
+    AVX2_SCALAR_FLOAT_ROOT_FAMILIES,
+)
 from loom.target.contracts import (
     ContractCase,
     ContractFragment,
@@ -82,6 +91,11 @@ def _memory_rules() -> tuple[DescriptorRule, ...]:
 def _cases() -> Sequence[ContractCase]:
     return (
         *avx2_scalar_float_rules(_descriptor),
+        *scalar_float_root_rules(
+            _descriptor,
+            descriptor_key_prefix="x86.avx2",
+            families=AVX2_SCALAR_FLOAT_ROOT_FAMILIES,
+        ),
         *avx2_integer_float_rules(_descriptor),
         *x86_float_narrowing_rules(_descriptor),
         *avx2_vector_construction_rules(_descriptor),
@@ -96,6 +110,12 @@ def _cases() -> Sequence[ContractCase]:
         *avx2_lane_movement_rules(_descriptor),
         *avx2_shuffle_rules(_descriptor),
         *avx2_vector_arithmetic_rules(_descriptor),
+        *vector_float_root_rules(
+            _descriptor,
+            descriptor_key_prefix="x86.avx2",
+            families=AVX2_FLOAT_ROOT_FAMILIES,
+            vector_bit_widths=AVX2_ROOT_VECTOR_BIT_WIDTHS,
+        ),
         *avx2_float_extrema_rules(_descriptor),
         *x86_scalar_float_memory_rules(
             _descriptor, diagnostic=_SOURCE_MEMORY_DIAGNOSTIC

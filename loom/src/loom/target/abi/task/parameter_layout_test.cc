@@ -126,6 +126,10 @@ TEST_F(TaskParameterLayoutTest, ExactDispatchCapacityAndEmptyInterface) {
   IREE_ASSERT_OK(loom_task_parameter_layout_parse(module_, nullptr, layout, {},
                                                   &scratch_, &accepted, &abi));
   ASSERT_TRUE(accepted);
+  EXPECT_EQ(
+      abi.attributes.flags,
+      IREE_HAL_EXECUTABLE_DISPATCH_FLAG_V0_PRESERVE_SUBNORMAL_INPUTS |
+          IREE_HAL_EXECUTABLE_DISPATCH_FLAG_V0_PRESERVE_SUBNORMAL_RESULTS);
   EXPECT_EQ(abi.attributes.parameter_count, 0u);
   EXPECT_EQ(abi.attributes.binding_count, 0u);
   EXPECT_EQ(abi.attributes.constant_byte_length, 0u);

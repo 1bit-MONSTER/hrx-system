@@ -22,6 +22,15 @@ static loom_target_math_policy_decision_t loom_wasm_math_reject(
   };
 }
 
+static loom_target_math_policy_decision_t loom_wasm_math_rewrite(
+    loom_target_math_recipe_t recipe, iree_string_view_t constraint_key) {
+  return (loom_target_math_policy_decision_t){
+      .action = LOOM_TARGET_MATH_POLICY_ACTION_REWRITE,
+      .recipe = recipe,
+      .constraint_key = constraint_key,
+  };
+}
+
 static bool loom_wasm_math_op_is_native_arithmetic(
     loom_target_math_op_t math_op) {
   return math_op == LOOM_TARGET_MATH_OP_ADDF ||
@@ -51,7 +60,9 @@ static void loom_wasm_math_policy_query(
       loom_wasm_math_op_is_native_arithmetic(query->math_op);
   const bool is_native_rounding =
       loom_wasm_math_op_is_native_rounding(query->math_op);
-  if (!is_native_arithmetic && !is_native_rounding) {
+  const bool is_root = query->math_op == LOOM_TARGET_MATH_OP_SQRTF ||
+                       query->math_op == LOOM_TARGET_MATH_OP_RSQRTF;
+  if (!is_native_arithmetic && !is_native_rounding && !is_root) {
     *out_decision = loom_wasm_math_reject(IREE_SV("math.op.supported"));
     return;
   }
@@ -61,6 +72,13 @@ static void loom_wasm_math_policy_query(
   }
   if (!loom_wasm_math_lane_domain_is_supported(query->lane_domain)) {
     *out_decision = loom_wasm_math_reject(IREE_SV("math.lane.scalar_vector"));
+    return;
+  }
+
+  if (query->math_op == LOOM_TARGET_MATH_OP_RSQRTF) {
+    *out_decision =
+        loom_wasm_math_rewrite(LOOM_TARGET_MATH_RECIPE_RSQRT_SQRT_DIV,
+                               IREE_SV("math.recipe.rsqrt_sqrt_div"));
     return;
   }
 

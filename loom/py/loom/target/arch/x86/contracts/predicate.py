@@ -1146,7 +1146,7 @@ def _predicate_lane_movement_rules(
                 )
             inserted = (
                 ValueRef.result("result")
-                if representation_bit_width == 128
+                if representation_bit_width <= 128
                 else ValueRef.temporary("inserted_half")
             )
             insert_emits.append(
@@ -1156,7 +1156,7 @@ def _predicate_lane_movement_rules(
                     results={"dst": inserted},
                     result_types=(
                         None
-                        if representation_bit_width == 128
+                        if representation_bit_width <= 128
                         else {"dst": DescriptorResultType()}
                     ),
                     immediates={"lane": insert_lane_project},

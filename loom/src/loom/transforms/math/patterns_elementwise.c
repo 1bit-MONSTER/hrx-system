@@ -74,6 +74,20 @@ static iree_status_t loom_math_legalize_build_division(
       builder, source, LOOM_MATH_EVALUATION_BINARY_DIVF, lhs, rhs, out_value);
 }
 
+static iree_status_t loom_math_legalize_build_rsqrt_sqrt_div(
+    loom_builder_t* builder, loom_math_legalize_source_t* source,
+    loom_math_legalize_value_t* out_value) {
+  loom_math_legalize_value_t one = loom_math_evaluation_value_invalid();
+  loom_math_legalize_value_t root = loom_math_evaluation_value_invalid();
+  IREE_RETURN_IF_ERROR(
+      loom_math_legalize_build_constant(builder, source, 1.0, &one));
+  IREE_RETURN_IF_ERROR(loom_math_legalize_build_unary(
+      builder, source, LOOM_MATH_EVALUATION_UNARY_SQRTF, &source->input,
+      &root));
+  return loom_math_legalize_build_division(builder, source, &one, &root,
+                                           out_value);
+}
+
 static iree_status_t loom_math_legalize_build_ternary(
     loom_builder_t* builder, loom_math_legalize_source_t* source,
     loom_math_legalize_value_t* a, loom_math_legalize_value_t* b,
@@ -881,6 +895,9 @@ static iree_status_t loom_math_legalize_build_evaluated_recipe(
     case LOOM_TARGET_MATH_RECIPE_GELU_LOGISTIC_F32:
       return loom_math_legalize_build_gelu_logistic(&rewriter->builder, source,
                                                     op, out_value);
+    case LOOM_TARGET_MATH_RECIPE_RSQRT_SQRT_DIV:
+      return loom_math_legalize_build_rsqrt_sqrt_div(&rewriter->builder, source,
+                                                     out_value);
     case LOOM_TARGET_MATH_RECIPE_WIDEN_F32_ROUND:
       IREE_ASSERT_UNREACHABLE("recipe is not elementwise math legalization");
       IREE_BUILTIN_UNREACHABLE();
@@ -942,6 +959,7 @@ static bool loom_math_legalize_elementwise_recipe_is_supported(
     case LOOM_TARGET_MATH_RECIPE_GELU_TANH_F32:
     case LOOM_TARGET_MATH_RECIPE_GELU_ERF_F32:
     case LOOM_TARGET_MATH_RECIPE_GELU_LOGISTIC_F32:
+    case LOOM_TARGET_MATH_RECIPE_RSQRT_SQRT_DIV:
     case LOOM_TARGET_MATH_RECIPE_WIDEN_F32_ROUND:
       return true;
     case LOOM_TARGET_MATH_RECIPE_UNKNOWN:

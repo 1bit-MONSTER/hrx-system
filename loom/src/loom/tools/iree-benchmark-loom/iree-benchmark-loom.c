@@ -25,13 +25,16 @@
 #ifndef IREE_BENCHMARK_LOOM_HAVE_XDNA
 #define IREE_BENCHMARK_LOOM_HAVE_XDNA 0
 #endif  // IREE_BENCHMARK_LOOM_HAVE_XDNA
+#ifndef IREE_BENCHMARK_LOOM_HAVE_TASK
+#define IREE_BENCHMARK_LOOM_HAVE_TASK 0
+#endif  // IREE_BENCHMARK_LOOM_HAVE_TASK
 #ifndef IREE_BENCHMARK_LOOM_HAVE_VM
 #define IREE_BENCHMARK_LOOM_HAVE_VM 0
 #endif  // IREE_BENCHMARK_LOOM_HAVE_VM
 
 #define IREE_BENCHMARK_LOOM_HAVE_ANY_DEVICE_PROVIDER                    \
   (IREE_BENCHMARK_LOOM_HAVE_AMDGPU || IREE_BENCHMARK_LOOM_HAVE_SPIRV || \
-   IREE_BENCHMARK_LOOM_HAVE_XDNA)
+   IREE_BENCHMARK_LOOM_HAVE_TASK || IREE_BENCHMARK_LOOM_HAVE_XDNA)
 
 #if IREE_BENCHMARK_LOOM_HAVE_AMDGPU
 #include "loom/tooling/target/amdgpu/testbench_requirements.h"
@@ -44,6 +47,9 @@
 #if IREE_BENCHMARK_LOOM_HAVE_XDNA
 #include "loomc/target/amd/xdna/iree_hal.h"
 #endif  // IREE_BENCHMARK_LOOM_HAVE_XDNA
+#if IREE_BENCHMARK_LOOM_HAVE_TASK
+#include "loomc/target/cpu/iree_hal.h"
+#endif  // IREE_BENCHMARK_LOOM_HAVE_TASK
 #if IREE_BENCHMARK_LOOM_HAVE_VM
 #include "loom/tooling/target/vm/testbench.h"
 #endif  // IREE_BENCHMARK_LOOM_HAVE_VM
@@ -130,6 +136,12 @@ int main(int argc, char** argv) {
           .provider = loomc_xdna_iree_hal_target_provider(),
       },
 #endif  // IREE_BENCHMARK_LOOM_HAVE_XDNA
+#if IREE_BENCHMARK_LOOM_HAVE_TASK
+      {
+          .driver_name = IREE_SV("task"),
+          .provider = loomc_cpu_iree_hal_target_provider(),
+      },
+#endif  // IREE_BENCHMARK_LOOM_HAVE_TASK
   };
 #endif  // IREE_BENCHMARK_LOOM_HAVE_ANY_DEVICE_PROVIDER
 

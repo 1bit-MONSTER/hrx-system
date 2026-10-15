@@ -21,8 +21,10 @@ from loom.target.arch.x86.vector_families import (
     AVX512_FLOAT_BINARY_FAMILIES,
     AVX512_FLOAT_COMPARE_MNEMONICS,
     AVX512_FLOAT_FMA_MNEMONICS,
+    AVX512_FLOAT_ROOT_FAMILIES,
     AVX512_INTEGER_BINARY_FAMILIES,
     AVX512_INTEGER_COMPARE_MNEMONICS,
+    AVX512_SCALAR_FLOAT_ROOT_FAMILIES,
     AVX512_SELECT_MNEMONICS,
     AVX512_UNIFORM_SHIFT_FAMILIES,
     AVX512VL_INTEGER_BINARY_FAMILIES,
@@ -97,7 +99,9 @@ from .common import (
     _gpr64_result,
     _k_operand,
     _k_result,
+    _scalar_float_unary_descriptor,
     _vector_f32_binary_descriptor,
+    _vector_float_unary_descriptor,
     _vector_fma_descriptor,
     _vector_i32_binary_descriptor,
     _vector_i32_schedule_class,
@@ -956,6 +960,44 @@ X86_AVX512_CORE_DESCRIPTOR_SET = DescriptorSet(
             for family, instruction in zip(
                 AVX512_FLOAT_BINARY_FAMILIES,
                 native.AVX2_FLOAT_BINARY,
+                strict=True,
+            )
+        ),
+        *(
+            _evex_descriptor(
+                _vector_float_unary_descriptor(
+                    vector_bit_width=vector_bit_width,
+                    key=(
+                        f"x86.avx512.{family.mnemonic}."
+                        f"{_REGISTER_SUFFIXES[vector_bit_width]}"
+                    ),
+                    mnemonic=family.mnemonic,
+                    semantic_tag=(
+                        f"{family.semantic}.{family.element.name}x"
+                        f"{family.element.lane_count(vector_bit_width)}"
+                    ),
+                ),
+                instruction,
+            )
+            for family, instruction in zip(
+                AVX512_FLOAT_ROOT_FAMILIES,
+                native.AVX512_FLOAT_ROOT,
+                strict=True,
+            )
+            for vector_bit_width in ((128, 256, 512) if family.approximate else (512,))
+        ),
+        *(
+            _evex_descriptor(
+                _scalar_float_unary_descriptor(
+                    key=f"x86.avx512.{family.mnemonic}.xmm",
+                    mnemonic=family.mnemonic,
+                    semantic_tag=f"{family.semantic}.{family.element.name}",
+                ),
+                instruction,
+            )
+            for family, instruction in zip(
+                AVX512_SCALAR_FLOAT_ROOT_FAMILIES,
+                native.AVX512_SCALAR_FLOAT_ROOT,
                 strict=True,
             )
         ),

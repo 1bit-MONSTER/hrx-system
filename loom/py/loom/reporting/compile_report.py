@@ -16,6 +16,9 @@ from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from loom.reporting.compile_report_expansions import CompileReportExpansionInventory
+    from loom.reporting.compile_report_math_relaxations import (
+        CompileReportMathRelaxationInventory,
+    )
     from loom.reporting.compile_report_scalarization import (
         CompileReportScalarizationInventory,
     )
@@ -158,6 +161,8 @@ class CompileReportDocument:
     scalarization_inventory: CompileReportScalarizationInventory | None
     # Validated per-operation lowering counts, independent of scalarization.
     expansion_inventory: CompileReportExpansionInventory
+    # Target-native math alternatives indexed without rediscovering policy.
+    math_relaxation_inventory: CompileReportMathRelaxationInventory
     # Validated wait reasons indexed once at the document input boundary.
     wait_reason_inventory: CompileReportWaitReasonInventory | None
 
@@ -335,6 +340,9 @@ def parse_compile_report(
     # definition-time dependency cycle. Report parsing is the public boundary
     # and owns construction of every retained index.
     from loom.reporting.compile_report_expansions import parse_compile_report_expansions
+    from loom.reporting.compile_report_math_relaxations import (
+        parse_compile_report_math_relaxations,
+    )
     from loom.reporting.compile_report_scalarization import (
         parse_compile_report_scalarization,
     )
@@ -354,6 +362,9 @@ def parse_compile_report(
         residency_constraints_by_function=_index_residency_constraints(report, source),
         scalarization_inventory=scalarization_inventory,
         expansion_inventory=parse_compile_report_expansions(report, mode, source),
+        math_relaxation_inventory=parse_compile_report_math_relaxations(
+            report, mode, source
+        ),
         wait_reason_inventory=wait_reason_inventory,
     )
 

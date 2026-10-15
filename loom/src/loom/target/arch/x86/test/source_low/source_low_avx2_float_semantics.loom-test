@@ -177,3 +177,40 @@ low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({sig
   %f64 = vmaxsd.xmm %f64_lhs, %f64_rhs
   return %f32, %f64
 }
+
+// ====
+
+x86.target<avx2> @target
+
+func.def target(@target) @subnative_float_extrema(%f32_lhs: vector<2xf32>, %f32_rhs: vector<2xf32>, %f64_lhs: vector<1xf64>, %f64_rhs: vector<1xf64>) -> (vector<2xf32>, vector<2xf32>, vector<1xf64>, vector<1xf64>) {
+  %f32_exact = vector.minimumf %f32_lhs, %f32_rhs : vector<2xf32>
+  %f32_fast = vector.maxnumf<nnan|nsz> %f32_lhs, %f32_rhs : vector<2xf32>
+  %f64_exact = vector.maximumf %f64_lhs, %f64_rhs : vector<1xf64>
+  %f64_fast = vector.minnumf<nnan|nsz> %f64_lhs, %f64_rhs : vector<1xf64>
+  func.return %f32_exact, %f32_fast, %f64_exact, %f64_fast : vector<2xf32>, vector<2xf32>, vector<1xf64>, vector<1xf64>
+}
+
+// ----
+low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (vector<2xf32>, vector<2xf32>, vector<1xf64>, vector<1xf64>) -> (vector<2xf32>, vector<2xf32>, vector<1xf64>, vector<1xf64>)}) @subnative_float_extrema(%f32_lhs: reg<x86.xmm>, %f32_rhs: reg<x86.xmm>, %f64_lhs: reg<x86.xmm>, %f64_rhs: reg<x86.xmm>) -> (reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>, reg<x86.xmm>) asm {
+  %20 = avx2.vcmpps.xmm %f32_lhs, %f32_rhs, 17
+  %21 = vpblendvb.xmm %f32_rhs, %f32_lhs, %20
+  %22 = avx2.vcmpps.xmm %f32_lhs, %f32_rhs, 0
+  %23 = vpor.xmm %f32_lhs, %f32_rhs
+  %24 = vpblendvb.xmm %21, %23, %22
+  %25 = avx2.vcmpps.xmm %f32_lhs, %f32_lhs, 3
+  %26 = vpblendvb.xmm %24, %f32_lhs, %25
+  %27 = avx2.vcmpps.xmm %f32_rhs, %f32_rhs, 3
+  %f32_exact = vpblendvb.xmm %26, %f32_rhs, %27
+  %f32_fast = vmaxps.xmm %f32_lhs, %f32_rhs
+  %30 = avx2.vcmppd.xmm %f64_lhs, %f64_rhs, 30
+  %31 = vpblendvb.xmm %f64_rhs, %f64_lhs, %30
+  %32 = avx2.vcmppd.xmm %f64_lhs, %f64_rhs, 0
+  %33 = vpand.xmm %f64_lhs, %f64_rhs
+  %34 = vpblendvb.xmm %31, %33, %32
+  %35 = avx2.vcmppd.xmm %f64_lhs, %f64_lhs, 3
+  %36 = vpblendvb.xmm %34, %f64_lhs, %35
+  %37 = avx2.vcmppd.xmm %f64_rhs, %f64_rhs, 3
+  %f64_exact = vpblendvb.xmm %36, %f64_rhs, %37
+  %f64_fast = vminpd.xmm %f64_lhs, %f64_rhs
+  return %f32_exact, %f32_fast, %f64_exact, %f64_fast
+}

@@ -1833,6 +1833,8 @@ typedef struct loom_target_compile_report_math_row_t {
   uint8_t source_fastmath_flags;
   // Extra fast-math flags applied by the selected recipe.
   uint8_t recipe_fastmath_flags;
+  // Source fast-math flags required to select a target-native alternative.
+  uint8_t native_required_fastmath_flags;
   // Operations created by the math legalization recipe.
   uint64_t created_op_count;
   // Operations erased by the math legalization recipe.
@@ -2053,6 +2055,9 @@ typedef struct loom_target_compile_report_t {
   uint64_t target_legalization_unhandled_op_count;
   // Number of source math ops rewritten by target math legalization.
   uint64_t math_legalization_rewritten_op_count;
+  // Number of source math rewrites with a target-native alternative requiring
+  // additional source fast-math permissions.
+  uint64_t math_legalization_native_alternative_op_count;
   // Largest number of source operations created by one math recipe.
   uint64_t math_legalization_maximum_created_op_count;
   // Number of source math ops rejected by target math legalization.

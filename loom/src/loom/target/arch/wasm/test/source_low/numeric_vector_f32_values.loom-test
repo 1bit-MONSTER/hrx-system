@@ -3,22 +3,24 @@
 func.def @vector_f32_unary(%input_buffer: buffer, %output_buffer: buffer) {
   %base = index.constant 0 : offset
   %input_view = buffer.view %input_buffer[%base] : buffer -> view<4xf32>
-  %output_view = buffer.view %output_buffer[%base] : buffer -> view<28xf32>
+  %output_view = buffer.view %output_buffer[%base] : buffer -> view<32xf32>
   %input = vector.load %input_view[0] : view<4xf32> -> vector<4xf32>
   %absolute = vector.absf %input : vector<4xf32>
-  vector.store %absolute, %output_view[0] : vector<4xf32>, view<28xf32>
+  vector.store %absolute, %output_view[0] : vector<4xf32>, view<32xf32>
   %negated = vector.negf %input : vector<4xf32>
-  vector.store %negated, %output_view[4] : vector<4xf32>, view<28xf32>
+  vector.store %negated, %output_view[4] : vector<4xf32>, view<32xf32>
   %ceil = vector.ceilf %input : vector<4xf32>
-  vector.store %ceil, %output_view[8] : vector<4xf32>, view<28xf32>
+  vector.store %ceil, %output_view[8] : vector<4xf32>, view<32xf32>
   %floor = vector.floorf %input : vector<4xf32>
-  vector.store %floor, %output_view[12] : vector<4xf32>, view<28xf32>
+  vector.store %floor, %output_view[12] : vector<4xf32>, view<32xf32>
   %roundeven = vector.roundevenf %input : vector<4xf32>
-  vector.store %roundeven, %output_view[16] : vector<4xf32>, view<28xf32>
+  vector.store %roundeven, %output_view[16] : vector<4xf32>, view<32xf32>
   %trunc = vector.truncf %input : vector<4xf32>
-  vector.store %trunc, %output_view[20] : vector<4xf32>, view<28xf32>
+  vector.store %trunc, %output_view[20] : vector<4xf32>, view<32xf32>
   %square_root = vector.sqrtf %input : vector<4xf32>
-  vector.store %square_root, %output_view[24] : vector<4xf32>, view<28xf32>
+  vector.store %square_root, %output_view[24] : vector<4xf32>, view<32xf32>
+  %reciprocal_root = vector.rsqrtf %input : vector<4xf32>
+  vector.store %reciprocal_root, %output_view[28] : vector<4xf32>, view<32xf32>
   func.return
 }
 
@@ -39,6 +41,10 @@ low.func.def target<wasm.core.simd128> abi(wasm_function) @vector_f32_unary(%inp
   v128.store %output_buffer, %trunc {offset = 80}
   %square_root = f32x4.sqrt %input
   v128.store %output_buffer, %square_root {offset = 96}
+  %27 = f32.const 1065353216
+  %28 = f32x4.splat %27
+  %reciprocal_root = f32x4.div %28, %square_root
+  v128.store %output_buffer, %reciprocal_root {offset = 112}
   return
 }
 

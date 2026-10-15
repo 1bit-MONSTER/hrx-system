@@ -18,12 +18,14 @@ iree_status_t iree_hal_executable_library_validate_query_result(
         IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST);
   }
   const iree_hal_executable_library_header_t* header = *query_result;
-  if (header->version != IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST) {
+  if (header->version < IREE_HAL_EXECUTABLE_LIBRARY_VERSION_MINIMUM ||
+      header->version > IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST) {
     return iree_make_status(
         IREE_STATUS_FAILED_PRECONDITION,
-        "executable library version %u does not match the supported version "
-        "%u",
-        header->version, IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST);
+        "executable library version %u is outside the supported range [%u, "
+        "%u]",
+        header->version, IREE_HAL_EXECUTABLE_LIBRARY_VERSION_MINIMUM,
+        IREE_HAL_EXECUTABLE_LIBRARY_VERSION_LATEST);
   }
   *out_library = iree_hal_executable_library_v0_from_query_result(query_result);
   return iree_ok_status();
