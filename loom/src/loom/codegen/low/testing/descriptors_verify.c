@@ -1260,6 +1260,35 @@ static iree_status_t loom_low_verify_descriptor_constraints(
         }
         break;
       case LOOM_LOW_CONSTRAINT_KIND_REMATERIALIZABLE:
+        if (rhs != NULL) {
+          IREE_RETURN_IF_ERROR(loom_low_verify_binary_constraint(
+              constraint, "rematerializable"));
+        }
+        if (lhs->role != LOOM_LOW_OPERAND_ROLE_RESULT ||
+            (rhs != NULL &&
+             !loom_low_operand_role_is_packet_operand(rhs->role))) {
+          return iree_make_status(
+              IREE_STATUS_INVALID_ARGUMENT,
+              "low rematerializable constraint requires a result lhs and "
+              "optional packet operand rhs");
+        }
+        if (!iree_any_bit_set(lhs->flags,
+                              LOOM_LOW_OPERAND_FLAG_REMATERIALIZABLE)) {
+          return iree_make_status(
+              IREE_STATUS_INVALID_ARGUMENT,
+              "low rematerializable constraint result must project the "
+              "rematerializable operand flag");
+        }
+        const uint16_t expected_source_plus_one =
+            rhs == NULL ? 0 : (uint16_t)(rhs->source_value_index + 1u);
+        if (lhs->rematerialization_source_operand_plus_one !=
+            expected_source_plus_one) {
+          return iree_make_status(
+              IREE_STATUS_INVALID_ARGUMENT,
+              "low rematerializable constraint source must project its "
+              "packet operand index");
+        }
+        break;
       case LOOM_LOW_CONSTRAINT_KIND_FOLDABLE:
         if (constraint->rhs_operand_index != LOOM_LOW_ID_NONE ||
             lhs->role != LOOM_LOW_OPERAND_ROLE_RESULT) {
@@ -2529,6 +2558,16 @@ static iree_status_t loom_low_verify_operand(
         "low operand %" PRIu32
         " has source binding %u but is not a packet operand",
         operand_index, (unsigned)operand->source_binding);
+  }
+  if (operand->rematerialization_source_operand_plus_one != 0 &&
+      (operand->role != LOOM_LOW_OPERAND_ROLE_RESULT ||
+       !iree_any_bit_set(operand->flags,
+                         LOOM_LOW_OPERAND_FLAG_REMATERIALIZABLE))) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "low operand %" PRIu32
+        " has a rematerialization source without a rematerializable result",
+        operand_index);
   }
   if (!loom_low_operand_address_map_kind_is_valid(operand->address_map_kind)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,

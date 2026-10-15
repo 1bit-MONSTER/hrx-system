@@ -27,7 +27,7 @@ extern "C" {
 #endif
 
 // ABI version for descriptor sets consumed by this header.
-#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 60u
+#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 61u
 
 // Sentinel for absent target-family or descriptor-set stable IDs.
 #define LOOM_LOW_STABLE_ID_NONE UINT64_C(0)
@@ -339,7 +339,8 @@ typedef enum loom_low_constraint_kind_e {
   LOOM_LOW_CONSTRAINT_KIND_DESTRUCTIVE = 3,
   // Result storage begins before the packet has consumed all untied inputs.
   LOOM_LOW_CONSTRAINT_KIND_EARLY_CLOBBER = 4,
-  // Descriptor may be rematerialized instead of spilled.
+  // Descriptor result may be rematerialized instead of spilled. An optional
+  // packet operand names the producer edge included in its replay recipe.
   LOOM_LOW_CONSTRAINT_KIND_REMATERIALIZABLE = 5,
   // Descriptor may participate in algebraic folding.
   LOOM_LOW_CONSTRAINT_KIND_FOLDABLE = 6,
@@ -832,6 +833,9 @@ typedef struct loom_low_operand_t {
   uint16_t read_event_id;
   // Target timing event observed when this operand is written, or NONE.
   uint16_t write_event_id;
+  // One-based packet operand whose producer joins this result's
+  // rematerialization recipe, or zero when replay begins at this packet.
+  uint16_t rematerialization_source_operand_plus_one;
 } loom_low_operand_t;
 
 static_assert(sizeof(loom_low_operand_t) == 40,
@@ -844,6 +848,10 @@ static_assert(offsetof(loom_low_operand_t, source_binding) == 9,
               "source binding must occupy operand role padding");
 static_assert(offsetof(loom_low_operand_t, flags) == 12,
               "source binding must not move operand flags");
+static_assert(
+    offsetof(loom_low_operand_t, rematerialization_source_operand_plus_one) ==
+        38,
+    "rematerialization source must occupy the operand row tail padding");
 
 // Interpretation and encoding of one declared immediate. Table order follows
 // the descriptor declaration; canonical packet dictionaries follow field name

@@ -247,8 +247,34 @@ TEST(LowDescriptorTraitsTest, RematerializationIsPerResult) {
                                                            &descriptor, 0));
   EXPECT_FALSE(loom_low_descriptor_result_can_rematerialize(&descriptor_set,
                                                             &descriptor, 1));
-  EXPECT_FALSE(loom_low_descriptor_result_can_rematerialize(&descriptor_set,
-                                                            &descriptor, 2));
+}
+
+TEST(LowDescriptorTraitsTest, ProjectsRematerializationRecipeSource) {
+  loom_low_operand_t operands[3] = {};
+  operands[0].role = LOOM_LOW_OPERAND_ROLE_RESULT;
+  operands[0].flags = LOOM_LOW_OPERAND_FLAG_REMATERIALIZABLE;
+  operands[0].rematerialization_source_operand_plus_one = 1;
+  operands[1].role = LOOM_LOW_OPERAND_ROLE_RESULT;
+  operands[2].role = LOOM_LOW_OPERAND_ROLE_OPERAND;
+  operands[2].source_value_index = 0;
+  const uint16_t operand_indices[] = {0, 1, 2};
+  const loom_low_descriptor_set_t descriptor_set = {
+      .operands = operands,
+      .operand_count = IREE_ARRAYSIZE(operands),
+      .operand_indices = operand_indices,
+      .operand_index_count = IREE_ARRAYSIZE(operand_indices),
+  };
+  const loom_low_descriptor_t descriptor = {
+      .operand_count = IREE_ARRAYSIZE(operands),
+      .result_count = 2,
+  };
+
+  EXPECT_EQ(loom_low_descriptor_result_rematerialization_source_operand(
+                &descriptor_set, &descriptor, 0),
+            0u);
+  EXPECT_EQ(loom_low_descriptor_result_rematerialization_source_operand(
+                &descriptor_set, &descriptor, 1),
+            LOOM_LOW_ID_NONE);
 }
 
 }  // namespace

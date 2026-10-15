@@ -656,6 +656,9 @@ def emit_source_for_views(
                 f".ready_stage = {operand.ready_stage},",
                 ".read_event_id = " + ("LOOM_LOW_TIMING_EVENT_NONE" if operand.read_event is None else str(compiled.timing_event_ids[operand.read_event])) + ",",
                 ".write_event_id = " + ("LOOM_LOW_TIMING_EVENT_NONE" if operand.write_event is None else str(compiled.timing_event_ids[operand.write_event])) + ",",
+                ".rematerialization_source_operand_plus_one = "
+                + ("0" if compiled.operand_rematerialization_source_operand_indices[i] is None else str(compiled.operand_rematerialization_source_operand_indices[i] + 1))
+                + ",",
             ]
             for i, operand in enumerate(compiled.operands)
         ],

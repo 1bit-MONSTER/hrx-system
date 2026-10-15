@@ -124,6 +124,8 @@ class _CompiledOperandRow:
     operand: Operand
     # Source value position derived from the descriptor operand layout.
     source_value_index: int | None
+    # Packet operand whose producer joins this result's replay recipe.
+    rematerialization_source_operand_index: int | None
     # First row in the shared register-class-alternative table.
     reg_class_alt_start: int
     # Whether the result constraint permits rematerialization.
@@ -1117,7 +1119,7 @@ def compile_descriptor_set(
     )
 
     operand_layouts_by_descriptor: dict[str, validation.DescriptorOperandLayout] = {}
-    rematerializable_results_by_descriptor: dict[str, tuple[int, ...]] = {}
+    constraint_projections_by_descriptor: dict[str, validation.DescriptorConstraintProjection] = {}
     source_value_indices_by_descriptor: dict[str, tuple[int | None, ...]] = {}
     projected_descriptors_by_key: dict[str, Descriptor] = {}
     for descriptor in spec.descriptors:
@@ -1130,9 +1132,10 @@ def compile_descriptor_set(
             descriptor,
             result_count,
         )
-        rematerializable_results_by_descriptor[descriptor.key] = validation.validate_descriptor_constraints(
+        constraint_projections_by_descriptor[descriptor.key] = validation.validate_descriptor_constraints(
             descriptor,
             mutable_state_classes,
+            result_count,
         )
         validation.validate_descriptor_op_kind(descriptor, result_count)
         validation.validate_allocation_move_descriptor(
@@ -1666,12 +1669,14 @@ def compile_descriptor_set(
         )
 
     for descriptor in selected_descriptors:
-        rematerializable_result_set = set(rematerializable_results_by_descriptor[descriptor.key])
+        constraint_projection = constraint_projections_by_descriptor[descriptor.key]
+        rematerializable_result_set = set(constraint_projection.rematerializable_results)
+        source_value_indices = source_value_indices_by_descriptor[descriptor.key]
         descriptor_operand_indices: list[int] = []
         for operand_index, (operand, source_value_index) in enumerate(
             zip(
                 descriptor.operands,
-                source_value_indices_by_descriptor[descriptor.key],
+                source_value_indices,
                 strict=True,
             )
         ):
@@ -1693,9 +1698,14 @@ def compile_descriptor_set(
                 reg_class_alts,
                 reg_alt_group_starts,
             )
+            source_descriptor_operand_index = (
+                constraint_projection.rematerialization_source_operand_indices[operand_index] if operand_index < len(constraint_projection.rematerialization_source_operand_indices) else None
+            )
+            rematerialization_source_operand_index = None if source_descriptor_operand_index is None else source_value_indices[source_descriptor_operand_index]
             operand_row = _CompiledOperandRow(
                 operand=operand,
                 source_value_index=source_value_index,
+                rematerialization_source_operand_index=rematerialization_source_operand_index,
                 reg_class_alt_start=reg_class_alt_start,
                 rematerializable=(operand_index in rematerializable_result_set),
             )
@@ -1807,6 +1817,7 @@ def compile_descriptor_set(
 
     operands = [row.operand for row in compiled_operand_rows]
     operand_source_value_indices = [row.source_value_index for row in compiled_operand_rows]
+    operand_rematerialization_source_operand_indices = [row.rematerialization_source_operand_index for row in compiled_operand_rows]
     operand_alt_starts = [row.reg_class_alt_start for row in compiled_operand_rows]
     operand_rematerializable = [row.rematerializable for row in compiled_operand_rows]
     immediates = [row.immediate for row in compiled_immediate_rows]
@@ -1887,6 +1898,7 @@ def compile_descriptor_set(
         operand_indices=operand_indices,
         operands=operands,
         operand_source_value_indices=operand_source_value_indices,
+        operand_rematerialization_source_operand_indices=operand_rematerialization_source_operand_indices,
         operand_alt_starts=operand_alt_starts,
         operand_rematerializable=operand_rematerializable,
         immediates=immediates,
