@@ -298,6 +298,20 @@ enum loom_amdgpu_vector_float_conversion_strategy_e {
   LOOM_AMDGPU_VECTOR_FLOAT_CONVERSION_STRATEGY_FP8_DECODE = 4,
 };
 
+typedef uint8_t loom_amdgpu_bf16_pack_kind_t;
+enum loom_amdgpu_bf16_pack_kind_e {
+  // No F32-to-BF16 pack action has been selected.
+  LOOM_AMDGPU_BF16_PACK_KIND_NONE = 0,
+  // Convert two F32 lanes with the target's native packed packet.
+  LOOM_AMDGPU_BF16_PACK_KIND_NATIVE = 1,
+  // Pack the upper F32 bits after proving every lane exactly representable.
+  LOOM_AMDGPU_BF16_PACK_KIND_EXACT = 2,
+  // Round through integer packets after proving inputs are not NaNs.
+  LOOM_AMDGPU_BF16_PACK_KIND_ROUND_NOT_NAN = 3,
+  // Round through integer packets with NaN payload repair.
+  LOOM_AMDGPU_BF16_PACK_KIND_ROUND_PRESERVE_NAN = 4,
+};
+
 typedef uint8_t loom_amdgpu_vector_scale_materialization_kind_t;
 enum loom_amdgpu_vector_scale_materialization_kind_e {
   // The conversion consumes its scale source directly, if present.
@@ -368,8 +382,8 @@ typedef struct loom_amdgpu_vector_16bit_float_conversion_plan_t {
   loom_amdgpu_vector_scale_materialization_kind_t scale_materialization_kind;
   // Strategy-specific data selected before emission.
   union {
-    // NaN-handling facts for standard F32-to-BF16 packing.
-    loom_value_fact_flags_t bf16_source_flags;
+    // Selected F32-to-BF16 pack action.
+    loom_amdgpu_bf16_pack_kind_t bf16_pack_kind;
     // Packed FP4 decode strategy when strategy_kind is FP4_DECODE.
     loom_amdgpu_fp4_decode_plan_t fp4_decode;
     // Packed FP8 encode strategy when strategy_kind is FP8_ENCODE.

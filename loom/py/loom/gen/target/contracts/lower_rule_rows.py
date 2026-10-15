@@ -66,6 +66,7 @@ _GUARD_VALUE_REF_KINDS = frozenset(
         GuardKind.VALUE_U32_DIVISOR_MAGIC_KIND,
         GuardKind.VALUE_I32_DIVISOR_MAGIC_KIND,
         GuardKind.VALUE_EXACT_FLOAT,
+        GuardKind.VALUE_FLOAT_EXACTLY_REPRESENTABLE_AS,
         GuardKind.VALUE_EXACT_POWER_OF_TWO_FLOAT,
         GuardKind.VALUE_NOT_NAN,
         GuardKind.VALUE_NOT_SUBNORMAL_OR_INSTANCE_FLAGS_HAS_ALL,
@@ -87,6 +88,7 @@ _GUARD_VALUE_REF_KINDS = frozenset(
 _GUARD_OTHER_VALUE_REF_KINDS = frozenset(
     (
         GuardKind.VALUE_U32_DIVISOR_MAGIC_KIND,
+        GuardKind.VALUE_FLOAT_EXACTLY_REPRESENTABLE_AS,
         GuardKind.LOW_VALUE_REGISTER_UNIT_COUNT_EQ,
         GuardKind.VALUE_STATIC_ELEMENT_COUNT_EQ,
         GuardKind.VALUE_I64_RANGE_LE,
@@ -115,6 +117,7 @@ _GUARD_NO_PAYLOAD_KINDS = frozenset(
         GuardKind.VALUE_EXACT_I64,
         GuardKind.VALUE_NOT_EXACT_I64,
         GuardKind.VALUE_EXACT_FLOAT,
+        GuardKind.VALUE_FLOAT_EXACTLY_REPRESENTABLE_AS,
         GuardKind.VALUE_NOT_NAN,
         GuardKind.VALUE_I64_RANGE_LE,
         GuardKind.VALUE_I64_RANGE_GE,

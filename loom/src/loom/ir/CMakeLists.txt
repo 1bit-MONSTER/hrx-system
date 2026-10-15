@@ -41,6 +41,7 @@ loom_cc_test(
     "float_facts_test.cc"
   DEPS
     ::facts
+    iree::base::internal
     iree::base::internal::fpu_state
     iree::testing::gtest
     iree::testing::gtest_main

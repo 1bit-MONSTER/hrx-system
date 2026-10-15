@@ -182,6 +182,15 @@ iree_status_t loom_test_fact_not_subnormal_facts(
   return iree_ok_status();
 }
 
+iree_status_t loom_test_fact_exact_float_types_facts(
+    loom_fact_context_t* context, const loom_module_t* module,
+    const loom_op_t* op, const loom_value_facts_t* operand_facts,
+    loom_value_facts_t* result_facts) {
+  result_facts[0] = loom_value_facts_exact_i64(
+      (int64_t)loom_value_facts_exact_float_types(operand_facts[0]));
+  return iree_ok_status();
+}
+
 iree_status_t loom_test_fact_subgroup_uniform_facts(
     loom_fact_context_t* context, const loom_module_t* module,
     const loom_op_t* op, const loom_value_facts_t* operand_facts,

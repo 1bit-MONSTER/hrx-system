@@ -529,6 +529,20 @@ def build_f32_to_bf16_emits(
     )
 
 
+def build_representable_f32_to_bf16_emits(
+    descriptors: FloatNarrowingDescriptors,
+    input_ref: ValueRef,
+    result_ref: ValueRef,
+) -> tuple[EmitDescriptorOp, ...]:
+    """Narrows a finite F32 value already known to be exact in BF16."""
+
+    recipe = _ScalarRecipe(descriptors.integer)
+    input_bits = recipe.reinterpret_float_as_integer(
+        "input_bits", descriptors.reinterpret_float_as_integer, input_ref
+    )
+    return _build_representable_f32_bits_to_bf16_emits(recipe, input_bits, result_ref)
+
+
 def build_f32_bits_to_bf16_emits(
     descriptors: IntegerNarrowingDescriptors,
     input_bits_ref: ValueRef,
@@ -544,6 +558,33 @@ def build_f32_bits_to_bf16_emits(
         result_ref,
         preserve_nan=preserve_nan,
     )
+
+
+def build_representable_f32_bits_to_bf16_emits(
+    descriptors: IntegerNarrowingDescriptors,
+    input_bits_ref: ValueRef,
+    result_ref: ValueRef,
+) -> tuple[EmitDescriptorOp, ...]:
+    """Narrows integer-carried F32 bits already known to be exact in BF16."""
+
+    return _build_representable_f32_bits_to_bf16_emits(
+        _ScalarRecipe(descriptors), input_bits_ref, result_ref
+    )
+
+
+def _build_representable_f32_bits_to_bf16_emits(
+    recipe: _ScalarRecipe,
+    input_bits: ValueRef,
+    result_ref: ValueRef,
+) -> tuple[EmitDescriptorOp, ...]:
+    shift = recipe.integer_constant("shift", 16)
+    recipe.integer_binary_to(
+        result_ref,
+        recipe.descriptors.integer_shift_right_logical,
+        input_bits,
+        shift,
+    )
+    return recipe.finish()
 
 
 def _build_f32_bits_to_bf16_emits(

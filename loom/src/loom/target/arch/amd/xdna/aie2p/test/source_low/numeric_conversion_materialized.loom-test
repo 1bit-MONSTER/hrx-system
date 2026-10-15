@@ -13,42 +13,14 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_sitofp_i8x
   %19 = convert.signed.i32.to.f32 %17, %18
   %20 = mov.short -16
   %21 = lshl %19, %20
-  %22 = mov.short 1
-  %23 = and %21, %22
-  %24 = mov.i32 32767
-  %25 = add.rr %24, %23
-  %26 = add.rr %19, %25
-  %27 = lshl %26, %20
-  %28 = mov.i32 2139095040
-  %29 = and %19, %28
-  %30 = eq %29, %28
-  %31 = mov.i32 8388607
-  %32 = and %19, %31
-  %33 = nez %32
-  %34 = and %30, %33
-  %35 = mov.short 64
-  %36 = or %21, %35
-  %37 = copy %34 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %38 = sel.nez %36, %27, %37
-  %39 = vextract.8.imm %input, 1
-  %40 = extend.s8 %39
-  %42 = convert.signed.i32.to.f32 %40, %18
-  %44 = lshl %42, %20
-  %46 = and %44, %22
-  %48 = add.rr %24, %46
-  %49 = add.rr %42, %48
-  %50 = lshl %49, %20
-  %52 = and %42, %28
-  %53 = eq %52, %28
-  %55 = and %42, %31
-  %56 = nez %55
-  %57 = and %53, %56
-  %59 = or %44, %35
-  %60 = copy %57 : reg<aie2p.er> -> reg<aie2p.mr27_select>
-  %61 = sel.nez %59, %50, %60
-  %62 = vbcst.16 %38
-  %64 = copy %22 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
-  %converted = vinsert.16.reg %62, %64, %61
+  %22 = vextract.8.imm %input, 1
+  %23 = extend.s8 %22
+  %25 = convert.signed.i32.to.f32 %23, %18
+  %27 = lshl %25, %20
+  %28 = vbcst.16 %21
+  %29 = mov.short 1
+  %30 = copy %29 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
+  %converted = vinsert.16.reg %28, %30, %27
   return %converted
 }
 
@@ -280,4 +252,53 @@ low.func.def target<amd.xdna.aie2p.core> abi(object_function) @vector_fptoui_bf1
   %56 = copy %55 : reg<aie2p.er> -> reg<aie2p.mr29_insert>
   %converted = vinsert.8.reg %54, %56, %53
   return %converted
+}
+
+// ====
+
+func.def @narrow_exact_byte_to_bfloat(%input: i8) -> (bf16) {
+  %wide = scalar.sitofp %input : i8 to f32
+  %result = scalar.fptrunc %wide : f32 to bf16
+  func.return %result : bf16
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @narrow_exact_byte_to_bfloat(%input: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
+  %6 = extend.s8 %input
+  %7 = mov.fx2flt-scale 0
+  %wide = convert.signed.i32.to.f32 %6, %7
+  %9 = mov.short -16
+  %result = lshl %wide, %9
+  return %result
+}
+
+// ====
+
+func.def @narrow_unknown_float_to_bfloat(%input: f32) -> (bf16) {
+  %result = scalar.fptrunc %input : f32 to bf16
+  func.return %result : bf16
+}
+
+// ----
+low.func.def target<amd.xdna.aie2p.core> abi(object_function) @narrow_unknown_float_to_bfloat(%input: reg<aie2p.er>) -> (reg<aie2p.er>) asm {
+  %5 = mov.short -16
+  %6 = lshl %input, %5
+  %7 = mov.short 1
+  %8 = and %6, %7
+  %9 = mov.i32 32767
+  %10 = add.rr %9, %8
+  %11 = add.rr %input, %10
+  %12 = lshl %11, %5
+  %13 = mov.i32 2139095040
+  %14 = and %input, %13
+  %15 = eq %14, %13
+  %16 = mov.i32 8388607
+  %17 = and %input, %16
+  %18 = nez %17
+  %19 = and %15, %18
+  %20 = mov.short 64
+  %21 = or %6, %20
+  %22 = copy %19 : reg<aie2p.er> -> reg<aie2p.mr27_select>
+  %result = sel.nez %21, %12, %22
+  return %result
 }

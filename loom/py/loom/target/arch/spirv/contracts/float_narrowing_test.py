@@ -123,10 +123,14 @@ def test_bfloat_narrowing_preserves_the_profile_result_representation() -> None:
             for rule in bfloat_narrow_rules()
             if _narrowing_pair(rule) == (source_type, "bf16")
         )
-        assert len(rules) == 4
+        assert len(rules) == (6 if source_kind is ScalarTypeKind.F32 else 4)
         bit_width = ScalarType(source_kind).bitwidth
         vector_suffix = f"v{bit_width // 16}bf16"
-        for rule in rules[:2]:
+        native_rules = tuple(
+            rule for rule in rules if rule.descriptor.key.endswith(".bf16")
+        )
+        assert len(native_rules) == (3 if source_kind is ScalarTypeKind.F32 else 2)
+        for rule in native_rules:
             bitcast, extract = rule.emit[-2:]
             assert bitcast.descriptor.key == (
                 f"spirv.op_bitcast.i{bit_width}.{vector_suffix}"
@@ -142,7 +146,16 @@ def test_bfloat_narrowing_preserves_the_profile_result_representation() -> None:
                     + (("bfloat16_type_khr",) if native_bfloat else ())
                     + (("int16",) if int16 else ())
                 )
-                for not_nan in (False, True):
+                for satisfied_fact_guards in (
+                    frozenset(),
+                    frozenset({GuardKind.VALUE_NOT_NAN}),
+                    frozenset(
+                        {
+                            GuardKind.VALUE_NOT_NAN,
+                            GuardKind.VALUE_FLOAT_EXACTLY_REPRESENTABLE_AS,
+                        }
+                    ),
+                ):
                     applicable = []
                     for rule in rules:
                         feature_masks = (
@@ -153,8 +166,13 @@ def test_bfloat_narrowing_preserves_the_profile_result_representation() -> None:
                         )
                         if any(mask & ~features for mask in feature_masks):
                             continue
-                        if not not_nan and any(
-                            guard.kind is GuardKind.VALUE_NOT_NAN
+                        if any(
+                            guard.kind
+                            in (
+                                GuardKind.VALUE_NOT_NAN,
+                                GuardKind.VALUE_FLOAT_EXACTLY_REPRESENTABLE_AS,
+                            )
+                            and guard.kind not in satisfied_fact_guards
                             for guard in rule.guards
                         ):
                             continue
@@ -162,7 +180,33 @@ def test_bfloat_narrowing_preserves_the_profile_result_representation() -> None:
                     assert applicable
                     assert applicable[0].descriptor.key.endswith(".bf16") == (
                         native_bfloat
-                    ), (source_type, native_bfloat, int16, not_nan)
+                    ), (
+                        source_type,
+                        native_bfloat,
+                        int16,
+                        satisfied_fact_guards,
+                    )
+
+
+def test_bfloat_narrowing_exact_value_rules_use_the_short_recipe() -> None:
+    rules = tuple(
+        rule
+        for rule in bfloat_narrow_rules()
+        if rule.report_key == "exactly_representable_binary32_to_bfloat16"
+    )
+
+    assert len(rules) == 2
+    for rule in rules:
+        assert any(
+            guard.kind is GuardKind.VALUE_FLOAT_EXACTLY_REPRESENTABLE_AS
+            for guard in rule.guards
+        )
+        assert tuple(emit.descriptor.key for emit in rule.emit[:3]) == (
+            "spirv.op_bitcast.f32.i32",
+            "spirv.op_constant.i32",
+            "spirv.op_shift_right_logical.i32",
+        )
+        assert rule.emit[1].immediates == {"i32_value": 16}
 
 
 def test_descriptor_feature_guards_deduplicate_only_identical_descriptors() -> None:

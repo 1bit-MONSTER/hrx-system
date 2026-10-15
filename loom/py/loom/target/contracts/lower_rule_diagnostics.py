@@ -279,6 +279,12 @@ def _exact_float_diagnostic(field: str) -> DiagnosticRef:
     return _named_constraint_diagnostic("value_fact", field, "exact_float")
 
 
+def _exact_float_type_diagnostic(field: str, type_field: str) -> DiagnosticRef:
+    return _named_constraint_diagnostic(
+        "value_fact", field, f"finite_exactly_representable_as_{type_field}"
+    )
+
+
 def _exact_power_of_two_float_diagnostic(
     field: str,
     minimum_exponent: int,

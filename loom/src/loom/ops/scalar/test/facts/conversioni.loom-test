@@ -24,6 +24,46 @@ func.def @integer_to_float_classes(%signed: i32, %unsigned: i64) -> (i1, i1, i1,
 
 // ====
 
+// Complete byte domains convert exactly to F16, BF16, F32, and F64. The
+// result facts retain that property even though each runtime value is dynamic.
+func.def @integer_to_float_exact_formats(%signed: i8, %unsigned: i8) -> (i64, i64) {
+  %signed_float = scalar.sitofp %signed : i8 to f32
+  %unsigned_float = scalar.uitofp %unsigned : i8 to f32
+  %signed_types = test.fact_exact_float_types %signed_float : f32 -> i64
+  %unsigned_types = test.fact_exact_float_types %unsigned_float : f32 -> i64
+  func.return %signed_types, %unsigned_types : i64, i64
+}
+
+// ----
+func.def @integer_to_float_exact_formats(%signed: i8, %unsigned: i8) -> (i64, i64) {
+  %signed_types = scalar.constant 15360 : i64
+  %unsigned_types = scalar.constant 15360 : i64
+  func.return %signed_types, %unsigned_types : i64, i64
+}
+
+// ====
+
+// Range and divisibility facts jointly prove exact narrow representations.
+// Without divisibility the same I16 interval requires F32 or F64.
+func.def @integer_to_float_exact_formats_from_constraints(%input: i16) -> (i64, i64) {
+  %bounded = scalar.assume %input [range(%input, -32768, 32767)] : i16
+  %aligned = scalar.assume %bounded [multiple_of(%bounded, 256)] : i16
+  %unconstrained_float = scalar.sitofp %bounded : i16 to f32
+  %aligned_float = scalar.sitofp %aligned : i16 to f32
+  %unconstrained_types = test.fact_exact_float_types %unconstrained_float : f32 -> i64
+  %aligned_types = test.fact_exact_float_types %aligned_float : f32 -> i64
+  func.return %unconstrained_types, %aligned_types : i64, i64
+}
+
+// ----
+func.def @integer_to_float_exact_formats_from_constraints(%input: i16) -> (i64, i64) {
+  %unconstrained_types = scalar.constant 12288 : i64
+  %aligned_types = scalar.constant 15360 : i64
+  func.return %unconstrained_types, %aligned_types : i64, i64
+}
+
+// ====
+
 // Signed extension interprets the one i1 bit as a two's-complement sign bit.
 func.def @extsi_i1_true() -> (i64, i64) {
   %c = scalar.constant 1 : i1

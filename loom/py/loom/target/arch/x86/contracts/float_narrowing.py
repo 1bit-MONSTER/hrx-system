@@ -33,6 +33,7 @@ from loom.target.emit.float_narrowing import (
     NarrowFloatSubnormalRounding,
     build_f32_bits_to_bf16_emits,
     build_integer_bits_to_narrow_float_emits,
+    build_representable_f32_bits_to_bf16_emits,
 )
 from loom.target.low_descriptors import Descriptor
 
@@ -95,6 +96,8 @@ def _rule(
     result_type: TypePattern,
     emits: tuple[EmitDescriptorOp, ...],
     report_key: str,
+    *,
+    fact_guards: tuple[Guard, ...] = (),
 ) -> DescriptorRule:
     # Variable x86 shifts consume their count through ECX. Bind that physical
     # register only at the shift use so the computed count remains an ordinary
@@ -111,6 +114,7 @@ def _rule(
         guards=(
             Guard.value_type("input", source_type),
             Guard.value_type("result", result_type),
+            *fact_guards,
         ),
         emit=emits,
         report_key=report_key,
@@ -130,6 +134,27 @@ def _f32_to_bf16_rule(
         ),
     )
     return _rule(_F32, _BF16, emits, "exact_binary32_to_bfloat16")
+
+
+def _representable_f32_to_bf16_rule(
+    descriptor_lookup: _DescriptorLookup,
+    descriptors: IntegerNarrowingDescriptors,
+) -> DescriptorRule:
+    emits = (
+        _f32_bits_emit(descriptor_lookup),
+        *build_representable_f32_bits_to_bf16_emits(
+            descriptors,
+            ValueRef.temporary("input_bits"),
+            ValueRef.result("result"),
+        ),
+    )
+    return _rule(
+        _F32,
+        _BF16,
+        emits,
+        "exactly_representable_binary32_to_bfloat16",
+        fact_guards=(Guard.value_float_exactly_representable_as("input", "result"),),
+    )
 
 
 def _f32_to_narrow_rule(
@@ -192,6 +217,7 @@ def x86_float_narrowing_rules(
 
     descriptors = _integer_narrowing_descriptors(descriptor_lookup)
     return (
+        _representable_f32_to_bf16_rule(descriptor_lookup, descriptors),
         _f32_to_bf16_rule(descriptor_lookup, descriptors),
         _f32_to_narrow_rule(
             descriptor_lookup,

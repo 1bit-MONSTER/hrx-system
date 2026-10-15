@@ -1,5 +1,28 @@
 // RUN: pass canonicalize
 
+// Sign-only operations preserve the set of exact destination formats. The
+// arbitrary sign operand cannot change the magnitude's representability.
+func.def @sign_operations_preserve_exact_formats(%input: i8, %sign: f32) -> (i64, i64, i64) {
+  %value = scalar.sitofp %input : i8 to f32
+  %negated = scalar.negf %value : f32
+  %magnitude = scalar.absf %value : f32
+  %signed = scalar.copysignf %value, %sign : f32
+  %negated_types = test.fact_exact_float_types %negated : f32 -> i64
+  %magnitude_types = test.fact_exact_float_types %magnitude : f32 -> i64
+  %signed_types = test.fact_exact_float_types %signed : f32 -> i64
+  func.return %negated_types, %magnitude_types, %signed_types : i64, i64, i64
+}
+
+// ----
+func.def @sign_operations_preserve_exact_formats(%input: i8, %sign: f32) -> (i64, i64, i64) {
+  %negated_types = scalar.constant 15360 : i64
+  %magnitude_types = scalar.constant 15360 : i64
+  %signed_types = scalar.constant 15360 : i64
+  func.return %negated_types, %magnitude_types, %signed_types : i64, i64, i64
+}
+
+// ====
+
 // FMA rounds directly to its result type. Rounding through F32 first loses
 // the tiny addend that places this exact result below a BF16 midpoint. The
 // afn permission also permits the exact constant answer.

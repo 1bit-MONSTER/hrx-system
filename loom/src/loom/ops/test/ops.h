@@ -315,7 +315,8 @@ enum {
   LOOM_OP_TEST_RESULT_PAIR = LOOM_OP_KIND(LOOM_DIALECT_TEST, 118),
   LOOM_OP_TEST_BLOCK_ARG_GROUPS = LOOM_OP_KIND(LOOM_DIALECT_TEST, 119),
   LOOM_OP_TEST_SIGNATURE_SINK = LOOM_OP_KIND(LOOM_DIALECT_TEST, 120),
-  LOOM_OP_TEST_COUNT_ = 121,
+  LOOM_OP_TEST_FACT_EXACT_FLOAT_TYPES = LOOM_OP_KIND(LOOM_DIALECT_TEST, 121),
+  LOOM_OP_TEST_COUNT_ = 122,
 };
 
 // Synthetic flags for TemplateParamFlags parser/printer coverage.
@@ -2408,6 +2409,23 @@ iree_status_t loom_test_signature_sink_build(
     iree_host_size_t tied_result_count,
     loom_location_id_t location,
     loom_op_t** out_op);
+
+// LOOM_OP_TEST_FACT_EXACT_FLOAT_TYPES: Exposes the exact destination float-type set as an i64 constant.
+// %types = test.fact_exact_float_types %x : f32 -> i64
+LOOM_DEFINE_ISA(loom_test_fact_exact_float_types_isa, LOOM_OP_TEST_FACT_EXACT_FLOAT_TYPES)
+LOOM_DEFINE_OPERAND(loom_test_fact_exact_float_types_value, 0)
+LOOM_DEFINE_RESULT(loom_test_fact_exact_float_types_result, 0)
+iree_status_t loom_test_fact_exact_float_types_build(
+    loom_builder_t* builder,
+    loom_may_consume loom_value_id_t value,
+    loom_type_t result_type,
+    loom_location_id_t location,
+    loom_op_t** out_op);
+iree_status_t loom_test_fact_exact_float_types_facts(
+    loom_fact_context_t* context,
+    const loom_module_t* module, const loom_op_t* op,
+    const loom_value_facts_t* operand_facts,
+    loom_value_facts_t* result_facts);
 
 // Returns the vtable array for the test dialect.
 const loom_op_vtable_t* const* loom_test_dialect_vtables(

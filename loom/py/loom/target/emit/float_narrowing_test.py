@@ -20,6 +20,8 @@ from loom.target.emit.float_narrowing import (
     build_f32_bits_to_bf16_emits,
     build_f32_to_bf16_emits,
     build_integer_bits_to_narrow_float_emits,
+    build_representable_f32_bits_to_bf16_emits,
+    build_representable_f32_to_bf16_emits,
 )
 from loom.target.low_descriptors import Descriptor, Immediate, ImmediateKind
 
@@ -142,6 +144,36 @@ def test_f32_bits_entry_point_matches_the_float_recipe_tail() -> None:
 
     assert float_emits[0].descriptor is reinterpret
     assert float_emits[1:] == bits_emits
+
+
+def test_representable_f32_to_bf16_uses_only_reinterpret_and_shift() -> None:
+    integer_descriptors = _integer_descriptors(immediate_forms=_immediate_forms())
+    reinterpret = _descriptor("test.reinterpret_float_as_integer")
+    float_emits = build_representable_f32_to_bf16_emits(
+        FloatNarrowingDescriptors(
+            integer=integer_descriptors,
+            float_constant=_descriptor("test.float_constant"),
+            float_add=_descriptor("test.float_add"),
+            reinterpret_float_as_integer=reinterpret,
+            reinterpret_integer_as_float=_descriptor(
+                "test.reinterpret_integer_as_float"
+            ),
+        ),
+        ValueRef.operand("input"),
+        ValueRef.result("result"),
+    )
+    bits_emits = build_representable_f32_bits_to_bf16_emits(
+        integer_descriptors,
+        ValueRef.temporary("input_bits"),
+        ValueRef.result("result"),
+    )
+
+    assert float_emits[0].descriptor is reinterpret
+    assert float_emits[1:] == bits_emits
+    assert len(float_emits) == 2
+    assert bits_emits[0].descriptor.key == "test.shift_right_logical.immediate"
+    assert bits_emits[0].immediates == {"shift": 16}
+    assert bits_emits[0].results == {"dst": ValueRef.result("result")}
 
 
 def test_immediate_forms_fold_literals_and_preserve_live_constants() -> None:

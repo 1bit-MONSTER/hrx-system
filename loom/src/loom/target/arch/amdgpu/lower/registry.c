@@ -1743,8 +1743,8 @@ static iree_string_view_t loom_amdgpu_plan_key(
         return iree_string_view_empty();
       }
       return loom_amdgpu_vector_16bit_float_conversion_plan_key(
-          context, (const loom_amdgpu_vector_16bit_float_conversion_plan_t*)
-                       plan.target_data);
+          (const loom_amdgpu_vector_16bit_float_conversion_plan_t*)
+              plan.target_data);
 #if LOOM_AMDGPU_LOWER_CAPABILITY_ASYNC_TENSOR_LOAD_TO_LDS
     case LOOM_AMDGPU_REPORT_TENSOR_MEMORY_PACKET:
       if (plan.target_data == NULL) {

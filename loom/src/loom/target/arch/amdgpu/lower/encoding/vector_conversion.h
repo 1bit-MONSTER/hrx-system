@@ -36,7 +36,6 @@ iree_status_t loom_amdgpu_lower_vector_16bit_float_conversion(
 // Returns the stable compile-report strategy key for a selected narrow-float
 // vector conversion plan.
 iree_string_view_t loom_amdgpu_vector_16bit_float_conversion_plan_key(
-    loom_low_lower_context_t* context,
     const loom_amdgpu_vector_16bit_float_conversion_plan_t* plan);
 
 // Returns true when an explicit vector.decode is a dense FP8 conversion that
