@@ -258,6 +258,16 @@ iree_runtime_cc_test(
     ],
 )
 
+iree_runtime_cc_test(
+    name = "time_test",
+    srcs = ["time_test.cc"],
+    deps = [
+        ":base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
 #===------------------------------------------------------------------------===#
 # Core headers (platform detection, compiler compat, etc)
 #===------------------------------------------------------------------------===#

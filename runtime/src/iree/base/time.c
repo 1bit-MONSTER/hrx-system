@@ -26,7 +26,12 @@ iree_relative_timeout_to_deadline_ns(iree_duration_t timeout_ns) {
   } else if (timeout_ns == IREE_DURATION_INFINITE) {
     return IREE_TIME_INFINITE_FUTURE;
   }
-  return iree_time_now() + timeout_ns;
+  const iree_time_t now_ns = iree_time_now();
+  // Preserve finite timeouts without overflowing the absolute clock range or
+  // turning a finite deadline into the infinite sentinel.
+  const iree_time_t latest_deadline_ns = IREE_TIME_INFINITE_FUTURE - 1;
+  return timeout_ns > latest_deadline_ns - now_ns ? latest_deadline_ns
+                                                  : now_ns + timeout_ns;
 }
 
 IREE_API_EXPORT iree_duration_t
