@@ -11,6 +11,19 @@ load("//build_tools/embed_data:build_defs.bzl", "iree_c_embed_data")
 
 package(default_testonly = True)
 
+cc_test(
+    name = "system_library_test",
+    size = "small",
+    srcs = ["system_library_test.c"],
+    linkopts = [
+        "-lc",
+        "-ldl",
+        "-lm",
+        "-lpthread",
+    ],
+    target_compatible_with = ["@platforms//os:macos"],
+)
+
 # This is a real host-built generator producing C for the destination compiler.
 iree_c_embed_data(
     name = "shader",

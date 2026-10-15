@@ -128,6 +128,16 @@ class FrameworkHeaders:
         )
 
 
+def system_library_aliases(sdk, inputs):
+    """Preserves SDK link spellings for already selected system libraries."""
+    targets = {(sdk / path).resolve(strict=True) for path in inputs}
+    return {
+        path.relative_to(sdk).as_posix()
+        for path in (sdk / "usr/lib").glob("*.tbd")
+        if path.is_symlink() and path.resolve(strict=True) in targets
+    }
+
+
 def link_inputs(sdk, linker, architecture, sdk_version, minimum_os, framework, output):
     """Asks the selected linker for every input in a real SDK-only link."""
     flags = ["-framework", framework] if framework else ["-lSystem", "-lc++", "-lobjc"]
@@ -171,6 +181,11 @@ def link_inputs(sdk, linker, architecture, sdk_version, minimum_os, framework, o
                 missing_paths.add(path.relative_to(sdk).as_posix())
         elif opcode not in (0x00, 0x40):
             raise ValueError(f"Unknown linker dependency opcode {opcode:#x}")
+    if not framework:
+        # Consumers may name libSystem through libc, libm, or another SDK
+        # alias. The linker trace contains only the spellings used by the
+        # probe; each alias is still a distinct input in a hermetic action.
+        paths.update(system_library_aliases(sdk, paths))
     return sorted(paths), sorted(missing_paths)
 
 

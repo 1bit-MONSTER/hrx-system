@@ -115,6 +115,11 @@ def _macos_toolchain_repository_impl(repository_ctx):
 
     repository_ctx.watch(sdk_root.get_child("SDKSettings.json"))
     repository_ctx.watch(sdk_root.get_child("System", "Library", "Frameworks"))
+
+    # Newly added or retargeted system-library aliases change the selected
+    # logical link inputs. Watching the namespace does not add every library
+    # to compiler or linker actions.
+    repository_ctx.watch_tree(sdk_root.get_child("usr", "lib"))
     for directory in ["usr/include"] + metadata["header_directories"]:
         repository_ctx.watch_tree(sdk_root.get_child(directory).realpath)
     for architecture in metadata["libraries"].values():
