@@ -769,10 +769,10 @@ jobs:
             Format-Table -AutoSize
 
       - name: Upload Windows build failure evidence
-        if: ${{ always() && steps.iree_bazel_ci.outcome == 'failure' }}
+        if: ${{ always() && (steps.iree_bazel_ci.outcome == 'failure' || steps.client_ci.outcome == 'failure') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: windows-build-failures-bazel-${{ matrix.host_toolchain }}-attempt-${{ github.run_attempt }}
+          name: windows-build-failures-bazel-${{ matrix.kind }}-${{ matrix.host_toolchain }}-attempt-${{ github.run_attempt }}
           path: ${{ env.IREE_CI_FAILURE_ARTIFACT_DIR }}
           if-no-files-found: warn
           retention-days: 7
