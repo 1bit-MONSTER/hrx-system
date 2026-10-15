@@ -127,6 +127,26 @@ func.def @valid_launch(%count: index, %output: tensor<4xi32>) {
 
 // ====
 
+kernel.decl @configured_contract(%workload: index) launch(%count: index, %output: buffer)
+
+func.def @valid_configured_calls(%groups: index, %counts: view<3xi32>, %count: index, %output: buffer) {
+  kernel.dispatch @configured_contract[%groups](%count, %output) : [index](index, buffer)
+  kernel.dispatch @configured_contract[%counts](%count, %output) : [view<3xi32>](index, buffer)
+  func.return
+}
+
+// ====
+
+kernel.decl @configured_argument_contract(%workload: index) launch(%argument: i32)
+
+func.def @wrong_configured_argument_type(%groups: index, %argument: f32) {
+  // ERROR@+1: TYPE/001 "argument 0" "kernel entry ABI argument 0"
+  kernel.dispatch @configured_argument_contract[%groups](%argument) : [index](f32)
+  func.return
+}
+
+// ====
+
 // Each bodyless signature owns its local dependent types.
 kernel.decl @dependent_signatures(%workload_count: index, %host_group: group<[%workload_count]>) launch(%abi_count: index, %device_group: group<[%abi_count]>)
 

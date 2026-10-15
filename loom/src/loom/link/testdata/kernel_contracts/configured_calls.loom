@@ -1,0 +1,16 @@
+kernel.def @entry(%groups: index) {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%groups, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%data: buffer) {
+  kernel.return
+}
+
+command.program.def public @root() launch(%data: buffer, %count_storage: buffer) {
+  %c1 = index.constant 1 : index
+  %c0 = index.constant 0 : offset
+  %counts = buffer.view %count_storage[%c0] : buffer -> view<3xi32>
+  kernel.dispatch @entry[%c1](%data) : [index](buffer)
+  kernel.dispatch @entry[%counts](%data) : [view<3xi32>](buffer)
+  kernel.launch @entry[%c1](%data) : [index](buffer)
+  command.return
+}

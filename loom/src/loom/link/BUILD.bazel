@@ -338,6 +338,7 @@ loom_cc_test(
         "//loom/src/loom/format/bytecode:writer",
         "//loom/src/loom/format/text:parser",
         "//loom/src/loom/ir",
+        "//loom/src/loom/link/testdata:kernel_contracts",
         "//loom/src/loom/link/testdata:pipeline_contracts",
         "//loom/src/loom/ops:op_registry",
         "//loom/src/loom/ops/config",

@@ -20,6 +20,7 @@
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
 #include "loom/link/plan_materializer.h"
+#include "loom/link/testdata/kernel_contracts_testdata.h"
 #include "loom/link/testdata/pipeline_contracts_testdata.h"
 #include "loom/ops/config/ops.h"
 #include "loom/ops/func/ops.h"
@@ -639,6 +640,69 @@ kernel.def retain target(@dispatch_target) export("native_rows") linkage(dso_loc
   }
 
   loom_module_free(source_module);
+}
+
+TEST_F(KernelConfigMaterializerTest,
+       ProjectedConfigurationPreservesConfiguredDispatches) {
+  const iree_file_toc_t* files = loom_link_kernel_contracts_testdata_create();
+  ASSERT_EQ(loom_link_kernel_contracts_testdata_size(), 1u);
+  const iree_string_view_t source =
+      iree_make_string_view(files[0].data, files[0].size);
+  std::unique_ptr<loom_module_t, decltype(&loom_module_free)> source_module(
+      Parse(source), loom_module_free);
+  Verify(source_module.get());
+  const std::vector<uint8_t> bytecode = Write(source_module.get());
+  for (const auto form :
+       {LOOM_LINK_PROVIDER_MATERIALIZED, LOOM_LINK_PROVIDER_TEXT,
+        LOOM_LINK_PROVIDER_BYTECODE}) {
+    SCOPED_TRACE(form);
+    IndexPtr index = CreateIndex();
+    switch (form) {
+      case LOOM_LINK_PROVIDER_MATERIALIZED:
+        IREE_ASSERT_OK(loom_link_module_index_add_materialized(
+            index.get(), source_module.get(), /*options=*/nullptr,
+            /*out_provider_ordinal=*/nullptr));
+        break;
+      case LOOM_LINK_PROVIDER_TEXT:
+        AddText(index.get(), source);
+        break;
+      case LOOM_LINK_PROVIDER_BYTECODE:
+        IREE_ASSERT_OK(loom_link_module_index_add_bytecode(
+            index.get(),
+            iree_make_const_byte_span(bytecode.data(), bytecode.size()),
+            IREE_SV("provider.loombc"), /*index_options=*/nullptr,
+            /*options=*/nullptr, /*out_provider_ordinal=*/nullptr));
+        break;
+    }
+    const iree_string_view_t roots[] = {IREE_SV("root")};
+    const loom_link_plan_options_t options = {
+        .mode = LOOM_LINK_PLAN_LINK,
+        .root_symbols = {IREE_ARRAYSIZE(roots), roots},
+        .dependency_policy = LOOM_LINK_PLAN_DEPENDENCY_REQUESTED_FACETS,
+    };
+    loom_link_plan_t* plan_storage = nullptr;
+    IREE_ASSERT_OK(loom_link_plan_build(
+        index.get(), &options, iree_allocator_system(), &plan_storage));
+    PlanPtr plan(plan_storage);
+    const loom_link_plan_materialization_environment_t environment = {
+        .context = &context_,
+        .block_pool = &block_pool_,
+        .allocator = iree_allocator_system(),
+    };
+    iree_arena_allocator_t arena;
+    iree_arena_initialize(&block_pool_, &arena);
+    loom_link_plan_materialization_t materialization = {};
+    IREE_ASSERT_OK(loom_link_plan_materialize(
+        plan.get(), &environment, IREE_SV("mixed"), &arena, &materialization));
+    std::unique_ptr<loom_module_t, decltype(&loom_module_free)> module(
+        materialization.module, loom_module_free);
+    const loom_symbol_t* entry = FindSymbol(module.get(), IREE_SV("entry"));
+    ASSERT_NE(entry, nullptr);
+    EXPECT_TRUE(loom_kernel_decl_isa(entry->defining_op));
+    Verify(module.get());
+    VerifyBytecodeRoundTrip(module.get());
+    iree_arena_deinitialize(&arena);
+  }
 }
 
 TEST_F(KernelConfigMaterializerTest,
