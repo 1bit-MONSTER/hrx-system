@@ -667,7 +667,7 @@ iree_status_t loom_cmd_program_plan_build_from_materialization(
   }
 
   loom_symbol_reference_table_t references = {0};
-  loom_kernel_launch_entry_table_t kernel_entry_table = {0};
+  loom_kernel_launch_resolution_t launch_resolution = {0};
   bool has_templates = false;
   bool valid = false;
   if (iree_status_is_ok(status)) {
@@ -682,7 +682,7 @@ iree_status_t loom_cmd_program_plan_build_from_materialization(
     status = loom_kernel_resolve_launches(
         plan_module, &references, configuration_functions,
         configuration_function_count, diagnostic_emitter, &scratch_arena,
-        &kernel_entry_table, &valid);
+        &launch_resolution, &valid);
   }
   if (valid && iree_status_is_ok(status)) {
     status = loom_cmd_program_plan_normalize_roots(
@@ -705,7 +705,8 @@ iree_status_t loom_cmd_program_plan_build_from_materialization(
   }
 
   loom_cmd_launch_count_realization_t launch_count_realization = {0};
-  if (valid && iree_status_is_ok(status)) {
+  if (valid && iree_status_is_ok(status) &&
+      launch_resolution.has_readonly_launches) {
     loom_op_t** root_ops = NULL;
     status = iree_arena_allocate_array(&scratch_arena, program_count,
                                        sizeof(*root_ops), (void**)&root_ops);
@@ -775,12 +776,12 @@ iree_status_t loom_cmd_program_plan_build_from_materialization(
               LOOM_LINK_MODULE_INDEX_INVALID_ORDINAL;
         }
         IREE_ASSERT_LE(kernel_source->source_definitions.count,
-                       kernel_entry_table.count);
+                       launch_resolution.entry_count);
         const iree_host_size_t source_symbol_count =
             kernel_source->source_definitions.count;
         for (iree_host_size_t source_symbol_id = 0;
              source_symbol_id < source_symbol_count; ++source_symbol_id) {
-          loom_op_t* entry_op = kernel_entry_table.values[source_symbol_id];
+          loom_op_t* entry_op = launch_resolution.entry_ops[source_symbol_id];
           const iree_host_size_t source_definition =
               kernel_source->source_definitions.values[source_symbol_id];
           if (entry_op == NULL ||

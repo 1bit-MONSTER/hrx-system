@@ -18,7 +18,7 @@
 #include "loom/rewrite/remap.h"
 #include "loom/rewrite/rewriter.h"
 
-typedef struct loom_kernel_launch_resolution_t {
+typedef struct loom_kernel_launch_resolution_state_t {
   // Module being transformed.
   loom_module_t* module;
   // Dense configuration function projection by logical-kernel symbol ID.
@@ -35,7 +35,9 @@ typedef struct loom_kernel_launch_resolution_t {
   loom_ir_remap_t type_remap;
   // Rewriter maintaining use lists and module summaries.
   loom_rewriter_t rewriter;
-} loom_kernel_launch_resolution_t;
+  // Whether an actual rewritten launch used a read-only configuration.
+  bool has_readonly_launches;
+} loom_kernel_launch_resolution_state_t;
 
 static iree_string_view_t loom_kernel_launch_resolution_symbol_name(
     const loom_module_t* module, loom_symbol_ref_t symbol_ref) {
@@ -49,7 +51,7 @@ static iree_string_view_t loom_kernel_launch_resolution_symbol_name(
 }
 
 static iree_status_t loom_kernel_launch_resolution_emit_missing_configuration(
-    const loom_kernel_launch_resolution_t* resolution,
+    const loom_kernel_launch_resolution_state_t* resolution,
     const loom_op_t* declaration_op, const loom_op_t* launch_op) {
   const loom_symbol_ref_t callee = loom_kernel_decl_callee(declaration_op);
   const loom_diagnostic_param_t params[] = {
@@ -74,8 +76,8 @@ static iree_status_t loom_kernel_launch_resolution_emit_missing_configuration(
 }
 
 static iree_status_t loom_kernel_launch_resolution_build_entry(
-    loom_kernel_launch_resolution_t* resolution, loom_op_t* declaration_op,
-    loom_symbol_ref_t* out_entry_ref) {
+    loom_kernel_launch_resolution_state_t* resolution,
+    loom_op_t* declaration_op, loom_symbol_ref_t* out_entry_ref) {
   *out_entry_ref = loom_symbol_ref_null();
   IREE_ASSERT(loom_kernel_decl_isa(declaration_op));
   const loom_symbol_ref_t source_ref = loom_kernel_decl_callee(declaration_op);
@@ -170,7 +172,7 @@ static loom_op_t* loom_kernel_launch_resolution_call_insertion_op(
 }
 
 static iree_status_t loom_kernel_launch_resolution_rewrite_launch(
-    loom_kernel_launch_resolution_t* resolution, loom_op_t* launch_op,
+    loom_kernel_launch_resolution_state_t* resolution, loom_op_t* launch_op,
     bool* out_valid) {
   *out_valid = false;
   IREE_ASSERT(loom_kernel_launch_isa(launch_op));
@@ -213,6 +215,8 @@ static iree_status_t loom_kernel_launch_resolution_rewrite_launch(
   IREE_ASSERT(
       configuration_effect_contract == LOOM_CALLABLE_EFFECT_CONTRACT_PURE ||
       configuration_effect_contract == LOOM_CALLABLE_EFFECT_CONTRACT_READONLY);
+  resolution->has_readonly_launches |=
+      configuration_effect_contract == LOOM_CALLABLE_EFFECT_CONTRACT_READONLY;
 
   loom_op_t* entry_op = resolution->entry_ops[kernel_ref.symbol_id];
   if (entry_op == NULL) {
@@ -274,7 +278,7 @@ iree_status_t loom_kernel_resolve_launches(
     iree_host_size_t configuration_function_count,
     iree_diagnostic_emitter_t diagnostic_emitter,
     iree_arena_allocator_t* scratch_arena,
-    loom_kernel_launch_entry_table_t* out_entry_table, bool* out_valid) {
+    loom_kernel_launch_resolution_t* out_resolution, bool* out_valid) {
   IREE_ASSERT_ARGUMENT(module);
   IREE_ASSERT_ARGUMENT(references);
   IREE_ASSERT(references->module == module);
@@ -282,9 +286,9 @@ iree_status_t loom_kernel_resolve_launches(
   IREE_ASSERT(configuration_function_count == 0 || configuration_functions);
   IREE_ASSERT_LE(configuration_function_count, module->symbols.count);
   IREE_ASSERT_ARGUMENT(scratch_arena);
-  IREE_ASSERT_ARGUMENT(out_entry_table);
+  IREE_ASSERT_ARGUMENT(out_resolution);
   IREE_ASSERT_ARGUMENT(out_valid);
-  *out_entry_table = (loom_kernel_launch_entry_table_t){0};
+  *out_resolution = (loom_kernel_launch_resolution_t){0};
   *out_valid = false;
 
   loom_op_t** entry_ops = NULL;
@@ -299,7 +303,7 @@ iree_status_t loom_kernel_resolve_launches(
     }
   }
 
-  loom_kernel_launch_resolution_t resolution = {
+  loom_kernel_launch_resolution_state_t resolution = {
       .module = module,
       .configuration_functions = configuration_functions,
       .configuration_function_count = configuration_function_count,
@@ -329,9 +333,10 @@ iree_status_t loom_kernel_resolve_launches(
   }
   loom_rewriter_deinitialize(&resolution.rewriter);
   if (iree_status_is_ok(status)) {
-    *out_entry_table = (loom_kernel_launch_entry_table_t){
-        .values = entry_ops,
-        .count = references->symbol_count,
+    *out_resolution = (loom_kernel_launch_resolution_t){
+        .entry_ops = entry_ops,
+        .entry_count = references->symbol_count,
+        .has_readonly_launches = resolution.has_readonly_launches,
     };
     *out_valid = valid;
   }

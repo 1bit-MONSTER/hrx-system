@@ -19,19 +19,22 @@
 extern "C" {
 #endif
 
-// Dense derived entry operations indexed by pre-resolution logical symbol ID.
-//
-// Operation pointers remain stable across symbol-table compaction. The entry's
-// callee accessor returns its current module-local identity after each
-// compaction, allowing external analysis projections to follow the entry
-// without storing unstable symbol ordinals in IR.
-typedef struct loom_kernel_launch_entry_table_t {
-  // Scratch-arena-owned entry operation pointers. NULL slots were not live.
-  loom_op_t** values;
+// Results retained while resolving logical kernel launches.
+typedef struct loom_kernel_launch_resolution_t {
+  // Scratch-arena-owned entry operation pointers indexed by pre-resolution
+  // logical symbol ID. NULL slots were not live. Operation pointers remain
+  // stable across symbol-table compaction; the entry's callee accessor returns
+  // its current module-local identity after each compaction.
+  loom_op_t** entry_ops;
 
   // Number of pre-resolution module symbol slots.
-  iree_host_size_t count;
-} loom_kernel_launch_entry_table_t;
+  iree_host_size_t entry_count;
+
+  // True when an actual rewritten launch used a deterministic read-only
+  // configuration. Downstream planning consumes this retained result instead
+  // of rediscovering configuration effects after inlining.
+  bool has_readonly_launches;
+} loom_kernel_launch_resolution_t;
 
 // Resolves every logical kernel launch recorded in |references|.
 //
@@ -68,7 +71,7 @@ iree_status_t loom_kernel_resolve_launches(
     iree_host_size_t configuration_function_count,
     iree_diagnostic_emitter_t diagnostic_emitter,
     iree_arena_allocator_t* scratch_arena,
-    loom_kernel_launch_entry_table_t* out_entry_table, bool* out_valid);
+    loom_kernel_launch_resolution_t* out_resolution, bool* out_valid);
 
 #ifdef __cplusplus
 }  // extern "C"
