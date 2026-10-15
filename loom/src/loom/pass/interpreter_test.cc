@@ -12,7 +12,9 @@
 #include "loom/ops/test/ops.h"
 #include "loom/pass/report.h"
 #include "loom/pass/test/harness.h"
+#include "loom/pass/trace.h"
 #include "loom/rewrite/rewriter.h"
+#include "loom/util/stream.h"
 
 namespace loom {
 namespace {
@@ -110,6 +112,84 @@ TEST_F(PassInterpreterTest, RunsModuleAndFunctionPasses) {
 
   EXPECT_EQ(trace.module_noop_invocation_count, 1);
   EXPECT_EQ(trace.noop_invocation_count, 2);
+}
+
+TEST_F(PassInterpreterTest, StopsExecutionAtFailedTraceBoundary) {
+  for (bool function_anchor : {false, true}) {
+    for (bool fail_before : {false, true}) {
+      for (bool enable_report : {false, true}) {
+        SCOPED_TRACE(::testing::Message()
+                     << "function_anchor=" << function_anchor << " fail_before="
+                     << fail_before << " enable_report=" << enable_report);
+        loom_module_t* module =
+            Parse(function_anchor
+                      ? IREE_SV("pass.pipeline<module> @pipeline pipeline {\n"
+                                "  for func {\n"
+                                "    test.options(count = 5)\n"
+                                "    test.options(count = 7)\n"
+                                "  }\n"
+                                "}\n"
+                                "test.func @main() { test.yield }\n")
+                      : IREE_SV("pass.pipeline<module> @pipeline pipeline {\n"
+                                "  test.module-noop\n"
+                                "  test.module-noop\n"
+                                "}\n"));
+        ASSERT_NE(module, nullptr);
+        PassProgramStorage storage;
+        IREE_ASSERT_OK(Compile(module, Pipeline(module, 0), &storage.program));
+
+        int write_count = 0;
+        loom_output_stream_t stream = {
+            .write =
+                [](void* user_data, iree_string_view_t text) {
+                  ++*static_cast<int*>(user_data);
+                  return iree_status_from_code(IREE_STATUS_UNAVAILABLE);
+                },
+            .user_data = &write_count,
+        };
+        loom_pass_trace_options_t trace_options;
+        loom_pass_trace_options_initialize(&trace_options);
+        trace_options.stream = &stream;
+        trace_options.dump_before_all = fail_before;
+        trace_options.dump_after_all = !fail_before;
+        loom_pass_trace_t trace;
+        loom_pass_trace_initialize(&trace_options, &trace);
+
+        loom_test_pass_trace_t pass_trace = {};
+        DiagnosticCapture diagnostic_capture;
+        PassReportStorage report_storage;
+        auto options = InterpreterOptions(
+            &pass_trace,
+            {.fn = CaptureDiagnostic, .user_data = &diagnostic_capture},
+            enable_report ? &report_storage.report : nullptr);
+        options.trace = &trace;
+        loom_pass_run_result_t result = {};
+        IREE_EXPECT_STATUS_IS(IREE_STATUS_UNAVAILABLE,
+                              loom_pass_interpreter_run_module(
+                                  &storage.program, module, &options, &result));
+
+        EXPECT_EQ(write_count, 1);
+        EXPECT_EQ(diagnostic_capture.emission_count, 0);
+        EXPECT_EQ(result.error_count, 0u);
+        EXPECT_EQ(pass_trace.event_count, fail_before ? 0u : 1u);
+        EXPECT_EQ(pass_trace.module_noop_invocation_count,
+                  !fail_before && !function_anchor ? 1 : 0);
+        EXPECT_EQ(pass_trace.options_invocation_count,
+                  !fail_before && function_anchor ? 1 : 0);
+        EXPECT_EQ(pass_trace.options_decoded_create_count,
+                  !fail_before && function_anchor ? 1 : 0);
+        if (!fail_before && function_anchor) {
+          EXPECT_EQ(pass_trace.decoded_options_count_value, 5u);
+        }
+        ASSERT_EQ(report_storage.report.invocation_count,
+                  !fail_before && enable_report ? 1u : 0u);
+        if (!fail_before && enable_report) {
+          EXPECT_EQ(report_storage.report.invocations[0].status_code,
+                    IREE_STATUS_OK);
+        }
+      }
+    }
+  }
 }
 
 TEST_F(PassInterpreterTest, SelectsFunctionsEnteredByModuleProgram) {
