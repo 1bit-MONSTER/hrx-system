@@ -1,16 +1,16 @@
 spirv.target<vulkan1_3> @target {abi = hal_kernel}
 
-kernel.def target(@target) @dense_projection_tiled_u8_128() {
-  %m_tiles = index.constant 8 : index
-  %n_tiles = index.constant 8 : index
+kernel.def target(@target) @dense_projection_tiled_u8_rectangular() {
+  %m_tiles = index.constant 2 : index
+  %n_tiles = index.constant 3 : index
   %unit = index.constant 1 : index
   %subgroup_size = index.constant 32 : index
   kernel.launch.config workgroups(%n_tiles, %m_tiles, %unit) workgroup_size(%subgroup_size, %unit, %unit) : index
 } launch(%lhs_buffer: buffer, %rhs_buffer: buffer, %init_buffer: buffer, %out_buffer: buffer) {
   %workgroup_n = kernel.workgroup.id<x> : index
   %workgroup_m = kernel.workgroup.id<y> : index
-  %k_tiles = index.constant 4 : index
-  %n_tiles = index.constant 8 : index
+  %k_tiles = index.constant 2 : index
+  %n_tiles = index.constant 3 : index
   %unit = index.constant 1 : index
   %loop_begin = index.constant 0 : index
   %lhs_tile_bytes = index.constant 512 : index
@@ -53,19 +53,19 @@ kernel.def target(@target) @dense_projection_tiled_u8_128() {
   kernel.return
 }
 
-check.case @dense_projection_tiled_u8_128_case {
+check.case @dense_projection_tiled_u8_rectangular_case {
   check.requires<hal.vulkan.feature> {feature = "cooperative_matrix_khr"}
   check.requires<hal.vulkan.feature> {feature = "shader_int8"}
   check.requires<hal.vulkan.feature> {feature = "storage_buffer_8bit_access"}
   check.requires<hal.spirv.cooperative_matrix> {row = "khr.cooperative_matrix.u8.16x16x32.u32.subgroup"}
-  %lhs = check.generate.fill value(1) : tensor<8x4x16x32xi8>
-  %rhs = check.generate.fill value(2) : tensor<4x8x32x16xi8>
-  %init = check.generate.fill value(5) : tensor<8x8x16x16xi32>
-  %output = check.generate.fill value(0) : tensor<8x8x16x16xi32>
-  kernel.launch @dense_projection_tiled_u8_128(%lhs, %rhs, %init, %output) : (tensor<8x4x16x32xi8>, tensor<4x8x32x16xi8>, tensor<8x8x16x16xi32>, tensor<8x8x16x16xi32>)
-  %expected = check.oracle.call<reference.tiled_matmul> {accumulator = "i32", lhs = "u8", result = "i32", rhs = "u8"} callee(@dense_projection_tiled_u8_128) inputs(%lhs, %rhs, %init) : (tensor<8x4x16x32xi8>, tensor<4x8x32x16xi8>, tensor<8x8x16x16xi32>) -> (tensor<8x8x16x16xi32>)
-  check.expect.equal actual(%output) expected(%expected) : tensor<8x8x16x16xi32>
+  %lhs = check.generate.fill value(1) : tensor<2x2x16x32xi8>
+  %rhs = check.generate.fill value(2) : tensor<2x3x32x16xi8>
+  %init = check.generate.fill value(5) : tensor<2x3x16x16xi32>
+  %output = check.generate.fill value(0) : tensor<2x3x16x16xi32>
+  kernel.launch @dense_projection_tiled_u8_rectangular(%lhs, %rhs, %init, %output) : (tensor<2x2x16x32xi8>, tensor<2x3x32x16xi8>, tensor<2x3x16x16xi32>, tensor<2x3x16x16xi32>)
+  %expected = check.oracle.call<reference.tiled_matmul> {accumulator = "i32", lhs = "u8", result = "i32", rhs = "u8"} callee(@dense_projection_tiled_u8_rectangular) inputs(%lhs, %rhs, %init) : (tensor<2x2x16x32xi8>, tensor<2x3x32x16xi8>, tensor<2x3x16x16xi32>) -> (tensor<2x3x16x16xi32>)
+  check.expect.equal actual(%output) expected(%expected) : tensor<2x3x16x16xi32>
   check.return
 }
 
-check.benchmark<@dense_projection_tiled_u8_128_case> @dense_projection_tiled_u8_128_benchmark
+check.benchmark<@dense_projection_tiled_u8_rectangular_case> @dense_projection_tiled_u8_rectangular_benchmark
