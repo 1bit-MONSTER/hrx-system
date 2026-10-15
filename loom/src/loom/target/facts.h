@@ -244,8 +244,9 @@ bool loom_target_facts_structural_satisfy_specialization_requirement(
 
 // Returns whether |effective_snapshot| satisfies the structural requirements
 // in |target_requirement|. Representation widths and address spaces must
-// match, fixed subgroup sizes must agree, and effective capacity limits must
-// meet or exceed nonzero required limits.
+// match, fixed subgroup sizes must agree, required subgroup packing guarantees
+// must hold, and effective capacity limits must meet or exceed nonzero required
+// limits.
 bool loom_target_snapshot_satisfies_specialization_requirement(
     const loom_target_snapshot_t* effective_snapshot,
     const loom_target_snapshot_t* target_requirement);

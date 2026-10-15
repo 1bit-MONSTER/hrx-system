@@ -17,6 +17,7 @@
       .name = IREE_SVL(snapshot_name),                                       \
       .codegen_format = LOOM_TARGET_CODEGEN_FORMAT_LOW_NATIVE,               \
       .artifact_format = LOOM_TARGET_ARTIFACT_FORMAT_ELF,                    \
+      .dense_subgroup_partition = true,                                     \
       .default_pointer_bitwidth = 64,                                        \
       .index_bitwidth = 32,                                                  \
       .offset_bitwidth = 64,                                                 \

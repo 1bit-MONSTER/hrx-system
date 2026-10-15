@@ -83,6 +83,9 @@ enum {
   LOOM_OP_KERNEL_COUNT_ = 56,
 };
 
+// Floating-point collective requirements. Without preserve, sums and products use the target's native collective arithmetic, including its intermediate precision and exceptional-value behavior. Extrema always retain the selected combining kind's NaN and signed-zero semantics. Unsupported requirements fail compilation rather than weakening semantics.
+#define LOOM_KERNEL_COLLECTIVEMATHFLAGS_PRESERVE ((uint8_t)1)
+
 // Private symbol retention policy. Absent (0) permits ordinary DCE.
 typedef enum loom_kernel_retain_e {
   LOOM_KERNEL_RETAIN_RETAIN = 1,
@@ -706,12 +709,13 @@ iree_status_t loom_kernel_subgroup_value_result_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter);
 
-// LOOM_OP_KERNEL_SUBGROUP_REDUCE: Reduce a scalar or rank-1 vector value across the current subgroup.
+// LOOM_OP_KERNEL_SUBGROUP_REDUCE: Reduce a scalar or rank-1 vector value across the current subgroup. Each active contribution participates once per component; association is unspecified. Floating sums and products default to native target arithmetic, which may change signed zeros, flush subnormals, or relax nonfinite handling. The optional preserve requirement instead evaluates each combine with the source format's arithmetic semantics. Neither mode promises serial-reference bits, reproducibility, or a correctly rounded real-number sum. Integer arithmetic and the selected floating-extremum kind keep their exact semantics.
 // %sum = kernel.subgroup.reduce<addf> %v : f32
 LOOM_DEFINE_ISA(loom_kernel_subgroup_reduce_isa, LOOM_OP_KERNEL_SUBGROUP_REDUCE)
 LOOM_DEFINE_OPERAND(loom_kernel_subgroup_reduce_value, 0)
 LOOM_DEFINE_RESULT(loom_kernel_subgroup_reduce_result, 0)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_kernel_subgroup_reduce_kind, 0, loom_combining_kind_t)
+LOOM_DEFINE_INSTANCE_FLAGS(loom_kernel_subgroup_reduce_math)
 LOOM_DEFINE_ATTR_I64(loom_kernel_subgroup_reduce_cluster_size, 1)
 LOOM_DEFINE_ATTR_I64(loom_kernel_subgroup_reduce_cluster_stride, 2)
 enum loom_kernel_subgroup_reduce_build_flag_bits_e {
@@ -723,6 +727,7 @@ iree_status_t loom_kernel_subgroup_reduce_build(
     loom_builder_t* builder,
     loom_kernel_subgroup_reduce_build_flags_t build_flags,
     loom_combining_kind_t kind,
+    uint8_t instance_flags,
     loom_value_id_t value,
     loom_optional int64_t cluster_size,
     loom_optional int64_t cluster_stride,
@@ -738,12 +743,13 @@ iree_status_t loom_kernel_subgroup_reduce_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter);
 
-// LOOM_OP_KERNEL_SUBGROUP_SCAN: Prefix-scan a scalar or rank-1 vector value across the current subgroup.
+// LOOM_OP_KERNEL_SUBGROUP_SCAN: Prefix-scan a scalar or rank-1 vector value across the current subgroup. Each active contribution participates once per component; association is unspecified. Floating sums and products default to native target arithmetic, which may change signed zeros, flush subnormals, or relax nonfinite handling. The optional preserve requirement instead evaluates each combine with the source format's arithmetic semantics. Neither mode promises serial-reference bits, reproducibility, or a correctly rounded real-number sum. Integer arithmetic and the selected floating-extremum kind keep their exact semantics.
 // %prefix = kernel.subgroup.scan<addf> %v {mode = inclusive, direction = forward} : f32
 LOOM_DEFINE_ISA(loom_kernel_subgroup_scan_isa, LOOM_OP_KERNEL_SUBGROUP_SCAN)
 LOOM_DEFINE_OPERAND(loom_kernel_subgroup_scan_value, 0)
 LOOM_DEFINE_RESULT(loom_kernel_subgroup_scan_result, 0)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_kernel_subgroup_scan_kind, 0, loom_combining_kind_t)
+LOOM_DEFINE_INSTANCE_FLAGS(loom_kernel_subgroup_scan_math)
 LOOM_DEFINE_ATTR_I64(loom_kernel_subgroup_scan_cluster_size, 1)
 LOOM_DEFINE_ATTR_I64(loom_kernel_subgroup_scan_cluster_stride, 2)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_kernel_subgroup_scan_mode, 3, loom_kernel_subgroup_scan_mode_t)
@@ -757,6 +763,7 @@ iree_status_t loom_kernel_subgroup_scan_build(
     loom_builder_t* builder,
     loom_kernel_subgroup_scan_build_flags_t build_flags,
     loom_combining_kind_t kind,
+    uint8_t instance_flags,
     loom_value_id_t value,
     loom_optional int64_t cluster_size,
     loom_optional int64_t cluster_stride,
@@ -887,15 +894,17 @@ iree_status_t loom_kernel_subgroup_match_all_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter);
 
-// LOOM_OP_KERNEL_WORKGROUP_REDUCE: Reduce a scalar or rank-1 vector value across the current workgroup.
+// LOOM_OP_KERNEL_WORKGROUP_REDUCE: Reduce a scalar or rank-1 vector value across the current workgroup. Each active contribution participates once per component; association is unspecified. Floating sums and products default to native target arithmetic, which may change signed zeros, flush subnormals, or relax nonfinite handling. The optional preserve requirement instead evaluates each combine with the source format's arithmetic semantics. Neither mode promises serial-reference bits, reproducibility, or a correctly rounded real-number sum. Integer arithmetic and the selected floating-extremum kind keep their exact semantics.
 // %sum = kernel.workgroup.reduce<addf> %v : f32
 LOOM_DEFINE_ISA(loom_kernel_workgroup_reduce_isa, LOOM_OP_KERNEL_WORKGROUP_REDUCE)
 LOOM_DEFINE_OPERAND(loom_kernel_workgroup_reduce_value, 0)
 LOOM_DEFINE_RESULT(loom_kernel_workgroup_reduce_result, 0)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_kernel_workgroup_reduce_kind, 0, loom_combining_kind_t)
+LOOM_DEFINE_INSTANCE_FLAGS(loom_kernel_workgroup_reduce_math)
 iree_status_t loom_kernel_workgroup_reduce_build(
     loom_builder_t* builder,
     loom_combining_kind_t kind,
+    uint8_t instance_flags,
     loom_value_id_t value,
     loom_type_t result_type,
     loom_location_id_t location,
@@ -909,17 +918,19 @@ iree_status_t loom_kernel_workgroup_reduce_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter);
 
-// LOOM_OP_KERNEL_WORKGROUP_SCAN: Prefix-scan a scalar or rank-1 vector value across the current workgroup.
+// LOOM_OP_KERNEL_WORKGROUP_SCAN: Prefix-scan a scalar or rank-1 vector value across the current workgroup. Each active contribution participates once per component; association is unspecified. Floating sums and products default to native target arithmetic, which may change signed zeros, flush subnormals, or relax nonfinite handling. The optional preserve requirement instead evaluates each combine with the source format's arithmetic semantics. Neither mode promises serial-reference bits, reproducibility, or a correctly rounded real-number sum. Integer arithmetic and the selected floating-extremum kind keep their exact semantics.
 // %prefix = kernel.workgroup.scan<addf> %v {mode = inclusive, direction = forward} : f32
 LOOM_DEFINE_ISA(loom_kernel_workgroup_scan_isa, LOOM_OP_KERNEL_WORKGROUP_SCAN)
 LOOM_DEFINE_OPERAND(loom_kernel_workgroup_scan_value, 0)
 LOOM_DEFINE_RESULT(loom_kernel_workgroup_scan_result, 0)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_kernel_workgroup_scan_kind, 0, loom_combining_kind_t)
+LOOM_DEFINE_INSTANCE_FLAGS(loom_kernel_workgroup_scan_math)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_kernel_workgroup_scan_mode, 1, loom_kernel_workgroup_scan_mode_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_kernel_workgroup_scan_direction, 2, loom_kernel_workgroup_scan_direction_t)
 iree_status_t loom_kernel_workgroup_scan_build(
     loom_builder_t* builder,
     loom_combining_kind_t kind,
+    uint8_t instance_flags,
     loom_value_id_t value,
     loom_kernel_workgroup_scan_mode_t mode,
     loom_kernel_workgroup_scan_direction_t direction,

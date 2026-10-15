@@ -60,36 +60,26 @@ static bool loom_amdgpu_subgroup_full_wave_workgroups(
          (flat_workgroup_size % wavefront_size) == 0;
 }
 
-typedef enum loom_amdgpu_scan_mode_flag_bits_t {
-  LOOM_AMDGPU_SCAN_MODE_REQUIRES_IDENTITY = 1u << 0,
-} loom_amdgpu_scan_mode_flag_bits_t;
-
-typedef uint32_t loom_amdgpu_scan_mode_flags_t;
-
 typedef struct loom_amdgpu_scan_mode_rule_t {
   // Subgroup scan mode used by lowering plans.
   loom_kernel_subgroup_scan_mode_t subgroup_mode;
-  // Mode properties consumed by selection, legality, and lowering setup.
-  loom_amdgpu_scan_mode_flags_t flags;
 } loom_amdgpu_scan_mode_rule_t;
 
 static const loom_amdgpu_scan_mode_rule_t
     kLoomAmdgpuSubgroupScanModeRules[LOOM_KERNEL_SUBGROUP_SCAN_MODE_COUNT_] = {
         [LOOM_KERNEL_SUBGROUP_SCAN_MODE_INCLUSIVE] =
-            {LOOM_KERNEL_SUBGROUP_SCAN_MODE_INCLUSIVE, 0},
+            {LOOM_KERNEL_SUBGROUP_SCAN_MODE_INCLUSIVE},
         [LOOM_KERNEL_SUBGROUP_SCAN_MODE_EXCLUSIVE] =
-            {LOOM_KERNEL_SUBGROUP_SCAN_MODE_EXCLUSIVE,
-             LOOM_AMDGPU_SCAN_MODE_REQUIRES_IDENTITY},
+            {LOOM_KERNEL_SUBGROUP_SCAN_MODE_EXCLUSIVE},
 };
 
 static const loom_amdgpu_scan_mode_rule_t
     kLoomAmdgpuWorkgroupScanModeRules[LOOM_KERNEL_WORKGROUP_SCAN_MODE_COUNT_] =
         {
             [LOOM_KERNEL_WORKGROUP_SCAN_MODE_INCLUSIVE] =
-                {LOOM_KERNEL_SUBGROUP_SCAN_MODE_INCLUSIVE, 0},
+                {LOOM_KERNEL_SUBGROUP_SCAN_MODE_INCLUSIVE},
             [LOOM_KERNEL_WORKGROUP_SCAN_MODE_EXCLUSIVE] =
-                {LOOM_KERNEL_SUBGROUP_SCAN_MODE_EXCLUSIVE,
-                 LOOM_AMDGPU_SCAN_MODE_REQUIRES_IDENTITY},
+                {LOOM_KERNEL_SUBGROUP_SCAN_MODE_EXCLUSIVE},
 };
 
 static const loom_amdgpu_scan_mode_rule_t* loom_amdgpu_subgroup_scan_mode_rule(
@@ -106,12 +96,6 @@ static const loom_amdgpu_scan_mode_rule_t* loom_amdgpu_workgroup_scan_mode_rule(
     return NULL;
   }
   return &kLoomAmdgpuWorkgroupScanModeRules[mode];
-}
-
-static bool loom_amdgpu_scan_mode_requires_identity(
-    const loom_amdgpu_scan_mode_rule_t* rule) {
-  return iree_all_bits_set(rule->flags,
-                           LOOM_AMDGPU_SCAN_MODE_REQUIRES_IDENTITY);
 }
 
 typedef struct loom_amdgpu_scan_direction_rule_t {
@@ -225,13 +209,6 @@ iree_status_t loom_amdgpu_select_kernel_subgroup_scan_plan(
   if (mode_rule == NULL) {
     return iree_ok_status();
   }
-  uint32_t identity_bits = 0;
-  if (loom_amdgpu_scan_mode_requires_identity(mode_rule)) {
-    if (!loom_amdgpu_collective_combine_scan_seed_bits(kind, &identity_bits)) {
-      return iree_ok_status();
-    }
-  }
-
   const loom_amdgpu_scan_direction_rule_t* direction_rule =
       loom_amdgpu_subgroup_scan_direction_rule(
           loom_kernel_subgroup_scan_direction(source_op));
@@ -279,7 +256,8 @@ iree_status_t loom_amdgpu_select_kernel_subgroup_scan_plan(
   out_plan->register_count = register_count;
   out_plan->mode = mode_rule->subgroup_mode;
   out_plan->direction = direction_rule->subgroup_direction;
-  out_plan->identity_bits = identity_bits;
+  out_plan->empty_prefix_bits =
+      loom_amdgpu_collective_scan_empty_prefix_bits(kind);
   out_plan->wavefront_size = wavefront_size;
   out_plan->active_lane_count = wavefront_size;
   *out_selected = true;
@@ -323,13 +301,6 @@ iree_status_t loom_amdgpu_select_kernel_workgroup_scan_plan(
   if (mode_rule == NULL) {
     return iree_ok_status();
   }
-  uint32_t identity_bits = 0;
-  if (loom_amdgpu_scan_mode_requires_identity(mode_rule)) {
-    if (!loom_amdgpu_collective_combine_scan_seed_bits(kind, &identity_bits)) {
-      return iree_ok_status();
-    }
-  }
-
   const loom_amdgpu_scan_direction_rule_t* direction_rule =
       loom_amdgpu_workgroup_scan_direction_rule(
           loom_kernel_workgroup_scan_direction(source_op));
@@ -386,13 +357,6 @@ iree_status_t loom_amdgpu_select_kernel_workgroup_scan_plan(
     return iree_ok_status();
   }
 
-  if (is_multi_partition &&
-      !loom_amdgpu_scan_mode_requires_identity(mode_rule)) {
-    if (!loom_amdgpu_collective_combine_scan_seed_bits(kind, &identity_bits)) {
-      return iree_ok_status();
-    }
-  }
-
   if (is_multi_partition) {
     const loom_amdgpu_descriptor_resolution_t lane_lt_resolution[] = {
         {
@@ -435,7 +399,10 @@ iree_status_t loom_amdgpu_select_kernel_workgroup_scan_plan(
   out_plan->register_count = register_count;
   out_plan->mode = mode_rule->subgroup_mode;
   out_plan->direction = direction_rule->subgroup_direction;
-  out_plan->identity_bits = identity_bits;
+  out_plan->empty_prefix_bits =
+      loom_amdgpu_collective_scan_empty_prefix_bits(kind);
+  out_plan->empty_prefix_is_identity =
+      loom_amdgpu_collective_scan_empty_prefix_is_identity(kind);
   out_plan->partition_wavefront_size = partition_wavefront_size;
   out_plan->flat_workgroup_size = shape.flat_workgroup_size;
   out_plan->scratch_byte_length = shape.scratch_byte_length;
@@ -637,12 +604,16 @@ static iree_status_t loom_amdgpu_emit_workgroup_scan_restore_exec(
       source_op->location, &restore_op);
 }
 
+// Optionally retains the inclusive totals and the first-step presence guard for
+// workgroup composition. An exclusive prefix is not an arithmetic seed: its
+// empty value must not be combined to reconstruct a partition's total.
 static iree_status_t loom_amdgpu_emit_subgroup_scan_tree(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     const loom_amdgpu_subgroup_scan_plan_t* plan, loom_value_id_t lane_id,
     loom_type_t lane_type, loom_type_t mask_type,
-    loom_value_id_t dynamic_active_lane_count,
-    loom_value_id_t* inout_registers) {
+    loom_value_id_t dynamic_active_lane_count, loom_value_id_t* inout_registers,
+    loom_value_id_t* out_inclusive_registers,
+    loom_value_id_t* out_predecessor_guard) {
   if (plan->active_lane_count == 0 ||
       plan->active_lane_count > plan->wavefront_size) {
     IREE_ASSERT_UNREACHABLE(
@@ -674,6 +645,9 @@ static iree_status_t loom_amdgpu_emit_subgroup_scan_tree(
   loom_value_id_t exclusive_guard = LOOM_VALUE_ID_INVALID;
   const bool is_exclusive =
       plan->mode == LOOM_KERNEL_SUBGROUP_SCAN_MODE_EXCLUSIVE;
+  if (out_predecessor_guard) {
+    *out_predecessor_guard = step_count ? guards[0] : LOOM_VALUE_ID_INVALID;
+  }
   if (is_exclusive) {
     exclusive_byte_offset = source_byte_offsets[0];
     exclusive_guard = guards[0];
@@ -701,25 +675,28 @@ static iree_status_t loom_amdgpu_emit_subgroup_scan_tree(
           guards[step_index], lane_type, &accumulator));
     }
 
+    if (out_inclusive_registers) {
+      out_inclusive_registers[i] = accumulator;
+    }
     if (is_exclusive) {
       if (step_count == 0) {
-        loom_value_id_t identity = LOOM_VALUE_ID_INVALID;
+        loom_value_id_t empty_prefix = LOOM_VALUE_ID_INVALID;
         IREE_RETURN_IF_ERROR(loom_amdgpu_emit_const_u32(
             context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_V_MOV_B32,
-            plan->identity_bits, lane_type, &identity));
-        accumulator = identity;
+            plan->empty_prefix_bits, lane_type, &empty_prefix));
+        accumulator = empty_prefix;
       } else {
         loom_value_id_t shifted = LOOM_VALUE_ID_INVALID;
         IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_bpermute_register(
             context, source_op, &plan->bpermute_descriptor,
             exclusive_byte_offset, /*static_byte_offset=*/0, accumulator,
             lane_type, &shifted));
-        loom_value_id_t identity = LOOM_VALUE_ID_INVALID;
+        loom_value_id_t empty_prefix = LOOM_VALUE_ID_INVALID;
         IREE_RETURN_IF_ERROR(loom_amdgpu_emit_const_u32(
             context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_V_MOV_B32,
-            plan->identity_bits, lane_type, &identity));
+            plan->empty_prefix_bits, lane_type, &empty_prefix));
         IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_scan_select(
-            context, source_op, &plan->select_descriptor, identity, shifted,
+            context, source_op, &plan->select_descriptor, empty_prefix, shifted,
             exclusive_guard, lane_type, &accumulator));
       }
     }
@@ -756,7 +733,8 @@ iree_status_t loom_amdgpu_lower_kernel_subgroup_scan(
   }
   IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_scan_tree(
       context, source_op, plan, lane_id, lane_type, mask_type,
-      LOOM_VALUE_ID_INVALID, result_registers));
+      LOOM_VALUE_ID_INVALID, result_registers,
+      /*out_inclusive_registers=*/NULL, /*out_predecessor_guard=*/NULL));
 
   return loom_amdgpu_collective_bind_payload_result(
       context, source_op, plan->result, plan->register_count, result_registers);
@@ -777,7 +755,7 @@ iree_status_t loom_amdgpu_lower_kernel_workgroup_scan(
       .register_count = plan->register_count,
       .mode = plan->mode,
       .direction = plan->direction,
-      .identity_bits = plan->identity_bits,
+      .empty_prefix_bits = plan->empty_prefix_bits,
       .wavefront_size = partition_wavefront_size,
       .active_lane_count = plan->flat_workgroup_size,
   };
@@ -834,13 +812,11 @@ iree_status_t loom_amdgpu_lower_kernel_workgroup_scan(
       context, source_op, plan->value, plan->payload_kind,
       plan->payload_materialization, &low_value));
 
-  loom_value_id_t source_registers[LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES];
   loom_value_id_t result_registers[LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES];
   for (uint32_t i = 0; i < register_count; ++i) {
     IREE_RETURN_IF_ERROR(loom_amdgpu_collective_payload_register(
         context, source_op, register_count, low_value, i, lane_type,
-        &source_registers[i]));
-    result_registers[i] = source_registers[i];
+        &result_registers[i]));
   }
 
   loom_value_id_t tail_partition_guard = LOOM_VALUE_ID_INVALID;
@@ -882,25 +858,17 @@ iree_status_t loom_amdgpu_lower_kernel_workgroup_scan(
       .register_count = register_count,
       .mode = plan->mode,
       .direction = plan->direction,
-      .identity_bits = plan->identity_bits,
+      .empty_prefix_bits = plan->empty_prefix_bits,
       .wavefront_size = partition_wavefront_size,
       .active_lane_count = partition_wavefront_size,
   };
-  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_scan_tree(
-      context, source_op, &intra_partition_plan, lane_id, lane_type, mask_type,
-      dynamic_active_lane_count, result_registers));
-
   loom_value_id_t
       partition_total_registers[LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES];
-  for (uint32_t i = 0; i < register_count; ++i) {
-    partition_total_registers[i] = result_registers[i];
-    if (plan->mode == LOOM_KERNEL_SUBGROUP_SCAN_MODE_EXCLUSIVE) {
-      IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_combine(
-          context, source_op, &plan->combine_descriptor,
-          partition_total_registers[i], source_registers[i], lane_type,
-          &partition_total_registers[i]));
-    }
-  }
+  loom_value_id_t local_prefix_guard = LOOM_VALUE_ID_INVALID;
+  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_scan_tree(
+      context, source_op, &intra_partition_plan, lane_id, lane_type, mask_type,
+      dynamic_active_lane_count, result_registers, partition_total_registers,
+      &local_prefix_guard));
 
   loom_value_id_t partition_id = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_amdgpu_emit_vgpr_shift(
@@ -959,24 +927,9 @@ iree_status_t loom_amdgpu_lower_kernel_workgroup_scan(
   IREE_RETURN_IF_ERROR(
       loom_amdgpu_emit_workgroup_scan_barrier(context, source_op, plan));
 
+  loom_value_id_t
+      partition_prefix_registers[LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES];
   if (partition_count == 2) {
-    loom_value_id_t prefix_partition_guard = tail_partition_guard;
-    const bool prefix_guard_selects_second_partition = has_partial_partition;
-    if (!prefix_guard_selects_second_partition) {
-      loom_value_id_t partition_size_value = LOOM_VALUE_ID_INVALID;
-      IREE_RETURN_IF_ERROR(loom_amdgpu_emit_const_u32(
-          context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_V_MOV_B32,
-          partition_wavefront_size, lane_type, &partition_size_value));
-      IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_lane_compare(
-          context, source_op, &plan->lane_lt_descriptor, linear_id,
-          partition_size_value, mask_type, &prefix_partition_guard));
-    }
-
-    loom_value_id_t identity = LOOM_VALUE_ID_INVALID;
-    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_const_u32(
-        context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_V_MOV_B32,
-        plan->identity_bits, lane_type, &identity));
-
     loom_value_id_t zero_byte_offset = LOOM_VALUE_ID_INVALID;
     IREE_RETURN_IF_ERROR(loom_amdgpu_emit_const_u32(
         context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_V_MOV_B32, 0, lane_type,
@@ -990,116 +943,120 @@ iree_status_t loom_amdgpu_lower_kernel_workgroup_scan(
       IREE_RETURN_IF_ERROR(loom_amdgpu_emit_workgroup_scan_scratch_address(
           context, source_op, scratch_base, zero_byte_offset,
           register_byte_offset, lane_type, &address));
-      loom_value_id_t peer_partition_prefix = LOOM_VALUE_ID_INVALID;
       IREE_RETURN_IF_ERROR(loom_amdgpu_emit_workgroup_scan_scratch_read(
           context, source_op, plan, address, lane_type,
-          &peer_partition_prefix));
-      loom_value_id_t partition_prefix = LOOM_VALUE_ID_INVALID;
-      if (plan->direction == LOOM_KERNEL_SUBGROUP_SCAN_DIRECTION_FORWARD) {
-        if (prefix_guard_selects_second_partition) {
-          IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_scan_select(
-              context, source_op, &plan->select_descriptor, identity,
-              peer_partition_prefix, prefix_partition_guard, lane_type,
-              &partition_prefix));
-        } else {
-          IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_scan_select(
-              context, source_op, &plan->select_descriptor,
-              peer_partition_prefix, identity, prefix_partition_guard,
-              lane_type, &partition_prefix));
-        }
-      } else {
-        if (prefix_guard_selects_second_partition) {
-          IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_scan_select(
-              context, source_op, &plan->select_descriptor,
-              peer_partition_prefix, identity, prefix_partition_guard,
-              lane_type, &partition_prefix));
-        } else {
-          IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_scan_select(
-              context, source_op, &plan->select_descriptor, identity,
-              peer_partition_prefix, prefix_partition_guard, lane_type,
-              &partition_prefix));
-        }
-      }
-      IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_combine(
-          context, source_op, &plan->combine_descriptor, result_registers[i],
-          partition_prefix, lane_type, &result_registers[i]));
+          &partition_prefix_registers[i]));
     }
-    return loom_amdgpu_collective_bind_payload_result(
-        context, source_op, plan->result, register_count, result_registers);
+  } else {
+    loom_value_id_t partition_count_value = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_const_u32(
+        context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_V_MOV_B32,
+        partition_count, lane_type, &partition_count_value));
+    loom_value_id_t first_partition_guard = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_lane_compare(
+        context, source_op, &plan->lane_lt_descriptor, linear_id,
+        partition_count_value, mask_type, &first_partition_guard));
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_workgroup_scan_saveexec(
+        context, source_op, plan, first_partition_guard, mask_type,
+        &saved_exec));
+
+    loom_value_id_t lane_byte_offset = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_lane_byte_offset(
+        context, source_op, lane_id, lane_type, &lane_byte_offset));
+    for (uint32_t i = 0; i < register_count; ++i) {
+      const uint32_t register_byte_offset = i * partition_count * 4u;
+      loom_value_id_t address = LOOM_VALUE_ID_INVALID;
+      IREE_RETURN_IF_ERROR(loom_amdgpu_emit_workgroup_scan_scratch_address(
+          context, source_op, scratch_base, lane_byte_offset,
+          register_byte_offset, lane_type, &address));
+      IREE_RETURN_IF_ERROR(loom_amdgpu_emit_workgroup_scan_scratch_read(
+          context, source_op, plan, address, lane_type,
+          &partition_prefix_registers[i]));
+    }
+
+    const loom_amdgpu_subgroup_scan_plan_t cross_partition_plan = {
+        .bpermute_descriptor = plan->bpermute_descriptor,
+        .combine_descriptor = plan->combine_descriptor,
+        .guard_descriptor = plan->guard_descriptor,
+        .select_descriptor = plan->select_descriptor,
+        .value = plan->value,
+        .result = plan->result,
+        .payload_kind = plan->payload_kind,
+        .register_count = register_count,
+        .mode = LOOM_KERNEL_SUBGROUP_SCAN_MODE_EXCLUSIVE,
+        .direction = plan->direction,
+        .empty_prefix_bits = plan->empty_prefix_bits,
+        .wavefront_size = partition_wavefront_size,
+        .active_lane_count = partition_count,
+    };
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_scan_tree(
+        context, source_op, &cross_partition_plan, lane_id, lane_type,
+        mask_type, LOOM_VALUE_ID_INVALID, partition_prefix_registers,
+        /*out_inclusive_registers=*/NULL, /*out_predecessor_guard=*/NULL));
+
+    for (uint32_t i = 0; i < register_count; ++i) {
+      const uint32_t register_byte_offset = i * partition_count * 4u;
+      loom_value_id_t address = LOOM_VALUE_ID_INVALID;
+      IREE_RETURN_IF_ERROR(loom_amdgpu_emit_workgroup_scan_scratch_address(
+          context, source_op, scratch_base, lane_byte_offset,
+          register_byte_offset, lane_type, &address));
+      IREE_RETURN_IF_ERROR(loom_amdgpu_emit_workgroup_scan_scratch_write(
+          context, source_op, plan, address, partition_prefix_registers[i]));
+    }
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_workgroup_scan_restore_exec(
+        context, source_op, plan, saved_exec));
+    IREE_RETURN_IF_ERROR(
+        loom_amdgpu_emit_workgroup_scan_barrier(context, source_op, plan));
+
+    for (uint32_t i = 0; i < register_count; ++i) {
+      const uint32_t register_byte_offset = i * partition_count * 4u;
+      loom_value_id_t address = LOOM_VALUE_ID_INVALID;
+      IREE_RETURN_IF_ERROR(loom_amdgpu_emit_workgroup_scan_scratch_address(
+          context, source_op, scratch_base, partition_byte_offset,
+          register_byte_offset, lane_type, &address));
+      IREE_RETURN_IF_ERROR(loom_amdgpu_emit_workgroup_scan_scratch_read(
+          context, source_op, plan, address, lane_type,
+          &partition_prefix_registers[i]));
+    }
   }
 
-  loom_value_id_t partition_count_value = LOOM_VALUE_ID_INVALID;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_const_u32(
-      context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_V_MOV_B32, partition_count,
-      lane_type, &partition_count_value));
-  loom_value_id_t first_partition_guard = LOOM_VALUE_ID_INVALID;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_lane_compare(
-      context, source_op, &plan->lane_lt_descriptor, linear_id,
-      partition_count_value, mask_type, &first_partition_guard));
-  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_workgroup_scan_saveexec(
-      context, source_op, plan, first_partition_guard, mask_type, &saved_exec));
-
-  loom_value_id_t lane_byte_offset = LOOM_VALUE_ID_INVALID;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_lane_byte_offset(
-      context, source_op, lane_id, lane_type, &lane_byte_offset));
-  loom_value_id_t
-      partition_prefix_registers[LOOM_AMDGPU_MAX_SCALARIZED_32BIT_LANES];
-  for (uint32_t i = 0; i < register_count; ++i) {
-    const uint32_t register_byte_offset = i * partition_count * 4u;
-    loom_value_id_t address = LOOM_VALUE_ID_INVALID;
-    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_workgroup_scan_scratch_address(
-        context, source_op, scratch_base, lane_byte_offset,
-        register_byte_offset, lane_type, &address));
-    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_workgroup_scan_scratch_read(
-        context, source_op, plan, address, lane_type,
-        &partition_prefix_registers[i]));
+  // The two-partition path loads a neighbor's total even for the partition
+  // without a neighbor. Longer scans already produce an empty prefix there,
+  // which can contribute directly only when it is an arithmetic identity.
+  const bool guard_partition_prefix =
+      partition_count == 2 || !plan->empty_prefix_is_identity;
+  loom_value_id_t partition_prefix_guard = LOOM_VALUE_ID_INVALID;
+  if (guard_partition_prefix) {
+    const uint32_t prefix_boundary =
+        plan->direction == LOOM_KERNEL_SUBGROUP_SCAN_DIRECTION_FORWARD
+            ? partition_wavefront_size
+            : (partition_count - 1) * partition_wavefront_size;
+    loom_value_id_t prefix_boundary_value = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_const_u32(
+        context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_V_MOV_B32,
+        prefix_boundary, lane_type, &prefix_boundary_value));
+    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_lane_compare(
+        context, source_op, &plan->guard_descriptor, linear_id,
+        prefix_boundary_value, mask_type, &partition_prefix_guard));
   }
-
-  const loom_amdgpu_subgroup_scan_plan_t cross_partition_plan = {
-      .bpermute_descriptor = plan->bpermute_descriptor,
-      .combine_descriptor = plan->combine_descriptor,
-      .guard_descriptor = plan->guard_descriptor,
-      .select_descriptor = plan->select_descriptor,
-      .value = plan->value,
-      .result = plan->result,
-      .payload_kind = plan->payload_kind,
-      .register_count = register_count,
-      .mode = LOOM_KERNEL_SUBGROUP_SCAN_MODE_EXCLUSIVE,
-      .direction = plan->direction,
-      .identity_bits = plan->identity_bits,
-      .wavefront_size = partition_wavefront_size,
-      .active_lane_count = partition_count,
-  };
-  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_scan_tree(
-      context, source_op, &cross_partition_plan, lane_id, lane_type, mask_type,
-      LOOM_VALUE_ID_INVALID, partition_prefix_registers));
-
   for (uint32_t i = 0; i < register_count; ++i) {
-    const uint32_t register_byte_offset = i * partition_count * 4u;
-    loom_value_id_t address = LOOM_VALUE_ID_INVALID;
-    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_workgroup_scan_scratch_address(
-        context, source_op, scratch_base, lane_byte_offset,
-        register_byte_offset, lane_type, &address));
-    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_workgroup_scan_scratch_write(
-        context, source_op, plan, address, partition_prefix_registers[i]));
-  }
-  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_workgroup_scan_restore_exec(
-      context, source_op, plan, saved_exec));
-  IREE_RETURN_IF_ERROR(
-      loom_amdgpu_emit_workgroup_scan_barrier(context, source_op, plan));
-
-  for (uint32_t i = 0; i < register_count; ++i) {
-    const uint32_t register_byte_offset = i * partition_count * 4u;
-    loom_value_id_t address = LOOM_VALUE_ID_INVALID;
-    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_workgroup_scan_scratch_address(
-        context, source_op, scratch_base, partition_byte_offset,
-        register_byte_offset, lane_type, &address));
-    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_workgroup_scan_scratch_read(
-        context, source_op, plan, address, lane_type,
-        &partition_prefix_registers[i]));
+    loom_value_id_t combined = LOOM_VALUE_ID_INVALID;
     IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_combine(
         context, source_op, &plan->combine_descriptor, result_registers[i],
-        partition_prefix_registers[i], lane_type, &result_registers[i]));
+        partition_prefix_registers[i], lane_type, &combined));
+    if (plan->mode == LOOM_KERNEL_SUBGROUP_SCAN_MODE_EXCLUSIVE &&
+        !plan->empty_prefix_is_identity) {
+      IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_scan_select(
+          context, source_op, &plan->select_descriptor,
+          partition_prefix_registers[i], combined, local_prefix_guard,
+          lane_type, &combined));
+    }
+    if (guard_partition_prefix) {
+      IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_scan_select(
+          context, source_op, &plan->select_descriptor, result_registers[i],
+          combined, partition_prefix_guard, lane_type, &combined));
+    }
+    result_registers[i] = combined;
   }
 
   return loom_amdgpu_collective_bind_payload_result(
@@ -1142,15 +1099,6 @@ iree_status_t loom_amdgpu_low_legality_verify_kernel_workgroup_scan(
     return loom_amdgpu_low_legality_reject(context, op,
                                            IREE_SV("workgroup_scan.mode"));
   }
-  if (loom_amdgpu_scan_mode_requires_identity(mode_rule)) {
-    uint32_t unused_identity_bits = 0;
-    if (!loom_amdgpu_collective_combine_scan_seed_bits(kind,
-                                                       &unused_identity_bits)) {
-      return loom_amdgpu_low_legality_reject(
-          context, op, IREE_SV("workgroup_scan.identity"));
-    }
-  }
-
   const loom_amdgpu_scan_direction_rule_t* direction_rule =
       loom_amdgpu_workgroup_scan_direction_rule(
           loom_kernel_workgroup_scan_direction(op));
@@ -1185,16 +1133,6 @@ iree_status_t loom_amdgpu_low_legality_verify_kernel_workgroup_scan(
       shape.flags, LOOM_AMDGPU_WORKGROUP_COLLECTIVE_SHAPE_MULTI_WAVE);
   const bool has_partial_partition = iree_all_bits_set(
       shape.flags, LOOM_AMDGPU_WORKGROUP_COLLECTIVE_SHAPE_PARTIAL_TAIL);
-  if (!loom_amdgpu_scan_mode_requires_identity(mode_rule) &&
-      is_multi_partition) {
-    uint32_t unused_identity_bits = 0;
-    if (!loom_amdgpu_collective_combine_scan_seed_bits(kind,
-                                                       &unused_identity_bits)) {
-      return loom_amdgpu_low_legality_reject(
-          context, op, IREE_SV("workgroup_scan.identity"));
-    }
-  }
-
   const loom_amdgpu_low_legality_descriptor_requirement_t requirements[] = {
       {
           .constraint_key = IREE_SVL("descriptor.ds_bpermute_b32"),
@@ -1284,15 +1222,6 @@ iree_status_t loom_amdgpu_low_legality_verify_kernel_subgroup_scan(
     return loom_amdgpu_low_legality_reject(context, op,
                                            IREE_SV("subgroup_scan.mode"));
   }
-  if (loom_amdgpu_scan_mode_requires_identity(mode_rule)) {
-    uint32_t unused_identity_bits = 0;
-    if (!loom_amdgpu_collective_combine_scan_seed_bits(kind,
-                                                       &unused_identity_bits)) {
-      return loom_amdgpu_low_legality_reject(context, op,
-                                             IREE_SV("subgroup_scan.identity"));
-    }
-  }
-
   const loom_amdgpu_scan_direction_rule_t* direction_rule =
       loom_amdgpu_subgroup_scan_direction_rule(
           loom_kernel_subgroup_scan_direction(op));

@@ -7,7 +7,6 @@
 #include "loom/target/arch/amdgpu/lower/collective_combine.h"
 
 #include <stdint.h>
-#include <string.h>
 
 #include "iree/base/api.h"
 #include "loom/ops/combining.h"
@@ -20,20 +19,17 @@ enum loom_amdgpu_collective_combine_row_flags_e {
   LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_FLOAT_PAYLOAD = 1u << 1,
   LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_HAS_IDENTITY = 1u << 2,
   LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_INTEGER =
-      (LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_INTEGER_PAYLOAD |
-       LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_HAS_IDENTITY),
-  LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_FLOAT =
-      (LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_FLOAT_PAYLOAD |
-       LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_HAS_IDENTITY),
+      LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_INTEGER_PAYLOAD |
+      LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_HAS_IDENTITY,
 };
 
 typedef struct loom_amdgpu_collective_combine_row_t {
-  // Payload family accepted by the row.
+  // Accepted payload family and arithmetic identity properties.
   loom_amdgpu_collective_combine_row_flags_t flags;
   // Native VGPR descriptor reference used by reductions and scans.
   loom_amdgpu_descriptor_ref_t descriptor_ref;
-  // 32-bit identity bit pattern for guarded reductions and scans.
-  uint32_t identity_bits;
+  // 32-bit empty-prefix bit pattern for scans.
+  uint32_t empty_prefix_bits;
   // Legacy VOP2 DPP descriptor reference for pre-DPP16 row reductions.
   loom_amdgpu_descriptor_ref_t legacy_descriptor_ref;
   // DPP16 descriptor reference for RDNA3 and newer row reductions.
@@ -44,19 +40,22 @@ typedef struct loom_amdgpu_collective_combine_row_t {
   {                                                                      \
       .flags = LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_INTEGER,               \
       .descriptor_ref = descriptor,                                      \
-      .identity_bits = identity,                                         \
+      .empty_prefix_bits = identity,                                     \
       .legacy_descriptor_ref = LOOM_AMDGPU_DESCRIPTOR_REF_NONE,          \
       .dpp16_descriptor_ref = LOOM_AMDGPU_DESCRIPTOR_REF_NONE,           \
   }
 
-#define LOOM_AMDGPU_COLLECTIVE_COMBINE_FLOAT_ROW(descriptor, identity, \
-                                                 legacy_dpp, dpp16)    \
-  {                                                                    \
-      .flags = LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_FLOAT,               \
-      .descriptor_ref = descriptor,                                    \
-      .identity_bits = identity,                                       \
-      .legacy_descriptor_ref = legacy_dpp,                             \
-      .dpp16_descriptor_ref = dpp16,                                   \
+#define LOOM_AMDGPU_COLLECTIVE_COMBINE_FLOAT_ROW(                          \
+    descriptor, identity, is_identity, legacy_dpp, dpp16)                  \
+  {                                                                        \
+      .flags =                                                             \
+          LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_FLOAT_PAYLOAD |               \
+          ((is_identity) ? LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_HAS_IDENTITY \
+                         : 0),                                             \
+      .descriptor_ref = descriptor,                                        \
+      .empty_prefix_bits = identity,                                       \
+      .legacy_descriptor_ref = legacy_dpp,                                 \
+      .dpp16_descriptor_ref = dpp16,                                       \
   }
 
 static const loom_amdgpu_collective_combine_row_t
@@ -64,13 +63,13 @@ static const loom_amdgpu_collective_combine_row_t
         [LOOM_COMBINING_KIND_ADDI] = LOOM_AMDGPU_COLLECTIVE_COMBINE_INTEGER_ROW(
             LOOM_AMDGPU_DESCRIPTOR_REF_V_ADD_U32, 0u),
         [LOOM_COMBINING_KIND_ADDF] = LOOM_AMDGPU_COLLECTIVE_COMBINE_FLOAT_ROW(
-            LOOM_AMDGPU_DESCRIPTOR_REF_V_ADD_F32, 0u,
+            LOOM_AMDGPU_DESCRIPTOR_REF_V_ADD_F32, 0x80000000u, true,
             LOOM_AMDGPU_DESCRIPTOR_REF_V_ADD_F32_DPP,
             LOOM_AMDGPU_DESCRIPTOR_REF_V_ADD_F32_DPP16),
         [LOOM_COMBINING_KIND_MULI] = LOOM_AMDGPU_COLLECTIVE_COMBINE_INTEGER_ROW(
             LOOM_AMDGPU_DESCRIPTOR_REF_V_MUL_LO_U32, 1u),
         [LOOM_COMBINING_KIND_MULF] = LOOM_AMDGPU_COLLECTIVE_COMBINE_FLOAT_ROW(
-            LOOM_AMDGPU_DESCRIPTOR_REF_V_MUL_F32, 0x3f800000u,
+            LOOM_AMDGPU_DESCRIPTOR_REF_V_MUL_F32, 0x3f800000u, true,
             LOOM_AMDGPU_DESCRIPTOR_REF_V_MUL_F32_DPP,
             LOOM_AMDGPU_DESCRIPTOR_REF_V_MUL_F32_DPP16),
         [LOOM_COMBINING_KIND_MINSI] =
@@ -93,12 +92,12 @@ static const loom_amdgpu_collective_combine_row_t
             LOOM_AMDGPU_DESCRIPTOR_REF_V_XOR_B32, 0u),
         [LOOM_COMBINING_KIND_MINNUMF] =
             LOOM_AMDGPU_COLLECTIVE_COMBINE_FLOAT_ROW(
-                LOOM_AMDGPU_DESCRIPTOR_REF_V_MIN_F32, 0x7f800000u,
+                LOOM_AMDGPU_DESCRIPTOR_REF_V_MIN_F32, 0x7f800000u, false,
                 LOOM_AMDGPU_DESCRIPTOR_REF_V_MIN_F32_DPP,
                 LOOM_AMDGPU_DESCRIPTOR_REF_V_MIN_F32_DPP16),
         [LOOM_COMBINING_KIND_MAXNUMF] =
             LOOM_AMDGPU_COLLECTIVE_COMBINE_FLOAT_ROW(
-                LOOM_AMDGPU_DESCRIPTOR_REF_V_MAX_F32, 0xff800000u,
+                LOOM_AMDGPU_DESCRIPTOR_REF_V_MAX_F32, 0xff800000u, false,
                 LOOM_AMDGPU_DESCRIPTOR_REF_V_MAX_F32_DPP,
                 LOOM_AMDGPU_DESCRIPTOR_REF_V_MAX_F32_DPP16),
 };
@@ -170,43 +169,13 @@ bool loom_amdgpu_collective_combine_dpp_descriptor_ref(
   return *out_descriptor_ref != LOOM_AMDGPU_DESCRIPTOR_REF_NONE;
 }
 
-bool loom_amdgpu_collective_combine_identity_bits(loom_combining_kind_t kind,
-                                                  uint32_t* out_bits) {
-  *out_bits = 0;
-  const loom_amdgpu_collective_combine_row_t* row =
-      loom_amdgpu_collective_combine_row(kind);
-  if (row == NULL ||
-      !iree_all_bits_set(row->flags,
-                         LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_HAS_IDENTITY)) {
-    return false;
-  }
-  *out_bits = row->identity_bits;
-  return true;
+uint32_t loom_amdgpu_collective_scan_empty_prefix_bits(
+    loom_combining_kind_t kind) {
+  return kLoomAmdgpuCollectiveCombineRows[kind].empty_prefix_bits;
 }
 
-bool loom_amdgpu_collective_combine_scan_seed_bits(loom_combining_kind_t kind,
-                                                   uint32_t* out_bits) {
-  *out_bits = 0;
-  const loom_amdgpu_collective_combine_row_t* row =
-      loom_amdgpu_collective_combine_row(kind);
-  if (row == NULL) {
-    return false;
-  }
-  if (iree_all_bits_set(row->flags,
-                        LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_INTEGER_PAYLOAD)) {
-    int64_t seed = 0;
-    if (!loom_combining_kind_integer_identity(kind, LOOM_SCALAR_TYPE_I32,
-                                              &seed)) {
-      return false;
-    }
-    *out_bits = (uint32_t)seed;
-    return true;
-  }
-  double seed = 0.0;
-  if (!loom_combining_kind_float_scan_seed(kind, &seed)) {
-    return false;
-  }
-  const float f32_seed = (float)seed;
-  memcpy(out_bits, &f32_seed, sizeof(*out_bits));
-  return true;
+bool loom_amdgpu_collective_scan_empty_prefix_is_identity(
+    loom_combining_kind_t kind) {
+  return iree_all_bits_set(kLoomAmdgpuCollectiveCombineRows[kind].flags,
+                           LOOM_AMDGPU_COLLECTIVE_COMBINE_ROW_HAS_IDENTITY);
 }

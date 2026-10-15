@@ -82,3 +82,45 @@ func.def public inline @reduce_floats(%value: f32, %vector_value: vector<4xf32>)
   %38 = kernel.subgroup.reduce<addf> %vector_value : vector<4xf32>
   func.return %32, %33, %34, %35, %36, %37, %38 : f32, f32, f32, f32, f32, f32, vector<4xf32>
 }
+
+// ====
+#include <loomcxx/kernel.h>
+
+using loom::kernel::collective_math;
+using loom::kernel::scan_direction;
+using loom::kernel::scan_mode;
+using Floats2 = float __attribute__((ext_vector_type(2)));
+
+struct PreservedCollectives {
+  // Clustered scalar reduction.
+  float subgroup_sum;
+  // Componentwise workgroup reduction.
+  Floats2 workgroup_product;
+  // Exclusive subgroup prefix.
+  float subgroup_prefix;
+  // Inclusive workgroup suffix.
+  Floats2 workgroup_suffix;
+};
+
+LOOM_FORCE_INLINE PreservedCollectives preserve_collectives(float value,
+                                                          Floats2 vector) {
+  return {
+      loom::kernel::subgroup::reduce::addf<8, 1, collective_math::preserve>(value),
+      loom::kernel::workgroup::reduce::mulf<collective_math::preserve>(vector),
+      loom::kernel::subgroup::scan::addf<
+          scan_mode::exclusive, scan_direction::forward, 0, 0,
+          collective_math::preserve>(value),
+      loom::kernel::workgroup::scan::mulf<
+          scan_mode::inclusive, scan_direction::reverse,
+          collective_math::preserve>(vector),
+  };
+}
+
+// ----
+func.def public inline @preserve_collectives(%value: f32, %vector: vector<2xf32>) -> (f32, vector<2xf32>, f32, vector<2xf32>) {
+  %6 = kernel.subgroup.reduce<addf, preserve> %value {cluster_size = 8, cluster_stride = 1} : f32
+  %7 = kernel.workgroup.reduce<mulf, preserve> %vector : vector<2xf32>
+  %8 = kernel.subgroup.scan<addf, preserve> %value {direction = forward, mode = exclusive} : f32
+  %9 = kernel.workgroup.scan<mulf, preserve> %vector {direction = reverse, mode = inclusive} : vector<2xf32>
+  func.return %6, %7, %8, %9 : f32, vector<2xf32>, f32, vector<2xf32>
+}

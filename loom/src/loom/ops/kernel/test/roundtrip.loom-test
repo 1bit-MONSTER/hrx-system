@@ -535,3 +535,38 @@ func.def @empty_launch_program() {
 // ====
 
 kernel.decl linkage(dso_local) @external_entry() launch()
+
+// ====
+
+// RUN: format bytecode
+
+kernel.def @collective_arithmetic() {
+  %unit = index.constant 1 : index
+  %width = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%value: f32, %wide: vector<2xf64>, %half: f16, %brain: bf16, %tiny: f8E4M3, %small: f8E5M2) {
+  %native_sum = kernel.subgroup.reduce<addf> %value : f32
+  %preserved_sum = kernel.subgroup.reduce<addf, preserve> %value {cluster_size = 8} : f32
+  %preserved_product = kernel.workgroup.reduce<mulf, preserve> %wide : vector<2xf64>
+  %preserved_prefix = kernel.subgroup.scan<addf, preserve> %half {mode = exclusive, direction = reverse} : f16
+  %preserved_suffix = kernel.workgroup.scan<mulf, preserve> %brain {mode = inclusive, direction = reverse} : bf16
+  %minimum = kernel.subgroup.reduce<minnumf, preserve> %tiny : f8E4M3
+  %maximum = kernel.workgroup.reduce<maximumf, preserve> %small : f8E5M2
+  kernel.return
+}
+
+// ----
+kernel.def @collective_arithmetic() {
+  %unit = index.constant 1 : index
+  %width = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%value: f32, %wide: vector<2xf64>, %half: f16, %brain: bf16, %tiny: f8E4M3, %small: f8E5M2) {
+  %native_sum = kernel.subgroup.reduce<addf> %value : f32
+  %preserved_sum = kernel.subgroup.reduce<addf, preserve> %value {cluster_size = 8} : f32
+  %preserved_product = kernel.workgroup.reduce<mulf, preserve> %wide : vector<2xf64>
+  %preserved_prefix = kernel.subgroup.scan<addf, preserve> %half {direction = reverse, mode = exclusive} : f16
+  %preserved_suffix = kernel.workgroup.scan<mulf, preserve> %brain {direction = reverse, mode = inclusive} : bf16
+  %minimum = kernel.subgroup.reduce<minnumf, preserve> %tiny : f8E4M3
+  %maximum = kernel.workgroup.reduce<maximumf, preserve> %small : f8E5M2
+  kernel.return
+}

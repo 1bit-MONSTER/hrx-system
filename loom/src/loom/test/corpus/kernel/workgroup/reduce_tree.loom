@@ -9,9 +9,9 @@ func.def @workgroup_tree_float_sum_oracle(%input: buffer, %output: buffer) {
   %element_count = index.assume %unbounded_element_count [range(%unbounded_element_count, 1, 9223372036854775807)] : index
   %base = index.constant 0 : offset
   %input_view = buffer.view %input[%base] : buffer -> view<[%element_count]xf32>
-  %begin = index.constant 0 : index
+  %begin = index.constant 1 : index
   %step = index.constant 1 : index
-  %initial_sum = scalar.constant 0.0 : f32
+  %initial_sum = view.load %input_view[0] : view<[%element_count]xf32> -> f32
   %sum = scf.for %position = [%begin to %element_count step %step](%accumulator = %initial_sum : f32) -> (f32) {
     %bounded_position = index.assume %position [range(%position, 0, 9223372036854775807)] : index
     %value = view.load %input_view[%bounded_position] : view<[%element_count]xf32> -> f32
@@ -209,7 +209,7 @@ kernel.def @workgroup_tree_three_waves() {
   %input_view = buffer.view %input[%start] : buffer -> view<96xf32>
   %output_view = buffer.view %output[%start] : buffer -> view<1xf32>
   %value = view.load %input_view[%tid] : view<96xf32> -> f32
-  %reduced = kernel.workgroup.reduce<addf> %value : f32
+  %reduced = kernel.workgroup.reduce<addf, preserve> %value : f32
   %leader_index = index.constant 0 : index
   %is_leader = index.cmp eq, %tid, %leader_index : index
   scf.if %is_leader {
@@ -224,6 +224,13 @@ check.scenario @workgroup_tree_three_waves_values {
     %output = check.generate.fill value(-1.0) : tensor<1xf32>
     check.compare<@workgroup_tree_three_waves, @workgroup_tree_float_sum_oracle>(%input, %output) : (tensor<96xf32>, tensor<1xf32>) -> () {
       check.expect.bitwise actual(%input) expected(%input) : tensor<96xf32>
+      check.expect.bitwise actual(%output) expected(%output) : tensor<1xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.fill value(-0.0) : tensor<96xf32>
+    %output = check.generate.fill value(1.0) : tensor<1xf32>
+    check.compare<@workgroup_tree_three_waves, @workgroup_tree_float_sum_oracle>(%input, %output) : (tensor<96xf32>, tensor<1xf32>) -> () {
       check.expect.bitwise actual(%output) expected(%output) : tensor<1xf32>
     }
   }

@@ -210,6 +210,18 @@ struct [[loom::clustered_launch_config]] clustered_configuration {
   uint3 workgroup_cluster_size;
 };
 
+// Floating sums and products use native target arithmetic by default. Preserve
+// requires source-format combines, including rounding, subnormals, signed
+// zeros, and nonfinite values. Both permit parallel trees; neither prescribes
+// serial order or reproducibility. Unsupported requirements fail compilation.
+// Extrema always retain the selected kind's NaN and signed-zero semantics. This
+// explicit requirement is independent of the caller's lexical fast-math
+// permissions.
+enum class collective_math : unsigned char {
+  native = 0,
+  preserve = 1,
+};
+
 // Reduces a scalar or explicit vector across the current subgroup. A nonzero
 // ClusterSize selects independently reduced lane clusters; ClusterStride
 // selects the lane spacing within a cluster and requires ClusterSize. Both are
@@ -221,13 +233,15 @@ template <unsigned long long ClusterSize = 0,
           unsigned long long ClusterStride = 0, class T>
 [[loom::op("kernel.subgroup.reduce", "addi")]] T addi(T value);
 template <unsigned long long ClusterSize = 0,
-          unsigned long long ClusterStride = 0, class T>
+          unsigned long long ClusterStride = 0,
+          collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.subgroup.reduce", "addf")]] T addf(T value);
 template <unsigned long long ClusterSize = 0,
           unsigned long long ClusterStride = 0, class T>
 [[loom::op("kernel.subgroup.reduce", "muli")]] T muli(T value);
 template <unsigned long long ClusterSize = 0,
-          unsigned long long ClusterStride = 0, class T>
+          unsigned long long ClusterStride = 0,
+          collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.subgroup.reduce", "mulf")]] T mulf(T value);
 template <unsigned long long ClusterSize = 0,
           unsigned long long ClusterStride = 0, class T>
@@ -251,24 +265,29 @@ template <unsigned long long ClusterSize = 0,
           unsigned long long ClusterStride = 0, class T>
 [[loom::op("kernel.subgroup.reduce", "xori")]] T xori(T value);
 template <unsigned long long ClusterSize = 0,
-          unsigned long long ClusterStride = 0, class T>
+          unsigned long long ClusterStride = 0,
+          collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.subgroup.reduce", "minimumf")]] T minimumf(T value);
 template <unsigned long long ClusterSize = 0,
-          unsigned long long ClusterStride = 0, class T>
+          unsigned long long ClusterStride = 0,
+          collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.subgroup.reduce", "maximumf")]] T maximumf(T value);
 template <unsigned long long ClusterSize = 0,
-          unsigned long long ClusterStride = 0, class T>
+          unsigned long long ClusterStride = 0,
+          collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.subgroup.reduce", "minnumf")]] T minnumf(T value);
 template <unsigned long long ClusterSize = 0,
-          unsigned long long ClusterStride = 0, class T>
+          unsigned long long ClusterStride = 0,
+          collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.subgroup.reduce", "maxnumf")]] T maxnumf(T value);
 
 }  // namespace subgroup::reduce
 
 // Prefix operations preserve each invocation's scalar or rank-one vector type.
-// Exclusive scans supply the combining operation's identity at the first
-// participating position. Direction describes logical invocation order, not
-// execution order. These collectives do not imply memory synchronization.
+// Exclusive scans return an empty-prefix seed at the first participating
+// position, not an additional contribution to nonempty prefixes. Direction
+// describes logical invocation order, not arithmetic evaluation order. These
+// collectives do not imply memory synchronization.
 enum class scan_mode : unsigned char {
   inclusive = 0,
   exclusive = 1,
@@ -291,7 +310,8 @@ template <scan_mode Mode = scan_mode::inclusive,
 template <scan_mode Mode = scan_mode::inclusive,
           scan_direction Direction = scan_direction::forward,
           unsigned long long ClusterSize = 0,
-          unsigned long long ClusterStride = 0, class T>
+          unsigned long long ClusterStride = 0,
+          collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.subgroup.scan", "addf")]] T addf(T value);
 template <scan_mode Mode = scan_mode::inclusive,
           scan_direction Direction = scan_direction::forward,
@@ -301,7 +321,8 @@ template <scan_mode Mode = scan_mode::inclusive,
 template <scan_mode Mode = scan_mode::inclusive,
           scan_direction Direction = scan_direction::forward,
           unsigned long long ClusterSize = 0,
-          unsigned long long ClusterStride = 0, class T>
+          unsigned long long ClusterStride = 0,
+          collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.subgroup.scan", "mulf")]] T mulf(T value);
 template <scan_mode Mode = scan_mode::inclusive,
           scan_direction Direction = scan_direction::forward,
@@ -341,22 +362,26 @@ template <scan_mode Mode = scan_mode::inclusive,
 template <scan_mode Mode = scan_mode::inclusive,
           scan_direction Direction = scan_direction::forward,
           unsigned long long ClusterSize = 0,
-          unsigned long long ClusterStride = 0, class T>
+          unsigned long long ClusterStride = 0,
+          collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.subgroup.scan", "minimumf")]] T minimumf(T value);
 template <scan_mode Mode = scan_mode::inclusive,
           scan_direction Direction = scan_direction::forward,
           unsigned long long ClusterSize = 0,
-          unsigned long long ClusterStride = 0, class T>
+          unsigned long long ClusterStride = 0,
+          collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.subgroup.scan", "maximumf")]] T maximumf(T value);
 template <scan_mode Mode = scan_mode::inclusive,
           scan_direction Direction = scan_direction::forward,
           unsigned long long ClusterSize = 0,
-          unsigned long long ClusterStride = 0, class T>
+          unsigned long long ClusterStride = 0,
+          collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.subgroup.scan", "minnumf")]] T minnumf(T value);
 template <scan_mode Mode = scan_mode::inclusive,
           scan_direction Direction = scan_direction::forward,
           unsigned long long ClusterSize = 0,
-          unsigned long long ClusterStride = 0, class T>
+          unsigned long long ClusterStride = 0,
+          collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.subgroup.scan", "maxnumf")]] T maxnumf(T value);
 
 }  // namespace subgroup::scan
@@ -365,11 +390,11 @@ namespace workgroup::reduce {
 
 template <class T>
 [[loom::op("kernel.workgroup.reduce", "addi")]] T addi(T value);
-template <class T>
+template <collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.workgroup.reduce", "addf")]] T addf(T value);
 template <class T>
 [[loom::op("kernel.workgroup.reduce", "muli")]] T muli(T value);
-template <class T>
+template <collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.workgroup.reduce", "mulf")]] T mulf(T value);
 template <class T>
 [[loom::op("kernel.workgroup.reduce", "minsi")]] T minsi(T value);
@@ -385,13 +410,13 @@ template <class T>
 [[loom::op("kernel.workgroup.reduce", "ori")]] T ori(T value);
 template <class T>
 [[loom::op("kernel.workgroup.reduce", "xori")]] T xori(T value);
-template <class T>
+template <collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.workgroup.reduce", "minimumf")]] T minimumf(T value);
-template <class T>
+template <collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.workgroup.reduce", "maximumf")]] T maximumf(T value);
-template <class T>
+template <collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.workgroup.reduce", "minnumf")]] T minnumf(T value);
-template <class T>
+template <collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.workgroup.reduce", "maxnumf")]] T maxnumf(T value);
 
 }  // namespace workgroup::reduce
@@ -404,13 +429,15 @@ template <scan_mode Mode = scan_mode::inclusive,
           scan_direction Direction = scan_direction::forward, class T>
 [[loom::op("kernel.workgroup.scan", "addi")]] T addi(T value);
 template <scan_mode Mode = scan_mode::inclusive,
-          scan_direction Direction = scan_direction::forward, class T>
+          scan_direction Direction = scan_direction::forward,
+          collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.workgroup.scan", "addf")]] T addf(T value);
 template <scan_mode Mode = scan_mode::inclusive,
           scan_direction Direction = scan_direction::forward, class T>
 [[loom::op("kernel.workgroup.scan", "muli")]] T muli(T value);
 template <scan_mode Mode = scan_mode::inclusive,
-          scan_direction Direction = scan_direction::forward, class T>
+          scan_direction Direction = scan_direction::forward,
+          collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.workgroup.scan", "mulf")]] T mulf(T value);
 template <scan_mode Mode = scan_mode::inclusive,
           scan_direction Direction = scan_direction::forward, class T>
@@ -434,16 +461,20 @@ template <scan_mode Mode = scan_mode::inclusive,
           scan_direction Direction = scan_direction::forward, class T>
 [[loom::op("kernel.workgroup.scan", "xori")]] T xori(T value);
 template <scan_mode Mode = scan_mode::inclusive,
-          scan_direction Direction = scan_direction::forward, class T>
+          scan_direction Direction = scan_direction::forward,
+          collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.workgroup.scan", "minimumf")]] T minimumf(T value);
 template <scan_mode Mode = scan_mode::inclusive,
-          scan_direction Direction = scan_direction::forward, class T>
+          scan_direction Direction = scan_direction::forward,
+          collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.workgroup.scan", "maximumf")]] T maximumf(T value);
 template <scan_mode Mode = scan_mode::inclusive,
-          scan_direction Direction = scan_direction::forward, class T>
+          scan_direction Direction = scan_direction::forward,
+          collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.workgroup.scan", "minnumf")]] T minnumf(T value);
 template <scan_mode Mode = scan_mode::inclusive,
-          scan_direction Direction = scan_direction::forward, class T>
+          scan_direction Direction = scan_direction::forward,
+          collective_math Math = collective_math::native, class T>
 [[loom::op("kernel.workgroup.scan", "maxnumf")]] T maxnumf(T value);
 
 }  // namespace workgroup::scan

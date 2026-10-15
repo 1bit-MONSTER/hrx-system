@@ -158,6 +158,55 @@ A vote exchanges predicate state; it does not make memory visible or wait for
 independent asynchronous work. Use a barrier or memory fence when the algorithm
 also requires a memory-ordering contract.
 
+## Choose collective arithmetic requirements
+
+Subgroup and workgroup reductions and scans combine each participating
+invocation's value independently for every vector component. A reduction
+publishes the group result; a scan publishes the prefix or suffix selected by
+its direction and inclusive/exclusive mode. Association within that set is
+unspecified: a parallel tree need not match a serial loop bit for bit.
+
+Floating sums and products use native target arithmetic by default:
+
+```loom
+%sum = kernel.workgroup.reduce<addf> %partial : f32
+%prefix = kernel.subgroup.scan<addf> %value {direction = forward, mode = inclusive} : f32
+```
+
+This default keeps native collective instructions available. The target's
+arithmetic rules determine intermediate precision, signed zeros, subnormal
+handling, and nonfinite behavior. Native arithmetic does not promise IEEE
+exceptional-value behavior on every target. Ordinary finite ML workloads can
+qualify their error envelope against an independent numerical oracle without
+requiring an identical reduction tree.
+
+An explicit `preserve` requirement instead requires each combine in the tree
+to obey the source format's arithmetic semantics:
+
+```loom
+%sum = kernel.workgroup.reduce<addf, preserve> %partial : f32
+```
+
+`preserve` applies to each combine's arithmetic, not the reduction order. This
+includes rounding, signed zeros, subnormals, and nonfinite values. For example,
+a nonempty F32 sum of only negative zeros remains negative zero. For four
+inputs, both `(a + b) + (c + d)` and `((a + b) + c) + d` remain permitted and
+can produce different result bits. Preservation does not select a fixed tree,
+guarantee reproducibility, or request a correctly rounded real-number sum.
+It also does not introduce dynamic rounding modes or observable floating-point
+exception flags. A target without a qualified implementation rejects the
+requirement instead of dropping it or imposing software arithmetic on default
+kernels.
+
+Both modes retain the same participating invocations and synchronization
+requirements. Integer arithmetic keeps its fixed-width semantics. Floating
+extrema always retain their selected kind's NaN and signed-zero rules;
+`preserve` adds no further requirement for extrema. An empty exclusive prefix
+returns the combining kind's seed, not an invented contribution to a nonempty
+prefix: negative zero for preserved floating addition, positive one for
+multiplication, and the appropriate extreme bound for minimum or maximum.
+Native addition permits either zero sign.
+
 ## Over-dispatch safely and preserve the proof
 
 Ceiling division usually creates inactive invocations in the final workgroup.

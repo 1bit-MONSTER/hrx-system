@@ -467,6 +467,12 @@ static iree_status_t loom_kernel_verify_combining_kind_for_value(
     return iree_ok_status();
   }
   loom_scalar_type_t element_type = loom_type_element_type(value_type);
+  if (op->instance_flags != 0 && !loom_scalar_type_is_float(element_type)) {
+    return loom_kernel_emit_attribute_value_constraint(
+        emitter, op, IREE_SV("math"), op->instance_flags,
+        IREE_SV("preservation requirements apply only to floating-point "
+                "collectives"));
+  }
   if (loom_scalar_type_is_integer(element_type) &&
       loom_combining_kind_accepts_integer(kind)) {
     return iree_ok_status();

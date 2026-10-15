@@ -228,6 +228,7 @@ TEST(SpirvTargetProfileTest, SelectsSupportedSubgroupsPerRoot) {
   IREE_ASSERT_OK(loom_target_facts_builder_select_execution(available, &arena,
                                                             &preferred));
   EXPECT_EQ(preferred->storage.snapshot.subgroup_size, 64u);
+  EXPECT_FALSE(preferred->storage.snapshot.dense_subgroup_partition);
   EXPECT_EQ(preferred->storage.snapshot.max_flat_workgroup_size, 4096u);
   EXPECT_TRUE(loom_target_facts_field_is_explicit(
       preferred, LOOM_TARGET_FACT_FIELD_SUBGROUP_SIZE));
@@ -260,6 +261,7 @@ TEST(SpirvTargetProfileTest, SelectsSupportedSubgroupsPerRoot) {
     IREE_ASSERT_OK(loom_target_facts_builder_select_execution(
         constrained, &arena, &selected));
     EXPECT_EQ(selected->storage.snapshot.subgroup_size, width);
+    EXPECT_FALSE(selected->storage.snapshot.dense_subgroup_partition);
     EXPECT_EQ(selected->storage.snapshot.max_flat_workgroup_size,
               width == 64 ? 4096u : width * 16);
     EXPECT_EQ(loom_target_facts_field_is_explicit(
@@ -273,6 +275,24 @@ TEST(SpirvTargetProfileTest, SelectsSupportedSubgroupsPerRoot) {
   EXPECT_EQ(available->storage.snapshot.subgroup_size, 0u);
   iree_arena_deinitialize(&arena);
   iree_arena_block_pool_deinitialize(&block_pool);
+}
+
+TEST(SpirvTargetProfileTest, WidthDoesNotSatisfyDensePartitionRequirement) {
+  loom_target_snapshot_t available =
+      *loom_spirv_low_target_bundle_vulkan1_3.snapshot;
+  available.subgroup_size = 32;
+  loom_target_snapshot_t required = available;
+  EXPECT_TRUE(loom_target_snapshot_satisfies_specialization_requirement(
+      &available, &required));
+  required.dense_subgroup_partition = true;
+  EXPECT_FALSE(loom_target_snapshot_satisfies_specialization_requirement(
+      &available, &required));
+  available.dense_subgroup_partition = true;
+  EXPECT_TRUE(loom_target_snapshot_satisfies_specialization_requirement(
+      &available, &required));
+  required.dense_subgroup_partition = false;
+  EXPECT_TRUE(loom_target_snapshot_satisfies_specialization_requirement(
+      &available, &required));
 }
 
 TEST(SpirvTargetProfileTest, SelectsNativeSubgroupPredicates) {

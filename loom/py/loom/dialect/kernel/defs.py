@@ -33,6 +33,7 @@ from loom.assembly import (
     Scope,
     SymbolRef,
     TemplateParam,
+    TemplateParamFlags,
     TypeOf,
     TypesOf,
     kw,
@@ -45,6 +46,7 @@ from loom.dialect.target.defs import ExportLinkage
 from loom.dsl import (
     ANY,
     ATTR_TYPE_ENUM,
+    ATTR_TYPE_FLAGS,
     ATTR_TYPE_I64,
     ATTR_TYPE_STRING,
     COMMAND_EFFECT,
@@ -1002,8 +1004,50 @@ kernel_subgroup_broadcast_first = Op(
 )
 
 
+CollectiveMathFlags = EnumDef(
+    "CollectiveMathFlags",
+    [
+        EnumCase(
+            "preserve",
+            1,
+            doc=(
+                "Require a parallel tree of source-format combining operations, "
+                "preserving their rounding, subnormal, signed-zero, and nonfinite "
+                "semantics. This does not prescribe a tree or serial evaluation order."
+            ),
+        ),
+    ],
+    doc=(
+        "Floating-point collective requirements. Without preserve, sums and "
+        "products use the target's native collective arithmetic, including its "
+        "intermediate precision and exceptional-value behavior. Extrema always "
+        "retain the selected combining kind's NaN and signed-zero semantics. "
+        "Unsupported requirements fail compilation rather than weakening semantics."
+    ),
+)
+
+_COLLECTIVE_MATH_DOC = (
+    " Each active contribution participates once per component; association is "
+    "unspecified. Floating sums and products default to native target arithmetic, "
+    "which may change signed zeros, flush subnormals, or relax nonfinite handling. "
+    "The optional preserve requirement instead evaluates each combine with the "
+    "source format's arithmetic semantics. Neither mode promises serial-reference "
+    "bits, reproducibility, or a correctly rounded real-number sum. Integer "
+    "arithmetic and the selected floating-extremum kind keep their exact semantics."
+)
+
+
 def _collective_combining_attrs() -> list[AttrDef]:
-    return [AttrDef("kind", ATTR_TYPE_ENUM, enum_def=CombiningKind, doc="Combining operation.")]
+    return [
+        AttrDef("kind", ATTR_TYPE_ENUM, enum_def=CombiningKind, doc="Combining operation."),
+        AttrDef(
+            "math",
+            ATTR_TYPE_FLAGS,
+            optional=True,
+            enum_def=CollectiveMathFlags,
+            doc="Optional floating-point preservation requirement; omission selects native arithmetic.",
+        ),
+    ]
 
 
 def _clustered_combining_attrs() -> list[AttrDef]:
@@ -1019,7 +1063,7 @@ kernel_subgroup_reduce = Op(
     group=kernel_ops,
     contracts=[ContractFamily.KERNEL_SYNCHRONIZATION],
     phase=OpPhase.EXECUTABLE,
-    doc="Reduce a scalar or rank-1 vector value across the current subgroup.",
+    doc="Reduce a scalar or rank-1 vector value across the current subgroup." + _COLLECTIVE_MATH_DOC,
     operands=[Operand("value", ANY, doc="Per-invocation value to reduce.")],
     results=[Result("result", ANY, doc="Reduced value.")],
     attrs=_clustered_combining_attrs(),
@@ -1028,7 +1072,7 @@ kernel_subgroup_reduce = Op(
     verify="loom_kernel_subgroup_reduce_verify",
     facts="loom_kernel_subgroup_reduce_facts",
     format=[
-        TemplateParam("kind"),
+        TemplateParamFlags("kind", "math"),
         Ref("value"),
         AttrDict(),
         COLON,
@@ -1042,7 +1086,7 @@ kernel_subgroup_scan = Op(
     group=kernel_ops,
     contracts=[ContractFamily.KERNEL_SYNCHRONIZATION],
     phase=OpPhase.EXECUTABLE,
-    doc="Prefix-scan a scalar or rank-1 vector value across the current subgroup.",
+    doc="Prefix-scan a scalar or rank-1 vector value across the current subgroup." + _COLLECTIVE_MATH_DOC,
     operands=[Operand("value", ANY, doc="Per-invocation value to scan.")],
     results=[Result("result", ANY, doc="Scanned value.")],
     attrs=[
@@ -1055,7 +1099,7 @@ kernel_subgroup_scan = Op(
     verify="loom_kernel_subgroup_scan_verify",
     facts="loom_kernel_scan_facts",
     format=[
-        TemplateParam("kind"),
+        TemplateParamFlags("kind", "math"),
         Ref("value"),
         AttrDict(),
         COLON,
@@ -1170,7 +1214,7 @@ kernel_workgroup_reduce = Op(
     group=kernel_ops,
     contracts=[ContractFamily.KERNEL_SYNCHRONIZATION],
     phase=OpPhase.EXECUTABLE,
-    doc="Reduce a scalar or rank-1 vector value across the current workgroup.",
+    doc="Reduce a scalar or rank-1 vector value across the current workgroup." + _COLLECTIVE_MATH_DOC,
     operands=[Operand("value", ANY, doc="Per-invocation value to reduce.")],
     results=[Result("result", ANY, doc="Reduced value.")],
     attrs=_collective_combining_attrs(),
@@ -1178,7 +1222,7 @@ kernel_workgroup_reduce = Op(
     traits=_KERNEL_CONVERGENT_TRAITS,
     verify="loom_kernel_workgroup_reduce_verify",
     facts="loom_kernel_workgroup_reduce_facts",
-    format=[TemplateParam("kind"), Ref("value"), COLON, TypeOf("value")],
+    format=[TemplateParamFlags("kind", "math"), Ref("value"), COLON, TypeOf("value")],
     examples=["%sum = kernel.workgroup.reduce<addf> %v : f32"],
 )
 
@@ -1187,7 +1231,7 @@ kernel_workgroup_scan = Op(
     group=kernel_ops,
     contracts=[ContractFamily.KERNEL_SYNCHRONIZATION],
     phase=OpPhase.EXECUTABLE,
-    doc="Prefix-scan a scalar or rank-1 vector value across the current workgroup.",
+    doc="Prefix-scan a scalar or rank-1 vector value across the current workgroup." + _COLLECTIVE_MATH_DOC,
     operands=[Operand("value", ANY, doc="Per-invocation value to scan.")],
     results=[Result("result", ANY, doc="Scanned value.")],
     attrs=[
@@ -1200,7 +1244,7 @@ kernel_workgroup_scan = Op(
     verify="loom_kernel_workgroup_scan_verify",
     facts="loom_kernel_scan_facts",
     format=[
-        TemplateParam("kind"),
+        TemplateParamFlags("kind", "math"),
         Ref("value"),
         AttrDict(),
         COLON,

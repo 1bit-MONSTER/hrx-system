@@ -173,3 +173,65 @@ func.def public target(@wide_device) @wide() -> (index) {
   %width = func.call pure @width_spec1() : () -> (index)
   func.return %width : index
 }
+
+// ====
+// RUN: pass canonicalize
+
+// Native wave packing bounds active lane IDs even before selecting a width.
+amdgpu.target<gfx1151> @device
+
+kernel.def target(@device) @small_dense_workgroup() {
+  %unit = index.constant 1 : index
+  %width = index.constant 3 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch() {
+  %lane = kernel.subgroup.lane.id : index
+  %lane_hi = test.fact_range_hi %lane : index -> i64
+  test.use %lane_hi : i64
+  kernel.return
+}
+
+// ----
+amdgpu.target<gfx1151> @device
+
+kernel.def target(@device) @small_dense_workgroup() {
+  %unit = index.constant 1 : index
+  %width = index.constant 3 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch() {
+  %lane_hi = scalar.constant 2 : i64
+  test.use %lane_hi : i64
+  kernel.return
+}
+
+// ====
+// RUN: pass canonicalize
+
+// A selected native width and dense packing establish an exact subgroup count.
+amdgpu.target<gfx1151> @device {subgroup_size = 32}
+
+kernel.def target(@device) @dense_partial_final_subgroup() {
+  %unit = index.constant 1 : index
+  %width = index.constant 65 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch() {
+  %subgroup = kernel.subgroup.id : index
+  %count = kernel.subgroup.count : index
+  %subgroup_hi = test.fact_range_hi %subgroup : index -> i64
+  test.use %subgroup_hi, %count : i64, index
+  kernel.return
+}
+
+// ----
+amdgpu.target<gfx1151> @device {subgroup_size = 32}
+
+kernel.def target(@device) @dense_partial_final_subgroup() {
+  %unit = index.constant 1 : index
+  %width = index.constant 65 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch() {
+  %count = index.constant 3 : index
+  %subgroup_hi = scalar.constant 2 : i64
+  test.use %subgroup_hi, %count : i64, index
+  kernel.return
+}

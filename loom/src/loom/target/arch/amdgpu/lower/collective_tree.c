@@ -470,10 +470,6 @@ static iree_status_t loom_amdgpu_emit_subgroup_reduce_down_tree(
         context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_V_MOV_B32,
         plan->active_lane_count, lane_type, &active_lane_count));
   }
-  loom_value_id_t identity = LOOM_VALUE_ID_INVALID;
-  IREE_RETURN_IF_ERROR(loom_amdgpu_emit_const_u32(
-      context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_V_MOV_B32,
-      plan->identity_bits, lane_type, &identity));
   loom_value_id_t first_lane_offset = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_amdgpu_emit_const_u32(
       context, source_op, LOOM_AMDGPU_DESCRIPTOR_REF_V_MOV_B32, 0, lane_type,
@@ -527,12 +523,15 @@ static iree_status_t loom_amdgpu_emit_subgroup_reduce_down_tree(
           context, source_op, &plan->bpermute_descriptor,
           low_source_byte_offset, /*static_byte_offset=*/0, accumulator,
           lane_type, &peer));
-      IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_select_peer(
-          context, source_op, &plan->select_descriptor, identity, peer, guard,
-          lane_type, &peer));
+      // An absent peer leaves the accumulator unchanged. Substituting an
+      // identity before combining can destroy NaNs or the sign of zero.
+      loom_value_id_t combined = LOOM_VALUE_ID_INVALID;
       IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_combine(
           context, source_op, &plan->combine_descriptor, accumulator, peer,
-          lane_type, &accumulator));
+          lane_type, &combined));
+      IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_select_peer(
+          context, source_op, &plan->select_descriptor, accumulator, combined,
+          guard, lane_type, &accumulator));
     }
 
     IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_bpermute_register(
