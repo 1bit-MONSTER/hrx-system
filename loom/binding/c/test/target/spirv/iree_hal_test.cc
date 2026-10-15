@@ -620,6 +620,41 @@ TEST(LoomcSpirvIreeHalTargetTest,
 }
 
 TEST(LoomcSpirvIreeHalTargetTest,
+     FiltersFloatingMatricesByExactAccumulatorType) {
+  for (auto component_type : {LOOMC_SPIRV_COMPONENT_TYPE_FLOAT16_NV,
+                              LOOMC_SPIRV_COMPONENT_TYPE_FLOAT32_NV}) {
+    SCOPED_TRACE(component_type);
+    auto property = F16MatrixProperty();
+    property.c_type = component_type;
+    property.result_type = component_type;
+    DeviceSpecPtr device_spec;
+    IREE_ASSERT_OK(CreateVulkanDeviceSpec(CooperativeMatrixVulkanFeatures(),
+                                          kCompleteDeviceSpecFlags,
+                                          &device_spec, 1, &property));
+    FakeHalDevice device = {};
+    InitializeFakeDevice(device_spec.get(), &device);
+    TargetEnvironmentPtr target_environment = CreateSpirvTargetEnvironment();
+    loomc_result_t* result = nullptr;
+    TargetProfilePtr profile =
+        SelectTargetFromHal(target_environment.get(), &device, &result);
+    ResultPtr result_ptr(result);
+    ASSERT_NE(profile.get(), nullptr);
+    ExpectSucceededResult(result_ptr.get());
+
+    for (const char* name : {"khr.cooperative_matrix.f16.16x16x16.f16.subgroup",
+                             kF16CooperativeMatrixRow}) {
+      loomc_spirv_cooperative_matrix_row_t row = {};
+      ASSERT_TRUE(FindCooperativeMatrixRow(profile.get(), name, &row));
+      const bool available =
+          (row.accumulator_type == LOOMC_SPIRV_SCALAR_TYPE_F16) ==
+          (component_type == LOOMC_SPIRV_COMPONENT_TYPE_FLOAT16_NV);
+      EXPECT_EQ(row.state, available ? LOOMC_TARGET_FACT_STATE_TRUE
+                                     : LOOMC_TARGET_FACT_STATE_FALSE);
+    }
+  }
+}
+
+TEST(LoomcSpirvIreeHalTargetTest,
      CooperativeMatrixPropertiesRequireExactSaturation) {
   for (uint32_t saturation_mode : {0u, 1u}) {
     SCOPED_TRACE(saturation_mode);

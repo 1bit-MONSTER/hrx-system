@@ -199,23 +199,26 @@ _SIGNED_SATURATING_PACKET_OPERANDS = " | ".join(
 
 
 COOPERATIVE_MATRIX_CASES = (
-    CooperativeMatrixCase(
-        element="f16",
-        lhs_source_type="f16",
-        rhs_source_type="f16",
-        accumulator_source_type="f32",
-        result_source_type="f32",
-        accumulator="f32",
-        m_size=16,
-        n_size=16,
-        k_size=16,
-        lhs_rows=16,
-        lhs_columns=16,
-        rhs_rows=16,
-        rhs_columns=16,
-        accumulator_rows=16,
-        accumulator_columns=16,
-        feature_atoms=("cooperative_matrix_khr", "float16"),
+    *(
+        CooperativeMatrixCase(
+            element="f16",
+            lhs_source_type="f16",
+            rhs_source_type="f16",
+            accumulator_source_type=accumulator,
+            result_source_type=accumulator,
+            accumulator=accumulator,
+            m_size=16,
+            n_size=16,
+            k_size=16,
+            lhs_rows=16,
+            lhs_columns=16,
+            rhs_rows=16,
+            rhs_columns=16,
+            accumulator_rows=16,
+            accumulator_columns=16,
+            feature_atoms=("cooperative_matrix_khr", "float16"),
+        )
+        for accumulator in ("f32", "f16")
     ),
     CooperativeMatrixCase(
         element="bf16",

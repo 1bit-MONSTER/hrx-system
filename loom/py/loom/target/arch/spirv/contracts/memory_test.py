@@ -91,7 +91,7 @@ def test_cooperative_memory_uses_logical_shapes_without_carrier_widths() -> None
     expected = {
         (scalar, role, element, rows, columns, workgroup, layout)
         for scalar, element, rows, columns, roles in (
-            ("f16", "f16", 16, 16, ("lhs", "rhs")),
+            ("f16", "f16", 16, 16, ("lhs", "rhs", "init", "result")),
             ("bf16", "bf16", 16, 16, ("lhs", "rhs")),
             ("i8", "i8", 16, 32, ("lhs",)),
             ("i8", "i8", 32, 16, ("rhs",)),
@@ -152,7 +152,7 @@ def test_cooperative_memory_uses_the_retained_allocation_carrier() -> None:
     expected = {
         (scalar, role, carrier, layout)
         for scalar, roles, carriers in (
-            ("f16", ("lhs", "rhs"), ("f16", "i16")),
+            ("f16", ("lhs", "rhs", "init", "result"), ("f16", "i16")),
             ("bf16", ("lhs", "rhs"), ("bf16", "i16")),
             ("i8", ("lhs", "rhs"), ("i8",)),
             ("u8", ("lhs", "rhs"), ("u8", "i8")),

@@ -419,3 +419,57 @@ kernel.def @unavailable_cooperative_matrix() {
   vector.fragment.store<result> %result, %view[0, 0] shape [%size, %size] : vector<4xf32>, view<16x16xf32>
   kernel.return
 }
+
+// ====
+
+// F16 accumulation preserves its scalar component for both constructor paths.
+// RUN: emit spirv-low target=spirv:vulkan1.3+bda+hal features=FLOAT16,STORAGE_BUFFER_16BIT_ACCESS,COOPERATIVE_MATRIX_KHR
+
+kernel.def @f16_accumulator_initializers() {
+  %unit = index.constant 1 : index
+  %width = target.subgroup.size : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer, %initial: f16) {
+  %base = index.constant 0 : offset
+  %size = index.constant 16 : index
+  %aligned = buffer.assume.alignment %output {minimum_alignment = 16} : buffer
+  %view = buffer.view %aligned[%base] : buffer -> view<32x16xf16>
+  %a_values = vector.constant -2.0 : vector<4xf16>
+  %b_values = vector.constant 3.0 : vector<4xf16>
+  %constant_values = vector.constant 7.0 : vector<4xf16>
+  %uniform_values = vector.splat %initial : vector<4xf16>
+  %lhs = vector.fragment<lhs> %a_values shape [%size, %size] : vector<4xf16>
+  %rhs = vector.fragment<rhs> %b_values shape [%size, %size] : vector<4xf16>
+  %constant_init = vector.fragment<init> %constant_values shape [%size, %size] : vector<4xf16>
+  %uniform_init = vector.fragment<init> %uniform_values shape [%size, %size] : vector<4xf16>
+  %constant_result = vector.mma %lhs, %rhs, %constant_init : vector<4xf16>, vector<4xf16>, vector<4xf16>
+  %uniform_result = vector.mma %lhs, %rhs, %uniform_init : vector<4xf16>, vector<4xf16>, vector<4xf16>
+  vector.fragment.store<result> %constant_result, %view[0, 0] shape [%size, %size] : vector<4xf16>, view<32x16xf16>
+  vector.fragment.store<result> %uniform_result, %view[%size, 0] shape [%size, %size] : vector<4xf16>, view<32x16xf16>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer, f16) -> ()}) workgroup_count(1, 1, 1) @f16_accumulator_initializers(%initial: reg<spirv.id : f16>) asm {
+  %aligned = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %20 = OpConstant.f16 49152 : reg<spirv.id>
+  %lhs = OpCompositeConstruct.cooperative.f16.16x16.lhs %20 : reg<spirv.id : spirv.cooperative_matrix<16x16xf16, subgroup, matrix_a>>
+  %22 = OpConstant.f16 16896 : reg<spirv.id>
+  %rhs = OpCompositeConstruct.cooperative.f16.16x16.rhs %22 : reg<spirv.id : spirv.cooperative_matrix<16x16xf16, subgroup, matrix_b>>
+  %24 = OpConstant.f16 18176 : reg<spirv.id>
+  %constant_init = OpCompositeConstruct.cooperative.f16.16x16.accumulator %24 : reg<spirv.id : spirv.cooperative_matrix<16x16xf16, subgroup, matrix_accumulator>>
+  %uniform_init = OpCompositeConstruct.cooperative.f16.16x16.accumulator %initial : reg<spirv.id : spirv.cooperative_matrix<16x16xf16, subgroup, matrix_accumulator>>
+  %constant_result = OpCooperativeMatrixMulAddKHR.f16.16x16x16.f16.subgroup %lhs, %rhs, %constant_init : reg<spirv.id : spirv.cooperative_matrix<16x16xf16, subgroup, matrix_accumulator>>
+  %uniform_result = OpCooperativeMatrixMulAddKHR.f16.16x16x16.f16.subgroup %lhs, %rhs, %uniform_init : reg<spirv.id : spirv.cooperative_matrix<16x16xf16, subgroup, matrix_accumulator>>
+  %29 = OpConstant.offset64 16
+  %30 = OpUConvert.offset64.u32 %29
+  %31 = OpConstant.offset64 0
+  %32 = OpPtrAccessChain.storage_buffer.f16.byte_offset %aligned, %31
+  OpCooperativeMatrixStoreKHR.result.f16.16x16.subgroup.storage_buffer %32, %constant_result, %30, 0
+  %33 = OpConstant.offset64 16
+  %34 = OpUConvert.offset64.u32 %33
+  %35 = OpConstant.offset64 512
+  %36 = OpPtrAccessChain.storage_buffer.f16.byte_offset %aligned, %35
+  OpCooperativeMatrixStoreKHR.result.f16.16x16.subgroup.storage_buffer %36, %uniform_result, %34, 0
+  return
+}
