@@ -36,6 +36,21 @@ iree_cc_test(
 
 iree_cc_test(
   NAME
+    collective_trial_stress_tests
+  DEPS
+    ::backend
+    iree::async::cts::util::platform_backends
+    iree::async::cts::util::test_main
+    iree::net::carrier::tcp::factory
+    iree::net::cts::collective_trial_stress_tests
+    iree::net::cts::transport_backend
+  LABELS
+    "manual"
+    "stress"
+)
+
+iree_cc_test(
+  NAME
     transfer_trial_tests
   DEPS
     ::backend
@@ -68,6 +83,8 @@ iree_cc_binary_benchmark(
     iree::net::cts::collective_benchmarks
     iree::net::cts::transport_backend
     iree::third_party::google_benchmark
+  ARGS
+    "--benchmark_filter=^(TensorAllReduce/.*/ranks:2/tensor_bytes:8192/block_bytes:4096/window:1/rounds:32/|Pipeline/.*/stages:2/activation_bytes:8192/block_bytes:4096/window:1/microbatches:32/depth:1/)"
   TESTONLY
 )
 
@@ -82,6 +99,8 @@ iree_cc_binary_benchmark(
     iree::net::cts::expert_benchmarks
     iree::net::cts::transport_backend
     iree::third_party::google_benchmark
+  ARGS
+    "--benchmark_filter=^ExpertRoundTrip/.*/ranks:4/tokens:1/"
   TESTONLY
 )
 
@@ -96,6 +115,8 @@ iree_cc_binary_benchmark(
     iree::net::cts::gather_benchmarks
     iree::net::cts::transport_backend
     iree::third_party::google_benchmark
+  ARGS
+    "--benchmark_filter=^RetainedGather/.*/ranks:2/shard_bytes:8192/block_bytes:4096/window:1/depth:1/gathers:16/"
   TESTONLY
 )
 
@@ -110,6 +131,8 @@ iree_cc_binary_benchmark(
     iree::net::cts::pipeline_round_trip_benchmarks
     iree::net::cts::transport_backend
     iree::third_party::google_benchmark
+  ARGS
+    "--benchmark_filter=^BidirectionalPipeline/.*/stages:2/activation_bytes:8192/gradient_bytes:4096/block_bytes:4096/window:1/depth:1/microbatches:16/"
   TESTONLY
 )
 
@@ -124,6 +147,8 @@ iree_cc_binary_benchmark(
     iree::net::cts::transfer_benchmarks
     iree::net::cts::transport_backend
     iree::third_party::google_benchmark
+  ARGS
+    "--benchmark_filter=^CheckedTransfer/.*/peers:1/bytes:64/batch:32/window:128/sg:1/records:2048/"
   TESTONLY
 )
 

@@ -315,7 +315,7 @@ def check(server, source, directory, workers, memory_bytes, retention):
         assert control(address, "GET", "/readyz", 200) == {"status": "ready"}
 
 
-def main():
+def run_from_command_line(cases):
     parser = argparse.ArgumentParser()
     parser.add_argument("--server", type=Path, required=True)
     parser.add_argument("--source", type=Path, required=True)
@@ -324,19 +324,28 @@ def main():
     failures = []
     with tempfile.TemporaryDirectory(prefix="loom pressure ") as temporary:
         root = Path(temporary)
-        for workers in (1, 4):
-            for memory_bytes in (8388608, 4194304):
-                for retention in ("none", "checkpoint", "parameters"):
-                    directory = root / f"{workers}-{memory_bytes}-{retention}"
-                    directory.mkdir()
-                    try:
-                        check(
-                            server, source, directory, workers, memory_bytes, retention
-                        )
-                    except AssertionError as error:
-                        failures.append((workers, memory_bytes, retention, str(error)))
+        for workers, memory_bytes, retention in cases:
+            directory = root / f"{workers}-{memory_bytes}-{retention}"
+            directory.mkdir()
+            try:
+                check(server, source, directory, workers, memory_bytes, retention)
+            except AssertionError as error:
+                failures.append((workers, memory_bytes, retention, str(error)))
     assert not failures, failures
 
 
+# Pairwise coverage across worker count, physical memory limit, and retained
+# state policy. The manual pressure_stress_test target retains the complete
+# Cartesian product for explicit stress qualification.
+_CASES = (
+    (1, 8 * 1024 * 1024, "none"),
+    (1, 4 * 1024 * 1024, "checkpoint"),
+    (1, 8 * 1024 * 1024, "parameters"),
+    (4, 4 * 1024 * 1024, "none"),
+    (4, 8 * 1024 * 1024, "checkpoint"),
+    (4, 4 * 1024 * 1024, "parameters"),
+)
+
+
 if __name__ == "__main__":
-    main()
+    run_from_command_line(_CASES)

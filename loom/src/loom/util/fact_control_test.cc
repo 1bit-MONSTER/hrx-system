@@ -11,6 +11,7 @@
 
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
+#include "loom/util/cfg_control_test_harness.h"
 #include "loom/util/cfg_control_test_util.h"
 #include "loom/util/cfg_graph_test_util.h"
 
@@ -21,64 +22,27 @@ using testing::ControlDistribution;
 
 class FactControlTest : public ::testing::Test {
  protected:
-  void SetUp() override {
-    iree_arena_block_pool_initialize(4096, iree_allocator_system(), &pool_);
-    iree_arena_initialize(&pool_, &arena_);
-  }
-  void TearDown() override {
-    iree_arena_deinitialize(&arena_);
-    iree_arena_block_pool_deinitialize(&pool_);
-  }
-
-  void CheckUpdates(const std::vector<std::vector<uint16_t>>& successors,
-                    std::mt19937& random) {
-    testing::CfgGraph fixture(successors);
-    loom_cfg_control_t structure;
-    IREE_ASSERT_OK(loom_cfg_control_build(fixture.get(), &arena_, &structure));
-    loom_value_fact_control_t control;
-    IREE_ASSERT_OK(
-        loom_value_fact_control_initialize(&structure, &arena_, &control));
-    const size_t allocation_size = arena_.used_allocation_size;
-    std::vector<uint8_t> selectors(successors.size(), 4);
-    testing::CfgControlOracle oracle(fixture.get());
-    IREE_ASSERT_OK(oracle.CheckStructure(structure));
-    auto previous = oracle.Solve(selectors);
-    for (uint32_t batch = 0; batch < 30; ++batch) {
-      SCOPED_TRACE(batch);
-      const uint32_t count = 1 + random() % successors.size();
-      for (uint32_t i = 0; i < count; ++i) {
-        const uint32_t block = random() % successors.size();
-        selectors[block] = random() % 5;
-        loom_value_fact_control_set_selector(
-            &control, block, ControlDistribution(selectors[block]));
-      }
-      loom_value_fact_control_settle(&control);
-      IREE_ASSERT_OK(oracle.CheckFacts(&control, selectors));
-      IREE_ASSERT_OK(oracle.CheckPublication(&control, selectors, &previous));
-      EXPECT_EQ(arena_.used_allocation_size, allocation_size);
-    }
-    iree_arena_reset(&arena_);
-  }
-
-  // Reusable backing storage for the graph and mutable solver.
-  iree_arena_block_pool_t pool_;
-  // Analysis lifetime; mutation must not increase its allocation count.
-  iree_arena_allocator_t arena_;
+  testing::CfgControlTestHarness harness_;
 };
 
 TEST_F(FactControlTest, NestedScopesStrengthenAndWeakenAcrossReconvergence) {
   std::mt19937 random(763234);
-  CheckUpdates({{1, 6}, {2, 3}, {4}, {4}, {5}, {6}, {}}, random);
-  CheckUpdates({{1, 2}, {3}, {3}, {4, 5}, {}, {}}, random);
-  CheckUpdates({{3, 4}, {5}, {5}, {1, 2}, {5}, {}}, random);
+  IREE_ASSERT_OK(harness_.CheckFactUpdates(
+      {{1, 6}, {2, 3}, {4}, {4}, {5}, {6}, {}}, random));
+  IREE_ASSERT_OK(
+      harness_.CheckFactUpdates({{1, 2}, {3}, {3}, {4, 5}, {}, {}}, random));
+  IREE_ASSERT_OK(
+      harness_.CheckFactUpdates({{3, 4}, {5}, {5}, {1, 2}, {5}, {}}, random));
 }
 
 TEST_F(FactControlTest, CyclesIrreducibilityAndUnreachableSelectors) {
   std::mt19937 random(54323);
-  CheckUpdates({{1}, {2, 3}, {1}, {}}, random);
-  CheckUpdates({{1, 2}, {2, 3}, {1, 3}, {}}, random);
-  CheckUpdates({{1, 2}, {3, 4}, {4, 5}, {1}, {2, 5}, {}, {0, 6}}, random);
-  CheckUpdates({{1, 2}, {1}, {2}}, random);
+  IREE_ASSERT_OK(harness_.CheckFactUpdates({{1}, {2, 3}, {1}, {}}, random));
+  IREE_ASSERT_OK(
+      harness_.CheckFactUpdates({{1, 2}, {2, 3}, {1, 3}, {}}, random));
+  IREE_ASSERT_OK(harness_.CheckFactUpdates(
+      {{1, 2}, {3, 4}, {4, 5}, {1}, {2, 5}, {}, {0, 6}}, random));
+  IREE_ASSERT_OK(harness_.CheckFactUpdates({{1, 2}, {1}, {2}}, random));
 }
 
 TEST_F(FactControlTest, ExhaustiveThreeBlockGraphsWithNonmonotoneUpdates) {
@@ -93,13 +57,15 @@ TEST_F(FactControlTest, ExhaustiveThreeBlockGraphsWithNonmonotoneUpdates) {
         }
       }
     }
-    CheckUpdates(successors, random);
+    IREE_ASSERT_OK(harness_.CheckFactUpdates(successors, random));
   }
 }
 
 TEST_F(FactControlTest, RandomGraphsAndMixedScopeUpdates) {
   std::mt19937 random(996137);
-  for (uint32_t trial = 0; trial < 3000; ++trial) {
+  // The manual stress test retains the full fixed-seed sequence, while
+  // fact_control_fuzz owns unbounded topology and update-sequence search.
+  for (uint32_t trial = 0; trial < 256; ++trial) {
     SCOPED_TRACE(trial);
     const uint32_t count = 1 + random() % 20;
     std::vector<std::vector<uint16_t>> successors(count);
@@ -109,17 +75,18 @@ TEST_F(FactControlTest, RandomGraphsAndMixedScopeUpdates) {
         edges.push_back(random() % count);
       }
     }
-    CheckUpdates(successors, random);
+    IREE_ASSERT_OK(harness_.CheckFactUpdates(successors, random));
   }
 }
 
 TEST_F(FactControlTest, TransientResetDoesNotPublishAChange) {
   testing::CfgGraph fixture({{1, 2}, {3}, {3}, {}});
   loom_cfg_control_t structure;
-  IREE_ASSERT_OK(loom_cfg_control_build(fixture.get(), &arena_, &structure));
-  loom_value_fact_control_t control;
   IREE_ASSERT_OK(
-      loom_value_fact_control_initialize(&structure, &arena_, &control));
+      loom_cfg_control_build(fixture.get(), harness_.arena(), &structure));
+  loom_value_fact_control_t control;
+  IREE_ASSERT_OK(loom_value_fact_control_initialize(
+      &structure, harness_.arena(), &control));
   for (uint8_t initial = 0; initial < 5; ++initial) {
     loom_value_fact_control_set_selector(&control, 0,
                                          ControlDistribution(initial));
@@ -140,10 +107,11 @@ TEST_F(FactControlTest,
        EqualMinimumKeepsItsWitnessUntilThatSelectorStrengthens) {
   testing::CfgGraph fixture({{1, 4}, {2, 4}, {3, 4}, {4}, {}});
   loom_cfg_control_t structure;
-  IREE_ASSERT_OK(loom_cfg_control_build(fixture.get(), &arena_, &structure));
-  loom_value_fact_control_t control;
   IREE_ASSERT_OK(
-      loom_value_fact_control_initialize(&structure, &arena_, &control));
+      loom_cfg_control_build(fixture.get(), harness_.arena(), &structure));
+  loom_value_fact_control_t control;
+  IREE_ASSERT_OK(loom_value_fact_control_initialize(
+      &structure, harness_.arena(), &control));
   loom_value_fact_control_set_selector(&control, 0, ControlDistribution(1));
   loom_value_fact_control_settle(&control);
   loom_value_fact_control_prepare_diagnostics(&control);

@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//loom/build_tools/bazel:defs.bzl", "loom_module")
+load("//loom/build_tools/bazel:defs.bzl", "loom_module", "loom_test_module")
 
 package(
     default_visibility = ["//visibility:public"],
@@ -12,9 +12,14 @@ package(
     licenses = ["notice"],  # Apache 2.0
 )
 
-_CASES = glob(["*.loom"])
+_BENCHMARK_WORKLOADS = glob(["*_benchmark.loom"])
 
-exports_files(_CASES)
+_CASES = glob(
+    ["*.loom"],
+    exclude = ["*_benchmark.loom"],
+)
+
+exports_files(_CASES + _BENCHMARK_WORKLOADS)
 
 loom_module(
     name = "authoring_cases",
@@ -28,4 +33,9 @@ loom_module(
     ],
     output_format = "bc",
     require_resolved_config = True,
+)
+
+loom_test_module(
+    name = "authoring_benchmark_workload_module",
+    srcs = _BENCHMARK_WORKLOADS,
 )

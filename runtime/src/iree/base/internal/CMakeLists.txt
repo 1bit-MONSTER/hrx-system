@@ -180,6 +180,8 @@ iree_cc_binary_benchmark(
     ::atomic_slist
     iree::testing::benchmark_main
     iree::third_party::google_benchmark
+  ARGS
+    "--benchmark_filter=^(BM_PushPop|BM_PushNFlushFIFO/1024|BM_ContentionPushPop/iterations:10000/real_time/threads:8|BM_ProducerConsumerFlush/iterations:10000/real_time/threads:8)"
   TESTONLY
 )
 

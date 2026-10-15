@@ -107,6 +107,22 @@ iree_runtime_cc_library(
 )
 
 iree_runtime_cc_library(
+    name = "collective_trial_test_util",
+    testonly = True,
+    srcs = ["collective_trial_test_util.cc"],
+    hdrs = ["collective_trial_test_util.h"],
+    deps = [
+        ":collective_trial",
+        ":expert_trial",
+        ":gather_trial",
+        ":pipeline_round_trip",
+        ":transport_backend",
+        "//runtime/src/iree/async/cts/util:registry",
+        "//runtime/src/iree/testing:gtest",
+    ],
+)
+
+iree_runtime_cc_library(
     name = "collective_trial_tests",
     testonly = True,
     srcs = [
@@ -117,10 +133,23 @@ iree_runtime_cc_library(
     ],
     deps = [
         ":collective_trial",
+        ":collective_trial_test_util",
         ":expert_trial",
         ":gather_trial",
         ":pipeline_round_trip",
         ":transport_backend",
+        "//runtime/src/iree/async/cts/util:registry",
+        "//runtime/src/iree/testing:gtest",
+    ],
+    alwayslink = True,
+)
+
+iree_runtime_cc_library(
+    name = "collective_trial_stress_tests",
+    testonly = True,
+    srcs = ["collective_trial_stress_test.cc"],
+    deps = [
+        ":collective_trial_test_util",
         "//runtime/src/iree/async/cts/util:registry",
         "//runtime/src/iree/testing:gtest",
     ],

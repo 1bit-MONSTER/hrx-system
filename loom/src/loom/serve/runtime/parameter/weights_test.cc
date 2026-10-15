@@ -269,6 +269,37 @@ struct ActivationWake {
 
 class WeightsTest : public ::testing::TestWithParam<bool> {
  protected:
+  static void SetUpTestSuite() {
+    const iree_allocator_t host_allocator = iree_allocator_system();
+    loom_serve_host_t* host = nullptr;
+    IREE_ASSERT_OK(loom_serve_test_host_create(1, host_allocator, &host));
+    iree_hal_driver_t* driver = nullptr;
+    IREE_ASSERT_OK(
+        loom_serve_test_driver_create(host, host_allocator, &driver));
+    for (size_t i = 0; i < IREE_ARRAYSIZE(groups_); ++i) {
+      const bool elastic = i != 0;
+      const loom_serve_device_options_t options = {
+          .driver = driver,
+          .uri = IREE_SV("amdgpu:?feedback"),
+          .backing = elastic ? LOOM_SERVE_DEVICE_BACKING_ELASTIC
+                             : LOOM_SERVE_DEVICE_BACKING_FIXED,
+          .slab_size = kSlabBytes,
+          .memory_limit = elastic ? 2 * kSlabBytes : 0,
+      };
+      IREE_ASSERT_OK(loom_serve_device_group_allocate(
+          host, 1, &options, host_allocator, &groups_[i]));
+    }
+    iree_hal_driver_release(driver);
+    loom_serve_host_release(host);
+  }
+
+  static void TearDownTestSuite() {
+    for (auto*& group : groups_) {
+      IREE_EXPECT_OK(loom_serve_device_group_free(group));
+      group = nullptr;
+    }
+  }
+
   void WriteCheckpoint(const std::string& path, int32_t offset,
                        size_t first_tensor = 0, size_t tensor_count = 4) {
     // Actual safetensors input exercises file indexing and queued reads. Each
@@ -302,24 +333,7 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
   }
 
   void SetUp() override {
-    loom_serve_host_t* host = nullptr;
-    IREE_ASSERT_OK(loom_serve_test_host_create(1, host_allocator_, &host));
-    iree_hal_driver_t* driver = nullptr;
-    IREE_ASSERT_OK(
-        loom_serve_test_driver_create(host, host_allocator_, &driver));
-    const loom_serve_device_options_t options = {
-        .driver = driver,
-        .uri = IREE_SV("amdgpu:?feedback"),
-        .backing = GetParam() ? LOOM_SERVE_DEVICE_BACKING_ELASTIC
-                              : LOOM_SERVE_DEVICE_BACKING_FIXED,
-        .slab_size = kSlabBytes,
-        .memory_limit = GetParam() ? 2 * kSlabBytes : 0,
-    };
-    auto status = loom_serve_device_group_allocate(host, 1, &options,
-                                                   host_allocator_, &group_);
-    iree_hal_driver_release(driver);
-    loom_serve_host_release(host);
-    IREE_ASSERT_OK(status);
+    group_ = groups_[GetParam() ? 1 : 0];
     device_owner_ = loom_serve_device_group_at(group_, 0);
     device_ = loom_serve_device_handle(device_owner_);
     dispatch_ = loom_serve_device_dispatch_queue(device_owner_);
@@ -372,7 +386,12 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
     iree_hal_buffer_release(output_buffer_);
     loom_serve_jit_free(jit_);
     loom_serve_execution_release(execution_);
-    IREE_EXPECT_OK(loom_serve_device_group_free(group_));
+    IREE_EXPECT_OK(loom_serve_device_trim(device_owner_, 0));
+    DrainMaintenance();
+    const auto memory = loom_serve_device_memory_statistics(device_owner_);
+    EXPECT_EQ(memory.retained.reserved_bytes, 0u);
+    EXPECT_EQ(memory.retained.committed_bytes, 0u);
+    EXPECT_EQ(memory.workspace.bytes_committed, 0u);
     if (path_.Exists()) {
       EXPECT_TRUE(path_.Remove());
     }
@@ -508,7 +527,7 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
   iree_allocator_t host_allocator_ = iree_allocator_system();
   // Copied compiler evidence retained beyond individual results.
   loom_serve_compilation_report_t compilation_ = {};
-  // Application group outliving all compiler, VM and I/O resources.
+  // Borrowed suite group outliving all compiler, VM and I/O resources.
   loom_serve_device_group_t* group_ = nullptr;
   // Borrowed device record within the application group.
   loom_serve_device_t* device_owner_ = nullptr;
@@ -524,6 +543,8 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
   loom_serve_memory_pool_t* pool_ = nullptr;
   // Physical slab size; the shared budget holds two unique roots.
   static constexpr uint64_t kSlabBytes = 2 * 1024 * 1024;
+  // Suite-owned fixed and elastic devices, each constructed exactly once.
+  inline static loom_serve_device_group_t* groups_[2] = {};
   // Owned checkpoint plans, including partially failed construction.
   std::array<loom_serve_weights_t*, 3> plans_ = {};
   // Admission groups borrowing their plans until final queue retirement.

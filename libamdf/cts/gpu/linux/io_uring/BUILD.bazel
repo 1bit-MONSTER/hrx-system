@@ -138,11 +138,12 @@ amdf_cts_test_suite(
     ],
 )
 
-amdf_cts_test_suite(
-    name = "file_staged",
-    srcs = ["file_staged_test.cc"],
+amdf_cc_library(
+    name = "file_staged_fixture",
+    testonly = True,
+    srcs = ["file_staged_fixture.cc"],
+    hdrs = ["file_staged_fixture.h"],
     target_compatible_with = _FILE_IO_HOST_COMPATIBILITY,
-    visibility = ["//visibility:public"],
     deps = [
         ":file_io_resources",
         "//libamdf/cts/gpu/aql:publication",
@@ -153,6 +154,32 @@ amdf_cts_test_suite(
         "//libamdf/cts/gpu/recipes:device_sdma_fixture",
         "//libamdf/cts/gpu/sdma/encoding:commands",
         "//libamdf/cts/util:wait",
+        "//third_party:google_test",
+    ],
+)
+
+amdf_cts_test_suite(
+    name = "file_staged",
+    srcs = ["file_staged_test.cc"],
+    target_compatible_with = _FILE_IO_HOST_COMPATIBILITY,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":file_staged_fixture",
+        "//third_party:google_test",
+    ],
+)
+
+amdf_cts_test_suite(
+    name = "file_staged_stress",
+    srcs = ["file_staged_stress_test.cc"],
+    tags = [
+        "manual",
+        "stress",
+    ],
+    target_compatible_with = _FILE_IO_HOST_COMPATIBILITY,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":file_staged_fixture",
         "//third_party:google_test",
     ],
 )

@@ -666,7 +666,7 @@ loom_cc_benchmark(
     name = "allocation_benchmark",
     size = "medium",
     srcs = ["allocation_benchmark.cc"],
-    args = ["--benchmark_filter=.*/length:(8|64)/components:(1|16)/width:(1|4)"],
+    args = ["--benchmark_filter=^LowAllocation/(linear/model/length:8/components:1/width:1|loop/allocation/length:8/components:1/width:1|loop_relocation/allocation/length:1/components:32/width:1|leased_alias_tree/allocation/length:32/components:1/width:1)"],
     deps = [
         ":allocation",
         ":function_model",
@@ -1133,8 +1133,11 @@ loom_cc_test(
 )
 
 loom_cc_test(
-    name = "source_lowering_stress_test",
-    srcs = ["source_lowering_stress_test.cc"],
+    name = "source_lowering_test",
+    srcs = [
+        "source_lowering_test.cc",
+        "source_lowering_test_util.h",
+    ],
     deps = [
         "//loom/src/loom/codegen/low/testing:source_workload",
         "//loom/src/loom/codegen/low/testing:source_workload_pipeline",
@@ -1144,6 +1147,30 @@ loom_cc_test(
         "//loom/src/loom/pass:builtin_registry",
         "//loom/src/loom/pass:registry",
         "//loom/src/loom/pass:types",
+        "//loom/src/loom/target/test:low_registry",
+        "//loom/src/loom/target/test:lower",
+        "//loom/src/loom/testing:module_ptr",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "source_lowering_stress_test",
+    srcs = [
+        "source_lowering_stress_test.cc",
+        "source_lowering_test_util.h",
+    ],
+    tags = [
+        "manual",
+        "stress",
+    ],
+    deps = [
+        "//loom/src/loom/codegen/low/testing:source_workload",
+        "//loom/src/loom/codegen/low/testing:source_workload_pipeline",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/pass:builtin_registry",
         "//loom/src/loom/target/test:low_registry",
         "//loom/src/loom/target/test:lower",
         "//loom/src/loom/testing:module_ptr",

@@ -120,6 +120,25 @@ iree_cc_library(
 
 iree_cc_library(
   NAME
+    collective_trial_test_util
+  HDRS
+    "collective_trial_test_util.h"
+  SRCS
+    "collective_trial_test_util.cc"
+  DEPS
+    ::collective_trial
+    ::expert_trial
+    ::gather_trial
+    ::pipeline_round_trip
+    ::transport_backend
+    iree::async::cts::util::registry
+    iree::testing::gtest
+  TESTONLY
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
     collective_trial_tests
   SRCS
     "collective_trial_test.cc"
@@ -128,10 +147,25 @@ iree_cc_library(
     "pipeline_round_trip_test.cc"
   DEPS
     ::collective_trial
+    ::collective_trial_test_util
     ::expert_trial
     ::gather_trial
     ::pipeline_round_trip
     ::transport_backend
+    iree::async::cts::util::registry
+    iree::testing::gtest
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
+    collective_trial_stress_tests
+  SRCS
+    "collective_trial_stress_test.cc"
+  DEPS
+    ::collective_trial_test_util
     iree::async::cts::util::registry
     iree::testing::gtest
   TESTONLY

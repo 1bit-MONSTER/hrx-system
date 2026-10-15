@@ -33,6 +33,8 @@ loom_cc_test(
   SRCS
     "facts_bitwise_test.cc"
     "facts_division_test.cc"
+    "facts_division_test_util.cc"
+    "facts_division_test_util.h"
     "facts_refinement_test.cc"
     "facts_test.cc"
     "float_facts_test.cc"
@@ -41,6 +43,22 @@ loom_cc_test(
     iree::base::internal::fpu_state
     iree::testing::gtest
     iree::testing::gtest_main
+)
+
+loom_cc_test(
+  NAME
+    facts_division_stress_test
+  SRCS
+    "facts_division_stress.cc"
+    "facts_division_test_util.cc"
+    "facts_division_test_util.h"
+  DEPS
+    ::facts
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "manual"
+    "stress"
 )
 
 loom_cc_library(

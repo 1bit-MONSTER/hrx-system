@@ -335,7 +335,7 @@ def running_server(server_command, directory, catalog, workers):
             raise
 
 
-def run_round(client, iteration, observations):
+def run_round(client, iteration, observations, *, conversation_count=4, fork_count=1):
     root = [{"role": "user", "content": "abxa"}]
     seed = client.text("root", root, 2)
     assert seed["text"] == "bx"
@@ -465,8 +465,10 @@ def run_round(client, iteration, observations):
         ) == {"content": "bab"}
         assert client.request("/readyz") == {"status": "ready"}
 
-    operations = [lambda index=index: conversation(index) for index in range(12)]
-    operations += [lambda index=index: fork(index) for index in range(3)]
+    operations = [
+        lambda index=index: conversation(index) for index in range(conversation_count)
+    ]
+    operations += [lambda index=index: fork(index) for index in range(fork_count)]
     operations += [
         embeddings,
         image,

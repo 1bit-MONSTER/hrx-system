@@ -27,6 +27,48 @@ iree_cc_library(
 )
 endif()
 
+if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+iree_cc_library(
+  NAME
+    device_sdma_lookahead_fixture
+  HDRS
+    "device_sdma_lookahead_fixture.h"
+  SRCS
+    "device_sdma_lookahead_fixture.cc"
+  DEPS
+    ::device_sdma_fixture
+    amdf::headers
+    iree::third_party::google_test
+    libamdf::cts::gpu::kernels::device_sdma_lookahead
+    libamdf::cts::gpu::kernels::device_sdma_reader_kernels
+    libamdf::cts::gpu::kernels::device_sdma_upload_kernels
+    libamdf::cts::gpu::sdma::encoding::commands
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+iree_cc_library(
+  NAME
+    device_sdma_staged_fixture
+  HDRS
+    "device_sdma_staged_fixture.h"
+  SRCS
+    "device_sdma_staged_fixture.cc"
+  DEPS
+    ::device_sdma_fixture
+    amdf::headers
+    iree::third_party::google_test
+    libamdf::cts::gpu::kernels::device_sdma_consumer_kernels
+    libamdf::cts::gpu::kernels::device_sdma_staged
+    libamdf::cts::gpu::kernels::device_sdma_transfer_kernels
+    libamdf::cts::gpu::sdma::encoding::commands
+  TESTONLY
+  PUBLIC
+)
+endif()
+
 if(AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU)
 iree_cc_library(
   NAME
@@ -49,12 +91,78 @@ endif()
 if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
 iree_cc_library(
   NAME
+    pm4_sdma_finite_fixture
+  HDRS
+    "pm4_sdma_finite_fixture.h"
+  SRCS
+    "pm4_sdma_finite_fixture.cc"
+  DEPS
+    ::pm4_sdma_fixture
+    amdf::headers
+    iree::third_party::google_test
+    libamdf::cts::gpu::kernels::transform
+    libamdf::cts::gpu::kernels::transform_kernels
+    libamdf::cts::gpu::pm4::encoding::commands
+    libamdf::cts::gpu::sdma::encoding::commands
+    libamdf::cts::gpu::util::command_fixture
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+iree_cc_library(
+  NAME
+    pm4_reader_reuse_fixture
+  HDRS
+    "pm4_reader_reuse_fixture.h"
+  SRCS
+    "pm4_reader_reuse_fixture.cc"
+  DEPS
+    ::pm4_sdma_fixture
+    amdf::headers
+    iree::third_party::google_test
+    libamdf::cts::gpu::kernels::transform
+    libamdf::cts::gpu::kernels::transform_kernels
+    libamdf::cts::gpu::sdma::encoding::commands
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+iree_cc_library(
+  NAME
+    pm4_sdma_streaming_fixture
+  HDRS
+    "pm4_sdma_streaming_fixture.h"
+  SRCS
+    "pm4_sdma_streaming_fixture.cc"
+  DEPS
+    ::pm4_sdma_fixture
+    amdf::headers
+    iree::third_party::google_test
+    libamdf::cts::gpu::kernels::transform
+    libamdf::cts::gpu::kernels::transform_kernels
+    libamdf::cts::gpu::pm4::encoding::commands
+    libamdf::cts::gpu::sdma::encoding::commands
+    libamdf::cts::gpu::util::user_queue
+    libamdf::cts::util::wait
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+iree_cc_library(
+  NAME
     recipes_cases
   SRCS
     "clock_test.cc"
     "copy_dispatch_test.cc"
     "device_sdma_lookahead_test.cc"
     "device_sdma_serial_test.cc"
+    "device_sdma_staged_test.cc"
     "device_sdma_test.cc"
     "memory_pair_test.cc"
     "pm4_reader_reuse_test.cc"
@@ -63,20 +171,19 @@ iree_cc_library(
     "pm4_sdma_test.cc"
   DEPS
     ::device_sdma_fixture
+    ::device_sdma_lookahead_fixture
+    ::device_sdma_staged_fixture
+    ::pm4_reader_reuse_fixture
+    ::pm4_sdma_finite_fixture
     ::pm4_sdma_fixture
+    ::pm4_sdma_streaming_fixture
     amdf::headers
     iree::third_party::google_test
     libamdf::cts::gpu::aql::dispatch_fixture
     libamdf::cts::gpu::kernels::device_sdma
     libamdf::cts::gpu::kernels::device_sdma_batched
     libamdf::cts::gpu::kernels::device_sdma_batched_kernels
-    libamdf::cts::gpu::kernels::device_sdma_consumer_kernels
     libamdf::cts::gpu::kernels::device_sdma_kernels
-    libamdf::cts::gpu::kernels::device_sdma_lookahead
-    libamdf::cts::gpu::kernels::device_sdma_reader_kernels
-    libamdf::cts::gpu::kernels::device_sdma_staged
-    libamdf::cts::gpu::kernels::device_sdma_transfer_kernels
-    libamdf::cts::gpu::kernels::device_sdma_upload_kernels
     libamdf::cts::gpu::kernels::transform
     libamdf::cts::gpu::kernels::transform_kernels
     libamdf::cts::gpu::pm4::command_fixture
@@ -143,6 +250,95 @@ iree_native_test(
   DATA
     "amdf::amdf"
   LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.gpu"
+    "iree-build-requirement=loom.target.arch.amdgpu"
+    "iree-build-requirement=loom.emit.amdgpu"
+    "iree-run-requirement=libamdf.resource.amd_gpu"
+    "runtime-resource=amd-gpu"
+  RESOURCE_GROUP
+    gpu-device
+)
+endif()
+
+if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+iree_cc_library(
+  NAME
+    recipes_stress_cases
+  SRCS
+    "device_sdma_lookahead_stress_test.cc"
+    "device_sdma_staged_stress_test.cc"
+    "pm4_reader_reuse_stress_test.cc"
+    "pm4_sdma_finite_stress_test.cc"
+    "pm4_sdma_streaming_stress_test.cc"
+  DEPS
+    ::device_sdma_lookahead_fixture
+    ::device_sdma_staged_fixture
+    ::pm4_reader_reuse_fixture
+    ::pm4_sdma_finite_fixture
+    ::pm4_sdma_streaming_fixture
+    amdf::headers
+    iree::third_party::google_test
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+amdf_cts_binary(
+  NAME
+    recipes_stress_dynamic_bin
+  DATA
+    amdf::amdf
+  DEPS
+    ::recipes_stress_cases
+    amdf::headers
+    libamdf::cts::util::dynamic_provider
+    libamdf::cts::util::test_main
+  TESTONLY
+)
+endif()
+
+if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+iree_native_test(
+  NAME
+    "recipes_stress_dynamic"
+  ARGS
+    "--amdf_native_lifetime=process"
+    "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
+  SRC
+    ::recipes_stress_dynamic_bin
+  DATA
+    "amdf::amdf"
+  LABELS
+    "manual"
+    "stress"
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.gpu"
+    "iree-build-requirement=loom.target.arch.amdgpu"
+    "iree-build-requirement=loom.emit.amdgpu"
+    "iree-run-requirement=libamdf.resource.amd_gpu"
+    "runtime-resource=amd-gpu"
+  RESOURCE_GROUP
+    gpu-device
+)
+endif()
+
+if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+iree_native_test(
+  NAME
+    "recipes_stress_dynamic_instance"
+  ARGS
+    "--amdf_native_lifetime=instance"
+    "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
+  SRC
+    ::recipes_stress_dynamic_bin
+  DATA
+    "amdf::amdf"
+  LABELS
+    "manual"
+    "stress"
     "iree-build-requirement=libamdf"
     "iree-build-requirement=libamdf.gpu"
     "iree-build-requirement=loom.target.arch.amdgpu"

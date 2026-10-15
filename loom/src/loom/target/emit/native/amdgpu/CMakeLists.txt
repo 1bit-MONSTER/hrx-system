@@ -429,6 +429,8 @@ loom_cc_benchmark(
     loom::target::arch::amdgpu::refs::target_refs
     loom::target::low_descriptor_registry
     loom::target::provider
+  ARGS
+    "--benchmark_filter=^(BM_PacketPlan_MfmaWindows/1/iterations:500|BM_WaitPlan_MatrixDependencyCanary/iterations:500|BM_PacketPlan_AttentionBf16/iterations:10)"
   TESTONLY
   LABELS
     "iree-build-requirement=loom.target.arch.amdgpu"

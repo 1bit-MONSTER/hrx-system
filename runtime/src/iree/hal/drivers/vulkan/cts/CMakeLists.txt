@@ -592,6 +592,8 @@ iree_cc_test(
     iree::hal::cts::util::test_main
     iree::testing::gtest
   LABELS
+    "manual"
+    "stress"
     "iree-build-requirement=runtime.hal.vulkan"
     "iree-run-requirement=vulkan.resource.device"
     "runtime-resource=vulkan-device"

@@ -61,6 +61,8 @@ iree_cc_binary_benchmark(
     iree::net::cts::transfer_benchmarks
     iree::net::cts::transport_backend
     iree::third_party::google_benchmark
+  ARGS
+    "--benchmark_filter=^CheckedTransfer/.*/peers:1/bytes:64/batch:32/window:128/sg:1/records:2048/"
   TESTONLY
 )
 

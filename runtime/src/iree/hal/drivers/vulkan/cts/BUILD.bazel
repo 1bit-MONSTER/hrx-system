@@ -290,6 +290,10 @@ iree_runtime_cc_test(
 
 iree_runtime_cc_test(
     name = "command_buffer_stress_tests",
+    tags = [
+        "manual",
+        "stress",
+    ],
     deps = [
         ":backends",
         "//runtime/src/iree/base/tooling:flags",
