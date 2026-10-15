@@ -591,6 +591,36 @@ endif()
 if(LOOM_TARGET_ARCH_AMDGPU)
 loom_check_compile_tests(
   NAME
+    "address_cast_banks"
+  SRC
+    "test/source_low/address_cast_banks.loom-test"
+  REGISTERED_SRCS
+    "${_GLOB_TEST_SOURCE_LOW_X_LOOM_TEST_BE73FC6D}"
+  TARGETS
+    loom::target::amdgpu::gfx1100
+    loom::target::amdgpu::gfx1151
+    loom::target::amdgpu::gfx1200
+    loom::target::amdgpu::gfx1250
+    loom::target::amdgpu::gfx942
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU)
+loom_check_compile_tests(
+  NAME
+    "cluster_query_carriers"
+  SRC
+    "test/source_low/cluster_query_carriers.loom-test"
+  REGISTERED_SRCS
+    "${_GLOB_TEST_SOURCE_LOW_X_LOOM_TEST_BE73FC6D}"
+  TARGETS
+    loom::target::amdgpu::gfx1250
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU)
+loom_check_compile_tests(
+  NAME
     "float64_narrow"
   SRC
     "test/source_low/float64_narrow.loom-test"
@@ -752,6 +782,23 @@ loom_check_compile_tests(
     loom::target::amdgpu::gfx941
     loom::target::amdgpu::gfx942
     loom::target::amdgpu::gfx950
+)
+endif()
+
+if(LOOM_TARGET_ARCH_AMDGPU)
+loom_check_compile_tests(
+  NAME
+    "query_carriers"
+  SRC
+    "test/source_low/query_carriers.loom-test"
+  REGISTERED_SRCS
+    "${_GLOB_TEST_SOURCE_LOW_X_LOOM_TEST_BE73FC6D}"
+  TARGETS
+    loom::target::amdgpu::gfx1100
+    loom::target::amdgpu::gfx1151
+    loom::target::amdgpu::gfx1200
+    loom::target::amdgpu::gfx1250
+    loom::target::amdgpu::gfx942
 )
 endif()
 

@@ -22,6 +22,13 @@ iree_status_t loom_amdgpu_select_preamble_plan(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
     loom_low_lower_plan_t* out_plan);
 
+// Publishes a native unsigned 32-bit query in its selected source carrier.
+// Hardware live-ins and query arithmetic keep their ABI widths independently
+// of any wider or differently placed control-flow component consuming them.
+iree_status_t loom_amdgpu_preamble_bind_query_result(
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_value_id_t source_result, loom_value_id_t low_result);
+
 // Emits structural preamble live-ins for the current low function.
 iree_status_t loom_amdgpu_emit_preamble(void* user_data,
                                         loom_low_lower_context_t* context);

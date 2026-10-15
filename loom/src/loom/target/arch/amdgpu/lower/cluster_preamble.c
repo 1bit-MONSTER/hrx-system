@@ -10,6 +10,7 @@
 #include "loom/target/arch/amdgpu/facts.h"
 #include "loom/target/arch/amdgpu/hal/kernel_abi.h"
 #include "loom/target/arch/amdgpu/lower/emit.h"
+#include "loom/target/arch/amdgpu/lower/preamble.h"
 #include "loom/target/arch/amdgpu/lower/types.h"
 #include "loom/target/arch/amdgpu/refs/target_refs.h"
 
@@ -487,8 +488,8 @@ static iree_status_t loom_amdgpu_cluster_preamble_bind_identity_queries(
     if (low_result == LOOM_VALUE_ID_INVALID) {
       continue;
     }
-    IREE_RETURN_IF_ERROR(
-        loom_low_lower_bind_value(context, source_result, low_result));
+    IREE_RETURN_IF_ERROR(loom_amdgpu_preamble_bind_query_result(
+        context, source_op, source_result, low_result));
   }
   return iree_ok_status();
 }

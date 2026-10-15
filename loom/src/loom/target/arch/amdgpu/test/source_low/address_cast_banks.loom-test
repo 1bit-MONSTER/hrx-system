@@ -1,0 +1,87 @@
+// RUN: emit source-low target=amdgpu:gfx11-generic output=low
+
+// Narrow address components keep their own register bank across fixed-width
+// casts, including values also carried by a loop.
+kernel.def @narrow_lane_casts() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch(%metadata: buffer, %bytes: buffer, %halves: buffer, %words: buffer, %pairs: buffer) {
+  %origin = index.constant 0 : offset
+  %threads = index.constant 32 : index
+  %thread = kernel.workitem.id<x> : index
+  %header = buffer.view %metadata[%origin] : buffer -> view<1xi32>
+  %count_word = view.load %header[0] : view<1xi32> -> i32
+  %count_value = index.cast %count_word : i32 to index
+  %count = index.assume %count_value [range(%count_value, 0, 128)] : index
+  %bytes_view = buffer.view %bytes[%origin] : buffer -> view<128xi8>
+  %halves_view = buffer.view %halves[%origin] : buffer -> view<128xi16>
+  %words_view = buffer.view %words[%origin] : buffer -> view<128xi32>
+  %pairs_view = buffer.view %pairs[%origin] : buffer -> view<128xi64>
+  scf.for %position = [%thread to %count step %threads] {
+    %value_bytes = index.cast %position : index to i8
+    view.store %value_bytes, %bytes_view[%position] : i8, view<128xi8>
+    %value_halves = index.cast %position : index to i16
+    view.store %value_halves, %halves_view[%position] : i16, view<128xi16>
+    %value_words = index.cast %position : index to i32
+    view.store %value_words, %words_view[%position] : i32, view<128xi32>
+    %value_pairs = index.cast %position : index to i64
+    view.store %value_pairs, %pairs_view[%position] : i64, view<128xi64>
+  }
+  %thread_bytes = index.cast %thread : index to i8
+  view.store %thread_bytes, %bytes_view[%thread] : i8, view<128xi8>
+  %thread_halves = index.cast %thread : index to i16
+  view.store %thread_halves, %halves_view[%thread] : i16, view<128xi16>
+  %thread_words = index.cast %thread : index to i32
+  view.store %thread_words, %words_view[%thread] : i32, view<128xi32>
+  %thread_pairs = index.cast %thread : index to i64
+  view.store %thread_pairs, %pairs_view[%thread] : i64, view<128xi64>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.gfx11.generic.core> abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 5, resource_count = 5, resource_offsets = [0, 8, 16, 24, 32], resource_parameter_indices = [0, 1, 2, 3, 4], uses_kernarg_segment_ptr = true}) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @narrow_lane_casts() asm {
+  %thread_words = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
+  %header = resource<hal_binding> {extent = 4, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %bytes_view = resource<hal_binding> {extent = 128, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %halves_view = resource<hal_binding> {extent = 256, index = 2, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %words_view = resource<hal_binding> {extent = 512, index = 3, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %pairs_view = resource<hal_binding> {extent = 1024, index = 4, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %threads = s_mov_b32 32
+  %40 = v_mov_b32 0
+  %count = global_load_b32_saddr %40, %header
+  %43 = s_mov_b64_exec_read
+  low.br ^_bb1(%thread_words: reg<amdgpu.vgpr>)
+^_bb1(%value_words: reg<amdgpu.vgpr>):
+  %42 = v_cmp_lt_i32 %value_words, %count
+  %44, %45 = s_and_saveexec_b64 %42
+  low.cond_br %45, ^_bb2, ^_bb3 : reg<amdgpu.scc>
+^_bb2:
+  %value_bytes = v_bfe_i32_offset_width_inline %value_words {offset = 0, width = 8}
+  global_store_b8_saddr %value_words, %value_bytes, %bytes_view
+  %value_halves = v_bfe_i32_offset_width_inline %value_words {offset = 0, width = 16}
+  %50 = v_lshlrev_b32_src0_inline %value_words, 1
+  global_store_short_saddr %50, %value_halves, %halves_view
+  %51 = v_lshlrev_b32_src0_inline %value_words, 2
+  global_store_b32_saddr %51, %value_words, %words_view
+  %52 = v_mov_b32 0
+  %value_pairs = concat(%value_words, %52) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %54 = v_lshlrev_b32_src0_inline %value_words, 3
+  global_store_b64_saddr %54, %value_pairs, %pairs_view
+  %55 = v_add_u32 %threads, %value_words
+  low.br ^_bb1(%55: reg<amdgpu.vgpr>)
+^_bb3:
+  s_mov_b64_exec %43
+  %thread_bytes = v_bfe_i32_offset_width_inline %thread_words {offset = 0, width = 8}
+  global_store_b8_saddr %thread_words, %thread_bytes, %bytes_view
+  %thread_halves = v_bfe_i32_offset_width_inline %thread_words {offset = 0, width = 16}
+  %60 = v_lshlrev_b32_src0_inline %thread_words, 1
+  global_store_short_saddr %60, %thread_halves, %halves_view
+  %61 = v_lshlrev_b32_src0_inline %thread_words, 2
+  global_store_b32_saddr %61, %thread_words, %words_view
+  %62 = v_mov_b32 0
+  %thread_pairs = concat(%thread_words, %62) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %64 = v_lshlrev_b32_src0_inline %thread_words, 3
+  global_store_b64_saddr %64, %thread_pairs, %pairs_view
+  return
+}
