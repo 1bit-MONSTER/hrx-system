@@ -17,6 +17,7 @@ from loom.target.contracts import (
     DescriptorResultType,
     EmitDescriptorOp,
     Guard,
+    ReadOnlyDataLiteral,
     TypePattern,
     ValueRef,
     Vector,
@@ -35,7 +36,7 @@ def emit_descriptor_op(
     operands: Mapping[str, ValueRef] | None = None,
     results: Mapping[str, ValueRef] | None = None,
     result_types: Mapping[str, TypePattern | DescriptorResultType] | None = None,
-    immediates: Mapping[str, AttrProject | int] | None = None,
+    immediates: Mapping[str, AttrProject | ReadOnlyDataLiteral | int] | None = None,
 ) -> EmitDescriptorOp:
     return EmitDescriptorOp(
         descriptor=descriptor,

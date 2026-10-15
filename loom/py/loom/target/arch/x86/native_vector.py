@@ -1516,13 +1516,24 @@ VPMOVW2M = _instruction(
     _IMMEDIATES_0,
     _encoding(_EVEX, _MAP_2, 2, 1, 0x29, (128,)),
 )
-VPMOVWB = _instruction(
-    "vpmovwb",
-    _REVERSE_UNARY,
-    _OPERANDS_13,
-    _IMMEDIATES_0,
-    _encoding(_EVEX, _MAP_2, 2, 0, 0x30, (512,)),
-)
+
+
+def _packed_narrow_instruction(mnemonic: str, opcode: int) -> VectorMachineInstruction:
+    return _instruction(
+        mnemonic,
+        _REVERSE_UNARY,
+        _OPERANDS_13,
+        _IMMEDIATES_0,
+        _encoding(_EVEX, _MAP_2, 2, 0, opcode, (128, 256, 512)),
+    )
+
+
+VPMOVWB = _packed_narrow_instruction("vpmovwb", 0x30)
+VPMOVDB = _packed_narrow_instruction("vpmovdb", 0x31)
+VPMOVQB = _packed_narrow_instruction("vpmovqb", 0x32)
+VPMOVDW = _packed_narrow_instruction("vpmovdw", 0x33)
+VPMOVQW = _packed_narrow_instruction("vpmovqw", 0x34)
+VPMOVQD = _packed_narrow_instruction("vpmovqd", 0x35)
 VPMOVZXBW = _packed_widen_instruction("vpmovzxbw", 0x30)
 VPMOVZXBD = _packed_widen_instruction("vpmovzxbd", 0x31)
 VPMOVZXBQ = _packed_widen_instruction("vpmovzxbq", 0x32)
@@ -1822,12 +1833,26 @@ VPSUBW = _instruction(
     _encoding(_EVEX, _MAP_1, 1, 0, 0xF9, (512,)),
     _encoding(_VEX, _MAP_1, 1, 0, 0xF9, (128, 256)),
 )
+VPUNPCKLDQ = _instruction(
+    "vpunpckldq",
+    _NDS,
+    _OPERANDS_16,
+    _IMMEDIATES_0,
+    _encoding(_VEX, _MAP_1, 1, 0, 0x62, (128,)),
+)
 VPUNPCKLQDQ = _instruction(
     "vpunpcklqdq",
     _NDS,
     _OPERANDS_16,
     _IMMEDIATES_0,
     _encoding(_VEX, _MAP_1, 1, 0, 0x6C, (128,)),
+)
+VPUNPCKLWD = _instruction(
+    "vpunpcklwd",
+    _NDS,
+    _OPERANDS_16,
+    _IMMEDIATES_0,
+    _encoding(_VEX, _MAP_1, 1, 0, 0x60, (128,)),
 )
 VPXOR = _instruction(
     "vpxor",
@@ -2078,6 +2103,7 @@ PACKED_INTEGER_WIDEN = (
     (VPMOVSXWQ, VPMOVZXWQ),
     (VPMOVSXDQ, VPMOVZXDQ),
 )
+PACKED_INTEGER_NARROW = (VPMOVWB, VPMOVDB, VPMOVQB, VPMOVDW, VPMOVQW, VPMOVQD)
 AVX_VNNI_INT8 = (
     VPDPBSSD,
     VPDPBSSDS,

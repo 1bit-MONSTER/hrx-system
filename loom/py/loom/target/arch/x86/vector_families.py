@@ -78,6 +78,21 @@ class VectorIntegerWideningFamily:
     unsigned_mnemonic: str
 
 
+@dataclass(frozen=True, slots=True)
+class VectorIntegerNarrowingFamily:
+    """One packed-integer narrowing pair."""
+
+    source: VectorElement
+    result: VectorElement
+    mnemonic: str
+
+    @property
+    def avx2_half_result_bit_width(self) -> int:
+        """Bit width produced from one 128-bit AVX2 source lane."""
+
+        return 128 * self.result.bit_width // self.source.bit_width
+
+
 INTEGER_ELEMENTS = (
     VectorElement("i8", 8),
     VectorElement("i16", 16),
@@ -104,6 +119,15 @@ X86_VECTOR_INTEGER_WIDENING_FAMILIES = (
     VectorIntegerWideningFamily(
         INTEGER_ELEMENTS[2], INTEGER_ELEMENTS[3], "vpmovsxdq", "vpmovzxdq"
     ),
+)
+
+X86_VECTOR_INTEGER_NARROWING_FAMILIES = (
+    VectorIntegerNarrowingFamily(INTEGER_ELEMENTS[1], INTEGER_ELEMENTS[0], "vpmovwb"),
+    VectorIntegerNarrowingFamily(INTEGER_ELEMENTS[2], INTEGER_ELEMENTS[0], "vpmovdb"),
+    VectorIntegerNarrowingFamily(INTEGER_ELEMENTS[3], INTEGER_ELEMENTS[0], "vpmovqb"),
+    VectorIntegerNarrowingFamily(INTEGER_ELEMENTS[2], INTEGER_ELEMENTS[1], "vpmovdw"),
+    VectorIntegerNarrowingFamily(INTEGER_ELEMENTS[3], INTEGER_ELEMENTS[1], "vpmovqw"),
+    VectorIntegerNarrowingFamily(INTEGER_ELEMENTS[3], INTEGER_ELEMENTS[2], "vpmovqd"),
 )
 
 FLOAT_ELEMENTS = (

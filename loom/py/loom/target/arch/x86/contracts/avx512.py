@@ -38,6 +38,7 @@ from loom.target.arch.x86.contracts.vector_construction import (
     avx512_vector_construction_rules,
 )
 from loom.target.arch.x86.contracts.vector_integer_conversion import (
+    avx512_vector_integer_narrowing_rules,
     vector_integer_widening_rules,
 )
 from loom.target.arch.x86.descriptors import X86_AVX512_CORE_DESCRIPTOR_SET
@@ -81,6 +82,7 @@ def _cases() -> Sequence[ContractCase]:
             source_vector_bit_widths=AVX512_CARRIER_VECTOR_BIT_WIDTHS,
             result_vector_bit_widths=(512,),
         ),
+        *avx512_vector_integer_narrowing_rules(_descriptor),
         *avx512_predicate_rules(_descriptor),
         *avx512_vector_arithmetic_rules(_descriptor),
         *avx512_float_extrema_rules(_descriptor),

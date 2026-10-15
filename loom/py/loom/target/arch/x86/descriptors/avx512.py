@@ -31,7 +31,9 @@ from loom.target.arch.x86.vector_families import (
     FLOAT_ELEMENTS,
     FLOAT_EXTREMA_MNEMONICS,
     INTEGER_ELEMENTS,
+    X86_VECTOR_INTEGER_NARROWING_FAMILIES,
     X86_VECTOR_INTEGER_WIDENING_FAMILIES,
+    VectorIntegerNarrowingFamily,
 )
 from loom.target.low_descriptors import (
     Descriptor,
@@ -168,6 +170,42 @@ def _zmm_widen_descriptor(
                 operands=("source",),
             ),
             schedule_class=_SCHEDULE_VECTOR_I32_ZMM,
+            flags=(DescriptorFlag.DEAD_REMOVABLE,),
+        ),
+        instruction,
+    )
+
+
+def _vector_narrow_descriptor(
+    family: VectorIntegerNarrowingFamily,
+    source_vector_bit_width: int,
+    instruction: VectorMachineInstruction,
+) -> Descriptor:
+    result_vector_bit_width = max(
+        128,
+        source_vector_bit_width * family.result.bit_width // family.source.bit_width,
+    )
+    source_suffix = _REGISTER_SUFFIXES[source_vector_bit_width]
+    result_suffix = _REGISTER_SUFFIXES[result_vector_bit_width]
+    lane_count = source_vector_bit_width // family.source.bit_width
+    return _evex_descriptor(
+        Descriptor(
+            key=(f"x86.avx512.{family.mnemonic}.{result_suffix}.{source_suffix}"),
+            mnemonic=family.mnemonic,
+            semantic_tag=(
+                f"integer.truncate.{family.source.name}x{lane_count}."
+                f"{family.result.name}x{lane_count}"
+            ),
+            operands=(
+                _vector_result(result_vector_bit_width),
+                _vector_operand(source_vector_bit_width, "source"),
+            ),
+            asm_forms=_asm(
+                mnemonic=(f"avx512.{family.mnemonic}.{result_suffix}.{source_suffix}"),
+                results=("dst",),
+                operands=("source",),
+            ),
+            schedule_class=_vector_i32_schedule_class(source_vector_bit_width),
             flags=(DescriptorFlag.DEAD_REMOVABLE,),
         ),
         instruction,
@@ -624,21 +662,14 @@ X86_AVX512_CORE_DESCRIPTOR_SET = DescriptorSet(
             ),
             native.VINSERTI64X4,
         ),
-        _evex_descriptor(
-            Descriptor(
-                key="x86.avx512.vpmovwb.ymm.zmm",
-                mnemonic="vpmovwb",
-                semantic_tag="integer.trunci.i16x32.i8x32",
-                operands=(_vector_result(256), _zmm_operand("source")),
-                asm_forms=_asm(
-                    mnemonic="avx512.vpmovwb.ymm.zmm",
-                    results=("dst",),
-                    operands=("source",),
-                ),
-                schedule_class=_SCHEDULE_VECTOR_I32_ZMM,
-                flags=(DescriptorFlag.DEAD_REMOVABLE,),
-            ),
-            native.VPMOVWB,
+        *(
+            _vector_narrow_descriptor(family, source_vector_bit_width, instruction)
+            for family, instruction in zip(
+                X86_VECTOR_INTEGER_NARROWING_FAMILIES,
+                native.PACKED_INTEGER_NARROW,
+                strict=True,
+            )
+            for source_vector_bit_width in (128, 256, 512)
         ),
         _evex_descriptor(
             Descriptor(

@@ -987,12 +987,21 @@ _X86_AVX2_VECTOR_DESCRIPTORS = (
         for result_element_bit_width in (family.result.bit_width,)
         for result_bit_width in AVX2_VECTOR_BIT_WIDTHS
     ),
-    _vector_binary_descriptor(
-        vector_bit_width=128,
-        mnemonic="vpunpcklqdq",
-        semantic_tag="bits.interleave.low.i64x2",
-        schedule_class=_SCHEDULE_VECTOR_I32_XMM,
-        instruction=native.VPUNPCKLQDQ,
+    *(
+        _vector_binary_descriptor(
+            vector_bit_width=128,
+            mnemonic=mnemonic,
+            semantic_tag=(
+                f"bits.interleave.low.i{element_bit_width}x{128 // element_bit_width}"
+            ),
+            schedule_class=_SCHEDULE_VECTOR_I32_XMM,
+            instruction=instruction,
+        )
+        for mnemonic, element_bit_width, instruction in (
+            ("vpunpcklwd", 16, native.VPUNPCKLWD),
+            ("vpunpckldq", 32, native.VPUNPCKLDQ),
+            ("vpunpcklqdq", 64, native.VPUNPCKLQDQ),
+        )
     ),
     *(
         _vector_binary_descriptor(
