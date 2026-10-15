@@ -4,13 +4,13 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <span>
 #include <string>
-#include <tuple>
 #include <vector>
 
 #include "libamdf/cts/gpu/kernels/transform.h"
@@ -21,7 +21,7 @@
 namespace {
 
 struct ComparisonCase {
-  // Stable comparison name in the GoogleTest parameter suffix.
+  // Stable comparison name in failure traces and result properties.
   const char* name;
   // Native function applied to the masked memory operand.
   Pm4MemoryComparison comparison;
@@ -38,7 +38,7 @@ constexpr std::array<ComparisonCase, 7> kComparisons = {{
 }};
 
 struct OperandCase {
-  // Stable operand partition name in the GoogleTest parameter suffix.
+  // Stable operand partition name in failure traces and result properties.
   const char* name;
   // Significant bits of the memory operand; ignored bits change each epoch.
   uint64_t mask;
@@ -91,15 +91,20 @@ void ExpectWords(std::span<const uint32_t> observed,
   }
 }
 
-// The final parameter is the DWORD offset of the compared QWORD. Offsets 16
-// and 17 distinguish eight-byte alignment from PAL's four-byte exception.
-using BranchParameters = std::tuple<ComparisonCase, OperandCase, uint32_t>;
+// DWORD offsets of the compared QWORD. Offsets 16 and 17 distinguish
+// eight-byte alignment from PAL's four-byte exception.
+constexpr std::array<uint32_t, 2> kPredicateWords = {16, 17};
 
-class Pm4BranchTest : public Pm4DispatchTest,
-                      public ::testing::WithParamInterface<BranchParameters> {};
+std::string BranchCaseName(const ComparisonCase& comparison,
+                           const OperandCase& operand,
+                           uint32_t predicate_word) {
+  return std::string(comparison.name) + operand.name +
+         (predicate_word == 16 ? "Aligned8" : "Aligned4");
+}
 
-TEST_P(Pm4BranchTest, ShaderOperandSelectsRetainedGraph) {
-  const auto& [comparison, operand, predicate_word] = GetParam();
+class Pm4BranchTest : public Pm4DispatchTest {};
+
+TEST_F(Pm4BranchTest, ShaderOperandMatrixSelectsRetainedGraphs) {
   const auto* kernel_product =
       kernels::transform::kKernels.Find(gpu_endpoint_info_);
   ASSERT_NE(kernel_product, nullptr)
@@ -113,8 +118,15 @@ TEST_P(Pm4BranchTest, ShaderOperandSelectsRetainedGraph) {
   constexpr uint32_t kEpochArgumentWord = 48;
   constexpr uint32_t kEpochCount = 5;
   constexpr uint32_t kBlockStride = 256;
+  constexpr uint32_t kCommandWordsPerEpoch = 8;
+  constexpr size_t kCaseCount =
+      kComparisons.size() * kOperands.size() * kPredicateWords.size();
+  constexpr size_t kRequiredCommandWords =
+      kCaseCount * kEpochCount * kCommandWordsPerEpoch;
+  constexpr uint64_t kCommandByteLength = 16 * 1024;
   constexpr std::array<uint32_t, 2> kOutputWords = {64, 128};
   constexpr std::array<uint32_t, 2> kSelectedWords = {32, 48};
+  static_assert(kRequiredCommandWords * sizeof(uint32_t) < kCommandByteLength);
 
   GpuMemory* input = nullptr;
   GpuMemory* output = nullptr;
@@ -159,95 +171,29 @@ TEST_P(Pm4BranchTest, ShaderOperandSelectsRetainedGraph) {
                                       0);
   std::memcpy(expected_code.data(), kernel.executable.words,
               kernel.executable.byte_length);
-  auto expected_control = MakeGuardWords(*control, 0x68d329b7u);
-  expected_control[0] = 0;
-  // Only device commands change the operand, completion and selected markers
-  // after this initialization. Inactive arms retain their previous epochs.
-  std::memcpy(control->host.pointer, expected_control.data(),
-              control->info.byte_length);
-
   std::vector<uint32_t> expected_graph(
       graph->info.byte_length / sizeof(uint32_t), 0);
   const uint64_t epoch_address =
       arguments->device_address + kEpochArgumentWord * sizeof(uint32_t);
-  const uint64_t operand_address =
-      control->device_address + predicate_word * sizeof(uint32_t);
-  // Construct successors first. All links and complete block extents are
-  // immutable before any root is submitted; no return address is inferred.
-  Pm4CommandWriter continuation(expected_graph.data() + 3 * kBlockStride,
-                                *pm4_profile_);
-  continuation.SystemBarrier();
-  continuation.CopyData32(epoch_address, control->device_address);
-  continuation.PadToEightWords();
-  ASSERT_LT(continuation.word_count(), kBlockStride);
-  const Pm4IndirectBuffer join = {
-      graph->device_address + 3 * kBlockStride * sizeof(uint32_t),
-      static_cast<uint32_t>(continuation.word_count()),
-  };
-  std::array<Pm4IndirectBuffer, 2> arms = {};
-  for (uint32_t arm = 0; arm < arms.size(); ++arm) {
-    Pm4CommandWriter commands(expected_graph.data() + (arm + 1) * kBlockStride,
-                              *pm4_profile_);
-    commands.BindCompute(program,
-                         arguments->device_address +
-                             (arm + 1) * kArgumentStride * sizeof(uint32_t));
-    commands.Dispatch(program, kGridSize, 1, 1);
-    commands.CopyData32(
-        epoch_address,
-        control->device_address + kSelectedWords[arm] * sizeof(uint32_t));
-    commands.PadToEightWords(4);
-    commands.ChainIndirectBuffer(join);
-    ASSERT_EQ(commands.word_count() % 8, 0u);
-    ASSERT_LT(commands.word_count(), kBlockStride);
-    arms[arm] = {
-        graph->device_address + (arm + 1) * kBlockStride * sizeof(uint32_t),
-        static_cast<uint32_t>(commands.word_count())};
-  }
-  Pm4CommandWriter root(expected_graph.data(), *pm4_profile_);
-  root.SystemBarrier();
-  root.BindCompute(program, arguments->device_address);
-  root.Dispatch(program, kGridSize, 1, 1);
-  root.SystemBarrier();
-  root.PadToEightWords(14);
-  root.BranchIndirectBuffer(operand_address, operand.reference, operand.mask,
-                            comparison.comparison, arms[0], arms[1]);
-  ASSERT_EQ(root.word_count() % 8, 0u);
-  ASSERT_LT(root.word_count(), kBlockStride);
-  std::memcpy(graph->host.pointer, expected_graph.data(),
-              graph->info.byte_length);
 
   GpuCommandQueue* queue = nullptr;
-  ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
+  ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue, kCommandByteLength));
   const bool primary_ring =
       queue->publication_mode() == AMDF_QUEUE_PUBLICATION_MODE_USER;
   const size_t command_capacity = primary_ring ? queue->words().size() : 0;
   std::vector<uint32_t> expected_commands(command_capacity, 0);
-  std::array<uint64_t, kEpochCount> frontiers = {};
   if (primary_ring) {
-    ASSERT_GT(command_capacity, kEpochCount * 8u);
-    Pm4CommandWriter commands(expected_commands.data(), *pm4_profile_);
-    for (uint32_t epoch = 0; epoch < kEpochCount; ++epoch) {
-      commands.CallIndirectBuffer(graph->device_address,
-                                  static_cast<uint32_t>(root.word_count()));
-      commands.PadToEightWords();
-      frontiers[epoch] = commands.word_count();
-      ASSERT_EQ(frontiers[epoch], (epoch + 1) * 8u);
-    }
+    ASSERT_GT(command_capacity, kRequiredCommandWords);
     std::memcpy(queue->words().data(), expected_commands.data(),
                 queue->words().size_bytes());
   }
   RecordProperty("pm4_branch_entry",
                  primary_ring ? "primary_ring_call" : "kernel_submission");
-  RecordProperty("pm4_branch_comparison", comparison.name);
-  RecordProperty("pm4_branch_mask", std::to_string(operand.mask));
-  RecordProperty("pm4_branch_reference", std::to_string(operand.reference));
-  RecordProperty("pm4_branch_operand_byte_offset",
-                 predicate_word * sizeof(uint32_t));
-  RecordProperty("pm4_branch_root_word_count",
-                 std::to_string(root.word_count()));
-  RecordProperty("pm4_branch_pass_word_count", arms[0].word_count);
-  RecordProperty("pm4_branch_fail_word_count", arms[1].word_count);
-  RecordProperty("pm4_branch_join_word_count", join.word_count);
+  RecordProperty("pm4_branch_case_count", kCaseCount);
+  RecordProperty("pm4_branch_epochs_per_case", kEpochCount);
+  RecordProperty("pm4_branch_total_execution_count", kCaseCount * kEpochCount);
+  RecordProperty("pm4_branch_command_capacity_dwords",
+                 std::to_string(command_capacity));
   RecordProperty(
       "pm4_branch_observed_byte_length",
       std::to_string(input->info.byte_length + output->info.byte_length +
@@ -259,140 +205,241 @@ TEST_P(Pm4BranchTest, ShaderOperandSelectsRetainedGraph) {
                                         sizeof(uint32_t));
   std::vector<uint32_t> observed_input(input->info.byte_length /
                                        sizeof(uint32_t));
-  std::vector<uint32_t> observed_control(expected_control.size());
+  std::vector<uint32_t> observed_control(control->info.byte_length /
+                                         sizeof(uint32_t));
   std::vector<uint32_t> observed_arguments(arguments->info.byte_length /
                                            sizeof(uint32_t));
   std::vector<uint32_t> observed_code(expected_code.size());
   std::vector<uint32_t> observed_graph(expected_graph.size());
   std::vector<uint32_t> observed_commands(command_capacity);
-  for (uint32_t epoch = 0; epoch < kEpochCount; ++epoch) {
-    SCOPED_TRACE(epoch);
-    const uint32_t relation = epoch % 3;
-    const uint64_t masked_value =
-        (relation == 0   ? operand.reference - operand.step
-         : relation == 1 ? operand.reference
-                         : operand.reference + operand.step) &
-        operand.mask;
-    const uint64_t ignored =
-        (UINT64_C(0x9d5713eca68420bf) ^
-         (uint64_t{epoch} * UINT64_C(0x01030507090b0d0f))) &
-        ~operand.mask;
-    const uint64_t value = masked_value | ignored;
-    const uint32_t selected_arm =
-        SelectsPass(comparison.comparison, value & operand.mask,
-                    operand.reference)
-            ? 0
-            : 1;
-    auto expected_input = MakeGuardWords(*input, 0x759bf13du ^ epoch);
-    expected_input[16] = static_cast<uint32_t>(
-        uint64_t{static_cast<uint32_t>(value)} * 0xaaaaaaab);
-    expected_input[17] = static_cast<uint32_t>((value >> 32) * 0xaaaaaaab);
-    for (uint32_t word = 0; word < kGridSize; ++word) {
-      expected_input[kPayloadWord + word] =
-          0xfffffff0u + word * 0x01030507u + epoch;
-    }
-    auto initial_output = MakeGuardWords(*output, 0x4e90b725u ^ epoch);
-    auto expected_output = initial_output;
-    std::vector<uint32_t> expected_arguments(observed_arguments.size(), 0);
-    const kernels::transform::Arguments producer = {
-        input->device_address + 16 * sizeof(uint32_t),
-        operand_address,
-        2,
-        0,
-    };
-    std::memcpy(expected_arguments.data(), &producer,
-                kernel.arguments.byte_length);
-    for (uint32_t arm = 0; arm < arms.size(); ++arm) {
-      const uint32_t count = 61 - arm - epoch % 3;
-      const uint32_t addend = 7 + arm * 0x80000000u + epoch * 0x01010101u;
-      for (uint32_t word = 0; word < kGridSize; ++word) {
-        const uint32_t result = static_cast<uint32_t>(
-            uint64_t{expected_input[kPayloadWord + word]} * 3 + addend);
-        initial_output[kOutputWords[arm] + word] = ~result;
-        expected_output[kOutputWords[arm] + word] =
-            arm == selected_arm && word < count ? result : ~result;
-      }
-      const kernels::transform::Arguments consumer = {
-          input->device_address + kPayloadWord * sizeof(uint32_t),
-          output->device_address + kOutputWords[arm] * sizeof(uint32_t),
-          count,
-          addend,
-      };
-      std::memcpy(expected_arguments.data() + (arm + 1) * kArgumentStride,
-                  &consumer, kernel.arguments.byte_length);
-    }
-    expected_arguments[kEpochArgumentWord] = epoch + 1;
-    std::memcpy(input->host.pointer, expected_input.data(),
-                input->info.byte_length);
-    std::memcpy(output->host.pointer, initial_output.data(),
-                output->info.byte_length);
-    std::memcpy(arguments->host.pointer, expected_arguments.data(),
-                arguments->info.byte_length);
-    if (primary_ring) {
-      ASSERT_NO_FATAL_FAILURE(queue->Publish(api_, gpu_api_, frontiers[epoch]));
-    } else {
-      const amdf_gpu_kernel_command_t command = {
-          .memory = graph->memory,
-          .byte_offset = 0,
-          .byte_length = root.word_count() * sizeof(uint32_t),
-      };
-      ASSERT_NO_FATAL_FAILURE(queue->Submit(gpu_api_, command));
-    }
-    ASSERT_TRUE(GpuWaitEqual<uint32_t>(
-        reinterpret_cast<uintptr_t>(control->host.pointer), epoch + 1));
-    // Final consumer output is the first observation. Diagnostic snapshots
-    // and native retirement cannot supply the dependency under examination.
-    std::memcpy(observed_output.data(), output->host.pointer,
-                output->info.byte_length);
-    std::memcpy(observed_input.data(), input->host.pointer,
-                input->info.byte_length);
-    std::memcpy(observed_control.data(), control->host.pointer,
+  size_t command_word_count = 0;
+  size_t completed_case_count = 0;
+
+  const auto run_case = [&](const ComparisonCase& comparison,
+                            const OperandCase& operand, uint32_t predicate_word,
+                            const std::string& case_name) {
+    const std::string property_prefix = "pm4_branch_" + case_name;
+    auto expected_control = MakeGuardWords(*control, 0x68d329b7u);
+    expected_control[0] = 0;
+    // Only device commands change the operand, completion and selected markers
+    // after this initialization. Inactive arms retain their previous epochs.
+    std::memcpy(control->host.pointer, expected_control.data(),
                 control->info.byte_length);
-    std::memcpy(observed_arguments.data(), arguments->host.pointer,
-                arguments->info.byte_length);
-    std::memcpy(observed_code.data(), code->host.pointer,
-                code->info.byte_length);
-    std::memcpy(observed_graph.data(), graph->host.pointer,
+    std::fill(expected_graph.begin(), expected_graph.end(), 0u);
+    const uint64_t operand_address =
+        control->device_address + predicate_word * sizeof(uint32_t);
+    // Construct successors first. All links and complete block extents are
+    // immutable before any root is submitted; no return address is inferred.
+    Pm4CommandWriter continuation(expected_graph.data() + 3 * kBlockStride,
+                                  *pm4_profile_);
+    continuation.SystemBarrier();
+    continuation.CopyData32(epoch_address, control->device_address);
+    continuation.PadToEightWords();
+    ASSERT_LT(continuation.word_count(), kBlockStride);
+    const Pm4IndirectBuffer join = {
+        graph->device_address + 3 * kBlockStride * sizeof(uint32_t),
+        static_cast<uint32_t>(continuation.word_count()),
+    };
+    std::array<Pm4IndirectBuffer, 2> arms = {};
+    for (uint32_t arm = 0; arm < arms.size(); ++arm) {
+      Pm4CommandWriter commands(
+          expected_graph.data() + (arm + 1) * kBlockStride, *pm4_profile_);
+      commands.BindCompute(program,
+                           arguments->device_address +
+                               (arm + 1) * kArgumentStride * sizeof(uint32_t));
+      commands.Dispatch(program, kGridSize, 1, 1);
+      commands.CopyData32(
+          epoch_address,
+          control->device_address + kSelectedWords[arm] * sizeof(uint32_t));
+      commands.PadToEightWords(4);
+      commands.ChainIndirectBuffer(join);
+      ASSERT_EQ(commands.word_count() % 8, 0u);
+      ASSERT_LT(commands.word_count(), kBlockStride);
+      arms[arm] = {
+          graph->device_address + (arm + 1) * kBlockStride * sizeof(uint32_t),
+          static_cast<uint32_t>(commands.word_count())};
+    }
+    Pm4CommandWriter root(expected_graph.data(), *pm4_profile_);
+    root.SystemBarrier();
+    root.BindCompute(program, arguments->device_address);
+    root.Dispatch(program, kGridSize, 1, 1);
+    root.SystemBarrier();
+    root.PadToEightWords(14);
+    root.BranchIndirectBuffer(operand_address, operand.reference, operand.mask,
+                              comparison.comparison, arms[0], arms[1]);
+    ASSERT_EQ(root.word_count() % 8, 0u);
+    ASSERT_LT(root.word_count(), kBlockStride);
+    std::memcpy(graph->host.pointer, expected_graph.data(),
                 graph->info.byte_length);
+
+    std::array<uint64_t, kEpochCount> frontiers = {};
     if (primary_ring) {
-      std::memcpy(observed_commands.data(), queue->words().data(),
-                  queue->words().size_bytes());
+      const size_t case_command_begin = command_word_count;
+      Pm4CommandWriter commands(expected_commands.data() + case_command_begin,
+                                *pm4_profile_);
+      for (uint32_t epoch = 0; epoch < kEpochCount; ++epoch) {
+        commands.CallIndirectBuffer(graph->device_address,
+                                    static_cast<uint32_t>(root.word_count()));
+        commands.PadToEightWords();
+        frontiers[epoch] = case_command_begin + commands.word_count();
+        ASSERT_EQ(frontiers[epoch],
+                  case_command_begin + (epoch + 1) * kCommandWordsPerEpoch);
+        ASSERT_LT(frontiers[epoch], command_capacity);
+      }
+      command_word_count = case_command_begin + commands.word_count();
+      std::memcpy(queue->words().data() + case_command_begin,
+                  expected_commands.data() + case_command_begin,
+                  commands.word_count() * sizeof(uint32_t));
     }
-    expected_control[0] = epoch + 1;
-    expected_control[predicate_word] = static_cast<uint32_t>(value);
-    expected_control[predicate_word + 1] = static_cast<uint32_t>(value >> 32);
-    expected_control[kSelectedWords[selected_arm]] = epoch + 1;
-    ExpectWords(observed_output, expected_output,
-                "selected and unselected output");
-    ExpectWords(observed_input, expected_input, "input");
-    ExpectWords(observed_control, expected_control, "control");
-    ExpectWords(observed_arguments, expected_arguments, "arguments");
-    ExpectWords(observed_code, expected_code, "code");
-    ExpectWords(observed_graph, expected_graph, "immutable graph");
-    ExpectWords(observed_commands, expected_commands, "primary ring");
-    EXPECT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
-    if (HasFailure()) {
-      return;
+
+    RecordProperty(property_prefix + "_comparison", comparison.name);
+    RecordProperty(property_prefix + "_mask", std::to_string(operand.mask));
+    RecordProperty(property_prefix + "_reference",
+                   std::to_string(operand.reference));
+    RecordProperty(property_prefix + "_operand_byte_offset",
+                   predicate_word * sizeof(uint32_t));
+    RecordProperty(property_prefix + "_root_word_count",
+                   std::to_string(root.word_count()));
+    RecordProperty(property_prefix + "_pass_word_count", arms[0].word_count);
+    RecordProperty(property_prefix + "_fail_word_count", arms[1].word_count);
+    RecordProperty(property_prefix + "_join_word_count", join.word_count);
+
+    for (uint32_t epoch = 0; epoch < kEpochCount; ++epoch) {
+      SCOPED_TRACE("epoch=" + std::to_string(epoch));
+      const uint32_t relation = epoch % 3;
+      const uint64_t masked_value =
+          (relation == 0   ? operand.reference - operand.step
+           : relation == 1 ? operand.reference
+                           : operand.reference + operand.step) &
+          operand.mask;
+      const uint64_t ignored =
+          (UINT64_C(0x9d5713eca68420bf) ^
+           (uint64_t{epoch} * UINT64_C(0x01030507090b0d0f))) &
+          ~operand.mask;
+      const uint64_t value = masked_value | ignored;
+      const uint32_t selected_arm =
+          SelectsPass(comparison.comparison, value & operand.mask,
+                      operand.reference)
+              ? 0
+              : 1;
+      auto expected_input = MakeGuardWords(*input, 0x759bf13du ^ epoch);
+      expected_input[16] = static_cast<uint32_t>(
+          uint64_t{static_cast<uint32_t>(value)} * 0xaaaaaaab);
+      expected_input[17] = static_cast<uint32_t>((value >> 32) * 0xaaaaaaab);
+      for (uint32_t word = 0; word < kGridSize; ++word) {
+        expected_input[kPayloadWord + word] =
+            0xfffffff0u + word * 0x01030507u + epoch;
+      }
+      auto initial_output = MakeGuardWords(*output, 0x4e90b725u ^ epoch);
+      auto expected_output = initial_output;
+      std::vector<uint32_t> expected_arguments(observed_arguments.size(), 0);
+      const kernels::transform::Arguments producer = {
+          input->device_address + 16 * sizeof(uint32_t),
+          operand_address,
+          2,
+          0,
+      };
+      std::memcpy(expected_arguments.data(), &producer,
+                  kernel.arguments.byte_length);
+      for (uint32_t arm = 0; arm < arms.size(); ++arm) {
+        const uint32_t count = 61 - arm - epoch % 3;
+        const uint32_t addend = 7 + arm * 0x80000000u + epoch * 0x01010101u;
+        for (uint32_t word = 0; word < kGridSize; ++word) {
+          const uint32_t result = static_cast<uint32_t>(
+              uint64_t{expected_input[kPayloadWord + word]} * 3 + addend);
+          initial_output[kOutputWords[arm] + word] = ~result;
+          expected_output[kOutputWords[arm] + word] =
+              arm == selected_arm && word < count ? result : ~result;
+        }
+        const kernels::transform::Arguments consumer = {
+            input->device_address + kPayloadWord * sizeof(uint32_t),
+            output->device_address + kOutputWords[arm] * sizeof(uint32_t),
+            count,
+            addend,
+        };
+        std::memcpy(expected_arguments.data() + (arm + 1) * kArgumentStride,
+                    &consumer, kernel.arguments.byte_length);
+      }
+      expected_arguments[kEpochArgumentWord] = epoch + 1;
+      std::memcpy(input->host.pointer, expected_input.data(),
+                  input->info.byte_length);
+      std::memcpy(output->host.pointer, initial_output.data(),
+                  output->info.byte_length);
+      std::memcpy(arguments->host.pointer, expected_arguments.data(),
+                  arguments->info.byte_length);
+      if (primary_ring) {
+        ASSERT_NO_FATAL_FAILURE(
+            queue->Publish(api_, gpu_api_, frontiers[epoch]));
+      } else {
+        const amdf_gpu_kernel_command_t command = {
+            .memory = graph->memory,
+            .byte_offset = 0,
+            .byte_length = root.word_count() * sizeof(uint32_t),
+        };
+        ASSERT_NO_FATAL_FAILURE(queue->Submit(gpu_api_, command));
+      }
+      ASSERT_TRUE(GpuWaitEqual<uint32_t>(
+          reinterpret_cast<uintptr_t>(control->host.pointer), epoch + 1));
+      // Final consumer output is the first observation. Diagnostic snapshots
+      // and native retirement cannot supply the dependency under examination.
+      std::memcpy(observed_output.data(), output->host.pointer,
+                  output->info.byte_length);
+      std::memcpy(observed_input.data(), input->host.pointer,
+                  input->info.byte_length);
+      std::memcpy(observed_control.data(), control->host.pointer,
+                  control->info.byte_length);
+      std::memcpy(observed_arguments.data(), arguments->host.pointer,
+                  arguments->info.byte_length);
+      std::memcpy(observed_code.data(), code->host.pointer,
+                  code->info.byte_length);
+      std::memcpy(observed_graph.data(), graph->host.pointer,
+                  graph->info.byte_length);
+      if (primary_ring) {
+        std::memcpy(observed_commands.data(), queue->words().data(),
+                    queue->words().size_bytes());
+      }
+      expected_control[0] = epoch + 1;
+      expected_control[predicate_word] = static_cast<uint32_t>(value);
+      expected_control[predicate_word + 1] = static_cast<uint32_t>(value >> 32);
+      expected_control[kSelectedWords[selected_arm]] = epoch + 1;
+      ExpectWords(observed_output, expected_output,
+                  "selected and unselected output");
+      ExpectWords(observed_input, expected_input, "input");
+      ExpectWords(observed_control, expected_control, "control");
+      ExpectWords(observed_arguments, expected_arguments, "arguments");
+      ExpectWords(observed_code, expected_code, "code");
+      ExpectWords(observed_graph, expected_graph, "immutable graph");
+      ExpectWords(observed_commands, expected_commands, "primary ring");
+      EXPECT_NO_FATAL_FAILURE(queue->WaitRetired(api_));
+      if (HasFailure()) {
+        return;
+      }
+      const std::string epoch_prefix =
+          property_prefix + "_epoch_" + std::to_string(epoch);
+      RecordProperty(epoch_prefix + "_operand", std::to_string(value));
+      RecordProperty(epoch_prefix + "_selected_arm", selected_arm);
+      RecordProperty(epoch_prefix + "_completion", epoch + 1);
     }
-    const std::string prefix = "pm4_branch_epoch_" + std::to_string(epoch);
-    RecordProperty(prefix + "_operand", std::to_string(value));
-    RecordProperty(prefix + "_selected_arm", selected_arm);
-    RecordProperty(prefix + "_completion", epoch + 1);
+    RecordProperty(property_prefix + "_completed_epochs", kEpochCount);
+  };
+
+  for (const auto& comparison : kComparisons) {
+    for (const auto& operand : kOperands) {
+      for (const uint32_t predicate_word : kPredicateWords) {
+        const std::string case_name =
+            BranchCaseName(comparison, operand, predicate_word);
+        SCOPED_TRACE(case_name);
+        run_case(comparison, operand, predicate_word, case_name);
+        if (HasFailure()) {
+          return;
+        }
+        ++completed_case_count;
+        RecordProperty("pm4_branch_completed_cases", completed_case_count);
+      }
+    }
   }
-  RecordProperty("pm4_branch_completed_epochs", kEpochCount);
+  RecordProperty("pm4_branch_command_word_count",
+                 std::to_string(command_word_count));
 }
-
-std::string BranchCaseName(
-    const ::testing::TestParamInfo<BranchParameters>& parameters) {
-  const auto& [comparison, operand, predicate_word] = parameters.param;
-  return std::string(comparison.name) + operand.name +
-         (predicate_word == 16 ? "Aligned8" : "Aligned4");
-}
-
-INSTANTIATE_TEST_SUITE_P(Branches, Pm4BranchTest,
-                         ::testing::Combine(::testing::ValuesIn(kComparisons),
-                                            ::testing::ValuesIn(kOperands),
-                                            ::testing::Values(16u, 17u)),
-                         BranchCaseName);
 
 }  // namespace
