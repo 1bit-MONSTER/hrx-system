@@ -871,6 +871,78 @@ static iree_status_t loom_scalar_legalize_widen_integer_operands(
   return iree_ok_status();
 }
 
+// Decomposes a rotation without changing its logical integer domain. Both
+// shift counts are masked independently so a zero rotation never materializes
+// an undefined full-width shift. Target-native rotation contracts retain
+// precedence over this portable recipe.
+static iree_status_t loom_scalar_legalize_rotation(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+  const loom_value_id_t value = loom_op_operands(op)[0];
+  const loom_value_id_t count = loom_op_operands(op)[1];
+  const loom_type_t type = loom_module_value_type(context->module, value);
+  const int32_t bit_width =
+      loom_scalar_type_bitwidth(loom_type_element_type(type));
+
+  loom_value_id_t replacement = value;
+  if (bit_width != 1) {
+    loom_op_t* mask_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_scalar_constant_build(
+        builder, loom_attr_i64(bit_width - 1), type, op->location, &mask_op));
+    loom_op_t* amount_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_scalar_andi_build(
+        builder, count, loom_scalar_constant_result(mask_op), type,
+        op->location, &amount_op));
+
+    loom_op_t* zero_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_scalar_constant_build(
+        builder, loom_attr_i64(0), type, op->location, &zero_op));
+    loom_op_t* negative_amount_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_scalar_subi_build(
+        builder, /*instance_flags=*/0, loom_scalar_constant_result(zero_op),
+        loom_scalar_andi_result(amount_op), type, op->location,
+        &negative_amount_op));
+    loom_op_t* reverse_amount_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_scalar_andi_build(
+        builder, loom_scalar_subi_result(negative_amount_op),
+        loom_scalar_constant_result(mask_op), type, op->location,
+        &reverse_amount_op));
+
+    const loom_value_id_t amount = loom_scalar_andi_result(amount_op);
+    const loom_value_id_t reverse_amount =
+        loom_scalar_andi_result(reverse_amount_op);
+    const bool rotate_left = loom_scalar_rotli_isa(op);
+    loom_op_t* left_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_scalar_shli_build(
+        builder, /*instance_flags=*/0, value,
+        rotate_left ? amount : reverse_amount, type, op->location, &left_op));
+    loom_op_t* right_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_scalar_shrui_build(
+        builder, value, rotate_left ? reverse_amount : amount, type,
+        op->location, &right_op));
+    loom_op_t* combine_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_scalar_ori_build(
+        builder, loom_scalar_shli_result(left_op),
+        loom_scalar_shrui_result(right_op), type, op->location, &combine_op));
+    replacement = loom_scalar_ori_result(combine_op);
+  }
+
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, &replacement, 1, checkpoint));
+  IREE_RETURN_IF_ERROR(
+      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN,
+  };
+  return iree_ok_status();
+}
+
 // Targets with 32-bit arithmetic can implement narrower integer operations by
 // widening their inputs and truncating each result. Keeping that truncation at
 // the original operation boundary preserves wrapping before a later shift,
@@ -1821,6 +1893,16 @@ static const loom_target_legalizer_rule_t kScalarLegalizerRules[] = {
         .first_operand_element_types =
             LOOM_SCALAR_TYPE_SET_I8 | LOOM_SCALAR_TYPE_SET_I16,
         .legalize = loom_scalar_legalize_narrow_binary,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_ROTLI,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_INTEGER,
+        .legalize = loom_scalar_legalize_rotation,
+    },
+    {
+        .root_kind = LOOM_OP_SCALAR_ROTRI,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_INTEGER,
+        .legalize = loom_scalar_legalize_rotation,
     },
     {
         .root_kind = LOOM_OP_SCALAR_BITFIELD_EXTRACTU,

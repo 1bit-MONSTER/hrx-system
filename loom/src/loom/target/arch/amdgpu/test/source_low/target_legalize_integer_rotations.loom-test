@@ -1,0 +1,273 @@
+// RUN: pass target-legalize{mode=final},dce,canonicalize
+
+amdgpu.target<gfx1151> @target
+
+func.def target(@target) @predicate_rotations(%value: i1, %amount: i1) -> (i1, i1) {
+  %left = scalar.rotli %value, %amount : i1
+  %right = scalar.rotri %value, %amount : i1
+  func.return %left, %right : i1, i1
+}
+
+func.def target(@target) @byte_rotations(%value: i8, %amount: i8) -> (i8, i8) {
+  %left = scalar.rotli %value, %amount : i8
+  %right = scalar.rotri %value, %amount : i8
+  func.return %left, %right : i8, i8
+}
+
+// ----
+amdgpu.target<gfx1151> @target
+
+func.def target(@target) @predicate_rotations(%value: i1, %amount: i1) -> (i1, i1) {
+  func.return %value, %value : i1, i1
+}
+
+func.def target(@target) @byte_rotations(%value: i8, %amount: i8) -> (i8, i8) {
+  %72 = scalar.extui %amount : i8 to i32
+  %81 = scalar.constant 7 : i32
+  %74 = scalar.andi %72, %81 : i32
+  %75 = scalar.trunci %74 : i32 to i8
+  %80 = scalar.constant 0 : i32
+  %69 = scalar.extui %75 : i8 to i32
+  %70 = scalar.subi %80, %69 : i32
+  %71 = scalar.trunci %70 : i32 to i8
+  %64 = scalar.extui %71 : i8 to i32
+  %79 = scalar.constant 7 : i32
+  %66 = scalar.andi %64, %79 : i32
+  %67 = scalar.trunci %66 : i32 to i8
+  %60 = scalar.extsi %value : i8 to i32
+  %61 = scalar.extsi %75 : i8 to i32
+  %62 = scalar.shli %60, %61 : i32
+  %63 = scalar.trunci %62 : i32 to i8
+  %56 = scalar.extui %value : i8 to i32
+  %57 = scalar.extui %67 : i8 to i32
+  %58 = scalar.shrui %56, %57 : i32
+  %59 = scalar.trunci %58 : i32 to i8
+  %52 = scalar.extui %63 : i8 to i32
+  %53 = scalar.extui %59 : i8 to i32
+  %54 = scalar.ori %52, %53 : i32
+  %left = scalar.trunci %54 : i32 to i8
+  %40 = scalar.extui %amount : i8 to i32
+  %78 = scalar.constant 7 : i32
+  %42 = scalar.andi %40, %78 : i32
+  %43 = scalar.trunci %42 : i32 to i8
+  %77 = scalar.constant 0 : i32
+  %37 = scalar.extui %43 : i8 to i32
+  %38 = scalar.subi %77, %37 : i32
+  %39 = scalar.trunci %38 : i32 to i8
+  %32 = scalar.extui %39 : i8 to i32
+  %76 = scalar.constant 7 : i32
+  %34 = scalar.andi %32, %76 : i32
+  %35 = scalar.trunci %34 : i32 to i8
+  %28 = scalar.extsi %value : i8 to i32
+  %29 = scalar.extsi %35 : i8 to i32
+  %30 = scalar.shli %28, %29 : i32
+  %31 = scalar.trunci %30 : i32 to i8
+  %24 = scalar.extui %value : i8 to i32
+  %25 = scalar.extui %43 : i8 to i32
+  %26 = scalar.shrui %24, %25 : i32
+  %27 = scalar.trunci %26 : i32 to i8
+  %20 = scalar.extui %31 : i8 to i32
+  %21 = scalar.extui %27 : i8 to i32
+  %22 = scalar.ori %20, %21 : i32
+  %right = scalar.trunci %22 : i32 to i8
+  func.return %left, %right : i8, i8
+}
+
+// ====
+// RUN: pass target-legalize{mode=final},dce,canonicalize
+
+amdgpu.target<gfx1151> @target
+
+func.def target(@target) @vector_rotations(%bytes: vector<2xi8>, %byte_amounts: vector<2xi8>, %halfwords: vector<2xi16>, %halfword_amounts: vector<2xi16>, %words: vector<2xi32>, %word_amounts: vector<2xi32>, %wide: vector<2xi64>, %wide_amounts: vector<2xi64>) -> (vector<2xi8>, vector<2xi8>, vector<2xi16>, vector<2xi16>, vector<2xi32>, vector<2xi32>, vector<2xi64>, vector<2xi64>) {
+  %byte_left = vector.rotli %bytes, %byte_amounts : vector<2xi8>
+  %byte_right = vector.rotri %bytes, %byte_amounts : vector<2xi8>
+  %halfword_left = vector.rotli %halfwords, %halfword_amounts : vector<2xi16>
+  %halfword_right = vector.rotri %halfwords, %halfword_amounts : vector<2xi16>
+  %word_left = vector.rotli %words, %word_amounts : vector<2xi32>
+  %word_right = vector.rotri %words, %word_amounts : vector<2xi32>
+  %wide_left = vector.rotli %wide, %wide_amounts : vector<2xi64>
+  %wide_right = vector.rotri %wide, %wide_amounts : vector<2xi64>
+  func.return %byte_left, %byte_right, %halfword_left, %halfword_right, %word_left, %word_right, %wide_left, %wide_right : vector<2xi8>, vector<2xi8>, vector<2xi16>, vector<2xi16>, vector<2xi32>, vector<2xi32>, vector<2xi64>, vector<2xi64>
+}
+
+// ----
+amdgpu.target<gfx1151> @target
+
+func.def target(@target) @vector_rotations(%bytes: vector<2xi8>, %byte_amounts: vector<2xi8>, %halfwords: vector<2xi16>, %halfword_amounts: vector<2xi16>, %words: vector<2xi32>, %word_amounts: vector<2xi32>, %wide: vector<2xi64>, %wide_amounts: vector<2xi64>) -> (vector<2xi8>, vector<2xi8>, vector<2xi16>, vector<2xi16>, vector<2xi32>, vector<2xi32>, vector<2xi64>, vector<2xi64>) {
+  %100 = vector.constant 7 : vector<2xi8>
+  %101 = vector.andi %byte_amounts, %100 : vector<2xi8>
+  %102 = vector.xori %101, %100 : vector<2xi8>
+  %103 = vector.constant 1 : vector<2xi8>
+  %112 = vector.extui %bytes : vector<2xi8> to vector<2xi16>
+  %113 = vector.extui %102 : vector<2xi8> to vector<2xi16>
+  %114 = vector.shrui %112, %113 : vector<2xi16>
+  %115 = vector.trunci %114 : vector<2xi16> to vector<2xi8>
+  %108 = vector.extsi %bytes : vector<2xi8> to vector<2xi16>
+  %109 = vector.extsi %101 : vector<2xi8> to vector<2xi16>
+  %110 = vector.shli %108, %109 : vector<2xi16>
+  %111 = vector.trunci %110 : vector<2xi16> to vector<2xi8>
+  %106 = vector.shrui %115, %103 : vector<2xi8>
+  %byte_left = vector.ori %111, %106 : vector<2xi8>
+  %84 = vector.constant 7 : vector<2xi8>
+  %85 = vector.andi %byte_amounts, %84 : vector<2xi8>
+  %86 = vector.xori %85, %84 : vector<2xi8>
+  %87 = vector.constant 1 : vector<2xi8>
+  %96 = vector.extsi %bytes : vector<2xi8> to vector<2xi16>
+  %97 = vector.extsi %86 : vector<2xi8> to vector<2xi16>
+  %98 = vector.shli %96, %97 : vector<2xi16>
+  %99 = vector.trunci %98 : vector<2xi16> to vector<2xi8>
+  %89 = vector.shli %99, %87 : vector<2xi8>
+  %92 = vector.extui %bytes : vector<2xi8> to vector<2xi16>
+  %93 = vector.extui %85 : vector<2xi8> to vector<2xi16>
+  %94 = vector.shrui %92, %93 : vector<2xi16>
+  %95 = vector.trunci %94 : vector<2xi16> to vector<2xi8>
+  %byte_right = vector.ori %89, %95 : vector<2xi8>
+  %76 = vector.constant 15 : vector<2xi16>
+  %77 = vector.andi %halfword_amounts, %76 : vector<2xi16>
+  %78 = vector.xori %77, %76 : vector<2xi16>
+  %79 = vector.constant 1 : vector<2xi16>
+  %80 = vector.shrui %halfwords, %78 : vector<2xi16>
+  %81 = vector.shli %halfwords, %77 : vector<2xi16>
+  %82 = vector.shrui %80, %79 : vector<2xi16>
+  %halfword_left = vector.ori %81, %82 : vector<2xi16>
+  %68 = vector.constant 15 : vector<2xi16>
+  %69 = vector.andi %halfword_amounts, %68 : vector<2xi16>
+  %70 = vector.xori %69, %68 : vector<2xi16>
+  %71 = vector.constant 1 : vector<2xi16>
+  %72 = vector.shli %halfwords, %70 : vector<2xi16>
+  %73 = vector.shli %72, %71 : vector<2xi16>
+  %74 = vector.shrui %halfwords, %69 : vector<2xi16>
+  %halfword_right = vector.ori %73, %74 : vector<2xi16>
+  %60 = vector.constant 31 : vector<2xi32>
+  %61 = vector.andi %word_amounts, %60 : vector<2xi32>
+  %62 = vector.xori %61, %60 : vector<2xi32>
+  %63 = vector.constant 1 : vector<2xi32>
+  %64 = vector.shrui %words, %62 : vector<2xi32>
+  %65 = vector.shli %words, %61 : vector<2xi32>
+  %66 = vector.shrui %64, %63 : vector<2xi32>
+  %word_left = vector.ori %65, %66 : vector<2xi32>
+  %52 = vector.constant 31 : vector<2xi32>
+  %53 = vector.andi %word_amounts, %52 : vector<2xi32>
+  %54 = vector.xori %53, %52 : vector<2xi32>
+  %55 = vector.constant 1 : vector<2xi32>
+  %56 = vector.shli %words, %54 : vector<2xi32>
+  %57 = vector.shli %56, %55 : vector<2xi32>
+  %58 = vector.shrui %words, %53 : vector<2xi32>
+  %word_right = vector.ori %57, %58 : vector<2xi32>
+  %38 = vector.constant 63 : vector<2xi64>
+  %39 = vector.andi %wide_amounts, %38 : vector<2xi64>
+  %40 = vector.xori %39, %38 : vector<2xi64>
+  %41 = vector.constant 1 : vector<2xi64>
+  %49 = vector.trunci %40 : vector<2xi64> to vector<2xi32>
+  %50 = vector.extui %49 : vector<2xi32> to vector<2xi64>
+  %51 = vector.shrui %wide, %50 : vector<2xi64>
+  %46 = vector.trunci %39 : vector<2xi64> to vector<2xi32>
+  %47 = vector.extui %46 : vector<2xi32> to vector<2xi64>
+  %48 = vector.shli %wide, %47 : vector<2xi64>
+  %44 = vector.shrui %51, %41 : vector<2xi64>
+  %wide_left = vector.ori %48, %44 : vector<2xi64>
+  %24 = vector.constant 63 : vector<2xi64>
+  %25 = vector.andi %wide_amounts, %24 : vector<2xi64>
+  %26 = vector.xori %25, %24 : vector<2xi64>
+  %27 = vector.constant 1 : vector<2xi64>
+  %35 = vector.trunci %26 : vector<2xi64> to vector<2xi32>
+  %36 = vector.extui %35 : vector<2xi32> to vector<2xi64>
+  %37 = vector.shli %wide, %36 : vector<2xi64>
+  %29 = vector.shli %37, %27 : vector<2xi64>
+  %32 = vector.trunci %25 : vector<2xi64> to vector<2xi32>
+  %33 = vector.extui %32 : vector<2xi32> to vector<2xi64>
+  %34 = vector.shrui %wide, %33 : vector<2xi64>
+  %wide_right = vector.ori %29, %34 : vector<2xi64>
+  func.return %byte_left, %byte_right, %halfword_left, %halfword_right, %word_left, %word_right, %wide_left, %wide_right : vector<2xi8>, vector<2xi8>, vector<2xi16>, vector<2xi16>, vector<2xi32>, vector<2xi32>, vector<2xi64>, vector<2xi64>
+}
+
+// ====
+// RUN: emit source-low output=low
+
+amdgpu.target<gfx1151> @target
+
+func.def target(@target) @wide_vector_rotations(%value: vector<2xi64>, %amount: vector<2xi64>) -> (vector<2xi64>, vector<2xi64>) {
+  %left = vector.rotli %value, %amount : vector<2xi64>
+  %right = vector.rotri %value, %amount : vector<2xi64>
+  func.return %left, %right : vector<2xi64>, vector<2xi64>
+}
+
+// ----
+low.func.def target<amdgpu.rdna3_5.core>(@target) abi(hal_kernel) @wide_vector_rotations(%value: reg<amdgpu.vgpr x4>, %amount: reg<amdgpu.vgpr x4>) -> (reg<amdgpu.vgpr x4>, reg<amdgpu.vgpr x4>) asm {
+  %38 = v_mov_b32 63
+  %43 = slice %amount[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %45 = v_and_b32 %43, %38
+  %49 = slice %amount[2] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %51 = v_and_b32 %49, %38
+  %58 = v_xor_b32 %45, %38
+  %64 = v_xor_b32 %51, %38
+  %73 = slice %value[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr x2>
+  %74 = v_lshrrev_b64 %58, %73
+  %76 = slice %value[2] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr x2>
+  %77 = v_lshrrev_b64 %64, %76
+  %84 = v_lshlrev_b64 %45, %73
+  %87 = v_lshlrev_b64 %51, %76
+  %88 = concat(%84, %87) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  %90 = v_lshrrev_b64_src0_inline %74, 1
+  %92 = v_lshrrev_b64_src0_inline %77, 1
+  %93 = concat(%90, %92) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  %94 = slice %88[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %95 = slice %93[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %96 = v_or_b32 %94, %95
+  %97 = slice %88[1] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %98 = slice %93[1] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %99 = v_or_b32 %97, %98
+  %100 = slice %88[2] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %101 = slice %93[2] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %102 = v_or_b32 %100, %101
+  %103 = slice %88[3] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %104 = slice %93[3] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %105 = v_or_b32 %103, %104
+  %left = concat(%96, %99, %102, %105) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x4>
+  %109 = v_lshlrev_b64 %58, %73
+  %112 = v_lshlrev_b64 %64, %76
+  %115 = v_lshlrev_b64_src0_inline %109, 1
+  %117 = v_lshlrev_b64_src0_inline %112, 1
+  %118 = concat(%115, %117) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  %121 = v_lshrrev_b64 %45, %73
+  %124 = v_lshrrev_b64 %51, %76
+  %125 = concat(%121, %124) : (reg<amdgpu.vgpr x2>, reg<amdgpu.vgpr x2>) -> reg<amdgpu.vgpr x4>
+  %126 = slice %118[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %127 = slice %125[0] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %128 = v_or_b32 %126, %127
+  %129 = slice %118[1] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %130 = slice %125[1] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %131 = v_or_b32 %129, %130
+  %132 = slice %118[2] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %133 = slice %125[2] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %134 = v_or_b32 %132, %133
+  %135 = slice %118[3] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %136 = slice %125[3] : reg<amdgpu.vgpr x4> -> reg<amdgpu.vgpr>
+  %137 = v_or_b32 %135, %136
+  %right = concat(%128, %131, %134, %137) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x4>
+  return %left, %right
+}
+
+// ====
+// RUN: with-checks compile-report target=amdgpu:gfx1151 target-legalize{mode=final},source-to-low,low-dce
+
+// The i8 operands use the largest non-full carrier so widening must preserve
+// vector execution through packet-local i16 intermediates.
+func.def @rotate_integer_family(%value_i1: vector<8xi1>, %amount_i1: vector<8xi1>, %value_i8: vector<63xi8>, %amount_i8: vector<63xi8>, %value_i16: vector<8xi16>, %amount_i16: vector<8xi16>, %value_i32: vector<4xi32>, %amount_i32: vector<4xi32>, %value_i64: vector<2xi64>, %amount_i64: vector<2xi64>) -> (vector<8xi1>, vector<8xi1>, vector<63xi8>, vector<63xi8>, vector<8xi16>, vector<8xi16>, vector<4xi32>, vector<4xi32>, vector<2xi64>, vector<2xi64>) {
+  %left_i1 = vector.rotli %value_i1, %amount_i1 : vector<8xi1>
+  %right_i1 = vector.rotri %value_i1, %amount_i1 : vector<8xi1>
+  %left_i8 = vector.rotli %value_i8, %amount_i8 : vector<63xi8>
+  %right_i8 = vector.rotri %value_i8, %amount_i8 : vector<63xi8>
+  %left_i16 = vector.rotli %value_i16, %amount_i16 : vector<8xi16>
+  %right_i16 = vector.rotri %value_i16, %amount_i16 : vector<8xi16>
+  %left_i32 = vector.rotli %value_i32, %amount_i32 : vector<4xi32>
+  %right_i32 = vector.rotri %value_i32, %amount_i32 : vector<4xi32>
+  %left_i64 = vector.rotli %value_i64, %amount_i64 : vector<2xi64>
+  %right_i64 = vector.rotri %value_i64, %amount_i64 : vector<2xi64>
+  func.return %left_i1, %right_i1, %left_i8, %right_i8, %left_i16, %right_i16, %left_i32, %right_i32, %left_i64, %right_i64 : vector<8xi1>, vector<8xi1>, vector<63xi8>, vector<63xi8>, vector<8xi16>, vector<8xi16>, vector<4xi32>, vector<4xi32>, vector<2xi64>, vector<2xi64>
+}
+
+// ----
+CHECK: COMPILE-REPORT: target_legalization * scalarized=0 * rows=10 *
+CHECK: COMPILE-REPORT: target_legalization[*] function=rotate_integer_family source_op=vector.rotli * scalarized=false *
+CHECK: COMPILE-REPORT: target_legalization[*] function=rotate_integer_family source_op=vector.rotri * scalarized=false *

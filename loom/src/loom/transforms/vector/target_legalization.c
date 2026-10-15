@@ -158,6 +158,400 @@ static iree_status_t loom_vector_legalize_cast(
              : loom_vector_legalize_descriptor(entry, context, op, out_result);
 }
 
+// Returns true when every logical shift-count element is the same exact
+// integer. Fixed shifts must fall back to normal descriptor legalization: the
+// logarithmic barrel below is itself built from fixed shifts, so expanding one
+// again would never reach the target contract.
+static bool loom_vector_shift_count_is_fixed(const loom_rewriter_t* rewriter,
+                                             loom_value_id_t count) {
+  loom_value_facts_t element_facts = loom_value_facts_unknown();
+  int64_t exact_count = 0;
+  return loom_value_facts_query_all_equal_element(
+             &rewriter->fact_table->context,
+             loom_rewriter_value_facts(rewriter, count), &element_facts) &&
+         loom_value_facts_as_exact_i64(element_facts, &exact_count);
+}
+
+// Bounds packet-local widening independently of the authored lane count.
+#define LOOM_VECTOR_SHIFT_PACKET_OP_LIMIT 64u
+
+static loom_type_t loom_vector_shift_packet_type(loom_type_t source_type,
+                                                 uint32_t lane_count) {
+  return loom_type_shaped_1d(
+      LOOM_TYPE_VECTOR, loom_type_element_type(source_type),
+      loom_dim_pack_static(lane_count),
+      loom_type_rank(source_type) == 1 ? source_type.encoding_id : 0);
+}
+
+static bool loom_vector_shift_packet_carriers_supported(
+    const loom_target_legalization_context_t* context, loom_type_t source_type,
+    loom_type_t working_type, uint32_t lane_count) {
+  return loom_target_legalization_has_source_vector_carrier(
+             context, loom_vector_shift_packet_type(source_type, lane_count)) &&
+         loom_target_legalization_has_source_vector_carrier(
+             context, loom_vector_shift_packet_type(working_type, lane_count));
+}
+
+// Selects the widest declared packet width that admits both the authored
+// narrow carrier and the widened working carrier, including the final tail.
+// A zero result leaves the ordinary descriptor fallback responsible.
+static uint32_t loom_vector_shift_select_packet_lane_count(
+    const loom_target_legalization_context_t* context, loom_type_t source_type,
+    loom_type_t working_type) {
+  const loom_target_vector_packet_policy_t* policy =
+      context->vector_packet_policy;
+  if (policy == NULL || loom_type_rank(source_type) != 1 ||
+      !loom_type_is_all_static(source_type)) {
+    return 0;
+  }
+  const int64_t source_lane_count_i64 =
+      loom_type_dim_static_size_at(source_type, 0);
+  if (source_lane_count_i64 < 2 || source_lane_count_i64 > UINT32_MAX) {
+    return 0;
+  }
+  const uint32_t source_lane_count = (uint32_t)source_lane_count_i64;
+
+  uint32_t selected_lane_count = 0;
+  for (uint8_t i = 0; i < policy->native_lane_count_count; ++i) {
+    const uint32_t candidate_lane_count = policy->native_lane_counts[i];
+    if (candidate_lane_count == 0 ||
+        candidate_lane_count >= source_lane_count ||
+        candidate_lane_count <= selected_lane_count ||
+        !loom_vector_shift_packet_carriers_supported(
+            context, source_type, working_type, candidate_lane_count)) {
+      continue;
+    }
+    const uint32_t tail_lane_count = source_lane_count % candidate_lane_count;
+    if (tail_lane_count != 0 &&
+        !loom_vector_shift_packet_carriers_supported(
+            context, source_type, working_type, tail_lane_count)) {
+      continue;
+    }
+    const uint32_t packet_count =
+        (source_lane_count - 1u) / candidate_lane_count + 1u;
+    // Each packet has two slices, two extensions, one shift, and one
+    // truncation. The final concat is shared by all packets.
+    if ((uint64_t)packet_count * 6u + 1u > LOOM_VECTOR_SHIFT_PACKET_OP_LIMIT) {
+      continue;
+    }
+    selected_lane_count = candidate_lane_count;
+  }
+  return selected_lane_count;
+}
+
+static iree_status_t loom_vector_build_widened_shift(
+    loom_builder_t* builder, const loom_op_t* source_op,
+    const loom_value_id_t operands[2], loom_type_t source_type,
+    loom_type_t working_type, loom_value_id_t* out_result) {
+  const bool sign_extend = source_op->kind == LOOM_OP_VECTOR_SHLI ||
+                           source_op->kind == LOOM_OP_VECTOR_SHRSI;
+  loom_value_id_t widened_operands[2];
+  for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(widened_operands); ++i) {
+    loom_op_t* extension_op = NULL;
+    if (sign_extend) {
+      IREE_RETURN_IF_ERROR(loom_vector_extsi_build(
+          builder, operands[i], source_type, working_type, source_op->location,
+          &extension_op));
+      widened_operands[i] = loom_vector_extsi_result(extension_op);
+    } else {
+      IREE_RETURN_IF_ERROR(loom_vector_extui_build(
+          builder, operands[i], source_type, working_type, source_op->location,
+          &extension_op));
+      widened_operands[i] = loom_vector_extui_result(extension_op);
+    }
+  }
+
+  // Narrow no-wrap flags do not describe the widened intermediate.
+  loom_op_t* widened_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_builder_allocate_op(builder, source_op->kind, 2, 1,
+                                                0, 0, 0, source_op->location,
+                                                &widened_op));
+  loom_op_operands(widened_op)[0] = widened_operands[0];
+  loom_op_operands(widened_op)[1] = widened_operands[1];
+  IREE_RETURN_IF_ERROR(loom_builder_define_result(
+      builder, working_type, &loom_op_results(widened_op)[0]));
+  IREE_RETURN_IF_ERROR(loom_builder_finalize_op(builder, widened_op));
+  loom_op_t* truncation_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_vector_trunci_build(
+      builder, loom_op_results(widened_op)[0], working_type, source_type,
+      source_op->location, &truncation_op));
+  *out_result = loom_vector_trunci_result(truncation_op);
+  return iree_ok_status();
+}
+
+// Keeps rejected shifts in vector IR when another vector representation can
+// satisfy a target contract. A valid 64-bit shift count is in [0, 63], so a
+// truncate/zero-extend round trip preserves the defined domain while exposing
+// an exact 32-bit lane origin. Sixteen-bit shifts use a logarithmic barrel made
+// from fixed shifts; sub-halfword shifts first widen to that domain and
+// truncate at the source operation boundary. When widening the complete
+// authored vector would exceed the target carrier budget, the rewrite widens
+// bounded native packets instead of creating an oversized transient carrier.
+static iree_status_t loom_vector_legalize_shift(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  const loom_type_t result_type =
+      loom_module_value_type(context->module, loom_op_results(op)[0]);
+  const int32_t bit_width =
+      loom_scalar_type_bitwidth(loom_type_element_type(result_type));
+  if (bit_width == 64) {
+    const loom_value_id_t count = loom_op_operands(op)[1];
+    loom_value_fact_exact_lane_origin_t count_origin = {0};
+    const bool has_i32_count_origin =
+        loom_value_fact_table_query_exact_lane_origin(
+            context->fact_table, context->module, count, &count_origin) &&
+        loom_type_element_type(loom_module_value_type(
+            context->module, count_origin.source_value_id)) ==
+            LOOM_SCALAR_TYPE_I32;
+    if (!has_i32_count_origin) {
+      loom_rewriter_t* rewriter = context->rewriter;
+      loom_builder_t* builder = &rewriter->builder;
+      loom_builder_set_before(builder, op);
+      const loom_value_id_t checkpoint =
+          loom_rewriter_value_checkpoint(rewriter);
+      loom_type_t narrow_type = result_type;
+      narrow_type.header = loom_type_make_header(
+          loom_type_kind(result_type), LOOM_SCALAR_TYPE_I32,
+          loom_type_rank(result_type), loom_type_flags(result_type));
+      loom_op_t* truncate_op = NULL;
+      IREE_RETURN_IF_ERROR(loom_vector_trunci_build(builder, count, result_type,
+                                                    narrow_type, op->location,
+                                                    &truncate_op));
+      loom_op_t* extend_op = NULL;
+      IREE_RETURN_IF_ERROR(loom_vector_extui_build(
+          builder, loom_vector_trunci_result(truncate_op), narrow_type,
+          result_type, op->location, &extend_op));
+
+      loom_op_t* replacement_op = NULL;
+      IREE_RETURN_IF_ERROR(loom_builder_allocate_op(
+          builder, op->kind, 2, 1, 0, 0, op->instance_flags, op->location,
+          &replacement_op));
+      loom_op_operands(replacement_op)[0] = loom_op_operands(op)[0];
+      loom_op_operands(replacement_op)[1] = loom_vector_extui_result(extend_op);
+      IREE_RETURN_IF_ERROR(loom_builder_define_result(
+          builder, result_type, &loom_op_results(replacement_op)[0]));
+      IREE_RETURN_IF_ERROR(loom_builder_finalize_op(builder, replacement_op));
+      loom_value_id_t replacement = loom_op_results(replacement_op)[0];
+      IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+          rewriter, op, &replacement, 1, checkpoint));
+      IREE_RETURN_IF_ERROR(loom_rewriter_replace_all_uses_and_erase(
+          rewriter, op, &replacement, 1));
+      *out_result = (loom_target_legalizer_result_t){
+          .action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN,
+      };
+      return iree_ok_status();
+    }
+  }
+  if (bit_width >= 32) {
+    return loom_vector_legalize_descriptor(entry, context, op, out_result);
+  }
+
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+  if (bit_width == 16) {
+    if (loom_vector_shift_count_is_fixed(rewriter, loom_op_operands(op)[1])) {
+      return loom_vector_legalize_descriptor(entry, context, op, out_result);
+    }
+
+    loom_type_t predicate_type = result_type;
+    predicate_type.header = loom_type_make_header(
+        loom_type_kind(result_type), LOOM_SCALAR_TYPE_I1,
+        loom_type_rank(result_type), loom_type_flags(result_type));
+    loom_op_t* zero_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_constant_build(
+        builder, loom_attr_i64(0), result_type, op->location, &zero_op));
+    loom_value_id_t current = loom_op_operands(op)[0];
+    for (int64_t amount = 1; amount < bit_width; amount <<= 1) {
+      loom_op_t* amount_op = NULL;
+      IREE_RETURN_IF_ERROR(
+          loom_vector_constant_build(builder, loom_attr_i64(amount),
+                                     result_type, op->location, &amount_op));
+      loom_op_t* selected_bit_op = NULL;
+      IREE_RETURN_IF_ERROR(
+          loom_vector_andi_build(builder, loom_op_operands(op)[1],
+                                 loom_vector_constant_result(amount_op),
+                                 result_type, op->location, &selected_bit_op));
+      loom_op_t* selected_op = NULL;
+      IREE_RETURN_IF_ERROR(loom_vector_cmpi_build(
+          builder, LOOM_VECTOR_CMPI_PREDICATE_NE,
+          loom_vector_andi_result(selected_bit_op),
+          loom_vector_constant_result(zero_op), result_type, predicate_type,
+          op->location, &selected_op));
+
+      loom_op_t* shifted_op = NULL;
+      IREE_RETURN_IF_ERROR(loom_builder_allocate_op(
+          builder, op->kind, 2, 1, 0, 0, 0, op->location, &shifted_op));
+      loom_op_operands(shifted_op)[0] = current;
+      loom_op_operands(shifted_op)[1] = loom_vector_constant_result(amount_op);
+      IREE_RETURN_IF_ERROR(loom_builder_define_result(
+          builder, result_type, &loom_op_results(shifted_op)[0]));
+      IREE_RETURN_IF_ERROR(loom_builder_finalize_op(builder, shifted_op));
+      loom_op_t* select_op = NULL;
+      IREE_RETURN_IF_ERROR(loom_vector_select_build(
+          builder, loom_vector_cmpi_result(selected_op),
+          loom_op_results(shifted_op)[0], current, result_type, op->location,
+          &select_op));
+      current = loom_vector_select_result(select_op);
+    }
+    IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+        rewriter, op, &current, 1, checkpoint));
+    IREE_RETURN_IF_ERROR(
+        loom_rewriter_replace_all_uses_and_erase(rewriter, op, &current, 1));
+    *out_result = (loom_target_legalizer_result_t){
+        .action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN,
+    };
+    return iree_ok_status();
+  }
+
+  loom_type_t working_type = result_type;
+  working_type.header = loom_type_make_header(
+      loom_type_kind(result_type), LOOM_SCALAR_TYPE_I16,
+      loom_type_rank(result_type), loom_type_flags(result_type));
+  const bool working_carrier_supported =
+      loom_target_legalization_has_source_vector_carrier(context, working_type);
+  const uint32_t packet_lane_count =
+      working_carrier_supported ? 0
+                                : loom_vector_shift_select_packet_lane_count(
+                                      context, result_type, working_type);
+  if (!working_carrier_supported && packet_lane_count == 0) {
+    return loom_vector_legalize_descriptor(entry, context, op, out_result);
+  }
+
+  loom_value_id_t replacement = LOOM_VALUE_ID_INVALID;
+  if (packet_lane_count == 0) {
+    const loom_value_id_t operands[2] = {loom_op_operands(op)[0],
+                                         loom_op_operands(op)[1]};
+    IREE_RETURN_IF_ERROR(loom_vector_build_widened_shift(
+        builder, op, operands, result_type, working_type, &replacement));
+  } else {
+    const uint32_t source_lane_count =
+        (uint32_t)loom_type_dim_static_size_at(result_type, 0);
+    const uint32_t packet_count =
+        (source_lane_count - 1u) / packet_lane_count + 1u;
+    loom_value_id_t* packet_results = NULL;
+    IREE_RETURN_IF_ERROR(iree_arena_allocate_array(context->arena, packet_count,
+                                                   sizeof(*packet_results),
+                                                   (void**)&packet_results));
+    uint32_t lane_offset = 0;
+    for (uint32_t i = 0; i < packet_count; ++i) {
+      const uint32_t lane_count =
+          iree_min(source_lane_count - lane_offset, packet_lane_count);
+      const int64_t static_lane_offset = lane_offset;
+      const loom_type_t packet_source_type =
+          loom_vector_shift_packet_type(result_type, lane_count);
+      loom_value_id_t packet_operands[2];
+      for (iree_host_size_t j = 0; j < IREE_ARRAYSIZE(packet_operands); ++j) {
+        loom_op_t* slice_op = NULL;
+        IREE_RETURN_IF_ERROR(loom_vector_slice_build(
+            builder, loom_op_operands(op)[j], /*offsets=*/NULL,
+            /*offsets_count=*/0, &static_lane_offset,
+            /*static_offsets_count=*/1, packet_source_type, op->location,
+            &slice_op));
+        packet_operands[j] = loom_vector_slice_result(slice_op);
+      }
+      const loom_type_t packet_working_type =
+          loom_vector_shift_packet_type(working_type, lane_count);
+      IREE_RETURN_IF_ERROR(loom_vector_build_widened_shift(
+          builder, op, packet_operands, packet_source_type, packet_working_type,
+          &packet_results[i]));
+      lane_offset += lane_count;
+    }
+    loom_op_t* concat_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_concat_build(
+        builder, /*axis=*/0, packet_results, packet_count, result_type,
+        op->location, &concat_op));
+    replacement = loom_vector_concat_result(concat_op);
+  }
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, &replacement, 1, checkpoint));
+  IREE_RETURN_IF_ERROR(
+      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN,
+  };
+  return iree_ok_status();
+}
+
+// Decomposes a rotation while preserving its vector and logical element
+// domains. Target packet contracts lower the resulting shifts and bitwise
+// operations without exposing authored lanes as scalar IR.
+static iree_status_t loom_vector_legalize_rotation(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+  const loom_value_id_t value = loom_op_operands(op)[0];
+  const loom_value_id_t count = loom_op_operands(op)[1];
+  const loom_type_t type = loom_module_value_type(context->module, value);
+  const int32_t bit_width =
+      loom_scalar_type_bitwidth(loom_type_element_type(type));
+
+  loom_value_id_t replacement = value;
+  if (bit_width != 1) {
+    loom_op_t* mask_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_constant_build(
+        builder, loom_attr_i64(bit_width - 1), type, op->location, &mask_op));
+    loom_op_t* amount_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_andi_build(
+        builder, count, loom_vector_constant_result(mask_op), type,
+        op->location, &amount_op));
+
+    loom_op_t* complement_op = NULL;
+    IREE_RETURN_IF_ERROR(
+        loom_vector_xori_build(builder, loom_vector_andi_result(amount_op),
+                               loom_vector_constant_result(mask_op), type,
+                               op->location, &complement_op));
+    loom_op_t* one_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_constant_build(
+        builder, loom_attr_i64(1), type, op->location, &one_op));
+
+    const loom_value_id_t amount = loom_vector_andi_result(amount_op);
+    const loom_value_id_t complement = loom_vector_xori_result(complement_op);
+    const loom_value_id_t one = loom_vector_constant_result(one_op);
+    const bool rotate_left = loom_vector_rotli_isa(op);
+    loom_op_t* complementary_op = NULL;
+    if (rotate_left) {
+      IREE_RETURN_IF_ERROR(loom_vector_shrui_build(
+          builder, value, complement, type, op->location, &complementary_op));
+    } else {
+      IREE_RETURN_IF_ERROR(loom_vector_shli_build(
+          builder, /*instance_flags=*/0, value, complement, type, op->location,
+          &complementary_op));
+    }
+    loom_op_t* left_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_shli_build(
+        builder, /*instance_flags=*/0,
+        rotate_left ? value : loom_vector_shli_result(complementary_op),
+        rotate_left ? amount : one, type, op->location, &left_op));
+    loom_op_t* right_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_shrui_build(
+        builder,
+        rotate_left ? loom_vector_shrui_result(complementary_op) : value,
+        rotate_left ? one : amount, type, op->location, &right_op));
+    loom_op_t* combine_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_vector_ori_build(
+        builder, loom_vector_shli_result(left_op),
+        loom_vector_shrui_result(right_op), type, op->location, &combine_op));
+    replacement = loom_vector_ori_result(combine_op);
+  }
+
+  IREE_RETURN_IF_ERROR(loom_rewriter_preserve_result_names_on_new_values(
+      rewriter, op, &replacement, 1, checkpoint));
+  IREE_RETURN_IF_ERROR(
+      loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement, 1));
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN,
+  };
+  return iree_ok_status();
+}
+
 static iree_status_t loom_vector_legalize_non_dense_memory(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
@@ -1265,15 +1659,25 @@ static const loom_target_legalizer_rule_t kVectorLegalizerRules[] = {
     },
     {
         .root_kind = LOOM_OP_VECTOR_SHLI,
-        .legalize = loom_vector_legalize_descriptor,
+        .legalize = loom_vector_legalize_shift,
     },
     {
         .root_kind = LOOM_OP_VECTOR_SHRSI,
-        .legalize = loom_vector_legalize_descriptor,
+        .legalize = loom_vector_legalize_shift,
     },
     {
         .root_kind = LOOM_OP_VECTOR_SHRUI,
-        .legalize = loom_vector_legalize_descriptor,
+        .legalize = loom_vector_legalize_shift,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_ROTLI,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_INTEGER,
+        .legalize = loom_vector_legalize_rotation,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_ROTRI,
+        .first_operand_element_types = LOOM_SCALAR_TYPE_SET_INTEGER,
+        .legalize = loom_vector_legalize_rotation,
     },
     {
         .root_kind = LOOM_OP_VECTOR_CTLZI,

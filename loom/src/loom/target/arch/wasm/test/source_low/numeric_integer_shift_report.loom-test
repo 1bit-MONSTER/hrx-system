@@ -34,3 +34,25 @@ func.def @wide_shift_packetization(%input: buffer, %count_input: buffer, %output
 
 // ----
 CHECK: COMPILE-REPORT: target_legalization[*] function=wide_shift_packetization source_op=vector.shli * action=rewritten * legalizer=vector-packet strategy=target * scalarized=false *
+
+// ====
+// RUN: with-checks compile-report target=wasm:simd128 target-legalize{mode=final},source-to-low,low-dce
+
+func.def @rotate_integer_family(%value_i1: vector<8xi1>, %amount_i1: vector<8xi1>, %value_i8: vector<16xi8>, %amount_i8: vector<16xi8>, %value_i16: vector<8xi16>, %amount_i16: vector<8xi16>, %value_i32: vector<4xi32>, %amount_i32: vector<4xi32>, %value_i64: vector<2xi64>, %amount_i64: vector<2xi64>) -> (vector<8xi1>, vector<8xi1>, vector<16xi8>, vector<16xi8>, vector<8xi16>, vector<8xi16>, vector<4xi32>, vector<4xi32>, vector<2xi64>, vector<2xi64>) {
+  %left_i1 = vector.rotli %value_i1, %amount_i1 : vector<8xi1>
+  %right_i1 = vector.rotri %value_i1, %amount_i1 : vector<8xi1>
+  %left_i8 = vector.rotli %value_i8, %amount_i8 : vector<16xi8>
+  %right_i8 = vector.rotri %value_i8, %amount_i8 : vector<16xi8>
+  %left_i16 = vector.rotli %value_i16, %amount_i16 : vector<8xi16>
+  %right_i16 = vector.rotri %value_i16, %amount_i16 : vector<8xi16>
+  %left_i32 = vector.rotli %value_i32, %amount_i32 : vector<4xi32>
+  %right_i32 = vector.rotri %value_i32, %amount_i32 : vector<4xi32>
+  %left_i64 = vector.rotli %value_i64, %amount_i64 : vector<2xi64>
+  %right_i64 = vector.rotri %value_i64, %amount_i64 : vector<2xi64>
+  func.return %left_i1, %right_i1, %left_i8, %right_i8, %left_i16, %right_i16, %left_i32, %right_i32, %left_i64, %right_i64 : vector<8xi1>, vector<8xi1>, vector<16xi8>, vector<16xi8>, vector<8xi16>, vector<8xi16>, vector<4xi32>, vector<4xi32>, vector<2xi64>, vector<2xi64>
+}
+
+// ----
+CHECK: COMPILE-REPORT: target_legalization * scalarized=0 * rows=10 *
+CHECK: COMPILE-REPORT: target_legalization[*] function=rotate_integer_family source_op=vector.rotli * scalarized=false *
+CHECK: COMPILE-REPORT: target_legalization[*] function=rotate_integer_family source_op=vector.rotri * scalarized=false *

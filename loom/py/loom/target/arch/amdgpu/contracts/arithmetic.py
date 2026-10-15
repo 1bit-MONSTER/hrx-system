@@ -257,6 +257,11 @@ _DESCRIPTOR_KEYS = (
     "amdgpu.v_lshrrev_b32",
     "amdgpu.v_lshrrev_b32.src0_inline",
     "amdgpu.v_lshlrev_b64",
+    "amdgpu.v_lshlrev_b64.src0_inline",
+    "amdgpu.v_ashrrev_i64",
+    "amdgpu.v_ashrrev_i64.src0_inline",
+    "amdgpu.v_lshrrev_b64",
+    "amdgpu.v_lshrrev_b64.src0_inline",
     "amdgpu.v_clz_i32_u32",
     "amdgpu.v_cls_i32",
 )
@@ -630,6 +635,62 @@ def _binary_rule(
                 results={"dst": ValueRef.result("result")},
                 form=_emit_form(type_pattern),
                 operand_materialization=operand_materialization,
+            ),
+        ),
+    )
+
+
+def _constant_vector_shift_rule(
+    source_op: Op,
+    type_pattern: TypePattern,
+    descriptor_key: str,
+    maximum_shift: int,
+) -> DescriptorRule:
+    descriptor = _descriptor(descriptor_key)
+    return DescriptorRule(
+        source_op=source_op,
+        descriptor=descriptor,
+        priority=1,
+        guards=(
+            *_typed_guards(("lhs", "rhs", "result"), type_pattern),
+            Guard.value_exact_i64("rhs"),
+            Guard.value_i64_range("rhs", 0, maximum_shift),
+            Guard.descriptor_available(descriptor),
+        ),
+        emit=(
+            EmitDescriptorOp(
+                descriptor=descriptor,
+                operands={"value": ValueRef.operand("lhs")},
+                results={"dst": ValueRef.result("result")},
+                immediates={"imm32": ValueProject.exact_i64("rhs")},
+                form=_emit_form(type_pattern),
+            ),
+        ),
+    )
+
+
+def _i64_vector_shift_rule(
+    source_op: Op,
+    descriptor_key: str,
+) -> DescriptorRule:
+    descriptor = _descriptor(descriptor_key)
+    return DescriptorRule(
+        source_op=source_op,
+        descriptor=descriptor,
+        guards=(
+            *_typed_guards(("lhs", "rhs", "result"), _VEC_I64_STATIC),
+            Guard.exact_lane_origin_type("rhs", _VEC_I32_STATIC),
+            Guard.descriptor_available(descriptor),
+        ),
+        emit=(
+            EmitDescriptorOp(
+                descriptor=descriptor,
+                operands={
+                    "shift": ValueRef.exact_lane_origin_operand("rhs"),
+                    "value": ValueRef.operand("lhs"),
+                },
+                results={"dst": ValueRef.result("result")},
+                form=DescriptorEmitForm.PER_LANE,
             ),
         ),
     )
@@ -4885,6 +4946,22 @@ def _rules() -> tuple[ContractCase, ...]:
                     source_rhs="lhs",
                     rhs_materializer=REGISTERS_VGPR_MATERIALIZER,
                 ),
+            )
+        )
+    for source_op, descriptor_key in (
+        (vector.vector_shli, "amdgpu.v_lshlrev_b64"),
+        (vector.vector_shrsi, "amdgpu.v_ashrrev_i64"),
+        (vector.vector_shrui, "amdgpu.v_lshrrev_b64"),
+    ):
+        rules.extend(
+            (
+                _constant_vector_shift_rule(
+                    source_op,
+                    _VEC_I64_STATIC,
+                    f"{descriptor_key}.src0_inline",
+                    63,
+                ),
+                _i64_vector_shift_rule(source_op, descriptor_key),
             )
         )
     rules.extend(packed_i8_logical_shift_rules(_DESCRIPTOR_SET))

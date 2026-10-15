@@ -146,7 +146,6 @@ loom_corpus_build(
             "numeric/float/rounding.loom:@rounding_f16_observations": "LOWERING/036",
             "numeric/float/rounding.loom:@rounding_f8e4m3_observations": "LOWERING/036",
             "numeric/float/rounding.loom:@rounding_f8e5m2_observations": "LOWERING/036",
-            "numeric/integer/rotation.loom:@integer_rotations": "TARGET/002",
             "numeric/matrix/nvfp4.loom:@nvfp4_matrix": "TARGET/001",
             "numeric/vector/floating.loom:@vector_scale_f16": "TARGET/001",
             "numeric/vector/floating.loom:@vector_scale_f32": "TARGET/001",
