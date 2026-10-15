@@ -71,10 +71,12 @@ Runtime-only consumers outside `libamdf/` retain their own subsystem prefix.
 - The public distribution consists of the shared library, the explicit static
   library, and headers under `include/amdf/`. Tests and examples are not part
   of the installed package.
-- Ordinary CTS corpora use one runtime-loaded shared-library executable. The
-  small API-negotiation corpus explicitly covers static and shared linkage as
-  well. Sources compile independently within each grouped corpus; cases share
-  cached devices and own their workload resources.
+- Ordinary CTS corpora use one process-lifetime invocation of a runtime-loaded
+  shared-library executable. Focused native-lifetime smokes exercise bounded
+  instance ownership without duplicating every operation. The small
+  API-negotiation corpus explicitly covers static and shared linkage as well.
+  Sources compile independently within each grouped corpus; cases share cached
+  devices and own their workload resources.
 
 ## Verification
 

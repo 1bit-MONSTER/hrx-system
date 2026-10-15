@@ -144,22 +144,6 @@ iree_native_test(
 endif()
 
 if(AMDF_BUILD)
-iree_native_test(
-  NAME
-    "wait_test_dynamic_instance"
-  ARGS
-    "--amdf_native_lifetime=instance"
-    "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
-  SRC
-    ::wait_test_dynamic_bin
-  DATA
-    "amdf::amdf"
-  LABELS
-    "iree-build-requirement=libamdf"
-)
-endif()
-
-if(AMDF_BUILD)
 iree_cc_library(
   NAME
     native_event_headers

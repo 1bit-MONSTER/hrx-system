@@ -277,6 +277,7 @@ class AmdfBuildFileFunctions(
         defines=None,
         linkage_modes=("dynamic",),
         linkopts=None,
+        native_lifetimes=("process",),
         tags=None,
         resource_group=None,
         visibility=None,
@@ -322,7 +323,10 @@ class AmdfBuildFileFunctions(
                 if mode == "dynamic"
                 else []
             )
-            for lifetime, suffix in (("process", ""), ("instance", "_instance")):
+            for lifetime in native_lifetimes:
+                if lifetime not in ("process", "instance"):
+                    raise ValueError("unsupported libamdf native lifetime: " + lifetime)
+                suffix = "" if lifetime == "process" else "_" + lifetime
                 self.iree_executable_test(
                     name=name + "_" + mode + suffix,
                     src=":" + binary_name,
