@@ -113,6 +113,55 @@ prove exclusive ownership or that all requested native controls took effect.
 Those results retain their own meaning. [Start controls][device-controls]
 [Native results][native-owner]
 
+## WGP result coordinates and harvested units
+
+A flat counter-result index describes the producer's memory layout, not a
+portable hardware unit number. AQLProfile's WGP counter reader places WGP
+inside the shader-array and shader-engine loops. For one event across all
+block instances on a single XCC, the element index is:
+
+```text
+element = (((instance * shader_engine_count + se) * shader_array_count + sa)
+           * physical_wgp_span + wgp)
+byte_offset = element * 8
+```
+
+Each slot occupies two DWORDs, including counters whose result register is only
+32 bits; the builder initializes their high DWORD to zero. The dimension
+metadata orders `INSTANCE`, `SE`, `SA`, then `WGP`, with the last coordinate
+changing fastest. GFX11 retains a singleton `INSTANCE`; GFX12 WGP blocks omit
+it when the block has only one instance. Multi-chiplet metadata can prefix
+`XCD` or `AID` according to the block's scope. Those outer dimensions do not
+turn a per-WGP result into a device aggregate. [Read loops][wgp-read-layout]
+[Dimension metadata][wgp-dimensions]
+
+On GFX11, `physical_wgp_span` is the larger of the CU-count-derived initial
+extent and the highest active physical WGP index plus one. The reader retains
+holes in this extent: it emits no counter-register read for a harvested WGP
+and initializes both result DWORDs to zero. For example, active WGPs
+`{0, 1, 2, 4}` require five slots per shader array, even though only four slots
+receive hardware samples. Computing the result extent from the active CU
+count alone loses the last slot. A zero-filled hole is structural metadata,
+not evidence that an active unit observed zero events. [Physical extent][wgp-span]
+[Hole initialization][wgp-read-layout]
+
+The GFX11 mask uses two CU bits per WGP and the kernel's folded bitmap layout:
+logical `(se, sa)` selects `bits[se % 4][sa + (se / 4) * shader_array_count]`.
+The cited builder treats an empty or out-of-window bitmap entry as unavailable
+metadata and synthesizes a fully active mask. That fallback is a producer
+policy; it cannot distinguish missing topology information from an entirely
+inactive array. [Bitmap interpretation][wgp-span]
+
+The same source's GFX12 reader retains its CU-count-derived WGP extent rather
+than applying the GFX11 mask. When the agent name begins with `gfx1250`, it
+skips physical `(sa = 1, wgp = 8)` in every shader engine, leaves the slot in
+the layout, and initializes it to zero. The source identifies this as a
+workaround for counter reads that can soft-hang. This exact source predicate
+does not establish a general GFX12 harvesting rule. The corresponding factory
+registers the WGP `SQ` and `TCP` blocks; a block definition present in a header
+does not itself establish factory admission. [GFX12 read predicate][wgp-read-layout]
+[GFX12.5 block admission][gfx1250-blocks]
+
 ## GFX11 register-read protocols
 
 The pinned public producers emit different `COPY_DATA` operands:
@@ -209,6 +258,10 @@ that dispatch-local sequence. [Timeline completion][tiny-completion]
 [stop]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/pm4/pmc_builder.h#L1005-L1097
 [device-stop]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/counters/device_counting.cpp#L571-L635
 [device-controls]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/counters/device_counting.cpp#L466-L478
+[wgp-span]: https://github.com/ROCm/rocm-systems/blob/51ec055f9e83ea5090aea479982400bd30e31b26/projects/rocprofiler-sdk/source/lib/aqlprofile/pm4/pmc_builder.h#L310-L386
+[wgp-read-layout]: https://github.com/ROCm/rocm-systems/blob/51ec055f9e83ea5090aea479982400bd30e31b26/projects/rocprofiler-sdk/source/lib/aqlprofile/pm4/pmc_builder.h#L862-L976
+[wgp-dimensions]: https://github.com/ROCm/rocm-systems/blob/51ec055f9e83ea5090aea479982400bd30e31b26/projects/rocprofiler-sdk/source/lib/aqlprofile/core/counter_dimensions.hpp#L90-L169
+[gfx1250-blocks]: https://github.com/ROCm/rocm-systems/blob/51ec055f9e83ea5090aea479982400bd30e31b26/projects/rocprofiler-sdk/source/lib/aqlprofile/core/gfx1250_factory.cpp#L108-L147
 [copy]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/pm4/gfx11_cmd_builder.h#L232-L308
 [pal-copy]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9CmdStream.cpp#L1604-L1626
 [cpc-offsets]: https://github.com/ROCm/rocm-systems/blob/eab38980a6f5cc0e4b17ec5437345e7680bbc936/projects/rocprofiler-sdk/source/lib/aqlprofile/linux/registers/gc/gc_11_0_0_offset.h#L8372-L8379
