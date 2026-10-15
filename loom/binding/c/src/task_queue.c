@@ -191,11 +191,14 @@ static void loomc_task_queue_request_shutdown(loomc_task_queue_t* queue) {
 loomc_status_t loomc_task_queue_allocate(const loomc_task_pool_t* pool,
                                          loomc_allocator_t allocator,
                                          loomc_task_queue_t** out_queue) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (pool == NULL || out_queue == NULL ||
       !loomc_allocator_is_valid(allocator)) {
-    return loomc_make_status(
-        LOOMC_STATUS_INVALID_ARGUMENT,
-        "task pool, allocator, and out_queue are required");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                          "task pool, allocator, and out_queue are required");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_queue = NULL;
   iree_allocator_t iree_allocator = iree_allocator_from_loomc(allocator);
@@ -204,7 +207,9 @@ loomc_status_t loomc_task_queue_allocate(const loomc_task_pool_t* pool,
       iree_allocator, sizeof(*queue), iree_alignof(loomc_task_queue_t),
       /*offset=*/0, (void**)&queue);
   if (!iree_status_is_ok(status)) {
-    return loomc_status_from_iree(status);
+    loomc_status_t return_status = loomc_status_from_iree(status);
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   memset(queue, 0, sizeof(*queue));
   queue->allocator = iree_allocator;
@@ -225,6 +230,7 @@ loomc_status_t loomc_task_queue_allocate(const loomc_task_pool_t* pool,
   queue->process.release_fn = loomc_task_queue_process_release;
   queue->process.user_data = queue;
   *out_queue = queue;
+  IREE_TRACE_ZONE_END(z0);
   return loomc_ok_status();
 }
 
@@ -237,28 +243,38 @@ loomc_task_sink_t loomc_task_queue_sink(loomc_task_queue_t* queue) {
 }
 
 loomc_status_t loomc_task_queue_shutdown(loomc_task_queue_t* queue) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (queue == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "task queue is required");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "task queue is required");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   loomc_task_queue_request_shutdown(queue);
+  IREE_TRACE_ZONE_END(z0);
   return loomc_ok_status();
 }
 
 loomc_status_t loomc_task_queue_await_shutdown(loomc_task_queue_t* queue) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (queue == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "task queue is required");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "task queue is required");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   iree_slim_mutex_lock(&queue->ready.mutex);
   const bool shutdown_started =
       queue->ready.state != LOOMC_TASK_QUEUE_STATE_ACCEPTING;
   iree_slim_mutex_unlock(&queue->ready.mutex);
   if (!shutdown_started) {
-    return loomc_make_status(LOOMC_STATUS_FAILED_PRECONDITION,
-                             "task queue shutdown has not begun");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_FAILED_PRECONDITION, "task queue shutdown has not begun");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   loomc_task_queue_await_release(queue);
+  IREE_TRACE_ZONE_END(z0);
   return loomc_ok_status();
 }
 

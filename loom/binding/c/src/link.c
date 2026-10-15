@@ -508,16 +508,21 @@ loomc_status_t loomc_linker_create(loomc_context_t* context,
                                    const loomc_linker_options_t* options,
                                    loomc_allocator_t allocator,
                                    loomc_linker_t** out_linker) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (context == NULL || out_linker == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "context and out_linker must not be NULL");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                          "context and out_linker must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_linker = NULL;
-  LOOMC_RETURN_IF_ERROR(loomc_link_validate_linker_options(options));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_link_validate_linker_options(options));
 
   loomc_linker_t* linker = NULL;
-  LOOMC_RETURN_IF_ERROR(
-      loomc_allocator_malloc(allocator, sizeof(*linker), (void**)&linker));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_allocator_malloc(allocator, sizeof(*linker), (void**)&linker));
   memset(linker, 0, sizeof(*linker));
   iree_atomic_ref_count_init(&linker->ref_count);
   linker->allocator = allocator;
@@ -532,6 +537,7 @@ loomc_status_t loomc_linker_create(loomc_context_t* context,
   } else {
     loomc_linker_release(linker);
   }
+  IREE_TRACE_ZONE_END(z0);
   return status;
 }
 
@@ -560,21 +566,26 @@ loomc_status_t loomc_link_module(loomc_linker_t* linker,
                                  const loomc_link_options_t* options,
                                  loomc_module_t** out_module,
                                  loomc_result_t** out_result) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (out_module == NULL || out_result == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "out_module and out_result must not be NULL");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                          "out_module and out_result must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_module = NULL;
   *out_result = NULL;
   const loomc_target_specialization_options_t* target_specialization = NULL;
-  LOOMC_RETURN_IF_ERROR(loomc_link_validate_options(linker, workspace, options,
-                                                    &target_specialization));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_link_validate_options(linker, workspace, options,
+                                      &target_specialization));
 
   loomc_result_t* result = NULL;
-  LOOMC_RETURN_IF_ERROR(
-      loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED,
-                          loomc_context_source_retention(linker->context),
-                          linker->allocator, &result));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED,
+                              loomc_context_source_retention(linker->context),
+                              linker->allocator, &result));
 
   iree_arena_allocator_t arena = {0};
   iree_arena_initialize(loomc_workspace_block_pool(workspace), &arena);
@@ -667,6 +678,7 @@ loomc_status_t loomc_link_module(loomc_linker_t* linker,
   loomc_module_release(module);
   iree_arena_deinitialize(&arena);
   loomc_result_release(result);
+  IREE_TRACE_ZONE_END(z0);
   return status;
 }
 
@@ -677,21 +689,27 @@ loomc_status_t loomc_link_request(loomc_linker_t* linker,
                                   loomc_allocator_t allocator,
                                   loomc_request_t** out_request,
                                   loomc_result_t** out_result) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (out_request == NULL || out_result == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "out_request and out_result must not be NULL");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                          "out_request and out_result must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_request = NULL;
   *out_result = NULL;
   const loomc_target_specialization_options_t* target_specialization = NULL;
-  LOOMC_RETURN_IF_ERROR(loomc_link_validate_request_options(
-      linker, workspace, input_request, options, allocator,
-      &target_specialization));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_link_validate_request_options(linker, workspace, input_request,
+                                              options, allocator,
+                                              &target_specialization));
 
   loomc_result_t* result = NULL;
-  LOOMC_RETURN_IF_ERROR(loomc_result_create(
-      LOOMC_RESULT_STATE_SUCCEEDED,
-      loomc_context_source_retention(linker->context), allocator, &result));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED,
+                              loomc_context_source_retention(linker->context),
+                              allocator, &result));
 
   const loomc_config_options_t empty_config = {0};
   const loomc_config_options_t* config =
@@ -810,5 +828,6 @@ loomc_status_t loomc_link_request(loomc_linker_t* linker,
   loomc_request_index_overlay_deinitialize(&request_overlay);
   iree_arena_deinitialize(&scratch_arena);
   loomc_result_release(result);
+  IREE_TRACE_ZONE_END(z0);
   return status;
 }

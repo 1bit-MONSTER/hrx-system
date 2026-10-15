@@ -484,15 +484,21 @@ static bool loomc_link_index_symbol_from_loom(
 loomc_status_t loomc_link_index_builder_allocate(
     loomc_context_t* context, const loomc_link_index_builder_options_t* options,
     loomc_allocator_t allocator, loomc_link_index_builder_t** out_builder) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (context == NULL || out_builder == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "context and out_builder must not be NULL");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                          "context and out_builder must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_builder = NULL;
-  LOOMC_RETURN_IF_ERROR(loomc_link_index_validate_builder_options(options));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_link_index_validate_builder_options(options));
 
   loomc_link_index_builder_t* builder = NULL;
-  LOOMC_RETURN_IF_ERROR(
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0,
       loomc_allocator_malloc(allocator, sizeof(*builder), (void**)&builder));
   memset(builder, 0, sizeof(*builder));
   builder->allocator = allocator;
@@ -526,6 +532,7 @@ loomc_status_t loomc_link_index_builder_allocate(
   } else {
     loomc_link_index_builder_free(builder);
   }
+  IREE_TRACE_ZONE_END(z0);
   return status;
 }
 
@@ -552,53 +559,72 @@ loomc_status_t loomc_link_index_builder_reserve_source_slot(
     loomc_link_index_builder_t* builder,
     const loomc_link_index_source_options_t* options,
     loomc_link_index_source_slot_t* out_slot) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (out_slot == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "out_slot must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "out_slot must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_slot = (loomc_link_index_source_slot_t){
       .ordinal = LOOMC_HOST_SIZE_MAX,
   };
-  LOOMC_RETURN_IF_ERROR(loomc_link_index_builder_require_open(builder));
-  LOOMC_RETURN_IF_ERROR(loomc_link_index_validate_source_options(options));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_link_index_builder_require_open(builder));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_link_index_validate_source_options(options));
 
   const loomc_host_size_t ordinal = builder->sources.count;
   loomc_host_size_t required_count = 0;
   if (!iree_host_size_checked_add(ordinal, 1, &required_count)) {
-    return loomc_make_status(LOOMC_STATUS_RESOURCE_EXHAUSTED,
-                             "link index source count overflow");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_RESOURCE_EXHAUSTED, "link index source count overflow");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
-  LOOMC_RETURN_IF_ERROR(
-      loomc_link_index_builder_reserve_sources(builder, required_count));
-  LOOMC_RETURN_IF_ERROR(loomc_link_index_builder_source_initialize(
-      options, builder->allocator, &builder->sources.values[ordinal]));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_link_index_builder_reserve_sources(builder, required_count));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_link_index_builder_source_initialize(
+              options, builder->allocator, &builder->sources.values[ordinal]));
   builder->sources.count = required_count;
   *out_slot = (loomc_link_index_source_slot_t){
       .ordinal = ordinal,
   };
+  IREE_TRACE_ZONE_END(z0);
   return loomc_ok_status();
 }
 
 loomc_status_t loomc_link_index_builder_fill_source_slot(
     loomc_link_index_builder_t* builder, loomc_link_index_source_slot_t slot,
     loomc_source_t* source) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (source == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "source must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "source must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
-  LOOMC_RETURN_IF_ERROR(loomc_link_index_builder_require_open(builder));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_link_index_builder_require_open(builder));
   if (slot.ordinal >= builder->sources.count) {
-    return loomc_make_status(LOOMC_STATUS_OUT_OF_RANGE,
-                             "link index source slot is out of range");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_OUT_OF_RANGE, "link index source slot is out of range");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   loomc_link_index_builder_source_t* target =
       &builder->sources.values[slot.ordinal];
   if (target->source != NULL) {
-    return loomc_make_status(LOOMC_STATUS_ALREADY_EXISTS,
-                             "link index source slot is already filled");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_ALREADY_EXISTS,
+                          "link index source slot is already filled");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   loomc_source_retain(source);
   target->source = source;
+  IREE_TRACE_ZONE_END(z0);
   return loomc_ok_status();
 }
 
@@ -606,21 +632,27 @@ loomc_status_t loomc_link_index_builder_add_source(
     loomc_link_index_builder_t* builder, loomc_source_t* source,
     const loomc_link_index_source_options_t* options,
     loomc_link_index_source_slot_t* out_slot) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (source == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "source must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "source must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   loomc_link_index_source_slot_t slot = {0};
-  LOOMC_RETURN_IF_ERROR(
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0,
       loomc_link_index_builder_reserve_source_slot(builder, options, &slot));
   loomc_status_t status =
       loomc_link_index_builder_fill_source_slot(builder, slot, source);
   if (!loomc_status_is_ok(status)) {
+    IREE_TRACE_ZONE_END(z0);
     return status;
   }
   if (out_slot != NULL) {
     *out_slot = slot;
   }
+  IREE_TRACE_ZONE_END(z0);
   return loomc_ok_status();
 }
 
@@ -651,45 +683,55 @@ static loomc_status_t loomc_link_index_builder_discard_text_source_contents(
 loomc_status_t loomc_link_index_builder_finish(
     loomc_link_index_builder_t* builder, loomc_link_index_t** out_link_index,
     loomc_result_t** out_result) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (out_link_index == NULL || out_result == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "out_link_index and out_result must not be NULL");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                          "out_link_index and out_result must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_link_index = NULL;
   *out_result = NULL;
-  LOOMC_RETURN_IF_ERROR(loomc_link_index_builder_require_open(builder));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_link_index_builder_require_open(builder));
   builder->finished = true;
 
   for (loomc_host_size_t i = 0; i < builder->sources.count; ++i) {
     const loomc_link_index_builder_source_t* source =
         &builder->sources.values[i];
     if (source->source == NULL) {
-      LOOMC_RETURN_IF_ERROR(
-          loomc_link_index_add_missing_source_diagnostic(builder, i));
-      LOOMC_RETURN_IF_ERROR(loomc_link_index_mark_failed(builder->result));
+      IREE_RETURN_AND_END_ZONE_IF_ERROR(
+          z0, loomc_link_index_add_missing_source_diagnostic(builder, i));
+      IREE_RETURN_AND_END_ZONE_IF_ERROR(
+          z0, loomc_link_index_mark_failed(builder->result));
       continue;
     }
     const loomc_link_index_source_options_t source_options = {
         .provider_name = source->provider_name,
         .role = source->role,
     };
-    LOOMC_RETURN_IF_ERROR(loomc_link_index_add_source_to_module_index(
-        builder->context, builder->index, source->source, &source_options,
-        builder->result, /*out_provider_ordinal=*/NULL));
+    IREE_RETURN_AND_END_ZONE_IF_ERROR(
+        z0,
+        loomc_link_index_add_source_to_module_index(
+            builder->context, builder->index, source->source, &source_options,
+            builder->result, /*out_provider_ordinal=*/NULL));
   }
 
   if (!loomc_result_succeeded(builder->result)) {
     *out_result = builder->result;
     builder->result = NULL;
+    IREE_TRACE_ZONE_END(z0);
     return loomc_ok_status();
   }
-  LOOMC_RETURN_IF_ERROR(
-      loomc_link_index_builder_discard_text_source_contents(builder));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_link_index_builder_discard_text_source_contents(builder));
 
   loomc_link_index_t* link_index = NULL;
   loomc_status_t status = loomc_allocator_malloc(
       builder->allocator, sizeof(*link_index), (void**)&link_index);
   if (!loomc_status_is_ok(status)) {
+    IREE_TRACE_ZONE_END(z0);
     return status;
   }
   memset(link_index, 0, sizeof(*link_index));
@@ -710,6 +752,7 @@ loomc_status_t loomc_link_index_builder_finish(
   *out_link_index = link_index;
   *out_result = builder->result;
   builder->result = NULL;
+  IREE_TRACE_ZONE_END(z0);
   return loomc_ok_status();
 }
 

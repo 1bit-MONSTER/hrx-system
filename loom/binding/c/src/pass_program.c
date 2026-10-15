@@ -468,16 +468,22 @@ loomc_status_t loomc_pass_program_create_from_native_source_low_pipeline(
 loomc_status_t loomc_pass_program_create_empty(
     loomc_context_t* context, const loomc_pass_program_options_t* options,
     loomc_allocator_t allocator, loomc_pass_program_t** out_pass_program) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (out_pass_program == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "out_pass_program must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "out_pass_program must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_pass_program = NULL;
   if (context == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "context must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "context must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
-  LOOMC_RETURN_IF_ERROR(loomc_pass_program_validate_options(options));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_pass_program_validate_options(options));
 
   loomc_pass_program_t* pass_program = NULL;
   loomc_status_t status =
@@ -494,6 +500,7 @@ loomc_status_t loomc_pass_program_create_empty(
     pass_program = NULL;
   }
   loomc_pass_program_release(pass_program);
+  IREE_TRACE_ZONE_END(z0);
   return status;
 }
 
@@ -501,24 +508,32 @@ loomc_status_t loomc_pass_program_create_from_pipeline_text(
     loomc_context_t* context, loomc_string_view_t pipeline_text,
     const loomc_pass_program_options_t* options, loomc_allocator_t allocator,
     loomc_pass_program_t** out_pass_program, loomc_result_t** out_result) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (out_pass_program == NULL || out_result == NULL) {
-    return loomc_make_status(
-        LOOMC_STATUS_INVALID_ARGUMENT,
-        "out_pass_program and out_result must not be NULL");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                          "out_pass_program and out_result must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_pass_program = NULL;
   *out_result = NULL;
   if (context == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "context must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "context must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
-  LOOMC_RETURN_IF_ERROR(loomc_pass_program_validate_string_view(pipeline_text));
-  LOOMC_RETURN_IF_ERROR(loomc_pass_program_validate_options(options));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_pass_program_validate_string_view(pipeline_text));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_pass_program_validate_options(options));
 
   loomc_result_t* result = NULL;
-  LOOMC_RETURN_IF_ERROR(loomc_result_create(
-      LOOMC_RESULT_STATE_SUCCEEDED, loomc_context_source_retention(context),
-      allocator, &result));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED,
+                              loomc_context_source_retention(context),
+                              allocator, &result));
 
   loomc_pass_program_t* pass_program = NULL;
   loomc_status_t status =
@@ -545,6 +560,7 @@ loomc_status_t loomc_pass_program_create_from_pipeline_text(
   }
   loomc_pass_program_release(pass_program);
   loomc_result_release(result);
+  IREE_TRACE_ZONE_END(z0);
   return status;
 }
 
@@ -552,26 +568,33 @@ loomc_status_t loomc_pass_program_create_from_module_symbol(
     const loomc_module_t* module, loomc_string_view_t pipeline_symbol,
     const loomc_pass_program_options_t* options, loomc_allocator_t allocator,
     loomc_pass_program_t** out_pass_program, loomc_result_t** out_result) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (out_pass_program == NULL || out_result == NULL) {
-    return loomc_make_status(
-        LOOMC_STATUS_INVALID_ARGUMENT,
-        "out_pass_program and out_result must not be NULL");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                          "out_pass_program and out_result must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_pass_program = NULL;
   *out_result = NULL;
   if (module == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "module must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "module must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
-  LOOMC_RETURN_IF_ERROR(
-      loomc_pass_program_validate_string_view(pipeline_symbol));
-  LOOMC_RETURN_IF_ERROR(loomc_pass_program_validate_options(options));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_pass_program_validate_string_view(pipeline_symbol));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_pass_program_validate_options(options));
   loomc_context_t* context = loomc_module_context(module);
 
   loomc_result_t* result = NULL;
-  LOOMC_RETURN_IF_ERROR(loomc_result_create(
-      LOOMC_RESULT_STATE_SUCCEEDED, loomc_context_source_retention(context),
-      allocator, &result));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED,
+                              loomc_context_source_retention(context),
+                              allocator, &result));
 
   loomc_pass_program_t* pass_program = NULL;
   const loom_module_t* source_module = loomc_module_const_loom_module(module);
@@ -612,6 +635,7 @@ loomc_status_t loomc_pass_program_create_from_module_symbol(
   loomc_pass_program_release(pass_program);
   loomc_result_release(result);
   loom_pass_pipeline_snapshot_deinitialize(&snapshot);
+  IREE_TRACE_ZONE_END(z0);
   return status;
 }
 
@@ -619,32 +643,41 @@ loomc_status_t loomc_pass_program_create_from_target_pipeline(
     loomc_context_t* context, const loomc_target_pipeline_options_t* options,
     loomc_allocator_t allocator, loomc_pass_program_t** out_pass_program,
     loomc_result_t** out_result) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (out_pass_program == NULL || out_result == NULL) {
-    return loomc_make_status(
-        LOOMC_STATUS_INVALID_ARGUMENT,
-        "out_pass_program and out_result must not be NULL");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                          "out_pass_program and out_result must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_pass_program = NULL;
   *out_result = NULL;
   if (context == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "context must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "context must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   if (loomc_context_target_environment(context) == NULL) {
-    return loomc_make_status(LOOMC_STATUS_FAILED_PRECONDITION,
-                             "context has no target environment");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_FAILED_PRECONDITION, "context has no target environment");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
-  LOOMC_RETURN_IF_ERROR(
-      loomc_pass_program_validate_target_pipeline_options(options));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_pass_program_validate_target_pipeline_options(options));
   loomc_option_chain_t option_chain = {0};
-  LOOMC_RETURN_IF_ERROR(loomc_option_chain_resolve(
-      options ? options->next : NULL, LOOMC_OPTION_CHAIN_ALLOW_SANITIZER,
-      &option_chain));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_option_chain_resolve(options ? options->next : NULL,
+                                     LOOMC_OPTION_CHAIN_ALLOW_SANITIZER,
+                                     &option_chain));
 
   loomc_result_t* result = NULL;
-  LOOMC_RETURN_IF_ERROR(loomc_result_create(
-      LOOMC_RESULT_STATE_SUCCEEDED, loomc_context_source_retention(context),
-      allocator, &result));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_result_create(LOOMC_RESULT_STATE_SUCCEEDED,
+                              loomc_context_source_retention(context),
+                              allocator, &result));
 
   const loom_target_pipeline_options_t internal_options =
       loomc_pass_program_target_pipeline_options(options, &option_chain);
@@ -671,6 +704,7 @@ loomc_status_t loomc_pass_program_create_from_target_pipeline(
   }
   loomc_pass_program_release(pass_program);
   loomc_result_release(result);
+  IREE_TRACE_ZONE_END(z0);
   return status;
 }
 

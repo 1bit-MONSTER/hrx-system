@@ -248,19 +248,26 @@ static void loomc_target_profile_destroy_owned(
 loomc_status_t loomc_target_environment_create_from_provider_set_internal(
     const loom_target_provider_set_t* provider_set, loomc_allocator_t allocator,
     loomc_target_environment_t** out_target_environment) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (out_target_environment == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "out_target_environment must not be NULL");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
+                          "out_target_environment must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_target_environment = NULL;
   if (provider_set == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "provider_set must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "provider_set must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
 
   loomc_target_environment_t* target_environment = NULL;
-  LOOMC_RETURN_IF_ERROR(loomc_allocator_malloc(
-      allocator, sizeof(*target_environment), (void**)&target_environment));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, loomc_allocator_malloc(allocator, sizeof(*target_environment),
+                                 (void**)&target_environment));
   memset(target_environment, 0, sizeof(*target_environment));
   iree_atomic_ref_count_init(&target_environment->ref_count);
   target_environment->allocator = allocator;
@@ -280,6 +287,7 @@ loomc_status_t loomc_target_environment_create_from_provider_set_internal(
     loom_target_environment_deinitialize(&target_environment->environment);
     loomc_allocator_free(allocator, target_environment);
   }
+  IREE_TRACE_ZONE_END(z0);
   return status;
 }
 
@@ -606,6 +614,7 @@ loomc_status_t loomc_target_profile_create(
     loomc_string_view_t identifier, loom_target_profile_t* target_profile,
     loom_target_profile_destroy_fn_t destroy, loomc_allocator_t allocator,
     loomc_target_profile_t** out_profile) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   loom_target_profile_t* pending_target_profile = target_profile;
   loomc_target_profile_t* profile = NULL;
   loomc_status_t status = loomc_ok_status();
@@ -664,6 +673,7 @@ loomc_status_t loomc_target_profile_create(
     loomc_target_profile_destroy_owned(pending_target_profile, destroy,
                                        allocator);
   }
+  IREE_TRACE_ZONE_END(z0);
   return status;
 }
 
@@ -671,36 +681,47 @@ loomc_status_t loomc_target_profile_select(
     loomc_target_environment_t* target_environment,
     loomc_string_view_t specification, loomc_allocator_t allocator,
     loomc_target_profile_t** out_profile) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (out_profile == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "out_profile must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "out_profile must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_profile = NULL;
   if (target_environment == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "target_environment must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "target_environment must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   if (specification.data == NULL && specification.size != 0) {
-    return loomc_make_status(
+    loomc_status_t return_status = loomc_make_status(
         LOOMC_STATUS_INVALID_ARGUMENT,
         "target specification requires storage for nonzero size");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
 
   const iree_string_view_t value =
       iree_string_view_trim(iree_string_view_from_loomc(specification));
   loom_target_specification_t parsed = {0};
-  LOOMC_RETURN_IF_ERROR(
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0,
       loomc_status_from_iree(loom_target_specification_parse(value, &parsed)));
   const loom_target_profile_t* selected_profile = NULL;
-  LOOMC_RETURN_IF_ERROR(
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0,
       loomc_status_from_iree(loom_target_environment_select_profile(
           loomc_target_environment_loom_target_environment(target_environment),
           &parsed, &selected_profile)));
   // Named profiles have process lifetime. The public handle retains only its
   // environment and never destroys the provider-owned target facts.
-  return loomc_target_profile_create(
+  loomc_status_t return_status = loomc_target_profile_create(
       target_environment, loomc_string_view_from_iree(value),
       (loom_target_profile_t*)selected_profile, NULL, allocator, out_profile);
+  IREE_TRACE_ZONE_END(z0);
+  return return_status;
 }
 
 const loom_target_profile_t* loomc_target_profile_loom_target_profile(

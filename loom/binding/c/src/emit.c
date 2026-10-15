@@ -1006,19 +1006,27 @@ loomc_status_t loomc_emit_module(loomc_target_environment_t* target_environment,
                                  const loomc_emit_options_t* options,
                                  loomc_allocator_t allocator,
                                  loomc_result_t** out_result) {
+  IREE_TRACE_ZONE_BEGIN(z0);
   if (out_result == NULL) {
-    return loomc_make_status(LOOMC_STATUS_INVALID_ARGUMENT,
-                             "out_result must not be NULL");
+    loomc_status_t return_status = loomc_make_status(
+        LOOMC_STATUS_INVALID_ARGUMENT, "out_result must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   *out_result = NULL;
   if (target_environment == NULL || workspace == NULL || module == NULL) {
-    return loomc_make_status(
+    loomc_status_t return_status = loomc_make_status(
         LOOMC_STATUS_INVALID_ARGUMENT,
         "target_environment, workspace, and module must not be NULL");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
   if (loomc_module_loom_module(module) == NULL) {
-    return loomc_make_status(LOOMC_STATUS_FAILED_PRECONDITION,
-                             "module does not contain internal IR");
+    loomc_status_t return_status =
+        loomc_make_status(LOOMC_STATUS_FAILED_PRECONDITION,
+                          "module does not contain internal IR");
+    IREE_TRACE_ZONE_END(z0);
+    return return_status;
   }
 
   loomc_result_t* result = NULL;
@@ -1055,5 +1063,6 @@ loomc_status_t loomc_emit_module(loomc_target_environment_t* target_environment,
     result = NULL;
   }
   loomc_result_release(result);
+  IREE_TRACE_ZONE_END(z0);
   return status;
 }
