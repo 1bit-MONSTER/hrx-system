@@ -41,6 +41,8 @@ constexpr uint32_t kVulkanComponentTypeBfloat16Khr = 1000141000;
 constexpr uint32_t kVulkanSubgroupFeatureBallotBit = 0x00000008;
 constexpr uint32_t kVulkanSubgroupFeatureVoteBit = 0x00000002;
 constexpr uint32_t kVulkanSubgroupFeatureArithmeticBit = 0x00000004;
+constexpr uint32_t kVulkanSubgroupFeatureShuffleBit = 0x00000010;
+constexpr uint32_t kVulkanSubgroupFeatureShuffleRelativeBit = 0x00000020;
 constexpr uint32_t kVulkanSubgroupFeatureClusteredBit = 0x00000040;
 constexpr uint64_t kMaximumWorkgroupLocalMemorySize = 32 * 1024;
 constexpr uint32_t kAmdVendorId = 0x1002;
@@ -532,6 +534,8 @@ TEST(LoomcSpirvIreeHalTargetTest, PreservesExtendedCompilerFeatureFamily) {
       /*cooperative_matrix_properties=*/nullptr, kAllFloatControlFlags,
       /*subgroup_supported_operations=*/kVulkanSubgroupFeatureBallotBit |
           kVulkanSubgroupFeatureVoteBit | kVulkanSubgroupFeatureArithmeticBit |
+          kVulkanSubgroupFeatureShuffleBit |
+          kVulkanSubgroupFeatureShuffleRelativeBit |
           kVulkanSubgroupFeatureClusteredBit));
   FakeHalDevice device = {};
   InitializeFakeDevice(device_spec.get(), &device);
@@ -565,6 +569,8 @@ TEST(LoomcSpirvIreeHalTargetTest, PreservesExtendedCompilerFeatureFamily) {
       LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_ARITHMETIC,
       LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_CLUSTERED,
       LOOMC_SPIRV_FEATURE_SUBGROUP_EXTENDED_TYPES,
+      LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_SHUFFLE,
+      LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_SHUFFLE_RELATIVE,
       LOOMC_SPIRV_FEATURE_FLOAT16_64_DENORM_PRESERVE,
       LOOMC_SPIRV_FEATURE_FLOAT16_64_ROUNDING_RTE,
       LOOMC_SPIRV_FEATURE_FLOAT32_ROUNDING_RTE,
@@ -901,6 +907,8 @@ TEST(LoomcSpirvIreeHalTargetTest, ForcedProfilesCheckTheCompleteFeatureFamily) {
       IREE_ARRAYSIZE(properties), properties, kAllFloatControlFlags,
       kVulkanSubgroupFeatureBallotBit | kVulkanSubgroupFeatureVoteBit |
           kVulkanSubgroupFeatureArithmeticBit |
+          kVulkanSubgroupFeatureShuffleBit |
+          kVulkanSubgroupFeatureShuffleRelativeBit |
           kVulkanSubgroupFeatureClusteredBit));
   DeviceSpecPtr baseline_spec;
   IREE_ASSERT_OK(CreateVulkanDeviceSpec(

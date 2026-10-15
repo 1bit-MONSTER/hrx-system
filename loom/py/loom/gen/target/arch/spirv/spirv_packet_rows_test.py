@@ -83,7 +83,11 @@ from loom.target.arch.spirv.scalar_memory import (
     RAW_STORAGE_BUFFER_BYTE,
     STORAGE_BUFFER_SCALARS,
 )
-from loom.target.arch.spirv.subgroup import SPIRV_SUBGROUP_REDUCTIONS
+from loom.target.arch.spirv.subgroup import (
+    SPIRV_SUBGROUP_ARITHMETIC,
+    SPIRV_SUBGROUP_BALLOT_BIT_EXTRACT_INSTRUCTION,
+    SPIRV_SUBGROUP_SHUFFLES,
+)
 from loom.target.low_descriptors import Descriptor, ImmediateFlag, ImmediateKind
 
 
@@ -125,10 +129,10 @@ def test_generation_emits_the_complete_control_barrier_family() -> None:
         assert row.memory_semantics == case.memory_semantics
 
 
-def test_subgroup_reductions_retain_group_mode_and_cluster_operand() -> None:
+def test_subgroup_arithmetic_retains_group_mode_and_cluster_operand() -> None:
     rows = {row.descriptor_key: row for row in _packet_rows()}
-    for reduction in SPIRV_SUBGROUP_REDUCTIONS:
-        instruction = reduction.instruction
+    for arithmetic in SPIRV_SUBGROUP_ARITHMETIC:
+        instruction = arithmetic.instruction
         row = rows[instruction.key]
         assert row.form == "LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_ARITHMETIC"
         assert row.group_operation == instruction.group_operation
@@ -136,6 +140,33 @@ def test_subgroup_reductions_retain_group_mode_and_cluster_operand() -> None:
         assert row.immediate_count == int(instruction.clustered)
         assert row.result_count == 1
         assert row.operand_types == (row.result_type,)
+
+
+def test_subgroup_shuffle_rows_retain_both_typed_operands() -> None:
+    rows = {row.descriptor_key: row for row in _packet_rows()}
+    for shuffle in SPIRV_SUBGROUP_SHUFFLES:
+        instruction = shuffle.instruction
+        row = rows[instruction.key]
+        assert row.form == "LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BINARY"
+        assert row.group_operation_scope == "LOOM_SPIRV_SCOPE_SUBGROUP"
+        assert row.group_operation is None
+        assert row.immediate_count == 0
+        assert row.result_count == 1
+        assert len(row.operand_types) == 2
+        assert row.operand_types[0] == row.result_type
+        assert "SCALAR_TYPE_U32" in row.operand_types[1]
+
+
+def test_subgroup_ballot_bit_extract_retains_mask_and_lane_operands() -> None:
+    row = _packet_row(SPIRV_SUBGROUP_BALLOT_BIT_EXTRACT_INSTRUCTION.key)
+    assert row.form == "LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BINARY"
+    assert row.group_operation_scope == "LOOM_SPIRV_SCOPE_SUBGROUP"
+    assert row.group_operation is None
+    assert row.immediate_count == 0
+    assert row.result_count == 1
+    instruction = SPIRV_SUBGROUP_BALLOT_BIT_EXTRACT_INSTRUCTION
+    assert row.result_type == _expected_ordinary_vector_value(instruction.result_type)
+    assert row.operand_types == tuple(_expected_ordinary_vector_value(operand_type) for operand_type in instruction.operand_types)
 
 
 def _packet_value_types(row: _PacketRow) -> tuple[str, ...]:

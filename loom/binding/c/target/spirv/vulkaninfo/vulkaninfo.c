@@ -465,6 +465,24 @@ static loomc_status_t loomc_spirv_vulkaninfo_add_subgroup_features(
       import, LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_ARITHMETIC,
       loomc_spirv_vulkaninfo_and_fact_states(basic_state, arithmetic_state),
       provenance));
+  loomc_target_fact_state_t shuffle_state = LOOMC_TARGET_FACT_STATE_UNKNOWN;
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_flag_feature(
+      import, object, key, IREE_SV("VK_SUBGROUP_FEATURE_SHUFFLE_BIT"),
+      &shuffle_state));
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_feature_fact(
+      import, LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_SHUFFLE,
+      loomc_spirv_vulkaninfo_and_fact_states(basic_state, shuffle_state),
+      provenance));
+  loomc_target_fact_state_t shuffle_relative_state =
+      LOOMC_TARGET_FACT_STATE_UNKNOWN;
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_flag_feature(
+      import, object, key, IREE_SV("VK_SUBGROUP_FEATURE_SHUFFLE_RELATIVE_BIT"),
+      &shuffle_relative_state));
+  LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_add_feature_fact(
+      import, LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_SHUFFLE_RELATIVE,
+      loomc_spirv_vulkaninfo_and_fact_states(basic_state,
+                                             shuffle_relative_state),
+      provenance));
   loomc_target_fact_state_t clustered_state = LOOMC_TARGET_FACT_STATE_UNKNOWN;
   LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkaninfo_read_flag_feature(
       import, object, key, IREE_SV("VK_SUBGROUP_FEATURE_CLUSTERED_BIT"),

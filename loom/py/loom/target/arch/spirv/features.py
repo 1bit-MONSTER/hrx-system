@@ -533,6 +533,32 @@ FEATURE_ATOMS = (
         required=("group_non_uniform",),
         minimum_spirv_version=SPIRV_VERSION_1_3,
     ),
+    FeatureAtom(
+        key="group_non_uniform_shuffle",
+        c_suffix="GROUP_NON_UNIFORM_SHUFFLE",
+        name="spirv.group_non_uniform.shuffle",
+        doc="Subgroup indexed and XOR shuffle operations.",
+        required=("group_non_uniform",),
+        minimum_spirv_version=SPIRV_VERSION_1_3,
+        capabilities=("LOOM_SPIRV_CAPABILITY_GROUP_NON_UNIFORM_SHUFFLE",),
+        opcodes=(
+            "LOOM_SPIRV_OP_GROUP_NON_UNIFORM_SHUFFLE",
+            "LOOM_SPIRV_OP_GROUP_NON_UNIFORM_SHUFFLE_XOR",
+        ),
+    ),
+    FeatureAtom(
+        key="group_non_uniform_shuffle_relative",
+        c_suffix="GROUP_NON_UNIFORM_SHUFFLE_RELATIVE",
+        name="spirv.group_non_uniform.shuffle_relative",
+        doc="Subgroup up and down shuffle operations.",
+        required=("group_non_uniform",),
+        minimum_spirv_version=SPIRV_VERSION_1_3,
+        capabilities=("LOOM_SPIRV_CAPABILITY_GROUP_NON_UNIFORM_SHUFFLE_RELATIVE",),
+        opcodes=(
+            "LOOM_SPIRV_OP_GROUP_NON_UNIFORM_SHUFFLE_UP",
+            "LOOM_SPIRV_OP_GROUP_NON_UNIFORM_SHUFFLE_DOWN",
+        ),
+    ),
 )
 
 FEATURE_PROFILES = (

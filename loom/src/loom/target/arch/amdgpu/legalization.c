@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "loom/analysis/control_uniformity.h"
 #include "loom/codegen/low/descriptors.h"
 #include "loom/codegen/low/source_memory_plan.h"
 #include "loom/ir/module.h"
@@ -33,6 +34,7 @@
 #include "loom/target/arch/amdgpu/refs/target_refs.h"
 #include "loom/target/arch/amdgpu/target_info_defs.h"
 #include "loom/transforms/conversion/target_legalization.h"
+#include "loom/transforms/kernel/target_legalization.h"
 #include "loom/transforms/scalar/target_legalization.h"
 #include "loom/transforms/vector/cast_packet_legalization.h"
 #include "loom/transforms/vector/packet_insert_legalization.h"
@@ -80,6 +82,39 @@ static bool loom_amdgpu_match_narrow_float_to_i64(
   }
   return loom_type_element_type(loom_module_value_type(
              context->module, loom_op_results(op)[0])) == LOOM_SCALAR_TYPE_I64;
+}
+
+static bool loom_amdgpu_match_subgroup_scan_reference_lowering(
+    const loom_target_legalizer_entry_t* entry,
+    const loom_target_legalization_context_t* context, const loom_op_t* op) {
+  (void)entry;
+  (void)op;
+  return loom_amdgpu_legalizer_descriptor_set_is_amdgpu(
+      context->descriptor_set);
+}
+
+static iree_status_t loom_amdgpu_legalize_subgroup_scan_reference_lowering(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+  if (!loom_kernel_subgroup_scan_has_cluster_size(op) &&
+      !loom_kernel_subgroup_scan_has_cluster_stride(op) &&
+      context->fact_table != NULL) {
+    loom_control_uniformity_info_t control_uniformity;
+    loom_control_uniformity_info_initialize(context->module,
+                                            context->fact_table, context->arena,
+                                            &control_uniformity);
+    if (loom_control_uniformity_prove_execution(
+            &control_uniformity, op, LOOM_VALUE_FACT_UNIFORM_SCOPE_SUBGROUP,
+            NULL)) {
+      return iree_ok_status();
+    }
+  }
+  return loom_kernel_target_legalize_subgroup_scan(entry, context, op,
+                                                   out_result);
 }
 
 static bool loom_amdgpu_facts_are_positive_u32_power_of_two(
@@ -953,6 +988,14 @@ static iree_status_t loom_amdgpu_legalize_kernel_subgroup_match_all(
 }
 
 static const loom_target_legalizer_rule_t kAmdgpuLegalizerRules[] = {
+    {
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REWRITE_LEGAL,
+        .root_kind = LOOM_OP_KERNEL_SUBGROUP_SCAN,
+        .first_operand_element_types =
+            LOOM_SCALAR_TYPE_SET_INTEGER | LOOM_SCALAR_TYPE_SET_FLOAT,
+        .match = loom_amdgpu_match_subgroup_scan_reference_lowering,
+        .legalize = loom_amdgpu_legalize_subgroup_scan_reference_lowering,
+    },
     {
         .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REWRITE_LEGAL,
         .root_kind = LOOM_OP_SCALAR_MULI,

@@ -1,0 +1,60 @@
+// RUN: with-checks pass target-legalize{mode=eager,policy=prefer-native}
+
+amdgpu.target<gfx11-generic> @target {subgroup_size = 32}
+
+kernel.def target(@target) @divergent_scan_uses_active_lane_reference() {
+  %c1 = index.constant 1 : index
+  %c64 = index.constant 64 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c64, %c1, %c1) : index
+} launch(%value: i32) {
+  %lane = kernel.subgroup.lane.id : index
+  %c16 = index.constant 16 : index
+  %participates = index.cmp ult, %lane, %c16 : index
+  scf.if %participates {
+    %prefix = kernel.subgroup.scan<addi> %value {direction = forward, mode = inclusive} : i32
+    test.use %prefix : i32
+  }
+  kernel.return
+}
+
+// ----
+CHECK: * = kernel.subgroup.active.mask : i32
+CHECK: *, * = kernel.subgroup.shuffle<index> * : i32, i32, i32
+CHECK-NOT: * = kernel.subgroup.scan<addi> *
+
+// ====
+
+amdgpu.target<gfx11-generic> @target {subgroup_size = 32}
+
+kernel.def target(@target) @uniform_scan_retains_native_contract() {
+  %c1 = index.constant 1 : index
+  %c64 = index.constant 64 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c64, %c1, %c1) : index
+} launch(%value: i32) {
+  %prefix = kernel.subgroup.scan<addi> %value {direction = forward, mode = inclusive} : i32
+  test.use %prefix : i32
+  kernel.return
+}
+
+// ----
+CHECK: %prefix = kernel.subgroup.scan<addi> %value {direction = forward, mode = inclusive} : i32
+CHECK-NOT: * = kernel.subgroup.active.mask *
+
+// ====
+
+amdgpu.target<gfx11-generic> @target {subgroup_size = 32}
+
+kernel.def target(@target) @clustered_scan_uses_reference_lowering() {
+  %c1 = index.constant 1 : index
+  %c64 = index.constant 64 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c64, %c1, %c1) : index
+} launch(%value: i32) {
+  %prefix = kernel.subgroup.scan<addi> %value {cluster_size = 16, direction = forward, mode = inclusive} : i32
+  test.use %prefix : i32
+  kernel.return
+}
+
+// ----
+CHECK: * = kernel.subgroup.active.mask : i32
+CHECK: *, * = kernel.subgroup.shuffle<index> * : i32, i32, i32
+CHECK-NOT: * = kernel.subgroup.scan<addi> *

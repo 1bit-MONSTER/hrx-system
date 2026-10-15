@@ -182,6 +182,29 @@ TEST(SpirvFeaturesTest, PreparesSubgroupVotes) {
                 LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_VOTE);
 }
 
+TEST(SpirvFeaturesTest, PreparesSubgroupShuffleCapabilities) {
+  loom_spirv_feature_set_t feature_set;
+  IREE_ASSERT_OK(loom_spirv_feature_set_prepare(
+      IREE_SV("test.subgroup_shuffle"),
+      LOOM_SPIRV_FEATURE_PROFILE_VULKAN_1_3_BDA |
+          LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_SHUFFLE |
+          LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_SHUFFLE_RELATIVE,
+      &feature_set));
+
+  EXPECT_TRUE(ContainsCapability(
+      feature_set, LOOM_SPIRV_CAPABILITY_GROUP_NON_UNIFORM_SHUFFLE));
+  EXPECT_TRUE(ContainsCapability(
+      feature_set, LOOM_SPIRV_CAPABILITY_GROUP_NON_UNIFORM_SHUFFLE_RELATIVE));
+  EXPECT_TRUE(
+      ContainsOpcode(feature_set, LOOM_SPIRV_OP_GROUP_NON_UNIFORM_SHUFFLE));
+  EXPECT_TRUE(
+      ContainsOpcode(feature_set, LOOM_SPIRV_OP_GROUP_NON_UNIFORM_SHUFFLE_XOR));
+  EXPECT_TRUE(
+      ContainsOpcode(feature_set, LOOM_SPIRV_OP_GROUP_NON_UNIFORM_SHUFFLE_UP));
+  EXPECT_TRUE(ContainsOpcode(feature_set,
+                             LOOM_SPIRV_OP_GROUP_NON_UNIFORM_SHUFFLE_DOWN));
+}
+
 TEST(SpirvFeaturesTest, ClosesTransitiveSubgroupBallotDependencies) {
   EXPECT_EQ(loom_spirv_feature_bits_with_dependencies(
                 LOOM_SPIRV_FEATURE_GROUP_NON_UNIFORM_BALLOT),

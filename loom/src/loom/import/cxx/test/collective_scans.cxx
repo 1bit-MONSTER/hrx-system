@@ -13,7 +13,7 @@ using loom::kernel::scan_mode;
 // Three independent workgroups each end in a partial physical subgroup.
 // Five columns observe every prefix mode and the workgroup reduction. Input
 // and output guards are compared along with the payload after native execution.
-#define DEFINE_SCAN_VALUES(Name, Type, Kind, Offset, Step)                     \
+#define DEFINE_SCAN_VALUES(Name, Type, Kind, Seed, Offset, Step)               \
   [[loom::kernel, loom::workgroup_count(3, 1, 1),                              \
     loom::workgroup_size(80, 1, 1)]]                                           \
   void Name(const Type* input, Type* output) {                                 \
@@ -41,8 +41,8 @@ using loom::kernel::scan_mode;
     for (unsigned item = 0; item < 240; ++item) {                              \
       unsigned begin = (item / 80) * 80;                                       \
       unsigned end = begin + 80;                                               \
-      Type before = 0;                                                         \
-      Type after = 0;                                                          \
+      Type before = Seed;                                                      \
+      Type after = Seed;                                                       \
       for (unsigned position = begin; position < item; ++position) {           \
         before += loom::view::load(source, position + 1);                      \
       }                                                                        \
@@ -71,11 +71,11 @@ using loom::kernel::scan_mode;
         });                                                                    \
   }
 
-DEFINE_SCAN_VALUES(scan_u32, unsigned, addi, 0x60000000u, 0x123456u)
-DEFINE_SCAN_VALUES(scan_u64, unsigned long long, addi, 0x6000000000000000ull,
-                   0x123456789abull)
+DEFINE_SCAN_VALUES(scan_u32, unsigned, addi, 0u, 0x60000000u, 0x123456u)
+DEFINE_SCAN_VALUES(scan_u64, unsigned long long, addi, 0ull,
+                   0x6000000000000000ull, 0x123456789abull)
 // Exact quarter increments keep all FP32 reference sums exactly representable;
 // these assertions check source projection independently of reassociation.
-DEFINE_SCAN_VALUES(scan_f32, float, addf, -1.0f, 0.25f)
+DEFINE_SCAN_VALUES(scan_f32, float, addf, -0.0f, -1.0f, 0.25f)
 
 #undef DEFINE_SCAN_VALUES

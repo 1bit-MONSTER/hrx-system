@@ -1,0 +1,180 @@
+// RUN: emit source-low target=spirv:vulkan1.3+bda+subgroup32+reductions+hal output=low
+
+// Full-width shuffles preserve their source lane spelling while mapping the
+// signed Loom offset carrier to SPIR-V's required unsigned selector type.
+kernel.def @native_shuffle_modes() {
+  %unit = index.constant 1 : index
+  %width = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer) {
+  %lane = kernel.subgroup.lane.id : index
+  %base = index.constant 0 : offset
+  %destination = buffer.view %output[%base] : buffer -> view<32xi32>
+  %value = scalar.constant 7 : i32
+  %offset = scalar.constant 1 : i32
+  %width = scalar.constant 32 : i32
+  %indexed, %indexed_valid = kernel.subgroup.shuffle<index> %value, %offset, %width : i32, i32, i32
+  %xor, %xor_valid = kernel.subgroup.shuffle<xor> %indexed, %offset, %width : i32, i32, i32
+  %up, %up_valid = kernel.subgroup.shuffle<up> %xor, %offset, %width : i32, i32, i32
+  %down, %down_valid = kernel.subgroup.shuffle<down> %up, %offset, %width : i32, i32, i32
+  view.store %down, %destination[%lane] : i32, view<32xi32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer) -> ()}) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @native_shuffle_modes() asm {
+  %output = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %lane = OpLoadBuiltin.subgroup_local_invocation_id
+  %value = OpConstant.i32 7
+  %offset = OpConstant.i32 1
+  %21 = OpBitcast.i32.u32 %offset
+  %indexed = OpGroupNonUniformShuffle.i32 %value, %21
+  %23 = OpBitcast.i32.u32 %offset
+  %xor = OpGroupNonUniformShuffleXor.i32 %indexed, %23
+  %25 = OpBitcast.i32.u32 %offset
+  %up = OpGroupNonUniformShuffleUp.i32 %xor, %25
+  %27 = OpBitcast.i32.u32 %offset
+  %down = OpGroupNonUniformShuffleDown.i32 %up, %27
+  %29 = OpSConvert.i32.offset64 %lane
+  %30 = OpConstant.offset64 4
+  %31 = OpIMul.offset64 %29, %30
+  %32 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output, %31
+  OpStore.storage_buffer.i32 %32, %down
+  return
+}
+
+// ====
+// RUN: emit source-low target=spirv:vulkan1.3+bda+subgroup32+reductions+hal output=low
+
+// Native vector shuffles retain bool and extended f16 payload types instead
+// of decomposing them into scalar or 32-bit carrier operations.
+kernel.def @native_shuffle_vectors() {
+  %unit = index.constant 1 : index
+  %width = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%predicate_output: buffer, %half_output: buffer) {
+  %lane = kernel.subgroup.lane.id : index
+  %base = index.constant 0 : offset
+  %predicate_destination = buffer.view %predicate_output[%base] : buffer -> view<32xi32>
+  %half_destination = buffer.view %half_output[%base] : buffer -> view<32x3xf16>
+  %true = scalar.constant true : i1
+  %false = scalar.constant false : i1
+  %predicates = vector.from_elements %true, %false, %true, %false : vector<4xi1>
+  %half0 = scalar.constant 1.0 : f16
+  %half1 = scalar.constant 2.0 : f16
+  %half2 = scalar.constant 3.0 : f16
+  %halves = vector.from_elements %half0, %half1, %half2 : vector<3xf16>
+  %offset = scalar.constant 1 : i32
+  %width = scalar.constant 32 : i32
+  %predicate_result, %predicate_valid = kernel.subgroup.shuffle<xor> %predicates, %offset, %width : vector<4xi1>, i32, i32
+  %half_result, %half_valid = kernel.subgroup.shuffle<down> %halves, %offset, %width : vector<3xf16>, i32, i32
+  %predicate = vector.extract %predicate_result[0] : vector<4xi1> -> i1
+  %predicate_i32 = scalar.extui %predicate : i1 to i32
+  view.store %predicate_i32, %predicate_destination[%lane] : i32, view<32xi32>
+  vector.store %half_result, %half_destination[%lane, 0] : vector<3xf16>, view<32x3xf16>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer, buffer) -> ()}) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @native_shuffle_vectors() asm {
+  %predicate_output = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %half_output = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %lane = OpLoadBuiltin.subgroup_local_invocation_id
+  %true = OpConstantTrue.bool
+  %false = OpConstantFalse.bool
+  %predicates = OpCompositeConstruct.v4bool %true, %false, %true, %false
+  %half0 = OpConstant.f16 15360
+  %half1 = OpConstant.f16 16384
+  %half2 = OpConstant.f16 16896
+  %halves = OpCompositeConstruct.v3f16 %half0, %half1, %half2
+  %offset = OpConstant.i32 1
+  %47 = OpBitcast.i32.u32 %offset
+  %predicate_result = OpGroupNonUniformShuffleXor.v4bool %predicates, %47
+  %49 = OpBitcast.i32.u32 %offset
+  %half_result = OpGroupNonUniformShuffleDown.v3f16 %halves, %49
+  %predicate = OpCompositeExtract.v4bool.bool %predicate_result, 0
+  %52 = OpConstant.i32 1
+  %53 = OpConstant.i32 0
+  %predicate_i32 = OpSelect %predicate, %52, %53
+  %55 = OpSConvert.i32.offset64 %lane
+  %56 = OpConstant.offset64 4
+  %57 = OpIMul.offset64 %55, %56
+  %58 = OpPtrAccessChain.storage_buffer.i32.byte_offset %predicate_output, %57
+  OpStore.storage_buffer.i32 %58, %predicate_i32
+  %59 = OpCompositeExtract.v3f16.f16 %half_result, 0
+  %60 = OpCompositeExtract.v3f16.f16 %half_result, 1
+  %61 = OpCompositeExtract.v3f16.f16 %half_result, 2
+  %63 = OpConstant.offset64 6
+  %64 = OpIMul.offset64 %55, %63
+  %65 = OpPtrAccessChain.storage_buffer.f16.byte_offset %half_output, %64
+  OpStore.storage_buffer.f16 %65, %59
+  %69 = OpConstant.offset64 2
+  %70 = OpIAdd.offset64 %64, %69
+  %71 = OpPtrAccessChain.storage_buffer.f16.byte_offset %half_output, %70
+  OpStore.storage_buffer.f16 %71, %60
+  %76 = OpIAdd.offset64 %64, %56
+  %77 = OpPtrAccessChain.storage_buffer.f16.byte_offset %half_output, %76
+  OpStore.storage_buffer.f16 %77, %61
+  return
+}
+
+// ====
+// RUN: emit source-low target=spirv:vulkan1.3+bda+subgroup32+reductions+hal output=low
+
+// Observed validity is derived from both the logical bounds and the active
+// invocation ballot. The selected fallback lane keeps the ballot extraction
+// defined when a relative offset names an out-of-range lane.
+kernel.def @native_shuffle_validity() {
+  %unit = index.constant 1 : index
+  %width = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%value_output: buffer, %valid_output: buffer) {
+  %lane = kernel.subgroup.lane.id : index
+  %base = index.constant 0 : offset
+  %values = buffer.view %value_output[%base] : buffer -> view<32xi32>
+  %valids = buffer.view %valid_output[%base] : buffer -> view<32xi32>
+  %value = scalar.constant 7 : i32
+  %offset = scalar.constant 1 : i32
+  %width = scalar.constant 32 : i32
+  %shuffled, %valid = kernel.subgroup.shuffle<down> %value, %offset, %width : i32, i32, i32
+  %valid_i32 = scalar.extui %valid : i1 to i32
+  view.store %shuffled, %values[%lane] : i32, view<32xi32>
+  view.store %valid_i32, %valids[%lane] : i32, view<32xi32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer, buffer) -> ()}) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @native_shuffle_validity() asm {
+  %value_output = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %valid_output = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %lane = OpLoadBuiltin.subgroup_local_invocation_id
+  %value = OpConstant.i32 7
+  %offset = OpConstant.i32 1
+  %width = OpConstant.i32 32
+  %23 = OpBitcast.i32.u32 %offset
+  %shuffled = OpGroupNonUniformShuffleDown.i32 %value, %23
+  %25 = OpLoadBuiltin.subgroup_local_invocation_id : reg<spirv.id>
+  %26 = OpIAdd %25, %offset : reg<spirv.id>
+  %27 = OpBitcast.i32.u32 %width
+  %28 = OpULessThan.u32 %23, %27 : reg<spirv.id>
+  %29 = OpBitcast.i32.u32 %26
+  %30 = OpULessThan.u32 %29, %27 : reg<spirv.id>
+  %31 = OpLogicalAnd.bool %28, %30 : reg<spirv.id>
+  %32 = OpSelect %31, %26, %25 : reg<spirv.id>
+  %33 = OpBitcast.i32.u32 %32
+  %34 = OpConstantTrue.bool : reg<spirv.id>
+  %35 = OpGroupNonUniformBallot.v4u32 %34
+  %36 = OpGroupNonUniformBallotBitExtract.bool %35, %33 : reg<spirv.id>
+  %valid = OpLogicalAnd.bool %31, %36
+  %38 = OpConstant.i32 1
+  %39 = OpConstant.i32 0
+  %valid_i32 = OpSelect %valid, %38, %39
+  %41 = OpSConvert.i32.offset64 %lane
+  %42 = OpConstant.offset64 4
+  %43 = OpIMul.offset64 %41, %42
+  %44 = OpPtrAccessChain.storage_buffer.i32.byte_offset %value_output, %43
+  OpStore.storage_buffer.i32 %44, %shuffled
+  %48 = OpPtrAccessChain.storage_buffer.i32.byte_offset %valid_output, %43
+  OpStore.storage_buffer.i32 %48, %valid_i32
+  return
+}

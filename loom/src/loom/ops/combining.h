@@ -84,6 +84,13 @@ bool loom_combining_kind_integer_identity(loom_combining_kind_t kind,
 bool loom_combining_kind_float_identity(loom_combining_kind_t kind,
                                         double* out_identity);
 
+// Returns the empty-prefix seed used by an exclusive floating-point scan.
+// Arithmetic scans use their exact identities. Minimum scans use positive
+// infinity and maximum scans use negative infinity; the seed is returned only
+// for an empty prefix and is never combined with an authored input value.
+bool loom_combining_kind_float_scan_seed(loom_combining_kind_t kind,
+                                         double* out_seed);
+
 #ifdef __cplusplus
 }
 #endif

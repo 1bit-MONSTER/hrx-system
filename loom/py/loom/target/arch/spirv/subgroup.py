@@ -95,6 +95,17 @@ SPIRV_SUBGROUP_BALLOT_INSTRUCTION = SpirvSubgroupInstruction(
     feature_atoms=("group_non_uniform_ballot",),
 )
 
+SPIRV_SUBGROUP_BALLOT_BIT_EXTRACT_INSTRUCTION = SpirvSubgroupInstruction(
+    key="spirv.op_group_non_uniform_ballot_bit_extract.bool",
+    mnemonic="OpGroupNonUniformBallotBitExtract.bool",
+    opcode="LOOM_SPIRV_OP_GROUP_NON_UNIFORM_BALLOT_BIT_EXTRACT",
+    packet_form="LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BINARY",
+    result_type=BOOLEAN_ORDINARY_VECTOR_COMPONENT_TYPE,
+    operand_names=("mask", "index"),
+    operand_types=(SPIRV_SUBGROUP_V4U32_TYPE, SPIRV_SUBGROUP_U32_TYPE),
+    feature_atoms=("group_non_uniform_ballot",),
+)
+
 SPIRV_SUBGROUP_VOTE_INSTRUCTIONS = tuple(
     SpirvSubgroupInstruction(
         key=f"spirv.op_group_non_uniform_{name}.bool",
@@ -111,8 +122,96 @@ SPIRV_SUBGROUP_VOTE_INSTRUCTIONS = tuple(
 
 
 @dataclass(frozen=True, slots=True)
-class SpirvSubgroupReduction:
-    """Source combining kinds sharing one native typed reduction."""
+class SpirvSubgroupShuffle:
+    """One source shuffle mode and its native typed instruction."""
+
+    # Source kernel.subgroup.shuffle mode keyword.
+    mode: str
+    # Native SPIR-V instruction for one value shape.
+    instruction: SpirvSubgroupInstruction
+
+
+def _shuffle_rows() -> tuple[SpirvSubgroupShuffle, ...]:
+    modes = (
+        (
+            "index",
+            "Shuffle",
+            "LOOM_SPIRV_OP_GROUP_NON_UNIFORM_SHUFFLE",
+            "group_non_uniform_shuffle",
+        ),
+        (
+            "xor",
+            "ShuffleXor",
+            "LOOM_SPIRV_OP_GROUP_NON_UNIFORM_SHUFFLE_XOR",
+            "group_non_uniform_shuffle",
+        ),
+        (
+            "up",
+            "ShuffleUp",
+            "LOOM_SPIRV_OP_GROUP_NON_UNIFORM_SHUFFLE_UP",
+            "group_non_uniform_shuffle_relative",
+        ),
+        (
+            "down",
+            "ShuffleDown",
+            "LOOM_SPIRV_OP_GROUP_NON_UNIFORM_SHUFFLE_DOWN",
+            "group_non_uniform_shuffle_relative",
+        ),
+    )
+    rows = []
+    for component in ORDINARY_VECTOR_COMPONENT_TYPES:
+        extended = (
+            component.kind
+            in (
+                OrdinaryVectorComponentKind.SIGNED_INTEGER,
+                OrdinaryVectorComponentKind.OFFSET,
+            )
+            and component.bit_width != 32
+        ) or (
+            component.kind == OrdinaryVectorComponentKind.FLOAT
+            and component.bit_width == 16
+        )
+        for lane_count in (1, *NATIVE_ORDINARY_VECTOR_LANE_COUNTS):
+            value_type = (
+                component
+                if lane_count == 1
+                else OrdinaryVectorType(component, lane_count)
+            )
+            for mode, opcode_name, opcode, feature_atom in modes:
+                rows.append(
+                    SpirvSubgroupShuffle(
+                        mode=mode,
+                        instruction=SpirvSubgroupInstruction(
+                            key=(
+                                f"spirv.op_group_non_uniform_shuffle."
+                                f"{mode}.{value_type.suffix}"
+                            ),
+                            mnemonic=(
+                                f"OpGroupNonUniform{opcode_name}.{value_type.suffix}"
+                            ),
+                            opcode=opcode,
+                            packet_form=(
+                                "LOOM_SPIRV_PACKET_FORM_GROUP_NON_UNIFORM_BINARY"
+                            ),
+                            result_type=value_type,
+                            operand_names=("value", "offset"),
+                            operand_types=(value_type, SPIRV_SUBGROUP_U32_TYPE),
+                            feature_atoms=(
+                                feature_atom,
+                                *(("subgroup_extended_types",) if extended else ()),
+                            ),
+                        ),
+                    )
+                )
+    return tuple(rows)
+
+
+SPIRV_SUBGROUP_SHUFFLES = _shuffle_rows()
+
+
+@dataclass(frozen=True, slots=True)
+class SpirvSubgroupArithmetic:
+    """Source combining kinds sharing one native typed collective."""
 
     # Authored element type; unsigned target views retain their signed source.
     source_type: str
@@ -122,7 +221,7 @@ class SpirvSubgroupReduction:
     instruction: SpirvSubgroupInstruction
 
 
-def _reduction_operations(component: OrdinaryVectorComponentType):
+def _arithmetic_operations(component: OrdinaryVectorComponentType):
     if component.kind == OrdinaryVectorComponentKind.BOOLEAN:
         # I1 arithmetic wraps modulo two; signed true represents -1.
         return (
@@ -163,16 +262,22 @@ def _reduction_operations(component: OrdinaryVectorComponentType):
     return ()
 
 
-def _reduction_rows() -> tuple[SpirvSubgroupReduction, ...]:
+def _arithmetic_rows() -> tuple[SpirvSubgroupArithmetic, ...]:
     rows = []
     for component in ORDINARY_VECTOR_COMPONENT_TYPES:
         extended = (
             component.kind == OrdinaryVectorComponentKind.SIGNED_INTEGER
             and component.bit_width != 32
         ) or component.source_types == ("f16",)
-        for kinds, key, mnemonic, opcode, native_component in _reduction_operations(
+        for kinds, key, mnemonic, opcode, native_component in _arithmetic_operations(
             component
         ):
+            modes = ["reduce", "clustered_reduce", "inclusive_scan"]
+            # Loom preserves negative zero as the exact additive identity.
+            # SPIR-V FAdd exclusive scans use positive zero, which changes an
+            # all-negative-zero prefix without an nsz-style source contract.
+            if key != "fadd":
+                modes.append("exclusive_scan")
             for lane_count in (1, *NATIVE_ORDINARY_VECTOR_LANE_COUNTS):
                 value_type = (
                     native_component
@@ -180,7 +285,7 @@ def _reduction_rows() -> tuple[SpirvSubgroupReduction, ...]:
                     else OrdinaryVectorType(native_component, lane_count)
                 )
                 rows.extend(
-                    SpirvSubgroupReduction(
+                    SpirvSubgroupArithmetic(
                         source_type=component.source_types[0],
                         combining_kinds=kinds,
                         instruction=SpirvSubgroupInstruction(
@@ -192,25 +297,27 @@ def _reduction_rows() -> tuple[SpirvSubgroupReduction, ...]:
                             operand_names=("value",),
                             operand_types=(value_type,),
                             feature_atoms=(
-                                "group_non_uniform_arithmetic"
-                                if mode == "reduce"
-                                else "group_non_uniform_clustered",
+                                "group_non_uniform_clustered"
+                                if mode == "clustered_reduce"
+                                else "group_non_uniform_arithmetic",
                                 *(("subgroup_extended_types",) if extended else ()),
                             ),
                             group_operation=f"LOOM_SPIRV_GROUP_OPERATION_{mode.upper()}",
                         ),
                     )
-                    for mode in ("reduce", "clustered_reduce")
+                    for mode in modes
                 )
     return tuple(rows)
 
 
-SPIRV_SUBGROUP_REDUCTIONS = _reduction_rows()
+SPIRV_SUBGROUP_ARITHMETIC = _arithmetic_rows()
 
 SPIRV_SUBGROUP_INSTRUCTIONS = (
     SPIRV_SUBGROUP_BALLOT_INSTRUCTION,
+    SPIRV_SUBGROUP_BALLOT_BIT_EXTRACT_INSTRUCTION,
     *SPIRV_SUBGROUP_VOTE_INSTRUCTIONS,
-    *(row.instruction for row in SPIRV_SUBGROUP_REDUCTIONS),
+    *(row.instruction for row in SPIRV_SUBGROUP_SHUFFLES),
+    *(row.instruction for row in SPIRV_SUBGROUP_ARITHMETIC),
 )
 
 

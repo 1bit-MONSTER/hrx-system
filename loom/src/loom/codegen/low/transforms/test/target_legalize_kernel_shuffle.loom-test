@@ -1,0 +1,121 @@
+// RUN: pass target-legalize{mode=eager,policy=reference-only}
+
+test.target<low_core> @target {subgroup_size = 8}
+
+kernel.def target(@target) @dynamic_logical_width() {
+  %c1 = index.constant 1 : index
+  %c8 = index.constant 8 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c8, %c1, %c1) : index
+} launch(%value: i32, %offset: i32, %width: i32) {
+  %indexed, %indexed_valid = kernel.subgroup.shuffle<index> %value, %offset, %width : i32, i32, i32
+  %xor, %xor_valid = kernel.subgroup.shuffle<xor> %indexed, %offset, %width : i32, i32, i32
+  %up, %up_valid = kernel.subgroup.shuffle<up> %xor, %offset, %width : i32, i32, i32
+  %down, %down_valid = kernel.subgroup.shuffle<down> %up, %offset, %width : i32, i32, i32
+  test.use %down, %indexed_valid, %xor_valid, %up_valid, %down_valid : i32, i1, i1, i1, i1
+  kernel.return
+}
+
+// ----
+test.target<low_core> @target {subgroup_size = 8}
+
+kernel.def target(@target) @dynamic_logical_width() {
+  %c1 = index.constant 1 : index
+  %c8 = index.constant 8 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c8, %c1, %c1) : index
+} launch(%value: i32, %offset: i32, %width: i32) {
+  %88 = scalar.constant 0 : i32
+  %89 = scalar.constant 1 : i32
+  %90 = scalar.constant 8 : i32
+  %91 = scalar.cmpi ne, %width, %88 : i32
+  %92 = scalar.cmpi ule, %width, %90 : i32
+  %93 = scalar.andi %91, %92 : i1
+  %94 = scf.select %93, %width, %89 : i32
+  %95 = scalar.cmpi ult, %offset, %94 : i32
+  %96 = scalar.andi %93, %95 : i1
+  %97 = scf.select %96, %offset, %88 : i32
+  %98 = kernel.subgroup.lane.id : index
+  %99 = index.cast %98 : index to i32
+  %100 = scalar.divui %99, %94 : i32
+  %101 = scalar.muli %100, %94 : i32
+  %102 = scalar.addi %101, %97 : i32
+  %103 = scalar.divui %102, %94 : i32
+  %104 = scalar.cmpi eq, %103, %100 : i32
+  %105 = scalar.cmpi ult, %102, %90 : i32
+  %106 = scalar.andi %96, %104 : i1
+  %107 = scalar.andi %106, %105 : i1
+  %108 = scf.select %107, %102, %99 : i32
+  %109 = scalar.remui %108, %90 : i32
+  %indexed, %111 = kernel.subgroup.shuffle<index> %value, %109, %90 : i32, i32, i32
+  %indexed_valid = scalar.andi %107, %111 : i1
+  %63 = scalar.constant 0 : i32
+  %64 = scalar.constant 1 : i32
+  %65 = scalar.constant 8 : i32
+  %66 = scalar.cmpi ne, %width, %63 : i32
+  %67 = scalar.cmpi ule, %width, %65 : i32
+  %68 = scalar.andi %66, %67 : i1
+  %69 = scf.select %68, %width, %64 : i32
+  %70 = scalar.cmpi ult, %offset, %69 : i32
+  %71 = scalar.andi %68, %70 : i1
+  %72 = scf.select %71, %offset, %63 : i32
+  %73 = kernel.subgroup.lane.id : index
+  %74 = index.cast %73 : index to i32
+  %75 = scalar.divui %74, %69 : i32
+  %77 = scalar.xori %74, %72 : i32
+  %78 = scalar.divui %77, %69 : i32
+  %79 = scalar.cmpi eq, %78, %75 : i32
+  %80 = scalar.cmpi ult, %77, %65 : i32
+  %81 = scalar.andi %71, %79 : i1
+  %82 = scalar.andi %81, %80 : i1
+  %83 = scf.select %82, %77, %74 : i32
+  %84 = scalar.remui %83, %65 : i32
+  %xor, %86 = kernel.subgroup.shuffle<index> %indexed, %84, %65 : i32, i32, i32
+  %xor_valid = scalar.andi %82, %86 : i1
+  %38 = scalar.constant 0 : i32
+  %39 = scalar.constant 1 : i32
+  %40 = scalar.constant 8 : i32
+  %41 = scalar.cmpi ne, %width, %38 : i32
+  %42 = scalar.cmpi ule, %width, %40 : i32
+  %43 = scalar.andi %41, %42 : i1
+  %44 = scf.select %43, %width, %39 : i32
+  %45 = scalar.cmpi ult, %offset, %44 : i32
+  %46 = scalar.andi %43, %45 : i1
+  %47 = scf.select %46, %offset, %38 : i32
+  %48 = kernel.subgroup.lane.id : index
+  %49 = index.cast %48 : index to i32
+  %50 = scalar.divui %49, %44 : i32
+  %52 = scalar.subi %49, %47 : i32
+  %53 = scalar.divui %52, %44 : i32
+  %54 = scalar.cmpi eq, %53, %50 : i32
+  %55 = scalar.cmpi ult, %52, %40 : i32
+  %56 = scalar.andi %46, %54 : i1
+  %57 = scalar.andi %56, %55 : i1
+  %58 = scf.select %57, %52, %49 : i32
+  %59 = scalar.remui %58, %40 : i32
+  %up, %61 = kernel.subgroup.shuffle<index> %xor, %59, %40 : i32, i32, i32
+  %up_valid = scalar.andi %57, %61 : i1
+  %13 = scalar.constant 0 : i32
+  %14 = scalar.constant 1 : i32
+  %15 = scalar.constant 8 : i32
+  %16 = scalar.cmpi ne, %width, %13 : i32
+  %17 = scalar.cmpi ule, %width, %15 : i32
+  %18 = scalar.andi %16, %17 : i1
+  %19 = scf.select %18, %width, %14 : i32
+  %20 = scalar.cmpi ult, %offset, %19 : i32
+  %21 = scalar.andi %18, %20 : i1
+  %22 = scf.select %21, %offset, %13 : i32
+  %23 = kernel.subgroup.lane.id : index
+  %24 = index.cast %23 : index to i32
+  %25 = scalar.divui %24, %19 : i32
+  %27 = scalar.addi %24, %22 : i32
+  %28 = scalar.divui %27, %19 : i32
+  %29 = scalar.cmpi eq, %28, %25 : i32
+  %30 = scalar.cmpi ult, %27, %15 : i32
+  %31 = scalar.andi %21, %29 : i1
+  %32 = scalar.andi %31, %30 : i1
+  %33 = scf.select %32, %27, %24 : i32
+  %34 = scalar.remui %33, %15 : i32
+  %down, %36 = kernel.subgroup.shuffle<index> %up, %34, %15 : i32, i32, i32
+  %down_valid = scalar.andi %32, %36 : i1
+  test.use %down, %indexed_valid, %xor_valid, %up_valid, %down_valid : i32, i1, i1, i1, i1
+  kernel.return
+}

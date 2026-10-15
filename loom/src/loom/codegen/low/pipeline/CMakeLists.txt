@@ -22,6 +22,7 @@ loom_cc_library(
     loom::transforms::buffer::target_legalization
     loom::transforms::conversion::target_legalization
     loom::transforms::index::target_legalization
+    loom::transforms::kernel::target_legalization
     loom::transforms::math::legalize
     loom::transforms::scalar::target_legalization
     loom::transforms::vector::target_legalization
@@ -41,6 +42,7 @@ loom_cc_test(
     iree::testing::gtest_main
     loom::ops::buffer
     loom::ops::index
+    loom::ops::kernel
     loom::ops::scalar
     loom::ops::vector
     loom::ops::view

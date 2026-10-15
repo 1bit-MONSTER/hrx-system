@@ -242,6 +242,24 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "target_legalization",
+    srcs = ["target_legalization.c"],
+    hdrs = ["target_legalization.h"],
+    deps = [
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:combining",
+        "//loom/src/loom/ops/index",
+        "//loom/src/loom/ops/kernel",
+        "//loom/src/loom/ops/scalar",
+        "//loom/src/loom/ops/scf",
+        "//loom/src/loom/ops/vector",
+        "//loom/src/loom/rewrite:rewriter",
+        "//loom/src/loom/target:legalization",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
     name = "resolve_launches",
     srcs = ["resolve_launches.c"],
     hdrs = ["resolve_launches.h"],

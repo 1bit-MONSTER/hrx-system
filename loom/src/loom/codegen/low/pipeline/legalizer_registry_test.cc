@@ -10,6 +10,7 @@
 #include "iree/testing/status_matchers.h"
 #include "loom/ops/buffer/ops.h"
 #include "loom/ops/index/ops.h"
+#include "loom/ops/kernel/ops.h"
 #include "loom/ops/scalar/ops.h"
 #include "loom/ops/vector/ops.h"
 #include "loom/ops/view/ops.h"
@@ -126,6 +127,10 @@ TEST(LowLegalizerRegistryTest, TargetProvidersPrecedeGenericProviders) {
   ExpectReferenceProvider(registry, LOOM_OP_BUFFER_COPY, IREE_SV("buffer"));
   ExpectReferenceProvider(registry, LOOM_OP_INDEX_MIN, IREE_SV("index"));
   ExpectReferenceProvider(registry, LOOM_OP_INDEX_MAX, IREE_SV("index"));
+  ExpectReferenceProvider(registry, LOOM_OP_KERNEL_SUBGROUP_SHUFFLE,
+                          IREE_SV("kernel"));
+  ExpectReferenceProvider(registry, LOOM_OP_KERNEL_SUBGROUP_SCAN,
+                          IREE_SV("kernel"));
   ExpectReferenceProvider(registry, LOOM_OP_SCALAR_SITOFP,
                           IREE_SV("conversion"));
   ExpectReferenceProviders(registry, LOOM_OP_VECTOR_SITOFP,

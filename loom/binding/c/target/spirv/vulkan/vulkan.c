@@ -559,6 +559,19 @@ static loomc_status_t loomc_spirv_vulkan_query_properties(
     LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkan_add_bool_feature(
         facts,
         has_group_non_uniform && (subgroup_properties.supportedOperations &
+                                  VK_SUBGROUP_FEATURE_SHUFFLE_BIT) != 0,
+        LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_SHUFFLE,
+        loomc_make_cstring_view("vulkan:subgroupSupportedOperations")));
+    LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkan_add_bool_feature(
+        facts,
+        has_group_non_uniform &&
+            (subgroup_properties.supportedOperations &
+             VK_SUBGROUP_FEATURE_SHUFFLE_RELATIVE_BIT) != 0,
+        LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_SHUFFLE_RELATIVE,
+        loomc_make_cstring_view("vulkan:subgroupSupportedOperations")));
+    LOOMC_RETURN_IF_ERROR(loomc_spirv_vulkan_add_bool_feature(
+        facts,
+        has_group_non_uniform && (subgroup_properties.supportedOperations &
                                   VK_SUBGROUP_FEATURE_CLUSTERED_BIT) != 0,
         LOOMC_SPIRV_FEATURE_GROUP_NON_UNIFORM_CLUSTERED,
         loomc_make_cstring_view("vulkan:subgroupSupportedOperations")));

@@ -110,6 +110,135 @@ def test_boolean_votes_are_single_native_operations() -> None:
         )
 
 
+def test_shuffle_family_covers_native_types_shapes_and_modes() -> None:
+    fast = set()
+    faithful = set()
+    for rule in SPIRV_SUBGROUP_CONTRACT_CASES:
+        if rule.source_op is not kernel.kernel_subgroup_shuffle:
+            continue
+        rule.validate(SPIRV_LOGICAL_CORE_DESCRIPTOR_SET)
+        pattern = next(
+            guard.type_pattern
+            for guard in rule.guards
+            if guard.kind is GuardKind.VALUE_TYPE and guard.field == "value"
+        )
+        mode = next(
+            guard.enum_keyword
+            for guard in rule.guards
+            if guard.kind is GuardKind.ENUM_ATTR_EQUALS and guard.field == "mode"
+        )
+        cell = (pattern.elements, pattern.lanes, mode)
+        assert any(
+            guard.kind is GuardKind.VALUE_I64_EQUALS_TARGET_SUBGROUP_SIZE
+            and guard.field == "width"
+            for guard in rule.guards
+        )
+        discards_valid = any(
+            guard.kind is GuardKind.VALUE_NO_USES and guard.field == "valid"
+            for guard in rule.guards
+        )
+        cells = fast if discards_valid else faithful
+        assert cell not in cells, cell
+        cells.add(cell)
+        emit_keys = tuple(emit.descriptor.key for emit in rule.emit)
+        assert emit_keys[:2] == (
+            "spirv.op_bitcast.i32.u32",
+            f"spirv.op_group_non_uniform_shuffle.{mode}."
+            f"{rule.descriptor.key.rsplit('.', 1)[-1]}",
+        )
+        if discards_valid:
+            assert len(emit_keys) == 2
+        elif mode == "index":
+            assert emit_keys[2:] == (
+                "spirv.op_load_builtin.subgroup_lane_id",
+                "spirv.op_bitcast.i32.u32",
+                "spirv.op_u_less_than.u32",
+                "spirv.op_select.i32",
+                "spirv.op_bitcast.i32.u32",
+                "spirv.op_constant_true.bool",
+                "spirv.op_group_non_uniform_ballot.v4u32",
+                "spirv.op_group_non_uniform_ballot_bit_extract.bool",
+                "spirv.op_logical_and.bool",
+            )
+        else:
+            source_key = {
+                "xor": "spirv.op_bitwise_xor.i32",
+                "up": "spirv.op_isub.i32",
+                "down": "spirv.op_iadd.i32",
+            }[mode]
+            assert emit_keys[2:] == (
+                "spirv.op_load_builtin.subgroup_lane_id",
+                source_key,
+                "spirv.op_bitcast.i32.u32",
+                "spirv.op_u_less_than.u32",
+                "spirv.op_bitcast.i32.u32",
+                "spirv.op_u_less_than.u32",
+                "spirv.op_logical_and.bool",
+                "spirv.op_select.i32",
+                "spirv.op_bitcast.i32.u32",
+                "spirv.op_constant_true.bool",
+                "spirv.op_group_non_uniform_ballot.v4u32",
+                "spirv.op_group_non_uniform_ballot_bit_extract.bool",
+                "spirv.op_logical_and.bool",
+            )
+
+    expected = {
+        (elements, lanes, mode)
+        for elements in (
+            ("i1",),
+            ("i8",),
+            ("i16",),
+            ("i32", "index"),
+            ("i64",),
+            ("offset",),
+            ("f16",),
+            ("bf16",),
+            ("f32",),
+            ("f64",),
+        )
+        for lanes in (None, 1, 2, 3, 4)
+        for mode in ("index", "xor", "up", "down")
+    }
+    assert fast == expected
+    assert faithful == expected
+
+
+def test_shuffle_contracts_require_the_matching_device_capability() -> None:
+    indexed = feature_bits_value(("group_non_uniform_shuffle",))
+    relative = feature_bits_value(("group_non_uniform_shuffle_relative",))
+    ballot = feature_bits_value(("group_non_uniform_ballot",))
+    extended = feature_bits_value(("subgroup_extended_types",))
+    for rule in SPIRV_SUBGROUP_CONTRACT_CASES:
+        if rule.source_op is not kernel.kernel_subgroup_shuffle:
+            continue
+        pattern = next(
+            guard.type_pattern
+            for guard in rule.guards
+            if guard.kind is GuardKind.VALUE_TYPE and guard.field == "value"
+        )
+        mode = next(
+            guard.enum_keyword
+            for guard in rule.guards
+            if guard.kind is GuardKind.ENUM_ATTR_EQUALS and guard.field == "mode"
+        )
+        required_bits = 0
+        for guard in rule.guards:
+            if guard.kind is GuardKind.DESCRIPTOR_AVAILABLE:
+                for word in guard.descriptor.feature_mask_words:
+                    required_bits |= word
+        assert required_bits & (indexed | relative) == (
+            relative if mode in ("up", "down") else indexed
+        )
+        assert bool(required_bits & extended) == (
+            pattern.elements[0] in ("i8", "i16", "i64", "offset", "f16", "bf16")
+        )
+        discards_valid = any(
+            guard.kind is GuardKind.VALUE_NO_USES and guard.field == "valid"
+            for guard in rule.guards
+        )
+        assert bool(required_bits & ballot) == (not discards_valid)
+
+
 def test_reduction_family_covers_native_types_shapes_and_modes() -> None:
     actual = set()
     for rule in SPIRV_SUBGROUP_CONTRACT_CASES:
@@ -181,10 +310,83 @@ def test_reduction_family_covers_native_types_shapes_and_modes() -> None:
     assert actual == expected
 
 
-def test_reduction_types_require_logical_device_admission() -> None:
+def test_scan_family_covers_native_types_shapes_and_modes() -> None:
+    actual = set()
+    for rule in SPIRV_SUBGROUP_CONTRACT_CASES:
+        if rule.source_op is not kernel.kernel_subgroup_scan:
+            continue
+        rule.validate(SPIRV_LOGICAL_CORE_DESCRIPTOR_SET)
+        pattern = next(
+            guard.type_pattern
+            for guard in rule.guards
+            if guard.kind is GuardKind.VALUE_TYPE
+        )
+        kinds = next(
+            guard.enum_keywords
+            for guard in rule.guards
+            if guard.kind is GuardKind.ENUM_ATTR_IN
+        )
+        mode = next(
+            guard.enum_keyword
+            for guard in rule.guards
+            if guard.kind is GuardKind.ENUM_ATTR_EQUALS and guard.field == "mode"
+        )
+        direction = next(
+            guard.enum_keyword
+            for guard in rule.guards
+            if guard.kind is GuardKind.ENUM_ATTR_EQUALS and guard.field == "direction"
+        )
+        assert direction == "forward"
+        assert any(
+            guard.kind is GuardKind.TARGET_WHOLE_SUBGROUP for guard in rule.guards
+        )
+        group_emits = [
+            emit
+            for emit in rule.emit
+            if emit.descriptor.key.startswith("spirv.op_group_non_uniform_")
+        ]
+        assert len(group_emits) == 1
+        assert not group_emits[0].immediates
+        assert f".{mode}_scan." in group_emits[0].descriptor.key
+        for kind in kinds:
+            cell = (pattern.elements[0], pattern.lanes, kind, mode)
+            assert cell not in actual, cell
+            actual.add(cell)
+    expected = {
+        (element, lanes, kind, mode)
+        for elements, kinds in (
+            (
+                ("i1", "i8", "i16", "i32", "i64"),
+                (
+                    "addi",
+                    "muli",
+                    "minsi",
+                    "maxsi",
+                    "minui",
+                    "maxui",
+                    "andi",
+                    "ori",
+                    "xori",
+                ),
+            ),
+            (("f16", "f32", "f64"), ("addf", "mulf", "minnumf", "maxnumf")),
+        )
+        for element in elements
+        for lanes in (None, 1, 2, 3, 4)
+        for kind in kinds
+        for mode in ("inclusive", "exclusive")
+        if kind != "addf" or mode != "exclusive"
+    }
+    assert actual == expected
+
+
+def test_arithmetic_types_require_logical_device_admission() -> None:
     extended = feature_bits_value(("subgroup_extended_types",))
     for rule in SPIRV_SUBGROUP_CONTRACT_CASES:
-        if rule.source_op is not kernel.kernel_subgroup_reduce:
+        if rule.source_op not in (
+            kernel.kernel_subgroup_reduce,
+            kernel.kernel_subgroup_scan,
+        ):
             continue
         pattern = next(
             guard.type_pattern

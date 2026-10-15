@@ -6,6 +6,8 @@
 
 #include <stdint.h>
 
+#include "loom/analysis/control_uniformity.h"
+#include "loom/codegen/low/lower/participation.h"
 #include "loom/ir/context.h"
 #include "loom/ops/kernel/ops.h"
 #include "loom/target/arch/amdgpu/lower/collective_combine.h"
@@ -33,6 +35,19 @@ static uint32_t loom_amdgpu_subgroup_u32_log2(uint32_t value) {
 static bool loom_amdgpu_subgroup_scan_has_cluster_attrs(const loom_op_t* op) {
   return loom_kernel_subgroup_scan_has_cluster_size(op) ||
          loom_kernel_subgroup_scan_has_cluster_stride(op);
+}
+
+// Returns the native scan tree's full-lane precondition from the shared
+// source-to-low participation analysis.
+static iree_status_t loom_amdgpu_subgroup_scan_has_full_participation(
+    loom_low_lower_context_t* context, const loom_op_t* op,
+    bool* out_has_full_participation) {
+  loom_low_lower_participation_t participation;
+  IREE_RETURN_IF_ERROR(loom_low_lower_source_subgroup_participation(
+      context, op, &participation));
+  *out_has_full_participation =
+      participation.kind == LOOM_LOW_LOWER_PARTICIPATION_FULL;
+  return iree_ok_status();
 }
 
 static bool loom_amdgpu_subgroup_full_wave_workgroups(
@@ -180,6 +195,12 @@ iree_status_t loom_amdgpu_select_kernel_subgroup_scan_plan(
   if (loom_amdgpu_subgroup_scan_has_cluster_attrs(source_op)) {
     return iree_ok_status();
   }
+  bool has_full_participation = false;
+  IREE_RETURN_IF_ERROR(loom_amdgpu_subgroup_scan_has_full_participation(
+      context, source_op, &has_full_participation));
+  if (!has_full_participation) {
+    return iree_ok_status();
+  }
 
   const loom_module_t* module = loom_low_lower_context_module(context);
   const loom_value_id_t value = loom_kernel_subgroup_scan_value(source_op);
@@ -206,7 +227,7 @@ iree_status_t loom_amdgpu_select_kernel_subgroup_scan_plan(
   }
   uint32_t identity_bits = 0;
   if (loom_amdgpu_scan_mode_requires_identity(mode_rule)) {
-    if (!loom_amdgpu_collective_combine_identity_bits(kind, &identity_bits)) {
+    if (!loom_amdgpu_collective_combine_scan_seed_bits(kind, &identity_bits)) {
       return iree_ok_status();
     }
   }
@@ -304,7 +325,7 @@ iree_status_t loom_amdgpu_select_kernel_workgroup_scan_plan(
   }
   uint32_t identity_bits = 0;
   if (loom_amdgpu_scan_mode_requires_identity(mode_rule)) {
-    if (!loom_amdgpu_collective_combine_identity_bits(kind, &identity_bits)) {
+    if (!loom_amdgpu_collective_combine_scan_seed_bits(kind, &identity_bits)) {
       return iree_ok_status();
     }
   }
@@ -367,7 +388,7 @@ iree_status_t loom_amdgpu_select_kernel_workgroup_scan_plan(
 
   if (is_multi_partition &&
       !loom_amdgpu_scan_mode_requires_identity(mode_rule)) {
-    if (!loom_amdgpu_collective_combine_identity_bits(kind, &identity_bits)) {
+    if (!loom_amdgpu_collective_combine_scan_seed_bits(kind, &identity_bits)) {
       return iree_ok_status();
     }
   }
@@ -1123,8 +1144,8 @@ iree_status_t loom_amdgpu_low_legality_verify_kernel_workgroup_scan(
   }
   if (loom_amdgpu_scan_mode_requires_identity(mode_rule)) {
     uint32_t unused_identity_bits = 0;
-    if (!loom_amdgpu_collective_combine_identity_bits(kind,
-                                                      &unused_identity_bits)) {
+    if (!loom_amdgpu_collective_combine_scan_seed_bits(kind,
+                                                       &unused_identity_bits)) {
       return loom_amdgpu_low_legality_reject(
           context, op, IREE_SV("workgroup_scan.identity"));
     }
@@ -1167,8 +1188,8 @@ iree_status_t loom_amdgpu_low_legality_verify_kernel_workgroup_scan(
   if (!loom_amdgpu_scan_mode_requires_identity(mode_rule) &&
       is_multi_partition) {
     uint32_t unused_identity_bits = 0;
-    if (!loom_amdgpu_collective_combine_identity_bits(kind,
-                                                      &unused_identity_bits)) {
+    if (!loom_amdgpu_collective_combine_scan_seed_bits(kind,
+                                                       &unused_identity_bits)) {
       return loom_amdgpu_low_legality_reject(
           context, op, IREE_SV("workgroup_scan.identity"));
     }
@@ -1227,6 +1248,16 @@ iree_status_t loom_amdgpu_low_legality_verify_kernel_subgroup_scan(
     return loom_amdgpu_low_legality_reject(
         context, op, IREE_SV("subgroup_scan.full_subgroup"));
   }
+  loom_control_uniformity_info_t control_uniformity;
+  loom_control_uniformity_info_initialize(
+      module, loom_target_low_legality_fact_table(context),
+      loom_target_low_legality_scratch_arena(context), &control_uniformity);
+  if (!loom_control_uniformity_prove_execution(
+          &control_uniformity, op, LOOM_VALUE_FACT_UNIFORM_SCOPE_SUBGROUP,
+          NULL)) {
+    return loom_amdgpu_low_legality_reject(
+        context, op, IREE_SV("subgroup_scan.full_participation"));
+  }
 
   const loom_value_id_t value = loom_kernel_subgroup_scan_value(op);
   loom_amdgpu_subgroup_payload_kind_t payload_kind =
@@ -1255,8 +1286,8 @@ iree_status_t loom_amdgpu_low_legality_verify_kernel_subgroup_scan(
   }
   if (loom_amdgpu_scan_mode_requires_identity(mode_rule)) {
     uint32_t unused_identity_bits = 0;
-    if (!loom_amdgpu_collective_combine_identity_bits(kind,
-                                                      &unused_identity_bits)) {
+    if (!loom_amdgpu_collective_combine_scan_seed_bits(kind,
+                                                       &unused_identity_bits)) {
       return loom_amdgpu_low_legality_reject(context, op,
                                              IREE_SV("subgroup_scan.identity"));
     }
