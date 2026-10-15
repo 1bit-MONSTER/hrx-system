@@ -32,6 +32,7 @@ loom_check_test_suite(
     "roundtrip.loom-test"
     "table_canonicalize.loom-test"
     "table_combine.loom-test"
+    "uniform_slice.loom-test"
     "vector_to_scalar.loom-test"
     "vector_to_scalar_atomics.loom-test"
     "vector_to_scalar_cleanup.loom-test"

@@ -1,0 +1,65 @@
+// RUN: pass canonicalize
+
+// A runtime scalar origin survives static slices and never needs a wide
+// physical carrier just to materialize a narrower repeated value.
+func.def @static_slice(%value: f16) -> (vector<4xf16>) {
+  %wide = vector.splat %value : vector<8xf16>
+  %result = vector.slice %wide[4] : vector<8xf16> -> vector<4xf16>
+  func.return %result : vector<4xf16>
+}
+
+// ----
+func.def @static_slice(%value: f16) -> (vector<4xf16>) {
+  %result = vector.splat %value : vector<4xf16>
+  func.return %result : vector<4xf16>
+}
+
+// ====
+
+func.def @dynamic_slice(%value: i64, %position: index) -> (vector<3xi64>) {
+  %wide = vector.splat %value : vector<8xi64>
+  %result = vector.slice %wide[%position] : vector<8xi64> -> vector<3xi64>
+  func.return %result : vector<3xi64>
+}
+
+// ----
+func.def @dynamic_slice(%value: i64, %position: index) -> (vector<3xi64>) {
+  %result = vector.splat %value : vector<3xi64>
+  func.return %result : vector<3xi64>
+}
+
+// ====
+
+func.def @multidimensional_slice(%value: i1, %position: index) -> (vector<2x3xi1>) {
+  %wide = vector.splat %value : vector<4x8xi1>
+  %result = vector.slice %wide[1, %position] : vector<4x8xi1> -> vector<2x3xi1>
+  func.return %result : vector<2x3xi1>
+}
+
+// ----
+func.def @multidimensional_slice(%value: i1, %position: index) -> (vector<2x3xi1>) {
+  %result = vector.splat %value : vector<2x3xi1>
+  func.return %result : vector<2x3xi1>
+}
+
+// ====
+
+func.def @dynamic_shape_slice(%value: f32, %length: index, %count: index, %position: index) -> (vector<[%count]xf32>) {
+  %wide = vector.splat %value : vector<[%length]xf32>
+  %result = vector.slice %wide[%position] : vector<[%length]xf32> -> vector<[%count]xf32>
+  func.return %result : vector<[%count]xf32>
+}
+
+// ----
+func.def @dynamic_shape_slice(%value: f32, %length: index, %count: index, %position: index) -> (vector<[%count]xf32>) {
+  %result = vector.splat %value : vector<[%count]xf32>
+  func.return %result : vector<[%count]xf32>
+}
+
+// ====
+
+// A nonuniform source retains its indexed slice.
+func.def @nonuniform_slice(%source: vector<8xf16>, %position: index) -> (vector<4xf16>) {
+  %result = vector.slice %source[%position] : vector<8xf16> -> vector<4xf16>
+  func.return %result : vector<4xf16>
+}

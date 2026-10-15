@@ -592,6 +592,16 @@ static iree_status_t loom_vector_canonicalize_slice(loom_op_t* op,
                                                     loom_rewriter_t* rewriter,
                                                     bool* out_changed) {
   *out_changed = false;
+  const loom_value_id_t result = loom_vector_slice_result(op);
+  loom_value_id_t scalar_origin = LOOM_VALUE_ID_INVALID;
+  if (loom_value_fact_table_query_uniform_element_origin(
+          rewriter->fact_table, rewriter->module, result, &scalar_origin)) {
+    IREE_RETURN_IF_ERROR(loom_vector_replace_single_result_with_splat(
+        op, rewriter, scalar_origin,
+        loom_module_value_type(rewriter->module, result)));
+    *out_changed = true;
+    return iree_ok_status();
+  }
   const loom_value_id_t source = loom_vector_slice_source(op);
   const loom_type_t source_type =
       loom_module_value_type(rewriter->module, source);
