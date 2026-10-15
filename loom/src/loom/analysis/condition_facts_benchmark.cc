@@ -373,7 +373,7 @@ class NestedStructuredBranchFactsBenchmark {
     loom_op_t* function_op = nullptr;
     IREE_CHECK_OK(loom_func_def_build(
         &builder, /*build_flags=*/0, /*visibility=*/0, /*retain=*/0, /*cc=*/0,
-        /*purity=*/0, /*temperature=*/0, /*inline_policy=*/0,
+        /*effect_contract=*/0, /*temperature=*/0, /*inline_policy=*/0,
         loom_symbol_ref_null(), /*abi=*/0, loom_named_attr_slice_empty(),
         /*export_symbol=*/LOOM_STRING_ID_INVALID, loom_named_attr_slice_empty(),
         {/*module_id=*/0, /*symbol_id=*/symbol}, &i32, /*arg_types_count=*/1,

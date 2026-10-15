@@ -182,7 +182,7 @@ static iree_status_t loom_func_symbol_fact_compute(
       module, symbol->name_id, IREE_SV("symbol"), &facts->name));
   facts->visibility = loom_func_like_visibility(func);
   facts->calling_convention = loom_func_like_cc(func);
-  facts->purity = loom_func_like_purity(func);
+  facts->effect_contract = (uint8_t)loom_func_like_effect_contract(func);
   facts->temperature = loom_func_like_temperature(func);
   facts->inline_policy = loom_func_like_inline_policy(func);
   facts->has_body = loom_func_like_body(func) != NULL;

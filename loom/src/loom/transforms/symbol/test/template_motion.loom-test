@@ -1,7 +1,8 @@
 // RUN: pass canonicalize
 
 // Identical application syntax in both branches still has distinct source
-// contexts. Purity does not authorize common-tail factoring before expansion.
+// contexts. An effect contract does not authorize common-tail factoring before
+// expansion.
 template.decl pure @choose(%value: i32) -> (i32)
 
 func.def @branch_applications(%condition: i1, %value: i32) -> (i32) {

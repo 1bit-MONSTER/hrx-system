@@ -24,8 +24,8 @@ func.def @pure_calls_cse_after_canonicalize(%value: i32) -> (i32, i32) {
 
 // ====
 
-// Purity permits dead applications to disappear, but it does not make pending
-// source-expansion sites interchangeable before selection.
+// A pure effect contract permits dead applications to disappear, but it does
+// not make pending source-expansion sites interchangeable before selection.
 // RUN: pass canonicalize,cse
 template.decl @test.effect(%value: i32) -> (i32)
 

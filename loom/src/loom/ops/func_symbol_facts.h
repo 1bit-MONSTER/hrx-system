@@ -46,8 +46,8 @@ typedef struct loom_func_symbol_facts_t {
   // Calling convention enum value from the func interface.
   uint8_t calling_convention;
 
-  // Purity enum value from the func interface.
-  uint8_t purity;
+  // Encoded callable effect contract from the func interface.
+  uint8_t effect_contract;
 
   // Execution temperature enum value from the func interface.
   uint8_t temperature;

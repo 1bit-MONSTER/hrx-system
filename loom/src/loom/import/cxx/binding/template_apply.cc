@@ -114,7 +114,7 @@ loom_symbol_ref_t TemplateApplyIntrinsic::materialize(
         &declaration_builder, build_flags, /*visibility=*/0,
         /*retain=*/0,
         annotated(family_->function, "device") ? LOOM_TEMPLATE_CC_DEVICE : 0,
-        /*purity=*/0, /*temperature=*/0, loom_symbol_ref_null(),
+        /*effect_contract=*/0, /*temperature=*/0, loom_symbol_ref_null(),
         loom_make_parameterized_attr_array(requirements.data(),
                                            requirements.size()),
         family_->reference, argument_types, argument_count, result_types,
@@ -146,7 +146,7 @@ std::optional<Value> TemplateApplyIntrinsic::call(
   loom_op_t* op;
   check(loom_template_apply_build(
       builder, /*build_flags=*/0, family, operands.data(), operands.size(),
-      /*purity=*/0, /*temperature=*/0, results.types.data(),
+      /*effect_contract=*/0, /*temperature=*/0, results.types.data(),
       results.types.size(), /*tied_results=*/nullptr, /*tied_result_count=*/0,
       location, &op));
   if (!result_type_) {

@@ -136,7 +136,7 @@ INTERFACES: tuple[InterfaceSpec, ...] = (
         vtable_field="call_like",
         fields=(
             InterfaceFieldSpec("callee", "callee_attr_index", "attr"),
-            InterfaceFieldSpec("purity", "purity_attr_index", "attr"),
+            InterfaceFieldSpec("effect_contract", "effect_contract_attr_index", "attr"),
             InterfaceFieldSpec("temperature", "temperature_attr_index", "attr"),
             InterfaceFieldSpec("inline_policy", "inline_policy_attr_index", "attr"),
             InterfaceFieldSpec("operands", "operand_field_index", "operand"),
@@ -167,7 +167,7 @@ INTERFACES: tuple[InterfaceSpec, ...] = (
             InterfaceFieldSpec("export_linkage", "export_linkage_attr_index", "attr"),
             InterfaceFieldSpec("visibility", "visibility_attr_index", "attr"),
             InterfaceFieldSpec("cc", "cc_attr_index", "attr"),
-            InterfaceFieldSpec("purity", "purity_attr_index", "attr"),
+            InterfaceFieldSpec("effect_contract", "effect_contract_attr_index", "attr"),
             InterfaceFieldSpec("temperature", "temperature_attr_index", "attr"),
             InterfaceFieldSpec("inline_policy", "inline_policy_attr_index", "attr"),
             InterfaceFieldSpec("predicates", "predicates_attr_index", "attr"),

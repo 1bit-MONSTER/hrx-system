@@ -524,7 +524,7 @@ class BytecodeWriter:
         }
         func_like = func_like_interface_for_op(self._op_decls_by_name, op.name)
         if func_like is not None:
-            for field_name in ("visibility", "cc", "purity", "predicates"):
+            for field_name in ("visibility", "cc", "effect_contract", "predicates"):
                 attr_name = getattr(func_like, field_name, None)
                 if attr_name is not None:
                     keys.add(attr_name)
@@ -2058,9 +2058,14 @@ class BytecodeWriter:
                 }
                 cc_byte = _cc_to_byte.get(op.attributes.get("cc", ""), 0)
                 buf.write_u8(cc_byte)
-                _purity_to_byte: dict[str, int] = {"pure": 1}
-                purity_byte = _purity_to_byte.get(op.attributes.get("purity", ""), 0)
-                buf.write_u8(purity_byte)
+                _effect_contract_to_byte: dict[str, int] = {
+                    "pure": 1,
+                    "readonly": 2,
+                }
+                effect_contract_byte = _effect_contract_to_byte.get(
+                    op.attributes.get("effect_contract", ""), 0
+                )
+                buf.write_u8(effect_contract_byte)
 
                 workload_arg_ids = self._kernel_workload_arg_ids(op)
                 arg_ids = self._func_arg_ids(op)

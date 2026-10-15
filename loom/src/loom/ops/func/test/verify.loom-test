@@ -224,6 +224,52 @@ func.def @pure_direct_calls() {
 
 // ====
 
+func.decl readonly @readonly_external()
+func.decl pure @pure_external()
+func.decl @observable_effect()
+
+func.def @readonly_calls_accept_pure_or_readonly_callees() {
+  func.call readonly @readonly_external() : ()
+  func.call readonly @pure_external() : ()
+  func.return
+}
+
+func.def @pure_calls_reject_readonly_callees() {
+  // ERROR@+1: STRUCTURE/034 {op_name="func.call", contract_name="pure", callee_name="readonly_external"}
+  func.call pure @readonly_external() : ()
+  func.return
+}
+
+func.def @readonly_calls_require_a_compatible_callee() {
+  // ERROR@+1: STRUCTURE/034 {op_name="func.call", contract_name="readonly", callee_name="observable_effect"}
+  func.call readonly @observable_effect() : ()
+  func.return
+}
+
+// ====
+
+func.decl readonly @template_read()
+
+template.decl readonly @test.readonly_provider()
+
+template.def<@test.readonly_provider> readonly @readonly_provider() {
+  func.call readonly @template_read() : ()
+  template.return
+}
+
+func.def @readonly_template_calls_accept_readonly_providers() {
+  template.call readonly @readonly_provider() : ()
+  func.return
+}
+
+func.def @pure_template_calls_reject_readonly_providers() {
+  // ERROR@+1: STRUCTURE/034 {op_name="template.call", contract_name="pure", callee_name="readonly_provider"}
+  template.call pure @readonly_provider() : ()
+  func.return
+}
+
+// ====
+
 func.decl @observable_effect()
 
 func.def @impure_helper() {
@@ -232,7 +278,7 @@ func.def @impure_helper() {
 }
 
 func.def @pure_calls_require_pure_callees() {
-  // ERROR@+1: STRUCTURE/034 {callee_name="impure_helper", boundary_name="impure_helper"}
+  // ERROR@+1: STRUCTURE/034 {op_name="func.call", callee_name="impure_helper"}
   func.call pure @impure_helper() : ()
   func.return
 }
@@ -262,7 +308,7 @@ template.def<@test.impure_provider> @impure_provider() {
 }
 
 func.def @pure_template_calls_require_pure_providers() {
-  // ERROR@+1: STRUCTURE/034 {callee_name="impure_provider", boundary_name="impure_provider"}
+  // ERROR@+1: STRUCTURE/034 {op_name="template.call", callee_name="impure_provider"}
   template.call pure @impure_provider() : ()
   func.return
 }

@@ -1109,7 +1109,8 @@ kernel.def target(@dispatch_target) @dispatch_rows(%element_count: index) {
   loom_func_like_t helper =
       loom_func_like_cast(projected_module.get(), helper_op);
   EXPECT_EQ(loom_func_like_visibility(helper), 0u);
-  EXPECT_EQ(loom_func_like_purity(helper), LOOM_FUNC_PURITY_PURE);
+  EXPECT_EQ(loom_func_like_effect_contract(helper),
+            LOOM_CALLABLE_EFFECT_CONTRACT_PURE);
   EXPECT_EQ(loom_func_like_inline_policy(helper), LOOM_INLINE_POLICY_INLINE);
   EXPECT_EQ(loom_func_like_target(helper).module_id, target_ref.module_id);
   EXPECT_EQ(loom_func_like_target(helper).symbol_id, target_ref.symbol_id);

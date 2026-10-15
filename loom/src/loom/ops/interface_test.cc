@@ -141,7 +141,7 @@ TEST_F(InterfaceTest, CallLikeCastReturnsValidForInvoke) {
   EXPECT_EQ(call.op, invoke_op);
   EXPECT_NE(call.vtable, nullptr);
   EXPECT_EQ(loom_call_like_kind(call), LOOM_CALL_LIKE_KIND_SEMANTIC);
-  EXPECT_EQ(loom_call_like_purity(call), 0);
+  EXPECT_EQ(loom_call_like_effect_contract(call), 0);
   EXPECT_EQ(loom_call_like_operand_offset(call), 0);
   EXPECT_EQ(loom_call_like_result_offset(call), 0);
   EXPECT_TRUE(loom_call_like_is_direct_semantic(call));

@@ -13,6 +13,7 @@
 #define LOOM_OPS_TEMPLATE_OPS_H_
 
 #include "loom/ops/op_defs.h"
+#include "loom/ir/ir.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -43,12 +44,6 @@ typedef enum loom_template_cc_e {
   LOOM_TEMPLATE_CC_COUNT_ = 5,
 } loom_template_cc_t;
 
-// Function purity. Absent (0) means unspecified (conservative).
-typedef enum loom_template_purity_e {
-  LOOM_TEMPLATE_PURITY_PURE = 1,
-  LOOM_TEMPLATE_PURITY_COUNT_ = 2,
-} loom_template_purity_t;
-
 // Execution temperature hint. Absent (0) means unspecified.
 typedef enum loom_template_temperature_e {
   LOOM_TEMPLATE_TEMPERATURE_HOT = 1,
@@ -70,7 +65,7 @@ LOOM_DEFINE_VARIADIC_RESULTS(loom_template_decl_results, 0)
 LOOM_DEFINE_ATTR_SYMBOL(loom_template_decl_family, 0)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_template_decl_visibility, 1, loom_template_visibility_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_template_decl_cc, 2, loom_template_cc_t)
-LOOM_DEFINE_ATTR_ENUM_TYPED(loom_template_decl_purity, 3, loom_template_purity_t)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_template_decl_effect_contract, 3, loom_callable_effect_contract_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_template_decl_temperature, 4, loom_template_temperature_t)
 LOOM_DEFINE_ATTR_PREDICATE_LIST(loom_template_decl_predicates, 5)
 LOOM_DEFINE_ATTR_SYMBOL(loom_template_decl_target, 6)
@@ -80,7 +75,7 @@ enum loom_template_decl_build_flag_bits_e {
   LOOM_TEMPLATE_DECL_BUILD_FLAG_HAS_VISIBILITY = 1u << 0,
   LOOM_TEMPLATE_DECL_BUILD_FLAG_HAS_RETAIN = 1u << 1,
   LOOM_TEMPLATE_DECL_BUILD_FLAG_HAS_CC = 1u << 2,
-  LOOM_TEMPLATE_DECL_BUILD_FLAG_HAS_PURITY = 1u << 3,
+  LOOM_TEMPLATE_DECL_BUILD_FLAG_HAS_EFFECT_CONTRACT = 1u << 3,
   LOOM_TEMPLATE_DECL_BUILD_FLAG_HAS_TEMPERATURE = 1u << 4,
   LOOM_TEMPLATE_DECL_BUILD_FLAG_HAS_TARGET = 1u << 5,
   LOOM_TEMPLATE_DECL_BUILD_FLAG_HAS_REQUIRES = 1u << 6,
@@ -93,7 +88,7 @@ iree_status_t loom_template_decl_build(
     loom_optional uint8_t visibility,
     loom_optional uint8_t retain,
     loom_optional uint8_t cc,
-    loom_optional uint8_t purity,
+    loom_optional uint8_t effect_contract,
     loom_optional uint8_t temperature,
     loom_optional loom_symbol_ref_t target,
     loom_optional loom_parameterized_attr_array_t requires_,
@@ -122,7 +117,7 @@ LOOM_DEFINE_ATTR_SYMBOL(loom_template_def_family, 0)
 LOOM_DEFINE_ATTR_SYMBOL(loom_template_def_implementation, 1)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_template_def_visibility, 2, loom_template_visibility_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_template_def_cc, 3, loom_template_cc_t)
-LOOM_DEFINE_ATTR_ENUM_TYPED(loom_template_def_purity, 4, loom_template_purity_t)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_template_def_effect_contract, 4, loom_callable_effect_contract_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_template_def_temperature, 5, loom_template_temperature_t)
 LOOM_DEFINE_ATTR_PREDICATE_LIST(loom_template_def_predicates, 6)
 LOOM_DEFINE_ATTR_SYMBOL(loom_template_def_target, 7)
@@ -134,7 +129,7 @@ enum loom_template_def_build_flag_bits_e {
   LOOM_TEMPLATE_DEF_BUILD_FLAG_HAS_VISIBILITY = 1u << 0,
   LOOM_TEMPLATE_DEF_BUILD_FLAG_HAS_RETAIN = 1u << 1,
   LOOM_TEMPLATE_DEF_BUILD_FLAG_HAS_CC = 1u << 2,
-  LOOM_TEMPLATE_DEF_BUILD_FLAG_HAS_PURITY = 1u << 3,
+  LOOM_TEMPLATE_DEF_BUILD_FLAG_HAS_EFFECT_CONTRACT = 1u << 3,
   LOOM_TEMPLATE_DEF_BUILD_FLAG_HAS_TEMPERATURE = 1u << 4,
   LOOM_TEMPLATE_DEF_BUILD_FLAG_HAS_TARGET = 1u << 5,
   LOOM_TEMPLATE_DEF_BUILD_FLAG_HAS_PRIORITY = 1u << 6,
@@ -149,7 +144,7 @@ iree_status_t loom_template_def_build(
     loom_optional uint8_t visibility,
     loom_optional uint8_t retain,
     loom_optional uint8_t cc,
-    loom_optional uint8_t purity,
+    loom_optional uint8_t effect_contract,
     loom_optional uint8_t temperature,
     loom_optional loom_symbol_ref_t target,
     loom_optional loom_parameterized_attr_array_t requires_,
@@ -178,7 +173,7 @@ LOOM_DEFINE_ATTR_SYMBOL(loom_template_ukernel_family, 0)
 LOOM_DEFINE_ATTR_SYMBOL(loom_template_ukernel_implementation, 1)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_template_ukernel_visibility, 2, loom_template_visibility_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_template_ukernel_cc, 3, loom_template_cc_t)
-LOOM_DEFINE_ATTR_ENUM_TYPED(loom_template_ukernel_purity, 4, loom_template_purity_t)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_template_ukernel_effect_contract, 4, loom_callable_effect_contract_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_template_ukernel_temperature, 5, loom_template_temperature_t)
 LOOM_DEFINE_ATTR_PREDICATE_LIST(loom_template_ukernel_predicates, 6)
 LOOM_DEFINE_ATTR_SYMBOL(loom_template_ukernel_target, 7)
@@ -189,7 +184,7 @@ enum loom_template_ukernel_build_flag_bits_e {
   LOOM_TEMPLATE_UKERNEL_BUILD_FLAG_HAS_VISIBILITY = 1u << 0,
   LOOM_TEMPLATE_UKERNEL_BUILD_FLAG_HAS_RETAIN = 1u << 1,
   LOOM_TEMPLATE_UKERNEL_BUILD_FLAG_HAS_CC = 1u << 2,
-  LOOM_TEMPLATE_UKERNEL_BUILD_FLAG_HAS_PURITY = 1u << 3,
+  LOOM_TEMPLATE_UKERNEL_BUILD_FLAG_HAS_EFFECT_CONTRACT = 1u << 3,
   LOOM_TEMPLATE_UKERNEL_BUILD_FLAG_HAS_TEMPERATURE = 1u << 4,
   LOOM_TEMPLATE_UKERNEL_BUILD_FLAG_HAS_TARGET = 1u << 5,
   LOOM_TEMPLATE_UKERNEL_BUILD_FLAG_HAS_PRIORITY = 1u << 6,
@@ -204,7 +199,7 @@ iree_status_t loom_template_ukernel_build(
     loom_optional uint8_t visibility,
     loom_optional uint8_t retain,
     loom_optional uint8_t cc,
-    loom_optional uint8_t purity,
+    loom_optional uint8_t effect_contract,
     loom_optional uint8_t temperature,
     loom_optional loom_symbol_ref_t target,
     loom_optional loom_parameterized_attr_array_t requires_,
@@ -230,10 +225,10 @@ LOOM_DEFINE_ISA(loom_template_apply_isa, LOOM_OP_TEMPLATE_APPLY)
 LOOM_DEFINE_VARIADIC_OPERANDS(loom_template_apply_operands, 0)
 LOOM_DEFINE_VARIADIC_RESULTS(loom_template_apply_results, 0)
 LOOM_DEFINE_ATTR_SYMBOL(loom_template_apply_family, 0)
-LOOM_DEFINE_ATTR_ENUM_TYPED(loom_template_apply_purity, 1, loom_template_purity_t)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_template_apply_effect_contract, 1, loom_callable_effect_contract_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_template_apply_temperature, 2, loom_template_temperature_t)
 enum loom_template_apply_build_flag_bits_e {
-  LOOM_TEMPLATE_APPLY_BUILD_FLAG_HAS_PURITY = 1u << 0,
+  LOOM_TEMPLATE_APPLY_BUILD_FLAG_HAS_EFFECT_CONTRACT = 1u << 0,
   LOOM_TEMPLATE_APPLY_BUILD_FLAG_HAS_TEMPERATURE = 1u << 1,
 };
 typedef uint32_t loom_template_apply_build_flags_t;
@@ -243,7 +238,7 @@ iree_status_t loom_template_apply_build(
     loom_symbol_ref_t family,
     loom_may_consume const loom_value_id_t* operands,
     iree_host_size_t operands_count,
-    loom_optional uint8_t purity,
+    loom_optional uint8_t effect_contract,
     loom_optional uint8_t temperature,
     const loom_type_t* result_types,
     iree_host_size_t result_count,
@@ -264,17 +259,17 @@ LOOM_DEFINE_ISA(loom_template_call_isa, LOOM_OP_TEMPLATE_CALL)
 LOOM_DEFINE_VARIADIC_OPERANDS(loom_template_call_operands, 0)
 LOOM_DEFINE_VARIADIC_RESULTS(loom_template_call_results, 0)
 LOOM_DEFINE_ATTR_SYMBOL(loom_template_call_callee, 0)
-LOOM_DEFINE_ATTR_ENUM_TYPED(loom_template_call_purity, 1, loom_template_purity_t)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_template_call_effect_contract, 1, loom_callable_effect_contract_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_template_call_temperature, 2, loom_template_temperature_t)
 enum loom_template_call_build_flag_bits_e {
-  LOOM_TEMPLATE_CALL_BUILD_FLAG_HAS_PURITY = 1u << 0,
+  LOOM_TEMPLATE_CALL_BUILD_FLAG_HAS_EFFECT_CONTRACT = 1u << 0,
   LOOM_TEMPLATE_CALL_BUILD_FLAG_HAS_TEMPERATURE = 1u << 1,
 };
 typedef uint32_t loom_template_call_build_flags_t;
 iree_status_t loom_template_call_build(
     loom_builder_t* builder,
     loom_template_call_build_flags_t build_flags,
-    loom_optional uint8_t purity,
+    loom_optional uint8_t effect_contract,
     loom_optional uint8_t temperature,
     loom_symbol_ref_t callee,
     loom_may_consume const loom_value_id_t* operands,

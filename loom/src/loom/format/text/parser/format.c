@@ -251,7 +251,7 @@ static iree_status_t loom_parse_format_optional_group(
       //
       // When the first inner element is an ATTR_VALUE with ENUM kind,
       // refine the check to match a specific enum case name. Without
-      // this, consecutive optional enum groups (visibility, purity)
+      // this, consecutive optional enum groups (visibility, effect_contract)
       // all probe positive on any bare ident and the wrong group
       // consumes the token.
       loom_token_t peek = loom_tokenizer_peek(&parser->tokenizer);

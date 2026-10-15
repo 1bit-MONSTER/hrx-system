@@ -19,10 +19,11 @@ extern "C" {
 // Rewrites |apply_op| as an exact template.call to |callee|.
 //
 // |operands| must contain one replacement for every application operand. The
-// rewrite preserves result types, tied results, purity, temperature, source
-// location, and authored result names before replacing all result uses and
-// erasing the application. On success, writes the replacement to |out_call_op|
-// when non-NULL, allowing its selection owner to retain the expansion plan.
+// rewrite preserves result types, tied results, effect contract, temperature,
+// source location, and authored result names before replacing all result uses
+// and erasing the application. On success, writes the replacement to
+// |out_call_op| when non-NULL, allowing its selection owner to retain the
+// expansion plan.
 iree_status_t loom_template_rewrite_apply_as_exact_call(
     loom_rewriter_t* rewriter, loom_op_t* apply_op, loom_symbol_ref_t callee,
     const loom_value_id_t* operands, loom_op_t** out_call_op);

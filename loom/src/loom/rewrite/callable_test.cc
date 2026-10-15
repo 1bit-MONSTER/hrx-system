@@ -143,7 +143,7 @@ class CallableInlineTest : public ::testing::Test {
     loom_op_t* func_op = nullptr;
     IREE_CHECK_OK(loom_template_def_build(
         &module_builder_, /*build_flags=*/0, family, /*visibility=*/0,
-        /*retain=*/0, /*cc=*/0, /*purity=*/0, /*temperature=*/0,
+        /*retain=*/0, /*cc=*/0, /*effect_contract=*/0, /*temperature=*/0,
         loom_symbol_ref_null(), loom_parameterized_attr_array_empty(),
         /*priority=*/0, callee, &value_type, 1, &value_type, 1, nullptr, 0,
         nullptr, 0, LOOM_LOCATION_UNKNOWN, &func_op));
@@ -236,9 +236,9 @@ class CallableInlineTest : public ::testing::Test {
     loom_builder_t body_builder = BodyBuilder(func_op);
     loom_op_t* call_op = nullptr;
     IREE_CHECK_OK(loom_template_call_build(
-        &body_builder, /*build_flags=*/0, /*purity=*/0, /*temperature=*/0,
-        callee, args, 1, &value_type, 1, nullptr, 0, LOOM_LOCATION_UNKNOWN,
-        &call_op));
+        &body_builder, /*build_flags=*/0, /*effect_contract=*/0,
+        /*temperature=*/0, callee, args, 1, &value_type, 1, nullptr, 0,
+        LOOM_LOCATION_UNKNOWN, &call_op));
     loom_value_id_t call_result = loom_template_call_results(call_op).values[0];
     SetValueName(call_result, IREE_SV("call_result"));
     loom_op_t* return_op = nullptr;

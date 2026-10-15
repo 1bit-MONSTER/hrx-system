@@ -793,7 +793,7 @@ static iree_status_t loom_run_hal_testbench_scenario_build_function_adapter(
                                         loom_kernel_def_body(adapter_op));
   loom_op_t* call_op = NULL;
   IREE_RETURN_IF_ERROR(loom_func_call_build(
-      &builder, /*build_flags=*/0, /*purity=*/0, /*temperature=*/0,
+      &builder, /*build_flags=*/0, /*effect_contract=*/0, /*temperature=*/0,
       /*inline_policy=*/0, function_ref, adapter_arguments, argument_count,
       result_types, result_count, /*tied_results=*/NULL,
       /*tied_result_count=*/0, function.op->location, &call_op));

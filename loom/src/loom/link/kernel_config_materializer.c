@@ -342,7 +342,7 @@ static iree_status_t loom_link_kernel_config_build_helper(
                                            ? loom_symbol_ref_null()
                                            : loom_attr_as_symbol(target_attr);
   loom_func_def_build_flags_t build_flags =
-      LOOM_FUNC_DEF_BUILD_FLAG_HAS_PURITY |
+      LOOM_FUNC_DEF_BUILD_FLAG_HAS_EFFECT_CONTRACT |
       LOOM_FUNC_DEF_BUILD_FLAG_HAS_INLINE_POLICY;
   if (loom_symbol_ref_is_valid(target_ref)) {
     build_flags |= LOOM_FUNC_DEF_BUILD_FLAG_HAS_TARGET;
@@ -350,7 +350,8 @@ static iree_status_t loom_link_kernel_config_build_helper(
   loom_op_t* helper_op = NULL;
   IREE_RETURN_IF_ERROR(loom_func_def_build(
       builder, build_flags,
-      /*visibility=*/0, /*retain=*/0, /*cc=*/0, LOOM_FUNC_PURITY_PURE,
+      /*visibility=*/0, /*retain=*/0, /*cc=*/0,
+      LOOM_CALLABLE_EFFECT_CONTRACT_PURE,
       /*temperature=*/0, LOOM_INLINE_POLICY_INLINE, target_ref,
       /*abi=*/0, loom_named_attr_slice_empty(), LOOM_STRING_ID_INVALID,
       loom_named_attr_slice_empty(), config_ref, argument_types,
@@ -779,7 +780,7 @@ static iree_status_t loom_link_kernel_config_build_ir_helper(
   IREE_RETURN_IF_ERROR(
       loom_ir_remap_location_id(&remap, source_op->location, &location));
   loom_func_def_build_flags_t build_flags =
-      LOOM_FUNC_DEF_BUILD_FLAG_HAS_PURITY |
+      LOOM_FUNC_DEF_BUILD_FLAG_HAS_EFFECT_CONTRACT |
       LOOM_FUNC_DEF_BUILD_FLAG_HAS_INLINE_POLICY;
   if (loom_symbol_ref_is_valid(target)) {
     build_flags |= LOOM_FUNC_DEF_BUILD_FLAG_HAS_TARGET;
@@ -787,7 +788,8 @@ static iree_status_t loom_link_kernel_config_build_ir_helper(
   loom_op_t* helper_op = NULL;
   IREE_RETURN_IF_ERROR(loom_func_def_build(
       builder, build_flags,
-      /*visibility=*/0, /*retain=*/0, /*cc=*/0, LOOM_FUNC_PURITY_PURE,
+      /*visibility=*/0, /*retain=*/0, /*cc=*/0,
+      LOOM_CALLABLE_EFFECT_CONTRACT_PURE,
       /*temperature=*/0, LOOM_INLINE_POLICY_INLINE, target,
       /*abi=*/0, loom_named_attr_slice_empty(), LOOM_STRING_ID_INVALID,
       loom_named_attr_slice_empty(),

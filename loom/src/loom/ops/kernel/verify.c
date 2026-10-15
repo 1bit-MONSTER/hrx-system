@@ -73,7 +73,7 @@ static iree_status_t loom_kernel_verify_positive_u32_attr(
       emitter, op, attr_name, value, IREE_SV("positive u32"));
 }
 
-static iree_status_t loom_kernel_verify_launch_config_purity(
+static iree_status_t loom_kernel_verify_launch_config_effect_contract(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter) {
   const loom_region_t* config = loom_kernel_def_config(op);
@@ -1053,7 +1053,7 @@ iree_status_t loom_kernel_def_verify(const loom_module_t* module,
                                      iree_diagnostic_emitter_t emitter) {
   IREE_RETURN_IF_ERROR(loom_function_contract_verify(module, op, emitter));
   IREE_RETURN_IF_ERROR(
-      loom_kernel_verify_launch_config_purity(module, op, emitter));
+      loom_kernel_verify_launch_config_effect_contract(module, op, emitter));
   return loom_kernel_verify_barrier_controls(module, op, emitter);
 }
 

@@ -221,11 +221,12 @@ static iree_status_t loom_kernel_launch_resolution_rewrite_launch(
   loom_op_t* call_op = NULL;
   IREE_RETURN_IF_ERROR(loom_func_call_build(
       builder,
-      LOOM_FUNC_CALL_BUILD_FLAG_HAS_PURITY |
+      LOOM_FUNC_CALL_BUILD_FLAG_HAS_EFFECT_CONTRACT |
           LOOM_FUNC_CALL_BUILD_FLAG_HAS_INLINE_POLICY,
-      LOOM_FUNC_PURITY_PURE, /*temperature=*/0, LOOM_INLINE_POLICY_INLINE,
-      configuration_ref, workloads.values, workloads.count, count_types,
-      IREE_ARRAYSIZE(count_types), /*tied_results=*/NULL,
+      LOOM_CALLABLE_EFFECT_CONTRACT_PURE, /*temperature=*/0,
+      LOOM_INLINE_POLICY_INLINE, configuration_ref, workloads.values,
+      workloads.count, count_types, IREE_ARRAYSIZE(count_types),
+      /*tied_results=*/NULL,
       /*tied_result_count=*/0, launch_op->location, &call_op));
 
   const loom_value_slice_t counts = loom_func_call_results(call_op);

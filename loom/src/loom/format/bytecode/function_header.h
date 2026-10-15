@@ -63,8 +63,8 @@ typedef struct loom_bytecode_function_header_t {
   loom_bytecode_source_trivia_t source_trivia;
   // Function calling convention byte.
   uint8_t calling_convention;
-  // Function purity byte.
-  uint8_t purity;
+  // Function effect-contract byte.
+  uint8_t effect_contract;
   // Number of kernel workload arguments at the start of signature_values.
   uint16_t workload_argument_count;
   // Number of ordinary arguments following workload arguments.

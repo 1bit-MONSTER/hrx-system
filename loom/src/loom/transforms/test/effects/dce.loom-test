@@ -1,5 +1,5 @@
 // A pure func.call with unused results is ordinary dead computation after
-// canonicalize stamps the call-site purity attr.
+// canonicalize stamps the call-site effect contract.
 // RUN: pass canonicalize,dce
 func.def @pure_identity(%value: i32) -> (i32) {
   func.return %value : i32
@@ -34,6 +34,30 @@ func.def @dead_pure_apply_dies(%value: i32) {
 template.decl @test.effect(%value: i32) -> (i32)
 
 func.def @dead_pure_apply_dies(%value: i32) {
+  func.return
+}
+
+// ====
+
+// Canonicalization propagates read-only contracts through semantic and
+// template call sites. Deterministic reads with unused results are dead.
+// RUN: pass canonicalize,dce
+func.decl readonly @read_first(%input: buffer) -> (i32)
+
+template.decl readonly @test.read_first(%input: buffer) -> (i32)
+
+func.def @dead_readonly_calls_die(%input: buffer) {
+  %call = func.call @read_first(%input) : (buffer) -> (i32)
+  %apply = template.apply<@test.read_first>(%input) : (buffer) -> (i32)
+  func.return
+}
+
+// ----
+func.decl readonly @read_first(%input: buffer) -> (i32)
+
+template.decl readonly @test.read_first(%input: buffer) -> (i32)
+
+func.def @dead_readonly_calls_die(%input: buffer) {
   func.return
 }
 

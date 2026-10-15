@@ -73,6 +73,42 @@ low.func.def target<test.low.core>(@target) @native_external_value(%value: reg<t
 
 // ====
 
+// Read-only contracts propagate through both source and Low call forms. DCE
+// can erase an unused deterministic read while retaining the contract on live
+// calls for memory-aware motion and CSE.
+test.target<low_core> @target
+
+low.func.decl readonly target<test.low.core>(@target) @external_read(%address: reg<test.ptr>) -> (reg<test.i32 x4>)
+
+func.def @source_external_read(%address: i64) -> (vector<4xi32>) {
+  %unused = low.invoke @external_read(%address) : (i64) -> (vector<4xi32>)
+  %result = low.invoke @external_read(%address) : (i64) -> (vector<4xi32>)
+  func.return %result : vector<4xi32>
+}
+
+low.func.def target<test.low.core>(@target) @native_external_read(%address: reg<test.ptr>) -> (reg<test.i32 x4>) asm {
+  %unused = low.func.call @external_read(%address) : (reg<test.ptr>) -> (reg<test.i32 x4>)
+  %result = low.func.call @external_read(%address) : (reg<test.ptr>) -> (reg<test.i32 x4>)
+  return %result
+}
+
+// ----
+test.target<low_core> @target
+
+low.func.decl readonly target<test.low.core>(@target) @external_read(%address: reg<test.ptr>) -> (reg<test.i32 x4>)
+
+func.def @source_external_read(%address: i64) -> (vector<4xi32>) {
+  %result = low.invoke readonly @external_read(%address) : (i64) -> (vector<4xi32>)
+  func.return %result : vector<4xi32>
+}
+
+low.func.def target<test.low.core>(@target) @native_external_read(%address: reg<test.ptr>) -> (reg<test.i32 x4>) asm {
+  %result = low.func.call readonly @external_read(%address) : (reg<test.ptr>) -> (reg<test.i32 x4>)
+  return %result
+}
+
+// ====
+
 // Unused results never discharge an unknown external call's effects.
 test.target<low_core> @target
 

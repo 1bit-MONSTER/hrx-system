@@ -232,11 +232,12 @@ static iree_status_t loom_kernel_launch_config_program_build_function(
   IREE_RETURN_IF_ERROR(loom_func_def_build(
       &builder,
       LOOM_FUNC_DEF_BUILD_FLAG_HAS_VISIBILITY |
-          LOOM_FUNC_DEF_BUILD_FLAG_HAS_PURITY,
+          LOOM_FUNC_DEF_BUILD_FLAG_HAS_EFFECT_CONTRACT,
       LOOM_FUNC_VISIBILITY_PUBLIC, /*retain=*/0, /*cc=*/0,
-      LOOM_FUNC_PURITY_PURE, /*temperature=*/0, /*inline_policy=*/0,
-      loom_symbol_ref_null(), /*abi=*/0, loom_named_attr_slice_empty(),
-      LOOM_STRING_ID_INVALID, loom_named_attr_slice_empty(),
+      LOOM_CALLABLE_EFFECT_CONTRACT_PURE, /*temperature=*/0,
+      /*inline_policy=*/0, loom_symbol_ref_null(), /*abi=*/0,
+      loom_named_attr_slice_empty(), LOOM_STRING_ID_INVALID,
+      loom_named_attr_slice_empty(),
       (loom_symbol_ref_t){.module_id = 0, .symbol_id = target_symbol_id},
       argument_types, source_arguments.count, result_types,
       IREE_ARRAYSIZE(result_types), /*tied_results=*/NULL,
@@ -404,11 +405,12 @@ iree_status_t loom_kernel_launch_config_program_capture_static(
   IREE_RETURN_IF_ERROR(loom_func_def_build(
       &builder,
       LOOM_FUNC_DEF_BUILD_FLAG_HAS_VISIBILITY |
-          LOOM_FUNC_DEF_BUILD_FLAG_HAS_PURITY,
+          LOOM_FUNC_DEF_BUILD_FLAG_HAS_EFFECT_CONTRACT,
       LOOM_FUNC_VISIBILITY_PUBLIC, /*retain=*/0, /*cc=*/0,
-      LOOM_FUNC_PURITY_PURE, /*temperature=*/0, /*inline_policy=*/0,
-      loom_symbol_ref_null(), /*abi=*/0, loom_named_attr_slice_empty(),
-      LOOM_STRING_ID_INVALID, loom_named_attr_slice_empty(),
+      LOOM_CALLABLE_EFFECT_CONTRACT_PURE, /*temperature=*/0,
+      /*inline_policy=*/0, loom_symbol_ref_null(), /*abi=*/0,
+      loom_named_attr_slice_empty(), LOOM_STRING_ID_INVALID,
+      loom_named_attr_slice_empty(),
       (loom_symbol_ref_t){.module_id = 0, .symbol_id = symbol},
       /*arg_types=*/NULL, /*arg_count=*/0, result_types,
       IREE_ARRAYSIZE(result_types), /*tied_results=*/NULL,

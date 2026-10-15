@@ -476,7 +476,8 @@ iree_status_t loom_rewriter_set_value_type(loom_rewriter_t* rewriter,
 
 // Sets an attribute on an op by index. Adds all users of the op's
 // results to the worklist since derived properties may change (e.g.,
-// setting the purity attr on a func.call changes its effective traits).
+// setting the effect-contract attr on a func.call changes its effective
+// traits).
 iree_status_t loom_rewriter_set_attr(loom_rewriter_t* rewriter, loom_op_t* op,
                                      uint16_t attr_index,
                                      loom_attribute_t value);

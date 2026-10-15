@@ -580,8 +580,8 @@ IREE_ATTRIBUTE_ALWAYS_INLINE static inline iree_status_t loom_verify_op(
   loom_verify_symbol_references(state, op, vtable);
   IREE_RETURN_IF_ERROR(loom_verify_pending_diagnostic_status(state));
   if (vtable->call_like &&
-      vtable->call_like->purity_attr_index != LOOM_ATTR_INDEX_NONE) {
-    loom_verify_call_purity(state, op, vtable);
+      vtable->call_like->effect_contract_attr_index != LOOM_ATTR_INDEX_NONE) {
+    loom_verify_call_effect_contract(state, op, vtable);
     IREE_RETURN_IF_ERROR(loom_verify_pending_diagnostic_status(state));
   }
 
@@ -620,7 +620,7 @@ IREE_ATTRIBUTE_ALWAYS_INLINE static inline iree_status_t loom_verify_op(
       IREE_RETURN_IF_ERROR(loom_verify_region(
           state, regions[i], descriptor ? &contract : NULL, isolated));
     }
-    loom_verify_func_purity_body_effects(state, op, vtable);
+    loom_verify_func_effect_contract_body_effects(state, op, vtable);
     IREE_RETURN_IF_ERROR(loom_verify_pending_diagnostic_status(state));
 
     if (vtable->loop_like &&

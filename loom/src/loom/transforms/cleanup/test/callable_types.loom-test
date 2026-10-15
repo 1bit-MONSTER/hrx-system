@@ -126,7 +126,7 @@ func.def public @return_dimension(%storage: buffer) -> (%extent: index, view<[%e
 
 // ====
 
-// Purity does not release signature ownership.
+// An effect contract does not release signature ownership.
 func.decl pure @forward(%layout: encoding<layout>, %input: view<2x3xf32, %layout>) -> (view<2x3xf32, %layout>)
 
 func.def public @pure_call(%storage: buffer) -> (f32) {

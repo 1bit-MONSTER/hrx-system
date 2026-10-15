@@ -650,7 +650,7 @@ typedef enum loom_bytecode_section_kind_e {
 //       [comment_length: varint]
 //       [comment_data: comment_length bytes]  bytes after the leading // marker
 //     [calling_convention: byte]
-//     [purity: byte]
+//     [effect_contract: byte]
 //     [kernel_workload_arg_count: varint]
 //                         Workload signature count for symbols implementing
 //                         the kernel interface; zero for ordinary functions.
@@ -685,8 +685,8 @@ typedef enum loom_bytecode_section_kind_e {
 //
 //     [attr_count: varint]      Present attributes except the identity symbol
 //                               attr and shared function metadata attrs:
-//                               visibility, cc, purity, predicates, import
-//                               attrs, implements, and priority.
+//                               visibility, cc, effect_contract, predicates,
+//                               import attrs, implements, and priority.
 //     For each present function-specific attribute:
 //       [key_id: varint]
 //       [value_kind: byte]

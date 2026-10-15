@@ -1301,7 +1301,7 @@ MEMORY_FENCE = Trait("MemoryFence")
 # duplicate, speculate, or move it across convergence-changing boundaries.
 CONVERGENT = Trait("Convergent")
 # Source expansion depends on facts at the operation's control-flow position.
-# Motion and CSE must preserve that context until expansion. Runtime purity
+# Motion and CSE must preserve that context until expansion. Runtime effects
 # and erasure of unused pure results remain independent.
 CONTEXTUAL = Trait("Contextual")
 # Each execution produces a result with a distinct identity, even when
@@ -5750,8 +5750,8 @@ class CallLikeInterface(NamedTuple):
     operands: str
     # Variadic result field holding call results, or None for no-result calls.
     results: str | None
-    # Optional purity enum attr. None if not applicable.
-    purity: str | None = None
+    # Optional callable effect-contract enum attr. None if not applicable.
+    effect_contract: str | None = None
     # Optional temperature enum attr. None if not applicable.
     temperature: str | None = None
     # Optional inline policy enum attr. None if not applicable.
@@ -5797,8 +5797,8 @@ class FuncLikeInterface(NamedTuple):
     visibility: str | None = None
     # Calling convention enum attr. None if not applicable.
     cc: str | None = None
-    # Purity enum attr. None if not applicable.
-    purity: str | None = None
+    # Callable effect-contract enum attr. None if not applicable.
+    effect_contract: str | None = None
     # Temperature enum attr. None if not applicable.
     temperature: str | None = None
     # Inline policy enum attr. None if not applicable.

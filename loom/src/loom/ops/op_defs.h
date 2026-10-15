@@ -1000,8 +1000,9 @@ uint16_t loom_call_like_operand_offset(loom_call_like_t call);
 // Returns the result offset where call results begin.
 uint16_t loom_call_like_result_offset(loom_call_like_t call);
 
-// Returns the purity attr value (0 = unspecified, nonzero = pure).
-uint8_t loom_call_like_purity(loom_call_like_t call);
+// Returns the callable effect contract, or zero when unspecified.
+loom_callable_effect_contract_t loom_call_like_effect_contract(
+    loom_call_like_t call);
 
 // Returns the temperature attr value (0 = unspecified).
 uint8_t loom_call_like_temperature(loom_call_like_t call);
@@ -1076,8 +1077,9 @@ bool loom_func_like_region_projects_args(const loom_module_t* module,
                                          loom_func_like_t func,
                                          uint8_t region_index);
 
-// Returns the purity attr value (0 = unspecified, nonzero = pure).
-uint8_t loom_func_like_purity(loom_func_like_t func);
+// Returns the callable effect contract, or zero when unspecified.
+loom_callable_effect_contract_t loom_func_like_effect_contract(
+    loom_func_like_t func);
 
 // Returns the temperature attr value (0 = unspecified).
 uint8_t loom_func_like_temperature(loom_func_like_t func);

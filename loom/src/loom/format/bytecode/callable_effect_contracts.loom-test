@@ -1,0 +1,12 @@
+// RUN: format bytecode
+
+func.decl pure @pure_value(%value: i32) -> (i32)
+
+func.decl readonly @read_value(%address: buffer) -> (i32)
+
+func.def readonly @read_twice(%address: buffer) -> (i32) {
+  %first = func.call readonly @read_value(%address) : (buffer) -> (i32)
+  %second = func.call readonly @read_value(%address) : (buffer) -> (i32)
+  %sum = scalar.addi %first, %second : i32
+  func.return %sum : i32
+}

@@ -124,7 +124,7 @@ static loom_func_like_t AddFunction(loom_module_t* module,
                                            : 0;
   IREE_CHECK_OK(loom_func_def_build(
       module_builder, build_flags, /*visibility=*/0, /*retain=*/0,
-      /*cc=*/0, /*purity=*/0, /*temperature=*/0, /*inline_policy=*/0,
+      /*cc=*/0, /*effect_contract=*/0, /*temperature=*/0, /*inline_policy=*/0,
       target_ref, /*abi=*/0, loom_named_attr_slice_empty(),
       /*export_symbol=*/LOOM_STRING_ID_INVALID, loom_named_attr_slice_empty(),
       symbol, &value_type, /*arg_types_count=*/1, &value_type,

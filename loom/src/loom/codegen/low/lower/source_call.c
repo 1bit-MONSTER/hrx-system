@@ -52,17 +52,18 @@ iree_status_t loom_low_lower_source_call(loom_low_lower_context_t* context,
       context, source_op, &result_types, /*out_header_types=*/NULL));
 
   loom_low_func_call_build_flags_t build_flags = 0;
-  const uint8_t purity = loom_call_like_purity(call);
+  const loom_callable_effect_contract_t effect_contract =
+      loom_call_like_effect_contract(call);
   const uint8_t inline_policy = loom_call_like_inline_policy(call);
-  if (purity != 0) {
-    build_flags |= LOOM_LOW_FUNC_CALL_BUILD_FLAG_HAS_PURITY;
+  if (effect_contract != 0) {
+    build_flags |= LOOM_LOW_FUNC_CALL_BUILD_FLAG_HAS_EFFECT_CONTRACT;
   }
   if (inline_policy != 0) {
     build_flags |= LOOM_LOW_FUNC_CALL_BUILD_FLAG_HAS_INLINE_POLICY;
   }
   loom_op_t* low_call_op = NULL;
   IREE_RETURN_IF_ERROR(loom_low_func_call_build(
-      loom_low_lower_context_builder(context), build_flags, purity,
+      loom_low_lower_context_builder(context), build_flags, effect_contract,
       inline_policy, loom_call_like_callee(call), low_operands,
       source_operands.count, result_types, source_results.count,
       loom_op_tied_results(source_op), source_op->tied_result_count,
@@ -428,17 +429,18 @@ iree_status_t loom_low_lower_source_invoke(
   }
 
   loom_low_func_call_build_flags_t build_flags = 0;
-  const uint8_t purity = loom_low_invoke_purity(source_op);
+  const loom_callable_effect_contract_t effect_contract =
+      loom_low_invoke_effect_contract(source_op);
   const uint8_t inline_policy = loom_low_invoke_inline_policy(source_op);
-  if (purity != 0) {
-    build_flags |= LOOM_LOW_FUNC_CALL_BUILD_FLAG_HAS_PURITY;
+  if (effect_contract != 0) {
+    build_flags |= LOOM_LOW_FUNC_CALL_BUILD_FLAG_HAS_EFFECT_CONTRACT;
   }
   if (inline_policy != 0) {
     build_flags |= LOOM_LOW_FUNC_CALL_BUILD_FLAG_HAS_INLINE_POLICY;
   }
   loom_op_t* call_op = NULL;
   IREE_RETURN_IF_ERROR(loom_low_func_call_build(
-      loom_low_lower_context_builder(context), build_flags, purity,
+      loom_low_lower_context_builder(context), build_flags, effect_contract,
       inline_policy, callee_ref, low_operands, source_operands.count,
       result_types, source_results.count, loom_op_tied_results(source_op),
       source_op->tied_result_count, source_op->location, &call_op));

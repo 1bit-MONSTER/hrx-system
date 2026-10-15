@@ -29,6 +29,7 @@ loom_cc_library(
     hdrs = ["func_contract.h"],
     deps = [
         "//loom/src/loom/ir",
+        "//loom/src/loom/ops:callable_effects",
         "//loom/src/loom/ops:op_defs",
         "//loom/src/loom/rewrite:remap",
         "//runtime/src/iree/base",

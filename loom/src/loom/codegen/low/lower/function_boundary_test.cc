@@ -156,7 +156,7 @@ TEST_F(LowLowerFunctionBoundaryTest,
   loom_op_t* source_op = nullptr;
   IREE_ASSERT_OK(loom_func_def_build(
       &module_builder, /*build_flags=*/0, /*visibility=*/0, /*retain=*/0,
-      /*cc=*/0, /*purity=*/0, /*temperature=*/0, /*inline_policy=*/0,
+      /*cc=*/0, /*effect_contract=*/0, /*temperature=*/0, /*inline_policy=*/0,
       loom_symbol_ref_null(), /*abi=*/0, loom_named_attr_slice_empty(),
       LOOM_STRING_ID_INVALID, loom_named_attr_slice_empty(), symbol,
       argument_types, IREE_ARRAYSIZE(argument_types), &i32_type, 1, nullptr, 0,
@@ -288,7 +288,7 @@ TEST_F(LowLowerFunctionBoundaryTest,
       LOOM_FUNC_DECL_BUILD_FLAG_HAS_IMPORT_MODULE |
           LOOM_FUNC_DECL_BUILD_FLAG_HAS_IMPORT_SYMBOL,
       /*visibility=*/0, /*retain=*/0, import_module, import_symbol,
-      /*cc=*/0, /*purity=*/0, /*temperature=*/0, /*inline_policy=*/0,
+      /*cc=*/0, /*effect_contract=*/0, /*temperature=*/0, /*inline_policy=*/0,
       loom_symbol_ref_null(), /*abi=*/0, loom_named_attr_slice_empty(),
       LOOM_STRING_ID_INVALID, loom_named_attr_slice_empty(), symbol, &i32_type,
       1, &i32_type, 1, nullptr, 0, nullptr, 0, LOOM_LOCATION_UNKNOWN,
@@ -391,7 +391,7 @@ TEST_P(LowLowerResultMappingTest, DefinitionConsumesPreparedBoundary) {
   loom_op_t* source_op = nullptr;
   IREE_ASSERT_OK(loom_func_def_build(
       &builder, /*build_flags=*/0, /*visibility=*/0, /*retain=*/0, /*cc=*/0,
-      /*purity=*/0, /*temperature=*/0, /*inline_policy=*/0,
+      /*effect_contract=*/0, /*temperature=*/0, /*inline_policy=*/0,
       loom_symbol_ref_null(), /*abi=*/0, loom_named_attr_slice_empty(),
       LOOM_STRING_ID_INVALID, loom_named_attr_slice_empty(), symbol,
       argument_types, IREE_ARRAYSIZE(argument_types), result_types,
@@ -524,7 +524,7 @@ TEST_P(LowLowerArgumentQueryTest, OnlyRequiredArgumentsEmitDiagnostics) {
   loom_op_t* source_op = nullptr;
   IREE_ASSERT_OK(loom_func_def_build(
       &builder, /*build_flags=*/0, /*visibility=*/0, /*retain=*/0, /*cc=*/0,
-      /*purity=*/0, /*temperature=*/0, /*inline_policy=*/0,
+      /*effect_contract=*/0, /*temperature=*/0, /*inline_policy=*/0,
       loom_symbol_ref_null(), /*abi=*/0, loom_named_attr_slice_empty(),
       LOOM_STRING_ID_INVALID, loom_named_attr_slice_empty(),
       AddSymbol(IREE_SV("arguments")), argument_types,

@@ -471,14 +471,14 @@ static uint8_t loom_verify_required_region_count(
   return fixed_region_count;
 }
 
-void loom_verify_func_purity_body_effects(loom_verify_state_t* state,
-                                          const loom_op_t* op,
-                                          const loom_op_vtable_t* vtable) {
+void loom_verify_func_effect_contract_body_effects(
+    loom_verify_state_t* state, const loom_op_t* op,
+    const loom_op_vtable_t* vtable) {
   const loom_func_like_vtable_t* func_vtable = vtable->func_like;
   if (!func_vtable) {
     return;
   }
-  if (func_vtable->purity_attr_index == LOOM_ATTR_INDEX_NONE) {
+  if (func_vtable->effect_contract_attr_index == LOOM_ATTR_INDEX_NONE) {
     return;
   }
   if (func_vtable->body_region_index == LOOM_REGION_INDEX_NONE) {
@@ -488,18 +488,34 @@ void loom_verify_func_purity_body_effects(loom_verify_state_t* state,
     return;
   }
   const loom_attribute_t* attrs = loom_op_const_attrs(op);
-  if (loom_attr_as_enum(attrs[func_vtable->purity_attr_index]) == 0) {
+  const loom_callable_effect_contract_t contract =
+      (loom_callable_effect_contract_t)loom_attr_as_enum(
+          attrs[func_vtable->effect_contract_attr_index]);
+  if (contract == 0) {
+    return;
+  }
+  if (contract != LOOM_CALLABLE_EFFECT_CONTRACT_PURE &&
+      contract != LOOM_CALLABLE_EFFECT_CONTRACT_READONLY) {
     return;
   }
   loom_region_t* body = loom_op_regions(op)[func_vtable->body_region_index];
-  if (!loom_region_has_read_effects(body) &&
-      !loom_region_has_write_effects(body) &&
-      !loom_region_has_convergent_effects(body) &&
-      !loom_region_has_observable_effects(body)) {
+  const bool valid =
+      contract == LOOM_CALLABLE_EFFECT_CONTRACT_PURE
+          ? !loom_region_has_read_effects(body) &&
+                !loom_region_has_write_effects(body) &&
+                !loom_region_has_convergent_effects(body) &&
+                !loom_region_has_observable_effects(body)
+          : contract == LOOM_CALLABLE_EFFECT_CONTRACT_READONLY &&
+                loom_callable_effects_body_is_readonly(state->module, body);
+  if (valid) {
     return;
   }
+  const iree_string_view_t contract_name =
+      contract == LOOM_CALLABLE_EFFECT_CONTRACT_PURE ? IREE_SV("pure")
+                                                     : IREE_SV("readonly");
   loom_diagnostic_param_t params[] = {
       loom_param_string(loom_op_vtable_name(vtable)),
+      loom_param_string(contract_name),
       loom_param_u32(body ? body->read_effect_count : 0),
       loom_param_u32(body ? body->write_effect_count : 0),
       loom_param_u32(body ? body->convergent_effect_count : 0),
@@ -509,14 +525,23 @@ void loom_verify_func_purity_body_effects(loom_verify_state_t* state,
                               IREE_ARRAYSIZE(params));
 }
 
-void loom_verify_call_purity(loom_verify_state_t* state, const loom_op_t* op,
-                             const loom_op_vtable_t* vtable) {
+void loom_verify_call_effect_contract(loom_verify_state_t* state,
+                                      const loom_op_t* op,
+                                      const loom_op_vtable_t* vtable) {
   const loom_call_like_vtable_t* call_vtable = vtable->call_like;
-  if (!call_vtable || call_vtable->purity_attr_index == LOOM_ATTR_INDEX_NONE) {
+  if (!call_vtable ||
+      call_vtable->effect_contract_attr_index == LOOM_ATTR_INDEX_NONE) {
     return;
   }
   const loom_attribute_t* attrs = loom_op_const_attrs(op);
-  if (loom_attr_as_enum(attrs[call_vtable->purity_attr_index]) == 0) {
+  const loom_callable_effect_contract_t contract =
+      (loom_callable_effect_contract_t)loom_attr_as_enum(
+          attrs[call_vtable->effect_contract_attr_index]);
+  if (contract == 0) {
+    return;
+  }
+  if (contract != LOOM_CALLABLE_EFFECT_CONTRACT_PURE &&
+      contract != LOOM_CALLABLE_EFFECT_CONTRACT_READONLY) {
     return;
   }
 
@@ -531,16 +556,19 @@ void loom_verify_call_purity(loom_verify_state_t* state, const loom_op_t* op,
   if (!symbol->defining_op) {
     return;
   }
-  const loom_func_like_t function =
-      loom_func_like_const_cast(state->module, symbol->defining_op);
-  if (!loom_func_like_isa(function) ||
-      loom_callable_effects_is_pure(function)) {
+  const loom_callable_effect_contract_t callee_contract =
+      loom_callable_effects_callee_contract(state->module, callee);
+  if (loom_callable_effects_contract_satisfies(callee_contract, contract)) {
     return;
   }
 
   const iree_string_view_t callee_name = loom_verify_symbol_name(state, callee);
+  const iree_string_view_t contract_name =
+      contract == LOOM_CALLABLE_EFFECT_CONTRACT_PURE ? IREE_SV("pure")
+                                                     : IREE_SV("readonly");
   const loom_diagnostic_param_t params[] = {
-      loom_param_string(callee_name),
+      loom_param_string(loom_op_vtable_name(vtable)),
+      loom_param_string(contract_name),
       loom_param_string(callee_name),
   };
   const loom_diagnostic_related_op_t related_ops[] = {{

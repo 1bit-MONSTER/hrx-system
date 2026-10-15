@@ -9,7 +9,7 @@
 // Builds a call graph from direct call-like ops in a module, then computes
 // strongly connected components (SCCs) using Tarjan's algorithm. SCCs are
 // returned in reverse topological order (callees before callers), which is the
-// right iteration order for bottom-up analyses like purity inference, cost
+// right iteration order for bottom-up analyses like effect inference, cost
 // modeling, and inlining decisions.
 //
 // Construction: walks each function body looking for direct semantic,
