@@ -99,6 +99,8 @@ loom_check_test_suite(
         "integer_intrinsics.cxx-test",
         "integer_widening.cxx-test",
         "intrinsics_invalid.cxx-test",
+        "kernel_arguments.cxx-test",
+        "kernel_arguments_invalid.cxx-test",
         "kernel_intrinsics.cxx-test",
         "kernel_intrinsics_invalid.cxx-test",
         "launch.cxx-test",

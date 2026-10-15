@@ -406,12 +406,15 @@ class Translator final : private Initialization::Evaluation {
     size_t argument_index = 0;
     size_t parameter_index = 0;
     for (auto* parameter : parameters) {
-      bool kernel = defined.kind == FunctionKind::Kernel;
       auto* value_type = types_.unqualified(parameter->type());
       const auto& partition = types_.partition(value_type, defined.source);
+      bool kernel_pointer = defined.kind == FunctionKind::Kernel &&
+                            partition.kind == ValueKind::Pointer;
+      // Only pointers change representation at kernel entry: the ABI supplies
+      // one buffer, and source pointer transport adds its zero byte origin.
       auto value = region_value(region, argument_index,
-                                kernel ? kSSAPartition : partition);
-      if (partition.kind == ValueKind::Pointer && kernel) {
+                                kernel_pointer ? kSSAPartition : partition);
+      if (kernel_pointer) {
         auto buffer = value.ssa();
         if (!defined.parameter_contracts.empty()) {
           buffer = apply_parameter_contract(
