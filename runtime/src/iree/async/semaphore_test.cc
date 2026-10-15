@@ -792,11 +792,24 @@ TEST(MultiWaitTest, SingleSemaphoreTimesOut) {
       iree_allocator_system(), &sem));
 
   uint64_t value = 10;
-  iree_status_t status = iree_async_semaphore_multi_wait(
-      IREE_ASYNC_WAIT_MODE_ALL, &sem, &value, 1, iree_make_timeout_ms(1),
-      IREE_ASYNC_WAIT_FLAG_NONE, iree_allocator_system());
-  EXPECT_EQ(iree_status_code(status), IREE_STATUS_DEADLINE_EXCEEDED);
-  iree_status_free(status);
+  const iree_async_wait_flags_t wait_flags[] = {
+      IREE_ASYNC_WAIT_FLAG_NONE, IREE_ASYNC_WAIT_FLAG_YIELD,
+      IREE_ASYNC_WAIT_FLAG_ACTIVE,
+      IREE_ASYNC_WAIT_FLAG_ACTIVE | IREE_ASYNC_WAIT_FLAG_YIELD};
+  for (iree_async_wait_flags_t flags : wait_flags) {
+    SCOPED_TRACE(flags);
+    iree_status_t status = iree_async_semaphore_multi_wait(
+        IREE_ASYNC_WAIT_MODE_ALL, &sem, &value, 1, iree_make_timeout_ms(1),
+        flags, iree_allocator_system());
+    EXPECT_EQ(iree_status_code(status), IREE_STATUS_DEADLINE_EXCEEDED);
+    iree_status_free(status);
+  }
+
+  // Expired waits must release their timepoints before returning to the caller.
+  IREE_ASSERT_OK(iree_async_semaphore_signal(sem, value, nullptr));
+  IREE_ASSERT_OK(iree_async_semaphore_multi_wait(
+      IREE_ASYNC_WAIT_MODE_ALL, &sem, &value, 1, iree_immediate_timeout(),
+      IREE_ASYNC_WAIT_FLAG_ACTIVE, iree_allocator_system()));
 
   iree_async_semaphore_release(sem);
 }

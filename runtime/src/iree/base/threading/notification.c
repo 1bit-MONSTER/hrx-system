@@ -291,9 +291,10 @@ bool iree_notification_commit_wait(iree_notification_t* notification,
       }
     } else {
       const iree_time_t now_ns = iree_time_now();
-      iree_time_t spin_deadline_ns = now_ns + spin_ns;
-      if (spin_deadline_ns < now_ns) {
-        spin_deadline_ns = IREE_TIME_INFINITE_FUTURE;
+      // Saturate before adding: an active wait uses INT64_MAX as its budget.
+      iree_time_t spin_deadline_ns = IREE_TIME_INFINITE_FUTURE;
+      if (spin_ns < IREE_TIME_INFINITE_FUTURE - now_ns) {
+        spin_deadline_ns = now_ns + spin_ns;
       }
       spin_deadline_ns = iree_min(spin_deadline_ns, deadline_ns);
       do {
