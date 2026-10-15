@@ -65,14 +65,47 @@ shapes against the same readiness set and rotating priority, then chooses the
 most useful tokens with stable tie-breaking. It is an occupancy policy, not a
 claim that every device has the same execution-cost curve.
 
-[Admission](admission.h) applies bounded backfilling to a host-only request
-queue. A parked request retains compact prepared tokens, not an execution row
-or device reservation. Only the selected attempt borrows a row and history.
-The native storage layer admits its page-rounded completion high-water and
-private recurrent writer, including speculative credit, before generation.
+[Admission](admission.h) applies bounded backfilling to a stable request queue.
+A parked request retains prepared input and may own projected image results,
+but holds no language execution row or completion reservation. Only the selected
+attempt borrows a row and history. The native storage layer admits its
+page-rounded completion high-water and private recurrent writer, including
+speculative credit, before generation.
 Insufficient capacity queues or rejects the request before successful output
 headers. Slow output readers backpressure their own row without preventing
 credited peers from advancing.
+
+## Image projection
+
+The optional [finite component](../finite/component.h) owns image preparation
+and parameter residency independently of the language model. Text-only requests
+and exact retained media-prefix hits leave it dormant. The service resolves
+prefix reuse before offering missing image occurrences to the
+[projector](media_projector.h), and projects them before reserving language
+completion storage. The projector batches compatible images from one or several
+queued requests without waiting for hypothetical arrivals or changing admission
+priority.
+
+One bounded preparation window realizes compressed inputs directly into
+[RGB/RGBA source packets](../../media/image_request.h). Source programs own
+orientation, compositing, resize, normalization, projected row counts, and
+position geometry. The finite source's work-unit limit bounds a cohort; its
+upload capacity is the decoded-window byte target, with one larger checked
+image permitted alone. A window drains before another begins decoding.
+
+Live requests own [device results](../finite/result.h), not host feature
+copies or persistent projection-cache entries. The result retains pooled output
+storage and producer readiness independently of the projector's model and
+weights. [Media epochs](media_epoch.h) import that readiness and gather device
+rows into source-defined text input packets. Only control records and metadata
+cross from the host; projected features never return to it. Consumed results
+are released after consumer readiness, while queue captures protect actual
+device use on failure.
+
+Cancellation waits for an accepted codec job's HTTP-body borrow before freeing
+the request. Later cancellation detaches the request without renumbering images
+in a shared cohort or canceling peers. Stable pending-request storage preserves
+those asynchronous borrows as the admission queue changes.
 
 ## Retained state and checkpoints
 
@@ -112,9 +145,12 @@ storage. The receipt serial supplies a distinct nonce when source needs an
 implicit seed. Native code does not decode the packet or implement sampling.
 
 After row admission, `bind_request(control_state, row, options)` binds that
-policy to the source-owned row table. `encode_epoch(control_state, plan, inputs,
-first_count, next_count, eos, metadata, tokens)` then includes the policy in its
-ordinary retained upload. The serialized model owner excludes outstanding
+policy to the source-owned row table. `encode_epoch` receives the epoch plans,
+known input IDs, optional projected-row records, and packet capacities, then
+writes the source's control metadata and input records. The
+[source control example](../../fixture/text/control.loom) implements this
+boundary, with media record layouts in [media_epoch.h](media_epoch.h).
+The serialized model owner excludes outstanding
 execution while changing those packets. Device selection returns only selected
 IDs through the existing completion path; logits and RNG state stay on device.
 
