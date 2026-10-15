@@ -87,7 +87,6 @@ static bool iree_async_proactor_thread_has_exited(void* user_data) {
 static int iree_async_proactor_thread_main(void* entry_arg) {
   iree_async_proactor_thread_t* thread =
       (iree_async_proactor_thread_t*)entry_arg;
-  IREE_TRACE_ZONE_BEGIN(z0);
   iree_async_proactor_current_thread = thread;
 
   iree_status_t status = iree_ok_status();
@@ -130,7 +129,6 @@ static int iree_async_proactor_thread_main(void* entry_arg) {
   iree_atomic_store(&thread->stop_requested, 2, iree_memory_order_release);
   iree_notification_post(&thread->exited, IREE_ALL_WAITERS);
 
-  IREE_TRACE_ZONE_END(z0);
   iree_async_proactor_current_thread = NULL;
   if (thread->destroy_on_exit) {
     iree_async_proactor_thread_destroy(thread);

@@ -1217,6 +1217,7 @@ iree_status_t iree_async_proactor_io_uring_submit_pending_event_monitors(
 static iree_status_t iree_async_proactor_io_uring_poll(
     iree_async_proactor_t* base_proactor, iree_timeout_t timeout,
     iree_host_size_t* out_completed_count) {
+  IREE_TRACE_ZONE_BEGIN_NAMED(z0, "iree_async_proactor_io_uring_prepare");
   iree_async_proactor_io_uring_t* proactor =
       iree_async_proactor_io_uring_cast(base_proactor);
 
@@ -1227,7 +1228,8 @@ static iree_status_t iree_async_proactor_io_uring_poll(
   // Enable the ring on first poll. When created with R_DISABLED (which happens
   // automatically when SINGLE_ISSUER is in the setup flags), this call binds
   // the current thread as the exclusive submitter for all io_uring_enter calls.
-  IREE_RETURN_IF_ERROR(iree_io_uring_ring_enable(&proactor->ring));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(z0,
+                                    iree_io_uring_ring_enable(&proactor->ring));
 
   int32_t owner_tid = (int32_t)syscall(__NR_gettid);
   iree_atomic_store(&proactor->polling.owner_tid, owner_tid,
@@ -1243,20 +1245,21 @@ static iree_status_t iree_async_proactor_io_uring_poll(
   // Submit registrations and any SQEs queued before the first poll. This must
   // happen before arming the wake source: a full pre-poll SQ must not prevent
   // the poll owner from establishing its own wake path.
-  IREE_RETURN_IF_ERROR(
-      iree_async_proactor_io_uring_submit_pending_event_monitors(proactor));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, iree_async_proactor_io_uring_submit_pending_event_monitors(proactor));
 
   // Arm the wake poll before potentially blocking.
-  IREE_RETURN_IF_ERROR(iree_async_proactor_io_uring_arm_wake(proactor));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, iree_async_proactor_io_uring_arm_wake(proactor));
 
   // Flush the wake SQE and deferred completions. With DEFER_TASKRUN, the kernel
   // defers CQE generation for async notifications until we explicitly request
   // processing via GETEVENTS. This flush must happen even when CQEs are already
   // available because those completions may have triggered deferred task work.
-  IREE_RETURN_IF_ERROR(
-      iree_io_uring_ring_submit(&proactor->ring,
-                                /*min_complete=*/0,
-                                /*flags=*/IREE_IORING_ENTER_GETEVENTS));
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, iree_io_uring_ring_submit(&proactor->ring,
+                                    /*min_complete=*/0,
+                                    /*flags=*/IREE_IORING_ENTER_GETEVENTS));
 
   // Run poll-owner work before waiting for native completions.
   iree_host_size_t progress_count = 0;
@@ -1266,11 +1269,13 @@ static iree_status_t iree_async_proactor_io_uring_poll(
     if (out_completed_count) {
       *out_completed_count = progress_count;
     }
+    IREE_TRACE_ZONE_END(z0);
     return progress_status;
   }
   if (progress_count > 0 || base_proactor->progress_list) {
     is_immediate = true;
   }
+  IREE_TRACE_ZONE_END(z0);
 
   // If no CQEs are available after flushing and timeout allows blocking,
   // wait for completions.
@@ -1286,6 +1291,8 @@ static iree_status_t iree_async_proactor_io_uring_poll(
     }
     IREE_RETURN_IF_ERROR(wait_status);
   }
+
+  IREE_TRACE_ZONE_BEGIN_NAMED(z1, "iree_async_proactor_io_uring_dispatch");
 
   // Mark the poll thread as active. Submit paths check this to decide whether
   // to flush SQEs directly (poll thread) or defer to wake (cross-thread).
@@ -1430,6 +1437,7 @@ static iree_status_t iree_async_proactor_io_uring_poll(
     status = iree_status_from_code(IREE_STATUS_DEADLINE_EXCEEDED);
   }
 
+  IREE_TRACE_ZONE_END(z1);
   return status;
 }
 

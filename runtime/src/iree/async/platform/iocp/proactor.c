@@ -1835,7 +1835,7 @@ static void iree_async_proactor_iocp_complete_file_io(
 static iree_status_t iree_async_proactor_iocp_poll(
     iree_async_proactor_t* base_proactor, iree_timeout_t timeout,
     iree_host_size_t* out_completed_count) {
-  IREE_TRACE_ZONE_BEGIN(z0);
+  IREE_TRACE_ZONE_BEGIN_NAMED(z0, "iree_async_proactor_iocp_prepare");
   iree_convert_timeout_to_absolute(&timeout);
   iree_async_proactor_iocp_t* proactor =
       iree_async_proactor_iocp_cast(base_proactor);
@@ -1921,6 +1921,7 @@ static iree_status_t iree_async_proactor_iocp_poll(
   ULONG entry_count = 0;
   iree_status_t gqcs_status = iree_ok_status();
   bool retry_wait = false;
+  IREE_TRACE_ZONE_END(z0);
   do {
     // Recheck immediately before the alertable wait. A user callback executed
     // during an earlier phase may itself have entered an alertable wait and
@@ -1969,14 +1970,18 @@ static iree_status_t iree_async_proactor_iocp_poll(
 
     // Phase 5: Process expired timers (before GQCS completions for consistent
     // ordering — timer callbacks fire before I/O callbacks in the same poll).
+    IREE_TRACE_ZONE_BEGIN_NAMED(z1, "iree_async_proactor_iocp_expire_timers");
     completed_count +=
         iree_async_proactor_iocp_process_expired_timers(proactor);
+    IREE_TRACE_ZONE_END(z1);
 
     retry_wait = wait_timed_out && entry_count == 0 && completed_count == 0 &&
                  !force_nonblocking && !observed_wake &&
                  (iree_timeout_is_infinite(timeout) ||
                   iree_time_now() < iree_timeout_as_deadline_ns(timeout));
   } while (retry_wait);
+
+  IREE_TRACE_ZONE_BEGIN_NAMED(z2, "iree_async_proactor_iocp_dispatch");
 
   // A failed signal post leaves its bit in the durable process-global mask.
   // Dispatching unconditionally also coalesces normal signal packets.
@@ -2139,7 +2144,7 @@ static iree_status_t iree_async_proactor_iocp_poll(
   if (out_completed_count) {
     *out_completed_count = completed_count;
   }
-  IREE_TRACE_ZONE_END(z0);
+  IREE_TRACE_ZONE_END(z2);
   if (!iree_status_is_ok(gqcs_status)) {
     return gqcs_status;
   }

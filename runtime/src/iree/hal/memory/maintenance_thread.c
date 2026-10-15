@@ -32,7 +32,6 @@ static bool iree_hal_memory_maintenance_thread_is_ready(void* user_data) {
 static int iree_hal_memory_maintenance_thread_main(void* user_data) {
   iree_hal_memory_maintenance_thread_t* maintenance =
       (iree_hal_memory_maintenance_thread_t*)user_data;
-  IREE_TRACE_ZONE_BEGIN(z0);
   while (true) {
     if (iree_hal_memory_maintenance_run_one(&maintenance->base)) {
       continue;
@@ -40,13 +39,10 @@ static int iree_hal_memory_maintenance_thread_main(void* user_data) {
     if (iree_atomic_load(&maintenance->stopping, iree_memory_order_acquire)) {
       break;
     }
-    IREE_TRACE_ZONE_BEGIN_NAMED(z1, "iree_hal_memory_maintenance_thread_wait");
     iree_notification_await(&maintenance->notification,
                             iree_hal_memory_maintenance_thread_is_ready,
                             maintenance, iree_infinite_timeout());
-    IREE_TRACE_ZONE_END(z1);
   }
-  IREE_TRACE_ZONE_END(z0);
   return 0;
 }
 
