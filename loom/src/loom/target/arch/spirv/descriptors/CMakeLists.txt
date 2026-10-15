@@ -17,7 +17,13 @@ loom_low_descriptor_cc_library(
     loom::py::loom::gen::target::low::spirv_low_descriptor_shard
   ARGS
     "--descriptor-set=spirv_logical_core"
+    "--shared-strings=${IREE_BINARY_DIR}/loom/src/loom/target/arch/spirv/contracts/instruction_strings.json"
+  INPUTS
+    "${IREE_BINARY_DIR}/loom/src/loom/target/arch/spirv/contracts/instruction_strings.json"
   DEPS
+    loom::codegen::low::descriptors
+    loom::target::arch::spirv::contracts::instruction_strings
+  IDS_DEPS
     loom::codegen::low::descriptors
 )
 endif()

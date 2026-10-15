@@ -1413,6 +1413,7 @@ class LoomBuildFileFunctions(
         generator,
         args=None,
         index_output=None,
+        shared_strings=None,
         inputs=None,
         contract_deps=None,
         lower_rule_deps=None,
@@ -1431,6 +1432,9 @@ class LoomBuildFileFunctions(
         name_block = self._convert_string_arg_block("NAME", name, quote=False)
         generator_block = self._convert_single_target_block("GENERATOR", generator)
         index_block = self._convert_string_arg_block("INDEX_OUTPUT", index_output)
+        shared_strings_block = self._convert_string_arg_block(
+            "SHARED_STRINGS", shared_strings
+        )
         args_block, platform_args_block = self._convert_platform_select_strings(
             name,
             "ARGS",
@@ -1461,6 +1465,7 @@ class LoomBuildFileFunctions(
             f"{name_block}"
             f"{generator_block}"
             f"{index_block}"
+            f"{shared_strings_block}"
             f"{args_block}"
             f"{inputs_block}"
             f"{contract_deps_block}"
@@ -1477,6 +1482,7 @@ class LoomBuildFileFunctions(
         fragments,
         args=None,
         index_output=None,
+        shared_strings=None,
         inputs=None,
         comment=None,
         tags=None,
@@ -1493,6 +1499,9 @@ class LoomBuildFileFunctions(
         name_block = self._convert_string_arg_block("NAME", name, quote=False)
         generator_block = self._convert_single_target_block("GENERATOR", generator)
         index_block = self._convert_string_arg_block("INDEX_OUTPUT", index_output)
+        shared_strings_block = self._convert_string_arg_block(
+            "SHARED_STRINGS", shared_strings
+        )
         fragments_block = self._convert_string_list_block(
             "FRAGMENTS",
             [
@@ -1525,6 +1534,7 @@ class LoomBuildFileFunctions(
             f"{name_block}"
             f"{generator_block}"
             f"{index_block}"
+            f"{shared_strings_block}"
             f"{fragments_block}"
             f"{args_block}"
             f"{inputs_block}"

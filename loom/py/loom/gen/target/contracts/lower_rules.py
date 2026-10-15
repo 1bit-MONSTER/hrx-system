@@ -16,7 +16,7 @@ from loom.dsl import Op
 from loom.gen.support.c import c_identifier as _c_identifier
 from loom.gen.support.files import write_text_file
 from loom.gen.support.generated_file import line_comment_header
-from loom.gen.support.string_pool import CStringPool, emit_c_string_pool
+from loom.gen.support.string_pool import CStringBank, CStringPool, emit_c_string_pool, layout_c_string_pool
 from loom.gen.target.contracts import lower_rule_rows, lower_rule_spelling
 from loom.target.contracts import (
     LOWER_EMIT_FLAG_BIND_RESULTS_TO_REFS,
@@ -192,6 +192,11 @@ def _intern_diagnostic_params(
     return tuple(unique_rows), tuple(row_refs)
 
 
+def diagnostic_descriptor_names(table: CompiledLowerRuleSet) -> frozenset[str]:
+    """Returns spellings owned by generated descriptor-availability diagnostics."""
+    return frozenset(row.descriptor.key for row in table.guards if row.kind == GuardKind.DESCRIPTOR_AVAILABLE and row.descriptor is not None)
+
+
 def generate_lower_rule_set(
     table: ContractFragment,
     *,
@@ -207,6 +212,7 @@ def generate_lower_rule_set_from_compiled(
     table: ContractFragment,
     *,
     compiled: CompiledLowerRuleSet,
+    shared_strings: CStringBank | None = None,
 ) -> GeneratedLowerRuleSet:
     """Generates C/H text from compiled target-low lower-rule rows."""
 
@@ -225,6 +231,7 @@ def generate_lower_rule_set_from_compiled(
             public_header=public_header,
             symbol_name=symbol_name,
             c_table_prefix=c_table_prefix,
+            shared_strings=shared_strings,
         ),
     )
 
@@ -283,6 +290,7 @@ def _generate_source(
     public_header: str,
     symbol_name: str,
     c_table_prefix: str,
+    shared_strings: CStringBank | None,
 ) -> str:
     lines: list[str] = []
     lines.extend(
@@ -346,7 +354,10 @@ def _generate_source(
         c_enum_prefix=f"{_c_identifier(table.name).upper()}_LOWER",
     )
     string_data_name = f"k{c_table_prefix}StringData"
-    lines.extend(emit_c_string_pool(string_pool, string_data_name))
+    string_layout = layout_c_string_pool(string_pool, shared_strings)
+    if string_layout.shared is not None:
+        lines.extend([f'#include "{string_layout.shared.header}"', ""])
+    lines.extend(emit_c_string_pool(string_pool, string_data_name, layout=string_layout))
 
     type_pattern_ranges, type_pattern_range_refs = _intern_optional_rows(tuple(lower_rule_rows.type_pattern_range(row.type_pattern) for row in table.type_patterns))
     type_pattern_ranges_name = f"k{c_table_prefix}TypePatternRanges"
@@ -727,8 +738,7 @@ def _generate_source(
         for field in lower_rule_rows.rule_set_row(
             table=table,
             source_contract=source_contract,
-            string_pool=string_pool,
-            string_data_name=string_data_name,
+            string_pool_initializer=string_layout.initializer(string_data_name) if string_pool.entries else None,
             spans_name=spans_name,
             rules_name=rules_name,
             rule_root_producer_closure_bits=(rule_root_producer_closure_bits),

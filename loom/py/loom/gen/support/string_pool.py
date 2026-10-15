@@ -8,9 +8,12 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from loom.gen.support.c import CIdentifierCase, c_identifier, c_string_literal
+from loom.gen.support.generated_file import line_comment_header
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,28 +70,99 @@ class CStringPool:
 
 @dataclass(frozen=True, slots=True)
 class CStringLayout:
-    """Packed payload and 24-bit-offset/8-bit-length references by primary label."""
+    """Private bytes and bank/23-bit-offset/8-bit-length references by label."""
 
     data: bytes
     references: dict[str, int]
+    shared: CStringBank | None = None
+
+    def initializer(self, data_name: str) -> str:
+        """Returns the initializer for the checked-in C pool representation."""
+        shared_data = self.shared.symbol if self.shared is not None else "NULL"
+        shared_length = len(self.shared.data) if self.shared is not None else 0
+        return f"{{.data = {{{data_name}, {shared_data}}}, .data_length = {{{len(self.data)}, {shared_length}}}}}"
 
 
-def _slice_reference(offset: int, length: int) -> int:
+@dataclass(frozen=True, slots=True)
+class CStringBank:
+    """An independently linked immutable byte resource and its producer layout."""
+
+    data: bytes
+    values: frozenset[str]
+    symbol: str
+    header: str
+
+    @staticmethod
+    def build(values: frozenset[str], *, symbol: str, header: str) -> CStringBank:
+        pool = CStringPool(symbol.upper())
+        for index, value in enumerate(sorted(values)):
+            pool.intern(f"value_{index}", value)
+        return CStringBank(layout_c_string_pool(pool).data, values, symbol, header)
+
+    def manifest(self) -> str:
+        """Carries the producer's layout across independent generator actions."""
+        return json.dumps(dict(data=self.data.decode(), values=sorted(self.values), symbol=self.symbol, header=self.header), ensure_ascii=False) + "\n"
+
+    @staticmethod
+    def read(path: Path) -> CStringBank:
+        payload = json.loads(path.read_text())
+        return CStringBank(payload["data"].encode(), frozenset(payload["values"]), payload["symbol"], payload["header"])
+
+    def emit_header(self) -> str:
+        guard = c_identifier(self.header, case=CIdentifierCase.UPPER)
+        return "\n".join(
+            [
+                *line_comment_header("//", generator="loom.gen.support.string_pool"),
+                "",
+                f"#ifndef {guard}",
+                f"#define {guard}",
+                "",
+                "#ifdef __cplusplus",
+                'extern "C" {',
+                "#endif",
+                "",
+                f"extern const char {self.symbol}[{len(self.data) + 1}];",
+                "",
+                "#ifdef __cplusplus",
+                "}",
+                "#endif",
+                "",
+                f"#endif  // {guard}",
+                "",
+            ]
+        )
+
+    def emit_source(self) -> str:
+        return "\n".join([*line_comment_header("//", generator="loom.gen.support.string_pool"), "", f'#include "{self.header}"', "", *_emit_data(self.data, self.symbol, storage=""), ""])
+
+
+def _slice_reference(offset: int, length: int, bank: int = 0) -> int:
     """Checks the C slice encoding, including the complete payload bound."""
     if not 0 <= length <= 255:
         raise ValueError("string slice exceeds 255 bytes")
-    if not 0 <= offset < 1 << 24 or offset + length > 1 << 24:
-        raise ValueError("string pool exceeds 24-bit slice offset encoding")
-    return (length << 24) | offset
+    if not 0 <= offset < 1 << 23 or offset + length > 1 << 23:
+        raise ValueError("string bank exceeds 23-bit slice offset encoding")
+    if bank not in (0, 1):
+        raise ValueError("string bank must be private or shared")
+    return (length << 24) | (bank << 23) | offset
 
 
-def layout_c_string_pool(pool: CStringPool) -> CStringLayout:
+def layout_c_string_pool(pool: CStringPool, shared: CStringBank | None = None) -> CStringLayout:
     """Shares contiguous substrings, with deterministic longest-first placement."""
     data = bytearray()
     references: dict[str, int] = {}
+    # An incidental substring must not introduce an otherwise unused library.
+    if shared is not None and not shared.values.intersection(pool.value_to_label):
+        shared = None
     payloads = [(entry.label, entry.value.encode()) for entry in pool.entries]
     for label, payload in sorted(payloads, key=lambda entry: (-len(entry[1]), entry[1])):
         length = len(payload)
+        # Keep the empty slice canonical in the private bank.
+        if length and shared is not None:
+            offset = shared.data.find(payload)
+            if offset >= 0:
+                references[label] = _slice_reference(offset, length, 1)
+                continue
         offset = data.find(payload)
         if offset < 0:
             offset = len(data)
@@ -97,26 +171,30 @@ def layout_c_string_pool(pool: CStringPool) -> CStringLayout:
         else:
             reference = _slice_reference(offset, length)
         references[label] = reference
-    return CStringLayout(bytes(data), references)
+    return CStringLayout(bytes(data), references, shared)
 
 
-def emit_c_string_pool(pool: CStringPool, data_name: str) -> list[str]:
-    """Emits shared character bytes and constant compact slice references."""
-    if not pool.entries:
-        return []
-    layout = layout_c_string_pool(pool)
-    text = layout.data.decode()
-    lines = [
-        "// clang-format off",
-        f"static const char {data_name}[] =",
-    ]
+def _emit_data(data: bytes, data_name: str, *, storage: str = "static ") -> list[str]:
+    text = data.decode()
+    lines = ["// clang-format off", f"{storage}const char {data_name}[] ="]
     # Split by codepoints so each source literal remains valid UTF-8. References
     # count encoded bytes, independently of source formatting and escapes.
     for start in range(0, max(1, len(text)), 80):
         escaped = c_string_literal(text[start : start + 80]).replace("\0", "\\000")
         lines.append(f'    "{escaped}"')
     lines[-1] += ";"
-    lines.extend(["// clang-format on", "", "enum {"])
+    lines.extend(["// clang-format on", ""])
+    return lines
+
+
+def emit_c_string_pool(pool: CStringPool, data_name: str, *, layout: CStringLayout | None = None) -> list[str]:
+    """Emits shared character bytes and constant compact slice references."""
+    if not pool.entries:
+        return []
+    if layout is None:
+        layout = layout_c_string_pool(pool)
+    lines = _emit_data(layout.data, data_name)
+    lines.append("enum {")
     for entry in pool.entries:
         reference = layout.references[entry.label]
         lines.append(f"  {pool.enum_name(entry.label)} = 0x{reference:08X}u,")

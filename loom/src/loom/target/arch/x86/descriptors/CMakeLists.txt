@@ -214,7 +214,13 @@ loom_low_descriptor_cc_library(
     "avx10_2_descriptors.h"
   ARGS
     "--target=avx512_features"
+    "--shared-strings=${IREE_BINARY_DIR}/loom/src/loom/target/arch/x86/contracts/instruction_strings.json"
+  INPUTS
+    "${IREE_BINARY_DIR}/loom/src/loom/target/arch/x86/contracts/instruction_strings.json"
   DEPS
+    loom::codegen::low::descriptors
+    loom::target::arch::x86::contracts::instruction_strings
+  IDS_DEPS
     loom::codegen::low::descriptors
 )
 endif()

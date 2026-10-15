@@ -15,6 +15,7 @@ from loom.dialect.vector import ALL_VECTOR_OPS
 from loom.dialect.vector import defs as vector
 from loom.dsl import EncodingOperandSummaryDef, Op
 from loom.error.target import ERR_TARGET_003
+from loom.gen.support.string_pool import CStringBank
 from loom.gen.target.contracts.lower_rule_rows import (
     attr_copy_row,
     descriptor_ref_keys,
@@ -45,6 +46,7 @@ from loom.gen.target.contracts.lower_rules import (
     _intern_rows,
     _primary_descriptor_feature_classes,
     _validate_c_table_shape,
+    diagnostic_descriptor_names,
     generate_lower_rule_set,
     generate_lower_rule_set_from_compiled,
 )
@@ -1498,13 +1500,22 @@ def test_descriptor_identity_preserves_unavailable_descriptor_diagnostic() -> No
         ),
     )
 
-    generated = generate_lower_rule_set(table, dialect_ops={"scalar": ALL_SCALAR_OPS})
+    compiled = compile_lower_rule_set(table, dialect_ops={"scalar": ALL_SCALAR_OPS})
+    generated = generate_lower_rule_set_from_compiled(table, compiled=compiled)
 
     stable_id = descriptor_stable_id(descriptor.key)
     assert f".stable_id = UINT64_C(0x{stable_id:016x})" in generated.source
     assert ".key_string_ref = " not in generated.source
     assert descriptor.key in generated.source
     assert ".string_value_ref = " in generated.source
+
+    names = diagnostic_descriptor_names(compiled)
+    assert names == frozenset({descriptor.key})
+    bank = CStringBank.build(names, symbol="test_instruction_strings", header="test/instruction_strings.h")
+    shared = generate_lower_rule_set_from_compiled(table, compiled=compiled, shared_strings=bank)
+    assert '#include "test/instruction_strings.h"' in shared.source
+    assert "test_instruction_strings}" in shared.source
+    assert descriptor.key not in shared.source
 
 
 def test_validate_c_table_shape_rejects_invalid_report_key() -> None:

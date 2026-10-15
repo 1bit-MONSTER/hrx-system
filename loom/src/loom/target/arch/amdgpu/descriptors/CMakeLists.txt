@@ -132,6 +132,7 @@ loom_generated_file_family(
     "--descriptor-source"
     "--encoding-source"
   ARGS
+    "--shared-strings=${IREE_BINARY_DIR}/loom/src/loom/target/arch/amdgpu/contracts/instruction_strings.json"
     "--target=cdna2"
     "--isa-xml=cdna2:${_LOOM_AMDGPU_ISA_XML_SOURCE_DIR}/amdgpu_isa_cdna2.xml"
     "--target=cdna3"
@@ -139,6 +140,7 @@ loom_generated_file_family(
     "--isa-xml=cdna3:${_LOOM_AMDGPU_ISA_XML_SOURCE_DIR}/amdgpu_isa_cdna3.xml"
     "--isa-xml=cdna4:${_LOOM_AMDGPU_ISA_XML_SOURCE_DIR}/amdgpu_isa_cdna4.xml"
   INPUTS
+    "${IREE_BINARY_DIR}/loom/src/loom/target/arch/amdgpu/contracts/instruction_strings.json"
     "${_LOOM_AMDGPU_ISA_XML_SOURCE_DIR}/amdgpu_isa_cdna2.xml"
     "loom_amdgpu_isa_xml"
     "${_LOOM_AMDGPU_ISA_XML_SOURCE_DIR}/amdgpu_isa_cdna3.xml"
@@ -169,12 +171,14 @@ loom_generated_file_family(
     "--descriptor-source"
     "--encoding-source"
   ARGS
+    "--shared-strings=${IREE_BINARY_DIR}/loom/src/loom/target/arch/amdgpu/contracts/instruction_strings.json"
     "--target=rdna3"
     "--target=rdna3_5"
     "--target=rdna4m"
     "--isa-xml=rdna3:${_LOOM_AMDGPU_ISA_XML_SOURCE_DIR}/amdgpu_isa_rdna3.xml"
     "--isa-xml=rdna3_5:${_LOOM_AMDGPU_ISA_XML_SOURCE_DIR}/amdgpu_isa_rdna3_5.xml"
   INPUTS
+    "${IREE_BINARY_DIR}/loom/src/loom/target/arch/amdgpu/contracts/instruction_strings.json"
     "${_LOOM_AMDGPU_ISA_XML_SOURCE_DIR}/amdgpu_isa_rdna3.xml"
     "loom_amdgpu_isa_xml"
     "${_LOOM_AMDGPU_ISA_XML_SOURCE_DIR}/amdgpu_isa_rdna3_5.xml"
@@ -200,10 +204,12 @@ loom_generated_file_family(
     "--descriptor-source"
     "--encoding-source"
   ARGS
+    "--shared-strings=${IREE_BINARY_DIR}/loom/src/loom/target/arch/amdgpu/contracts/instruction_strings.json"
     "--target=rdna4"
     "--target=rdna4_gfx125x"
     "--isa-xml=rdna4:${_LOOM_AMDGPU_ISA_XML_SOURCE_DIR}/amdgpu_isa_rdna4.xml"
   INPUTS
+    "${IREE_BINARY_DIR}/loom/src/loom/target/arch/amdgpu/contracts/instruction_strings.json"
     "${_LOOM_AMDGPU_ISA_XML_SOURCE_DIR}/amdgpu_isa_rdna4.xml"
     "loom_amdgpu_isa_xml"
   COMMENT
@@ -219,6 +225,7 @@ loom_cc_library(
     "cdna2_descriptors.c"
   DEPS
     loom::codegen::low::descriptors
+    loom::target::arch::amdgpu::contracts::instruction_strings
   PUBLIC
 )
 endif()
@@ -231,6 +238,7 @@ loom_cc_library(
     "cdna3_descriptors.c"
   DEPS
     loom::codegen::low::descriptors
+    loom::target::arch::amdgpu::contracts::instruction_strings
   PUBLIC
 )
 endif()
@@ -298,6 +306,7 @@ loom_cc_library(
     "rdna3_descriptors.c"
   DEPS
     loom::codegen::low::descriptors
+    loom::target::arch::amdgpu::contracts::instruction_strings
   PUBLIC
 )
 endif()
@@ -310,6 +319,7 @@ loom_cc_library(
     "rdna3_5_descriptors.c"
   DEPS
     loom::codegen::low::descriptors
+    loom::target::arch::amdgpu::contracts::instruction_strings
   PUBLIC
 )
 endif()
@@ -322,6 +332,7 @@ loom_cc_library(
     "rdna4m_descriptors.c"
   DEPS
     loom::codegen::low::descriptors
+    loom::target::arch::amdgpu::contracts::instruction_strings
   PUBLIC
 )
 endif()
@@ -334,6 +345,7 @@ loom_cc_library(
     "rdna4_descriptors.c"
   DEPS
     loom::codegen::low::descriptors
+    loom::target::arch::amdgpu::contracts::instruction_strings
   PUBLIC
 )
 endif()
@@ -346,6 +358,7 @@ loom_cc_library(
     "rdna4_gfx125x_descriptors.c"
   DEPS
     loom::codegen::low::descriptors
+    loom::target::arch::amdgpu::contracts::instruction_strings
   PUBLIC
 )
 endif()
@@ -369,6 +382,7 @@ loom_cc_library(
     "cdna4_descriptors.c"
   DEPS
     loom::codegen::low::descriptors
+    loom::target::arch::amdgpu::contracts::instruction_strings
   PUBLIC
 )
 endif()

@@ -88,7 +88,7 @@ class WriteInterferenceTest : public ::testing::Test {
   }
 
   void InitializeTarget(uint32_t width) {
-    register_class_.name_string_ref = LOOM_STRING_REF(0, 1);
+    register_class_.name_string_ref = LOOM_STRING_REF(0, 0, 1);
     register_class_.alloc_unit_bits = 32;
     register_class_.allocatable_count = 32768;
     register_class_.spill_class_id = LOOM_LOW_REG_CLASS_NONE;
@@ -125,7 +125,7 @@ class WriteInterferenceTest : public ::testing::Test {
     views_[4] = views_[0];
     views_[5] = views_[1];
     descriptor_set_.stable_id = 1;
-    descriptor_set_.string_pool = {"r", 1};
+    descriptor_set_.string_pool = {{"r"}, {1}};
     descriptor_set_.reg_classes = &register_class_;
     descriptor_set_.reg_class_count = 1;
     descriptor_set_.reg_class_alts = &alternative_;

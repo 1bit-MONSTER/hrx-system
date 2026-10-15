@@ -25,12 +25,12 @@ static const char kAddressabilityStrings[] =
     "src";
 
 enum : loom_string_ref_t {
-  ADDRESSABILITY_STRING_empty = LOOM_STRING_REF(0, 0),
-  ADDRESSABILITY_STRING_set_key = LOOM_STRING_REF(0, 9),
-  ADDRESSABILITY_STRING_reg_gpr = LOOM_STRING_REF(9, 8),
-  ADDRESSABILITY_STRING_descriptor_packet = LOOM_STRING_REF(17, 11),
-  ADDRESSABILITY_STRING_field_dst = LOOM_STRING_REF(28, 3),
-  ADDRESSABILITY_STRING_field_src = LOOM_STRING_REF(31, 3),
+  ADDRESSABILITY_STRING_empty = LOOM_STRING_REF(0, 0, 0),
+  ADDRESSABILITY_STRING_set_key = LOOM_STRING_REF(0, 0, 9),
+  ADDRESSABILITY_STRING_reg_gpr = LOOM_STRING_REF(0, 9, 8),
+  ADDRESSABILITY_STRING_descriptor_packet = LOOM_STRING_REF(0, 17, 11),
+  ADDRESSABILITY_STRING_field_dst = LOOM_STRING_REF(0, 28, 3),
+  ADDRESSABILITY_STRING_field_src = LOOM_STRING_REF(0, 31, 3),
 };
 
 #define ADDRESSABILITY_STRING_REF(field) ADDRESSABILITY_STRING_##field
@@ -86,8 +86,8 @@ void InitializeAddressabilityTestState(
   *state = {};
   state->descriptor_set.stable_id = 0x1000u;
   state->descriptor_set.key_string_ref = ADDRESSABILITY_STRING_REF(set_key);
-  state->descriptor_set.string_pool.data = kAddressabilityStrings;
-  state->descriptor_set.string_pool.data_length =
+  state->descriptor_set.string_pool.data[0] = kAddressabilityStrings;
+  state->descriptor_set.string_pool.data_length[0] =
       sizeof(kAddressabilityStrings) - 1;
   state->descriptor_set.reg_classes = state->reg_classes;
   state->descriptor_set.reg_class_count = IREE_ARRAYSIZE(state->reg_classes);

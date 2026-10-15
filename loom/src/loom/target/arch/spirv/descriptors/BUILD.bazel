@@ -31,10 +31,18 @@ _SPIRV_LOW_REGISTRY_VISIBILITY = [
 
 loom_low_descriptor_cc_library(
     name = "descriptors",
-    args = ["--descriptor-set=spirv_logical_core"],
+    args = [
+        "--descriptor-set=spirv_logical_core",
+        "--shared-strings=$(rootpath //loom/src/loom/target/arch/spirv/contracts:instruction_strings.json)",
+    ],
     generator = "//loom/py/loom/gen/target/low:spirv_low_descriptor_shard",
+    ids_deps = ["//loom/src/loom/codegen/low:descriptors"],
+    inputs = ["//loom/src/loom/target/arch/spirv/contracts:instruction_strings.json"],
     visibility = _SPIRV_DESCRIPTOR_VISIBILITY,
-    deps = ["//loom/src/loom/codegen/low:descriptors"],
+    deps = [
+        "//loom/src/loom/codegen/low:descriptors",
+        "//loom/src/loom/target/arch/spirv/contracts:instruction_strings",
+    ],
 )
 
 loom_cc_library(

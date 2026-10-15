@@ -23,6 +23,7 @@ def _ensure_runtime_py_on_path() -> None:
 
 _ensure_runtime_py_on_path()
 
+from loom.gen.support.string_pool import CStringBank  # noqa: E402
 from loom.gen.target.low.low_descriptors import write_descriptor_set_to_paths  # noqa: E402
 from loom.target.descriptor_sets import resolve_descriptor_set  # noqa: E402
 
@@ -47,6 +48,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         type=Path,
         help="Generated descriptor source path.",
     )
+    parser.add_argument("--shared-strings", type=Path, help="Producer-owned shared string-bank layout.")
     args = parser.parse_args(argv)
 
     try:
@@ -57,6 +59,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         descriptor_set,
         header_path=args.header,
         source_path=args.source,
+        shared_strings=CStringBank.read(args.shared_strings) if args.shared_strings else None,
     )
     return 0
 

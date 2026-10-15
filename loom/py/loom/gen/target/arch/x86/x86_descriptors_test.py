@@ -12,6 +12,7 @@ from re import Pattern
 from tempfile import TemporaryDirectory
 from types import TracebackType
 
+from loom.gen.support.string_pool import CStringBank
 from loom.gen.target.arch.x86 import x86_descriptors
 from loom.gen.target.low import compiler
 from loom.target.arch.x86 import descriptors as x86_descriptor_data
@@ -387,10 +388,14 @@ def test_scalar_read_memory_binary_forms_are_shared_by_scalar_profiles() -> None
 def test_storage_generation_emits_current_public_views() -> None:
     with TemporaryDirectory() as temporary_directory:
         tmp_path = Path(temporary_directory)
+        bank = CStringBank.build(frozenset({"x86.avx2.vaddps.xmm"}), symbol="test_instruction_strings", header="test/instruction_strings.h")
+        manifest = tmp_path / "instruction_strings.json"
+        manifest.write_text(bank.manifest())
         assert (
             x86_descriptors.main(
                 [
                     "--target=avx512_features",
+                    f"--shared-strings={manifest}",
                     f"--header={tmp_path / 'avx512_features_descriptors.h'}",
                     f"--source={tmp_path / 'avx512_features_descriptors.c'}",
                     f"--view-header=avx512={tmp_path / 'avx512_descriptors.h'}",
@@ -423,6 +428,8 @@ def test_storage_generation_emits_current_public_views() -> None:
         scalar_header = (tmp_path / "scalar_descriptors.h").read_text(encoding="utf-8")
         simd128_header = (tmp_path / "simd128_descriptors.h").read_text(encoding="utf-8")
 
+    assert '#include "test/instruction_strings.h"' in source
+    assert "test_instruction_strings}" in source
     assert "loom_x86_avx512_core_descriptor_set" in source
     assert "loom_x86_avx2_core_descriptor_set" in source
     assert "loom_x86_avx2_features_core_descriptor_set" in source

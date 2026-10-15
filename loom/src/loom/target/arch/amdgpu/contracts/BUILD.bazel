@@ -22,7 +22,11 @@ _AMDGPU_CONTRACT_FRAGMENT_GENERATOR = "//loom/py/loom/gen/target/contracts:amdgp
 
 loom_target_contract_file_family(
     name = "contract_tables_gen",
-    args = ["--contract-index=LOOM_AMDGPU_CONTRACT:amdgpu.arithmetic,amdgpu.buffer,amdgpu.config,amdgpu.integer,amdgpu.compare,amdgpu.dot,amdgpu.reduce,amdgpu.async,amdgpu.sanitizer,amdgpu.view,amdgpu.matrix"],
+    args = [
+        "--contract-index=LOOM_AMDGPU_CONTRACT:amdgpu.arithmetic,amdgpu.buffer,amdgpu.config,amdgpu.integer,amdgpu.compare,amdgpu.dot,amdgpu.reduce,amdgpu.async,amdgpu.sanitizer,amdgpu.view,amdgpu.matrix",
+        "--shared-strings-public-header=loom/target/arch/amdgpu/contracts/instruction_strings.h",
+        "--shared-strings-symbol=loom_amdgpu_instruction_strings",
+    ],
     comment = "Generating AMDGPU contract table families",
     fragments = {
         "arithmetic": "amdgpu.arithmetic",
@@ -38,12 +42,20 @@ loom_target_contract_file_family(
     },
     generator = "//loom/py/loom/gen/target/contracts:amdgpu_contract_table_family",
     index_output = "tables.inl",
+    shared_strings = "instruction_strings",
+)
+
+loom_cc_library(
+    name = "instruction_strings",
+    srcs = ["instruction_strings.c"],
+    hdrs = ["instruction_strings.h"],
 )
 
 loom_target_contract_cc_libraries(
     name = "arithmetic",
     contract_deps = ["//loom/src/loom/target:contract"],
     lower_rule_deps = [
+        ":instruction_strings",
         "//loom/src/loom/codegen/low/lower",
         "//loom/src/loom/ops/index",
         "//loom/src/loom/ops/scalar",
@@ -85,6 +97,7 @@ loom_target_contract_cc_libraries(
     name = "compare",
     contract_deps = ["//loom/src/loom/target:contract"],
     lower_rule_deps = [
+        ":instruction_strings",
         "//loom/src/loom/codegen/low/lower",
         "//loom/src/loom/ops/index",
         "//loom/src/loom/ops/scalar",
@@ -98,6 +111,7 @@ loom_target_contract_cc_libraries(
     name = "dot",
     contract_deps = ["//loom/src/loom/target:contract"],
     lower_rule_deps = [
+        ":instruction_strings",
         "//loom/src/loom/codegen/low/lower",
         "//loom/src/loom/ops/vector",
         "//loom/src/loom/target/arch/amdgpu/lower:kinds",
@@ -109,6 +123,7 @@ loom_target_contract_cc_libraries(
     name = "integer",
     contract_deps = ["//loom/src/loom/target:contract"],
     lower_rule_deps = [
+        ":instruction_strings",
         "//loom/src/loom/codegen/low/lower",
         "//loom/src/loom/ops/index",
         "//loom/src/loom/ops/scf",
@@ -130,6 +145,7 @@ loom_target_contract_cc_libraries(
     name = "reduce",
     contract_deps = ["//loom/src/loom/target:contract"],
     lower_rule_deps = [
+        ":instruction_strings",
         "//loom/src/loom/codegen/low/lower",
         "//loom/src/loom/ops/vector",
         "//loom/src/loom/target/arch/amdgpu/lower:kinds",

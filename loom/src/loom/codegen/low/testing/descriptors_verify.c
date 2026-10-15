@@ -95,11 +95,12 @@ static iree_status_t loom_low_descriptor_set_string_impl(
                             "required low descriptor string reference is NONE");
   }
   if (!loom_string_pool_contains(&descriptor_set->string_pool, string_ref)) {
-    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                            "low descriptor string reference 0x%08" PRIx32
-                            " exceeds string pool length %" PRIu32,
-                            string_ref,
-                            descriptor_set->string_pool.data_length);
+    return iree_make_status(
+        IREE_STATUS_OUT_OF_RANGE,
+        "low descriptor string reference 0x%08" PRIx32
+        " exceeds string pool length %" PRIu32,
+        string_ref,
+        descriptor_set->string_pool.data_length[(string_ref >> 23) & 1]);
   }
   *out_string = loom_string_pool_get(&descriptor_set->string_pool, string_ref);
   return iree_ok_status();

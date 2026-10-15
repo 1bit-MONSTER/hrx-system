@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from loom.gen.support.string_pool import CStringPool, _slice_reference, emit_c_string_pool, layout_c_string_pool
+from loom.gen.support.string_pool import CStringBank, CStringPool, _slice_reference, emit_c_string_pool, layout_c_string_pool
 
 
 def test_intern_records_unique_entries_with_stable_labels() -> None:
@@ -136,11 +136,46 @@ def test_empty_pool_and_empty_string() -> None:
 
 
 def test_slice_reference_pool_bound_and_none_sentinel() -> None:
-    assert _slice_reference(0xFFFFFF, 1) == 0x01FFFFFF
-    assert _slice_reference(0xFFFF01, 255) == 0xFFFFFF01
-    with pytest.raises(ValueError, match="24-bit"):
-        _slice_reference(0xFFFFFF, 2)
-    with pytest.raises(ValueError, match="24-bit"):
-        _slice_reference(0x1000000, 0)
-    with pytest.raises(ValueError, match="24-bit"):
-        _slice_reference(0xFFFFFF, 255)
+    for bank in (0, 1):
+        assert _slice_reference(0x7FFFFF, 1, bank) == 0x017FFFFF | bank << 23
+        assert _slice_reference(0x7FFF01, 255, bank) == 0xFF7FFF01 | bank << 23
+        with pytest.raises(ValueError, match="23-bit"):
+            _slice_reference(0x7FFFFF, 2, bank)
+        with pytest.raises(ValueError, match="23-bit"):
+            _slice_reference(0x800000, 0, bank)
+        with pytest.raises(ValueError, match="23-bit"):
+            _slice_reference(0x7FFFFF, 255, bank)
+    with pytest.raises(ValueError, match="private or shared"):
+        _slice_reference(0, 0, 2)
+
+
+def test_shared_bank_preserves_bytes_and_independent_layout(tmp_path) -> None:
+    bank = CStringBank.build(frozenset({"amdgpu.s_add_f32", "é\0suffix"}), symbol="test_strings", header="test/strings.h")
+    path = tmp_path / "strings.json"
+    path.write_text(bank.manifest())
+    assert CStringBank.read(path) == bank
+    pool = CStringPool("TEST")
+    for label, value in (("name", "amdgpu.s_add_f32"), ("suffix", "s_add_f32"), ("private", "private_field"), ("bytes", "é\0suffix"), ("empty", "")):
+        pool.intern(label, value)
+    layout = layout_c_string_pool(pool, bank)
+    assert layout.shared is bank
+    assert layout.data == b"private_field"
+    assert layout.references["empty"] == 0
+    for entry in pool.entries:
+        reference = layout.references[entry.label]
+        data = (layout.data, bank.data)[(reference >> 23) & 1]
+        start = reference & 0x7FFFFF
+        assert data[start : start + (reference >> 24)] == entry.value.encode()
+    assert "test_strings" in layout.initializer("private_data")
+    assert "extern const char test_strings[" in bank.emit_header()
+    assert '#include "test/strings.h"' in bank.emit_source()
+
+
+def test_incidental_substrings_do_not_acquire_shared_bank() -> None:
+    bank = CStringBank.build(frozenset({"amdgpu.s_add_f32"}), symbol="test_strings", header="test/strings.h")
+    pool = CStringPool("TEST")
+    pool.intern("field", "add")
+    pool.intern("empty", "")
+    layout = layout_c_string_pool(pool, bank)
+    assert layout.shared is None
+    assert layout.data == b"add"

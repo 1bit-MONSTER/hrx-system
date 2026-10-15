@@ -247,7 +247,7 @@ function(loom_target_contract_table_cc_libraries)
   cmake_parse_arguments(
     _RULE
     "TESTONLY"
-    "NAME;GENERATOR;INDEX_OUTPUT"
+    "NAME;GENERATOR;INDEX_OUTPUT;SHARED_STRINGS"
     "ARGS;INPUTS;CONTRACT_DEPS;LOWER_RULE_DEPS"
     ${ARGN}
   )
@@ -291,6 +291,15 @@ function(loom_target_contract_table_cc_libraries)
     set(_INDEX_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${_RULE_INDEX_OUTPUT}")
     list(APPEND _OUTPUTS "${_INDEX_OUTPUT}")
     list(APPEND _INDEX_ARGS "--index-output=${_INDEX_OUTPUT}")
+  endif()
+  if(_RULE_SHARED_STRINGS)
+    set(_SHARED_STRINGS "${CMAKE_CURRENT_BINARY_DIR}/${_RULE_SHARED_STRINGS}")
+    list(APPEND _OUTPUTS "${_SHARED_STRINGS}.h" "${_SHARED_STRINGS}.c" "${_SHARED_STRINGS}.json")
+    list(APPEND _INDEX_ARGS
+      "--shared-strings-header=${_SHARED_STRINGS}.h"
+      "--shared-strings-source=${_SHARED_STRINGS}.c"
+      "--shared-strings-layout=${_SHARED_STRINGS}.json"
+    )
   endif()
   iree_package_name(_PACKAGE_NAME)
   set(_GEN_TARGET "${_PACKAGE_NAME}_${_RULE_NAME}_gen")
@@ -342,7 +351,7 @@ function(loom_target_contract_file_family)
   cmake_parse_arguments(
     _RULE
     ""
-    "NAME;GENERATOR;COMMENT;INDEX_OUTPUT"
+    "NAME;GENERATOR;COMMENT;INDEX_OUTPUT;SHARED_STRINGS"
     "FRAGMENTS;ARGS;INPUTS"
     ${ARGN}
   )
@@ -388,6 +397,10 @@ function(loom_target_contract_file_family)
   if(_RULE_INDEX_OUTPUT)
     list(APPEND _OUTPUTS "${_RULE_INDEX_OUTPUT}")
     list(APPEND _OUTPUT_FLAGS "--index-output")
+  endif()
+  if(_RULE_SHARED_STRINGS)
+    list(APPEND _OUTPUTS "${_RULE_SHARED_STRINGS}.h" "${_RULE_SHARED_STRINGS}.c" "${_RULE_SHARED_STRINGS}.json")
+    list(APPEND _OUTPUT_FLAGS "--shared-strings-header" "--shared-strings-source" "--shared-strings-layout")
   endif()
 
   _loom_generated_files(

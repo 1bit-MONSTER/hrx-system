@@ -155,7 +155,10 @@ def test_storage_generation_reuses_parsed_isa_for_declared_views() -> None:
     def generate_descriptor_set_family(
         storage_descriptor_set: DescriptorSet,
         view_descriptor_sets: tuple[DescriptorSet, ...],
+        *,
+        shared_strings=None,
     ) -> SimpleNamespace:
+        assert shared_strings is None
         return SimpleNamespace(
             source="// shared\n",
             view_headers=tuple(f"// {descriptor_set.key}\n" for descriptor_set in view_descriptor_sets),

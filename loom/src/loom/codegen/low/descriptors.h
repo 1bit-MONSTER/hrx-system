@@ -27,7 +27,7 @@ extern "C" {
 #endif
 
 // ABI version for descriptor sets consumed by this header.
-#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 59u
+#define LOOM_LOW_DESCRIPTOR_SET_ABI_VERSION 60u
 
 // Sentinel for absent target-family or descriptor-set stable IDs.
 #define LOOM_LOW_STABLE_ID_NONE UINT64_C(0)
@@ -1507,8 +1507,6 @@ typedef struct loom_low_descriptor_set_t {
   loom_string_ref_t target_key_string_ref;
   // String-pool reference for the feature namespace key.
   loom_string_ref_t feature_key_string_ref;
-  // Shared immutable byte pool used by all compact string references.
-  loom_string_pool_t string_pool;
   // Structural descriptor rows indexed by descriptor ordinal.
   const loom_low_descriptor_t* descriptors;
   // Interned structural layouts referenced by descriptor layout indices.
@@ -1715,6 +1713,9 @@ typedef struct loom_low_descriptor_set_t {
   const loom_low_encoding_field_value_t* encoding_field_values;
   // Number of fixed encoding field values owned by this set.
   uint32_t encoding_field_value_count;
+  // Immutable spelling banks, outside the hot table prefix. Both base pointers
+  // share a 16-byte aligned slot; byte counts are used only for verification.
+  iree_alignas(16) loom_string_pool_t string_pool;
 } loom_low_descriptor_set_t;
 
 // Returns a verified descriptor's operand by descriptor-local index. Rows are

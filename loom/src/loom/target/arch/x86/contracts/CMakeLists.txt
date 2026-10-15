@@ -17,6 +17,8 @@ loom_target_contract_file_family(
     loom::py::loom::gen::target::contracts::x86_contract_table_family
   INDEX_OUTPUT
     "tables.inl"
+  SHARED_STRINGS
+    "instruction_strings"
   FRAGMENTS
     "avx2=x86.avx2"
     "avx512=x86.avx512"
@@ -27,6 +29,8 @@ loom_target_contract_file_family(
     "scalar=x86.scalar"
     "scalar_read_memory=x86.scalar.read_memory"
   ARGS
+    "--shared-strings-public-header=loom/target/arch/x86/contracts/instruction_strings.h"
+    "--shared-strings-symbol=loom_x86_instruction_strings"
     "--contract-index=LOOM_X86_SCALAR_CONTRACT:x86.scalar,x86.scalar.read_memory"
     "--contract-index=LOOM_X86_AVX2_CONTRACT:x86.scalar,x86.scalar.read_memory,x86.avx2"
     "--contract-index=LOOM_X86_AVX512_CONTRACT:x86.scalar,x86.scalar.read_memory,x86.avx2,x86.avx512"
@@ -35,6 +39,20 @@ loom_target_contract_file_family(
     "--contract-index=LOOM_X86_AVX512_FEATURES_CONTRACT:x86.scalar,x86.scalar.read_memory,x86.avx2,x86.avx512,x86.avx512_fp16,x86.avx_ne_convert,x86.avx512_bf16,x86.packed_dot"
   COMMENT
     "Generating x86 contract table families"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_X86)
+loom_cc_library(
+  NAME
+    instruction_strings
+  HDRS
+    "instruction_strings.h"
+  SRCS
+    "instruction_strings.c"
+  DEPS
+
+  PUBLIC
 )
 endif()
 
@@ -76,6 +94,7 @@ loom_target_contract_cc_libraries(
   CONTRACT_DEPS
     loom::target::contract
   LOWER_RULE_DEPS
+    ::instruction_strings
     loom::codegen::low::lower
     loom::ops::scalar
     loom::ops::scf
@@ -91,6 +110,7 @@ loom_target_contract_cc_libraries(
   CONTRACT_DEPS
     loom::target::contract
   LOWER_RULE_DEPS
+    ::instruction_strings
     loom::codegen::low::lower
     loom::ops::scalar
     loom::ops::vector
@@ -104,6 +124,7 @@ loom_target_contract_cc_libraries(
   CONTRACT_DEPS
     loom::target::contract
   LOWER_RULE_DEPS
+    ::instruction_strings
     loom::codegen::low::lower
     loom::ops::scalar
     loom::ops::vector
@@ -118,6 +139,7 @@ loom_target_contract_cc_libraries(
   CONTRACT_DEPS
     loom::target::contract
   LOWER_RULE_DEPS
+    ::instruction_strings
     loom::codegen::low::lower
     loom::ops::scalar
     loom::ops::scf

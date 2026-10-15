@@ -20,17 +20,17 @@ TEST(LowDescriptorsTest, LookupRetainsIdentityAcrossSharedViews) {
       "test.beta"
       "test.gamma";
   std::array<loom_low_descriptor_t, 3> descriptors = {};
-  descriptors[0].key_string_ref = LOOM_STRING_REF(0, 10);
-  descriptors[1].key_string_ref = LOOM_STRING_REF(10, 9);
-  descriptors[2].key_string_ref = LOOM_STRING_REF(19, 10);
+  descriptors[0].key_string_ref = LOOM_STRING_REF(0, 0, 10);
+  descriptors[1].key_string_ref = LOOM_STRING_REF(0, 10, 9);
+  descriptors[2].key_string_ref = LOOM_STRING_REF(0, 19, 10);
   std::array<uint32_t, 3> references = {0, 1, 2};
   loom_low_descriptor_set_t set = {
-      .string_pool = {strings, sizeof(strings) - 1},
       .descriptors = descriptors.data(),
       .descriptor_count = 3,
       .descriptor_ordinal_count = 3,
       .descriptor_refs = references.data(),
       .descriptor_ref_count = 3,
+      .string_pool = {{strings}, {sizeof(strings) - 1}},
   };
   for (auto& descriptor : descriptors) {
     descriptor.stable_id = loom_low_descriptor_stable_id_from_key(

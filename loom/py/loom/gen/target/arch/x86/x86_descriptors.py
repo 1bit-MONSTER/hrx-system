@@ -26,6 +26,7 @@ def _ensure_runtime_py_on_path() -> None:
 _ensure_runtime_py_on_path()
 
 from loom.gen.support.files import write_text_file  # noqa: E402
+from loom.gen.support.string_pool import CStringBank  # noqa: E402
 from loom.gen.target.low.low_descriptors import (  # noqa: E402
     generate_descriptor_set_family,
     write_descriptor_set_to_paths,
@@ -162,8 +163,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=[],
         help="Generated descriptor view header as <target>=<path>.",
     )
+    parser.add_argument("--shared-strings", type=Path, help="Producer-owned shared string-bank layout.")
     args = parser.parse_args(argv)
 
+    shared_strings = CStringBank.read(args.shared_strings) if args.shared_strings else None
     view_headers = _parse_view_headers(args.view_header)
     descriptor_set_info = x86_descriptor_set_info_by_generator_target(args.target)
     storage_info = x86_descriptor_set_storage_info_by_generator_target(args.target)
@@ -175,6 +178,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         generated = generate_descriptor_set_family(
             storage_descriptor_set,
             view_descriptor_sets,
+            shared_strings=shared_strings,
         )
         write_text_file(args.header, generated.view_headers[-1])
         write_text_file(args.source, generated.source)
@@ -192,6 +196,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         descriptor_set,
         header_path=args.header,
         source_path=args.source,
+        shared_strings=shared_strings,
     )
     return 0
 
