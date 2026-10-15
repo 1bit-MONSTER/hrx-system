@@ -936,6 +936,26 @@ if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_VM)
 if(LOOM_TARGET_ARCH_VM)
 loom_execution_test(
   NAME
+    structured_break_test_execute_vm_reference_test
+  CORRECTNESS_ONLY
+  MODULE
+    "::structured_break_module"
+  RUNNER_ARGS
+    "--case=structured_break_functions"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+    "loom-execution-profile=vm_reference"
+    "loom-target-family=vm"
+    "loom-target-class=cpu"
+    "loom-executor=reference"
+)
+endif()
+endif()
+
+if(LOOM_IMPORT_CXX AND LOOM_TARGET_ARCH_VM)
+if(LOOM_TARGET_ARCH_VM)
+loom_execution_test(
+  NAME
     structured_continue_test_execute_vm_reference_test
   CORRECTNESS_ONLY
   MODULE
@@ -1212,6 +1232,15 @@ loom_test_module(
     short_circuit_module
   SRCS
     "short_circuit.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
+    structured_break_module
+  SRCS
+    "structured_break.cxx"
 )
 endif()
 
