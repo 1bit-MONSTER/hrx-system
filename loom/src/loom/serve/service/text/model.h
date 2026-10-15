@@ -383,9 +383,11 @@ loom_serve_device_t* loom_serve_text_model_device(
 // requires unpinned elastic backing. Inference pins through retirement and
 // activates on demand; explicit activation warms without retaining a pin.
 // Admission can reclaim idle weights of other models, never mutable state.
-// Execution/I/O failure is terminal.
+// Activation is an outer-thread join. Deactivation advances without waiting;
+// out_complete joins native release. Execution/I/O failure is terminal.
 iree_status_t loom_serve_text_model_activate(loom_serve_text_model_t* model);
-iree_status_t loom_serve_text_model_deactivate(loom_serve_text_model_t* model);
+iree_status_t loom_serve_text_model_deactivate(loom_serve_text_model_t* model,
+                                               bool* out_complete);
 
 // Borrowed admission/retention handle. A caller can try_acquire before choosing
 // work, retaining the returned pin across invocations until release. Ordinary

@@ -117,6 +117,13 @@ Wait for `parameter_operation:"idle"`, check `loom.error`, and inspect
 `parameters.active` and `committed_bytes`. Prepared fixed-backed weights cannot
 deactivate and return 409; a metadata-only drained registration is already cold.
 
+Native weight allocation and release run independently of the serving scheduler:
+another ready model can continue serving during either transition. Retained
+memory reports `pending_bytes` for accepted allocations and `releasing_bytes`
+for releases still in flight. Releasing bytes remain included in
+`committed_bytes` until native cleanup completes; they are not free capacity.
+Requests waiting for that capacity resume from its completion notification.
+
 Undrain and conflicting residency operations return 409 while an operation is
 pending. Ordinary inference can reload evicted weights on demand without
 re-JIT. Successful activation does not itself pin weights against later pressure.
@@ -241,9 +248,11 @@ curl --fail --silent --show-error http://127.0.0.1:8080/v1/devices/trim \
 
 This requests reduction of eligible serving-managed commitment toward the
 target. It releases idle workspace and unpinned reloadable parameters, not
-active work or retained conversations. HTTP 200 returns actual accounting;
-protected storage can prevent reaching the target. Fixed weights are not
-reclaimable. Trim does not change the configured limit or discard compiled code.
+active work or retained conversations. HTTP 200 returns current accounting,
+including accepted native releases that have not completed. `/v1/status`
+reports subsequent completion; protected storage can prevent reaching the target.
+Fixed weights are not reclaimable. Trim does not change the configured limit or
+discard compiled code.
 
 The [observation workflow](observe-model-server.md) explains retained versus
 workspace accounting. Their sum is not total VRAM or process RAM, and reported

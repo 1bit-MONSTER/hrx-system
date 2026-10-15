@@ -136,10 +136,13 @@ iree_status_t loom_serve_weights_activate(loom_serve_weights_t* weights,
 // execution frontier asynchronously instead of calling this function.
 iree_status_t loom_serve_weights_await(loom_serve_weights_t* weights);
 
-// Releases physical backing, preserving parameter roots and replay plans.
+// Advances native backing release, preserving parameter roots and replay plans.
 // The caller first retires all consuming work and excludes new submission.
-// Retained mutable state is independent. An inactive plan is unchanged.
-iree_status_t loom_serve_weights_deactivate(loom_serve_weights_t* weights);
+// Retained mutable state is independent. The pool owner receives a completion
+// wake; repeated calls join the accepted operation without submitting it again.
+// Reactivation requires terminal completion. Retirement joins pending release.
+iree_status_t loom_serve_weights_deactivate(loom_serve_weights_t* weights,
+                                            bool* out_complete);
 
 // Parameter accounting only, separate from state sharing the physical pool.
 // Fixed storage reports zero virtual-pool statistics.

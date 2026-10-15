@@ -7,6 +7,7 @@
 #include "loom/serve/runtime/storage/memory.h"
 
 #include <array>
+#include <atomic>
 #include <vector>
 
 #include "iree/testing/gtest.h"
@@ -135,6 +136,81 @@ class MemoryTest : public ::testing::Test {
   // Private command allocation retained until its queue release is submitted.
   iree_hal_buffer_t* workspace = nullptr;
 };
+
+TEST_F(MemoryTest, PendingReleaseRetainsBudgetAndLeavesKeptSlabsUsable) {
+  IREE_ASSERT_OK(loom_serve_virtual_buffer_allocate(pool, 3 * kSlabSize, 256,
+                                                    &statistics[0], &first));
+  IREE_ASSERT_OK(loom_serve_virtual_buffer_allocate(pool, 2 * kSlabSize, 256,
+                                                    &statistics[1], &second));
+  IREE_ASSERT_OK(loom_serve_virtual_buffer_commit(first, 0, 3 * kSlabSize));
+  ASSERT_NO_FATAL_FAILURE(
+      RoundTrip(loom_serve_virtual_buffer_handle(first), 0, 0xA1B2C3D4));
+  std::atomic<uint32_t> wakes = 0;
+  loom_serve_memory_pool_set_observer(
+      pool,
+      [](void* user_data) {
+        static_cast<std::atomic<uint32_t>*>(user_data)->fetch_add(1);
+      },
+      &wakes);
+  loom_serve_memory_operation_t* operation = nullptr;
+  {
+    loom_serve::testing::MaintenanceGate gate(
+        loom_serve_device_storage_pool(device)->maintenance);
+    loom_serve_virtual_buffer_begin_trim(first);
+    loom_serve_virtual_buffer_keep(first, 0, kSlabSize);
+    IREE_ASSERT_OK(
+        loom_serve_memory_pool_trim_async(pool, 1, &first, &operation));
+    ASSERT_NE(operation, nullptr);
+    EXPECT_FALSE(loom_serve_memory_operation_is_complete(operation));
+    const auto memory = loom_serve_memory_pool_statistics(pool);
+    EXPECT_EQ(memory.committed_bytes, 3 * kSlabSize);
+    EXPECT_EQ(memory.releasing_bytes, 2 * kSlabSize);
+    EXPECT_EQ(statistics[0].releasing_bytes, 2 * kSlabSize);
+    bool admitted = true;
+    IREE_ASSERT_OK(
+        loom_serve_memory_pool_prepare(pool, 2 * kSlabSize, &admitted));
+    EXPECT_FALSE(admitted);
+    ASSERT_NO_FATAL_FAILURE(
+        CheckRetained(loom_serve_virtual_buffer_handle(first), 0, 0xA1B2C3D4));
+    EXPECT_EQ(wakes.load(), 0u);
+  }
+  IREE_ASSERT_OK(loom_serve_memory_pool_await(pool));
+  EXPECT_TRUE(loom_serve_memory_operation_is_complete(operation));
+  EXPECT_EQ(wakes.load(), 1u);
+  EXPECT_EQ(statistics[0].releasing_bytes, 0u);
+  EXPECT_EQ(statistics[0].committed_bytes, kSlabSize);
+  EXPECT_EQ(statistics[0].released_bytes, 2 * kSlabSize);
+  loom_serve_memory_operation_free(operation);
+  loom_serve_memory_pool_set_observer(pool, nullptr, nullptr);
+  IREE_ASSERT_OK(loom_serve_virtual_buffer_commit(second, 0, 2 * kSlabSize));
+  ASSERT_NO_FATAL_FAILURE(
+      RoundTrip(loom_serve_virtual_buffer_handle(second), 0, 0x55667788));
+}
+
+TEST_F(MemoryTest, PoolObserverDetachesFromAlreadyAcceptedNativeWork) {
+  IREE_ASSERT_OK(loom_serve_virtual_buffer_allocate(pool, kSlabSize, 256,
+                                                    &statistics[0], &first));
+  IREE_ASSERT_OK(loom_serve_virtual_buffer_commit(first, 0, kSlabSize));
+  std::atomic<uint32_t> wakes = 0;
+  loom_serve_memory_pool_set_observer(
+      pool,
+      [](void* user_data) {
+        static_cast<std::atomic<uint32_t>*>(user_data)->fetch_add(1);
+      },
+      &wakes);
+  loom_serve_memory_operation_t* operation = nullptr;
+  {
+    loom_serve::testing::MaintenanceGate gate(
+        loom_serve_device_storage_pool(device)->maintenance);
+    loom_serve_virtual_buffer_begin_trim(first);
+    IREE_ASSERT_OK(
+        loom_serve_memory_pool_trim_async(pool, 1, &first, &operation));
+    loom_serve_memory_pool_set_observer(pool, nullptr, nullptr);
+  }
+  IREE_ASSERT_OK(loom_serve_memory_pool_await(pool));
+  EXPECT_EQ(wakes.load(), 0u);
+  loom_serve_memory_operation_free(operation);
+}
 
 TEST_F(MemoryTest, SparseGrowthTrimRegrowthAndSharedAdmission) {
   IREE_ASSERT_OK(loom_serve_virtual_buffer_allocate(

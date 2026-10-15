@@ -462,9 +462,9 @@ static iree_status_t loom_serve_router_describe_parameters(
     IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
         output,
         ",\"reserved_bytes\":%" PRIu64 ",\"committed_bytes\":%" PRIu64
-        ",\"pending_bytes\":%" PRIu64,
+        ",\"pending_bytes\":%" PRIu64 ",\"releasing_bytes\":%" PRIu64,
         state.memory.reserved_bytes, state.memory.committed_bytes,
-        state.memory.pending_bytes));
+        state.memory.pending_bytes, state.memory.releasing_bytes));
   }
   return iree_string_builder_append_cstring(output, "}");
 }
@@ -1322,6 +1322,11 @@ static iree_status_t loom_serve_router_accept(
 
 static void loom_serve_router_advance(router_t* router, bool* out_progress) {
   router->stopping |= loom_serve_http_server_is_stopping(router->server);
+  if (iree_status_is_ok(router->status)) {
+    router->status = iree_status_join(
+        router->status, loom_serve_resources_query_status(&router->resources));
+    router->stopping |= !iree_status_is_ok(router->status);
+  }
   *out_progress = false;
   loom_serve_router_tokenizations_collect(router, out_progress);
   loom_serve_router_held_collect(router, out_progress);
@@ -1398,6 +1403,7 @@ static void loom_serve_router_advance(router_t* router, bool* out_progress) {
   bool pending = router->tokenizations != NULL || router->held.count != 0 ||
                  router->logs.count != 0 ||
                  loom_serve_http_variants_pending(router->variants);
+  pending |= loom_serve_resources_is_pending(&router->resources);
   for (iree_host_size_t i = 0; i < router->capacity; ++i) {
     loom_serve_registered_model_t* model =
         loom_serve_router_model_at(router, i);
@@ -1413,6 +1419,8 @@ static void loom_serve_router_advance(router_t* router, bool* out_progress) {
                 model->phase != LOOM_SERVE_REGISTRATION_RELEASE_FAILED);
   }
   if (router->stopping && !pending) {
+    loom_serve_resources_set_observer(&router->resources,
+                                      (loom_serve_wake_callback_t){0});
     for (iree_host_size_t i = 0; i < router->capacity; ++i) {
       const loom_serve_registered_model_t* model =
           loom_serve_router_model_at(router, i);
@@ -1513,6 +1521,9 @@ iree_status_t loom_serve_router_run(iree_task_executor_t* executor,
                               IREE_TASK_PROCESS_FLAG_COMPUTE_SLOT);
   router.process.user_data = &router;
   router.process.release_fn = loom_serve_router_released;
+  loom_serve_resources_set_observer(
+      &router.resources,
+      (loom_serve_wake_callback_t){loom_serve_router_wake, &router});
   for (iree_host_size_t i = 0; i < router.capacity; ++i) {
     const loom_serve_registered_model_t* model =
         loom_serve_router_model_at(&router, i);

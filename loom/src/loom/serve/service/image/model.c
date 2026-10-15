@@ -1228,9 +1228,9 @@ iree_status_t loom_serve_image_model_activate(loom_serve_image_model_t* model) {
   return loom_serve_residency_activate(model->residency);
 }
 
-iree_status_t loom_serve_image_model_deactivate(
-    loom_serve_image_model_t* model) {
-  return loom_serve_residency_deactivate(model->residency);
+iree_status_t loom_serve_image_model_deactivate(loom_serve_image_model_t* model,
+                                                bool* out_complete) {
+  return loom_serve_residency_deactivate(model->residency, out_complete);
 }
 
 loom_serve_residency_t* loom_serve_image_model_residency(
@@ -1342,7 +1342,7 @@ iree_status_t loom_serve_image_model_generate(
   *out_rgb = iree_const_byte_span_empty();
   IREE_RETURN_IF_ERROR(loom_serve_image_model_prepare_request(
       model, prompt, seed, strength, out_prepared));
-  iree_status_t status = loom_serve_residency_acquire(model->residency);
+  iree_status_t status = loom_serve_residency_acquire_wait(model->residency);
   if (!iree_status_is_ok(status)) {
     loom_serve_image_model_discard_prepared_request(model);
     return status;

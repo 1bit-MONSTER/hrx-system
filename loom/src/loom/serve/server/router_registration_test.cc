@@ -134,7 +134,8 @@ struct RegistrationDependency {
   static void SetPinned(void* self, bool pinned) {
     static_cast<Operation*>(self)->dependency->pinned = pinned;
   }
-  static iree_status_t Deactivate(void* self) {
+  static iree_status_t Deactivate(void* self, bool* out_complete) {
+    *out_complete = true;
     auto* dependency = static_cast<Operation*>(self)->dependency;
     EXPECT_FALSE(ModelService::IsPending(&dependency->service));
     EXPECT_TRUE(dependency->service.pending.empty());

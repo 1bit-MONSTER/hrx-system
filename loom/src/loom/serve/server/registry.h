@@ -55,9 +55,11 @@ typedef struct loom_serve_registration_t {
                             loom_serve_activation_phase_t* out_phase);
   // Releases reloadable parameter storage after admitted service activity has
   // retired. Preserves programs and mutable state. Paired with parameters and
-  // called only when its snapshot reports elastic backing. No execution wait.
-  // Failure terminates shared serving through normal owner draining.
-  iree_status_t (*deactivate)(void* self);
+  // called only when its snapshot reports elastic backing. Nonterminal success
+  // owes an owner wake after native release; repeated calls join that
+  // operation. Failure terminates shared serving through normal owner draining.
+  // No wait.
+  iree_status_t (*deactivate)(void* self, bool* out_complete);
   // Frees the operation after successful retirement; no model resources remain.
   void (*destroy)(void* self);
 } loom_serve_registration_t;
@@ -209,8 +211,7 @@ iree_status_t loom_serve_registry_remove(loom_serve_registered_model_t* model,
 // retained sessions/checkpoints. Requires closed admission and a healthy ready
 // unpinned elastic residency; an unpinned metadata-only declaration is cold.
 // Repeated requests are idempotent. Advance completes after admitted work,
-// without waiting for live device work or unrelated services. Physical unmap
-// and free remain native synchronous capacity transitions on that owner.
+// and native release retire, without waiting for either on the serving owner.
 iree_status_t loom_serve_registry_deactivate(
     loom_serve_registered_model_t* model);
 

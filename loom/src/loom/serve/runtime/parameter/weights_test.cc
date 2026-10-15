@@ -26,6 +26,7 @@
 #include "loom/serve/runtime/parameter/residency.h"
 #include "loom/serve/testing/compiler.h"
 #include "loom/serve/testing/device.h"
+#include "loom/serve/testing/maintenance_gate.h"
 
 IREE_FLAG(string, weight_sources, "", "Weight loader source catalog.");
 
@@ -464,7 +465,7 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
   }
 
   void RunPinned(iree_host_size_t index, int32_t first) {
-    IREE_ASSERT_OK(loom_serve_residency_acquire(residencies_[index]));
+    IREE_ASSERT_OK(loom_serve_residency_acquire_wait(residencies_[index]));
     ASSERT_NO_FATAL_FAILURE(Run(index, first));
     loom_serve_residency_release(residencies_[index]);
   }
@@ -473,6 +474,23 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
     const auto memory = loom_serve_weights_statistics(plans_[index]);
     // Accepted native work owns budget before physical results are published.
     EXPECT_EQ(memory.committed_bytes + memory.pending_bytes, bytes);
+  }
+
+  void AdmitAfterRelease(iree_host_size_t index) {
+    loom_serve_residency_admission_t admission;
+    {
+      loom_serve::testing::MaintenanceGate gate(
+          loom_serve_device_storage_pool(device_owner_)->maintenance);
+      IREE_ASSERT_OK(
+          loom_serve_residency_try_admit(residencies_[index], &admission));
+      ASSERT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_DEFERRED);
+      EXPECT_TRUE(loom_serve_residency_cache_is_reclaiming(
+          loom_serve_device_residency_cache(device_owner_)));
+    }
+    IREE_ASSERT_OK(loom_serve_memory_pool_await(pool_));
+    IREE_ASSERT_OK(
+        loom_serve_residency_try_admit(residencies_[index], &admission));
+    ASSERT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_ACQUIRED);
   }
 
   void DrainMaintenance() {
@@ -665,6 +683,7 @@ TEST_P(WeightsTest, OneWorkerActivatesAndConsumesThroughAsyncTimelineWait) {
   loom_serve_residency_release(residencies_[0]);
   IREE_ASSERT_OK(loom_serve_residency_cache_trim(
       loom_serve_device_residency_cache(device_owner_), 0));
+  DrainMaintenance();
   EXPECT_EQ(loom_serve_weights_statistics(plans_[0]).committed_bytes, 0u);
   // The same compiled consumer survives a complete asynchronous reload.
   ASSERT_NO_FATAL_FAILURE(RunPinned(0, 70));
@@ -784,13 +803,17 @@ TEST_P(WeightsTest, CachedConsumersSurviveBackingReuseAndPreparationReplay) {
   Run(2, 93);
   auto* const root = buffers_[0][0];
   auto* const command = commands_[0];
+  bool complete = false;
   if (!GetParam()) {
     IREE_EXPECT_STATUS_IS(IREE_STATUS_FAILED_PRECONDITION,
-                          loom_serve_weights_deactivate(plans_[0]));
+                          loom_serve_weights_deactivate(plans_[0], &complete));
     Run(0, 70);
     return;
   }
-  IREE_ASSERT_OK(loom_serve_weights_deactivate(plans_[0]));
+  IREE_ASSERT_OK(loom_serve_weights_deactivate(plans_[0], &complete));
+  IREE_ASSERT_OK(loom_serve_memory_pool_await(pool_));
+  IREE_ASSERT_OK(loom_serve_weights_deactivate(plans_[0], &complete));
+  ASSERT_TRUE(complete);
   EXPECT_EQ(loom_serve_weights_statistics(plans_[0]).committed_bytes, 0u);
   EXPECT_EQ(loom_serve_memory_pool_statistics(pool_).committed_bytes, 0u);
   loom_serve_virtual_buffer_t* other = nullptr;
@@ -834,6 +857,7 @@ TEST_P(WeightsTest, CachedConsumersSurviveBackingReuseAndPreparationReplay) {
 }
 
 TEST_P(WeightsTest, AdmissionUsesRecencyOnlyAmongUnpinnedGroups) {
+  bool complete = false;
   for (iree_host_size_t i = 0; i < 3; ++i) {
     IREE_ASSERT_OK(Compile(i, "target"));
     const auto root = Root(i, 0);
@@ -846,8 +870,9 @@ TEST_P(WeightsTest, AdmissionUsesRecencyOnlyAmongUnpinnedGroups) {
   ASSERT_NO_FATAL_FAILURE(RunPinned(0, 70));
   ASSERT_NO_FATAL_FAILURE(RunPinned(2, 70));
   if (!GetParam()) {
-    IREE_EXPECT_STATUS_IS(IREE_STATUS_FAILED_PRECONDITION,
-                          loom_serve_residency_deactivate(residencies_[0]));
+    IREE_EXPECT_STATUS_IS(
+        IREE_STATUS_FAILED_PRECONDITION,
+        loom_serve_residency_deactivate(residencies_[0], &complete));
     ASSERT_NO_FATAL_FAILURE(RunPinned(1, 70));
     return;
   }
@@ -857,10 +882,12 @@ TEST_P(WeightsTest, AdmissionUsesRecencyOnlyAmongUnpinnedGroups) {
   EXPECT_EQ(loom_serve_weights_statistics(plans_[2]).committed_bytes,
             kSlabBytes);
   IREE_ASSERT_OK(loom_serve_residency_acquire(residencies_[0]));
-  IREE_EXPECT_STATUS_IS(IREE_STATUS_FAILED_PRECONDITION,
-                        loom_serve_residency_deactivate(residencies_[0]));
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_FAILED_PRECONDITION,
+      loom_serve_residency_deactivate(residencies_[0], &complete));
   IREE_ASSERT_OK(loom_serve_residency_cache_trim(
       loom_serve_device_residency_cache(device_owner_), 0));
+  IREE_ASSERT_OK(loom_serve_memory_pool_await(pool_));
   EXPECT_EQ(loom_serve_memory_pool_statistics(pool_).committed_bytes,
             kSlabBytes);
   EXPECT_EQ(loom_serve_weights_statistics(plans_[2]).committed_bytes, 0u);
@@ -895,6 +922,7 @@ TEST_P(WeightsTest, ImpossibleParameterGroupCannotJoinPressureAdmission) {
 }
 
 TEST_P(WeightsTest, PersistentPinningOnlyChangesParameterEvictionEligibility) {
+  bool complete = false;
   IREE_ASSERT_OK(Compile(0, "target"));
   const auto root = Root(0, 0);
   IREE_ASSERT_OK(CreateRoots(0, 1, &root, {path_.path()}));
@@ -911,7 +939,7 @@ TEST_P(WeightsTest, PersistentPinningOnlyChangesParameterEvictionEligibility) {
   EXPECT_EQ(loom_serve_weights_statistics(plans_[0]).committed_bytes,
             GetParam() ? kSlabBytes : 0u);
   IREE_EXPECT_STATUS_IS(IREE_STATUS_FAILED_PRECONDITION,
-                        loom_serve_residency_deactivate(residency));
+                        loom_serve_residency_deactivate(residency, &complete));
   loom_serve_residency_set_pinned(residency, false);
   loom_serve_residency_set_pinned(residency, false);
   EXPECT_TRUE(loom_serve_residency_snapshot(residency).active);
@@ -964,6 +992,7 @@ TEST_P(WeightsTest, ExplicitActivationCancellationJoinsAcceptedReadiness) {
   // Warmup owns no persistent pin after completion.
   IREE_ASSERT_OK(loom_serve_residency_cache_trim(
       loom_serve_device_residency_cache(device_owner_), 0));
+  DrainMaintenance();
   EXPECT_EQ(loom_serve_weights_statistics(plans_[0]).committed_bytes, 0u);
 }
 
@@ -1003,15 +1032,22 @@ TEST_P(WeightsTest, CancelledWarmupWithdrawsCapacityInterestWithoutLoading) {
   loom_serve_residency_release(residencies_[0]);
   loom_serve_residency_release(residencies_[0]);
   // A new operation can now reclaim the unpinned peer and finish normally.
+  loom_serve_memory_pool_set_observer(pool_, ActivationWake::Notify, &wake);
   IREE_ASSERT_OK(loom_serve_activation_allocate(
       residencies_[1],
       loom_serve_host_proactor_pool(loom_serve_device_host(device_owner_)),
       ActivationWake::Notify, &wake, host_allocator_, &activation));
-  IREE_ASSERT_OK(loom_serve_activation_advance(activation, 0, &phase));
-  EXPECT_EQ(phase, LOOM_SERVE_ACTIVATION_LOADING);
-  wake.Await();
-  IREE_ASSERT_OK(loom_serve_activation_advance(activation, 0, &phase));
-  EXPECT_EQ(phase, LOOM_SERVE_ACTIVATION_COMPLETE);
+  {
+    loom_serve::testing::MaintenanceGate gate(
+        loom_serve_device_storage_pool(device_owner_)->maintenance);
+    IREE_ASSERT_OK(loom_serve_activation_advance(activation, 0, &phase));
+    EXPECT_EQ(phase, LOOM_SERVE_ACTIVATION_WAITING);
+  }
+  while (phase != LOOM_SERVE_ACTIVATION_COMPLETE) {
+    wake.Await();
+    IREE_ASSERT_OK(loom_serve_activation_advance(activation, 0, &phase));
+  }
+  loom_serve_memory_pool_set_observer(pool_, nullptr, nullptr);
   loom_serve_activation_free(activation);
   IREE_ASSERT_OK(loom_serve_residency_acquire(residencies_[1]));
   ASSERT_NO_FATAL_FAILURE(Run(2, 90));
@@ -1086,14 +1122,14 @@ TEST_P(WeightsTest, CheckpointGroupsAdmitAtomicallyAndRetentionPinsNest) {
   EXPECT_EQ(loom_serve_weights_statistics(plans_[0]).committed_bytes,
             kSlabBytes);
   loom_serve_residency_release(residencies_[0]);
-  IREE_ASSERT_OK(loom_serve_residency_try_acquire(residencies_[1], &admitted));
-  ASSERT_TRUE(admitted);
+  IREE_ASSERT_OK(loom_serve_residency_acquire_wait(residencies_[1]));
   check_activity(2, 0);
   EXPECT_EQ(loom_serve_weights_statistics(plans_[0]).committed_bytes, 0u);
   ASSERT_NO_FATAL_FAILURE(Run(1, 290));
   loom_serve_residency_release(residencies_[1]);
   IREE_ASSERT_OK(loom_serve_residency_cache_trim(
       loom_serve_device_residency_cache(device_owner_), 0));
+  DrainMaintenance();
   EXPECT_EQ(loom_serve_memory_pool_statistics(pool_).committed_bytes, 0u);
   check_activity(2, 2);
 }
@@ -1185,8 +1221,7 @@ TEST_P(WeightsTest, PressureAdmissionDrainsNewPinsButNotAcceptedConsumers) {
   IREE_ASSERT_OK(loom_serve_residency_try_admit(residencies_[0], &admission));
   ASSERT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_DEFERRED);
   loom_serve_residency_release(residencies_[0]);
-  IREE_ASSERT_OK(loom_serve_residency_try_admit(residencies_[1], &admission));
-  ASSERT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_ACQUIRED);
+  ASSERT_NO_FATAL_FAILURE(AdmitAfterRelease(1));
   const auto admitted = loom_serve_residency_snapshot(residencies_[1]);
   EXPECT_FALSE(admitted.admission.waiting);
   EXPECT_EQ(admitted.admission.count, 2u);
@@ -1198,8 +1233,7 @@ TEST_P(WeightsTest, PressureAdmissionDrainsNewPinsButNotAcceptedConsumers) {
   ASSERT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_CAPACITY);
   EXPECT_EQ(loom_serve_residency_snapshot(residencies_[0]).admission.count, 2u);
   loom_serve_residency_release(residencies_[1]);
-  IREE_ASSERT_OK(loom_serve_residency_try_admit(residencies_[0], &admission));
-  ASSERT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_ACQUIRED);
+  ASSERT_NO_FATAL_FAILURE(AdmitAfterRelease(0));
   ASSERT_NO_FATAL_FAILURE(Run(0, 90));
   loom_serve_residency_release(residencies_[0]);
   EXPECT_EQ(loom_serve_residency_snapshot(residencies_[0]).pin_count, 0u);
@@ -1312,8 +1346,7 @@ TEST_P(WeightsTest, PinnedWeightsDeferIdleCacheReclamationUntilItCanHelp) {
   IREE_ASSERT_OK(loom_serve_virtual_buffer_trim(state_));
   owner.pending = false;
   EXPECT_FALSE(loom_serve_residency_cache_is_reclaiming(cache));
-  IREE_ASSERT_OK(loom_serve_residency_try_admit(residencies_[0], &admission));
-  ASSERT_EQ(admission, LOOM_SERVE_RESIDENCY_ADMISSION_ACQUIRED);
+  ASSERT_NO_FATAL_FAILURE(AdmitAfterRelease(0));
   ASSERT_NO_FATAL_FAILURE(Run(0, 90));
   loom_serve_residency_release(residencies_[0]);
   loom_serve_residency_set_reclaimer(residencies_[1], {});
@@ -1337,6 +1370,19 @@ TEST_P(WeightsTest, MutableGrowthReclaimsIdleParametersWithoutDiscardingState) {
       loom_serve_virtual_buffer_commit(state_, 0, 2 * kSlabBytes));
   EXPECT_EQ(state_statistics_.committed_bytes, 0u);
   loom_serve_residency_release(residencies_[0]);
+  {
+    loom_serve::testing::MaintenanceGate gate(
+        loom_serve_device_storage_pool(device_owner_)->maintenance);
+    const loom_serve_memory_range_t range = {state_, 0, 2 * kSlabBytes};
+    bool admitted = true;
+    IREE_ASSERT_OK(
+        loom_serve_memory_pool_try_commit(pool_, 1, &range, &admitted));
+    EXPECT_FALSE(admitted);
+    EXPECT_EQ(loom_serve_weights_statistics(plans_[0]).releasing_bytes,
+              kSlabBytes);
+    EXPECT_EQ(state_statistics_.committed_bytes, 0u);
+  }
+  IREE_ASSERT_OK(loom_serve_memory_pool_await(pool_));
   IREE_ASSERT_OK(loom_serve_virtual_buffer_commit(state_, 0, 2 * kSlabBytes));
   EXPECT_EQ(loom_serve_weights_statistics(plans_[0]).committed_bytes, 0u);
   const uint32_t value = 0xA1B2C3D4;
@@ -1425,6 +1471,7 @@ TEST_P(WeightsTest,
   // The model's real command completion follows allocation on the work chain.
   ASSERT_NO_FATAL_FAILURE(Run(0, 70));
   IREE_ASSERT_OK(loom_serve_device_trim(device_owner_, kSlabBytes - 1));
+  DrainMaintenance();
   const auto pinned = loom_serve_device_memory_statistics(device_owner_);
   EXPECT_EQ(pinned.workspace.bytes_committed, kSlabBytes);
   EXPECT_EQ(pinned.workspace.reservation_count, 1u);

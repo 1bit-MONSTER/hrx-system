@@ -11,6 +11,56 @@
 #include "iree/base/internal/json.h"
 #include "loom/util/json.h"
 
+void loom_serve_resources_set_observer(const loom_serve_resources_t* resources,
+                                       loom_serve_wake_callback_t observer) {
+  if (!resources->device_group) {
+    return;
+  }
+  for (iree_host_size_t i = 0;
+       i < loom_serve_device_group_count(resources->device_group); ++i) {
+    loom_serve_memory_pool_t* pool = loom_serve_device_memory_pool(
+        loom_serve_device_group_at(resources->device_group, i));
+    if (pool) {
+      loom_serve_memory_pool_set_observer(pool, observer.wake,
+                                          observer.user_data);
+    }
+  }
+}
+
+iree_status_t loom_serve_resources_query_status(
+    const loom_serve_resources_t* resources) {
+  if (!resources->device_group) {
+    return iree_ok_status();
+  }
+  iree_status_t status = iree_ok_status();
+  for (iree_host_size_t i = 0;
+       i < loom_serve_device_group_count(resources->device_group); ++i) {
+    loom_serve_memory_pool_t* pool = loom_serve_device_memory_pool(
+        loom_serve_device_group_at(resources->device_group, i));
+    if (pool) {
+      status =
+          iree_status_join(status, loom_serve_memory_pool_query_status(pool));
+    }
+  }
+  return status;
+}
+
+bool loom_serve_resources_is_pending(const loom_serve_resources_t* resources) {
+  if (!resources->device_group) {
+    return false;
+  }
+  bool pending = false;
+  for (iree_host_size_t i = 0;
+       i < loom_serve_device_group_count(resources->device_group); ++i) {
+    loom_serve_memory_pool_t* pool = loom_serve_device_memory_pool(
+        loom_serve_device_group_at(resources->device_group, i));
+    if (pool) {
+      pending |= loom_serve_memory_pool_is_pending(pool);
+    }
+  }
+  return pending;
+}
+
 static iree_status_t loom_serve_resources_write_physical_devices(
     const iree_hal_device_identity_spec_t* identity,
     loom_output_stream_t* output) {
@@ -65,11 +115,11 @@ static iree_status_t loom_serve_resources_write_memory(
     IREE_RETURN_IF_ERROR(loom_output_stream_write_format(
         output,
         ",\"reserved_bytes\":%" PRIu64 ",\"committed_bytes\":%" PRIu64
-        ",\"pending_bytes\":%" PRIu64 ",\"peak_bytes\":%" PRIu64
-        ",\"released_bytes\":%" PRIu64 "}",
+        ",\"pending_bytes\":%" PRIu64 ",\"releasing_bytes\":%" PRIu64
+        ",\"peak_bytes\":%" PRIu64 ",\"released_bytes\":%" PRIu64 "}",
         memory.retained.reserved_bytes, memory.retained.committed_bytes,
-        memory.retained.pending_bytes, memory.retained.peak_bytes,
-        memory.retained.released_bytes));
+        memory.retained.pending_bytes, memory.retained.releasing_bytes,
+        memory.retained.peak_bytes, memory.retained.released_bytes));
   } else {
     IREE_RETURN_IF_ERROR(loom_output_stream_write_cstring(output, "null"));
   }

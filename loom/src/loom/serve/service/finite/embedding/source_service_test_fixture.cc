@@ -85,7 +85,13 @@ iree_status_t ModelLifecycle::Drain(iree_task_process_t* process,
         self->service->advance(self->service->self, flags, &result->did_work));
     pending = self->service->is_pending(self->service->self);
   }
+  if (self->pool) {
+    pending |= loom_serve_memory_pool_is_pending(self->pool);
+  }
   result->completed = self->complete && !pending;
+  if (result->completed && self->pool) {
+    loom_serve_memory_pool_set_observer(self->pool, nullptr, nullptr);
+  }
   return iree_ok_status();
 }
 
@@ -116,6 +122,10 @@ iree_status_t ModelLifecycle::RunOwner(loom_serve_device_t* device) {
   process.release_fn = Release;
   if (service) {
     service->set_observer(service->self, {Wake, this});
+  }
+  pool = loom_serve_device_memory_pool(device);
+  if (pool) {
+    loom_serve_memory_pool_set_observer(pool, Wake, this);
   }
   Wake(this);
   std::unique_lock<std::mutex> lock(mutex);
@@ -200,14 +210,18 @@ void SourceEmbeddingServiceTest::CreateService(
   interface_ = loom_serve_finite_service_interface(service_);
   EXPECT_EQ(interface_.capacity_domain,
             loom_serve_device_residency_cache(device_));
-  interface_.set_observer(
-      interface_.self,
-      {[](void* self) {
-         auto* test = static_cast<SourceEmbeddingServiceTest*>(self);
-         test->wakes_.fetch_add(1);
-         iree_notification_post(&test->notification_, IREE_ALL_WAITERS);
-       },
-       this});
+  const loom_serve_wake_callback_t observer = {
+      [](void* self) {
+        auto* test = static_cast<SourceEmbeddingServiceTest*>(self);
+        test->wakes_.fetch_add(1);
+        iree_notification_post(&test->notification_, IREE_ALL_WAITERS);
+      },
+      this};
+  interface_.set_observer(interface_.self, observer);
+  if (auto* pool = loom_serve_device_memory_pool(device_)) {
+    loom_serve_memory_pool_set_observer(pool, observer.wake,
+                                        observer.user_data);
+  }
 }
 
 void SourceEmbeddingServiceTest::TearDown() {
@@ -223,6 +237,9 @@ void SourceEmbeddingServiceTest::TearDown() {
   loom_serve_http_server_free(server_);
   IREE_EXPECT_OK(loom_serve_finite_model_free(model_));
   IREE_EXPECT_OK(loom_serve_finite_model_free(retained_));
+  if (auto* pool = loom_serve_device_memory_pool(device_)) {
+    loom_serve_memory_pool_set_observer(pool, nullptr, nullptr);
+  }
   iree_notification_deinitialize(&notification_);
 }
 
@@ -270,7 +287,9 @@ bool SourceEmbeddingServiceTest::Step(loom_serve_http_service_flags_t flags) {
   const uint64_t previous = wakes_.load();
   bool progress = false;
   IREE_EXPECT_OK(interface_.advance(interface_.self, flags, &progress));
-  if (interface_.is_active(interface_.self)) {
+  auto* pool = loom_serve_device_memory_pool(device_);
+  if (interface_.is_active(interface_.self) ||
+      (pool && loom_serve_memory_pool_is_pending(pool))) {
     struct Wait {
       // Shared release counter.
       std::atomic<uint64_t>* wakes;
@@ -284,8 +303,11 @@ bool SourceEmbeddingServiceTest::Step(loom_serve_http_service_flags_t flags) {
           return wait->wakes->load() > wait->previous;
         },
         &wait, iree_infinite_timeout());
+    return true;
   }
-  return progress;
+  // A native completion can arrive during advance after capacity was denied.
+  // Consume that wake with another owner turn instead of ending the drain.
+  return progress || wakes_.load() > previous;
 }
 
 void SourceEmbeddingServiceTest::Drain() {
@@ -305,7 +327,7 @@ void SourceEmbeddingServiceTest::CheckAbandonedCohort(
   }
   ASSERT_TRUE(Step());  // CPU request preparation.
   ASSERT_TRUE(Step());  // Source batch preparation.
-  ASSERT_TRUE(Step());  // Accepted device work and its actual readiness.
+  ASSERT_TRUE(Step());  // Accepted device work; readiness may still be pending.
   ASSERT_STREQ(interface_.snapshot(interface_.self).phase, "running");
 
   if (!iree_any_bit_set(flags, LOOM_SERVE_HTTP_SERVICE_FLAG_STOPPING)) {
@@ -327,7 +349,9 @@ void SourceEmbeddingServiceTest::CheckAbandonedCohort(
 
   // Successful completion still counts the whole device cohort. No response
   // consumer survives, so no CPU encoder should acquire these result views.
-  EXPECT_TRUE(Step(flags));
+  while (interface_.is_pending(interface_.self)) {
+    ASSERT_TRUE(Step(flags));
+  }
   EXPECT_STREQ(interface_.snapshot(interface_.self).phase, "idle");
   EXPECT_EQ(interface_.snapshot(interface_.self).active_requests, 0u);
   EXPECT_FALSE(interface_.is_pending(interface_.self));

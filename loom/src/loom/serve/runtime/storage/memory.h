@@ -30,6 +30,9 @@ typedef struct loom_serve_memory_statistics_t {
   uint64_t committed_bytes;
   // Budget charged to accepted native commitments not yet published by owner.
   uint64_t pending_bytes;
+  // Committed bytes selected for native release, still charged until
+  // completion.
+  uint64_t releasing_bytes;
   // Maximum simultaneously committed physical bytes.
   uint64_t peak_bytes;
   // Cumulative physical bytes successfully returned to the allocator.
@@ -64,6 +67,23 @@ uint64_t loom_serve_memory_pool_limit(const loom_serve_memory_pool_t* pool);
 iree_status_t loom_serve_memory_pool_query_status(
     loom_serve_memory_pool_t* pool);
 
+// Installs the serialized owner's nonblocking wake on accepted and subsequent
+// native work. Passing NULL detaches and joins the last callback access. The
+// callback only schedules its owner and cannot reenter this pool. This owner
+// observes completion/failure independently of any individual model lifetime.
+void loom_serve_memory_pool_set_observer(loom_serve_memory_pool_t* pool,
+                                         void (*wake)(void* user_data),
+                                         void* user_data);
+
+// Collects completed operations and reports remaining native borrowers.
+bool loom_serve_memory_pool_is_pending(loom_serve_memory_pool_t* pool);
+
+// Outer-thread join of accepted native operations, not device work or logical
+// reclamation that still needs its model scheduler. Never called by task
+// owners. Publishes final accounting and returns the pool's terminal native
+// failure.
+iree_status_t loom_serve_memory_pool_await(loom_serve_memory_pool_t* pool);
+
 // Cold pressure policy, independent of logical storage geometry. The callback
 // may trim eligible reservations toward target_bytes of total commitment; it
 // returns a status only for an actual platform/IO failure. An unreachable
@@ -83,7 +103,9 @@ void loom_serve_memory_pool_set_reclaimer(
 // the single owner commits before yielding admission to another caller. False
 // means ordinary capacity backpressure, not an allocation failure. Consumers
 // pin every residency they need before asking for capacity, including already
-// backed ranges the policy could otherwise trim.
+// backed ranges the policy could otherwise trim. An accepted release does not
+// grant capacity until native completion; its owner wake permits another
+// attempt.
 iree_status_t loom_serve_memory_pool_prepare(loom_serve_memory_pool_t* pool,
                                              uint64_t additional_bytes,
                                              bool* out_admitted);
@@ -146,6 +168,18 @@ iree_status_t loom_serve_memory_pool_commit_async(
     loom_serve_memory_pool_t* pool, iree_host_size_t range_count,
     const loom_serve_memory_range_t* ranges, iree_hal_semaphore_t* readiness,
     uint64_t value, bool* out_admitted,
+    loom_serve_memory_operation_t** out_operation);
+
+// Copies the unkept physical slab set of these distinct reservations and queues
+// its native release. The caller has retired every consumer of that set and
+// keeps reservations/accounting alive through operation completion. Kept slabs
+// remain usable. No other operation may edit selected slabs before completion.
+// Committed bytes stay charged; releasing_bytes describes the pending subset,
+// not available capacity. An empty set returns NULL. Native failures preserve
+// unreleased ownership and poison the pool for normal owner-driven shutdown.
+iree_status_t loom_serve_memory_pool_trim_async(
+    loom_serve_memory_pool_t* pool, iree_host_size_t buffer_count,
+    loom_serve_virtual_buffer_t* const* buffers,
     loom_serve_memory_operation_t** out_operation);
 
 // Installs a nonblocking ownership wake, or detaches it with NULL. The observer

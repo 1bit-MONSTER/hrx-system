@@ -105,6 +105,7 @@ class SourceImageServiceTest : public ::testing::TestWithParam<uint32_t> {
                   .request_quota = options.pending_capacity,
                   .holding_capacity =
                       loom_serve_http_server_connection_capacity(server_) / 2,
+                  .resources = {.device_group = group_},
               },
               host_allocator_);
         }
@@ -142,7 +143,12 @@ class SourceImageServiceTest : public ::testing::TestWithParam<uint32_t> {
           host_allocator_, &registry));
       iree_status_t status = loom_serve_router_run(
           loom_serve_host_executor(host_), server_, registry,
-          {.request_quota = 16, .holding_capacity = 8}, host_allocator_);
+          {
+              .request_quota = 16,
+              .holding_capacity = 8,
+              .resources = {.device_group = group_},
+          },
+          host_allocator_);
       return iree_status_join(status, loom_serve_registry_free(registry));
     });
   }

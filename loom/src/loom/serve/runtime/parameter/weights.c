@@ -84,6 +84,8 @@ struct loom_serve_weights_t {
     // Initialized handles, including a partially failed activation.
     iree_host_size_t count;
   } activation;
+  // Native release borrower, joined before reactivation or destruction.
+  loom_serve_memory_operation_t* deactivation;
   // Owned original checkpoint provider and imported-file cache.
   iree_io_parameter_provider_t* provider;
   // Owned placement/preparation records, with keys in the owned key storage.
@@ -792,6 +794,7 @@ iree_status_t loom_serve_weights_allocate(
 
 iree_status_t loom_serve_weights_activate(loom_serve_weights_t* weights,
                                           loom_serve_execution_t* execution) {
+  IREE_ASSERT(!weights->deactivation);
   if (weights->active) {
     return iree_ok_status();
   }
@@ -855,24 +858,46 @@ iree_status_t loom_serve_weights_await(loom_serve_weights_t* weights) {
   return status;
 }
 
-iree_status_t loom_serve_weights_deactivate(loom_serve_weights_t* weights) {
+iree_status_t loom_serve_weights_deactivate(loom_serve_weights_t* weights,
+                                            bool* out_complete) {
+  *out_complete = false;
   if (!weights->pool) {
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                             "fixed parameter backing cannot deactivate");
   }
+  if (weights->deactivation) {
+    if (loom_serve_memory_operation_is_complete(weights->deactivation)) {
+      loom_serve_memory_operation_free(weights->deactivation);
+      weights->deactivation = NULL;
+      *out_complete = true;
+      return loom_serve_memory_pool_query_status(weights->pool);
+    }
+    return iree_ok_status();
+  }
+  if (!weights->active) {
+    *out_complete = true;
+    return iree_ok_status();
+  }
   IREE_TRACE_ZONE_BEGIN(z0);
   IREE_TRACE_ZONE_APPEND_VALUE_I64(
       z0, (int64_t)weights->statistics.committed_bytes);
-  iree_status_t status = iree_ok_status();
   const bool backing_complete =
       loom_serve_memory_operation_is_complete(weights->activation.backing);
   IREE_ASSERT(backing_complete);
-  for (iree_host_size_t i = 0;
-       i < weights->storage_count && iree_status_is_ok(status); ++i) {
-    loom_serve_virtual_buffer_t* reservation = weights->storages[i].reservation;
-    loom_serve_virtual_buffer_begin_trim(reservation);
-    status = loom_serve_virtual_buffer_trim(reservation);
+  loom_serve_virtual_buffer_t** reservations = NULL;
+  iree_status_t status = iree_allocator_malloc_array(
+      weights->host_allocator, weights->storage_count, sizeof(*reservations),
+      (void**)&reservations);
+  if (iree_status_is_ok(status)) {
+    for (iree_host_size_t i = 0; i < weights->storage_count; ++i) {
+      reservations[i] = weights->storages[i].reservation;
+      loom_serve_virtual_buffer_begin_trim(reservations[i]);
+    }
+    status =
+        loom_serve_memory_pool_trim_async(weights->pool, weights->storage_count,
+                                          reservations, &weights->deactivation);
   }
+  iree_allocator_free(weights->host_allocator, reservations);
   if (iree_status_is_ok(status)) {
     weights->activity.deactivations += weights->active;
     weights->active = false;
@@ -886,6 +911,7 @@ iree_status_t loom_serve_weights_deactivate(loom_serve_weights_t* weights) {
     weights->activation.backing = NULL;
     iree_hal_semaphore_release(weights->activation.backing_ready);
     weights->activation.backing_ready = NULL;
+    *out_complete = !weights->deactivation;
   }
   IREE_TRACE_ZONE_END(z0);
   return status;
@@ -895,6 +921,7 @@ loom_serve_memory_statistics_t loom_serve_weights_statistics(
     const loom_serve_weights_t* weights) {
   // Accounting is published by the serialized owner, never the cold executor.
   loom_serve_memory_operation_is_complete(weights->activation.backing);
+  loom_serve_memory_operation_is_complete(weights->deactivation);
   return weights->statistics;
 }
 
@@ -909,6 +936,8 @@ void loom_serve_weights_set_retirement_observer(loom_serve_weights_t* weights,
   if (weights) {
     loom_serve_memory_operation_set_observer(weights->activation.backing, wake,
                                              user_data);
+    loom_serve_memory_operation_set_observer(weights->deactivation, wake,
+                                             user_data);
     loom_serve_retirement_set_observer(&weights->retirement, wake, user_data);
     loom_serve_retirement_set_observer(&weights->activation.retirement, wake,
                                        user_data);
@@ -919,6 +948,7 @@ bool loom_serve_weights_is_retired(loom_serve_weights_t* weights) {
   return !weights ||
          (loom_serve_memory_operation_is_complete(
               weights->activation.backing) &&
+          loom_serve_memory_operation_is_complete(weights->deactivation) &&
           loom_serve_retirement_is_idle(&weights->retirement) &&
           loom_serve_retirement_is_idle(&weights->activation.retirement));
 }
@@ -926,6 +956,7 @@ bool loom_serve_weights_is_retired(loom_serve_weights_t* weights) {
 void loom_serve_weights_await_retirement(loom_serve_weights_t* weights) {
   if (weights) {
     loom_serve_memory_operation_await(weights->activation.backing);
+    loom_serve_memory_operation_await(weights->deactivation);
     loom_serve_retirement_await(&weights->retirement);
     loom_serve_retirement_await(&weights->activation.retirement);
   }
@@ -947,6 +978,7 @@ iree_status_t loom_serve_weights_free(loom_serve_weights_t* weights) {
   }
   if (iree_status_is_ok(status)) {
     loom_serve_memory_operation_free(weights->activation.backing);
+    loom_serve_memory_operation_free(weights->deactivation);
     iree_hal_semaphore_release(weights->activation.backing_ready);
     loom_serve_retirement_deinitialize(&weights->retirement);
     loom_serve_retirement_deinitialize(&weights->activation.retirement);

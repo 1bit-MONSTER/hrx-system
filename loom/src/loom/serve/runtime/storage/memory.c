@@ -29,6 +29,13 @@ struct loom_serve_memory_pool_t {
   loom_serve_memory_statistics_t statistics;
   // Owner-only list of native operations awaiting result publication.
   loom_serve_memory_operation_t* operations;
+  // Owner wake copied into operations before handing them to maintenance.
+  struct {
+    // Nonblocking callback; detachment joins every accepted copy.
+    void (*wake)(void* user_data);
+    // Borrowed scheduling owner, never accessed after detachment.
+    void* user_data;
+  } observer;
   // Borrowed owner of cold capacity reclamation, separate from slab mechanics.
   loom_serve_memory_reclaimer_t reclaimer;
   // Owned first native/reclamation failure; backing may be partially changed.
@@ -85,6 +92,8 @@ struct loom_serve_memory_operation_t {
   iree_hal_semaphore_t* readiness;
   // Caller-selected readiness payload.
   uint64_t value;
+  // Release existing physical ownership instead of constructing new backing.
+  bool releasing;
   // Joins completion and observer access before the caller releases the job.
   iree_slim_mutex_t mutex;
   // Outer-thread wait only; shared task workers never wait here.
@@ -99,7 +108,14 @@ struct loom_serve_memory_operation_t {
   void (*wake)(void* user_data);
   // Borrowed callback payload, joined by detachment or final observation.
   void* user_data;
-  // Number of unique missing slabs in the trailing edit array.
+  // Pool-owner scheduling copy, independent of the caller's retirement wake.
+  struct {
+    // Protected by the operation mutex; never reenters the pool.
+    void (*wake)(void* user_data);
+    // Borrowed owner, joined by pool observer detachment.
+    void* user_data;
+  } observer;
+  // Number of distinct selected slabs in the trailing edit array.
   iree_host_size_t count;
   // Exact native work; no worker traverses mutable serving metadata.
   memory_edit_t edits[];
@@ -176,6 +192,32 @@ iree_status_t loom_serve_memory_pool_query_status(
   return iree_status_clone(pool->failure);
 }
 
+void loom_serve_memory_pool_set_observer(loom_serve_memory_pool_t* pool,
+                                         void (*wake)(void* user_data),
+                                         void* user_data) {
+  pool->observer.wake = wake;
+  pool->observer.user_data = user_data;
+  for (loom_serve_memory_operation_t* operation = pool->operations; operation;
+       operation = operation->next) {
+    iree_slim_mutex_lock(&operation->mutex);
+    operation->observer.wake = wake;
+    operation->observer.user_data = user_data;
+    iree_slim_mutex_unlock(&operation->mutex);
+  }
+}
+
+bool loom_serve_memory_pool_is_pending(loom_serve_memory_pool_t* pool) {
+  loom_serve_memory_pool_collect(pool);
+  return pool->operations != NULL;
+}
+
+iree_status_t loom_serve_memory_pool_await(loom_serve_memory_pool_t* pool) {
+  while (pool->operations) {
+    loom_serve_memory_operation_await(pool->operations);
+  }
+  return iree_status_clone(pool->failure);
+}
+
 void loom_serve_memory_pool_set_reclaimer(
     loom_serve_memory_pool_t* pool, loom_serve_memory_reclaimer_t reclaimer) {
   pool->reclaimer = reclaimer;
@@ -186,6 +228,7 @@ iree_status_t loom_serve_memory_pool_prepare(loom_serve_memory_pool_t* pool,
                                              bool* out_admitted) {
   *out_admitted = false;
   loom_serve_memory_pool_collect(pool);
+  IREE_RETURN_IF_ERROR(iree_status_clone(pool->failure));
   if (additional_bytes > pool->limit_bytes) {
     return iree_ok_status();
   }
@@ -206,6 +249,8 @@ iree_status_t loom_serve_memory_pool_prepare(loom_serve_memory_pool_t* pool,
       return status;
     }
   }
+  loom_serve_memory_pool_collect(pool);
+  IREE_RETURN_IF_ERROR(iree_status_clone(pool->failure));
   *out_admitted =
       pool->statistics.committed_bytes + pool->statistics.pending_bytes <=
       target_bytes;
@@ -365,9 +410,17 @@ static void loom_serve_memory_pool_collect(loom_serve_memory_pool_t* pool) {
     for (iree_host_size_t i = 0; i < operation->count; ++i) {
       const memory_edit_t* edit = &operation->edits[i];
       loom_serve_memory_slab_publish(edit->buffer, edit->index, &edit->result);
-      edit->buffer->statistics->pending_bytes -= pool->slab_size;
+      if (operation->releasing) {
+        edit->buffer->statistics->releasing_bytes -= pool->slab_size;
+      } else {
+        edit->buffer->statistics->pending_bytes -= pool->slab_size;
+      }
     }
-    pool->statistics.pending_bytes -= operation->count * pool->slab_size;
+    if (operation->releasing) {
+      pool->statistics.releasing_bytes -= operation->count * pool->slab_size;
+    } else {
+      pool->statistics.pending_bytes -= operation->count * pool->slab_size;
+    }
     pool->failure = iree_status_join(pool->failure, operation->status);
     operation->status = iree_ok_status();
     operation->published = true;
@@ -386,9 +439,14 @@ static void loom_serve_memory_operation_execute(
   for (iree_host_size_t i = 0;
        i < operation->count && iree_status_is_ok(status); ++i) {
     memory_edit_t* edit = &operation->edits[i];
-    status = loom_serve_memory_slab_commit_native(edit->buffer, edit->index,
-                                                  &edit->result);
-    mapped |= edit->result.mapped;
+    if (operation->releasing) {
+      status = loom_serve_memory_slab_release_native(edit->buffer, edit->index,
+                                                     &edit->result);
+    } else {
+      status = loom_serve_memory_slab_commit_native(edit->buffer, edit->index,
+                                                    &edit->result);
+      mapped |= edit->result.mapped;
+    }
   }
   if (mapped && operation->pool->legacy_amdgpu_mapping_publication) {
     status = iree_status_join(
@@ -399,11 +457,11 @@ static void loom_serve_memory_operation_execute(
   // final signal and ownership publication so it cannot observe ready mappings
   // without also joining the callback's final access to this operation.
   iree_slim_mutex_lock(&operation->mutex);
-  if (iree_status_is_ok(status)) {
+  if (operation->readiness && iree_status_is_ok(status)) {
     status =
         iree_hal_semaphore_signal(operation->readiness, operation->value, NULL);
   }
-  if (!iree_status_is_ok(status)) {
+  if (operation->readiness && !iree_status_is_ok(status)) {
     iree_hal_semaphore_fail(operation->readiness, iree_status_clone(status));
   }
   operation->status = status;
@@ -412,8 +470,25 @@ static void loom_serve_memory_operation_execute(
   if (operation->wake) {
     operation->wake(operation->user_data);
   }
+  if (operation->observer.wake) {
+    operation->observer.wake(operation->observer.user_data);
+  }
   iree_slim_mutex_unlock(&operation->mutex);
   IREE_TRACE_ZONE_END(z0);
+}
+
+static void loom_serve_memory_operation_enqueue(
+    loom_serve_memory_pool_t* pool, loom_serve_memory_operation_t* operation) {
+  operation->entry.fn = loom_serve_memory_operation_execute;
+  operation->pool = pool;
+  operation->observer.wake = pool->observer.wake;
+  operation->observer.user_data = pool->observer.user_data;
+  iree_slim_mutex_initialize(&operation->mutex);
+  iree_notification_initialize(&operation->notification);
+  operation->next = pool->operations;
+  pool->operations = operation;
+  iree_hal_memory_maintenance_enqueue(pool->storage_pool->maintenance,
+                                      &operation->entry);
 }
 
 iree_status_t loom_serve_memory_pool_commit_async(
@@ -476,26 +551,71 @@ iree_status_t loom_serve_memory_pool_commit_async(
     }
   }
   if (operation) {
-    operation->entry.fn = loom_serve_memory_operation_execute;
-    operation->pool = pool;
     operation->count = count;
     operation->readiness = readiness;
     operation->value = value;
     iree_hal_semaphore_retain(readiness);
-    iree_slim_mutex_initialize(&operation->mutex);
-    iree_notification_initialize(&operation->notification);
-    operation->next = pool->operations;
-    pool->operations = operation;
     pool->statistics.pending_bytes += count * pool->slab_size;
     *out_operation = operation;
-    iree_hal_memory_maintenance_enqueue(pool->storage_pool->maintenance,
-                                        &operation->entry);
+    loom_serve_memory_operation_enqueue(pool, operation);
   } else if (iree_status_is_ok(status) && admitted) {
     status = iree_hal_semaphore_signal(readiness, value, NULL);
   }
   *out_admitted = iree_status_is_ok(status) && admitted;
   IREE_TRACE_ZONE_END(z0);
   return status;
+}
+
+iree_status_t loom_serve_memory_pool_trim_async(
+    loom_serve_memory_pool_t* pool, iree_host_size_t buffer_count,
+    loom_serve_virtual_buffer_t* const* buffers,
+    loom_serve_memory_operation_t** out_operation) {
+  IREE_TRACE_ZONE_BEGIN(z0);
+  *out_operation = NULL;
+  loom_serve_memory_pool_collect(pool);
+  if (!pool->storage_pool->maintenance) {
+    IREE_TRACE_ZONE_END(z0);
+    return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
+                            "elastic backing requires native cold maintenance");
+  }
+  iree_host_size_t count = 0;
+  for (iree_host_size_t b = 0; b < buffer_count; ++b) {
+    for (iree_host_size_t i = 0; i < buffers[b]->slab_count; ++i) {
+      const memory_slab_t* slab = &buffers[b]->slabs[i];
+      if (!slab->keep && slab->physical) {
+        IREE_ASSERT(!slab->in_flight);
+        ++count;
+      }
+    }
+  }
+  if (!count) {
+    IREE_TRACE_ZONE_END(z0);
+    return iree_ok_status();
+  }
+  loom_serve_memory_operation_t* operation = NULL;
+  IREE_RETURN_AND_END_ZONE_IF_ERROR(
+      z0, iree_allocator_malloc_struct_array(
+              pool->host_allocator, sizeof(*operation), count,
+              sizeof(memory_edit_t), (void**)&operation));
+  operation->count = count;
+  operation->releasing = true;
+  iree_host_size_t index = 0;
+  for (iree_host_size_t b = 0; b < buffer_count; ++b) {
+    loom_serve_virtual_buffer_t* buffer = buffers[b];
+    for (iree_host_size_t i = 0; i < buffer->slab_count; ++i) {
+      memory_slab_t* slab = &buffer->slabs[i];
+      if (!slab->keep && slab->physical) {
+        operation->edits[index++] = (memory_edit_t){buffer, i, *slab};
+        slab->in_flight = true;
+        buffer->statistics->releasing_bytes += pool->slab_size;
+      }
+    }
+  }
+  pool->statistics.releasing_bytes += count * pool->slab_size;
+  *out_operation = operation;
+  loom_serve_memory_operation_enqueue(pool, operation);
+  IREE_TRACE_ZONE_END(z0);
+  return iree_ok_status();
 }
 
 void loom_serve_memory_operation_set_observer(

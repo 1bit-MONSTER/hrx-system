@@ -182,7 +182,12 @@ class SourceDecisionServiceTest : public ::testing::Test {
           2, interfaces_, 0, {}, host_allocator_, &registry));
       iree_status_t status = loom_serve_router_run(
           loom_serve_host_executor(host_), server_, registry,
-          {.request_quota = 16, .holding_capacity = 8}, host_allocator_);
+          {
+              .request_quota = 16,
+              .holding_capacity = 8,
+              .resources = {.device_group = group_},
+          },
+          host_allocator_);
       return iree_status_join(status, loom_serve_registry_free(registry));
     });
   }

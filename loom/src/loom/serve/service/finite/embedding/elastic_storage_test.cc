@@ -30,6 +30,99 @@ using loom_serve::testing::StalledStderr;
 class ElasticEmbeddingServiceTest : public SourceEmbeddingServiceTest {};
 
 TEST_F(ElasticEmbeddingServiceTest,
+       ParameterDeactivationDoesNotBlockWarmRequestsAndReloadsExactly) {
+  const std::string package =
+      iree::testing::MakeTempFilePath("parameter_release_progress");
+  ASSERT_NO_FATAL_FAILURE(WriteCheckpointPackage(package));
+  StartManagedRouter();
+  ASSERT_EQ(Read(Send(Declaration("cold", package), "/v1/models/register"))
+                .find("HTTP/1.1 202"),
+            0u);
+  ASSERT_NE(Read(Send(R"({"model":"cold","input":"a"})"))
+                .find(R"("embedding":[2,2,2,2])"),
+            std::string::npos);
+  ASSERT_NE(Read(Send(R"({"model":"fixture","input":"a"})"))
+                .find(R"("embedding":[1,1,1,1])"),
+            std::string::npos);
+  ASSERT_EQ(Read(Send(R"({"model":"cold"})", "/v1/models/drain"))
+                .find("HTTP/1.1 200"),
+            0u);
+  {
+    loom_serve::testing::MaintenanceGate gate(
+        loom_serve_device_storage_pool(device_)->maintenance);
+    ASSERT_EQ(Read(Send(R"({"model":"cold"})", "/v1/models/deactivate"))
+                  .find("HTTP/1.1 202"),
+              0u);
+    const auto releasing = WaitModel("cold", R"("releasing_bytes":2097152)");
+    EXPECT_NE(releasing.find(R"("committed_bytes":2097152)"),
+              std::string::npos);
+    EXPECT_NE(releasing.find(R"("parameter_operation":"deactivating")"),
+              std::string::npos);
+    EXPECT_EQ(Read(Send(R"({"model":"cold"})", "/v1/models/activate"))
+                  .find("HTTP/1.1 409"),
+              0u);
+    EXPECT_NE(Read(Send(R"({"model":"fixture","input":"a"})"))
+                  .find(R"("embedding":[1,1,1,1])"),
+              std::string::npos);
+    EXPECT_EQ(Read(Send({}, "/healthz", "GET")).find("HTTP/1.1 200"), 0u);
+  }
+  ASSERT_NO_FATAL_FAILURE(WaitModel("cold", R"("parameter_operation":"idle")"));
+  EXPECT_NE(ModelStatus("cold").find(R"("committed_bytes":0)"),
+            std::string::npos);
+  ASSERT_EQ(Read(Send(R"({"model":"cold"})", "/v1/models/undrain"))
+                .find("HTTP/1.1 200"),
+            0u);
+  EXPECT_NE(Read(Send(R"({"model":"cold","input":"a"})"))
+                .find(R"("embedding":[2,2,2,2])"),
+            std::string::npos);
+}
+
+TEST_F(ElasticEmbeddingServiceTest,
+       PressureReleaseDefersAdmissionAndUnregisterJoinsNativeOwnership) {
+  const std::string package =
+      iree::testing::MakeTempFilePath("parameter_release_pressure");
+  ASSERT_NO_FATAL_FAILURE(WriteCheckpointPackage(package));
+  StartManagedRouter();
+  for (const char* name : {"first", "second"}) {
+    ASSERT_EQ(Read(Send(Declaration(name, package), "/v1/models/register"))
+                  .find("HTTP/1.1 202"),
+              0u);
+    ASSERT_NO_FATAL_FAILURE(WaitModel(name, R"("registration":"ready")"));
+  }
+  ASSERT_NE(Read(Send(R"({"model":"first","input":"a"})"))
+                .find(R"("embedding":[2,2,2,2])"),
+            std::string::npos);
+  ASSERT_NE(Read(Send(R"({"model":"fixture","input":"a"})"))
+                .find(R"("embedding":[1,1,1,1])"),
+            std::string::npos);
+  int waiting = -1;
+  {
+    loom_serve::testing::MaintenanceGate gate(
+        loom_serve_device_storage_pool(device_)->maintenance);
+    waiting = Send(R"({"model":"second","input":"a"})");
+    const auto releasing = WaitModel("first", R"("releasing_bytes":2097152)");
+    EXPECT_NE(releasing.find(R"("committed_bytes":2097152)"),
+              std::string::npos);
+    EXPECT_NE(ModelStatus("second").find(R"("committed_bytes":0)"),
+              std::string::npos);
+    EXPECT_EQ(Read(Send(R"({"model":"first","mode":"abort"})",
+                        "/v1/models/unregister"))
+                  .find("HTTP/1.1 202"),
+              0u);
+    ASSERT_NO_FATAL_FAILURE(WaitModel("first", R"("registration":"retiring")"));
+    EXPECT_NE(Read(Send(R"({"model":"fixture","input":"a"})"))
+                  .find(R"("embedding":[1,1,1,1])"),
+              std::string::npos);
+    EXPECT_EQ(Read(Send({}, "/healthz", "GET")).find("HTTP/1.1 200"), 0u);
+    EXPECT_FALSE(ModelStatus("first").empty());
+  }
+  // No polling request drives the server between release and final inference.
+  // The native capacity wake must resume the waiting request itself.
+  EXPECT_NE(Read(waiting).find(R"("embedding":[2,2,2,2])"), std::string::npos);
+  ASSERT_NO_FATAL_FAILURE(WaitModel("first", {}));
+}
+
+TEST_F(ElasticEmbeddingServiceTest,
        ColdParameterCommitDoesNotBlockWarmHttpInferenceOnOneWorker) {
   const std::string package =
       iree::testing::MakeTempFilePath("cold_parameter_progress");

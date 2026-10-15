@@ -911,8 +911,9 @@ iree_status_t loom_serve_text_model_activate(loom_serve_text_model_t* model) {
   return loom_serve_residency_activate(model->residency);
 }
 
-iree_status_t loom_serve_text_model_deactivate(loom_serve_text_model_t* model) {
-  return loom_serve_residency_deactivate(model->residency);
+iree_status_t loom_serve_text_model_deactivate(loom_serve_text_model_t* model,
+                                               bool* out_complete) {
+  return loom_serve_residency_deactivate(model->residency, out_complete);
 }
 
 iree_tokenizer_t* loom_serve_text_model_tokenizer(

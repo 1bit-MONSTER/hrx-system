@@ -792,6 +792,7 @@ loom_cc_test(
     loom::serve::runtime::storage::memory
     loom::serve::testing::compiler
     loom::serve::testing::device
+    loom::serve::testing::maintenance_gate
   ARGS
     "--weight_sources={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/parameter/testdata/weights/stages.loom}}"
   LABELS

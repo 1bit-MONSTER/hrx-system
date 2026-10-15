@@ -171,7 +171,12 @@ class SourceSpeechServiceTest : public ::testing::TestWithParam<bool> {
           allocator_, &registry));
       iree_status_t status = loom_serve_router_run(
           loom_serve_host_executor(host_), server_, registry,
-          {.request_quota = 8, .holding_capacity = 8}, allocator_);
+          {
+              .request_quota = 8,
+              .holding_capacity = 8,
+              .resources = {.device_group = group_},
+          },
+          allocator_);
       return iree_status_join(status, loom_serve_registry_free(registry));
     });
   }
@@ -1049,7 +1054,12 @@ class SpeechReadinessTest : public ::testing::Test {
                                                         allocator_, &registry));
       iree_status_t status = loom_serve_router_run(
           loom_serve_host_executor(host_), server_, registry,
-          {.request_quota = 4, .holding_capacity = 4}, allocator_);
+          {
+              .request_quota = 4,
+              .holding_capacity = 4,
+              .resources = {.device_group = group_},
+          },
+          allocator_);
       return iree_status_join(status, loom_serve_registry_free(registry));
     });
   }

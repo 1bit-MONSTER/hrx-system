@@ -8,6 +8,7 @@
 #define LOOM_SERVE_SERVER_RESOURCES_H_
 
 #include "loom/serve/runtime/device/device.h"
+#include "loom/serve/runtime/host/wake.h"
 #include "loom/serve/transport/http/listener.h"
 #include "loom/util/stream.h"
 
@@ -26,6 +27,20 @@ typedef struct loom_serve_resources_t {
   // Borrowed array; listener storage survives stop until routing has joined.
   loom_serve_http_listener_t* const* listeners;
 } loom_serve_resources_t;
+
+// Registers the router's nonblocking scheduling wake with native capacity work.
+// An empty observer detaches and joins callback access before router teardown.
+void loom_serve_resources_set_observer(const loom_serve_resources_t* resources,
+                                       loom_serve_wake_callback_t observer);
+
+// Publishes completed native capacity work. A terminal platform failure stops
+// admission and initiates ordinary draining; it never destroys shared owners.
+iree_status_t loom_serve_resources_query_status(
+    const loom_serve_resources_t* resources);
+
+// Whether native capacity work still borrows application resources. Router
+// shutdown joins this independently of model readiness or semaphore failure.
+bool loom_serve_resources_is_pending(const loom_serve_resources_t* resources);
 
 // Writes a JSON object with bound listeners, immutable device identities and
 // serving-managed memory observations. Called on the serialized serving owner;
@@ -50,11 +65,12 @@ iree_status_t loom_serve_resources_parse_trim(
 
 // Executes a validated trim request on the serialized serving owner and writes
 // {"target_bytes": ..., "device": <resource object>} with current accounting.
-// Releases eligible idle workspace and unpinned parameters without waiting for
-// live work, evicting mutable state, or changing the configured budget. The
-// target may remain unreachable. Output is copied and retains no model borrow.
-// A platform failure may leave partially released backing: the caller must stop
-// admission and drain accepted work, not retry inference against that backing.
+// Schedules release of eligible idle workspace and unpinned parameters without
+// waiting for live work, evicting mutable state, or changing the configured
+// budget. The target may remain unreachable. Output is copied and retains no
+// model borrow. A platform failure may leave partially released backing: the
+// caller must stop admission and drain accepted work, not retry inference
+// against that backing.
 iree_status_t loom_serve_resources_trim(const loom_serve_resources_t* resources,
                                         iree_host_size_t device_index,
                                         uint64_t target_bytes,
