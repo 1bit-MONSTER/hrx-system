@@ -7,6 +7,7 @@
 #include "libamdf/src/gpu/kernel_queue.h"
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <thread>
@@ -422,11 +423,12 @@ TEST_P(GpuKernelQueueTest, NativeCompletionCannotExposeUnpublishedAcceptance) {
   native.publication_phase = Phase::kPauseOnAccept;
   uint64_t second = 0;
   amdf_status_t second_status = AMDF_STATUS_OK;
-  std::thread publisher([&] { second_status = Submit(&second); });
+  std::jthread publisher([&] { second_status = Submit(&second); });
   {
     std::unique_lock<std::mutex> lock(native.publication_mutex);
-    native.publication_condition.wait(
-        lock, [&] { return native.publication_phase == Phase::kWaiting; });
+    ASSERT_TRUE(native.publication_condition.wait_for(
+        lock, std::chrono::seconds(10),
+        [&] { return native.publication_phase == Phase::kWaiting; }));
   }
   EXPECT_EQ(Refresh().retired_submission, first);
   EXPECT_EQ(amdf_kernel_queue_wait(queue, first, 0, 0), AMDF_STATUS_OK);
@@ -581,8 +583,9 @@ amdf_status_t amdf_gpu_umd_kernel_queue_submit(
     queue->progress.store(submission, std::memory_order_release);
     queue->publication_phase = Phase::kWaiting;
     queue->publication_condition.notify_one();
-    queue->publication_condition.wait(
-        lock, [&] { return queue->publication_phase == Phase::kResume; });
+    EXPECT_TRUE(queue->publication_condition.wait_for(
+        lock, std::chrono::seconds(10),
+        [&] { return queue->publication_phase == Phase::kResume; }));
     queue->publication_phase = Phase::kOpen;
   }
   return AMDF_STATUS_OK;

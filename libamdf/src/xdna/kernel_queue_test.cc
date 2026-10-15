@@ -10,6 +10,7 @@
 #include <array>
 #include <atomic>
 #include <cerrno>
+#include <chrono>
 #include <condition_variable>
 #include <cstring>
 #include <mutex>
@@ -375,11 +376,12 @@ TEST_F(XdnaKernelQueueTest, CompletionCannotExposeUnpublishedAcceptance) {
   native.publication_phase = Phase::kPauseRequested;
   uint64_t second = 0;
   amdf_status_t status = AMDF_STATUS_OK;
-  std::thread publisher([&] { status = SubmitCommand(&second); });
+  std::jthread publisher([&] { status = SubmitCommand(&second); });
   {
     std::unique_lock<std::mutex> lock(native.mutex);
-    native.condition.wait(
-        lock, [&] { return native.publication_phase == Phase::kPaused; });
+    ASSERT_TRUE(native.condition.wait_for(lock, std::chrono::seconds(10), [&] {
+      return native.publication_phase == Phase::kPaused;
+    }));
   }
   EXPECT_EQ(amdf_kernel_queue_wait(queue, first, 0, 0), AMDF_STATUS_OK);
   EXPECT_EQ(Query().retired_submission, first);
@@ -407,12 +409,14 @@ TEST_F(XdnaKernelQueueTest, RetirementDoesNotPreventPublicationIntoFreeSlots) {
   native.phase = Phase::kPauseRequested;
   native.progress = native.submitted;
   amdf_status_t status = AMDF_STATUS_OK;
-  std::thread waiter([&] {
+  std::jthread waiter([&] {
     status = amdf_kernel_queue_wait(queue, first, AMDF_TIMEOUT_INFINITE, 0);
   });
   {
     std::unique_lock<std::mutex> lock(native.mutex);
-    native.condition.wait(lock, [&] { return native.phase == Phase::kPaused; });
+    ASSERT_TRUE(native.condition.wait_for(lock, std::chrono::seconds(10), [&] {
+      return native.phase == Phase::kPaused;
+    }));
   }
   uint64_t second = 0;
   EXPECT_EQ(SubmitCommand(&second), AMDF_STATUS_OK);
@@ -767,16 +771,17 @@ TEST_F(XdnaKernelQueueTest, QueryAndFiniteWaitDoNotBlockBehindRetiringWaiter) {
       amdf_xdna_umd_kernel_queue_t::Phase::kPauseRequested;
   context.native.queue.progress = 1;
   amdf_status_t waiter_status = AMDF_STATUS_OK;
-  std::thread waiter([&] {
+  std::jthread waiter([&] {
     waiter_status =
         amdf_kernel_queue_wait(queue, submission, AMDF_TIMEOUT_INFINITE, 0);
   });
   {
     std::unique_lock<std::mutex> lock(context.native.queue.mutex);
-    context.native.queue.condition.wait(lock, [&] {
-      return context.native.queue.phase ==
-             amdf_xdna_umd_kernel_queue_t::Phase::kPaused;
-    });
+    ASSERT_TRUE(context.native.queue.condition.wait_for(
+        lock, std::chrono::seconds(10), [&] {
+          return context.native.queue.phase ==
+                 amdf_xdna_umd_kernel_queue_t::Phase::kPaused;
+        }));
   }
   EXPECT_EQ(Query().retired_submission, 0u);
   EXPECT_EQ(Refresh().retired_submission, 0u);
@@ -1074,8 +1079,9 @@ amdf_status_t amdf_xdna_umd_kernel_queue_submit(
     queue->progress.store(queue->submitted, std::memory_order_release);
     queue->publication_phase = Phase::kPaused;
     queue->condition.notify_all();
-    queue->condition.wait(
-        lock, [&] { return queue->publication_phase == Phase::kReleased; });
+    EXPECT_TRUE(queue->condition.wait_for(lock, std::chrono::seconds(10), [&] {
+      return queue->publication_phase == Phase::kReleased;
+    }));
     queue->publication_phase = Phase::kRunning;
   }
   return AMDF_STATUS_OK;
@@ -1105,9 +1111,9 @@ void amdf_xdna_umd_kernel_queue_retire_command(
   if (queue->phase == amdf_xdna_umd_kernel_queue_t::Phase::kPauseRequested) {
     queue->phase = amdf_xdna_umd_kernel_queue_t::Phase::kPaused;
     queue->condition.notify_all();
-    queue->condition.wait(lock, [&] {
+    EXPECT_TRUE(queue->condition.wait_for(lock, std::chrono::seconds(10), [&] {
       return queue->phase == amdf_xdna_umd_kernel_queue_t::Phase::kReleased;
-    });
+    }));
   }
   if (!amdf_status_is_ok(queue->completion_status)) {
     queue->terminal_status = queue->completion_status;

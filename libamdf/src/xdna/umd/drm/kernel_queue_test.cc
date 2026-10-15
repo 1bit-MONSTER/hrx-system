@@ -13,6 +13,7 @@
 
 #include <array>
 #include <cerrno>
+#include <chrono>
 #include <condition_variable>
 #include <cstdarg>
 #include <cstring>
@@ -214,12 +215,14 @@ TEST_F(LinuxXdnaKernelQueueTest,
   ASSERT_EQ(SubmitCommand(queue_, 0, 32768, 64, &first), AMDF_STATUS_OK);
   native_.complete_capture = false;
   amdf_status_t waiter_status = AMDF_STATUS_OK;
-  std::thread waiter([&] {
+  std::jthread waiter([&] {
     waiter_status = amdf_xdna_umd_kernel_queue_wait(queue_, first, &deadline_);
   });
   {
     std::unique_lock<std::mutex> lock(native_.mutex);
-    native_.changed.wait(lock, [&] { return native_.capture_entered; });
+    ASSERT_TRUE(native_.changed.wait_for(lock, std::chrono::seconds(10), [&] {
+      return native_.capture_entered;
+    }));
   }
   EXPECT_EQ(
       amdf_xdna_umd_kernel_queue_request_notification(queue_, first, &event_),
@@ -248,13 +251,15 @@ TEST_F(LinuxXdnaKernelQueueTest,
   ASSERT_EQ(SubmitCommand(queue_, 0, 32768, 64, &first), AMDF_STATUS_OK);
   native_.complete_capture = false;
   amdf_status_t notification_status = AMDF_STATUS_OK;
-  std::thread notifier([&] {
+  std::jthread notifier([&] {
     notification_status =
         amdf_xdna_umd_kernel_queue_request_notification(queue_, first, &event_);
   });
   {
     std::unique_lock<std::mutex> lock(native_.mutex);
-    native_.changed.wait(lock, [&] { return native_.capture_entered; });
+    ASSERT_TRUE(native_.changed.wait_for(lock, std::chrono::seconds(10), [&] {
+      return native_.capture_entered;
+    }));
   }
   uint64_t second = UINT64_MAX;
   EXPECT_EQ(SubmitCommand(queue_, 1, 65536, 64, &second),
@@ -380,12 +385,13 @@ TEST_F(LinuxXdnaKernelQueueTest,
   ASSERT_EQ(SubmitCommand(queue_, 0, 32768, 64, &first), AMDF_STATUS_OK);
   native_.complete_wait = false;
   amdf_status_t wait_status = AMDF_STATUS_OK;
-  std::thread observer([&] {
+  std::jthread observer([&] {
     wait_status = amdf_xdna_umd_kernel_queue_wait(queue_, first, &deadline_);
   });
   {
     std::unique_lock<std::mutex> lock(native_.mutex);
-    native_.changed.wait(lock, [&] { return native_.wait_entered; });
+    ASSERT_TRUE(native_.changed.wait_for(lock, std::chrono::seconds(10),
+                                         [&] { return native_.wait_entered; }));
   }
   const auto packet = native_.packets[0].words;
   uint64_t second = UINT64_MAX;
@@ -422,12 +428,14 @@ TEST_F(LinuxXdnaKernelQueueTest,
   ASSERT_EQ(SubmitCommand(queue_, 0, 32768, 64, &first), AMDF_STATUS_OK);
   native_.complete_capture = false;
   amdf_status_t wait_status = AMDF_STATUS_OK;
-  std::thread observer([&] {
+  std::jthread observer([&] {
     wait_status = amdf_xdna_umd_kernel_queue_wait(queue_, first, &deadline_);
   });
   {
     std::unique_lock<std::mutex> lock(native_.mutex);
-    native_.changed.wait(lock, [&] { return native_.capture_entered; });
+    ASSERT_TRUE(native_.changed.wait_for(lock, std::chrono::seconds(10), [&] {
+      return native_.capture_entered;
+    }));
   }
   uint64_t second = UINT64_MAX;
   EXPECT_EQ(SubmitCommand(queue_, 1, 65536, 64, &second),
@@ -784,7 +792,9 @@ extern "C" int __wrap_ioctl(int descriptor, unsigned long request, ...) {
     ++native.capture_count;
     native.capture_entered = true;
     native.changed.notify_all();
-    native.changed.wait(lock, [&] { return native.complete_capture; });
+    EXPECT_TRUE(native.changed.wait_for(lock, std::chrono::seconds(10), [&] {
+      return native.complete_capture;
+    }));
     if (native.capture_error) {
       errno = native.capture_error;
       return -1;
@@ -837,7 +847,8 @@ extern "C" int __wrap_ioctl(int descriptor, unsigned long request, ...) {
     }
     native.wait_entered = true;
     native.changed.notify_all();
-    native.changed.wait(lock, [&] { return native.complete_wait; });
+    EXPECT_TRUE(native.changed.wait_for(lock, std::chrono::seconds(10),
+                                        [&] { return native.complete_wait; }));
     if (native.wait_error != 0) {
       errno = native.wait_error;
       return -1;
