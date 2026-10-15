@@ -68,22 +68,16 @@ static void iree_tokenizer_decoder_byte_fallback_destroy(
 static iree_status_t iree_tokenizer_decoder_byte_fallback_state_initialize(
     const iree_tokenizer_decoder_t* decoder, void* storage,
     iree_tokenizer_decoder_state_t** out_state) {
-  IREE_TRACE_ZONE_BEGIN(z0);
   iree_tokenizer_decoder_byte_fallback_state_t* state =
       (iree_tokenizer_decoder_byte_fallback_state_t*)storage;
   memset(state, 0, sizeof(*state));
   state->base.decoder = decoder;
   *out_state = &state->base;
-  IREE_TRACE_ZONE_END(z0);
   return iree_ok_status();
 }
 
 static void iree_tokenizer_decoder_byte_fallback_state_deinitialize(
-    iree_tokenizer_decoder_state_t* state) {
-  IREE_TRACE_ZONE_BEGIN(z0);
-  (void)state;
-  IREE_TRACE_ZONE_END(z0);
-}
+    iree_tokenizer_decoder_state_t* state) {}
 
 // Parses a token matching the `<0xHH>` pattern.
 // Returns true if the token matches, with the byte value in |out_byte|.

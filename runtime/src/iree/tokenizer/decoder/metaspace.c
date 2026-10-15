@@ -105,7 +105,6 @@ static void iree_tokenizer_decoder_metaspace_destroy(
 static iree_status_t iree_tokenizer_decoder_metaspace_state_initialize(
     const iree_tokenizer_decoder_t* decoder, void* storage,
     iree_tokenizer_decoder_state_t** out_state) {
-  IREE_TRACE_ZONE_BEGIN(z0);
   const iree_tokenizer_decoder_metaspace_t* self =
       (const iree_tokenizer_decoder_metaspace_t*)decoder;
   iree_tokenizer_decoder_metaspace_state_t* state =
@@ -122,16 +121,11 @@ static iree_status_t iree_tokenizer_decoder_metaspace_state_initialize(
   state->seen_first_output = false;
 
   *out_state = &state->base;
-  IREE_TRACE_ZONE_END(z0);
   return iree_ok_status();
 }
 
 static void iree_tokenizer_decoder_metaspace_state_deinitialize(
-    iree_tokenizer_decoder_state_t* state) {
-  IREE_TRACE_ZONE_BEGIN(z0);
-  (void)state;
-  IREE_TRACE_ZONE_END(z0);
-}
+    iree_tokenizer_decoder_state_t* state) {}
 
 // Processes a single token, replacing metaspace characters with spaces.
 // Returns the number of bytes written to output.

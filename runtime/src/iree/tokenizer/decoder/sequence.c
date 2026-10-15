@@ -197,7 +197,6 @@ static void iree_tokenizer_decoder_sequence_destroy(
 static iree_status_t iree_tokenizer_decoder_sequence_state_initialize(
     const iree_tokenizer_decoder_t* base_decoder, void* storage,
     iree_tokenizer_decoder_state_t** out_state) {
-  IREE_TRACE_ZONE_BEGIN(z0);
   const iree_tokenizer_decoder_sequence_t* decoder =
       (const iree_tokenizer_decoder_sequence_t*)base_decoder;
   iree_tokenizer_decoder_sequence_state_t* state =
@@ -211,19 +210,16 @@ static iree_status_t iree_tokenizer_decoder_sequence_state_initialize(
   for (iree_host_size_t i = 0; i < decoder->child_count; ++i) {
     void* child_storage = (uint8_t*)storage + decoder->child_state_offsets[i];
     iree_tokenizer_decoder_state_t* child_state = NULL;
-    IREE_RETURN_AND_END_ZONE_IF_ERROR(
-        z0, iree_tokenizer_decoder_state_initialize(
-                decoder->children[i], child_storage, &child_state));
+    IREE_RETURN_IF_ERROR(iree_tokenizer_decoder_state_initialize(
+        decoder->children[i], child_storage, &child_state));
   }
 
   *out_state = &state->base;
-  IREE_TRACE_ZONE_END(z0);
   return iree_ok_status();
 }
 
 static void iree_tokenizer_decoder_sequence_state_deinitialize(
     iree_tokenizer_decoder_state_t* base_state) {
-  IREE_TRACE_ZONE_BEGIN(z0);
   iree_tokenizer_decoder_sequence_state_t* state =
       (iree_tokenizer_decoder_sequence_state_t*)base_state;
   const iree_tokenizer_decoder_sequence_t* decoder =
@@ -235,7 +231,6 @@ static void iree_tokenizer_decoder_sequence_state_deinitialize(
                                           decoder->child_state_offsets[i - 1]);
     iree_tokenizer_decoder_state_deinitialize(child_state);
   }
-  IREE_TRACE_ZONE_END(z0);
 }
 
 // Gets the child state at index |i|.

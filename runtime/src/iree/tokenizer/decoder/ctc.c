@@ -305,7 +305,6 @@ static void iree_tokenizer_decoder_ctc_destroy(
 static iree_status_t iree_tokenizer_decoder_ctc_state_initialize(
     const iree_tokenizer_decoder_t* decoder, void* storage,
     iree_tokenizer_decoder_state_t** out_state) {
-  IREE_TRACE_ZONE_BEGIN(z0);
   const iree_tokenizer_decoder_ctc_t* self =
       (const iree_tokenizer_decoder_ctc_t*)decoder;
 
@@ -323,16 +322,11 @@ static iree_status_t iree_tokenizer_decoder_ctc_state_initialize(
   state->cleanup = self->cleanup;
 
   *out_state = &state->base;
-  IREE_TRACE_ZONE_END(z0);
   return iree_ok_status();
 }
 
 static void iree_tokenizer_decoder_ctc_state_deinitialize(
-    iree_tokenizer_decoder_state_t* state) {
-  IREE_TRACE_ZONE_BEGIN(z0);
-  (void)state;
-  IREE_TRACE_ZONE_END(z0);
-}
+    iree_tokenizer_decoder_state_t* state) {}
 
 //===----------------------------------------------------------------------===//
 // Processing

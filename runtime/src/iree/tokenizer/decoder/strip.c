@@ -97,7 +97,6 @@ static void iree_tokenizer_decoder_strip_destroy(
 static iree_status_t iree_tokenizer_decoder_strip_state_initialize(
     const iree_tokenizer_decoder_t* base_decoder, void* storage,
     iree_tokenizer_decoder_state_t** out_state) {
-  IREE_TRACE_ZONE_BEGIN(z0);
   const iree_tokenizer_decoder_strip_t* decoder =
       (const iree_tokenizer_decoder_strip_t*)base_decoder;
   iree_tokenizer_decoder_strip_state_t* state =
@@ -112,16 +111,11 @@ static iree_status_t iree_tokenizer_decoder_strip_state_initialize(
   state->start_count = decoder->start_count;
 
   *out_state = &state->base;
-  IREE_TRACE_ZONE_END(z0);
   return iree_ok_status();
 }
 
 static void iree_tokenizer_decoder_strip_state_deinitialize(
-    iree_tokenizer_decoder_state_t* state) {
-  IREE_TRACE_ZONE_BEGIN(z0);
-  (void)state;
-  IREE_TRACE_ZONE_END(z0);
-}
+    iree_tokenizer_decoder_state_t* state) {}
 
 static iree_status_t iree_tokenizer_decoder_strip_state_process(
     iree_tokenizer_decoder_state_t* base_state,
