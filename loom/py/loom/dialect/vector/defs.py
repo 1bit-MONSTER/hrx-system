@@ -66,6 +66,7 @@ from loom.dsl import (
     ELEMENTWISE,
     ENCODING_SCHEMA,
     ENCODING_TRANSFORM,
+    FACT_IDENTITY,
     FLOAT_ELEMENT,
     I1_ELEMENT,
     IDEMPOTENT,
@@ -117,6 +118,7 @@ from loom.dsl import (
     OpPhase,
     PackedPayloadBitCountMatchesStorage,
     PositiveBitWidthAttr,
+    RanksMatch,
     Reads,
     ReadWrites,
     Result,
@@ -192,6 +194,10 @@ VECTOR_ENCODING_CATEGORY = OpCategory(
     "encoding",
     doc="Vector encoded numeric interpretation boundaries.",
 )
+VECTOR_REFINEMENT_CATEGORY = OpCategory(
+    "refinement",
+    doc="Explicit vector shape and value refinement contracts.",
+)
 
 VECTOR_OP_CATEGORIES = (
     VECTOR_CONSTRUCTION_CATEGORY,
@@ -208,6 +214,7 @@ VECTOR_OP_CATEGORIES = (
     VECTOR_CONTRACTION_CATEGORY,
     VECTOR_REDUCTION_CATEGORY,
     VECTOR_ENCODING_CATEGORY,
+    VECTOR_REFINEMENT_CATEGORY,
 )
 
 vector_ops = Dialect(
@@ -548,6 +555,37 @@ vector_empty = Op(
     format=[COLON, ResultType("result")],
     examples=["%v = vector.empty : vector<0xf32>"],
     eager_execution_cost=1,
+)
+
+vector_refine = Op(
+    "vector.refine",
+    group=vector_ops,
+    doc=(
+        "Refine the logical shape attached to an existing vector while "
+        "preserving every lane value. This is an explicit SSA assertion "
+        "that dynamic and static extents in the source and result describe "
+        "the same lane grid."
+    ),
+    operands=[Operand("source", VECTOR, doc="Source vector to refine.")],
+    results=[Result("result", VECTOR, doc="Same vector with refined shape information.")],
+    constraints=[
+        SameElementType("source", "result"),
+        RanksMatch("source", "result"),
+    ],
+    traits=[PURE, REFINABLE_RESULT_TYPE_REFS, FACT_IDENTITY],
+    verify="loom_vector_refine_verify",
+    facts="loom_vector_refine_facts",
+    type_transfer="loom_vector_refine_type_transfer",
+    format=[
+        Ref("source"),
+        COLON,
+        TypeOf("source"),
+        ARROW,
+        ResultType("result"),
+    ],
+    examples=[
+        "%refined = vector.refine %source : vector<[%m]xf32> -> vector<[%n]xf32>",
+    ],
 )
 
 vector_splat = Op(
@@ -4704,6 +4742,8 @@ VECTOR_ENCODING_OPS: tuple[Op, ...] = (
     vector_fragment_repack,
 )
 
+VECTOR_REFINEMENT_OPS: tuple[Op, ...] = (vector_refine,)
+
 VECTOR_OP_CATEGORY_GROUPS: tuple[tuple[OpCategory, tuple[Op, ...]], ...] = (
     (VECTOR_CONSTRUCTION_CATEGORY, VECTOR_CONSTRUCTION_OPS),
     (VECTOR_AGGREGATE_CATEGORY, VECTOR_AGGREGATE_OPS),
@@ -4719,6 +4759,7 @@ VECTOR_OP_CATEGORY_GROUPS: tuple[tuple[OpCategory, tuple[Op, ...]], ...] = (
     (VECTOR_CONTRACTION_CATEGORY, VECTOR_CONTRACTION_OPS),
     (VECTOR_REDUCTION_CATEGORY, VECTOR_REDUCTION_OPS),
     (VECTOR_ENCODING_CATEGORY, VECTOR_ENCODING_OPS),
+    (VECTOR_REFINEMENT_CATEGORY, VECTOR_REFINEMENT_OPS),
 )
 
 ALL_VECTOR_OPS: tuple[Op, ...] = tuple(op for _, category_ops in VECTOR_OP_CATEGORY_GROUPS for op in category_ops)

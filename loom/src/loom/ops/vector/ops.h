@@ -176,7 +176,8 @@ enum {
   LOOM_OP_VECTOR_ENCODE = LOOM_OP_KIND(LOOM_DIALECT_VECTOR, 151),
   LOOM_OP_VECTOR_FRAGMENT = LOOM_OP_KIND(LOOM_DIALECT_VECTOR, 152),
   LOOM_OP_VECTOR_FRAGMENT_REPACK = LOOM_OP_KIND(LOOM_DIALECT_VECTOR, 153),
-  LOOM_OP_VECTOR_COUNT_ = 154,
+  LOOM_OP_VECTOR_REFINE = LOOM_OP_KIND(LOOM_DIALECT_VECTOR, 154),
+  LOOM_OP_VECTOR_COUNT_ = 155,
 };
 
 // IEEE 754 fast-math relaxation flags for float operations.
@@ -3473,6 +3474,29 @@ iree_status_t loom_vector_fragment_repack_facts(
     const loom_module_t* module, const loom_op_t* op,
     const loom_value_facts_t* operand_facts,
     loom_value_facts_t* result_facts);
+
+// LOOM_OP_VECTOR_REFINE: Refine the logical shape attached to an existing vector while preserving every lane value. This is an explicit SSA assertion that dynamic and static extents in the source and result describe the same lane grid.
+// %refined = vector.refine %source : vector<[%m]xf32> -> vector<[%n]xf32>
+LOOM_DEFINE_ISA(loom_vector_refine_isa, LOOM_OP_VECTOR_REFINE)
+LOOM_DEFINE_OPERAND(loom_vector_refine_source, 0)
+LOOM_DEFINE_RESULT(loom_vector_refine_result, 0)
+iree_status_t loom_vector_refine_build(
+    loom_builder_t* builder,
+    loom_may_consume loom_value_id_t source,
+    loom_type_t result_type,
+    loom_location_id_t location,
+    loom_op_t** out_op);
+iree_status_t loom_vector_refine_facts(
+    loom_fact_context_t* context,
+    const loom_module_t* module, const loom_op_t* op,
+    const loom_value_facts_t* operand_facts,
+    loom_value_facts_t* result_facts);
+iree_status_t loom_vector_refine_type_transfer(
+    loom_type_transfer_context_t* context,
+    const loom_module_t* module, loom_op_t* op);
+iree_status_t loom_vector_refine_verify(
+    const loom_module_t* module, const loom_op_t* op,
+    iree_diagnostic_emitter_t emitter);
 
 // Returns the vtable array for the vector dialect.
 const loom_op_vtable_t* const* loom_vector_dialect_vtables(

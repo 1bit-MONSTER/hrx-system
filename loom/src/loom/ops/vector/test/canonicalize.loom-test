@@ -1,5 +1,22 @@
 // RUN: pass canonicalize
 
+// A static result refinement propagates its extent back through the source
+// producer without changing the value carried by the refinement edge.
+func.def @refine_propagates_static_shape(%width: index, %value: i32) -> (vector<8xi32>) {
+  %source = vector.splat %value : vector<[%width]xi32>
+  %refined = vector.refine %source : vector<[%width]xi32> -> vector<8xi32>
+  func.return %refined : vector<8xi32>
+}
+
+// ----
+func.def @refine_propagates_static_shape(%width: index, %value: i32) -> (vector<8xi32>) {
+  %source = vector.splat %value : vector<8xi32>
+  %refined = vector.refine %source : vector<8xi32> -> vector<8xi32>
+  func.return %refined : vector<8xi32>
+}
+
+// ====
+
 // Every widened lane is below the divisor, including large and ranked shapes.
 func.def @widened_unsigned_remainder(%input: vector<4x32xi8>) -> (vector<4x32xi32>) {
   %wide = vector.extui %input : vector<4x32xi8> to vector<4x32xi32>

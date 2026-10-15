@@ -60,6 +60,7 @@ loom_generated_cc_library(
     "--table-shard=integer_arithmetic"
     "--table-shard=math"
     "--table-shard=memory"
+    "--table-shard=refinement"
     "--table-shard=reduction"
     "--table-shard=table"
   GENERATED_SRCS
@@ -77,6 +78,7 @@ loom_generated_cc_library(
     "tables/integer_arithmetic.c"
     "tables/math.c"
     "tables/memory.c"
+    "tables/refinement.c"
     "tables/reduction.c"
     "tables/table.c"
   HDRS
