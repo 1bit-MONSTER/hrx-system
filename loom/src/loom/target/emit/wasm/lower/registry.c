@@ -294,10 +294,20 @@ static const loom_target_vector_packet_policy_t kWasmVectorPacketPolicy = {
         IREE_ARRAYSIZE(kWasmVectorPacketStructuralLaneLimits),
 };
 
+static const loom_target_bitstream_policy_t kWasmBitstreamPolicy = {
+    .word_bit_count = 32u,
+    .packet_carrier_supported =
+        {
+            .fn = loom_wasm_source_vector_carrier_supported,
+            .user_data = NULL,
+        },
+};
+
 static const loom_low_lower_policy_t kWasmLowLowerPolicy = {
     .name = IREE_SVL("wasm-lower"),
     .error_catalog = &loom_wasm_error_catalog,
     .vector_packet_policy = &kWasmVectorPacketPolicy,
+    .bitstream_policy = &kWasmBitstreamPolicy,
     .map_type = {.fn = loom_wasm_map_type, .user_data = NULL},
     .map_value = {.fn = loom_wasm_map_value, .user_data = NULL},
     .map_contract_value = {.fn = loom_wasm_map_contract_value,

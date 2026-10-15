@@ -62,7 +62,7 @@ static iree_status_t loom_vector_packet_bitcast_candidate_is_legal(
     return iree_ok_status();
   }
 
-  const loom_target_source_vector_carrier_supported_callback_t callback =
+  const loom_target_vector_carrier_supported_callback_t callback =
       context->source_vector_carrier_supported;
   if (callback.fn == NULL) {
     return iree_ok_status();

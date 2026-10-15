@@ -41,17 +41,26 @@ typedef struct loom_matrix_fragment_layout_t loom_matrix_fragment_layout_t;
 typedef struct loom_native_contraction_facts_t loom_native_contraction_facts_t;
 typedef struct loom_local_value_domain_t loom_local_value_domain_t;
 
-// Returns true when |type| has a complete source-vector carrier mapping under
-// the selected target policy.
-typedef bool (*loom_target_source_vector_carrier_supported_fn_t)(
+// Returns true when |type| has a complete vector-carrier mapping under the
+// selected target policy.
+typedef bool (*loom_target_vector_carrier_supported_fn_t)(
     void* user_data, const loom_module_t* module, loom_type_t type);
 
-typedef struct loom_target_source_vector_carrier_supported_callback_t {
-  // Optional target query for complete source-vector carrier admission.
-  loom_target_source_vector_carrier_supported_fn_t fn;
+typedef struct loom_target_vector_carrier_supported_callback_t {
+  // Optional target query for complete vector-carrier admission.
+  loom_target_vector_carrier_supported_fn_t fn;
   // Caller-owned payload passed to |fn|.
   void* user_data;
-} loom_target_source_vector_carrier_supported_callback_t;
+} loom_target_vector_carrier_supported_callback_t;
+
+// Target representation contract for shared packed-bitstream legalization.
+typedef struct loom_target_bitstream_policy_t {
+  // Preferred scalar integer word width. Supported values are 32 and 64 bits.
+  uint8_t word_bit_count;
+  // Complete admission query for packet carriers created by the bitstream
+  // legalization. This is independent of authored aggregate admission.
+  loom_target_vector_carrier_supported_callback_t packet_carrier_supported;
+} loom_target_bitstream_policy_t;
 
 // Maximum number of logical lane candidates in a packet policy. Shared
 // component planning represents the candidate intersection as one bit per

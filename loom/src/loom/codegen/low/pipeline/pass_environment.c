@@ -132,7 +132,7 @@ bool loom_low_pass_capability_source_vector_carrier_supported(
   if (policy == NULL) {
     return false;
   }
-  const loom_target_source_vector_carrier_supported_callback_t callback =
+  const loom_target_vector_carrier_supported_callback_t callback =
       policy->source_vector_carrier_supported;
   return callback.fn == NULL || callback.fn(callback.user_data, module, type);
 }
@@ -147,7 +147,7 @@ bool loom_low_pass_capability_source_function_vector_carrier_supported(
   if (policy == NULL) {
     return false;
   }
-  loom_target_source_vector_carrier_supported_callback_t callback =
+  loom_target_vector_carrier_supported_callback_t callback =
       policy->source_function_vector_carrier_supported;
   if (callback.fn == NULL) {
     callback = policy->source_vector_carrier_supported;

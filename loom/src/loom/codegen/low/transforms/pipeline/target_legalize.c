@@ -1447,7 +1447,7 @@ static iree_status_t loom_low_target_legalize_verify_final(
 static bool loom_low_target_legalize_function_has_source_vector_carriers(
     const loom_module_t* module, loom_func_like_t function,
     const loom_low_lower_policy_t* policy) {
-  loom_target_source_vector_carrier_supported_callback_t callback =
+  loom_target_vector_carrier_supported_callback_t callback =
       policy->source_function_vector_carrier_supported;
   if (callback.fn == NULL) {
     callback = policy->source_vector_carrier_supported;
@@ -1536,6 +1536,7 @@ IREE_ATTRIBUTE_NOINLINE static iree_status_t loom_low_target_legalize_function(
       .target_facts = selection->target_facts,
       .descriptor_set = state.descriptor_set,
       .vector_packet_policy = selection->policy->vector_packet_policy,
+      .bitstream_policy = selection->policy->bitstream_policy,
       .source_vector_carrier_supported =
           selection->policy->source_vector_carrier_supported,
       .source_function_has_unsupported_vector_carrier =

@@ -1986,10 +1986,20 @@ static const loom_target_vector_packet_policy_t kAmdgpuVectorPacketPolicy = {
         IREE_ARRAYSIZE(kAmdgpuVectorPacketStructuralLaneLimits),
 };
 
+static const loom_target_bitstream_policy_t kAmdgpuBitstreamPolicy = {
+    .word_bit_count = 32u,
+    .packet_carrier_supported =
+        {
+            .fn = loom_amdgpu_source_vector_carrier_supported,
+            .user_data = NULL,
+        },
+};
+
 static const loom_low_lower_policy_t kAmdgpuLowLowerPolicy = {
     .name = IREE_SVL("amdgpu-register-lower"),
     .error_catalog = &loom_amdgpu_error_catalog,
     .vector_packet_policy = &kAmdgpuVectorPacketPolicy,
+    .bitstream_policy = &kAmdgpuBitstreamPolicy,
     .source_vector_carrier_supported =
         {
             .fn = loom_amdgpu_source_vector_carrier_supported,

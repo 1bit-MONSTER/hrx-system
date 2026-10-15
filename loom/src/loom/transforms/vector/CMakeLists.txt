@@ -187,6 +187,26 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    bitstream_packet_legalization
+  HDRS
+    "bitstream_packet_legalization.h"
+  SRCS
+    "bitstream_packet_legalization.c"
+  DEPS
+    ::packet_legalization
+    iree::base
+    iree::base::internal::arena
+    loom::ir
+    loom::ops::scalar
+    loom::ops::vector
+    loom::rewrite::rewriter
+    loom::target::legalization
+    loom::util::fact_table
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     cast_packet_legalization
   HDRS
     "cast_packet_legalization.h"
@@ -332,7 +352,9 @@ loom_cc_library(
   SRCS
     "target_legalization.c"
   DEPS
+    ::bitstream_packet_legalization
     ::cast_packet_legalization
+    ::packet_legalization
     ::reduction_legalization
     ::to_scalar
     iree::base

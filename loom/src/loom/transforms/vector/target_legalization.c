@@ -16,7 +16,9 @@
 #include "loom/ops/vector/memory.h"
 #include "loom/ops/vector/ops.h"
 #include "loom/ops/vector/transpose.h"
+#include "loom/transforms/vector/bitstream_packet_legalization.h"
 #include "loom/transforms/vector/cast_packet_legalization.h"
+#include "loom/transforms/vector/packet_legalization.h"
 #include "loom/transforms/vector/reduction_legalization.h"
 #include "loom/transforms/vector/to_scalar.h"
 #include "loom/util/numeric_format.h"
@@ -122,6 +124,65 @@ static iree_status_t loom_vector_legalize_descriptor(
     *out_result = (loom_target_legalizer_result_t){
         .action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN,
     };
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_vector_legalize_bitstream(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  if (context->bitstream_policy == NULL) {
+    return loom_vector_legalize_descriptor(entry, context, op, out_result);
+  }
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+  bool rewritten = false;
+  if (!context->source_function_has_unsupported_vector_carrier &&
+      context->policy != LOOM_TARGET_LEGALIZATION_POLICY_REFERENCE_ONLY) {
+    IREE_RETURN_IF_ERROR(
+        loom_vector_packet_legalize_bitstream_words(context, op, &rewritten));
+  }
+  if (!rewritten) {
+    const loom_value_id_t source =
+        loom_vector_bitpack_isa(op) ? loom_vector_bitpack_source(op)
+                                    : (loom_vector_bitunpacku_isa(op)
+                                           ? loom_vector_bitunpacku_source(op)
+                                           : loom_vector_bitunpacks_source(op));
+    const loom_type_t source_type =
+        loom_module_value_type(context->module, source);
+    if (!loom_target_legalization_has_bitstream_packet_carrier(context,
+                                                               source_type)) {
+      const loom_value_t* source_value =
+          loom_module_value(context->module, source);
+      loom_op_t* source_op = loom_value_is_block_arg(source_value)
+                                 ? NULL
+                                 : loom_value_def_op(source_value);
+      if (source_op != NULL && loom_vector_load_isa(source_op)) {
+        if (context->vector_packet_policy != NULL) {
+          IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_load(
+              context, source_op, context->vector_packet_policy, &rewritten));
+        } else {
+          IREE_RETURN_IF_ERROR(loom_vector_packet_prepare_bitstream_source_load(
+              context, source_op, &rewritten));
+        }
+        if (!rewritten &&
+            (context->vector_packet_policy == NULL ||
+             context->mode == LOOM_TARGET_LEGALIZATION_MODE_FINAL)) {
+          IREE_RETURN_IF_ERROR(loom_vector_descriptor_to_scalar_rewrite_op(
+              context->pass, context->rewriter, source_op, &rewritten));
+        }
+      }
+    }
+  }
+  if (!rewritten && !context->source_function_has_unsupported_vector_carrier &&
+      loom_target_legalization_op_has_bitstream_packet_carriers(context, op)) {
+    IREE_RETURN_IF_ERROR(loom_vector_descriptor_to_scalar_rewrite_op(
+        context->pass, context->rewriter, op, &rewritten));
+  }
+  if (rewritten) {
+    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
   }
   return iree_ok_status();
 }
@@ -1209,15 +1270,15 @@ static const loom_target_legalizer_rule_t kVectorLegalizerRules[] = {
     },
     {
         .root_kind = LOOM_OP_VECTOR_BITPACK,
-        .legalize = loom_vector_legalize_descriptor,
+        .legalize = loom_vector_legalize_bitstream,
     },
     {
         .root_kind = LOOM_OP_VECTOR_BITUNPACKU,
-        .legalize = loom_vector_legalize_descriptor,
+        .legalize = loom_vector_legalize_bitstream,
     },
     {
         .root_kind = LOOM_OP_VECTOR_BITUNPACKS,
-        .legalize = loom_vector_legalize_descriptor,
+        .legalize = loom_vector_legalize_bitstream,
     },
     {
         .root_kind = LOOM_OP_VECTOR_TABLE_QUANTIZE,

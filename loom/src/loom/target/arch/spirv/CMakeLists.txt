@@ -572,6 +572,7 @@ loom_check_test_suite(
     "test/source_low/ordinary_vector_float.loom-test"
     "test/source_low/ordinary_vector_scale.loom-test"
     "test/source_low/ordinary_vector_structure.loom-test"
+    "test/source_low/packed_bitstream_words.loom-test"
     "test/source_low/packed_memory_alignment.loom-test"
     "test/source_low/predicate_truncation.loom-test"
     "test/source_low/predicate_truncation_diagnostics.loom-test"

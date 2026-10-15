@@ -39,4 +39,49 @@ loom_check_test_suite(
     "to_scalar_float_formats.loom-test"
 )
 
+iree_py_test(
+  NAME
+    bitstream_packet_legalization_test
+  MAIN
+    "bitstream_packet_legalization_test.py"
+  SRCS
+    "bitstream_packet_legalization_test.py"
+  ARGS
+    "{{$<TARGET_FILE:loom::tools::loom-check::loom-check-test>}}"
+    "{{$<TARGET_FILE:loom::tools::loom-compile::loom-compile>}}"
+  DATA
+    "loom::tools::loom-check::loom-check-test"
+    "loom::tools::loom-compile::loom-compile"
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
+  TIMEOUT
+    60
+)
+
+iree_py_test(
+  NAME
+    bitstream_packet_legalization_exhaustive_test
+  MAIN
+    "bitstream_packet_legalization_test.py"
+  SRCS
+    "bitstream_packet_legalization_test.py"
+  ARGS
+    "{{$<TARGET_FILE:loom::tools::loom-check::loom-check-test>}}"
+    "{{$<TARGET_FILE:loom::tools::loom-compile::loom-compile>}}"
+    "--exhaustive"
+  DATA
+    "loom::tools::loom-check::loom-check-test"
+    "loom::tools::loom-compile::loom-compile"
+  LABELS
+    "manual"
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
+  TIMEOUT
+    60
+)
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

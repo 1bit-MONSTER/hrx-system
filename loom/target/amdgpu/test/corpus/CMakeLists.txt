@@ -501,12 +501,6 @@ loom_corpus_test(
     "numeric/vector/interleave.loom"
     "@irregular_byte_row_mask_values"
     "AMDGPU/023,TARGET/002"
-    "numeric/vector/packed/narrowing.loom"
-    "@packed_nibble_values"
-    "AMDGPU/023,TARGET/003"
-    "numeric/vector/packed/narrowing.loom"
-    "@saturating_nibble_values"
-    "AMDGPU/023,TARGET/002,TARGET/031"
   ALLOWED_FAILURES
     "numeric/vector/packed/dot.loom"
     "@packed_mixed_nibble_dot_values"

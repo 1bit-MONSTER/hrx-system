@@ -755,6 +755,15 @@ static const loom_target_vector_packet_policy_t kX86Avx2VectorPacketPolicy = {
         IREE_ARRAYSIZE(kX86Avx2VectorPacketStructuralLaneLimits),
 };
 
+static const loom_target_bitstream_policy_t kX86Avx2BitstreamPolicy = {
+    .word_bit_count = 64u,
+    .packet_carrier_supported =
+        {
+            .fn = loom_x86_avx2_source_vector_carrier_supported,
+            .user_data = NULL,
+        },
+};
+
 static const uint16_t kX86Avx512VectorPacketBitCounts[] = {512u, 256u, 128u,
                                                            64u};
 static const uint16_t kX86Avx512VectorPacketLaneCounts[] = {64u, 32u, 16u,
@@ -785,9 +794,19 @@ static const loom_target_vector_packet_policy_t kX86Avx512VectorPacketPolicy = {
         IREE_ARRAYSIZE(kX86Avx512VectorPacketStructuralLaneLimits),
 };
 
+static const loom_target_bitstream_policy_t kX86Avx512BitstreamPolicy = {
+    .word_bit_count = 64u,
+    .packet_carrier_supported =
+        {
+            .fn = loom_x86_avx512_source_vector_carrier_supported,
+            .user_data = NULL,
+        },
+};
+
 static const loom_low_lower_policy_t kX86Avx512LowLowerPolicy = {
     .name = IREE_SVL("x86-avx512-low-lower"),
     .vector_packet_policy = &kX86Avx512VectorPacketPolicy,
+    .bitstream_policy = &kX86Avx512BitstreamPolicy,
     .function_storage = {kX86FunctionStorage,
                          IREE_ARRAYSIZE(kX86FunctionStorage)},
     .error_catalog = &loom_error_catalog_core,
@@ -815,6 +834,7 @@ static const loom_low_lower_policy_t kX86Avx512LowLowerPolicy = {
 static const loom_low_lower_policy_t kX86Avx2LowLowerPolicy = {
     .name = IREE_SVL("x86-avx2-low-lower"),
     .vector_packet_policy = &kX86Avx2VectorPacketPolicy,
+    .bitstream_policy = &kX86Avx2BitstreamPolicy,
     .function_storage = {kX86FunctionStorage,
                          IREE_ARRAYSIZE(kX86FunctionStorage)},
     .error_catalog = &loom_error_catalog_core,
@@ -842,6 +862,7 @@ static const loom_low_lower_policy_t kX86Avx2LowLowerPolicy = {
 static const loom_low_lower_policy_t kX86Avx2FeaturesLowLowerPolicy = {
     .name = IREE_SVL("x86-avx2-features-low-lower"),
     .vector_packet_policy = &kX86Avx2VectorPacketPolicy,
+    .bitstream_policy = &kX86Avx2BitstreamPolicy,
     .function_storage = {kX86FunctionStorage,
                          IREE_ARRAYSIZE(kX86FunctionStorage)},
     .error_catalog = &loom_error_catalog_core,
@@ -909,6 +930,7 @@ static const loom_low_lower_policy_t kX86PackedDotLowLowerPolicy = {
 static const loom_low_lower_policy_t kX86Avx512FeaturesLowLowerPolicy = {
     .name = IREE_SVL("x86-avx512-features-low-lower"),
     .vector_packet_policy = &kX86Avx512VectorPacketPolicy,
+    .bitstream_policy = &kX86Avx512BitstreamPolicy,
     .function_storage = {kX86FunctionStorage,
                          IREE_ARRAYSIZE(kX86FunctionStorage)},
     .error_catalog = &loom_error_catalog_core,

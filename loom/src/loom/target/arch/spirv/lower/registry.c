@@ -75,6 +75,34 @@ static bool loom_spirv_source_type_supported(void* user_data,
   return loom_spirv_source_type_is_fp8(source_type);
 }
 
+static bool loom_spirv_bitstream_packet_carrier_supported(
+    void* user_data, const loom_module_t* module, loom_type_t source_type) {
+  (void)user_data;
+  (void)module;
+  if (!loom_type_is_vector(source_type) || loom_type_rank(source_type) != 1 ||
+      loom_type_dim_is_dynamic_at(source_type, 0)) {
+    return false;
+  }
+  if (loom_type_dim_static_size_at(source_type, 0) == 1) {
+    const loom_scalar_type_t element_type = loom_type_element_type(source_type);
+    if (element_type == LOOM_SCALAR_TYPE_OFFSET) {
+      return true;
+    }
+    source_type = loom_type_scalar(element_type);
+  }
+  loom_spirv_value_type_t value_type = {0};
+  return loom_spirv_value_type_from_loom_type(source_type, &value_type);
+}
+
+static const loom_target_bitstream_policy_t kSpirvBitstreamPolicy = {
+    .word_bit_count = 32u,
+    .packet_carrier_supported =
+        {
+            .fn = loom_spirv_bitstream_packet_carrier_supported,
+            .user_data = NULL,
+        },
+};
+
 static bool loom_spirv_source_value_fragment(
     const loom_value_fact_table_t* fact_table, loom_value_id_t source_value_id,
     loom_vector_fragment_fact_t* out_fragment) {
@@ -442,6 +470,7 @@ static void loom_spirv_mark_plan_storage_demands(
 static const loom_low_lower_policy_t kSpirvLowLowerPolicy = {
     .name = IREE_SVL("spirv-logical-lower"),
     .error_catalog = &loom_spirv_error_catalog,
+    .bitstream_policy = &kSpirvBitstreamPolicy,
     .map_abi_layout = {.fn = loom_spirv_map_abi_layout, .user_data = NULL},
     .map_type = {.fn = loom_spirv_map_type, .user_data = NULL},
     .map_value = {.fn = loom_spirv_map_value, .user_data = NULL},

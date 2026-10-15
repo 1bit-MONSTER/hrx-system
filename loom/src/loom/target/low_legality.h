@@ -155,11 +155,11 @@ typedef struct loom_target_low_legality_options_t {
   // type semantics.
   loom_target_low_legality_type_supported_callback_t type_supported;
   // Optional complete admission query for source vector carriers.
-  loom_target_source_vector_carrier_supported_callback_t
+  loom_target_vector_carrier_supported_callback_t
       source_vector_carrier_supported;
   // Optional source-vector carrier admission query for function arguments and
   // results. Missing uses |source_vector_carrier_supported|.
-  loom_target_source_vector_carrier_supported_callback_t
+  loom_target_vector_carrier_supported_callback_t
       source_function_vector_carrier_supported;
   // Structural source forms permitted by the caller's current phase.
   loom_target_low_structural_legality_flags_t structural_legality_flags;

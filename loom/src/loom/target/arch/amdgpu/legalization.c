@@ -469,12 +469,19 @@ static iree_status_t loom_amdgpu_legalize_vector_bitstream(
   bool rewritten = false;
   if (context->contract_query_result != NULL &&
       context->contract_query_result->outcome ==
-          LOOM_TARGET_CONTRACT_QUERY_UNSUPPORTED) {
+          LOOM_TARGET_CONTRACT_QUERY_UNSUPPORTED &&
+      context->boundary_representation ==
+          LOOM_TARGET_BOUNDARY_REPRESENTATION_PROJECTED) {
     IREE_RETURN_IF_ERROR(loom_vector_packet_legalize_bitstream(
         context, op, context->vector_packet_policy, &rewritten));
   }
-  out_result->action = rewritten ? LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN
-                                 : LOOM_TARGET_LEGALIZER_ACTION_DEFER;
+  if (rewritten) {
+    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  } else if (context->contract_query_result == NULL ||
+             context->contract_query_result->outcome !=
+                 LOOM_TARGET_CONTRACT_QUERY_UNSUPPORTED) {
+    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_DEFER;
+  }
   return iree_ok_status();
 }
 

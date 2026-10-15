@@ -885,6 +885,9 @@ typedef struct loom_low_lower_policy_t {
   // Optional target representation widths consumed by shared vector
   // legalization before source-to-Low lowering.
   const loom_target_vector_packet_policy_t* vector_packet_policy;
+  // Optional packet and scalar-word representation contract for shared
+  // packed-bitstream legalization.
+  const loom_target_bitstream_policy_t* bitstream_policy;
   // Source allocation spaces backed by bounded structural function storage.
   // Empty leaves allocation selection to ordinary rules or target callbacks.
   loom_low_lower_function_storage_config_t function_storage;
@@ -897,13 +900,13 @@ typedef struct loom_low_lower_policy_t {
   // |map_type|. Target legalizers use it to prevent scalar fallback from
   // expanding unmappable aggregates, and final target-low legality uses it to
   // report carrier failures.
-  loom_target_source_vector_carrier_supported_callback_t
+  loom_target_vector_carrier_supported_callback_t
       source_vector_carrier_supported;
   // Optionally reports the source-vector carrier domain accepted at function
   // ABI boundaries. Missing uses |source_vector_carrier_supported|. Targets
   // may admit transient aggregate shapes that legalization must eliminate
   // while retaining a narrower callable ABI.
-  loom_target_source_vector_carrier_supported_callback_t
+  loom_target_vector_carrier_supported_callback_t
       source_function_vector_carrier_supported;
   // Optionally maps concrete source SSA values to target-low register types
   // when type alone does not determine the target register class.
