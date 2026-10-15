@@ -284,6 +284,7 @@ loom_check_test_suite(
     "test/source_low/numeric_f32_constants.loom-test"
     "test/source_low/numeric_f64_constants.loom-test"
     "test/source_low/numeric_index_operands.loom-test"
+    "test/source_low/numeric_integer_bit_counts.loom-test"
     "test/source_low/numeric_integer_extrema.loom-test"
     "test/source_low/numeric_integer_float_avx2.loom-test"
     "test/source_low/numeric_integer_float_avx512.loom-test"

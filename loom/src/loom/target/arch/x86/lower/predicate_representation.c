@@ -14,6 +14,8 @@ typedef enum loom_x86_predicate_representation_action_e {
   LOOM_X86_PREDICATE_REPRESENTATION_ACTION_INSERT = 2,
   LOOM_X86_PREDICATE_REPRESENTATION_ACTION_SELECT = 3,
   LOOM_X86_PREDICATE_REPRESENTATION_ACTION_COMPARE = 4,
+  LOOM_X86_PREDICATE_REPRESENTATION_ACTION_EXTEND_INPUT = 5,
+  LOOM_X86_PREDICATE_REPRESENTATION_ACTION_TRUNCATE_RESULT = 6,
 } loom_x86_predicate_representation_action_t;
 
 typedef enum loom_x86_predicate_profile_e {
@@ -88,7 +90,8 @@ static bool loom_x86_predicate_representation_available(
                                          &bit_width)) {
     return false;
   }
-  if (bit_width == 64 || bit_width == 128 || bit_width == 256) {
+  if (bit_width == 16 || bit_width == 32 || bit_width == 64 ||
+      bit_width == 128 || bit_width == 256) {
     return true;
   }
   return policy->profile == LOOM_X86_PREDICATE_PROFILE_AVX512 &&
@@ -111,7 +114,8 @@ static bool loom_x86_predicate_simd_register_class(
                                          &bit_width)) {
     return false;
   }
-  if (bit_width == 64 || bit_width == 128) {
+  if (bit_width == 16 || bit_width == 32 || bit_width == 64 ||
+      bit_width == 128) {
     *out_register_class = LOOM_X86_REGISTER_CLASS_XMM;
     return true;
   }
@@ -188,9 +192,18 @@ static loom_low_representation_cost_t loom_x86_avx2_predicate_conversion_cost(
                                          &destination_bit_width)) {
     return (loom_low_representation_cost_t){.runtime = 1, .code_size = 6};
   }
+  if ((uint32_t)source < (uint32_t)destination) {
+    return (loom_low_representation_cost_t){.runtime = 1, .code_size = 6};
+  }
   uint16_t instruction_count = 1;
-  if (source_bit_width == 64 && destination_bit_width == 256) {
-    instruction_count = 2;
+  const bool source_has_packed_conversion = source_bit_width == 64 ||
+                                            source_bit_width == 128 ||
+                                            source_bit_width == 256;
+  const bool destination_has_packed_conversion = destination_bit_width == 64 ||
+                                                 destination_bit_width == 128 ||
+                                                 destination_bit_width == 256;
+  if (!source_has_packed_conversion || !destination_has_packed_conversion) {
+    instruction_count = source_bit_width <= 128 ? 2 : 5;
   } else if (source_bit_width == 256 && destination_bit_width == 128) {
     instruction_count = 3;
   } else if (source_bit_width == 256 && destination_bit_width == 64) {
@@ -221,12 +234,13 @@ static loom_low_representation_cost_t loom_x86_predicate_conversion_cost(
 static loom_low_representation_id_t loom_x86_predicate_native_representation(
     const loom_x86_predicate_representation_policy_t* policy,
     uint32_t lane_count, uint32_t vector_bit_width) {
-  if (vector_bit_width != 64 && vector_bit_width != 128 &&
+  if (vector_bit_width != 16 && vector_bit_width != 32 &&
+      vector_bit_width != 64 && vector_bit_width != 128 &&
       vector_bit_width != 256 && vector_bit_width != 512) {
     return LOOM_LOW_REPRESENTATION_ID_NONE;
   }
   if (policy->profile == LOOM_X86_PREDICATE_PROFILE_AVX512 &&
-      vector_bit_width != 64) {
+      vector_bit_width > 64) {
     return LOOM_X86_PREDICATE_REPRESENTATION_MASK;
   }
   return (loom_low_representation_id_t)(vector_bit_width / lane_count);
@@ -382,6 +396,124 @@ static void loom_x86_predicate_observe_compare(
                                                   candidate_count);
 }
 
+static bool loom_x86_integer_vector_shape(loom_type_t type,
+                                          uint32_t expected_lane_count,
+                                          uint32_t* out_element_bit_width,
+                                          uint32_t* out_vector_bit_width) {
+  if (out_element_bit_width != NULL) {
+    *out_element_bit_width = 0;
+  }
+  if (out_vector_bit_width != NULL) {
+    *out_vector_bit_width = 0;
+  }
+  if (!loom_type_is_vector(type) || loom_type_rank(type) != 1 ||
+      !loom_type_is_all_static(type) ||
+      loom_type_dim_static_size_at(type, 0) != expected_lane_count) {
+    return false;
+  }
+  const int32_t element_bit_width =
+      loom_scalar_type_bitwidth(loom_type_element_type(type));
+  if (element_bit_width != 8 && element_bit_width != 16 &&
+      element_bit_width != 32 && element_bit_width != 64) {
+    return false;
+  }
+  if (out_element_bit_width != NULL) {
+    *out_element_bit_width = (uint32_t)element_bit_width;
+  }
+  if (out_vector_bit_width != NULL) {
+    *out_vector_bit_width = expected_lane_count * (uint32_t)element_bit_width;
+  }
+  return true;
+}
+
+static loom_low_representation_cost_t
+loom_x86_predicate_integer_conversion_cost(
+    uint32_t lane_count, loom_low_representation_id_t source_element_bit_width,
+    uint32_t result_element_bit_width) {
+  return loom_x86_avx2_predicate_conversion_cost(
+      lane_count, source_element_bit_width,
+      (loom_low_representation_id_t)result_element_bit_width);
+}
+
+static void loom_x86_predicate_observe_extend(
+    const loom_x86_predicate_representation_policy_t* policy,
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_low_lower_representation_recorder_t* recorder) {
+  const bool is_signed = loom_vector_extsi_isa(source_op);
+  const loom_value_id_t input = is_signed ? loom_vector_extsi_input(source_op)
+                                          : loom_vector_extui_input(source_op);
+  const loom_value_id_t result = is_signed
+                                     ? loom_vector_extsi_result(source_op)
+                                     : loom_vector_extui_result(source_op);
+  const loom_module_t* module = loom_low_lower_context_module(context);
+  uint32_t lane_count = 0;
+  if (!loom_x86_predicate_type(loom_module_value_type(module, input),
+                               policy->maximum_lane_count, &lane_count)) {
+    return;
+  }
+  uint32_t result_element_bit_width = 0;
+  if (!loom_x86_integer_vector_shape(loom_module_value_type(module, result),
+                                     lane_count, &result_element_bit_width,
+                                     NULL)) {
+    return;
+  }
+
+  loom_low_representation_candidate_t
+      candidates[LOOM_X86_PREDICATE_MAX_CANDIDATE_COUNT];
+  const iree_host_size_t candidate_count = loom_x86_predicate_candidates(
+      policy, lane_count, LOOM_LOW_REPRESENTATION_ID_NONE, candidates);
+  for (iree_host_size_t i = 0; i < candidate_count; ++i) {
+    if (candidates[i].representation ==
+        LOOM_X86_PREDICATE_REPRESENTATION_MASK) {
+      candidates[i].cost =
+          (loom_low_representation_cost_t){.runtime = 1, .code_size = 6};
+    } else {
+      candidates[i].cost = loom_x86_predicate_integer_conversion_cost(
+          lane_count, candidates[i].representation, result_element_bit_width);
+    }
+  }
+  loom_low_lower_representation_record_costs(recorder, input, candidates,
+                                             candidate_count);
+}
+
+static void loom_x86_predicate_observe_truncate(
+    const loom_x86_predicate_representation_policy_t* policy,
+    loom_low_lower_context_t* context, const loom_op_t* source_op,
+    loom_low_lower_representation_recorder_t* recorder) {
+  const loom_module_t* module = loom_low_lower_context_module(context);
+  const loom_value_id_t input = loom_vector_trunci_input(source_op);
+  const loom_value_id_t result = loom_vector_trunci_result(source_op);
+  uint32_t lane_count = 0;
+  if (!loom_x86_predicate_type(loom_module_value_type(module, result),
+                               policy->maximum_lane_count, &lane_count)) {
+    return;
+  }
+  uint32_t input_element_bit_width = 0;
+  if (!loom_x86_integer_vector_shape(loom_module_value_type(module, input),
+                                     lane_count, &input_element_bit_width,
+                                     NULL)) {
+    return;
+  }
+  loom_low_representation_candidate_t
+      candidates[LOOM_X86_PREDICATE_MAX_CANDIDATE_COUNT];
+  const iree_host_size_t candidate_count = loom_x86_predicate_candidates(
+      policy, lane_count, LOOM_LOW_REPRESENTATION_ID_NONE, candidates);
+  for (iree_host_size_t i = 0; i < candidate_count; ++i) {
+    if (policy->profile == LOOM_X86_PREDICATE_PROFILE_AVX512) {
+      candidates[i].cost =
+          candidates[i].representation == LOOM_X86_PREDICATE_REPRESENTATION_MASK
+              ? (loom_low_representation_cost_t){0}
+              : (loom_low_representation_cost_t){.runtime = 1, .code_size = 6};
+    } else {
+      candidates[i].cost = loom_x86_predicate_integer_conversion_cost(
+          lane_count, (loom_low_representation_id_t)input_element_bit_width,
+          (uint32_t)candidates[i].representation);
+    }
+  }
+  loom_low_lower_representation_record_candidates(recorder, result, candidates,
+                                                  candidate_count);
+}
+
 static void loom_x86_predicate_observe_select(
     const loom_x86_predicate_representation_policy_t* policy,
     loom_low_lower_context_t* context, const loom_op_t* source_op,
@@ -499,6 +631,13 @@ static void loom_x86_predicate_observe_boundary(
     case LOOM_X86_PREDICATE_REPRESENTATION_ACTION_COMPARE:
       loom_x86_predicate_observe_compare(policy, context, source_op, recorder);
       return;
+    case LOOM_X86_PREDICATE_REPRESENTATION_ACTION_EXTEND_INPUT:
+      loom_x86_predicate_observe_extend(policy, context, source_op, recorder);
+      loom_low_lower_representation_claim_operand(recorder, 0);
+      return;
+    case LOOM_X86_PREDICATE_REPRESENTATION_ACTION_TRUNCATE_RESULT:
+      loom_x86_predicate_observe_truncate(policy, context, source_op, recorder);
+      return;
   }
   IREE_ASSERT_UNREACHABLE("unknown x86 predicate representation action");
 }
@@ -571,6 +710,15 @@ static const loom_low_lower_representation_boundary_t
          LOOM_LOW_LOWER_REPRESENTATION_BOUNDARY_FLAG_RESULTS},
         {LOOM_OP_VECTOR_CMPF, LOOM_X86_PREDICATE_REPRESENTATION_ACTION_COMPARE,
          LOOM_LOW_LOWER_REPRESENTATION_BOUNDARY_FLAG_RESULTS},
+        {LOOM_OP_VECTOR_EXTSI,
+         LOOM_X86_PREDICATE_REPRESENTATION_ACTION_EXTEND_INPUT,
+         LOOM_LOW_LOWER_REPRESENTATION_BOUNDARY_FLAG_OPERANDS},
+        {LOOM_OP_VECTOR_EXTUI,
+         LOOM_X86_PREDICATE_REPRESENTATION_ACTION_EXTEND_INPUT,
+         LOOM_LOW_LOWER_REPRESENTATION_BOUNDARY_FLAG_OPERANDS},
+        {LOOM_OP_VECTOR_TRUNCI,
+         LOOM_X86_PREDICATE_REPRESENTATION_ACTION_TRUNCATE_RESULT,
+         LOOM_LOW_LOWER_REPRESENTATION_BOUNDARY_FLAG_RESULTS},
 };
 static const loom_low_lower_representation_boundary_span_t
     kX86PredicateRepresentationBoundarySpans[] = {
@@ -587,7 +735,13 @@ static_assert((loom_op_kind_t)LOOM_OP_VECTOR_CONSTANT <
                   (loom_op_kind_t)LOOM_OP_VECTOR_SELECT <
                       (loom_op_kind_t)LOOM_OP_VECTOR_CMPI &&
                   (loom_op_kind_t)LOOM_OP_VECTOR_CMPI <
-                      (loom_op_kind_t)LOOM_OP_VECTOR_CMPF,
+                      (loom_op_kind_t)LOOM_OP_VECTOR_CMPF &&
+                  (loom_op_kind_t)LOOM_OP_VECTOR_CMPF <
+                      (loom_op_kind_t)LOOM_OP_VECTOR_EXTSI &&
+                  (loom_op_kind_t)LOOM_OP_VECTOR_EXTSI <
+                      (loom_op_kind_t)LOOM_OP_VECTOR_EXTUI &&
+                  (loom_op_kind_t)LOOM_OP_VECTOR_EXTUI <
+                      (loom_op_kind_t)LOOM_OP_VECTOR_TRUNCI,
               "x86 predicate representation boundaries must remain ordered");
 
 static const loom_x86_predicate_representation_policy_t

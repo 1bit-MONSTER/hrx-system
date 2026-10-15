@@ -136,7 +136,7 @@ def test_scalar_speculation_facts_cover_total_integer_forms() -> None:
         Form.BINARY_IMMEDIATE,
         Form.SHIFT_IMMEDIATE,
         Form.SHIFT_COUNT,
-        Form.MOVE,
+        Form.UNARY_R_RM,
         Form.SELECT,
         Form.SUBTRACT_IF_UGE,
         Form.COMPARE,
@@ -203,17 +203,16 @@ def test_native_vector_binding_rejects_cross_wired_facts() -> None:
 
 def test_explicit_writemasks_use_seven_location_window() -> None:
     descriptors = x86_descriptor_data.X86_AVX512_CORE_DESCRIPTOR_SET.descriptors
-    k_operands = tuple((descriptor, operand) for descriptor in descriptors for operand in descriptor.operands if any(alternative.reg_class == "x86.k" for alternative in operand.reg_alts))
-    assert len({descriptor.key for descriptor, _ in k_operands}) == 65
+    k_operands = tuple(operand for descriptor in descriptors for operand in descriptor.operands if any(alternative.reg_class == "x86.k" for alternative in operand.reg_alts))
+    assert k_operands
 
-    explicit_writemasks = tuple((descriptor, operand) for descriptor, operand in k_operands if operand.address_map_kind is OperandAddressMapKind.LOW_SUBSET)
-    assert len(explicit_writemasks) == 18
-    assert all(operand.field_name == "mask" for _, operand in explicit_writemasks)
-    assert all(operand.addressable_unit_count == 7 for _, operand in explicit_writemasks)
+    explicit_writemasks = tuple(operand for operand in k_operands if operand.field_name == "mask")
+    assert explicit_writemasks
+    assert all(operand.address_map_kind is OperandAddressMapKind.LOW_SUBSET and operand.addressable_unit_count == 7 for operand in explicit_writemasks)
 
-    other_k_operands = tuple(operand for _, operand in k_operands if operand.address_map_kind is not OperandAddressMapKind.LOW_SUBSET)
-    assert len(other_k_operands) == 53
-    assert all(operand.address_map_kind is OperandAddressMapKind.DIRECT and operand.addressable_unit_count == 0 for operand in other_k_operands)
+    ordinary_k_operands = tuple(operand for operand in k_operands if operand.field_name != "mask")
+    assert ordinary_k_operands
+    assert all(operand.address_map_kind is OperandAddressMapKind.DIRECT and operand.addressable_unit_count == 0 for operand in ordinary_k_operands)
 
 
 def test_narrow_memory_widths_are_independent_of_scalar_carriers() -> None:

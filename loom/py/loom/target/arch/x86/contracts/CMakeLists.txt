@@ -24,6 +24,7 @@ iree_py_library(
     "float_narrowing.py"
     "floating_extrema.py"
     "floating_reduction.py"
+    "integer_bits.py"
     "integer_division.py"
     "integer_float.py"
     "integer_reduction.py"
@@ -38,6 +39,7 @@ iree_py_library(
     "shuffle.py"
     "vector_arithmetic.py"
     "vector_construction.py"
+    "vector_integer_conversion.py"
   DEPS
     loom::py::loom::core
     loom::py::loom::dialect::buffer::buffer
@@ -164,6 +166,50 @@ iree_py_test(
     "../../../../tools/pytest_style_runner.py"
   ARGS
     "loom.target.arch.x86.contracts.integer_division_test"
+  DEPS
+    loom::py::loom::target::arch::x86::contracts::contracts
+    loom::py::loom::dialect::index::index
+    loom::py::loom::dialect::scalar::scalar
+    loom::py::loom::target::arch::x86::descriptors
+    loom::py::loom::target::contracts::contracts
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
+)
+
+iree_py_test(
+  NAME
+    vector_integer_conversion_test
+  MAIN
+    "../../../../tools/pytest_style_runner.py"
+  SRCS
+    "vector_integer_conversion_test.py"
+    "../../../../tools/pytest_style_runner.py"
+  ARGS
+    "loom.target.arch.x86.contracts.vector_integer_conversion_test"
+  DEPS
+    loom::py::loom::target::arch::x86::contracts::contracts
+    loom::py::loom::dialect::vector::vector
+    loom::py::loom::target::arch::x86::descriptors
+    loom::py::loom::target::arch::x86::vector_families
+    loom::py::loom::target::contracts::contracts
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
+)
+
+iree_py_test(
+  NAME
+    integer_bits_test
+  MAIN
+    "../../../../tools/pytest_style_runner.py"
+  SRCS
+    "integer_bits_test.py"
+    "../../../../tools/pytest_style_runner.py"
+  ARGS
+    "loom.target.arch.x86.contracts.integer_bits_test"
   DEPS
     loom::py::loom::target::arch::x86::contracts::contracts
     loom::py::loom::dialect::index::index

@@ -30,6 +30,9 @@ from loom.dsl import Op
 from loom.target.arch.x86.contracts.constants import (
     floating_storage_scalar_constant_rule,
 )
+from loom.target.arch.x86.contracts.integer_bits import (
+    scalar_integer_bit_count_rules,
+)
 from loom.target.arch.x86.contracts.integer_division import (
     runtime_integer_division_rules,
     unsigned_constant_division_rules,
@@ -1549,6 +1552,7 @@ def _cases() -> Sequence[ContractCase]:
         ),
         *unsigned_constant_division_rules(descriptor_lookup),
         *runtime_integer_division_rules(descriptor_lookup),
+        *scalar_integer_bit_count_rules(descriptor_lookup),
     )
 
 

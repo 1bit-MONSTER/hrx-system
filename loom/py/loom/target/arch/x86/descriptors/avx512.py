@@ -31,6 +31,9 @@ from loom.target.arch.x86.vector_families import (
     FLOAT_ELEMENTS,
     FLOAT_EXTREMA_MNEMONICS,
     INTEGER_ELEMENTS,
+    X86_VECTOR_INTEGER_NARROWING_FAMILIES,
+    X86_VECTOR_INTEGER_WIDENING_FAMILIES,
+    VectorIntegerNarrowingFamily,
 )
 from loom.target.low_descriptors import (
     Descriptor,
@@ -114,7 +117,7 @@ from .integer_float import integer_float_descriptors
 from .memory import memory_descriptors
 from .scalar import X86_SCALAR_DESCRIPTOR_SET
 
-_REGISTER_SUFFIXES = {128: "xmm", 256: "ymm", 512: "zmm"}
+_REGISTER_SUFFIXES = {64: "xmm", 128: "xmm", 256: "ymm", 512: "zmm"}
 
 
 def _evex_descriptor(
@@ -144,7 +147,9 @@ def _direct_broadcast_asm_mnemonic(
 def _zmm_widen_descriptor(
     mnemonic: str,
     source_bit_width: int,
+    source_element_bit_width: int,
     result_element_bit_width: int,
+    signedness: str,
     instruction: VectorMachineInstruction,
 ) -> Descriptor:
     source_suffix = _REGISTER_SUFFIXES[source_bit_width]
@@ -153,7 +158,9 @@ def _zmm_widen_descriptor(
             key=f"x86.avx512.{mnemonic}.zmm.{source_suffix}",
             mnemonic=mnemonic,
             semantic_tag=(
-                f"integer.extui.i8x{512 // result_element_bit_width}."
+                f"integer.extend.{signedness}."
+                f"i{source_element_bit_width}x"
+                f"{512 // result_element_bit_width}."
                 f"i{result_element_bit_width}x{512 // result_element_bit_width}"
             ),
             operands=(_zmm_result(), _vector_operand(source_bit_width, "source")),
@@ -169,21 +176,52 @@ def _zmm_widen_descriptor(
     )
 
 
+def _vector_narrow_descriptor(
+    family: VectorIntegerNarrowingFamily,
+    source_vector_bit_width: int,
+    instruction: VectorMachineInstruction,
+) -> Descriptor:
+    result_vector_bit_width = max(
+        128,
+        source_vector_bit_width * family.result.bit_width // family.source.bit_width,
+    )
+    source_suffix = _REGISTER_SUFFIXES[source_vector_bit_width]
+    result_suffix = _REGISTER_SUFFIXES[result_vector_bit_width]
+    lane_count = source_vector_bit_width // family.source.bit_width
+    return _evex_descriptor(
+        Descriptor(
+            key=(f"x86.avx512.{family.mnemonic}.{result_suffix}.{source_suffix}"),
+            mnemonic=family.mnemonic,
+            semantic_tag=(
+                f"integer.truncate.{family.source.name}x{lane_count}."
+                f"{family.result.name}x{lane_count}"
+            ),
+            operands=(
+                _vector_result(result_vector_bit_width),
+                _vector_operand(source_vector_bit_width, "source"),
+            ),
+            asm_forms=_asm(
+                mnemonic=(f"avx512.{family.mnemonic}.{result_suffix}.{source_suffix}"),
+                results=("dst",),
+                operands=("source",),
+            ),
+            schedule_class=_vector_i32_schedule_class(source_vector_bit_width),
+            flags=(DescriptorFlag.DEAD_REMOVABLE,),
+        ),
+        instruction,
+    )
+
+
 def _predicate_conversion_descriptor(
-    lane_count: int,
+    element_bit_width: int,
+    vector_bit_width: int,
     instruction: VectorMachineInstruction,
     *,
     mask_to_carrier: bool,
 ) -> Descriptor:
-    carrier_bit_width, element_suffix = {
-        2: (128, "q"),
-        4: (128, "d"),
-        8: (128, "w"),
-        16: (128, "b"),
-        32: (256, "b"),
-        64: (512, "b"),
-    }[lane_count]
-    register_suffix = _REGISTER_SUFFIXES[carrier_bit_width]
+    element_suffix = {8: "b", 16: "w", 32: "d", 64: "q"}[element_bit_width]
+    lane_count = vector_bit_width // element_bit_width
+    register_suffix = _REGISTER_SUFFIXES[vector_bit_width]
     mnemonic = (
         f"vpmovm2{element_suffix}" if mask_to_carrier else f"vpmov{element_suffix}2m"
     )
@@ -196,14 +234,14 @@ def _predicate_conversion_descriptor(
             ),
             mnemonic=mnemonic,
             semantic_tag=(
-                f"mask.expand.i1x{lane_count}"
+                f"mask.expand.i1x{lane_count}.i{element_bit_width}x{lane_count}"
                 if mask_to_carrier
-                else f"mask.compress.i1x{lane_count}"
+                else f"mask.compress.i{element_bit_width}x{lane_count}.i1x{lane_count}"
             ),
             operands=(
-                (_vector_result(carrier_bit_width), _k_operand("source"))
+                (_vector_result(vector_bit_width), _k_operand("source"))
                 if mask_to_carrier
-                else (_k_result(), _vector_operand(carrier_bit_width, "source"))
+                else (_k_result(), _vector_operand(vector_bit_width, "source"))
             ),
             asm_forms=_asm(
                 mnemonic=(
@@ -619,21 +657,14 @@ X86_AVX512_CORE_DESCRIPTOR_SET = DescriptorSet(
             ),
             native.VINSERTI64X4,
         ),
-        _evex_descriptor(
-            Descriptor(
-                key="x86.avx512.vpmovwb.ymm.zmm",
-                mnemonic="vpmovwb",
-                semantic_tag="integer.trunci.i16x32.i8x32",
-                operands=(_vector_result(256), _zmm_operand("source")),
-                asm_forms=_asm(
-                    mnemonic="avx512.vpmovwb.ymm.zmm",
-                    results=("dst",),
-                    operands=("source",),
-                ),
-                schedule_class=_SCHEDULE_VECTOR_I32_ZMM,
-                flags=(DescriptorFlag.DEAD_REMOVABLE,),
-            ),
-            native.VPMOVWB,
+        *(
+            _vector_narrow_descriptor(family, source_vector_bit_width, instruction)
+            for family, instruction in zip(
+                X86_VECTOR_INTEGER_NARROWING_FAMILIES,
+                native.PACKED_INTEGER_NARROW,
+                strict=True,
+            )
+            for source_vector_bit_width in (128, 256, 512)
         ),
         _evex_descriptor(
             Descriptor(
@@ -755,12 +786,23 @@ X86_AVX512_CORE_DESCRIPTOR_SET = DescriptorSet(
         ),
         *(
             _zmm_widen_descriptor(
-                mnemonic, source_bit_width, element_bit_width, instruction
+                mnemonic,
+                512 * family.source.bit_width // family.result.bit_width,
+                family.source.bit_width,
+                family.result.bit_width,
+                signedness,
+                instruction,
             )
-            for mnemonic, source_bit_width, element_bit_width, instruction in (
-                ("vpmovzxbw", 256, 16, native.VPMOVZXBW),
-                ("vpmovzxbd", 128, 32, native.VPMOVZXBD),
-                ("vpmovzxbq", 128, 64, native.VPMOVZXBQ),
+            for family, instructions in zip(
+                X86_VECTOR_INTEGER_WIDENING_FAMILIES,
+                native.PACKED_INTEGER_WIDEN,
+                strict=True,
+            )
+            for mnemonic, signedness, instruction in zip(
+                (family.signed_mnemonic, family.unsigned_mnemonic),
+                ("signed", "unsigned"),
+                instructions,
+                strict=True,
             )
         ),
         *(
@@ -1055,15 +1097,17 @@ X86_AVX512_CORE_DESCRIPTOR_SET = DescriptorSet(
         ),
         *(
             _predicate_conversion_descriptor(
-                lane_count,
+                element_bit_width,
+                vector_bit_width,
                 instruction,
                 mask_to_carrier=mask_to_carrier,
             )
-            for lane_count, instructions in zip(
-                (2, 4, 8, 16, 32, 64),
+            for element_bit_width, instructions in zip(
+                (8, 16, 32, 64),
                 native.AVX512_PREDICATE_CONVERSION,
                 strict=True,
             )
+            for vector_bit_width in (128, 256, 512)
             for mask_to_carrier, instruction in zip(
                 (False, True), instructions, strict=True
             )

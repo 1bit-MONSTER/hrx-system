@@ -78,6 +78,7 @@ iree_py_library(
         "descriptors/common.py",
         "descriptors/composite.py",
         "descriptors/encoding.py",
+        "descriptors/integer_bits.py",
         "descriptors/integer_float.py",
         "descriptors/memory.py",
         "descriptors/packed_dot.py",

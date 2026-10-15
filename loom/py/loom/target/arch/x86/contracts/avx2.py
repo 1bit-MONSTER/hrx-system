@@ -44,6 +44,10 @@ from loom.target.arch.x86.contracts.vector_arithmetic import (
 from loom.target.arch.x86.contracts.vector_construction import (
     avx2_vector_construction_rules,
 )
+from loom.target.arch.x86.contracts.vector_integer_conversion import (
+    avx2_vector_integer_narrowing_rules,
+    vector_integer_widening_rules,
+)
 from loom.target.arch.x86.descriptors import X86_AVX2_DESCRIPTOR_SET
 from loom.target.arch.x86.vector_families import AVX2_CARRIER_VECTOR_BIT_WIDTHS
 from loom.target.contracts import (
@@ -81,6 +85,13 @@ def _cases() -> Sequence[ContractCase]:
         *avx2_integer_float_rules(_descriptor),
         *x86_float_narrowing_rules(_descriptor),
         *avx2_vector_construction_rules(_descriptor),
+        *vector_integer_widening_rules(
+            _descriptor,
+            descriptor_key_prefix="x86.avx2",
+            source_vector_bit_widths=AVX2_CARRIER_VECTOR_BIT_WIDTHS,
+            result_vector_bit_widths=AVX2_CARRIER_VECTOR_BIT_WIDTHS,
+        ),
+        *avx2_vector_integer_narrowing_rules(_descriptor),
         *avx2_predicate_rules(_descriptor),
         *avx2_lane_movement_rules(_descriptor),
         *avx2_shuffle_rules(_descriptor),

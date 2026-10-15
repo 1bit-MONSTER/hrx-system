@@ -539,38 +539,40 @@ typedef struct loom_amdgpu_scalar_i64_ctpop_plan_t {
 static_assert(sizeof(loom_amdgpu_scalar_i64_ctpop_plan_t) == 12,
               "population-count plans must stay cache dense");
 
-typedef uint8_t loom_amdgpu_scalar_cttz_kind_t;
+typedef uint8_t loom_amdgpu_scalar_bit_scan_kind_t;
 
-enum loom_amdgpu_scalar_cttz_kind_e {
-  LOOM_AMDGPU_SCALAR_CTTZ_KIND_NONE = 0,
-  LOOM_AMDGPU_SCALAR_CTTZ_KIND_SGPR_B32 = 1,
-  LOOM_AMDGPU_SCALAR_CTTZ_KIND_SGPR_B64 = 2,
-  LOOM_AMDGPU_SCALAR_CTTZ_KIND_VGPR_B32 = 3,
-  LOOM_AMDGPU_SCALAR_CTTZ_KIND_VGPR_B64 = 4,
+enum loom_amdgpu_scalar_bit_scan_kind_e {
+  LOOM_AMDGPU_SCALAR_BIT_SCAN_KIND_NONE = 0,
+  LOOM_AMDGPU_SCALAR_BIT_SCAN_KIND_SGPR_B32 = 1,
+  LOOM_AMDGPU_SCALAR_BIT_SCAN_KIND_SGPR_B64 = 2,
+  LOOM_AMDGPU_SCALAR_BIT_SCAN_KIND_VGPR_B32 = 3,
+  LOOM_AMDGPU_SCALAR_BIT_SCAN_KIND_VGPR_B64 = 4,
 };
 
-typedef uint8_t loom_amdgpu_scalar_cttz_flags_t;
+typedef uint8_t loom_amdgpu_scalar_bit_scan_flags_t;
 
-// The source value is known to be nonzero, so native CTZ needs no zero repair.
-#define LOOM_AMDGPU_SCALAR_CTTZ_FLAG_SOURCE_NONZERO ((uint8_t)1u << 0)
+// The source value is known to be nonzero, so native scans need no zero repair.
+#define LOOM_AMDGPU_SCALAR_BIT_SCAN_FLAG_SOURCE_NONZERO ((uint8_t)1u << 0)
+// The plan counts leading zeros instead of trailing zeros.
+#define LOOM_AMDGPU_SCALAR_BIT_SCAN_FLAG_LEADING ((uint8_t)1u << 1)
 
-typedef struct loom_amdgpu_scalar_cttz_plan_t {
-  // Source integer whose trailing zero bits are counted.
+typedef struct loom_amdgpu_scalar_bit_scan_plan_t {
+  // Source integer whose leading or trailing zero bits are counted.
   loom_value_id_t source;
-  // Result integer receiving the trailing-zero count.
+  // Result integer receiving the zero count.
   loom_value_id_t result;
   // Register-bank and physical-width lowering strategy.
-  loom_amdgpu_scalar_cttz_kind_t kind;
+  loom_amdgpu_scalar_bit_scan_kind_t kind;
   // Selected result width after range-based integer narrowing.
   uint8_t result_unit_count;
   // Declared source width governing the zero result.
   uint8_t semantic_bit_width;
-  // Fact-derived lowering properties.
-  loom_amdgpu_scalar_cttz_flags_t flags;
-} loom_amdgpu_scalar_cttz_plan_t;
+  // Operation and fact-derived lowering properties.
+  loom_amdgpu_scalar_bit_scan_flags_t flags;
+} loom_amdgpu_scalar_bit_scan_plan_t;
 
-static_assert(sizeof(loom_amdgpu_scalar_cttz_plan_t) == 12,
-              "trailing-zero-count plans must stay cache dense");
+static_assert(sizeof(loom_amdgpu_scalar_bit_scan_plan_t) == 12,
+              "bit-scan plans must stay cache dense");
 
 typedef enum loom_amdgpu_scalar_conversion_kind_e {
   LOOM_AMDGPU_SCALAR_CONVERSION_KIND_NONE = 0,

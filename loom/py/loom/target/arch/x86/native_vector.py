@@ -1455,7 +1455,7 @@ VPMOVD2M = _instruction(
     _UNARY,
     _OPERANDS_7,
     _IMMEDIATES_0,
-    _encoding(_EVEX, _MAP_2, 2, 0, 0x39, (128,)),
+    _encoding(_EVEX, _MAP_2, 2, 0, 0x39, (128, 256, 512)),
 )
 VPMOVM2B = _instruction(
     "vpmovm2b",
@@ -1469,88 +1469,79 @@ VPMOVM2D = _instruction(
     _UNARY,
     _OPERANDS_11,
     _IMMEDIATES_0,
-    _encoding(_EVEX, _MAP_2, 2, 0, 0x38, (128,)),
+    _encoding(_EVEX, _MAP_2, 2, 0, 0x38, (128, 256, 512)),
 )
 VPMOVM2Q = _instruction(
     "vpmovm2q",
     _UNARY,
     _OPERANDS_11,
     _IMMEDIATES_0,
-    _encoding(_EVEX, _MAP_2, 2, 1, 0x38, (128,)),
+    _encoding(_EVEX, _MAP_2, 2, 1, 0x38, (128, 256, 512)),
 )
 VPMOVM2W = _instruction(
     "vpmovm2w",
     _UNARY,
     _OPERANDS_11,
     _IMMEDIATES_0,
-    _encoding(_EVEX, _MAP_2, 2, 1, 0x28, (128,)),
+    _encoding(_EVEX, _MAP_2, 2, 1, 0x28, (128, 256, 512)),
 )
 VPMOVQ2M = _instruction(
     "vpmovq2m",
     _UNARY,
     _OPERANDS_7,
     _IMMEDIATES_0,
-    _encoding(_EVEX, _MAP_2, 2, 1, 0x39, (128,)),
+    _encoding(_EVEX, _MAP_2, 2, 1, 0x39, (128, 256, 512)),
 )
-VPMOVSXBW = _instruction(
-    "vpmovsxbw",
-    _UNARY,
-    _OPERANDS_13,
-    _IMMEDIATES_0,
-    _encoding(_VEX, _MAP_2, 1, 0, 0x20, (128, 256)),
-)
-VPMOVSXDQ = _instruction(
-    "vpmovsxdq",
-    _UNARY,
-    _OPERANDS_13,
-    _IMMEDIATES_0,
-    _encoding(_VEX, _MAP_2, 1, 0, 0x25, (128, 256)),
-)
-VPMOVSXWD = _instruction(
-    "vpmovsxwd",
-    _UNARY,
-    _OPERANDS_13,
-    _IMMEDIATES_0,
-    _encoding(_VEX, _MAP_2, 1, 0, 0x23, (128, 256)),
-)
+
+
+def _packed_widen_instruction(mnemonic: str, opcode: int) -> VectorMachineInstruction:
+    return _instruction(
+        mnemonic,
+        _UNARY,
+        _OPERANDS_13,
+        _IMMEDIATES_0,
+        _encoding(_EVEX, _MAP_2, 1, 0, opcode, (512,)),
+        _encoding(_VEX, _MAP_2, 1, 0, opcode, (128, 256)),
+    )
+
+
+VPMOVSXBW = _packed_widen_instruction("vpmovsxbw", 0x20)
+VPMOVSXBD = _packed_widen_instruction("vpmovsxbd", 0x21)
+VPMOVSXBQ = _packed_widen_instruction("vpmovsxbq", 0x22)
+VPMOVSXWD = _packed_widen_instruction("vpmovsxwd", 0x23)
+VPMOVSXWQ = _packed_widen_instruction("vpmovsxwq", 0x24)
+VPMOVSXDQ = _packed_widen_instruction("vpmovsxdq", 0x25)
 VPMOVW2M = _instruction(
     "vpmovw2m",
     _UNARY,
     _OPERANDS_7,
     _IMMEDIATES_0,
-    _encoding(_EVEX, _MAP_2, 2, 1, 0x29, (128,)),
+    _encoding(_EVEX, _MAP_2, 2, 1, 0x29, (128, 256, 512)),
 )
-VPMOVWB = _instruction(
-    "vpmovwb",
-    _REVERSE_UNARY,
-    _OPERANDS_13,
-    _IMMEDIATES_0,
-    _encoding(_EVEX, _MAP_2, 2, 0, 0x30, (512,)),
-)
-VPMOVZXBD = _instruction(
-    "vpmovzxbd",
-    _UNARY,
-    _OPERANDS_13,
-    _IMMEDIATES_0,
-    _encoding(_EVEX, _MAP_2, 1, 0, 0x31, (512,)),
-    _encoding(_VEX, _MAP_2, 1, 0, 0x31, (128, 256)),
-)
-VPMOVZXBQ = _instruction(
-    "vpmovzxbq",
-    _UNARY,
-    _OPERANDS_13,
-    _IMMEDIATES_0,
-    _encoding(_EVEX, _MAP_2, 1, 0, 0x32, (512,)),
-    _encoding(_VEX, _MAP_2, 1, 0, 0x32, (128, 256)),
-)
-VPMOVZXBW = _instruction(
-    "vpmovzxbw",
-    _UNARY,
-    _OPERANDS_13,
-    _IMMEDIATES_0,
-    _encoding(_EVEX, _MAP_2, 1, 0, 0x30, (512,)),
-    _encoding(_VEX, _MAP_2, 1, 0, 0x30, (128, 256)),
-)
+
+
+def _packed_narrow_instruction(mnemonic: str, opcode: int) -> VectorMachineInstruction:
+    return _instruction(
+        mnemonic,
+        _REVERSE_UNARY,
+        _OPERANDS_13,
+        _IMMEDIATES_0,
+        _encoding(_EVEX, _MAP_2, 2, 0, opcode, (128, 256, 512)),
+    )
+
+
+VPMOVWB = _packed_narrow_instruction("vpmovwb", 0x30)
+VPMOVDB = _packed_narrow_instruction("vpmovdb", 0x31)
+VPMOVQB = _packed_narrow_instruction("vpmovqb", 0x32)
+VPMOVDW = _packed_narrow_instruction("vpmovdw", 0x33)
+VPMOVQW = _packed_narrow_instruction("vpmovqw", 0x34)
+VPMOVQD = _packed_narrow_instruction("vpmovqd", 0x35)
+VPMOVZXBW = _packed_widen_instruction("vpmovzxbw", 0x30)
+VPMOVZXBD = _packed_widen_instruction("vpmovzxbd", 0x31)
+VPMOVZXBQ = _packed_widen_instruction("vpmovzxbq", 0x32)
+VPMOVZXWD = _packed_widen_instruction("vpmovzxwd", 0x33)
+VPMOVZXWQ = _packed_widen_instruction("vpmovzxwq", 0x34)
+VPMOVZXDQ = _packed_widen_instruction("vpmovzxdq", 0x35)
 VPMULLD = _instruction(
     "vpmulld",
     _NDS,
@@ -1844,12 +1835,26 @@ VPSUBW = _instruction(
     _encoding(_EVEX, _MAP_1, 1, 0, 0xF9, (512,)),
     _encoding(_VEX, _MAP_1, 1, 0, 0xF9, (128, 256)),
 )
+VPUNPCKLDQ = _instruction(
+    "vpunpckldq",
+    _NDS,
+    _OPERANDS_16,
+    _IMMEDIATES_0,
+    _encoding(_VEX, _MAP_1, 1, 0, 0x62, (128,)),
+)
 VPUNPCKLQDQ = _instruction(
     "vpunpcklqdq",
     _NDS,
     _OPERANDS_16,
     _IMMEDIATES_0,
     _encoding(_VEX, _MAP_1, 1, 0, 0x6C, (128,)),
+)
+VPUNPCKLWD = _instruction(
+    "vpunpcklwd",
+    _NDS,
+    _OPERANDS_16,
+    _IMMEDIATES_0,
+    _encoding(_VEX, _MAP_1, 1, 0, 0x60, (128,)),
 )
 VPXOR = _instruction(
     "vpxor",
@@ -2085,13 +2090,20 @@ AVX512_GPR_BROADCAST = (
 )
 AVX512_SELECT = (VPBLENDMB, VPBLENDMW, VPBLENDMD, VPBLENDMQ, VBLENDMPS, VBLENDMPD)
 AVX512_PREDICATE_CONVERSION = (
-    (VPMOVQ2M, VPMOVM2Q),
-    (VPMOVD2M, VPMOVM2D),
+    (VPMOVB2M, VPMOVM2B),
     (VPMOVW2M, VPMOVM2W),
-    (VPMOVB2M, VPMOVM2B),
-    (VPMOVB2M, VPMOVM2B),
-    (VPMOVB2M, VPMOVM2B),
+    (VPMOVD2M, VPMOVM2D),
+    (VPMOVQ2M, VPMOVM2Q),
 )
+PACKED_INTEGER_WIDEN = (
+    (VPMOVSXBW, VPMOVZXBW),
+    (VPMOVSXBD, VPMOVZXBD),
+    (VPMOVSXBQ, VPMOVZXBQ),
+    (VPMOVSXWD, VPMOVZXWD),
+    (VPMOVSXWQ, VPMOVZXWQ),
+    (VPMOVSXDQ, VPMOVZXDQ),
+)
+PACKED_INTEGER_NARROW = (VPMOVWB, VPMOVDB, VPMOVQB, VPMOVDW, VPMOVQW, VPMOVQD)
 AVX_VNNI_INT8 = (
     VPDPBSSD,
     VPDPBSSDS,

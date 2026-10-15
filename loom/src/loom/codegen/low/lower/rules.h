@@ -386,6 +386,9 @@ enum loom_low_lower_attr_copy_kind_e {
   LOOM_LOW_LOWER_ATTR_COPY_OPERAND_SEGMENT_EXACT_BITS_READ_ONLY = 48,
   // Emits literal_i64 minus one i64_array element.
   LOOM_LOW_LOWER_ATTR_COPY_I64_ARRAY_LITERAL_MINUS_ELEMENT = 49,
+  // Interns generated literal bytes and emits the reserved read-only data
+  // symbol.
+  LOOM_LOW_LOWER_ATTR_COPY_READ_ONLY_DATA_LITERAL = 50,
   // Maximum attribute-copy kind plus one.
   LOOM_LOW_LOWER_ATTR_COPY_COUNT_,
 };
@@ -412,10 +415,14 @@ typedef struct loom_low_lower_attr_copy_t {
     // Second source value-ref row consumed by two-value projections.
     uint16_t other_value_ref_index;
   };
-  // First source i64_array element ordinal, byte parity, i32 word ordinal, or
-  // shaped dimension ordinal consumed by the projection row, or high 16 bits
-  // of the packed enum-remap upper word.
-  uint16_t source_element_index;
+  union {
+    // First source i64_array element ordinal, byte parity, i32 word ordinal, or
+    // shaped dimension ordinal consumed by the projection row, or high 16 bits
+    // of the packed enum-remap upper word.
+    uint16_t source_element_index;
+    // Byte offset into the owning rule set's generated literal-data pool.
+    uint16_t literal_data_offset;
+  };
   // Source value-ref table row consumed by value projection rows.
   uint16_t value_ref_index;
   // Attribute projection operation to perform.
@@ -427,11 +434,15 @@ typedef struct loom_low_lower_attr_copy_t {
     // Source operand field ordinal consumed by operand-segment projections.
     uint8_t source_operand_field_index;
   };
-  // Number of source elements consumed by PACK_ELEMENTS rows, byte stride used
-  // by I64_ARRAY_LANE_BYTE, SHUFFLE_MASK_CHUNK, and READ_ONLY_BYTE_SEGMENT
-  // rows, scale used by VALUE_TYPE rows, or source enum case span used by
-  // ENUM_REMAP rows.
-  uint8_t source_element_count;
+  union {
+    // Number of source elements consumed by PACK_ELEMENTS rows, byte stride
+    // used by I64_ARRAY_LANE_BYTE, SHUFFLE_MASK_CHUNK, and
+    // READ_ONLY_BYTE_SEGMENT rows, scale used by VALUE_TYPE rows, or source
+    // enum case span used by ENUM_REMAP rows.
+    uint8_t source_element_count;
+    // Number of literal-data bytes retained by this projection.
+    uint8_t literal_data_length;
+  };
   // Bit width of each packed or read-only source element, enum-remap value, or
   // source byte segment length for SHUFFLE_MASK_CHUNK and
   // READ_ONLY_BYTE_SEGMENT rows.
@@ -1449,6 +1460,8 @@ typedef struct loom_low_lower_rule_set_t {
   const loom_low_lower_diagnostic_t* diagnostics;
   // Number of rows in diagnostics.
   uint16_t diagnostic_count;
+  // Generated immutable byte literals referenced by attribute-copy rows.
+  const uint8_t* literal_data;
   // Immutable spelling banks, outside the hot table prefix. Both base pointers
   // share a 16-byte aligned slot; byte counts are used only for verification.
   iree_alignas(16) loom_string_pool_t string_pool;

@@ -24,7 +24,8 @@ class Form(IntEnum):
     BINARY_IMMEDIATE = 5
     SHIFT_IMMEDIATE = 6
     SHIFT_COUNT = 7
-    MOVE = 8
+    # One semantic input in ModRM.r/m and an independent result in ModRM.reg.
+    UNARY_R_RM = 8
     SELECT = 9
     SUBTRACT_IF_UGE = 10
     COMPARE = 11

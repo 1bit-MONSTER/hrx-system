@@ -72,14 +72,15 @@ func.def @bfloat_pair_sum(%input: buffer) -> (f32) {
 
 // ----
 low.func.def target<x86.avx512.core> abi(object_function) abi_layout({signature = (buffer) -> (f32)}) @bfloat_pair_sum(%input: reg<x86.gpr64>) -> (reg<x86.xmm>) asm {
-  %19 = movzx.load.u16.gpr32 %input {disp32 = 0}
-  %second = movzx.load.u16.gpr32 %input {disp32 = 2}
-  %21 = copy %19 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %22 = shl.imm.gpr32 %21 {shift = 16}
-  %first_wide = vmovd.xmm.gpr32 %22
-  %24 = copy %second : reg<x86.gpr32> -> reg<x86.gpr32>
-  %25 = shl.imm.gpr32 %24 {shift = 16}
-  %second_wide = vmovd.xmm.gpr32 %25
+  %14 = vmovss.load.xmm %input {disp32 = 0}
+  %first = vpextrw.xmm %14, 0
+  %second = vpextrw.xmm %14, 1
+  %17 = copy %first : reg<x86.gpr32> -> reg<x86.gpr32>
+  %18 = shl.imm.gpr32 %17 {shift = 16}
+  %first_wide = vmovd.xmm.gpr32 %18
+  %20 = copy %second : reg<x86.gpr32> -> reg<x86.gpr32>
+  %21 = shl.imm.gpr32 %20 {shift = 16}
+  %second_wide = vmovd.xmm.gpr32 %21
   %sum = vaddss.xmm %first_wide, %second_wide
   return %sum
 }

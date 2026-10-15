@@ -30,6 +30,7 @@ from loom.target.contracts import (
     ContractFragment,
     DescriptorOperandMaterialization,
     GuardKind,
+    LowerAttrCopyKind,
     LowerDiagnosticParam,
     LowerEmitKind,
     SourceMemoryAddressMaterializer,
@@ -358,6 +359,15 @@ def _generate_source(
     if string_layout.shared is not None:
         lines.extend([f'#include "{string_layout.shared.header}"', ""])
     lines.extend(emit_c_string_pool(string_pool, string_data_name, layout=string_layout))
+
+    literal_data_name = f"k{c_table_prefix}LiteralData"
+    lines.extend(
+        lower_rule_rows.emit_optional_value_array(
+            literal_data_name,
+            "uint8_t",
+            [f"UINT8_C(0x{byte:02X})" for byte in table.literal_data],
+        )
+    )
 
     type_pattern_ranges, type_pattern_range_refs = _intern_optional_rows(tuple(lower_rule_rows.type_pattern_range(row.type_pattern) for row in table.type_patterns))
     type_pattern_ranges_name = f"k{c_table_prefix}TypePatternRanges"
@@ -780,6 +790,7 @@ def _generate_source(
             storage_operand_schemas_name=storage_operand_schemas_name,
             guard_refs=guard_refs,
             guard_refs_name=guard_refs_name,
+            literal_data_name=literal_data_name,
             attr_copies_name=attr_copies_name,
             tied_results_name=tied_results_name,
             emit_rows=unique_emits,
@@ -902,6 +913,7 @@ def _validate_c_table_shape(
     _require_u16(len(descriptor_ref_keys), f"{subject} descriptor-ref count")
     _require_u16(len(table.guards), f"{subject} guard count")
     _require_u16(len(table.attr_copies), f"{subject} attr-copy count")
+    _require_u16(len(table.literal_data), f"{subject} literal-data byte count")
     _require_u16(len(table.tied_results), f"{subject} tied-result count")
     _require_u16(len(table.emits), f"{subject} emit count")
     _require_u16(len(table.diagnostics), f"{subject} diagnostic count")
@@ -1173,6 +1185,13 @@ def _validate_c_table_shape(
             )
         _require_u8(row.dynamic_term_index, f"{row_subject} dynamic term index")
         _require_i64(row.literal_i64, f"{row_subject} literal i64")
+        _require_u16(row.literal_data_offset, f"{row_subject} literal-data offset")
+        _require_u8(row.literal_data_length, f"{row_subject} literal-data length")
+        if row.kind == LowerAttrCopyKind.READ_ONLY_DATA_LITERAL:
+            if row.literal_data_length == 0:
+                raise ValueError(f"{row_subject} literal-data length must be positive")
+            if row.literal_data_offset + row.literal_data_length > len(table.literal_data):
+                raise ValueError(f"{row_subject} literal-data range exceeds the generated pool")
 
     for index, row in enumerate(table.tied_results):
         row_subject = f"{subject} tied-result {index}"

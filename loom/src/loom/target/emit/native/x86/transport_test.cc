@@ -222,7 +222,7 @@ TEST(TransportTest, CoalescesOnlyIdenticalPhysicalRepresentations) {
   ASSERT_TRUE(loom_x86_transport_select_register(
       LOOM_X86_REGISTER_CLASS_GPR64, 3, LOOM_X86_REGISTER_CLASS_GPR32, 3,
       &instruction));
-  EXPECT_EQ(instruction.encoding_format_id, LOOM_X86_ENCODING_FORM_MOVE);
+  EXPECT_EQ(instruction.encoding_format_id, LOOM_X86_ENCODING_FORM_UNARY_R_RM);
 
   ASSERT_TRUE(loom_x86_transport_select_register(LOOM_X86_REGISTER_CLASS_YMM, 3,
                                                  LOOM_X86_REGISTER_CLASS_YMM, 3,

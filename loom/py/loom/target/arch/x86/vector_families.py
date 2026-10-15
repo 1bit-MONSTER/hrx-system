@@ -11,11 +11,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 AVX2_VECTOR_BIT_WIDTHS = (128, 256)
-# The x86 call ABI carries 64-bit vectors in the low half of an XMM register.
-# These payloads use AVX2 construction and lane-movement instructions even though
-# they are narrower than an architecturally native packed arithmetic width.
-AVX2_CARRIER_VECTOR_BIT_WIDTHS = (64, *AVX2_VECTOR_BIT_WIDTHS)
+# The x86 call ABI carries subregister vectors in the low bits of an XMM
+# register. These payloads use AVX2 construction and lane-movement instructions
+# even though they are narrower than an architecturally native packed arithmetic
+# width.
+AVX2_CARRIER_VECTOR_BIT_WIDTHS = (8, 16, 32, 64, *AVX2_VECTOR_BIT_WIDTHS)
 AVX512_VECTOR_BIT_WIDTHS = (512,)
+AVX512_CARRIER_VECTOR_BIT_WIDTHS = (
+    *AVX2_CARRIER_VECTOR_BIT_WIDTHS,
+    *AVX512_VECTOR_BIT_WIDTHS,
+)
 AVX512VL_VECTOR_BIT_WIDTHS = AVX2_VECTOR_BIT_WIDTHS
 AVX512_FP16_VECTOR_BIT_WIDTHS = (64, 128, 256, 512)
 AVX512_DIRECT_BROADCAST_VECTOR_BIT_WIDTHS = (
@@ -64,11 +69,66 @@ class VectorStorageFamily:
     element_names: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class VectorIntegerWideningFamily:
+    """One signed and unsigned packed-integer widening pair."""
+
+    source: VectorElement
+    result: VectorElement
+    signed_mnemonic: str
+    unsigned_mnemonic: str
+
+
+@dataclass(frozen=True, slots=True)
+class VectorIntegerNarrowingFamily:
+    """One packed-integer narrowing pair."""
+
+    source: VectorElement
+    result: VectorElement
+    mnemonic: str
+
+    @property
+    def avx2_half_result_bit_width(self) -> int:
+        """Bit width produced from one 128-bit AVX2 source lane."""
+
+        return 128 * self.result.bit_width // self.source.bit_width
+
+
 INTEGER_ELEMENTS = (
     VectorElement("i8", 8),
     VectorElement("i16", 16),
     VectorElement("i32", 32),
     VectorElement("i64", 64),
+)
+
+X86_VECTOR_INTEGER_WIDENING_FAMILIES = (
+    VectorIntegerWideningFamily(
+        INTEGER_ELEMENTS[0], INTEGER_ELEMENTS[1], "vpmovsxbw", "vpmovzxbw"
+    ),
+    VectorIntegerWideningFamily(
+        INTEGER_ELEMENTS[0], INTEGER_ELEMENTS[2], "vpmovsxbd", "vpmovzxbd"
+    ),
+    VectorIntegerWideningFamily(
+        INTEGER_ELEMENTS[0], INTEGER_ELEMENTS[3], "vpmovsxbq", "vpmovzxbq"
+    ),
+    VectorIntegerWideningFamily(
+        INTEGER_ELEMENTS[1], INTEGER_ELEMENTS[2], "vpmovsxwd", "vpmovzxwd"
+    ),
+    VectorIntegerWideningFamily(
+        INTEGER_ELEMENTS[1], INTEGER_ELEMENTS[3], "vpmovsxwq", "vpmovzxwq"
+    ),
+    VectorIntegerWideningFamily(
+        INTEGER_ELEMENTS[2], INTEGER_ELEMENTS[3], "vpmovsxdq", "vpmovzxdq"
+    ),
+)
+
+X86_VECTOR_INTEGER_NARROWING_FAMILIES = (
+    VectorIntegerNarrowingFamily(INTEGER_ELEMENTS[1], INTEGER_ELEMENTS[0], "vpmovwb"),
+    VectorIntegerNarrowingFamily(INTEGER_ELEMENTS[2], INTEGER_ELEMENTS[0], "vpmovdb"),
+    VectorIntegerNarrowingFamily(INTEGER_ELEMENTS[3], INTEGER_ELEMENTS[0], "vpmovqb"),
+    VectorIntegerNarrowingFamily(INTEGER_ELEMENTS[2], INTEGER_ELEMENTS[1], "vpmovdw"),
+    VectorIntegerNarrowingFamily(INTEGER_ELEMENTS[3], INTEGER_ELEMENTS[1], "vpmovqw"),
+    VectorIntegerNarrowingFamily(INTEGER_ELEMENTS[3], INTEGER_ELEMENTS[2], "vpmovqd"),
 )
 
 FLOAT_ELEMENTS = (
@@ -389,6 +449,25 @@ AVX2_PAYLOAD_ELEMENT_NAMES = tuple(
 
 
 def validate_vector_families() -> None:
+    widening_pairs = {
+        (family.source.name, family.result.name)
+        for family in X86_VECTOR_INTEGER_WIDENING_FAMILIES
+    }
+    if widening_pairs != {
+        (source.name, result.name)
+        for source_index, source in enumerate(INTEGER_ELEMENTS[:-1])
+        for result in INTEGER_ELEMENTS[source_index + 1 :]
+    }:
+        raise ValueError(
+            "x86 integer widening rows must cover every widening element pair"
+        )
+    widening_mnemonics = {
+        mnemonic
+        for family in X86_VECTOR_INTEGER_WIDENING_FAMILIES
+        for mnemonic in (family.signed_mnemonic, family.unsigned_mnemonic)
+    }
+    if len(widening_mnemonics) != 2 * len(X86_VECTOR_INTEGER_WIDENING_FAMILIES):
+        raise ValueError("x86 integer widening rows must use unique mnemonics")
     keys = [
         (family.source_operation, family.element.name)
         for family in (*AVX2_INTEGER_BINARY_FAMILIES, *AVX2_FLOAT_BINARY_FAMILIES)

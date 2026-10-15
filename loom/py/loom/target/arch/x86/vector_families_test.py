@@ -37,6 +37,8 @@ from loom.target.arch.x86.vector_families import (
     AVX512VL_VECTOR_BIT_WIDTHS,
     FLOAT_ELEMENTS,
     INTEGER_ELEMENTS,
+    X86_VECTOR_INTEGER_NARROWING_FAMILIES,
+    X86_VECTOR_INTEGER_WIDENING_FAMILIES,
 )
 
 
@@ -217,6 +219,108 @@ def test_avx2_family_rows_materialize_both_register_widths() -> None:
     } <= descriptor_keys
 
 
+def test_integer_widening_rows_cover_every_pair_signedness_and_register_width() -> None:
+    assert {
+        (family.source.name, family.result.name)
+        for family in X86_VECTOR_INTEGER_WIDENING_FAMILIES
+    } == {
+        (source.name, result.name)
+        for source_index, source in enumerate(INTEGER_ELEMENTS[:-1])
+        for result in INTEGER_ELEMENTS[source_index + 1 :]
+    }
+
+    avx2_descriptors = {
+        descriptor.key: descriptor for descriptor in X86_AVX2_DESCRIPTOR_SET.descriptors
+    }
+    avx512_descriptors = {
+        descriptor.key: descriptor
+        for descriptor in X86_AVX512_CORE_DESCRIPTOR_SET.descriptors
+    }
+    for family_index, family in enumerate(X86_VECTOR_INTEGER_WIDENING_FAMILIES):
+        for mnemonic, opcode in (
+            (family.signed_mnemonic, 0x20 + family_index),
+            (family.unsigned_mnemonic, 0x30 + family_index),
+        ):
+            for result_vector_bit_width, result_suffix, encoding_prefix in (
+                (128, "xmm", 0x0600),
+                (256, "ymm", 0x4600),
+            ):
+                key = f"x86.avx2.{mnemonic}.{result_suffix}.xmm"
+                descriptor = avx2_descriptors[key]
+                assert descriptor.encoding_id == encoding_prefix | opcode
+                lane_count = result_vector_bit_width // family.result.bit_width
+                signedness = (
+                    "signed" if mnemonic == family.signed_mnemonic else "unsigned"
+                )
+                assert descriptor.semantic_tag == (
+                    f"integer.extend.{signedness}."
+                    f"{family.source.name}x{lane_count}."
+                    f"{family.result.name}x{lane_count}"
+                )
+
+            source_vector_bit_width = (
+                512 * family.source.bit_width // family.result.bit_width
+            )
+            source_suffix = "ymm" if source_vector_bit_width == 256 else "xmm"
+            descriptor = avx512_descriptors[
+                f"x86.avx512.{mnemonic}.zmm.{source_suffix}"
+            ]
+            assert descriptor.encoding_id == 0xA600 | opcode
+
+
+def test_integer_narrowing_rows_cover_every_pair_and_register_width() -> None:
+    assert {
+        (family.source.name, family.result.name)
+        for family in X86_VECTOR_INTEGER_NARROWING_FAMILIES
+    } == {
+        (source.name, result.name)
+        for source_index, source in enumerate(INTEGER_ELEMENTS[1:], start=1)
+        for result in INTEGER_ELEMENTS[:source_index]
+    }
+
+    descriptors = {
+        descriptor.key: descriptor
+        for descriptor in X86_AVX512_CORE_DESCRIPTOR_SET.descriptors
+    }
+    suffixes = {128: "xmm", 256: "ymm", 512: "zmm"}
+    vector_length_bits = {128: 0x0000, 256: 0x4000, 512: 0x8000}
+    for family_index, family in enumerate(X86_VECTOR_INTEGER_NARROWING_FAMILIES):
+        for source_vector_bit_width in (128, 256, 512):
+            result_vector_bit_width = max(
+                128,
+                source_vector_bit_width
+                * family.result.bit_width
+                // family.source.bit_width,
+            )
+            descriptor = descriptors[
+                f"x86.avx512.{family.mnemonic}."
+                f"{suffixes[result_vector_bit_width]}."
+                f"{suffixes[source_vector_bit_width]}"
+            ]
+            assert descriptor.encoding_id == (
+                0x2A30 | family_index | vector_length_bits[source_vector_bit_width]
+            )
+            lane_count = source_vector_bit_width // family.source.bit_width
+            assert descriptor.semantic_tag == (
+                f"integer.truncate.{family.source.name}x{lane_count}."
+                f"{family.result.name}x{lane_count}"
+            )
+
+    avx2_descriptors = {
+        descriptor.key: descriptor for descriptor in X86_AVX2_DESCRIPTOR_SET.descriptors
+    }
+    for mnemonic, element_bit_width, opcode in (
+        ("vpunpcklwd", 16, 0x60),
+        ("vpunpckldq", 32, 0x62),
+        ("vpunpcklqdq", 64, 0x6C),
+    ):
+        descriptor = avx2_descriptors[f"x86.avx2.{mnemonic}.xmm"]
+        assert descriptor.encoding_id == 0x0500 | opcode
+        assert descriptor.semantic_tag == (
+            f"bits.interleave.low.i{element_bit_width}x{128 // element_bit_width}"
+        )
+
+
 def test_avx_vnni_int8_rows_have_complete_direct_encodings() -> None:
     descriptors = {
         descriptor.key: (descriptor.encoding_format_id, descriptor.encoding_id)
@@ -367,22 +471,20 @@ def test_avx512_predicate_descriptors_cover_every_core_width_and_element() -> No
         for mnemonic in AVX512_SELECT_MNEMONICS.values()
     } <= descriptor_keys
 
-    carrier_rows = {
-        2: ("q", "xmm"),
-        4: ("d", "xmm"),
-        8: ("w", "xmm"),
-        16: ("b", "xmm"),
-        32: ("b", "ymm"),
-        64: ("b", "zmm"),
-    }
-    assert {
+    predicate_conversion_keys = {
         key
-        for element_suffix, register_suffix in carrier_rows.values()
+        for key in descriptor_keys
+        if ".vpmovm2" in key or key.endswith(("2m.k.xmm", "2m.k.ymm", "2m.k.zmm"))
+    }
+    assert predicate_conversion_keys == {
+        key
+        for element_suffix in ("b", "w", "d", "q")
+        for register_suffix in ("xmm", "ymm", "zmm")
         for key in (
             f"x86.avx512.vpmovm2{element_suffix}.{register_suffix}.k",
             f"x86.avx512.vpmov{element_suffix}2m.k.{register_suffix}",
         )
-    } <= descriptor_keys
+    }
     assert {
         "x86.avx512.kmovq.k.gpr64",
         "x86.avx512.kmovq.gpr64.k",

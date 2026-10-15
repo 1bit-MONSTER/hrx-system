@@ -100,6 +100,7 @@ class LowerAttrCopyKind(Enum):
     I64_ARRAY_READ_ONLY_BYTE_SEGMENT = "i64_array_read_only_byte_segment"
     I64_ARRAY_READ_ONLY_BYTE_WORDS = "i64_array_read_only_byte_words"
     OPERAND_SEGMENT_EXACT_BITS_READ_ONLY = "operand_segment_exact_bits_read_only"
+    READ_ONLY_DATA_LITERAL = "read_only_data_literal"
     SOURCE_MEMORY_STATIC_BYTE_OFFSET = "source_memory_static_byte_offset"
     SOURCE_MEMORY_STATIC_BYTE_OFFSET_PLUS_LITERAL = (
         "source_memory_static_byte_offset_plus_literal"
@@ -127,6 +128,7 @@ class LowerAttrCopyKind(Enum):
             LowerAttrCopyKind.I64_ARRAY_READ_ONLY_BYTE_SEGMENT,
             LowerAttrCopyKind.I64_ARRAY_READ_ONLY_BYTE_WORDS,
             LowerAttrCopyKind.OPERAND_SEGMENT_EXACT_BITS_READ_ONLY,
+            LowerAttrCopyKind.READ_ONLY_DATA_LITERAL,
         )
 
 
@@ -303,6 +305,8 @@ class LowerAttrCopy:
     other_value_ref_index: int = 0
     literal_i64: int = 0
     dynamic_term_index: int = 0
+    literal_data_offset: int = 0
+    literal_data_length: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -390,6 +394,7 @@ class CompiledLowerRuleSet:
     tied_results: tuple[LowerTiedResult, ...]
     emits: tuple[LowerEmit, ...]
     diagnostics: tuple[LowerDiagnostic, ...]
+    literal_data: bytes = b""
 
 
 def _intern_program_rows[ProgramRowT: Hashable](

@@ -29,9 +29,9 @@ typedef enum loom_x86_register_class_e {
 } loom_x86_register_class_t;
 
 // Maps a logical vector payload width to its physical x86 register class.
-// A 64-bit payload occupies the low half of XMM. Returns false for unsupported
-// widths and stores GPR32 in |out_register_class| so callers never observe an
-// uninitialized value.
+// Payloads narrower than 128 bits occupy the corresponding low XMM bits.
+// Returns false for unsupported widths and stores GPR32 in
+// |out_register_class| so callers never observe an uninitialized value.
 bool loom_x86_register_class_for_vector_bit_width(
     uint32_t vector_bit_width, loom_x86_register_class_t* out_register_class);
 

@@ -411,8 +411,8 @@ func.def target(@target) @unsupported_wide_callable(%values: vector<16xi64>) {
 
 // ====
 
-// A vector narrower than the smallest source carrier stays on the scalar
-// fallback, including storage-float selections that preserve payload bits.
+// Low-XMM carriers keep a four-byte storage-float vector packed through the
+// dynamic predicate and preserve its payload bits through integer selection.
 x86.target<avx2> @target
 
 func.def public target(@target) @short_dynamic_insert(%output: buffer, %value: f8E4M3, %position: index) {
@@ -426,22 +426,30 @@ func.def public target(@target) @short_dynamic_insert(%output: buffer, %value: f
 
 // ----
 low.func.def public target<x86.avx2.core>(@target) abi(object_function) abi_layout({signature = (buffer, f8E4M3, index) -> ()}) @short_dynamic_insert(%output: reg<x86.gpr64>, %value: reg<x86.gpr32>, %position: reg<x86.gpr64>) asm {
-  %26 = mov.imm64 0
-  %27 = mov.imm32 0
-  %28 = copy %27 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %29 = cmp.select.gpr64.gpr32 %26, %position, %value, %28, "eq"
-  %30 = mov.imm64 1
-  %31 = copy %27 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %32 = cmp.select.gpr64.gpr32 %30, %position, %value, %31, "eq"
-  %33 = mov.imm64 2
-  %34 = copy %27 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %35 = cmp.select.gpr64.gpr32 %33, %position, %value, %34, "eq"
-  %36 = mov.imm64 3
-  %37 = copy %27 : reg<x86.gpr32> -> reg<x86.gpr32>
-  %38 = cmp.select.gpr64.gpr32 %36, %position, %value, %37, "eq"
-  mov.store.u8.gpr32 %29, %output {disp32 = 0}
-  mov.store.u8.gpr32 %32, %output {disp32 = 1}
-  mov.store.u8.gpr32 %35, %output {disp32 = 2}
-  mov.store.u8.gpr32 %38, %output {disp32 = 3}
+  %values = vxorps.zero.xmm
+  %28 = mov.trunc.gpr32.gpr64 %position
+  %29 = movsx.i16.gpr32 %28
+  %30 = mov.imm32 0
+  %31 = copy %30 : reg<x86.gpr32> -> reg<x86.gpr32>
+  %32 = sub.gpr32 %31, %29
+  %33 = mov.imm32 50462976
+  %34 = vmovd.xmm.gpr32 %33
+  %35 = vpmovzxbw.xmm %34
+  %36 = vmovd.xmm.gpr32 %32
+  %37 = vpbroadcastw.xmm %36
+  %38 = vpaddw.xmm %37, %35
+  %40 = vpcmpeqw.xmm %38, %values
+  %41 = cmp.imm.gpr64 %position, 4, "ult"
+  %42 = mov.imm32 0
+  %43 = sub.gpr32 %42, %41
+  %44 = vmovd.xmm.gpr32 %43
+  %45 = vpbroadcastw.xmm %44
+  %46 = vpand.xmm %40, %45
+  %47 = vmovd.xmm.gpr32 %value
+  %48 = vpbroadcastb.xmm %47
+  %49 = avx2.vmovdqu.rodata.xmm @__low_rodata_6497a0a7
+  %50 = vpshufb.xmm %46, %49
+  %result = vpblendvb.xmm %values, %48, %50
+  vmovss.store.xmm %result, %output {disp32 = 0}
   return
 }

@@ -62,7 +62,15 @@ _I1 = Scalar("i1")
 _I32 = Scalar("i32")
 _I64 = Scalar("i64")
 _V2I64 = Vector("i64", lanes=2)
-_REGISTER_SUFFIXES = {64: "xmm", 128: "xmm", 256: "ymm", 512: "zmm"}
+_REGISTER_SUFFIXES = {
+    8: "xmm",
+    16: "xmm",
+    32: "xmm",
+    64: "xmm",
+    128: "xmm",
+    256: "ymm",
+    512: "zmm",
+}
 _REGISTER_CLASSES = {
     64: "x86.xmm",
     128: "x86.xmm",
@@ -241,6 +249,8 @@ def _vector_splat_rules(
         scalar_type = Scalar(element.name)
         lane_type = _full_vector_type(element, 128)
         for vector_bit_width in integer_vector_bit_widths:
+            if vector_bit_width < element.bit_width:
+                continue
             result_type = _full_vector_type(element, vector_bit_width)
             rules.append(
                 integer_vector_splat_rule(
@@ -274,6 +284,7 @@ def _vector_splat_rules(
                 descriptor_lookup,
             )
             for vector_bit_width in float_vector_bit_widths
+            if vector_bit_width >= element.bit_width
         )
     return tuple(rules)
 
@@ -1166,6 +1177,7 @@ def avx2_vector_construction_rules(
             for element in INTEGER_ELEMENTS
             for vector_bit_width in AVX2_CARRIER_VECTOR_BIT_WIDTHS
             for unit_step in (True, False)
+            if vector_bit_width >= element.bit_width
             if vector_bit_width != element.bit_width or not unit_step
         ),
     )

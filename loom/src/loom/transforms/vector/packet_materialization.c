@@ -345,8 +345,11 @@ iree_status_t loom_vector_packet_preserve_memory_load_components(
 iree_status_t loom_vector_packet_staging_load(
     loom_vector_packetization_t* packetization, loom_value_id_t staging_view,
     loom_type_t source_type, const loom_vector_packet_slice_t* slice,
-    const loom_op_t* source_op, loom_value_id_t* out_packet) {
-  *out_packet = LOOM_VALUE_ID_INVALID;
+    const loom_op_t* source_op, loom_vector_packet_value_t* out_packet) {
+  *out_packet = (loom_vector_packet_value_t){
+      .vector = LOOM_VALUE_ID_INVALID,
+      .scalar = LOOM_VALUE_ID_INVALID,
+  };
   const loom_value_id_t* dynamic_indices = NULL;
   iree_host_size_t dynamic_index_count = 0;
   int64_t static_index = slice->static_lane_offset;
@@ -357,6 +360,26 @@ iree_status_t loom_vector_packet_staging_load(
   }
   const loom_type_t packet_type =
       loom_vector_packet_type(source_type, slice->lane_count);
+  if (slice->lane_count == 1u) {
+    const loom_type_t scalar_type =
+        loom_type_scalar(loom_type_element_type(source_type));
+    loom_op_t* scalar_load_op = NULL;
+    IREE_RETURN_IF_ERROR(loom_view_load_build(
+        &packetization->context->rewriter->builder, /*build_flags=*/0,
+        /*instance_flags=*/0, staging_view, dynamic_indices,
+        dynamic_index_count, &static_index,
+        /*static_indices_count=*/1, /*cache_scope=*/0,
+        /*cache_temporal=*/0, scalar_type, source_op->location,
+        &scalar_load_op));
+    loom_op_t* splat_op = NULL;
+    IREE_RETURN_IF_ERROR(
+        loom_vector_splat_build(&packetization->context->rewriter->builder,
+                                loom_view_load_result(scalar_load_op),
+                                packet_type, source_op->location, &splat_op));
+    out_packet->vector = loom_vector_splat_result(splat_op);
+    out_packet->scalar = loom_view_load_result(scalar_load_op);
+    return iree_ok_status();
+  }
   loom_op_t* staging_load_op = NULL;
   IREE_RETURN_IF_ERROR(loom_vector_load_build(
       &packetization->context->rewriter->builder, /*build_flags=*/0,
@@ -364,8 +387,16 @@ iree_status_t loom_vector_packet_staging_load(
       &static_index,
       /*static_indices_count=*/1, /*cache_scope=*/0, /*cache_temporal=*/0,
       packet_type, source_op->location, &staging_load_op));
-  *out_packet = loom_vector_load_result(staging_load_op);
+  out_packet->vector = loom_vector_load_result(staging_load_op);
   return iree_ok_status();
+}
+
+static void loom_vector_packet_reset_value(
+    loom_vector_packetized_value_t* packetized_value) {
+  packetized_value->packet = (loom_vector_packet_value_t){
+      .vector = LOOM_VALUE_ID_INVALID,
+      .scalar = LOOM_VALUE_ID_INVALID,
+  };
 }
 
 static iree_status_t loom_vector_packet_materialize_snapshot(
@@ -398,7 +429,7 @@ static iree_status_t loom_vector_packet_materialize_snapshot(
                  source_packet_lane_count);
   if (packet_lane_offset == 0 &&
       slice->lane_count == source_packet_lane_count) {
-    packetized_value->packet = source_packet;
+    packetized_value->packet.vector = source_packet;
     return iree_ok_status();
   }
 
@@ -411,15 +442,8 @@ static iree_status_t loom_vector_packet_materialize_snapshot(
       /*offsets=*/NULL, /*offsets_count=*/0, &static_offset,
       /*static_offsets_count=*/1, packet_type, snapshot_op->location,
       &slice_op));
-  packetized_value->packet = loom_vector_slice_result(slice_op);
+  packetized_value->packet.vector = loom_vector_slice_result(slice_op);
   return iree_ok_status();
-}
-
-static void loom_vector_packet_reset(
-    loom_vector_packetization_t* packetization) {
-  for (uint32_t i = 0; i < packetization->value_count; ++i) {
-    packetization->values[i].packet = LOOM_VALUE_ID_INVALID;
-  }
 }
 
 static iree_status_t loom_vector_packet_materialize_memory_load(
@@ -462,7 +486,8 @@ static iree_status_t loom_vector_packet_materialize_memory_load(
     IREE_RETURN_IF_ERROR(loom_vector_splat_build(
         &context->rewriter->builder, loom_view_load_result(scalar_load_op),
         packet_type, op->location, &splat_op));
-    packetized_value->packet = loom_vector_splat_result(splat_op);
+    packetized_value->packet.vector = loom_vector_splat_result(splat_op);
+    packetized_value->packet.scalar = loom_view_load_result(scalar_load_op);
     return iree_ok_status();
   }
   loom_op_t* packet_op = NULL;
@@ -472,7 +497,7 @@ static iree_status_t loom_vector_packet_materialize_memory_load(
       dynamic_index_count, static_indices, static_index_count,
       cache_policy.cache_scope, cache_policy.cache_temporal, packet_type,
       op->location, &packet_op));
-  packetized_value->packet = loom_vector_load_result(packet_op);
+  packetized_value->packet.vector = loom_vector_load_result(packet_op);
   return iree_ok_status();
 }
 
@@ -493,8 +518,8 @@ static iree_status_t loom_vector_packet_materialize_simple_op(
     loom_vector_packetized_value_t* operand =
         loom_vector_packet_find(packetization, source_operands[operand_index]);
     IREE_ASSERT(operand != NULL);
-    IREE_ASSERT(operand->packet != LOOM_VALUE_ID_INVALID);
-    loom_op_operands(packet_op)[operand_index] = operand->packet;
+    IREE_ASSERT(operand->packet.vector != LOOM_VALUE_ID_INVALID);
+    loom_op_operands(packet_op)[operand_index] = operand->packet.vector;
   }
   if (op->attribute_count != 0) {
     memcpy(loom_op_attrs(packet_op), loom_op_const_attrs(op),
@@ -502,9 +527,9 @@ static iree_status_t loom_vector_packet_materialize_simple_op(
   }
   const loom_type_t packet_type =
       loom_vector_packet_type(packetized_value->source_type, slice->lane_count);
-  IREE_RETURN_IF_ERROR(loom_builder_define_value(builder, packet_type,
-                                                 &packetized_value->packet));
-  loom_op_results(packet_op)[0] = packetized_value->packet;
+  IREE_RETURN_IF_ERROR(loom_builder_define_value(
+      builder, packet_type, &packetized_value->packet.vector));
+  loom_op_results(packet_op)[0] = packetized_value->packet.vector;
   IREE_RETURN_IF_ERROR(loom_builder_finalize_op(builder, packet_op));
   return iree_ok_status();
 }
@@ -519,7 +544,7 @@ static iree_status_t loom_vector_packet_materialize_constant(
   IREE_RETURN_IF_ERROR(loom_vector_constant_build(
       &packetization->context->rewriter->builder,
       loom_vector_constant_value(op), packet_type, op->location, &packet_op));
-  packetized_value->packet = loom_vector_constant_result(packet_op);
+  packetized_value->packet.vector = loom_vector_constant_result(packet_op);
   return iree_ok_status();
 }
 
@@ -533,7 +558,7 @@ static iree_status_t loom_vector_packet_materialize_poison(
   IREE_RETURN_IF_ERROR(
       loom_vector_poison_build(&packetization->context->rewriter->builder,
                                packet_type, op->location, &packet_op));
-  packetized_value->packet = loom_vector_poison_result(packet_op);
+  packetized_value->packet.vector = loom_vector_poison_result(packet_op);
   return iree_ok_status();
 }
 
@@ -547,7 +572,10 @@ static iree_status_t loom_vector_packet_materialize_splat(
   IREE_RETURN_IF_ERROR(loom_vector_splat_build(
       &packetization->context->rewriter->builder, loom_vector_splat_scalar(op),
       packet_type, op->location, &packet_op));
-  packetized_value->packet = loom_vector_splat_result(packet_op);
+  packetized_value->packet.vector = loom_vector_splat_result(packet_op);
+  if (slice->lane_count == 1u) {
+    packetized_value->packet.scalar = loom_vector_splat_scalar(op);
+  }
   return iree_ok_status();
 }
 
@@ -567,7 +595,11 @@ static iree_status_t loom_vector_packet_materialize_from_elements(
       &packetization->context->rewriter->builder,
       elements.values + slice->static_lane_offset, slice->lane_count,
       packet_type, op->location, &packet_op));
-  packetized_value->packet = loom_vector_from_elements_result(packet_op);
+  packetized_value->packet.vector = loom_vector_from_elements_result(packet_op);
+  if (slice->lane_count == 1u) {
+    packetized_value->packet.scalar =
+        elements.values[slice->static_lane_offset];
+  }
   return iree_ok_status();
 }
 
@@ -590,7 +622,7 @@ static iree_status_t loom_vector_packet_materialize_captured(
       &packetization->context->rewriter->builder, packetized_value->source,
       offsets, offset_count, &static_offset, /*static_offsets_count=*/1,
       packet_type, packetization->captured_value_location, &slice_op));
-  packetized_value->packet = loom_vector_slice_result(slice_op);
+  packetized_value->packet.vector = loom_vector_slice_result(slice_op);
   return iree_ok_status();
 }
 
@@ -598,6 +630,7 @@ static iree_status_t loom_vector_packet_materialize_value(
     loom_vector_packetization_t* packetization,
     const loom_vector_packet_slice_t* slice,
     loom_vector_packetized_value_t* packetized_value) {
+  loom_vector_packet_reset_value(packetized_value);
   if (packetized_value->source_mode ==
       LOOM_VECTOR_PACKET_SOURCE_MODE_SNAPSHOT) {
     return loom_vector_packet_materialize_snapshot(packetization, slice,
@@ -636,21 +669,45 @@ iree_status_t loom_vector_packet_materialize(
     loom_vector_packetization_t* packetization, loom_value_id_t source,
     const loom_vector_packet_slice_t* slice,
     loom_vector_packetized_value_t** out_value) {
-  loom_vector_packet_reset(packetization);
   for (uint32_t i = 0; i < packetization->value_count; ++i) {
     IREE_RETURN_IF_ERROR(loom_vector_packet_materialize_value(
         packetization, slice, &packetization->values[i]));
   }
   *out_value = loom_vector_packet_find(packetization, source);
   IREE_ASSERT(*out_value != NULL);
-  IREE_ASSERT((*out_value)->packet != LOOM_VALUE_ID_INVALID);
+  IREE_ASSERT((*out_value)->packet.vector != LOOM_VALUE_ID_INVALID);
+  return iree_ok_status();
+}
+
+static iree_status_t loom_vector_packet_extract_single_lane(
+    loom_vector_packetization_t* packetization,
+    loom_vector_packet_value_t packet, loom_location_id_t location,
+    loom_value_id_t* out_scalar) {
+  if (packet.scalar != LOOM_VALUE_ID_INVALID) {
+    *out_scalar = packet.scalar;
+    return iree_ok_status();
+  }
+  const loom_value_t* packet_value =
+      loom_module_value(packetization->context->module, packet.vector);
+
+  const int64_t static_index = 0;
+  const loom_type_t packet_type = packet_value->type;
+  const loom_type_t scalar_type =
+      loom_type_scalar(loom_type_element_type(packet_type));
+  loom_op_t* extract_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_vector_extract_build(
+      &packetization->context->rewriter->builder, packet.vector,
+      /*indices=*/NULL,
+      /*indices_count=*/0, &static_index, /*static_indices_count=*/1,
+      scalar_type, location, &extract_op));
+  *out_scalar = loom_vector_extract_result(extract_op);
   return iree_ok_status();
 }
 
 iree_status_t loom_vector_packet_store(
     loom_vector_packetization_t* packetization,
     const loom_vector_memory_footprint_t* store_footprint,
-    const loom_vector_packet_slice_t* slice, loom_value_id_t packet,
+    const loom_vector_packet_slice_t* slice, loom_vector_packet_value_t packet,
     loom_vector_memory_cache_policy_t store_cache_policy, loom_op_t* store_op) {
   loom_target_legalization_context_t* context = packetization->context;
   const loom_value_id_t* dynamic_indices = NULL;
@@ -660,13 +717,26 @@ iree_status_t loom_vector_packet_store(
   IREE_RETURN_IF_ERROR(loom_vector_packet_build_memory_origin(
       context, store_footprint, store_op, slice, &dynamic_indices,
       &dynamic_index_count, &static_indices, &static_index_count));
+  if (slice->lane_count == 1u) {
+    loom_value_id_t scalar = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_vector_packet_extract_single_lane(
+        packetization, packet, store_op->location, &scalar));
+    loom_op_t* scalar_store_op = NULL;
+    return loom_view_store_build(
+        &context->rewriter->builder, store_cache_policy.build_flags,
+        loom_vector_store_memory_flags(store_op), scalar, store_footprint->view,
+        dynamic_indices, dynamic_index_count, static_indices,
+        static_index_count, store_cache_policy.cache_scope,
+        store_cache_policy.cache_temporal, store_op->location,
+        &scalar_store_op);
+  }
   loom_op_t* packet_store_op = NULL;
   IREE_RETURN_IF_ERROR(loom_vector_store_build(
       &context->rewriter->builder, store_cache_policy.build_flags,
-      loom_vector_store_memory_flags(store_op), packet, store_footprint->view,
-      dynamic_indices, dynamic_index_count, static_indices, static_index_count,
-      store_cache_policy.cache_scope, store_cache_policy.cache_temporal,
-      store_op->location, &packet_store_op));
+      loom_vector_store_memory_flags(store_op), packet.vector,
+      store_footprint->view, dynamic_indices, dynamic_index_count,
+      static_indices, static_index_count, store_cache_policy.cache_scope,
+      store_cache_policy.cache_temporal, store_op->location, &packet_store_op));
   return iree_ok_status();
 }
 
@@ -704,7 +774,11 @@ iree_status_t loom_vector_packet_store_captured_value(
         store_op->location, &slice_op));
     IREE_RETURN_IF_ERROR(loom_vector_packet_store(
         packetization, store_footprint, &slice,
-        loom_vector_slice_result(slice_op), store_cache_policy, store_op));
+        (loom_vector_packet_value_t){
+            .vector = loom_vector_slice_result(slice_op),
+            .scalar = LOOM_VALUE_ID_INVALID,
+        },
+        store_cache_policy, store_op));
   }
   return iree_ok_status();
 }
@@ -751,7 +825,7 @@ iree_status_t loom_vector_packet_static_store(
   const iree_host_size_t packet_count =
       (iree_host_size_t)packetization->value_count * shape->chunk_count;
   IREE_ASSERT_LE(packet_count, LOOM_VECTOR_PACKET_STATIC_OP_LIMIT);
-  loom_value_id_t* packets = NULL;
+  loom_vector_packet_value_t* packets = NULL;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(packetization->context->arena,
                                                  packet_count, sizeof(*packets),
                                                  (void**)&packets));
@@ -860,7 +934,7 @@ iree_status_t loom_vector_packet_build_staging_view(
 
 iree_status_t loom_vector_packet_staging_store(
     loom_vector_packetization_t* packetization, loom_value_id_t staging_view,
-    const loom_vector_packet_slice_t* slice, loom_value_id_t packet,
+    const loom_vector_packet_slice_t* slice, loom_vector_packet_value_t packet,
     const loom_op_t* source_op) {
   const loom_value_id_t* dynamic_indices = NULL;
   iree_host_size_t dynamic_index_count = 0;
@@ -870,10 +944,22 @@ iree_status_t loom_vector_packet_staging_store(
     dynamic_index_count = 1;
     static_index = INT64_MIN;
   }
+  if (slice->lane_count == 1u) {
+    loom_value_id_t scalar = LOOM_VALUE_ID_INVALID;
+    IREE_RETURN_IF_ERROR(loom_vector_packet_extract_single_lane(
+        packetization, packet, source_op->location, &scalar));
+    loom_op_t* staging_store_op = NULL;
+    return loom_view_store_build(
+        &packetization->context->rewriter->builder, /*build_flags=*/0,
+        /*instance_flags=*/0, scalar, staging_view, dynamic_indices,
+        dynamic_index_count, &static_index,
+        /*static_indices_count=*/1, /*cache_scope=*/0,
+        /*cache_temporal=*/0, source_op->location, &staging_store_op);
+  }
   loom_op_t* staging_store_op = NULL;
   return loom_vector_store_build(
       &packetization->context->rewriter->builder, /*build_flags=*/0,
-      /*instance_flags=*/0, packet, staging_view, dynamic_indices,
+      /*instance_flags=*/0, packet.vector, staging_view, dynamic_indices,
       dynamic_index_count, &static_index,
       /*static_indices_count=*/1, /*cache_scope=*/0, /*cache_temporal=*/0,
       source_op->location, &staging_store_op);
@@ -915,6 +1001,7 @@ iree_status_t loom_vector_packet_canonicalize_snapshots(
           .lane_count = iree_min(shape->lane_count - lane_offset,
                                  shape->chunk_lane_count),
       };
+      loom_vector_packet_reset_value(packetized_value);
       IREE_RETURN_IF_ERROR(loom_vector_packet_materialize_snapshot(
           packetization, &slice, packetized_value));
       IREE_RETURN_IF_ERROR(loom_vector_packet_staging_store(
@@ -951,7 +1038,7 @@ iree_status_t loom_vector_packet_canonicalize_snapshots(
     for (uint32_t j = 0; j < consumer_count; ++j) {
       loom_op_t* consumer = consumers[j];
       loom_builder_set_before(builder, consumer);
-      loom_value_id_t snapshot_load = LOOM_VALUE_ID_INVALID;
+      loom_vector_packet_value_t snapshot_load = {0};
       IREE_RETURN_IF_ERROR(loom_vector_packet_staging_load(
           packetization, staging_view, packetized_value->source_type,
           &snapshot_slice, snapshot_op, &snapshot_load));
@@ -960,7 +1047,7 @@ iree_status_t loom_vector_packet_canonicalize_snapshots(
            ++operand_index) {
         if (operands[operand_index] == packetized_value->source) {
           IREE_RETURN_IF_ERROR(loom_rewriter_set_operand(
-              rewriter, consumer, operand_index, snapshot_load));
+              rewriter, consumer, operand_index, snapshot_load.vector));
         }
       }
     }
@@ -1069,7 +1156,7 @@ iree_status_t loom_vector_packet_staged_store(
           loom_region_entry_arg_id(loom_scf_for_body(commit_loop_op), 0),
       .lane_count = shape->chunk_lane_count,
   };
-  loom_value_id_t staged_packet = LOOM_VALUE_ID_INVALID;
+  loom_vector_packet_value_t staged_packet = {0};
   IREE_RETURN_IF_ERROR(loom_vector_packet_staging_load(
       packetization, staging_view, store_footprint->vector_type,
       &commit_loop_slice, store_op, &staged_packet));
@@ -1566,13 +1653,13 @@ iree_status_t loom_vector_packet_static_reduce(
     IREE_RETURN_IF_ERROR(loom_vector_packet_materialize(
         packetization, input, &slice, &packetized_input));
     const loom_type_t packet_type = loom_module_value_type(
-        packetization->context->module, packetized_input->packet);
+        packetization->context->module, packetized_input->packet.vector);
 
     if (!fold_packets) {
       loom_op_t* packet_reduce_op = NULL;
       IREE_RETURN_IF_ERROR(loom_vector_reduce_build(
-          builder, kind, fastmath_flags, packetized_input->packet, accumulator,
-          result_type, reduce_op->location, &packet_reduce_op));
+          builder, kind, fastmath_flags, packetized_input->packet.vector,
+          accumulator, result_type, reduce_op->location, &packet_reduce_op));
       accumulator = loom_vector_reduce_result(packet_reduce_op);
       continue;
     }
@@ -1581,7 +1668,7 @@ iree_status_t loom_vector_packet_static_reduce(
         loom_type_equal(folded_packet_type, packet_type)) {
       IREE_RETURN_IF_ERROR(loom_vector_combining_build(
           builder, kind, fastmath_flags, folded_packet,
-          packetized_input->packet, packet_type, reduce_op->location,
+          packetized_input->packet.vector, packet_type, reduce_op->location,
           &folded_packet));
       continue;
     }
@@ -1593,7 +1680,7 @@ iree_status_t loom_vector_packet_static_reduce(
           result_type, reduce_op->location, &packet_reduce_op));
       accumulator = loom_vector_reduce_result(packet_reduce_op);
     }
-    folded_packet = packetized_input->packet;
+    folded_packet = packetized_input->packet.vector;
     folded_packet_type = packet_type;
   }
 
