@@ -63,13 +63,13 @@ iree_status_t loom_inline_callables_plan_allocate(
     loom_inline_callables_plan_t** out_plan);
 
 // Appends an applicable template call replacing an application in the original
-// snapshot. Its selection owner supplies the original containing symbol and
-// selected provider directly. Each call consumes one reserved capacity slot;
+// snapshot. Its selection owner supplies the original containing symbol,
+// execution scope, and selected provider. Each call consumes one reserved slot;
 // no lookup, applicability reevaluation, or allocation occurs here.
-void loom_inline_callables_plan_append(loom_inline_callables_plan_t* plan,
-                                       loom_symbol_id_t source_symbol_id,
-                                       loom_symbol_id_t target_symbol_id,
-                                       loom_op_t* call_op);
+void loom_inline_callables_plan_append(
+    loom_inline_callables_plan_t* plan, loom_symbol_id_t source_symbol_id,
+    loom_symbol_reference_execution_scope_id_t execution_scope,
+    loom_symbol_id_t target_symbol_id, loom_op_t* call_op);
 
 // Checks required-edge cycles and body legality, then executes the existing
 // clone/consume scheduler. Emits diagnostics through the owning pass and marks

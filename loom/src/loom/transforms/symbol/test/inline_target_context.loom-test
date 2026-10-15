@@ -1,0 +1,348 @@
+// Preserve a query whose explicit target has not been supplied.
+// RUN: pass inline-callables,canonicalize
+
+test.target<low_core> @construction {subgroup_size = 64}
+
+target.decl @device
+
+func.def inline target(@device) @device_width() -> (index) {
+  %width = target.subgroup.size : index
+  func.return %width : index
+}
+
+func.def public target(@construction) @caller() -> (index) {
+  %width = func.call @device_width() : () -> (index)
+  func.return %width : index
+}
+
+// ----
+test.target<low_core> @construction {subgroup_size = 64}
+
+target.decl @device
+
+func.def inline target(@device) @device_width() -> (index) {
+  %width = target.subgroup.size : index
+  func.return %width : index
+}
+
+func.def public target(@construction) @caller() -> (index) {
+  %width = func.call pure @device_width() : () -> (index)
+  func.return %width : index
+}
+
+// ====
+
+// A transitive targetless helper inherits the explicit device context.
+// RUN: pass inline-callables,canonicalize
+
+test.target<low_core> @construction {subgroup_size = 64}
+
+target.decl @device
+
+func.def inline @current_width() -> (index) {
+  %width = target.subgroup.size : index
+  func.return %width : index
+}
+
+func.def inline target(@device) @device_width() -> (index) {
+  %width = func.call @current_width() : () -> (index)
+  func.return %width : index
+}
+
+func.def public target(@construction) @caller() -> (index) {
+  %width = func.call @device_width() : () -> (index)
+  func.return %width : index
+}
+
+// ----
+test.target<low_core> @construction {subgroup_size = 64}
+
+target.decl @device
+
+func.def inline target(@device) @device_width() -> (index) {
+  %width = target.subgroup.size : index
+  func.return %width : index
+}
+
+func.def public target(@construction) @caller() -> (index) {
+  %width = func.call pure @device_width() : () -> (index)
+  func.return %width : index
+}
+
+// ====
+
+// Callgraph specialization must preserve the same explicit unknown context.
+// RUN: pass specialize-target-callgraph,inline-callables,canonicalize
+
+test.target<low_core> @construction {subgroup_size = 64}
+
+target.decl @device
+
+func.def inline target(@device) @device_width() -> (index) {
+  %width = target.subgroup.size : index
+  func.return %width : index
+}
+
+func.def public target(@construction) @caller() -> (index) {
+  %width = func.call @device_width() : () -> (index)
+  func.return %width : index
+}
+
+// ----
+test.target<low_core> @construction {subgroup_size = 64}
+
+target.decl @device
+
+func.def inline target(@device) @device_width() -> (index) {
+  %width = target.subgroup.size : index
+  func.return %width : index
+}
+
+func.def public target(@construction) @caller() -> (index) {
+  %width = func.call pure @device_width() : () -> (index)
+  func.return %width : index
+}
+
+// ====
+
+// Once the callee's own facts resolve the query, constants cross the boundary.
+// RUN: pass inline-callables,canonicalize,inline-callables,canonicalize
+
+test.target<low_core> @construction {subgroup_size = 64}
+
+test.target<low_core> @device {subgroup_size = 32}
+
+func.def inline target(@device) @device_width() -> (index) {
+  %width = target.subgroup.size : index
+  func.return %width : index
+}
+
+func.def public target(@construction) @caller() -> (index) {
+  %width = func.call @device_width() : () -> (index)
+  func.return %width : index
+}
+
+// ----
+test.target<low_core> @construction {subgroup_size = 64}
+
+test.target<low_core> @device {subgroup_size = 32}
+
+func.def public target(@construction) @caller() -> (index) {
+  %width = index.constant 32 : index
+  func.return %width : index
+}
+
+// ====
+
+// Constants need no target binding. An omitted target inherits the caller;
+// matching unresolved witnesses preserve the query in that same context.
+// RUN: pass inline-callables,canonicalize
+
+test.target<low_core> @construction {subgroup_size = 64}
+
+target.decl @device
+
+func.def inline target(@device) @constant() -> (index) {
+  %value = index.constant 7 : index
+  func.return %value : index
+}
+
+func.def inline @inherited_width() -> (index) {
+  %width = target.subgroup.size : index
+  func.return %width : index
+}
+
+func.def inline target(@device) @device_width() -> (index) {
+  %width = target.subgroup.size : index
+  func.return %width : index
+}
+
+func.def public target(@construction) @caller() -> (index, index) {
+  %value = func.call @constant() : () -> (index)
+  %width = func.call @inherited_width() : () -> (index)
+  func.return %value, %width : index, index
+}
+
+func.def public target(@device) @same_context() -> (index) {
+  %width = func.call @device_width() : () -> (index)
+  func.return %width : index
+}
+
+// ----
+test.target<low_core> @construction {subgroup_size = 64}
+
+target.decl @device
+
+func.def public target(@construction) @caller() -> (index, index) {
+  %value = index.constant 7 : index
+  %width = index.constant 64 : index
+  func.return %value, %width : index, index
+}
+
+func.def public target(@device) @same_context() -> (index) {
+  %width = target.subgroup.size : index
+  func.return %width : index
+}
+
+// ====
+
+// An explicit worker scope, rather than the containing function's target,
+// determines whether a call may expand.
+// RUN: pass inline-callables,canonicalize
+
+test.target<low_core> @construction {subgroup_size = 64}
+
+target.decl @device
+
+func.def inline target(@device) @device_width() -> (index) {
+  %width = target.subgroup.size : index
+  func.return %width : index
+}
+
+pipeline.def public target(@construction) @publish_width() run(%output: channel<tile<1xi32>>) {
+  pipeline.strand target(@device) workers([0], [1], [1]) {
+    %write, %record = channel.reserve %output : channel<tile<1xi32>> -> (write<tile<1xi32>>, view<1xi32>)
+    %width = func.call @device_width() : () -> (index)
+    %value = index.cast %width : index to i32
+    view.store %value, %record[0] : i32, view<1xi32>
+    channel.publish %write : write<tile<1xi32>>
+  }
+}
+
+// ----
+test.target<low_core> @construction {subgroup_size = 64}
+
+target.decl @device
+
+pipeline.def public target(@construction) @publish_width() run(%output: channel<tile<1xi32>>) {
+  pipeline.strand target(@device) workers([0], [1], [1]) {
+    %write, %record = channel.reserve %output : channel<tile<1xi32>> -> (write<tile<1xi32>>, view<1xi32>)
+    %width = target.subgroup.size : index
+    %value = index.cast %width : index to i32
+    view.store %value, %record[0] : i32, view<1xi32>
+    channel.publish %write : write<tile<1xi32>>
+  }
+}
+
+// ====
+
+// A retained runtime call still inherits its enclosing callable's environment.
+// RUN: pass inline-callables,canonicalize
+
+test.target<low_core> @construction {subgroup_size = 64}
+
+target.decl @device
+
+func.def noinline @current_width() -> (index) {
+  %width = target.subgroup.size : index
+  func.return %width : index
+}
+
+func.def inline target(@device) @device_width() -> (index) {
+  %width = func.call @current_width() : () -> (index)
+  func.return %width : index
+}
+
+func.def public target(@construction) @caller() -> (index) {
+  %width = func.call @device_width() : () -> (index)
+  func.return %width : index
+}
+
+// ----
+test.target<low_core> @construction {subgroup_size = 64}
+
+target.decl @device
+
+func.def noinline @current_width() -> (index) {
+  %width = target.subgroup.size : index
+  func.return %width : index
+}
+
+func.def inline target(@device) @device_width() -> (index) {
+  %width = func.call pure @current_width() : () -> (index)
+  func.return %width : index
+}
+
+func.def public target(@construction) @caller() -> (index) {
+  %width = func.call pure @device_width() : () -> (index)
+  func.return %width : index
+}
+
+// ====
+
+// An unresolved template demand cannot migrate to the caller's known target.
+// RUN: pass select-templates{rewrite=inline},canonicalize
+
+test.target<low_core> @construction {subgroup_size = 64}
+
+target.decl @device
+
+template.decl @width_value() -> (index)
+
+template.def<@width_value> requires [#target.subgroup.size<64>] @width64() -> (index) {
+  %value = index.constant 64 : index
+  template.return %value : index
+}
+
+func.def inline target(@device) @device_width() -> (index) {
+  %width = template.apply<@width_value>() : () -> (index)
+  func.return %width : index
+}
+
+func.def public target(@construction) @caller() -> (index) {
+  %width = func.call @device_width() : () -> (index)
+  func.return %width : index
+}
+
+// ====
+
+// Template expansion inside an independent worker retains its scope when the
+// containing helper is inlined. It creates no dependency on the helper target.
+// RUN: pass select-templates{rewrite=inline},canonicalize
+
+test.target<low_core> @construction {subgroup_size = 64}
+
+target.decl @device
+
+target.decl @configuration
+
+template.decl @width_value() -> (index)
+
+template.def<@width_value> @current_width() -> (index) {
+  %width = target.subgroup.size : index
+  template.return %width : index
+}
+
+func.def inline target(@configuration) @publish(%output: channel<tile<1xi32>>) {
+  pipeline.strand target(@device) workers([0], [1], [1]) {
+    %write, %record = channel.reserve %output : channel<tile<1xi32>> -> (write<tile<1xi32>>, view<1xi32>)
+    %width = template.apply<@width_value>() : () -> (index)
+    %value = index.cast %width : index to i32
+    view.store %value, %record[0] : i32, view<1xi32>
+    channel.publish %write : write<tile<1xi32>>
+  }
+  func.return
+}
+
+pipeline.def public target(@construction) @publish_width() run(%output: channel<tile<1xi32>>) {
+  func.call @publish(%output) : (channel<tile<1xi32>>)
+}
+
+// ----
+test.target<low_core> @construction {subgroup_size = 64}
+
+target.decl @device
+
+target.decl @configuration
+
+template.decl @width_value() -> (index)
+
+pipeline.def public target(@construction) @publish_width() run(%output: channel<tile<1xi32>>) {
+  pipeline.strand target(@device) workers([0], [1], [1]) {
+    %write, %record = channel.reserve %output : channel<tile<1xi32>> -> (write<tile<1xi32>>, view<1xi32>)
+    %width = target.subgroup.size : index
+    %value = index.cast %width : index to i32
+    view.store %value, %record[0] : i32, view<1xi32>
+    channel.publish %write : write<tile<1xi32>>
+  }
+}

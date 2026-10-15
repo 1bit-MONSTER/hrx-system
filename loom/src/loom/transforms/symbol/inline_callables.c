@@ -195,6 +195,8 @@ typedef struct loom_inline_symbol_info_t {
   // Whether the function body remains linear after its required call closure
   // is flattened in callee-before-caller order.
   bool body_will_be_linear;
+  // Whether the expanded body still depends on its inherited target context.
+  bool body_is_contextual;
 } loom_inline_symbol_info_t;
 
 typedef struct loom_inline_plan_entry_t {
@@ -226,10 +228,12 @@ typedef struct loom_inline_plan_entry_t {
   uint8_t call_temperature;
   // Effective edge temperature hint after call-site override.
   uint8_t effective_temperature;
-  // Planned action for this edge.
-  loom_inline_plan_action_t action;
+  // Planned loom_inline_plan_action_t, packed with the temperature hints.
+  uint8_t action;
   // Stable blocker code for ACTION_ERROR.
   loom_inline_blocker_t blocker;
+  // Call-site execution context retained by the reference producer.
+  loom_symbol_reference_execution_scope_id_t execution_scope;
 } loom_inline_plan_entry_t;
 
 typedef struct loom_inline_component_entries_t {
@@ -449,12 +453,61 @@ static void loom_inline_initialize_symbol_infos(
         loom_func_like_cast(state->module, info->symbol->defining_op);
     info->body_will_be_linear =
         loom_callable_body_is_linear(state->module, info->function);
+    info->body_is_contextual = loom_symbol_reference_symbol_is_contextual(
+        state->options.references, (loom_symbol_id_t)i);
   }
 }
 
 static uint8_t loom_inline_effective_temperature(uint8_t callee_temperature,
                                                  uint8_t call_temperature) {
   return call_temperature != 0 ? call_temperature : callee_temperature;
+}
+
+static bool loom_inline_scope_inherits_target(
+    const loom_inline_callables_plan_t* state,
+    loom_symbol_reference_execution_scope_id_t scope) {
+  return scope == 0 ||
+         !loom_symbol_ref_is_valid(
+             state->options.references->execution_targets.values[scope - 1]);
+}
+
+// Selected templates expand in the application context established by their
+// applicability owner. Ordinary contextual callees must retain their own
+// explicit target until folding removes that dependency or both contexts agree.
+static bool loom_inline_shares_target_context(
+    const loom_inline_callables_plan_t* state,
+    const loom_inline_plan_entry_t* entry) {
+  if (loom_call_like_kind(entry->call) == LOOM_CALL_LIKE_KIND_TEMPLATE) {
+    return true;
+  }
+  const loom_target_function_version_t* callee_version =
+      loom_target_function_version_snapshot_at(state->options.target_versions,
+                                               entry->target_symbol_id);
+  if (callee_version != NULL && entry->execution_scope == 0) {
+    const loom_target_function_version_t* caller_version =
+        loom_target_function_version_snapshot_at(state->options.target_versions,
+                                                 entry->source_symbol_id);
+    if (caller_version != NULL && callee_version->target_context_ordinal !=
+                                      LOOM_TARGET_CONTEXT_ORDINAL_INVALID) {
+      return callee_version->target_context_ordinal ==
+             caller_version->target_context_ordinal;
+    }
+  }
+  if (callee_version != NULL && !callee_version->authored_target_is_exact) {
+    return false;
+  }
+  const loom_symbol_ref_t callee_target = loom_func_like_target(entry->callee);
+  if (!loom_symbol_ref_is_valid(callee_target)) {
+    return true;
+  }
+  const loom_symbol_ref_t caller_target =
+      loom_inline_scope_inherits_target(state, entry->execution_scope)
+          ? loom_func_like_target(
+                state->symbols[entry->source_symbol_id].function)
+          : state->options.references->execution_targets
+                .values[entry->execution_scope - 1];
+  return callee_target.module_id == caller_target.module_id &&
+         callee_target.symbol_id == caller_target.symbol_id;
 }
 
 // Structural composition shares an invocation, but a child may still require
@@ -581,6 +634,7 @@ static void loom_inline_add_required_graph_edge(
 
 static loom_inline_plan_entry_t* loom_inline_append_entry(
     loom_inline_callables_plan_t* state, loom_symbol_id_t source_symbol_id,
+    loom_symbol_reference_execution_scope_id_t execution_scope,
     loom_symbol_id_t target_symbol_id, loom_op_t* call_op) {
   uint32_t entry_index = state->entry_count++;
   loom_inline_plan_entry_t* entry = &state->entries[entry_index];
@@ -590,6 +644,7 @@ static loom_inline_plan_entry_t* loom_inline_append_entry(
       .next_required_in_component = LOOM_INLINE_PLAN_ENTRY_INVALID,
       .source_symbol_id = source_symbol_id,
       .target_symbol_id = target_symbol_id,
+      .execution_scope = execution_scope,
       .call_op = call_op,
       .call = loom_call_like_cast(state->module, call_op),
   };
@@ -606,12 +661,12 @@ static loom_inline_plan_entry_t* loom_inline_append_entry(
   return entry;
 }
 
-void loom_inline_callables_plan_append(loom_inline_callables_plan_t* state,
-                                       loom_symbol_id_t source_symbol_id,
-                                       loom_symbol_id_t target_symbol_id,
-                                       loom_op_t* call_op) {
+void loom_inline_callables_plan_append(
+    loom_inline_callables_plan_t* state, loom_symbol_id_t source_symbol_id,
+    loom_symbol_reference_execution_scope_id_t execution_scope,
+    loom_symbol_id_t target_symbol_id, loom_op_t* call_op) {
   loom_inline_plan_entry_t* entry = loom_inline_append_entry(
-      state, source_symbol_id, target_symbol_id, call_op);
+      state, source_symbol_id, execution_scope, target_symbol_id, call_op);
   loom_inline_resolve_entry_policy(state, entry);
   loom_inline_add_required_graph_edge(state, entry->ordinal);
 }
@@ -636,8 +691,8 @@ static iree_status_t loom_inline_build_plan(
     }
 
     loom_inline_plan_entry_t* entry = loom_inline_append_entry(
-        state, edge->source_symbol_id, edge->target_symbol_id,
-        (loom_op_t*)edge->user_op);
+        state, edge->source_symbol_id, edge->execution_scope,
+        edge->target_symbol_id, (loom_op_t*)edge->user_op);
     if (loom_call_like_kind(entry->call) == LOOM_CALL_LIKE_KIND_TEMPLATE) {
       bool eligible = false;
       const loom_inline_callables_eligibility_callback_t callback =
@@ -651,6 +706,14 @@ static iree_status_t loom_inline_build_plan(
       }
     }
     loom_inline_resolve_entry_policy(state, entry);
+    if (entry->action == LOOM_INLINE_PLAN_ACTION_KEEP &&
+        loom_call_like_kind(entry->call) == LOOM_CALL_LIKE_KIND_SEMANTIC &&
+        entry->source_symbol_id < state->module->symbols.count &&
+        loom_inline_scope_inherits_target(state, entry->execution_scope)) {
+      // A retained semantic invocation inherits its caller's environment even
+      // though its body is not expanded by this inline plan.
+      state->symbols[entry->source_symbol_id].body_is_contextual = true;
+    }
     loom_inline_add_required_graph_edge(state, entry->ordinal);
   }
   return iree_ok_status();
@@ -781,13 +844,11 @@ static bool loom_inline_call_is_in_function_body(
          entry->call_op->parent_block->parent_region == source_body;
 }
 
-// Predicts the body shape seen when each required edge executes. Flattening a
-// non-linear callee at a function-body call site makes that caller non-linear,
-// and the effect propagates transitively through the acyclic required-inline
-// graph. Calls in nested regions do not change the containing function body's
-// block topology. SCC order is successor-before-predecessor, so every callee's
-// final shape is known before its callers are visited.
-static void loom_inline_propagate_required_cfg_shapes(
+// Propagates the expanded body's context dependency and CFG shape through the
+// acyclic required-inline graph. A differing explicit target delays expansion
+// while contextual operations remain. SCC order is callee-before-caller, so
+// each decision includes the effects of the callee's own required edges.
+static void loom_inline_propagate_required_bodies(
     loom_inline_callables_plan_t* state) {
   for (iree_host_size_t component_index = 0;
        component_index < state->sccs.count; ++component_index) {
@@ -801,23 +862,32 @@ static void loom_inline_propagate_required_cfg_shapes(
           (loom_symbol_id_t)component->nodes[node_index];
       loom_inline_symbol_info_t* source_info =
           &state->symbols[source_symbol_id];
-      if (!source_info->body_will_be_linear) {
-        continue;
-      }
       for (uint32_t entry_index =
                state->first_required_by_source[source_symbol_id];
            entry_index != LOOM_INLINE_PLAN_ENTRY_INVALID;
            entry_index =
                state->entries[entry_index].next_required_from_source) {
-        const loom_inline_plan_entry_t* entry = &state->entries[entry_index];
+        loom_inline_plan_entry_t* entry = &state->entries[entry_index];
         if (entry->action != LOOM_INLINE_PLAN_ACTION_REQUIRED ||
-            entry->target_symbol_id >= state->module->symbols.count ||
-            !loom_inline_call_is_in_function_body(state, entry)) {
+            entry->target_symbol_id >= state->module->symbols.count) {
           continue;
         }
-        if (!state->symbols[entry->target_symbol_id].body_will_be_linear) {
+        const loom_inline_symbol_info_t* target_info =
+            &state->symbols[entry->target_symbol_id];
+        if (target_info->body_is_contextual &&
+            !loom_inline_shares_target_context(state, entry)) {
+          entry->action = LOOM_INLINE_PLAN_ACTION_KEEP;
+          --state->symbols[entry->target_symbol_id].planned_call_removals;
+          --state->statistics.required_edges;
+          ++state->statistics.kept_edges;
+          continue;
+        }
+        if (loom_inline_scope_inherits_target(state, entry->execution_scope)) {
+          source_info->body_is_contextual |= target_info->body_is_contextual;
+        }
+        if (!target_info->body_will_be_linear &&
+            loom_inline_call_is_in_function_body(state, entry)) {
           source_info->body_will_be_linear = false;
-          break;
         }
       }
     }
@@ -1756,7 +1826,7 @@ iree_status_t loom_inline_callables_plan_execute(
   IREE_RETURN_IF_ERROR(loom_inline_compute_required_sccs(state));
   IREE_RETURN_IF_ERROR(loom_inline_index_required_entries_by_component(state));
   loom_inline_mark_cycle_blockers(state);
-  loom_inline_propagate_required_cfg_shapes(state);
+  loom_inline_propagate_required_bodies(state);
   loom_inline_preflight_required_entries(state);
   IREE_RETURN_IF_ERROR(loom_inline_emit_blockers(state));
   if (loom_pass_has_error_diagnostics(state->pass)) {

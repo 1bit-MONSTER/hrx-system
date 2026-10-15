@@ -245,6 +245,8 @@ typedef struct loom_template_selection_entry_t {
   loom_template_application_result_t application;
   // Original containing symbol, retained across application-to-call rewriting.
   loom_symbol_id_t source_symbol_id;
+  // Original application context, retained when constructing the inline edge.
+  loom_symbol_reference_execution_scope_id_t execution_scope;
 } loom_template_selection_entry_t;
 
 typedef struct loom_template_selection_cfg_facts_t {
@@ -1045,10 +1047,12 @@ static iree_status_t loom_template_selection_mark_provider_live(
 }
 
 static loom_template_application_result_t* loom_template_selection_append_entry(
-    loom_template_selection_state_t* state, loom_symbol_id_t source_symbol_id) {
+    loom_template_selection_state_t* state, loom_symbol_id_t source_symbol_id,
+    loom_symbol_reference_execution_scope_id_t execution_scope) {
   IREE_ASSERT_LT(state->entry_count, state->entry_capacity);
   loom_template_selection_entry_t* entry = &state->entries[state->entry_count];
   entry->source_symbol_id = source_symbol_id;
+  entry->execution_scope = execution_scope;
   ++state->entry_count;
   return &entry->application;
 }
@@ -1095,7 +1099,8 @@ static iree_status_t loom_template_selection_analyze_apply(
   const loom_op_t* apply_op = demand->apply_op;
   const loom_symbol_ref_t family = loom_template_apply_family(apply_op);
   loom_template_application_result_t* entry =
-      loom_template_selection_append_entry(state, context->source_symbol_id);
+      loom_template_selection_append_entry(state, context->source_symbol_id,
+                                           demand->execution_scope);
   ++state->statistics->apply_sites;
 
   loom_template_applicability_target_t apply_target = {0};
@@ -1206,7 +1211,8 @@ static iree_status_t loom_template_selection_analyze_exact_call(
     return iree_ok_status();
   }
   loom_template_application_result_t* entry =
-      loom_template_selection_append_entry(state, context->source_symbol_id);
+      loom_template_selection_append_entry(state, context->source_symbol_id,
+                                           occurrence->execution_scope);
   *entry = result;
   loom_template_selection_record_blocker(state, entry->blocker);
   return loom_template_selection_append_report_detail(
@@ -1303,7 +1309,8 @@ static iree_status_t loom_template_selection_rewrite_entry(
   if (state->inline_plan) {
     loom_inline_callables_plan_append(
         state->inline_plan, selection->source_symbol_id,
-        entry->selected_provider->symbol.symbol_id, call_op);
+        selection->execution_scope, entry->selected_provider->symbol.symbol_id,
+        call_op);
   }
   loom_pass_mark_changed(state->pass);
   return iree_ok_status();

@@ -893,15 +893,26 @@ static iree_status_t loom_target_callgraph_plan_reachable_rows(
       const loom_symbol_id_t callee_symbol_id = edge->target_symbol_id;
       IREE_RETURN_IF_ERROR(
           loom_target_callgraph_prepare_symbol(state, callee_symbol_id));
-      if (loom_call_like_kind(call) == LOOM_CALL_LIKE_KIND_COMPOSITION) {
-        const loom_target_callgraph_symbol_t* callee =
-            &state->symbols[callee_symbol_id];
+      const loom_target_callgraph_symbol_t* callee =
+          &state->symbols[callee_symbol_id];
+      if (loom_call_like_kind(call) == LOOM_CALL_LIKE_KIND_COMPOSITION ||
+          callee->authored_target_requirement == NULL) {
         const loom_symbol_ref_t target = callee->function_facts->target_symbol;
-        const loom_symbol_ref_t caller_target =
+        loom_symbol_ref_t caller_target =
             state->symbols[caller_source_symbol_id]
                 .function_facts->target_symbol;
-        // Composition inherits an environment unless the child selects a
-        // distinct target. A distinct unresolved target remains independent.
+        if (edge->execution_scope != 0) {
+          const loom_symbol_ref_t execution_target =
+              state->references.execution_targets
+                  .values[edge->execution_scope - 1];
+          if (loom_symbol_ref_is_valid(execution_target)) {
+            caller_target = execution_target;
+          }
+        }
+        // A distinct named context cannot be supplied by the caller merely
+        // because its declaration contributes no concrete fact requirement.
+        // Explicitly seeded versions keep their context during derivation.
+        // Composition also keeps independently bound concrete child targets.
         if (loom_symbol_ref_is_valid(target) &&
             (target.module_id != caller_target.module_id ||
              target.symbol_id != caller_target.symbol_id)) {
