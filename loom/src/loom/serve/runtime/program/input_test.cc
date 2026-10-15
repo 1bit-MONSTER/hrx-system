@@ -55,9 +55,19 @@ class InputTest : public ::testing::TestWithParam<bool> {
               "<eos>":{"id":"<eos>","ids":[5],"tokens":["<eos>"]}}})";
     }
     configuration += "}";
+    LoadTokenizer(configuration);
+  }
+  void LoadTokenizer(const std::string& configuration) {
+    iree_tokenizer_t* replacement = nullptr;
     IREE_ASSERT_OK(iree_tokenizer_from_huggingface_json(
         iree_make_cstring_view(configuration.c_str()), host_allocator,
-        &tokenizer));
+        &replacement));
+    loom_serve_program_free(program);
+    program = nullptr;
+    iree_vm_module_release(module);
+    module = nullptr;
+    iree_tokenizer_free(tokenizer);
+    tokenizer = replacement;
     LoadProgram(tokenizer);
   }
   void LoadProgram(const iree_tokenizer_t* capability_tokenizer) {
@@ -189,6 +199,82 @@ TEST_P(InputTest, BoundedModesMatchCompleteTokenizer) {
         iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
       }
     }
+  }
+}
+
+TEST_P(InputTest, ComposedExpansionUsesOnlyRequestedPrefixCapacity) {
+  const std::string configuration =
+      R"({"normalizer":{"type":"Sequence","normalizers":[
+        {"type":"Replace","pattern":{"String":"a"},"content":")" +
+      std::string(32, 'b') + R"("},
+        {"type":"Replace","pattern":{"String":"b"},"content":")" +
+      std::string(32, 'c') +
+      R"("}]},"model":{"type":"BPE","vocab":{"c":1},"merges":[]}})";
+  LoadTokenizer(configuration);
+  for (int64_t capacity : {0, 1, 31, 4096, 8192, 8193}) {
+    SCOPED_TRACE(capacity);
+    iree_vm_variant_t arguments[] = {Text(IREE_SV("aaaaaaaa")),
+                                     iree_vm_variant_from_i32(0),
+                                     iree_vm_variant_from_i64(capacity)};
+    iree_vm_variant_t results[2] = {};
+    IREE_ASSERT_OK(Invoke(IREE_SV("tokens"),
+                          iree_vm_variant_span_from_array(arguments),
+                          iree_vm_variant_span_from_array(results)));
+    int64_t count = 0;
+    IREE_ASSERT_OK(iree_vm_i64_from_variant(results[1], &count));
+    EXPECT_EQ(count, iree_min(capacity, int64_t{8192}));
+    iree_vm_buffer_t* buffer = nullptr;
+    IREE_ASSERT_OK(
+        iree_vm_buffer_ptr_from_variant_borrowed(&types, results[0], &buffer));
+    iree_const_byte_span_t bytes = iree_const_byte_span_empty();
+    IREE_ASSERT_OK(iree_vm_buffer_map_read(
+        buffer, 0, iree_vm_buffer_length(buffer), &bytes));
+    ASSERT_EQ(bytes.data_length, capacity * 4);
+    for (int64_t i = 0; i < capacity; ++i) {
+      EXPECT_EQ(iree_unaligned_load_le_u32(bytes.data + i * 4),
+                i < count ? 1u : 0u);
+    }
+    iree_vm_variant_span_reset(iree_vm_variant_span_from_array(arguments));
+    iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
+  }
+}
+
+TEST_P(InputTest, IncompleteAndInvalidUtf8LeaveInvocationReusable) {
+  LoadTokenizer(R"({"normalizer":{"type":"NFC"},
+      "model":{"type":"BPE","vocab":{"a":0},"merges":[]}})");
+  const iree_string_view_t invalid[] = {
+      IREE_SVL("a\xc3"),
+      IREE_SVL("a\xe2\x98"),
+      IREE_SVL("a\xf0\x9f\xa6"),
+      IREE_SVL("a\x80"),
+      IREE_SVL("a\xc0\xaf"),
+      IREE_SVL("a\xed\xa0\x80"),
+      IREE_SVL("a\xf4\x90\x80\x80"),
+  };
+  for (iree_string_view_t text : invalid) {
+    for (int64_t capacity : {0, 1, 16}) {
+      iree_vm_variant_t arguments[] = {Text(text), iree_vm_variant_from_i32(0),
+                                       iree_vm_variant_from_i64(capacity)};
+      iree_vm_variant_t results[2] = {};
+      IREE_EXPECT_STATUS_IS(
+          IREE_STATUS_INVALID_ARGUMENT,
+          Invoke(IREE_SV("tokens"), iree_vm_variant_span_from_array(arguments),
+                 iree_vm_variant_span_from_array(results)));
+      iree_vm_variant_span_reset(iree_vm_variant_span_from_array(arguments));
+      iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
+    }
+    iree_vm_variant_t arguments[] = {Text(IREE_SV("a")),
+                                     iree_vm_variant_from_i32(0),
+                                     iree_vm_variant_from_i64(16)};
+    iree_vm_variant_t results[2] = {};
+    IREE_ASSERT_OK(Invoke(IREE_SV("tokens"),
+                          iree_vm_variant_span_from_array(arguments),
+                          iree_vm_variant_span_from_array(results)));
+    int64_t count = 0;
+    IREE_ASSERT_OK(iree_vm_i64_from_variant(results[1], &count));
+    EXPECT_EQ(count, 1);
+    iree_vm_variant_span_reset(iree_vm_variant_span_from_array(arguments));
+    iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
   }
 }
 

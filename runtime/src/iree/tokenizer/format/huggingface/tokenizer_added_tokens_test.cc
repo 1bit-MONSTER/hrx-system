@@ -87,16 +87,17 @@ void ExpectStreamingEncoding(iree_tokenizer_t* tokenizer,
       }
     }
     EXPECT_EQ(position, input.size());
-    size_t pending_capacity =
-        iree_tokenizer_encode_state_pending_token_bound(state);
-    std::vector<int32_t> pending(pending_capacity > 0 ? pending_capacity : 1);
-    iree_host_size_t count = 0;
-    IREE_EXPECT_OK(iree_tokenizer_encode_state_finalize(
-        state,
-        iree_tokenizer_make_token_output(pending.data(), nullptr, nullptr,
-                                         pending_capacity),
-        &count));
-    actual.insert(actual.end(), pending.begin(), pending.begin() + count);
+    do {
+      int32_t token = -1;
+      iree_host_size_t count = 0;
+      IREE_ASSERT_OK(iree_tokenizer_encode_state_finalize(
+          state, iree_tokenizer_make_token_output(&token, nullptr, nullptr, 1),
+          &count));
+      ASSERT_TRUE(count || !iree_tokenizer_encode_state_has_pending(state));
+      if (count) {
+        actual.push_back(token);
+      }
+    } while (iree_tokenizer_encode_state_has_pending(state));
     EXPECT_EQ(actual, expected);
     iree_tokenizer_encode_state_deinitialize(state);
   }

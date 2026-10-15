@@ -562,23 +562,10 @@ void iree_tokenizer_encode_state_deinitialize(
 iree_status_t iree_tokenizer_encode_state_reset(
     iree_tokenizer_encode_state_t* state, iree_tokenizer_encode_flags_t flags);
 
-// Returns true if the encode state has pending data that would produce tokens
-// on finalize. Useful for determining whether to call finalize or whether the
-// state is "clean" after processing. This is a lightweight query that does not
-// modify state.
+// Returns true if the encode state retains work that may produce more tokens.
+// Finalize must be called at least once after all input is accepted, then
+// repeated while this query is true. This query does not modify the state.
 bool iree_tokenizer_encode_state_has_pending(
-    const iree_tokenizer_encode_state_t* state);
-
-// Returns an upper bound on the number of tokens that finalize() could produce.
-// This accounts for all pending data in the pipeline (ring buffer, segments,
-// model state, deferred special tokens, post-processor). The actual count may
-// be less due to BPE merges. Use this to size the output buffer for finalize.
-//
-// Callers SHOULD use this before finalize() because finalize is non-retryable:
-// it consumes pipeline state destructively, so RESOURCE_EXHAUSTED from an
-// undersized buffer is not recoverable. Allocating at least this many tokens
-// guarantees finalize will succeed.
-iree_host_size_t iree_tokenizer_encode_state_pending_token_bound(
     const iree_tokenizer_encode_state_t* state);
 
 // Feeds an input |chunk| to the encoder. Tokens that can be definitively
@@ -601,17 +588,23 @@ iree_host_size_t iree_tokenizer_encode_state_pending_token_bound(
 // was consumed (check out_bytes_consumed). If output has no credit or input
 // ends inside a UTF-8 codepoint, it may return without progress. Retain the
 // unconsumed bytes and supply more input or output capacity before retrying.
+// Once finalize begins, reset is required before feeding another input stream.
 iree_status_t iree_tokenizer_encode_state_feed(
     iree_tokenizer_encode_state_t* state, iree_string_view_t chunk,
     iree_tokenizer_token_output_t output, iree_host_size_t* out_bytes_consumed,
     iree_host_size_t* out_token_count);
 
-// Finalizes encoding by flushing any buffered data through the pipeline. Must
-// be called after all input chunks have been fed. Any remaining tokens are
-// written to |output|.
+// Ends input and drains retained work through the pipeline. Call only after
+// feed has accepted every input byte. Output credit controls progress; zero
+// capacity is valid. Remaining bytes, tokens, and completion state stay owned
+// by the encoder when output fills, and the call returns success with the
+// number of tokens written in |out_token_count|.
 //
-// Returns the number of tokens written in |out_token_count|. Returns
-// IREE_STATUS_RESOURCE_EXHAUSTED if the output would exceed output.capacity.
+// Call again with more output space while state_has_pending() is true.
+// Completion is idempotent: subsequent calls emit no tokens. Prefix and suffix
+// tokens retain their order across calls. No further feed is allowed until
+// reset. Complete encode/batch APIs report insufficient final output capacity
+// themselves because their callers cannot supply another output span.
 iree_status_t iree_tokenizer_encode_state_finalize(
     iree_tokenizer_encode_state_t* state, iree_tokenizer_token_output_t output,
     iree_host_size_t* out_token_count);

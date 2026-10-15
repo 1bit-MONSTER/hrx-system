@@ -1074,14 +1074,17 @@ TEST_F(TokenizerJsonTest, StreamingNewlinesBeforeText) {
 }
 
 //===----------------------------------------------------------------------===//
-// Pending Token Bound Tests
+// Streaming Completion Tests
 //===----------------------------------------------------------------------===//
 
 // Helper: creates a streaming encode state for a tokenizer.
 // Returns allocated state; caller must deinitialize + free storage vectors.
 struct StreamingEncodeContext {
+  // Stream state borrowing the storage below.
   iree_tokenizer_encode_state_t* state;
+  // Owned storage for the encoder and component state.
   std::vector<uint8_t> state_storage;
+  // Owned intermediate normalized bytes.
   std::vector<uint8_t> transform_buffer;
 };
 
@@ -1130,153 +1133,47 @@ iree_host_size_t FeedAll(iree_tokenizer_encode_state_t* state,
   return total_tokens;
 }
 
-// Test 1: pending_token_bound >= actual finalize count (key invariant).
-TEST_F(TokenizerJsonTest, PendingTokenBoundAfterFeedMatchesFinalize) {
+TEST_F(TokenizerJsonTest, StreamingCompletionWithOneTokenCredit) {
   iree_tokenizer_t* tokenizer = nullptr;
   IREE_ASSERT_OK(iree_tokenizer_from_huggingface_json(
       iree_make_cstring_view(kMinimalGPT2Config), allocator_, &tokenizer));
-  ASSERT_NE(tokenizer, nullptr);
-
-  const char* texts[] = {"\n\nA", "\nA", "A\nB\nA", "A", "AB", "A\n\n\nA"};
-  for (const char* text : texts) {
-    auto ctx = CreateStreamingState(tokenizer, strlen(text),
+  struct Case {
+    // Complete input through the actual loaded GPT-2 pipeline.
+    const char* input;
+    // Exact independently determined token sequence.
+    std::vector<int32_t> expected;
+  } cases[] = {{"\n\nA", {0, 0, 2}},
+               {"\nA", {0, 2}},
+               {"A\nB\nA", {2, 0, 3, 0, 2}},
+               {"A", {2}},
+               {"AB", {2, 3}}};
+  for (const auto& test_case : cases) {
+    SCOPED_TRACE(test_case.input);
+    auto ctx = CreateStreamingState(tokenizer, strlen(test_case.input),
                                     IREE_TOKENIZER_ENCODE_FLAG_AT_INPUT_START);
-
     int32_t token_buffer[256];
-    iree_host_size_t feed_tokens =
-        FeedAll(ctx.state, iree_make_cstring_view(text), token_buffer, 256);
-
-    // Query the bound BEFORE finalize.
-    iree_host_size_t bound =
-        iree_tokenizer_encode_state_pending_token_bound(ctx.state);
-
-    // Finalize and count actual tokens.
-    iree_host_size_t finalize_count = 0;
-    IREE_ASSERT_OK(iree_tokenizer_encode_state_finalize(
-        ctx.state,
-        iree_tokenizer_make_token_output(token_buffer + feed_tokens, NULL, NULL,
-                                         256 - feed_tokens),
-        &finalize_count));
-
-    // Key invariant: bound must be >= actual finalize count.
-    EXPECT_GE(bound, finalize_count)
-        << "pending_token_bound (" << bound << ") < actual finalize count ("
-        << finalize_count << ") for text: \"" << text << "\"";
-
+    iree_host_size_t feed_tokens = FeedAll(
+        ctx.state, iree_make_cstring_view(test_case.input), token_buffer, 256);
+    std::vector<int32_t> actual(token_buffer, token_buffer + feed_tokens);
+    do {
+      int32_t token = -1;
+      iree_host_size_t count = 0;
+      IREE_ASSERT_OK(iree_tokenizer_encode_state_finalize(
+          ctx.state,
+          iree_tokenizer_make_token_output(&token, nullptr, nullptr, 1),
+          &count));
+      ASSERT_TRUE(count || !iree_tokenizer_encode_state_has_pending(ctx.state));
+      if (count) {
+        actual.push_back(token);
+      }
+    } while (iree_tokenizer_encode_state_has_pending(ctx.state));
+    EXPECT_EQ(actual, test_case.expected);
     iree_tokenizer_encode_state_deinitialize(ctx.state);
   }
-
   iree_tokenizer_free(tokenizer);
 }
 
-// Test 2: pending_token_bound decreases as more tokens are emitted via feed.
-TEST_F(TokenizerJsonTest, PendingTokenBoundDecreasesAfterFeed) {
-  iree_tokenizer_t* tokenizer = nullptr;
-  IREE_ASSERT_OK(iree_tokenizer_from_huggingface_json(
-      iree_make_cstring_view(kMinimalGPT2Config), allocator_, &tokenizer));
-  ASSERT_NE(tokenizer, nullptr);
-
-  // Use a multi-segment text that will emit tokens during feed.
-  // "A\nB\nA" produces segments [A, \n, B, \n] emitted + [A] pending.
-  const char* text = "A\nB\nA";
-  auto ctx = CreateStreamingState(tokenizer, strlen(text),
-                                  IREE_TOKENIZER_ENCODE_FLAG_AT_INPUT_START);
-
-  int32_t token_buffer[256];
-
-  // Feed first chunk.
-  iree_string_view_t chunk1 = iree_make_cstring_view("A\n");
-  iree_host_size_t bytes_consumed1 = 0;
-  iree_host_size_t token_count1 = 0;
-  IREE_ASSERT_OK(iree_tokenizer_encode_state_feed(
-      ctx.state, chunk1,
-      iree_tokenizer_make_token_output(token_buffer, NULL, NULL, 256),
-      &bytes_consumed1, &token_count1));
-
-  iree_host_size_t bound_after_first =
-      iree_tokenizer_encode_state_pending_token_bound(ctx.state);
-
-  // Feed second chunk — should emit more tokens, reducing pending.
-  iree_string_view_t chunk2 = iree_make_cstring_view("B\nA");
-  iree_host_size_t total_feed_tokens = token_count1;
-  iree_host_size_t bytes_consumed2 = 0;
-  iree_host_size_t token_count2 = 0;
-  while (chunk2.size > 0) {
-    IREE_ASSERT_OK(iree_tokenizer_encode_state_feed(
-        ctx.state, chunk2,
-        iree_tokenizer_make_token_output(token_buffer + total_feed_tokens, NULL,
-                                         NULL, 256 - total_feed_tokens),
-        &bytes_consumed2, &token_count2));
-    total_feed_tokens += token_count2;
-    chunk2.data += bytes_consumed2;
-    chunk2.size -= bytes_consumed2;
-    if (bytes_consumed2 == 0 && token_count2 == 0) {
-      break;
-    }
-  }
-
-  iree_host_size_t bound_after_second =
-      iree_tokenizer_encode_state_pending_token_bound(ctx.state);
-
-  // After feeding more text and emitting tokens, the bound should not be
-  // greater than after the first chunk (we've consumed more of the pipeline).
-  // Note: the bound may not strictly decrease because feeding also adds new
-  // data, but after all text is fed and tokens emitted, the final bound should
-  // be less than or equal to the initial bound.
-  EXPECT_LE(bound_after_second, bound_after_first)
-      << "Bound after feeding all text (" << bound_after_second
-      << ") should not exceed bound after first chunk (" << bound_after_first
-      << ")";
-
-  iree_tokenizer_encode_state_deinitialize(ctx.state);
-  iree_tokenizer_free(tokenizer);
-}
-
-// Test 3: pending_token_bound is 0 (or very small) when feed consumed all
-// tokens and nothing remains in the pipeline.
-TEST_F(TokenizerJsonTest, PendingTokenBoundZeroAfterFullConsumption) {
-  iree_tokenizer_t* tokenizer = nullptr;
-  IREE_ASSERT_OK(iree_tokenizer_from_huggingface_json(
-      iree_make_cstring_view(kMinimalGPT2Config), allocator_, &tokenizer));
-  ASSERT_NE(tokenizer, nullptr);
-
-  // With ByteLevel and the GPT-2 regex, segments are emitted on boundaries.
-  // Feed the text, then check that the bound is small.
-  // The trailing segment may be pending. The key test is that the bound is
-  // at least as large as what finalize actually produces.
-  const char* text = "A\nB";
-  auto ctx = CreateStreamingState(tokenizer, strlen(text),
-                                  IREE_TOKENIZER_ENCODE_FLAG_AT_INPUT_START);
-
-  int32_t token_buffer[256];
-  iree_host_size_t feed_tokens =
-      FeedAll(ctx.state, iree_make_cstring_view(text), token_buffer, 256);
-
-  iree_host_size_t bound =
-      iree_tokenizer_encode_state_pending_token_bound(ctx.state);
-
-  // Finalize to get actual count.
-  iree_host_size_t finalize_count = 0;
-  IREE_ASSERT_OK(iree_tokenizer_encode_state_finalize(
-      ctx.state,
-      iree_tokenizer_make_token_output(token_buffer + feed_tokens, NULL, NULL,
-                                       256 - feed_tokens),
-      &finalize_count));
-
-  // The bound should be >= finalize_count (invariant) and reasonably small.
-  EXPECT_GE(bound, finalize_count);
-
-  // If finalize produced 0 tokens, the bound should also be 0.
-  if (finalize_count == 0) {
-    EXPECT_EQ(bound, 0u) << "Expected bound=0 when finalize produced 0 tokens";
-  }
-
-  iree_tokenizer_encode_state_deinitialize(ctx.state);
-  iree_tokenizer_free(tokenizer);
-}
-
-// Test 4: pending_token_bound includes special tokens from postprocessor.
-TEST_F(TokenizerJsonTest, PendingTokenBoundWithSpecialTokens) {
+TEST_F(TokenizerJsonTest, StreamingCompletionPreservesSpecialTokenOrder) {
   // Build a tokenizer with BOS/EOS postprocessor. Uses the minimal GPT-2 vocab
   // (Ċ=0, ĊĊ=1, A=2, B=3) plus BOS (4) and EOS (5) special tokens.
   const char* json = R"({
@@ -1329,41 +1226,20 @@ TEST_F(TokenizerJsonTest, PendingTokenBoundWithSpecialTokens) {
   iree_host_size_t feed_tokens =
       FeedAll(ctx.state, iree_make_cstring_view("AB"), token_buffer, 256);
 
-  iree_host_size_t bound =
-      iree_tokenizer_encode_state_pending_token_bound(ctx.state);
-
-  // Finalize.
-  iree_host_size_t finalize_count = 0;
-  IREE_ASSERT_OK(iree_tokenizer_encode_state_finalize(
-      ctx.state,
-      iree_tokenizer_make_token_output(token_buffer + feed_tokens, NULL, NULL,
-                                       256 - feed_tokens),
-      &finalize_count));
-
-  // Key invariant holds.
-  EXPECT_GE(bound, finalize_count)
-      << "pending_token_bound (" << bound << ") < actual finalize count ("
-      << finalize_count << ") with special tokens";
-
-  // The bound should account for the postprocessor special tokens (BOS, EOS).
-  // With add_special_tokens, max_special_token_count is 2 (BOS + EOS).
-  iree_host_size_t max_special =
-      iree_tokenizer_max_special_token_count(tokenizer);
-  EXPECT_EQ(max_special, 2u);
-
-  // The total tokens (feed + finalize) should include BOS and EOS.
-  iree_host_size_t total = feed_tokens + finalize_count;
-  bool has_bos = false, has_eos = false;
-  for (iree_host_size_t i = 0; i < total; ++i) {
-    if (token_buffer[i] == 4) {
-      has_bos = true;
-    }
-    if (token_buffer[i] == 5) {
-      has_eos = true;
-    }
-  }
-  EXPECT_TRUE(has_bos) << "Expected BOS token (4) in output";
-  EXPECT_TRUE(has_eos) << "Expected EOS token (5) in output";
+  iree_host_size_t total = feed_tokens;
+  do {
+    iree_host_size_t count = 0;
+    IREE_ASSERT_OK(iree_tokenizer_encode_state_finalize(
+        ctx.state,
+        iree_tokenizer_make_token_output(token_buffer + total, nullptr, nullptr,
+                                         1),
+        &count));
+    ASSERT_TRUE(count || !iree_tokenizer_encode_state_has_pending(ctx.state));
+    total += count;
+  } while (iree_tokenizer_encode_state_has_pending(ctx.state));
+  EXPECT_EQ(std::vector<int32_t>(token_buffer, token_buffer + total),
+            (std::vector<int32_t>{4, 2, 3, 5}));
+  EXPECT_EQ(iree_tokenizer_max_special_token_count(tokenizer), 2u);
 
   iree_tokenizer_encode_state_deinitialize(ctx.state);
   iree_tokenizer_free(tokenizer);

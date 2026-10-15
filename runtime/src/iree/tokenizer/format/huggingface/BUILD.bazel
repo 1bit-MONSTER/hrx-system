@@ -250,6 +250,18 @@ iree_runtime_cc_test(
 )
 
 iree_runtime_cc_test(
+    name = "tokenizer_finalization_test",
+    srcs = ["tokenizer_finalization_test.cc"],
+    deps = [
+        ":tokenizer_json",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+        "//runtime/src/iree/tokenizer",
+    ],
+)
+
+iree_runtime_cc_test(
     name = "tokenizer_json_test",
     srcs = ["tokenizer_json_test.cc"],
     deps = [

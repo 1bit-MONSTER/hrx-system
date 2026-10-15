@@ -644,6 +644,11 @@ BENCHMARK_DEFINE_F(StreamingEncodeBenchmark, Stream)
                                          NULL,
                                          token_ids_.size() - total_tokens),
         &final_tokens));
+    IREE_CHECK_OK(
+        iree_tokenizer_encode_state_has_pending(encode_state)
+            ? iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                               "benchmark token output capacity exhausted")
+            : iree_ok_status());
 
     iree_tokenizer_encode_state_deinitialize(encode_state);
     benchmark::DoNotOptimize(total_tokens + final_tokens);

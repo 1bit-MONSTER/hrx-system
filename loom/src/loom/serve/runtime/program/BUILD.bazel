@@ -245,6 +245,7 @@ loom_cc_library(
     hdrs = ["input.h"],
     deps = [
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:unicode",
         "//runtime/src/iree/tokenizer",
         "//runtime/src/iree/tokenizer/vocab",
         "//runtime/src/iree/vm",

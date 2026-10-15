@@ -73,6 +73,18 @@ struct iree_tokenizer_t {
   iree_tokenizer_special_tokens_t special_tokens_post_norm;
 };
 
+// Completion advances only after the preceding producer can emit no more.
+// MATCH drains normalized token matching before the segmenter receives EOF.
+typedef enum iree_tokenizer_encode_phase_e {
+  IREE_TOKENIZER_ENCODE_PHASE_PROCESS = 0,
+  IREE_TOKENIZER_ENCODE_PHASE_NORMALIZE,
+  IREE_TOKENIZER_ENCODE_PHASE_MATCH,
+  IREE_TOKENIZER_ENCODE_PHASE_SEGMENT,
+  IREE_TOKENIZER_ENCODE_PHASE_MODEL,
+  IREE_TOKENIZER_ENCODE_PHASE_SUFFIX,
+  IREE_TOKENIZER_ENCODE_PHASE_DONE,
+} iree_tokenizer_encode_phase_t;
+
 // Internal encode state structure.
 // Layout in state_storage:
 //   [encode_state_t]
@@ -151,10 +163,8 @@ struct iree_tokenizer_encode_state_t {
   // semantics: text following a position-0 special token is NOT "first".
   bool first_consumed_by_special_token;
 
-  // True when in finalize mode. Post-norm special token matching uses this to
-  // treat NEED_MORE from speculative checks as NO_MATCH (no more input coming,
-  // so a partial prefix can never become a complete special token).
-  bool in_finalize_mode;
+  // Producer completion frontier, retained across output backpressure.
+  iree_tokenizer_encode_phase_t phase;
 };
 
 // Internal decode state structure.
@@ -649,6 +659,12 @@ iree_status_t iree_tokenizer_encode(const iree_tokenizer_t* tokenizer,
     status = iree_tokenizer_encode_state_finalize(state, final_output,
                                                   &final_tokens);
     total_tokens += final_tokens;
+    if (iree_status_is_ok(status) &&
+        iree_tokenizer_encode_state_has_pending(state)) {
+      status = iree_make_status(
+          IREE_STATUS_RESOURCE_EXHAUSTED,
+          "encode output capacity exhausted during finalization");
+    }
   }
 
   if (iree_status_is_ok(status)) {
@@ -822,7 +838,7 @@ static iree_status_t iree_tokenizer_encode_state_reset_internal(
 
   state->pending_special_token = -1;
   state->first_consumed_by_special_token = false;
-  state->in_finalize_mode = false;
+  state->phase = IREE_TOKENIZER_ENCODE_PHASE_PROCESS;
   state->has_partial_segment = false;
   return iree_ok_status();
 }
@@ -879,6 +895,12 @@ static iree_status_t iree_tokenizer_encode_batch_feed_sequence(
   iree_status_t status = iree_tokenizer_encode_state_finalize_internal(
       state, final_output, finalize_flags, &final_tokens);
   *total_tokens += final_tokens;
+  if (iree_status_is_ok(status) &&
+      state->phase != IREE_TOKENIZER_ENCODE_PHASE_DONE) {
+    status = iree_make_status(
+        IREE_STATUS_RESOURCE_EXHAUSTED,
+        "batch encode output capacity exhausted during finalization");
+  }
   return status;
 }
 
@@ -1258,7 +1280,7 @@ iree_status_t iree_tokenizer_encode_state_initialize(
 
     state->pending_special_token = -1;
     state->first_consumed_by_special_token = false;
-    state->in_finalize_mode = false;
+    state->phase = IREE_TOKENIZER_ENCODE_PHASE_PROCESS;
 
     *out_state = state;
   } else {
@@ -1313,6 +1335,13 @@ bool iree_tokenizer_encode_state_has_pending(
     const iree_tokenizer_encode_state_t* state) {
   IREE_ASSERT_ARGUMENT(state);
 
+  if (state->phase == IREE_TOKENIZER_ENCODE_PHASE_DONE) {
+    return false;
+  }
+  if (state->phase != IREE_TOKENIZER_ENCODE_PHASE_PROCESS) {
+    return true;
+  }
+
   // Check if any stage has pending data (ordered by pipeline position).
   // Deferred special token waiting for pipeline to flush.
   if (state->pending_special_token >= 0) {
@@ -1353,98 +1382,6 @@ bool iree_tokenizer_encode_state_has_pending(
   }
 
   return false;
-}
-
-iree_host_size_t iree_tokenizer_encode_state_pending_token_bound(
-    const iree_tokenizer_encode_state_t* state) {
-  IREE_ASSERT_ARGUMENT(state);
-  iree_host_size_t bound = 0;
-
-  // Ring buffer: all bytes in [read_position, write_position) can produce at
-  // most 1 token per byte. This includes bytes referenced by unconsumed
-  // segments, bytes consumed by the segmenter but not yet in segments
-  // (segmenter internal state), and unsegmented bytes awaiting the segmenter.
-  // No separate segment loop is needed — segments reference a subset of the
-  // ring buffer range, so they are already covered.
-  if (state->write_position > state->read_position) {
-    bound += state->write_position - state->read_position;
-  }
-
-  // Model pending tokens. When the model has pending state (e.g., BPE window
-  // tokens from a partially-flushed segment, or WordPiece/Unigram subtokens
-  // awaiting emission), model_state_finalize will produce tokens. If all
-  // segments have been consumed (segment_count == segments_consumed), the ring
-  // buffer bytes that produced these tokens have already been reclaimed
-  // (read_position advanced past them), so they are NOT included in the ring
-  // byte count above. Bound by the ring buffer's logical capacity, which is
-  // the maximum segment size the model could have been processing.
-  if (state->model_state &&
-      iree_tokenizer_model_state_has_pending(state->model_state) &&
-      state->segment_count <= state->segments_consumed) {
-    // capacity_mask + 1 = ring buffer logical capacity = max segment size.
-    bound += state->capacity_mask + 1;
-  }
-
-  // Pre-normalization special token partial match. If a partial match is in
-  // progress, those bytes will be written to the ring buffer during finalize
-  // (they aren't a real special token — just regular text). Each byte can
-  // produce at most 1 token after normalization.
-  if (iree_tokenizer_special_tokens_encode_state_has_partial(
-          &state->special_token_match)) {
-    bound += state->special_token_match.match_position;
-  }
-
-  // Deferred special token waiting for pipeline to flush.
-  if (state->pending_special_token >= 0) {
-    bound += 1;
-  }
-
-  // Normalizer may have buffered bytes that will be flushed to the ring buffer
-  // during finalize (at most 1 token per byte). The normalizer's internal
-  // buffers are bounded by the transform buffer size, which is the caller-
-  // provided scratch space for the normalizer/segmenter pipeline.
-  if (state->normalizer_state &&
-      iree_tokenizer_normalizer_state_has_pending(state->normalizer_state)) {
-    bound += state->transform_buffer.data_length;
-  }
-
-  // Post-processor special tokens. Phase-aware counting: only count tokens
-  // that have NOT yet been emitted. The postprocessor state machine tracks
-  // which phase we're in and position within that phase.
-  if (state->postprocessor.active_template) {
-    const iree_tokenizer_postprocessor_template_t* t =
-        state->postprocessor.active_template;
-    switch (state->postprocessor.phase) {
-      case IREE_TOKENIZER_POSTPROCESSOR_PHASE_PREFIX:
-        // Remaining prefix tokens + all later special-token phases.
-        bound += (t->prefix_count - state->postprocessor.position) +
-                 t->infix_count + t->suffix_count;
-        break;
-      case IREE_TOKENIZER_POSTPROCESSOR_PHASE_SEQUENCE_A:
-        // Prefix already emitted; infix and suffix not yet started.
-        bound += t->infix_count + t->suffix_count;
-        break;
-      case IREE_TOKENIZER_POSTPROCESSOR_PHASE_INFIX:
-        // Remaining infix tokens + all suffix tokens.
-        bound +=
-            (t->infix_count - state->postprocessor.position) + t->suffix_count;
-        break;
-      case IREE_TOKENIZER_POSTPROCESSOR_PHASE_SEQUENCE_B:
-        // Infix already emitted; suffix not yet started.
-        bound += t->suffix_count;
-        break;
-      case IREE_TOKENIZER_POSTPROCESSOR_PHASE_SUFFIX:
-        // Remaining suffix tokens.
-        bound += t->suffix_count - state->postprocessor.position;
-        break;
-      case IREE_TOKENIZER_POSTPROCESSOR_PHASE_IDLE:
-      case IREE_TOKENIZER_POSTPROCESSOR_PHASE_DONE:
-        // No tokens remaining.
-        break;
-    }
-  }
-
-  return bound;
 }
 
 // Feeds ring buffer data [read_position, write_position) directly to the
@@ -1643,7 +1580,12 @@ iree_tokenizer_encode_state_match_post_norm_special_tokens(
   if (already_matched > 0) {
     // Slice to only new bytes.
     if (already_matched >= normalized_text.size) {
-      // No new bytes available yet - keep waiting.
+      if (state->phase >= IREE_TOKENIZER_ENCODE_PHASE_MATCH) {
+        iree_tokenizer_special_tokens_encode_state_clear_partial(
+            &state->special_token_match_post);
+        return IREE_TOKENIZER_POST_NORM_NO_MATCH;
+      }
+      // The normalizer still owns input or output that may complete this match.
       return IREE_TOKENIZER_POST_NORM_NEED_MORE;
     }
     normalized_text.data += already_matched;
@@ -1680,13 +1622,13 @@ iree_tokenizer_encode_state_match_post_norm_special_tokens(
         // all bytes including the `<`.
         return IREE_TOKENIZER_POST_NORM_NO_MATCH;
       }
-      // In finalize mode, NEED_MORE means the partial prefix will never become
-      // a complete special token (no more input is coming). Treat it as
+      // After normalization completes, NEED_MORE means the partial prefix
+      // will never become a complete special token. Treat it as
       // NO_MATCH so the segmenter can process all bytes including the potential
       // prefix. This prevents " <" at end-of-input from being split into " " +
       // "<".
       if (check_result == IREE_TOKENIZER_SPECIAL_TOKENS_NEED_MORE &&
-          state->in_finalize_mode) {
+          (state->phase >= IREE_TOKENIZER_ENCODE_PHASE_MATCH)) {
         return IREE_TOKENIZER_POST_NORM_NO_MATCH;
       }
       // A special token matches or could match at position `safe`. Strip
@@ -1756,9 +1698,9 @@ iree_tokenizer_encode_state_match_post_norm_special_tokens(
 
   if (result == IREE_TOKENIZER_SPECIAL_TOKENS_NEED_MORE) {
     // Partial match in progress.
-    if (state->in_finalize_mode) {
-      // In finalize mode, NEED_MORE means this will never become a complete
-      // special token. Clear any partial state and return NO_MATCH so the
+    if (state->phase >= IREE_TOKENIZER_ENCODE_PHASE_MATCH) {
+      // After normalization completes, this cannot become a complete special
+      // token. Clear any partial state and return NO_MATCH so the
       // segmenter processes these bytes normally.
       if (state->special_token_match_post.match_position > 0) {
         iree_tokenizer_special_tokens_encode_state_clear_partial(
@@ -1960,25 +1902,32 @@ static iree_status_t iree_tokenizer_encode_state_pump(
     }
   }
 
-  // An accepted raw token ends the preceding normalizer input span, including
-  // state that finalize discards instead of emitting (such as trailing spaces).
-  if (state->pending_special_token >= 0 && state->normalizer_state) {
-    iree_host_size_t write_space = iree_tokenizer_ring_writable_space(state);
-    if (write_space > 0) {
+  // A raw token boundary or final input completes normalization only after
+  // every retained raw prefix byte has been accepted.
+  bool finishing_normalizer =
+      state->phase == IREE_TOKENIZER_ENCODE_PHASE_NORMALIZE &&
+      !iree_tokenizer_special_tokens_encode_state_has_partial(
+          &state->special_token_match);
+  if (state->pending_special_token >= 0 || finishing_normalizer) {
+    if (state->normalizer_state) {
       iree_host_size_t physical_write = iree_tokenizer_ring_to_physical(
           state->write_position, state->capacity_mask);
       iree_mutable_string_view_t norm_output = iree_make_mutable_string_view(
-          (char*)state->transform_buffer.data + physical_write, write_space);
+          (char*)state->transform_buffer.data + physical_write,
+          iree_tokenizer_ring_writable_space(state));
       iree_host_size_t bytes_written = 0;
       IREE_RETURN_IF_ERROR(iree_tokenizer_normalizer_state_finalize(
           state->normalizer_state, norm_output, &bytes_written));
       iree_tokenizer_ring_fixup_write_wrap(state, physical_write,
                                            bytes_written);
       state->write_position += bytes_written;
-      if (bytes_written > 0) {
-        *out_made_progress = true;
-        return iree_ok_status();
-      }
+      *out_made_progress |= bytes_written > 0;
+    }
+    if (finishing_normalizer && (!state->normalizer_state ||
+                                 !iree_tokenizer_normalizer_state_has_pending(
+                                     state->normalizer_state))) {
+      state->phase = IREE_TOKENIZER_ENCODE_PHASE_MATCH;
+      *out_made_progress = true;
     }
   }
 
@@ -1986,6 +1935,12 @@ static iree_status_t iree_tokenizer_encode_state_pump(
   if (iree_tokenizer_try_emit_pending_special_token(state, *output,
                                                     total_tokens)) {
     *out_made_progress = true;
+    return iree_ok_status();
+  }
+
+  // Once the segmenter receives EOF, only its queued segments may reach the
+  // model. Re-entering process would reopen a completed producer.
+  if (state->phase >= IREE_TOKENIZER_ENCODE_PHASE_SEGMENT) {
     return iree_ok_status();
   }
 
@@ -2101,27 +2056,14 @@ static iree_status_t iree_tokenizer_encode_state_pump(
           &segments_produced));
       bytes_consumed = normalized_text.size;
 
-      // When finalizing due to LIMIT for regular text (not special tokens),
-      // trailing whitespace-only segments should not be consumed - they belong
-      // with the next segment. However, for post-norm special tokens,
-      // whitespace before the token SHOULD be consumed because the special
-      // token boundary itself acts as a word boundary.
-      //
-      // During pump() (non-finalize mode), we don't yet know if the thing after
-      // LIMIT is a real special token or a false positive (like `<` that isn't
-      // `<|endoftext|>`). Always strip whitespace during pump to allow retry
-      // with more context. In finalize mode, the post-norm check returns
-      // NO_MATCH instead of LIMIT (lines 1554-1558), so the segmenter sees all
-      // bytes and produces correct segments - this path won't be reached.
-      //
-      // The infinite loop concern (stripping whitespace forever) is handled by
-      // finalize mode: when finalize() is called, in_finalize_mode=true causes
-      // the LIMIT to become NO_MATCH, breaking the loop.
+      // Preserve trailing whitespace until the following token is known.
+      // Once normalization completes, incomplete matches become ordinary
+      // text and only confirmed special tokens limit the segmenter view.
       bool has_confirmed_special_token_waiting =
           (bytes_consumed == post_norm_segment_limit &&
            !iree_tokenizer_special_tokens_is_empty(
                &tokenizer->special_tokens_post_norm) &&
-           state->in_finalize_mode);
+           (state->phase >= IREE_TOKENIZER_ENCODE_PHASE_MATCH));
       if (!has_confirmed_special_token_waiting) {
         iree_tokenizer_strip_trailing_whitespace_segments(
             normalized_text, segment_output, &segments_produced,
@@ -2175,7 +2117,8 @@ static iree_status_t iree_tokenizer_encode_state_pump(
   if (!iree_tokenizer_special_tokens_is_empty(&tokenizer->special_tokens) &&
       !iree_any_bit_set(state->flags,
                         IREE_TOKENIZER_ENCODE_FLAG_NO_SPECIAL_TOKEN_MATCHING) &&
-      chunk->size > 0 && state->pending_special_token < 0) {
+      chunk->size > 0 && state->pending_special_token < 0 &&
+      state->special_token_match.drain_position == 0) {
     // Continuing a partial match? Pass chunk directly to match().
     // Starting fresh? Check if first byte could start a special token.
     bool should_match = state->special_token_match.match_position > 0;
@@ -2295,7 +2238,7 @@ static iree_status_t iree_tokenizer_encode_state_pump(
       // NO_MATCH. If we had a partial match in progress, recover via finalize
       // or drain the partial bytes through the normalizer.
       if (state->special_token_match.match_position > 0) {
-        // Drain partial match bytes through normalizer (one at a time).
+        // Recover the partial match through the normalizer below.
         // get_partial() reconstructs the bytes from the token data itself.
         normalize_limit = 0;
       } else {
@@ -2321,57 +2264,74 @@ static iree_status_t iree_tokenizer_encode_state_pump(
     }
   }
 
-  // Drain partial special token match after NO_MATCH.
-  // The bytes are reconstructed from the token data via get_partial().
-  // Uses drain_position to track which byte to emit (not match_position).
-  if (state->special_token_match.match_position > 0 && normalize_limit == 0) {
+  // A failed raw match is ordinary input. Its existing drain cursor owns
+  // accepted bytes until normalization consumes them, including during EOF.
+  if (state->special_token_match.match_position > 0 &&
+      (normalize_limit == 0 || state->special_token_match.drain_position > 0 ||
+       state->phase == IREE_TOKENIZER_ENCODE_PHASE_NORMALIZE)) {
     iree_host_size_t write_space = iree_tokenizer_ring_writable_space(state);
     if (write_space > 0) {
-      // Get the partial match bytes from the token data.
-      uint8_t partial_buffer[256];  // Max special token length.
+      uint8_t partial_buffer[256 + 4];
       iree_host_size_t partial_size =
           iree_tokenizer_special_tokens_encode_state_get_partial(
               &state->special_token_match, &tokenizer->special_tokens,
               partial_buffer);
-      if (state->special_token_match.drain_position < partial_size) {
-        // Feed next byte to normalizer (at drain_position, not always 0).
-        iree_host_size_t physical_write = iree_tokenizer_ring_to_physical(
-            state->write_position, state->capacity_mask);
-        iree_host_size_t bytes_written = 0;
-        iree_host_size_t drain_offset =
-            state->special_token_match.drain_position;
-        iree_string_view_t drain_byte = iree_make_string_view(
-            (const char*)partial_buffer + drain_offset, 1);
-        if (state->normalizer_state) {
-          iree_host_size_t bytes_consumed = 0;
-          iree_mutable_string_view_t norm_output = {
-              .data = (char*)state->transform_buffer.data + physical_write,
-              .size = write_space,
-          };
-          // Draining partial buffer: no segment boundary (FLAG_NONE).
-          IREE_RETURN_IF_ERROR(iree_tokenizer_normalizer_state_process(
-              state->normalizer_state, drain_byte, norm_output,
-              IREE_TOKENIZER_NORMALIZER_FLAG_NONE, &bytes_consumed,
-              &bytes_written));
-        } else {
-          memcpy((char*)state->transform_buffer.data + physical_write,
-                 partial_buffer + drain_offset, 1);
-          bytes_written = 1;
-        }
-        iree_tokenizer_ring_fixup_write_wrap(state, physical_write,
-                                             bytes_written);
-        state->write_position += bytes_written;
-        // Increment drain_position to track draining progress.
-        state->special_token_match.drain_position++;
-        // Clear state when all bytes drained.
-        if (state->special_token_match.drain_position ==
-            state->special_token_match.match_position) {
-          iree_tokenizer_special_tokens_encode_state_clear_partial(
-              &state->special_token_match);
-        }
-        *out_made_progress = true;
-        return iree_ok_status();
+      iree_host_size_t drain_offset = state->special_token_match.drain_position;
+      iree_host_size_t retained = partial_size - drain_offset;
+      // A raw match may end inside a codepoint. Borrow only enough following
+      // input to complete it; those bytes advance with normalizer acceptance.
+      iree_host_size_t appended = 0;
+      iree_host_size_t incomplete = iree_unicode_utf8_incomplete_tail_length(
+          (const char*)partial_buffer + drain_offset, retained);
+      if (incomplete > 0) {
+        iree_host_size_t required =
+            iree_unicode_utf8_sequence_length(
+                partial_buffer[partial_size - incomplete]) -
+            incomplete;
+        appended = iree_min(chunk->size, required);
+        memcpy(partial_buffer + partial_size, chunk->data, appended);
       }
+      iree_string_view_t recovered = iree_make_string_view(
+          (const char*)partial_buffer + drain_offset, retained + appended);
+      recovered.size -= iree_unicode_utf8_incomplete_tail_length(
+          recovered.data, recovered.size);
+      if (recovered.size == 0 &&
+          state->phase == IREE_TOKENIZER_ENCODE_PHASE_NORMALIZE) {
+        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                "encode input ends with incomplete UTF-8");
+      }
+      iree_host_size_t physical_write = iree_tokenizer_ring_to_physical(
+          state->write_position, state->capacity_mask);
+      iree_host_size_t bytes_consumed = 0;
+      iree_host_size_t bytes_written = 0;
+      if (state->normalizer_state) {
+        iree_mutable_string_view_t norm_output = iree_make_mutable_string_view(
+            (char*)state->transform_buffer.data + physical_write, write_space);
+        IREE_RETURN_IF_ERROR(iree_tokenizer_normalizer_state_process(
+            state->normalizer_state, recovered, norm_output,
+            IREE_TOKENIZER_NORMALIZER_FLAG_NONE, &bytes_consumed,
+            &bytes_written));
+      } else {
+        bytes_consumed = iree_min(recovered.size, write_space);
+        bytes_written = bytes_consumed;
+        memcpy(state->transform_buffer.data + physical_write, recovered.data,
+               bytes_written);
+      }
+      iree_tokenizer_ring_fixup_write_wrap(state, physical_write,
+                                           bytes_written);
+      state->write_position += bytes_written;
+      state->special_token_match.drain_position +=
+          (uint16_t)iree_min(bytes_consumed, retained);
+      if (bytes_consumed > retained) {
+        *chunk = iree_string_view_substr(*chunk, bytes_consumed - retained,
+                                         IREE_HOST_SIZE_MAX);
+      }
+      if (state->special_token_match.drain_position == partial_size) {
+        iree_tokenizer_special_tokens_encode_state_clear_partial(
+            &state->special_token_match);
+      }
+      *out_made_progress |= bytes_consumed > 0 || bytes_written > 0;
+      return iree_ok_status();
     }
   }
 
@@ -2450,7 +2410,9 @@ static iree_status_t iree_tokenizer_encode_state_pump(
   // has data but no segment boundaries (split=false), enter partial segment
   // mode. The model processes ring data directly, emitting frozen tokens and
   // reclaiming bytes to free ring space for more normalization.
-  if (!*out_made_progress && chunk->size > 0 &&
+  if (!*out_made_progress &&
+      (chunk->size > 0 ||
+       state->phase == IREE_TOKENIZER_ENCODE_PHASE_NORMALIZE) &&
       state->write_position > state->read_position &&
       state->segment_count <= state->segments_consumed) {
     state->has_partial_segment = true;
@@ -2466,7 +2428,8 @@ static iree_status_t iree_tokenizer_encode_state_pump(
     // deadlock: model won't process (holdback), normalizer won't feed
     // (pending special token blocks it), special token won't emit (ring not
     // empty).
-    bool force_complete = state->pending_special_token >= 0;
+    bool force_complete = state->pending_special_token >= 0 ||
+                          state->phase >= IREE_TOKENIZER_ENCODE_PHASE_MATCH;
     iree_tokenizer_token_output_t sub_output = {
         .capacity = output->capacity - *total_tokens,
         .token_ids = &output->token_ids[*total_tokens],
@@ -2528,6 +2491,12 @@ static iree_status_t iree_tokenizer_encode_state_feed_internal(
   IREE_ASSERT_ARGUMENT(out_token_count);
   *out_bytes_consumed = 0;
   *out_token_count = 0;
+
+  if (state->phase != IREE_TOKENIZER_ENCODE_PHASE_PROCESS) {
+    return iree_make_status(
+        IREE_STATUS_FAILED_PRECONDITION,
+        "encode input is already finalized; reset before feed");
+  }
 
   // Verify required pipeline stages are configured.
   // Note: segmenter_state may be NULL (passthrough mode).
@@ -2603,269 +2572,122 @@ static iree_status_t iree_tokenizer_encode_state_finalize_internal(
   IREE_ASSERT_ARGUMENT(output.token_ids);
   IREE_ASSERT_ARGUMENT(out_token_count);
   *out_token_count = 0;
-
-  // Mark finalize mode. Post-norm special token matching uses this to treat
-  // NEED_MORE from speculative checks as NO_MATCH (no more input is coming,
-  // so a partial prefix like "<" can never become a complete special token
-  // like "<｜begin▁of▁sentence｜>").
-  state->in_finalize_mode = true;
-
-  // Verify required pipeline stages are configured.
-  // Note: segmenter_state may be NULL (passthrough mode).
   if (!state->model_state) {
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                             "encode pipeline not fully configured");
   }
+  if (state->phase == IREE_TOKENIZER_ENCODE_PHASE_PROCESS) {
+    state->phase = IREE_TOKENIZER_ENCODE_PHASE_NORMALIZE;
+  }
 
-  iree_host_size_t total_tokens = 0;
-
-  // Emit any pending prefix tokens (handles the empty-input case where feed()
-  // was never called and the state is still in PREFIX phase).
-  total_tokens += iree_tokenizer_postprocessor_emit_prefix(
-      &state->postprocessor, output, total_tokens);
-
-  // Handle pending partial special token match from streaming input.
-  // If the input ended with bytes that looked like they could be a special
-  // token prefix but weren't completed, those bytes need to go to the
-  // normalizer now (they're just regular text, not a special token).
-  if (iree_tokenizer_special_tokens_encode_state_has_partial(
-          &state->special_token_match)) {
-    // Get the partial bytes.
-    uint8_t partial_buffer[256];  // Max special token length is typically <30.
-    iree_host_size_t partial_length =
-        iree_tokenizer_special_tokens_encode_state_get_partial(
-            &state->special_token_match, &state->tokenizer->special_tokens,
-            partial_buffer);
-
-    // Feed partial bytes to normalizer (or passthrough to ring).
-    // Per CLAUDE.md "NO SILENT FAILURES": must not drop data without error.
-    iree_host_size_t write_space = iree_tokenizer_ring_writable_space(state);
-    if (write_space < partial_length) {
-      // Ring buffer is full - cannot write partial bytes.
-      // Return error instead of silently dropping data.
-      return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                              "ring buffer full: need %" PRIhsz
-                              " bytes, have %" PRIhsz,
-                              partial_length, write_space);
+  iree_host_size_t total_tokens = iree_tokenizer_postprocessor_emit_prefix(
+      &state->postprocessor, output, 0);
+  iree_status_t status = iree_ok_status();
+  bool made_progress = true;
+  while (iree_status_is_ok(status) && made_progress &&
+         state->phase != IREE_TOKENIZER_ENCODE_PHASE_DONE) {
+    made_progress = false;
+    if (state->postprocessor.phase ==
+        IREE_TOKENIZER_POSTPROCESSOR_PHASE_PREFIX) {
+      break;
     }
-    iree_host_size_t physical_write = iree_tokenizer_ring_to_physical(
-        state->write_position, state->capacity_mask);
-    if (state->normalizer_state) {
-      iree_string_view_t partial_view =
-          iree_make_string_view((const char*)partial_buffer, partial_length);
-      iree_mutable_string_view_t norm_output = {
-          .data = (char*)state->transform_buffer.data + physical_write,
-          .size = write_space,
-      };
-      iree_host_size_t bytes_consumed = 0;
-      iree_host_size_t bytes_written = 0;
-      // Pass the recovered prefix as ordinary normalization input.
-      IREE_RETURN_IF_ERROR(iree_tokenizer_normalizer_state_process(
-          state->normalizer_state, partial_view, norm_output,
-          IREE_TOKENIZER_NORMALIZER_FLAG_NONE, &bytes_consumed,
-          &bytes_written));
-      iree_tokenizer_ring_fixup_write_wrap(state, physical_write,
-                                           bytes_written);
-      state->write_position += bytes_written;
-    } else {
-      // Passthrough: copy directly to ring.
-      memcpy((char*)state->transform_buffer.data + physical_write,
-             partial_buffer, partial_length);
-      iree_tokenizer_ring_fixup_write_wrap(state, physical_write,
-                                           partial_length);
-      state->write_position += partial_length;
+    if (state->phase <= IREE_TOKENIZER_ENCODE_PHASE_MODEL) {
+      iree_string_view_t empty = iree_string_view_empty();
+      status = iree_tokenizer_encode_state_pump(state, &empty, &output,
+                                                &total_tokens, &made_progress);
+      if (!iree_status_is_ok(status) || made_progress) {
+        continue;
+      }
+      if (state->segment_count > state->segments_consumed) {
+        break;
+      }
+      if (state->pending_special_token >= 0 &&
+          total_tokens == output.capacity) {
+        break;
+      }
     }
-    // Clear partial match state only after successful write.
-    iree_tokenizer_special_tokens_encode_state_clear_partial(
-        &state->special_token_match);
-  }
 
-  // Handle pending post-normalization partial special token match.
-  // Unlike pre-norm matches, these bytes are already in the ring buffer (they
-  // passed through the normalizer). If the input ended mid-match, it's not a
-  // special token - clear the state so the segmenter processes them normally.
-  if (iree_tokenizer_special_tokens_encode_state_has_partial(
-          &state->special_token_match_post)) {
-    iree_tokenizer_special_tokens_encode_state_clear_partial(
-        &state->special_token_match_post);
-  }
-
-  // Finalize normalizer - flush any buffered data to ring.
-  // Writes may extend into the mirror region and are fixed up afterward.
-  if (state->normalizer_state) {
-    iree_host_size_t physical_write = iree_tokenizer_ring_to_physical(
-        state->write_position, state->capacity_mask);
-    iree_host_size_t write_space = iree_tokenizer_ring_writable_space(state);
-    iree_mutable_string_view_t norm_output = iree_make_mutable_string_view(
-        (char*)state->transform_buffer.data + physical_write, write_space);
-    iree_host_size_t bytes_written = 0;
-    IREE_RETURN_IF_ERROR(iree_tokenizer_normalizer_state_finalize(
-        state->normalizer_state, norm_output, &bytes_written));
-    iree_tokenizer_ring_fixup_write_wrap(state, physical_write, bytes_written);
-    state->write_position += bytes_written;
-  }
-
-  if (state->has_partial_segment) {
-    // Partial segment mode: feed remaining ring data as a final non-partial
-    // segment. BPE completes BYTE_LOOP, transitions to FLUSH, and emits all
-    // remaining window tokens. Segmenter is bypassed (split=false produced no
-    // boundaries, so there's nothing meaningful to finalize).
-    if (state->write_position > state->read_position &&
-        output.capacity > total_tokens) {
-      iree_tokenizer_token_output_t sub_output = {
-          .capacity = output.capacity - total_tokens,
-          .token_ids = &output.token_ids[total_tokens],
-          .token_offsets =
-              output.token_offsets ? &output.token_offsets[total_tokens] : NULL,
-          .type_ids = output.type_ids ? &output.type_ids[total_tokens] : NULL,
-      };
-      iree_host_size_t tokens_written = 0;
-      bool segment_complete = false;
-      IREE_RETURN_IF_ERROR(iree_tokenizer_encode_ring_as_segment(
-          state, /*is_partial=*/false, sub_output, &tokens_written,
-          &segment_complete));
-      iree_tokenizer_postprocessor_assign_type_ids(
-          &state->postprocessor, sub_output, 0, tokens_written);
-      iree_tokenizer_postprocessor_trim_token_offsets(
-          &state->postprocessor, state->tokenizer->vocab, sub_output, 0,
-          tokens_written);
-      total_tokens += tokens_written;
-      // Only advance positions when the model fully completed the segment
-      // (all bytes processed + all tokens emitted). If output filled
-      // mid-segment (BYTE_LOOP or FLUSH), the ring data is still needed for
-      // continuation on the next finalize call.
-      if (segment_complete) {
-        state->read_position = state->write_position;
+    if (state->phase == IREE_TOKENIZER_ENCODE_PHASE_MATCH) {
+      if (total_tokens == output.capacity &&
+          state->write_position > state->segmenter_view_start) {
+        break;
+      }
+      if (state->has_partial_segment &&
+          state->write_position > state->read_position) {
+        break;
+      }
+      state->phase = IREE_TOKENIZER_ENCODE_PHASE_SEGMENT;
+      made_progress = true;
+    }
+    if (state->phase == IREE_TOKENIZER_ENCODE_PHASE_SEGMENT) {
+      if (state->segmenter_state && !state->has_partial_segment) {
+        iree_tokenizer_segment_output_t segment_output = {
+            .capacity = state->tokenizer->segment_batch_size,
+            .values = state->segments,
+        };
+        iree_host_size_t segments_produced = 0;
+        status = iree_tokenizer_segmenter_state_finalize(
+            state->segmenter_state, iree_tokenizer_ring_get_segment_view(state),
+            segment_output, &segments_produced);
+        if (iree_status_is_ok(status)) {
+          for (iree_host_size_t i = 0; i < segments_produced; ++i) {
+            state->segments[i].start += state->segmenter_view_start;
+            state->segments[i].end += state->segmenter_view_start;
+          }
+          state->segment_count = segments_produced;
+          made_progress |= segments_produced > 0;
+        }
+      }
+      if (iree_status_is_ok(status) &&
+          (state->has_partial_segment || !state->segmenter_state ||
+           !iree_tokenizer_segmenter_state_has_pending(
+               state->segmenter_state))) {
         state->segmenter_view_start = state->write_position;
+        state->phase = IREE_TOKENIZER_ENCODE_PHASE_MODEL;
+        made_progress = true;
+      }
+      continue;
+    }
+    if (state->phase == IREE_TOKENIZER_ENCODE_PHASE_MODEL) {
+      iree_tokenizer_token_output_t remaining =
+          iree_tokenizer_sub_token_output(output, total_tokens);
+      iree_host_size_t written = 0;
+      status = iree_tokenizer_model_state_finalize(state->model_state,
+                                                   remaining, &written);
+      if (iree_status_is_ok(status)) {
+        iree_tokenizer_postprocessor_assign_type_ids(&state->postprocessor,
+                                                     remaining, 0, written);
+        iree_tokenizer_postprocessor_trim_token_offsets(&state->postprocessor,
+                                                        state->tokenizer->vocab,
+                                                        remaining, 0, written);
+        total_tokens += written;
+        made_progress |= written > 0;
+        if (!iree_tokenizer_model_state_has_pending(state->model_state)) {
+          if (iree_all_bits_set(
+                  finalize_flags,
+                  IREE_TOKENIZER_ENCODE_STATE_FINALIZE_FLAG_OMIT_SUFFIX)) {
+            state->phase = IREE_TOKENIZER_ENCODE_PHASE_DONE;
+          } else {
+            iree_tokenizer_postprocessor_begin_suffix(&state->postprocessor);
+            state->phase = IREE_TOKENIZER_ENCODE_PHASE_SUFFIX;
+          }
+          made_progress = true;
+        }
       }
     }
-  } else {
-    // Normal path: use pump() to drain pipeline, then finalize segmenter.
-    //
-    // Two-phase drain:
-    // 1. After normalizer finalize, pump() matches post-norm special tokens
-    //    and segments the ring data via segmenter_state_process().
-    // 2. After segmenter finalize forces the final segment boundary, pump()
-    //    processes those segments through the model.
-    //
-    // This reuses pump() logic instead of duplicating it, ensuring consistent
-    // handling of post-norm tokens, pending_special_token emission, and
-    // segment processing. The drain loops are bounded: with empty input, no
-    // new data enters the pipeline, and finite ring + segment buffers mean
-    // pump() must eventually stop making progress.
-
-    // Phase 1: Drain to match post-norm tokens and segment ring data.
-    // Bounded by: ring buffer size (segments produced) + segment batch size.
-    iree_string_view_t empty_chunk = iree_make_string_view(NULL, 0);
-    iree_tokenizer_token_output_t drain_output = {
-        .capacity = output.capacity - total_tokens,
-        .token_ids = &output.token_ids[total_tokens],
-        .token_offsets =
-            output.token_offsets ? &output.token_offsets[total_tokens] : NULL,
-        .type_ids = output.type_ids ? &output.type_ids[total_tokens] : NULL,
-    };
-    iree_host_size_t drain_tokens = 0;
-    bool made_progress;
-    do {
-      IREE_RETURN_IF_ERROR(iree_tokenizer_encode_state_pump(
-          state, &empty_chunk, &drain_output, &drain_tokens, &made_progress));
-    } while (made_progress && drain_output.capacity > drain_tokens);
-    total_tokens += drain_tokens;
-
-    // Finalize segmenter - force final segment boundary for any remaining
-    // ring data that pump() couldn't segment (segmenter was waiting for more
-    // input to determine the boundary).
-    if (state->segmenter_state &&
-        state->segment_count < state->tokenizer->segment_batch_size) {
-      iree_string_view_t remaining_input =
-          iree_tokenizer_ring_get_segment_view(state);
-
-      iree_tokenizer_segment_output_t segment_output = {
-          .capacity =
-              state->tokenizer->segment_batch_size - state->segment_count,
-          .values = &state->segments[state->segment_count],
-      };
-      iree_host_size_t segments_produced = 0;
-      IREE_RETURN_IF_ERROR(iree_tokenizer_segmenter_state_finalize(
-          state->segmenter_state, remaining_input, segment_output,
-          &segments_produced));
-
-      // Capture segmenter_view_start before mutation for offset adjustment.
-      iree_host_size_t view_start = state->segmenter_view_start;
-
-      for (iree_host_size_t i = 0; i < segments_produced; ++i) {
-        state->segments[state->segment_count + i].start += view_start;
-        state->segments[state->segment_count + i].end += view_start;
-        IREE_ASSERT(state->segments[state->segment_count + i].start <
-                    state->segments[state->segment_count + i].end);
-      }
-      state->segment_count += segments_produced;
-
-      if (!iree_tokenizer_segmenter_state_has_pending(state->segmenter_state)) {
-        state->segmenter_view_start = state->write_position;
+    if (state->phase == IREE_TOKENIZER_ENCODE_PHASE_SUFFIX) {
+      iree_host_size_t written = iree_tokenizer_postprocessor_emit_suffix(
+          &state->postprocessor, output, total_tokens);
+      total_tokens += written;
+      made_progress |= written > 0;
+      if (!iree_tokenizer_postprocessor_encode_state_has_pending(
+              &state->postprocessor)) {
+        state->phase = IREE_TOKENIZER_ENCODE_PHASE_DONE;
       }
     }
-
-    // Phase 2: Drain to process the final segments and emit pending tokens.
-    // Bounded by: segment batch size + 1 (for pending_special_token).
-    drain_output = (iree_tokenizer_token_output_t){
-        .capacity = output.capacity - total_tokens,
-        .token_ids = &output.token_ids[total_tokens],
-        .token_offsets =
-            output.token_offsets ? &output.token_offsets[total_tokens] : NULL,
-        .type_ids = output.type_ids ? &output.type_ids[total_tokens] : NULL,
-    };
-    drain_tokens = 0;
-    do {
-      IREE_RETURN_IF_ERROR(iree_tokenizer_encode_state_pump(
-          state, &empty_chunk, &drain_output, &drain_tokens, &made_progress));
-    } while (made_progress && drain_output.capacity > drain_tokens);
-    total_tokens += drain_tokens;
   }
-
-  // Finalize model - handle any trailing state (e.g., partial BPE merges).
-  if (state->model_state) {
-    iree_tokenizer_token_output_t remaining_output = {
-        .capacity = output.capacity - total_tokens,
-        .token_ids = &output.token_ids[total_tokens],
-        .token_offsets =
-            output.token_offsets ? &output.token_offsets[total_tokens] : NULL,
-        .type_ids = output.type_ids ? &output.type_ids[total_tokens] : NULL,
-    };
-    iree_host_size_t final_tokens = 0;
-    IREE_RETURN_IF_ERROR(iree_tokenizer_model_state_finalize(
-        state->model_state, remaining_output, &final_tokens));
-    iree_tokenizer_postprocessor_assign_type_ids(
-        &state->postprocessor, remaining_output, 0, final_tokens);
-    iree_tokenizer_postprocessor_trim_token_offsets(
-        &state->postprocessor, state->tokenizer->vocab, remaining_output, 0,
-        final_tokens);
-    total_tokens += final_tokens;
-  }
-
-  // Emit suffix special tokens (e.g., [SEP], </s>) after all model tokens.
-  if (!iree_all_bits_set(
-          finalize_flags,
-          IREE_TOKENIZER_ENCODE_STATE_FINALIZE_FLAG_OMIT_SUFFIX)) {
-    iree_tokenizer_postprocessor_begin_suffix(&state->postprocessor);
-    total_tokens += iree_tokenizer_postprocessor_emit_suffix(
-        &state->postprocessor, output, total_tokens);
-  }
-
   *out_token_count = total_tokens;
-
-  // Detect output buffer overflow: if any pipeline stage still has pending
-  // data after finalize completed all its work, the output buffer was too
-  // small. has_pending checks all stages: postprocessor, model, segments,
-  // ring buffer, normalizer, and special token state.
-  if (iree_tokenizer_encode_state_has_pending(state)) {
-    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                            "encode finalize: output buffer full "
-                            "(wrote %" PRIhsz " of %" PRIhsz " capacity)",
-                            total_tokens, output.capacity);
-  }
-
-  return iree_ok_status();
+  return status;
 }
 
 iree_status_t iree_tokenizer_encode_state_finalize(

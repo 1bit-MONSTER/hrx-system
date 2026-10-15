@@ -9,6 +9,7 @@
 #include <limits.h>
 #include <string.h>
 
+#include "iree/base/internal/unicode.h"
 #include "iree/tokenizer/vocab/vocab.h"
 #include "iree/vm/buffer.h"
 #include "iree/vm/reflection.h"
@@ -33,10 +34,7 @@ enum input_function_ordinal_e {
   INPUT_FUNCTION_DECODE = 3,
 };
 
-// Pull only the requested prefix of the encoded stream. Finalize is
-// destructive, so its independent pending bound, not the remaining destination
-// capacity, determines scratch size when the entire text fits in the input
-// feed.
+// Pull only the requested prefix; all stream phases share destination credit.
 static iree_status_t loom_serve_input_encode_prefix(
     const iree_tokenizer_t* tokenizer, iree_string_view_t text,
     iree_tokenizer_encode_flags_t flags, iree_host_size_t capacity,
@@ -73,31 +71,18 @@ static iree_status_t loom_serve_input_encode_prefix(
     text = iree_string_view_substr(text, consumed, IREE_STRING_VIEW_NPOS);
     count += produced;
   }
-  int32_t* pending = NULL;
   if (iree_status_is_ok(status) && count < capacity) {
-    // Finalize requires non-null output storage even for a zero token bound.
-    const iree_host_size_t bound =
-        iree_max(1, iree_tokenizer_encode_state_pending_token_bound(state));
-    status = iree_allocator_malloc_array(host_allocator, bound,
-                                         sizeof(*pending), (void**)&pending);
     iree_host_size_t produced = 0;
-    if (iree_status_is_ok(status)) {
-      status = iree_tokenizer_encode_state_finalize(
-          state, iree_tokenizer_make_token_output(pending, NULL, NULL, bound),
-          &produced);
-    }
-    if (iree_status_is_ok(status)) {
-      produced = iree_min(produced, capacity - count);
-      if (produced) {
-        memcpy(out_tokens + count, pending, produced * sizeof(*out_tokens));
-      }
-      count += produced;
-    }
+    status = iree_tokenizer_encode_state_finalize(
+        state,
+        iree_tokenizer_make_token_output(out_tokens + count, NULL, NULL,
+                                         capacity - count),
+        &produced);
+    count += produced;
   }
   if (state) {
     iree_tokenizer_encode_state_deinitialize(state);
   }
-  iree_allocator_free(host_allocator, pending);
   iree_allocator_free(host_allocator, storage);
   if (iree_status_is_ok(status)) {
     *out_count = count;
@@ -228,6 +213,10 @@ static iree_status_t loom_serve_input_module_start(
                 IREE_TOKENIZER_ENCODE_FLAG_NO_SPECIAL_TOKEN_MATCHING)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "unsupported input encoding flags 0x%08x", flags);
+  }
+  if (!iree_unicode_utf8_validate(text)) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "tokenizer input must be complete UTF-8");
   }
   const uint64_t capacity = iree_vm_call_value_argument_load(call, 1);
   if (capacity > SIZE_MAX / sizeof(int32_t)) {

@@ -269,6 +269,7 @@ loom_cc_library(
     "input.c"
   DEPS
     iree::base
+    iree::base::internal::unicode
     iree::tokenizer
     iree::tokenizer::vocab
     iree::vm

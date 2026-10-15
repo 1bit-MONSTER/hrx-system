@@ -54,15 +54,17 @@ class TokenizerInputTokensTest : public ::testing::Test {
   }
 
   void Finalize(std::vector<int32_t>* tokens) {
-    size_t capacity = iree_tokenizer_encode_state_pending_token_bound(state_);
-    std::vector<int32_t> output(capacity > 0 ? capacity : 1);
-    iree_host_size_t count = 0;
-    IREE_ASSERT_OK(iree_tokenizer_encode_state_finalize(
-        state_,
-        iree_tokenizer_make_token_output(output.data(), nullptr, nullptr,
-                                         capacity),
-        &count));
-    tokens->insert(tokens->end(), output.begin(), output.begin() + count);
+    do {
+      int32_t token = -1;
+      iree_host_size_t count = 0;
+      IREE_ASSERT_OK(iree_tokenizer_encode_state_finalize(
+          state_, iree_tokenizer_make_token_output(&token, nullptr, nullptr, 1),
+          &count));
+      ASSERT_TRUE(count || !iree_tokenizer_encode_state_has_pending(state_));
+      if (count) {
+        tokens->push_back(token);
+      }
+    } while (iree_tokenizer_encode_state_has_pending(state_));
     EXPECT_FALSE(iree_tokenizer_encode_state_has_pending(state_));
   }
 
@@ -93,7 +95,6 @@ TEST_F(TokenizerInputTokensTest, AcceptedMatchWaitsForOutputCredit) {
     EXPECT_EQ(count, 0u);
     EXPECT_EQ(output, -1);
     EXPECT_TRUE(iree_tokenizer_encode_state_has_pending(state_));
-    EXPECT_GE(iree_tokenizer_encode_state_pending_token_bound(state_), 1u);
 
     // Finalization supplies the first output slot; no new input is necessary.
     std::vector<int32_t> tokens;

@@ -6493,9 +6493,8 @@ TEST_F(TokenizerEncodeOverflowTest, BatchEncodeReportsExhaustedOnFullOutput) {
   iree_tokenizer_free(tokenizer);
 }
 
-// Streaming encode finalize with insufficient capacity for suffix.
-// Feed "ab" (produces [BOS, 0, 1]), then finalize with capacity 0 for EOS.
-TEST_F(TokenizerEncodeOverflowTest, FinalizeOutputBufferTooSmallForSuffix) {
+// Completion retains its suffix until the caller supplies output credit.
+TEST_F(TokenizerEncodeOverflowTest, FinalizeRetainsSuffixWithoutOutputCredit) {
   iree_tokenizer_postprocessor_t postprocessor = {};
   postprocessor.single.prefix_count = 1;
   postprocessor.single.suffix_count = 1;
@@ -6513,7 +6512,7 @@ TEST_F(TokenizerEncodeOverflowTest, FinalizeOutputBufferTooSmallForSuffix) {
                                 IREE_TOKENIZER_ENCODE_FLAG_ADD_SPECIAL_TOKENS));
     auto* state = state_storage.state();
 
-    // Feed "ab" with enough capacity for BOS + 'a' + 'b' = 3 tokens.
+    // Supply room for BOS and text; the segmenter may retain text until EOF.
     std::vector<iree_tokenizer_token_id_t> tokens(3);
     iree_host_size_t bytes_consumed = 0;
     iree_host_size_t tokens_written = 0;
@@ -6523,13 +6522,27 @@ TEST_F(TokenizerEncodeOverflowTest, FinalizeOutputBufferTooSmallForSuffix) {
                                          tokens.size()),
         &bytes_consumed, &tokens_written));
 
-    // Finalize with capacity 0 — not enough room for EOS suffix.
+    // Withhold credit while completion owns the remaining text and suffix.
     iree_tokenizer_token_id_t dummy_token;
     iree_host_size_t finalize_count = 0;
     iree_status_t status = iree_tokenizer_encode_state_finalize(
         state, iree_tokenizer_make_token_output(&dummy_token, NULL, NULL, 0),
         &finalize_count);
-    IREE_EXPECT_STATUS_IS(IREE_STATUS_RESOURCE_EXHAUSTED, status);
+    IREE_ASSERT_OK(status);
+    EXPECT_EQ(finalize_count, 0u);
+    EXPECT_TRUE(iree_tokenizer_encode_state_has_pending(state));
+    tokens.resize(tokens_written);
+    do {
+      IREE_ASSERT_OK(iree_tokenizer_encode_state_finalize(
+          state, iree_tokenizer_make_token_output(&dummy_token, NULL, NULL, 1),
+          &finalize_count));
+      ASSERT_TRUE(finalize_count ||
+                  !iree_tokenizer_encode_state_has_pending(state));
+      if (finalize_count) {
+        tokens.push_back(dummy_token);
+      }
+    } while (iree_tokenizer_encode_state_has_pending(state));
+    EXPECT_EQ(tokens, (std::vector<iree_tokenizer_token_id_t>{100, 0, 1, 200}));
   }  // state_storage destroyed before tokenizer
 
   iree_tokenizer_free(tokenizer);

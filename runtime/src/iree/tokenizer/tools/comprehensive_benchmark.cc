@@ -463,6 +463,11 @@ iree_host_size_t DoEncodeStreaming(iree_string_view_t text,
       iree_tokenizer_make_token_output(tokens.data() + total_tokens, NULL, NULL,
                                        tokens.size() - total_tokens),
       &final_tokens));
+  IREE_CHECK_OK(
+      iree_tokenizer_encode_state_has_pending(encode_state)
+          ? iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                             "benchmark token output capacity exhausted")
+          : iree_ok_status());
   iree_tokenizer_encode_state_deinitialize(encode_state);
   return total_tokens + final_tokens;
 }
@@ -763,6 +768,11 @@ iree_host_size_t DoEncodeStreamingWithBuffer(iree_string_view_t text,
       iree_tokenizer_make_token_output(tokens.data() + total_tokens, NULL, NULL,
                                        tokens.size() - total_tokens),
       &final_tokens));
+  IREE_CHECK_OK(
+      iree_tokenizer_encode_state_has_pending(encode_state)
+          ? iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                             "benchmark token output capacity exhausted")
+          : iree_ok_status());
   iree_tokenizer_encode_state_deinitialize(encode_state);
   return total_tokens + final_tokens;
 }
