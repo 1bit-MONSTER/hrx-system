@@ -66,7 +66,7 @@ class Pm4ObservationStreamTest
   void TearDown() override {
     // A validation failure still releases every finite producer wait.
     // Backing stays owned until the queue and every alias are removed.
-    if (control_ != nullptr) {
+    if (queue_ != nullptr && control_ != nullptr) {
       GpuStoreRelease<uint32_t>(
           reinterpret_cast<uintptr_t>(control_->host.pointer) + kConsumedOffset,
           UINT32_MAX);
@@ -83,6 +83,7 @@ class Pm4ObservationStreamTest
     Pm4CommandTest::TearDown();
   }
 
+  void PrepareControl();
   void PrepareRing();
 
   void CheckPair(const amdf_memory_site_t& producer,
@@ -139,12 +140,107 @@ class Pm4ObservationStreamTest
   uint64_t gpu_ring_ = 0;
 };
 
-void Pm4ObservationStreamTest::PrepareRing() {
+void Pm4ObservationStreamTest::PrepareControl() {
+  // Packet support alone does not establish the CPU-shared atomic route used
+  // by publication and credits. Admit that route before allocating storage.
   const auto& atomics = family_.atomic_capabilities;
-  if ((atomics.operations_without_dispatch_32 & AMDF_ATOMIC_OPERATION_STORE) ==
-      0) {
+  if ((atomics.operations_32 & atomics.operations_without_dispatch_32 &
+       AMDF_ATOMIC_OPERATION_STORE) == 0) {
     GTEST_SKIP() << "queue does not encode native 32-bit STORE";
   }
+  const amdf_memory_device_access_t attachment = {
+      device_,
+      {
+          .access = kReadWrite,
+          .flags =
+              AMDF_MEMORY_FLAG_HOST_COHERENT | AMDF_MEMORY_FLAG_DEVICE_ADDRESS,
+      }};
+  amdf_memory_scope_info_t scope = {
+      .type = AMDF_STRUCTURE_TYPE_MEMORY_SCOPE_INFO,
+      .structure_size = sizeof(scope),
+  };
+  ASSERT_EQ(api_->memory_scope_query_info(system_scope_, &scope),
+            AMDF_STATUS_OK);
+  for (uint32_t ordinal = 0; ordinal < scope.memory_profile_count; ++ordinal) {
+    amdf_memory_profile_t profile = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_PROFILE,
+        .structure_size = sizeof(profile),
+    };
+    amdf_memory_access_capabilities_t capabilities = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_ACCESS_CAPABILITIES,
+        .structure_size = sizeof(capabilities),
+    };
+    const amdf_status_t status =
+        QueryMemoryProfile(system_scope_, ordinal, attachment.requirements,
+                           &profile, &capabilities);
+    if (status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+      continue;
+    }
+    ASSERT_EQ(status, AMDF_STATUS_OK);
+    constexpr auto kRoles =
+        AMDF_MEMORY_PROFILE_ROLE_CREATE | AMDF_MEMORY_PROFILE_ROLE_HOST_MAP;
+    if ((profile.roles & kRoles) != kRoles ||
+        (profile.supported_flags & AMDF_MEMORY_FLAG_HOST_VISIBLE) == 0 ||
+        (capabilities.atomic_operations_32 & AMDF_ATOMIC_OPERATION_STORE) ==
+            0) {
+      continue;
+    }
+
+    amdf_memory_profile_site_t host = {.kind = AMDF_MEMORY_SITE_KIND_HOST};
+    host.value.host_access =
+        AMDF_MEMORY_MAP_FLAG_READ | AMDF_MEMORY_MAP_FLAG_WRITE;
+    amdf_memory_profile_site_t gpu = {.kind = AMDF_MEMORY_SITE_KIND_DEVICE};
+    gpu.value.device.access_ordinal = 0;
+    gpu.value.device.queue_family_ordinal = family_.ordinal;
+    bool system_reach = true;
+    for (bool host_producer : {true, false}) {
+      const amdf_memory_profile_pair_query_t query = {
+          .type = AMDF_STRUCTURE_TYPE_MEMORY_PROFILE_PAIR_QUERY,
+          .structure_size = sizeof(query),
+          .memory_profile_ordinal = ordinal,
+          .access_count = 1,
+          .required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE,
+          .accesses = &attachment,
+          .producer = host_producer ? host : gpu,
+          .consumer = host_producer ? gpu : host,
+      };
+      amdf_memory_pair_info_t pair = {
+          .type = AMDF_STRUCTURE_TYPE_MEMORY_PAIR_INFO,
+          .structure_size = sizeof(pair),
+      };
+      const amdf_status_t pair_status =
+          api_->memory_scope_query_pair_info(system_scope_, &query, &pair);
+      if (pair_status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+        system_reach = false;
+        break;
+      }
+      ASSERT_EQ(pair_status, AMDF_STATUS_OK);
+      if (pair.atomic_reach.scope_32 != AMDF_ATOMIC_SCOPE_SYSTEM) {
+        system_reach = false;
+        break;
+      }
+    }
+    if (!system_reach) {
+      continue;
+    }
+    const amdf_memory_create_info_t create = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO,
+        .structure_size = sizeof(create),
+        .memory_profile_ordinal = ordinal,
+        .access_count = 1,
+        .required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE,
+        .byte_length = 4096,
+        .minimum_alignment = 4096,
+        .accesses = &attachment,
+    };
+    ASSERT_NO_FATAL_FAILURE(CreateMemory(system_scope_, create, &control_));
+    return;
+  }
+  GTEST_SKIP() << "no coherent SYSTEM profile supplies CPU/PM4 32-bit atomic "
+                  "STORE reach";
+}
+
+void Pm4ObservationStreamTest::PrepareRing() {
   amdf_memory_reservation_capabilities_t host_capabilities = {
       .type = AMDF_STRUCTURE_TYPE_MEMORY_RESERVATION_CAPABILITIES,
       .structure_size = sizeof(host_capabilities),
@@ -287,6 +383,10 @@ void Pm4ObservationStreamTest::PrepareRing() {
 }
 
 TEST_P(Pm4ObservationStreamTest, DrainsMirroredRecordsBeforeQueueCompletion) {
+  ASSERT_NO_FATAL_FAILURE(PrepareControl());
+  if (IsSkipped()) {
+    return;
+  }
   ASSERT_NO_FATAL_FAILURE(PrepareRing());
   if (IsSkipped()) {
     return;
@@ -308,7 +408,6 @@ TEST_P(Pm4ObservationStreamTest, DrainsMirroredRecordsBeforeQueueCompletion) {
   ASSERT_EQ(api_->host_mapping_cache_control(
                 source->mapping, AMDF_HOST_CACHE_OPERATION_FLUSH, 0, capacity_),
             AMDF_STATUS_OK);
-  ASSERT_NO_FATAL_FAILURE(CreateMemory(kReadWrite, 4096, &control_));
   std::array<uint32_t, 1024> expected_control;
   expected_control.fill(kGuard);
   expected_control[kPublishedOffset / 4] = 0;
@@ -519,6 +618,8 @@ TEST_P(Pm4ObservationStreamTest, DrainsMirroredRecordsBeforeQueueCompletion) {
         << i;
   }
   RecordProperty("stream_record_count", kRecordCount);
+  RecordProperty("stream_control_profile",
+                 control_->creation.memory_profile_ordinal);
   RecordProperty("stream_backing_profile",
                  backing_->creation.memory_profile_ordinal);
   RecordProperty("stream_payload_capacity_bytes", std::to_string(capacity_));
