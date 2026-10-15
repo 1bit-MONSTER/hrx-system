@@ -187,7 +187,7 @@ jobs:
             runner: linux-gfx1152-gpu-rocm
             container_options: >-
               --device=/dev/accel/accel0 --ulimit memlock=-1:-1
-              --security-opt seccomp=unconfined
+              --security-opt seccomp=unconfined --user 0:0
     concurrency:
       group: iree-bazel-linux-${{ matrix.command }}-${{ matrix.target_selector }}-${{ (github.event_name == 'push' && github.ref) || github.run_id }}
       cancel-in-progress: true
