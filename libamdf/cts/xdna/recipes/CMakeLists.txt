@@ -15,6 +15,7 @@ iree_cc_library(
     execution_cases
   SRCS
     "cpu_xdna_test.cc"
+    "firmware_trace_test.cc"
     "reservation_test.cc"
   DEPS
     amdf::headers

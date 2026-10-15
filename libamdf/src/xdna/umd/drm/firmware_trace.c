@@ -68,6 +68,18 @@ static amdf_status_t amdf_linux_xdna_trace_error(int error) {
              : amdf_linux_error(error);
 }
 
+amdf_status_t amdf_xdna_umd_context_query_firmware_trace_info(
+    amdf_xdna_umd_context_t* context,
+    amdf_xdna_context_firmware_trace_info_t* out_info) {
+  // SDK BY_ID uses an initial-namespace PID and searches all visible clients.
+  // A namespace-local PID can select another owner on drivers with per-client
+  // context IDs. This provider needs a file-owned native lookup to prove the
+  // association; a successful global PID/ID lookup is insufficient.
+  (void)context;
+  (void)out_info;
+  return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+}
+
 amdf_status_t amdf_xdna_umd_query_firmware_trace_info(
     amdf_xdna_umd_device_t* device, amdf_xdna_firmware_trace_info_t* out_info) {
   amdf_linux_xdna_trace_state_t state = {0};

@@ -72,6 +72,7 @@ iree_cc_library(
   HDRS
     "firmware_trace.h"
   DEPS
+    ::context
     ::device
     amdf::headers
   PUBLIC

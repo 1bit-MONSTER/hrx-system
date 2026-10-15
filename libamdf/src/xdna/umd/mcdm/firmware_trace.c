@@ -8,6 +8,7 @@
 
 #include <string.h>
 
+#include "libamdf/src/xdna/umd/mcdm/context.h"
 #include "libamdf/src/xdna/umd/mcdm/device.h"
 
 enum {
@@ -67,6 +68,47 @@ static amdf_status_t amdf_windows_xdna_trace_state(
 amdf_status_t amdf_xdna_umd_query_firmware_trace_info(
     amdf_xdna_umd_device_t* device, amdf_xdna_firmware_trace_info_t* out_info) {
   return amdf_windows_xdna_trace_state(device, 0, 0, 0, out_info);
+}
+
+amdf_status_t amdf_xdna_umd_context_query_firmware_trace_info(
+    amdf_xdna_umd_context_t* context,
+    amdf_xdna_context_firmware_trace_info_t* out_info) {
+  // Native telemetry operation 11 returns an 8200-byte output block beginning
+  // at byte 88, followed by eight serializer bytes. Its first two u64 fields
+  // are miscellaneous telemetry and the RTOS task count. Each 248-byte task
+  // contains the owning driver context selector at byte 208; the task ordinal
+  // is its physical firmware ID. UINT64_MAX denotes an unowned slot.
+  uint32_t packet[2074] = {
+      [0] = 11, [1] = 8280, [6] = 1, [8] = 40, [14] = 8200, [16] = 1, [20] = 1,
+  };
+  const amdf_status_t status =
+      amdf_windows_xdna_trace_escape(context->device, packet, sizeof(packet));
+  if (!amdf_status_is_ok(status)) {
+    return status;
+  }
+  const uint8_t* bytes = (const uint8_t*)packet;
+  uint64_t task_count = 0;
+  memcpy(&task_count, bytes + 96, sizeof(task_count));
+  if (task_count > (sizeof(packet) - 8 - 104) / 248) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_INTERNAL);
+  }
+  uint32_t firmware_context_id = AMDF_XDNA_FIRMWARE_CONTEXT_ID_UNASSIGNED;
+  for (uint32_t i = 0; i < task_count; ++i) {
+    uint64_t selector = 0;
+    memcpy(&selector, bytes + 104 + i * 248 + 208, sizeof(selector));
+    if (selector == context->command_aperture_cookie) {
+      // A native driver context can occupy only one firmware slot in this
+      // snapshot. An ambiguous reply must not publish an arbitrary match.
+      if (firmware_context_id != AMDF_XDNA_FIRMWARE_CONTEXT_ID_UNASSIGNED) {
+        return amdf_make_api_status(AMDF_STATUS_CODE_INTERNAL);
+      }
+      firmware_context_id = i;
+    }
+  }
+  *out_info = (amdf_xdna_context_firmware_trace_info_t){
+      .firmware_context_id = firmware_context_id,
+  };
+  return AMDF_STATUS_OK;
 }
 
 amdf_status_t amdf_xdna_umd_configure_firmware_trace(

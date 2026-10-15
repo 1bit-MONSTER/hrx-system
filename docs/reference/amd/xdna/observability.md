@@ -911,17 +911,11 @@ opcode and context lifetime together supply their native attribution. The
 sequence number belongs to the trace entry, not to an application submission.
 [Application-message fields][vtd-strix-trace-events]
 
-Driver and firmware context identities have separate lifetimes. The Linux SDK
-context-status query publishes the driver's `context_id` alongside the
-firmware's `hwctx_id`. That association is a snapshot: the driver can retain
-its context while destroying and recreating the firmware context during
-restart. A current mapping therefore cannot identify historical records after
-an ID has been reused. An application timeline needs the association valid at
-the event, together with the command protocol's identity or ordering rules;
-an opcode or recorder sequence alone supplies neither. Lost context-lifetime
-records also invalidate joins that depended on them.
-[Context status][linux-fw-context-status],
-[firmware context restart][linux-fw-context-restart]
+Driver and firmware context identities have separate lifetimes. The native
+queries described below supply a current association; historical attribution
+additionally needs the association valid at the event and the command
+protocol's identity or ordering rules. An opcode or recorder sequence alone
+supplies neither.
 
 Nanosecond units do not establish nanosecond resolution, a CPU-clock epoch or
 a relation to the shim timer used by `RECORD_TIMER`. The AIE2 trace-start reply
@@ -965,6 +959,106 @@ particular message's done event follows array completion or only message
 processing. Attribution and elapsed-time interpretation require the executing
 message's completion contract, the matching context lifetime and intact event
 ordering. [Application-message fields and opcode lookup][firmware-trace-events]
+
+### Native context association
+
+#### Linux SDK context status
+
+`DRM_AMDXDNA_GET_ARRAY` with `DRM_AMDXDNA_HW_CONTEXT_BY_ID` looks up one
+driver context using its `context_id` and owning process `pid`. The returned
+`amdxdna_drm_hwctx_entry` contains this identity prefix:
+
+| Byte offset | Width | Native field | Meaning |
+| --- | --- | --- | --- |
+| 0 | 32 bits | `context_id` | Driver context ID; supplied as an input key. |
+| 4 | 32 bits | `start_col` | Current physical starting column. |
+| 8 | 32 bits | `num_col` | Current physical column count. |
+| 12 | 32 bits | `hwctx_id` | Firmware context ID; `0xFFFFFFFF` when unassigned. |
+| 16 | 64 bits, signed | `pid` | Owning process ID; supplied as an input key. |
+
+The query holds the native device lock while resolving and copying the current
+association. Visibility follows the driver's user/administrator checks; an
+invisible or absent context returns `ENOENT`. The original entry occupies
+144 bytes, including counters and health fields after the identity prefix.
+Drivers before commit `d2924dbfad30` require that full input extent. That
+commit adds prefix-size negotiation: one element containing at least the
+24-byte identity prefix is accepted, and the driver returns the negotiated
+element size. The older `QUERY_HW_CONTEXTS` result has a different layout;
+its padding does not supply `hwctx_id`. [Original entry][linux-original-context-entry],
+[size negotiation][linux-context-size-negotiation],
+[lookup and visibility][linux-context-by-id],
+[context status][linux-fw-context-status]
+
+The cited driver stores `pid_nr(filp->pid)` at device open. That is an initial
+PID-namespace number, whereas a process's `getpid()` is relative to its own
+PID namespace. A nested namespace can therefore supply a different number
+for the same process. This query's key is the driver's stored number; the
+interface does not translate a namespace-local input PID.
+[Native process key][linux-context-process-key]
+
+This mismatch can affect ownership, not just lookup success. Before commit
+`b3f591745eb9`, context IDs were allocated per client, while `BY_ID` already
+searched all visible clients. A namespace-local PID that equals another
+visible process's initial-namespace PID, together with a colliding context
+ID, can therefore select that other process's context. Echoing the requested
+PID and context ID does not detect the mismatch. The commit makes live
+context IDs device-wide, eliminating that ID collision; it does not translate
+the PID key. A caller needs the driver's actual owner key or a file-owned
+lookup to establish ownership. [Per-client lookup][linux-per-client-context-lookup],
+[device-wide ID allocation][linux-device-wide-context-ids]
+
+#### Observed Windows telemetry map
+
+On Strix NPU4 with driver `32.00.20101.3760` and XRT 2.21.0, the official
+`xrt-smi` preemption report joins firmware task slots to driver context
+selectors. Its public report implementation labels each telemetry row's
+ordinal `fw_tid` and its `preemption_data.slot_index` as `ctx_index`;
+`UINT64_MAX` prints as unassigned. These are separate namespaces. The context
+creation selector is not the event payload's `virt_ctx`.
+[Preemption report mapping][xrt-preemption-context-map]
+
+The observed device-private KMT escape uses operation 11 and 8296 bytes of
+private data. Starting from zeroed storage, its nonzero 32-bit input words
+are `{0:11, 1:8280, 6:1, 8:40, 14:8200, 16:1, 20:1}`; indices here are
+DWORD offsets. The 8200-byte output block begins at byte 88 and is followed
+by eight serializer bytes. Within that block:
+
+| Byte offset from private-data start | Width | Meaning |
+| --- | --- | --- |
+| 96 | 64 bits | Returned task count. |
+| `104 + 248 * i` | 248 bytes | Task row `i`; its ordinal is the firmware slot. |
+| `312 + 248 * i` | 64 bits | Owning driver context selector, or `UINT64_MAX`. |
+
+The installed runtime consumer uses the same count, stride, and owner-field
+offset. A direct query and independent official reports agreed through two
+simultaneously live contexts, destruction of one while the other survived,
+and ordinary recreation. Driver selectors 52/53 and then 54/55 occupied
+firmware slots 15/14; the destroyed owner's mapping disappeared and the slots
+were reused. Matching create/delete events carried virtual context 0, not
+those driver selectors. This is an observed interface on the named stack,
+not a portable KMT ABI or a guarantee of telemetry layouts on other products.
+
+#### Association lifetime
+
+A retained driver context can lose its firmware owner and receive another
+during restart. Neither current-map query supplies an incarnation token,
+event cursor, or validity interval. Matching snapshots before and after a
+capture cannot exclude an intervening destroy/recreate cycle that reuses the
+same slot. Lost lifetime records invalidate joins that depend on them.
+[Firmware context restart][linux-fw-context-restart]
+
+Enabling the Linux diagnostic channel does not pin the device awake. The PM
+callbacks suspend contexts before draining and pausing the channel, and
+resume contexts before reattaching it. The normal PM path preserves the
+channel's cursor state, while the reset path starts a fresh ring. Thus an
+allocated channel and continuing byte positions alone do not establish a
+continuous firmware-context lifetime. A blocking diagnostic read holds a
+runtime-power reference only for that native operation; a lifetime guarantee
+cannot be inferred from recorder configuration.
+[Power transition order][linux-dpt-power-transitions],
+[AIE2 context transition order][linux-aie2-context-power],
+[channel reattachment][linux-dpt-reattach],
+[query power reference][linux-dpt-query-power]
 
 ### Ring progress and loss
 
@@ -1100,6 +1194,16 @@ positions alone cannot identify every externally restarted recording.
 [linux-fw-trace-features]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/npu4_regs.c#L94-L109
 [linux-fw-context-status]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_ctx_status.c#L49-L54
 [linux-fw-context-restart]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_ctx.c#L148-L181
+[linux-original-context-entry]: https://github.com/amd/xdna-driver/blob/6b2a7c8005441c109ec0f00363ef2d47a81bd39f/include/uapi/drm/amdxdna_accel.h#L595-L656
+[linux-context-size-negotiation]: https://github.com/amd/xdna-driver/commit/d2924dbfad303a1bea7faae1d67745c13a17e466
+[linux-context-by-id]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_ctx_status.c#L181-L280
+[linux-context-process-key]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_drm.c#L91-L114
+[linux-per-client-context-lookup]: https://github.com/amd/xdna-driver/blob/99a6c94f84b22553c191de6ba6e6cb1d1d89eef9/drivers/accel/amdxdna/aie.c#L448-L526
+[linux-device-wide-context-ids]: https://github.com/amd/xdna-driver/commit/b3f591745eb992f87ca05de3a263b2ebef0adbb2
+[xrt-preemption-context-map]: https://github.com/Xilinx/XRT/blob/15e6319be8de1e76a6150111a3861729e988fdb5/src/runtime_src/core/common/info_telemetry.cpp#L49-L76
+[linux-dpt-power-transitions]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_pm.c#L15-L105
+[linux-dpt-reattach]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/amdxdna_dpt.c#L904-L975
+[linux-dpt-query-power]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_pci.c#L889-L959
 [firmware-trace-events]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/tools/bins/configs/trace_events.json
 [xrt-fw-trace-records]: https://github.com/Xilinx/XRT/blob/5a97d152f6dd93709406e8d7c0eac8bc8407f9f2/src/runtime_src/core/tools/xbutil2/EventTracing/EventTraceStrix.cpp#L231-L338
 [xrt-fw-trace-framing]: https://github.com/Xilinx/XRT/blob/15e6319be8de1e76a6150111a3861729e988fdb5/src/runtime_src/core/tools/xbutil2/EventTracing/EventTraceStrix.cpp#L308-L338
@@ -1120,3 +1224,4 @@ positions alone cannot identify every externally restarted recording.
 [xrt-clock-list-consumer]: https://github.com/Xilinx/XRT/blob/cdfbe96e394385702f377694d3875c57c3ef5b9d/src/runtime_src/core/common/api/xrt_device.cpp#L147-L153
 [linux-power-mode]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_pm.c#L86-L149
 [linux-xrt-power-mode]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/src/shim/device.cpp#L842-L878
+[linux-aie2-context-power]: https://github.com/amd/xdna-driver/blob/8dfda66f67a84aecf26cf68336efc9e4cc1756c3/drivers/accel/amdxdna/aie2_pci.c#L466-L496

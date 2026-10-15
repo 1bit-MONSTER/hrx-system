@@ -57,6 +57,7 @@ TEST(XdnaExtensionTest, ReportsCompiledAvailabilityBeforeCreatingInstance) {
   EXPECT_NE(xdna_api->context_collect_result_buffer, nullptr);
   EXPECT_NE(xdna_api->context_detach_result_buffer, nullptr);
   EXPECT_NE(xdna_api->device_query_timer_clock_info, nullptr);
+  EXPECT_NE(xdna_api->context_query_firmware_trace_info, nullptr);
   EXPECT_NE(xdna_api->endpoint_query_info, nullptr);
   EXPECT_NE(xdna_api->device_create, nullptr);
   EXPECT_NE(xdna_api->context_query_placement_info, nullptr);
@@ -91,6 +92,20 @@ TEST(XdnaExtensionTest, VersionOneRetainsItsOriginalTableExtent) {
   EXPECT_EQ(xdna_api->structure_size,
             offsetof(amdf_xdna_api_t, device_query_firmware_trace_info));
   EXPECT_NE(xdna_api->context_destroy, nullptr);
+}
+
+TEST(XdnaExtensionTest, VersionTwoRetainsItsOriginalTableExtent) {
+  const amdf_api_t* api = QueryApi();
+  const void* extension_api = nullptr;
+  ASSERT_EQ(
+      api->query_extension(AMDF_EXTENSION_XDNA, AMDF_XDNA_EXTENSION_VERSION_2,
+                           AMDF_XDNA_EXTENSION_VERSION_2, &extension_api),
+      AMDF_STATUS_OK);
+  const auto* xdna_api = static_cast<const amdf_xdna_api_t*>(extension_api);
+  EXPECT_EQ(xdna_api->extension_version, AMDF_XDNA_EXTENSION_VERSION_2);
+  EXPECT_EQ(xdna_api->structure_size,
+            offsetof(amdf_xdna_api_t, context_query_firmware_trace_info));
+  EXPECT_NE(xdna_api->device_query_timer_clock_info, nullptr);
 }
 
 TEST(XdnaExtensionTest, RejectsUnsupportedVersionWithoutPublishingOutput) {
@@ -772,6 +787,61 @@ TEST_F(XdnaFirmwareTraceTest, ValidatesCallerStorageWithoutChangingRecorder) {
 }
 
 using XdnaContextTest = XdnaContextFixture;
+
+TEST_F(XdnaContextTest, QueriesCurrentFirmwareTraceIdentity) {
+  amdf_xdna_context_firmware_trace_info_t info = {
+      .type = AMDF_STRUCTURE_TYPE_XDNA_CONTEXT_FIRMWARE_TRACE_INFO,
+      .structure_size = sizeof(info),
+      .firmware_context_id = 1234,
+      .reserved = UINT32_MAX,
+  };
+  const auto original = info;
+  const auto status =
+      xdna_api_->context_query_firmware_trace_info(context_, &info);
+  if (status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+    EXPECT_EQ(std::memcmp(&info, &original, sizeof(info)), 0);
+    GTEST_SKIP() << "native context-to-firmware identity query is unavailable";
+  }
+  ASSERT_EQ(status, AMDF_STATUS_OK);
+  EXPECT_EQ(info.type, AMDF_STRUCTURE_TYPE_XDNA_CONTEXT_FIRMWARE_TRACE_INFO);
+  EXPECT_EQ(info.structure_size, sizeof(info));
+  EXPECT_EQ(info.next, nullptr);
+  EXPECT_EQ(info.reserved, 0u);
+  RecordProperty("firmware_context_id",
+                 std::to_string(info.firmware_context_id));
+}
+
+TEST_F(XdnaContextTest, ValidatesFirmwareTraceInfoWithoutChangingOutput) {
+  amdf_xdna_context_firmware_trace_info_t info = {
+      .type = AMDF_STRUCTURE_TYPE_XDNA_CONTEXT_FIRMWARE_TRACE_INFO,
+      .structure_size = sizeof(info),
+      .firmware_context_id = 1234,
+      .reserved = UINT32_MAX,
+  };
+  const auto original = info;
+  const auto invalid = amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT);
+  EXPECT_EQ(xdna_api_->context_query_firmware_trace_info(nullptr, &info),
+            invalid);
+  EXPECT_EQ(std::memcmp(&info, &original, sizeof(info)), 0);
+  EXPECT_EQ(xdna_api_->context_query_firmware_trace_info(context_, nullptr),
+            invalid);
+  for (uint32_t failure = 0; failure < 3; ++failure) {
+    SCOPED_TRACE(failure);
+    info = original;
+    if (failure == 0) {
+      info.type = AMDF_STRUCTURE_TYPE_NONE;
+    } else if (failure == 1) {
+      info.structure_size = sizeof(info) - 1;
+    } else {
+      info.next = &info;
+    }
+    const auto before = info;
+    EXPECT_EQ(xdna_api_->context_query_firmware_trace_info(context_, &info),
+              failure == 2 ? amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)
+                           : invalid);
+    EXPECT_EQ(std::memcmp(&info, &before, sizeof(info)), 0);
+  }
+}
 
 TEST_F(XdnaContextTest, RejectsMalformedContextInfoWithoutMutation) {
   EXPECT_EQ(amdf_status_code(xdna_api_->context_query_info(context_, nullptr)),

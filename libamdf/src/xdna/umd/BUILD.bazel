@@ -56,7 +56,10 @@ amdf_cc_library(
     name = "firmware_trace",
     hdrs = ["firmware_trace.h"],
     visibility = ["//libamdf/src/xdna:__subpackages__"],
-    deps = [":device"],
+    deps = [
+        ":context",
+        ":device",
+    ],
 )
 
 amdf_cc_library(

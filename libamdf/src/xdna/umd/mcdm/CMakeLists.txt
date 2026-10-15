@@ -498,6 +498,7 @@ iree_cc_library(
   SRCS
     "firmware_trace.c"
   DEPS
+    ::context_state
     ::device_state
     amdf::headers
     libamdf::src::platform::windows::kmt_api
@@ -513,6 +514,7 @@ iree_cc_test(
   SRCS
     "firmware_trace_test.cc"
   DEPS
+    ::context_state
     ::device_state
     ::firmware_trace
     amdf::headers

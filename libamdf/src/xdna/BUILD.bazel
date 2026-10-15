@@ -203,6 +203,7 @@ amdf_cc_library(
     srcs = ["firmware_trace.c"],
     hdrs = ["firmware_trace.h"],
     deps = [
+        ":context",
         ":device",
         ":firmware_trace_format",
         "//libamdf/src:device",
