@@ -580,22 +580,57 @@ static iree_status_t loom_serve_speech_create_control(
   iree_vm_module_release(native_modules[1]);
   iree_vm_module_release(native_modules[2]);
   IREE_RETURN_IF_ERROR(status);
-  iree_vm_process_t* process =
-      loom_serve_program_process(model->control.program);
-  IREE_RETURN_IF_ERROR(iree_vm_process_lookup_function(
-      process, IREE_SV("model"), IREE_SV("prepare_request"),
-      &model->control.prepare_request));
-  IREE_RETURN_IF_ERROR(iree_vm_process_lookup_function(
-      process, IREE_SV("model"), IREE_SV("prepare_work"),
-      &model->control.prepare_work));
-  IREE_RETURN_IF_ERROR(iree_vm_process_lookup_function(
-      process, IREE_SV("model"), IREE_SV("prepare_batch"),
-      &model->control.prepare_batch));
-  IREE_RETURN_IF_ERROR(iree_vm_process_lookup_function(
-      process, IREE_SV("model"), IREE_SV("generate"),
-      &model->control.generate));
-  return iree_vm_process_lookup_function(
-      process, IREE_SV("model"), IREE_SV("complete"), &model->control.complete);
+  const iree_vm_signature_type_t buffer = {
+      .kind = IREE_VM_SIGNATURE_TYPE_KIND_REF,
+      .value.ref = model->control.vm_types.buffer};
+  const iree_vm_signature_type_t device_buffer = {
+      .kind = IREE_VM_SIGNATURE_TYPE_KIND_REF,
+      .value.ref = model->control.hal_types.buffer};
+  const iree_vm_signature_type_t i32 = {
+      .kind = IREE_VM_SIGNATURE_TYPE_KIND_SCALAR,
+      .value.scalar = IREE_VM_SCALAR_TYPE_I32};
+  const iree_vm_signature_type_t i64 = {
+      .kind = IREE_VM_SIGNATURE_TYPE_KIND_SCALAR,
+      .value.scalar = IREE_VM_SCALAR_TYPE_I64};
+  const iree_vm_signature_type_t f32 = {
+      .kind = IREE_VM_SIGNATURE_TYPE_KIND_SCALAR,
+      .value.scalar = IREE_VM_SCALAR_TYPE_F32};
+  const iree_vm_signature_type_t request_arguments[] = {buffer, buffer, buffer,
+                                                        buffer, i64,    f32};
+  const iree_vm_signature_type_t state_pair[] = {buffer, buffer};
+  const iree_vm_signature_type_t work_results[] = {buffer, i64, i64};
+  const iree_vm_signature_type_t batch_arguments[] = {buffer, buffer, buffer,
+                                                      buffer};
+  const iree_vm_signature_type_t generate_arguments[] = {
+      buffer,        device_buffer, device_buffer,
+      device_buffer, device_buffer, device_buffer};
+  const iree_vm_signature_type_t complete_arguments[] = {buffer, buffer, buffer,
+                                                         i64, buffer};
+  const iree_vm_signature_type_t complete_results[] = {i64, i64, i64, i32};
+  const loom_serve_program_binding_t bindings[] = {
+      {IREE_SVL("prepare_request"),
+       {request_arguments, IREE_ARRAYSIZE(request_arguments)},
+       {state_pair, IREE_ARRAYSIZE(state_pair)},
+       &model->control.prepare_request},
+      {IREE_SVL("prepare_work"),
+       {state_pair, IREE_ARRAYSIZE(state_pair)},
+       {work_results, IREE_ARRAYSIZE(work_results)},
+       &model->control.prepare_work},
+      {IREE_SVL("prepare_batch"),
+       {batch_arguments, IREE_ARRAYSIZE(batch_arguments)},
+       {state_pair, IREE_ARRAYSIZE(state_pair)},
+       &model->control.prepare_batch},
+      {IREE_SVL("generate"),
+       {generate_arguments, IREE_ARRAYSIZE(generate_arguments)},
+       {NULL, 0},
+       &model->control.generate},
+      {IREE_SVL("complete"),
+       {complete_arguments, IREE_ARRAYSIZE(complete_arguments)},
+       {complete_results, IREE_ARRAYSIZE(complete_results)},
+       &model->control.complete},
+  };
+  return loom_serve_program_bind(model->control.program,
+                                 IREE_ARRAYSIZE(bindings), bindings);
 }
 
 // Cold binding records retain the source's checkpoint identity until all

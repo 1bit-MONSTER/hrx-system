@@ -243,6 +243,7 @@ py_test(
         "//loom/src/loom/serve/server:catalog_test_util",
         "//loom/src/loom/serve/testing:http",
         "//loom/src/loom/serve/testing:logs",
+        "//loom/src/loom/serve/testing:workload",
     ],
 )
 

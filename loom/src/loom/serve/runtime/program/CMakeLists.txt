@@ -278,6 +278,8 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     iree::vm
+    loom::binding::c::loomc
+    loom::binding::c::target::vm
   ARGS
     "--binding_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/runtime/program/testdata/binding.loom}}"
 )

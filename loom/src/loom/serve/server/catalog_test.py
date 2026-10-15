@@ -916,6 +916,17 @@ def check_control_contracts(server_command, directory, catalog):
             "model export 'prepare_request' argument count mismatch: "
             "host expects 2, source declares 3",
         ),
+        (
+            "speech",
+            [
+                (
+                    "@prepare_work(%model: buffer, %state: buffer)",
+                    "@prepare_work(%model: buffer, %state: buffer, %extra: i32)",
+                )
+            ],
+            "model export 'prepare_work' argument count mismatch: "
+            "host expects 2, source declares 3",
+        ),
     ]
     with running_server(server_command, directory, catalog_path, 1) as (client, _):
         observer = LogClient("http://" + client.address, timeout=None)
@@ -1003,6 +1014,18 @@ def check_control_contracts(server_command, directory, catalog):
                     {"model": "contract-check", "prompt": "ab", "seed": 1},
                 )
                 check_png(result["data"][0]["b64_json"], "ab", 1)
+            elif kind == "speech":
+                result = client.request(
+                    "/v1/audio/speech",
+                    {
+                        "model": "contract-check",
+                        "input": "ab",
+                        "voice": "positive",
+                        "response_format": "pcm",
+                        "seed": 1,
+                    },
+                )
+                check_pcm(result, "ab", 1)
             else:
                 result = client.request(
                     "/v1/systemone",

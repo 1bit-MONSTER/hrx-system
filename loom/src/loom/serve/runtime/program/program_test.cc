@@ -17,6 +17,8 @@
 #include "iree/vm/buffer.h"
 #include "iree/vm/sync.h"
 #include "loom/serve/runtime/program/input.h"
+#include "loomc/iree.h"
+#include "loomc/target/vm.h"
 
 IREE_FLAG(string, binding_source, "", "Source-defined host binding contracts.");
 
@@ -47,6 +49,8 @@ iree_vm_signature_type_t Reference(iree_vm_ref_type_t type) {
 class ProgramTest : public ::testing::Test {
  protected:
   void SetUp() override {
+    IREE_ASSERT_OK(iree_status_from_loomc(loomc_target_environment_create_vm(
+        loomc_allocator_from_iree(host_allocator_), &target_environment_)));
     IREE_ASSERT_OK(
         iree_vm_environment_allocate(host_allocator_, &environment_));
     IREE_ASSERT_OK(iree_vm_ref_types_resolve(
@@ -61,15 +65,16 @@ class ProgramTest : public ::testing::Test {
         IREE_SVL("scalars"), IREE_SVL("references"), IREE_SVL("empty")};
     const loom_serve_sources_t sources = {.base_directory = IREE_SV(".")};
     IREE_ASSERT_OK(loom_serve_program_allocate(
-        environment_, &sources, iree_make_cstring_view(FLAG_binding_source),
-        IREE_ARRAYSIZE(roots), roots, {&input_, 1}, &compilation_,
-        host_allocator_, &program_));
+        target_environment_, environment_, &sources,
+        iree_make_cstring_view(FLAG_binding_source), IREE_ARRAYSIZE(roots),
+        roots, {&input_, 1}, &compilation_, host_allocator_, &program_));
   }
 
   void TearDown() override {
     loom_serve_program_free(program_);
     iree_vm_module_release(input_);
     iree_vm_environment_free(environment_);
+    loomc_target_environment_release(target_environment_);
   }
 
   iree_status_t Bind(iree_string_view_t name,
@@ -82,6 +87,8 @@ class ProgramTest : public ::testing::Test {
 
   // Host memory owning the actual JIT, linked program, and native capability.
   const iree_allocator_t host_allocator_ = iree_allocator_system();
+  // Explicit VM-only grammar for the source-defined binding fixtures.
+  loomc_target_environment_t* target_environment_ = nullptr;
   // Canonical reference namespace outliving every module and returned value.
   iree_vm_environment_t* environment_ = nullptr;
   // VM buffer identities used by the host call contract.
