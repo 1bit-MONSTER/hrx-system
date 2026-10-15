@@ -233,6 +233,7 @@ iree_cc_library(
     iree::base
     iree::base::internal::json
     iree::tokenizer
+    iree::tokenizer::normalizer
     iree::tokenizer::normalizer::prepend
     iree::tokenizer::normalizer::regex_replace
     iree::tokenizer::normalizer::replace
@@ -240,6 +241,19 @@ iree_cc_library(
     iree::tokenizer::normalizer::strip
     iree::tokenizer::special_tokens
   PUBLIC
+)
+
+iree_cc_test(
+  NAME
+    tokenizer_added_tokens_test
+  SRCS
+    "tokenizer_added_tokens_test.cc"
+  DEPS
+    ::tokenizer_json
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+    iree::tokenizer::vocab
 )
 
 iree_cc_test(

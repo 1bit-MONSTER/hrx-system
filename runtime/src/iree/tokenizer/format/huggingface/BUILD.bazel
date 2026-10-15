@@ -213,12 +213,25 @@ iree_runtime_cc_library(
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:json",
         "//runtime/src/iree/tokenizer",
+        "//runtime/src/iree/tokenizer:normalizer",
         "//runtime/src/iree/tokenizer:special_tokens",
         "//runtime/src/iree/tokenizer/normalizer:prepend",
         "//runtime/src/iree/tokenizer/normalizer:regex_replace",
         "//runtime/src/iree/tokenizer/normalizer:replace",
         "//runtime/src/iree/tokenizer/normalizer:sequence",
         "//runtime/src/iree/tokenizer/normalizer:strip",
+    ],
+)
+
+iree_runtime_cc_test(
+    name = "tokenizer_added_tokens_test",
+    srcs = ["tokenizer_added_tokens_test.cc"],
+    deps = [
+        ":tokenizer_json",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+        "//runtime/src/iree/tokenizer/vocab",
     ],
 )
 
