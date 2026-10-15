@@ -20,8 +20,12 @@
 #include "loom/ir/module.h"
 #include "loom/link/module_index.h"
 #include "loom/ops/index/ops.h"
+#include "loom/ops/kernel/ops.h"
 #include "loom/ops/low/ops.h"
 #include "loom/ops/op_registry.h"
+#include "loom/ops/test/ops.h"
+#include "loom/ops/test/registry.h"
+#include "loom/ops/view/ops.h"
 #include "loom/pass/builtin_registry.h"
 #include "loom/target/arch/cmd/artifact_set.h"
 #include "loom/target/arch/cmd/descriptors/descriptors.h"
@@ -42,6 +46,7 @@ using ModulePtr = ::loom::testing::ModulePtr;
 
 typedef struct CapturedKernelRequest {
   uint32_t entry_requirement_index;
+  loom_cmd_program_kernel_request_kind_t kind;
   iree_host_size_t source_symbol_ordinal;
   loom_decision_class_ordinal_t class_ordinal;
   iree_host_size_t member_count;
@@ -56,15 +61,24 @@ typedef struct KernelRequestCapture {
 static iree_status_t CaptureKernelRequest(
     void* user_data, const loom_cmd_program_kernel_request_t* request) {
   KernelRequestCapture* capture = static_cast<KernelRequestCapture*>(user_data);
-  IREE_ASSERT_EQ(request->kind, LOOM_CMD_PROGRAM_KERNEL_REQUEST_KIND_INDEXED);
   loom_kernel_class_product_t product = {0};
   IREE_RETURN_IF_ERROR(loom_cmd_program_kernel_request_materialize(
       request, capture->block_pool, iree_allocator_system(), &product));
   capture->requests.push_back(CapturedKernelRequest{
       .entry_requirement_index = request->entry_requirement_index,
-      .source_symbol_ordinal = request->source.indexed->source_symbol_ordinal,
-      .class_ordinal = request->source.indexed->class_ordinal,
-      .member_count = request->source.indexed->member_count,
+      .kind = request->kind,
+      .source_symbol_ordinal =
+          request->kind == LOOM_CMD_PROGRAM_KERNEL_REQUEST_KIND_INDEXED
+              ? request->source.indexed->source_symbol_ordinal
+              : LOOM_LINK_MODULE_INDEX_INVALID_ORDINAL,
+      .class_ordinal = static_cast<loom_decision_class_ordinal_t>(
+          request->kind == LOOM_CMD_PROGRAM_KERNEL_REQUEST_KIND_INDEXED
+              ? request->source.indexed->class_ordinal
+              : LOOM_DECISION_CLASS_ORDINAL_INVALID),
+      .member_count =
+          request->kind == LOOM_CMD_PROGRAM_KERNEL_REQUEST_KIND_INDEXED
+              ? request->source.indexed->member_count
+              : 0,
       .product = product,
   });
   return iree_ok_status();
@@ -111,6 +125,7 @@ class CmdProgramPlanTest : public ::testing::Test {
                                      &block_pool_);
     loom_context_initialize(iree_allocator_system(), &context_);
     IREE_ASSERT_OK(loom_op_registry_register_all_dialects(&context_));
+    IREE_ASSERT_OK(loom_test_dialect_register(&context_));
     IREE_ASSERT_OK(loom_context_finalize(&context_));
   }
 
@@ -247,6 +262,229 @@ kernel.def @generated() {
                                     &verify_options, &verify_result));
   EXPECT_EQ(verify_result.error_count, 0u);
   loom_kernel_class_product_deinitialize(&materialized_product);
+}
+
+TEST_F(CmdProgramPlanTest, RealizesStorageBackedLaunchCountsOnDevice) {
+  ModulePtr source_module = ParseAndVerify(R"(
+test.target<device> @device
+
+kernel.def target(@device) @consume(%count_storage: buffer) {
+  %base = index.constant 0 : offset
+  %index = index.constant 0 : index
+  %raw_counts = buffer.view %count_storage[%base] : buffer -> view<2xi32>
+  %extent_i32 = view.load %raw_counts[%index] : view<2xi32> -> i32
+  %extent_i64 = scalar.extui %extent_i32 : i32 to i64
+  %extent = index.cast %extent_i64 : i64 to index
+  %counts = buffer.view %count_storage[%base] : buffer -> view<[%extent]xi32>
+  %count_i32 = view.load %counts[%index] : view<[%extent]xi32> -> i32
+  %count_i64 = scalar.extui %count_i32 : i32 to i64
+  %count = index.cast %count_i64 : i64 to index
+  %unit = index.constant 1 : index
+  %divisor = index.constant 4 : index
+  %quotient, %remainder = index.divrem %count, %divisor : index
+  kernel.launch.config workgroups(%quotient, %remainder, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%output: buffer) {
+  kernel.return
+}
+
+command.program.def public @root() launch(%count_storage: buffer, %output: buffer) {
+  kernel.launch @consume[%count_storage](%output) : [buffer](buffer)
+  command.return
+}
+)");
+  ASSERT_NE(source_module, nullptr);
+  const loom_symbol_ref_t root_ref =
+      FindSymbolRef(source_module.get(), IREE_SV("root"));
+  loom_link_module_index_t* index = nullptr;
+  IREE_ASSERT_OK(loom_link_module_index_allocate(
+      &context_, &block_pool_, iree_allocator_system(), &index));
+  const loom_link_module_index_add_options_t add_options = {
+      .provider_name = IREE_SV("storage_backed_launch_count_test"),
+  };
+  iree_host_size_t provider_ordinal = 0;
+  IREE_ASSERT_OK(loom_link_module_index_add_materialized(
+      index, source_module.get(), &add_options, &provider_ordinal));
+  const loom_link_module_index_provider_t* provider =
+      loom_link_module_index_provider_at(index, provider_ordinal);
+  ASSERT_NE(provider, nullptr);
+  const loom_link_module_index_module_t* indexed_module =
+      loom_link_module_index_module_at(index, provider->module_start_ordinal);
+  ASSERT_NE(indexed_module, nullptr);
+  const iree_host_size_t root_symbol_ordinal =
+      indexed_module->symbol_start_ordinal + root_ref.symbol_id;
+
+  KernelRequestCapture request_capture = {
+      .block_pool = &block_pool_,
+  };
+  loom_cmd_program_plan_index_options_t plan_options;
+  loom_cmd_program_plan_index_options_initialize(&plan_options);
+  plan_options.kernel_request_sink = {
+      .publish = CaptureKernelRequest,
+      .user_data = &request_capture,
+  };
+  const loom_link_plan_materialization_environment_t environment = {
+      .context = &context_,
+      .block_pool = &block_pool_,
+      .allocator = iree_allocator_system(),
+  };
+
+  iree_arena_allocator_t body_blind_scratch_arena;
+  iree_arena_initialize(&block_pool_, &body_blind_scratch_arena);
+  loom_cmd_program_plan_t body_blind_plan = {};
+  bool body_blind_valid = false;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_FAILED_PRECONDITION,
+      loom_cmd_program_plan_build_from_index(
+          index, &root_symbol_ordinal, /*program_count=*/1, /*options=*/nullptr,
+          loom_pass_builtin_registry(),
+          loom_cleanup_configured_pattern_provider_set(),
+          /*diagnostic_emitter=*/{}, &environment, &body_blind_scratch_arena,
+          &body_blind_valid, &body_blind_plan));
+  EXPECT_FALSE(body_blind_valid);
+  EXPECT_EQ(body_blind_plan.root_module, nullptr);
+  iree_arena_deinitialize(&body_blind_scratch_arena);
+
+  iree_arena_allocator_t scratch_arena;
+  iree_arena_initialize(&block_pool_, &scratch_arena);
+
+  loom_cmd_program_plan_t plan = {};
+  bool valid = false;
+  IREE_ASSERT_OK(loom_cmd_program_plan_build_from_index(
+      index, &root_symbol_ordinal, /*program_count=*/1, &plan_options,
+      loom_pass_builtin_registry(),
+      loom_cleanup_configured_pattern_provider_set(),
+      /*diagnostic_emitter=*/{}, &environment, &scratch_arena, &valid, &plan));
+  ASSERT_TRUE(valid);
+  ASSERT_EQ(request_capture.requests.size(), 2u);
+  const auto generated_request = std::find_if(
+      request_capture.requests.begin(), request_capture.requests.end(),
+      [](const CapturedKernelRequest& request) {
+        return request.kind == LOOM_CMD_PROGRAM_KERNEL_REQUEST_KIND_GENERATED;
+      });
+  ASSERT_NE(generated_request, request_capture.requests.end());
+  ASSERT_NE(generated_request->product.module, nullptr);
+  loom_verify_options_t verify_options = {};
+  loom_verify_result_t verify_result = {};
+  IREE_ASSERT_OK(loom_verify_module(generated_request->product.module,
+                                    &verify_options, &verify_result));
+  EXPECT_EQ(verify_result.error_count, 0u);
+
+  loom_module_t* generated_module = generated_request->product.module;
+  ASSERT_TRUE(loom_symbol_ref_is_valid(generated_request->product.kernel));
+  ASSERT_EQ(generated_request->product.kernel.module_id, 0u);
+  ASSERT_LT(generated_request->product.kernel.symbol_id,
+            generated_module->symbols.count);
+  loom_op_t* generated_kernel =
+      generated_module->symbols
+          .entries[generated_request->product.kernel.symbol_id]
+          .defining_op;
+  ASSERT_TRUE(loom_kernel_def_isa(generated_kernel));
+  const loom_symbol_ref_t generated_target =
+      loom_kernel_def_target(generated_kernel);
+  ASSERT_TRUE(loom_symbol_ref_is_valid(generated_target));
+  ASSERT_EQ(generated_target.module_id, 0u);
+  ASSERT_LT(generated_target.symbol_id, generated_module->symbols.count);
+  EXPECT_TRUE(loom_test_target_isa(
+      generated_module->symbols.entries[generated_target.symbol_id]
+          .defining_op));
+
+  const loom_func_like_t generated_function =
+      loom_func_like_cast(generated_module, generated_kernel);
+  uint16_t generated_argument_count = 0;
+  const loom_value_id_t* generated_arguments =
+      loom_func_like_arg_ids(generated_function, &generated_argument_count);
+  ASSERT_EQ(generated_argument_count, 3u);
+  EXPECT_TRUE(loom_type_equal(
+      loom_module_value_type(generated_module, generated_arguments[0]),
+      loom_type_buffer()));
+  EXPECT_TRUE(loom_type_equal(
+      loom_module_value_type(generated_module, generated_arguments[1]),
+      loom_type_shaped_1d(LOOM_TYPE_VIEW, LOOM_SCALAR_TYPE_I32,
+                          loom_dim_pack_static(2), /*encoding_id=*/0)));
+  EXPECT_TRUE(loom_type_equal(
+      loom_module_value_type(generated_module, generated_arguments[2]),
+      loom_type_shaped_1d(LOOM_TYPE_VIEW, LOOM_SCALAR_TYPE_I32,
+                          loom_dim_pack_static(3), /*encoding_id=*/0)));
+
+  loom_block_t* config_block =
+      loom_region_entry_block(loom_kernel_def_config(generated_kernel));
+  loom_op_t* config_op = config_block->last_op;
+  ASSERT_TRUE(loom_kernel_launch_config_isa(config_op));
+  const loom_value_id_t config_one =
+      loom_kernel_launch_config_workgroup_count_x(config_op);
+  EXPECT_EQ(loom_kernel_launch_config_workgroup_count_y(config_op), config_one);
+  EXPECT_EQ(loom_kernel_launch_config_workgroup_count_z(config_op), config_one);
+  EXPECT_EQ(loom_kernel_launch_config_workgroup_size_x(config_op), config_one);
+  EXPECT_EQ(loom_kernel_launch_config_workgroup_size_y(config_op), config_one);
+  EXPECT_EQ(loom_kernel_launch_config_workgroup_size_z(config_op), config_one);
+  loom_op_t* config_one_op =
+      loom_value_def_op(loom_module_value(generated_module, config_one));
+  ASSERT_TRUE(loom_index_constant_isa(config_one_op));
+  EXPECT_EQ(loom_attr_as_i64(loom_index_constant_value(config_one_op)), 1);
+
+  iree_host_size_t load_count = 0;
+  iree_host_size_t store_count = 0;
+  loom_block_t* body_block =
+      loom_region_entry_block(loom_kernel_def_body(generated_kernel));
+  loom_op_t* body_op = nullptr;
+  loom_block_for_each_op(body_block, body_op) {
+    if (loom_view_load_isa(body_op)) {
+      ++load_count;
+    } else if (loom_view_store_isa(body_op)) {
+      ++store_count;
+      EXPECT_EQ(loom_view_store_view(body_op), generated_arguments[2]);
+    }
+  }
+  EXPECT_EQ(load_count, 2u);
+  EXPECT_EQ(store_count, 3u);
+
+  ASSERT_EQ(plan.root_count, 1u);
+  ASSERT_EQ(plan.entry_requirement_count, 2u);
+  EXPECT_LT(generated_request->entry_requirement_index,
+            plan.entry_requirement_count);
+  EXPECT_EQ(plan.roots[0].transient.binding_index, 2u);
+  EXPECT_EQ(plan.roots[0].transient.required_byte_length, 12u);
+  EXPECT_EQ(plan.roots[0].transient.minimum_alignment, 4u);
+
+  iree_byte_span_t data = iree_byte_span_empty();
+  IREE_ASSERT_OK(loom_cmd_program_plan_serialize_root(&plan, 0, &data,
+                                                      iree_allocator_system()));
+  loom_cmd_program_t program = {};
+  IREE_ASSERT_OK(loom_cmd_program_parse(
+      iree_make_const_byte_span(data.data, data.data_length), &program));
+  ASSERT_EQ(program.commands.count, 2u);
+  const loom_cmd_program_command_t producer =
+      loom_cmd_program_command_at(&program, 0);
+  const loom_cmd_program_command_t consumer =
+      loom_cmd_program_command_at(&program, 1);
+  EXPECT_EQ(producer.kind, LOOM_CMD_PROGRAM_COMMAND_KIND_DISPATCH_DIRECT);
+  EXPECT_EQ(consumer.kind,
+            LOOM_CMD_PROGRAM_COMMAND_KIND_DISPATCH_INDIRECT_DYNAMIC_BARRIER);
+  EXPECT_EQ(producer.payload.dispatch_direct.workgroup_count_x, 1u);
+  EXPECT_EQ(producer.payload.dispatch_direct.workgroup_count_y, 1u);
+  EXPECT_EQ(producer.payload.dispatch_direct.workgroup_count_z, 1u);
+  ASSERT_LT(producer.payload.dispatch_direct.entry_index,
+            plan.roots[0].entry_requirement_count);
+  EXPECT_EQ(
+      plan.roots[0].entry_requirement_indices[producer.payload.dispatch_direct
+                                                  .entry_index],
+      generated_request->entry_requirement_index);
+  const loom_cmd_program_buffer_ref_t count_ref =
+      loom_cmd_program_buffer_ref_at(
+          &program,
+          consumer.payload.dispatch_indirect.workgroup_count_buffer_ref);
+  EXPECT_EQ(count_ref.role, LOOM_CMD_PROGRAM_BUFFER_ROLE_REBINDABLE);
+  EXPECT_EQ(count_ref.root_index, plan.roots[0].transient.binding_index);
+  EXPECT_EQ(count_ref.byte_offset, 0u);
+  EXPECT_EQ(count_ref.byte_length, 12u);
+
+  iree_allocator_free(iree_allocator_system(), data.data);
+  loom_cmd_program_plan_deinitialize(&plan);
+  for (auto& request : request_capture.requests) {
+    loom_kernel_class_product_deinitialize(&request.product);
+  }
+  iree_arena_deinitialize(&scratch_arena);
+  loom_link_module_index_free(index);
 }
 
 TEST_F(CmdProgramPlanTest, UsesSelectedCleanupProvidersInNestedPipeline) {

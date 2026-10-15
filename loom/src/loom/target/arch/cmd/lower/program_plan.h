@@ -93,9 +93,10 @@ iree_status_t loom_cmd_program_kernel_request_materialize(
     iree_arena_block_pool_t* block_pool, iree_allocator_t allocator,
     loom_kernel_class_product_t* out_product);
 
-// Optional indexed source environment for command-plan construction.
+// Optional kernel source environment for command-plan construction.
 typedef struct loom_cmd_program_kernel_source_t {
-  // Invocation-local index-backed request producer.
+  // Invocation-local indexed request producer, or NULL when the selected
+  // roots reach only generated sources.
   loom_kernel_request_producer_t* producer;
 
   // Invocation environment providing diagnostics and specialization.
@@ -114,7 +115,7 @@ typedef struct loom_cmd_program_kernel_source_t {
   // Bounded semantic class collection policy.
   loom_kernel_class_collection_options_t collection_options;
 
-  // Sink visiting every live source class before materialization.
+  // Sink visiting every live indexed class and generated source.
   loom_cmd_program_kernel_request_sink_t sink;
 } loom_cmd_program_kernel_source_t;
 
@@ -151,11 +152,11 @@ typedef struct loom_cmd_program_root_t {
 //
 // The root module contains every selected command symbol lowered to the
 // portable cmd low ISA together with the configured entry declarations they
-// require. Body-blind command planning never materializes a kernel
-// implementation or manufactures a host launch-count program. When an indexed
-// kernel source is supplied, its sink visits each live class before optional
-// materialization and only logical entry requirements remain in the returned
-// plan.
+// require. Exact launch counts remain command metadata. Storage-backed launch
+// arithmetic is extracted into target-matched device producers that write
+// transient indirect-count tuples; their independently closed source products
+// are published through the same request sink as indexed kernels. Only logical
+// entry requirements remain in the returned plan.
 typedef struct loom_cmd_program_plan_t {
   // Owned module containing all lowered command roots.
   loom_module_t* root_module;
@@ -199,13 +200,14 @@ typedef struct loom_cmd_program_plan_t {
 // source structure. They are compiler-owned resources rather than part of the
 // authored program contract.
 //
-// |kernel_source| optionally visits the semantic classes reached by all
-// selected roots before source materialization. Publication is complete before
-// this function returns; the returned plan retains no request, source product,
-// or kernel implementation state. The terminal status and |out_valid| commit
-// the publication as a complete parent product. A caller that receives a
-// non-OK status or false validity must cancel work accepted earlier in the
-// call.
+// |kernel_source| optionally visits indexed semantic classes and generated
+// sources reached by all selected roots before source materialization. A sink
+// is required when storage-backed launch arithmetic requires a generated
+// producer. Publication is complete before this function returns; the returned
+// plan retains no request, source product, or kernel implementation state. The
+// terminal status and |out_valid| commit the publication as a complete parent
+// product. A caller that receives a non-OK status or false validity must cancel
+// work accepted earlier in the call.
 //
 // Unsupported portable mappings and infrastructure failures return a non-OK
 // status. Source contract violations emit diagnostics, set |out_valid| to

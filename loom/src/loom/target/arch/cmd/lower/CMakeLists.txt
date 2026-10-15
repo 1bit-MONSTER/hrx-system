@@ -53,6 +53,38 @@ loom_cc_library(
 
 loom_cc_library(
   NAME
+    launch_count_realization
+  HDRS
+    "launch_count_realization.h"
+  SRCS
+    "launch_count_realization.c"
+  DEPS
+    iree::base
+    iree::base::internal::arena
+    loom::analysis::liveness_uses
+    loom::error::emitter
+    loom::error::error_defs
+    loom::error::parameter
+    loom::ir
+    loom::ir::facts
+    loom::link::linker
+    loom::ops::buffer
+    loom::ops::command
+    loom::ops::index
+    loom::ops::kernel
+    loom::ops::op_defs
+    loom::ops::special_values
+    loom::ops::view
+    loom::rewrite::materialize
+    loom::rewrite::remap
+    loom::rewrite::rewriter
+    loom::transforms::kernel::kernel_class_materializer
+    loom::util::fact_table
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     lower
   HDRS
     "lower.h"
@@ -131,6 +163,7 @@ loom_cc_library(
     "program_plan_requests.c"
   DEPS
     ::dispatch_counts
+    ::launch_count_realization
     ::lower
     ::parameters
     ::schedule
@@ -229,8 +262,11 @@ loom_cc_test(
     loom::ir
     loom::link::module_index
     loom::ops::index
+    loom::ops::kernel
     loom::ops::low
     loom::ops::op_registry
+    loom::ops::test
+    loom::ops::view
     loom::pass::builtin_registry
     loom::target::arch::cmd::artifact_set
     loom::target::arch::cmd::descriptors
