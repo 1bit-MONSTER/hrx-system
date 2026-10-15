@@ -133,6 +133,7 @@ loom_test(
         "test/spirv_vulkan_hal_actual.loom",
         "test/spirv_vulkan_integer_hal_actual.loom",
         "test/spirv_vulkan_quantized_hal_actual.loom",
+        "test/spirv_vulkan_scalar_abi.loom",
         "test/spirv_vulkan_vector_float.loom",
         "test/spirv_vulkan_workgroup_offsets.loom",
         "//loom/src/loom/test/corpus/checked_benchmarks:moe_routed_combine_loop_f32.loom",

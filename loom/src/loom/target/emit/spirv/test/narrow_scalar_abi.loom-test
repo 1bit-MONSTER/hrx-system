@@ -1,0 +1,114 @@
+// Narrow floating arguments require their own capabilities, without Int16.
+
+// RUN: emit spirv-dis validate
+// REQUIRES: spirv-dis, spirv-val
+spirv.target<vulkan1_3> @target {abi = hal_kernel}
+
+low.kernel.def target<spirv.logical.core>(@target) workgroup_size(1, 1, 1) @abi_f16(%value: reg<spirv.id : f16>) asm {
+  return
+}
+// ----
+               OpCapability Shader
+               OpCapability PhysicalStorageBufferAddresses
+               OpCapability Int64
+               OpCapability Float16
+               OpExtension "SPV_KHR_physical_storage_buffer"
+               OpMemoryModel PhysicalStorageBuffer64 GLSL450
+               OpEntryPoint GLCompute %abi_f16 "abi_f16"
+               OpExecutionMode %abi_f16 LocalSize 1 1 1
+               OpName %abi_f16 "abi_f16"
+               OpName %value "value"
+               OpModuleProcessed "iree.vulkan.bda.v1[abi_f16].root=0,32"
+               OpModuleProcessed "iree.vulkan.bda.v1[abi_f16].constant_offset=32"
+               OpModuleProcessed "iree.vulkan.bda.v1[abi_f16].constant_length=4"
+               OpModuleProcessed "iree.vulkan.bda.v1[abi_f16].bindings=0"
+               OpDecorate %_arr_uint_uint_1 ArrayStride 4
+               OpDecorate %_struct_20 Block
+               OpMemberDecorate %_struct_20 0 Offset 0
+               OpMemberDecorate %_struct_20 1 Offset 8
+               OpMemberDecorate %_struct_20 2 Offset 16
+               OpMemberDecorate %_struct_20 3 Offset 20
+               OpMemberDecorate %_struct_20 4 Offset 24
+               OpMemberDecorate %_struct_20 5 Offset 28
+               OpMemberDecorate %_struct_20 6 Offset 32
+       %void = OpTypeVoid
+          %4 = OpTypeFunction %void
+       %half = OpTypeFloat 16
+       %uint = OpTypeInt 32 0
+%_ptr_PushConstant_uint = OpTypePointer PushConstant %uint
+        %int = OpTypeInt 32 1
+      %int_6 = OpConstant %int 6
+      %int_0 = OpConstant %int 0
+     %v2half = OpTypeVector %half 2
+      %ulong = OpTypeInt 64 0
+     %uint_1 = OpConstant %uint 1
+%_arr_uint_uint_1 = OpTypeArray %uint %uint_1
+ %_struct_20 = OpTypeStruct %ulong %ulong %uint %uint %uint %uint %_arr_uint_uint_1
+%_ptr_PushConstant__struct_20 = OpTypePointer PushConstant %_struct_20
+          %2 = OpVariable %_ptr_PushConstant__struct_20 PushConstant
+    %abi_f16 = OpFunction %void None %4
+          %5 = OpLabel
+         %12 = OpAccessChain %_ptr_PushConstant_uint %2 %int_6 %int_0
+         %13 = OpLoad %uint %12 Aligned 4
+         %15 = OpBitcast %v2half %13
+      %value = OpCompositeExtract %half %15 0
+               OpReturn
+               OpFunctionEnd
+
+// ====
+
+// RUN: emit spirv-dis validate
+// REQUIRES: spirv-dis, spirv-val
+spirv.target<vulkan1_3> @target {abi = hal_kernel}
+
+low.kernel.def target<spirv.logical.core>(@target) workgroup_size(1, 1, 1) @abi_bf16(%value: reg<spirv.id : bf16>) asm {
+  return
+}
+// ----
+               OpCapability Shader
+               OpCapability PhysicalStorageBufferAddresses
+               OpCapability Int64
+               OpCapability BFloat16TypeKHR
+               OpExtension "SPV_KHR_physical_storage_buffer"
+               OpExtension "SPV_KHR_bfloat16"
+               OpMemoryModel PhysicalStorageBuffer64 GLSL450
+               OpEntryPoint GLCompute %abi_bf16 "abi_bf16"
+               OpExecutionMode %abi_bf16 LocalSize 1 1 1
+               OpName %abi_bf16 "abi_bf16"
+               OpName %value "value"
+               OpModuleProcessed "iree.vulkan.bda.v1[abi_bf16].root=0,32"
+               OpModuleProcessed "iree.vulkan.bda.v1[abi_bf16].constant_offset=32"
+               OpModuleProcessed "iree.vulkan.bda.v1[abi_bf16].constant_length=4"
+               OpModuleProcessed "iree.vulkan.bda.v1[abi_bf16].bindings=0"
+               OpDecorate %_arr_uint_uint_1 ArrayStride 4
+               OpDecorate %_struct_20 Block
+               OpMemberDecorate %_struct_20 0 Offset 0
+               OpMemberDecorate %_struct_20 1 Offset 8
+               OpMemberDecorate %_struct_20 2 Offset 16
+               OpMemberDecorate %_struct_20 3 Offset 20
+               OpMemberDecorate %_struct_20 4 Offset 24
+               OpMemberDecorate %_struct_20 5 Offset 28
+               OpMemberDecorate %_struct_20 6 Offset 32
+       %void = OpTypeVoid
+          %4 = OpTypeFunction %void
+   %bfloat16 = OpTypeFloat 16 BFloat16KHR
+       %uint = OpTypeInt 32 0
+%_ptr_PushConstant_uint = OpTypePointer PushConstant %uint
+        %int = OpTypeInt 32 1
+      %int_6 = OpConstant %int 6
+      %int_0 = OpConstant %int 0
+ %v2bfloat16 = OpTypeVector %bfloat16 2
+      %ulong = OpTypeInt 64 0
+     %uint_1 = OpConstant %uint 1
+%_arr_uint_uint_1 = OpTypeArray %uint %uint_1
+ %_struct_20 = OpTypeStruct %ulong %ulong %uint %uint %uint %uint %_arr_uint_uint_1
+%_ptr_PushConstant__struct_20 = OpTypePointer PushConstant %_struct_20
+          %2 = OpVariable %_ptr_PushConstant__struct_20 PushConstant
+   %abi_bf16 = OpFunction %void None %4
+          %5 = OpLabel
+         %12 = OpAccessChain %_ptr_PushConstant_uint %2 %int_6 %int_0
+         %13 = OpLoad %uint %12 Aligned 4
+         %15 = OpBitcast %v2bfloat16 %13
+      %value = OpCompositeExtract %bfloat16 %15 0
+               OpReturn
+               OpFunctionEnd

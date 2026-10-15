@@ -343,6 +343,7 @@ loom_check_test_suite(
     "test/integer_boolean.loom-test"
     "test/loop_termination.loom-test"
     "test/memory_access_flags.loom-test"
+    "test/narrow_scalar_abi.loom-test"
     "test/ordinary_vector_bit_layout.loom-test"
     "test/ordinary_vector_float.loom-test"
     "test/ordinary_vector_integer.loom-test"

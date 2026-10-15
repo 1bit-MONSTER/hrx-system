@@ -715,35 +715,47 @@ static iree_status_t loom_spirv_module_abi_materialize_bda_scalar_arg(
   IREE_RETURN_IF_ERROR(loom_spirv_module_abi_emit_scalar_value_type(
       context, slot->value_type.scalar_type, &descriptor, &result_type_id));
 
-  uint32_t bits_type_id = 0;
-  uint32_t bits_id = 0;
+  uint32_t result_id = 0;
   if (descriptor->bit_width < 32) {
     uint32_t word_id = 0;
     IREE_RETURN_IF_ERROR(loom_spirv_module_abi_materialize_bda_constant_word(
         context, plan, slot->constant_word_offset, &word_id));
-    IREE_RETURN_IF_ERROR(
-        loom_spirv_emit_type_int(context->type_context, descriptor->bit_width,
-                                 /*signedness=*/0, &bits_type_id));
+    // The low bits of each ABI word hold the scalar payload. Bitcasting the
+    // whole word maps those bits to component zero without requiring a narrow
+    // integer capability for floating-point arguments.
+    uint32_t vector_type_id = 0;
+    IREE_RETURN_IF_ERROR(loom_spirv_emit_type_vector(
+        context->type_context, result_type_id, 32 / descriptor->bit_width,
+        &vector_type_id));
+    uint32_t vector_id = 0;
     IREE_RETURN_IF_ERROR(loom_spirv_module_emit_unary_result(
-        context->builder, LOOM_SPIRV_OP_U_CONVERT, bits_type_id, word_id,
-        &bits_id));
-  } else if (descriptor->bit_width == 32) {
-    IREE_RETURN_IF_ERROR(
-        loom_spirv_emit_type_u32(context->type_context, &bits_type_id));
-    IREE_RETURN_IF_ERROR(loom_spirv_module_abi_materialize_bda_constant_word(
-        context, plan, slot->constant_word_offset, &bits_id));
-  } else if (descriptor->bit_width == 64) {
-    IREE_RETURN_IF_ERROR(
-        loom_spirv_emit_type_u64(context->type_context, &bits_type_id));
-    IREE_RETURN_IF_ERROR(loom_spirv_module_abi_materialize_bda_u64_bits(
-        context, plan, slot, &bits_id));
+        context->builder, LOOM_SPIRV_OP_BITCAST, vector_type_id, word_id,
+        &vector_id));
+    result_id = loom_spirv_module_abi_allocate_id(context);
+    const uint32_t operands[] = {result_type_id, result_id, vector_id, 0};
+    IREE_RETURN_IF_ERROR(loom_spirv_binary_write_instruction(
+        loom_spirv_module_abi_section(context,
+                                      LOOM_SPIRV_MODULE_SECTION_FUNCTION),
+        LOOM_SPIRV_OP_COMPOSITE_EXTRACT, operands, IREE_ARRAYSIZE(operands)));
   } else {
-    IREE_CHECK_UNREACHABLE("verified SPIR-V raw-BDA scalar bit width");
+    uint32_t bits_type_id = 0;
+    uint32_t bits_id = 0;
+    if (descriptor->bit_width == 32) {
+      IREE_RETURN_IF_ERROR(
+          loom_spirv_emit_type_u32(context->type_context, &bits_type_id));
+      IREE_RETURN_IF_ERROR(loom_spirv_module_abi_materialize_bda_constant_word(
+          context, plan, slot->constant_word_offset, &bits_id));
+    } else if (descriptor->bit_width == 64) {
+      IREE_RETURN_IF_ERROR(
+          loom_spirv_emit_type_u64(context->type_context, &bits_type_id));
+      IREE_RETURN_IF_ERROR(loom_spirv_module_abi_materialize_bda_u64_bits(
+          context, plan, slot, &bits_id));
+    } else {
+      IREE_CHECK_UNREACHABLE("verified SPIR-V raw-BDA scalar bit width");
+    }
+    IREE_RETURN_IF_ERROR(loom_spirv_module_emit_bitcast_if_needed(
+        context->builder, result_type_id, bits_type_id, bits_id, &result_id));
   }
-
-  uint32_t result_id = 0;
-  IREE_RETURN_IF_ERROR(loom_spirv_module_emit_bitcast_if_needed(
-      context->builder, result_type_id, bits_type_id, bits_id, &result_id));
   return loom_spirv_module_abi_define_value(context, slot->value_id,
                                             (loom_spirv_module_value_ref_t){
                                                 .id = result_id,
