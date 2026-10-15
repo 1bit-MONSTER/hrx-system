@@ -153,7 +153,7 @@ TEST_F(ImportTest, ExplicitSymbolNamesOutliveSource) {
   auto text = Print();
   EXPECT_NE(text.find("func.def public @library.entry"), std::string::npos);
   EXPECT_NE(text.find("func.def @library.helper"), std::string::npos);
-  EXPECT_NE(text.find("func.call @library.helper"), std::string::npos);
+  EXPECT_NE(text.find("func.call pure @library.helper"), std::string::npos);
   EXPECT_EQ(diagnostic_count_, 0);
 }
 
@@ -172,7 +172,7 @@ TEST_F(ImportTest, RecordComponentsOutliveSourceAndFunctionBindingStorage) {
   source.assign(source.size(), '?');
   auto text = Print();
   EXPECT_NE(text.find("-> (i32, buffer, offset, i1)"), std::string::npos);
-  EXPECT_NE(text.find("func.call @advance"), std::string::npos);
+  EXPECT_NE(text.find("func.call pure @advance"), std::string::npos);
   EXPECT_NE(text.find("func.def public @consume"), std::string::npos);
   EXPECT_EQ(diagnostic_count_, 0);
 }
@@ -274,7 +274,7 @@ TEST_F(ImportTest, PreambleRestoresHeaderIRAndExactSourceWithoutProviderCalls) {
   IREE_ASSERT_OK(Import(source));
   ASSERT_NE(module_, nullptr);
   const std::string cold = Print();
-  EXPECT_NE(cold.find("low.invoke inline"), std::string::npos);
+  EXPECT_NE(cold.find("low.invoke pure inline"), std::string::npos);
   EXPECT_NE(cold.find("low.func.def target<test.low.core>"), std::string::npos);
   IREE_ASSERT_OK(loom_cxx_preamble_create(source, IREE_SV("/app/source.cpp"),
                                           &options_, iree_allocator_system(),

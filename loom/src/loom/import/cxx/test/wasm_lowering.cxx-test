@@ -33,14 +33,14 @@ int evaluate(const int* pointer, int index, const Pair* pair,
 
 // ----
 low.func.def public target<wasm.core.simd128> abi(wasm_function) @evaluate(%pointer: reg<wasm.i32>, %pointer_byte_offset: reg<wasm.i32>, %index: reg<wasm.i32>, %pair: reg<wasm.i32>, %pair_byte_offset: reg<wasm.i32>, %matrix: reg<wasm.i32>, %matrix_byte_offset: reg<wasm.i32>) -> (reg<wasm.i32>) asm {
-  %96 = low.func.call @read(%pointer, %pointer_byte_offset) : (reg<wasm.i32>, reg<wasm.i32>) -> (reg<wasm.i32>)
-  %97 = low.func.call @read_dynamic(%pointer, %pointer_byte_offset, %index) : (reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>) -> (reg<wasm.i32>)
+  %96 = low.func.call readonly @read(%pointer, %pointer_byte_offset) : (reg<wasm.i32>, reg<wasm.i32>) -> (reg<wasm.i32>)
+  %97 = low.func.call readonly @read_dynamic(%pointer, %pointer_byte_offset, %index) : (reg<wasm.i32>, reg<wasm.i32>, reg<wasm.i32>) -> (reg<wasm.i32>)
   %98 = i32.add %96, %97
-  %99 = low.func.call @read_member(%pair, %pair_byte_offset) : (reg<wasm.i32>, reg<wasm.i32>) -> (reg<wasm.i32>)
+  %99 = low.func.call readonly @read_member(%pair, %pair_byte_offset) : (reg<wasm.i32>, reg<wasm.i32>) -> (reg<wasm.i32>)
   %100 = i32.add %98, %99
-  %101 = low.func.call @read_helper(%pointer, %pointer_byte_offset) : (reg<wasm.i32>, reg<wasm.i32>) -> (reg<wasm.i32>)
+  %101 = low.func.call readonly @read_helper(%pointer, %pointer_byte_offset) : (reg<wasm.i32>, reg<wasm.i32>) -> (reg<wasm.i32>)
   %102 = i32.add %100, %101
-  %103 = low.func.call @read_view(%matrix, %matrix_byte_offset) : (reg<wasm.i32>, reg<wasm.i32>) -> (reg<wasm.i32>)
+  %103 = low.func.call readonly @read_view(%matrix, %matrix_byte_offset) : (reg<wasm.i32>, reg<wasm.i32>) -> (reg<wasm.i32>)
   %104 = i32.add %102, %103
   return %104
 }
@@ -76,7 +76,7 @@ low.func.def target<wasm.core.simd128> @read_helper(%pointer: reg<wasm.i32>, %po
   %133 = i64.extend_i32_u %pointer_byte_offset
   %134 = i64.add %133, %132
   %135 = i32.wrap_i64 %134
-  %136 = low.func.call @load_next(%pointer, %135) : (reg<wasm.i32>, reg<wasm.i32>) -> (reg<wasm.i32>)
+  %136 = low.func.call readonly @load_next(%pointer, %135) : (reg<wasm.i32>, reg<wasm.i32>) -> (reg<wasm.i32>)
   return %136
 }
 

@@ -1004,6 +1004,14 @@ uint16_t loom_call_like_result_offset(loom_call_like_t call);
 loom_callable_effect_contract_t loom_call_like_effect_contract(
     loom_call_like_t call);
 
+// Sets the callable effect contract on a direct call.
+//
+// The call must expose an effect-contract attribute. This refreshes the
+// operation's effective traits and its containing-region effect summaries.
+void loom_call_like_set_effect_contract(
+    loom_module_t* module, loom_call_like_t call,
+    loom_callable_effect_contract_t effect_contract);
+
 // Returns the temperature attr value (0 = unspecified).
 uint8_t loom_call_like_temperature(loom_call_like_t call);
 

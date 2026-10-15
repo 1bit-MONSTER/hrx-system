@@ -879,7 +879,8 @@ typedef uint32_t loom_trait_flags_t;
 // Absence (0) leaves effects unspecified and therefore conservative.
 typedef enum loom_callable_effect_contract_e {
   LOOM_CALLABLE_EFFECT_CONTRACT_UNSPECIFIED = 0,
-  // No memory, non-deterministic, convergent, or observable effects.
+  // No memory, non-deterministic, fresh-identity, convergent, or observable
+  // effects.
   LOOM_CALLABLE_EFFECT_CONTRACT_PURE = 1,
   // Deterministic memory reads with no other effects.
   LOOM_CALLABLE_EFFECT_CONTRACT_READONLY = 2,

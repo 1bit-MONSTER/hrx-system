@@ -44,7 +44,7 @@ func.def public @entry(%input: buffer, %input_byte_offset: offset, %output: buff
     %31 = index.cast %30 : i64 to offset
     %32 = buffer.view %input[%31] : buffer -> view<16xi32>
     %33 = vector.load %32[0] : view<16xi32> -> vector<16xi32>
-    %value$34 = func.call @update(%value$22, %33) : (vector<16xi32>, vector<16xi32>) -> (vector<16xi32>)
+    %value$34 = func.call pure @update(%value$22, %33) : (vector<16xi32>, vector<16xi32>) -> (vector<16xi32>)
     scf.yield %value$34 : vector<16xi32>
   }
   %35 = scalar.constant 1 : i32

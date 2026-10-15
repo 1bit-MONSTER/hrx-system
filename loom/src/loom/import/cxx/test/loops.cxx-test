@@ -76,7 +76,7 @@ static int sum(unsigned count) {
 int entry(unsigned count) { return sum<3, 1>(count); }
 // ----
 func.def public @entry(%count: i32) -> (i32) {
-  %2 = func.call @sum_3_1(%count) : (i32) -> (i32)
+  %2 = func.call pure @sum_3_1(%count) : (i32) -> (i32)
   func.return %2 : i32
 }
 

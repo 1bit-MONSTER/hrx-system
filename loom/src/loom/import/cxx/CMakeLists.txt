@@ -51,6 +51,7 @@ loom_cc_library(
     iree::base
     iree::base::internal::arena
     iree::third_party::cxx_parser
+    loom::analysis::callable_effect_inference
     loom::error::diagnostic
     loom::error::error_defs
     loom::import::cxx::binding::assumptions

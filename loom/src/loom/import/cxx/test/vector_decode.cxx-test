@@ -47,7 +47,7 @@ Float4 decode(Words4 payload, Schema schema, Auxiliary values) {
 
 // ----
 func.def public @decode(%payload: vector<4xi32>, %schema: encoding<schema>, %values_zero_point: vector<4xf32>, %values_scale: vector<1xi32>, %values_codebook: vector<4xf32>) -> (vector<4xf32>) {
-  %6, %7, %8 = func.call @copy(%values_zero_point, %values_scale, %values_codebook) : (vector<4xf32>, vector<1xi32>, vector<4xf32>) -> (vector<4xf32>, vector<1xi32>, vector<4xf32>)
+  %6, %7, %8 = func.call pure @copy(%values_zero_point, %values_scale, %values_codebook) : (vector<4xf32>, vector<1xi32>, vector<4xf32>) -> (vector<4xf32>, vector<1xi32>, vector<4xf32>)
   %9 = vector.decode %payload using %schema {codebook = %8 : vector<4xf32>, scale = %7 : vector<1xi32>, zero_point = %6 : vector<4xf32>} : vector<4xi32>, encoding<schema> -> vector<4xf32>
   func.return %9 : vector<4xf32>
 }

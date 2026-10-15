@@ -26,7 +26,7 @@ void empty() {
 
 // ----
 func.def public @add(%lhs: i32, %rhs: i32) -> (i32) {
-  %7 = low.invoke inline @__loom_assembly$_1(%lhs, %rhs) : (i32, i32) -> (i32)
+  %7 = low.invoke pure inline @__loom_assembly$_1(%lhs, %rhs) : (i32, i32) -> (i32)
   func.return %7 : i32
 }
 
@@ -36,7 +36,7 @@ low.func.def target<test.low.core> @__loom_assembly$_1(%lhs: reg<test.i32>, %rhs
 }
 
 func.def public @identity(%value: i32, %unused: i32) -> (i32) {
-  %14 = low.invoke inline @__loom_assembly$_2(%value, %unused) : (i32, i32) -> (i32)
+  %14 = low.invoke pure inline @__loom_assembly$_2(%value, %unused) : (i32, i32) -> (i32)
   func.return %14 : i32
 }
 
@@ -45,7 +45,7 @@ low.func.def target<test.low.core> @__loom_assembly$_2(%value: reg<test.i32>, %u
 }
 
 func.def public @empty() {
-  low.invoke inline @__loom_assembly$_3() : ()
+  low.invoke pure inline @__loom_assembly$_3() : ()
   func.return
 }
 
@@ -79,14 +79,14 @@ int entry(int value) {
 func.def public @entry(%value$0: i32) -> (i32) {
   %2 = scalar.constant 1 : i32
   %value$3 = scalar.addi %value$0, %2 : i32
-  %first = func.call @twice(%value$0) : (i32) -> (i32)
-  %5 = func.call @twice(%value$3) : (i32) -> (i32)
+  %first = func.call pure @twice(%value$0) : (i32) -> (i32)
+  %5 = func.call pure @twice(%value$3) : (i32) -> (i32)
   %6 = scalar.addi %first, %5 : i32
   func.return %6 : i32
 }
 
 func.def @twice(%value: i32) -> (i32) {
-  %12 = low.invoke inline @__loom_assembly$(%value) : (i32) -> (i32)
+  %12 = low.invoke pure inline @__loom_assembly$(%value) : (i32) -> (i32)
   func.return %12 : i32
 }
 

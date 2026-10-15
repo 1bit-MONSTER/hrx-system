@@ -51,11 +51,11 @@ class CallGraphTest : public ::testing::Test {
     iree_arena_block_pool_deinitialize(&block_pool_);
   }
 
-  // Creates a function with a body, returns its symbol_id and
-  // a builder positioned at the body block.
+  // Function fixture with its symbol and root regions.
   struct FuncInfo {
     loom_symbol_id_t symbol_id;
     loom_op_t* func_op;
+    loom_region_t* config;
     loom_region_t* body;
   };
 
@@ -82,15 +82,25 @@ class CallGraphTest : public ::testing::Test {
                                        LOOM_LOCATION_UNKNOWN, &func_op));
     loom_func_like_t func_like = loom_func_like_cast(module_, func_op);
     loom_region_t* body = loom_func_like_body(func_like);
-    return {(uint16_t)callee.symbol_id, func_op, body};
+    return {(uint16_t)callee.symbol_id, func_op, nullptr, body};
   }
 
-  void add_call(FuncInfo& caller, uint16_t callee_symbol_id,
-                CallKind kind = CallKind::kSemantic) {
+  FuncInfo create_split_func(const char* name) {
+    loom_symbol_ref_t callee = add_symbol(name);
+    loom_op_t* func_op = NULL;
+    IREE_CHECK_OK(loom_test_split_func_build(&module_builder_, 0, 0, 0, callee,
+                                             NULL, 0, LOOM_LOCATION_UNKNOWN,
+                                             &func_op));
+    return {(uint16_t)callee.symbol_id, func_op,
+            loom_test_split_func_config(func_op),
+            loom_test_split_func_body(func_op)};
+  }
+
+  void add_call_to_region(FuncInfo& caller, loom_region_t* region,
+                          uint16_t callee_symbol_id, CallKind kind) {
     loom_builder_t body_builder;
     loom_builder_initialize(module_, &module_->arena,
-                            loom_region_entry_block(caller.body),
-                            &body_builder);
+                            loom_region_entry_block(region), &body_builder);
     body_builder.ip.parent_op = caller.func_op;
     loom_symbol_ref_t callee_ref = {
         .module_id = 0,
@@ -117,6 +127,11 @@ class CallGraphTest : public ::testing::Test {
         break;
       }
     }
+  }
+
+  void add_call(FuncInfo& caller, uint16_t callee_symbol_id,
+                CallKind kind = CallKind::kSemantic) {
+    add_call_to_region(caller, caller.body, callee_symbol_id, kind);
   }
 
   void finalize() { IREE_ASSERT_OK(loom_module_compute_uses(module_)); }
@@ -177,9 +192,26 @@ TEST_F(CallGraphTest, LinearChain) {
   EXPECT_EQ(nb->callee_count, 1u);
   EXPECT_EQ(nc->callee_count, 0u);
 
-  // All in different SCCs.
-  EXPECT_NE(na->scc_id, nb->scc_id);
-  EXPECT_NE(nb->scc_id, nc->scc_id);
+  // SCC IDs are assigned in callee-first order.
+  EXPECT_LT(nc->scc_id, nb->scc_id);
+  EXPECT_LT(nb->scc_id, na->scc_id);
+}
+
+TEST_F(CallGraphTest, FindsCallsInEveryFunctionRootRegion) {
+  auto caller = create_split_func("caller");
+  auto callee = create_func("callee");
+  add_call_to_region(caller, caller.config, callee.symbol_id,
+                     CallKind::kSemantic);
+  finalize();
+
+  loom_call_graph_t graph;
+  IREE_ASSERT_OK(loom_call_graph_build(module_, &graph_arena_, &graph));
+
+  const loom_call_graph_node_t* node =
+      loom_call_graph_node(&graph, caller.symbol_id);
+  ASSERT_NE(node, nullptr);
+  ASSERT_EQ(node->callee_count, 1u);
+  EXPECT_EQ(node->callees[0], callee.symbol_id);
 }
 
 TEST_F(CallGraphTest, SelfRecursion) {

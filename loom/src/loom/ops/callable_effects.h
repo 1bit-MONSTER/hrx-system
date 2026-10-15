@@ -40,6 +40,24 @@ bool loom_callable_effects_contract_satisfies(
     loom_callable_effect_contract_t provided,
     loom_callable_effect_contract_t required);
 
+// Returns the strongest callable contract satisfied by |traits|. Pure is
+// returned when no runtime effects are present, read-only when deterministic
+// reads are the only effects, and unspecified for all other effect classes.
+loom_callable_effect_contract_t loom_callable_effects_classify_traits(
+    loom_trait_flags_t traits);
+
+// Returns the strongest callable contract satisfied by every operation nested
+// in |body|. This is a cold verification query and walks the body once.
+loom_callable_effect_contract_t loom_callable_effects_classify_body(
+    const loom_module_t* module, const loom_region_t* body);
+
+// Returns the exact contract established by |function|. Definitions are
+// classified from their body and then limited by any explicit contract;
+// declarations return their explicit contract. This is a cold verification
+// query and may walk a definition body once.
+loom_callable_effect_contract_t loom_callable_effects_classify_function(
+    const loom_module_t* module, loom_func_like_t function);
+
 // Returns true when every operation nested in |body| satisfies the
 // deterministic read-only callable contract. This is a cold verification
 // query and walks the body once; pass hot paths consume explicit contracts.

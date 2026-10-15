@@ -9,6 +9,7 @@
 #include <memory>
 #include <new>
 
+#include "loom/analysis/callable_effect_inference.h"
 #include "loom/import/cxx/source/error.h"
 #include "loom/import/cxx/source/source.h"
 #include "loom/import/cxx/translation.h"
@@ -38,6 +39,7 @@ iree_status_t loom_cxx_import(iree_string_view_t source,
     std::unique_ptr<loom_module_t, decltype(&loom_module_free)> module(
         raw_module, loom_module_free);
     translate(parsed.unit(), parsed.diagnostics(), module.get(), *options);
+    check(loom_callable_effect_inference_run(module.get()));
     loom_verify_options_t verification_options = {
         .sink = options->diagnostic_sink,
     };

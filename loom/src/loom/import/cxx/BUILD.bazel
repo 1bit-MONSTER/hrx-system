@@ -79,6 +79,7 @@ loom_cc_library(
     cxx_features = CXX_COMPILER_OPTIONS["cxx_features"],
     cxx_standard = CXX_COMPILER_OPTIONS["cxx_standard"],
     deps = [
+        "//loom/src/loom/analysis:callable_effect_inference",
         "//loom/src/loom/error:diagnostic",
         "//loom/src/loom/error:error_defs",
         "//loom/src/loom/import/cxx/binding:assumptions",

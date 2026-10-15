@@ -14,7 +14,7 @@ unsigned entry(unsigned x) { return choose<count>(x); }
 
 // ----
 func.def public @entry(%x: i32) -> (i32) {
-  %2 = func.call @choose_5(%x) : (i32) -> (i32)
+  %2 = func.call pure @choose_5(%x) : (i32) -> (i32)
   func.return %2 : i32
 }
 
@@ -40,7 +40,7 @@ unsigned entry(unsigned x) { return choose<>(x); }
 
 // ----
 func.def public @entry(%x: i32) -> (i32) {
-  %2 = func.call @choose_5(%x) : (i32) -> (i32)
+  %2 = func.call pure @choose_5(%x) : (i32) -> (i32)
   func.return %2 : i32
 }
 
@@ -66,7 +66,7 @@ unsigned entry(unsigned x) { return choose<unsigned, count>(x); }
 
 // ----
 func.def public @entry(%x: i32) -> (i32) {
-  %2 = func.call @choose_unsigned_int_5(%x) : (i32) -> (i32)
+  %2 = func.call pure @choose_unsigned_int_5(%x) : (i32) -> (i32)
   func.return %2 : i32
 }
 
@@ -92,7 +92,7 @@ unsigned entry(unsigned x) { return choose<count, 7>(x); }
 
 // ----
 func.def public @entry(%x: i32) -> (i32) {
-  %2 = func.call @choose__(%x) : (i32) -> (i32)
+  %2 = func.call pure @choose__(%x) : (i32) -> (i32)
   func.return %2 : i32
 }
 
@@ -122,7 +122,7 @@ int entry(int x) { return choose<bias>(x); }
 
 // ----
 func.def public @entry(%x: i32) -> (i32) {
-  %2 = func.call @choose__3(%x) : (i32) -> (i32)
+  %2 = func.call pure @choose__3(%x) : (i32) -> (i32)
   func.return %2 : i32
 }
 
@@ -142,7 +142,7 @@ unsigned entry() { return choose<5u>(); }
 
 // ----
 func.def public @entry() -> (i32) {
-  %1 = func.call @choose_5() : () -> (i32)
+  %1 = func.call pure @choose_5() : () -> (i32)
   func.return %1 : i32
 }
 
@@ -167,7 +167,7 @@ unsigned entry(unsigned x) { return Add<count>::apply(x); }
 
 // ----
 func.def public @entry(%x: i32) -> (i32) {
-  %2 = func.call @apply(%x) : (i32) -> (i32)
+  %2 = func.call pure @apply(%x) : (i32) -> (i32)
   func.return %2 : i32
 }
 
@@ -189,7 +189,7 @@ unsigned entry(unsigned x) { return choose<count>(x); }
 
 // ----
 func.def public @entry(%x: i32) -> (i32) {
-  %2 = func.call @choose_count(%x) : (i32) -> (i32)
+  %2 = func.call pure @choose_count(%x) : (i32) -> (i32)
   func.return %2 : i32
 }
 
@@ -210,12 +210,12 @@ bool disabled() { return choose<0>(); }
 
 // ----
 func.def public @enabled() -> (i1) {
-  %1 = func.call @choose_1() : () -> (i1)
+  %1 = func.call pure @choose_1() : () -> (i1)
   func.return %1 : i1
 }
 
 func.def public @disabled() -> (i1) {
-  %3 = func.call @choose_0() : () -> (i1)
+  %3 = func.call pure @choose_0() : () -> (i1)
   func.return %3 : i1
 }
 
@@ -244,7 +244,7 @@ unsigned entry(unsigned input) { return choose<value>(input); }
 
 // ----
 func.def public @entry(%input: i32) -> (i32) {
-  %2 = func.call @choose_3(%input) : (i32) -> (i32)
+  %2 = func.call pure @choose_3(%input) : (i32) -> (i32)
   func.return %2 : i32
 }
 
@@ -306,7 +306,7 @@ unsigned entry() { return value<unsigned char, 255>(); }
 
 // ----
 func.def public @entry() -> (i32) {
-  %1 = func.call @value_unsigned_char_255() : () -> (i8)
+  %1 = func.call pure @value_unsigned_char_255() : () -> (i8)
   %2 = scalar.extui %1 : i8 to i32
   func.return %2 : i32
 }
@@ -330,7 +330,7 @@ float entry(float x) { return choose<value>(x); }
 
 // ----
 func.def public @entry(%x: f32) -> (f32) {
-  %2 = func.call @choose_1_5(%x) : (f32) -> (f32)
+  %2 = func.call pure @choose_1_5(%x) : (f32) -> (f32)
   func.return %2 : f32
 }
 
@@ -350,7 +350,7 @@ float entry(float x) { return choose<1.5>(x); }
 
 // ----
 func.def public @entry(%x: f32) -> (f32) {
-  %2 = func.call @choose_1_5(%x) : (f32) -> (f32)
+  %2 = func.call pure @choose_1_5(%x) : (f32) -> (f32)
   func.return %2 : f32
 }
 

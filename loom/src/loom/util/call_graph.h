@@ -7,15 +7,15 @@
 // Call graph construction and SCC analysis.
 //
 // Builds a call graph from direct call-like ops in a module, then computes
-// strongly connected components (SCCs) using Tarjan's algorithm. SCCs are
-// returned in reverse topological order (callees before callers), which is the
+// strongly connected components (SCCs) using Tarjan's algorithm. SCC IDs are
+// assigned in reverse topological order (callees before callers), which is the
 // right iteration order for bottom-up analyses like effect inference, cost
-// modeling, and inlining decisions.
+// modeling, and inlining decisions. Nodes remain in module symbol order.
 //
-// Construction: walks each function body looking for direct semantic,
-// target-low-internal, and explicit low-invoke call-like ops, then records
-// (caller, callee) edges. Total cost: O(N) where N is the total number of ops
-// across all function bodies.
+// Construction: walks every root region of each function-like symbol looking
+// for direct semantic, target-low-internal, explicit low-invoke, and command
+// program call-like ops, then records (caller, callee) edges. Total cost: O(N)
+// where N is the total number of ops across all function root regions.
 //
 // SCC: Tarjan's iterative algorithm, O(V+E) where V = functions and
 // E = call edges. Typically trivial (< 100 nodes for ML models).
@@ -23,19 +23,6 @@
 // All memory is arena-allocated. The call graph is valid for the
 // lifetime of the arena.
 //
-// Usage:
-//
-//   loom_call_graph_t graph;
-//   IREE_RETURN_IF_ERROR(loom_call_graph_build(module, &arena, &graph));
-//
-//   // Iterate functions in bottom-up order (callees first).
-//   for (uint16_t i = 0; i < graph.node_count; ++i) {
-//     const loom_call_graph_node_t* node = &graph.nodes[i];
-//     if (loom_call_graph_is_recursive(&graph, node->symbol_id)) {
-//       // Handle recursive function.
-//     }
-//   }
-
 #ifndef LOOM_UTIL_CALL_GRAPH_H_
 #define LOOM_UTIL_CALL_GRAPH_H_
 
@@ -84,8 +71,12 @@ typedef struct loom_call_graph_t {
 // Call graph construction
 //===----------------------------------------------------------------------===//
 
-// Builds the call graph for all function-like symbols in |module|.
-// Walks each function body looking for direct call-like ops, records edges,
+// Returns true when |kind| contributes an edge to the call graph. Analyses
+// consuming the graph use this query to classify the same call boundary once.
+bool loom_call_graph_tracks_call_kind(loom_call_like_kind_t kind);
+
+// Builds the call graph for all function-like symbols in |module|. Walks every
+// root region looking for tracked direct call-like ops, records edges,
 // deduplicates callee lists, and computes SCCs. All memory is allocated from
 // |arena|.
 iree_status_t loom_call_graph_build(const loom_module_t* module,

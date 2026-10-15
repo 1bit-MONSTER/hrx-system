@@ -158,7 +158,7 @@ func.def public @nested(%value: f32, %scale: f32) -> (f32) {
 }
 
 func.def public @templated(%value: f32, %scale: f32) -> (f32) {
-  %36 = func.call @scaled_float(%value, %scale) : (f32, f32) -> (f32)
+  %36 = func.call pure @scaled_float(%value, %scale) : (f32, f32) -> (f32)
   func.return %36 : f32
 }
 
@@ -168,7 +168,7 @@ func.def public @reduction(%values: vector<4xf32>, %seed: f32) -> (f32) {
 }
 
 func.def public @caller(%value: f32, %scale: f32) -> (f32) {
-  %44 = func.call @helper(%value, %scale) : (f32, f32) -> (f32)
+  %44 = func.call pure @helper(%value, %scale) : (f32, f32) -> (f32)
   %45 = scalar.addf %44, %value : f32
   func.return %45 : f32
 }

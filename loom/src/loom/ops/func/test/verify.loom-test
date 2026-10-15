@@ -285,6 +285,35 @@ func.def @pure_calls_require_pure_callees() {
 
 // ====
 
+// Fresh identity prevents pure callable semantics even though it does not
+// contribute to the region's cached memory summaries.
+func.def @allocating_helper(%bytes: offset) {
+  %storage = buffer.alloca<private> align(4) %bytes : buffer
+  func.return
+}
+
+func.def @pure_calls_reject_fresh_identity(%bytes: offset) {
+  // ERROR@+1: STRUCTURE/034 {op_name="func.call", callee_name="allocating_helper"}
+  func.call pure @allocating_helper(%bytes) : (offset)
+  func.return
+}
+
+// ====
+
+// An explicit contract remains the stable upper bound even when the current
+// definition happens to satisfy a stronger contract.
+func.def readonly @declared_readonly_with_pure_body() {
+  func.return
+}
+
+func.def @pure_calls_reject_declared_readonly() {
+  // ERROR@+1: STRUCTURE/034 {op_name="func.call", callee_name="declared_readonly_with_pure_body"}
+  func.call pure @declared_readonly_with_pure_body() : ()
+  func.return
+}
+
+// ====
+
 template.decl @test.pure_provider()
 
 template.def<@test.pure_provider> @pure_provider() {

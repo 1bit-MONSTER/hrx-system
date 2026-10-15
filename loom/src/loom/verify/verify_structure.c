@@ -499,14 +499,8 @@ void loom_verify_func_effect_contract_body_effects(
     return;
   }
   loom_region_t* body = loom_op_regions(op)[func_vtable->body_region_index];
-  const bool valid =
-      contract == LOOM_CALLABLE_EFFECT_CONTRACT_PURE
-          ? !loom_region_has_read_effects(body) &&
-                !loom_region_has_write_effects(body) &&
-                !loom_region_has_convergent_effects(body) &&
-                !loom_region_has_observable_effects(body)
-          : contract == LOOM_CALLABLE_EFFECT_CONTRACT_READONLY &&
-                loom_callable_effects_body_is_readonly(state->module, body);
+  const bool valid = loom_callable_effects_contract_satisfies(
+      loom_callable_effects_classify_body(state->module, body), contract);
   if (valid) {
     return;
   }
@@ -557,7 +551,9 @@ void loom_verify_call_effect_contract(loom_verify_state_t* state,
     return;
   }
   const loom_callable_effect_contract_t callee_contract =
-      loom_callable_effects_callee_contract(state->module, callee);
+      loom_callable_effects_classify_function(
+          state->module,
+          loom_func_like_cast(state->module, symbol->defining_op));
   if (loom_callable_effects_contract_satisfies(callee_contract, contract)) {
     return;
   }

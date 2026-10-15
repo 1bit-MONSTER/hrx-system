@@ -546,6 +546,26 @@ loom_callable_effect_contract_t loom_call_like_effect_contract(
       loom_op_attrs(call.op)[call.vtable->effect_contract_attr_index]);
 }
 
+void loom_call_like_set_effect_contract(
+    loom_module_t* module, loom_call_like_t call,
+    loom_callable_effect_contract_t effect_contract) {
+  IREE_ASSERT_ARGUMENT(module);
+  IREE_ASSERT_ARGUMENT(call.op);
+  IREE_ASSERT_ARGUMENT(call.vtable);
+  IREE_ASSERT_NE(call.vtable->effect_contract_attr_index, LOOM_ATTR_INDEX_NONE);
+  IREE_ASSERT_LT(call.vtable->effect_contract_attr_index,
+                 call.op->attribute_count);
+  IREE_ASSERT_LT(effect_contract, LOOM_CALLABLE_EFFECT_CONTRACT_COUNT_);
+  const loom_trait_flags_t old_traits = call.op->traits;
+  loom_op_attrs(call.op)[call.vtable->effect_contract_attr_index] =
+      effect_contract == LOOM_CALLABLE_EFFECT_CONTRACT_UNSPECIFIED
+          ? loom_attr_absent()
+          : loom_attr_enum(effect_contract);
+  loom_op_refresh_effective_traits(module, call.op);
+  loom_module_update_op_direct_summaries(module, call.op, old_traits,
+                                         call.op->traits);
+}
+
 uint8_t loom_call_like_temperature(loom_call_like_t call) {
   if (!call.vtable) {
     return 0;

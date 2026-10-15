@@ -163,7 +163,7 @@ TEST(CxxAssemblyTest, SourceAndEnvironmentOwnershipSurvivesBothFormats) {
     context.reset();
 
     std::string original = Text(module);
-    EXPECT_NE(original.find("low.invoke inline"), std::string::npos);
+    EXPECT_NE(original.find("low.invoke pure inline"), std::string::npos);
     EXPECT_NE(original.find("reg<amdgpu.vgpr>"), std::string::npos);
     EXPECT_NE(original.find("vector<1xf32>"), std::string::npos);
     loomc_module_serialize_options_t serialize_options = {.format = format};
