@@ -40,7 +40,7 @@ low.func.def inline target<amd.xdna.aie2p.core> @__pipeline_worker_0() asm {
   vst.512.i32x16 %value, %south_view, 0
   vst.512.i32x16 %value, %west_view, 0
   vst.512.i32x16 %value, %north_view, 0
-  %30 = mov.i32 1
+  %30 = mov.short 1
   rel %30, 48
   low.br ^_bb1
 ^_bb1:

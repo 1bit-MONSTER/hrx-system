@@ -191,7 +191,7 @@ low.func.def inline target<amd.xdna.aie2p.core> @__pipeline_worker_0() asm {
 ^_bb2:
   %206 = mov.short 2
   %207 = lshl %record_index, %206
-  %110 = mov.i32 -1
+  %110 = mov.short -1
   acq %110, 48
   %65 = mov.local-address 458760
   %66 = lda %65, 0
@@ -199,24 +199,22 @@ low.func.def inline target<amd.xdna.aie2p.core> @__pipeline_worker_0() asm {
   %68 = add.rr %66, %207
   %69 = ltu %68, %66
   %70 = add.rr %67, %69
-  %71 = mov.i32 1
   %72 = mov.i32 -2146316284
-  mov.ms %71
+  mov.ms %step
   mov.ms %72
   mov.ms %68
   mov.ms.last %70
-  %73 = mov.i32 0
   %75 = mov.i32 -2147483648
   %76 = mov.i32 -2147361276
   mov.ms %75
   mov.ms %76
-  mov.ms.last %73
+  mov.ms.last %begin
   %78 = mov.i32 119316
-  mov.ms %71
+  mov.ms %step
   mov.ms %78
-  mov.ms.last %73
+  mov.ms.last %begin
   acq %110, 51
-  rel %71, 49
+  rel %step, 49
   acq %110, 49
   %87 = mov.local-address 458768
   %88 = lda %87, 0
@@ -225,26 +223,25 @@ low.func.def inline target<amd.xdna.aie2p.core> @__pipeline_worker_0() asm {
   %91 = ltu %90, %88
   %92 = add.rr %89, %91
   %94 = mov.i32 1167396
-  mov.ms %71
+  mov.ms %step
   mov.ms %94
   mov.ms %90
   mov.ms.last %92
   %96 = mov.i32 -2147483647
   %98 = mov.i32 -2147364348
-  mov.ms %71
+  mov.ms %step
   mov.ms %98
   mov.ms.last %96
   %100 = mov.i32 122388
   mov.ms %75
   mov.ms %100
-  mov.ms.last %71
+  mov.ms.last %step
   %101 = mov.ss
-  rel %71, 48
+  rel %step, 48
   %208 = add.rr %record_index, %step
   low.br ^_bb1(%208: reg<aie2p.er>)
 ^_bb3:
-  %62 = mov.i32 1
-  rel %62, 50
+  rel %step, 50
   low.br ^_bb4
 ^_bb4:
   %63 = mov.ss
@@ -442,14 +439,14 @@ low.func.def inline target<amd.xdna.aie2p.core> @__pipeline_worker_1() asm {
   %difference_destination = mov.local-address 459508
   %sum_destination = mov.local-address 459256
   %left_source = mov.local-address 458752
-  %122 = mov.i32 -1
+  %122 = mov.short -1
   acq %122, 49
   acq %122, 51
   %left_value = lda %left_source, 0
   %right_value = lda %right_source, 0
   %sum_value = add.rr %left_value, %right_value
   %difference_value = sub %left_value, %right_value
-  %128 = mov.i32 1
+  %128 = mov.short 1
   rel %128, 48
   rel %128, 50
   acq %122, 52
