@@ -93,6 +93,9 @@ enum loom_amdgpu_tsan_shadow_layout_e {
   LOOM_AMDGPU_TSAN_SHADOW_ENTRY_WORKITEM_SHIFT = 3u,
   // Bit count of the encoded prior linear local workitem id.
   LOOM_AMDGPU_TSAN_SHADOW_ENTRY_WORKITEM_BIT_COUNT = 10u,
+  // Number of distinct local workitem ids representable in a shadow entry.
+  LOOM_AMDGPU_TSAN_SHADOW_ENTRY_WORKITEM_CAPACITY =
+      1u << LOOM_AMDGPU_TSAN_SHADOW_ENTRY_WORKITEM_BIT_COUNT,
   // Bit offset of the encoded workgroup barrier epoch.
   LOOM_AMDGPU_TSAN_SHADOW_ENTRY_EPOCH_SHIFT = 13u,
   // Bit count of the encoded workgroup barrier epoch.

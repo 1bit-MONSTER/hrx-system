@@ -150,6 +150,64 @@ kernel.def @tsan_workgroup_barrier_safe_write() {
   kernel.return
 }
 
+kernel.def @tsan_workgroup_192_distant_write_race() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 192 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch() {
+  %base = index.constant 0 : offset
+  %first_lane = index.constant 0 : index
+  %last_lane = index.constant 191 : index
+  %bytes = index.constant 4 : offset
+  %first_value = scalar.constant 1 : i32
+  %last_value = scalar.constant 2 : i32
+  %lane = kernel.workitem.id<x> : index
+  %scratch = buffer.alloca<workgroup> align(4) %bytes : buffer
+  %scratch_view = buffer.view %scratch[%base] : buffer -> view<1xi32>
+  %is_first_lane = index.cmp eq, %lane, %first_lane : index
+  scf.if %is_first_lane {
+    view.store %first_value, %scratch_view[%first_lane] : i32, view<1xi32>
+  }
+  %is_last_lane = index.cmp eq, %lane, %last_lane : index
+  scf.if %is_last_lane {
+    view.store %last_value, %scratch_view[%first_lane] : i32, view<1xi32>
+  }
+  kernel.return
+}
+
+kernel.def @tsan_workgroup_384_barrier_safe_write() {
+  %unit = index.constant 1 : index
+  %threads = index.constant 384 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%threads, %unit, %unit) : index
+} launch(%output: buffer) {
+  %base = index.constant 0 : offset
+  %first_lane = index.constant 0 : index
+  %last_lane = index.constant 383 : index
+  %bytes = index.constant 4 : offset
+  %before_value = scalar.constant 1 : i32
+  %after_value = scalar.constant 2 : i32
+  %lane = kernel.workitem.id<x> : index
+  %global = buffer.assume.memory_space<global> %output : buffer
+  %output_view = buffer.view %global[%base] : buffer -> view<1xi32>
+  %scratch = buffer.alloca<workgroup> align(4) %bytes : buffer
+  %scratch_view = buffer.view %scratch[%base] : buffer -> view<1xi32>
+  %is_first_lane = index.cmp eq, %lane, %first_lane : index
+  scf.if %is_first_lane {
+    view.store %before_value, %scratch_view[%first_lane] : i32, view<1xi32>
+  }
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  %is_last_lane = index.cmp eq, %lane, %last_lane : index
+  scf.if %is_last_lane {
+    view.store %after_value, %scratch_view[%first_lane] : i32, view<1xi32>
+  }
+  kernel.barrier<workgroup> scope(workgroup) ordering(acq_rel)
+  scf.if %is_first_lane {
+    %result = view.load %scratch_view[%first_lane] : view<1xi32> -> i32
+    view.store %result, %output_view[%first_lane] : i32, view<1xi32>
+  }
+  kernel.return
+}
+
 check.case @tsan_workgroup_write_race_case {
   %output = check.generate.fill value(0) : tensor<1xi32>
   kernel.launch @tsan_workgroup_write_race(%output) : (tensor<1xi32>)
@@ -188,6 +246,20 @@ check.case @tsan_workgroup_adjacent_wide_writes_case {
 check.case @tsan_workgroup_barrier_safe_write_case {
   %output = check.generate.fill value(0) : tensor<1xi32>
   kernel.launch @tsan_workgroup_barrier_safe_write(%output) : (tensor<1xi32>)
+  %expected = check.generate.fill value(2) : tensor<1xi32>
+  check.expect.equal actual(%output) expected(%expected) : tensor<1xi32>
+  check.return
+}
+
+check.case @tsan_workgroup_192_distant_write_race_case {
+  kernel.launch @tsan_workgroup_192_distant_write_race() : ()
+  check.expect.event<device> {count = 1, severity = "error", tsan = {access_length = 4, check = "data_race", current_access = "write", memory = "workgroup", prior_access = "write"}, type = "tsan_report"}
+  check.return
+}
+
+check.case @tsan_workgroup_384_barrier_safe_write_case {
+  %output = check.generate.fill value(0) : tensor<1xi32>
+  kernel.launch @tsan_workgroup_384_barrier_safe_write(%output) : (tensor<1xi32>)
   %expected = check.generate.fill value(2) : tensor<1xi32>
   check.expect.equal actual(%output) expected(%expected) : tensor<1xi32>
   check.return
