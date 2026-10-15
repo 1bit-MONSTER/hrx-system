@@ -174,6 +174,7 @@ extern const loom_op_vtable_t loom_vector_decode_vtable;
 extern const loom_op_vtable_t loom_vector_encode_vtable;
 extern const loom_op_vtable_t loom_vector_fragment_vtable;
 extern const loom_op_vtable_t loom_vector_fragment_repack_vtable;
+extern const loom_op_vtable_t loom_vector_refine_vtable;
 
 #ifdef __cplusplus
 }  // extern "C"

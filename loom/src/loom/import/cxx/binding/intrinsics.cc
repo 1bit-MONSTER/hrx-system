@@ -135,6 +135,9 @@ void Intrinsics::declaration(cxx::FunctionSymbol* function,
     if (auto* scalar = loom_cxx_scalar_binding_find(
             view(selected->arguments[0]->name()))) {
       binding.operation = resolve_scalar_operation(scalar, *selected, owner);
+    } else if (auto arithmetic = VectorArithmeticIntrinsic::admit(
+                   unit_, diagnostics_, *selected, owner)) {
+      binding.operation = *arithmetic;
     } else if (auto shaped = ShapedIntrinsic::admit(unit_, diagnostics_,
                                                     *selected, owner)) {
       binding.operation = *shaped;
@@ -228,6 +231,11 @@ Intrinsics::Binding Intrinsics::resolve(cxx::FunctionSymbol* function,
           loom_cxx_scalar_binding_find(view(attribute.arguments[0]->name()))) {
     return resolve_scalar(resolve_scalar_operation(scalar, attribute, owner),
                           signature, owner);
+  }
+  if (auto arithmetic = VectorArithmeticIntrinsic::admit(unit_, diagnostics_,
+                                                         attribute, owner)) {
+    return VectorArithmeticIntrinsic::resolve(*arithmetic, unit_, diagnostics_,
+                                              types_, signature, owner);
   }
   if (auto shaped =
           ShapedIntrinsic::admit(unit_, diagnostics_, attribute, owner)) {
@@ -370,6 +378,10 @@ Intrinsics::Binding* Intrinsics::concrete_binding(cxx::FunctionSymbol* function,
         auto* signature = cxx::type_cast<cxx::FunctionType>(function->type());
         if constexpr (std::is_same_v<T, ScalarOperation>) {
           return resolve_scalar(operation, signature, owner);
+        } else if constexpr (std::is_same_v<
+                                 T, VectorArithmeticIntrinsic::Operation>) {
+          return VectorArithmeticIntrinsic::resolve(
+              operation, unit_, diagnostics_, types_, signature, owner);
         } else if constexpr (std::is_same_v<T, ShapedIntrinsic::Operation>) {
           return ShapedIntrinsic::resolve(operation, unit_, diagnostics_,
                                           types_, signature, owner);
@@ -437,7 +449,7 @@ IntrinsicCallResult Intrinsics::call(const Binding& admitted,
                        location)};
   }
   if (auto* memory = std::get_if<VectorMemoryIntrinsic>(binding)) {
-    return {memory->call(arguments, builder, location)};
+    return {memory->call(arguments, arena, builder, location)};
   }
   if (auto* async = std::get_if<AsyncIntrinsic>(binding)) {
     return {async->call(arguments, arena, builder, location)};
@@ -467,7 +479,10 @@ IntrinsicCallResult Intrinsics::call(const Binding& admitted,
         application->call(arguments, types_, arena, owner, builder, location)};
   }
   if (auto* shaped = std::get_if<ShapedIntrinsic>(binding)) {
-    return {Value(shaped->call(arguments, math_flags, builder, location))};
+    return {shaped->call(arguments, arena, math_flags, builder, location)};
+  }
+  if (auto* arithmetic = std::get_if<VectorArithmeticIntrinsic>(binding)) {
+    return {arithmetic->call(arguments, arena, math_flags, builder, location)};
   }
   std::array<loom_value_id_t, 8> inline_values;
   std::vector<loom_value_id_t> overflow;

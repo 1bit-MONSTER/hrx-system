@@ -1,0 +1,88 @@
+// RUN: roundtrip
+#include <loomcxx/vector.h>
+
+namespace loomt = loom::type;
+
+using DynamicFloat = loomt::vector<loomt::shape<loomt::dynamic, 4, loomt::dynamic>, float>;
+using Signed = loomt::vector<loomt::shape<8>, int>;
+using Unsigned = loomt::vector<loomt::shape<8>, unsigned>;
+using Float8 = loomt::vector<loomt::shape<16>, __float8_e4m3fn>;
+
+template <class T>
+concept Addable = requires(T lhs, T rhs) { lhs + rhs; };
+template <class T>
+concept Bitwise = requires(T lhs, T rhs) { lhs & rhs; };
+static_assert(Addable<DynamicFloat>);
+static_assert(Addable<Signed>);
+static_assert(Addable<Float8>);
+static_assert(!Addable<loomt::vector<loomt::shape<4>, bool>>);
+static_assert(!Bitwise<DynamicFloat>);
+static_assert(Bitwise<Signed>);
+
+DynamicFloat add_dynamic(DynamicFloat lhs, DynamicFloat rhs) { return lhs + rhs; }
+
+DynamicFloat floating(DynamicFloat lhs, DynamicFloat rhs) [[loom::fastmath("nnan", "contract")]] {
+  return -((lhs + rhs) * (lhs - rhs) / (lhs % rhs));
+}
+
+Signed signed_integer(Signed lhs, Signed rhs) {
+  Signed arithmetic = -(((lhs + rhs) - (lhs * rhs)) / rhs % lhs);
+  Signed bits = ~(lhs & rhs) | (lhs ^ rhs);
+  return (arithmetic ^ bits) << rhs >> rhs;
+}
+
+Unsigned unsigned_integer(Unsigned lhs, Unsigned rhs) {
+  return (lhs / rhs) % rhs >> rhs;
+}
+
+Float8 narrow_float(Float8 lhs, Float8 rhs) { return lhs + rhs; }
+
+// ----
+func.def public @add_dynamic(%lhs_dim0: index, %lhs_dim2: index, %lhs: vector<[%lhs_dim0]x4x[%lhs_dim2]xf32>, %rhs_dim0: index, %rhs_dim2: index, %rhs: vector<[%rhs_dim0]x4x[%rhs_dim2]xf32>) -> (%6: index, %7: index, vector<[%6]x4x[%7]xf32>) {
+  %9 = vector.refine %rhs : vector<[%rhs_dim0]x4x[%rhs_dim2]xf32> -> vector<[%lhs_dim0]x4x[%lhs_dim2]xf32>
+  %10 = vector.addf %lhs, %9 : vector<[%lhs_dim0]x4x[%lhs_dim2]xf32>
+  func.return %lhs_dim0, %lhs_dim2, %10 : index, index, vector<[%lhs_dim0]x4x[%lhs_dim2]xf32>
+}
+
+func.def public @floating(%lhs_dim0: index, %lhs_dim2: index, %lhs: vector<[%lhs_dim0]x4x[%lhs_dim2]xf32>, %rhs_dim0: index, %rhs_dim2: index, %rhs: vector<[%rhs_dim0]x4x[%rhs_dim2]xf32>) -> (%17: index, %18: index, vector<[%17]x4x[%18]xf32>) {
+  %20 = vector.refine %rhs : vector<[%rhs_dim0]x4x[%rhs_dim2]xf32> -> vector<[%lhs_dim0]x4x[%lhs_dim2]xf32>
+  %21 = vector.addf<nnan|contract> %lhs, %20 : vector<[%lhs_dim0]x4x[%lhs_dim2]xf32>
+  %22 = vector.refine %rhs : vector<[%rhs_dim0]x4x[%rhs_dim2]xf32> -> vector<[%lhs_dim0]x4x[%lhs_dim2]xf32>
+  %23 = vector.subf<nnan|contract> %lhs, %22 : vector<[%lhs_dim0]x4x[%lhs_dim2]xf32>
+  %24 = vector.mulf<nnan|contract> %21, %23 : vector<[%lhs_dim0]x4x[%lhs_dim2]xf32>
+  %25 = vector.refine %rhs : vector<[%rhs_dim0]x4x[%rhs_dim2]xf32> -> vector<[%lhs_dim0]x4x[%lhs_dim2]xf32>
+  %26 = vector.remf<nnan|contract> %lhs, %25 : vector<[%lhs_dim0]x4x[%lhs_dim2]xf32>
+  %27 = vector.divf<nnan|contract> %24, %26 : vector<[%lhs_dim0]x4x[%lhs_dim2]xf32>
+  %28 = vector.negf<nnan|contract> %27 : vector<[%lhs_dim0]x4x[%lhs_dim2]xf32>
+  func.return %lhs_dim0, %lhs_dim2, %28 : index, index, vector<[%lhs_dim0]x4x[%lhs_dim2]xf32>
+}
+
+func.def public @signed_integer(%lhs: vector<8xi32>, %rhs: vector<8xi32>) -> (vector<8xi32>) {
+  %32 = vector.addi %lhs, %rhs : vector<8xi32>
+  %33 = vector.muli %lhs, %rhs : vector<8xi32>
+  %34 = vector.subi %32, %33 : vector<8xi32>
+  %35 = vector.divsi %34, %rhs : vector<8xi32>
+  %36 = vector.remsi %35, %lhs : vector<8xi32>
+  %arithmetic = vector.negi %36 : vector<8xi32>
+  %38 = vector.andi %lhs, %rhs : vector<8xi32>
+  %39 = vector.constant -1 : vector<8xi32>
+  %40 = vector.xori %38, %39 : vector<8xi32>
+  %41 = vector.xori %lhs, %rhs : vector<8xi32>
+  %bits = vector.ori %40, %41 : vector<8xi32>
+  %43 = vector.xori %arithmetic, %bits : vector<8xi32>
+  %44 = vector.shli %43, %rhs : vector<8xi32>
+  %45 = vector.shrsi %44, %rhs : vector<8xi32>
+  func.return %45 : vector<8xi32>
+}
+
+func.def public @unsigned_integer(%lhs: vector<8xi32>, %rhs: vector<8xi32>) -> (vector<8xi32>) {
+  %49 = vector.divui %lhs, %rhs : vector<8xi32>
+  %50 = vector.remui %49, %rhs : vector<8xi32>
+  %51 = vector.shrui %50, %rhs : vector<8xi32>
+  func.return %51 : vector<8xi32>
+}
+
+func.def public @narrow_float(%lhs: vector<16xf8E4M3>, %rhs: vector<16xf8E4M3>) -> (vector<16xf8E4M3>) {
+  %55 = vector.addf %lhs, %rhs : vector<16xf8E4M3>
+  func.return %55 : vector<16xf8E4M3>
+}

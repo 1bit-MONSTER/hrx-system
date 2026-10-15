@@ -18,6 +18,7 @@ from loom.dialect.vector.builders.integer_arithmetic import VectorIntegerArithme
 from loom.dialect.vector.builders.math import VectorMathMixin
 from loom.dialect.vector.builders.memory import VectorMemoryMixin
 from loom.dialect.vector.builders.reduction import VectorReductionMixin
+from loom.dialect.vector.builders.refinement import VectorRefinementMixin
 from loom.dialect.vector.builders.table import VectorTableMixin
 
 class VectorBuilder(
@@ -35,5 +36,6 @@ class VectorBuilder(
     VectorContractionMixin,
     VectorReductionMixin,
     VectorEncodingMixin,
+    VectorRefinementMixin,
     DialectBuilder,
 ): ...

@@ -164,6 +164,8 @@ loom_check_test_suite(
         "template_values.cxx-test",
         "template_values_roundtrip.cxx-test",
         "value_initialization.cxx-test",
+        "vector_arithmetic.cxx-test",
+        "vector_arithmetic_invalid.cxx-test",
         "vector_constants.cxx-test",
         "vector_conversion.cxx-test",
         "vector_conversion_invalid.cxx-test",

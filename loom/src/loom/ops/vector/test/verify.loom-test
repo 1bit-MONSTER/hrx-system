@@ -1,5 +1,31 @@
 // RUN: verify
 
+// vector.refine may relate dynamic extents or narrow one to a static extent,
+// but it cannot assert an obvious static shape contradiction.
+func.def @refine_static_dimension_mismatch(%source: vector<4xf32>) {
+  // ERROR@+1: SHAPE/001 "source static dimension" "4" "result static dimension" "8"
+  %refined = vector.refine %source : vector<4xf32> -> vector<8xf32>
+  func.return
+}
+
+// ====
+
+func.def @refine_element_mismatch(%source: vector<4xf32>) {
+  // ERROR@+1: TYPE/002
+  %refined = vector.refine %source : vector<4xf32> -> vector<4xi32>
+  func.return
+}
+
+// ====
+
+func.def @refine_rank_mismatch(%source: vector<4xf32>) {
+  // ERROR@+1: SHAPE/001
+  %refined = vector.refine %source : vector<4xf32> -> vector<1x4xf32>
+  func.return
+}
+
+// ====
+
 // Address casts accept fixed integers and address domains, with at least one
 // side crossing an address boundary.
 func.def @index_cast_float_input(%value: vector<4xf32>) {

@@ -2503,6 +2503,32 @@ class TestParameterizedAttributeArrayWireFormat:
 
 
 class TestLocationRoundTrips:
+    def test_duplicate_location_rows_preserve_wire_ids(self) -> None:
+        module = Module(name="test")
+        location = FileLocation(
+            source_id=0, start_line=42, start_col=3, end_line=42, end_col=58
+        )
+        module.sources.append("model.loom")
+        first_location_id = module.locations.add(location)
+        second_location_id = module.locations.append(location)
+        _make_func(module, "first", [], is_declaration=True)
+        _make_func(module, "second", [], is_declaration=True)
+        assert module.symbols[0].op is not None
+        assert module.symbols[1].op is not None
+        module.symbols[0].op.location_id = first_location_id
+        module.symbols[1].op.location_id = second_location_id
+
+        loaded = _roundtrip(module)
+
+        assert len(loaded.locations) == 3
+        assert loaded.symbols[0].op is not None
+        assert loaded.symbols[1].op is not None
+        assert loaded.symbols[0].op.location_id == first_location_id
+        assert loaded.symbols[1].op.location_id == second_location_id
+        assert loaded.locations.get(first_location_id) == location
+        assert loaded.locations.get(second_location_id) == location
+        assert loaded.locations.add(location) == first_location_id
+
     def test_file_location_survives(self) -> None:
         from loom.ir import FileLocation
 

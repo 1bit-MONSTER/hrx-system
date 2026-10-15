@@ -609,6 +609,32 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_cc_library(
   NAME
+    vector_arithmetic
+  CXX_STANDARD
+    23
+  CXX_FEATURES
+    "exceptions"
+    "rtti"
+  HDRS
+    "vector_arithmetic.h"
+  SRCS
+    "vector_arithmetic.cc"
+  DEPS
+    ::scalar_bindings
+    iree::base
+    iree::third_party::cxx_parser
+    loom::import::cxx::source
+    loom::import::cxx::source::error
+    loom::import::cxx::value::representation
+    loom::import::cxx::value::types
+    loom::ops::vector
+  PUBLIC
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_cc_library(
+  NAME
     vector_memory
   CXX_STANDARD
     23
@@ -733,6 +759,7 @@ loom_cc_library(
     ::shaped
     ::target
     ::template_apply
+    ::vector_arithmetic
     ::vector_memory
     ::view
     iree::third_party::cxx_parser

@@ -138,8 +138,10 @@ class CxxRenderContext:
                 self.definition_blocks[result] = block
             if operation.name in {"scalar.assume", "index.assume"}:
                 self.assumption_inputs.update(operation.operands)
+        self.operation_scopes, self.value_scopes = self._collect_value_scopes()
+        self.scope_names: dict[int, set[str]] = collections.defaultdict(set)
         self.names = self._plan_names()
-        self.temporary_names = set(self.names.values())
+        self.temporary_names: set[str] = set()
         self.table_lookup_declarations: set[tuple[str, str, str, str]] = set()
         self.record_declarations: dict[str, tuple[tuple[str, str], ...]] = {}
         self.record_types: dict[tuple[str, tuple[tuple[str, str], ...]], str] = {}
@@ -163,7 +165,27 @@ class CxxRenderContext:
         self.value_origins = list(range(len(self.module.values)))
         self.rendered_assumptions: set[tuple[object, ...]] = set()
         self.assignment_targets: dict[int, str] = {}
-        self._target_info: TargetInfo | None = None
+        self.target_names: dict[str, str] = {}
+
+    def _collect_value_scopes(self) -> tuple[dict[int, int], dict[int, int]]:
+        """Maps top-level operations and their values to C++ local scopes."""
+        operation_scopes: dict[int, int] = {}
+        value_scopes: dict[int, int] = {}
+
+        def assign(operation: Operation, scope: int) -> None:
+            for value_id in (*operation.operands, *operation.results):
+                value_scopes.setdefault(value_id, scope)
+            for region in operation.regions:
+                for block in region.blocks:
+                    for argument_id in block.arg_ids:
+                        value_scopes.setdefault(argument_id, scope)
+                    for child in block.ops:
+                        assign(child, scope)
+
+        for scope, operation in enumerate(self.module.body.ops):
+            operation_scopes[id(operation)] = scope
+            assign(operation, scope)
+        return operation_scopes, value_scopes
 
     def _plan_names(self) -> dict[int, str]:
         preferred: dict[int, str] = {}
@@ -298,16 +320,20 @@ class CxxRenderContext:
             preferred[value_id] = f"{stem}_byte_offset"
 
         names: dict[int, str] = {}
-        counts: dict[str, int] = {}
+        scope_counts: dict[int, dict[str, int]] = collections.defaultdict(dict)
         for value_id in range(len(self.module.values)):
             assumption_source = assumption_sources.get(value_id)
             if assumption_source is not None:
                 names[value_id] = names[assumption_source]
                 continue
             base = preferred[value_id]
+            scope = self.value_scopes.get(value_id, -1)
+            counts = scope_counts[scope]
             ordinal = counts.get(base, 0)
             counts[base] = ordinal + 1
-            names[value_id] = base if ordinal == 0 else f"{base}_{ordinal}"
+            name = base if ordinal == 0 else f"{base}_{ordinal}"
+            names[value_id] = name
+            self.scope_names[scope].add(name)
         return names
 
     def _constant_integer_from_definition(self, value_id: int) -> int | None:

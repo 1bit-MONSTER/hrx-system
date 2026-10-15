@@ -9,7 +9,109 @@
 
 #include <loomcxx/view.h>
 
+namespace loom::detail {
+
+template <class T>
+concept vector_arithmetic_element =
+    __is_floating_point(T) || (__is_integral(T) && !__is_same(T, bool));
+
+template <class T>
+concept vector_integer_element = __is_integral(T) && !__is_same(T, bool);
+
+}  // namespace loom::detail
+
+namespace loom::type {
+
+// A rank-generic register value whose logical dimensions precede its element
+// type, matching Loom vector syntax. Native C++ vectors remain the concise
+// spelling for static rank-one values; this type retains dependent dimensions
+// through functions, records, templates, and structured control flow.
+template <class Shape, class T>
+class [[loom::type("vector")]] vector {};
+
+// Lanewise arithmetic preserves Shape and T. For dependent shapes, binary
+// results retain the left value's dynamic dimensions and assert that the right
+// value describes the same logical lane grid.
+template <class Shape, class T>
+  requires(loom::detail::vector_arithmetic_element<T>)
+[[loom::op("vector.add")]] vector<Shape, T> operator+(vector<Shape, T> lhs,
+                                                      vector<Shape, T> rhs);
+template <class Shape, class T>
+  requires(loom::detail::vector_arithmetic_element<T>)
+[[loom::op("vector.sub")]] vector<Shape, T> operator-(vector<Shape, T> lhs,
+                                                      vector<Shape, T> rhs);
+template <class Shape, class T>
+  requires(loom::detail::vector_arithmetic_element<T>)
+[[loom::op("vector.mul")]] vector<Shape, T> operator*(vector<Shape, T> lhs,
+                                                      vector<Shape, T> rhs);
+template <class Shape, class T>
+  requires(loom::detail::vector_arithmetic_element<T>)
+[[loom::op("vector.div")]] vector<Shape, T> operator/(vector<Shape, T> lhs,
+                                                      vector<Shape, T> rhs);
+template <class Shape, class T>
+  requires(loom::detail::vector_arithmetic_element<T>)
+[[loom::op("vector.rem")]] vector<Shape, T> operator%(vector<Shape, T> lhs,
+                                                      vector<Shape, T> rhs);
+template <class Shape, class T>
+  requires(loom::detail::vector_arithmetic_element<T>)
+[[loom::op("vector.neg")]] vector<Shape, T> operator-(vector<Shape, T> input);
+template <class Shape, class T>
+  requires(loom::detail::vector_integer_element<T>)
+[[loom::op("vector.and")]] vector<Shape, T> operator&(vector<Shape, T> lhs,
+                                                      vector<Shape, T> rhs);
+template <class Shape, class T>
+  requires(loom::detail::vector_integer_element<T>)
+[[loom::op("vector.or")]] vector<Shape, T> operator|(vector<Shape, T> lhs,
+                                                     vector<Shape, T> rhs);
+template <class Shape, class T>
+  requires(loom::detail::vector_integer_element<T>)
+[[loom::op("vector.xor")]] vector<Shape, T> operator^(vector<Shape, T> lhs,
+                                                      vector<Shape, T> rhs);
+template <class Shape, class T>
+  requires(loom::detail::vector_integer_element<T>)
+[[loom::op("vector.complement")]] vector<Shape, T> operator~(
+    vector<Shape, T> input);
+template <class Shape, class T>
+  requires(loom::detail::vector_integer_element<T>)
+[[loom::op("vector.shl")]] vector<Shape, T> operator<<(vector<Shape, T> lhs,
+                                                       vector<Shape, T> rhs);
+template <class Shape, class T>
+  requires(loom::detail::vector_integer_element<T>)
+[[loom::op("vector.shr")]] vector<Shape, T> operator>>(vector<Shape, T> lhs,
+                                                       vector<Shape, T> rhs);
+
+}  // namespace loom::type
+
+namespace loom::detail {
+
+template <class Vector>
+struct vector_traits;
+
+template <loom::type::size_type... Extents, class T>
+struct vector_traits<loom::type::vector<loom::type::shape<Extents...>, T>> {
+  using element_type = T;
+  using dimensions_type = loom::type::indices<(
+      loom::type::size_type{0} + ... +
+      (Extents == loom::type::dynamic ? loom::type::size_type{1}
+                                      : loom::type::size_type{0}))>;
+};
+
+template <class Vector>
+using vector_element = typename vector_traits<Vector>::element_type;
+
+template <class Vector>
+using vector_dimensions = typename vector_traits<Vector>::dimensions_type;
+
+}  // namespace loom::detail
+
 namespace loom::vector {
+
+// Replicates one scalar across a semantic vector. Dimensions supplies one
+// index for each dynamic result axis in source-axis order.
+template <class Result>
+[[loom::op("vector.splat")]] Result splat(
+    loom::detail::vector_dimensions<Result> dimensions,
+    loom::detail::vector_element<Result> value);
 
 // Loads one contiguous native C++ vector at a full-rank logical origin. Result
 // selects its static register shape while the view supplies element type,
@@ -21,8 +123,18 @@ template <class Result, class T, loom::type::size_type... Extents,
     loom::type::view<loom::type::shape<Extents...>, T, Role> source,
     Origin origin);
 
-// Stores one contiguous native C++ vector at a full-rank logical origin. Const
-// destination element types are rejected during source admission.
+// Loads one semantic vector at a full-rank logical origin. Dimensions supplies
+// one index for each dynamic result axis in source-axis order.
+template <class Result, class T, loom::type::size_type... Extents,
+          loom::encoding::role Role,
+          class Origin = loom::type::coordinates<sizeof...(Extents)>>
+[[loom::op("vector.load")]] Result load(
+    loom::type::view<loom::type::shape<Extents...>, T, Role> source,
+    Origin origin, loom::detail::vector_dimensions<Result> dimensions);
+
+// Stores one contiguous vector at a full-rank logical origin. A semantic value
+// carries its dynamic dimensions. Const destination element types are rejected
+// during source admission.
 template <class Vector, class T, loom::type::size_type... Extents,
           loom::encoding::role Role,
           class Origin = loom::type::coordinates<sizeof...(Extents)>>

@@ -1,5 +1,23 @@
 // RUN: pass canonicalize
 
+// Shape refinement preserves producer facts while changing only the dynamic
+// SSA identities used to spell the vector type.
+func.def @refine_preserves_iota(%m: index, %n: index) -> (i1) {
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %source = vector.iota %c0 step %c1 : vector<[%m]xindex>
+  %refined = vector.refine %source : vector<[%m]xindex> -> vector<[%n]xindex>
+  %is_iota = test.fact_is_vector_iota %refined : vector<[%n]xindex> -> i1
+  func.return %is_iota : i1
+}
+// ----
+func.def @refine_preserves_iota(%m: index, %n: index) -> (i1) {
+  %is_iota = scalar.constant true : i1
+  func.return %is_iota : i1
+}
+
+// ====
+
 // An unknown fixed-width source still gives every offset lane the scalar
 // zero-extension domain. This is a per-lane summary, not an equality claim.
 func.def @index_cast_unknown_i8_to_offset(%source: vector<4xi8>) -> (i64, i64) {

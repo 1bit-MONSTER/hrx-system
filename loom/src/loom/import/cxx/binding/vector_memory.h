@@ -21,10 +21,10 @@
 
 namespace loom::cxx_import {
 
-// One concrete contiguous native-vector memory specialization. Source
-// declarations retain the static vector footprint and typed view contract so
-// calls only bind the already admitted view and full-rank origin to the
-// corresponding High op.
+// One concrete contiguous vector memory specialization. Source declarations
+// retain their native footprint or semantic vector projection together with
+// the typed view contract, so calls only bind dependent result dimensions and
+// the already admitted full-rank origin to the corresponding High op.
 class VectorMemoryIntrinsic {
  public:
   // Returns whether |name| belongs to this binding family.
@@ -38,7 +38,7 @@ class VectorMemoryIntrinsic {
       cxx::AST* owner);
 
   // Emits the admitted operation. A store has no result.
-  std::optional<Value> call(std::span<const Value> arguments,
+  std::optional<Value> call(std::span<const Value> arguments, ValueArena& arena,
                             loom_builder_t* builder,
                             loom_location_id_t location) const;
 
@@ -70,6 +70,10 @@ class VectorMemoryIntrinsic {
   const ViewPartition* view_ = nullptr;
   // Exact register-vector footprint loaded or stored.
   loom_type_t vector_type_ = {};
+  // Semantic vector result or operand; null for a native C++ vector.
+  const VectorPartition* semantic_vector_ = nullptr;
+  // Result-dimension argument; absent for stores and static two-argument loads.
+  std::optional<size_t> dimensions_index_;
   // Source integer mask carrier; unset for ordinary load/store.
   loom_type_t mask_type_ = {};
   // Internal i1 mask shape; unset for ordinary load/store.

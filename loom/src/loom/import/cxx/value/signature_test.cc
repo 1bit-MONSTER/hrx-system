@@ -71,6 +71,53 @@ TEST_F(ValueBuilderTest, BindsFunctionArgumentsAndResultsToTheirOwnIdentities) {
   EXPECT_EQ(loom_type_encoding_value_id(result_view), loom_op_results(op)[1]);
 }
 
+TEST_F(ValueBuilderTest, BindsDependentVectorsToEachCallableIdentity) {
+  Source source(IREE_SV(R"(
+    namespace loom { namespace type {
+    using size_type = __SIZE_TYPE__;
+    inline constexpr size_type dynamic = ~size_type{0};
+    template <size_type... Extents>
+    struct [[loom::type("shape")]] shape {};
+    template <class Shape, class T>
+    struct [[loom::type("vector")]] vector {};
+    } }
+    using Fragment = loom::type::vector<
+        loom::type::shape<loom::type::dynamic>, float>;
+  )"),
+                IREE_SV("vector_signature.cxx"), options());
+  Types types(source.unit(), source.diagnostics());
+  auto symbols = source.unit().globalScope()->find("Fragment");
+  ASSERT_NE(symbols.begin(), symbols.end());
+  const cxx::Type* fragment = (*symbols.begin())->type();
+  std::array<const cxx::Type*, 2> sources = {fragment, fragment};
+
+  auto signature =
+      bind_signature(types, sources, source.unit().ast(), &builder_);
+  ASSERT_EQ(signature.types.size(), 4u);
+  ASSERT_EQ(signature.identities.size(), 4u);
+  loom_string_id_t name;
+  IREE_ASSERT_OK(loom_module_intern_string(module_, IREE_SV("forward"), &name));
+  loom_symbol_id_t symbol;
+  IREE_ASSERT_OK(loom_module_add_symbol(module_, name, &symbol));
+  loom_op_t* op;
+  IREE_ASSERT_OK(loom_test_func_build(&builder_, 0, 0, 0, {0, symbol},
+                                      signature.types.data(), 2,
+                                      signature.types.data() + 2, 2, nullptr, 0,
+                                      nullptr, 0, LOOM_LOCATION_UNKNOWN, &op));
+
+  auto* entry = loom_region_entry_block(loom_test_func_body(op));
+  ASSERT_EQ(entry->arg_count, 2u);
+  EXPECT_EQ(entry->arg_ids[0], signature.identities[0]);
+  EXPECT_EQ(entry->arg_ids[1], signature.identities[1]);
+  EXPECT_EQ(loom_op_results(op)[0], signature.identities[2]);
+  EXPECT_EQ(loom_op_results(op)[1], signature.identities[3]);
+  auto argument_vector = loom_module_value_type(module_, entry->arg_ids[1]);
+  EXPECT_EQ(loom_type_dim_value_id_at(argument_vector, 0), entry->arg_ids[0]);
+  auto result_vector = loom_module_value_type(module_, loom_op_results(op)[1]);
+  EXPECT_EQ(loom_type_dim_value_id_at(result_vector, 0),
+            loom_op_results(op)[0]);
+}
+
 TEST_F(ValueBuilderTest, ReservesStaticIdentitiesForCallableContracts) {
   Source source(IREE_SV("unsigned forward(unsigned input);"),
                 IREE_SV("signature.cxx"), options());

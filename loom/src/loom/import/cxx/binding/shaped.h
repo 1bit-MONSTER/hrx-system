@@ -10,6 +10,7 @@
 #include <cxx/attributes.h>
 #include <cxx/types.h>
 
+#include <array>
 #include <optional>
 #include <span>
 #include <variant>
@@ -25,6 +26,9 @@ namespace loom::cxx_import {
 // the retained result type and semantic kind without reexamining source types.
 class ShapedIntrinsic {
  public:
+  struct Splat {
+    bool operator==(const Splat&) const = default;
+  };
   struct Slice {
     enum class OffsetKind { Unresolved, SignedInteger, UnsignedInteger, Index };
 
@@ -75,8 +79,8 @@ class ShapedIntrinsic {
     uint8_t flags;
     bool operator==(const Reduction&) const = default;
   };
-  using Operation = std::variant<Slice, TableLookup, Absolute, FloatExtremum,
-                                 Dot4i, Dot2f, Dotf, Reduction>;
+  using Operation = std::variant<Splat, Slice, TableLookup, Absolute,
+                                 FloatExtremum, Dot4i, Dot2f, Dotf, Reduction>;
 
   // Admits a string-only loom::op attribute independently of source types.
   // Unknown names return nullopt; recognized names with invalid declarations
@@ -96,21 +100,30 @@ class ShapedIntrinsic {
                                  cxx::AST* owner);
 
   // Emits the admitted operation using already-converted source arguments.
-  loom_value_id_t call(std::span<const Value> arguments, uint8_t math_flags,
-                       loom_builder_t* builder,
-                       loom_location_id_t location) const;
+  Value call(std::span<const Value> arguments, ValueArena& arena,
+             uint8_t math_flags, loom_builder_t* builder,
+             loom_location_id_t location) const;
 
   // Compares operation semantics for redeclarations of one canonical symbol.
   bool equivalent(const ShapedIntrinsic& other) const;
 
  private:
-  ShapedIntrinsic(Operation operation, loom_type_t result_type)
-      : operation_(operation), result_type_(result_type) {}
+  ShapedIntrinsic(Operation operation, loom_type_t result_type,
+                  const VectorPartition* result_vector = nullptr,
+                  std::array<const VectorPartition*, 3> semantic_operands = {})
+      : operation_(operation),
+        result_type_(result_type),
+        result_vector_(result_vector),
+        semantic_operands_(semantic_operands) {}
 
   // Operation family admitted from the source declaration.
   Operation operation_;
   // Exact source scalar or vector result type.
   loom_type_t result_type_;
+  // Semantic vector result representation, or null for a native/scalar result.
+  const VectorPartition* result_vector_;
+  // Semantic vector operands by source position; null denotes a native vector.
+  std::array<const VectorPartition*, 3> semantic_operands_;
 };
 
 }  // namespace loom::cxx_import

@@ -2165,8 +2165,12 @@ class TypeTable:
 
 
 class LocationTable:
-    """Interned location table. Entry 0 is always None (unknown).
-    O(1) dedup via hash map on frozen LocationData."""
+    """Stable location table with O(1) structural deduplication.
+
+    Entry 0 is always None (unknown). New authored locations use add() to
+    reuse structurally equal entries. Deserializers use append() to preserve
+    the identity of every indexed row from the wire format.
+    """
 
     __slots__ = ("_locations", "_index")
 
@@ -2181,6 +2185,15 @@ class LocationTable:
         loc_id = len(self._locations)
         self._locations.append(loc)
         self._index[loc] = loc_id
+        return loc_id
+
+    def append(self, loc: LocationData) -> int:
+        """Append a distinct location row, preserving its assigned ID."""
+        if loc is None:
+            raise ValueError("unknown location is fixed at ID 0")
+        loc_id = len(self._locations)
+        self._locations.append(loc)
+        self._index.setdefault(loc, loc_id)
         return loc_id
 
     def get(self, location_id: int) -> LocationData:

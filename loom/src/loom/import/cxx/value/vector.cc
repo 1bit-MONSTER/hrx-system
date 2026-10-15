@@ -23,7 +23,7 @@ loom_value_id_t Vectors::convert(loom_value_id_t value,
                                  uint8_t fastmath) {
   auto input = types_.get(input_type, owner);
   auto output = types_.get(output_type, owner);
-  auto* vector = types_.vector(output_type);
+  auto* vector = types_.native_vector(output_type);
   if (!vector) {
     diagnostics_.reject(unit_, owner,
                         "vector conversion requires a vector destination");
@@ -58,9 +58,9 @@ loom_value_id_t Vectors::convert_elements(loom_value_id_t value,
   if (loom_type_equal(input, output)) {
     return value;
   }
-  auto* input_vector = types_.vector(input_type);
+  auto* input_vector = types_.native_vector(input_type);
   auto* input_element = input_vector->elementType();
-  auto* output_element = types_.vector(output_type)->elementType();
+  auto* output_element = types_.native_vector(output_type)->elementType();
   bool floating_input = types_.is_float(input_element);
   bool floating_output = types_.is_float(output_element);
   auto* layout = unit_.control()->memoryLayout();
@@ -108,7 +108,7 @@ loom_value_id_t Vectors::binary(cxx::TokenKind token, loom_value_id_t left,
                                 uint8_t fastmath) {
   auto input = types_.get(input_type, owner);
   auto output = types_.get(output_type, owner);
-  auto* vector = types_.vector(input_type);
+  auto* vector = types_.native_vector(input_type);
   bool floating = types_.is_float(vector->elementType());
   bool unsigned_input = types_.is_unsigned(vector->elementType());
   auto source = locations_.get(owner);
@@ -202,7 +202,8 @@ loom_value_id_t Vectors::unary(cxx::TokenKind token, loom_value_id_t value,
                                uint8_t fastmath) {
   auto input = types_.get(input_type, owner);
   auto output = types_.get(output_type, owner);
-  bool floating = types_.is_float(types_.vector(input_type)->elementType());
+  bool floating =
+      types_.is_float(types_.native_vector(input_type)->elementType());
   auto source = locations_.get(owner);
   loom_op_t* op;
   switch (token) {
@@ -239,7 +240,7 @@ loom_value_id_t Vectors::construct(std::span<const loom_value_id_t> elements,
                                    const cxx::Type* source_type,
                                    cxx::AST* owner) {
   auto output = types_.get(source_type, owner);
-  auto* vector = types_.vector(source_type);
+  auto* vector = types_.native_vector(source_type);
   if (elements.size() > vector->elementCount()) {
     diagnostics_.reject(unit_, owner, "too many vector initializer lanes");
   }
@@ -273,7 +274,7 @@ loom_value_id_t Vectors::extract(loom_value_id_t value, loom_value_id_t index,
     diagnostics_.reject(unit_, owner,
                         "vector subscripts require integral indices");
   }
-  auto* vector = types_.vector(source_type);
+  auto* vector = types_.native_vector(source_type);
   types_.get(source_type, owner);
   auto output = types_.get(vector->elementType(), owner);
   loom_op_t* op;

@@ -1,5 +1,19 @@
 // RUN: roundtrip
 
+func.def @refine_dynamic_vector(%m: index, %n: index, %source: vector<[%m]x4xf32>) -> (vector<[%n]x4xf32>) {
+  %refined = vector.refine %source : vector<[%m]x4xf32> -> vector<[%n]x4xf32>
+  func.return %refined : vector<[%n]x4xf32>
+}
+
+// ====
+
+func.def @refine_static_vector(%m: index, %source: vector<[%m]xi32>) -> (vector<16xi32>) {
+  %refined = vector.refine %source : vector<[%m]xi32> -> vector<16xi32>
+  func.return %refined : vector<16xi32>
+}
+
+// ====
+
 // Construction ops keep scalar/vector interop explicit.
 func.def @construction(%x: f32, %i: i32, %n: index) {
   %c0 = index.constant 0 : index

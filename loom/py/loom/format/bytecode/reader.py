@@ -61,6 +61,7 @@ from loom.ir import (
     ATTR_AGGREGATE_MAX_NESTING_DEPTH,
     BUFFER_TYPE,
     ENCODING_TYPE,
+    LOCATION_FLAG_SYNTHETIC,
     NONE_TYPE,
     PREDICATE_KINDS,
     REGION_SOURCE_FLAG_MASK,
@@ -905,24 +906,28 @@ class BytecodeReader:
         _, data = section
         offset = 0
         count, offset = decode_varint(data, offset)
-        for _ in range(count):
+        for index in range(count):
             kind = data[offset]
             offset += 1
             flags = data[offset]
             offset += 1
+            if flags & ~LOCATION_FLAG_SYNTHETIC:
+                raise BytecodeError("location has unsupported flag bits")
+            if index == 0 and (kind != 0 or flags != 0):
+                raise BytecodeError("location 0 must be the unflagged none location")
+            if index != 0 and kind == 0:
+                raise BytecodeError("only location 0 may be the none location")
             match kind:
                 case 0:  # NONE
-                    module.locations.add(None)
+                    continue
                 case 1:  # FILE
                     source_id, offset = decode_varint(data, offset)
                     start_line, offset = decode_varint(data, offset)
                     start_col, offset = decode_varint(data, offset)
                     end_line, offset = decode_varint(data, offset)
                     end_col, offset = decode_varint(data, offset)
-                    module.locations.add(
-                        FileLocation(
-                            source_id, start_line, start_col, end_line, end_col, flags
-                        )
+                    location = FileLocation(
+                        source_id, start_line, start_col, end_line, end_col, flags
                     )
                 case 2:  # FUSED
                     child_count, offset = decode_varint(data, offset)
@@ -930,24 +935,27 @@ class BytecodeReader:
                     for _ in range(child_count):
                         child, offset = decode_varint(data, offset)
                         children.append(child)
-                    module.locations.add(FusedLocation(tuple(children), flags))
+                    location = FusedLocation(tuple(children), flags)
                 case 3:  # OPAQUE
                     source_id, offset = decode_varint(data, offset)
                     data_length, offset = decode_varint(data, offset)
                     opaque_data = data[offset : offset + data_length]
                     offset += data_length
-                    module.locations.add(OpaqueLocation(source_id, opaque_data, flags))
+                    location = OpaqueLocation(source_id, opaque_data, flags)
                 case 4:  # TAGGED
                     tag, offset = decode_varint(data, offset)
                     child, offset = decode_varint(data, offset)
                     data_length, offset = decode_varint(data, offset)
                     tagged_data = data[offset : offset + data_length]
                     offset += data_length
-                    module.locations.add(
-                        TaggedLocation(
-                            tag=tag, child=child, data=tagged_data, flags=flags
-                        )
+                    location = TaggedLocation(
+                        tag=tag, child=child, data=tagged_data, flags=flags
                     )
+                case _:
+                    raise BytecodeError(f"unsupported location kind: {kind}")
+            module.locations.append(location)
+        if offset != len(data):
+            raise BytecodeError("LOCATIONS section has trailing bytes")
 
     def _read_source_trivia(
         self, data: bytes, offset: int

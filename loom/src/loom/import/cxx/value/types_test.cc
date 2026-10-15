@@ -491,6 +491,118 @@ TEST(TypesTest, BindsRuntimeTensorExtentAcrossValueBoundaries) {
   EXPECT_TRUE(types.requires_binding(source_type("Packet"), owner));
 }
 
+TEST(TypesTest, BindsRankGenericSemanticVectorsAndNestedRecords) {
+  loom_cxx_import_options_t options;
+  loom_cxx_import_options_initialize(&options);
+  Source source(IREE_SV(R"(
+    namespace loom { namespace type {
+    using size_type = __SIZE_TYPE__;
+    inline constexpr size_type dynamic = ~size_type{0};
+    template <size_type... Extents>
+    struct [[loom::type("shape")]] shape {};
+    template <class Shape, class T>
+    struct [[loom::type("vector")]] vector {};
+    } }
+    using Static = loom::type::vector<loom::type::shape<2, 3, 4>, float>;
+    using Dynamic = loom::type::vector<
+        loom::type::shape<loom::type::dynamic>, float>;
+    using Mixed = loom::type::vector<loom::type::shape<
+        loom::type::dynamic, 8, loom::type::dynamic>, unsigned>;
+    using Mask = loom::type::vector<
+        loom::type::shape<loom::type::dynamic>, bool>;
+    using Qualified = loom::type::vector<loom::type::shape<4>, const float>;
+    using Nested = loom::type::vector<loom::type::shape<4>, Static>;
+    struct Packet { Mixed values; unsigned tag; };
+  )"),
+                IREE_SV("semantic_vectors.cxx"), options);
+  Types types(source.unit(), source.diagnostics());
+  auto* owner = source.unit().ast();
+  auto source_type = [&](const char* name) {
+    return (*source.unit().globalScope()->find(name).begin())->type();
+  };
+
+  const auto& static_vector = static_cast<const VectorPartition&>(
+      types.partition(source_type("Static"), owner));
+  EXPECT_EQ(static_vector.component_count, 1u);
+  EXPECT_FALSE(static_vector.is_dynamic());
+  EXPECT_FALSE(types.requires_binding(source_type("Static"), owner));
+  auto static_type = types.get(source_type("Static"), owner);
+  EXPECT_EQ(loom_type_kind(static_type), LOOM_TYPE_VECTOR);
+  EXPECT_EQ(loom_type_rank(static_type), 3u);
+  EXPECT_EQ(loom_type_dim_static_size_at(static_type, 0), 2);
+  EXPECT_EQ(loom_type_dim_static_size_at(static_type, 1), 3);
+  EXPECT_EQ(loom_type_dim_static_size_at(static_type, 2), 4);
+  EXPECT_EQ(loom_type_element_type(static_type), LOOM_SCALAR_TYPE_F32);
+  std::vector<loom_type_t> static_types;
+  types.append(source_type("Static"), owner, static_types);
+  ASSERT_EQ(static_types.size(), 1u);
+  EXPECT_TRUE(loom_type_equal(static_types[0], static_type));
+
+  const auto& dynamic_vector = static_cast<const VectorPartition&>(
+      types.partition(source_type("Dynamic"), owner));
+  EXPECT_EQ(dynamic_vector.component_count, 2u);
+  EXPECT_TRUE(dynamic_vector.is_dynamic());
+  EXPECT_TRUE(types.requires_binding(source_type("Dynamic"), owner));
+  EXPECT_EQ(dynamic_vector.component_names,
+            (std::vector<std::string>{"dim0", ""}));
+  const loom_value_id_t dynamic_ids[] = {41, 42};
+  BoundTypeStorage dynamic_storage;
+  std::vector<loom_type_t> dynamic_types;
+  types.append_bound(source_type("Dynamic"), owner, dynamic_ids,
+                     dynamic_storage, dynamic_types);
+  ASSERT_EQ(dynamic_types.size(), 2u);
+  EXPECT_EQ(loom_type_element_type(dynamic_types[0]), LOOM_SCALAR_TYPE_INDEX);
+  EXPECT_EQ(loom_type_kind(dynamic_types[1]), LOOM_TYPE_VECTOR);
+  EXPECT_EQ(loom_type_dim_value_id_at(dynamic_types[1], 0), 41u);
+  EXPECT_EQ(loom_type_element_type(dynamic_types[1]), LOOM_SCALAR_TYPE_F32);
+  EXPECT_EQ(dynamic_vector.vector_value(dynamic_ids), 42u);
+  EXPECT_EQ(types.native_vector(source_type("Dynamic")), nullptr);
+  EXPECT_THROW(types.get(source_type("Dynamic"), owner), SourceRejected);
+
+  const auto& mixed_vector = static_cast<const VectorPartition&>(
+      types.partition(source_type("Mixed"), owner));
+  EXPECT_EQ(mixed_vector.component_count, 3u);
+  EXPECT_EQ(mixed_vector.component_names,
+            (std::vector<std::string>{"dim0", "dim2", ""}));
+  const loom_value_id_t mixed_ids[] = {51, 52, 53};
+  BoundTypeStorage mixed_storage;
+  std::vector<loom_type_t> mixed_types;
+  types.append_bound(source_type("Mixed"), owner, mixed_ids, mixed_storage,
+                     mixed_types);
+  ASSERT_EQ(mixed_types.size(), 3u);
+  EXPECT_EQ(loom_type_element_type(mixed_types[0]), LOOM_SCALAR_TYPE_INDEX);
+  EXPECT_EQ(loom_type_element_type(mixed_types[1]), LOOM_SCALAR_TYPE_INDEX);
+  EXPECT_EQ(loom_type_rank(mixed_types[2]), 3u);
+  EXPECT_EQ(loom_type_dim_value_id_at(mixed_types[2], 0), 51u);
+  EXPECT_EQ(loom_type_dim_static_size_at(mixed_types[2], 1), 8);
+  EXPECT_EQ(loom_type_dim_value_id_at(mixed_types[2], 2), 52u);
+  EXPECT_EQ(loom_type_element_type(mixed_types[2]), LOOM_SCALAR_TYPE_I32);
+
+  const auto* packet = types.record(source_type("Packet"), owner);
+  ASSERT_NE(packet, nullptr);
+  EXPECT_EQ(packet->component_count, 4u);
+  EXPECT_EQ(packet->component_names,
+            (std::vector<std::string>{"values_dim0", "values_dim2", "values",
+                                      "tag"}));
+  EXPECT_TRUE(types.requires_binding(source_type("Packet"), owner));
+  const loom_value_id_t packet_ids[] = {61, 62, 63, 64};
+  BoundTypeStorage packet_storage;
+  std::vector<loom_type_t> packet_types;
+  types.append_bound(source_type("Packet"), owner, packet_ids, packet_storage,
+                     packet_types);
+  ASSERT_EQ(packet_types.size(), 4u);
+  EXPECT_EQ(loom_type_dim_value_id_at(packet_types[2], 0), 61u);
+  EXPECT_EQ(loom_type_dim_value_id_at(packet_types[2], 2), 62u);
+  EXPECT_EQ(loom_type_element_type(packet_types[3]), LOOM_SCALAR_TYPE_I32);
+
+  const auto& mask = static_cast<const VectorPartition&>(
+      types.partition(source_type("Mask"), owner));
+  EXPECT_EQ(mask.element, LOOM_SCALAR_TYPE_I1);
+  EXPECT_THROW(types.partition(source_type("Qualified"), owner),
+               SourceRejected);
+  EXPECT_THROW(types.partition(source_type("Nested"), owner), SourceRejected);
+}
+
 TEST(TypesTest, AppendsVectorLanesToTensorObjectShape) {
   loom_cxx_import_options_t options;
   loom_cxx_import_options_initialize(&options);

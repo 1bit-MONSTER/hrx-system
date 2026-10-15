@@ -9,8 +9,10 @@
 #include <cxx/names.h>
 #include <cxx/types.h>
 
+#include <algorithm>
 #include <array>
 #include <limits>
+#include <string_view>
 
 #include "loom/import/cxx/binding/index_values.h"
 #include "loom/import/cxx/source/error.h"
@@ -30,22 +32,48 @@ const ViewPartition& require_view(cxx::TranslationUnit& unit,
   return static_cast<const ViewPartition&>(partition);
 }
 
-const cxx::VectorType& require_vector(cxx::TranslationUnit& unit,
-                                      Diagnostics& diagnostics, Types& types,
-                                      const cxx::Type* type, cxx::AST* owner) {
-  auto* vector = types.vector(type);
+struct VectorContract {
+  // Native C++ vector source type, or null for a semantic vector.
+  const cxx::VectorType* native = nullptr;
+  // Semantic vector partition, or null for a native C++ vector.
+  const VectorPartition* semantic = nullptr;
+  // Unqualified scalar element source type.
+  const cxx::Type* element = nullptr;
+};
+
+VectorContract require_vector(cxx::TranslationUnit& unit,
+                              Diagnostics& diagnostics, Types& types,
+                              const cxx::Type* type, cxx::AST* owner) {
+  if (auto* native = types.native_vector(type)) {
+    return {.native = native, .element = native->elementType()};
+  }
+  const auto& admitted = types.partition(type, owner);
+  if (admitted.kind == ValueKind::Vector) {
+    const auto& semantic = static_cast<const VectorPartition&>(admitted);
+    return {.semantic = &semantic, .element = semantic.element_type};
+  }
+  diagnostics.reject(unit, owner,
+                     "vector memory operation requires a vector value");
+}
+
+const cxx::VectorType& require_native_vector(cxx::TranslationUnit& unit,
+                                             Diagnostics& diagnostics,
+                                             Types& types,
+                                             const cxx::Type* type,
+                                             cxx::AST* owner) {
+  auto* vector = types.native_vector(type);
   if (!vector) {
     diagnostics.reject(unit, owner,
-                       "vector memory operation requires a vector value");
+                       "masked vector memory requires a native vector value");
   }
   return *vector;
 }
 
 void require_matching_element(cxx::TranslationUnit& unit,
                               Diagnostics& diagnostics, Types& types,
-                              const cxx::VectorType& vector,
+                              const cxx::Type* vector_element,
                               const ViewPartition& view, cxx::AST* owner) {
-  if (types.unqualified(vector.elementType()) !=
+  if (types.unqualified(vector_element) !=
       types.unqualified(view.element_type)) {
     diagnostics.reject(
         unit, owner,
@@ -121,17 +149,35 @@ std::optional<VectorMemoryIntrinsic> VectorMemoryIntrinsic::resolve(
   size_t origin_index;
   size_t mask_index = 0;
   size_t passthrough_index = 0;
-  const cxx::VectorType* vector;
+  VectorContract vector;
   switch (*operation) {
     case Operation::Load:
-      if (parameters.size() != 2) {
+      if (parameters.size() != 2 && parameters.size() != 3) {
         diagnostics.reject(unit, owner,
-                           "vector.load requires a view and full-rank origin");
+                           "vector.load requires a view, full-rank origin, and "
+                           "optional result dimensions");
       }
       view_index = 0;
       origin_index = 1;
-      vector = &require_vector(unit, diagnostics, types,
-                               signature->returnType(), owner);
+      vector = require_vector(unit, diagnostics, types, signature->returnType(),
+                              owner);
+      if (vector.native && parameters.size() != 2) {
+        diagnostics.reject(unit, owner,
+                           "native vector.load does not accept result "
+                           "dimensions");
+      }
+      if (vector.semantic) {
+        if (vector.semantic->is_dynamic() && parameters.size() != 3) {
+          diagnostics.reject(
+              unit, owner, "dependent vector.load requires result dimensions");
+        }
+        if (parameters.size() == 3) {
+          require_logical_index_record(unit, diagnostics, types, parameters[2],
+                                       vector.semantic->component_count - 1,
+                                       owner, "vector.load dimensions");
+          result.dimensions_index_ = 2;
+        }
+      }
       break;
     case Operation::Store:
       if (parameters.size() != 3 ||
@@ -142,7 +188,7 @@ std::optional<VectorMemoryIntrinsic> VectorMemoryIntrinsic::resolve(
       }
       view_index = 1;
       origin_index = 2;
-      vector = &require_vector(unit, diagnostics, types, parameters[0], owner);
+      vector = require_vector(unit, diagnostics, types, parameters[0], owner);
       break;
     case Operation::LoadMask:
     case Operation::LoadExpand:
@@ -155,8 +201,9 @@ std::optional<VectorMemoryIntrinsic> VectorMemoryIntrinsic::resolve(
       origin_index = 1;
       mask_index = 2;
       passthrough_index = 3;
-      vector = &require_vector(unit, diagnostics, types,
-                               signature->returnType(), owner);
+      vector.native = &require_native_vector(unit, diagnostics, types,
+                                             signature->returnType(), owner);
+      vector.element = vector.native->elementType();
       break;
     case Operation::StoreMask:
     case Operation::StoreCompress:
@@ -169,7 +216,9 @@ std::optional<VectorMemoryIntrinsic> VectorMemoryIntrinsic::resolve(
       view_index = 1;
       origin_index = 2;
       mask_index = 3;
-      vector = &require_vector(unit, diagnostics, types, parameters[0], owner);
+      vector.native = &require_native_vector(unit, diagnostics, types,
+                                             parameters[0], owner);
+      vector.element = vector.native->elementType();
       break;
   }
 
@@ -183,22 +232,25 @@ std::optional<VectorMemoryIntrinsic> VectorMemoryIntrinsic::resolve(
             ? "vector.store requires a mutable destination view"
             : "masked vector store requires a mutable destination view");
   }
-  require_matching_element(unit, diagnostics, types, *vector, *result.view_,
-                           owner);
-  result.vector_type_ = types.get(vector, owner);
+  require_matching_element(unit, diagnostics, types, vector.element,
+                           *result.view_, owner);
+  result.semantic_vector_ = vector.semantic;
+  if (vector.native) {
+    result.vector_type_ = types.get(vector.native, owner);
+  }
   if (result.has_mask()) {
     if (result.view_->access_flags != 0) {
       diagnostics.reject(
           unit, owner, "masked vector memory does not support volatile views");
     }
-    const auto& mask =
-        require_vector(unit, diagnostics, types, parameters[mask_index], owner);
+    const auto& mask = require_native_vector(unit, diagnostics, types,
+                                             parameters[mask_index], owner);
     if (!unit.typeTraits().is_integral(mask.elementType()) ||
         mask.elementType()->kind() == cxx::TypeKind::kBool) {
       diagnostics.reject(unit, owner,
                          "vector memory mask requires integer lanes");
     }
-    if (mask.elementCount() != vector->elementCount()) {
+    if (mask.elementCount() != vector.native->elementCount()) {
       diagnostics.reject(unit, owner,
                          "vector memory mask shape must match the value");
     }
@@ -231,8 +283,8 @@ loom_value_id_t VectorMemoryIntrinsic::build_mask(
 }
 
 std::optional<Value> VectorMemoryIntrinsic::call(
-    std::span<const Value> arguments, loom_builder_t* builder,
-    loom_location_id_t location) const {
+    std::span<const Value> arguments, ValueArena& arena,
+    loom_builder_t* builder, loom_location_id_t location) const {
   const size_t view_index = is_load() ? 0 : 1;
   const size_t origin_index = is_load() ? 1 : 2;
   auto origin = arguments[origin_index].components();
@@ -247,16 +299,38 @@ std::optional<Value> VectorMemoryIntrinsic::call(
 
   loom_op_t* op;
   const auto view = view_component(arguments[view_index]);
+  auto vector_type = vector_type_;
+  std::span<const loom_value_id_t> dimensions;
+  BoundTypeStorage type_storage;
+  if (semantic_vector_ && is_load()) {
+    if (dimensions_index_) {
+      dimensions = arguments[*dimensions_index_].components();
+    }
+    vector_type = semantic_vector_->bind_type(dimensions, type_storage);
+  }
+  auto vector_value = [&](size_t index) {
+    return semantic_vector_
+               ? semantic_vector_->vector_value(arguments[index].components())
+               : arguments[index].ssa();
+  };
   switch (operation_) {
     case Operation::Load:
       check(loom_vector_load_build(builder, 0, view_->access_flags, view,
                                    indices.data(), origin.size(),
                                    static_indices.data(), origin.size(), 0, 0,
-                                   vector_type_, location, &op));
-      return Value(loom_op_results(op)[0]);
+                                   vector_type, location, &op));
+      if (!semantic_vector_) {
+        return Value(loom_op_results(op)[0]);
+      }
+      std::array<loom_value_id_t, LOOM_TYPE_MAX_RANK + 1> components;
+      std::copy(dimensions.begin(), dimensions.end(), components.begin());
+      components[dimensions.size()] = loom_op_results(op)[0];
+      return arena.capture(*semantic_vector_,
+                           std::span<const loom_value_id_t>(components)
+                               .first(dimensions.size() + 1));
     case Operation::Store:
       check(loom_vector_store_build(builder, 0, view_->access_flags,
-                                    arguments[0].ssa(), view, indices.data(),
+                                    vector_value(0), view, indices.data(),
                                     origin.size(), static_indices.data(),
                                     origin.size(), 0, 0, location, &op));
       return std::nullopt;
@@ -291,6 +365,8 @@ bool VectorMemoryIntrinsic::equivalent(
     const VectorMemoryIntrinsic& other) const {
   return operation_ == other.operation_ && view_ == other.view_ &&
          loom_type_equal(vector_type_, other.vector_type_) &&
+         semantic_vector_ == other.semantic_vector_ &&
+         dimensions_index_ == other.dimensions_index_ &&
          (!has_mask() || loom_type_equal(mask_type_, other.mask_type_)) &&
          origin_unsigned_mask_ == other.origin_unsigned_mask_;
 }

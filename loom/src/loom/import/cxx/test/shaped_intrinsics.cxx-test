@@ -76,3 +76,57 @@ func.def public @entry(%table: vector<16xi8>, %indices: vector<8xi8>, %seed: vec
   %5 = vector.dot4i<u8s8> %indices, %4, %seed : vector<8xi8>, vector<8xi8>, vector<2xi32>
   func.return %5 : vector<2xi32>
 }
+
+// ====
+// A semantic vector carries its dynamic extent through ordinary C++ results
+// and parameters before a reduction consumes the same dependent SSA type.
+#include <loomcxx/vector.h>
+namespace loomt = loom::type;
+using Fragment = loomt::vector<loomt::shape<loomt::dynamic>, float>;
+using Tile = loomt::vector<loomt::shape<loomt::dynamic, 8, loomt::dynamic>, unsigned>;
+using Block = loomt::vector<loomt::shape<2, 4>, float>;
+
+Fragment make_fragment(loomt::index width, float value) {
+  return loom::vector::splat<Fragment>({width}, value);
+}
+
+float sum_fragment(Fragment fragment, float seed) {
+  return loom::vector::reduce::addf(fragment, seed);
+}
+
+float entry(loomt::index width, float value, float seed) {
+  return sum_fragment(make_fragment(width, value), seed);
+}
+
+Tile make_tile(loomt::index rows, loomt::index columns, unsigned value) {
+  return loom::vector::splat<Tile>({rows, columns}, value);
+}
+
+Block make_block(float value) { return loom::vector::splat<Block>({}, value); }
+
+// ----
+func.def public @make_fragment(%width: index, %value: f32) -> (%2: index, vector<[%2]xf32>) {
+  %4 = vector.splat %value : vector<[%width]xf32>
+  func.return %width, %4 : index, vector<[%width]xf32>
+}
+
+func.def public @sum_fragment(%fragment_dim0: index, %fragment: vector<[%fragment_dim0]xf32>, %seed: f32) -> (f32) {
+  %9 = vector.reduce<addf> %fragment, %seed : vector<[%fragment_dim0]xf32>, f32
+  func.return %9 : f32
+}
+
+func.def public @entry(%width: index, %value: f32, %seed: f32) -> (f32) {
+  %14, %15 = func.call @make_fragment(%width, %value) : (index, f32) -> (index, vector<[%14]xf32>)
+  %16 = func.call @sum_fragment(%14, %15, %seed) : (index, vector<[%14]xf32>, f32) -> (f32)
+  func.return %16 : f32
+}
+
+func.def public @make_tile(%rows: index, %columns: index, %value: i32) -> (%20: index, %21: index, vector<[%20]x8x[%21]xi32>) {
+  %23 = vector.splat %value : vector<[%rows]x8x[%columns]xi32>
+  func.return %rows, %columns, %23 : index, index, vector<[%rows]x8x[%columns]xi32>
+}
+
+func.def public @make_block(%value: f32) -> (vector<2x4xf32>) {
+  %26 = vector.splat %value : vector<2x4xf32>
+  func.return %26 : vector<2x4xf32>
+}

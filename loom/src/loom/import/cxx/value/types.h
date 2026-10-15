@@ -161,6 +161,36 @@ class ShapeExtents {
   std::unique_ptr<int64_t[]> overflow_extents_;
 };
 
+// Canonical rank-generic source vector. Dynamic extents are transported before
+// the dependent High vector so its type references this binding's own
+// component identities at every call and region boundary. Native C++ vectors
+// remain independent static rank-one source values.
+struct VectorPartition final : Partition {
+  // Binds the High vector type to |dynamic_extents| in source-axis order.
+  // Static vectors require an empty span.
+  loom_type_t bind_type(std::span<const loom_value_id_t> dynamic_extents,
+                        BoundTypeStorage& storage) const;
+  // Returns the vector SSA value from one complete component binding.
+  loom_value_id_t vector_value(
+      std::span<const loom_value_id_t> components) const;
+  bool is_dynamic() const { return component_count > 1; }
+
+  // Concrete source specialization retaining nominal copy semantics.
+  cxx::ClassSymbol* source;
+  // Unqualified source scalar lane type.
+  const cxx::Type* element_type;
+  // High scalar representation of one logical lane.
+  loom_scalar_type_t element;
+  // Static extent, or -1 when the axis has a transported dynamic extent.
+  ShapeExtents extents;
+  // Component labels in transport order; an empty label names the vector.
+  std::vector<std::string> component_names;
+  // Stable overflow storage for an all-static vector type.
+  BoundTypeStorage static_type_storage;
+  // Prebound all-static High type; unused by dependent vectors.
+  loom_type_t static_type = {};
+};
+
 // Canonical rank-generic source view. Dynamic extents and its encoding are
 // transported before the dependent High view so its type references this
 // binding's own component identities at every call and region boundary.
@@ -275,8 +305,9 @@ class Types {
                     BoundTypeStorage& storage,
                     std::vector<loom_type_t>& output);
   const cxx::Type* unqualified(const cxx::Type* type);
-  // Returns the resolved vector representation, or null for a scalar/object.
-  const cxx::VectorType* vector(const cxx::Type* type);
+  // Returns the resolved native C++ vector representation, or null for a
+  // scalar or class-backed semantic vector.
+  const cxx::VectorType* native_vector(const cxx::Type* type);
   bool is_unsigned(const cxx::Type* type);
   bool is_float(const cxx::Type* type);
   // Returns the native address domain represented by a source class, or
@@ -304,6 +335,8 @@ class Types {
                                                cxx::AST* owner);
   ShapeExtents parse_shape(const cxx::Type* input, std::string_view value_kind,
                            cxx::AST* owner);
+  const VectorPartition* semantic_vector(const cxx::ClassType* input,
+                                         cxx::AST* owner);
   const ViewPartition* view(const cxx::ClassType* input, cxx::AST* owner);
   const TensorPartition* tensor(const cxx::ClassType* input, cxx::AST* owner);
   void append_component_names(const Partition& partition,
@@ -335,6 +368,9 @@ class Types {
   // Admitted opaque dialect handles keyed by concrete source class.
   std::unordered_map<cxx::ClassSymbol*, std::unique_ptr<OpaqueDialectPartition>>
       opaque_dialects_;
+  // Admitted class-backed vector specializations and their extent contracts.
+  std::unordered_map<cxx::ClassSymbol*, std::unique_ptr<VectorPartition>>
+      semantic_vectors_;
   // Admitted view specializations retaining element and extent contracts.
   std::unordered_map<cxx::ClassSymbol*, std::unique_ptr<ViewPartition>> views_;
   // Admitted tensor handles retaining their element and static extent.

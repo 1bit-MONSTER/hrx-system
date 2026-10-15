@@ -912,6 +912,9 @@ class CxxRenderer(CxxExpressionRenderer):
         return self.types.scalar(scalar, signed)
 
     def _render_kernel(self, kernel: Operation) -> None:
+        scope = self.operation_scopes[id(kernel)]
+        self.temporary_names = set(self.scope_names[scope])
+        self.rendered_assumptions.clear()
         self._validate_projected_attributes(kernel, ("callee", "target"))
         self._analyze_buffers(kernel)
         resolved = self._resolved(kernel)
@@ -931,10 +934,9 @@ class CxxRenderer(CxxExpressionRenderer):
                 f"target record {target_info.operation_name} has no C++ "
                 "declaration projection",
             )
-        self._target_info = target_info
         attributes = ["loom::kernel"]
         if target_info is not None:
-            attributes.append("loom::target(rendered_target)")
+            attributes.append(f"loom::target({self.target_names[str(target_symbol)]})")
         attributes.append(f"loom::workgroup_count({', '.join(counts)})")
         attributes.append(f"loom::workgroup_size({', '.join(sizes)})")
         self.writer.attributes(attributes)
@@ -977,27 +979,56 @@ class CxxRenderer(CxxExpressionRenderer):
         self._render_block(entry)
         self.writer.close()
 
+    def _plan_target_names(self, kernels: list[Operation]) -> None:
+        target_symbols: list[str] = []
+        function_names: set[str] = set()
+        for kernel in kernels:
+            resolved = self._resolved(kernel)
+            function_names.add(str(resolved.attr("callee")))
+            target_symbol = resolved.attr("target")
+            if target_symbol is not None:
+                symbol = str(target_symbol)
+                if symbol and symbol not in target_symbols:
+                    target_symbols.append(symbol)
+
+        used_names = set(function_names)
+        for symbol in target_symbols:
+            base = (
+                "rendered_target"
+                if len(target_symbols) == 1
+                else f"rendered_target_{clean_identifier(symbol, 'target')}"
+            )
+            name = base
+            ordinal = 2
+            while name in used_names:
+                name = f"{base}_{ordinal}"
+                ordinal += 1
+            used_names.add(name)
+            self.target_names[symbol] = name
+
     def render(self) -> str:
         kernels = [
             operation
             for operation in self.module.body.ops
             if operation.name == "kernel.def"
         ]
-        if len(kernels) != 1:
+        if not kernels:
             raise CxxRenderError(
                 None,
-                "module must contain exactly one kernel definition; "
-                f"found {len(kernels)}",
+                "module contains no kernel definitions",
             )
-        kernel = kernels[0]
         for operation in self.module.body.ops:
-            if operation is kernel or operation.name.endswith(".target"):
+            if operation.name == "kernel.def" or operation.name.endswith(".target"):
                 continue
             raise CxxRenderError(
                 operation,
                 "a top-level definition would be omitted from the C++ projection",
             )
-        self._render_kernel(kernel)
+        self._plan_target_names(kernels)
+        for index, kernel in enumerate(kernels):
+            if index:
+                self.writer.line()
+            self._render_kernel(kernel)
 
         operation_names = {
             operation.name for operation in walk_operations(self.module.body)
@@ -1015,11 +1046,14 @@ class CxxRenderer(CxxExpressionRenderer):
             vector_aliases=self.types.vector_aliases,
             record_declarations=self.record_declarations,
             table_lookup_declarations=self.table_lookup_declarations,
-            target=self._target_info,
+            targets=tuple(
+                (target_name, self.targets[target_symbol])
+                for target_symbol, target_name in self.target_names.items()
+            ),
         )
         return "\n".join((*preamble, *self.writer.lines)) + "\n"
 
 
 def render_module(module: Module) -> str:
-    """Renders one supported High IR kernel module as standalone Loom C++."""
+    """Renders a supported High IR kernel module as standalone Loom C++."""
     return CxxRenderer(module).render()

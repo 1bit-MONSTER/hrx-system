@@ -199,7 +199,7 @@ StorageAccess Storage::dereference(StorageProjection base,
   auto element = object_storage_type(types_.get(element_type, owner));
   base.pointer = constrain_access(
       base.pointer, types_.storage_size(element_type, owner), owner);
-  auto* vector = types_.vector(element_type);
+  auto* vector = types_.native_vector(element_type);
   auto view_type =
       loom_type_shaped_1d(LOOM_TYPE_VIEW, loom_type_element_type(element),
                           vector ? vector->elementCount() : 1, 0);
@@ -218,8 +218,8 @@ loom_value_id_t Storage::load(const StorageAccess& access,
                               const cxx::Type* element_type, cxx::AST* owner) {
   auto value_type = types_.get(element_type, owner);
   int64_t selector = access.index ? INT64_MIN : 0;
-  auto build = types_.vector(element_type) ? loom_vector_load_build
-                                           : loom_view_load_build;
+  auto build = types_.native_vector(element_type) ? loom_vector_load_build
+                                                  : loom_view_load_build;
   loom_op_t* op;
   check(build(&builder_, 0, types_.memory_access_flags(element_type),
               access.view, access.index ? &*access.index : nullptr,
@@ -240,8 +240,8 @@ void Storage::store(const StorageAccess& access, loom_value_id_t value,
                              unit_.control()->getUnsignedCharType(), owner);
   }
   int64_t selector = access.index ? INT64_MIN : 0;
-  auto build = types_.vector(element_type) ? loom_vector_store_build
-                                           : loom_view_store_build;
+  auto build = types_.native_vector(element_type) ? loom_vector_store_build
+                                                  : loom_view_store_build;
   loom_op_t* op;
   check(build(&builder_, 0, types_.memory_access_flags(element_type), value,
               access.view, access.index ? &*access.index : nullptr,
@@ -323,7 +323,8 @@ StorageAllocation Storage::allocate(const cxx::Type* type,
   bool byte_footprint = source_kind == cxx::TypeKind::kClass ||
                         source_kind == cxx::TypeKind::kBoundedArray ||
                         (array && source_kind == cxx::TypeKind::kVector);
-  auto* vector = byte_footprint ? nullptr : types_.vector(view_source_type);
+  auto* vector =
+      byte_footprint ? nullptr : types_.native_vector(view_source_type);
   auto element = byte_footprint
                      ? loom_type_scalar(LOOM_SCALAR_TYPE_I8)
                      : object_storage_type(types_.get(view_source_type, owner));

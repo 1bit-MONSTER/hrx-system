@@ -57,10 +57,9 @@ const cxx::ParameterPackSymbol* template_argument_pack(
   return symbol ? cxx::symbol_cast<cxx::ParameterPackSymbol>(*symbol) : nullptr;
 }
 
-loom_type_t make_view_type(loom_scalar_type_t element,
-                           std::span<const uint64_t> dimensions,
-                           loom_value_id_t encoding,
-                           BoundTypeStorage& storage) {
+loom_type_t make_shaped_type(loom_type_kind_t kind, loom_scalar_type_t element,
+                             std::span<const uint64_t> dimensions,
+                             BoundTypeStorage& storage) {
   bool all_static = true;
   for (auto dimension : dimensions) {
     all_static &= !loom_dim_is_dynamic(dimension);
@@ -70,11 +69,8 @@ loom_type_t make_view_type(loom_scalar_type_t element,
     flags |= LOOM_TYPE_FLAG_INLINE_DIMS;
   }
   loom_type_t result = {
-      .header =
-          loom_type_make_header(LOOM_TYPE_VIEW, element,
-                                static_cast<uint8_t>(dimensions.size()), flags),
-      .encoding_id = static_cast<uint16_t>(encoding),
-      .encoding_flags = LOOM_ENCODING_FLAG_SSA,
+      .header = loom_type_make_header(
+          kind, element, static_cast<uint8_t>(dimensions.size()), flags),
   };
   if (dimensions.size() <= 2) {
     std::copy(dimensions.begin(), dimensions.end(), result.dims);
@@ -82,6 +78,16 @@ loom_type_t make_view_type(loom_scalar_type_t element,
     auto* retained = storage.retain_dimensions(dimensions);
     result.dims[0] = reinterpret_cast<uintptr_t>(retained);
   }
+  return result;
+}
+
+loom_type_t make_view_type(loom_scalar_type_t element,
+                           std::span<const uint64_t> dimensions,
+                           loom_value_id_t encoding,
+                           BoundTypeStorage& storage) {
+  auto result = make_shaped_type(LOOM_TYPE_VIEW, element, dimensions, storage);
+  result.encoding_id = static_cast<uint16_t>(encoding);
+  result.encoding_flags = LOOM_ENCODING_FLAG_SSA;
   return result;
 }
 
@@ -108,6 +114,32 @@ void ShapeExtents::assign(std::span<const int64_t> extents) {
   std::copy(extents.begin(), extents.end(), overflow_extents_.get());
 }
 
+loom_type_t VectorPartition::bind_type(
+    std::span<const loom_value_id_t> dynamic_extents,
+    BoundTypeStorage& storage) const {
+  IREE_ASSERT(dynamic_extents.size() == component_count - 1);
+  if (!is_dynamic()) {
+    return static_type;
+  }
+  std::array<uint64_t, LOOM_TYPE_MAX_RANK> dimensions;
+  size_t dynamic_index = 0;
+  for (size_t axis = 0; axis < extents.size(); ++axis) {
+    dimensions[axis] =
+        extents[axis] < 0
+            ? loom_dim_pack_dynamic(dynamic_extents[dynamic_index++])
+            : loom_dim_pack_static(extents[axis]);
+  }
+  return make_shaped_type(
+      LOOM_TYPE_VECTOR, element,
+      std::span<const uint64_t>(dimensions).first(extents.size()), storage);
+}
+
+loom_value_id_t VectorPartition::vector_value(
+    std::span<const loom_value_id_t> components) const {
+  IREE_ASSERT(components.size() == component_count);
+  return components.back();
+}
+
 loom_type_t TensorPartition::bind_type(
     std::span<const loom_value_id_t> dynamic_extents) const {
   IREE_ASSERT(dynamic_extents.size() == (is_dynamic() ? 1u : 0u));
@@ -130,7 +162,7 @@ const cxx::Type* Types::unqualified(const cxx::Type* type) {
   return unit_.typeTraits().remove_cv(type);
 }
 
-const cxx::VectorType* Types::vector(const cxx::Type* type) {
+const cxx::VectorType* Types::native_vector(const cxx::Type* type) {
   return cxx::type_cast<cxx::VectorType>(unqualified(type));
 }
 
@@ -157,7 +189,9 @@ const Partition& Types::partition(const cxx::Type* input, cxx::AST* owner) {
 
 bool Types::requires_binding(const cxx::Type* input, cxx::AST* owner) {
   const auto& admitted = partition(input, owner);
-  if (admitted.kind == ValueKind::View ||
+  if ((admitted.kind == ValueKind::Vector &&
+       static_cast<const VectorPartition&>(admitted).is_dynamic()) ||
+      admitted.kind == ValueKind::View ||
       (admitted.kind == ValueKind::Tensor &&
        static_cast<const TensorPartition&>(admitted).is_dynamic())) {
     return true;
@@ -230,6 +264,9 @@ const Partition* Types::special(const cxx::Type* input, cxx::AST* owner) {
   }
   if (name == "encoding") {
     return encoding(type, owner);
+  }
+  if (name == "vector") {
+    return semantic_vector(type, owner);
   }
   if (name == "view") {
     return view(type, owner);
@@ -486,6 +523,77 @@ ShapeExtents Types::parse_shape(const cxx::Type* input,
   return result;
 }
 
+const VectorPartition* Types::semantic_vector(const cxx::ClassType* input,
+                                              cxx::AST* owner) {
+  auto* source = input->definition();
+  if (auto found = semantic_vectors_.find(source);
+      found != semantic_vectors_.end()) {
+    return found->second.get();
+  }
+  auto traits = unit_.typeTraits();
+  if (source) {
+    traits.requireCompleteClass(source);
+    source = input->definition();
+  }
+  if (!source || !source->isComplete() || source->isUnion() ||
+      !source->baseClasses().empty() || !traits.is_trivially_copyable(input) ||
+      !traits.has_trivial_destructor(input)) {
+    diagnostics_.reject(unit_, owner,
+                        "vector values require a complete trivial class "
+                        "without bases");
+  }
+  auto arguments = source->templateArguments();
+  if (arguments.size() != 2) {
+    diagnostics_.reject(unit_, owner,
+                        "vector values require shape and element arguments");
+  }
+  auto extents =
+      parse_shape(cxx::template_argument_type(arguments[0]), "vector", owner);
+  auto* element_type = cxx::template_argument_type(arguments[1]);
+  if (!element_type || traits.is_const(element_type) ||
+      traits.is_volatile(element_type)) {
+    diagnostics_.reject(unit_, owner,
+                        "vector elements require an unqualified source type");
+  }
+  auto element = get(element_type, owner);
+  if (loom_type_kind(element) != LOOM_TYPE_SCALAR) {
+    diagnostics_.reject(unit_, owner,
+                        "vector elements require a supported scalar type");
+  }
+  size_t dynamic_count = 0;
+  for (auto extent : extents) {
+    if (extent < 0) {
+      ++dynamic_count;
+    }
+  }
+  auto result = std::make_unique<VectorPartition>();
+  result->kind = ValueKind::Vector;
+  result->component_count = dynamic_count + 1;
+  result->source = source;
+  result->element_type = element_type;
+  result->element = loom_type_element_type(element);
+  result->extents = std::move(extents);
+  for (size_t axis = 0; axis < result->extents.size(); ++axis) {
+    if (result->extents[axis] < 0) {
+      result->component_names.push_back("dim" + std::to_string(axis));
+    }
+  }
+  result->component_names.emplace_back();
+  if (!result->is_dynamic()) {
+    std::array<uint64_t, LOOM_TYPE_MAX_RANK> dimensions;
+    for (size_t axis = 0; axis < result->extents.size(); ++axis) {
+      dimensions[axis] = loom_dim_pack_static(result->extents[axis]);
+    }
+    result->static_type = make_shaped_type(
+        LOOM_TYPE_VECTOR, result->element,
+        std::span<const uint64_t>(dimensions).first(result->extents.size()),
+        result->static_type_storage);
+  }
+  auto* admitted = result.get();
+  semantic_vectors_.emplace(source, std::move(result));
+  return admitted;
+}
+
 const ViewPartition* Types::view(const cxx::ClassType* input, cxx::AST* owner) {
   auto* source = input->definition();
   if (auto found = views_.find(source); found != views_.end()) {
@@ -594,7 +702,7 @@ const TensorPartition* Types::tensor(const cxx::ClassType* input,
   auto* element = cxx::template_argument_type(arguments[1]);
   auto projected_element = get(element, owner);
   auto element_kind = loom_type_kind(projected_element);
-  auto* source_vector = vector(element);
+  auto* source_vector = native_vector(element);
   auto* lane_type = source_vector ? source_vector->elementType() : element;
   auto bytes = unit_.control()->memoryLayout()->sizeOf(element);
   if ((element_kind != LOOM_TYPE_SCALAR && element_kind != LOOM_TYPE_VECTOR) ||
@@ -704,6 +812,13 @@ void Types::append_component_names(const Partition& partition,
     case ValueKind::Encoding:
       append({});
       return;
+    case ValueKind::Vector: {
+      const auto& vector = static_cast<const VectorPartition&>(partition);
+      for (const auto& name : vector.component_names) {
+        append(name);
+      }
+      return;
+    }
     case ValueKind::Tensor: {
       const auto& tensor = static_cast<const TensorPartition&>(partition);
       if (tensor.is_dynamic()) {
@@ -797,7 +912,7 @@ loom_type_t Types::get(const cxx::Type* input, cxx::AST* ast) {
       return get(underlying, ast);
     }
     case cxx::TypeKind::kVector: {
-      auto* source = vector(input);
+      auto* source = native_vector(input);
       auto element = get(source->elementType(), ast);
       auto* layout = unit_.control()->memoryLayout();
       auto bytes = layout->sizeOf(source);
@@ -841,6 +956,15 @@ loom_type_t Types::get(const cxx::Type* input, cxx::AST* ast) {
       if (admitted && admitted->kind == ValueKind::Address) {
         return loom_type_scalar(
             static_cast<const AddressPartition*>(admitted)->element_type);
+      }
+      if (admitted && admitted->kind == ValueKind::Vector) {
+        const auto& vector = static_cast<const VectorPartition&>(*admitted);
+        if (vector.is_dynamic()) {
+          diagnostics_.reject(
+              unit_, ast,
+              "dynamic vector types require bound extent identities");
+        }
+        return vector.static_type;
       }
       if (admitted && admitted->kind == ValueKind::Tensor) {
         const auto& tensor = static_cast<const TensorPartition&>(*admitted);
@@ -973,6 +1097,8 @@ void Types::admit_copy(cxx::FunctionSymbol* constructor, const cxx::Type* type,
     source = static_cast<const EncodingPartition&>(admitted).source;
   } else if (admitted.kind == ValueKind::OpaqueDialect) {
     source = static_cast<const OpaqueDialectPartition&>(admitted).source;
+  } else if (admitted.kind == ValueKind::Vector) {
+    source = static_cast<const VectorPartition&>(admitted).source;
   } else if (admitted.kind == ValueKind::View) {
     source = static_cast<const ViewPartition&>(admitted).source;
   } else if (admitted.kind == ValueKind::Tensor) {
@@ -1012,8 +1138,9 @@ void Types::append(const cxx::Type* input, cxx::AST* owner,
         unit_, owner,
         "dependent source values require reserved destination identities");
   }
-  // Only dependent view types use overflow payloads. The rejection above
-  // therefore guarantees that no returned type borrows this local storage.
+  // Only dependent shaped types use temporary overflow payloads. The
+  // rejection above therefore guarantees that no returned type borrows this
+  // local storage; static semantic vectors retain their own payload.
   BoundTypeStorage storage;
   append_bound(input, owner, {}, storage, output);
 }
@@ -1051,6 +1178,25 @@ void Types::append_bound(const cxx::Type* input, cxx::AST* owner,
       output.push_back(loom_type_encoding_with_role(
           static_cast<const EncodingPartition&>(admitted).role));
       return;
+    case ValueKind::Vector: {
+      const auto& vector = static_cast<const VectorPartition&>(admitted);
+      if (vector.is_dynamic()) {
+        if (identities.size() != vector.component_count) {
+          diagnostics_.reject(
+              unit_, owner,
+              "vector values require reserved destination component "
+              "identities");
+        }
+        for (size_t index = 0; index + 1 < identities.size(); ++index) {
+          output.push_back(loom_type_scalar(LOOM_SCALAR_TYPE_INDEX));
+        }
+        output.push_back(
+            vector.bind_type(identities.first(identities.size() - 1), storage));
+      } else {
+        output.push_back(vector.bind_type({}, storage));
+      }
+      return;
+    }
     case ValueKind::Tensor: {
       const auto& tensor = static_cast<const TensorPartition&>(admitted);
       if (tensor.is_dynamic()) {
