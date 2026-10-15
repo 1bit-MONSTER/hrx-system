@@ -265,9 +265,94 @@ queue phase, packed occupancy and allocated-byte accounting do not establish the
 ## Inspect host work in Tracy
 
 A Tracy-enabled `loom-serve` exposes serving zones alongside IREE's task,
-I/O, and HAL instrumentation. Start the server normally and attach the Tracy
-profiler. Worker lanes retain their actual thread identities; a model does not
-create a dedicated thread.
+I/O, and HAL instrumentation. Tracing is a build-time feature, not an HTTP
+setting or a server flag. Use a tracing-enabled binary and matching
+[Tracy 0.14.1 tools](https://github.com/wolfpld/tracy/releases/tag/v0.14.1).
+The release includes the graphical profiler, `tracy-capture`, and
+`tracy-capture-daemon`. Source-build instructions live in the
+[runtime tracing guide](https://github.com/ROCm/hrx-system/blob/main/runtime/src/iree/base/tracing/README.md).
+
+### Watch a running server
+
+Start the tracing-enabled server with an explicit Tracy TCP port. This example
+uses the CPU model from the [serving walkthrough](serve-models.md):
+
+```sh
+TRACY_PORT=18086 loom-serve --device=task --pool_backing=fixed \
+  --listen=127.0.0.1:8080 --model=vectors/model.json
+```
+
+In the Tracy profiler's connection window, enter `127.0.0.1:18086` and connect.
+Send ordinary inference requests to HTTP port 8080; their work appears in the
+live timeline. Worker lanes retain their actual thread identities; a model does
+not create a dedicated thread. Save the capture from the profiler when finished.
+
+For a remote server, forward the Tracy TCP port and connect the profiler to the
+same local address:
+
+```sh
+ssh -N -L 18086:127.0.0.1:18086 user@inference-host
+```
+
+The Tracy listener is separate from HTTP and is not restricted by `--listen`.
+It has no authentication and exposes profiling metadata, including source paths.
+Firewall it to the intended observers or use a trusted network and SSH tunnel.
+
+### Capture without a graphical profiler
+
+Start this collector in another terminal before launching the server:
+
+```sh
+tracy-capture -a 127.0.0.1 -p 18086 -o serving.tracy -s 30 -m 5
+```
+
+It waits for the client, records for 30 seconds after connection, and saves
+`serving.tracy`. Ctrl+C ends the capture early and saves it. Open the saved file
+in the matching Tracy profiler. The collector's `-m 5` is a memory limit expressed
+as a percentage of the collector machine's physical RAM, not 5 MiB or a limit on
+the server. Capturing changes timings; these traces explain execution structure
+rather than establishing production throughput.
+
+For automatic discovery and recording across server launches, run the daemon
+before starting servers:
+
+```sh
+tracy-capture-daemon -o traces --filter-name loom-serve \
+  --filter-port 18086 -m 5
+```
+
+The daemon stays in the foreground and connects to discovered clients whose
+program name contains `loom-serve` and whose TCP data port is 18086. It writes
+one `.tracy` file per capture when that session ends. Stop the server normally
+to finish its session, or press Ctrl+C in the daemon to finish and save all
+active captures. A service manager must use SIGINT for graceful daemon shutdown;
+SIGTERM is not its save-and-exit signal.
+
+Discovery uses UDP port 8086, even when `TRACY_PORT` selects another TCP port.
+The daemon must be on the server's broadcast network; an SSH TCP tunnel does not
+forward discovery. Running the daemon on the server machine or using explicit
+`tracy-capture -a ... -p ...` works without cross-network discovery. The daemon's
+`-p` changes its UDP discovery port; `--filter-port` selects the advertised TCP
+port.
+
+### Capture lifetime and memory
+
+The current runtime provider records from process startup and supports one
+collector connection per process. The live profiler, command-line collector,
+and daemon are alternatives, not simultaneous readers. Once a capture
+disconnects, a fresh server process is required for another capture; reconnect
+and on-demand tracing are not enabled.
+
+Events accumulate in the server before its first connection, so attaching
+promptly or starting a collector first matters for long-running services.
+Collectors retain the decoded trace in memory and write the file at capture
+completion. Neither their memory limit nor the daemon provides a rolling trace
+or crash-durable stream. Bounded captures are appropriate for detailed
+investigations; `/metrics` and the bounded `/logz` streams remain the continuous
+operational views. A daemon-owned capture becomes a file to inspect afterward,
+not a second live connection for the graphical profiler.
+
+### Read the serving timeline
 
 Serving zones distinguish scheduler turns, source compilation, input preparation,
 output processing, queue submission, and completion handling. Image output has

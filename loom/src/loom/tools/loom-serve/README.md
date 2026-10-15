@@ -85,6 +85,18 @@ trusted; deployment-owned tunnels and isolation supply any required boundary.
 devices. `/metrics`, `/logz` and `/logz/stream` expose counters and telemetry;
 slow observers do not retain model resources or backpressure record producers.
 
+## Trace live work
+
+A Tracy-enabled build exposes CPU work from serving, JIT compilation, task
+workers, and the runtime. The
+[runtime tracing guide](../../../../../runtime/src/iree/base/tracing/README.md)
+owns build and tool setup. The
+[serving observation workflow](../../../../docs/src/serving/workflows/observe-model-server.md#inspect-host-work-in-tracy)
+covers live profiler attachment, SSH forwarding, direct capture, automatic
+capture across server launches, and the meaning of serving annotations.
+The current provider accepts one collector per process; capture memory is
+separate from the bounded operational telemetry rings.
+
 ## Implementation and tests
 
 [Main](main.c) owns process startup and teardown. [Options](options.h) constructs
