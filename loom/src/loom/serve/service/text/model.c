@@ -446,11 +446,11 @@ static iree_status_t loom_serve_text_load_prepare(
       model->host_allocator, stage_count, sizeof(*model->stages),
       (void**)&model->stages));
   model->stage_count = stage_count;
-  return loom_serve_jit_allocate(model->device, model->dispatch,
-                                 loom_serve_device_host(model->device_owner),
-                                 &options->sources, &options->kernel_sanitizer,
-                                 &model->source.compilation,
-                                 model->host_allocator, &model->jit);
+  return loom_serve_jit_create(model->device, model->dispatch,
+                               loom_serve_device_host(model->device_owner),
+                               &options->sources, &options->kernel_sanitizer,
+                               &model->source.compilation,
+                               model->host_allocator, &model->jit);
 }
 
 static void loom_serve_text_load_execute(loomc_task_t* task,
@@ -830,7 +830,7 @@ iree_status_t loom_serve_text_model_free_retired(
   iree_allocator_free(model->host_allocator, model->stage_bindings);
   iree_allocator_free(model->host_allocator, model->parameters.plans);
   iree_allocator_free(model->host_allocator, model->parameters.sources);
-  loom_serve_jit_free(model->jit);
+  loom_serve_jit_release(model->jit);
   for (iree_host_size_t i = 0; i < TEXT_HOST_BUFFER_COUNT; ++i) {
     iree_vm_buffer_release(model->host.buffers[i]);
   }

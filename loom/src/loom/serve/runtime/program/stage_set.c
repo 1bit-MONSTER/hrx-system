@@ -46,7 +46,7 @@ void loom_serve_stage_set_free(loom_serve_stage_set_t* stages) {
 static void loom_serve_stage_set_finish(loom_serve_stage_set_job_t* job,
                                         iree_status_t status) {
   loom_serve_stage_set_t* stages = job->stages;
-  loom_serve_jit_free(job->jit);
+  loom_serve_jit_release(job->jit);
   const loom_serve_stage_set_completion_fn_t completion = job->completion;
   void* user_data = job->user_data;
   iree_allocator_free(stages->host_allocator, job);
@@ -99,7 +99,7 @@ static void loom_serve_stage_set_compiled(void* user_data, iree_status_t status,
 static void loom_serve_stage_set_execute(loomc_task_t* task,
                                          loomc_host_size_t worker_ordinal) {
   loom_serve_stage_set_job_t* job = (loom_serve_stage_set_job_t*)task;
-  job->status = loom_serve_jit_allocate(
+  job->status = loom_serve_jit_create(
       loom_serve_device_handle(job->device),
       loom_serve_device_dispatch_queue(job->device),
       loom_serve_device_host(job->device), &job->sources, NULL,

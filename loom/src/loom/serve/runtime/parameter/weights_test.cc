@@ -350,7 +350,7 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
         .count = IREE_ARRAYSIZE(providers),
         .values = providers,
     };
-    IREE_ASSERT_OK(loom_serve_jit_allocate(
+    IREE_ASSERT_OK(loom_serve_jit_create(
         device_, dispatch_, loom_serve_device_host(device_owner_), &sources,
         nullptr, &compilation_, host_allocator_, &jit_));
     WriteCheckpoint(path_.path(), 0);
@@ -385,7 +385,7 @@ class WeightsTest : public ::testing::TestWithParam<bool> {
     }
     IREE_EXPECT_OK(loom_serve_virtual_buffer_free(state_));
     iree_hal_buffer_release(output_buffer_);
-    loom_serve_jit_free(jit_);
+    loom_serve_jit_release(jit_);
     loom_serve_execution_release(execution_);
     IREE_EXPECT_OK(loom_serve_device_trim(device_owner_, 0));
     DrainMaintenance();

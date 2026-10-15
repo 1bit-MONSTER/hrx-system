@@ -60,7 +60,7 @@ TEST_P(JitWorkspaceTest, UnequalPrivateWorkspacesPreservePoolPolicyAndOutput) {
   EXPECT_EQ(loom_serve_device_memory_statistics(device_owner_)
                 .workspace.bytes_committed,
             0u);
-  loom_serve_jit_free(jit_);
+  loom_serve_jit_release(jit_);
   jit_ = nullptr;
   iree_vm_function_t selected_step;
   IREE_ASSERT_OK(iree_vm_process_lookup_function(

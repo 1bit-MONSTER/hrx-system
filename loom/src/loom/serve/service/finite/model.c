@@ -206,7 +206,7 @@ static iree_status_t loom_serve_finite_model_destroy_resources(
     iree_allocator_free(model->host_allocator, model->weights.values);
     iree_allocator_free(model->host_allocator, model->weights.plans);
     iree_allocator_free(model->host_allocator, (void*)model->name.data);
-    loom_serve_jit_free(model->jit);
+    loom_serve_jit_release(model->jit);
     iree_tokenizer_free(model->tokenizer);
     iree_allocator_free(model->host_allocator, model);
   }
@@ -786,7 +786,7 @@ static iree_status_t loom_serve_finite_load_prepare(
       load->options.sources.control, IREE_ARRAYSIZE(roots), roots,
       &model->compilation, host_allocator, &load->module);
   IREE_RETURN_IF_ERROR(status);
-  return loom_serve_jit_allocate(
+  return loom_serve_jit_create(
       loom_serve_device_handle(model->owner),
       loom_serve_device_dispatch_queue(model->owner),
       loom_serve_device_host(model->owner), &load->options.sources, NULL,

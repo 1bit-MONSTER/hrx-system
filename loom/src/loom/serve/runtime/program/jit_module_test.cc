@@ -54,7 +54,7 @@ TEST_P(JitModuleTest, SourceDefaultsAndOverridesShareVmAndGpuState) {
   EXPECT_EQ(compilation_.reused_kernels, 17u);
   IREE_ASSERT_OK(PrepareVm());
   // Prepared commands must outlive all compiler/source storage.
-  loom_serve_jit_free(jit_);
+  loom_serve_jit_release(jit_);
   jit_ = nullptr;
   EXPECT_EQ(compilation_.commands, 5u);
   EXPECT_EQ(compilation_.entries, 16u);

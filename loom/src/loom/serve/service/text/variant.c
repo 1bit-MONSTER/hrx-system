@@ -122,7 +122,7 @@ static void loom_serve_text_variant_finish(loom_serve_text_variant_job_t* job,
     status = loom_serve_text_variant_record(job);
   }
   variant->ready = iree_status_is_ok(status);
-  loom_serve_jit_free(job->jit);
+  loom_serve_jit_release(job->jit);
   const loom_serve_variant_completion_fn_t completion = job->completion;
   void* user_data = job->user_data;
   iree_allocator_free(variant->host_allocator, job);
@@ -165,7 +165,7 @@ static void loom_serve_text_variant_compiled(void* user_data,
 static void loom_serve_text_variant_execute(loomc_task_t* task,
                                             loomc_host_size_t worker_ordinal) {
   loom_serve_text_variant_job_t* job = (loom_serve_text_variant_job_t*)task;
-  job->status = loom_serve_jit_allocate(
+  job->status = loom_serve_jit_create(
       loom_serve_device_handle(job->device),
       loom_serve_device_dispatch_queue(job->device),
       loom_serve_device_host(job->device), &job->sources, job->sanitizer,
