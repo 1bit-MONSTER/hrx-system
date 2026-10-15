@@ -156,6 +156,7 @@ _ALL_PROFILE_XFAILS = {
     "kernel/subgroup/reduce.loom:@subgroup_extended_reductions": "TARGET/003",
     "kernel/subgroup/reduce.loom:@subgroup_float_reductions": "TARGET/003",
     "kernel/subgroup/reduce.loom:@subgroup_integer_reductions": "TARGET/003",
+    "kernel/subgroup/scan.loom:@subgroup_scan_float_extrema": "TARGET/003",
     "kernel/subgroup/scan.loom:@subgroup_scan_i32": "TARGET/003",
     "kernel/subgroup/shuffle_dynamic.loom:@subgroup_shuffle_dynamic_down": "TARGET/003",
     "kernel/subgroup/shuffle_dynamic.loom:@subgroup_shuffle_dynamic_index": "TARGET/003",

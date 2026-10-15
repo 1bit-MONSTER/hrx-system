@@ -464,25 +464,33 @@ def _arithmetic_rule(
         kinds = ("minnumf" if minimum else "maxnumf",)
         # A signed sortable key orders every finite value, infinity and signed
         # zero without any floating-point arithmetic. NaNs become an outlying
-        # identity key, so numeric peers win and all-NaN groups stay quiet NaN.
+        # key, so numeric peers win and all-NaN groups stay quiet NaN. Exclusive
+        # scans reserve the integer identity for an empty prefix; the adjacent
+        # key is still a NaN and lies beyond every numeric input key.
         value = recipe.import_float_bits(value, source_type, component.bit_width)
         magnitude_mask = recipe.constant((1 << (component.bit_width - 1)) - 1)
         shift = recipe.constant(component.bit_width - 1)
-        infinity = recipe.constant(
-            {16: 0x7C00, 32: 0x7F800000, 64: 0x7FF0000000000000}[component.bit_width]
-        )
+        infinity_bits = {
+            16: 0x7C00,
+            32: 0x7F800000,
+            64: 0x7FF0000000000000,
+        }[component.bit_width]
+        infinity = recipe.constant(infinity_bits)
         magnitude = recipe.binary("bitwise_and", value, magnitude_mask)
         is_nan = recipe.binary("s_greater_than", magnitude, infinity)
         sign = recipe.binary("shift_right_arithmetic", value, shift)
         ordered = recipe.binary(
             "bitwise_xor", value, recipe.binary("bitwise_and", sign, magnitude_mask)
         )
-        identity = recipe.constant(
+        identity_key = (
             (1 << (component.bit_width - 1)) - 1
             if minimum
             else -(1 << (component.bit_width - 1))
         )
-        value = recipe.select(is_nan, identity, ordered)
+        nan_key = identity_key
+        if scan_mode == "exclusive":
+            nan_key += -1 if minimum else 1
+        value = recipe.select(is_nan, recipe.constant(nan_key), ordered)
         result = ValueRef.temporary("reduced_key")
     elif component.kind == OrdinaryVectorComponentKind.UNSIGNED_INTEGER:
         value = recipe.emit(
@@ -499,6 +507,10 @@ def _arithmetic_rule(
         )
     )
     if float_extremum:
+        if scan_mode == "exclusive":
+            empty = recipe.binary("i_equal", result, recipe.constant(identity_key))
+            empty_key = infinity_bits if minimum else -infinity_bits - 1
+            result = recipe.select(empty, recipe.constant(empty_key), result)
         sign = recipe.binary("shift_right_arithmetic", result, shift)
         bits = recipe.binary(
             "bitwise_xor", result, recipe.binary("bitwise_and", sign, magnitude_mask)
