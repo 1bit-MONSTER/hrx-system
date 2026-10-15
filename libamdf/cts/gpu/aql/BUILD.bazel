@@ -13,6 +13,12 @@ package(
     licenses = ["notice"],
 )
 
+_AQL_TEST_COMPATIBILITY = ["@platforms//cpu:x86_64"] + select({
+    "@platforms//os:linux": [],
+    "@platforms//os:windows": [],
+    "//conditions:default": ["@platforms//:incompatible"],
+})
+
 amdf_cc_library(
     name = "publication",
     testonly = True,
@@ -48,6 +54,35 @@ amdf_cc_library(
     ],
 )
 
+amdf_cc_library(
+    name = "dispatch_timing_fixture",
+    testonly = True,
+    srcs = ["dispatch_timing_fixture.cc"],
+    hdrs = ["dispatch_timing_fixture.h"],
+    target_compatible_with = _AQL_TEST_COMPATIBILITY,
+    deps = [
+        ":dispatch_fixture",
+        "//libamdf/cts/gpu/kernels:transform",
+        "//libamdf/cts/gpu/kernels:transform_kernels",
+        "//libamdf/cts/util:observation",
+        "//third_party:google_test",
+    ],
+)
+
+amdf_cc_library(
+    name = "barrier_or_payload_fixture",
+    testonly = True,
+    srcs = ["barrier_or_payload_fixture.cc"],
+    hdrs = ["barrier_or_payload_fixture.h"],
+    target_compatible_with = _AQL_TEST_COMPATIBILITY,
+    deps = [
+        ":dispatch_fixture",
+        "//libamdf/cts/gpu/kernels:transform",
+        "//libamdf/cts/gpu/kernels:transform_kernels",
+        "//third_party:google_test",
+    ],
+)
+
 amdf_cts_test_suite(
     name = "aql",
     srcs = [
@@ -69,14 +104,12 @@ amdf_cts_test_suite(
         "transfer_test.cc",
         "workset_test.cc",
     ],
-    target_compatible_with = ["@platforms//cpu:x86_64"] + select({
-        "@platforms//os:linux": [],
-        "@platforms//os:windows": [],
-        "//conditions:default": ["@platforms//:incompatible"],
-    }),
+    target_compatible_with = _AQL_TEST_COMPATIBILITY,
     visibility = ["//visibility:public"],
     deps = [
+        ":barrier_or_payload_fixture",
         ":dispatch_fixture",
+        ":dispatch_timing_fixture",
         ":queue_fixture",
         "//libamdf/cts/gpu/kernels:byte_copy_unaligned",
         "//libamdf/cts/gpu/kernels:byte_copy_unaligned_kernels",
@@ -95,7 +128,22 @@ amdf_cts_test_suite(
         "//libamdf/cts/gpu/kernels:transform_alternate_kernels",
         "//libamdf/cts/gpu/kernels:transform_kernels",
         "//libamdf/cts/gpu/pm4/encoding:memory_commands",
-        "//libamdf/cts/util:observation",
+        "//third_party:google_test",
+    ],
+)
+
+amdf_cts_test_suite(
+    name = "aql_stress",
+    srcs = [
+        "barrier_or_payload_stress_test.cc",
+        "dispatch_timing_stress_test.cc",
+    ],
+    tags = ["manual"],
+    target_compatible_with = _AQL_TEST_COMPATIBILITY,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":barrier_or_payload_fixture",
+        ":dispatch_timing_fixture",
         "//third_party:google_test",
     ],
 )
@@ -105,11 +153,7 @@ amdf_cc_library(
     testonly = True,
     srcs = ["dispatch_fixture.cc"],
     hdrs = ["dispatch_fixture.h"],
-    target_compatible_with = ["@platforms//cpu:x86_64"] + select({
-        "@platforms//os:linux": [],
-        "@platforms//os:windows": [],
-        "//conditions:default": ["@platforms//:incompatible"],
-    }),
+    target_compatible_with = _AQL_TEST_COMPATIBILITY,
     deps = [
         ":executable",
         ":queue_fixture",

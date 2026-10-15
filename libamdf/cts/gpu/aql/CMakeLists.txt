@@ -63,6 +63,45 @@ endif()
 if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
 iree_cc_library(
   NAME
+    dispatch_timing_fixture
+  HDRS
+    "dispatch_timing_fixture.h"
+  SRCS
+    "dispatch_timing_fixture.cc"
+  DEPS
+    ::dispatch_fixture
+    amdf::headers
+    iree::third_party::google_test
+    libamdf::cts::gpu::kernels::transform
+    libamdf::cts::gpu::kernels::transform_kernels
+    libamdf::cts::util::observation
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+iree_cc_library(
+  NAME
+    barrier_or_payload_fixture
+  HDRS
+    "barrier_or_payload_fixture.h"
+  SRCS
+    "barrier_or_payload_fixture.cc"
+  DEPS
+    ::dispatch_fixture
+    amdf::headers
+    iree::third_party::google_test
+    libamdf::cts::gpu::kernels::transform
+    libamdf::cts::gpu::kernels::transform_kernels
+  TESTONLY
+  PUBLIC
+)
+endif()
+
+if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+iree_cc_library(
+  NAME
     aql_cases
   SRCS
     "barrier_test.cc"
@@ -83,7 +122,9 @@ iree_cc_library(
     "transfer_test.cc"
     "workset_test.cc"
   DEPS
+    ::barrier_or_payload_fixture
     ::dispatch_fixture
+    ::dispatch_timing_fixture
     ::queue_fixture
     amdf::headers
     iree::third_party::google_test
@@ -104,7 +145,6 @@ iree_cc_library(
     libamdf::cts::gpu::kernels::transform_alternate_kernels
     libamdf::cts::gpu::kernels::transform_kernels
     libamdf::cts::gpu::pm4::encoding::memory_commands
-    libamdf::cts::util::observation
   TESTONLY
   ALWAYSLINK
   PUBLIC
@@ -161,6 +201,87 @@ iree_native_test(
   DATA
     "amdf::amdf"
   LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.gpu"
+    "iree-build-requirement=loom.target.arch.amdgpu"
+    "iree-build-requirement=loom.emit.amdgpu"
+    "iree-run-requirement=libamdf.resource.amd_gpu"
+    "runtime-resource=amd-gpu"
+  RESOURCE_GROUP
+    gpu-device
+)
+endif()
+
+if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+iree_cc_library(
+  NAME
+    aql_stress_cases
+  SRCS
+    "barrier_or_payload_stress_test.cc"
+    "dispatch_timing_stress_test.cc"
+  DEPS
+    ::barrier_or_payload_fixture
+    ::dispatch_timing_fixture
+    amdf::headers
+    iree::third_party::google_test
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+amdf_cts_binary(
+  NAME
+    aql_stress_dynamic_bin
+  DATA
+    amdf::amdf
+  DEPS
+    ::aql_stress_cases
+    amdf::headers
+    libamdf::cts::util::dynamic_provider
+    libamdf::cts::util::test_main
+  TESTONLY
+)
+endif()
+
+if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+iree_native_test(
+  NAME
+    "aql_stress_dynamic"
+  ARGS
+    "--amdf_native_lifetime=process"
+    "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
+  SRC
+    ::aql_stress_dynamic_bin
+  DATA
+    "amdf::amdf"
+  LABELS
+    "manual"
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.gpu"
+    "iree-build-requirement=loom.target.arch.amdgpu"
+    "iree-build-requirement=loom.emit.amdgpu"
+    "iree-run-requirement=libamdf.resource.amd_gpu"
+    "runtime-resource=amd-gpu"
+  RESOURCE_GROUP
+    gpu-device
+)
+endif()
+
+if(IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND (AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA) AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_BUILD AND LOOM_EMIT_AMDGPU AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
+iree_native_test(
+  NAME
+    "aql_stress_dynamic_instance"
+  ARGS
+    "--amdf_native_lifetime=instance"
+    "--amdf_library={{$<TARGET_FILE:amdf::amdf>}}"
+  SRC
+    ::aql_stress_dynamic_bin
+  DATA
+    "amdf::amdf"
+  LABELS
+    "manual"
     "iree-build-requirement=libamdf"
     "iree-build-requirement=libamdf.gpu"
     "iree-build-requirement=loom.target.arch.amdgpu"
