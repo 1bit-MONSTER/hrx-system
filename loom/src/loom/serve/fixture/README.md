@@ -11,7 +11,9 @@ This is a small first-output and authoring witness. It establishes model-package
 and transport contracts, not learned-model quality or neural throughput.
 The [retained-text fixture](text/README.md) adds the actual autoregressive
 session contract and a generated 76-byte checkpoint. Text generation uses the
-text scheduler, not a simulated finite-vector endpoint. All four packages run
+text scheduler, not a simulated finite-vector endpoint. The
+[speech fixture](speech/README.md) adds incremental PCM waveform output,
+reusable conditioning and explicit stream retirement. These packages run
 on native x86 CPU, AMDGPU and Vulkan; a separate resident embedding variant
 exercises XDNA.
 
@@ -110,6 +112,7 @@ admission and drains accepted work before model and device destruction.
 | Text-conditioned finite image | [Image package](image/README.md) | [Image model](../service/image/model.h) |
 | Ragged inputs to final embedding vectors | [Embedding package](embedding/README.md) | [Finite model](../service/finite/README.md), [embedding records](../service/finite/embedding/protocol.h) |
 | Structured questions to choice/score/noul probabilities | [Decision package](decision/README.md) | [Finite model](../service/finite/README.md), [SystemOne records](../service/finite/decision/protocol.h) |
+| Incremental waveform output | [Speech package](speech/README.md) | [Speech model](../service/speech/model.h), [stream lifecycle](../service/speech/README.md) |
 | Retained autoregressive sessions | [Tiny text package](text/README.md) | [Text model](../service/text/model.h), [source preparation](../service/text/source.h) |
 
 Copying a source package establishes its ABI skeleton, not its mathematics.
@@ -138,8 +141,9 @@ The separate
 repeated HTTP output through direct `queue_dispatch`, with no command buffer.
 It requires an enabled XDNA compiler target/HAL and physical NPU, and has no
 learned weights. The ordinary catalog instead proves the native command-stage boundary.
-Audio, image-input conditioning and graph/workflow composition require their
-own concrete input/output ownership contracts rather than repurposed fields.
+Audio input, encoded audio files, image-input conditioning and graph/workflow
+composition require their own concrete input/output ownership contracts. The
+speech package supplies the incremental raw-waveform output boundary.
 
 ## Focused verification
 

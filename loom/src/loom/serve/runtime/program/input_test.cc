@@ -7,6 +7,7 @@
 #include "loom/serve/runtime/program/input.h"
 
 #include <string>
+#include <vector>
 
 #include "iree/base/tooling/flags.h"
 #include "iree/testing/gtest.h"
@@ -32,7 +33,10 @@ class InputTest : public ::testing::TestWithParam<bool> {
         &types));
     std::string configuration = R"({
           "model":{"type":"BPE","vocab":{
-            "a":0,"b":1,"z":2,"zz":3,"<bos>":4,"<eos>":5},"merges":[]},
+            "a":0,"b":1,"z":2,"zz":3,"<bos>":4,"<eos>":5,
+            "▁":6,"é":7,"🦜":8,"end":10},"merges":[]},
+          "decoder":{"type":"Metaspace","replacement":"▁",
+            "prepend_scheme":"always"},
           "added_tokens":[
             {"id":3,"content":"zz","single_word":false,"lstrip":false,
              "rstrip":false,"normalized":false,"special":true},
@@ -51,13 +55,26 @@ class InputTest : public ::testing::TestWithParam<bool> {
               "<eos>":{"id":"<eos>","ids":[5],"tokens":["<eos>"]}}})";
     }
     configuration += "}";
+    LoadTokenizer(configuration);
+  }
+  void LoadTokenizer(const std::string& configuration) {
+    iree_tokenizer_t* replacement = nullptr;
     IREE_ASSERT_OK(iree_tokenizer_from_huggingface_json(
         iree_make_cstring_view(configuration.c_str()), host_allocator,
-        &tokenizer));
-    IREE_ASSERT_OK(loom_serve_input_module_create(environment, tokenizer,
-                                                  host_allocator, &module));
+        &replacement));
+    loom_serve_program_free(program);
+    program = nullptr;
+    iree_vm_module_release(module);
+    module = nullptr;
+    iree_tokenizer_free(tokenizer);
+    tokenizer = replacement;
+    LoadProgram(tokenizer);
+  }
+  void LoadProgram(const iree_tokenizer_t* capability_tokenizer) {
+    IREE_ASSERT_OK(loom_serve_input_module_create(
+        environment, capability_tokenizer, host_allocator, &module));
     const iree_string_view_t roots[] = {IREE_SVL("tokens"), IREE_SVL("find"),
-                                        IREE_SVL("check")};
+                                        IREE_SVL("check"), IREE_SVL("text")};
     const loom_serve_sources_t sources = {.base_directory = IREE_SV(".")};
     IREE_ASSERT_OK(loom_serve_program_allocate(
         environment, &sources, iree_make_cstring_view(FLAG_input_source),
@@ -87,6 +104,13 @@ class InputTest : public ::testing::TestWithParam<bool> {
                                         IREE_SV("model"), entry, &function));
     return iree_vm_invoke(loom_serve_program_invocation(program), function,
                           arguments, results);
+  }
+  iree_vm_variant_t Tokens(const std::vector<int32_t>& tokens) {
+    std::string bytes(tokens.size() * 4, '\0');
+    for (size_t i = 0; i < tokens.size(); ++i) {
+      iree_unaligned_store_le_u32(bytes.data() + i * 4, tokens[i]);
+    }
+    return Text(iree_make_string_view(bytes.data(), bytes.size()));
   }
   // Allocator for the actual tokenizer, module and VM process.
   const iree_allocator_t host_allocator = iree_allocator_system();
@@ -178,6 +202,82 @@ TEST_P(InputTest, BoundedModesMatchCompleteTokenizer) {
   }
 }
 
+TEST_P(InputTest, ComposedExpansionUsesOnlyRequestedPrefixCapacity) {
+  const std::string configuration =
+      R"({"normalizer":{"type":"Sequence","normalizers":[
+        {"type":"Replace","pattern":{"String":"a"},"content":")" +
+      std::string(32, 'b') + R"("},
+        {"type":"Replace","pattern":{"String":"b"},"content":")" +
+      std::string(32, 'c') +
+      R"("}]},"model":{"type":"BPE","vocab":{"c":1},"merges":[]}})";
+  LoadTokenizer(configuration);
+  for (int64_t capacity : {0, 1, 31, 4096, 8192, 8193}) {
+    SCOPED_TRACE(capacity);
+    iree_vm_variant_t arguments[] = {Text(IREE_SV("aaaaaaaa")),
+                                     iree_vm_variant_from_i32(0),
+                                     iree_vm_variant_from_i64(capacity)};
+    iree_vm_variant_t results[2] = {};
+    IREE_ASSERT_OK(Invoke(IREE_SV("tokens"),
+                          iree_vm_variant_span_from_array(arguments),
+                          iree_vm_variant_span_from_array(results)));
+    int64_t count = 0;
+    IREE_ASSERT_OK(iree_vm_i64_from_variant(results[1], &count));
+    EXPECT_EQ(count, iree_min(capacity, int64_t{8192}));
+    iree_vm_buffer_t* buffer = nullptr;
+    IREE_ASSERT_OK(
+        iree_vm_buffer_ptr_from_variant_borrowed(&types, results[0], &buffer));
+    iree_const_byte_span_t bytes = iree_const_byte_span_empty();
+    IREE_ASSERT_OK(iree_vm_buffer_map_read(
+        buffer, 0, iree_vm_buffer_length(buffer), &bytes));
+    ASSERT_EQ(bytes.data_length, capacity * 4);
+    for (int64_t i = 0; i < capacity; ++i) {
+      EXPECT_EQ(iree_unaligned_load_le_u32(bytes.data + i * 4),
+                i < count ? 1u : 0u);
+    }
+    iree_vm_variant_span_reset(iree_vm_variant_span_from_array(arguments));
+    iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
+  }
+}
+
+TEST_P(InputTest, IncompleteAndInvalidUtf8LeaveInvocationReusable) {
+  LoadTokenizer(R"({"normalizer":{"type":"NFC"},
+      "model":{"type":"BPE","vocab":{"a":0},"merges":[]}})");
+  const iree_string_view_t invalid[] = {
+      IREE_SVL("a\xc3"),
+      IREE_SVL("a\xe2\x98"),
+      IREE_SVL("a\xf0\x9f\xa6"),
+      IREE_SVL("a\x80"),
+      IREE_SVL("a\xc0\xaf"),
+      IREE_SVL("a\xed\xa0\x80"),
+      IREE_SVL("a\xf4\x90\x80\x80"),
+  };
+  for (iree_string_view_t text : invalid) {
+    for (int64_t capacity : {0, 1, 16}) {
+      iree_vm_variant_t arguments[] = {Text(text), iree_vm_variant_from_i32(0),
+                                       iree_vm_variant_from_i64(capacity)};
+      iree_vm_variant_t results[2] = {};
+      IREE_EXPECT_STATUS_IS(
+          IREE_STATUS_INVALID_ARGUMENT,
+          Invoke(IREE_SV("tokens"), iree_vm_variant_span_from_array(arguments),
+                 iree_vm_variant_span_from_array(results)));
+      iree_vm_variant_span_reset(iree_vm_variant_span_from_array(arguments));
+      iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
+    }
+    iree_vm_variant_t arguments[] = {Text(IREE_SV("a")),
+                                     iree_vm_variant_from_i32(0),
+                                     iree_vm_variant_from_i64(16)};
+    iree_vm_variant_t results[2] = {};
+    IREE_ASSERT_OK(Invoke(IREE_SV("tokens"),
+                          iree_vm_variant_span_from_array(arguments),
+                          iree_vm_variant_span_from_array(results)));
+    int64_t count = 0;
+    IREE_ASSERT_OK(iree_vm_i64_from_variant(results[1], &count));
+    EXPECT_EQ(count, 1);
+    iree_vm_variant_span_reset(iree_vm_variant_span_from_array(arguments));
+    iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
+  }
+}
+
 TEST_P(InputTest, VocabularyLookupDoesNotInventMissingTokens) {
   for (const auto& text : {"a", "b", "missing"}) {
     iree_vm_variant_t argument = Text(iree_make_cstring_view(text));
@@ -228,6 +328,115 @@ TEST_P(InputTest, UnsupportedFlagsLeaveInvocationReusable) {
                iree_vm_variant_span_from_array(results)));
     iree_vm_variant_span_reset(iree_vm_variant_span_from_array(arguments));
     iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
+  }
+}
+
+TEST_P(InputTest, CompleteDecodePreservesUnicodeAndResetsLeadingSpace) {
+  struct Case {
+    // Complete token span passed to the source capability.
+    std::vector<int32_t> tokens;
+    // Tokenizer special-token behavior.
+    int32_t flags;
+    // Exact decoded UTF-8 bytes.
+    std::string text;
+  };
+  const Case cases[] = {
+      {{}, 0, ""},
+      {{0, 1}, 0, "ab"},
+      {{6, 7, 6, 8}, 0, "é 🦜"},
+      {{4, 6, 7, 6, 8, 5}, 1, "é 🦜"},
+      {{4, 0, 3, 1, 5}, 0, "<bos>azzb<eos>"},
+      {{4, 0, 3, 1, 5}, 1, "ab"},
+      {{4, 3, 5}, 1, ""},
+  };
+  for (const auto& test : cases) {
+    for (int64_t capacity = 0; capacity <= (int64_t)test.text.size() + 2;
+         ++capacity) {
+      SCOPED_TRACE(::testing::Message()
+                   << "text=" << test.text << " capacity=" << capacity);
+      iree_vm_variant_t arguments[] = {Tokens(test.tokens),
+                                       iree_vm_variant_from_i32(test.flags),
+                                       iree_vm_variant_from_i64(capacity)};
+      iree_vm_variant_t results[2] = {};
+      iree_status_t status =
+          Invoke(IREE_SV("text"), iree_vm_variant_span_from_array(arguments),
+                 iree_vm_variant_span_from_array(results));
+      if (capacity < (int64_t)test.text.size()) {
+        IREE_EXPECT_STATUS_IS(IREE_STATUS_RESOURCE_EXHAUSTED, status);
+        EXPECT_TRUE(iree_vm_variant_is_null(results[0]));
+      } else {
+        IREE_ASSERT_OK(status);
+        int64_t length = 0;
+        IREE_ASSERT_OK(iree_vm_i64_from_variant(results[1], &length));
+        EXPECT_EQ(length, test.text.size());
+        iree_vm_buffer_t* buffer = nullptr;
+        IREE_ASSERT_OK(iree_vm_buffer_ptr_from_variant_borrowed(
+            &types, results[0], &buffer));
+        iree_const_byte_span_t bytes = iree_const_byte_span_empty();
+        IREE_ASSERT_OK(iree_vm_buffer_map_read(
+            buffer, 0, iree_vm_buffer_length(buffer), &bytes));
+        EXPECT_EQ(bytes.data_length, capacity);
+        EXPECT_EQ(std::string((const char*)bytes.data, length), test.text);
+        for (int64_t i = length; i < capacity; ++i) {
+          EXPECT_EQ(bytes.data[i], 0);
+        }
+      }
+      iree_vm_variant_span_reset(iree_vm_variant_span_from_array(arguments));
+      iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
+    }
+  }
+}
+
+TEST_P(InputTest, DecodeRejectsMissingIdsAndMalformedArguments) {
+  for (int32_t id : {-1, 9, 11, 0}) {
+    iree_vm_variant_t arguments[] = {Tokens({id}), iree_vm_variant_from_i32(0),
+                                     iree_vm_variant_from_i64(4)};
+    iree_vm_variant_t results[2] = {};
+    IREE_EXPECT_STATUS_IS(
+        id ? IREE_STATUS_INVALID_ARGUMENT : IREE_STATUS_OK,
+        Invoke(IREE_SV("text"), iree_vm_variant_span_from_array(arguments),
+               iree_vm_variant_span_from_array(results)));
+    iree_vm_variant_span_reset(iree_vm_variant_span_from_array(arguments));
+    iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
+  }
+  for (int i = 0; i < 3; ++i) {
+    iree_vm_variant_t arguments[] = {
+        i == 0 ? Text(IREE_SV("abc")) : Tokens({0}),
+        iree_vm_variant_from_i32(i == 1 ? 2 : 0),
+        iree_vm_variant_from_i64(i == 2 ? -1 : 4)};
+    iree_vm_variant_t results[2] = {};
+    IREE_EXPECT_STATUS_IS(
+        i == 2 ? IREE_STATUS_OUT_OF_RANGE : IREE_STATUS_INVALID_ARGUMENT,
+        Invoke(IREE_SV("text"), iree_vm_variant_span_from_array(arguments),
+               iree_vm_variant_span_from_array(results)));
+    iree_vm_variant_span_reset(iree_vm_variant_span_from_array(arguments));
+    iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
+  }
+}
+
+TEST_P(InputTest, DecodeWithoutTokenizerDoesNotDisableInputValidation) {
+  loom_serve_program_free(program);
+  program = nullptr;
+  iree_vm_module_release(module);
+  module = nullptr;
+  LoadProgram(nullptr);
+  iree_vm_variant_t arguments[] = {Tokens({0}), iree_vm_variant_from_i32(0),
+                                   iree_vm_variant_from_i64(4)};
+  iree_vm_variant_t results[2] = {};
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_FAILED_PRECONDITION,
+      Invoke(IREE_SV("text"), iree_vm_variant_span_from_array(arguments),
+             iree_vm_variant_span_from_array(results)));
+  iree_vm_variant_span_reset(iree_vm_variant_span_from_array(arguments));
+  iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
+  for (int32_t condition : {1, 0}) {
+    iree_vm_variant_t check[] = {iree_vm_variant_from_i32(condition),
+                                 Text(IREE_SV("cold input rejected"))};
+    IREE_EXPECT_STATUS_IS(
+        condition ? IREE_STATUS_OK : IREE_STATUS_INVALID_ARGUMENT,
+        Invoke(IREE_SV("check"), iree_vm_variant_span_from_array(check),
+               iree_vm_variant_span_empty()));
+    iree_vm_variant_span_reset(iree_vm_variant_span_from_array(check));
   }
 }
 

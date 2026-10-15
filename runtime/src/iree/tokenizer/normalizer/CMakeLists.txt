@@ -318,6 +318,7 @@ iree_cc_library(
     "sequence.c"
   DEPS
     iree::base
+    iree::base::internal::unicode
     iree::tokenizer::normalizer
   PUBLIC
 )

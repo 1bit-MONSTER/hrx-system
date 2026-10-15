@@ -138,7 +138,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     status = iree_tokenizer_encode_state_feed(state, chunk, output,
                                               &bytes_consumed, &token_count);
     if (!iree_status_is_ok(status)) {
-      iree_status_ignore(status);
       break;
     }
 
@@ -149,14 +148,16 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     if (bytes_consumed == 0 && token_count == 0) {
       break;
     }
-    if (chunk_index > 10000) {
-      break;  // Safety limit.
-    }
   }
 
-  // Finalize to flush any remaining data.
-  iree_host_size_t final_count = 0;
-  status = iree_tokenizer_encode_state_finalize(state, output, &final_count);
+  if (iree_status_is_ok(status) && offset == size) {
+    do {
+      iree_host_size_t final_count = 0;
+      status =
+          iree_tokenizer_encode_state_finalize(state, output, &final_count);
+    } while (iree_status_is_ok(status) &&
+             iree_tokenizer_encode_state_has_pending(state));
+  }
   iree_status_ignore(status);
 
   iree_tokenizer_encode_state_deinitialize(state);

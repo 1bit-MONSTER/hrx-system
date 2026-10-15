@@ -122,13 +122,30 @@ iree_cc_test(
 
 iree_cc_library(
   NAME
+    decode_table
+  HDRS
+    "decode_table.h"
+  SRCS
+    "decode_table.c"
+  DEPS
+    ::byte_level_tables
+    ::decoder
+    iree::base
+    iree::base::internal::unicode
+    iree::tokenizer::decoder::byte_fallback
+    iree::tokenizer::vocab
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
     tokenizer
   HDRS
     "tokenizer.h"
   SRCS
     "tokenizer.c"
   DEPS
-    ::byte_level_tables
+    ::decode_table
     ::decoder
     ::model
     ::normalizer
@@ -139,7 +156,6 @@ iree_cc_library(
     iree::base
     iree::base::internal
     iree::base::internal::unicode
-    iree::tokenizer::decoder::byte_fallback
     iree::tokenizer::vocab
   PUBLIC
 )
@@ -214,6 +230,35 @@ iree_cc_test(
 
 iree_cc_test(
   NAME
+    tokenizer_input_tokens_test
+  SRCS
+    "tokenizer_input_tokens_test.cc"
+  DEPS
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+    iree::tokenizer::format::huggingface::tokenizer_json
+)
+
+iree_cc_test(
+  NAME
+    decode_table_test
+  SRCS
+    "decode_table_test.cc"
+  DEPS
+    ::tokenizer
+    ::tokenizer_test_util
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+    iree::tokenizer::decoder::byte_fallback
+    iree::tokenizer::decoder::metaspace
+    iree::tokenizer::decoder::sequence
+    iree::tokenizer::decoder::wordpiece
+)
+
+iree_cc_test(
+  NAME
     tokenizer_decode_test
   SRCS
     "tokenizer_decode_test.cc"
@@ -225,6 +270,7 @@ iree_cc_test(
     iree::testing::gtest_main
     iree::tokenizer::decoder::byte_fallback
     iree::tokenizer::decoder::byte_level
+    iree::tokenizer::decoder::ctc
     iree::tokenizer::decoder::metaspace
     iree::tokenizer::decoder::replace
     iree::tokenizer::decoder::sequence

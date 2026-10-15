@@ -513,6 +513,14 @@ iree_tokenizer_special_tokens_match(
         continue;
       }
 
+      // The stored candidate retains every byte already accepted. Other
+      // candidates in the bucket may have diverged before this position;
+      // matching only the new suffix would resurrect those rejected tokens.
+      if (memcmp(token_content, stored_bstring + 1, state->match_position) !=
+          0) {
+        continue;
+      }
+
       // Check if new input matches token at the continuation position.
       iree_host_size_t bytes_to_check =
           iree_min(input.size, token_length - state->match_position);

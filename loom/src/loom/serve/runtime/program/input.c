@@ -9,6 +9,7 @@
 #include <limits.h>
 #include <string.h>
 
+#include "iree/base/internal/unicode.h"
 #include "iree/tokenizer/vocab/vocab.h"
 #include "iree/vm/buffer.h"
 #include "iree/vm/reflection.h"
@@ -26,10 +27,14 @@ typedef struct input_module_t {
   const iree_tokenizer_t* tokenizer;
 } input_module_t;
 
-// Pull only the requested prefix of the encoded stream. Finalize is
-// destructive, so its independent pending bound, not the remaining destination
-// capacity, determines scratch size when the entire text fits in the input
-// feed.
+enum input_function_ordinal_e {
+  INPUT_FUNCTION_ENCODE = 0,
+  INPUT_FUNCTION_LOOKUP = 1,
+  INPUT_FUNCTION_REQUIRE = 2,
+  INPUT_FUNCTION_DECODE = 3,
+};
+
+// Pull only the requested prefix; all stream phases share destination credit.
 static iree_status_t loom_serve_input_encode_prefix(
     const iree_tokenizer_t* tokenizer, iree_string_view_t text,
     iree_tokenizer_encode_flags_t flags, iree_host_size_t capacity,
@@ -66,35 +71,96 @@ static iree_status_t loom_serve_input_encode_prefix(
     text = iree_string_view_substr(text, consumed, IREE_STRING_VIEW_NPOS);
     count += produced;
   }
-  int32_t* pending = NULL;
   if (iree_status_is_ok(status) && count < capacity) {
-    // Finalize requires non-null output storage even for a zero token bound.
-    const iree_host_size_t bound =
-        iree_max(1, iree_tokenizer_encode_state_pending_token_bound(state));
-    status = iree_allocator_malloc_array(host_allocator, bound,
-                                         sizeof(*pending), (void**)&pending);
     iree_host_size_t produced = 0;
-    if (iree_status_is_ok(status)) {
-      status = iree_tokenizer_encode_state_finalize(
-          state, iree_tokenizer_make_token_output(pending, NULL, NULL, bound),
-          &produced);
-    }
-    if (iree_status_is_ok(status)) {
-      produced = iree_min(produced, capacity - count);
-      if (produced) {
-        memcpy(out_tokens + count, pending, produced * sizeof(*out_tokens));
-      }
-      count += produced;
-    }
+    status = iree_tokenizer_encode_state_finalize(
+        state,
+        iree_tokenizer_make_token_output(out_tokens + count, NULL, NULL,
+                                         capacity - count),
+        &produced);
+    count += produced;
   }
   if (state) {
     iree_tokenizer_encode_state_deinitialize(state);
   }
-  iree_allocator_free(host_allocator, pending);
   iree_allocator_free(host_allocator, storage);
   if (iree_status_is_ok(status)) {
     *out_count = count;
   }
+  return status;
+}
+
+static iree_status_t loom_serve_input_decode(input_module_t* module,
+                                             const iree_vm_call_packet_t* call,
+                                             iree_const_byte_span_t bytes) {
+  const iree_tokenizer_decode_flags_t flags =
+      (iree_tokenizer_decode_flags_t)iree_vm_call_value_argument_load(call, 0);
+  if (flags & ~IREE_TOKENIZER_DECODE_FLAG_SKIP_SPECIAL_TOKENS) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "unsupported input decoding flags 0x%08x", flags);
+  }
+  if (bytes.data_length % sizeof(int32_t)) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "token input must contain whole little-endian I32 IDs");
+  }
+  const uint64_t capacity = iree_vm_call_value_argument_load(call, 1);
+  if (capacity > INT64_MAX || capacity > SIZE_MAX) {
+    return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                            "decoded text byte capacity overflow");
+  }
+  const iree_host_size_t count = bytes.data_length / sizeof(int32_t);
+  int32_t* tokens = NULL;
+  if (count) {
+    IREE_RETURN_IF_ERROR(iree_allocator_malloc(
+        module->host_allocator, bytes.data_length, (void**)&tokens));
+  }
+  const iree_tokenizer_vocab_t* vocab = iree_tokenizer_vocab(module->tokenizer);
+  const iree_host_size_t vocab_capacity = iree_tokenizer_vocab_capacity(vocab);
+  iree_status_t status = iree_ok_status();
+  for (iree_host_size_t i = 0; i < count && iree_status_is_ok(status); ++i) {
+    const uint32_t id = iree_unaligned_load_le_u32(bytes.data + i * 4);
+    if (id >= vocab_capacity ||
+        (iree_tokenizer_vocab_token_attrs(vocab, (int32_t)id) &
+         IREE_TOKENIZER_TOKEN_ATTR_UNUSED)) {
+      status =
+          iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                           "token ID %" PRIu32 " is not in the vocabulary", id);
+    } else {
+      tokens[i] = (int32_t)id;
+    }
+  }
+  iree_vm_buffer_t* output = NULL;
+  if (iree_status_is_ok(status)) {
+    status = iree_vm_buffer_create((iree_host_size_t)capacity, 1,
+                                   module->host_allocator, &output);
+  }
+  iree_byte_span_t storage = iree_byte_span_empty();
+  if (iree_status_is_ok(status)) {
+    status = iree_vm_buffer_map_write(output, 0, (iree_host_size_t)capacity,
+                                      &storage);
+  }
+  iree_host_size_t length = 0;
+  // Empty VM mappings have no pointer; the tokenizer accepts a non-null
+  // zero-capacity span and still verifies that decoding produces no bytes.
+  char empty_output = 0;
+  if (iree_status_is_ok(status)) {
+    status = iree_tokenizer_decode(
+        module->tokenizer, (iree_tokenizer_token_id_list_t){count, tokens},
+        flags,
+        iree_make_mutable_string_view(
+            storage.data ? (char*)storage.data : &empty_output,
+            storage.data_length),
+        module->host_allocator, &length);
+  }
+  iree_allocator_free(module->host_allocator, tokens);
+  if (iree_status_is_ok(status)) {
+    iree_vm_ref_t result =
+        iree_vm_buffer_ref_from_ptr_move(&module->types, &output);
+    iree_vm_call_ref_result_store_move(call, 0, &result);
+    iree_vm_call_value_result_store(call, 0, length);
+  }
+  iree_vm_buffer_release(output);
   return status;
 }
 
@@ -104,7 +170,7 @@ static iree_status_t loom_serve_input_module_start(
     iree_vm_execution_outcome_t* out_outcome) {
   input_module_t* module = (input_module_t*)base;
   const iree_vm_call_packet_t* call = &params->call;
-  if (params->function_ordinal == 2 &&
+  if (params->function_ordinal == INPUT_FUNCTION_REQUIRE &&
       iree_vm_call_value_argument_load(call, 0)) {
     *out_outcome = IREE_VM_EXECUTION_OUTCOME_COMPLETED;
     return iree_ok_status();
@@ -113,7 +179,7 @@ static iree_status_t loom_serve_input_module_start(
   iree_vm_call_ref_argument_load_borrow(call, 0, &argument);
   if (!argument.object) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "input text must not be null");
+                            "input buffer must not be null");
   }
   iree_vm_buffer_t* buffer = (iree_vm_buffer_t*)argument.object;
   iree_const_byte_span_t bytes = iree_const_byte_span_empty();
@@ -121,7 +187,7 @@ static iree_status_t loom_serve_input_module_start(
       buffer, 0, iree_vm_buffer_length(buffer), &bytes));
   const iree_string_view_t text =
       iree_make_string_view((const char*)bytes.data, bytes.data_length);
-  if (params->function_ordinal == 2) {
+  if (params->function_ordinal == INPUT_FUNCTION_REQUIRE) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT, "%.*s",
                             (int)iree_min(text.size, INT_MAX), text.data);
   }
@@ -129,10 +195,15 @@ static iree_status_t loom_serve_input_module_start(
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                             "model has no tokenizer input capability");
   }
-  if (params->function_ordinal == 1) {
+  if (params->function_ordinal == INPUT_FUNCTION_LOOKUP) {
     const int32_t id = iree_tokenizer_vocab_lookup(
         iree_tokenizer_vocab(module->tokenizer), text);
     iree_vm_call_value_result_store(call, 0, (uint32_t)id);
+    *out_outcome = IREE_VM_EXECUTION_OUTCOME_COMPLETED;
+    return iree_ok_status();
+  }
+  if (params->function_ordinal == INPUT_FUNCTION_DECODE) {
+    IREE_RETURN_IF_ERROR(loom_serve_input_decode(module, call, bytes));
     *out_outcome = IREE_VM_EXECUTION_OUTCOME_COMPLETED;
     return iree_ok_status();
   }
@@ -142,6 +213,10 @@ static iree_status_t loom_serve_input_module_start(
                 IREE_TOKENIZER_ENCODE_FLAG_NO_SPECIAL_TOKEN_MATCHING)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "unsupported input encoding flags 0x%08x", flags);
+  }
+  if (!iree_unicode_utf8_validate(text)) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "tokenizer input must be complete UTF-8");
   }
   const uint64_t capacity = iree_vm_call_value_argument_load(call, 1);
   if (capacity > SIZE_MAX / sizeof(int32_t)) {
@@ -197,15 +272,18 @@ static const iree_vm_module_callable_type_declaration_t input_callables[] = {
                    .results = {input_encode_results, 2, 1, 1, 0}}},
 };
 static const iree_vm_module_export_declaration_t input_exports[] = {
+    {.export_name = IREE_SVL("decode"),
+     .callable_type_ordinal = 2,
+     .function_ordinal = INPUT_FUNCTION_DECODE},
     {.export_name = IREE_SVL("encode"),
      .callable_type_ordinal = 2,
-     .function_ordinal = 0},
+     .function_ordinal = INPUT_FUNCTION_ENCODE},
     {.export_name = IREE_SVL("lookup"),
      .callable_type_ordinal = 0,
-     .function_ordinal = 1},
+     .function_ordinal = INPUT_FUNCTION_LOOKUP},
     {.export_name = IREE_SVL("require"),
      .callable_type_ordinal = 1,
-     .function_ordinal = 2},
+     .function_ordinal = INPUT_FUNCTION_REQUIRE},
 };
 
 static void loom_serve_input_module_destroy(iree_vm_module_t* base) {
@@ -265,9 +343,9 @@ iree_status_t loom_serve_input_module_create(iree_vm_environment_t* environment,
       .name = IREE_SVL("input"),
       .flags = IREE_VM_MODULE_FLAG_LINKABLE,
       .ref_types = {&module->types.buffer, 1},
-      .counts = {.function_count = 3,
+      .counts = {.function_count = 4,
                  .callable_type_count = 3,
-                 .export_count = 3,
+                 .export_count = IREE_ARRAYSIZE(input_exports),
                  .callable_fields = {.value_count = 5, .ref_count = 4}},
   };
   iree_status_t status = iree_vm_module_initialize(

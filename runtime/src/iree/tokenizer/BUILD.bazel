@@ -102,11 +102,26 @@ iree_runtime_cc_test(
 )
 
 iree_runtime_cc_library(
+    name = "decode_table",
+    srcs = ["decode_table.c"],
+    hdrs = ["decode_table.h"],
+    visibility = [":__pkg__"],
+    deps = [
+        ":byte_level_tables",
+        ":decoder",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:unicode",
+        "//runtime/src/iree/tokenizer/decoder:byte_fallback",
+        "//runtime/src/iree/tokenizer/vocab",
+    ],
+)
+
+iree_runtime_cc_library(
     name = "tokenizer",
     srcs = ["tokenizer.c"],
     hdrs = ["tokenizer.h"],
     deps = [
-        ":byte_level_tables",
+        ":decode_table",
         ":decoder",
         ":model",
         ":normalizer",
@@ -117,7 +132,6 @@ iree_runtime_cc_library(
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal",
         "//runtime/src/iree/base/internal:unicode",
-        "//runtime/src/iree/tokenizer/decoder:byte_fallback",
         "//runtime/src/iree/tokenizer/vocab",
     ],
 )
@@ -187,6 +201,33 @@ iree_runtime_cc_test(
 )
 
 iree_runtime_cc_test(
+    name = "tokenizer_input_tokens_test",
+    srcs = ["tokenizer_input_tokens_test.cc"],
+    deps = [
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+        "//runtime/src/iree/tokenizer/format/huggingface:tokenizer_json",
+    ],
+)
+
+iree_runtime_cc_test(
+    name = "decode_table_test",
+    srcs = ["decode_table_test.cc"],
+    deps = [
+        ":tokenizer",
+        ":tokenizer_test_util",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+        "//runtime/src/iree/tokenizer/decoder:byte_fallback",
+        "//runtime/src/iree/tokenizer/decoder:metaspace",
+        "//runtime/src/iree/tokenizer/decoder:sequence",
+        "//runtime/src/iree/tokenizer/decoder:wordpiece",
+    ],
+)
+
+iree_runtime_cc_test(
     name = "tokenizer_decode_test",
     srcs = ["tokenizer_decode_test.cc"],
     deps = [
@@ -197,6 +238,7 @@ iree_runtime_cc_test(
         "//runtime/src/iree/testing:gtest_main",
         "//runtime/src/iree/tokenizer/decoder:byte_fallback",
         "//runtime/src/iree/tokenizer/decoder:byte_level",
+        "//runtime/src/iree/tokenizer/decoder:ctc",
         "//runtime/src/iree/tokenizer/decoder:metaspace",
         "//runtime/src/iree/tokenizer/decoder:replace",
         "//runtime/src/iree/tokenizer/decoder:sequence",

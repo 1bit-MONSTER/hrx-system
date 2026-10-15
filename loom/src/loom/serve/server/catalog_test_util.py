@@ -51,6 +51,13 @@ def complete(messages, maximum):
     return output, "length"
 
 
+def check_pcm(encoded, text, seed, voice="positive"):
+    count = 8 * len(text.encode()) + 1
+    gain = 4096 if voice == "positive" else -4096
+    expected = [((index + seed) % 8) * gain for index in range(count)]
+    assert encoded == struct.pack(f"<{count}h", *expected), encoded
+
+
 def check_png(encoded, prompt, seed):
     image = base64.b64decode(encoded, validate=True)
     assert image[:8] == b"\x89PNG\r\n\x1a\n"
@@ -176,8 +183,11 @@ class Client:
                 {"Content-Type": "application/json", **(headers or {})},
             )
             response = connection.getresponse()
-            body = response.read().decode()
+            body = response.read()
             assert response.status == status, (target, response.status, body)
+            if response.getheader("Content-Type") == "application/octet-stream":
+                return body
+            body = body.decode()
             if response.getheader("Content-Type") == "text/event-stream":
                 events = [
                     json.loads(line[6:])
@@ -431,6 +441,21 @@ def run_round(client, iteration, observations):
         )
         check_decision(result)
 
+    def speech():
+        text = "a" * (iteration + 1)
+        voice = "negative" if iteration % 2 else "positive"
+        result = client.request(
+            "/v1/audio/speech",
+            {
+                "model": "speech",
+                "input": text,
+                "voice": voice,
+                "seed": iteration,
+                "response_format": "pcm",
+            },
+        )
+        check_pcm(result, text, iteration, voice)
+
     def utilities():
         assert client.request("/tokenize", {"model": "vectors", "content": "abxa"}) == {
             "tokens": [0, 1, 2, 0]
@@ -446,6 +471,7 @@ def run_round(client, iteration, observations):
         embeddings,
         image,
         decision,
+        speech,
         utilities,
         lambda: client.reset_peer("reset"),
     ]
@@ -579,7 +605,7 @@ def check_counters(client, rounds):
         assert counts["requests"] == sum(
             counts[name] for name in ("completed", "rejected", "cancelled", "failed")
         ), counts
-    for model in ("pixels", "vectors", "judge"):
+    for model in ("pixels", "vectors", "judge", "speech"):
         assert expected[model]["requests"] == expected[model]["completed"] == rounds, (
             expected[model]
         )

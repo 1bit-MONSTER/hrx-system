@@ -523,11 +523,16 @@ static iree_status_t iree_tooling_tokenize_stdin_streaming(
 
   // Finalize: flush any pending state.
   if (iree_status_is_ok(status)) {
-    iree_host_size_t token_count = 0;
-    status = iree_tokenizer_encode_state_finalize(state, output, &token_count);
-    if (iree_status_is_ok(status)) {
-      iree_tooling_print_tokens(token_buffer, NULL, token_count, &first_token);
-    }
+    do {
+      iree_host_size_t token_count = 0;
+      status =
+          iree_tokenizer_encode_state_finalize(state, output, &token_count);
+      if (iree_status_is_ok(status)) {
+        iree_tooling_print_tokens(token_buffer, NULL, token_count,
+                                  &first_token);
+      }
+    } while (iree_status_is_ok(status) &&
+             iree_tokenizer_encode_state_has_pending(state));
   }
 
   // Close output.
@@ -842,12 +847,15 @@ static iree_status_t iree_tooling_benchmark_stream(
 
     // Finalize.
     if (iree_status_is_ok(status)) {
-      iree_host_size_t token_count = 0;
-      status =
-          iree_tokenizer_encode_state_finalize(state, output, &token_count);
-      if (iree_status_is_ok(status)) {
-        iteration_tokens += token_count;
-      }
+      do {
+        iree_host_size_t token_count = 0;
+        status =
+            iree_tokenizer_encode_state_finalize(state, output, &token_count);
+        if (iree_status_is_ok(status)) {
+          iteration_tokens += token_count;
+        }
+      } while (iree_status_is_ok(status) &&
+               iree_tokenizer_encode_state_has_pending(state));
     }
 
     iree_tokenizer_encode_state_deinitialize(state);

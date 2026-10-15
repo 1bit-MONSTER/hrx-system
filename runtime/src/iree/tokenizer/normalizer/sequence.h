@@ -35,8 +35,10 @@ extern "C" {
 // The implementation uses intermediate buffering to pipe each child's output
 // to the next child's input in the pull-based streaming model.
 //
-// The |child_count| may be 0 (empty sequence acts as identity/passthrough) and
-// must be at most IREE_TOKENIZER_NORMALIZER_SEQUENCE_MAX_DEPTH.
+// The |child_count| must be between 2 and
+// IREE_TOKENIZER_NORMALIZER_SEQUENCE_MAX_DEPTH. Nested sequences are flattened;
+// the same limit applies after flattening. Empty and single-child sequences are
+// represented by NULL or the child itself by the caller.
 //
 // The sequence takes ownership of child normalizers on successful allocation.
 // Child normalizers are freed when the sequence is destroyed. On allocation

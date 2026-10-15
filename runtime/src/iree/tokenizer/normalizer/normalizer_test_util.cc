@@ -22,48 +22,9 @@ constexpr size_t kMaxOutputSize = 4096;
 std::string ProcessAndFinalize(iree_tokenizer_normalizer_t* normalizer,
                                const std::string& input,
                                bool expect_pending_after_process) {
-  ScopedNormalizerState state(normalizer);
-
-  char output_buffer[kMaxOutputSize];
-  iree_host_size_t consumed = 0;
-  iree_host_size_t written = 0;
-
-  // Process the entire input.
-  IREE_EXPECT_OK(iree_tokenizer_normalizer_state_process(
-      state.get(), iree_make_string_view(input.data(), input.size()),
-      iree_make_mutable_string_view(output_buffer, kMaxOutputSize),
-      IREE_TOKENIZER_NORMALIZER_FLAG_NONE, &consumed, &written));
-
-  // Note: With lazy consumption normalizers (e.g., strip with strip_right),
-  // not all input may be consumed - trailing content that might need to be
-  // discarded is left unconsumed. We don't assert consumed == input.size()
-  // because lazy consumption is a valid semantic.
-
-  // Verify has_pending() after process.
-  bool has_pending = iree_tokenizer_normalizer_state_has_pending(state.get());
-  EXPECT_EQ(has_pending, expect_pending_after_process)
-      << "has_pending() after process() should be "
-      << (expect_pending_after_process ? "true" : "false") << " for input: \""
-      << input << "\"";
-
-  // Collect output from process().
-  std::string result(output_buffer, written);
-
-  // Always call finalize(). Unconsumed input (e.g., trailing whitespace) is
-  // implicitly discarded when the caller calls finalize without providing more.
-  iree_host_size_t finalize_written = 0;
-  IREE_EXPECT_OK(iree_tokenizer_normalizer_state_finalize(
-      state.get(), iree_make_mutable_string_view(output_buffer, kMaxOutputSize),
-      &finalize_written));
-
-  // Add any output from finalize().
-  result.append(output_buffer, finalize_written);
-
-  // Verify has_pending() is false after finalize.
-  EXPECT_FALSE(iree_tokenizer_normalizer_state_has_pending(state.get()))
-      << "has_pending() should be false after finalize()";
-
-  return result;
+  return ProcessChunkedAndFinalize(normalizer, input,
+                                   std::max(size_t{1}, input.size()),
+                                   expect_pending_after_process);
 }
 
 std::string ProcessChunkedAndFinalize(iree_tokenizer_normalizer_t* normalizer,
@@ -78,15 +39,7 @@ std::string ProcessChunkedAndFinalize(iree_tokenizer_normalizer_t* normalizer,
   // Process input in chunks, respecting UTF-8 codepoint boundaries.
   // Per the normalizer contract, callers must not split UTF-8 sequences.
   //
-  // With lazy consumption, we need to handle the case where the normalizer
-  // returns consumed=0 because it's waiting for more input to decide if
-  // content is trailing. The real streaming contract is:
-  // - Caller provides input in chunks (on codepoint boundaries)
-  // - If consumed=0, caller should provide MORE input if available
-  // - If no more input available, caller calls finalize
-  //
-  // To simulate this correctly, we track how much input has been "provided"
-  // vs how much has been "consumed", keeping unconsumed bytes available.
+  // Retain unconsumed input while supplying more data or output credit.
   size_t provided_end = 0;  // How far into input we've provided to normalizer.
   size_t consumed_start = 0;  // Start of unconsumed data.
 
@@ -136,15 +89,18 @@ std::string ProcessChunkedAndFinalize(iree_tokenizer_normalizer_t* normalizer,
     result.append(output_buffer, written);
     consumed_start += consumed;
 
-    // If no progress (consumed=0, written=0), we need more input or finalize.
+    // No progress requires more input; finalization cannot discard input.
     if (consumed == 0 && written == 0) {
       if (provided_end >= input.size()) {
-        // No more input to provide - break and finalize.
+        ADD_FAILURE()
+            << "normalizer stalled with complete input and output room";
         break;
       }
       // Continue loop to provide more input.
     }
   }
+
+  EXPECT_EQ(consumed_start, input.size());
 
   // Verify has_pending() after all process() calls.
   bool has_pending = iree_tokenizer_normalizer_state_has_pending(state.get());
@@ -153,17 +109,21 @@ std::string ProcessChunkedAndFinalize(iree_tokenizer_normalizer_t* normalizer,
       << (expect_pending_after_process ? "true" : "false") << " for input: \""
       << input << "\" with chunk_size=" << chunk_size;
 
-  // Always call finalize(). Unconsumed input is implicitly discarded.
-  iree_host_size_t finalize_written = 0;
-  IREE_EXPECT_OK(iree_tokenizer_normalizer_state_finalize(
-      state.get(), iree_make_mutable_string_view(output_buffer, kMaxOutputSize),
-      &finalize_written));
-
-  result.append(output_buffer, finalize_written);
-
-  // Verify has_pending() is false after finalize.
-  EXPECT_FALSE(iree_tokenizer_normalizer_state_has_pending(state.get()))
-      << "has_pending() should be false after finalize()";
+  // Finalization follows complete acceptance, and may require repeated credit.
+  bool pending = true;
+  while (pending) {
+    iree_host_size_t written = 0;
+    IREE_EXPECT_OK(iree_tokenizer_normalizer_state_finalize(
+        state.get(),
+        iree_make_mutable_string_view(output_buffer, kMaxOutputSize),
+        &written));
+    result.append(output_buffer, written);
+    pending = iree_tokenizer_normalizer_state_has_pending(state.get());
+    if (pending && written == 0) {
+      ADD_FAILURE() << "normalizer finalization stalled with output room";
+      break;
+    }
+  }
 
   return result;
 }
@@ -214,15 +174,16 @@ void TestLimitedOutputCapacity(iree_tokenizer_normalizer_t* normalizer,
       result += output_char;
     }
 
-    // With lazy consumption, consumed=0 && written=0 is valid when the
-    // normalizer is waiting for more input (e.g., all remaining is trailing
-    // whitespace). Break out and proceed to finalize.
+    // A one-byte output span may be too small for an indivisible output unit.
+    // These cases require byte-granular output and must consume all input.
     if (consumed == 0 && written == 0) {
       break;
     }
 
     position += consumed;
   }
+
+  EXPECT_EQ(position, input.size());
 
   // Finalize with capacity=1.
   while (true) {

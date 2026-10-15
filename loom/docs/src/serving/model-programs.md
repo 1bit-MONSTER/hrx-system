@@ -21,15 +21,16 @@ The important distinction is the shape of state and output, not the model name:
 | Staged image | Prompt preparation, parameter domains, numerical stages, invocation continuation and final RGB. | [Image model](https://github.com/ROCm/hrx-system/tree/main/loom/src/loom/serve/fixture/image) |
 | Finite embeddings | Input preparation, cohort cost/compatibility, pooling/projection and final vectors. | [Embedding model](https://github.com/ROCm/hrx-system/tree/main/loom/src/loom/serve/fixture/embedding) |
 | Finite decisions | Structured question framing and compact normalized answer distributions. | [Decision model](https://github.com/ROCm/hrx-system/tree/main/loom/src/loom/serve/fixture/decision) |
+| Streaming speech | Voice conditioning, independent request state, compatible next-work batches and continuous waveform blocks. | [Speech model](https://github.com/ROCm/hrx-system/tree/main/loom/src/loom/serve/fixture/speech) |
 
 These packages use actual source VM programs, native kernels and production
 HTTP services, not canned native replies. They establish the serving contract,
 not learned quality or competitive neural performance. Each learned port needs
 its own numerical oracle and representative workload.
 
-An audio stream, image-conditioned request or arbitrary workflow graph needs an
-input/output ownership contract beyond these HTTP profiles. Such a port is a
-modality extension, not an embedding vector with overloaded fields. The
+Audio input, an image-conditioned request or an arbitrary workflow graph needs
+an input/output ownership contract beyond these HTTP profiles. Such a port is
+a modality extension, not an embedding vector with overloaded fields. The
 [HTTP reference](http-profiles.md) defines the existing boundary.
 
 ## Keep the package complete and relocatable
@@ -61,17 +62,22 @@ metadata in a separate logical namespace while parameter files stay server-local
 The [live development workflow](workflows/live-model-development.md)
 shows upload, native selection and retained-state comparisons.
 
-`definition.sources` is a numerical provider catalog, not an ordered dispatch
-list. Roots and imported symbols determine dependency closure through the
+`definition.sources` supplies shared VM and native providers. Roots and
+referenced symbols determine dependency closure through the
 normal Loom linker. Reusable helpers take SSA values or template arguments;
 model-specific configuration belongs at program/kernel boundaries. This keeps
 a motif usable without importing another model's global configuration namespace.
 
-Preparation and control VM files compile separately and link with native
-capability modules. Their imports are not resolved from the numerical provider
-catalog. The cold program names numerical roots; the warm program invokes the
-resulting prepared stages. These are explicit boundaries, not one combined
-host/device link graph.
+Preparation and control VM files each link against that catalog as primary
+inputs. Ordinary function declarations and template applications resolve to
+exported library definitions; library-private helpers stay private. This lets
+preparation, control and numerical commands share layout calculations without
+duplicating them across files.
+
+Explicit `func.decl import("module")` declarations remain capability imports,
+bound to native modules when the VM program loads. The cold program names
+numerical roots; the warm program invokes the resulting prepared stages.
+Shared source helpers do not turn device kernels into direct VM calls.
 
 ## Separate preparation from execution
 
@@ -114,6 +120,18 @@ on work/feedback timelines and preserves buffers until their actual last use.
 The [runner-module contract](https://github.com/ROCm/hrx-system/blob/main/loom/src/loom/serve/runtime/program/module.h)
 defines arity, buffer types and lifetime. This is a coarse serving capability,
 not a source program's ownership of the entire device or process scheduler.
+
+Request preparation can use the `input` capability to encode text and decode
+token spans with the deployment's tokenizer. `encode(text, flags, capacity)`
+returns a zero-padded little-endian I32 ID buffer and live token count; it can
+stop at the requested capacity. `decode(ids, flags, byte_capacity)` consumes
+the complete ID buffer and returns a zero-padded UTF-8 buffer and live byte
+length. An insufficient decoding capacity fails instead of returning partial
+text. Pass only live IDs, excluding encoding padding. Each call starts fresh
+tokenizer state, including leading-space handling. Encoding flags are
+`ADD_SPECIAL_TOKENS = 4` and `NO_SPECIAL_TOKEN_MATCHING = 8`; decoding supports
+`SKIP_SPECIAL_TOKENS = 1`, with zero retaining special tokens. The source owns
+text normalization, sentence boundaries, and capacity admission.
 
 ## Trace one finite request end to end
 
@@ -178,6 +196,72 @@ retire. Compiler-reflected workspace remains live across barrier-aligned parts.
 Final output is F32 CHW RGB in `[-1,1]` before native image encoding. The
 [image source contract](https://github.com/ROCm/hrx-system/blob/main/loom/src/loom/serve/service/image/model.h)
 defines entry signatures, alignment and cancellation.
+
+## Stream speech with independent requests
+
+A speech package can share weights and numerical execution among clients while
+retaining each request's voice, cache history, RNG progression and playback
+position. Start with the [speech walkthrough](workflows/stream-speech.md) for a
+complete HTTP caller and a package whose output is independently checkable.
+
+Cold preparation declares numerical stages and parameter domains, plus resident
+request capacity, additive batch capacity, input/state strides, conditioning
+storage, bounded output/feedback storage and waveform geometry. Those declarations
+separate persistent request storage from temporary batch geometry. A larger
+model can change its vocoder, diffusion schedule, cache layout or block size
+without teaching the HTTP service its architecture.
+
+The warm source exports these operations:
+
+| Operation | Source-owned result |
+| --- | --- |
+| `prepare_request` | Validate text, voice, instructions, seed and speed; return retained CPU state and immutable request bytes. |
+| `prepare_work` | Describe one request's next operation with compact work bytes, positive additive units and a compatibility tag, without advancing it. |
+| `prepare_batch` | Pack a compatible cohort and retain its plan, using explicit resident-row and byte-range records. |
+| `generate` | Execute the plan through the prepared runner stages, optionally requesting bounded feedback. |
+| `complete` | Interpret retired feedback for one original batch ordinal; publish playback position, sample range, frame count and EOF. |
+
+The [model declaration](https://github.com/ROCm/hrx-system/blob/main/loom/src/loom/serve/service/speech/model.h)
+owns the exact signatures, scalar widths and buffer layouts. `prepare_batch`
+receives the prepared stage-tag catalog separately from the packed request work;
+the source chooses its numerical stage and packing representation.
+
+Consider a request A already decoding when B arrives with another voice and a
+longer prefix. B first runs its required conditioning and prefix work. At a
+retired boundary, the service queries ready requests again. If A and B offer
+equal compatibility tags and their total work fits, they can share the next
+batch while retaining distinct cache positions. If their current phases need
+different numerical work, they advance in separate cohorts. Compatibility is
+a fact established by the package's kernels; the service cannot infer it from
+two opaque generation calls or from matching output formats.
+
+Five dynamic roots give numerical programs compact batch work, stable request
+rows, shared conditioning, stable stream rows and packed output. Changing batch
+membership changes the small work description and row mapping; it does not move
+entire request histories. Compiler-private workspace belongs to the current
+command. Persistent convolution tails, recurrent state, KV caches and solver
+history belong to the request's stream row or explicitly owned conditioning.
+
+One accepted batch retains its original row mapping through execution and
+collection, even if a client cancels. `complete` runs for every original ordinal,
+including phases with no audio or readback. A zero-frame result is independent
+of EOF. Native serving checks the published range, converts samples to the wire
+format and copies each result into that request's bounded output storage before
+releasing shared feedback. A stalled client then prevents only its own next
+operation from becoming eligible.
+
+Shared conditioning has a publication boundary too. A voice entry becomes
+reusable only after its producer retires, and its storage remains valid while
+accepted readers use it. Per-request RNG state must produce the same sequence
+regardless of neighboring requests or their scheduling. The model owns these
+numerical invariants; the service owns admission, output credit and retirement.
+
+Qualify a port with staggered requests of different lengths and voices, changing
+batch membership, a stalled reader, cancellation during an accepted batch and
+reuse of the released row. Compare each surviving stream with isolated execution
+and compare the model's numerical stages with an independent reference. Batch
+occupancy alone establishes neither a throughput improvement nor a playback
+deadline.
 
 ## Make parameters and temporaries visible
 

@@ -19,20 +19,49 @@ std::string Part(const std::string& name, const std::string& filename,
          "\"; filename=\"" + filename + "\"\r\n\r\n" + bytes + "\r\n";
 }
 
-iree_status_t Parse(const std::string& body, iree_allocator_t host_allocator,
-                    iree_string_view_t* json, loom_serve_package_t** package) {
-  const iree_string_pair_t header = {
-      .key = IREE_SV("Content-Type"),
-      .value = IREE_SV("multipart/form-data; boundary=b"),
-  };
-  const loom_serve_http_request_t request = {
-      .headers = {1, &header},
-      .body = iree_make_string_view(body.data(), body.size()),
-  };
-  return loom_serve_http_package_parse(&request, host_allocator, json, package);
-}
+class HttpPackageTest : public ::testing::Test {
+ protected:
+  void TearDown() override { ReleaseRequest(); }
 
-TEST(HttpPackageTest, ArbitraryPartOrderAndOwnedBinaryPayload) {
+  void ReleaseRequest() {
+    loom_serve_http_request_parser_free(parser_);
+    parser_ = nullptr;
+  }
+
+  iree_status_t Parse(const std::string& body, iree_allocator_t host_allocator,
+                      iree_string_view_t* json,
+                      loom_serve_package_t** package) {
+    ReleaseRequest();
+    *json = iree_string_view_empty();
+    *package = nullptr;
+    const loom_serve_http_request_limits_t limits = {
+        .header_byte_capacity = 16384,
+        .body_byte_capacity = 8 * 1024 * 1024,
+        .header_capacity = 64,
+        .multipart_header_byte_capacity = 64 * 1024,
+        .multipart_part_capacity = 1024,
+    };
+    IREE_RETURN_IF_ERROR(loom_serve_http_request_parser_allocate(
+        limits, host_allocator, &parser_));
+    const std::string wire =
+        "POST /v1/models/register HTTP/1.1\r\nHost: local\r\n"
+        "Content-Type: multipart/form-data; boundary=b\r\nContent-Length: " +
+        std::to_string(body.size()) + "\r\n\r\n" + body;
+    const loom_serve_http_request_t* request = nullptr;
+    IREE_RETURN_IF_ERROR(loom_serve_http_request_parser_feed(
+        parser_, iree_make_const_byte_span(wire.data(), wire.size()),
+        &request));
+    IREE_RETURN_IF_ERROR(
+        loom_serve_http_request_parser_finalize(parser_, &request));
+    return loom_serve_http_package_parse(request, host_allocator, json,
+                                         package);
+  }
+
+  // Parsed request owns retained metadata and JSON through package creation.
+  loom_serve_http_request_parser_t* parser_ = nullptr;
+};
+
+TEST_F(HttpPackageTest, ArbitraryPartOrderAndOwnedBinaryPayload) {
   const std::string bytes("\0\xff\r\n", 4);
   std::string body =
       Part("file", "model/provider.loombc", bytes) +
@@ -41,6 +70,7 @@ TEST(HttpPackageTest, ArbitraryPartOrderAndOwnedBinaryPayload) {
   loom_serve_package_t* package = nullptr;
   IREE_ASSERT_OK(Parse(body, iree_allocator_system(), &json, &package));
   EXPECT_EQ(std::string(json.data, json.size), "{\"model\":\"demo\"}");
+  ReleaseRequest();
   body.assign(body.size(), '?');
   loomc_source_t* source = nullptr;
   IREE_ASSERT_OK(
@@ -53,7 +83,7 @@ TEST(HttpPackageTest, ArbitraryPartOrderAndOwnedBinaryPayload) {
   loomc_source_release(source);
 }
 
-TEST(HttpPackageTest, ManyProvidersHaveBoundedAllocationAndExactContents) {
+TEST_F(HttpPackageTest, ManyProvidersHaveBoundedAllocationAndExactContents) {
   const iree_allocator_t bounded_allocator = {
       nullptr,
       +[](void* self, iree_allocator_command_t command, const void* params,
@@ -90,7 +120,7 @@ TEST(HttpPackageTest, ManyProvidersHaveBoundedAllocationAndExactContents) {
   loom_serve_package_release(package);
 }
 
-TEST(HttpPackageTest, InvalidPackagePublishesNothing) {
+TEST_F(HttpPackageTest, InvalidPackagePublishesNothing) {
   const auto request = Part("request", "model.json", "{}");
   for (const auto& body : {
            Part("file", "a.loom", "source") + "--b--",
@@ -112,7 +142,7 @@ TEST(HttpPackageTest, InvalidPackagePublishesNothing) {
   }
 }
 
-TEST(HttpPackageTest, OrdinaryJsonHasNoPackage) {
+TEST_F(HttpPackageTest, OrdinaryJsonHasNoPackage) {
   const loom_serve_http_request_t request = {.body = IREE_SV("{}")};
   iree_string_view_t json;
   loom_serve_package_t* package = nullptr;

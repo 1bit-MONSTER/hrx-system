@@ -154,12 +154,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     iree_host_size_t streaming_token_count = 0;
 
     if (iree_status_is_ok(status)) {
-      iree_tokenizer_token_output_t output = iree_tokenizer_make_token_output(
-          streaming_tokens, NULL, NULL, IREE_ARRAYSIZE(streaming_tokens));
-
       // Feed input in varied chunks.
       iree_host_size_t offset = 0;
-      while (offset < size) {
+      while (offset < size &&
+             streaming_token_count < IREE_ARRAYSIZE(streaming_tokens)) {
         iree_host_size_t chunk_size = ((offset % 4) == 0)   ? 3
                                       : ((offset % 4) == 1) ? 17
                                       : ((offset % 4) == 2) ? 64
@@ -173,10 +171,12 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
         iree_host_size_t bytes_consumed = 0;
         iree_host_size_t count = 0;
+        iree_tokenizer_token_output_t output = iree_tokenizer_make_token_output(
+            streaming_tokens + streaming_token_count, NULL, NULL,
+            IREE_ARRAYSIZE(streaming_tokens) - streaming_token_count);
         status = iree_tokenizer_encode_state_feed(encode_state, chunk, output,
                                                   &bytes_consumed, &count);
         if (!iree_status_is_ok(status)) {
-          iree_status_ignore(status);
           break;
         }
         streaming_token_count += count;
@@ -186,12 +186,19 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         }
       }
 
-      // Finalize encode.
-      iree_host_size_t final_encode_count = 0;
-      status = iree_tokenizer_encode_state_finalize(encode_state, output,
-                                                    &final_encode_count);
+      // Drain into the remaining destination. This fuzzer decodes the accepted
+      // token prefix when either input is invalid or the fixed output fills.
+      if (iree_status_is_ok(status) && offset == size) {
+        iree_host_size_t final_encode_count = 0;
+        status = iree_tokenizer_encode_state_finalize(
+            encode_state,
+            iree_tokenizer_make_token_output(
+                streaming_tokens + streaming_token_count, NULL, NULL,
+                IREE_ARRAYSIZE(streaming_tokens) - streaming_token_count),
+            &final_encode_count);
+        streaming_token_count += final_encode_count;
+      }
       iree_status_ignore(status);
-      streaming_token_count += final_encode_count;
 
       iree_tokenizer_encode_state_deinitialize(encode_state);
 

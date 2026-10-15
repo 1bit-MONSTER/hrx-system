@@ -18,6 +18,7 @@ typedef enum loom_serve_model_kind_e {
   LOOM_SERVE_MODEL_KIND_IMAGE = 2,
   LOOM_SERVE_MODEL_KIND_EMBEDDING = 3,
   LOOM_SERVE_MODEL_KIND_DECISION = 4,
+  LOOM_SERVE_MODEL_KIND_SPEECH = 5,
 } loom_serve_model_kind_t;
 
 typedef struct loom_serve_text_configuration_t {
@@ -67,11 +68,6 @@ typedef struct loom_serve_image_configuration_t {
   uint32_t command_quantum;
 } loom_serve_image_configuration_t;
 
-typedef struct loom_serve_finite_configuration_t {
-  // Owned asset directory passed to source prepare.
-  iree_string_view_t assets;
-} loom_serve_finite_configuration_t;
-
 // One source-defined deployment. Entries have independent logical state and
 // admission capacity; the executable supplies their device group. Authored
 // paths are retained unchanged, with a separate local directory base.
@@ -90,8 +86,9 @@ typedef struct loom_serve_model_configuration_t {
   loom_serve_sources_t sources;
   // Owned JSON object interpreted by the source prepare program.
   iree_string_view_t options;
-  // Bounded host request credit. Text/image exclude the active invocation;
-  // finite vector services include all requests in the active cohort.
+  // Bounded host request credit. Text/image/speech exclude the active
+  // invocation; finite vector services include all requests in the active
+  // cohort.
   iree_host_size_t pending_requests;
   // Retained execution choices, including original/pending/failed attempts.
   // Zero disables reconfiguration independently of modality admission.
@@ -104,8 +101,8 @@ typedef struct loom_serve_model_configuration_t {
     loom_serve_text_configuration_t text;
     // Finite image deployment geometry and checkpoint inputs.
     loom_serve_image_configuration_t image;
-    // Finite vector deployment assets and source-defined policy.
-    loom_serve_finite_configuration_t finite;
+    // Owned source asset directory for vector and speech deployments.
+    iree_string_view_t assets;
   };
 } loom_serve_model_configuration_t;
 

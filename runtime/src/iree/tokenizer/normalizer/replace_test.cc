@@ -324,19 +324,19 @@ TEST_F(ReplaceNormalizerTest, LongReplacement) {
 TEST_F(ReplaceNormalizerTest, TwoBytePattern) {
   auto normalizer = CreateReplace(IREE_SV("XY"), IREE_SV("Z"));
   TestWithAllChunkSizes(normalizer.get(), "aXYb", "aZb",
-                        /*expect_pending_after_process=*/false);
+                        /*expect_pending_after_process=*/true);
 }
 
 TEST_F(ReplaceNormalizerTest, ThreeBytePattern) {
   auto normalizer = CreateReplace(IREE_SV("XYZ"), IREE_SV("!"));
   TestWithAllChunkSizes(normalizer.get(), "aXYZb", "a!b",
-                        /*expect_pending_after_process=*/false);
+                        /*expect_pending_after_process=*/true);
 }
 
 TEST_F(ReplaceNormalizerTest, PatternAtStart) {
   auto normalizer = CreateReplace(IREE_SV("XY"), IREE_SV("Z"));
   TestWithAllChunkSizes(normalizer.get(), "XYabc", "Zabc",
-                        /*expect_pending_after_process=*/false);
+                        /*expect_pending_after_process=*/true);
 }
 
 TEST_F(ReplaceNormalizerTest, PatternAtEnd) {
@@ -362,14 +362,14 @@ TEST_F(ReplaceNormalizerTest, OverlappingText) {
 TEST_F(ReplaceNormalizerTest, NoMatchMultiByte) {
   auto normalizer = CreateReplace(IREE_SV("XY"), IREE_SV("Z"));
   TestWithAllChunkSizes(normalizer.get(), "abcdef", "abcdef",
-                        /*expect_pending_after_process=*/false);
+                        /*expect_pending_after_process=*/true);
 }
 
 TEST_F(ReplaceNormalizerTest, PartialMatchAtEnd) {
   // Input ends with partial pattern - should output the non-matching prefix.
   auto normalizer = CreateReplace(IREE_SV("XYZ"), IREE_SV("!"));
   TestWithAllChunkSizes(normalizer.get(), "abcXY", "abcXY",
-                        /*expect_pending_after_process=*/false);
+                        /*expect_pending_after_process=*/true);
 }
 
 //===----------------------------------------------------------------------===//
@@ -380,7 +380,7 @@ TEST_F(ReplaceNormalizerTest, MultiByteEmptyContent) {
   // Deletion: "XY" → ""
   auto normalizer = CreateReplace(IREE_SV("XY"), iree_string_view_empty());
   TestWithAllChunkSizes(normalizer.get(), "aXYbXYc", "abc",
-                        /*expect_pending_after_process=*/false);
+                        /*expect_pending_after_process=*/true);
 }
 
 TEST_F(ReplaceNormalizerTest, LongerContent) {
@@ -394,14 +394,14 @@ TEST_F(ReplaceNormalizerTest, ShorterContent) {
   // Contraction: "XYZ" → "!"
   auto normalizer = CreateReplace(IREE_SV("XYZ"), IREE_SV("!"));
   TestWithAllChunkSizes(normalizer.get(), "aXYZb", "a!b",
-                        /*expect_pending_after_process=*/false);
+                        /*expect_pending_after_process=*/true);
 }
 
 TEST_F(ReplaceNormalizerTest, SameLengthContent) {
   // Same length: "XY" → "AB"
   auto normalizer = CreateReplace(IREE_SV("XY"), IREE_SV("AB"));
   TestWithAllChunkSizes(normalizer.get(), "aXYb", "aABb",
-                        /*expect_pending_after_process=*/false);
+                        /*expect_pending_after_process=*/true);
 }
 
 //===----------------------------------------------------------------------===//
@@ -413,7 +413,7 @@ TEST_F(ReplaceNormalizerTest, UnicodePatternToSpace) {
   auto normalizer = CreateReplace(IREE_SV("\xE2\x96\x81"), IREE_SV(" "));
   TestWithAllChunkSizes(normalizer.get(), "hello\xE2\x96\x81world",
                         "hello world",
-                        /*expect_pending_after_process=*/false);
+                        /*expect_pending_after_process=*/true);
 }
 
 TEST_F(ReplaceNormalizerTest, SpaceToUnicodePattern) {
@@ -424,7 +424,7 @@ TEST_F(ReplaceNormalizerTest, SpaceToUnicodePattern) {
   TestWithAllChunkSizes(normalizer.get(), "a  b",
                         "a\xE2\x96\x81"
                         "b",
-                        /*expect_pending_after_process=*/false);
+                        /*expect_pending_after_process=*/true);
 }
 
 //===----------------------------------------------------------------------===//
@@ -450,7 +450,7 @@ TEST_F(ReplaceNormalizerTest, ThreeByteUtf8PreservedInOutput) {
       ProcessAndFinalize(normalizer.get(),
                          "a\xE2\x96\x81"
                          "b",
-                         /*expect_pending_after_process=*/false);
+                         /*expect_pending_after_process=*/true);
   EXPECT_EQ(result,
             "a\xE2\x96\x81"
             "b");
@@ -474,7 +474,7 @@ TEST_F(ReplaceNormalizerTest, EmojiSurroundedByAsciiPreserved) {
       ProcessAndFinalize(normalizer.get(),
                          "a\xF0\x9F\x8C\x8D"
                          "b",
-                         /*expect_pending_after_process=*/false);
+                         /*expect_pending_after_process=*/true);
   EXPECT_EQ(result,
             "a\xF0\x9F\x8C\x8D"
             "b");
@@ -486,7 +486,7 @@ TEST_F(ReplaceNormalizerTest, MultipleEmojisPreserved) {
   auto normalizer = CreateReplace(IREE_SV("``"), IREE_SV("\""));
   std::string input = "Hello \xF0\x9F\x91\x8B World \xF0\x9F\x8C\x8D!";
   std::string result = ProcessAndFinalize(
-      normalizer.get(), input, /*expect_pending_after_process=*/false);
+      normalizer.get(), input, /*expect_pending_after_process=*/true);
   EXPECT_EQ(result, input);
 }
 
@@ -530,14 +530,14 @@ TEST_F(ReplaceNormalizerTest, SplitPattern_1_1) {
 
   // Process chunk 1: "aX"
   // The 'X' goes into the overlap buffer waiting for more input to see if
-  // it's the start of "XY". has_pending() is false because we don't need
-  // more OUTPUT space - we're waiting for more INPUT.
+  // it's the start of "XY". has_pending() is true because
+  // finalization would emit the retained unmatched prefix.
   IREE_ASSERT_OK(iree_tokenizer_normalizer_state_process(
       state.get(), IREE_SV("aX"),
       iree_make_mutable_string_view(output, sizeof(output)),
       IREE_TOKENIZER_NORMALIZER_FLAG_NONE, &consumed, &written));
   result.append(output, written);
-  EXPECT_FALSE(iree_tokenizer_normalizer_state_has_pending(state.get()));
+  EXPECT_TRUE(iree_tokenizer_normalizer_state_has_pending(state.get()));
 
   // Process chunk 2: "Yb"
   IREE_ASSERT_OK(iree_tokenizer_normalizer_state_process(
@@ -717,8 +717,7 @@ TEST_F(ReplaceNormalizerTest, Phase1OverlapWithTinyChunksAndOutput) {
   char output_byte;
 
   // Process byte-by-byte input AND byte-by-byte output.
-  while (input_position < input_length ||
-         iree_tokenizer_normalizer_state_has_pending(state.get())) {
+  while (input_position < input_length) {
     iree_host_size_t consumed = 0;
     iree_host_size_t written = 0;
     iree_string_view_t remaining = {input + input_position,
@@ -766,7 +765,7 @@ TEST_F(ReplaceNormalizerTest, MaxPatternLength) {
   auto normalizer = CreateReplace(
       iree_make_string_view(pattern.data(), pattern.size()), IREE_SV("!"));
   TestWithAllChunkSizes(normalizer.get(), input, "a!b",
-                        /*expect_pending_after_process=*/false);
+                        /*expect_pending_after_process=*/true);
 }
 
 TEST_F(ReplaceNormalizerTest, MaxContentLength) {
@@ -790,7 +789,7 @@ TEST_F(ReplaceNormalizerTest, FalseMatchPrefix) {
   // Input has first byte of pattern but not full match.
   auto normalizer = CreateReplace(IREE_SV("XYZ"), IREE_SV("!"));
   TestWithAllChunkSizes(normalizer.get(), "XYaXYbXY", "XYaXYbXY",
-                        /*expect_pending_after_process=*/false);
+                        /*expect_pending_after_process=*/true);
 }
 
 TEST_F(ReplaceNormalizerTest, MultiStateReset) {
@@ -803,13 +802,13 @@ TEST_F(ReplaceNormalizerTest, MultiStateReset) {
   iree_host_size_t written = 0;
 
   // Process "XY" (partial pattern). The bytes go into the overlap buffer
-  // waiting for more input. has_pending() is false because we don't need
-  // more OUTPUT space - we're waiting for more INPUT.
+  // waiting for more input. has_pending() is true because
+  // finalization would emit the retained unmatched prefix.
   IREE_ASSERT_OK(iree_tokenizer_normalizer_state_process(
       state.get(), IREE_SV("XY"),
       iree_make_mutable_string_view(output, sizeof(output)),
       IREE_TOKENIZER_NORMALIZER_FLAG_NONE, &consumed, &written));
-  EXPECT_FALSE(iree_tokenizer_normalizer_state_has_pending(state.get()));
+  EXPECT_TRUE(iree_tokenizer_normalizer_state_has_pending(state.get()));
 
   // Reset and process new input.
   state.Reset();
@@ -838,7 +837,7 @@ TEST_F(ReplaceNormalizerTest, LongInputNoMatch) {
   std::string input(1000, 'a');
   auto normalizer = CreateReplace(IREE_SV("XY"), IREE_SV("Z"));
   std::string result = ProcessAndFinalize(
-      normalizer.get(), input, /*expect_pending_after_process=*/false);
+      normalizer.get(), input, /*expect_pending_after_process=*/true);
   EXPECT_EQ(result, input);
 }
 
@@ -862,8 +861,30 @@ TEST_F(ReplaceNormalizerTest, RareFirstByte) {
   auto normalizer = CreateReplace(IREE_SV("XY"), IREE_SV("Z"));
   std::string expected = std::string(500, 'a') + "Z" + std::string(500, 'b');
   std::string result = ProcessAndFinalize(
-      normalizer.get(), input, /*expect_pending_after_process=*/false);
+      normalizer.get(), input, /*expect_pending_after_process=*/true);
   EXPECT_EQ(result, expected);
+}
+
+TEST_F(ReplaceNormalizerTest,
+       RetainedPrefixPreservesOrderAtEveryPatternLength) {
+  for (size_t pattern_length = 1; pattern_length <= 32; ++pattern_length) {
+    for (size_t content_length : {0u, 1u, 32u}) {
+      SCOPED_TRACE(::testing::Message() << "pattern=" << pattern_length
+                                        << " content=" << content_length);
+      std::string pattern(pattern_length, 'p');
+      std::string content(content_length, 'z');
+      std::string partial = pattern.substr(0, pattern_length - 1);
+      std::string input = std::string(255, 'x') + pattern + "☃ " + partial;
+      std::string expected = std::string(255, 'x') + content + "☃ " + partial;
+      auto normalizer =
+          CreateReplace(iree_make_string_view(pattern.data(), pattern.size()),
+                        iree_make_string_view(content.data(), content.size()));
+      TestWithAllChunkSizes(
+          normalizer.get(), input, expected,
+          /*expect_pending_after_process=*/pattern_length > 1);
+      TestLimitedOutputCapacity(normalizer.get(), input, expected);
+    }
+  }
 }
 
 }  // namespace

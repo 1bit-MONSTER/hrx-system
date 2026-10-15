@@ -137,6 +137,53 @@ endif()
 if(LOOM_TARGET_ARCH_VM AND LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_cc_test(
   NAME
+    source_speech_service_test
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/generate.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/model.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/variants/identity.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/variants/policy.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/variants/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/variants/weights.loom"
+  DEPS
+    ::test_compiler
+    ::test_device
+    iree::testing::gtest_main
+    loom::serve::service::speech::source_service_tests
+  ARGS
+    "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/prepare.loom}}"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_test(
+  NAME
+    source_speech_service_parallel_test
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/generate.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/model.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/variants/identity.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/variants/policy.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/variants/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/variants/weights.loom"
+  DEPS
+    ::test_compiler
+    ::test_device
+    iree::testing::gtest_main
+    loom::serve::service::speech::source_service_tests
+  ARGS
+    "--test_workers=2"
+    "--model_source={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/speech/prepare.loom}}"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM AND LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+loom_cc_test(
+  NAME
     source_decision_service_test
   DATA
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/decision/config.loom"

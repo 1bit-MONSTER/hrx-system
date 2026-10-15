@@ -50,6 +50,9 @@ The shared foundation consists of:
   source-owned preparation and submission control. The service owns bounded
   admission, asynchronous completion and output encoding; slow clients retain
   copied responses independently of model buffers and parameter pins.
+- [`service/speech`](service/speech/README.md): incremental waveform output with
+  separate conditioning and request state, bounded PCM delivery, and explicit
+  work/feedback retirement on EOF, disconnect and shutdown.
 - [`service/text`](service/text/README.md): retained sessions over one prepared
   model, with bounded admission, mixed prompt/decode epochs and shared caches.
   Source defines model stages and chat policy; native owners retain claims and

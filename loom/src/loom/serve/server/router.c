@@ -16,6 +16,7 @@
 #include "loom/serve/server/http/response.h"
 #include "loom/serve/server/http/tokenization.h"
 #include "loom/serve/server/http/variants.h"
+#include "loom/serve/transport/http/multipart.h"
 #include "loom/util/json.h"
 
 typedef struct router_tokenization_t {
@@ -339,6 +340,33 @@ static iree_status_t loom_serve_router_model_visit(void* user_data,
 static iree_status_t loom_serve_router_model(
     const loom_serve_http_request_t* request, bool control,
     loom_serve_removal_t* removal, iree_string_builder_t* output) {
+  if (request->multipart) {
+    if (control) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "model control requires a JSON body");
+    }
+    const loom_serve_http_part_list_t parts =
+        loom_serve_http_multipart_parts(request->multipart);
+    iree_string_view_t model = iree_string_view_empty();
+    for (iree_host_size_t i = 0; i < parts.count; ++i) {
+      const loom_serve_http_part_t* part = &parts.values[i];
+      if (!iree_string_view_equal(part->name, IREE_SV("model"))) {
+        continue;
+      }
+      if (model.data || part->filename.data || !part->contents.size) {
+        return iree_make_status(
+            IREE_STATUS_INVALID_ARGUMENT,
+            "multipart model must occur once as nonempty text");
+      }
+      model = part->contents;
+    }
+    if (!model.data) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "multipart model field is required");
+    }
+    iree_string_builder_reset(output);
+    return iree_string_builder_append_string(output, model);
+  }
   iree_string_view_t cursor = request->body;
   iree_string_view_t object;
   router_selector_t selector = {.control = control, .removal = removal};
@@ -566,13 +594,15 @@ static iree_status_t loom_serve_router_describe_server(
       "{\"worker_count\":%zu,\"model_capacity\":%zu,"
       "\"connection_capacity\":%zu,\"request_limits\":{"
       "\"header_byte_capacity\":%zu,\"body_byte_capacity\":%zu,"
-      "\"header_capacity\":%zu},\"held_request_capacity\":%zu,"
+      "\"header_capacity\":%zu,\"multipart_header_byte_capacity\":%zu,"
+      "\"multipart_part_capacity\":%zu},\"held_request_capacity\":%zu,"
       "\"held_requests\":%zu,\"observer_capacity\":%zu,\"observers\":%zu,"
       "\"resources\":",
       iree_task_executor_worker_count(router->executor), router->capacity,
       loom_serve_http_server_connection_capacity(router->server),
       limits.header_byte_capacity, limits.body_byte_capacity,
-      limits.header_capacity, router->held.capacity, router->held.count,
+      limits.header_capacity, limits.multipart_header_byte_capacity,
+      limits.multipart_part_capacity, router->held.capacity, router->held.count,
       router->logs.capacity, router->logs.count));
   loom_output_stream_t stream;
   loom_output_stream_for_builder(output, &stream);
@@ -1462,7 +1492,7 @@ static iree_status_t loom_serve_router_accept(
       iree_status_free(status);
       return loom_serve_http_response_reject(
           router->server, connection, 400, "Bad Request",
-          IREE_SV("invalid model selector or request JSON"), output);
+          IREE_SV("invalid model selector or request body"), output);
     }
     name = iree_string_builder_view(output);
   }

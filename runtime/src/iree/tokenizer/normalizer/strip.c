@@ -35,7 +35,7 @@ typedef struct iree_tokenizer_normalizer_strip_t {
 // (e.g., "\r\n") and very long runs (e.g., 300 spaces) efficiently.
 //
 // When non-whitespace follows pending whitespace, we know it's intermediate and
-// emit it. On finalize/segment_end, pending whitespace is discarded (trailing).
+// emit it. On finalize, pending whitespace is discarded (trailing).
 //
 // Per the normalizer interface contract, callers guarantee input arrives on
 // codepoint boundaries. We do not buffer incomplete UTF-8 sequences.
@@ -255,8 +255,7 @@ static iree_status_t iree_tokenizer_normalizer_strip_state_process(
   const iree_tokenizer_normalizer_strip_t* normalizer =
       (const iree_tokenizer_normalizer_strip_t*)base_state->normalizer;
 
-  const bool is_segment_end =
-      iree_any_bit_set(flags, IREE_TOKENIZER_NORMALIZER_FLAG_SEGMENT_END);
+  (void)flags;
 
   const uint8_t* in_ptr = (const uint8_t*)input.data;
   const uint8_t* in_end = in_ptr + input.size;
@@ -279,9 +278,7 @@ static iree_status_t iree_tokenizer_normalizer_strip_state_process(
     iree_tokenizer_normalizer_strip_clear_pending(state);
   }
 
-  // Phase 2: Process input bytes.
-  // Key change from lazy consumption: we ALWAYS consume all input.
-  // Whitespace is buffered in pending rather than left unconsumed.
+  // Phase 2: Process input bytes, retaining potential trailing whitespace.
   while (in_ptr < in_end) {
     uint8_t byte = *in_ptr;
     iree_host_size_t seq_length = 1;
@@ -362,13 +359,6 @@ static iree_status_t iree_tokenizer_normalizer_strip_state_process(
     memcpy(out_ptr, in_ptr, seq_length);
     out_ptr += seq_length;
     in_ptr += seq_length;
-  }
-
-  // Phase 3: Handle segment end.
-  if (is_segment_end) {
-    // Pending whitespace is trailing - discard it.
-    iree_tokenizer_normalizer_strip_clear_pending(state);
-    state->at_start = true;
   }
 
   *out_consumed = (iree_host_size_t)(in_ptr - (const uint8_t*)input.data);

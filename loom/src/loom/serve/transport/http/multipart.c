@@ -8,291 +8,517 @@
 
 #include <string.h>
 
-static bool loom_serve_http_multipart_token(uint8_t c) {
-  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-         (c >= '0' && c <= '9') || (c && strchr("!#$%&'*+-.^_`|~", c) != NULL);
+struct loom_serve_http_multipart_t {
+  // Allocator owning this object, records and normalized metadata.
+  iree_allocator_t host_allocator;
+  // Fixed record storage bounded at the external parsing boundary.
+  loom_serve_http_part_t* parts;
+  // Number of fully parsed records.
+  iree_host_size_t count;
+  // Stable unquoted metadata arena, bounded by cumulative wire header bytes.
+  char* metadata;
+  // Occupied bytes in the stable metadata arena.
+  iree_host_size_t metadata_length;
+};
+
+typedef struct multipart_parameter_t {
+  // Case-preserving parameter name borrowed from the field value.
+  iree_string_view_t name;
+  // Raw value excluding surrounding quotes, with quoted pairs still escaped.
+  iree_string_view_t value;
+  // Whether quoted-pair decoding applies to value.
+  bool quoted;
+} multipart_parameter_t;
+
+typedef struct multipart_delimiter_t {
+  // Start of the delimiter including its preceding CRLF when present.
+  iree_host_size_t begin;
+  // First byte after the delimiter line, or body end for an unpadded close.
+  iree_host_size_t end;
+  // Terminal delimiter; subsequent epilogue bytes are not part content.
+  bool closing;
+} multipart_delimiter_t;
+
+static bool multipart_is_space(char value) {
+  return value == ' ' || value == '\t';
 }
 
-static iree_string_view_t loom_serve_http_multipart_space(
-    iree_string_view_t value) {
-  while (value.size && (value.data[0] == ' ' || value.data[0] == '\t')) {
-    value = iree_string_view_remove_prefix(value, 1);
+static iree_string_view_t multipart_trim(iree_string_view_t value) {
+  while (value.size && multipart_is_space(value.data[0])) {
+    ++value.data;
+    --value.size;
   }
-  while (value.size && (value.data[value.size - 1] == ' ' ||
-                        value.data[value.size - 1] == '\t')) {
-    value = iree_string_view_remove_suffix(value, 1);
+  while (value.size && multipart_is_space(value.data[value.size - 1])) {
+    --value.size;
   }
   return value;
 }
 
-// Storage is reserved for the entire input header before decoding, so earlier
-// returned parameter views remain stable while subsequent values are appended.
-static iree_status_t loom_serve_http_multipart_parameter(
-    iree_string_view_t* remaining, iree_string_builder_t* storage,
-    iree_string_view_t* out_key, iree_string_view_t* out_value) {
-  iree_string_view_t value = loom_serve_http_multipart_space(*remaining);
+// MIME tokens exclude tspecials; this differs from HTTP's tchar grammar.
+static bool multipart_is_token(uint8_t value) {
+  return value > 0x20 && value < 0x7F &&
+         strchr("()<>@,;:\\\"/[]?=", value) == NULL;
+}
+
+static iree_string_view_t multipart_take_token(iree_string_view_t* cursor) {
   iree_host_size_t length = 0;
-  while (length < value.size &&
-         loom_serve_http_multipart_token((uint8_t)value.data[length])) {
+  while (length < cursor->size &&
+         multipart_is_token((uint8_t)cursor->data[length])) {
     ++length;
   }
-  *out_key = iree_string_view_substr(value, 0, length);
-  value = loom_serve_http_multipart_space(
-      iree_string_view_remove_prefix(value, length));
-  if (!length || !iree_string_view_consume_prefix(&value, IREE_SV("="))) {
+  const iree_string_view_t token = iree_make_string_view(cursor->data, length);
+  *cursor = iree_string_view_substr(*cursor, length, IREE_STRING_VIEW_NPOS);
+  return token;
+}
+
+// A nonempty cursor contains exactly one next parameter or malformed input.
+static iree_status_t multipart_take_parameter(
+    iree_string_view_t* cursor, multipart_parameter_t* out_parameter) {
+  *cursor = multipart_trim(*cursor);
+  if (!cursor->size || cursor->data[0] != ';') {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "malformed multipart header parameter");
+                            "multipart parameter requires a semicolon");
   }
-  value = loom_serve_http_multipart_space(value);
-  const iree_host_size_t start = storage->size;
-  if (iree_string_view_consume_prefix(&value, IREE_SV("\""))) {
-    bool closed = false;
-    while (value.size && !closed) {
-      char c = value.data[0];
-      value = iree_string_view_remove_prefix(value, 1);
-      if (c == '"') {
-        closed = true;
-        break;
-      }
-      if (c == '\\') {
-        if (!value.size) {
+  *cursor = multipart_trim(
+      iree_string_view_substr(*cursor, 1, IREE_STRING_VIEW_NPOS));
+  const iree_string_view_t name = multipart_take_token(cursor);
+  *cursor = multipart_trim(*cursor);
+  if (!name.size || !cursor->size || cursor->data[0] != '=') {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "multipart parameter requires name=value");
+  }
+  *cursor = multipart_trim(
+      iree_string_view_substr(*cursor, 1, IREE_STRING_VIEW_NPOS));
+  const bool quoted = cursor->size && cursor->data[0] == '"';
+  iree_string_view_t value;
+  if (quoted) {
+    iree_host_size_t length = 1;
+    while (length < cursor->size && cursor->data[length] != '"') {
+      uint8_t byte = (uint8_t)cursor->data[length++];
+      if (byte == '\\') {
+        if (length == cursor->size) {
           break;
         }
-        c = value.data[0];
-        value = iree_string_view_remove_prefix(value, 1);
+        byte = (uint8_t)cursor->data[length++];
       }
-      if ((uint8_t)c < 0x20 || (uint8_t)c == 0x7F) {
-        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                                "control byte in multipart parameter");
+      if ((byte < 0x20 && byte != '\t') || byte == 0x7F) {
+        return iree_make_status(
+            IREE_STATUS_INVALID_ARGUMENT,
+            "multipart quoted value contains a control byte");
       }
-      IREE_RETURN_IF_ERROR(iree_string_builder_append_string(
-          storage, iree_make_string_view(&c, 1)));
     }
-    if (!closed) {
+    if (length == cursor->size) {
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "unterminated multipart parameter");
+                              "multipart quoted value is unterminated");
     }
+    value = iree_make_string_view(cursor->data + 1, length - 1);
+    *cursor =
+        iree_string_view_substr(*cursor, length + 1, IREE_STRING_VIEW_NPOS);
   } else {
-    length = 0;
-    while (length < value.size &&
-           loom_serve_http_multipart_token((uint8_t)value.data[length])) {
-      ++length;
-    }
-    if (!length) {
+    value = multipart_take_token(cursor);
+    if (!value.size) {
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "empty unquoted multipart parameter");
-    }
-    IREE_RETURN_IF_ERROR(iree_string_builder_append_string(
-        storage, iree_string_view_substr(value, 0, length)));
-    value = iree_string_view_remove_prefix(value, length);
-  }
-  *out_value =
-      iree_make_string_view(storage->buffer + start, storage->size - start);
-  value = loom_serve_http_multipart_space(value);
-  if (value.size) {
-    if (!iree_string_view_consume_prefix(&value, IREE_SV(";")) ||
-        !loom_serve_http_multipart_space(value).size) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "invalid multipart parameter separator");
+                              "multipart parameter value is empty");
     }
   }
-  *remaining = value;
+  *cursor = multipart_trim(*cursor);
+  if (cursor->size && cursor->data[0] != ';') {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "multipart parameter has trailing bytes");
+  }
+  *out_parameter =
+      (multipart_parameter_t){.name = name, .value = value, .quoted = quoted};
   return iree_ok_status();
 }
 
-iree_status_t loom_serve_http_multipart_initialize(
-    iree_string_view_t content_type, iree_string_view_t body,
-    iree_allocator_t host_allocator, loom_serve_http_multipart_t* out_cursor) {
-  memset(out_cursor, 0, sizeof(*out_cursor));
-  iree_string_builder_initialize(host_allocator, &out_cursor->parameters);
-  iree_string_view_t type, parameters;
-  iree_string_view_split(content_type, ';', &type, &parameters);
-  if (!iree_string_view_equal_case(loom_serve_http_multipart_space(type),
-                                   IREE_SV("multipart/form-data"))) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "expected multipart/form-data");
+// The parameter parser has already validated every quoted pair.
+static iree_host_size_t multipart_unquote(multipart_parameter_t parameter,
+                                          char* target) {
+  iree_host_size_t length = 0;
+  for (iree_host_size_t i = 0; i < parameter.value.size; ++i) {
+    if (parameter.quoted && parameter.value.data[i] == '\\') {
+      ++i;
+    }
+    target[length++] = parameter.value.data[i];
   }
-  IREE_RETURN_IF_ERROR(
-      iree_string_builder_reserve(&out_cursor->parameters, content_type.size));
-  iree_string_view_t boundary = iree_string_view_empty();
+  return length;
+}
+
+static iree_status_t multipart_boundary(iree_string_view_t parameters,
+                                        char* boundary,
+                                        iree_host_size_t* out_length) {
+  iree_host_size_t length = 0;
+  bool found = false;
   while (parameters.size) {
-    iree_string_view_t key, value;
-    IREE_RETURN_IF_ERROR(loom_serve_http_multipart_parameter(
-        &parameters, &out_cursor->parameters, &key, &value));
-    if (!iree_string_view_equal_case(key, IREE_SV("boundary")) ||
-        boundary.data) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "unknown or duplicate multipart parameter");
+    multipart_parameter_t parameter;
+    IREE_RETURN_IF_ERROR(multipart_take_parameter(&parameters, &parameter));
+    if (!iree_string_view_equal_case(parameter.name, IREE_SV("boundary"))) {
+      continue;
     }
-    boundary = value;
+    if (found || parameter.value.size > 140) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "multipart requires one bounded boundary");
+    }
+    // At most 70 decoded bytes, each possibly a two-byte quoted pair.
+    char decoded[140];
+    length = multipart_unquote(parameter, decoded);
+    if (!length || length > 70 || decoded[length - 1] == ' ') {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "multipart boundary must contain 1-70 bytes");
+    }
+    for (iree_host_size_t i = 0; i < length; ++i) {
+      const uint8_t value = (uint8_t)decoded[i];
+      if (!((value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') ||
+            (value >= '0' && value <= '9') ||
+            (value && strchr("'()+_,-./:=? ", value)))) {
+        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                "multipart boundary contains an invalid byte");
+      }
+    }
+    memcpy(boundary, decoded, length);
+    found = true;
   }
-  if (!boundary.size || boundary.size > 70 ||
-      boundary.data[boundary.size - 1] == ' ') {
+  if (!found) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "multipart boundary requires 1-70 MIME bytes");
+                            "multipart boundary is required");
   }
-  for (iree_host_size_t i = 0; i < boundary.size; ++i) {
-    const uint8_t c = (uint8_t)boundary.data[i];
-    if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-          (c >= '0' && c <= '9') || strchr("'()+_,-./:=? ", c))) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "invalid MIME boundary byte");
-    }
-  }
-  memcpy(out_cursor->delimiter, "\r\n--", 4);
-  memcpy(out_cursor->delimiter + 4, boundary.data, boundary.size);
-  out_cursor->delimiter_length = boundary.size + 4;
-  const iree_string_view_t initial = iree_make_string_view(
-      out_cursor->delimiter + 2, out_cursor->delimiter_length - 2);
-  if (!iree_string_view_consume_prefix(&body, initial)) {
-    // MIME permits a preamble before the first delimiter line.
-    const iree_host_size_t offset = iree_string_view_find(
-        body,
-        iree_make_string_view(out_cursor->delimiter,
-                              out_cursor->delimiter_length),
-        0);
-    if (offset == IREE_STRING_VIEW_NPOS) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "multipart body has no initial delimiter");
-    }
-    body = iree_string_view_remove_prefix(
-        body, offset + out_cursor->delimiter_length);
-  }
-  out_cursor->remaining = body;
+  *out_length = length;
   return iree_ok_status();
 }
 
-void loom_serve_http_multipart_deinitialize(
-    loom_serve_http_multipart_t* cursor) {
-  iree_string_builder_deinitialize(&cursor->parameters);
-}
-
-static iree_status_t loom_serve_http_multipart_headers(
-    loom_serve_http_multipart_t* cursor, iree_string_view_t headers,
-    loom_serve_http_part_t* part) {
-  iree_string_builder_reset(&cursor->parameters);
-  IREE_RETURN_IF_ERROR(
-      iree_string_builder_reserve(&cursor->parameters, headers.size));
-  bool disposition = false;
-  while (headers.size) {
-    const iree_host_size_t end =
-        iree_string_view_find(headers, IREE_SV("\r\n"), 0);
-    iree_string_view_t line = iree_string_view_substr(headers, 0, end);
-    headers = end == IREE_STRING_VIEW_NPOS
-                  ? iree_string_view_empty()
-                  : iree_string_view_remove_prefix(headers, end + 2);
-    iree_string_view_t key, value;
-    if (iree_string_view_split(line, ':', &key, &value) == -1) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "malformed multipart header");
-    }
-    for (iree_host_size_t i = 0; i < key.size; ++i) {
-      if (!loom_serve_http_multipart_token((uint8_t)key.data[i])) {
-        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                                "invalid multipart header name");
-      }
-    }
-    value = loom_serve_http_multipart_space(value);
-    for (iree_host_size_t i = 0; i < value.size; ++i) {
-      const uint8_t c = (uint8_t)value.data[i];
-      if ((c < 0x20 && c != '\t') || c == 0x7F) {
-        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                                "invalid multipart header value");
-      }
-    }
-    if (iree_string_view_equal_case(key, IREE_SV("Content-Disposition"))) {
-      iree_string_view_t type, parameters;
-      iree_string_view_split(value, ';', &type, &parameters);
-      if (disposition ||
-          !iree_string_view_equal_case(loom_serve_http_multipart_space(type),
-                                       IREE_SV("form-data"))) {
-        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                                "expected one form-data disposition");
-      }
-      disposition = true;
-      while (parameters.size) {
-        iree_string_view_t name, parameter;
-        IREE_RETURN_IF_ERROR(loom_serve_http_multipart_parameter(
-            &parameters, &cursor->parameters, &name, &parameter));
-        iree_string_view_t* destination =
-            iree_string_view_equal_case(name, IREE_SV("name")) ? &part->name
-            : iree_string_view_equal_case(name, IREE_SV("filename"))
-                ? &part->filename
-                : NULL;
-        if (!destination || destination->data) {
-          return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                                  "unknown or duplicate disposition parameter");
-        }
-        *destination = parameter;
-      }
-    } else if (iree_string_view_equal_case(key, IREE_SV("Content-Type"))) {
-      if (part->content_type.data) {
-        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                                "duplicate part Content-Type");
-      }
-      part->content_type = value;
+static iree_status_t multipart_find_delimiter(
+    iree_string_view_t body, iree_string_view_t boundary,
+    iree_host_size_t start, multipart_delimiter_t* out_delimiter) {
+  char marker[74] = {'\r', '\n', '-', '-'};
+  memcpy(marker + 4, boundary.data, boundary.size);
+  const iree_string_view_t marker_view =
+      iree_make_string_view(marker, boundary.size + 4);
+  iree_host_size_t cursor = start;
+  bool first = start == 0;
+  while (cursor < body.size) {
+    iree_host_size_t begin = cursor;
+    iree_host_size_t after = 0;
+    if (first && body.size >= boundary.size + 2 &&
+        memcmp(body.data, marker + 2, boundary.size + 2) == 0) {
+      after = boundary.size + 2;
     } else {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "unsupported multipart header '%.*s'",
-                              (int)key.size, key.data);
+      // The boundary cannot contain CR. Search line candidates with memchr
+      // instead of comparing the whole marker at each binary payload byte.
+      begin = iree_string_view_find_char(body, '\r', cursor);
+      if (begin == IREE_STRING_VIEW_NPOS) {
+        break;
+      }
+      if (body.size - begin < marker_view.size ||
+          memcmp(body.data + begin, marker_view.data, marker_view.size) != 0) {
+        first = false;
+        cursor = begin + 1;
+        continue;
+      }
+      after = begin + marker_view.size;
     }
-  }
-  if (!part->name.size) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "multipart part requires a name");
-  }
-  return iree_ok_status();
-}
-
-iree_status_t loom_serve_http_multipart_next(
-    loom_serve_http_multipart_t* cursor, loom_serve_http_part_t* out_part,
-    bool* out_present) {
-  memset(out_part, 0, sizeof(*out_part));
-  *out_present = false;
-  if (cursor->complete) {
-    return iree_ok_status();
-  }
-  iree_string_view_t body = cursor->remaining;
-  if (iree_string_view_consume_prefix(&body, IREE_SV("--"))) {
-    if (body.size && !iree_string_view_starts_with(body, IREE_SV("\r\n"))) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "malformed terminal multipart delimiter");
+    first = false;
+    bool closing = false;
+    if (body.size - after >= 2 && body.data[after] == '-' &&
+        body.data[after + 1] == '-') {
+      closing = true;
+      after += 2;
     }
-    // An epilogue is not part of the form's contents.
-    cursor->complete = true;
-    return iree_ok_status();
-  }
-  if (!iree_string_view_consume_prefix(&body, IREE_SV("\r\n"))) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "malformed multipart delimiter");
-  }
-  const iree_host_size_t header_length =
-      iree_string_view_find(body, IREE_SV("\r\n\r\n"), 0);
-  if (header_length == IREE_STRING_VIEW_NPOS) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "truncated multipart headers");
-  }
-  IREE_RETURN_IF_ERROR(loom_serve_http_multipart_headers(
-      cursor, iree_string_view_substr(body, 0, header_length), out_part));
-  body = iree_string_view_remove_prefix(body, header_length + 4);
-  const iree_string_view_t delimiter =
-      iree_make_string_view(cursor->delimiter, cursor->delimiter_length);
-  iree_host_size_t offset = 0;
-  while (true) {
-    offset = iree_string_view_find(body, delimiter, offset);
-    if (offset == IREE_STRING_VIEW_NPOS) {
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "truncated multipart payload");
+    while (after < body.size && multipart_is_space(body.data[after])) {
+      ++after;
     }
-    const iree_string_view_t suffix =
-        iree_string_view_remove_prefix(body, offset + delimiter.size);
-    if (iree_string_view_starts_with(suffix, IREE_SV("\r\n")) ||
-        iree_string_view_starts_with(suffix, IREE_SV("--"))) {
-      out_part->contents = iree_string_view_substr(body, 0, offset);
-      cursor->remaining = suffix;
-      *out_present = true;
+    if (closing && after == body.size) {
+      *out_delimiter = (multipart_delimiter_t){
+          .begin = begin, .end = after, .closing = true};
       return iree_ok_status();
     }
-    ++offset;
+    if (body.size - after >= 2 && body.data[after] == '\r' &&
+        body.data[after + 1] == '\n') {
+      *out_delimiter = (multipart_delimiter_t){
+          .begin = begin, .end = after + 2, .closing = closing};
+      return iree_ok_status();
+    }
+    // A boundary prefix followed by payload bytes is not a delimiter line.
+    cursor = begin + 1;
   }
+  return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                          "multipart delimiter is missing or truncated");
+}
+
+// Stored metadata is a subset of the charged wire headers and cannot exceed
+// their cumulative byte bound. Each selected field is stored exactly once.
+static iree_string_view_t multipart_store(
+    loom_serve_http_multipart_t* multipart, multipart_parameter_t parameter) {
+  char* target = multipart->metadata + multipart->metadata_length;
+  const iree_host_size_t length = multipart_unquote(parameter, target);
+  multipart->metadata_length += length;
+  return iree_make_string_view(target, length);
+}
+
+static iree_status_t multipart_disposition(
+    loom_serve_http_multipart_t* multipart, iree_string_view_t value,
+    loom_serve_http_part_t* part) {
+  if (!iree_string_view_equal_case(multipart_take_token(&value),
+                                   IREE_SV("form-data"))) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "multipart disposition must be form-data");
+  }
+  value = multipart_trim(value);
+  while (value.size) {
+    multipart_parameter_t parameter;
+    IREE_RETURN_IF_ERROR(multipart_take_parameter(&value, &parameter));
+    iree_string_view_t* target = NULL;
+    if (iree_string_view_equal_case(parameter.name, IREE_SV("name"))) {
+      target = &part->name;
+    } else if (iree_string_view_equal_case(parameter.name,
+                                           IREE_SV("filename"))) {
+      target = &part->filename;
+    } else if (iree_string_view_equal_case(parameter.name,
+                                           IREE_SV("filename*"))) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "multipart filename* is not supported");
+    }
+    if (target) {
+      if (target->data) {
+        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                "multipart disposition parameter is repeated");
+      }
+      *target = multipart_store(multipart, parameter);
+    }
+  }
+  if (!part->name.data) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "multipart field name is required");
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t multipart_validate_content_type(iree_string_view_t value) {
+  const iree_string_view_t type = multipart_take_token(&value);
+  if (!type.size || !value.size || value.data[0] != '/') {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "multipart Content-Type requires type/subtype");
+  }
+  value = iree_string_view_substr(value, 1, IREE_STRING_VIEW_NPOS);
+  if (!multipart_take_token(&value).size) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "multipart Content-Type requires a subtype");
+  }
+  if (iree_string_view_equal_case(type, IREE_SV("multipart"))) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "nested multipart fields are unsupported");
+  }
+  value = multipart_trim(value);
+  while (value.size) {
+    multipart_parameter_t parameter;
+    IREE_RETURN_IF_ERROR(multipart_take_parameter(&value, &parameter));
+  }
+  return iree_ok_status();
+}
+
+// Unfolds one logical MIME header. The empty line ends the header section.
+static iree_status_t multipart_header(iree_string_view_t* cursor,
+                                      iree_host_size_t* remaining_header_bytes,
+                                      iree_string_builder_t* scratch,
+                                      iree_string_view_t* out_name,
+                                      iree_string_view_t* out_value) {
+  *out_name = iree_string_view_empty();
+  *out_value = iree_string_view_empty();
+  iree_string_builder_reset(scratch);
+  bool first = true;
+  do {
+    const iree_string_view_t bounded = iree_string_view_substr(
+        *cursor, 0, iree_min(cursor->size, *remaining_header_bytes));
+    const iree_host_size_t end =
+        iree_string_view_find(bounded, IREE_SV("\r\n"), 0);
+    if (end == IREE_STRING_VIEW_NPOS) {
+      return iree_make_status(
+          cursor->size >= *remaining_header_bytes
+              ? IREE_STATUS_RESOURCE_EXHAUSTED
+              : IREE_STATUS_INVALID_ARGUMENT,
+          "multipart header is truncated or exceeds capacity");
+    }
+    iree_string_view_t line = iree_make_string_view(cursor->data, end);
+    *remaining_header_bytes -= end + 2;
+    *cursor = iree_string_view_substr(*cursor, end + 2, IREE_STRING_VIEW_NPOS);
+    if (first && !line.size) {
+      return iree_ok_status();
+    }
+    if (first) {
+      const iree_host_size_t colon = iree_string_view_find_char(line, ':', 0);
+      if (colon == IREE_STRING_VIEW_NPOS || !colon) {
+        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                "multipart header name is missing");
+      }
+      *out_name = iree_make_string_view(line.data, colon);
+      for (iree_host_size_t i = 0; i < colon; ++i) {
+        const uint8_t byte = (uint8_t)line.data[i];
+        if (byte < 0x21 || byte > 0x7E) {
+          return iree_make_status(
+              IREE_STATUS_INVALID_ARGUMENT,
+              "multipart header name contains an invalid byte");
+        }
+      }
+      line = iree_string_view_substr(line, colon + 1, IREE_STRING_VIEW_NPOS);
+    } else {
+      IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(scratch, " "));
+    }
+    line = multipart_trim(line);
+    for (iree_host_size_t i = 0; i < line.size; ++i) {
+      const uint8_t byte = (uint8_t)line.data[i];
+      if ((byte < 0x20 && byte != '\t') || byte == 0x7F) {
+        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                "multipart header contains a control byte");
+      }
+    }
+    IREE_RETURN_IF_ERROR(iree_string_builder_append_string(scratch, line));
+    first = false;
+  } while (cursor->size && multipart_is_space(cursor->data[0]));
+  *out_value = multipart_trim(iree_string_builder_view(scratch));
+  return iree_ok_status();
+}
+
+static iree_status_t multipart_parse_parts(
+    loom_serve_http_multipart_t* multipart, iree_string_view_t body,
+    iree_string_view_t boundary, iree_host_size_t header_byte_capacity,
+    iree_host_size_t part_capacity, iree_string_builder_t* scratch) {
+  multipart_delimiter_t delimiter;
+  IREE_RETURN_IF_ERROR(multipart_find_delimiter(body, boundary, 0, &delimiter));
+  iree_host_size_t remaining_header_bytes = header_byte_capacity;
+  while (!delimiter.closing) {
+    if (multipart->count == part_capacity) {
+      return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                              "multipart part capacity exhausted");
+    }
+    loom_serve_http_part_t part = {0};
+    bool disposition = false;
+    bool transfer_encoding = false;
+    iree_string_view_t cursor =
+        iree_string_view_substr(body, delimiter.end, IREE_STRING_VIEW_NPOS);
+    while (true) {
+      iree_string_view_t name, value;
+      IREE_RETURN_IF_ERROR(multipart_header(&cursor, &remaining_header_bytes,
+                                            scratch, &name, &value));
+      if (!name.size) {
+        break;
+      }
+      if (iree_string_view_equal_case(name, IREE_SV("Content-Disposition"))) {
+        if (disposition) {
+          return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                  "multipart disposition is repeated");
+        }
+        disposition = true;
+        IREE_RETURN_IF_ERROR(multipart_disposition(multipart, value, &part));
+      } else if (iree_string_view_equal_case(name, IREE_SV("Content-Type"))) {
+        if (part.content_type.data || !value.size) {
+          return iree_make_status(
+              IREE_STATUS_INVALID_ARGUMENT,
+              "multipart content type is empty or repeated");
+        }
+        IREE_RETURN_IF_ERROR(multipart_validate_content_type(value));
+        part.content_type =
+            multipart_store(multipart, (multipart_parameter_t){.value = value});
+      } else if (iree_string_view_equal_case(
+                     name, IREE_SV("Content-Transfer-Encoding"))) {
+        if (transfer_encoding ||
+            (!iree_string_view_equal_case(value, IREE_SV("binary")) &&
+             !iree_string_view_equal_case(value, IREE_SV("7bit")) &&
+             !iree_string_view_equal_case(value, IREE_SV("8bit")))) {
+          return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                  "multipart transfer encoding is unsupported");
+        }
+        transfer_encoding = true;
+      }
+    }
+    if (!disposition) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "multipart Content-Disposition is required");
+    }
+    const iree_host_size_t content_begin =
+        (iree_host_size_t)(cursor.data - body.data);
+    IREE_RETURN_IF_ERROR(
+        multipart_find_delimiter(body, boundary, content_begin, &delimiter));
+    part.contents = iree_make_string_view(body.data + content_begin,
+                                          delimiter.begin - content_begin);
+    multipart->parts[multipart->count++] = part;
+  }
+  return iree_ok_status();
+}
+
+void loom_serve_http_multipart_free(loom_serve_http_multipart_t* multipart) {
+  if (!multipart) {
+    return;
+  }
+  const iree_allocator_t allocator = multipart->host_allocator;
+  iree_allocator_free(allocator, multipart->metadata);
+  iree_allocator_free(allocator, multipart->parts);
+  iree_allocator_free(allocator, multipart);
+}
+
+iree_status_t loom_serve_http_multipart_parse(
+    iree_string_view_t content_type, iree_string_view_t body,
+    iree_host_size_t header_byte_capacity, iree_host_size_t part_capacity,
+    iree_allocator_t host_allocator,
+    loom_serve_http_multipart_t** out_multipart) {
+  if (out_multipart) {
+    *out_multipart = NULL;
+  }
+  if (!out_multipart || (content_type.size && !content_type.data) ||
+      (body.size && !body.data)) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "multipart requires valid views and output");
+  }
+  const iree_host_size_t separator =
+      iree_string_view_find_char(content_type, ';', 0);
+  const iree_string_view_t media_type =
+      multipart_trim(iree_string_view_substr(content_type, 0, separator));
+  if (!iree_string_view_equal_case(media_type,
+                                   IREE_SV("multipart/form-data"))) {
+    return iree_ok_status();
+  }
+  if (!header_byte_capacity || !part_capacity) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "multipart capacities must be nonzero");
+  }
+  char boundary[70];
+  iree_host_size_t boundary_length = 0;
+  IREE_RETURN_IF_ERROR(
+      multipart_boundary(separator == IREE_STRING_VIEW_NPOS
+                             ? iree_string_view_empty()
+                             : iree_string_view_substr(content_type, separator,
+                                                       IREE_STRING_VIEW_NPOS),
+                         boundary, &boundary_length));
+  loom_serve_http_multipart_t* multipart = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(host_allocator, sizeof(*multipart),
+                                             (void**)&multipart));
+  memset(multipart, 0, sizeof(*multipart));
+  multipart->host_allocator = host_allocator;
+  iree_status_t status = iree_allocator_malloc_array(
+      host_allocator, part_capacity, sizeof(*multipart->parts),
+      (void**)&multipart->parts);
+  if (iree_status_is_ok(status)) {
+    status = iree_allocator_malloc(host_allocator, header_byte_capacity,
+                                   (void**)&multipart->metadata);
+  }
+  iree_string_builder_t scratch;
+  iree_string_builder_initialize(host_allocator, &scratch);
+  if (iree_status_is_ok(status)) {
+    status = multipart_parse_parts(
+        multipart, body, iree_make_string_view(boundary, boundary_length),
+        header_byte_capacity, part_capacity, &scratch);
+  }
+  iree_string_builder_deinitialize(&scratch);
+  if (iree_status_is_ok(status)) {
+    *out_multipart = multipart;
+  } else {
+    loom_serve_http_multipart_free(multipart);
+  }
+  return status;
+}
+
+loom_serve_http_part_list_t loom_serve_http_multipart_parts(
+    const loom_serve_http_multipart_t* multipart) {
+  return (loom_serve_http_part_list_t){
+      .count = multipart ? multipart->count : 0,
+      .values = multipart ? multipart->parts : NULL,
+  };
 }

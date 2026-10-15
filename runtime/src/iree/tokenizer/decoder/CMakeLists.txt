@@ -207,6 +207,7 @@ iree_cc_test(
   DEPS
     ::byte_fallback
     ::byte_level
+    ::ctc
     ::decoder_test_util
     ::metaspace
     ::passthrough

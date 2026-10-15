@@ -85,9 +85,7 @@ static iree_status_t loom_serve_http_tokenization_append_ids(
   return status;
 }
 
-// Pull at most one token beyond the public limit. Finalize has a separate
-// non-retryable pending bound; allocating that bound preserves exact-limit
-// behavior even when all input was consumed before the final tokens appeared.
+// Pull at most one token beyond the public limit, including final output.
 static iree_status_t loom_serve_http_tokenization_encode(
     const iree_tokenizer_t* tokenizer, iree_string_view_t text,
     iree_tokenizer_encode_flags_t flags, iree_string_builder_t* output,
@@ -123,39 +121,27 @@ static iree_status_t loom_serve_http_tokenization_encode(
     text = iree_string_view_substr(text, consumed, IREE_STRING_VIEW_NPOS);
     count += produced;
   }
-  if (iree_status_is_ok(status) && count == capacity) {
-    status = iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                              "tokenization exceeds %u tokens",
-                              LOOM_SERVE_HTTP_TOKENIZATION_MAX_TOKENS);
-  }
-  int32_t* pending = NULL;
-  if (iree_status_is_ok(status)) {
-    const iree_host_size_t bound =
-        iree_max(1, iree_tokenizer_encode_state_pending_token_bound(state));
-    status = iree_allocator_malloc_array(host_allocator, bound,
-                                         sizeof(*pending), (void**)&pending);
+  if (iree_status_is_ok(status) && count < capacity) {
     iree_host_size_t produced = 0;
-    if (iree_status_is_ok(status)) {
-      status = iree_tokenizer_encode_state_finalize(
-          state, iree_tokenizer_make_token_output(pending, NULL, NULL, bound),
-          &produced);
-    }
-    if (iree_status_is_ok(status)) {
-      if (produced > LOOM_SERVE_HTTP_TOKENIZATION_MAX_TOKENS - count) {
-        status = iree_make_status(IREE_STATUS_OUT_OF_RANGE,
-                                  "tokenization exceeds %u tokens",
-                                  LOOM_SERVE_HTTP_TOKENIZATION_MAX_TOKENS);
-      } else {
-        memcpy(tokens + count, pending, produced * sizeof(*tokens));
-        count += produced;
-        status = loom_serve_http_tokenization_append_ids(output, count, tokens);
-      }
+    status = iree_tokenizer_encode_state_finalize(
+        state,
+        iree_tokenizer_make_token_output(tokens + count, NULL, NULL,
+                                         capacity - count),
+        &produced);
+    count += produced;
+  }
+  if (iree_status_is_ok(status)) {
+    if (count > LOOM_SERVE_HTTP_TOKENIZATION_MAX_TOKENS) {
+      status = iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                                "tokenization exceeds %u tokens",
+                                LOOM_SERVE_HTTP_TOKENIZATION_MAX_TOKENS);
+    } else {
+      status = loom_serve_http_tokenization_append_ids(output, count, tokens);
     }
   }
   if (state) {
     iree_tokenizer_encode_state_deinitialize(state);
   }
-  iree_allocator_free(host_allocator, pending);
   iree_allocator_free(host_allocator, tokens);
   iree_allocator_free(host_allocator, storage);
   return status;

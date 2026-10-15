@@ -25,7 +25,7 @@ typedef struct loom_serve_sources_t {
   iree_string_view_t prepare;
   // Warm VM program orchestrating requests and stage submissions.
   iree_string_view_t control;
-  // Number of native command/kernel/configuration providers.
+  // Number of shared VM, native command, kernel, and configuration providers.
   iree_host_size_t count;
   // Authored provider paths; symbols establish dependencies, not list order.
   const iree_string_view_t* values;

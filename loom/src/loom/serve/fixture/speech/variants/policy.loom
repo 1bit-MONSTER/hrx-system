@@ -1,0 +1,42 @@
+global.rodata.def @factor = bytes("666163746f72")
+
+global.rodata.def @prepare_factor = bytes("707265706172655f666163746f72")
+
+global.rodata.def @empty = bytes("")
+
+func.def public @prepare_weight(%key: buffer) -> (buffer, i64) {
+  %length = buffer.length %key
+  %key_length = index.constant 6 : offset
+  %same_length = index.cmp eq, %length, %key_length : offset
+  %matches = scf.if %same_length -> (i1) {
+    %origin = index.constant 0 : offset
+    %actual = buffer.view %key[%origin] : buffer -> view<6xi8>
+    %expected = global.load @factor : buffer
+    %expected_view = buffer.view %expected[%origin] : buffer -> view<6xi8>
+    %start = index.constant 0 : index
+    %end = index.constant 6 : index
+    %step = index.constant 1 : index
+    %true = scalar.constant true : i1
+    %matches = scf.for %i = [%start to %end step %step](%previous = %true : i1) -> (i1) {
+      %a = view.load %actual[%i] : view<6xi8> -> i8
+      %b = view.load %expected_view[%i] : view<6xi8> -> i8
+      %equal = scalar.cmpi eq, %a, %b : i8
+      %next = scalar.andi %previous, %equal : i1
+      scf.yield %next : i1
+    }
+    scf.yield %matches : i1
+  } else {
+    %false = scalar.constant false : i1
+    scf.yield %false : i1
+  }
+  %root, %bytes = scf.if %matches -> (buffer, i64) {
+    %root = global.load @prepare_factor : buffer
+    %bytes = scalar.constant 4 : i64
+    scf.yield %root, %bytes : buffer, i64
+  } else {
+    %root = global.load @empty : buffer
+    %bytes = scalar.constant 0 : i64
+    scf.yield %root, %bytes : buffer, i64
+  }
+  func.return %root, %bytes : buffer, i64
+}

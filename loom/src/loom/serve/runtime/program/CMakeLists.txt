@@ -269,6 +269,7 @@ loom_cc_library(
     "input.c"
   DEPS
     iree::base
+    iree::base::internal::unicode
     iree::tokenizer
     iree::tokenizer::vocab
     iree::vm
@@ -297,12 +298,14 @@ loom_cc_library(
     "preparation.c"
   DEPS
     ::compilation
+    ::parameter_layout
     ::program
     ::sources
     iree::base
     iree::base::internal::path
     iree::vm
     loom::binding::c::loomc
+    loom::target::arch::cmd::program
   PUBLIC
 )
 

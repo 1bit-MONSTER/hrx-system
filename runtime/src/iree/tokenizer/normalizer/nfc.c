@@ -396,11 +396,7 @@ static iree_status_t iree_tokenizer_normalizer_nfc_state_process(
   iree_tokenizer_normalizer_nfc_state_t* state =
       (iree_tokenizer_normalizer_nfc_state_t*)base_state;
 
-  // When SEGMENT_END is set, we flush the pending combining sequence after
-  // processing input (the combining marks are "orphaned" with no following
-  // character to compose with).
-  const bool is_segment_end =
-      iree_any_bit_set(flags, IREE_TOKENIZER_NORMALIZER_FLAG_SEGMENT_END);
+  (void)flags;
 
   const uint8_t* in_ptr = (const uint8_t*)input.data;
   const uint8_t* in_end = in_ptr + input.size;
@@ -501,15 +497,6 @@ static iree_status_t iree_tokenizer_normalizer_nfc_state_process(
       break;
     }
     in_ptr += byte_count;
-  }
-
-  // At segment end, flush pending combining sequence. The combining marks are
-  // orphaned (no following character to compose with) so we emit as-is.
-  if (is_segment_end && state->sequence_count > 0 &&
-      state->emit_position == 0) {
-    iree_host_size_t written = iree_tokenizer_nfc_flush_and_emit(
-        state, out_ptr, (iree_host_size_t)(out_end - out_ptr));
-    out_ptr += written;
   }
 
   *out_consumed = (iree_host_size_t)(in_ptr - (const uint8_t*)input.data);

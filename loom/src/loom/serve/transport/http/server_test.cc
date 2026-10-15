@@ -180,6 +180,8 @@ TEST_F(HttpServerTest, FragmentedRequestAndOrderedStreamingResponse) {
   EXPECT_EQ(limits.header_byte_capacity, 16384u);
   EXPECT_EQ(limits.body_byte_capacity, 2 * 1024 * 1024u);
   EXPECT_EQ(limits.header_capacity, 64u);
+  EXPECT_EQ(limits.multipart_header_byte_capacity, 64 * 1024u);
+  EXPECT_EQ(limits.multipart_part_capacity, 1024u);
   int client = Connect();
   ASSERT_TRUE(Write(
       client, "POST /v1/chat/completions HTTP/1.1\r\nHost: local\r\nContent-"));
@@ -219,6 +221,31 @@ TEST_F(HttpServerTest, ConnectionSlotsRecycleAfterDrain) {
         "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK");
     ASSERT_EQ(close(client), 0);
   }
+}
+
+TEST_F(HttpServerTest, ChunkedUploadSurvivesPeerHalfClose) {
+  int client = Connect();
+  ASSERT_TRUE(Write(client,
+                    "POST /v1/audio/transcriptions HTTP/1.1\r\nHost: local\r\n"
+                    "Transfer-Encoding: chunked\r\n\r\n3\r"));
+  ASSERT_TRUE(Write(client, "\nabc\r\n2;part=last\r\n"));
+  ASSERT_TRUE(Write(client, std::string("\0d", 2)));
+  ASSERT_TRUE(Write(client, "\r\n0\r\nX-End: yes\r\n\r"));
+  ASSERT_TRUE(Write(client, "\n"));
+  ASSERT_EQ(shutdown(client, SHUT_WR), 0);
+  const loom_serve_http_request_t* request = nullptr;
+  auto* connection = Take(&request);
+  ASSERT_NE(connection, nullptr);
+  EXPECT_EQ(std::string(request->body.data, request->body.size),
+            std::string("abc\0d", 5));
+  EXPECT_EQ(request->headers.count, 2u);
+  IREE_ASSERT_OK(loom_serve_http_connection_send(
+      connection,
+      IREE_SV("HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nuploaded")));
+  loom_serve_http_connection_finish(connection);
+  EXPECT_EQ(Read(client),
+            "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nuploaded");
+  ASSERT_EQ(close(client), 0);
 }
 
 TEST_F(HttpServerTest, CapacityWaitReturnsTheOriginalRequestAfterRetirement) {

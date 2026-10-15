@@ -210,9 +210,8 @@ TEST_F(SequenceNormalizerTest, RejectsNullChildren) {
 //===----------------------------------------------------------------------===//
 // Sequence Flattening Tests
 //===----------------------------------------------------------------------===//
-// Nested sequences are automatically flattened to prevent the "vertical tiling
-// within vertical tiling" problem that causes lazy normalizers to receive
-// insufficient lookahead context.
+// Flattening preserves child order while allocating one set of intermediate
+// edges for the composed pipeline.
 
 TEST_F(SequenceNormalizerTest, FlattensNestedSequence) {
   // Create inner sequence: Seq[Passthrough, Passthrough]
@@ -265,10 +264,6 @@ TEST_F(SequenceNormalizerTest, FlattensDeepNestedSequence) {
                         /*expect_pending_after_process=*/false);
 }
 
-// Tests that nested sequences are flattened so lazy normalizers like Strip
-// receive sufficient lookahead context. DeBERTa-style chains like
-// Seq[Seq[NFC], Strip, Replace, Prepend] require flattening because Strip
-// with strip_right needs to buffer whitespace until it sees non-whitespace.
 TEST_F(SequenceNormalizerTest, FlattensNestedSequenceWithLazyNormalizer) {
   // Create inner sequence containing Strip (simulates Seq[NFC] + Strip).
   std::vector<ScopedNormalizer> inner_children;
@@ -299,13 +294,7 @@ TEST_F(SequenceNormalizerTest, FlattensNestedSequenceWithLazyNormalizer) {
   EXPECT_EQ(ProcessAndFinalize(normalizer.get(), "Hello, world!", false),
             expected);
 
-  // Test with chunk sizes >= 2. We skip chunk_size=1 because lazy normalizers
-  // (like Strip with strip_right) need lookahead beyond a single byte. With
-  // chunk_size=1, Strip sees one byte at a time in the intermediate buffer and
-  // can't see what follows a space, causing it to defer consumption forever.
-  // Real tokenizers never process byte-by-byte, so this limitation is
-  // acceptable.
-  for (size_t chunk_size : {2, 3, 5, 8, 13, 16, 32, 64}) {
+  for (size_t chunk_size : kStandardChunkSizes) {
     SCOPED_TRACE(::testing::Message() << "chunk_size=" << chunk_size);
     EXPECT_EQ(
         ProcessChunkedAndFinalize(normalizer.get(), "Hello, world!", chunk_size,
@@ -314,7 +303,7 @@ TEST_F(SequenceNormalizerTest, FlattensNestedSequenceWithLazyNormalizer) {
   }
 }
 
-TEST_F(SequenceNormalizerTest, FlatteningSingleChildReturnsChildDirectly) {
+TEST_F(SequenceNormalizerTest, FlattensTrailingSequence) {
   // Create inner sequence: Seq[Passthrough, Passthrough]
   std::vector<ScopedNormalizer> inner_children;
   inner_children.push_back(CreatePassthrough());
@@ -322,18 +311,7 @@ TEST_F(SequenceNormalizerTest, FlatteningSingleChildReturnsChildDirectly) {
   auto inner_seq = CreateSequence(std::move(inner_children));
   ASSERT_NE(inner_seq.get(), nullptr);
 
-  // Create outer sequence with inner_seq and one grandchild from another seq.
-  // Inner Seq: [P, P] (2 children)
-  // Outer Seq: [Inner, P]
-  // After flattening: [P, P, P] (3 children, valid sequence)
-
-  // But if we create Seq[InnerSeq] where InnerSeq has 2 children,
-  // flattening gives us 2 children which is still a valid sequence.
-  // The single-child case is: Seq[InnerSeq] where InnerSeq has 1 child.
-  // That's rejected at inner_seq creation time.
-
-  // So let's test: Seq[Passthrough, Seq[Passthrough, Passthrough]]
-  // Flattens to: Seq[Passthrough, Passthrough, Passthrough]
+  // The trailing nested sequence contributes both children in order.
   std::vector<ScopedNormalizer> outer_children;
   outer_children.push_back(CreatePassthrough());
   outer_children.push_back(std::move(inner_seq));
@@ -456,6 +434,23 @@ TEST_F(SequenceNormalizerTest, ThreePassthroughIdentity) {
 
   TestWithAllChunkSizes(normalizer.get(), "hello world", "hello world",
                         /*expect_pending_after_process=*/false);
+}
+
+TEST_F(SequenceNormalizerTest, FailedAllocationPreservesNestedOwnership) {
+  std::vector<ScopedNormalizer> inner_children;
+  inner_children.push_back(CreateSpaceToMetaspace());
+  inner_children.push_back(CreatePrependMetaspace(false));
+  auto nested = CreateSequence(std::move(inner_children));
+  auto other = CreateStrip(true, true);
+  iree_tokenizer_normalizer_t* children[] = {nested.get(), other.get()};
+  iree_tokenizer_normalizer_t* result = nullptr;
+  IREE_EXPECT_STATUS_IS(
+      IREE_STATUS_INVALID_ARGUMENT,
+      iree_tokenizer_normalizer_sequence_allocate(
+          children, IREE_ARRAYSIZE(children), iree_allocator_null(), &result));
+  EXPECT_EQ(result, nullptr);
+  EXPECT_EQ(ProcessAndFinalize(nested.get(), "a b", false), "▁a▁b");
+  EXPECT_EQ(ProcessAndFinalize(other.get(), " a b ", false), "a b");
 }
 
 //===----------------------------------------------------------------------===//
@@ -656,6 +651,8 @@ TEST_F(SequenceNormalizerTest, HasPendingWithIntermediateBuffer) {
     EXPECT_TRUE(iree_tokenizer_normalizer_state_has_pending(state.get()));
   }
 
+  size_t position = consumed;
+
   // Drain remaining output.
   std::string result;
   result += output_char;
@@ -674,11 +671,10 @@ TEST_F(SequenceNormalizerTest, HasPendingWithIntermediateBuffer) {
   }
 
   // Process remaining input.
-  size_t pos = consumed;
-  while (pos < input.size()) {
+  while (position < input.size()) {
     IREE_ASSERT_OK(iree_tokenizer_normalizer_state_process(
         state.get(),
-        iree_make_string_view(input.data() + pos, input.size() - pos),
+        iree_make_string_view(input.data() + position, input.size() - position),
         iree_make_mutable_string_view(&output_char, 1),
         IREE_TOKENIZER_NORMALIZER_FLAG_NONE, &consumed, &written));
     if (written > 0) {
@@ -687,7 +683,7 @@ TEST_F(SequenceNormalizerTest, HasPendingWithIntermediateBuffer) {
     if (consumed == 0 && written == 0) {
       break;
     }
-    pos += consumed;
+    position += consumed;
   }
 
   // Finalize.
@@ -784,80 +780,39 @@ TEST_F(SequenceNormalizerTest, LargerInputCapacity1) {
 // Finalize Backpressure Tests
 //===----------------------------------------------------------------------===//
 
-// Tests that finalize() rejects calls when process() has deferred consumption.
-// This is a precondition violation - the caller must drain process() first.
-TEST_F(SequenceNormalizerTest, FinalizeRejectsDeferredConsumption) {
-  // Need 3+ children to trigger ping-pong buffering where backpressure can
-  // leave pending_input_consumed > 0.
+TEST_F(SequenceNormalizerTest, FinalizeDrainsAcceptedInput) {
   std::vector<ScopedNormalizer> children;
   children.push_back(CreatePassthrough());
   children.push_back(CreatePassthrough());
   children.push_back(CreatePassthrough());
   auto normalizer = CreateSequence(std::move(children));
-  ASSERT_NE(normalizer.get(), nullptr);
-
   ScopedNormalizerState state(normalizer.get());
 
-  // Process with very limited output to force backpressure mid-chain.
-  // With 3 children and capacity=1, child[0] processes input into buffer[0],
-  // then child[1] processes into buffer[1], then child[2] can only output 1
-  // byte. This leaves pending data in the chain.
   std::string input = "hello world";
-  char output_char;
+  char output;
   iree_host_size_t consumed = 0, written = 0;
-
   IREE_ASSERT_OK(iree_tokenizer_normalizer_state_process(
       state.get(), iree_make_string_view(input.data(), input.size()),
-      iree_make_mutable_string_view(&output_char, 1),
+      iree_make_mutable_string_view(&output, 1),
       IREE_TOKENIZER_NORMALIZER_FLAG_NONE, &consumed, &written));
+  ASSERT_EQ(consumed, input.size());
+  ASSERT_EQ(written, 1u);
+  EXPECT_TRUE(iree_tokenizer_normalizer_state_has_pending(state.get()));
+  std::string result(&output, written);
 
-  // If consumed < input.size() but we still have pending data, the deferred
-  // consumption mechanism is active. Try to finalize - should fail.
-  if (iree_tokenizer_normalizer_state_has_pending(state.get()) &&
-      consumed == 0) {
-    // This should fail with FAILED_PRECONDITION because we have deferred
-    // consumption that hasn't been committed yet.
-    iree_host_size_t finalize_written = 0;
-    iree_status_t status = iree_tokenizer_normalizer_state_finalize(
-        state.get(), iree_make_mutable_string_view(&output_char, 1),
-        &finalize_written);
-    IREE_EXPECT_STATUS_IS(IREE_STATUS_FAILED_PRECONDITION, status);
-
-    // Now properly drain process() to clear the deferred consumption.
-    std::string result;
-    result += output_char;  // First byte from initial process()
-    size_t pos = 0;         // Haven't committed any consumption yet
-
-    while (pos < input.size() ||
-           iree_tokenizer_normalizer_state_has_pending(state.get())) {
-      IREE_ASSERT_OK(iree_tokenizer_normalizer_state_process(
-          state.get(),
-          iree_make_string_view(input.data() + pos, input.size() - pos),
-          iree_make_mutable_string_view(&output_char, 1),
-          IREE_TOKENIZER_NORMALIZER_FLAG_NONE, &consumed, &written));
-      if (written > 0) {
-        result += output_char;
-      }
-      if (consumed == 0 && written == 0) {
-        break;
-      }
-      pos += consumed;
-    }
-
-    // Now finalize should succeed.
-    while (true) {
-      IREE_ASSERT_OK(iree_tokenizer_normalizer_state_finalize(
-          state.get(), iree_make_mutable_string_view(&output_char, 1),
-          &finalize_written));
-      if (finalize_written > 0) {
-        result += output_char;
-      } else {
-        break;
-      }
-    }
-
-    EXPECT_EQ(result, input);
+  // Accepted input no longer belongs to the caller. Finalization drains the
+  // retained bytes even after the original storage is overwritten.
+  input.assign(input.size(), '!');
+  while (iree_tokenizer_normalizer_state_has_pending(state.get())) {
+    IREE_ASSERT_OK(iree_tokenizer_normalizer_state_finalize(
+        state.get(), iree_make_mutable_string_view(&output, 1), &written));
+    ASSERT_EQ(written, 1u);
+    result.append(&output, written);
   }
+  EXPECT_EQ(result, "hello world");
+  IREE_ASSERT_OK(iree_tokenizer_normalizer_state_finalize(
+      state.get(), iree_make_mutable_string_view(&output, 1), &written));
+  EXPECT_EQ(written, 0u);
 }
 
 // Tests that finalize can be called repeatedly with limited output capacity
@@ -973,10 +928,9 @@ TEST_F(SequenceNormalizerTest, FinalizeMiddleChildExceedsIntermediateBuffer) {
 // These tests verify the normalizer chains used by DeBERTa and T5 models:
 // Seq(Strip(right), Replace(" " -> "▁"), Prepend("▁"))
 //
-// These chains exercise multi-stage tiled processing with flag propagation.
+// These chains exercise retained intermediate bytes and input properties.
 
-// Tests the Replace + Prepend chain (2-child). This minimal chain exercises
-// tiled processing with ping-pong scratch buffers.
+// The Replace + Prepend chain combines expansion and conditional prefixing.
 TEST_F(SequenceNormalizerTest, ReplacePrependChain) {
   std::vector<ScopedNormalizer> children;
   children.push_back(CreateSpaceToMetaspace());
@@ -1043,7 +997,7 @@ TEST_F(SequenceNormalizerTest, DebertaChainTrailingWhitespace) {
                         /*expect_pending_after_process=*/false);
 }
 
-// Tests the 2-child chain with buffer-size-1 output, exercising spillover
+// Tests the 2-child chain with buffer-size-1 output, exercising retained bytes
 // handling when output capacity is minimal.
 TEST_F(SequenceNormalizerTest, ReplacePrependChainCapacity1) {
   std::vector<ScopedNormalizer> children;

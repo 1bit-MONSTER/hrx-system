@@ -201,6 +201,40 @@ TEST_F(TokenizationTest, NormalizedTailsMatchTheCompleteTokenizer) {
   }
 }
 
+TEST_F(TokenizationTest, ComposedExpansionRespectsExactPublicLimit) {
+  const std::string configuration =
+      R"({"normalizer":{"type":"Sequence","normalizers":[
+        {"type":"Replace","pattern":{"String":"a"},"content":")" +
+      std::string(32, 'b') + R"("},
+        {"type":"Replace","pattern":{"String":"b"},"content":")" +
+      std::string(32, 'c') +
+      R"("}]},"model":{"type":"BPE","vocab":{"c":0},"merges":[]}})";
+  iree_tokenizer_t* expanding = nullptr;
+  IREE_ASSERT_OK(iree_tokenizer_from_huggingface_json(
+      iree_make_string_view(configuration.data(), configuration.size()),
+      host_allocator_, &expanding));
+  iree_tokenizer_free(tokenizer_);
+  tokenizer_ = expanding;
+  const size_t input_limit = LOOM_SERVE_HTTP_TOKENIZATION_MAX_TOKENS / 1024;
+  for (size_t input_length : {size_t{8}, input_limit, input_limit + 1}) {
+    SCOPED_TRACE(input_length);
+    const std::string request =
+        "{\"content\":\"" + std::string(input_length, 'a') + "\"}";
+    if (input_length > input_limit) {
+      IREE_EXPECT_STATUS_IS(IREE_STATUS_OUT_OF_RANGE, Encode(request));
+      EXPECT_TRUE(Output().empty());
+    } else {
+      IREE_ASSERT_OK(Encode(request));
+      std::string expected = "{\"tokens\":[";
+      for (size_t i = 0; i < input_length * 1024; ++i) {
+        expected += i ? ",0" : "0";
+      }
+      expected += "]}";
+      EXPECT_EQ(Output(), expected);
+    }
+  }
+}
+
 TEST_F(TokenizationTest, ExactTokenBoundIncludesFinalSpecialTokens) {
   const size_t limit = LOOM_SERVE_HTTP_TOKENIZATION_MAX_TOKENS;
   IREE_ASSERT_OK(Encode("{\"content\":\"" + std::string(limit, 'a') + "\"}"));

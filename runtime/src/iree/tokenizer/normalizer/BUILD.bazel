@@ -290,6 +290,7 @@ iree_runtime_cc_library(
     hdrs = ["sequence.h"],
     deps = [
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:unicode",
         "//runtime/src/iree/tokenizer:normalizer",
     ],
 )

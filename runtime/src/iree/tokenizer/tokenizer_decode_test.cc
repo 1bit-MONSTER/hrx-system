@@ -19,6 +19,7 @@
 #include "iree/testing/status_matchers.h"
 #include "iree/tokenizer/decoder/byte_fallback.h"
 #include "iree/tokenizer/decoder/byte_level.h"
+#include "iree/tokenizer/decoder/ctc.h"
 #include "iree/tokenizer/decoder/metaspace.h"
 #include "iree/tokenizer/decoder/replace.h"
 #include "iree/tokenizer/decoder/sequence.h"
@@ -45,6 +46,127 @@ using testing::ScopedVocabBuilder;
 //===----------------------------------------------------------------------===//
 
 class TokenizerDecodeTest : public ::testing::Test {};
+
+class TokenizerStatefulDecodeTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    ScopedVocabBuilder vocab_builder;
+    vocab_builder.AddToken(0, "a");
+    vocab_builder.AddToken(1, "b");
+    vocab_builder.AddToken(2, "|");
+    vocab_builder.AddToken(3, "<pad>");
+    vocab_builder.AddToken(4, "é");
+    vocab_builder.AddToken(5, "🦜");
+    ScopedVocab vocab = vocab_builder.Build();
+    ScopedBuilder builder;
+    iree_tokenizer_builder_set_segmenter(builder.get(),
+                                         CreateWhitespaceSegmenter());
+    iree_tokenizer_builder_set_model(builder.get(),
+                                     CreateBPEModelIgnoreMerges(vocab.get()));
+    iree_tokenizer_builder_set_vocab(builder.get(), vocab.release());
+    iree_tokenizer_decoder_t* decoder = nullptr;
+    IREE_ASSERT_OK(iree_tokenizer_decoder_ctc_allocate(
+        IREE_SV("<pad>"), IREE_SV("|"), true, iree_allocator_system(),
+        &decoder));
+    iree_tokenizer_builder_set_decoder(builder.get(), decoder);
+    tokenizer = BuildTokenizer(builder.get());
+  }
+  void TearDown() override { iree_tokenizer_free(tokenizer); }
+  // Actual stateful CTC tokenizer, including the queued string stage.
+  iree_tokenizer_t* tokenizer = nullptr;
+};
+
+TEST_F(TokenizerStatefulDecodeTest, CompleteOutputAtEveryCapacity) {
+  struct Case {
+    // Complete sequence, including repeated CTC alignment IDs.
+    std::vector<int32_t> ids;
+    // Exact output after deduplication and delimiter replacement.
+    std::string expected;
+  };
+  const Case cases[] = {{{}, ""},
+                        {{3, 3}, ""},
+                        {{0, 0, 2, 1, 1}, "a b"},
+                        {{4, 4, 2, 5, 5}, "é 🦜"},
+                        {std::vector<int32_t>(300, 0), "a"}};
+  for (const auto& test : cases) {
+    for (size_t capacity = 0; capacity <= test.expected.size() + 2;
+         ++capacity) {
+      SCOPED_TRACE(::testing::Message()
+                   << "expected=" << test.expected << " capacity=" << capacity);
+      char output[32] = {};
+      iree_host_size_t written = 0;
+      auto status = iree_tokenizer_decode(
+          tokenizer, {test.ids.size(), test.ids.data()},
+          IREE_TOKENIZER_DECODE_FLAG_NONE, {output, capacity},
+          iree_allocator_system(), &written);
+      if (capacity < test.expected.size()) {
+        IREE_EXPECT_STATUS_IS(IREE_STATUS_RESOURCE_EXHAUSTED, status);
+        EXPECT_EQ(written, 0u);
+      } else {
+        IREE_ASSERT_OK(status);
+        EXPECT_EQ(std::string(output, written), test.expected);
+      }
+    }
+  }
+}
+
+TEST_F(TokenizerStatefulDecodeTest, FinalizeDrainsQueuedStringsAndResumes) {
+  const int32_t ids[] = {0, 0, 2, 1, 1, 2, 4, 4, 2, 5, 5};
+  const std::string expected = "a b é 🦜";
+  IREE_ASSERT_OK_AND_ASSIGN(auto state,
+                            DecodeStateStorage::Allocate(tokenizer));
+  char output[32] = {};
+  iree_host_size_t consumed = 0;
+  iree_host_size_t written = 0;
+  IREE_ASSERT_OK(iree_tokenizer_decode_state_feed(
+      state.state(), {IREE_ARRAYSIZE(ids), ids}, {output, 0}, &consumed,
+      &written));
+  ASSERT_EQ(consumed, IREE_ARRAYSIZE(ids));
+  ASSERT_EQ(written, 0u);
+  std::string text;
+  for (size_t capacity : {0, 1, 2, 4, 16}) {
+    auto status = iree_tokenizer_decode_state_finalize(
+        state.state(), {output, capacity}, &written);
+    text.append(output, written);
+    IREE_EXPECT_STATUS_IS(text.size() == expected.size()
+                              ? IREE_STATUS_OK
+                              : IREE_STATUS_RESOURCE_EXHAUSTED,
+                          status);
+    EXPECT_EQ(text, expected.substr(0, text.size()));
+  }
+  EXPECT_EQ(text, expected);
+  IREE_ASSERT_OK(iree_tokenizer_decode_state_finalize(
+      state.state(), {output, sizeof(output)}, &written));
+  EXPECT_EQ(written, 0u);
+}
+
+TEST_F(TokenizerStatefulDecodeTest, BatchFailurePreservesCompletedItems) {
+  const int32_t ids[] = {0, 0, 2, 1, 1};
+  iree_host_size_t state_size = 0;
+  IREE_ASSERT_OK(
+      iree_tokenizer_decode_state_calculate_size(tokenizer, &state_size));
+  std::vector<uint8_t> storage(state_size);
+  for (size_t capacity : {0, 1, 2, 3, 4}) {
+    char output[3][4] = {};
+    iree_tokenizer_decode_batch_item_t items[] = {
+        {{IREE_ARRAYSIZE(ids), ids}, {output[0], 3}, 0},
+        {{IREE_ARRAYSIZE(ids), ids}, {output[1], capacity}, 0},
+        {{IREE_ARRAYSIZE(ids), ids}, {output[2], 3}, 0}};
+    auto status = iree_tokenizer_decode_batch(
+        tokenizer, items, IREE_ARRAYSIZE(items),
+        IREE_TOKENIZER_DECODE_FLAG_NONE,
+        iree_make_byte_span(storage.data(), storage.size()));
+    IREE_EXPECT_STATUS_IS(
+        capacity < 3 ? IREE_STATUS_RESOURCE_EXHAUSTED : IREE_STATUS_OK, status);
+    EXPECT_EQ(std::string(output[0], items[0].out_text_length), "a b");
+    if (capacity < 3) {
+      EXPECT_EQ(items[2].out_text_length, 0u);
+    } else {
+      EXPECT_EQ(std::string(output[1], items[1].out_text_length), "a b");
+      EXPECT_EQ(std::string(output[2], items[2].out_text_length), "a b");
+    }
+  }
+}
 
 //===----------------------------------------------------------------------===//
 // ByteLevel Decoder (GPT-2 style, STATELESS_EXCEPT_PARTIAL_UTF8)
@@ -316,7 +438,8 @@ TEST_F(TokenizerDecodeTest, MetaspacePrependNever) {
 // Pre-decoded: YES (STATELESS + POSITION_SENSITIVE)
 // Pre-decoded table stores "rest" form: word tokens get " " prefix,
 // continuation tokens get "##" stripped (no space).
-// First token strips leading space.
+// First-position forms are decoded independently and retain continuation
+// prefixes.
 
 iree_tokenizer_t* BuildWordPieceTokenizer(iree_tokenizer_vocab_t* vocab,
                                           bool cleanup = false) {

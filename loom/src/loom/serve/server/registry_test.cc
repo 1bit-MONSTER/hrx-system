@@ -103,7 +103,7 @@ TEST_P(RegistryTest, FileRegistrationOwnsAuthoredPathsAndSelectedBase) {
   ASSERT_EQ(sources.count, 2u);
   EXPECT_EQ(String(sources.values[0]), "library/config.loom");
   EXPECT_EQ(String(sources.values[1]), "library/kernel.loombc");
-  EXPECT_EQ(String(model->configuration.finite.assets), "weights");
+  EXPECT_EQ(String(model->configuration.assets), "weights");
   EXPECT_EQ(String(model->configuration.options), R"({"batch_units":64})");
 
   bool progress = true;

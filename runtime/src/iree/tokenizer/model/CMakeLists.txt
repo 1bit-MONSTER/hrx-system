@@ -69,6 +69,20 @@ iree_cc_test(
 
 iree_cc_test(
   NAME
+    bpe_encode_test
+  SRCS
+    "bpe_encode_test.cc"
+  DEPS
+    ::bpe
+    ::model_test_util
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+    iree::tokenizer::model
+)
+
+iree_cc_test(
+  NAME
     bpe_backtrack_test
   SRCS
     "bpe_backtrack_test.cc"

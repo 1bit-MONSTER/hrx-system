@@ -15,6 +15,7 @@
 #include "iree/testing/status_matchers.h"
 #include "iree/tokenizer/decoder/byte_fallback.h"
 #include "iree/tokenizer/decoder/byte_level.h"
+#include "iree/tokenizer/decoder/ctc.h"
 #include "iree/tokenizer/decoder/decoder_test_util.h"
 #include "iree/tokenizer/decoder/metaspace.h"
 #include "iree/tokenizer/decoder/passthrough.h"
@@ -268,6 +269,115 @@ TEST_F(SequenceDecoderTest, StreamingWithPendingFromFirstDecoder) {
   // "▁Hello" after ByteFallback, then "Hello" after Metaspace strips ▁.
   EXPECT_EQ(bytes_written, 5u);
   EXPECT_EQ(std::string(output, bytes_written), "Hello");
+}
+
+TEST_F(SequenceDecoderTest, FinalizedBytesPassThroughDownstreamTransforms) {
+  ScopedDecoder ctc;
+  IREE_ASSERT_OK(
+      iree_tokenizer_decoder_ctc_allocate(IREE_SV("<pad>"), IREE_SV("|"), true,
+                                          iree_allocator_system(), ctc.put()));
+  ScopedDecoder replace;
+  IREE_ASSERT_OK(iree_tokenizer_decoder_replace_allocate(
+      IREE_SV("b"), IREE_SV("B"), iree_allocator_system(), replace.put()));
+  std::vector<ScopedDecoder> children;
+  children.push_back(std::move(ctc));
+  children.push_back(std::move(replace));
+  auto decoder = CreateSequence(std::move(children));
+  TestWithAllBatchSizes(decoder.get(), {"a", "a", "|", "b", "b"}, "a B",
+                        /*expect_pending_after_process=*/true);
+
+  ScopedDecoderState state(decoder.get());
+  const iree_string_view_t token = IREE_SV("b");
+  char output[8] = {};
+  iree_host_size_t consumed = 0;
+  iree_host_size_t written = 0;
+  IREE_ASSERT_OK(iree_tokenizer_decoder_state_process(
+      state.get(), {1, &token}, {output, sizeof(output)}, &consumed, &written));
+  EXPECT_EQ(consumed, 1u);
+  EXPECT_EQ(written, 0u);
+  IREE_ASSERT_OK(iree_tokenizer_decoder_state_finalize(state.get(), {output, 0},
+                                                       &written));
+  EXPECT_EQ(written, 0u);
+  EXPECT_TRUE(iree_tokenizer_decoder_state_has_pending(state.get()));
+  IREE_ASSERT_OK(iree_tokenizer_decoder_state_finalize(state.get(), {output, 1},
+                                                       &written));
+  EXPECT_EQ(std::string(output, written), "B");
+  EXPECT_FALSE(iree_tokenizer_decoder_state_has_pending(state.get()));
+  IREE_ASSERT_OK(iree_tokenizer_decoder_state_finalize(
+      state.get(), {output, sizeof(output)}, &written));
+  EXPECT_EQ(written, 0u);
+}
+
+TEST_F(SequenceDecoderTest, ResumedFinalizationPreservesTransformOrder) {
+  ScopedDecoder bytes;
+  IREE_ASSERT_OK(iree_tokenizer_decoder_byte_fallback_allocate(
+      iree_allocator_system(), bytes.put()));
+  ScopedDecoder replacement;
+  IREE_ASSERT_OK(iree_tokenizer_decoder_replace_allocate(
+      IREE_SV("�"), IREE_SV("?"), iree_allocator_system(), replacement.put()));
+  ScopedDecoder final;
+  IREE_ASSERT_OK(iree_tokenizer_decoder_replace_allocate(
+      IREE_SV("?"), IREE_SV("!"), iree_allocator_system(), final.put()));
+  std::vector<ScopedDecoder> children;
+  children.push_back(std::move(bytes));
+  children.push_back(std::move(replacement));
+  children.push_back(std::move(final));
+  auto decoder = CreateSequence(std::move(children));
+  ScopedDecoderState state(decoder.get());
+  const iree_string_view_t tokens[] = {IREE_SVL("<0xF0>"), IREE_SVL("<0x9F>")};
+  char output[8] = {};
+  iree_host_size_t consumed = 0;
+  iree_host_size_t written = 0;
+  IREE_ASSERT_OK(iree_tokenizer_decoder_state_process(
+      state.get(), {2, tokens}, {output, sizeof(output)}, &consumed, &written));
+  EXPECT_EQ(consumed, 2u);
+  EXPECT_EQ(written, 0u);
+  // Byte fallback flushes the complete invalid sequence atomically: six
+  // intermediate bytes are needed before the downstream shrinking transforms.
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_RESOURCE_EXHAUSTED,
+                        iree_tokenizer_decoder_state_finalize(
+                            state.get(), {output, 3}, &written));
+  EXPECT_EQ(written, 0u);
+  EXPECT_TRUE(iree_tokenizer_decoder_state_has_pending(state.get()));
+  IREE_ASSERT_OK(iree_tokenizer_decoder_state_finalize(state.get(), {output, 6},
+                                                       &written));
+  EXPECT_EQ(std::string(output, written), "!!");
+  EXPECT_FALSE(iree_tokenizer_decoder_state_has_pending(state.get()));
+}
+
+TEST_F(SequenceDecoderTest, DownstreamPendingStateWaitsForUpstreamCompletion) {
+  ScopedDecoder ctc;
+  IREE_ASSERT_OK(
+      iree_tokenizer_decoder_ctc_allocate(IREE_SV("<pad>"), IREE_SV("|"), true,
+                                          iree_allocator_system(), ctc.put()));
+  ScopedDecoder bytes;
+  IREE_ASSERT_OK(iree_tokenizer_decoder_byte_fallback_allocate(
+      iree_allocator_system(), bytes.put()));
+  ScopedDecoder replacement;
+  IREE_ASSERT_OK(iree_tokenizer_decoder_replace_allocate(
+      IREE_SV("�"), IREE_SV("?"), iree_allocator_system(), replacement.put()));
+  std::vector<ScopedDecoder> children;
+  children.push_back(std::move(ctc));
+  children.push_back(std::move(bytes));
+  children.push_back(std::move(replacement));
+  auto decoder = CreateSequence(std::move(children));
+  ScopedDecoderState state(decoder.get());
+  const iree_string_view_t tokens[] = {IREE_SVL("<0xF0>"), IREE_SVL("<0x9F>")};
+  char output[16] = {};
+  iree_host_size_t consumed = 0;
+  iree_host_size_t written = 0;
+  IREE_ASSERT_OK(iree_tokenizer_decoder_state_process(
+      state.get(), {2, tokens}, {output, sizeof(output)}, &consumed, &written));
+  EXPECT_EQ(consumed, 2u);
+  EXPECT_EQ(written, 0u);
+  IREE_ASSERT_OK(iree_tokenizer_decoder_state_finalize(state.get(), {output, 0},
+                                                       &written));
+  EXPECT_EQ(written, 0u);
+  EXPECT_TRUE(iree_tokenizer_decoder_state_has_pending(state.get()));
+  IREE_ASSERT_OK(iree_tokenizer_decoder_state_finalize(
+      state.get(), {output, sizeof(output)}, &written));
+  EXPECT_EQ(std::string(output, written), "??");
+  EXPECT_FALSE(iree_tokenizer_decoder_state_has_pending(state.get()));
 }
 
 //===----------------------------------------------------------------------===//

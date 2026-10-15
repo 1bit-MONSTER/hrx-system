@@ -41,6 +41,7 @@ loom_cc_library(
   SRCS
     "request.c"
   DEPS
+    ::multipart
     iree::base
   PUBLIC
 )
@@ -51,6 +52,7 @@ loom_cc_test(
   SRCS
     "request_test.cc"
   DEPS
+    ::multipart
     ::request
     iree::base
     iree::testing::gtest

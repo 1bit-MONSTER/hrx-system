@@ -35,27 +35,11 @@ typedef struct iree_tokenizer_normalizer_vtable_t
 // Normalizer Flags
 //===----------------------------------------------------------------------===//
 
-// Flags passed to state_process() to communicate segment boundary information.
-// This enables the tokenizer to signal when the normalizer should treat the
-// current input as the end of a logical segment (e.g., before a special token).
+// Properties of the original input passed to state_process(). Input boundaries
+// are communicated by state_finalize() after all input has been consumed.
 typedef uint32_t iree_tokenizer_normalizer_flags_t;
 enum iree_tokenizer_normalizer_flag_bits_e {
   IREE_TOKENIZER_NORMALIZER_FLAG_NONE = 0,
-
-  // This is the last input for the current logical segment (special token
-  // boundary, stream end, etc.). Normalizers should:
-  // - Treat "maybe trailing" content as actually trailing
-  // - Flush any buffered content that was waiting for lookahead
-  // - Reset internal state for the next segment
-  //
-  // This flag prevents deadlocks when normalizers use lazy consumption. For
-  // example, the Strip normalizer doesn't consume trailing whitespace until it
-  // sees non-whitespace (to determine if it's intermediate or trailing). When
-  // the tokenizer limits input at a special token boundary, the normalizer
-  // might see only whitespace with no way to look ahead. This flag signals
-  // that no more input will arrive for this segment, so the whitespace is
-  // definitely trailing.
-  IREE_TOKENIZER_NORMALIZER_FLAG_SEGMENT_END = 1u << 0,
 
   // Position 0 of the original input was consumed by a special token. This
   // signals to the prepend normalizer that it should skip prepending for this
@@ -97,7 +81,7 @@ struct iree_tokenizer_normalizer_state_t {
 // Pull-based processing model:
 // - state_process() consumes input and writes to output
 // - Caller controls batch size via output buffer capacity
-// - Incomplete data (e.g., partial UTF-8) buffered in state
+// - Accepted input and pending output remain owned by the state
 // - state_finalize() flushes remaining buffered data
 struct iree_tokenizer_normalizer_vtable_t {
   void (*destroy)(iree_tokenizer_normalizer_t* normalizer);
@@ -156,7 +140,7 @@ static inline void iree_tokenizer_normalizer_state_deinitialize(
 // Processes input text, writing normalized output.
 //
 // Reads up to |input.size| bytes and writes up to |output.size| bytes.
-// |flags| communicates segment boundary information from the tokenizer.
+// |flags| communicates properties of the original input.
 // Returns bytes consumed in |out_consumed| and bytes written in |out_written|.
 //
 // May consume less than the full input if the output buffer is full or if the
@@ -165,10 +149,8 @@ static inline void iree_tokenizer_normalizer_state_deinitialize(
 // handled here — the caller is responsible for ensuring input chunks end on
 // codepoint boundaries.
 //
-// When IREE_TOKENIZER_NORMALIZER_FLAG_SEGMENT_END is set, this is the last
-// input for the current logical segment. Normalizers should finalize any
-// pending state without waiting for more lookahead (e.g., treat potential
-// trailing content as actually trailing) and reset for the next segment.
+// Output credit never establishes an input boundary. The caller retains any
+// unconsumed input and calls state_finalize() only after all input is accepted.
 static inline iree_status_t iree_tokenizer_normalizer_state_process(
     iree_tokenizer_normalizer_state_t* state, iree_string_view_t input,
     iree_mutable_string_view_t output, iree_tokenizer_normalizer_flags_t flags,

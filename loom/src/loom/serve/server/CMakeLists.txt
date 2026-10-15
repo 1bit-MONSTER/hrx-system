@@ -49,6 +49,7 @@ loom_cc_library(
     loom::serve::service
     loom::serve::service::inspection
     loom::serve::telemetry::stream
+    loom::serve::transport::http::multipart
     loom::serve::transport::http::request
     loom::serve::transport::http::server
     loom::util::json
@@ -119,6 +120,7 @@ loom_cc_test(
     loom::serve::runtime::host::wake
     loom::serve::runtime::program::variant_pool
     loom::serve::transport::http::listener
+    loom::serve::transport::http::multipart
     loom::serve::transport::http::request
     loom::serve::transport::http::server
 )
@@ -186,6 +188,8 @@ loom_cc_library(
     loom::serve::service::finite::service
     loom::serve::service::image::model
     loom::serve::service::image::service
+    loom::serve::service::speech::model
+    loom::serve::service::speech::service
     loom::serve::service::text::model
     loom::serve::service::text::schedule
     loom::serve::service::text::service

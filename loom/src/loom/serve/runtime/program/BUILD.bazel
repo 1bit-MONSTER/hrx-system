@@ -21,7 +21,9 @@ exports_files(
         "testdata/control/kernels.loom",
         "testdata/jit/config.loom",
         "testdata/jit/control.loom",
+        "testdata/jit/private_vm_helper.loom",
         "testdata/jit/stage.loom",
+        "testdata/jit/vm_helpers.loom",
     ],
     visibility = ["//loom/src/loom/serve:implementation"],
 )
@@ -243,6 +245,7 @@ loom_cc_library(
     hdrs = ["input.h"],
     deps = [
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:unicode",
         "//runtime/src/iree/tokenizer",
         "//runtime/src/iree/tokenizer/vocab",
         "//runtime/src/iree/vm",
@@ -267,9 +270,11 @@ loom_cc_library(
     hdrs = ["preparation.h"],
     deps = [
         ":compilation",
+        ":parameter_layout",
         ":program",
         ":sources",
         "//loom/binding/c:loomc",
+        "//loom/src/loom/target/arch/cmd:program",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal:path",
         "//runtime/src/iree/vm",

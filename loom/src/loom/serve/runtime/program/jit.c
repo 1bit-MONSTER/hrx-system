@@ -140,32 +140,51 @@ static iree_status_t loom_serve_jit_compiler_initialize(
 }
 
 static iree_status_t loom_serve_jit_index_sources(
-    loom_serve_jit_t* jit, const loom_serve_sources_t* sources) {
+    loomc_context_t* context, const loom_serve_sources_t* sources,
+    loomc_source_t* primary, loom_serve_compilation_report_t* report,
+    iree_allocator_t host_allocator, loomc_link_index_t** out_index) {
+  *out_index = NULL;
   loomc_link_index_builder_t* builder = NULL;
   iree_status_t status =
       iree_status_from_loomc(loomc_link_index_builder_allocate(
-          jit->kernel.context, NULL,
-          loomc_allocator_from_iree(jit->host_allocator), &builder));
+          context, NULL, loomc_allocator_from_iree(host_allocator), &builder));
+  iree_string_view_t primary_name = iree_string_view_empty();
+  if (iree_status_is_ok(status) && primary) {
+    primary_name =
+        iree_string_view_from_loomc(loomc_source_identifier(primary));
+    const loomc_link_index_source_options_t options = {
+        .provider_name = loomc_source_identifier(primary),
+        .role = LOOMC_LINK_PROVIDER_ROLE_INPUT,
+    };
+    status = iree_status_from_loomc(
+        loomc_link_index_builder_add_source(builder, primary, &options, NULL));
+  }
   for (iree_host_size_t i = 0; i < sources->count && iree_status_is_ok(status);
        ++i) {
     loomc_source_t* source = NULL;
     status = loom_serve_sources_open(sources, sources->values[i],
-                                     jit->host_allocator, &source);
+                                     host_allocator, &source);
     if (iree_status_is_ok(status)) {
-      const loomc_link_index_source_options_t options = {
-          .provider_name = loomc_string_view_from_iree(sources->values[i]),
-          .role = LOOMC_LINK_PROVIDER_ROLE_LIBRARY,
-      };
-      status = iree_status_from_loomc(
-          loomc_link_index_builder_add_source(builder, source, &options, NULL));
+      // A model commonly includes its entry source in the provider catalog.
+      // Keep that source's primary role instead of indexing its exports twice.
+      const iree_string_view_t name =
+          iree_string_view_from_loomc(loomc_source_identifier(source));
+      if (!primary || !iree_string_view_equal(name, primary_name)) {
+        const loomc_link_index_source_options_t options = {
+            .provider_name = loomc_string_view_from_iree(sources->values[i]),
+            .role = LOOMC_LINK_PROVIDER_ROLE_LIBRARY,
+        };
+        status = iree_status_from_loomc(loomc_link_index_builder_add_source(
+            builder, source, &options, NULL));
+      }
     }
     loomc_source_release(source);
   }
   if (iree_status_is_ok(status)) {
     loomc_result_t* result = NULL;
     const loomc_status_t operation =
-        loomc_link_index_builder_finish(builder, &jit->index, &result);
-    status = loom_serve_compilation_result(operation, result, jit->report);
+        loomc_link_index_builder_finish(builder, out_index, &result);
+    status = loom_serve_compilation_result(operation, result, report);
   }
   loomc_link_index_builder_free(builder);
   return status;
@@ -283,7 +302,8 @@ iree_status_t loom_serve_jit_allocate(
         host_allocator);
   }
   if (iree_status_is_ok(status)) {
-    status = loom_serve_jit_index_sources(jit, sources);
+    status = loom_serve_jit_index_sources(jit->kernel.context, sources, NULL,
+                                          report, host_allocator, &jit->index);
   }
   if (iree_status_is_ok(status)) {
     status = iree_status_from_loomc(
@@ -305,20 +325,14 @@ loom_serve_compilation_report_t* loom_serve_jit_report(loom_serve_jit_t* jit) {
 }
 
 // Keeps prepared-low function facts in the same module through native emission.
-static iree_status_t loom_serve_jit_emit(
+static iree_status_t loom_serve_jit_emit_module(
     const jit_compiler_t* compiler, loomc_workspace_t* workspace,
-    loomc_source_t* source, iree_host_size_t specialization_count,
+    loomc_module_t* module, iree_host_size_t specialization_count,
     const loomc_target_specialization_t* specializations,
     iree_string_view_t format, loom_serve_compilation_report_t* report,
     iree_allocator_t host_allocator, iree_const_byte_span_t* out_image) {
   *out_image = iree_const_byte_span_empty();
   const loomc_allocator_t ca = loomc_allocator_from_iree(host_allocator);
-  loomc_module_t* module = NULL;
-  loomc_result_t* result = NULL;
-  loomc_status_t operation = loomc_module_deserialize_from_source(
-      compiler->context, workspace, source, NULL, ca, &module, &result);
-  iree_status_t status =
-      loom_serve_compilation_result(operation, result, report);
   const loomc_target_specialization_options_t target_options = {
       .type = LOOMC_STRUCTURE_TYPE_TARGET_SPECIALIZATION_OPTIONS,
       .specializations = specializations,
@@ -328,13 +342,12 @@ static iree_status_t loom_serve_jit_emit(
       .next = &target_options,
       .config_flags = LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED,
   };
-  if (iree_status_is_ok(status)) {
-    result = NULL;
-    operation =
-        loomc_compile_module(compiler->compiler, workspace, compiler->pipeline,
-                             module, &options, ca, &result);
-    status = loom_serve_compilation_result(operation, result, report);
-  }
+  loomc_result_t* result = NULL;
+  loomc_status_t operation =
+      loomc_compile_module(compiler->compiler, workspace, compiler->pipeline,
+                           module, &options, ca, &result);
+  iree_status_t status =
+      loom_serve_compilation_result(operation, result, report);
   if (iree_status_is_ok(status)) {
     const loomc_emit_options_t emit_options = {
         .artifact_format = loomc_string_view_from_iree(format),
@@ -354,6 +367,28 @@ static iree_status_t loom_serve_jit_emit(
       *out_image = iree_const_byte_span_from_loomc(image);
     }
     loomc_result_release(result);
+  }
+  return status;
+}
+
+static iree_status_t loom_serve_jit_emit(
+    const jit_compiler_t* compiler, loomc_workspace_t* workspace,
+    loomc_source_t* source, iree_host_size_t specialization_count,
+    const loomc_target_specialization_t* specializations,
+    iree_string_view_t format, loom_serve_compilation_report_t* report,
+    iree_allocator_t host_allocator, iree_const_byte_span_t* out_image) {
+  *out_image = iree_const_byte_span_empty();
+  loomc_module_t* module = NULL;
+  loomc_result_t* result = NULL;
+  const loomc_status_t operation = loomc_module_deserialize_from_source(
+      compiler->context, workspace, source, NULL,
+      loomc_allocator_from_iree(host_allocator), &module, &result);
+  iree_status_t status =
+      loom_serve_compilation_result(operation, result, report);
+  if (iree_status_is_ok(status)) {
+    status = loom_serve_jit_emit_module(
+        compiler, workspace, module, specialization_count, specializations,
+        format, report, host_allocator, out_image);
   }
   loomc_module_release(module);
   return status;
@@ -1219,22 +1254,62 @@ iree_status_t loom_serve_jit_compile_vm(const loom_serve_sources_t* sources,
         loom_serve_sources_open(sources, source_path, host_allocator, &source);
   }
   loomc_target_specialization_t* specializations = NULL;
+  loomc_string_view_t* root_symbols = NULL;
   if (iree_status_is_ok(status)) {
     status = iree_allocator_malloc_array(host_allocator, root_count,
                                          sizeof(*specializations),
                                          (void**)&specializations);
   }
   if (iree_status_is_ok(status)) {
+    status = iree_allocator_malloc_array(host_allocator, root_count,
+                                         sizeof(*root_symbols),
+                                         (void**)&root_symbols);
+  }
+  loomc_link_index_t* index = NULL;
+  loomc_linker_t* linker = NULL;
+  loomc_module_t* module = NULL;
+  if (iree_status_is_ok(status)) {
+    status = loom_serve_jit_index_sources(compiler.context, sources, source,
+                                          report, host_allocator, &index);
+  }
+  if (iree_status_is_ok(status)) {
+    status = iree_status_from_loomc(
+        loomc_linker_create(compiler.context, NULL, ca, &linker));
+  }
+  if (iree_status_is_ok(status)) {
     for (iree_host_size_t i = 0; i < root_count; ++i) {
+      root_symbols[i] = loomc_string_view_from_iree(roots[i]);
       specializations[i] = (loomc_target_specialization_t){
-          .function_symbol = loomc_string_view_from_iree(roots[i]),
+          .function_symbol = root_symbols[i],
           .target_profile = compiler.profile,
       };
     }
-    status = loom_serve_jit_emit(
-        &compiler, compiler.workspace, source, root_count, specializations,
+    const loomc_target_specialization_options_t targets = {
+        .type = LOOMC_STRUCTURE_TYPE_TARGET_SPECIALIZATION_OPTIONS,
+        .specializations = specializations,
+        .specialization_count = root_count,
+    };
+    const loomc_link_options_t options = {
+        .next = &targets,
+        .link_index = index,
+        .mode = LOOMC_LINK_MODE_LINK,
+        .root_symbols = root_symbols,
+        .root_symbol_count = root_count,
+    };
+    loomc_result_t* result = NULL;
+    const loomc_status_t operation = loomc_link_module(
+        linker, compiler.workspace, &options, &module, &result);
+    status = loom_serve_compilation_result(operation, result, report);
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_serve_jit_emit_module(
+        &compiler, compiler.workspace, module, root_count, specializations,
         IREE_SV(LOOMC_ARTIFACT_FORMAT_VM), report, host_allocator, out_image);
   }
+  loomc_module_release(module);
+  loomc_linker_release(linker);
+  loomc_link_index_release(index);
+  iree_allocator_free(host_allocator, root_symbols);
   iree_allocator_free(host_allocator, specializations);
   loomc_source_release(source);
   loom_serve_jit_compiler_deinitialize(&compiler);
