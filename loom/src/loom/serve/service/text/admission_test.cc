@@ -49,4 +49,26 @@ TEST(TextAdmissionTest, ExhaustedScanRestartsAtOldestWithoutSpendingCredit) {
   EXPECT_EQ(policy.overtakes, 0u);
 }
 
+TEST(TextAdmissionTest, EarlierRemovalPreservesSelectedRequest) {
+  loom_serve_text_admission_t policy = {
+      .budget = 4,
+      .overtakes = 2,
+      .cursor = 3,
+  };
+  loom_serve_text_admission_remove(&policy, 1);
+  EXPECT_EQ(policy.cursor, 2u);
+  EXPECT_EQ(policy.overtakes, 2u);
+  loom_serve_text_admission_remove(&policy, 3);
+  EXPECT_EQ(policy.cursor, 2u);
+  EXPECT_EQ(policy.overtakes, 2u);
+  loom_serve_text_admission_remove(&policy, 0);
+  EXPECT_EQ(policy.cursor, 1u);
+  EXPECT_EQ(policy.overtakes, 0u);
+  loom_serve_text_admission_acquired(&policy);
+  EXPECT_EQ(policy.overtakes, 1u);
+  loom_serve_text_admission_remove(&policy, 1);
+  EXPECT_EQ(policy.cursor, 0u);
+  EXPECT_EQ(policy.overtakes, 1u);
+}
+
 }  // namespace

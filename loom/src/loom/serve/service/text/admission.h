@@ -22,7 +22,7 @@ typedef struct loom_serve_text_admission_t {
   iree_host_size_t budget;
   // Successful overtakes since the oldest request last changed.
   iree_host_size_t overtakes;
-  // Selected FIFO position, held stable through one preparation/reservation.
+  // Selected FIFO position; earlier removal shifts it to preserve the borrower.
   iree_host_size_t cursor;
 } loom_serve_text_admission_t;
 
@@ -38,7 +38,8 @@ void loom_serve_text_admission_acquired(loom_serve_text_admission_t* admission);
 
 // Accounts removal after admission, rejection or cancellation. Removing the
 // oldest resets its budget. Removing a tail never replenishes that budget.
-// Removal at/before cursor restarts selection at the oldest surviving entry.
+// Earlier removal preserves the selected request at its shifted position;
+// removal of the selected request restarts at the oldest surviving entry.
 void loom_serve_text_admission_remove(loom_serve_text_admission_t* admission,
                                       iree_host_size_t index);
 
