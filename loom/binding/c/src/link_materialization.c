@@ -339,9 +339,10 @@ static iree_status_t loomc_link_materialization_prepare_module(
       status = loomc_target_specialization_options_make_lists(
           target, *inout_module, &arena, &requests, &bindings);
       if (loomc_status_is_ok(status)) {
-        status = loomc_status_from_iree(loomc_link_target_specializations_capture(
-            index, materialization, &requests, bindings, &arena, state->arena,
-            &state->specialization.indexed));
+        status =
+            loomc_status_from_iree(loomc_link_target_specializations_capture(
+                index, materialization, &requests, bindings, &arena,
+                state->arena, &state->specialization.indexed));
       }
     } else {
       status = loomc_status_from_iree(loomc_link_target_specializations_project(
