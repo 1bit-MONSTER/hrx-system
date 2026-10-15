@@ -143,6 +143,7 @@ from loom.target.arch.amdgpu.descriptors.api import (
     _order_descriptor_sets_for_shared_views,
     _with_instruction_classes,
     _with_storage_lease_rows,
+    amdgpu_core_descriptor_set_instruction_names,
 )
 from loom.target.arch.amdgpu.descriptors.cluster import (
     _cluster_load_async_to_lds_descriptor,
@@ -1768,6 +1769,42 @@ def test_float_to_packed_byte_primitives_are_available_on_all_targets() -> None:
         "amdgpu.v_perm_b32",
     }
     for target, builder in _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS.items():
+        available_keys = {
+            descriptor.descriptor_key for descriptor in builder.overlay_rows()
+        }
+        assert descriptor_keys <= available_keys, (
+            target,
+            descriptor_keys - available_keys,
+        )
+
+
+def test_dynamic_u32_division_primitives_are_available_on_all_targets() -> None:
+    descriptor_keys = {
+        "amdgpu.s_add_u32",
+        "amdgpu.s_ashr_i32",
+        "amdgpu.s_cselect_b32",
+        "amdgpu.s_mul_hi_u32",
+        "amdgpu.s_mul_i32",
+        "amdgpu.s_sub_co_u32",
+        "amdgpu.s_sub_u32",
+        "amdgpu.s_xor_b32",
+        "amdgpu.v_add_u32",
+        "amdgpu.v_ashrrev_i32.src0_inline",
+        "amdgpu.v_cndmask_b32",
+        "amdgpu.v_cvt_f32_u32",
+        "amdgpu.v_cvt_u32_f32",
+        "amdgpu.v_mov_b32",
+        "amdgpu.v_mul_f32.lit",
+        "amdgpu.v_mul_hi_u32",
+        "amdgpu.v_mul_lo_u32",
+        "amdgpu.v_rcp_f32",
+        "amdgpu.v_readfirstlane_b32",
+        "amdgpu.v_sub_co_u32",
+        "amdgpu.v_sub_u32",
+        "amdgpu.v_xor_b32",
+    }
+    for target, builder in _AMDGPU_CORE_DESCRIPTOR_SET_BUILDERS.items():
+        assert "S_MOV_B32" in amdgpu_core_descriptor_set_instruction_names(target)
         available_keys = {
             descriptor.descriptor_key for descriptor in builder.overlay_rows()
         }

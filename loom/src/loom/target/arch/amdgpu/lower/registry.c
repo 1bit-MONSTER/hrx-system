@@ -142,8 +142,10 @@ enum loom_amdgpu_storage_policy_e {
   LOOM_AMDGPU_STORAGE_SUBGROUP_SHUFFLE = 15,
   // Table lookups omit index storage when every selected lane is static.
   LOOM_AMDGPU_STORAGE_TABLE_LOOKUP = 16,
+  // Integer-division plans retain exactly the runtime values they consume.
+  LOOM_AMDGPU_STORAGE_INTEGER_DIVISION = 17,
   // Maximum storage-policy value accepted by dispatch row policy bits.
-  LOOM_AMDGPU_STORAGE_MAX = LOOM_AMDGPU_STORAGE_TABLE_LOOKUP,
+  LOOM_AMDGPU_STORAGE_MAX = LOOM_AMDGPU_STORAGE_INTEGER_DIVISION,
 };
 
 enum loom_amdgpu_preselect_policy_e {
@@ -321,13 +323,13 @@ LOOM_AMDGPU_DEFINE_DATA_EMIT(loom_amdgpu_emit_scalar_i64_alu_dispatch,
                              loom_amdgpu_scalar_i64_alu_plan_t,
                              loom_amdgpu_lower_scalar_i64_alu)
 
-LOOM_AMDGPU_DEFINE_DATA_SELECT(loom_amdgpu_select_i64_division_dispatch,
-                               loom_amdgpu_i64_division_plan_t,
-                               loom_amdgpu_select_i64_division_plan)
+LOOM_AMDGPU_DEFINE_DATA_SELECT(loom_amdgpu_select_integer_division_dispatch,
+                               loom_amdgpu_integer_division_plan_t,
+                               loom_amdgpu_select_integer_division_plan)
 
-LOOM_AMDGPU_DEFINE_DATA_EMIT(loom_amdgpu_emit_i64_division_dispatch,
-                             loom_amdgpu_i64_division_plan_t,
-                             loom_amdgpu_lower_i64_division)
+LOOM_AMDGPU_DEFINE_DATA_EMIT(loom_amdgpu_emit_integer_division_dispatch,
+                             loom_amdgpu_integer_division_plan_t,
+                             loom_amdgpu_lower_integer_division)
 
 LOOM_AMDGPU_DEFINE_DATA_SELECT(loom_amdgpu_select_scalar_i64_ctpop_dispatch,
                                loom_amdgpu_scalar_i64_ctpop_plan_t,
@@ -1275,8 +1277,6 @@ LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_scalar_i64_alu_plan_t, rhs,
                                         1);
 LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_scalar_i64_ctpop_plan_t,
                                         source, 0);
-LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_i64_division_plan_t, source,
-                                        0);
 LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_scalar_bit_scan_plan_t,
                                         source, 0);
 LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_scalar_conversion_plan_t,
@@ -1498,6 +1498,11 @@ static void loom_amdgpu_mark_plan_storage_demands(
       }
       return;
     }
+    case LOOM_AMDGPU_STORAGE_INTEGER_DIVISION:
+      loom_amdgpu_mark_integer_division_plan_storage_demands(
+          context,
+          (const loom_amdgpu_integer_division_plan_t*)plan.target_data);
+      return;
     case LOOM_AMDGPU_STORAGE_NONE:
       return;
     case LOOM_AMDGPU_STORAGE_ASYNC_GATHER:
@@ -1845,10 +1850,16 @@ static iree_status_t loom_amdgpu_finalize_plan(
           context, (const loom_amdgpu_index_cast_plan_t*)plan.target_data);
     case LOOM_OP_SCALAR_DIVSI:
     case LOOM_OP_SCALAR_DIVUI:
+    case LOOM_OP_SCALAR_DIVREMSI:
+    case LOOM_OP_SCALAR_DIVREMUI:
     case LOOM_OP_SCALAR_REMSI:
     case LOOM_OP_SCALAR_REMUI:
-      return loom_amdgpu_finalize_i64_division_plan(
-          context, (const loom_amdgpu_i64_division_plan_t*)plan.target_data);
+    case LOOM_OP_INDEX_DIV:
+    case LOOM_OP_INDEX_DIVREM:
+    case LOOM_OP_INDEX_REM:
+      return loom_amdgpu_finalize_integer_division_plan(
+          context, source_op,
+          (const loom_amdgpu_integer_division_plan_t*)plan.target_data);
     case LOOM_OP_SCALAR_TRUNCI:
     case LOOM_OP_SCALAR_EXTF:
     case LOOM_OP_SCALAR_FPTRUNC:

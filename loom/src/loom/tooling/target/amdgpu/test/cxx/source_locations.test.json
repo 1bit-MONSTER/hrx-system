@@ -35,8 +35,8 @@
           },
           "stderr": {
             "contains": [
-              "source_locations.cxx:9:15: error [TARGET/003]",
-              "rejected 'scalar.divui' divisor 'u32'"
+              "source_locations.cxx:9:15: error [AMDGPU/023]",
+              "source-to-low constraint 'unsigned_i64_division.constant_nonzero_divisor'"
             ],
             "not_contains": [
               " | ",

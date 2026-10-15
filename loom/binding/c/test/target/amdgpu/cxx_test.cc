@@ -207,7 +207,8 @@ TEST(CxxDiagnosticTest,
     const char text[] =
         "[[loom::kernel, loom::workgroup_count(1,1,1), "
         "loom::workgroup_size(64,1,1)]]\n"
-        "void divide(const unsigned* input, unsigned* output) {\n"
+        "void divide(const unsigned long long* input, unsigned long long* "
+        "output) {\n"
         "  output[0] = input[0] / input[1];\n"
         "}\n";
     loomc_source_options_t source_options = {
@@ -273,7 +274,7 @@ TEST(CxxDiagnosticTest,
        ++i) {
     const auto* diagnostic = loomc_result_diagnostic_at(result.get(), i);
     if (std::string(diagnostic->code.data, diagnostic->code.size) ==
-        "TARGET/003") {
+        "AMDGPU/023") {
       failure = diagnostic;
     }
   }
@@ -298,7 +299,8 @@ TEST(CxxDiagnosticTest, CompilationSourceRetentionControlsHeaderSnapshots) {
   const char header_text[] =
       "[[loom::kernel, loom::workgroup_count(1,1,1), "
       "loom::workgroup_size(64,1,1)]]\n"
-      "void divide(const unsigned* input, unsigned* output) {\n"
+      "void divide(const unsigned long long* input, unsigned long long* "
+      "output) {\n"
       "  output[0] = input[0] / input[1];\n"
       "}\n";
   for (loomc_source_retention_t source_retention : {
@@ -378,7 +380,7 @@ TEST(CxxDiagnosticTest, CompilationSourceRetentionControlsHeaderSnapshots) {
          i < loomc_result_diagnostic_count(result.get()); ++i) {
       const auto* diagnostic = loomc_result_diagnostic_at(result.get(), i);
       if (std::string(diagnostic->code.data, diagnostic->code.size) ==
-          "TARGET/003") {
+          "AMDGPU/023") {
         failure = diagnostic;
       }
     }
