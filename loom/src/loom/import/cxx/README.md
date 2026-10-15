@@ -1407,9 +1407,11 @@ rules. Integer arithmetic remains exact at the source width.
 
 The optional final non-type template argument on floating collectives is
 `collective_math::{native,preserve}`. Preservation requires a parallel tree of
-source-format combines, including rounding and exceptional values. It does not
-promise serial evaluation, a fixed tree, or reproducibility. An unsupported
-request fails compilation instead of silently using weaker native arithmetic.
+source-format combines, including rounding and exceptional values. It preserves
+each combine's arithmetic, not the reduction order: serial evaluation, a fixed
+tree, and reproducibility are not promised. It does not enable the C++ dynamic
+rounding environment or floating-point exception flags. An unsupported request
+fails compilation instead of silently using weaker native arithmetic.
 
 ```cpp
 using loom::kernel::collective_math;

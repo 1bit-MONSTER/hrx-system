@@ -187,12 +187,16 @@ to obey the source format's arithmetic semantics:
 %sum = kernel.workgroup.reduce<addf, preserve> %partial : f32
 ```
 
-This includes rounding, signed zeros, subnormals, and nonfinite values. For
-example, a nonempty F32 sum of only negative zeros remains negative zero.
-Preservation still permits parallel reassociation; it does not select a fixed
-tree, guarantee reproducibility, or request a correctly rounded real-number
-sum. A target without a qualified implementation rejects the requirement
-instead of dropping it or imposing software arithmetic on default kernels.
+`preserve` applies to each combine's arithmetic, not the reduction order. This
+includes rounding, signed zeros, subnormals, and nonfinite values. For example,
+a nonempty F32 sum of only negative zeros remains negative zero. For four
+inputs, both `(a + b) + (c + d)` and `((a + b) + c) + d` remain permitted and
+can produce different result bits. Preservation does not select a fixed tree,
+guarantee reproducibility, or request a correctly rounded real-number sum.
+It also does not introduce dynamic rounding modes or observable floating-point
+exception flags. A target without a qualified implementation rejects the
+requirement instead of dropping it or imposing software arithmetic on default
+kernels.
 
 Both modes retain the same participating invocations and synchronization
 requirements. Integer arithmetic keeps its fixed-width semantics. Floating
