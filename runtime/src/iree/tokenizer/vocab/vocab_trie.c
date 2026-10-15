@@ -14,7 +14,7 @@
 // Memory usage is approximately 12 bytes per state (3 x int32_t arrays).
 //
 // Construction uses a two-phase approach:
-//   Phase 1: Build a temporary trie where each node owns its children
+//   Phase 1: Build a temporary trie with arena-backed child arrays
 //   Phase 2: Convert to double-array format via BFS
 //
 // Phase 1 is O(N * L) where N is token count and L is average length.
@@ -24,49 +24,63 @@
 
 #include <string.h>
 
+#include "iree/base/internal/arena.h"
+
 //===----------------------------------------------------------------------===//
 // Internal Types
 //===----------------------------------------------------------------------===//
 
 // Child edge during construction: (byte, node_index) pair.
 typedef struct iree_tokenizer_daac_child_t {
+  // Byte labeling this edge.
   uint8_t byte;
+  // Destination index in the temporary node array.
   uint32_t node_index;
 } iree_tokenizer_daac_child_t;
 
 // Temporary node used during construction.
-// Each node owns its children array independently - no shared pools.
-// This allows O(1) amortized child insertion per node.
+// Child arrays grow in a shared construction arena and are reclaimed together.
 typedef struct iree_tokenizer_daac_build_node_t {
-  // Token ID if word ends here, -1.
+  // Token ID if a word ends here, or -1 otherwise.
   int32_t token_id;
-  // Owned by this node (sorted by byte).
+  // Arena-owned children, sorted by byte.
   iree_tokenizer_daac_child_t* children;
-  uint16_t child_count;     // Number of children (0-256).
-  uint16_t child_capacity;  // Allocated capacity.
+  // Number of initialized children (0-256).
+  uint16_t child_count;
+  // Allocated child capacity.
+  uint16_t child_capacity;
 } iree_tokenizer_daac_build_node_t;
 
 // Builder state for constructing DAAC from tokens.
 typedef struct iree_tokenizer_daac_builder_t {
+  // Allocator for growable arrays and the final immutable trie.
   iree_allocator_t allocator;
+  // Shared backing for the small temporary child lists.
+  iree_arena_block_pool_t child_block_pool;
+  // Owns child lists, including old copies abandoned during growth.
+  iree_arena_allocator_t child_arena;
 
-  // Temporary trie nodes.
+  // Temporary trie nodes, independently reallocated to release old copies.
   iree_tokenizer_daac_build_node_t* nodes;
+  // Number of initialized nodes.
   iree_host_size_t node_count;
+  // Allocated node capacity.
   iree_host_size_t node_capacity;
 
-  // Double-array construction state.
-  // check[i] == -1 means slot i is free.
-  // check[i] >= 0 means slot i is occupied with parent state check[i].
+  // Transition base offsets under construction.
   int32_t* base;
+  // Parent state for each occupied slot, or -1 for free slots.
   int32_t* check;
+  // Token ID at each state, or -1 if no token ends there.
   int32_t* output;
+  // Number of used slots, including gaps.
   iree_host_size_t array_size;
+  // Allocated capacity of each construction array.
   iree_host_size_t array_capacity;
   // Hint for where to start searching.
   iree_host_size_t next_check_pos;
 
-  // Statistics.
+  // Maximum inserted token length in bytes.
   iree_host_size_t max_depth;
 } iree_tokenizer_daac_builder_t;
 
@@ -77,10 +91,8 @@ typedef struct iree_tokenizer_daac_builder_t {
 static void iree_tokenizer_daac_builder_deinitialize(
     iree_tokenizer_daac_builder_t* builder) {
   IREE_TRACE_ZONE_BEGIN(z0);
-  // Free each node's children array.
-  for (iree_host_size_t i = 0; i < builder->node_count; ++i) {
-    iree_allocator_free(builder->allocator, builder->nodes[i].children);
-  }
+  iree_arena_deinitialize(&builder->child_arena);
+  iree_arena_block_pool_deinitialize(&builder->child_block_pool);
   iree_allocator_free(builder->allocator, builder->nodes);
   iree_allocator_free(builder->allocator, builder->base);
   iree_allocator_free(builder->allocator, builder->check);
@@ -130,9 +142,8 @@ static iree_status_t iree_tokenizer_daac_builder_allocate_node(
 //===----------------------------------------------------------------------===//
 
 // Ensures a node has capacity for at least one more child.
-// Each node manages its own children array independently.
 static iree_status_t iree_tokenizer_daac_node_ensure_child_capacity(
-    iree_tokenizer_daac_build_node_t* node, iree_allocator_t allocator) {
+    iree_tokenizer_daac_build_node_t* node, iree_arena_allocator_t* arena) {
   if (node->child_count < node->child_capacity) {
     return iree_ok_status();
   }
@@ -145,14 +156,13 @@ static iree_status_t iree_tokenizer_daac_node_ensure_child_capacity(
   }
 
   iree_tokenizer_daac_child_t* new_children = NULL;
-  IREE_RETURN_IF_ERROR(iree_allocator_malloc_array(
-      allocator, new_capacity, sizeof(*new_children), (void**)&new_children));
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      arena, new_capacity, sizeof(*new_children), (void**)&new_children));
 
   if (node->child_count > 0) {
     memcpy(new_children, node->children,
            node->child_count * sizeof(*new_children));
   }
-  iree_allocator_free(allocator, node->children);
   node->children = new_children;
   node->child_capacity = (uint16_t)new_capacity;
   return iree_ok_status();
@@ -202,7 +212,7 @@ static iree_status_t iree_tokenizer_daac_add_child(
 
   // Ensure parent has space for one more child.
   IREE_RETURN_IF_ERROR(iree_tokenizer_daac_node_ensure_child_capacity(
-      parent, builder->allocator));
+      parent, &builder->child_arena));
 
   // Insert at sorted position by shifting elements right.
   for (uint16_t i = parent->child_count; i > insert_pos; --i) {
@@ -384,8 +394,10 @@ static iree_status_t iree_tokenizer_daac_builder_find_base(
 
 // BFS queue entry for double-array construction.
 typedef struct iree_tokenizer_daac_bfs_entry_t {
-  uint32_t build_node;  // Index in temporary trie.
-  int32_t array_state;  // State in double-array.
+  // Index in the temporary trie.
+  uint32_t build_node;
+  // State in the double-array.
+  int32_t array_state;
 } iree_tokenizer_daac_bfs_entry_t;
 
 // Converts temporary trie to double-array format using BFS.
@@ -526,14 +538,16 @@ iree_status_t iree_tokenizer_vocab_trie_build(
   iree_tokenizer_daac_builder_t builder;
   memset(&builder, 0, sizeof(builder));
   builder.allocator = allocator;
+  iree_arena_block_pool_initialize(/*total_block_size=*/64 * 1024, allocator,
+                                   &builder.child_block_pool);
+  iree_arena_initialize(&builder.child_block_pool, &builder.child_arena);
 
   // Allocate root node.
   uint32_t root_index = 0;
-  IREE_RETURN_AND_END_ZONE_IF_ERROR(
-      z0, iree_tokenizer_daac_builder_allocate_node(&builder, &root_index));
+  iree_status_t status =
+      iree_tokenizer_daac_builder_allocate_node(&builder, &root_index);
 
   // Insert all non-UNUSED tokens into temporary trie.
-  iree_status_t status = iree_ok_status();
   for (iree_host_size_t i = 0; i < token_count && iree_status_is_ok(status);
        ++i) {
     const iree_tokenizer_token_t* token = &tokens[i];
@@ -546,13 +560,12 @@ iree_status_t iree_tokenizer_vocab_trie_build(
     if (!iree_host_size_checked_add(token->string_offset, token->string_length,
                                     &string_end) ||
         string_end > string_table.data_length) {
-      iree_tokenizer_daac_builder_deinitialize(&builder);
-      IREE_TRACE_ZONE_END(z0);
-      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                              "token %" PRIhsz " string bounds [%u, %" PRIhsz
-                              ") exceed table size %" PRIhsz,
-                              i, token->string_offset, string_end,
-                              string_table.data_length);
+      status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                "token %" PRIhsz " string bounds [%u, %" PRIhsz
+                                ") exceed table size %" PRIhsz,
+                                i, token->string_offset, string_end,
+                                string_table.data_length);
+      break;
     }
     const uint8_t* string = string_table.data + token->string_offset;
     status = iree_tokenizer_daac_builder_insert(
