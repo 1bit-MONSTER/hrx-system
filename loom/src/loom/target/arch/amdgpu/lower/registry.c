@@ -76,7 +76,7 @@
 #include "loom/target/arch/amdgpu/lower/types.h"
 #include "loom/target/arch/amdgpu/lower/value/bit_count.h"
 #include "loom/target/arch/amdgpu/lower/value/integer64.h"
-#include "loom/target/arch/amdgpu/lower/value/integer_division.h"
+#include "loom/target/arch/amdgpu/lower/value/integer_division_dispatch.h"
 #include "loom/target/arch/amdgpu/lower/value/scalar_conversion.h"
 #include "loom/target/arch/amdgpu/lower/value/storage.h"
 #include "loom/target/arch/amdgpu/lower/value/vector_construct.h"
@@ -1858,7 +1858,7 @@ static iree_status_t loom_amdgpu_finalize_plan(
     case LOOM_OP_INDEX_DIVREM:
     case LOOM_OP_INDEX_REM:
       return loom_amdgpu_finalize_integer_division_plan(
-          context, source_op,
+          context,
           (const loom_amdgpu_integer_division_plan_t*)plan.target_data);
     case LOOM_OP_SCALAR_TRUNCI:
     case LOOM_OP_SCALAR_EXTF:
