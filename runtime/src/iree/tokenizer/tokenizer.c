@@ -10,9 +10,8 @@
 
 #include "iree/base/internal/debugging.h"
 #include "iree/base/internal/unicode.h"
-#include "iree/tokenizer/byte_level_tables.h"
+#include "iree/tokenizer/decode_table.h"
 #include "iree/tokenizer/decoder.h"
-#include "iree/tokenizer/decoder/byte_fallback.h"
 #include "iree/tokenizer/model.h"
 #include "iree/tokenizer/normalizer.h"
 #include "iree/tokenizer/postprocessor.h"
@@ -38,59 +37,6 @@
 //===----------------------------------------------------------------------===//
 // Internal Structures
 //===----------------------------------------------------------------------===//
-
-// Pre-decoded token string table. Built at tokenizer construction time when
-// the decoder has STATELESS capability, eliminating runtime decoder work.
-//
-// Single slab allocation: [offsets_array][data_blob][partial_utf8_bitmap]
-//   offsets: (vocab_capacity + 1) entries, prefix-sum style.
-//   data: flat blob of decoded byte strings.
-//   partial_utf8_bitmap: (vocab_capacity + 7) / 8 bytes (only for ByteLevel).
-// Token id's decoded bytes are at data[offsets[id] .. offsets[id+1]).
-//
-// For STATELESS_EXCEPT_PARTIAL_UTF8 (ByteLevel), partial_utf8_bitmap marks
-// tokens that need the byte accumulator at decode time. Offsets are pure byte
-// positions with no flag bits.
-typedef struct iree_tokenizer_pre_decoded_t {
-  // Combined allocation (NULL if not pre-decodable).
-  void* slab;
-  uint32_t* offsets;
-  const uint8_t* data;
-  // For position-sensitive decoders (Metaspace, WordPiece): the table stores
-  // the "rest" form (with leading space). The first token in a stream skips
-  // the leading space byte if present.
-  bool position_sensitive;
-  // When true, the decoder chain contains ByteFallback and byte tokens
-  // (<0xHH>) need an inline accumulator at decode time. Non-byte tokens
-  // are pre-decoded normally; byte tokens store a single raw byte value
-  // in the data table.
-  bool has_byte_fallback;
-  // When true, the decoder chain contains ByteLevel and some tokens produce
-  // partial UTF-8 bytes that need the inline accumulator. These tokens are
-  // identified by the partial_utf8_bitmap (not by ID range).
-  // The accumulator logic is shared with has_byte_fallback.
-  bool has_partial_utf8;
-  // Bitmap marking which tokens need the byte accumulator (ByteLevel only).
-  // Bit (id % 8) of byte (id / 8) is set for tokens requiring accumulation.
-  // Points into the slab after the data blob. NULL when has_partial_utf8 is
-  // false.
-  uint8_t* partial_utf8_bitmap;
-  // Byte token ID range (inclusive). Byte tokens are nearly contiguous but
-  // may have small gaps (e.g., Gemma has a literal tab token at ID 226 in
-  // the middle of its byte token range 217-472). The bitmap below handles
-  // gaps. Decode-time fast rejection:
-  //   id >= byte_token_first_id && id <= byte_token_last_id
-  // Then bitmap check for gap handling:
-  //   byte_token_bitmap[(id - byte_token_first_id) / 8]
-  //     & (1u << ((id - byte_token_first_id) % 8))
-  // Only valid when has_byte_fallback is true.
-  int32_t byte_token_first_id;
-  int32_t byte_token_last_id;
-  // Bitmap marking which IDs in [first_id, last_id] are byte tokens.
-  // Bit N corresponds to ID (byte_token_first_id + N).
-  // Max 256 byte tokens → 32 bytes.
-  uint8_t byte_token_bitmap[32];
-} iree_tokenizer_pre_decoded_t;
 
 // Internal tokenizer structure.
 // Opaque to callers; built via iree_tokenizer_builder_build().
@@ -223,17 +169,18 @@ struct iree_tokenizer_decode_state_t {
   iree_tokenizer_decode_flags_t flags;
 
   // True for the first token in a stream. Used by position-sensitive
-  // pre-decoded fast path to strip the leading space from the first token's
-  // output.
+  // pre-decoded fast path to select the decoder's actual first-position form.
   bool is_first_token;
 
   // Inline byte accumulator for hybrid pre-decoded path with ByteFallback
   // or ByteLevel. Accumulates raw bytes from byte tokens (<0xHH>) or
   // partial-UTF-8 ByteLevel tokens until a complete UTF-8 sequence is
   // formed, then emits the validated bytes. Used when
-  // pre_decoded.has_byte_fallback or pre_decoded.has_partial_utf8 is true.
+  // pre_decoded.needs_byte_accumulator is true.
   uint8_t byte_fallback_pending[4];
+  // Number of raw bytes retained until their output has been accepted.
   uint8_t byte_fallback_pending_count;
+  // Required UTF-8 length, or zero when pending bytes must emit replacements.
   uint8_t byte_fallback_expected_length;
 
   // Resume position within a multi-byte ByteLevel token when the output
@@ -482,443 +429,6 @@ void iree_tokenizer_builder_set_string_batch_size(
   builder->string_batch_size = batch_size;
 }
 
-//===----------------------------------------------------------------------===//
-// Pre-decode Build
-//===----------------------------------------------------------------------===//
-
-// Decodes a single token through the decoder chain, returning its decoded bytes
-// in work_buffer[0..out_decoded_length). For position-sensitive decoders, this
-// produces the "rest" form (as if the token is NOT the first in the stream).
-static iree_status_t iree_tokenizer_pre_decode_one_token(
-    const iree_tokenizer_decoder_t* decoder, iree_string_view_t token_text,
-    bool position_sensitive, void* state_storage, char* work_buffer,
-    iree_host_size_t work_buffer_size, iree_host_size_t* out_decoded_length) {
-  *out_decoded_length = 0;
-
-  // Initialize decoder state.
-  iree_tokenizer_decoder_state_t* state = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_tokenizer_decoder_state_initialize(decoder, state_storage, &state));
-
-  // For position-sensitive decoders, feed a dummy token to advance past
-  // first-token handling. This ensures we get the "rest" form (with leading
-  // space where applicable).
-  if (position_sensitive) {
-    iree_string_view_t dummy = iree_make_cstring_view("a");
-    iree_tokenizer_string_list_t dummy_list =
-        iree_tokenizer_make_string_list(&dummy, 1);
-    iree_mutable_string_view_t discard_output =
-        iree_make_mutable_string_view(work_buffer, work_buffer_size);
-    iree_host_size_t consumed = 0;
-    iree_host_size_t written = 0;
-    iree_status_t status = iree_tokenizer_decoder_state_process(
-        state, dummy_list, discard_output, &consumed, &written);
-    if (!iree_status_is_ok(status)) {
-      iree_tokenizer_decoder_state_deinitialize(state);
-      return status;
-    }
-  }
-
-  iree_host_size_t total_written = 0;
-
-  // Feed the real token.
-  if (token_text.size > 0) {
-    iree_tokenizer_string_list_t token_list =
-        iree_tokenizer_make_string_list(&token_text, 1);
-    iree_mutable_string_view_t output =
-        iree_make_mutable_string_view(work_buffer, work_buffer_size);
-    iree_host_size_t consumed = 0;
-    iree_host_size_t written = 0;
-    iree_status_t status = iree_tokenizer_decoder_state_process(
-        state, token_list, output, &consumed, &written);
-    if (!iree_status_is_ok(status)) {
-      iree_tokenizer_decoder_state_deinitialize(state);
-      return status;
-    }
-    total_written = written;
-  }
-
-  // Finalize to flush any pending data (e.g., ByteLevel incomplete UTF-8).
-  {
-    iree_mutable_string_view_t finalize_output = iree_make_mutable_string_view(
-        work_buffer + total_written, work_buffer_size - total_written);
-    iree_host_size_t finalize_written = 0;
-    iree_status_t status = iree_tokenizer_decoder_state_finalize(
-        state, finalize_output, &finalize_written);
-    if (!iree_status_is_ok(status)) {
-      iree_tokenizer_decoder_state_deinitialize(state);
-      return status;
-    }
-    total_written += finalize_written;
-  }
-
-  iree_tokenizer_decoder_state_deinitialize(state);
-  *out_decoded_length = total_written;
-  return iree_ok_status();
-}
-
-// Reverse-maps a ByteLevel token's text to raw bytes using the byte-level
-// tables. Each codepoint in the token text is mapped back to its original byte:
-//   - Shifted range (U+0100-U+0143): reverse lookup table
-//   - Identity range (U+0021-U+007E, U+00A1-U+00AC, U+00AE-U+00FF): codepoint
-//     value IS the byte
-//   - Passthrough: not a byte-level codepoint, skipped. In canonical ByteLevel
-//     vocabs (GPT-2, Llama, etc.) all tokens consist entirely of the 256
-//     byte-mapped chars, so passthrough never occurs. Custom vocabs mixing
-//     byte-mapped and non-byte-mapped chars in a single token are not
-//     supported.
-// Returns the number of raw bytes written to |out_bytes|.
-// |out_bytes| must be at least |token_text.size| bytes (max 1 byte per input
-// char, always <= input size since multi-byte UTF-8 codepoints map to 1 byte).
-static iree_host_size_t iree_tokenizer_byte_level_reverse_map_token(
-    iree_string_view_t token_text, uint8_t* out_bytes) {
-  iree_host_size_t write_count = 0;
-  iree_host_size_t pos = 0;
-  while (pos < token_text.size) {
-    uint32_t codepoint = iree_unicode_utf8_decode(token_text, &pos);
-    if (codepoint >= 0x100 && codepoint <= 0x143) {
-      out_bytes[write_count++] =
-          iree_tokenizer_byte_level_reverse_mapping[codepoint - 0x100];
-    } else if (iree_tokenizer_byte_level_is_identity(codepoint)) {
-      out_bytes[write_count++] = (uint8_t)codepoint;
-    }
-    // Passthrough codepoints (emoji, CJK, etc.) are skipped; they don't map
-    // to raw bytes.
-  }
-  return write_count;
-}
-
-// Checks if a ByteLevel token needs the cross-token byte accumulator at decode
-// time. Two checks are needed to cover both ends of a cross-token sequence:
-//
-//   Check 1 (fast, no decoder): Is the first raw byte a UTF-8 continuation
-//   byte (0x80-0xBF)? If so, this token could complete a preceding token's
-//   incomplete sequence. Example: "ĳ" → byte 0x91 (continuation). After "Ã"
-//   (byte 0xC3, a 2-byte lead), this 0x91 completes "Ñ". Pre-decoded alone,
-//   0x91 would become U+FFFD.
-//
-//   Check 2 (runs the decoder): Does the decoder have pending bytes after
-//   processing? If so, the token's last byte(s) start a multi-byte sequence
-//   that needs continuation from the next token. Example: "Ã" → byte 0xC3
-//   (2-byte lead). The decoder accumulates 0xC3 and waits for 1 more byte.
-//   has_pending returns true. Pre-decoded alone, 0xC3 would become U+FFFD.
-//   We must run the actual decoder here (not just check the raw byte) because
-//   multi-byte tokens can contain both complete and incomplete sequences —
-//   only the decoder knows what's left pending after processing all bytes.
-//
-// |reverse_map_buffer| must be at least |token_text.size| bytes.
-static bool iree_tokenizer_byte_level_token_needs_accumulator(
-    const iree_tokenizer_decoder_t* decoder, iree_string_view_t token_text,
-    void* state_storage, char* work_buffer, iree_host_size_t work_buffer_size,
-    uint8_t* reverse_map_buffer) {
-  // Check 1: does the first mapped byte start with a continuation byte?
-  iree_host_size_t raw_count = iree_tokenizer_byte_level_reverse_map_token(
-      token_text, reverse_map_buffer);
-  if (raw_count > 0 && (reverse_map_buffer[0] & 0xC0) == 0x80) {
-    return true;  // First byte is continuation -- could complete preceding seq.
-  }
-
-  // Check 2: does processing leave pending bytes (incomplete sequence at end)?
-  iree_tokenizer_decoder_state_t* state = NULL;
-  iree_status_t status =
-      iree_tokenizer_decoder_state_initialize(decoder, state_storage, &state);
-  if (!iree_status_is_ok(status)) {
-    iree_status_ignore(status);
-    return false;
-  }
-
-  iree_tokenizer_string_list_t token_list =
-      iree_tokenizer_make_string_list(&token_text, 1);
-  iree_mutable_string_view_t output =
-      iree_make_mutable_string_view(work_buffer, work_buffer_size);
-  iree_host_size_t consumed = 0;
-  iree_host_size_t written = 0;
-  status = iree_tokenizer_decoder_state_process(state, token_list, output,
-                                                &consumed, &written);
-  bool has_pending = false;
-  if (iree_status_is_ok(status)) {
-    has_pending = iree_tokenizer_decoder_state_has_pending(state);
-  } else {
-    iree_status_ignore(status);
-  }
-
-  iree_tokenizer_decoder_state_deinitialize(state);
-  return has_pending;
-}
-
-// Builds the pre-decoded token string table. Called once at tokenizer
-// construction time. If the decoder supports pre-decode (STATELESS,
-// STATELESS_EXCEPT_BYTE_TOKENS, or STATELESS_EXCEPT_PARTIAL_UTF8 capability),
-// this pre-computes decoded strings for all vocab tokens, enabling O(1)
-// memcpy-based decode at runtime.
-//
-// For STATELESS_EXCEPT_BYTE_TOKENS (ByteFallback models like Gemma):
-// Non-byte tokens are pre-decoded through the full chain as normal.
-// Byte tokens (<0xHH>) store their single raw byte value (1 byte each).
-// At decode time, byte tokens are handled by an inline accumulator that
-// validates UTF-8 sequences, while non-byte tokens use the memcpy fast path.
-//
-// For STATELESS_EXCEPT_PARTIAL_UTF8 (ByteLevel models like GPT-2):
-// Each token is trial-decoded. If it leaves pending (incomplete UTF-8) bytes,
-// its reverse-mapped raw bytes are stored and a bit is set in the
-// partial_utf8_bitmap. At decode time, tokens with their bitmap bit set are
-// fed through the byte accumulator; normal tokens use the memcpy fast path.
-static iree_status_t iree_tokenizer_build_pre_decoded(
-    iree_tokenizer_t* tokenizer) {
-  if (!tokenizer->decoder || !tokenizer->vocab) {
-    return iree_ok_status();
-  }
-
-  iree_tokenizer_decoder_capability_t capabilities =
-      iree_tokenizer_decoder_capabilities(tokenizer->decoder);
-
-  bool has_byte_fallback =
-      !!(capabilities &
-         IREE_TOKENIZER_DECODER_CAPABILITY_STATELESS_EXCEPT_BYTE_TOKENS);
-  bool has_partial_utf8 =
-      !!(capabilities &
-         IREE_TOKENIZER_DECODER_CAPABILITY_STATELESS_EXCEPT_PARTIAL_UTF8);
-  bool is_stateless =
-      !!(capabilities & IREE_TOKENIZER_DECODER_CAPABILITY_STATELESS);
-
-  if (!is_stateless && !has_byte_fallback && !has_partial_utf8) {
-    return iree_ok_status();  // Not pre-decodable.
-  }
-
-  bool position_sensitive =
-      !!(capabilities & IREE_TOKENIZER_DECODER_CAPABILITY_POSITION_SENSITIVE);
-
-  iree_host_size_t vocab_capacity =
-      iree_tokenizer_vocab_capacity(tokenizer->vocab);
-  if (vocab_capacity == 0) {
-    return iree_ok_status();
-  }
-
-  iree_host_size_t max_token_length =
-      iree_tokenizer_vocab_max_token_length(tokenizer->vocab);
-
-  // Work buffer: max decoded length per token. WordPiece can add 1 byte
-  // (space prefix), ByteLevel finalize can add 3 bytes (U+FFFD).
-  iree_host_size_t work_buffer_size = max_token_length + 4;
-  iree_host_size_t decoder_state_size =
-      iree_tokenizer_decoder_state_size(tokenizer->decoder);
-
-  // For partial_utf8: extra scratch space for reverse-mapped raw bytes.
-  iree_host_size_t reverse_map_buffer_size =
-      has_partial_utf8 ? max_token_length : 0;
-
-  // Allocate temporary working memory:
-  //   [state_storage][work_buffer][reverse_map_buffer]
-  iree_host_size_t temp_size =
-      decoder_state_size + work_buffer_size + reverse_map_buffer_size;
-  iree_host_size_t offsets_size = 0;
-  if (!iree_host_size_checked_mul(vocab_capacity + 1, sizeof(uint32_t),
-                                  &offsets_size)) {
-    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
-                            "offsets array size overflow");
-  }
-  void* temp_storage = NULL;
-  void* slab = NULL;
-  iree_status_t status =
-      iree_allocator_malloc(tokenizer->allocator, temp_size, &temp_storage);
-
-  // Detect byte token ID range for ByteFallback models.
-  // Byte tokens (<0x00> through <0xFF>) are nearly contiguous in SentencePiece
-  // vocabs but may have small gaps (e.g., Gemma puts a literal tab at ID 226
-  // inside its byte token range 217-472). We use a 256-bit bitmap to handle
-  // gaps efficiently at decode time.
-  int32_t byte_token_first_id = -1;
-  int32_t byte_token_last_id = -1;
-  uint8_t byte_token_bitmap[32];
-  memset(byte_token_bitmap, 0, sizeof(byte_token_bitmap));
-
-  if (iree_status_is_ok(status) && has_byte_fallback) {
-    // Scan vocab to find all byte tokens.
-    int byte_token_count = 0;
-    for (iree_host_size_t id = 0; id < vocab_capacity; ++id) {
-      iree_string_view_t token_text =
-          iree_tokenizer_vocab_token_text(tokenizer->vocab, (int32_t)id);
-      uint8_t byte_value;
-      if (iree_tokenizer_decoder_byte_fallback_parse_byte_token(token_text,
-                                                                &byte_value)) {
-        if (byte_token_first_id < 0) {
-          byte_token_first_id = (int32_t)id;
-        }
-        byte_token_last_id = (int32_t)id;
-        ++byte_token_count;
-      }
-    }
-
-    if (byte_token_count > 0 && byte_token_count <= 256) {
-      // Verify the range fits in our 256-bit bitmap.
-      int32_t range_span = byte_token_last_id - byte_token_first_id + 1;
-      if (range_span > 256) {
-        iree_allocator_free(tokenizer->allocator, temp_storage);
-        return iree_make_status(
-            IREE_STATUS_INVALID_ARGUMENT,
-            "byte token ID range too wide: %d tokens spanning %" PRId32
-            " to %" PRId32 " (max span 256)",
-            byte_token_count, byte_token_first_id, byte_token_last_id);
-      }
-
-      // Build bitmap: re-scan to mark byte token positions.
-      for (iree_host_size_t id = (iree_host_size_t)byte_token_first_id;
-           id <= (iree_host_size_t)byte_token_last_id; ++id) {
-        iree_string_view_t token_text =
-            iree_tokenizer_vocab_token_text(tokenizer->vocab, (int32_t)id);
-        uint8_t byte_value;
-        if (iree_tokenizer_decoder_byte_fallback_parse_byte_token(
-                token_text, &byte_value)) {
-          int32_t bit_index = (int32_t)id - byte_token_first_id;
-          byte_token_bitmap[bit_index / 8] |= (1u << (bit_index % 8));
-        }
-      }
-    } else if (byte_token_count == 0) {
-      // No byte tokens found despite ByteFallback capability — the decoder
-      // will still function correctly, it just has nothing to accumulate.
-      // Treat as fully stateless since there are no byte tokens to handle.
-      has_byte_fallback = false;
-    }
-  }
-
-  iree_host_size_t total_data_size = 0;
-
-  if (iree_status_is_ok(status)) {
-    void* state_storage = temp_storage;
-    char* work_buffer = (char*)temp_storage + decoder_state_size;
-    uint8_t* reverse_map_buffer =
-        has_partial_utf8 ? (uint8_t*)((char*)temp_storage + decoder_state_size +
-                                      work_buffer_size)
-                         : NULL;
-
-    // Pass 1: compute total decoded size.
-    for (iree_host_size_t id = 0;
-         id < vocab_capacity && iree_status_is_ok(status); ++id) {
-      iree_string_view_t token_text =
-          iree_tokenizer_vocab_token_text(tokenizer->vocab, (int32_t)id);
-
-      // ByteFallback: byte tokens (<0xHH>) store 1 raw byte.
-      uint8_t byte_value;
-      if (has_byte_fallback &&
-          iree_tokenizer_decoder_byte_fallback_parse_byte_token(token_text,
-                                                                &byte_value)) {
-        total_data_size += 1;
-        continue;
-      }
-
-      // Partial UTF-8: check if token needs the cross-token accumulator.
-      if (has_partial_utf8 && token_text.size > 0) {
-        bool needs_accum = iree_tokenizer_byte_level_token_needs_accumulator(
-            tokenizer->decoder, token_text, state_storage, work_buffer,
-            work_buffer_size, reverse_map_buffer);
-        if (needs_accum) {
-          // Reverse-map the token to raw bytes; store those instead.
-          iree_host_size_t raw_count =
-              iree_tokenizer_byte_level_reverse_map_token(token_text,
-                                                          reverse_map_buffer);
-          total_data_size += raw_count;
-          continue;
-        }
-      }
-
-      iree_host_size_t decoded_length = 0;
-      status = iree_tokenizer_pre_decode_one_token(
-          tokenizer->decoder, token_text, position_sensitive, state_storage,
-          work_buffer, work_buffer_size, &decoded_length);
-      total_data_size += decoded_length;
-    }
-
-    // Allocate slab: [offsets][data][partial_utf8_bitmap]
-    iree_host_size_t bitmap_size =
-        has_partial_utf8 ? (vocab_capacity + 7) / 8 : 0;
-    if (iree_status_is_ok(status)) {
-      status = iree_allocator_malloc(
-          tokenizer->allocator, offsets_size + total_data_size + bitmap_size,
-          &slab);
-    }
-
-    // Pass 2: populate data blob, offsets, and partial_utf8_bitmap.
-    if (iree_status_is_ok(status)) {
-      uint32_t* offsets = (uint32_t*)slab;
-      uint8_t* data = (uint8_t*)slab + offsets_size;
-      uint8_t* bitmap = has_partial_utf8
-                            ? (uint8_t*)slab + offsets_size + total_data_size
-                            : NULL;
-      if (bitmap) {
-        memset(bitmap, 0, bitmap_size);
-      }
-      uint32_t data_position = 0;
-      for (iree_host_size_t id = 0;
-           id < vocab_capacity && iree_status_is_ok(status); ++id) {
-        offsets[id] = data_position;
-        iree_string_view_t token_text =
-            iree_tokenizer_vocab_token_text(tokenizer->vocab, (int32_t)id);
-
-        // ByteFallback: byte tokens store the single raw byte value directly.
-        uint8_t byte_value;
-        if (has_byte_fallback &&
-            iree_tokenizer_decoder_byte_fallback_parse_byte_token(
-                token_text, &byte_value)) {
-          data[data_position] = byte_value;
-          data_position += 1;
-          continue;
-        }
-
-        // Partial UTF-8: check if token needs the cross-token accumulator.
-        if (has_partial_utf8 && token_text.size > 0) {
-          bool needs_accum = iree_tokenizer_byte_level_token_needs_accumulator(
-              tokenizer->decoder, token_text, state_storage, work_buffer,
-              work_buffer_size, reverse_map_buffer);
-          if (needs_accum) {
-            iree_host_size_t raw_count =
-                iree_tokenizer_byte_level_reverse_map_token(token_text,
-                                                            reverse_map_buffer);
-            memcpy(data + data_position, reverse_map_buffer, raw_count);
-            // Mark this token in the bitmap as needing the byte accumulator.
-            offsets[id] = data_position;
-            bitmap[id / 8] |= (1u << (id % 8));
-            data_position += (uint32_t)raw_count;
-            continue;
-          }
-        }
-
-        iree_host_size_t decoded_length = 0;
-        status = iree_tokenizer_pre_decode_one_token(
-            tokenizer->decoder, token_text, position_sensitive, state_storage,
-            work_buffer, work_buffer_size, &decoded_length);
-        if (iree_status_is_ok(status)) {
-          memcpy(data + data_position, work_buffer, decoded_length);
-          data_position += (uint32_t)decoded_length;
-        }
-      }
-      offsets[vocab_capacity] = data_position;
-    }
-  }
-
-  iree_allocator_free(tokenizer->allocator, temp_storage);
-
-  if (iree_status_is_ok(status)) {
-    tokenizer->pre_decoded.slab = slab;
-    tokenizer->pre_decoded.offsets = (uint32_t*)slab;
-    tokenizer->pre_decoded.data = (uint8_t*)slab + offsets_size;
-    tokenizer->pre_decoded.partial_utf8_bitmap =
-        has_partial_utf8 ? (uint8_t*)slab + offsets_size + total_data_size
-                         : NULL;
-    tokenizer->pre_decoded.position_sensitive = position_sensitive;
-    tokenizer->pre_decoded.has_byte_fallback =
-        has_byte_fallback || has_partial_utf8;
-    tokenizer->pre_decoded.has_partial_utf8 = has_partial_utf8;
-    tokenizer->pre_decoded.byte_token_first_id = byte_token_first_id;
-    tokenizer->pre_decoded.byte_token_last_id = byte_token_last_id;
-    memcpy(tokenizer->pre_decoded.byte_token_bitmap, byte_token_bitmap,
-           sizeof(byte_token_bitmap));
-  } else {
-    iree_allocator_free(tokenizer->allocator, slab);
-  }
-
-  return status;
-}
-
 iree_status_t iree_tokenizer_builder_build(iree_tokenizer_builder_t* builder,
                                            iree_tokenizer_t** out_tokenizer) {
   IREE_ASSERT_ARGUMENT(builder);
@@ -975,7 +485,9 @@ iree_status_t iree_tokenizer_builder_build(iree_tokenizer_builder_t* builder,
     builder->vocab = NULL;
 
     // Build pre-decoded token table for fast-path decode.
-    status = iree_tokenizer_build_pre_decoded(tokenizer);
+    status = iree_tokenizer_decode_table_initialize(
+        tokenizer->decoder, tokenizer->vocab, tokenizer->allocator,
+        &tokenizer->pre_decoded);
   }
 
   if (iree_status_is_ok(status)) {
@@ -3653,44 +3165,55 @@ static inline void iree_tokenizer_copy_short(uint8_t* IREE_RESTRICT dst,
 }
 
 // Handles the first token in a position-sensitive decode stream.
-// Strips the leading space from the first valid token's pre-decoded form.
-// Skips special tokens when SKIP_SPECIAL_TOKENS flag is set.
-// Returns the number of tokens consumed (including skipped out-of-range IDs)
-// and writes the decoded bytes to |output|. Sets |*out_bytes_written| to the
-// number of bytes written (0 if output was too small or no valid token found).
-static iree_host_size_t iree_tokenizer_decode_pre_decoded_first_token(
-    const uint32_t* IREE_RESTRICT offsets,
-    const uint8_t* IREE_RESTRICT src_data, iree_host_size_t vocab_capacity,
-    const iree_tokenizer_vocab_t* vocab, iree_tokenizer_decode_flags_t flags,
-    iree_tokenizer_token_id_list_t tokens, uint8_t* IREE_RESTRICT output,
-    iree_host_size_t output_capacity, iree_host_size_t* out_bytes_written) {
+// True authorizes the ordinary loop after a complete first form, or delegates
+// a raw first token to its byte accumulator. False preserves first-position
+// state when output credit is insufficient or every token was skipped.
+static bool iree_tokenizer_decode_pre_decoded_first_token(
+    iree_tokenizer_decode_state_t* state, iree_tokenizer_token_id_list_t tokens,
+    uint8_t* IREE_RESTRICT output, iree_host_size_t output_capacity,
+    iree_host_size_t* out_tokens_consumed,
+    iree_host_size_t* out_bytes_written) {
+  const iree_tokenizer_pre_decoded_t* table = &state->tokenizer->pre_decoded;
+  const iree_tokenizer_vocab_t* vocab = state->tokenizer->vocab;
+  const iree_host_size_t vocab_capacity = iree_tokenizer_vocab_capacity(vocab);
+  *out_tokens_consumed = 0;
   *out_bytes_written = 0;
-  const bool skip_special =
-      iree_all_bits_set(flags, IREE_TOKENIZER_DECODE_FLAG_SKIP_SPECIAL_TOKENS);
+  const bool skip_special = iree_all_bits_set(
+      state->flags, IREE_TOKENIZER_DECODE_FLAG_SKIP_SPECIAL_TOKENS);
   for (iree_host_size_t i = 0; i < tokens.count; ++i) {
     iree_tokenizer_token_id_t id = tokens.values[i];
     if (IREE_UNLIKELY(id < 0 || (iree_host_size_t)id >= vocab_capacity)) {
       continue;
     }
-    if (skip_special &&
-        iree_any_bit_set(iree_tokenizer_vocab_token_attrs(vocab, id),
-                         IREE_TOKENIZER_TOKEN_ATTR_SPECIAL)) {
+    const iree_tokenizer_token_attr_t attributes =
+        iree_tokenizer_vocab_token_attrs(vocab, id);
+    if (iree_any_bit_set(attributes, IREE_TOKENIZER_TOKEN_ATTR_UNUSED) ||
+        (skip_special &&
+         iree_any_bit_set(attributes, IREE_TOKENIZER_TOKEN_ATTR_SPECIAL))) {
       continue;
     }
-    uint32_t start = offsets[id];
-    uint32_t length = offsets[id + 1] - start;
-    if (length > 0 && src_data[start] == ' ') {
-      ++start;
-      --length;
+    *out_tokens_consumed = i;
+    // Raw bytes have the same form at every position. Preserve their token
+    // ownership for the hybrid loop, including a lead byte producing no output.
+    if (table->needs_byte_accumulator && id >= table->byte_token_first_id &&
+        id <= table->byte_token_last_id &&
+        (table->byte_token_bitmap[(id - table->byte_token_first_id) / 8] &
+         (1u << ((id - table->byte_token_first_id) % 8)))) {
+      return true;
     }
+    const iree_tokenizer_decoded_span_t first = table->first_tokens[id];
+    const uint32_t length = first.length;
     if (length > output_capacity) {
-      return i;  // Output full, token not consumed.
+      return false;
     }
-    memcpy(output, src_data + start, length);
+    memcpy(output, table->data + first.offset, length);
+    state->is_first_token = false;
+    *out_tokens_consumed = i + 1;
     *out_bytes_written = length;
-    return i + 1;
+    return true;
   }
-  return tokens.count;
+  *out_tokens_consumed = tokens.count;
+  return false;
 }
 
 // Flushes pending bytes from the inline byte accumulator as U+FFFD replacement
@@ -3730,6 +3253,16 @@ static bool iree_tokenizer_decode_feed_byte_to_accumulator(
     iree_tokenizer_decode_state_t* state, uint8_t byte_value,
     uint8_t* IREE_RESTRICT output, iree_host_size_t* total_written,
     iree_host_size_t output_capacity) {
+  // Malformed bytes may still owe output after a previous credit boundary.
+  // Finish their replacements before accepting any subsequent input byte.
+  if (state->byte_fallback_pending_count > 0 &&
+      state->byte_fallback_expected_length == 0) {
+    *total_written += iree_tokenizer_decode_flush_pending_as_replacement(
+        state, output, *total_written, output_capacity);
+    if (state->byte_fallback_pending_count > 0) {
+      return false;
+    }
+  }
   if (state->byte_fallback_pending_count == 0) {
     // No pending bytes -- start a new UTF-8 sequence.
     iree_host_size_t sequence_length =
@@ -3767,13 +3300,14 @@ static bool iree_tokenizer_decode_feed_byte_to_accumulator(
   // Have pending bytes -- expecting continuation.
   if ((byte_value & 0xC0) != 0x80) {
     // Not a continuation byte -- flush pending as replacements.
+    state->byte_fallback_expected_length = 0;
     iree_host_size_t flushed =
         iree_tokenizer_decode_flush_pending_as_replacement(
             state, output, *total_written, output_capacity);
-    if (flushed == 0 && state->byte_fallback_pending_count > 0) {
+    *total_written += flushed;
+    if (state->byte_fallback_pending_count > 0) {
       return false;
     }
-    *total_written += flushed;
     // Re-process this byte as a new sequence start (recursive, max depth 1).
     return iree_tokenizer_decode_feed_byte_to_accumulator(
         state, byte_value, output, total_written, output_capacity);
@@ -3790,10 +3324,10 @@ static bool iree_tokenizer_decode_feed_byte_to_accumulator(
         iree_make_string_view((const char*)state->byte_fallback_pending,
                               state->byte_fallback_pending_count);
     iree_host_size_t decode_position = 0;
-    uint32_t codepoint = iree_unicode_utf8_decode(pending, &decode_position);
+    iree_unicode_utf8_decode(pending, &decode_position);
 
-    bool is_valid = (decode_position == state->byte_fallback_pending_count &&
-                     codepoint != IREE_UNICODE_REPLACEMENT_CHAR);
+    // Invalid UTF-8 consumes one byte. A literal U+FFFD consumes all three.
+    bool is_valid = decode_position == state->byte_fallback_pending_count;
 
     if (is_valid) {
       // Valid UTF-8 -- emit accumulated bytes.
@@ -3809,14 +3343,12 @@ static bool iree_tokenizer_decode_feed_byte_to_accumulator(
       state->byte_fallback_pending_count = 0;
       state->byte_fallback_expected_length = 0;
     } else {
-      // Invalid sequence -- flush as replacements.
+      // The complete malformed sequence is accepted into pending storage.
+      // Remaining replacements retain their identity across output exhaustion.
+      state->byte_fallback_expected_length = 0;
       iree_host_size_t flushed =
           iree_tokenizer_decode_flush_pending_as_replacement(
               state, output, *total_written, output_capacity);
-      if (flushed == 0 && state->byte_fallback_pending_count > 0) {
-        state->byte_fallback_pending_count--;
-        return false;
-      }
       *total_written += flushed;
     }
   }
@@ -3835,7 +3367,7 @@ static bool iree_tokenizer_decode_feed_byte_to_accumulator(
 //   2. ByteLevel (has_partial_utf8 == true): byte tokens identified by
 //      partial_utf8_bitmap. Each stores N raw bytes (reverse-mapped).
 static iree_status_t
-iree_tokenizer_decode_state_feed_pre_decoded_with_byte_fallback(
+iree_tokenizer_decode_state_feed_pre_decoded_with_byte_accumulator(
     iree_tokenizer_decode_state_t* state, iree_tokenizer_token_id_list_t tokens,
     iree_mutable_string_view_t text_output,
     iree_host_size_t* out_tokens_consumed, iree_host_size_t* out_text_length) {
@@ -3859,14 +3391,12 @@ iree_tokenizer_decode_state_feed_pre_decoded_with_byte_fallback(
   iree_host_size_t total_written = 0;
 
   // Handle position-sensitive first token outside the main loop.
-  if (state->is_first_token && pre_decoded->position_sensitive) {
-    iree_host_size_t first_bytes = 0;
-    i = iree_tokenizer_decode_pre_decoded_first_token(
-        offsets, src_data, vocab_capacity, tokenizer->vocab, state->flags,
-        tokens, output, output_capacity, &first_bytes);
-    total_written = first_bytes;
-    if (first_bytes > 0) {
-      state->is_first_token = false;
+  if (state->is_first_token && pre_decoded->first_tokens) {
+    if (!iree_tokenizer_decode_pre_decoded_first_token(
+            state, tokens, output, output_capacity, &i, &total_written)) {
+      *out_tokens_consumed = i;
+      *out_text_length = total_written;
+      return iree_ok_status();
     }
   }
 
@@ -3893,6 +3423,7 @@ iree_tokenizer_decode_state_feed_pre_decoded_with_byte_fallback(
     }
     state->partial_byte_token_offset = 0;
     state->partial_byte_token_end = 0;
+    state->is_first_token = false;
     // The first token in this call was the partially-consumed one from last
     // call. It's now fully processed — skip it in the main loop.
     // Clamp to tokens.count in case the caller re-enters with an empty list
@@ -3950,17 +3481,19 @@ iree_tokenizer_decode_state_feed_pre_decoded_with_byte_fallback(
       // All bytes consumed — clear resume state, advance to next token.
       state->partial_byte_token_offset = 0;
       state->partial_byte_token_end = 0;
+      state->is_first_token = false;
       ++i;
     } else {
       // Non-byte token: flush any pending byte accumulator first.
       if (state->byte_fallback_pending_count > 0) {
+        state->byte_fallback_expected_length = 0;
         iree_host_size_t flushed =
             iree_tokenizer_decode_flush_pending_as_replacement(
                 state, output, total_written, output_capacity);
-        if (flushed == 0 && state->byte_fallback_pending_count > 0) {
+        total_written += flushed;
+        if (state->byte_fallback_pending_count > 0) {
           break;
         }
-        total_written += flushed;
       }
 
       // Standard pre-decoded memcpy fast path.
@@ -3992,8 +3525,8 @@ static iree_status_t iree_tokenizer_decode_state_feed_pre_decoded(
     iree_mutable_string_view_t text_output,
     iree_host_size_t* out_tokens_consumed, iree_host_size_t* out_text_length) {
   // Dispatch to hybrid path when byte fallback is active.
-  if (state->tokenizer->pre_decoded.has_byte_fallback) {
-    return iree_tokenizer_decode_state_feed_pre_decoded_with_byte_fallback(
+  if (state->tokenizer->pre_decoded.needs_byte_accumulator) {
+    return iree_tokenizer_decode_state_feed_pre_decoded_with_byte_accumulator(
         state, tokens, text_output, out_tokens_consumed, out_text_length);
   }
 
@@ -4013,17 +3546,12 @@ static iree_status_t iree_tokenizer_decode_state_feed_pre_decoded(
 
   // Handle position-sensitive first token outside the main loop.
   // This eliminates a per-iteration branch check in the hot path below.
-  if (state->is_first_token && pre_decoded->position_sensitive) {
-    iree_host_size_t first_bytes = 0;
-    i = iree_tokenizer_decode_pre_decoded_first_token(
-        offsets, src_data, vocab_capacity, tokenizer->vocab, state->flags,
-        tokens, output, output_capacity, &first_bytes);
-    total_written = first_bytes;
-    // Only clear is_first_token if we actually emitted text (found a valid
-    // non-special token). If all tokens so far were skipped/invalid, the next
-    // feed call's first valid token still needs space-stripping.
-    if (first_bytes > 0) {
-      state->is_first_token = false;
+  if (state->is_first_token && pre_decoded->first_tokens) {
+    if (!iree_tokenizer_decode_pre_decoded_first_token(
+            state, tokens, output, output_capacity, &i, &total_written)) {
+      *out_tokens_consumed = i;
+      *out_text_length = total_written;
+      return iree_ok_status();
     }
   }
 

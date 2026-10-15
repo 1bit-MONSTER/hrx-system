@@ -147,10 +147,9 @@ iree_status_t iree_tokenizer_decoder_sequence_allocate(
     }
   }
 
-  // POSITION_SENSITIVE + PARTIAL_UTF8 is unsupported: the first-token handler
-  // uses direct memcpy (position-sensitive space stripping) before byte-token
-  // dispatch, so a partial-UTF8 first token would bypass the accumulator.
-  // Degrade to NONE (streaming decode) for safety.
+  // Reverse-mapping raw ByteLevel token text cannot retain a composed
+  // position-dependent transform. Keep that decoder chain active instead of
+  // substituting untransformed raw bytes for its first-token output.
   if (iree_all_bits_set(
           capabilities,
           IREE_TOKENIZER_DECODER_CAPABILITY_POSITION_SENSITIVE |

@@ -438,7 +438,8 @@ TEST_F(TokenizerDecodeTest, MetaspacePrependNever) {
 // Pre-decoded: YES (STATELESS + POSITION_SENSITIVE)
 // Pre-decoded table stores "rest" form: word tokens get " " prefix,
 // continuation tokens get "##" stripped (no space).
-// First token strips leading space.
+// First-position forms are decoded independently and retain continuation
+// prefixes.
 
 iree_tokenizer_t* BuildWordPieceTokenizer(iree_tokenizer_vocab_t* vocab,
                                           bool cleanup = false) {
