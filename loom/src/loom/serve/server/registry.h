@@ -184,6 +184,12 @@ iree_host_size_t loom_serve_registry_count(
 loom_serve_registered_model_t* loom_serve_registry_at(
     loom_serve_registry_t* registry, iree_host_size_t index);
 
+// Snapshots service state only after publication and before retirement.
+// Other states report their registration phase without calling a service.
+// The registry owner serializes this query with model advancement/removal.
+loom_serve_http_service_snapshot_t loom_serve_registry_snapshot(
+    const loom_serve_registered_model_t* model);
+
 // Moves a validated declaration, including its owning allocator, into a
 // stable slot on success, zeroing the caller's value. Failure changes neither.
 // Resolves device binding before moving the declaration. Rejects unsupported

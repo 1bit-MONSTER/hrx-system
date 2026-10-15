@@ -11,6 +11,21 @@ iree_add_all_subdirs()
 
 loom_cc_library(
   NAME
+    metrics
+  HDRS
+    "metrics.h"
+  SRCS
+    "metrics.c"
+  DEPS
+    iree::base
+    loom::serve::server::registry
+    loom::serve::telemetry::latency
+    loom::serve::telemetry::record
+  PUBLIC
+)
+
+loom_cc_library(
+  NAME
     package
   HDRS
     "package.h"

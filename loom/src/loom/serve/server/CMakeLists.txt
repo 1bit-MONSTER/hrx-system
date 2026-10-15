@@ -42,13 +42,13 @@ loom_cc_library(
     loom::serve::runtime::program::compilation
     loom::serve::runtime::program::variant_pool
     loom::serve::server::http::logs
+    loom::serve::server::http::metrics
     loom::serve::server::http::package
     loom::serve::server::http::response
     loom::serve::server::http::tokenization
     loom::serve::server::http::variants
     loom::serve::service
     loom::serve::service::inspection
-    loom::serve::telemetry::latency
     loom::serve::telemetry::record
     loom::serve::telemetry::stream
     loom::serve::transport::http::multipart

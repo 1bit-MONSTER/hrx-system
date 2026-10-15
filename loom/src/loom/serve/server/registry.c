@@ -137,6 +137,14 @@ loom_serve_registered_model_t* loom_serve_registry_at(
   return &registry->models[index];
 }
 
+loom_serve_http_service_snapshot_t loom_serve_registry_snapshot(
+    const loom_serve_registered_model_t* model) {
+  return model->phase == LOOM_SERVE_REGISTRATION_READY
+             ? model->service.snapshot(model->service.self)
+             : (loom_serve_http_service_snapshot_t){
+                   .phase = loom_serve_registry_phase(model)};
+}
+
 iree_status_t loom_serve_registry_register(
     loom_serve_registry_t* registry,
     loom_serve_model_configuration_t* configuration,
