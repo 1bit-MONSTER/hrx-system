@@ -1,0 +1,101 @@
+// RUN: emit source-low target=amdgpu:gfx11-generic output=low
+
+// A missing peer preserves the accumulator after the combine. Selecting a
+// manufactured peer before the combine is not equivalent for NaNs or zeros.
+kernel.def @partial_minimum() {
+  %unit = index.constant 1 : index
+  %size = index.constant 3 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%size, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %workitem = kernel.workitem.id<x> : index
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<3xf32>
+  %destination = buffer.view %output[%base] : buffer -> view<3xf32>
+  %value = view.load %source[%workitem] : view<3xf32> -> f32
+  %minimum = kernel.workgroup.reduce<minnumf> %value : f32
+  view.store %minimum, %destination[%workitem] : f32, view<3xf32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.gfx11.generic.core> abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 2, resource_count = 2, resource_offsets = [0, 8], resource_parameter_indices = [0, 1], uses_kernarg_segment_ptr = true}) workgroup_size(3, 1, 1) workgroup_count(1, 1, 1) @partial_minimum() asm {
+  %workitem = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
+  %source = resource<hal_binding> {extent = 12, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %destination = resource<hal_binding> {extent = 12, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %13 = v_lshlrev_b32_src0_inline %workitem, 2
+  %value = global_load_b32_saddr %13, %source
+  %15 = v_mov_b32 3
+  %16 = v_mov_b32 0
+  %17 = v_add_u32_src0_inline %workitem, 2
+  %18 = v_lshlrev_b32_src0_inline %17, 2
+  %19 = v_cmp_lt_u32 %17, %15
+  %20 = ds_bpermute_b32 %18, %value
+  %21 = v_min_f32 %value, %20
+  %22 = v_cndmask_b32 %value, %21, %19
+  %23 = v_add_u32_src0_inline %workitem, 1
+  %24 = v_lshlrev_b32_src0_inline %23, 2
+  %25 = v_cmp_lt_u32 %23, %15
+  %26 = ds_bpermute_b32 %24, %22
+  %27 = v_min_f32 %22, %26
+  %28 = v_cndmask_b32 %22, %27, %25
+  %minimum = ds_bpermute_b32 %16, %28
+  %30 = v_lshlrev_b32_src0_inline %workitem, 2
+  global_store_b32_saddr %30, %minimum, %destination
+  return
+}
+
+// ====
+
+// Vector components share peer addresses and guards, but retain independent
+// accumulators on both sides of each combine.
+kernel.def @partial_vector_sum() {
+  %unit = index.constant 1 : index
+  %size = index.constant 3 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%size, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %workitem = kernel.workitem.id<x> : index
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<3x2xf32>
+  %destination = buffer.view %output[%base] : buffer -> view<3x2xf32>
+  %value = vector.load %source[%workitem, 0] : view<3x2xf32> -> vector<2xf32>
+  %sum = kernel.workgroup.reduce<addf> %value : vector<2xf32>
+  vector.store %sum, %destination[%workitem, 0] : vector<2xf32>, view<3x2xf32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<amdgpu.gfx11.generic.core> abi_layout({constant_count = 0, direct_arg_count = 0, direct_arg_names = {}, direct_arg_offsets = [], direct_arg_parameter_indices = [], direct_arg_sizes = [], parameter_count = 2, resource_count = 2, resource_offsets = [0, 8], resource_parameter_indices = [0, 1], uses_kernarg_segment_ptr = true}) workgroup_size(3, 1, 1) workgroup_count(1, 1, 1) @partial_vector_sum() asm {
+  %workitem = live_in<amdgpu.workitem_id.x> : reg<amdgpu.vgpr>
+  %source = resource<hal_binding> {extent = 24, index = 0, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %destination = resource<hal_binding> {extent = 24, index = 1, source_type = hal.buffer} : reg<amdgpu.sgpr x2>
+  %24 = v_lshlrev_b32_src0_inline %workitem, 3
+  %value = global_load_b64_saddr %24, %source
+  %26 = slice %value[0] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %27 = slice %value[1] : reg<amdgpu.vgpr x2> -> reg<amdgpu.vgpr>
+  %28 = v_mov_b32 3
+  %29 = v_mov_b32 0
+  %30 = v_add_u32_src0_inline %workitem, 2
+  %31 = v_lshlrev_b32_src0_inline %30, 2
+  %32 = v_cmp_lt_u32 %30, %28
+  %33 = v_add_u32_src0_inline %workitem, 1
+  %34 = v_lshlrev_b32_src0_inline %33, 2
+  %35 = v_cmp_lt_u32 %33, %28
+  %36 = ds_bpermute_b32 %31, %26
+  %37 = v_add_f32 %26, %36
+  %38 = v_cndmask_b32 %26, %37, %32
+  %39 = ds_bpermute_b32 %34, %38
+  %40 = v_add_f32 %38, %39
+  %41 = v_cndmask_b32 %38, %40, %35
+  %42 = ds_bpermute_b32 %29, %41
+  %43 = ds_bpermute_b32 %31, %27
+  %44 = v_add_f32 %27, %43
+  %45 = v_cndmask_b32 %27, %44, %32
+  %46 = ds_bpermute_b32 %34, %45
+  %47 = v_add_f32 %45, %46
+  %48 = v_cndmask_b32 %45, %47, %35
+  %49 = ds_bpermute_b32 %29, %48
+  %sum = concat(%42, %49) : (reg<amdgpu.vgpr>, reg<amdgpu.vgpr>) -> reg<amdgpu.vgpr x2>
+  %51 = v_lshlrev_b32_src0_inline %workitem, 3
+  global_store_b64_saddr %51, %sum, %destination
+  return
+}

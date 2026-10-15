@@ -730,11 +730,7 @@ iree_status_t loom_amdgpu_select_kernel_subgroup_reduce_plan(
     return iree_ok_status();
   }
 
-  uint32_t identity_bits = 0;
   if (!loom_amdgpu_u32_is_power_of_two(active_lane_count)) {
-    if (!loom_amdgpu_collective_combine_identity_bits(kind, &identity_bits)) {
-      return iree_ok_status();
-    }
     const loom_amdgpu_descriptor_resolution_t guard_resolutions[] = {
         {
             .descriptor_ref = LOOM_AMDGPU_DESCRIPTOR_REF_V_CMP_ULT_U32,
@@ -759,7 +755,6 @@ iree_status_t loom_amdgpu_select_kernel_subgroup_reduce_plan(
   out_plan->register_count = register_count;
   out_plan->wavefront_size = wavefront_size;
   out_plan->active_lane_count = active_lane_count;
-  out_plan->identity_bits = identity_bits;
   out_plan->publication_kind = publication_kind;
   *out_selected = true;
   return loom_low_lower_plan_value_type(
@@ -820,14 +815,13 @@ iree_status_t loom_amdgpu_select_kernel_workgroup_reduce_plan(
       shape.flags, LOOM_AMDGPU_WORKGROUP_COLLECTIVE_SHAPE_MULTI_WAVE);
   const bool has_partial_tail = iree_all_bits_set(
       shape.flags, LOOM_AMDGPU_WORKGROUP_COLLECTIVE_SHAPE_PARTIAL_TAIL);
-  const bool needs_cross_wave_identity =
+  const bool needs_cross_wave_guard =
       is_multi_wave &&
       (has_partial_tail || !loom_amdgpu_u32_is_power_of_two(shape.wave_count));
-  const bool needs_subgroup_identity =
+  const bool needs_subgroup_guard =
       shape.flat_workgroup_size < partition_wavefront_size &&
       !loom_amdgpu_u32_is_power_of_two(shape.flat_workgroup_size);
-  const bool needs_identity_guard =
-      needs_subgroup_identity || needs_cross_wave_identity;
+  const bool needs_peer_guard = needs_subgroup_guard || needs_cross_wave_guard;
 
   const loom_amdgpu_descriptor_resolution_t resolutions[] = {
       {
@@ -857,13 +851,7 @@ iree_status_t loom_amdgpu_select_kernel_workgroup_reduce_plan(
           shape.wave_count, &out_plan->dpp_descriptor,
           &out_plan->dpp_combine_descriptor, &out_plan->permlanex16_descriptor);
 
-  uint32_t identity_bits = 0;
-  if (needs_identity_guard) {
-    if (!loom_amdgpu_collective_combine_identity_bits(kind, &identity_bits)) {
-      return iree_ok_status();
-    }
-  }
-  if (needs_identity_guard || is_multi_wave) {
+  if (needs_peer_guard || is_multi_wave) {
     const loom_amdgpu_descriptor_resolution_t guard_resolution[] = {
         {
             .descriptor_ref = LOOM_AMDGPU_DESCRIPTOR_REF_V_CMP_ULT_U32,
@@ -907,7 +895,7 @@ iree_status_t loom_amdgpu_select_kernel_workgroup_reduce_plan(
     }
   }
 
-  if (needs_identity_guard) {
+  if (needs_peer_guard) {
     const loom_amdgpu_descriptor_resolution_t select_resolution[] = {
         {
             .descriptor_ref = LOOM_AMDGPU_DESCRIPTOR_REF_V_CNDMASK_B32,
@@ -938,7 +926,6 @@ iree_status_t loom_amdgpu_select_kernel_workgroup_reduce_plan(
   out_plan->partition_wavefront_size = partition_wavefront_size;
   out_plan->flat_workgroup_size = shape.flat_workgroup_size;
   out_plan->scratch_byte_length = shape.scratch_byte_length;
-  out_plan->identity_bits = identity_bits;
   IREE_RETURN_IF_ERROR(loom_amdgpu_select_workgroup_reduce_publication_kind(
       &shape, partition_wavefront_size, register_count, context, source_op,
       &out_plan->publication_kind));
@@ -1235,7 +1222,6 @@ iree_status_t loom_amdgpu_lower_kernel_workgroup_reduce(
         .register_count = plan->register_count,
         .wavefront_size = plan->partition_wavefront_size,
         .active_lane_count = plan->flat_workgroup_size,
-        .identity_bits = plan->identity_bits,
         .crosslane_kind = plan->crosslane.per_wave,
     };
     return loom_amdgpu_lower_kernel_subgroup_reduce(context, source_op,
@@ -1334,7 +1320,6 @@ iree_status_t loom_amdgpu_lower_kernel_workgroup_reduce(
         .register_count = register_count,
         .wavefront_size = partition_wavefront_size,
         .active_lane_count = partition_wavefront_size,
-        .identity_bits = plan->identity_bits,
         .crosslane_kind = plan->crosslane.per_wave,
     };
     IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_reduce_tree(
@@ -1443,7 +1428,6 @@ iree_status_t loom_amdgpu_lower_kernel_workgroup_reduce(
           .register_count = register_count,
           .wavefront_size = partition_wavefront_size,
           .active_lane_count = wave_count,
-          .identity_bits = plan->identity_bits,
           .crosslane_kind = plan->crosslane.cross_wave,
       };
       IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_reduce_tree(
@@ -1512,7 +1496,6 @@ iree_status_t loom_amdgpu_lower_kernel_workgroup_reduce(
         .register_count = register_count,
         .wavefront_size = partition_wavefront_size,
         .active_lane_count = wave_count,
-        .identity_bits = plan->identity_bits,
         .crosslane_kind = plan->crosslane.cross_wave,
     };
     IREE_RETURN_IF_ERROR(loom_amdgpu_emit_subgroup_reduce_tree(
@@ -1628,15 +1611,6 @@ iree_status_t loom_amdgpu_low_legality_verify_kernel_subgroup_reduce(
           IREE_SV("subgroup_reduce.native_width.scalar_broadcast"));
     }
   }
-  if (!loom_amdgpu_u32_is_power_of_two(active_lane_count)) {
-    uint32_t unused_identity_bits = 0;
-    if (!loom_amdgpu_collective_combine_identity_bits(kind,
-                                                      &unused_identity_bits)) {
-      return loom_amdgpu_low_legality_reject(
-          context, op, IREE_SV("subgroup_reduce.identity"));
-    }
-  }
-
   if (scalar_broadcast_supported) {
     const loom_amdgpu_low_legality_descriptor_requirement_t requirements[] = {
         {
@@ -1758,22 +1732,13 @@ iree_status_t loom_amdgpu_low_legality_verify_kernel_workgroup_reduce(
       shape.flags, LOOM_AMDGPU_WORKGROUP_COLLECTIVE_SHAPE_MULTI_WAVE);
   const bool has_partial_tail = iree_all_bits_set(
       shape.flags, LOOM_AMDGPU_WORKGROUP_COLLECTIVE_SHAPE_PARTIAL_TAIL);
-  const bool needs_cross_wave_identity =
+  const bool needs_cross_wave_guard =
       is_multi_wave &&
       (has_partial_tail || !loom_amdgpu_u32_is_power_of_two(shape.wave_count));
-  const bool needs_subgroup_identity =
+  const bool needs_subgroup_guard =
       shape.flat_workgroup_size < partition_wavefront_size &&
       !loom_amdgpu_u32_is_power_of_two(shape.flat_workgroup_size);
-  const bool needs_identity_guard =
-      needs_subgroup_identity || needs_cross_wave_identity;
-  if (needs_identity_guard) {
-    uint32_t unused_identity_bits = 0;
-    if (!loom_amdgpu_collective_combine_identity_bits(kind,
-                                                      &unused_identity_bits)) {
-      return loom_amdgpu_low_legality_reject(
-          context, op, IREE_SV("workgroup_reduce.identity"));
-    }
-  }
+  const bool needs_peer_guard = needs_subgroup_guard || needs_cross_wave_guard;
 
   const loom_amdgpu_low_legality_descriptor_requirement_t requirements[] = {
       {
@@ -1787,7 +1752,7 @@ iree_status_t loom_amdgpu_low_legality_verify_kernel_workgroup_reduce(
   };
   IREE_RETURN_IF_ERROR(loom_amdgpu_low_legality_verify_descriptor_requirements(
       context, op, requirements, IREE_ARRAYSIZE(requirements)));
-  if (needs_identity_guard || is_multi_wave) {
+  if (needs_peer_guard || is_multi_wave) {
     IREE_RETURN_IF_ERROR(loom_amdgpu_low_legality_verify_descriptor_requirement(
         context, op, LOOM_AMDGPU_DESCRIPTOR_REF_V_CMP_ULT_U32,
         IREE_SV("descriptor.v_cmp_ult_u32")));
@@ -1802,7 +1767,7 @@ iree_status_t loom_amdgpu_low_legality_verify_kernel_workgroup_reduce(
         context, op, LOOM_AMDGPU_DESCRIPTOR_REF_V_CMP_UGE_U32,
         IREE_SV("descriptor.v_cmp_uge_u32")));
   }
-  if (needs_identity_guard) {
+  if (needs_peer_guard) {
     IREE_RETURN_IF_ERROR(loom_amdgpu_low_legality_verify_descriptor_requirement(
         context, op, LOOM_AMDGPU_DESCRIPTOR_REF_V_CNDMASK_B32,
         IREE_SV("descriptor.v_cndmask_b32")));

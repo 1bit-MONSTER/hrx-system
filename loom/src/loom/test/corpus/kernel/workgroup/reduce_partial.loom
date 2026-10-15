@@ -164,3 +164,131 @@ check.scenario @workgroup_reduce_partial_67_values {
   }
   check.return
 }
+
+// A partial subgroup and a non-power-of-two number of subgroup results both
+// have missing tree peers. Neither contributes a fabricated floating value.
+kernel.def @workgroup_reduce_partial_float() {
+  %unit = index.constant 1 : index
+  %size = index.constant 67 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%size, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %workitem = kernel.workitem.id<x> : index
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<67xf32>
+  %destination = buffer.view %output[%base] : buffer -> view<67x4xf32>
+  %value = view.load %source[%workitem] : view<67xf32> -> f32
+  %sum = kernel.workgroup.reduce<addf> %value : f32
+  %product = kernel.workgroup.reduce<mulf> %value : f32
+  %minimum = kernel.workgroup.reduce<minnumf> %value : f32
+  %maximum = kernel.workgroup.reduce<maxnumf> %value : f32
+  view.store %sum, %destination[%workitem, 0] : f32, view<67x4xf32>
+  view.store %product, %destination[%workitem, 1] : f32, view<67x4xf32>
+  view.store %minimum, %destination[%workitem, 2] : f32, view<67x4xf32>
+  view.store %maximum, %destination[%workitem, 3] : f32, view<67x4xf32>
+  kernel.return
+}
+
+kernel.def @workgroup_reduce_partial_vector() {
+  %unit = index.constant 1 : index
+  %size = index.constant 67 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%size, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %workitem = kernel.workitem.id<x> : index
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<67x2xf32>
+  %destination = buffer.view %output[%base] : buffer -> view<67x4x2xf32>
+  %value = vector.load %source[%workitem, 0] : view<67x2xf32> -> vector<2xf32>
+  %sum = kernel.workgroup.reduce<addf> %value : vector<2xf32>
+  %product = kernel.workgroup.reduce<mulf> %value : vector<2xf32>
+  %minimum = kernel.workgroup.reduce<minnumf> %value : vector<2xf32>
+  %maximum = kernel.workgroup.reduce<maxnumf> %value : vector<2xf32>
+  vector.store %sum, %destination[%workitem, 0, 0] : vector<2xf32>, view<67x4x2xf32>
+  vector.store %product, %destination[%workitem, 1, 0] : vector<2xf32>, view<67x4x2xf32>
+  vector.store %minimum, %destination[%workitem, 2, 0] : vector<2xf32>, view<67x4x2xf32>
+  vector.store %maximum, %destination[%workitem, 3, 0] : vector<2xf32>, view<67x4x2xf32>
+  kernel.return
+}
+
+// Fold actual inputs serially, independently for each scalar component. Starting
+// with the first input preserves all-NaN extrema and all-negative-zero sums.
+func.def @workgroup_reduce_partial_float_oracle(%input: buffer, %output: buffer) {
+  %input_length = buffer.length %input
+  %bounded_input_length = index.assume %input_length [range(%input_length, 268, 536)] : offset
+  %input_bytes = index.cast %bounded_input_length : offset to index
+  %component_bytes = index.constant 268 : index
+  %component_count = index.div %input_bytes, %component_bytes : index
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<67x[%component_count]xf32>
+  %destination = buffer.view %output[%base] : buffer -> view<67x4x[%component_count]xf32>
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %size = index.constant 67 : index
+  scf.for %component = [%begin to %component_count step %step] {
+    %first = view.load %source[0, %component] : view<67x[%component_count]xf32> -> f32
+    %sum, %product, %minimum, %maximum = scf.for %position = [%step to %size step %step](%sum_accumulator = %first : f32, %product_accumulator = %first : f32, %minimum_accumulator = %first : f32, %maximum_accumulator = %first : f32) -> (f32, f32, f32, f32) {
+      %value = view.load %source[%position, %component] : view<67x[%component_count]xf32> -> f32
+      %next_sum = scalar.addf %sum_accumulator, %value : f32
+      %next_product = scalar.mulf %product_accumulator, %value : f32
+      %next_minimum = scalar.minnumf %minimum_accumulator, %value : f32
+      %next_maximum = scalar.maxnumf %maximum_accumulator, %value : f32
+      scf.yield %next_sum, %next_product, %next_minimum, %next_maximum : f32, f32, f32, f32
+    }
+    scf.for %position = [%begin to %size step %step] {
+      view.store %sum, %destination[%position, 0, %component] : f32, view<67x4x[%component_count]xf32>
+      view.store %product, %destination[%position, 1, %component] : f32, view<67x4x[%component_count]xf32>
+      view.store %minimum, %destination[%position, 2, %component] : f32, view<67x4x[%component_count]xf32>
+      view.store %maximum, %destination[%position, 3, %component] : f32, view<67x4x[%component_count]xf32>
+    }
+  }
+  func.return
+}
+
+check.scenario @workgroup_reduce_partial_float_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %scalar_input = check.generate.fill value(nan) : tensor<67xf32>
+    %scalar_output = check.generate.fill value(0.0) : tensor<67x4xf32>
+    check.compare<@workgroup_reduce_partial_float, @workgroup_reduce_partial_float_oracle>(%scalar_input, %scalar_output) : (tensor<67xf32>, tensor<67x4xf32>) -> () {
+      check.expect.close actual(%scalar_output) expected(%scalar_output) atol(0.0) rtol(0.0) nan(same) : tensor<67x4xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %vector_input = check.generate.fill value(nan) : tensor<67x2xf32>
+    %vector_output = check.generate.fill value(0.0) : tensor<67x4x2xf32>
+    check.compare<@workgroup_reduce_partial_vector, @workgroup_reduce_partial_float_oracle>(%vector_input, %vector_output) : (tensor<67x2xf32>, tensor<67x4x2xf32>) -> () {
+      check.expect.close actual(%vector_output) expected(%vector_output) atol(0.0) rtol(0.0) nan(same) : tensor<67x4x2xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %scalar_input = check.generate.fill value(-0.0) : tensor<67xf32>
+    %scalar_output = check.generate.fill value(1.0) : tensor<67x4xf32>
+    check.compare<@workgroup_reduce_partial_float, @workgroup_reduce_partial_float_oracle>(%scalar_input, %scalar_output) : (tensor<67xf32>, tensor<67x4xf32>) -> () {
+      check.expect.bitwise actual(%scalar_output) expected(%scalar_output) : tensor<67x4xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %vector_input = check.generate.fill value(-0.0) : tensor<67x2xf32>
+    %vector_output = check.generate.fill value(1.0) : tensor<67x4x2xf32>
+    check.compare<@workgroup_reduce_partial_vector, @workgroup_reduce_partial_float_oracle>(%vector_input, %vector_output) : (tensor<67x2xf32>, tensor<67x4x2xf32>) -> () {
+      check.expect.bitwise actual(%vector_output) expected(%vector_output) : tensor<67x4x2xf32>
+    }
+  }
+  // Values near one keep products finite; the tolerance covers differences
+  // between serial and tree rounding across 67 single-precision operations.
+  check.trial[4](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %scalar_input = check.generate.random.uniform seed(%seed) range(0.98999999999999999 to 1.01) : tensor<67xf32>
+    %scalar_output = check.generate.fill value(0.0) : tensor<67x4xf32>
+    check.compare<@workgroup_reduce_partial_float, @workgroup_reduce_partial_float_oracle>(%scalar_input, %scalar_output) : (tensor<67xf32>, tensor<67x4xf32>) -> () {
+      check.expect.close actual(%scalar_output) expected(%scalar_output) atol(0.0) rtol(1.0000000000000001e-05) nan(same) : tensor<67x4xf32>
+    }
+  }
+  check.trial[4](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %vector_input = check.generate.random.uniform seed(%seed) range(0.98999999999999999 to 1.01) : tensor<67x2xf32>
+    %vector_output = check.generate.fill value(0.0) : tensor<67x4x2xf32>
+    check.compare<@workgroup_reduce_partial_vector, @workgroup_reduce_partial_float_oracle>(%vector_input, %vector_output) : (tensor<67x2xf32>, tensor<67x4x2xf32>) -> () {
+      check.expect.close actual(%vector_output) expected(%vector_output) atol(0.0) rtol(1.0000000000000001e-05) nan(same) : tensor<67x4x2xf32>
+    }
+  }
+  check.return
+}

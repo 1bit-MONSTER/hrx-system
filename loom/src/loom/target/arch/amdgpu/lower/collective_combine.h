@@ -40,7 +40,9 @@ bool loom_amdgpu_collective_combine_dpp_descriptor_ref(
     loom_amdgpu_collective_combine_dpp_form_t dpp_form,
     loom_amdgpu_descriptor_ref_t* out_descriptor_ref);
 
-// Returns the 32-bit identity bit pattern for a native AMDGPU combining packet.
+// Returns the 32-bit empty-prefix bit pattern for a native AMDGPU scan.
+// Floating values are not general identities: a missing reduction peer must
+// leave the accumulator unchanged instead of contributing this value.
 bool loom_amdgpu_collective_combine_identity_bits(loom_combining_kind_t kind,
                                                   uint32_t* out_bits);
 

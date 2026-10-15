@@ -32,7 +32,7 @@ typedef struct loom_amdgpu_collective_combine_row_t {
   loom_amdgpu_collective_combine_row_flags_t flags;
   // Native VGPR descriptor reference used by reductions and scans.
   loom_amdgpu_descriptor_ref_t descriptor_ref;
-  // 32-bit identity bit pattern for guarded reductions and scans.
+  // 32-bit empty-prefix bit pattern for scans.
   uint32_t identity_bits;
   // Legacy VOP2 DPP descriptor reference for pre-DPP16 row reductions.
   loom_amdgpu_descriptor_ref_t legacy_descriptor_ref;

@@ -1110,7 +1110,7 @@ typedef struct loom_amdgpu_subgroup_reduce_plan_t {
   loom_low_lower_resolved_descriptor_t combine_descriptor;
   // Descriptor row selected to guard inactive source lanes.
   loom_low_lower_resolved_descriptor_t guard_descriptor;
-  // Descriptor row selected to replace inactive source lanes with identity.
+  // Descriptor row selected to retain the accumulator for inactive peers.
   loom_low_lower_resolved_descriptor_t select_descriptor;
   // Result value receiving the reduced payload.
   loom_value_id_t result;
@@ -1122,8 +1122,6 @@ typedef struct loom_amdgpu_subgroup_reduce_plan_t {
   uint32_t wavefront_size;
   // Number of low-numbered lanes participating in the emitted reduce tree.
   uint32_t active_lane_count;
-  // 32-bit identity element bit pattern used for inactive source lanes.
-  uint32_t identity_bits;
   // Cross-lane exchange strategy selected for the subgroup tree.
   loom_amdgpu_subgroup_reduce_crosslane_kind_t crosslane_kind;
   // Strategy used to publish the final reduced value to result users.
@@ -1232,7 +1230,7 @@ typedef struct loom_amdgpu_workgroup_reduce_plan_t {
   loom_low_lower_resolved_descriptor_t guard_descriptor;
   // Descriptor row selected to identify the partial tail wave.
   loom_low_lower_resolved_descriptor_t lane_ge_descriptor;
-  // Descriptor row selected to replace inactive source lanes with identity.
+  // Descriptor row selected to retain the accumulator for inactive peers.
   loom_low_lower_resolved_descriptor_t select_descriptor;
   // Descriptor bundle used for cross-wave LDS publication.
   loom_amdgpu_workgroup_collective_cross_wave_descriptors_t cross_wave;
@@ -1250,8 +1248,6 @@ typedef struct loom_amdgpu_workgroup_reduce_plan_t {
   uint32_t flat_workgroup_size;
   // Exact LDS scratch extent selected for cross-wave staging.
   uint32_t scratch_byte_length;
-  // 32-bit identity element bit pattern used for inactive source lanes.
-  uint32_t identity_bits;
   // Cross-lane strategies selected for the two reduction stages.
   struct {
     // Exchange strategy for the partial reduction within each wave.
