@@ -1557,9 +1557,9 @@ static iree_status_t loom_link_plan_select_input_tests(
         }
 
         // A stripped input test still defines its deployable target subjects.
-        // Promote direct non-test callables except independent oracle-profile
-        // dependencies so target subjects retain private identity while their
-        // transitive callees remain ordinary internal dependencies.
+        // Promote direct non-test callables except test-support dependencies so
+        // target subjects retain private identity while their transitive
+        // callees remain ordinary internal dependencies.
         const uint32_t dependency_first = symbol->dependencies.first;
         for (uint32_t dependency_index = 0;
              dependency_index < symbol->dependencies.count;
@@ -1570,7 +1570,8 @@ static iree_status_t loom_link_plan_select_input_tests(
               loom_symbol_reference_contract_role(
                   module->dependencies
                       .contracts[dependency_first + dependency_index]);
-          if (dependency_role == LOOM_SYMBOL_REFERENCE_ROLE_ORACLE_DEPENDENCY) {
+          if (dependency_role ==
+              LOOM_SYMBOL_REFERENCE_ROLE_TEST_SUPPORT_DEPENDENCY) {
             continue;
           }
           IREE_ASSERT_LT(target_symbol_id, module->symbol_count);

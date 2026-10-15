@@ -89,6 +89,8 @@ loom_corpus_build(
     "loom::target::vm::all"
     "numeric/float/activations.loom"
     "loom::target::vm::all"
+    "numeric/integer/rotation.loom"
+    "loom::target::vm::all"
     "numeric/matrix/nvfp4.loom"
   EXCLUDES
     "loom::target::vm::all"

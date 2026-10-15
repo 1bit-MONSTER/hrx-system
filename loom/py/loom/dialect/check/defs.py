@@ -349,7 +349,7 @@ check_compare = Op(
             symbol_ref=SymbolReference(
                 "scenario oracle subject",
                 ["callable", "kernel", "command_program", "pipeline"],
-                role=SymbolReferenceRole.ORACLE_DEPENDENCY,
+                role=SymbolReferenceRole.TEST_SUPPORT_DEPENDENCY,
             ),
             doc="Optional oracle subject; omission uses the target subject through the oracle profile.",
         ),
@@ -442,7 +442,11 @@ check_generate = Op(
         AttrDef(
             "callee",
             "symbol",
-            symbol_ref=SymbolReference("trial generator", ["callable"]),
+            symbol_ref=SymbolReference(
+                "trial generator",
+                ["callable"],
+                role=SymbolReferenceRole.TEST_SUPPORT_DEPENDENCY,
+            ),
         ),
     ],
     traits=[UNKNOWN_EFFECTS, HasParent("check.trial")],

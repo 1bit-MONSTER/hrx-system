@@ -52,7 +52,7 @@ SYMBOL_REFERENCE_CONTRACT_ROLE_MASK = 0x3 << SYMBOL_REFERENCE_CONTRACT_ROLE_SHIF
 
 _SYMBOL_REFERENCE_ROLE_BITS = {
     SymbolReferenceRole.DEPENDENCY: 0,
-    SymbolReferenceRole.ORACLE_DEPENDENCY: 2,
+    SymbolReferenceRole.TEST_SUPPORT_DEPENDENCY: 2,
 }
 
 
@@ -102,7 +102,7 @@ class _SymbolReferenceRecord:
     target_symbol_index: int
     # Required interface flags; zero carries no interface restriction.
     target_interfaces: int = 0
-    # Reachability and independent-oracle role of this dependency.
+    # Reachability and test-support role of this dependency.
     role: SymbolReferenceRole = SymbolReferenceRole.DEPENDENCY
 
     @property
@@ -118,7 +118,7 @@ class _SymbolReferenceTarget:
     symbol_index: int
     # Interfaces required by the owning descriptor.
     interfaces: int
-    # Reachability and independent-oracle role of this dependency.
+    # Reachability and test-support role of this dependency.
     role: SymbolReferenceRole
 
 

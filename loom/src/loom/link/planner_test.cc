@@ -1902,68 +1902,69 @@ check.benchmark<@library_case> @library_benchmark
   EXPECT_FALSE(ContainsSymbol(plan.get(), library_benchmark));
 }
 
-TEST_F(LinkPlannerTest, StrippedInputTestsRetainTargetSubjects) {
-  const iree_string_view_t source = IREE_SV(R"(
-func.def @helper(%x: i32) -> (i32) {
-  func.return %x : i32
-}
-
-func.def @subject(%x: i32) -> (i32) {
-  %result = func.call @helper(%x) : (i32) -> (i32)
-  func.return %result : i32
-}
-
-func.def @oracle(%x: i32) -> (i32) {
-  func.return %x : i32
-}
-
-check.scenario @subject_scenario {
-  check.trial[1](%trial: index, %entropy: check.entropy) {
-    %input = check.literal value(1) : i32
-    check.compare<@subject, @oracle>(%input) : (i32) -> [actual(%actual: i32), expected(%expected: i32)] {
-      check.expect.equal actual(%actual) expected(%expected) : i32
-    }
-  }
-  check.return
-}
-)");
+TEST_F(LinkPlannerTest, TestSupportDependenciesRespectRootPolicy) {
+  const iree_string_view_t source =
+      Fixture(IREE_SV("test_support_dependencies.loom"));
   loom_module_t* module = Parse(source);
   const std::vector<uint8_t> bytecode = WriteModule(module);
 
   auto verify_index = [&](const loom_link_module_index_t* index) {
-    loom_link_plan_options_t options = {
-        .mode = LOOM_LINK_PLAN_LINK,
-    };
-    options.test_symbol_policy = LOOM_LINK_PLAN_TEST_SYMBOL_STRIP;
-    options.include_input_tests = true;
-    PlanPtr plan = BuildPlan(index, &options);
-
     const loom_link_module_index_module_t* indexed_module =
         loom_link_module_index_module_at(index, 0);
     ASSERT_NE(indexed_module, nullptr);
-    const loom_link_module_index_symbol_t* helper =
-        loom_link_module_index_lookup_private(index, indexed_module,
-                                              IREE_SV("helper"));
-    const loom_link_module_index_symbol_t* subject =
-        loom_link_module_index_lookup_private(index, indexed_module,
-                                              IREE_SV("subject"));
-    const loom_link_module_index_symbol_t* oracle =
-        loom_link_module_index_lookup_private(index, indexed_module,
-                                              IREE_SV("oracle"));
-    const loom_link_module_index_symbol_t* scenario =
-        loom_link_module_index_lookup_private(index, indexed_module,
-                                              IREE_SV("subject_scenario"));
+    const auto lookup = [&](iree_string_view_t name) {
+      return loom_link_module_index_lookup_private(index, indexed_module, name);
+    };
+    const auto* helper = lookup(IREE_SV("helper"));
+    const auto* subject = lookup(IREE_SV("subject"));
+    const auto* support_helper = lookup(IREE_SV("support_helper"));
+    const auto* generator = lookup(IREE_SV("generator"));
+    const auto* oracle = lookup(IREE_SV("oracle"));
+    const auto* scenario = lookup(IREE_SV("subject_scenario"));
 
-    EXPECT_TRUE(ContainsSymbol(plan.get(), helper));
-    EXPECT_TRUE(ContainsSymbol(plan.get(), subject));
-    EXPECT_FALSE(ContainsSymbol(plan.get(), oracle));
-    EXPECT_FALSE(ContainsSymbol(plan.get(), scenario));
-    ASSERT_NE(FindPlannedSymbol(plan.get(), helper), nullptr);
-    ASSERT_NE(FindPlannedSymbol(plan.get(), subject), nullptr);
-    EXPECT_EQ(FindPlannedSymbol(plan.get(), helper)->reason,
-              LOOM_LINK_PLAN_LIVE_DEPENDENCY);
-    EXPECT_EQ(FindPlannedSymbol(plan.get(), subject)->reason,
-              LOOM_LINK_PLAN_LIVE_ROOT);
+    for (const bool strip_tests : {false, true}) {
+      for (const bool root_generator : {false, true}) {
+        SCOPED_TRACE(::testing::Message()
+                     << "strip_tests=" << strip_tests
+                     << " root_generator=" << root_generator);
+        const iree_string_view_t roots[] = {IREE_SV("@generator")};
+        loom_link_plan_options_t options = {
+            .mode = LOOM_LINK_PLAN_LINK,
+        };
+        options.test_symbol_policy = strip_tests
+                                         ? LOOM_LINK_PLAN_TEST_SYMBOL_STRIP
+                                         : LOOM_LINK_PLAN_TEST_SYMBOL_KEEP;
+        options.include_input_tests = true;
+        if (root_generator) {
+          options.root_symbols = {
+              .count = IREE_ARRAYSIZE(roots),
+              .values = roots,
+          };
+        }
+        PlanPtr plan = BuildPlan(index, &options);
+
+        EXPECT_TRUE(ContainsSymbol(plan.get(), helper));
+        EXPECT_TRUE(ContainsSymbol(plan.get(), subject));
+        EXPECT_EQ(ContainsSymbol(plan.get(), support_helper),
+                  !strip_tests || root_generator);
+        EXPECT_EQ(ContainsSymbol(plan.get(), generator),
+                  !strip_tests || root_generator);
+        EXPECT_EQ(ContainsSymbol(plan.get(), oracle), !strip_tests);
+        EXPECT_EQ(ContainsSymbol(plan.get(), scenario), !strip_tests);
+        ASSERT_NE(FindPlannedSymbol(plan.get(), helper), nullptr);
+        ASSERT_NE(FindPlannedSymbol(plan.get(), subject), nullptr);
+        EXPECT_EQ(FindPlannedSymbol(plan.get(), helper)->reason,
+                  LOOM_LINK_PLAN_LIVE_DEPENDENCY);
+        EXPECT_EQ(FindPlannedSymbol(plan.get(), subject)->reason,
+                  strip_tests ? LOOM_LINK_PLAN_LIVE_ROOT
+                              : LOOM_LINK_PLAN_LIVE_DEPENDENCY);
+        if (root_generator) {
+          ASSERT_NE(FindPlannedSymbol(plan.get(), generator), nullptr);
+          EXPECT_EQ(FindPlannedSymbol(plan.get(), generator)->reason,
+                    LOOM_LINK_PLAN_LIVE_ROOT);
+        }
+      }
+    }
   };
 
   IndexPtr materialized_index = CreateIndex();

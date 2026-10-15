@@ -1,0 +1,34 @@
+func.def @helper(%x: i32) -> (i32) {
+  func.return %x : i32
+}
+
+func.def @subject(%x: i32) -> (i32) {
+  %result = func.call @helper(%x) : (i32) -> (i32)
+  func.return %result : i32
+}
+
+func.def @support_helper(%x: i32) -> (i32) {
+  func.return %x : i32
+}
+
+func.def @generator(%seed: i32) -> (i32) {
+  %result = func.call @support_helper(%seed) : (i32) -> (i32)
+  func.return %result : i32
+}
+
+func.def @oracle(%x: i32) -> (i32) {
+  %result = func.call @support_helper(%x) : (i32) -> (i32)
+  func.return %result : i32
+}
+
+check.scenario @subject_scenario {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %seed = check.literal value(1) : i32
+    %input = check.generate<@generator>(%seed) : (i32) -> (i32)
+    %shared = check.generate<@subject>(%input) : (i32) -> (i32)
+    check.compare<@subject, @oracle>(%shared) : (i32) -> [actual(%actual: i32), expected(%expected: i32)] {
+      check.expect.equal actual(%actual) expected(%expected) : i32
+    }
+  }
+  check.return
+}
