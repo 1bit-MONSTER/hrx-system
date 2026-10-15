@@ -49,6 +49,44 @@ void copy_one(const float* input, float* output) {
     assert "9223372036854775807" not in result
 
 
+def test_projects_multiple_kernels_in_one_translation_unit() -> None:
+    result = render_module(load_module((SOURCE_MODULE + "\n" + LOOP_MODULE).encode()))
+
+    assert result.count("#include <loomcxx/kernel.h>") == 1
+    assert result.index("void copy_one(") < result.index("void accumulate()")
+    assert "}\n\n[[loom::kernel" in result
+    assert "output_1" not in result
+
+
+def test_projects_distinct_kernel_targets_in_one_translation_unit() -> None:
+    source = (
+        "amdgpu.target<gfx1100> @first_target\n"
+        "amdgpu.target<gfx942> @second_target\n"
+        + SOURCE_MODULE.replace(
+            "kernel.def @copy_one()", "kernel.def target(@first_target) @copy_one()"
+        )
+        + "\n"
+        + LOOP_MODULE.replace(
+            "kernel.def @accumulate()",
+            "kernel.def target(@second_target) @accumulate()",
+        )
+    )
+
+    result = render_module(load_module(source.encode()))
+
+    assert result.count("#include <loomcxx/target/amdgpu.h>") == 1
+    assert (
+        'constexpr loom::amdgpu::target rendered_target_first_target{.kind = "gfx1100"};'
+        in result
+    )
+    assert (
+        'constexpr loom::amdgpu::target rendered_target_second_target{.kind = "gfx942"};'
+        in result
+    )
+    assert "loom::target(rendered_target_first_target)" in result
+    assert "loom::target(rendered_target_second_target)" in result
+
+
 def test_preserves_scalar_kernel_arguments() -> None:
     source = SOURCE_MODULE.replace(
         "} launch(%input: buffer, %output: buffer) {",

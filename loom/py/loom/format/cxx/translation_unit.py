@@ -30,11 +30,13 @@ def render_preamble(
     vector_aliases: dict[tuple[str, tuple[int, ...], bool], str],
     record_declarations: dict[str, tuple[tuple[str, str], ...]],
     table_lookup_declarations: set[tuple[str, str, str, str]],
-    target: TargetInfo | None,
+    targets: tuple[tuple[str, TargetInfo], ...],
 ) -> list[str]:
     """Renders includes, helper declarations, and source target metadata."""
 
     headers = {"loomcxx/kernel.h"}
+    if targets:
+        headers.add("loomcxx/target/amdgpu.h")
     if any(name.startswith("view.atomic.") for name in operation_names):
         headers.add("loomcxx/atomic.h")
     if "scalar.siluf" in operation_names:
@@ -102,8 +104,7 @@ def render_preamble(
         preamble.append(f"{result} {function}({table} table, {indices} indices);")
         preamble.append("")
 
-    if target is not None:
-        preamble[0:0] = ["#include <loomcxx/target/amdgpu.h>"]
+    for target_name, target in targets:
         target_fields = [f'.kind = "{target.kind}"']
         if target.subgroup_size is not None:
             target_fields.append(f".subgroup_size = {target.subgroup_size}")
@@ -117,10 +118,10 @@ def render_preamble(
             target_fields.append("}")
         if len(target_fields) == 1:
             preamble.append(
-                f"constexpr loom::amdgpu::target rendered_target{{{target_fields[0]}}};"
+                f"constexpr loom::amdgpu::target {target_name}{{{target_fields[0]}}};"
             )
         else:
-            preamble.append("constexpr loom::amdgpu::target rendered_target{")
+            preamble.append(f"constexpr loom::amdgpu::target {target_name}{{")
             for field in target_fields:
                 suffix = "" if field.endswith(("{", ",")) else ","
                 preamble.append(f"  {field}{suffix}")
