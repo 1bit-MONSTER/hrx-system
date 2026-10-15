@@ -42,6 +42,16 @@ func.def inline @activation_logistic_reference(%input: f32) -> (f32) {
   func.return %result : f32
 }
 
+func.def inline @activation_tanh_reference(%input: f32) -> (f32) {
+  %c1 = scalar.constant 1.0 : f32
+  %c2 = scalar.constant 2.0 : f32
+  %doubled_input = scalar.mulf %c2, %input : f32
+  %logistic = func.call @activation_logistic_reference(%doubled_input) : (f32) -> (f32)
+  %doubled_logistic = scalar.mulf %c2, %logistic : f32
+  %result = scalar.subf %doubled_logistic, %c1 : f32
+  func.return %result : f32
+}
+
 func.def inline @activation_erf_reference(%input: f32) -> (f32) {
   %c1 = scalar.constant 1.0 : f32
   %p = scalar.constant 0.32759110000000002 : f32
@@ -75,7 +85,6 @@ func.def inline @activation_erf_reference(%input: f32) -> (f32) {
 func.def inline @activation_reference(%input: f32) -> (f32, f32, f32, f32, f32) {
   %half = scalar.constant 0.5 : f32
   %c1 = scalar.constant 1.0 : f32
-  %c2 = scalar.constant 2.0 : f32
   %inverse_sqrt_two = scalar.constant 0.70710678118654757 : f32
   %sqrt_two_over_pi = scalar.constant 0.79788456080286541 : f32
   %cubic_coefficient = scalar.constant 0.044714999999999998 : f32
@@ -92,10 +101,7 @@ func.def inline @activation_reference(%input: f32) -> (f32, f32, f32, f32, f32) 
   %cubic_term = scalar.mulf %cubic_coefficient, %cubed : f32
   %inner = scalar.addf %input, %cubic_term : f32
   %tanh_input = scalar.mulf %sqrt_two_over_pi, %inner : f32
-  %doubled_tanh_input = scalar.mulf %c2, %tanh_input : f32
-  %tanh_logistic = func.call @activation_logistic_reference(%doubled_tanh_input) : (f32) -> (f32)
-  %doubled_logistic = scalar.mulf %c2, %tanh_logistic : f32
-  %tanh = scalar.subf %doubled_logistic, %c1 : f32
+  %tanh = func.call @activation_tanh_reference(%tanh_input) : (f32) -> (f32)
   %one_plus_tanh = scalar.addf %c1, %tanh : f32
   %gelu_tanh = scalar.mulf %half_input, %one_plus_tanh : f32
 
@@ -272,6 +278,88 @@ func.def @softplus_fast_observations_oracle(%input: buffer, %output: buffer) {
     view.store %result, %output_view[%i] : f32, view<17xf32>
   }
   func.return
+}
+
+// Exercises the vector activation family at the 256-bit packet width shared by
+// AVX2 and AVX-512 profiles. The wider activation_observations path separately
+// covers 512-bit and multi-packet target representations.
+func.def inline @activation_f32x8_observations(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input[%base] : buffer -> view<8xf32>
+  %output_view = buffer.view %output[%base] : buffer -> view<56xf32>
+  %values = vector.load %input_view[0] : view<8xf32> -> vector<8xf32>
+  %gelu_erf = vector.geluf<erf, afn> %values : vector<8xf32>
+  %gelu_tanh = vector.geluf<tanh, afn> %values : vector<8xf32>
+  %gelu_logistic = vector.geluf<logistic, afn> %values {scale = 1.702} : vector<8xf32>
+  %logistic = vector.logisticf<afn> %values : vector<8xf32>
+  %silu = vector.siluf<afn> %values : vector<8xf32>
+  %erf = vector.erff<afn> %values : vector<8xf32>
+  %tanh = vector.tanhf<afn> %values : vector<8xf32>
+  vector.store %gelu_erf, %output_view[0] : vector<8xf32>, view<56xf32>
+  vector.store %gelu_tanh, %output_view[8] : vector<8xf32>, view<56xf32>
+  vector.store %gelu_logistic, %output_view[16] : vector<8xf32>, view<56xf32>
+  vector.store %logistic, %output_view[24] : vector<8xf32>, view<56xf32>
+  vector.store %silu, %output_view[32] : vector<8xf32>, view<56xf32>
+  vector.store %erf, %output_view[40] : vector<8xf32>, view<56xf32>
+  vector.store %tanh, %output_view[48] : vector<8xf32>, view<56xf32>
+  func.return
+}
+
+func.def inline @activation_f32x8_observations_oracle(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %input_view = buffer.view %input[%base] : buffer -> view<8xf32>
+  %output_view = buffer.view %output[%base] : buffer -> view<56xf32>
+  %begin = index.constant 0 : index
+  %end = index.constant 8 : index
+  %step = index.constant 1 : index
+  %gelu_erf_base = index.constant 0 : index
+  %gelu_tanh_base = index.constant 8 : index
+  %gelu_logistic_base = index.constant 16 : index
+  %logistic_base = index.constant 24 : index
+  %silu_base = index.constant 32 : index
+  %erf_base = index.constant 40 : index
+  %tanh_base = index.constant 48 : index
+  scf.for %i = [%begin to %end step %step] {
+    %value = view.load %input_view[%i] : view<8xf32> -> f32
+    %gelu_erf, %gelu_tanh, %gelu_logistic, %logistic, %silu = func.call @activation_reference(%value) : (f32) -> (f32, f32, f32, f32, f32)
+    %erf = func.call @activation_erf_reference(%value) : (f32) -> (f32)
+    %tanh = func.call @activation_tanh_reference(%value) : (f32) -> (f32)
+    %gelu_erf_position = index.add %gelu_erf_base, %i : index
+    %gelu_tanh_position = index.add %gelu_tanh_base, %i : index
+    %gelu_logistic_position = index.add %gelu_logistic_base, %i : index
+    %logistic_position = index.add %logistic_base, %i : index
+    %silu_position = index.add %silu_base, %i : index
+    %erf_position = index.add %erf_base, %i : index
+    %tanh_position = index.add %tanh_base, %i : index
+    view.store %gelu_erf, %output_view[%gelu_erf_position] : f32, view<56xf32>
+    view.store %gelu_tanh, %output_view[%gelu_tanh_position] : f32, view<56xf32>
+    view.store %gelu_logistic, %output_view[%gelu_logistic_position] : f32, view<56xf32>
+    view.store %logistic, %output_view[%logistic_position] : f32, view<56xf32>
+    view.store %silu, %output_view[%silu_position] : f32, view<56xf32>
+    view.store %erf, %output_view[%erf_position] : f32, view<56xf32>
+    view.store %tanh, %output_view[%tanh_position] : f32, view<56xf32>
+  }
+  func.return
+}
+
+// The core activation family is independently selectable by targets whose
+// current math basis does not yet implement softplus.
+check.scenario @activation_core_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-8.0) step(2.0) : tensor<8xf32>
+    %output = check.generate.fill value(0.0) : tensor<56xf32>
+    check.compare<@activation_f32x8_observations, @activation_f32x8_observations_oracle>(%input, %output) : (tensor<8xf32>, tensor<56xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.02) rtol(0.01) nan(same) : tensor<56xf32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-1.75) step(0.5) : tensor<8xf32>
+    %output = check.generate.fill value(0.0) : tensor<56xf32>
+    check.compare<@activation_f32x8_observations, @activation_f32x8_observations_oracle>(%input, %output) : (tensor<8xf32>, tensor<56xf32>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.02) rtol(0.01) nan(same) : tensor<56xf32>
+    }
+  }
+  check.return
 }
 
 check.scenario @activation_values {
