@@ -470,6 +470,7 @@ static iree_status_t loom_check_resolve_pass_target(
     const loom_target_specification_t* specification,
     loom_target_specialization_request_t* out_request) {
   *out_request = (loom_target_specialization_request_t){0};
+  loom_symbol_id_t symbol_id = LOOM_SYMBOL_ID_INVALID;
   if (iree_string_view_is_empty(function_name)) {
     iree_host_size_t definition_count = 0;
     iree_host_size_t public_count = 0;
@@ -485,8 +486,7 @@ static iree_status_t loom_check_resolve_pass_target(
           iree_any_bit_set(symbol->flags, LOOM_SYMBOL_FLAG_PUBLIC);
       public_count += is_public;
       if (definition_count == 1 || is_public) {
-        function_name =
-            loom_string_table_get(&module->strings, symbol->name_id);
+        symbol_id = i;
       }
     }
     if (definition_count == 0 || (definition_count > 1 && public_count != 1)) {
@@ -498,8 +498,31 @@ static iree_status_t loom_check_resolve_pass_target(
           " public entries)",
           definition_count, public_count);
     }
+  } else {
+    function_name = iree_string_view_trim(function_name);
+    (void)iree_string_view_consume_prefix_char(&function_name, '@');
+    function_name = iree_string_view_trim(function_name);
+    const loom_string_id_t name_id =
+        loom_module_lookup_string(module, function_name);
+    symbol_id = name_id != LOOM_STRING_ID_INVALID
+                    ? loom_module_find_symbol(module, name_id)
+                    : LOOM_SYMBOL_ID_INVALID;
+    if (symbol_id == LOOM_SYMBOL_ID_INVALID) {
+      return iree_make_status(
+          IREE_STATUS_NOT_FOUND,
+          "target specialization function '@%.*s' does not exist",
+          (int)function_name.size, function_name.data);
+    }
   }
-  out_request->function_name = function_name;
+  const loom_func_like_t function = loom_func_like_const_cast(
+      module, module->symbols.entries[symbol_id].defining_op);
+  if (!loom_func_like_isa(function) ||
+      function.vtable->target_attr_index == LOOM_ATTR_INDEX_NONE) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "target specialization entry is not a target-assignable function");
+  }
+  out_request->function_ref = loom_func_like_callee(function);
   return loom_target_environment_select_profile(environment, specification,
                                                 &out_request->target_profile);
 }

@@ -450,11 +450,13 @@ func.def public @right() {
       MakeTestProfile(LOOM_TEST_TARGET_KIND_LOW_CORE);
   const loom_target_specialization_request_t requests[] = {
       {
-          .function_name = IREE_SV("left"),
+          .function_ref = loom_func_like_callee(
+              FindFunction(source.get(), IREE_SV("left"))),
           .target_profile = &profile.base,
       },
       {
-          .function_name = IREE_SV("right"),
+          .function_ref = loom_func_like_callee(
+              FindFunction(source.get(), IREE_SV("right"))),
           .target_profile = &profile.base,
       },
   };
@@ -502,7 +504,8 @@ func.def public target(@requirement) @entry() {
   const TestTargetProfile profile =
       MakeTestProfile(LOOM_TEST_TARGET_KIND_LOW_CORE, explicit_fields);
   const loom_target_specialization_request_t request = {
-      .function_name = IREE_SV("entry"),
+      .function_ref =
+          loom_func_like_callee(FindFunction(source.get(), IREE_SV("entry"))),
       .target_profile = &profile.base,
   };
   const SpecializationResult specialization =
@@ -571,7 +574,8 @@ func.def public target(@exact) @entry() {
   const TestTargetProfile profile =
       MakeTestProfile(LOOM_TEST_TARGET_KIND_LOW_CORE);
   const loom_target_specialization_request_t request = {
-      .function_name = IREE_SV("entry"),
+      .function_ref =
+          loom_func_like_callee(FindFunction(source.get(), IREE_SV("entry"))),
       .target_profile = &profile.base,
   };
   const SpecializationResult specialization =
@@ -623,11 +627,13 @@ func.def public target(@exact) @second() {
       MakeTestProfile(LOOM_TEST_TARGET_KIND_LOW_CORE);
   const loom_target_specialization_request_t requests[] = {
       {
-          .function_name = IREE_SV("first"),
+          .function_ref = loom_func_like_callee(
+              FindFunction(source.get(), IREE_SV("first"))),
           .target_profile = &profile.base,
       },
       {
-          .function_name = IREE_SV("second"),
+          .function_ref = loom_func_like_callee(
+              FindFunction(source.get(), IREE_SV("second"))),
           .target_profile = &profile.base,
       },
   };
@@ -715,11 +721,13 @@ func.def public @right() {
       MakeTestProfile(LOOM_TEST_TARGET_KIND_LOW_CORE);
   const loom_target_specialization_request_t requests[] = {
       {
-          .function_name = IREE_SV("left"),
+          .function_ref = loom_func_like_callee(
+              FindFunction(source.get(), IREE_SV("left"))),
           .target_profile = &left_profile.base,
       },
       {
-          .function_name = IREE_SV("right"),
+          .function_ref = loom_func_like_callee(
+              FindFunction(source.get(), IREE_SV("right"))),
           .target_profile = &right_profile.base,
       },
   };
@@ -757,8 +765,10 @@ func.def public @right() { func.return }
   const TestTargetProfile right_profile =
       MakeTestProfile(LOOM_TEST_TARGET_KIND_QUIRKY);
   const loom_target_specialization_request_t requests[] = {
-      {IREE_SV("left"), &left_profile.base},
-      {IREE_SV("right"), &right_profile.base},
+      {loom_func_like_callee(FindFunction(source.get(), IREE_SV("left"))),
+       &left_profile.base},
+      {loom_func_like_callee(FindFunction(source.get(), IREE_SV("right"))),
+       &right_profile.base},
   };
   SpecializationResult specialization =
       Specialize(source.get(), requests, IREE_ARRAYSIZE(requests));
@@ -816,15 +826,18 @@ func.def @__loom_target_context_0_17() {
       MakeTestProfile(LOOM_TEST_TARGET_KIND_QUIRKY);
   const loom_target_specialization_request_t requests[] = {
       {
-          .function_name = IREE_SV("quirky_entry"),
+          .function_ref = loom_func_like_callee(
+              FindFunction(source.get(), IREE_SV("quirky_entry"))),
           .target_profile = &quirky_profile.base,
       },
       {
-          .function_name = IREE_SV("low_entry_copy"),
+          .function_ref = loom_func_like_callee(
+              FindFunction(source.get(), IREE_SV("low_entry_copy"))),
           .target_profile = &low_profile.base,
       },
       {
-          .function_name = IREE_SV("low_entry"),
+          .function_ref = loom_func_like_callee(
+              FindFunction(source.get(), IREE_SV("low_entry"))),
           .target_profile = &low_profile.base,
       },
   };
@@ -870,7 +883,8 @@ func.def public target(@exact) @entry() {
   const TestTargetProfile profile =
       MakeTestProfile(LOOM_TEST_TARGET_KIND_LOW_CORE);
   const loom_target_specialization_request_t request = {
-      .function_name = IREE_SV("entry"),
+      .function_ref =
+          loom_func_like_callee(FindFunction(source.get(), IREE_SV("entry"))),
       .target_profile = &profile.base,
   };
   const SpecializationResult specialization =
@@ -902,7 +916,8 @@ func.def public @entry() {
   const TestTargetProfile profile =
       MakeTestProfile(LOOM_TEST_TARGET_KIND_LOW_CORE);
   const loom_target_specialization_request_t request = {
-      .function_name = IREE_SV("entry"),
+      .function_ref =
+          loom_func_like_callee(FindFunction(source.get(), IREE_SV("entry"))),
       .target_profile = &profile.base,
   };
   const SpecializationResult specialization =

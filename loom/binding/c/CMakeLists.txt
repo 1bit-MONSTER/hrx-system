@@ -159,6 +159,7 @@ loom_cc_library(
     loom::ops::op_defs
     loom::ops::op_registry
     loom::ops::pass
+    loom::ops::target
     loom::pass::builtin_registry
     loom::pass::environment
     loom::pass::interpreter

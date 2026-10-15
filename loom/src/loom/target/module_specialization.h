@@ -27,7 +27,8 @@ extern "C" {
 // |*inout_module| owns the projected replacement. No replacement is made when
 // no function versions are produced. Source incompatibilities are emitted
 // through |diagnostic_emitter|, reported in |out_error_count|, and return OK.
-// Infrastructure and malformed-request failures return a status.
+// Inputs obey loom_target_specialize_functions' resolved-request contract.
+// Allocation and projection failures return a status.
 iree_status_t loom_target_specialize_module(
     const loom_target_environment_t* environment,
     loom_target_specialization_request_list_t requests,

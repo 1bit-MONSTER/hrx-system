@@ -78,8 +78,8 @@ static iree_status_t loomc_link_materialization_prepare_module(
   iree_arena_initialize(block_pool, &arena);
   loom_target_specialization_request_list_t requests = {0};
   loom_target_declaration_binding_list_t bindings = {0};
-  status = loomc_target_specialization_options_make_lists(target, &arena,
-                                                          &requests, &bindings);
+  status = loomc_target_specialization_options_make_lists(
+      target, *inout_module, &arena, &requests, &bindings);
   uint32_t error_count = 0;
   const loomc_target_pass_environment_t* pass_environment =
       loomc_context_target_pass_environment(state->composition.context);

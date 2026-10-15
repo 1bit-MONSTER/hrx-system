@@ -93,10 +93,12 @@ loomc_target_specialization_options_validate_environment(
     const loomc_target_specialization_options_t* options,
     const loomc_target_environment_t* target_environment);
 
-// Materializes internal function requests and target declaration bindings from
-// public options. Returned lists are owned by |arena| until it is reset.
+// Resolves public names into distinct module-local function and declaration
+// refs. Validates symbol kinds and disjoint assignments before publishing the
+// lists. Profiles must already be validated against the context environment.
+// Returned lists are owned by |arena| until it is reset.
 LOOMC_API_PRIVATE loomc_status_t loomc_target_specialization_options_make_lists(
-    const loomc_target_specialization_options_t* options,
+    const loomc_target_specialization_options_t* options, loom_module_t* module,
     iree_arena_allocator_t* arena,
     loom_target_specialization_request_list_t* out_requests,
     loom_target_declaration_binding_list_t* out_bindings);

@@ -739,7 +739,8 @@ class LowKernelEmitter {
     }
 
     const loom_target_specialization_request_t specialization_request = {
-        .function_name = IREE_SV("loom_kernel"),
+        .function_ref =
+            loom_func_like_callee(loom_func_like_cast(module_, low_function)),
         .target_profile = &target_profile->base,
     };
     loom_function_version_owner_t function_versions;
