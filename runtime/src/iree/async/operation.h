@@ -185,32 +185,31 @@ enum iree_async_wait_mode_e {
 };
 typedef uint8_t iree_async_wait_mode_t;
 
-// Flags controlling the behavior of a blocking wait operation.
+// Flags selecting the latency/CPU tradeoff for a blocking wait operation.
 //
 // The low two bits select a mutually exclusive wait strategy. ACTIVE takes
 // precedence over YIELD if both are set. Upper bits are reserved for future
 // orthogonal flags (e.g. interruptibility).
 //
-// Platforms that cannot distinguish YIELD from ACTIVE may promote YIELD to
-// ACTIVE. The flags are hints — the implementation chooses the closest
-// supported behavior.
-//
-// Matches HSA's wait_state (ACTIVE/BLOCKED) and extends it with a middle
-// tier that captures the empirically-observed sweet spot (~200-500ns of spin)
-// between pure spin (excessive memory bandwidth) and pure block (1-20us of
-// wake latency from futex/context switch).
+// These are policy hints. The implementation chooses where active progress
+// reduces completion latency: on the calling thread, a progress worker, or
+// both. The calling thread may block even with ACTIVE when another thread
+// performs the active progress. Unsupported distinctions use the closest
+// supported behavior. The flags do not change completion, visibility, timeout,
+// or failure guarantees.
 enum iree_async_wait_flag_bits_e {
+  // Prioritize CPU efficiency, sleeping while no immediate progress is ready.
   IREE_ASYNC_WAIT_FLAG_NONE = 0u,
 
-  // Brief spin (yield/pause loop) followed by a kernel block. Catches fast
-  // signals without a context switch while bounding CPU waste. The spin
-  // duration is platform-tuned (typically 200-500ns).
+  // Spend a bounded amount of CPU on active progress before sleeping. The
+  // implementation tunes the budget to catch short waits without sustained
+  // polling. A backend may delegate this work to a progress worker.
   IREE_ASYNC_WAIT_FLAG_YIELD = 1u << 0,
 
-  // Full active spin — the thread never enters a kernel wait. Lowest latency
-  // at the cost of burning a full CPU core and increased memory bandwidth
-  // pressure. Use only when the expected wait is very short (sub-microsecond)
-  // and latency is critical.
+  // Prioritize completion latency over CPU efficiency. The implementation may
+  // keep the caller or relevant progress workers active throughout the wait.
+  // This permits sustained CPU use but does not require spinning the caller
+  // when another progress mechanism provides lower latency.
   IREE_ASYNC_WAIT_FLAG_ACTIVE = 1u << 1,
 };
 typedef uint32_t iree_async_wait_flags_t;
