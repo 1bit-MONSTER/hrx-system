@@ -108,7 +108,7 @@ typedef uint8_t loom_amdgpu_report_kind_t;
 typedef uint8_t loom_amdgpu_lower_policy_bits_t;
 
 enum loom_amdgpu_storage_policy_e {
-  // Conservative target-plan behavior: keep every source operand available.
+  // Keep every source operand available, including variable-length payloads.
   LOOM_AMDGPU_STORAGE_SOURCE_OPERANDS = 0,
   // Selected value-lowering plans own their source operand demand policy.
   LOOM_AMDGPU_STORAGE_VALUE_PLAN = 1,
@@ -1321,8 +1321,6 @@ LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_subgroup_shuffle_plan_t,
 LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(
     loom_amdgpu_subgroup_broadcast_first_plan_t, value, 0);
 LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_subgroup_reduce_plan_t,
-                                        value, 0);
-LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_workgroup_reduce_plan_t,
                                         value, 0);
 LOOM_AMDGPU_ASSERT_LEADING_SOURCE_FIELD(loom_amdgpu_subgroup_scan_plan_t, value,
                                         0);

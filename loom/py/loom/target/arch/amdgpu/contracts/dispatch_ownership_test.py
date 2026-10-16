@@ -46,7 +46,6 @@ _PUBLIC_ROW_MACRO_RE = re.compile(r"#define LOOM_AMDGPU_([A-Z0-9_]+ROW)\b")
 _ROW_TAG_SENTINELS_BY_KIND = {
     "storage": frozenset(
         {
-            "LOOM_AMDGPU_STORAGE_SOURCE_OPERANDS",
             "LOOM_AMDGPU_STORAGE_PLAN_LEADING_SOURCES",
             "LOOM_AMDGPU_STORAGE_MAX",
         }

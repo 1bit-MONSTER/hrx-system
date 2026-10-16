@@ -369,11 +369,13 @@ loom_value_id_t KernelCollectiveIntrinsic::call(
           result_type_, location, &op));
       break;
     }
-    case Operation::WorkgroupReduce:
+    case Operation::WorkgroupReduce: {
+      const loom_value_id_t value = arguments[0].ssa();
       check(loom_kernel_workgroup_reduce_build(
-          builder, combining_->combining_kind, combining_->math_flags,
-          arguments[0].ssa(), result_type_, location, &op));
+          builder, combining_->combining_kind, combining_->math_flags, &value,
+          1, &result_type_, 1, location, &op));
       break;
+    }
     case Operation::SubgroupScan: {
       const auto& combining = *combining_;
       loom_kernel_subgroup_scan_build_flags_t flags = 0;

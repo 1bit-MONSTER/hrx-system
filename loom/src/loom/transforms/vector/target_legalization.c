@@ -8,6 +8,7 @@
 
 #include <math.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "loom/ir/module.h"
 #include "loom/ir/types.h"
@@ -19,6 +20,7 @@
 #include "loom/transforms/vector/bitstream_packet_legalization.h"
 #include "loom/transforms/vector/cast_packet_legalization.h"
 #include "loom/transforms/vector/packet_legalization.h"
+#include "loom/transforms/vector/packet_plan.h"
 #include "loom/transforms/vector/reduction_legalization.h"
 #include "loom/transforms/vector/to_scalar.h"
 #include "loom/util/numeric_format.h"
@@ -1440,7 +1442,152 @@ static iree_status_t loom_vector_legalize_float_classification(
   return iree_ok_status();
 }
 
+// Projects independent payload components without splitting their convergence
+// point. Unlike pure operation packetization, this keeps one collective and
+// one synchronization protocol for every authored result.
+static iree_status_t loom_vector_legalize_workgroup_reduce(
+    const loom_target_legalizer_entry_t* entry,
+    loom_target_legalization_context_t* context, loom_op_t* op,
+    loom_target_legalizer_result_t* out_result) {
+  (void)entry;
+  *out_result = (loom_target_legalizer_result_t){
+      .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
+  };
+  if (context->vector_packet_policy == NULL ||
+      context->source_function_has_unsupported_vector_carrier) {
+    return iree_ok_status();
+  }
+  const loom_value_slice_t sources = loom_kernel_workgroup_reduce_values(op);
+  loom_vector_packet_shape_t* shapes = NULL;
+  iree_host_size_t packet_count = sources.count;
+  bool projection_supported = true;
+  iree_status_t status = iree_ok_status();
+  for (iree_host_size_t i = 0; i < sources.count && iree_status_is_ok(status);
+       ++i) {
+    const loom_type_t source_type =
+        loom_module_value_type(context->module, sources.values[i]);
+    if (!loom_type_is_vector(source_type) ||
+        loom_target_legalization_has_source_vector_carrier(context, source_type,
+                                                           sources.values[i])) {
+      continue;
+    }
+    loom_vector_packet_shape_t shape;
+    if (!loom_vector_packet_shape_from_type(
+            context, context->vector_packet_policy, source_type, &shape)) {
+      projection_supported = false;
+      break;
+    }
+    packet_count += shape.chunk_count - 1;
+    // Source operations have 16-bit operand/result counts. Leave an
+    // unrepresentable projection for the ordinary target support diagnostic.
+    if (packet_count > UINT16_MAX) {
+      projection_supported = false;
+      break;
+    }
+    if (!shapes) {
+      status = iree_arena_allocate_array(context->arena, sources.count,
+                                         sizeof(*shapes), (void**)&shapes);
+      if (iree_status_is_ok(status)) {
+        memset(shapes, 0, sources.count * sizeof(*shapes));
+      }
+    }
+    if (iree_status_is_ok(status)) {
+      shapes[i] = shape;
+    }
+  }
+  if (!iree_status_is_ok(status) || !projection_supported || !shapes) {
+    return status;
+  }
+
+  loom_value_id_t* values = NULL;
+  loom_type_t* result_types = NULL;
+  loom_value_id_t* replacements = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      context->arena, packet_count, sizeof(*values), (void**)&values));
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(context->arena, packet_count,
+                                                 sizeof(*result_types),
+                                                 (void**)&result_types));
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(context->arena, sources.count,
+                                                 sizeof(*replacements),
+                                                 (void**)&replacements));
+  loom_rewriter_t* rewriter = context->rewriter;
+  loom_builder_t* builder = &rewriter->builder;
+  loom_builder_set_before(builder, op);
+  const loom_value_id_t checkpoint = loom_rewriter_value_checkpoint(rewriter);
+  iree_host_size_t packet_index = 0;
+  for (iree_host_size_t i = 0; i < sources.count && iree_status_is_ok(status);
+       ++i) {
+    const loom_type_t source_type =
+        loom_module_value_type(context->module, sources.values[i]);
+    const loom_vector_packet_shape_t shape = shapes[i];
+    if (shape.chunk_count == 0) {
+      values[packet_index] = sources.values[i];
+      result_types[packet_index++] = source_type;
+      continue;
+    }
+    for (uint32_t j = 0; j < shape.chunk_count && iree_status_is_ok(status);
+         ++j) {
+      const int64_t offset = j * shape.chunk_lane_count;
+      const uint32_t lane_count =
+          iree_min(shape.chunk_lane_count, shape.lane_count - offset);
+      result_types[packet_index] =
+          loom_vector_packet_type(source_type, lane_count);
+      loom_op_t* slice = NULL;
+      status = loom_vector_slice_build(builder, sources.values[i], NULL, 0,
+                                       &offset, 1, result_types[packet_index],
+                                       op->location, &slice);
+      if (iree_status_is_ok(status)) {
+        values[packet_index++] = loom_vector_slice_result(slice);
+      }
+    }
+  }
+  loom_op_t* reduction = NULL;
+  if (iree_status_is_ok(status)) {
+    status = loom_kernel_workgroup_reduce_build(
+        builder, loom_kernel_workgroup_reduce_kind(op), op->instance_flags,
+        values, packet_count, result_types, packet_count, op->location,
+        &reduction);
+  }
+  packet_index = 0;
+  for (iree_host_size_t i = 0; i < sources.count && iree_status_is_ok(status);
+       ++i) {
+    const loom_value_id_t* results =
+        loom_op_const_results(reduction) + packet_index;
+    if (shapes[i].chunk_count == 0) {
+      replacements[i] = *results;
+      ++packet_index;
+      continue;
+    }
+    loom_op_t* assembled = NULL;
+    status = loom_vector_concat_build(
+        builder, 0, results, shapes[i].chunk_count,
+        loom_module_value_type(context->module, sources.values[i]),
+        op->location, &assembled);
+    if (iree_status_is_ok(status)) {
+      replacements[i] = loom_vector_concat_result(assembled);
+      packet_index += shapes[i].chunk_count;
+    }
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_rewriter_preserve_result_names_on_new_values(
+        rewriter, op, replacements, sources.count, checkpoint);
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_rewriter_replace_all_uses_and_erase(
+        rewriter, op, replacements, sources.count);
+  }
+  if (iree_status_is_ok(status)) {
+    out_result->action = LOOM_TARGET_LEGALIZER_ACTION_REWRITTEN;
+  }
+  return status;
+}
+
 static const loom_target_legalizer_rule_t kVectorLegalizerRules[] = {
+    {
+        .root_kind = LOOM_OP_KERNEL_WORKGROUP_REDUCE,
+        .flags = LOOM_TARGET_LEGALIZER_ENTRY_FLAG_REWRITE_LEGAL,
+        .legalize = loom_vector_legalize_workgroup_reduce,
+    },
     {
         .root_kind = LOOM_OP_VECTOR_LOAD_MASK,
         .legalize = loom_vector_legalize_non_dense_memory,

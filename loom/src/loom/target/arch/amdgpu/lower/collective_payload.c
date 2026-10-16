@@ -150,10 +150,16 @@ iree_status_t loom_amdgpu_finalize_collective_payload(
     case LOOM_OP_KERNEL_WORKGROUP_REDUCE: {
       loom_amdgpu_workgroup_reduce_plan_t* reduce =
           (loom_amdgpu_workgroup_reduce_plan_t*)plan.target_data;
-      value = reduce->value;
-      payload_kind = reduce->payload_kind;
-      materialization = &reduce->payload_materialization;
-      break;
+      iree_status_t status = iree_ok_status();
+      for (uint32_t i = 0;
+           i < reduce->payload_count && iree_status_is_ok(status); ++i) {
+        loom_amdgpu_workgroup_reduce_payload_t* payload = &reduce->payloads[i];
+        if (payload->kind == LOOM_AMDGPU_SUBGROUP_PAYLOAD_I32_SCALAR) {
+          status = loom_amdgpu_prepare_vgpr_literal(
+              context, payload->value, &payload->payload_materialization);
+        }
+      }
+      return status;
     }
     case LOOM_OP_KERNEL_SUBGROUP_SCAN: {
       loom_amdgpu_subgroup_scan_plan_t* scan =

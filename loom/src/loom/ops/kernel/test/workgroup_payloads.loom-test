@@ -1,0 +1,111 @@
+// RUN: format bytecode
+
+// Positionally paired payloads may have different component types and widths.
+kernel.def @independent_extrema() {
+  %unit = index.constant 1 : index
+  %width = index.constant 67 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%scalar: f16, %vector: vector<6xf32>, %wide: f64) {
+  %scalar_min, %vector_min, %wide_min = kernel.workgroup.reduce<minimumf, preserve> %scalar, %vector, %wide : f16, vector<6xf32>, f64
+  test.use %scalar_min, %vector_min, %wide_min : f16, vector<6xf32>, f64
+  kernel.return
+}
+
+// ====
+// RUN: pass canonicalize
+
+// Each sum uses its own contribution facts and every result is uniform.
+kernel.def @independent_sum_facts() {
+  %unit = index.constant 1 : index
+  %width = index.constant 4 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%varying: vector<3xi32>) {
+  %negative = scalar.constant -2 : i16
+  %positive = scalar.constant 3 : i64
+  %negative_sum, %positive_sum, %vector_sum = kernel.workgroup.reduce<addi> %negative, %positive, %varying : i16, i64, vector<3xi32>
+  %negative_lo = test.fact_range_lo %negative_sum : i16 -> i64
+  %negative_hi = test.fact_range_hi %negative_sum : i16 -> i64
+  %positive_lo = test.fact_range_lo %positive_sum : i64 -> i64
+  %positive_hi = test.fact_range_hi %positive_sum : i64 -> i64
+  %uniform = test.fact_workgroup_uniform %vector_sum : vector<3xi32> -> i1
+  test.use %negative_lo, %negative_hi, %positive_lo, %positive_hi, %uniform : i64, i64, i64, i64, i1
+  kernel.return
+}
+
+// ----
+kernel.def @independent_sum_facts() {
+  %unit = index.constant 1 : index
+  %width = index.constant 4 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%varying: vector<3xi32>) {
+  %negative = scalar.constant -2 : i16
+  %positive = scalar.constant 3 : i64
+  %negative_sum, %positive_sum, %vector_sum = kernel.workgroup.reduce<addi> %negative, %positive, %varying : i16, i64, vector<3xi32>
+  %negative_lo = scalar.constant -8 : i64
+  %negative_hi = scalar.constant -8 : i64
+  %positive_lo = scalar.constant 12 : i64
+  %positive_hi = scalar.constant 12 : i64
+  %uniform = scalar.constant true : i1
+  test.use %negative_lo, %negative_hi, %positive_lo, %positive_hi, %uniform : i64, i64, i64, i64, i1
+  kernel.return
+}
+
+// ====
+// RUN: verify
+
+kernel.def @empty_reduction() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch() {
+  // ERROR@+1: PARSE/009 "kernel.workgroup.reduce" "1" "0"
+  kernel.workgroup.reduce<addi> :
+  kernel.return
+}
+
+// ====
+// RUN: verify
+
+kernel.def @unpaired_result() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%left: i32, %right: i32) {
+  // ERROR@+1: STRUCTURE/013 "values" "2" "results" "1"
+  %sum = kernel.workgroup.reduce<addi> %left, %right : i32
+  kernel.return
+}
+
+// ====
+// RUN: verify
+
+kernel.def @mismatched_second_result() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%left: i32, %right: i64) {
+  // ERROR@+1: TYPE/001 "values[1]" "i64" "results[1]" "i32"
+  %left_sum, %right_sum = kernel.workgroup.reduce<addi> %left, %right : i32, i32
+  kernel.return
+}
+
+// ====
+// RUN: verify
+
+kernel.def @invalid_second_kind() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%left: i32, %right: f32) {
+  // ERROR@+1: TYPE/003 "value" "f32" "integer element type for combining kind"
+  %left_sum, %right_sum = kernel.workgroup.reduce<addi> %left, %right : i32, f32
+  kernel.return
+}
+
+// ====
+// RUN: verify
+
+kernel.def @invalid_second_shape() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%left: f32, %right: vector<2x2xf32>) {
+  // ERROR@+1: TYPE/003 "values" "vector<2x2xf32>" "scalar or rank-1 vector"
+  %left_sum, %right_sum = kernel.workgroup.reduce<addf> %left, %right : f32, vector<2x2xf32>
+  kernel.return
+}
