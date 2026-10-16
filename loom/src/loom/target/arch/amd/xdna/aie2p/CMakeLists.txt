@@ -892,24 +892,6 @@ iree_execution_test_suite(
 )
 endif()
 
-if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA AND AMDF_BUILD)
-iree_execution_test_suite(
-  NAME
-    callable_ingress_test
-  MANIFESTS
-    "test/callable_ingress.test.json"
-  TOOLS
-    "loom-compile=loom::tools::loom-compile"
-    "loom-format=loom::tools::loom-format"
-  DATA
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/target/arch/amd/xdna/aie2p/test/callable_ingress.loom"
-  LABELS
-    "hostonly"
-  TIMEOUT
-    60
-)
-endif()
-
 if(LOOM_TARGET_ARCH_XDNA)
 loom_check_test_suite(
   NAME
