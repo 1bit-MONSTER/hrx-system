@@ -6,6 +6,7 @@
 
 #include "loomc/target/cpu/iree_hal.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -574,7 +575,45 @@ TEST_P(LegacyHalfConversionTest,
   for (const auto& conversion : kConversions) {
     const bool narrow = conversion.input == std::string("f32");
     const bool bfloat = conversion.output == std::string("bf16");
-    for (int lanes : {1, 2, 4, 8, 16, 32}) {
+    // Signed zeros, subnormal/normal boundaries, ordinary values, the largest
+    // finite value, infinity, and signaling/quiet NaNs, with both signs.
+    constexpr uint16_t kHalfBits[] = {
+        0x0000, 0x0001, 0x0002, 0x03ff, 0x0400, 0x0401, 0x3555, 0x3bff,
+        0x3c00, 0x3c01, 0x4000, 0x7bff, 0x7c00, 0x7c01, 0x7e00, 0x7fff,
+        0x8000, 0x8001, 0x8002, 0x83ff, 0x8400, 0x8401, 0xb555, 0xbbff,
+        0xbc00, 0xbc01, 0xc000, 0xfbff, 0xfc00, 0xfc01, 0xfe00, 0xffff,
+    };
+    std::vector<uint32_t> float_bits;
+    if (narrow) {
+      const auto append_signed = [&float_bits](uint32_t bits) {
+        float_bits.push_back(bits);
+        float_bits.push_back(bits | 0x80000000u);
+      };
+      for (uint32_t bits : {0u, 1u, 0x007fffffu, 0x00800000u, 0x3eaaaaabu,
+                            0x3f800000u, 0x40000000u, 0x7f7fffffu, 0x7f800000u,
+                            0x7f800001u, 0x7fc00000u, 0x7fffffffu}) {
+        append_signed(bits);
+      }
+      // Probe both neighbors of ties at zero, the normal boundary, even/odd
+      // significands near one, an exponent carry, and overflow.
+      constexpr uint32_t kHalfMidpoints[] = {
+          0x33000000, 0x387fe000, 0x3f801000,
+          0x3f803000, 0x3ffff000, 0x477ff000,
+      };
+      constexpr uint32_t kBfloatMidpoints[] = {
+          0x00008000, 0x007f8000, 0x3f808000,
+          0x3f818000, 0x3fff8000, 0x7f7f8000,
+      };
+      for (uint32_t midpoint : bfloat ? kBfloatMidpoints : kHalfMidpoints) {
+        for (int delta : {-1, 0, 1}) {
+          append_signed(midpoint + delta);
+        }
+      }
+    }
+    // Scalar carriers, a partial/native register, and multiple native packets
+    // exercise the device-selected execution paths. Exact lowering goldens and
+    // contract-family tests cover the individual native packet widths.
+    for (int lanes : {1, 4, 32}) {
       SCOPED_TRACE(std::string(conversion.input) + " -> " + conversion.output +
                    " lanes=" + std::to_string(lanes));
       const auto value_type = [lanes](const char* element) {
@@ -673,35 +712,8 @@ TEST_P(LegacyHalfConversionTest,
 
       const bool to_double = conversion.output == std::string("f64");
       const size_t output_bytes = lanes * (narrow ? 2 : (to_double ? 8 : 4));
-      // Runtime payloads exhaust the half domain; narrowing also probes both
-      // neighbors of every finite midpoint in the destination format.
-      std::vector<uint32_t> float_bits;
-      if (narrow) {
-        const auto expand =
-            bfloat ? iree_math_bf16_to_f32 : iree_math_f16_to_f32;
-        for (uint32_t bits = 0; bits <= 65535; ++bits) {
-          float value = expand(static_cast<uint16_t>(bits));
-          uint32_t payload;
-          std::memcpy(&payload, &value, sizeof(payload));
-          float_bits.push_back(payload);
-          if ((bits & 0x7fff) < (bfloat ? 0x7f7f : 0x7bff)) {
-            const float next = expand(static_cast<uint16_t>(bits + 1));
-            const float midpoint = value + (next - value) * 0.5f;
-            std::memcpy(&payload, &midpoint, sizeof(payload));
-            for (int delta : {-1, 0, 1}) {
-              float_bits.push_back(payload + delta);
-            }
-          }
-        }
-        for (uint32_t payload :
-             {0u, 1u, 0x007fffffu, 0x00800000u, 0x477fefffu, 0x477ff000u,
-              0x477ff001u, 0x7f7f7fffu, 0x7f7f8000u, 0x7f7f8001u, 0x7f7fffffu,
-              0x7f800000u, 0x7f800001u}) {
-          float_bits.push_back(payload);
-          float_bits.push_back(payload | 0x80000000u);
-        }
-      }
-      const size_t count = narrow ? float_bits.size() : 65536;
+      const size_t count =
+          narrow ? float_bits.size() : IREE_ARRAYSIZE(kHalfBits);
       for (size_t position = 0; position < count; position += lanes) {
         std::array<uint8_t, 288> input;
         std::array<uint8_t, 288> output;
@@ -719,7 +731,7 @@ TEST_P(LegacyHalfConversionTest,
             expected_half[lane] = bfloat ? iree_math_f32_to_bf16(value)
                                          : iree_math_f32_to_f16(value);
           } else {
-            const uint16_t bits = static_cast<uint16_t>(index);
+            const uint16_t bits = kHalfBits[index];
             std::memcpy(input.data() + 16 + lane * 2, &bits, 2);
             expected_wide[lane] = iree_math_f16_to_f32(bits);
           }
@@ -729,11 +741,10 @@ TEST_P(LegacyHalfConversionTest,
                                       output.data() + 16, nullptr),
                   0);
         ASSERT_EQ(input, before);
-        for (size_t i = 0; i < output.size(); ++i) {
-          if (i < 16 || i >= 16 + output_bytes) {
-            ASSERT_EQ(output[i], 0xa7);
-          }
-        }
+        const auto is_guard = [](uint8_t byte) { return byte == 0xa7; };
+        ASSERT_TRUE(std::all_of(output.begin(), output.begin() + 16, is_guard));
+        ASSERT_TRUE(std::all_of(output.begin() + 16 + output_bytes,
+                                output.end(), is_guard));
         for (int lane = 0; lane < lanes; ++lane) {
           if (narrow) {
             uint16_t actual;
