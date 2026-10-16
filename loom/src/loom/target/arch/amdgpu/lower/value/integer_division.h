@@ -15,14 +15,17 @@
 extern "C" {
 #endif
 
-// Retains an exact constant-divisor recipe in the per-operation plan arena.
-// Only the numerator demands source storage; the divisor is an immediate.
-typedef struct loom_amdgpu_i64_division_plan_t {
+// Retains an exact wide constant-divisor recipe in the per-operation plan
+// arena. Only the numerator demands source storage; the divisor is an
+// immediate.
+typedef struct loom_amdgpu_wide_division_plan_t {
   // Numerator whose complete payload participates in division.
   loom_value_id_t source;
-  // Source quotient or remainder result bound by emission.
-  loom_value_id_t result;
-  // Nonzero divisor bit pattern in the source i64 domain.
+  // Source-level quotient result bound by emission, or invalid when unused.
+  loom_value_id_t quotient;
+  // Source-level remainder result bound by emission, or invalid when unused.
+  loom_value_id_t remainder;
+  // Nonzero divisor bit pattern in the source operation's 64-bit domain.
   uint64_t divisor;
   // Exact reciprocal recipe selected by source operation signedness.
   union {
@@ -35,25 +38,30 @@ typedef struct loom_amdgpu_i64_division_plan_t {
   uint16_t register_class_id;
   // One or two words needed by an unsigned quotient reconstruction.
   uint8_t quotient_unit_count;
-} loom_amdgpu_i64_division_plan_t;
+  // One or two words published for the quotient result.
+  uint8_t quotient_result_unit_count;
+  // One or two words published for the remainder result.
+  uint8_t remainder_result_unit_count;
+} loom_amdgpu_wide_division_plan_t;
 
-// Selects exact signed or unsigned i64 division/remainder by a constant.
-iree_status_t loom_amdgpu_select_i64_division_plan(
+// Selects exact signed-i64, unsigned-i64, or wide-index division by a
+// constant.
+iree_status_t loom_amdgpu_select_wide_division_plan(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
-    loom_amdgpu_i64_division_plan_t* out_plan, bool* out_selected);
+    loom_amdgpu_wide_division_plan_t* out_plan, bool* out_selected);
 
-// Publishes the numerator's actual carrier after the selected bank conversion.
-iree_status_t loom_amdgpu_finalize_i64_division_plan(
+// Publishes each result carrier selected for the retained wide computation.
+iree_status_t loom_amdgpu_finalize_wide_division_plan(
     loom_low_lower_context_t* context,
-    const loom_amdgpu_i64_division_plan_t* plan);
+    const loom_amdgpu_wide_division_plan_t* plan);
 
 // Emits the retained reciprocal recipe using native word arithmetic.
-iree_status_t loom_amdgpu_lower_i64_division(
+iree_status_t loom_amdgpu_lower_wide_division(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
-    const loom_amdgpu_i64_division_plan_t* plan);
+    const loom_amdgpu_wide_division_plan_t* plan);
 
-// Verifies constant-divisor and descriptor requirements for i64 division.
-iree_status_t loom_amdgpu_low_legality_verify_i64_division(
+// Verifies constant-divisor and descriptor requirements for wide division.
+iree_status_t loom_amdgpu_low_legality_verify_wide_division(
     const loom_target_low_legality_provider_t* provider,
     loom_target_low_legality_context_t* context, const loom_op_t* op,
     bool* out_handled);

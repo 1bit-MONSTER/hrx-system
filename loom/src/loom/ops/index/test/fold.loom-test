@@ -969,6 +969,48 @@ func.def @div_power_of_two_nonnegative(%x: index) -> (index) {
 
 // ====
 
+// A power-of-two division only becomes a target-width logical shift when the
+// complete nonnegative numerator fits that carrier. Wider values retain the
+// division so a target can select its wide arithmetic implementation.
+test.target<quirky> @div_target32
+
+test.target<low_core> @div_target64
+
+func.def target(@div_target32) @div_power_of_two_wide_target32(%x: index) -> (index) where [range(%x, 4294967296, 4294967551)] {
+  %wide = index.assume %x [range(%x, 4294967296, 4294967551)] : index
+  %divisor = index.constant 8 : index
+  %q = index.div %wide, %divisor : index
+  func.return %q : index
+}
+
+func.def target(@div_target64) @div_power_of_two_wide_target64(%x: index) -> (index) where [range(%x, 4294967296, 4294967551)] {
+  %wide = index.assume %x [range(%x, 4294967296, 4294967551)] : index
+  %divisor = index.constant 8 : index
+  %q = index.div %wide, %divisor : index
+  func.return %q : index
+}
+
+// ----
+test.target<quirky> @div_target32
+
+test.target<low_core> @div_target64
+
+func.def target(@div_target32) @div_power_of_two_wide_target32(%x: index) -> (index) where [range(%x, 4294967296, 4294967551)] {
+  %wide = index.assume %x [range(%x, 4294967296, 4294967551)] : index
+  %divisor = index.constant 8 : index
+  %q = index.div %wide, %divisor : index
+  func.return %q : index
+}
+
+func.def target(@div_target64) @div_power_of_two_wide_target64(%x: index) -> (index) where [range(%x, 4294967296, 4294967551)] {
+  %wide = index.assume %x [range(%x, 4294967296, 4294967551)] : index
+  %10 = index.constant 3 : index
+  %q = index.shrui %wide, %10 : index
+  func.return %q : index
+}
+
+// ====
+
 // index.rem materializes zero when divisibility facts prove it.
 func.def @rem_divisible_coordinate(%x: index) -> (index) {
   %x2 = index.assume %x [range(%x, 0, 4096), multiple_of(%x, 64)] : index

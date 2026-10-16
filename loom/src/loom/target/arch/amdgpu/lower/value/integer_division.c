@@ -6,7 +6,9 @@
 
 #include "loom/target/arch/amdgpu/lower/value/integer_division.h"
 
+#include "iree/base/internal/math.h"
 #include "loom/ir/context.h"
+#include "loom/ops/index/ops.h"
 #include "loom/ops/scalar/ops.h"
 #include "loom/target/arch/amdgpu/lower/descriptor_ref.h"
 #include "loom/target/arch/amdgpu/lower/emit.h"
@@ -15,21 +17,51 @@
 #include "loom/target/arch/amdgpu/lower/value/integer64.h"
 #include "loom/util/fact_table.h"
 
-typedef enum loom_amdgpu_i64_division_domain_e {
-  LOOM_AMDGPU_I64_DIVISION_DOMAIN_UNSIGNED = 0,
-  LOOM_AMDGPU_I64_DIVISION_DOMAIN_SIGNED = 1,
-} loom_amdgpu_i64_division_domain_t;
+typedef enum loom_amdgpu_wide_division_domain_e {
+  LOOM_AMDGPU_WIDE_DIVISION_DOMAIN_UNSIGNED = 0,
+  LOOM_AMDGPU_WIDE_DIVISION_DOMAIN_SIGNED = 1,
+} loom_amdgpu_wide_division_domain_t;
 
-static loom_amdgpu_i64_division_domain_t loom_amdgpu_i64_division_domain(
+static loom_amdgpu_wide_division_domain_t loom_amdgpu_wide_division_domain(
     const loom_op_t* op) {
-  return loom_scalar_divsi_isa(op) || loom_scalar_remsi_isa(op)
-             ? LOOM_AMDGPU_I64_DIVISION_DOMAIN_SIGNED
-             : LOOM_AMDGPU_I64_DIVISION_DOMAIN_UNSIGNED;
+  return loom_scalar_divsi_isa(op) || loom_scalar_remsi_isa(op) ||
+                 loom_scalar_divremsi_isa(op)
+             ? LOOM_AMDGPU_WIDE_DIVISION_DOMAIN_SIGNED
+             : LOOM_AMDGPU_WIDE_DIVISION_DOMAIN_UNSIGNED;
 }
 
-static bool loom_amdgpu_i64_divisor(const loom_value_fact_table_t* facts,
-                                    loom_value_id_t rhs,
-                                    uint64_t* out_divisor) {
+static void loom_amdgpu_wide_division_results(const loom_op_t* op,
+                                              loom_value_id_t* out_quotient,
+                                              loom_value_id_t* out_remainder) {
+  *out_quotient = LOOM_VALUE_ID_INVALID;
+  *out_remainder = LOOM_VALUE_ID_INVALID;
+  const loom_value_id_t* results = loom_op_const_results(op);
+  switch (op->kind) {
+    case LOOM_OP_SCALAR_DIVSI:
+    case LOOM_OP_SCALAR_DIVUI:
+    case LOOM_OP_INDEX_DIV:
+      *out_quotient = results[0];
+      return;
+    case LOOM_OP_SCALAR_REMSI:
+    case LOOM_OP_SCALAR_REMUI:
+    case LOOM_OP_INDEX_REM:
+      *out_remainder = results[0];
+      return;
+    case LOOM_OP_SCALAR_DIVREMSI:
+    case LOOM_OP_SCALAR_DIVREMUI:
+    case LOOM_OP_INDEX_DIVREM:
+      *out_quotient = results[0];
+      *out_remainder = results[1];
+      return;
+    default:
+      IREE_ASSERT_UNREACHABLE("unexpected wide integer division operation");
+      IREE_BUILTIN_UNREACHABLE();
+  }
+}
+
+static bool loom_amdgpu_wide_divisor(const loom_value_fact_table_t* facts,
+                                     loom_value_id_t rhs,
+                                     uint64_t* out_divisor) {
   int64_t value = 0;
   if (!facts || !loom_value_facts_as_exact_i64(
                     loom_value_fact_table_lookup(facts, rhs), &value)) {
@@ -42,9 +74,9 @@ static bool loom_amdgpu_i64_divisor(const loom_value_fact_table_t* facts,
   return true;
 }
 
-static bool loom_amdgpu_i64_division_descriptors_supported(
+static bool loom_amdgpu_wide_division_descriptors_supported(
     const loom_low_descriptor_set_t* descriptors, uint16_t register_class_id,
-    loom_amdgpu_i64_division_domain_t domain) {
+    loom_amdgpu_wide_division_domain_t domain) {
   static const loom_amdgpu_descriptor_ref_t sgpr[] = {
       LOOM_AMDGPU_DESCRIPTOR_REF_S_MOV_B32,
       LOOM_AMDGPU_DESCRIPTOR_REF_S_MUL_I32,
@@ -82,43 +114,82 @@ static bool loom_amdgpu_i64_division_descriptors_supported(
           uniform ? IREE_ARRAYSIZE(sgpr) : IREE_ARRAYSIZE(vgpr))) {
     return false;
   }
-  return domain == LOOM_AMDGPU_I64_DIVISION_DOMAIN_UNSIGNED ||
+  return domain == LOOM_AMDGPU_WIDE_DIVISION_DOMAIN_UNSIGNED ||
          loom_amdgpu_descriptor_set_has_all_refs(
              descriptors, uniform ? signed_sgpr : signed_vgpr,
              uniform ? IREE_ARRAYSIZE(signed_sgpr)
                      : IREE_ARRAYSIZE(signed_vgpr));
 }
 
-iree_status_t loom_amdgpu_select_i64_division_plan(
+iree_status_t loom_amdgpu_select_wide_division_plan(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
-    loom_amdgpu_i64_division_plan_t* out_plan, bool* out_selected) {
-  *out_plan = (loom_amdgpu_i64_division_plan_t){0};
+    loom_amdgpu_wide_division_plan_t* out_plan, bool* out_selected) {
+  *out_plan = (loom_amdgpu_wide_division_plan_t){
+      .source = LOOM_VALUE_ID_INVALID,
+      .quotient = LOOM_VALUE_ID_INVALID,
+      .remainder = LOOM_VALUE_ID_INVALID,
+  };
   *out_selected = false;
   const loom_module_t* module = loom_low_lower_context_module(context);
-  const loom_value_id_t result = loom_op_const_results(source_op)[0];
-  if (!loom_amdgpu_type_is_i64(loom_module_value_type(module, result))) {
+  const loom_value_id_t* operands = loom_op_const_operands(source_op);
+  const loom_scalar_type_t source_element_type =
+      loom_type_element_type(loom_module_value_type(module, operands[0]));
+  if (source_element_type != LOOM_SCALAR_TYPE_I64 &&
+      source_element_type != LOOM_SCALAR_TYPE_INDEX) {
     return iree_ok_status();
   }
-  const loom_value_id_t* operands = loom_op_const_operands(source_op);
-  const loom_amdgpu_i64_division_domain_t domain =
-      loom_amdgpu_i64_division_domain(source_op);
+  const loom_amdgpu_wide_division_domain_t domain =
+      loom_amdgpu_wide_division_domain(source_op);
   uint64_t divisor = 0;
-  if (!loom_amdgpu_i64_divisor(loom_low_lower_context_fact_table(context),
-                               operands[1], &divisor)) {
+  if (!loom_amdgpu_wide_divisor(loom_low_lower_context_fact_table(context),
+                                operands[1], &divisor)) {
     return iree_ok_status();
   }
 
-  loom_type_t result_type = loom_type_none();
-  IREE_RETURN_IF_ERROR(
-      loom_amdgpu_low_result_type(context, source_op, result, &result_type));
-  if (!loom_amdgpu_low_type_is_register_class_count(
-          context, result_type, LOOM_AMDGPU_REG_CLASS_ID_SGPR, 2) &&
-      !loom_amdgpu_low_type_is_register_class_count(
-          context, result_type, LOOM_AMDGPU_REG_CLASS_ID_VGPR, 2)) {
-    return iree_ok_status();
+  loom_value_id_t quotient = LOOM_VALUE_ID_INVALID;
+  loom_value_id_t remainder = LOOM_VALUE_ID_INVALID;
+  loom_amdgpu_wide_division_results(source_op, &quotient, &remainder);
+  const loom_value_id_t results[] = {quotient, remainder};
+  uint8_t result_unit_counts[] = {0, 0};
+  uint16_t register_class_id = 0;
+  bool register_class_selected = false;
+  for (uint32_t i = 0; i < IREE_ARRAYSIZE(results); ++i) {
+    if (results[i] == LOOM_VALUE_ID_INVALID) {
+      continue;
+    }
+    loom_type_t result_type = loom_type_none();
+    IREE_RETURN_IF_ERROR(loom_amdgpu_low_result_type(context, source_op,
+                                                     results[i], &result_type));
+    uint16_t result_class_id = 0;
+    uint8_t result_unit_count = 0;
+    bool result_type_supported = false;
+    for (uint8_t unit_count = 1; unit_count <= 2; ++unit_count) {
+      if (loom_amdgpu_low_type_is_register_class_count(
+              context, result_type, LOOM_AMDGPU_REG_CLASS_ID_SGPR,
+              unit_count)) {
+        result_class_id = LOOM_AMDGPU_REG_CLASS_ID_SGPR;
+        result_unit_count = unit_count;
+        result_type_supported = true;
+        break;
+      }
+      if (loom_amdgpu_low_type_is_register_class_count(
+              context, result_type, LOOM_AMDGPU_REG_CLASS_ID_VGPR,
+              unit_count)) {
+        result_class_id = LOOM_AMDGPU_REG_CLASS_ID_VGPR;
+        result_unit_count = unit_count;
+        result_type_supported = true;
+        break;
+      }
+    }
+    if (!result_type_supported ||
+        (register_class_selected && register_class_id != result_class_id)) {
+      return iree_ok_status();
+    }
+    register_class_id = result_class_id;
+    register_class_selected = true;
+    result_unit_counts[i] = result_unit_count;
   }
-  const uint16_t register_class_id =
-      loom_low_register_type_class_id(result_type);
+
   loom_type_t source_type = loom_type_none();
   IREE_RETURN_IF_ERROR(
       loom_low_lower_map_value(context, source_op, operands[0], &source_type));
@@ -129,18 +200,21 @@ iree_status_t loom_amdgpu_select_i64_division_plan(
             context, source_type, LOOM_AMDGPU_REG_CLASS_ID_SGPR, 2))) {
     return iree_ok_status();
   }
-  if (!loom_amdgpu_i64_division_descriptors_supported(
+  if (!loom_amdgpu_wide_division_descriptors_supported(
           loom_low_lower_context_descriptor_set(context), register_class_id,
           domain)) {
     return iree_ok_status();
   }
-  *out_plan = (loom_amdgpu_i64_division_plan_t){
+  *out_plan = (loom_amdgpu_wide_division_plan_t){
       .source = operands[0],
-      .result = result,
+      .quotient = quotient,
+      .remainder = remainder,
       .divisor = divisor,
       .register_class_id = register_class_id,
+      .quotient_result_unit_count = result_unit_counts[0],
+      .remainder_result_unit_count = result_unit_counts[1],
   };
-  if (domain == LOOM_AMDGPU_I64_DIVISION_DOMAIN_SIGNED) {
+  if (domain == LOOM_AMDGPU_WIDE_DIVISION_DOMAIN_SIGNED) {
     const int64_t signed_divisor = (int64_t)divisor;
     if (signed_divisor != 1 && signed_divisor != -1) {
       out_plan->magic.signed_value =
@@ -162,21 +236,26 @@ iree_status_t loom_amdgpu_select_i64_division_plan(
   return iree_ok_status();
 }
 
-iree_status_t loom_amdgpu_finalize_i64_division_plan(
+iree_status_t loom_amdgpu_finalize_wide_division_plan(
     loom_low_lower_context_t* context,
-    const loom_amdgpu_i64_division_plan_t* plan) {
-  loom_type_t result_type =
-      loom_low_lower_value_binding_type(context, plan->source);
-  if (plan->register_class_id == LOOM_AMDGPU_REG_CLASS_ID_VGPR) {
-    result_type = loom_low_register_type(
+    const loom_amdgpu_wide_division_plan_t* plan) {
+  const loom_value_id_t results[] = {plan->quotient, plan->remainder};
+  const uint8_t result_unit_counts[] = {plan->quotient_result_unit_count,
+                                        plan->remainder_result_unit_count};
+  for (uint32_t i = 0; i < IREE_ARRAYSIZE(results); ++i) {
+    if (results[i] == LOOM_VALUE_ID_INVALID) {
+      continue;
+    }
+    const loom_type_t result_type = loom_low_register_type(
         loom_low_lower_context_descriptor_set(context)->stable_id,
-        LOOM_AMDGPU_REG_CLASS_ID_VGPR,
-        loom_low_register_type_unit_count(result_type));
+        plan->register_class_id, result_unit_counts[i]);
+    IREE_RETURN_IF_ERROR(
+        loom_low_lower_plan_value_type(context, results[i], result_type));
   }
-  return loom_low_lower_plan_value_type(context, plan->result, result_type);
+  return iree_ok_status();
 }
 
-iree_status_t loom_amdgpu_low_legality_verify_i64_division(
+iree_status_t loom_amdgpu_low_legality_verify_wide_division(
     const loom_target_low_legality_provider_t* provider,
     loom_target_low_legality_context_t* context, const loom_op_t* op,
     bool* out_handled) {
@@ -184,34 +263,47 @@ iree_status_t loom_amdgpu_low_legality_verify_i64_division(
   if (!loom_amdgpu_low_legality_context_is_amdgpu(context)) {
     return iree_ok_status();
   }
-  const loom_value_id_t result = loom_op_const_results(op)[0];
-  if (!loom_amdgpu_type_is_i64(loom_module_value_type(
-          loom_target_low_legality_module(context), result))) {
+
+  const loom_module_t* module = loom_target_low_legality_module(context);
+  const loom_value_fact_table_t* fact_table =
+      loom_target_low_legality_fact_table(context);
+  const loom_value_id_t source = loom_op_const_operands(op)[0];
+  const loom_type_t source_type = loom_module_value_type(module, source);
+  const loom_scalar_type_t source_element_type =
+      loom_type_element_type(source_type);
+  const bool is_index = source_element_type == LOOM_SCALAR_TYPE_INDEX;
+  if (source_element_type != LOOM_SCALAR_TYPE_I64 &&
+      (!is_index || !loom_amdgpu_source_address_value_needs_64bit(
+                        module, fact_table, source, source_type))) {
     return iree_ok_status();
   }
   *out_handled = true;
-  const loom_amdgpu_i64_division_domain_t domain =
-      loom_amdgpu_i64_division_domain(op);
+
+  const loom_amdgpu_wide_division_domain_t domain =
+      loom_amdgpu_wide_division_domain(op);
   uint64_t divisor = 0;
-  if (!loom_amdgpu_i64_divisor(loom_target_low_legality_fact_table(context),
-                               loom_op_const_operands(op)[1], &divisor)) {
+  if (!loom_amdgpu_wide_divisor(fact_table, loom_op_const_operands(op)[1],
+                                &divisor)) {
     return loom_amdgpu_low_legality_reject(
         context, op,
-        domain == LOOM_AMDGPU_I64_DIVISION_DOMAIN_SIGNED
+        is_index ? IREE_SV("unsigned_index64_division.constant_nonzero_divisor")
+        : domain == LOOM_AMDGPU_WIDE_DIVISION_DOMAIN_SIGNED
             ? IREE_SV("signed_i64_division.constant_nonzero_divisor")
             : IREE_SV("unsigned_i64_division.constant_nonzero_divisor"));
   }
-  bool prefers_vgpr = false;
+
+  bool result_prefers_vgpr = false;
   IREE_RETURN_IF_ERROR(loom_amdgpu_target_low_legality_value_prefers_vgpr(
-      context, result, &prefers_vgpr));
-  if (!loom_amdgpu_i64_division_descriptors_supported(
+      context, loom_op_const_results(op)[0], &result_prefers_vgpr));
+  if (!loom_amdgpu_wide_division_descriptors_supported(
           loom_target_low_legality_descriptor_set(context),
-          prefers_vgpr ? LOOM_AMDGPU_REG_CLASS_ID_VGPR
-                       : LOOM_AMDGPU_REG_CLASS_ID_SGPR,
+          result_prefers_vgpr ? LOOM_AMDGPU_REG_CLASS_ID_VGPR
+                              : LOOM_AMDGPU_REG_CLASS_ID_SGPR,
           domain)) {
     return loom_amdgpu_low_legality_reject(
         context, op,
-        domain == LOOM_AMDGPU_I64_DIVISION_DOMAIN_SIGNED
+        is_index ? IREE_SV("unsigned_index64_division.word_arithmetic")
+        : domain == LOOM_AMDGPU_WIDE_DIVISION_DOMAIN_SIGNED
             ? IREE_SV("signed_i64_division.word_arithmetic")
             : IREE_SV("unsigned_i64_division.word_arithmetic"));
   }
@@ -420,11 +512,17 @@ static iree_status_t loom_amdgpu_division_emit_multiply_high(
 
 static iree_status_t loom_amdgpu_division_emit_unsigned_quotient(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
-    const loom_amdgpu_i64_division_plan_t* plan, loom_value_id_t numerator,
+    const loom_amdgpu_wide_division_plan_t* plan, loom_value_id_t numerator,
     loom_type_t pair_type, loom_value_id_t* out_quotient) {
   if (plan->divisor == 1) {
     *out_quotient = numerator;
     return iree_ok_status();
+  }
+  if (iree_is_power_of_two_uint64(plan->divisor)) {
+    return loom_amdgpu_division_emit_shift(
+        context, source_op, numerator,
+        (uint8_t)iree_math_floor_log2_u64(plan->divisor),
+        LOOM_AMDGPU_DIVISION_SHIFT_LOGICAL_RIGHT, out_quotient);
   }
   const loom_low_lower_unsigned_divisor_magic_info_t magic =
       plan->magic.unsigned_value;
@@ -455,7 +553,7 @@ static iree_status_t loom_amdgpu_division_emit_unsigned_quotient(
 
 static iree_status_t loom_amdgpu_division_emit_signed_quotient(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
-    const loom_amdgpu_i64_division_plan_t* plan, loom_value_id_t numerator,
+    const loom_amdgpu_wide_division_plan_t* plan, loom_value_id_t numerator,
     loom_type_t pair_type, loom_value_id_t* out_quotient) {
   const int64_t divisor = (int64_t)plan->divisor;
   if (divisor == 1) {
@@ -508,9 +606,9 @@ static iree_status_t loom_amdgpu_division_emit_signed_quotient(
                                        sign_correction, out_quotient);
 }
 
-iree_status_t loom_amdgpu_lower_i64_division(
+iree_status_t loom_amdgpu_lower_wide_division(
     loom_low_lower_context_t* context, const loom_op_t* source_op,
-    const loom_amdgpu_i64_division_plan_t* plan) {
+    const loom_amdgpu_wide_division_plan_t* plan) {
   loom_value_id_t numerator =
       loom_low_lower_lookup_value(context, plan->source);
   if (plan->register_class_id == LOOM_AMDGPU_REG_CLASS_ID_VGPR) {
@@ -519,50 +617,65 @@ iree_status_t loom_amdgpu_lower_i64_division(
   }
   const loom_type_t pair_type =
       loom_module_value_type(loom_low_lower_context_module(context), numerator);
-  const loom_amdgpu_i64_division_domain_t domain =
-      loom_amdgpu_i64_division_domain(source_op);
-  const bool remainder =
-      loom_scalar_remui_isa(source_op) || loom_scalar_remsi_isa(source_op);
-  if (remainder && (plan->divisor == 1 ||
-                    (domain == LOOM_AMDGPU_I64_DIVISION_DOMAIN_SIGNED &&
-                     (int64_t)plan->divisor == -1))) {
-    loom_value_id_t zero;
-    IREE_RETURN_IF_ERROR(loom_amdgpu_division_emit_constant(
-        context, source_op, 0, pair_type, &zero));
-    return loom_low_lower_bind_value(context, plan->result, zero);
-  }
-  if (remainder && domain == LOOM_AMDGPU_I64_DIVISION_DOMAIN_UNSIGNED &&
-      plan->magic.unsigned_value.multiplier == 0) {
-    return loom_low_lower_bind_value(context, plan->result, numerator);
-  }
+  const loom_amdgpu_wide_division_domain_t domain =
+      loom_amdgpu_wide_division_domain(source_op);
 
   loom_value_id_t quotient;
-  if (domain == LOOM_AMDGPU_I64_DIVISION_DOMAIN_SIGNED) {
+  if (domain == LOOM_AMDGPU_WIDE_DIVISION_DOMAIN_SIGNED) {
     IREE_RETURN_IF_ERROR(loom_amdgpu_division_emit_signed_quotient(
         context, source_op, plan, numerator, pair_type, &quotient));
   } else {
     IREE_RETURN_IF_ERROR(loom_amdgpu_division_emit_unsigned_quotient(
         context, source_op, plan, numerator, pair_type, &quotient));
   }
-  if (remainder) {
+  if (plan->quotient != LOOM_VALUE_ID_INVALID) {
+    loom_value_id_t quotient_result = quotient;
+    if (plan->quotient_result_unit_count == 1) {
+      const loom_type_t word_type =
+          loom_low_register_carrier_type_with_unit_count(pair_type, 1);
+      IREE_RETURN_IF_ERROR(loom_amdgpu_emit_low_slice(
+          context, source_op, quotient, 0, word_type, &quotient_result));
+    }
+    IREE_RETURN_IF_ERROR(
+        loom_low_lower_bind_value(context, plan->quotient, quotient_result));
+  }
+  if (plan->remainder != LOOM_VALUE_ID_INVALID) {
     const loom_type_t word_type =
         loom_low_register_carrier_type_with_unit_count(pair_type, 1);
-    loom_type_t divisor_type = pair_type;
-    if (domain == LOOM_AMDGPU_I64_DIVISION_DOMAIN_UNSIGNED &&
-        plan->quotient_unit_count == 1) {
-      divisor_type = word_type;
-      IREE_RETURN_IF_ERROR(loom_amdgpu_emit_low_slice(
-          context, source_op, quotient, 0, divisor_type, &quotient));
+    loom_value_id_t remainder = LOOM_VALUE_ID_INVALID;
+    if (plan->divisor == 1 ||
+        (domain == LOOM_AMDGPU_WIDE_DIVISION_DOMAIN_SIGNED &&
+         (int64_t)plan->divisor == -1)) {
+      IREE_RETURN_IF_ERROR(loom_amdgpu_division_emit_constant(
+          context, source_op, 0, pair_type, &remainder));
+    } else if (domain == LOOM_AMDGPU_WIDE_DIVISION_DOMAIN_UNSIGNED &&
+               plan->magic.unsigned_value.multiplier == 0) {
+      remainder = numerator;
+    } else {
+      loom_type_t divisor_type = pair_type;
+      loom_value_id_t product_quotient = quotient;
+      if (domain == LOOM_AMDGPU_WIDE_DIVISION_DOMAIN_UNSIGNED &&
+          plan->quotient_unit_count == 1) {
+        divisor_type = word_type;
+        IREE_RETURN_IF_ERROR(loom_amdgpu_emit_low_slice(
+            context, source_op, quotient, 0, divisor_type, &product_quotient));
+      }
+      loom_value_id_t divisor;
+      IREE_RETURN_IF_ERROR(loom_amdgpu_division_emit_constant(
+          context, source_op, plan->divisor,
+          plan->divisor <= UINT32_MAX ? word_type : pair_type, &divisor));
+      loom_value_id_t product;
+      IREE_RETURN_IF_ERROR(loom_amdgpu_emit_i64_mul_lo(
+          context, source_op, product_quotient, divisor, &product));
+      IREE_RETURN_IF_ERROR(loom_amdgpu_division_emit_subtract(
+          context, source_op, numerator, product, &remainder));
     }
-    loom_value_id_t divisor;
-    IREE_RETURN_IF_ERROR(loom_amdgpu_division_emit_constant(
-        context, source_op, plan->divisor,
-        plan->divisor <= UINT32_MAX ? word_type : pair_type, &divisor));
-    loom_value_id_t product;
-    IREE_RETURN_IF_ERROR(loom_amdgpu_emit_i64_mul_lo(
-        context, source_op, quotient, divisor, &product));
-    IREE_RETURN_IF_ERROR(loom_amdgpu_division_emit_subtract(
-        context, source_op, numerator, product, &quotient));
+    if (plan->remainder_result_unit_count == 1) {
+      IREE_RETURN_IF_ERROR(loom_amdgpu_emit_low_slice(
+          context, source_op, remainder, 0, word_type, &remainder));
+    }
+    IREE_RETURN_IF_ERROR(
+        loom_low_lower_bind_value(context, plan->remainder, remainder));
   }
-  return loom_low_lower_bind_value(context, plan->result, quotient);
+  return iree_ok_status();
 }

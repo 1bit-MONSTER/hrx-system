@@ -73,6 +73,16 @@ static bool loom_index_value_facts_are_non_negative_in_signed_target_carrier(
              loom_type_element_type(type), facts);
 }
 
+static bool loom_index_value_facts_are_non_negative_in_unsigned_target_carrier(
+    loom_rewriter_t* rewriter, loom_value_id_t value) {
+  loom_value_facts_t facts = loom_rewriter_value_facts(rewriter, value);
+  loom_type_t type = loom_module_value_type(rewriter->module, value);
+  return loom_type_is_scalar(type) && loom_value_facts_is_non_negative(facts) &&
+         loom_index_value_facts_fit_unsigned_target_carrier(
+             loom_index_rewriter_fact_context(rewriter),
+             loom_type_element_type(type), facts);
+}
+
 static iree_status_t loom_index_replace_single_result_with_value(
     loom_op_t* op, loom_rewriter_t* rewriter, loom_value_id_t replacement) {
   return loom_rewriter_replace_all_uses_and_erase(rewriter, op, &replacement,
@@ -1075,7 +1085,8 @@ iree_status_t loom_index_div_canonicalize(loom_op_t* op,
     }
   }
   if (iree_math_is_power_of_two_i64(divisor) &&
-      loom_index_value_facts_are_non_negative(rewriter, lhs)) {
+      loom_index_value_facts_are_non_negative_in_unsigned_target_carrier(
+          rewriter, lhs)) {
     return loom_index_replace_single_result_with_binary_constant_op(
         op, rewriter, LOOM_OP_INDEX_SHRUI, lhs,
         iree_math_floor_log2_u64(divisor), rhs);

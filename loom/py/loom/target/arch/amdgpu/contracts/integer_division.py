@@ -12,6 +12,7 @@ from loom.dialect.index import defs as index
 from loom.dialect.scalar import arithmetic as scalar_arithmetic
 from loom.dsl import Op
 from loom.target.arch.amdgpu.contracts.materializers import (
+    ADDRESS_SGPR_MATERIALIZER,
     ADDRESS_VGPR_MATERIALIZER,
     I32_VGPR_MATERIALIZER,
 )
@@ -62,6 +63,14 @@ def _materialized_operand(field: str, materializer: ValueMaterializer) -> ValueR
     return ValueRef.operand(field, materializer=materializer.name)
 
 
+def _sgpr_operand(field: str, type_pattern: TypePattern) -> ValueRef:
+    return (
+        _materialized_operand(field, ADDRESS_SGPR_MATERIALIZER)
+        if type_pattern == _INDEX
+        else ValueRef.operand(field)
+    )
+
+
 def _descriptor_available_guards(*descriptors: Descriptor) -> tuple[Guard, ...]:
     unique = {descriptor.key: descriptor for descriptor in descriptors}
     return tuple(
@@ -92,9 +101,11 @@ def _magic_division_guards(
             ),
         )
     if register_class == "amdgpu.sgpr":
-        value_guards = (
-            Guard.low_value_register_class("lhs", "amdgpu.sgpr"),
-            Guard.low_value_register_class("rhs", "amdgpu.sgpr"),
+        value_guards = tuple(
+            Guard.value_materializable(field, ADDRESS_SGPR_MATERIALIZER.name)
+            if type_pattern == _INDEX
+            else Guard.low_value_register_class(field, "amdgpu.sgpr")
+            for field in ("lhs", "rhs")
         )
     else:
         materializer = (
@@ -126,6 +137,7 @@ def _magic_division_guards(
 def _magic_division_sgpr_emits(
     descriptor_set: DescriptorSet,
     *,
+    type_pattern: TypePattern,
     kind: UnsignedDivisorMagicKind,
     result: ValueRef,
 ) -> tuple[EmitDescriptorOp, ...]:
@@ -150,7 +162,10 @@ def _magic_division_sgpr_emits(
         ),
         EmitDescriptorOp(
             descriptor=multiply_hi,
-            operands={"lhs": _DIRECT_LHS, "rhs": ValueRef.temporary("magic")},
+            operands={
+                "lhs": _sgpr_operand("lhs", type_pattern),
+                "rhs": ValueRef.temporary("magic"),
+            },
             results={
                 "dst": ValueRef.temporary("quotient") if kind.has_shift else result
             },
@@ -163,7 +178,7 @@ def _magic_division_sgpr_emits(
                 EmitDescriptorOp(
                     descriptor=subtract,
                     operands={
-                        "lhs": _DIRECT_LHS,
+                        "lhs": _sgpr_operand("lhs", type_pattern),
                         "rhs": ValueRef.temporary("quotient"),
                     },
                     results={"dst": ValueRef.temporary("npq")},
@@ -372,7 +387,12 @@ def _magic_division_sgpr_rule(
                 *_magic_division_sgpr_descriptors(descriptor_set, kind=kind)
             ),
         ),
-        emit=_magic_division_sgpr_emits(descriptor_set, kind=kind, result=_RESULT),
+        emit=_magic_division_sgpr_emits(
+            descriptor_set,
+            type_pattern=type_pattern,
+            kind=kind,
+            result=_RESULT,
+        ),
     )
 
 
@@ -433,6 +453,7 @@ def _magic_remainder_sgpr_rule(
         emit=(
             *_magic_division_sgpr_emits(
                 descriptor_set,
+                type_pattern=type_pattern,
                 kind=kind,
                 result=ValueRef.temporary("quotient_final"),
             ),
@@ -440,14 +461,17 @@ def _magic_remainder_sgpr_rule(
                 descriptor=multiply_lo,
                 operands={
                     "lhs": ValueRef.temporary("quotient_final"),
-                    "rhs": _DIRECT_RHS,
+                    "rhs": _sgpr_operand("rhs", type_pattern),
                 },
                 results={"dst": ValueRef.temporary("product")},
                 result_types={"dst": _RESULT},
             ),
             EmitDescriptorOp(
                 descriptor=subtract,
-                operands={"lhs": _DIRECT_LHS, "rhs": ValueRef.temporary("product")},
+                operands={
+                    "lhs": _sgpr_operand("lhs", type_pattern),
+                    "rhs": ValueRef.temporary("product"),
+                },
                 results={"dst": _RESULT},
             ),
         ),
@@ -983,10 +1007,20 @@ def _dynamic_division_rule(
             )
         )
     if register_class == "amdgpu.sgpr":
-        guards.extend(
-            Guard.low_value_register_class(field, register_class)
-            for field in value_fields
-        )
+        if type_pattern == _INDEX:
+            guards.extend(
+                Guard.value_materializable(field, ADDRESS_SGPR_MATERIALIZER.name)
+                for field in ("lhs", "rhs")
+            )
+            guards.extend(
+                Guard.low_value_register_class(field, register_class)
+                for field in result_fields
+            )
+        else:
+            guards.extend(
+                Guard.low_value_register_class(field, register_class)
+                for field in value_fields
+            )
     else:
         materializer = (
             ADDRESS_VGPR_MATERIALIZER

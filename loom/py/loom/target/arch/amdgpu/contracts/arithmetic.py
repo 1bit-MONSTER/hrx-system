@@ -22,6 +22,7 @@ from loom.dialect.vector import defs as vector
 from loom.dsl import Op
 from loom.target.arch.amdgpu.contracts.bfloat import bfloat_narrow_rules
 from loom.target.arch.amdgpu.contracts.materializers import (
+    ADDRESS_SGPR_MATERIALIZER,
     ADDRESS_VGPR_MATERIALIZER,
     F32_VGPR_MATERIALIZER,
     I1_NATIVE_MASK_MATERIALIZER,
@@ -3228,21 +3229,29 @@ def _index_madd_power_of_two_rule(
         else "amdgpu.v_lshlrev_b32.src0_inline"
     )
     add = _descriptor("amdgpu.v_add_u32.lit" if literal_addend else "amdgpu.v_add_u32")
-    value_guard = (
-        Guard.low_value_register_class(
-            value_source,
-            "amdgpu.sgpr",
-            diagnostic=_ADDRESS_SGPR_DIAGNOSTIC,
+    value_guards = (
+        (
+            Guard.low_value_register_class(
+                value_source,
+                "amdgpu.sgpr",
+                diagnostic=_ADDRESS_SGPR_DIAGNOSTIC,
+            ),
+            Guard.value_materializable(
+                value_source,
+                ADDRESS_SGPR_MATERIALIZER.name,
+            ),
         )
         if preserve_value_register
-        else Guard.value_materializable(
-            value_source,
-            ADDRESS_VGPR_MATERIALIZER.name,
-            diagnostic=_ADDRESS_VGPR_DIAGNOSTIC,
+        else (
+            Guard.value_materializable(
+                value_source,
+                ADDRESS_VGPR_MATERIALIZER.name,
+                diagnostic=_ADDRESS_VGPR_DIAGNOSTIC,
+            ),
         )
     )
     value_operand = (
-        ValueRef.operand(value_source)
+        _materialized_operand(value_source, ADDRESS_SGPR_MATERIALIZER)
         if preserve_value_register
         else _materialized_operand(value_source, ADDRESS_VGPR_MATERIALIZER)
     )
@@ -3302,7 +3311,7 @@ def _index_madd_power_of_two_rule(
                 32,
                 diagnostic=_ADDRESS_U32_DIAGNOSTIC,
             ),
-            value_guard,
+            *value_guards,
             *addend_guards,
             Guard.descriptor_available(shift),
             Guard.descriptor_available(add),
@@ -3330,21 +3339,29 @@ def _index_madd_power_of_two_lshl_add_rule(
     preserve_value_register: bool,
 ) -> DescriptorRule:
     descriptor = _descriptor("amdgpu.v_lshl_add_u32.shift_imm")
-    value_guard = (
-        Guard.low_value_register_class(
-            value_source,
-            "amdgpu.sgpr",
-            diagnostic=_ADDRESS_SGPR_DIAGNOSTIC,
+    value_guards = (
+        (
+            Guard.low_value_register_class(
+                value_source,
+                "amdgpu.sgpr",
+                diagnostic=_ADDRESS_SGPR_DIAGNOSTIC,
+            ),
+            Guard.value_materializable(
+                value_source,
+                ADDRESS_SGPR_MATERIALIZER.name,
+            ),
         )
         if preserve_value_register
-        else Guard.value_materializable(
-            value_source,
-            ADDRESS_VGPR_MATERIALIZER.name,
-            diagnostic=_ADDRESS_VGPR_DIAGNOSTIC,
+        else (
+            Guard.value_materializable(
+                value_source,
+                ADDRESS_VGPR_MATERIALIZER.name,
+                diagnostic=_ADDRESS_VGPR_DIAGNOSTIC,
+            ),
         )
     )
     value_operand = (
-        ValueRef.operand(value_source)
+        _materialized_operand(value_source, ADDRESS_SGPR_MATERIALIZER)
         if preserve_value_register
         else _materialized_operand(value_source, ADDRESS_VGPR_MATERIALIZER)
     )
@@ -3367,7 +3384,7 @@ def _index_madd_power_of_two_lshl_add_rule(
                 32,
                 diagnostic=_ADDRESS_U32_DIAGNOSTIC,
             ),
-            value_guard,
+            *value_guards,
             Guard.value_materializable(
                 "c",
                 ADDRESS_VGPR_MATERIALIZER.name,
@@ -3441,22 +3458,30 @@ def _index_madd_u24_mad_rule(
 ) -> DescriptorRule:
     descriptor = _descriptor("amdgpu.v_mad_u32_u24")
 
-    def multiply_guard(field: str) -> Guard:
+    def multiply_guards(field: str) -> tuple[Guard, ...]:
         if preserved_source == field:
-            return Guard.low_value_register_class(
-                field,
-                "amdgpu.sgpr",
-                diagnostic=_ADDRESS_SGPR_DIAGNOSTIC,
+            return (
+                Guard.low_value_register_class(
+                    field,
+                    "amdgpu.sgpr",
+                    diagnostic=_ADDRESS_SGPR_DIAGNOSTIC,
+                ),
+                Guard.value_materializable(
+                    field,
+                    ADDRESS_SGPR_MATERIALIZER.name,
+                ),
             )
-        return Guard.value_materializable(
-            field,
-            ADDRESS_VGPR_MATERIALIZER.name,
-            diagnostic=_ADDRESS_VGPR_DIAGNOSTIC,
+        return (
+            Guard.value_materializable(
+                field,
+                ADDRESS_VGPR_MATERIALIZER.name,
+                diagnostic=_ADDRESS_VGPR_DIAGNOSTIC,
+            ),
         )
 
     def multiply_operand(field: str) -> ValueRef:
         if preserved_source == field:
-            return ValueRef.operand(field)
+            return _materialized_operand(field, ADDRESS_SGPR_MATERIALIZER)
         return _materialized_operand(field, ADDRESS_VGPR_MATERIALIZER)
 
     return DescriptorRule(
@@ -3479,8 +3504,8 @@ def _index_madd_u24_mad_rule(
                 24,
                 diagnostic=_ADDRESS_U24_DIAGNOSTIC,
             ),
-            multiply_guard("a"),
-            multiply_guard("b"),
+            *multiply_guards("a"),
+            *multiply_guards("b"),
             Guard.value_materializable(
                 "c",
                 ADDRESS_VGPR_MATERIALIZER.name,
@@ -3515,29 +3540,39 @@ def _index_madd_u24_mad_literal_rule(
     }
     descriptor = descriptor_by_source[literal_source]
 
-    def multiply_guard(field: str) -> Guard:
+    def multiply_guards(field: str) -> tuple[Guard, ...]:
         if literal_source == field:
-            return Guard.value_exact_i64(
-                field,
-                diagnostic=_ADDRESS_EXACT_DIAGNOSTIC,
+            return (
+                Guard.value_exact_i64(
+                    field,
+                    diagnostic=_ADDRESS_EXACT_DIAGNOSTIC,
+                ),
             )
         if preserved_source == field:
-            return Guard.low_value_register_class(
-                field,
-                "amdgpu.sgpr",
-                diagnostic=_ADDRESS_SGPR_DIAGNOSTIC,
+            return (
+                Guard.low_value_register_class(
+                    field,
+                    "amdgpu.sgpr",
+                    diagnostic=_ADDRESS_SGPR_DIAGNOSTIC,
+                ),
+                Guard.value_materializable(
+                    field,
+                    ADDRESS_SGPR_MATERIALIZER.name,
+                ),
             )
-        return Guard.value_materializable(
-            field,
-            ADDRESS_VGPR_MATERIALIZER.name,
-            diagnostic=_ADDRESS_VGPR_DIAGNOSTIC,
+        return (
+            Guard.value_materializable(
+                field,
+                ADDRESS_VGPR_MATERIALIZER.name,
+                diagnostic=_ADDRESS_VGPR_DIAGNOSTIC,
+            ),
         )
 
     def multiply_operand(field: str) -> ValueRef | None:
         if literal_source == field:
             return None
         if preserved_source == field:
-            return ValueRef.operand(field)
+            return _materialized_operand(field, ADDRESS_SGPR_MATERIALIZER)
         return _materialized_operand(field, ADDRESS_VGPR_MATERIALIZER)
 
     def addend_guard() -> Guard:
@@ -3587,8 +3622,8 @@ def _index_madd_u24_mad_literal_rule(
                 24,
                 diagnostic=_ADDRESS_U24_DIAGNOSTIC,
             ),
-            multiply_guard("a"),
-            multiply_guard("b"),
+            *multiply_guards("a"),
+            *multiply_guards("b"),
             addend_guard(),
             *extra_literal_guards,
             Guard.descriptor_available(descriptor),
@@ -5373,6 +5408,7 @@ AMDGPU_ARITHMETIC_CONTRACT_FRAGMENT = ContractFragment(
     public_header="loom/target/arch/amdgpu/contracts/arithmetic.h",
     c_source_includes=("loom/target/arch/amdgpu/lower/kinds.h",),
     materializers=(
+        ADDRESS_SGPR_MATERIALIZER,
         ADDRESS_VGPR_MATERIALIZER,
         F32_VGPR_MATERIALIZER,
         I1_NATIVE_MASK_MATERIALIZER,

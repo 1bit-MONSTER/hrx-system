@@ -276,12 +276,22 @@ iree_status_t loom_amdgpu_value_can_materialize_as_sgpr_address(
   loom_type_t low_type = loom_type_none();
   IREE_RETURN_IF_ERROR(
       loom_low_lower_map_value(context, source_op, value_id, &low_type));
-  if (!loom_amdgpu_low_type_is_register_class(context, low_type,
-                                              LOOM_AMDGPU_REG_CLASS_ID_SGPR)) {
+  const uint32_t unit_count = loom_low_register_type_unit_count(low_type);
+  if (unit_count != 1 && unit_count != 2) {
     return iree_ok_status();
   }
-  const uint32_t unit_count = loom_low_register_type_unit_count(low_type);
-  *out_can_materialize = unit_count == 1 || unit_count == 2;
+  if (loom_amdgpu_low_type_is_register_class(context, low_type,
+                                             LOOM_AMDGPU_REG_CLASS_ID_SGPR)) {
+    *out_can_materialize = true;
+    return iree_ok_status();
+  }
+  if (!loom_amdgpu_low_type_is_register_class(context, low_type,
+                                              LOOM_AMDGPU_REG_CLASS_ID_VGPR)) {
+    return iree_ok_status();
+  }
+  *out_can_materialize =
+      loom_value_facts_is_subgroup_uniform(loom_value_fact_table_lookup(
+          loom_low_lower_context_fact_table(context), value_id));
   return iree_ok_status();
 }
 
@@ -486,8 +496,8 @@ iree_status_t loom_amdgpu_lookup_or_materialize_sgpr_address(
         context, source_op, source_value, LOOM_AMDGPU_REG_CLASS_ID_SGPR,
         out_low_value);
   }
-  return loom_amdgpu_lookup_address_register(context, source_op, source_value,
-                                             out_low_value);
+  return loom_amdgpu_materialize_uniform_sgpr_address(
+      context, source_op, source_value, out_low_value);
 }
 
 // Materializes a subgroup-uniform scalar stored in one or two VGPRs as an
