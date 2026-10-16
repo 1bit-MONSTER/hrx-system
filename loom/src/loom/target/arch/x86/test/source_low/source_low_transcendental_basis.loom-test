@@ -1,0 +1,51 @@
+// RUN: with-checks pass legalize-math
+
+// Approximate exp2 uses polynomial evaluation and explicit range selection.
+x86.target<avx2> @target
+
+func.def target(@target) @approximate_exp2(%input: f32) -> (f32) {
+  %result = scalar.exp2f<reassoc|nnan|ninf|nsz|arcp|contract|afn> %input : f32
+  func.return %result : f32
+}
+
+// ----
+CHECK: * = scalar.fmaf<reassoc|nnan|ninf|nsz|arcp|contract|afn> *, *, * : f32
+CHECK: * = scalar.cmpf<reassoc|nnan|ninf|nsz|arcp|contract|afn> olt, *, * : f32
+CHECK: * = scalar.cmpf<reassoc|nnan|ninf|nsz|arcp|contract|afn> ogt, *, * : f32
+CHECK-NOT: scalar.exp2f*
+
+// ====
+// RUN: with-checks pass legalize-math
+
+// Sine turns uses vector range reduction, polynomial evaluation, and an exact
+// exceptional-value shell.
+x86.target<avx2> @target
+
+func.def target(@target) @approximate_sine_turns(%input: vector<8xf32>) -> (vector<8xf32>) {
+  %result = vector.sinturnsf<afn> %input : vector<8xf32>
+  func.return %result : vector<8xf32>
+}
+
+// ----
+CHECK: * = vector.fmaf<afn> *, *, * : vector<8xf32>
+CHECK: * = vector.cmpi uge, *, * : vector<8xi32> -> vector<8xi1>
+CHECK: * = vector.select *, *, * : vector<8xf32>
+CHECK-NOT: vector.sinturnsf*
+
+// ====
+// RUN: with-checks pass legalize-math
+
+// Cosine turns shares the vector polynomial basis while retaining its distinct
+// quarter-turn phase and cardinal handling.
+x86.target<avx512> @target
+
+func.def target(@target) @approximate_cosine_turns(%input: vector<16xf32>) -> (vector<16xf32>) {
+  %result = vector.costurnsf<afn> %input : vector<16xf32>
+  func.return %result : vector<16xf32>
+}
+
+// ----
+CHECK: * = vector.absf<afn> * : vector<16xf32>
+CHECK: * = vector.fmaf<afn> *, *, * : vector<16xf32>
+CHECK: * = vector.select *, *, * : vector<16xf32>
+CHECK-NOT: vector.costurnsf*
