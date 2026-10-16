@@ -101,6 +101,7 @@ class TranscriptionClientTest(unittest.TestCase):
                 directory = Path(temporary)
                 declaration = {
                     "name": "recognition",
+                    "admission": "drained",
                     "base_directory": str(PACKAGE),
                     "definition": {
                         "kind": "recognition",
@@ -127,9 +128,55 @@ class TranscriptionClientTest(unittest.TestCase):
                 ) as (process, bound):
                     self.assertIsNotNone(bound, log.read_text())
                     address = urlsplit(f"http://{bound}")
+                    selector = json.dumps({"model": "recognition"})
+                    primary = json.dumps(
+                        {"model": "recognition", "component": "primary"}
+                    )
+                    state = control(
+                        address, "POST", "/v1/models/pin", 200, body=selector
+                    )["loom"]
+                    self.assertEqual(state["registration"], "registered")
+                    self.assertEqual(set(state["parameters"]), {"primary"})
+                    self.assertTrue(state["parameters"]["primary"]["pinned"])
+                    self.assertNotIn("active", state["parameters"]["primary"])
+                    self.assertNotIn("compilation", state)
+                    for operation in ("pin", "unpin", "activate", "deactivate"):
+                        control(
+                            address,
+                            "POST",
+                            f"/v1/models/{operation}",
+                            404,
+                            body=json.dumps(
+                                {"model": "recognition", "component": "image"}
+                            ),
+                        )
+
+                    # Explicit warmup prepares this primary component without
+                    # opening admission or requiring an inference request.
+                    control(address, "POST", "/v1/models/activate", 202, body=primary)
+                    while True:
+                        state = control(address, "GET", "/v1/status", 200)["data"][0][
+                            "loom"
+                        ]
+                        self.assertNotIn("error", state)
+                        if state["parameter_operation"] == "idle":
+                            break
+                    self.assertEqual(state["registration"], "ready")
+                    self.assertEqual(state["status"]["admission"], "drained")
+                    self.assertTrue(state["parameters"]["primary"]["pinned"])
+                    self.assertTrue(state["parameters"]["primary"]["active"])
+                    state = control(
+                        address, "POST", "/v1/models/unpin", 200, body=primary
+                    )["loom"]
+                    self.assertFalse(state["parameters"]["primary"]["pinned"])
+                    # Fixed backing cannot be released through parameter trim.
+                    control(address, "POST", "/v1/models/deactivate", 409, body=primary)
+                    control(address, "POST", "/v1/models/undrain", 200, body=selector)
                     wait_status(address, model="recognition", phase="idle")
                     model = control(address, "GET", "/v1/models", 200)["data"][0]
                     self.assertEqual(model["id"], "recognition")
+                    self.assertEqual(model["input_modalities"], ["audio"])
+                    self.assertEqual(model["output_modalities"], ["text"])
 
                     # Different durations and output forms cross conversion,
                     # input-credit, and three-frame source work boundaries.

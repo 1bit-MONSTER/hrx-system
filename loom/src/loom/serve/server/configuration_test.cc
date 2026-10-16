@@ -178,7 +178,8 @@ TEST_F(ConfigurationTest,
     EXPECT_EQ(model_.text.image.prepare.data, nullptr);
     EXPECT_EQ(model_.sources.values, nullptr);
   }
-  for (const char* kind : {"image", "embedding", "decision"}) {
+  for (const char* kind :
+       {"image", "embedding", "decision", "speech", "recognition"}) {
     IREE_EXPECT_STATUS_IS(
         IREE_STATUS_INVALID_ARGUMENT,
         Parse(Document(
