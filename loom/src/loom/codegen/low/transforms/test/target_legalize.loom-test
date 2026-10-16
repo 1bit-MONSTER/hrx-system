@@ -468,6 +468,28 @@ func.def target(@test_target) @scalarizes_vector_shifts_to_structural_lanes(%lhs
 
 test.target<low_core> @test_target
 
+// Fallback linearization seeds from the dominant SSA value even when lane zero
+// differs, retaining a compact splat-and-patch construction.
+func.def target(@test_target) @linearizes_repeated_elements(%fill: i32, %left: i32, %right: i32) -> (vector<8xi32>) {
+  %result = vector.from_elements %left, %fill, %right, %fill, %fill, %fill, %fill, %fill : vector<8xi32>
+  func.return %result : vector<8xi32>
+}
+
+// ----
+test.target<low_core> @test_target
+
+func.def target(@test_target) @linearizes_repeated_elements(%fill: i32, %left: i32, %right: i32) -> (vector<8xi32>) {
+  %5 = vector.splat %fill : vector<8xi32>
+  %6 = vector.insert %left into %5[0] : i32, vector<8xi32>
+  %result = vector.insert %right into %6[2] : i32, vector<8xi32>
+  func.return %result : vector<8xi32>
+}
+
+// ====
+// RUN: pass target-legalize{mode=eager,policy=reference-only},dce
+
+test.target<low_core> @test_target
+
 func.def target(@test_target) @preserves_multidimensional_constructor(%e0: i32, %e1: i32, %e2: i32, %e3: i32) -> (vector<2x2xi32>) {
   %result = vector.from_elements %e0, %e1, %e2, %e3 : vector<2x2xi32>
   func.return %result : vector<2x2xi32>

@@ -70,8 +70,8 @@ func.def @byte_lanes(%input: vector<16xf8E4M3>, %replacement: f8E4M3, %condition
 // ----
 low.func.def target<wasm.core.simd128> abi(wasm_function) @byte_lanes(%input: reg<wasm.v128>, %replacement: reg<wasm.i32>, %condition: reg<wasm.i32>) -> (reg<wasm.v128>, reg<wasm.i32>) asm {
   %last = i8x16.extract_lane_u %input, 15
-  %broadcast = i8x16.splat %last
-  %updated = i8x16.replace_lane %broadcast, %replacement, 0
+  %20 = i8x16.splat %last
+  %updated = i8x16.replace_lane %20, %replacement, 0
   %reversed = i8x16.shuffle %input, %input, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0
   %bits = v128.select %reversed, %updated, %condition
   return %bits, %last
@@ -92,8 +92,8 @@ func.def @word_lanes(%input: vector<8xbf16>, %replacement: bf16, %condition: i1)
 // ----
 low.func.def target<wasm.core.simd128> abi(wasm_function) @word_lanes(%input: reg<wasm.v128>, %replacement: reg<wasm.i32>, %condition: reg<wasm.i32>) -> (reg<wasm.v128>, reg<wasm.i32>) asm {
   %last = i16x8.extract_lane_u %input, 7
-  %broadcast = i16x8.splat %last
-  %updated = i16x8.replace_lane %broadcast, %replacement, 0
+  %20 = i16x8.splat %last
+  %updated = i16x8.replace_lane %20, %replacement, 0
   %reversed = i8x16.shuffle %input, %input, 14, 15, 12, 13, 10, 11, 8, 9, 6, 7, 4, 5, 2, 3, 0, 1
   %bits = v128.select %reversed, %updated, %condition
   return %bits, %last

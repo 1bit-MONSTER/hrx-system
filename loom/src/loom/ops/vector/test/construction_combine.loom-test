@@ -109,3 +109,98 @@ func.def @reordered_conversions(%values: vector<2xf32>) -> (vector<2xi32>) {
   %result = vector.from_elements %converted_left, %converted_right : vector<2xi32>
   func.return %result : vector<2xi32>
 }
+
+// ====
+
+// A terminal chain that overwrites every lane no longer depends on its base.
+// Writes may arrive out of lane order, and the outermost duplicate wins.
+func.def @complete_insert_chain(%base: vector<4xi32>, %a: i32, %b: i32, %old_c: i32, %c: i32, %d: i32) -> (vector<4xi32>) {
+  %with_old_c = vector.insert %old_c into %base[2] : i32, vector<4xi32>
+  %with_a = vector.insert %a into %with_old_c[0] : i32, vector<4xi32>
+  %with_d = vector.insert %d into %with_a[3] : i32, vector<4xi32>
+  %with_c = vector.insert %c into %with_d[2] : i32, vector<4xi32>
+  %result = vector.insert %b into %with_c[1] : i32, vector<4xi32>
+  func.return %result : vector<4xi32>
+}
+
+// ----
+func.def @complete_insert_chain(%base: vector<4xi32>, %a: i32, %b: i32, %old_c: i32, %c: i32, %d: i32) -> (vector<4xi32>) {
+  %result = vector.from_elements %a, %b, %c, %d : vector<4xi32>
+  func.return %result : vector<4xi32>
+}
+
+// ====
+
+// Unwritten lanes retain the scalar value carried by a splat base.
+func.def @insert_chain_over_splat(%fill: f32, %left: f32, %right: f32) -> (vector<4xf32>) {
+  %base = vector.splat %fill : vector<4xf32>
+  %with_right = vector.insert %right into %base[3] : f32, vector<4xf32>
+  %result = vector.insert %left into %with_right[1] : f32, vector<4xf32>
+  func.return %result : vector<4xf32>
+}
+
+// ----
+func.def @insert_chain_over_splat(%fill: f32, %left: f32, %right: f32) -> (vector<4xf32>) {
+  %result = vector.from_elements %fill, %left, %fill, %right : vector<4xf32>
+  func.return %result : vector<4xf32>
+}
+
+// ====
+
+// Unwritten lanes retain their distinct values from a from-elements base.
+func.def @insert_chain_over_elements(%a: i16, %b: i16, %c: i16, %d: i16, %left: i16, %right: i16) -> (vector<4xi16>) {
+  %base = vector.from_elements %a, %b, %c, %d : vector<4xi16>
+  %with_right = vector.insert %right into %base[2] : i16, vector<4xi16>
+  %result = vector.insert %left into %with_right[0] : i16, vector<4xi16>
+  func.return %result : vector<4xi16>
+}
+
+// ----
+func.def @insert_chain_over_elements(%a: i16, %b: i16, %c: i16, %d: i16, %left: i16, %right: i16) -> (vector<4xi16>) {
+  %result = vector.from_elements %left, %b, %right, %d : vector<4xi16>
+  func.return %result : vector<4xi16>
+}
+
+// ====
+
+// A side use makes an intermediate construction material. Both it and the
+// terminal construction are recovered without reopening scalar insert chains.
+func.def @materialized_insert_prefix(%fill: i8, %a: i8, %b: i8, %c: i8) -> (vector<4xi8>, vector<4xi8>) {
+  %base = vector.splat %fill : vector<4xi8>
+  %with_a = vector.insert %a into %base[3] : i8, vector<4xi8>
+  %prefix = vector.insert %b into %with_a[1] : i8, vector<4xi8>
+  %result = vector.insert %c into %prefix[0] : i8, vector<4xi8>
+  func.return %prefix, %result : vector<4xi8>, vector<4xi8>
+}
+
+// ----
+func.def @materialized_insert_prefix(%fill: i8, %a: i8, %b: i8, %c: i8) -> (vector<4xi8>, vector<4xi8>) {
+  %prefix = vector.from_elements %fill, %b, %fill, %a : vector<4xi8>
+  %result = vector.from_elements %c, %b, %fill, %a : vector<4xi8>
+  func.return %prefix, %result : vector<4xi8>, vector<4xi8>
+}
+
+// ====
+
+// A partial update of an arbitrary base remains a mutation, not a constructor.
+func.def @partial_arbitrary_base(%base: vector<4xi32>, %value: i32) -> (vector<4xi32>) {
+  %result = vector.insert %value into %base[2] : i32, vector<4xi32>
+  func.return %result : vector<4xi32>
+}
+
+// ====
+
+// Dynamic lane selection remains a dynamic insertion.
+func.def @dynamic_insert(%fill: i32, %value: i32, %lane: index) -> (vector<4xi32>) {
+  %base = vector.splat %fill : vector<4xi32>
+  %result = vector.insert %value into %base[%lane] : i32, vector<4xi32>
+  func.return %result : vector<4xi32>
+}
+
+// ====
+
+// Subvector insertion is a separate aggregate operation.
+func.def @subvector_insert(%base: vector<2x2xi32>, %row: vector<2xi32>) -> (vector<2x2xi32>) {
+  %result = vector.insert %row into %base[1] : vector<2xi32>, vector<2x2xi32>
+  func.return %result : vector<2x2xi32>
+}

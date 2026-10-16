@@ -298,6 +298,14 @@ static iree_status_t loom_vector_from_elements_combine_lanes_pattern(
   return loom_vector_from_elements_combine_lanes(op, rewriter, out_changed);
 }
 
+static iree_status_t loom_vector_insert_combine_elements_pattern(
+    const loom_rewrite_pattern_t* pattern, void* context, loom_op_t* op,
+    loom_rewriter_t* rewriter, bool* out_changed) {
+  (void)pattern;
+  (void)context;
+  return loom_vector_insert_combine_elements(op, rewriter, out_changed);
+}
+
 static iree_status_t loom_vector_from_elements_to_table_lookup_pattern(
     const loom_rewrite_pattern_t* pattern, void* context, loom_op_t* op,
     loom_rewriter_t* rewriter, bool* out_changed) {
@@ -433,6 +441,10 @@ static const loom_rewrite_pattern_t kVectorSourceCombinePatterns[] = {
     {
         .root_kind = LOOM_OP_VECTOR_TRUNCI,
         .match_and_rewrite = loom_vector_trunci_chain_pattern,
+    },
+    {
+        .root_kind = LOOM_OP_VECTOR_INSERT,
+        .match_and_rewrite = loom_vector_insert_combine_elements_pattern,
     },
     {
         .root_kind = LOOM_OP_VECTOR_FROM_ELEMENTS,
