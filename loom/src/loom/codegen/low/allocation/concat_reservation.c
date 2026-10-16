@@ -378,19 +378,19 @@ loom_low_allocation_concat_reservation_find_location_for_source(
        result_interval->unit_count > capacity.max_units)) {
     return iree_ok_status();
   }
-  if (sources->fixed_constraint.kind ==
-      LOOM_LOW_ALLOCATION_CONCAT_FIXED_SOURCE_CONSTRAINT_INCOMPATIBLE) {
+  if (sources->source_constraint.kind ==
+      LOOM_LOW_ALLOCATION_CONCAT_SOURCE_CONSTRAINT_INCOMPATIBLE) {
     return iree_ok_status();
   }
   const bool has_required_result_location =
-      sources->fixed_constraint.kind ==
-      LOOM_LOW_ALLOCATION_CONCAT_FIXED_SOURCE_CONSTRAINT_LINEAR_LOCATION;
+      sources->source_constraint.kind ==
+      LOOM_LOW_ALLOCATION_CONCAT_SOURCE_CONSTRAINT_LINEAR_LOCATION;
   const uint32_t required_result_location_base =
-      sources->fixed_constraint.linear_result_location_base;
+      sources->source_constraint.linear_result_location_base;
   const bool must_verify_sibling_sources =
       inherits_result_location ||
-      sources->fixed_constraint.kind ==
-          LOOM_LOW_ALLOCATION_CONCAT_FIXED_SOURCE_CONSTRAINT_EXPLICIT_CANDIDATE;
+      sources->source_constraint.kind ==
+          LOOM_LOW_ALLOCATION_CONCAT_SOURCE_CONSTRAINT_EXPLICIT_CANDIDATE;
 
   const uint32_t result_alignment =
       loom_low_allocation_live_range_interval_alignment(

@@ -235,7 +235,7 @@ value %rhs: test.i32 -> target_id[1:1]
 value %keep: test.i32 -> target_id[2:1]
 value %part: test.i32 -> target_id[3:1]
 value %sum: test.i32 -> target_id[4:1]
-value %pair: test.i32 -> target_id[3:2]
+value %pair: test.i32 -> target_id[0:2]
 value %state: test.i32 -> target_id[0:2]
 
 // ====
