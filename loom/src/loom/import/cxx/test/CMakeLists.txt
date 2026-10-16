@@ -1132,6 +1132,15 @@ endif()
 if(LOOM_IMPORT_CXX)
 loom_test_module(
   NAME
+    barrier_helpers_module
+  SRCS
+    "barrier_helpers.cxx"
+)
+endif()
+
+if(LOOM_IMPORT_CXX)
+loom_test_module(
+  NAME
     borrowed_storage_module
   SRCS
     "borrowed_storage.cxx"

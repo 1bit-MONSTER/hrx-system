@@ -15,6 +15,7 @@ loom_check_test_suite(
   SRCS
     "kernel_async_control.loom-test"
     "kernel_async_memory.loom-test"
+    "kernel_barrier_control.loom-test"
     "kernel_resources.loom-test"
     "kernel_synchronization_legality.loom-test"
     "promote_private_fragments.loom-test"

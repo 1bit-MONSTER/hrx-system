@@ -42,8 +42,6 @@ loom_generated_cc_library(
     iree::base
     iree::base::internal
     iree::base::internal::arena
-    loom::analysis::control_uniformity
-    loom::analysis::symbol_facts
     loom::analysis::value_relation
     loom::error::emitter
     loom::error::error_defs

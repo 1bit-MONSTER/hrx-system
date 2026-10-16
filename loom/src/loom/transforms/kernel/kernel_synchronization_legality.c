@@ -15,6 +15,8 @@
 #define LOOM_KERNEL_SYNCHRONIZATION_LEGALITY_STATISTICS(V, statistics_type) \
   V(statistics_type, blocks_checked, "blocks-checked",                      \
     "Number of blocks checked for synchronization legality.")               \
+  V(statistics_type, barriers_checked, "barriers-checked",                  \
+    "Number of kernel barrier operations checked.")                         \
   V(statistics_type, groups_checked, "groups-checked",                      \
     "Number of kernel.async.group ops checked.")                            \
   V(statistics_type, waits_checked, "waits-checked",                        \
@@ -76,6 +78,7 @@ iree_status_t loom_kernel_synchronization_legality_run(
   loom_kernel_synchronization_legality_statistics_t* statistics =
       loom_kernel_synchronization_legality_statistics(pass);
   statistics->blocks_checked += (int64_t)result.blocks_checked;
+  statistics->barriers_checked += (int64_t)result.barriers_checked;
   statistics->groups_checked += (int64_t)result.groups_checked;
   statistics->waits_checked += (int64_t)result.waits_checked;
   return iree_ok_status();

@@ -139,6 +139,7 @@ loom_test(
         target_compatible_with = loom_config_compatible_with(["//loom/config/import:cxx"]),
     )
     for module in [
+        "barrier_helpers",
         "borrowed_storage",
         "packed_byte_arithmetic",
         "packed_float8_conversion",

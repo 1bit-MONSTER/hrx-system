@@ -139,6 +139,11 @@ static void loom_kernel_synchronization_legality_add_blocks_checked(
   state->result->blocks_checked += delta;
 }
 
+static void loom_kernel_synchronization_legality_add_barriers_checked(
+    loom_kernel_synchronization_legality_state_t* state, uint64_t delta) {
+  state->result->barriers_checked += delta;
+}
+
 static void loom_kernel_synchronization_legality_add_groups_checked(
     loom_kernel_synchronization_legality_state_t* state, uint64_t delta) {
   state->result->groups_checked += delta;
@@ -151,11 +156,26 @@ static void loom_kernel_synchronization_legality_add_waits_checked(
 
 static iree_string_view_t loom_kernel_synchronization_legality_op_name(
     const loom_module_t* module, const loom_op_t* op) {
+  if (!op) {
+    return IREE_SV("<null>");
+  }
   const loom_op_vtable_t* vtable = loom_op_vtable(module, op);
   if (!vtable) {
     return IREE_SV("<unknown>");
   }
   return loom_op_vtable_name(vtable);
+}
+
+static iree_string_view_t loom_kernel_synchronization_legality_value_name(
+    const loom_module_t* module, loom_value_id_t value_id) {
+  if (value_id == LOOM_VALUE_ID_INVALID) {
+    return IREE_SV("<unexposed>");
+  }
+  if (value_id >= module->values.count) {
+    return IREE_SV("<invalid>");
+  }
+  const iree_string_view_t name = loom_module_value_name(module, value_id);
+  return iree_string_view_is_empty(name) ? IREE_SV("<unnamed>") : name;
 }
 
 static iree_string_view_t loom_kernel_synchronization_legality_phase_name(
@@ -232,6 +252,63 @@ static iree_status_t loom_kernel_synchronization_legality_fail_memory_space(
   };
   return loom_kernel_synchronization_legality_emit(
       state, op, LOOM_ERR_TYPE_003, params, IREE_ARRAYSIZE(params));
+}
+
+static loom_value_fact_uniform_scope_t
+loom_kernel_synchronization_legality_barrier_uniform_scope(
+    const loom_kernel_synchronization_legality_state_t* state,
+    const loom_op_t* op) {
+  loom_atomic_scope_t scope = LOOM_ATOMIC_SCOPE_COUNT_;
+  switch (op->kind) {
+    case LOOM_OP_KERNEL_BARRIER:
+      scope = loom_kernel_barrier_scope(op);
+      break;
+    case LOOM_OP_KERNEL_BARRIER_ARRIVE:
+      scope = loom_kernel_barrier_arrive_scope(op);
+      break;
+    case LOOM_OP_KERNEL_BARRIER_WAIT: {
+      const loom_value_t* phase =
+          loom_module_value(state->module, loom_kernel_barrier_wait_phase(op));
+      scope = loom_kernel_barrier_arrive_scope(loom_value_def_op(phase));
+      break;
+    }
+    default:
+      return LOOM_VALUE_FACT_UNIFORM_SCOPE_NONE;
+  }
+  return scope == LOOM_ATOMIC_SCOPE_SUBGROUP
+             ? LOOM_VALUE_FACT_UNIFORM_SCOPE_SUBGROUP
+             : LOOM_VALUE_FACT_UNIFORM_SCOPE_WORKGROUP;
+}
+
+static iree_status_t loom_kernel_synchronization_legality_check_barrier_control(
+    loom_kernel_synchronization_legality_state_t* state, const loom_op_t* op) {
+  const loom_value_fact_uniform_scope_t required_scope =
+      loom_kernel_synchronization_legality_barrier_uniform_scope(state, op);
+  if (required_scope == LOOM_VALUE_FACT_UNIFORM_SCOPE_NONE) {
+    return iree_ok_status();
+  }
+
+  loom_kernel_synchronization_legality_add_barriers_checked(state, 1);
+  loom_control_uniformity_failure_t failure = {0};
+  if (loom_control_uniformity_prove_execution(&state->control_uniformity, op,
+                                              required_scope, &failure)) {
+    return iree_ok_status();
+  }
+
+  loom_diagnostic_param_t params[] = {
+      loom_param_string(
+          loom_kernel_synchronization_legality_op_name(state->module, op)),
+      loom_param_string(loom_control_uniformity_scope_name(required_scope)),
+      loom_param_string(loom_control_uniformity_source_name(failure.source)),
+      loom_param_string(loom_kernel_synchronization_legality_value_name(
+          state->module, failure.control_value)),
+      loom_param_string(loom_kernel_synchronization_legality_op_name(
+          state->module, failure.control_op)),
+      loom_param_string(loom_control_uniformity_fact_distribution_name(
+          failure.control_facts)),
+  };
+  return loom_kernel_synchronization_legality_emit(
+      state, op, LOOM_ERR_STRUCTURE_038, params, IREE_ARRAYSIZE(params));
 }
 
 // Endpoint placement is checked after composition and specialization, using the
@@ -879,12 +956,18 @@ static iree_status_t loom_kernel_synchronization_legality_check_block(
   if (block->op_count == 0) {
     return iree_ok_status();
   }
+  loom_kernel_synchronization_legality_add_blocks_checked(state, 1);
 
   iree_host_size_t group_capacity = 0;
   iree_host_size_t wait_capacity = 0;
   iree_host_size_t endpoint_capacity = 0;
   loom_op_t* op = NULL;
   loom_block_for_each_op(block, op) {
+    IREE_RETURN_IF_ERROR(
+        loom_kernel_synchronization_legality_check_barrier_control(state, op));
+    if (state->failed) {
+      return iree_ok_status();
+    }
     if (loom_kernel_async_group_isa(op)) {
       ++group_capacity;
     } else if (loom_kernel_async_wait_isa(op)) {
@@ -936,7 +1019,6 @@ static iree_status_t loom_kernel_synchronization_legality_check_block(
     }
   }
 
-  loom_kernel_synchronization_legality_add_blocks_checked(state, 1);
   IREE_RETURN_IF_ERROR(
       loom_kernel_synchronization_legality_check_uncommitted_transfers(
           state, &stream));

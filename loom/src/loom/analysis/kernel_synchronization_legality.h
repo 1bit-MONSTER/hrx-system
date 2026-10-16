@@ -89,8 +89,10 @@ typedef struct loom_kernel_synchronization_legality_result_t {
   loom_kernel_async_stream_t* streams;
   // Number of error diagnostics emitted.
   uint32_t error_count;
-  // Number of blocks checked for async stream legality.
+  // Number of nonempty blocks checked for synchronization legality.
   uint64_t blocks_checked;
+  // Number of kernel barrier operations checked for convergent execution.
+  uint64_t barriers_checked;
   // Number of kernel.async.group ops checked.
   uint64_t groups_checked;
   // Number of kernel.async.wait ops checked.
@@ -103,12 +105,12 @@ typedef struct loom_kernel_synchronization_legality_result_t {
 // that depend on the selected, expanded program.
 //
 // User IR failures are emitted through |options->emitter| and counted in
-// |out_result|. The analysis stops after the first stream violation because the
-// pending-group state is no longer meaningful after that point. The function
-// returns OK for user IR failures so callers can decide whether an illegal
-// stream is a pass failure, a source-to-low diagnostic, or another
-// production-path gate. Infrastructure failures such as arena allocation
-// failures are returned as status failures.
+// |out_result|. The analysis stops after the first violation because retained
+// synchronization state is unusable after that point. The function returns OK
+// for user IR failures so callers can decide whether an illegal program is a
+// pass failure, a source-to-low diagnostic, or another production-path gate.
+// Infrastructure failures such as arena allocation failures are returned as
+// status failures.
 // All result storage and symbolic expressions live in arena. Input facts and
 // the value domain remain valid through the consuming rewrite. A diagnosed
 // failure leaves partial streams unusable for target selection.
