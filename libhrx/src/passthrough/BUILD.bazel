@@ -20,7 +20,10 @@ _LINUX_COMPATIBILITY = ["@platforms//os:linux"]
 
 hrx_cc_shared_library(
     name = "hip_intercept",
-    srcs = ["hip_intercept.c"],
+    srcs = [
+        "hip_intercept.c",
+        "stubs_generated.c",
+    ],
     hdrs = ["hip_function_table.h"],
     includes = PASSTHROUGH_INCLUDES,
     target_compatible_with = _LINUX_COMPATIBILITY,

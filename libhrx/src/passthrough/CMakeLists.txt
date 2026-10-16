@@ -17,6 +17,7 @@ iree_cc_library(
     "hip_function_table.h"
   SRCS
     "hip_intercept.c"
+    "stubs_generated.c"
   DEPS
     ${CMAKE_DL_LIBS}
     libhrx_defs
