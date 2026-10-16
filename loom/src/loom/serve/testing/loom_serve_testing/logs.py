@@ -13,10 +13,12 @@ blocking publication. Incarnation changes are explicit, never silently spliced.
 
 import contextlib
 import dataclasses
-import errno
 import http.client
+import io
 import json
+import select
 import socket
+import ssl
 import threading
 from urllib.parse import urlsplit
 
@@ -37,6 +39,64 @@ class ModelNotFound(RuntimeError):
         self.model = model
 
 
+class _StreamReader(io.RawIOBase):
+    """Keep HTTP buffering above a read that can wait on data or cancellation."""
+
+    def __init__(self, source, transport, cancelled, wakeup):
+        self.source = source
+        self.transport = transport
+        self.cancelled = cancelled
+        self.wakeup = wakeup
+
+    def readable(self):
+        return True
+
+    def readinto(self, buffer):
+        while not self.cancelled.is_set():
+            writing = False
+            try:
+                count = self.source.readinto(buffer)
+                if count is not None:
+                    return count
+            except ssl.SSLWantReadError:
+                pass
+            except ssl.SSLWantWriteError:
+                writing = True
+            # After response headers, the transport is nonblocking. A partial
+            # line, chunk, or TLS record must not strand cancellation in recv.
+            select.select(
+                [self.wakeup] if writing else [self.wakeup, self.transport],
+                [self.transport] if writing else [],
+                [],
+            )
+        return 0
+
+    def close(self):
+        try:
+            self.source.close()
+        finally:
+            super().close()
+
+
+class _StreamSocket:
+    """Adapt HTTPResponse's socket input without replacing its HTTP framing."""
+
+    def __init__(self, transport, cancelled, wakeup):
+        self.transport = transport
+        self.cancelled = cancelled
+        self.wakeup = wakeup
+
+    def makefile(self, mode):
+        return io.BufferedReader(
+            _StreamReader(
+                self.transport.makefile(mode, buffering=0),
+                self.transport,
+                self.cancelled,
+                self.wakeup,
+            )
+        )
+
+
 class LogStream:
     """One reader's SSE connection; cancel before joining a blocked read.
 
@@ -44,25 +104,20 @@ class LogStream:
     outlive the reader. Only cancel may be called concurrently with read.
     """
 
-    def __init__(self, client, model, response, transport):
+    def __init__(self, client, model, response, transport, cancelled, wakeup):
         self.client = client
         self.model = model
         self.response = response
         self.transport = transport
-        self.cancelled = threading.Event()
+        self.cancelled = cancelled
+        self.wakeup = wakeup
         self.ended = False
 
     def cancel(self):
         self.cancelled.set()
-        try:
-            # Closing HTTPResponse concurrently can block on its buffered read.
-            # Shutdown wakes that read; the owner closes it only after joining.
-            self.transport.shutdown(socket.SHUT_RDWR)
-        except OSError as error:
-            # HTTPResponse may have already closed its file after peer EOF.
-            closed = error.errno == errno.EBADF and self.transport.fileno() == -1
-            if error.errno != errno.ENOTCONN and not closed:
-                raise
+        # Peer closure wakes select on every transport, including Windows where
+        # shutdown need not interrupt an outstanding blocking socket receive.
+        self.wakeup.close()
 
     def read(self):
         """Return one validated batch, or None after cancellation/stream_end."""
@@ -213,22 +268,32 @@ class LogClient:
             headers["Last-Event-ID"] = previous
         with self._connection() as connection:
             connection.request("GET", "/logz/stream", headers=headers)
-            # Connection: close transfers the socket to the response reader.
-            # Keep its object for shutdown while the response retains the FD.
             transport = connection.sock
-            with connection.getresponse() as response:
-                if response.status == 404 and model is not None:
-                    raise ModelNotFound(model)
-                if response.status != 200:
-                    raise RuntimeError(
-                        f"GET /logz/stream ({model!r}): HTTP {response.status}"
+            cancelled = threading.Event()
+            wakeup_read, wakeup_write = socket.socketpair()
+            with wakeup_read, wakeup_write:
+
+                def response_class(transport, **kwargs):
+                    return http.client.HTTPResponse(
+                        _StreamSocket(transport, cancelled, wakeup_read), **kwargs
                     )
-                if response.getheader("Content-Type") != "text/event-stream":
-                    raise ValueError("/logz/stream: expected text/event-stream")
-                # Idle streams have no periodic traffic. Only cancellation or
-                # peer closure ends a read after the response is established.
-                transport.settimeout(None)
-                yield LogStream(self, model, response, transport)
+
+                connection.response_class = response_class
+                with connection.getresponse() as response:
+                    if response.status == 404 and model is not None:
+                        raise ModelNotFound(model)
+                    if response.status != 200:
+                        raise RuntimeError(
+                            f"GET /logz/stream ({model!r}): HTTP {response.status}"
+                        )
+                    if response.getheader("Content-Type") != "text/event-stream":
+                        raise ValueError("/logz/stream: expected text/event-stream")
+                    # Header reads retain the connection deadline. Idle streams
+                    # wait indefinitely on data or the cancellation wake socket.
+                    transport.setblocking(False)
+                    yield LogStream(
+                        self, model, response, transport, cancelled, wakeup_write
+                    )
 
     def models(self):
         """List registered models, including preparation and retirement.

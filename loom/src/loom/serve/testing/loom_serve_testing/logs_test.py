@@ -8,6 +8,7 @@ import collections
 import contextlib
 import http.server
 import json
+import select
 import socket
 import socketserver
 import tempfile
@@ -44,7 +45,9 @@ def batch(model, records, next_position, *, identity="100:1", oldest=0):
 
 
 @contextlib.contextmanager
-def endpoint(replies, *, unix_socket=None, streaming=False, release=None):
+def endpoint(
+    replies, *, unix_socket=None, streaming=False, chunked=False, release=None
+):
     replies = collections.deque(replies)
     requests = []
 
@@ -57,6 +60,8 @@ def endpoint(replies, *, unix_socket=None, streaming=False, release=None):
             self.send_response(status)
             if streaming:
                 self.send_header("Content-Type", "text/event-stream")
+                if chunked:
+                    self.send_header("Transfer-Encoding", "chunked")
             else:
                 self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
@@ -139,27 +144,51 @@ class LogsTest(unittest.TestCase):
             self.assertEqual(client.cursors["chat"], "100:1:11")
 
     def test_stream_cancellation_wakes_blocked_read_without_advancing_cursor(self):
-        payload = frame(batch(None, [], 0)) + b"event: telemetry\ndata: {"
-        with endpoint([(200, payload)], streaming=True, release=threading.Event()) as (
-            client,
-            requests,
+        initial = frame(batch(None, [], 0))
+        partial = b"event: telemetry\ndata: {"
+        initial_chunk = f"{len(initial):x}\r\n".encode() + initial + b"\r\n"
+        for chunked, payload in (
+            (False, initial + partial),
+            (True, initial_chunk + b"1000\r\n" + partial),
+            (True, initial_chunk + b"1000"),
         ):
-            client.timeout = 10.0
-            with client.stream() as stream, ThreadPoolExecutor(max_workers=1) as reader:
-                self.assertIsNone(stream.transport.gettimeout())
-                stream.read()
-                entered = threading.Event()
+            release = threading.Event()
+            with (
+                self.subTest(chunked=chunked, tail=payload[-20:]),
+                endpoint(
+                    [(200, payload)], streaming=True, chunked=chunked, release=release
+                ) as (client, requests),
+            ):
+                client.timeout = 10.0
+                with (
+                    client.stream() as stream,
+                    ThreadPoolExecutor(max_workers=1) as reader,
+                ):
+                    try:
+                        self.assertFalse(stream.transport.getblocking())
+                        stream.read()
+                        entered = threading.Event()
+                        wait = select.select
 
-                def receive():
-                    entered.set()
-                    return stream.read()
+                        def wait_for_input(*args):
+                            entered.set()
+                            return wait(*args)
 
-                result = reader.submit(receive)
-                entered.wait()
-                stream.cancel()
-                self.assertIsNone(result.result())
-                self.assertEqual(client.cursors, {None: "100:1:0"})
-            self.assertEqual(len(requests), 1)
+                        # Observe the real readiness wait, not merely entry to
+                        # read(), which could race with cancellation beforehand.
+                        with mock.patch(
+                            "loom_serve_testing.logs.select.select",
+                            side_effect=wait_for_input,
+                        ):
+                            result = reader.submit(stream.read)
+                            entered.wait()
+                            stream.cancel()
+                            stream.cancel()
+                            self.assertIsNone(result.result())
+                        self.assertEqual(client.cursors, {None: "100:1:0"})
+                    finally:
+                        release.set()
+                self.assertEqual(len(requests), 1)
 
     def test_stream_rejects_truncated_oversized_and_mismatched_frames(self):
         good = batch("chat", [{"event": "stream_begin", "sequence": 0}], 1)
