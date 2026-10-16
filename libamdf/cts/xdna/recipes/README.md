@@ -10,8 +10,16 @@ uses no runtime image-loader dependency.
 the NPU. `RegisteredRoundTrip` retains separately allocated CPU storage through
 registration, execution, unmapping and native attachment release. Each case
 borrows the cached device and owns its context, queue and memory resources.
-Process and instance native lifetimes are separate invocations of the same
-dynamic executable.
+The corpus uses process native lifetime; each case retires and destroys its
+own execution resources before releasing backing.
+
+`ImportedRoundTripAfterExporterCloses` exports nonzero subranges using the
+provider's advertised direct-host transport and imports independent native
+attachments. Each exporting mapping and allocation is closed before the
+imported range is mapped, queried for DMA reach, or submitted to the NPU. The
+same eight-generation round trip then uses only the surviving imports for
+payload access and cache maintenance. Providers without that transport skip
+this case; ordinary allocation and registration remain separate coverage.
 
 The round-trip cases perform eight generations of sixteen unsigned 32-bit
 products.
@@ -22,8 +30,9 @@ the complete command owner. Repeated submissions retain the same bound command
 bytes and independently queried DMA addresses.
 
 The `SharedContextLifetime` cases alternate two independently prepared
-contexts through shared allocated or registered backing. The second command
-consumes the first command's result without a CPU payload access between them.
+contexts through shared allocated, registered or imported backing. The second
+command consumes the first command's result without a CPU payload access
+between them.
 After three handoffs, the producer context and its commands are destroyed;
 the consumer continues using the retained payload for two more generations.
 The `FullWidthContextHandoff` variants query full-array context support and

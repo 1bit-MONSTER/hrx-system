@@ -10,6 +10,7 @@
 #include <cstring>
 #include <iterator>
 #include <limits>
+#include <numeric>
 #include <span>
 #include <string>
 #include <string_view>
@@ -300,6 +301,7 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
     if (!execution_.Release(api_, xdna_api_)) {
       return;
     }
+    api_->external_memory_release(&external_memory_);
     for (auto& binding : bindings_) {
       if (!binding.Release(api_)) {
         return;
@@ -310,6 +312,7 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
         return;
       }
     }
+    EXPECT_TRUE(export_source_.Release(api_));
   }
 
   void CreateBindings(
@@ -370,6 +373,172 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
             geometry.registered_host_cacheability;
       }
       ASSERT_NO_FATAL_FAILURE(bindings_[i].Create(api_, system_scope_, create));
+    }
+    ASSERT_NO_FATAL_FAILURE(QueryBindingRecipes());
+  }
+
+  void FindExternalProfile(amdf_memory_profile_roles_t role,
+                           amdf_memory_profile_t* profile,
+                           amdf_external_memory_support_t* support) {
+    amdf_memory_scope_info_t scope = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_SCOPE_INFO,
+        .structure_size = sizeof(scope),
+    };
+    ASSERT_EQ(api_->memory_scope_query_info(system_scope_, &scope),
+              AMDF_STATUS_OK);
+    const auto roles = role | AMDF_MEMORY_PROFILE_ROLE_HOST_MAP;
+    const auto required_flags =
+        AMDF_MEMORY_FLAG_HOST_VISIBLE |
+        (role == AMDF_MEMORY_PROFILE_ROLE_IMPORT ? 0
+                                                 : AMDF_MEMORY_FLAG_SHAREABLE);
+    const auto flags = AMDF_EXTERNAL_MEMORY_SUPPORT_FLAG_SOURCE_OFFSET |
+                       (role == AMDF_MEMORY_PROFILE_ROLE_IMPORT
+                            ? AMDF_EXTERNAL_MEMORY_SUPPORT_FLAG_IMPORT
+                            : AMDF_EXTERNAL_MEMORY_SUPPORT_FLAG_EXPORT);
+    for (uint32_t ordinal = 0; ordinal < scope.memory_profile_count;
+         ++ordinal) {
+      profile->type = AMDF_STRUCTURE_TYPE_MEMORY_PROFILE;
+      profile->structure_size = sizeof(*profile);
+      amdf_memory_access_capabilities_t capabilities = {
+          .type = AMDF_STRUCTURE_TYPE_MEMORY_ACCESS_CAPABILITIES,
+          .structure_size = sizeof(capabilities),
+      };
+      const auto status = QueryMemoryProfile(ordinal, profile, &capabilities);
+      if (status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+        continue;
+      }
+      ASSERT_EQ(status, AMDF_STATUS_OK);
+      if ((profile->roles & roles) != roles ||
+          (profile->supported_flags & required_flags) != required_flags) {
+        continue;
+      }
+      for (uint32_t i = 0; i < profile->external_memory_support_count; ++i) {
+        const auto& candidate = profile->external_memory_support[i];
+        if (candidate.type == AMDF_EXTERNAL_MEMORY_TYPE_OPAQUE_FD &&
+            (candidate.flags & flags) == flags) {
+          *support = candidate;
+          return;
+        }
+      }
+    }
+    GTEST_SKIP() << "direct-host external subranges are not advertised";
+  }
+
+  void ImportBindings() {
+    amdf_memory_profile_t owned = {}, imported = {};
+    amdf_external_memory_support_t export_support = {}, import_support = {};
+    ASSERT_NO_FATAL_FAILURE(FindExternalProfile(
+        AMDF_MEMORY_PROFILE_ROLE_CREATE | AMDF_MEMORY_PROFILE_ROLE_EXPORT,
+        &owned, &export_support));
+    if (IsSkipped()) {
+      return;
+    }
+    ASSERT_NO_FATAL_FAILURE(FindExternalProfile(AMDF_MEMORY_PROFILE_ROLE_IMPORT,
+                                                &imported, &import_support));
+    if (IsSkipped()) {
+      return;
+    }
+    ASSERT_TRUE(amdf_external_memory_provenance_is_equal(
+        &export_support.provenance, &import_support.provenance));
+    ASSERT_GT(export_support.source_offset_alignment, 0u);
+    ASSERT_GT(import_support.source_offset_alignment, 0u);
+    ASSERT_GT(export_support.byte_length_alignment, 0u);
+    ASSERT_GT(import_support.byte_length_alignment, 0u);
+    ASSERT_GT(imported.import.byte_length_granularity, 0u);
+    ASSERT_GT(owned.allocation.byte_length_granularity, 0u);
+    const uint64_t alignment = std::max<uint64_t>(
+        kBindingByteOffset, imported.import.minimum_alignment);
+    ASSERT_LE(alignment, imported.import.maximum_alignment);
+    const uint64_t offset_alignment =
+        std::lcm(alignment, std::lcm(export_support.source_offset_alignment,
+                                     import_support.source_offset_alignment));
+    const uint64_t source_offset =
+        (owned.allocation.native_byte_length_granularity + offset_alignment -
+         1) /
+            offset_alignment * offset_alignment +
+        offset_alignment;
+    const uint64_t length_alignment =
+        std::lcm(imported.import.byte_length_granularity,
+                 std::lcm(export_support.byte_length_alignment,
+                          import_support.byte_length_alignment));
+    const uint64_t byte_length =
+        (kBindingStorageByteLength + length_alignment - 1) / length_alignment *
+        length_alignment;
+    const uint64_t allocation_granularity =
+        owned.allocation.byte_length_granularity;
+    const uint64_t source_length =
+        (source_offset + byte_length + allocation_granularity - 1) /
+        allocation_granularity * allocation_granularity;
+    ASSERT_LE(source_length, owned.allocation.maximum_byte_length);
+    ASSERT_LE(byte_length, imported.import.maximum_byte_length);
+    const amdf_memory_create_info_t create = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_CREATE_INFO,
+        .structure_size = sizeof(create),
+        .memory_profile_ordinal = owned.ordinal,
+        .access_count = 1,
+        .required_flags =
+            AMDF_MEMORY_FLAG_HOST_VISIBLE | AMDF_MEMORY_FLAG_SHAREABLE,
+        .byte_length = source_length,
+        .minimum_alignment = owned.allocation.minimum_alignment,
+        .accesses = &memory_access_,
+    };
+    const amdf_memory_export_info_t export_info = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_EXPORT_INFO,
+        .structure_size = sizeof(export_info),
+        .external_memory_type = export_support.type,
+        .byte_offset = source_offset,
+        .byte_length = byte_length,
+    };
+    const amdf_memory_import_info_t import_info = {
+        .type = AMDF_STRUCTURE_TYPE_MEMORY_IMPORT_INFO,
+        .structure_size = sizeof(import_info),
+        .memory_profile_ordinal = imported.ordinal,
+        .access_count = 1,
+        .required_flags = AMDF_MEMORY_FLAG_HOST_VISIBLE,
+        .minimum_alignment = alignment,
+        .accesses = &memory_access_,
+    };
+    for (size_t i = 0; i < bindings_.size(); ++i) {
+      SCOPED_TRACE(i);
+      ASSERT_NO_FATAL_FAILURE(
+          export_source_.Create(api_, system_scope_, create));
+      const auto source = export_source_.bytes();
+      std::fill(source.begin(), source.end(), uint8_t(0xA5));
+      std::fill_n(source.begin() + source_offset, byte_length, uint8_t(0x3C));
+      ASSERT_EQ(api_->host_mapping_cache_control(
+                    export_source_.mapping, AMDF_HOST_CACHE_OPERATION_FLUSH, 0,
+                    source_length),
+                AMDF_STATUS_OK);
+      ASSERT_EQ(api_->memory_export(export_source_.memory, &export_info,
+                                    &external_memory_),
+                AMDF_STATUS_OK);
+      const auto identity = external_memory_.physical_backing_id;
+      ASSERT_TRUE(amdf_physical_memory_id_is_valid(&identity));
+      const uint64_t physical_offset = external_memory_.source_byte_offset;
+      ASSERT_EQ(physical_offset,
+                export_source_.info.source_byte_offset + source_offset);
+      ASSERT_EQ(api_->memory_import(system_scope_, &import_info,
+                                    &external_memory_, &bindings_[i].memory),
+                AMDF_STATUS_OK);
+      ASSERT_EQ(external_memory_.type, AMDF_EXTERNAL_MEMORY_TYPE_NONE);
+      // No exporter mapping or attachment survives to supply cache maintenance
+      // or preserve the native device address of this imported range.
+      ASSERT_TRUE(export_source_.Release(api_));
+      ASSERT_NO_FATAL_FAILURE(bindings_[i].Map(api_));
+      ASSERT_EQ(bindings_[i].info.source_byte_offset, physical_offset);
+      ASSERT_EQ(bindings_[i].info.byte_length, byte_length);
+      ASSERT_TRUE(amdf_physical_memory_id_is_equal(
+          &bindings_[i].info.physical_backing_id, &identity));
+      const auto bytes = bindings_[i].bytes();
+      EXPECT_TRUE(std::all_of(bytes.begin(), bytes.end(),
+                              [](uint8_t value) { return value == 0x3C; }));
+    }
+    ASSERT_NO_FATAL_FAILURE(QueryBindingRecipes());
+  }
+
+  void QueryBindingRecipes() {
+    for (size_t i = 0; i < bindings_.size(); ++i) {
+      SCOPED_TRACE(i);
       uint64_t address = 0;
       ASSERT_EQ(
           api_->memory_query_address(bindings_[i].memory, 0,
@@ -492,9 +661,8 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
     }
   }
 
-  void RunRoundTrips(amdf_memory_profile_roles_t role, uint32_t count = 8,
+  void RunRoundTrips(uint32_t count = 8,
                      FirmwareTraceCapture* capture = nullptr) {
-    ASSERT_NO_FATAL_FAILURE(CreateBindings(role));
     ASSERT_NO_FATAL_FAILURE(
         PrepareExecution(&execution_, 1, binding_addresses_));
     const auto commands = execution_.instructions.bytes();
@@ -609,8 +777,7 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
     }
   }
 
-  void RunContextHandoffs(amdf_memory_profile_roles_t role,
-                          ContextWidth width) {
+  void RunContextHandoffs(ContextWidth width) {
     amdf_xdna_device_info_t device_info = {
         .type = AMDF_STRUCTURE_TYPE_XDNA_DEVICE_INFO,
         .structure_size = sizeof(device_info),
@@ -629,7 +796,6 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
       GTEST_SKIP() << "requested logical context width is not advertised";
     }
     RecordProperty("logical_column_count", column_count);
-    ASSERT_NO_FATAL_FAILURE(CreateBindings(role));
     ASSERT_NO_FATAL_FAILURE(
         PrepareExecution(&execution_, column_count, binding_addresses_));
     const std::array<uint64_t, 3> consumer_addresses = {
@@ -779,6 +945,10 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
   XdnaExecution consumer_;
   // CPU-only storage retained through native registration release.
   std::array<CtsMappedMemory, 3> registered_storage_;
+  // Temporary exporter, closed before the imported range is mapped or used.
+  CtsMappedMemory export_source_;
+  // Move-owned export consumed by import, or released after a failed import.
+  amdf_external_memory_t external_memory_ = {};
   // Lhs, rhs and output, each with a complete guarded host view.
   std::array<CtsMappedMemory, 3> bindings_;
   // Independently queried native DMA addresses including each logical offset.
@@ -1448,7 +1618,8 @@ TEST_F(FirmwareResultRecipeTest, NativeArraysAppendCollectAndRearm) {
 }
 
 TEST_F(CpuXdnaRecipeTest, AllocatedRoundTrip) {
-  RunRoundTrips(AMDF_MEMORY_PROFILE_ROLE_CREATE);
+  ASSERT_NO_FATAL_FAILURE(CreateBindings(AMDF_MEMORY_PROFILE_ROLE_CREATE));
+  RunRoundTrips();
 }
 
 TEST_F(CpuXdnaRecipeTest, AllocatedRoundTripWithFirmwareTrace) {
@@ -1464,7 +1635,8 @@ TEST_F(CpuXdnaRecipeTest, AllocatedRoundTripWithFirmwareTrace) {
   ASSERT_EQ(status, AMDF_STATUS_OK);
   FirmwareTraceCapture capture(xdna_api_, device_, host_clock_);
   ASSERT_NO_FATAL_FAILURE(capture.Start(info));
-  RunRoundTrips(AMDF_MEMORY_PROFILE_ROLE_CREATE, 16384, &capture);
+  ASSERT_NO_FATAL_FAILURE(CreateBindings(AMDF_MEMORY_PROFILE_ROLE_CREATE));
+  RunRoundTrips(16384, &capture);
   EXPECT_GT(capture.nonempty_reads(), 1u);
 }
 
@@ -1482,9 +1654,9 @@ TEST_F(CpuXdnaRecipeTest, FirmwareDurationsAndHostClockBounds) {
   std::array<FirmwareCommandInterval, 32> intervals;
   FirmwareTraceCapture capture(xdna_api_, device_, host_clock_, intervals);
   ASSERT_NO_FATAL_FAILURE(capture.Start(info));
-  ASSERT_NO_FATAL_FAILURE(RunRoundTrips(AMDF_MEMORY_PROFILE_ROLE_CREATE,
-                                        static_cast<uint32_t>(intervals.size()),
-                                        &capture));
+  ASSERT_NO_FATAL_FAILURE(CreateBindings(AMDF_MEMORY_PROFILE_ROLE_CREATE));
+  ASSERT_NO_FATAL_FAILURE(
+      RunRoundTrips(static_cast<uint32_t>(intervals.size()), &capture));
 
   // For an independently attributed command in one uninterrupted source,
   // host_begin <= device_begin + offset and device_end + offset <= host_end.
@@ -1527,7 +1699,16 @@ TEST_F(CpuXdnaRecipeTest, FirmwareDurationsAndHostClockBounds) {
 }
 
 TEST_F(CpuXdnaRecipeTest, RegisteredRoundTrip) {
-  RunRoundTrips(AMDF_MEMORY_PROFILE_ROLE_REGISTER);
+  ASSERT_NO_FATAL_FAILURE(CreateBindings(AMDF_MEMORY_PROFILE_ROLE_REGISTER));
+  RunRoundTrips();
+}
+
+TEST_F(CpuXdnaRecipeTest, ImportedRoundTripAfterExporterCloses) {
+  ASSERT_NO_FATAL_FAILURE(ImportBindings());
+  if (IsSkipped()) {
+    return;
+  }
+  RunRoundTrips();
 }
 
 TEST_F(CpuXdnaRecipeTest, AllocatedFirstDeviceWriter) {
@@ -1544,22 +1725,39 @@ TEST_F(CpuXdnaRecipeTest, RegisteredDirtyFirstDeviceWriter) {
 }
 
 TEST_F(CpuXdnaRecipeTest, AllocatedSharedContextLifetime) {
-  RunContextHandoffs(AMDF_MEMORY_PROFILE_ROLE_CREATE,
-                     ContextWidth::kSingleColumn);
+  ASSERT_NO_FATAL_FAILURE(CreateBindings(AMDF_MEMORY_PROFILE_ROLE_CREATE));
+  RunContextHandoffs(ContextWidth::kSingleColumn);
 }
 
 TEST_F(CpuXdnaRecipeTest, RegisteredSharedContextLifetime) {
-  RunContextHandoffs(AMDF_MEMORY_PROFILE_ROLE_REGISTER,
-                     ContextWidth::kSingleColumn);
+  ASSERT_NO_FATAL_FAILURE(CreateBindings(AMDF_MEMORY_PROFILE_ROLE_REGISTER));
+  RunContextHandoffs(ContextWidth::kSingleColumn);
+}
+
+TEST_F(CpuXdnaRecipeTest, ImportedSharedContextLifetime) {
+  ASSERT_NO_FATAL_FAILURE(ImportBindings());
+  if (IsSkipped()) {
+    return;
+  }
+  RunContextHandoffs(ContextWidth::kSingleColumn);
 }
 
 TEST_F(CpuXdnaRecipeTest, AllocatedFullWidthContextHandoff) {
-  RunContextHandoffs(AMDF_MEMORY_PROFILE_ROLE_CREATE, ContextWidth::kFullArray);
+  ASSERT_NO_FATAL_FAILURE(CreateBindings(AMDF_MEMORY_PROFILE_ROLE_CREATE));
+  RunContextHandoffs(ContextWidth::kFullArray);
 }
 
 TEST_F(CpuXdnaRecipeTest, RegisteredFullWidthContextHandoff) {
-  RunContextHandoffs(AMDF_MEMORY_PROFILE_ROLE_REGISTER,
-                     ContextWidth::kFullArray);
+  ASSERT_NO_FATAL_FAILURE(CreateBindings(AMDF_MEMORY_PROFILE_ROLE_REGISTER));
+  RunContextHandoffs(ContextWidth::kFullArray);
+}
+
+TEST_F(CpuXdnaRecipeTest, ImportedFullWidthContextHandoff) {
+  ASSERT_NO_FATAL_FAILURE(ImportBindings());
+  if (IsSkipped()) {
+    return;
+  }
+  RunContextHandoffs(ContextWidth::kFullArray);
 }
 
 }  // namespace
