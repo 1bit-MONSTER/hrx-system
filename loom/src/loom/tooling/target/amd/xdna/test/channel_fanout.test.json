@@ -2,7 +2,7 @@
   "version": 1,
   "cases": [
     {
-      "name": "executes rotating on-die channel fanout through the HAL",
+      "name": "executes finite multicast tasks through compute and SRAM rings with replay",
       "run": {
         "tool": "iree-test-loom",
         "args": [
@@ -12,11 +12,10 @@
       },
       "stdout": {
         "contains": [
-          "\"case_count\":1",
+          "\"case_count\":6",
+          "\"sample_count\":6",
           "\"failed_sample_count\":0",
-          "\"trial_count\":0",
-          "\"failed_trial_count\":0",
-          "\"case\":\"rotating_channel_fanout\"",
+          "\"planning_issue_count\":0",
           "\"failure_count\":0"
         ]
       }

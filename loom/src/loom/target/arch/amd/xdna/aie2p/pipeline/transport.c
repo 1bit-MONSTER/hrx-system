@@ -758,12 +758,13 @@ static iree_status_t loom_aie2p_native_select_worker_transfers(
   return iree_ok_status();
 }
 
-static bool loom_aie2p_native_select_distribution_endpoint(
+static iree_status_t loom_aie2p_native_select_distribution_endpoint(
     loom_aie2p_native_context_t* context,
     const loom_aie2p_native_channel_t* channel,
-    loom_xdna_dma_direction_t direction,
+    loom_xdna_dma_direction_t direction, uint32_t repetitions,
     loom_aie2p_native_distribution_endpoint_t* out_endpoint,
-    iree_string_view_t* out_reason) {
+    iree_string_view_t* out_reason, bool* out_valid) {
+  *out_valid = false;
   loom_aie2p_native_tile_t* tile = context->pool_tiles[channel->pool_index];
   const loom_xdna_dma_facts_t* dma = &tile->facts->dma;
   const loom_aie2p_native_memory_layout_t* layout = tile->memory_layout;
@@ -771,7 +772,7 @@ static bool loom_aie2p_native_select_distribution_endpoint(
       (channel->source->capacity > 1 &&
        channel->byte_stride < channel->record_byte_length)) {
     *out_reason = IREE_SV("contiguous non-overlapping channel-copy records");
-    return false;
+    return iree_ok_status();
   }
   const uint64_t length_units =
       channel->record_byte_length / dma->transfer_length_granularity;
@@ -785,7 +786,7 @@ static bool loom_aie2p_native_select_distribution_endpoint(
       length_units > maximum_length_units) {
     *out_reason =
         IREE_SV("a channel record length representable by its memory DMA");
-    return false;
+    return iree_ok_status();
   }
   const uint64_t step_units =
       channel->byte_stride / dma->transfer_length_granularity;
@@ -796,7 +797,7 @@ static bool loom_aie2p_native_select_distribution_endpoint(
     *out_reason = IREE_SV(
         "DMA-aligned channel storage with a representable "
         "rotating slot stride");
-    return false;
+    return iree_ok_status();
   }
   uint8_t* next_engine = direction == LOOM_XDNA_DMA_DIRECTION_MEMORY_TO_STREAM
                              ? &tile->next_mm2s
@@ -807,31 +808,78 @@ static bool loom_aie2p_native_select_distribution_endpoint(
   if (*next_engine == dma->channel_count_per_direction ||
       *next_descriptor == descriptor_count) {
     *out_reason = IREE_SV("an available on-chip DMA engine and descriptor");
-    return false;
+    return iree_ok_status();
+  }
+  // Queue every finite task before observing completion. Refilling a queue
+  // from the sequential configuration engine can deadlock another stream
+  // whose records are needed to release this stream's FIFO credits.
+  const uint32_t repeat_limit = dma->maximum_task_repeat_count;
+  const uint32_t queue_depth = dma->task_queue_depth;
+  const uint32_t available_descriptors = descriptor_count - *next_descriptor;
+  const uint32_t capacity = channel->source->capacity;
+  uint32_t chain_length = 1;
+  uint32_t tail_length = 0;
+  uint32_t cycles = repetitions;
+  uint32_t required_descriptors = 1;
+  uint32_t task_count =
+      (uint32_t)iree_host_size_ceil_div(repetitions, repeat_limit);
+  if (task_count > queue_depth) {
+    required_descriptors = 0;
+    // Repeated chains cover whole physical FIFO rotations. Every descriptor
+    // has a fixed slot, so neither task boundaries nor the final prefix can
+    // restart an address iterator at the wrong slot. Select the smallest
+    // descriptor allocation that fits the finite task queue.
+    for (uint32_t span = capacity; span <= available_descriptors;
+         span += capacity) {
+      const uint32_t candidate_cycles = repetitions / span;
+      const uint32_t candidate_tail = repetitions % span;
+      const uint32_t candidate_descriptors = span + candidate_tail;
+      const uint32_t candidate_tasks =
+          (uint32_t)iree_host_size_ceil_div(candidate_cycles, repeat_limit) +
+          (candidate_tail != 0);
+      if (candidate_descriptors > available_descriptors ||
+          candidate_tasks > queue_depth ||
+          (required_descriptors &&
+           candidate_descriptors >= required_descriptors)) {
+        continue;
+      }
+      chain_length = span;
+      tail_length = candidate_tail;
+      cycles = candidate_cycles;
+      required_descriptors = candidate_descriptors;
+      task_count = candidate_tasks;
+    }
+    if (!required_descriptors) {
+      *out_reason = IREE_SV(
+          "a finite channel-copy schedule within DMA descriptor and task-queue "
+          "capacity");
+      return iree_ok_status();
+    }
   }
   *out_endpoint = (loom_aie2p_native_distribution_endpoint_t){
       .channel = channel,
       .tile = tile,
       .engine = (*next_engine)++,
-      .descriptor = descriptor_base + (*next_descriptor)++,
+      .descriptor = descriptor_base + *next_descriptor,
+      .descriptor_count = (uint16_t)required_descriptors,
+      .task_count = (uint8_t)task_count,
+      .rewind_iteration = chain_length == 1 && repetitions % capacity != 0,
   };
-  out_endpoint->words[0] = length_units - dma->transfer_length_offset;
-  out_endpoint->words[layout->address_word] |=
-      loom_xdna_register_field_encode_admitted(
-          layout->address,
-          (layout->local_address_base + channel->byte_offset) >>
-              dma->address_encoding_shift);
-  out_endpoint->words[layout->iteration_word] =
-      loom_xdna_register_field_encode_admitted(layout->iteration.wrap,
-                                               channel->source->capacity - 1) |
-      loom_xdna_register_field_encode_admitted(layout->iteration.step,
-                                               step_units ? step_units - 1 : 0);
+  *next_descriptor += (uint16_t)required_descriptors;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      context->pass->arena, required_descriptors, sizeof(*out_endpoint->words),
+      (void**)&out_endpoint->words));
+  memset(out_endpoint->words, 0,
+         required_descriptors * sizeof(*out_endpoint->words));
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      context->pass->arena, task_count, sizeof(*out_endpoint->tasks),
+      (void**)&out_endpoint->tasks));
   const bool sender = direction == LOOM_XDNA_DMA_DIRECTION_MEMORY_TO_STREAM;
   const uint16_t acquire_lock =
       sender ? channel->ready_lock : channel->free_lock;
   const uint16_t release_lock =
       sender ? channel->free_lock : channel->ready_lock;
-  out_endpoint->words[layout->lock_word] =
+  const uint32_t lock_word =
       loom_xdna_register_field_encode_admitted(
           layout->locks.acquire_id, layout->local_lock_base + acquire_lock) |
       loom_xdna_register_field_encode_admitted(layout->locks.acquire_value,
@@ -842,7 +890,51 @@ static bool loom_aie2p_native_select_distribution_endpoint(
           layout->locks.release_id, layout->local_lock_base + release_lock) |
       loom_xdna_register_field_encode_admitted(layout->locks.release_value, 1) |
       loom_xdna_register_field_encode_admitted(layout->locks.valid, 1);
-  return true;
+  for (uint32_t i = 0; i < required_descriptors; ++i) {
+    uint32_t* words = out_endpoint->words[i];
+    const uint32_t ordinal = i < chain_length ? i : i - chain_length;
+    const uint32_t slot = chain_length == 1 ? 0 : ordinal % capacity;
+    words[0] = length_units - dma->transfer_length_offset;
+    words[layout->address_word] |= loom_xdna_register_field_encode_admitted(
+        layout->address, (layout->local_address_base + channel->byte_offset +
+                          slot * channel->byte_stride) >>
+                             dma->address_encoding_shift);
+    if (chain_length == 1) {
+      words[layout->iteration_word] =
+          loom_xdna_register_field_encode_admitted(layout->iteration.wrap,
+                                                   capacity - 1) |
+          loom_xdna_register_field_encode_admitted(
+              layout->iteration.step, step_units ? step_units - 1 : 0);
+    }
+    words[layout->lock_word] |= lock_word;
+    const uint32_t chain_end =
+        i < chain_length ? chain_length : required_descriptors;
+    if (i + 1 < chain_end) {
+      words[layout->chain.word] |=
+          loom_xdna_register_field_encode_admitted(
+              layout->chain.next, out_endpoint->descriptor + i + 1) |
+          loom_xdna_register_field_encode_admitted(layout->chain.enable, 1);
+    }
+  }
+  const loom_xdna_register_field_id_t start =
+      layout->directions[direction - 1].start;
+  const loom_xdna_register_field_id_t repeat =
+      layout->directions[direction - 1].repeat;
+  uint32_t task = 0;
+  while (cycles) {
+    const uint32_t count = iree_min(cycles, repeat_limit);
+    out_endpoint->tasks[task++] =
+        loom_xdna_register_field_encode_admitted(start,
+                                                 out_endpoint->descriptor) |
+        loom_xdna_register_field_encode_admitted(repeat, count - 1);
+    cycles -= count;
+  }
+  if (tail_length) {
+    out_endpoint->tasks[task] = loom_xdna_register_field_encode_admitted(
+        start, out_endpoint->descriptor + chain_length);
+  }
+  *out_valid = true;
+  return iree_ok_status();
 }
 
 static iree_status_t loom_aie2p_native_select_worker_distributions(
@@ -872,9 +964,11 @@ static iree_status_t loom_aie2p_native_select_worker_distributions(
     const loom_aie2p_native_channel_t* source_channel =
         &context->channels[source_binding - realization->resources.channels];
     iree_string_view_t reason;
-    if (!loom_aie2p_native_select_distribution_endpoint(
-            context, source_channel, LOOM_XDNA_DMA_DIRECTION_MEMORY_TO_STREAM,
-            &distribution->sender, &reason)) {
+    bool valid = false;
+    IREE_RETURN_IF_ERROR(loom_aie2p_native_select_distribution_endpoint(
+        context, source_channel, LOOM_XDNA_DMA_DIRECTION_MEMORY_TO_STREAM,
+        distribution->repetitions, &distribution->sender, &reason, &valid));
+    if (!valid) {
       return loom_aie2p_native_reject(context, cohort->admission->op, reason);
     }
     const uint32_t source_route = (*next_source)++;
@@ -887,10 +981,11 @@ static iree_status_t loom_aie2p_native_select_worker_distributions(
       const loom_aie2p_native_channel_t* destination_channel =
           &context->channels[destination_binding -
                              realization->resources.channels];
-      if (!loom_aie2p_native_select_distribution_endpoint(
-              context, destination_channel,
-              LOOM_XDNA_DMA_DIRECTION_STREAM_TO_MEMORY,
-              &distribution->receivers[j], &reason)) {
+      IREE_RETURN_IF_ERROR(loom_aie2p_native_select_distribution_endpoint(
+          context, destination_channel,
+          LOOM_XDNA_DMA_DIRECTION_STREAM_TO_MEMORY, distribution->repetitions,
+          &distribution->receivers[j], &reason, &valid));
+      if (!valid) {
         return loom_aie2p_native_reject(context, destination->copy, reason);
       }
       const loom_aie2p_native_distribution_endpoint_t* sender =

@@ -93,6 +93,60 @@ TEST(XdnaArrayFactsTest, ExposesTraceInputsForEachTileKind) {
   EXPECT_EQ(range->count, 1u);
 }
 
+TEST(XdnaArrayFactsTest, ResolvesPhysicalStreamConnections) {
+  const loom_xdna_array_family_t* family = loom_xdna_npu2_array_family();
+  struct TestCase {
+    // Switch whose physical connectivity is queried.
+    loom_xdna_tile_kind_t kind;
+    // Incoming slave port class.
+    loom_xdna_stream_port_t source;
+    // Channel within the incoming port class.
+    uint8_t channel;
+    // Outgoing master port class.
+    loom_xdna_stream_port_t destination;
+    // Legal channels within the outgoing port class.
+    uint32_t channels;
+  };
+  const TestCase cases[] = {
+      {LOOM_XDNA_TILE_KIND_COMPUTE, LOOM_XDNA_STREAM_PORT_CORE, 0,
+       LOOM_XDNA_STREAM_PORT_CORE, 0},
+      {LOOM_XDNA_TILE_KIND_COMPUTE, LOOM_XDNA_STREAM_PORT_DMA, 1,
+       LOOM_XDNA_STREAM_PORT_DMA, 2},
+      {LOOM_XDNA_TILE_KIND_COMPUTE, LOOM_XDNA_STREAM_PORT_TRACE, 1,
+       LOOM_XDNA_STREAM_PORT_DMA, 1},
+      {LOOM_XDNA_TILE_KIND_MEMORY, LOOM_XDNA_STREAM_PORT_NORTH, 3,
+       LOOM_XDNA_STREAM_PORT_SOUTH, 8},
+      {LOOM_XDNA_TILE_KIND_MEMORY, LOOM_XDNA_STREAM_PORT_SOUTH, 4,
+       LOOM_XDNA_STREAM_PORT_NORTH, 16},
+      {LOOM_XDNA_TILE_KIND_MEMORY, LOOM_XDNA_STREAM_PORT_SOUTH, 4,
+       LOOM_XDNA_STREAM_PORT_SOUTH, 0},
+      {LOOM_XDNA_TILE_KIND_MEMORY, LOOM_XDNA_STREAM_PORT_TRACE, 0,
+       LOOM_XDNA_STREAM_PORT_DMA, 32},
+      {LOOM_XDNA_TILE_KIND_SHIM_NOC, LOOM_XDNA_STREAM_PORT_SOUTH, 7,
+       LOOM_XDNA_STREAM_PORT_SOUTH, 63},
+      {LOOM_XDNA_TILE_KIND_SHIM_NOC, LOOM_XDNA_STREAM_PORT_EAST, 2,
+       LOOM_XDNA_STREAM_PORT_EAST, 4},
+      {LOOM_XDNA_TILE_KIND_SHIM_NOC, LOOM_XDNA_STREAM_PORT_TRACE, 0,
+       LOOM_XDNA_STREAM_PORT_EAST, 1},
+  };
+  for (const TestCase& test_case : cases) {
+    SCOPED_TRACE(test_case.kind);
+    SCOPED_TRACE(test_case.source);
+    SCOPED_TRACE(test_case.channel);
+    const loom_xdna_stream_port_range_t* source =
+        loom_xdna_array_stream_port_range(family, test_case.kind,
+                                          LOOM_XDNA_STREAM_DIRECTION_SLAVE,
+                                          test_case.source);
+    const loom_xdna_stream_port_range_t* destination =
+        loom_xdna_array_stream_port_range(family, test_case.kind,
+                                          LOOM_XDNA_STREAM_DIRECTION_MASTER,
+                                          test_case.destination);
+    EXPECT_EQ(loom_xdna_array_stream_destination_channels(
+                  family, source, test_case.channel, destination),
+              test_case.channels);
+  }
+}
+
 TEST(XdnaArrayFactsTest, CanonicalizesComputeNeighborAliases) {
   const loom_xdna_array_family_t* family = loom_xdna_npu2_array_family();
   loom_xdna_memory_placement_t west = {};

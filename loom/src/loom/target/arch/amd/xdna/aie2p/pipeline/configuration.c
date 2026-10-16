@@ -274,15 +274,20 @@ static iree_status_t loom_aie2p_native_config_distribution_descriptor(
     const loom_aie2p_native_distribution_endpoint_t* endpoint) {
   const loom_aie2p_native_memory_layout_t* layout =
       endpoint->tile->memory_layout;
-  uint64_t values[9] = {loom_xdna_register_field_address_admitted(
-      config->context->family, layout->descriptor_base,
-      endpoint->tile->coordinate, &endpoint->descriptor)};
-  for (unsigned i = 0; i < layout->descriptor_word_count; ++i) {
-    values[i + 1] = endpoint->words[i];
+  for (uint16_t i = 0; i < endpoint->descriptor_count; ++i) {
+    const uint16_t descriptor = endpoint->descriptor + i;
+    uint64_t values[9] = {loom_xdna_register_field_address_admitted(
+        config->context->family, layout->descriptor_base,
+        endpoint->tile->coordinate, &descriptor)};
+    for (unsigned j = 0; j < layout->descriptor_word_count; ++j) {
+      values[j + 1] = endpoint->words[i][j];
+    }
+    IREE_RETURN_IF_ERROR(loom_aie2p_native_config_op(
+        config, AIE2P_CONFIGURATION_DESCRIPTOR_REF_CONFIGURATION_WRITE_BLOCK32,
+        values, layout->descriptor_word_count + 1,
+        loom_named_attr_slice_empty()));
   }
-  return loom_aie2p_native_config_op(
-      config, AIE2P_CONFIGURATION_DESCRIPTOR_REF_CONFIGURATION_WRITE_BLOCK32,
-      values, layout->descriptor_word_count + 1, loom_named_attr_slice_empty());
+  return iree_ok_status();
 }
 
 static iree_status_t loom_aie2p_native_config_transfers(
@@ -493,8 +498,7 @@ static iree_status_t loom_aie2p_native_config_bindings(
       for (iree_host_size_t j = 0; j <= distribution->receiver_count; ++j) {
         const loom_aie2p_native_distribution_endpoint_t* endpoint =
             j == 0 ? sender : &distribution->receivers[j - 1];
-        if (distribution->repetitions % endpoint->channel->source->capacity ==
-            0) {
+        if (!endpoint->rewind_iteration) {
           continue;
         }
         IREE_RETURN_IF_ERROR(loom_aie2p_native_config_write(
@@ -503,7 +507,7 @@ static iree_status_t loom_aie2p_native_config_bindings(
                 context->family,
                 endpoint->tile->memory_layout->iteration.current,
                 endpoint->tile->coordinate, &endpoint->descriptor),
-            endpoint->words[endpoint->tile->memory_layout->iteration_word]));
+            endpoint->words[0][endpoint->tile->memory_layout->iteration_word]));
       }
     }
   }
@@ -561,22 +565,17 @@ static iree_status_t loom_aie2p_native_config_submit(
 static iree_status_t loom_aie2p_native_config_submit_distribution_endpoint(
     loom_aie2p_native_configuration_t* config,
     const loom_aie2p_native_distribution_endpoint_t* endpoint,
-    loom_xdna_dma_direction_t direction, uint32_t repetitions) {
+    loom_xdna_dma_direction_t direction) {
   const loom_xdna_register_field_id_t queue =
       endpoint->tile->memory_layout->directions[direction - 1].start;
-  uint32_t task =
-      loom_xdna_register_field_encode_admitted(queue, endpoint->descriptor);
-  if (repetitions > 1) {
-    const loom_xdna_register_field_id_t repeat =
-        endpoint->tile->memory_layout->directions[direction - 1].repeat;
-    task |= loom_xdna_register_field_encode_admitted(repeat, repetitions - 1);
-  }
   const uint16_t engine = endpoint->engine;
-  return loom_aie2p_native_config_write(
-      config,
-      loom_xdna_register_field_address_admitted(
-          config->context->family, queue, endpoint->tile->coordinate, &engine),
-      task);
+  const uint64_t address = loom_xdna_register_field_address_admitted(
+      config->context->family, queue, endpoint->tile->coordinate, &engine);
+  for (uint8_t i = 0; i < endpoint->task_count; ++i) {
+    IREE_RETURN_IF_ERROR(
+        loom_aie2p_native_config_write(config, address, endpoint->tasks[i]));
+  }
+  return iree_ok_status();
 }
 
 static iree_status_t loom_aie2p_native_config_submit_distribution(
@@ -586,11 +585,10 @@ static iree_status_t loom_aie2p_native_config_submit_distribution(
   for (iree_host_size_t i = 0; i < distribution->receiver_count; ++i) {
     IREE_RETURN_IF_ERROR(loom_aie2p_native_config_submit_distribution_endpoint(
         config, &distribution->receivers[i],
-        LOOM_XDNA_DMA_DIRECTION_STREAM_TO_MEMORY, distribution->repetitions));
+        LOOM_XDNA_DMA_DIRECTION_STREAM_TO_MEMORY));
   }
   return loom_aie2p_native_config_submit_distribution_endpoint(
-      config, &distribution->sender, LOOM_XDNA_DMA_DIRECTION_MEMORY_TO_STREAM,
-      distribution->repetitions);
+      config, &distribution->sender, LOOM_XDNA_DMA_DIRECTION_MEMORY_TO_STREAM);
 }
 
 static iree_status_t loom_aie2p_native_config_wait_distribution_endpoint(

@@ -741,3 +741,120 @@ def test_validator_rejects_register_offsets_outside_tile_aperture() -> None:
 
     with pytest.raises(ValueError, match="register offset exceeds tile aperture"):
         validate_array_family(invalid_family)
+
+
+# Exact masks from the pinned aie-rt _XAieMl_*_StrmSwCheckPortValidity
+# functions, enumerated over each tile's complete slave/master port domains.
+@pytest.mark.parametrize(
+    ("tile_kind", "expected"),
+    [
+        (
+            TileKind.COMPUTE,
+            (
+                0x007FFFFE,
+                0x007FFFFB,
+                0x007FFFFD,
+                0x007FFFF1,
+                0x007FFFFF,
+                0x007FFE3F,
+                0x007FFE5F,
+                0x007FFE9F,
+                0x007FFF1F,
+                0x007FFE1F,
+                0x007FFE1F,
+                0x007FE3FF,
+                0x007FE5FF,
+                0x007FE9FF,
+                0x007FF1FF,
+                0x00783FFF,
+                0x00785FFF,
+                0x00789FFF,
+                0x00791FFF,
+                0x000FFFFF,
+                0x0017FFFF,
+                0x0027FFFF,
+                0x0047FFFF,
+                0x000001F2,
+                0x000001F2,
+            ),
+        ),
+        (
+            TileKind.MEMORY,
+            (
+                0x0001FFC1,
+                0x0001FFC2,
+                0x0001FFC4,
+                0x0001FFC8,
+                0x0001FFD0,
+                0x0001FFE0,
+                0x0001FFA0,
+                0x000008FF,
+                0x0000117F,
+                0x0000227F,
+                0x0000447F,
+                0x0000807F,
+                0x0001007F,
+                0x000008FF,
+                0x0000117F,
+                0x0000227F,
+                0x0000447F,
+                0x000007A0,
+            ),
+        ),
+        (
+            TileKind.SHIM_NOC,
+            (
+                0x003FFFFE,
+                0x003FFFFF,
+                0x003FFFFF,
+                0x003FFFFF,
+                0x003FFFFF,
+                0x003FFFFF,
+                0x003FFFFF,
+                0x003FFFFF,
+                0x003FFFFF,
+                0x003FFFFF,
+                0x003FF1FF,
+                0x003FF2FF,
+                0x003FF4FF,
+                0x003FF8FF,
+                0x003C1FFF,
+                0x003C2FFF,
+                0x003C4FFF,
+                0x003C8FFF,
+                0x0007FFFF,
+                0x000BFFFF,
+                0x0013FFFF,
+                0x0023FFFF,
+                0x000401FE,
+            ),
+        ),
+    ],
+)
+def test_npu2_stream_connectivity_matches_aie_rt(
+    tile_kind: TileKind,
+    expected: tuple[int, ...],
+) -> None:
+    actual = tuple(
+        mask
+        for row in NPU2_ARRAY_FAMILY.stream_ports
+        if row.tile_kind is tile_kind and row.direction is StreamDirection.SLAVE
+        for mask in row.connections
+    )
+    assert actual == expected
+
+
+@pytest.mark.parametrize("change", ["missing", "overflow", "master"])
+def test_validator_rejects_invalid_connection_masks(change: str) -> None:
+    rows = list(NPU2_ARRAY_FAMILY.stream_ports)
+    index = next(
+        index
+        for index, row in enumerate(rows)
+        if row.direction
+        is (StreamDirection.MASTER if change == "master" else StreamDirection.SLAVE)
+    )
+    row = rows[index]
+    connections = () if change == "missing" else ((1 << 32,) * row.count)
+    rows[index] = replace(row, connections=connections)
+    with pytest.raises(ValueError, match="invalid stream connection masks"):
+        validate_array_family(replace(NPU2_ARRAY_FAMILY, stream_ports=tuple(rows)))

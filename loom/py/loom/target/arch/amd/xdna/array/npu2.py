@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from loom.target.arch.amd.xdna.array.model import (
     AddressWindow,
     Architecture,
@@ -765,6 +767,78 @@ _STREAM_PORTS = (
             (StreamPort.TRACE, 1),
         ),
     ),
+)
+
+
+def _stream_connection(
+    kind: TileKind,
+    source: StreamPort,
+    source_channel: int,
+    destination: StreamPort,
+    destination_channel: int,
+) -> bool:
+    """Physical connections from aie-rt's AIE-ML port validity contract."""
+    vertical = (StreamPort.NORTH, StreamPort.SOUTH)
+    cardinal = (*vertical, StreamPort.WEST, StreamPort.EAST)
+    if source is StreamPort.TRACE:
+        if kind is TileKind.MEMORY:
+            return destination is StreamPort.SOUTH or (
+                destination is StreamPort.DMA and destination_channel == 5
+            )
+        if destination in (StreamPort.FIFO, StreamPort.SOUTH):
+            return True
+        return destination_channel == 0 and destination in (
+            (StreamPort.DMA,)
+            if kind is TileKind.COMPUTE
+            else (StreamPort.WEST, StreamPort.EAST)
+        )
+    if source is StreamPort.CORE:
+        return destination is not StreamPort.CORE
+    if source is StreamPort.DMA:
+        return (
+            destination is not StreamPort.DMA or source_channel == destination_channel
+        )
+    if source is StreamPort.TILE_CONTROL:
+        if destination is StreamPort.TILE_CONTROL:
+            return False
+        if destination is StreamPort.DMA:
+            return kind is TileKind.MEMORY and destination_channel == 5
+        return True
+    if kind is TileKind.MEMORY and source in vertical and destination in vertical:
+        return source_channel == destination_channel
+    if (
+        source in cardinal
+        and source is destination
+        and not (kind is TileKind.SHIM_NOC and source is StreamPort.SOUTH)
+    ):
+        return source_channel == destination_channel
+    return True
+
+
+_STREAM_PORTS = tuple(
+    replace(
+        source,
+        connections=tuple(
+            sum(
+                1 << (destination.ordinal + destination_channel)
+                for destination in _STREAM_PORTS
+                if destination.tile_kind is source.tile_kind
+                and destination.direction is StreamDirection.MASTER
+                for destination_channel in range(destination.count)
+                if _stream_connection(
+                    source.tile_kind,
+                    source.port,
+                    source_channel,
+                    destination.port,
+                    destination_channel,
+                )
+            )
+            for source_channel in range(source.count)
+        ),
+    )
+    if source.direction is StreamDirection.SLAVE
+    else source
+    for source in _STREAM_PORTS
 )
 
 
