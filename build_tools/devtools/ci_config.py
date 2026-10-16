@@ -45,6 +45,8 @@ CMAKE_SANITIZER_SMOKE_CTEST_REGEXES = (
 )
 CMAKE_REPOSITORY_SMOKE_CTEST_REGEXES = (
     "^iree/base/status_test$",
+    "^iree/hal/drivers/amd/xdna/",
+    "^libamdf/src/xdna/",
     "^loom/format/bytecode/varint_test$",
 )
 BAZEL_REPOSITORY_INTEGRATION_DEVICE_TARGETS = (

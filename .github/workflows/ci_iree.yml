@@ -814,6 +814,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: GCC / RelWithDebInfo / Repository Build
+            kind: cpu
+            command: iree-cmake-repository-build
+            runner: azure-linux-scale-rocm
+            host_ar: ar
+            host_cc: gcc
+            host_cxx: g++
           - name: Clang / RelWithDebInfo
             kind: cpu
             command: iree-cmake-cpu
@@ -858,7 +865,7 @@ jobs:
       run:
         shell: bash
     container:
-      image: ghcr.io/rocm/no_rocm_image_ubuntu24_04@sha256:4150afe4759d14822f0e3f8930e1124f26e11f68b5c7b91ec9a02b20b1ebbb98
+      image: ${{ matrix.command == 'iree-cmake-repository-build' && 'ghcr.io/rocm/therock_build_manylinux_x86_64@sha256:702a5133851e6d1daf1207d2c9fbb01c2667914a5b6dc5a01faeb3ce66ea6421' || 'ghcr.io/rocm/no_rocm_image_ubuntu24_04@sha256:4150afe4759d14822f0e3f8930e1124f26e11f68b5c7b91ec9a02b20b1ebbb98' }}
       options: ${{ matrix.container_options || '' }}
     env:
       IREE_CI_PLATFORM_COVERAGE: ${{ matrix.platform_coverage && '1' || '0' }}
@@ -909,6 +916,7 @@ jobs:
           dpkg-query -W gcc g++ libvulkan1 mesa-vulkan-drivers vulkan-tools
 
       - name: Set up Python
+        if: matrix.command != 'iree-cmake-repository-build'
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
