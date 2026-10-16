@@ -181,10 +181,10 @@ jobs:
             runner: linux-gfx942-1gpu-ccs-csp-ossci-rocm
             target_selector: gfx942
             container_options: *amdgpu_container_options
-          - name: Clang / ASAN / AMD gfx1152 NPU6
+          - name: Clang / ASAN / AMD gfx1150 NPU4
             kind: amd_client
             command: iree-bazel-amd-client-asan
-            runner: linux-gfx1152-gpu-rocm
+            runner: linux-gfx1150-gpu-rocm-npu
             container_options: >-
               --device=/dev/accel/accel0 --ulimit memlock=-1:-1
               --security-opt seccomp=unconfined --user 0:0
