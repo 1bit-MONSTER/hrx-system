@@ -12,6 +12,12 @@
 // the same symbol-version node as the reference library so an LD_PRELOADed
 // interceptor sees versioned calls too.
 //
+// Each forwarder's signature is taken from libhrx/src/binding/hip/api.h when
+// that header declares the entry point (the trailing "(from ...)" names the
+// file it came from), otherwise from the binding's own definition. api.h is the
+// canonical API surface and is identical on every branch, so this file does not
+// change when a symbol moves between translation units.
+//
 // Regenerate with:
 //   python3 libhrx/src/passthrough/generate_stubs.py \
 //       --reference-lib <build>/libhrx/src/binding/hip/libamdhip64.so
@@ -33,16 +39,11 @@ extern void hip_passthrough_log_call(const char* name);
 // Type declarations for ABI entry points that api.h does not describe,
 // extracted verbatim from libhrx/src/binding/hip/abi_stubs.c.
 
-// Local compatibility declarations for ABI entries not represented by the
-// core binding header. These keep the exported call boundaries type-correct.
-typedef const struct hipArray_st* hipArray_const_t;
 typedef struct hipMipmappedArray_st* hipMipmappedArray_t;
 typedef const struct hipMipmappedArray_st* hipMipmappedArray_const_t;
 typedef struct __hip_texture* hipTextureObject_t;
 typedef struct __hip_surface* hipSurfaceObject_t;
 typedef struct textureReference textureReference;
-typedef struct HIP_ARRAY_DESCRIPTOR HIP_ARRAY_DESCRIPTOR;
-typedef struct HIP_ARRAY3D_DESCRIPTOR HIP_ARRAY3D_DESCRIPTOR;
 typedef struct HIP_RESOURCE_DESC HIP_RESOURCE_DESC;
 typedef struct HIP_RESOURCE_VIEW_DESC HIP_RESOURCE_VIEW_DESC;
 typedef struct HIP_TEXTURE_DESC HIP_TEXTURE_DESC;
@@ -177,7 +178,7 @@ HIPAPI const char* hipApiName(uint32_t id) {
   return _ret;
 }
 
-// hipArrayDestroy@hip_4.3 (from libhrx/src/binding/hip/api.c)
+// hipArrayDestroy@hip_4.3 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipArrayDestroy(hipArray_t array) {
   typedef hipError_t (*pfn_hipArrayDestroy_t)(hipArray_t);
   static pfn_hipArrayDestroy_t hip_stub_fn = NULL;
@@ -263,7 +264,7 @@ HIPAPI hipError_t hipChooseDeviceR0600(int* device,
   return _ret;
 }
 
-// hipCreateChannelDesc@hip_4.2 (from libhrx/src/binding/hip/api.c)
+// hipCreateChannelDesc@hip_4.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipChannelFormatDesc hipCreateChannelDesc(int x, int y, int z, int w,
                                                  hipChannelFormatKind f) {
   typedef hipChannelFormatDesc (*pfn_hipCreateChannelDesc_t)(int, int, int, int, hipChannelFormatKind);
@@ -277,7 +278,7 @@ HIPAPI hipChannelFormatDesc hipCreateChannelDesc(int x, int y, int z, int w,
   return _ret;
 }
 
-// hipCtxDisablePeerAccess@hip_4.2 (from libhrx/src/binding/hip/api.c)
+// hipCtxDisablePeerAccess@hip_4.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipCtxDisablePeerAccess(hipCtx_t peerContext) {
   typedef hipError_t (*pfn_hipCtxDisablePeerAccess_t)(hipCtx_t);
   static pfn_hipCtxDisablePeerAccess_t hip_stub_fn = NULL;
@@ -290,7 +291,7 @@ HIPAPI hipError_t hipCtxDisablePeerAccess(hipCtx_t peerContext) {
   return _ret;
 }
 
-// hipCtxEnablePeerAccess@hip_4.2 (from libhrx/src/binding/hip/api.c)
+// hipCtxEnablePeerAccess@hip_4.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipCtxEnablePeerAccess(hipCtx_t peerContext,
                                          unsigned int flags) {
   typedef hipError_t (*pfn_hipCtxEnablePeerAccess_t)(hipCtx_t, unsigned int);
@@ -382,55 +383,55 @@ HIPAPI hipError_t hipCtxSetSharedMemConfig(hipSharedMemConfig config) {
   return _ret;
 }
 
-// hipDevResourceGenerateDesc@hip_7.14 (from libhrx/src/binding/hip/api.c)
+// hipDevResourceGenerateDesc@hip_7.14 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipDevResourceGenerateDesc(hipDevResourceDesc_t* descriptor,
                                              hipDevResource* resources,
-                                             unsigned int resource_count) {
+                                             unsigned int resourceCount) {
   typedef hipError_t (*pfn_hipDevResourceGenerateDesc_t)(hipDevResourceDesc_t*, hipDevResource*, unsigned int);
   static pfn_hipDevResourceGenerateDesc_t hip_stub_fn = NULL;
   if (!hip_stub_fn) {
     hip_stub_fn = (pfn_hipDevResourceGenerateDesc_t)dlsym(hip_passthrough_backend_lib(), "hipDevResourceGenerateDesc");
   }
   hipError_t _ret = 0;
-  if (hip_stub_fn) _ret = hip_stub_fn(descriptor, resources, resource_count);
+  if (hip_stub_fn) _ret = hip_stub_fn(descriptor, resources, resourceCount);
   hip_passthrough_log_call("hipDevResourceGenerateDesc");
   return _ret;
 }
 
-// hipDevSmResourceSplit@hip_7.14 (from libhrx/src/binding/hip/api.c)
-HIPAPI hipError_t hipDevSmResourceSplit(hipDevResource* result, unsigned int group_count,
+// hipDevSmResourceSplit@hip_7.14 (from libhrx/src/binding/hip/api.h)
+HIPAPI hipError_t hipDevSmResourceSplit(hipDevResource* result, unsigned int groupCount,
     const hipDevResource* input, hipDevResource* remainder, unsigned int flags,
-    hipDevSmResourceGroupParams* group_parameters) {
+    hipDevSmResourceGroupParams* groupParameters) {
   typedef hipError_t (*pfn_hipDevSmResourceSplit_t)(hipDevResource*, unsigned int, const hipDevResource*, hipDevResource*, unsigned int, hipDevSmResourceGroupParams*);
   static pfn_hipDevSmResourceSplit_t hip_stub_fn = NULL;
   if (!hip_stub_fn) {
     hip_stub_fn = (pfn_hipDevSmResourceSplit_t)dlsym(hip_passthrough_backend_lib(), "hipDevSmResourceSplit");
   }
   hipError_t _ret = 0;
-  if (hip_stub_fn) _ret = hip_stub_fn(result, group_count, input, remainder, flags, group_parameters);
+  if (hip_stub_fn) _ret = hip_stub_fn(result, groupCount, input, remainder, flags, groupParameters);
   hip_passthrough_log_call("hipDevSmResourceSplit");
   return _ret;
 }
 
-// hipDevSmResourceSplitByCount@hip_7.14 (from libhrx/src/binding/hip/api.c)
+// hipDevSmResourceSplitByCount@hip_7.14 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipDevSmResourceSplitByCount(hipDevResource* result,
-                                               unsigned int* group_count,
+                                               unsigned int* groupCount,
                                                const hipDevResource* input,
                                                hipDevResource* remainder,
                                                unsigned int flags,
-                                               unsigned int minimum_count) {
+                                               unsigned int minimumCount) {
   typedef hipError_t (*pfn_hipDevSmResourceSplitByCount_t)(hipDevResource*, unsigned int*, const hipDevResource*, hipDevResource*, unsigned int, unsigned int);
   static pfn_hipDevSmResourceSplitByCount_t hip_stub_fn = NULL;
   if (!hip_stub_fn) {
     hip_stub_fn = (pfn_hipDevSmResourceSplitByCount_t)dlsym(hip_passthrough_backend_lib(), "hipDevSmResourceSplitByCount");
   }
   hipError_t _ret = 0;
-  if (hip_stub_fn) _ret = hip_stub_fn(result, group_count, input, remainder, flags, minimum_count);
+  if (hip_stub_fn) _ret = hip_stub_fn(result, groupCount, input, remainder, flags, minimumCount);
   hip_passthrough_log_call("hipDevSmResourceSplitByCount");
   return _ret;
 }
 
-// hipDeviceGetDevResource@hip_7.14 (from libhrx/src/binding/hip/api.c)
+// hipDeviceGetDevResource@hip_7.14 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipDeviceGetDevResource(hipDevice_t device,
                                           hipDevResource* resource,
                                           hipDevResourceType type) {
@@ -445,7 +446,7 @@ HIPAPI hipError_t hipDeviceGetDevResource(hipDevice_t device,
   return _ret;
 }
 
-// hipDeviceGetExecutionCtx@hip_7.14 (from libhrx/src/binding/hip/api.c)
+// hipDeviceGetExecutionCtx@hip_7.14 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipDeviceGetExecutionCtx(hipExecutionCtx_t* context,
                                            int device) {
   typedef hipError_t (*pfn_hipDeviceGetExecutionCtx_t)(hipExecutionCtx_t*, int);
@@ -581,7 +582,7 @@ HIPAPI hipError_t hipDrvGraphMemcpyNodeSetParams(hipGraphNode_t hNode, const ire
   return _ret;
 }
 
-// hipDrvLaunchKernelEx@hip_6.5 (from libhrx/src/binding/hip/api.c)
+// hipDrvLaunchKernelEx@hip_6.5 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipDrvLaunchKernelEx(const HIP_LAUNCH_CONFIG* config,
                                        hipFunction_t function,
                                        void** kernel_params, void** extra) {
@@ -623,7 +624,7 @@ HIPAPI hipError_t hipEventRecord_spt(hipEvent_t event, hipStream_t stream) {
   return _ret;
 }
 
-// hipExecutionCtxDestroy@hip_7.14 (from libhrx/src/binding/hip/api.c)
+// hipExecutionCtxDestroy@hip_7.14 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipExecutionCtxDestroy(hipExecutionCtx_t context) {
   typedef hipError_t (*pfn_hipExecutionCtxDestroy_t)(hipExecutionCtx_t);
   static pfn_hipExecutionCtxDestroy_t hip_stub_fn = NULL;
@@ -636,7 +637,7 @@ HIPAPI hipError_t hipExecutionCtxDestroy(hipExecutionCtx_t context) {
   return _ret;
 }
 
-// hipExecutionCtxGetDevResource@hip_7.14 (from libhrx/src/binding/hip/api.c)
+// hipExecutionCtxGetDevResource@hip_7.14 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipExecutionCtxGetDevResource(hipExecutionCtx_t context,
                                                 hipDevResource* resource,
                                                 hipDevResourceType type) {
@@ -651,10 +652,10 @@ HIPAPI hipError_t hipExecutionCtxGetDevResource(hipExecutionCtx_t context,
   return _ret;
 }
 
-// hipExecutionCtxGetDevice@hip_7.14 (from libhrx/src/binding/hip/api.c)
-HIPAPI hipError_t hipExecutionCtxGetDevice(hipDevice_t* device,
+// hipExecutionCtxGetDevice@hip_7.14 (from libhrx/src/binding/hip/api.h)
+HIPAPI hipError_t hipExecutionCtxGetDevice(int* device,
                                            hipExecutionCtx_t context) {
-  typedef hipError_t (*pfn_hipExecutionCtxGetDevice_t)(hipDevice_t*, hipExecutionCtx_t);
+  typedef hipError_t (*pfn_hipExecutionCtxGetDevice_t)(int*, hipExecutionCtx_t);
   static pfn_hipExecutionCtxGetDevice_t hip_stub_fn = NULL;
   if (!hip_stub_fn) {
     hip_stub_fn = (pfn_hipExecutionCtxGetDevice_t)dlsym(hip_passthrough_backend_lib(), "hipExecutionCtxGetDevice");
@@ -665,21 +666,21 @@ HIPAPI hipError_t hipExecutionCtxGetDevice(hipDevice_t* device,
   return _ret;
 }
 
-// hipExecutionCtxGetId@hip_7.14 (from libhrx/src/binding/hip/api.c)
+// hipExecutionCtxGetId@hip_7.14 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipExecutionCtxGetId(hipExecutionCtx_t context,
-                                       unsigned long long* context_id) {
+                                       unsigned long long* contextId) {
   typedef hipError_t (*pfn_hipExecutionCtxGetId_t)(hipExecutionCtx_t, unsigned long long*);
   static pfn_hipExecutionCtxGetId_t hip_stub_fn = NULL;
   if (!hip_stub_fn) {
     hip_stub_fn = (pfn_hipExecutionCtxGetId_t)dlsym(hip_passthrough_backend_lib(), "hipExecutionCtxGetId");
   }
   hipError_t _ret = 0;
-  if (hip_stub_fn) _ret = hip_stub_fn(context, context_id);
+  if (hip_stub_fn) _ret = hip_stub_fn(context, contextId);
   hip_passthrough_log_call("hipExecutionCtxGetId");
   return _ret;
 }
 
-// hipExecutionCtxRecordEvent@hip_7.14 (from libhrx/src/binding/hip/api.c)
+// hipExecutionCtxRecordEvent@hip_7.14 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipExecutionCtxRecordEvent(hipExecutionCtx_t context,
                                              hipEvent_t event) {
   typedef hipError_t (*pfn_hipExecutionCtxRecordEvent_t)(hipExecutionCtx_t, hipEvent_t);
@@ -693,11 +694,10 @@ HIPAPI hipError_t hipExecutionCtxRecordEvent(hipExecutionCtx_t context,
   return _ret;
 }
 
-// hipExecutionCtxStreamCreate@hip_7.14 (from libhrx/src/binding/hip/api.c)
+// hipExecutionCtxStreamCreate@hip_7.14 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipExecutionCtxStreamCreate(hipStream_t* stream,
                                               hipExecutionCtx_t context,
-                                              unsigned int flags,
-                                              int priority) {
+                                              unsigned int flags, int priority) {
   typedef hipError_t (*pfn_hipExecutionCtxStreamCreate_t)(hipStream_t*, hipExecutionCtx_t, unsigned int, int);
   static pfn_hipExecutionCtxStreamCreate_t hip_stub_fn = NULL;
   if (!hip_stub_fn) {
@@ -709,7 +709,7 @@ HIPAPI hipError_t hipExecutionCtxStreamCreate(hipStream_t* stream,
   return _ret;
 }
 
-// hipExecutionCtxSynchronize@hip_7.14 (from libhrx/src/binding/hip/api.c)
+// hipExecutionCtxSynchronize@hip_7.14 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipExecutionCtxSynchronize(hipExecutionCtx_t context) {
   typedef hipError_t (*pfn_hipExecutionCtxSynchronize_t)(hipExecutionCtx_t);
   static pfn_hipExecutionCtxSynchronize_t hip_stub_fn = NULL;
@@ -722,7 +722,7 @@ HIPAPI hipError_t hipExecutionCtxSynchronize(hipExecutionCtx_t context) {
   return _ret;
 }
 
-// hipExecutionCtxWaitEvent@hip_7.14 (from libhrx/src/binding/hip/api.c)
+// hipExecutionCtxWaitEvent@hip_7.14 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipExecutionCtxWaitEvent(hipExecutionCtx_t context,
                                            hipEvent_t event) {
   typedef hipError_t (*pfn_hipExecutionCtxWaitEvent_t)(hipExecutionCtx_t, hipEvent_t);
@@ -850,17 +850,17 @@ HIPAPI hipError_t hipGetFuncBySymbol(hipFunction_t* functionPtr,
   return _ret;
 }
 
-// hipGetProcAddress@hip_6.1 (from libhrx/src/binding/hip/api.c)
-HIPAPI hipError_t hipGetProcAddress(const char* symbol, void** function,
-                                    int hip_version, uint64_t flags,
-                                    void* symbol_status) {
+// hipGetProcAddress@hip_6.1 (from libhrx/src/binding/hip/api.h)
+HIPAPI hipError_t hipGetProcAddress(const char* symbol, void** pfn,
+                                    int hipVersion, uint64_t flags,
+                                    void* symbolStatus) {
   typedef hipError_t (*pfn_hipGetProcAddress_t)(const char*, void**, int, uint64_t, void*);
   static pfn_hipGetProcAddress_t hip_stub_fn = NULL;
   if (!hip_stub_fn) {
     hip_stub_fn = (pfn_hipGetProcAddress_t)dlsym(hip_passthrough_backend_lib(), "hipGetProcAddress");
   }
   hipError_t _ret = 0;
-  if (hip_stub_fn) _ret = hip_stub_fn(symbol, function, hip_version, flags, symbol_status);
+  if (hip_stub_fn) _ret = hip_stub_fn(symbol, pfn, hipVersion, flags, symbolStatus);
   hip_passthrough_log_call("hipGetProcAddress");
   return _ret;
 }
@@ -939,7 +939,7 @@ HIPAPI hipError_t hipGraphAddBatchMemOpNode(hipGraphNode_t* pGraphNode,
   return _ret;
 }
 
-// hipGraphAddMemcpyNode1D@hip_4.3 (from libhrx/src/binding/hip/api.c)
+// hipGraphAddMemcpyNode1D@hip_4.3 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipGraphAddMemcpyNode1D(hipGraphNode_t* pGraphNode,
                                           hipGraph_t graph,
                                           const hipGraphNode_t* pDependencies,
@@ -1047,7 +1047,7 @@ HIPAPI hipError_t hipGraphExecBatchMemOpNodeSetParams(hipGraphExec_t graphExec,
   return _ret;
 }
 
-// hipGraphExecChildGraphNodeSetParams@hip_4.5 (from libhrx/src/binding/hip/api.c)
+// hipGraphExecChildGraphNodeSetParams@hip_4.5 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipGraphExecChildGraphNodeSetParams(hipGraphExec_t graphExec,
                                                       hipGraphNode_t node,
                                                       hipGraph_t childGraph) {
@@ -1062,7 +1062,7 @@ HIPAPI hipError_t hipGraphExecChildGraphNodeSetParams(hipGraphExec_t graphExec,
   return _ret;
 }
 
-// hipGraphExecEventRecordNodeSetEvent@hip_4.5 (from libhrx/src/binding/hip/api.c)
+// hipGraphExecEventRecordNodeSetEvent@hip_4.5 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipGraphExecEventRecordNodeSetEvent(hipGraphExec_t graphExec,
                                                       hipGraphNode_t node,
                                                       hipEvent_t event) {
@@ -1077,7 +1077,7 @@ HIPAPI hipError_t hipGraphExecEventRecordNodeSetEvent(hipGraphExec_t graphExec,
   return _ret;
 }
 
-// hipGraphExecEventWaitNodeSetEvent@hip_4.5 (from libhrx/src/binding/hip/api.c)
+// hipGraphExecEventWaitNodeSetEvent@hip_4.5 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipGraphExecEventWaitNodeSetEvent(hipGraphExec_t graphExec,
                                                     hipGraphNode_t node,
                                                     hipEvent_t event) {
@@ -1120,7 +1120,7 @@ HIPAPI hipError_t hipGraphExecExternalSemaphoresWaitNodeSetParams(hipGraphExec_t
   return _ret;
 }
 
-// hipGraphExecGetFlags@hip_6.2 (from libhrx/src/binding/hip/api.c)
+// hipGraphExecGetFlags@hip_6.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipGraphExecGetFlags(hipGraphExec_t graphExec,
                                        unsigned long long* flags) {
   typedef hipError_t (*pfn_hipGraphExecGetFlags_t)(hipGraphExec_t, unsigned long long*);
@@ -1134,7 +1134,7 @@ HIPAPI hipError_t hipGraphExecGetFlags(hipGraphExec_t graphExec,
   return _ret;
 }
 
-// hipGraphExecHostNodeSetParams@hip_4.5 (from libhrx/src/binding/hip/api.c)
+// hipGraphExecHostNodeSetParams@hip_4.5 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipGraphExecHostNodeSetParams(hipGraphExec_t graphExec,
                                                 hipGraphNode_t node,
                                                 const void* pNodeParams) {
@@ -1149,7 +1149,7 @@ HIPAPI hipError_t hipGraphExecHostNodeSetParams(hipGraphExec_t graphExec,
   return _ret;
 }
 
-// hipGraphExecMemcpyNodeSetParams@hip_4.5 (from libhrx/src/binding/hip/api.c)
+// hipGraphExecMemcpyNodeSetParams@hip_4.5 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipGraphExecMemcpyNodeSetParams(hipGraphExec_t graphExec,
                                                   hipGraphNode_t node,
                                                   const void* pNodeParams) {
@@ -1164,7 +1164,7 @@ HIPAPI hipError_t hipGraphExecMemcpyNodeSetParams(hipGraphExec_t graphExec,
   return _ret;
 }
 
-// hipGraphExecMemcpyNodeSetParams1D@hip_4.5 (from libhrx/src/binding/hip/api.c)
+// hipGraphExecMemcpyNodeSetParams1D@hip_4.5 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipGraphExecMemcpyNodeSetParams1D(hipGraphExec_t graphExec,
                                                     hipGraphNode_t node,
                                                     void* dst, const void* src,
@@ -1181,7 +1181,7 @@ HIPAPI hipError_t hipGraphExecMemcpyNodeSetParams1D(hipGraphExec_t graphExec,
   return _ret;
 }
 
-// hipGraphExecMemcpyNodeSetParamsFromSymbol@hip_4.5 (from libhrx/src/binding/hip/api.c)
+// hipGraphExecMemcpyNodeSetParamsFromSymbol@hip_4.5 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipGraphExecMemcpyNodeSetParamsFromSymbol(hipGraphExec_t graphExec, hipGraphNode_t node, void* dst,
     const void* symbol, size_t count, size_t offset, hipMemcpyKind kind) {
   typedef hipError_t (*pfn_hipGraphExecMemcpyNodeSetParamsFromSymbol_t)(hipGraphExec_t, hipGraphNode_t, void*, const void*, size_t, size_t, hipMemcpyKind);
@@ -1195,7 +1195,7 @@ HIPAPI hipError_t hipGraphExecMemcpyNodeSetParamsFromSymbol(hipGraphExec_t graph
   return _ret;
 }
 
-// hipGraphExecMemcpyNodeSetParamsToSymbol@hip_4.5 (from libhrx/src/binding/hip/api.c)
+// hipGraphExecMemcpyNodeSetParamsToSymbol@hip_4.5 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipGraphExecMemcpyNodeSetParamsToSymbol(hipGraphExec_t graphExec, hipGraphNode_t node, const void* symbol,
     const void* src, size_t count, size_t offset, hipMemcpyKind kind) {
   typedef hipError_t (*pfn_hipGraphExecMemcpyNodeSetParamsToSymbol_t)(hipGraphExec_t, hipGraphNode_t, const void*, const void*, size_t, size_t, hipMemcpyKind);
@@ -1209,7 +1209,7 @@ HIPAPI hipError_t hipGraphExecMemcpyNodeSetParamsToSymbol(hipGraphExec_t graphEx
   return _ret;
 }
 
-// hipGraphExecMemsetNodeSetParams@hip_4.5 (from libhrx/src/binding/hip/api.c)
+// hipGraphExecMemsetNodeSetParams@hip_4.5 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipGraphExecMemsetNodeSetParams(hipGraphExec_t graphExec,
                                                   hipGraphNode_t node,
                                                   const void* pNodeParams) {
@@ -1224,7 +1224,7 @@ HIPAPI hipError_t hipGraphExecMemsetNodeSetParams(hipGraphExec_t graphExec,
   return _ret;
 }
 
-// hipGraphExecNodeSetParams@hip_6.2 (from libhrx/src/binding/hip/api.c)
+// hipGraphExecNodeSetParams@hip_6.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipGraphExecNodeSetParams(hipGraphExec_t graphExec,
                                             hipGraphNode_t node,
                                             const void* nodeParams) {
@@ -1293,7 +1293,7 @@ HIPAPI hipError_t hipGraphExternalSemaphoresWaitNodeSetParams(hipGraphNode_t hNo
   return _ret;
 }
 
-// hipGraphInstantiateWithParams@hip_6.1 (from libhrx/src/binding/hip/api.c)
+// hipGraphInstantiateWithParams@hip_6.1 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipGraphInstantiateWithParams(hipGraphExec_t* pGraphExec,
                                                 hipGraph_t graph,
                                                 void* instantiateParams) {
@@ -1308,7 +1308,7 @@ HIPAPI hipError_t hipGraphInstantiateWithParams(hipGraphExec_t* pGraphExec,
   return _ret;
 }
 
-// hipGraphKernelNodeCopyAttributes@hip_5.3 (from libhrx/src/binding/hip/api.c)
+// hipGraphKernelNodeCopyAttributes@hip_5.3 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipGraphKernelNodeCopyAttributes(hipGraphNode_t hSrc,
                                                    hipGraphNode_t hDst) {
   typedef hipError_t (*pfn_hipGraphKernelNodeCopyAttributes_t)(hipGraphNode_t, hipGraphNode_t);
@@ -1322,9 +1322,10 @@ HIPAPI hipError_t hipGraphKernelNodeCopyAttributes(hipGraphNode_t hSrc,
   return _ret;
 }
 
-// hipGraphKernelNodeGetAttribute@hip_5.0 (from libhrx/src/binding/hip/api.c)
-HIPAPI hipError_t hipGraphKernelNodeGetAttribute(hipGraphNode_t hNode, hipKernelNodeAttrID attr,
-                               hipKernelNodeAttrValue* value) {
+// hipGraphKernelNodeGetAttribute@hip_5.0 (from libhrx/src/binding/hip/api.h)
+HIPAPI hipError_t hipGraphKernelNodeGetAttribute(hipGraphNode_t hNode,
+                                                 hipKernelNodeAttrID attr,
+                                                 hipKernelNodeAttrValue* value) {
   typedef hipError_t (*pfn_hipGraphKernelNodeGetAttribute_t)(hipGraphNode_t, hipKernelNodeAttrID, hipKernelNodeAttrValue*);
   static pfn_hipGraphKernelNodeGetAttribute_t hip_stub_fn = NULL;
   if (!hip_stub_fn) {
@@ -1336,7 +1337,7 @@ HIPAPI hipError_t hipGraphKernelNodeGetAttribute(hipGraphNode_t hNode, hipKernel
   return _ret;
 }
 
-// hipGraphKernelNodeSetAttribute@hip_5.0 (from libhrx/src/binding/hip/api.c)
+// hipGraphKernelNodeSetAttribute@hip_5.0 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipGraphKernelNodeSetAttribute(hipGraphNode_t hNode, hipKernelNodeAttrID attr,
                                const hipKernelNodeAttrValue* value) {
   typedef hipError_t (*pfn_hipGraphKernelNodeSetAttribute_t)(hipGraphNode_t, hipKernelNodeAttrID, const hipKernelNodeAttrValue*);
@@ -1364,7 +1365,7 @@ HIPAPI hipError_t hipGraphLaunch_spt(hipGraphExec_t graphExec,
   return _ret;
 }
 
-// hipGraphMemcpyNodeSetParams1D@hip_4.5 (from libhrx/src/binding/hip/api.c)
+// hipGraphMemcpyNodeSetParams1D@hip_4.5 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipGraphMemcpyNodeSetParams1D(hipGraphNode_t node, void* dst,
                                                 const void* src, size_t count,
                                                 hipMemcpyKind kind) {
@@ -1379,7 +1380,7 @@ HIPAPI hipError_t hipGraphMemcpyNodeSetParams1D(hipGraphNode_t node, void* dst,
   return _ret;
 }
 
-// hipGraphMemcpyNodeSetParamsFromSymbol@hip_4.5 (from libhrx/src/binding/hip/api.c)
+// hipGraphMemcpyNodeSetParamsFromSymbol@hip_4.5 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipGraphMemcpyNodeSetParamsFromSymbol(hipGraphNode_t node, void* dst, const void* symbol, size_t count,
     size_t offset, hipMemcpyKind kind) {
   typedef hipError_t (*pfn_hipGraphMemcpyNodeSetParamsFromSymbol_t)(hipGraphNode_t, void*, const void*, size_t, size_t, hipMemcpyKind);
@@ -1393,7 +1394,7 @@ HIPAPI hipError_t hipGraphMemcpyNodeSetParamsFromSymbol(hipGraphNode_t node, voi
   return _ret;
 }
 
-// hipGraphMemcpyNodeSetParamsToSymbol@hip_4.5 (from libhrx/src/binding/hip/api.c)
+// hipGraphMemcpyNodeSetParamsToSymbol@hip_4.5 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipGraphMemcpyNodeSetParamsToSymbol(hipGraphNode_t node, const void* symbol, const void* src, size_t count,
     size_t offset, hipMemcpyKind kind) {
   typedef hipError_t (*pfn_hipGraphMemcpyNodeSetParamsToSymbol_t)(hipGraphNode_t, const void*, const void*, size_t, size_t, hipMemcpyKind);
@@ -1407,7 +1408,7 @@ HIPAPI hipError_t hipGraphMemcpyNodeSetParamsToSymbol(hipGraphNode_t node, const
   return _ret;
 }
 
-// hipGraphNodeGetEnabled@hip_5.3 (from libhrx/src/binding/hip/api.c)
+// hipGraphNodeGetEnabled@hip_5.3 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipGraphNodeGetEnabled(hipGraphExec_t hGraphExec,
                                          hipGraphNode_t hNode,
                                          unsigned int* isEnabled) {
@@ -1422,7 +1423,7 @@ HIPAPI hipError_t hipGraphNodeGetEnabled(hipGraphExec_t hGraphExec,
   return _ret;
 }
 
-// hipGraphNodeSetEnabled@hip_5.3 (from libhrx/src/binding/hip/api.c)
+// hipGraphNodeSetEnabled@hip_5.3 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipGraphNodeSetEnabled(hipGraphExec_t hGraphExec,
                                          hipGraphNode_t hNode,
                                          unsigned int isEnabled) {
@@ -1451,7 +1452,7 @@ HIPAPI hipError_t hipGraphNodeSetParams(hipGraphNode_t node,
   return _ret;
 }
 
-// hipGreenCtxCreate@hip_7.14 (from libhrx/src/binding/hip/api.c)
+// hipGreenCtxCreate@hip_7.14 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipGreenCtxCreate(hipExecutionCtx_t* context,
                                     hipDevResourceDesc_t descriptor, int device,
                                     unsigned int flags) {
@@ -1466,7 +1467,7 @@ HIPAPI hipError_t hipGreenCtxCreate(hipExecutionCtx_t* context,
   return _ret;
 }
 
-// hipHALDeinit@HRX_0.1 (from libhrx/src/binding/hip/api.c)
+// hipHALDeinit@HRX_0.1 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipHALDeinit(void) {
   typedef hipError_t (*pfn_hipHALDeinit_t)(void);
   static pfn_hipHALDeinit_t hip_stub_fn = NULL;
@@ -1479,7 +1480,7 @@ HIPAPI hipError_t hipHALDeinit(void) {
   return _ret;
 }
 
-// hipHRXSetDeviceEventSink@HRX_0.1 (from libhrx/src/binding/hip/api.c)
+// hipHRXSetDeviceEventSink@HRX_0.1 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipHRXSetDeviceEventSink(hrx_device_event_sink_t sink) {
   typedef hipError_t (*pfn_hipHRXSetDeviceEventSink_t)(hrx_device_event_sink_t);
   static pfn_hipHRXSetDeviceEventSink_t hip_stub_fn = NULL;
@@ -1492,24 +1493,23 @@ HIPAPI hipError_t hipHRXSetDeviceEventSink(hrx_device_event_sink_t sink) {
   return _ret;
 }
 
-// hipHostAlloc@hip_4.2 (from libhrx/src/binding/hip/api.c)
-HIPAPI hipError_t hipHostAlloc(void** ptr, size_t size, unsigned int flags) {
+// hipHostAlloc@hip_4.2 (from libhrx/src/binding/hip/api.h)
+HIPAPI hipError_t hipHostAlloc(void** pp, size_t bytesize, unsigned int flags) {
   typedef hipError_t (*pfn_hipHostAlloc_t)(void**, size_t, unsigned int);
   static pfn_hipHostAlloc_t hip_stub_fn = NULL;
   if (!hip_stub_fn) {
     hip_stub_fn = (pfn_hipHostAlloc_t)dlsym(hip_passthrough_backend_lib(), "hipHostAlloc");
   }
   hipError_t _ret = 0;
-  if (hip_stub_fn) _ret = hip_stub_fn(ptr, size, flags);
+  if (hip_stub_fn) _ret = hip_stub_fn(pp, bytesize, flags);
   hip_passthrough_log_call("hipHostAlloc");
   return _ret;
 }
 
-// hipKernelGetAttribute@hip_7.2 (from libhrx/src/binding/hip/library.c)
+// hipKernelGetAttribute@hip_7.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipKernelGetAttribute(int* value,
                                         hipFunction_attribute attribute,
-                                        hipKernel_t kernel,
-                                        hipDevice_t device) {
+                                        hipKernel_t kernel, hipDevice_t device) {
   typedef hipError_t (*pfn_hipKernelGetAttribute_t)(int*, hipFunction_attribute, hipKernel_t, hipDevice_t);
   static pfn_hipKernelGetAttribute_t hip_stub_fn = NULL;
   if (!hip_stub_fn) {
@@ -1521,7 +1521,7 @@ HIPAPI hipError_t hipKernelGetAttribute(int* value,
   return _ret;
 }
 
-// hipKernelGetFunction@hip_7.2 (from libhrx/src/binding/hip/library.c)
+// hipKernelGetFunction@hip_7.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipKernelGetFunction(hipFunction_t* function,
                                        hipKernel_t kernel) {
   typedef hipError_t (*pfn_hipKernelGetFunction_t)(hipFunction_t*, hipKernel_t);
@@ -1535,7 +1535,7 @@ HIPAPI hipError_t hipKernelGetFunction(hipFunction_t* function,
   return _ret;
 }
 
-// hipKernelGetLibrary@hip_7.2 (from libhrx/src/binding/hip/library.c)
+// hipKernelGetLibrary@hip_7.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipKernelGetLibrary(hipLibrary_t* library,
                                       hipKernel_t kernel) {
   typedef hipError_t (*pfn_hipKernelGetLibrary_t)(hipLibrary_t*, hipKernel_t);
@@ -1549,7 +1549,7 @@ HIPAPI hipError_t hipKernelGetLibrary(hipLibrary_t* library,
   return _ret;
 }
 
-// hipKernelGetName@hip_7.2 (from libhrx/src/binding/hip/library.c)
+// hipKernelGetName@hip_7.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipKernelGetName(const char** name, hipKernel_t kernel) {
   typedef hipError_t (*pfn_hipKernelGetName_t)(const char**, hipKernel_t);
   static pfn_hipKernelGetName_t hip_stub_fn = NULL;
@@ -1562,23 +1562,23 @@ HIPAPI hipError_t hipKernelGetName(const char** name, hipKernel_t kernel) {
   return _ret;
 }
 
-// hipKernelGetParamInfo@hip_7.2 (from libhrx/src/binding/hip/library.c)
+// hipKernelGetParamInfo@hip_7.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipKernelGetParamInfo(hipKernel_t kernel,
-                                        size_t parameter_index,
-                                        size_t* parameter_offset,
-                                        size_t* parameter_size) {
+                                        size_t parameterIndex,
+                                        size_t* parameterOffset,
+                                        size_t* parameterSize) {
   typedef hipError_t (*pfn_hipKernelGetParamInfo_t)(hipKernel_t, size_t, size_t*, size_t*);
   static pfn_hipKernelGetParamInfo_t hip_stub_fn = NULL;
   if (!hip_stub_fn) {
     hip_stub_fn = (pfn_hipKernelGetParamInfo_t)dlsym(hip_passthrough_backend_lib(), "hipKernelGetParamInfo");
   }
   hipError_t _ret = 0;
-  if (hip_stub_fn) _ret = hip_stub_fn(kernel, parameter_index, parameter_offset, parameter_size);
+  if (hip_stub_fn) _ret = hip_stub_fn(kernel, parameterIndex, parameterOffset, parameterSize);
   hip_passthrough_log_call("hipKernelGetParamInfo");
   return _ret;
 }
 
-// hipKernelSetAttribute@hip_7.2 (from libhrx/src/binding/hip/library.c)
+// hipKernelSetAttribute@hip_7.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipKernelSetAttribute(hipFunction_attribute attribute,
                                         int value, hipKernel_t kernel,
                                         hipDevice_t device) {
@@ -1624,10 +1624,9 @@ HIPAPI hipError_t hipLaunchHostFunc_spt(hipStream_t stream, hipHostFn_t fn,
   return _ret;
 }
 
-// hipLaunchKernelExC@hip_6.5 (from libhrx/src/binding/hip/api.c)
+// hipLaunchKernelExC@hip_6.5 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipLaunchKernelExC(const hipLaunchConfig_t* config,
-                                     const void* function_address,
-                                     void** args) {
+                                     const void* function_address, void** args) {
   typedef hipError_t (*pfn_hipLaunchKernelExC_t)(const hipLaunchConfig_t*, const void*, void**);
   static pfn_hipLaunchKernelExC_t hip_stub_fn = NULL;
   if (!hip_stub_fn) {
@@ -1655,9 +1654,9 @@ HIPAPI hipError_t hipLaunchKernel_spt(const void* function_address,
   return _ret;
 }
 
-// hipLibraryEnumerateKernels@hip_7.2 (from libhrx/src/binding/hip/library.c)
+// hipLibraryEnumerateKernels@hip_7.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipLibraryEnumerateKernels(hipKernel_t* kernels,
-                                             unsigned int kernel_count,
+                                             unsigned int kernelCount,
                                              hipLibrary_t library) {
   typedef hipError_t (*pfn_hipLibraryEnumerateKernels_t)(hipKernel_t*, unsigned int, hipLibrary_t);
   static pfn_hipLibraryEnumerateKernels_t hip_stub_fn = NULL;
@@ -1665,13 +1664,13 @@ HIPAPI hipError_t hipLibraryEnumerateKernels(hipKernel_t* kernels,
     hip_stub_fn = (pfn_hipLibraryEnumerateKernels_t)dlsym(hip_passthrough_backend_lib(), "hipLibraryEnumerateKernels");
   }
   hipError_t _ret = 0;
-  if (hip_stub_fn) _ret = hip_stub_fn(kernels, kernel_count, library);
+  if (hip_stub_fn) _ret = hip_stub_fn(kernels, kernelCount, library);
   hip_passthrough_log_call("hipLibraryEnumerateKernels");
   return _ret;
 }
 
-// hipLibraryGetGlobal@hip_7.2 (from libhrx/src/binding/hip/library.c)
-HIPAPI hipError_t hipLibraryGetGlobal(void** device_pointer, size_t* byte_count,
+// hipLibraryGetGlobal@hip_7.2 (from libhrx/src/binding/hip/api.h)
+HIPAPI hipError_t hipLibraryGetGlobal(void** devicePointer, size_t* byteCount,
                                       hipLibrary_t library, const char* name) {
   typedef hipError_t (*pfn_hipLibraryGetGlobal_t)(void**, size_t*, hipLibrary_t, const char*);
   static pfn_hipLibraryGetGlobal_t hip_stub_fn = NULL;
@@ -1679,12 +1678,12 @@ HIPAPI hipError_t hipLibraryGetGlobal(void** device_pointer, size_t* byte_count,
     hip_stub_fn = (pfn_hipLibraryGetGlobal_t)dlsym(hip_passthrough_backend_lib(), "hipLibraryGetGlobal");
   }
   hipError_t _ret = 0;
-  if (hip_stub_fn) _ret = hip_stub_fn(device_pointer, byte_count, library, name);
+  if (hip_stub_fn) _ret = hip_stub_fn(devicePointer, byteCount, library, name);
   hip_passthrough_log_call("hipLibraryGetGlobal");
   return _ret;
 }
 
-// hipLibraryGetKernel@hip_7.2 (from libhrx/src/binding/hip/library.c)
+// hipLibraryGetKernel@hip_7.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipLibraryGetKernel(hipKernel_t* kernel, hipLibrary_t library,
                                       const char* name) {
   typedef hipError_t (*pfn_hipLibraryGetKernel_t)(hipKernel_t*, hipLibrary_t, const char*);
@@ -1698,7 +1697,7 @@ HIPAPI hipError_t hipLibraryGetKernel(hipKernel_t* kernel, hipLibrary_t library,
   return _ret;
 }
 
-// hipLibraryGetKernelCount@hip_7.2 (from libhrx/src/binding/hip/library.c)
+// hipLibraryGetKernelCount@hip_7.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipLibraryGetKernelCount(unsigned int* count,
                                            hipLibrary_t library) {
   typedef hipError_t (*pfn_hipLibraryGetKernelCount_t)(unsigned int*, hipLibrary_t);
@@ -1712,8 +1711,8 @@ HIPAPI hipError_t hipLibraryGetKernelCount(unsigned int* count,
   return _ret;
 }
 
-// hipLibraryGetManaged@hip_7.2 (from libhrx/src/binding/hip/library.c)
-HIPAPI hipError_t hipLibraryGetManaged(void** host_pointer, size_t* byte_count,
+// hipLibraryGetManaged@hip_7.2 (from libhrx/src/binding/hip/api.h)
+HIPAPI hipError_t hipLibraryGetManaged(void** hostPointer, size_t* byteCount,
                                        hipLibrary_t library, const char* name) {
   typedef hipError_t (*pfn_hipLibraryGetManaged_t)(void**, size_t*, hipLibrary_t, const char*);
   static pfn_hipLibraryGetManaged_t hip_stub_fn = NULL;
@@ -1721,47 +1720,47 @@ HIPAPI hipError_t hipLibraryGetManaged(void** host_pointer, size_t* byte_count,
     hip_stub_fn = (pfn_hipLibraryGetManaged_t)dlsym(hip_passthrough_backend_lib(), "hipLibraryGetManaged");
   }
   hipError_t _ret = 0;
-  if (hip_stub_fn) _ret = hip_stub_fn(host_pointer, byte_count, library, name);
+  if (hip_stub_fn) _ret = hip_stub_fn(hostPointer, byteCount, library, name);
   hip_passthrough_log_call("hipLibraryGetManaged");
   return _ret;
 }
 
-// hipLibraryLoadData@hip_7.2 (from libhrx/src/binding/hip/library.c)
+// hipLibraryLoadData@hip_7.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipLibraryLoadData(hipLibrary_t* library, const void* code,
-                                     hipJitOption* jit_options,
-                                     void** jit_option_values,
-                                     unsigned int jit_option_count,
-                                     hipLibraryOption* library_options,
-                                     void** library_option_values,
-                                     unsigned int library_option_count) {
+                                     hipJitOption* jitOptions,
+                                     void** jitOptionsValues,
+                                     unsigned int numJitOptions,
+                                     hipLibraryOption* libraryOptions,
+                                     void** libraryOptionValues,
+                                     unsigned int numLibraryOptions) {
   typedef hipError_t (*pfn_hipLibraryLoadData_t)(hipLibrary_t*, const void*, hipJitOption*, void**, unsigned int, hipLibraryOption*, void**, unsigned int);
   static pfn_hipLibraryLoadData_t hip_stub_fn = NULL;
   if (!hip_stub_fn) {
     hip_stub_fn = (pfn_hipLibraryLoadData_t)dlsym(hip_passthrough_backend_lib(), "hipLibraryLoadData");
   }
   hipError_t _ret = 0;
-  if (hip_stub_fn) _ret = hip_stub_fn(library, code, jit_options, jit_option_values, jit_option_count, library_options, library_option_values, library_option_count);
+  if (hip_stub_fn) _ret = hip_stub_fn(library, code, jitOptions, jitOptionsValues, numJitOptions, libraryOptions, libraryOptionValues, numLibraryOptions);
   hip_passthrough_log_call("hipLibraryLoadData");
   return _ret;
 }
 
-// hipLibraryLoadFromFile@hip_7.2 (from libhrx/src/binding/hip/library.c)
-HIPAPI hipError_t hipLibraryLoadFromFile(hipLibrary_t* library, const char* file_name, hipJitOption* jit_options,
-    void** jit_option_values, unsigned int jit_option_count,
-    hipLibraryOption* library_options, void** library_option_values,
-    unsigned int library_option_count) {
+// hipLibraryLoadFromFile@hip_7.2 (from libhrx/src/binding/hip/api.h)
+HIPAPI hipError_t hipLibraryLoadFromFile(hipLibrary_t* library, const char* fileName, hipJitOption* jitOptions,
+    void** jitOptionsValues, unsigned int numJitOptions,
+    hipLibraryOption* libraryOptions, void** libraryOptionValues,
+    unsigned int numLibraryOptions) {
   typedef hipError_t (*pfn_hipLibraryLoadFromFile_t)(hipLibrary_t*, const char*, hipJitOption*, void**, unsigned int, hipLibraryOption*, void**, unsigned int);
   static pfn_hipLibraryLoadFromFile_t hip_stub_fn = NULL;
   if (!hip_stub_fn) {
     hip_stub_fn = (pfn_hipLibraryLoadFromFile_t)dlsym(hip_passthrough_backend_lib(), "hipLibraryLoadFromFile");
   }
   hipError_t _ret = 0;
-  if (hip_stub_fn) _ret = hip_stub_fn(library, file_name, jit_options, jit_option_values, jit_option_count, library_options, library_option_values, library_option_count);
+  if (hip_stub_fn) _ret = hip_stub_fn(library, fileName, jitOptions, jitOptionsValues, numJitOptions, libraryOptions, libraryOptionValues, numLibraryOptions);
   hip_passthrough_log_call("hipLibraryLoadFromFile");
   return _ret;
 }
 
-// hipLibraryUnload@hip_7.2 (from libhrx/src/binding/hip/library.c)
+// hipLibraryUnload@hip_7.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipLibraryUnload(hipLibrary_t library) {
   typedef hipError_t (*pfn_hipLibraryUnload_t)(hipLibrary_t);
   static pfn_hipLibraryUnload_t hip_stub_fn = NULL;
@@ -1774,7 +1773,7 @@ HIPAPI hipError_t hipLibraryUnload(hipLibrary_t library) {
   return _ret;
 }
 
-// hipLinkAddData@hip_6.4 (from libhrx/src/binding/hip/linker.c)
+// hipLinkAddData@hip_6.4 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipLinkAddData(hipLinkState_t state, hipJitInputType type,
                                  void* data, size_t size, const char* name,
                                  unsigned int numOptions, hipJitOption* options,
@@ -1790,7 +1789,7 @@ HIPAPI hipError_t hipLinkAddData(hipLinkState_t state, hipJitInputType type,
   return _ret;
 }
 
-// hipLinkAddFile@hip_6.4 (from libhrx/src/binding/hip/linker.c)
+// hipLinkAddFile@hip_6.4 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipLinkAddFile(hipLinkState_t state, hipJitInputType type,
                                  const char* path, unsigned int numOptions,
                                  hipJitOption* options, void** optionValues) {
@@ -1805,7 +1804,7 @@ HIPAPI hipError_t hipLinkAddFile(hipLinkState_t state, hipJitInputType type,
   return _ret;
 }
 
-// hipLinkComplete@hip_6.4 (from libhrx/src/binding/hip/linker.c)
+// hipLinkComplete@hip_6.4 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipLinkComplete(hipLinkState_t state, void** hipBinOut,
                                   size_t* sizeOut) {
   typedef hipError_t (*pfn_hipLinkComplete_t)(hipLinkState_t, void**, size_t*);
@@ -1819,7 +1818,7 @@ HIPAPI hipError_t hipLinkComplete(hipLinkState_t state, void** hipBinOut,
   return _ret;
 }
 
-// hipLinkCreate@hip_6.4 (from libhrx/src/binding/hip/linker.c)
+// hipLinkCreate@hip_6.4 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipLinkCreate(unsigned int numOptions, hipJitOption* options,
                                 void** optionValues, hipLinkState_t* stateOut) {
   typedef hipError_t (*pfn_hipLinkCreate_t)(unsigned int, hipJitOption*, void**, hipLinkState_t*);
@@ -1833,7 +1832,7 @@ HIPAPI hipError_t hipLinkCreate(unsigned int numOptions, hipJitOption* options,
   return _ret;
 }
 
-// hipLinkDestroy@hip_6.4 (from libhrx/src/binding/hip/linker.c)
+// hipLinkDestroy@hip_6.4 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipLinkDestroy(hipLinkState_t state) {
   typedef hipError_t (*pfn_hipLinkDestroy_t)(hipLinkState_t);
   static pfn_hipLinkDestroy_t hip_stub_fn = NULL;
@@ -1846,7 +1845,7 @@ HIPAPI hipError_t hipLinkDestroy(hipLinkState_t state) {
   return _ret;
 }
 
-// hipMemAdvise_v2@hip_7.1 (from libhrx/src/binding/hip/api.c)
+// hipMemAdvise_v2@hip_7.1 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipMemAdvise_v2(const void* dev_ptr, size_t count,
                                   hipMemoryAdvise advice,
                                   hipMemLocation location) {
@@ -1902,7 +1901,7 @@ HIPAPI hipError_t hipMemGetMemPool(hipMemPool_t* pool, hipMemLocation* location,
   return _ret;
 }
 
-// hipMemPrefetchAsync_v2@hip_7.1 (from libhrx/src/binding/hip/api.c)
+// hipMemPrefetchAsync_v2@hip_7.1 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipMemPrefetchAsync_v2(const void* dev_ptr, size_t count,
                                          hipMemLocation location,
                                          unsigned int flags,
@@ -1918,7 +1917,7 @@ HIPAPI hipError_t hipMemPrefetchAsync_v2(const void* dev_ptr, size_t count,
   return _ret;
 }
 
-// hipMemPrefetchBatchAsync@hip_7.2 (from libhrx/src/binding/hip/api.c)
+// hipMemPrefetchBatchAsync@hip_7.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipMemPrefetchBatchAsync(void** dev_ptrs, size_t* sizes, size_t count, hipMemLocation* prefetch_locs,
     size_t* prefetch_loc_idxs, size_t num_prefetch_locs,
     unsigned long long flags, hipStream_t stream) {
@@ -1933,7 +1932,7 @@ HIPAPI hipError_t hipMemPrefetchBatchAsync(void** dev_ptrs, size_t* sizes, size_
   return _ret;
 }
 
-// hipMemRangeGetAttributes@hip_4.2 (from libhrx/src/binding/hip/api.c)
+// hipMemRangeGetAttributes@hip_4.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipMemRangeGetAttributes(void** data, size_t* data_sizes,
                                            hipMemRangeAttribute* attributes,
                                            size_t num_attributes,
@@ -1964,7 +1963,7 @@ HIPAPI hipError_t hipMemSetMemPool(hipMemLocation* location,
   return _ret;
 }
 
-// hipMemcpy2DArrayToArray@hip_6.2 (from libhrx/src/binding/hip/api.c)
+// hipMemcpy2DArrayToArray@hip_6.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipMemcpy2DArrayToArray(hipArray_t dst, size_t wOffsetDst,
                                           size_t hOffsetDst,
                                           hipArray_const_t src,
@@ -1998,7 +1997,7 @@ HIPAPI hipError_t hipMemcpy2DAsync_spt(void* dst, size_t dpitch,
   return _ret;
 }
 
-// hipMemcpy2DFromArrayAsync@hip_4.2 (from libhrx/src/binding/hip/api.c)
+// hipMemcpy2DFromArrayAsync@hip_4.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipMemcpy2DFromArrayAsync(void* dst, size_t dpitch,
                                             hipArray_const_t src,
                                             size_t wOffset, size_t hOffset,
@@ -2050,7 +2049,7 @@ HIPAPI hipError_t hipMemcpy2DFromArray_spt(void* dst, size_t dpitch,
   return _ret;
 }
 
-// hipMemcpy2DToArrayAsync@hip_4.3 (from libhrx/src/binding/hip/api.c)
+// hipMemcpy2DToArrayAsync@hip_4.3 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipMemcpy2DToArrayAsync(hipArray_t dst, size_t wOffset,
                                           size_t hOffset, const void* src,
                                           size_t spitch, size_t width,
@@ -2201,7 +2200,7 @@ HIPAPI hipError_t hipMemcpyAsync_spt(void* dst, const void* src,
   return _ret;
 }
 
-// hipMemcpyAtoA@hip_6.2 (from libhrx/src/binding/hip/api.c)
+// hipMemcpyAtoA@hip_6.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipMemcpyAtoA(hipArray_t dstArray, size_t dstOffset,
                                 hipArray_t srcArray, size_t srcOffset,
                                 size_t ByteCount) {
@@ -2216,7 +2215,7 @@ HIPAPI hipError_t hipMemcpyAtoA(hipArray_t dstArray, size_t dstOffset,
   return _ret;
 }
 
-// hipMemcpyAtoD@hip_6.2 (from libhrx/src/binding/hip/api.c)
+// hipMemcpyAtoD@hip_6.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipMemcpyAtoD(hipDeviceptr_t dstDevice, hipArray_t srcArray,
                                 size_t srcOffset, size_t ByteCount) {
   typedef hipError_t (*pfn_hipMemcpyAtoD_t)(hipDeviceptr_t, hipArray_t, size_t, size_t);
@@ -2230,7 +2229,7 @@ HIPAPI hipError_t hipMemcpyAtoD(hipDeviceptr_t dstDevice, hipArray_t srcArray,
   return _ret;
 }
 
-// hipMemcpyAtoHAsync@hip_6.2 (from libhrx/src/binding/hip/api.c)
+// hipMemcpyAtoHAsync@hip_6.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipMemcpyAtoHAsync(void* dstHost, hipArray_t srcArray,
                                      size_t srcOffset, size_t ByteCount,
                                      hipStream_t stream) {
@@ -2261,7 +2260,7 @@ HIPAPI hipError_t hipMemcpyBatchAsync(void** dsts, void** srcs, size_t* sizes,
   return _ret;
 }
 
-// hipMemcpyDtoA@hip_6.2 (from libhrx/src/binding/hip/api.c)
+// hipMemcpyDtoA@hip_6.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipMemcpyDtoA(hipArray_t dstArray, size_t dstOffset,
                                 hipDeviceptr_t srcDevice, size_t ByteCount) {
   typedef hipError_t (*pfn_hipMemcpyDtoA_t)(hipArray_t, size_t, hipDeviceptr_t, size_t);
@@ -2321,7 +2320,7 @@ HIPAPI hipError_t hipMemcpyFromSymbol_spt(void* dst, const void* symbol,
   return _ret;
 }
 
-// hipMemcpyHtoAAsync@hip_6.2 (from libhrx/src/binding/hip/api.c)
+// hipMemcpyHtoAAsync@hip_6.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipMemcpyHtoAAsync(hipArray_t dstArray, size_t dstOffset,
                                      const void* srcHost, size_t ByteCount,
                                      hipStream_t stream) {
@@ -2336,7 +2335,7 @@ HIPAPI hipError_t hipMemcpyHtoAAsync(hipArray_t dstArray, size_t dstOffset,
   return _ret;
 }
 
-// hipMemcpyParam2D@hip_4.2 (from libhrx/src/binding/hip/api.c)
+// hipMemcpyParam2D@hip_4.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipMemcpyParam2D(const hip_Memcpy2D* pCopy) {
   typedef hipError_t (*pfn_hipMemcpyParam2D_t)(const hip_Memcpy2D*);
   static pfn_hipMemcpyParam2D_t hip_stub_fn = NULL;
@@ -2349,7 +2348,7 @@ HIPAPI hipError_t hipMemcpyParam2D(const hip_Memcpy2D* pCopy) {
   return _ret;
 }
 
-// hipMemcpyParam2DAsync@hip_4.2 (from libhrx/src/binding/hip/api.c)
+// hipMemcpyParam2DAsync@hip_4.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipMemcpyParam2DAsync(const hip_Memcpy2D* pCopy,
                                         hipStream_t stream) {
   typedef hipError_t (*pfn_hipMemcpyParam2DAsync_t)(const hip_Memcpy2D*, hipStream_t);
@@ -2652,7 +2651,7 @@ HIPAPI hipError_t hipModuleGetFunctionCount(unsigned int* count,
   return _ret;
 }
 
-// hipModuleLoadFatBinary@hip_7.1 (from libhrx/src/binding/hip/api.c)
+// hipModuleLoadFatBinary@hip_7.1 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipModuleLoadFatBinary(hipModule_t* module,
                                          const void* fatbin) {
   typedef hipError_t (*pfn_hipModuleLoadFatBinary_t)(hipModule_t*, const void*);
@@ -2666,7 +2665,7 @@ HIPAPI hipError_t hipModuleLoadFatBinary(hipModule_t* module,
   return _ret;
 }
 
-// hipOccupancyAvailableDynamicSMemPerBlock@hip_7.2 (from libhrx/src/binding/hip/api.c)
+// hipOccupancyAvailableDynamicSMemPerBlock@hip_7.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipOccupancyAvailableDynamicSMemPerBlock(size_t* dynamicSmemSize, const void* f, int numBlocks, int blockSize) {
   typedef hipError_t (*pfn_hipOccupancyAvailableDynamicSMemPerBlock_t)(size_t*, const void*, int, int);
   static pfn_hipOccupancyAvailableDynamicSMemPerBlock_t hip_stub_fn = NULL;
@@ -2679,7 +2678,7 @@ HIPAPI hipError_t hipOccupancyAvailableDynamicSMemPerBlock(size_t* dynamicSmemSi
   return _ret;
 }
 
-// hipPointerSetAttribute@hip_4.2 (from libhrx/src/binding/hip/api.c)
+// hipPointerSetAttribute@hip_4.2 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipPointerSetAttribute(const void* value,
                                          hipPointer_attribute_t attribute,
                                          hipDeviceptr_t ptr) {
@@ -2722,7 +2721,7 @@ HIPAPI hipError_t hipStreamAddCallback_spt(hipStream_t stream,
   return _ret;
 }
 
-// hipStreamBatchMemOp@hip_6.4 (from libhrx/src/binding/hip/api.c)
+// hipStreamBatchMemOp@hip_6.4 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipStreamBatchMemOp(hipStream_t stream, unsigned int count,
                                       hipStreamBatchMemOpParams* param_array,
                                       unsigned int flags) {
@@ -2737,7 +2736,7 @@ HIPAPI hipError_t hipStreamBatchMemOp(hipStream_t stream, unsigned int count,
   return _ret;
 }
 
-// hipStreamBeginCaptureToGraph@hip_6.1 (from libhrx/src/binding/hip/api.c)
+// hipStreamBeginCaptureToGraph@hip_6.1 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipStreamBeginCaptureToGraph(hipStream_t stream, hipGraph_t graph, const hipGraphNode_t* dependencies,
     const void* dependencyData, size_t numDependencies,
     hipStreamCaptureMode mode) {
@@ -2838,7 +2837,7 @@ HIPAPI hipError_t hipStreamGetCaptureInfo_v2_spt(hipStream_t stream, hipStreamCa
   return _ret;
 }
 
-// hipStreamGetDevResource@hip_7.14 (from libhrx/src/binding/hip/api.c)
+// hipStreamGetDevResource@hip_7.14 (from libhrx/src/binding/hip/api.h)
 HIPAPI hipError_t hipStreamGetDevResource(hipStream_t stream,
                                           hipDevResource* resource,
                                           hipDevResourceType type) {
