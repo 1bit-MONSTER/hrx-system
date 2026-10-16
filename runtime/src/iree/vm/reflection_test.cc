@@ -98,11 +98,14 @@ TEST_F(VMReflectionTest, InsufficientStorageLeavesDescriptionUntouched) {
       export_value, iree_byte_span_empty(), &required_size, nullptr));
   ASSERT_GT(required_size, 0u);
 
-  auto storage = AllocateStorage(required_size - 1);
+  // The write canary includes bytes beyond the offered span.
+  auto storage = AllocateStorage(required_size);
+  const iree_host_size_t storage_byte_length =
+      storage.size() * sizeof(storage[0]);
   uint8_t* storage_bytes = reinterpret_cast<uint8_t*>(storage.data());
-  std::memset(storage_bytes, 0xA5, required_size - 1);
+  std::memset(storage_bytes, 0xA5, storage_byte_length);
   const std::vector<uint8_t> original_storage(
-      storage_bytes, storage_bytes + required_size - 1);
+      storage_bytes, storage_bytes + storage_byte_length);
   iree_vm_export_description_t description = {.name = IREE_SV("untouched")};
   iree_host_size_t repeated_required_size = 0;
   IREE_ASSERT_OK(iree_vm_export_query_description(
