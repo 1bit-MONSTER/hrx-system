@@ -31,6 +31,7 @@ class PhysicalDeviceSnapshotBuilder {
     snapshot_.features13.sType =
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
     snapshot_.features13.synchronization2 = VK_TRUE;
+    snapshot_.features13.computeFullSubgroups = VK_TRUE;
   }
 
   void SetOrdinal(uint32_t ordinal) { snapshot_.ordinal = ordinal; }

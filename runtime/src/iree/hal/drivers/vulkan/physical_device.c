@@ -884,6 +884,7 @@ bool iree_hal_vulkan_physical_device_supports_baseline(
          snapshot->features12.timelineSemaphore &&
          snapshot->features12.scalarBlockLayout &&
          snapshot->features13.synchronization2 &&
+         snapshot->features13.computeFullSubgroups &&
          iree_hal_vulkan_physical_device_has_compute_queue(snapshot);
 }
 
