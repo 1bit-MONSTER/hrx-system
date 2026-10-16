@@ -990,6 +990,7 @@ static iree_status_t loom_boundary_projection_build_loop_terminator(
     loom_op_t* target = *out_terminator;
     target->instance_flags = source->instance_flags;
     target->traits = source->traits;
+    target->intrinsic_write_spaces = source->intrinsic_write_spaces;
     target->flags |= source->flags & LOOM_OP_SOURCE_PRESENTATION_FLAG_MASK;
     for (uint16_t i = 0; i < state_operand_offset; ++i) {
       loom_op_operands(target)[i] =

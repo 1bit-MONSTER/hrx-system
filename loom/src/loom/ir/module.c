@@ -8,6 +8,7 @@
 
 #include <string.h>
 
+#include "iree/base/internal/math.h"
 #include "loom/ir/context.h"
 #include "loom/ir/parameterized_type.h"
 #include "loom/ir/structural_hash.h"
@@ -194,14 +195,14 @@ static void loom_region_adjust_summary_count(uint32_t* count, int32_t delta) {
   }
 }
 
-static void loom_region_adjust_summary_counts(loom_region_t* region,
-                                              int32_t read_delta,
-                                              int32_t write_delta,
-                                              int32_t convergent_delta,
-                                              int32_t observable_delta,
-                                              int32_t memory_access_delta) {
+static void loom_region_adjust_summary_counts(
+    loom_region_t* region, int32_t read_delta, int32_t write_delta,
+    int32_t convergent_delta, int32_t observable_delta,
+    int32_t memory_access_delta, loom_memory_space_mask_t removed_spaces,
+    loom_memory_space_mask_t added_spaces) {
   if (read_delta == 0 && write_delta == 0 && convergent_delta == 0 &&
-      observable_delta == 0 && memory_access_delta == 0) {
+      observable_delta == 0 && memory_access_delta == 0 && !removed_spaces &&
+      !added_spaces) {
     return;
   }
   if (read_delta != 0) {
@@ -222,23 +223,32 @@ static void loom_region_adjust_summary_counts(loom_region_t* region,
     loom_region_adjust_summary_count(&region->memory_access_count,
                                      memory_access_delta);
   }
+  uint32_t changed_spaces = removed_spaces | added_spaces;
+  while (changed_spaces) {
+    const uint32_t space = iree_math_count_trailing_zeros_u32(changed_spaces);
+    const int32_t delta = (added_spaces & (1u << space)) ? 1 : -1;
+    loom_region_adjust_summary_count(&region->write_space_counts[space], delta);
+    changed_spaces &= changed_spaces - 1;
+  }
 }
 
 static void loom_module_adjust_op_ancestor_summary_counts(
     loom_op_t* op, int32_t read_delta, int32_t write_delta,
     int32_t convergent_delta, int32_t observable_delta,
-    int32_t memory_access_delta) {
+    int32_t memory_access_delta, loom_memory_space_mask_t removed_spaces,
+    loom_memory_space_mask_t added_spaces) {
   if (read_delta == 0 && write_delta == 0 && convergent_delta == 0 &&
-      observable_delta == 0 && memory_access_delta == 0) {
+      observable_delta == 0 && memory_access_delta == 0 && !removed_spaces &&
+      !added_spaces) {
     return;
   }
   loom_region_t* region =
       op->parent_block ? op->parent_block->parent_region : NULL;
   loom_op_t* parent_op = op->parent_op;
   while (region) {
-    loom_region_adjust_summary_counts(region, read_delta, write_delta,
-                                      convergent_delta, observable_delta,
-                                      memory_access_delta);
+    loom_region_adjust_summary_counts(
+        region, read_delta, write_delta, convergent_delta, observable_delta,
+        memory_access_delta, removed_spaces, added_spaces);
     if (!parent_op) {
       break;
     }
@@ -289,9 +299,12 @@ static void loom_module_adjust_op_direct_summaries(loom_module_t* module,
       loom_traits_have_observable_effects(traits) ? direction : 0;
   int32_t memory_access_delta =
       loom_traits_may_access_memory(traits) ? direction : 0;
+  const loom_memory_space_mask_t write_spaces =
+      loom_op_written_memory_spaces(op, traits);
   loom_module_adjust_op_ancestor_summary_counts(
       op, read_delta, write_delta, convergent_delta, observable_delta,
-      memory_access_delta);
+      memory_access_delta, direction < 0 ? write_spaces : 0,
+      direction > 0 ? write_spaces : 0);
   if (iree_any_bit_set(traits, LOOM_TRAIT_HINT)) {
     loom_module_adjust_op_hint_sources(op, direction);
   }
@@ -325,6 +338,9 @@ void loom_module_record_region_summaries(loom_op_t* parent_op,
     parent_region->convergent_effect_count += region->convergent_effect_count;
     parent_region->observable_effect_count += region->observable_effect_count;
     parent_region->memory_access_count += region->memory_access_count;
+    for (uint32_t i = 0; i < LOOM_VALUE_FACT_MEMORY_SPACE_COUNT_; ++i) {
+      parent_region->write_space_counts[i] += region->write_space_counts[i];
+    }
   }
 }
 
@@ -371,10 +387,15 @@ void loom_module_update_op_direct_summaries(loom_module_t* module,
       loom_traits_have_observable_effects(new_traits) ? 1 : 0;
   int32_t old_memory_access = loom_traits_may_access_memory(old_traits) ? 1 : 0;
   int32_t new_memory_access = loom_traits_may_access_memory(new_traits) ? 1 : 0;
+  const loom_memory_space_mask_t old_spaces =
+      loom_op_written_memory_spaces(op, old_traits);
+  const loom_memory_space_mask_t new_spaces =
+      loom_op_written_memory_spaces(op, new_traits);
   loom_module_adjust_op_ancestor_summary_counts(
       op, new_read - old_read, new_write - old_write,
       new_convergent - old_convergent, new_observable - old_observable,
-      new_memory_access - old_memory_access);
+      new_memory_access - old_memory_access, old_spaces & ~new_spaces,
+      new_spaces & ~old_spaces);
   if (iree_any_bit_set(old_traits ^ new_traits, LOOM_TRAIT_HINT)) {
     loom_module_adjust_op_hint_sources(
         op, iree_any_bit_set(new_traits, LOOM_TRAIT_HINT) ? 1 : -1);

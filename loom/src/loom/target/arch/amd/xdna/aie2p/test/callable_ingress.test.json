@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "native SRAM writes preserve immutable ingress through text and bytecode",
+      "steps": [
+        {
+          "run": {
+            "tool": "loom-compile",
+            "args": [
+              "{srcdir}/callable_ingress.loom",
+              "--root=local_write_ingress",
+              "--format=xdna",
+              "--output={tmp}/text.xdna",
+              "--compile-report=text-summary",
+              "--compile-report-output={tmp}/report.txt"
+            ]
+          },
+          "files": [
+            {
+              "path": "{tmp}/text.xdna",
+              "non_empty": true
+            },
+            {
+              "path": "{tmp}/report.txt",
+              "contains": [
+                "pipeline root=local_write_ingress realization=resident-configuration workers=1 "
+              ]
+            }
+          ]
+        },
+        {
+          "run": {
+            "tool": "loom-format",
+            "args": [
+              "{srcdir}/callable_ingress.loom",
+              "--to=bc",
+              "--output={tmp}/module.loombc"
+            ]
+          },
+          "files": [
+            {
+              "path": "{tmp}/module.loombc",
+              "non_empty": true
+            }
+          ]
+        },
+        {
+          "run": {
+            "tool": "loom-compile",
+            "args": [
+              "{tmp}/module.loombc",
+              "--root=local_write_ingress",
+              "--format=xdna",
+              "--output={tmp}/bytecode.xdna"
+            ]
+          },
+          "files": [
+            {
+              "path": "{tmp}/bytecode.xdna",
+              "equals": "{tmp}/text.xdna"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

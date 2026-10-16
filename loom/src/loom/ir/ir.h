@@ -95,6 +95,7 @@
 #include "loom/ir/encoding.h"
 #include "loom/ir/intern_table.h"
 #include "loom/ir/location.h"
+#include "loom/ir/memory_space.h"
 #include "loom/ir/string_table.h"
 #include "loom/ir/type_table.h"
 #include "loom/ir/types.h"
@@ -1810,6 +1811,10 @@ typedef struct loom_op_t {
   // semantics. Bit layout is dialect-specific (each flag enum defines
   // its own mask constants in the per-dialect ops.h).
   uint8_t instance_flags;
+  // Intrinsic upper bound on written memory spaces, independent of operands.
+  // Zero leaves write effects unqualified. Unknown effects and fences remain
+  // conservative even when an instruction also has a precise storage write.
+  loom_memory_space_mask_t intrinsic_write_spaces;
   // Monotonic position key within parent_block. Live ops in a block have
   // strictly increasing ordinals, enabling O(1) same-block order comparisons.
   // Sparse placement and local density repair maintain the labels in O(log n)
@@ -1841,6 +1846,23 @@ typedef struct loom_op_t {
   //   uint32_t           attribute_owners[attribute_count]
   //   uint16_t           operand_segment_counts[operand_descriptor_count]
 } loom_op_t;
+
+// Projects an operation's intrinsic write bound under the supplied traits.
+// Trait-changing rewrites use the same intrinsic instruction semantics for
+// both the old and new summary contributions.
+static inline loom_memory_space_mask_t loom_op_written_memory_spaces(
+    const loom_op_t* op, loom_trait_flags_t traits) {
+  if (!loom_traits_may_write(traits)) {
+    return 0;
+  }
+  if (iree_any_bit_set(traits,
+                       LOOM_TRAIT_UNKNOWN_EFFECTS | LOOM_TRAIT_MEMORY_FENCE) ||
+      !op->intrinsic_write_spaces) {
+    return (loom_memory_space_mask_t)(1u
+                                      << LOOM_VALUE_FACT_MEMORY_SPACE_UNKNOWN);
+  }
+  return op->intrinsic_write_spaces;
+}
 
 static_assert(sizeof(loom_op_t) == (IREE_PTR_SIZE == 8 ? 64 : 48),
               "loom_op_t must retain its pointer-width layout");
@@ -2111,6 +2133,10 @@ typedef struct loom_region_t {
   // Transitive count of actual or unknown memory accesses. Unlike read/write
   // effects, this excludes ordering and observations of non-memory state.
   uint32_t memory_access_count;
+  // Transitive contributors to each written memory space. Unknown writes and
+  // fences contribute UNKNOWN; precise intrinsic writes contribute their
+  // spaces. Counts preserve the bound when the last contributor is erased.
+  uint32_t write_space_counts[LOOM_VALUE_FACT_MEMORY_SPACE_COUNT_];
   // Direct hint ops plus immediately nested regions with any hints. Only
   // zero/nonzero transitions propagate to the containing region, so building
   // or removing a subtree does not update every ancestor for every hint.
@@ -2123,8 +2149,20 @@ typedef struct loom_region_t {
   loom_block_t* inline_blocks[1];
 } loom_region_t;
 
-static_assert(sizeof(loom_region_t) == (IREE_PTR_SIZE == 8 ? 96 : 72),
+static_assert(sizeof(loom_region_t) == (IREE_PTR_SIZE == 8 ? 128 : 104),
               "loom_region_t must retain its pointer-width layout");
+
+// Returns the retained union of write-like memory effects in this region.
+static inline loom_memory_space_mask_t loom_region_written_memory_spaces(
+    const loom_region_t* region) {
+  loom_memory_space_mask_t spaces = 0;
+  for (uint32_t i = 0; i < LOOM_VALUE_FACT_MEMORY_SPACE_COUNT_; ++i) {
+    if (region->write_space_counts[i]) {
+      spaces |= (loom_memory_space_mask_t)(1u << i);
+    }
+  }
+  return spaces;
+}
 
 // Returns true and writes |out_block_index| when |block| is owned by |region|.
 static inline bool loom_region_try_block_index(const loom_region_t* region,

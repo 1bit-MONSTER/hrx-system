@@ -24,8 +24,10 @@ static bool loom_low_descriptor_defines_implicit_state_result(
 
 loom_trait_flags_t loom_low_descriptor_effective_traits(
     const loom_low_descriptor_set_t* descriptor_set,
-    const loom_low_descriptor_t* descriptor) {
+    const loom_low_descriptor_t* descriptor,
+    loom_memory_space_mask_t* out_intrinsic_write_spaces) {
   loom_trait_flags_t traits = 0;
+  loom_memory_space_mask_t write_spaces = 0;
   const loom_low_descriptor_layout_t* layout =
       loom_low_descriptor_layout(descriptor_set, descriptor);
   for (uint16_t i = 0; i < layout->effect_count; ++i) {
@@ -42,6 +44,26 @@ loom_trait_flags_t loom_low_descriptor_effective_traits(
         }
         break;
       case LOOM_LOW_EFFECT_KIND_WRITE:
+        if (effect->memory_space != LOOM_LOW_MEMORY_SPACE_NONE) {
+          loom_value_fact_memory_space_t space =
+              LOOM_VALUE_FACT_MEMORY_SPACE_UNKNOWN;
+          switch (effect->memory_space) {
+            case LOOM_LOW_MEMORY_SPACE_GLOBAL:
+              space = LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL;
+              break;
+            case LOOM_LOW_MEMORY_SPACE_WORKGROUP:
+              space = LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP;
+              break;
+            case LOOM_LOW_MEMORY_SPACE_STACK:
+              space = LOOM_VALUE_FACT_MEMORY_SPACE_PRIVATE;
+              break;
+            case LOOM_LOW_MEMORY_SPACE_NONE:
+            case LOOM_LOW_MEMORY_SPACE_GENERIC:
+            case LOOM_LOW_MEMORY_SPACE_WASM_MEMORY:
+              break;
+          }
+          write_spaces |= (loom_memory_space_mask_t)(1u << space);
+        }
         traits |= effect->memory_space == LOOM_LOW_MEMORY_SPACE_NONE
                       ? LOOM_TRAIT_OBSERVABLE_EFFECT
                       : LOOM_TRAIT_WRITES_MEMORY;
@@ -90,6 +112,9 @@ loom_trait_flags_t loom_low_descriptor_effective_traits(
     // transforms must not treat state values such as SCC as freely
     // rematerializable SSA.
     traits |= LOOM_TRAIT_NON_DETERMINISTIC;
+  }
+  if (out_intrinsic_write_spaces) {
+    *out_intrinsic_write_spaces = write_spaces;
   }
   if (iree_any_bit_set(traits, LOOM_TRAIT_UNKNOWN_EFFECTS)) {
     // Unknown effects subsume generic reads and writes. The scheduler still

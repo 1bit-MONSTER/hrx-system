@@ -24,20 +24,23 @@ bool loom_callable_effects_may_access_memory(loom_func_like_t function) {
           !body);
 }
 
-bool loom_callable_effects_may_write(loom_func_like_t function) {
+loom_memory_space_mask_t loom_callable_effects_written_memory_spaces(
+    loom_func_like_t function) {
   if (!loom_func_like_isa(function)) {
-    return true;
+    return (loom_memory_space_mask_t)(1u
+                                      << LOOM_VALUE_FACT_MEMORY_SPACE_UNKNOWN);
   }
-  loom_region_t* body = loom_func_like_body(function);
+  const loom_region_t* body = loom_func_like_body(function);
   if (body) {
-    return loom_region_has_write_effects(body);
+    return loom_region_written_memory_spaces(body);
   }
   switch (loom_func_like_effect_contract(function)) {
     case LOOM_CALLABLE_EFFECT_CONTRACT_PURE:
     case LOOM_CALLABLE_EFFECT_CONTRACT_READONLY:
-      return false;
+      return 0;
     default:
-      return true;
+      return (
+          loom_memory_space_mask_t)(1u << LOOM_VALUE_FACT_MEMORY_SPACE_UNKNOWN);
   }
 }
 

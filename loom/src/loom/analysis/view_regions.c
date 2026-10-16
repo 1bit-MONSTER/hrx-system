@@ -937,6 +937,21 @@ static uint32_t loom_view_region_overlapping_memory_spaces(
   return spaces;
 }
 
+static void loom_view_region_add_write_spaces(loom_view_region_table_t* table,
+                                              loom_memory_space_mask_t spaces) {
+  if (spaces & (1u << LOOM_VALUE_FACT_MEMORY_SPACE_UNKNOWN)) {
+    table->interference_memory_spaces = UINT32_MAX;
+    return;
+  }
+  for (uint32_t i = 0; i < LOOM_VALUE_FACT_MEMORY_SPACE_COUNT_; ++i) {
+    if (spaces & (1u << i)) {
+      table->interference_memory_spaces |=
+          loom_view_region_overlapping_memory_spaces(
+              (loom_value_fact_memory_space_t)i);
+    }
+  }
+}
+
 static bool loom_view_region_ordering_acquires(loom_attribute_t attribute) {
   if (loom_attr_is_absent(attribute)) {
     return false;
@@ -1185,10 +1200,13 @@ static iree_status_t loom_view_region_table_analyze_op_memory(
       if (callee.module_id == 0) {
         const loom_func_like_t function = loom_func_like_cast(
             module, module->symbols.entries[callee.symbol_id].defining_op);
-        if (!loom_callable_effects_may_write(function)) {
+        const loom_memory_space_mask_t write_spaces =
+            loom_callable_effects_written_memory_spaces(function);
+        if (!(write_spaces & (1u << LOOM_VALUE_FACT_MEMORY_SPACE_UNKNOWN))) {
           // This refines storage interference only. Reads and architectural
           // state effects do not make the call pure or freely movable.
           traits &= ~LOOM_TRAIT_UNKNOWN_EFFECTS;
+          loom_view_region_add_write_spaces(table, write_spaces);
           if (loom_callable_effects_may_access_memory(function)) {
             const loom_value_id_t* operands = loom_op_const_operands(op);
             for (uint16_t i = 0; i < op->operand_count; ++i) {
@@ -1250,7 +1268,8 @@ static iree_status_t loom_view_region_table_analyze_op_memory(
   }
   if (!has_described_write &&
       iree_any_bit_set(traits, LOOM_TRAIT_WRITES_MEMORY)) {
-    table->interference_memory_spaces = UINT32_MAX;
+    loom_view_region_add_write_spaces(
+        table, loom_op_written_memory_spaces(op, traits));
   }
   return iree_ok_status();
 }

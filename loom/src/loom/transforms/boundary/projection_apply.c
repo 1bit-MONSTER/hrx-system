@@ -440,6 +440,7 @@ static iree_status_t loom_boundary_projection_rebuild_call(
   }
   target->instance_flags = source->instance_flags;
   target->traits = source->traits;
+  target->intrinsic_write_spaces = source->intrinsic_write_spaces;
   target->flags |= source->flags & LOOM_OP_SOURCE_PRESENTATION_FLAG_MASK;
   if (final_operand_count != 0) {
     memcpy(loom_op_operands(target), operands,
@@ -555,6 +556,7 @@ static iree_status_t loom_boundary_projection_rebuild_return(
       source->attribute_count, source->location, &target));
   target->instance_flags = source->instance_flags;
   target->traits = source->traits;
+  target->intrinsic_write_spaces = source->intrinsic_write_spaces;
   target->flags |= source->flags & LOOM_OP_SOURCE_PRESENTATION_FLAG_MASK;
   if (function->final_result_count != 0) {
     memcpy(loom_op_operands(target), operands,
@@ -623,6 +625,7 @@ static iree_status_t loom_boundary_projection_rebuild_edge(
       source->attribute_count, source->location, &target));
   target->instance_flags = source->instance_flags;
   target->traits = source->traits;
+  target->intrinsic_write_spaces = source->intrinsic_write_spaces;
   target->flags |= source->flags & LOOM_OP_SOURCE_PRESENTATION_FLAG_MASK;
   loom_op_successors(target)[0] = block_plan->block;
   if (next != 0) {
@@ -1033,6 +1036,7 @@ static iree_status_t loom_boundary_projection_replace_function(
   }
   target->instance_flags = source->instance_flags;
   target->traits = source->traits;
+  target->intrinsic_write_spaces = source->intrinsic_write_spaces;
   target->flags |= source->flags & LOOM_OP_SOURCE_PRESENTATION_FLAG_MASK;
   if (layout.operand_count != 0) {
     memcpy(loom_op_operands(target),

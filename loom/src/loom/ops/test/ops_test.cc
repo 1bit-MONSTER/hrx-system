@@ -379,11 +379,14 @@ TEST_F(BuilderTest, DirectWriteEffectSummaryUpdatesOnErase) {
   EXPECT_EQ(module_->body->read_effect_count, 0u);
   EXPECT_EQ(module_->body->write_effect_count, 1u);
   EXPECT_EQ(module_->body->memory_access_count, 1u);
+  EXPECT_EQ(loom_region_written_memory_spaces(module_->body),
+            1u << LOOM_VALUE_FACT_MEMORY_SPACE_UNKNOWN);
 
   IREE_ASSERT_OK(loom_op_erase(module_, write_op));
   EXPECT_EQ(module_->body->read_effect_count, 0u);
   EXPECT_EQ(module_->body->write_effect_count, 0u);
   EXPECT_EQ(module_->body->memory_access_count, 0u);
+  EXPECT_EQ(loom_region_written_memory_spaces(module_->body), 0);
 }
 
 TEST_F(BuilderTest, UnknownOpEffectsAreConservative) {
@@ -432,6 +435,10 @@ TEST_F(BuilderTest, NestedWriteEffectSummaryPropagatesToAncestors) {
   EXPECT_EQ(module_->body->write_effect_count, 1u);
   EXPECT_EQ(map_body->memory_access_count, 1u);
   EXPECT_EQ(module_->body->memory_access_count, 1u);
+  EXPECT_EQ(loom_region_written_memory_spaces(map_body),
+            1u << LOOM_VALUE_FACT_MEMORY_SPACE_UNKNOWN);
+  EXPECT_EQ(loom_region_written_memory_spaces(module_->body),
+            1u << LOOM_VALUE_FACT_MEMORY_SPACE_UNKNOWN);
 
   IREE_ASSERT_OK(loom_module_compute_uses(module_));
   EXPECT_EQ(map_body->memory_access_count, 1u);
@@ -443,6 +450,8 @@ TEST_F(BuilderTest, NestedWriteEffectSummaryPropagatesToAncestors) {
   EXPECT_EQ(map_body->memory_access_count, 0u);
   EXPECT_EQ(module_->body->memory_access_count, 0u);
   EXPECT_EQ(write_op->flags & LOOM_OP_FLAG_SUMMARIES_COUNTED, 0u);
+  EXPECT_EQ(loom_region_written_memory_spaces(map_body), 0);
+  EXPECT_EQ(loom_region_written_memory_spaces(module_->body), 0);
 }
 
 TEST_F(BuilderTest, VariadicOperands) {

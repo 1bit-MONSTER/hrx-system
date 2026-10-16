@@ -21,13 +21,89 @@ static loom_trait_flags_t ProjectEffects(const loom_low_effect_t* effects,
   };
   descriptor_set.effect_count = effect_count;
   loom_low_descriptor_t descriptor = {};
-  return loom_low_descriptor_effective_traits(&descriptor_set, &descriptor);
+  return loom_low_descriptor_effective_traits(&descriptor_set, &descriptor,
+                                              nullptr);
 }
 
 TEST(LowDescriptorTraitsTest, EffectFreeDescriptorIsPure) {
   const loom_trait_flags_t traits = ProjectEffects(nullptr, 0);
 
   EXPECT_TRUE(iree_all_bits_set(traits, LOOM_TRAIT_PURE));
+}
+
+TEST(LowDescriptorTraitsTest, RetainsIntrinsicWriteSpaceFamily) {
+  struct Case {
+    // Native descriptor memory domain.
+    loom_low_memory_space_t native_space;
+    // Expected source memory-space set.
+    loom_memory_space_mask_t source_spaces;
+  };
+  const Case cases[] = {
+      {LOOM_LOW_MEMORY_SPACE_NONE, 0},
+      {LOOM_LOW_MEMORY_SPACE_GENERIC,
+       1u << LOOM_VALUE_FACT_MEMORY_SPACE_UNKNOWN},
+      {LOOM_LOW_MEMORY_SPACE_GLOBAL, 1u << LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL},
+      {LOOM_LOW_MEMORY_SPACE_WORKGROUP,
+       1u << LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP},
+      {LOOM_LOW_MEMORY_SPACE_STACK, 1u << LOOM_VALUE_FACT_MEMORY_SPACE_PRIVATE},
+      {LOOM_LOW_MEMORY_SPACE_WASM_MEMORY,
+       1u << LOOM_VALUE_FACT_MEMORY_SPACE_UNKNOWN},
+  };
+  const loom_low_descriptor_layout_t layout = {.effect_count = 1};
+  const loom_low_descriptor_t descriptor = {};
+  for (const auto& test : cases) {
+    loom_low_effect_t effect = {
+        .kind = LOOM_LOW_EFFECT_KIND_WRITE,
+        .memory_space = test.native_space,
+    };
+    const loom_low_descriptor_set_t set = {
+        .descriptor_layouts = &layout,
+        .descriptor_layout_count = 1,
+        .effects = &effect,
+        .effect_count = 1,
+    };
+    loom_op_t op = {};
+    op.traits = loom_low_descriptor_effective_traits(
+        &set, &descriptor, &op.intrinsic_write_spaces);
+    EXPECT_EQ(loom_op_written_memory_spaces(&op, op.traits),
+              test.source_spaces);
+    effect.kind = LOOM_LOW_EFFECT_KIND_READ;
+    op.traits = loom_low_descriptor_effective_traits(
+        &set, &descriptor, &op.intrinsic_write_spaces);
+    EXPECT_EQ(loom_op_written_memory_spaces(&op, op.traits), 0);
+  }
+}
+
+TEST(LowDescriptorTraitsTest, WriteBoundsDoNotHideFencesOrUnknownEffects) {
+  loom_low_effect_t effects[] = {
+      {.kind = LOOM_LOW_EFFECT_KIND_WRITE,
+       .memory_space = LOOM_LOW_MEMORY_SPACE_GLOBAL},
+      {.kind = LOOM_LOW_EFFECT_KIND_WRITE,
+       .memory_space = LOOM_LOW_MEMORY_SPACE_WORKGROUP},
+  };
+  const loom_low_descriptor_layout_t layout = {.effect_count = 2};
+  const loom_low_descriptor_t descriptor = {};
+  const loom_low_descriptor_set_t set = {
+      .descriptor_layouts = &layout,
+      .descriptor_layout_count = 1,
+      .effects = effects,
+      .effect_count = 2,
+  };
+  loom_op_t op = {};
+  op.traits = loom_low_descriptor_effective_traits(&set, &descriptor,
+                                                   &op.intrinsic_write_spaces);
+  EXPECT_EQ(loom_op_written_memory_spaces(&op, op.traits),
+            (1u << LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL) |
+                (1u << LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP));
+  for (auto kind :
+       {LOOM_LOW_EFFECT_KIND_UNKNOWN, LOOM_LOW_EFFECT_KIND_CALL,
+        LOOM_LOW_EFFECT_KIND_BARRIER, LOOM_LOW_EFFECT_KIND_COUNTER}) {
+    effects[1].kind = kind;
+    op.traits = loom_low_descriptor_effective_traits(
+        &set, &descriptor, &op.intrinsic_write_spaces);
+    EXPECT_EQ(loom_op_written_memory_spaces(&op, op.traits),
+              1u << LOOM_VALUE_FACT_MEMORY_SPACE_UNKNOWN);
+  }
 }
 
 TEST(LowDescriptorTraitsTest, PreciseEffectsCompose) {
@@ -152,8 +228,8 @@ TEST(LowDescriptorTraitsTest, SideEffectingTerminatorFlagsCompose) {
                LOOM_LOW_DESCRIPTOR_FLAG_TERMINATOR,
   };
 
-  const loom_trait_flags_t traits =
-      loom_low_descriptor_effective_traits(&descriptor_set, &descriptor);
+  const loom_trait_flags_t traits = loom_low_descriptor_effective_traits(
+      &descriptor_set, &descriptor, nullptr);
 
   EXPECT_TRUE(iree_all_bits_set(
       traits, LOOM_TRAIT_TERMINATOR | LOOM_TRAIT_UNKNOWN_EFFECTS));
@@ -172,8 +248,8 @@ TEST(LowDescriptorTraitsTest, StateAssignmentDoesNotInvalidateStorage) {
         .flags = static_cast<uint16_t>(
             flags | LOOM_LOW_DESCRIPTOR_FLAG_STATE_ASSIGNMENT),
     };
-    const loom_trait_flags_t traits =
-        loom_low_descriptor_effective_traits(&descriptor_set, &descriptor);
+    const loom_trait_flags_t traits = loom_low_descriptor_effective_traits(
+        &descriptor_set, &descriptor, nullptr);
     EXPECT_TRUE(loom_traits_have_observable_effects(traits));
     EXPECT_FALSE(loom_traits_may_write(traits));
     EXPECT_FALSE(loom_traits_may_access_memory(traits));
@@ -192,8 +268,8 @@ TEST(LowDescriptorTraitsTest, UniqueIdentityIsNotPureAndCannotBeCse) {
                LOOM_LOW_DESCRIPTOR_FLAG_UNIQUE_IDENTITY,
   };
 
-  const loom_trait_flags_t traits =
-      loom_low_descriptor_effective_traits(&descriptor_set, &descriptor);
+  const loom_trait_flags_t traits = loom_low_descriptor_effective_traits(
+      &descriptor_set, &descriptor, nullptr);
 
   EXPECT_TRUE(iree_all_bits_set(traits, LOOM_TRAIT_UNIQUE_IDENTITY));
   EXPECT_FALSE(iree_any_bit_set(traits, LOOM_TRAIT_PURE));
@@ -221,8 +297,8 @@ TEST(LowDescriptorTraitsTest, ImplicitStateResultIsNonDeterministic) {
       .result_count = 1,
   };
 
-  const loom_trait_flags_t traits =
-      loom_low_descriptor_effective_traits(&descriptor_set, &descriptor);
+  const loom_trait_flags_t traits = loom_low_descriptor_effective_traits(
+      &descriptor_set, &descriptor, nullptr);
 
   EXPECT_TRUE(iree_all_bits_set(traits, LOOM_TRAIT_NON_DETERMINISTIC));
   EXPECT_FALSE(iree_any_bit_set(traits, LOOM_TRAIT_PURE));

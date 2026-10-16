@@ -124,6 +124,7 @@ loom_cc_library(
         "ir.h",
         "local_value_domain.h",
         "location.h",
+        "memory_space.h",
         "module.h",
         "module_record.h",
         "module_source.h",

@@ -228,6 +228,9 @@ loom_cc_test(
     deps = [
         ":builder",
         "//loom/src/loom/ir",
+        "//loom/src/loom/ops/low",
+        "//loom/src/loom/rewrite:materialize",
+        "//loom/src/loom/rewrite:remap",
         "//loom/src/loom/target:registers",
         "//loom/src/loom/target/test:descriptors",
         "//runtime/src/iree/base/internal:arena",
