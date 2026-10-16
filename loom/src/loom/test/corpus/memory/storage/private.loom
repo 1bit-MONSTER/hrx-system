@@ -57,3 +57,124 @@ check.scenario @private_vector_lookup_values {
   }
   check.return
 }
+
+// The helper borrows an exact private allocation. Opposite signed selections
+// retain their stable endpoints while the nested loop's other endpoint grows.
+kernel.def @private_selected_addresses() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer, %mask: i32) {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 16 : offset
+  %storage = buffer.alloca<private> align(4) %bytes : buffer
+  %source = buffer.view %input[%base] : buffer -> view<4xi32>
+  %local = buffer.view %storage[%base] : buffer -> view<4xi32>
+  %begin = index.constant 0 : index
+  %end = index.constant 4 : index
+  %step = index.constant 1 : index
+  scf.for %position = [%begin to %end step %step] {
+    %value = view.load %source[%position] : view<4xi32> -> i32
+    view.store %value, %local[%position] : i32, view<4xi32>
+  }
+  func.call @compute_private_selected_addresses(%storage, %output, %mask) : (buffer, buffer, i32)
+  kernel.return
+}
+
+func.def device inline @compute_private_selected_addresses(%storage: buffer, %output: buffer, %mask: i32) {
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %c3 = scalar.constant 3 : i32
+  %c4 = scalar.constant 4 : i32
+  %base = index.constant 0 : offset
+  %results = buffer.view %output[%base] : buffer -> view<3x2xi32>
+  %outer = scf.while(%before = %c0 : i32) -> (i32) {
+    %more = scalar.cmpi slt, %before, %c3 : i32
+    scf.condition %more, %before : i1, i32
+  } do(%row: i32) {
+    %start = scalar.addi %row, %c1 : i32
+    %negative_row = scalar.subi %c0, %row : i32
+    %terminal, %selected, %negative = scf.while(%before_column = %start : i32, %before_selected = %row : i32, %before_negative = %negative_row : i32) -> (i32, i32, i32) {
+      %more_inner = scalar.cmpi slt, %before_column, %c4 : i32
+      scf.condition %more_inner, %before_column, %before_selected, %before_negative : i1, i32, i32, i32
+    } do(%column: i32, %carried: i32, %carried_negative: i32) {
+      %shifted = scalar.shrui %mask, %column : i32
+      %bit = scalar.andi %shifted, %c1 : i32
+      %choose = scalar.cmpi ne, %bit, %c0 : i32
+      %updated = scf.select %choose, %column, %carried : i32
+      %negative_column = scalar.subi %c0, %column : i32
+      %updated_negative = scf.select %choose, %negative_column, %carried_negative : i32
+      %next = scalar.addi %column, %c1 : i32
+      scf.yield %next, %updated, %updated_negative : i32, i32, i32
+    }
+    %bounded = scalar.assume %selected [range(%selected, -2147483648, 3)] : i32
+    %bounded_negative = scalar.assume %negative [range(%negative, -3, 2147483647)] : i32
+    %reverse = scalar.addi %bounded_negative, %c3 : i32
+    %selected_byte_count = scalar.muli %bounded, %c4 : i32
+    %reverse_byte_count = scalar.muli %reverse, %c4 : i32
+    %selected_bytes = index.cast %selected_byte_count : i32 to offset
+    %reverse_bytes = index.cast %reverse_byte_count : i32 to offset
+    %selected_view = buffer.view %storage[%selected_bytes] : buffer -> view<1xi32>
+    %reverse_view = buffer.view %storage[%reverse_bytes] : buffer -> view<1xi32>
+    %value = view.load %selected_view[0] : view<1xi32> -> i32
+    %reverse_value = view.load %reverse_view[0] : view<1xi32> -> i32
+    %row_index = index.cast %row : i32 to index
+    view.store %value, %results[%row_index, 0] : i32, view<3x2xi32>
+    view.store %reverse_value, %results[%row_index, 1] : i32, view<3x2xi32>
+    scf.yield %start : i32
+  }
+  func.return
+}
+
+// The final selected ordinal is the greatest enabled bit above the row, or
+// the row itself when there is none. This oracle has no carried selection.
+func.def @private_selected_addresses_oracle(%input: buffer, %output: buffer, %mask: i32) {
+  %c0 = scalar.constant 0 : i32
+  %bit1 = scalar.constant 2 : i32
+  %bit2 = scalar.constant 4 : i32
+  %bit3 = scalar.constant 8 : i32
+  %masked1 = scalar.andi %mask, %bit1 : i32
+  %masked2 = scalar.andi %mask, %bit2 : i32
+  %masked3 = scalar.andi %mask, %bit3 : i32
+  %enabled1 = scalar.cmpi ne, %masked1, %c0 : i32
+  %enabled2 = scalar.cmpi ne, %masked2, %c0 : i32
+  %enabled3 = scalar.cmpi ne, %masked3, %c0 : i32
+  %begin = index.constant 0 : index
+  %end = index.constant 3 : index
+  %c1 = index.constant 1 : index
+  %c2 = index.constant 2 : index
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<4xi32>
+  %results = buffer.view %output[%base] : buffer -> view<3x2xi32>
+  scf.for %row = [%begin to %end step %c1] {
+    %after1 = index.max %row, %c1 : index
+    %after2 = index.max %row, %c2 : index
+    %selected1 = scf.select %enabled1, %after1, %row : index
+    %selected2 = scf.select %enabled2, %after2, %selected1 : index
+    %selected = scf.select %enabled3, %end, %selected2 : index
+    %reverse = index.sub %end, %selected : index
+    %value = view.load %source[%selected] : view<4xi32> -> i32
+    %reverse_value = view.load %source[%reverse] : view<4xi32> -> i32
+    view.store %value, %results[%row, 0] : i32, view<3x2xi32>
+    view.store %reverse_value, %results[%row, 1] : i32, view<3x2xi32>
+  }
+  func.return
+}
+
+func.def @private_selection_mask(%trial: index) -> (i32) {
+  %mask = index.cast %trial : index to i32
+  func.return %mask : i32
+}
+
+check.scenario @private_selected_address_values {
+  check.trial[16](%trial: index, %entropy: check.entropy) {
+    %mask = check.generate<@private_selection_mask>(%trial) : (index) -> (i32)
+    %input = check.generate.iota offset(31) step(-17) : tensor<4xi32>
+    %storage = check.generate.fill value(-1) : tensor<14xi32>
+    %output = check.tensor.view %storage offset(16) : tensor<14xi32> -> tensor<3x2xi32>
+    check.compare<@private_selected_addresses, @private_selected_addresses_oracle>(%input, %output, %mask) : (tensor<4xi32>, tensor<3x2xi32>, i32) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<14xi32>
+      check.expect.bitwise actual(%input) expected(%input) : tensor<4xi32>
+    }
+  }
+  check.return
+}

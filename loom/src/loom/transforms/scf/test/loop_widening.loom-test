@@ -1,0 +1,158 @@
+// RUN: pass scf-to-cfg,cfg-simplify,canonicalize
+
+// Nested loops settle in one CFG component. The selected value's upper bound
+// grows across early iterations, but every incoming value stays nonnegative.
+func.def @selected_nonnegative(%choose: i1) {
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %outer_end = scalar.constant 3 : i32
+  %inner_end = scalar.constant 4 : i32
+  %outer = scf.while(%before = %c0 : i32) -> (i32) {
+    %more = scalar.cmpi slt, %before, %outer_end : i32
+    scf.condition %more, %before : i1, i32
+  } do(%row: i32) {
+    %start = scalar.addi %row, %c1 : i32
+    %terminal, %selected = scf.while(%before_column = %start : i32, %before_selected = %row : i32) -> (i32, i32) {
+      %more_inner = scalar.cmpi slt, %before_column, %inner_end : i32
+      scf.condition %more_inner, %before_column, %before_selected : i1, i32, i32
+    } do(%column: i32, %carried: i32) {
+      %updated = scf.select %choose, %column, %carried : i32
+      %next = scalar.addi %column, %c1 : i32
+      scf.yield %next, %updated : i32, i32
+    }
+    %lower = test.fact_range_lo %selected : i32 -> i64
+    %bounded = scalar.assume %selected [range(%selected, -2147483648, 3)] : i32
+    %bounded_lower = test.fact_range_lo %bounded : i32 -> i64
+    %bounded_upper = test.fact_range_hi %bounded : i32 -> i64
+    test.use %lower, %bounded_lower, %bounded_upper : i64, i64, i64
+    scf.yield %start : i32
+  }
+  func.return
+}
+
+// ----
+func.def @selected_nonnegative(%choose: i1) {
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %outer_end = scalar.constant 3 : i32
+  %inner_end = scalar.constant 4 : i32
+  cfg.br ^_bb1(%c0: i32)
+^_bb1(%before: i32):
+  %more = scalar.cmpi slt, %before, %outer_end : i32
+  cfg.cond_br %more, ^_bb2, ^_bb6
+^_bb2:
+  %start = scalar.addi %before, %c1 : i32
+  cfg.br ^_bb3(%start: i32, %before: i32)
+^_bb3(%before_column: i32, %before_selected: i32):
+  %more_inner = scalar.cmpi slt, %before_column, %inner_end : i32
+  cfg.cond_br %more_inner, ^_bb4, ^_bb5
+^_bb4:
+  %updated = scf.select %choose, %before_column, %before_selected : i32
+  %next = scalar.addi %before_column, %c1 : i32
+  cfg.br ^_bb3(%next: i32, %updated: i32)
+^_bb5:
+  %lower = scalar.constant 0 : i64
+  %bounded_lower = scalar.constant 0 : i64
+  %bounded_upper = scalar.constant 3 : i64
+  test.use %lower, %bounded_lower, %bounded_upper : i64, i64, i64
+  cfg.br ^_bb1(%start: i32)
+^_bb6:
+  func.return
+}
+
+// ====
+
+// The symmetric descending recurrence retains its upper endpoint while its
+// lower endpoint widens. A lower-bound assertion then completes the interval.
+func.def @selected_nonpositive(%choose: i1) {
+  %c0 = scalar.constant 0 : i32
+  %c1 = scalar.constant 1 : i32
+  %outer_end = scalar.constant -3 : i32
+  %inner_end = scalar.constant -4 : i32
+  %outer = scf.while(%before = %c0 : i32) -> (i32) {
+    %more = scalar.cmpi sgt, %before, %outer_end : i32
+    scf.condition %more, %before : i1, i32
+  } do(%row: i32) {
+    %start = scalar.subi %row, %c1 : i32
+    %terminal, %selected = scf.while(%before_column = %start : i32, %before_selected = %row : i32) -> (i32, i32) {
+      %more_inner = scalar.cmpi sgt, %before_column, %inner_end : i32
+      scf.condition %more_inner, %before_column, %before_selected : i1, i32, i32
+    } do(%column: i32, %carried: i32) {
+      %updated = scf.select %choose, %column, %carried : i32
+      %next = scalar.subi %column, %c1 : i32
+      scf.yield %next, %updated : i32, i32
+    }
+    %upper = test.fact_range_hi %selected : i32 -> i64
+    %bounded = scalar.assume %selected [range(%selected, -3, 2147483647)] : i32
+    %bounded_lower = test.fact_range_lo %bounded : i32 -> i64
+    %bounded_upper = test.fact_range_hi %bounded : i32 -> i64
+    test.use %upper, %bounded_lower, %bounded_upper : i64, i64, i64
+    scf.yield %start : i32
+  }
+  func.return
+}
+
+// ----
+func.def @selected_nonpositive(%choose: i1) {
+  %c0 = scalar.constant 0 : i32
+  %outer_end = scalar.constant -3 : i32
+  %inner_end = scalar.constant -4 : i32
+  cfg.br ^_bb1(%c0: i32)
+^_bb1(%before: i32):
+  %more = scalar.cmpi sgt, %before, %outer_end : i32
+  cfg.cond_br %more, ^_bb2, ^_bb6
+^_bb2:
+  %34 = scalar.constant -1 : i32
+  %start = scalar.addi %before, %34 : i32
+  cfg.br ^_bb3(%start: i32, %before: i32)
+^_bb3(%before_column: i32, %before_selected: i32):
+  %more_inner = scalar.cmpi sgt, %before_column, %inner_end : i32
+  cfg.cond_br %more_inner, ^_bb4, ^_bb5
+^_bb4:
+  %updated = scf.select %choose, %before_column, %before_selected : i32
+  %32 = scalar.constant -1 : i32
+  %next = scalar.addi %before_column, %32 : i32
+  cfg.br ^_bb3(%next: i32, %updated: i32)
+^_bb5:
+  %upper = scalar.constant 0 : i64
+  %bounded_lower = scalar.constant -3 : i64
+  %bounded_upper = scalar.constant 0 : i64
+  test.use %upper, %bounded_lower, %bounded_upper : i64, i64, i64
+  cfg.br ^_bb1(%start: i32)
+^_bb6:
+  func.return
+}
+
+// ====
+
+// A modular increment eventually invalidates an initially stable lower bound.
+// Widening must keep following transfer results until that endpoint also moves.
+func.def @wrapping_counter(%repeat: i1) -> (i64, i64) {
+  %c0 = scalar.constant 0 : i8
+  %c1 = scalar.constant 1 : i8
+  %result = scf.while(%before = %c0 : i8) -> (i8) {
+    scf.condition %repeat, %before : i1, i8
+  } do(%counter: i8) {
+    %next = scalar.addi %counter, %c1 : i8
+    scf.yield %next : i8
+  }
+  %lower = test.fact_range_lo %result : i8 -> i64
+  %upper = test.fact_range_hi %result : i8 -> i64
+  func.return %lower, %upper : i64, i64
+}
+
+// ----
+func.def @wrapping_counter(%repeat: i1) -> (i64, i64) {
+  %c0 = scalar.constant 0 : i8
+  %c1 = scalar.constant 1 : i8
+  cfg.br ^_bb1(%c0: i8)
+^_bb1(%before: i8):
+  cfg.cond_br %repeat, ^_bb2, ^_bb3
+^_bb2:
+  %next = scalar.addi %before, %c1 : i8
+  cfg.br ^_bb1(%next: i8)
+^_bb3:
+  %lower = scalar.constant -128 : i64
+  %upper = scalar.constant 127 : i64
+  func.return %lower, %upper : i64, i64
+}

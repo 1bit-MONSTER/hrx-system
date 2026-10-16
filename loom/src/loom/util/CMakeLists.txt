@@ -399,6 +399,19 @@ loom_cc_test(
 
 loom_cc_test(
   NAME
+    fact_extensions_test
+  SRCS
+    "fact_extensions_test.cc"
+  DEPS
+    ::fact_table
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::ir::facts
+)
+
+loom_cc_test(
+  NAME
     fact_table_test
   SRCS
     "fact_table_test.cc"
