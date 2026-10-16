@@ -268,12 +268,14 @@ void Pm4CommandWriter::DmaFill32(uint64_t target_address, uint32_t pattern,
 
 void Pm4CommandWriter::AtomicStore32(uint64_t target_address, uint32_t value) {
   word_count_ += pm4::AtomicStore(words_ + word_count_, target_address, value,
-                                  pm4::AtomicStoreWidth::k32Bit);
+                                  pm4::AtomicStoreWidth::k32Bit,
+                                  profile_.system_atomic_scope_control);
 }
 
 void Pm4CommandWriter::AtomicStore64(uint64_t target_address, uint64_t value) {
   word_count_ += pm4::AtomicStore(words_ + word_count_, target_address, value,
-                                  pm4::AtomicStoreWidth::k64Bit);
+                                  pm4::AtomicStoreWidth::k64Bit,
+                                  profile_.system_atomic_scope_control);
 }
 
 void Pm4CommandWriter::WaitDma() {

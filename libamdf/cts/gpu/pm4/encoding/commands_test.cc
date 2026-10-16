@@ -201,21 +201,56 @@ TEST(Pm4EncodingTest, OrderedDataAcquirePreservesTargetCachePolicy) {
   }
 }
 
-TEST(Pm4EncodingTest, AtomicStoresPreserveWidthsAndClearUnusedFields) {
-  std::array<uint32_t, 20> words;
-  words.fill(0x24681357);
-  Pm4CommandWriter commands(words.data() + 1, Profile(11, 0));
-  commands.AtomicStore32(UINT64_C(0x000012345678903c), 0xfedcba98);
-  commands.AtomicStore64(UINT64_C(0x00003456789abff0),
-                         UINT64_C(0x13579bdf2468ace0));
-  const std::array<uint32_t, 18> expected = {
-      0xc0071e00, 0x07, 0x5678903c, 0x1234, 0xfedcba98, 0,          0, 0, 0,
-      0xc0071e00, 0x27, 0x789abff0, 0x3456, 0x2468ace0, 0x13579bdf, 0, 0, 0,
+TEST(Pm4EncodingTest, AtomicStoresSelectScopeAndPreserveOperands) {
+  const struct {
+    // Compiler target family selecting the native compute representation.
+    std::array<uint32_t, 2> target;
+    // Complete word 1 for a single-pass system-visible DWORD swap.
+    uint32_t control32;
+    // Complete word 1 for a single-pass system-visible QWORD swap.
+    uint32_t control64;
+  } cases[] = {
+      {{11, 0}, 0x00000007, 0x00000027}, {{11, 5}, 0x00000007, 0x00000027},
+      {{11, 7}, 0x00000007, 0x00000027}, {{12, 0}, 0x00000007, 0x00000027},
+      {{12, 5}, 0x01800007, 0x01800027},
   };
-  ASSERT_EQ(commands.word_count(), expected.size());
-  ExpectWords(words.data() + 1, expected);
-  EXPECT_EQ(words.front(), 0x24681357u);
-  EXPECT_EQ(words.back(), 0x24681357u);
+  for (const auto& test : cases) {
+    SCOPED_TRACE(::testing::Message()
+                 << test.target[0] << '.' << test.target[1]);
+    std::array<uint32_t, 20> words;
+    words.fill(0x24681357);
+    Pm4CommandWriter commands(words.data() + 1,
+                              Profile(test.target[0], test.target[1]));
+    commands.AtomicStore32(UINT64_C(0x000012345678903c), 0xfedcba98);
+    commands.AtomicStore64(UINT64_C(0x00003456789abff0),
+                           UINT64_C(0x13579bdf2468ace0));
+    // Native GC12.1 defines SYSTEM=3 at bits 24:23; earlier layouts reserve
+    // those bits. Both forms retain the operation, operands and zero padding.
+    const std::array<uint32_t, 18> expected = {
+        0xc0071e00,
+        test.control32,
+        0x5678903c,
+        0x1234,
+        0xfedcba98,
+        0,
+        0,
+        0,
+        0,
+        0xc0071e00,
+        test.control64,
+        0x789abff0,
+        0x3456,
+        0x2468ace0,
+        0x13579bdf,
+        0,
+        0,
+        0,
+    };
+    ASSERT_EQ(commands.word_count(), expected.size());
+    ExpectWords(words.data() + 1, expected);
+    EXPECT_EQ(words.front(), 0x24681357u);
+    EXPECT_EQ(words.back(), 0x24681357u);
+  }
 }
 
 TEST(Pm4EncodingTest, ComputeBindingPreservesNativeContextRegisters) {

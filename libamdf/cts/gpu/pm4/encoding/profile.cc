@@ -18,6 +18,7 @@ constexpr Pm4CommandProfile kGfx11 = {
     .system_release_gcr =
         (1u << 1) | (1u << 2) | (1u << 3) | (1u << 8) | (1u << 9),
     .gl2_writeback_gcr = 1u << 15,
+    .system_atomic_scope_control = 0,
     .resource3_register = 0x2e28,
     .instruction_prefetch_mask = 0x3f,
     .group_segment_unit_byte_length = 512,
@@ -32,6 +33,7 @@ constexpr Pm4CommandProfile kGfx12 = {
         (1u << 0) | (1u << 7) | (1u << 8) | (1u << 14) | (1u << 15),
     .system_release_gcr = (1u << 2) | (1u << 8) | (1u << 9),
     .gl2_writeback_gcr = 1u << 15,
+    .system_atomic_scope_control = 0,
     .resource3_register = 0x2e28,
     .instruction_prefetch_mask = 0xff,
     .group_segment_unit_byte_length = 512,
@@ -47,6 +49,7 @@ constexpr Pm4CommandProfile kGfx125 = {
     .system_release_gcr =
         2u | (1u << 2) | (1u << 8) | (1u << 9) | (1u << 10) | (1u << 12),
     .gl2_writeback_gcr = (2u << 4) | (1u << 15),
+    .system_atomic_scope_control = 3u << 23,
     .resource3_register = 0x2e23,
     .instruction_prefetch_mask = 0xff,
     .group_segment_unit_byte_length = 2048,
