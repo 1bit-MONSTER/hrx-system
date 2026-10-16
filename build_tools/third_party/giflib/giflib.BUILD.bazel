@@ -1,0 +1,23 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+# Decode and metadata support only. The encoder and font utilities are not part
+# of the serving dependency and have additional platform requirements.
+cc_library(
+    name = "giflib",
+    srcs = [
+        "dgif_lib.c",
+        "gif_err.c",
+        "gifalloc.c",
+        "openbsd-reallocarray.c",
+    ],
+    hdrs = ["gif_hash.h", "gif_lib.h", "gif_lib_private.h"],
+    includes = ["."],
+    linkstatic = True,
+    visibility = ["//visibility:public"],
+)

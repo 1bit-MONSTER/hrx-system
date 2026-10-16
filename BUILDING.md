@@ -149,6 +149,26 @@ targets can be built independently. For example,
 `//runtime/src/iree/hal/drivers/task/executable/elf:elf_module_test_binary`
 is the artifact target for the `:elf_module_test` wrapper.
 
+### Serving image inputs
+
+Loom serving image input is enabled by default on Linux, macOS, and Windows.
+PNG, JPEG, GIF, and WebP have independent codec providers. Text-only builds can
+exclude all image dependencies, or retain only selected formats:
+
+```bash
+iree-bazel-configure -DLOOM_SERVE_IMAGE_INPUT=OFF
+iree-cmake-configure -DLOOM_SERVE_IMAGE_INPUT=OFF
+
+iree-bazel-configure '-DLOOM_SERVE_IMAGE_CODECS=png;jpeg'
+iree-cmake-configure '-DLOOM_SERVE_IMAGE_CODECS=png;jpeg'
+```
+
+The native Bazel options are `--//loom/config/serve:image_input=false` and
+`--//loom/config/serve:image_codecs=png,jpeg`. Only selected providers enter
+the source-fetch and link graphs. Disabled formats return an explicit error;
+other serving modalities do not depend on codec availability. Other operating
+systems exclude image providers by default.
+
 ### Windows targets
 
 The selected C/C++ toolchain also supplies the MASM assembler and sanitizer

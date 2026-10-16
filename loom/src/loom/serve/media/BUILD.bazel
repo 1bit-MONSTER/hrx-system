@@ -1,0 +1,194 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load(
+    "//loom/build_tools/bazel:build_defs.bzl",
+    "iree_select",
+    "loom_cc_fuzz",
+    "loom_cc_library",
+    "loom_cc_test",
+    "loom_config_compatible_with",
+)
+load("//loom/build_tools/bazel:python.bzl", "loom_py_test")
+
+package(
+    default_visibility = ["//loom/src/loom/serve:implementation"],
+    features = ["layering_check"],
+    licenses = ["notice"],
+)
+
+loom_cc_library(
+    name = "digest",
+    srcs = ["digest.c"],
+    hdrs = ["digest.h"],
+    deps = ["//runtime/src/iree/base"],
+)
+
+loom_cc_test(
+    name = "digest_test",
+    srcs = ["digest_test.cc"],
+    deps = [
+        ":digest",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
+    name = "image_codec",
+    hdrs = [
+        "image_codec.h",
+        "image_types.h",
+    ],
+    deps = [
+        ":digest",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
+    name = "image_metadata",
+    srcs = ["image_metadata.c"],
+    hdrs = ["image_metadata.h"],
+    deps = ["//runtime/src/iree/base"],
+)
+
+loom_cc_library(
+    name = "image_png",
+    srcs = ["image_png.c"],
+    target_compatible_with = loom_config_compatible_with(["//loom/config/serve:png"]),
+    deps = [
+        ":image_codec",
+        ":image_metadata",
+        "//runtime/src/iree/base",
+        "//third_party:libpng",
+    ],
+)
+
+loom_cc_library(
+    name = "image_jpeg",
+    srcs = ["image_jpeg.c"],
+    target_compatible_with = loom_config_compatible_with(["//loom/config/serve:jpeg"]),
+    deps = [
+        ":image_codec",
+        ":image_metadata",
+        "//runtime/src/iree/base",
+        "//third_party:libjpeg_turbo",
+    ],
+)
+
+loom_cc_library(
+    name = "image_gif",
+    srcs = ["image_gif.c"],
+    target_compatible_with = loom_config_compatible_with(["//loom/config/serve:gif"]),
+    deps = [
+        ":image_codec",
+        ":image_metadata",
+        "//runtime/src/iree/base",
+        "//third_party:giflib",
+    ],
+)
+
+loom_cc_library(
+    name = "image_webp",
+    srcs = ["image_webp.c"],
+    target_compatible_with = loom_config_compatible_with(["//loom/config/serve:webp"]),
+    deps = [
+        ":image_codec",
+        ":image_metadata",
+        "//runtime/src/iree/base",
+        "//third_party:libwebp",
+    ],
+)
+
+loom_cc_library(
+    name = "image_codecs",
+    srcs = ["image_codecs.c"],
+    defines = iree_select({
+        "//loom/config/serve:png": ["LOOM_SERVE_IMAGE_CODEC_PNG=1"],
+        "//conditions:default": ["LOOM_SERVE_IMAGE_CODEC_PNG=0"],
+    }) + iree_select({
+        "//loom/config/serve:jpeg": ["LOOM_SERVE_IMAGE_CODEC_JPEG=1"],
+        "//conditions:default": ["LOOM_SERVE_IMAGE_CODEC_JPEG=0"],
+    }) + iree_select({
+        "//loom/config/serve:gif": ["LOOM_SERVE_IMAGE_CODEC_GIF=1"],
+        "//conditions:default": ["LOOM_SERVE_IMAGE_CODEC_GIF=0"],
+    }) + iree_select({
+        "//loom/config/serve:webp": ["LOOM_SERVE_IMAGE_CODEC_WEBP=1"],
+        "//conditions:default": ["LOOM_SERVE_IMAGE_CODEC_WEBP=0"],
+    }),
+    deps = [
+        ":image_codec",
+        "//runtime/src/iree/base",
+    ] + iree_select({
+        "//loom/config/serve:png": [":image_png"],
+        "//conditions:default": [],
+    }) + iree_select({
+        "//loom/config/serve:jpeg": [":image_jpeg"],
+        "//conditions:default": [],
+    }) + iree_select({
+        "//loom/config/serve:gif": [":image_gif"],
+        "//conditions:default": [],
+    }) + iree_select({
+        "//loom/config/serve:webp": [":image_webp"],
+        "//conditions:default": [],
+    }),
+)
+
+loom_cc_library(
+    name = "image",
+    srcs = ["image.c"],
+    hdrs = ["image.h"],
+    deps = [
+        ":digest",
+        ":image_codec",
+        ":image_codecs",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:base64",
+        "//runtime/src/iree/base/internal:json",
+    ],
+)
+
+loom_cc_test(
+    name = "image_test",
+    srcs = ["image_test.cc"],
+    deps = [
+        ":image",
+        ":image_codec",
+        ":image_codecs",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:base64",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_fuzz(
+    name = "image_fuzz",
+    srcs = ["image_fuzz.cc"],
+    deps = [
+        ":image",
+        ":image_codec",
+        ":image_codecs",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:base64",
+    ],
+)
+
+loom_py_test(
+    name = "image_fuzz_test",
+    srcs = ["image_fuzz_test.py"],
+    args = [
+        "$(rootpath :image_fuzz)",
+        "$(rootpath testdata/image_fuzz/png.txt)",
+    ],
+    data = [":image_fuzz"] + glob(["testdata/image_fuzz/*.txt"]),
+    tags = [
+        "manual",
+        "skip-bazel_to_cmake",
+    ],
+)

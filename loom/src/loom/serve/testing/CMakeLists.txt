@@ -9,6 +9,7 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     maintenance_gate
@@ -19,7 +20,9 @@ loom_cc_library(
   TESTONLY
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     compiler
@@ -36,7 +39,9 @@ loom_cc_library(
   TESTONLY
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     device
@@ -53,7 +58,9 @@ loom_cc_library(
   TESTONLY
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     jit
@@ -77,7 +84,9 @@ loom_cc_library(
   TESTONLY
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     jit_module
@@ -100,7 +109,9 @@ loom_cc_library(
   TESTONLY
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     service_application
@@ -119,7 +130,9 @@ loom_cc_library(
   TESTONLY
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     server_test_tool
@@ -134,8 +147,9 @@ loom_cc_library(
   TESTONLY
   PUBLIC
 )
+endif()
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_cc_library(
   NAME
     http_harness
@@ -153,7 +167,7 @@ loom_cc_library(
 )
 endif()
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_cc_test(
   NAME
     http_harness_test
@@ -167,9 +181,12 @@ loom_cc_test(
     iree::testing::gtest_main
     loom::serve::transport::http::listener
     loom::serve::transport::http::server
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
 endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     model
@@ -183,7 +200,9 @@ loom_cc_library(
   TESTONLY
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     package
@@ -197,8 +216,9 @@ loom_cc_library(
   TESTONLY
   PUBLIC
 )
+endif()
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_cc_library(
   NAME
     stalled_stderr
@@ -211,6 +231,7 @@ loom_cc_library(
 )
 endif()
 
+if(LOOM_TARGET_ARCH_VM)
 iree_py_library(
   NAME
     chat
@@ -219,6 +240,7 @@ iree_py_library(
   IMPORTS
     "."
 )
+endif()
 
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_binary(
@@ -246,6 +268,7 @@ loom_cc_binary(
 )
 endif()
 
+if(LOOM_TARGET_ARCH_VM)
 iree_py_test(
   NAME
     chat_test
@@ -255,6 +278,8 @@ iree_py_test(
     "loom_serve_testing/chat_test.py"
   DEPS
     loom::serve::testing::chat
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
   PACKAGE_DIRS
     "${PROJECT_SOURCE_DIR}/loom/py"
     "${PROJECT_BINARY_DIR}/loom/py"
@@ -262,7 +287,9 @@ iree_py_test(
   TIMEOUT
     60
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 iree_py_library(
   NAME
     workload
@@ -273,7 +300,9 @@ iree_py_library(
   DEPS
     loom::serve::testing::chat
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 iree_py_library(
   NAME
     replay
@@ -284,7 +313,9 @@ iree_py_library(
   DEPS
     loom::serve::testing::workload
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 iree_py_test(
   NAME
     workload_test
@@ -295,6 +326,8 @@ iree_py_test(
     "loom_serve_testing/workload_test.py"
   DEPS
     loom::serve::testing::workload
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
   PACKAGE_DIRS
     "${PROJECT_SOURCE_DIR}/loom/py"
     "${PROJECT_BINARY_DIR}/loom/py"
@@ -302,7 +335,9 @@ iree_py_test(
   TIMEOUT
     60
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 iree_py_library(
   NAME
     logs
@@ -311,7 +346,9 @@ iree_py_library(
   IMPORTS
     "."
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 iree_py_test(
   NAME
     logs_test
@@ -321,6 +358,8 @@ iree_py_test(
     "loom_serve_testing/logs_test.py"
   DEPS
     loom::serve::testing::logs
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
   PACKAGE_DIRS
     "${PROJECT_SOURCE_DIR}/loom/py"
     "${PROJECT_BINARY_DIR}/loom/py"
@@ -328,7 +367,9 @@ iree_py_test(
   TIMEOUT
     60
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 iree_py_library(
   NAME
     http
@@ -339,7 +380,9 @@ iree_py_library(
   DEPS
     loom::serve::testing::logs
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 iree_py_test(
   NAME
     http_test
@@ -350,6 +393,8 @@ iree_py_test(
   DEPS
     loom::serve::testing::http
     loom::serve::testing::logs
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
   PACKAGE_DIRS
     "${PROJECT_SOURCE_DIR}/loom/py"
     "${PROJECT_BINARY_DIR}/loom/py"
@@ -357,5 +402,6 @@ iree_py_test(
   TIMEOUT
     60
 )
+endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

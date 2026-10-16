@@ -34,6 +34,27 @@ class _LoomBinaryBuildFileFunctions(
 
 
 class ConfigTest(unittest.TestCase):
+    def test_loom_image_provider_selection_survives_conversion(self):
+        converter = SimpleNamespace(body="")
+        functions = bazel_to_cmake_converter.BuildFileFunctions(
+            converter=converter,
+            targets=bazel_to_cmake_targets.TargetConverter(repo_map={"@hrx": ""}),
+            build_dir="/repo/loom/src/loom/serve/media",
+            repo_root="/repo",
+        )
+        functions.cc_library(
+            name="image_codecs",
+            srcs=["image_codecs.c"],
+            deps=functions.select(
+                {
+                    "//loom/config/serve:png": ["//third_party:libpng"],
+                    "//conditions:default": [],
+                }
+            ),
+        )
+        self.assertIn("if(LOOM_SERVE_IMAGE_CODEC_PNG)", converter.body)
+        self.assertIn("iree::third_party::libpng", converter.body)
+
     def test_gpu_image_targets_use_their_own_driver_selection(self):
         cases = (
             ("amdgpu", "IREE_HAL_AMDGPU_TARGETS", "IREE_HAL_AMD_GPU_TARGETS"),

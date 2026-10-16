@@ -4,8 +4,8 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("@rules_python//python:defs.bzl", "py_test")
-load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
+load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test")
+load("//loom/build_tools/bazel:python.bzl", "loom_py_test")
 load("//loom/src/loom/serve/fixture/text:sources.bzl", TEXT_SOURCES = "SOURCES")
 
 package(
@@ -19,7 +19,7 @@ exports_files(
     visibility = ["//loom/src/loom/serve:implementation"],
 )
 
-py_test(
+loom_py_test(
     name = "source_chat_test",
     size = "small",
     srcs = ["source_chat_test.py"],
@@ -30,9 +30,6 @@ py_test(
     data = TEXT_SOURCES + [
         "//loom/src/loom/serve/testing:text_request_check",
     ],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
 )
 
 loom_cc_library(
@@ -52,9 +49,7 @@ loom_cc_test(
     ],
 )
 
-_SOURCE_TEST_COMPATIBILITY = loom_config_compatible_with([
-    "//loom/config/target/arch:vm",
-]) + select({
+_SOURCE_TEST_COMPATIBILITY = select({
     "@platforms//os:linux": [],
     "//conditions:default": ["@platforms//:incompatible"],
 })
@@ -305,9 +300,6 @@ loom_cc_library(
         "state.h",
         "variant.h",
     ],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     deps = [
         ":chat",
         ":packing",
@@ -428,9 +420,6 @@ loom_cc_library(
     name = "session",
     srcs = ["session.c"],
     hdrs = ["session.h"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     deps = [
         ":chat",
         ":model",
@@ -448,9 +437,6 @@ loom_cc_library(
     name = "checkpoint_registry",
     srcs = ["checkpoint_registry.c"],
     hdrs = ["checkpoint_registry.h"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     visibility = ["//visibility:private"],
     deps = [
         ":chat",
@@ -465,9 +451,6 @@ loom_cc_library(
     name = "epoch",
     srcs = ["epoch.c"],
     hdrs = ["epoch.h"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     visibility = ["//visibility:private"],
     deps = [
         ":model",
@@ -603,9 +586,6 @@ loom_cc_library(
     name = "service",
     srcs = ["service.c"],
     hdrs = ["service.h"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     deps = [
         ":admission",
         ":chat",

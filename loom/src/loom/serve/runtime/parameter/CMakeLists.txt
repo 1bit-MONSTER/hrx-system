@@ -9,6 +9,7 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     activation
@@ -25,7 +26,9 @@ loom_cc_library(
     loom::serve::runtime::execution
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     residency
@@ -40,8 +43,9 @@ loom_cc_library(
     loom::serve::runtime::storage::memory
   PUBLIC
 )
+endif()
 
-if(IREE_HAL_DRIVER_TASK)
+if(IREE_HAL_DRIVER_TASK AND LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     activation_test
@@ -57,9 +61,12 @@ loom_cc_test(
     loom::serve::runtime::device
     loom::serve::runtime::execution
     loom::serve::runtime::host
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
 endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     weights
@@ -86,7 +93,9 @@ loom_cc_library(
     loom::serve::runtime::storage::memory
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     telemetry
@@ -101,7 +110,9 @@ loom_cc_library(
     loom::serve::telemetry::stream
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     telemetry_test
@@ -114,6 +125,9 @@ loom_cc_test(
     iree::testing::gtest_main
     loom::serve::telemetry::record
     loom::serve::telemetry::stream
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
+endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

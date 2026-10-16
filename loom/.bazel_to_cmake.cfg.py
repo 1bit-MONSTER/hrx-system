@@ -776,6 +776,17 @@ class LoomBuildFileFunctions(
             1,
         )
 
+    def loom_py_library(self, **kwargs):
+        self.iree_py_library(**self._apply_loom_cmake_policy(kwargs))
+
+    def loom_py_binary(self, **kwargs):
+        self.iree_py_binary(**self._apply_loom_cmake_policy(kwargs))
+
+    def loom_py_test(self, **kwargs):
+        self.iree_py_test(
+            **self._apply_loom_cmake_policy(kwargs, include_run_requirements=True)
+        )
+
     def loom_cc_library(self, deps=[], **kwargs):
         kwargs = self._apply_loom_cmake_policy(kwargs)
         self._emit_rewritten_cmake_rule(

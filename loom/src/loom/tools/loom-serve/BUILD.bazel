@@ -102,9 +102,6 @@ loom_cc_binary(
         "//loom/config/target:xdna_artifacts": ["-DLOOM_SERVE_CONFIG_HAVE_XDNA=1"],
         "//conditions:default": [],
     }),
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     visibility = ["//visibility:public"],
     deps = [
         ":main",

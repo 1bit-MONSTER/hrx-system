@@ -79,6 +79,11 @@ _API_CONFIG_CMAKE_OPTIONS = {
 }
 
 _LOOM_CONFIG_CMAKE_OPTIONS = {
+    "//loom/config/serve:image_input_enabled": "LOOM_BUILD AND LOOM_SERVE_IMAGE_INPUT",
+    "//loom/config/serve:png": "LOOM_SERVE_IMAGE_CODEC_PNG",
+    "//loom/config/serve:jpeg": "LOOM_SERVE_IMAGE_CODEC_JPEG",
+    "//loom/config/serve:gif": "LOOM_SERVE_IMAGE_CODEC_GIF",
+    "//loom/config/serve:webp": "LOOM_SERVE_IMAGE_CODEC_WEBP",
     "//loom/config/import:cxx": "LOOM_IMPORT_CXX",
     "//loom/config/import/cxx:embed_includes_enabled": "LOOM_IMPORT_CXX_EMBED_INCLUDES",
     "//loom/config/target:amdgpu_artifacts": "LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU",

@@ -9,6 +9,7 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     metrics
@@ -23,7 +24,9 @@ loom_cc_library(
     loom::serve::telemetry::record
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     package
@@ -38,7 +41,9 @@ loom_cc_library(
     loom::serve::transport::http::request
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     package_test
@@ -52,8 +57,12 @@ loom_cc_test(
     loom::binding::c::loomc
     loom::serve::runtime::program::package
     loom::serve::transport::http::request
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     response
@@ -68,7 +77,9 @@ loom_cc_library(
     loom::util::stream
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     variants
@@ -95,7 +106,9 @@ loom_cc_library(
     loom::util::stream
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     tokenization
@@ -113,7 +126,9 @@ loom_cc_library(
     loom::util::stream
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     logs
@@ -128,7 +143,9 @@ loom_cc_library(
     loom::util::stream
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     logs_test
@@ -140,8 +157,12 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::serve::telemetry::stream
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     tokenization_test
@@ -154,6 +175,9 @@ loom_cc_test(
     iree::testing::gtest_main
     iree::tokenizer
     iree::tokenizer::format::huggingface::tokenizer_json
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
+endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

@@ -1,0 +1,6 @@
+diff --git a/gif_hash.h b/gif_hash.h
+--- a/gif_hash.h
++++ b/gif_hash.h
+@@ -12,2 +12,1 @@
+-#include <unistd.h>
+ #include <stdint.h>

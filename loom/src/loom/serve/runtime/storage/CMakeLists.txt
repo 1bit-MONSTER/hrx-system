@@ -9,6 +9,7 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     memory
@@ -23,7 +24,9 @@ loom_cc_library(
     iree::hal::memory::maintenance
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     block_pool
@@ -35,7 +38,9 @@ loom_cc_library(
     iree::base
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     relocation
@@ -49,7 +54,9 @@ loom_cc_library(
     loom::serve::runtime::execution
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     snapshot
@@ -64,7 +71,9 @@ loom_cc_library(
     loom::serve::runtime::execution
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     block_pool_test
@@ -75,6 +84,9 @@ loom_cc_test(
     iree::base
     iree::testing::gtest
     iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
+endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

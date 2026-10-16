@@ -4,8 +4,8 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("@rules_python//python:defs.bzl", "py_binary", "py_library", "py_test")
-load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_binary", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
+load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_binary", "loom_cc_library", "loom_cc_test")
+load("//loom/build_tools/bazel:python.bzl", "loom_py_binary", "loom_py_library", "loom_py_test")
 
 package(
     default_visibility = ["//visibility:private"],
@@ -198,7 +198,7 @@ loom_cc_library(
     deps = ["//runtime/src/iree/testing:gtest"],
 )
 
-py_library(
+loom_py_library(
     name = "chat",
     testonly = True,
     srcs = ["loom_serve_testing/chat.py"],
@@ -210,9 +210,6 @@ loom_cc_binary(
     name = "text_request_check",
     testonly = True,
     srcs = ["text_request.c"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     visibility = ["//visibility:public"],
     deps = [
         "//loom/binding/c:loomc",
@@ -233,14 +230,14 @@ loom_cc_binary(
     ],
 )
 
-py_test(
+loom_py_test(
     name = "chat_test",
     size = "small",
     srcs = ["loom_serve_testing/chat_test.py"],
     deps = [":chat"],
 )
 
-py_library(
+loom_py_library(
     name = "workload",
     testonly = True,
     srcs = ["loom_serve_testing/workload.py"],
@@ -249,7 +246,7 @@ py_library(
     deps = [":chat"],
 )
 
-py_binary(
+loom_py_binary(
     name = "replay",
     testonly = True,
     srcs = ["loom_serve_testing/replay.py"],
@@ -257,7 +254,7 @@ py_binary(
     deps = [":workload"],
 )
 
-py_test(
+loom_py_test(
     name = "workload_test",
     size = "small",
     srcs = [
@@ -268,7 +265,7 @@ py_test(
     deps = [":workload"],
 )
 
-py_library(
+loom_py_library(
     name = "logs",
     testonly = True,
     srcs = ["loom_serve_testing/logs.py"],
@@ -276,14 +273,14 @@ py_library(
     visibility = ["//visibility:public"],
 )
 
-py_test(
+loom_py_test(
     name = "logs_test",
     size = "small",
     srcs = ["loom_serve_testing/logs_test.py"],
     deps = [":logs"],
 )
 
-py_library(
+loom_py_library(
     name = "http",
     testonly = True,
     srcs = ["loom_serve_testing/http_harness.py"],
@@ -292,7 +289,7 @@ py_library(
     deps = [":logs"],
 )
 
-py_test(
+loom_py_test(
     name = "http_test",
     size = "small",
     srcs = ["loom_serve_testing/http_test.py"],

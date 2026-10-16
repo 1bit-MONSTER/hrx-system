@@ -68,9 +68,6 @@ loom_cc_library(
     name = "model",
     srcs = ["model.c"],
     hdrs = ["model.h"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     deps = [
         ":result",
         "//loom/binding/c:loomc",

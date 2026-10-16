@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
+load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test")
 
 package(
     default_visibility = ["//loom/src/loom/serve:implementation"],
@@ -249,9 +249,6 @@ loom_cc_test(
     srcs = ["program_test.cc"],
     args = ["--binding_source=$(rootpath :testdata/binding.loom)"],
     data = ["testdata/binding.loom"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     deps = [
         ":input",
         ":program",
@@ -344,9 +341,6 @@ loom_cc_test(
     srcs = ["input_test.cc"],
     args = ["--input_source=$(rootpath :testdata/input/control.loom)"],
     data = ["testdata/input/control.loom"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     deps = [
         ":input",
         ":program",
@@ -367,9 +361,6 @@ loom_cc_test(
     srcs = ["preparation_test.cc"],
     args = ["--boundary_source=$(rootpath :testdata/preparation/boundaries.loom)"],
     data = ["testdata/preparation/boundaries.loom"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     deps = [
         ":preparation",
         "//loom/binding/c:loomc",

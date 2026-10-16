@@ -9,6 +9,7 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_TARGET_ARCH_VM)
 iree_py_library(
   NAME
     catalog_test_util
@@ -20,7 +21,9 @@ iree_py_library(
     loom::serve::testing::http
     loom::serve::testing::logs
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     router
@@ -60,7 +63,9 @@ loom_cc_library(
     loom::util::stream
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     maintenance
@@ -78,7 +83,9 @@ loom_cc_library(
     loom::serve::runtime::host::wake
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     resources
@@ -100,7 +107,9 @@ loom_cc_library(
     loom::util::stream
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     maintenance_test
@@ -112,9 +121,12 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::serve::runtime::device
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
+endif()
 
-if(IREE_HAL_DRIVER_TASK)
+if(IREE_HAL_DRIVER_TASK AND LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     resources_test
@@ -128,10 +140,12 @@ loom_cc_test(
     loom::serve::runtime::device
     loom::serve::runtime::host
     loom::util::stream
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
 endif()
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_cc_test(
   NAME
     router_test
@@ -161,9 +175,12 @@ loom_cc_test(
     loom::serve::transport::http::multipart
     loom::serve::transport::http::request
     loom::serve::transport::http::server
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
 endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     configuration
@@ -180,7 +197,9 @@ loom_cc_library(
     loom::serve::runtime::program::sources
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     registry
@@ -201,7 +220,9 @@ loom_cc_library(
     loom::serve::telemetry::stream
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     model_registration
@@ -234,7 +255,9 @@ loom_cc_library(
     loom::serve::service::text::service
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     registry_test
@@ -248,8 +271,12 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     iree::testing::temp_file
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     configuration_test
@@ -260,6 +287,9 @@ loom_cc_test(
     iree::base
     iree::testing::gtest
     iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
+endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

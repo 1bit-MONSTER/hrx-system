@@ -145,7 +145,7 @@ iree_status_t loom_serve_memory_pool_allocate(
   }
   if (!slab_size || slab_size > INT64_MAX || slab_size % minimum) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "slab size must be a multiple of %" PRIu64,
+                            "slab size must be a multiple of %" PRIdsz,
                             minimum);
   }
   loom_serve_memory_pool_t* pool = NULL;
@@ -269,7 +269,7 @@ iree_status_t loom_serve_virtual_buffer_allocate(
   if (!alignment || pool->minimum_alignment % alignment) {
     return iree_make_status(
         IREE_STATUS_UNIMPLEMENTED,
-        "virtual reservation cannot guarantee alignment %" PRIu64, alignment);
+        "virtual reservation cannot guarantee alignment %" PRIdsz, alignment);
   }
   const uint64_t count = (length + pool->slab_size - 1) / pool->slab_size;
   if (count > (IREE_HOST_SIZE_MAX - sizeof(loom_serve_virtual_buffer_t)) /

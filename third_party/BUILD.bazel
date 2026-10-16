@@ -176,6 +176,44 @@ alias(
     visibility = [":libhrx_users"],
 )
 
+alias(
+    name = "giflib",
+    actual = select({
+        "//loom/config/serve:gif": "@giflib//:giflib",
+        "//conditions:default": ":empty_image_codec",
+    }),
+    visibility = [":loom_users"],
+)
+
+alias(
+    name = "libjpeg_turbo",
+    actual = select({
+        "//loom/config/serve:jpeg": "@libjpeg_turbo//:jpeg",
+        "//conditions:default": ":empty_image_codec",
+    }),
+    visibility = [":loom_users"],
+)
+
+alias(
+    name = "libpng",
+    actual = select({
+        "//loom/config/serve:png": "@libpng//:png",
+        "//conditions:default": ":empty_image_codec",
+    }),
+    visibility = [":loom_users"],
+)
+
+alias(
+    name = "libwebp",
+    actual = select({
+        "//loom/config/serve:webp": "@libwebp//:webpdecoder",
+        "//conditions:default": ":empty_image_codec",
+    }),
+    visibility = [":loom_users"],
+)
+
+filegroup(name = "empty_image_codec")
+
 filegroup(
     name = "empty_aqlprofile_sdk_headers",
 )

@@ -9,6 +9,7 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     record
@@ -22,7 +23,9 @@ loom_cc_library(
     loom::util::stream
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     latency
@@ -36,7 +39,9 @@ loom_cc_library(
     iree::base
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     latency_test
@@ -49,8 +54,12 @@ loom_cc_test(
     iree::base
     iree::testing::gtest
     iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     stream
@@ -64,7 +73,9 @@ loom_cc_library(
     iree::base::internal
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     record_test
@@ -76,8 +87,12 @@ loom_cc_test(
     iree::base
     iree::testing::gtest
     iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     stream_test
@@ -88,8 +103,12 @@ loom_cc_test(
     iree::base
     iree::testing::gtest
     iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_benchmark(
   NAME
     stream_benchmark
@@ -101,6 +120,9 @@ loom_cc_benchmark(
     iree::base
     iree::testing::benchmark_main
   TESTONLY
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
+endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

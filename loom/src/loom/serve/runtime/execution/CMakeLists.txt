@@ -9,6 +9,7 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     workspace
@@ -26,7 +27,9 @@ loom_cc_library(
     iree::hal::memory::tlsf_pool
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     execution
@@ -42,7 +45,9 @@ loom_cc_library(
     iree::hal
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     dispatch
@@ -56,7 +61,9 @@ loom_cc_library(
     iree::hal
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     execution_test
@@ -66,9 +73,12 @@ loom_cc_test(
     ::execution
     iree::testing::gtest
     iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
+endif()
 
-if(IREE_HAL_DRIVER_TASK)
+if(IREE_HAL_DRIVER_TASK AND LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     workspace_test
@@ -84,9 +94,12 @@ loom_cc_test(
     iree::testing::gtest_main
     loom::serve::runtime::device
     loom::serve::runtime::host
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
 endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     retirement
@@ -100,5 +113,6 @@ loom_cc_library(
     iree::hal
   PUBLIC
 )
+endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###
