@@ -32,6 +32,39 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "document",
+    srcs = ["document.c"],
+    hdrs = ["document.h"],
+    deps = [
+        ":transcript",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
+    name = "service",
+    srcs = ["service.c"],
+    hdrs = ["service.h"],
+    deps = [
+        ":document",
+        ":generator",
+        ":input",
+        ":request",
+        ":transcript",
+        "//loom/src/loom/serve/runtime/execution",
+        "//loom/src/loom/serve/runtime/host",
+        "//loom/src/loom/serve/runtime/host:wake",
+        "//loom/src/loom/serve/runtime/parameter:residency",
+        "//runtime/src/iree/async",
+        "//runtime/src/iree/async/util:proactor_pool",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:unicode",
+        "//runtime/src/iree/base/threading",
+        "//runtime/src/iree/task",
+    ],
+)
+
+loom_cc_library(
     name = "request",
     hdrs = ["request.h"],
     deps = [
@@ -104,6 +137,46 @@ loom_cc_library(
         "//loom/src/loom/serve/runtime/parameter:residency",
         "//loom/src/loom/serve/testing:service_application",
         "//runtime/src/iree/base",
+        "//runtime/src/iree/base/tooling:flags",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/testing:gtest",
+    ],
+    alwayslink = True,
+)
+
+loom_cc_test(
+    name = "document_test",
+    srcs = ["document_test.cc"],
+    deps = [
+        ":document",
+        ":transcript",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
+    name = "source_service_tests",
+    testonly = True,
+    srcs = ["source_service_test.cc"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":document",
+        ":generator",
+        ":input",
+        ":model",
+        ":request",
+        ":service",
+        ":transcript",
+        "//loom/src/loom/serve/runtime/device",
+        "//loom/src/loom/serve/runtime/execution",
+        "//loom/src/loom/serve/runtime/host",
+        "//loom/src/loom/serve/runtime/parameter:residency",
+        "//loom/src/loom/serve/testing:maintenance_gate",
+        "//loom/src/loom/serve/testing:service_application",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/threading",
         "//runtime/src/iree/base/tooling:flags",
         "//runtime/src/iree/hal",
         "//runtime/src/iree/testing:gtest",

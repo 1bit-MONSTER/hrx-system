@@ -41,6 +41,49 @@ endif()
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
+    document
+  HDRS
+    "document.h"
+  SRCS
+    "document.c"
+  DEPS
+    ::transcript
+    iree::base
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_library(
+  NAME
+    service
+  HDRS
+    "service.h"
+  SRCS
+    "service.c"
+  DEPS
+    ::document
+    ::generator
+    ::input
+    ::request
+    ::transcript
+    iree::async
+    iree::async::util::proactor_pool
+    iree::base
+    iree::base::internal::unicode
+    iree::base::threading
+    iree::task
+    loom::serve::runtime::execution
+    loom::serve::runtime::host
+    loom::serve::runtime::host::wake
+    loom::serve::runtime::parameter::residency
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_library(
+  NAME
     request
   HDRS
     "request.h"
@@ -127,6 +170,54 @@ loom_cc_library(
     iree::testing::gtest
     loom::serve::runtime::execution
     loom::serve::runtime::parameter::residency
+    loom::serve::testing::service_application
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_test(
+  NAME
+    document_test
+  SRCS
+    "document_test.cc"
+  DEPS
+    ::document
+    ::transcript
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_library(
+  NAME
+    source_service_tests
+  SRCS
+    "source_service_test.cc"
+  DEPS
+    ::document
+    ::generator
+    ::input
+    ::model
+    ::request
+    ::service
+    ::transcript
+    iree::base
+    iree::base::threading
+    iree::base::tooling::flags
+    iree::hal
+    iree::testing::gtest
+    loom::serve::runtime::device
+    loom::serve::runtime::execution
+    loom::serve::runtime::host
+    loom::serve::runtime::parameter::residency
+    loom::serve::testing::maintenance_gate
     loom::serve::testing::service_application
   TESTONLY
   ALWAYSLINK
