@@ -674,6 +674,29 @@ TEST_F(SourceTextServiceTest, CancelledPreparationRetainsPartialOwnership) {
   EXPECT_EQ(after.retained.committed_bytes, before.retained.committed_bytes);
 }
 
+TEST_F(SourceTextServiceTest, TokenizerFailureRetiresCompiledModel) {
+  const auto before = loom_serve_device_memory_statistics(device_);
+  auto options = ModelOptions();
+  options.tokenizer_path = IREE_SV("absent-tokenizer.json");
+  loom_serve_text_model_t* model = nullptr;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_NOT_FOUND,
+                        loom_serve_text_model_allocate(
+                            device_, &options, host_allocator_, &model));
+  EXPECT_EQ(model, nullptr);
+  const auto after = loom_serve_device_memory_statistics(device_);
+  EXPECT_EQ(after.retained.reserved_bytes, before.retained.reserved_bytes);
+  EXPECT_EQ(after.retained.committed_bytes, before.retained.committed_bytes);
+
+  // The failed tokenizer belongs to one load, not the application task pool or
+  // another model's activation and execution timeline.
+  auto* row = loom_serve_text_model_row(model_, 0);
+  const int32_t token = Oracle::Id('a');
+  IREE_ASSERT_OK(loom_serve_text_row_prefill(row, 1, &token));
+  Oracle reference;
+  reference.Consume("a");
+  EXPECT_EQ(loom_serve_text_row_token(row), reference.Predict());
+}
+
 TEST_F(SourceTextServiceTest, FailedLinkRetiresAcceptedInitialization) {
   const auto package = iree::testing::MakeTempFilePath("failed_text_link");
   ASSERT_TRUE(std::filesystem::create_directory(package));

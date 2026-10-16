@@ -8,29 +8,21 @@
 
 #include <string.h>
 
-#include "iree/tokenizer/format/huggingface/tokenizer_json.h"
 #include "iree/tokenizer/vocab/vocab.h"
 #include "loom/serve/runtime/program/input.h"
 #include "loom/serve/runtime/program/json.h"
 #include "loom/serve/runtime/program/program.h"
 #include "loomc/iree.h"
 
-static iree_status_t loom_serve_text_load_tokenizer(
-    loom_serve_text_source_t* source, const loom_serve_sources_t* sources,
-    iree_string_view_t locator, iree_string_view_t terminal_marker) {
-  loomc_source_t* contents = NULL;
-  iree_status_t status = loom_serve_sources_open(
-      sources, locator, source->host_allocator, &contents);
-  if (iree_status_is_ok(status)) {
-    const loomc_byte_span_t bytes = loomc_source_contents(contents);
-    status = iree_tokenizer_from_huggingface_json(
-        iree_make_string_view((const char*)bytes.data, bytes.data_length),
-        source->host_allocator, &source->tokenizer);
-  }
-  loomc_source_release(contents);
-  IREE_RETURN_IF_ERROR(status);
+iree_status_t loom_serve_text_source_resolve_tokenizer(
+    loom_serve_text_source_t* source) {
+  iree_const_byte_span_t bytes;
+  IREE_RETURN_IF_ERROR(iree_vm_buffer_map_read(
+      source->terminal_marker, 0,
+      iree_vm_buffer_length(source->terminal_marker), &bytes));
   source->eos_token = iree_tokenizer_vocab_lookup(
-      iree_tokenizer_vocab(source->tokenizer), terminal_marker);
+      iree_tokenizer_vocab(source->tokenizer),
+      iree_make_string_view((const char*)bytes.data, bytes.data_length));
   if (source->eos_token < 0) {
     return iree_make_status(IREE_STATUS_NOT_FOUND,
                             "tokenizer has no source-declared terminal marker");
@@ -145,19 +137,13 @@ static iree_status_t loom_serve_text_prepare(
     status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                               "source control state must not be null");
   }
-  iree_vm_buffer_t* terminal = NULL;
-  iree_const_byte_span_t terminal_bytes = iree_const_byte_span_empty();
   if (iree_status_is_ok(status)) {
-    status = iree_vm_buffer_ptr_from_variant_borrowed(&source->vm_types,
-                                                      results[3], &terminal);
+    status = iree_vm_buffer_ptr_from_variant_move(
+        &source->vm_types, &results[3], &source->terminal_marker);
   }
-  if (iree_status_is_ok(status) && !terminal) {
+  if (iree_status_is_ok(status) && !source->terminal_marker) {
     status = iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                               "source terminal marker must not be null");
-  }
-  if (iree_status_is_ok(status)) {
-    status = iree_vm_buffer_map_read(
-        terminal, 0, iree_vm_buffer_length(terminal), &terminal_bytes);
   }
   if (iree_status_is_ok(status)) {
     status = loom_serve_text_storage_initialize(
@@ -180,12 +166,6 @@ static iree_status_t loom_serve_text_prepare(
           IREE_STATUS_INVALID_ARGUMENT,
           "source storage lacks configured checkpoint headroom");
     }
-  }
-  if (iree_status_is_ok(status)) {
-    status = loom_serve_text_load_tokenizer(
-        source, &options->sources, options->tokenizer_path,
-        iree_make_string_view((const char*)terminal_bytes.data,
-                              terminal_bytes.data_length));
   }
   iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
   iree_vm_variant_span_reset(iree_vm_variant_span_from_array(arguments));
@@ -237,5 +217,6 @@ void loom_serve_text_source_deinitialize(loom_serve_text_source_t* source) {
   iree_vm_buffer_release(source->control_state);
   iree_vm_buffer_release(source->options);
   iree_tokenizer_free(source->tokenizer);
+  iree_vm_buffer_release(source->terminal_marker);
   iree_vm_environment_free(source->environment);
 }

@@ -45,6 +45,8 @@ typedef struct loom_serve_text_source_t {
   iree_vm_buffer_t* options;
   // Owned parsed vocabulary reused across requests and tokenizer borrowers.
   iree_tokenizer_t* tokenizer;
+  // Source terminal marker retained until independent tokenizer construction.
+  iree_vm_buffer_t* terminal_marker;
   // Source terminal marker resolved once against the tokenizer.
   int32_t eos_token;
   // Effective prefill capacity selected by source preparation.
@@ -64,6 +66,11 @@ iree_status_t loom_serve_text_source_initialize(
     const loom_serve_text_options_t* options, iree_allocator_t host_allocator,
     loom_serve_text_source_t* out_source,
     loom_serve_text_storage_t* out_storage);
+
+// Resolves source terminal semantics after the model owner joins tokenizer
+// construction and transfers the tokenizer into source. No device work occurs.
+iree_status_t loom_serve_text_source_resolve_tokenizer(
+    loom_serve_text_source_t* source);
 
 // Releases partial or complete construction after all native model/program
 // consumers have retired. Storage returned by initialize has its own owner.

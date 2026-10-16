@@ -301,6 +301,41 @@ loom_cc_library(
   PUBLIC
 )
 
+loom_cc_library(
+  NAME
+    tokenizer_load
+  HDRS
+    "tokenizer_load.h"
+  SRCS
+    "tokenizer_load.c"
+  DEPS
+    ::sources
+    iree::base
+    iree::base::threading
+    iree::tokenizer
+    iree::tokenizer::format::huggingface::tokenizer_json
+    loom::binding::c::loomc
+  PUBLIC
+)
+
+loom_cc_test(
+  NAME
+    tokenizer_load_test
+  SRCS
+    "tokenizer_load_test.cc"
+  DEPS
+    ::package
+    ::tokenizer_load
+    iree::base
+    iree::base::threading
+    iree::testing::gtest
+    iree::testing::gtest_main
+    iree::tokenizer
+    iree::tokenizer::vocab
+    loom::binding::c::loomc
+    loom::serve::runtime::host
+)
+
 loom_cc_test(
   NAME
     json_test
