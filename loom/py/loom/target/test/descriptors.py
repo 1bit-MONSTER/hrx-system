@@ -2442,7 +2442,7 @@ TEST_LOW_CORE_DESCRIPTOR_SET = DescriptorSet(
     register_packing_resources=(
         RegisterPackingResource(
             name="test.pair_slots",
-            capacity=2,
+            capacity_register_class=_REG_PACKED_NARROW,
             members=(
                 RegisterPackingResourceMember(_REG_PACKED_NARROW),
                 RegisterPackingResourceMember(

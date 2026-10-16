@@ -768,7 +768,7 @@ def _register_packing_resources() -> tuple[RegisterPackingResource, ...]:
     return (
         RegisterPackingResource(
             name=f"{descriptor_specs._TARGET_KEY}.register.x.pairs",
-            capacity=x_register_count,
+            capacity_register_class=_low_register_class_name("VEC256"),
             # EX/EY BFP operands own the same W halves as X/Y vectors, plus
             # exponent storage. Intersection retains their shared footprint.
             members=_register_packing_members(
@@ -777,7 +777,7 @@ def _register_packing_resources() -> tuple[RegisterPackingResource, ...]:
         ),
         RegisterPackingResource(
             name=f"{descriptor_specs._TARGET_KEY}.register.scalar.units",
-            capacity=len(scalar_atomic_units),
+            capacity_register_class=_low_register_class_name("eR"),
             members=_register_packing_members(
                 scalar_atomic_units, resource_unit_atom_count=1
             ),

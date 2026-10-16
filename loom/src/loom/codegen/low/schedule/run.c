@@ -25,6 +25,7 @@
 #include "loom/codegen/low/schedule/scopes.h"
 #include "loom/codegen/low/schedule/source_suffix.h"
 #include "loom/codegen/low/schedule/storage_lifetime.h"
+#include "loom/codegen/low/schedule/target_pressure.h"
 #include "loom/codegen/low/storage_relation.h"
 #include "loom/ops/low/ops.h"
 #include "loom/ops/op_defs.h"
@@ -454,6 +455,9 @@ static iree_status_t loom_low_schedule_initialize_pressure_limits(
           schedulable_unit_capacity);
     }
   }
+
+  IREE_RETURN_IF_ERROR(
+      loom_low_schedule_target_pressure_initialize_packing_resources(state));
 
   if (state->options->strategy != LOOM_LOW_SCHEDULE_STRATEGY_RESOURCE_STALL) {
     return iree_ok_status();
@@ -1330,7 +1334,7 @@ static iree_status_t loom_low_schedule_run_list_scheduler(
                unspillable_entry_count *
                    sizeof(*state->node_unspillable_activation_units));
       }
-      if (state->target.descriptor_set->register_packing_resource_count != 0) {
+      if (state->pressure_limits.active_register_packing_resource_count != 0) {
         iree_host_size_t packing_entry_count = 0;
         if (!iree_host_size_checked_mul(
                 node_count,

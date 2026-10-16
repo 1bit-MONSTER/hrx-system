@@ -765,6 +765,13 @@ typedef struct loom_low_register_packing_resource_t {
   uint16_t member_count;
 } loom_low_register_packing_resource_t;
 
+enum loom_low_register_packing_resource_member_flag_bits_e {
+  // This member's candidate domain spans the resource's complete physical
+  // capacity and projects function-local allocation constraints onto it.
+  LOOM_LOW_REGISTER_PACKING_RESOURCE_MEMBER_FLAG_CAPACITY_SOURCE = 1u << 0,
+};
+typedef uint16_t loom_low_register_packing_resource_member_flags_t;
+
 // One register-class contribution to a shared packing resource.
 typedef struct loom_low_register_packing_resource_member_t {
   // Descriptor-set register class contributing pressure.
@@ -773,8 +780,8 @@ typedef struct loom_low_register_packing_resource_member_t {
   uint16_t register_unit_count;
   // Packing-resource units consumed by one contribution group.
   uint16_t resource_unit_count;
-  // Reserved; must be zero.
-  uint16_t reserved;
+  // Immutable member properties derived during descriptor generation.
+  loom_low_register_packing_resource_member_flags_t flags;
 } loom_low_register_packing_resource_member_t;
 
 // Returns the first ABI-fixed location, or zero for explicit storage.

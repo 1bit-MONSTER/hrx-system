@@ -486,6 +486,11 @@ void loom_low_schedule_pressure_compute_node_priorities(
                                (iree_host_size_t)node_index * resource_count;
       for (uint16_t resource_id = 0; resource_id < resource_count;
            ++resource_id) {
+        if (loom_low_schedule_register_packing_resource_capacity(
+                state, resource_id) == UINT32_MAX) {
+          result_units[resource_id] = 0;
+          continue;
+        }
         result_units[resource_id] =
             loom_low_schedule_compute_register_packing_result_units(
                 state, node,
@@ -695,6 +700,10 @@ void loom_low_schedule_pressure_compute_node_priorities(
                                  LOOM_LOW_SCHEDULE_VALUE_FLAG_FORWARDED);
             for (uint16_t resource_id = 0; resource_id < resource_count;
                  ++resource_id) {
+              if (loom_low_schedule_register_packing_resource_capacity(
+                      state, resource_id) == UINT32_MAX) {
+                continue;
+              }
               const loom_low_register_packing_resource_t* resource =
                   &state->target.descriptor_set
                        ->register_packing_resources[resource_id];

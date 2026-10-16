@@ -194,7 +194,7 @@ void loom_low_schedule_storage_lifetimes_set_forwarded_values(
   if (block->node_count == 0 ||
       !loom_low_schedule_strategy_uses_pressure(state->options->strategy) ||
       (state->pressure_limits.unspillable_completion_domain_count == 0 &&
-       state->target.descriptor_set->register_packing_resource_count == 0)) {
+       state->pressure_limits.active_register_packing_resource_count == 0)) {
     return;
   }
   const loom_low_schedule_value_flags_t forwarding_flags =

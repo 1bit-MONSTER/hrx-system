@@ -135,6 +135,10 @@ class RegisterPackingResourceFlag(CEnum):
     )
 
 
+class RegisterPackingResourceMemberFlag(CEnum):
+    CAPACITY_SOURCE = "LOOM_LOW_REGISTER_PACKING_RESOURCE_MEMBER_FLAG_CAPACITY_SOURCE"
+
+
 class ImmediateKind(CEnum):
     SIGNED = "LOOM_LOW_IMMEDIATE_KIND_SIGNED"
     UNSIGNED = "LOOM_LOW_IMMEDIATE_KIND_UNSIGNED"
@@ -431,8 +435,11 @@ class RegisterPackingResourceMember:
 class RegisterPackingResource:
     """Instantaneous shared physical capacity used during Low scheduling."""
 
+    # Stable diagnostic name for the shared physical resource.
     name: str
-    capacity: int
+    # Member whose candidate domain spans the resource's complete capacity.
+    capacity_register_class: str
+    # Register-class views that consume the shared physical resource.
     members: tuple[RegisterPackingResourceMember, ...]
 
 

@@ -366,6 +366,11 @@ typedef struct loom_low_schedule_build_state_t {
     uint16_t* unspillable_completion_domain_ids_by_reg_class;
     // Number of bounded-unspillable completion domains.
     uint16_t unspillable_completion_domain_count;
+    // Effective capacities indexed by descriptor packing-resource ID.
+    // UINT32_MAX marks a resource duplicating direct register pressure.
+    uint32_t* register_packing_resource_capacities;
+    // Number of packing resources carrying an independent pressure signal.
+    uint16_t active_register_packing_resource_count;
   } pressure_limits;
   // Resolved allocation limits shared by pressure-domain construction.
   const loom_low_allocation_target_constraints_t* allocation_constraints;

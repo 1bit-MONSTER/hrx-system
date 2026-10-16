@@ -68,6 +68,7 @@ from loom.target.low_descriptors import (
     RegisterPackingResource,
     RegisterPackingResourceFlag,
     RegisterPackingResourceMember,
+    RegisterPackingResourceMemberFlag,
     StorageLease,
     StorageLeaseAttachment,
     StorageLeaseFlag,
@@ -741,7 +742,8 @@ def test_compiler_emits_register_packing_resources() -> None:
     assert len(compiled.register_packing_resources) == 1
     resource = compiled.register_packing_resources[0]
     assert resource.source.name == "test.pair_slots"
-    assert resource.source.capacity == 2
+    assert resource.source.capacity_register_class == "test.packed.narrow"
+    assert resource.capacity == 2
     assert resource.member_start == 0
     assert resource.member_count == 2
     assert resource.flags == (
@@ -750,6 +752,10 @@ def test_compiler_emits_register_packing_resources() -> None:
     )
     assert [compiled.reg_classes[member.reg_class_id].name for member in compiled.register_packing_resource_members] == ["test.packed.narrow", "test.packed.wide"]
     assert [(member.register_unit_count, member.resource_unit_count) for member in compiled.register_packing_resource_members] == [(1, 1), (2, 1)]
+    assert [member.flags for member in compiled.register_packing_resource_members] == [
+        (RegisterPackingResourceMemberFlag.CAPACITY_SOURCE,),
+        (),
+    ]
 
     generated = generate_descriptor_set(TEST_LOW_CORE_DESCRIPTOR_SET)
     assert "kTestLowCoreRegisterPackingResources" in generated.source
@@ -762,7 +768,11 @@ def test_compiler_emits_register_packing_resources() -> None:
 def test_compiler_derives_register_packing_flags(spillable_members: tuple[str, ...], member_names: tuple[str, ...]) -> None:
     source = replace(TEST_LOW_CORE_DESCRIPTOR_SET, descriptors=(TEST_LOW_ADD_I32_DESCRIPTOR,))
     resource = source.register_packing_resources[0]
-    resource = replace(resource, members=tuple(member for member in resource.members if member.register_class in member_names))
+    resource = replace(
+        resource,
+        capacity_register_class=member_names[0],
+        members=tuple(member for member in resource.members if member.register_class in member_names),
+    )
     source = replace(
         source,
         reg_classes=tuple(
@@ -783,33 +793,44 @@ def test_compiler_derives_register_packing_flags(spillable_members: tuple[str, .
 
 def test_compiler_rejects_invalid_register_packing_resources() -> None:
     resource = TEST_LOW_CORE_DESCRIPTOR_SET.register_packing_resources[0]
-    with pytest.raises(
-        ValueError,
-        match=re.escape("descriptor set 'test.low.core' register packing resource 'test.pair_slots' has zero capacity"),
-    ):
-        compiler.compile_descriptor_set(
+    invalid_resources = (
+        (
+            replace(resource, capacity_register_class="test.missing"),
+            "capacity class 'test.missing' is unknown",
+        ),
+        (
             replace(
-                TEST_LOW_CORE_DESCRIPTOR_SET,
-                register_packing_resources=(replace(resource, capacity=0),),
-            )
-        )
-
-    with pytest.raises(
-        ValueError,
-        match=re.escape("descriptor set 'test.low.core' register packing resource 'test.pair_slots' member 'test.i32' references a non-physical register class"),
-    ):
-        compiler.compile_descriptor_set(
+                resource,
+                capacity_register_class="test.packed.wide",
+                members=(resource.members[0],),
+            ),
+            "capacity class 'test.packed.wide' is not a member",
+        ),
+        (
             replace(
-                TEST_LOW_CORE_DESCRIPTOR_SET,
-                register_packing_resources=(
-                    RegisterPackingResource(
-                        name=resource.name,
-                        capacity=resource.capacity,
-                        members=(RegisterPackingResourceMember("test.i32"),),
-                    ),
-                ),
+                resource,
+                capacity_register_class="test.packed.wide",
+                members=(replace(resource.members[1], register_unit_count=3),),
+            ),
+            "capacity class 'test.packed.wide' has 4 units, which is not divisible by its 3-unit contribution group",
+        ),
+        (
+            RegisterPackingResource(
+                name=resource.name,
+                capacity_register_class="test.i32",
+                members=(RegisterPackingResourceMember("test.i32"),),
+            ),
+            "member 'test.i32' references a non-physical register class",
+        ),
+    )
+    for invalid_resource, message in invalid_resources:
+        with pytest.raises(ValueError, match=re.escape(message)):
+            compiler.compile_descriptor_set(
+                replace(
+                    TEST_LOW_CORE_DESCRIPTOR_SET,
+                    register_packing_resources=(invalid_resource,),
+                )
             )
-        )
 
 
 def test_compiler_rejects_unknown_explicit_physical_register() -> None:
