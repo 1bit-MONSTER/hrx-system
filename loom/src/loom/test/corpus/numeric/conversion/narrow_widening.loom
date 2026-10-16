@@ -92,6 +92,21 @@ func.def @widen_bfloat_to_f64(%word_bits: buffer, %output: buffer) {
   func.return
 }
 
+func.def @widen_float16_to_f64(%word_bits: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 65536 : index
+  %step = index.constant 8 : index
+  %source = buffer.view %word_bits[%base] : buffer -> view<65536xf16>
+  %destination = buffer.view %output[%base] : buffer -> view<65536xf64>
+  scf.for %i = [%begin to %end step %step] {
+    %value = vector.load %source[%i] : view<65536xf16> -> vector<8xf16>
+    %wide = vector.extf %value : vector<8xf16> to vector<8xf64>
+    vector.store %wide, %destination[%i] : vector<8xf64>, view<65536xf64>
+  }
+  func.return
+}
+
 // Each output interval exercises a distinct conversion packet width. The VM
 // evaluates the same runtime inputs independently of native packet selection.
 func.def @widen_f32_packets(%input: buffer, %output: buffer) {
@@ -261,6 +276,29 @@ check.scenario @bfloat_to_f64_all_bits {
     %prefix = check.tensor.view %storage offset(0) : tensor<65538xf64> -> tensor<1xf64>
     %suffix = check.tensor.view %storage offset(524296) : tensor<65538xf64> -> tensor<1xf64>
     check.compare<@widen_bfloat_to_f64>(%bits, %output) : (tensor<65536xi16>, tensor<65536xf64>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<65536xf64>
+      check.expect.bitwise actual(%negative_zero) expected(%negative_zero) : tensor<1xf64>
+      check.expect.bitwise actual(%positive_zero) expected(%positive_zero) : tensor<1xf64>
+      check.expect.bitwise actual(%bits) expected(%expected_bits) : tensor<65536xi16>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<1xf64>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<1xf64>
+    }
+  }
+  check.return
+}
+
+check.scenario @float16_to_f64_all_bits {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %bits = check.generate.iota offset(-32768) step(1) : tensor<65536xi16>
+    %expected_bits = check.generate.iota offset(-32768) step(1) : tensor<65536xi16>
+    %storage = check.generate.fill value(-123.5) : tensor<65538xf64>
+    %output = check.tensor.view %storage offset(8) : tensor<65538xf64> -> tensor<65536xf64>
+    %negative_zero = check.tensor.view %output offset(0) : tensor<65536xf64> -> tensor<1xf64>
+    %positive_zero = check.tensor.view %output offset(262144) : tensor<65536xf64> -> tensor<1xf64>
+    %guard = check.generate.fill value(-123.5) : tensor<1xf64>
+    %prefix = check.tensor.view %storage offset(0) : tensor<65538xf64> -> tensor<1xf64>
+    %suffix = check.tensor.view %storage offset(524296) : tensor<65538xf64> -> tensor<1xf64>
+    check.compare<@widen_float16_to_f64>(%bits, %output) : (tensor<65536xi16>, tensor<65536xf64>) -> () {
       check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<65536xf64>
       check.expect.bitwise actual(%negative_zero) expected(%negative_zero) : tensor<1xf64>
       check.expect.bitwise actual(%positive_zero) expected(%positive_zero) : tensor<1xf64>

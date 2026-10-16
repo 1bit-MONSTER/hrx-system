@@ -8,14 +8,53 @@
 
 from loom.target.arch.x86.vector_encoding import (
     VectorEncoding,
+    VectorEncodingBehavior,
     VectorEncodingPrefix,
+    VectorImmediateShape,
     VectorMachineInstruction,
     VectorOpcodeMap,
     VectorOperandShape,
     VectorRegisterSelector,
     vector_encoding_recipe,
 )
-from loom.target.low_descriptors import OperandRole
+from loom.target.low_descriptors import ImmediateKind, OperandRole
+
+
+def half_conversion_instruction(*, narrow: bool) -> VectorMachineInstruction:
+    mnemonic = "vcvtps2ph" if narrow else "vcvtph2ps"
+    return VectorMachineInstruction(
+        descriptor_mnemonic=mnemonic,
+        encoding_mnemonic=mnemonic,
+        encoding_format_id=vector_encoding_recipe(
+            VectorRegisterSelector.INPUT_0 if narrow else VectorRegisterSelector.RESULT,
+            VectorRegisterSelector.NONE,
+            VectorRegisterSelector.RESULT if narrow else VectorRegisterSelector.INPUT_0,
+            VectorEncodingBehavior.IMMEDIATE
+            if narrow
+            else VectorEncodingBehavior.REGISTERS,
+        ),
+        operands=(
+            VectorOperandShape(OperandRole.RESULT, ("x86.simd",)),
+            VectorOperandShape(OperandRole.OPERAND, ("x86.simd",)),
+        ),
+        immediates=(VectorImmediateShape(ImmediateKind.UNSIGNED, 8),) if narrow else (),
+        encodings=tuple(
+            VectorEncoding(
+                prefix=prefix,
+                opcode_map=VectorOpcodeMap.MAP_0F3A
+                if narrow
+                else VectorOpcodeMap.MAP_0F38,
+                mandatory_prefix=1,
+                w=0,
+                opcode=0x1D if narrow else 0x13,
+                vector_bit_widths=widths,
+            )
+            for prefix, widths in (
+                (VectorEncodingPrefix.VEX, (128, 256)),
+                (VectorEncodingPrefix.EVEX, (128, 256, 512)),
+            )
+        ),
+    )
 
 
 def float_widening_instruction(*, scalar: bool) -> VectorMachineInstruction:

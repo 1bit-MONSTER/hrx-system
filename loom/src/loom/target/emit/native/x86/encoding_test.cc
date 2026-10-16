@@ -148,6 +148,36 @@ TEST(EncodingTest, ScalarAndPackedFloatWidening) {
                        {0x62, 0xa1, 0x7c, 0x48, 0x5a, 0xca});
 }
 
+TEST(EncodingTest, LegacyHalfConversions) {
+  // Independent LLVM assembler bytes cover both directions, every width, and
+  // EVEX high registers. Narrowing reverses the ModRM source/result fields.
+  loom_x86_encoding_operands_t operands = {.result = 1};
+  operands.inputs[0] = 2;
+  operands.immediate = 0;
+  ExpectVectorEncoding(0x8140, 0x0613, operands,
+                       {0xc4, 0xe2, 0x79, 0x13, 0xca});
+  ExpectVectorEncoding(0x8140, 0x4613, operands,
+                       {0xc4, 0xe2, 0x7d, 0x13, 0xca});
+  ExpectVectorEncoding(0x9041, 0x071d, operands,
+                       {0xc4, 0xe3, 0x79, 0x1d, 0xd1, 0x00});
+  ExpectVectorEncoding(0x9041, 0x471d, operands,
+                       {0xc4, 0xe3, 0x7d, 0x1d, 0xd1, 0x00});
+  operands.result = 17;
+  operands.inputs[0] = 18;
+  ExpectVectorEncoding(0x8140, 0x2613, operands,
+                       {0x62, 0xa2, 0x7d, 0x08, 0x13, 0xca});
+  ExpectVectorEncoding(0x8140, 0x6613, operands,
+                       {0x62, 0xa2, 0x7d, 0x28, 0x13, 0xca});
+  ExpectVectorEncoding(0x8140, 0xa613, operands,
+                       {0x62, 0xa2, 0x7d, 0x48, 0x13, 0xca});
+  ExpectVectorEncoding(0x9041, 0x271d, operands,
+                       {0x62, 0xa3, 0x7d, 0x08, 0x1d, 0xd1, 0x00});
+  ExpectVectorEncoding(0x9041, 0x671d, operands,
+                       {0x62, 0xa3, 0x7d, 0x28, 0x1d, 0xd1, 0x00});
+  ExpectVectorEncoding(0x9041, 0xa71d, operands,
+                       {0x62, 0xa3, 0x7d, 0x48, 0x1d, 0xd1, 0x00});
+}
+
 TEST(EncodingTest, PackedLowInterleaveWidths) {
   // LLVM's assembler distinguishes byte unpack (60) from word unpack (61).
   loom_x86_encoding_operands_t operands = {.result = 1, .inputs = {2, 3}};

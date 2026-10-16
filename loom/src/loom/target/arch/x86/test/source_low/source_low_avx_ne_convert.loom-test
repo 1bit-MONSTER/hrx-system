@@ -109,8 +109,8 @@ x86.target<avx2> @target {contract_feature_bits = 0, contract_set_key = "x86.avx
 func.def target(@target) @broadcast_f16x4_without_feature(%input: buffer) -> (vector<4xf32>) {
   %base = index.constant 0 : offset
   %source = buffer.view %input[%base] : buffer -> view<1xf16>
-  // ERROR@+1: TARGET/046 {function_name="broadcast_f16x4_without_feature", opcode="x86.avx_ne_convert.vbcstnesh2ps.load.xmm", descriptor_set_key="x86.avx2_features.core", feature_word_index="0", missing_feature_bits="256"}
   %narrow = view.load %source[0] : view<1xf16> -> f16
+  // ERROR@+1: TARGET/046 {function_name="broadcast_f16x4_without_feature", opcode="x86.f16c.vcvtph2ps.xmm.xmm", descriptor_set_key="x86.avx2_features.core", feature_word_index="0", missing_feature_bits="512"}
   %wide = scalar.extf %narrow : f16 to f32
   %result = vector.splat %wide : vector<4xf32>
   func.return %result : vector<4xf32>

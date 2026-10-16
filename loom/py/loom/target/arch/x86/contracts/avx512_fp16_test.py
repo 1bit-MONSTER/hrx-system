@@ -19,6 +19,7 @@ from loom.target.arch.x86.descriptors import (
     X86_AVX512_FEATURES_DESCRIPTOR_SET,
     X86_AVX512_FP16_DESCRIPTOR_SET,
 )
+from loom.target.arch.x86.feature_bits import FEATURE_AVX512_FP16
 from loom.target.arch.x86.vector_families import (
     AVX2_PACKED_FLOAT_REDUCTION_OPERATIONS,
     AVX512_FP16_FLOAT_BINARY_FAMILIES,
@@ -159,6 +160,22 @@ def test_fragment_compiles_every_authored_rule() -> None:
         dialect_ops=X86_AVX512_FP16_CONTRACT_DIALECT_OPS,
     )
     assert len(compiled.rules) == len(X86_AVX512_FP16_CONTRACT_FRAGMENT.cases)
+
+
+def test_base_transport_and_alias_rules_require_the_fp16_representation() -> None:
+    for case in X86_AVX512_FP16_CONTRACT_FRAGMENT.cases:
+        descriptors = [
+            guard.descriptor
+            for guard in case.guards
+            if guard.kind is GuardKind.DESCRIPTOR_AVAILABLE
+        ]
+        if isinstance(case, DescriptorRule) and case.descriptor is not None:
+            descriptors.append(case.descriptor)
+        assert any(
+            descriptor.feature_mask_words
+            and descriptor.feature_mask_words[0] & FEATURE_AVX512_FP16
+            for descriptor in descriptors
+        ), case
 
 
 def test_scalar_arithmetic_covers_the_native_fp16_family() -> None:

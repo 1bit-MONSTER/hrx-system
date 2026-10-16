@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 
 from loom.dialect.scalar import ALL_SCALAR_OPS
 from loom.dialect.scalar import arithmetic as scalar_arithmetic
@@ -62,6 +63,7 @@ from loom.target.arch.x86.contracts.vector_construction import (
     avx512_fp16_vector_construction_rules,
 )
 from loom.target.arch.x86.descriptors import X86_AVX512_FEATURES_DESCRIPTOR_SET
+from loom.target.arch.x86.feature_bits import FEATURE_AVX512_FP16
 from loom.target.arch.x86.vector_families import (
     AVX512_FP16_FLOAT_BINARY_FAMILIES,
     AVX512_FP16_FLOAT_FMA_MNEMONIC,
@@ -316,13 +318,28 @@ def _transport_rules() -> tuple[DescriptorRule, ...]:
 
 
 def _cases() -> Sequence[ContractCase]:
-    return (
+    cases = (
         *_scalar_rules(),
         *_vector_rules(),
         *avx512_fp16_float_extrema_rules(_descriptor),
         *avx512_fp16_float_reduction_rules(_descriptor),
         *avx512_fp16_float_dot_rules(_descriptor),
         *_transport_rules(),
+    )
+    # Transport and bit operations use base instructions, but their XMM half
+    # representation belongs to this feature. Native FP16 rows already carry
+    # the feature requirement on their primary descriptor.
+    native_half = _descriptor("x86.avx512_fp16.vcvtsh2ss.xmm")
+    return tuple(
+        case
+        if isinstance(case, DescriptorRule)
+        and case.descriptor is not None
+        and case.descriptor.feature_mask_words
+        and case.descriptor.feature_mask_words[0] & FEATURE_AVX512_FP16
+        else replace(
+            case, guards=(*case.guards, Guard.descriptor_available(native_half))
+        )
+        for case in cases
     )
 
 

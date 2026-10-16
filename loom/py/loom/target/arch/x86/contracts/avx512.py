@@ -27,6 +27,7 @@ from loom.target.arch.x86.contracts.floating_reduction import (
     avx512_float_dot_rules,
     avx512_float_reduction_rules,
 )
+from loom.target.arch.x86.contracts.half_conversion import half_conversion_rules
 from loom.target.arch.x86.contracts.integer_float import avx512_integer_float_rules
 from loom.target.arch.x86.contracts.integer_reduction import (
     avx512_integer_reduction_rules,
@@ -93,6 +94,7 @@ def _cases() -> Sequence[ContractCase]:
     return (
         *avx512_integer_float_rules(_descriptor),
         *float_widening_rules(_descriptor, evex=True),
+        *half_conversion_rules(_descriptor, evex=True),
         *avx512_vector_construction_rules(_descriptor),
         *vector_integer_widening_rules(
             _descriptor,
