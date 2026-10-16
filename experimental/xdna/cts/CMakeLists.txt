@@ -48,6 +48,7 @@ loom_kernel_binary(
     "@reordered_retirement"
     "@rotating_retirement"
     "@reuse_dma_descriptors"
+    "@reuse_dma_completions"
   TESTONLY
 )
 endif()
@@ -73,6 +74,7 @@ loom_kernel_binary(
     "@reordered_retirement"
     "@rotating_retirement"
     "@reuse_dma_descriptors"
+    "@reuse_dma_completions"
   TESTONLY
 )
 endif()

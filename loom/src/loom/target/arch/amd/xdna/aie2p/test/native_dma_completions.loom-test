@@ -1,0 +1,280 @@
+// RUN: emit source-low output=low
+
+// A one-word arrival retires before a two-word arrival takes its completion
+// semaphore. Another one-word copy then matches the retired descriptor's
+// geometry, but cannot reuse that pair while its shared semaphore is busy.
+// The two live copies need independent credits, consumed by their group wait.
+// Dense and strided external layouts share the same retired local descriptor;
+// the later one-word arrival shares only the first arrival's shim descriptor.
+aie2p.target<array> @device {device_profile = "amd.xdna.strix.17f0_10"}
+
+pipeline.def<kernel> public retain target(@device) @mixed_arrivals() run(%input_arg: buffer, %output_arg: buffer) {
+  %input, %output = buffer.assume.alignment %input_arg, %output_arg {minimum_alignment = 4} : buffer, buffer
+  %memory = pipeline.memory<workgroup>[0, 3] : pool
+  %origin = index.constant 0 : offset
+  %next_word = index.constant 4 : offset
+  %bytes = index.constant 12 : offset
+  %capacity = index.constant 1 : index
+  %storage = buffer.alloca<workgroup> pool(%memory) align(4) %bytes : buffer
+  %slots = buffer.view %storage[%origin] : buffer -> view<1x3xi32>
+  %records = channel.bind<fifo> %slots, %capacity : view<1x3xi32>, index -> channel<tile<3xi32>>
+  pipeline.strand workers([0, 3], [1, 1], [1, 1]) {
+    %write, %destination = channel.reserve %records : channel<tile<3xi32>> -> (write<tile<3xi32>>, view<3xi32>)
+    %first_word = view.subview %destination[0] : view<3xi32> -> view<1xi32>
+    %last_pair = view.subview %destination[1] : view<3xi32> -> view<2xi32>
+    %initial_input = buffer.view %input[%origin] : buffer -> view<1xi32>
+    %initial = kernel.async.copy %initial_input to %first_word {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<1xi32> to view<1xi32> -> kernel.async.token
+    %initial_group = kernel.async.group %initial : kernel.async.token -> kernel.async.group
+    kernel.async.wait %initial_group {newer_groups = 0} : kernel.async.group
+    %saved = view.load %first_word[0] : view<1xi32> -> i32
+    %pair_input = buffer.view %input[%origin] : buffer -> view<2xi32>
+    %word_input = buffer.view %input[%next_word] : buffer -> view<1xi32>
+    %strided_input = buffer.view %input[%origin] : buffer -> view<2xi32, #encoding.layout.strided<strides=[2]>>
+    %strided = kernel.async.copy %strided_input to %last_pair {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<2xi32, #encoding.layout.strided<strides=[2]>> to view<2xi32> -> kernel.async.token
+    %strided_group = kernel.async.group %strided : kernel.async.token -> kernel.async.group
+    kernel.async.wait %strided_group {newer_groups = 0} : kernel.async.group
+    %saved_pair = view.load %last_pair[1] : view<2xi32> -> i32
+    %pair = kernel.async.copy %pair_input to %last_pair {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<2xi32> to view<2xi32> -> kernel.async.token
+    %word = kernel.async.copy %word_input to %first_word {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<1xi32> to view<1xi32> -> kernel.async.token
+    %incoming = kernel.async.group %pair, %word : kernel.async.token, kernel.async.token -> kernel.async.group
+    kernel.async.wait %incoming {newer_groups = 0} : kernel.async.group
+    %value = view.load %first_word[0] : view<1xi32> -> i32
+    %partial_sum = scalar.addi %saved, %value : i32
+    %sum = scalar.addi %partial_sum, %saved_pair : i32
+    view.store %sum, %first_word[0] : i32, view<1xi32>
+    channel.publish %write : write<tile<3xi32>>
+    %read, %source = channel.acquire %records : channel<tile<3xi32>> -> (read<tile<3xi32>>, view<3xi32>)
+    %output_view = buffer.view %output[%origin] : buffer -> view<3xi32>
+    %outgoing = kernel.async.copy %source to %output_view {cache_scope = workgroup, cache_temporal = regular, direction = workgroup_to_global} : view<3xi32> to view<3xi32> -> kernel.async.token
+    %outgoing_group = kernel.async.group %outgoing : kernel.async.token -> kernel.async.group
+    kernel.async.wait %outgoing_group {newer_groups = 0} : kernel.async.group
+    channel.release %read : read<tile<3xi32>>
+  }
+}
+
+// ----
+low.func.def inline target<amd.xdna.aie2p.core> @__pipeline_worker_0() asm {
+  %last_pair = mov.local-address 458752
+  %139 = mov.short -1
+  acq %139, 48
+  %234 = mov.short 0
+  %77 = mov.local-address 458768
+  %78 = lda %77, 0
+  %79 = lda %77, 4
+  %80 = add.rr %78, %234
+  %81 = ltu %80, %78
+  %82 = add.rr %79, %81
+  %83 = mov.short 1
+  %84 = mov.i32 -2146316284
+  mov.ms %83
+  mov.ms %84
+  mov.ms %80
+  mov.ms.last %82
+  %87 = mov.i32 -2147483648
+  %88 = mov.i32 -2147361276
+  mov.ms %87
+  mov.ms %88
+  mov.ms.last %234
+  %90 = mov.i32 119316
+  mov.ms %83
+  mov.ms %90
+  mov.ms.last %234
+  acq %139, 51
+  %saved = lda %last_pair, 0
+  mov.ms %87
+  mov.ms %88
+  mov.ms.last %83
+  mov.ms %83
+  mov.ms %90
+  mov.ms.last %83
+  acq %139, 51
+  %saved_pair = lda %last_pair, 8
+  %104 = mov.short 2
+  mov.ms %87
+  mov.ms %88
+  mov.ms.last %83
+  mov.ms %83
+  mov.ms %90
+  mov.ms.last %104
+  %237 = mov.short 4
+  %111 = mov.local-address 458776
+  %112 = lda %111, 0
+  %113 = lda %111, 4
+  %114 = add.rr %112, %237
+  %115 = ltu %114, %112
+  %116 = add.rr %113, %115
+  mov.ms %83
+  mov.ms %84
+  mov.ms %114
+  mov.ms.last %116
+  mov.ms %87
+  mov.ms %88
+  mov.ms.last %104
+  mov.ms %83
+  mov.ms %90
+  mov.ms.last %234
+  acq %139, 51
+  acq %139, 52
+  %value = lda %last_pair, 0
+  %partial_sum = add.rr %saved, %value
+  %sum = add.rr %partial_sum, %saved_pair
+  st %sum, %last_pair, 0
+  rel %83, 49
+  acq %139, 49
+  %130 = mov.short 3
+  %131 = mov.i32 -2147483645
+  %133 = mov.i32 -2147364348
+  mov.ms %83
+  mov.ms %133
+  mov.ms.last %131
+  %135 = mov.i32 122388
+  mov.ms %87
+  mov.ms %135
+  mov.ms.last %130
+  %136 = mov.ss
+  rel %83, 48
+  rel %83, 50
+  low.br ^_bb1
+^_bb1:
+  %75 = mov.ss
+  low.br ^_bb1
+}
+
+low.func.def target<amd.xdna.aie2p.configuration>(@__aie2p_worker_helper_16) @__aie2p_worker_helper_17() asm {
+  %149 = constant 3350528 : reg<aie2p.config.scalar : i64>
+  %150 = constant 3 : reg<aie2p.config.scalar : i64>
+  %151 = constant 2 : reg<aie2p.config.scalar : i64>
+  write.mask32 %149, %150, %151
+  %152 = constant 0 : reg<aie2p.config.scalar : i64>
+  program.load %152, %150, @__pipeline_worker_0
+  %153 = constant 32 : reg<aie2p.config.scalar : i64>
+  data.reserve %152, %150, %152, %153
+  %154 = constant 258048 : reg<aie2p.config.scalar : i64>
+  %155 = constant 3221225480 : reg<aie2p.config.scalar : i64>
+  %156 = constant 2147483663 : reg<aie2p.config.scalar : i64>
+  %157 = constant 2147483653 : reg<aie2p.config.scalar : i64>
+  %158 = constant 3221225481 : reg<aie2p.config.scalar : i64>
+  write.block32(%154)[%155, %152, %152, %152, %156, %152, %152, %152, %152, %152, %152, %152, %157, %158, %152, %152, %152, %152, %152, %152, %152, %152]
+  %159 = constant 258304 : reg<aie2p.config.scalar : i64>
+  %160 = constant 3221225472 : reg<aie2p.config.scalar : i64>
+  %161 = constant 2147483648 : reg<aie2p.config.scalar : i64>
+  write.block32(%159)[%160, %152, %152, %152, %152, %161, %152, %152, %152, %152, %152, %152, %152, %152, %160, %161, %152, %152, %152, %152, %152, %152, %152]
+  %162 = constant 258560 : reg<aie2p.config.scalar : i64>
+  %163 = constant 18809089 : reg<aie2p.config.scalar : i64>
+  %164 = constant 18809088 : reg<aie2p.config.scalar : i64>
+  write.block32(%162)[%163, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %164, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152]
+  %165 = constant 1769472 : reg<aie2p.config.scalar : i64>
+  %166 = constant 2147483662 : reg<aie2p.config.scalar : i64>
+  %167 = constant 2147483655 : reg<aie2p.config.scalar : i64>
+  write.block32(%165)[%152, %152, %152, %152, %152, %152, %152, %155, %166, %152, %152, %167, %158, %152, %152, %152, %152]
+  %168 = constant 1769728 : reg<aie2p.config.scalar : i64>
+  write.block32(%168)[%152, %152, %152, %152, %152, %152, %152, %161, %160, %152, %152, %152, %152, %160, %161, %152, %152, %152]
+  %169 = constant 1769984 : reg<aie2p.config.scalar : i64>
+  write.block32(%169)[%152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %163, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %164, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152]
+  %170 = constant 2355200 : reg<aie2p.config.scalar : i64>
+  %171 = constant 2147483664 : reg<aie2p.config.scalar : i64>
+  write.block32(%170)[%152, %152, %152, %152, %152, %155, %171, %152, %152, %152, %152, %152, %152, %157, %158, %152, %152, %152, %152, %152, %152, %152, %152]
+  %172 = constant 2355456 : reg<aie2p.config.scalar : i64>
+  write.block32(%172)[%152, %152, %152, %152, %152, %161, %160, %152, %152, %152, %152, %152, %152, %152, %152, %160, %161, %152, %152, %152, %152, %152, %152, %152, %152]
+  %173 = constant 2355712 : reg<aie2p.config.scalar : i64>
+  write.block32(%173)[%152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %163, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %164, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152]
+  %174 = constant 3403776 : reg<aie2p.config.scalar : i64>
+  %175 = constant 3221225482 : reg<aie2p.config.scalar : i64>
+  %176 = constant 2147483649 : reg<aie2p.config.scalar : i64>
+  write.block32(%174)[%175, %157, %152, %155, %152, %158, %176, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152]
+  %177 = constant 3404032 : reg<aie2p.config.scalar : i64>
+  write.block32(%177)[%160, %161, %152, %152, %152, %161, %160, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152]
+  %178 = constant 3404288 : reg<aie2p.config.scalar : i64>
+  %179 = constant 2031872 : reg<aie2p.config.scalar : i64>
+  %180 = constant 18809090 : reg<aie2p.config.scalar : i64>
+  write.block32(%178)[%179, %163, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %180, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152, %152]
+  %181 = constant 126976 : reg<aie2p.config.scalar : i64>
+  %182 = constant 3072 : reg<aie2p.config.scalar : i64>
+  %183 = constant 1024 : reg<aie2p.config.scalar : i64>
+  write.mask32 %181, %182, %183
+  %184 = constant 126980 : reg<aie2p.config.scalar : i64>
+  %185 = constant 48 : reg<aie2p.config.scalar : i64>
+  %186 = constant 16 : reg<aie2p.config.scalar : i64>
+  write.mask32 %184, %185, %186
+  %187 = constant 3268112 : reg<aie2p.config.scalar : i64>
+  write32 %187, %151
+  write32 %187, %152
+  %188 = constant 119296 : reg<aie2p.config.scalar : i64>
+  %189 = constant 256 : reg<aie2p.config.scalar : i64>
+  write32 %188, %189
+  %190 = constant 3268096 : reg<aie2p.config.scalar : i64>
+  write32 %190, %151
+  write32 %190, %152
+  %191 = constant 119312 : reg<aie2p.config.scalar : i64>
+  write32 %191, %152
+  %192 = constant 3264512 : reg<aie2p.config.scalar : i64>
+  %193 = constant 1 : reg<aie2p.config.scalar : i64>
+  %194 = constant 33841152 : reg<aie2p.config.scalar : i64>
+  write.block32(%192)[%193, %152, %152, %152, %152, %194]
+  %195 = constant 118784 : reg<aie2p.config.scalar : i64>
+  %196 = constant 33554432 : reg<aie2p.config.scalar : i64>
+  write.block32(%195)[%193, %152, %152, %152, %160, %196, %152, %196]
+  %197 = constant 3264544 : reg<aie2p.config.scalar : i64>
+  %198 = constant 16386 : reg<aie2p.config.scalar : i64>
+  write.block32(%197)[%198, %152, %152, %152, %152, %194]
+  %199 = constant 118816 : reg<aie2p.config.scalar : i64>
+  write.block32(%199)[%151, %152, %152, %193, %160, %196, %152, %196]
+  %200 = constant 118848 : reg<aie2p.config.scalar : i64>
+  write.block32(%200)[%151, %152, %152, %152, %160, %196, %152, %196]
+  %201 = constant 3264576 : reg<aie2p.config.scalar : i64>
+  %202 = constant 33849344 : reg<aie2p.config.scalar : i64>
+  write.block32(%201)[%193, %152, %152, %152, %152, %202]
+  %203 = constant 3264608 : reg<aie2p.config.scalar : i64>
+  write.block32(%203)[%150, %152, %152, %152, %152, %196]
+  %204 = constant 118880 : reg<aie2p.config.scalar : i64>
+  write.block32(%204)[%150, %152, %152, %152, %160, %196, %152, %196]
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.configuration>(@__aie2p_worker_helper_16) @__aie2p_worker_helper_18() asm {
+  %205 = constant 0 : reg<aie2p.config.scalar : i64>
+  %206 = constant 1 : reg<aie2p.config.scalar : i64>
+  %207 = constant 12 : reg<aie2p.config.scalar : i64>
+  %208 = constant 4 : reg<aie2p.config.scalar : i64>
+  %209 = binding %205, %206, %207, %208
+  %210 = constant 2 : reg<aie2p.config.scalar : i64>
+  %211 = binding %206, %210, %207, %208
+  %212 = range %209, %205, %207
+  %213 = constant 3145744 : reg<aie2p.config.scalar : i64>
+  write.address %213, %212
+  %215 = constant 118820 : reg<aie2p.config.scalar : i64>
+  write.address %215, %212
+  %217 = constant 118852 : reg<aie2p.config.scalar : i64>
+  write.address %217, %212
+  %219 = constant 3145752 : reg<aie2p.config.scalar : i64>
+  write.address %219, %212
+  %220 = range %211, %205, %207
+  %221 = constant 118884 : reg<aie2p.config.scalar : i64>
+  write.address %221, %220
+  %222 = constant 3272704 : reg<aie2p.config.scalar : i64>
+  write32 %222, %206
+  %223 = constant 3272720 : reg<aie2p.config.scalar : i64>
+  write32 %223, %205
+  %224 = constant 3272736 : reg<aie2p.config.scalar : i64>
+  write32 %224, %205
+  %225 = constant 3272752 : reg<aie2p.config.scalar : i64>
+  write32 %225, %205
+  %226 = constant 3272768 : reg<aie2p.config.scalar : i64>
+  write32 %226, %205
+  measure.begin
+  %227 = constant 3350528 : reg<aie2p.config.scalar : i64>
+  write.mask32 %227, %210, %205
+  write.mask32 %227, %206, %206
+  %228 = constant 63 : reg<aie2p.config.scalar : i64>
+  wait.mask32 %224, %228, %206
+  measure.end
+  %229 = constant 3 : reg<aie2p.config.scalar : i64>
+  write.mask32 %227, %229, %210
+  return
+}
+
+low.func.def public retain target<amd.xdna.aie2p.configuration>(@__aie2p_worker_helper_16) abi(array_program) @mixed_arrivals() asm {
+  %230 = constant 1 : reg<aie2p.config.scalar : i64>
+  entry %230, @__aie2p_worker_helper_17, @__aie2p_worker_helper_18
+  return
+}
