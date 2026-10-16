@@ -869,7 +869,7 @@ TEST_F(SourceTextServiceTest,
       }
     }
   };
-  struct Claim {
+  struct loom_serve_test_text_lifecycle_claim_t {
     // Actual HTTP claim held through service admission or cancellation.
     loom_serve_http_connection_t* connection = nullptr;
     // Immutable request storage borrowed from that claim.

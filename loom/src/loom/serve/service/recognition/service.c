@@ -13,7 +13,7 @@
 #include "iree/base/internal/unicode.h"
 #include "iree/base/threading/mutex.h"
 
-typedef enum recognition_row_phase_e {
+typedef enum loom_serve_recognition_row_phase_e {
   RECOGNITION_ROW_EMPTY = 0,
   RECOGNITION_ROW_QUEUED,
   RECOGNITION_ROW_WAITING,
@@ -23,7 +23,7 @@ typedef enum recognition_row_phase_e {
   RECOGNITION_ROW_EXECUTING,
   RECOGNITION_ROW_PUBLISHING,
   RECOGNITION_ROW_COMPLETE,
-} recognition_row_phase_t;
+} loom_serve_recognition_row_phase_t;
 
 struct loom_serve_recognition_stream_t {
   // Owning service, stable through caller close and asynchronous retirement.
@@ -31,7 +31,7 @@ struct loom_serve_recognition_stream_t {
   // Stable resident index, independent of a packed execution ordinal.
   iree_host_size_t index;
   // Owner-published lifecycle; CPU workers never mutate it.
-  recognition_row_phase_t phase;
+  loom_serve_recognition_row_phase_t phase;
   // Caller still owns this handle and can receive transcript revisions.
   bool open;
   // Monotonic arrival order used for bounded host admission.
@@ -67,7 +67,7 @@ struct loom_serve_recognition_stream_t {
   } result;
 };
 
-typedef enum recognition_phase_e {
+typedef enum loom_serve_recognition_phase_e {
   RECOGNITION_PHASE_IDLE = 0,
   RECOGNITION_PHASE_PREPARING,
   RECOGNITION_PHASE_RESERVING,
@@ -75,7 +75,7 @@ typedef enum recognition_phase_e {
   RECOGNITION_PHASE_EXECUTING,
   RECOGNITION_PHASE_COLLECTING,
   RECOGNITION_PHASE_RELEASING,
-} recognition_phase_t;
+} loom_serve_recognition_phase_t;
 
 enum { RECOGNITION_EVENT_CPU = 1u << 0, RECOGNITION_EVENT_DEVICE = 1u << 1 };
 
@@ -91,7 +91,7 @@ struct loom_serve_recognition_service_t {
   // Shared proactor for model admission and numerical retirement readiness.
   iree_async_proactor_t* proactor;
   // One active CPU/device borrow, independent of individual stream phases.
-  recognition_phase_t phase;
+  loom_serve_recognition_phase_t phase;
   // Stops new source work while accepted callbacks drain.
   bool stopping;
   // Owned terminal service failure, borrowed by surviving caller handles.
@@ -127,7 +127,7 @@ struct loom_serve_recognition_service_t {
     // Intrusive task storage, reused only after its final release callback.
     iree_task_process_t process;
     // Immutable selector while the CPU task is live.
-    recognition_phase_t phase;
+    loom_serve_recognition_phase_t phase;
   } cpu;
   // Offers and selected members are separate to retain every candidate's cut.
   struct {
@@ -233,7 +233,8 @@ static void loom_serve_recognition_cpu_released(iree_task_process_t* process) {
 }
 
 static void loom_serve_recognition_schedule_cpu(
-    loom_serve_recognition_service_t* service, recognition_phase_t phase) {
+    loom_serve_recognition_service_t* service,
+    loom_serve_recognition_phase_t phase) {
   service->phase = phase;
   service->cpu.phase = phase;
   iree_task_process_initialize(loom_serve_recognition_cpu_run, 0, 1,
@@ -256,7 +257,8 @@ static void loom_serve_recognition_device_completed(
 }
 
 static iree_status_t loom_serve_recognition_wait(
-    loom_serve_recognition_service_t* service, recognition_phase_t phase) {
+    loom_serve_recognition_service_t* service,
+    loom_serve_recognition_phase_t phase) {
   iree_async_semaphore_wait_operation_t* wait = &service->device.operation;
   memset(wait, 0, sizeof(*wait));
   iree_async_operation_initialize(
@@ -436,7 +438,7 @@ static iree_status_t loom_serve_recognition_collect(
     return status;
   }
   *progress = true;
-  const recognition_phase_t phase = service->phase;
+  const loom_serve_recognition_phase_t phase = service->phase;
   service->phase = RECOGNITION_PHASE_IDLE;
   if (phase == RECOGNITION_PHASE_PREPARING &&
       iree_status_is_invalid_argument(cpu_status) &&

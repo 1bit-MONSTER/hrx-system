@@ -16,8 +16,8 @@
 
 namespace {
 
-using loom_serve::testing::Compilation;
 using loom_serve::testing::JitModuleTest;
+using loom_serve::testing::loom_serve_test_compilation_t;
 
 TEST_P(JitModuleTest, SourceDefaultsAndOverridesShareVmAndGpuState) {
   // The same exact-output witness runs with a sink unable to accept any byte.
@@ -164,7 +164,7 @@ TEST_P(JitModuleTest, DirectStagesReuseExactInputsAndOutliveCatalog) {
         i == 2 ? 1u : 0u,
         {},
         LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED};
-    Compilation job;
+    loom_serve_test_compilation_t job;
     job.jit = jit_;
     job.root = IREE_SV("increment_0");
     job.config = &config;

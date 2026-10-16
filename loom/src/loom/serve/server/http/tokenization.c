@@ -14,28 +14,28 @@
 #include "iree/tokenizer/vocab/vocab.h"
 #include "loom/util/json.h"
 
-typedef struct tokenization_field_t {
+typedef struct loom_serve_http_tokenization_field_t {
   // Protocol key, without escapes.
   const char* name;
   // Permitted JSON types as bit positions.
   uint32_t types;
   // Borrowed JSON value; NULL data means the field has not occurred.
   iree_string_view_t value;
-} tokenization_field_t;
+} loom_serve_http_tokenization_field_t;
 
-typedef struct tokenization_fields_t {
+typedef struct loom_serve_http_tokenization_fields_t {
   // Mutable field table consumed exactly once at the HTTP input boundary.
-  tokenization_field_t* values;
+  loom_serve_http_tokenization_field_t* values;
   // Number of fields accepted by this route.
   iree_host_size_t count;
-} tokenization_fields_t;
+} loom_serve_http_tokenization_fields_t;
 
 static iree_status_t loom_serve_http_tokenization_field_visit(
     void* user_data, iree_string_view_t key, iree_json_value_type_t type,
     iree_string_view_t value) {
-  tokenization_fields_t* fields = user_data;
+  loom_serve_http_tokenization_fields_t* fields = user_data;
   for (iree_host_size_t i = 0; i < fields->count; ++i) {
-    tokenization_field_t* field = &fields->values[i];
+    loom_serve_http_tokenization_field_t* field = &fields->values[i];
     if (!iree_string_view_equal(key, iree_make_cstring_view(field->name))) {
       continue;
     }
@@ -53,7 +53,7 @@ static iree_status_t loom_serve_http_tokenization_field_visit(
 }
 
 static iree_status_t loom_serve_http_tokenization_parse(
-    iree_string_view_t body, tokenization_fields_t fields) {
+    iree_string_view_t body, loom_serve_http_tokenization_fields_t fields) {
   if (!iree_unicode_utf8_validate(body)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "tokenization JSON must be UTF-8");
@@ -154,13 +154,15 @@ iree_status_t loom_serve_http_tokenize(const iree_tokenizer_t* tokenizer,
   const uint32_t string_type = 1u << IREE_JSON_VALUE_TYPE_STRING;
   const uint32_t boolean_types =
       (1u << IREE_JSON_VALUE_TYPE_TRUE) | (1u << IREE_JSON_VALUE_TYPE_FALSE);
-  tokenization_field_t fields[] = {{"model", string_type},
-                                   {"content", string_type},
-                                   {"add_special", boolean_types},
-                                   {"parse_special", boolean_types},
-                                   {"with_pieces", boolean_types}};
+  loom_serve_http_tokenization_field_t fields[] = {
+      {"model", string_type},
+      {"content", string_type},
+      {"add_special", boolean_types},
+      {"parse_special", boolean_types},
+      {"with_pieces", boolean_types}};
   IREE_RETURN_IF_ERROR(loom_serve_http_tokenization_parse(
-      body, (tokenization_fields_t){fields, IREE_ARRAYSIZE(fields)}));
+      body,
+      (loom_serve_http_tokenization_fields_t){fields, IREE_ARRAYSIZE(fields)}));
   if (!fields[1].value.data) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "content string is required");
@@ -219,17 +221,17 @@ iree_status_t loom_serve_http_tokenize(const iree_tokenizer_t* tokenizer,
   return status;
 }
 
-typedef struct tokenization_ids_t {
+typedef struct loom_serve_http_tokenization_ids_t {
   // Borrowed immutable vocabulary for external ID validation.
   const iree_tokenizer_vocab_t* vocab;
   // Writable token array, sized to the validated JSON array length.
   int32_t* values;
-} tokenization_ids_t;
+} loom_serve_http_tokenization_ids_t;
 
 static iree_status_t loom_serve_http_tokenization_id_visit(
     void* user_data, iree_host_size_t index, iree_json_value_type_t type,
     iree_string_view_t value) {
-  tokenization_ids_t* ids = user_data;
+  loom_serve_http_tokenization_ids_t* ids = user_data;
   uint64_t id = 0;
   if (type != IREE_JSON_VALUE_TYPE_NUMBER) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -332,11 +334,12 @@ iree_status_t loom_serve_http_detokenize(const iree_tokenizer_t* tokenizer,
                                          iree_string_view_t body,
                                          iree_string_builder_t* output,
                                          iree_allocator_t host_allocator) {
-  tokenization_field_t fields[] = {
+  loom_serve_http_tokenization_field_t fields[] = {
       {"model", 1u << IREE_JSON_VALUE_TYPE_STRING},
       {"tokens", 1u << IREE_JSON_VALUE_TYPE_ARRAY}};
   IREE_RETURN_IF_ERROR(loom_serve_http_tokenization_parse(
-      body, (tokenization_fields_t){fields, IREE_ARRAYSIZE(fields)}));
+      body,
+      (loom_serve_http_tokenization_fields_t){fields, IREE_ARRAYSIZE(fields)}));
   if (!fields[1].value.data) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "tokens array is required");
@@ -348,7 +351,8 @@ iree_status_t loom_serve_http_detokenize(const iree_tokenizer_t* tokenizer,
                             "detokenization exceeds %u tokens",
                             LOOM_SERVE_HTTP_TOKENIZATION_MAX_TOKENS);
   }
-  tokenization_ids_t ids = {.vocab = iree_tokenizer_vocab(tokenizer)};
+  loom_serve_http_tokenization_ids_t ids = {
+      .vocab = iree_tokenizer_vocab(tokenizer)};
   IREE_RETURN_IF_ERROR(
       iree_allocator_malloc_array(host_allocator, iree_max(1, count),
                                   sizeof(*ids.values), (void**)&ids.values));

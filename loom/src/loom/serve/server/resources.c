@@ -230,17 +230,17 @@ iree_status_t loom_serve_resources_write_json(
   return status;
 }
 
-typedef struct resources_trim_fields_t {
+typedef struct loom_serve_resources_trim_fields_t {
   // Borrowed JSON integer spelling; null data marks an absent device field.
   iree_string_view_t device;
   // Borrowed JSON integer spelling; null data marks an absent target field.
   iree_string_view_t target_bytes;
-} resources_trim_fields_t;
+} loom_serve_resources_trim_fields_t;
 
 static iree_status_t loom_serve_resources_trim_field(
     void* self, iree_string_view_t key, iree_json_value_type_t type,
     iree_string_view_t value) {
-  resources_trim_fields_t* fields = self;
+  loom_serve_resources_trim_fields_t* fields = self;
   iree_string_view_t* field = NULL;
   if (iree_string_view_equal(key, IREE_SV("device"))) {
     field = &fields->device;
@@ -267,7 +267,7 @@ iree_status_t loom_serve_resources_parse_trim(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "trailing trim request JSON");
   }
-  resources_trim_fields_t fields = {0};
+  loom_serve_resources_trim_fields_t fields = {0};
   IREE_RETURN_IF_ERROR(iree_json_enumerate_object_typed(
       object, loom_serve_resources_trim_field, &fields));
   if (!fields.device.data || !fields.target_bytes.data) {

@@ -14,7 +14,7 @@
 #include "iree/vm/buffer.h"
 #include "iree/vm/reflection.h"
 
-typedef struct input_module_t {
+typedef struct loom_serve_input_module_t {
   // Native module prefix.
   iree_vm_module_t base;
   // Descriptor borrowing the module-owned reference type.
@@ -25,9 +25,9 @@ typedef struct input_module_t {
   iree_vm_ref_types_t types;
   // Optional immutable tokenizer, borrowed from the model owner.
   const iree_tokenizer_t* tokenizer;
-} input_module_t;
+} loom_serve_input_module_t;
 
-enum input_function_ordinal_e {
+enum loom_serve_input_function_ordinal_e {
   INPUT_FUNCTION_ENCODE = 0,
   INPUT_FUNCTION_LOOKUP = 1,
   INPUT_FUNCTION_REQUIRE = 2,
@@ -90,7 +90,7 @@ static iree_status_t loom_serve_input_encode_prefix(
   return status;
 }
 
-static iree_status_t loom_serve_input_decode(input_module_t* module,
+static iree_status_t loom_serve_input_decode(loom_serve_input_module_t* module,
                                              const iree_vm_call_packet_t* call,
                                              iree_const_byte_span_t bytes) {
   const iree_tokenizer_decode_flags_t flags =
@@ -168,7 +168,7 @@ static iree_status_t loom_serve_input_module_start(
     iree_vm_module_t* base,
     const iree_vm_module_function_start_params_t* params,
     iree_vm_execution_outcome_t* out_outcome) {
-  input_module_t* module = (input_module_t*)base;
+  loom_serve_input_module_t* module = (loom_serve_input_module_t*)base;
   const iree_vm_call_packet_t* call = &params->call;
   if (params->function_ordinal == INPUT_FUNCTION_REQUIRE &&
       iree_vm_call_value_argument_load(call, 0)) {
@@ -287,7 +287,7 @@ static const iree_vm_module_export_declaration_t input_exports[] = {
 };
 
 static void loom_serve_input_module_destroy(iree_vm_module_t* base) {
-  input_module_t* module = (input_module_t*)base;
+  loom_serve_input_module_t* module = (loom_serve_input_module_t*)base;
   iree_allocator_free(module->host_allocator, module);
 }
 static void loom_serve_input_module_query_export(
@@ -333,7 +333,7 @@ iree_status_t loom_serve_input_module_create(iree_vm_environment_t* environment,
   IREE_RETURN_IF_ERROR(iree_vm_ref_types_resolve(
       iree_vm_environment_lookup_ref_type_table(environment, IREE_SV("vm")),
       &types));
-  input_module_t* module = NULL;
+  loom_serve_input_module_t* module = NULL;
   IREE_RETURN_IF_ERROR(
       iree_allocator_malloc(host_allocator, sizeof(*module), (void**)&module));
   module->host_allocator = host_allocator;

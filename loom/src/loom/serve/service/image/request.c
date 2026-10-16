@@ -16,14 +16,14 @@
 #define IMAGE_STRING (1u << IREE_JSON_VALUE_TYPE_STRING)
 #define IMAGE_NUMBER (1u << IREE_JSON_VALUE_TYPE_NUMBER)
 
-typedef struct image_field_t {
+typedef struct loom_serve_image_field_t {
   // Literal protocol key, without JSON escapes.
   const char* name;
   // Accepted JSON types as bit positions.
   uint32_t types;
   // Borrowed raw JSON value; NULL data means absent.
   iree_string_view_t value;
-} image_field_t;
+} loom_serve_image_field_t;
 
 enum { IMAGE_FIELD_COUNT = 7 };
 
@@ -31,9 +31,9 @@ static iree_status_t loom_serve_image_field_visit(void* user_data,
                                                   iree_string_view_t key,
                                                   iree_json_value_type_t type,
                                                   iree_string_view_t value) {
-  image_field_t* fields = user_data;
+  loom_serve_image_field_t* fields = user_data;
   for (iree_host_size_t i = 0; i < IMAGE_FIELD_COUNT; ++i) {
-    image_field_t* field = &fields[i];
+    loom_serve_image_field_t* field = &fields[i];
     if (iree_string_view_equal(key, iree_make_cstring_view(field->name))) {
       if (field->value.data || !(field->types & (1u << type))) {
         return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -65,7 +65,7 @@ static iree_status_t loom_serve_image_request_decode(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "trailing image JSON");
   }
-  image_field_t fields[IMAGE_FIELD_COUNT] = {
+  loom_serve_image_field_t fields[IMAGE_FIELD_COUNT] = {
       {"prompt", IMAGE_STRING},         {"seed", IMAGE_STRING | IMAGE_NUMBER},
       {"strength", IMAGE_NUMBER},       {"model", IMAGE_STRING},
       {"size", IMAGE_STRING},           {"n", IMAGE_NUMBER},

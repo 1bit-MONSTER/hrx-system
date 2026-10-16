@@ -35,7 +35,7 @@
 #include "loom/serve/service/text/telemetry.h"
 
 // Device work retained until readiness is consumed by the model owner.
-typedef enum text_work_e {
+typedef enum loom_serve_text_work_e {
   TEXT_WORK_NONE,
   TEXT_WORK_EPOCH,
   TEXT_WORK_CHECKPOINT,
@@ -43,14 +43,14 @@ typedef enum text_work_e {
   TEXT_WORK_RESERVE,
   TEXT_WORK_RETAIN,
   TEXT_WORK_PREFIX,
-} text_work_t;
+} loom_serve_text_work_t;
 
 // Exclusive host/VM borrow; input preparation may overlap an accepted epoch.
-typedef enum text_cpu_work_e {
+typedef enum loom_serve_text_cpu_work_e {
   TEXT_CPU_WORK_NONE,
   TEXT_CPU_WORK_PREPARE,
   TEXT_CPU_WORK_OUTPUT,
-} text_cpu_work_t;
+} loom_serve_text_cpu_work_t;
 
 struct loom_serve_text_service_t {
   // Allocator for the service's host-only storage.
@@ -85,7 +85,7 @@ struct loom_serve_text_service_t {
   // Owner's device operation, retained until readiness is consumed.
   struct {
     // Owner-only operation discriminator; NONE means no callback is accepted.
-    text_work_t work;
+    loom_serve_text_work_t work;
     // Exact work and feedback values captured by submission.
     loom_serve_execution_frontier_t frontier;
     // Host observation before registering this operation's readiness wait.
@@ -93,7 +93,7 @@ struct loom_serve_text_service_t {
   } completion;
   // Exclusive host/VM borrow, cleared only after task process release. Input
   // preparation uses an idle row and may overlap accepted device epoch work.
-  text_cpu_work_t cpu_work;
+  loom_serve_text_cpu_work_t cpu_work;
   // Retained cohort inputs and feedback through response CPU release.
   loom_serve_text_epoch_t epoch;
   // One control claim, including request-backed names through device readiness.
@@ -165,7 +165,7 @@ static bool loom_serve_text_has_work(const loom_serve_text_service_t* service) {
 }
 
 static iree_status_t loom_serve_text_await_work(
-    loom_serve_text_service_t* service, text_work_t work) {
+    loom_serve_text_service_t* service, loom_serve_text_work_t work) {
   service->completion.start_time = iree_time_now();
   IREE_RETURN_IF_ERROR(loom_serve_text_readiness_await(
       &service->readiness, &service->completion.frontier));
@@ -174,7 +174,7 @@ static iree_status_t loom_serve_text_await_work(
 }
 
 static void loom_serve_text_schedule_cpu(loom_serve_text_service_t* service,
-                                         text_cpu_work_t work,
+                                         loom_serve_text_cpu_work_t work,
                                          loom_serve_text_cpu_work_fn_t run) {
   service->cpu_work = work;
   loom_serve_text_readiness_schedule(&service->readiness, run, service);
@@ -494,7 +494,7 @@ static bool loom_serve_text_cache_reclaim_request(void* self) {
   return true;
 }
 
-typedef enum text_admission_result_e {
+typedef enum loom_serve_text_admission_result_e {
   // Model parameters cannot fit; changing requests cannot relieve this limit.
   TEXT_ADMISSION_CAPACITY = 0,
   // Request-specific logical/physical state cannot fit; another request may.
@@ -503,7 +503,7 @@ typedef enum text_admission_result_e {
   TEXT_ADMISSION_QUEUED,
   // Parameter activation and state reservation have both completed.
   TEXT_ADMISSION_READY,
-} text_admission_result_t;
+} loom_serve_text_admission_result_t;
 
 // Native ownership knows the source geometry and exact physical slab union;
 // the service only decides which idle histories may yield. Selected history,
@@ -511,7 +511,8 @@ typedef enum text_admission_result_e {
 static iree_status_t loom_serve_text_reclaim_idle(
     loom_serve_text_service_t* service, loom_serve_text_session_t* selected,
     const loom_serve_text_checkpoint_t* checkpoint, iree_host_size_t retained,
-    iree_host_size_t reservation, text_admission_result_t* out_result) {
+    iree_host_size_t reservation,
+    loom_serve_text_admission_result_t* out_result) {
   *out_result = TEXT_ADMISSION_CAPACITY;
   const loom_serve_text_reserve_mode_t mode =
       checkpoint ? LOOM_SERVE_TEXT_RESERVE_CHECKPOINT
@@ -1004,7 +1005,7 @@ static iree_status_t loom_serve_text_admit_pending(
     }
     service->pending.prepared.restored_bytes =
         checkpoint ? loom_serve_text_checkpoint_suspended_bytes(checkpoint) : 0;
-    text_admission_result_t admission;
+    loom_serve_text_admission_result_t admission;
     status = loom_serve_text_reclaim_idle(
         service, session, checkpoint, retained_count, reservation, &admission);
     if (!iree_status_is_ok(status) ||
@@ -1741,7 +1742,7 @@ static iree_status_t loom_serve_text_advance_work(
     if (!loom_serve_text_readiness_take_cpu(&service->readiness, &status)) {
       return iree_ok_status();
     }
-    const text_cpu_work_t work = service->cpu_work;
+    const loom_serve_text_cpu_work_t work = service->cpu_work;
     service->cpu_work = TEXT_CPU_WORK_NONE;
     *out_progress = true;
     if (work == TEXT_CPU_WORK_PREPARE) {
@@ -1764,7 +1765,7 @@ static iree_status_t loom_serve_text_advance_work(
       }
       return iree_ok_status();
     }
-    const text_work_t work = service->completion.work;
+    const loom_serve_text_work_t work = service->completion.work;
     service->completion.work = TEXT_WORK_NONE;
     *out_progress = true;
     IREE_RETURN_IF_ERROR(status);

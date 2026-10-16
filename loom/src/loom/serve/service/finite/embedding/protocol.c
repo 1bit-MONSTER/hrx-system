@@ -15,7 +15,7 @@
 #include "iree/base/internal/unicode.h"
 #include "loom/util/json.h"
 
-typedef struct embedding_field_t {
+typedef struct loom_serve_embedding_field_t {
   // Literal public field name.
   const char* name;
   // Allowed JSON types as bit positions.
@@ -24,7 +24,7 @@ typedef struct embedding_field_t {
   iree_json_value_type_t type;
   // Borrowed raw value; NULL denotes absence.
   iree_string_view_t value;
-} embedding_field_t;
+} loom_serve_embedding_field_t;
 
 enum { EMBEDDING_FIELD_COUNT = 5 };
 
@@ -32,9 +32,9 @@ static iree_status_t loom_serve_embedding_field(void* user_data,
                                                 iree_string_view_t key,
                                                 iree_json_value_type_t type,
                                                 iree_string_view_t value) {
-  embedding_field_t* fields = user_data;
+  loom_serve_embedding_field_t* fields = user_data;
   for (iree_host_size_t i = 0; i < EMBEDDING_FIELD_COUNT; ++i) {
-    embedding_field_t* field = &fields[i];
+    loom_serve_embedding_field_t* field = &fields[i];
     if (!iree_string_view_equal(key, iree_make_cstring_view(field->name))) {
       continue;
     }
@@ -52,7 +52,7 @@ static iree_status_t loom_serve_embedding_field(void* user_data,
                           key.data);
 }
 
-typedef struct embedding_inputs_t {
+typedef struct loom_serve_embedding_inputs_t {
   // Packed metadata, with offsets relative to payload until final assembly.
   iree_string_builder_t records;
   // Decoded strings or LE i32 IDs with eight-byte-aligned beginnings.
@@ -61,7 +61,7 @@ typedef struct embedding_inputs_t {
   iree_host_size_t count;
   // Homogeneous top-level array element type, selected by its first element.
   iree_json_value_type_t type;
-} embedding_inputs_t;
+} loom_serve_embedding_inputs_t;
 
 static iree_status_t loom_serve_embedding_token(void* user_data,
                                                 iree_host_size_t index,
@@ -83,9 +83,9 @@ static iree_status_t loom_serve_embedding_token(void* user_data,
       user_data, iree_make_string_view((const char*)bytes, sizeof(bytes)));
 }
 
-static iree_status_t loom_serve_embedding_record(embedding_inputs_t* inputs,
-                                                 uint64_t kind,
-                                                 iree_host_size_t offset) {
+static iree_status_t loom_serve_embedding_record(
+    loom_serve_embedding_inputs_t* inputs, uint64_t kind,
+    iree_host_size_t offset) {
   const iree_host_size_t end = iree_string_builder_size(&inputs->payload);
   uint8_t record[24];
   iree_unaligned_store_le_u64(record, kind);
@@ -100,9 +100,9 @@ static iree_status_t loom_serve_embedding_record(embedding_inputs_t* inputs,
       &inputs->payload, iree_make_string_view(zeros, (8 - end % 8) % 8));
 }
 
-static iree_status_t loom_serve_embedding_sequence(embedding_inputs_t* inputs,
-                                                   iree_json_value_type_t type,
-                                                   iree_string_view_t value) {
+static iree_status_t loom_serve_embedding_sequence(
+    loom_serve_embedding_inputs_t* inputs, iree_json_value_type_t type,
+    iree_string_view_t value) {
   const iree_host_size_t offset = iree_string_builder_size(&inputs->payload);
   if (type == IREE_JSON_VALUE_TYPE_STRING) {
     char* target = NULL;
@@ -128,7 +128,7 @@ static iree_status_t loom_serve_embedding_element(void* user_data,
                                                   iree_host_size_t index,
                                                   iree_json_value_type_t type,
                                                   iree_string_view_t value) {
-  embedding_inputs_t* inputs = user_data;
+  loom_serve_embedding_inputs_t* inputs = user_data;
   if (!index) {
     inputs->type = type;
   }
@@ -146,7 +146,7 @@ static iree_status_t loom_serve_embedding_element(void* user_data,
 
 static iree_status_t loom_serve_embedding_parse(
     iree_string_view_t body, loom_serve_embedding_request_t* request,
-    embedding_inputs_t* inputs, iree_allocator_t host_allocator) {
+    loom_serve_embedding_inputs_t* inputs, iree_allocator_t host_allocator) {
   if (!iree_unicode_utf8_validate(body)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT, "JSON must be UTF-8");
   }
@@ -159,7 +159,7 @@ static iree_status_t loom_serve_embedding_parse(
                             "trailing request JSON");
   }
   const uint32_t string_type = 1u << IREE_JSON_VALUE_TYPE_STRING;
-  embedding_field_t fields[EMBEDDING_FIELD_COUNT] = {
+  loom_serve_embedding_field_t fields[EMBEDDING_FIELD_COUNT] = {
       {.name = "model", .types = string_type},
       {.name = "input",
        .types = string_type | (1u << IREE_JSON_VALUE_TYPE_ARRAY)},
@@ -251,7 +251,7 @@ iree_status_t loom_serve_embedding_request_initialize(
     iree_string_view_t body, iree_allocator_t host_allocator,
     loom_serve_embedding_request_t* out_request) {
   memset(out_request, 0, sizeof(*out_request));
-  embedding_inputs_t inputs = {.type = IREE_JSON_VALUE_TYPE_NULL};
+  loom_serve_embedding_inputs_t inputs = {.type = IREE_JSON_VALUE_TYPE_NULL};
   iree_string_builder_initialize(host_allocator, &inputs.records);
   iree_string_builder_initialize(host_allocator, &inputs.payload);
   iree_status_t status =

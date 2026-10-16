@@ -58,7 +58,7 @@ loom_serve_registration_prepared_parameters(loom_serve_residency_t* residency) {
       .parameters = parameters};
 }
 
-typedef struct finite_registration_t {
+typedef struct loom_serve_finite_registration_t {
   // Allocator owning this operation, independent of model allocations.
   iree_allocator_t host_allocator;
   // Borrowed server capabilities and reporting policy.
@@ -82,13 +82,13 @@ typedef struct finite_registration_t {
   loom_serve_activation_t* activation;
   // Model consumers have been relinquished with an ownership wake installed.
   bool retiring;
-} finite_registration_t;
+} loom_serve_finite_registration_t;
 
 static iree_status_t loom_serve_finite_registration_prepare(
     void* self, bool cancel, bool* out_complete,
     loom_serve_http_service_t* out_service,
     loom_serve_compilation_report_t* out_report) {
-  finite_registration_t* registration = self;
+  loom_serve_finite_registration_t* registration = self;
   iree_status_t status = loom_serve_finite_load_advance(
       registration->load, cancel ? LOOM_SERVE_FINITE_LOAD_FLAG_CANCEL : 0,
       out_complete);
@@ -124,7 +124,7 @@ static iree_status_t loom_serve_finite_registration_prepare(
 
 static iree_status_t loom_serve_finite_registration_retire(void* self,
                                                            bool* out_complete) {
-  finite_registration_t* registration = self;
+  loom_serve_finite_registration_t* registration = self;
   *out_complete = true;
   if (registration->load) {
     IREE_RETURN_IF_ERROR(loom_serve_finite_load_free(registration->load));
@@ -149,28 +149,28 @@ static iree_status_t loom_serve_finite_registration_retire(void* self,
 }
 
 static void loom_serve_finite_registration_destroy(void* self) {
-  finite_registration_t* registration = self;
+  loom_serve_finite_registration_t* registration = self;
   iree_allocator_free(registration->host_allocator, registration);
 }
 
 static loom_serve_registration_parameters_t
 loom_serve_finite_registration_parameters(
     void* self, loom_serve_model_component_t component) {
-  finite_registration_t* registration = self;
+  loom_serve_finite_registration_t* registration = self;
   return loom_serve_registration_prepared_parameters(
       loom_serve_finite_model_residency(registration->model));
 }
 
 static void loom_serve_finite_registration_set_pinned(
     void* self, loom_serve_model_component_t component, bool pinned) {
-  finite_registration_t* registration = self;
+  loom_serve_finite_registration_t* registration = self;
   loom_serve_residency_set_pinned(
       loom_serve_finite_model_residency(registration->model), pinned);
 }
 
 static iree_status_t loom_serve_finite_registration_deactivate(
     void* self, loom_serve_model_component_t component, bool* out_complete) {
-  finite_registration_t* registration = self;
+  loom_serve_finite_registration_t* registration = self;
   return loom_serve_residency_deactivate(
       loom_serve_finite_model_residency(registration->model), out_complete);
 }
@@ -181,7 +181,7 @@ static iree_status_t loom_serve_finite_registration_activate(
     loom_serve_activation_phase_t* out_phase,
     iree_status_t* out_component_status) {
   *out_component_status = iree_ok_status();
-  finite_registration_t* registration = self;
+  loom_serve_finite_registration_t* registration = self;
   return loom_serve_registration_activate(
       &registration->activation,
       loom_serve_finite_model_residency(registration->model),
@@ -195,7 +195,7 @@ static iree_status_t loom_serve_finite_registration_create(
     iree_allocator_t host_allocator,
     loom_serve_registration_t* out_registration) {
   const loom_serve_model_registration_options_t* options = self;
-  finite_registration_t* registration = NULL;
+  loom_serve_finite_registration_t* registration = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
       host_allocator, sizeof(*registration), (void**)&registration));
   registration->host_allocator = host_allocator;
@@ -228,7 +228,7 @@ static iree_status_t loom_serve_finite_registration_create(
   return status;
 }
 
-typedef struct image_registration_t {
+typedef struct loom_serve_image_registration_t {
   // Allocator owning this operation, independent of model allocations.
   iree_allocator_t host_allocator;
   // Borrowed server capabilities and reporting policy.
@@ -252,13 +252,13 @@ typedef struct image_registration_t {
   loom_serve_activation_t* activation;
   // Model consumers have been relinquished with an ownership wake installed.
   bool retiring;
-} image_registration_t;
+} loom_serve_image_registration_t;
 
 static iree_status_t loom_serve_image_registration_prepare(
     void* self, bool cancel, bool* out_complete,
     loom_serve_http_service_t* out_service,
     loom_serve_compilation_report_t* out_report) {
-  image_registration_t* registration = self;
+  loom_serve_image_registration_t* registration = self;
   iree_status_t status = loom_serve_image_load_advance(
       registration->load, cancel ? LOOM_SERVE_IMAGE_LOAD_FLAG_CANCEL : 0,
       out_complete);
@@ -298,7 +298,7 @@ static iree_status_t loom_serve_image_registration_prepare(
 
 static iree_status_t loom_serve_image_registration_retire(void* self,
                                                           bool* out_complete) {
-  image_registration_t* registration = self;
+  loom_serve_image_registration_t* registration = self;
   *out_complete = true;
   if (registration->load) {
     IREE_RETURN_IF_ERROR(loom_serve_image_load_free(registration->load));
@@ -323,28 +323,28 @@ static iree_status_t loom_serve_image_registration_retire(void* self,
 }
 
 static void loom_serve_image_registration_destroy(void* self) {
-  image_registration_t* registration = self;
+  loom_serve_image_registration_t* registration = self;
   iree_allocator_free(registration->host_allocator, registration);
 }
 
 static loom_serve_registration_parameters_t
 loom_serve_image_registration_parameters(
     void* self, loom_serve_model_component_t component) {
-  image_registration_t* registration = self;
+  loom_serve_image_registration_t* registration = self;
   return loom_serve_registration_prepared_parameters(
       loom_serve_image_model_residency(registration->model));
 }
 
 static void loom_serve_image_registration_set_pinned(
     void* self, loom_serve_model_component_t component, bool pinned) {
-  image_registration_t* registration = self;
+  loom_serve_image_registration_t* registration = self;
   loom_serve_residency_set_pinned(
       loom_serve_image_model_residency(registration->model), pinned);
 }
 
 static iree_status_t loom_serve_image_registration_deactivate(
     void* self, loom_serve_model_component_t component, bool* out_complete) {
-  image_registration_t* registration = self;
+  loom_serve_image_registration_t* registration = self;
   return loom_serve_image_model_deactivate(registration->model, out_complete);
 }
 
@@ -354,7 +354,7 @@ static iree_status_t loom_serve_image_registration_activate(
     loom_serve_activation_phase_t* out_phase,
     iree_status_t* out_component_status) {
   *out_component_status = iree_ok_status();
-  image_registration_t* registration = self;
+  loom_serve_image_registration_t* registration = self;
   return loom_serve_registration_activate(
       &registration->activation,
       loom_serve_image_model_residency(registration->model),
@@ -368,7 +368,7 @@ static iree_status_t loom_serve_image_registration_create(
     iree_allocator_t host_allocator,
     loom_serve_registration_t* out_registration) {
   const loom_serve_model_registration_options_t* options = self;
-  image_registration_t* registration = NULL;
+  loom_serve_image_registration_t* registration = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
       host_allocator, sizeof(*registration), (void**)&registration));
   registration->host_allocator = host_allocator;
@@ -406,7 +406,7 @@ static iree_status_t loom_serve_image_registration_create(
   return status;
 }
 
-typedef struct speech_registration_t {
+typedef struct loom_serve_speech_registration_t {
   // Allocator owning this operation, independent of model allocations.
   iree_allocator_t host_allocator;
   // Borrowed server capabilities and reporting policy.
@@ -430,13 +430,13 @@ typedef struct speech_registration_t {
   loom_serve_activation_t* activation;
   // Model consumers have been relinquished with an ownership wake installed.
   bool retiring;
-} speech_registration_t;
+} loom_serve_speech_registration_t;
 
 static iree_status_t loom_serve_speech_registration_prepare(
     void* self, bool cancel, bool* out_complete,
     loom_serve_http_service_t* out_service,
     loom_serve_compilation_report_t* out_report) {
-  speech_registration_t* registration = self;
+  loom_serve_speech_registration_t* registration = self;
   iree_status_t status = loom_serve_speech_load_advance(
       registration->load, cancel ? LOOM_SERVE_SPEECH_LOAD_FLAG_CANCEL : 0,
       out_complete);
@@ -472,7 +472,7 @@ static iree_status_t loom_serve_speech_registration_prepare(
 
 static iree_status_t loom_serve_speech_registration_retire(void* self,
                                                            bool* out_complete) {
-  speech_registration_t* registration = self;
+  loom_serve_speech_registration_t* registration = self;
   *out_complete = true;
   if (registration->load) {
     IREE_RETURN_IF_ERROR(loom_serve_speech_load_free(registration->load));
@@ -497,28 +497,28 @@ static iree_status_t loom_serve_speech_registration_retire(void* self,
 }
 
 static void loom_serve_speech_registration_destroy(void* self) {
-  speech_registration_t* registration = self;
+  loom_serve_speech_registration_t* registration = self;
   iree_allocator_free(registration->host_allocator, registration);
 }
 
 static loom_serve_registration_parameters_t
 loom_serve_speech_registration_parameters(
     void* self, loom_serve_model_component_t component) {
-  speech_registration_t* registration = self;
+  loom_serve_speech_registration_t* registration = self;
   return loom_serve_registration_prepared_parameters(
       loom_serve_speech_model_residency(registration->model));
 }
 
 static void loom_serve_speech_registration_set_pinned(
     void* self, loom_serve_model_component_t component, bool pinned) {
-  speech_registration_t* registration = self;
+  loom_serve_speech_registration_t* registration = self;
   loom_serve_residency_set_pinned(
       loom_serve_speech_model_residency(registration->model), pinned);
 }
 
 static iree_status_t loom_serve_speech_registration_deactivate(
     void* self, loom_serve_model_component_t component, bool* out_complete) {
-  speech_registration_t* registration = self;
+  loom_serve_speech_registration_t* registration = self;
   return loom_serve_residency_deactivate(
       loom_serve_speech_model_residency(registration->model), out_complete);
 }
@@ -529,7 +529,7 @@ static iree_status_t loom_serve_speech_registration_activate(
     loom_serve_activation_phase_t* out_phase,
     iree_status_t* out_component_status) {
   *out_component_status = iree_ok_status();
-  speech_registration_t* registration = self;
+  loom_serve_speech_registration_t* registration = self;
   return loom_serve_registration_activate(
       &registration->activation,
       loom_serve_speech_model_residency(registration->model),
@@ -543,7 +543,7 @@ static iree_status_t loom_serve_speech_registration_create(
     iree_allocator_t host_allocator,
     loom_serve_registration_t* out_registration) {
   const loom_serve_model_registration_options_t* options = self;
-  speech_registration_t* registration = NULL;
+  loom_serve_speech_registration_t* registration = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
       host_allocator, sizeof(*registration), (void**)&registration));
   registration->host_allocator = host_allocator;
@@ -576,7 +576,7 @@ static iree_status_t loom_serve_speech_registration_create(
   return status;
 }
 
-typedef struct recognition_registration_t {
+typedef struct loom_serve_recognition_registration_t {
   // Allocator owning this operation, independent of model allocations.
   iree_allocator_t host_allocator;
   // Borrowed device resolved at declaration admission, alive through
@@ -598,13 +598,13 @@ typedef struct recognition_registration_t {
   loom_serve_activation_t* activation;
   // Model consumers have been relinquished with an ownership wake installed.
   bool retiring;
-} recognition_registration_t;
+} loom_serve_recognition_registration_t;
 
 static iree_status_t loom_serve_recognition_registration_prepare(
     void* self, bool cancel, bool* out_complete,
     loom_serve_http_service_t* out_service,
     loom_serve_compilation_report_t* out_report) {
-  recognition_registration_t* registration = self;
+  loom_serve_recognition_registration_t* registration = self;
   iree_status_t status = loom_serve_recognition_load_advance(
       registration->load, cancel ? LOOM_SERVE_RECOGNITION_LOAD_FLAG_CANCEL : 0,
       out_complete);
@@ -643,7 +643,7 @@ static iree_status_t loom_serve_recognition_registration_prepare(
 
 static iree_status_t loom_serve_recognition_registration_retire(
     void* self, bool* out_complete) {
-  recognition_registration_t* registration = self;
+  loom_serve_recognition_registration_t* registration = self;
   *out_complete = true;
   if (registration->load) {
     IREE_RETURN_IF_ERROR(loom_serve_recognition_load_free(registration->load));
@@ -668,28 +668,28 @@ static iree_status_t loom_serve_recognition_registration_retire(
 }
 
 static void loom_serve_recognition_registration_destroy(void* self) {
-  recognition_registration_t* registration = self;
+  loom_serve_recognition_registration_t* registration = self;
   iree_allocator_free(registration->host_allocator, registration);
 }
 
 static loom_serve_registration_parameters_t
 loom_serve_recognition_registration_parameters(
     void* self, loom_serve_model_component_t component) {
-  recognition_registration_t* registration = self;
+  loom_serve_recognition_registration_t* registration = self;
   return loom_serve_registration_prepared_parameters(
       loom_serve_recognition_model_residency(registration->model));
 }
 
 static void loom_serve_recognition_registration_set_pinned(
     void* self, loom_serve_model_component_t component, bool pinned) {
-  recognition_registration_t* registration = self;
+  loom_serve_recognition_registration_t* registration = self;
   loom_serve_residency_set_pinned(
       loom_serve_recognition_model_residency(registration->model), pinned);
 }
 
 static iree_status_t loom_serve_recognition_registration_deactivate(
     void* self, loom_serve_model_component_t component, bool* out_complete) {
-  recognition_registration_t* registration = self;
+  loom_serve_recognition_registration_t* registration = self;
   return loom_serve_residency_deactivate(
       loom_serve_recognition_model_residency(registration->model),
       out_complete);
@@ -701,7 +701,7 @@ static iree_status_t loom_serve_recognition_registration_activate(
     loom_serve_activation_phase_t* out_phase,
     iree_status_t* out_component_status) {
   *out_component_status = iree_ok_status();
-  recognition_registration_t* registration = self;
+  loom_serve_recognition_registration_t* registration = self;
   return loom_serve_registration_activate(
       &registration->activation,
       loom_serve_recognition_model_residency(registration->model),
@@ -715,7 +715,7 @@ static iree_status_t loom_serve_recognition_registration_create(
     iree_allocator_t host_allocator,
     loom_serve_registration_t* out_registration) {
   const loom_serve_model_registration_options_t* options = self;
-  recognition_registration_t* registration = NULL;
+  loom_serve_recognition_registration_t* registration = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
       host_allocator, sizeof(*registration), (void**)&registration));
   registration->host_allocator = host_allocator;
@@ -747,7 +747,7 @@ static iree_status_t loom_serve_recognition_registration_create(
   return status;
 }
 
-typedef struct text_registration_t {
+typedef struct loom_serve_text_registration_t {
   // Allocator owning this operation and its stable shape table.
   iree_allocator_t host_allocator;
   // Borrowed server capabilities and reporting policy.
@@ -775,13 +775,13 @@ typedef struct text_registration_t {
   loom_serve_activation_t* activation;
   // Model consumers have relinquished views with an ownership wake installed.
   bool retiring;
-} text_registration_t;
+} loom_serve_text_registration_t;
 
 static iree_status_t loom_serve_text_registration_prepare(
     void* self, bool cancel, bool* out_complete,
     loom_serve_http_service_t* out_service,
     loom_serve_compilation_report_t* out_report) {
-  text_registration_t* registration = self;
+  loom_serve_text_registration_t* registration = self;
   iree_status_t status = loom_serve_text_load_advance(
       registration->load, cancel ? LOOM_SERVE_TEXT_LOAD_FLAG_CANCEL : 0,
       out_complete);
@@ -823,7 +823,7 @@ static iree_status_t loom_serve_text_registration_prepare(
 
 static iree_status_t loom_serve_text_registration_retire(void* self,
                                                          bool* out_complete) {
-  text_registration_t* registration = self;
+  loom_serve_text_registration_t* registration = self;
   *out_complete = true;
   loom_serve_text_service_free(registration->service, IREE_STATUS_OK);
   registration->service = NULL;
@@ -852,14 +852,14 @@ static iree_status_t loom_serve_text_registration_retire(void* self,
 }
 
 static void loom_serve_text_registration_destroy(void* self) {
-  text_registration_t* registration = self;
+  loom_serve_text_registration_t* registration = self;
   iree_allocator_free(registration->host_allocator, registration);
 }
 
 static loom_serve_registration_parameters_t
 loom_serve_text_registration_parameters(
     void* self, loom_serve_model_component_t component) {
-  text_registration_t* registration = self;
+  loom_serve_text_registration_t* registration = self;
   if (component == LOOM_SERVE_MODEL_COMPONENT_IMAGE) {
     static const char* const phases[] = {"declared", "preparing", "ready",
                                          "failed",   "releasing", "retired"};
@@ -878,7 +878,7 @@ loom_serve_text_registration_parameters(
 
 static void loom_serve_text_registration_set_pinned(
     void* self, loom_serve_model_component_t component, bool pinned) {
-  text_registration_t* registration = self;
+  loom_serve_text_registration_t* registration = self;
   if (component == LOOM_SERVE_MODEL_COMPONENT_IMAGE) {
     loom_serve_finite_component_set_pinned(registration->image, pinned);
   } else {
@@ -889,7 +889,7 @@ static void loom_serve_text_registration_set_pinned(
 
 static iree_status_t loom_serve_text_registration_deactivate(
     void* self, loom_serve_model_component_t component, bool* out_complete) {
-  text_registration_t* registration = self;
+  loom_serve_text_registration_t* registration = self;
   if (component == LOOM_SERVE_MODEL_COMPONENT_IMAGE) {
     *out_complete = false;
     if (loom_serve_finite_component_is_pending(registration->image)) {
@@ -906,7 +906,7 @@ static iree_status_t loom_serve_text_registration_activate(
     loom_serve_activation_flags_t flags,
     loom_serve_activation_phase_t* out_phase,
     iree_status_t* out_component_status) {
-  text_registration_t* registration = self;
+  loom_serve_text_registration_t* registration = self;
   *out_component_status = iree_ok_status();
   *out_phase = LOOM_SERVE_ACTIVATION_COMPLETE;
   loom_serve_residency_t* residency = NULL;
@@ -943,7 +943,7 @@ static iree_status_t loom_serve_text_registration_create(
     iree_allocator_t host_allocator,
     loom_serve_registration_t* out_registration) {
   const loom_serve_model_registration_options_t* options = self;
-  text_registration_t* registration = NULL;
+  loom_serve_text_registration_t* registration = NULL;
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
       host_allocator, sizeof(*registration), (void**)&registration));
   registration->host_allocator = host_allocator;

@@ -340,7 +340,7 @@ TEST_P(InputTest, UnsupportedFlagsLeaveInvocationReusable) {
 }
 
 TEST_P(InputTest, CompleteDecodePreservesUnicodeAndResetsLeadingSpace) {
-  struct Case {
+  struct loom_serve_test_input_case_t {
     // Complete token span passed to the source capability.
     std::vector<int32_t> tokens;
     // Tokenizer special-token behavior.
@@ -348,7 +348,7 @@ TEST_P(InputTest, CompleteDecodePreservesUnicodeAndResetsLeadingSpace) {
     // Exact decoded UTF-8 bytes.
     std::string text;
   };
-  const Case cases[] = {
+  const loom_serve_test_input_case_t cases[] = {
       {{}, 0, ""},
       {{0, 1}, 0, "ab"},
       {{6, 7, 6, 8}, 0, "é 🦜"},

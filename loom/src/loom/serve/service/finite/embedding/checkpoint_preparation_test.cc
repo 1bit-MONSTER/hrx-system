@@ -33,7 +33,7 @@ TEST_F(SourceEmbeddingServiceTest,
   };
   const int resident = Send(R"({"model":"fixture","input":"a"})");
   ASSERT_NO_FATAL_FAILURE(Accept(resident));
-  ModelLifecycle load;
+  loom_serve_test_embedding_model_lifecycle_t load;
   load.service = &interface_;
   iree_status_t status;
   {

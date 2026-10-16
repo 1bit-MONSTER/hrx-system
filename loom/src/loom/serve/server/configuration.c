@@ -13,7 +13,7 @@
 #include "iree/base/internal/unicode.h"
 #include "iree/io/file_contents.h"
 
-typedef struct configuration_field_t {
+typedef struct loom_serve_model_configuration_field_t {
   // Literal model key; escaped keys are rejected.
   const char* name;
   // Required JSON type for this field.
@@ -22,21 +22,21 @@ typedef struct configuration_field_t {
   iree_string_view_t value;
   // Allowed model kinds as bit positions, or zero for common fields.
   uint32_t kinds;
-} configuration_field_t;
+} loom_serve_model_configuration_field_t;
 
-typedef struct configuration_fields_t {
+typedef struct loom_serve_model_configuration_fields_t {
   // Number of mutable declared fields.
   iree_host_size_t count;
   // Borrowed field destinations for this object.
-  configuration_field_t* values;
-} configuration_fields_t;
+  loom_serve_model_configuration_field_t* values;
+} loom_serve_model_configuration_fields_t;
 
 static iree_status_t loom_serve_model_configuration_field_visit(
     void* self, iree_string_view_t key, iree_json_value_type_t type,
     iree_string_view_t value) {
-  configuration_fields_t* fields = self;
+  loom_serve_model_configuration_fields_t* fields = self;
   for (iree_host_size_t i = 0; i < fields->count; ++i) {
-    configuration_field_t* field = &fields->values[i];
+    loom_serve_model_configuration_field_t* field = &fields->values[i];
     if (!iree_string_view_equal(key, iree_make_cstring_view(field->name))) {
       continue;
     }
@@ -54,8 +54,8 @@ static iree_status_t loom_serve_model_configuration_field_visit(
 }
 
 static iree_status_t loom_serve_model_configuration_string(
-    const configuration_field_t* field, iree_allocator_t host_allocator,
-    iree_string_view_t* out_value) {
+    const loom_serve_model_configuration_field_t* field,
+    iree_allocator_t host_allocator, iree_string_view_t* out_value) {
   if (!field->value.size) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "model requires nonempty '%s'", field->name);
@@ -84,8 +84,8 @@ static iree_status_t loom_serve_model_configuration_string(
 }
 
 static iree_status_t loom_serve_model_configuration_size(
-    const configuration_field_t* field, uint64_t minimum, uint64_t maximum,
-    iree_host_size_t* value) {
+    const loom_serve_model_configuration_field_t* field, uint64_t minimum,
+    uint64_t maximum, iree_host_size_t* value) {
   if (!field->value.data) {
     return iree_ok_status();
   }
@@ -102,8 +102,8 @@ static iree_status_t loom_serve_model_configuration_size(
 }
 
 static iree_status_t loom_serve_model_configuration_options(
-    const configuration_field_t* field, iree_allocator_t host_allocator,
-    iree_string_view_t* out_value) {
+    const loom_serve_model_configuration_field_t* field,
+    iree_allocator_t host_allocator, iree_string_view_t* out_value) {
   const iree_string_view_t value =
       field->value.data ? field->value : IREE_SV("{}");
   char* data = NULL;
@@ -118,11 +118,13 @@ static iree_status_t loom_serve_model_configuration_component(
     iree_string_view_t value,
     loom_serve_finite_component_configuration_t* component,
     iree_allocator_t host_allocator) {
-  configuration_field_t fields[] = {{"prepare", IREE_JSON_VALUE_TYPE_STRING},
-                                    {"control", IREE_JSON_VALUE_TYPE_STRING},
-                                    {"assets", IREE_JSON_VALUE_TYPE_STRING},
-                                    {"options", IREE_JSON_VALUE_TYPE_OBJECT}};
-  configuration_fields_t context = {IREE_ARRAYSIZE(fields), fields};
+  loom_serve_model_configuration_field_t fields[] = {
+      {"prepare", IREE_JSON_VALUE_TYPE_STRING},
+      {"control", IREE_JSON_VALUE_TYPE_STRING},
+      {"assets", IREE_JSON_VALUE_TYPE_STRING},
+      {"options", IREE_JSON_VALUE_TYPE_OBJECT}};
+  loom_serve_model_configuration_fields_t context = {IREE_ARRAYSIZE(fields),
+                                                     fields};
   IREE_RETURN_IF_ERROR(iree_json_enumerate_object_typed(
       value, loom_serve_model_configuration_field_visit, &context));
   IREE_RETURN_IF_ERROR(loom_serve_model_configuration_string(
@@ -150,13 +152,13 @@ static iree_status_t loom_serve_model_configuration_source(
     void* self, iree_host_size_t index, iree_json_value_type_t type,
     iree_string_view_t value) {
   loom_serve_model_configuration_t* model = self;
-  configuration_field_t field = {"sources", type, value};
+  loom_serve_model_configuration_field_t field = {"sources", type, value};
   return loom_serve_model_configuration_string(
       &field, model->host_allocator,
       &((iree_string_view_t*)model->sources.values)[index]);
 }
 
-typedef enum definition_field_e {
+typedef enum loom_serve_model_definition_field_e {
   DEFINITION_KIND,
   DEFINITION_PREPARE,
   DEFINITION_CONTROL,
@@ -185,11 +187,11 @@ typedef enum definition_field_e {
   DEFINITION_COMMAND_QUANTUM,
   DEFINITION_VARIANT_CAPACITY,
   DEFINITION_IMAGE,
-} definition_field_t;
+} loom_serve_model_definition_field_t;
 
 static iree_status_t loom_serve_model_configuration_text(
-    const configuration_field_t* fields, loom_serve_text_configuration_t* text,
-    iree_allocator_t host_allocator) {
+    const loom_serve_model_configuration_field_t* fields,
+    loom_serve_text_configuration_t* text, iree_allocator_t host_allocator) {
   *text = (loom_serve_text_configuration_t){.rows = 4,
                                             .context_capacity = 16384,
                                             .pool_capacity = 65536,
@@ -256,7 +258,7 @@ static iree_status_t loom_serve_model_configuration_text(
 }
 
 static iree_status_t loom_serve_model_configuration_image(
-    const configuration_field_t* fields,
+    const loom_serve_model_configuration_field_t* fields,
     loom_serve_image_configuration_t* image, iree_allocator_t host_allocator) {
   IREE_RETURN_IF_ERROR(loom_serve_model_configuration_string(
       &fields[DEFINITION_CHECKPOINT], host_allocator, &image->checkpoint));
@@ -284,7 +286,7 @@ static iree_status_t loom_serve_model_configuration_image(
 static iree_status_t loom_serve_model_configuration_definition_parse(
     iree_string_view_t value, loom_serve_model_configuration_t* model,
     iree_allocator_t host_allocator) {
-  configuration_field_t fields[] = {
+  loom_serve_model_configuration_field_t fields[] = {
       [DEFINITION_KIND] = {"kind", IREE_JSON_VALUE_TYPE_STRING},
       [DEFINITION_PREPARE] = {"prepare", IREE_JSON_VALUE_TYPE_STRING},
       [DEFINITION_CONTROL] = {"control", IREE_JSON_VALUE_TYPE_STRING},
@@ -357,7 +359,8 @@ static iree_status_t loom_serve_model_configuration_definition_parse(
                     (1u << LOOM_SERVE_MODEL_KIND_DECISION)},
       [DEFINITION_IMAGE] = {"image", IREE_JSON_VALUE_TYPE_OBJECT,
                             .kinds = (1u << LOOM_SERVE_MODEL_KIND_TEXT)}};
-  configuration_fields_t context = {IREE_ARRAYSIZE(fields), fields};
+  loom_serve_model_configuration_fields_t context = {IREE_ARRAYSIZE(fields),
+                                                     fields};
   IREE_RETURN_IF_ERROR(iree_json_enumerate_object_typed(
       value, loom_serve_model_configuration_field_visit, &context));
   if (iree_string_view_equal(fields[DEFINITION_KIND].value, IREE_SV("text"))) {
@@ -484,13 +487,14 @@ static iree_status_t loom_serve_model_configuration_model_parse(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "trailing model JSON");
   }
-  configuration_field_t fields[] = {
+  loom_serve_model_configuration_field_t fields[] = {
       {"name", IREE_JSON_VALUE_TYPE_STRING},
       {"definition", IREE_JSON_VALUE_TYPE_OBJECT},
       {"admission", IREE_JSON_VALUE_TYPE_STRING},
       {"base_directory", IREE_JSON_VALUE_TYPE_STRING},
       {"device", IREE_JSON_VALUE_TYPE_NUMBER}};
-  configuration_fields_t context = {IREE_ARRAYSIZE(fields), fields};
+  loom_serve_model_configuration_fields_t context = {IREE_ARRAYSIZE(fields),
+                                                     fields};
   IREE_RETURN_IF_ERROR(iree_json_enumerate_object_typed(
       object, loom_serve_model_configuration_field_visit, &context));
   IREE_RETURN_IF_ERROR(loom_serve_model_configuration_string(

@@ -17,10 +17,10 @@ IREE_FLAG(string, jit_sources, "", "Portable test source catalog.");
 
 namespace loom_serve::testing {
 
-iree_status_t Compilation::Drain(iree_task_process_t* process,
-                                 const iree_task_worker_context_t* context,
-                                 iree_task_process_drain_result_t* result) {
-  auto* self = static_cast<Compilation*>(process->user_data);
+iree_status_t loom_serve_test_compilation_t::Drain(
+    iree_task_process_t* process, const iree_task_worker_context_t* context,
+    iree_task_process_drain_result_t* result) {
+  auto* self = static_cast<loom_serve_test_compilation_t*>(process->user_data);
   loom_serve_execution_release(self->retired_execution);
   self->retired_execution = nullptr;
   auto status = self->direct_dispatch
@@ -36,9 +36,10 @@ iree_status_t Compilation::Drain(iree_task_process_t* process,
   return iree_ok_status();
 }
 
-void Compilation::Complete(void* user_data, iree_status_t status,
-                           loom_serve_jit_stage_t* stage) {
-  auto* self = static_cast<Compilation*>(user_data);
+void loom_serve_test_compilation_t::Complete(void* user_data,
+                                             iree_status_t status,
+                                             loom_serve_jit_stage_t* stage) {
+  auto* self = static_cast<loom_serve_test_compilation_t*>(user_data);
   if (self->retire_catalog) {
     loom_serve_jit_release(self->jit);
     self->jit = nullptr;
@@ -50,21 +51,22 @@ void Compilation::Complete(void* user_data, iree_status_t status,
   self->condition.notify_one();
 }
 
-void Compilation::Release(iree_task_process_t* process) {
-  auto* self = static_cast<Compilation*>(process->user_data);
+void loom_serve_test_compilation_t::Release(iree_task_process_t* process) {
+  auto* self = static_cast<loom_serve_test_compilation_t*>(process->user_data);
   std::lock_guard<std::mutex> lock(self->mutex);
   self->released = true;
   self->condition.notify_one();
 }
 
-void Compilation::Start(iree_task_executor_t* executor) {
+void loom_serve_test_compilation_t::Start(iree_task_executor_t* executor) {
   iree_task_process_initialize(Drain, 0, 1, &process);
   process.user_data = this;
   process.release_fn = Release;
   iree_task_executor_schedule_process(executor, &process);
 }
 
-iree_status_t Compilation::Await(loom_serve_jit_stage_t** out_stage) {
+iree_status_t loom_serve_test_compilation_t::Await(
+    loom_serve_jit_stage_t** out_stage) {
   std::unique_lock<std::mutex> lock(mutex);
   condition.wait(lock, [&] { return compiled && released; });
   *out_stage = stage;
@@ -139,7 +141,7 @@ iree_status_t JitTest::Compile(const char* delta, size_t index,
   const loomc_config_options_t config = {
       bindings, count, {}, LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED};
   loom_serve_jit_stage_t* stage = nullptr;
-  Compilation compilation;
+  loom_serve_test_compilation_t compilation;
   compilation.jit = jit_;
   compilation.root = root;
   compilation.config = &config;

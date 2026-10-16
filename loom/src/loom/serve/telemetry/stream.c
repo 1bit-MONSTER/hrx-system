@@ -16,12 +16,12 @@ enum {
   RECORD_WORDS = sizeof(loom_serve_telemetry_record_t) / sizeof(uint64_t),
 };
 
-typedef struct telemetry_slot_t {
+typedef struct loom_serve_telemetry_slot_t {
   // Odd while being overwritten; even = 2 * (absolute position + 1).
   iree_atomic_uint64_t sequence;
   // Atomic payload prevents a C data race even when a reader loses its slot.
   iree_atomic_uint64_t words[RECORD_WORDS];
-} telemetry_slot_t;
+} loom_serve_telemetry_slot_t;
 
 struct loom_serve_telemetry_stream_t {
   // Allocator owning this object and its contiguous bounded slots.
@@ -35,7 +35,7 @@ struct loom_serve_telemetry_stream_t {
   // Published one-past-last position, independently sampled by consumers.
   iree_atomic_uint64_t head;
   // Fixed-size slots addressed by the low bits of absolute positions.
-  telemetry_slot_t slots[];
+  loom_serve_telemetry_slot_t slots[];
 };
 
 static iree_atomic_uint64_t telemetry_ordinal = IREE_ATOMIC_VAR_INIT(0);
@@ -46,7 +46,7 @@ iree_status_t loom_serve_telemetry_stream_allocate(
   *out_stream = NULL;
   if (!capacity || (capacity & (capacity - 1)) ||
       capacity > (SIZE_MAX - sizeof(loom_serve_telemetry_stream_t)) /
-                     sizeof(telemetry_slot_t)) {
+                     sizeof(loom_serve_telemetry_slot_t)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "telemetry capacity must be a representable power "
                             "of two");
@@ -95,7 +95,8 @@ void loom_serve_telemetry_stream_append(
     const loom_serve_telemetry_record_t* record) {
   const uint64_t position = stream->next++;
   IREE_ASSERT(position < INT64_MAX - 1);
-  telemetry_slot_t* slot = &stream->slots[position & (stream->capacity - 1)];
+  loom_serve_telemetry_slot_t* slot =
+      &stream->slots[position & (stream->capacity - 1)];
   iree_atomic_store(&slot->sequence, position * 2 + 1,
                     iree_memory_order_relaxed);
   for (iree_host_size_t i = 0; i < RECORD_WORDS; ++i) {
@@ -123,7 +124,7 @@ loom_serve_telemetry_read_t loom_serve_telemetry_stream_read(
     *cursor = oldest;
     return LOOM_SERVE_TELEMETRY_READ_GAP;
   }
-  const telemetry_slot_t* slot =
+  const loom_serve_telemetry_slot_t* slot =
       &stream->slots[*cursor & (stream->capacity - 1)];
   const uint64_t sequence = (*cursor + 1) * 2;
   if (iree_atomic_load(&slot->sequence, iree_memory_order_acquire) !=

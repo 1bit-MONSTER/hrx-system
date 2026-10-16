@@ -13,10 +13,11 @@
 
 namespace {
 
-struct Inventory {
+struct loom_serve_test_inspection_inventory_t {
   static bool RequestAt(void* self, iree_host_size_t index,
                         loom_serve_http_request_snapshot_t* out_snapshot) {
-    auto* inventory = static_cast<Inventory*>(self);
+    auto* inventory =
+        static_cast<loom_serve_test_inspection_inventory_t*>(self);
     ++inventory->queries;
     if (index >= 66) {
       return false;
@@ -32,7 +33,8 @@ struct Inventory {
 
   static bool SessionAt(void* self, iree_host_size_t index,
                         loom_serve_http_session_snapshot_t* out_snapshot) {
-    auto* inventory = static_cast<Inventory*>(self);
+    auto* inventory =
+        static_cast<loom_serve_test_inspection_inventory_t*>(self);
     ++inventory->queries;
     if (index) {
       return false;
@@ -68,10 +70,10 @@ TEST(InspectionTest, RejectsSignsEmptyAndOverflowOffsets) {
 }
 
 TEST(InspectionTest, BoundsEmptySlotsAndFormatsPublishedMetadata) {
-  Inventory inventory;
+  loom_serve_test_inspection_inventory_t inventory;
   const loom_serve_http_inspection_t inspection = {
-      .request_at = Inventory::RequestAt,
-      .session_at = Inventory::SessionAt,
+      .request_at = loom_serve_test_inspection_inventory_t::RequestAt,
+      .session_at = loom_serve_test_inspection_inventory_t::SessionAt,
   };
   iree_string_builder_t output;
   iree_string_builder_initialize(iree_allocator_system(), &output);
@@ -108,9 +110,9 @@ TEST(InspectionTest, BoundsEmptySlotsAndFormatsPublishedMetadata) {
 }
 
 TEST(InspectionTest, FormattingFailureStopsQuerying) {
-  Inventory inventory;
+  loom_serve_test_inspection_inventory_t inventory;
   const loom_serve_http_inspection_t inspection = {
-      .session_at = Inventory::SessionAt,
+      .session_at = loom_serve_test_inspection_inventory_t::SessionAt,
   };
   char bytes[16];
   iree_string_builder_t output;

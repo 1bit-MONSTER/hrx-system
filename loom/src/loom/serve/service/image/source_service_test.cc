@@ -572,7 +572,7 @@ TEST_P(SourceImageServiceTest, SelectionWaitsForWholeImageAndEncoderRelease) {
     return std::string(interface.snapshot(interface.self).phase) ==
            "generating";
   }));
-  struct Selection {
+  struct loom_serve_test_image_selection_t {
     // Borrowed live service, accessed only on this serialized owner.
     const loom_serve_http_service_t* interface;
     // Terminal selection publication after the entire invocation retires.
@@ -582,7 +582,8 @@ TEST_P(SourceImageServiceTest, SelectionWaitsForWholeImageAndEncoderRelease) {
       configuration.self, candidate, original,
       [](void* user_data, iree_status_t status,
          loom_serve_variant_id_t selected) {
-        auto* selection = static_cast<Selection*>(user_data);
+        auto* selection =
+            static_cast<loom_serve_test_image_selection_t*>(user_data);
         IREE_EXPECT_OK(status);
         const auto* interface = selection->interface;
         EXPECT_STREQ(interface->snapshot(interface->self).phase, "idle");

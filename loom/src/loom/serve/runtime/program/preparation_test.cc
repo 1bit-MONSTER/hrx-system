@@ -168,13 +168,13 @@ TEST_F(PreparationTest, CheckpointIdentityIncludesEveryFileAndPolicy) {
 }
 
 TEST_F(PreparationTest, InvalidDeclarationsReleasePartialOwnership) {
-  struct Case {
+  struct loom_serve_test_preparation_case_t {
     // Source entry that reaches a public declaration failure.
     const char* entry;
     // Terminal error from the declaration boundary.
     iree_status_code_t code;
   };
-  const Case cases[] = {
+  const loom_serve_test_preparation_case_t cases[] = {
       {"missing_stage", IREE_STATUS_OUT_OF_RANGE},
       {"conflicting_parameter_policy", IREE_STATUS_INVALID_ARGUMENT},
       {"direct_parameter", IREE_STATUS_INVALID_ARGUMENT},

@@ -12,7 +12,7 @@
 #include "iree/base/threading/mutex.h"
 #include "loom/serve/runtime/host/wake.h"
 
-typedef enum http_connection_flag_bits_e {
+typedef enum loom_serve_http_connection_flag_bits_e {
   HTTP_CONNECTION_OCCUPIED = 1u << 0,
   HTTP_CONNECTION_REQUEST_READY = 1u << 1,
   HTTP_CONNECTION_CLAIMED = 1u << 2,
@@ -20,14 +20,14 @@ typedef enum http_connection_flag_bits_e {
   HTTP_CONNECTION_DEACTIVATING = 1u << 4,
   HTTP_CONNECTION_DRAINED = 1u << 5,
   HTTP_CONNECTION_INITIALIZING = 1u << 6,
-} http_connection_flag_bits_t;
-typedef uint32_t http_connection_flags_t;
+} loom_serve_http_connection_flag_bits_t;
+typedef uint32_t loom_serve_http_connection_flags_t;
 
 struct loom_serve_http_connection_t {
   // Borrowed server outliving all callbacks and application claims.
   loom_serve_http_server_t* server;
   // Ownership and completion facts protected by the server mutex.
-  http_connection_flags_t flags;
+  loom_serve_http_connection_flags_t flags;
   // Carrier owns its socket and dedicated registered receive pool.
   iree_net_carrier_t* carrier;
   // Returns exclusive transport resources after carrier retirement/release.
@@ -215,7 +215,8 @@ static bool loom_serve_http_server_drained(void* user_data) {
   iree_slim_mutex_lock(&server->mutex);
   bool drained = true;
   for (iree_host_size_t i = 0; i < server->options.connection_capacity; ++i) {
-    const http_connection_flags_t flags = server->connections[i].flags;
+    const loom_serve_http_connection_flags_t flags =
+        server->connections[i].flags;
     drained &= !flags || iree_any_bit_set(flags, HTTP_CONNECTION_DRAINED);
   }
   iree_slim_mutex_unlock(&server->mutex);
@@ -413,7 +414,7 @@ loom_serve_http_connection_t* loom_serve_http_server_take_request(
   for (iree_host_size_t i = 0; i < server->options.connection_capacity; ++i) {
     loom_serve_http_connection_t* connection = &server->connections[i];
     iree_slim_mutex_lock(&server->mutex);
-    const http_connection_flags_t flags = connection->flags;
+    const loom_serve_http_connection_flags_t flags = connection->flags;
     const bool reclaim =
         iree_any_bit_set(flags, HTTP_CONNECTION_DRAINED) &&
         !iree_any_bit_set(

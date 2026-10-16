@@ -10,14 +10,14 @@
 
 #include "loom/serve/media/image_request.h"
 
-typedef struct media_image_t {
+typedef struct loom_serve_text_media_image_t {
   // Owned cohort reference, independent of producer parameter residency.
   loom_serve_finite_result_t* result;
   // Original image ordinal in that cohort, including cancelled peers.
   uint32_t result_index;
   // A preparation-window job owns this occurrence until publication/removal.
   bool selected;
-} media_image_t;
+} loom_serve_text_media_image_t;
 
 struct loom_serve_text_media_request_t {
   // Allocator for this single request allocation.
@@ -25,7 +25,7 @@ struct loom_serve_text_media_request_t {
   // Borrowed immutable pending chat, accessed only before language admission.
   const loom_serve_text_chat_t* chat;
   // One owned result reference per original image occurrence.
-  media_image_t* images;
+  loom_serve_text_media_image_t* images;
   // Sorted source input spans rebuilt when retained input coordinates change.
   loom_serve_text_media_input_span_t* spans;
   // Number of allocated image/coordinate records.
@@ -46,7 +46,8 @@ iree_status_t loom_serve_text_media_request_allocate(
   iree_host_size_t length = 0, images_offset = 0, spans_offset = 0;
   IREE_RETURN_IF_ERROR(IREE_STRUCT_LAYOUT(
       sizeof(loom_serve_text_media_request_t), &length,
-      IREE_STRUCT_FIELD(chat->images.count, media_image_t, &images_offset),
+      IREE_STRUCT_FIELD(chat->images.count, loom_serve_text_media_image_t,
+                        &images_offset),
       IREE_STRUCT_FIELD(chat->images.count, loom_serve_text_media_input_span_t,
                         &spans_offset)));
   uint8_t* storage = NULL;
@@ -80,7 +81,7 @@ bool loom_serve_text_media_request_bind(
     const uint32_t index = span->image_index;
     const loom_serve_text_chat_image_t* image =
         &request->chat->images.values[index];
-    const media_image_t* projected = &request->images[index];
+    const loom_serve_text_media_image_t* projected = &request->images[index];
     const iree_host_size_t position = request->input.span_count++;
     if (!position) {
       request->first_image = index;
@@ -135,7 +136,8 @@ void loom_serve_text_media_request_consume(
     if ((iree_host_size_t)span->input_offset + span->input_count > consumed) {
       break;
     }
-    media_image_t* image = &request->images[request->first_image++];
+    loom_serve_text_media_image_t* image =
+        &request->images[request->first_image++];
     loom_serve_finite_result_release(image->result);
     image->result = NULL;
     ++request->input.spans;
@@ -154,7 +156,7 @@ void loom_serve_text_media_request_free(
   iree_allocator_free(request->host_allocator, request);
 }
 
-typedef struct media_job_t {
+typedef struct loom_serve_text_media_job_t {
   // Borrowed request until publication/cancellation; CPU decode borrows chat.
   loom_serve_text_media_request_t* request;
   // Original image occurrence, independent of input-coordinate changes.
@@ -169,9 +171,9 @@ typedef struct media_job_t {
   loom_serve_finite_prepared_t prepared;
   // CPU-produced per-image status, consumed after the CPU borrow retires.
   iree_status_t status;
-} media_job_t;
+} loom_serve_text_media_job_t;
 
-typedef enum media_phase_e {
+typedef enum loom_serve_text_media_phase_e {
   MEDIA_GATHER = 0,
   MEDIA_PREPARING,
   MEDIA_PREPARED,
@@ -179,7 +181,7 @@ typedef enum media_phase_e {
   MEDIA_WAITING,
   MEDIA_RUNNING,
   MEDIA_FAILED,
-} media_phase_t;
+} loom_serve_text_media_phase_t;
 
 struct loom_serve_text_media_projector_t {
   // Allocator owning this single bounded window allocation.
@@ -189,7 +191,7 @@ struct loom_serve_text_media_projector_t {
   // Independent publication channels, never serialized behind text readiness.
   loom_serve_text_readiness_t readiness;
   // Exclusive producer/VM phase.
-  media_phase_t phase;
+  loom_serve_text_media_phase_t phase;
   // Maximum image occurrences in one host preparation window.
   iree_host_size_t capacity;
   // Exact decoded packet bytes selected into the gathering window.
@@ -197,9 +199,9 @@ struct loom_serve_text_media_projector_t {
   // Populated window extent, retaining holes until the window drains.
   iree_host_size_t count;
   // Stable image records across source preparation and cohort execution.
-  media_job_t* jobs;
+  loom_serve_text_media_job_t* jobs;
   // Selected compatible cohort, or valid codec inputs during CPU preparation.
-  media_job_t** cohort;
+  loom_serve_text_media_job_t** cohort;
   // Number of selected source requests.
   iree_host_size_t cohort_count;
   // Contiguous codec descriptors borrowing the selected jobs.
@@ -228,8 +230,8 @@ iree_status_t loom_serve_text_media_projector_allocate(
                    prepared_offset = 0, rows_offset = 0;
   IREE_RETURN_IF_ERROR(IREE_STRUCT_LAYOUT(
       sizeof(loom_serve_text_media_projector_t), &length,
-      IREE_STRUCT_FIELD(capacity, media_job_t, &jobs_offset),
-      IREE_STRUCT_FIELD(capacity, media_job_t*, &cohort_offset),
+      IREE_STRUCT_FIELD(capacity, loom_serve_text_media_job_t, &jobs_offset),
+      IREE_STRUCT_FIELD(capacity, loom_serve_text_media_job_t*, &cohort_offset),
       IREE_STRUCT_FIELD(capacity, loom_serve_media_image_request_t,
                         &requests_offset),
       IREE_STRUCT_FIELD(capacity, iree_vm_buffer_t*, &packets_offset),
@@ -274,7 +276,7 @@ bool loom_serve_text_media_projector_offer(
       loom_serve_finite_model_input_capacity(projector->model);
   for (iree_host_size_t i = 0; i < request->input.span_count; ++i) {
     const uint32_t index = (uint32_t)(request->first_image + i);
-    media_image_t* projected = &request->images[index];
+    loom_serve_text_media_image_t* projected = &request->images[index];
     if (projected->result || projected->selected) {
       continue;
     }
@@ -292,7 +294,7 @@ bool loom_serve_text_media_projector_offer(
                               length > budget - projector->packet_bytes))) {
       return false;
     }
-    projector->jobs[projector->count++] = (media_job_t){
+    projector->jobs[projector->count++] = (loom_serve_text_media_job_t){
         .request = request,
         .image_index = index,
         .rows = image->feature_count,
@@ -307,7 +309,7 @@ static iree_status_t loom_serve_text_media_projector_prepare(void* user_data) {
   loom_serve_text_media_projector_t* projector = user_data;
   iree_host_size_t valid_count = 0;
   for (iree_host_size_t i = 0; i < projector->count; ++i) {
-    media_job_t* job = &projector->jobs[i];
+    loom_serve_text_media_job_t* job = &projector->jobs[i];
     if (!job->request) {
       continue;
     }
@@ -334,7 +336,7 @@ static iree_status_t loom_serve_text_media_projector_prepare(void* user_data) {
       valid_count, projector->requests, projector->host_allocator,
       projector->packets, projector->statuses);
   for (iree_host_size_t i = 0; i < valid_count; ++i) {
-    media_job_t* job = projector->cohort[i];
+    loom_serve_text_media_job_t* job = projector->cohort[i];
     job->packet = projector->packets[i];
     job->status = projector->statuses[i];
     loom_serve_media_image_input_deinitialize(&job->input);
@@ -370,7 +372,7 @@ bool loom_serve_text_media_projector_cancel(
     return true;
   }
   for (iree_host_size_t i = 0; i < projector->count; ++i) {
-    media_job_t* job = &projector->jobs[i];
+    loom_serve_text_media_job_t* job = &projector->jobs[i];
     if (job->request != request) {
       continue;
     }
@@ -399,7 +401,8 @@ bool loom_serve_text_media_projector_borrows(
   return false;
 }
 
-static void loom_serve_text_media_job_release(media_job_t* job) {
+static void loom_serve_text_media_job_release(
+    loom_serve_text_media_job_t* job) {
   if (job->request) {
     job->request->images[job->image_index].selected = false;
     job->request->status = iree_status_join(job->request->status, job->status);
@@ -423,7 +426,7 @@ static void loom_serve_text_media_projector_select(
   uint64_t tag = 0;
   projector->cohort_count = 0;
   for (iree_host_size_t i = 0; i < projector->count; ++i) {
-    media_job_t* job = &projector->jobs[i];
+    loom_serve_text_media_job_t* job = &projector->jobs[i];
     if (!job->request || !iree_status_is_ok(job->request->status)) {
       loom_serve_text_media_job_release(job);
       continue;
@@ -468,11 +471,12 @@ static iree_status_t loom_serve_text_media_projector_submit(
   IREE_RETURN_IF_ERROR(
       loom_serve_finite_model_submit(projector->model, &result, &ready));
   for (iree_host_size_t i = 0; i < projector->cohort_count; ++i) {
-    media_job_t* job = projector->cohort[i];
+    loom_serve_text_media_job_t* job = projector->cohort[i];
     if (!job->request) {
       continue;
     }
-    media_image_t* image = &job->request->images[job->image_index];
+    loom_serve_text_media_image_t* image =
+        &job->request->images[job->image_index];
     loom_serve_finite_result_retain(result);
     image->result = result;
     image->result_index = (uint32_t)i;
@@ -516,7 +520,8 @@ const char* loom_serve_text_media_projector_phase(
 // Request-owned input/source preparation failures do not poison the language
 // model. A failure with no remaining requester still propagates to the owner.
 static iree_status_t loom_serve_text_media_projector_reject(
-    iree_host_size_t count, media_job_t* const* jobs, iree_status_t status) {
+    iree_host_size_t count, loom_serve_text_media_job_t* const* jobs,
+    iree_status_t status) {
   loom_serve_text_media_request_t* first = NULL;
   for (iree_host_size_t i = 0; i < count; ++i) {
     loom_serve_text_media_request_t* request = jobs[i]->request;
@@ -614,7 +619,7 @@ iree_status_t loom_serve_text_media_projector_advance(
                  !iree_any_bit_set(
                      flags, LOOM_SERVE_HTTP_SERVICE_FLAG_SHARED_ACTIVITY)) {
         for (iree_host_size_t i = 0; i < projector->cohort_count; ++i) {
-          media_job_t* job = projector->cohort[i];
+          loom_serve_text_media_job_t* job = projector->cohort[i];
           if (job->request) {
             job->status =
                 iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,

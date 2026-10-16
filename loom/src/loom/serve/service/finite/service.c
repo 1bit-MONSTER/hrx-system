@@ -16,7 +16,7 @@
 #include "loom/serve/service/finite/result.h"
 #include "loom/util/json.h"
 
-typedef struct finite_job_t {
+typedef struct loom_serve_finite_job_t {
   // Immutable monotonic receipt time, preserved through every cohort phase.
   iree_time_t arrival_time;
   // Monotonic request lifetime ID; never reused with a queue slot.
@@ -43,16 +43,16 @@ typedef struct finite_job_t {
   iree_const_byte_span_t* rows;
   // Owned complete response, copied into transport before recycling the cohort.
   iree_string_builder_t response;
-} finite_job_t;
+} loom_serve_finite_job_t;
 
-typedef enum finite_phase_e {
+typedef enum loom_serve_finite_phase_e {
   FINITE_IDLE = 0,
   FINITE_PREPARING,
   FINITE_BATCHING,
   FINITE_WAITING,
   FINITE_RUNNING,
   FINITE_ENCODING,
-} finite_phase_t;
+} loom_serve_finite_phase_t;
 
 static const char finite_phases[][16] = {"idle",    "preparing", "batching",
                                          "waiting", "running",   "encoding"};
@@ -77,15 +77,15 @@ struct loom_serve_finite_service_t {
   // Borrowed host proactor for device dependency readiness.
   iree_async_proactor_t* proactor;
   // Scheduler-owned exclusive model invocation phase.
-  finite_phase_t phase;
+  loom_serve_finite_phase_t phase;
   // Stops new work while accepted CPU/device obligations retire.
   bool stopping;
   // Pending jobs in FIFO order; arrivals do not alter a live CPU snapshot.
-  finite_job_t** pending;
+  loom_serve_finite_job_t** pending;
   // Number of pending jobs.
   iree_host_size_t pending_count;
   // Stable CPU preparation snapshot or selected device cohort.
-  finite_job_t** cohort;
+  loom_serve_finite_job_t** cohort;
   // Number of live entries in cohort.
   iree_host_size_t cohort_count;
   // Contiguous source request arguments captured for batch preparation.
@@ -262,7 +262,7 @@ static iree_status_t loom_serve_finite_decline(
 }
 
 static void loom_serve_finite_job_destroy(loom_serve_finite_service_t* service,
-                                          finite_job_t* job,
+                                          loom_serve_finite_job_t* job,
                                           const iree_status_t terminal_status) {
   if (job->connection) {
     loom_serve_http_connection_abort(job->connection);
@@ -316,7 +316,7 @@ static iree_status_t loom_serve_finite_cpu_run(
   iree_status_t status = iree_ok_status();
   for (iree_host_size_t i = 0;
        i < service->cohort_count && iree_status_is_ok(status); ++i) {
-    finite_job_t* job = service->cohort[i];
+    loom_serve_finite_job_t* job = service->cohort[i];
     IREE_TRACE_ZONE_APPEND_VALUE_I64(z0, job->id);
     if (service->phase == FINITE_PREPARING) {
       if (job->prepared.bytes) {
@@ -381,7 +381,7 @@ static void loom_serve_finite_cpu_released(iree_task_process_t* process) {
 }
 
 static void loom_serve_finite_schedule_cpu(loom_serve_finite_service_t* service,
-                                           finite_phase_t phase) {
+                                           loom_serve_finite_phase_t phase) {
   service->phase = phase;
   iree_task_process_initialize(loom_serve_finite_cpu_run, 0, 1,
                                &service->process);
@@ -448,7 +448,7 @@ static iree_status_t loom_serve_finite_prepared(
   iree_status_t status = iree_ok_status();
   iree_host_size_t retained = 0;
   for (iree_host_size_t i = 0; i < service->cohort_count; ++i) {
-    finite_job_t* job = service->cohort[i];
+    loom_serve_finite_job_t* job = service->cohort[i];
     if (!iree_status_is_ok(job->status) || !job->connection ||
         service->stopping) {
       if (!iree_status_is_ok(job->status)) {
@@ -485,7 +485,7 @@ static void loom_serve_finite_select(loom_serve_finite_service_t* service) {
   const uint64_t tag = service->pending[0]->prepared.tag;
   iree_host_size_t retained = 0;
   for (iree_host_size_t i = 0; i < service->pending_count; ++i) {
-    finite_job_t* job = service->pending[i];
+    loom_serve_finite_job_t* job = service->pending[i];
     if (job->prepared.bytes && job->prepared.tag == tag &&
         job->prepared.units <= remaining) {
       remaining -= job->prepared.units;
@@ -544,7 +544,7 @@ static bool loom_serve_finite_request_at(
     void* self, iree_host_size_t index,
     loom_serve_http_request_snapshot_t* out_snapshot) {
   const loom_serve_finite_service_t* service = self;
-  const finite_job_t* job = NULL;
+  const loom_serve_finite_job_t* job = NULL;
   const char* phase = "queued";
   if (index < service->pending_count) {
     job = service->pending[index];
@@ -569,7 +569,7 @@ static void loom_serve_finite_cancel_peers(
     loom_serve_finite_service_t* service) {
   iree_host_size_t retained = 0;
   for (iree_host_size_t i = 0; i < service->pending_count; ++i) {
-    finite_job_t* job = service->pending[i];
+    loom_serve_finite_job_t* job = service->pending[i];
     if (service->stopping ||
         loom_serve_http_connection_failed(job->connection)) {
       loom_serve_finite_job_destroy(service, job, iree_ok_status());
@@ -579,7 +579,7 @@ static void loom_serve_finite_cancel_peers(
   }
   service->pending_count = retained;
   for (iree_host_size_t i = 0; i < service->cohort_count; ++i) {
-    finite_job_t* job = service->cohort[i];
+    loom_serve_finite_job_t* job = service->cohort[i];
     if (job->connection &&
         (service->stopping ||
          loom_serve_http_connection_failed(job->connection))) {
@@ -602,7 +602,7 @@ static void loom_serve_finite_complete_execution(
                                 ++service->telemetry.counters.batches);
   iree_host_size_t retained = 0;
   for (iree_host_size_t i = 0; i < service->cohort_count; ++i) {
-    finite_job_t* job = service->cohort[i];
+    loom_serve_finite_job_t* job = service->cohort[i];
     job->input_tokens =
         loom_serve_finite_snapshot_input_tokens(service->snapshot, i);
     service->telemetry.counters.input_tokens += job->input_tokens;
@@ -658,7 +658,7 @@ static iree_status_t loom_serve_finite_collect(
     loom_serve_finite_complete_execution(service);
   } else {
     for (iree_host_size_t i = 0; i < service->cohort_count; ++i) {
-      finite_job_t* job = service->cohort[i];
+      loom_serve_finite_job_t* job = service->cohort[i];
       if (job->connection) {
         job->outcome = loom_serve_finite_send(
             job->connection, iree_string_builder_view(&job->response),
@@ -712,7 +712,7 @@ static iree_status_t loom_serve_finite_advance(
                  !iree_any_bit_set(
                      flags, LOOM_SERVE_HTTP_SERVICE_FLAG_SHARED_ACTIVITY)) {
         for (iree_host_size_t i = 0; i < service->cohort_count; ++i) {
-          finite_job_t* job = service->cohort[i];
+          loom_serve_finite_job_t* job = service->cohort[i];
           job->outcome = LOOM_SERVE_TELEMETRY_REJECTED;
           if (job->connection) {
             status = iree_status_join(
@@ -788,11 +788,12 @@ static iree_status_t loom_serve_finite_accept(
                                      "503 Service Unavailable",
                                      IREE_SV("finite admission queue is full"));
   }
-  finite_job_t* job = NULL;
-  iree_status_t status = iree_allocator_malloc(
-      service->host_allocator,
-      iree_sizeof_struct(finite_job_t) + service->protocol->request_size,
-      (void**)&job);
+  loom_serve_finite_job_t* job = NULL;
+  iree_status_t status =
+      iree_allocator_malloc(service->host_allocator,
+                            iree_sizeof_struct(loom_serve_finite_job_t) +
+                                service->protocol->request_size,
+                            (void**)&job);
   if (!iree_status_is_ok(status)) {
     loom_serve_http_connection_abort(connection);
     loom_serve_finite_request_end(service, id, arrival_time, 0,
@@ -803,9 +804,9 @@ static iree_status_t loom_serve_finite_accept(
   job->id = id;
   job->arrival_time = arrival_time;
   job->outcome = LOOM_SERVE_TELEMETRY_CANCELLED;
-  job->request =
-      (loom_serve_finite_request_t*)((uint8_t*)job +
-                                     iree_sizeof_struct(finite_job_t));
+  job->request = (loom_serve_finite_request_t*)((uint8_t*)job +
+                                                iree_sizeof_struct(
+                                                    loom_serve_finite_job_t));
   job->connection = connection;
   iree_string_builder_initialize(service->host_allocator, &job->response);
   char* body = NULL;

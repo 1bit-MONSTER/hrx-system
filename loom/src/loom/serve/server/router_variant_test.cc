@@ -10,12 +10,12 @@
 namespace {
 
 using loom_serve::testing::HttpRouterTest;
-using loom_serve::testing::ModelService;
+using loom_serve::testing::loom_serve_test_model_service_t;
 
 // Only compiler/device readiness is controlled here. Real transport, routing,
 // registry retirement and variant ownership must handle every intervening
 // request while these dependencies remain outstanding.
-struct VariantDependency : ModelService {
+struct loom_serve_test_variant_dependency_t : loom_serve_test_model_service_t {
   // Real cache, accessed only by the serving owner except producer completion.
   loom_serve_variant_pool_t* variants = nullptr;
   // Acquired policy choice; its lifetime belongs to the dependency.
@@ -50,22 +50,25 @@ struct VariantDependency : ModelService {
     bool started = false;
   } selection;
 
-  static VariantDependency* From(void* self) {
-    return static_cast<VariantDependency*>(static_cast<ModelService*>(self));
+  static loom_serve_test_variant_dependency_t* From(void* self) {
+    return static_cast<loom_serve_test_variant_dependency_t*>(
+        static_cast<loom_serve_test_model_service_t*>(self));
   }
   static void SetObserver(void* self, loom_serve_wake_callback_t observer) {
-    ModelService::SetObserver(self, observer);
+    loom_serve_test_model_service_t::SetObserver(self, observer);
     loom_serve_variant_pool_set_observer(From(self)->variants, observer);
   }
   static bool IsPending(void* self) {
     auto* dependency = From(self);
-    return ModelService::IsPending(self) || dependency->selection.entry ||
+    return loom_serve_test_model_service_t::IsPending(self) ||
+           dependency->selection.entry ||
            loom_serve_variant_pool_pending(dependency->variants);
   }
   static iree_status_t Advance(void* self,
                                loom_serve_http_service_flags_t flags,
                                bool* out_progress) {
-    IREE_RETURN_IF_ERROR(ModelService::Advance(self, flags, out_progress));
+    IREE_RETURN_IF_ERROR(
+        loom_serve_test_model_service_t::Advance(self, flags, out_progress));
     auto* dependency = From(self);
     *out_progress |= loom_serve_variant_pool_collect(dependency->variants);
     std::lock_guard<std::mutex> lock(dependency->mutex);
@@ -91,7 +94,7 @@ struct VariantDependency : ModelService {
   static iree_status_t Stage(void* self, loom_serve_variant_id_t base,
                              const loom_serve_sources_t* sources,
                              loom_serve_variant_id_t* out_id) {
-    auto* dependency = static_cast<VariantDependency*>(self);
+    auto* dependency = static_cast<loom_serve_test_variant_dependency_t*>(self);
     loom_serve_variant_entry_t* entry = nullptr;
     IREE_RETURN_IF_ERROR(
         loom_serve_variant_pool_begin(dependency->variants, base, &entry));
@@ -109,13 +112,13 @@ struct VariantDependency : ModelService {
   }
   static uint64_t Selected(void* self) {
     return loom_serve_variant_entry_id(
-        static_cast<VariantDependency*>(self)->selected);
+        static_cast<loom_serve_test_variant_dependency_t*>(self)->selected);
   }
   static iree_status_t Select(void* self, loom_serve_variant_id_t id,
                               loom_serve_variant_id_t expected,
                               loom_serve_variant_selection_fn_t completion,
                               void* user_data) {
-    auto* dependency = static_cast<VariantDependency*>(self);
+    auto* dependency = static_cast<loom_serve_test_variant_dependency_t*>(self);
     if (expected != Selected(self) || dependency->selection.entry) {
       return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                               "selection conflict");
@@ -131,7 +134,7 @@ struct VariantDependency : ModelService {
   static iree_status_t Prepare(void* self, bool cancel, bool* out_complete,
                                loom_serve_http_service_t* out_service,
                                loom_serve_compilation_report_t* out_report) {
-    auto* dependency = static_cast<VariantDependency*>(self);
+    auto* dependency = static_cast<loom_serve_test_variant_dependency_t*>(self);
     *out_complete = true;
     if (cancel) {
       return iree_make_status(IREE_STATUS_CANCELLED, "preparation cancelled");
@@ -146,8 +149,9 @@ struct VariantDependency : ModelService {
     return iree_ok_status();
   }
   static iree_status_t Retire(void* self, bool* out_complete) {
-    auto* dependency = static_cast<VariantDependency*>(self);
-    EXPECT_FALSE(IsPending(static_cast<ModelService*>(dependency)));
+    auto* dependency = static_cast<loom_serve_test_variant_dependency_t*>(self);
+    EXPECT_FALSE(
+        IsPending(static_cast<loom_serve_test_model_service_t*>(dependency)));
     loom_serve_variant_entry_release(dependency->selected);
     dependency->selected = nullptr;
     loom_serve_variant_pool_free(dependency->variants);
@@ -156,14 +160,14 @@ struct VariantDependency : ModelService {
     return iree_ok_status();
   }
   static void Destroy(void* self) {
-    ++static_cast<VariantDependency*>(self)->destroyed;
+    ++static_cast<loom_serve_test_variant_dependency_t*>(self)->destroyed;
   }
   static iree_status_t Create(
       void* self, const loom_serve_model_configuration_t* configuration,
       loom_serve_wake_callback_t observer,
       loom_serve_telemetry_stream_t* stream, iree_allocator_t host_allocator,
       loom_serve_registration_t* out_registration) {
-    auto* dependency = static_cast<VariantDependency*>(self);
+    auto* dependency = static_cast<loom_serve_test_variant_dependency_t*>(self);
     IREE_RETURN_IF_ERROR(loom_serve_variant_pool_allocate(
         8, nullptr, [](void* value) {}, host_allocator, &dependency->selected,
         &dependency->variants));
@@ -214,7 +218,7 @@ class HttpRouterVariantTest : public HttpRouterTest {
         .self = &model_,
         .kinds = 1u << LOOM_SERVE_MODEL_KIND_EMBEDDING,
         .device_count = 1,
-        .create = VariantDependency::Create,
+        .create = loom_serve_test_variant_dependency_t::Create,
     };
     HttpRouterTest::SetUp();
   }
@@ -263,7 +267,7 @@ class HttpRouterVariantTest : public HttpRouterTest {
     FAIL() << "Server stopped before registration retirement was observed";
   }
   // Dependencies outlive the joined serving owner, including teardown failure.
-  VariantDependency model_;
+  loom_serve_test_variant_dependency_t model_;
 };
 
 TEST_P(HttpRouterVariantTest, UnregisterRetiresReadersBeforeCompilerOwnership) {

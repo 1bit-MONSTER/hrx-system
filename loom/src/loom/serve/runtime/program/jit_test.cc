@@ -22,8 +22,8 @@ IREE_FLAG(string, invalid_sources, "", "Malformed source catalog.");
 
 namespace {
 
-using loom_serve::testing::Compilation;
 using loom_serve::testing::JitTest;
+using loom_serve::testing::loom_serve_test_compilation_t;
 
 // A real compiler allocation boundary, not a mocked compiler or task sink.
 // Holding the first allocations proves distinct parents have entered compiler
@@ -98,7 +98,7 @@ class JitConcurrentTest : public JitTest {
 void JitConcurrentTest::CheckConcurrent(bool direct_dispatch) {
   const loomc_config_options_t config = {
       nullptr, 0, {}, LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED};
-  struct Result {
+  struct loom_serve_test_jit_result_t {
     // Joins callback publication before the outer test consumes its output.
     std::mutex mutex;
     // Outer-thread completion notification.
@@ -130,7 +130,7 @@ void JitConcurrentTest::CheckConcurrent(bool direct_dispatch) {
         jit_, roots[i], &config,
         [](void* payload, iree_status_t outcome,
            loom_serve_jit_stage_t* stage) {
-          auto* result = static_cast<Result*>(payload);
+          auto* result = static_cast<loom_serve_test_jit_result_t*>(payload);
           std::lock_guard<std::mutex> lock(result->mutex);
           result->status = outcome;
           result->stage = stage;
@@ -230,13 +230,13 @@ INSTANTIATE_TEST_SUITE_P(SharedWorkers, JitConcurrentTest,
                          ::testing::Values(1, 4));
 
 TEST_P(JitTest, VmLibrariesPreserveMissingPrivateAndDuplicateDiagnostics) {
-  struct Case {
+  struct loom_serve_test_jit_case_t {
     // Entry source supplying the VM root.
     iree_string_view_t entry;
     // Number of identical library entries to supply.
     iree_host_size_t library_count;
   };
-  const Case cases[] = {
+  const loom_serve_test_jit_case_t cases[] = {
       {IREE_SV("control.loom"), 0},
       {IREE_SV("private_vm_helper.loom"), 1},
       {IREE_SV("control.loom"), 2},
@@ -331,7 +331,7 @@ TEST_P(JitTest, CompletedCatalogsRetireWithoutClosingSharedCompilerQueue) {
                                        &peer));
   const loomc_config_options_t config = {
       nullptr, 0, {}, LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED};
-  Compilation jobs[2];
+  loom_serve_test_compilation_t jobs[2];
   jobs[0].jit = jit_;
   jobs[0].root = IREE_SV("selected_pair");
   jobs[1].jit = peer;
@@ -401,7 +401,7 @@ TEST_P(JitTest, InvalidConfigurationLeavesCompilerReusable) {
 TEST_P(JitTest, FailedParentRetiresCatalogAfterAcceptedNativeTasks) {
   const loomc_config_options_t config = {
       nullptr, 0, {}, LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED};
-  Compilation job;
+  loom_serve_test_compilation_t job;
   job.jit = jit_;
   job.root = IREE_SV("invalid_argument");
   job.config = &config;

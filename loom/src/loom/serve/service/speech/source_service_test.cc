@@ -565,7 +565,7 @@ TEST_P(SourceSpeechServiceTest, RejectionAndCancellationPreserveReusableModel) {
 }
 
 TEST_P(SourceSpeechServiceTest, CohortsPreserveIndependentResidentProgress) {
-  struct Request {
+  struct loom_serve_test_speech_request_t {
     // Source handle owns one stable row until completion or cancellation.
     void* invocation = nullptr;
     // Copied waveform survives cohort feedback reuse.
@@ -964,7 +964,7 @@ TEST_P(SourceSpeechServiceTest,
 // waits, CPU tasks, TCP credit and service retirement remain production paths.
 class SpeechReadinessTest : public ::testing::Test {
  protected:
-  struct Invocation {
+  struct loom_serve_test_speech_invocation_t {
     // Stable row retained independently of its ordinal in the current cohort.
     size_t row = 0;
     // Source cursor advances only after retired feedback collection.
@@ -1014,7 +1014,8 @@ class SpeechReadinessTest : public ::testing::Test {
             [](void* self, iree_host_size_t row,
                const loom_serve_speech_request_t* request, void** out) {
               auto* test = static_cast<SpeechReadinessTest*>(self);
-              auto invocation = std::make_unique<Invocation>();
+              auto invocation =
+                  std::make_unique<loom_serve_test_speech_invocation_t>();
               invocation->row = row;
               invocation->blocks = iree_string_builder_size(&request->input);
               invocation->input.resize(test->frames_ * 4);
@@ -1037,7 +1038,10 @@ class SpeechReadinessTest : public ::testing::Test {
         .discard =
             [](void* self, void* invocation) {
               static_cast<SpeechReadinessTest*>(self)
-                  ->invocations_[static_cast<Invocation*>(invocation)->row]
+                  ->invocations_
+                      [static_cast<loom_serve_test_speech_invocation_t*>(
+                           invocation)
+                           ->row]
                   .reset();
             },
         .try_admit =
@@ -1060,7 +1064,8 @@ class SpeechReadinessTest : public ::testing::Test {
               test->batch_.clear();
               for (size_t i = 0; i < count; ++i) {
                 test->batch_.push_back(
-                    static_cast<Invocation*>(invocations[i]));
+                    static_cast<loom_serve_test_speech_invocation_t*>(
+                        invocations[i]));
               }
               return iree_ok_status();
             },
@@ -1097,8 +1102,10 @@ class SpeechReadinessTest : public ::testing::Test {
             [](void* self, void* invocation, bool* out_complete,
                loom_serve_execution_frontier_t* out_frontier) {
               auto* test = static_cast<SpeechReadinessTest*>(self);
-              test->invocations_[static_cast<Invocation*>(invocation)->row]
-                  .reset();
+              test->invocations_
+                  [static_cast<loom_serve_test_speech_invocation_t*>(invocation)
+                       ->row]
+                      .reset();
               ++test->released_;
               test->http_.Notify();
               *out_complete = true;
@@ -1398,9 +1405,10 @@ class SpeechReadinessTest : public ::testing::Test {
   // Minimum cohort size importing the held dependency.
   size_t held_members_ = 1;
   // Model-owned rows; terminal failures leave them here for actual teardown.
-  std::array<std::unique_ptr<Invocation>, 4> invocations_;
+  std::array<std::unique_ptr<loom_serve_test_speech_invocation_t>, 4>
+      invocations_;
   // Original selected ordinals survive cancellation and feedback collection.
-  std::vector<Invocation*> batch_;
+  std::vector<loom_serve_test_speech_invocation_t*> batch_;
   // Accepted work per resident row, published without exposing source cursors.
   std::array<std::atomic<uint64_t>, 4> row_submitted_ = {};
   // Largest accepted cohort, independent of request completion order.

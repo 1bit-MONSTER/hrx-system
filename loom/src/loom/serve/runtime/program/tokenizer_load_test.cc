@@ -153,7 +153,7 @@ void TokenizerLoadTest::CheckSingleWorker() {
   loom_serve_host_t* host = nullptr;
   IREE_ASSERT_OK(
       loom_serve_host_create(1, nullptr, iree_allocator_system(), &host));
-  struct Parent {
+  struct loom_serve_test_tokenizer_load_parent_t {
     // Intrusive shared-worker task.
     loomc_task_t task;
     // Shared sink also used by the child.
@@ -170,7 +170,8 @@ void TokenizerLoadTest::CheckSingleWorker() {
   iree_notification_initialize(&parent.notification);
   const loomc_task_vtable_t vtable = {
       [](loomc_task_t* task, loomc_host_size_t worker_ordinal) {
-        auto* parent = reinterpret_cast<Parent*>(task);
+        auto* parent =
+            reinterpret_cast<loom_serve_test_tokenizer_load_parent_t*>(task);
         auto* test = parent->test;
         test->status_ = loom_serve_tokenizer_load_start(
             parent->sink, &test->sources_, IREE_SV("tokenizer.json"),
@@ -181,7 +182,8 @@ void TokenizerLoadTest::CheckSingleWorker() {
             &parent->notification, iree_allocator_system(), &test->load_);
       },
       [](loomc_task_t* task) {
-        auto* parent = reinterpret_cast<Parent*>(task);
+        auto* parent =
+            reinterpret_cast<loom_serve_test_tokenizer_load_parent_t*>(task);
         parent->retired.store(true, std::memory_order_release);
         iree_notification_post(&parent->notification, IREE_ALL_WAITERS);
       }};
@@ -191,8 +193,8 @@ void TokenizerLoadTest::CheckSingleWorker() {
   iree_notification_await(
       &parent.notification,
       [](void* data) {
-        return static_cast<Parent*>(data)->retired.load(
-            std::memory_order_acquire);
+        return static_cast<loom_serve_test_tokenizer_load_parent_t*>(data)
+            ->retired.load(std::memory_order_acquire);
       },
       &parent, iree_infinite_timeout());
   iree_notification_await(

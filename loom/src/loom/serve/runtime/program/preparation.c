@@ -17,7 +17,7 @@
 #include "loom/serve/runtime/program/parameter_layout.h"
 #include "loom/serve/runtime/program/program.h"
 
-typedef struct preparation_stage_t {
+typedef struct loom_serve_preparation_stage_storage_t {
   // Public declaration; its array pointers refer to the owned storage below.
   loom_serve_preparation_stage_t declaration;
   // Allocated compiler-binding capacity.
@@ -30,7 +30,7 @@ typedef struct preparation_stage_t {
   loom_serve_preparation_parameter_t* parameters;
   // Allocated path-list capacity for each parameter declaration.
   iree_host_size_t* path_capacities;
-} preparation_stage_t;
+} loom_serve_preparation_stage_storage_t;
 
 struct loom_serve_preparation_t {
   // Allocator owning the catalog and every copied string.
@@ -40,10 +40,10 @@ struct loom_serve_preparation_t {
   // Allocated stage capacity.
   iree_host_size_t stage_capacity;
   // Owned stage declarations.
-  preparation_stage_t* stages;
+  loom_serve_preparation_stage_storage_t* stages;
 };
 
-typedef struct preparation_module_t {
+typedef struct loom_serve_preparation_module_t {
   // Native module prefix.
   iree_vm_module_t base;
   // Owned descriptor borrowing the static declaration tables.
@@ -52,7 +52,7 @@ typedef struct preparation_module_t {
   iree_vm_ref_type_t buffer_type;
   // Borrowed mutable catalog, live through the sole bootstrap invocation.
   loom_serve_preparation_t* preparation;
-} preparation_module_t;
+} loom_serve_preparation_module_t;
 
 void loom_serve_preparation_free(loom_serve_preparation_t* preparation) {
   if (!preparation) {
@@ -60,7 +60,7 @@ void loom_serve_preparation_free(loom_serve_preparation_t* preparation) {
   }
   const iree_allocator_t host_allocator = preparation->host_allocator;
   for (iree_host_size_t i = 0; i < preparation->stage_count; ++i) {
-    preparation_stage_t* stage = &preparation->stages[i];
+    loom_serve_preparation_stage_storage_t* stage = &preparation->stages[i];
     iree_allocator_free(host_allocator, (void*)stage->declaration.root.data);
     for (iree_host_size_t j = 0; j < stage->declaration.config.binding_count;
          ++j) {
@@ -133,8 +133,8 @@ static iree_status_t loom_serve_preparation_add_stage(
         (void**)&preparation->stages));
   }
   const iree_host_size_t index = preparation->stage_count++;
-  preparation_stage_t* stage = &preparation->stages[index];
-  *stage = (preparation_stage_t){0};
+  loom_serve_preparation_stage_storage_t* stage = &preparation->stages[index];
+  *stage = (loom_serve_preparation_stage_storage_t){0};
   stage->declaration.kind = kind;
   stage->declaration.tag = (int64_t)iree_vm_call_value_argument_load(call, 0);
   stage->declaration.config.flags = LOOMC_CONFIG_POLICY_FLAG_REQUIRE_RESOLVED;
@@ -145,8 +145,9 @@ static iree_status_t loom_serve_preparation_add_stage(
 }
 
 static iree_status_t loom_serve_preparation_add_config(
-    loom_serve_preparation_t* preparation, preparation_stage_t* stage,
-    iree_string_view_t key, iree_string_view_t value) {
+    loom_serve_preparation_t* preparation,
+    loom_serve_preparation_stage_storage_t* stage, iree_string_view_t key,
+    iree_string_view_t value) {
   if (!key.size) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "preparation configuration key is empty");
@@ -172,7 +173,8 @@ static iree_status_t loom_serve_preparation_add_config(
 }
 
 static iree_status_t loom_serve_preparation_add_parameter(
-    loom_serve_preparation_t* preparation, preparation_stage_t* stage,
+    loom_serve_preparation_t* preparation,
+    loom_serve_preparation_stage_storage_t* stage,
     const iree_vm_call_packet_t* call) {
   if (stage->declaration.kind != LOOM_SERVE_PREPARATION_STAGE_COMMAND) {
     return iree_make_status(
@@ -251,7 +253,8 @@ bool loom_serve_preparation_parameter_equal(
 }
 
 static iree_status_t loom_serve_preparation_set_workspace_limit(
-    preparation_stage_t* stage, const iree_vm_call_packet_t* call) {
+    loom_serve_preparation_stage_storage_t* stage,
+    const iree_vm_call_packet_t* call) {
   if (stage->declaration.kind != LOOM_SERVE_PREPARATION_STAGE_COMMAND) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
@@ -275,7 +278,7 @@ static iree_status_t loom_serve_preparation_module_start(
     const iree_vm_module_function_start_params_t* params,
     iree_vm_execution_outcome_t* out_outcome) {
   loom_serve_preparation_t* preparation =
-      ((preparation_module_t*)base)->preparation;
+      ((loom_serve_preparation_module_t*)base)->preparation;
   const iree_vm_call_packet_t* call = &params->call;
   iree_status_t status = iree_ok_status();
   if (params->function_ordinal == 0 || params->function_ordinal == 4) {
@@ -289,7 +292,7 @@ static iree_status_t loom_serve_preparation_module_start(
       return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                               "preparation stage %u is not declared", index);
     }
-    preparation_stage_t* stage = &preparation->stages[index];
+    loom_serve_preparation_stage_storage_t* stage = &preparation->stages[index];
     if (params->function_ordinal == 3) {
       status = loom_serve_preparation_add_parameter(preparation, stage, call);
     } else if (params->function_ordinal == 5) {
@@ -378,7 +381,8 @@ static const iree_vm_module_export_declaration_t preparation_exports[] = {
 };
 
 static void loom_serve_preparation_module_destroy(iree_vm_module_t* base) {
-  preparation_module_t* module = (preparation_module_t*)base;
+  loom_serve_preparation_module_t* module =
+      (loom_serve_preparation_module_t*)base;
   iree_allocator_free(module->preparation->host_allocator, module);
 }
 
@@ -433,7 +437,7 @@ iree_status_t loom_serve_preparation_allocate(
   IREE_RETURN_IF_ERROR(iree_allocator_malloc(
       host_allocator, sizeof(*preparation), (void**)&preparation));
   preparation->host_allocator = host_allocator;
-  preparation_module_t* module = NULL;
+  loom_serve_preparation_module_t* module = NULL;
   iree_status_t status =
       iree_allocator_malloc(host_allocator, sizeof(*module), (void**)&module);
   iree_vm_module_t* library = NULL;

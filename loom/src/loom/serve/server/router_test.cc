@@ -10,7 +10,7 @@
 namespace {
 
 using loom_serve::testing::HttpRouterTest;
-using loom_serve::testing::ModelService;
+using loom_serve::testing::loom_serve_test_model_service_t;
 using loom_serve::testing::ObservationClient;
 
 TEST_P(HttpRouterTest, MultipartSelectorFollowsFileAndRetainsFieldsWhileHeld) {
@@ -636,9 +636,9 @@ TEST_P(HttpRouterTest, FailedReadinessStillDrainsOtherAcceptedCallbacks) {
 
 // Real finite CPU task on the router's executor. Release, not completion,
 // returns its stack storage to the test owner.
-struct CpuCompletion {
+struct loom_serve_test_router_cpu_completion_t {
   // Borrowed dependency receiving this task's readiness publication.
-  ModelService* service;
+  loom_serve_test_model_service_t* service;
   // Intrusive executor ownership, outliving its final release callback.
   iree_task_process_t process = {};
   // Protects final release and joins its last access.
@@ -651,14 +651,16 @@ struct CpuCompletion {
   static iree_status_t Run(iree_task_process_t* process,
                            const iree_task_worker_context_t* context,
                            iree_task_process_drain_result_t* result) {
-    auto* self = static_cast<CpuCompletion*>(process->user_data);
+    auto* self = static_cast<loom_serve_test_router_cpu_completion_t*>(
+        process->user_data);
     self->service->Release();
     result->completed = true;
     result->did_work = true;
     return iree_ok_status();
   }
   static void Released(iree_task_process_t* process) {
-    auto* self = static_cast<CpuCompletion*>(process->user_data);
+    auto* self = static_cast<loom_serve_test_router_cpu_completion_t*>(
+        process->user_data);
     std::lock_guard<std::mutex> lock(self->mutex);
     self->released = true;
     self->condition.notify_all();
@@ -690,7 +692,7 @@ TEST_P(HttpRouterTest, ContinuouslyReadyOwnerYieldsToSharedCpuWork) {
   }
   EXPECT_NE(Read(Send("GET", "/healthz")).find(R"({"status":"ready"})"),
             std::string::npos);
-  CpuCompletion cpu{&held_};
+  loom_serve_test_router_cpu_completion_t cpu{&held_};
   cpu.Submit(executor_);
   EXPECT_NE(Read(held).find("held:/v1/chat/completions:" + body),
             std::string::npos);

@@ -30,7 +30,7 @@ using loom_serve::testing::HttpHarness;
 
 // Only model math is replaced. Actual HAL queue dependencies, task ownership,
 // proactor multi-waits, encoding, TCP and shutdown use the production stack.
-struct ImageGate {
+struct loom_serve_test_image_gate_t {
   enum { kSubmitted = 1, kDenied = 2, kDiscarded = 4 };
 
   void Publish(uint32_t event) {
@@ -63,7 +63,7 @@ struct ImageGate {
 
   static iree_status_t Admit(void* self,
                              loom_serve_residency_admission_t* out_admission) {
-    auto* gate = static_cast<ImageGate*>(self);
+    auto* gate = static_cast<loom_serve_test_image_gate_t*>(self);
     const bool admitted =
         gate->admission_available && (!gate->occupied || !*gate->occupied);
     *out_admission = admitted ? LOOM_SERVE_RESIDENCY_ADMISSION_ACQUIRED
@@ -80,26 +80,27 @@ struct ImageGate {
   static iree_status_t Prepare(void* self,
                                const loom_serve_image_request_t* request,
                                loom_serve_image_prepared_t* out_prepared) {
-    static_cast<ImageGate*>(self)->admission_available = request->seed == 0;
+    static_cast<loom_serve_test_image_gate_t*>(self)->admission_available =
+        request->seed == 0;
     *out_prepared = {.stage = 0, .tag = 17, .input_bytes = 16};
     return iree_ok_status();
   }
   static void DiscardPreparedRequest(void* self) {
-    auto* gate = static_cast<ImageGate*>(self);
+    auto* gate = static_cast<loom_serve_test_image_gate_t*>(self);
     ++gate->discarded;
     gate->Publish(kDiscarded);
   }
   static iree_status_t Submit(void* self, loom_serve_image_submit_flags_t flags,
                               loom_serve_execution_frontier_t* out_frontier,
                               bool* out_complete) {
-    auto* gate = static_cast<ImageGate*>(self);
+    auto* gate = static_cast<loom_serve_test_image_gate_t*>(self);
     *out_frontier = loom_serve_execution_frontier(gate->execution);
     *out_complete = true;
     gate->Publish(kSubmitted);
     return iree_ok_status();
   }
   static iree_const_byte_span_t Complete(void* self) {
-    auto* gate = static_cast<ImageGate*>(self);
+    auto* gate = static_cast<loom_serve_test_image_gate_t*>(self);
     ++gate->completed;
     if (gate->occupied) {
       *gate->occupied = false;
@@ -217,11 +218,12 @@ class ImageServiceFixture : public ::testing::Test {
     gates_[index].http = &http_;
     const loom_serve_image_generator_t generator = {
         .self = &gates_[index],
-        .prepare = ImageGate::Prepare,
-        .discard_prepared_request = ImageGate::DiscardPreparedRequest,
-        .try_admit = ImageGate::Admit,
-        .submit = ImageGate::Submit,
-        .complete = ImageGate::Complete,
+        .prepare = loom_serve_test_image_gate_t::Prepare,
+        .discard_prepared_request =
+            loom_serve_test_image_gate_t::DiscardPreparedRequest,
+        .try_admit = loom_serve_test_image_gate_t::Admit,
+        .submit = loom_serve_test_image_gate_t::Submit,
+        .complete = loom_serve_test_image_gate_t::Complete,
         .capacity_domain = loom_serve_device_residency_cache(
             loom_serve_device_group_at(group_, executions_[1] ? index : 0)),
     };
@@ -365,7 +367,7 @@ class ImageServiceFixture : public ::testing::Test {
   // Admission capacity mutated only by the serialized router owner.
   bool occupied_ = false;
   // Model dependencies, alive until the services and executor retire.
-  ImageGate gates_[2];
+  loom_serve_test_image_gate_t gates_[2];
   // Production services kept alive until all telemetry readers finish.
   loom_serve_image_service_t* images_[2] = {};
   // Borrowed registry interfaces, valid until RetireImages.
@@ -540,7 +542,8 @@ TEST_F(ImageServiceTest, TransportFailureReleasesHeldDeviceDependency) {
                 .find("image receive allocation witness"),
             std::string::npos);
   EXPECT_TRUE(http_.failed());
-  EXPECT_EQ(gates_[0].events.load() & ImageGate::kSubmitted, 0u);
+  EXPECT_EQ(gates_[0].events.load() & loom_serve_test_image_gate_t::kSubmitted,
+            0u);
 }
 
 TEST_F(ImageServiceTest, TransportFailureTerminatesHeartbeatWait) {
@@ -565,7 +568,8 @@ TEST_F(ImageServiceTest, TransportFailureTerminatesHeartbeatWait) {
                 .find("image receive allocation witness"),
             std::string::npos);
   EXPECT_TRUE(http_.failed());
-  EXPECT_EQ(gates_[0].events.load() & ImageGate::kSubmitted, 0u);
+  EXPECT_EQ(gates_[0].events.load() & loom_serve_test_image_gate_t::kSubmitted,
+            0u);
 }
 
 TEST_F(ImageParallelServiceTest, ResponseCompletesWithFourWorkers) {
@@ -615,15 +619,18 @@ class ImageAdmissionTestBase
   void ExerciseAdmission(AdmissionMode mode) {
     HttpClient first;
     IREE_ASSERT_OK(SendImage("first", 0, &first));
-    IREE_ASSERT_OK(gates_[0].Await(first.get(), ImageGate::kSubmitted));
+    IREE_ASSERT_OK(
+        gates_[0].Await(first.get(), loom_serve_test_image_gate_t::kSubmitted));
     HttpClient second;
     IREE_ASSERT_OK(SendImage(
         "second", mode == AdmissionMode::kIndependent ? 1 : 0, &second));
-    IREE_ASSERT_OK(gates_[1].Await(second.get(), ImageGate::kDenied));
+    IREE_ASSERT_OK(
+        gates_[1].Await(second.get(), loom_serve_test_image_gate_t::kDenied));
     std::string response;
     IREE_ASSERT_OK(Get("/healthz", &response));
     EXPECT_NE(response.find("\"status\":\"ready\""), std::string::npos);
-    EXPECT_EQ(gates_[1].events.load() & ImageGate::kSubmitted, 0u);
+    EXPECT_EQ(
+        gates_[1].events.load() & loom_serve_test_image_gate_t::kSubmitted, 0u);
     if (mode == AdmissionMode::kIndependent) {
       // Denial cannot be repaired by the unrelated held domain. Both this
       // response and the next PNG must precede that domain's completion.
@@ -638,7 +645,8 @@ class ImageAdmissionTestBase
                            sizeof(reset)),
                 0);
       ASSERT_EQ(close(second.release()), 0);
-      IREE_ASSERT_OK(gates_[1].Await(-1, ImageGate::kDiscarded));
+      IREE_ASSERT_OK(
+          gates_[1].Await(-1, loom_serve_test_image_gate_t::kDiscarded));
     } else if (mode == AdmissionMode::kShutdown) {
       loom_serve_http_server_request_stop(server_);
       IREE_ASSERT_OK(http_.Read(first.release(), true, &response));
@@ -714,7 +722,8 @@ TEST_F(ImageAdmissionTest, TransportFailureTerminatesDependencyWait) {
                 .find("image receive allocation witness"),
             std::string::npos);
   EXPECT_TRUE(http_.failed());
-  EXPECT_EQ(gates_[0].events.load() & ImageGate::kSubmitted, 0u);
+  EXPECT_EQ(gates_[0].events.load() & loom_serve_test_image_gate_t::kSubmitted,
+            0u);
 }
 
 TEST_F(ImageParallelAdmissionTest, ResponseCompletesWithFourWorkers) {

@@ -1272,17 +1272,18 @@ static iree_status_t loom_serve_text_fork_cache_block(
 
 // Admission may reuse the selected row's private IDs, but only borrows them
 // until the physical union fits. Its existing references preserve denial.
-typedef struct text_replacement_t {
+typedef struct loom_serve_text_replacement_t {
   // Selected row whose private ownership can fund a replacement.
   loom_serve_text_state_row_t* row;
   // Next selected map entry to consider exactly once.
   uint32_t cursor;
   // Whether the selected recurrent slot has already been borrowed.
   bool recurrent_used;
-} text_replacement_t;
+} loom_serve_text_replacement_t;
 
-static uint32_t loom_serve_text_reserve_block(loom_serve_text_state_t* state,
-                                              text_replacement_t* replacement) {
+static uint32_t loom_serve_text_reserve_block(
+    loom_serve_text_state_t* state,
+    loom_serve_text_replacement_t* replacement) {
   const loom_serve_text_state_row_t* row = replacement->row;
   const uint32_t* blocks =
       state->cache.maps + (row - state->rows) * state->storage.blocks_per_row;
@@ -1299,7 +1300,8 @@ static uint32_t loom_serve_text_reserve_block(loom_serve_text_state_t* state,
 }
 
 static uint32_t loom_serve_text_reserve_recurrent(
-    loom_serve_text_state_t* state, text_replacement_t* replacement) {
+    loom_serve_text_state_t* state,
+    loom_serve_text_replacement_t* replacement) {
   if (!replacement->recurrent_used) {
     replacement->recurrent_used = true;
     const uint32_t slot = replacement->row->recurrent.slot;
@@ -1363,7 +1365,7 @@ iree_status_t loom_serve_text_state_row_submit_reserve(
                                      &state->recurrent.pool, source_slot));
   // The consumed prefix remains live, but an active reservation's unused
   // private pages can fund its replacement without a second full reservation.
-  text_replacement_t replacement = {
+  loom_serve_text_replacement_t replacement = {
       .row = row,
       .cursor = mode == LOOM_SERVE_TEXT_RESERVE_CONTINUE ? prefix : 0};
   uint32_t reusable = 0;

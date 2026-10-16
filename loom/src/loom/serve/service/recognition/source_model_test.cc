@@ -23,7 +23,7 @@ namespace {
 
 class SourceRecognitionModelTest : public ::testing::Test {
  protected:
-  struct Row {
+  struct loom_serve_test_recognition_row_t {
     // Input owned by the serving caller, separate from model request state.
     loom_serve_recognition_input_t input = {};
     // Admitted source state, independently resident until release.
@@ -191,7 +191,7 @@ class SourceRecognitionModelTest : public ::testing::Test {
   loom_serve_recognition_generator_t generator_ = {};
   // Native backing releases observed before their completion frontier retires.
   size_t deferred_release_count_ = 0;
-  std::array<Row, 4> rows_;
+  std::array<loom_serve_test_recognition_row_t, 4> rows_;
   std::vector<size_t> members_;
   loom_serve_execution_frontier_t frontier_ = {};
 };

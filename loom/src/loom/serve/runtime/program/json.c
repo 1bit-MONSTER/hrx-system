@@ -14,7 +14,7 @@
 #include "iree/vm/buffer.h"
 #include "iree/vm/reflection.h"
 
-typedef struct json_module_t {
+typedef struct loom_serve_json_module_t {
   // Native module prefix.
   iree_vm_module_t base;
   // Descriptor borrowing the environment's reference type.
@@ -23,7 +23,7 @@ typedef struct json_module_t {
   iree_allocator_t host_allocator;
   // Canonical buffer type, borrowed from the environment.
   iree_vm_ref_types_t types;
-} json_module_t;
+} loom_serve_json_module_t;
 
 // Copies an already validated value without insignificant bytes. Validation
 // establishes closing quotes/comments and escaped-byte bounds. The output is
@@ -64,7 +64,7 @@ static iree_host_size_t loom_serve_json_compact_copy(iree_string_view_t input,
   return written;
 }
 
-static iree_status_t loom_serve_json_compact(json_module_t* module,
+static iree_status_t loom_serve_json_compact(loom_serve_json_module_t* module,
                                              const iree_vm_call_packet_t* call,
                                              iree_vm_buffer_t* input) {
   iree_const_byte_span_t bytes = iree_const_byte_span_empty();
@@ -110,18 +110,18 @@ static iree_status_t loom_serve_json_compact(json_module_t* module,
   return status;
 }
 
-typedef struct json_members_t {
+typedef struct loom_serve_json_members_t {
   // Complete input used as the origin for all recorded offsets.
   iree_string_view_t input;
   // Binary record builder with geometric capacity growth.
   iree_string_builder_t records;
-} json_members_t;
+} loom_serve_json_members_t;
 
 static iree_status_t loom_serve_json_member(void* user_data,
                                             iree_string_view_t key,
                                             iree_json_value_type_t type,
                                             iree_string_view_t value) {
-  json_members_t* members = user_data;
+  loom_serve_json_members_t* members = user_data;
   const uint64_t fields[] = {
       key.data ? (uint64_t)(key.data - members->input.data) : 0,
       key.size,
@@ -147,7 +147,7 @@ static iree_status_t loom_serve_json_element(void* user_data,
 }
 
 static iree_status_t loom_serve_json_read_members(
-    json_module_t* module, const iree_vm_call_packet_t* call,
+    loom_serve_json_module_t* module, const iree_vm_call_packet_t* call,
     iree_vm_buffer_t* input) {
   iree_const_byte_span_t bytes = iree_const_byte_span_empty();
   IREE_RETURN_IF_ERROR(
@@ -173,7 +173,7 @@ static iree_status_t loom_serve_json_read_members(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "trailing JSON input");
   }
-  json_members_t members = {.input = text};
+  loom_serve_json_members_t members = {.input = text};
   iree_string_builder_initialize(module->host_allocator, &members.records);
   iree_status_t status = type == IREE_JSON_VALUE_TYPE_OBJECT
                              ? iree_json_enumerate_object_typed(
@@ -295,7 +295,7 @@ static iree_status_t loom_serve_json_module_start(
     iree_vm_module_t* base,
     const iree_vm_module_function_start_params_t* params,
     iree_vm_execution_outcome_t* out_outcome) {
-  json_module_t* module = (json_module_t*)base;
+  loom_serve_json_module_t* module = (loom_serve_json_module_t*)base;
   const iree_vm_call_packet_t* call = &params->call;
   iree_vm_ref_t input_ref = iree_vm_ref_null();
   iree_vm_call_ref_argument_load_borrow(call, 0, &input_ref);
@@ -381,7 +381,7 @@ static const iree_vm_module_export_declaration_t json_exports[] = {
 };
 
 static void loom_serve_json_module_destroy(iree_vm_module_t* base) {
-  json_module_t* module = (json_module_t*)base;
+  loom_serve_json_module_t* module = (loom_serve_json_module_t*)base;
   iree_allocator_free(module->host_allocator, module);
 }
 static void loom_serve_json_module_query_export(
@@ -426,7 +426,7 @@ iree_status_t loom_serve_json_module_create(iree_vm_environment_t* environment,
   IREE_RETURN_IF_ERROR(iree_vm_ref_types_resolve(
       iree_vm_environment_lookup_ref_type_table(environment, IREE_SV("vm")),
       &types));
-  json_module_t* module = NULL;
+  loom_serve_json_module_t* module = NULL;
   IREE_RETURN_IF_ERROR(
       iree_allocator_malloc(host_allocator, sizeof(*module), (void**)&module));
   module->host_allocator = host_allocator;

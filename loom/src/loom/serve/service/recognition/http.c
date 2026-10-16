@@ -13,7 +13,7 @@
 #include "loom/serve/service/recognition/transcription.h"
 #include "loom/util/json.h"
 
-typedef struct transcription_row_t {
+typedef struct loom_serve_recognition_transcription_row_t {
   // Claimed connection; NULL marks a reusable adapter slot.
   loom_serve_http_connection_t* connection;
   // Borrowed immutable multipart views, retained by the connection claim.
@@ -36,7 +36,7 @@ typedef struct transcription_row_t {
   bool decoded;
   // All decoded samples and explicit EOF have reached the typed stream.
   bool finished;
-} transcription_row_t;
+} loom_serve_recognition_transcription_row_t;
 
 struct loom_serve_recognition_http_t {
   // Allocator owning this adapter, request slots, and decoded staging.
@@ -50,7 +50,7 @@ struct loom_serve_recognition_http_t {
   // Shared workers for finite decode operations.
   iree_task_executor_t* executor;
   // Stable adapter slots, including the bounded host admission queue.
-  transcription_row_t* rows;
+  loom_serve_recognition_transcription_row_t* rows;
   // Number of allocated adapter slots.
   iree_host_size_t capacity;
   // Rotating input selection; one stalled input cannot monopolize the worker.
@@ -70,7 +70,7 @@ struct loom_serve_recognition_http_t {
     // Intrusive storage reused only after the task's final release callback.
     iree_task_process_t process;
     // Borrowed stable upload, held through release publication.
-    transcription_row_t* row;
+    loom_serve_recognition_transcription_row_t* row;
   } cpu;
   // Final task publication joins observer replacement and adapter destruction.
   struct {
@@ -86,10 +86,11 @@ struct loom_serve_recognition_http_t {
   } events;
 };
 
-static void loom_serve_transcription_end(loom_serve_recognition_http_t* service,
-                                         const transcription_row_t* row,
-                                         loom_serve_telemetry_outcome_t outcome,
-                                         const iree_status_t borrowed_status) {
+static void loom_serve_transcription_end(
+    loom_serve_recognition_http_t* service,
+    const loom_serve_recognition_transcription_row_t* row,
+    loom_serve_telemetry_outcome_t outcome,
+    const iree_status_t borrowed_status) {
   const iree_time_t now = iree_time_now();
   loom_serve_telemetry_count_outcome(&service->counters, outcome);
   loom_serve_telemetry_latency_observe(&service->latency.outcomes[outcome],
@@ -114,8 +115,9 @@ static void loom_serve_transcription_end(loom_serve_recognition_http_t* service,
 
 // The CPU owner has retired before this relinquishes borrowed upload bytes.
 static void loom_serve_transcription_release(
-    loom_serve_recognition_http_t* service, transcription_row_t* row,
-    bool finish, loom_serve_telemetry_outcome_t outcome,
+    loom_serve_recognition_http_t* service,
+    loom_serve_recognition_transcription_row_t* row, bool finish,
+    loom_serve_telemetry_outcome_t outcome,
     const iree_status_t borrowed_status) {
   loom_serve_transcription_end(service, row, outcome, borrowed_status);
   if (row->stream) {
@@ -133,7 +135,8 @@ static void loom_serve_transcription_release(
 // Sends a complete finite response. No partial carrier message or borrowed
 // transcript survives this call, including failed/reset peers.
 static void loom_serve_transcription_send(
-    loom_serve_recognition_http_t* service, transcription_row_t* row,
+    loom_serve_recognition_http_t* service,
+    loom_serve_recognition_transcription_row_t* row,
     loom_serve_telemetry_outcome_t outcome,
     const iree_status_t borrowed_status) {
   if (loom_serve_http_connection_failed(row->connection) ||
@@ -155,9 +158,9 @@ static void loom_serve_transcription_send(
 }
 
 static iree_status_t loom_serve_transcription_reject(
-    loom_serve_recognition_http_t* service, transcription_row_t* row,
-    const char* code, const iree_status_t borrowed_status,
-    iree_string_view_t message) {
+    loom_serve_recognition_http_t* service,
+    loom_serve_recognition_transcription_row_t* row, const char* code,
+    const iree_status_t borrowed_status, iree_string_view_t message) {
   iree_string_builder_reset(&service->response);
   iree_status_t status = iree_string_builder_append_format(
       &service->response,
@@ -184,7 +187,8 @@ static iree_status_t loom_serve_transcription_reject(
 }
 
 static iree_status_t loom_serve_transcription_fail(
-    loom_serve_recognition_http_t* service, transcription_row_t* row,
+    loom_serve_recognition_http_t* service,
+    loom_serve_recognition_transcription_row_t* row,
     const iree_status_t borrowed_status) {
   iree_string_view_t message = iree_status_message(borrowed_status);
   if (!message.size) {
@@ -213,7 +217,7 @@ static iree_status_t loom_serve_transcription_cpu_run(
     iree_task_process_t* process, const iree_task_worker_context_t* context,
     iree_task_process_drain_result_t* result) {
   loom_serve_recognition_http_t* service = process->user_data;
-  transcription_row_t* row = service->cpu.row;
+  loom_serve_recognition_transcription_row_t* row = service->cpu.row;
   result->completed = true;
   result->did_work = true;
   const iree_host_size_t frame_bytes =
@@ -254,7 +258,7 @@ static void loom_serve_transcription_decode(
     loom_serve_recognition_http_t* service) {
   for (iree_host_size_t i = 0; i < service->capacity; ++i) {
     const iree_host_size_t index = (service->cursor + i) % service->capacity;
-    transcription_row_t* row = &service->rows[index];
+    loom_serve_recognition_transcription_row_t* row = &service->rows[index];
     if (!row->stream || row->decoded || row->frame_count ||
         loom_serve_recognition_stream_is_complete(row->stream)) {
       continue;
@@ -277,9 +281,10 @@ static iree_status_t loom_serve_transcription_accept(
     const loom_serve_http_request_t* request,
     loom_serve_http_service_flags_t flags) {
   loom_serve_recognition_http_t* service = self;
-  transcription_row_t pending = {.connection = connection,
-                                 .id = ++service->counters.requests,
-                                 .arrival = iree_time_now()};
+  loom_serve_recognition_transcription_row_t pending = {
+      .connection = connection,
+      .id = ++service->counters.requests,
+      .arrival = iree_time_now()};
   if (service->telemetry) {
     const loom_serve_telemetry_record_t record = {
         .time_ns = pending.arrival,
@@ -332,7 +337,8 @@ static iree_status_t loom_serve_transcription_accept(
 }
 
 static iree_status_t loom_serve_transcription_deliver(
-    loom_serve_recognition_http_t* service, transcription_row_t* row) {
+    loom_serve_recognition_http_t* service,
+    loom_serve_recognition_transcription_row_t* row) {
   const iree_status_t failure =
       loom_serve_recognition_stream_status(row->stream);
   if (!iree_status_is_ok(failure)) {
@@ -388,7 +394,7 @@ static iree_status_t loom_serve_transcription_advance(
   iree_slim_mutex_unlock(&service->events.mutex);
   iree_status_t status = iree_ok_status();
   if (ready) {
-    transcription_row_t* row = service->cpu.row;
+    loom_serve_recognition_transcription_row_t* row = service->cpu.row;
     service->cpu.row = NULL;
     *out_progress = true;
     if (!iree_status_is_ok(cpu_status)) {
@@ -404,7 +410,7 @@ static iree_status_t loom_serve_transcription_advance(
   }
   for (iree_host_size_t i = 0;
        i < service->capacity && iree_status_is_ok(status); ++i) {
-    transcription_row_t* row = &service->rows[i];
+    loom_serve_recognition_transcription_row_t* row = &service->rows[i];
     if (!row->connection) {
       continue;
     }
@@ -463,9 +469,9 @@ static iree_status_t loom_serve_transcription_advance(
   // FIFO host admission is independent of resident numerical batch order.
   bool admission_full = service->stopping;
   while (!admission_full && iree_status_is_ok(status)) {
-    transcription_row_t* queued = NULL;
+    loom_serve_recognition_transcription_row_t* queued = NULL;
     for (iree_host_size_t i = 0; i < service->capacity; ++i) {
-      transcription_row_t* row = &service->rows[i];
+      loom_serve_recognition_transcription_row_t* row = &service->rows[i];
       if (row->connection && !row->stream && row != service->cpu.row &&
           (!queued || row->id < queued->id)) {
         queued = row;
@@ -536,7 +542,7 @@ static loom_serve_http_service_snapshot_t loom_serve_transcription_snapshot(
   loom_serve_http_service_snapshot_t snapshot = {.phase = "idle"};
   const iree_time_t now = iree_time_now();
   for (iree_host_size_t i = 0; i < service->capacity; ++i) {
-    const transcription_row_t* row = &service->rows[i];
+    const loom_serve_recognition_transcription_row_t* row = &service->rows[i];
     if (!row->connection) {
       continue;
     }
@@ -606,9 +612,11 @@ iree_status_t loom_serve_recognition_http_allocate(
       !options->decode_frames || !generator.format.channels ||
       options->decode_frames >
           SIZE_MAX / sizeof(float) / generator.format.channels ||
-      generator.request_capacity > SIZE_MAX / sizeof(transcription_row_t) ||
+      generator.request_capacity >
+          SIZE_MAX / sizeof(loom_serve_recognition_transcription_row_t) ||
       options->pending_capacity >
-          SIZE_MAX / sizeof(transcription_row_t) - generator.request_capacity) {
+          SIZE_MAX / sizeof(loom_serve_recognition_transcription_row_t) -
+              generator.request_capacity) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "transcription requires a name and bounded request/decode capacity");

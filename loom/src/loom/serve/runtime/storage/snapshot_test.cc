@@ -288,11 +288,12 @@ TEST_F(SnapshotTest, LargeSparseStateSurvivesBackingReuseAndFreshPlacement) {
 // The caller relinquishes both its snapshot and tracked root references while
 // native transfers are held. Failed feedback readiness also leaves actual work
 // held until its completion callback schedules the independent unblock task.
-struct SnapshotTransfer {
+struct loom_serve_test_snapshot_transfer_t {
   static iree_status_t Submit(iree_task_process_t* process,
                               const iree_task_worker_context_t* context,
                               iree_task_process_drain_result_t* result) {
-    auto* self = static_cast<SnapshotTransfer*>(process->user_data);
+    auto* self =
+        static_cast<loom_serve_test_snapshot_transfer_t*>(process->user_data);
     auto local_ranges = self->ranges;
     auto status =
         self->snapshot
@@ -354,7 +355,8 @@ struct SnapshotTransfer {
   static iree_status_t Unblock(iree_task_process_t* process,
                                const iree_task_worker_context_t* context,
                                iree_task_process_drain_result_t* result) {
-    auto* self = static_cast<SnapshotTransfer*>(process->user_data);
+    auto* self =
+        static_cast<loom_serve_test_snapshot_transfer_t*>(process->user_data);
     iree_slim_mutex_lock(&self->retirement->mutex);
     self->held_roots = self->retirement->count;
     iree_slim_mutex_unlock(&self->retirement->mutex);
@@ -373,7 +375,7 @@ struct SnapshotTransfer {
 
   static void Ready(void* user_data, iree_async_operation_t* operation,
                     iree_status_t status, iree_async_completion_flags_t flags) {
-    auto* self = static_cast<SnapshotTransfer*>(user_data);
+    auto* self = static_cast<loom_serve_test_snapshot_transfer_t*>(user_data);
     std::lock_guard<std::mutex> lock(self->mutex);
     self->status = iree_status_join(self->status, status);
     self->ready = true;
@@ -384,7 +386,8 @@ struct SnapshotTransfer {
   }
 
   static void Release(iree_task_process_t* process) {
-    auto* self = static_cast<SnapshotTransfer*>(process->user_data);
+    auto* self =
+        static_cast<loom_serve_test_snapshot_transfer_t*>(process->user_data);
     std::lock_guard<std::mutex> lock(self->mutex);
     ++self->released;
     self->condition.notify_one();
@@ -465,7 +468,7 @@ class AsyncSnapshotTest
   }
 
   // Task and I/O storage whose lifetime includes terminal retirement.
-  SnapshotTransfer transfer;
+  loom_serve_test_snapshot_transfer_t transfer;
 };
 
 TEST_P(AsyncSnapshotTest, OneWorkerSubmitsAndReleasesBeforeNativeRetirement) {

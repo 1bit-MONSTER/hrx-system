@@ -12,7 +12,7 @@
 
 namespace {
 
-using loom_serve::testing::Compilation;
+using loom_serve::testing::loom_serve_test_compilation_t;
 
 class JitWorkspaceTest : public loom_serve::testing::JitModuleTest {
  protected:
@@ -325,7 +325,7 @@ TEST_P(JitWorkspaceTest, RetiredModelDoesNotJoinRawQueueAllocationCaptures) {
   // Neither raw queue operation can run yet, but no model consumer remains.
   // A hidden join in release blocks the shared worker and prevents this real
   // source compilation from completing. The gate opens only after GPU output.
-  Compilation compilation;
+  loom_serve_test_compilation_t compilation;
   compilation.jit = jit_;
   compilation.root = IREE_SV("temporary_advance");
   compilation.retired_execution = held_.execution;
