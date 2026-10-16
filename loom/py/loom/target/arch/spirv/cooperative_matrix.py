@@ -60,9 +60,48 @@ class CooperativeMatrixCase:
     result_scalar_suffix: str | None = None
     property_storage_flags: str = "MATRIX_STORAGE_ANY"
     operand_mode: str | None = None
-    property_operand_flags: str = "0"
-    packet_operand_mask: str | None = None
+    # Saturates the accumulation into the result component's integer range.
+    saturating_accumulation: bool = False
     source_rule_enabled: bool = True
+
+    @property
+    def signed_component_roles(self) -> tuple[str, ...]:
+        return tuple(
+            role
+            for role, scalar in (
+                ("A", self.lhs_scalar),
+                ("B", self.rhs_scalar),
+                ("C", self.accumulator_scalar),
+                ("RESULT", self.result_scalar),
+            )
+            if scalar.suffix.startswith("i")
+        )
+
+    @property
+    def property_operand_flags(self) -> str:
+        operands = [
+            f"LOOM_SPIRV_COOPERATIVE_MATRIX_OPERAND_{role}_SIGNED_COMPONENTS"
+            for role in self.signed_component_roles
+        ]
+        if self.saturating_accumulation:
+            operands.append(
+                "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERAND_SATURATING_ACCUMULATION"
+            )
+        return " | ".join(operands) or "0"
+
+    @property
+    def packet_operand_mask(self) -> str | None:
+        operands = [
+            "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERANDS_"
+            f"MATRIX_{role}_SIGNED_COMPONENTS_KHR_MASK"
+            for role in self.signed_component_roles
+        ]
+        if self.saturating_accumulation:
+            operands.append(
+                "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERANDS_"
+                "SATURATING_ACCUMULATION_KHR_MASK"
+            )
+        return " | ".join(operands) or None
 
     @property
     def property_name(self) -> str:
@@ -177,27 +216,6 @@ def cooperative_matrix_memory_variants(
     return memory
 
 
-_SIGNED_SATURATING_PROPERTY_OPERANDS = " | ".join(
-    (
-        "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERAND_A_SIGNED_COMPONENTS",
-        "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERAND_B_SIGNED_COMPONENTS",
-        "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERAND_C_SIGNED_COMPONENTS",
-        "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERAND_RESULT_SIGNED_COMPONENTS",
-        "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERAND_SATURATING_ACCUMULATION",
-    )
-)
-
-_SIGNED_SATURATING_PACKET_OPERANDS = " | ".join(
-    (
-        "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERANDS_MATRIX_A_SIGNED_COMPONENTS_KHR_MASK",
-        "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERANDS_MATRIX_B_SIGNED_COMPONENTS_KHR_MASK",
-        "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERANDS_MATRIX_C_SIGNED_COMPONENTS_KHR_MASK",
-        "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERANDS_MATRIX_RESULT_SIGNED_COMPONENTS_KHR_MASK",
-        "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERANDS_SATURATING_ACCUMULATION_KHR_MASK",
-    )
-)
-
-
 COOPERATIVE_MATRIX_CASES = (
     *(
         CooperativeMatrixCase(
@@ -264,8 +282,7 @@ COOPERATIVE_MATRIX_CASES = (
         ),
         property_storage_flags="STORAGE_BUFFER_OR_BDA",
         operand_mode="signed_saturating",
-        property_operand_flags=_SIGNED_SATURATING_PROPERTY_OPERANDS,
-        packet_operand_mask=_SIGNED_SATURATING_PACKET_OPERANDS,
+        saturating_accumulation=True,
     ),
     CooperativeMatrixCase(
         element="u8",
