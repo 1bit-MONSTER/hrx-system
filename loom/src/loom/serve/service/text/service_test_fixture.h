@@ -251,12 +251,12 @@ class SourceTextServiceTest : public ::testing::Test {
            "\"}},{\"type\":\"text\",\"text\":\"" + after + "\"}]}";
   }
 
-  static constexpr char kPng[] =
-      "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP4z8DA8J+"
-      "BkYHh////DAAe9gT9Ce00PgAAAABJRU5ErkJggg==";
-  static constexpr char kAlphaPng[] =
-      "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAGklEQVR4nGPkEpFjkJOTa2C"
-      "xsbH5LycndxIAGOoD8lwtzTkAAAAASUVORK5CYII=";
+  static constexpr char kPam[] =
+      "UDcKV0lEVEggMgpIRUlHSFQgMgpERVBUSCAzCk1BWFZBTCAyNTUKVFVQTFRZUEUg"
+      "UkdCCkVOREhEUgr/AAAA/wAAAP////8=";
+  static constexpr char kAlphaPam[] =
+      "UDcKV0lEVEggMgpIRUlHSFQgMgpERVBUSCA0Ck1BWFZBTCAyNTUKVFVQTFRZUEUg"
+      "UkdCX0FMUEhBCkVOREhEUgoKFB4AKDI8gEZQWv9kbnjI";
 
   static std::string Request(const std::string& messages, size_t limit = 16) {
     return "{\"model\":\"fixture-text\",\"stream\":true,\"stream_options\":{"

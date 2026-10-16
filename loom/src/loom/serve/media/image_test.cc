@@ -16,6 +16,9 @@
 
 namespace {
 
+constexpr char kPam[] =
+    "UDcKV0lEVEggMgpIRUlHSFQgMgpERVBUSCAzCk1BWFZBTCAyNTUKVFVQTFRZUEUgUkdC"
+    "CkVOREhEUgr/AAAA/wAAAP////8=";
 constexpr char kPng[] =
     "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP4z8DA8J+"
     "BkYHh////DAAe9gT9Ce00PgAAAABJRU5ErkJggg==";
@@ -117,7 +120,8 @@ bool Available(loom_serve_media_image_format_t format, const std::string& url) {
 TEST(ImageTest, RegistryMatchesBuildConfiguration) {
   const loom_serve_media_image_codec_t* const* codecs = nullptr;
   const size_t count = loom_serve_media_image_codecs(&codecs);
-  EXPECT_EQ(count, LOOM_SERVE_IMAGE_CODEC_PNG + LOOM_SERVE_IMAGE_CODEC_JPEG +
+  EXPECT_EQ(count, LOOM_SERVE_IMAGE_INPUT + LOOM_SERVE_IMAGE_CODEC_PNG +
+                       LOOM_SERVE_IMAGE_CODEC_JPEG +
                        LOOM_SERVE_IMAGE_CODEC_GIF +
                        LOOM_SERVE_IMAGE_CODEC_WEBP);
   for (size_t i = 0; i < count; ++i) {
@@ -140,6 +144,10 @@ TEST(ImageTest, PreservesStraightAlphaForDevicePreprocessing) {
     loom_serve_media_image_format_t format;
   };
   const loom_serve_test_image_case_t cases[] = {
+      {"image/x-portable-arbitrarymap",
+       "UDcKV0lEVEggMgpIRUlHSFQgMgpERVBUSCA0Ck1BWFZBTCAyNTUKVFVQTFRZUEUgUkdC"
+       "X0FMUEhBCkVOREhEUgoKFB4AKDI8gEZQWv9kbnjI",
+       LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM},
       {"image/png",
        "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAGklEQVR4nGPkEpFjkJOTa2C"
        "xsbH5LycndxIAGOoD8lwtzTkAAAAASUVORK5CYII=",
@@ -212,16 +220,16 @@ TEST(ImageTest, GifLibraryAlreadyDeinterlacesRows) {
 }
 
 TEST(ImageTest, CodecBatchKeepsIndependentResultsAndDestinations) {
-  const std::string url = DataUrl("image/png", kPng);
-  if (!Available(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG, url)) {
+  const std::string url = DataUrl("image/x-portable-arbitrarymap", kPam);
+  if (!Available(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM, url)) {
     return;
   }
   const auto* codec =
-      loom_serve_media_image_codec(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG);
-  std::vector<uint8_t> compressed(iree_base64_decoded_size(IREE_SV(kPng)));
+      loom_serve_media_image_codec(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM);
+  std::vector<uint8_t> compressed(iree_base64_decoded_size(IREE_SV(kPam)));
   size_t written = 0;
   IREE_ASSERT_OK(iree_base64_decode(
-      IREE_SV(kPng), iree_make_byte_span(compressed.data(), compressed.size()),
+      IREE_SV(kPam), iree_make_byte_span(compressed.data(), compressed.size()),
       &written));
   loom_serve_media_image_inspection_t inspections[3] = {};
   inspections[0].data = iree_make_const_byte_span(compressed.data(), written);
@@ -257,6 +265,8 @@ TEST(ImageTest, InspectsAndDecodesLosslessFormats) {
     loom_serve_media_image_format_t format;
   };
   const loom_serve_test_image_case_t cases[] = {
+      {"image/x-portable-arbitrarymap", kPam,
+       LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM},
       {"image/png", kPng, LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG},
       {"image/gif", kGif, LOOM_SERVE_MEDIA_IMAGE_FORMAT_GIF},
       {"image/webp", kWebP, LOOM_SERVE_MEDIA_IMAGE_FORMAT_WEBP}};
@@ -285,12 +295,13 @@ TEST(ImageTest, InspectsAndDecodesLosslessFormats) {
 }
 
 TEST(ImageTest, MixedBatchPreservesOrdinalsAndIsolatesDestinationErrors) {
-  const char* mime_types[] = {"image/png", "image/gif", "image/webp",
-                              "image/jpeg"};
-  const char* encoded[] = {kPng, kGif, kWebP, kOrientedJpeg};
+  const char* mime_types[] = {"image/x-portable-arbitrarymap", "image/png",
+                              "image/gif", "image/webp", "image/jpeg"};
+  const char* encoded[] = {kPam, kPng, kGif, kWebP, kOrientedJpeg};
   const loom_serve_media_image_format_t formats[] = {
-      LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG, LOOM_SERVE_MEDIA_IMAGE_FORMAT_GIF,
-      LOOM_SERVE_MEDIA_IMAGE_FORMAT_WEBP, LOOM_SERVE_MEDIA_IMAGE_FORMAT_JPEG};
+      LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM, LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG,
+      LOOM_SERVE_MEDIA_IMAGE_FORMAT_GIF, LOOM_SERVE_MEDIA_IMAGE_FORMAT_WEBP,
+      LOOM_SERVE_MEDIA_IMAGE_FORMAT_JPEG};
   loom_serve_media_image_input_t storage[IREE_ARRAYSIZE(formats)] = {};
   std::vector<const loom_serve_media_image_input_t*> inputs;
   std::vector<std::vector<uint8_t>> buffers;
@@ -347,8 +358,8 @@ TEST(ImageTest, MixedBatchPreservesOrdinalsAndIsolatesDestinationErrors) {
 }
 
 TEST(ImageTest, BatchAllocationFailureDoesNotStartAnyImage) {
-  const auto url = DataUrl("image/png", kPng);
-  if (!Available(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG, url)) {
+  const auto url = DataUrl("image/x-portable-arbitrarymap", kPam);
+  if (!Available(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM, url)) {
     return;
   }
   loom_serve_media_image_input_t input;
@@ -388,8 +399,8 @@ TEST(ImageTest, PreservesOrientationForDeviceSampling) {
 }
 
 TEST(ImageTest, DecodesIntoCallerOwnedExactStorage) {
-  const std::string url = DataUrl("image/png", kPng);
-  if (!Available(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG, url)) {
+  const std::string url = DataUrl("image/x-portable-arbitrarymap", kPam);
+  if (!Available(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM, url)) {
     return;
   }
   ImageInput image;
@@ -404,8 +415,8 @@ TEST(ImageTest, DecodesIntoCallerOwnedExactStorage) {
 }
 
 TEST(ImageTest, AcceptsEscapedJsonStringContent) {
-  std::string url = DataUrl("image/png", kPng);
-  if (!Available(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG, url)) {
+  std::string url = DataUrl("image/x-portable-arbitrarymap", kPam);
+  if (!Available(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM, url)) {
     return;
   }
   for (iree_host_size_t position = 0;
@@ -442,8 +453,8 @@ TEST(ImageTest, RejectsAnimationsBeforePixelAllocation) {
 
 TEST(ImageTest, RejectsMimeSignatureMismatchAndResourceExcess) {
   loom_serve_media_image_info_t info;
-  const std::string mismatch = DataUrl("image/jpeg", kPng);
-  if (Available(LOOM_SERVE_MEDIA_IMAGE_FORMAT_JPEG, mismatch)) {
+  const std::string mismatch = DataUrl("image/x-portable-arbitrarymap", kPng);
+  if (Available(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM, mismatch)) {
     IREE_EXPECT_STATUS_IS(
         IREE_STATUS_INVALID_ARGUMENT,
         loom_serve_media_image_inspect(View(mismatch), &kLimits,
@@ -452,25 +463,25 @@ TEST(ImageTest, RejectsMimeSignatureMismatchAndResourceExcess) {
 
   auto narrow_limits = kLimits;
   narrow_limits.width = 1;
-  const std::string png = DataUrl("image/png", kPng);
-  if (!Available(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG, png)) {
+  const std::string pam = DataUrl("image/x-portable-arbitrarymap", kPam);
+  if (!Available(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM, pam)) {
     return;
   }
   IREE_EXPECT_STATUS_IS(
       IREE_STATUS_RESOURCE_EXHAUSTED,
-      loom_serve_media_image_inspect(View(png), &narrow_limits,
+      loom_serve_media_image_inspect(View(pam), &narrow_limits,
                                      iree_allocator_system(), &info));
 }
 
 TEST(ImageTest, OwnsInspectedBytesAfterTransportReuse) {
-  std::string png = DataUrl("image/png", kPng);
-  if (!Available(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG, png)) {
+  std::string pam = DataUrl("image/x-portable-arbitrarymap", kPam);
+  if (!Available(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM, pam)) {
     return;
   }
   ImageInput image;
-  IREE_ASSERT_OK(image.Initialize(png));
+  IREE_ASSERT_OK(image.Initialize(pam));
   const auto identity = image.info().digest;
-  png.assign(png.size(), '?');
+  pam.assign(pam.size(), '?');
   std::vector<uint8_t> pixels(image.info().pixel_length);
   IREE_ASSERT_OK(image.Decode(pixels));
   EXPECT_TRUE(loom_serve_media_digest_equal(&identity, &image.info().digest));

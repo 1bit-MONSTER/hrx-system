@@ -67,6 +67,19 @@ loom_cc_library(
 )
 endif()
 
+if(LOOM_BUILD AND LOOM_SERVE_IMAGE_INPUT AND LOOM_TARGET_ARCH_VM)
+loom_cc_library(
+  NAME
+    image_pam
+  SRCS
+    "image_pam.c"
+  DEPS
+    ::image_codec
+    iree::base
+  PUBLIC
+)
+endif()
+
 if(LOOM_SERVE_IMAGE_CODEC_PNG AND LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
@@ -129,6 +142,11 @@ endif()
 
 if(LOOM_TARGET_ARCH_VM)
 set(_image_codecs_platform_defines "")
+if(LOOM_BUILD AND LOOM_SERVE_IMAGE_INPUT)
+  list(APPEND _image_codecs_platform_defines "LOOM_SERVE_IMAGE_INPUT=1")
+else()
+  list(APPEND _image_codecs_platform_defines "LOOM_SERVE_IMAGE_INPUT=0")
+endif()
 if(LOOM_SERVE_IMAGE_CODEC_PNG)
   list(APPEND _image_codecs_platform_defines "LOOM_SERVE_IMAGE_CODEC_PNG=1")
 else()
@@ -150,6 +168,9 @@ else()
   list(APPEND _image_codecs_platform_defines "LOOM_SERVE_IMAGE_CODEC_WEBP=0")
 endif()
 set(_image_codecs_platform_deps "")
+if(LOOM_BUILD AND LOOM_SERVE_IMAGE_INPUT)
+  list(APPEND _image_codecs_platform_deps ::image_pam)
+endif()
 if(LOOM_SERVE_IMAGE_CODEC_PNG)
   list(APPEND _image_codecs_platform_deps ::image_png)
 endif()
@@ -228,6 +249,23 @@ loom_cc_library(
     iree::base
     iree::vm
   PUBLIC
+)
+endif()
+
+if(LOOM_BUILD AND LOOM_SERVE_IMAGE_INPUT AND LOOM_TARGET_ARCH_VM)
+loom_cc_test(
+  NAME
+    image_pam_test
+  SRCS
+    "image_pam_test.cc"
+  DEPS
+    ::image
+    iree::base
+    iree::base::internal::base64
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
 endif()
 

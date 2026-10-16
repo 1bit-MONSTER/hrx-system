@@ -152,22 +152,28 @@ is the artifact target for the `:elf_module_test` wrapper.
 ### Serving image inputs
 
 Loom serving image input is enabled by default on Linux, macOS, and Windows.
-PNG, JPEG, GIF, and WebP have independent codec providers. Text-only builds can
-exclude all image dependencies, or retain only selected formats:
+PAM images have a built-in decoder with no third-party dependencies. PNG, JPEG,
+GIF, and WebP have independent providers, all enabled by default. A minimal
+build can retain image input with only PAM, select optional codecs, or disable
+image input entirely:
 
 ```bash
-iree-bazel-configure -DLOOM_SERVE_IMAGE_INPUT=OFF
-iree-cmake-configure -DLOOM_SERVE_IMAGE_INPUT=OFF
+iree-bazel-configure -DLOOM_SERVE_IMAGE_CODECS=
+iree-cmake-configure -DLOOM_SERVE_IMAGE_CODECS=
 
 iree-bazel-configure '-DLOOM_SERVE_IMAGE_CODECS=png;jpeg'
 iree-cmake-configure '-DLOOM_SERVE_IMAGE_CODECS=png;jpeg'
+
+iree-bazel-configure -DLOOM_SERVE_IMAGE_INPUT=OFF
+iree-cmake-configure -DLOOM_SERVE_IMAGE_INPUT=OFF
 ```
 
 The native Bazel options are `--//loom/config/serve:image_input=false` and
-`--//loom/config/serve:image_codecs=png,jpeg`. Only selected providers enter
-the source-fetch and link graphs. Disabled formats return an explicit error;
-other serving modalities do not depend on codec availability. Other operating
-systems exclude image providers by default.
+`--//loom/config/serve:image_codecs=png,jpeg`; an empty codec list retains PAM.
+Only selected optional providers enter the source-fetch and link graphs.
+Disabled formats return an explicit error; other serving modalities do not
+depend on codec availability. Other operating systems exclude image providers
+by default.
 
 ### Windows targets
 

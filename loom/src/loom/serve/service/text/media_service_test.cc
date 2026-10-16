@@ -167,14 +167,15 @@ class FailedMediaServiceTest : public MediaServiceTest {
 };
 
 TEST_F(FailedMediaServiceTest, ComponentFailureRejectsImagesButPreservesText) {
-  const std::string image = ImageMessage("a", "image/png", kPng, "low", "b");
+  const std::string image =
+      ImageMessage("a", "image/x-portable-arbitrarymap", kPam, "low", "b");
   const int first = Send(Request(image, 4));
   const int second = Send(Request(image, 4));
   const int text = Send(Request(Message("user", "abxa"), 4));
   ASSERT_NO_FATAL_FAILURE(AcceptTogether({first, second, text}));
   ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface_, [&] { return Idle(); }));
   const bool enabled = loom_serve_media_image_codec(
-                           LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG) != nullptr;
+                           LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM) != nullptr;
   for (int client : {first, second}) {
     const std::string response = Read(client);
     EXPECT_EQ(response.find(enabled ? "HTTP/1.1 503" : "HTTP/1.1 501"), 0u)
@@ -203,15 +204,17 @@ TEST_F(FailedMediaServiceTest, ComponentFailureRejectsImagesButPreservesText) {
 }
 
 TEST_F(SplitMediaServiceTest, OneRequestKeepsFeaturesAcrossBoundedCohorts) {
-  const std::string first = ImageMessage("a", "image/png", kPng, "low", "b");
+  const std::string first =
+      ImageMessage("a", "image/x-portable-arbitrarymap", kPam, "low", "b");
   const std::string second =
-      ImageMessage("x", "image/png", kAlphaPng, "low", "a");
-  const std::string third = ImageMessage("b", "image/png", kPng, "low", "x");
+      ImageMessage("x", "image/x-portable-arbitrarymap", kAlphaPam, "low", "a");
+  const std::string third =
+      ImageMessage("b", "image/x-portable-arbitrarymap", kPam, "low", "x");
   const int client = Send(Request(first + "," + second + "," + third, 4));
   loom_serve_http_connection_t* connection = nullptr;
   ASSERT_NO_FATAL_FAILURE(Accept(client, interface_, &connection));
   ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface_, [&] { return Idle(); }));
-  if (!loom_serve_media_image_codec(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG)) {
+  if (!loom_serve_media_image_codec(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM)) {
     EXPECT_EQ(Read(client).find("HTTP/1.1 501"), 0u);
     return;
   }
@@ -225,19 +228,22 @@ TEST_F(SplitMediaServiceTest, OneRequestKeepsFeaturesAcrossBoundedCohorts) {
 }
 
 TEST_F(MediaServiceTest, LateCodecErrorRejectsOneRequestWithoutLosingPeers) {
-  std::string damaged = kPng;
-  const size_t crc = damaged.find("Ce00");
-  ASSERT_NE(crc, std::string::npos);
-  damaged[crc + 3] = '1';
-  const int first =
-      Send(Request(ImageMessage("a", "image/png", kPng, "low", "b"), 4));
-  const int invalid =
-      Send(Request(ImageMessage("x", "image/png", damaged, "low", ""), 4));
-  const int third =
-      Send(Request(ImageMessage("b", "image/png", kAlphaPng, "low", "a"), 4));
+  // A complete header with a truncated raster passes inspection, then fails
+  // in the accepted CPU decode job alongside independently valid peers.
+  const char* damaged =
+      "UDcKV0lEVEggMgpIRUlHSFQgMgpERVBUSCAzCk1BWFZBTCAyNTUKVFVQTFRZUEUg"
+      "UkdCCkVOREhEUgr/AAAA/wAAAP///w==";
+  const int first = Send(Request(
+      ImageMessage("a", "image/x-portable-arbitrarymap", kPam, "low", "b"), 4));
+  const int invalid = Send(Request(
+      ImageMessage("x", "image/x-portable-arbitrarymap", damaged, "low", ""),
+      4));
+  const int third = Send(Request(
+      ImageMessage("b", "image/x-portable-arbitrarymap", kAlphaPam, "low", "a"),
+      4));
   ASSERT_NO_FATAL_FAILURE(AcceptTogether({first, invalid, third}));
   ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface_, [&] { return Idle(); }));
-  if (!loom_serve_media_image_codec(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG)) {
+  if (!loom_serve_media_image_codec(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM)) {
     for (int client : {first, invalid, third}) {
       EXPECT_EQ(Read(client).find("HTTP/1.1 501"), 0u);
     }
@@ -260,13 +266,14 @@ TEST_F(MediaServiceTest, LateCodecErrorRejectsOneRequestWithoutLosingPeers) {
 
 TEST_F(MediaServiceTest,
        StopJoinsAcceptedCodecBorrowBeforeReleasingHttpBodies) {
-  if (!loom_serve_media_image_codec(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG)) {
+  if (!loom_serve_media_image_codec(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM)) {
     return;
   }
-  const int first =
-      Send(Request(ImageMessage("a", "image/png", kPng, "low", "b"), 4));
-  const int second =
-      Send(Request(ImageMessage("x", "image/png", kAlphaPng, "low", "a"), 4));
+  const int first = Send(Request(
+      ImageMessage("a", "image/x-portable-arbitrarymap", kPam, "low", "b"), 4));
+  const int second = Send(Request(
+      ImageMessage("x", "image/x-portable-arbitrarymap", kAlphaPam, "low", "a"),
+      4));
   ASSERT_NO_FATAL_FAILURE(AcceptTogether({first, second}));
   ASSERT_NO_FATAL_FAILURE(AtImagePhase("image_prepare", [&] {
     bool progress = false;
@@ -285,13 +292,19 @@ TEST_F(MediaServiceTest,
 }
 
 TEST_F(MediaServiceTest, CancelledMiddlePeerPreservesPreparedCohortOrdinals) {
-  if (!loom_serve_media_image_codec(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG)) {
+  if (!loom_serve_media_image_codec(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM)) {
     return;
   }
   const std::array<std::string, 3> bodies = {
-      Request(ImageMessage("a", "image/png", kPng, "low", "b"), 4),
-      Request(ImageMessage("x", "image/png", kPng, "low", "a"), 4),
-      Request(ImageMessage("b", "image/png", kAlphaPng, "low", "a"), 4),
+      Request(
+          ImageMessage("a", "image/x-portable-arbitrarymap", kPam, "low", "b"),
+          4),
+      Request(
+          ImageMessage("x", "image/x-portable-arbitrarymap", kPam, "low", "a"),
+          4),
+      Request(ImageMessage("b", "image/x-portable-arbitrarymap", kAlphaPam,
+                           "low", "a"),
+              4),
   };
   std::array<int, 3> clients = {};
   std::array<loom_serve_http_connection_t*, 3> connections = {};
@@ -339,12 +352,14 @@ TEST_F(MediaServiceTest, CancelledMiddlePeerPreservesPreparedCohortOrdinals) {
 }
 
 TEST_F(MediaServiceTest, CrossRequestImagesConditionTextAndRetainedFollowup) {
-  std::string first = ImageMessage("a", "image/png", kPng, "low", "b");
+  std::string first =
+      ImageMessage("a", "image/x-portable-arbitrarymap", kPam, "low", "b");
   first.insert(first.size() - 2,
                std::string(",{\"type\":\"image_url\",\"image_url\":{\"url\":"
-                           "\"data:image/png;base64,") +
-                   kAlphaPng + "\"}}");
-  const std::string second = ImageMessage("x", "image/png", kPng, "low", "a");
+                           "\"data:image/x-portable-arbitrarymap;base64,") +
+                   kAlphaPam + "\"}}");
+  const std::string second =
+      ImageMessage("x", "image/x-portable-arbitrarymap", kPam, "low", "a");
   const std::array<int, 3> clients = {
       Send(Request(first, 4), "X-Loom-Session: images\r\n"),
       Send(Request(second, 4)),
@@ -365,7 +380,7 @@ TEST_F(MediaServiceTest, CrossRequestImagesConditionTextAndRetainedFollowup) {
     }
   });
   ASSERT_NO_FATAL_FAILURE(AdvanceUntil(interface_, [&] { return Idle(); }));
-  if (!loom_serve_media_image_codec(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG)) {
+  if (!loom_serve_media_image_codec(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM)) {
     EXPECT_EQ(Read(clients[0]).find("HTTP/1.1 501"), 0u);
     EXPECT_EQ(Read(clients[1]).find("HTTP/1.1 501"), 0u);
     EXPECT_EQ(Content(Read(clients[2])), Oracle::Complete("abxa", 4));

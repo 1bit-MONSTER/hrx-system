@@ -6,6 +6,9 @@
 
 #include "loom/serve/media/image_codec.h"
 
+#if LOOM_SERVE_IMAGE_INPUT
+extern const loom_serve_media_image_codec_t loom_serve_media_image_codec_pam;
+#endif
 #if LOOM_SERVE_IMAGE_CODEC_PNG
 extern const loom_serve_media_image_codec_t loom_serve_media_image_codec_png;
 #endif
@@ -20,6 +23,9 @@ extern const loom_serve_media_image_codec_t loom_serve_media_image_codec_webp;
 #endif
 
 static const loom_serve_media_image_codec_t* const codecs[] = {
+#if LOOM_SERVE_IMAGE_INPUT
+    &loom_serve_media_image_codec_pam,
+#endif
 #if LOOM_SERVE_IMAGE_CODEC_PNG
     &loom_serve_media_image_codec_png,
 #endif

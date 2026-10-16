@@ -185,7 +185,8 @@ TEST_F(SourceTextServiceTest,
 
 TEST_F(SourceTextServiceTest, RejectsImagesWithoutProjection) {
   Start();
-  const std::string message = ImageMessage("a", "image/png", kPng, "low", "b");
+  const std::string message =
+      ImageMessage("a", "image/x-portable-arbitrarymap", kPam, "low", "b");
   const std::string response = Read(Send(Request(message, 2)));
   EXPECT_NE(response.find("501 Not Implemented"), std::string::npos)
       << response;

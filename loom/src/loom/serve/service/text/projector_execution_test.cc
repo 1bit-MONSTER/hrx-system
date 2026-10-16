@@ -76,11 +76,9 @@ class PixelProjectorExecutionTest : public SourceTextServiceTest {
 };
 
 TEST_F(PixelProjectorExecutionTest, RgbAndRgbaCohortConditionsRetainedText) {
-  const char* urls[] = {
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFk"
-      "lEQVR4nGP4z8DA8J+BkYHh////DAAe9gT9Ce00PgAAAABJRU5ErkJggg==",
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAGk"
-      "lEQVR4nGPkEpFjkJOTa2CxsbH5LycndxIAGOoD8lwtzTkAAAAASUVORK5CYII=",
+  const std::string urls[] = {
+      std::string("data:image/x-portable-arbitrarymap;base64,") + kPam,
+      std::string("data:image/x-portable-arbitrarymap;base64,") + kAlphaPam,
   };
   const loom_serve_media_image_limits_t limits = {
       .compressed_bytes = 2048,
@@ -90,7 +88,8 @@ TEST_F(PixelProjectorExecutionTest, RgbAndRgbaCohortConditionsRetainedText) {
   };
   for (size_t i = 0; i < inputs_.size(); ++i) {
     auto status = loom_serve_media_image_input_initialize(
-        iree_make_cstring_view(urls[i]), &limits, host_allocator_, &inputs_[i]);
+        iree_make_string_view(urls[i].data(), urls[i].size()), &limits,
+        host_allocator_, &inputs_[i]);
     if (iree_status_is_unimplemented(status)) {
       IREE_EXPECT_STATUS_IS(IREE_STATUS_UNIMPLEMENTED, status);
       return;

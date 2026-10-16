@@ -404,12 +404,13 @@ TEST_F(RegisteredSourceTextServiceTest,
 
 TEST_F(SourceTextServiceTest, OrderedImagesReachSourceDefinedInputSpans) {
   const auto* policy = loom_serve_text_model_chat_policy(model_);
-  const std::string body =
-      Request(ImageMessage("a", "image/png", kPng, "high", "b") + "," +
-                  ImageMessage("", "image/png", kPng, "low", ""),
-              4);
+  const std::string body = Request(
+      ImageMessage("a", "image/x-portable-arbitrarymap", kPam, "high", "b") +
+          "," +
+          ImageMessage("", "image/x-portable-arbitrarymap", kPam, "low", ""),
+      4);
   loom_serve_text_chat_t chat = {};
-  if (!loom_serve_media_image_codec(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG)) {
+  if (!loom_serve_media_image_codec(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM)) {
     IREE_EXPECT_STATUS_IS(
         IREE_STATUS_UNIMPLEMENTED,
         loom_serve_text_chat_initialize(policy, policy->name,
@@ -443,8 +444,8 @@ TEST_F(SourceTextServiceTest, OrderedImagesReachSourceDefinedInputSpans) {
 
 TEST_F(SourceTextServiceTest, RetainedHistoryRequiresExactOrderedMedia) {
   const auto* policy = loom_serve_text_model_chat_policy(model_);
-  const std::string first_body =
-      Request(ImageMessage("x", "image/png", kPng, "low", ""), 4);
+  const std::string first_body = Request(
+      ImageMessage("x", "image/x-portable-arbitrarymap", kPam, "low", ""), 4);
   const auto continuation =
       [&](const std::string& before, const std::string& mime_type,
           const std::string& base64, const std::string& detail,
@@ -459,7 +460,7 @@ TEST_F(SourceTextServiceTest, RetainedHistoryRequiresExactOrderedMedia) {
   loom_serve_text_chat_t different_image = {};
   loom_serve_text_chat_t different_detail = {};
   loom_serve_text_chat_t different_placement = {};
-  if (!loom_serve_media_image_codec(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG)) {
+  if (!loom_serve_media_image_codec(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM)) {
     IREE_EXPECT_STATUS_IS(
         IREE_STATUS_UNIMPLEMENTED,
         loom_serve_text_chat_initialize(
@@ -471,24 +472,24 @@ TEST_F(SourceTextServiceTest, RetainedHistoryRequiresExactOrderedMedia) {
       policy, policy->name, iree_make_cstring_view(first_body.c_str()), 10, 4,
       host_allocator_, &first));
   const std::string matching_body =
-      continuation("x", "image/png", kPng, "low", "");
+      continuation("x", "image/x-portable-arbitrarymap", kPam, "low", "");
   IREE_ASSERT_OK(loom_serve_text_chat_initialize(
       policy, policy->name, iree_make_cstring_view(matching_body.c_str()), 11,
       4, host_allocator_, &matching));
   const std::string different_image_body =
-      continuation("x", "image/png", kAlphaPng, "low", "");
+      continuation("x", "image/x-portable-arbitrarymap", kAlphaPam, "low", "");
   IREE_ASSERT_OK(loom_serve_text_chat_initialize(
       policy, policy->name,
       iree_make_cstring_view(different_image_body.c_str()), 12, 4,
       host_allocator_, &different_image));
   const std::string different_detail_body =
-      continuation("x", "image/png", kPng, "high", "");
+      continuation("x", "image/x-portable-arbitrarymap", kPam, "high", "");
   IREE_ASSERT_OK(loom_serve_text_chat_initialize(
       policy, policy->name,
       iree_make_cstring_view(different_detail_body.c_str()), 13, 4,
       host_allocator_, &different_detail));
   const std::string different_placement_body =
-      continuation("", "image/png", kPng, "low", "x");
+      continuation("", "image/x-portable-arbitrarymap", kPam, "low", "x");
   IREE_ASSERT_OK(loom_serve_text_chat_initialize(
       policy, policy->name,
       iree_make_cstring_view(different_placement_body.c_str()), 14, 4,
