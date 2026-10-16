@@ -57,17 +57,6 @@ live-tile checkpointing, persistent placement, program-owned timer/counter
 protocols and device-only cross-engine scheduling. An execution record names
 the actual selected cases, image, target and native transport.
 
-`pipeline_completion_test` compiles [owned-channel programs](testdata/pipeline_completion.loom)
-for both NPU4 and NPU5 and selects the live device's image. Its three exports
-publish two reservations in reverse order, release a later read while DMA
-still uses an earlier record, and rotate an owned read through an ordinary
-loop. Each program runs three times through the same immutable native command.
-The [case bodies](pipeline_completion_test.cc) check exact FIFO results,
-poisoned output replacement, untouched binding bytes, guards, command
-immutability and native retirement. These finite programs return each completed
-prefix before admitting more work, so two physical slots suffice. They do not
-require independent reuse of a later slot while its predecessor remains owned.
-
 ### Benchmark smoke invocation
 
 The generated smoke test uses the XDNA hardware requirement and shared AMDGPU

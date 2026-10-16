@@ -5,9 +5,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("//build_tools/bazel:python.bzl", "iree_py_binary")
-load("//build_tools/embed_data:build_defs.bzl", "iree_c_embed_data")
 load("//experimental/xdna:build_defs.bzl", "xdna_cc_library", "xdna_cc_test", "xdna_execution_test_suite")
-load("//loom/build_tools/bazel:defs.bzl", "loom_kernel_binary", "loom_target_profile")
 
 package(
     default_visibility = ["//visibility:private"],
@@ -19,76 +17,6 @@ _PIPELINE_ARTIFACTS = select({
     "//loom/config/target:xdna_artifacts": [],
     "//conditions:default": ["@platforms//:incompatible"],
 })
-
-[
-    loom_target_profile(
-        name = name,
-        family = "amd.xdna.aie2p",
-        selector = selector,
-    )
-    for name, selector in [
-        ("npu4", "amd.xdna.strix.17f0_10"),
-        ("npu5", "amd.xdna.strix_halo.17f0_11"),
-    ]
-]
-
-[
-    loom_kernel_binary(
-        name = "pipeline_completion_" + profile,
-        testonly = True,
-        srcs = ["testdata/pipeline_completion.loom"],
-        out = "pipeline_completion_" + profile + ".xdna",
-        roots = [
-            "@autonomous_strided_ingress",
-            "@single_admission",
-            "@projected_single_slot",
-            "@projected_ring",
-            "@reordered_publication",
-            "@reordered_retirement",
-            "@rotating_retirement",
-            "@reuse_dma_descriptors",
-            "@reuse_dma_completions",
-        ],
-        target = ":" + profile,
-        target_compatible_with = _PIPELINE_ARTIFACTS,
-    )
-    for profile in [
-        "npu4",
-        "npu5",
-    ]
-]
-
-iree_c_embed_data(
-    name = "pipeline_completion",
-    testonly = True,
-    srcs = [
-        ":pipeline_completion_npu4",
-        ":pipeline_completion_npu5",
-    ],
-    c_file_output = "pipeline_completion.c",
-    flatten = True,
-    h_file_output = "pipeline_completion.h",
-    identifier = "iree_xdna_pipeline_completion",
-    target_compatible_with = _PIPELINE_ARTIFACTS,
-)
-
-xdna_cc_test(
-    name = "pipeline_completion_test",
-    srcs = ["pipeline_completion_test.cc"],
-    target_compatible_with = _PIPELINE_ARTIFACTS + select({
-        "@platforms//os:linux": [],
-        "@platforms//os:windows": [],
-        "//conditions:default": ["@platforms//:incompatible"],
-    }),
-    deps = [
-        ":execution_fixture",
-        ":pipeline_completion",
-        "//libamdf:headers",
-        "//libamdf/cts/util:linked_test_main",
-        "//runtime/src/iree/base",
-        "//runtime/src/iree/testing:gtest",
-    ],
-)
 
 iree_py_binary(
     name = "dma_geometry_test",

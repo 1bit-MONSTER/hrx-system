@@ -49,6 +49,8 @@ iree_execution_test_suite(
     "iree-benchmark-loom=loom::tools::iree-benchmark-loom"
     "iree-test-loom=loom::tools::iree-test-loom"
   DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/test/channel_lifetime.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/test/dma_reuse.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/test/hal_execution.loom"
   LABELS
     "iree-run-requirement=libamdf.resource.xdna"
