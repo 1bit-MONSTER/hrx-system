@@ -103,10 +103,24 @@ python3 libhrx/src/passthrough/generate_stubs.py \
     --reference-lib build/libhrx/src/binding/hip/libamdhip64.so --check
 ```
 
+`--reference-lib` must be the **HRX-built** `libamdhip64.so`. The required
+version-node set is `libhrx/src/binding/hip/amdhip64.map`, so pointing the
+generator at a stock ROCm library fails on the node set by design.
+
 The script exits non-zero when the produced version-node set differs from
-`libhrx/src/binding/hip/amdhip64.map`, when a node is missing or extra, or when
-any reference symbol would be left without a forwarder, so a newly added HIP
-symbol fails loudly instead of silently reopening the coverage gap.
+`amdhip64.map`, when a node is missing or extra, or when any reference symbol
+would be left without a forwarder, so a newly added HIP symbol fails loudly
+instead of silently reopening the coverage gap.
+
+`--check` additionally compares the committed files byte for byte against what
+this tree generates, and reports *what* differs (changed-line count plus the
+first hunk) rather than only "out of date". It is safe to wire into CI: the
+generated output is deliberately independent of which translation unit
+implements a symbol — signatures come from `api.h` where it declares the entry
+point, and only type declarations that `api.h` does not provide are embedded —
+so the same committed artifact is valid on every branch that shares the HIP API
+surface. Regenerate only when the export table, `api.h`, or the type
+declarations `api.h` lacks actually change.
 
 ## Environment Variables
 
