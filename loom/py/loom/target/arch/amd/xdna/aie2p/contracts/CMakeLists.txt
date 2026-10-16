@@ -190,6 +190,7 @@ iree_py_test(
     loom::py::loom::target::contracts::contracts
   LABELS
     "manual"
+    "stress"
   PACKAGE_DIRS
     "${PROJECT_SOURCE_DIR}/loom/py"
     "${PROJECT_BINARY_DIR}/loom/py"

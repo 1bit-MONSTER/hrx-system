@@ -72,5 +72,8 @@ iree_py_test(
         "//loom/src/loom/tools/loom-compile",
     ],
     main = "bitstream_packet_legalization_test.py",
-    tags = ["manual"],
+    tags = [
+        "manual",
+        "stress",
+    ],
 )

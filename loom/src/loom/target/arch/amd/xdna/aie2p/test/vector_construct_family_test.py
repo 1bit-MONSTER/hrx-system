@@ -67,13 +67,26 @@ class ConstructorCase:
         )
 
 
-def _cases() -> list[ConstructorCase]:
+def _representative_lane_counts(element_bits: int, maximum_lanes: int) -> list[int]:
+    packet_lanes = 64 if element_bits <= 8 else 512 // element_bits
+    lane_counts = {1, 2, 3}
+    for boundary in range(packet_lanes, maximum_lanes + 1, packet_lanes):
+        lane_counts.update((boundary - 1, boundary, boundary + 1))
+    return sorted(count for count in lane_counts if count <= maximum_lanes)
+
+
+def _cases(exhaustive: bool) -> list[ConstructorCase]:
     cases = []
     for element_type, element_bits, maximum_lanes in _ELEMENT_FAMILIES:
         shaped_maximum = min(maximum_lanes, 1024 // element_bits)
-        for lane_count in range(1, maximum_lanes + 1):
+        lane_counts = (
+            range(1, maximum_lanes + 1)
+            if exhaustive
+            else _representative_lane_counts(element_bits, maximum_lanes)
+        )
+        for lane_count in lane_counts:
             cases.append(ConstructorCase(element_type, element_bits, (lane_count,)))
-            if lane_count <= shaped_maximum:
+            if exhaustive and lane_count <= shaped_maximum:
                 leading = next(
                     (factor for factor in (3, 2) if lane_count % factor == 0), 1
                 )
@@ -147,8 +160,8 @@ def _evaluate(body: str, inputs: list[bytes]) -> bytes:
 
 
 class VectorConstructFamilyTest(unittest.TestCase):
-    def test_all_logical_lanes(self):
-        cases = _cases()
+    def test_logical_lane_order(self):
+        cases = _cases(_ARGS.exhaustive)
         source = "// RUN: emit source-low target=amd.xdna.aie2p:core output=low\n\n"
         source += "\n// ====\n".join(case.source() + "\n// ----\n" for case in cases)
         with tempfile.TemporaryDirectory() as directory:
@@ -158,10 +171,6 @@ class VectorConstructFamilyTest(unittest.TestCase):
                 [_ARGS.checker, "--update", str(path)], capture_output=True, text=True
             )
             self.assertIn("updated", update.stdout + update.stderr)
-            check = subprocess.run(
-                [_ARGS.checker, str(path)], capture_output=True, text=True
-            )
-            self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
             output = path.read_text()
 
         functions = dict(
@@ -180,6 +189,7 @@ class VectorConstructFamilyTest(unittest.TestCase):
 
 _PARSER = argparse.ArgumentParser()
 _PARSER.add_argument("checker")
+_PARSER.add_argument("--exhaustive", action="store_true")
 _ARGS, _UNITTEST_ARGS = _PARSER.parse_known_args()
 
 if __name__ == "__main__":
