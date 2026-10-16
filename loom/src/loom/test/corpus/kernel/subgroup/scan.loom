@@ -97,8 +97,15 @@ func.def device inline @scan_extrema_matches(%actual: vector<4xf32>, %expected: 
   %actual_nan = vector.cmpi sgt, %actual_magnitude, %infinity_bits : vector<4xi32> -> vector<4xi1>
   %expected_nan = vector.cmpi sgt, %expected_magnitude, %infinity_bits : vector<4xi32> -> vector<4xi1>
   %both_nan = vector.andi %actual_nan, %expected_nan : vector<4xi1>
+  %quiet_mask = vector.constant 4194304 : vector<4xi32>
+  %actual_quiet_bits = vector.andi %actual_bits, %quiet_mask : vector<4xi32>
+  %actual_quiet = vector.cmpi eq, %actual_quiet_bits, %quiet_mask : vector<4xi32> -> vector<4xi1>
+  %quiet_nan = vector.andi %both_nan, %actual_quiet : vector<4xi1>
   %same_bits = vector.cmpi eq, %actual_bits, %expected_bits : vector<4xi32> -> vector<4xi1>
-  %matches = vector.ori %same_bits, %both_nan : vector<4xi1>
+  %true_mask = vector.constant true : vector<4xi1>
+  %expected_number = vector.xori %expected_nan, %true_mask : vector<4xi1>
+  %same_number = vector.andi %same_bits, %expected_number : vector<4xi1>
+  %matches = vector.ori %same_number, %quiet_nan : vector<4xi1>
   %true = scalar.constant true : i1
   %all_match = vector.reduce<andi> %matches, %true : vector<4xi1>, i1
   %result = scalar.extui %all_match : i1 to i32
@@ -120,7 +127,7 @@ kernel.def @subgroup_scan_float_extrema() {
   %parity = index.andi %item, %unit : index
   %active = index.cmp eq, %parity, %unit : index
   %input_view = buffer.view %input[%base] : buffer -> view<4xf32>
-  %output_view = buffer.view %output[%base] : buffer -> view<67x4xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<67x8xi32>
   %value = vector.load %input_view[0] : view<4xf32> -> vector<4xf32>
   scf.if %active {
     %present = scalar.constant 1 : i32
@@ -136,14 +143,26 @@ kernel.def @subgroup_scan_float_extrema() {
     %exclusive_maximum = kernel.subgroup.scan<maxnumf> %value {direction = forward, mode = exclusive} : vector<4xf32>
     %inclusive_minimum = kernel.subgroup.scan<minnumf> %value {direction = forward, mode = inclusive} : vector<4xf32>
     %inclusive_maximum = kernel.subgroup.scan<maxnumf> %value {direction = forward, mode = inclusive} : vector<4xf32>
+    %exclusive_nan_minimum = kernel.subgroup.scan<minimumf> %value {direction = forward, mode = exclusive} : vector<4xf32>
+    %exclusive_nan_maximum = kernel.subgroup.scan<maximumf> %value {direction = forward, mode = exclusive} : vector<4xf32>
+    %inclusive_nan_minimum = kernel.subgroup.scan<minimumf> %value {direction = forward, mode = inclusive} : vector<4xf32>
+    %inclusive_nan_maximum = kernel.subgroup.scan<maximumf> %value {direction = forward, mode = inclusive} : vector<4xf32>
     %exclusive_minimum_matches = func.call @scan_extrema_matches(%exclusive_minimum, %expected_minimum) : (vector<4xf32>, vector<4xf32>) -> (i32)
     %exclusive_maximum_matches = func.call @scan_extrema_matches(%exclusive_maximum, %expected_maximum) : (vector<4xf32>, vector<4xf32>) -> (i32)
     %inclusive_minimum_matches = func.call @scan_extrema_matches(%inclusive_minimum, %value) : (vector<4xf32>, vector<4xf32>) -> (i32)
     %inclusive_maximum_matches = func.call @scan_extrema_matches(%inclusive_maximum, %value) : (vector<4xf32>, vector<4xf32>) -> (i32)
-    view.store %exclusive_minimum_matches, %output_view[%item, 0] : i32, view<67x4xi32>
-    view.store %exclusive_maximum_matches, %output_view[%item, 1] : i32, view<67x4xi32>
-    view.store %inclusive_minimum_matches, %output_view[%item, 2] : i32, view<67x4xi32>
-    view.store %inclusive_maximum_matches, %output_view[%item, 3] : i32, view<67x4xi32>
+    %exclusive_nan_minimum_matches = func.call @scan_extrema_matches(%exclusive_nan_minimum, %expected_minimum) : (vector<4xf32>, vector<4xf32>) -> (i32)
+    %exclusive_nan_maximum_matches = func.call @scan_extrema_matches(%exclusive_nan_maximum, %expected_maximum) : (vector<4xf32>, vector<4xf32>) -> (i32)
+    %inclusive_nan_minimum_matches = func.call @scan_extrema_matches(%inclusive_nan_minimum, %value) : (vector<4xf32>, vector<4xf32>) -> (i32)
+    %inclusive_nan_maximum_matches = func.call @scan_extrema_matches(%inclusive_nan_maximum, %value) : (vector<4xf32>, vector<4xf32>) -> (i32)
+    view.store %exclusive_minimum_matches, %output_view[%item, 0] : i32, view<67x8xi32>
+    view.store %exclusive_maximum_matches, %output_view[%item, 1] : i32, view<67x8xi32>
+    view.store %inclusive_minimum_matches, %output_view[%item, 2] : i32, view<67x8xi32>
+    view.store %inclusive_maximum_matches, %output_view[%item, 3] : i32, view<67x8xi32>
+    view.store %exclusive_nan_minimum_matches, %output_view[%item, 4] : i32, view<67x8xi32>
+    view.store %exclusive_nan_maximum_matches, %output_view[%item, 5] : i32, view<67x8xi32>
+    view.store %inclusive_nan_minimum_matches, %output_view[%item, 6] : i32, view<67x8xi32>
+    view.store %inclusive_nan_maximum_matches, %output_view[%item, 7] : i32, view<67x8xi32>
   }
   kernel.return
 }
@@ -153,10 +172,10 @@ func.def @subgroup_scan_extrema_oracle(%input: buffer, %output: buffer) {
   %begin = index.constant 1 : index
   %end = index.constant 67 : index
   %step = index.constant 2 : index
-  %passed = vector.constant 1 : vector<4xi32>
-  %output_view = buffer.view %output[%base] : buffer -> view<67x4xi32>
+  %passed = vector.constant 1 : vector<8xi32>
+  %output_view = buffer.view %output[%base] : buffer -> view<67x8xi32>
   scf.for %item = [%begin to %end step %step] {
-    vector.store %passed, %output_view[%item, 0] : vector<4xi32>, view<67x4xi32>
+    vector.store %passed, %output_view[%item, 0] : vector<8xi32>, view<67x8xi32>
   }
   func.return
 }
@@ -164,43 +183,151 @@ func.def @subgroup_scan_extrema_oracle(%input: buffer, %output: buffer) {
 check.scenario @subgroup_scan_float_extrema_values {
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.fill value(nan) : tensor<4xf32>
-    %output = check.generate.fill value(-1) : tensor<67x4xi32>
-    check.compare<@subgroup_scan_float_extrema, @subgroup_scan_extrema_oracle>(%input, %output) : (tensor<4xf32>, tensor<67x4xi32>) -> () {
-      check.expect.bitwise actual(%output) expected(%output) : tensor<67x4xi32>
+    %output = check.generate.fill value(-1) : tensor<67x8xi32>
+    check.compare<@subgroup_scan_float_extrema, @subgroup_scan_extrema_oracle>(%input, %output) : (tensor<4xf32>, tensor<67x8xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<67x8xi32>
     }
   }
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.iota offset(-2.0) step(1.0) : tensor<4xf32>
-    %output = check.generate.fill value(-1) : tensor<67x4xi32>
-    check.compare<@subgroup_scan_float_extrema, @subgroup_scan_extrema_oracle>(%input, %output) : (tensor<4xf32>, tensor<67x4xi32>) -> () {
-      check.expect.bitwise actual(%output) expected(%output) : tensor<67x4xi32>
+    %output = check.generate.fill value(-1) : tensor<67x8xi32>
+    check.compare<@subgroup_scan_float_extrema, @subgroup_scan_extrema_oracle>(%input, %output) : (tensor<4xf32>, tensor<67x8xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<67x8xi32>
     }
   }
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.fill value(-0.0) : tensor<4xf32>
-    %output = check.generate.fill value(-1) : tensor<67x4xi32>
-    check.compare<@subgroup_scan_float_extrema, @subgroup_scan_extrema_oracle>(%input, %output) : (tensor<4xf32>, tensor<67x4xi32>) -> () {
-      check.expect.bitwise actual(%output) expected(%output) : tensor<67x4xi32>
+    %output = check.generate.fill value(-1) : tensor<67x8xi32>
+    check.compare<@subgroup_scan_float_extrema, @subgroup_scan_extrema_oracle>(%input, %output) : (tensor<4xf32>, tensor<67x8xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<67x8xi32>
     }
   }
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.fill value(inf) : tensor<4xf32>
-    %output = check.generate.fill value(-1) : tensor<67x4xi32>
-    check.compare<@subgroup_scan_float_extrema, @subgroup_scan_extrema_oracle>(%input, %output) : (tensor<4xf32>, tensor<67x4xi32>) -> () {
-      check.expect.bitwise actual(%output) expected(%output) : tensor<67x4xi32>
+    %output = check.generate.fill value(-1) : tensor<67x8xi32>
+    check.compare<@subgroup_scan_float_extrema, @subgroup_scan_extrema_oracle>(%input, %output) : (tensor<4xf32>, tensor<67x8xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<67x8xi32>
     }
   }
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.fill value(-inf) : tensor<4xf32>
-    %output = check.generate.fill value(-1) : tensor<67x4xi32>
-    check.compare<@subgroup_scan_float_extrema, @subgroup_scan_extrema_oracle>(%input, %output) : (tensor<4xf32>, tensor<67x4xi32>) -> () {
-      check.expect.bitwise actual(%output) expected(%output) : tensor<67x4xi32>
+    %output = check.generate.fill value(-1) : tensor<67x8xi32>
+    check.compare<@subgroup_scan_float_extrema, @subgroup_scan_extrema_oracle>(%input, %output) : (tensor<4xf32>, tensor<67x8xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<67x8xi32>
     }
   }
   check.trial[1](%trial: index, %entropy: check.entropy) {
     %input = check.generate.fill value(1.4012984643248171e-45) : tensor<4xf32>
+    %output = check.generate.fill value(-1) : tensor<67x8xi32>
+    check.compare<@subgroup_scan_float_extrema, @subgroup_scan_extrema_oracle>(%input, %output) : (tensor<4xf32>, tensor<67x8xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<67x8xi32>
+    }
+  }
+  check.return
+}
+
+// The three-component F64 carrier exercises vector constants and 64-bit keys.
+// Non-NaN results match exactly. A singleton prefix performs no combine and
+// may forward a signaling NaN; prefixes with arithmetic must quiet it.
+func.def device inline @wide_scan_matches(%actual: vector<3xf64>, %expected: vector<3xf64>, %combined: i1) -> (i32) {
+  %actual_bits = vector.bitcast %actual : vector<3xf64> to vector<3xi64>
+  %expected_bits = vector.bitcast %expected : vector<3xf64> to vector<3xi64>
+  %mask = vector.constant 9223372036854775807 : vector<3xi64>
+  %infinity = vector.constant 9218868437227405312 : vector<3xi64>
+  %quiet_mask = vector.constant 2251799813685248 : vector<3xi64>
+  %actual_magnitude = vector.andi %actual_bits, %mask : vector<3xi64>
+  %expected_magnitude = vector.andi %expected_bits, %mask : vector<3xi64>
+  %actual_nan = vector.cmpi sgt, %actual_magnitude, %infinity : vector<3xi64> -> vector<3xi1>
+  %expected_nan = vector.cmpi sgt, %expected_magnitude, %infinity : vector<3xi64> -> vector<3xi1>
+  %actual_quiet_bits = vector.andi %actual_bits, %quiet_mask : vector<3xi64>
+  %actual_quiet = vector.cmpi eq, %actual_quiet_bits, %quiet_mask : vector<3xi64> -> vector<3xi1>
+  %both_nan = vector.andi %actual_nan, %expected_nan : vector<3xi1>
+  %requires_quiet = vector.splat %combined : vector<3xi1>
+  %allowed_nan = vector.select %requires_quiet, %actual_quiet, %both_nan : vector<3xi1>
+  %quiet_nan = vector.andi %both_nan, %allowed_nan : vector<3xi1>
+  %same_bits = vector.cmpi eq, %actual_bits, %expected_bits : vector<3xi64> -> vector<3xi1>
+  %true_mask = vector.constant true : vector<3xi1>
+  %expected_number = vector.xori %expected_nan, %true_mask : vector<3xi1>
+  %same_number = vector.andi %same_bits, %expected_number : vector<3xi1>
+  %matches = vector.ori %same_number, %quiet_nan : vector<3xi1>
+  %true = scalar.constant true : i1
+  %all_match = vector.reduce<andi> %matches, %true : vector<3xi1>, i1
+  %result = scalar.extui %all_match : i1 to i32
+  func.return %result : i32
+}
+
+kernel.def @subgroup_scan_wide_extrema() {
+  %unit = index.constant 1 : index
+  %items = index.constant 67 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%items, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %item = kernel.workitem.id<x> : index
+  %unit = index.constant 1 : index
+  %parity = index.andi %item, %unit : index
+  %active = index.cmp eq, %parity, %unit : index
+  %source = buffer.view %input[%base] : buffer -> view<3xf64>
+  %destination = buffer.view %output[%base] : buffer -> view<67x4xi32>
+  %value = vector.load %source[0] : view<3xf64> -> vector<3xf64>
+  scf.if %active {
+    %present = scalar.constant 1 : i32
+    %absent = scalar.constant 0 : i32
+    %prefix = kernel.subgroup.scan<addi> %present {direction = forward, mode = exclusive} : i32
+    %has_prefix = scalar.cmpi ne, %prefix, %absent : i32
+    %combined = scalar.cmpi ugt, %prefix, %present : i32
+    %prefix_mask = vector.splat %has_prefix : vector<3xi1>
+    %minimum_bound = vector.constant inf : vector<3xf64>
+    %maximum_bound = vector.constant -inf : vector<3xf64>
+    %expected_minimum = vector.select %prefix_mask, %value, %minimum_bound : vector<3xf64>
+    %expected_maximum = vector.select %prefix_mask, %value, %maximum_bound : vector<3xf64>
+    %minimum = kernel.subgroup.scan<minnumf> %value {direction = forward, mode = exclusive} : vector<3xf64>
+    %maximum = kernel.subgroup.scan<maxnumf> %value {direction = forward, mode = exclusive} : vector<3xf64>
+    %nan_minimum = kernel.subgroup.scan<minimumf> %value {direction = forward, mode = exclusive} : vector<3xf64>
+    %nan_maximum = kernel.subgroup.scan<maximumf> %value {direction = forward, mode = exclusive} : vector<3xf64>
+    %minimum_matches = func.call @wide_scan_matches(%minimum, %expected_minimum, %combined) : (vector<3xf64>, vector<3xf64>, i1) -> (i32)
+    %maximum_matches = func.call @wide_scan_matches(%maximum, %expected_maximum, %combined) : (vector<3xf64>, vector<3xf64>, i1) -> (i32)
+    %nan_minimum_matches = func.call @wide_scan_matches(%nan_minimum, %expected_minimum, %combined) : (vector<3xf64>, vector<3xf64>, i1) -> (i32)
+    %nan_maximum_matches = func.call @wide_scan_matches(%nan_maximum, %expected_maximum, %combined) : (vector<3xf64>, vector<3xf64>, i1) -> (i32)
+    view.store %minimum_matches, %destination[%item, 0] : i32, view<67x4xi32>
+    view.store %maximum_matches, %destination[%item, 1] : i32, view<67x4xi32>
+    view.store %nan_minimum_matches, %destination[%item, 2] : i32, view<67x4xi32>
+    view.store %nan_maximum_matches, %destination[%item, 3] : i32, view<67x4xi32>
+  }
+  kernel.return
+}
+
+func.def @subgroup_scan_wide_extrema_oracle(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 1 : index
+  %end = index.constant 67 : index
+  %step = index.constant 2 : index
+  %passed = vector.constant 1 : vector<4xi32>
+  %destination = buffer.view %output[%base] : buffer -> view<67x4xi32>
+  scf.for %item = [%begin to %end step %step] {
+    vector.store %passed, %destination[%item, 0] : vector<4xi32>, view<67x4xi32>
+  }
+  func.return
+}
+
+check.scenario @subgroup_scan_wide_extrema_values {
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(9218868437227405312) step(1) : tensor<3xi64>
     %output = check.generate.fill value(-1) : tensor<67x4xi32>
-    check.compare<@subgroup_scan_float_extrema, @subgroup_scan_extrema_oracle>(%input, %output) : (tensor<4xf32>, tensor<67x4xi32>) -> () {
+    check.compare<@subgroup_scan_wide_extrema, @subgroup_scan_wide_extrema_oracle>(%input, %output) : (tensor<3xi64>, tensor<67x4xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<67x4xi32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-9223372036854775808) step(1) : tensor<3xi64>
+    %output = check.generate.fill value(-1) : tensor<67x4xi32>
+    check.compare<@subgroup_scan_wide_extrema, @subgroup_scan_wide_extrema_oracle>(%input, %output) : (tensor<3xi64>, tensor<67x4xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<67x4xi32>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(0) step(1) : tensor<3xi64>
+    %output = check.generate.fill value(-1) : tensor<67x4xi32>
+    check.compare<@subgroup_scan_wide_extrema, @subgroup_scan_wide_extrema_oracle>(%input, %output) : (tensor<3xi64>, tensor<67x4xi32>) -> () {
       check.expect.bitwise actual(%output) expected(%output) : tensor<67x4xi32>
     }
   }

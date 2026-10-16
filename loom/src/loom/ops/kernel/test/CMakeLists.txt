@@ -20,6 +20,7 @@ loom_check_test_suite(
     "roundtrip.loom-test"
     "subgroup_facts.loom-test"
     "verify.loom-test"
+    "workgroup_payloads.loom-test"
 )
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

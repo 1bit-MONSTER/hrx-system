@@ -13,8 +13,10 @@
 #include "loom/ir/facts.h"
 #include "loom/ir/module.h"
 #include "loom/ops/buffer/ops.h"
+#include "loom/ops/kernel/ops.h"
 #include "loom/ops/low/ops.h"
 #include "loom/target/arch/spirv/lower/workgroup_layout.h"
+#include "loom/target/arch/spirv/lower/workgroup_reduce.h"
 #include "loom/util/fact_table.h"
 
 typedef enum loom_spirv_workgroup_plan_kind_e {
@@ -230,8 +232,15 @@ static iree_status_t loom_spirv_workgroup_measure_storage(
   for (iree_host_size_t i = 0; i < selected_plan_count; ++i) {
     const loom_low_lower_selected_plan_view_t selected_plan =
         loom_low_lower_context_selected_plan_view(context, i);
-    if (selected_plan.elided ||
-        selected_plan.plan.id != LOOM_SPIRV_WORKGROUP_PLAN_ALLOCA) {
+    if (selected_plan.elided) {
+      continue;
+    }
+    if (selected_plan.plan.id == LOOM_OP_KERNEL_WORKGROUP_REDUCE) {
+      IREE_RETURN_IF_ERROR(loom_spirv_workgroup_reduce_measure_storage(
+          selected_plan.plan, out_byte_extent));
+      continue;
+    }
+    if (selected_plan.plan.id != LOOM_SPIRV_WORKGROUP_PLAN_ALLOCA) {
       continue;
     }
     const loom_spirv_workgroup_alloca_plan_t* alloca_plan =

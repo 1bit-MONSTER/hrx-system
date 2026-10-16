@@ -91,6 +91,7 @@ from loom.dsl import (
     SymbolReference,
     TypeDef,
     TypeSemantic,
+    VariadicValuesMatch,
     Writes,
 )
 
@@ -1222,16 +1223,20 @@ kernel_workgroup_reduce = Op(
     group=kernel_ops,
     contracts=[ContractFamily.KERNEL_SYNCHRONIZATION],
     phase=OpPhase.EXECUTABLE,
-    doc="Reduce a scalar or rank-1 vector value across the current workgroup." + _COLLECTIVE_MATH_DOC,
-    operands=[Operand("value", ANY, doc="Per-invocation value to reduce.")],
-    results=[Result("result", ANY, doc="Reduced value.")],
+    doc="Reduce one or more independent scalar or rank-1 vector payloads at one workgroup convergence point. Each result has the type of the operand in the same position. All payloads share the combining kind and math requirement; no combination occurs between payloads."
+    + _COLLECTIVE_MATH_DOC,
+    operands=[Operand("values", ANY, variadic=True, doc="Nonempty independent per-invocation payloads to reduce.")],
+    results=[Result("results", ANY, variadic=True, doc="Workgroup-uniform results corresponding positionally to the payloads.")],
     attrs=_collective_combining_attrs(),
-    constraints=[SameType("value", "result")],
+    constraints=[VariadicValuesMatch("values", "results")],
     traits=_KERNEL_CONVERGENT_TRAITS,
     verify="loom_kernel_workgroup_reduce_verify",
     facts="loom_kernel_workgroup_reduce_facts",
-    format=[TemplateParamFlags("kind", "math"), Ref("value"), COLON, TypeOf("value")],
-    examples=["%sum = kernel.workgroup.reduce<addf> %v : f32"],
+    format=[TemplateParamFlags("kind", "math"), Refs("values"), COLON, TypesOf("results")],
+    examples=[
+        "%sum = kernel.workgroup.reduce<addf> %v : f32",
+        "%sum, %moment = kernel.workgroup.reduce<addf> %value, %squared : f32, vector<4xf32>",
+    ],
 )
 
 kernel_workgroup_scan = Op(

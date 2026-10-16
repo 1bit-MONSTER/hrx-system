@@ -1119,23 +1119,25 @@ iree_status_t loom_kernel_workgroup_reduce_facts(
     loom_fact_context_t* context, const loom_module_t* module,
     const loom_op_t* op, const loom_value_facts_t* operand_facts,
     loom_value_facts_t* result_facts) {
-  result_facts[0] = loom_value_facts_unknown();
   const uint32_t maximum_count =
       loom_kernel_workgroup_reduce_kind(op) == LOOM_COMBINING_KIND_ADDI
           ? loom_kernel_context_max_flat_workgroup_size(context, module)
           : 0;
-  if (maximum_count != 0) {
-    uint32_t exact_count = 0;
-    const uint32_t minimum_count =
-        loom_kernel_context_fixed_flat_workgroup_size(context, module,
-                                                      &exact_count)
-            ? exact_count
-            : 1;
-    result_facts[0] = loom_kernel_integer_sum_facts(
-        module, loom_kernel_workgroup_reduce_result(op), operand_facts[0],
-        minimum_count, maximum_count);
+  uint32_t exact_count = 0;
+  const uint32_t minimum_count =
+      maximum_count != 0 && loom_kernel_context_fixed_flat_workgroup_size(
+                                context, module, &exact_count)
+          ? exact_count
+          : 1;
+  const loom_value_slice_t results = loom_kernel_workgroup_reduce_results(op);
+  for (iree_host_size_t i = 0; i < results.count; ++i) {
+    result_facts[i] = maximum_count != 0
+                          ? loom_kernel_integer_sum_facts(
+                                module, results.values[i], operand_facts[i],
+                                minimum_count, maximum_count)
+                          : loom_value_facts_unknown();
+    loom_value_facts_mark_workgroup_uniform(&result_facts[i]);
   }
-  loom_value_facts_mark_workgroup_uniform(&result_facts[0]);
   return iree_ok_status();
 }
 

@@ -412,13 +412,13 @@ class KernelBuilder(DialectBuilder):
         *,
         kind: str,
         math: str = ...,
-        value: ValueRef,
+        values: list[ValueRef] = ...,
         results: list[Type | TiedResultSpec],
         name: str | None = ...,
         names: Sequence[str] | None = ...,
         result_names: Sequence[str] | None = ...,
         location_id: int | None = ...,
-    ) -> ValueRef: ...
+    ) -> list[ValueRef]: ...
     def workgroup_scan(
         self,
         *,

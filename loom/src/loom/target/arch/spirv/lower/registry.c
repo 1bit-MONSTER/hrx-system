@@ -5,15 +5,18 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include "loom/ir/module.h"
+#include "loom/ops/kernel/ops.h"
 #include "loom/ops/vector/fragment.h"
 #include "loom/target/arch/spirv/contracts/logical_core.h"
 #include "loom/target/arch/spirv/contracts/logical_core_lower_rules.h"
 #include "loom/target/arch/spirv/descriptors/descriptors.h"
 #include "loom/target/arch/spirv/error_catalog.h"
+#include "loom/target/arch/spirv/lower/collective_arithmetic.h"
 #include "loom/target/arch/spirv/lower/lower.h"
 #include "loom/target/arch/spirv/lower/matrix.h"
 #include "loom/target/arch/spirv/lower/workgroup.h"
 #include "loom/target/arch/spirv/lower/workgroup_layout.h"
+#include "loom/target/arch/spirv/lower/workgroup_reduce.h"
 #include "loom/target/arch/spirv/ops/types.h"
 #include "loom/target/arch/spirv/value_types.h"
 #include "loom/target/registers.h"
@@ -500,6 +503,13 @@ static iree_status_t loom_spirv_preselect_op(void* user_data,
                                              const loom_op_t* source_op,
                                              loom_low_lower_plan_t* out_plan) {
   (void)user_data;
+  if (loom_kernel_workgroup_reduce_isa(source_op)) {
+    return loom_spirv_select_workgroup_reduce(context, source_op, out_plan);
+  }
+  if (loom_kernel_subgroup_reduce_isa(source_op) ||
+      loom_kernel_subgroup_scan_isa(source_op)) {
+    return loom_spirv_select_subgroup_extrema(context, source_op, out_plan);
+  }
   return loom_spirv_select_workgroup_plan(context, source_op, out_plan);
 }
 
@@ -508,7 +518,34 @@ static iree_status_t loom_spirv_emit_op(void* user_data,
                                         const loom_op_t* source_op,
                                         loom_low_lower_plan_t plan) {
   (void)user_data;
+  if (loom_kernel_workgroup_reduce_isa(source_op)) {
+    return loom_spirv_emit_workgroup_reduce(context, source_op, plan);
+  }
+  if (loom_kernel_subgroup_reduce_isa(source_op) ||
+      loom_kernel_subgroup_scan_isa(source_op)) {
+    return loom_spirv_emit_subgroup_extrema(context, source_op, plan);
+  }
   return loom_spirv_lower_workgroup_op(context, source_op, plan);
+}
+
+static iree_status_t loom_spirv_describe_plan(
+    void* user_data, loom_low_lower_context_t* context,
+    const loom_op_t* source_op, loom_low_lower_plan_t plan, bool is_elided,
+    uint64_t execution_count_plus_one,
+    loom_low_lower_plan_report_t* out_report) {
+  (void)user_data;
+  (void)context;
+  (void)plan;
+  (void)is_elided;
+  (void)execution_count_plus_one;
+  if (loom_kernel_workgroup_reduce_isa(source_op)) {
+    out_report->plan_key = IREE_SV("workgroup_subgroup_tree");
+  }
+  if (loom_kernel_subgroup_reduce_isa(source_op) ||
+      loom_kernel_subgroup_scan_isa(source_op)) {
+    out_report->plan_key = IREE_SV("integer_float_extrema");
+  }
+  return iree_ok_status();
 }
 
 static iree_status_t loom_spirv_emit_entry_setup(
@@ -527,6 +564,23 @@ static void loom_spirv_mark_plan_storage_demands(
     void* user_data, loom_low_lower_context_t* context,
     const loom_op_t* source_op, loom_low_lower_plan_t plan) {
   (void)user_data;
+  if (loom_kernel_workgroup_reduce_isa(source_op)) {
+    for (uint16_t i = 0; i < source_op->operand_count; ++i) {
+      loom_low_lower_require_source_value_storage(
+          context, loom_op_const_operands(source_op)[i]);
+    }
+    return;
+  }
+  if (loom_kernel_subgroup_reduce_isa(source_op)) {
+    loom_low_lower_require_source_value_storage(
+        context, loom_kernel_subgroup_reduce_value(source_op));
+    return;
+  }
+  if (loom_kernel_subgroup_scan_isa(source_op)) {
+    loom_low_lower_require_source_value_storage(
+        context, loom_kernel_subgroup_scan_value(source_op));
+    return;
+  }
   loom_spirv_mark_workgroup_plan_storage_demands(context, source_op, plan);
 }
 
@@ -565,6 +619,7 @@ static const loom_low_lower_policy_t kSpirvLowLowerPolicy = {
             .user_data = NULL,
         },
     .preselect_op = {.fn = loom_spirv_preselect_op, .user_data = NULL},
+    .describe_plan = {.fn = loom_spirv_describe_plan, .user_data = NULL},
     .mark_plan_storage_demands =
         {
             .fn = loom_spirv_mark_plan_storage_demands,

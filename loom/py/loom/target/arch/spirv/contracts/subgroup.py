@@ -24,6 +24,7 @@ from loom.target.arch.spirv.scalar_alu import (
     IntegerAluTypePair,
 )
 from loom.target.arch.spirv.subgroup import (
+    SPIRV_COLLECTIVE_EXTREMA_TYPES,
     SPIRV_SUBGROUP_ARITHMETIC,
     SPIRV_SUBGROUP_BALLOT_BIT_EXTRACT_INSTRUCTION,
     SPIRV_SUBGROUP_BALLOT_INSTRUCTION,
@@ -41,6 +42,7 @@ from loom.target.contracts import (
     DescriptorRule,
     EmitDescriptorOp,
     Guard,
+    RecipeRule,
     Scalar,
     ValueRef,
     Vector,
@@ -431,8 +433,6 @@ def _shuffle_rules() -> tuple[DescriptorRule, ...]:
 def _arithmetic_rule(
     row: SpirvSubgroupArithmetic,
     source_lanes: int,
-    *,
-    float_extremum: bool = False,
 ) -> DescriptorRule:
     instruction = row.instruction
     value_type = instruction.result_type
@@ -458,41 +458,7 @@ def _arithmetic_rule(
     recipe = IntegerRecipe(component.bit_width, max(1, source_lanes))
     value = ValueRef.operand("value")
     result = ValueRef.result("result")
-    if float_extremum:
-        source_type = f"f{component.bit_width}"
-        minimum = kinds == ("minsi",)
-        kinds = ("minnumf" if minimum else "maxnumf",)
-        # A signed sortable key orders every finite value, infinity and signed
-        # zero without any floating-point arithmetic. NaNs become an outlying
-        # key, so numeric peers win and all-NaN groups stay quiet NaN. Exclusive
-        # scans reserve the integer identity for an empty prefix; the adjacent
-        # key is still a NaN and lies beyond every numeric input key.
-        value = recipe.import_float_bits(value, source_type, component.bit_width)
-        magnitude_mask = recipe.constant((1 << (component.bit_width - 1)) - 1)
-        shift = recipe.constant(component.bit_width - 1)
-        infinity_bits = {
-            16: 0x7C00,
-            32: 0x7F800000,
-            64: 0x7FF0000000000000,
-        }[component.bit_width]
-        infinity = recipe.constant(infinity_bits)
-        magnitude = recipe.binary("bitwise_and", value, magnitude_mask)
-        is_nan = recipe.binary("s_greater_than", magnitude, infinity)
-        sign = recipe.binary("shift_right_arithmetic", value, shift)
-        ordered = recipe.binary(
-            "bitwise_xor", value, recipe.binary("bitwise_and", sign, magnitude_mask)
-        )
-        identity_key = (
-            (1 << (component.bit_width - 1)) - 1
-            if minimum
-            else -(1 << (component.bit_width - 1))
-        )
-        nan_key = identity_key
-        if scan_mode == "exclusive":
-            nan_key += -1 if minimum else 1
-        value = recipe.select(is_nan, recipe.constant(nan_key), ordered)
-        result = ValueRef.temporary("reduced_key")
-    elif component.kind == OrdinaryVectorComponentKind.UNSIGNED_INTEGER:
+    if component.kind == OrdinaryVectorComponentKind.UNSIGNED_INTEGER:
         value = recipe.emit(
             f"bitcast.{recipe.integer_suffix}.{value_type.suffix}", {"input": value}
         )
@@ -506,17 +472,7 @@ def _arithmetic_rule(
             immediates=immediates,
         )
     )
-    if float_extremum:
-        if scan_mode == "exclusive":
-            empty = recipe.binary("i_equal", result, recipe.constant(identity_key))
-            empty_key = infinity_bits if minimum else -infinity_bits - 1
-            result = recipe.select(empty, recipe.constant(empty_key), result)
-        sign = recipe.binary("shift_right_arithmetic", result, shift)
-        bits = recipe.binary(
-            "bitwise_xor", result, recipe.binary("bitwise_and", sign, magnitude_mask)
-        )
-        recipe.export_float_bits(bits, source_type, component.bit_width)
-    elif component.kind == OrdinaryVectorComponentKind.UNSIGNED_INTEGER:
+    if component.kind == OrdinaryVectorComponentKind.UNSIGNED_INTEGER:
         recipe.emit(
             f"bitcast.{value_type.suffix}.{recipe.integer_suffix}",
             {"input": result},
@@ -557,7 +513,6 @@ def _arithmetic_rule(
             *descriptor_feature_guards(*(emit.descriptor for emit in recipe.emits)),
         ),
         emit=tuple(recipe.emits),
-        report_key="integer_float_extrema" if float_extremum else None,
     )
 
 
@@ -570,14 +525,113 @@ def _arithmetic_rules() -> tuple[DescriptorRule, ...]:
             if isinstance(value_type, OrdinaryVectorType)
             else (0, 1)
         )
-        for source_lanes in lane_counts:
-            rules.append(_arithmetic_rule(row, source_lanes))
-            if row.source_type in ("i16", "i32", "i64") and row.combining_kinds in (
-                ("minsi",),
-                ("maxsi",),
-            ):
-                rules.append(_arithmetic_rule(row, source_lanes, float_extremum=True))
+        rules.extend(
+            _arithmetic_rule(row, source_lanes) for source_lanes in lane_counts
+        )
     return tuple(rules)
+
+
+def _extrema_rules() -> tuple[RecipeRule, ...]:
+    rules = []
+    for row in SPIRV_COLLECTIVE_EXTREMA_TYPES:
+        for source_lanes in (0, 1) if row.lane_count == 1 else (row.lane_count,):
+            source_type = f"f{row.bit_count}"
+            pattern = (
+                Scalar(source_type)
+                if source_lanes == 0
+                else Vector(source_type, lanes=source_lanes)
+            )
+            for mode in (
+                "reduce",
+                "clustered_reduce",
+                "inclusive_scan",
+                "exclusive_scan",
+            ):
+                scan = mode.endswith("_scan")
+                cluster_guard = (
+                    Guard.target_contiguous_subgroup_cluster
+                    if mode == "clustered_reduce"
+                    else Guard.target_whole_subgroup
+                )("cluster_size", "cluster_stride")
+                descriptors = (
+                    *(logical_core_descriptor(key) for key in row.descriptors.values()),
+                    *(
+                        logical_core_descriptor(row.subgroup_key(mode, minimum=minimum))
+                        for minimum in (True, False)
+                    ),
+                )
+                rules.append(
+                    RecipeRule(
+                        source_op=kernel.kernel_subgroup_scan
+                        if scan
+                        else kernel.kernel_subgroup_reduce,
+                        guards=(
+                            Guard.enum_attr_in(
+                                "kind", ("minnumf", "maxnumf", "minimumf", "maximumf")
+                            ),
+                            Guard.value_type("value", pattern),
+                            cluster_guard,
+                            *(
+                                (
+                                    Guard.enum_attr_equals(
+                                        "mode", mode.removesuffix("_scan")
+                                    ),
+                                    Guard.enum_attr_equals("direction", "forward"),
+                                )
+                                if scan
+                                else ()
+                            ),
+                            *descriptor_feature_guards(*descriptors),
+                        ),
+                    )
+                )
+    return tuple(rules)
+
+
+def _workgroup_rules() -> tuple[RecipeRule, ...]:
+    # Every payload shares the same dynamic subgroup topology. The retained
+    # typed plan checks the independent payload carriers and their capabilities.
+    topology = descriptor_feature_guards(
+        logical_core_descriptor("spirv.op_load_builtin.subgroup_id"),
+        logical_core_descriptor("spirv.op_load_builtin.subgroup_count"),
+        logical_core_descriptor("spirv.op_group_non_uniform_iadd.exclusive_scan.i32"),
+        logical_core_descriptor("spirv.op_group_non_uniform_iadd.reduce.i32"),
+        logical_core_descriptor("spirv.op_control_barrier.workgroup.workgroup.acq_rel"),
+    )
+    return (
+        RecipeRule(
+            source_op=kernel.kernel_workgroup_reduce,
+            guards=(
+                Guard.enum_attr_in("kind", ("addf", "mulf")),
+                Guard.instance_flags_has_none("math", "preserve"),
+                *topology,
+            ),
+        ),
+        RecipeRule(
+            source_op=kernel.kernel_workgroup_reduce,
+            guards=(
+                Guard.enum_attr_in(
+                    "kind",
+                    (
+                        "addi",
+                        "muli",
+                        "minsi",
+                        "maxsi",
+                        "minui",
+                        "maxui",
+                        "andi",
+                        "ori",
+                        "xori",
+                        "minimumf",
+                        "maximumf",
+                        "minnumf",
+                        "maxnumf",
+                    ),
+                ),
+                *topology,
+            ),
+        ),
+    )
 
 
 SPIRV_SUBGROUP_CONTRACT_CASES: tuple[ContractCase, ...] = (
@@ -588,4 +642,6 @@ SPIRV_SUBGROUP_CONTRACT_CASES: tuple[ContractCase, ...] = (
     *_vote_rules(),
     *_shuffle_rules(),
     *_arithmetic_rules(),
+    *_extrema_rules(),
+    *_workgroup_rules(),
 )

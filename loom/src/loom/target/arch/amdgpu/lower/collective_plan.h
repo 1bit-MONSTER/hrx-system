@@ -203,11 +203,24 @@ typedef struct loom_amdgpu_workgroup_collective_cross_wave_descriptors_t {
   loom_low_lower_resolved_descriptor_t restore_exec_descriptor;
 } loom_amdgpu_workgroup_collective_cross_wave_descriptors_t;
 
-typedef struct loom_amdgpu_workgroup_reduce_plan_t {
-  // Source value reduced across workgroup lanes.
+typedef struct loom_amdgpu_workgroup_reduce_payload_t {
+  // Source payload reduced independently across workgroup lanes.
   loom_value_id_t value;
+  // Source result receiving the corresponding reduced registers.
+  loom_value_id_t result;
   // Optional literal recipe for the scalar integer payload's VGPR carrier.
   const void* payload_materialization;
+  // Source representation used to import this payload's registers.
+  loom_amdgpu_subgroup_payload_kind_t kind;
+  // Number of consecutive 32-bit components belonging to this payload.
+  uint32_t register_count;
+} loom_amdgpu_workgroup_reduce_payload_t;
+
+typedef struct loom_amdgpu_workgroup_reduce_plan_t {
+  // Function-arena-owned positional payloads sharing this reduction tree.
+  loom_amdgpu_workgroup_reduce_payload_t* payloads;
+  // Number of independent source/result pairs in |payloads|.
+  uint32_t payload_count;
   // Descriptor row selected for each native cross-lane read.
   loom_low_lower_resolved_descriptor_t bpermute_descriptor;
   // Descriptor row selected for all-lane DPP row moves.
@@ -226,11 +239,7 @@ typedef struct loom_amdgpu_workgroup_reduce_plan_t {
   loom_low_lower_resolved_descriptor_t select_descriptor;
   // Descriptor bundle used for cross-wave LDS publication.
   loom_amdgpu_workgroup_collective_cross_wave_descriptors_t cross_wave;
-  // Result value receiving the reduced payload.
-  loom_value_id_t result;
-  // Source/result payload shape selected during planning.
-  loom_amdgpu_subgroup_payload_kind_t payload_kind;
-  // Number of 32-bit registers in the reduced payload.
+  // Total number of independent 32-bit components across all payloads.
   uint32_t register_count;
   // Exact subgroup width selected by the active target bundle.
   uint32_t wavefront_size;

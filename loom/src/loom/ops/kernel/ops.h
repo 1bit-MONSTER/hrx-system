@@ -894,19 +894,21 @@ iree_status_t loom_kernel_subgroup_match_all_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter);
 
-// LOOM_OP_KERNEL_WORKGROUP_REDUCE: Reduce a scalar or rank-1 vector value across the current workgroup. Each active contribution participates once per component; association is unspecified. Floating sums and products default to native target arithmetic, which may change signed zeros, flush subnormals, or relax nonfinite handling. The optional preserve requirement instead evaluates each combine with the source format's arithmetic semantics. Neither mode promises serial-reference bits, reproducibility, or a correctly rounded real-number sum. Integer arithmetic and the selected floating-extremum kind keep their exact semantics.
+// LOOM_OP_KERNEL_WORKGROUP_REDUCE: Reduce one or more independent scalar or rank-1 vector payloads at one workgroup convergence point. Each result has the type of the operand in the same position. All payloads share the combining kind and math requirement; no combination occurs between payloads. Each active contribution participates once per component; association is unspecified. Floating sums and products default to native target arithmetic, which may change signed zeros, flush subnormals, or relax nonfinite handling. The optional preserve requirement instead evaluates each combine with the source format's arithmetic semantics. Neither mode promises serial-reference bits, reproducibility, or a correctly rounded real-number sum. Integer arithmetic and the selected floating-extremum kind keep their exact semantics.
 // %sum = kernel.workgroup.reduce<addf> %v : f32
 LOOM_DEFINE_ISA(loom_kernel_workgroup_reduce_isa, LOOM_OP_KERNEL_WORKGROUP_REDUCE)
-LOOM_DEFINE_OPERAND(loom_kernel_workgroup_reduce_value, 0)
-LOOM_DEFINE_RESULT(loom_kernel_workgroup_reduce_result, 0)
+LOOM_DEFINE_VARIADIC_OPERANDS(loom_kernel_workgroup_reduce_values, 0)
+LOOM_DEFINE_VARIADIC_RESULTS(loom_kernel_workgroup_reduce_results, 0)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_kernel_workgroup_reduce_kind, 0, loom_combining_kind_t)
 LOOM_DEFINE_INSTANCE_FLAGS(loom_kernel_workgroup_reduce_math)
 iree_status_t loom_kernel_workgroup_reduce_build(
     loom_builder_t* builder,
     loom_combining_kind_t kind,
     uint8_t instance_flags,
-    loom_value_id_t value,
-    loom_type_t result_type,
+    const loom_value_id_t* values,
+    iree_host_size_t values_count,
+    const loom_type_t* result_types,
+    iree_host_size_t result_count,
     loom_location_id_t location,
     loom_op_t** out_op);
 iree_status_t loom_kernel_workgroup_reduce_facts(

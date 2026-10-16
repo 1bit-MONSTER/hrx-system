@@ -22,5 +22,6 @@ loom_check_test_suite(
         "roundtrip.loom-test",
         "subgroup_facts.loom-test",
         "verify.loom-test",
+        "workgroup_payloads.loom-test",
     ],
 )

@@ -93,7 +93,7 @@ from loom.target.arch.spirv.scalar_alu import (
     INTEGER_SCALAR_ALU_TYPE_PAIRS,
     OFFSET64_ALU_TYPE,
     OFFSET64_COMPARE_PREDICATES,
-    SCALAR_ALU_TYPES,
+    SCALAR_SELECT_TYPES,
     SIGNED_INTEGER_BINARY_OPERATIONS,
     SIGNED_INTEGER_COMPARE_PREDICATES,
     SIGNED_INTEGER_SCALAR_ALU_TYPES,
@@ -1745,7 +1745,7 @@ def _select_descriptors() -> tuple[Descriptor, ...]:
             result_value_type=_scalar_alu_result_value_type(scalar),
             feature_bits=scalar.feature_bits,
         )
-        for scalar in SCALAR_ALU_TYPES
+        for scalar in SCALAR_SELECT_TYPES
     ]
     descriptors.append(
         _select_descriptor(

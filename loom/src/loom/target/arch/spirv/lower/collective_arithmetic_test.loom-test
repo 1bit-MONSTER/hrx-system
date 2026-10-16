@@ -1,0 +1,135 @@
+// RUN: emit source-low target=spirv:vulkan1.3+bda+subgroup32+reductions+hal output=low
+
+// Scalar half keys use integer16 subgroup arithmetic. A proper subcluster
+// retains its extent rather than accidentally selecting a whole-subgroup op.
+kernel.def @half_cluster() {
+  %unit = index.constant 1 : index
+  %items = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%items, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %item = kernel.workitem.id<x> : index
+  %source = buffer.view %input[%base] : buffer -> view<32xf16>
+  %destination = buffer.view %output[%base] : buffer -> view<32xf16>
+  %value = view.load %source[%item] : view<32xf16> -> f16
+  %minimum = kernel.subgroup.reduce<minimumf> %value {cluster_size = 8} : f16
+  view.store %minimum, %destination[%item] : f16, view<32xf16>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer, buffer) -> ()}) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @half_cluster() asm {
+  %input = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %output = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %item = OpLoadBuiltin.local_invocation_id.x
+  %13 = OpSConvert.i32.offset64 %item
+  %14 = OpConstant.offset64 2
+  %15 = OpIMul.offset64 %13, %14
+  %16 = OpPtrAccessChain.storage_buffer.f16.byte_offset %input, %15
+  %value = OpLoad.storage_buffer.f16 %16
+  %18 = OpConstant.i16 32767
+  %19 = OpConstant.i16 15
+  %20 = OpConstant.i16 31744
+  %21 = OpBitcast.f16.i16 %value
+  %22 = OpBitwiseAnd.i16 %21, %18
+  %23 = OpSGreaterThan.i16 %22, %20
+  %24 = OpShiftRightArithmetic.i16 %21, %19
+  %25 = OpBitwiseAnd.i16 %24, %18
+  %26 = OpBitwiseXor.i16 %21, %25
+  %27 = OpConstant.i16 -32768
+  %28 = OpSelect.i16 %23, %27, %26
+  %29 = OpGroupNonUniformSMin.clustered_reduce.i16 %28, 8
+  %30 = OpShiftRightArithmetic.i16 %29, %19
+  %31 = OpBitwiseAnd.i16 %30, %18
+  %32 = OpBitwiseXor.i16 %29, %31
+  %minimum = OpBitcast.i16.f16 %32
+  %34 = OpSConvert.i32.offset64 %item
+  %35 = OpConstant.offset64 2
+  %36 = OpIMul.offset64 %34, %35
+  %37 = OpPtrAccessChain.storage_buffer.f16.byte_offset %output, %36
+  OpStore.storage_buffer.f16 %37, %minimum
+  return
+}
+
+// ====
+
+// Wide vector keys share scalar constants but retain independent component
+// predicates. Exclusive maximum distinguishes an empty prefix from all NaNs.
+kernel.def @wide_prefix() {
+  %unit = index.constant 1 : index
+  %items = index.constant 32 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%items, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %item = kernel.workitem.id<x> : index
+  %source = buffer.view %input[%base] : buffer -> view<32x3xf64>
+  %destination = buffer.view %output[%base] : buffer -> view<32x3xf64>
+  %value = vector.load %source[%item, 0] : view<32x3xf64> -> vector<3xf64>
+  %maximum = kernel.subgroup.scan<maxnumf> %value {direction = forward, mode = exclusive} : vector<3xf64>
+  vector.store %maximum, %destination[%item, 0] : vector<3xf64>, view<32x3xf64>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer, buffer) -> ()}) workgroup_size(32, 1, 1) workgroup_count(1, 1, 1) @wide_prefix() asm {
+  %input = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %output = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %item = OpLoadBuiltin.local_invocation_id.x
+  %46 = OpSConvert.i32.offset64 %item
+  %47 = OpConstant.offset64 24
+  %48 = OpIMul.offset64 %46, %47
+  %49 = OpPtrAccessChain.storage_buffer.f64.byte_offset %input, %48
+  %50 = OpLoad.storage_buffer.f64 %49
+  %54 = OpConstant.offset64 8
+  %55 = OpIAdd.offset64 %48, %54
+  %56 = OpPtrAccessChain.storage_buffer.f64.byte_offset %input, %55
+  %57 = OpLoad.storage_buffer.f64 %56
+  %61 = OpConstant.offset64 16
+  %62 = OpIAdd.offset64 %48, %61
+  %63 = OpPtrAccessChain.storage_buffer.f64.byte_offset %input, %62
+  %64 = OpLoad.storage_buffer.f64 %63
+  %value = OpCompositeConstruct.v3f64 %50, %57, %64
+  %66 = OpConstant.i64 9223372036854775807
+  %67 = OpCompositeConstruct.v3i64 %66, %66, %66
+  %68 = OpConstant.i64 63
+  %69 = OpCompositeConstruct.v3i64 %68, %68, %68
+  %70 = OpConstant.i64 9218868437227405312
+  %71 = OpCompositeConstruct.v3i64 %70, %70, %70
+  %72 = OpBitcast.v3f64.v3i64 %value
+  %73 = OpBitwiseAnd.v3i64 %72, %67
+  %74 = OpSGreaterThan.v3i64 %73, %71
+  %75 = OpShiftRightArithmetic.v3i64 %72, %69
+  %76 = OpBitwiseAnd.v3i64 %75, %67
+  %77 = OpBitwiseXor.v3i64 %72, %76
+  %78 = OpConstant.i64 -9223372036854775807
+  %79 = OpCompositeConstruct.v3i64 %78, %78, %78
+  %80 = OpSelect.v3i64 %74, %79, %77
+  %81 = OpGroupNonUniformSMax.exclusive_scan.v3i64 %80
+  %82 = OpConstant.i64 -9223372036854775808
+  %83 = OpCompositeConstruct.v3i64 %82, %82, %82
+  %84 = OpIEqual.v3i64 %81, %83
+  %85 = OpConstant.i64 -9218868437227405313
+  %86 = OpCompositeConstruct.v3i64 %85, %85, %85
+  %87 = OpSelect.v3i64 %84, %86, %81
+  %88 = OpShiftRightArithmetic.v3i64 %87, %69
+  %89 = OpBitwiseAnd.v3i64 %88, %67
+  %90 = OpBitwiseXor.v3i64 %87, %89
+  %maximum = OpBitcast.v3i64.v3f64 %90
+  %92 = OpCompositeExtract.v3f64.f64 %maximum, 0
+  %93 = OpCompositeExtract.v3f64.f64 %maximum, 1
+  %94 = OpCompositeExtract.v3f64.f64 %maximum, 2
+  %95 = OpSConvert.i32.offset64 %item
+  %96 = OpConstant.offset64 24
+  %97 = OpIMul.offset64 %95, %96
+  %98 = OpPtrAccessChain.storage_buffer.f64.byte_offset %output, %97
+  OpStore.storage_buffer.f64 %98, %92
+  %102 = OpConstant.offset64 8
+  %103 = OpIAdd.offset64 %97, %102
+  %104 = OpPtrAccessChain.storage_buffer.f64.byte_offset %output, %103
+  OpStore.storage_buffer.f64 %104, %93
+  %108 = OpConstant.offset64 16
+  %109 = OpIAdd.offset64 %97, %108
+  %110 = OpPtrAccessChain.storage_buffer.f64.byte_offset %output, %109
+  OpStore.storage_buffer.f64 %110, %94
+  return
+}

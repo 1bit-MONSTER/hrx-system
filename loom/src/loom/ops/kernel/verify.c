@@ -1389,11 +1389,24 @@ iree_status_t loom_kernel_subgroup_match_all_verify(
 iree_status_t loom_kernel_workgroup_reduce_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter) {
-  loom_value_id_t value_id = loom_kernel_workgroup_reduce_value(op);
-  IREE_RETURN_IF_ERROR(loom_kernel_verify_collective_operand(
-      module, emitter, op, IREE_SV("value"), value_id));
-  return loom_kernel_verify_combining_kind_for_value(
-      module, emitter, op, value_id, loom_kernel_workgroup_reduce_kind(op));
+  const loom_value_slice_t values = loom_kernel_workgroup_reduce_values(op);
+  if (values.count == 0) {
+    return loom_kernel_emit_integer_field_constraint(
+        emitter, op, IREE_SV("values"), 0,
+        IREE_SV("at least one reduction payload"));
+  }
+  iree_status_t status = iree_ok_status();
+  for (iree_host_size_t i = 0; i < values.count && iree_status_is_ok(status);
+       ++i) {
+    status = loom_kernel_verify_collective_operand(
+        module, emitter, op, IREE_SV("values"), values.values[i]);
+    if (iree_status_is_ok(status)) {
+      status = loom_kernel_verify_combining_kind_for_value(
+          module, emitter, op, values.values[i],
+          loom_kernel_workgroup_reduce_kind(op));
+    }
+  }
+  return status;
 }
 
 iree_status_t loom_kernel_workgroup_scan_verify(

@@ -66,6 +66,87 @@ check.scenario @workgroup_reduce_partial_33_values {
   check.return
 }
 
+// Independent scalar and wide-vector results share a convergence point. The
+// later result is consumed by every lane, while only the leader uses the first.
+// Repetition has no caller barrier: the collective owns safe scratch reuse.
+kernel.def @workgroup_reduce_partial_payloads() {
+  %unit = index.constant 1 : index
+  %groups = index.constant 2 : index
+  %size = index.constant 67 : index
+  kernel.launch.config workgroups(%groups, %unit, %unit) workgroup_size(%size, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %workgroup = kernel.workgroup.id<x> : index
+  %workitem = kernel.workitem.id<x> : index
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<2x67x7xi32>
+  %destination = buffer.view %output[%base] : buffer -> view<2x64x67x7xi32>
+  %scalar = view.load %source[%workgroup, %workitem, 0] : view<2x67x7xi32> -> i32
+  %vector = vector.load %source[%workgroup, %workitem, 1] : view<2x67x7xi32> -> vector<6xi32>
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %iterations = index.constant 64 : index
+  %is_leader = index.cmp eq, %workitem, %begin : index
+  scf.for %iteration = [%begin to %iterations step %step] {
+    %offset = index.cast %iteration : index to i32
+    %offsets = vector.splat %offset : vector<6xi32>
+    %scalar_value = scalar.addi %scalar, %offset : i32
+    %vector_value = vector.addi %vector, %offsets : vector<6xi32>
+    %scalar_sum, %vector_sum = kernel.workgroup.reduce<addi> %scalar_value, %vector_value : i32, vector<6xi32>
+    scf.if %is_leader {
+      view.store %scalar_sum, %destination[%workgroup, %iteration, %workitem, 0] : i32, view<2x64x67x7xi32>
+    }
+    vector.store %vector_sum, %destination[%workgroup, %iteration, %workitem, 1] : vector<6xi32>, view<2x64x67x7xi32>
+  }
+  kernel.return
+}
+
+// Serial component folds have no shared scratch or collective operations.
+func.def @workgroup_reduce_partial_payloads_oracle(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %source = buffer.view %input[%base] : buffer -> view<2x67x7xi32>
+  %destination = buffer.view %output[%base] : buffer -> view<2x64x67x7xi32>
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %groups = index.constant 2 : index
+  %size = index.constant 67 : index
+  %components = index.constant 7 : index
+  %iterations = index.constant 64 : index
+  %sum_identity = scalar.constant 0 : i32
+  %participant_count = scalar.constant 67 : i32
+  scf.for %workgroup = [%begin to %groups step %step] {
+    scf.for %component = [%begin to %components step %step] {
+      %sum = scf.for %workitem = [%begin to %size step %step](%accumulator = %sum_identity : i32) -> (i32) {
+        %value = view.load %source[%workgroup, %workitem, %component] : view<2x67x7xi32> -> i32
+        %next = scalar.addi %accumulator, %value : i32
+        scf.yield %next : i32
+      }
+      scf.for %iteration = [%begin to %iterations step %step] {
+        %offset = index.cast %iteration : index to i32
+        %total_offset = scalar.muli %offset, %participant_count : i32
+        %result = scalar.addi %sum, %total_offset : i32
+        %is_scalar = index.cmp eq, %component, %begin : index
+        %consumer_count = scf.select %is_scalar, %step, %size : index
+        scf.for %workitem = [%begin to %consumer_count step %step] {
+          view.store %result, %destination[%workgroup, %iteration, %workitem, %component] : i32, view<2x64x67x7xi32>
+        }
+      }
+    }
+  }
+  func.return
+}
+
+check.scenario @workgroup_reduce_partial_payload_values {
+  check.trial[2](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%seed) range(-1000 to 1000) : tensor<2x67x7xi32>
+    %output = check.generate.fill value(-1) : tensor<2x64x67x7xi32>
+    check.compare<@workgroup_reduce_partial_payloads, @workgroup_reduce_partial_payloads_oracle>(%input, %output) : (tensor<2x67x7xi32>, tensor<2x64x67x7xi32>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<2x64x67x7xi32>
+    }
+  }
+  check.return
+}
+
 kernel.def @workgroup_reduce_partial_34() {
   %unit = index.constant 1 : index
   %size = index.constant 34 : index

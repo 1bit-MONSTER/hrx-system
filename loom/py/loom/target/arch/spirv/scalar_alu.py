@@ -208,6 +208,9 @@ BFLOAT16_SCALAR_TYPE = ScalarAluType(
 
 SCALAR_ALU_TYPES = SIGNED_INTEGER_SCALAR_ALU_TYPES + FLOAT_SCALAR_ALU_TYPES
 
+# Selection preserves the native carrier, including unsigned reduction values.
+SCALAR_SELECT_TYPES = SCALAR_ALU_TYPES + UNSIGNED_INTEGER_SCALAR_ALU_TYPES
+
 OFFSET64_ALU_TYPE = ScalarAluType(
     source_type="offset",
     suffix="offset64",
