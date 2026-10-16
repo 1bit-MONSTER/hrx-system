@@ -21,6 +21,7 @@ loom_corpus_test(
     "kernel"
     "function"
   SOURCES
+    "function/rodata.loom"
     "memory/address/tiled_channel.loom"
     "memory/packed/transport.loom"
     "memory/storage/load_snapshot.loom"
@@ -46,6 +47,15 @@ loom_corpus_test(
     "numeric/vector/packed/narrowing.loom"
     "numeric/vector/reductions.loom"
   XFAILS
+    "function/rodata.loom"
+    "@rodata_copy_values"
+    "XDNA/051"
+    "function/rodata.loom"
+    "@rodata_gather_values"
+    "XDNA/051"
+    "function/rodata.loom"
+    "@rodata_values"
+    "XDNA/051"
     "memory/packed/transport.loom"
     "@packed_byte_transport_all_bits"
     "XDNA/051"

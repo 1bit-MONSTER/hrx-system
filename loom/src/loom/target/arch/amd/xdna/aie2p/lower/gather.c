@@ -546,12 +546,14 @@ static iree_status_t loom_aie2p_gather_emit_derived_definition(
     loom_builder_t* builder, loom_symbol_ref_t symbol,
     loom_symbol_ref_t conflicting_symbol, iree_const_byte_span_t contents,
     loom_location_id_t location) {
+  // Each lookup block contains two duplicated 32-byte bank halves. The pair
+  // must begin at a 64-byte boundary to preserve lookup addressing.
   loom_op_t* definition = NULL;
   return loom_global_rodata_def_build(
       builder,
       LOOM_GLOBAL_RODATA_DEF_BUILD_FLAG_HAS_ALIGNMENT |
           LOOM_GLOBAL_RODATA_DEF_BUILD_FLAG_HAS_BANK_CONFLICTS,
-      symbol, /*alignment=*/32,
+      symbol, /*alignment=*/64,
       loom_make_symbol_ref_array(&conflicting_symbol, 1), contents, location,
       &definition);
 }
