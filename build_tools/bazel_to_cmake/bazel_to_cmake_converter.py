@@ -211,6 +211,8 @@ class BuildFileFunctions(object):
         else:
             self._build_dir = build_dir
         self._filegroup_srcs = {}
+        # Globs contain package-relative sources, unlike generic CMake lists.
+        self._source_glob_vars = {}
         self._target_file_labels = set()
         # Producers own fully qualified CMake paths for generated file labels.
         self._target_file_paths = {}
@@ -744,7 +746,7 @@ class BuildFileFunctions(object):
 
     def _cmake_location_paths(self, label):
         if label.startswith("${"):
-            return [label]
+            return [self._cmake_source_location_path(label)]
         if label.startswith("@"):
             try:
                 cmake_targets = self._targets.convert_target(label)
@@ -790,6 +792,16 @@ class BuildFileFunctions(object):
         return self._current_package(), label
 
     def _cmake_source_location_path(self, label):
+        if label in self._source_glob_vars:
+            var = self._source_glob_vars[label]
+            absolute_var = var + "_ABSOLUTE"
+            # DATA locations need full paths; preserve the relative list for
+            # consumers such as embedded sources and golden test names.
+            self._converter.body += (
+                f'list(TRANSFORM {var} PREPEND "${{CMAKE_CURRENT_SOURCE_DIR}}/"'
+                f" OUTPUT_VARIABLE {absolute_var})\n"
+            )
+            return self._expand_cmake_var(absolute_var)
         if label.startswith("${"):
             return label
         package, name = self._split_location_label(label)
@@ -1683,6 +1695,7 @@ class BuildFileFunctions(object):
                 "_GLOB_" + self._cmake_variable_name(pattern.replace("*", "X")).upper()
             ) + suffix
             glob_vars.append(var)
+            self._source_glob_vars[self._expand_cmake_var(var)] = var
             self._converter.body += (
                 f"file(GLOB {var} LIST_DIRECTORIES false"
                 f" RELATIVE {self._expand_cmake_var('CMAKE_CURRENT_SOURCE_DIR')}"

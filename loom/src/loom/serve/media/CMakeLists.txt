@@ -334,6 +334,7 @@ loom_cc_library(
 endif()
 
 file(GLOB _GLOB_TESTDATA_AUDIO_X LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS testdata/audio/*)
+list(TRANSFORM _GLOB_TESTDATA_AUDIO_X PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/" OUTPUT_VARIABLE _GLOB_TESTDATA_AUDIO_X_ABSOLUTE)
 if(LOOM_TARGET_ARCH_VM)
 set(_audio_decoder_test_platform_defines "")
 if(LOOM_SERVE_AUDIO_CODEC_WAV)
@@ -359,7 +360,7 @@ loom_cc_test(
   DEFINES
     ${_audio_decoder_test_platform_defines}
   DATA
-    "${_GLOB_TESTDATA_AUDIO_X}"
+    "${_GLOB_TESTDATA_AUDIO_X_ABSOLUTE}"
   DEPS
     ::audio_decoder
     iree::base

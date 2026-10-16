@@ -29,6 +29,7 @@ loom_cc_binary(
 endif()
 
 file(GLOB _GLOB_TESTDATA_X LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS testdata/*)
+list(TRANSFORM _GLOB_TESTDATA_X PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/" OUTPUT_VARIABLE _GLOB_TESTDATA_X_ABSOLUTE)
 if(LOOM_IMPORT_CXX)
 iree_execution_test_suite(
   NAME
@@ -51,7 +52,7 @@ iree_execution_test_suite(
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/loomcxx/scalar.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/loomcxx/shape.h"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/loomcxx/view.h"
-    "${_GLOB_TESTDATA_X}"
+    "${_GLOB_TESTDATA_X_ABSOLUTE}"
   LABELS
     "hostonly"
 )

@@ -1314,8 +1314,38 @@ iree_execution_test_suite(
         )
 
         self.assertIn("file(GLOB _GLOB_X_TXT LIST_DIRECTORIES false", cmake)
-        self.assertIn('    "${_GLOB_X_TXT}"', cmake)
-        self.assertNotIn("::${_GLOB_X_TXT}", cmake)
+        self.assertIn(
+            'list(TRANSFORM _GLOB_X_TXT PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/"'
+            " OUTPUT_VARIABLE _GLOB_X_TXT_ABSOLUTE)",
+            cmake,
+        )
+        self.assertIn('    "${_GLOB_X_TXT_ABSOLUTE}"', cmake)
+        self.assertNotIn("::${_GLOB_X_TXT_ABSOLUTE}", cmake)
+
+    def test_glob_data_preserves_source_paths_and_exclusions(self):
+        converter = SimpleNamespace(body="")
+        functions = bazel_to_cmake_converter.BuildFileFunctions(
+            converter=converter,
+            targets=bazel_to_cmake_targets.TargetConverter(repo_map={"@hrx": ""}),
+            build_dir="/repo/pkg",
+            repo_root="/repo",
+        )
+        sources = functions.glob(["testdata/*.txt"], exclude=["testdata/skip.txt"])
+        variable = sources[0][2:-1]
+        functions.cc_test(name="direct", srcs=sources, data=sources)
+        functions.filegroup(name="fixtures", srcs=sources)
+        functions.cc_test(name="grouped", data=[":fixtures"])
+
+        self.assertIn(f'  SRCS\n    "${{{variable}}}"', converter.body)
+        self.assertEqual(
+            converter.body.count(f'  DATA\n    "${{{variable}_ABSOLUTE}}"'), 2
+        )
+        exclusion = converter.body.index(f"list(REMOVE_ITEM {variable} ")
+        conversion = converter.body.index(
+            f'list(TRANSFORM {variable} PREPEND "${{CMAKE_CURRENT_SOURCE_DIR}}/"'
+            f" OUTPUT_VARIABLE {variable}_ABSOLUTE)"
+        )
+        self.assertLess(exclusion, conversion)
 
     def test_native_test_omits_unresolved_external_location_env(self):
         converter = SimpleNamespace(body="")
