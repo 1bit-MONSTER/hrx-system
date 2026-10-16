@@ -493,3 +493,104 @@ func.def @fully_uniform_decisions(%last: i1) -> (i1) {
 ^merge(%result: i1):
   func.return %result : i1
 }
+
+// ====
+
+// RUN: pass cfg-converge,cfg-converge
+
+// Factoring the final overlap inserts a constant-predicate alternative. That
+// sibling's component order must not prevent factoring the preceding decision.
+func.def @overlapping_siblings(%a: i1, %b: i1, %c: i1, %value: i32) {
+  cfg.cond_br %a, ^first, ^guard
+^first:
+  test.use %value : i32
+  cfg.br ^shared
+^guard:
+  cfg.cond_br %b, ^shared, ^last
+^shared:
+  test.use %value : i32
+  cfg.cond_br %c, ^last, ^exit
+^last:
+  test.use %value : i32
+  cfg.br ^exit
+^exit:
+  func.return
+}
+
+// ----
+func.def @overlapping_siblings(%a: i1, %b: i1, %c: i1, %value: i32) {
+  cfg.cond_br %a, ^first, ^guard
+^first:
+  test.use %value : i32
+  cfg.br ^_bb3
+^guard:
+  cfg.br ^_bb4(%b: i1)
+^_bb3:
+  %7 = scalar.constant 1 : i1
+  cfg.br ^_bb4(%7: i1)
+^_bb4(%6: i1):
+  cfg.cond_br %6, ^shared, ^_bb6
+^shared:
+  test.use %value : i32
+  cfg.br ^_bb7(%c: i1)
+^_bb6:
+  %5 = scalar.constant 1 : i1
+  cfg.br ^_bb7(%5: i1)
+^_bb7(%4: i1):
+  cfg.cond_br %4, ^last, ^exit
+^last:
+  test.use %value : i32
+  cfg.br ^exit
+^exit:
+  func.return
+}
+
+// ====
+
+// RUN: pass cfg-converge,cfg-converge
+
+// Reversing the arms and sibling layout preserves the same effect ownership.
+func.def @overlapping_false_siblings(%a: i1, %b: i1, %c: i1, %value: i32) {
+  cfg.cond_br %a, ^guard, ^first
+^guard:
+  cfg.cond_br %b, ^last, ^shared
+^first:
+  test.use %value : i32
+  cfg.br ^shared
+^shared:
+  test.use %value : i32
+  cfg.cond_br %c, ^exit, ^last
+^last:
+  test.use %value : i32
+  cfg.br ^exit
+^exit:
+  func.return
+}
+
+// ----
+func.def @overlapping_false_siblings(%a: i1, %b: i1, %c: i1, %value: i32) {
+  cfg.cond_br %a, ^guard, ^first
+^guard:
+  cfg.br ^_bb4(%b: i1)
+^first:
+  test.use %value : i32
+  cfg.br ^_bb3
+^_bb3:
+  %7 = scalar.constant 0 : i1
+  cfg.br ^_bb4(%7: i1)
+^_bb4(%6: i1):
+  cfg.cond_br %6, ^_bb6, ^shared
+^shared:
+  test.use %value : i32
+  cfg.br ^_bb7(%c: i1)
+^_bb6:
+  %5 = scalar.constant 0 : i1
+  cfg.br ^_bb7(%5: i1)
+^_bb7(%4: i1):
+  cfg.cond_br %4, ^exit, ^last
+^last:
+  test.use %value : i32
+  cfg.br ^exit
+^exit:
+  func.return
+}

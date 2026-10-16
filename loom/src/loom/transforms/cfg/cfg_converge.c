@@ -100,9 +100,21 @@ static bool loom_cfg_converge_is_forwarding(const loom_block_t* block,
          loom_cfg_br_dest(block->last_op) == continuation;
 }
 
+// Component order and the earliest reachable DFS node provide independent
+// exclusion bounds. Neither needs a walk through the successor's region.
+static bool loom_cfg_converge_may_reach(const loom_cfg_graph_t* graph,
+                                        uint16_t source, uint16_t destination) {
+  const loom_cfg_block_info_t* source_info = &graph->blocks[source];
+  const loom_cfg_block_info_t* destination_info = &graph->blocks[destination];
+  return source_info->component >= destination_info->component &&
+         graph->blocks[source_info->reachability_root].preorder <=
+             destination_info->preorder;
+}
+
 // A decision with an externally shared arm moves behind that arm's incoming
-// alternatives. The component order proves the redirected edges cannot create
-// a cycle. Transparent forwarding arms already converge without moving work.
+// alternatives. Retained reachability bounds prove the redirected edges cannot
+// create a cycle. Transparent forwarding arms already converge without moving
+// work.
 static iree_status_t loom_cfg_converge_select(loom_cfg_converge_plan_t* plan,
                                               bool* out_selected) {
   *out_selected = false;
@@ -141,8 +153,10 @@ static iree_status_t loom_cfg_converge_select(loom_cfg_converge_plan_t* plan,
                                              edge->source_block_index)) {
         continue;
       }
-      if (source->component <= graph->blocks[plan->destinations[0]].component ||
-          source->component <= graph->blocks[plan->destinations[1]].component) {
+      if (loom_cfg_converge_may_reach(graph, plan->destinations[0],
+                                      edge->source_block_index) ||
+          loom_cfg_converge_may_reach(graph, plan->destinations[1],
+                                      edge->source_block_index)) {
         return iree_ok_status();
       }
       plan->incoming[plan->incoming_count++] = index;
