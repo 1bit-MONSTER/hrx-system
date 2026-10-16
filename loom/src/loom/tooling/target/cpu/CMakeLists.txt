@@ -185,6 +185,21 @@ endif()
 if(LOOM_TARGET_ARCH_X86 AND IREE_HAL_EXECUTABLE_LOADER_EMBEDDED_ELF AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND LOOM_TARGET_ARCH_VM AND IREE_ARCH STREQUAL "x86_64")
 iree_native_test(
   NAME
+    "packet_concatenation_scenario_test"
+  ARGS
+    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/vector/concatenation.loom}}"
+    "--device=task"
+    "--case=@packet_concatenation_values"
+  SRC
+    loom::tools::iree-test-loom
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/vector/concatenation.loom"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_X86 AND IREE_HAL_EXECUTABLE_LOADER_EMBEDDED_ELF AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND LOOM_TARGET_ARCH_VM AND IREE_ARCH STREQUAL "x86_64")
+iree_native_test(
+  NAME
     "bfloat_widening_scenario_test"
   ARGS
     "{{${PROJECT_SOURCE_DIR}/loom/src/loom/test/corpus/numeric/conversion/narrow_widening.loom}}"

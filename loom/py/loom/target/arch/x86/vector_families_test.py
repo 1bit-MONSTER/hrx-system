@@ -312,7 +312,8 @@ def test_integer_narrowing_rows_cover_every_pair_and_register_width() -> None:
         descriptor.key: descriptor for descriptor in X86_AVX2_DESCRIPTOR_SET.descriptors
     }
     for mnemonic, element_bit_width, opcode in (
-        ("vpunpcklwd", 16, 0x60),
+        ("vpunpcklbw", 8, 0x60),
+        ("vpunpcklwd", 16, 0x61),
         ("vpunpckldq", 32, 0x62),
         ("vpunpcklqdq", 64, 0x6C),
     ):

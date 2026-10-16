@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 
 from loom.dialect.vector import defs as vector
@@ -465,6 +465,65 @@ def _assemble_chunks(
         )
         dest = next_dest
     return emits, dest
+
+
+def _concat_rules(
+    descriptor_lookup: _DescriptorLookup,
+    input_bit_widths: tuple[int, ...],
+) -> tuple[DescriptorRule, ...]:
+    rules = []
+    for family in X86_VECTOR_STORAGE_FAMILIES:
+        for input_bit_width in input_bit_widths:
+            if input_bit_width < family.element_bit_width:
+                continue
+            lane_count = input_bit_width // family.element_bit_width
+            inputs = tuple(ValueRef.operand("inputs", element=i) for i in range(2))
+            if input_bit_width < 128:
+                mnemonic = {
+                    8: "vpunpcklbw",
+                    16: "vpunpcklwd",
+                    32: "vpunpckldq",
+                    64: "vpunpcklqdq",
+                }[input_bit_width]
+                descriptor = descriptor_lookup(f"x86.avx2.{mnemonic}.xmm")
+                emits = [
+                    _op_emit(
+                        descriptor=descriptor,
+                        operands={"lhs": inputs[0], "rhs": inputs[1]},
+                        results={"dst": ValueRef.result("result")},
+                    )
+                ]
+            else:
+                emits, _ = _assemble_chunks(
+                    inputs, input_bit_width * 2, "joined", descriptor_lookup
+                )
+                emits[-1] = replace(
+                    emits[-1], results={"dst": ValueRef.result("result")}
+                )
+                descriptor = emits[-1].descriptor
+            rules.append(
+                DescriptorRule(
+                    source_op=vector.vector_concat,
+                    descriptor=descriptor,
+                    guards=(
+                        Guard.i64_range("axis", 0, 0),
+                        Guard.operand_segment_count("inputs", 2),
+                        Guard.value_type(
+                            "inputs", Vector(family.element_names, lanes=lane_count)
+                        ),
+                        Guard.value_type(
+                            "inputs",
+                            Vector(family.element_names, lanes=lane_count),
+                            element=1,
+                        ),
+                        Guard.value_type(
+                            "result", Vector(family.element_names, lanes=lane_count * 2)
+                        ),
+                    ),
+                    emit=tuple(emits),
+                )
+            )
+    return tuple(rules)
 
 
 def _packed_byte_ordinals(start: int, count: int) -> int:
@@ -1171,6 +1230,7 @@ def avx2_vector_construction_rules(
     descriptor_lookup: _DescriptorLookup,
 ) -> tuple[ContractCase, ...]:
     return (
+        *_concat_rules(descriptor_lookup, (8, 16, 32, 64, 128)),
         *_vector_zero_rules(
             descriptor_lookup,
             descriptor_key_prefix="x86.avx2",
@@ -1286,6 +1346,7 @@ def avx512_vector_construction_rules(
     descriptor_lookup: _DescriptorLookup,
 ) -> tuple[ContractCase, ...]:
     return (
+        *_concat_rules(descriptor_lookup, (256,)),
         *_vector_zero_rules(
             descriptor_lookup,
             descriptor_key_prefix="x86.avx512",

@@ -1033,6 +1033,7 @@ _X86_AVX2_VECTOR_DESCRIPTORS = (
             instruction=instruction,
         )
         for mnemonic, element_bit_width, instruction in (
+            ("vpunpcklbw", 8, native.VPUNPCKLBW),
             ("vpunpcklwd", 16, native.VPUNPCKLWD),
             ("vpunpckldq", 32, native.VPUNPCKLDQ),
             ("vpunpcklqdq", 64, native.VPUNPCKLQDQ),

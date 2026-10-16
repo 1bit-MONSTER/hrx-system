@@ -2088,3 +2088,38 @@ def test_float_reductions_and_dots_cover_both_types_and_all_widths() -> None:
             )
             for scalar_type in (Scalar(element.name),)
         }
+
+
+def test_concat_covers_equal_packets_in_every_storage_family() -> None:
+    for fragment, widths in (
+        (X86_AVX2_CONTRACT_FRAGMENT, (8, 16, 32, 64, 128)),
+        (X86_AVX512_CONTRACT_FRAGMENT, (256,)),
+    ):
+        rules = [
+            case
+            for case in fragment.cases
+            if isinstance(case, DescriptorRule)
+            and case.source_op is vector.vector_concat
+        ]
+        assert {
+            (_value_type_guard(rule, "inputs"), _value_type_guard(rule, "result"))
+            for rule in rules
+        } == {
+            (
+                Vector(family.element_names, lanes=width // family.element_bit_width),
+                Vector(
+                    family.element_names, lanes=2 * width // family.element_bit_width
+                ),
+            )
+            for family in X86_VECTOR_STORAGE_FAMILIES
+            for width in widths
+            if width >= family.element_bit_width
+        }
+        for rule in rules:
+            assert any(
+                guard.kind is GuardKind.OPERAND_SEGMENT_COUNT
+                and guard.field == "inputs"
+                and guard.count == 2
+                for guard in rule.guards
+            )
+            assert rule.emit[-1].results == {"dst": ValueRef.result("result")}

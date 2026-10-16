@@ -148,6 +148,15 @@ TEST(EncodingTest, ScalarAndPackedFloatWidening) {
                        {0x62, 0xa1, 0x7c, 0x48, 0x5a, 0xca});
 }
 
+TEST(EncodingTest, PackedLowInterleaveWidths) {
+  // LLVM's assembler distinguishes byte unpack (60) from word unpack (61).
+  loom_x86_encoding_operands_t operands = {.result = 1, .inputs = {2, 3}};
+  ExpectVectorEncoding(0x8210, 0x0560, operands, {0xc5, 0xe9, 0x60, 0xcb});
+  ExpectVectorEncoding(0x8210, 0x0561, operands, {0xc5, 0xe9, 0x61, 0xcb});
+  ExpectVectorEncoding(0x8210, 0x0562, operands, {0xc5, 0xe9, 0x62, 0xcb});
+  ExpectVectorEncoding(0x8210, 0x056c, operands, {0xc5, 0xe9, 0x6c, 0xcb});
+}
+
 TEST(EncodingTest, EvexNdsMemoryBroadcastAndMaskModifiers) {
   // These bytes agree with independent LLVM and GNU assembler outputs.
   constexpr uint16_t kUnaryMerge = VectorRecipe(

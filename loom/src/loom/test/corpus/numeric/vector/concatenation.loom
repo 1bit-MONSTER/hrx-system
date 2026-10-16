@@ -1,0 +1,72 @@
+// Disjoint destination intervals preserve padding between every packet size.
+func.def @join_packets(%low: buffer, %high: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %offset0 = index.constant 0 : offset
+  %low_view0 = buffer.view %low[%base] : buffer -> view<1xi8>
+  %high_view0 = buffer.view %high[%base] : buffer -> view<1xi8>
+  %output_view0 = buffer.view %output[%offset0] : buffer -> view<2xi8>
+  %low0 = vector.load %low_view0[0] : view<1xi8> -> vector<1xi8>
+  %high0 = vector.load %high_view0[0] : view<1xi8> -> vector<1xi8>
+  %joined0 = vector.concat<0> %low0, %high0 : vector<1xi8>, vector<1xi8> -> vector<2xi8>
+  vector.store %joined0, %output_view0[0] : vector<2xi8>, view<2xi8>
+  %offset1 = index.constant 64 : offset
+  %low_view1 = buffer.view %low[%base] : buffer -> view<1xi16>
+  %high_view1 = buffer.view %high[%base] : buffer -> view<1xi16>
+  %output_view1 = buffer.view %output[%offset1] : buffer -> view<2xi16>
+  %low1 = vector.load %low_view1[0] : view<1xi16> -> vector<1xi16>
+  %high1 = vector.load %high_view1[0] : view<1xi16> -> vector<1xi16>
+  %joined1 = vector.concat<0> %low1, %high1 : vector<1xi16>, vector<1xi16> -> vector<2xi16>
+  vector.store %joined1, %output_view1[0] : vector<2xi16>, view<2xi16>
+  %offset2 = index.constant 128 : offset
+  %low_view2 = buffer.view %low[%base] : buffer -> view<1xi32>
+  %high_view2 = buffer.view %high[%base] : buffer -> view<1xi32>
+  %output_view2 = buffer.view %output[%offset2] : buffer -> view<2xi32>
+  %low2 = vector.load %low_view2[0] : view<1xi32> -> vector<1xi32>
+  %high2 = vector.load %high_view2[0] : view<1xi32> -> vector<1xi32>
+  %joined2 = vector.concat<0> %low2, %high2 : vector<1xi32>, vector<1xi32> -> vector<2xi32>
+  vector.store %joined2, %output_view2[0] : vector<2xi32>, view<2xi32>
+  %offset3 = index.constant 192 : offset
+  %low_view3 = buffer.view %low[%base] : buffer -> view<1xi64>
+  %high_view3 = buffer.view %high[%base] : buffer -> view<1xi64>
+  %output_view3 = buffer.view %output[%offset3] : buffer -> view<2xi64>
+  %low3 = vector.load %low_view3[0] : view<1xi64> -> vector<1xi64>
+  %high3 = vector.load %high_view3[0] : view<1xi64> -> vector<1xi64>
+  %joined3 = vector.concat<0> %low3, %high3 : vector<1xi64>, vector<1xi64> -> vector<2xi64>
+  vector.store %joined3, %output_view3[0] : vector<2xi64>, view<2xi64>
+  %offset4 = index.constant 256 : offset
+  %low_view4 = buffer.view %low[%base] : buffer -> view<8xf16>
+  %high_view4 = buffer.view %high[%base] : buffer -> view<8xf16>
+  %output_view4 = buffer.view %output[%offset4] : buffer -> view<16xf16>
+  %low4 = vector.load %low_view4[0] : view<8xf16> -> vector<8xf16>
+  %high4 = vector.load %high_view4[0] : view<8xf16> -> vector<8xf16>
+  %joined4 = vector.concat<0> %low4, %high4 : vector<8xf16>, vector<8xf16> -> vector<16xf16>
+  vector.store %joined4, %output_view4[0] : vector<16xf16>, view<16xf16>
+  %offset5 = index.constant 320 : offset
+  %low_view5 = buffer.view %low[%base] : buffer -> view<16xbf16>
+  %high_view5 = buffer.view %high[%base] : buffer -> view<16xbf16>
+  %output_view5 = buffer.view %output[%offset5] : buffer -> view<32xbf16>
+  %low5 = vector.load %low_view5[0] : view<16xbf16> -> vector<16xbf16>
+  %high5 = vector.load %high_view5[0] : view<16xbf16> -> vector<16xbf16>
+  %joined5 = vector.concat<0> %low5, %high5 : vector<16xbf16>, vector<16xbf16> -> vector<32xbf16>
+  vector.store %joined5, %output_view5[0] : vector<32xbf16>, view<32xbf16>
+  func.return
+}
+
+check.scenario @packet_concatenation_values {
+  check.trial[8](%trial: index, %entropy: check.entropy) {
+    %seed0 = check.entropy.read %entropy[0] : check.entropy -> i64
+    %seed1 = check.entropy.read %entropy[1] : check.entropy -> i64
+    %low = check.generate.random.uniform seed(%seed0) range(-128 to 127) : tensor<32xi8>
+    %high = check.generate.random.uniform seed(%seed1) range(-128 to 127) : tensor<32xi8>
+    %expected_low = check.generate.random.uniform seed(%seed0) range(-128 to 127) : tensor<32xi8>
+    %expected_high = check.generate.random.uniform seed(%seed1) range(-128 to 127) : tensor<32xi8>
+    %storage = check.generate.fill value(85) : tensor<416xi8>
+    %output = check.tensor.view %storage offset(16) : tensor<416xi8> -> tensor<384xi8>
+    check.compare<@join_packets>(%low, %high, %output) : (tensor<32xi8>, tensor<32xi8>, tensor<384xi8>) -> () {
+      check.expect.bitwise actual(%storage) expected(%storage) : tensor<416xi8>
+      check.expect.bitwise actual(%low) expected(%expected_low) : tensor<32xi8>
+      check.expect.bitwise actual(%high) expected(%expected_high) : tensor<32xi8>
+    }
+  }
+  check.return
+}
