@@ -6,6 +6,11 @@
 #include <stdint.h>
 #include <string.h>
 
+#if defined(IREE_PLATFORM_LINUX)
+#include <sys/mman.h>
+#include <unistd.h>
+#endif  // IREE_PLATFORM_LINUX
+
 #include "common/kpack.h"
 #include "iree/base/api.h"
 
@@ -65,6 +70,14 @@
 #define HRX_ELF_STB_GLOBAL 1
 #define HRX_ELF_STB_WEAK 2
 #define HRX_ELF_STT_OBJECT 1
+
+// Upper bound on the image extent derived from a length-less input. HIP's
+// hipModuleLoadData-style entry points carry no length, so the extent has to
+// come from the container header itself; the bound keeps a hostile header from
+// steering a table read to an arbitrary address before the mapping probe below
+// gets a chance to reject it. Real AMDGPU code objects (including 7+ MB Tensile
+// payloads) are orders of magnitude smaller.
+#define HRX_FAT_MAX_UNBOUNDED_IMAGE_SIZE (1024u * 1024u * 1024u)  // 1 GiB
 
 #define HRX_EF_AMDGPU_MACH 0x0FFu
 #define HRX_EF_AMDGPU_FEATURE_XNACK_V3 0x100u
@@ -520,6 +533,144 @@ static iree_status_t hrx_fat_format_amdgpu_target_key(
                                            &length, IREE_SV("xnack"), xnack);
 }
 
+// Returns true when every page covering [data, data + length) is mapped in this
+// process. A length-less image carries no proof that any byte past the ELF
+// header is readable, so the length must be inferred from the header; this
+// probe keeps a hostile (or truncated) header from steering a table read into
+// unmapped memory. Platforms without mmap-based page residency rely on the
+// extent bound alone.
+static bool hrx_fat_span_is_mapped(const uint8_t* data,
+                                   iree_host_size_t length) {
+#if defined(IREE_PLATFORM_LINUX)
+  if (!data || length == 0) {
+    return false;
+  }
+  const iree_host_size_t page_size = (iree_host_size_t)sysconf(_SC_PAGESIZE);
+  if (IREE_UNLIKELY(page_size == 0)) {
+    return false;
+  }
+  const uintptr_t base = (uintptr_t)data & ~(uintptr_t)(page_size - 1);
+  iree_host_size_t end = 0;
+  if (IREE_UNLIKELY(!iree_host_size_checked_add(
+          (iree_host_size_t)((uintptr_t)data - base), length, &end))) {
+    return false;
+  }
+  const iree_host_size_t page_count = end / page_size + (end % page_size != 0);
+  unsigned char residency[64];
+  iree_host_size_t page_index = 0;
+  while (page_index < page_count) {
+    const iree_host_size_t chunk =
+        iree_min(page_count - page_index, IREE_ARRAYSIZE(residency));
+    if (IREE_UNLIKELY(mincore((void*)(base + page_index * page_size),
+                              (size_t)(chunk * page_size), residency) != 0)) {
+      return false;
+    }
+    page_index += chunk;
+  }
+  return true;
+#else
+  (void)data;
+  (void)length;
+  return true;
+#endif  // IREE_PLATFORM_LINUX
+}
+
+// Grows a resolved length-less extent to |candidate|, proving that the newly
+// covered bytes are mapped before any of them are read.
+static iree_status_t hrx_fat_elf_extend_extent(iree_const_byte_span_t elf,
+                                               iree_host_size_t* extent,
+                                               iree_host_size_t candidate) {
+  if (candidate <= *extent) {
+    return iree_ok_status();
+  }
+  if (IREE_UNLIKELY(candidate > HRX_FAT_MAX_UNBOUNDED_IMAGE_SIZE)) {
+    return iree_make_status(
+        IREE_STATUS_OUT_OF_RANGE,
+        "length-less ELF declares a %" PRIhsz
+        " byte extent that exceeds the %u byte limit for unsized inputs",
+        candidate, (unsigned)HRX_FAT_MAX_UNBOUNDED_IMAGE_SIZE);
+  }
+  if (IREE_UNLIKELY(!hrx_fat_span_is_mapped(elf.data + *extent,
+                                            candidate - *extent))) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "length-less ELF declares a %" PRIhsz
+        " byte extent beyond the readable image; the caller must pass a "
+        "complete code object",
+        candidate);
+  }
+  *extent = candidate;
+  return iree_ok_status();
+}
+
+// Resolves the extent of an image supplied without a length. HIP's out-of-band
+// entry points (hipModuleLoadData, __hipRegisterFatBinary) hand the binding a
+// raw pointer because the ABI carries no size; the ELF header is then the only
+// region that can be read without trusting an offset inside the image. Derive
+// the extent from the header's own table geometry and bound every later read by
+// it instead of treating a zero length as "unbounded". ELFs already carrying a
+// caller-supplied length are returned untouched.
+static iree_status_t hrx_fat_elf_resolve_span(iree_const_byte_span_t elf,
+                                              iree_const_byte_span_t* out_elf) {
+  *out_elf = elf;
+  if (elf.data_length != 0) {
+    return iree_ok_status();
+  }
+
+  hrx_elf64_header_t header;
+  memcpy(&header, elf.data, sizeof(header));
+
+  // Extended counts are stored inside section zero, so bounding them needs a
+  // read whose size the header does not describe. Real code objects never use
+  // them; the length-carrying entry points still accept them.
+  if (IREE_UNLIKELY((header.shnum == 0 && header.shoff != 0) ||
+                    header.phnum == HRX_ELF_PN_XNUM)) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "length-less ELF uses extended section/program counts, which cannot "
+        "be bounded without a caller-supplied length");
+  }
+
+  iree_host_size_t extent = 0;
+  IREE_RETURN_IF_ERROR(
+      hrx_fat_elf_extend_extent(elf, &extent, sizeof(header)));
+
+  if (header.shnum != 0) {
+    iree_host_size_t section_table_length = 0;
+    iree_host_size_t section_table_end = 0;
+    if (IREE_UNLIKELY(
+            !iree_host_size_checked_mul(header.shnum, header.shentsize,
+                                        &section_table_length) ||
+            !iree_host_size_checked_add((iree_host_size_t)header.shoff,
+                                        section_table_length,
+                                        &section_table_end))) {
+      return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                              "ELF section table size overflow");
+    }
+    IREE_RETURN_IF_ERROR(
+        hrx_fat_elf_extend_extent(elf, &extent, section_table_end));
+  }
+
+  if (header.phnum != 0) {
+    iree_host_size_t program_table_length = 0;
+    iree_host_size_t program_table_end = 0;
+    if (IREE_UNLIKELY(
+            !iree_host_size_checked_mul(header.phnum, header.phentsize,
+                                        &program_table_length) ||
+            !iree_host_size_checked_add((iree_host_size_t)header.phoff,
+                                        program_table_length,
+                                        &program_table_end))) {
+      return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
+                              "ELF program table size overflow");
+    }
+    IREE_RETURN_IF_ERROR(
+        hrx_fat_elf_extend_extent(elf, &extent, program_table_end));
+  }
+
+  *out_elf = iree_make_const_byte_span(elf.data, extent);
+  return iree_ok_status();
+}
+
 static iree_status_t hrx_fat_elf_checked_range(iree_const_byte_span_t elf,
                                                uint64_t offset_value,
                                                uint64_t length_value,
@@ -537,7 +688,15 @@ static iree_status_t hrx_fat_elf_checked_range(iree_const_byte_span_t elf,
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                             "ELF file range overflows the host address space");
   }
-  if (IREE_UNLIKELY(elf.data_length != 0 && end > elf.data_length)) {
+  // A zero length means the caller (or hrx_fat_elf_resolve_span) could not
+  // establish an extent; rejecting it keeps "no known size" from silently
+  // disabling the bounds check that the reads below depend on.
+  if (IREE_UNLIKELY(elf.data_length == 0)) {
+    return iree_make_status(
+        IREE_STATUS_INVALID_ARGUMENT,
+        "ELF range check requires a bounded data span (no length supplied)");
+  }
+  if (IREE_UNLIKELY(end > elf.data_length)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "ELF file range exceeds the available data");
   }
@@ -558,6 +717,10 @@ static iree_status_t hrx_fat_elf_view_initialize(iree_const_byte_span_t elf,
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "ELF data is too small for a header");
   }
+
+  // Unsized inputs get a bounded extent derived from their own header before
+  // any offset inside them is trusted.
+  IREE_RETURN_IF_ERROR(hrx_fat_elf_resolve_span(elf, &elf));
 
   out_view->data = elf;
   memcpy(&out_view->header, elf.data, sizeof(out_view->header));
