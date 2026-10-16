@@ -490,6 +490,143 @@ kernel.def target(@gfx11_wave64) @target_specialized_launch(%expert_count: index
   }
 }
 
+TEST(AmdgpuTargetTest, LaunchConfigArtifactProjectsScalarWorkloads) {
+  TargetEnvironmentPtr target_environment = CreateAmdgpuTargetEnvironment();
+  ContextPtr context = CreateAmdgpuContext(target_environment.get());
+  WorkspacePtr workspace = CreateWorkspace();
+  CompilerPtr compiler = CreateCompiler(context.get());
+  PassProgramPtr pass_program = CreatePreparedLowPassProgram(context.get());
+  SourcePtr source = CreateTextSource("projected_launch.loom", R"(
+amdgpu.target<gfx1151> @gfx1151
+
+kernel.def target(@gfx1151) @projected_launch(%before: index, %counts: buffer, %after: index) {
+  %bounded_before = index.assume %before [range(%before, 0, 255)] : index
+  %bounded_after = index.assume %after [range(%after, 0, 255)] : index
+  %base = index.constant 0 : offset
+  %loaded = buffer.load.i8.u %counts[%base]
+  %zero = scalar.constant 0 : i32
+  %folded = scalar.andi %loaded, %zero : i32
+  %folded_index = index.cast %folded : i32 to index
+  %two = index.constant 2 : index
+  %scaled_before = index.mul %bounded_before, %two : index
+  %sum = index.add %scaled_before, %bounded_after : index
+  %workgroup_count = index.add %sum, %folded_index : index
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%workgroup_count, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch() {
+  kernel.return
+}
+)");
+  ModulePtr module =
+      DeserializeModule(context.get(), workspace.get(), source.get());
+  const loomc_compile_options_t options = {
+      .type = LOOMC_STRUCTURE_TYPE_COMPILE_OPTIONS,
+      .structure_size = sizeof(options),
+      .next = nullptr,
+      .module_name = loomc_make_cstring_view("projected_launch"),
+      .artifact_flags = LOOMC_COMPILE_ARTIFACT_FLAG_LAUNCH_CONFIG,
+      .config_flags = 0,
+      .config_module = nullptr,
+  };
+
+  loomc_result_t* result = nullptr;
+  LOOMC_ASSERT_OK(loomc_compile_module(
+      compiler.get(), workspace.get(), pass_program.get(), module.get(),
+      &options, loomc_allocator_system(), &result));
+  ResultPtr result_ptr(result);
+  ExpectSucceededResult(result_ptr.get());
+  const loomc_artifact_t* artifact =
+      FindArtifact(result_ptr.get(), LOOMC_ARTIFACT_KIND_LAUNCH_CONFIG,
+                   LOOMC_ARTIFACT_FORMAT_LOOM_BYTECODE);
+  ASSERT_NE(artifact, nullptr);
+
+  loomc_launch_config_program_t* launch_program = nullptr;
+  LOOMC_ASSERT_OK(loomc_launch_config_program_load(
+      artifact, loomc_allocator_system(), &launch_program));
+  LaunchConfigProgramPtr launch_program_ptr(launch_program);
+  result_ptr.reset();
+
+  loomc_launch_config_function_t launch_function =
+      loomc_launch_config_function_invalid();
+  LOOMC_ASSERT_OK(loomc_launch_config_program_lookup_function(
+      launch_program_ptr.get(), loomc_make_cstring_view("projected_launch"),
+      &launch_function));
+  const uint64_t scalar_workload_argument_bits[] = {5, 7};
+  loomc_launch_config_t launch_config = {
+      .type = LOOMC_STRUCTURE_TYPE_LAUNCH_CONFIG,
+      .structure_size = sizeof(launch_config),
+  };
+  LOOMC_ASSERT_OK(loomc_launch_config_program_invoke(
+      launch_program_ptr.get(), launch_function, scalar_workload_argument_bits,
+      IREE_ARRAYSIZE(scalar_workload_argument_bits), &launch_config));
+  EXPECT_EQ(launch_config.workgroup_count.x, 17u);
+}
+
+TEST(AmdgpuTargetTest, LaunchConfigArtifactRejectsLiveNonScalarWorkload) {
+  TargetEnvironmentPtr target_environment = CreateAmdgpuTargetEnvironment();
+  ContextPtr context = CreateAmdgpuContext(target_environment.get());
+  WorkspacePtr workspace = CreateWorkspace();
+  CompilerPtr compiler = CreateCompiler(context.get());
+  PassProgramPtr pass_program = CreatePreparedLowPassProgram(context.get());
+  SourcePtr source = CreateTextSource("live_reference_launch.loom", R"(
+amdgpu.target<gfx1151> @gfx1151
+
+kernel.def target(@gfx1151) @live_reference_launch(%counts: buffer) {
+  %base = index.constant 0 : offset
+  %loaded = buffer.load.i8.u %counts[%base]
+  %workgroup_count = index.cast %loaded : i32 to index
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%workgroup_count, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch() {
+  kernel.return
+}
+)");
+
+  const loomc_compile_options_t baseline_options = {
+      .type = LOOMC_STRUCTURE_TYPE_COMPILE_OPTIONS,
+      .structure_size = sizeof(baseline_options),
+      .next = nullptr,
+      .module_name = loomc_make_cstring_view("live_reference_launch"),
+      .artifact_flags = LOOMC_COMPILE_ARTIFACT_FLAG_MODULE_TEXT,
+      .config_flags = 0,
+      .config_module = nullptr,
+  };
+  ModulePtr baseline_module =
+      DeserializeModule(context.get(), workspace.get(), source.get());
+  loomc_result_t* baseline_result = nullptr;
+  LOOMC_ASSERT_OK(
+      loomc_compile_module(compiler.get(), workspace.get(), pass_program.get(),
+                           baseline_module.get(), &baseline_options,
+                           loomc_allocator_system(), &baseline_result));
+  ResultPtr baseline_result_ptr(baseline_result);
+  ExpectSucceededResult(baseline_result_ptr.get());
+
+  const loomc_compile_options_t launch_options = {
+      .type = LOOMC_STRUCTURE_TYPE_COMPILE_OPTIONS,
+      .structure_size = sizeof(launch_options),
+      .next = nullptr,
+      .module_name = loomc_make_cstring_view("live_reference_launch"),
+      .artifact_flags = LOOMC_COMPILE_ARTIFACT_FLAG_LAUNCH_CONFIG,
+      .config_flags = 0,
+      .config_module = nullptr,
+  };
+  ModulePtr launch_module =
+      DeserializeModule(context.get(), workspace.get(), source.get());
+  loomc_result_t* launch_result = nullptr;
+  iree::Status status = ConsumeStatusForTest(loomc_compile_module(
+      compiler.get(), workspace.get(), pass_program.get(), launch_module.get(),
+      &launch_options, loomc_allocator_system(), &launch_result));
+  EXPECT_THAT(status, iree::testing::status::StatusIs(
+                          iree::StatusCode::kFailedPrecondition));
+  EXPECT_THAT(
+      status.ToString(),
+      ::testing::HasSubstr(
+          "kernel '@live_reference_launch' launch-config artifact still "
+          "depends on non-scalar workload argument 0 (%counts) after "
+          "specialization"));
+  EXPECT_EQ(launch_result, nullptr);
+}
+
 TEST(AmdgpuTargetTest,
      CompileArtifactReturnsExecutableLaunchConfigAndTargetListing) {
   TargetEnvironmentPtr target_environment = CreateAmdgpuTargetEnvironment();
