@@ -35,8 +35,8 @@
 #include "loom/transforms/cleanup/strip_hints.h"
 #include "loom/transforms/encoding/layout_transport.h"
 #include "loom/transforms/func/locations.h"
-#include "loom/transforms/kernel/kernel_async_legality.h"
 #include "loom/transforms/kernel/kernel_resources.h"
+#include "loom/transforms/kernel/kernel_synchronization_legality.h"
 #include "loom/transforms/kernel/promote_private_fragments.h"
 #include "loom/transforms/kernel/stage_loop_carried_fragments.h"
 #include "loom/transforms/loop/licm.h"
@@ -445,9 +445,9 @@ static const loom_pass_descriptor_t kBuiltinPassDescriptors[] = {
         .option_schema_count = IREE_ARRAYSIZE(kInlineCallablesOptionSchema),
     },
     {
-        .key = IREE_SVL("kernel-async-legality"),
-        .info = loom_kernel_async_legality_pass_info,
-        .function_run = loom_kernel_async_legality_run,
+        .key = IREE_SVL("kernel-synchronization-legality"),
+        .info = loom_kernel_synchronization_legality_pass_info,
+        .function_run = loom_kernel_synchronization_legality_run,
     },
     {
         .key = IREE_SVL("legalize-math"),

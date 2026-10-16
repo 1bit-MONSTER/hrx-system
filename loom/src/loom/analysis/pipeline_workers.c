@@ -453,13 +453,13 @@ static iree_status_t loom_pipeline_worker_build(
   }
   if (iree_status_is_ok(status) &&
       rejection.kind == LOOM_CHANNEL_PLAN_REJECTION_NONE) {
-    const loom_kernel_async_legality_options_t options = {
+    const loom_kernel_synchronization_legality_options_t options = {
         .value_domain = &worker->value_domain,
         .fact_table = &worker->facts,
         .emitter = diagnostic_emitter,
         .phase_name = IREE_SV("pipeline-worker"),
     };
-    status = loom_kernel_async_legality_analyze_function(
+    status = loom_kernel_synchronization_legality_analyze_function(
         module, worker->function, &options, arena, &worker->asynchronous);
     if (iree_status_is_ok(status) && worker->asynchronous.error_count == 0) {
       status = loom_pipeline_worker_transport(module, arena, structure, worker);

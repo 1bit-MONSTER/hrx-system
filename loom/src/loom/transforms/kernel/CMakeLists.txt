@@ -228,14 +228,14 @@ loom_cc_test(
 
 loom_cc_library(
   NAME
-    kernel_async_legality
+    kernel_synchronization_legality
   HDRS
-    "kernel_async_legality.h"
+    "kernel_synchronization_legality.h"
   SRCS
-    "kernel_async_legality.c"
+    "kernel_synchronization_legality.c"
   DEPS
     iree::base
-    loom::analysis::kernel_async_legality
+    loom::analysis::kernel_synchronization_legality
     loom::ir
     loom::ops::op_defs
     loom::pass::types

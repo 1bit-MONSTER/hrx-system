@@ -369,8 +369,8 @@ loom_cc_library(
     loom::transforms::cleanup::strip_hints
     loom::transforms::encoding::layout_transport
     loom::transforms::func::locations
-    loom::transforms::kernel::kernel_async_legality
     loom::transforms::kernel::kernel_resources
+    loom::transforms::kernel::kernel_synchronization_legality
     loom::transforms::kernel::promote_private_fragments
     loom::transforms::kernel::stage_loop_carried_fragments
     loom::transforms::loop::licm

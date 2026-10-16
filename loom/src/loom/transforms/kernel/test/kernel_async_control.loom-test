@@ -1,4 +1,4 @@
-// RUN: pass kernel-async-legality
+// RUN: pass kernel-synchronization-legality
 
 // Nested control inherits the participation scope of its outer branch.
 target.generic<reference> @device {abi = hal_kernel, subgroup_size = 64}
@@ -23,7 +23,7 @@ kernel.def target(@device) @nested_lane_control() {
 ^enabled_arm:
   cfg.cond_br %inner, ^inner_enabled, ^inner_disabled
 ^inner_enabled:
-  // ERROR@+1: LOWERING/024 {op_name="kernel.async.cluster.gather", phase_name="kernel-async-legality", rejection_bits="1024"}
+  // ERROR@+1: LOWERING/024 {op_name="kernel.async.cluster.gather", phase_name="kernel-synchronization-legality", rejection_bits="1024"}
   %copy = kernel.async.cluster.gather %source to %dest using %participants {cache_scope = workgroup, cache_temporal = regular} : view<4xi8> to view<4xi8>, i32 -> kernel.async.token
   %group = kernel.async.group %copy : kernel.async.token -> kernel.async.group
   kernel.async.wait %group {newer_groups = 0} : kernel.async.group
@@ -39,7 +39,7 @@ kernel.def target(@device) @nested_lane_control() {
 
 // ====
 
-// RUN: pass kernel-async-legality
+// RUN: pass kernel-synchronization-legality
 
 // Nested control inherits the participation scope of its outer branch.
 target.generic<reference> @device {abi = hal_kernel, subgroup_size = 64}
@@ -64,7 +64,7 @@ kernel.def target(@device) @nested_subgroup_control() {
 ^enabled_arm:
   cfg.cond_br %inner, ^inner_enabled, ^inner_disabled
 ^inner_enabled:
-  // ERROR@+1: LOWERING/024 {op_name="kernel.async.cluster.gather", phase_name="kernel-async-legality", rejection_bits="1024"}
+  // ERROR@+1: LOWERING/024 {op_name="kernel.async.cluster.gather", phase_name="kernel-synchronization-legality", rejection_bits="1024"}
   %copy = kernel.async.cluster.gather %source to %dest using %participants {cache_scope = workgroup, cache_temporal = regular} : view<4xi8> to view<4xi8>, i32 -> kernel.async.token
   %group = kernel.async.group %copy : kernel.async.token -> kernel.async.group
   kernel.async.wait %group {newer_groups = 0} : kernel.async.group
@@ -80,7 +80,7 @@ kernel.def target(@device) @nested_subgroup_control() {
 
 // ====
 
-// RUN: pass kernel-async-legality
+// RUN: pass kernel-synchronization-legality
 
 // Nested control inherits the participation scope of its outer branch.
 kernel.def @nested_workgroup_control() {
@@ -103,7 +103,7 @@ kernel.def @nested_workgroup_control() {
 ^enabled_arm:
   cfg.cond_br %inner, ^inner_enabled, ^inner_disabled
 ^inner_enabled:
-  // ERROR@+1: LOWERING/024 {op_name="kernel.async.cluster.gather", phase_name="kernel-async-legality", rejection_bits="1024"}
+  // ERROR@+1: LOWERING/024 {op_name="kernel.async.cluster.gather", phase_name="kernel-synchronization-legality", rejection_bits="1024"}
   %copy = kernel.async.cluster.gather %source to %dest using %participants {cache_scope = workgroup, cache_temporal = regular} : view<4xi8> to view<4xi8>, i32 -> kernel.async.token
   %group = kernel.async.group %copy : kernel.async.token -> kernel.async.group
   kernel.async.wait %group {newer_groups = 0} : kernel.async.group
@@ -119,7 +119,7 @@ kernel.def @nested_workgroup_control() {
 
 // ====
 
-// RUN: pass kernel-async-legality
+// RUN: pass kernel-synchronization-legality
 
 // Nested control inherits the participation scope of its outer branch.
 kernel.def @nested_cluster_control() {
@@ -157,7 +157,7 @@ kernel.def @nested_cluster_control() {
 
 // ====
 
-// RUN: pass kernel-async-legality
+// RUN: pass kernel-synchronization-legality
 
 kernel.def @deep_reordered() {
   %c1 = index.constant 1 : index
@@ -181,7 +181,7 @@ kernel.def @deep_reordered() {
 ^middle:
   cfg.cond_br %inner, ^deep, ^skip
 ^deep:
-  // ERROR@+1: LOWERING/024 {op_name="kernel.async.cluster.gather", phase_name="kernel-async-legality", rejection_bits="1024"}
+  // ERROR@+1: LOWERING/024 {op_name="kernel.async.cluster.gather", phase_name="kernel-synchronization-legality", rejection_bits="1024"}
   %copy = kernel.async.cluster.gather %source to %dest using %participants {cache_scope = workgroup, cache_temporal = regular} : view<4xi8> to view<4xi8>, i32 -> kernel.async.token
   %group = kernel.async.group %copy : kernel.async.token -> kernel.async.group
   kernel.async.wait %group {newer_groups = 0} : kernel.async.group
@@ -194,7 +194,7 @@ kernel.def @deep_reordered() {
 
 // ====
 
-// RUN: pass kernel-async-legality
+// RUN: pass kernel-synchronization-legality
 
 kernel.def @cycle() {
   %c1 = index.constant 1 : index
@@ -216,7 +216,7 @@ kernel.def @cycle() {
 ^loop:
   cfg.cond_br %inner, ^body, ^skip
 ^body:
-  // ERROR@+1: LOWERING/024 {op_name="kernel.async.cluster.gather", phase_name="kernel-async-legality", rejection_bits="1024"}
+  // ERROR@+1: LOWERING/024 {op_name="kernel.async.cluster.gather", phase_name="kernel-synchronization-legality", rejection_bits="1024"}
   %copy = kernel.async.cluster.gather %source to %dest using %participants {cache_scope = workgroup, cache_temporal = regular} : view<4xi8> to view<4xi8>, i32 -> kernel.async.token
   %group = kernel.async.group %copy : kernel.async.token -> kernel.async.group
   kernel.async.wait %group {newer_groups = 0} : kernel.async.group
@@ -227,7 +227,7 @@ kernel.def @cycle() {
 
 // ====
 
-// RUN: pass kernel-async-legality
+// RUN: pass kernel-synchronization-legality
 
 kernel.def @multiple_exits() {
   %c1 = index.constant 1 : index
@@ -249,7 +249,7 @@ kernel.def @multiple_exits() {
 ^outer:
   cfg.cond_br %inner, ^body, ^skip
 ^body:
-  // ERROR@+1: LOWERING/024 {op_name="kernel.async.cluster.gather", phase_name="kernel-async-legality", rejection_bits="1024"}
+  // ERROR@+1: LOWERING/024 {op_name="kernel.async.cluster.gather", phase_name="kernel-synchronization-legality", rejection_bits="1024"}
   %copy = kernel.async.cluster.gather %source to %dest using %participants {cache_scope = workgroup, cache_temporal = regular} : view<4xi8> to view<4xi8>, i32 -> kernel.async.token
   %group = kernel.async.group %copy : kernel.async.token -> kernel.async.group
   kernel.async.wait %group {newer_groups = 0} : kernel.async.group
@@ -260,7 +260,7 @@ kernel.def @multiple_exits() {
 
 // ====
 
-// RUN: pass kernel-async-legality
+// RUN: pass kernel-synchronization-legality
 
 kernel.def @inner_reconvergence() {
   %c1 = index.constant 1 : index
@@ -286,7 +286,7 @@ kernel.def @inner_reconvergence() {
 ^right:
   cfg.br ^inner_join
 ^inner_join:
-  // ERROR@+1: LOWERING/024 {op_name="kernel.async.cluster.gather", phase_name="kernel-async-legality", rejection_bits="1024"}
+  // ERROR@+1: LOWERING/024 {op_name="kernel.async.cluster.gather", phase_name="kernel-synchronization-legality", rejection_bits="1024"}
   %copy = kernel.async.cluster.gather %source to %dest using %participants {cache_scope = workgroup, cache_temporal = regular} : view<4xi8> to view<4xi8>, i32 -> kernel.async.token
   %group = kernel.async.group %copy : kernel.async.token -> kernel.async.group
   kernel.async.wait %group {newer_groups = 0} : kernel.async.group
@@ -299,7 +299,7 @@ kernel.def @inner_reconvergence() {
 
 // ====
 
-// RUN: pass kernel-async-legality
+// RUN: pass kernel-synchronization-legality
 
 kernel.def @full_reconvergence() {
   %c1 = index.constant 1 : index
@@ -335,7 +335,7 @@ kernel.def @full_reconvergence() {
 
 // ====
 
-// RUN: pass kernel-async-legality
+// RUN: pass kernel-synchronization-legality
 
 kernel.def @sequential() {
   %c1 = index.constant 1 : index

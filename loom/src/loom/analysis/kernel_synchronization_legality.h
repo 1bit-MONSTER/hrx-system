@@ -4,16 +4,15 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-// Kernel async stream legality analysis.
+// Kernel synchronization legality analysis.
 //
-// This analysis proves kernel.async group/wait streams are in the
-// straight-line form required by target lowering. Local op verifiers check
-// token types, known footprints, and cache policies; this analysis requires
-// concrete transfer footprints and endpoint memory spaces from propagated
-// facts, and checks the temporal stream contract that depends on program order.
+// This analysis proves whole-function synchronization contracts after target
+// specialization and required inlining. It retains admitted kernel.async
+// streams for target lowering. Local op verifiers independently check types,
+// attributes, and SSA contracts.
 
-#ifndef LOOM_ANALYSIS_KERNEL_ASYNC_LEGALITY_H_
-#define LOOM_ANALYSIS_KERNEL_ASYNC_LEGALITY_H_
+#ifndef LOOM_ANALYSIS_KERNEL_SYNCHRONIZATION_LEGALITY_H_
+#define LOOM_ANALYSIS_KERNEL_SYNCHRONIZATION_LEGALITY_H_
 
 #include "iree/base/api.h"
 #include "loom/analysis/movement.h"
@@ -27,7 +26,7 @@
 extern "C" {
 #endif
 
-typedef struct loom_kernel_async_legality_options_t {
+typedef struct loom_kernel_synchronization_legality_options_t {
   // Active local value domain extended by analyses as values are discovered.
   loom_local_value_domain_t* value_domain;
   // Borrowed function-local value facts. The analysis only reads this table.
@@ -35,9 +34,9 @@ typedef struct loom_kernel_async_legality_options_t {
   // Structured diagnostic emitter for user legality failures.
   iree_diagnostic_emitter_t emitter;
   // Name of the phase reporting diagnostics, such as "source-low" or
-  // "kernel-async-legality".
+  // "kernel-synchronization-legality".
   iree_string_view_t phase_name;
-} loom_kernel_async_legality_options_t;
+} loom_kernel_synchronization_legality_options_t;
 
 // One admitted transfer and its canonical movement request. The owning stream
 // records the group that commits it; endpoint projections remain in movement.
@@ -83,7 +82,7 @@ typedef struct loom_kernel_async_stream_t {
   iree_host_size_t wait_count;
 } loom_kernel_async_stream_t;
 
-typedef struct loom_kernel_async_legality_result_t {
+typedef struct loom_kernel_synchronization_legality_result_t {
   // Canonical movement facts, including indexed endpoint view projections.
   loom_movement_analysis_t movement;
   // First retained stream; NULL for functions with no asynchronous work.
@@ -96,12 +95,12 @@ typedef struct loom_kernel_async_legality_result_t {
   uint64_t groups_checked;
   // Number of kernel.async.wait ops checked.
   uint64_t waits_checked;
-} loom_kernel_async_legality_result_t;
+} loom_kernel_synchronization_legality_result_t;
 
-// Verifies endpoint memory spaces and the kernel async stream contract for one
-// function-like body after caller and placement facts are available. Source
-// verification checks types and token uses independently of endpoint placement;
-// this boundary requires the memory-space facts needed for target selection.
+// Verifies whole-function synchronization contracts after caller, placement,
+// and target facts are available. Source verification checks local operation
+// contracts independently; this boundary checks control and temporal contracts
+// that depend on the selected, expanded program.
 //
 // User IR failures are emitted through |options->emitter| and counted in
 // |out_result|. The analysis stops after the first stream violation because the
@@ -113,14 +112,14 @@ typedef struct loom_kernel_async_legality_result_t {
 // All result storage and symbolic expressions live in arena. Input facts and
 // the value domain remain valid through the consuming rewrite. A diagnosed
 // failure leaves partial streams unusable for target selection.
-iree_status_t loom_kernel_async_legality_analyze_function(
+iree_status_t loom_kernel_synchronization_legality_analyze_function(
     const loom_module_t* module, loom_func_like_t function,
-    const loom_kernel_async_legality_options_t* options,
+    const loom_kernel_synchronization_legality_options_t* options,
     iree_arena_allocator_t* arena,
-    loom_kernel_async_legality_result_t* out_result);
+    loom_kernel_synchronization_legality_result_t* out_result);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif  // LOOM_ANALYSIS_KERNEL_ASYNC_LEGALITY_H_
+#endif  // LOOM_ANALYSIS_KERNEL_SYNCHRONIZATION_LEGALITY_H_
