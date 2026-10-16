@@ -67,10 +67,8 @@ typedef enum loom_target_math_op_e {
   LOOM_TARGET_MATH_OP_ATANHF = 30,
 } loom_target_math_op_t;
 
-enum {
-  // Number of operation ordinals available to operation-indexed policy tables.
-  LOOM_TARGET_MATH_OP_COUNT = LOOM_TARGET_MATH_OP_ATANHF + 1,
-};
+// Number of operation ordinals available to operation-indexed policy tables.
+#define LOOM_TARGET_MATH_OP_COUNT ((int)LOOM_TARGET_MATH_OP_ATANHF + 1)
 
 typedef enum loom_target_math_lane_domain_e {
   LOOM_TARGET_MATH_LANE_DOMAIN_UNKNOWN = 0,
@@ -78,10 +76,9 @@ typedef enum loom_target_math_lane_domain_e {
   LOOM_TARGET_MATH_LANE_DOMAIN_VECTOR = 2,
 } loom_target_math_lane_domain_t;
 
-enum {
-  // Number of lane-domain ordinals available to name tables.
-  LOOM_TARGET_MATH_LANE_DOMAIN_COUNT = LOOM_TARGET_MATH_LANE_DOMAIN_VECTOR + 1,
-};
+// Number of lane-domain ordinals available to name tables.
+#define LOOM_TARGET_MATH_LANE_DOMAIN_COUNT \
+  ((int)LOOM_TARGET_MATH_LANE_DOMAIN_VECTOR + 1)
 
 typedef uint8_t loom_target_math_lane_domain_set_t;
 enum loom_target_math_lane_domain_set_bits_e {
@@ -155,11 +152,12 @@ enum loom_target_math_recipe_e {
   LOOM_TARGET_MATH_RECIPE_RSQRT_NEWTON_TWO = 23,
 };
 
-enum {
-  // Number of recipe ordinals available to recipe-indexed metadata tables.
-  LOOM_TARGET_MATH_RECIPE_COUNT =
-      LOOM_TARGET_MATH_RECIPE_RSQRT_NEWTON_TWO + 1,
-};
+// Number of recipe ordinals available to recipe-indexed metadata tables.
+#define LOOM_TARGET_MATH_RECIPE_COUNT \
+  ((int)LOOM_TARGET_MATH_RECIPE_RSQRT_NEWTON_TWO + 1)
+
+// Packed policy-table sentinel selecting REJECT instead of KEEP or REWRITE.
+#define LOOM_TARGET_MATH_POLICY_RECIPE_REJECT UINT8_C(31)
 
 // Representation used to evaluate a target-neutral math recipe.
 typedef uint8_t loom_target_math_evaluation_kind_t;
@@ -302,11 +300,6 @@ typedef struct loom_target_math_policy_direct_rule_t {
   // Immediate rejection constraint when required permissions are absent.
   uint8_t permission_constraint;
 } loom_target_math_policy_direct_rule_t;
-
-enum {
-  // Policy-table recipe sentinel selecting REJECT instead of KEEP or REWRITE.
-  LOOM_TARGET_MATH_POLICY_RECIPE_REJECT = 31,
-};
 
 #define LOOM_TARGET_MATH_POLICY_DIRECT_RULE(                               \
     element_types_, lane_domains_, required_fastmath_flags_, recipe_,      \
