@@ -522,6 +522,20 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "pipeline_dma_plan",
+    srcs = ["pipeline/dma_plan.c"],
+    hdrs = ["pipeline/dma_plan.h"],
+    deps = [
+        ":array_plan",
+        "//loom/src/loom/analysis:storage_geometry",
+        "//loom/src/loom/target/arch/amd/xdna:array_facts",
+        "//loom/src/loom/target/arch/amd/xdna:array_registers",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
     name = "pipeline_native",
     srcs = [
         "pipeline/channels.c",
@@ -535,6 +549,7 @@ loom_cc_library(
         ":array_abi_layout",
         ":array_plan",
         ":configuration_descriptors",
+        ":pipeline_dma_plan",
         ":pipeline_worker",
         ":target_facts",
         ":target_records",
@@ -1205,6 +1220,21 @@ loom_cc_test(
     deps = [
         ":provider",
         "//loom/src/loom/target:provider",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_test(
+    name = "pipeline_dma_plan_test",
+    srcs = ["pipeline/dma_plan_test.cc"],
+    deps = [
+        ":pipeline_dma_plan",
+        "//loom/src/loom/analysis:storage_geometry",
+        "//loom/src/loom/target/arch/amd/xdna:array_facts",
+        "//loom/src/loom/target/arch/amd/xdna:array_registers",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
         "//runtime/src/iree/testing:gtest",
         "//runtime/src/iree/testing:gtest_main",
     ],

@@ -9,6 +9,7 @@
 
 #include "loom/target/arch/amd/xdna/aie2p/array/route.h"
 #include "loom/target/arch/amd/xdna/aie2p/facts.h"
+#include "loom/target/arch/amd/xdna/aie2p/pipeline/dma_plan.h"
 #include "loom/target/arch/amd/xdna/aie2p/pipeline/worker.h"
 #include "loom/target/arch/amd/xdna/array/registers.h"
 #include "loom/transforms/pipeline/realization.h"
@@ -92,73 +93,6 @@ typedef struct loom_aie2p_native_binding_t {
   uint32_t access;
 } loom_aie2p_native_binding_t;
 
-// Register layout of one on-chip DMA module. Compute data memory and SRAM
-// retain the same channel ownership protocol with different wire encodings.
-typedef struct loom_aie2p_native_memory_layout_t {
-  // First descriptor register, used to publish a complete image.
-  loom_xdna_register_field_id_t descriptor_base;
-  // Number of descriptor words implemented by this module.
-  uint8_t descriptor_word_count;
-  // Word containing the DMA buffer address.
-  uint8_t address_word;
-  // DMA buffer-address field.
-  loom_xdna_register_field_id_t address;
-  // Word containing the iteration state.
-  uint8_t iteration_word;
-  // Iteration step, wrap, and current-position fields.
-  struct {
-    // Address-generator increment between records.
-    loom_xdna_register_field_id_t step;
-    // Number of physical ring slots minus one.
-    loom_xdna_register_field_id_t wrap;
-    // Current ring slot reset at invocation boundaries.
-    loom_xdna_register_field_id_t current;
-  } iteration;
-  // Word and fields linking descriptors within one finite DMA task.
-  struct {
-    // Word containing both chain fields.
-    uint8_t word;
-    // Next descriptor ordinal.
-    loom_xdna_register_field_id_t next;
-    // The current task continues at the next descriptor.
-    loom_xdna_register_field_id_t enable;
-  } chain;
-  // Word containing lock actions and descriptor validity.
-  uint8_t lock_word;
-  // Lock action and validity fields.
-  struct {
-    // Semaphore acquired before movement.
-    loom_xdna_register_field_id_t acquire_id;
-    // Credit count consumed by admission.
-    loom_xdna_register_field_id_t acquire_value;
-    // Descriptor has an admission action.
-    loom_xdna_register_field_id_t acquire_enable;
-    // Semaphore released after movement.
-    loom_xdna_register_field_id_t release_id;
-    // Credit count published by completion.
-    loom_xdna_register_field_id_t release_value;
-    // Descriptor is executable.
-    loom_xdna_register_field_id_t valid;
-  } locks;
-  // Hardware semaphore initialization and observation register.
-  loom_xdna_register_field_id_t lock_value;
-  // Local SRAM bank's DMA address window; zero for compute data memory.
-  uint32_t local_address_base;
-  // Local SRAM bank's DMA lock-selector window; zero for compute memory.
-  uint16_t local_lock_base;
-  // Direction-indexed DMA control and task publication fields.
-  struct {
-    // Channel reset control.
-    loom_xdna_register_field_id_t reset;
-    // Task head descriptor ordinal.
-    loom_xdna_register_field_id_t start;
-    // Task execution count minus one.
-    loom_xdna_register_field_id_t repeat;
-    // Completion-poll fields: queue size, running, and four stall flags.
-    loom_xdna_register_field_id_t status[6];
-  } directions[2];
-} loom_aie2p_native_memory_layout_t;
-
 // Per-tile resource ownership established before any executable emission.
 typedef struct loom_aie2p_native_tile_t {
   // Physical coordinate in this execution occurrence.
@@ -241,22 +175,6 @@ typedef struct loom_aie2p_native_switch_t {
   // Master, slave, and packet-filter banks from the generated register facts.
   loom_aie2p_native_register_bank_t banks[LOOM_AIE2P_NATIVE_SWITCH_BANK_COUNT];
 } loom_aie2p_native_switch_t;
-
-// Complete finite descriptor and task program for one DMA endpoint.
-typedef struct loom_aie2p_native_dma_sequence_t {
-  // First descriptor in the contiguous allocation owned by this sequence.
-  uint16_t descriptor;
-  // Number of descriptors, including any separately terminating final prefix.
-  uint16_t descriptor_count;
-  // Number of autonomous start tasks, bounded by the hardware queue depth.
-  uint8_t task_count;
-  // The single iterating descriptor ends away from the initial ring slot.
-  bool rewind_iteration;
-  // Arena-owned complete descriptor images in physical ordinal order.
-  uint32_t (*words)[8];
-  // Arena-owned encoded task words in FIFO publication order.
-  uint32_t* tasks;
-} loom_aie2p_native_dma_sequence_t;
 
 // One physical descriptor pair reused only after its prior transfer retires.
 typedef struct loom_aie2p_native_dma_descriptor_t {
