@@ -21,6 +21,16 @@ The oracle checks both inputs, the output, allocation-granularity padding and
 the complete command owner. Repeated submissions retain the same bound command
 bytes and independently queried DMA addresses.
 
+The `SharedContextLifetime` cases alternate two independently prepared
+contexts through shared allocated or registered backing. The second command
+consumes the first command's result without a CPU payload access between them.
+After three handoffs, the producer context and its commands are destroyed;
+the consumer continues using the retained payload for two more generations.
+The `FullWidthContextHandoff` variants query full-array context support and
+use that width to force overlapping physical placement. Each case checks both
+device-written buffers, the retained input, all padding, immutable commands
+and checked native retirement.
+
 `AllocatedFirstDeviceWriter` and `RegisteredFirstDeviceWriter` leave output
 payload untouched on the CPU until the first completed NPU overwrite. Only
 inputs and commands are published before submission; output is acquired once

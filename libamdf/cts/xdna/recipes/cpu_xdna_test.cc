@@ -243,6 +243,7 @@ class FirmwareTraceCapture {
 class CpuXdnaRecipeTest : public XdnaDeviceFixture {
  protected:
   enum class RegisteredContents { kUntouched, kHostWritten };
+  enum class ContextWidth { kSingleColumn, kFullArray };
 
   // Portable clock used by finite markers and automatic firmware capture.
   ObservationHostClock host_clock_;
@@ -293,6 +294,9 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
   }
 
   void TearDown() override {
+    if (!consumer_.Release(api_, xdna_api_)) {
+      return;
+    }
     if (!execution_.Release(api_, xdna_api_)) {
       return;
     }
@@ -406,21 +410,23 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
     ASSERT_EQ(pair->atomic_reach.scope_64, AMDF_ATOMIC_SCOPE_NONE);
   }
 
-  void PrepareExecution() {
+  void PrepareExecution(XdnaExecution* execution, uint32_t column_count,
+                        std::span<const uint64_t> binding_addresses) {
     std::vector<uint8_t> image_storage(executable_.allocation_byte_length());
     executable_.Load(image_storage);
-    ASSERT_TRUE(executable_.Bind(image_storage, binding_addresses_));
-    ASSERT_NO_FATAL_FAILURE(
-        execution_.Prepare(api_, xdna_api_, device_, family_ordinal_, 1,
-                           executable_.ResolveInvocation(image_storage),
-                           executable_.allocation_alignment()));
+    ASSERT_TRUE(executable_.Bind(image_storage, binding_addresses));
+    ASSERT_NO_FATAL_FAILURE(execution->Prepare(
+        api_, xdna_api_, device_, family_ordinal_, column_count,
+        executable_.ResolveInvocation(image_storage),
+        executable_.allocation_alignment()));
   }
 
   void RunFirstDeviceWriter(
       amdf_memory_profile_roles_t role,
       RegisteredContents registered_contents = RegisteredContents::kUntouched) {
     ASSERT_NO_FATAL_FAILURE(CreateBindings(role, registered_contents));
-    ASSERT_NO_FATAL_FAILURE(PrepareExecution());
+    ASSERT_NO_FATAL_FAILURE(
+        PrepareExecution(&execution_, 1, binding_addresses_));
     constexpr size_t kPayloadByteLength = kValues.size() * sizeof(uint32_t);
     std::array<uint8_t, kPayloadByteLength> expected;
     for (size_t i = 0; i < kValues.size(); ++i) {
@@ -489,7 +495,8 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
   void RunRoundTrips(amdf_memory_profile_roles_t role, uint32_t count = 8,
                      FirmwareTraceCapture* capture = nullptr) {
     ASSERT_NO_FATAL_FAILURE(CreateBindings(role));
-    ASSERT_NO_FATAL_FAILURE(PrepareExecution());
+    ASSERT_NO_FATAL_FAILURE(
+        PrepareExecution(&execution_, 1, binding_addresses_));
     const auto commands = execution_.instructions.bytes();
     const std::vector<uint8_t> original_commands(commands.begin(),
                                                  commands.end());
@@ -602,12 +609,174 @@ class CpuXdnaRecipeTest : public XdnaDeviceFixture {
     }
   }
 
+  void RunContextHandoffs(amdf_memory_profile_roles_t role,
+                          ContextWidth width) {
+    amdf_xdna_device_info_t device_info = {
+        .type = AMDF_STRUCTURE_TYPE_XDNA_DEVICE_INFO,
+        .structure_size = sizeof(device_info),
+    };
+    ASSERT_EQ(xdna_api_->device_query_info(device_, &device_info),
+              AMDF_STATUS_OK);
+    const uint32_t column_count =
+        width == ContextWidth::kFullArray ? device_info.array.column_count : 1;
+    const auto& context = device_info.context;
+    ASSERT_GT(context.column_count_granularity, 0u);
+    if (column_count < context.minimum_column_count ||
+        column_count > context.maximum_column_count ||
+        (column_count - context.minimum_column_count) %
+                context.column_count_granularity !=
+            0) {
+      GTEST_SKIP() << "requested logical context width is not advertised";
+    }
+    RecordProperty("logical_column_count", column_count);
+    ASSERT_NO_FATAL_FAILURE(CreateBindings(role));
+    ASSERT_NO_FATAL_FAILURE(
+        PrepareExecution(&execution_, column_count, binding_addresses_));
+    const std::array<uint64_t, 3> consumer_addresses = {
+        binding_addresses_[2], binding_addresses_[1], binding_addresses_[0]};
+    ASSERT_NO_FATAL_FAILURE(
+        PrepareExecution(&consumer_, column_count, consumer_addresses));
+
+    // The producer writes (lhs * rhs) to shared backing. The consumer reads it
+    // directly and writes (product * rhs) to the original lhs. Full-width
+    // contexts cannot satisfy this handoff with disjoint physical placements.
+    const std::array<XdnaExecution*, 2> executions = {&execution_, &consumer_};
+    std::array<std::vector<uint8_t>, 2> original_commands;
+    std::array<std::vector<uint8_t>, 2> observed_commands;
+    for (size_t i = 0; i < executions.size(); ++i) {
+      const auto& instructions = executions[i]->instructions;
+      const auto bytes = instructions.bytes();
+      original_commands[i].assign(bytes.begin(), bytes.end());
+      observed_commands[i].resize(bytes.size());
+      ASSERT_EQ(api_->host_mapping_cache_control(
+                    instructions.mapping, AMDF_HOST_CACHE_OPERATION_FLUSH, 0,
+                    bytes.size()),
+                AMDF_STATUS_OK);
+    }
+    std::array<std::vector<uint8_t>, 3> expected;
+    std::array<std::vector<uint8_t>, 3> observed;
+    for (size_t ordinal = 0; ordinal < bindings_.size(); ++ordinal) {
+      observed[ordinal].resize(bindings_[ordinal].host.byte_length);
+    }
+    std::array<uint32_t, kValues.size()> products = {};
+    for (uint32_t generation = 0; generation < 5 && !HasFailure();
+         ++generation) {
+      SCOPED_TRACE(generation);
+      if (generation == 3) {
+        // Ordinary backing borrows the device, not this context or queue. The
+        // remaining consumer must continue using the last producer result.
+        ASSERT_TRUE(execution_.Release(api_, xdna_api_));
+      }
+      for (size_t ordinal = 0; ordinal < bindings_.size(); ++ordinal) {
+        if (generation >= 3 && ordinal == 2) {
+          continue;
+        }
+        const auto bytes = bindings_[ordinal].bytes();
+        std::fill(bytes.begin(), bytes.end(), uint8_t(0xA5 ^ generation));
+        expected[ordinal].assign(bytes.begin(), bytes.end());
+      }
+      for (size_t i = 0; i < kValues.size(); ++i) {
+        const size_t offset = kBindingByteOffset + i * sizeof(uint32_t);
+        const uint32_t factor =
+            static_cast<uint32_t>(i * 2 + generation * 2 + 3);
+        StoreU32(bindings_[1].bytes(), offset, factor);
+        StoreU32(expected[1], offset, factor);
+        if (generation < 3) {
+          const uint32_t lhs = kValues[(i + generation) % kValues.size()];
+          products[i] = lhs * factor;
+          StoreU32(bindings_[0].bytes(), offset, lhs);
+          StoreU32(bindings_[2].bytes(), offset, ~products[i]);
+          StoreU32(expected[2], offset, products[i]);
+        } else {
+          StoreU32(bindings_[0].bytes(), offset, ~(products[i] * factor));
+        }
+        StoreU32(expected[0], offset, products[i] * factor);
+      }
+      for (size_t ordinal = 0; ordinal < bindings_.size(); ++ordinal) {
+        if (generation >= 3 && ordinal == 2) {
+          continue;
+        }
+        ASSERT_EQ(api_->host_mapping_cache_control(
+                      bindings_[ordinal].mapping,
+                      ingress_[ordinal].release.host_operation, 0,
+                      bindings_[ordinal].host.byte_length),
+                  AMDF_STATUS_OK);
+      }
+      std::array<uint64_t, 2> points = {};
+      for (size_t i = 0; i < executions.size(); ++i) {
+        const auto& execution = *executions[i];
+        if (!execution.queue) {
+          continue;
+        }
+        const amdf_xdna_kernel_queue_submission_info_t submit = {
+            .type = AMDF_STRUCTURE_TYPE_XDNA_KERNEL_QUEUE_SUBMISSION_INFO,
+            .structure_size = sizeof(submit),
+            .command_count = 1,
+            .commands = &execution.command,
+        };
+        ASSERT_EQ(xdna_api_->kernel_queue_submit(execution.queue, &submit,
+                                                 &points[i]),
+                  AMDF_STATUS_OK);
+        ASSERT_EQ(api_->kernel_queue_wait(execution.queue, points[i],
+                                          AMDF_TIMEOUT_INFINITE, 0),
+                  AMDF_STATUS_OK);
+        // No CPU payload access or cache operation separates these commands.
+      }
+      // Capture both device-written buffers before checking numerical output,
+      // command immutability or terminal status.
+      for (size_t ordinal : {0u, 2u, 1u}) {
+        ASSERT_EQ(api_->host_mapping_cache_control(
+                      bindings_[ordinal].mapping,
+                      egress_[ordinal].acquire.host_operation, 0,
+                      bindings_[ordinal].host.byte_length),
+                  AMDF_STATUS_OK);
+        const auto bytes = bindings_[ordinal].bytes();
+        std::copy(bytes.begin(), bytes.end(), observed[ordinal].begin());
+      }
+      for (size_t i = 0; i < executions.size(); ++i) {
+        if (!executions[i]->queue) {
+          continue;
+        }
+        const auto& instructions = executions[i]->instructions;
+        ASSERT_EQ(
+            api_->host_mapping_cache_control(
+                instructions.mapping, AMDF_HOST_CACHE_OPERATION_INVALIDATE, 0,
+                instructions.host.byte_length),
+            AMDF_STATUS_OK);
+        const auto bytes = instructions.bytes();
+        std::copy(bytes.begin(), bytes.end(), observed_commands[i].begin());
+      }
+      for (size_t ordinal = 0; ordinal < bindings_.size(); ++ordinal) {
+        SCOPED_TRACE(ordinal);
+        EXPECT_EQ(observed[ordinal], expected[ordinal]);
+      }
+      for (size_t i = 0; i < executions.size(); ++i) {
+        if (!executions[i]->queue) {
+          continue;
+        }
+        SCOPED_TRACE(i);
+        EXPECT_EQ(observed_commands[i], original_commands[i]);
+        amdf_kernel_queue_status_t status = {
+            .type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_STATUS,
+            .structure_size = sizeof(status),
+        };
+        ASSERT_EQ(
+            api_->kernel_queue_query_status(executions[i]->queue, &status),
+            AMDF_STATUS_OK);
+        EXPECT_EQ(status.retired_submission, points[i]);
+        EXPECT_EQ(status.terminal_status, AMDF_STATUS_OK);
+      }
+    }
+  }
+
   // Native family selected before allocating instructions or payloads.
   uint32_t family_ordinal_ = UINT32_MAX;
   // Immutable, admitted fixture borrowing build-generated Loom output.
   XdnaExecutable executable_;
   // Private context, command backing and one native queue.
   XdnaExecution execution_;
+  // Independent context and commands consuming ordinary shared payloads.
+  XdnaExecution consumer_;
   // CPU-only storage retained through native registration release.
   std::array<CtsMappedMemory, 3> registered_storage_;
   // Lhs, rhs and output, each with a complete guarded host view.
@@ -1372,6 +1541,25 @@ TEST_F(CpuXdnaRecipeTest, RegisteredFirstDeviceWriter) {
 TEST_F(CpuXdnaRecipeTest, RegisteredDirtyFirstDeviceWriter) {
   RunFirstDeviceWriter(AMDF_MEMORY_PROFILE_ROLE_REGISTER,
                        RegisteredContents::kHostWritten);
+}
+
+TEST_F(CpuXdnaRecipeTest, AllocatedSharedContextLifetime) {
+  RunContextHandoffs(AMDF_MEMORY_PROFILE_ROLE_CREATE,
+                     ContextWidth::kSingleColumn);
+}
+
+TEST_F(CpuXdnaRecipeTest, RegisteredSharedContextLifetime) {
+  RunContextHandoffs(AMDF_MEMORY_PROFILE_ROLE_REGISTER,
+                     ContextWidth::kSingleColumn);
+}
+
+TEST_F(CpuXdnaRecipeTest, AllocatedFullWidthContextHandoff) {
+  RunContextHandoffs(AMDF_MEMORY_PROFILE_ROLE_CREATE, ContextWidth::kFullArray);
+}
+
+TEST_F(CpuXdnaRecipeTest, RegisteredFullWidthContextHandoff) {
+  RunContextHandoffs(AMDF_MEMORY_PROFILE_ROLE_REGISTER,
+                     ContextWidth::kFullArray);
 }
 
 }  // namespace
