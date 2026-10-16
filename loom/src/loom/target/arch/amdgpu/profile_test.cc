@@ -80,7 +80,8 @@ TEST(AmdgpuTargetProfileTest, ProjectsCompilerOwnedTypedFacts) {
             profile.base.target_bundle->snapshot->codegen_format);
   EXPECT_FALSE(facts->subgroup_size_explicit);
   EXPECT_EQ(facts->base.storage.snapshot.subgroup_size, 0u);
-  EXPECT_TRUE(facts->base.storage.snapshot.dense_subgroup_partition);
+  EXPECT_EQ(facts->base.storage.snapshot.subgroup_partition,
+            LOOM_TARGET_SUBGROUP_PARTITION_DENSE);
   EXPECT_FALSE(facts->contract_set_key_explicit);
 
   // A structured profile can override the preset without changing processor
@@ -107,7 +108,8 @@ TEST(AmdgpuTargetProfileTest, ProjectsCompilerOwnedTypedFacts) {
   ASSERT_NE(overridden, nullptr);
   EXPECT_TRUE(overridden->subgroup_size_explicit);
   EXPECT_EQ(overridden->base.storage.snapshot.subgroup_size, 64u);
-  EXPECT_TRUE(overridden->base.storage.snapshot.dense_subgroup_partition);
+  EXPECT_EQ(overridden->base.storage.snapshot.subgroup_partition,
+            LOOM_TARGET_SUBGROUP_PARTITION_DENSE);
   EXPECT_TRUE(overridden->contract_set_key_explicit);
   EXPECT_TRUE(
       iree_string_view_equal(overridden->base.storage.config.contract_set_key,

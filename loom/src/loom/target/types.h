@@ -201,6 +201,20 @@ typedef struct loom_target_dispatch_workgroup_count_t {
   uint32_t z;
 } loom_target_dispatch_workgroup_count_t;
 
+// Guarantees about partitioning a workgroup into subgroups, ordered from
+// weakest to strongest. None specifies the mapping of workitem IDs to lanes.
+typedef uint8_t loom_target_subgroup_partition_t;
+typedef enum loom_target_subgroup_partition_e {
+  // Subgroups may be partially populated with nonconsecutive active lanes.
+  LOOM_TARGET_SUBGROUP_PARTITION_UNSPECIFIED = 0,
+  // HAL kernels have full subgroups when workgroup X is divisible by the
+  // fixed subgroup width. Other shapes retain an unspecified partition.
+  LOOM_TARGET_SUBGROUP_PARTITION_WORKGROUP_X_ALIGNED = 1,
+  // Invocations fill successive subgroups with consecutive lane IDs from zero,
+  // leaving at most one partial subgroup, for every workgroup shape.
+  LOOM_TARGET_SUBGROUP_PARTITION_DENSE = 2,
+} loom_target_subgroup_partition_e;
+
 typedef struct loom_target_snapshot_t {
   // Stable snapshot name for diagnostics and tests.
   iree_string_view_t name;
@@ -208,11 +222,8 @@ typedef struct loom_target_snapshot_t {
   loom_target_codegen_format_t codegen_format;
   // Linkable or loadable artifact format produced for this snapshot.
   loom_target_artifact_format_t artifact_format;
-  // Whether invocations fill successive subgroups with consecutive lane IDs
-  // starting at zero, leaving at most one partial subgroup. This does not
-  // establish any ordering of workitem IDs. A fixed subgroup size alone does
-  // not establish dense packing.
-  bool dense_subgroup_partition;
+  // Execution guarantee used with launch facts to bound subgroup coordinates.
+  loom_target_subgroup_partition_t subgroup_partition;
   // Default pointer bit width for target-independent layout decisions.
   uint32_t default_pointer_bitwidth;
   // Index bit width chosen for lowered index values.
