@@ -14905,6 +14905,10 @@ HIPAPI hipError_t hipModuleLoadDataEx(hipModule_t* module, const void* image,
     }
   }
 
+  // The HIP ABI carries no image length, so 0 here means "length not supplied
+  // by the caller" and never "skip bounds checks": the fat-binary layer derives
+  // a bounded extent from the container/ELF header and rejects inputs whose
+  // declared extent is not readable (see hrx_fat_elf_resolve_span).
   hipError_t result = iree_hip_module_load_data_span(
       iree_make_const_byte_span(image, 0), module);
   IREE_TRACE_ZONE_END(z0);
