@@ -184,8 +184,9 @@ TEST_F(XdnaPipelineCompletionTest, ReusesOnlyConsumedDmaCompletions) {
                                        resolved_bindings_[output]};
     ASSERT_NO_FATAL_FAILURE(BindPipeline(bindings));
     for (size_t record = 0; record < 3; ++record) {
-      expected[output][4 * record] =
-          expected[first_input][record] + expected[first_input][record + 1];
+      expected[output][4 * record] = expected[first_input][record] +
+                                     expected[first_input][record + 1] +
+                                     expected[first_input][record + 2];
       expected[output][4 * record + 1] = expected[second_input][record];
       expected[output][4 * record + 2] = expected[second_input][record + 1];
       expected[output][4 * record + 3] = record;

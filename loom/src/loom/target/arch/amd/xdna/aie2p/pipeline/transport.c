@@ -281,8 +281,9 @@ static bool loom_aie2p_native_transfer_retired(
          transfer->completion->block_ordinal <= issue->block_ordinal;
 }
 
-// The search is bounded by the column's physical descriptor count. A retired
-// pair remains unavailable while another geometry uses its completion credit.
+// Each endpoint has its own immutable geometry and latest transfer. A local
+// descriptor also remains unavailable while another geometry uses its credit.
+// The search is bounded by the worker's physical local and shim descriptors.
 static loom_aie2p_native_dma_descriptor_t*
 loom_aie2p_native_reusable_descriptor(
     const loom_aie2p_native_worker_t* worker,
@@ -294,35 +295,28 @@ loom_aie2p_native_reusable_descriptor(
     return NULL;
   }
   const loom_op_t* issue = transfer->source->request.op;
-  const bool local_dynamic = transfer->record_dynamic ||
-                             !loom_symbolic_expr_is_constant(
-                                 &transfer->local_view->projection_byte_offset);
   for (loom_aie2p_native_dma_descriptor_t* candidate = worker->descriptors;
        candidate; candidate = candidate->next) {
     const loom_aie2p_native_transfer_t* previous = candidate->last_transfer;
-    if (candidate->path != descriptor->path ||
+    if (candidate->shim != descriptor->shim ||
+        candidate->path != descriptor->path ||
         !loom_aie2p_native_transfer_retired(previous, issue) ||
         (candidate->completion &&
          !loom_aie2p_native_transfer_retired(
              candidate->completion->last_transfer, issue)) ||
-        memcmp(candidate->local.words[0], descriptor->local.words[0],
-               sizeof(descriptor->local.words[0])) != 0 ||
-        memcmp(candidate->shim.words[0], descriptor->shim.words[0],
-               sizeof(descriptor->shim.words[0])) != 0) {
+        memcmp(candidate->sequence.words[0], descriptor->sequence.words[0],
+               sizeof(descriptor->sequence.words[0])) != 0) {
       continue;
     }
-    const bool previous_local_dynamic =
-        previous->record_dynamic ||
-        !loom_symbolic_expr_is_constant(
-            &previous->local_view->projection_byte_offset);
-    if (local_dynamic != previous_local_dynamic) {
+    if (descriptor->shim) {
+      candidate->address_dynamic |=
+          descriptor->address_dynamic ||
+          transfer->binding != previous->binding ||
+          transfer->external_view->begin_byte_offset.constant !=
+              previous->external_view->begin_byte_offset.constant;
+    } else if (candidate->address_dynamic != descriptor->address_dynamic) {
       continue;
     }
-    candidate->external_address_dynamic |=
-        descriptor->external_address_dynamic ||
-        transfer->binding != previous->binding ||
-        transfer->external_view->begin_byte_offset.constant !=
-            previous->external_view->begin_byte_offset.constant;
     return candidate;
   }
   return NULL;
@@ -611,27 +605,32 @@ static iree_status_t loom_aie2p_native_select_worker_transfers(
       tail = &selected->next;
       uint32_t local_words[1][8] = {{0}};
       uint32_t shim_words[1][8] = {{0}};
-      loom_aie2p_native_dma_descriptor_t descriptor = {
-          .local = {.descriptor_count = 1, .words = local_words},
-          .shim = {.descriptor_count = 1, .words = shim_words},
-          .path = queue->path,
-          .external_address_dynamic =
-              !autonomous && !loom_symbolic_expr_is_constant(
-                                 &external_view->begin_byte_offset)};
+      loom_aie2p_native_dma_descriptor_t descriptors[2] = {
+          {.path = queue->path,
+           .sequence = {.descriptor_count = 1, .words = local_words},
+           .address_dynamic =
+               !autonomous && (borrow.record_dynamic ||
+                               !loom_symbolic_expr_is_constant(
+                                   &local_view->projection_byte_offset))},
+          {.path = queue->path,
+           .sequence = {.descriptor_count = 1, .words = shim_words},
+           .shim = true,
+           .address_dynamic =
+               !autonomous && !loom_symbolic_expr_is_constant(
+                                  &external_view->begin_byte_offset)}};
       iree_string_view_t reason;
       if (autonomous) {
         memcpy(shim_words[0], worker->repetition.shim_words,
                sizeof(shim_words[0]));
       }
-      if ((!autonomous &&
-           !loom_aie2p_native_descriptor(
-               context, source, external, &shim->facts->dma,
-               (uint32_t)request->transferred_byte_count, shim->facts->kind,
-               descriptor.shim.words[0], &reason)) ||
+      if ((!autonomous && !loom_aie2p_native_descriptor(
+                              context, source, external, &shim->facts->dma,
+                              (uint32_t)request->transferred_byte_count,
+                              shim->facts->kind, shim_words[0], &reason)) ||
           !loom_aie2p_native_descriptor(
               context, source, local, &local_tile->facts->dma,
               (uint32_t)request->transferred_byte_count,
-              local_tile->facts->kind, descriptor.local.words[0], &reason)) {
+              local_tile->facts->kind, local_words[0], &reason)) {
         return loom_aie2p_native_reject(context, request->op, reason);
       }
       // A fixed slot and projection need no per-issue address patch. Reuse
@@ -641,14 +640,14 @@ static iree_status_t loom_aie2p_native_select_worker_transfers(
         const uint32_t address =
             borrow.channel->byte_offset +
             (uint32_t)local_view->projection_byte_offset.constant;
-        descriptor.local.words[0][layout->address_word] |=
+        local_words[0][layout->address_word] |=
             loom_xdna_register_field_encode_admitted(
                 layout->address,
                 (layout->local_address_base + address) >>
                     local_tile->facts->dma.address_encoding_shift);
       }
       if (autonomous) {
-        descriptor.local.words[0][layout->lock_word] |=
+        local_words[0][layout->lock_word] |=
             loom_xdna_register_field_encode_admitted(
                 layout->locks.acquire_id,
                 layout->local_lock_base + borrow.channel->free_lock) |
@@ -674,7 +673,7 @@ static iree_status_t loom_aie2p_native_select_worker_transfers(
             source->transport.steps[transport_step + 1].op == completion &&
             loom_op_const_results(preceding)[0] == borrow.record) {
           selected->admission = preceding;
-          descriptor.local.words[0][layout->lock_word] |=
+          local_words[0][layout->lock_word] |=
               loom_xdna_register_field_encode_admitted(
                   layout->locks.acquire_id,
                   layout->local_lock_base + borrow.channel->ready_lock) |
@@ -684,99 +683,102 @@ static iree_status_t loom_aie2p_native_select_worker_transfers(
                   layout->locks.acquire_enable, 1);
         }
       }
-      selected->descriptor =
-          loom_aie2p_native_reusable_descriptor(worker, selected, &descriptor);
-      if (!selected->descriptor) {
-        uint16_t descriptor_base, descriptor_count;
-        uint16_t* next_descriptor = loom_aie2p_native_descriptor_bank(
-            local_tile, queue->path->local_engine, &descriptor_base,
-            &descriptor_count);
-        if (shim->descriptor_counts[0] ==
-            shim->facts->dma.buffer_descriptor_count) {
-          return loom_aie2p_native_reject(
-              context, request->op,
-              IREE_SV("an available native shim descriptor"));
-        }
-        if (autonomous) {
-          bool valid;
-          IREE_RETURN_IF_ERROR(loom_aie2p_native_select_sequence(
-              context, local_tile, queue->path->local_engine,
-              LOOM_XDNA_DMA_DIRECTION_STREAM_TO_MEMORY,
-              worker->repetition.count, borrow.channel->source->capacity,
-              borrow.channel->byte_offset +
-                  (uint32_t)local_view->projection_byte_offset.constant,
-              borrow.channel->byte_stride, local_words[0], &descriptor.local,
-              &reason, &valid));
-          if (!valid) {
-            return loom_aie2p_native_reject(context, request->op, reason);
-          }
-          IREE_RETURN_IF_ERROR(loom_aie2p_native_select_sequence(
-              context, shim, queue->path->shim_engine,
-              LOOM_XDNA_DMA_DIRECTION_MEMORY_TO_STREAM,
-              worker->repetition.shim_repetitions, 1, 0, 0, shim_words[0],
-              &descriptor.shim, &reason, &valid));
-          if (!valid) {
-            return loom_aie2p_native_reject(context, request->op, reason);
-          }
-        } else {
-          if (*next_descriptor == descriptor_count) {
-            return loom_aie2p_native_reject(
-                context, request->op,
-                IREE_SV("an available descriptor in the DMA channel's bank"));
-          }
-          descriptor.local.descriptor = descriptor_base + (*next_descriptor)++;
-          descriptor.shim.descriptor = shim->descriptor_counts[0]++;
-        }
-        if (ingress && !autonomous) {
-          descriptor.completion = loom_aie2p_native_reusable_completion(
-              worker, local_tile, request->op);
-          if (!descriptor.completion) {
-            if (local_tile->next_lock == local_tile->facts->lock_count) {
+      for (unsigned endpoint = 0; endpoint < IREE_ARRAYSIZE(descriptors);
+           ++endpoint) {
+        loom_aie2p_native_dma_descriptor_t* descriptor = &descriptors[endpoint];
+        loom_aie2p_native_dma_descriptor_t** selected_descriptor =
+            descriptor->shim ? &selected->shim_descriptor
+                             : &selected->local_descriptor;
+        *selected_descriptor =
+            loom_aie2p_native_reusable_descriptor(worker, selected, descriptor);
+        if (!*selected_descriptor) {
+          if (autonomous) {
+            bool valid;
+            if (descriptor->shim) {
+              IREE_RETURN_IF_ERROR(loom_aie2p_native_select_sequence(
+                  context, shim, queue->path->shim_engine,
+                  LOOM_XDNA_DMA_DIRECTION_MEMORY_TO_STREAM,
+                  worker->repetition.shim_repetitions, 1, 0, 0, shim_words[0],
+                  &descriptor->sequence, &reason, &valid));
+            } else {
+              IREE_RETURN_IF_ERROR(loom_aie2p_native_select_sequence(
+                  context, local_tile, queue->path->local_engine,
+                  LOOM_XDNA_DMA_DIRECTION_STREAM_TO_MEMORY,
+                  worker->repetition.count, borrow.channel->source->capacity,
+                  borrow.channel->byte_offset +
+                      (uint32_t)local_view->projection_byte_offset.constant,
+                  borrow.channel->byte_stride, local_words[0],
+                  &descriptor->sequence, &reason, &valid));
+            }
+            if (!valid) {
+              return loom_aie2p_native_reject(context, request->op, reason);
+            }
+          } else {
+            uint16_t descriptor_base, descriptor_count;
+            uint16_t* next_descriptor = loom_aie2p_native_descriptor_bank(
+                descriptor->shim ? shim : local_tile,
+                descriptor->shim ? queue->path->shim_engine
+                                 : queue->path->local_engine,
+                &descriptor_base, &descriptor_count);
+            if (*next_descriptor == descriptor_count) {
               return loom_aie2p_native_reject(
                   context, request->op,
-                  IREE_SV("an available native ingress completion semaphore"));
+                  descriptor->shim
+                      ? IREE_SV("an available native shim descriptor")
+                      : IREE_SV("an available descriptor in the DMA channel's "
+                                "bank"));
             }
-            IREE_RETURN_IF_ERROR(
-                iree_arena_allocate(arena, sizeof(*descriptor.completion),
-                                    (void**)&descriptor.completion));
-            *descriptor.completion = (loom_aie2p_native_dma_completion_t){
-                .tile = local_tile, .lock = local_tile->next_lock++};
-            if (!configuration) {
-              const uint32_t channel_index =
-                  (uint32_t)(borrow.channel - context->channels);
-              const loom_aie2p_native_channel_access_t* access =
-                  &worker->channels
-                       .accesses[worker->channels.indices[channel_index]];
-              descriptor.completion->selector =
-                  access->window->lock_selector_base +
-                  descriptor.completion->lock;
-            }
-            *completion_tail = descriptor.completion;
-            completion_tail = &descriptor.completion->next;
+            descriptor->sequence.descriptor =
+                descriptor_base + (*next_descriptor)++;
           }
+          if (!descriptor->shim && ingress && !autonomous) {
+            descriptor->completion = loom_aie2p_native_reusable_completion(
+                worker, local_tile, request->op);
+            if (!descriptor->completion) {
+              if (local_tile->next_lock == local_tile->facts->lock_count) {
+                return loom_aie2p_native_reject(
+                    context, request->op,
+                    IREE_SV(
+                        "an available native ingress completion semaphore"));
+              }
+              IREE_RETURN_IF_ERROR(
+                  iree_arena_allocate(arena, sizeof(*descriptor->completion),
+                                      (void**)&descriptor->completion));
+              *descriptor->completion = (loom_aie2p_native_dma_completion_t){
+                  .tile = local_tile, .lock = local_tile->next_lock++};
+              if (!configuration) {
+                const uint32_t channel_index =
+                    (uint32_t)(borrow.channel - context->channels);
+                const loom_aie2p_native_channel_access_t* access =
+                    &worker->channels
+                         .accesses[worker->channels.indices[channel_index]];
+                descriptor->completion->selector =
+                    access->window->lock_selector_base +
+                    descriptor->completion->lock;
+              }
+              *completion_tail = descriptor->completion;
+              completion_tail = &descriptor->completion->next;
+            }
+          }
+          const iree_host_size_t template_bytes =
+              autonomous ? 0 : sizeof(descriptor->sequence.words[0]);
+          IREE_RETURN_IF_ERROR(
+              iree_arena_allocate(arena, sizeof(*descriptor) + template_bytes,
+                                  (void**)selected_descriptor));
+          **selected_descriptor = *descriptor;
+          if (!autonomous) {
+            (*selected_descriptor)->sequence.words =
+                (uint32_t (*)[8])(*selected_descriptor + 1);
+            memcpy((*selected_descriptor)->sequence.words,
+                   descriptor->sequence.words, template_bytes);
+          }
+          *descriptor_tail = *selected_descriptor;
+          descriptor_tail = &(*selected_descriptor)->next;
         }
-        const iree_host_size_t template_bytes =
-            autonomous ? 0 : sizeof(local_words) + sizeof(shim_words);
-        IREE_RETURN_IF_ERROR(
-            iree_arena_allocate(arena, sizeof(descriptor) + template_bytes,
-                                (void**)&selected->descriptor));
-        *selected->descriptor = descriptor;
-        if (!autonomous) {
-          selected->descriptor->local.words =
-              (uint32_t (*)[8])(selected->descriptor + 1);
-          selected->descriptor->shim.words =
-              selected->descriptor->local.words + 1;
-          memcpy(selected->descriptor->local.words, local_words,
-                 sizeof(local_words));
-          memcpy(selected->descriptor->shim.words, shim_words,
-                 sizeof(shim_words));
+        (*selected_descriptor)->last_transfer = selected;
+        if ((*selected_descriptor)->completion) {
+          (*selected_descriptor)->completion->last_transfer = selected;
         }
-        *descriptor_tail = selected->descriptor;
-        descriptor_tail = &selected->descriptor->next;
-      }
-      selected->descriptor->last_transfer = selected;
-      if (selected->descriptor->completion) {
-        selected->descriptor->completion->last_transfer = selected;
       }
       loom_aie2p_native_binding_t* binding =
           &context->bindings[selected->binding];
@@ -790,10 +792,11 @@ static iree_status_t loom_aie2p_native_select_worker_transfers(
     }
   }
   // Sharing can turn an initially fixed address into a per-issue patch. Assign
-  // relocated storage only after every physical pair's address policy is final.
+  // relocated storage only after every shim descriptor's address policy is
+  // final.
   for (loom_aie2p_native_transfer_t* transfer = worker->transfers; transfer;
        transfer = transfer->next) {
-    if (!transfer->descriptor->external_address_dynamic) {
+    if (!transfer->shim_descriptor->address_dynamic) {
       continue;
     }
     IREE_RETURN_IF_ERROR(loom_source_storage_packing_reserve(

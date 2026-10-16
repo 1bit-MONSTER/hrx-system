@@ -120,12 +120,18 @@ pipeline.def<kernel> public retain target(@npu) @reuse_dma_completions() run(%fi
       %initial_group = kernel.async.group %initial : kernel.async.token -> kernel.async.group
       kernel.async.wait %initial_group {newer_groups = 0} : kernel.async.group
       %saved = view.load %first_word[0] : view<1xi32> -> i32
+      %strided_input = buffer.view %first[%input_offset] : buffer -> view<2xi32, #encoding.layout.strided<strides=[2]>>
+      %strided = kernel.async.copy %strided_input to %middle_pair {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<2xi32, #encoding.layout.strided<strides=[2]>> to view<2xi32> -> kernel.async.token
+      %strided_group = kernel.async.group %strided : kernel.async.token -> kernel.async.group
+      kernel.async.wait %strided_group {newer_groups = 0} : kernel.async.group
+      %saved_pair = view.load %middle_pair[1] : view<2xi32> -> i32
       %pair = kernel.async.copy %pair_input to %middle_pair {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<2xi32> to view<2xi32> -> kernel.async.token
       %word = kernel.async.copy %word_input to %first_word {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<1xi32> to view<1xi32> -> kernel.async.token
       %incoming = kernel.async.group %pair, %word : kernel.async.token, kernel.async.token -> kernel.async.group
       kernel.async.wait %incoming {newer_groups = 0} : kernel.async.group
       %value = view.load %first_word[0] : view<1xi32> -> i32
-      %sum = scalar.addi %saved, %value : i32
+      %partial_sum = scalar.addi %saved, %value : i32
+      %sum = scalar.addi %partial_sum, %saved_pair : i32
       view.store %sum, %first_word[0] : i32, view<1xi32>
       %position_value = index.cast %position : index to i32
       view.store %position_value, %destination[3] : i32, view<4xi32>

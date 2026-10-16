@@ -191,24 +191,25 @@ typedef struct loom_aie2p_native_dma_completion_t {
   uint16_t selector;
 } loom_aie2p_native_dma_completion_t;
 
-// One physical descriptor pair reused after its prior transfer and any other
-// transfer sharing its completion semaphore have retired.
+// One physical DMA endpoint reused after its prior transfer and any other
+// transfer sharing its completion semaphore have retired. Local and shim
+// descriptors have independent geometries and retirement identities.
 typedef struct loom_aie2p_native_dma_descriptor_t {
-  // Next physical pair in the worker's allocation order.
+  // Next physical endpoint in the worker's allocation order.
   struct loom_aie2p_native_dma_descriptor_t* next;
   // Admitted engine pair and physical routes.
   loom_aie2p_native_dma_path_t* path;
   // Most recently assigned copy, retaining its retirement and address policy.
   const struct loom_aie2p_native_transfer_t* last_transfer;
-  // Local descriptors, excluding dynamic addresses and completion releases.
-  loom_aie2p_native_dma_sequence_t local;
-  // Shim descriptors, excluding their relocated address pairs.
-  loom_aie2p_native_dma_sequence_t shim;
-  // Shared arrival credit, or NULL for egress and autonomous ingress.
+  // Endpoint sequence, excluding dynamic addresses and completion releases.
+  loom_aie2p_native_dma_sequence_t sequence;
+  // Local arrival credit; NULL for shim, egress, and autonomous descriptors.
   loom_aie2p_native_dma_completion_t* completion;
-  // Each issue patches the external address, including fixed offsets when
-  // multiple copies sharing this pair address different caller storage.
-  bool external_address_dynamic;
+  // True for the external shim endpoint, false for the local memory endpoint.
+  bool shim;
+  // Each issue patches this endpoint's address. A shared shim also patches
+  // fixed offsets when its copies address different caller storage.
+  bool address_dynamic;
 } loom_aie2p_native_dma_descriptor_t;
 
 typedef struct loom_aie2p_native_transfer_t {
@@ -218,10 +219,12 @@ typedef struct loom_aie2p_native_transfer_t {
   const loom_kernel_async_transfer_t* source;
   // Wait that retires this transfer's group.
   const loom_op_t* completion;
-  // Read admission fused into this descriptor's ready-credit acquire, or NULL.
+  // Read admission fused into the local ready-credit acquire, or NULL.
   const loom_op_t* admission;
-  // Physical pair whose preceding use has retired before this copy issues.
-  loom_aie2p_native_dma_descriptor_t* descriptor;
+  // Local endpoint whose descriptor and completion credit are available.
+  loom_aie2p_native_dma_descriptor_t* local_descriptor;
+  // External endpoint whose preceding transfer has retired before this copy.
+  loom_aie2p_native_dma_descriptor_t* shim_descriptor;
   // Caller buffer ordinal supplying the external base.
   uint32_t binding;
   // Worker-local address pair when the descriptor patches its external address.
@@ -319,7 +322,7 @@ typedef struct loom_aie2p_native_worker_t {
   } channels;
   // First selected borrowed DMA operation.
   loom_aie2p_native_transfer_t* transfers;
-  // Physical descriptor pairs shared by non-overlapping compatible copies.
+  // Physical local/shim endpoints in their first-use initialization order.
   loom_aie2p_native_dma_descriptor_t* descriptors;
   // Physical arrival credits shared independently of descriptor geometry.
   loom_aie2p_native_dma_completion_t* dma_completions;
