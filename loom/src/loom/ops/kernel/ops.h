@@ -1184,7 +1184,7 @@ iree_status_t loom_kernel_launch_verify(
     const loom_module_t* module, const loom_op_t* op,
     iree_diagnostic_emitter_t emitter);
 
-// LOOM_OP_KERNEL_DISPATCH: Dispatch an executable kernel entry with exact workgroup counts and device-ABI operands. Counts are one to three index values or one dense view<3xi32> for indirect dispatch. An optional XYZ workgroup size overrides the executable entry default for targets supporting dispatch-time workgroup sizes.
+// LOOM_OP_KERNEL_DISPATCH: Dispatch a resolved kernel.entry.decl with exact workgroup counts and device-ABI operands. Configured kernel.def and kernel.decl symbols are invoked with kernel.launch instead. Counts are one to three index values or one dense view<3xi32> for indirect dispatch. An optional XYZ workgroup size overrides the executable entry default for targets supporting dispatch-time workgroup sizes.
 // kernel.dispatch @fill[%count](%count, %output) : [index](index, buffer)
 LOOM_DEFINE_ISA(loom_kernel_dispatch_isa, LOOM_OP_KERNEL_DISPATCH)
 LOOM_DEFINE_SEGMENTED_OPERANDS(loom_kernel_dispatch_workgroup_counts, 0)
