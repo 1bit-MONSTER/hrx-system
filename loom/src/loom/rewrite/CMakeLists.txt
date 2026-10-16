@@ -52,6 +52,8 @@ loom_cc_test(
     iree::testing::gtest_main
     loom::ir
     loom::ops::test
+    loom::ops::vector
+    loom::util::fact_table
 )
 
 loom_cc_test(

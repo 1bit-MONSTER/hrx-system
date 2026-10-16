@@ -215,5 +215,93 @@ TEST_F(FactVectorPartitionTest, ExactAndSnapshotViewsRetainDifferentWidths) {
   EXPECT_EQ(partition.snapshot_components[1].value, 5u);
 }
 
+TEST_F(FactVectorPartitionTest, ReplacementRetargetsBothViewsAndAliases) {
+  const loom_value_fact_vector_partition_component_t components[] = {
+      {1, 16}, {2, 16}, {1, 16}, {2, 16}};
+  const loom_value_fact_vector_partition_component_t snapshot[] = {{3, 32},
+                                                                   {4, 32}};
+  IREE_ASSERT_OK(loom_value_fact_table_define_vector_partition(
+      &table_, 7, {components, snapshot, 4, 64, 16, 2, 32}, nullptr));
+  IREE_ASSERT_OK(
+      loom_value_fact_table_forward_vector_partition(&table_, 7, 8, nullptr));
+  const auto borrowed =
+      loom_value_fact_table_query_vector_partition(&table_, 8);
+
+  IREE_ASSERT_OK(
+      loom_value_fact_table_replace_vector_partition_value(&table_, 1, 1024));
+  IREE_ASSERT_OK(
+      loom_value_fact_table_replace_vector_partition_value(&table_, 1024, 2));
+  IREE_ASSERT_OK(
+      loom_value_fact_table_replace_vector_partition_value(&table_, 3, 4));
+  for (uint32_t i = 0; i < borrowed.count; ++i) {
+    EXPECT_EQ(borrowed.components[i].value, 2u);
+  }
+  EXPECT_EQ(borrowed.snapshot_components[0].value, 4u);
+  EXPECT_EQ(borrowed.snapshot_components[1].value, 4u);
+  EXPECT_EQ(loom_value_fact_table_query_vector_partition(&table_, 7).components,
+            borrowed.components);
+
+  loom_value_fact_table_invalidate_vector_partition_value(&table_, 1);
+  loom_value_fact_table_invalidate_vector_partition_value(&table_, 1024);
+  EXPECT_EQ(loom_value_fact_table_query_vector_partition(&table_, 8).count, 4u);
+  loom_value_fact_table_invalidate_vector_partition_value(&table_, 4);
+  const auto exact = loom_value_fact_table_query_vector_partition(&table_, 8);
+  EXPECT_EQ(exact.count, 4u);
+  EXPECT_EQ(exact.snapshot_count, 0u);
+  loom_value_fact_table_invalidate_vector_partition_value(&table_, 2);
+  EXPECT_EQ(loom_value_fact_table_query_vector_partition(&table_, 7).count, 0u);
+  EXPECT_EQ(loom_value_fact_table_query_vector_partition(&table_, 8).count, 0u);
+}
+
+TEST_F(FactVectorPartitionTest, ErasurePreservesIndependentSnapshot) {
+  const loom_value_fact_vector_partition_component_t components[] = {{1, 1},
+                                                                     {2, 1}};
+  const loom_value_fact_vector_partition_component_t snapshot[] = {{3, 2}};
+  IREE_ASSERT_OK(loom_value_fact_table_define_vector_partition(
+      &table_, 7, {components, snapshot, 2, 2, 0, 1, 2}, nullptr));
+  loom_value_fact_table_invalidate_vector_partition_value(&table_, 1);
+  const auto remaining =
+      loom_value_fact_table_query_vector_partition(&table_, 7);
+  EXPECT_EQ(remaining.count, 0u);
+  ASSERT_EQ(remaining.snapshot_count, 1u);
+  EXPECT_EQ(remaining.snapshot_components[0].value, 3u);
+  // A copied fact retains a surviving snapshot even when its exact leaves
+  // are no longer materializable in the source table.
+  IREE_ASSERT_OK(loom_value_fact_table_define_vector_partition(
+      &table_, 8, remaining, nullptr));
+  IREE_ASSERT_OK(
+      loom_value_fact_table_replace_vector_partition_value(&table_, 3, 4));
+  EXPECT_EQ(loom_value_fact_table_query_vector_partition(&table_, 8)
+                .snapshot_components[0]
+                .value,
+            4u);
+  loom_value_fact_table_invalidate_vector_partition_value(&table_, 4);
+  EXPECT_EQ(
+      loom_value_fact_table_query_vector_partition(&table_, 8).snapshot_count,
+      0u);
+}
+
+TEST_F(FactVectorPartitionTest, SharedComponentsAreUpdatedOnce) {
+  const loom_value_fact_vector_partition_component_t components[] = {{1, 16},
+                                                                     {2, 16}};
+  IREE_ASSERT_OK(loom_value_fact_table_define_vector_partition(
+      &table_, 7, MakeRegularPartition(components, 2, 32, 16), nullptr));
+  IREE_ASSERT_OK(
+      loom_value_fact_table_forward_vector_partition(&table_, 7, 8, nullptr));
+  loom_value_fact_table_invalidate_vector_partition_value(&table_, 7);
+  IREE_ASSERT_OK(
+      loom_value_fact_table_replace_vector_partition_value(&table_, 1, 2));
+  const auto remaining =
+      loom_value_fact_table_query_vector_partition(&table_, 8);
+  ASSERT_EQ(remaining.count, 2u);
+  EXPECT_EQ(remaining.components, remaining.snapshot_components);
+  EXPECT_EQ(remaining.components[0].value, 2u);
+  EXPECT_EQ(remaining.components[1].value, 2u);
+  loom_value_fact_table_invalidate_vector_partition_value(&table_, 2);
+  const auto erased = loom_value_fact_table_query_vector_partition(&table_, 8);
+  EXPECT_EQ(erased.count, 0u);
+  EXPECT_EQ(erased.snapshot_count, 0u);
+}
+
 }  // namespace
 }  // namespace loom
