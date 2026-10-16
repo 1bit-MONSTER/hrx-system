@@ -477,6 +477,8 @@ page-aligned private allocation; Windows Direct accepts an aligned slice of
 the context's private aperture. The caller keeps that slice disjoint from
 instructions and payloads. The Windows metadata protocols return `UNSUPPORTED`
 for this service; ordinary execution support does not imply result support.
+The passive geometry query does not probe native availability. Attachment can
+still return `UNSUPPORTED` when the installed driver lacks the service.
 
 A caller creates admitted backing through the ordinary memory API, maps it,
 and clears and publishes the finite destination. The same binding then goes to
@@ -514,6 +516,11 @@ native removal. A failed native control may have made progress; its error does
 not authorize freeing the destination. After an ambiguous native failure, a
 later successful control alone does not prove that old writers have retired.
 Neither memory release nor context destruction implicitly detaches a binding.
+`UNSUPPORTED` from attachment is a rejection before any new binding exists:
+the caller may release a previously unbound destination and continue ordinary
+execution. It does not clear an earlier binding or uncertainty. Collection and
+removal failures retain their backing obligation, even if the service has
+become unavailable.
 
 `amdf_xdna_timer_record_t` describes the native `RECORD_TIMER` result: a caller
 ID followed by the timestamp's high and low words. The helper

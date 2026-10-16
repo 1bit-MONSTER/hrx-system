@@ -842,6 +842,9 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
               AMDF_STATUS_OK);
     const auto status =
         xdna_api_->context_attach_result_buffer(execution_.context, &binding_);
+    if (status == amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)) {
+      GTEST_SKIP() << "native driver supplies no finite result attachment";
+    }
     control_failed_ = !amdf_status_is_ok(status);
     ASSERT_EQ(status, AMDF_STATUS_OK);
     attached_ = true;
@@ -1065,6 +1068,9 @@ class FirmwareResultRecipeTest : public CpuXdnaRecipeTest {
     for (uint32_t batch = 0; batch < kIterations.size(); ++batch) {
       SCOPED_TRACE(batch);
       ASSERT_NO_FATAL_FAILURE(Attach());
+      if (IsSkipped()) {
+        return;
+      }
       amdf_observation_clock_info_t before = {};
       const auto status =
           xdna_api_->device_query_timer_clock_info(device_, &before);
@@ -1199,12 +1205,18 @@ TEST_F(FirmwareResultRecipeTest,
               amdf_make_api_status(AMDF_STATUS_CODE_INVALID_ARGUMENT));
   }
   ASSERT_NO_FATAL_FAILURE(Attach());
+  if (IsSkipped()) {
+    return;
+  }
   ASSERT_NO_FATAL_FAILURE(Collect());
   for (uint32_t generation = 1; generation <= 3; ++generation) {
     SCOPED_TRACE(generation);
     if (generation == 3) {
       ASSERT_NO_FATAL_FAILURE(Detach());
       ASSERT_NO_FATAL_FAILURE(Attach());
+      if (IsSkipped()) {
+        return;
+      }
     }
     ASSERT_NO_FATAL_FAILURE(RunBatch(generation));
     ASSERT_NO_FATAL_FAILURE(Collect());
@@ -1243,11 +1255,17 @@ TEST_F(FirmwareResultRecipeTest, NativeArraysAppendCollectAndRearm) {
   RecordProperty("maximum_command_count", info.maximum_command_count);
   RecordProperty("result_capacity_bytes", std::to_string(binding_.byte_length));
   ASSERT_NO_FATAL_FAILURE(Attach());
+  if (IsSkipped()) {
+    return;
+  }
   for (uint32_t generation = 1; generation <= 3; ++generation) {
     SCOPED_TRACE(generation);
     if (generation == 3) {
       ASSERT_NO_FATAL_FAILURE(Detach());
       ASSERT_NO_FATAL_FAILURE(Attach());
+      if (IsSkipped()) {
+        return;
+      }
     }
     ASSERT_NO_FATAL_FAILURE(
         RunBatch(generation, 1, info.maximum_command_count, generation != 1));

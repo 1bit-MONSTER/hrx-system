@@ -52,8 +52,17 @@ amdf_status_t amdf_xdna_umd_context_result_buffer(
                         : DRM_AMDXDNA_HWCTX_REMOVE_DBG_BUF,
       .param_val = memory->buffer.handle,
   };
-  return ioctl(context->device->descriptor, DRM_IOCTL_AMDXDNA_CONFIG_HWCTX,
-               &request) == 0
-             ? AMDF_STATUS_OK
-             : amdf_linux_error(errno);
+  if (ioctl(context->device->descriptor, DRM_IOCTL_AMDXDNA_CONFIG_HWCTX,
+            &request) == 0) {
+    return AMDF_STATUS_OK;
+  }
+  const int error = errno;
+  // Missing ioctl/provider controls reject before attachment. EINVAL also
+  // reports failures after a debug-BO command was submitted, so it cannot
+  // establish that native ownership is unchanged.
+  if (operation == AMDF_XDNA_RESULT_BUFFER_OPERATION_ATTACH &&
+      (error == ENOTTY || error == EOPNOTSUPP)) {
+    return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+  }
+  return amdf_linux_error(error);
 }

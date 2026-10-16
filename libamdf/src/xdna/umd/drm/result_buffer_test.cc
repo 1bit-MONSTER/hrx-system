@@ -88,17 +88,23 @@ TEST(LinuxXdnaResultBufferTest, WholeBackingControlsPreserveNativeFailure) {
                          AMDF_XDNA_RESULT_BUFFER_OPERATION_COLLECT,
                          AMDF_XDNA_RESULT_BUFFER_OPERATION_DETACH}) {
     native.operation = operation;
-    for (int error : {0, EPERM, EBUSY, EIO}) {
+    for (int error : {0, EPERM, EBUSY, EIO, EINVAL, ENOTTY, EOPNOTSUPP}) {
+      SCOPED_TRACE(operation);
+      SCOPED_TRACE(error);
       native.error = error;
-      const auto expected =
-          error == 0 ? AMDF_STATUS_OK
-                     : amdf_make_status(AMDF_STATUS_DOMAIN_ERRNO, error);
+      auto expected = error == 0
+                          ? AMDF_STATUS_OK
+                          : amdf_make_status(AMDF_STATUS_DOMAIN_ERRNO, error);
+      if (operation == AMDF_XDNA_RESULT_BUFFER_OPERATION_ATTACH &&
+          (error == ENOTTY || error == EOPNOTSUPP)) {
+        expected = amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+      }
       EXPECT_EQ(amdf_xdna_umd_context_result_buffer(&context, operation,
                                                     &memory, 0, 4096),
                 expected);
     }
   }
-  EXPECT_EQ(native.call_count, 12u);
+  EXPECT_EQ(native.call_count, 21u);
   state = nullptr;
 }
 
