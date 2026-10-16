@@ -540,7 +540,7 @@ def emit_source_for_views(
         [
             [
                 ".name_string_ref = " + pool.ref(f"register_packing_resource_{resource.source.name}") + ",",
-                f".capacity = {resource.source.capacity},",
+                f".capacity = {resource.capacity},",
                 f".flags = {c_spelling.flag_expr(resource.flags)},",
                 f".member_start = {resource.member_start},",
                 f".member_count = {resource.member_count},",
@@ -558,7 +558,7 @@ def emit_source_for_views(
                 f".reg_class_id = {member.reg_class_id},",
                 f".register_unit_count = {member.register_unit_count},",
                 f".resource_unit_count = {member.resource_unit_count},",
-                ".reserved = 0,",
+                f".flags = {c_spelling.flag_expr(member.flags)},",
             ]
             for member in compiled.register_packing_resource_members
         ],

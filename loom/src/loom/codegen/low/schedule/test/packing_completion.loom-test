@@ -1,3 +1,23 @@
+// A single aggregate class can carry a packing signal that direct class
+// pressure does not express. Three wide units fit the four-unit class but fill
+// both rounded pair slots; retain that signal even though its mapped maximum
+// cannot exceed the shared capacity.
+// RUN: emit low-schedule-json @register_packing_retains_aggregate_signal strategy=resource-stall diagnostics=candidates output=none
+
+test.target<low_core> @target
+
+low.func.def target<test.low.core>(@target) @register_packing_retains_aggregate_signal(%live: reg<test.packed.wide x3>, %lhs: reg<test.i32>, %rhs: reg<test.i32>) -> (reg<test.i32>, reg<test.i32>) asm {
+  // REMARK@+1: BACKEND/015 {chosen_packet="low.slice", rejected_packet="low.slice", chosen_pressure_cliff_source="test.pair_slots"}
+  %first = slice %live[0] : reg<test.packed.wide x3> -> reg<test.packed.wide x2>
+  %second = slice %live[1] : reg<test.packed.wide x3> -> reg<test.packed.wide x2>
+  // REMARK@+1: BACKEND/015 {chosen_packet="test.add.i32", rejected_packet="low.slice", rejected_pressure_cliff_source="test.pair_slots"}
+  %unrelated = test.add.i32 %lhs, %rhs
+  %released = test.packing.retire %first, %second
+  return %released, %unrelated
+}
+
+// ====
+
 // Memory ordering is the store's only connection to the packed continuation.
 // Its unlock still carries downstream packing activation. The live wide value
 // leaves room in both classes but only one shared slot. The retained demand

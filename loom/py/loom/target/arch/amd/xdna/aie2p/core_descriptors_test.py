@@ -142,7 +142,7 @@ def test_core_descriptor_closure_is_complete() -> None:
     assert [
         (
             resource.name,
-            resource.capacity,
+            resource.capacity_register_class,
             tuple(
                 (
                     member.register_class,
@@ -156,12 +156,12 @@ def test_core_descriptor_closure_is_complete() -> None:
     ] == [
         (
             "amd.xdna.aie2p.register.x.pairs",
-            12,
+            "aie2p.vec256",
             (("aie2p.vec256", 2, 1), ("aie2p.mexa", 1, 1)),
         ),
         (
             "amd.xdna.aie2p.register.scalar.units",
-            32,
+            "aie2p.er",
             (
                 ("aie2p.elpredicate", 1, 2),
                 ("aie2p.er", 1, 1),
@@ -220,7 +220,18 @@ def test_register_packing_covers_physical_aliases(
             member.resource_unit_count * resource_unit_atom_count
         }
     assert members.keys() == expected_members
-    assert resource.capacity * resource_unit_atom_count == len(pool)
+    capacity_class = next(
+        register_class
+        for register_class in descriptor_set.reg_classes
+        if register_class.name == resource.capacity_register_class
+    )
+    capacity_member = members[resource.capacity_register_class]
+    capacity_units = len(capacity_class.physical_registers)
+    assert capacity_units % capacity_member.register_unit_count == 0
+    capacity = (
+        capacity_units // capacity_member.register_unit_count
+    ) * capacity_member.resource_unit_count
+    assert capacity * resource_unit_atom_count == len(pool)
 
 
 def test_register_packing_rejects_nonuniform_candidate_costs() -> None:

@@ -203,3 +203,25 @@ low.func.def target<x86.avx512.core>(@x86_target) @x86_avx512_writemask_rejects_
   %selected = vpblendmd.xmm %mask, %true_value, %false_value
   return %selected
 }
+
+// ====
+
+// RCX aliases the ordinary GPR bank. The five-location test budget includes
+// reserved RSP, leaving four schedulable GPRs. Complete the count transaction
+// before opening the independent load so allocation needs no spill slot.
+// RUN: emit x86-frame @gpr64_count_overlap strategy=resource-stall x86.gpr64=5
+x86.target<scalar> @target
+
+low.func.def target<x86.scalar.core>(@target) @gpr64_count_overlap(%value: reg<x86.gpr64>, %count: reg<x86.gpr64>, %pointer: reg<x86.gpr64>) -> (reg<x86.gpr64>) asm {
+  %loaded = mov.load.gpr64 %pointer {disp32 = 0}
+  %value_copy = copy %value : reg<x86.gpr64> -> reg<x86.gpr64>
+  %fixed_count = copy %count : reg<x86.gpr64> -> reg<x86.rcx>
+  %shifted = shl.cl.gpr64 %value_copy, %fixed_count
+  %with_load = add.gpr64 %shifted, %loaded
+  %with_count = add.gpr64 %with_load, %count
+  %result = add.gpr64 %with_count, %pointer
+  return %result
+}
+
+// ----
+callee-preserved: rbx

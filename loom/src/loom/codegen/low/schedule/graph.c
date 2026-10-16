@@ -76,6 +76,40 @@ static bool loom_low_schedule_op_is_terminator(const loom_module_t* module,
                           LOOM_TRAIT_TERMINATOR);
 }
 
+// Indexes the architectural state classes of each descriptor used by the
+// function once. Repeated descriptor uses only touch the dense seen bit and do
+// not rescan immutable operand rows.
+static void loom_low_schedule_index_active_descriptor_state(
+    loom_low_schedule_build_state_t* state,
+    const loom_low_descriptor_packet_t* packet) {
+  if (state->active_reg_class_flags == NULL) {
+    return;
+  }
+  const uint32_t word_index = packet->descriptor_ordinal / 64u;
+  const uint64_t bit = UINT64_C(1) << (packet->descriptor_ordinal % 64u);
+  uint64_t* indexed_word = &state->indexed_descriptor_bits[word_index];
+  if (*indexed_word & bit) {
+    return;
+  }
+  *indexed_word |= bit;
+  const loom_low_descriptor_set_t* descriptor_set =
+      state->target.descriptor_set;
+  for (uint16_t operand_index = 0;
+       operand_index < packet->descriptor->operand_count; ++operand_index) {
+    const loom_low_operand_t* operand = loom_low_descriptor_operand(
+        descriptor_set, packet->descriptor, operand_index);
+    if (!iree_any_bit_set(operand->flags,
+                          LOOM_LOW_OPERAND_FLAG_STATE_READ |
+                              LOOM_LOW_OPERAND_FLAG_STATE_WRITE)) {
+      continue;
+    }
+    const loom_low_reg_class_alt_t* alt =
+        &descriptor_set->reg_class_alts[operand->reg_class_alt_start];
+    state->active_reg_class_flags[alt->reg_class_id] |=
+        LOOM_LOW_SCHEDULE_ACTIVE_REG_CLASS_FLAG_PRESENT;
+  }
+}
+
 static iree_status_t loom_low_schedule_resolve_descriptor(
     loom_low_schedule_build_state_t* state, const loom_op_t* op,
     loom_low_schedule_node_t* node,
@@ -91,6 +125,7 @@ static iree_status_t loom_low_schedule_resolve_descriptor(
 
   node->descriptor = packet.descriptor;
   node->source_descriptor_ordinal = packet.descriptor_ordinal;
+  loom_low_schedule_index_active_descriptor_state(state, &packet);
   const loom_named_attr_slice_t attrs =
       loom_low_descriptor_packet_attrs(op, packet.kind);
   node->immediate_presence = loom_low_bind_immediate_presence(
@@ -128,6 +163,30 @@ static bool loom_low_schedule_node_has_result_reg_class(
     }
   }
   return false;
+}
+
+static void loom_low_schedule_index_active_structural_results(
+    loom_low_schedule_build_state_t* state,
+    const loom_low_schedule_node_t* node) {
+  if (state->active_reg_class_flags == NULL ||
+      loom_low_schedule_structural_state_read_list_is_empty(
+          state->options->structural_state_reads) ||
+      !iree_any_bit_set(
+          node->flags,
+          LOOM_LOW_SCHEDULE_NODE_FLAG_STRUCTURAL_MATERIALIZATION)) {
+    return;
+  }
+  const loom_value_ordinal_t* result_ordinals =
+      loom_low_schedule_node_const_result_ordinals(node);
+  for (uint16_t result_index = 0; result_index < node->result_count;
+       ++result_index) {
+    const uint16_t reg_class_id =
+        state->values[result_ordinals[result_index]].register_class_id;
+    if (reg_class_id != LOOM_LOW_REG_CLASS_NONE) {
+      state->active_reg_class_flags[reg_class_id] |=
+          LOOM_LOW_SCHEDULE_ACTIVE_REG_CLASS_FLAG_STRUCTURAL_RESULT;
+    }
+  }
 }
 
 static iree_status_t loom_low_schedule_apply_structural_model(
@@ -1508,6 +1567,7 @@ iree_status_t loom_low_schedule_fill_nodes(
           loom_low_schedule_resolve_descriptor(state, op, node, &descriptor));
       IREE_RETURN_IF_ERROR(
           loom_low_schedule_initialize_node_value_ordinals(state, node));
+      loom_low_schedule_index_active_structural_results(state, node);
       IREE_RETURN_IF_ERROR(
           loom_low_schedule_apply_structural_model(state, node));
       node->storage_relation_count =

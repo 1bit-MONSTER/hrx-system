@@ -69,6 +69,7 @@ from loom.target.low_descriptors import (
     RegClassAltFlag,
     RegClassFlag,
     RegisterPackingResourceFlag,
+    RegisterPackingResourceMemberFlag,
     Resource,
     ResourceKind,
     ScheduleClass,
@@ -1662,6 +1663,7 @@ def compile_descriptor_set(
     register_packing_resource_members: list[CompiledRegisterPackingResourceMember] = []
     for resource in spec.register_packing_resources:
         member_start = len(register_packing_resource_members)
+        capacity = validation.derive_register_packing_resource_capacity(reg_class_inputs, resource)
         resource_flags: list[RegisterPackingResourceFlag] = []
         if all(RegClassFlag.UNSPILLABLE in reg_class_inputs[member.register_class].flags for member in resource.members):
             resource_flags.append(RegisterPackingResourceFlag.UNSPILLABLE)
@@ -1672,12 +1674,14 @@ def compile_descriptor_set(
                 reg_class_id=reg_class_ids[member.register_class],
                 register_unit_count=member.register_unit_count,
                 resource_unit_count=member.resource_unit_count,
+                flags=((RegisterPackingResourceMemberFlag.CAPACITY_SOURCE,) if member.register_class == resource.capacity_register_class else ()),
             )
             for member in resource.members
         )
         register_packing_resources.append(
             CompiledRegisterPackingResource(
                 source=resource,
+                capacity=capacity,
                 flags=tuple(resource_flags),
                 member_start=member_start,
                 member_count=len(resource.members),

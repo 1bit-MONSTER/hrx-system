@@ -246,7 +246,7 @@ iree_status_t loom_low_schedule_pressure_initialize(
   }
   const uint32_t register_packing_resource_count =
       state->target.descriptor_set->register_packing_resource_count;
-  if (register_packing_resource_count != 0) {
+  if (state->pressure_limits.active_register_packing_resource_count != 0) {
     IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
         state->scratch_arena, register_packing_resource_count,
         sizeof(

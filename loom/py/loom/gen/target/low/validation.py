@@ -1095,9 +1095,6 @@ def validate_register_packing_resources(
             raise ValueError(f"{description} is duplicated")
         resource_names.add(resource.name)
         _validate_timing_event_name(resource.name, f"{description} name")
-        validate_u32(resource.capacity, f"{description} capacity")
-        if resource.capacity == 0:
-            raise ValueError(f"{description} has zero capacity")
         if not resource.members:
             raise ValueError(f"{description} has no register-class members")
         validate_u16_table_count(len(resource.members), f"{description} member")
@@ -1126,8 +1123,11 @@ def validate_register_packing_resources(
             )
             if member.resource_unit_count == 0:
                 raise ValueError(f"{member_description} has zero resource units per group")
-            if member.resource_unit_count > resource.capacity:
-                raise ValueError(f"{member_description} consumes {member.resource_unit_count} units from capacity {resource.capacity}")
+
+        capacity = derive_register_packing_resource_capacity(register_classes_by_name, resource)
+        for member in resource.members:
+            if member.resource_unit_count > capacity:
+                raise ValueError(f"{description} member '{member.register_class}' consumes {member.resource_unit_count} units from capacity {capacity}")
 
     validate_u16_table_count(
         len(resources),
@@ -1137,6 +1137,38 @@ def validate_register_packing_resources(
         total_member_count,
         f"descriptor set '{descriptor_set_key}' register packing resource member",
     )
+
+
+def derive_register_packing_resource_capacity(
+    register_classes: Mapping[str, RegClass],
+    resource: RegisterPackingResource,
+) -> int:
+    """Derives one resource's capacity from its complete register-class view."""
+
+    description = f"register packing resource '{resource.name}'"
+    register_class = register_classes.get(resource.capacity_register_class)
+    if register_class is None:
+        raise ValueError(f"{description} capacity class '{resource.capacity_register_class}' is unknown")
+    capacity_member = next(
+        (member for member in resource.members if member.register_class == resource.capacity_register_class),
+        None,
+    )
+    if capacity_member is None:
+        raise ValueError(f"{description} capacity class '{resource.capacity_register_class}' is not a member")
+    register_unit_capacity = len(register_class.physical_registers) if register_class.physical_registers else register_class.allocatable_count
+    if register_unit_capacity == 0:
+        raise ValueError(f"{description} capacity class '{resource.capacity_register_class}' has no allocatable units")
+    if register_unit_capacity % capacity_member.register_unit_count != 0:
+        raise ValueError(
+            f"{description} capacity class '{resource.capacity_register_class}' "
+            f"has {register_unit_capacity} units, which is not divisible by its "
+            f"{capacity_member.register_unit_count}-unit contribution group"
+        )
+    capacity = (register_unit_capacity // capacity_member.register_unit_count) * capacity_member.resource_unit_count
+    validate_u32(capacity, f"{description} capacity")
+    if capacity == 0:
+        raise ValueError(f"{description} has zero capacity")
+    return capacity
 
 
 def derive_canonical_physical_register_views(
