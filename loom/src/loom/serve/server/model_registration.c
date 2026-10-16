@@ -15,6 +15,8 @@
 #include "loom/serve/service/finite/service.h"
 #include "loom/serve/service/image/model.h"
 #include "loom/serve/service/image/service.h"
+#include "loom/serve/service/recognition/http.h"
+#include "loom/serve/service/recognition/model.h"
 #include "loom/serve/service/speech/model.h"
 #include "loom/serve/service/speech/service.h"
 #include "loom/serve/service/text/schedule.h"
@@ -574,6 +576,177 @@ static iree_status_t loom_serve_speech_registration_create(
   return status;
 }
 
+typedef struct recognition_registration_t {
+  // Allocator owning this operation, independent of model allocations.
+  iree_allocator_t host_allocator;
+  // Borrowed device resolved at declaration admission, alive through
+  // retirement.
+  loom_serve_device_t* device;
+  // Borrowed immutable declaration owned by the stable registration slot.
+  const loom_serve_model_configuration_t* configuration;
+  // Owner scheduling callback, never an inline model operation.
+  loom_serve_wake_callback_t observer;
+  // Borrowed registration-wide history, published only by this shared owner.
+  loom_serve_telemetry_stream_t* stream;
+  // Owned unstarted/live/terminal source load, consumed before publication.
+  loom_serve_recognition_load_t* load;
+  // Owned prepared model, retained through actual consumer retirement.
+  loom_serve_recognition_model_t* model;
+  // Owned HTTP service, destroyed after CPU and external borrowers retire.
+  loom_serve_recognition_http_t* service;
+  // Explicit warmup, joined before service/model retirement.
+  loom_serve_activation_t* activation;
+  // Model consumers have been relinquished with an ownership wake installed.
+  bool retiring;
+} recognition_registration_t;
+
+static iree_status_t loom_serve_recognition_registration_prepare(
+    void* self, bool cancel, bool* out_complete,
+    loom_serve_http_service_t* out_service,
+    loom_serve_compilation_report_t* out_report) {
+  recognition_registration_t* registration = self;
+  iree_status_t status = loom_serve_recognition_load_advance(
+      registration->load, cancel ? LOOM_SERVE_RECOGNITION_LOAD_FLAG_CANCEL : 0,
+      out_complete);
+  if (!*out_complete) {
+    return status;
+  }
+  *out_report = *loom_serve_recognition_load_report(registration->load);
+  if (iree_status_is_ok(status)) {
+    registration->model =
+        loom_serve_recognition_load_take_model(registration->load);
+    status = loom_serve_recognition_load_free(registration->load);
+    if (iree_status_is_ok(status)) {
+      registration->load = NULL;
+    }
+  }
+  if (iree_status_is_ok(status)) {
+    const loom_serve_model_configuration_t* configuration =
+        registration->configuration;
+    const loom_serve_recognition_http_options_t service_options = {
+        .name = configuration->name,
+        .pending_capacity = configuration->pending_requests,
+        .request_limit = 64 * 1024,
+        .document_limit = 1024 * 1024,
+        .decode_frames = 4096};
+    status = loom_serve_recognition_http_allocate(
+        loom_serve_device_host(registration->device),
+        loom_serve_recognition_model_generator(registration->model),
+        &service_options, registration->stream, registration->host_allocator,
+        &registration->service);
+  }
+  if (iree_status_is_ok(status)) {
+    *out_service = loom_serve_recognition_http_interface(registration->service);
+  }
+  return status;
+}
+
+static iree_status_t loom_serve_recognition_registration_retire(
+    void* self, bool* out_complete) {
+  recognition_registration_t* registration = self;
+  *out_complete = true;
+  if (registration->load) {
+    IREE_RETURN_IF_ERROR(loom_serve_recognition_load_free(registration->load));
+    registration->load = NULL;
+  }
+  loom_serve_recognition_http_free(registration->service);
+  registration->service = NULL;
+  if (registration->model && !registration->retiring) {
+    loom_serve_recognition_model_retire(registration->model,
+                                        registration->observer.wake,
+                                        registration->observer.user_data);
+    registration->retiring = true;
+  }
+  if (!loom_serve_recognition_model_is_retired(registration->model)) {
+    *out_complete = false;
+    return iree_ok_status();
+  }
+  IREE_RETURN_IF_ERROR(
+      loom_serve_recognition_model_free_retired(registration->model));
+  registration->model = NULL;
+  return iree_ok_status();
+}
+
+static void loom_serve_recognition_registration_destroy(void* self) {
+  recognition_registration_t* registration = self;
+  iree_allocator_free(registration->host_allocator, registration);
+}
+
+static loom_serve_registration_parameters_t
+loom_serve_recognition_registration_parameters(
+    void* self, loom_serve_model_component_t component) {
+  recognition_registration_t* registration = self;
+  return loom_serve_registration_prepared_parameters(
+      loom_serve_recognition_model_residency(registration->model));
+}
+
+static void loom_serve_recognition_registration_set_pinned(
+    void* self, loom_serve_model_component_t component, bool pinned) {
+  recognition_registration_t* registration = self;
+  loom_serve_residency_set_pinned(
+      loom_serve_recognition_model_residency(registration->model), pinned);
+}
+
+static iree_status_t loom_serve_recognition_registration_deactivate(
+    void* self, loom_serve_model_component_t component, bool* out_complete) {
+  recognition_registration_t* registration = self;
+  return loom_serve_residency_deactivate(
+      loom_serve_recognition_model_residency(registration->model),
+      out_complete);
+}
+
+static iree_status_t loom_serve_recognition_registration_activate(
+    void* self, loom_serve_model_component_t component,
+    loom_serve_activation_flags_t flags,
+    loom_serve_activation_phase_t* out_phase,
+    iree_status_t* out_component_status) {
+  *out_component_status = iree_ok_status();
+  recognition_registration_t* registration = self;
+  return loom_serve_registration_activate(
+      &registration->activation,
+      loom_serve_recognition_model_residency(registration->model),
+      loom_serve_device_host(registration->device), registration->observer,
+      flags, registration->host_allocator, out_phase);
+}
+
+static iree_status_t loom_serve_recognition_registration_create(
+    void* self, const loom_serve_model_configuration_t* configuration,
+    loom_serve_wake_callback_t observer, loom_serve_telemetry_stream_t* stream,
+    iree_allocator_t host_allocator,
+    loom_serve_registration_t* out_registration) {
+  const loom_serve_model_registration_options_t* options = self;
+  recognition_registration_t* registration = NULL;
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc(
+      host_allocator, sizeof(*registration), (void**)&registration));
+  registration->host_allocator = host_allocator;
+  registration->device = loom_serve_device_group_at(
+      options->device_group, configuration->device_index);
+  registration->configuration = configuration;
+  registration->observer = observer;
+  registration->stream = stream;
+  const loom_serve_recognition_model_options_t model_options = {
+      .sources = configuration->sources,
+      .asset_directory = configuration->assets,
+      .options = configuration->options};
+  iree_status_t status = loom_serve_recognition_load_allocate(
+      registration->device, &model_options, observer.wake, observer.user_data,
+      host_allocator, &registration->load);
+  if (iree_status_is_ok(status)) {
+    *out_registration = (loom_serve_registration_t){
+        .self = registration,
+        .prepare = loom_serve_recognition_registration_prepare,
+        .retire = loom_serve_recognition_registration_retire,
+        .parameters = loom_serve_recognition_registration_parameters,
+        .set_pinned = loom_serve_recognition_registration_set_pinned,
+        .activate = loom_serve_recognition_registration_activate,
+        .deactivate = loom_serve_recognition_registration_deactivate,
+        .destroy = loom_serve_recognition_registration_destroy};
+  } else {
+    iree_allocator_free(host_allocator, registration);
+  }
+  return status;
+}
+
 typedef struct text_registration_t {
   // Allocator owning this operation and its stable shape table.
   iree_allocator_t host_allocator;
@@ -854,6 +1027,11 @@ static iree_status_t loom_serve_model_registration_create(
                                                  stream, host_allocator,
                                                  out_registration);
   }
+  if (configuration->kind == LOOM_SERVE_MODEL_KIND_RECOGNITION) {
+    return loom_serve_recognition_registration_create(
+        self, configuration, observer, stream, host_allocator,
+        out_registration);
+  }
   return loom_serve_finite_registration_create(
       self, configuration, observer, stream, host_allocator, out_registration);
 }
@@ -880,6 +1058,7 @@ loom_serve_registration_factory_t loom_serve_model_registration_factory(
                (1u << LOOM_SERVE_MODEL_KIND_DECISION) |
                (1u << LOOM_SERVE_MODEL_KIND_IMAGE) |
                (1u << LOOM_SERVE_MODEL_KIND_SPEECH) |
+               (1u << LOOM_SERVE_MODEL_KIND_RECOGNITION) |
                (1u << LOOM_SERVE_MODEL_KIND_TEXT),
       .device_count = loom_serve_device_group_count(options->device_group),
       .create = loom_serve_model_registration_create,

@@ -1,0 +1,201 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+"""Multipart transcription through the real HTTP server and source-JIT model."""
+
+import http.client
+import json
+import struct
+import sys
+import tempfile
+import unittest
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from urllib.parse import urlsplit
+
+from loom_serve_testing.http_harness import control, running_server, wait_status
+
+SERVER = Path(sys.argv.pop(1)).resolve()
+PACKAGE = Path(sys.argv.pop(1)).resolve().parent
+PCM_TYPE = "audio/pcm;rate=16000;channels=1"
+
+
+def pcm(frames):
+    return struct.pack("<h", 8192) * frames
+
+
+def multipart(audio, fields, *, file_first=False, audio_type=PCM_TYPE):
+    boundary = "loom-transcription-test"
+    parts = [
+        f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode()
+        + value.encode()
+        for name, value in fields
+    ]
+    # A filename is opaque. Explicit PCM metadata declares the sample geometry.
+    file = (
+        b'Content-Disposition: form-data; name="file"; filename="../../voice.bin"'
+        + f"\r\nContent-Type: {audio_type}\r\n\r\n".encode()
+        + audio
+    )
+    parts.insert(0 if file_first else len(parts), file)
+    marker = f"--{boundary}".encode()
+    body = b"".join(marker + b"\r\n" + part + b"\r\n" for part in parts)
+    return body + marker + b"--\r\n", f"multipart/form-data; boundary={boundary}"
+
+
+class TranscriptionClientTest(unittest.TestCase):
+    def request(
+        self,
+        address,
+        audio,
+        fields=(),
+        *,
+        chunked=False,
+        file_first=False,
+        audio_type=PCM_TYPE,
+        expected=200,
+        text=False,
+    ):
+        body, content_type = multipart(
+            audio,
+            [("model", "recognition"), *fields],
+            file_first=file_first,
+            audio_type=audio_type,
+        )
+        connection = http.client.HTTPConnection(address.hostname, address.port)
+        try:
+            # Deliberately split headers, boundaries, and PCM frames across
+            # transfer chunks, as an asynchronous multipart client may do.
+            payload = (
+                (body[index : index + 17] for index in range(0, len(body), 17))
+                if chunked
+                else body
+            )
+            connection.request(
+                "POST",
+                "/v1/audio/transcriptions",
+                payload,
+                {"Content-Type": content_type},
+                encode_chunked=chunked,
+            )
+            response = connection.getresponse()
+            result = response.read()
+            self.assertEqual(response.status, expected, result)
+            self.assertEqual(
+                response.getheader("Content-Type"),
+                "text/plain; charset=utf-8" if text else "application/json",
+            )
+            return result.decode() if text else json.loads(result)
+        finally:
+            connection.close()
+
+    def test_pcm_uploads_share_bounded_recognition(self):
+        for workers in (1, 4):
+            with (
+                self.subTest(workers=workers),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                directory = Path(temporary)
+                declaration = {
+                    "name": "recognition",
+                    "base_directory": str(PACKAGE),
+                    "definition": {
+                        "kind": "recognition",
+                        "prepare": "prepare.loom",
+                        "control": "control.loom",
+                        "sources": ["generate.loom"],
+                        "assets": str(PACKAGE),
+                        "pending_requests": 8,
+                    },
+                }
+                (directory / "model.json").write_text(json.dumps(declaration))
+                log = directory / "server.log"
+                with running_server(
+                    [
+                        str(SERVER),
+                        "--model=model.json",
+                        "--device=task",
+                        "--pool_backing=fixed",
+                        f"--workers={workers}",
+                        "--listen=127.0.0.1:0",
+                    ],
+                    log,
+                    cwd=directory,
+                ) as (process, bound):
+                    self.assertIsNotNone(bound, log.read_text())
+                    address = urlsplit(f"http://{bound}")
+                    wait_status(address, model="recognition", phase="idle")
+                    model = control(address, "GET", "/v1/models", 200)["data"][0]
+                    self.assertEqual(model["id"], "recognition")
+
+                    # Different durations and output forms cross conversion,
+                    # input-credit, and three-frame source work boundaries.
+                    lengths = (1, 2, 3, 7, 19, 511, 1607, 2048)
+                    with ThreadPoolExecutor(max_workers=8) as clients:
+                        requests = [
+                            clients.submit(
+                                self.request,
+                                address,
+                                pcm(length),
+                                [("response_format", "text" if index % 2 else "json")],
+                                chunked=index % 3 == 0,
+                                file_first=index % 2 == 0,
+                                text=index % 2 == 1,
+                            )
+                            for index, length in enumerate(lengths)
+                        ]
+                        for index, (length, request) in enumerate(
+                            zip(lengths, requests)
+                        ):
+                            expected = chr(ord("A") + (length // 4) % 26)
+                            self.assertEqual(
+                                request.result(),
+                                expected if index % 2 else {"text": expected},
+                            )
+
+                    for fields in (
+                        [("stream", "true")],
+                        [("temperature", "nan")],
+                        [("response_format", "verbose_json")],
+                        [("prompt", ""), ("prompt", "again")],
+                        [("unknown", "value")],
+                    ):
+                        result = self.request(address, pcm(7), fields, expected=400)
+                        self.assertIn("error", result)
+                    for audio in (b"\x00", pcm(2049)):
+                        self.assertIn(
+                            "error", self.request(address, audio, expected=400)
+                        )
+                    # Rejections release both host and model capacity.
+                    self.assertEqual(
+                        self.request(address, pcm(19), [("stream", "false")]),
+                        {"text": "E"},
+                    )
+                    for audio_type in (
+                        "audio/pcm",
+                        "audio/pcm;rate=24000;channels=1",
+                        "audio/pcm;rate=16000;channels=2",
+                        "audio/pcm;rate=16000;channels=1;format=f32le",
+                    ):
+                        self.request(
+                            address, pcm(19), audio_type=audio_type, expected=400
+                        )
+                    self.request(
+                        address,
+                        b"not an audio file",
+                        audio_type="application/octet-stream",
+                        expected=400,
+                    )
+                    self.request(address, pcm(19), audio_type="audio/wav", expected=400)
+                    # Signed conversion includes both extrema and cancellation
+                    # to exact zero; every prefix visible to source is nonnegative.
+                    signed = struct.pack("<6h", 32767, 1, -32768, 16384, -16384, 8192)
+                    self.assertEqual(self.request(address, signed * 64), {"text": "Q"})
+                self.assertEqual(process.returncode, 0, log.read_text())
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -15,7 +15,10 @@ loom-serve --agents_md
 The [serving walkthrough](workflows/serve-models.md) reaches a first response
 without weights. [Stream speech](workflows/stream-speech.md) receives incremental
 audio and explains how voices share numerical batches while advancing
-independently. [Model documents](model-documents.md) specify programs, assets,
+independently. [Audio transcription](http-profiles.md#audio-transcription) accepts
+recorded audio, and the
+[client guide](workflows/connect-model-clients.md#pcm-transcription-clients) describes
+the required upload format. [Model documents](model-documents.md) specify programs, assets,
 placement and per-model capacities. [Author model programs](model-programs.md)
 describes preparation, execution and the contracts for adding a model package.
 The [operation](workflows/operate-model-server.md) and

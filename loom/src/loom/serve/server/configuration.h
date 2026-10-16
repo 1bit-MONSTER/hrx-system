@@ -19,6 +19,7 @@ typedef enum loom_serve_model_kind_e {
   LOOM_SERVE_MODEL_KIND_EMBEDDING = 3,
   LOOM_SERVE_MODEL_KIND_DECISION = 4,
   LOOM_SERVE_MODEL_KIND_SPEECH = 5,
+  LOOM_SERVE_MODEL_KIND_RECOGNITION = 6,
 } loom_serve_model_kind_t;
 
 // Optional model-owned finite computation with independent preparation and
@@ -104,9 +105,8 @@ typedef struct loom_serve_model_configuration_t {
   loom_serve_sources_t sources;
   // Owned JSON object interpreted by the source prepare program.
   iree_string_view_t options;
-  // Bounded host request credit. Text/image/speech exclude the active
-  // invocation; finite vector services include all requests in the active
-  // cohort.
+  // Bounded host request credit. Text/image/speech/recognition exclude active
+  // model requests; finite vector services include the active cohort.
   iree_host_size_t pending_requests;
   // Retained execution choices, including original/pending/failed attempts.
   // Zero disables reconfiguration independently of modality admission.
@@ -119,7 +119,7 @@ typedef struct loom_serve_model_configuration_t {
     loom_serve_text_configuration_t text;
     // Finite image deployment geometry and checkpoint inputs.
     loom_serve_image_configuration_t image;
-    // Owned source asset directory for vector and speech deployments.
+    // Owned source asset directory for vector, speech, and recognition models.
     iree_string_view_t assets;
   };
 } loom_serve_model_configuration_t;

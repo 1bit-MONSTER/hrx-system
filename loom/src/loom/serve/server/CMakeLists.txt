@@ -249,6 +249,8 @@ loom_cc_library(
     loom::serve::service::finite::service
     loom::serve::service::image::model
     loom::serve::service::image::service
+    loom::serve::service::recognition::http
+    loom::serve::service::recognition::model
     loom::serve::service::speech::model
     loom::serve::service::speech::service
     loom::serve::service::text::model

@@ -126,6 +126,45 @@ loom_py_test(
     deps = ["//loom/src/loom/serve/testing:http"],
 )
 
+loom_py_test(
+    name = "recognition_client_test",
+    size = "small",
+    srcs = ["//loom/src/loom/serve/service/recognition:client_test.py"],
+    args = [
+        "$(rootpath :loom-serve-test-tool)",
+        "$(rootpath //loom/src/loom/serve/fixture/recognition:prepare.loom)",
+    ],
+    data = RECOGNITION_SOURCES + [":loom-serve-test-tool"],
+    main = "client_test.py",
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:x86",
+        "//loom/config/execute:task_hal",
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = ["//loom/src/loom/serve/testing:http"],
+)
+
+loom_cc_test(
+    name = "source_recognition_http_test",
+    args = ["--model_source=$(rootpath //loom/src/loom/serve/fixture/recognition:prepare.loom)"],
+    data = RECOGNITION_SOURCES,
+    target_compatible_with = loom_config_compatible_with([
+        "//loom/config/target/arch:x86",
+        "//loom/config/execute:task_hal",
+    ]) + select({
+        "@platforms//os:linux": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+    deps = [
+        ":test_compiler",
+        ":test_device",
+        "//loom/src/loom/serve/service/recognition:source_http_tests",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
 loom_cc_test(
     name = "source_image_service_test",
     data = IMAGE_SOURCES,

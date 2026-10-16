@@ -12,6 +12,90 @@ package(
     licenses = ["notice"],
 )
 
+exports_files(
+    ["client_test.py"],
+    visibility = ["//visibility:public"],
+)
+
+loom_cc_library(
+    name = "transcription",
+    srcs = ["transcription.c"],
+    hdrs = ["transcription.h"],
+    deps = [
+        ":document",
+        ":input",
+        ":request",
+        ":transcript",
+        "//loom/src/loom/serve/transport/http:multipart",
+        "//loom/src/loom/util:json",
+        "//loom/src/loom/util:stream",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:unicode",
+    ],
+)
+
+loom_cc_library(
+    name = "http",
+    srcs = ["http.c"],
+    hdrs = ["http.h"],
+    deps = [
+        ":generator",
+        ":service",
+        ":transcription",
+        "//loom/src/loom/serve/runtime/host",
+        "//loom/src/loom/serve/runtime/host:wake",
+        "//loom/src/loom/serve/runtime/parameter:telemetry",
+        "//loom/src/loom/serve/service",
+        "//loom/src/loom/serve/telemetry:latency",
+        "//loom/src/loom/serve/telemetry:record",
+        "//loom/src/loom/serve/telemetry:stream",
+        "//loom/src/loom/serve/transport/http:multipart",
+        "//loom/src/loom/serve/transport/http:request",
+        "//loom/src/loom/serve/transport/http:server",
+        "//loom/src/loom/util:json",
+        "//loom/src/loom/util:stream",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/threading",
+        "//runtime/src/iree/task",
+    ],
+)
+
+loom_cc_library(
+    name = "source_http_tests",
+    testonly = True,
+    srcs = ["source_http_test.cc"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":http",
+        ":model",
+        "//loom/src/loom/serve/runtime/host",
+        "//loom/src/loom/serve/testing:http_harness",
+        "//loom/src/loom/serve/testing:service_application",
+        "//loom/src/loom/serve/transport/http:listener",
+        "//loom/src/loom/serve/transport/http:server",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/threading",
+        "//runtime/src/iree/base/tooling:flags",
+        "//runtime/src/iree/task",
+        "//runtime/src/iree/testing:gtest",
+    ],
+    alwayslink = True,
+)
+
+loom_cc_test(
+    name = "transcription_test",
+    srcs = ["transcription_test.cc"],
+    deps = [
+        ":document",
+        ":transcript",
+        ":transcription",
+        "//loom/src/loom/serve/transport/http:multipart",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
 loom_cc_library(
     name = "input",
     srcs = ["input.c"],

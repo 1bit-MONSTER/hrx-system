@@ -47,7 +47,7 @@ activation can prepare a model while its admission stays closed.
 ## Programs and dependencies
 
 Every definition contains `kind`, `prepare`, `control` and a nonempty `sources`
-array. Kinds are `text`, `image`, `embedding`, `decision` and `speech`.
+array. Kinds are `text`, `image`, `embedding`, `decision`, `speech` and `recognition`.
 
 | Field | Role |
 | --- | --- |
@@ -55,7 +55,7 @@ array. Kinds are `text`, `image`, `embedding`, `decision` and `speech`.
 | `control` | Warm VM program implementing the modality's request and execution contract. |
 | `sources` | Shared VM functions, native commands, kernels, configuration and motif providers. |
 | `options` | JSON object passed to source preparation unchanged; defaults to `{}`. |
-| `pending_requests` | Request credit, default `32`; positive integer. Text/image/speech count queued requests, while embedding/decision also count the active cohort. |
+| `pending_requests` | Request credit, default `32`; positive integer. Text/image/speech/recognition count queued requests, while embedding/decision also count the active cohort. |
 | `variant_capacity` | Text/image/embedding/decision retained native executable choices, default `16`, including the original, pending compilations and failed attempts; zero disables native reconfiguration. |
 
 Programs accept text or portable Loom bytecode (`.loom` or `.loombc`), detected
@@ -185,6 +185,28 @@ The normal pin/unpin, activation, drain and removal controls also apply to
 speech. Pinning governs parameter residency, independently of mutable-state
 admission and compute scheduling. Speech does not currently accept
 `variant_capacity`; replacing its execution contract requires a new registration.
+
+## Recognition definitions
+
+Recognition requires `kind:"recognition"` and an `assets` directory. It uses the
+same `prepare`, `control`, `sources` and source-owned `options` fields as other
+modalities. The package declares input sample rate and channels, bounded input
+credit, maximum recording length, transcript-event capacity, persistent request
+storage and numerical batch capacity.
+
+`pending_requests` bounds the additional host queue. Each admitted request owns
+its input clock, unconsumed PCM, model state and transcript revisions. Source
+compatibility tags group next numerical operations; different recording lengths
+and input positions do not require different registrations. Source programs own
+language, prompting, decoding, segment boundaries and any speaker/alignment
+evidence.
+
+The [transcription profile](http-profiles.md#audio-transcription) accepts uploaded
+PCM16LE audio and returns final JSON or text. The underlying continuing-input service
+also accepts bounded PCM with explicit end-of-input, independently of HTTP.
+The normal pin/unpin, activation, drain and removal controls apply. Recognition
+does not accept `variant_capacity`; changing its execution contract requires a
+new registration.
 
 ## Local path binding
 

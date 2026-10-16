@@ -12,6 +12,103 @@ iree_add_all_subdirs()
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
+    transcription
+  HDRS
+    "transcription.h"
+  SRCS
+    "transcription.c"
+  DEPS
+    ::document
+    ::input
+    ::request
+    ::transcript
+    iree::base
+    iree::base::internal::unicode
+    loom::serve::transport::http::multipart
+    loom::util::json
+    loom::util::stream
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_library(
+  NAME
+    http
+  HDRS
+    "http.h"
+  SRCS
+    "http.c"
+  DEPS
+    ::generator
+    ::service
+    ::transcription
+    iree::base
+    iree::base::threading
+    iree::task
+    loom::serve::runtime::host
+    loom::serve::runtime::host::wake
+    loom::serve::runtime::parameter::telemetry
+    loom::serve::service
+    loom::serve::telemetry::latency
+    loom::serve::telemetry::record
+    loom::serve::telemetry::stream
+    loom::serve::transport::http::multipart
+    loom::serve::transport::http::request
+    loom::serve::transport::http::server
+    loom::util::json
+    loom::util::stream
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_library(
+  NAME
+    source_http_tests
+  SRCS
+    "source_http_test.cc"
+  DEPS
+    ::http
+    ::model
+    iree::base
+    iree::base::threading
+    iree::base::tooling::flags
+    iree::task
+    iree::testing::gtest
+    loom::serve::runtime::host
+    loom::serve::testing::http_harness
+    loom::serve::testing::service_application
+    loom::serve::transport::http::listener
+    loom::serve::transport::http::server
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_test(
+  NAME
+    transcription_test
+  SRCS
+    "transcription_test.cc"
+  DEPS
+    ::document
+    ::transcript
+    ::transcription
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::serve::transport::http::multipart
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_library(
+  NAME
     input
   HDRS
     "input.h"

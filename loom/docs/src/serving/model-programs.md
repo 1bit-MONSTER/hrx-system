@@ -22,6 +22,7 @@ The important distinction is the shape of state and output, not the model name:
 | Finite embeddings | Input preparation, cohort cost/compatibility, pooling/projection and final vectors. | [Embedding model](https://github.com/ROCm/hrx-system/tree/main/loom/src/loom/serve/fixture/embedding) |
 | Finite decisions | Structured question framing and compact normalized answer distributions. | [Decision model](https://github.com/ROCm/hrx-system/tree/main/loom/src/loom/serve/fixture/decision) |
 | Streaming speech | Voice conditioning, independent request state, compatible next-work batches and continuous waveform blocks. | [Speech model](https://github.com/ROCm/hrx-system/tree/main/loom/src/loom/serve/fixture/speech) |
+| Continuing recognition | Independent input clocks, compatible next-work batches and revisable transcript segments. | [Recognition model](https://github.com/ROCm/hrx-system/tree/main/loom/src/loom/serve/fixture/recognition) |
 
 These packages use actual source VM programs, native kernels and production
 HTTP services, not canned native replies. They establish the serving contract,
@@ -302,6 +303,49 @@ owns the position information consumed by its numerical stages. The
 defines the host control records separately from device features. Projector
 weights and completed features have independent lifetimes; live requests retain
 features only until their language consumers finish.
+
+## Recognize continuing audio
+
+A recognition package accepts a continuing sequence of normalized F32 PCM frames
+and explicit end-of-input. Input packet boundaries do not pad audio or finalize
+an utterance. Each request retains its own sample clock, convolution history,
+encoder state, decoder cache and transcript revisions as batch membership changes.
+
+The [recognition model declaration](https://github.com/ROCm/hrx-system/blob/main/loom/src/loom/serve/service/recognition/model.h)
+owns entry signatures and binary layouts. Cold preparation declares stages,
+parameter domains, sample geometry, bounded input/event storage, recording limits,
+resident rows and additive batch capacity. Warm source operations are:
+
+| Operation | Source-owned result |
+| --- | --- |
+| `prepare_request` | Validate language, prompt and temperature; retain independent request state and immutable conditioning. |
+| `prepare_work` | Inspect a bounded PCM snapshot with its absolute sample position and EOF flag; offer compatible numerical work or zero units while awaiting input. |
+| `prepare_batch` | Pack ready work using explicit resident-row and byte-range records, retaining original cohort order. |
+| `generate` | Submit one source-selected numerical phase without waiting for device completion. |
+| `complete` | Acknowledge consumed input and optionally publish a transcript revision, independently of request completion. |
+
+Acknowledgement returns input credit only after actual execution retirement.
+Source code owns any PCM needed beyond `prepare_work`; the snapshot itself is
+borrowed only during that call. Every accepted cohort member is collected,
+including cancelled requests, before shared feedback or request rows can be
+reused. A stalled transcript consumer excludes only its own request from new
+work. Source-defined compatibility permits requests at different sample or token
+positions to share a batch when their next operations support it.
+
+Each transcript segment has a stable request-local identity, increasing revision,
+covered sample interval and replacement UTF-8 text. Finalizing a segment makes
+its text and metadata immutable. Request completion requires every published
+segment to be finalized. A source can additionally provide speaker labels and
+word alignment; an input-coverage interval alone does not establish where words
+were spoken. Consumers preserve these distinctions instead of converting a
+revisable hypothesis into an append-only text delta.
+
+The [finite HTTP adapter](http-profiles.md#audio-transcription) consumes revisions
+and returns the completed document. Typed consumers can apply revisions as they
+arrive and independently supply more PCM. Qualify a model with isolated reference
+transcripts, staggered arrivals, different recording lengths, a stalled reader,
+accepted-work cancellation and row reuse. Compare text and sample clocks across
+changing cohorts, including a final partial model frame.
 
 ## Make parameters and temporaries visible
 
