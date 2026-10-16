@@ -356,12 +356,14 @@ typedef struct loom_aie2p_native_worker_t {
   loom_aie2p_native_execution_t execution;
   // Autonomous descriptor iteration for a regular ingress worker.
   struct {
-    // Actual task execution count; zero for instruction/configuration engines.
+    // Local record count; zero for instruction/configuration engines.
     uint32_t count;
     // First external record's byte offset from its caller binding.
     uint32_t external_byte_offset;
-    // Byte increment between consecutive external records; zero reuses input.
-    uint32_t external_byte_stride;
+    // Executions of the external descriptor; one when records are coalesced.
+    uint32_t shim_repetitions;
+    // External descriptor geometry, excluding the relocated address pair.
+    uint32_t shim_words[8];
   } repetition;
   // Semaphore released at the complete worker exit.
   uint16_t completion_lock;
@@ -441,6 +443,14 @@ iree_status_t loom_aie2p_native_emit_configuration(
 iree_status_t loom_aie2p_native_select_transfers(
     loom_aie2p_native_context_t* context,
     const loom_pipeline_realization_t* realization, bool* out_valid);
+
+// Selects and retains a regular ingress stream's external descriptor geometry.
+// Stable-source and exact consumer-completion admission precede this query.
+bool loom_aie2p_native_select_ingress_descriptor(
+    const loom_aie2p_native_context_t* context,
+    const loom_pipeline_worker_t* source,
+    const loom_movement_request_t* request, uint32_t byte_stride,
+    uint32_t repetitions, loom_aie2p_native_worker_t* worker);
 
 // Replaces retained copies/groups/waits using the selected transport helpers.
 // Channel access carriers are replaced by the following channel rewrite.

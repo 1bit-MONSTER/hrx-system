@@ -1397,7 +1397,7 @@ pipeline.def<kernel> public retain target(@device) @finite_stream() run(%output_
   }
   pipeline.strand workers([0, 2], [1, 1], [1, 1]) {
     scf.for %record = [%begin to %end step %step] {
-      // ERROR@+1: XDNA/051 {requirement="a finite channel-copy schedule within DMA descriptor and task-queue capacity"}
+      // ERROR@+1: XDNA/051 {requirement="a finite record stream within DMA descriptor and task-queue capacity"}
       %read, %payload = channel.acquire %source : channel<tile<1xi32>> -> (read<tile<1xi32>>, view<1xi32>)
       %write, %payload_out = channel.reserve %relay : channel<tile<1xi32>> -> (write<tile<1xi32>>, view<1xi32>)
       channel.copy %read -> %write : read<tile<1xi32>>, write<tile<1xi32>>

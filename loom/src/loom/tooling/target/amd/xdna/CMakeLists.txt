@@ -69,6 +69,7 @@ iree_execution_test_suite(
   DATA
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/test/channel_fanout.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/test/channel_sram.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/tooling/target/amd/xdna/test/finite_ingress.loom"
   LABELS
     "iree-run-requirement=libamdf.resource.xdna"
     "runtime-resource=amd-xdna"

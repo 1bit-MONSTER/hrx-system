@@ -601,22 +601,19 @@ static bool loom_aie2p_native_can_repeat(
            ->tiles[worker->tile->coordinate.column * context->family->row_count]
            .facts->dma;
   if (begin < 0 || begin > UINT32_MAX || stride < 0 || stride > UINT32_MAX ||
-      transport->repetitions > local_dma->maximum_task_repeat_count ||
-      transport->repetitions > shim_dma->maximum_task_repeat_count ||
+      transport->repetitions > UINT32_MAX ||
       binding->capacity > (UINT64_C(1) << local_dma->iteration_bits) ||
-      (stride &&
-       transport->repetitions > (UINT64_C(1) << shim_dma->iteration_bits)) ||
       (channel->byte_stride % local_dma->transfer_length_granularity) ||
       (stride % shim_dma->transfer_length_granularity) ||
       channel->byte_stride / local_dma->transfer_length_granularity >
           (UINT64_C(1) << local_dma->step_size_bits) ||
-      (uint64_t)stride / shim_dma->transfer_length_granularity >
-          (UINT64_C(1) << shim_dma->step_size_bits)) {
+      !loom_aie2p_native_select_ingress_descriptor(
+          context, source, request, (uint32_t)stride,
+          (uint32_t)transport->repetitions, worker)) {
     return false;
   }
   worker->repetition.count = (uint32_t)transport->repetitions;
   worker->repetition.external_byte_offset = (uint32_t)begin;
-  worker->repetition.external_byte_stride = (uint32_t)stride;
   return true;
 }
 
