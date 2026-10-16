@@ -17,7 +17,9 @@
 // attributes take xmin, xmax, ymin, ymax, zmin, zmax and constrain those
 // required config values with inclusive positive bounds. A
 // [[loom::kernel(configuration)]] entry instead computes complete geometry from
-// explicit workload arguments and immutable target properties.
+// explicit scalar or storage workload arguments and immutable target
+// properties. Configuration bodies may read workload storage but cannot write
+// it or use loaded data to select workgroup or cluster sizes.
 // Counted unsigned for loops accept loom::unroll(factor),
 // loom::pipeline(depth), and
 // loom::schedule("linear"|"interleaved"|"recurrence"). Factors and depths are
@@ -190,8 +192,8 @@ struct uint3 {
 
 // Complete launch geometry computed from explicit workload values and target
 // properties. A function returning this aggregate may be referenced by
-// [[loom::kernel(function)]]. Its body becomes the kernel's pure launch
-// configuration region rather than an independently callable function.
+// [[loom::kernel(function)]]. Its body becomes the kernel's deterministic
+// launch configuration region rather than an independently callable function.
 struct [[loom::launch_config]] configuration {
   // Number of workgroups to launch in each dimension.
   uint3 workgroup_count;

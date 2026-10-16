@@ -20,6 +20,7 @@
 #include "loom/pass/interpreter.h"
 #include "loom/pass/program.h"
 #include "loom/target/arch/cmd/lower/dispatch_counts.h"
+#include "loom/target/arch/cmd/lower/launch_count_realization.h"
 #include "loom/target/arch/cmd/lower/lower.h"
 #include "loom/target/arch/cmd/lower/parameters.h"
 #include "loom/target/arch/cmd/lower/program_plan_requests.h"
@@ -159,7 +160,7 @@ static iree_status_t loom_cmd_program_plan_build_normalization_body(
 
 // Resolves caller-owned configuration dataflow before schedule construction.
 // A single module run normalizes all selected callables, inlines the projected
-// pure configuration functions at their command CFG sites, and cleans only
+// configuration functions at their command CFG sites, and cleans only
 // functions changed by inlining. The body-blind selective product contains no
 // device implementation IR.
 static iree_status_t loom_cmd_program_plan_normalize_roots(
@@ -666,7 +667,7 @@ iree_status_t loom_cmd_program_plan_build_from_materialization(
   }
 
   loom_symbol_reference_table_t references = {0};
-  loom_kernel_launch_entry_table_t kernel_entry_table = {0};
+  loom_kernel_launch_resolution_t launch_resolution = {0};
   bool has_templates = false;
   bool valid = false;
   if (iree_status_is_ok(status)) {
@@ -681,12 +682,44 @@ iree_status_t loom_cmd_program_plan_build_from_materialization(
     status = loom_kernel_resolve_launches(
         plan_module, &references, configuration_functions,
         configuration_function_count, diagnostic_emitter, &scratch_arena,
-        &kernel_entry_table, &valid);
+        &launch_resolution, &valid);
   }
   if (valid && iree_status_is_ok(status)) {
     status = loom_cmd_program_plan_normalize_roots(
         plan_module, pass_registry, cleanup_pattern_provider_set,
         diagnostic_emitter, block_pool, has_templates, &valid);
+  }
+
+  loom_value_fact_table_t source_facts = {0};
+  if (valid && iree_status_is_ok(status)) {
+    status = loom_value_fact_table_initialize(&source_facts, &scratch_arena,
+                                              plan_module->values.count);
+  }
+  if (valid && iree_status_is_ok(status)) {
+    loom_type_registry_configure_fact_context(&source_facts.context);
+  }
+  for (iree_host_size_t i = 0;
+       valid && i < program_count && iree_status_is_ok(status); ++i) {
+    status = loom_value_fact_table_compute(&source_facts, plan_module,
+                                           root_builds[i].program);
+  }
+
+  loom_cmd_launch_count_realization_t launch_count_realization = {0};
+  if (valid && iree_status_is_ok(status) &&
+      launch_resolution.has_readonly_launches) {
+    loom_op_t** root_ops = NULL;
+    status = iree_arena_allocate_array(&scratch_arena, program_count,
+                                       sizeof(*root_ops), (void**)&root_ops);
+    for (iree_host_size_t i = 0; i < program_count && iree_status_is_ok(status);
+         ++i) {
+      root_ops[i] = root_builds[i].program_op;
+    }
+    if (iree_status_is_ok(status)) {
+      status = loom_cmd_launch_count_realize(
+          plan_module, root_ops, program_count, &source_facts,
+          diagnostic_emitter, block_pool, &scratch_arena, &valid,
+          &launch_count_realization);
+    }
   }
 
   iree_host_size_t entry_requirement_capacity = 0;
@@ -708,18 +741,16 @@ iree_status_t loom_cmd_program_plan_build_from_materialization(
     }
   }
 
-  loom_value_fact_table_t source_facts = {0};
-  if (valid && iree_status_is_ok(status)) {
-    status = loom_value_fact_table_initialize(&source_facts, &scratch_arena,
-                                              plan_module->values.count);
-  }
-  if (valid && iree_status_is_ok(status)) {
-    loom_type_registry_configure_fact_context(&source_facts.context);
-  }
-  for (iree_host_size_t i = 0;
-       valid && i < program_count && iree_status_is_ok(status); ++i) {
-    status = loom_value_fact_table_compute(&source_facts, plan_module,
-                                           root_builds[i].program);
+  if (valid && iree_status_is_ok(status) &&
+      launch_count_realization.kernel_count != 0) {
+    loom_value_fact_table_clear_scope(&source_facts);
+    status =
+        loom_value_fact_table_reserve(&source_facts, plan_module->values.count);
+    for (iree_host_size_t i = 0; i < program_count && iree_status_is_ok(status);
+         ++i) {
+      status = loom_value_fact_table_compute(&source_facts, plan_module,
+                                             root_builds[i].program);
+    }
   }
   for (iree_host_size_t i = 0;
        valid && i < program_count && iree_status_is_ok(status); ++i) {
@@ -732,51 +763,64 @@ iree_status_t loom_cmd_program_plan_build_from_materialization(
   loom_cmd_program_kernel_source_t projected_kernel_source = {0};
   const loom_cmd_program_kernel_source_t* effective_kernel_source = NULL;
   if (valid && iree_status_is_ok(status) && kernel_source != NULL) {
-    iree_host_size_t* projected_source_definitions = NULL;
-    status =
-        iree_arena_allocate_array(&scratch_arena, plan_module->symbols.count,
-                                  sizeof(*projected_source_definitions),
-                                  (void**)&projected_source_definitions);
-    if (iree_status_is_ok(status)) {
-      for (iree_host_size_t i = 0; i < plan_module->symbols.count; ++i) {
-        projected_source_definitions[i] =
-            LOOM_LINK_MODULE_INDEX_INVALID_ORDINAL;
-      }
-      IREE_ASSERT_LE(kernel_source->source_definitions.count,
-                     kernel_entry_table.count);
-      const iree_host_size_t source_symbol_count =
-          kernel_source->source_definitions.count;
-      for (iree_host_size_t source_symbol_id = 0;
-           source_symbol_id < source_symbol_count; ++source_symbol_id) {
-        loom_op_t* entry_op = kernel_entry_table.values[source_symbol_id];
-        const iree_host_size_t source_definition =
-            kernel_source->source_definitions.values[source_symbol_id];
-        if (entry_op == NULL ||
-            iree_any_bit_set(entry_op->flags, LOOM_OP_FLAG_DEAD) ||
-            source_definition == LOOM_LINK_MODULE_INDEX_INVALID_ORDINAL) {
-          continue;
+    projected_kernel_source = *kernel_source;
+    if (kernel_source->producer != NULL) {
+      iree_host_size_t* projected_source_definitions = NULL;
+      status =
+          iree_arena_allocate_array(&scratch_arena, plan_module->symbols.count,
+                                    sizeof(*projected_source_definitions),
+                                    (void**)&projected_source_definitions);
+      if (iree_status_is_ok(status)) {
+        for (iree_host_size_t i = 0; i < plan_module->symbols.count; ++i) {
+          projected_source_definitions[i] =
+              LOOM_LINK_MODULE_INDEX_INVALID_ORDINAL;
         }
-        const loom_symbol_ref_t entry_ref =
-            loom_func_like_callee(loom_func_like_cast(plan_module, entry_op));
-        IREE_ASSERT(loom_symbol_ref_is_valid(entry_ref));
-        IREE_ASSERT_EQ(entry_ref.module_id, 0u);
-        IREE_ASSERT_LT(entry_ref.symbol_id, plan_module->symbols.count);
-        projected_source_definitions[entry_ref.symbol_id] = source_definition;
+        IREE_ASSERT_LE(kernel_source->source_definitions.count,
+                       launch_resolution.entry_count);
+        const iree_host_size_t source_symbol_count =
+            kernel_source->source_definitions.count;
+        for (iree_host_size_t source_symbol_id = 0;
+             source_symbol_id < source_symbol_count; ++source_symbol_id) {
+          loom_op_t* entry_op = launch_resolution.entry_ops[source_symbol_id];
+          const iree_host_size_t source_definition =
+              kernel_source->source_definitions.values[source_symbol_id];
+          if (entry_op == NULL ||
+              iree_any_bit_set(entry_op->flags, LOOM_OP_FLAG_DEAD) ||
+              source_definition == LOOM_LINK_MODULE_INDEX_INVALID_ORDINAL) {
+            continue;
+          }
+          const loom_symbol_ref_t entry_ref =
+              loom_func_like_callee(loom_func_like_cast(plan_module, entry_op));
+          IREE_ASSERT(loom_symbol_ref_is_valid(entry_ref));
+          IREE_ASSERT_EQ(entry_ref.module_id, 0u);
+          IREE_ASSERT_LT(entry_ref.symbol_id, plan_module->symbols.count);
+          projected_source_definitions[entry_ref.symbol_id] = source_definition;
+        }
       }
-      projected_kernel_source = *kernel_source;
       projected_kernel_source.source_definitions.values =
           projected_source_definitions;
       projected_kernel_source.source_definitions.count =
           plan_module->symbols.count;
-      effective_kernel_source = &projected_kernel_source;
     }
+    effective_kernel_source = &projected_kernel_source;
+  }
+  if (valid && iree_status_is_ok(status) &&
+      launch_count_realization.kernel_count != 0 &&
+      (effective_kernel_source == NULL ||
+       effective_kernel_source->sink.publish == NULL)) {
+    status = iree_make_status(
+        IREE_STATUS_FAILED_PRECONDITION,
+        "storage-backed launch counts require a kernel request sink");
   }
 
   if (valid && iree_status_is_ok(status)) {
     status = loom_cmd_program_plan_allocate_tables(
         program_count, entry_requirement_capacity, &plan);
   }
-  if (valid && iree_status_is_ok(status) && effective_kernel_source != NULL) {
+  if (valid && iree_status_is_ok(status) &&
+      ((effective_kernel_source != NULL &&
+        effective_kernel_source->producer != NULL) ||
+       launch_count_realization.kernel_count != 0)) {
     loom_cmd_program_kernel_site_root_t* kernel_site_roots = NULL;
     status = iree_arena_allocate_array(&scratch_arena, program_count,
                                        sizeof(*kernel_site_roots),
@@ -785,11 +829,30 @@ iree_status_t loom_cmd_program_plan_build_from_materialization(
          ++i) {
       kernel_site_roots[i].schedule = &root_builds[i].schedule;
       kernel_site_roots[i].requirement_indices = NULL;
+      if (root_builds[i].schedule.command_count != 0) {
+        status = iree_arena_allocate_array(
+            &scratch_arena, root_builds[i].schedule.command_count,
+            sizeof(*kernel_site_roots[i].requirement_indices),
+            (void**)&kernel_site_roots[i].requirement_indices);
+        if (iree_status_is_ok(status)) {
+          memset(kernel_site_roots[i].requirement_indices, 0xFF,
+                 root_builds[i].schedule.command_count *
+                     sizeof(*kernel_site_roots[i].requirement_indices));
+        }
+      }
     }
-    if (iree_status_is_ok(status)) {
+    if (iree_status_is_ok(status) && effective_kernel_source != NULL &&
+        effective_kernel_source->producer != NULL) {
       status = loom_cmd_program_plan_publish_kernel_requests(
           &plan, plan_module, &source_facts, effective_kernel_source,
           kernel_site_roots, program_count, &scratch_arena);
+    }
+    if (iree_status_is_ok(status) &&
+        launch_count_realization.kernel_count != 0) {
+      status = loom_cmd_program_plan_publish_generated_kernel_requests(
+          &plan, plan_module, &launch_count_realization,
+          effective_kernel_source->sink, kernel_site_roots, program_count,
+          &scratch_arena);
     }
     for (iree_host_size_t i = 0; i < program_count && iree_status_is_ok(status);
          ++i) {
@@ -897,6 +960,7 @@ iree_status_t loom_cmd_program_plan_build_from_materialization(
   if (plan_module) {
     loom_module_free(plan_module);
   }
+  loom_cmd_launch_count_realization_deinitialize(&launch_count_realization);
   iree_arena_deinitialize(&scratch_arena);
   if (iree_status_is_ok(status) && valid) {
     *out_valid = true;

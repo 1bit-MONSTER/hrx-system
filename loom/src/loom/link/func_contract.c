@@ -10,6 +10,7 @@
 
 #include "loom/ir/context.h"
 #include "loom/ir/module.h"
+#include "loom/ops/callable_effects.h"
 
 typedef struct loom_link_func_contract_attr_t {
   // Source contract attribute index.
@@ -184,6 +185,42 @@ static iree_status_t loom_link_func_contract_apply_attrs(
   return iree_ok_status();
 }
 
+static void loom_link_func_contract_apply_effect_contract(
+    const loom_link_func_contract_t* source,
+    const loom_link_func_contract_t* selected,
+    loom_link_func_contract_apply_mode_t mode,
+    loom_link_func_contract_mismatch_t* out_mismatch) {
+  const uint8_t source_attr_index =
+      source->function->effect_contract_attr_index;
+  if (!loom_link_func_contract_attr_present(source, source_attr_index)) {
+    return;
+  }
+  const uint8_t selected_attr_index =
+      selected->function->effect_contract_attr_index;
+  if (selected_attr_index == LOOM_ATTR_INDEX_NONE) {
+    loom_link_func_contract_mismatch_field(IREE_SV("effect_contract"),
+                                           out_mismatch);
+    return;
+  }
+
+  const loom_callable_effect_contract_t required =
+      (loom_callable_effect_contract_t)loom_attr_as_enum(
+          source->attributes[source_attr_index]);
+  loom_attribute_t* selected_attr = &selected->attributes[selected_attr_index];
+  if (loom_attr_is_absent(*selected_attr)) {
+    if (mode == LOOM_LINK_FUNC_CONTRACT_APPLY_MERGE) {
+      *selected_attr = loom_attr_enum(required);
+    }
+    return;
+  }
+  const loom_callable_effect_contract_t provided =
+      (loom_callable_effect_contract_t)loom_attr_as_enum(*selected_attr);
+  if (!loom_callable_effects_contract_satisfies(provided, required)) {
+    loom_link_func_contract_mismatch_field(IREE_SV("effect_contract"),
+                                           out_mismatch);
+  }
+}
+
 static iree_status_t loom_link_func_contract_apply(
     const loom_link_func_contract_t* source,
     const loom_link_func_contract_t* selected, loom_ir_remap_t* remap,
@@ -277,11 +314,6 @@ static iree_status_t loom_link_func_contract_apply(
           .field_name = IREE_SV("cc"),
       },
       {
-          .source_attr_index = source->function->purity_attr_index,
-          .selected_attr_index = selected->function->purity_attr_index,
-          .field_name = IREE_SV("purity"),
-      },
-      {
           .source_attr_index = source->function->temperature_attr_index,
           .selected_attr_index = selected->function->temperature_attr_index,
           .field_name = IREE_SV("temperature"),
@@ -337,6 +369,10 @@ static iree_status_t loom_link_func_contract_apply(
   IREE_RETURN_IF_ERROR(loom_link_func_contract_apply_attrs(
       remap, source, selected, attrs, IREE_ARRAYSIZE(attrs), mode,
       out_mismatch));
+  if (!loom_link_func_contract_mismatch_present(out_mismatch)) {
+    loom_link_func_contract_apply_effect_contract(source, selected, mode,
+                                                  out_mismatch);
+  }
   if (loom_link_func_contract_mismatch_present(out_mismatch) ||
       !iree_any_bit_set(flags, LOOM_LINK_FUNC_CONTRACT_MERGE_FLAG_OUTPUT)) {
     return iree_ok_status();

@@ -19,8 +19,10 @@ Four boundaries keep the feature composable:
 - The command plan is the sole owner of root, dispatch-count, entry, and
   storage decisions. Later stages consume those indexed results instead of
   reconstructing them from source IR.
-- Logical launch configuration remains ordinary pure computation in the
-  caller until generic inlining, canonicalization, CSE, and folding have run.
+- Logical launch configuration remains ordinary deterministic computation in
+  the caller until generic inlining, canonicalization, CSE, and folding have
+  run. It may load explicit workload buffers or views without opening a device
+  implementation.
 - The serialized artifact contains logical resources and typed arguments, not
   HAL objects, process addresses, native calling conventions, or target code.
 - Optional kernel request publication transfers independently owned ordinary
@@ -136,11 +138,11 @@ The plan owns:
 
 Command planning requires every scheduled `kernel.launch` to resolve to a
 selected launch-configuration facet. Selective materialization reconstructs a
-private `kernel.decl` and pure configuration function without decoding the
-kernel implementation body. A bodyless `kernel.decl` with no configuration is
-diagnosed instead of acquiring guessed launch semantics. An authored
-`kernel.entry.decl` can be dispatched directly when the embedding application
-provides the matching executable entry.
+private `kernel.decl` and a pure or deterministic read-only configuration
+function without decoding the kernel implementation body. A bodyless
+`kernel.decl` with no configuration is diagnosed instead of acquiring guessed
+launch semantics. An authored `kernel.entry.decl` can be dispatched directly
+when the embedding application provides the matching executable entry.
 
 The source providers and index may be released after planning. The plan owns
 the shared lowered root module, parameter keys, requirement tables, and
@@ -151,11 +153,13 @@ parent operation succeeds.
 ## Launch Counts
 
 Selective linking projects each required kernel launch configuration as an
-ordinary private pure function. Launch resolution replaces `kernel.launch` at
-its caller-owned CFG site with a pure inline call and a `kernel.dispatch` that
-uses the call results. Calls nested only in launch-schedule wrappers move just
-outside the wrapper because schedule regions contain command ordering rather
-than ordinary computation. Calls otherwise stay branch- and loop-local.
+ordinary private function carrying its proven pure or read-only contract.
+Launch resolution replaces `kernel.launch` at its caller-owned CFG site with an
+inline call and a `kernel.dispatch` that uses the call results. Pure calls may
+cross launch-schedule wrappers while all workloads are defined outside them.
+Read-only calls remain beside the lexical launch so they cannot move ahead of a
+command that produces their storage. Ordinary control flow keeps both calls
+branch- and loop-local.
 
 The normal function pipeline owns canonicalization, CSE, unrolling, inlining,
 and dead-symbol elimination. Equal calls can therefore collapse before command

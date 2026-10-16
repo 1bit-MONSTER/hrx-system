@@ -9,7 +9,7 @@ verification, specialization, unrolling, distribution, and lowering.
 In this chapter, you will learn:
 
 - how definitions, declarations, exact calls, and returns compose;
-- how function modifiers state visibility, purity, placement, and inline policy;
+- how function modifiers state visibility, effects, placement, and inline policy;
 - how authored Low helpers control target instructions and their order;
 - how `scf.if` and `scf.for` produce SSA values;
 - why loop-carried state is explicit; and
@@ -86,6 +86,7 @@ Modifiers sit on the definition or declaration whose behavior they constrain:
 | --- | --- |
 | `public` | The symbol is visible outside the module. Absence means private. |
 | `pure` | The function is deterministic and has no memory effects. |
+| `readonly` | The function may read memory deterministically but cannot write, order memory, allocate unique identities, converge, or produce independently observable effects. |
 | `host` / `device` | The calling convention and intended execution domain. |
 | `inline` | The current IR stage must remove the callable boundary. |
 | `noinline` | The current IR stage preserves the callable boundary. |
@@ -95,6 +96,13 @@ These are semantic inputs, not compiler folklore in comments. `inline` is not
 needed merely because a helper is small; it is used when the source contract
 requires the boundary to disappear at the current stage. Without an explicit
 policy, the consuming pass decides from target, call graph, and cost evidence.
+
+Effect modifiers are checked on definitions and carried by call sites. A
+`pure` call can target only a pure callable. A `readonly` call may target a
+pure or read-only callable, and retains its read effect so memory-aware passes
+cannot move it across an interfering write. An omitted effect modifier is
+conservative until canonicalization or another whole-module analysis proves a
+stronger contract.
 
 ## Invoke an authored Low fragment
 

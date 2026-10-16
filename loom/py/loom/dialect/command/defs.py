@@ -141,7 +141,7 @@ command_program_def = Op(
         "participate in staged specialization and launch-count evaluation; buffer "
         "bindings are provided when the materialized program is issued. Observable "
         "effects in the body must be explicit command operations; ordinary SSA "
-        "preparation is effect-free."
+        "preparation may be pure or deterministic read-only computation."
     ),
     traits=[SYMBOL_DEFINE, ISOLATED_FROM_ABOVE],
     attrs=list(_PROGRAM_ATTRS),

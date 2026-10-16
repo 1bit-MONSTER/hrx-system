@@ -25,7 +25,7 @@ func.def public @decode(%blocks: buffer, %blocks_byte_offset: offset, %block: i3
   %scales_byte_offset = index.add %11, %12 : offset
   %51 = scalar.constant 5 : i32
   %52 = scalar.shrui %index, %51 : i32
-  %16 = func.call @read(%blocks, %scales_byte_offset, %52) : (buffer, offset, i32) -> (i32)
+  %16 = func.call readonly @read(%blocks, %scales_byte_offset, %52) : (buffer, offset, i32) -> (i32)
   %24 = index.constant 8 : offset
   %quants_byte_offset = index.add %11, %24 : offset
   %26 = scalar.extui %index : i32 to i64

@@ -33,7 +33,7 @@ from loom.assembly import (
     TypesOf,
     kw,
 )
-from loom.dialect.func.defs import CallingConv, Purity, Retain, Temperature, Visibility
+from loom.dialect.func.defs import CallingConv, EffectContract, Retain, Temperature, Visibility
 from loom.dsl import (
     ANY,
     ATTR_TYPE_PARAMETERIZED_ARRAY,
@@ -74,7 +74,7 @@ _RETAIN_ATTR = AttrDef("retain", "enum", enum_def=Retain, optional=True)
 _MODIFIER_ATTRS = [
     AttrDef("visibility", "enum", enum_def=Visibility, optional=True),
     AttrDef("cc", "enum", enum_def=CallingConv, optional=True),
-    AttrDef("purity", "enum", enum_def=Purity, optional=True),
+    AttrDef("effect_contract", "enum", enum_def=EffectContract, optional=True),
     AttrDef("temperature", "enum", enum_def=Temperature, optional=True),
     AttrDef("predicates", "predicate_list", optional=True),
 ]
@@ -83,7 +83,7 @@ _MODIFIER_FORMAT = [
     OptionalGroup([Attr("visibility")], anchor="visibility"),
     OptionalGroup([Attr("retain")], anchor="retain"),
     OptionalGroup([Attr("cc")], anchor="cc"),
-    OptionalGroup([Attr("purity")], anchor="purity"),
+    OptionalGroup([Attr("effect_contract")], anchor="effect_contract"),
     OptionalGroup([Attr("temperature")], anchor="temperature"),
 ]
 
@@ -139,7 +139,7 @@ def _signature_format(symbol_field: str) -> list[Any]:
 _FUNC_LIKE_COMMON: dict[str, Any] = dict(
     visibility="visibility",
     cc="cc",
-    purity="purity",
+    effect_contract="effect_contract",
     temperature="temperature",
     predicates="predicates",
     target="target",
@@ -322,7 +322,7 @@ template_apply = Op(
             "symbol",
             symbol_ref=SymbolReference("template family", ["template_family"]),
         ),
-        AttrDef("purity", "enum", enum_def=Purity, optional=True),
+        AttrDef("effect_contract", "enum", enum_def=EffectContract, optional=True),
         AttrDef("temperature", "enum", enum_def=Temperature, optional=True),
     ],
     results=[Result("results", ANY, variadic=True)],
@@ -337,7 +337,7 @@ template_apply = Op(
         LPAREN,
         Refs("operands"),
         RPAREN,
-        OptionalGroup([Attr("purity")], anchor="purity"),
+        OptionalGroup([Attr("effect_contract")], anchor="effect_contract"),
         OptionalGroup([Attr("temperature")], anchor="temperature"),
         COLON,
         LPAREN,
@@ -373,7 +373,7 @@ template_call = Op(
             "symbol",
             symbol_ref=SymbolReference("template implementation", ["template_provider"]),
         ),
-        AttrDef("purity", "enum", enum_def=Purity, optional=True),
+        AttrDef("effect_contract", "enum", enum_def=EffectContract, optional=True),
         AttrDef("temperature", "enum", enum_def=Temperature, optional=True),
     ],
     results=[Result("results", ANY, variadic=True)],
@@ -383,7 +383,7 @@ template_call = Op(
             callee="callee",
             operands="operands",
             results="results",
-            purity="purity",
+            effect_contract="effect_contract",
             temperature="temperature",
             kind=CallLikeKind.TEMPLATE,
         )
@@ -393,7 +393,7 @@ template_call = Op(
     effective_traits="loom_template_call_effective_traits",
     eager_execution_cost=0,
     format=[
-        OptionalGroup([Attr("purity")], anchor="purity"),
+        OptionalGroup([Attr("effect_contract")], anchor="effect_contract"),
         OptionalGroup([Attr("temperature")], anchor="temperature"),
         SymbolRef("callee"),
         GLUE,

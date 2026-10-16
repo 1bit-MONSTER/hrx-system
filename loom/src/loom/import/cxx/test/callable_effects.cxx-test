@@ -1,0 +1,18 @@
+// RUN: with-checks roundtrip
+
+// Effects flow once through complete helper chains and remain explicit on the
+// imported calls consumed by verification and later compiler passes.
+static unsigned pure_leaf(unsigned value) { return value + 1; }
+static unsigned pure_middle(unsigned value) { return pure_leaf(value); }
+static unsigned read_leaf(const unsigned* input) { return input[0]; }
+static unsigned read_middle(const unsigned* input) { return read_leaf(input); }
+
+unsigned combine(const unsigned* input, unsigned value) {
+  return pure_middle(value) + read_middle(input);
+}
+
+// ----
+// CHECK: *func.call pure @pure_leaf*
+// CHECK: *func.call pure @pure_middle*
+// CHECK: *func.call readonly @read_leaf*
+// CHECK: *func.call readonly @read_middle*

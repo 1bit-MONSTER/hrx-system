@@ -71,12 +71,6 @@ typedef enum loom_low_cc_e {
   LOOM_LOW_CC_COUNT_ = 5,
 } loom_low_cc_t;
 
-// Function purity. Absent (0) means unspecified (conservative).
-typedef enum loom_low_purity_e {
-  LOOM_LOW_PURITY_PURE = 1,
-  LOOM_LOW_PURITY_COUNT_ = 2,
-} loom_low_purity_t;
-
 // Register allocation exactness mode for a low function. Absent means virtual.
 typedef enum loom_low_allocation_e {
   LOOM_LOW_ALLOCATION_VIRTUAL = 1,
@@ -146,7 +140,7 @@ LOOM_DEFINE_ATTR_STRING(loom_low_func_def_export_symbol, 6)
 LOOM_DEFINE_ATTR_DICT(loom_low_func_def_export_attrs, 7)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_low_func_def_visibility, 8, loom_low_visibility_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_low_func_def_cc, 9, loom_low_cc_t)
-LOOM_DEFINE_ATTR_ENUM_TYPED(loom_low_func_def_purity, 10, loom_low_purity_t)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_low_func_def_effect_contract, 10, loom_callable_effect_contract_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_low_func_def_inline_policy, 11, loom_inline_policy_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_low_func_def_allocation, 12, loom_low_allocation_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_low_func_def_schedule, 13, loom_low_schedule_t)
@@ -157,7 +151,7 @@ enum loom_low_func_def_build_flag_bits_e {
   LOOM_LOW_FUNC_DEF_BUILD_FLAG_HAS_VISIBILITY = 1u << 0,
   LOOM_LOW_FUNC_DEF_BUILD_FLAG_HAS_RETAIN = 1u << 1,
   LOOM_LOW_FUNC_DEF_BUILD_FLAG_HAS_CC = 1u << 2,
-  LOOM_LOW_FUNC_DEF_BUILD_FLAG_HAS_PURITY = 1u << 3,
+  LOOM_LOW_FUNC_DEF_BUILD_FLAG_HAS_EFFECT_CONTRACT = 1u << 3,
   LOOM_LOW_FUNC_DEF_BUILD_FLAG_HAS_INLINE_POLICY = 1u << 4,
   LOOM_LOW_FUNC_DEF_BUILD_FLAG_HAS_ALLOCATION = 1u << 5,
   LOOM_LOW_FUNC_DEF_BUILD_FLAG_HAS_SCHEDULE = 1u << 6,
@@ -176,7 +170,7 @@ iree_status_t loom_low_func_def_build(
     loom_optional uint8_t visibility,
     loom_optional uint8_t retain,
     loom_optional uint8_t cc,
-    loom_optional uint8_t purity,
+    loom_optional uint8_t effect_contract,
     loom_optional uint8_t inline_policy,
     loom_optional uint8_t allocation,
     loom_optional uint8_t schedule,
@@ -293,7 +287,7 @@ LOOM_DEFINE_ATTR_STRING(loom_low_func_decl_export_symbol, 6)
 LOOM_DEFINE_ATTR_DICT(loom_low_func_decl_export_attrs, 7)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_low_func_decl_visibility, 8, loom_low_visibility_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_low_func_decl_cc, 9, loom_low_cc_t)
-LOOM_DEFINE_ATTR_ENUM_TYPED(loom_low_func_decl_purity, 10, loom_low_purity_t)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_low_func_decl_effect_contract, 10, loom_callable_effect_contract_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_low_func_decl_inline_policy, 11, loom_inline_policy_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_low_func_decl_allocation, 12, loom_low_allocation_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_low_func_decl_schedule, 13, loom_low_schedule_t)
@@ -306,7 +300,7 @@ enum loom_low_func_decl_build_flag_bits_e {
   LOOM_LOW_FUNC_DECL_BUILD_FLAG_HAS_VISIBILITY = 1u << 0,
   LOOM_LOW_FUNC_DECL_BUILD_FLAG_HAS_RETAIN = 1u << 1,
   LOOM_LOW_FUNC_DECL_BUILD_FLAG_HAS_CC = 1u << 2,
-  LOOM_LOW_FUNC_DECL_BUILD_FLAG_HAS_PURITY = 1u << 3,
+  LOOM_LOW_FUNC_DECL_BUILD_FLAG_HAS_EFFECT_CONTRACT = 1u << 3,
   LOOM_LOW_FUNC_DECL_BUILD_FLAG_HAS_INLINE_POLICY = 1u << 4,
   LOOM_LOW_FUNC_DECL_BUILD_FLAG_HAS_ALLOCATION = 1u << 5,
   LOOM_LOW_FUNC_DECL_BUILD_FLAG_HAS_SCHEDULE = 1u << 6,
@@ -328,7 +322,7 @@ iree_status_t loom_low_func_decl_build(
     loom_optional uint8_t visibility,
     loom_optional uint8_t retain,
     loom_optional uint8_t cc,
-    loom_optional uint8_t purity,
+    loom_optional uint8_t effect_contract,
     loom_optional uint8_t inline_policy,
     loom_optional uint8_t allocation,
     loom_optional uint8_t schedule,
@@ -374,17 +368,17 @@ LOOM_DEFINE_ISA(loom_low_func_call_isa, LOOM_OP_LOW_FUNC_CALL)
 LOOM_DEFINE_VARIADIC_OPERANDS(loom_low_func_call_operands, 0)
 LOOM_DEFINE_VARIADIC_RESULTS(loom_low_func_call_results, 0)
 LOOM_DEFINE_ATTR_SYMBOL(loom_low_func_call_callee, 0)
-LOOM_DEFINE_ATTR_ENUM_TYPED(loom_low_func_call_purity, 1, loom_low_purity_t)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_low_func_call_effect_contract, 1, loom_callable_effect_contract_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_low_func_call_inline_policy, 2, loom_inline_policy_t)
 enum loom_low_func_call_build_flag_bits_e {
-  LOOM_LOW_FUNC_CALL_BUILD_FLAG_HAS_PURITY = 1u << 0,
+  LOOM_LOW_FUNC_CALL_BUILD_FLAG_HAS_EFFECT_CONTRACT = 1u << 0,
   LOOM_LOW_FUNC_CALL_BUILD_FLAG_HAS_INLINE_POLICY = 1u << 1,
 };
 typedef uint32_t loom_low_func_call_build_flags_t;
 iree_status_t loom_low_func_call_build(
     loom_builder_t* builder,
     loom_low_func_call_build_flags_t build_flags,
-    loom_optional uint8_t purity,
+    loom_optional uint8_t effect_contract,
     loom_optional uint8_t inline_policy,
     loom_symbol_ref_t callee,
     loom_may_consume const loom_value_id_t* operands,
@@ -519,17 +513,17 @@ LOOM_DEFINE_ISA(loom_low_invoke_isa, LOOM_OP_LOW_INVOKE)
 LOOM_DEFINE_VARIADIC_OPERANDS(loom_low_invoke_operands, 0)
 LOOM_DEFINE_VARIADIC_RESULTS(loom_low_invoke_results, 0)
 LOOM_DEFINE_ATTR_SYMBOL(loom_low_invoke_callee, 0)
-LOOM_DEFINE_ATTR_ENUM_TYPED(loom_low_invoke_purity, 1, loom_low_purity_t)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_low_invoke_effect_contract, 1, loom_callable_effect_contract_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_low_invoke_inline_policy, 2, loom_inline_policy_t)
 enum loom_low_invoke_build_flag_bits_e {
-  LOOM_LOW_INVOKE_BUILD_FLAG_HAS_PURITY = 1u << 0,
+  LOOM_LOW_INVOKE_BUILD_FLAG_HAS_EFFECT_CONTRACT = 1u << 0,
   LOOM_LOW_INVOKE_BUILD_FLAG_HAS_INLINE_POLICY = 1u << 1,
 };
 typedef uint32_t loom_low_invoke_build_flags_t;
 iree_status_t loom_low_invoke_build(
     loom_builder_t* builder,
     loom_low_invoke_build_flags_t build_flags,
-    loom_optional uint8_t purity,
+    loom_optional uint8_t effect_contract,
     loom_optional uint8_t inline_policy,
     loom_symbol_ref_t callee,
     loom_may_consume const loom_value_id_t* operands,

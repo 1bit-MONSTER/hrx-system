@@ -118,33 +118,31 @@ iree_status_t loom_cmd_program_plan_build_from_index(
   loom_kernel_request_producer_t* kernel_request_producer = NULL;
   loom_cmd_program_kernel_source_t kernel_source = {0};
   if (iree_status_is_ok(status) && source_valid && options != NULL &&
-      options->kernel_request_sink.publish != NULL &&
-      loom_cmd_program_plan_has_source_kernels(index,
-                                               &materialization.product)) {
-    status = loom_kernel_request_producer_allocate(
-        index, materialization_environment, &kernel_request_producer);
-    if (iree_status_is_ok(status)) {
-      kernel_source = (loom_cmd_program_kernel_source_t){
-          .producer = kernel_request_producer,
-          .environment = materialization_environment,
-          .source_definitions =
-              {
-                  .values =
-                      materialization.product.target_source_definitions.values,
-                  .count =
-                      materialization.product.target_source_definitions.count,
-              },
-          .collection_options = options->kernel_class_collection,
-          .sink = options->kernel_request_sink,
-      };
+      options->kernel_request_sink.publish != NULL) {
+    kernel_source = (loom_cmd_program_kernel_source_t){
+        .environment = materialization_environment,
+        .collection_options = options->kernel_class_collection,
+        .sink = options->kernel_request_sink,
+    };
+    if (loom_cmd_program_plan_has_source_kernels(index,
+                                                 &materialization.product)) {
+      status = loom_kernel_request_producer_allocate(
+          index, materialization_environment, &kernel_request_producer);
+      if (iree_status_is_ok(status)) {
+        kernel_source.producer = kernel_request_producer;
+        kernel_source.source_definitions.values =
+            materialization.product.target_source_definitions.values;
+        kernel_source.source_definitions.count =
+            materialization.product.target_source_definitions.count;
+      }
     }
   }
 
   if (iree_status_is_ok(status) && source_valid) {
     status = loom_cmd_program_plan_build_from_materialization(
         &materialization.product, target_root_refs, program_count,
-        kernel_source.producer != NULL ? &kernel_source : NULL, pass_registry,
-        cleanup_pattern_provider_set, diagnostic_emitter,
+        kernel_source.sink.publish != NULL ? &kernel_source : NULL,
+        pass_registry, cleanup_pattern_provider_set, diagnostic_emitter,
         materialization_environment->block_pool, out_valid, out_plan,
         materialization_environment->allocator);
   }

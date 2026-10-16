@@ -383,7 +383,7 @@ class LowLowerSourcePlanTest : public ::testing::Test {
     loom_op_t* function_op = nullptr;
     IREE_ASSERT_OK(loom_func_def_build(
         &module_builder, /*build_flags=*/0, /*visibility=*/0, /*retain=*/0,
-        /*cc=*/0, /*purity=*/0, /*temperature=*/0, /*inline_policy=*/0,
+        /*cc=*/0, /*effect_contract=*/0, /*temperature=*/0, /*inline_policy=*/0,
         loom_symbol_ref_null(), /*abi=*/0, loom_named_attr_slice_empty(),
         LOOM_STRING_ID_INVALID, loom_named_attr_slice_empty(), symbol,
         argument_types, IREE_ARRAYSIZE(argument_types), &i32_type, 1, nullptr,
@@ -944,7 +944,7 @@ TEST_P(LowLowerHelperPlanTest, RejectsConstraintBeforeLowConstruction) {
   }
   loom_op_t* invoke = nullptr;
   IREE_ASSERT_OK(loom_low_invoke_build(
-      &builder, /*build_flags=*/0, /*purity=*/0, /*inline_policy=*/0,
+      &builder, /*build_flags=*/0, /*effect_contract=*/0, /*inline_policy=*/0,
       helper_ref, operands, IREE_ARRAYSIZE(operands), &i32_type, 1,
       /*tied_results=*/nullptr, /*tied_result_count=*/0, LOOM_LOCATION_UNKNOWN,
       &invoke));

@@ -46,7 +46,7 @@ The compiler path produces two coupled objects from this definition:
 | Product | Role |
 | --- | --- |
 | Prepared target module | Retains the specialized device program and concrete target facts consumed by emission. |
-| Launch-config artifact | Contains a pure host function that maps authored workload arguments to the complete physical launch. |
+| Launch-config artifact | For this scalar-workload example, contains a pure host function that maps the authored workload to the complete physical launch. |
 
 Emission then turns the prepared module into the target runtime's executable
 format. The public kernel export name joins that independently loaded
@@ -140,6 +140,11 @@ argument count, types, and authored facts before returning:
 - workgroup-cluster size;
 - subgroup size; and
 - total workgroup-local storage required by the compiled kernel.
+
+This raw-bits companion ABI is intentionally the scalar, pure evaluation path.
+A configuration that reads an explicit buffer or view remains part of command
+program lowering so the compiler retains storage identity and producer
+ordering instead of pretending a device resource is a host scalar.
 
 The application consumes this result. It does not duplicate ceiling division,
 guess subgroup width, or recover shared-memory use from a kernel-name

@@ -45,6 +45,7 @@ loom_cc_test(
     deps = [
         ":cxx",
         "//loom/src/loom/codegen/low:text_asm",
+        "//loom/src/loom/error:error_defs",
         "//loom/src/loom/format/text:printer",
         "//loom/src/loom/import/cxx/source:catalog",
         "//loom/src/loom/import/cxx/source:preamble",
@@ -79,8 +80,10 @@ loom_cc_library(
     cxx_features = CXX_COMPILER_OPTIONS["cxx_features"],
     cxx_standard = CXX_COMPILER_OPTIONS["cxx_standard"],
     deps = [
+        "//loom/src/loom/analysis:callable_effect_inference",
         "//loom/src/loom/error:diagnostic",
         "//loom/src/loom/error:error_defs",
+        "//loom/src/loom/error:source",
         "//loom/src/loom/import/cxx/binding:assumptions",
         "//loom/src/loom/import/cxx/binding:check",
         "//loom/src/loom/import/cxx/binding:config",

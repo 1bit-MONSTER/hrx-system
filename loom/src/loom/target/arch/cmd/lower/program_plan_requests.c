@@ -10,7 +10,58 @@
 
 #include "loom/ir/module.h"
 #include "loom/link/module_index.h"
+#include "loom/ops/kernel/ops.h"
 #include "loom/ops/op_defs.h"
+#include "loom/rewrite/module_projection.h"
+
+static uint32_t loom_cmd_program_plan_append_source_requirement(
+    loom_cmd_program_plan_t* plan, const loom_op_t* declaration_op) {
+  IREE_ASSERT_LT(plan->entry_requirement_count, UINT32_MAX);
+  const uint32_t requirement_index = (uint32_t)plan->entry_requirement_count++;
+  plan->entry_requirements[requirement_index] =
+      (loom_cmd_entry_requirement_t){.declaration_op = declaration_op};
+  return requirement_index;
+}
+
+iree_status_t loom_cmd_program_kernel_request_materialize(
+    const loom_cmd_program_kernel_request_t* request,
+    iree_arena_block_pool_t* block_pool, iree_allocator_t allocator,
+    loom_kernel_class_product_t* out_product) {
+  IREE_ASSERT_ARGUMENT(request);
+  IREE_ASSERT_ARGUMENT(block_pool);
+  IREE_ASSERT_ARGUMENT(out_product);
+  *out_product = (loom_kernel_class_product_t){0};
+
+  switch (request->kind) {
+    case LOOM_CMD_PROGRAM_KERNEL_REQUEST_KIND_INDEXED:
+      IREE_ASSERT_ARGUMENT(request->source.indexed);
+      return loom_kernel_request_materialize(
+          request->source.indexed, block_pool, allocator, out_product);
+    case LOOM_CMD_PROGRAM_KERNEL_REQUEST_KIND_GENERATED: {
+      IREE_ASSERT_ARGUMENT(request->source.generated);
+      IREE_ASSERT_ARGUMENT(request->source.generated->module);
+      IREE_ASSERT(loom_symbol_ref_is_valid(request->source.generated->kernel));
+      iree_arena_allocator_t scratch_arena;
+      iree_arena_initialize(block_pool, &scratch_arena);
+      loom_ir_module_projection_t projection = {0};
+      loom_module_t* cloned_module = NULL;
+      iree_status_t status = loom_ir_module_clone(
+          request->source.generated->module, /*options=*/NULL, block_pool,
+          &scratch_arena, allocator, &projection, &cloned_module);
+      if (iree_status_is_ok(status)) {
+        *out_product = (loom_kernel_class_product_t){
+            .module = cloned_module,
+            .kernel = loom_ir_module_projection_target_symbol(
+                &projection, request->source.generated->kernel.symbol_id),
+        };
+      }
+      iree_arena_deinitialize(&scratch_arena);
+      return status;
+    }
+  }
+  IREE_ASSERT_UNREACHABLE();
+  return iree_ok_status();
+}
 
 typedef struct loom_cmd_program_kernel_request_bridge_t {
   // Plan receiving one requirement per published semantic class.
@@ -34,20 +85,17 @@ static iree_status_t loom_cmd_program_kernel_request_publish(
     void* user_data, const loom_kernel_request_t* source_request) {
   loom_cmd_program_kernel_request_bridge_t* bridge =
       (loom_cmd_program_kernel_request_bridge_t*)user_data;
-  IREE_ASSERT_LT(bridge->plan->entry_requirement_count, UINT32_MAX);
   const uint32_t requirement_index =
-      (uint32_t)bridge->plan->entry_requirement_count++;
-  bridge->plan->entry_requirements[requirement_index] =
-      (loom_cmd_entry_requirement_t){
-          .declaration_op = bridge->declaration_op,
-      };
+      loom_cmd_program_plan_append_source_requirement(bridge->plan,
+                                                      bridge->declaration_op);
   IREE_ASSERT_LT(source_request->class_ordinal, bridge->class_capacity);
   bridge->requirement_by_class[source_request->class_ordinal] =
       requirement_index;
 
   const loom_cmd_program_kernel_request_t request = {
       .entry_requirement_index = requirement_index,
-      .kernel_request = source_request,
+      .kind = LOOM_CMD_PROGRAM_KERNEL_REQUEST_KIND_INDEXED,
+      .source.indexed = source_request,
   };
   return bridge->sink.publish(bridge->sink.user_data, &request);
 }
@@ -82,13 +130,7 @@ iree_status_t loom_cmd_program_plan_publish_kernel_requests(
        ++root_ordinal) {
     loom_cmd_program_kernel_site_root_t* root = &roots[root_ordinal];
     const iree_host_size_t command_count = root->schedule->command_count;
-    if (command_count != 0) {
-      IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
-          scratch_arena, command_count, sizeof(*root->requirement_indices),
-          (void**)&root->requirement_indices));
-      memset(root->requirement_indices, 0xFF,
-             command_count * sizeof(*root->requirement_indices));
-    }
+    IREE_ASSERT(command_count == 0 || root->requirement_indices != NULL);
     for (iree_host_size_t command_ordinal = 0; command_ordinal < command_count;
          ++command_ordinal) {
       const loom_cmd_schedule_command_t* command =
@@ -199,6 +241,67 @@ iree_status_t loom_cmd_program_plan_publish_kernel_requests(
           requirement_by_class[class_ordinal];
     }
     iree_arena_checkpoint_restore(&kernel_checkpoint);
+  }
+  return iree_ok_status();
+}
+
+iree_status_t loom_cmd_program_plan_publish_generated_kernel_requests(
+    loom_cmd_program_plan_t* plan, const loom_module_t* plan_module,
+    const loom_cmd_launch_count_realization_t* realization,
+    loom_cmd_program_kernel_request_sink_t sink,
+    loom_cmd_program_kernel_site_root_t* roots, iree_host_size_t root_count,
+    iree_arena_allocator_t* scratch_arena) {
+  IREE_ASSERT_ARGUMENT(plan);
+  IREE_ASSERT_ARGUMENT(plan_module);
+  IREE_ASSERT_ARGUMENT(realization);
+  IREE_ASSERT_GT(realization->kernel_count, 0u);
+  IREE_ASSERT_EQ(realization->symbol_count, plan_module->symbols.count);
+  IREE_ASSERT_ARGUMENT(sink.publish);
+  IREE_ASSERT_ARGUMENT(roots);
+  IREE_ASSERT_GT(root_count, 0u);
+  IREE_ASSERT_ARGUMENT(scratch_arena);
+
+  uint32_t* requirement_by_symbol = NULL;
+  IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
+      scratch_arena, realization->symbol_count, sizeof(*requirement_by_symbol),
+      (void**)&requirement_by_symbol));
+  memset(requirement_by_symbol, 0xFF,
+         realization->symbol_count * sizeof(*requirement_by_symbol));
+
+  for (iree_host_size_t root_ordinal = 0; root_ordinal < root_count;
+       ++root_ordinal) {
+    loom_cmd_program_kernel_site_root_t* root = &roots[root_ordinal];
+    IREE_ASSERT(root->schedule->command_count == 0 ||
+                root->requirement_indices != NULL);
+    for (iree_host_size_t command_ordinal = 0;
+         command_ordinal < root->schedule->command_count; ++command_ordinal) {
+      const loom_cmd_schedule_command_t* command =
+          &root->schedule->commands[command_ordinal];
+      const loom_cmd_launch_count_kernel_t* generated =
+          loom_cmd_launch_count_realization_lookup(realization,
+                                                   command->callee);
+      if (generated == NULL) {
+        continue;
+      }
+      uint32_t requirement_index =
+          requirement_by_symbol[command->callee.symbol_id];
+      if (requirement_index == UINT32_MAX) {
+        const loom_op_t* declaration_op =
+            plan_module->symbols.entries[command->callee.symbol_id].defining_op;
+        IREE_ASSERT(loom_kernel_entry_decl_isa(declaration_op));
+        requirement_index = loom_cmd_program_plan_append_source_requirement(
+            plan, declaration_op);
+        requirement_by_symbol[command->callee.symbol_id] = requirement_index;
+
+        const loom_cmd_program_kernel_request_t request = {
+            .entry_requirement_index = requirement_index,
+            .kind = LOOM_CMD_PROGRAM_KERNEL_REQUEST_KIND_GENERATED,
+            .source.generated = &generated->product,
+        };
+        IREE_RETURN_IF_ERROR(sink.publish(sink.user_data, &request));
+      }
+      root->requirement_indices[command_ordinal] = requirement_index;
+    }
   }
   return iree_ok_status();
 }

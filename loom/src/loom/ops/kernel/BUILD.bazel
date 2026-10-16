@@ -18,10 +18,12 @@ loom_generated_cc_library(
         "canonicalize.c",
         "facts.c",
         "launch_config.c",
+        "launch_config_contract.c",
         "verify.c",
     ],
     hdrs = [
         "launch_config.h",
+        "launch_config_contract.h",
         "ops.h",
     ],
     args = ["--dialect=kernel"],
@@ -40,6 +42,7 @@ loom_generated_cc_library(
     deps = [
         "//loom/src/loom/analysis:control_uniformity",
         "//loom/src/loom/analysis:symbol_facts",
+        "//loom/src/loom/analysis:value_relation",
         "//loom/src/loom/error:emitter",
         "//loom/src/loom/error:error_defs",
         "//loom/src/loom/error:parameter",
@@ -47,6 +50,7 @@ loom_generated_cc_library(
         "//loom/src/loom/ir:facts",
         "//loom/src/loom/ops:atomic",
         "//loom/src/loom/ops:cache",
+        "//loom/src/loom/ops:callable_effects",
         "//loom/src/loom/ops:combining",
         "//loom/src/loom/ops:func_symbol_facts",
         "//loom/src/loom/ops:function_contract_verify",
@@ -63,8 +67,11 @@ loom_generated_cc_library(
         "//loom/src/loom/target:facts",
         "//loom/src/loom/target:types",
         "//loom/src/loom/util:fact_table",
+        "//loom/src/loom/util:reference_facts",
         "//loom/src/loom/util:walk",
+        "//runtime/src/iree/base",
         "//runtime/src/iree/base/internal",
+        "//runtime/src/iree/base/internal:arena",
     ],
 )
 

@@ -52,3 +52,46 @@ func.def pure @pure_body_rejects_observable() {
   %dead = test.effectful_constant 42 : i32
   func.return
 }
+
+// ====
+
+// A read-only definition may derive values from memory while preserving the
+// deterministic, non-writing boundary promised to callers.
+func.def readonly @readonly_body_accepts_load(%buffer: buffer, %offset: offset) -> (f32) {
+  %layout = encoding.layout.dense : encoding<layout>
+  %view = buffer.view %buffer[%offset] : buffer -> view<1xf32, %layout>
+  %value = view.load %view[0] : view<1xf32, %layout> -> f32
+  func.return %value : f32
+}
+
+// ====
+
+// The same contract rejects writes even though reads are permitted.
+// ERROR@+1: STRUCTURE/017 {contract_name="readonly"}
+func.def readonly @readonly_body_rejects_store(%buffer: buffer, %offset: offset, %value: f32) {
+  %layout = encoding.layout.dense : encoding<layout>
+  %view = buffer.view %buffer[%offset] : buffer -> view<1xf32, %layout>
+  view.store %value, %view[0] : f32, view<1xf32, %layout>
+  func.return
+}
+
+// ====
+
+// Unknown calls cannot be hidden behind a read-only boundary.
+func.decl @unknown_effect()
+
+// ERROR@+1: STRUCTURE/017 {contract_name="readonly"}
+func.def readonly @readonly_body_rejects_unknown_call() {
+  func.call @unknown_effect() : ()
+  func.return
+}
+
+// ====
+
+// Fresh allocation has no read or write summary, but each execution produces
+// a distinct identity. The read-only contract must preserve that distinction.
+// ERROR@+1: STRUCTURE/017 {contract_name="readonly"}
+func.def readonly @readonly_body_rejects_unique_identity(%bytes: offset) {
+  %storage = buffer.alloca<private> align(4) %bytes : buffer
+  func.return
+}

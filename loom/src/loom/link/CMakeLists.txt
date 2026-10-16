@@ -34,6 +34,7 @@ loom_cc_library(
     iree::base
     iree::base::internal::arena
     loom::ir
+    loom::ops::callable_effects
     loom::ops::op_defs
     loom::rewrite::remap
   PUBLIC

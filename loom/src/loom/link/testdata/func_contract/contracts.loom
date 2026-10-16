@@ -4,6 +4,12 @@ func.decl @selected(%value: i32) -> (i32)
 
 func.decl pure cold inline @field_mismatch(%value: i32) -> (i32)
 
+func.decl readonly hot inline @readonly_source(%value: i32) -> (i32)
+
+func.decl pure hot inline @pure_selected(%value: i32) -> (i32)
+
+func.decl readonly hot inline @readonly_selected(%value: i32) -> (i32)
+
 func.decl @argument_count_mismatch(%lhs: i32, %rhs: i32) -> (i32)
 
 func.decl @argument_type_mismatch(%value: f32) -> (i32)

@@ -75,7 +75,7 @@ unsigned entry(const unsigned* input, unsigned start) {
 }
 // ----
 func.def public @entry(%input: buffer, %input_byte_offset: offset, %start: i32) -> (i32) {
-  %total$4 = func.call @sum_320_4(%input, %input_byte_offset, %start) : (buffer, offset, i32) -> (i32)
+  %total$4 = func.call readonly @sum_320_4(%input, %input_byte_offset, %start) : (buffer, offset, i32) -> (i32)
   %5 = index.cast %start : i32 to offset
   %6 = scalar.constant 20 : i32
   %7 = index.cast %6 : i32 to offset
@@ -165,7 +165,7 @@ unsigned entry(unsigned count, unsigned factor, unsigned long long depth) {
 }
 // ----
 func.def public @entry(%count: i32, %factor: i32, %depth: i64) -> (i32) {
-  %4 = func.call @sum(%count, %factor, %depth) : (i32, i32, i64) -> (i32)
+  %4 = func.call pure @sum(%count, %factor, %depth) : (i32, i32, i64) -> (i32)
   func.return %4 : i32
 }
 

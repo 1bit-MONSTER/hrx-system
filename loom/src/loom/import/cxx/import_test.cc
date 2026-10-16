@@ -13,6 +13,7 @@
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
 #include "loom/codegen/low/text_asm.h"
+#include "loom/error/error_catalog.h"
 #include "loom/format/text/printer.h"
 #include "loom/import/cxx/source/catalog.h"
 #include "loom/ops/op_registry.h"
@@ -66,6 +67,7 @@ class ImportTest : public ::testing::Test {
                                          const loom_diagnostic_t* diagnostic) {
     auto& self = *static_cast<ImportTest*>(user_data);
     ++self.diagnostic_count_;
+    self.diagnostic_ref_ = loom_error_def_ref(diagnostic->error);
     auto filename = diagnostic->source_location.filename;
     self.diagnostic_filename_.assign(filename.data ? filename.data : "",
                                      filename.size);
@@ -101,6 +103,8 @@ class ImportTest : public ::testing::Test {
   loom_cxx_preamble_t* preamble_ = nullptr;
   // Number of callbacks delivered by the source diagnostic boundary.
   int diagnostic_count_ = 0;
+  // Structured identity of the most recently delivered diagnostic.
+  loom_error_ref_t diagnostic_ref_ = LOOM_ERROR_REF_NONE;
   // Copied source identity retained after the frontend is destroyed.
   std::string diagnostic_filename_;
   // Copied source bytes retained after the frontend is destroyed.
@@ -153,7 +157,7 @@ TEST_F(ImportTest, ExplicitSymbolNamesOutliveSource) {
   auto text = Print();
   EXPECT_NE(text.find("func.def public @library.entry"), std::string::npos);
   EXPECT_NE(text.find("func.def @library.helper"), std::string::npos);
-  EXPECT_NE(text.find("func.call @library.helper"), std::string::npos);
+  EXPECT_NE(text.find("func.call pure @library.helper"), std::string::npos);
   EXPECT_EQ(diagnostic_count_, 0);
 }
 
@@ -172,7 +176,7 @@ TEST_F(ImportTest, RecordComponentsOutliveSourceAndFunctionBindingStorage) {
   source.assign(source.size(), '?');
   auto text = Print();
   EXPECT_NE(text.find("-> (i32, buffer, offset, i1)"), std::string::npos);
-  EXPECT_NE(text.find("func.call @advance"), std::string::npos);
+  EXPECT_NE(text.find("func.call pure @advance"), std::string::npos);
   EXPECT_NE(text.find("func.def public @consume"), std::string::npos);
   EXPECT_EQ(diagnostic_count_, 0);
 }
@@ -274,7 +278,7 @@ TEST_F(ImportTest, PreambleRestoresHeaderIRAndExactSourceWithoutProviderCalls) {
   IREE_ASSERT_OK(Import(source));
   ASSERT_NE(module_, nullptr);
   const std::string cold = Print();
-  EXPECT_NE(cold.find("low.invoke inline"), std::string::npos);
+  EXPECT_NE(cold.find("low.invoke pure inline"), std::string::npos);
   EXPECT_NE(cold.find("low.func.def target<test.low.core>"), std::string::npos);
   IREE_ASSERT_OK(loom_cxx_preamble_create(source, IREE_SV("/app/source.cpp"),
                                           &options_, iree_allocator_system(),
@@ -415,6 +419,21 @@ TEST_F(ImportTest, UnsupportedSourceHasDiagnosticInsteadOfInvalidModule) {
   EXPECT_EQ(module_, nullptr);
   EXPECT_EQ(diagnostic_count_, 1);
   EXPECT_EQ(diagnostic_filename_, "/app/source.cpp");
+}
+
+TEST_F(ImportTest, VerificationRejectsSourceWithoutPublishingPartialModule) {
+  IREE_ASSERT_OK(Import(IREE_SV(
+      "#include <loomcxx/kernel.h>\n"
+      "static loom::kernel::configuration configure(unsigned* count) {\n"
+      "  *count = 1;\n"
+      "  return {{*count, 1, 1}, {1, 1, 1}};\n"
+      "}\n"
+      "[[loom::kernel(configure)]] void entry() {}\n")));
+  EXPECT_EQ(module_, nullptr);
+  EXPECT_EQ(diagnostic_count_, 1);
+  EXPECT_EQ(diagnostic_ref_, LOOM_ERR_STRUCTURE_058_REF);
+  EXPECT_EQ(diagnostic_filename_, "/app/source.cpp");
+  EXPECT_NE(diagnostic_source_.find("*count = 1"), std::string::npos);
 }
 
 TEST_F(ImportTest, SinkFailurePropagates) {

@@ -27,7 +27,7 @@ kernel.def @buffers() {
   %7 = index.constant 1 : index
   kernel.launch.config workgroups(%2, %3, %4) workgroup_size(%5, %6, %7) : index
 } launch(%input: buffer, %output: buffer) {
-  %retained = func.call @forward(%input) : (buffer) -> (buffer)
+  %retained = func.call pure @forward(%input) : (buffer) -> (buffer)
   %source_layout = encoding.layout.dense : encoding<layout>
   %10 = index.constant 0 : offset
   %source = buffer.view %retained[%10] : buffer -> view<4xi32, %source_layout>
@@ -133,7 +133,7 @@ kernel.def @vectors() {
   kernel.launch.config workgroups(%4, %5, %6) workgroup_size(%7, %8, %9) : index
 } launch(%semantic: vector<4xi32>, %native: vector<4xi32>, %seed: i32, %output: buffer) {
   %output_byte_offset = index.constant 0 : offset
-  %11 = func.call @forward(%semantic) : (vector<4xi32>) -> (vector<4xi32>)
+  %11 = func.call pure @forward(%semantic) : (vector<4xi32>) -> (vector<4xi32>)
   %12 = vector.reduce<addi> %11, %seed : vector<4xi32>, i32
   %13 = scalar.constant 0 : i32
   %14 = scalar.extsi %13 : i32 to i64
@@ -193,7 +193,7 @@ kernel.def @handles() {
   %7 = index.constant 1 : index
   kernel.launch.config workgroups(%2, %3, %4) workgroup_size(%5, %6, %7) : index
 } launch(%tensor: tensor<4xi32>, %group: kernel.async.group) {
-  func.call @consume(%tensor, %group) : (tensor<4xi32>, kernel.async.group)
+  func.call pure @consume(%tensor, %group) : (tensor<4xi32>, kernel.async.group)
   kernel.return
 }
 
@@ -233,7 +233,7 @@ kernel.def @pointers() {
   %16 = scalar.addi %15, %14 : i64
   %17 = scalar.assume %16 [range(%16, 0, 9223372036854775807)] : i64
   %18 = index.cast %17 : i64 to offset
-  %19 = func.call @read(%input, %18) : (buffer, offset) -> (i32)
+  %19 = func.call readonly @read(%input, %18) : (buffer, offset) -> (i32)
   %20 = scalar.addi %19, %increment : i32
   %21 = scalar.constant 0 : i32
   %22 = scalar.extsi %21 : i32 to i64

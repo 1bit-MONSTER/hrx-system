@@ -54,6 +54,36 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "launch_count_realization",
+    srcs = ["launch_count_realization.c"],
+    hdrs = ["launch_count_realization.h"],
+    deps = [
+        "//loom/src/loom/analysis:liveness_uses",
+        "//loom/src/loom/error:emitter",
+        "//loom/src/loom/error:error_defs",
+        "//loom/src/loom/error:parameter",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ir:facts",
+        "//loom/src/loom/link:linker",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/ops:special_values",
+        "//loom/src/loom/ops/buffer",
+        "//loom/src/loom/ops/command",
+        "//loom/src/loom/ops/index",
+        "//loom/src/loom/ops/kernel",
+        "//loom/src/loom/ops/view",
+        "//loom/src/loom/rewrite:materialize",
+        "//loom/src/loom/rewrite:remap",
+        "//loom/src/loom/rewrite:rewriter",
+        "//loom/src/loom/transforms/kernel:kernel_class_materializer",
+        "//loom/src/loom/util:dominance",
+        "//loom/src/loom/util:fact_table",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_library(
     name = "lower",
     srcs = ["lower.c"],
     hdrs = ["lower.h"],
@@ -126,6 +156,7 @@ loom_cc_library(
     visibility = ["//loom/src/loom/target/arch/cmd:__subpackages__"],
     deps = [
         ":dispatch_counts",
+        ":launch_count_realization",
         ":lower",
         ":parameters",
         ":schedule",
@@ -145,6 +176,7 @@ loom_cc_library(
         "//loom/src/loom/pass:interpreter",
         "//loom/src/loom/pass:program",
         "//loom/src/loom/pass:registry",
+        "//loom/src/loom/rewrite:module_projection",
         "//loom/src/loom/target/arch/cmd:abi_layout",
         "//loom/src/loom/target/arch/cmd:program",
         "//loom/src/loom/transforms/cleanup:pass_environment",
@@ -201,8 +233,8 @@ loom_cc_library(
     ],
 )
 
-# The program-plan C++ test covers ownership after the source module is
-# released. Compiler transformations are covered textually through loom-check.
+# The program-plan C++ test covers ownership after source release and generated
+# source extraction. Portable command lowering is covered through loom-check.
 loom_cc_test(
     name = "program_plan_test",
     srcs = ["program_plan_test.cc"],
@@ -216,8 +248,12 @@ loom_cc_test(
         "//loom/src/loom/ir",
         "//loom/src/loom/link:module_index",
         "//loom/src/loom/ops:op_registry",
+        "//loom/src/loom/ops/buffer",
         "//loom/src/loom/ops/index",
+        "//loom/src/loom/ops/kernel",
         "//loom/src/loom/ops/low",
+        "//loom/src/loom/ops/test",
+        "//loom/src/loom/ops/view",
         "//loom/src/loom/pass:builtin_registry",
         "//loom/src/loom/target/arch/cmd:artifact_set",
         "//loom/src/loom/target/arch/cmd:program",

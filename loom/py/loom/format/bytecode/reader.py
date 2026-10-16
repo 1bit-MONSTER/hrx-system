@@ -133,8 +133,8 @@ _FUNC_CC_BYTES: list[str | None] = [
     "deinitializer",
 ]
 
-# Maps the purity byte to a purity attribute string.
-_FUNC_PURITY_BYTES: list[str | None] = [None, "pure"]
+# Maps the callable effect-contract byte to its attribute spelling.
+_FUNC_EFFECT_CONTRACT_BYTES: list[str | None] = [None, "pure", "readonly"]
 
 # Bytecode-only flag bit recording whether an import explicitly wrote its
 # source symbol, even when the source name matches the local symbol name.
@@ -1212,7 +1212,7 @@ class BytecodeReader:
 
                 cc_byte = sym_data[offset]
                 offset += 1
-                purity_byte = sym_data[offset]
+                effect_contract_byte = sym_data[offset]
                 offset += 1
                 workload_arg_count, offset = decode_varint(sym_data, offset)
                 arg_count, offset = decode_varint(sym_data, offset)
@@ -1318,13 +1318,13 @@ class BytecodeReader:
                 )
                 if cc_str is not None:
                     op_attrs["cc"] = cc_str
-                purity_str = (
-                    _FUNC_PURITY_BYTES[purity_byte]
-                    if purity_byte < len(_FUNC_PURITY_BYTES)
+                effect_contract_str = (
+                    _FUNC_EFFECT_CONTRACT_BYTES[effect_contract_byte]
+                    if effect_contract_byte < len(_FUNC_EFFECT_CONTRACT_BYTES)
                     else None
                 )
-                if purity_str is not None:
-                    op_attrs["purity"] = purity_str
+                if effect_contract_str is not None:
+                    op_attrs["effect_contract"] = effect_contract_str
                 if predicates_attr_name is not None:
                     op_attrs[predicates_attr_name] = predicates
                 if source_module:
@@ -1710,7 +1710,7 @@ class BytecodeReader:
         }
         func_like = func_like_interface_for_op(self._op_decls_by_name, op_name)
         if func_like is not None:
-            for field_name in ("visibility", "cc", "purity", "predicates"):
+            for field_name in ("visibility", "cc", "effect_contract", "predicates"):
                 attr_name = getattr(func_like, field_name, None)
                 if attr_name is not None:
                     keys.add(attr_name)

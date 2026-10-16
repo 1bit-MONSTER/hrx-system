@@ -1191,7 +1191,7 @@ class TestInterfaces:
         assert interface.callee == "callee"
         assert interface.operands == "operands"
         assert interface.results is None
-        assert interface.purity is None
+        assert interface.effect_contract is None
         assert interface.kind == CallLikeKind.SEMANTIC
 
     def test_call_like_kind_values(self) -> None:
@@ -3379,7 +3379,7 @@ class TestOwnershipEffects:
         with _raises(ValueError, match="SAFE_TO_SPECULATE.*CONVERGENT"):
             Op("test.bad", traits=[SAFE_TO_SPECULATE, CONVERGENT])
 
-    def test_contextual_is_independent_of_purity(self) -> None:
+    def test_contextual_is_independent_of_effect_contract(self) -> None:
         op = Op("test.contextual", traits=[PURE, dsl.CONTEXTUAL])
         assert dsl.CONTEXTUAL in op.traits
         assert PURE in op.traits

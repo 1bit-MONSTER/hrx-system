@@ -132,7 +132,7 @@ func.def public device @semantic() {
   EXPECT_TRUE(facts->has_body);
   EXPECT_EQ(facts->visibility, 1);
   EXPECT_EQ(facts->calling_convention, 2);
-  EXPECT_EQ(facts->purity, 0);
+  EXPECT_EQ(facts->effect_contract, 0);
   EXPECT_EQ(facts->temperature, 0);
   EXPECT_EQ(facts->inline_policy, 0);
   EXPECT_FALSE(loom_symbol_ref_is_valid(facts->template_family));
@@ -161,7 +161,7 @@ template.def<@qwen.q4.matmul> public device pure hot requires [#target.subgroup.
   EXPECT_TRUE(facts->has_body);
   EXPECT_EQ(facts->visibility, 1);
   EXPECT_EQ(facts->calling_convention, 2);
-  EXPECT_EQ(facts->purity, 1);
+  EXPECT_EQ(facts->effect_contract, 1);
   EXPECT_EQ(facts->temperature, 1);
   EXPECT_EQ(facts->inline_policy, 0);
   ASSERT_TRUE(loom_symbol_ref_is_valid(facts->template_family));

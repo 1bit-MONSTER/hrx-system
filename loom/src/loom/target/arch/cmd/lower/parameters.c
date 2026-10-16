@@ -246,36 +246,56 @@ static iree_status_t loom_cmd_parameter_reserve_buffer_range(
                                (void**)&build->buffer_ranges);
 }
 
-static iree_status_t loom_cmd_parameter_append_exact_view_ranges(
+static iree_status_t loom_cmd_parameter_append_projected_ranges(
     loom_cmd_parameter_build_t* build, const loom_op_t* op) {
   const loom_value_id_t* results = loom_op_const_results(op);
   for (uint16_t i = 0; i < op->result_count; ++i) {
     const loom_value_id_t result = results[i];
-    loom_value_fact_view_reference_t view_reference = {0};
-    if (!loom_value_facts_query_view_reference(
-            &build->fact_table->context,
-            loom_value_fact_table_lookup(build->fact_table, result),
-            &view_reference)) {
+    const loom_value_facts_t result_facts =
+        loom_value_fact_table_lookup(build->fact_table, result);
+    loom_value_id_t root_value = LOOM_VALUE_ID_INVALID;
+    iree_host_size_t parameter_row = 0;
+    uint64_t byte_offset = 0;
+    uint64_t byte_length = UINT64_MAX;
+
+    const loom_type_t result_type =
+        loom_module_value_type(build->module, result);
+    if (loom_type_is_view(result_type)) {
+      loom_value_fact_view_reference_t view_reference = {0};
+      if (!loom_value_facts_query_view_reference(
+              &build->fact_table->context, result_facts, &view_reference)) {
+        continue;
+      }
+      int64_t exact_byte_offset = 0;
+      int64_t exact_byte_length = 0;
+      if (!loom_value_facts_as_exact_i64(view_reference.base_byte_offset,
+                                         &exact_byte_offset) ||
+          !loom_value_facts_as_exact_i64(view_reference.footprint_byte_length,
+                                         &exact_byte_length) ||
+          exact_byte_offset < 0 || exact_byte_length < 0) {
+        continue;
+      }
+      root_value = loom_value_fact_view_reference_resolve_root_value(
+          view_reference, result);
+      const loom_value_ordinal_t parameter_ordinal =
+          loom_module_value_ordinal_scratch_lookup(build->module, root_value);
+      parameter_row = parameter_ordinal != LOOM_VALUE_ORDINAL_INVALID
+                          ? (iree_host_size_t)parameter_ordinal + 1
+                          : 0;
+      byte_offset = (uint64_t)exact_byte_offset;
+      byte_length = (uint64_t)exact_byte_length;
+    } else if (loom_type_is_buffer(result_type)) {
+      loom_value_fact_buffer_reference_t buffer_reference = {0};
+      if (!loom_value_facts_query_buffer_reference(
+              &build->fact_table->context, result_facts, &buffer_reference)) {
+        continue;
+      }
+      root_value = loom_value_fact_buffer_reference_resolve_root_value(
+          buffer_reference, result);
+    } else {
       continue;
     }
-    int64_t exact_byte_offset = 0;
-    int64_t exact_byte_length = 0;
-    if (!loom_value_facts_as_exact_i64(view_reference.base_byte_offset,
-                                       &exact_byte_offset) ||
-        !loom_value_facts_as_exact_i64(view_reference.footprint_byte_length,
-                                       &exact_byte_length) ||
-        exact_byte_offset < 0 || exact_byte_length < 0) {
-      continue;
-    }
-    const loom_value_id_t root_value =
-        loom_value_fact_view_reference_resolve_root_value(view_reference,
-                                                          result);
-    const loom_value_ordinal_t parameter_ordinal =
-        loom_module_value_ordinal_scratch_lookup(build->module, root_value);
-    const iree_host_size_t parameter_row =
-        parameter_ordinal != LOOM_VALUE_ORDINAL_INVALID
-            ? (iree_host_size_t)parameter_ordinal + 1
-            : 0;
+
     const uint16_t source_binding_ordinal =
         parameter_row != 0
             ? build->rows[parameter_row - 1].source_binding_ordinal
@@ -289,8 +309,8 @@ static iree_status_t loom_cmd_parameter_append_exact_view_ranges(
             .source_value = result,
             .source_binding_ordinal = source_binding_ordinal,
             .parameter_row = parameter_row,
-            .byte_offset = (uint64_t)exact_byte_offset,
-            .byte_length = (uint64_t)exact_byte_length,
+            .byte_offset = byte_offset,
+            .byte_length = byte_length,
         };
   }
   return iree_ok_status();
@@ -303,7 +323,7 @@ static iree_status_t loom_cmd_parameter_visit(
   *out_result = LOOM_WALK_CONTINUE;
   loom_cmd_parameter_build_t* build = (loom_cmd_parameter_build_t*)user_data;
   if (!loom_command_parameter_isa(op)) {
-    return loom_cmd_parameter_append_exact_view_ranges(build, op);
+    return loom_cmd_parameter_append_projected_ranges(build, op);
   }
 
   const uint16_t source_binding_ordinal =

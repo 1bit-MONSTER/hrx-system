@@ -130,8 +130,8 @@ typedef struct loom_bytecode_symbol_metadata_t {
   uint32_t defining_op_ordinal;
   // Function-like calling convention byte, or zero for non-function symbols.
   uint8_t calling_convention;
-  // Function-like purity byte, or zero for non-function symbols.
-  uint8_t purity;
+  // Function-like effect-contract byte, or zero for non-function symbols.
+  uint8_t effect_contract;
   // Kernel workload argument count, or zero for ordinary functions.
   uint16_t kernel_workload_argument_count;
   // Function-like argument count, or zero for non-function symbols.

@@ -19,40 +19,43 @@
 extern "C" {
 #endif
 
-// Dense derived entry operations indexed by pre-resolution logical symbol ID.
-//
-// Operation pointers remain stable across symbol-table compaction. The entry's
-// callee accessor returns its current module-local identity after each
-// compaction, allowing external analysis projections to follow the entry
-// without storing unstable symbol ordinals in IR.
-typedef struct loom_kernel_launch_entry_table_t {
-  // Scratch-arena-owned entry operation pointers. NULL slots were not live.
-  loom_op_t** values;
+// Results retained while resolving logical kernel launches.
+typedef struct loom_kernel_launch_resolution_t {
+  // Scratch-arena-owned entry operation pointers indexed by pre-resolution
+  // logical symbol ID. NULL slots were not live. Operation pointers remain
+  // stable across symbol-table compaction; the entry's callee accessor returns
+  // its current module-local identity after each compaction.
+  loom_op_t** entry_ops;
 
   // Number of pre-resolution module symbol slots.
-  iree_host_size_t count;
-} loom_kernel_launch_entry_table_t;
+  iree_host_size_t entry_count;
+
+  // True when an actual rewritten launch used a deterministic read-only
+  // configuration. Downstream planning consumes this retained result instead
+  // of rediscovering configuration effects after inlining.
+  bool has_readonly_launches;
+} loom_kernel_launch_resolution_t;
 
 // Resolves every logical kernel launch recorded in |references|.
 //
 // |configuration_functions| is a dense prefix projection indexed by the
 // module-local logical-kernel symbol IDs present when linking completed. Each
-// valid entry names a private pure function accepting the kernel workload
-// signature and returning exact XYZ workgroup counts. Caller-owned target
-// specialization may append symbols while preserving every linked symbol ID;
-// those appended symbols intentionally lie outside the projection. The
-// transform inserts ordinary pure calls at their caller-owned CFG sites,
-// derives one executable-entry declaration per logical kernel, and replaces
-// each kernel.launch with a kernel.dispatch targeting that entry.
+// valid entry names a private pure or deterministic read-only function
+// accepting the kernel workload signature and returning exact XYZ workgroup
+// counts. Caller-owned target specialization may append symbols while
+// preserving every linked symbol ID; those appended symbols intentionally lie
+// outside the projection. The transform inserts ordinary calls at their
+// caller-owned CFG sites, derives one executable-entry declaration per logical
+// kernel, and replaces each kernel.launch with a kernel.dispatch targeting that
+// entry.
 // Kernel-scoped pipelines retain their logical launches and declaration in
 // the entry table: their workload prefix specializes an independently compiled
 // artifact and does not compute a physical dispatch grid.
 //
-// Calls for launches nested only in kernel launch-schedule regions are placed
-// immediately before the outermost schedule. Schedule regions describe command
-// ordering and cannot contain ordinary computation; their launch operands are
-// necessarily defined outside the schedule. Calls otherwise remain in the
-// launch's original control-flow scope.
+// Pure calls cross containing launch-schedule regions only while every workload
+// is defined outside the crossed region. Read-only calls remain at the lexical
+// launch so they cannot move ahead of command producers. Ordinary CFG parents
+// keep both kinds of calls in the launch's original control-flow scope.
 //
 // The immutable reference table must describe |module| immediately before the
 // transform begins. It is stale after any launch is replaced. Callers may
@@ -68,7 +71,7 @@ iree_status_t loom_kernel_resolve_launches(
     iree_host_size_t configuration_function_count,
     iree_diagnostic_emitter_t diagnostic_emitter,
     iree_arena_allocator_t* scratch_arena,
-    loom_kernel_launch_entry_table_t* out_entry_table, bool* out_valid);
+    loom_kernel_launch_resolution_t* out_resolution, bool* out_valid);
 
 #ifdef __cplusplus
 }  // extern "C"

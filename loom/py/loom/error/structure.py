@@ -237,25 +237,29 @@ ERR_STRUCTURE_016 = ErrorDef(
     fix_hint="Remove one of the incompatible traits from '{op_name}'",
 )
 
-# ERR_STRUCTURE_017: Pure function body has effects.
+# ERR_STRUCTURE_017: Callable body violates its effect contract.
 ERR_STRUCTURE_017 = ErrorDef(
     domain=ErrorDomain.STRUCTURE,
     code=17,
     severity=Severity.ERROR,
-    summary="Pure function body has effects.",
+    summary="Callable body violates its effect contract.",
     message=(
-        "'{op_name}' declares pure but its body has {read_count} read-like, "
-        "{write_count} write-like, {convergent_count} convergent, and "
-        "{observable_count} independently observable effect(s)"
+        "'{op_name}' declares {contract_name} but its body has {read_count} "
+        "read-like, {write_count} write-like, {convergent_count} convergent, "
+        "and {observable_count} independently observable effect(s)"
     ),
     params=(
         ErrorParam("op_name", ParamKind.STRING),
+        ErrorParam("contract_name", ParamKind.STRING),
         ErrorParam("read_count", ParamKind.U32),
         ErrorParam("write_count", ParamKind.U32),
         ErrorParam("convergent_count", ParamKind.U32),
         ErrorParam("observable_count", ParamKind.U32),
     ),
-    fix_hint="Remove the pure modifier or remove the observable effects",
+    fix_hint=(
+        "Remove the effect modifier or make the body satisfy its declared "
+        "callable contract"
+    ),
 )
 
 # ERR_STRUCTURE_018: Region terminator has the wrong op kind.
@@ -547,24 +551,24 @@ ERR_STRUCTURE_033 = ErrorDef(
     fix_hint="Use a value owned by the same enclosing operation",
 )
 
-# ERR_STRUCTURE_034: Pure call targets an impure callee.
+# ERR_STRUCTURE_034: Call effect contract exceeds its callee contract.
 ERR_STRUCTURE_034 = ErrorDef(
     domain=ErrorDomain.STRUCTURE,
     code=34,
     severity=Severity.ERROR,
-    summary="Pure call targets an impure callee.",
+    summary="Call effect contract exceeds its callee contract.",
     message=(
-        "pure call callee '@{callee_name}' through '{boundary_name}' does not "
-        "have a pure contract"
+        "'{op_name}' promises {contract_name}, but callee '@{callee_name}' "
+        "does not have a compatible effect contract"
     ),
     params=(
+        ErrorParam("op_name", ParamKind.STRING),
+        ErrorParam("contract_name", ParamKind.STRING),
         ErrorParam("callee_name", ParamKind.STRING),
-        ErrorParam("boundary_name", ParamKind.STRING),
     ),
     fix_hint=(
-        "Remove the pure marker, mark the direct callee pure after proving its "
-        "body has no observable effects, or route the call through a boundary "
-        "whose contract is explicitly pure"
+        "Remove the call effect marker or give the direct callee a compatible "
+        "contract after proving its body satisfies it"
     ),
 )
 
@@ -879,13 +883,13 @@ ERR_STRUCTURE_053 = ErrorDef(
     severity=Severity.ERROR,
     summary="Non-command effect in a command program.",
     message=(
-        "'{op_name}' has observable effects in a command-program body but "
-        "does not represent an explicit command"
+        "'{op_name}' has effects that are neither deterministic read-only "
+        "preparation nor an explicit command"
     ),
     params=(ErrorParam("op_name", ParamKind.STRING),),
     fix_hint=(
-        "Use an explicit command operation or declare the computation pure "
-        "when it has no observable effects"
+        "Use an explicit command operation for writes and observable work, or "
+        "declare deterministic reads with a read-only callable contract"
     ),
 )
 
@@ -962,6 +966,89 @@ ERR_STRUCTURE_057 = ErrorDef(
     ),
 )
 
+# ERR_STRUCTURE_058: Forbidden effect in launch configuration.
+ERR_STRUCTURE_058 = ErrorDef(
+    domain=ErrorDomain.STRUCTURE,
+    code=58,
+    severity=Severity.ERROR,
+    summary="Forbidden effect in launch configuration.",
+    message="'{op_name}' has {effect_kind}, which launch configuration cannot execute",
+    params=(
+        ErrorParam("op_name", ParamKind.STRING),
+        ErrorParam("effect_kind", ParamKind.STRING),
+    ),
+    fix_hint=(
+        "Keep launch configuration deterministic and limit memory access to "
+        "loads from explicit workload buffers or views"
+    ),
+)
+
+# ERR_STRUCTURE_059: Unsupported read in launch configuration.
+ERR_STRUCTURE_059 = ErrorDef(
+    domain=ErrorDomain.STRUCTURE,
+    code=59,
+    severity=Severity.ERROR,
+    summary="Unsupported read in launch configuration.",
+    message=(
+        "'{op_name}' reads memory without exposing a deterministic load storage operand"
+    ),
+    params=(ErrorParam("op_name", ParamKind.STRING),),
+    fix_hint=(
+        "Use a MemoryAccess load from an explicit buffer or view workload argument"
+    ),
+)
+
+# ERR_STRUCTURE_060: Launch configuration reads hidden storage.
+ERR_STRUCTURE_060 = ErrorDef(
+    domain=ErrorDomain.STRUCTURE,
+    code=60,
+    severity=Severity.ERROR,
+    summary="Launch configuration reads hidden storage.",
+    message=(
+        "'{op_name}' reads storage that is not derived from a launch workload argument"
+    ),
+    params=(ErrorParam("op_name", ParamKind.STRING),),
+    fix_hint="Pass the buffer or view explicitly as a kernel workload argument",
+)
+
+# ERR_STRUCTURE_061: Static launch geometry depends on workload storage.
+ERR_STRUCTURE_061 = ErrorDef(
+    domain=ErrorDomain.STRUCTURE,
+    code=61,
+    severity=Severity.ERROR,
+    summary="Static launch geometry depends on workload storage.",
+    message=(
+        "kernel.launch.config field '{field_name}' depends on data read from "
+        "workload storage"
+    ),
+    params=(ErrorParam("field_name", ParamKind.STRING),),
+    fix_hint=(
+        "Keep workgroup and cluster sizes independent of workload storage; "
+        "only workgroup counts may depend on loaded data"
+    ),
+)
+
+# ERR_STRUCTURE_062: Workgroup count is not representable as u32.
+ERR_STRUCTURE_062 = ErrorDef(
+    domain=ErrorDomain.STRUCTURE,
+    code=62,
+    severity=Severity.ERROR,
+    summary="Workgroup count is not representable as u32.",
+    message=(
+        "kernel.launch.config field '{field_name}' depends on workload "
+        "storage and has inferred range [{range_lower}, {range_upper}]"
+    ),
+    params=(
+        ErrorParam("field_name", ParamKind.STRING),
+        ErrorParam("range_lower", ParamKind.I64),
+        ErrorParam("range_upper", ParamKind.I64),
+    ),
+    fix_hint=(
+        "Use unsigned 32-bit workload data or constrain the computed count "
+        "to the inclusive range [0, 4294967295]"
+    ),
+)
+
 ALL_STRUCTURE_ERRORS: tuple[ErrorDef, ...] = (
     ERR_STRUCTURE_001,
     ERR_STRUCTURE_002,
@@ -1019,4 +1106,9 @@ ALL_STRUCTURE_ERRORS: tuple[ErrorDef, ...] = (
     ERR_STRUCTURE_055,
     ERR_STRUCTURE_056,
     ERR_STRUCTURE_057,
+    ERR_STRUCTURE_058,
+    ERR_STRUCTURE_059,
+    ERR_STRUCTURE_060,
+    ERR_STRUCTURE_061,
+    ERR_STRUCTURE_062,
 )

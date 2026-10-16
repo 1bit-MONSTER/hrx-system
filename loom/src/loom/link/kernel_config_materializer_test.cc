@@ -871,13 +871,16 @@ func.def pure @implementation_only(%value: index) -> (index) {
   func.return %value : index
 }
 
-kernel.def target(@dispatch_target) @dispatch_rows(%element_count: index) {
+kernel.def target(@dispatch_target) @dispatch_rows(%count_source: buffer) {
+  %count_byte_offset = index.constant 0 : offset
+  %element_count_i32 = buffer.load.i8.u %count_source[%count_byte_offset]
+  %element_count = index.cast %element_count_i32 : i32 to index
   %one = index.constant 1 : index
   %two = index.constant 2 : index
   %subgroup_size = target.subgroup.size : index
   %rounded_count = func.call pure @configuration_only(%element_count) : (index) -> (index)
   %workgroup_count = index.div %rounded_count, %subgroup_size : index
-  kernel.launch.config workgroups(%workgroup_count, %two, %one) workgroup_size(%subgroup_size, %one, %one) cluster_size(%one, %two, %one) : index
+  kernel.launch.config workgroups(%element_count, %two, %one) workgroup_size(%subgroup_size, %one, %one) cluster_size(%one, %two, %one) : index
 } launch(%stride: index, %rows: index, %source: tensor<[%rows]xi32>) where [multiple_of(%rows, 16), multiple_of(%stride, 4)] {
   %unused = func.call @implementation_only(%stride) : (index) -> (index)
   kernel.return
@@ -958,6 +961,12 @@ kernel.def target(@dispatch_target) @dispatch_rows(%element_count: index) {
     EXPECT_TRUE(loom_func_def_isa(
         materialized_configuration->symbols.entries[projected_config.symbol_id]
             .defining_op));
+    const loom_func_like_t materialized_helper = loom_func_like_cast(
+        materialized_configuration.get(),
+        materialized_configuration->symbols.entries[projected_config.symbol_id]
+            .defining_op);
+    EXPECT_EQ(loom_func_like_effect_contract(materialized_helper),
+              LOOM_CALLABLE_EFFECT_CONTRACT_READONLY);
     iree_arena_deinitialize(&materialization_arena);
   }
   loom_module_free(source_module);
@@ -1109,7 +1118,8 @@ kernel.def target(@dispatch_target) @dispatch_rows(%element_count: index) {
   loom_func_like_t helper =
       loom_func_like_cast(projected_module.get(), helper_op);
   EXPECT_EQ(loom_func_like_visibility(helper), 0u);
-  EXPECT_EQ(loom_func_like_purity(helper), LOOM_FUNC_PURITY_PURE);
+  EXPECT_EQ(loom_func_like_effect_contract(helper),
+            LOOM_CALLABLE_EFFECT_CONTRACT_READONLY);
   EXPECT_EQ(loom_func_like_inline_policy(helper), LOOM_INLINE_POLICY_INLINE);
   EXPECT_EQ(loom_func_like_target(helper).module_id, target_ref.module_id);
   EXPECT_EQ(loom_func_like_target(helper).symbol_id, target_ref.symbol_id);

@@ -11,6 +11,7 @@
 
 #include "iree/base/api.h"
 #include "iree/base/internal/arena.h"
+#include "loom/target/arch/cmd/lower/launch_count_realization.h"
 #include "loom/target/arch/cmd/lower/program_plan.h"
 #include "loom/target/arch/cmd/lower/schedule.h"
 #include "loom/util/fact_table.h"
@@ -24,9 +25,10 @@ typedef struct loom_cmd_program_kernel_site_root_t {
   // Planned command schedule borrowing the plan module.
   const loom_cmd_schedule_plan_t* schedule;
 
-  // Scratch table indexed by schedule command ordinal. Source-backed commands
-  // receive their class-specific plan requirement; external commands retain
-  // UINT32_MAX for ordinary declaration binding.
+  // Scratch table indexed by schedule command ordinal and initialized to
+  // UINT32_MAX. Source-backed and generated commands receive their plan
+  // requirement; external commands retain UINT32_MAX for ordinary declaration
+  // binding.
   uint32_t* requirement_indices;
 } loom_cmd_program_kernel_site_root_t;
 
@@ -43,6 +45,18 @@ iree_status_t loom_cmd_program_plan_publish_kernel_requests(
     loom_cmd_program_plan_t* plan, const loom_module_t* plan_module,
     const loom_value_fact_table_t* source_facts,
     const loom_cmd_program_kernel_source_t* kernel_source,
+    loom_cmd_program_kernel_site_root_t* roots, iree_host_size_t root_count,
+    iree_arena_allocator_t* scratch_arena);
+
+// Publishes generated count-producer sources and assigns their requirements.
+//
+// The dense generated-source projection makes every schedule lookup O(1).
+// Repeated roots and sites reuse the same plan-wide requirement. Root
+// requirement tables must already be allocated and initialized to UINT32_MAX.
+iree_status_t loom_cmd_program_plan_publish_generated_kernel_requests(
+    loom_cmd_program_plan_t* plan, const loom_module_t* plan_module,
+    const loom_cmd_launch_count_realization_t* realization,
+    loom_cmd_program_kernel_request_sink_t sink,
     loom_cmd_program_kernel_site_root_t* roots, iree_host_size_t root_count,
     iree_arena_allocator_t* scratch_arena);
 

@@ -46,6 +46,8 @@ enum class LaunchShape {
   kDistinctKernelClasses,
   // One launch of each independently defined kernel.
   kIndependentKernels,
+  // Logical launches whose counts read one shared storage workload.
+  kStorageBackedWorkloads,
 };
 
 enum class KernelRequestMode {
@@ -162,6 +164,32 @@ class ProgramPlanFixture {
       return source;
     }
 
+    if (launch_shape == LaunchShape::kStorageBackedWorkloads) {
+      source.append(R"(
+kernel.def @tiles(%count_storage: buffer) {
+  %offset = index.constant 0 : offset
+  %index = index.constant 0 : index
+  %counts = buffer.view %count_storage[%offset] : buffer -> view<1xi32>
+  %raw_count = view.load %counts[%index] : view<1xi32> -> i32
+  %wide_count = scalar.extui %raw_count : i32 to i64
+  %count = index.cast %wide_count : i64 to index
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%count, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch() {
+  kernel.return
+}
+
+command.program.def public @root() launch(%count_storage: buffer) {
+  %unique_counts = buffer.assume.noalias %count_storage : buffer
+)");
+      for (iree_host_size_t i = 0; i < launch_count; ++i) {
+        source.append(
+            "  kernel.launch @tiles[%unique_counts]() : [buffer]()\n");
+      }
+      source.append("  command.return\n}\n");
+      return source;
+    }
+
     if (launch_shape == LaunchShape::kDirect) {
       source.append("kernel.entry.decl @entry()\n\n");
     } else {
@@ -236,6 +264,7 @@ kernel.def @tiles(%extent: index) {
             "[index](index)\n");
         break;
       case LaunchShape::kIndependentKernels:
+      case LaunchShape::kStorageBackedWorkloads:
         std::abort();
     }
     source.append(R"(  }
@@ -300,7 +329,6 @@ static void RunProgramPlanBenchmark(benchmark::State& state,
     loom_link_plan_materialization_t materialization =
         fixture.Materialize(&materialization_arena, &root_ref);
     state.ResumeTiming();
-
     bool valid = false;
     loom_cmd_program_plan_t program_plan = {};
     CheckStatus(loom_cmd_program_plan_build_from_materialization(
@@ -371,6 +399,8 @@ static iree_host_size_t ExpectedKernelRequestCount(
       return launch_count <= 128 ? 1 : 2;
     case LaunchShape::kIndependentKernels:
       return launch_count;
+    case LaunchShape::kStorageBackedWorkloads:
+      return 2;
   }
   std::abort();
 }
@@ -498,12 +528,21 @@ static void BM_PrepareIndexedIndependentKernelRequests(
                                  KernelRequestMode::kPublish);
 }
 
+static void BM_PrepareIndexedStorageBackedRequests(benchmark::State& state) {
+  RunIndexedProgramPlanBenchmark(state, LaunchShape::kStorageBackedWorkloads,
+                                 KernelRequestMode::kPublish);
+}
+
 static void LaunchScales(benchmark::Benchmark* benchmark) {
   benchmark->Arg(1)->Arg(4)->Arg(16)->Arg(64)->Arg(256)->Arg(1024);
 }
 
 static void RequestScales(benchmark::Benchmark* benchmark) {
   benchmark->Arg(1)->Arg(16)->Arg(256)->Arg(1024);
+}
+
+static void StorageScales(benchmark::Benchmark* benchmark) {
+  benchmark->Arg(1)->Arg(4)->Arg(16)->Arg(64)->Arg(256);
 }
 
 BENCHMARK(BM_PrepareDirectDispatches)
@@ -538,6 +577,9 @@ BENCHMARK(BM_PrepareIndexedIndependentKernelsBodyBlind)
     ->Complexity(benchmark::oN);
 BENCHMARK(BM_PrepareIndexedIndependentKernelRequests)
     ->Apply(RequestScales)
+    ->Complexity(benchmark::oN);
+BENCHMARK(BM_PrepareIndexedStorageBackedRequests)
+    ->Apply(StorageScales)
     ->Complexity(benchmark::oN);
 
 }  // namespace

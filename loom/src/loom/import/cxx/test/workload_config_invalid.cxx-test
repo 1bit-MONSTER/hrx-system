@@ -78,41 +78,23 @@ static loom::kernel::configuration template_configuration(T item_count) {
 [[loom::kernel(template_configuration<unsigned>)]] void templated() {}
 
 // ====
-// Workload arguments are integer values with stable, non-volatile identities.
-#include <loomcxx/kernel.h>
-
-static loom::kernel::configuration boolean_workload(bool enabled) {
-  return {{enabled ? 1u : 0u, 1, 1}, {1, 1, 1}};
-}
-// ERROR@-3: LOWERING/059 "kernel configuration workloads require non-volatile non-boolean integer value parameters"
-[[loom::kernel(boolean_workload)]] void boolean_parameter() {}
-
-// ====
-#include <loomcxx/kernel.h>
-
-static loom::kernel::configuration pointer_workload(unsigned* item_count) {
-  return {{*item_count, 1, 1}, {1, 1, 1}};
-}
-// ERROR@-3: LOWERING/059 "kernel configuration workloads require non-volatile non-boolean integer value parameters"
-[[loom::kernel(pointer_workload)]] void pointer_parameter() {}
-
-// ====
+// Workload arguments are non-reference values with stable, non-volatile
+// identities.
 #include <loomcxx/kernel.h>
 
 static loom::kernel::configuration reference_workload(unsigned& item_count) {
   return {{item_count, 1, 1}, {1, 1, 1}};
 }
-// ERROR@-3: LOWERING/059 "kernel configuration workloads require non-volatile non-boolean integer value parameters"
+// ERROR@-3: LOWERING/059 "kernel configuration workloads require non-reference non-volatile value parameters"
 [[loom::kernel(reference_workload)]] void reference_parameter() {}
 
 // ====
 #include <loomcxx/kernel.h>
 
-static loom::kernel::configuration volatile_workload(
-    volatile unsigned item_count) {
+static loom::kernel::configuration volatile_workload(volatile unsigned item_count) {
   return {{item_count, 1, 1}, {1, 1, 1}};
 }
-// ERROR@-4: LOWERING/059 "kernel configuration workloads require non-volatile non-boolean integer value parameters"
+// ERROR@-3: LOWERING/059 "kernel configuration workloads require non-reference non-volatile value parameters"
 [[loom::kernel(volatile_workload)]] void volatile_parameter() {}
 
 // ====
@@ -144,15 +126,15 @@ static malformed_configuration malformed() {
 [[loom::kernel(malformed)]] void malformed_result() {}
 
 // ====
-// The config region's retained effect facts enforce source purity.
+// The config region's retained effect facts reject writes.
 #include <loomcxx/kernel.h>
 
-static unsigned helper(unsigned value) { return value + 1; }
-static loom::kernel::configuration calls_helper(unsigned item_count) {
-  return {{helper(item_count), 1, 1}, {1, 1, 1}};
+static loom::kernel::configuration writes_workload(unsigned* item_count) {
+  // ERROR@+1: STRUCTURE/058 {op_name="view.store", effect_kind="memory writes"}
+  *item_count = 1;
+  return {{*item_count, 1, 1}, {1, 1, 1}};
 }
-// ERROR@-3: LOWERING/059 "kernel configuration body must be pure"
-[[loom::kernel(calls_helper)]] void effectful() {}
+[[loom::kernel(writes_workload)]] void effectful() {}
 
 // ====
 #include <loomcxx/kernel.h>

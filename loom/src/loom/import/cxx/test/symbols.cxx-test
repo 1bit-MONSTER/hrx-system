@@ -5,7 +5,7 @@ unsigned math__twice(unsigned x) { return math::twice(x); }
 // ----
 // CHECK: func.def public @math.twice*
 // CHECK: func.def public @math__twice*
-// CHECK: *func.call @math.twice*
+// CHECK: *func.call* @math.twice*
 
 // ====
 // A declaration's exact symbol survives its unannotated definition.
@@ -14,7 +14,7 @@ unsigned square(unsigned x) { return x * x; }
 unsigned entry(unsigned x) { return square(x); }
 // ----
 // CHECK: func.def public @arithmetic.square*
-// CHECK: *func.call @arithmetic.square*
+// CHECK: *func.call* @arithmetic.square*
 // CHECK-NOT: *@square(*
 
 // ====
@@ -25,7 +25,7 @@ unsigned square(unsigned x) { return x * x; }
 unsigned entry(unsigned x) { return square(x); }
 // ----
 // CHECK: func.def public @arithmetic.square*
-// CHECK: *func.call @arithmetic.square*
+// CHECK: *func.call* @arithmetic.square*
 
 // ====
 // Public overloads explicitly choose stable names, independently of types.
@@ -35,7 +35,7 @@ int entry(int x) { return identity(x); }
 // ----
 // CHECK: func.def public @arithmetic.identity.i32*
 // CHECK: func.def public @arithmetic.identity.f32*
-// CHECK: *func.call @arithmetic.identity.i32*
+// CHECK: *func.call* @arithmetic.identity.i32*
 
 // ====
 // Source roots and calls keep their C++ identities. A symbol does not retain
@@ -49,7 +49,7 @@ unsigned entry(unsigned x) { return helper(x); }
 }
 // ----
 // CHECK: func.def public @library.entry*
-// CHECK: *func.call @library.helper*
+// CHECK: *func.call* @library.helper*
 // CHECK: func.def @library.helper*
 // CHECK-NOT: *@library.unused*
 // CHECK-NOT: *public @library.helper*
@@ -63,9 +63,9 @@ static unsigned helper(unsigned x) { return x + 1; }
 [[loom::symbol("helper_1")]] static unsigned third(unsigned x) { return x + 3; }
 unsigned entry(unsigned x) { return helper(x) + second(x) + third(x); }
 // ----
-// CHECK: *func.call @helper_2*
-// CHECK: *func.call @helper(*
-// CHECK: *func.call @helper_1*
+// CHECK: *func.call* @helper_2*
+// CHECK: *func.call* @helper(*
+// CHECK: *func.call* @helper_1*
 // CHECK: func.def @helper_2*
 // CHECK: func.def @helper(*
 // CHECK: func.def @helper_1*
@@ -79,7 +79,7 @@ namespace alias = api;
 unsigned entry(unsigned x) { return alias::identity(x); }
 // ----
 // CHECK: func.def public @api.v1.identity*
-// CHECK: *func.call @api.v1.identity*
+// CHECK: *func.call* @api.v1.identity*
 
 // ====
 // C linkage retains its unqualified name even inside a C++ namespace.
@@ -87,7 +87,7 @@ namespace api { extern "C" unsigned identity(unsigned x) { return x; } }
 unsigned entry(unsigned x) { return api::identity(x); }
 // ----
 // CHECK: func.def public @identity*
-// CHECK: *func.call @identity*
+// CHECK: *func.call* @identity*
 // CHECK-NOT: *@api.identity*
 
 // ====
@@ -98,7 +98,7 @@ unsigned identity<unsigned>(unsigned value) { return value; }
 unsigned entry(unsigned x) { return identity(x); }
 // ----
 // CHECK: func.def public @arithmetic.identity.u32*
-// CHECK: *func.call @arithmetic.identity.u32*
+// CHECK: *func.call* @arithmetic.identity.u32*
 
 // ====
 // Operators can choose ordinary library names without encoding their C++ syntax.
@@ -141,6 +141,6 @@ namespace sample { static unsigned measure(unsigned x) { return x; } }
 LOOM_CHECK_CASE(correct) { loom::check::expect_equal(sample::measure(7u), 7u); }
 LOOM_CHECK_BENCHMARK(sample__measure, correct);
 // ----
-// CHECK: *func.call @sample__measure_1*
+// CHECK: *func.call* @sample__measure_1*
 // CHECK: func.def @sample__measure_1*
 // CHECK: check.benchmark<@correct> @sample__measure

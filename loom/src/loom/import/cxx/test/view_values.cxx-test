@@ -75,15 +75,15 @@ kernel.def @repack() {
   %24 = scalar.constant 1 : i32
   %25 = scalar.constant 1 : i32
   %26 = scalar.subi %rows, %25 : i32
-  %tail_dim0, %tail_layout, %tail = func.call @suffix(%source_dim0, %input_layout, %source, %24, %26) : (index, encoding<layout>, view<[%source_dim0]x32xf32, %input_layout>, i32, i32) -> (index, encoding<layout>, view<[%tail_dim0]x32xf32, %tail_layout>)
+  %tail_dim0, %tail_layout, %tail = func.call pure @suffix(%source_dim0, %input_layout, %source, %24, %26) : (index, encoding<layout>, view<[%source_dim0]x32xf32, %input_layout>, i32, i32) -> (index, encoding<layout>, view<[%tail_dim0]x32xf32, %tail_layout>)
   %30 = scalar.constant 1 : i32
   %31 = scalar.constant 8 : i32
   %32 = scalar.constant 1 : i32
   %33 = scalar.subi %rows, %32 : i32
-  %narrow_tail_dim0, %narrow_tail_layout, %narrow_tail = func.call @narrow(%source_dim0, %input_layout, %source, %30, %31, %33) : (index, encoding<layout>, view<[%source_dim0]x32xf32, %input_layout>, i32, i32, i32) -> (index, encoding<layout>, view<[%narrow_tail_dim0]x16xf32, %narrow_tail_layout>)
+  %narrow_tail_dim0, %narrow_tail_layout, %narrow_tail = func.call pure @narrow(%source_dim0, %input_layout, %source, %30, %31, %33) : (index, encoding<layout>, view<[%source_dim0]x32xf32, %input_layout>, i32, i32, i32) -> (index, encoding<layout>, view<[%narrow_tail_dim0]x16xf32, %narrow_tail_layout>)
   %37 = scalar.constant 2 : i32
   %38 = scalar.cmpi ugt, %rows, %37 : i32
-  %selected_dim0$39, %selected_layout$40, %selected$41 = func.call @choose(%38, %source_dim0, %input_layout, %source, %tail_dim0, %tail_layout, %tail) : (i1, index, encoding<layout>, view<[%source_dim0]x32xf32, %input_layout>, index, encoding<layout>, view<[%tail_dim0]x32xf32, %tail_layout>) -> (index, encoding<layout>, view<[%selected_dim0$39]x32xf32, %selected_layout$40>)
+  %selected_dim0$39, %selected_layout$40, %selected$41 = func.call pure @choose(%38, %source_dim0, %input_layout, %source, %tail_dim0, %tail_layout, %tail) : (i1, index, encoding<layout>, view<[%source_dim0]x32xf32, %input_layout>, index, encoding<layout>, view<[%tail_dim0]x32xf32, %tail_layout>) -> (index, encoding<layout>, view<[%selected_dim0$39]x32xf32, %selected_layout$40>)
   %42 = scalar.constant 3 : i32
   %43 = scalar.cmpi ugt, %rows, %42 : i32
   %selected_dim0$44, %selected_layout$45, %selected$46 = scf.if %43 -> (index, encoding<layout>, view<[%selected_dim0$44]x32xf32, %selected_layout$45>) {
@@ -170,7 +170,7 @@ func.def public @read_weight(%data: buffer, %data_byte_offset: offset, %rows: i3
   %raw_weights_dim0 = index.cast %11 : i64 to index
   %raw_weights_dim1 = index.cast %12 : i64 to index
   %raw_weights = buffer.view %data[%data_byte_offset] : buffer -> view<[%raw_weights_dim0]x[%raw_weights_dim1]x16xf8E4M3, %storage>
-  %weights_dim0, %weights_dim1, %weights_storage, %weights = func.call @preserve_weights(%raw_weights_dim0, %raw_weights_dim1, %storage, %raw_weights) : (index, index, encoding<storage>, view<[%raw_weights_dim0]x[%raw_weights_dim1]x16xf8E4M3, %storage>) -> (index, index, encoding<storage>, view<[%weights_dim0]x[%weights_dim1]x16xf8E4M3, %weights_storage>)
+  %weights_dim0, %weights_dim1, %weights_storage, %weights = func.call pure @preserve_weights(%raw_weights_dim0, %raw_weights_dim1, %storage, %raw_weights) : (index, index, encoding<storage>, view<[%raw_weights_dim0]x[%raw_weights_dim1]x16xf8E4M3, %storage>) -> (index, index, encoding<storage>, view<[%weights_dim0]x[%weights_dim1]x16xf8E4M3, %weights_storage>)
   %20 = scalar.extui %row : i32 to i64
   %21 = scalar.constant 0 : i32
   %22 = scalar.extsi %21 : i32 to i64

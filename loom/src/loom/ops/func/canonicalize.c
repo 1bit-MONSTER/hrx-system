@@ -10,17 +10,19 @@
 
 iree_status_t loom_func_call_canonicalize(loom_op_t* op,
                                           loom_rewriter_t* rewriter) {
-  if (loom_func_call_purity(op) != 0 ||
-      !loom_callable_effects_callee_is_pure(rewriter->module,
-                                            loom_func_call_callee(op))) {
+  if (loom_func_call_effect_contract(op) != 0) {
     return iree_ok_status();
   }
-  return loom_func_call_rewrite_purity(rewriter, op,
-                                       loom_attr_enum(LOOM_FUNC_PURITY_PURE));
+  const loom_callable_effect_contract_t contract =
+      loom_callable_effects_callee_contract(rewriter->module,
+                                            loom_func_call_callee(op));
+  return contract == 0 ? iree_ok_status()
+                       : loom_func_call_rewrite_effect_contract(
+                             rewriter, op, loom_attr_enum(contract));
 }
 
 loom_trait_flags_t loom_func_call_effective_traits(const loom_module_t* module,
                                                    const loom_op_t* op) {
   (void)module;
-  return loom_callable_effects_traits(loom_func_call_purity(op));
+  return loom_callable_effects_traits(loom_func_call_effect_contract(op));
 }

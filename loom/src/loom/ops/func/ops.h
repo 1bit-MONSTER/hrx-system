@@ -233,12 +233,6 @@ typedef enum loom_func_cc_e {
   LOOM_FUNC_CC_COUNT_ = 5,
 } loom_func_cc_t;
 
-// Function purity. Absent (0) means unspecified (conservative).
-typedef enum loom_func_purity_e {
-  LOOM_FUNC_PURITY_PURE = 1,
-  LOOM_FUNC_PURITY_COUNT_ = 2,
-} loom_func_purity_t;
-
 // Execution temperature hint. Absent (0) means unspecified.
 typedef enum loom_func_temperature_e {
   LOOM_FUNC_TEMPERATURE_HOT = 1,
@@ -261,7 +255,7 @@ LOOM_DEFINE_VARIADIC_RESULTS(loom_func_def_results, 0)
 LOOM_DEFINE_ATTR_SYMBOL(loom_func_def_callee, 0)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_func_def_visibility, 1, loom_func_visibility_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_func_def_cc, 2, loom_func_cc_t)
-LOOM_DEFINE_ATTR_ENUM_TYPED(loom_func_def_purity, 3, loom_func_purity_t)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_func_def_effect_contract, 3, loom_callable_effect_contract_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_func_def_temperature, 4, loom_func_temperature_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_func_def_inline_policy, 5, loom_inline_policy_t)
 LOOM_DEFINE_ATTR_PREDICATE_LIST(loom_func_def_predicates, 6)
@@ -276,7 +270,7 @@ enum loom_func_def_build_flag_bits_e {
   LOOM_FUNC_DEF_BUILD_FLAG_HAS_VISIBILITY = 1u << 0,
   LOOM_FUNC_DEF_BUILD_FLAG_HAS_RETAIN = 1u << 1,
   LOOM_FUNC_DEF_BUILD_FLAG_HAS_CC = 1u << 2,
-  LOOM_FUNC_DEF_BUILD_FLAG_HAS_PURITY = 1u << 3,
+  LOOM_FUNC_DEF_BUILD_FLAG_HAS_EFFECT_CONTRACT = 1u << 3,
   LOOM_FUNC_DEF_BUILD_FLAG_HAS_TEMPERATURE = 1u << 4,
   LOOM_FUNC_DEF_BUILD_FLAG_HAS_INLINE_POLICY = 1u << 5,
   LOOM_FUNC_DEF_BUILD_FLAG_HAS_TARGET = 1u << 6,
@@ -293,7 +287,7 @@ iree_status_t loom_func_def_build(
     loom_optional uint8_t visibility,
     loom_optional uint8_t retain,
     loom_optional uint8_t cc,
-    loom_optional uint8_t purity,
+    loom_optional uint8_t effect_contract,
     loom_optional uint8_t temperature,
     loom_optional uint8_t inline_policy,
     loom_optional loom_symbol_ref_t target,
@@ -326,7 +320,7 @@ LOOM_DEFINE_ATTR_ENUM_TYPED(loom_func_decl_visibility, 1, loom_func_visibility_t
 LOOM_DEFINE_ATTR_STRING(loom_func_decl_import_module, 2)
 LOOM_DEFINE_ATTR_STRING(loom_func_decl_import_symbol, 3)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_func_decl_cc, 4, loom_func_cc_t)
-LOOM_DEFINE_ATTR_ENUM_TYPED(loom_func_decl_purity, 5, loom_func_purity_t)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_func_decl_effect_contract, 5, loom_callable_effect_contract_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_func_decl_temperature, 6, loom_func_temperature_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_func_decl_inline_policy, 7, loom_inline_policy_t)
 LOOM_DEFINE_ATTR_SYMBOL(loom_func_decl_target, 8)
@@ -342,7 +336,7 @@ enum loom_func_decl_build_flag_bits_e {
   LOOM_FUNC_DECL_BUILD_FLAG_HAS_IMPORT_MODULE = 1u << 2,
   LOOM_FUNC_DECL_BUILD_FLAG_HAS_IMPORT_SYMBOL = 1u << 3,
   LOOM_FUNC_DECL_BUILD_FLAG_HAS_CC = 1u << 4,
-  LOOM_FUNC_DECL_BUILD_FLAG_HAS_PURITY = 1u << 5,
+  LOOM_FUNC_DECL_BUILD_FLAG_HAS_EFFECT_CONTRACT = 1u << 5,
   LOOM_FUNC_DECL_BUILD_FLAG_HAS_TEMPERATURE = 1u << 6,
   LOOM_FUNC_DECL_BUILD_FLAG_HAS_INLINE_POLICY = 1u << 7,
   LOOM_FUNC_DECL_BUILD_FLAG_HAS_TARGET = 1u << 8,
@@ -361,7 +355,7 @@ iree_status_t loom_func_decl_build(
     loom_optional loom_string_id_t import_module,
     loom_optional loom_string_id_t import_symbol,
     loom_optional uint8_t cc,
-    loom_optional uint8_t purity,
+    loom_optional uint8_t effect_contract,
     loom_optional uint8_t temperature,
     loom_optional uint8_t inline_policy,
     loom_optional loom_symbol_ref_t target,
@@ -390,11 +384,11 @@ LOOM_DEFINE_ISA(loom_func_call_isa, LOOM_OP_FUNC_CALL)
 LOOM_DEFINE_VARIADIC_OPERANDS(loom_func_call_operands, 0)
 LOOM_DEFINE_VARIADIC_RESULTS(loom_func_call_results, 0)
 LOOM_DEFINE_ATTR_SYMBOL(loom_func_call_callee, 0)
-LOOM_DEFINE_ATTR_ENUM_TYPED(loom_func_call_purity, 1, loom_func_purity_t)
+LOOM_DEFINE_ATTR_ENUM_TYPED(loom_func_call_effect_contract, 1, loom_callable_effect_contract_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_func_call_temperature, 2, loom_func_temperature_t)
 LOOM_DEFINE_ATTR_ENUM_TYPED(loom_func_call_inline_policy, 3, loom_inline_policy_t)
 enum loom_func_call_build_flag_bits_e {
-  LOOM_FUNC_CALL_BUILD_FLAG_HAS_PURITY = 1u << 0,
+  LOOM_FUNC_CALL_BUILD_FLAG_HAS_EFFECT_CONTRACT = 1u << 0,
   LOOM_FUNC_CALL_BUILD_FLAG_HAS_TEMPERATURE = 1u << 1,
   LOOM_FUNC_CALL_BUILD_FLAG_HAS_INLINE_POLICY = 1u << 2,
 };
@@ -402,7 +396,7 @@ typedef uint32_t loom_func_call_build_flags_t;
 iree_status_t loom_func_call_build(
     loom_builder_t* builder,
     loom_func_call_build_flags_t build_flags,
-    loom_optional uint8_t purity,
+    loom_optional uint8_t effect_contract,
     loom_optional uint8_t temperature,
     loom_optional uint8_t inline_policy,
     loom_symbol_ref_t callee,

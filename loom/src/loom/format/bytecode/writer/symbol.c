@@ -174,7 +174,7 @@ static bool loom_bytecode_func_metadata_attr_is_shared(
       iree_string_view_equal(name, IREE_SV("import_symbol")) ||
       attr_index == func_like->visibility_attr_index ||
       attr_index == func_like->cc_attr_index ||
-      attr_index == func_like->purity_attr_index ||
+      attr_index == func_like->effect_contract_attr_index ||
       attr_index == func_like->predicates_attr_index) {
     return true;
   }
@@ -263,7 +263,7 @@ static iree_status_t loom_bytecode_write_func_metadata(
   IREE_RETURN_IF_ERROR(
       loom_bytecode_page_writer_write_u8(writer, loom_func_like_cc(func_like)));
   IREE_RETURN_IF_ERROR(loom_bytecode_page_writer_write_u8(
-      writer, loom_func_like_purity(func_like)));
+      writer, loom_func_like_effect_contract(func_like)));
 
   loom_value_slice_t workload_args =
       loom_kernel_workload_arg_ids(module, func_like.op);

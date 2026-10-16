@@ -451,7 +451,7 @@ loom_target_pipeline_build_cfg_source_finalization_after_bank_sroa(
   IREE_RETURN_IF_ERROR(loom_target_pipeline_build_source_cfg_lowering(builder));
   // This is the final source canonicalization boundary before lowering. Run it
   // even when CFG simplification made no change because canonicalization may
-  // have independent pending work, such as propagating callee purity.
+  // have independent pending work, such as propagating callee effect contracts.
   IREE_RETURN_IF_ERROR(loom_target_pipeline_build_cleanup(builder));
   return loom_target_pipeline_build_run(builder, IREE_SV("branch-sink"));
 }

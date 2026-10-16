@@ -103,7 +103,7 @@ def test_decomposition_requires_rematerializable_semantics(
         generate_tables_c("test", 0, [op])
 
 
-def test_generated_purity_matches_dsl_semantics() -> None:
+def test_generated_effect_contract_matches_dsl_semantics() -> None:
     op = Op("test.observe", traits=[OBSERVABLE_EFFECT])
 
     assert not op.is_pure

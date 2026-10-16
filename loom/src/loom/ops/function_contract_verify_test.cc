@@ -64,7 +64,7 @@ class FunctionContractVerifyTest : public ::testing::Test {
     IREE_ASSERT_OK(loom_func_decl_build(
         &builder_, /*build_flags=*/0, /*visibility=*/0, /*retain=*/0,
         LOOM_STRING_ID_INVALID, LOOM_STRING_ID_INVALID, /*cc=*/0,
-        /*purity=*/0, /*temperature=*/0, /*inline_policy=*/0,
+        /*effect_contract=*/0, /*temperature=*/0, /*inline_policy=*/0,
         loom_symbol_ref_null(), /*abi=*/0, loom_named_attr_slice_empty(),
         LOOM_STRING_ID_INVALID, loom_named_attr_slice_empty(), symbol,
         arguments, IREE_ARRAYSIZE(arguments), results, IREE_ARRAYSIZE(results),
@@ -169,7 +169,7 @@ TEST_F(FunctionContractVerifyTest,
   };
   loom_op_t* call = nullptr;
   IREE_ASSERT_OK(loom_func_call_build(
-      &builder_, /*build_flags=*/0, /*purity=*/0, /*temperature=*/0,
+      &builder_, /*build_flags=*/0, /*effect_contract=*/0, /*temperature=*/0,
       /*inline_policy=*/0, loom_func_decl_callee(declaration), call_operands,
       IREE_ARRAYSIZE(call_operands), call_result_types,
       IREE_ARRAYSIZE(call_result_types), /*tied_results=*/nullptr,
@@ -248,7 +248,7 @@ TEST_F(FunctionContractVerifyTest, MaterializesStorageAtBufferCallBoundaries) {
   IREE_ASSERT_OK(loom_func_decl_build(
       &builder_, /*build_flags=*/0, /*visibility=*/0, /*retain=*/0,
       LOOM_STRING_ID_INVALID, LOOM_STRING_ID_INVALID, /*cc=*/0,
-      /*purity=*/0, /*temperature=*/0, /*inline_policy=*/0,
+      /*effect_contract=*/0, /*temperature=*/0, /*inline_policy=*/0,
       loom_symbol_ref_null(), /*abi=*/0, loom_named_attr_slice_empty(),
       LOOM_STRING_ID_INVALID, loom_named_attr_slice_empty(), callee,
       &buffer_type, 1, /*result_types=*/nullptr, /*result_count=*/0,
@@ -261,7 +261,7 @@ TEST_F(FunctionContractVerifyTest, MaterializesStorageAtBufferCallBoundaries) {
       loom_block_add_arg(module_, loom_module_block(module_), tensor_value));
   loom_op_t* call = nullptr;
   IREE_ASSERT_OK(loom_func_call_build(
-      &builder_, /*build_flags=*/0, /*purity=*/0, /*temperature=*/0,
+      &builder_, /*build_flags=*/0, /*effect_contract=*/0, /*temperature=*/0,
       /*inline_policy=*/0, callee, &tensor_value, 1, /*result_types=*/nullptr,
       /*result_count=*/0, /*tied_results=*/nullptr, /*tied_result_count=*/0,
       LOOM_LOCATION_UNKNOWN, &call));

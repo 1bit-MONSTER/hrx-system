@@ -86,6 +86,13 @@ typedef struct loom_call_collector_t {
   const loom_module_t* module;
 } loom_call_collector_t;
 
+bool loom_call_graph_tracks_call_kind(loom_call_like_kind_t kind) {
+  return kind == LOOM_CALL_LIKE_KIND_SEMANTIC ||
+         kind == LOOM_CALL_LIKE_KIND_LOW_INTERNAL ||
+         kind == LOOM_CALL_LIKE_KIND_LOW_INVOKE ||
+         kind == LOOM_CALL_LIKE_KIND_COMMAND_PROGRAM;
+}
+
 static iree_status_t loom_call_collector_visit(
     void* user_data, loom_op_t* op, const loom_walk_context_t* context,
     loom_walk_result_t* out_result) {
@@ -95,11 +102,7 @@ static iree_status_t loom_call_collector_visit(
   if (!loom_call_like_isa(call)) {
     return iree_ok_status();
   }
-  loom_call_like_kind_t kind = loom_call_like_kind(call);
-  if (kind != LOOM_CALL_LIKE_KIND_SEMANTIC &&
-      kind != LOOM_CALL_LIKE_KIND_LOW_INTERNAL &&
-      kind != LOOM_CALL_LIKE_KIND_LOW_INVOKE &&
-      kind != LOOM_CALL_LIKE_KIND_COMMAND_PROGRAM) {
+  if (!loom_call_graph_tracks_call_kind(loom_call_like_kind(call))) {
     return iree_ok_status();
   }
   loom_symbol_ref_t callee_ref = loom_call_like_callee(call);
@@ -320,7 +323,7 @@ iree_status_t loom_call_graph_build(const loom_module_t* module,
       arena, func_count, sizeof(loom_edge_list_t), (void**)&edge_lists));
   memset(edge_lists, 0, func_count * sizeof(loom_edge_list_t));
 
-  // Walk each function body to find call ops.
+  // Walk every function root region to find call ops.
   uint16_t node_index = 0;
   loom_module_for_each_symbol(module, sym) {
     if (!loom_symbol_implements(sym, LOOM_SYMBOL_INTERFACE_FUNC_LIKE) ||
@@ -328,8 +331,7 @@ iree_status_t loom_call_graph_build(const loom_module_t* module,
       continue;
     }
     loom_func_like_t func = loom_func_like_cast(module, sym->defining_op);
-    loom_region_t* body = loom_func_like_body(func);
-    if (!body) {
+    if (!loom_func_like_body(func)) {
       continue;
     }
 
@@ -344,8 +346,8 @@ iree_status_t loom_call_graph_build(const loom_module_t* module,
         .module = module,
     };
     loom_walk_result_t walk_result = LOOM_WALK_CONTINUE;
-    IREE_RETURN_IF_ERROR(loom_walk_region(
-        module, body, LOOM_WALK_PRE_ORDER,
+    IREE_RETURN_IF_ERROR(loom_walk_function(
+        module, func, LOOM_WALK_PRE_ORDER,
         (loom_walk_callback_t){loom_call_collector_visit, &collector},
         &walk_result));
 

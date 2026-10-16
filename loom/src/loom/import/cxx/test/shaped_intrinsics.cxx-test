@@ -116,8 +116,8 @@ func.def public @sum_fragment(%fragment_dim0: index, %fragment: vector<[%fragmen
 }
 
 func.def public @entry(%width: index, %value: f32, %seed: f32) -> (f32) {
-  %14, %15 = func.call @make_fragment(%width, %value) : (index, f32) -> (index, vector<[%14]xf32>)
-  %16 = func.call @sum_fragment(%14, %15, %seed) : (index, vector<[%14]xf32>, f32) -> (f32)
+  %14, %15 = func.call pure @make_fragment(%width, %value) : (index, f32) -> (index, vector<[%14]xf32>)
+  %16 = func.call pure @sum_fragment(%14, %15, %seed) : (index, vector<[%14]xf32>, f32) -> (f32)
   func.return %16 : f32
 }
 

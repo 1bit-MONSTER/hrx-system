@@ -46,7 +46,7 @@ typedef struct loom_cmd_buffer_range_t {
   uint32_t resource_index;
   // Byte offset relative to the resolved storage root.
   uint64_t byte_offset;
-  // Exact byte length of the derived range.
+  // Byte length of the derived range, or UINT64_MAX for the remaining root.
   uint64_t byte_length;
 } loom_cmd_buffer_range_t;
 

@@ -114,7 +114,7 @@ bool loom_bytecode_symbol_func_metadata_attr_is_shared(
       iree_string_view_equal(name, IREE_SV("import_symbol")) ||
       attr_index == func_like->visibility_attr_index ||
       attr_index == func_like->cc_attr_index ||
-      attr_index == func_like->purity_attr_index ||
+      attr_index == func_like->effect_contract_attr_index ||
       attr_index == func_like->predicates_attr_index) {
     return true;
   }

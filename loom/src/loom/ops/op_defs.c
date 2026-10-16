@@ -534,15 +534,36 @@ uint16_t loom_call_like_result_offset(loom_call_like_t call) {
   return call.vtable->result_offset;
 }
 
-uint8_t loom_call_like_purity(loom_call_like_t call) {
+loom_callable_effect_contract_t loom_call_like_effect_contract(
+    loom_call_like_t call) {
   if (!call.vtable) {
-    return 0;
+    return LOOM_CALLABLE_EFFECT_CONTRACT_UNSPECIFIED;
   }
-  if (call.vtable->purity_attr_index == LOOM_ATTR_INDEX_NONE) {
-    return 0;
+  if (call.vtable->effect_contract_attr_index == LOOM_ATTR_INDEX_NONE) {
+    return LOOM_CALLABLE_EFFECT_CONTRACT_UNSPECIFIED;
   }
-  return loom_attr_as_enum(
-      loom_op_attrs(call.op)[call.vtable->purity_attr_index]);
+  return (loom_callable_effect_contract_t)loom_attr_as_enum(
+      loom_op_attrs(call.op)[call.vtable->effect_contract_attr_index]);
+}
+
+void loom_call_like_set_effect_contract(
+    loom_module_t* module, loom_call_like_t call,
+    loom_callable_effect_contract_t effect_contract) {
+  IREE_ASSERT_ARGUMENT(module);
+  IREE_ASSERT_ARGUMENT(call.op);
+  IREE_ASSERT_ARGUMENT(call.vtable);
+  IREE_ASSERT_NE(call.vtable->effect_contract_attr_index, LOOM_ATTR_INDEX_NONE);
+  IREE_ASSERT_LT(call.vtable->effect_contract_attr_index,
+                 call.op->attribute_count);
+  IREE_ASSERT_LT(effect_contract, LOOM_CALLABLE_EFFECT_CONTRACT_COUNT_);
+  const loom_trait_flags_t old_traits = call.op->traits;
+  loom_op_attrs(call.op)[call.vtable->effect_contract_attr_index] =
+      effect_contract == LOOM_CALLABLE_EFFECT_CONTRACT_UNSPECIFIED
+          ? loom_attr_absent()
+          : loom_attr_enum(effect_contract);
+  loom_op_refresh_effective_traits(module, call.op);
+  loom_module_update_op_direct_summaries(module, call.op, old_traits,
+                                         call.op->traits);
 }
 
 uint8_t loom_call_like_temperature(loom_call_like_t call) {
@@ -657,15 +678,36 @@ bool loom_func_like_region_projects_args(const loom_module_t* module,
          iree_any_bit_set(descriptor->flags, LOOM_REGION_PROJECT_FUNC_ARGS);
 }
 
-uint8_t loom_func_like_purity(loom_func_like_t func) {
+loom_callable_effect_contract_t loom_func_like_effect_contract(
+    loom_func_like_t func) {
   if (!func.vtable) {
-    return 0;
+    return LOOM_CALLABLE_EFFECT_CONTRACT_UNSPECIFIED;
   }
-  if (func.vtable->purity_attr_index == LOOM_ATTR_INDEX_NONE) {
-    return 0;
+  if (func.vtable->effect_contract_attr_index == LOOM_ATTR_INDEX_NONE) {
+    return LOOM_CALLABLE_EFFECT_CONTRACT_UNSPECIFIED;
   }
-  return loom_attr_as_enum(
-      loom_op_attrs(func.op)[func.vtable->purity_attr_index]);
+  return (loom_callable_effect_contract_t)loom_attr_as_enum(
+      loom_op_attrs(func.op)[func.vtable->effect_contract_attr_index]);
+}
+
+void loom_func_like_set_effect_contract(
+    loom_module_t* module, loom_func_like_t func,
+    loom_callable_effect_contract_t effect_contract) {
+  IREE_ASSERT_ARGUMENT(module);
+  IREE_ASSERT_ARGUMENT(func.op);
+  IREE_ASSERT_ARGUMENT(func.vtable);
+  IREE_ASSERT_NE(func.vtable->effect_contract_attr_index, LOOM_ATTR_INDEX_NONE);
+  IREE_ASSERT_LT(func.vtable->effect_contract_attr_index,
+                 func.op->attribute_count);
+  IREE_ASSERT_LT(effect_contract, LOOM_CALLABLE_EFFECT_CONTRACT_COUNT_);
+  const loom_trait_flags_t old_traits = func.op->traits;
+  loom_op_attrs(func.op)[func.vtable->effect_contract_attr_index] =
+      effect_contract == LOOM_CALLABLE_EFFECT_CONTRACT_UNSPECIFIED
+          ? loom_attr_absent()
+          : loom_attr_enum(effect_contract);
+  loom_op_refresh_effective_traits(module, func.op);
+  loom_module_update_op_direct_summaries(module, func.op, old_traits,
+                                         func.op->traits);
 }
 
 uint8_t loom_func_like_temperature(loom_func_like_t func) {

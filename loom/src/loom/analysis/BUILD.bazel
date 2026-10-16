@@ -13,6 +13,36 @@ package(
 )
 
 loom_cc_library(
+    name = "callable_effect_inference",
+    srcs = ["callable_effect_inference.c"],
+    hdrs = ["callable_effect_inference.h"],
+    deps = [
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops:callable_effects",
+        "//loom/src/loom/ops:op_defs",
+        "//loom/src/loom/util:call_graph",
+        "//loom/src/loom/util:walk",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:arena",
+    ],
+)
+
+loom_cc_test(
+    name = "callable_effect_inference_test",
+    srcs = ["callable_effect_inference_test.cc"],
+    deps = [
+        ":callable_effect_inference",
+        "//loom/src/loom/ir",
+        "//loom/src/loom/ops/buffer",
+        "//loom/src/loom/ops/func",
+        "//loom/src/loom/ops/index",
+        "//runtime/src/iree/base/internal:arena",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_library(
     name = "condition_relation_set",
     srcs = ["condition_relation_set.c"],
     hdrs = ["condition_relation_set.h"],

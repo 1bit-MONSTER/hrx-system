@@ -118,7 +118,7 @@ class TemplateProviderCatalogTest : public ::testing::Test {
     loom_op_t* op = nullptr;
     IREE_ASSERT_OK(loom_template_ukernel_build(
         &builder, LOOM_TEMPLATE_UKERNEL_BUILD_FLAG_HAS_PRIORITY, family_ref,
-        /*visibility=*/0, /*retain=*/0, /*cc=*/0, /*purity=*/0,
+        /*visibility=*/0, /*retain=*/0, /*cc=*/0, /*effect_contract=*/0,
         /*temperature=*/0, loom_symbol_ref_null(),
         loom_parameterized_attr_array_empty(), priority,
         loom_symbol_ref_t{.module_id = 0, .symbol_id = symbol_id}, &i32, 1,
@@ -160,7 +160,7 @@ template.def<@qwen.q4.matmul> public priority(10) @fast(%arg0: i32) -> (i32) {
   EXPECT_EQ(fast->func_facts->visibility, LOOM_TEMPLATE_VISIBILITY_PUBLIC);
   EXPECT_TRUE(fast->has_body);
   EXPECT_EQ(fast->func_facts->calling_convention, 0);
-  EXPECT_EQ(fast->func_facts->purity, 0);
+  EXPECT_EQ(fast->func_facts->effect_contract, 0);
   EXPECT_EQ(fast->func_facts->temperature, 0);
   EXPECT_EQ(fast->func_facts->inline_policy, 0);
   EXPECT_EQ(fast->priority, 10);

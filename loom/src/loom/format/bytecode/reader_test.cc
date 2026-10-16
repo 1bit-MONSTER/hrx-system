@@ -444,7 +444,8 @@ class ReaderTest : public ::testing::Test {
     loom_op_t* func_op = nullptr;
     IREE_CHECK_OK(loom_func_def_build(
         &builder, LOOM_FUNC_DEF_BUILD_FLAG_HAS_RETAIN, /*visibility=*/0,
-        LOOM_FUNC_RETAIN_RETAIN, /*cc=*/0, /*purity=*/0, /*temperature=*/0,
+        LOOM_FUNC_RETAIN_RETAIN, /*cc=*/0, /*effect_contract=*/0,
+        /*temperature=*/0,
         /*inline_policy=*/0, loom_symbol_ref_null(), /*abi=*/0,
         loom_named_attr_slice_empty(), /*export_symbol=*/LOOM_STRING_ID_INVALID,
         loom_named_attr_slice_empty(), callee, arg_types,
@@ -497,7 +498,7 @@ class ReaderTest : public ::testing::Test {
         LOOM_FUNC_DECL_BUILD_FLAG_HAS_IMPORT_MODULE |
             LOOM_FUNC_DECL_BUILD_FLAG_HAS_IMPORT_SYMBOL,
         /*visibility=*/0, /*retain=*/0, import_module_id, import_symbol_id,
-        /*cc=*/0, /*purity=*/0, /*temperature=*/0, /*inline_policy=*/0,
+        /*cc=*/0, /*effect_contract=*/0, /*temperature=*/0, /*inline_policy=*/0,
         loom_symbol_ref_null(), /*abi=*/0, loom_named_attr_slice_empty(),
         LOOM_STRING_ID_INVALID, loom_named_attr_slice_empty(), callee,
         arg_types, IREE_ARRAYSIZE(arg_types), result_types,
@@ -612,7 +613,7 @@ class ReaderTest : public ::testing::Test {
     loom_op_t* family_op = nullptr;
     IREE_CHECK_OK(loom_template_decl_build(
         builder, /*build_flags=*/0, /*visibility=*/0, /*retain=*/0, /*cc=*/0,
-        /*purity=*/0, /*temperature=*/0, loom_symbol_ref_null(),
+        /*effect_contract=*/0, /*temperature=*/0, loom_symbol_ref_null(),
         loom_parameterized_attr_array_empty(), family, /*arg_types=*/nullptr,
         /*arg_types_count=*/0, /*result_types=*/nullptr, /*result_count=*/0,
         /*tied_results=*/nullptr, /*tied_result_count=*/0,
@@ -672,7 +673,7 @@ class ReaderTest : public ::testing::Test {
       loom_op_t* apply_op = nullptr;
       IREE_CHECK_OK(loom_template_apply_build(
           &body_builder, /*build_flags=*/0, family,
-          /*operands=*/nullptr, /*operands_count=*/0, /*purity=*/0,
+          /*operands=*/nullptr, /*operands_count=*/0, /*effect_contract=*/0,
           /*temperature=*/0, /*result_types=*/nullptr, /*result_count=*/0,
           /*tied_results=*/nullptr, /*tied_result_count=*/0,
           LOOM_LOCATION_UNKNOWN, &apply_op));
@@ -1879,7 +1880,7 @@ class ReaderTest : public ::testing::Test {
     ReadUVarint(bytes, &offset);  // def_op_table_index_plus1
     SkipSourceTrivia(bytes, &offset);
     offset += 1;  // calling_convention
-    offset += 1;  // purity
+    offset += 1;  // effect_contract
     uint64_t workload_arg_count = ReadUVarint(bytes, &offset);
     uint64_t arg_count = ReadUVarint(bytes, &offset);
     uint64_t result_count = ReadUVarint(bytes, &offset);
@@ -1933,7 +1934,7 @@ class ReaderTest : public ::testing::Test {
       ReadUVarint(bytes, &offset);  // def_op_table_index_plus1
       SkipSourceTrivia(bytes, &offset);
       offset += 1;  // calling_convention
-      offset += 1;  // purity
+      offset += 1;  // effect_contract
       uint64_t workload_arg_count = ReadUVarint(bytes, &offset);
       uint64_t arg_count = ReadUVarint(bytes, &offset);
       uint64_t result_count = ReadUVarint(bytes, &offset);

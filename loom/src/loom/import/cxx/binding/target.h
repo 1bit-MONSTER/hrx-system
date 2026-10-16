@@ -18,7 +18,8 @@ namespace loom::cxx_import {
 
 // Typed source projection of immutable properties selected for the current
 // function version. The translation driver restricts these queries to kernel
-// launch configuration bodies, where they remain pure compilation inputs.
+// launch configuration bodies, where they remain immutable compilation
+// inputs alongside explicit read-only workloads.
 class TargetIntrinsic {
  public:
   // Admits one target query. Unknown operations return nullopt; a recognized

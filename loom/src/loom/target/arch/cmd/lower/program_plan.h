@@ -37,21 +37,39 @@ typedef struct loom_cmd_entry_requirement_t {
   const loom_op_t* declaration_op;
 } loom_cmd_entry_requirement_t;
 
+// Source representation behind one command-plan kernel request.
+typedef enum loom_cmd_program_kernel_request_kind_e {
+  // Indexed source specialized through the ordinary kernel request producer.
+  LOOM_CMD_PROGRAM_KERNEL_REQUEST_KIND_INDEXED = 0,
+
+  // Already closed compiler-generated source product.
+  LOOM_CMD_PROGRAM_KERNEL_REQUEST_KIND_GENERATED = 1,
+} loom_cmd_program_kernel_request_kind_t;
+
 // One borrowed source request bound to a command-plan entry requirement.
 typedef struct loom_cmd_program_kernel_request_t {
   // Plan-wide logical executable-entry requirement for this request.
   uint32_t entry_requirement_index;
 
-  // Callback-lived class request supporting resolution before materialization.
-  const loom_kernel_request_t* kernel_request;
+  // Source representation selecting the active request union member.
+  loom_cmd_program_kernel_request_kind_t kind;
+
+  union {
+    // Callback-lived class request supporting resolution before
+    // materialization.
+    const loom_kernel_request_t* indexed;
+
+    // Callback-lived independently closed generated source product.
+    const loom_kernel_class_product_t* generated;
+  } source;
 } loom_cmd_program_kernel_request_t;
 
 // Visits one command-plan kernel request before source materialization.
 //
-// |request| and |request.kernel_request| remain valid only for the callback.
-// The callback may resolve an existing product from the class identity or
-// materialize an independently owned source product on a miss. A non-OK status
-// terminates command-plan construction.
+// |request| and its active source remain valid only for the callback. The
+// callback may resolve an indexed product from its class identity or call
+// loom_cmd_program_kernel_request_materialize() for an independently owned
+// source product. A non-OK status terminates command-plan construction.
 typedef iree_status_t (*loom_cmd_program_kernel_request_publish_fn_t)(
     void* user_data, const loom_cmd_program_kernel_request_t* request);
 
@@ -64,9 +82,21 @@ typedef struct loom_cmd_program_kernel_request_sink_t {
   void* user_data;
 } loom_cmd_program_kernel_request_sink_t;
 
-// Optional indexed source environment for command-plan construction.
+// Materializes an independently owned source product for |request|.
+//
+// Indexed requests delegate to their ordinary class materializer. Generated
+// requests exactly clone their already closed source product. The returned
+// product retains no callback-lived state and must be released with
+// loom_kernel_class_product_deinitialize().
+iree_status_t loom_cmd_program_kernel_request_materialize(
+    const loom_cmd_program_kernel_request_t* request,
+    iree_arena_block_pool_t* block_pool, iree_allocator_t allocator,
+    loom_kernel_class_product_t* out_product);
+
+// Optional kernel source environment for command-plan construction.
 typedef struct loom_cmd_program_kernel_source_t {
-  // Invocation-local index-backed request producer.
+  // Invocation-local indexed request producer, or NULL when the selected
+  // roots reach only generated sources.
   loom_kernel_request_producer_t* producer;
 
   // Invocation environment providing diagnostics and specialization.
@@ -85,7 +115,7 @@ typedef struct loom_cmd_program_kernel_source_t {
   // Bounded semantic class collection policy.
   loom_kernel_class_collection_options_t collection_options;
 
-  // Sink visiting every live source class before materialization.
+  // Sink visiting every live indexed class and generated source.
   loom_cmd_program_kernel_request_sink_t sink;
 } loom_cmd_program_kernel_source_t;
 
@@ -122,11 +152,11 @@ typedef struct loom_cmd_program_root_t {
 //
 // The root module contains every selected command symbol lowered to the
 // portable cmd low ISA together with the configured entry declarations they
-// require. Body-blind command planning never materializes a kernel
-// implementation or manufactures a host launch-count program. When an indexed
-// kernel source is supplied, its sink visits each live class before optional
-// materialization and only logical entry requirements remain in the returned
-// plan.
+// require. Exact launch counts remain command metadata. Storage-backed launch
+// arithmetic is extracted into target-matched device producers that batch
+// compatible transient indirect-count tuples; their independently closed
+// source products are published through the same request sink as indexed
+// kernels. Only logical entry requirements remain in the returned plan.
 typedef struct loom_cmd_program_plan_t {
   // Owned module containing all lowered command roots.
   loom_module_t* root_module;
@@ -170,13 +200,14 @@ typedef struct loom_cmd_program_plan_t {
 // source structure. They are compiler-owned resources rather than part of the
 // authored program contract.
 //
-// |kernel_source| optionally visits the semantic classes reached by all
-// selected roots before source materialization. Publication is complete before
-// this function returns; the returned plan retains no request, source product,
-// or kernel implementation state. The terminal status and |out_valid| commit
-// the publication as a complete parent product. A caller that receives a
-// non-OK status or false validity must cancel work accepted earlier in the
-// call.
+// |kernel_source| optionally visits indexed semantic classes and generated
+// sources reached by all selected roots before source materialization. A sink
+// is required when storage-backed launch arithmetic requires a generated
+// producer. Publication is complete before this function returns; the returned
+// plan retains no request, source product, or kernel implementation state. The
+// terminal status and |out_valid| commit the publication as a complete parent
+// product. A caller that receives a non-OK status or false validity must cancel
+// work accepted earlier in the call.
 //
 // Unsupported portable mappings and infrastructure failures return a non-OK
 // status. Source contract violations emit diagnostics, set |out_valid| to

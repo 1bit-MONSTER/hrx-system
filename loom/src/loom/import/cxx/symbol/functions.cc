@@ -788,7 +788,7 @@ void Functions::build_declarations(Types& types, Locations& locations,
     check(loom_func_decl_build(
         builder, flags, /*visibility=*/0, /*retain=*/0, import_module,
         import_symbol, annotated(symbol, "device") ? LOOM_FUNC_CC_DEVICE : 0,
-        /*purity=*/0, /*temperature=*/0,
+        /*effect_contract=*/0, /*temperature=*/0,
         annotated(symbol, "force_inline") ? LOOM_INLINE_POLICY_INLINE : 0, {},
         /*abi=*/0, {}, LOOM_STRING_ID_INVALID, {},
         callees_.at(symbol->canonical()), arguments.data(), arguments.size(),
@@ -835,6 +835,7 @@ DefinedFunction Functions::define(cxx::FunctionSymbol* symbol, Types& types,
   std::vector<loom_type_t> results;
   std::vector<loom_predicate_t> predicates;
   std::optional<LaunchConfiguration> launch_configuration;
+  BoundSignature configuration_signature;
   BoundSignature callable_signature;
   if (kernel) {
     for (auto* parameter : parameters) {
@@ -907,19 +908,42 @@ DefinedFunction Functions::define(cxx::FunctionSymbol* symbol, Types& types,
     auto callee = callees_.at(symbol->canonical());
     auto target = target_definitions_.reference(symbol);
     auto name_id = module_->symbols.entries[callee.symbol_id].name_id;
-    std::span<const loom_type_t> configuration_arguments =
-        launch_configuration ? std::span(launch_configuration->arguments)
-                             : std::span<const loom_type_t>{};
+    size_t configuration_identity_count = 0;
+    bool configuration_requires_binding = false;
+    if (launch_configuration) {
+      for (const auto* workload : launch_configuration->workloads) {
+        configuration_identity_count +=
+            types.partition(workload, definition).component_count;
+        configuration_requires_binding |=
+            types.requires_binding(workload, definition);
+      }
+    }
     std::vector<loom_value_id_t> kernel_identities;
+    if (configuration_requires_binding || has_predicates) {
+      kernel_identities.resize(configuration_identity_count +
+                               (has_predicates ? arguments.size() : 0));
+      if (!kernel_identities.empty()) {
+        check(loom_builder_reserve_values(builder, kernel_identities.size(),
+                                          kernel_identities.data()));
+      }
+      if (launch_configuration) {
+        configuration_signature = bind_signature_to(
+            types, launch_configuration->workloads, definition,
+            std::span<const loom_value_id_t>(kernel_identities)
+                .first(configuration_identity_count));
+      }
+    } else if (launch_configuration) {
+      configuration_signature = bind_signature(
+          types, launch_configuration->workloads, definition, builder);
+    }
+    std::span<const loom_type_t> configuration_arguments =
+        launch_configuration ? std::span(configuration_signature.types)
+                             : std::span<const loom_type_t>{};
     if (has_predicates) {
-      kernel_identities.resize(configuration_arguments.size() +
-                               arguments.size());
-      check(loom_builder_reserve_values(builder, kernel_identities.size(),
-                                        kernel_identities.data()));
       predicates = function_contracts_.bind(
           symbol, types,
           std::span<const loom_value_id_t>(kernel_identities)
-              .subspan(configuration_arguments.size()),
+              .subspan(configuration_identity_count),
           FunctionContractSignature::Kernel, definition);
     }
     check(loom_kernel_def_build(
@@ -968,7 +992,7 @@ DefinedFunction Functions::define(cxx::FunctionSymbol* symbol, Types& types,
     check(loom_template_def_build(
         builder, flags, family.reference, /*visibility=*/0, /*retain=*/0,
         is_device ? LOOM_TEMPLATE_CC_DEVICE : 0,
-        /*purity=*/0, /*temperature=*/0, target,
+        /*effect_contract=*/0, /*temperature=*/0, target,
         loom_make_parameterized_attr_array(requirements.data(),
                                            requirements.size()),
         template_definition->priority.value_or(0),

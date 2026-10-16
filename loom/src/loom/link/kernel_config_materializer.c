@@ -342,7 +342,7 @@ static iree_status_t loom_link_kernel_config_build_helper(
                                            ? loom_symbol_ref_null()
                                            : loom_attr_as_symbol(target_attr);
   loom_func_def_build_flags_t build_flags =
-      LOOM_FUNC_DEF_BUILD_FLAG_HAS_PURITY |
+      LOOM_FUNC_DEF_BUILD_FLAG_HAS_EFFECT_CONTRACT |
       LOOM_FUNC_DEF_BUILD_FLAG_HAS_INLINE_POLICY;
   if (loom_symbol_ref_is_valid(target_ref)) {
     build_flags |= LOOM_FUNC_DEF_BUILD_FLAG_HAS_TARGET;
@@ -350,7 +350,8 @@ static iree_status_t loom_link_kernel_config_build_helper(
   loom_op_t* helper_op = NULL;
   IREE_RETURN_IF_ERROR(loom_func_def_build(
       builder, build_flags,
-      /*visibility=*/0, /*retain=*/0, /*cc=*/0, LOOM_FUNC_PURITY_PURE,
+      /*visibility=*/0, /*retain=*/0, /*cc=*/0,
+      LOOM_CALLABLE_EFFECT_CONTRACT_UNSPECIFIED,
       /*temperature=*/0, LOOM_INLINE_POLICY_INLINE, target_ref,
       /*abi=*/0, loom_named_attr_slice_empty(), LOOM_STRING_ID_INVALID,
       loom_named_attr_slice_empty(), config_ref, argument_types,
@@ -363,6 +364,19 @@ static iree_status_t loom_link_kernel_config_build_helper(
       module, header, helper, scratch_arena));
   *out_helper = helper;
   return iree_ok_status();
+}
+
+// Finalizes the projected helper with the source verifier's retained effect
+// result. Launch configuration admits only deterministic reads, and the region
+// summary distinguishes their presence without rescanning the projected body.
+static void loom_link_kernel_config_finalize_helper(loom_module_t* module,
+                                                    loom_func_like_t helper) {
+  const loom_region_t* body = loom_func_like_body(helper);
+  const loom_callable_effect_contract_t contract =
+      loom_region_has_memory_accesses(body)
+          ? LOOM_CALLABLE_EFFECT_CONTRACT_READONLY
+          : LOOM_CALLABLE_EFFECT_CONTRACT_PURE;
+  loom_func_like_set_effect_contract(module, helper, contract);
 }
 
 static iree_status_t loom_link_kernel_config_materialize_body(
@@ -393,9 +407,11 @@ static iree_status_t loom_link_kernel_config_materialize_body(
   IREE_RETURN_IF_ERROR(loom_op_erase(module, launch_config));
   loom_builder_initialize(module, &module->arena, block, builder);
   loom_op_t* return_op = NULL;
-  return loom_func_return_build(builder, return_values,
-                                IREE_ARRAYSIZE(return_values), location,
-                                &return_op);
+  IREE_RETURN_IF_ERROR(loom_func_return_build(builder, return_values,
+                                              IREE_ARRAYSIZE(return_values),
+                                              location, &return_op));
+  loom_link_kernel_config_finalize_helper(module, helper);
+  return iree_ok_status();
 }
 
 static iree_status_t loom_link_kernel_config_materialize_projection_body(
@@ -779,7 +795,7 @@ static iree_status_t loom_link_kernel_config_build_ir_helper(
   IREE_RETURN_IF_ERROR(
       loom_ir_remap_location_id(&remap, source_op->location, &location));
   loom_func_def_build_flags_t build_flags =
-      LOOM_FUNC_DEF_BUILD_FLAG_HAS_PURITY |
+      LOOM_FUNC_DEF_BUILD_FLAG_HAS_EFFECT_CONTRACT |
       LOOM_FUNC_DEF_BUILD_FLAG_HAS_INLINE_POLICY;
   if (loom_symbol_ref_is_valid(target)) {
     build_flags |= LOOM_FUNC_DEF_BUILD_FLAG_HAS_TARGET;
@@ -787,7 +803,8 @@ static iree_status_t loom_link_kernel_config_build_ir_helper(
   loom_op_t* helper_op = NULL;
   IREE_RETURN_IF_ERROR(loom_func_def_build(
       builder, build_flags,
-      /*visibility=*/0, /*retain=*/0, /*cc=*/0, LOOM_FUNC_PURITY_PURE,
+      /*visibility=*/0, /*retain=*/0, /*cc=*/0,
+      LOOM_CALLABLE_EFFECT_CONTRACT_UNSPECIFIED,
       /*temperature=*/0, LOOM_INLINE_POLICY_INLINE, target,
       /*abi=*/0, loom_named_attr_slice_empty(), LOOM_STRING_ID_INVALID,
       loom_named_attr_slice_empty(),
@@ -847,9 +864,11 @@ static iree_status_t loom_link_kernel_config_build_ir_helper(
   IREE_RETURN_IF_ERROR(loom_ir_remap_location_id(
       &remap, launch_config->location, &return_location));
   loom_op_t* return_op = NULL;
-  return loom_func_return_build(&body_builder, return_values,
-                                IREE_ARRAYSIZE(return_values), return_location,
-                                &return_op);
+  IREE_RETURN_IF_ERROR(loom_func_return_build(&body_builder, return_values,
+                                              IREE_ARRAYSIZE(return_values),
+                                              return_location, &return_op));
+  loom_link_kernel_config_finalize_helper(projection->target_module, helper);
+  return iree_ok_status();
 }
 
 static iree_status_t loom_link_kernel_config_initialize_output_symbols(

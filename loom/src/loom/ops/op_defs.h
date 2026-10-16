@@ -1000,8 +1000,17 @@ uint16_t loom_call_like_operand_offset(loom_call_like_t call);
 // Returns the result offset where call results begin.
 uint16_t loom_call_like_result_offset(loom_call_like_t call);
 
-// Returns the purity attr value (0 = unspecified, nonzero = pure).
-uint8_t loom_call_like_purity(loom_call_like_t call);
+// Returns the callable effect contract, or zero when unspecified.
+loom_callable_effect_contract_t loom_call_like_effect_contract(
+    loom_call_like_t call);
+
+// Sets the callable effect contract on a direct call.
+//
+// The call must expose an effect-contract attribute. This refreshes the
+// operation's effective traits and its containing-region effect summaries.
+void loom_call_like_set_effect_contract(
+    loom_module_t* module, loom_call_like_t call,
+    loom_callable_effect_contract_t effect_contract);
 
 // Returns the temperature attr value (0 = unspecified).
 uint8_t loom_call_like_temperature(loom_call_like_t call);
@@ -1076,8 +1085,17 @@ bool loom_func_like_region_projects_args(const loom_module_t* module,
                                          loom_func_like_t func,
                                          uint8_t region_index);
 
-// Returns the purity attr value (0 = unspecified, nonzero = pure).
-uint8_t loom_func_like_purity(loom_func_like_t func);
+// Returns the callable effect contract, or zero when unspecified.
+loom_callable_effect_contract_t loom_func_like_effect_contract(
+    loom_func_like_t func);
+
+// Sets the callable effect contract on a function-like operation.
+//
+// The operation must expose an effect-contract attribute. This refreshes the
+// operation's effective traits and its containing-region effect summaries.
+void loom_func_like_set_effect_contract(
+    loom_module_t* module, loom_func_like_t func,
+    loom_callable_effect_contract_t effect_contract);
 
 // Returns the temperature attr value (0 = unspecified).
 uint8_t loom_func_like_temperature(loom_func_like_t func);

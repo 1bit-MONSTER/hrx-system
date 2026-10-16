@@ -27,9 +27,10 @@ iree_status_t loom_template_rewrite_apply_as_exact_call(
   }
 
   loom_template_call_build_flags_t build_flags = 0;
-  const uint8_t purity = loom_template_apply_purity(apply_op);
-  if (purity != 0) {
-    build_flags |= LOOM_TEMPLATE_CALL_BUILD_FLAG_HAS_PURITY;
+  const loom_callable_effect_contract_t effect_contract =
+      loom_template_apply_effect_contract(apply_op);
+  if (effect_contract != 0) {
+    build_flags |= LOOM_TEMPLATE_CALL_BUILD_FLAG_HAS_EFFECT_CONTRACT;
   }
   const uint8_t temperature = loom_template_apply_temperature(apply_op);
   if (temperature != 0) {
@@ -41,8 +42,8 @@ iree_status_t loom_template_rewrite_apply_as_exact_call(
       loom_rewriter_value_checkpoint(rewriter);
   loom_op_t* call_op = NULL;
   IREE_RETURN_IF_ERROR(loom_template_call_build(
-      &rewriter->builder, build_flags, purity, temperature, callee, operands,
-      apply_op->operand_count, result_types, results.count,
+      &rewriter->builder, build_flags, effect_contract, temperature, callee,
+      operands, apply_op->operand_count, result_types, results.count,
       loom_op_tied_results(apply_op), apply_op->tied_result_count,
       apply_op->location, &call_op));
   const loom_value_slice_t call_results = loom_template_call_results(call_op);

@@ -11,6 +11,7 @@ In this chapter, you will learn:
 
 - how the launch-configuration region and device body divide responsibility;
 - why workload arguments and launch arguments are separate signatures;
+- how storage-backed workloads participate in launch computation;
 - how workgroups, workitems, subgroups, and clusters map onto a dispatch;
 - how over-dispatched kernels prove safe tail access;
 - when target facts belong in launch configuration; and
@@ -35,10 +36,10 @@ kernel.def @fill(%element_count: index) {
 }
 ```
 
-The values after `@fill` are the **workload signature**. They execute in the
-compiled host launch-config program and compute the workgroup grid, workgroup
-size, and optional cluster size. The values after `launch` are the **device
-signature** carried through the selected target ABI.
+The values after `@fill` are the **workload signature**. They feed the launch
+configuration that computes the workgroup grid, workgroup size, and optional
+cluster size. The values after `launch` are the **device signature** carried
+through the selected target ABI.
 
 | Question | Owning signature |
 | --- | --- |
@@ -59,19 +60,34 @@ from the facts proven about that value. Loom's execution tools pack arguments
 from the loaded executable's parameter reflection; a direct HAL host must use
 the same reflection instead of assuming a width from the source spelling.
 
-## Launch configuration is pure executable logic
+## Launch configuration is deterministic executable logic
 
-The launch-configuration region is a pure function of its workload arguments
-and immutable compilation inputs such as configuration and target facts. It
-cannot read or write memory, call an opaque effectful function, observe
-non-deterministic state, or perform a convergent operation. Kernel verification
-rejects such effects at the `kernel.def` that owns the contract.
+The launch-configuration region is a deterministic function of its explicit
+workload arguments and immutable compilation inputs such as configuration and
+target facts. Workloads may be scalars or storage. A configuration may load
+through a buffer or view rooted in its workload signature, then perform
+arbitrary arithmetic and control flow over the loaded values.
 
-Purity keeps execution placement separate from meaning. The same residual
-calculation may run in a host VM companion, remain as ordinary pure calls in a
-command program, or execute on a device to produce an indirect dispatch tuple.
-None of those products needs a different source representation or permission
-to observe additional state.
+That permission is deliberately narrow. The region cannot write memory, use an
+atomic or fence, observe non-deterministic state, perform a convergent or
+independently observable operation, call code with unknown effects, or read
+storage that does not originate at an explicit workload argument. Kernel
+verification proves each admitted load's storage origin at the `kernel.def`
+that owns the contract.
+
+Storage-derived values may determine workgroup counts after their range is
+proven to fit the dispatch ABI's unsigned 32-bit domain. They cannot determine
+workgroup or cluster sizes: those sizes participate in device specialization,
+resource allocation, and executable compatibility before issue-time storage is
+available.
+
+The retained effect contract keeps execution placement separate from meaning.
+A pure scalar calculation may run in a host companion or move earlier in a
+command program. A calculation that reads workload storage stays ordered after
+the storage producer. That preserved ordering and identity gives command
+lowering the information needed to fold known loads or realize unresolved
+counts as device-produced indirect dispatch data without changing the kernel's
+source contract.
 
 ## Workload is not workgroup count
 
@@ -299,9 +315,9 @@ closed product.
 
 ## Evaluate the compiled launch contract
 
-When requested through the compiler API, compilation emits a launch-config
-companion for every exported kernel. An embedding uses the public `loomc` API
-in four steps:
+For a kernel whose launch computation has scalar workloads and remains pure,
+compilation can emit a standalone launch-config companion. An embedding uses
+the public `loomc` API in four steps:
 
 1. Load the launch-config artifact with
    `loomc_launch_config_program_load`.
@@ -318,6 +334,12 @@ code. Those decisions happened when the executable and companion artifact were
 produced. Lookup resolves a public export name to a program-local token once;
 repeated invocations use that token without another string lookup.
 
+A storage-backed configuration is not a raw-bits host callback. It remains in
+command-program IR, where the workload buffer or view and its producer ordering
+stay explicit. A closed command product must resolve the result to exact counts
+or explicit indirect-count storage; the application does not reproduce the
+kernel's launch arithmetic.
+
 The generated [`loomc` launch-configuration API](../reference/c-api/generated/launch__config_8h.html)
 defines the exact ownership, thread-safety, argument representation, and result
 contracts. [Embed kernel JIT compilation](../integration/jit-kernel.md) follows
@@ -331,7 +353,7 @@ equivalent installed-tool products.
 | --- | --- | --- |
 | Host code duplicates ceiling division | Workload confused with launch geometry | Compute geometry in the kernel configuration region. |
 | A dynamic bound is a workload but missing from the device signature | Host and device needs conflated | Pass it through both signatures when both stages consume it. |
-| A buffer appears in the workload signature | Device resource treated as host launch arithmetic | Keep it in the launch signature. |
+| A produced count is copied into caller launch arithmetic | Producer data confused with caller policy | Pass its storage as a workload and let the kernel configuration load and transform it. |
 | A kernel hardcodes one architecture name | Capability confused with backend identity | Query a normalized target fact or constrain a provider. |
 | Tail invocations access before checking bounds | Physical grid confused with logical extent | Guard or mask access and carry the refined index. |
 | Application code guesses LDS/shared-memory bytes | Compiler allocation result reconstructed externally | Consume `workgroup_storage_bytes` from the compiled launch contract. |

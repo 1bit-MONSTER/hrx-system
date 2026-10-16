@@ -71,7 +71,7 @@ func.def public @choose(%first: i1) -> (encoding<schema>) {
   } else {
     scf.yield %packet_schema$2, %packet_count$3 : encoding<schema>, i32
   }
-  %10, %11 = func.call @copy(%packet_schema$6, %packet_count$7) : (encoding<schema>, i32) -> (encoding<schema>, i32)
+  %10, %11 = func.call pure @copy(%packet_schema$6, %packet_count$7) : (encoding<schema>, i32) -> (encoding<schema>, i32)
   func.return %10 : encoding<schema>
 }
 

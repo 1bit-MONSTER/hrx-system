@@ -26,7 +26,8 @@ typedef struct loom_link_kernel_config_module_projection_t {
   const loom_source_id_t* target_sources;
   // Configuration functions aligned with |selection.symbols|. Complete source
   // symbols and entry-only projections contain null refs; selected kernel
-  // configurations name their private pure workload-to-count function.
+  // configurations name their private pure or deterministic read-only
+  // workload-to-count function.
   // Storage belongs to the caller's arena.
   struct {
     // Arena-owned compact-module symbol refs.
@@ -40,11 +41,12 @@ typedef struct loom_link_kernel_config_module_projection_t {
 //
 // Complete dependency symbols are materialized once in canonical source order.
 // A configuration selection contributes an ordinary private kernel.decl and
-// pure inline func.def. An entry-only selection contributes kernel.entry.decl
-// without opening its configuration or implementation regions. A pipeline
-// contract contributes pipeline.decl with its full staged and run signature
-// without opening the implementation. Source symbols use the exact compact
-// ordinals assigned by |selection|, allowing the
+// inline func.def with the source configuration's proven effect contract. An
+// entry-only selection contributes kernel.entry.decl without opening its
+// configuration or implementation regions. A pipeline contract contributes
+// pipeline.decl with its full staged and run signature without opening the
+// implementation. Source symbols use the exact compact ordinals assigned by
+// |selection|, allowing the
 // generic plan materializer to pass this module directly to the incremental
 // linker without name lookup or a second reachability pass.
 iree_status_t loom_link_plan_project_kernel_config_module(

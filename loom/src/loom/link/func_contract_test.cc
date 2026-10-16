@@ -88,7 +88,8 @@ TEST_F(LinkFuncContractTest, CheckDoesNotFillCompatibleSelectedContract) {
   const loom_func_like_vtable_t* selected_function =
       loom_op_vtable(module_, selected_op)->func_like;
   ASSERT_NE(selected_function, nullptr);
-  ASSERT_FALSE(AttrPresent(selected_op, selected_function->purity_attr_index));
+  ASSERT_FALSE(
+      AttrPresent(selected_op, selected_function->effect_contract_attr_index));
   ASSERT_FALSE(
       AttrPresent(selected_op, selected_function->temperature_attr_index));
   ASSERT_FALSE(
@@ -98,7 +99,8 @@ TEST_F(LinkFuncContractTest, CheckDoesNotFillCompatibleSelectedContract) {
       Check(IREE_SV("source"), IREE_SV("selected"));
 
   EXPECT_EQ(mismatch.kind, LOOM_LINK_FUNC_CONTRACT_MISMATCH_NONE);
-  EXPECT_FALSE(AttrPresent(selected_op, selected_function->purity_attr_index));
+  EXPECT_FALSE(
+      AttrPresent(selected_op, selected_function->effect_contract_attr_index));
   EXPECT_FALSE(
       AttrPresent(selected_op, selected_function->temperature_attr_index));
   EXPECT_FALSE(
@@ -121,13 +123,15 @@ TEST_F(LinkFuncContractTest, MergeFillsCompatibleSelectedContract) {
                                                /*flags=*/0, &mismatch));
 
   EXPECT_EQ(mismatch.kind, LOOM_LINK_FUNC_CONTRACT_MISMATCH_NONE);
-  const uint8_t source_purity_index = source.function->purity_attr_index;
-  const uint8_t selected_purity_index = selected.function->purity_attr_index;
-  ASSERT_TRUE(AttrPresent(source_op, source_purity_index));
-  ASSERT_TRUE(AttrPresent(selected_op, selected_purity_index));
-  EXPECT_TRUE(
-      loom_attribute_equal(&source.attributes[source_purity_index],
-                           &selected.attributes[selected_purity_index]));
+  const uint8_t source_effect_contract_index =
+      source.function->effect_contract_attr_index;
+  const uint8_t selected_effect_contract_index =
+      selected.function->effect_contract_attr_index;
+  ASSERT_TRUE(AttrPresent(source_op, source_effect_contract_index));
+  ASSERT_TRUE(AttrPresent(selected_op, selected_effect_contract_index));
+  EXPECT_TRUE(loom_attribute_equal(
+      &source.attributes[source_effect_contract_index],
+      &selected.attributes[selected_effect_contract_index]));
 }
 
 TEST_F(LinkFuncContractTest, ReportsFieldMismatch) {
@@ -137,6 +141,22 @@ TEST_F(LinkFuncContractTest, ReportsFieldMismatch) {
   EXPECT_EQ(mismatch.kind, LOOM_LINK_FUNC_CONTRACT_MISMATCH_FIELD);
   EXPECT_TRUE(
       iree_string_view_equal(mismatch.field_name, IREE_SV("temperature")));
+}
+
+TEST_F(LinkFuncContractTest, ReadonlyRequirementAcceptsPureProvider) {
+  const loom_link_func_contract_mismatch_t mismatch =
+      Check(IREE_SV("readonly_source"), IREE_SV("pure_selected"));
+
+  EXPECT_EQ(mismatch.kind, LOOM_LINK_FUNC_CONTRACT_MISMATCH_NONE);
+}
+
+TEST_F(LinkFuncContractTest, PureRequirementRejectsReadonlyProvider) {
+  const loom_link_func_contract_mismatch_t mismatch =
+      Check(IREE_SV("source"), IREE_SV("readonly_selected"));
+
+  EXPECT_EQ(mismatch.kind, LOOM_LINK_FUNC_CONTRACT_MISMATCH_FIELD);
+  EXPECT_TRUE(
+      iree_string_view_equal(mismatch.field_name, IREE_SV("effect_contract")));
 }
 
 TEST_F(LinkFuncContractTest, MergesPipelineScopeAndPreservesStagedSignature) {

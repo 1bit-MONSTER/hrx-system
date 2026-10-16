@@ -18,14 +18,16 @@ loom_trait_flags_t loom_verify_op_effective_trait_consistency(
     const loom_op_vtable_t* vtable);
 void loom_verify_op_placement(loom_verify_state_t* state, const loom_op_t* op,
                               const loom_op_vtable_t* vtable);
-void loom_verify_func_purity_body_effects(loom_verify_state_t* state,
-                                          const loom_op_t* op,
-                                          const loom_op_vtable_t* vtable);
+void loom_verify_func_effect_contract_body_effects(
+    loom_verify_state_t* state, const loom_op_t* op,
+    const loom_op_vtable_t* vtable);
 
-// Verifies that an explicitly pure direct CallLike operation targets a pure
-// FuncLike callable. Symbol references must already be structurally verified.
-void loom_verify_call_purity(loom_verify_state_t* state, const loom_op_t* op,
-                             const loom_op_vtable_t* vtable);
+// Verifies that an explicit CallLike effect contract is no stronger than the
+// target FuncLike contract. Symbol references must already be structurally
+// verified.
+void loom_verify_call_effect_contract(loom_verify_state_t* state,
+                                      const loom_op_t* op,
+                                      const loom_op_vtable_t* vtable);
 void loom_verify_op_structure(loom_verify_state_t* state, const loom_op_t* op,
                               const loom_op_vtable_t* vtable);
 void loom_verify_successor_targets(loom_verify_state_t* state,

@@ -36,8 +36,10 @@ typedef struct loom_cmd_program_plan_index_options_t {
     void* user_data;
   } verification;
 
-  // Sink enabling source-backed kernel request publication. A NULL callback
-  // leaves command planning body-blind and publishes only binding requirements.
+  // Sink enabling indexed and generated kernel request publication. A NULL
+  // callback permits body-blind plans whose launch counts are already directly
+  // or statically representable; storage-backed launch arithmetic requires a
+  // sink for its generated device producer.
   loom_cmd_program_kernel_request_sink_t kernel_request_sink;
 
   // Bounded kernel semantic class collection policy.

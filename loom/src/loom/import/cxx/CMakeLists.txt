@@ -20,6 +20,7 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::codegen::low::text_asm
+    loom::error::error_defs
     loom::format::text::printer
     loom::import::cxx::source::catalog
     loom::import::cxx::source::preamble
@@ -51,8 +52,10 @@ loom_cc_library(
     iree::base
     iree::base::internal::arena
     iree::third_party::cxx_parser
+    loom::analysis::callable_effect_inference
     loom::error::diagnostic
     loom::error::error_defs
+    loom::error::source
     loom::import::cxx::binding::assumptions
     loom::import::cxx::binding::check
     loom::import::cxx::binding::config

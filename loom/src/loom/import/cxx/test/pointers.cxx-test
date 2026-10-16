@@ -38,7 +38,7 @@ kernel.def @entry() {
 } launch(%input: buffer, %output: buffer, %start: i64, %count$3: i32) {
   %input_byte_offset = index.constant 0 : offset
   %output_byte_offset = index.constant 0 : offset
-  %row, %row_byte_offset = func.call @advance(%input, %input_byte_offset, %start) : (buffer, offset, i64) -> (buffer, offset)
+  %row, %row_byte_offset = func.call pure @advance(%input, %input_byte_offset, %start) : (buffer, offset, i64) -> (buffer, offset)
   %14 = scalar.constant 0 : i32
   %15 = scalar.cmpi ne, %count$3, %14 : i32
   %selected$16, %selected_byte_offset$17 = scf.if %15 -> (buffer, offset) {
@@ -77,7 +77,7 @@ kernel.def @entry() {
     %47 = index.cast %index : offset to i32
     %48 = scalar.constant 1 : i32
     %49 = scalar.extsi %48 : i32 to i64
-    %selected$50, %selected_byte_offset$51 = func.call @advance(%selected$43, %selected_byte_offset$44, %49) : (buffer, offset, i64) -> (buffer, offset)
+    %selected$50, %selected_byte_offset$51 = func.call pure @advance(%selected$43, %selected_byte_offset$44, %49) : (buffer, offset, i64) -> (buffer, offset)
     scf.yield %selected$50, %selected_byte_offset$51 : buffer, offset
   }
   %selected$58, %selected_byte_offset$59, %count$60 = scf.while(%selected = %selected$45 : buffer, %selected_byte_offset = %selected_byte_offset$46 : offset, %count = %count$3 : i32) -> (buffer, offset, i32) {
@@ -146,7 +146,7 @@ kernel.def @entry() {
   %119 = scalar.constant 0 : i32
   %120 = scalar.subi %119, %118 : i32
   %121 = scalar.extsi %120 : i32 to i64
-  %122, %123 = func.call @advance(%row, %117, %121) : (buffer, offset, i64) -> (buffer, offset)
+  %122, %123 = func.call pure @advance(%row, %117, %121) : (buffer, offset, i64) -> (buffer, offset)
   %124 = buffer.view %122[%123] : buffer -> view<1xi32>
   %125 = view.load %124[0] : view<1xi32> -> i32
   %126 = buffer.view %output[%output_byte_offset] : buffer -> view<1xi32>

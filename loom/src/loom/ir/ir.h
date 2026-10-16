@@ -867,12 +867,25 @@ enum loom_trait_bits_e {
   LOOM_TRAIT_CONTEXTUAL = 1u << 30,
   // Op participates in a callable signature shared with other operations.
   // Refining its operand/result types requires an owner that reconciles the
-  // signature and its callers together. This property is independent of
-  // purity and does not imply an exact callee. Derived for FuncLike/CallLike
-  // interfaces; unresolved callable applications declare it explicitly.
+  // signature and its callers together. This property is independent of the
+  // callable effect contract and does not imply an exact callee. Derived for
+  // FuncLike/CallLike interfaces; unresolved callable applications declare it
+  // explicitly.
   LOOM_TRAIT_CALLABLE_BOUNDARY = 1u << 31,
 };
 typedef uint32_t loom_trait_flags_t;
+
+// Effect contract carried by function-like definitions and applications.
+// Absence (0) leaves effects unspecified and therefore conservative.
+typedef enum loom_callable_effect_contract_e {
+  LOOM_CALLABLE_EFFECT_CONTRACT_UNSPECIFIED = 0,
+  // No memory, non-deterministic, fresh-identity, convergent, or observable
+  // effects.
+  LOOM_CALLABLE_EFFECT_CONTRACT_PURE = 1,
+  // Deterministic memory reads with no other effects.
+  LOOM_CALLABLE_EFFECT_CONTRACT_READONLY = 2,
+  LOOM_CALLABLE_EFFECT_CONTRACT_COUNT_ = 3,
+} loom_callable_effect_contract_t;
 
 // Returns true if the trait flags indicate the op may write to memory, order
 // memory, or has unknown effects. Works on raw bitfields to avoid redundant
@@ -1156,8 +1169,9 @@ typedef struct loom_call_like_vtable_t {
   // Index of the symbol ref attr that names the direct callee.
   uint8_t callee_attr_index;
 
-  // Index of the optional purity enum attr. LOOM_ATTR_INDEX_NONE if absent.
-  uint8_t purity_attr_index;
+  // Index of the optional callable effect-contract enum attr.
+  // LOOM_ATTR_INDEX_NONE if absent.
+  uint8_t effect_contract_attr_index;
 
   // Index of the optional temperature enum attr. LOOM_ATTR_INDEX_NONE if
   // absent.
@@ -1251,8 +1265,9 @@ typedef struct loom_func_like_vtable_t {
   // if absent.
   uint8_t cc_attr_index;
 
-  // Index of the optional purity enum attr. LOOM_ATTR_INDEX_NONE if absent.
-  uint8_t purity_attr_index;
+  // Index of the optional callable effect-contract enum attr.
+  // LOOM_ATTR_INDEX_NONE if absent.
+  uint8_t effect_contract_attr_index;
 
   // Index of the optional temperature enum attr. LOOM_ATTR_INDEX_NONE if
   // absent.

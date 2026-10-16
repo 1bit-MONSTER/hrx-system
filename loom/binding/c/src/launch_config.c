@@ -115,7 +115,8 @@ static loomc_status_t loomc_launch_config_program_bind_function(
                          "launch config function '@%.*s' must be a func.def",
                          (int)name.size, name.data));
   }
-  if (loom_func_like_purity(function) != LOOM_FUNC_PURITY_PURE) {
+  if (loom_func_like_effect_contract(function) !=
+      LOOM_CALLABLE_EFFECT_CONTRACT_PURE) {
     return loomc_status_from_iree(
         iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                          "launch config function '@%.*s' must be pure",
