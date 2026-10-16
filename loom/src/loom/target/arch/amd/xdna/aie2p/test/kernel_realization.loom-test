@@ -197,3 +197,35 @@ pipeline.def<kernel> public retain @write_read_noalias() run(%10: buffer, %11: b
     channel.release %48 : read<tile<16xi8>>
   }
 }
+
+// ====
+
+// RUN: pass target=amd.xdna.aie2p:amd.xdna.strix.17f0_10 aie2p-realize-kernel
+
+// Opaque buffer accesses have no typed footprint to stage. Reject them before
+// requesting the storage-access plan used by admitted bindings.
+// ERROR@+1: XDNA/051 {requirement="buffer arguments reaching only typed views through root-preserving refinements"}
+kernel.def @untyped_buffer_store() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%output: buffer) {
+  %origin = index.constant 0 : offset
+  %value = scalar.constant 42 : i32
+  buffer.store.i8 %value, %output[%origin]
+  kernel.return
+}
+
+// ====
+
+// RUN: pass target=amd.xdna.aie2p:amd.xdna.strix.17f0_10 aie2p-realize-kernel
+
+// Constructing a view alone does not establish an observable binding footprint.
+// ERROR@+1: XDNA/051 {requirement="an observable statically bounded access for each used buffer argument"}
+kernel.def @unobserved_view() {
+  %c1 = index.constant 1 : index
+  kernel.launch.config workgroups(%c1, %c1, %c1) workgroup_size(%c1, %c1, %c1) : index
+} launch(%input: buffer) {
+  %origin = index.constant 0 : offset
+  %view = buffer.view %input[%origin] : buffer -> view<16xi32>
+  kernel.return
+}
