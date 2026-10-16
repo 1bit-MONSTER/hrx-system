@@ -213,6 +213,16 @@ func.def @vector_sqrt_is_unsupported(%input: vector<4xf32>) {
 
 // RUN: pass target=amd.xdna.aie2p:core legalize-math
 
+func.def @vector_sine_is_unsupported(%input: vector<4xf16>) {
+  // ERROR@+1: LOWERING/036 {op_name="vector.sinf", phase_name="legalize-math", policy_name="aie2p-math", math_op="sinf", lane_domain="vector", element_type="f16", constraint_key="math.op.supported"}
+  %result = vector.sinf<afn> %input : vector<4xf16>
+  func.return
+}
+
+// ====
+
+// RUN: pass target=amd.xdna.aie2p:core legalize-math
+
 func.def @binary64_rsqrt_is_unsupported(%input: f64) {
   // ERROR@+1: LOWERING/036 {op_name="scalar.rsqrtf", phase_name="legalize-math", policy_name="aie2p-math", math_op="rsqrtf", lane_domain="scalar", element_type="f64", constraint_key="math.element.f32"}
   %result = scalar.rsqrtf<afn> %input : f64

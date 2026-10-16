@@ -487,6 +487,7 @@ loom_cc_library(
         "//loom/src/loom/ir",
         "//loom/src/loom/pass:environment",
         "//loom/src/loom/pass:types",
+        "//loom/src/loom/util:string_pool",
         "//runtime/src/iree/base",
     ],
 )

@@ -6,387 +6,507 @@
 
 #include "loom/target/arch/x86/math_policy.h"
 
+#include <stddef.h>
+
 #include "loom/target/arch/x86/feature_bits.h"
 
-typedef struct loom_x86_math_profile_t {
-  // Element types implemented by exact arithmetic and square root forms.
-  loom_scalar_type_set_t native_element_types;
-  // Element types implemented by approximate reciprocal square root forms.
-  loom_scalar_type_set_t approximate_rsqrt_element_types;
-  // Whether AVX-512 FP16 extends both sets when selected by the target.
-  bool admits_feature_fp16;
-} loom_x86_math_profile_t;
-
-static const loom_x86_math_profile_t kX86Avx2MathProfile = {
-    .native_element_types = LOOM_SCALAR_TYPE_SET_F32 | LOOM_SCALAR_TYPE_SET_F64,
-    .approximate_rsqrt_element_types = LOOM_SCALAR_TYPE_SET_F32,
+enum loom_x86_math_policy_feature_bits_e {
+  LOOM_X86_MATH_POLICY_FEATURE_NONE = 0u,
+  LOOM_X86_MATH_POLICY_FEATURE_AVX2 = 1u << 0,
+  LOOM_X86_MATH_POLICY_FEATURE_AVX512 = 1u << 1,
+  LOOM_X86_MATH_POLICY_FEATURE_TARGET_FP16 = 1u << 2,
 };
 
-static const loom_x86_math_profile_t kX86Avx512MathProfile = {
-    .native_element_types = LOOM_SCALAR_TYPE_SET_F32 | LOOM_SCALAR_TYPE_SET_F64,
-    .approximate_rsqrt_element_types =
-        LOOM_SCALAR_TYPE_SET_F32 | LOOM_SCALAR_TYPE_SET_F64,
-    .admits_feature_fp16 = true,
+enum loom_x86_math_feature_class_e {
+  LOOM_X86_MATH_FEATURE_CLASS_NONE = 0,
+  LOOM_X86_MATH_FEATURE_CLASS_AVX2 = 1,
+  LOOM_X86_MATH_FEATURE_CLASS_AVX512 = 2,
+  LOOM_X86_MATH_FEATURE_CLASS_TARGET_FP16 = 3,
 };
 
-#define LOOM_X86_MATH_CONSTRAINT_KEYS(_)                                       \
-  _(RECIPE_LOGISTIC_EXP2_F32, "math.recipe.logistic_exp2_f32")                 \
-  _(RECIPE_SILU_LOGISTIC_F32, "math.recipe.silu_logistic_f32")                 \
-  _(RECIPE_EXP_EXP2_F32, "math.recipe.exp_exp2_f32")                           \
-  _(RECIPE_ERF_RATIONAL_F32, "math.recipe.erf_rational_f32")                   \
-  _(RECIPE_GELU_ERF_F32, "math.recipe.gelu_erf_f32")                           \
-  _(RECIPE_GELU_TANH_F32, "math.recipe.gelu_tanh_f32")                         \
-  _(RECIPE_GELU_LOGISTIC_F32, "math.recipe.gelu_logistic_f32")                 \
-  _(RECIPE_SIN_TURNS_F32, "math.recipe.sin_turns_f32")                         \
-  _(RECIPE_COS_TURNS_F32, "math.recipe.cos_turns_f32")                         \
-  _(RECIPE_APPROXIMATE_SIN_TURNS_F32, "math.recipe.approximate_sin_turns_f32") \
-  _(RECIPE_APPROXIMATE_COS_TURNS_F32, "math.recipe.approximate_cos_turns_f32") \
-  _(RECIPE_TANH_LOGISTIC_F32, "math.recipe.tanh_logistic_f32")                 \
-  _(RECIPE_APPROXIMATE_EXP2_F32, "math.recipe.approximate_exp2_f32")           \
-  _(EXACT_ACTIVATION_F32, "math.activation.exact_f32")                         \
-  _(EXACT_EXP_F32, "math.exp.exact_f32")                                       \
-  _(EXACT_ERF_F32, "math.erf.exact_f32")                                       \
-  _(EXACT_TRIG_F32, "math.trig.exact_f32")                                     \
-  _(EXACT_TURNS_TRIG_F32, "math.turns_trig.exact_f32")                         \
-  _(EXACT_TANH_F32, "math.tanh.exact_f32")                                     \
-  _(EXACT_EXP2_F32, "math.exp2.exact_f32")
-
-#define LOOM_X86_MATH_CONSTRAINT_KEY_ENUM(name, value) \
-  LOOM_X86_MATH_CONSTRAINT_KEY_##name,
-enum loom_x86_math_constraint_key_e {
-  LOOM_X86_MATH_CONSTRAINT_KEYS(LOOM_X86_MATH_CONSTRAINT_KEY_ENUM)
-      LOOM_X86_MATH_CONSTRAINT_KEY_COUNT_,
+static const loom_target_math_policy_feature_bits_t
+    kX86MathPolicyFeatureMasks[] = {
+        [LOOM_X86_MATH_FEATURE_CLASS_AVX2 - 1] =
+            LOOM_X86_MATH_POLICY_FEATURE_AVX2,
+        [LOOM_X86_MATH_FEATURE_CLASS_AVX512 - 1] =
+            LOOM_X86_MATH_POLICY_FEATURE_AVX512,
+        [LOOM_X86_MATH_FEATURE_CLASS_TARGET_FP16 - 1] =
+            LOOM_X86_MATH_POLICY_FEATURE_TARGET_FP16,
 };
-#undef LOOM_X86_MATH_CONSTRAINT_KEY_ENUM
-typedef uint8_t loom_x86_math_constraint_key_t;
 
-static iree_string_view_t loom_x86_math_constraint_key(
-    loom_x86_math_constraint_key_t key) {
-  switch (key) {
-#define LOOM_X86_MATH_CONSTRAINT_KEY_CASE(name, value) \
-  case LOOM_X86_MATH_CONSTRAINT_KEY_##name:            \
-    return IREE_SV(value);
-    LOOM_X86_MATH_CONSTRAINT_KEYS(LOOM_X86_MATH_CONSTRAINT_KEY_CASE)
-#undef LOOM_X86_MATH_CONSTRAINT_KEY_CASE
-  }
-  IREE_ASSERT_UNREACHABLE("invalid x86 math constraint key");
-  IREE_BUILTIN_UNREACHABLE();
-}
-#undef LOOM_X86_MATH_CONSTRAINT_KEYS
+static const uint64_t kX86MathTargetFeatureMasks[] = {
+    [LOOM_X86_MATH_FEATURE_CLASS_AVX2 - 1] = 0,
+    [LOOM_X86_MATH_FEATURE_CLASS_AVX512 - 1] = 0,
+    [LOOM_X86_MATH_FEATURE_CLASS_TARGET_FP16 - 1] =
+        LOOM_X86_FEATURE_AVX512_FP16,
+};
 
-static_assert(LOOM_X86_MATH_CONSTRAINT_KEY_COUNT_ <= UINT8_MAX,
-              "x86 math constraint keys must fit in one byte");
-static_assert(LOOM_TARGET_MATH_OP_EXP2F <= UINT8_MAX,
-              "x86 math operations must fit in one byte");
-static_assert(LOOM_TARGET_MATH_RECIPE_RSQRT_NEWTON_TWO <= UINT8_MAX,
-              "x86 math recipes must fit in one byte");
+#define LOOM_X86_MATH_CONSTRAINTS(_)                                         \
+  _(ACTIVATION_EXACT_F32, activation_exact_f32, "math.activation.exact_f32") \
+  _(BASIS_LOG2, basis_log2, "math.basis.log2")                               \
+  _(ELEMENT_F32, element_f32, "math.element.f32")                            \
+  _(ELEMENT_NATIVE_FLOAT, element_native_float, "math.element.native_float") \
+  _(ERF_EXACT_F32, erf_exact_f32, "math.erf.exact_f32")                      \
+  _(EXP_EXACT_F32, exp_exact_f32, "math.exp.exact_f32")                      \
+  _(EXP2_EXACT_F32, exp2_exact_f32, "math.exp2.exact_f32")                   \
+  _(OP_NATIVE_FLOAT, op_native_float, "math.op.native_float")                \
+  _(OP_NATIVE_RSQRT_ESTIMATE, op_native_rsqrt_estimate,                      \
+    "math.op.native_rsqrt_estimate")                                         \
+  _(OP_ROUNDING, op_rounding, "math.op.rounding")                            \
+  _(OP_SUPPORTED, op_supported, "math.op.supported")                         \
+  _(RECIPE_APPROXIMATE_COS_TURNS_F32, recipe_approximate_cos_turns_f32,      \
+    "math.recipe.approximate_cos_turns_f32")                                 \
+  _(RECIPE_APPROXIMATE_EXP2_F32, recipe_approximate_exp2_f32,                \
+    "math.recipe.approximate_exp2_f32")                                      \
+  _(RECIPE_APPROXIMATE_SIN_TURNS_F32, recipe_approximate_sin_turns_f32,      \
+    "math.recipe.approximate_sin_turns_f32")                                 \
+  _(RECIPE_COS_TURNS_F32, recipe_cos_turns_f32, "math.recipe.cos_turns_f32") \
+  _(RECIPE_ERF_RATIONAL_F32, recipe_erf_rational_f32,                        \
+    "math.recipe.erf_rational_f32")                                          \
+  _(RECIPE_EXP_EXP2_F32, recipe_exp_exp2_f32, "math.recipe.exp_exp2_f32")    \
+  _(RECIPE_GELU_ERF_F32, recipe_gelu_erf_f32, "math.recipe.gelu_erf_f32")    \
+  _(RECIPE_GELU_LOGISTIC_F32, recipe_gelu_logistic_f32,                      \
+    "math.recipe.gelu_logistic_f32")                                         \
+  _(RECIPE_GELU_TANH_F32, recipe_gelu_tanh_f32, "math.recipe.gelu_tanh_f32") \
+  _(RECIPE_LOGISTIC_EXP2_F32, recipe_logistic_exp2_f32,                      \
+    "math.recipe.logistic_exp2_f32")                                         \
+  _(RECIPE_RSQRT_NEWTON_ONE, recipe_rsqrt_newton_one,                        \
+    "math.recipe.rsqrt_newton_one")                                          \
+  _(RECIPE_RSQRT_NEWTON_TWO, recipe_rsqrt_newton_two,                        \
+    "math.recipe.rsqrt_newton_two")                                          \
+  _(RECIPE_RSQRT_SQRT_DIV, recipe_rsqrt_sqrt_div,                            \
+    "math.recipe.rsqrt_sqrt_div")                                            \
+  _(RECIPE_SILU_LOGISTIC_F32, recipe_silu_logistic_f32,                      \
+    "math.recipe.silu_logistic_f32")                                         \
+  _(RECIPE_SIN_TURNS_F32, recipe_sin_turns_f32, "math.recipe.sin_turns_f32") \
+  _(RECIPE_TANH_LOGISTIC_F32, recipe_tanh_logistic_f32,                      \
+    "math.recipe.tanh_logistic_f32")                                         \
+  _(TANH_EXACT_F32, tanh_exact_f32, "math.tanh.exact_f32")                   \
+  _(TRIG_EXACT_F32, trig_exact_f32, "math.trig.exact_f32")                   \
+  _(TURNS_TRIG_EXACT_F32, turns_trig_exact_f32, "math.turns_trig.exact_f32")
 
-typedef struct loom_x86_approximate_f32_form_t {
-  // Shared recipe selected when approximation is permitted; zero marks an
-  // unpopulated row in the operation-indexed table.
-  uint8_t recipe;
-  // Constraint naming the selected recipe.
-  loom_x86_math_constraint_key_t recipe_constraint_key;
-  // Constraint reported when approximation is not permitted.
-  loom_x86_math_constraint_key_t exact_constraint_key;
-} loom_x86_approximate_f32_form_t;
-static_assert(sizeof(loom_x86_approximate_f32_form_t) == 3,
-              "x86 approximate F32 forms must remain compact");
+enum loom_x86_math_constraint_e {
+  LOOM_X86_MATH_CONSTRAINT_NONE = 0,
+#define LOOM_X86_MATH_CONSTRAINT_ENUM(name, field, value) \
+  LOOM_X86_MATH_CONSTRAINT_##name,
+  LOOM_X86_MATH_CONSTRAINTS(LOOM_X86_MATH_CONSTRAINT_ENUM)
+#undef LOOM_X86_MATH_CONSTRAINT_ENUM
+      LOOM_X86_MATH_CONSTRAINT_COUNT_,
+};
 
-#define LOOM_X86_APPROXIMATE_F32_FORMS(_)                                     \
-  _(LOGISTICF, LOGISTIC_EXP2_F32, RECIPE_LOGISTIC_EXP2_F32,                   \
-    EXACT_ACTIVATION_F32)                                                     \
-  _(SILUF, SILU_LOGISTIC_F32, RECIPE_SILU_LOGISTIC_F32, EXACT_ACTIVATION_F32) \
-  _(EXPF, EXP_EXP2_F32, RECIPE_EXP_EXP2_F32, EXACT_EXP_F32)                   \
-  _(ERFF, ERF_RATIONAL_F32, RECIPE_ERF_RATIONAL_F32, EXACT_ERF_F32)           \
-  _(GELUF_ERF, GELU_ERF_F32, RECIPE_GELU_ERF_F32, EXACT_ACTIVATION_F32)       \
-  _(GELUF_TANH, GELU_TANH_F32, RECIPE_GELU_TANH_F32, EXACT_ACTIVATION_F32)    \
-  _(GELUF_LOGISTIC, GELU_LOGISTIC_F32, RECIPE_GELU_LOGISTIC_F32,              \
-    EXACT_ACTIVATION_F32)                                                     \
-  _(SINF, SIN_TURNS_F32, RECIPE_SIN_TURNS_F32, EXACT_TRIG_F32)                \
-  _(COSF, COS_TURNS_F32, RECIPE_COS_TURNS_F32, EXACT_TRIG_F32)                \
-  _(SINTURNSF, APPROXIMATE_SIN_TURNS_F32, RECIPE_APPROXIMATE_SIN_TURNS_F32,   \
-    EXACT_TURNS_TRIG_F32)                                                     \
-  _(COSTURNSF, APPROXIMATE_COS_TURNS_F32, RECIPE_APPROXIMATE_COS_TURNS_F32,   \
-    EXACT_TURNS_TRIG_F32)                                                     \
-  _(TANHF, TANH_LOGISTIC_F32, RECIPE_TANH_LOGISTIC_F32, EXACT_TANH_F32)       \
-  _(EXP2F, APPROXIMATE_EXP2_F32, RECIPE_APPROXIMATE_EXP2_F32, EXACT_EXP2_F32)
+typedef struct loom_x86_math_constraint_strings_t {
+#define LOOM_X86_MATH_CONSTRAINT_FIELD(name, field, value) \
+  char field[sizeof(value)];
+  LOOM_X86_MATH_CONSTRAINTS(LOOM_X86_MATH_CONSTRAINT_FIELD)
+#undef LOOM_X86_MATH_CONSTRAINT_FIELD
+} loom_x86_math_constraint_strings_t;
 
-#define LOOM_X86_APPROXIMATE_F32_FORM_ROW(                                    \
-    math_op_name, recipe_name, recipe_constraint_name, exact_constraint_name) \
-  [LOOM_TARGET_MATH_OP_##math_op_name] = {                                    \
-      .recipe = LOOM_TARGET_MATH_RECIPE_##recipe_name,                        \
-      .recipe_constraint_key =                                                \
-          LOOM_X86_MATH_CONSTRAINT_KEY_##recipe_constraint_name,              \
-      .exact_constraint_key =                                                 \
-          LOOM_X86_MATH_CONSTRAINT_KEY_##exact_constraint_name,               \
-  },
-static const loom_x86_approximate_f32_form_t
-    kX86ApproximateF32Forms[LOOM_TARGET_MATH_OP_EXP2F + 1] = {
-        LOOM_X86_APPROXIMATE_F32_FORMS(LOOM_X86_APPROXIMATE_F32_FORM_ROW)};
-#undef LOOM_X86_APPROXIMATE_F32_FORM_ROW
-#undef LOOM_X86_APPROXIMATE_F32_FORMS
+static const loom_x86_math_constraint_strings_t kX86MathConstraintStrings = {
+#define LOOM_X86_MATH_CONSTRAINT_VALUE(name, field, value) .field = value,
+    LOOM_X86_MATH_CONSTRAINTS(LOOM_X86_MATH_CONSTRAINT_VALUE)
+#undef LOOM_X86_MATH_CONSTRAINT_VALUE
+};
 
-static loom_target_math_policy_decision_t loom_x86_math_keep(
-    iree_string_view_t constraint_key) {
-  return (loom_target_math_policy_decision_t){
-      .action = LOOM_TARGET_MATH_POLICY_ACTION_KEEP,
-      .constraint_key = constraint_key,
-  };
-}
+static const loom_string_ref_t
+    kX86MathConstraints[LOOM_X86_MATH_CONSTRAINT_COUNT_ - 1] = {
+#define LOOM_X86_MATH_CONSTRAINT_REF(name, field, value)                      \
+  [LOOM_X86_MATH_CONSTRAINT_##name - 1] =                                     \
+      LOOM_STRING_REF(0, offsetof(loom_x86_math_constraint_strings_t, field), \
+                      sizeof(value) - 1),
+        LOOM_X86_MATH_CONSTRAINTS(LOOM_X86_MATH_CONSTRAINT_REF)
+#undef LOOM_X86_MATH_CONSTRAINT_REF
+};
 
-static loom_target_math_policy_decision_t loom_x86_math_reject(
-    iree_string_view_t constraint_key) {
-  return (loom_target_math_policy_decision_t){
-      .action = LOOM_TARGET_MATH_POLICY_ACTION_REJECT,
-      .constraint_key = constraint_key,
-  };
-}
+#undef LOOM_X86_MATH_CONSTRAINTS
 
-static loom_target_math_policy_decision_t loom_x86_math_rewrite(
-    loom_target_math_recipe_t recipe, iree_string_view_t constraint_key) {
-  return (loom_target_math_policy_decision_t){
-      .action = LOOM_TARGET_MATH_POLICY_ACTION_REWRITE,
-      .recipe = recipe,
-      .constraint_key = constraint_key,
-  };
-}
+#define LOOM_X86_MATH_DIRECT_RULE(element_types_, required_fastmath_flags_,   \
+                                  recipe_, native_required_fastmath_flags_,   \
+                                  constraint_, permission_constraint_)        \
+  LOOM_TARGET_MATH_POLICY_DIRECT_RULE(                                        \
+      element_types_, LOOM_TARGET_MATH_LANE_DOMAIN_SET_ALL,                   \
+      required_fastmath_flags_, recipe_, LOOM_TARGET_MATH_FASTMATH_FLAG_NONE, \
+      native_required_fastmath_flags_, 0, constraint_, permission_constraint_)
 
-static loom_target_math_policy_decision_t loom_x86_math_refine_rsqrt(
-    loom_target_math_recipe_t recipe, iree_string_view_t constraint_key) {
-  loom_target_math_policy_decision_t decision =
-      loom_x86_math_rewrite(recipe, constraint_key);
-  decision.recipe_fastmath_flags =
-      LOOM_TARGET_MATH_FASTMATH_FLAG_AFN | LOOM_TARGET_MATH_FASTMATH_FLAG_ARCP;
-  decision.native_required_fastmath_flags =
-      LOOM_TARGET_MATH_FASTMATH_FLAG_AFN | LOOM_TARGET_MATH_FASTMATH_FLAG_ARCP;
-  return decision;
-}
+#define LOOM_X86_MATH_APPROXIMATE_RULE(op_, recipe_, recipe_constraint_,      \
+                                       exact_constraint_)                     \
+  [LOOM_TARGET_MATH_OP_##op_] = LOOM_X86_MATH_DIRECT_RULE(                    \
+      LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_FASTMATH_FLAG_AFN,           \
+      LOOM_TARGET_MATH_RECIPE_##recipe_, LOOM_TARGET_MATH_FASTMATH_FLAG_NONE, \
+      LOOM_X86_MATH_CONSTRAINT_##recipe_constraint_,                          \
+      LOOM_X86_MATH_CONSTRAINT_##exact_constraint_)
 
-static bool loom_x86_math_target_has_fp16(
-    const loom_target_bundle_t* target_bundle) {
-  return target_bundle != NULL && target_bundle->config != NULL &&
-         iree_any_bit_set(target_bundle->config->contract_feature_bits,
-                          LOOM_X86_FEATURE_AVX512_FP16);
-}
+#define LOOM_X86_MATH_REJECT_F32_RULE(op_, constraint_)              \
+  [LOOM_TARGET_MATH_OP_##op_] = LOOM_X86_MATH_DIRECT_RULE(           \
+      LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_FASTMATH_FLAG_NONE, \
+      LOOM_TARGET_MATH_POLICY_RECIPE_REJECT,                         \
+      LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,                           \
+      LOOM_X86_MATH_CONSTRAINT_##constraint_, LOOM_X86_MATH_CONSTRAINT_NONE)
 
-static loom_scalar_type_set_t loom_x86_math_profile_element_types(
-    const loom_target_math_policy_t* policy,
-    const loom_target_math_query_t* query, bool approximate_rsqrt) {
-  const loom_x86_math_profile_t* profile =
-      (const loom_x86_math_profile_t*)policy->user_data;
-  loom_scalar_type_set_t element_types =
-      approximate_rsqrt ? profile->approximate_rsqrt_element_types
-                        : profile->native_element_types;
-  if (profile->admits_feature_fp16 &&
-      loom_x86_math_target_has_fp16(query->target_bundle)) {
-    element_types |= LOOM_SCALAR_TYPE_SET_F16;
-  }
-  return element_types;
-}
-
-static void loom_x86_math_policy_query(
-    const loom_target_math_policy_t* policy,
-    const loom_target_math_query_t* query,
-    loom_target_math_policy_decision_t* out_decision) {
-  switch (query->math_op) {
-    case LOOM_TARGET_MATH_OP_ADDF:
-    case LOOM_TARGET_MATH_OP_SUBF:
-    case LOOM_TARGET_MATH_OP_MULF:
-    case LOOM_TARGET_MATH_OP_SQRTF:
-    case LOOM_TARGET_MATH_OP_RSQRTF: {
-      if (!loom_scalar_type_set_contains(
-              loom_x86_math_profile_element_types(policy, query,
-                                                  /*approximate_rsqrt=*/false),
-              query->element_type)) {
-        *out_decision =
-            loom_x86_math_reject(IREE_SV("math.element.native_float"));
-        return;
-      }
-      if (query->math_op != LOOM_TARGET_MATH_OP_RSQRTF) {
-        *out_decision = loom_x86_math_keep(IREE_SV("math.op.native_float"));
-        return;
-      }
-      const bool has_native_approximate_rsqrt = loom_scalar_type_set_contains(
-          loom_x86_math_profile_element_types(policy, query,
-                                              /*approximate_rsqrt=*/true),
-          query->element_type);
-      if (has_native_approximate_rsqrt) {
-        const loom_target_math_fastmath_flags_t raw_estimate_flags =
+static const loom_target_math_policy_direct_rule_t
+    kX86MathDirectRules[LOOM_TARGET_MATH_OP_COUNT] = {
+#define LOOM_X86_MATH_NATIVE_RULE(op_)                                      \
+  [LOOM_TARGET_MATH_OP_##op_] = LOOM_X86_MATH_DIRECT_RULE(                  \
+      LOOM_SCALAR_TYPE_SET_F32 | LOOM_SCALAR_TYPE_SET_F64,                  \
+      LOOM_TARGET_MATH_FASTMATH_FLAG_NONE, LOOM_TARGET_MATH_RECIPE_UNKNOWN, \
+      LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,                                  \
+      LOOM_X86_MATH_CONSTRAINT_OP_NATIVE_FLOAT, LOOM_X86_MATH_CONSTRAINT_NONE)
+        LOOM_X86_MATH_NATIVE_RULE(ADDF),
+        LOOM_X86_MATH_NATIVE_RULE(SUBF),
+        LOOM_X86_MATH_NATIVE_RULE(MULF),
+        LOOM_X86_MATH_NATIVE_RULE(SQRTF),
+#undef LOOM_X86_MATH_NATIVE_RULE
+        [LOOM_TARGET_MATH_OP_RSQRTF] = LOOM_X86_MATH_DIRECT_RULE(
+            LOOM_SCALAR_TYPE_SET_F32,
             LOOM_TARGET_MATH_FASTMATH_FLAG_AFN |
-            LOOM_TARGET_MATH_FASTMATH_FLAG_ARCP;
-        if (iree_all_bits_set(query->fastmath_flags, raw_estimate_flags) ||
-            (query->element_type == LOOM_SCALAR_TYPE_F16 &&
-             iree_all_bits_set(query->fastmath_flags,
-                               LOOM_TARGET_MATH_FASTMATH_FLAG_AFN))) {
-          *out_decision =
-              loom_x86_math_keep(IREE_SV("math.op.native_rsqrt_estimate"));
-          return;
-        }
-        if (iree_all_bits_set(query->fastmath_flags,
-                              LOOM_TARGET_MATH_FASTMATH_FLAG_AFN)) {
-          *out_decision = query->element_type == LOOM_SCALAR_TYPE_F64
-                              ? loom_x86_math_refine_rsqrt(
-                                    LOOM_TARGET_MATH_RECIPE_RSQRT_NEWTON_TWO,
-                                    IREE_SV("math.recipe.rsqrt_newton_two"))
-                              : loom_x86_math_refine_rsqrt(
-                                    LOOM_TARGET_MATH_RECIPE_RSQRT_NEWTON_ONE,
-                                    IREE_SV("math.recipe.rsqrt_newton_one"));
-          return;
-        }
-      }
-      *out_decision =
-          loom_x86_math_rewrite(LOOM_TARGET_MATH_RECIPE_RSQRT_SQRT_DIV,
-                                IREE_SV("math.recipe.rsqrt_sqrt_div"));
-      if (has_native_approximate_rsqrt) {
-        out_decision->native_required_fastmath_flags =
-            query->element_type == LOOM_SCALAR_TYPE_F16
-                ? LOOM_TARGET_MATH_FASTMATH_FLAG_AFN
-                : LOOM_TARGET_MATH_FASTMATH_FLAG_AFN |
-                      LOOM_TARGET_MATH_FASTMATH_FLAG_ARCP;
-      }
-      return;
-    }
-    default:
-      break;
+                LOOM_TARGET_MATH_FASTMATH_FLAG_ARCP,
+            LOOM_TARGET_MATH_RECIPE_UNKNOWN,
+            LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,
+            LOOM_X86_MATH_CONSTRAINT_OP_NATIVE_RSQRT_ESTIMATE,
+            LOOM_X86_MATH_CONSTRAINT_NONE),
+        LOOM_X86_MATH_APPROXIMATE_RULE(LOGISTICF, LOGISTIC_EXP2_F32,
+                                       RECIPE_LOGISTIC_EXP2_F32,
+                                       ACTIVATION_EXACT_F32),
+        LOOM_X86_MATH_APPROXIMATE_RULE(SILUF, SILU_LOGISTIC_F32,
+                                       RECIPE_SILU_LOGISTIC_F32,
+                                       ACTIVATION_EXACT_F32),
+        LOOM_X86_MATH_APPROXIMATE_RULE(EXPF, EXP_EXP2_F32, RECIPE_EXP_EXP2_F32,
+                                       EXP_EXACT_F32),
+        LOOM_X86_MATH_APPROXIMATE_RULE(ERFF, ERF_RATIONAL_F32,
+                                       RECIPE_ERF_RATIONAL_F32, ERF_EXACT_F32),
+        LOOM_X86_MATH_APPROXIMATE_RULE(
+            GELUF_ERF, GELU_ERF_F32, RECIPE_GELU_ERF_F32, ACTIVATION_EXACT_F32),
+        LOOM_X86_MATH_APPROXIMATE_RULE(GELUF_TANH, GELU_TANH_F32,
+                                       RECIPE_GELU_TANH_F32,
+                                       ACTIVATION_EXACT_F32),
+        LOOM_X86_MATH_APPROXIMATE_RULE(GELUF_LOGISTIC, GELU_LOGISTIC_F32,
+                                       RECIPE_GELU_LOGISTIC_F32,
+                                       ACTIVATION_EXACT_F32),
+        LOOM_X86_MATH_APPROXIMATE_RULE(SINF, SIN_TURNS_F32,
+                                       RECIPE_SIN_TURNS_F32, TRIG_EXACT_F32),
+        LOOM_X86_MATH_APPROXIMATE_RULE(COSF, COS_TURNS_F32,
+                                       RECIPE_COS_TURNS_F32, TRIG_EXACT_F32),
+        LOOM_X86_MATH_APPROXIMATE_RULE(SINTURNSF, APPROXIMATE_SIN_TURNS_F32,
+                                       RECIPE_APPROXIMATE_SIN_TURNS_F32,
+                                       TURNS_TRIG_EXACT_F32),
+        LOOM_X86_MATH_APPROXIMATE_RULE(COSTURNSF, APPROXIMATE_COS_TURNS_F32,
+                                       RECIPE_APPROXIMATE_COS_TURNS_F32,
+                                       TURNS_TRIG_EXACT_F32),
+        LOOM_X86_MATH_APPROXIMATE_RULE(
+            TANHF, TANH_LOGISTIC_F32, RECIPE_TANH_LOGISTIC_F32, TANH_EXACT_F32),
+        LOOM_X86_MATH_APPROXIMATE_RULE(EXP2F, APPROXIMATE_EXP2_F32,
+                                       RECIPE_APPROXIMATE_EXP2_F32,
+                                       EXP2_EXACT_F32),
+        LOOM_X86_MATH_REJECT_F32_RULE(SOFTPLUSF, BASIS_LOG2),
+        LOOM_X86_MATH_REJECT_F32_RULE(LOGF, BASIS_LOG2),
+        LOOM_X86_MATH_REJECT_F32_RULE(LOG2F, BASIS_LOG2),
+        LOOM_X86_MATH_REJECT_F32_RULE(POWF, BASIS_LOG2),
+        LOOM_X86_MATH_REJECT_F32_RULE(CEILF, OP_ROUNDING),
+        LOOM_X86_MATH_REJECT_F32_RULE(FLOORF, OP_ROUNDING),
+        LOOM_X86_MATH_REJECT_F32_RULE(ROUNDF, OP_ROUNDING),
+        LOOM_X86_MATH_REJECT_F32_RULE(ROUNDEVENF, OP_ROUNDING),
+        LOOM_X86_MATH_REJECT_F32_RULE(TRUNCF, OP_ROUNDING),
+        LOOM_X86_MATH_REJECT_F32_RULE(ASINHF, OP_SUPPORTED),
+        LOOM_X86_MATH_REJECT_F32_RULE(ACOSHF, OP_SUPPORTED),
+        LOOM_X86_MATH_REJECT_F32_RULE(ATANHF, OP_SUPPORTED),
+};
+
+#undef LOOM_X86_MATH_REJECT_F32_RULE
+#undef LOOM_X86_MATH_APPROXIMATE_RULE
+#undef LOOM_X86_MATH_DIRECT_RULE
+
+#define LOOM_X86_MATH_MATCH(element_types_, lane_domains_, shape_,    \
+                            minimum_lane_count_, maximum_lane_count_, \
+                            required_fastmath_flags_, feature_class_) \
+  {                                                                   \
+      .element_types = (element_types_),                              \
+      .minimum_lane_count = (minimum_lane_count_),                    \
+      .maximum_lane_count = (maximum_lane_count_),                    \
+      .lane_domains = (lane_domains_),                                \
+      .shape = (shape_),                                              \
+      .required_fastmath_flags = (required_fastmath_flags_),          \
+      .feature_class = (feature_class_),                              \
   }
 
-  if (query->element_type != LOOM_SCALAR_TYPE_F32) {
-    *out_decision = loom_x86_math_reject(IREE_SV("math.element.f32"));
-    return;
+enum loom_x86_math_rule_e {
+  LOOM_X86_MATH_RULE_NATIVE_FP16 = 0,
+  LOOM_X86_MATH_RULE_RSQRT_ESTIMATE_F64,
+  LOOM_X86_MATH_RULE_RSQRT_ESTIMATE_F16,
+  LOOM_X86_MATH_RULE_RSQRT_REFINE_F32,
+  LOOM_X86_MATH_RULE_RSQRT_REFINE_F64,
+  LOOM_X86_MATH_RULE_RSQRT_REWRITE_F32,
+  LOOM_X86_MATH_RULE_RSQRT_REWRITE_F64_NATIVE,
+  LOOM_X86_MATH_RULE_RSQRT_REWRITE_F16_NATIVE,
+  LOOM_X86_MATH_RULE_RSQRT_REWRITE_F64,
+  LOOM_X86_MATH_RULE_COUNT_,
+};
+
+static const loom_target_math_policy_rule_t
+    kX86MathRules[LOOM_X86_MATH_RULE_COUNT_] = {
+        [LOOM_X86_MATH_RULE_NATIVE_FP16] =
+            {
+                .match = LOOM_X86_MATH_MATCH(
+                    LOOM_SCALAR_TYPE_SET_F16,
+                    LOOM_TARGET_MATH_LANE_DOMAIN_SET_ALL,
+                    LOOM_TARGET_MATH_POLICY_SHAPE_ANY, 0, 0,
+                    LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,
+                    LOOM_X86_MATH_FEATURE_CLASS_TARGET_FP16),
+                .decision_constraint = LOOM_X86_MATH_CONSTRAINT_OP_NATIVE_FLOAT,
+            },
+        [LOOM_X86_MATH_RULE_RSQRT_ESTIMATE_F64] =
+            {
+                .match =
+                    LOOM_X86_MATH_MATCH(LOOM_SCALAR_TYPE_SET_F64,
+                                        LOOM_TARGET_MATH_LANE_DOMAIN_SET_ALL,
+                                        LOOM_TARGET_MATH_POLICY_SHAPE_ANY, 0, 0,
+                                        LOOM_TARGET_MATH_FASTMATH_FLAG_AFN |
+                                            LOOM_TARGET_MATH_FASTMATH_FLAG_ARCP,
+                                        LOOM_X86_MATH_FEATURE_CLASS_AVX512),
+                .decision_constraint =
+                    LOOM_X86_MATH_CONSTRAINT_OP_NATIVE_RSQRT_ESTIMATE,
+            },
+        [LOOM_X86_MATH_RULE_RSQRT_ESTIMATE_F16] =
+            {
+                .match = LOOM_X86_MATH_MATCH(
+                    LOOM_SCALAR_TYPE_SET_F16,
+                    LOOM_TARGET_MATH_LANE_DOMAIN_SET_ALL,
+                    LOOM_TARGET_MATH_POLICY_SHAPE_ANY, 0, 0,
+                    LOOM_TARGET_MATH_FASTMATH_FLAG_AFN,
+                    LOOM_X86_MATH_FEATURE_CLASS_TARGET_FP16),
+                .decision_constraint =
+                    LOOM_X86_MATH_CONSTRAINT_OP_NATIVE_RSQRT_ESTIMATE,
+            },
+        [LOOM_X86_MATH_RULE_RSQRT_REFINE_F32] =
+            {
+                .match =
+                    LOOM_X86_MATH_MATCH(LOOM_SCALAR_TYPE_SET_F32,
+                                        LOOM_TARGET_MATH_LANE_DOMAIN_SET_ALL,
+                                        LOOM_TARGET_MATH_POLICY_SHAPE_ANY, 0, 0,
+                                        LOOM_TARGET_MATH_FASTMATH_FLAG_AFN,
+                                        LOOM_X86_MATH_FEATURE_CLASS_NONE),
+                .recipe = LOOM_TARGET_MATH_RECIPE_RSQRT_NEWTON_ONE,
+                .recipe_fastmath_flags = LOOM_TARGET_MATH_FASTMATH_FLAG_AFN |
+                                         LOOM_TARGET_MATH_FASTMATH_FLAG_ARCP,
+                .native_required_fastmath_flags =
+                    LOOM_TARGET_MATH_FASTMATH_FLAG_AFN |
+                    LOOM_TARGET_MATH_FASTMATH_FLAG_ARCP,
+                .decision_constraint =
+                    LOOM_X86_MATH_CONSTRAINT_RECIPE_RSQRT_NEWTON_ONE,
+            },
+        [LOOM_X86_MATH_RULE_RSQRT_REFINE_F64] =
+            {
+                .match =
+                    LOOM_X86_MATH_MATCH(LOOM_SCALAR_TYPE_SET_F64,
+                                        LOOM_TARGET_MATH_LANE_DOMAIN_SET_ALL,
+                                        LOOM_TARGET_MATH_POLICY_SHAPE_ANY, 0, 0,
+                                        LOOM_TARGET_MATH_FASTMATH_FLAG_AFN,
+                                        LOOM_X86_MATH_FEATURE_CLASS_AVX512),
+                .recipe = LOOM_TARGET_MATH_RECIPE_RSQRT_NEWTON_TWO,
+                .recipe_fastmath_flags = LOOM_TARGET_MATH_FASTMATH_FLAG_AFN |
+                                         LOOM_TARGET_MATH_FASTMATH_FLAG_ARCP,
+                .native_required_fastmath_flags =
+                    LOOM_TARGET_MATH_FASTMATH_FLAG_AFN |
+                    LOOM_TARGET_MATH_FASTMATH_FLAG_ARCP,
+                .decision_constraint =
+                    LOOM_X86_MATH_CONSTRAINT_RECIPE_RSQRT_NEWTON_TWO,
+            },
+        [LOOM_X86_MATH_RULE_RSQRT_REWRITE_F32] =
+            {
+                .match =
+                    LOOM_X86_MATH_MATCH(LOOM_SCALAR_TYPE_SET_F32,
+                                        LOOM_TARGET_MATH_LANE_DOMAIN_SET_ALL,
+                                        LOOM_TARGET_MATH_POLICY_SHAPE_ANY, 0, 0,
+                                        LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,
+                                        LOOM_X86_MATH_FEATURE_CLASS_NONE),
+                .recipe = LOOM_TARGET_MATH_RECIPE_RSQRT_SQRT_DIV,
+                .native_required_fastmath_flags =
+                    LOOM_TARGET_MATH_FASTMATH_FLAG_AFN |
+                    LOOM_TARGET_MATH_FASTMATH_FLAG_ARCP,
+                .decision_constraint =
+                    LOOM_X86_MATH_CONSTRAINT_RECIPE_RSQRT_SQRT_DIV,
+            },
+        [LOOM_X86_MATH_RULE_RSQRT_REWRITE_F64_NATIVE] =
+            {
+                .match =
+                    LOOM_X86_MATH_MATCH(LOOM_SCALAR_TYPE_SET_F64,
+                                        LOOM_TARGET_MATH_LANE_DOMAIN_SET_ALL,
+                                        LOOM_TARGET_MATH_POLICY_SHAPE_ANY, 0, 0,
+                                        LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,
+                                        LOOM_X86_MATH_FEATURE_CLASS_AVX512),
+                .recipe = LOOM_TARGET_MATH_RECIPE_RSQRT_SQRT_DIV,
+                .native_required_fastmath_flags =
+                    LOOM_TARGET_MATH_FASTMATH_FLAG_AFN |
+                    LOOM_TARGET_MATH_FASTMATH_FLAG_ARCP,
+                .decision_constraint =
+                    LOOM_X86_MATH_CONSTRAINT_RECIPE_RSQRT_SQRT_DIV,
+            },
+        [LOOM_X86_MATH_RULE_RSQRT_REWRITE_F16_NATIVE] =
+            {
+                .match = LOOM_X86_MATH_MATCH(
+                    LOOM_SCALAR_TYPE_SET_F16,
+                    LOOM_TARGET_MATH_LANE_DOMAIN_SET_ALL,
+                    LOOM_TARGET_MATH_POLICY_SHAPE_ANY, 0, 0,
+                    LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,
+                    LOOM_X86_MATH_FEATURE_CLASS_TARGET_FP16),
+                .recipe = LOOM_TARGET_MATH_RECIPE_RSQRT_SQRT_DIV,
+                .native_required_fastmath_flags =
+                    LOOM_TARGET_MATH_FASTMATH_FLAG_AFN,
+                .decision_constraint =
+                    LOOM_X86_MATH_CONSTRAINT_RECIPE_RSQRT_SQRT_DIV,
+            },
+        [LOOM_X86_MATH_RULE_RSQRT_REWRITE_F64] =
+            {
+                .match =
+                    LOOM_X86_MATH_MATCH(LOOM_SCALAR_TYPE_SET_F64,
+                                        LOOM_TARGET_MATH_LANE_DOMAIN_SET_ALL,
+                                        LOOM_TARGET_MATH_POLICY_SHAPE_ANY, 0, 0,
+                                        LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,
+                                        LOOM_X86_MATH_FEATURE_CLASS_NONE),
+                .recipe = LOOM_TARGET_MATH_RECIPE_RSQRT_SQRT_DIV,
+                .decision_constraint =
+                    LOOM_X86_MATH_CONSTRAINT_RECIPE_RSQRT_SQRT_DIV,
+            },
+};
+
+#define LOOM_X86_MATH_SPAN(start_, count_, fallback_) \
+  {                                                   \
+      .rule_start = (start_),                         \
+      .rule_count = (count_),                         \
+      .fallback_constraint = (fallback_),             \
   }
 
-  const iree_host_size_t math_op = (iree_host_size_t)query->math_op;
-  if (math_op < IREE_ARRAYSIZE(kX86ApproximateF32Forms) &&
-      kX86ApproximateF32Forms[math_op].recipe !=
-          LOOM_TARGET_MATH_RECIPE_UNKNOWN) {
-    const loom_x86_approximate_f32_form_t* form =
-        &kX86ApproximateF32Forms[math_op];
-    *out_decision =
-        iree_all_bits_set(query->fastmath_flags,
-                          LOOM_TARGET_MATH_FASTMATH_FLAG_AFN)
-            ? loom_x86_math_rewrite(
-                  (loom_target_math_recipe_t)form->recipe,
-                  loom_x86_math_constraint_key(form->recipe_constraint_key))
-            : loom_x86_math_reject(
-                  loom_x86_math_constraint_key(form->exact_constraint_key));
-    return;
-  }
+static const loom_target_math_policy_rule_span_t
+    kX86MathOperationSpans[LOOM_TARGET_MATH_OP_COUNT] = {
+#define LOOM_X86_MATH_NATIVE_SPAN(op_)                      \
+  [LOOM_TARGET_MATH_OP_##op_] =                             \
+      LOOM_X86_MATH_SPAN(LOOM_X86_MATH_RULE_NATIVE_FP16, 1, \
+                         LOOM_X86_MATH_CONSTRAINT_ELEMENT_NATIVE_FLOAT)
+        LOOM_X86_MATH_NATIVE_SPAN(ADDF),
+        LOOM_X86_MATH_NATIVE_SPAN(SUBF),
+        LOOM_X86_MATH_NATIVE_SPAN(MULF),
+        LOOM_X86_MATH_NATIVE_SPAN(SQRTF),
+#undef LOOM_X86_MATH_NATIVE_SPAN
+        [LOOM_TARGET_MATH_OP_RSQRTF] = LOOM_X86_MATH_SPAN(
+            LOOM_X86_MATH_RULE_RSQRT_ESTIMATE_F64,
+            LOOM_X86_MATH_RULE_COUNT_ - LOOM_X86_MATH_RULE_RSQRT_ESTIMATE_F64,
+            LOOM_X86_MATH_CONSTRAINT_ELEMENT_NATIVE_FLOAT),
+#define LOOM_X86_MATH_F32_SPAN(op_) \
+  [LOOM_TARGET_MATH_OP_##op_] =     \
+      LOOM_X86_MATH_SPAN(0, 0, LOOM_X86_MATH_CONSTRAINT_ELEMENT_F32)
+        LOOM_X86_MATH_F32_SPAN(LOGISTICF),
+        LOOM_X86_MATH_F32_SPAN(SILUF),
+        LOOM_X86_MATH_F32_SPAN(SOFTPLUSF),
+        LOOM_X86_MATH_F32_SPAN(EXPF),
+        LOOM_X86_MATH_F32_SPAN(ERFF),
+        LOOM_X86_MATH_F32_SPAN(GELUF_ERF),
+        LOOM_X86_MATH_F32_SPAN(GELUF_TANH),
+        LOOM_X86_MATH_F32_SPAN(GELUF_LOGISTIC),
+        LOOM_X86_MATH_F32_SPAN(LOGF),
+        LOOM_X86_MATH_F32_SPAN(LOG2F),
+        LOOM_X86_MATH_F32_SPAN(SINF),
+        LOOM_X86_MATH_F32_SPAN(COSF),
+        LOOM_X86_MATH_F32_SPAN(SINTURNSF),
+        LOOM_X86_MATH_F32_SPAN(COSTURNSF),
+        LOOM_X86_MATH_F32_SPAN(TANHF),
+        LOOM_X86_MATH_F32_SPAN(POWF),
+        LOOM_X86_MATH_F32_SPAN(CEILF),
+        LOOM_X86_MATH_F32_SPAN(FLOORF),
+        LOOM_X86_MATH_F32_SPAN(ROUNDF),
+        LOOM_X86_MATH_F32_SPAN(ROUNDEVENF),
+        LOOM_X86_MATH_F32_SPAN(TRUNCF),
+        LOOM_X86_MATH_F32_SPAN(EXP2F),
+        LOOM_X86_MATH_F32_SPAN(ASINHF),
+        LOOM_X86_MATH_F32_SPAN(ACOSHF),
+        LOOM_X86_MATH_F32_SPAN(ATANHF),
+#undef LOOM_X86_MATH_F32_SPAN
+};
 
-  switch (query->math_op) {
-    case LOOM_TARGET_MATH_OP_SOFTPLUSF:
-    case LOOM_TARGET_MATH_OP_LOGF:
-    case LOOM_TARGET_MATH_OP_LOG2F:
-    case LOOM_TARGET_MATH_OP_POWF:
-      *out_decision = loom_x86_math_reject(IREE_SV("math.basis.log2"));
-      return;
-    case LOOM_TARGET_MATH_OP_CEILF:
-    case LOOM_TARGET_MATH_OP_FLOORF:
-    case LOOM_TARGET_MATH_OP_ROUNDF:
-    case LOOM_TARGET_MATH_OP_ROUNDEVENF:
-    case LOOM_TARGET_MATH_OP_TRUNCF:
-      *out_decision = loom_x86_math_reject(IREE_SV("math.op.rounding"));
-      return;
-    case LOOM_TARGET_MATH_OP_ADDF:
-    case LOOM_TARGET_MATH_OP_SUBF:
-    case LOOM_TARGET_MATH_OP_MULF:
-    case LOOM_TARGET_MATH_OP_SQRTF:
-    case LOOM_TARGET_MATH_OP_RSQRTF:
-      IREE_ASSERT_UNREACHABLE("native x86 math operation escaped dispatch");
-      IREE_BUILTIN_UNREACHABLE();
-    case LOOM_TARGET_MATH_OP_UNKNOWN:
-      break;
-    default:
-      break;
-  }
+#undef LOOM_X86_MATH_SPAN
 
-  *out_decision = loom_x86_math_reject(IREE_SV("math.op.supported"));
-}
+static const loom_target_math_policy_match_t kX86MathFmaForms[] = {
+    LOOM_X86_MATH_MATCH(LOOM_SCALAR_TYPE_SET_F32 | LOOM_SCALAR_TYPE_SET_F64,
+                        LOOM_TARGET_MATH_LANE_DOMAIN_SET_SCALAR,
+                        LOOM_TARGET_MATH_POLICY_SHAPE_ANY, 0, 0,
+                        LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,
+                        LOOM_X86_MATH_FEATURE_CLASS_NONE),
+    LOOM_X86_MATH_MATCH(
+        LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_LANE_DOMAIN_SET_VECTOR,
+        LOOM_TARGET_MATH_POLICY_SHAPE_RANK_ONE, 4, 4,
+        LOOM_TARGET_MATH_FASTMATH_FLAG_NONE, LOOM_X86_MATH_FEATURE_CLASS_AVX2),
+    LOOM_X86_MATH_MATCH(
+        LOOM_SCALAR_TYPE_SET_F32, LOOM_TARGET_MATH_LANE_DOMAIN_SET_VECTOR,
+        LOOM_TARGET_MATH_POLICY_SHAPE_RANK_ONE, 8, 8,
+        LOOM_TARGET_MATH_FASTMATH_FLAG_NONE, LOOM_X86_MATH_FEATURE_CLASS_AVX2),
+    LOOM_X86_MATH_MATCH(
+        LOOM_SCALAR_TYPE_SET_F64, LOOM_TARGET_MATH_LANE_DOMAIN_SET_VECTOR,
+        LOOM_TARGET_MATH_POLICY_SHAPE_RANK_ONE, 2, 2,
+        LOOM_TARGET_MATH_FASTMATH_FLAG_NONE, LOOM_X86_MATH_FEATURE_CLASS_AVX2),
+    LOOM_X86_MATH_MATCH(
+        LOOM_SCALAR_TYPE_SET_F64, LOOM_TARGET_MATH_LANE_DOMAIN_SET_VECTOR,
+        LOOM_TARGET_MATH_POLICY_SHAPE_RANK_ONE, 4, 4,
+        LOOM_TARGET_MATH_FASTMATH_FLAG_NONE, LOOM_X86_MATH_FEATURE_CLASS_AVX2),
+    LOOM_X86_MATH_MATCH(LOOM_SCALAR_TYPE_SET_F32,
+                        LOOM_TARGET_MATH_LANE_DOMAIN_SET_VECTOR,
+                        LOOM_TARGET_MATH_POLICY_SHAPE_RANK_ONE, 16, 16,
+                        LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,
+                        LOOM_X86_MATH_FEATURE_CLASS_AVX512),
+    LOOM_X86_MATH_MATCH(LOOM_SCALAR_TYPE_SET_F16,
+                        LOOM_TARGET_MATH_LANE_DOMAIN_SET_SCALAR,
+                        LOOM_TARGET_MATH_POLICY_SHAPE_ANY, 0, 0,
+                        LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,
+                        LOOM_X86_MATH_FEATURE_CLASS_TARGET_FP16),
+    LOOM_X86_MATH_MATCH(LOOM_SCALAR_TYPE_SET_F16,
+                        LOOM_TARGET_MATH_LANE_DOMAIN_SET_VECTOR,
+                        LOOM_TARGET_MATH_POLICY_SHAPE_RANK_ONE, 4, 4,
+                        LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,
+                        LOOM_X86_MATH_FEATURE_CLASS_TARGET_FP16),
+    LOOM_X86_MATH_MATCH(LOOM_SCALAR_TYPE_SET_F16,
+                        LOOM_TARGET_MATH_LANE_DOMAIN_SET_VECTOR,
+                        LOOM_TARGET_MATH_POLICY_SHAPE_RANK_ONE, 8, 8,
+                        LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,
+                        LOOM_X86_MATH_FEATURE_CLASS_TARGET_FP16),
+    LOOM_X86_MATH_MATCH(LOOM_SCALAR_TYPE_SET_F16,
+                        LOOM_TARGET_MATH_LANE_DOMAIN_SET_VECTOR,
+                        LOOM_TARGET_MATH_POLICY_SHAPE_RANK_ONE, 16, 16,
+                        LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,
+                        LOOM_X86_MATH_FEATURE_CLASS_TARGET_FP16),
+    LOOM_X86_MATH_MATCH(LOOM_SCALAR_TYPE_SET_F16,
+                        LOOM_TARGET_MATH_LANE_DOMAIN_SET_VECTOR,
+                        LOOM_TARGET_MATH_POLICY_SHAPE_RANK_ONE, 32, 32,
+                        LOOM_TARGET_MATH_FASTMATH_FLAG_NONE,
+                        LOOM_X86_MATH_FEATURE_CLASS_TARGET_FP16),
+};
 
-static bool loom_x86_math_prefer_scalar_fma(
-    const loom_target_math_policy_t* policy,
-    const loom_target_bundle_t* target_bundle, loom_type_t value_type,
-    loom_target_math_fastmath_flags_t fastmath_flags) {
-  (void)policy;
-  (void)target_bundle;
-  (void)fastmath_flags;
-  if (!loom_type_is_scalar(value_type)) {
-    return false;
-  }
-  const loom_scalar_type_t element_type = loom_type_element_type(value_type);
-  return element_type == LOOM_SCALAR_TYPE_F32 ||
-         element_type == LOOM_SCALAR_TYPE_F64;
-}
+#undef LOOM_X86_MATH_MATCH
 
-static bool loom_x86_math_prefer_avx512_fma(
-    const loom_target_math_policy_t* policy,
-    const loom_target_bundle_t* target_bundle, loom_type_t value_type,
-    loom_target_math_fastmath_flags_t fastmath_flags) {
-  if (loom_x86_math_prefer_scalar_fma(policy, target_bundle, value_type,
-                                      fastmath_flags)) {
-    return true;
-  }
-  const loom_scalar_type_t element_type = loom_type_element_type(value_type);
-  if (element_type == LOOM_SCALAR_TYPE_F16 &&
-      loom_x86_math_target_has_fp16(target_bundle)) {
-    if (loom_type_is_scalar(value_type)) {
-      return true;
-    }
-    if (!loom_type_is_vector(value_type) || loom_type_rank(value_type) != 1 ||
-        !loom_type_is_all_static(value_type)) {
-      return false;
-    }
-    const int64_t bit_width = loom_type_dim_static_size_at(value_type, 0) * 16;
-    return bit_width == 64 || bit_width == 128 || bit_width == 256 ||
-           bit_width == 512;
-  }
-  return loom_type_is_vector(value_type) && loom_type_rank(value_type) == 1 &&
-         loom_type_is_all_static(value_type) &&
-         loom_type_dim_static_size_at(value_type, 0) == 16 &&
-         element_type == LOOM_SCALAR_TYPE_F32;
-}
+static const loom_target_math_policy_table_t kX86MathPolicyTable = {
+    .operation_spans = kX86MathOperationSpans,
+    .rules = kX86MathRules,
+    .fma_forms = kX86MathFmaForms,
+    .fma_form_count = IREE_ARRAYSIZE(kX86MathFmaForms),
+    .default_constraint = LOOM_X86_MATH_CONSTRAINT_OP_SUPPORTED,
+    .constraints = kX86MathConstraints,
+    .constraint_strings =
+        {
+            .data = {(const char*)&kX86MathConstraintStrings},
+            .data_length = {sizeof(kX86MathConstraintStrings)},
+        },
+    .target_feature_masks = kX86MathTargetFeatureMasks,
+    .policy_feature_masks = kX86MathPolicyFeatureMasks,
+};
 
-static bool loom_x86_math_prefer_avx2_fma(
-    const loom_target_math_policy_t* policy,
-    const loom_target_bundle_t* target_bundle, loom_type_t value_type,
-    loom_target_math_fastmath_flags_t fastmath_flags) {
-  if (loom_x86_math_prefer_scalar_fma(policy, target_bundle, value_type,
-                                      fastmath_flags)) {
-    return true;
-  }
-  if (!loom_type_is_vector(value_type) || loom_type_rank(value_type) != 1 ||
-      !loom_type_is_all_static(value_type)) {
-    return false;
-  }
-  const loom_scalar_type_t element_type = loom_type_element_type(value_type);
-  if (element_type != LOOM_SCALAR_TYPE_F32 &&
-      element_type != LOOM_SCALAR_TYPE_F64) {
-    return false;
-  }
-  const int64_t bit_width = loom_type_dim_static_size_at(value_type, 0) *
-                            loom_scalar_type_bitwidth(element_type);
-  return bit_width == 128 || bit_width == 256;
-}
-
-static const loom_target_math_policy_t kX86MathPolicy = {
+static const loom_target_math_policy_t kX86Avx2MathPolicy = {
     .name = IREE_SVL("x86-math"),
-    .query = loom_x86_math_policy_query,
-    .prefer_fma = loom_x86_math_prefer_avx2_fma,
-    .user_data = &kX86Avx2MathProfile,
+    .direct_rules = kX86MathDirectRules,
+    .table = &kX86MathPolicyTable,
+    .feature_bits = LOOM_X86_MATH_POLICY_FEATURE_AVX2,
 };
 
 static const loom_target_math_policy_t kX86Avx512MathPolicy = {
     .name = IREE_SVL("x86-math"),
-    .query = loom_x86_math_policy_query,
-    .prefer_fma = loom_x86_math_prefer_avx512_fma,
-    .user_data = &kX86Avx512MathProfile,
-};
-
-static const loom_target_math_policy_t kX86Avx512FeaturesMathPolicy = {
-    .name = IREE_SVL("x86-math"),
-    .query = loom_x86_math_policy_query,
-    .prefer_fma = loom_x86_math_prefer_avx512_fma,
-    .user_data = &kX86Avx512MathProfile,
+    .direct_rules = kX86MathDirectRules,
+    .table = &kX86MathPolicyTable,
+    .feature_bits = LOOM_X86_MATH_POLICY_FEATURE_AVX512 |
+                    LOOM_X86_MATH_POLICY_FEATURE_TARGET_FP16,
 };
 
 static const loom_target_math_policy_registry_entry_t kX86MathPolicyEntries[] =
@@ -394,13 +514,13 @@ static const loom_target_math_policy_registry_entry_t kX86MathPolicyEntries[] =
         {/*.contract_set_key=*/IREE_SVL("x86.avx512.core"),
          /*.policy=*/&kX86Avx512MathPolicy},
         {/*.contract_set_key=*/IREE_SVL("x86.avx2.core"),
-         /*.policy=*/&kX86MathPolicy},
+         /*.policy=*/&kX86Avx2MathPolicy},
         {/*.contract_set_key=*/IREE_SVL("x86.avx2_features.core"),
-         /*.policy=*/&kX86MathPolicy},
+         /*.policy=*/&kX86Avx2MathPolicy},
         {/*.contract_set_key=*/IREE_SVL("x86.packed_dot.core"),
-         /*.policy=*/&kX86MathPolicy},
+         /*.policy=*/&kX86Avx2MathPolicy},
         {/*.contract_set_key=*/IREE_SVL("x86.avx512_features.core"),
-         /*.policy=*/&kX86Avx512FeaturesMathPolicy},
+         /*.policy=*/&kX86Avx512MathPolicy},
 };
 
 void loom_x86_math_policy_registry_initialize(

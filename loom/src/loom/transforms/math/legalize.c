@@ -396,6 +396,14 @@ static iree_string_view_t loom_math_legalize_function_name(
   return loom_string_table_get(&state->module->strings, symbol->name_id);
 }
 
+static iree_string_view_t loom_math_legalize_constraint_key(
+    const loom_math_legalize_state_t* state,
+    const loom_target_math_policy_decision_t* decision) {
+  return state->policy && decision ? loom_target_math_policy_constraint_key(
+                                         state->policy, decision->constraint)
+                                   : iree_string_view_empty();
+}
+
 static iree_status_t loom_math_legalize_record_report_row(
     loom_math_legalize_state_t* state, const loom_op_t* op,
     const loom_target_math_query_t* query,
@@ -421,7 +429,7 @@ static iree_status_t loom_math_legalize_record_report_row(
                                 : iree_string_view_empty(),
       .policy_name =
           state->policy ? state->policy->name : iree_string_view_empty(),
-      .constraint_key = decision->constraint_key,
+      .constraint_key = loom_math_legalize_constraint_key(state, decision),
       .math_op = query->math_op,
       .lane_domain = query->lane_domain,
       .element_type = query->element_type,
@@ -481,7 +489,7 @@ static iree_status_t loom_math_legalize_emit_missing_recipe(
       loom_param_string(loom_target_math_lane_domain_name(query->lane_domain)),
       loom_param_string(
           loom_math_legalize_scalar_type_name(query->element_type)),
-      loom_param_string(decision->constraint_key),
+      loom_param_string(loom_math_legalize_constraint_key(state, decision)),
   };
   return loom_math_legalize_emit(state, op, LOOM_ERR_LOWERING_035, params,
                                  IREE_ARRAYSIZE(params));
@@ -499,7 +507,7 @@ static iree_status_t loom_math_legalize_emit_rejected(
       loom_param_string(loom_target_math_lane_domain_name(query->lane_domain)),
       loom_param_string(
           loom_math_legalize_scalar_type_name(query->element_type)),
-      loom_param_string(decision->constraint_key),
+      loom_param_string(loom_math_legalize_constraint_key(state, decision)),
   };
   return loom_math_legalize_emit(state, op, LOOM_ERR_LOWERING_036, params,
                                  IREE_ARRAYSIZE(params));

@@ -541,6 +541,7 @@ loom_cc_library(
     loom::ir
     loom::pass::environment
     loom::pass::types
+    loom::util::string_pool
   PUBLIC
 )
 
