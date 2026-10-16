@@ -348,14 +348,16 @@ than raw PCM.
 
 ## Audio transcription
 
-`POST /v1/audio/transcriptions` accepts a recognition deployment and signed
-little-endian PCM16 as `multipart/form-data`. For a 16 kHz mono recognizer:
+`POST /v1/audio/transcriptions` accepts a recognition deployment and a completed
+recording as `multipart/form-data`. Builds with audio codecs accept WAV, MP3,
+and FLAC, converting their sample rate and channel layout to the model's input
+geometry:
 
 ```sh
 curl --fail-with-body -H 'Expect:' \
   http://127.0.0.1:8080/v1/audio/transcriptions \
   -F model=recognizer \
-  -F 'file=@recording.pcm;headers="Content-Type: audio/pcm;rate=16000;channels=1"'
+  -F 'file=@recording.wav;type=audio/wav'
 ```
 
 The default response is `{"text":"Recognized speech."}`. `response_format=text`
@@ -365,28 +367,46 @@ order, separated by newlines; segment identities break equal-time ties.
 | Field | Contract |
 | --- | --- |
 | `model` | Required registered recognition deployment. |
-| `file` | Required nonempty PCM16LE audio with explicit sample geometry; the filename never names a server path. |
+| `file` | Required nonempty recording in an enabled format, or PCM16LE with explicit geometry; the filename never names a server path. |
 | `language` | Optional UTF-8 language hint interpreted by the package. |
 | `prompt` | Optional UTF-8 context interpreted by the package. |
 | `temperature` | Finite number from 0 through 1, default 0; source policy may restrict it. |
 | `response_format` | `json` by default, or `text`. |
 | `stream` | Omitted or `false` for this finite-upload profile. |
 
-The file part's `Content-Type` declares both the sample rate and interleaved
-channel count. They must match the selected package's input geometry. These
-bytes contain whole PCM16 frames without a WAV header. Missing, duplicate, or
-mismatched geometry and partial frames reject; this profile performs no
-resampling or channel conversion. WAV, MP3, FLAC, and other encoded uploads
-reject. PCM input and PCM speech output require no audio codec dependency.
+Container bytes select the decoder, independently of the filename or MIME
+label. `audio/wav`, `audio/mpeg`, and `audio/flac` are conventional labels;
+`application/octet-stream` also works for a supported container. A disabled
+codec or unsupported container returns an error. Direct WebM/Opus and MP4/AAC
+uploads are not accepted; clients must convert them to an enabled format.
+
+Raw PCM16LE works in every build. Its file part explicitly declares `audio/pcm`
+with the sample rate and interleaved channel count, matching the selected model.
+For a 16 kHz mono recognizer:
+
+```sh
+curl --fail-with-body -H 'Expect:' \
+  http://127.0.0.1:8080/v1/audio/transcriptions \
+  -F model=recognizer \
+  -F 'file=@recording.pcm;headers="Content-Type: audio/pcm;rate=16000;channels=1"'
+```
+
+These bytes contain whole PCM16 frames without a WAV header. Missing, duplicate,
+or mismatched geometry and partial frames reject. The raw path performs no
+resampling or channel conversion. PCM input and PCM speech output require no
+audio codec dependency.
 
 The request-body byte limit and source-defined input-frame limit apply
-independently. An overlong recording rejects before model admission instead of
-truncating. Conversion stages a bounded number of frames on the shared CPU
-executor, independently of the total recording length.
+independently. The raw PCM frame count is checked before model admission;
+encoded recordings are checked as decoded frames reach recognition. An
+overlong recording rejects without truncation or a partial success response.
+Decoding and conversion stage a bounded number of frames on the shared CPU
+executor, retaining each recording's codec and resampling history across blocks.
 
 Uploads may share numerical batches while retaining independent sample clocks,
 model histories, and transcript state. A disconnect cancels that request;
-upload bytes and model storage remain owned until accepted work retires.
+upload bytes, decoder state, and model storage remain owned until accepted
+work retires.
 Concurrent requests continue through their own input and output credit.
 
 Unknown or duplicate fields, unsupported response formats and `stream=true`

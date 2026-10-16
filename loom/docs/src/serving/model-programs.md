@@ -340,10 +340,17 @@ word alignment; an input-coverage interval alone does not establish where words
 were spoken. Consumers preserve these distinctions instead of converting a
 revisable hypothesis into an append-only text delta.
 
-The [finite HTTP adapter](http-profiles.md#audio-transcription) consumes revisions
-and returns the completed document. Typed consumers can apply revisions as they
-arrive and independently supply more PCM. Qualify a model with isolated reference
-transcripts, staggered arrivals, different recording lengths, a stalled reader,
+The [finite HTTP adapter](http-profiles.md#audio-transcription) decodes enabled
+WAV, MP3, and FLAC containers into the same bounded F32 input used by raw PCM.
+It performs channel conversion and filtered resampling on shared CPU workers;
+model feature extraction, numerical stages, and transcript policy remain source
+responsibilities. Each upload owns its codec history independently of source
+batch membership, and accepted decode work retains that state until retirement.
+
+The adapter consumes revisions and returns the completed document. Typed
+consumers can apply revisions as they arrive and independently supply more PCM.
+Qualify a model with isolated reference transcripts, staggered arrivals,
+different recording lengths, a stalled reader,
 accepted-work cancellation and row reuse. Compare text and sample clocks across
 changing cohorts, including a final partial model frame.
 

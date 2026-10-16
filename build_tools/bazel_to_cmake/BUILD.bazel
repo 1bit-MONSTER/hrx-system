@@ -18,18 +18,26 @@ exports_files(
     visibility = ["//build_tools/lefthook:__pkg__"],
 )
 
-py_test(
-    name = "bazel_to_cmake_test",
+py_library(
+    name = "converter",
     srcs = [
-        "bazel_to_cmake.py",
         "bazel_to_cmake_config.py",
         "bazel_to_cmake_converter.py",
         "bazel_to_cmake_loads.py",
         "bazel_to_cmake_requirements.py",
         "bazel_to_cmake_targets.py",
-        "bazel_to_cmake_test.py",
         "loom_binary.py",
     ],
+    visibility = ["//loom/build_tools:__pkg__"],
+)
+
+py_test(
+    name = "bazel_to_cmake_test",
+    srcs = [
+        "bazel_to_cmake.py",
+        "bazel_to_cmake_test.py",
+    ],
+    deps = [":converter"],
 )
 
 py_test(
@@ -42,15 +50,8 @@ py_test(
 
 py_test(
     name = "config_test",
-    srcs = [
-        "bazel_to_cmake_config.py",
-        "bazel_to_cmake_converter.py",
-        "bazel_to_cmake_loads.py",
-        "bazel_to_cmake_requirements.py",
-        "bazel_to_cmake_targets.py",
-        "config_test.py",
-        "loom_binary.py",
-    ],
+    srcs = ["config_test.py"],
+    deps = [":converter"],
 )
 
 py_test(

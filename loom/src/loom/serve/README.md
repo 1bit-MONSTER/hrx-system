@@ -50,6 +50,14 @@ The shared foundation consists of:
   source-owned preparation and submission control. The service owns bounded
   admission, asynchronous completion and output encoding; slow clients retain
   copied responses independently of model buffers and parameter pins.
+- [`media/audio_decoder`](media/audio_decoder.h): optional in-memory WAV, MP3,
+  and FLAC conversion with independent codec and resampler state. The caller
+  owns workers, decoded-frame credit, and the encoded bytes' lifetime.
+- [`service/recognition`](service/recognition/model.h): continuing PCM input,
+  source-defined numerical batches, and revisable transcript segments. Its
+  [HTTP adapter](service/recognition/http.h) schedules bounded conversion on
+  the shared CPU executor and retains upload/decoder storage through accepted
+  work retirement before returning final JSON or text.
 - [`service/speech`](service/speech/README.md): incremental waveform output with
   separate conditioning and request state, bounded PCM delivery, and explicit
   work/feedback retirement on EOF, disconnect and shutdown.

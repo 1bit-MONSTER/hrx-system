@@ -46,6 +46,7 @@ loom_cc_library(
     iree::base
     iree::base::threading
     iree::task
+    loom::serve::media::audio_decoder
     loom::serve::runtime::host
     loom::serve::runtime::host::wake
     loom::serve::runtime::parameter::telemetry
@@ -63,6 +64,12 @@ loom_cc_library(
 endif()
 
 if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+set(_source_http_tests_platform_defines "")
+if(LOOM_SERVE_AUDIO_CODEC_WAV)
+  list(APPEND _source_http_tests_platform_defines "LOOM_TEST_AUDIO_WAV=1")
+else()
+  list(APPEND _source_http_tests_platform_defines "LOOM_TEST_AUDIO_WAV=0")
+endif()
 loom_cc_library(
   NAME
     source_http_tests
@@ -81,6 +88,8 @@ loom_cc_library(
     loom::serve::testing::service_application
     loom::serve::transport::http::listener
     loom::serve::transport::http::server
+  DEFINES
+    ${_source_http_tests_platform_defines}
   TESTONLY
   ALWAYSLINK
   PUBLIC

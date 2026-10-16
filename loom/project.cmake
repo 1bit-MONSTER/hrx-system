@@ -152,17 +152,17 @@ option(LOOM_IMPORT_MLIR
 option(LOOM_IMPORT_TILELANG
   "Enables the Loom TileLang importer package and importer tests." OFF)
 
-set(_LOOM_SERVE_IMAGE_HOST OFF)
+set(_LOOM_SERVE_MEDIA_HOST OFF)
 if(CMAKE_SYSTEM_NAME MATCHES "^(Linux|Darwin|Windows)$")
-  set(_LOOM_SERVE_IMAGE_HOST ON)
+  set(_LOOM_SERVE_MEDIA_HOST ON)
 endif()
 option(LOOM_SERVE_IMAGE_INPUT
   "Enables image inputs to Loom serving deployments."
-  ${_LOOM_SERVE_IMAGE_HOST})
+  ${_LOOM_SERVE_MEDIA_HOST})
 set(LOOM_SERVE_IMAGE_CODECS "png;jpeg;gif;webp" CACHE STRING
   "Image input codecs registered in Loom serving deployments.")
 if(LOOM_BUILD AND LOOM_TARGET_ARCH_VM AND LOOM_SERVE_IMAGE_INPUT AND
-    NOT _LOOM_SERVE_IMAGE_HOST)
+    NOT _LOOM_SERVE_MEDIA_HOST)
   message(FATAL_ERROR
     "Loom image input requires Linux, macOS, or Windows. Set LOOM_SERVE_IMAGE_INPUT=OFF to build other serving modalities.")
 endif()
@@ -177,6 +177,33 @@ endforeach()
 foreach(_codec IN LISTS LOOM_SERVE_IMAGE_CODECS)
   if(NOT _codec MATCHES "^(png|jpeg|gif|webp)$")
     message(FATAL_ERROR "Unknown Loom image input codec: ${_codec}")
+  endif()
+endforeach()
+
+set(_LOOM_SERVE_AUDIO_CODECS "")
+if(_LOOM_SERVE_MEDIA_HOST)
+  set(_LOOM_SERVE_AUDIO_CODECS "wav;mp3;flac")
+endif()
+set(LOOM_SERVE_AUDIO_CODECS "${_LOOM_SERVE_AUDIO_CODECS}" CACHE STRING
+  "Optional encoded-audio input codecs; empty retains raw PCM transcription.")
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_VM AND LOOM_SERVE_AUDIO_CODECS AND
+    NOT _LOOM_SERVE_MEDIA_HOST)
+  message(FATAL_ERROR
+    "Loom encoded audio requires Linux, macOS, or Windows. Set LOOM_SERVE_AUDIO_CODECS= to retain raw PCM.")
+endif()
+set(LOOM_SERVE_AUDIO_DECODING OFF)
+foreach(_codec wav mp3 flac)
+  string(TOUPPER "${_codec}" _codec_upper)
+  set(LOOM_SERVE_AUDIO_CODEC_${_codec_upper} OFF)
+  if(LOOM_BUILD AND LOOM_TARGET_ARCH_VM AND _LOOM_SERVE_MEDIA_HOST AND
+      _codec IN_LIST LOOM_SERVE_AUDIO_CODECS)
+    set(LOOM_SERVE_AUDIO_CODEC_${_codec_upper} ON)
+    set(LOOM_SERVE_AUDIO_DECODING ON)
+  endif()
+endforeach()
+foreach(_codec IN LISTS LOOM_SERVE_AUDIO_CODECS)
+  if(NOT _codec MATCHES "^(wav|mp3|flac)$")
+    message(FATAL_ERROR "Unknown Loom audio input codec: ${_codec}")
   endif()
 endforeach()
 
@@ -201,6 +228,9 @@ if(LOOM_EMIT_XDNA AND NOT LOOM_TARGET_ARCH_XDNA)
 endif()
 
 function(loom_configure_project)
+  if(LOOM_SERVE_AUDIO_DECODING)
+    iree_configure_miniaudio()
+  endif()
   if(LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU)
     iree_configure_rocm_hsa_runtime_headers()
   endif()

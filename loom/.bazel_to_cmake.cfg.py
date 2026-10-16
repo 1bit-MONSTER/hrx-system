@@ -101,20 +101,36 @@ _LOOM_CONFIG_CMAKE_OPTIONS = {
     "//loom/config/execute:spirv_vulkan_hal": "LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN",
     "//loom/config/execute:task_hal": "LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK",
     "//loom/config/execute:xdna_hal": "LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_XDNA",
+    "//loom/config/import/cxx:embed_includes_enabled": "LOOM_IMPORT_CXX_EMBED_INCLUDES",
+    "//loom/config/import:cxx": "LOOM_IMPORT_CXX",
     "//loom/config/import:mlir": "LOOM_IMPORT_MLIR",
     "//loom/config/import:tilelang": "LOOM_IMPORT_TILELANG",
-    "//loom/config/target:amdgpu": "LOOM_TARGET_AMDGPU",
-    "//loom/config/target:spirv": "LOOM_TARGET_SPIRV",
-    "//loom/config/target:vm": "LOOM_TARGET_VM",
-    "//loom/config/target:wasm": "LOOM_TARGET_WASM",
-    "//loom/config/target:xdna": "LOOM_TARGET_XDNA",
-    "//loom/config/target:x86": "LOOM_TARGET_X86",
+    "//loom/config/serve:audio_decoding": "LOOM_SERVE_AUDIO_DECODING",
+    "//loom/config/serve:flac": "LOOM_SERVE_AUDIO_CODEC_FLAC",
+    "//loom/config/serve:gif": "LOOM_SERVE_IMAGE_CODEC_GIF",
+    "//loom/config/serve:image_input_enabled": "LOOM_BUILD AND LOOM_SERVE_IMAGE_INPUT",
+    "//loom/config/serve:jpeg": "LOOM_SERVE_IMAGE_CODEC_JPEG",
+    "//loom/config/serve:mp3": "LOOM_SERVE_AUDIO_CODEC_MP3",
+    "//loom/config/serve:png": "LOOM_SERVE_IMAGE_CODEC_PNG",
+    "//loom/config/serve:wav": "LOOM_SERVE_AUDIO_CODEC_WAV",
+    "//loom/config/serve:webp": "LOOM_SERVE_IMAGE_CODEC_WEBP",
     "//loom/config/target/arch:amdgpu": "LOOM_TARGET_ARCH_AMDGPU",
     "//loom/config/target/arch:spirv": "LOOM_TARGET_ARCH_SPIRV",
     "//loom/config/target/arch:vm": "LOOM_TARGET_ARCH_VM",
     "//loom/config/target/arch:wasm": "LOOM_TARGET_ARCH_WASM",
-    "//loom/config/target/arch:xdna": "LOOM_TARGET_ARCH_XDNA",
     "//loom/config/target/arch:x86": "LOOM_TARGET_ARCH_X86",
+    "//loom/config/target/arch:xdna": "LOOM_TARGET_ARCH_XDNA",
+    "//loom/config/target:amdgpu": "LOOM_TARGET_AMDGPU",
+    "//loom/config/target:amdgpu_artifacts": "LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU",
+    "//loom/config/target:spirv": "LOOM_TARGET_SPIRV",
+    "//loom/config/target:spirv_artifacts": "LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV",
+    "//loom/config/target:spirv_vulkan_artifacts": "LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND IREE_HAL_DRIVER_VULKAN",
+    "//loom/config/target:vm": "LOOM_TARGET_VM",
+    "//loom/config/target:wasm": "LOOM_TARGET_WASM",
+    "//loom/config/target:wasm_artifacts": "LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM",
+    "//loom/config/target:x86": "LOOM_TARGET_X86",
+    "//loom/config/target:xdna": "LOOM_TARGET_XDNA",
+    "//loom/config/target:xdna_artifacts": "LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA",
 }
 _LOOM_CONFIG_CMAKE_OPTIONS.update(_loom_amdgpu_config_cmake_options())
 
@@ -232,11 +248,6 @@ class LoomBuildFileFunctions(
         if not condition:
             return text
         return f"\nif({condition})\n{text}endif()\n\n"
-
-    def _convert_select_condition(self, label):
-        if label in _LOOM_CONFIG_CMAKE_OPTIONS:
-            return _LOOM_CONFIG_CMAKE_OPTIONS[label]
-        return super()._convert_select_condition(label)
 
     def loom_config_compatible_with(self, config_labels):
         return list(config_labels)
@@ -1865,5 +1876,6 @@ PROJECT_CONFIG = bazel_to_cmake_config.ProjectConfig(
     target_mappings={
         "//loom/src:defines": [],
     },
+    condition_mappings=_LOOM_CONFIG_CMAKE_OPTIONS,
     convert_unmatched_target=convert_unmatched_target,
 )

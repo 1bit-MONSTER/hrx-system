@@ -75,6 +75,7 @@ TEST_F(TranscriptionTest, BorrowsAudioAndSourceOptionsIndependentOfPartOrder) {
                         Field(IREE_SV("stream"), IREE_SV("false"))}));
   EXPECT_EQ(request_.audio.data, reinterpret_cast<const uint8_t*>(audio));
   EXPECT_EQ(request_.audio.data_length, sizeof(audio));
+  EXPECT_TRUE(request_.pcm);
   EXPECT_TRUE(request_.text_response);
   EXPECT_FLOAT_EQ(request_.request.temperature, 0.75f);
   EXPECT_TRUE(iree_string_view_equal(request_.request.language, IREE_SV("en")));
@@ -103,11 +104,9 @@ TEST_F(TranscriptionTest,
     IREE_ASSERT_OK(Parse({file, model}));
     EXPECT_EQ(request_.audio.data,
               reinterpret_cast<const uint8_t*>(file.contents.data));
+    EXPECT_TRUE(request_.pcm);
   }
   for (const auto content_type : {
-           IREE_SV(""),
-           IREE_SV("audio/wav"),
-           IREE_SV("application/octet-stream"),
            IREE_SV("audio/pcm"),
            IREE_SV("audio/pcm;rate=16000"),
            IREE_SV("audio/pcm;channels=1"),
@@ -139,6 +138,26 @@ TEST_F(TranscriptionTest,
       IREE_STATUS_INVALID_ARGUMENT,
       loom_serve_transcription_parse({2, parts}, IREE_SV("recognition"),
                                      {16000, 2}, &request_));
+}
+
+TEST_F(TranscriptionTest, EncodedAudioDefersFormatSelectionToContainerBytes) {
+  auto file = Field(IREE_SV("file"), IREE_SV("opaque container bytes"));
+  file.filename = IREE_SV("../../not-a-format.pcm");
+  const auto model = Field(IREE_SV("model"), IREE_SV("recognition"));
+  for (const auto content_type : {
+           IREE_SV(""),
+           IREE_SV("audio/wav"),
+           IREE_SV("audio/mpeg"),
+           IREE_SV("audio/flac"),
+           IREE_SV("application/octet-stream"),
+       }) {
+    file.content_type = content_type;
+    IREE_ASSERT_OK(Parse({file, model}));
+    EXPECT_FALSE(request_.pcm);
+    EXPECT_EQ(request_.audio.data,
+              reinterpret_cast<const uint8_t*>(file.contents.data));
+    EXPECT_EQ(request_.audio.data_length, file.contents.size);
+  }
 }
 
 TEST_F(TranscriptionTest, RejectsAmbiguousOrUnsupportedOptionsBeforeModelWork) {

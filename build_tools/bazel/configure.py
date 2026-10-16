@@ -21,6 +21,7 @@ from pathlib import Path, PurePath
 LOOM_EXECUTE_SUBSTRATES = ("iree_hal",)
 LOOM_IMPORTERS = ("cxx", "mlir", "tilelang")
 LOOM_IMAGE_CODECS = ("png", "jpeg", "gif", "webp")
+LOOM_AUDIO_CODECS = ("wav", "mp3", "flac")
 LOOM_TARGETS = ("amdgpu", "spirv", "vm", "wasm", "xdna", "x86")
 LOOM_EMITTERS = ("amdgpu", "spirv", "wasm", "xdna")
 AMDF_FAMILIES = ("rdna", "cdna", "xdna")
@@ -101,6 +102,7 @@ NATIVE_LOOM_EXECUTE_FLAG = "--//loom/config/execute:enable"
 NATIVE_LOOM_IMPORT_FLAG = "--//loom/config/import:enable"
 NATIVE_LOOM_IMAGE_INPUT_FLAG = "--//loom/config/serve:image_input"
 NATIVE_LOOM_IMAGE_CODECS_FLAG = "--//loom/config/serve:image_codecs"
+NATIVE_LOOM_AUDIO_CODECS_FLAG = "--//loom/config/serve:audio_codecs"
 NATIVE_AMDF_ENABLED_FLAG = "--//libamdf/config:enabled"
 NATIVE_AMDF_FAMILIES_FLAG = "--//libamdf/config:families"
 NATIVE_VULKAN_ENABLED_FLAG = "--//build_tools/vulkan/config:enabled"
@@ -136,6 +138,10 @@ class ConfigRequest:
     loom_image_codecs: set[str] = field(default_factory=lambda: set(LOOM_IMAGE_CODECS))
     # Spelling used to select image providers.
     loom_image_codecs_source: str | None = None
+    # Optional encoded-audio providers; an empty set retains raw PCM input.
+    loom_audio_codecs: set[str] = field(default_factory=lambda: set(LOOM_AUDIO_CODECS))
+    # Spelling used to select encoded-audio providers.
+    loom_audio_codecs_source: str | None = None
     loom_target_source: str | None = None
     loom_amdgpu_targets: set[str] | None = None
     enabled_loom_emitters: set[str] = field(default_factory=set)
@@ -354,6 +360,17 @@ class ConfigRequest:
             )
         self.loom_image_codecs_source = source
         self.loom_image_codecs = codecs
+
+    def set_loom_audio_codecs(self, codecs: set[str], source: str) -> None:
+        if self.loom_audio_codecs_source not in (None, source):
+            raise SystemExit("Do not mix portable and native Loom audio-codec options.")
+        unknown = codecs.difference(LOOM_AUDIO_CODECS)
+        if unknown:
+            raise SystemExit(
+                "Unknown Loom audio codec(s): " + ", ".join(sorted(unknown))
+            )
+        self.loom_audio_codecs_source = source
+        self.loom_audio_codecs = codecs
 
     def set_amdf_family(self, family: str, enabled: bool) -> None:
         if self.amdf_family_source == "native":
@@ -581,6 +598,9 @@ def apply_define(request: ConfigRequest, define: str) -> None:
     if name == "LOOM_SERVE_IMAGE_CODECS":
         request.set_loom_image_codecs(set(filter(None, value.split(";"))), "portable")
         return
+    if name == "LOOM_SERVE_AUDIO_CODECS":
+        request.set_loom_audio_codecs(set(filter(None, value.split(";"))), "portable")
+        return
     if name == "IREE_ENABLE_VULKAN":
         request.set_vulkan_enabled(parse_bool(name, value), "portable")
         return
@@ -631,6 +651,9 @@ def apply_native_bazel_arg(request: ConfigRequest, arg: str) -> None:
         return
     if arg.startswith(NATIVE_LOOM_IMAGE_CODECS_FLAG + "="):
         request.set_loom_image_codecs(parse_string_list(arg.split("=", 1)[1]), "native")
+        return
+    if arg.startswith(NATIVE_LOOM_AUDIO_CODECS_FLAG + "="):
+        request.set_loom_audio_codecs(parse_string_list(arg.split("=", 1)[1]), "native")
         return
     if arg.startswith(NATIVE_DRIVER_FLAG + "="):
         request.set_driver_list(parse_driver_list(arg.split("=", 1)[1]))
@@ -868,6 +891,18 @@ def generate_config(args: argparse.Namespace) -> str:
         bazelrc_line(
             "common",
             "--repo_env=IREE_DEPENDENCY_MODE=" + request.dependency_mode,
+        ),
+        "",
+        "# Optional encoded audio providers; raw PCM is always available.",
+        bazelrc_line(
+            "build",
+            NATIVE_LOOM_AUDIO_CODECS_FLAG
+            + "="
+            + ",".join(
+                codec
+                for codec in LOOM_AUDIO_CODECS
+                if codec in request.loom_audio_codecs
+            ),
         ),
         "",
         "# Loom target, execute substrate, importer, and explicit emitter scope.",

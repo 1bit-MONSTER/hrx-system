@@ -214,6 +214,17 @@ alias(
 
 filegroup(name = "empty_image_codec")
 
+alias(
+    name = "miniaudio",
+    actual = select({
+        "//loom/config/serve:audio_decoding": "@miniaudio//:decoder",
+        "//conditions:default": ":empty_audio_codec",
+    }),
+    visibility = [":loom_users"],
+)
+
+filegroup(name = "empty_audio_codec")
+
 filegroup(
     name = "empty_aqlprofile_sdk_headers",
 )

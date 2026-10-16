@@ -57,8 +57,12 @@ The file is evaluated as a module and can have the following customizations:
 * PROJECTS: An explicit list of ProjectConfig values included by the root
   config. The converter selects a project's BuildFileFunctions by the BUILD
   file path and routes local target-label fallback conversion by the referenced
-  label's owning project.
+  label's owning project. Each project also publishes condition_mappings for
+  its configuration labels; these are available to every BUILD file, including
+  consumers in other projects.
 * TARGET_MAPPINGS: Repository-owned target mappings applied before
+  project-owned mappings.
+* CONDITION_MAPPINGS: Repository-owned select-condition mappings applied before
   project-owned mappings.
 * CustomBuildFileFunctions and CustomTargetConverter: Legacy single-config
   hooks used when PROJECTS is not provided.

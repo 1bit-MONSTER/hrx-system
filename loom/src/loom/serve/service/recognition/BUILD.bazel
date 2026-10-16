@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test")
+load("//loom/build_tools/bazel:build_defs.bzl", "iree_select", "loom_cc_library", "loom_cc_test")
 
 package(
     default_visibility = ["//loom/src/loom/serve:implementation"],
@@ -42,6 +42,7 @@ loom_cc_library(
         ":generator",
         ":service",
         ":transcription",
+        "//loom/src/loom/serve/media:audio_decoder",
         "//loom/src/loom/serve/runtime/host",
         "//loom/src/loom/serve/runtime/host:wake",
         "//loom/src/loom/serve/runtime/parameter:telemetry",
@@ -64,6 +65,10 @@ loom_cc_library(
     name = "source_http_tests",
     testonly = True,
     srcs = ["source_http_test.cc"],
+    defines = iree_select({
+        "//loom/config/serve:wav": ["LOOM_TEST_AUDIO_WAV=1"],
+        "//conditions:default": ["LOOM_TEST_AUDIO_WAV=0"],
+    }),
     target_compatible_with = select({
         "@platforms//os:linux": [],
         "//conditions:default": ["@platforms//:incompatible"],

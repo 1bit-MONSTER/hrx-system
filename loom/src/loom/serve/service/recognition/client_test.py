@@ -6,6 +6,7 @@
 
 """Multipart transcription through the real HTTP server and source-JIT model."""
 
+import argparse
 import http.client
 import json
 import struct
@@ -18,13 +19,44 @@ from urllib.parse import urlsplit
 
 from loom_serve_testing.http_harness import control, running_server, wait_status
 
-SERVER = Path(sys.argv.pop(1)).resolve()
-PACKAGE = Path(sys.argv.pop(1)).resolve().parent
+parser = argparse.ArgumentParser()
+parser.add_argument("server", type=Path)
+parser.add_argument("model", type=Path)
+parser.add_argument("audio_fixture", type=Path)
+for codec in ("wav", "mp3", "flac"):
+    parser.add_argument("--" + codec, action="store_true")
+options, test_arguments = parser.parse_known_args()
+SERVER = options.server.resolve()
+PACKAGE = options.model.resolve().parent
+AUDIO_FIXTURES = options.audio_fixture.resolve().parent
 PCM_TYPE = "audio/pcm;rate=16000;channels=1"
 
 
 def pcm(frames):
     return struct.pack("<h", 8192) * frames
+
+
+def wave(frames, rate=16000, channels=1):
+    samples = pcm(frames * channels)
+    return (
+        struct.pack(
+            "<4sI4s4sIHHIIHH4sI",
+            b"RIFF",
+            36 + len(samples),
+            b"WAVE",
+            b"fmt ",
+            16,
+            1,
+            channels,
+            rate,
+            rate * channels * 2,
+            channels * 2,
+            16,
+            b"data",
+            len(samples),
+        )
+        + samples
+    )
 
 
 def multipart(audio, fields, *, file_first=False, audio_type=PCM_TYPE):
@@ -34,7 +66,7 @@ def multipart(audio, fields, *, file_first=False, audio_type=PCM_TYPE):
         + value.encode()
         for name, value in fields
     ]
-    # A filename is opaque. Explicit PCM metadata declares the sample geometry.
+    # A filename is opaque. Containers carry geometry; raw PCM declares it.
     file = (
         b'Content-Disposition: form-data; name="file"; filename="../../voice.bin"'
         + f"\r\nContent-Type: {audio_type}\r\n\r\n".encode()
@@ -67,7 +99,7 @@ class TranscriptionClientTest(unittest.TestCase):
         )
         connection = http.client.HTTPConnection(address.hostname, address.port)
         try:
-            # Deliberately split headers, boundaries, and PCM frames across
+            # Deliberately split headers, boundaries, and audio frames across
             # transfer chunks, as an asynchronous multipart client may do.
             payload = (
                 (body[index : index + 17] for index in range(0, len(body), 17))
@@ -92,7 +124,7 @@ class TranscriptionClientTest(unittest.TestCase):
         finally:
             connection.close()
 
-    def test_pcm_uploads_share_bounded_recognition(self):
+    def test_uploads_share_bounded_recognition(self):
         for workers in (1, 4):
             with (
                 self.subTest(workers=workers),
@@ -203,6 +235,51 @@ class TranscriptionClientTest(unittest.TestCase):
                                 expected if index % 2 else {"text": expected},
                             )
 
+                    # A mixed cohort exercises independent codec histories and
+                    # unchanged PCM admission. FLAC metadata is larger than the
+                    # model's raw PCM capacity, but its decoded frames fit.
+                    uploads = [
+                        (pcm(19), PCM_TYPE, True, "E"),
+                        (wave(1607), "audio/wav", options.wav, "L"),
+                        (wave(19, channels=2), "audio/wav", options.wav, "E"),
+                        (wave(1607), "application/octet-stream", options.wav, "L"),
+                        (
+                            (AUDIO_FIXTURES / "sample.flac").read_bytes(),
+                            "audio/flac",
+                            options.flac,
+                            "D",
+                        ),
+                        (
+                            (AUDIO_FIXTURES / "sample.mp3").read_bytes(),
+                            "audio/mpeg",
+                            options.mp3,
+                            "D",
+                        ),
+                    ]
+                    with ThreadPoolExecutor(max_workers=8) as clients:
+                        requests = [
+                            clients.submit(
+                                self.request,
+                                address,
+                                audio,
+                                audio_type=audio_type,
+                                chunked=True,
+                                expected=200 if enabled else 400,
+                            )
+                            for audio, audio_type, enabled, _ in uploads
+                        ]
+                        for (_, _, enabled, expected), request in zip(
+                            uploads, requests
+                        ):
+                            result = request.result()
+                            if enabled:
+                                self.assertEqual(result, {"text": expected})
+                            else:
+                                self.assertIn("error", result)
+                    self.request(
+                        address, wave(2049), audio_type="audio/wav", expected=400
+                    )
+
                     for fields in (
                         [("stream", "true")],
                         [("temperature", "nan")],
@@ -245,4 +322,4 @@ class TranscriptionClientTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(argv=[sys.argv[0], *test_arguments])
