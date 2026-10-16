@@ -1436,6 +1436,14 @@ iree_status_t loom_value_fact_table_widen_for_type(
       loom_value_facts_scalar_type_domain(loom_type_element_type(type),
                                           &range_lo, &range_hi);
     }
+    // Each endpoint converges independently. A growing upper bound does not
+    // invalidate a stable lower bound, and vice versa.
+    if (next.range_lo >= previous.range_lo) {
+      range_lo = iree_max(range_lo, previous.range_lo);
+    }
+    if (next.range_hi <= previous.range_hi) {
+      range_hi = iree_min(range_hi, previous.range_hi);
+    }
     *out_facts = loom_value_facts_make(range_lo, range_hi, known_divisor);
     if (loom_value_facts_is_lane_varying(previous) ||
         loom_value_facts_is_lane_varying(next)) {

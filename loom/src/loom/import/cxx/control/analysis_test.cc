@@ -43,6 +43,18 @@ TEST(ControlFlowTest, CountedAdmissionRetainsTheNonwrappingIntervalProof) {
   };
   const Case cases[] = {
       {"unsigned n", "for (unsigned i=0; i<n; ++i) {}", 1},
+      {"unsigned n", "for (unsigned i=0; i<n; ++i) ;", 1},
+      {"unsigned n", "for (unsigned i=0; i<16u; i+=4u) n += i;", 4, 16},
+      {"unsigned n", "for (unsigned i=0; i<n; ++i) ++i;", 0},
+      {"unsigned n", "for (unsigned i=0; i<n; ++i) --n;", 0},
+      {"unsigned n", "for (unsigned i=0; i<n; ++i) (void)&i;", 0},
+      {"unsigned n", "for (unsigned i=0; i<n; ++i) sizeof(++i);", 1},
+      {"unsigned n", "for (unsigned i=0; i<n; ++i) unsigned value = ++i;", 0},
+      {"unsigned n", "for (unsigned i=0; i<n; ++i) if constexpr(false) ++i;",
+       1},
+      {"unsigned n", "for (unsigned i=0; i<n; ++i) if constexpr(true) ++i;", 0},
+      {"unsigned n",
+       "for (unsigned i=0; i<n; ++i) for (unsigned j=0; j<4u; ++j) ++i;", 0},
       {"unsigned n", "for (unsigned i=0; i<16u; i+=4u) {}", 4, 16},
       {"unsigned n", "for (unsigned i=0; i<4294967292u; i+=4u) {}", 4,
        4294967292u},

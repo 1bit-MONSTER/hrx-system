@@ -102,6 +102,7 @@ loom_check_test_suite(
     "local_addresses.cxx-test"
     "local_arrays.cxx-test"
     "locations.cxx-test"
+    "loop_bodies.cxx-test"
     "loops.cxx-test"
     "macro_operators.cxx-test"
     "matrix_fragments.cxx-test"

@@ -10,39 +10,55 @@
 
 #define PIXELS 320u
 
+// These functions intentionally exercise single-statement loop bodies.
+// clang-format off
 __forceinline__ unsigned counted_stride(unsigned start) {
   unsigned total = 0;
   [[loom::unroll(3)]]
-  for (unsigned index = start; index < (PIXELS / 16u); index += (1u << 2)) {
+  for (unsigned index = start; index < (PIXELS / 16u); index += (1u << 2))
     total += index;
-  }
   return total;
 }
 
 __forceinline__ unsigned counted_edge(unsigned start) {
   unsigned total = 0;
   [[loom::unroll(2)]]
-  for (unsigned index = start; index < (~0u - 3u); index += (1u << 2)) {
+  for (unsigned index = start; index < (~0u - 3u); index += (1u << 2))
     total += index;
-  }
   return total;
 }
 
 __forceinline__ unsigned counted_empty(unsigned start) {
   unsigned total = 7;
   [[loom::unroll(2)]]
-  for (unsigned index = start; index < (4u - 4u); index += (1u << 2)) {
+  for (unsigned index = start; index < (4u - 4u); index += (1u << 2))
     total += index;
-  }
   return total;
 }
 
 __forceinline__ unsigned counted_maximum_step(unsigned start) {
   unsigned total = 0;
   [[loom::unroll(2)]]
-  for (unsigned index = start; index < (4u / 4u); index += ~0u) {
+  for (unsigned index = start; index < (4u / 4u); index += ~0u)
     total += index + 7u;
-  }
+  return total;
+}
+
+__forceinline__ unsigned counted_conditional(unsigned start) {
+  unsigned total = 0;
+  [[loom::unroll(2)]]
+  for (unsigned index = start; index < 20u; ++index)
+    if (index & 1u)
+      continue;
+    else
+      total += index;
+  return total;
+}
+
+__forceinline__ unsigned mutable_induction(unsigned start) {
+  unsigned total = 0;
+  for (unsigned index = start; index < 20u; ++index)
+    total += index, ++index;
   return total;
 }
 
@@ -51,11 +67,11 @@ __forceinline__ unsigned sum(const unsigned* input, unsigned start) {
   constexpr unsigned lanes = 16;
   unsigned total = 0;
   [[loom::unroll(Unroll), loom::pipeline(Pipeline)]]
-  for (unsigned index = start; index < (Width / lanes); index += Step / 2u) {
+  for (unsigned index = start; index < (Width / lanes); index += Step / 2u)
     total += input[index];
-  }
   return total;
 }
+// clang-format on
 
 __forceinline__ unsigned sum_wrapped(const unsigned* input, unsigned start) {
   unsigned total = 0;
@@ -148,19 +164,32 @@ unsigned counted_edge_reference(unsigned start) {
 void constant_loop_function_observations(unsigned start,
                                          loom::type::buffer<unsigned> output) {
   auto values =
-      loom::buffer::view<3>(output, {}, loom::encoding::layout::dense<1>());
+      loom::buffer::view<5>(output, {}, loom::encoding::layout::dense<1>());
   loom::view::store(counted_stride(start), values, 0);
   loom::view::store(counted_empty(start), values, 1);
   loom::view::store(counted_maximum_step(start), values, 2);
+  loom::view::store(counted_conditional(start), values, 3);
+  loom::view::store(mutable_induction(start), values, 4);
 }
 
 void constant_loop_function_oracle(unsigned start,
                                    loom::type::buffer<unsigned> output) {
   auto values =
-      loom::buffer::view<3>(output, {}, loom::encoding::layout::dense<1>());
+      loom::buffer::view<5>(output, {}, loom::encoding::layout::dense<1>());
   loom::view::store(counted_stride_reference(start), values, 0);
   loom::view::store(7u, values, 1);
   loom::view::store(start == 0u ? 7u : 0u, values, 2);
+  unsigned even_sum = 0;
+  unsigned mutable_sum = 0;
+  if (start < 20u) {
+    unsigned first_even = start + (start & 1u);
+    unsigned even_count = (20u - first_even) / 2u;
+    even_sum = even_count * first_even + even_count * (even_count - 1u);
+    unsigned mutable_count = (21u - start) / 2u;
+    mutable_sum = mutable_count * start + mutable_count * (mutable_count - 1u);
+  }
+  loom::view::store(even_sum, values, 3);
+  loom::view::store(mutable_sum, values, 4);
 }
 
 void constant_edge_observation(unsigned start,
@@ -240,7 +269,7 @@ LOOM_CHECK_SCENARIO(constant_loops_functions) {
   loom::check::trial<13>([](loom::check::ordinal trial,
                             loom::check::entropy entropy) {
     const auto start = loom::check::generate<constant_loop_start>(trial);
-    const auto output = loom::check::fill<3, unsigned>(-123u);
+    const auto output = loom::check::fill<5, unsigned>(-123u);
     loom::check::compare<constant_loop_function_observations,
                          constant_loop_function_oracle>(
         start, output, [&] { loom::check::expect_bitwise(output, output); });
