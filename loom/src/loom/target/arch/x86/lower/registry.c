@@ -32,6 +32,7 @@
 #include "loom/target/arch/x86/lower/contraction.h"
 #include "loom/target/arch/x86/lower/lower.h"
 #include "loom/target/arch/x86/lower/predicate_representation.h"
+#include "loom/target/arch/x86/lower/vector_construct.h"
 #include "loom/target/arch/x86/register_classes.h"
 
 static bool loom_x86_vector_element_bit_width(loom_scalar_type_t scalar_type,
@@ -813,6 +814,69 @@ static const loom_target_bitstream_policy_t kX86Avx512BitstreamPolicy = {
         },
 };
 
+static iree_status_t loom_x86_query_op_contract(
+    void* user_data,
+    const loom_target_contract_query_environment_t* environment,
+    const loom_op_t* source_op,
+    loom_target_contract_query_result_t* out_result) {
+  IREE_RETURN_IF_ERROR(loom_low_task_query_kernel_builtin(
+      user_data, environment, source_op, out_result));
+  if (out_result->outcome != LOOM_TARGET_CONTRACT_QUERY_UNHANDLED) {
+    return iree_ok_status();
+  }
+  return loom_x86_query_vector_construct_contract(environment, source_op,
+                                                  out_result);
+}
+
+static iree_status_t loom_x86_preselect_op(void* user_data,
+                                           loom_low_lower_context_t* context,
+                                           const loom_op_t* source_op,
+                                           loom_low_lower_plan_t* out_plan) {
+  IREE_RETURN_IF_ERROR(loom_low_task_select_kernel_builtin(
+      user_data, context, source_op, out_plan));
+  if (!loom_low_lower_plan_is_empty(*out_plan)) {
+    return iree_ok_status();
+  }
+  return loom_x86_select_vector_construct_plan(context, source_op, out_plan);
+}
+
+static void loom_x86_mark_plan_storage_demands(
+    void* user_data, loom_low_lower_context_t* context,
+    const loom_op_t* source_op, loom_low_lower_plan_t plan) {
+  (void)user_data;
+  if (loom_x86_vector_construct_plan_isa(plan)) {
+    loom_x86_mark_vector_construct_plan_storage_demands(context, source_op,
+                                                        plan);
+  }
+}
+
+static iree_status_t loom_x86_describe_plan(
+    void* user_data, loom_low_lower_context_t* context,
+    const loom_op_t* source_op, loom_low_lower_plan_t plan, bool is_elided,
+    uint64_t execution_count_plus_one,
+    loom_low_lower_plan_report_t* out_report) {
+  (void)user_data;
+  (void)context;
+  (void)source_op;
+  (void)is_elided;
+  (void)execution_count_plus_one;
+  *out_report = (loom_low_lower_plan_report_t){0};
+  if (loom_x86_vector_construct_plan_isa(plan)) {
+    loom_x86_describe_vector_construct_plan(plan, out_report);
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_x86_emit_op(void* user_data,
+                                      loom_low_lower_context_t* context,
+                                      const loom_op_t* source_op,
+                                      loom_low_lower_plan_t plan) {
+  if (loom_x86_vector_construct_plan_isa(plan)) {
+    return loom_x86_emit_vector_construct_plan(context, source_op, plan);
+  }
+  return loom_low_task_emit_kernel_builtin(user_data, context, source_op, plan);
+}
+
 static const loom_low_lower_policy_t kX86Avx512LowLowerPolicy = {
     .name = IREE_SVL("x86-avx512-low-lower"),
     .vector_packet_policy = &kX86Avx512VectorPacketPolicy,
@@ -822,9 +886,11 @@ static const loom_low_lower_policy_t kX86Avx512LowLowerPolicy = {
     .error_catalog = &loom_error_catalog_core,
     .map_abi_layout = {.fn = loom_x86_map_native_abi_layout},
     .emit_preamble = {.fn = loom_low_task_emit_kernel_preamble},
-    .preselect_op = {.fn = loom_low_task_select_kernel_builtin},
-    .emit_op = {.fn = loom_low_task_emit_kernel_builtin},
-    .query_op_contract = {.fn = loom_low_task_query_kernel_builtin},
+    .preselect_op = {.fn = loom_x86_preselect_op},
+    .mark_plan_storage_demands = {.fn = loom_x86_mark_plan_storage_demands},
+    .describe_plan = {.fn = loom_x86_describe_plan},
+    .emit_op = {.fn = loom_x86_emit_op},
+    .query_op_contract = {.fn = loom_x86_query_op_contract},
     .map_type = {.fn = loom_x86_map_avx512_type, .user_data = NULL},
     .map_value = {.fn = loom_x86_map_avx512_value, .user_data = NULL},
     .map_contract_value = {.fn = loom_x86_map_avx512_contract_value,
@@ -850,9 +916,11 @@ static const loom_low_lower_policy_t kX86Avx2LowLowerPolicy = {
     .error_catalog = &loom_error_catalog_core,
     .map_abi_layout = {.fn = loom_x86_map_native_abi_layout},
     .emit_preamble = {.fn = loom_low_task_emit_kernel_preamble},
-    .preselect_op = {.fn = loom_low_task_select_kernel_builtin},
-    .emit_op = {.fn = loom_low_task_emit_kernel_builtin},
-    .query_op_contract = {.fn = loom_low_task_query_kernel_builtin},
+    .preselect_op = {.fn = loom_x86_preselect_op},
+    .mark_plan_storage_demands = {.fn = loom_x86_mark_plan_storage_demands},
+    .describe_plan = {.fn = loom_x86_describe_plan},
+    .emit_op = {.fn = loom_x86_emit_op},
+    .query_op_contract = {.fn = loom_x86_query_op_contract},
     .map_type = {.fn = loom_x86_map_avx2_type, .user_data = NULL},
     .map_value = {.fn = loom_x86_map_avx2_value, .user_data = NULL},
     .map_contract_value = {.fn = loom_x86_map_avx2_contract_value,
@@ -878,9 +946,11 @@ static const loom_low_lower_policy_t kX86Avx2FeaturesLowLowerPolicy = {
     .error_catalog = &loom_error_catalog_core,
     .map_abi_layout = {.fn = loom_x86_map_native_abi_layout},
     .emit_preamble = {.fn = loom_low_task_emit_kernel_preamble},
-    .preselect_op = {.fn = loom_low_task_select_kernel_builtin},
-    .emit_op = {.fn = loom_low_task_emit_kernel_builtin},
-    .query_op_contract = {.fn = loom_low_task_query_kernel_builtin},
+    .preselect_op = {.fn = loom_x86_preselect_op},
+    .mark_plan_storage_demands = {.fn = loom_x86_mark_plan_storage_demands},
+    .describe_plan = {.fn = loom_x86_describe_plan},
+    .emit_op = {.fn = loom_x86_emit_op},
+    .query_op_contract = {.fn = loom_x86_query_op_contract},
     .map_type = {.fn = loom_x86_map_avx2_features_type, .user_data = NULL},
     .map_value = {.fn = loom_x86_map_avx2_features_value, .user_data = NULL},
     .map_contract_value = {.fn = loom_x86_map_avx2_features_contract_value,
@@ -946,9 +1016,11 @@ static const loom_low_lower_policy_t kX86Avx512FeaturesLowLowerPolicy = {
     .error_catalog = &loom_error_catalog_core,
     .map_abi_layout = {.fn = loom_x86_map_native_abi_layout},
     .emit_preamble = {.fn = loom_low_task_emit_kernel_preamble},
-    .preselect_op = {.fn = loom_low_task_select_kernel_builtin},
-    .emit_op = {.fn = loom_low_task_emit_kernel_builtin},
-    .query_op_contract = {.fn = loom_low_task_query_kernel_builtin},
+    .preselect_op = {.fn = loom_x86_preselect_op},
+    .mark_plan_storage_demands = {.fn = loom_x86_mark_plan_storage_demands},
+    .describe_plan = {.fn = loom_x86_describe_plan},
+    .emit_op = {.fn = loom_x86_emit_op},
+    .query_op_contract = {.fn = loom_x86_query_op_contract},
     .map_type = {.fn = loom_x86_map_avx512_features_type, .user_data = NULL},
     .map_value = {.fn = loom_x86_map_avx512_features_value, .user_data = NULL},
     .map_contract_value = {.fn = loom_x86_map_avx512_features_contract_value,

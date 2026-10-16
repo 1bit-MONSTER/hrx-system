@@ -8,6 +8,7 @@
 
 #include <math.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "loom/ir/module.h"
@@ -23,6 +24,7 @@
 #include "loom/transforms/vector/packet_plan.h"
 #include "loom/transforms/vector/reduction_legalization.h"
 #include "loom/transforms/vector/to_scalar.h"
+#include "loom/util/fact_table.h"
 #include "loom/util/numeric_format.h"
 
 iree_status_t loom_vector_variadic_concat_to_binary_rewrite_op(
@@ -774,6 +776,56 @@ static iree_status_t loom_vector_legalize_transpose(
   return iree_ok_status();
 }
 
+static int loom_vector_compare_value_ids(const void* lhs, const void* rhs) {
+  const loom_value_id_t lhs_id = *(const loom_value_id_t*)lhs;
+  const loom_value_id_t rhs_id = *(const loom_value_id_t*)rhs;
+  if (lhs_id < rhs_id) {
+    return -1;
+  }
+  if (lhs_id > rhs_id) {
+    return 1;
+  }
+  return 0;
+}
+
+// Selects the most frequent SSA value so the fallback needs the fewest scalar
+// insertions. Ties retain lane zero when it is one of the modes; other ties use
+// value ID order for deterministic output.
+static iree_status_t loom_vector_from_elements_select_seed(
+    loom_rewriter_t* rewriter, loom_value_slice_t elements,
+    loom_value_id_t* out_seed) {
+  loom_value_id_t* sorted_elements = NULL;
+  IREE_RETURN_IF_ERROR(loom_value_fact_table_value_id_scratch(
+      rewriter->fact_table, elements.count, &sorted_elements));
+  memcpy(sorted_elements, elements.values,
+         elements.count * sizeof(*sorted_elements));
+  qsort(sorted_elements, elements.count, sizeof(*sorted_elements),
+        loom_vector_compare_value_ids);
+
+  loom_value_id_t seed = elements.values[0];
+  iree_host_size_t best_count = 0;
+  loom_value_id_t current = sorted_elements[0];
+  iree_host_size_t current_count = 1;
+  for (iree_host_size_t i = 1; i <= elements.count; ++i) {
+    if (i < elements.count && sorted_elements[i] == current) {
+      ++current_count;
+      continue;
+    }
+    if (current_count > best_count ||
+        (current_count == best_count && current == elements.values[0])) {
+      seed = current;
+      best_count = current_count;
+    }
+    if (i < elements.count) {
+      current = sorted_elements[i];
+      current_count = 1;
+    }
+  }
+
+  *out_seed = seed;
+  return iree_ok_status();
+}
+
 iree_status_t loom_vector_from_elements_linearize_rewrite_op(
     loom_rewriter_t* rewriter, loom_op_t* op, bool* out_rewritten) {
   *out_rewritten = false;
@@ -802,14 +854,19 @@ iree_status_t loom_vector_from_elements_linearize_rewrite_op(
   loom_builder_set_before(&rewriter->builder, op);
   const loom_value_id_t value_checkpoint =
       loom_rewriter_value_checkpoint(rewriter);
-  loom_op_t* splat_op = NULL;
+  loom_value_id_t seed = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(
-      loom_vector_splat_build(&rewriter->builder, elements.values[0],
-                              construction_type, op->location, &splat_op));
+      loom_vector_from_elements_select_seed(rewriter, elements, &seed));
+  loom_op_t* splat_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_vector_splat_build(
+      &rewriter->builder, seed, construction_type, op->location, &splat_op));
   loom_value_id_t replacement = loom_vector_splat_result(splat_op);
 
-  for (iree_host_size_t element_index = 1; element_index < elements.count;
+  for (iree_host_size_t element_index = 0; element_index < elements.count;
        ++element_index) {
+    if (elements.values[element_index] == seed) {
+      continue;
+    }
     const int64_t static_index = (int64_t)element_index;
     loom_op_t* insert_op = NULL;
     IREE_RETURN_IF_ERROR(loom_vector_insert_build(

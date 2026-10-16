@@ -36,6 +36,15 @@ iree_status_t loom_vector_from_elements_combine_lanes(loom_op_t* op,
                                                       loom_rewriter_t* rewriter,
                                                       bool* out_changed);
 
+// Combines a complete rank-one chain of static scalar vector.insert operations
+// into vector.from_elements. The outermost write to each lane wins; lanes not
+// written by the chain can be retained from vector.splat or
+// vector.from_elements bases. Only run before target legalization, which may
+// deliberately linearize vector.from_elements back into scalar insertions.
+iree_status_t loom_vector_insert_combine_elements(loom_op_t* op,
+                                                  loom_rewriter_t* rewriter,
+                                                  bool* out_changed);
+
 #ifdef __cplusplus
 }
 #endif

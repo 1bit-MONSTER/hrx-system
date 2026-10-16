@@ -137,25 +137,23 @@ func.def @vector_runtime_division(%lhs: vector<2xi32>, %rhs: vector<2xi32>) -> (
 
 // ----
 low.func.def target<x86.avx2.core> abi(object_function) abi_layout({signature = (vector<2xi32>, vector<2xi32>) -> (vector<2xi32>, vector<2xi32>)}) @vector_runtime_division(%lhs: reg<x86.xmm>, %rhs: reg<x86.xmm>) -> (reg<x86.xmm>, reg<x86.xmm>) asm {
-  %26 = vpextrd.xmm %lhs, 0
-  %27 = vpextrd.xmm %rhs, 0
-  %28 = mov.dividend.low.gpr32 %26
-  %29 = zero.dividend.high.gpr32
-  %30, %31 = divu.divrem.gpr32 %28, %29, %27
-  %32 = copy %30 : reg<x86.eax> -> reg<x86.gpr32>
-  %33 = copy %31 : reg<x86.edx> -> reg<x86.gpr32>
-  %34 = vpextrd.xmm %lhs, 1
-  %35 = vpextrd.xmm %rhs, 1
-  %36 = mov.dividend.low.gpr32 %34
-  %37 = zero.dividend.high.gpr32
-  %38, %39 = divu.divrem.gpr32 %36, %37, %35
-  %40 = copy %38 : reg<x86.eax> -> reg<x86.gpr32>
-  %41 = copy %39 : reg<x86.edx> -> reg<x86.gpr32>
-  %42 = vmovd.xmm.gpr32 %32
-  %43 = avx2.vpbroadcastd.xmm %42
-  %quotient = vpinsrd.xmm %43, %40, 1
-  %45 = vmovd.xmm.gpr32 %33
-  %46 = avx2.vpbroadcastd.xmm %45
-  %remainder = vpinsrd.xmm %46, %41, 1
+  %22 = vpextrd.xmm %lhs, 0
+  %23 = vpextrd.xmm %rhs, 0
+  %24 = mov.dividend.low.gpr32 %22
+  %25 = zero.dividend.high.gpr32
+  %26, %27 = divu.divrem.gpr32 %24, %25, %23
+  %28 = copy %26 : reg<x86.eax> -> reg<x86.gpr32>
+  %29 = copy %27 : reg<x86.edx> -> reg<x86.gpr32>
+  %30 = vpextrd.xmm %lhs, 1
+  %31 = vpextrd.xmm %rhs, 1
+  %32 = mov.dividend.low.gpr32 %30
+  %33 = zero.dividend.high.gpr32
+  %34, %35 = divu.divrem.gpr32 %32, %33, %31
+  %36 = copy %34 : reg<x86.eax> -> reg<x86.gpr32>
+  %37 = copy %35 : reg<x86.edx> -> reg<x86.gpr32>
+  %38 = vmovd.xmm.gpr32 %28
+  %quotient = vpinsrd.xmm %38, %36, 1
+  %40 = vmovd.xmm.gpr32 %29
+  %remainder = vpinsrd.xmm %40, %37, 1
   return %quotient, %remainder
 }

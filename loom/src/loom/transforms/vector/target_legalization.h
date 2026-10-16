@@ -16,9 +16,11 @@
 extern "C" {
 #endif
 
-// Rewrites a static vector.from_elements as a rank-one splat/insert chain.
-// Multidimensional results are restored with a shape-only vector.bitcast, so
-// callers must know that the selected target accepts vector shape aliases.
+// Rewrites a static vector.from_elements as a rank-one splat/insert chain. The
+// most frequent identical SSA lane seeds the splat, minimizing the number of
+// inserts. Multidimensional results are restored with a shape-only
+// vector.bitcast, so callers must know that the selected target accepts vector
+// shape aliases.
 iree_status_t loom_vector_from_elements_linearize_rewrite_op(
     loom_rewriter_t* rewriter, loom_op_t* op, bool* out_rewritten);
 

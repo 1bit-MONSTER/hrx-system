@@ -363,6 +363,7 @@ loom_cc_library(
     loom::ops::scf
     loom::ops::vector
     loom::target::legalization
+    loom::util::fact_table
     loom::util::numeric_format
   PUBLIC
 )

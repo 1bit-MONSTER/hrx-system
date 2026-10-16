@@ -228,6 +228,21 @@ loom_cc_library(
     ],
 )
 
+loom_cc_library(
+    name = "vector_construct",
+    srcs = ["vector_construct.c"],
+    hdrs = ["vector_construct.h"],
+    visibility = ["//loom/src/loom/target/arch/x86/lower:__pkg__"],
+    deps = [
+        ":avx2_descriptors_ids",
+        ":avx2_features_descriptors_ids",
+        ":avx512_descriptors_ids",
+        ":avx512_features_descriptors_ids",
+        "//loom/src/loom/codegen/low:descriptors",
+        "//runtime/src/iree/base",
+    ],
+)
+
 loom_cc_test(
     name = "entry_test",
     srcs = ["entry_test.cc"],
