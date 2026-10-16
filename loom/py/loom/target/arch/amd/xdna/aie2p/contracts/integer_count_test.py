@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from loom.target.arch.amd.xdna.aie2p.contracts.integer_count import (
     AIE2P_INTEGER_COUNT_RULES,
     INTEGER_COUNT_OPERATIONS,
@@ -351,6 +353,25 @@ def test_packed_integer_count_recipes_match_boundary_oracle() -> None:
                         _pack(logical_values, element_bits),
                     ),
                     element_bits,
+                )
+                expected = tuple(
+                    _reference(operation.kind, value, element_bits)
+                    for value in logical_values
+                )
+                assert actual == expected
+
+
+@pytest.mark.exhaustive
+def test_packed_integer_count_recipes_exhaust_narrow_values() -> None:
+    for operation in INTEGER_COUNT_OPERATIONS:
+        for element_bits in (8, 16):
+            lane_count = 512 // element_bits
+            rule = _vector_rule(operation, element_bits)
+            for start in range(0, 1 << element_bits, lane_count):
+                logical_values = tuple(range(start, start + lane_count))
+                actual = _evaluate_vector_rule(
+                    rule,
+                    _pack(logical_values, element_bits),
                 )
                 expected = tuple(
                     _reference(operation.kind, value, element_bits)
