@@ -103,6 +103,25 @@ TEST_F(RecognitionDocumentTest, RetentionLimitPreservesPreviousHypotheses) {
   IREE_ASSERT_OK(loom_serve_recognition_document_complete(&document_));
 }
 
+TEST_F(RecognitionDocumentTest, EmptyPayloadRetractsTextAndSpeaker) {
+  IREE_ASSERT_OK(Apply(7, 1, false, "provisional", "speaker-a"));
+  const auto retained = document_.size;
+  const loom_serve_recognition_transcript_t transcript = {
+      .segment = 7,
+      .revision = 2,
+      .end = 16000,
+      .flags = LOOM_SERVE_RECOGNITION_TRANSCRIPT_FINAL,
+  };
+  IREE_ASSERT_OK(
+      loom_serve_recognition_document_apply(&document_, &transcript, &latest_));
+  EXPECT_EQ(Text(latest_), "");
+  EXPECT_EQ(latest_->speaker.size, 0u);
+  EXPECT_EQ(latest_->words.data_length, 0u);
+  EXPECT_EQ(document_.size, retained);
+  EXPECT_EQ(document_.count, 1u);
+  IREE_ASSERT_OK(loom_serve_recognition_document_complete(&document_));
+}
+
 TEST_F(RecognitionDocumentTest, EmptyInputAndBoundedSegmentIndex) {
   IREE_ASSERT_OK(loom_serve_recognition_document_complete(&document_));
   uint64_t identity = 0;

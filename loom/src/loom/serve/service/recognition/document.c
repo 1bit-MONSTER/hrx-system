@@ -116,15 +116,21 @@ iree_status_t loom_serve_recognition_document_apply(
   }
   segment->transcript = *transcript;
   uint8_t* storage = (uint8_t*)(segment + 1);
-  memcpy(storage, transcript->words.data, transcript->words.data_length);
+  if (transcript->words.data_length) {
+    memcpy(storage, transcript->words.data, transcript->words.data_length);
+  }
   segment->transcript.words =
       iree_make_const_byte_span(storage, transcript->words.data_length);
   storage += transcript->words.data_length;
-  memcpy(storage, transcript->text.data, transcript->text.size);
+  if (transcript->text.size) {
+    memcpy(storage, transcript->text.data, transcript->text.size);
+  }
   segment->transcript.text =
       iree_make_string_view((const char*)storage, transcript->text.size);
   storage += transcript->text.size;
-  memcpy(storage, transcript->speaker.data, transcript->speaker.size);
+  if (transcript->speaker.size) {
+    memcpy(storage, transcript->speaker.data, transcript->speaker.size);
+  }
   segment->transcript.speaker =
       iree_make_string_view((const char*)storage, transcript->speaker.size);
   *out_transcript = &segment->transcript;
