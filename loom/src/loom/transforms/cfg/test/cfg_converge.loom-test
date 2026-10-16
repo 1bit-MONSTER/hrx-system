@@ -367,7 +367,7 @@ func.def @transparent_fallback(%outer: i1, %inner: i1, %input: i32, %fallback: i
 
 // RUN: pass cfg-converge,cfg-converge
 
-// Cyclic decisions remain owned by loop lowering.
+// Decisions within one loop iteration converge before reaching its latch.
 func.def @loop_decision(%outer: i1, %inner: i1, %repeat: i1) {
   cfg.br ^header
 ^header:
@@ -391,10 +391,15 @@ func.def @loop_decision(%outer: i1, %inner: i1, %repeat: i1) {
 func.def @loop_decision(%outer: i1, %inner: i1, %repeat: i1) {
   cfg.br ^header
 ^header:
-  cfg.cond_br %outer, ^evaluate, ^fallback
+  cfg.cond_br %outer, ^evaluate, ^_bb3
 ^evaluate:
   test.use %inner : i1
-  cfg.cond_br %inner, ^selected, ^fallback
+  cfg.br ^_bb4(%inner: i1)
+^_bb3:
+  %4 = scalar.constant 0 : i1
+  cfg.br ^_bb4(%4: i1)
+^_bb4(%3: i1):
+  cfg.cond_br %3, ^selected, ^fallback
 ^selected:
   test.use %outer : i1
   cfg.br ^latch
@@ -591,6 +596,109 @@ func.def @overlapping_false_siblings(%a: i1, %b: i1, %c: i1, %value: i32) {
 ^last:
   test.use %value : i32
   cfg.br ^exit
+^exit:
+  func.return
+}
+
+// ====
+
+// RUN: pass cfg-converge,cfg-converge
+
+// Scalar captures travel through the inner join while both loop headers keep
+// their original carried state and entry/backedge ownership.
+func.def @nested_loop_capture(%outer: i1, %inner: i1, %repeat_inner: i1, %repeat_outer: i1, %input: i32) {
+  cfg.br ^outer_header
+^outer_header:
+  cfg.br ^inner_header(%input: i32)
+^inner_header(%state: i32):
+  cfg.cond_br %outer, ^evaluate, ^fallback
+^evaluate:
+  %value = scalar.addi %state, %input : i32
+  cfg.cond_br %inner, ^selected, ^fallback
+^selected:
+  test.use %value : i32
+  cfg.br ^inner_latch
+^fallback:
+  test.use %state : i32
+  cfg.br ^inner_latch
+^inner_latch:
+  cfg.cond_br %repeat_inner, ^inner_backedge, ^outer_latch
+^inner_backedge:
+  %next_state = scalar.addi %state, %input : i32
+  cfg.br ^inner_header(%next_state: i32)
+^outer_latch:
+  cfg.cond_br %repeat_outer, ^outer_header, ^exit
+^exit:
+  func.return
+}
+
+// ----
+func.def @nested_loop_capture(%outer: i1, %inner: i1, %repeat_inner: i1, %repeat_outer: i1, %input: i32) {
+  cfg.br ^outer_header
+^outer_header:
+  cfg.br ^inner_header(%input: i32)
+^inner_header(%state: i32):
+  cfg.cond_br %outer, ^evaluate, ^_bb4
+^evaluate:
+  %value = scalar.addi %state, %input : i32
+  cfg.br ^_bb5(%inner: i1, %value: i32)
+^_bb4:
+  %10 = scalar.constant 0 : i1
+  %11 = scalar.constant 0 : i32
+  cfg.br ^_bb5(%10: i1, %11: i32)
+^_bb5(%8: i1, %9: i32):
+  cfg.cond_br %8, ^selected, ^fallback
+^selected:
+  test.use %9 : i32
+  cfg.br ^inner_latch
+^fallback:
+  test.use %state : i32
+  cfg.br ^inner_latch
+^inner_latch:
+  cfg.cond_br %repeat_inner, ^inner_backedge, ^outer_latch
+^inner_backedge:
+  %next_state = scalar.addi %state, %input : i32
+  cfg.br ^inner_header(%next_state: i32)
+^outer_latch:
+  cfg.cond_br %repeat_outer, ^outer_header, ^exit
+^exit:
+  func.return
+}
+
+// ====
+
+// RUN: pass cfg-converge,cfg-converge
+
+// A shared header and the loop's exit remain boundaries of the loop owner.
+func.def @loop_boundaries(%enter: i1, %active: i1, %repeat: i1) {
+  cfg.cond_br %enter, ^header, ^exit
+^header:
+  cfg.cond_br %active, ^body, ^exit
+^body:
+  test.use %active : i1
+  cfg.cond_br %repeat, ^header, ^exit
+^exit:
+  func.return
+}
+
+// ====
+
+// RUN: pass cfg-converge,cfg-converge
+
+// Multiple entries into a cycle provide no dominating iteration boundary.
+func.def @irreducible_overlap(%entry: i1, %first: i1, %second: i1, %last: i1, %repeat: i1) {
+  cfg.cond_br %entry, ^left, ^right
+^left:
+  test.use %first : i1
+  cfg.cond_br %first, ^shared, ^tail
+^right:
+  test.use %second : i1
+  cfg.cond_br %second, ^left, ^shared
+^shared:
+  test.use %last : i1
+  cfg.cond_br %last, ^tail, ^exit
+^tail:
+  cfg.cond_br %repeat, ^right, ^exit
 ^exit:
   func.return
 }

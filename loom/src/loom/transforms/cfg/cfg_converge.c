@@ -28,7 +28,7 @@ LOOM_PASS_STATISTICS_DEFINE(loom_cfg_converge_statistics,
 
 static const loom_pass_info_t loom_cfg_converge_pass_info_storage = {
     .name = IREE_SVL("cfg-converge"),
-    .description = IREE_SVL("Converge overlapping acyclic CFG decisions."),
+    .description = IREE_SVL("Converge overlapping CFG decisions."),
     .kind = LOOM_PASS_FUNCTION,
     .statistic_layout = &loom_cfg_converge_statistics_layout,
 };
@@ -128,6 +128,31 @@ static iree_status_t loom_cfg_converge_select(loom_cfg_converge_plan_t* plan,
       plan->destinations[0] == plan->destinations[1]) {
     return iree_ok_status();
   }
+  const loom_cfg_loop_nest_t* loops = &plan->facts->loops;
+  uint16_t loop_index = loom_cfg_loop_nest_innermost(loops, plan->source);
+  if (graph->blocks[plan->source].component_is_cyclic) {
+    if (!loops->reducible || loop_index == LOOM_CFG_LOOP_NEST_NONE) {
+      return iree_ok_status();
+    }
+    uint16_t header = loops->loops[loop_index].header_index;
+    if (continuation == header ||
+        loom_cfg_loop_nest_innermost(loops, (uint16_t)continuation) !=
+            loop_index) {
+      return iree_ok_status();
+    }
+    for (uint8_t arm = 0; arm < 2; ++arm) {
+      uint16_t entry = plan->destinations[arm];
+      // Every path leaving this arm reaches the continuation. Keeping that
+      // boundary and both arms inside one loop preserves iteration ownership.
+      if (entry == header ||
+          loom_cfg_loop_nest_innermost(loops, entry) != loop_index ||
+          (entry != continuation &&
+           plan->facts->regions.blocks[entry].continuation_index !=
+               continuation)) {
+        return iree_ok_status();
+      }
+    }
+  }
   iree_host_size_t capacity =
       graph->blocks[plan->destinations[0]].predecessor_count +
       graph->blocks[plan->destinations[1]].predecessor_count;
@@ -153,10 +178,25 @@ static iree_status_t loom_cfg_converge_select(loom_cfg_converge_plan_t* plan,
                                              edge->source_block_index)) {
         continue;
       }
-      if (loom_cfg_converge_may_reach(graph, plan->destinations[0],
-                                      edge->source_block_index) ||
-          loom_cfg_converge_may_reach(graph, plan->destinations[1],
-                                      edge->source_block_index)) {
+      if (loop_index != LOOM_CFG_LOOP_NEST_NONE) {
+        if (loom_cfg_loop_nest_innermost(loops, edge->source_block_index) !=
+            loop_index) {
+          return iree_ok_status();
+        }
+        for (uint8_t other_arm = 0; other_arm < 2; ++other_arm) {
+          uint16_t entry = plan->destinations[other_arm];
+          // The predecessor is outside both arm subtrees, so neither arm can
+          // reach it before their shared continuation, even through a backedge.
+          if (entry != continuation &&
+              loom_cfg_dominance_block_dominates(dominance, entry,
+                                                 edge->source_block_index)) {
+            return iree_ok_status();
+          }
+        }
+      } else if (loom_cfg_converge_may_reach(graph, plan->destinations[0],
+                                             edge->source_block_index) ||
+                 loom_cfg_converge_may_reach(graph, plan->destinations[1],
+                                             edge->source_block_index)) {
         return iree_ok_status();
       }
       plan->incoming[plan->incoming_count++] = index;
@@ -415,7 +455,7 @@ static iree_status_t loom_cfg_converge_once(loom_pass_t* pass,
     uint16_t source = graph->reverse_postorder.values[i];
     const loom_cfg_block_info_t* block = &graph->blocks[source];
     loom_op_t* branch = (loom_op_t*)block->block->last_op;
-    if (block->component_is_cyclic || !loom_cfg_cond_br_isa(branch)) {
+    if (!loom_cfg_cond_br_isa(branch)) {
       continue;
     }
     // Uniform participation and a uniform selector need no lane convergence.
