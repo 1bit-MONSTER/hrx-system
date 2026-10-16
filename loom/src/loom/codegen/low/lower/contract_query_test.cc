@@ -113,11 +113,9 @@ loom_target_facts_t MakeTargetFacts() {
 
 const loom_target_contract_descriptor_rule_t kContractDescriptorRules[] = {{0}};
 const loom_target_contract_fragment_t kContractFragment = {
-    LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY,
-    1,
-    kContractDescriptorRules,
-    0,
-    nullptr,
+    .flags = LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY,
+    .descriptor_rule_count = 1,
+    .descriptor_rules = kContractDescriptorRules,
 };
 const loom_target_contract_binding_t kContractBindings[] = {
     {&kContractFragment, 0}};
@@ -808,18 +806,14 @@ TEST(LowContractQueryTest,
   const loom_target_contract_descriptor_rule_t descriptor_rule = {0};
   const loom_target_contract_fragment_t fragments[] = {
       {
-          LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY,
-          1,
-          &descriptor_rule,
-          0,
-          nullptr,
+          .flags = LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY,
+          .descriptor_rule_count = 1,
+          .descriptor_rules = &descriptor_rule,
       },
       {
-          LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY,
-          1,
-          &descriptor_rule,
-          0,
-          nullptr,
+          .flags = LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY,
+          .descriptor_rule_count = 1,
+          .descriptor_rules = &descriptor_rule,
       },
   };
   const loom_target_contract_binding_t bindings[] = {
@@ -932,11 +926,9 @@ TEST(LowContractQueryTest, IndexedMissReplaysCompleteOrderForBestRejection) {
 
   const loom_target_contract_descriptor_rule_t descriptor_rules[] = {{0}, {1}};
   const loom_target_contract_fragment_t fragment = {
-      LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY,
-      IREE_ARRAYSIZE(descriptor_rules),
-      descriptor_rules,
-      0,
-      nullptr,
+      .flags = LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY,
+      .descriptor_rule_count = IREE_ARRAYSIZE(descriptor_rules),
+      .descriptor_rules = descriptor_rules,
   };
   const loom_target_contract_binding_t binding = {&fragment, 0};
   const loom_target_contract_case_t cases[] = {
@@ -1075,11 +1067,9 @@ TEST_F(LowContractQuerySourceMemoryTest,
   const loom_low_lower_rule_set_t* rule_sets[] = {&rule_set};
   const loom_target_contract_descriptor_rule_t descriptor_rules[] = {{0}, {1}};
   const loom_target_contract_fragment_t fragment = {
-      LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY,
-      IREE_ARRAYSIZE(descriptor_rules),
-      descriptor_rules,
-      0,
-      nullptr,
+      .flags = LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY,
+      .descriptor_rule_count = IREE_ARRAYSIZE(descriptor_rules),
+      .descriptor_rules = descriptor_rules,
   };
   const loom_target_contract_binding_t binding = {&fragment, 0};
   const loom_target_contract_case_t cases[] = {

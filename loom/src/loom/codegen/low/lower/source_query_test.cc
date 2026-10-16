@@ -500,6 +500,36 @@ TEST_F(LowLowerSourceQueryTest, TargetQueryAcquiresFunctionAnalyses) {
             nullptr);
 }
 
+TEST_F(LowLowerSourceQueryTest, GraphNonmembersDoNotAcquireFunctionAnalyses) {
+  QueryProbe probe = {.handled_op = mapped_source_op_};
+  loom_low_lower_policy_t policy;
+  InstallTargetContract(&probe, &policy);
+  CreateQueryScope();
+
+  // The provider has add-multiply graphs, but vector.subi cannot participate
+  // in any graph as either a root or a related node.
+  loom_target_contract_query_result_t result = {};
+  IREE_ASSERT_OK(QueryContract(mapped_source_op_, &result));
+  EXPECT_EQ(result.outcome, LOOM_TARGET_CONTRACT_QUERY_LEGAL);
+  EXPECT_FALSE(probe.observed_source_scope);
+  EXPECT_EQ(loom_low_lower_source_query_scope_value_domain(query_scope_),
+            nullptr);
+
+  // A related-node query still acquires graph ownership regardless of query
+  // order. Reset retires that analysis, while catalog membership stays valid.
+  IREE_ASSERT_OK(QueryContract(fused_related_op_, &result));
+  EXPECT_EQ(result.outcome, LOOM_TARGET_CONTRACT_QUERY_LEGAL);
+  EXPECT_NE(loom_low_lower_source_query_scope_value_domain(query_scope_),
+            nullptr);
+  loom_low_lower_source_query_scope_reset(query_scope_);
+  probe.observed_source_scope = false;
+  IREE_ASSERT_OK(QueryContract(mapped_source_op_, &result));
+  EXPECT_EQ(result.outcome, LOOM_TARGET_CONTRACT_QUERY_LEGAL);
+  EXPECT_FALSE(probe.observed_source_scope);
+  EXPECT_EQ(loom_low_lower_source_query_scope_value_domain(query_scope_),
+            nullptr);
+}
+
 TEST_F(LowLowerSourceQueryTest, RestoresIdentitiesAfterAlternateFactsQuery) {
   IREE_ASSERT_OK(loom_local_value_domain_acquire_for_region_tree(
       module_, loom_func_like_body(function_), mapping_context_.function_arena,
@@ -600,7 +630,6 @@ TEST_F(LowLowerSourceQueryTest, TargetOwnedContractComposesWithGeneratedCases) {
   EXPECT_EQ(target_result.outcome, LOOM_TARGET_CONTRACT_QUERY_LEGAL);
   EXPECT_EQ(target_result.selected_descriptor, nullptr);
   EXPECT_FALSE(probe.observed_unaccepted_op_kind);
-  EXPECT_TRUE(probe.observed_source_scope);
 }
 
 TEST_F(LowLowerSourceQueryTest, TargetOwnedRelatedOpExcludesGeneratedGraphs) {

@@ -160,6 +160,69 @@ def _evaluate(body: str, inputs: list[bytes]) -> bytes:
 
 
 class VectorConstructFamilyTest(unittest.TestCase):
+    def test_transient_aggregate_extraction(self):
+        # A captured load can exceed the register carrier domain. Extracting
+        # one lane must consume that aggregate without reconstructing it as
+        # a native shape alias. Predicate and address memory retain their
+        # distinct source-memory diagnostics.
+        cases = []
+        for element_type, element_bits, maximum_lanes in _ELEMENT_FAMILIES:
+            shaped_maximum = min(maximum_lanes, 1024 // element_bits)
+            shapes = (
+                (maximum_lanes + 1,),
+                (2, shaped_maximum // 2 + 1),
+                (2, 2, shaped_maximum // 4 + 1),
+            )
+            for dimensions in shapes:
+                shape = "x".join(str(dimension) for dimension in dimensions)
+                indices = ", ".join(str(dimension - 1) for dimension in dimensions)
+                zeros = ", ".join("0" for _ in dimensions)
+                prefix = (
+                    f"func.def @extract_{element_type}_{shape}(%input: buffer) "
+                    f"-> ({element_type}) {{\n"
+                    "  %input_offset = index.constant 0 : offset\n"
+                    f"  %view = buffer.view %input[%input_offset] : buffer "
+                    f"-> view<{shape}x{element_type}>\n"
+                )
+                constraint = {
+                    "i1": "source_memory.element_width",
+                    "index": "source_memory.element_byte_count",
+                    "offset": "source_memory.element_byte_count",
+                }.get(element_type)
+                diagnostic = (
+                    f'  // ERROR@+1: TARGET/003 {{constraint_key="{constraint}"}}\n'
+                    if constraint
+                    else ""
+                )
+                suffix = f"  func.return %result : {element_type}\n}}\n"
+                source = (
+                    prefix + diagnostic + f"  %loaded = vector.load %view[{zeros}] : "
+                    f"view<{shape}x{element_type}> -> vector<{shape}x{element_type}>\n"
+                    f"  %result = vector.extract %loaded[{indices}] : "
+                    f"vector<{shape}x{element_type}> -> {element_type}\n" + suffix
+                )
+                if not constraint:
+                    source += (
+                        "\n// ----\n"
+                        + prefix
+                        + f"  %result = view.load %view[{indices}] : "
+                        f"view<{shape}x{element_type}> -> {element_type}\n" + suffix
+                    )
+                cases.append(source)
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "transient_shapes.loom-test"
+            path.write_text(
+                "// RUN: pass target=amd.xdna.aie2p:core "
+                "target-legalize{mode=final},canonicalize\n\n"
+                + "\n// ====\n\n".join(cases),
+                newline="\n",
+            )
+            result = subprocess.run(
+                [_ARGS.checker, str(path)], capture_output=True, text=True
+            )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_logical_lane_order(self):
         cases = _cases(_ARGS.exhaustive)
         source = "// RUN: emit source-low target=amd.xdna.aie2p:core output=low\n\n"
