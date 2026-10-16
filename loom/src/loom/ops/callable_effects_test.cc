@@ -136,14 +136,15 @@ TEST_F(CallableEffectsTest, DeclarationsUseExplicitEffectContracts) {
   BuildDeclaration(IREE_SV("unspecified"), /*effect_contract=*/0, &unspecified);
   EXPECT_FALSE(loom_callable_effects_is_pure(unspecified));
   EXPECT_TRUE(loom_callable_effects_may_access_memory(unspecified));
-  EXPECT_TRUE(loom_callable_effects_may_write(unspecified));
+  EXPECT_EQ(loom_callable_effects_written_memory_spaces(unspecified),
+            1u << LOOM_VALUE_FACT_MEMORY_SPACE_UNKNOWN);
 
   loom_func_like_t pure = {};
   BuildDeclaration(IREE_SV("pure"), LOOM_CALLABLE_EFFECT_CONTRACT_PURE, &pure);
   EXPECT_TRUE(loom_callable_effects_is_pure(pure));
   EXPECT_FALSE(loom_callable_effects_has_readonly_contract(pure));
   EXPECT_FALSE(loom_callable_effects_may_access_memory(pure));
-  EXPECT_FALSE(loom_callable_effects_may_write(pure));
+  EXPECT_EQ(loom_callable_effects_written_memory_spaces(pure), 0);
 
   loom_func_like_t readonly = {};
   BuildDeclaration(IREE_SV("readonly"), LOOM_CALLABLE_EFFECT_CONTRACT_READONLY,
@@ -151,7 +152,7 @@ TEST_F(CallableEffectsTest, DeclarationsUseExplicitEffectContracts) {
   EXPECT_FALSE(loom_callable_effects_is_pure(readonly));
   EXPECT_TRUE(loom_callable_effects_has_readonly_contract(readonly));
   EXPECT_TRUE(loom_callable_effects_may_access_memory(readonly));
-  EXPECT_FALSE(loom_callable_effects_may_write(readonly));
+  EXPECT_EQ(loom_callable_effects_written_memory_spaces(readonly), 0);
 }
 
 TEST_F(CallableEffectsTest, EffectContractSatisfactionIsDirectional) {
@@ -180,7 +181,7 @@ TEST_F(CallableEffectsTest, DefinitionsUseBodyEffects) {
   AppendReturn(pure);
   EXPECT_TRUE(loom_callable_effects_is_pure(pure));
   EXPECT_FALSE(loom_callable_effects_may_access_memory(pure));
-  EXPECT_FALSE(loom_callable_effects_may_write(pure));
+  EXPECT_EQ(loom_callable_effects_written_memory_spaces(pure), 0);
 
   loom_func_like_t unknown_effects = {};
   BuildDeclaration(IREE_SV("unknown_effects"), /*effect_contract=*/0,
@@ -192,7 +193,8 @@ TEST_F(CallableEffectsTest, DefinitionsUseBodyEffects) {
   AppendReturn(impure);
   EXPECT_FALSE(loom_callable_effects_is_pure(impure));
   EXPECT_TRUE(loom_callable_effects_may_access_memory(impure));
-  EXPECT_TRUE(loom_callable_effects_may_write(impure));
+  EXPECT_EQ(loom_callable_effects_written_memory_spaces(impure),
+            1u << LOOM_VALUE_FACT_MEMORY_SPACE_UNKNOWN);
 }
 
 TEST_F(CallableEffectsTest, PropagationRefreshesCallerEffects) {
@@ -207,7 +209,8 @@ TEST_F(CallableEffectsTest, PropagationRefreshesCallerEffects) {
   AppendReturn(caller);
   EXPECT_TRUE(loom_region_has_read_effects(loom_func_like_body(caller)));
   EXPECT_TRUE(loom_callable_effects_may_access_memory(caller));
-  EXPECT_TRUE(loom_callable_effects_may_write(caller));
+  EXPECT_EQ(loom_callable_effects_written_memory_spaces(caller),
+            1u << LOOM_VALUE_FACT_MEMORY_SPACE_UNKNOWN);
   EXPECT_EQ(loom_func_call_effective_traits(module_, call_op),
             LOOM_TRAIT_CALLABLE_BOUNDARY | LOOM_TRAIT_UNKNOWN_EFFECTS);
   EXPECT_TRUE(iree_any_bit_set(call_op->traits, LOOM_TRAIT_CALLABLE_BOUNDARY));
@@ -228,7 +231,7 @@ TEST_F(CallableEffectsTest, PropagationRefreshesCallerEffects) {
   EXPECT_FALSE(loom_region_has_read_effects(loom_func_like_body(caller)));
   EXPECT_FALSE(loom_region_has_write_effects(loom_func_like_body(caller)));
   EXPECT_FALSE(loom_callable_effects_may_access_memory(caller));
-  EXPECT_FALSE(loom_callable_effects_may_write(caller));
+  EXPECT_EQ(loom_callable_effects_written_memory_spaces(caller), 0);
   EXPECT_FALSE(loom_region_has_convergent_effects(loom_func_like_body(caller)));
 }
 
@@ -255,7 +258,7 @@ TEST_F(CallableEffectsTest, ReadonlyPropagationRetainsReadEffects) {
   EXPECT_TRUE(loom_region_has_read_effects(loom_func_like_body(caller)));
   EXPECT_FALSE(loom_region_has_write_effects(loom_func_like_body(caller)));
   EXPECT_TRUE(loom_callable_effects_may_access_memory(caller));
-  EXPECT_FALSE(loom_callable_effects_may_write(caller));
+  EXPECT_EQ(loom_callable_effects_written_memory_spaces(caller), 0);
 }
 
 }  // namespace

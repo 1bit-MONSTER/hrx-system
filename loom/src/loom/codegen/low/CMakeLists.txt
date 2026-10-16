@@ -209,6 +209,9 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::ir
+    loom::ops::low
+    loom::rewrite::materialize
+    loom::rewrite::remap
     loom::target::registers
     loom::target::test::descriptors
 )

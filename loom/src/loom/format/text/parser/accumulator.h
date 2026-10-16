@@ -109,6 +109,8 @@ struct loom_parsed_op_t {
   uint16_t field_span_capacity;
   // Effective traits resolved with a representation-scoped identity.
   loom_trait_flags_t effective_traits;
+  // Intrinsic write-space bound resolved with a Low descriptor's traits.
+  loom_memory_space_mask_t intrinsic_write_spaces;
   uint8_t attribute_count;
   uint8_t attribute_capacity;
   uint8_t region_count;

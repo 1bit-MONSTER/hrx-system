@@ -69,11 +69,13 @@ bool loom_callable_effects_body_is_readonly(const loom_module_t* module,
 // does not imply purity: clocks, counters, and fences remain effectful.
 bool loom_callable_effects_may_access_memory(loom_func_like_t function);
 
-// Returns whether a callable can invalidate observed storage contents. Cached
-// body write effects include writes, unknown effects, and memory fences that
-// can import external writes. Pure and read-only declaration contracts both
-// exclude writes.
-bool loom_callable_effects_may_write(loom_func_like_t function);
+// Returns the retained upper bound on memory spaces invalidated by a callable.
+// Definitions use their cached body summary; pure and read-only declarations
+// exclude writes. Unknown effects and fences that can import external writes
+// remain conservative. This does not weaken the callable's ordinary write,
+// ordering, or observability semantics.
+loom_memory_space_mask_t loom_callable_effects_written_memory_spaces(
+    loom_func_like_t function);
 
 // Returns the effective traits for a callable application with |contract|.
 // Its callable boundary remains independent of the selected effects.

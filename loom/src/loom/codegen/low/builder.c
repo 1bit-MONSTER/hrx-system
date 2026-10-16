@@ -111,8 +111,8 @@ iree_status_t loom_low_build_resolved_descriptor_op(
       /*region_count=*/0, (uint16_t)tied_result_count, /*attribute_count=*/2,
       location, out_op));
   (*out_op)->instance_flags = access_flags;
-  (*out_op)->traits =
-      loom_low_descriptor_effective_traits(descriptor_set, descriptor);
+  (*out_op)->traits = loom_low_descriptor_effective_traits(
+      descriptor_set, descriptor, &(*out_op)->intrinsic_write_spaces);
   if (operand_count > 0) {
     memcpy(loom_op_operands(*out_op), operands,
            operand_count * sizeof(loom_value_id_t));
@@ -153,8 +153,8 @@ iree_status_t loom_low_build_resolved_descriptor_const(
       builder, LOOM_OP_LOW_CONST, /*operand_count=*/0, /*result_count=*/1,
       /*region_count=*/0, /*tied_result_count=*/0, /*attribute_count=*/2,
       location, out_op));
-  (*out_op)->traits =
-      loom_low_descriptor_effective_traits(descriptor_set, descriptor);
+  (*out_op)->traits = loom_low_descriptor_effective_traits(
+      descriptor_set, descriptor, &(*out_op)->intrinsic_write_spaces);
   loom_low_const_initialize_descriptor(
       *out_op, loom_attr_scoped_enum(descriptor_ordinal));
   loom_attribute_t attributes = loom_attr_absent();
@@ -195,8 +195,8 @@ iree_status_t loom_low_build_resolved_descriptor_cond_br(
       builder, LOOM_OP_LOW_OP_COND_BR, (uint16_t)operand_count,
       /*result_count=*/0, /*successor_count=*/2, /*region_count=*/0,
       /*tied_result_count=*/0, /*attribute_count=*/2, location, out_op));
-  (*out_op)->traits =
-      loom_low_descriptor_effective_traits(descriptor_set, descriptor);
+  (*out_op)->traits = loom_low_descriptor_effective_traits(
+      descriptor_set, descriptor, &(*out_op)->intrinsic_write_spaces);
   if (operand_count > 0) {
     memcpy(loom_op_operands(*out_op), operands,
            operand_count * sizeof(loom_value_id_t));

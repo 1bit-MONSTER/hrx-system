@@ -408,6 +408,7 @@ iree_status_t loom_loop_like_build_replacement(
   }
   target->instance_flags = source.op->instance_flags;
   target->traits = source.op->traits;
+  target->intrinsic_write_spaces = source.op->intrinsic_write_spaces;
   target->flags |= source.op->flags & LOOM_OP_SOURCE_PRESENTATION_FLAG_MASK;
 
   loom_value_id_t* target_operands = loom_op_operands(target);

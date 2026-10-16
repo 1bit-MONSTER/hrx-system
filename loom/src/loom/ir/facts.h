@@ -198,26 +198,6 @@ typedef enum loom_value_fact_uniform_scope_e {
 typedef uint32_t loom_value_fact_extension_id_t;
 #define LOOM_VALUE_FACT_EXTENSION_ID_NONE ((loom_value_fact_extension_id_t)0)
 
-// Target-independent memory space for storage roots, views, and fences.
-typedef enum loom_value_fact_memory_space_e {
-  // No usable memory-space fact is known.
-  LOOM_VALUE_FACT_MEMORY_SPACE_UNKNOWN = 0,
-  // Device-visible global storage.
-  LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL = 1,
-  // Workgroup/shared storage.
-  LOOM_VALUE_FACT_MEMORY_SPACE_WORKGROUP = 2,
-  // Invocation-private storage.
-  LOOM_VALUE_FACT_MEMORY_SPACE_PRIVATE = 3,
-  // Read-only constant storage.
-  LOOM_VALUE_FACT_MEMORY_SPACE_CONSTANT = 4,
-  // Host-visible storage.
-  LOOM_VALUE_FACT_MEMORY_SPACE_HOST = 5,
-  // Descriptor-backed storage identity.
-  LOOM_VALUE_FACT_MEMORY_SPACE_DESCRIPTOR = 6,
-  // Target-generic device storage.
-  LOOM_VALUE_FACT_MEMORY_SPACE_GENERIC = 7,
-} loom_value_fact_memory_space_t;
-
 // Target-independent topology value family.
 typedef enum loom_value_fact_topology_value_kind_e {
   // No topology value family is known.
