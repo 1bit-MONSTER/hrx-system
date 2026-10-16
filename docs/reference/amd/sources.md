@@ -14,7 +14,9 @@ specific definition, builder, caller, or resource owner that supports a claim.
 | [Archived AMD Compute ABI][legacy-compute-abi] | `572ac3831ac5d30ac82f743d489a90bffba14a59` | Historical native signal object fields, used only where current ROCr representation and behavior corroborate them. The document is obsolete for current compiler and code-object ABI. |
 | [ROCm sampling readback][rocm-sampling] | `e53154361af6ec17954c64c020e7c66701669ef4` | PC-sampling DMA chunk bounds, aggregate and record extents, profiler-selected buffer sizes, circular-buffer publication and the shared command-buffer owner. |
 | [ROCm profiling protocols][rocm-profiling] | `eab38980a6f5cc0e4b17ec5437345e7680bbc936` | Dispatch-log stream ABI v4 consumer, kept separate from the version-3 native driver below; PC-sampling phase, command ownership, atomic scope, and record validity; SPM interval clocks, producer/collector ordering, and drain policy; SQTT replacement, overflow, and per-XCC anchors; repeated native clock sampling, counter power policy, GFX11 counter reads, separate observation queues, and result reuse. |
+| [ROCm profiling layouts and transport][rocm-counter-dimensions] | `51ec055f9e83ea5090aea479982400bd30e31b26` | WGP result flattening, physical versus active extents, harvested result holes, generation-specific block admission, and SQTT copy publication and native queue retirement. |
 | [Tinygrad AMD runtime][tinygrad] | `e8308c08f77148dce3bfd141cbdfb1be66329a45` | Compute counter programming and reads, native profile-mode policy, physical WGP selection, dispatch sampling, and bounded result collection. |
+| [AMD GPUPerfAPI][gpa] | `5b7a7544eac3ebc7f0f62ff878c69f8f893f3583` | D3D12 and Vulkan profiling clock interfaces, requested versus acknowledged policy, and cooperating host-session ownership. |
 | [ROCm XIO][xio] | `cbe97e6392066bef7901121965ffadad19404da4` | Device-authored SDMA packets, reservation/commit protocols and native queue-resource ownership; compared with the related rocSHMEM Anvil implementation in ROCm systems. |
 | [ROCm native memory and engine policy][rocm-native] | `f9ba16bbe70e365b2f59b268e847bef19ad9db6e` | BO-backed queue storage, AQL metadata publication and scratch reclamation, signal/event notification and host waits, pageable host SVM allocation, context-save layout and ownership, DRM import/mapping ownership, CLR peer-engine selection, broadcast/multicast copy selection and completion ownership, indirect payload-address copies and HIP pointer-holder admission, buffer-exchange layouts and both-operand lifetimes, compute affinity, native queue priority, cooperative launch admission/ownership, and signal-backed AQL stream waits. |
 | [ROCm copy, cache and visibility policy][rocm-runtime-policy] | `105dd4ff35798f95646353bc08f6c885416ae17e` | HIP admission of device-to-device swap and indirect copies, operand-based executor selection, batch counts and descriptor-control propagation, CLR's indirect-copy ISA predicate, inbound RDMA visibility and the HDP mapping owner, SVM dependency publication, asynchronous results and accepted-work ownership, SYSTEM-scoped batch-memory dispatch, persisting-cache requests and HIP access-window admission. |
@@ -108,6 +110,7 @@ submission wrapper can supply operations absent from the command buffer it
 executes. The corresponding chapter identifies those boundaries.
 
 [pal]: https://github.com/GPUOpen-Drivers/pal/tree/c5e800072a32f68b6ccc4422936d96167c6e0728
+[gpa]: https://github.com/GPUOpen-Tools/gpu_performance_api/tree/5b7a7544eac3ebc7f0f62ff878c69f8f893f3583
 [xgl]: https://github.com/GPUOpen-Drivers/xgl/tree/e9782eb33ce5e5e4ed2e339542a28c1b933624b4
 [mesa]: https://gitlab.freedesktop.org/mesa/mesa/-/tree/0ba4b08edc65075e9346d20d5310261939aaaf48
 [mesa-counter-barriers]: https://gitlab.freedesktop.org/mesa/mesa/-/tree/44cc4ca677a4752a10c14194289bde5a6468675e
@@ -115,6 +118,7 @@ executes. The corresponding chapter identifies those boundaries.
 [legacy-compute-abi]: https://github.com/ROCm/ROCm-ComputeABI-Doc/blob/572ac3831ac5d30ac82f743d489a90bffba14a59/AMDGPU-ABI.md
 [rocm-sampling]: https://github.com/ROCm/rocm-systems/tree/e53154361af6ec17954c64c020e7c66701669ef4
 [rocm-profiling]: https://github.com/ROCm/rocm-systems/tree/eab38980a6f5cc0e4b17ec5437345e7680bbc936
+[rocm-counter-dimensions]: https://github.com/ROCm/rocm-systems/tree/51ec055f9e83ea5090aea479982400bd30e31b26
 [tinygrad]: https://github.com/tinygrad/tinygrad/tree/e8308c08f77148dce3bfd141cbdfb1be66329a45
 [xio]: https://github.com/ROCm/rocm-xio/tree/cbe97e6392066bef7901121965ffadad19404da4
 [rocm-native]: https://github.com/ROCm/rocm-systems/tree/f9ba16bbe70e365b2f59b268e847bef19ad9db6e

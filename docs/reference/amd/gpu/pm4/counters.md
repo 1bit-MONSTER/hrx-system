@@ -121,8 +121,8 @@ every slot accepts every event. DMA instance selection uses distinct register
 addresses rather than treating an engine number as an SQ instance.
 [WGP slot mapping][sq-allocation] [DMA read addresses][generic-read]
 
-For these SQG, WGP SQ and DMA examples, the flattened instance coordinate is
-resolved as follows, with `I` the requested instance, `L` the number of local
+For these SQG, WGP SQ and DMA examples, PAL resolves its flattened instance
+coordinate as follows, with `I` the requested instance, `L` the number of local
 instances in the block's scope, and `A` the number of shader arrays per shader
 engine:
 
@@ -137,6 +137,10 @@ numbers to real SE numbers, and packs a WGP's above/below-SPI location into
 `GRBM_GFX_INDEX`. A flat instance is therefore neither a queue number nor a
 portable CU index. [Instance resolution][instance-map]
 [Native register selection][grbm-map]
+
+This PAL request index is separate from AQLProfile's
+[counter-result coordinates](../profiling/counter-sampling.md#wgp-result-coordinates-and-harvested-units),
+which retain physical WGP holes in the returned sample layout.
 
 WGP programming has an additional power and virtualization premise. PAL permits
 different configurations per WGP only when GFXOFF, virtualization/SR-IOV,

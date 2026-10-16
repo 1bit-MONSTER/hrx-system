@@ -40,7 +40,8 @@ amdf_status_t amdf_xdna_umd_query_timer_clock_info(
   if (packet[24] != 4112 || packet[25] != 0 || memchr(text, 0, 4096) == NULL) {
     return amdf_make_api_status(AMDF_STATUS_CODE_INTERNAL);
   }
-  // The first clock is the array operating rate. Other lines describe separate
+  // The first clock is the native-reported array rate. This format provides
+  // no sample age or telemetry-validity field. Other lines describe separate
   // clocks and cannot replace it. KMT node/calibration frequencies belong to
   // different counters and are not a fallback for this source.
   uint32_t frequency_mhz = 0;

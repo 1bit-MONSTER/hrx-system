@@ -11,10 +11,10 @@
 namespace pm4 {
 
 size_t AtomicStore(uint32_t* words, uint64_t target_address, uint64_t value,
-                   AtomicStoreWidth width) {
+                   AtomicStoreWidth width, uint32_t scope_control) {
   words[0] = (3u << 30) | (7u << 16) | (0x1eu << 8);
-  // Single-pass command and LRU policy are zero; no retry/compare mode.
-  words[1] = static_cast<uint32_t>(width);
+  // Single-pass command and default locality are zero; no retry/compare mode.
+  words[1] = static_cast<uint32_t>(width) | scope_control;
   words[2] = static_cast<uint32_t>(target_address);
   words[3] = static_cast<uint32_t>(target_address >> 32);
   words[4] = static_cast<uint32_t>(value);

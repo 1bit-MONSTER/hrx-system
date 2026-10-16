@@ -30,12 +30,14 @@ enum class AtomicStoreWidth : uint32_t {
   k64Bit = 0x27,
 };
 
-// Encodes a single-pass LRU ATOMIC_MEM swap into nine caller-owned DWORDs and
-// returns nine. The address is naturally aligned for width; k32Bit consumes a
-// zero-extended uint32_t value. This does not expose the prior value. Queue
-// encoding, target support, pair reach and completion are caller obligations.
+// Encodes a single-pass ATOMIC_MEM swap with default locality into nine
+// caller-owned DWORDs and returns nine. The target profile supplies
+// scope_control in its word 1 position, or zero where that field is reserved.
+// The address is naturally aligned for width; k32Bit consumes a zero-extended
+// uint32_t value. This does not expose the prior value. Queue encoding, target
+// support, pair reach and completion are caller obligations.
 size_t AtomicStore(uint32_t* words, uint64_t target_address, uint64_t value,
-                   AtomicStoreWidth width);
+                   AtomicStoreWidth width, uint32_t scope_control);
 
 // Encodes one confirmed TC/L2-to-TC/L2 copy into six caller-owned DWORDs and
 // returns six. Both addresses are aligned to four bytes for k32Bit and eight

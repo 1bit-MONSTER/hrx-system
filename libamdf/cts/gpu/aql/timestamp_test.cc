@@ -242,7 +242,7 @@ TEST_P(AqlTimestampTest, ConfirmedClockSamplesAreVisibleBeforeReuse) {
     const std::string prefix = "aql_timestamp_epoch_" + std::to_string(epoch);
     RecordProperty(prefix + "_begin_ticks", std::to_string(begin));
     RecordProperty(prefix + "_end_ticks", std::to_string(end));
-    RecordProperty(prefix + "_duration_ns",
+    RecordProperty(prefix + "_nominal_duration_ns",
                    std::to_string(static_cast<double>(end - begin) * 1e9 /
                                   clock.frequency_hz));
     // Even failed nonfatal observations reach retirement. Neither signal nor

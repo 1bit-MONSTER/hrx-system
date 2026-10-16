@@ -78,9 +78,9 @@ shader-frequency dependency; neither supplies a cross-clock epoch by itself.
 
 ## Vendor KFD destination ABI
 
-The vendor request `AMDKFD_IOC_SPM` uses ioctl number `0x84` and the following
+The vendor request `AMDKFD_IOC_RLC_SPM` uses ioctl number `0x84` and the following
 32-byte `kfd_ioctl_spm_args`. Operations are `ACQUIRE = 0`, `RELEASE = 1` and
-`SET_DEST_BUF = 2`. [Vendor UAPI][spm-uapi]
+`SET_DEST_BUF = 2`. [Vendor UAPI][spm-uapi] [Request encoding][spm-ioctl]
 
 | Byte offset | Field | Meaning |
 | --- | --- | --- |
@@ -141,10 +141,32 @@ bounded two-buffer streaming flow:
 
 The final step needs the producer-specific stop and write-completion boundary.
 Joining the kernel copy worker alone does not prove that the GPU cannot publish
-another sample. Native release stops SPM, joins the monitor and copy work, and
-frees the kernel rings; it does not publish a final user header or return a final
-valid extent. Releasing without prior collection can discard the tail.
+another sample. Native release requests SPM stop/reset, joins the monitor and
+copy work, and frees the kernel rings; it does not publish a final user header
+or return a final valid extent. Releasing without prior collection can discard
+the tail.
 [Rotation][spm-rotate] [Stop and release][spm-release]
+
+### Native stop status and host-storage retirement
+
+The lower-level RLC control chooses direct hardware callbacks when
+`set_spm_config_size` is zero. Otherwise it submits the control through KIQ and
+waits for a polling fence. Start/stop and read-pointer updates return `void`;
+fence-emission errors and fence timeouts only produce warnings. Release also
+continues to free the reserved VMID and restore the SPM VMID after those
+failures. Native release success therefore does not certify successful hardware
+stop. Acquisition differs: its KIQ fence errors propagate to the caller.
+[RLC control and acquisition][spm-rlc-control]
+[RLC release][spm-rlc-release]
+
+Host destinations have a separate, narrower lifetime. The GPU writes the
+kernel ring, and the kernel copy worker writes the borrowed host range.
+Successful rotation removes the old destination under that worker's mutex;
+release stops the monitor and joins the work before destroying its state.
+Those software boundaries retire host-range access without asserting that every
+hardware control succeeded or that every sample was delivered.
+[Host writer][spm-copy] [Destination removal][spm-header]
+[Worker retirement][spm-release]
 
 ## Device-scoped producer and collector sequence
 
@@ -204,22 +226,53 @@ It also marks copy failures and overflow interrupts. It neither counts lost
 samples nor establishes that every marked interval actually lost data.
 [Read and copy][spm-copy] [Interrupt handling][spm-interrupt]
 
-Native acquisition, process ownership, and counter programming remain separate
+### Acquisition and shared native ownership
+
+The native SPM allocation belongs to a process-device record; a second
+acquisition on that record returns `EBUSY`. The RLC setup separately reserves a
+VMID on `AMDGPU_GFXHUB(0)`. The VMID manager permits one reserved VM per hub and
+returns `ENOENT` when another VM holds that reservation. Repeating reservation
+for the same VM succeeds without adding a reference. Release clears that VM's
+reservation, which is also used by native debugging paths. It is not an
+independently counted SPM lease. [Process-device allocation][spm-acquire]
+[RLC reservation][spm-rlc-control] [VMID owner][spm-vmid]
+
+Native acquisition, interrupt routing, and counter programming remain separate
 boundaries. The request dispatcher assigns the node's `spm_pasid` before the
-fallible acquisition. An acquisition failure is therefore not evidence of zero
-native progress or unchanged routing. Device-node access and an ioctl number
-alone do not establish safe concurrent use by competing profilers.
-[Native dispatch][spm-dispatch]
+fallible acquisition; the interrupt handler later uses that field to select
+the process receiving a possible-loss indication. A rejected competing
+acquisition therefore does not establish unchanged interrupt routing. The
+request does not itself acquire the separate PMC owner or program the desired
+counter selectors. [Native dispatch][spm-dispatch]
+[Interrupt owner][spm-interrupt]
+[PMC ownership](../observability.md#counter-ownership-and-interpretation)
+
+Acquisition failure also differs from releasing an active transport. If the
+first XCC's KIQ ring setup fails after VMID reservation, its caller frees the
+ring and clears the per-XCC SPM record. The outer rollback skips cleared
+records and discards the process-device SPM allocation; that path does not
+release the reserved VMID. A subsequent SPM `RELEASE` finds no active allocation
+and returns `EINVAL`. No caller host destination was attached at this point,
+so this native resource-retention case does not retain a caller output buffer.
+It does prevent interpreting acquisition failure as complete native rollback.
+[Setup failure][spm-rlc-control] [Allocation rollback][spm-acquire]
+[Cleared-record handling][spm-release-record]
+[Release precondition][spm-release]
 
 [pal-layout]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9PerfExperiment.cpp#L1954-L2017
 [pal-reader]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/gpuUtil/gpaSessionPerfSample.cpp#L601-L706
 [spm]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_spm.c
 [spm-uapi]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocr-runtime/libhsakmt/include/hsakmt/linux/kfd_ioctl.h#L1173-L1261
+[spm-ioctl]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/include/uapi/linux/kfd_ioctl.h#L2088-L2089
+[spm-vmid]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdgpu/amdgpu_ids.c#L531-L586
 [mainline-uapi]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/include/uapi/linux/kfd_ioctl.h
 [spm-monitor]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_spm.c#L78-L146
 [spm-copy]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_spm.c#L161-L308
 [spm-acquire]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_spm.c#L327-L415
+[spm-release-record]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_spm.c#L417-L433
 [spm-release]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_spm.c#L468-L522
+[spm-rlc-control]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdgpu/amdgpu_amdkfd_rlc_spm.c#L28-L134
+[spm-rlc-release]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdgpu/amdgpu_amdkfd_rlc_spm.c#L136-L171
 [spm-header]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_spm.c#L524-L570
 [spm-rotate]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_spm.c#L572-L702
 [spm-dispatch]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_spm.c#L704-L740

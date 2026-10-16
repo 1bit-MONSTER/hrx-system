@@ -5,7 +5,6 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 #include <algorithm>
-#include <cmath>
 #include <limits>
 #include <string>
 #include <tuple>
@@ -51,6 +50,8 @@ TEST_P(QueueClockRecipeTest, NominalDurationsAndHostBounds) {
   EXPECT_EQ(clock.reserved, 0u);
   RecordProperty("clock_frequency_hz", std::to_string(clock.frequency_hz));
   RecordProperty("clock_counter_bit_count", clock.counter_bit_count);
+  RecordProperty("host_frequency_hz",
+                 std::to_string(host_clock.frequency_hz()));
 
   constexpr size_t kWordCount = 4096 / sizeof(uint64_t);
   constexpr size_t kCopyFirst = 8;
@@ -167,34 +168,29 @@ TEST_P(QueueClockRecipeTest, NominalDurationsAndHostBounds) {
     if (iteration == 0) {
       first_ticks = begin;
     }
-    const double duration_ns = (end - begin) * nanoseconds_per_tick;
+    const double nominal_duration_ns = (end - begin) * nanoseconds_per_tick;
     const double before_ns = host_clock.Nanoseconds(host_before - host_origin);
     const double after_ns = host_clock.Nanoseconds(host_after - host_origin);
-    EXPECT_TRUE(std::isfinite(duration_ns));
-    EXPECT_LE(duration_ns, after_ns - before_ns);
+    // Host enclosure is part of the nominal clock model below. The native
+    // rate has no accuracy bound that makes enclosure a timestamp oracle.
     lower_offset = std::max(
         lower_offset, before_ns - (begin - first_ticks) * nanoseconds_per_tick);
     upper_offset = std::min(
         upper_offset, after_ns - (end - first_ticks) * nanoseconds_per_tick);
     const std::string prefix = "clock_sample_" + std::to_string(iteration);
-    RecordProperty(prefix + "_duration_ns", std::to_string(duration_ns));
-    RecordProperty(prefix + "_native_before",
-                   std::to_string(native_before.timestamp));
+    RecordProperty(prefix + "_nominal_duration_ns",
+                   std::to_string(nominal_duration_ns));
+    RecordObservationClockSample(prefix + "_native_before", native_before);
     RecordProperty(prefix + "_queue_begin", std::to_string(begin));
     RecordProperty(prefix + "_queue_end", std::to_string(end));
-    RecordProperty(prefix + "_native_after",
-                   std::to_string(native_after.timestamp));
+    RecordObservationClockSample(prefix + "_native_after", native_after);
+    RecordProperty(prefix + "_host_before_ticks", std::to_string(host_before));
+    RecordProperty(prefix + "_host_after_ticks", std::to_string(host_after));
     // Native-query and queue clocks need not share an epoch. Retain the
     // comparison while deriving the host relation from actual queue samples.
     RecordProperty(
         prefix + "_native_encloses_queue",
         native_before.timestamp <= begin && end <= native_after.timestamp);
-    RecordProperty(prefix + "_native_host_before",
-                   std::to_string(native_before.host.before));
-    RecordProperty(prefix + "_native_host_paired",
-                   std::to_string(native_before.host.timestamp));
-    RecordProperty(prefix + "_native_host_after",
-                   std::to_string(native_before.host.after));
     RecordProperty(prefix + "_host_bracket_ns",
                    std::to_string(after_ns - before_ns));
     previous_end = end;

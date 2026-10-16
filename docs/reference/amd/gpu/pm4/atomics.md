@@ -253,6 +253,37 @@ establishes this mapping and route. The AMD table does not name ATOMIC_MEM,
 and ROCr's target is GPU memory. This composition therefore does not silently
 extend to every RMW operation, dGPU PCIe route, imported mapping, or peer GPU.
 
+### GFX12 cache policy and explicit scope
+
+Coherent system memory does not have the same GPU cache policy across native
+GC revisions. KFD's mapping flags start with `AMDGPU_VM_MTYPE_DEFAULT`;
+the selected GMC implementation translates that choice and the BO flags:
+
+| Native mapping path | Owned GTT with COHERENT | Explicit UNCACHED |
+| --- | --- | --- |
+| GMC11 | MTYPE_UC. | MTYPE_UC. |
+| GMC12, selected for GC12.0.0, GC12.0.1 and GC12.1.0 | MTYPE_NC; COHERENT alone does not select UC. | MTYPE_UC. |
+
+[KFD mapping flags][linux-mapping] [GMC11 translation][linux-pte]
+[GMC12 translation][linux12-pte] [Native mapper selection][linux-gmc-selection]
+
+AMD's GFX12 memory-system description keeps fine-grained system memory
+cacheable: device-scope atomics can complete in L2, while system-scope atomics
+bypass L2 toward the fabric. A PCIe route that cannot perform the requested
+operation can degrade it to a load/operation/store sequence that is not atomic
+against the CPU. Cache policy and native operation support remain independent.
+[GFX12 memory-system rules][amd12-memory]
+
+PAL's GFX12 CP connects directly to MALL, and its barrier planner classifies
+queue atomics among the clients that bypass GL2. Shader accesses still need
+the appropriate [CP/shader cache handoff](cache.md#gfx12-cp-and-shader-handoffs).
+This connection is distinct from the packet's scope representation: the PAL
+GFX12 layout reserves bits 24:23, while Linux's native GC12.1 layout uses them
+for `SCOPE`, with zero meaning CU and three meaning SYSTEM. Copying an earlier
+zero-filled control word therefore does not request SYSTEM scope on GC12.1.
+[CP connection and barriers][pal12-cache] [Earlier fields][mec12-layout]
+[GC12.1 scope][linux12-layout]
+
 ## Ordering, completion, and last use
 
 PAL's GFX10/GFX11 planner identifies queue atomics as GL2 clients and CPU/memory
@@ -381,6 +412,11 @@ header enumeration alone supplies no portable arithmetic recipe.
 [amd-pcie]: https://github.com/ROCm/legacy-rocm-build/blob/85a16825737e43a14ff431754b359380e78062a7/docs/data/reference/gpu-atomics-operation/hw-atomics_pcie_gfx.csv#L338-L343
 [linux-flags]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_amdkfd_gpuvm.c#L1748-L1779
 [linux-pte]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gmc_v11_0.c#L468-L513
+[linux-mapping]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_amdkfd_gpuvm.c#L513-L525
+[linux12-pte]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gmc_v12_0.c#L507-L549
+[linux-gmc-selection]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_discovery.c#L2420-L2442
+[amd12-memory]: https://github.com/ROCm/legacy-rocm-build/blob/85a16825737e43a14ff431754b359380e78062a7/docs/reference/gpu-atomics-operation.rst#L173-L203
+[pal12-cache]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L406-L435
 [linux-cpu]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_ttm.c#L1190-L1214
 [linux-snoop]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_ttm.c#L1432-L1476
 [pal-clients]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx9/gfx9AcquireReleaseBarrier.cpp#L56-L68

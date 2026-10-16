@@ -131,7 +131,8 @@ class Pm4CommandWriter {
   // source retains readable trailing backing for native reads beyond its DWORD.
   void CopyData32(uint64_t source_address, uint64_t target_address);
   void CopyData64(uint64_t source_address, uint64_t target_address);
-  // Atomic STORE via single-pass TC/L2 swap, without exposing a prior value.
+  // Atomic STORE via a single-pass ATOMIC_MEM swap, without a prior value.
+  // Selects SYSTEM scope on targets with an explicit packet scope field.
   // Target operation support and pair reach are separate from queue encoding;
   // a subsequent barrier and completion establish visibility and retirement.
   void AtomicStore32(uint64_t target_address, uint32_t value);

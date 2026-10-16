@@ -79,6 +79,30 @@ from the underlying engine clock, which may differ. The selected native queue
 scheduler determines the engine node; node zero is not a portable substitute.
 [Query identity][kmt-clock] · [Clock selection][kmt-clock-flags]
 
+### Native counter selection and power domains
+
+The cited Linux GFX11 reader selects between two hardware blocks. Its choice
+has both access and power-management consequences:
+
+| Native device mode | Counter source | Read protocol |
+| --- | --- | --- |
+| Physical function | SMUIO `GOLDEN_TSC_COUNT_UPPER/LOWER` | Reads the always-on block without waking graphics; disables host preemption around upper/lower/upper reads and rereads the lower half on carry. |
+| SR-IOV virtual function | GC `CP_MES_MTIME_HI/LO` | Inhibits graphics-off, serializes with the GPU-clock mutex, and uses upper/lower/upper reads with a lower-half reread on carry. |
+
+The upstream changes explain that GOLDEN_TSC is inaccessible to the virtual
+function, while SMUIO remains powered for physical-function reads. This is a
+native counter selection, not a guarantee that both counters share an epoch
+or remain synchronized. [Reader][gfx11-clock]
+[Virtual-function access][gfx11-clock-access]
+[Always-on read rationale][gfx11-clock-power]
+
+An upstream GC11.5+ proposal instead selects CP_MES_MTIME for physical
+functions after observing a mismatch between native calibrated queries and
+command-written timestamps. That proposal changes the native read path; its
+version predicate does not establish equality on every other GC revision.
+[Proposed source change][gfx11-clock-proposal]
+[Reported calibration failure][gfx11-clock-analysis]
+
 Native-query compatibility needs evidence at the packet source. In a bounded
 Linux GFX11.0.0 experiment, a confirmed PM4 clock pair was
 `80395912441212..80395912441500`, while the surrounding DRM samples were
@@ -115,6 +139,69 @@ it does not locate the individual command samples precisely. Packet execution,
 visibility, and storage lifetime remain prerequisites to interpreting those
 values. [Native sample source][drm-clock] · [Sample
 compatibility][pal-calibrated-type]
+
+### Rate estimation without an assumed epoch
+
+The same host brackets can test the reported rate instead of fixing it in
+advance. For `g1 > g0` and nonoverlapping brackets `a1 > b0`, the observed
+average rate relative to the host domain lies in:
+
+```text
+delta_ticks = g1 - g0
+rate_min_Hz = delta_ticks * 1,000,000,000 / (b1 - a0)
+rate_max_Hz = delta_ticks * 1,000,000,000 / (a1 - b0)
+```
+
+Here `a` and `b` are host nanoseconds, and each device sample is known to
+occur within its respective bracket. The bounds follow from the elapsed-time
+interval above. They retain query uncertainty; dividing two absolute device
+counter values says nothing about their relative rate or initialization epoch.
+
+For a capture-local affine model `host_ns = scale * (gpu_ticks - origin) +
+offset`, every ordered sample pair constrains `scale` to
+`[(a1 - b0) / delta_ticks, (b1 - a0) / delta_ticks]`. Intersecting these
+constraints tests whether one positive slope can explain the capture. At a
+candidate slope, each sample constrains `offset` to
+`[a - scale * (g - origin), b - scale * (g - origin)]`. An empty intersection
+rejects the model. A nonempty intersection establishes consistency with the
+observations, not an oscillator-accuracy bound or continuity outside them.
+
+Queue-written observations have their own bounds. If publication precedes
+`queue_begin` and acquired completion follows `queue_end`, a fixed candidate
+slope constrains the queue offset to
+`[host_before - scale * (queue_begin - origin),
+host_after - scale * (queue_end - origin)]`. Native and queue constraints stay
+separate until their clock relationship is established. Sampling overhead and
+completion latency widen these bounds; they do not become device execution
+time by subtracting a nominal query cost.
+
+A Windows GC11.5.0 observation illustrates the distinction. On PCI device
+`1002:150e`, revision `c1`, driver `32.0.21030.2001`, the engine query returned
+100 MHz and QPC used 10 MHz units. The first and last of sixteen native
+queries were:
+
+| Query | GPU ticks | QPC before | Returned QPC | QPC after |
+| --- | --- | --- | --- | --- |
+| First | 7212707335611 | 722581364629 | 722581364713 | 722581364722 |
+| Last | 7212719921763 | 722582625293 | 722582625731 | 722582625770 |
+
+Those outer brackets, approximately 0.13 seconds apart, bound the observed
+rate to 99.7997–99.8449 MHz. Combining all pair constraints admitted an affine
+model at
+99.8012–99.8187 MHz and rejected 100 MHz. The returned CPU samples lay inside
+their query brackets, and the native GPU ranges enclosed the intervening PM4
+timestamps. This is an observed relative-rate discrepancy; it does not select
+a replacement frequency or prove that the nominal correction in Linux's APU
+path is the cause. [Linux nominal correction][soc21-clock]
+
+Windows' native calibration contract explicitly uses paired GPU/CPU samples
+to estimate drift and asks the driver to acquire them as nearly simultaneously
+as possible. The documented periodic sampling policy is separate from a
+numeric error guarantee. D3D12 also warns that some GPU timestamp clocks stop
+while idle. Those contracts support refreshing a measured relationship, not
+extrapolating one fixed offset through an unobserved power or reset transition.
+[Native calibration contract][kmt-calibration]
+[Queue timing and idle behavior][d3d12-timing]
 
 ROCr obtains wallclock frequency separately and converts signal timestamps
 through paired GPU/system samples. It handles drift and bounded extrapolation,
@@ -273,6 +360,29 @@ does not prove unchanged state, and failed release does not prove that
 ownership remains held. This is not a transactional constructor/destructor
 pair. [Native state changes][kfd-profiler]
 
+On PTL-capable devices, the two error paths leave different state:
+
+| Failed operation | State after the PTL failure | Repeating the PMC operation |
+| --- | --- | --- |
+| Acquire | The PMC owner remains assigned; the failed PTL request rolls back its own reference. Queue updates have not run. | Returns `EALREADY` for the same owner. |
+| Release | The PMC owner is cleared; the failed final PTL release preserves its request and reference. Queue updates have not run. | Returns `EINVAL` without reaching that retained PTL request. |
+
+The separate `PTL_CONTROL` operation reaches the same per-process-device
+request, but does not perform the skipped queue update. These operations
+therefore have distinct retry and cleanup consequences.
+[PMC sequencing][kfd-profiler] [PTL transitions][kfd-ptl]
+
+PMC ownership and explicit PTL control share one `ptl_disable_req` Boolean per
+process-device record. Repeated disable requests through either path do not
+nest; either release path can consume that request. The device-wide reference
+count aggregates distinct process-device requests, not independent consumers
+within one record. [Shared request][kfd-ptl]
+
+After a successful owner transition, `perfcount_enable = 1` requests enable
+for existing queues and zero requests disable. Zero is not an owner-only or
+leave-unchanged operation. The traversal includes other processes' queues in
+the selected node. [Dispatch][kfd-profiler] [Queue traversal][kfd-perfcount]
+
 Queue creation and update differ. GFX9/GFX11 compute MQD initialization
 enables perfcount when the parent has an owner; their update paths also handle
 explicit enable/disable flags. The cited GFX12 initializer checks the owner
@@ -288,6 +398,13 @@ contract must include the actual update and cleanup implementation, not only
 its UAPI number. [Outer update][kfd-perfcount] · [Queue
 update][kfd-queue-update] · [Selected callback][kfd-update-callback] · [Mutex
 ownership][kfd-dqm-lock]
+
+The cited vendor implementation instead calls `update_queue_locked` while
+holding the DQM lock, avoiding that recursive locking path. It still discards
+individual queue-update results. The upstream lock finding consequently does
+not establish a defect in every backport, while a successful native request
+still does not report each queue's update outcome.
+[Vendor queue traversal][vendor-kfd-perfcount]
 
 ROCprofiler's device-counting path attempts ownership before starting counters
 and waits for stop before release, but continues after ownership failures. Its
@@ -391,6 +508,60 @@ and drops its reference; the last reference invokes native finalization.
 [Context teardown][radv-context-destroy] [DRM forwarding][radv-context-ioctl]
 [Handle removal][drm-context-free] [Final-reference release][drm-context-put]
 
+### Windows profiling clock controls
+
+`D3DKMTSetStablePowerState` accepts an adapter handle and a Boolean request,
+and returns `NTSTATUS`. Its documented contract identifies stable-power
+selection, not AMD counter-clock enablement or exclusive profiler ownership.
+The separate `ID3D12Device::SetStablePowerState` contract describes a
+development-only policy affecting system-wide GPU clocks. It requires Windows
+developer mode and documents device removal when that prerequisite is absent;
+that D3D12 behavior does not by itself specify the direct KMT operation's
+failure semantics. [KMT operation][kmt-stable-power]
+[Request fields][kmt-stable-power-fields] [D3D12 contract][d3d12-stable-power]
+
+AMD GPUPerfAPI's D3D12 implementation instead obtains
+`IAmdExtGpaInterface` through `AmdExtD3DCreateInterface` in `amdxc64.dll`,
+using a caller-supplied `ID3D12Device`. The native interface's
+`SetClockMode` returns `void`; GPA's wrapper therefore reports no native
+clock-setting result. The mode table distinguishes sustainable profiling
+clocks from peak policy, which still permits reductions under power or thermal
+limits. Query modes return engine and memory ratios to peak, not a source
+epoch, frequency history, or counter-enable acknowledgment.
+[Interface acquisition][gpa-dx12-interface] [Clock method][gpa-dx12-clock-api]
+[Modes and ratios][gpa-dx12-clock-modes] [Wrapper][gpa-dx12-clock-wrapper]
+
+The `VK_AMD_gpa_interface` operation `vkSetGpaDeviceClockModeAMD` takes an
+existing `VkDevice` and returns `VkResult`. At the cited GPA revision, its
+wrapper caches the requested mode before calling the driver. A failed call
+leaves that mode cached, so a repeated request for the same mode skips the
+native call. Context opening logs a clock-setting error but continues.
+Consequently, a successful GPA context open or cached request is not evidence
+that the native clock policy took effect. These are wrapper behaviors, distinct
+from the extension's result contract. [Vulkan interface][gpa-vk-clock-api]
+[Request and open paths][gpa-vk-clock-wrapper]
+
+### GPA cooperating collector scope
+
+On Windows, GPA's `GpaContext::BeginSession` acquires the named mutex
+`Global\GpaSession` before beginning a session. This coordinates participants
+using that same mutex; it neither excludes other native counter users nor
+selects an adapter-specific owner. The source waits with `INFINITE` and accepts
+an abandoned mutex as acquired. Its non-Windows path has no corresponding
+inter-process mutex. [Host acquisition][gpa-session-owner]
+
+`EndSession` releases the mutex after the host session-end operation. Ordinary
+successful `GpaSession::End` enters `EndedPendingResults`. Its pass-completion
+check verifies ended command lists and samples, separately from result readiness.
+Releasing the host mutex therefore does not establish GPU retirement or result
+readiness. Clock policy is selected during context opening, outside this session
+interval.
+Native ownership, cooperating host serialization, clock selection, and final
+command completion remain separate boundaries.
+[Host release][gpa-session-release] [Pending results][gpa-session-end]
+[Pass completion and readiness][gpa-pass-readiness]
+[Context opening][gpa-vk-clock-wrapper]
+
 ### Event identity and aggregation
 
 | Property | Interpretation requirement |
@@ -442,6 +613,10 @@ payload and executable storage until their final consumer completes.
 Return to the [GPU index](README.md) or [primary source map](../sources.md).
 
 [gfx11-clock]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gfx_v11_0.c#L5301-L5342
+[gfx11-clock-access]: https://github.com/torvalds/linux/commit/5591a051b86be170a84943698ab140342602ff7b
+[gfx11-clock-power]: https://github.com/torvalds/linux/commit/d5aa417808cf14c052ca042920b3c6b9f1dc6aa4
+[gfx11-clock-proposal]: https://www.mail-archive.com/amd-gfx%40lists.freedesktop.org/msg141009.html
+[gfx11-clock-analysis]: https://www.spinics.net/lists/amd-gfx/attachments/pdf_mGL7vSii7.pdf
 [golden-width]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/include/asic_reg/smuio/smuio_13_0_6_sh_mask.h#L50-L55
 [radv-width]: https://gitlab.freedesktop.org/mesa/mesa/-/blob/0ba4b08edc65075e9346d20d5310261939aaaf48/src/amd/vulkan/radv_physical_device.c#L3008-3050
 [kfd-clocks]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_chardev.c#L701-L726
@@ -464,10 +639,12 @@ Return to the [GPU index](README.md) or [primary source map](../sources.md).
 [kfd-profiler-protocol]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/include/uapi/linux/kfd_ioctl.h#L1560-L1588
 [sdk-profiler-request]: https://github.com/ROCm/rocm-systems/blob/8d57824901ffa7d961c00a37d055a108723b93ca/projects/rocprofiler-sdk/source/lib/rocprofiler-sdk/counters/ioctl.cpp#L38-L99
 [kfd-profiler]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_chardev.c#L3333-L3432
+[kfd-ptl]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_chardev.c#L1778-L1884
 [perfmon]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/include/linux/capability.h#L195-L198
 [capable]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/kernel/capability.c#L403-L417
 [kfd-owner]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_priv.h#L325-L392
 [kfd-perfcount]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c#L331-L352
+[vendor-kfd-perfcount]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c#L1189-L1210
 [kfd-profiler-release]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_process.c#L1177-L1202
 [kfd-close]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_chardev.c#L145-L195
 [kfd-mqd9]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdkfd/kfd_mqd_manager_v9.c#L234-L325
@@ -528,3 +705,18 @@ Return to the [GPU index](README.md) or [primary source map](../sources.md).
 
 [kmt-clock]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmdt/ns-d3dkmdt-_d3dkmt_queryclockcalibration
 [kmt-clock-flags]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmdt/ns-d3dkmdt-_dxgk_gpuclockdata_flags
+[kmt-calibration]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmddi/nc-d3dkmddi-dxgkddi_calibrategpuclock
+[d3d12-timing]: https://learn.microsoft.com/en-us/windows/win32/direct3d12/timing
+[kmt-stable-power]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmthk/nf-d3dkmthk-d3dkmtsetstablepowerstate
+[kmt-stable-power-fields]: https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/d3dkmthk/ns-d3dkmthk-_d3dkmt_setstablepowerstate
+[d3d12-stable-power]: https://learn.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12device-setstablepowerstate
+[gpa-dx12-interface]: https://github.com/GPUOpen-Tools/gpu_performance_api/blob/5b7a7544eac3ebc7f0f62ff878c69f8f893f3583/source/gpu_perf_api_dx12/dx12_gpa_context.cc#L131-L185
+[gpa-dx12-clock-api]: https://github.com/GPUOpen-Tools/gpu_performance_api/blob/5b7a7544eac3ebc7f0f62ff878c69f8f893f3583/source/third_party/AmdDxExt/AmdExtGpaInterfaceApi.h#L77-L86
+[gpa-dx12-clock-modes]: https://github.com/GPUOpen-Tools/gpu_performance_api/blob/5b7a7544eac3ebc7f0f62ff878c69f8f893f3583/source/third_party/AmdDxExt/AmdExtGpaInterface.h#L375-L401
+[gpa-dx12-clock-wrapper]: https://github.com/GPUOpen-Tools/gpu_performance_api/blob/5b7a7544eac3ebc7f0f62ff878c69f8f893f3583/source/gpu_perf_api_dx12/dx12_gpa_context.cc#L261-L307
+[gpa-vk-clock-api]: https://github.com/GPUOpen-Tools/gpu_performance_api/blob/5b7a7544eac3ebc7f0f62ff878c69f8f893f3583/source/third_party/AmdVkExt/vk_amd_gpa_interface.h#L193-L248
+[gpa-vk-clock-wrapper]: https://github.com/GPUOpen-Tools/gpu_performance_api/blob/5b7a7544eac3ebc7f0f62ff878c69f8f893f3583/source/gpu_perf_api_vk/vk_gpa_context.cc#L97-L196
+[gpa-session-owner]: https://github.com/GPUOpen-Tools/gpu_performance_api/blob/5b7a7544eac3ebc7f0f62ff878c69f8f893f3583/source/gpu_perf_api_common/gpa_context.cc#L113-L191
+[gpa-session-release]: https://github.com/GPUOpen-Tools/gpu_performance_api/blob/5b7a7544eac3ebc7f0f62ff878c69f8f893f3583/source/gpu_perf_api_common/gpa_context.cc#L192-L235
+[gpa-session-end]: https://github.com/GPUOpen-Tools/gpu_performance_api/blob/5b7a7544eac3ebc7f0f62ff878c69f8f893f3583/source/gpu_perf_api_common/gpa_session.cc#L602-L647
+[gpa-pass-readiness]: https://github.com/GPUOpen-Tools/gpu_performance_api/blob/5b7a7544eac3ebc7f0f62ff878c69f8f893f3583/source/gpu_perf_api_common/gpa_pass.cc#L321-L379

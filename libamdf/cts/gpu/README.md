@@ -68,6 +68,22 @@ still reach retirement before teardown or any reuse. USER consumption and
 KERNEL submission retirement retain their distinct native meanings; neither
 replaces the case's earlier payload observation.
 
+## Timestamp observations and clock models
+
+The PM4/SDMA clock recipes and AQL timing cases assert raw timestamp ordering,
+payload results, result publication, and storage reuse. Converted durations
+use the native nominal frequency and carry `nominal_duration` in their result
+property names. That frequency has no specified physical-rate error bound, so
+host enclosure at that rate is a model check rather than a publication oracle.
+
+The host-bracketed recipes retain raw source and host ticks and report whether
+one nominal-rate offset fits the capture. A failed model check remains visible
+in the result properties; passing payload and ordering checks do not qualify
+that conversion. Native-query and queue-source epochs remain separate until
+independent observations establish their relation. The
+[library timing guide](../../docs/gpu.md#rates-and-host-correlation) describes
+the portable acquisition calls and caller-owned calibration policy.
+
 ## Build and execution
 
 `//libamdf/cts/gpu/{pm4,sdma,aql,recipes,peer,peer/aql}` each uses
