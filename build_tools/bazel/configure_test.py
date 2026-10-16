@@ -68,6 +68,34 @@ class ConfigureBazelTest(unittest.TestCase):
                     self.configure_bazel.parse_arguments(arguments)
                 )
 
+    def test_loom_audio_codec_selection_is_portable(self):
+        for codecs in ((), ("wav",), ("mp3", "flac"), ("wav", "mp3", "flac")):
+            for argument in (
+                "-DLOOM_SERVE_AUDIO_CODECS=" + ";".join(codecs),
+                "--//loom/config/serve:audio_codecs=" + ",".join(codecs),
+            ):
+                with self.subTest(argument=argument):
+                    config = self.configure_bazel.generate_config(
+                        self.configure_bazel.parse_arguments([argument])
+                    )
+                    self.assertIn(
+                        "build --//loom/config/serve:audio_codecs="
+                        + ",".join(codecs)
+                        + "\n",
+                        config,
+                    )
+
+    def test_loom_audio_configuration_rejects_unknown_and_mixed_options(self):
+        for arguments in (
+            ["-DLOOM_SERVE_AUDIO_CODECS=wav;typo"],
+            ["--//loom/config/serve:audio_codecs=typo"],
+            ["-DLOOM_SERVE_AUDIO_CODECS=wav", "--//loom/config/serve:audio_codecs=mp3"],
+        ):
+            with self.subTest(arguments=arguments), self.assertRaises(SystemExit):
+                self.configure_bazel.generate_config(
+                    self.configure_bazel.parse_arguments(arguments)
+                )
+
     def assert_rocm_path(self, config: str, rocm_root: Path) -> None:
         self.assertIn(
             self.configure_bazel.bazelrc_line(

@@ -40,7 +40,7 @@ config_setting(
 
 [
     config_setting(
-        name = "image_host_" + os,
+        name = "media_host_" + os,
         constraint_values = ["@platforms//os:" + os],
     )
     for os in [
@@ -51,11 +51,11 @@ config_setting(
 ]
 
 selects.config_setting_group(
-    name = "image_host",
+    name = "media_host",
     match_any = [
-        ":image_host_linux",
-        ":image_host_osx",
-        ":image_host_windows",
+        ":media_host_linux",
+        ":media_host_osx",
+        ":media_host_windows",
     ],
 )
 
@@ -63,7 +63,7 @@ selects.config_setting_group(
     name = "image_input_enabled",
     match_all = [
         ":image_input_requested",
-        ":image_host",
+        ":media_host",
         "//loom/config/target/arch:vm",
     ],
 )
@@ -96,3 +96,55 @@ selects.config_setting_group(
         "webp",
     ]
 ]
+
+# Encoded audio is optional; raw PCM input has no codec dependency.
+iree_string_list_flag(
+    name = "audio_codecs",
+    build_setting_default = [
+        "wav",
+        "mp3",
+        "flac",
+    ],
+    values = [
+        "wav",
+        "mp3",
+        "flac",
+    ],
+)
+
+[
+    config_setting(
+        name = codec + "_requested",
+        flag_values = {":audio_codecs": codec},
+    )
+    for codec in [
+        "wav",
+        "mp3",
+        "flac",
+    ]
+]
+
+[
+    selects.config_setting_group(
+        name = codec,
+        match_all = [
+            ":media_host",
+            "//loom/config/target/arch:vm",
+            ":" + codec + "_requested",
+        ],
+    )
+    for codec in [
+        "wav",
+        "mp3",
+        "flac",
+    ]
+]
+
+selects.config_setting_group(
+    name = "audio_decoding",
+    match_any = [
+        ":wav",
+        ":mp3",
+        ":flac",
+    ],
+)

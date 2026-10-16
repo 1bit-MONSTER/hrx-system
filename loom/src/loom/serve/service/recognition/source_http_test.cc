@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <mutex>
 #include <string>
+#include <tuple>
 
 #include "iree/base/threading/notification.h"
 #include "iree/base/tooling/flags.h"
@@ -80,24 +81,43 @@ class WorkerGate {
   bool released_ = false;
 };
 
-std::string Request() {
+std::string Request(bool encoded) {
   std::string pcm(19 * sizeof(int16_t), '\0');
   for (size_t i = 0; i < 19; ++i) {
     iree_unaligned_store_le_u16(pcm.data() + i * sizeof(int16_t), 8192);
+  }
+  std::string content_type = "audio/pcm;rate=16000;channels=1";
+  if (encoded) {
+    std::string header(44, '\0');
+    memcpy(header.data(), "RIFF", 4);
+    iree_unaligned_store_le_u32(header.data() + 4, 36 + pcm.size());
+    memcpy(header.data() + 8, "WAVEfmt ", 8);
+    iree_unaligned_store_le_u32(header.data() + 16, 16);
+    iree_unaligned_store_le_u16(header.data() + 20, 1);
+    iree_unaligned_store_le_u16(header.data() + 22, 1);
+    iree_unaligned_store_le_u32(header.data() + 24, 16000);
+    iree_unaligned_store_le_u32(header.data() + 28, 32000);
+    iree_unaligned_store_le_u16(header.data() + 32, 2);
+    iree_unaligned_store_le_u16(header.data() + 34, 16);
+    memcpy(header.data() + 36, "data", 4);
+    iree_unaligned_store_le_u32(header.data() + 40, pcm.size());
+    pcm = header + pcm;
+    content_type = "audio/wav";
   }
   const std::string body =
       "--voice\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\n"
       "recognition\r\n--voice\r\nContent-Disposition: form-data; "
       "name=\"file\"; filename=\"voice.bin\"\r\n"
-      "Content-Type: audio/pcm;rate=16000;channels=1\r\n\r\n" +
-      pcm + "\r\n--voice--\r\n";
+      "Content-Type: " +
+      content_type + "\r\n\r\n" + pcm + "\r\n--voice--\r\n";
   return "POST /v1/audio/transcriptions HTTP/1.1\r\nHost: local\r\n"
          "Content-Type: multipart/form-data; boundary=voice\r\n"
          "Content-Length: " +
          std::to_string(body.size()) + "\r\n\r\n" + body;
 }
 
-class SourceRecognitionHttpTest : public ::testing::TestWithParam<bool> {
+class SourceRecognitionHttpTest
+    : public ::testing::TestWithParam<std::tuple<bool, bool>> {
  protected:
   void SetUp() override {
     const auto options = loom_serve_test_application_options_default();
@@ -209,9 +229,9 @@ class SourceRecognitionHttpTest : public ::testing::TestWithParam<bool> {
 };
 
 TEST_P(SourceRecognitionHttpTest, CancellationRetainsAcceptedDecodeBorrow) {
-  const bool stopping = GetParam();
+  const auto [stopping, encoded] = GetParam();
   loom_serve::testing::HttpClient client;
-  IREE_ASSERT_OK(http_.Send(Request(), client.put()));
+  IREE_ASSERT_OK(http_.Send(Request(encoded), client.put()));
   loom_serve_http_connection_t* connection = nullptr;
   const loom_serve_http_request_t* request = nullptr;
   ASSERT_NO_FATAL_FAILURE(Accept(client.get(), &connection, &request));
@@ -253,7 +273,7 @@ TEST_P(SourceRecognitionHttpTest, CancellationRetainsAcceptedDecodeBorrow) {
   EXPECT_EQ(interface_.snapshot(interface_.self).active_requests, 0u);
   EXPECT_FALSE(interface_.is_active(interface_.self));
   if (!stopping) {
-    IREE_ASSERT_OK(http_.Send(Request(), client.put()));
+    IREE_ASSERT_OK(http_.Send(Request(encoded), client.put()));
     ASSERT_NO_FATAL_FAILURE(Accept(client.get(), &connection, &request));
     ASSERT_NO_FATAL_FAILURE(AdvanceUntil(
         [&] { return interface_.telemetry.counters->completed == 1; }));
@@ -264,7 +284,10 @@ TEST_P(SourceRecognitionHttpTest, CancellationRetainsAcceptedDecodeBorrow) {
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(DisconnectAndShutdown, SourceRecognitionHttpTest,
-                         ::testing::Bool());
+INSTANTIATE_TEST_SUITE_P(
+    DisconnectAndShutdown, SourceRecognitionHttpTest,
+    ::testing::Combine(::testing::Bool(), LOOM_TEST_AUDIO_WAV
+                                              ? ::testing::Bool()
+                                              : ::testing::ValuesIn({false})));
 
 }  // namespace

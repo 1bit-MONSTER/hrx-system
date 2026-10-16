@@ -140,6 +140,16 @@ iree_py_test(
 endif()
 
 if(LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+set(_recognition_client_test_platform_args "")
+if(LOOM_SERVE_AUDIO_CODEC_WAV)
+  list(APPEND _recognition_client_test_platform_args "--wav")
+endif()
+if(LOOM_SERVE_AUDIO_CODEC_MP3)
+  list(APPEND _recognition_client_test_platform_args "--mp3")
+endif()
+if(LOOM_SERVE_AUDIO_CODEC_FLAC)
+  list(APPEND _recognition_client_test_platform_args "--flac")
+endif()
 iree_py_test(
   NAME
     recognition_client_test
@@ -150,10 +160,14 @@ iree_py_test(
   ARGS
     "{{$<TARGET_FILE:loom::tooling::target::cpu::serve::loom-serve-test-tool>}}"
     "{{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/prepare.loom}}"
+    "{{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/media/testdata/audio/sample.flac}}"
+    ${_recognition_client_test_platform_args}
   DATA
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/control.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/generate.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/recognition/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/media/testdata/audio/sample.flac"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/media/testdata/audio/sample.mp3"
     "loom::tooling::target::cpu::serve::loom-serve-test-tool"
   DEPS
     loom::serve::testing::http

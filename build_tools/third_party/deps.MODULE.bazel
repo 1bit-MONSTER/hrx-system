@@ -49,6 +49,14 @@ http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "ht
 http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
 
 http_archive(
+    name = "miniaudio",
+    build_file = "//build_tools/third_party/miniaudio:miniaudio.BUILD.bazel",
+    sha256 = "b900edcffe979816e2560a0580b9b1216d674b4f17fbadeca8f777a7f8ab0274",
+    strip_prefix = "miniaudio-0.11.25",
+    url = "https://github.com/mackron/miniaudio/archive/refs/tags/0.11.25.tar.gz",
+)
+
+http_archive(
     name = "giflib",
     build_file = "//build_tools/third_party/giflib:giflib.BUILD.bazel",
     patch_args = ["-p1"],

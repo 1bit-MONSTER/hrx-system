@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_binary", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
+load("//loom/build_tools/bazel:build_defs.bzl", "iree_select", "loom_cc_binary", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
 load("//loom/build_tools/bazel:python.bzl", "loom_py_test")
 load("//loom/src/loom/serve/fixture/decision:sources.bzl", DECISION_SOURCES = "SOURCES")
 load("//loom/src/loom/serve/fixture/embedding:sources.bzl", EMBEDDING_SOURCES = "SOURCES", EMBEDDING_VARIANT_SOURCES = "VARIANT_SOURCES")
@@ -133,8 +133,22 @@ loom_py_test(
     args = [
         "$(rootpath :loom-serve-test-tool)",
         "$(rootpath //loom/src/loom/serve/fixture/recognition:prepare.loom)",
+        "$(rootpath //loom/src/loom/serve/media:testdata/audio/sample.flac)",
+    ] + iree_select({
+        "//loom/config/serve:wav": ["--wav"],
+        "//conditions:default": [],
+    }) + iree_select({
+        "//loom/config/serve:mp3": ["--mp3"],
+        "//conditions:default": [],
+    }) + iree_select({
+        "//loom/config/serve:flac": ["--flac"],
+        "//conditions:default": [],
+    }),
+    data = RECOGNITION_SOURCES + [
+        ":loom-serve-test-tool",
+        "//loom/src/loom/serve/media:testdata/audio/sample.flac",
+        "//loom/src/loom/serve/media:testdata/audio/sample.mp3",
     ],
-    data = RECOGNITION_SOURCES + [":loom-serve-test-tool"],
     main = "client_test.py",
     target_compatible_with = loom_config_compatible_with([
         "//loom/config/target/arch:x86",

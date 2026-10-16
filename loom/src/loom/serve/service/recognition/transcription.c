@@ -39,14 +39,14 @@ static bool loom_serve_transcription_decimal(iree_string_view_t value,
 
 static iree_status_t loom_serve_transcription_audio(
     iree_string_view_t content_type, iree_const_byte_span_t audio,
-    loom_serve_recognition_format_t format) {
+    loom_serve_recognition_format_t format, bool* out_pcm) {
+  *out_pcm = false;
   iree_string_view_t media_type;
   iree_string_view_t parameters;
   iree_string_view_split(content_type, ';', &media_type, &parameters);
   if (!iree_string_view_equal_case(iree_string_view_trim(media_type),
                                    IREE_SV("audio/pcm"))) {
-    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "transcription requires audio/pcm PCM16LE input");
+    return iree_ok_status();
   }
   uint32_t rate = 0;
   uint32_t channels = 0;
@@ -81,6 +81,7 @@ static iree_status_t loom_serve_transcription_audio(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "audio/pcm requires complete PCM16LE frames");
   }
+  *out_pcm = true;
   return iree_ok_status();
 }
 
@@ -151,13 +152,15 @@ iree_status_t loom_serve_transcription_parse(
   }
   const iree_const_byte_span_t audio =
       iree_make_const_byte_span(values[1].data, values[1].size);
+  bool pcm = false;
   IREE_RETURN_IF_ERROR(
-      loom_serve_transcription_audio(content_type, audio, format));
+      loom_serve_transcription_audio(content_type, audio, format, &pcm));
   *out_request =
       (loom_serve_transcription_t){.request = {.language = values[2],
                                                .prompt = values[3],
                                                .temperature = temperature},
                                    .audio = audio,
+                                   .pcm = pcm,
                                    .text_response = text_response};
   return iree_ok_status();
 }

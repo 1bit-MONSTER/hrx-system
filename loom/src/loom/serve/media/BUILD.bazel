@@ -248,3 +248,51 @@ loom_py_test(
         "skip-bazel_to_cmake",
     ],
 )
+
+loom_cc_library(
+    name = "audio_decoder",
+    srcs = iree_select({
+        "//loom/config/serve:audio_decoding": ["audio_decoder.c"],
+        "//conditions:default": ["audio_decoder_disabled.c"],
+    }),
+    hdrs = ["audio_decoder.h"],
+    deps = [
+        "//runtime/src/iree/base",
+    ] + iree_select({
+        "//loom/config/serve:audio_decoding": ["//third_party:miniaudio"],
+        "//conditions:default": [],
+    }),
+)
+
+loom_cc_test(
+    name = "audio_decoder_test",
+    srcs = ["audio_decoder_test.cc"],
+    args = ["--audio_fixture=$(rootpath testdata/audio/sample.flac)"],
+    data = glob(["testdata/audio/*"]),
+    defines = iree_select({
+        "//loom/config/serve:wav": ["LOOM_TEST_AUDIO_WAV=1"],
+        "//conditions:default": ["LOOM_TEST_AUDIO_WAV=0"],
+    }) + iree_select({
+        "//loom/config/serve:mp3": ["LOOM_TEST_AUDIO_MP3=1"],
+        "//conditions:default": ["LOOM_TEST_AUDIO_MP3=0"],
+    }) + iree_select({
+        "//loom/config/serve:flac": ["LOOM_TEST_AUDIO_FLAC=1"],
+        "//conditions:default": ["LOOM_TEST_AUDIO_FLAC=0"],
+    }),
+    deps = [
+        ":audio_decoder",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/tooling:flags",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+        "//runtime/src/iree/vm:test_support",
+    ],
+)
+
+exports_files(
+    [
+        "testdata/audio/sample.flac",
+        "testdata/audio/sample.mp3",
+    ],
+    visibility = ["//loom/src/loom/serve:implementation"],
+)

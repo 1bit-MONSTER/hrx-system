@@ -42,6 +42,7 @@ class TargetConverter:
                 ],
                 "//third_party:libbacktrace": ["${IREE_LIBBACKTRACE_TARGET}"],
                 "//third_party:mimalloc": ["iree::third_party::mimalloc"],
+                "//third_party:miniaudio": ["iree::third_party::miniaudio"],
                 "//third_party:giflib": ["iree::third_party::giflib"],
                 "//third_party:libjpeg_turbo": ["iree::third_party::libjpeg_turbo"],
                 "//third_party:libpng": ["iree::third_party::libpng"],

@@ -79,6 +79,10 @@ _API_CONFIG_CMAKE_OPTIONS = {
 }
 
 _LOOM_CONFIG_CMAKE_OPTIONS = {
+    "//loom/config/serve:audio_decoding": "LOOM_SERVE_AUDIO_DECODING",
+    "//loom/config/serve:wav": "LOOM_SERVE_AUDIO_CODEC_WAV",
+    "//loom/config/serve:mp3": "LOOM_SERVE_AUDIO_CODEC_MP3",
+    "//loom/config/serve:flac": "LOOM_SERVE_AUDIO_CODEC_FLAC",
     "//loom/config/serve:image_input_enabled": "LOOM_BUILD AND LOOM_SERVE_IMAGE_INPUT",
     "//loom/config/serve:png": "LOOM_SERVE_IMAGE_CODEC_PNG",
     "//loom/config/serve:jpeg": "LOOM_SERVE_IMAGE_CODEC_JPEG",

@@ -55,6 +55,48 @@ class ConfigTest(unittest.TestCase):
         self.assertIn("if(LOOM_SERVE_IMAGE_CODEC_PNG)", converter.body)
         self.assertIn("iree::third_party::libpng", converter.body)
 
+    def test_loom_audio_decoder_selection_survives_conversion(self):
+        converter = SimpleNamespace(body="")
+        functions = bazel_to_cmake_converter.BuildFileFunctions(
+            converter=converter,
+            targets=bazel_to_cmake_targets.TargetConverter(repo_map={"@hrx": ""}),
+            build_dir="/repo/loom/src/loom/serve/media",
+            repo_root="/repo",
+        )
+        functions.cc_library(
+            name="audio_decoder",
+            srcs=functions.select(
+                {
+                    "//loom/config/serve:audio_decoding": ["audio_decoder.c"],
+                    "//conditions:default": ["audio_decoder_disabled.c"],
+                }
+            ),
+            deps=functions.select(
+                {
+                    "//loom/config/serve:audio_decoding": ["//third_party:miniaudio"],
+                    "//conditions:default": [],
+                }
+            ),
+        )
+        self.assertIn("if(LOOM_SERVE_AUDIO_DECODING)", converter.body)
+        self.assertIn("iree::third_party::miniaudio", converter.body)
+        self.assertIn('"audio_decoder.c"', converter.body)
+        self.assertIn('"audio_decoder_disabled.c"', converter.body)
+        for codec in ("wav", "mp3", "flac"):
+            converter.body = ""
+            functions.cc_library(
+                name="selection",
+                defines=functions.select(
+                    {
+                        "//loom/config/serve:" + codec: ["ENABLED=1"],
+                        "//conditions:default": ["ENABLED=0"],
+                    }
+                ),
+            )
+            self.assertIn(
+                "if(LOOM_SERVE_AUDIO_CODEC_" + codec.upper() + ")", converter.body
+            )
+
     def test_gpu_image_targets_use_their_own_driver_selection(self):
         cases = (
             ("amdgpu", "IREE_HAL_AMDGPU_TARGETS", "IREE_HAL_AMD_GPU_TARGETS"),

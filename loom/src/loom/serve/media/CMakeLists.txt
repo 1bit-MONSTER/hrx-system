@@ -308,5 +308,70 @@ loom_cc_fuzz(
 endif()
 
 file(GLOB _GLOB_TESTDATA_IMAGE_FUZZ_X_TXT LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS testdata/image_fuzz/*.txt)
+if(LOOM_TARGET_ARCH_VM)
+set(_audio_decoder_platform_srcs "")
+if(LOOM_SERVE_AUDIO_DECODING)
+  list(APPEND _audio_decoder_platform_srcs "audio_decoder.c")
+else()
+  list(APPEND _audio_decoder_platform_srcs "audio_decoder_disabled.c")
+endif()
+set(_audio_decoder_platform_deps "")
+if(LOOM_SERVE_AUDIO_DECODING)
+  list(APPEND _audio_decoder_platform_deps iree::third_party::miniaudio)
+endif()
+loom_cc_library(
+  NAME
+    audio_decoder
+  HDRS
+    "audio_decoder.h"
+  SRCS
+    ${_audio_decoder_platform_srcs}
+  DEPS
+    iree::base
+    ${_audio_decoder_platform_deps}
+  PUBLIC
+)
+endif()
+
+file(GLOB _GLOB_TESTDATA_AUDIO_X LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS testdata/audio/*)
+if(LOOM_TARGET_ARCH_VM)
+set(_audio_decoder_test_platform_defines "")
+if(LOOM_SERVE_AUDIO_CODEC_WAV)
+  list(APPEND _audio_decoder_test_platform_defines "LOOM_TEST_AUDIO_WAV=1")
+else()
+  list(APPEND _audio_decoder_test_platform_defines "LOOM_TEST_AUDIO_WAV=0")
+endif()
+if(LOOM_SERVE_AUDIO_CODEC_MP3)
+  list(APPEND _audio_decoder_test_platform_defines "LOOM_TEST_AUDIO_MP3=1")
+else()
+  list(APPEND _audio_decoder_test_platform_defines "LOOM_TEST_AUDIO_MP3=0")
+endif()
+if(LOOM_SERVE_AUDIO_CODEC_FLAC)
+  list(APPEND _audio_decoder_test_platform_defines "LOOM_TEST_AUDIO_FLAC=1")
+else()
+  list(APPEND _audio_decoder_test_platform_defines "LOOM_TEST_AUDIO_FLAC=0")
+endif()
+loom_cc_test(
+  NAME
+    audio_decoder_test
+  SRCS
+    "audio_decoder_test.cc"
+  DEFINES
+    ${_audio_decoder_test_platform_defines}
+  DATA
+    "${_GLOB_TESTDATA_AUDIO_X}"
+  DEPS
+    ::audio_decoder
+    iree::base
+    iree::base::tooling::flags
+    iree::testing::gtest
+    iree::testing::gtest_main
+    iree::vm::test_support
+  ARGS
+    "--audio_fixture={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/media/testdata/audio/sample.flac}}"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+)
+endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

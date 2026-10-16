@@ -1,0 +1,36 @@
+# Copyright 2026 The IREE Authors
+#
+# Licensed under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+# Decoding and conversion only. Serving owns IO, workers, and output credit.
+cc_library(
+    name = "decoder",
+    srcs = ["miniaudio.c"],
+    hdrs = ["miniaudio.h"],
+    defines = [
+        "MA_DR_MP3_FLOAT_OUTPUT",
+        "MA_NO_DEVICE_IO",
+        "MA_NO_ENCODING",
+        "MA_NO_ENGINE",
+        "MA_NO_GENERATION",
+        "MA_NO_NODE_GRAPH",
+        "MA_NO_RESOURCE_MANAGER",
+        "MA_NO_RUNTIME_LINKING",
+        "MA_NO_THREADING",
+    ] + select({
+        "@hrx//loom/config/serve:wav": [],
+        "//conditions:default": ["MA_NO_WAV"],
+    }) + select({
+        "@hrx//loom/config/serve:mp3": [],
+        "//conditions:default": ["MA_NO_MP3"],
+    }) + select({
+        "@hrx//loom/config/serve:flac": [],
+        "//conditions:default": ["MA_NO_FLAC"],
+    }),
+    includes = ["."],
+    visibility = ["//visibility:public"],
+)
