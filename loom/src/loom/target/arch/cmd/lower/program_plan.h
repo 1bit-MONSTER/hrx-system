@@ -153,10 +153,10 @@ typedef struct loom_cmd_program_root_t {
 // The root module contains every selected command symbol lowered to the
 // portable cmd low ISA together with the configured entry declarations they
 // require. Exact launch counts remain command metadata. Storage-backed launch
-// arithmetic is extracted into target-matched device producers that write
-// transient indirect-count tuples; their independently closed source products
-// are published through the same request sink as indexed kernels. Only logical
-// entry requirements remain in the returned plan.
+// arithmetic is extracted into target-matched device producers that batch
+// compatible transient indirect-count tuples; their independently closed
+// source products are published through the same request sink as indexed
+// kernels. Only logical entry requirements remain in the returned plan.
 typedef struct loom_cmd_program_plan_t {
   // Owned module containing all lowered command roots.
   loom_module_t* root_module;

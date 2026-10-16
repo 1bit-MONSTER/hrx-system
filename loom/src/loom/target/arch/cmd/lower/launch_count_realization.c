@@ -25,6 +25,8 @@
 #include "loom/rewrite/materialize.h"
 #include "loom/rewrite/remap.h"
 #include "loom/rewrite/rewriter.h"
+#include "loom/util/dominance.h"
+#include "loom/util/fact_extensions.h"
 
 typedef enum loom_cmd_launch_count_value_kind_e {
   LOOM_CMD_LAUNCH_COUNT_VALUE_UNSEEN = 0,
@@ -33,6 +35,17 @@ typedef enum loom_cmd_launch_count_value_kind_e {
   LOOM_CMD_LAUNCH_COUNT_VALUE_ARGUMENT = 3,
   LOOM_CMD_LAUNCH_COUNT_VALUE_PRODUCED = 4,
 } loom_cmd_launch_count_value_kind_t;
+
+typedef struct loom_cmd_launch_count_value_change_t {
+  // Dense root-local value ordinal whose state changed.
+  loom_value_ordinal_t ordinal;
+
+  // Generation present before the speculative change.
+  uint32_t generation;
+
+  // Classification present before the speculative change.
+  uint8_t kind;
+} loom_cmd_launch_count_value_change_t;
 
 typedef struct loom_cmd_launch_count_closure_t {
   // Source module containing the normalized command root.
@@ -70,6 +83,19 @@ typedef struct loom_cmd_launch_count_closure_t {
   loom_op_t** operations;
   iree_host_size_t operation_count;
   iree_host_size_t operation_capacity;
+
+  // Workload-rooted reference values read by the closure.
+  loom_value_id_t* read_references;
+  iree_host_size_t read_reference_count;
+  iree_host_size_t read_reference_capacity;
+
+  // Whether value-state writes are being recorded for rollback.
+  bool record_value_changes;
+
+  // Value-state undo log for one speculative cluster extension.
+  loom_cmd_launch_count_value_change_t* value_changes;
+  iree_host_size_t value_change_count;
+  iree_host_size_t value_change_capacity;
 } loom_cmd_launch_count_closure_t;
 
 typedef struct loom_cmd_launch_count_root_t {
@@ -85,9 +111,20 @@ typedef struct loom_cmd_launch_count_root_t {
   // Per-generation value classification by local value ordinal.
   uint8_t* value_kinds;
 
+  // Active-cluster possible-write generation by alias-scope ordinal.
+  uint32_t* write_scope_generations;
+
   // Next nonzero closure generation.
   uint32_t next_generation;
 } loom_cmd_launch_count_root_t;
+
+typedef struct loom_cmd_launch_count_transaction_t {
+  // Arena position before speculative closure storage was allocated.
+  iree_arena_checkpoint_t checkpoint;
+
+  // Closure lists and capacities before speculative extension.
+  loom_cmd_launch_count_closure_t prior_closure;
+} loom_cmd_launch_count_transaction_t;
 
 typedef struct loom_cmd_launch_count_dispatch_list_t {
   loom_op_t** values;
@@ -95,6 +132,56 @@ typedef struct loom_cmd_launch_count_dispatch_list_t {
   iree_host_size_t capacity;
   iree_arena_allocator_t* arena;
 } loom_cmd_launch_count_dispatch_list_t;
+
+typedef struct loom_cmd_launch_count_tuple_t {
+  // Normalized XYZ source values. INVALID denotes the implicit value one.
+  loom_value_id_t values[3];
+} loom_cmd_launch_count_tuple_t;
+
+typedef struct loom_cmd_launch_count_demand_t {
+  // Original direct dispatch rewritten after its producer is inserted.
+  loom_op_t* consumer;
+
+  // Index of the unique XYZ tuple written for this consumer.
+  iree_host_size_t tuple_ordinal;
+} loom_cmd_launch_count_demand_t;
+
+typedef struct loom_cmd_launch_count_cluster_t {
+  // Target shared by every generated count tuple.
+  loom_symbol_ref_t target;
+
+  // Serial block receiving the generated producer and indirect consumers.
+  loom_block_t* block;
+
+  // First residual consumer in the cluster.
+  loom_op_t* first_consumer;
+
+  // Last command crossed by producer placement.
+  loom_op_t* frontier;
+
+  // Shared transitive closure for every unique count tuple.
+  loom_cmd_launch_count_closure_t closure;
+
+  // Residual consumers retained in source order.
+  loom_cmd_launch_count_demand_t* demands;
+  iree_host_size_t demand_count;
+  iree_host_size_t demand_capacity;
+
+  // Unique normalized count tuples.
+  loom_cmd_launch_count_tuple_t* tuples;
+  iree_host_size_t tuple_count;
+  iree_host_size_t tuple_capacity;
+
+  // Open-addressed tuple ordinals plus one; zero denotes an empty bucket.
+  iree_host_size_t* tuple_buckets;
+  iree_host_size_t tuple_bucket_capacity;
+
+  // Whether a crossed command may have written through a reference argument.
+  bool has_possible_writes;
+
+  // Whether an unscoped possible write prevents later demands from joining.
+  bool closed;
+} loom_cmd_launch_count_cluster_t;
 
 static iree_status_t loom_cmd_launch_count_root_prepare(
     loom_module_t* module, loom_cmd_launch_count_root_t* root,
@@ -114,9 +201,29 @@ static iree_status_t loom_cmd_launch_count_root_prepare(
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
       scratch_arena, root->domain.value_count, sizeof(*root->value_kinds),
       (void**)&root->value_kinds));
+  IREE_RETURN_IF_ERROR(
+      iree_arena_allocate_array(scratch_arena, root->domain.value_count,
+                                sizeof(*root->write_scope_generations),
+                                (void**)&root->write_scope_generations));
   memset(root->value_generations, 0,
          root->domain.value_count * sizeof(*root->value_generations));
+  memset(root->value_kinds, 0,
+         root->domain.value_count * sizeof(*root->value_kinds));
+  memset(root->write_scope_generations, 0,
+         root->domain.value_count * sizeof(*root->write_scope_generations));
   return iree_ok_status();
+}
+
+static uint32_t loom_cmd_launch_count_next_generation(
+    loom_cmd_launch_count_root_t* root) {
+  if (++root->next_generation == 0) {
+    memset(root->value_generations, 0,
+           root->domain.value_count * sizeof(*root->value_generations));
+    memset(root->write_scope_generations, 0,
+           root->domain.value_count * sizeof(*root->write_scope_generations));
+    root->next_generation = 1;
+  }
+  return root->next_generation;
 }
 
 static iree_string_view_t loom_cmd_launch_count_symbol_name(
@@ -169,6 +276,26 @@ static iree_status_t loom_cmd_launch_count_append_operation(
       sizeof(*closure->operations), &closure->operation_capacity,
       (void**)&closure->operations));
   closure->operations[closure->operation_count++] = operation;
+  return iree_ok_status();
+}
+
+static iree_status_t loom_cmd_launch_count_set_value_state(
+    loom_cmd_launch_count_closure_t* closure, loom_value_ordinal_t ordinal,
+    loom_cmd_launch_count_value_kind_t kind) {
+  if (closure->record_value_changes) {
+    IREE_RETURN_IF_ERROR(iree_arena_grow_array(
+        closure->arena, closure->value_change_count,
+        closure->value_change_count + 1, sizeof(*closure->value_changes),
+        &closure->value_change_capacity, (void**)&closure->value_changes));
+    closure->value_changes[closure->value_change_count++] =
+        (loom_cmd_launch_count_value_change_t){
+            .ordinal = ordinal,
+            .generation = closure->value_generations[ordinal],
+            .kind = closure->value_kinds[ordinal],
+        };
+  }
+  closure->value_generations[ordinal] = closure->generation;
+  closure->value_kinds[ordinal] = (uint8_t)kind;
   return iree_ok_status();
 }
 
@@ -250,8 +377,21 @@ static iree_status_t loom_cmd_launch_count_visit_operation(
         (int)operation_name.size, operation_name.data);
   }
 
-  closure->value_generations[state_ordinal] = closure->generation;
-  closure->value_kinds[state_ordinal] = LOOM_CMD_LAUNCH_COUNT_VALUE_VISITING;
+  if (iree_any_bit_set(traits, LOOM_TRAIT_READS_MEMORY)) {
+    const loom_memory_access_t access =
+        loom_memory_access_cast(closure->module, operation);
+    IREE_ASSERT(loom_memory_access_isa(access));
+    IREE_ASSERT_EQ(loom_memory_access_operation_kind(access),
+                   LOOM_MEMORY_ACCESS_OPERATION_LOAD);
+    const loom_value_id_t reference = loom_memory_access_view(access);
+    IREE_ASSERT_NE(reference, LOOM_VALUE_ID_INVALID);
+    IREE_RETURN_IF_ERROR(loom_cmd_launch_count_append_value(
+        closure->arena, reference, &closure->read_references,
+        &closure->read_reference_count, &closure->read_reference_capacity));
+  }
+
+  IREE_RETURN_IF_ERROR(loom_cmd_launch_count_set_value_state(
+      closure, state_ordinal, LOOM_CMD_LAUNCH_COUNT_VALUE_VISITING));
   IREE_RETURN_IF_ERROR(loom_liveness_for_each_op_use(
       closure->module, operation,
       loom_liveness_value_callback_make(
@@ -265,8 +405,8 @@ static iree_status_t loom_cmd_launch_count_visit_operation(
   for (uint16_t i = 0; i < operation->result_count; ++i) {
     const loom_value_ordinal_t result_ordinal =
         loom_local_value_domain_ordinal(closure->domain, results[i]);
-    closure->value_generations[result_ordinal] = closure->generation;
-    closure->value_kinds[result_ordinal] = LOOM_CMD_LAUNCH_COUNT_VALUE_PRODUCED;
+    IREE_RETURN_IF_ERROR(loom_cmd_launch_count_set_value_state(
+        closure, result_ordinal, LOOM_CMD_LAUNCH_COUNT_VALUE_PRODUCED));
   }
   return iree_ok_status();
 }
@@ -294,8 +434,8 @@ static iree_status_t loom_cmd_launch_count_visit_value(
   const loom_value_facts_t facts =
       loom_value_fact_table_lookup(closure->facts, value_id);
   if (loom_value_facts_can_materialize_constant(facts, type)) {
-    closure->value_generations[ordinal] = closure->generation;
-    closure->value_kinds[ordinal] = LOOM_CMD_LAUNCH_COUNT_VALUE_CONSTANT;
+    IREE_RETURN_IF_ERROR(loom_cmd_launch_count_set_value_state(
+        closure, ordinal, LOOM_CMD_LAUNCH_COUNT_VALUE_CONSTANT));
     return loom_cmd_launch_count_append_value(
         closure->arena, value_id, &closure->constants, &closure->constant_count,
         &closure->constant_capacity);
@@ -308,8 +448,8 @@ static iree_status_t loom_cmd_launch_count_visit_value(
 
   if (loom_type_is_buffer(type) ||
       (loom_type_is_view(type) && !loom_type_may_reference_values(type))) {
-    closure->value_generations[ordinal] = closure->generation;
-    closure->value_kinds[ordinal] = LOOM_CMD_LAUNCH_COUNT_VALUE_ARGUMENT;
+    IREE_RETURN_IF_ERROR(loom_cmd_launch_count_set_value_state(
+        closure, ordinal, LOOM_CMD_LAUNCH_COUNT_VALUE_ARGUMENT));
     return loom_cmd_launch_count_append_value(
         closure->arena, value_id, &closure->arguments, &closure->argument_count,
         &closure->argument_capacity);
@@ -357,6 +497,347 @@ static iree_status_t loom_cmd_launch_count_collect_dispatches(
   return iree_ok_status();
 }
 
+static bool loom_cmd_launch_count_symbol_refs_equal(loom_symbol_ref_t left,
+                                                    loom_symbol_ref_t right) {
+  return left.module_id == right.module_id && left.symbol_id == right.symbol_id;
+}
+
+static loom_symbol_ref_t loom_cmd_launch_count_dispatch_target(
+    const loom_module_t* module, const loom_op_t* dispatch) {
+  const loom_symbol_ref_t consumer_ref = loom_kernel_dispatch_callee(dispatch);
+  IREE_ASSERT(loom_symbol_ref_is_valid(consumer_ref));
+  IREE_ASSERT_EQ(consumer_ref.module_id, 0u);
+  IREE_ASSERT_LT(consumer_ref.symbol_id, module->symbols.count);
+  const loom_op_t* consumer_entry =
+      module->symbols.entries[consumer_ref.symbol_id].defining_op;
+  IREE_ASSERT(loom_kernel_entry_decl_isa(consumer_entry));
+  return loom_kernel_entry_decl_target(consumer_entry);
+}
+
+static bool loom_cmd_launch_count_has_serial_parent(const loom_op_t* dispatch) {
+  const loom_op_t* parent = dispatch->parent_op;
+  return parent != NULL && (loom_command_program_def_isa(parent) ||
+                            loom_command_serial_isa(parent) ||
+                            loom_kernel_launch_serial_isa(parent));
+}
+
+static bool loom_cmd_launch_count_can_cross_operations(
+    const loom_module_t* module, const loom_op_t* left,
+    const loom_op_t* right) {
+  if (left->parent_block != right->parent_block) {
+    return false;
+  }
+  const loom_trait_flags_t forbidden_traits =
+      LOOM_TRAIT_WRITES_MEMORY | LOOM_TRAIT_NON_DETERMINISTIC |
+      LOOM_TRAIT_UNKNOWN_EFFECTS | LOOM_TRAIT_UNIQUE_IDENTITY |
+      LOOM_TRAIT_CONVERGENT | LOOM_TRAIT_MEMORY_FENCE |
+      LOOM_TRAIT_OBSERVABLE_EFFECT | LOOM_TRAIT_COMMAND_EFFECT;
+  for (const loom_op_t* operation = left->next_op; operation != NULL;
+       operation = operation->next_op) {
+    if (operation == right) {
+      return true;
+    }
+    if (operation->flags & LOOM_OP_FLAG_DEAD) {
+      continue;
+    }
+    if (operation->region_count != 0 ||
+        iree_any_bit_set(loom_op_effective_traits(module, operation),
+                         forbidden_traits)) {
+      return false;
+    }
+  }
+  return false;
+}
+
+static bool loom_cmd_launch_count_reference_alias_scope(
+    const loom_value_fact_table_t* facts, loom_value_id_t reference,
+    loom_value_fact_alias_scope_id_t* out_alias_scope) {
+  *out_alias_scope = LOOM_VALUE_FACT_ALIAS_SCOPE_ID_NONE;
+  const loom_value_facts_t reference_facts =
+      loom_value_fact_table_lookup(facts, reference);
+  loom_value_fact_buffer_reference_t buffer_reference = {0};
+  if (loom_value_facts_query_buffer_reference(&facts->context, reference_facts,
+                                              &buffer_reference)) {
+    *out_alias_scope = buffer_reference.alias_scope_id;
+  } else {
+    loom_value_fact_view_reference_t view_reference = {0};
+    if (!loom_value_facts_query_view_reference(&facts->context, reference_facts,
+                                               &view_reference)) {
+      return false;
+    }
+    *out_alias_scope = view_reference.alias_scope_id;
+  }
+  return *out_alias_scope != LOOM_VALUE_FACT_ALIAS_SCOPE_ID_NONE;
+}
+
+static uint64_t loom_cmd_launch_count_tuple_hash(
+    const loom_cmd_launch_count_tuple_t* tuple) {
+  uint64_t hash = UINT64_C(1469598103934665603);
+  for (uint8_t i = 0; i < 3; ++i) {
+    hash ^= tuple->values[i];
+    hash *= UINT64_C(1099511628211);
+  }
+  return hash;
+}
+
+static bool loom_cmd_launch_count_tuples_equal(
+    const loom_cmd_launch_count_tuple_t* left,
+    const loom_cmd_launch_count_tuple_t* right) {
+  return left->values[0] == right->values[0] &&
+         left->values[1] == right->values[1] &&
+         left->values[2] == right->values[2];
+}
+
+static void loom_cmd_launch_count_tuple_table_insert(
+    loom_cmd_launch_count_cluster_t* cluster, iree_host_size_t tuple_ordinal) {
+  IREE_ASSERT_LT(tuple_ordinal, cluster->tuple_count);
+  const iree_host_size_t mask = cluster->tuple_bucket_capacity - 1;
+  iree_host_size_t bucket =
+      (iree_host_size_t)(loom_cmd_launch_count_tuple_hash(
+                             &cluster->tuples[tuple_ordinal]) &
+                         mask);
+  while (cluster->tuple_buckets[bucket] != 0) {
+    bucket = (bucket + 1) & mask;
+  }
+  cluster->tuple_buckets[bucket] = tuple_ordinal + 1;
+}
+
+static iree_status_t loom_cmd_launch_count_tuple_table_grow(
+    loom_cmd_launch_count_cluster_t* cluster) {
+  iree_host_size_t new_capacity = 8;
+  if (cluster->tuple_bucket_capacity != 0 &&
+      !iree_host_size_checked_mul(cluster->tuple_bucket_capacity, 2,
+                                  &new_capacity)) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "launch-count tuple table is too large");
+  }
+  iree_host_size_t* new_buckets = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_arena_allocate_array(cluster->closure.arena, new_capacity,
+                                sizeof(*new_buckets), (void**)&new_buckets));
+  memset(new_buckets, 0, new_capacity * sizeof(*new_buckets));
+  cluster->tuple_buckets = new_buckets;
+  cluster->tuple_bucket_capacity = new_capacity;
+  for (iree_host_size_t i = 0; i < cluster->tuple_count; ++i) {
+    loom_cmd_launch_count_tuple_table_insert(cluster, i);
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_cmd_launch_count_intern_tuple(
+    loom_cmd_launch_count_cluster_t* cluster, loom_value_slice_t counts,
+    iree_host_size_t* out_tuple_ordinal) {
+  loom_cmd_launch_count_tuple_t tuple = {
+      .values =
+          {
+              LOOM_VALUE_ID_INVALID,
+              LOOM_VALUE_ID_INVALID,
+              LOOM_VALUE_ID_INVALID,
+          },
+  };
+  memcpy(tuple.values, counts.values, counts.count * sizeof(*tuple.values));
+
+  if (cluster->tuple_bucket_capacity == 0 ||
+      cluster->tuple_count + 1 > cluster->tuple_bucket_capacity / 2) {
+    IREE_RETURN_IF_ERROR(loom_cmd_launch_count_tuple_table_grow(cluster));
+  }
+  const iree_host_size_t mask = cluster->tuple_bucket_capacity - 1;
+  iree_host_size_t bucket =
+      (iree_host_size_t)(loom_cmd_launch_count_tuple_hash(&tuple) & mask);
+  while (cluster->tuple_buckets[bucket] != 0) {
+    const iree_host_size_t tuple_ordinal = cluster->tuple_buckets[bucket] - 1;
+    if (loom_cmd_launch_count_tuples_equal(&cluster->tuples[tuple_ordinal],
+                                           &tuple)) {
+      *out_tuple_ordinal = tuple_ordinal;
+      return iree_ok_status();
+    }
+    bucket = (bucket + 1) & mask;
+  }
+
+  IREE_RETURN_IF_ERROR(iree_arena_grow_array(
+      cluster->closure.arena, cluster->tuple_count, cluster->tuple_count + 1,
+      sizeof(*cluster->tuples), &cluster->tuple_capacity,
+      (void**)&cluster->tuples));
+  const iree_host_size_t tuple_ordinal = cluster->tuple_count++;
+  cluster->tuples[tuple_ordinal] = tuple;
+  cluster->tuple_buckets[bucket] = tuple_ordinal + 1;
+  *out_tuple_ordinal = tuple_ordinal;
+  return iree_ok_status();
+}
+
+static void loom_cmd_launch_count_cluster_initialize(
+    loom_module_t* module, loom_cmd_launch_count_root_t* root,
+    const loom_value_fact_table_t* facts, loom_op_t* first_consumer,
+    loom_symbol_ref_t target, iree_arena_allocator_t* scratch_arena,
+    loom_cmd_launch_count_cluster_t* out_cluster) {
+  const uint32_t generation = loom_cmd_launch_count_next_generation(root);
+  *out_cluster = (loom_cmd_launch_count_cluster_t){
+      .target = target,
+      .block = first_consumer->parent_block,
+      .first_consumer = first_consumer,
+      .frontier = first_consumer,
+      .closure =
+          {
+              .module = module,
+              .facts = facts,
+              .domain = &root->domain,
+              .generation = generation,
+              .value_generations = root->value_generations,
+              .value_kinds = root->value_kinds,
+              .arena = scratch_arena,
+          },
+  };
+}
+
+static bool loom_cmd_launch_count_new_arguments_available_before_cluster(
+    const loom_cmd_launch_count_cluster_t* cluster,
+    iree_host_size_t first_new_argument,
+    const loom_dominance_info_t* dominance) {
+  const loom_cmd_launch_count_closure_t* closure = &cluster->closure;
+  for (iree_host_size_t i = first_new_argument; i < closure->argument_count;
+       ++i) {
+    if (!loom_value_is_available_before_op(dominance, closure->arguments[i],
+                                           cluster->first_consumer)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool loom_cmd_launch_count_new_reads_conflict_with_writes(
+    const loom_cmd_launch_count_root_t* root,
+    const loom_cmd_launch_count_cluster_t* cluster,
+    iree_host_size_t first_new_read) {
+  if (!cluster->has_possible_writes) {
+    return false;
+  }
+  const loom_cmd_launch_count_closure_t* closure = &cluster->closure;
+  for (iree_host_size_t i = first_new_read; i < closure->read_reference_count;
+       ++i) {
+    loom_value_fact_alias_scope_id_t alias_scope =
+        LOOM_VALUE_FACT_ALIAS_SCOPE_ID_NONE;
+    if (!loom_cmd_launch_count_reference_alias_scope(
+            closure->facts, closure->read_references[i], &alias_scope)) {
+      return true;
+    }
+    const loom_value_ordinal_t ordinal =
+        loom_local_value_domain_try_ordinal(&root->domain, alias_scope);
+    if (ordinal == LOOM_VALUE_ORDINAL_INVALID ||
+        root->write_scope_generations[ordinal] == cluster->closure.generation) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static void loom_cmd_launch_count_cluster_record_possible_writes(
+    loom_cmd_launch_count_root_t* root,
+    loom_cmd_launch_count_cluster_t* cluster, const loom_op_t* dispatch) {
+  const loom_value_slice_t arguments = loom_kernel_dispatch_arguments(dispatch);
+  for (uint16_t i = 0; i < arguments.count; ++i) {
+    const loom_value_id_t argument = arguments.values[i];
+    const loom_type_t type =
+        loom_module_value_type(cluster->closure.module, argument);
+    if (!loom_type_is_buffer(type) && !loom_type_is_view(type)) {
+      continue;
+    }
+    cluster->has_possible_writes = true;
+    loom_value_fact_alias_scope_id_t alias_scope =
+        LOOM_VALUE_FACT_ALIAS_SCOPE_ID_NONE;
+    if (!loom_cmd_launch_count_reference_alias_scope(cluster->closure.facts,
+                                                     argument, &alias_scope)) {
+      cluster->closed = true;
+      continue;
+    }
+    const loom_value_ordinal_t ordinal =
+        loom_local_value_domain_try_ordinal(&root->domain, alias_scope);
+    if (ordinal == LOOM_VALUE_ORDINAL_INVALID) {
+      cluster->closed = true;
+      continue;
+    }
+    root->write_scope_generations[ordinal] = cluster->closure.generation;
+  }
+}
+
+static void loom_cmd_launch_count_transaction_begin(
+    loom_cmd_launch_count_cluster_t* cluster,
+    iree_arena_allocator_t* scratch_arena,
+    loom_cmd_launch_count_transaction_t* out_transaction) {
+  *out_transaction = (loom_cmd_launch_count_transaction_t){
+      .checkpoint = iree_arena_checkpoint_save(scratch_arena),
+      .prior_closure = cluster->closure,
+  };
+  cluster->closure.record_value_changes = true;
+  cluster->closure.value_changes = NULL;
+  cluster->closure.value_change_count = 0;
+  cluster->closure.value_change_capacity = 0;
+}
+
+static void loom_cmd_launch_count_transaction_commit(
+    loom_cmd_launch_count_cluster_t* cluster) {
+  cluster->closure.record_value_changes = false;
+  cluster->closure.value_changes = NULL;
+  cluster->closure.value_change_count = 0;
+  cluster->closure.value_change_capacity = 0;
+}
+
+static void loom_cmd_launch_count_transaction_rollback(
+    loom_cmd_launch_count_cluster_t* cluster,
+    const loom_cmd_launch_count_transaction_t* transaction) {
+  loom_cmd_launch_count_closure_t* closure = &cluster->closure;
+  for (iree_host_size_t i = closure->value_change_count; i > 0; --i) {
+    const loom_cmd_launch_count_value_change_t* change =
+        &closure->value_changes[i - 1];
+    closure->value_generations[change->ordinal] = change->generation;
+    closure->value_kinds[change->ordinal] = change->kind;
+  }
+  iree_arena_checkpoint_restore(&transaction->checkpoint);
+  cluster->closure = transaction->prior_closure;
+}
+
+static iree_status_t loom_cmd_launch_count_cluster_visit_counts(
+    loom_cmd_launch_count_cluster_t* cluster, const loom_op_t* dispatch) {
+  const loom_value_slice_t counts =
+      loom_kernel_dispatch_workgroup_counts(dispatch);
+  for (uint16_t i = 0; i < counts.count; ++i) {
+    IREE_RETURN_IF_ERROR(
+        loom_cmd_launch_count_visit_value(&cluster->closure, counts.values[i]));
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_cmd_launch_count_cluster_commit_demand(
+    loom_cmd_launch_count_root_t* root,
+    loom_cmd_launch_count_cluster_t* cluster, loom_op_t* dispatch) {
+  const loom_value_slice_t counts =
+      loom_kernel_dispatch_workgroup_counts(dispatch);
+  iree_host_size_t tuple_ordinal = 0;
+  IREE_RETURN_IF_ERROR(
+      loom_cmd_launch_count_intern_tuple(cluster, counts, &tuple_ordinal));
+  IREE_RETURN_IF_ERROR(iree_arena_grow_array(
+      cluster->closure.arena, cluster->demand_count, cluster->demand_count + 1,
+      sizeof(*cluster->demands), &cluster->demand_capacity,
+      (void**)&cluster->demands));
+  cluster->demands[cluster->demand_count++] = (loom_cmd_launch_count_demand_t){
+      .consumer = dispatch,
+      .tuple_ordinal = tuple_ordinal,
+  };
+  cluster->frontier = dispatch;
+  loom_cmd_launch_count_cluster_record_possible_writes(root, cluster, dispatch);
+  if (!loom_cmd_launch_count_has_serial_parent(dispatch)) {
+    cluster->closed = true;
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_cmd_launch_count_cluster_add_demand(
+    loom_cmd_launch_count_root_t* root,
+    loom_cmd_launch_count_cluster_t* cluster, loom_op_t* dispatch) {
+  IREE_RETURN_IF_ERROR(
+      loom_cmd_launch_count_cluster_visit_counts(cluster, dispatch));
+  return loom_cmd_launch_count_cluster_commit_demand(root, cluster, dispatch);
+}
+
 static iree_status_t loom_cmd_launch_count_reserve_symbol(
     loom_module_t* module, uint32_t* next_name, loom_symbol_ref_t* out_symbol) {
   *out_symbol = loom_symbol_ref_null();
@@ -392,9 +873,7 @@ static iree_status_t loom_cmd_launch_count_build_index_constant(
 }
 
 static iree_status_t loom_cmd_launch_count_build_kernel(
-    loom_module_t* module, loom_op_t* consumer,
-    const loom_value_slice_t source_counts,
-    const loom_cmd_launch_count_closure_t* closure,
+    loom_module_t* module, const loom_cmd_launch_count_cluster_t* cluster,
     loom_symbol_ref_t kernel_ref, iree_arena_block_pool_t* block_pool,
     iree_arena_allocator_t* scratch_arena, loom_rewriter_t* rewriter,
     loom_type_t count_view_type, loom_op_t** out_kernel_op,
@@ -402,19 +881,8 @@ static iree_status_t loom_cmd_launch_count_build_kernel(
   *out_kernel_op = NULL;
   *out_product = (loom_kernel_class_product_t){0};
 
-  const loom_symbol_ref_t consumer_ref = loom_kernel_dispatch_callee(consumer);
-  IREE_ASSERT(loom_symbol_ref_is_valid(consumer_ref));
-  IREE_ASSERT_EQ(consumer_ref.module_id, 0u);
-  IREE_ASSERT_LT(consumer_ref.symbol_id, module->symbols.count);
-  const loom_op_t* consumer_entry =
-      module->symbols.entries[consumer_ref.symbol_id].defining_op;
-  if (!loom_kernel_entry_decl_isa(consumer_entry)) {
-    return iree_make_status(
-        IREE_STATUS_FAILED_PRECONDITION,
-        "residual launch-count consumer does not name a kernel entry");
-  }
-  const loom_symbol_ref_t target =
-      loom_kernel_entry_decl_target(consumer_entry);
+  const loom_cmd_launch_count_closure_t* closure = &cluster->closure;
+  const loom_location_id_t location = cluster->first_consumer->location;
 
   loom_type_t* argument_types = NULL;
   const iree_host_size_t argument_count = closure->argument_count + 1;
@@ -427,18 +895,18 @@ static iree_status_t loom_cmd_launch_count_build_kernel(
   argument_types[closure->argument_count] = count_view_type;
 
   loom_kernel_def_build_flags_t build_flags = 0;
-  if (loom_symbol_ref_is_valid(target)) {
+  if (loom_symbol_ref_is_valid(cluster->target)) {
     build_flags |= LOOM_KERNEL_DEF_BUILD_FLAG_HAS_TARGET;
   }
   loom_builder_t* builder = &rewriter->builder;
   loom_builder_set_block(builder, loom_module_block(module));
   loom_op_t* kernel_op = NULL;
   IREE_RETURN_IF_ERROR(loom_kernel_def_build(
-      builder, build_flags, /*retain=*/0, target, LOOM_STRING_ID_INVALID,
+      builder, build_flags, /*retain=*/0, cluster->target,
+      LOOM_STRING_ID_INVALID,
       /*export_linkage=*/0, kernel_ref, /*config_arg_types=*/NULL,
       /*config_arg_types_count=*/0, argument_types, argument_count,
-      /*predicates=*/NULL, /*predicates_count=*/0, consumer->location,
-      &kernel_op));
+      /*predicates=*/NULL, /*predicates_count=*/0, location, &kernel_op));
   const loom_func_like_t kernel = loom_func_like_cast(module, kernel_op);
   uint16_t kernel_argument_count = 0;
   const loom_value_id_t* kernel_arguments =
@@ -453,12 +921,12 @@ static iree_status_t loom_cmd_launch_count_build_kernel(
       builder, kernel_op, loom_kernel_def_config(kernel_op));
   loom_value_id_t one = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_cmd_launch_count_build_index_constant(
-      builder, 1, LOOM_SCALAR_TYPE_INDEX, consumer->location, &one));
+      builder, 1, LOOM_SCALAR_TYPE_INDEX, location, &one));
   loom_op_t* config_op = NULL;
   IREE_RETURN_IF_ERROR(loom_kernel_launch_config_build(
       builder, /*build_flags=*/0, one, one, one, one, one, one,
       LOOM_VALUE_ID_INVALID, LOOM_VALUE_ID_INVALID, LOOM_VALUE_ID_INVALID,
-      consumer->location, &config_op));
+      location, &config_op));
   loom_builder_restore(builder, saved);
 
   saved = loom_builder_enter_region(builder, kernel_op,
@@ -473,8 +941,7 @@ static iree_status_t loom_cmd_launch_count_build_kernel(
     loom_value_id_t target_value = LOOM_VALUE_ID_INVALID;
     IREE_RETURN_IF_ERROR(loom_constant_build(
         builder, loom_value_fact_table_lookup(closure->facts, source),
-        loom_module_value_type(module, source), consumer->location,
-        &target_value));
+        loom_module_value_type(module, source), location, &target_value));
     IREE_RETURN_IF_ERROR(loom_ir_remap_map_value(&remap, source, target_value));
     IREE_RETURN_IF_ERROR(
         loom_module_copy_value_name(module, source, target_value));
@@ -485,41 +952,37 @@ static iree_status_t loom_cmd_launch_count_build_kernel(
         loom_ir_clone_op(builder, closure->operations[i], &remap, &cloned_op));
   }
 
-  loom_value_id_t count_values[3] = {
-      LOOM_VALUE_ID_INVALID,
-      LOOM_VALUE_ID_INVALID,
-      LOOM_VALUE_ID_INVALID,
-  };
-  for (uint8_t dimension = 0; dimension < 3; ++dimension) {
-    loom_value_id_t source_value = LOOM_VALUE_ID_INVALID;
-    if (dimension < source_counts.count) {
-      source_value = source_counts.values[dimension];
-      IREE_RETURN_IF_ERROR(loom_ir_remap_resolve_value(
-          &remap, source_value, &count_values[dimension]));
-    } else {
-      IREE_RETURN_IF_ERROR(loom_cmd_launch_count_build_index_constant(
-          builder, 1, LOOM_SCALAR_TYPE_INDEX, consumer->location,
-          &count_values[dimension]));
+  for (iree_host_size_t tuple_ordinal = 0; tuple_ordinal < cluster->tuple_count;
+       ++tuple_ordinal) {
+    const loom_cmd_launch_count_tuple_t* tuple =
+        &cluster->tuples[tuple_ordinal];
+    for (uint8_t dimension = 0; dimension < 3; ++dimension) {
+      loom_value_id_t count_value = LOOM_VALUE_ID_INVALID;
+      if (tuple->values[dimension] != LOOM_VALUE_ID_INVALID) {
+        IREE_RETURN_IF_ERROR(loom_ir_remap_resolve_value(
+            &remap, tuple->values[dimension], &count_value));
+      } else {
+        IREE_RETURN_IF_ERROR(loom_cmd_launch_count_build_index_constant(
+            builder, 1, LOOM_SCALAR_TYPE_INDEX, location, &count_value));
+      }
+      const loom_type_t index_type = loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
+      const loom_type_t i32_type = loom_type_scalar(LOOM_SCALAR_TYPE_I32);
+      loom_op_t* cast_op = NULL;
+      IREE_RETURN_IF_ERROR(loom_index_cast_build(
+          builder, count_value, index_type, i32_type, location, &cast_op));
+      count_value = loom_index_cast_result(cast_op);
+      const int64_t static_index = (int64_t)(tuple_ordinal * 3 + dimension);
+      loom_op_t* store_op = NULL;
+      IREE_RETURN_IF_ERROR(loom_view_store_build(
+          builder, /*build_flags=*/0, /*instance_flags=*/0, count_value,
+          kernel_arguments[closure->argument_count],
+          /*indices=*/NULL, /*indices_count=*/0, &static_index,
+          /*static_indices_count=*/1, /*cache_scope=*/0,
+          /*cache_temporal=*/0, location, &store_op));
     }
-    const loom_type_t index_type = loom_type_scalar(LOOM_SCALAR_TYPE_INDEX);
-    const loom_type_t i32_type = loom_type_scalar(LOOM_SCALAR_TYPE_I32);
-    loom_op_t* cast_op = NULL;
-    IREE_RETURN_IF_ERROR(loom_index_cast_build(builder, count_values[dimension],
-                                               index_type, i32_type,
-                                               consumer->location, &cast_op));
-    count_values[dimension] = loom_index_cast_result(cast_op);
-    const int64_t static_index = dimension;
-    loom_op_t* store_op = NULL;
-    IREE_RETURN_IF_ERROR(loom_view_store_build(
-        builder, /*build_flags=*/0, /*instance_flags=*/0,
-        count_values[dimension], kernel_arguments[closure->argument_count],
-        /*indices=*/NULL, /*indices_count=*/0, &static_index,
-        /*static_indices_count=*/1, /*cache_scope=*/0,
-        /*cache_temporal=*/0, consumer->location, &store_op));
   }
   loom_op_t* return_op = NULL;
-  IREE_RETURN_IF_ERROR(
-      loom_kernel_return_build(builder, consumer->location, &return_op));
+  IREE_RETURN_IF_ERROR(loom_kernel_return_build(builder, location, &return_op));
   loom_builder_restore(builder, saved);
 
   const iree_string_view_t kernel_name =
@@ -573,39 +1036,69 @@ static iree_status_t loom_cmd_launch_count_replace_kernel_with_entry(
   return iree_ok_status();
 }
 
-static iree_status_t loom_cmd_launch_count_rewrite_dispatch(
-    loom_module_t* module, loom_op_t* consumer,
-    const loom_cmd_launch_count_closure_t* closure,
-    loom_symbol_ref_t producer_ref, loom_type_t count_view_type,
-    loom_rewriter_t* rewriter) {
+static iree_status_t loom_cmd_launch_count_build_indirect_consumer(
+    loom_builder_t* builder, loom_op_t* consumer, loom_value_id_t count_view,
+    loom_op_t** out_dispatch) {
+  const loom_value_slice_t consumer_arguments =
+      loom_kernel_dispatch_arguments(consumer);
+  const loom_value_slice_t workgroup_size =
+      loom_kernel_dispatch_workgroup_size(consumer);
+  return loom_kernel_dispatch_build(
+      builder, loom_kernel_dispatch_callee(consumer), &count_view, 1,
+      consumer_arguments.values, consumer_arguments.count,
+      workgroup_size.values, workgroup_size.count, consumer->location,
+      out_dispatch);
+}
+
+static iree_status_t loom_cmd_launch_count_build_tuple_view(
+    loom_builder_t* builder, const loom_cmd_launch_count_cluster_t* cluster,
+    const loom_cmd_launch_count_demand_t* demand, loom_value_id_t slab_view,
+    loom_type_t tuple_view_type, loom_value_id_t* out_tuple_view) {
+  if (cluster->tuple_count == 1) {
+    *out_tuple_view = slab_view;
+    return iree_ok_status();
+  }
+  const int64_t static_offset = (int64_t)(demand->tuple_ordinal * 3);
+  loom_op_t* subview_op = NULL;
+  IREE_RETURN_IF_ERROR(loom_view_subview_build(
+      builder, slab_view, /*offsets=*/NULL, /*offsets_count=*/0, &static_offset,
+      /*static_offsets_count=*/1, tuple_view_type, demand->consumer->location,
+      &subview_op));
+  *out_tuple_view = loom_view_subview_result(subview_op);
+  return iree_ok_status();
+}
+
+static iree_status_t loom_cmd_launch_count_rewrite_cluster(
+    loom_module_t* module, const loom_cmd_launch_count_cluster_t* cluster,
+    loom_symbol_ref_t producer_ref, loom_type_t slab_view_type,
+    int64_t slab_byte_length, loom_rewriter_t* rewriter) {
+  const loom_cmd_launch_count_closure_t* closure = &cluster->closure;
+  loom_op_t* first_consumer = cluster->first_consumer;
   loom_builder_t* builder = &rewriter->builder;
-  loom_builder_set_before(builder, consumer);
+  loom_builder_set_before(builder, first_consumer);
 
   loom_value_id_t count_bytes = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_cmd_launch_count_build_index_constant(
-      builder, 12, LOOM_SCALAR_TYPE_OFFSET, consumer->location, &count_bytes));
+      builder, slab_byte_length, LOOM_SCALAR_TYPE_OFFSET,
+      first_consumer->location, &count_bytes));
   loom_op_t* alloca_op = NULL;
   IREE_RETURN_IF_ERROR(loom_buffer_alloca_build(
       builder, /*build_flags=*/0, LOOM_VALUE_FACT_MEMORY_SPACE_GLOBAL,
       LOOM_VALUE_ID_INVALID, /*base_alignment=*/4, count_bytes,
-      loom_type_buffer(), consumer->location, &alloca_op));
+      loom_type_buffer(), first_consumer->location, &alloca_op));
   loom_value_id_t base_offset = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_cmd_launch_count_build_index_constant(
-      builder, 0, LOOM_SCALAR_TYPE_OFFSET, consumer->location, &base_offset));
+      builder, 0, LOOM_SCALAR_TYPE_OFFSET, first_consumer->location,
+      &base_offset));
   loom_op_t* count_view_op = NULL;
   IREE_RETURN_IF_ERROR(loom_buffer_view_build(
       builder, loom_buffer_alloca_result(alloca_op), base_offset,
-      count_view_type, consumer->location, &count_view_op));
-  const loom_value_id_t count_view = loom_buffer_view_result(count_view_op);
+      slab_view_type, first_consumer->location, &count_view_op));
+  const loom_value_id_t slab_view = loom_buffer_view_result(count_view_op);
   loom_value_id_t one = LOOM_VALUE_ID_INVALID;
   IREE_RETURN_IF_ERROR(loom_cmd_launch_count_build_index_constant(
-      builder, 1, LOOM_SCALAR_TYPE_INDEX, consumer->location, &one));
+      builder, 1, LOOM_SCALAR_TYPE_INDEX, first_consumer->location, &one));
 
-  loom_op_t* serial_op = NULL;
-  IREE_RETURN_IF_ERROR(
-      loom_command_serial_build(builder, consumer->location, &serial_op));
-  const loom_builder_ip_t saved = loom_builder_enter_region(
-      builder, serial_op, loom_command_serial_body(serial_op));
   loom_value_id_t* producer_arguments = NULL;
   const iree_host_size_t producer_argument_count = closure->argument_count + 1;
   IREE_RETURN_IF_ERROR(iree_arena_allocate_array(
@@ -615,28 +1108,53 @@ static iree_status_t loom_cmd_launch_count_rewrite_dispatch(
     memcpy(producer_arguments, closure->arguments,
            closure->argument_count * sizeof(*producer_arguments));
   }
-  producer_arguments[closure->argument_count] = count_view;
+  producer_arguments[closure->argument_count] = slab_view;
+
+  const loom_type_t tuple_view_type = loom_type_shaped_1d(
+      LOOM_TYPE_VIEW, LOOM_SCALAR_TYPE_I32, loom_dim_pack_static(3),
+      /*encoding_id=*/0);
+  if (loom_cmd_launch_count_has_serial_parent(first_consumer)) {
+    loom_op_t* producer_dispatch = NULL;
+    IREE_RETURN_IF_ERROR(loom_kernel_dispatch_build(
+        builder, producer_ref, &one, 1, producer_arguments,
+        producer_argument_count, /*workgroup_size=*/NULL,
+        /*workgroup_size_count=*/0, first_consumer->location,
+        &producer_dispatch));
+    for (iree_host_size_t i = 0; i < cluster->demand_count; ++i) {
+      const loom_cmd_launch_count_demand_t* demand = &cluster->demands[i];
+      loom_builder_set_before(builder, demand->consumer);
+      loom_value_id_t tuple_view = LOOM_VALUE_ID_INVALID;
+      IREE_RETURN_IF_ERROR(loom_cmd_launch_count_build_tuple_view(
+          builder, cluster, demand, slab_view, tuple_view_type, &tuple_view));
+      loom_op_t* indirect_consumer = NULL;
+      IREE_RETURN_IF_ERROR(loom_cmd_launch_count_build_indirect_consumer(
+          builder, demand->consumer, tuple_view, &indirect_consumer));
+      IREE_RETURN_IF_ERROR(loom_rewriter_erase(rewriter, demand->consumer));
+    }
+    return iree_ok_status();
+  }
+
+  IREE_ASSERT_EQ(cluster->demand_count, 1u);
+  IREE_ASSERT_EQ(cluster->tuple_count, 1u);
+  loom_op_t* serial_op = NULL;
+  IREE_RETURN_IF_ERROR(
+      loom_command_serial_build(builder, first_consumer->location, &serial_op));
+  const loom_builder_ip_t saved = loom_builder_enter_region(
+      builder, serial_op, loom_command_serial_body(serial_op));
   loom_op_t* producer_dispatch = NULL;
   IREE_RETURN_IF_ERROR(loom_kernel_dispatch_build(
       builder, producer_ref, &one, 1, producer_arguments,
       producer_argument_count, /*workgroup_size=*/NULL,
-      /*workgroup_size_count=*/0, consumer->location, &producer_dispatch));
-
-  const loom_value_slice_t consumer_arguments =
-      loom_kernel_dispatch_arguments(consumer);
-  const loom_value_slice_t workgroup_size =
-      loom_kernel_dispatch_workgroup_size(consumer);
+      /*workgroup_size_count=*/0, first_consumer->location,
+      &producer_dispatch));
   loom_op_t* indirect_consumer = NULL;
-  IREE_RETURN_IF_ERROR(loom_kernel_dispatch_build(
-      builder, loom_kernel_dispatch_callee(consumer), &count_view, 1,
-      consumer_arguments.values, consumer_arguments.count,
-      workgroup_size.values, workgroup_size.count, consumer->location,
-      &indirect_consumer));
+  IREE_RETURN_IF_ERROR(loom_cmd_launch_count_build_indirect_consumer(
+      builder, first_consumer, slab_view, &indirect_consumer));
   loom_op_t* yield_op = NULL;
   IREE_RETURN_IF_ERROR(
-      loom_command_yield_build(builder, consumer->location, &yield_op));
+      loom_command_yield_build(builder, first_consumer->location, &yield_op));
   loom_builder_restore(builder, saved);
-  return loom_rewriter_erase(rewriter, consumer);
+  return loom_rewriter_erase(rewriter, first_consumer);
 }
 
 static iree_status_t loom_cmd_launch_count_append_kernel(
@@ -651,13 +1169,12 @@ static iree_status_t loom_cmd_launch_count_append_kernel(
   return iree_ok_status();
 }
 
-static iree_status_t loom_cmd_launch_count_realize_dispatch(
-    loom_module_t* module, loom_op_t* dispatch,
-    loom_cmd_launch_count_root_t* root, const loom_value_fact_table_t* facts,
-    iree_diagnostic_emitter_t diagnostic_emitter,
-    iree_arena_block_pool_t* block_pool, iree_arena_allocator_t* scratch_arena,
-    uint32_t* next_name, bool* out_valid,
-    loom_cmd_launch_count_realization_t* realization) {
+static iree_status_t loom_cmd_launch_count_classify_dispatch(
+    const loom_module_t* module, const loom_op_t* dispatch,
+    const loom_value_fact_table_t* facts,
+    iree_diagnostic_emitter_t diagnostic_emitter, bool* out_valid,
+    bool* out_residual) {
+  *out_residual = false;
   const loom_value_slice_t counts =
       loom_kernel_dispatch_workgroup_counts(dispatch);
   if (counts.count == 1 &&
@@ -685,35 +1202,41 @@ static iree_status_t loom_cmd_launch_count_realize_dispatch(
   if (all_exact) {
     return iree_ok_status();
   }
+  *out_residual = true;
+  return iree_ok_status();
+}
 
-  IREE_RETURN_IF_ERROR(
-      loom_cmd_launch_count_root_prepare(module, root, scratch_arena));
-  if (++root->next_generation == 0) {
-    memset(root->value_generations, 0,
-           root->domain.value_count * sizeof(*root->value_generations));
-    root->next_generation = 1;
+static iree_status_t loom_cmd_launch_count_cluster_layout(
+    const loom_cmd_launch_count_cluster_t* cluster,
+    loom_type_t* out_slab_view_type, int64_t* out_slab_byte_length) {
+  if (cluster->tuple_count == 0 ||
+      cluster->tuple_count > (iree_host_size_t)(INT64_MAX / 12)) {
+    return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
+                            "launch-count cluster output is too large");
   }
-  const iree_arena_checkpoint_t checkpoint =
-      iree_arena_checkpoint_save(scratch_arena);
+  const int64_t element_count = (int64_t)cluster->tuple_count * 3;
+  *out_slab_view_type = loom_type_shaped_1d(
+      LOOM_TYPE_VIEW, LOOM_SCALAR_TYPE_I32, loom_dim_pack_static(element_count),
+      /*encoding_id=*/0);
+  *out_slab_byte_length = element_count * 4;
+  return iree_ok_status();
+}
+
+static iree_status_t loom_cmd_launch_count_realize_cluster(
+    loom_module_t* module, const loom_cmd_launch_count_cluster_t* cluster,
+    iree_arena_block_pool_t* block_pool, iree_arena_allocator_t* scratch_arena,
+    uint32_t* next_name, loom_cmd_launch_count_kernel_t* out_kernel) {
+  *out_kernel = (loom_cmd_launch_count_kernel_t){0};
   loom_rewriter_t rewriter;
   loom_rewriter_initialize(&rewriter, module, scratch_arena);
-  loom_cmd_launch_count_closure_t closure = {
-      .module = module,
-      .facts = facts,
-      .domain = &root->domain,
-      .generation = root->next_generation,
-      .value_generations = root->value_generations,
-      .value_kinds = root->value_kinds,
-      .arena = scratch_arena,
-  };
   iree_status_t status = loom_rewriter_enable_worklist(&rewriter);
-  for (uint16_t i = 0; i < counts.count && iree_status_is_ok(status); ++i) {
-    status = loom_cmd_launch_count_visit_value(&closure, counts.values[i]);
-  }
 
-  const loom_type_t count_view_type = loom_type_shaped_1d(
-      LOOM_TYPE_VIEW, LOOM_SCALAR_TYPE_I32, loom_dim_pack_static(3),
-      /*encoding_id=*/0);
+  loom_type_t slab_view_type = loom_type_none();
+  int64_t slab_byte_length = 0;
+  if (iree_status_is_ok(status)) {
+    status = loom_cmd_launch_count_cluster_layout(cluster, &slab_view_type,
+                                                  &slab_byte_length);
+  }
   loom_symbol_ref_t producer_ref = loom_symbol_ref_null();
   loom_op_t* producer_op = NULL;
   loom_kernel_class_product_t product = {0};
@@ -723,17 +1246,18 @@ static iree_status_t loom_cmd_launch_count_realize_dispatch(
   }
   if (iree_status_is_ok(status)) {
     status = loom_cmd_launch_count_build_kernel(
-        module, dispatch, counts, &closure, producer_ref, block_pool,
-        scratch_arena, &rewriter, count_view_type, &producer_op, &product);
+        module, cluster, producer_ref, block_pool, scratch_arena, &rewriter,
+        slab_view_type, &producer_op, &product);
   }
   if (iree_status_is_ok(status)) {
     status = loom_cmd_launch_count_replace_kernel_with_entry(
-        module, producer_op, producer_ref, &closure, count_view_type,
+        module, producer_op, producer_ref, &cluster->closure, slab_view_type,
         &rewriter);
   }
   if (iree_status_is_ok(status)) {
-    status = loom_cmd_launch_count_rewrite_dispatch(
-        module, dispatch, &closure, producer_ref, count_view_type, &rewriter);
+    status = loom_cmd_launch_count_rewrite_cluster(module, cluster,
+                                                   producer_ref, slab_view_type,
+                                                   slab_byte_length, &rewriter);
   }
   loom_op_t* operation = NULL;
   while (iree_status_is_ok(status) &&
@@ -742,19 +1266,48 @@ static iree_status_t loom_cmd_launch_count_realize_dispatch(
     status = loom_rewriter_erase_if_dead(&rewriter, operation, &erased);
   }
   loom_rewriter_deinitialize(&rewriter);
-  iree_arena_checkpoint_restore(&checkpoint);
   if (iree_status_is_ok(status)) {
-    status =
-        loom_cmd_launch_count_append_kernel(realization,
-                                            (loom_cmd_launch_count_kernel_t){
-                                                .entry = producer_ref,
-                                                .product = product,
-                                            },
-                                            scratch_arena);
-  }
-  if (!iree_status_is_ok(status)) {
+    *out_kernel = (loom_cmd_launch_count_kernel_t){
+        .entry = producer_ref,
+        .product = product,
+    };
+  } else {
     loom_kernel_class_product_deinitialize(&product);
   }
+  return status;
+}
+
+static iree_status_t loom_cmd_launch_count_finish_cluster(
+    loom_module_t* module, const loom_cmd_launch_count_cluster_t* cluster,
+    const iree_arena_checkpoint_t* checkpoint,
+    iree_arena_block_pool_t* block_pool, iree_arena_allocator_t* scratch_arena,
+    uint32_t* next_name, loom_cmd_launch_count_realization_t* realization) {
+  loom_cmd_launch_count_kernel_t kernel = {0};
+  iree_status_t status = loom_cmd_launch_count_realize_cluster(
+      module, cluster, block_pool, scratch_arena, next_name, &kernel);
+  iree_arena_checkpoint_restore(checkpoint);
+  if (iree_status_is_ok(status)) {
+    status =
+        loom_cmd_launch_count_append_kernel(realization, kernel, scratch_arena);
+  }
+  if (!iree_status_is_ok(status)) {
+    loom_kernel_class_product_deinitialize(&kernel.product);
+  }
+  return status;
+}
+
+static iree_status_t loom_cmd_launch_count_flush_cluster(
+    loom_module_t* module, loom_cmd_launch_count_cluster_t* cluster,
+    const iree_arena_checkpoint_t* checkpoint, bool* active,
+    iree_arena_block_pool_t* block_pool, iree_arena_allocator_t* scratch_arena,
+    uint32_t* next_name, loom_cmd_launch_count_realization_t* realization) {
+  if (!*active) {
+    return iree_ok_status();
+  }
+  const iree_status_t status = loom_cmd_launch_count_finish_cluster(
+      module, cluster, checkpoint, block_pool, scratch_arena, next_name,
+      realization);
+  *active = false;
   return status;
 }
 
@@ -776,11 +1329,130 @@ static iree_status_t loom_cmd_launch_count_realize_root(
     status = loom_cmd_launch_count_collect_dispatches(
         loom_func_like_body(root.function), &dispatches);
   }
+
+  bool root_prepared = false;
+  loom_dominance_info_t dominance = {0};
+  bool cluster_active = false;
+  iree_arena_checkpoint_t cluster_checkpoint = {0};
+  loom_cmd_launch_count_cluster_t cluster = {0};
   for (iree_host_size_t i = 0;
        *out_valid && i < dispatches.count && iree_status_is_ok(status); ++i) {
-    status = loom_cmd_launch_count_realize_dispatch(
-        module, dispatches.values[i], &root, facts, diagnostic_emitter,
-        block_pool, scratch_arena, next_name, out_valid, realization);
+    loom_op_t* dispatch = dispatches.values[i];
+    bool residual = false;
+    status = loom_cmd_launch_count_classify_dispatch(
+        module, dispatch, facts, diagnostic_emitter, out_valid, &residual);
+    if (!iree_status_is_ok(status) || !*out_valid) {
+      break;
+    }
+
+    if (!residual) {
+      if (!cluster_active) {
+        continue;
+      }
+      const bool can_cross =
+          !cluster.closed &&
+          loom_cmd_launch_count_has_serial_parent(dispatch) &&
+          dispatch->parent_block == cluster.block &&
+          loom_cmd_launch_count_can_cross_operations(module, cluster.frontier,
+                                                     dispatch);
+      if (!can_cross) {
+        status = loom_cmd_launch_count_flush_cluster(
+            module, &cluster, &cluster_checkpoint, &cluster_active, block_pool,
+            scratch_arena, next_name, realization);
+        continue;
+      }
+      cluster.frontier = dispatch;
+      loom_cmd_launch_count_cluster_record_possible_writes(&root, &cluster,
+                                                           dispatch);
+      if (cluster.closed) {
+        status = loom_cmd_launch_count_flush_cluster(
+            module, &cluster, &cluster_checkpoint, &cluster_active, block_pool,
+            scratch_arena, next_name, realization);
+      }
+      continue;
+    }
+
+    if (!root_prepared) {
+      status = loom_cmd_launch_count_root_prepare(module, &root, scratch_arena);
+      if (iree_status_is_ok(status)) {
+        status = loom_dominance_info_initialize_region(
+            module, loom_func_like_body(root.function), scratch_arena,
+            &dominance);
+      }
+      if (!iree_status_is_ok(status)) {
+        break;
+      }
+      root_prepared = true;
+    }
+
+    const loom_symbol_ref_t target =
+        loom_cmd_launch_count_dispatch_target(module, dispatch);
+    bool can_join =
+        cluster_active && !cluster.closed &&
+        loom_cmd_launch_count_has_serial_parent(dispatch) &&
+        dispatch->parent_block == cluster.block &&
+        loom_cmd_launch_count_symbol_refs_equal(target, cluster.target) &&
+        loom_cmd_launch_count_can_cross_operations(module, cluster.frontier,
+                                                   dispatch);
+    bool demand_committed = false;
+    if (can_join) {
+      loom_cmd_launch_count_transaction_t transaction = {0};
+      loom_cmd_launch_count_transaction_begin(&cluster, scratch_arena,
+                                              &transaction);
+      status = loom_cmd_launch_count_cluster_visit_counts(&cluster, dispatch);
+      if (iree_status_is_ok(status)) {
+        can_join = loom_cmd_launch_count_new_arguments_available_before_cluster(
+                       &cluster, transaction.prior_closure.argument_count,
+                       &dominance) &&
+                   !loom_cmd_launch_count_new_reads_conflict_with_writes(
+                       &root, &cluster,
+                       transaction.prior_closure.read_reference_count);
+      }
+      if (!iree_status_is_ok(status)) {
+        loom_cmd_launch_count_transaction_rollback(&cluster, &transaction);
+        break;
+      }
+      if (can_join) {
+        loom_cmd_launch_count_transaction_commit(&cluster);
+        demand_committed = true;
+        status = loom_cmd_launch_count_cluster_commit_demand(&root, &cluster,
+                                                             dispatch);
+      } else {
+        loom_cmd_launch_count_transaction_rollback(&cluster, &transaction);
+      }
+    }
+
+    if (iree_status_is_ok(status) && !can_join && cluster_active) {
+      status = loom_cmd_launch_count_flush_cluster(
+          module, &cluster, &cluster_checkpoint, &cluster_active, block_pool,
+          scratch_arena, next_name, realization);
+      if (!iree_status_is_ok(status)) {
+        break;
+      }
+    }
+    if (iree_status_is_ok(status) && !cluster_active) {
+      cluster_checkpoint = iree_arena_checkpoint_save(scratch_arena);
+      loom_cmd_launch_count_cluster_initialize(module, &root, facts, dispatch,
+                                               target, scratch_arena, &cluster);
+      cluster_active = true;
+    }
+    if (iree_status_is_ok(status) && !demand_committed) {
+      status =
+          loom_cmd_launch_count_cluster_add_demand(&root, &cluster, dispatch);
+    }
+    if (iree_status_is_ok(status) && cluster.closed) {
+      status = loom_cmd_launch_count_flush_cluster(
+          module, &cluster, &cluster_checkpoint, &cluster_active, block_pool,
+          scratch_arena, next_name, realization);
+    }
+  }
+  if (*out_valid && iree_status_is_ok(status) && cluster_active) {
+    status = loom_cmd_launch_count_flush_cluster(
+        module, &cluster, &cluster_checkpoint, &cluster_active, block_pool,
+        scratch_arena, next_name, realization);
+  } else if (cluster_active) {
+    iree_arena_checkpoint_restore(&cluster_checkpoint);
+    cluster_active = false;
   }
   if (loom_local_value_domain_is_acquired(&root.domain)) {
     loom_local_value_domain_release(&root.domain);

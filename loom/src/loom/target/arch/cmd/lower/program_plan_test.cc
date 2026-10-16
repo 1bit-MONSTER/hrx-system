@@ -330,8 +330,12 @@ kernel.def target(@device) @consume(%count_storage: buffer) {
   kernel.return
 }
 
-command.program.def public @root() launch(%count_storage: buffer, %output: buffer) {
-  kernel.launch @consume[%count_storage](%output) : [buffer](buffer)
+command.program.def public @root() launch(%count_storage: buffer, %first_output: buffer, %second_output: buffer) {
+  %unique_counts = buffer.assume.noalias %count_storage : buffer
+  %unique_first = buffer.assume.noalias %first_output : buffer
+  %unique_second = buffer.assume.noalias %second_output : buffer
+  kernel.launch @consume[%unique_counts](%unique_first) : [buffer](buffer)
+  kernel.launch @consume[%unique_counts](%unique_second) : [buffer](buffer)
   command.return
 }
 )");
@@ -443,7 +447,7 @@ command.program.def public @root() launch(%count_storage: buffer, %output: buffe
   EXPECT_TRUE(loom_type_equal(
       loom_module_value_type(generated_module, generated_arguments[1]),
       loom_type_shaped_1d(LOOM_TYPE_VIEW, LOOM_SCALAR_TYPE_I32,
-                          loom_dim_pack_static(3), /*encoding_id=*/0)));
+                          loom_dim_pack_static(6), /*encoding_id=*/0)));
 
   loom_block_t* config_block =
       loom_region_entry_block(loom_kernel_def_config(generated_kernel));
@@ -490,8 +494,8 @@ command.program.def public @root() launch(%count_storage: buffer, %output: buffe
     has_refine |= loom_view_refine_isa(body_op);
     has_bitcast |= loom_view_bitcast_isa(body_op);
   }
-  EXPECT_EQ(load_count, 2u);
-  EXPECT_EQ(store_count, 3u);
+  EXPECT_EQ(load_count, 4u);
+  EXPECT_EQ(store_count, 6u);
   EXPECT_TRUE(has_alignment);
   EXPECT_TRUE(has_memory_space);
   EXPECT_TRUE(has_noalias);
@@ -505,8 +509,8 @@ command.program.def public @root() launch(%count_storage: buffer, %output: buffe
   ASSERT_EQ(plan.entry_requirement_count, 2u);
   EXPECT_LT(generated_request->entry_requirement_index,
             plan.entry_requirement_count);
-  EXPECT_EQ(plan.roots[0].transient.binding_index, 2u);
-  EXPECT_EQ(plan.roots[0].transient.required_byte_length, 12u);
+  EXPECT_EQ(plan.roots[0].transient.binding_index, 3u);
+  EXPECT_EQ(plan.roots[0].transient.required_byte_length, 24u);
   EXPECT_EQ(plan.roots[0].transient.minimum_alignment, 4u);
 
   iree_byte_span_t data = iree_byte_span_empty();
@@ -515,13 +519,17 @@ command.program.def public @root() launch(%count_storage: buffer, %output: buffe
   loom_cmd_program_t program = {};
   IREE_ASSERT_OK(loom_cmd_program_parse(
       iree_make_const_byte_span(data.data, data.data_length), &program));
-  ASSERT_EQ(program.commands.count, 2u);
+  ASSERT_EQ(program.commands.count, 3u);
   const loom_cmd_program_command_t producer =
       loom_cmd_program_command_at(&program, 0);
-  const loom_cmd_program_command_t consumer =
+  const loom_cmd_program_command_t first_consumer =
       loom_cmd_program_command_at(&program, 1);
+  const loom_cmd_program_command_t second_consumer =
+      loom_cmd_program_command_at(&program, 2);
   EXPECT_EQ(producer.kind, LOOM_CMD_PROGRAM_COMMAND_KIND_DISPATCH_DIRECT);
-  EXPECT_EQ(consumer.kind,
+  EXPECT_EQ(first_consumer.kind,
+            LOOM_CMD_PROGRAM_COMMAND_KIND_DISPATCH_INDIRECT_DYNAMIC_BARRIER);
+  EXPECT_EQ(second_consumer.kind,
             LOOM_CMD_PROGRAM_COMMAND_KIND_DISPATCH_INDIRECT_DYNAMIC_BARRIER);
   EXPECT_EQ(producer.payload.dispatch_direct.workgroup_count_x, 1u);
   EXPECT_EQ(producer.payload.dispatch_direct.workgroup_count_y, 1u);
@@ -532,16 +540,119 @@ command.program.def public @root() launch(%count_storage: buffer, %output: buffe
       plan.roots[0].entry_requirement_indices[producer.payload.dispatch_direct
                                                   .entry_index],
       generated_request->entry_requirement_index);
-  const loom_cmd_program_buffer_ref_t count_ref =
+  const loom_cmd_program_buffer_ref_t first_count_ref =
       loom_cmd_program_buffer_ref_at(
           &program,
-          consumer.payload.dispatch_indirect.workgroup_count_buffer_ref);
-  EXPECT_EQ(count_ref.role, LOOM_CMD_PROGRAM_BUFFER_ROLE_REBINDABLE);
-  EXPECT_EQ(count_ref.root_index, plan.roots[0].transient.binding_index);
-  EXPECT_EQ(count_ref.byte_offset, 0u);
-  EXPECT_EQ(count_ref.byte_length, 12u);
+          first_consumer.payload.dispatch_indirect.workgroup_count_buffer_ref);
+  EXPECT_EQ(first_count_ref.role, LOOM_CMD_PROGRAM_BUFFER_ROLE_REBINDABLE);
+  EXPECT_EQ(first_count_ref.root_index, plan.roots[0].transient.binding_index);
+  EXPECT_EQ(first_count_ref.byte_offset, 0u);
+  EXPECT_EQ(first_count_ref.byte_length, 12u);
+  const loom_cmd_program_buffer_ref_t second_count_ref =
+      loom_cmd_program_buffer_ref_at(
+          &program,
+          second_consumer.payload.dispatch_indirect.workgroup_count_buffer_ref);
+  EXPECT_EQ(second_count_ref.role, LOOM_CMD_PROGRAM_BUFFER_ROLE_REBINDABLE);
+  EXPECT_EQ(second_count_ref.root_index, plan.roots[0].transient.binding_index);
+  EXPECT_EQ(second_count_ref.byte_offset, 12u);
+  EXPECT_EQ(second_count_ref.byte_length, 12u);
 
   iree_allocator_free(iree_allocator_system(), data.data);
+  loom_cmd_program_plan_deinitialize(&plan);
+  for (auto& request : request_capture.requests) {
+    loom_kernel_class_product_deinitialize(&request.product);
+  }
+  iree_arena_deinitialize(&scratch_arena);
+  loom_link_module_index_free(index);
+}
+
+TEST_F(CmdProgramPlanTest, SplitsLaunchCountProducersAcrossPossibleWrites) {
+  ModulePtr source_module = ParseAndVerify(R"(
+test.target<device> @device
+
+kernel.def target(@device) @consume(%count_storage: buffer) {
+  %offset = index.constant 0 : offset
+  %index = index.constant 0 : index
+  %counts = buffer.view %count_storage[%offset] : buffer -> view<1xi32>
+  %raw_count = view.load %counts[%index] : view<1xi32> -> i32
+  %wide_count = scalar.extui %raw_count : i32 to i64
+  %count = index.cast %wide_count : i64 to index
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%count, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch() {
+  kernel.return
+}
+
+kernel.def target(@device) @overwrite() {
+  %one = index.constant 1 : index
+  kernel.launch.config workgroups(%one, %one, %one) workgroup_size(%one, %one, %one) : index
+} launch(%storage: buffer) {
+  kernel.return
+}
+
+command.program.def public @root() launch(%count_storage: buffer) {
+  %unique_counts = buffer.assume.noalias %count_storage : buffer
+  kernel.launch @consume[%unique_counts]() : [buffer]()
+  kernel.launch @overwrite(%unique_counts) : (buffer)
+  kernel.launch @consume[%unique_counts]() : [buffer]()
+  command.return
+}
+)");
+  ASSERT_NE(source_module, nullptr);
+  const loom_symbol_ref_t root_ref =
+      FindSymbolRef(source_module.get(), IREE_SV("root"));
+  loom_link_module_index_t* index = nullptr;
+  IREE_ASSERT_OK(loom_link_module_index_allocate(
+      &context_, &block_pool_, iree_allocator_system(), &index));
+  const loom_link_module_index_add_options_t add_options = {
+      .provider_name = IREE_SV("launch_count_write_barrier_test"),
+  };
+  iree_host_size_t provider_ordinal = 0;
+  IREE_ASSERT_OK(loom_link_module_index_add_materialized(
+      index, source_module.get(), &add_options, &provider_ordinal));
+  const loom_link_module_index_provider_t* provider =
+      loom_link_module_index_provider_at(index, provider_ordinal);
+  ASSERT_NE(provider, nullptr);
+  const loom_link_module_index_module_t* indexed_module =
+      loom_link_module_index_module_at(index, provider->module_start_ordinal);
+  ASSERT_NE(indexed_module, nullptr);
+  const iree_host_size_t root_symbol_ordinal =
+      indexed_module->symbol_start_ordinal + root_ref.symbol_id;
+
+  KernelRequestCapture request_capture = {
+      .block_pool = &block_pool_,
+  };
+  loom_cmd_program_plan_index_options_t plan_options;
+  loom_cmd_program_plan_index_options_initialize(&plan_options);
+  plan_options.kernel_request_sink = {
+      .publish = CaptureKernelRequest,
+      .user_data = &request_capture,
+  };
+  const loom_link_plan_materialization_environment_t environment = {
+      .context = &context_,
+      .block_pool = &block_pool_,
+      .allocator = iree_allocator_system(),
+  };
+  iree_arena_allocator_t scratch_arena;
+  iree_arena_initialize(&block_pool_, &scratch_arena);
+
+  loom_cmd_program_plan_t plan = {};
+  bool valid = false;
+  IREE_ASSERT_OK(loom_cmd_program_plan_build_from_index(
+      index, &root_symbol_ordinal, /*program_count=*/1, &plan_options,
+      loom_pass_builtin_registry(),
+      loom_cleanup_configured_pattern_provider_set(),
+      /*diagnostic_emitter=*/{}, &environment, &scratch_arena, &valid, &plan));
+  ASSERT_TRUE(valid);
+  EXPECT_EQ(
+      std::count_if(request_capture.requests.begin(),
+                    request_capture.requests.end(),
+                    [](const CapturedKernelRequest& request) {
+                      return request.kind ==
+                             LOOM_CMD_PROGRAM_KERNEL_REQUEST_KIND_GENERATED;
+                    }),
+      2);
+
   loom_cmd_program_plan_deinitialize(&plan);
   for (auto& request : request_capture.requests) {
     loom_kernel_class_product_deinitialize(&request.product);

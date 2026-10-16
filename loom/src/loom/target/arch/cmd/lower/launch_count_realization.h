@@ -20,7 +20,8 @@
 extern "C" {
 #endif
 
-// One independently closed generated count producer and its plan-module entry.
+// One independently closed generated count-cluster producer and its
+// plan-module entry.
 typedef struct loom_cmd_launch_count_kernel_t {
   // Entry declaration retained in the command plan module.
   loom_symbol_ref_t entry;
@@ -50,11 +51,15 @@ typedef struct loom_cmd_launch_count_realization_t {
 // Realizes residual direct dispatch counts as generated device producers.
 //
 // |root_ops| names normalized command roots and may contain duplicates. Exact
-// counts remain direct. Each residual deterministic read-only closure is
-// realized in a target-matched 1x1x1 kernel that writes one transient
-// view<3xi32>. The producer and rewritten indirect consumer are ordered by a
-// nested serial command. The generated source products remain owned by
-// |out_realization| until deinitialization.
+// counts remain direct. Compatible residual deterministic read-only closures
+// in one ordered command block are clustered into a target-matched 1x1x1
+// kernel that writes one transient array of XYZ tuples. The producer is placed
+// before the cluster's first consumer, and each consumer retains its authored
+// position with an indirect view of its tuple. Possible intervening writes
+// split clusters unless explicit alias scopes prove them disjoint. A residual
+// consumer outside an ordered block is realized as a singleton nested serial
+// command. The generated source products remain owned by |out_realization|
+// until deinitialization.
 //
 // Authored contract failures emit diagnostics, clear |out_valid|, and return
 // OK. Unsupported compiler mappings and infrastructure failures return a

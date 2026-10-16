@@ -79,6 +79,7 @@ loom_cc_library(
     loom::rewrite::remap
     loom::rewrite::rewriter
     loom::transforms::kernel::kernel_class_materializer
+    loom::util::dominance
     loom::util::fact_table
   PUBLIC
 )
