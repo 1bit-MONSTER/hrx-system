@@ -1,0 +1,258 @@
+// Immutable external sequences feed credited SRAM and compute rings. Native
+// task boundaries and final prefixes preserve record order across replay.
+aie2p.target<array> @array_target
+
+pipeline.def<kernel> @finite_ingress(%record_count: index, %capacity: index, %record_stride: index) run(%input_arg: buffer, %output_arg: buffer) {
+  %input_unique, %output_unique = buffer.assume.noalias %input_arg, %output_arg : buffer, buffer
+  %input, %output = buffer.assume.alignment %input_unique, %output_unique {minimum_alignment = 64} : buffer, buffer
+  %origin = index.constant 0 : offset
+  %slot_bytes = index.constant 64 : index
+  %storage_length = index.mul %capacity, %slot_bytes : index
+  %storage_bytes = index.cast %storage_length : index to offset
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %source_memory = pipeline.memory<workgroup>[0, 1] : pool
+  %destination_memory = pipeline.memory<workgroup>[0, 3] : pool
+  %source_storage = buffer.alloca<workgroup> pool(%source_memory) align(64) %storage_bytes : buffer
+  %source_slots = buffer.view %source_storage[%origin] : buffer -> view<[%capacity]x16xi32>
+  %source = channel.bind<fifo> %source_slots, %capacity : view<[%capacity]x16xi32>, index -> channel<tile<16xi32>>
+  %destination_storage = buffer.alloca<workgroup> pool(%destination_memory) align(64) %storage_bytes : buffer
+  %destination_slots = buffer.view %destination_storage[%origin] : buffer -> view<[%capacity]x16xi32>
+  %destination = channel.bind<fifo> %destination_slots, %capacity : view<[%capacity]x16xi32>, index -> channel<tile<16xi32>>
+
+  pipeline.strand workers([0, 2], [1, 1], [1, 1]) {
+    scf.for %record = [%begin to %record_count step %step] {
+      %byte_index = index.mul %record, %record_stride : index
+      %offset = index.cast %byte_index : index to offset
+      %external = buffer.view %input[%offset] : buffer -> view<2x8xi32, #encoding.layout.strided<strides=[12, 1]>>
+      %write, %payload = channel.reserve %source : channel<tile<16xi32>> -> (write<tile<16xi32>>, view<16xi32>)
+      %copy = kernel.async.copy %external to %payload {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<2x8xi32, #encoding.layout.strided<strides=[12, 1]>> to view<16xi32> -> kernel.async.token
+      %group = kernel.async.group %copy : kernel.async.token -> kernel.async.group
+      kernel.async.wait %group {newer_groups = 0} : kernel.async.group
+      channel.publish %write : write<tile<16xi32>>
+    }
+  }
+  pipeline.strand workers([0, 2], [1, 1], [1, 1]) {
+    scf.for %record = [%begin to %record_count step %step] {
+      %read, %source_view = channel.acquire %source : channel<tile<16xi32>> -> (read<tile<16xi32>>, view<16xi32>)
+      %write, %destination_view = channel.reserve %destination : channel<tile<16xi32>> -> (write<tile<16xi32>>, view<16xi32>)
+      channel.copy %read -> %write : read<tile<16xi32>>, write<tile<16xi32>>
+    }
+  }
+  pipeline.strand workers([0, 3], [1, 1], [1, 1]) {
+    %bias = vector.constant 17 : vector<16xi32>
+    scf.for %record = [%begin to %record_count step %step] {
+      %read, %payload = channel.acquire<mutable> %destination : channel<tile<16xi32>> -> (read<tile<16xi32>, mutable>, view<16xi32>)
+      %values = vector.load %payload[0] : view<16xi32> -> vector<16xi32>
+      %result = vector.addi %values, %bias : vector<16xi32>
+      vector.store %result, %payload[0] : vector<16xi32>, view<16xi32>
+      %byte_index = index.mul %record, %slot_bytes : index
+      %offset = index.cast %byte_index : index to offset
+      %external = buffer.view %output[%offset] : buffer -> view<16xi32>
+      %copy = kernel.async.copy %payload to %external {cache_scope = workgroup, cache_temporal = regular, direction = workgroup_to_global} : view<16xi32> to view<16xi32> -> kernel.async.token
+      %group = kernel.async.group %copy : kernel.async.token -> kernel.async.group
+      kernel.async.wait %group {newer_groups = 0} : kernel.async.group
+      channel.release %read : read<tile<16xi32>, mutable>
+    }
+  }
+}
+
+// The oracle visits logical scalar coordinates without channels or DMA state.
+func.def inline @reference(%input: buffer, %output: buffer, %record_count: index, %record_stride: index) {
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %rows = index.constant 2 : index
+  %columns = index.constant 8 : index
+  %slot_bytes = index.constant 64 : index
+  %bias = scalar.constant 17 : i32
+  scf.for %record = [%begin to %record_count step %step] {
+    %input_index = index.mul %record, %record_stride : index
+    %input_offset = index.cast %input_index : index to offset
+    %input_view = buffer.view %input[%input_offset] : buffer -> view<2x8xi32, #encoding.layout.strided<strides=[12, 1]>>
+    %output_index = index.mul %record, %slot_bytes : index
+    %output_offset = index.cast %output_index : index to offset
+    %output_view = buffer.view %output[%output_offset] : buffer -> view<2x8xi32>
+    scf.for %row = [%begin to %rows step %step] {
+      scf.for %column = [%begin to %columns step %step] {
+        %value = view.load %input_view[%row, %column] : view<2x8xi32, #encoding.layout.strided<strides=[12, 1]>> -> i32
+        %result = scalar.addi %value, %bias : i32
+        view.store %result, %output_view[%row, %column] : i32, view<2x8xi32>
+      }
+    }
+  }
+  func.return
+}
+
+pipeline.def<kernel> public retain target(@array_target) @strided_65() run(%input: buffer, %output: buffer) {
+  %records = index.constant 65 : index
+  %capacity = index.constant 3 : index
+  %record_stride = index.constant 128 : index
+  pipeline.compose @finite_ingress[%records, %capacity, %record_stride](%input, %output) : [index, index, index](buffer, buffer)
+}
+
+func.def @strided_65_reference(%input: buffer, %output: buffer) {
+  %records = index.constant 65 : index
+  %record_stride = index.constant 128 : index
+  func.call @reference(%input, %output, %records, %record_stride) : (buffer, buffer, index, index)
+  func.return
+}
+
+check.scenario public @strided_65_replay {
+  check.trial[3](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input_storage = check.generate.random.uniform seed(%seed) range(-1000 to 1000) : tensor<2100xi32>
+    %input = check.tensor.view %input_storage offset(64) : tensor<2100xi32> -> tensor<2068xi32>
+    %output_storage = check.generate.fill value(-9999) : tensor<1072xi32>
+    %output = check.tensor.view %output_storage offset(64) : tensor<1072xi32> -> tensor<1040xi32>
+    check.compare<@strided_65, @strided_65_reference>(%input, %output) : (tensor<2068xi32>, tensor<1040xi32>) -> () {
+      check.expect.equal actual(%input_storage) expected(%input_storage) : tensor<2100xi32>
+      check.expect.equal actual(%output_storage) expected(%output_storage) : tensor<1072xi32>
+    }
+  }
+  check.return
+}
+
+pipeline.def<kernel> public retain target(@array_target) @strided_257() run(%input: buffer, %output: buffer) {
+  %records = index.constant 257 : index
+  %capacity = index.constant 3 : index
+  %record_stride = index.constant 128 : index
+  pipeline.compose @finite_ingress[%records, %capacity, %record_stride](%input, %output) : [index, index, index](buffer, buffer)
+}
+
+func.def @strided_257_reference(%input: buffer, %output: buffer) {
+  %records = index.constant 257 : index
+  %record_stride = index.constant 128 : index
+  func.call @reference(%input, %output, %records, %record_stride) : (buffer, buffer, index, index)
+  func.return
+}
+
+check.scenario public @strided_257_replay {
+  check.trial[3](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input_storage = check.generate.random.uniform seed(%seed) range(-1000 to 1000) : tensor<8244xi32>
+    %input = check.tensor.view %input_storage offset(64) : tensor<8244xi32> -> tensor<8212xi32>
+    %output_storage = check.generate.fill value(-9999) : tensor<4144xi32>
+    %output = check.tensor.view %output_storage offset(64) : tensor<4144xi32> -> tensor<4112xi32>
+    check.compare<@strided_257, @strided_257_reference>(%input, %output) : (tensor<8212xi32>, tensor<4112xi32>) -> () {
+      check.expect.equal actual(%input_storage) expected(%input_storage) : tensor<8244xi32>
+      check.expect.equal actual(%output_storage) expected(%output_storage) : tensor<4144xi32>
+    }
+  }
+  check.return
+}
+
+pipeline.def<kernel> public retain target(@array_target) @strided_1025() run(%input: buffer, %output: buffer) {
+  %records = index.constant 1025 : index
+  %capacity = index.constant 3 : index
+  %record_stride = index.constant 128 : index
+  pipeline.compose @finite_ingress[%records, %capacity, %record_stride](%input, %output) : [index, index, index](buffer, buffer)
+}
+
+func.def @strided_1025_reference(%input: buffer, %output: buffer) {
+  %records = index.constant 1025 : index
+  %record_stride = index.constant 128 : index
+  func.call @reference(%input, %output, %records, %record_stride) : (buffer, buffer, index, index)
+  func.return
+}
+
+check.scenario public @strided_1025_replay {
+  check.trial[3](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input_storage = check.generate.random.uniform seed(%seed) range(-1000 to 1000) : tensor<32820xi32>
+    %input = check.tensor.view %input_storage offset(64) : tensor<32820xi32> -> tensor<32788xi32>
+    %output_storage = check.generate.fill value(-9999) : tensor<16432xi32>
+    %output = check.tensor.view %output_storage offset(64) : tensor<16432xi32> -> tensor<16400xi32>
+    check.compare<@strided_1025, @strided_1025_reference>(%input, %output) : (tensor<32788xi32>, tensor<16400xi32>) -> () {
+      check.expect.equal actual(%input_storage) expected(%input_storage) : tensor<32820xi32>
+      check.expect.equal actual(%output_storage) expected(%output_storage) : tensor<16432xi32>
+    }
+  }
+  check.return
+}
+
+pipeline.def<kernel> public retain target(@array_target) @strided_3361() run(%input: buffer, %output: buffer) {
+  %records = index.constant 3361 : index
+  %capacity = index.constant 3 : index
+  %record_stride = index.constant 128 : index
+  pipeline.compose @finite_ingress[%records, %capacity, %record_stride](%input, %output) : [index, index, index](buffer, buffer)
+}
+
+func.def @strided_3361_reference(%input: buffer, %output: buffer) {
+  %records = index.constant 3361 : index
+  %record_stride = index.constant 128 : index
+  func.call @reference(%input, %output, %records, %record_stride) : (buffer, buffer, index, index)
+  func.return
+}
+
+check.scenario public @strided_3361_replay {
+  check.trial[3](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input_storage = check.generate.random.uniform seed(%seed) range(-1000 to 1000) : tensor<107572xi32>
+    %input = check.tensor.view %input_storage offset(64) : tensor<107572xi32> -> tensor<107540xi32>
+    %output_storage = check.generate.fill value(-9999) : tensor<53808xi32>
+    %output = check.tensor.view %output_storage offset(64) : tensor<53808xi32> -> tensor<53776xi32>
+    check.compare<@strided_3361, @strided_3361_reference>(%input, %output) : (tensor<107540xi32>, tensor<53776xi32>) -> () {
+      check.expect.equal actual(%input_storage) expected(%input_storage) : tensor<107572xi32>
+      check.expect.equal actual(%output_storage) expected(%output_storage) : tensor<53808xi32>
+    }
+  }
+  check.return
+}
+
+pipeline.def<kernel> public retain target(@array_target) @fixed_1025() run(%input: buffer, %output: buffer) {
+  %records = index.constant 1025 : index
+  %capacity = index.constant 2 : index
+  %record_stride = index.constant 0 : index
+  pipeline.compose @finite_ingress[%records, %capacity, %record_stride](%input, %output) : [index, index, index](buffer, buffer)
+}
+
+func.def @fixed_1025_reference(%input: buffer, %output: buffer) {
+  %records = index.constant 1025 : index
+  %record_stride = index.constant 0 : index
+  func.call @reference(%input, %output, %records, %record_stride) : (buffer, buffer, index, index)
+  func.return
+}
+
+check.scenario public @fixed_1025_replay {
+  check.trial[3](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input_storage = check.generate.random.uniform seed(%seed) range(-1000 to 1000) : tensor<52xi32>
+    %input = check.tensor.view %input_storage offset(64) : tensor<52xi32> -> tensor<20xi32>
+    %output_storage = check.generate.fill value(-9999) : tensor<16432xi32>
+    %output = check.tensor.view %output_storage offset(64) : tensor<16432xi32> -> tensor<16400xi32>
+    check.compare<@fixed_1025, @fixed_1025_reference>(%input, %output) : (tensor<20xi32>, tensor<16400xi32>) -> () {
+      check.expect.equal actual(%input_storage) expected(%input_storage) : tensor<52xi32>
+      check.expect.equal actual(%output_storage) expected(%output_storage) : tensor<16432xi32>
+    }
+  }
+  check.return
+}
+
+pipeline.def<kernel> public retain target(@array_target) @fixed_3361() run(%input: buffer, %output: buffer) {
+  %records = index.constant 3361 : index
+  %capacity = index.constant 3 : index
+  %record_stride = index.constant 0 : index
+  pipeline.compose @finite_ingress[%records, %capacity, %record_stride](%input, %output) : [index, index, index](buffer, buffer)
+}
+
+func.def @fixed_3361_reference(%input: buffer, %output: buffer) {
+  %records = index.constant 3361 : index
+  %record_stride = index.constant 0 : index
+  func.call @reference(%input, %output, %records, %record_stride) : (buffer, buffer, index, index)
+  func.return
+}
+
+check.scenario public @fixed_3361_replay {
+  check.trial[3](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input_storage = check.generate.random.uniform seed(%seed) range(-1000 to 1000) : tensor<52xi32>
+    %input = check.tensor.view %input_storage offset(64) : tensor<52xi32> -> tensor<20xi32>
+    %output_storage = check.generate.fill value(-9999) : tensor<53808xi32>
+    %output = check.tensor.view %output_storage offset(64) : tensor<53808xi32> -> tensor<53776xi32>
+    check.compare<@fixed_3361, @fixed_3361_reference>(%input, %output) : (tensor<20xi32>, tensor<53776xi32>) -> () {
+      check.expect.equal actual(%input_storage) expected(%input_storage) : tensor<52xi32>
+      check.expect.equal actual(%output_storage) expected(%output_storage) : tensor<53808xi32>
+    }
+  }
+  check.return
+}

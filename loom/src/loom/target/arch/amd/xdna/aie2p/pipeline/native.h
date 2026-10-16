@@ -9,6 +9,7 @@
 
 #include "loom/target/arch/amd/xdna/aie2p/array/route.h"
 #include "loom/target/arch/amd/xdna/aie2p/facts.h"
+#include "loom/target/arch/amd/xdna/aie2p/pipeline/dma_plan.h"
 #include "loom/target/arch/amd/xdna/aie2p/pipeline/worker.h"
 #include "loom/target/arch/amd/xdna/array/registers.h"
 #include "loom/transforms/pipeline/realization.h"
@@ -91,73 +92,6 @@ typedef struct loom_aie2p_native_binding_t {
   // Union of native read/write binding access bits.
   uint32_t access;
 } loom_aie2p_native_binding_t;
-
-// Register layout of one on-chip DMA module. Compute data memory and SRAM
-// retain the same channel ownership protocol with different wire encodings.
-typedef struct loom_aie2p_native_memory_layout_t {
-  // First descriptor register, used to publish a complete image.
-  loom_xdna_register_field_id_t descriptor_base;
-  // Number of descriptor words implemented by this module.
-  uint8_t descriptor_word_count;
-  // Word containing the DMA buffer address.
-  uint8_t address_word;
-  // DMA buffer-address field.
-  loom_xdna_register_field_id_t address;
-  // Word containing the iteration state.
-  uint8_t iteration_word;
-  // Iteration step, wrap, and current-position fields.
-  struct {
-    // Address-generator increment between records.
-    loom_xdna_register_field_id_t step;
-    // Number of physical ring slots minus one.
-    loom_xdna_register_field_id_t wrap;
-    // Current ring slot reset at invocation boundaries.
-    loom_xdna_register_field_id_t current;
-  } iteration;
-  // Word and fields linking descriptors within one finite DMA task.
-  struct {
-    // Word containing both chain fields.
-    uint8_t word;
-    // Next descriptor ordinal.
-    loom_xdna_register_field_id_t next;
-    // The current task continues at the next descriptor.
-    loom_xdna_register_field_id_t enable;
-  } chain;
-  // Word containing lock actions and descriptor validity.
-  uint8_t lock_word;
-  // Lock action and validity fields.
-  struct {
-    // Semaphore acquired before movement.
-    loom_xdna_register_field_id_t acquire_id;
-    // Credit count consumed by admission.
-    loom_xdna_register_field_id_t acquire_value;
-    // Descriptor has an admission action.
-    loom_xdna_register_field_id_t acquire_enable;
-    // Semaphore released after movement.
-    loom_xdna_register_field_id_t release_id;
-    // Credit count published by completion.
-    loom_xdna_register_field_id_t release_value;
-    // Descriptor is executable.
-    loom_xdna_register_field_id_t valid;
-  } locks;
-  // Hardware semaphore initialization and observation register.
-  loom_xdna_register_field_id_t lock_value;
-  // Local SRAM bank's DMA address window; zero for compute data memory.
-  uint32_t local_address_base;
-  // Local SRAM bank's DMA lock-selector window; zero for compute memory.
-  uint16_t local_lock_base;
-  // Direction-indexed DMA control and task publication fields.
-  struct {
-    // Channel reset control.
-    loom_xdna_register_field_id_t reset;
-    // Task head descriptor ordinal.
-    loom_xdna_register_field_id_t start;
-    // Task execution count minus one.
-    loom_xdna_register_field_id_t repeat;
-    // Completion-poll fields: queue size, running, and four stall flags.
-    loom_xdna_register_field_id_t status[6];
-  } directions[2];
-} loom_aie2p_native_memory_layout_t;
 
 // Per-tile resource ownership established before any executable emission.
 typedef struct loom_aie2p_native_tile_t {
@@ -250,10 +184,10 @@ typedef struct loom_aie2p_native_dma_descriptor_t {
   loom_aie2p_native_dma_path_t* path;
   // Most recently assigned copy, retaining its retirement and address policy.
   const struct loom_aie2p_native_transfer_t* last_transfer;
-  // Local descriptor index in the selected engine's bank.
-  uint16_t local_descriptor;
-  // Shim descriptor index in the column's shared bank.
-  uint16_t shim_descriptor;
+  // Local descriptors, excluding dynamic addresses and completion releases.
+  loom_aie2p_native_dma_sequence_t local;
+  // Shim descriptors, excluding their relocated address pairs.
+  loom_aie2p_native_dma_sequence_t shim;
   // On-chip DMA completion semaphore for non-autonomous local arrivals.
   uint16_t completion_lock;
   // Worker-visible selector of the local-arrival completion semaphore.
@@ -261,10 +195,6 @@ typedef struct loom_aie2p_native_dma_descriptor_t {
   // Each issue patches the external address, including fixed offsets when
   // multiple copies sharing this pair address different caller storage.
   bool external_address_dynamic;
-  // Local template, excluding dynamic addresses and the completion release.
-  uint32_t local_words[8];
-  // Shim template, excluding its relocated address pair.
-  uint32_t shim_words[8];
 } loom_aie2p_native_dma_descriptor_t;
 
 typedef struct loom_aie2p_native_transfer_t {
@@ -309,18 +239,8 @@ typedef struct loom_aie2p_native_distribution_endpoint_t {
   loom_aie2p_native_tile_t* tile;
   // Direction-specific DMA engine.
   uint8_t engine;
-  // First descriptor in the contiguous allocation owned by this endpoint.
-  uint16_t descriptor;
-  // Number of descriptors, including any separately terminating final prefix.
-  uint16_t descriptor_count;
-  // Arena-owned complete descriptor images in physical ordinal order.
-  uint32_t (*words)[8];
-  // Number of start tasks, bounded by the hardware queue depth.
-  uint8_t task_count;
-  // Arena-owned encoded task words in FIFO publication order.
-  uint32_t* tasks;
-  // The single iterating descriptor ends away from the initial ring slot.
-  bool rewind_iteration;
+  // Descriptor images, finite queued tasks, and invocation rewind state.
+  loom_aie2p_native_dma_sequence_t sequence;
   // Invocation retirement must explicitly observe this DMA channel idle.
   bool wait_for_idle;
 } loom_aie2p_native_distribution_endpoint_t;
@@ -354,12 +274,14 @@ typedef struct loom_aie2p_native_worker_t {
   loom_aie2p_native_execution_t execution;
   // Autonomous descriptor iteration for a regular ingress worker.
   struct {
-    // Actual task execution count; zero for instruction/configuration engines.
+    // Local record count; zero for instruction/configuration engines.
     uint32_t count;
     // First external record's byte offset from its caller binding.
     uint32_t external_byte_offset;
-    // Byte increment between consecutive external records; zero reuses input.
-    uint32_t external_byte_stride;
+    // Executions of the external descriptor; one when records are coalesced.
+    uint32_t shim_repetitions;
+    // External descriptor geometry, excluding the relocated address pair.
+    uint32_t shim_words[8];
   } repetition;
   // Semaphore released at the complete worker exit.
   uint16_t completion_lock;
@@ -439,6 +361,14 @@ iree_status_t loom_aie2p_native_emit_configuration(
 iree_status_t loom_aie2p_native_select_transfers(
     loom_aie2p_native_context_t* context,
     const loom_pipeline_realization_t* realization, bool* out_valid);
+
+// Selects and retains a regular ingress stream's external descriptor geometry.
+// Stable-source and exact consumer-completion admission precede this query.
+bool loom_aie2p_native_select_ingress_descriptor(
+    const loom_aie2p_native_context_t* context,
+    const loom_pipeline_worker_t* source,
+    const loom_movement_request_t* request, uint32_t byte_stride,
+    uint32_t repetitions, loom_aie2p_native_worker_t* worker);
 
 // Replaces retained copies/groups/waits using the selected transport helpers.
 // Channel access carriers are replaced by the following channel rewrite.

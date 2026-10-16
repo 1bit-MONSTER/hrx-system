@@ -15,167 +15,6 @@
 #include "loom/target/function_version.h"
 #include "loom/util/fact_extensions.h"
 
-static const loom_aie2p_native_memory_layout_t loom_aie2p_compute_memory = {
-    .descriptor_base =
-        LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_BD_WORD0_BUFFER_LENGTH,
-    .descriptor_word_count = 6,
-    .address_word = 0,
-    .address =
-        LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_BD_WORD0_BASE_ADDRESS,
-    .iteration_word = 4,
-    .iteration =
-        {
-            .step =
-                LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_BD_WORD4_ITERATION_STEP_SIZE,
-            .wrap =
-                LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_BD_WORD4_ITERATION_WRAP,
-            .current =
-                LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_BD_WORD4_ITERATION_CURRENT,
-        },
-    .lock_word = 5,
-    .chain =
-        {
-            .word = 5,
-            .next =
-                LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_BD_WORD5_NEXT_BD,
-            .enable =
-                LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_BD_WORD5_USE_NEXT_BD,
-        },
-    .locks =
-        {
-            .acquire_id =
-                LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_BD_WORD5_LOCK_ACQUIRE_ID,
-            .acquire_value =
-                LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_BD_WORD5_LOCK_ACQUIRE_VALUE,
-            .acquire_enable =
-                LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_BD_WORD5_LOCK_ACQUIRE_ENABLE,
-            .release_id =
-                LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_BD_WORD5_LOCK_RELEASE_ID,
-            .release_value =
-                LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_BD_WORD5_LOCK_RELEASE_VALUE,
-            .valid =
-                LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_BD_WORD5_VALID_BD,
-        },
-    .lock_value = LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_LOCK_VALUE_VALUE,
-    .directions =
-        {
-            {
-                .reset =
-                    LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_CHANNEL_MM2S_CONTROL_RESET,
-                .start =
-                    LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_CHANNEL_MM2S_START_QUEUE_START_BD_ID,
-                .repeat =
-                    LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_CHANNEL_MM2S_START_QUEUE_REPEAT_COUNT,
-                .status =
-                    {
-                        LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_CHANNEL_MM2S_STATUS_TASK_QUEUE_SIZE,
-                        LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_CHANNEL_MM2S_STATUS_CHANNEL_RUNNING,
-                        LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_CHANNEL_MM2S_STATUS_STALLED_LOCK_ACQUIRE,
-                        LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_CHANNEL_MM2S_STATUS_STALLED_LOCK_RELEASE,
-                        LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_CHANNEL_MM2S_STATUS_STALLED_STREAM_BACKPRESSURE,
-                        LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_CHANNEL_MM2S_STATUS_STALLED_COMPLETION_TOKEN,
-                    },
-            },
-            {
-                .reset =
-                    LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_CHANNEL_S2MM_CONTROL_RESET,
-                .start =
-                    LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_CHANNEL_S2MM_START_QUEUE_START_BD_ID,
-                .repeat =
-                    LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_CHANNEL_S2MM_START_QUEUE_REPEAT_COUNT,
-                .status =
-                    {
-                        LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_CHANNEL_S2MM_STATUS_TASK_QUEUE_SIZE,
-                        LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_CHANNEL_S2MM_STATUS_CHANNEL_RUNNING,
-                        LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_CHANNEL_S2MM_STATUS_STALLED_LOCK_ACQUIRE,
-                        LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_CHANNEL_S2MM_STATUS_STALLED_LOCK_RELEASE,
-                        LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_CHANNEL_S2MM_STATUS_STALLED_STREAM_STARVATION,
-                        LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_CHANNEL_S2MM_STATUS_STALLED_TOKEN_OR_COUNT_FIFO,
-                    },
-            },
-        },
-};
-
-static const loom_aie2p_native_memory_layout_t loom_aie2p_sram_memory = {
-    .descriptor_base =
-        LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_BD_WORD0_BUFFER_LENGTH,
-    .descriptor_word_count = 8,
-    .address_word = 1,
-    .address = LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_BD_WORD1_BASE_ADDRESS,
-    .iteration_word = 6,
-    .iteration =
-        {
-            .step =
-                LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_BD_WORD6_ITERATION_STEP_SIZE,
-            .wrap =
-                LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_BD_WORD6_ITERATION_WRAP,
-            .current =
-                LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_BD_WORD6_ITERATION_CURRENT,
-        },
-    .lock_word = 7,
-    .chain =
-        {
-            .word = 1,
-            .next = LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_BD_WORD1_NEXT_BD,
-            .enable =
-                LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_BD_WORD1_USE_NEXT_BD,
-        },
-    .locks =
-        {
-            .acquire_id =
-                LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_BD_WORD7_LOCK_ACQUIRE_ID,
-            .acquire_value =
-                LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_BD_WORD7_LOCK_ACQUIRE_VALUE,
-            .acquire_enable =
-                LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_BD_WORD7_LOCK_ACQUIRE_ENABLE,
-            .release_id =
-                LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_BD_WORD7_LOCK_RELEASE_ID,
-            .release_value =
-                LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_BD_WORD7_LOCK_RELEASE_VALUE,
-            .valid = LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_BD_WORD7_VALID_BD,
-        },
-    .lock_value = LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_LOCK_VALUE_VALUE,
-    .local_address_base = 0x80000,
-    .local_lock_base = 64,
-    .directions =
-        {
-            {
-                .reset =
-                    LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_CHANNEL_MM2S_CONTROL_RESET,
-                .start =
-                    LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_CHANNEL_MM2S_START_QUEUE_START_BD_ID,
-                .repeat =
-                    LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_CHANNEL_MM2S_START_QUEUE_REPEAT_COUNT,
-                .status =
-                    {
-                        LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_CHANNEL_MM2S_STATUS_TASK_QUEUE_SIZE,
-                        LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_CHANNEL_MM2S_STATUS_CHANNEL_RUNNING,
-                        LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_CHANNEL_MM2S_STATUS_STALLED_LOCK_ACQUIRE,
-                        LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_CHANNEL_MM2S_STATUS_STALLED_LOCK_RELEASE,
-                        LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_CHANNEL_MM2S_STATUS_STALLED_STREAM_BACKPRESSURE,
-                        LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_CHANNEL_MM2S_STATUS_STALLED_COMPLETION_TOKEN,
-                    },
-            },
-            {
-                .reset =
-                    LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_CHANNEL_S2MM_CONTROL_RESET,
-                .start =
-                    LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_CHANNEL_S2MM_START_QUEUE_START_BD_ID,
-                .repeat =
-                    LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_CHANNEL_S2MM_START_QUEUE_REPEAT_COUNT,
-                .status =
-                    {
-                        LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_CHANNEL_S2MM_STATUS_TASK_QUEUE_SIZE,
-                        LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_CHANNEL_S2MM_STATUS_CHANNEL_RUNNING,
-                        LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_CHANNEL_S2MM_STATUS_STALLED_LOCK_ACQUIRE,
-                        LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_CHANNEL_S2MM_STATUS_STALLED_LOCK_RELEASE,
-                        LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_CHANNEL_S2MM_STATUS_STALLED_STREAM_STARVATION,
-                        LOOM_XDNA_REGISTER_FIELD_MEMORY_TILE_DMA_CHANNEL_S2MM_STATUS_STALLED_TOKEN_OR_COUNT_FIFO,
-                    },
-            },
-        },
-};
-
 iree_status_t loom_aie2p_native_reject(
     const loom_aie2p_native_context_t* context, const loom_op_t* op,
     iree_string_view_t requirement) {
@@ -601,22 +440,19 @@ static bool loom_aie2p_native_can_repeat(
            ->tiles[worker->tile->coordinate.column * context->family->row_count]
            .facts->dma;
   if (begin < 0 || begin > UINT32_MAX || stride < 0 || stride > UINT32_MAX ||
-      transport->repetitions > local_dma->maximum_task_repeat_count ||
-      transport->repetitions > shim_dma->maximum_task_repeat_count ||
+      transport->repetitions > UINT32_MAX ||
       binding->capacity > (UINT64_C(1) << local_dma->iteration_bits) ||
-      (stride &&
-       transport->repetitions > (UINT64_C(1) << shim_dma->iteration_bits)) ||
       (channel->byte_stride % local_dma->transfer_length_granularity) ||
       (stride % shim_dma->transfer_length_granularity) ||
       channel->byte_stride / local_dma->transfer_length_granularity >
           (UINT64_C(1) << local_dma->step_size_bits) ||
-      (uint64_t)stride / shim_dma->transfer_length_granularity >
-          (UINT64_C(1) << shim_dma->step_size_bits)) {
+      !loom_aie2p_native_select_ingress_descriptor(
+          context, source, request, (uint32_t)stride,
+          (uint32_t)transport->repetitions, worker)) {
     return false;
   }
   worker->repetition.count = (uint32_t)transport->repetitions;
   worker->repetition.external_byte_offset = (uint32_t)begin;
-  worker->repetition.external_byte_stride = (uint32_t)stride;
   return true;
 }
 

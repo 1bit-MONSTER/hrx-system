@@ -65,7 +65,7 @@ static iree_status_t loom_aie2p_native_dma_local_word(
       builder, 0, loom_index_cast_result(integer),
       loom_scalar_constant_result(shift), word_type, location, &address_bits));
   IREE_RETURN_IF_ERROR(loom_scalar_constant_build(
-      builder, loom_attr_i64((int32_t)transfer->descriptor->local_words[0]),
+      builder, loom_attr_i64((int32_t)transfer->descriptor->local.words[0][0]),
       word_type, location, &length));
   IREE_RETURN_IF_ERROR(loom_scalar_ori_build(
       builder, loom_scalar_shli_result(address_bits),
@@ -139,7 +139,7 @@ static iree_status_t loom_aie2p_native_dma_submit_helper(
     const uint32_t local_descriptor = loom_aie2p_native_register_offset(
         context, path->local,
         LOOM_XDNA_REGISTER_FIELD_COMPUTE_MEMORY_DMA_BD_WORD0_BASE_ADDRESS,
-        transfer->descriptor->local_descriptor);
+        transfer->descriptor->local.descriptor);
     IREE_RETURN_IF_ERROR(loom_aie2p_worker_control_write(
         code, &builder, path->control.local, local_descriptor, &local_word, 1));
   }
@@ -147,7 +147,7 @@ static iree_status_t loom_aie2p_native_dma_submit_helper(
     const uint32_t shim_descriptor = loom_aie2p_native_register_offset(
         context, path->shim,
         LOOM_XDNA_REGISTER_FIELD_SHIM_NOC_DMA_BD_WORD1_BASE_ADDRESS_LOW,
-        transfer->descriptor->shim_descriptor);
+        transfer->descriptor->shim.descriptor);
     const loom_value_id_t external_words[] = {external_low, external_high};
     IREE_RETURN_IF_ERROR(
         loom_aie2p_worker_control_write(code, &builder, path->control.shim,
@@ -165,10 +165,10 @@ static iree_status_t loom_aie2p_native_dma_submit_helper(
   IREE_RETURN_IF_ERROR(loom_aie2p_worker_constant(
       code, &builder,
       loom_xdna_register_field_encode_admitted(
-          local_queue, transfer->descriptor->local_descriptor),
+          local_queue, transfer->descriptor->local.descriptor),
       &local_task));
   uint32_t shim_bits = loom_xdna_register_field_encode_admitted(
-      shim_queue, transfer->descriptor->shim_descriptor);
+      shim_queue, transfer->descriptor->shim.descriptor);
   if (!path->ingress) {
     shim_bits |= loom_xdna_register_field_encode_admitted(
         LOOM_XDNA_REGISTER_FIELD_SHIM_NOC_DMA_CHANNEL_S2MM_TASK_QUEUE_ENABLE_TOKEN_ISSUE,

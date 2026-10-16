@@ -611,6 +611,25 @@ endif()
 if(LOOM_TARGET_ARCH_XDNA)
 loom_cc_library(
   NAME
+    pipeline_dma_plan
+  HDRS
+    "pipeline/dma_plan.h"
+  SRCS
+    "pipeline/dma_plan.c"
+  DEPS
+    ::array_plan
+    iree::base
+    iree::base::internal::arena
+    loom::analysis::storage_geometry
+    loom::target::arch::amd::xdna::array_facts
+    loom::target::arch::amd::xdna::array_registers
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_XDNA)
+loom_cc_library(
+  NAME
     pipeline_native
   HDRS
     "pipeline/native.h"
@@ -624,6 +643,7 @@ loom_cc_library(
     ::array_abi_layout
     ::array_plan
     ::configuration_descriptors
+    ::pipeline_dma_plan
     ::pipeline_worker
     ::target_facts
     ::target_records
@@ -1419,6 +1439,26 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::target::provider
+  LABELS
+    "iree-build-requirement=loom.target.arch.xdna"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_XDNA)
+loom_cc_test(
+  NAME
+    pipeline_dma_plan_test
+  SRCS
+    "pipeline/dma_plan_test.cc"
+  DEPS
+    ::pipeline_dma_plan
+    iree::base
+    iree::base::internal::arena
+    iree::testing::gtest
+    iree::testing::gtest_main
+    loom::analysis::storage_geometry
+    loom::target::arch::amd::xdna::array_facts
+    loom::target::arch::amd::xdna::array_registers
   LABELS
     "iree-build-requirement=loom.target.arch.xdna"
 )

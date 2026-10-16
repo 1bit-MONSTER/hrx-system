@@ -2,6 +2,24 @@
   "version": 1,
   "cases": [
     {
+      "name": "executes finite strided and repeated ingress with replay",
+      "run": {
+        "tool": "iree-test-loom",
+        "args": [
+          "{srcdir}/finite_ingress.loom",
+          "--device=xdna://0?columns=1"
+        ]
+      },
+      "stdout": {
+        "contains": [
+          "\"trial_count\":18",
+          "\"failed_trial_count\":0",
+          "\"planning_issue_count\":0",
+          "\"failure_count\":0"
+        ]
+      }
+    },
+    {
       "name": "executes finite multicast tasks through compute and SRAM rings with replay",
       "run": {
         "tool": "iree-test-loom",

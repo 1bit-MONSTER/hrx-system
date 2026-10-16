@@ -68,6 +68,7 @@ iree_execution_test_suite(
     data = [
         "test/channel_fanout.loom",
         "test/channel_sram.loom",
+        "test/finite_ingress.loom",
     ],
     manifests = ["test/channel_fanout.test.json"],
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
