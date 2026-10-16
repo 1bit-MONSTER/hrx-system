@@ -616,14 +616,10 @@ struct loom_low_lower_source_query_scope_t {
   loom_low_lower_result_t result;
 };
 
-iree_status_t loom_low_lower_source_query_scope_allocate(
-    loom_module_t* module, loom_func_like_t source_function,
-    const loom_low_lower_options_t* options, iree_arena_allocator_t* arena,
-    loom_low_lower_source_query_scope_t** out_scope) {
-  *out_scope = NULL;
-  loom_low_lower_source_query_scope_t* scope = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_arena_allocate(arena, sizeof(*scope), (void**)&scope));
+static void loom_low_lower_source_query_scope_initialize(
+    loom_low_lower_source_query_scope_t* scope, loom_module_t* module,
+    loom_func_like_t source_function, const loom_low_lower_options_t* options,
+    const loom_low_descriptor_set_t* descriptor_set) {
   memset(scope, 0, sizeof(*scope));
   scope->result = (loom_low_lower_result_t){
       .low_func_ref = loom_symbol_ref_null(),
@@ -637,6 +633,7 @@ iree_status_t loom_low_lower_source_query_scope_allocate(
       .source_function = source_function,
       .options = options,
       .policy = options->policy,
+      .descriptor_set = descriptor_set,
       .result = &scope->result,
       .storage_access = &scope->storage_access,
   };
@@ -651,17 +648,23 @@ iree_status_t loom_low_lower_source_query_scope_allocate(
                         &scope->context.analysis_arena);
   loom_storage_access_scope_initialize(module, &scope->context.analysis_arena,
                                        &scope->storage_access);
+}
 
-  iree_status_t status =
+iree_status_t loom_low_lower_source_query_scope_allocate(
+    loom_module_t* module, loom_func_like_t source_function,
+    const loom_low_lower_options_t* options, iree_arena_allocator_t* arena,
+    loom_low_lower_source_query_scope_t** out_scope) {
+  *out_scope = NULL;
+  const loom_low_descriptor_set_t* descriptor_set = NULL;
+  IREE_RETURN_IF_ERROR(
       loom_target_low_descriptor_set_select_for_source_lowering(
           options->descriptor_registry,
-          loom_target_facts_bundle(options->target_facts),
-          &scope->context.descriptor_set);
-  if (!iree_status_is_ok(status)) {
-    loom_low_lower_source_query_scope_deinitialize(scope);
-    return status;
-  }
-
+          loom_target_facts_bundle(options->target_facts), &descriptor_set));
+  loom_low_lower_source_query_scope_t* scope = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_arena_allocate(arena, sizeof(*scope), (void**)&scope));
+  loom_low_lower_source_query_scope_initialize(scope, module, source_function,
+                                               options, descriptor_set);
   *out_scope = scope;
   return iree_ok_status();
 }
@@ -678,6 +681,18 @@ void loom_low_lower_source_query_scope_deinitialize(
   loom_low_lower_result_deinitialize(&scope->result);
   iree_arena_deinitialize(&scope->context.analysis_arena);
   memset(scope, 0, sizeof(*scope));
+}
+
+void loom_low_lower_source_query_scope_reset(
+    loom_low_lower_source_query_scope_t* scope) {
+  loom_module_t* module = scope->context.module;
+  const loom_func_like_t source_function = scope->context.source_function;
+  const loom_low_lower_options_t* options = scope->context.options;
+  const loom_low_descriptor_set_t* descriptor_set =
+      scope->context.descriptor_set;
+  loom_low_lower_source_query_scope_deinitialize(scope);
+  loom_low_lower_source_query_scope_initialize(scope, module, source_function,
+                                               options, descriptor_set);
 }
 
 loom_target_contract_query_callback_t

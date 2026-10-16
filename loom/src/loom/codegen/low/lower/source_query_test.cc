@@ -421,6 +421,51 @@ TEST_F(LowLowerSourceQueryTest, AcquiresFunctionAnalysesOnDemand) {
   EXPECT_EQ(second_view_regions, first_view_regions);
 }
 
+TEST_F(LowLowerSourceQueryTest, ResetRetiresAnalysesAndTargetState) {
+  loom_value_fact_table_t updated_facts = {};
+  IREE_ASSERT_OK(loom_value_fact_table_initialize(
+      &updated_facts, &analysis_arena_, module_->values.count));
+  updated_facts.context.target_facts = &target_facts_;
+  IREE_ASSERT_OK(
+      loom_value_fact_table_compute(&updated_facts, module_, function_));
+  CreateQueryScope();
+  loom_target_contract_query_environment_t environment = {};
+  IREE_ASSERT_OK(loom_low_lower_source_query_scope_environment_initialize(
+      query_scope_, &environment));
+  static const uint8_t state_key = 0;
+  void* state = nullptr;
+  IREE_ASSERT_OK(loom_target_contract_query_get_or_allocate_target_state(
+      &environment, &state_key, sizeof(uint32_t), &state));
+  *static_cast<uint32_t*>(state) = 42;
+
+  loom_builder_t builder;
+  loom_builder_initialize(
+      module_, &module_->arena,
+      loom_region_entry_block(loom_func_like_body(function_)), &builder);
+  loom_builder_set_before(&builder, source_op_);
+  loom_op_t* constant = nullptr;
+  IREE_ASSERT_OK(loom_scalar_constant_build(
+      &builder, loom_attr_i64(7), loom_type_scalar(LOOM_SCALAR_TYPE_I32),
+      LOOM_LOCATION_UNKNOWN, &constant));
+  IREE_ASSERT_OK(
+      loom_value_fact_table_compute_op(&updated_facts, module_, constant));
+  options_.fact_table = &updated_facts;
+  loom_low_lower_source_query_scope_reset(query_scope_);
+  EXPECT_EQ(loom_low_lower_source_query_scope_value_domain(query_scope_),
+            nullptr);
+
+  IREE_ASSERT_OK(loom_low_lower_source_query_scope_environment_initialize(
+      query_scope_, &environment));
+  EXPECT_EQ(environment.fact_table, &updated_facts);
+  EXPECT_NE(
+      loom_local_value_domain_try_ordinal(
+          environment.value_domain, loom_scalar_constant_result(constant)),
+      LOOM_VALUE_ORDINAL_INVALID);
+  IREE_ASSERT_OK(loom_target_contract_query_get_or_allocate_target_state(
+      &environment, &state_key, sizeof(uint32_t), &state));
+  EXPECT_EQ(*static_cast<uint32_t*>(state), 0u);
+}
+
 TEST_F(LowLowerSourceQueryTest, PointQueriesDoNotAcquireFunctionAnalyses) {
   QueryProbe probe = {.handled_op = source_op_};
   loom_low_lower_policy_t policy;

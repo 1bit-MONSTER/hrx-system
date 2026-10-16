@@ -49,7 +49,7 @@ loom_target_contract_query_callback_t loom_low_lower_source_query_callback(
 // must deinitialize the scope before releasing those inputs or resetting
 // |arena|. Reference/access discovery may reach source callees. All queries in
 // the scope finish before mutating represented source; a rewrite retires the
-// scope before another query can observe the changed program.
+// scope's analyses before another query can observe the changed program.
 iree_status_t loom_low_lower_source_query_scope_allocate(
     loom_module_t* module, loom_func_like_t source_function,
     const loom_low_lower_options_t* options, iree_arena_allocator_t* arena,
@@ -59,13 +59,21 @@ iree_status_t loom_low_lower_source_query_scope_allocate(
 void loom_low_lower_source_query_scope_deinitialize(
     loom_low_lower_source_query_scope_t* scope);
 
+// Retires all analyses and target state after a source mutation, reusing the
+// object storage for an empty query epoch. The source function and target
+// configuration stay fixed; the new epoch borrows the current options facts.
+// Previously returned analysis pointers and environments become invalid.
+void loom_low_lower_source_query_scope_reset(
+    loom_low_lower_source_query_scope_t* scope);
+
 // Returns a target contract query callback backed by |scope|.
 loom_target_contract_query_callback_t
 loom_low_lower_source_query_scope_callback(
     loom_low_lower_source_query_scope_t* scope);
 
 // Populates an environment borrowing the scope's source analyses and retained
-// target state. The environment remains valid until |scope| is deinitialized.
+// target state. The environment remains valid until |scope| is reset or
+// deinitialized.
 iree_status_t loom_low_lower_source_query_scope_environment_initialize(
     loom_low_lower_source_query_scope_t* scope,
     loom_target_contract_query_environment_t* out_environment);
