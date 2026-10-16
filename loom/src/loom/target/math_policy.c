@@ -245,13 +245,13 @@ static IREE_ATTRIBUTE_NOINLINE void loom_target_math_policy_query_rules(
   for (uint16_t i = span.rule_start; i < rule_end; ++i) {
     const loom_target_math_policy_rule_t* rule = &table->rules[i];
     const loom_target_math_policy_match_t* match = &rule->match;
+    if (!iree_any_bit_set(match->lane_domains, query_lane_domain)) {
+      continue;
+    }
     if (!iree_any_bit_set(match->element_types, query_element_type)) {
       if (!matched_element_type && rule->element_constraint != 0) {
         failure_constraint = rule->element_constraint;
       }
-      continue;
-    }
-    if (!iree_any_bit_set(match->lane_domains, query_lane_domain)) {
       continue;
     }
     matched_element_type = true;
