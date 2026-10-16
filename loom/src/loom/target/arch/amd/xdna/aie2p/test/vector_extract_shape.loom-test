@@ -30,3 +30,24 @@ func.def @dynamic_scalar(%source: vector<2x3xi16>, %row: index) -> (i16) {
   %result = vector.extract %8[%7] : vector<6xi16> -> i16
   func.return %result : i16
 }
+
+// ====
+// RUN: pass target=amd.xdna.aie2p:core target-legalize{mode=final},canonicalize
+
+// This aggregate exceeds the multidimensional carrier domain. Flattening its
+// extraction would recreate the bitcast that scalarization is decomposing.
+func.def @transient_aggregate(%input: buffer) -> (f32) {
+  %input_offset = index.constant 0 : offset
+  %input_view = buffer.view %input[%input_offset] : buffer -> view<8x8xf32>
+  %loaded = vector.load %input_view[0, 0] : view<8x8xf32> -> vector<8x8xf32>
+  %result = vector.extract %loaded[3, 5] : vector<8x8xf32> -> f32
+  func.return %result : f32
+}
+
+// ----
+func.def @transient_aggregate(%input: buffer) -> (f32) {
+  %input_offset = index.constant 0 : offset
+  %input_view = buffer.view %input[%input_offset] : buffer -> view<8x8xf32>
+  %result = view.load %input_view[3, 5] : view<8x8xf32> -> f32
+  func.return %result : f32
+}

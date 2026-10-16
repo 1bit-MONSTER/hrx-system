@@ -66,8 +66,9 @@ static iree_status_t loom_aie2p_legalize_scalar_multiply_add(
 }
 
 // AIE vector registers are linear carriers: logical multidimensional shapes
-// do not survive source-to-low type conversion. Normalize unsupported lane
-// access and construction shapes while their row-major semantics are visible.
+// do not survive source-to-low type conversion. Normalize lane access and
+// construction only when the aggregate has a carrier. Otherwise flattening
+// introduces an unsupported bitcast whose scalarization recreates the access.
 static iree_status_t loom_aie2p_legalize_linear_vector_shape(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
@@ -76,7 +77,8 @@ static iree_status_t loom_aie2p_legalize_linear_vector_shape(
   *out_result = (loom_target_legalizer_result_t){
       .action = LOOM_TARGET_LEGALIZER_ACTION_NO_COMMENT,
   };
-  if (!loom_aie2p_legalizer_descriptor_set_is_core(context->descriptor_set)) {
+  if (!loom_aie2p_legalizer_descriptor_set_is_core(context->descriptor_set) ||
+      !loom_target_legalization_op_has_source_vector_carriers(context, op)) {
     return iree_ok_status();
   }
 
