@@ -268,60 +268,6 @@ xdna_execution_test_suite(
 )
 
 iree_py_binary(
-    name = "vector_memory64_cases",
-    testonly = True,
-    srcs = ["vector_memory64_cases.py"],
-    main = "vector_memory64_cases.py",
-)
-
-xdna_execution_test_suite(
-    name = "vector_memory64_npu2_test",
-    data = ["testdata/vector_memory64.loom"],
-    manifests = ["vector_memory64_npu2.test.json"],
-    tags = ["manual"],
-    target_compatible_with = select({
-        "//loom/config/target:xdna_artifacts": [],
-        "//conditions:default": ["@platforms//:incompatible"],
-    }) + select({
-        "@platforms//os:linux": [],
-        "@platforms//os:windows": [],
-        "//conditions:default": ["@platforms//:incompatible"],
-    }),
-    tools = {
-        "generate-cases": ":vector_memory64_cases",
-        "iree-xdna-run": "//experimental/xdna:iree-xdna-run",
-        "loom-compile": "//loom/src/loom/tools/loom-compile",
-    },
-)
-
-iree_py_binary(
-    name = "vector_partial_carriers_cases",
-    testonly = True,
-    srcs = ["vector_partial_carriers_cases.py"],
-    main = "vector_partial_carriers_cases.py",
-)
-
-xdna_execution_test_suite(
-    name = "vector_partial_carriers_npu2_test",
-    data = ["testdata/vector_partial_carriers.loom"],
-    manifests = ["vector_partial_carriers_npu2.test.json"],
-    tags = ["manual"],
-    target_compatible_with = select({
-        "//loom/config/target:xdna_artifacts": [],
-        "//conditions:default": ["@platforms//:incompatible"],
-    }) + select({
-        "@platforms//os:linux": [],
-        "@platforms//os:windows": [],
-        "//conditions:default": ["@platforms//:incompatible"],
-    }),
-    tools = {
-        "generate-cases": ":vector_partial_carriers_cases",
-        "iree-xdna-run": "//experimental/xdna:iree-xdna-run",
-        "loom-compile": "//loom/src/loom/tools/loom-compile",
-    },
-)
-
-iree_py_binary(
     name = "predicate_select_cases",
     testonly = True,
     srcs = ["predicate_select_cases.py"],

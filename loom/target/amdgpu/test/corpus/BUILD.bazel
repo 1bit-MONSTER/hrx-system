@@ -179,6 +179,7 @@ loom_scenario_test(
             "memory/buffer/allocation_freshness.loom:@allocation_freshness_values": "LOWERING/044",
             "memory/buffer/boundaries.loom:@vector_boundary_values": "LOWERING/044",
             "memory/buffer/buffers.loom:@buffer_values": "AMDGPU/023",
+            "memory/storage/load_snapshot.loom:@captured_partial_vector_values": "AMDGPU/023",
             "memory/view/borrowed_transport.loom:@borrowed_transport_values": "LOWERING/044",
             "memory/view/boundary_transport.loom:@boundary_transport_values": "LOWERING/044",
             "memory/view/nested_selection.loom:@nested_selection_values": "LOWERING/044",

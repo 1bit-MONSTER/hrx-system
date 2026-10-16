@@ -142,3 +142,150 @@ check.scenario @packed_word_transport_all_bits {
   }
   check.return
 }
+
+// I64 and F64 carriers transport identical raw bits at native, split, and
+// multi-register widths. Every result has an independently checked guard.
+func.def @transport_64bit_vectors(%input: buffer, %output: buffer) {
+  %source, %destination = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %origin = index.constant 0 : offset
+  %source_i64 = buffer.view %source[%origin] : buffer -> view<64xi64>
+  %source_f64 = buffer.view %source[%origin] : buffer -> view<64xf64>
+  %destination_i64 = buffer.view %destination[%origin] : buffer -> view<192xi64>
+  %destination_f64 = buffer.view %destination[%origin] : buffer -> view<192xf64>
+  %guards = buffer.view %destination[%origin] : buffer -> view<384xi32>
+  %sentinel = vector.constant -1515870811 : vector<16xi32>
+  %begin = index.constant 0 : index
+  %end = index.constant 384 : index
+  %step = index.constant 16 : index
+  scf.for %i = [%begin to %end step %step] {
+    vector.store<volatile> %sentinel, %guards[%i] : vector<16xi32>, view<384xi32>
+  }
+  %i64x2 = vector.load %source_i64[0] : view<64xi64> -> vector<2xi64>
+  vector.store %i64x2, %destination_i64[0] : vector<2xi64>, view<192xi64>
+  %f64x2 = vector.load %source_f64[8] : view<64xf64> -> vector<2xf64>
+  vector.store %f64x2, %destination_f64[16] : vector<2xf64>, view<192xf64>
+  %i64x4 = vector.load %source_i64[16] : view<64xi64> -> vector<4xi64>
+  vector.store %i64x4, %destination_i64[32] : vector<4xi64>, view<192xi64>
+  %f64x4 = vector.load %source_f64[24] : view<64xf64> -> vector<4xf64>
+  vector.store %f64x4, %destination_f64[48] : vector<4xf64>, view<192xf64>
+  %i64x8 = vector.load %source_i64[32] : view<64xi64> -> vector<8xi64>
+  vector.store %i64x8, %destination_i64[64] : vector<8xi64>, view<192xi64>
+  %f64x8 = vector.load %source_f64[40] : view<64xf64> -> vector<8xf64>
+  vector.store %f64x8, %destination_f64[80] : vector<8xf64>, view<192xf64>
+  // These origins are sixteen bytes into a thirty-two-byte alignment boundary.
+  %i64_split = vector.load %source_i64[50] : view<64xi64> -> vector<4xi64>
+  vector.store %i64_split, %destination_i64[96] : vector<4xi64>, view<192xi64>
+  %f64_split = vector.load %source_f64[58] : view<64xf64> -> vector<4xf64>
+  vector.store %f64_split, %destination_f64[112] : vector<4xf64>, view<192xf64>
+  // Each wide payload is followed by an equally sized untouched guard.
+  %i64x16 = vector.load %source_i64[0] : view<64xi64> -> vector<16xi64>
+  vector.store %i64x16, %destination_i64[128] : vector<16xi64>, view<192xi64>
+  %f64x16 = vector.load %source_f64[32] : view<64xf64> -> vector<16xf64>
+  vector.store %f64x16, %destination_f64[160] : vector<16xf64>, view<192xf64>
+  func.return
+}
+
+// Signed zero, infinities, and quiet/signaling NaNs precede all 64 one-bit
+// payloads. The final trials retain independently generated random words.
+global.rodata.def @transport_64bit_edges = align(8) bytes("0000000000000000ffffffffffffffff0000000000000080000000000000f07f000000000000f0ff010000000000f87f010000000000f0ff")
+
+func.def @generate_64bit_transport(%trial: index, %input: buffer) {
+  %begin = index.constant 0 : index
+  %count = index.constant 64 : index
+  %step = index.constant 1 : index
+  %edge_count = index.constant 7 : index
+  %pattern_count = index.constant 71 : index
+  %is_pattern = index.cmp ult, %trial, %pattern_count : index
+  scf.if %is_pattern {
+    %origin = index.constant 0 : offset
+    %destination = buffer.view %input[%origin] : buffer -> view<64xi64>
+    %storage = global.load @transport_64bit_edges : buffer
+    %edges = buffer.view %storage[%origin] : buffer -> view<7xi64>
+    scf.for %i = [%begin to %count step %step] {
+      %position = index.add %trial, %i : index
+      %pattern = index.rem %position, %pattern_count : index
+      %is_edge = index.cmp ult, %pattern, %edge_count : index
+      %value = scf.if %is_edge -> (i64) {
+        %edge = view.load %edges[%pattern] : view<7xi64> -> i64
+        scf.yield %edge : i64
+      } else {
+        %bit = index.sub %pattern, %edge_count : index
+        %shift = index.cast %bit : index to i64
+        %unit = scalar.constant 1 : i64
+        %one_bit = scalar.shli %unit, %shift : i64
+        scf.yield %one_bit : i64
+      }
+      view.store %value, %destination[%i] : i64, view<64xi64>
+    }
+  }
+  func.return
+}
+
+func.def @transport_64bit_reference(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %destination = buffer.view %output[%origin] : buffer -> view<1536xi8>
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %output_bytes = index.constant 1536 : index
+  %sentinel = scalar.constant -91 : i8
+  scf.for %i = [%begin to %output_bytes step %step] {
+    view.store %sentinel, %destination[%i] : i8, view<1536xi8>
+  }
+  %slots = index.constant 10 : index
+  %native_slots = index.constant 8 : index
+  %split_begin = index.constant 6 : index
+  %c2 = index.constant 2 : index
+  %c4 = index.constant 4 : index
+  %c16 = index.constant 16 : index
+  %c32 = index.constant 32 : index
+  %c64 = index.constant 64 : index
+  %c128 = index.constant 128 : index
+  %c256 = index.constant 256 : index
+  %c1024 = index.constant 1024 : index
+  scf.for %slot = [%begin to %slots step %step] {
+    %is_native = index.cmp ult, %slot, %native_slots : index
+    %source_offset, %destination_offset, %length = scf.if %is_native -> (index, index, index) {
+      %split = index.cmp uge, %slot, %split_begin : index
+      %extra = scf.select %split, %c16, %begin : index
+      %source_base = index.mul %slot, %c64 : index
+      %source_start = index.add %source_base, %extra : index
+      %destination_start = index.mul %slot, %c128 : index
+      %small = index.cmp ult, %slot, %c2 : index
+      %medium = index.cmp ult, %slot, %c4 : index
+      %is_medium = scalar.ori %medium, %split : i1
+      %wide_length = scf.select %is_medium, %c32, %c64 : index
+      %native_length = scf.select %small, %c16, %wide_length : index
+      scf.yield %source_start, %destination_start, %native_length : index, index, index
+    } else {
+      %wide_slot = index.sub %slot, %native_slots : index
+      %source_start = index.mul %wide_slot, %c256 : index
+      %destination_start = index.add %source_start, %c1024 : index
+      scf.yield %source_start, %destination_start, %c128 : index, index, index
+    }
+    scf.for %i = [%begin to %length step %step] {
+      %source_index = index.add %source_offset, %i : index
+      %destination_index = index.add %destination_offset, %i : index
+      %source_byte = index.cast %source_index : index to offset
+      %destination_byte = index.cast %destination_index : index to offset
+      %value = buffer.load.i8.u %input[%source_byte]
+      buffer.store.i8 %value, %output[%destination_byte]
+    }
+  }
+  func.return
+}
+
+check.scenario @vector_64bit_transport_values {
+  check.trial[80](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[%trial] : check.entropy -> i64
+    %input_storage = check.generate.random.uniform seed(%seed) range(-9223372036854775808 to 9223372036854775807) : tensor<80xi64>
+    %input = check.tensor.view %input_storage offset(64) : tensor<80xi64> -> tensor<64xi64>
+    check.generate<@generate_64bit_transport>(%trial, %input) : (index, tensor<64xi64>) -> ()
+    %output_storage = check.generate.fill value(-842150451) : tensor<416xi32>
+    %output = check.tensor.view %output_storage offset(64) : tensor<416xi32> -> tensor<384xi32>
+    check.compare<@transport_64bit_vectors, @transport_64bit_reference>(%input, %output) : (tensor<64xi64>, tensor<384xi32>) -> () {
+      check.expect.bitwise actual(%input_storage) expected(%input_storage) : tensor<80xi64>
+      check.expect.bitwise actual(%output_storage) expected(%output_storage) : tensor<416xi32>
+    }
+  }
+  check.return
+}
