@@ -27,6 +27,7 @@ libhrx/src/passthrough/stubs_generated.c and
 libhrx/src/passthrough/passthrough_full.map."""
 
 import argparse
+import difflib
 import os
 import re
 import subprocess
@@ -73,6 +74,12 @@ HEADER = """\
 // hip_intercept.c does not already provide. Every one of them is exported with
 // the same symbol-version node as the reference library so an LD_PRELOADed
 // interceptor sees versioned calls too.
+//
+// Each forwarder's signature is taken from libhrx/src/binding/hip/api.h when
+// that header declares the entry point (the trailing "(from ...)" names the
+// file it came from), otherwise from the binding's own definition. api.h is the
+// canonical API surface and is identical on every branch, so this file does not
+// change when a symbol moves between translation units.
 //
 // Regenerate with:
 //   python3 libhrx/src/passthrough/generate_stubs.py \\
@@ -177,50 +184,184 @@ def split_top_level(text):
     return parts
 
 
-def extract_signatures(binding_dir):
-    """Returns {name: (return_type, parameter_list)} from the HIP binding.
-
-    Definitions are preferred over declarations because they carry the exact
-    spelling the binding compiles with; api.h covers entry points whose
-    definition lives outside the scanned files.
-    """
-    signatures = {}
-    definition = re.compile(r"\bHIPAPI\s+([A-Za-z_][\w \t\*]*?)\s+(\w+)\s*\(")
-    for dirpath, _, filenames in os.walk(binding_dir):
+def binding_files(binding_dir, suffixes):
+    """Returns matching binding files in a deterministic, sorted order."""
+    paths = []
+    for dirpath, dirnames, filenames in os.walk(binding_dir):
+        dirnames.sort()
         for filename in sorted(filenames):
-            if not filename.endswith(".c"):
-                continue
-            path = os.path.join(dirpath, filename)
-            with open(path, errors="ignore") as f:
-                source = f.read()
-            for match in definition.finditer(source):
-                name = match.group(2)
-                index = match.end() - 1
-                depth = 0
-                cursor = index
-                while cursor < len(source):
-                    if source[cursor] == "(":
-                        depth += 1
-                    elif source[cursor] == ")":
-                        depth -= 1
-                        if depth == 0:
-                            break
-                    cursor += 1
-                if "{" not in source[cursor : cursor + 120]:
-                    continue
-                signatures.setdefault(
-                    name, (match.group(1).strip(), source[index + 1 : cursor])
-                )
-    # Declarations in api.h fill in anything the definitions did not cover.
-    with open(os.path.join(binding_dir, "api.h")) as f:
-        header = f.read()
+            if filename.endswith(tuple(suffixes)):
+                paths.append(os.path.join(dirpath, filename))
+    return sorted(paths)
+
+
+def split_declarations(text):
+    """Splits C text into top-level ';'-terminated declarations.
+
+    Comments and string literals are skipped while tracking nesting so that an
+    unbalanced bracket inside a comment cannot swallow the rest of the file.
+    """
+    declarations = []
+    depth = 0
+    current = []
+    index = 0
+    length = len(text)
+    while index < length:
+        char = text[index]
+        if char == "/" and index + 1 < length and text[index + 1] == "*":
+            end = text.find("*/", index + 2)
+            end = length if end < 0 else end + 2
+            current.append(text[index:end])
+            index = end
+            continue
+        if char == "/" and index + 1 < length and text[index + 1] == "/":
+            end = text.find("\n", index)
+            end = length if end < 0 else end
+            current.append(text[index:end])
+            index = end
+            continue
+        if char in "\"'":
+            quote = char
+            end = index + 1
+            while end < length and text[end] != quote:
+                if text[end] == "\\":
+                    end += 1
+                end += 1
+            end = min(end + 1, length)
+            current.append(text[index:end])
+            index = end
+            continue
+        if char in "{([":
+            depth += 1
+        elif char in "})]":
+            depth = max(0, depth - 1)
+        current.append(char)
+        index += 1
+        if char == ";" and depth == 0:
+            declarations.append("".join(current))
+            current = []
+    tail = "".join(current)
+    if tail.strip():
+        declarations.append(tail)
+    return declarations
+
+
+def declaration_name(declaration):
+    """Returns the type name a declaration introduces, or None."""
+    stripped = declaration.strip()
+    while True:
+        if stripped.startswith("//"):
+            newline = stripped.find("\n")
+            stripped = stripped[newline + 1 :].strip() if newline >= 0 else ""
+        elif stripped.startswith("/*"):
+            end = stripped.find("*/")
+            stripped = stripped[end + 2 :].strip() if end >= 0 else ""
+        else:
+            break
+    if stripped.startswith("typedef"):
+        match = re.search(r"(\w+)\s*(\[[^\]]*\])?\s*;\s*$", stripped)
+        return match.group(1) if match else None
+    match = re.match(r"(?:struct|union|enum)\s+(\w+)", stripped)
+    return match.group(1) if match else None
+
+
+def declared_type_names(text):
+    """Returns every type name the given C text declares.
+
+    Scans from each 'typedef' and from each tagged aggregate rather than
+    splitting the whole file, because a header may wrap everything in
+    `extern "C" { ... }`, which makes any top-level splitter see one declaration.
+    """
+    names = set()
+    for match in re.finditer(r"\btypedef\b", text):
+        depth = 0
+        cursor = match.end()
+        while cursor < len(text):
+            char = text[cursor]
+            if char in "{([":
+                depth += 1
+            elif char in "})]":
+                depth = max(0, depth - 1)
+            elif char == ";" and depth == 0:
+                break
+            cursor += 1
+        declaration = text[match.start() : cursor + 1]
+        name = re.search(r"(\w+)\s*(\[[^\]]*\])?\s*;\s*$", declaration)
+        if name:
+            names.add(name.group(1))
+    for match in re.finditer(r"\b(?:struct|union|enum)\s+(\w+)\s*\{", text):
+        names.add(match.group(1))
+    return names
+
+
+def extract_api_signatures(api_text):
+    """Returns {name: (return_type, parameters)} from api.h declarations."""
+    signatures = {}
     for match in re.finditer(
         r"^HIPAPI\s+([A-Za-z_][\w \t\*]*?)\s+(\w+)\s*\(([^;]*)\)\s*;",
-        header,
+        api_text,
         re.M,
     ):
-        signatures.setdefault(match.group(2), (match.group(1).strip(), match.group(3)))
+        signatures[match.group(2)] = (match.group(1).strip(), match.group(3))
     return signatures
+
+
+def extract_definition_signatures(binding_dir):
+    """Returns ({name: (return_type, parameters)}, {name: source file}).
+
+    Signatures taken from a definition carry that file as their provenance, and
+    are only used for entry points api.h does not declare.
+    """
+    signatures = {}
+    sources = {}
+    definition = re.compile(r"\bHIPAPI\s+([A-Za-z_][\w \t\*]*?)\s+(\w+)\s*\(")
+    for path in binding_files(binding_dir, (".c",)):
+        with open(path, errors="ignore") as f:
+            source = f.read()
+        for match in definition.finditer(source):
+            name = match.group(2)
+            if name in signatures:
+                continue
+            index = match.end() - 1
+            depth = 0
+            cursor = index
+            while cursor < len(source):
+                if source[cursor] == "(":
+                    depth += 1
+                elif source[cursor] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                cursor += 1
+            if "{" not in source[cursor : cursor + 120]:
+                continue
+            signatures[name] = (match.group(1).strip(), source[index + 1 : cursor])
+            sources[name] = os.path.relpath(path, REPO_ROOT)
+    return signatures, sources
+
+
+def choose_signature(name, api_signatures, definition_signatures, definition_sources):
+    """Picks the signature to emit for one symbol.
+
+    api.h is the canonical API surface and is identical on every branch, so its
+    declarations win. Taking signatures from whichever .c file happens to define
+    a symbol made the generated file depend on implementation layout: moving a
+    function between translation units (which the held-pin backport did) changed
+    the output even though the symbol set was untouched. Definitions remain the
+    fallback for entry points api.h does not declare, and for declarations whose
+    parameter list cannot be forwarded.
+    """
+    api = api_signatures.get(name)
+    if api is not None and parameter_names(api[1]) is not None:
+        return api, "libhrx/src/binding/hip/api.h"
+    definition = definition_signatures.get(name)
+    if definition is not None and parameter_names(definition[1]) is not None:
+        return definition, definition_sources[name]
+    if api is not None:
+        return api, "libhrx/src/binding/hip/api.h"
+    if definition is not None:
+        return definition, definition_sources[name]
+    return None, None
 
 
 def parameter_names(parameters):
@@ -257,12 +398,15 @@ def default_expression(return_type):
     return "{0}"
 
 
-def extract_compat_types(path):
-    """Returns the local compatibility declarations block from abi_stubs.c.
+def extract_compat_types(path, api_names):
+    """Returns the local compatibility declarations api.h does not provide.
 
     api.h does not describe the legacy ABI entry points, so their parameter
-    types live next to their definitions. Copying the block into the generated
-    file keeps both in sync with a single source.
+    types live next to their definitions in abi_stubs.c. Only declarations that
+    api.h does not already provide are copied: a wholesale copy made the
+    generated file depend on which tree it was produced in, because a type that
+    moved from abi_stubs.c into api.h (as HIP_LAUNCH_CONFIG and
+    hipLaunchConfig_t did on the held pin) appeared or disappeared.
     """
     with open(path) as f:
         lines = f.readlines()
@@ -276,10 +420,17 @@ def extract_compat_types(path):
     end = start
     while end < len(lines) and not lines[end].startswith("#define"):
         end += 1
-    return "".join(lines[start:end]).rstrip() + "\n"
+    block = "".join(lines[start:end])
+    kept = []
+    for declaration in split_declarations(block):
+        name = declaration_name(declaration)
+        if name and name in api_names:
+            continue
+        kept.append(declaration)
+    return "".join(kept).strip() + "\n"
 
 
-def find_type_definition(binding_dir, name):
+def find_type_definition(files, name):
     """Returns the definition text of a binding-private type, or None."""
     patterns = [
         re.compile(r"typedef\s+struct\s+" + re.escape(name) + r"\s*\{"),
@@ -287,32 +438,28 @@ def find_type_definition(binding_dir, name):
         re.compile(r"typedef\s+enum\s+" + re.escape(name) + r"\s*\{"),
         re.compile(r"typedef\s+[^;{}]*\b" + re.escape(name) + r"\s*;"),
     ]
-    for dirpath, _, filenames in os.walk(binding_dir):
-        for filename in sorted(filenames):
-            if not filename.endswith((".c", ".h")):
+    for path in files:
+        with open(path, errors="ignore") as f:
+            source = f.read()
+        for pattern in patterns:
+            match = pattern.search(source)
+            if not match:
                 continue
-            path = os.path.join(dirpath, filename)
-            with open(path, errors="ignore") as f:
-                source = f.read()
-            for pattern in patterns:
-                match = pattern.search(source)
-                if not match:
-                    continue
-                if "{" not in match.group(0):
-                    return match.group(0)
-                brace = source.index("{", match.start())
-                depth = 0
-                cursor = brace
-                while cursor < len(source):
-                    if source[cursor] == "{":
-                        depth += 1
-                    elif source[cursor] == "}":
-                        depth -= 1
-                        if depth == 0:
-                            break
-                    cursor += 1
-                semicolon = source.index(";", cursor)
-                return source[match.start() : semicolon + 1]
+            if "{" not in match.group(0):
+                return match.group(0)
+            brace = source.index("{", match.start())
+            depth = 0
+            cursor = brace
+            while cursor < len(source):
+                if source[cursor] == "{":
+                    depth += 1
+                elif source[cursor] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                cursor += 1
+            semicolon = source.index(";", cursor)
+            return source[match.start() : semicolon + 1]
     return None
 
 
@@ -428,28 +575,44 @@ def main():
         sys.exit(
             "error: version nodes differ from amdhip64.map\n"
             "  in amdhip64.map but not in the reference library: %s\n"
-            "  in the reference library but not in amdhip64.map: %s"
+            "  in the reference library but not in amdhip64.map: %s\n"
+            "  note: --reference-lib must be the HRX-built libamdhip64.so. The\n"
+            "  required node set is libhrx/src/binding/hip/amdhip64.map, so a\n"
+            "  stock ROCm library legitimately has a different set of nodes."
             % (", ".join(missing_nodes) or "(none)", ", ".join(extra_nodes) or "(none)")
         )
 
     intercept_path = os.path.join(PASSTHROUGH_DIR, "hip_intercept.c")
     provided = read_interceptor_symbols(intercept_path)
-    signatures = extract_signatures(BINDING_DIR)
+    with open(os.path.join(BINDING_DIR, "api.h")) as f:
+        api_text = f.read()
+    api_signatures = extract_api_signatures(api_text)
+    definition_signatures, definition_sources = extract_definition_signatures(
+        BINDING_DIR
+    )
 
     generated = []
     unsupported = []
+    signatures = {}
+    source_of = {}
     for name in sorted(exports):
         if name in provided:
             continue
-        if name not in signatures:
+        signature, source = choose_signature(
+            name, api_signatures, definition_signatures, definition_sources
+        )
+        if signature is None:
             unsupported.append((name, "no signature found in the HIP binding"))
             continue
-        if parameter_names(signatures[name][1]) is None:
+        names = parameter_names(signature[1])
+        if names is None:
             unsupported.append((name, "variadic or unparseable parameter list"))
             continue
-        if set(parameter_names(signatures[name][1])) & {"hip_stub_fn", "_ret"}:
+        if set(names) & {"hip_stub_fn", "_ret"}:
             unsupported.append((name, "parameter collides with a generated local"))
             continue
+        signatures[name] = signature
+        source_of[name] = source
         generated.append(name)
 
     covered = set(provided) | set(generated)
@@ -465,23 +628,13 @@ def main():
             % len(set(exports) - covered)
         )
 
-    source_of = {}
-    for dirpath, _, filenames in os.walk(BINDING_DIR):
-        for filename in filenames:
-            if filename.endswith(".c"):
-                path = os.path.join(dirpath, filename)
-                with open(path, errors="ignore") as f:
-                    text = f.read()
-                for name in generated:
-                    if re.search(r"\bHIPAPI\b[^;{]*\b%s\s*\(" % re.escape(name), text):
-                        source_of.setdefault(name, os.path.relpath(path, REPO_ROOT))
-
-    compat_types = extract_compat_types(os.path.join(BINDING_DIR, "abi_stubs.c"))
-    with open(os.path.join(BINDING_DIR, "api.h")) as f:
-        api_text = f.read()
+    compat_types = extract_compat_types(
+        os.path.join(BINDING_DIR, "abi_stubs.c"), declared_type_names(api_text)
+    )
+    binding_headers = binding_files(BINDING_DIR, (".c", ".h"))
     private = []
     for type_name in needs_private_types(signatures, generated, api_text, compat_types):
-        definition = find_type_definition(BINDING_DIR, type_name)
+        definition = find_type_definition(binding_headers, type_name)
         if definition is None:
             sys.exit(
                 "error: %s is used by a generated forwarder but no definition was "
@@ -497,15 +650,47 @@ def main():
     map_text = emit_map(exports, map_nodes)
 
     if args.check:
-        ok = True
+        stale = []
         for path, text in ((C_OUT, c_text), (MAP_OUT, map_text)):
-            if not os.path.exists(path) or open(path).read() != text:
-                print("out of date: %s" % path, file=sys.stderr)
-                ok = False
-        if not ok:
-            sys.exit("error: generated files are stale; re-run this generator")
-        print("up to date: %d reference symbols, %d generated forwarders"
-              % (len(exports), len(generated)))
+            current = open(path).read() if os.path.exists(path) else ""
+            if current != text:
+                stale.append((path, current, text))
+        if stale:
+            for path, current, text in stale:
+                diff = list(
+                    difflib.unified_diff(
+                        current.splitlines(),
+                        text.splitlines(),
+                        fromfile="on disk",
+                        tofile="regenerated",
+                        lineterm="",
+                    )
+                )
+                changed = sum(
+                    1
+                    for line in diff
+                    if line[:1] in "+-" and not line.startswith(("+++", "---"))
+                )
+                print(
+                    "stale: %s (%d changed lines)" % (os.path.relpath(path, REPO_ROOT), changed),
+                    file=sys.stderr,
+                )
+                for line in diff[2:12]:
+                    print("  " + line, file=sys.stderr)
+            print(
+                "note: this compares committed bytes against this tree; symbol "
+                "coverage and the version-node assertion above already passed.",
+                file=sys.stderr,
+            )
+            sys.exit(
+                "error: generated files are stale; re-run:\n"
+                "  python3 libhrx/src/passthrough/generate_stubs.py --reference-lib %s"
+                % args.reference_lib
+            )
+        print(
+            "up to date: %d reference symbols, %d generated forwarders, "
+            "node set matches amdhip64.map" % (len(exports), len(generated))
+        )
         return
 
     with open(C_OUT, "w") as f:
