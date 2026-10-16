@@ -64,6 +64,7 @@ selects.config_setting_group(
     match_all = [
         ":image_input_requested",
         ":image_host",
+        "//loom/config/target/arch:vm",
     ],
 )
 

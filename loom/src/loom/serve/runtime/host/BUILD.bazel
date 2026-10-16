@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
 load("//build_tools/bazel:query.bzl", "iree_assert_dependency_boundary")
-load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
+load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test")
 
 package(
     default_visibility = ["//loom/src/loom/serve:implementation"],
@@ -16,9 +16,6 @@ loom_cc_library(
     name = "host",
     srcs = ["host.c"],
     hdrs = ["host.h"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     deps = [
         "//loom/binding/c:loomc",
         "//loom/binding/c:task_pool",
@@ -50,9 +47,6 @@ iree_assert_dependency_boundary(
 loom_cc_test(
     name = "host_test",
     srcs = ["host_test.cc"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     deps = [
         ":host",
         "//loom/binding/c:task_pool",

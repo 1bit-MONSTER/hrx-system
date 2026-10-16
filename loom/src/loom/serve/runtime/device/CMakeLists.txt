@@ -44,10 +44,12 @@ loom_cc_test(
     iree::base
     iree::testing::gtest
     iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
 endif()
 
-if(LOOM_TARGET_ARCH_VM AND IREE_HAL_DRIVER_TASK)
+if(IREE_HAL_DRIVER_TASK AND LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     device_cpu_test
@@ -61,6 +63,8 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::serve::runtime::host
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
 endif()
 

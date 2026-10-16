@@ -48,9 +48,12 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     loom::binding::c::task_pool
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
 endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     wake
@@ -60,7 +63,9 @@ loom_cc_library(
 
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     timer
@@ -75,7 +80,9 @@ loom_cc_library(
     iree::base::threading
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     timer_test
@@ -89,6 +96,9 @@ loom_cc_test(
     iree::base::threading
     iree::testing::gtest
     iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
+endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

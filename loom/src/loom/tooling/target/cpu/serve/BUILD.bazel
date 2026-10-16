@@ -4,8 +4,8 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("@rules_python//python:defs.bzl", "py_test")
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_binary", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
+load("//loom/build_tools/bazel:python.bzl", "loom_py_test")
 load("//loom/src/loom/serve/fixture/decision:sources.bzl", DECISION_SOURCES = "SOURCES")
 load("//loom/src/loom/serve/fixture/embedding:sources.bzl", EMBEDDING_SOURCES = "SOURCES", EMBEDDING_VARIANT_SOURCES = "VARIANT_SOURCES")
 load("//loom/src/loom/serve/fixture/image:sources.bzl", IMAGE_SOURCES = "SOURCES")
@@ -19,7 +19,6 @@ loom_cc_library(
     testonly = True,
     srcs = ["test_compiler.c"],
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/target/arch:x86",
     ]),
     deps = [
@@ -35,7 +34,6 @@ loom_cc_library(
     testonly = True,
     srcs = ["test_device.c"],
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_task",
     ]),
     deps = [
@@ -48,7 +46,6 @@ loom_cc_binary(
     name = "loom-serve-test-tool",
     testonly = True,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/target/arch:x86",
         "//runtime/config/hal:driver_task",
     ]),
@@ -61,7 +58,7 @@ loom_cc_binary(
 
 # JITs an external source package and executes its command program through the
 # task HAL using the exact CPU serving composition.
-py_test(
+loom_py_test(
     name = "serve_command_test",
     size = "small",
     srcs = ["//loom/src/loom/tools/loom-serve:server_test.py"],
@@ -76,7 +73,6 @@ py_test(
     ],
     main = "server_test.py",
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/target/arch:x86",
         "//runtime/config/hal:driver_task",
         "//runtime/config/hal:executable_loader_embedded_elf",
@@ -87,7 +83,7 @@ py_test(
     deps = ["//loom/src/loom/serve/testing:http"],
 )
 
-py_test(
+loom_py_test(
     name = "text_client_test",
     size = "small",
     srcs = ["//loom/src/loom/serve/service/text:client_test.py"],
@@ -100,7 +96,6 @@ py_test(
     ],
     main = "client_test.py",
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/target/arch:x86",
         "//loom/config/execute:task_hal",
     ]) + select({
@@ -117,7 +112,6 @@ loom_cc_test(
         "LOOM_SERVE_TEST_MODEL_SOURCE": "$(rootpath //loom/src/loom/serve/fixture/image:prepare.loom)",
     },
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/target/arch:x86",
         "//loom/config/execute:task_hal",
     ]) + select({
@@ -139,7 +133,6 @@ loom_cc_test(
     ],
     data = SPEECH_SOURCES + SPEECH_VARIANT_SOURCES,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/target/arch:x86",
         "//loom/config/execute:task_hal",
     ]) + select({
@@ -162,7 +155,6 @@ loom_cc_test(
     ],
     data = SPEECH_SOURCES + SPEECH_VARIANT_SOURCES,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/target/arch:x86",
         "//loom/config/execute:task_hal",
     ]) + select({
@@ -185,7 +177,6 @@ loom_cc_test(
         "LOOM_SERVE_TEST_MODEL_SOURCE": "$(rootpath //loom/src/loom/serve/fixture/decision:prepare.loom)",
     },
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/target/arch:x86",
         "//loom/config/execute:task_hal",
     ]) + select({
@@ -207,7 +198,6 @@ loom_cc_test(
         "LOOM_SERVE_TEST_MODEL_SOURCE": "$(rootpath //loom/src/loom/serve/fixture/embedding:prepare.loom)",
     },
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/target/arch:x86",
         "//loom/config/execute:task_hal",
     ]) + select({
@@ -231,7 +221,6 @@ loom_cc_test(
         "LOOM_SERVE_TEST_MODEL_SOURCE": "$(rootpath //loom/src/loom/serve/fixture/embedding:prepare.loom)",
     },
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/target/arch:x86",
         "//loom/config/execute:task_hal",
     ]) + select({
@@ -253,7 +242,6 @@ loom_cc_test(
         "LOOM_SERVE_TEST_MODEL_SOURCE": "$(rootpath //loom/src/loom/serve/fixture/embedding:prepare.loom)",
     },
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/target/arch:x86",
         "//loom/config/execute:task_hal",
     ]) + select({
@@ -275,7 +263,6 @@ loom_cc_test(
         "LOOM_SERVE_TEST_MODEL_SOURCE": "$(rootpath //loom/src/loom/serve/fixture/text:prepare.loom)",
     },
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/target/arch:x86",
         "//loom/config/execute:task_hal",
     ]) + select({
@@ -297,7 +284,6 @@ loom_cc_test(
         "LOOM_SERVE_TEST_MODEL_SOURCE": "$(rootpath //loom/src/loom/serve/fixture/text:prepare.loom)",
     },
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/target/arch:x86",
         "//loom/config/execute:task_hal",
     ]) + select({
@@ -319,7 +305,6 @@ loom_cc_test(
         "LOOM_SERVE_TEST_MODEL_SOURCE": "$(rootpath //loom/src/loom/serve/fixture/text:prepare.loom)",
     },
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/target/arch:x86",
         "//loom/config/execute:task_hal",
     ]) + select({
@@ -341,7 +326,6 @@ loom_cc_test(
         "LOOM_SERVE_TEST_MODEL_SOURCE": "$(rootpath //loom/src/loom/serve/fixture/text:prepare.loom)",
     },
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/target/arch:x86",
         "//loom/config/execute:task_hal",
     ]) + select({
@@ -363,7 +347,6 @@ loom_cc_test(
         "LOOM_SERVE_TEST_MODEL_SOURCE": "$(rootpath //loom/src/loom/serve/fixture/text:prepare.loom)",
     },
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/target/arch:x86",
         "//loom/config/execute:task_hal",
     ]) + select({
@@ -385,7 +368,6 @@ loom_cc_test(
         "LOOM_SERVE_TEST_MODEL_SOURCE": "$(rootpath //loom/src/loom/serve/fixture/text:prepare.loom)",
     },
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/target/arch:x86",
         "//loom/config/execute:task_hal",
     ]) + select({

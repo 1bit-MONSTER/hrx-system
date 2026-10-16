@@ -4,7 +4,6 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//build_tools/bazel:python.bzl", "iree_py_test")
 load(
     "//loom/build_tools/bazel:build_defs.bzl",
     "iree_select",
@@ -13,6 +12,7 @@ load(
     "loom_cc_test",
     "loom_config_compatible_with",
 )
+load("//loom/build_tools/bazel:python.bzl", "loom_py_test")
 
 package(
     default_visibility = ["//loom/src/loom/serve:implementation"],
@@ -179,7 +179,7 @@ loom_cc_fuzz(
     ],
 )
 
-iree_py_test(
+loom_py_test(
     name = "image_fuzz_test",
     srcs = ["image_fuzz_test.py"],
     args = [

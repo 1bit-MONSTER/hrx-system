@@ -9,6 +9,7 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     digest
@@ -20,7 +21,9 @@ loom_cc_library(
     iree::base
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     digest_test
@@ -31,8 +34,12 @@ loom_cc_test(
     iree::base
     iree::testing::gtest
     iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     image_codec
@@ -44,7 +51,9 @@ loom_cc_library(
     iree::base
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     image_metadata
@@ -56,8 +65,9 @@ loom_cc_library(
     iree::base
   PUBLIC
 )
+endif()
 
-if(LOOM_SERVE_IMAGE_CODEC_PNG)
+if(LOOM_SERVE_IMAGE_CODEC_PNG AND LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     image_png
@@ -72,7 +82,7 @@ loom_cc_library(
 )
 endif()
 
-if(LOOM_SERVE_IMAGE_CODEC_JPEG)
+if(LOOM_SERVE_IMAGE_CODEC_JPEG AND LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     image_jpeg
@@ -87,7 +97,7 @@ loom_cc_library(
 )
 endif()
 
-if(LOOM_SERVE_IMAGE_CODEC_GIF)
+if(LOOM_SERVE_IMAGE_CODEC_GIF AND LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     image_gif
@@ -102,7 +112,7 @@ loom_cc_library(
 )
 endif()
 
-if(LOOM_SERVE_IMAGE_CODEC_WEBP)
+if(LOOM_SERVE_IMAGE_CODEC_WEBP AND LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     image_webp
@@ -117,6 +127,7 @@ loom_cc_library(
 )
 endif()
 
+if(LOOM_TARGET_ARCH_VM)
 set(_image_codecs_platform_defines "")
 if(LOOM_SERVE_IMAGE_CODEC_PNG)
   list(APPEND _image_codecs_platform_defines "LOOM_SERVE_IMAGE_CODEC_PNG=1")
@@ -164,7 +175,9 @@ loom_cc_library(
     ${_image_codecs_platform_defines}
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     image
@@ -181,7 +194,9 @@ loom_cc_library(
     iree::base::internal::json
   PUBLIC
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     image_test
@@ -195,8 +210,12 @@ loom_cc_test(
     iree::base::internal::base64
     iree::testing::gtest
     iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
+endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_fuzz(
   NAME
     image_fuzz
@@ -208,7 +227,10 @@ loom_cc_fuzz(
     ::image_codecs
     iree::base
     iree::base::internal::base64
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
+endif()
 
 file(GLOB _GLOB_TESTDATA_IMAGE_FUZZ_X_TXT LIST_DIRECTORIES false RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} CONFIGURE_DEPENDS testdata/image_fuzz/*.txt)
 

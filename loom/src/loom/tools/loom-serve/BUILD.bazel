@@ -22,9 +22,6 @@ loom_cc_library(
     name = "options",
     srcs = ["options.c"],
     hdrs = ["options.h"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     deps = [
         "//loom/src/loom/serve/runtime/device",
         "//loom/src/loom/serve/runtime/host",
@@ -70,9 +67,6 @@ loom_cc_library(
     name = "main",
     srcs = ["main.c"],
     hdrs = ["main.h"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     deps = [
         ":options",
         ":signals",
@@ -108,9 +102,6 @@ loom_cc_binary(
         "//loom/config/target:xdna_artifacts": ["-DLOOM_SERVE_CONFIG_HAVE_XDNA=1"],
         "//conditions:default": [],
     }),
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     visibility = ["//visibility:public"],
     deps = [
         ":main",

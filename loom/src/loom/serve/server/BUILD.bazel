@@ -4,8 +4,8 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("@rules_python//python:defs.bzl", "py_library")
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
+load("//loom/build_tools/bazel:python.bzl", "loom_py_library")
 
 package(
     default_visibility = ["//loom/src/loom/serve:implementation"],
@@ -21,7 +21,7 @@ exports_files(
     visibility = ["//visibility:public"],
 )
 
-py_library(
+loom_py_library(
     name = "catalog_test_util",
     testonly = True,
     srcs = ["catalog_test_util.py"],
@@ -37,9 +37,6 @@ loom_cc_library(
     name = "router",
     srcs = ["router.c"],
     hdrs = ["router.h"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     deps = [
         ":configuration",
         ":maintenance",
@@ -92,9 +89,6 @@ loom_cc_library(
     name = "resources",
     srcs = ["resources.c"],
     hdrs = ["resources.h"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     deps = [
         "//loom/src/loom/serve/runtime/device",
         "//loom/src/loom/serve/runtime/host:wake",
@@ -126,7 +120,6 @@ loom_cc_test(
     name = "resources_test",
     srcs = ["resources_test.cc"],
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_task",
     ]),
     deps = [
@@ -148,9 +141,7 @@ loom_cc_test(
         "router_test_fixture.h",
         "router_variant_test.cc",
     ],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]) + select({
+    target_compatible_with = select({
         "@platforms//os:linux": [],
         "//conditions:default": ["@platforms//:incompatible"],
     }),
@@ -196,9 +187,6 @@ loom_cc_library(
     name = "registry",
     srcs = ["registry.c"],
     hdrs = ["registry.h"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     deps = [
         ":configuration",
         "//loom/src/loom/serve/runtime/host:wake",
@@ -217,9 +205,6 @@ loom_cc_library(
     name = "model_registration",
     srcs = ["model_registration.c"],
     hdrs = ["model_registration.h"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     deps = [
         ":configuration",
         ":registry",
@@ -249,9 +234,6 @@ loom_cc_library(
 loom_cc_test(
     name = "registry_test",
     srcs = ["registry_test.cc"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     deps = [
         ":configuration",
         ":registry",

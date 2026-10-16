@@ -161,14 +161,15 @@ option(LOOM_SERVE_IMAGE_INPUT
   ${_LOOM_SERVE_IMAGE_HOST})
 set(LOOM_SERVE_IMAGE_CODECS "png;jpeg;gif;webp" CACHE STRING
   "Image input codecs registered in Loom serving deployments.")
-if(LOOM_BUILD AND LOOM_SERVE_IMAGE_INPUT AND NOT _LOOM_SERVE_IMAGE_HOST)
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_VM AND LOOM_SERVE_IMAGE_INPUT AND
+    NOT _LOOM_SERVE_IMAGE_HOST)
   message(FATAL_ERROR
     "Loom image input requires Linux, macOS, or Windows. Set LOOM_SERVE_IMAGE_INPUT=OFF to build other serving modalities.")
 endif()
 foreach(_codec png jpeg gif webp)
   string(TOUPPER "${_codec}" _codec_upper)
   set(LOOM_SERVE_IMAGE_CODEC_${_codec_upper} OFF)
-  if(LOOM_BUILD AND LOOM_SERVE_IMAGE_INPUT AND
+  if(LOOM_BUILD AND LOOM_TARGET_ARCH_VM AND LOOM_SERVE_IMAGE_INPUT AND
       _codec IN_LIST LOOM_SERVE_IMAGE_CODECS)
     set(LOOM_SERVE_IMAGE_CODEC_${_codec_upper} ON)
   endif()

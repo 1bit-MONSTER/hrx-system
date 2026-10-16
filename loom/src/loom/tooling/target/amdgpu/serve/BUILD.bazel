@@ -4,9 +4,9 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//build_tools/bazel:python.bzl", "iree_py_test")
 load("//build_tools/bazel:test_resources.bzl", "GPU_DEVICE_RESOURCE_GROUP")
 load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_binary", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
+load("//loom/build_tools/bazel:python.bzl", "loom_py_test")
 load("//loom/src/loom/serve/fixture/decision:sources.bzl", DECISION_SOURCES = "SOURCES")
 load("//loom/src/loom/serve/fixture/embedding:sources.bzl", EMBEDDING_SOURCES = "SOURCES", EMBEDDING_VARIANT_SOURCES = "VARIANT_SOURCES")
 load("//loom/src/loom/serve/fixture/image:sources.bzl", IMAGE_SOURCES = "SOURCES")
@@ -32,7 +32,6 @@ loom_cc_library(
     testonly = True,
     srcs = ["test_compiler.c"],
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/target:amdgpu_artifacts",
     ]),
     deps = [
@@ -47,7 +46,6 @@ loom_cc_binary(
     name = "loom-serve-test-tool",
     testonly = True,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/target:amdgpu_artifacts",
         "//runtime/config/hal:driver_amdgpu",
     ]),
@@ -63,7 +61,6 @@ loom_cc_library(
     testonly = True,
     srcs = ["test_device.c"],
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_amdgpu",
     ]),
     deps = [
@@ -86,7 +83,6 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/execute:amdgpu_hal",
     ]),
     deps = [
@@ -120,7 +116,6 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_amdgpu",
     ]),
     deps = [
@@ -137,7 +132,7 @@ loom_cc_test(
     ],
 )
 
-iree_py_test(
+loom_py_test(
     name = "catalog_test",
     size = "medium",
     srcs = ["//loom/src/loom/serve/server:catalog_test.py"],
@@ -158,7 +153,6 @@ iree_py_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/execute:amdgpu_hal",
     ]) + select({
         "@platforms//os:linux": [],
@@ -172,7 +166,7 @@ iree_py_test(
     ],
 )
 
-iree_py_test(
+loom_py_test(
     name = "catalog_elastic_test",
     size = "medium",
     srcs = ["//loom/src/loom/serve/server:catalog_test.py"],
@@ -193,7 +187,6 @@ iree_py_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/execute:amdgpu_hal",
     ]) + select({
         "@platforms//os:linux": [],
@@ -207,7 +200,7 @@ iree_py_test(
     ],
 )
 
-iree_py_test(
+loom_py_test(
     name = "catalog_stress_test",
     size = "medium",
     srcs = [
@@ -234,7 +227,6 @@ iree_py_test(
         "stress",
     ],
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/execute:amdgpu_hal",
     ]) + select({
         "@platforms//os:linux": [],
@@ -248,7 +240,7 @@ iree_py_test(
     ],
 )
 
-iree_py_test(
+loom_py_test(
     name = "pressure_test",
     size = "medium",
     srcs = ["//loom/src/loom/serve/server:pressure_test.py"],
@@ -263,7 +255,6 @@ iree_py_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/execute:amdgpu_hal",
     ]) + select({
         "@platforms//os:linux": [],
@@ -272,7 +263,7 @@ iree_py_test(
     deps = ["//loom/src/loom/serve/testing:http"],
 )
 
-iree_py_test(
+loom_py_test(
     name = "pressure_stress_test",
     size = "medium",
     srcs = [
@@ -293,7 +284,6 @@ iree_py_test(
         "stress",
     ],
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/execute:amdgpu_hal",
     ]) + select({
         "@platforms//os:linux": [],
@@ -312,7 +302,6 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/execute:amdgpu_hal",
     ]) + select({
         "@platforms//os:linux": [],
@@ -335,7 +324,6 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/execute:amdgpu_hal",
     ]) + select({
         "@platforms//os:linux": [],
@@ -361,7 +349,6 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/execute:amdgpu_hal",
     ]) + select({
         "@platforms//os:linux": [],
@@ -385,7 +372,6 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/execute:amdgpu_hal",
     ]) + select({
         "@platforms//os:linux": [],
@@ -408,7 +394,6 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/execute:amdgpu_hal",
     ]) + select({
         "@platforms//os:linux": [],
@@ -432,7 +417,6 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/execute:amdgpu_hal",
     ]) + select({
         "@platforms//os:linux": [],
@@ -457,7 +441,6 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/execute:amdgpu_hal",
     ]) + select({
         "@platforms//os:linux": [],
@@ -483,7 +466,6 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/execute:amdgpu_hal",
     ]) + select({
         "@platforms//os:linux": [],
@@ -503,7 +485,6 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_amdgpu",
     ]) + select({
         "@platforms//os:linux": [],
@@ -556,7 +537,6 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/execute:amdgpu_hal",
     ]),
     deps = [
@@ -590,7 +570,6 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_amdgpu",
     ]),
     deps = [
@@ -618,7 +597,6 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//loom/config/execute:amdgpu_hal",
     ]),
     deps = [
@@ -654,7 +632,6 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_amdgpu",
     ]),
     deps = [
@@ -677,7 +654,6 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_amdgpu",
     ]),
     deps = [
@@ -702,7 +678,6 @@ loom_cc_test(
     resource_group = GPU_DEVICE_RESOURCE_GROUP,
     tags = _ROCR_TEST_TAGS,
     target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
         "//runtime/config/hal:driver_amdgpu",
     ]),
     deps = [

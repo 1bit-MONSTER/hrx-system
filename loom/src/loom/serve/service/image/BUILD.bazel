@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test", "loom_config_compatible_with")
+load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test")
 
 package(
     default_visibility = ["//loom/src/loom/serve:implementation"],
@@ -60,9 +60,6 @@ loom_cc_test(
 loom_cc_library(
     name = "generator",
     hdrs = ["generator.h"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     deps = [
         ":request",
         "//loom/src/loom/serve/runtime/execution",
@@ -77,9 +74,6 @@ loom_cc_library(
     name = "telemetry",
     srcs = ["telemetry.c"],
     hdrs = ["telemetry.h"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     deps = [
         ":generator",
         "//loom/src/loom/serve/telemetry:record",
@@ -92,9 +86,6 @@ loom_cc_library(
     name = "service",
     srcs = ["service.c"],
     hdrs = ["service.h"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     deps = [
         ":generator",
         ":output",
@@ -127,9 +118,6 @@ loom_cc_library(
     name = "model",
     srcs = ["model.c"],
     hdrs = ["model.h"],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]),
     deps = [
         ":generator",
         "//loom/binding/c:loomc",
@@ -168,9 +156,7 @@ loom_cc_library(
     srcs = [
         "source_service_test.cc",
     ],
-    target_compatible_with = loom_config_compatible_with([
-        "//loom/config/target/arch:vm",
-    ]) + select({
+    target_compatible_with = select({
         "@platforms//os:linux": [],
         "//conditions:default": ["@platforms//:incompatible"],
     }),

@@ -29,6 +29,7 @@ loom_cc_library(
 )
 endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     signals
@@ -43,8 +44,9 @@ loom_cc_library(
     iree::base::threading
   PUBLIC
 )
+endif()
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_cc_test(
   NAME
     signals_test
@@ -58,6 +60,8 @@ loom_cc_test(
     iree::base::threading
     iree::testing::gtest
     iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
 endif()
 

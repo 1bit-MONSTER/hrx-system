@@ -9,6 +9,7 @@
 
 iree_add_all_subdirs()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     protocol
@@ -27,6 +28,7 @@ loom_cc_library(
     loom::util::stream
   PUBLIC
 )
+endif()
 
 if(LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 loom_cc_library(
@@ -187,6 +189,7 @@ loom_cc_library(
 )
 endif()
 
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_test(
   NAME
     protocol_test
@@ -198,6 +201,9 @@ loom_cc_test(
     iree::testing::gtest
     iree::testing::gtest_main
     iree::vm
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
 )
+endif()
 
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###
