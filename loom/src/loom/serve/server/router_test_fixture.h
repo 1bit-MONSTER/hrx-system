@@ -401,10 +401,20 @@ class HttpRouterTest : public ::testing::TestWithParam<int> {
         IREE_SV(R"({"model":{"type":"BPE","vocab":{"a":0,"b":1},
                               "merges":[]},"decoder":{"type":"ByteFallback"}})"),
         iree_allocator_system(), &tokenizer_a_));
-    IREE_ASSERT_OK(iree_tokenizer_from_huggingface_json(
+    iree_tokenizer_builder_t builder;
+    iree_tokenizer_builder_initialize(iree_allocator_system(), &builder);
+    iree_status_t tokenizer_status = iree_tokenizer_parse_huggingface_json(
         IREE_SV(R"({"model":{"type":"BPE","vocab":{"a":1,"b":0},
                               "merges":[]}})"),
-        iree_allocator_system(), &tokenizer_b_));
+        &builder);
+    if (iree_status_is_ok(tokenizer_status)) {
+      // Native builders explicitly disable decoding; an absent HF decoder
+      // selects the format's space-separated default instead.
+      iree_tokenizer_builder_set_decoder(&builder, nullptr);
+      tokenizer_status = iree_tokenizer_builder_build(&builder, &tokenizer_b_);
+    }
+    iree_tokenizer_builder_deinitialize(&builder);
+    IREE_ASSERT_OK(tokenizer_status);
     owner_ = std::thread([this] {
       const loom_serve_http_service_t services[] = {
           a_.Interface(tokenizer_a_, &a_), b_.Interface(tokenizer_b_, &a_),

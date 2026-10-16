@@ -82,8 +82,11 @@ std::string ProcessBatchedAndFinalize(iree_tokenizer_decoder_t* decoder,
         &strings_consumed, &bytes_written));
 
     // All tokens in this batch should be consumed (with sufficient output).
-    EXPECT_EQ(strings_consumed, batch)
-        << "Expected all tokens in batch to be consumed";
+    if (strings_consumed != batch) {
+      ADD_FAILURE() << "Expected all " << batch
+                    << " tokens to be consumed, got " << strings_consumed;
+      return result;
+    }
 
     result.append(output.data(), bytes_written);
     position += strings_consumed;
@@ -163,7 +166,7 @@ void TestLimitedOutputCapacity(iree_tokenizer_decoder_t* decoder,
         &strings_consumed, &bytes_written));
 
     // With limited capacity, we should consume at least one token per call.
-    EXPECT_GE(strings_consumed, 1u)
+    ASSERT_GE(strings_consumed, 1u)
         << "Should consume at least one token per call";
 
     result.append(output.data(), bytes_written);

@@ -27,26 +27,25 @@ iree_cc_library(
 
 iree_cc_library(
   NAME
-    passthrough
+    join
   HDRS
-    "passthrough.h"
+    "join.h"
   SRCS
-    "passthrough.c"
+    "join.c"
   DEPS
     iree::base
     iree::tokenizer::decoder
-  TESTONLY
   PUBLIC
 )
 
 iree_cc_test(
   NAME
-    passthrough_test
+    join_test
   SRCS
-    "passthrough_test.cc"
+    "join_test.cc"
   DEPS
     ::decoder_test_util
-    ::passthrough
+    ::join
     iree::base
     iree::testing::gtest
     iree::testing::gtest_main
@@ -63,6 +62,7 @@ iree_cc_library(
     iree::base
     iree::base::internal::unicode
     iree::tokenizer::decoder
+    iree::tokenizer::normalizer
   PUBLIC
 )
 
@@ -91,6 +91,7 @@ iree_cc_library(
     iree::base::internal::unicode
     iree::tokenizer::byte_level_tables
     iree::tokenizer::decoder
+    iree::tokenizer::normalizer
   PUBLIC
 )
 
@@ -115,6 +116,7 @@ iree_cc_library(
   SRCS
     "ctc.c"
   DEPS
+    ::wordpiece_cleanup
     iree::base
     iree::tokenizer::decoder
   PUBLIC
@@ -209,8 +211,8 @@ iree_cc_test(
     ::byte_level
     ::ctc
     ::decoder_test_util
+    ::join
     ::metaspace
-    ::passthrough
     ::replace
     ::sequence
     ::strip
@@ -247,15 +249,44 @@ iree_cc_test(
 
 iree_cc_library(
   NAME
+    wordpiece_cleanup
+  HDRS
+    "wordpiece_cleanup.h"
+  SRCS
+    "wordpiece_cleanup.c"
+  DEPS
+    iree::base
+    iree::tokenizer::normalizer
+    iree::tokenizer::normalizer::replace
+    iree::tokenizer::normalizer::sequence
+  PUBLIC
+)
+
+iree_cc_library(
+  NAME
     wordpiece
   HDRS
     "wordpiece.h"
   SRCS
     "wordpiece.c"
   DEPS
+    ::wordpiece_cleanup
     iree::base
     iree::tokenizer::decoder
   PUBLIC
+)
+
+iree_cc_test(
+  NAME
+    wordpiece_cleanup_test
+  SRCS
+    "wordpiece_cleanup_test.cc"
+  DEPS
+    ::wordpiece_cleanup
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+    iree::tokenizer::normalizer::normalizer_test_util
 )
 
 iree_cc_test(

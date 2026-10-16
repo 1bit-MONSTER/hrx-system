@@ -143,7 +143,9 @@ iree_cc_library(
   HDRS
     "tokenizer.h"
   SRCS
+    "decode.c"
     "tokenizer.c"
+    "tokenizer_instance.h"
   DEPS
     ::decode_table
     ::decoder

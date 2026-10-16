@@ -6,6 +6,12 @@
 
 #include "iree/tokenizer/format/huggingface/tokenizer_json.h"
 
+#include <algorithm>
+#include <array>
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "iree/base/api.h"
 #include "iree/testing/gtest.h"
 #include "iree/testing/status_matchers.h"
@@ -15,6 +21,76 @@ namespace {
 class TokenizerJsonTest : public ::testing::Test {
  protected:
   iree_allocator_t allocator_ = iree_allocator_system();
+
+  void ExpectDecodedAcrossCredit(const std::string& json,
+                                 const std::vector<int32_t>& tokens,
+                                 const std::string& expected) {
+    iree_tokenizer_t* tokenizer = nullptr;
+    IREE_ASSERT_OK(iree_tokenizer_from_huggingface_json(
+        iree_make_string_view(json.data(), json.size()), allocator_,
+        &tokenizer));
+    std::unique_ptr<iree_tokenizer_t, decltype(&iree_tokenizer_free)> owner(
+        tokenizer, iree_tokenizer_free);
+    std::vector<char> output(expected.size() + 64);
+    iree_host_size_t written = 0;
+    IREE_ASSERT_OK(iree_tokenizer_decode(
+        tokenizer, {tokens.size(), tokens.data()},
+        IREE_TOKENIZER_DECODE_FLAG_SKIP_SPECIAL_TOKENS,
+        iree_make_mutable_string_view(output.data(), expected.size()),
+        allocator_, &written));
+    EXPECT_EQ(std::string(output.data(), written), expected);
+    for (size_t batch = 1; batch <= std::max(tokens.size(), size_t{1});
+         ++batch) {
+      SCOPED_TRACE(batch);
+      iree_host_size_t size = 0;
+      IREE_ASSERT_OK(
+          iree_tokenizer_decode_state_calculate_size(tokenizer, &size));
+      std::vector<uint8_t> storage(size);
+      iree_tokenizer_decode_state_t* state = nullptr;
+      IREE_ASSERT_OK(iree_tokenizer_decode_state_initialize(
+          tokenizer, IREE_TOKENIZER_DECODE_FLAG_SKIP_SPECIAL_TOKENS,
+          iree_make_byte_span(storage.data(), storage.size()), &state));
+      std::unique_ptr<iree_tokenizer_decode_state_t,
+                      decltype(&iree_tokenizer_decode_state_deinitialize)>
+          state_owner(state, iree_tokenizer_decode_state_deinitialize);
+      const size_t credits[] = {0, 1, 2, 3, 4, 7, output.size()};
+      size_t cursor = 0;
+      size_t turn = 0;
+      std::string actual;
+      while (cursor < tokens.size()) {
+        const size_t count = std::min(batch, tokens.size() - cursor);
+        const size_t capacity = credits[turn++ % IREE_ARRAYSIZE(credits)];
+        iree_host_size_t consumed = 0;
+        IREE_ASSERT_OK(iree_tokenizer_decode_state_feed(
+            state, {count, tokens.data() + cursor},
+            iree_make_mutable_string_view(output.data(), capacity), &consumed,
+            &written));
+        if (capacity == output.size()) {
+          ASSERT_GT(consumed + written, 0u);
+        }
+        cursor += consumed;
+        actual.append(output.data(), written);
+        EXPECT_EQ(expected.substr(0, actual.size()), actual);
+      }
+      bool complete = false;
+      while (!complete) {
+        const size_t capacity = credits[turn++ % IREE_ARRAYSIZE(credits)];
+        iree_status_t status = iree_tokenizer_decode_state_finalize(
+            state, iree_make_mutable_string_view(output.data(), capacity),
+            &written);
+        complete = iree_status_is_ok(status);
+        if (!complete) {
+          IREE_EXPECT_STATUS_IS(IREE_STATUS_RESOURCE_EXHAUSTED, status);
+          if (capacity == output.size()) {
+            ASSERT_GT(written, 0u);
+          }
+        }
+        actual.append(output.data(), written);
+        EXPECT_EQ(expected.substr(0, actual.size()), actual);
+      }
+      EXPECT_EQ(actual, expected);
+    }
+  }
 };
 
 //===----------------------------------------------------------------------===//
@@ -363,9 +439,202 @@ TEST_F(TokenizerJsonTest, NullDecoder) {
   iree_tokenizer_builder_initialize(allocator_, &builder);
 
   IREE_ASSERT_OK(iree_tokenizer_parse_huggingface_json(json, &builder));
-  EXPECT_EQ(builder.decoder, nullptr);
+  EXPECT_NE(builder.decoder, nullptr);
 
   iree_tokenizer_builder_deinitialize(&builder);
+}
+
+TEST_F(TokenizerJsonTest, DefaultAndExplicitJoiningDecodeAcrossCredit) {
+  struct Case {
+    // Optional complete decoder field, including its comma.
+    const char* field;
+    // Whether the format joins logical tokens with spaces.
+    bool spaced;
+  };
+  const Case cases[] = {
+      {"", true},
+      {R"(,"decoder":null)", true},
+      {R"(,"decoder":{"type":"Fuse"})", false},
+      {R"(,"decoder":{"type":"Sequence","decoders":[]})", false},
+      {R"(,"decoder":{"type":"Sequence","decoders":[{"type":"Fuse"}]})", false},
+  };
+  const std::array<int32_t, 7> tokens = {4, 0, 1, 4, 0, 3, 2};
+  for (const auto& test : cases) {
+    SCOPED_TRACE(test.field);
+    std::string json =
+        R"({"model":{"type":"BPE","vocab":{"":0,"a":1,"b":2,"\ud83d\udc08":3,"[skip]":4},"merges":[]},)"
+        R"("added_tokens":[{"id":4,"content":"[skip]","single_word":false,"lstrip":false,"rstrip":false,"normalized":false,"special":true}])";
+    json += test.field;
+    json += "}";
+    iree_tokenizer_t* tokenizer = nullptr;
+    IREE_ASSERT_OK(iree_tokenizer_from_huggingface_json(
+        iree_make_string_view(json.data(), json.size()), allocator_,
+        &tokenizer));
+    std::unique_ptr<iree_tokenizer_t, decltype(&iree_tokenizer_free)> owner(
+        tokenizer, iree_tokenizer_free);
+    const std::string expected = test.spaced ? " a  \xf0\x9f\x90\x88 b"
+                                             : "a\xf0\x9f\x90\x88"
+                                               "b";
+    char output[128];
+    iree_host_size_t written = 0;
+    IREE_ASSERT_OK(iree_tokenizer_decode(
+        tokenizer, {tokens.size(), tokens.data()},
+        IREE_TOKENIZER_DECODE_FLAG_SKIP_SPECIAL_TOKENS,
+        iree_make_mutable_string_view(output, sizeof(output)), allocator_,
+        &written));
+    EXPECT_EQ(std::string(output, written), expected);
+
+    for (size_t batch_size = 1; batch_size <= tokens.size(); ++batch_size) {
+      SCOPED_TRACE(batch_size);
+      iree_host_size_t state_size = 0;
+      IREE_ASSERT_OK(
+          iree_tokenizer_decode_state_calculate_size(tokenizer, &state_size));
+      std::vector<uint8_t> storage(state_size);
+      iree_tokenizer_decode_state_t* state = nullptr;
+      IREE_ASSERT_OK(iree_tokenizer_decode_state_initialize(
+          tokenizer, IREE_TOKENIZER_DECODE_FLAG_SKIP_SPECIAL_TOKENS,
+          iree_make_byte_span(storage.data(), storage.size()), &state));
+      const size_t credits[] = {0, 1, 5, 6, sizeof(output)};
+      size_t cursor = 0;
+      size_t turn = 0;
+      std::string actual;
+      while (cursor < tokens.size()) {
+        const size_t count = std::min(batch_size, tokens.size() - cursor);
+        const size_t capacity = credits[turn++ % IREE_ARRAYSIZE(credits)];
+        iree_host_size_t consumed = 0;
+        IREE_ASSERT_OK(iree_tokenizer_decode_state_feed(
+            state, {count, tokens.data() + cursor},
+            iree_make_mutable_string_view(output, capacity), &consumed,
+            &written));
+        cursor += consumed;
+        actual.append(output, written);
+        if (capacity == sizeof(output)) {
+          ASSERT_EQ(consumed, count);
+        }
+      }
+      IREE_ASSERT_OK(iree_tokenizer_decode_state_finalize(
+          state, iree_make_mutable_string_view(output, sizeof(output)),
+          &written));
+      actual.append(output, written);
+      iree_tokenizer_decode_state_deinitialize(state);
+      EXPECT_EQ(actual, expected);
+    }
+  }
+}
+
+TEST_F(TokenizerJsonTest, FusedStripPreservesInteriorTokenSpaces) {
+  const std::string json = R"({
+    "model":{"type":"BPE","vocab":{
+      "":0,"\u2581Good":1,"\u2581day":2,".":3,
+      "<0x20>":4,"<0xC3>":5,"<0xA9>":6,"[skip]":7},"merges":[]},
+    "added_tokens":[{"id":7,"content":"[skip]","single_word":false,
+      "lstrip":false,"rstrip":false,"normalized":false,"special":true}],
+    "decoder":{"type":"Sequence","decoders":[
+      {"type":"Replace","pattern":{"String":"\u2581"},"content":" "},
+      {"type":"ByteFallback"},
+      {"type":"Sequence","decoders":[{"type":"Fuse"},
+        {"type":"Strip","content":" ","start":1,"stop":0}]},
+      {"type":"Fuse"}]}})";
+  ExpectDecodedAcrossCredit(json, {7, 0, 1, 0, 7, 2, 3}, "Good day.");
+  ExpectDecodedAcrossCredit(json, {0, 4, 5, 6, 2}, "é day");
+  ExpectDecodedAcrossCredit(json, {0, 7}, "");
+}
+
+TEST_F(TokenizerJsonTest, FusedStripCountsAndReplacementCrossTokenBoundaries) {
+  const std::string json = R"({
+    "model":{"type":"BPE","vocab":{
+      "":0," ":1,"Good ":2,"da":3,"y ":4},"merges":[]},
+    "decoder":{"type":"Sequence","decoders":[
+      {"type":"Fuse"},
+      {"type":"Strip","content":" ","start":2,"stop":2},
+      {"type":"Replace","pattern":{"String":"day"},"content":"sunny day"}]}})";
+  ExpectDecodedAcrossCredit(json, {0, 1, 0, 1, 2, 3, 4, 1, 1},
+                            "Good sunny day ");
+  ExpectDecodedAcrossCredit(json, {0, 1, 1, 1}, "");
+}
+
+TEST_F(TokenizerJsonTest, FusedTransformRetainsLongTokensAndFinalUtf8Repair) {
+  const std::string long_token = std::string(600, 'x');
+  const std::string json =
+      R"({"model":{"type":"BPE","vocab":{"<0xC3>":0,")" + long_token +
+      R"(":1},"merges":[]},"decoder":{"type":"Sequence","decoders":[
+        {"type":"ByteFallback"},{"type":"Fuse"},
+        {"type":"Replace","pattern":{"String":"�"},"content":"repaired"}]}})";
+  ExpectDecodedAcrossCredit(json, {1, 0}, long_token + "repaired");
+}
+
+TEST_F(TokenizerJsonTest, FusedDecoderFamilyUsesOneLogicalString) {
+  struct Case {
+    // Authored decoder program after an explicit Fuse.
+    const char* decoder;
+    // Token IDs split at semantic boundaries of the transform.
+    std::vector<int32_t> tokens;
+    // Exact final UTF-8 output from the reference composition.
+    const char* expected;
+  };
+  const Case cases[] = {
+      {R"({"type":"Metaspace","replacement":"\u2581","prepend_scheme":"always"})",
+       {1, 2},
+       "Goodday"},
+      {R"({"type":"Metaspace","replacement":"\u2581","prepend_scheme":"first"})",
+       {1, 2},
+       "Goodday"},
+      {R"({"type":"Metaspace","replacement":"\u2581","prepend_scheme":"never"})",
+       {1, 2},
+       " Good day"},
+      {R"({"type":"WordPiece","prefix":"##","cleanup":false})",
+       {14, 3},
+       "##Good ."},
+      {R"({"type":"WordPiece","prefix":"##","cleanup":true})",
+       {14, 4, 5, 3, 15},
+       "##Good don't.!"},
+      {R"({"type":"CTC","pad_token":"<pad>","word_delimiter_token":"|","cleanup":false})",
+       {12, 9, 9, 13, 16, 17},
+       "xx|"},
+      {R"({"type":"CTC","pad_token":"<pad>","word_delimiter_token":"|","cleanup":true})",
+       {12, 9, 9, 13, 16, 17},
+       "xx "},
+      {R"({"type":"ByteFallback"})", {6, 7}, "a"},
+      {R"({"type":"ByteFallback"})", {6, 8}, "�"},
+      {R"({"type":"ByteFallback"})", {6, 7, 9}, "<0x61>x"},
+      {R"({"type":"ByteFallback"})", {6, 7, 6, 8}, "<0x61><0xC3>"},
+      {R"({"type":"ByteFallback"})", {6}, "<0x"},
+      {R"({"type":"ByteFallback"})", {0}, ""},
+      {R"({"type":"Sequence","decoders":[{"type":"ByteFallback"},
+        {"type":"Strip","content":" ","start":1,"stop":0}]})",
+       {6, 20},
+       ""},
+      {R"({"type":"ByteLevel","add_prefix_space":false,"trim_offsets":false})",
+       {10, 11},
+       "é"},
+      {R"({"type":"ByteLevel","add_prefix_space":false,"trim_offsets":false})",
+       {10},
+       "�"},
+      {R"({"type":"ByteLevel","add_prefix_space":false,"trim_offsets":false})",
+       {18, 19},
+       " Good day"},
+  };
+  const std::string prefix = R"({
+    "model":{"type":"BPE","vocab":{
+      "":0,"\u2581Good":1,"\u2581day":2," .":3," do ":4,"not":5,
+      "<0x":6,"61>":7,"C3>":8,"x":9,"Ã":10,"©":11,"<pad>":12,
+      "|":13,"##Good":14," !":15,"<pa":16,"d>":17,
+      "ĠGood":18,"Ġday":19,"20>":20},"merges":[]},
+    "decoder":{"type":"Sequence","decoders":[{"type":"Fuse"},)";
+  for (const auto& test : cases) {
+    SCOPED_TRACE(test.decoder);
+    ExpectDecodedAcrossCredit(prefix + test.decoder + "]}}", test.tokens,
+                              test.expected);
+  }
+}
+
+TEST_F(TokenizerJsonTest, ByteLevelIntroducesFusionWithoutExplicitFuse) {
+  ExpectDecodedAcrossCredit(R"({
+    "model":{"type":"BPE","vocab":{"ĠGood":0,"Ġday":1},"merges":[]},
+    "decoder":{"type":"Sequence","decoders":[
+      {"type":"ByteLevel","add_prefix_space":false,"trim_offsets":false},
+      {"type":"Strip","content":" ","start":1,"stop":0}]}})",
+                            {0, 1}, "Good day");
 }
 
 TEST_F(TokenizerJsonTest, DecoderSuccess) {

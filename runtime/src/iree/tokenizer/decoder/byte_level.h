@@ -9,6 +9,7 @@
 
 #include "iree/base/api.h"
 #include "iree/tokenizer/decoder.h"
+#include "iree/tokenizer/normalizer.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -31,6 +32,12 @@ extern "C" {
 // become single bytes, while passthrough stays the same size.
 iree_status_t iree_tokenizer_decoder_byte_level_allocate(
     iree_allocator_t allocator, iree_tokenizer_decoder_t** out_decoder);
+
+// Allocates the same byte mapping over a continuing UTF-8 text stream.
+// Input chunks end at scalar boundaries; mapped bytes retain their UTF-8
+// accumulation across calls. This is the ByteLevel operation after fusion.
+iree_status_t iree_tokenizer_decoder_byte_level_allocate_text_transform(
+    iree_allocator_t allocator, iree_tokenizer_normalizer_t** out_transform);
 
 #ifdef __cplusplus
 }  // extern "C"

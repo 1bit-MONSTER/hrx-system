@@ -8,33 +8,7 @@
 
 #include <string.h>
 
-//===----------------------------------------------------------------------===//
-// Cleanup Pattern Table
-//===----------------------------------------------------------------------===//
-
-// Cleanup patterns sorted by length DESCENDING for longest-match-first.
-// These patterns fix common tokenization artifacts when applied to the
-// LOGICAL token (after space prepending).
-typedef struct iree_tokenizer_wordpiece_cleanup_pattern_t {
-  const char* pattern;
-  const char* replacement;
-  uint8_t pattern_length;
-  uint8_t replacement_length;
-} iree_tokenizer_wordpiece_cleanup_pattern_t;
-
-static const iree_tokenizer_wordpiece_cleanup_pattern_t
-    kWordPieceCleanupPatterns[] = {
-        // Longest patterns first for correct matching.
-        {" do not", " don't", 8, 7}, {" n't", "n't", 4, 3},
-        {" 've", "'ve", 4, 3},       {" 're", "'re", 4, 3},
-        {" ' ", "'", 3, 1},          {" 'm", "'m", 3, 2},
-        {" 's", "'s", 3, 2},         {" .", ".", 2, 1},
-        {" ?", "?", 2, 1},           {" !", "!", 2, 1},
-        {" ,", ",", 2, 1},
-};
-
-#define IREE_TOKENIZER_WORDPIECE_CLEANUP_PATTERN_COUNT \
-  (sizeof(kWordPieceCleanupPatterns) / sizeof(kWordPieceCleanupPatterns[0]))
+#include "iree/tokenizer/decoder/wordpiece_cleanup.h"
 
 //===----------------------------------------------------------------------===//
 // WordPiece Decoder Implementation
@@ -192,26 +166,26 @@ static bool iree_tokenizer_decoder_wordpiece_process_token(
       window_length += bytes_to_copy;
     }
 
-    // Try cleanup patterns (longest-first) if cleanup is enabled.
+    // Try the shared cleanup rules at the token prefix.
     bool pattern_matched = false;
     if (state->cleanup && need_space) {
       for (iree_host_size_t i = 0;
-           i < IREE_TOKENIZER_WORDPIECE_CLEANUP_PATTERN_COUNT; ++i) {
-        const iree_tokenizer_wordpiece_cleanup_pattern_t* p =
-            &kWordPieceCleanupPatterns[i];
-        if (window_length >= p->pattern_length &&
-            memcmp(window, p->pattern, p->pattern_length) == 0) {
+           i < IREE_TOKENIZER_WORDPIECE_CLEANUP_RULE_COUNT; ++i) {
+        const iree_tokenizer_wordpiece_cleanup_rule_t* p =
+            &iree_tokenizer_wordpiece_cleanup_rules[i];
+        if (window_length >= p->pattern.size &&
+            memcmp(window, p->pattern.data, p->pattern.size) == 0) {
           // ATOMIC CHECK: Ensure replacement fits before committing.
-          if (*write_position + p->replacement_length > output.size) {
+          if (*write_position + p->replacement.size > output.size) {
             return false;  // Buffer full, retry entire token start.
           }
           // Write replacement.
-          memcpy(output.data + *write_position, p->replacement,
-                 p->replacement_length);
-          *write_position += p->replacement_length;
+          memcpy(output.data + *write_position, p->replacement.data,
+                 p->replacement.size);
+          *write_position += p->replacement.size;
           // Advance past matched portion in token (subtract 1 for virtual
           // space).
-          effective_start += p->pattern_length - 1;
+          effective_start += p->pattern.size - 1;
           pattern_matched = true;
           need_space = false;  // Space consumed by pattern.
           break;

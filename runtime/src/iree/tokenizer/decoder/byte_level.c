@@ -20,13 +20,20 @@ typedef struct iree_tokenizer_decoder_byte_level_t {
   iree_allocator_t allocator;
 } iree_tokenizer_decoder_byte_level_t;
 
-typedef struct iree_tokenizer_decoder_byte_level_state_t {
-  iree_tokenizer_decoder_state_t base;
-  // Resume point in current token (for buffer-full mid-token resume).
-  iree_host_size_t resume_position;
-  // Mapped bytes forming incomplete UTF-8 sequence.
+typedef struct iree_tokenizer_byte_level_stream_t {
+  // Mapped bytes forming an incomplete UTF-8 sequence.
   uint8_t pending_bytes[IREE_UNICODE_UTF8_MAX_BYTE_LENGTH];
+  // Number of mapped bytes not yet emitted.
   uint8_t pending_count;
+} iree_tokenizer_byte_level_stream_t;
+
+typedef struct iree_tokenizer_decoder_byte_level_state_t {
+  // Token decoder interface and immutable configuration back-pointer.
+  iree_tokenizer_decoder_state_t base;
+  // Resume point within the first unconsumed token.
+  iree_host_size_t resume_position;
+  // Byte accumulation independent of vocabulary token boundaries.
+  iree_tokenizer_byte_level_stream_t stream;
 } iree_tokenizer_decoder_byte_level_state_t;
 
 static const iree_tokenizer_decoder_vtable_t
@@ -97,7 +104,7 @@ static void iree_tokenizer_decoder_byte_level_state_deinitialize(
 // HuggingFace behavior where each byte in an invalid sequence gets its own
 // replacement character).
 static iree_host_size_t iree_tokenizer_byte_level_try_emit_pending(
-    iree_tokenizer_decoder_byte_level_state_t* state,
+    iree_tokenizer_byte_level_stream_t* state,
     iree_mutable_string_view_t output, iree_host_size_t write_position) {
   if (state->pending_count == 0) {
     return 0;
@@ -152,7 +159,7 @@ static iree_host_size_t iree_tokenizer_byte_level_try_emit_pending(
 // Flushes any pending bytes as U+FFFD (called before passthrough and at
 // finalize). Returns true if successful, false if output buffer is full.
 static bool iree_tokenizer_byte_level_flush_pending(
-    iree_tokenizer_decoder_byte_level_state_t* state,
+    iree_tokenizer_byte_level_stream_t* state,
     iree_mutable_string_view_t output, iree_host_size_t* write_position) {
   if (state->pending_count == 0) {
     return true;
@@ -174,7 +181,7 @@ static bool iree_tokenizer_byte_level_flush_pending(
 // Adds to pending buffer and tries to emit complete UTF-8 sequences.
 // Returns true if processing can continue, false if buffer is full.
 static bool iree_tokenizer_byte_level_handle_mapped_byte(
-    iree_tokenizer_decoder_byte_level_state_t* state, uint8_t mapped_byte,
+    iree_tokenizer_byte_level_stream_t* state, uint8_t mapped_byte,
     iree_mutable_string_view_t output, iree_host_size_t* write_position) {
   state->pending_bytes[state->pending_count++] = mapped_byte;
 
@@ -242,7 +249,7 @@ static bool iree_tokenizer_byte_level_process_ascii_run(
 // Returns true if token was fully consumed, false if buffer full mid-token.
 // On false return, |*read_position| contains the resume position.
 static bool iree_tokenizer_byte_level_process_token(
-    iree_tokenizer_decoder_byte_level_state_t* state, iree_string_view_t token,
+    iree_tokenizer_byte_level_stream_t* state, iree_string_view_t token,
     iree_host_size_t* read_position, iree_mutable_string_view_t output,
     iree_host_size_t* write_position) {
   while (*read_position < token.size) {
@@ -335,7 +342,7 @@ static iree_status_t iree_tokenizer_decoder_byte_level_state_process(
     iree_host_size_t read_position = (i == 0) ? state->resume_position : 0;
 
     bool token_consumed = iree_tokenizer_byte_level_process_token(
-        state, token, &read_position, output, &write_position);
+        &state->stream, token, &read_position, output, &write_position);
 
     if (!token_consumed) {
       // Buffer full mid-token - save position for resume.
@@ -351,12 +358,9 @@ static iree_status_t iree_tokenizer_decoder_byte_level_state_process(
   return iree_ok_status();
 }
 
-static iree_status_t iree_tokenizer_decoder_byte_level_state_finalize(
-    iree_tokenizer_decoder_state_t* base_state,
+static iree_status_t iree_tokenizer_byte_level_stream_finalize(
+    iree_tokenizer_byte_level_stream_t* state,
     iree_mutable_string_view_t output, iree_host_size_t* out_written) {
-  iree_tokenizer_decoder_byte_level_state_t* state =
-      (iree_tokenizer_decoder_byte_level_state_t*)base_state;
-
   iree_host_size_t written = 0;
   if (state->pending_count > 0) {
     // Any pending bytes at end of stream are incomplete -> U+FFFD.
@@ -373,11 +377,20 @@ static iree_status_t iree_tokenizer_decoder_byte_level_state_finalize(
   return iree_ok_status();
 }
 
+static iree_status_t iree_tokenizer_decoder_byte_level_state_finalize(
+    iree_tokenizer_decoder_state_t* base_state,
+    iree_mutable_string_view_t output, iree_host_size_t* out_written) {
+  iree_tokenizer_decoder_byte_level_state_t* state =
+      (iree_tokenizer_decoder_byte_level_state_t*)base_state;
+  return iree_tokenizer_byte_level_stream_finalize(&state->stream, output,
+                                                   out_written);
+}
+
 static bool iree_tokenizer_decoder_byte_level_state_has_pending(
     const iree_tokenizer_decoder_state_t* base_state) {
   const iree_tokenizer_decoder_byte_level_state_t* state =
       (const iree_tokenizer_decoder_byte_level_state_t*)base_state;
-  return state->pending_count > 0;
+  return state->stream.pending_count > 0;
 }
 
 static const iree_tokenizer_decoder_vtable_t
@@ -391,4 +404,101 @@ static const iree_tokenizer_decoder_vtable_t
         .state_has_pending =
             iree_tokenizer_decoder_byte_level_state_has_pending,
         .flags = IREE_TOKENIZER_DECODER_FLAG_SHRINKING,
+};
+
+//===----------------------------------------------------------------------===//
+// Joined Text Interface
+//===----------------------------------------------------------------------===//
+
+typedef struct iree_tokenizer_byte_level_text_t {
+  // Continuing-text interface.
+  iree_tokenizer_normalizer_t base;
+  // Allocator owning this immutable object.
+  iree_allocator_t allocator;
+} iree_tokenizer_byte_level_text_t;
+
+typedef struct iree_tokenizer_byte_level_text_state_t {
+  // Interface and immutable configuration back-pointer.
+  iree_tokenizer_normalizer_state_t base;
+  // Shared byte mapping and UTF-8 accumulation state.
+  iree_tokenizer_byte_level_stream_t stream;
+} iree_tokenizer_byte_level_text_state_t;
+
+static const iree_tokenizer_normalizer_vtable_t
+    iree_tokenizer_byte_level_text_vtable;
+
+iree_status_t iree_tokenizer_decoder_byte_level_allocate_text_transform(
+    iree_allocator_t allocator, iree_tokenizer_normalizer_t** out_transform) {
+  *out_transform = NULL;
+  iree_tokenizer_byte_level_text_t* transform = NULL;
+  IREE_RETURN_IF_ERROR(
+      iree_allocator_malloc(allocator, sizeof(*transform), (void**)&transform));
+  iree_tokenizer_normalizer_initialize(
+      &transform->base, &iree_tokenizer_byte_level_text_vtable,
+      sizeof(iree_tokenizer_byte_level_text_state_t));
+  transform->allocator = allocator;
+  *out_transform = &transform->base;
+  return iree_ok_status();
+}
+
+static void iree_tokenizer_byte_level_text_destroy(
+    iree_tokenizer_normalizer_t* base_transform) {
+  iree_tokenizer_byte_level_text_t* transform =
+      (iree_tokenizer_byte_level_text_t*)base_transform;
+  iree_allocator_free(transform->allocator, transform);
+}
+
+static iree_status_t iree_tokenizer_byte_level_text_initialize(
+    const iree_tokenizer_normalizer_t* transform, void* storage,
+    iree_tokenizer_normalizer_state_t** out_state) {
+  iree_tokenizer_byte_level_text_state_t* state =
+      (iree_tokenizer_byte_level_text_state_t*)storage;
+  memset(state, 0, sizeof(*state));
+  state->base.normalizer = transform;
+  *out_state = &state->base;
+  return iree_ok_status();
+}
+
+static void iree_tokenizer_byte_level_text_deinitialize(
+    iree_tokenizer_normalizer_state_t* state) {}
+
+static iree_status_t iree_tokenizer_byte_level_text_process(
+    iree_tokenizer_normalizer_state_t* base_state, iree_string_view_t input,
+    iree_mutable_string_view_t output, iree_tokenizer_normalizer_flags_t flags,
+    iree_host_size_t* IREE_RESTRICT out_consumed,
+    iree_host_size_t* IREE_RESTRICT out_written) {
+  iree_tokenizer_byte_level_text_state_t* state =
+      (iree_tokenizer_byte_level_text_state_t*)base_state;
+  *out_consumed = 0;
+  *out_written = 0;
+  iree_tokenizer_byte_level_process_token(&state->stream, input, out_consumed,
+                                          output, out_written);
+  return iree_ok_status();
+}
+
+static iree_status_t iree_tokenizer_byte_level_text_finalize(
+    iree_tokenizer_normalizer_state_t* base_state,
+    iree_mutable_string_view_t output,
+    iree_host_size_t* IREE_RESTRICT out_written) {
+  iree_tokenizer_byte_level_text_state_t* state =
+      (iree_tokenizer_byte_level_text_state_t*)base_state;
+  return iree_tokenizer_byte_level_stream_finalize(&state->stream, output,
+                                                   out_written);
+}
+
+static bool iree_tokenizer_byte_level_text_has_pending(
+    const iree_tokenizer_normalizer_state_t* base_state) {
+  const iree_tokenizer_byte_level_text_state_t* state =
+      (const iree_tokenizer_byte_level_text_state_t*)base_state;
+  return state->stream.pending_count > 0;
+}
+
+static const iree_tokenizer_normalizer_vtable_t
+    iree_tokenizer_byte_level_text_vtable = {
+        .destroy = iree_tokenizer_byte_level_text_destroy,
+        .state_initialize = iree_tokenizer_byte_level_text_initialize,
+        .state_deinitialize = iree_tokenizer_byte_level_text_deinitialize,
+        .state_process = iree_tokenizer_byte_level_text_process,
+        .state_finalize = iree_tokenizer_byte_level_text_finalize,
+        .state_has_pending = iree_tokenizer_byte_level_text_has_pending,
 };

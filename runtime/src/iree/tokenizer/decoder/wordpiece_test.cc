@@ -126,6 +126,11 @@ TEST_F(WordPieceDecoderTest, CleanupContractionM) {
                         /*expect_pending_after_process=*/false);
 }
 
+TEST_F(WordPieceDecoderTest, CleanupDoNotPrefix) {
+  TestWithAllBatchSizes(decoder(), {"I", "do not", "agree"}, "I don't agree",
+                        /*expect_pending_after_process=*/false);
+}
+
 TEST_F(WordPieceDecoderTest, CleanupContractionVe) {
   TestWithAllBatchSizes(decoder(), {"I", "'ve"}, "I've",
                         /*expect_pending_after_process=*/false);

@@ -28,6 +28,7 @@
 #include "iree/base/api.h"
 #include "iree/tokenizer/decoder.h"
 #include "iree/tokenizer/format/huggingface/decoder_json.h"
+#include "iree/tokenizer/normalizer.h"
 
 // Long token sequence for buffer boundary testing.
 static iree_string_view_t kLongTokens[256];
@@ -217,6 +218,55 @@ static void exercise_decoder(iree_tokenizer_decoder_t* decoder) {
   free(state_buffer);
 }
 
+// The post-Fuse program owns one logical string even when input/output arrives
+// incrementally. Exercise its retained state and finalization independently of
+// the token prefix; public tokenizer tests cover the edge between both stages.
+static void exercise_text_transform(iree_tokenizer_normalizer_t* transform) {
+  const char* inputs[] = {
+      "",           "<0x61>",    "<0xC3>", "  hello world  ",
+      "I do not .", "▁Good▁day", "Ã©",     "🐈🐈word🐈"};
+  void* storage = malloc(iree_tokenizer_normalizer_state_size(transform));
+  if (!storage) {
+    return;
+  }
+  for (const char* input : inputs) {
+    iree_tokenizer_normalizer_state_t* state = NULL;
+    iree_status_t status =
+        iree_tokenizer_normalizer_state_initialize(transform, storage, &state);
+    iree_string_view_t remaining = iree_make_cstring_view(input);
+    char output[64];
+    while (iree_status_is_ok(status) && remaining.size) {
+      iree_host_size_t consumed = 0;
+      iree_host_size_t written = 0;
+      status = iree_tokenizer_normalizer_state_process(
+          state, remaining,
+          iree_make_mutable_string_view(output, sizeof(output)),
+          IREE_TOKENIZER_NORMALIZER_FLAG_NONE, &consumed, &written);
+      remaining.data += consumed;
+      remaining.size -= consumed;
+      if (!consumed && !written) {
+        break;
+      }
+    }
+    if (iree_status_is_ok(status) && !remaining.size) {
+      bool pending = true;
+      while (iree_status_is_ok(status) && pending) {
+        iree_host_size_t written = 0;
+        status = iree_tokenizer_normalizer_state_finalize(
+            state, iree_make_mutable_string_view(output, sizeof(output)),
+            &written);
+        pending = iree_tokenizer_normalizer_state_has_pending(state);
+        if (!written) {
+          break;
+        }
+      }
+    }
+    iree_status_ignore(status);
+    iree_tokenizer_normalizer_state_deinitialize(state);
+  }
+  free(storage);
+}
+
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   // Treat fuzz input as decoder JSON.
   iree_string_view_t decoder_json =
@@ -224,12 +274,16 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   // Try parsing the JSON as a decoder.
   iree_tokenizer_decoder_t* decoder = NULL;
+  iree_tokenizer_normalizer_t* transform = NULL;
   iree_status_t status = iree_tokenizer_huggingface_parse_decoder(
-      decoder_json, iree_allocator_system(), &decoder);
+      decoder_json, iree_allocator_system(), &decoder, &transform);
 
   if (iree_status_is_ok(status) && decoder != NULL) {
     // Successfully parsed - exercise the decoder with test tokens.
     exercise_decoder(decoder);
+  }
+  if (iree_status_is_ok(status) && transform != NULL) {
+    exercise_text_transform(transform);
   }
 
   // Always ignore status - most fuzzed inputs will fail parsing.
@@ -237,6 +291,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   // Free unconditionally - IREE free functions are null-safe.
   iree_tokenizer_decoder_free(decoder);
+  iree_tokenizer_normalizer_free(transform);
 
   return 0;
 }

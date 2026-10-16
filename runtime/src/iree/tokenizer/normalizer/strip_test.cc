@@ -665,5 +665,53 @@ TEST_F(StripNormalizerTest, FinalizeWithUnicodeWhitespace) {
   EXPECT_EQ(written, 0u);
 }
 
+TEST_F(StripNormalizerTest, CountedLiteralRequiresOneScalar) {
+  const char* invalid[] = {"", "ab", "\xc0\x80", "\xc3", "\xed\xa0\x80"};
+  for (const char* content : invalid) {
+    iree_tokenizer_normalizer_t* normalizer = nullptr;
+    IREE_EXPECT_STATUS_IS(IREE_STATUS_INVALID_ARGUMENT,
+                          iree_tokenizer_normalizer_strip_literal_allocate(
+                              iree_make_cstring_view(content), 1, 1,
+                              iree_allocator_system(), &normalizer));
+    EXPECT_EQ(normalizer, nullptr);
+  }
+}
+
+TEST_F(StripNormalizerTest, CountedLiteralAcrossChunks) {
+  struct Case {
+    // Repeated scalar represented in UTF-8.
+    const char* content;
+    // Number of leading occurrences removed.
+    size_t start;
+    // Number of trailing occurrences removed.
+    size_t stop;
+    // Complete input stream.
+    const char* input;
+    // Exact final text.
+    const char* expected;
+  };
+  const Case cases[] = {
+      {" ", 1, 0, "  hello world ", " hello world "},
+      {" ", 2, 2, "   hello   world   ", " hello   world "},
+      {"é", 2, 1, "éééhelloééworldéé", "éhelloééworldé"},
+      {"🐈", 1, 2, "🐈🐈word🐈🐈🐈", "🐈word🐈"},
+      {" ", 0, 0, "  hello  ", "  hello  "},
+      {" ", 20, 20, "   ", ""},
+      {" ", 20, 20, "", ""},
+  };
+  for (const auto& test : cases) {
+    SCOPED_TRACE(test.input);
+    iree_tokenizer_normalizer_t* raw = nullptr;
+    IREE_ASSERT_OK(iree_tokenizer_normalizer_strip_literal_allocate(
+        iree_make_cstring_view(test.content), test.start, test.stop,
+        iree_allocator_system(), &raw));
+    ScopedNormalizer normalizer(raw);
+    TestWithAllChunkSizes(normalizer.get(), test.input, test.expected, false);
+    if (std::string(test.content) == " ") {
+      TestLimitedOutputCapacity(normalizer.get(), test.input, test.expected);
+    }
+  }
+}
+
 }  // namespace
 }  // namespace iree::tokenizer

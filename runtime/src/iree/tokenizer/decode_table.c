@@ -329,6 +329,7 @@ iree_status_t iree_tokenizer_decode_table_initialize(
   void* slab = NULL;
   iree_status_t status =
       iree_allocator_malloc(allocator, temp_size, &temp_storage);
+  iree_host_size_t maximum_token_length = 0;
   uint64_t total_data_size = 0;
   uint64_t first_data_size = 0;
   iree_host_size_t data_offset = 0;
@@ -385,11 +386,13 @@ iree_status_t iree_tokenizer_decode_table_initialize(
             work_buffer_size, &decoded_length);
       }
       total_data_size += decoded_length;
+      maximum_token_length = iree_max(maximum_token_length, decoded_length);
       if (iree_status_is_ok(status) && position_sensitive) {
         iree_host_size_t first_length = 0;
         status = iree_tokenizer_pre_decode_one_token(
             decoder, token_text, false, state_storage, first_buffer,
             work_buffer_size, &first_length);
+        maximum_token_length = iree_max(maximum_token_length, first_length);
         if (first_length > decoded_length ||
             memcmp(first_buffer, work_buffer + decoded_length - first_length,
                    first_length) != 0) {
@@ -520,6 +523,7 @@ iree_status_t iree_tokenizer_decode_table_initialize(
   iree_allocator_free(allocator, temp_storage);
 
   if (iree_status_is_ok(status)) {
+    out_table->maximum_token_length = maximum_token_length;
     out_table->slab = slab;
     out_table->offsets = (uint32_t*)slab;
     out_table->data = (uint8_t*)slab + data_offset;

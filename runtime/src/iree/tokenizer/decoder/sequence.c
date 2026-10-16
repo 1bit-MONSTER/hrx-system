@@ -44,12 +44,12 @@ iree_status_t iree_tokenizer_decoder_sequence_allocate(
 
   // Validate child count: require at least 2 children.
   // Sequences with 0 or 1 children should not be created - the JSON parser
-  // handles these cases by returning NULL (empty) or the single child directly.
+  // handles these cases with a join decoder or the single child directly.
   if (child_count < 2) {
     return iree_make_status(
         IREE_STATUS_INVALID_ARGUMENT,
         "sequence decoder requires at least 2 children, got %" PRIhsz
-        "; use NULL for empty or pass single child directly",
+        "; use a join decoder for empty or pass single child directly",
         child_count);
   }
   if (child_count > IREE_TOKENIZER_DECODER_SEQUENCE_MAX_DEPTH) {

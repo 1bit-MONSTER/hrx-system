@@ -82,7 +82,7 @@ enum iree_tokenizer_decoder_capability_e {
   IREE_TOKENIZER_DECODER_CAPABILITY_NONE = 0,
   // Output for each token depends only on that token's text, not on adjacent
   // tokens or stream position. Enables full pre-decode at build time.
-  // Examples: Replace, Strip, Passthrough.
+  // Examples: Replace, Strip, concatenating Join.
   IREE_TOKENIZER_DECODER_CAPABILITY_STATELESS = 1u << 0,
   // Output for the first token in a stream differs from subsequent tokens.
   // Both forms are computed by the decoder; one cannot in general be inferred

@@ -118,7 +118,11 @@ iree_runtime_cc_library(
 
 iree_runtime_cc_library(
     name = "tokenizer",
-    srcs = ["tokenizer.c"],
+    srcs = [
+        "decode.c",
+        "tokenizer.c",
+        "tokenizer_instance.h",
+    ],
     hdrs = ["tokenizer.h"],
     deps = [
         ":decode_table",

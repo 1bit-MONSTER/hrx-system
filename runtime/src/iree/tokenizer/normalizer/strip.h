@@ -30,6 +30,18 @@ iree_status_t iree_tokenizer_normalizer_strip_allocate(
     bool strip_left, bool strip_right, iree_allocator_t allocator,
     iree_tokenizer_normalizer_t** out_normalizer);
 
+// Allocates a strip transform for one Unicode scalar. Removes at most
+// |start_count| leading and |stop_count| trailing occurrences across the entire
+// input stream. Trailing occurrences are retained as a count until a later
+// nonmatching scalar proves they are interior, or finalize discards them.
+// Storage is constant in the input length and both counts. Overlapping cuts
+// produce an empty string. |content| must contain exactly one valid UTF-8
+// scalar.
+iree_status_t iree_tokenizer_normalizer_strip_literal_allocate(
+    iree_string_view_t content, iree_host_size_t start_count,
+    iree_host_size_t stop_count, iree_allocator_t allocator,
+    iree_tokenizer_normalizer_t** out_normalizer);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif

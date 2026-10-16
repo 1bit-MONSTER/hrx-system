@@ -194,8 +194,10 @@ typedef struct iree_tokenizer_builder_t {
   iree_tokenizer_normalizer_t* normalizer;
   iree_tokenizer_segmenter_t* segmenter;  // Required.
   iree_tokenizer_model_t* model;          // Required.
-  // Optional - NULL for no-op decode.
+  // Optional - NULL disables decoding.
   iree_tokenizer_decoder_t* decoder;
+  // Optional owned transform on joined decoder text, finalized at decode EOF.
+  iree_tokenizer_normalizer_t* decode_transform;
 
   // Post-processor (value type, embedded directly). When all template counts
   // are zero and both flags are false (the zero-initialized state), runtime
@@ -250,6 +252,13 @@ void iree_tokenizer_builder_set_model(iree_tokenizer_builder_t* builder,
 // Optional - if not set, decode operations will fail.
 void iree_tokenizer_builder_set_decoder(iree_tokenizer_builder_t* builder,
                                         iree_tokenizer_decoder_t* decoder);
+
+// Sets the transform applied to joined decoder text. Transfers ownership to
+// the builder. The decoder remains token-oriented and may use predecoded
+// tables; this transform receives a continuing UTF-8 stream across all tokens.
+// Requires a decoder. NULL leaves decoder output unchanged.
+void iree_tokenizer_builder_set_decode_transform(
+    iree_tokenizer_builder_t* builder, iree_tokenizer_normalizer_t* transform);
 
 // Sets the post-processor for the tokenizer. Copies the value into the builder.
 // Optional - if not set (zero-initialized), postprocessor operations are no-ops
@@ -678,7 +687,9 @@ iree_status_t iree_tokenizer_decode_state_feed(
 // IREE_STATUS_RESOURCE_EXHAUSTED if the output would exceed text_output.size.
 // Queued token strings are processed before decoder finalization. On capacity
 // exhaustion, the written prefix is counted and remaining state is retained;
-// callers can provide more output space and call finalize again.
+// callers can provide more output space and call finalize again. Token decoder
+// output drains before any joined-text transform receives end-of-input. Once
+// finalization begins, no further feed is allowed until state is reinitialized.
 iree_status_t iree_tokenizer_decode_state_finalize(
     iree_tokenizer_decode_state_t* state,
     iree_mutable_string_view_t text_output, iree_host_size_t* out_text_length);

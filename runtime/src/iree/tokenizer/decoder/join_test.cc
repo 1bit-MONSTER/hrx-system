@@ -4,7 +4,7 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "iree/tokenizer/decoder/passthrough.h"
+#include "iree/tokenizer/decoder/join.h"
 
 #include <cstring>
 #include <string>
@@ -28,15 +28,16 @@ using testing::TestZeroCapacityOutput;
 using testing::ToStringViews;
 
 //===----------------------------------------------------------------------===//
-// Test fixture for Passthrough decoder tests.
+// Test fixture for Join decoder tests.
 //===----------------------------------------------------------------------===//
 
-class PassthroughDecoderTest : public ::testing::Test {
+class JoinDecoderTest : public ::testing::Test {
  protected:
   void SetUp() override {
     iree_tokenizer_decoder_t* raw_decoder = nullptr;
-    IREE_ASSERT_OK(iree_tokenizer_decoder_passthrough_allocate(
-        iree_allocator_system(), &raw_decoder));
+    IREE_ASSERT_OK(iree_tokenizer_decoder_join_allocate(
+        IREE_TOKENIZER_DECODER_JOIN_CONCATENATE, iree_allocator_system(),
+        &raw_decoder));
     decoder_ = ScopedDecoder(raw_decoder);
   }
 
@@ -50,14 +51,12 @@ class PassthroughDecoderTest : public ::testing::Test {
 // Lifecycle
 //===----------------------------------------------------------------------===//
 
-TEST_F(PassthroughDecoderTest, CreateAndDestroy) {
-  EXPECT_NE(decoder(), nullptr);
-}
+TEST_F(JoinDecoderTest, CreateAndDestroy) { EXPECT_NE(decoder(), nullptr); }
 
-TEST_F(PassthroughDecoderTest, StateSizeIsReasonable) {
+TEST_F(JoinDecoderTest, StateSizeIsReasonable) {
   iree_host_size_t state_size = iree_tokenizer_decoder_state_size(decoder());
   EXPECT_GT(state_size, 0u);
-  // Passthrough state should be tiny (just base struct).
+  // Join state contains only its interface and stream position.
   EXPECT_LE(state_size, 32u);
 }
 
@@ -65,13 +64,13 @@ TEST_F(PassthroughDecoderTest, StateSizeIsReasonable) {
 // No-ops
 //===----------------------------------------------------------------------===//
 
-TEST_F(PassthroughDecoderTest, EmptyInput) {
+TEST_F(JoinDecoderTest, EmptyInput) {
   std::string result =
       ProcessAndFinalize(decoder(), {}, /*expect_pending_after_process=*/false);
   EXPECT_TRUE(result.empty());
 }
 
-TEST_F(PassthroughDecoderTest, ZeroCapacityOutput) {
+TEST_F(JoinDecoderTest, ZeroCapacityOutput) {
   TestZeroCapacityOutput(decoder(), {"Hello", "World"});
 }
 
@@ -79,19 +78,19 @@ TEST_F(PassthroughDecoderTest, ZeroCapacityOutput) {
 // Edge Cases
 //===----------------------------------------------------------------------===//
 
-TEST_F(PassthroughDecoderTest, SingleToken) {
+TEST_F(JoinDecoderTest, SingleToken) {
   TestWithAllBatchSizes(decoder(), {"Hello"}, "Hello",
                         /*expect_pending_after_process=*/false);
 }
 
-TEST_F(PassthroughDecoderTest, EmptyToken) {
+TEST_F(JoinDecoderTest, EmptyToken) {
   // Empty tokens should be handled gracefully.
   std::string result = ProcessAndFinalize(
       decoder(), {""}, /*expect_pending_after_process=*/false);
   EXPECT_TRUE(result.empty());
 }
 
-TEST_F(PassthroughDecoderTest, MixedEmptyTokens) {
+TEST_F(JoinDecoderTest, MixedEmptyTokens) {
   // Mix of empty and non-empty tokens.
   TestWithAllBatchSizes(decoder(), {"", "a", "", "b", ""}, "ab",
                         /*expect_pending_after_process=*/false);
@@ -101,24 +100,24 @@ TEST_F(PassthroughDecoderTest, MixedEmptyTokens) {
 // Basic Functionality
 //===----------------------------------------------------------------------===//
 
-TEST_F(PassthroughDecoderTest, ConcatenatesTokens) {
+TEST_F(JoinDecoderTest, ConcatenatesTokens) {
   TestWithAllBatchSizes(decoder(), {"Hello", " ", "World"}, "Hello World",
                         /*expect_pending_after_process=*/false);
 }
 
-TEST_F(PassthroughDecoderTest, PreservesContent) {
+TEST_F(JoinDecoderTest, PreservesContent) {
   // Test various content types.
   TestWithAllBatchSizes(decoder(), {"abc", "123", "!@#", "日本語"},
                         "abc123!@#日本語",
                         /*expect_pending_after_process=*/false);
 }
 
-TEST_F(PassthroughDecoderTest, PreservesWhitespace) {
+TEST_F(JoinDecoderTest, PreservesWhitespace) {
   TestWithAllBatchSizes(decoder(), {"a", " ", "\t", "\n", "b"}, "a \t\nb",
                         /*expect_pending_after_process=*/false);
 }
 
-TEST_F(PassthroughDecoderTest, LongTokens) {
+TEST_F(JoinDecoderTest, LongTokens) {
   // Test with longer tokens to ensure no length issues.
   std::string long_token(256, 'x');
   TestWithAllBatchSizes(decoder(), {long_token, long_token},
@@ -130,14 +129,14 @@ TEST_F(PassthroughDecoderTest, LongTokens) {
 // Streaming Behavior
 //===----------------------------------------------------------------------===//
 
-TEST_F(PassthroughDecoderTest, BatchedProcessing) {
+TEST_F(JoinDecoderTest, BatchedProcessing) {
   std::vector<std::string> tokens = {"The",   " ", "quick", " ",
                                      "brown", " ", "fox"};
   TestWithAllBatchSizes(decoder(), tokens, "The quick brown fox",
                         /*expect_pending_after_process=*/false);
 }
 
-TEST_F(PassthroughDecoderTest, HasPendingAlwaysFalse) {
+TEST_F(JoinDecoderTest, HasPendingAlwaysFalse) {
   ScopedDecoderState state(decoder());
   EXPECT_FALSE(iree_tokenizer_decoder_state_has_pending(state.get()));
 
@@ -154,11 +153,11 @@ TEST_F(PassthroughDecoderTest, HasPendingAlwaysFalse) {
       iree_make_mutable_string_view(output, sizeof(output)), &strings_consumed,
       &bytes_written));
 
-  // Passthrough never has pending data.
+  // Join never has pending data.
   EXPECT_FALSE(iree_tokenizer_decoder_state_has_pending(state.get()));
 }
 
-TEST_F(PassthroughDecoderTest, FinalizeProducesNothing) {
+TEST_F(JoinDecoderTest, FinalizeProducesNothing) {
   ScopedDecoderState state(decoder());
 
   // Process some data.
@@ -186,11 +185,11 @@ TEST_F(PassthroughDecoderTest, FinalizeProducesNothing) {
 // Output Buffer Handling
 //===----------------------------------------------------------------------===//
 
-TEST_F(PassthroughDecoderTest, LimitedOutputCapacity) {
+TEST_F(JoinDecoderTest, LimitedOutputCapacity) {
   TestLimitedOutputCapacity(decoder(), {"Hello", "World"}, "HelloWorld");
 }
 
-TEST_F(PassthroughDecoderTest, PartialTokenConsumption) {
+TEST_F(JoinDecoderTest, PartialTokenConsumption) {
   // When output buffer can't fit a whole token, it should stop.
   ScopedDecoderState state(decoder());
 
@@ -214,7 +213,7 @@ TEST_F(PassthroughDecoderTest, PartialTokenConsumption) {
   EXPECT_EQ(std::string(output, bytes_written), "Hello");
 }
 
-TEST_F(PassthroughDecoderTest, ConsumptionStopsAtBufferLimit) {
+TEST_F(JoinDecoderTest, ConsumptionStopsAtBufferLimit) {
   // Test that we stop consuming when the next token won't fit.
   ScopedDecoderState state(decoder());
 
@@ -236,6 +235,49 @@ TEST_F(PassthroughDecoderTest, ConsumptionStopsAtBufferLimit) {
   EXPECT_EQ(strings_consumed, 2u);
   EXPECT_EQ(bytes_written, 4u);
   EXPECT_EQ(std::string(output, bytes_written), "abcd");
+}
+
+TEST(JoinDecoder, SpacesRetainEmptyTokenPositions) {
+  iree_tokenizer_decoder_t* raw_decoder = nullptr;
+  IREE_ASSERT_OK(iree_tokenizer_decoder_join_allocate(
+      IREE_TOKENIZER_DECODER_JOIN_SPACE_SEPARATED, iree_allocator_system(),
+      &raw_decoder));
+  ScopedDecoder decoder(raw_decoder);
+  TestWithAllBatchSizes(decoder.get(), {"", "a", "", "b", ""}, " a  b ",
+                        /*expect_pending_after_process=*/false);
+}
+
+TEST(JoinDecoder, SeparatorAndTokenRequireCreditTogether) {
+  iree_tokenizer_decoder_t* raw_decoder = nullptr;
+  IREE_ASSERT_OK(iree_tokenizer_decoder_join_allocate(
+      IREE_TOKENIZER_DECODER_JOIN_SPACE_SEPARATED, iree_allocator_system(),
+      &raw_decoder));
+  ScopedDecoder decoder(raw_decoder);
+  ScopedDecoderState state(decoder.get());
+  const iree_string_view_t token = IREE_SV("a");
+  char output[2];
+  iree_host_size_t consumed = 0;
+  iree_host_size_t written = 0;
+  IREE_ASSERT_OK(iree_tokenizer_decoder_state_process(
+      state.get(), iree_tokenizer_make_string_list(&token, 1),
+      iree_make_mutable_string_view(output, 1), &consumed, &written));
+  EXPECT_EQ(consumed, 1u);
+  EXPECT_EQ(std::string(output, written), "a");
+
+  // Insufficient credit must leave both the separator and token unconsumed.
+  for (iree_host_size_t capacity : {0u, 1u}) {
+    IREE_ASSERT_OK(iree_tokenizer_decoder_state_process(
+        state.get(), iree_tokenizer_make_string_list(&token, 1),
+        iree_make_mutable_string_view(output, capacity), &consumed, &written));
+    EXPECT_EQ(consumed, 0u);
+    EXPECT_EQ(written, 0u);
+  }
+  IREE_ASSERT_OK(iree_tokenizer_decoder_state_process(
+      state.get(), iree_tokenizer_make_string_list(&token, 1),
+      iree_make_mutable_string_view(output, sizeof(output)), &consumed,
+      &written));
+  EXPECT_EQ(consumed, 1u);
+  EXPECT_EQ(std::string(output, written), " a");
 }
 
 }  // namespace

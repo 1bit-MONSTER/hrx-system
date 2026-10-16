@@ -7,14 +7,20 @@
 #include "iree/tokenizer/format/huggingface/decoder_json.h"
 
 #include "iree/base/internal/json.h"
+#include "iree/base/internal/unicode.h"
 #include "iree/tokenizer/decoder/byte_fallback.h"
 #include "iree/tokenizer/decoder/byte_level.h"
 #include "iree/tokenizer/decoder/ctc.h"
+#include "iree/tokenizer/decoder/join.h"
 #include "iree/tokenizer/decoder/metaspace.h"
 #include "iree/tokenizer/decoder/replace.h"
 #include "iree/tokenizer/decoder/sequence.h"
 #include "iree/tokenizer/decoder/strip.h"
 #include "iree/tokenizer/decoder/wordpiece.h"
+#include "iree/tokenizer/decoder/wordpiece_cleanup.h"
+#include "iree/tokenizer/normalizer/replace.h"
+#include "iree/tokenizer/normalizer/sequence.h"
+#include "iree/tokenizer/normalizer/strip.h"
 
 //===----------------------------------------------------------------------===//
 // ByteFallback Decoder
@@ -102,10 +108,9 @@ static iree_status_t iree_tokenizer_parse_ctc_decoder(
 //     "prepend_scheme": "always", // Optional, default "always"
 //     "split": true               // Ignored for decoders
 //   }
-static iree_status_t iree_tokenizer_parse_metaspace_decoder(
-    iree_string_view_t decoder_value, iree_allocator_t allocator,
-    iree_tokenizer_decoder_t** out_decoder) {
-  *out_decoder = NULL;
+static iree_status_t iree_tokenizer_parse_metaspace_options(
+    iree_string_view_t decoder_value, uint32_t* out_codepoint,
+    iree_tokenizer_decoder_metaspace_prepend_scheme_t* out_prepend_scheme) {
   // Parse replacement character (required, no serde default in HF).
   uint32_t replacement_codepoint = 0;  // 0 means use default.
   iree_string_view_t replacement_value = iree_string_view_empty();
@@ -135,8 +140,20 @@ static iree_status_t iree_tokenizer_parse_metaspace_decoder(
     }
   }
 
-  return iree_tokenizer_decoder_metaspace_allocate(
-      replacement_codepoint, prepend_scheme, allocator, out_decoder);
+  *out_codepoint = replacement_codepoint;
+  *out_prepend_scheme = prepend_scheme;
+  return iree_ok_status();
+}
+
+static iree_status_t iree_tokenizer_parse_metaspace_decoder(
+    iree_string_view_t value, iree_allocator_t allocator,
+    iree_tokenizer_decoder_t** out_decoder) {
+  uint32_t codepoint = 0;
+  iree_tokenizer_decoder_metaspace_prepend_scheme_t scheme;
+  IREE_RETURN_IF_ERROR(
+      iree_tokenizer_parse_metaspace_options(value, &codepoint, &scheme));
+  return iree_tokenizer_decoder_metaspace_allocate(codepoint, scheme, allocator,
+                                                   out_decoder);
 }
 
 //===----------------------------------------------------------------------===//
@@ -305,158 +322,11 @@ static iree_status_t iree_tokenizer_parse_wordpiece_decoder(
                                                    out_decoder);
 }
 
-//===----------------------------------------------------------------------===//
-// Sequence Decoder
-//===----------------------------------------------------------------------===//
-
-// Context for sequence decoder array enumeration.
-typedef struct iree_tokenizer_decoder_sequence_parse_context_t {
-  iree_allocator_t allocator;
-  iree_tokenizer_decoder_t** children;
-  iree_host_size_t child_count;
-  iree_host_size_t parsed_count;
-} iree_tokenizer_decoder_sequence_parse_context_t;
-
-// Visitor callback for parsing sequence decoder children.
-static iree_status_t iree_tokenizer_parse_decoder_sequence_child_visitor(
-    void* user_data, iree_host_size_t index, iree_string_view_t value) {
-  iree_tokenizer_decoder_sequence_parse_context_t* context =
-      (iree_tokenizer_decoder_sequence_parse_context_t*)user_data;
-  if (index >= context->child_count) {
-    return iree_make_status(IREE_STATUS_INTERNAL,
-                            "array index %zu exceeds expected count %zu", index,
-                            context->child_count);
-  }
-  iree_status_t status = iree_tokenizer_huggingface_parse_decoder(
-      value, context->allocator, &context->children[index]);
-  if (iree_status_is_ok(status)) {
-    ++context->parsed_count;
-  } else {
-    status =
-        iree_status_annotate_f(status, "in Sequence decoder child %zu", index);
-  }
-  return status;
-}
-
-// Parses a Sequence decoder.
-// JSON structure:
-//   {
-//     "type": "Sequence",
-//     "decoders": [
-//       {"type": "Replace", ...},
-//       {"type": "ByteFallback"},
-//       ...
-//     ]
-//   }
-//
-// NULL children (from no-op decoders like Fuse) are filtered out.
-static iree_status_t iree_tokenizer_parse_sequence_decoder(
-    iree_string_view_t decoder_value, iree_allocator_t allocator,
-    iree_tokenizer_decoder_t** out_decoder) {
-  *out_decoder = NULL;
-  IREE_TRACE_ZONE_BEGIN(z0);
-
-  // Look up the decoders array.
-  iree_string_view_t decoders_value = iree_string_view_empty();
-  IREE_RETURN_AND_END_ZONE_IF_ERROR(
-      z0, iree_json_lookup_object_value(decoder_value, IREE_SV("decoders"),
-                                        &decoders_value));
-
-  // Get array length.
-  iree_host_size_t json_child_count = 0;
-  IREE_RETURN_AND_END_ZONE_IF_ERROR(
-      z0, iree_json_array_length(decoders_value, &json_child_count));
-
-  // Validate count against maximum depth.
-  if (json_child_count > IREE_TOKENIZER_DECODER_SEQUENCE_MAX_DEPTH) {
-    IREE_RETURN_AND_END_ZONE_IF_ERROR(
-        z0, iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                             "Sequence decoder has %zu children, maximum is %d",
-                             json_child_count,
-                             IREE_TOKENIZER_DECODER_SEQUENCE_MAX_DEPTH));
-  }
-
-  // Allocate array for child decoder pointers.
-  iree_tokenizer_decoder_t** children = NULL;
-  if (json_child_count > 0) {
-    IREE_RETURN_AND_END_ZONE_IF_ERROR(
-        z0, iree_allocator_malloc_array(allocator, json_child_count,
-                                        sizeof(*children), (void**)&children));
-    memset(children, 0, json_child_count * sizeof(*children));
-  }
-
-  // Parse each child decoder using enumeration.
-  iree_tokenizer_decoder_sequence_parse_context_t context = {
-      .allocator = allocator,
-      .children = children,
-      .child_count = json_child_count,
-      .parsed_count = 0,
-  };
-  iree_status_t status =
-      json_child_count > 0
-          ? iree_json_enumerate_array(
-                decoders_value,
-                iree_tokenizer_parse_decoder_sequence_child_visitor, &context)
-          : iree_ok_status();
-
-  // Compact array: filter out NULL children (no-op decoders like Fuse).
-  iree_host_size_t non_null_count = 0;
-  if (iree_status_is_ok(status) && children) {
-    for (iree_host_size_t i = 0; i < json_child_count; ++i) {
-      if (children[i]) {
-        children[non_null_count++] = children[i];
-      }
-    }
-  }
-
-  // Dispatch based on child count after compaction:
-  //   0 children → NULL (passthrough)
-  //   1 child    → return the child directly (no sequence wrapper)
-  //   2+ children → create sequence
-  if (iree_status_is_ok(status)) {
-    if (non_null_count == 0) {
-      *out_decoder = NULL;
-    } else if (non_null_count == 1) {
-      *out_decoder = children[0];
-      children[0] = NULL;  // Prevent cleanup from freeing it.
-    } else {
-      status = iree_tokenizer_decoder_sequence_allocate(
-          children, non_null_count, allocator, out_decoder);
-    }
-  }
-
-  // Cleanup on failure: free any successfully parsed children.
-  if (!iree_status_is_ok(status) && children) {
-    for (iree_host_size_t i = 0; i < json_child_count; ++i) {
-      if (children[i]) {
-        iree_tokenizer_decoder_free(children[i]);
-      }
-    }
-  }
-
-  // Free the temporary array (sequence made its own copy for 2+ case).
-  if (children) {
-    iree_allocator_free(allocator, children);
-  }
-
-  IREE_TRACE_ZONE_END(z0);
-  return status;
-}
-
-//===----------------------------------------------------------------------===//
-// Top-Level Decoder Dispatcher
-//===----------------------------------------------------------------------===//
-
-iree_status_t iree_tokenizer_huggingface_parse_decoder(
+static iree_status_t iree_tokenizer_parse_token_decoder(
     iree_string_view_t decoder_value, iree_allocator_t allocator,
     iree_tokenizer_decoder_t** out_decoder) {
   IREE_ASSERT_ARGUMENT(out_decoder);
   *out_decoder = NULL;
-
-  // Handle null decoder.
-  if (iree_string_view_equal(decoder_value, IREE_SV("null"))) {
-    return iree_ok_status();
-  }
 
   // Get decoder type.
   iree_string_view_t type_value = iree_string_view_empty();
@@ -473,17 +343,9 @@ iree_status_t iree_tokenizer_huggingface_parse_decoder(
   } else if (iree_string_view_equal(type_value, IREE_SV("Metaspace"))) {
     return iree_tokenizer_parse_metaspace_decoder(decoder_value, allocator,
                                                   out_decoder);
-  } else if (iree_string_view_equal(type_value, IREE_SV("Sequence"))) {
-    return iree_tokenizer_parse_sequence_decoder(decoder_value, allocator,
-                                                 out_decoder);
   } else if (iree_string_view_equal(type_value, IREE_SV("Replace"))) {
     return iree_tokenizer_parse_replace_decoder(decoder_value, allocator,
                                                 out_decoder);
-  } else if (iree_string_view_equal(type_value, IREE_SV("Fuse"))) {
-    // Fuse concatenates tokens without separators. Our streaming architecture
-    // uses seen_first_output state instead, making Fuse a no-op.
-    *out_decoder = NULL;
-    return iree_ok_status();
   } else if (iree_string_view_equal(type_value, IREE_SV("Strip"))) {
     return iree_tokenizer_parse_strip_decoder(decoder_value, allocator,
                                               out_decoder);
@@ -491,8 +353,7 @@ iree_status_t iree_tokenizer_huggingface_parse_decoder(
     // ByteLevel decoder only reverses byte-to-unicode encoding. The
     // add_prefix_space and trim_offsets fields affect encoding/offset-tracking
     // (pre_tokenizer role), not decoding. We validate their presence for HF
-    // schema compliance but correctly ignore their values. This is NOT a silent
-    // failure - ignoring them in the decoder role IS correct behavior.
+    // schema compliance; their values have no effect on decoding.
     bool add_prefix_space = false;
     IREE_RETURN_IF_ERROR(iree_json_lookup_bool(
         decoder_value, IREE_SV("add_prefix_space"), &add_prefix_space));
@@ -508,4 +369,306 @@ iree_status_t iree_tokenizer_huggingface_parse_decoder(
   return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
                           "decoder type not supported: '%.*s'",
                           (int)type_value.size, type_value.data);
+}
+
+// The format program is an ordered list of token transforms followed by an
+// optional joined-text program. Recursion only flattens authored sequences.
+typedef struct iree_tokenizer_decoder_program_t {
+  // Token leaves before the first fusion boundary, borrowing JSON storage.
+  iree_string_view_t tokens[IREE_TOKENIZER_DECODER_SEQUENCE_MAX_DEPTH];
+  // Number of token leaves.
+  iree_host_size_t token_count;
+  // Joined-text leaves after fusion, borrowing JSON storage.
+  iree_string_view_t text[IREE_TOKENIZER_NORMALIZER_SEQUENCE_MAX_DEPTH];
+  // Number of text leaves.
+  iree_host_size_t text_count;
+  // Current authored sequence nesting depth.
+  iree_host_size_t depth;
+  // True once a Fuse has joined the logical strings.
+  bool fused;
+} iree_tokenizer_decoder_program_t;
+
+static iree_status_t iree_tokenizer_decoder_program_visit(
+    void* user_data, iree_host_size_t index, iree_string_view_t value) {
+  iree_tokenizer_decoder_program_t* program =
+      (iree_tokenizer_decoder_program_t*)user_data;
+  iree_string_view_t type = iree_string_view_empty();
+  IREE_RETURN_IF_ERROR(
+      iree_json_lookup_object_value(value, IREE_SV("type"), &type));
+  if (iree_string_view_equal(type, IREE_SV("Sequence"))) {
+    if (program->depth >= IREE_TOKENIZER_DECODER_SEQUENCE_MAX_DEPTH) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "decoder sequence nesting exceeds %d",
+                              IREE_TOKENIZER_DECODER_SEQUENCE_MAX_DEPTH);
+    }
+    iree_string_view_t children = iree_string_view_empty();
+    IREE_RETURN_IF_ERROR(
+        iree_json_lookup_object_value(value, IREE_SV("decoders"), &children));
+    ++program->depth;
+    iree_status_t status = iree_json_enumerate_array(
+        children, iree_tokenizer_decoder_program_visit, program);
+    --program->depth;
+    return status;
+  }
+  if (iree_string_view_equal(type, IREE_SV("Fuse"))) {
+    program->fused = true;
+    return iree_ok_status();
+  }
+  if (program->fused) {
+    if (program->text_count == IREE_ARRAYSIZE(program->text)) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "too many joined-text decoder transforms");
+    }
+    program->text[program->text_count++] = value;
+  } else {
+    if (program->token_count == IREE_ARRAYSIZE(program->tokens)) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "too many token decoder transforms");
+    }
+    program->tokens[program->token_count++] = value;
+    // ByteLevel's decode_chain also returns exactly one logical string.
+    if (iree_string_view_equal(type, IREE_SV("ByteLevel"))) {
+      program->fused = true;
+    }
+  }
+  return iree_ok_status();
+}
+
+static iree_status_t iree_tokenizer_parse_ctc_text_decoder(
+    iree_string_view_t value, iree_allocator_t allocator,
+    iree_tokenizer_normalizer_t** out_transform) {
+  char pad[IREE_TOKENIZER_REPLACE_MAX_PATTERN];
+  char delimiter[IREE_TOKENIZER_REPLACE_MAX_PATTERN];
+  iree_host_size_t pad_length = 0;
+  iree_host_size_t delimiter_length = 0;
+  IREE_RETURN_IF_ERROR(iree_json_lookup_string(
+      value, IREE_SV("pad_token"),
+      iree_make_mutable_string_view(pad, sizeof(pad)), &pad_length));
+  IREE_RETURN_IF_ERROR(iree_json_lookup_string(
+      value, IREE_SV("word_delimiter_token"),
+      iree_make_mutable_string_view(delimiter, sizeof(delimiter)),
+      &delimiter_length));
+  bool cleanup = false;
+  IREE_RETURN_IF_ERROR(
+      iree_json_lookup_bool(value, IREE_SV("cleanup"), &cleanup));
+  if (!pad_length || !delimiter_length) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "CTC pad and delimiter must not be empty");
+  }
+  iree_tokenizer_normalizer_t* children[3] = {0};
+  iree_status_t status = iree_tokenizer_normalizer_replace_allocate(
+      iree_make_string_view(pad, pad_length), iree_string_view_empty(),
+      allocator, &children[0]);
+  if (iree_status_is_ok(status) && cleanup) {
+    status = iree_tokenizer_wordpiece_cleanup_allocate(allocator, &children[1]);
+  }
+  if (iree_status_is_ok(status) && cleanup) {
+    status = iree_tokenizer_normalizer_replace_allocate(
+        iree_make_string_view(delimiter, delimiter_length), IREE_SV(" "),
+        allocator, &children[2]);
+  }
+  if (iree_status_is_ok(status)) {
+    if (cleanup) {
+      status = iree_tokenizer_normalizer_sequence_allocate(
+          children, IREE_ARRAYSIZE(children), allocator, out_transform);
+    } else {
+      *out_transform = children[0];
+    }
+  }
+  if (!iree_status_is_ok(status)) {
+    for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(children); ++i) {
+      iree_tokenizer_normalizer_free(children[i]);
+    }
+  }
+  return status;
+}
+
+static iree_status_t iree_tokenizer_parse_text_decoder(
+    iree_string_view_t value, iree_allocator_t allocator,
+    iree_tokenizer_normalizer_t** out_transform) {
+  *out_transform = NULL;
+  iree_string_view_t type = iree_string_view_empty();
+  IREE_RETURN_IF_ERROR(
+      iree_json_lookup_object_value(value, IREE_SV("type"), &type));
+  if (iree_string_view_equal(type, IREE_SV("ByteFallback"))) {
+    return iree_tokenizer_decoder_byte_fallback_allocate_text_transform(
+        allocator, out_transform);
+  }
+  if (iree_string_view_equal(type, IREE_SV("ByteLevel"))) {
+    bool ignored = false;
+    IREE_RETURN_IF_ERROR(
+        iree_json_lookup_bool(value, IREE_SV("add_prefix_space"), &ignored));
+    IREE_RETURN_IF_ERROR(
+        iree_json_lookup_bool(value, IREE_SV("trim_offsets"), &ignored));
+    return iree_tokenizer_decoder_byte_level_allocate_text_transform(
+        allocator, out_transform);
+  }
+  if (iree_string_view_equal(type, IREE_SV("Metaspace"))) {
+    uint32_t codepoint = 0;
+    iree_tokenizer_decoder_metaspace_prepend_scheme_t scheme;
+    IREE_RETURN_IF_ERROR(
+        iree_tokenizer_parse_metaspace_options(value, &codepoint, &scheme));
+    char encoded[4];
+    int length = iree_unicode_utf8_encode(codepoint, encoded);
+    return iree_tokenizer_normalizer_replace_allocate(
+        iree_make_string_view(encoded, (iree_host_size_t)length),
+        scheme == IREE_TOKENIZER_DECODER_METASPACE_PREPEND_NEVER
+            ? IREE_SV(" ")
+            : iree_string_view_empty(),
+        allocator, out_transform);
+  }
+  if (iree_string_view_equal(type, IREE_SV("WordPiece"))) {
+    char prefix[IREE_TOKENIZER_WORDPIECE_MAX_PREFIX_LENGTH];
+    iree_host_size_t prefix_length = 0;
+    IREE_RETURN_IF_ERROR(iree_json_lookup_string(
+        value, IREE_SV("prefix"),
+        iree_make_mutable_string_view(prefix, sizeof(prefix)), &prefix_length));
+    bool cleanup = false;
+    IREE_RETURN_IF_ERROR(
+        iree_json_lookup_bool(value, IREE_SV("cleanup"), &cleanup));
+    // Fusion has exactly one string at ordinal zero, where WordPiece neither
+    // removes the continuation prefix nor inserts a separator.
+    return cleanup ? iree_tokenizer_wordpiece_cleanup_allocate(allocator,
+                                                               out_transform)
+                   : iree_ok_status();
+  }
+  if (iree_string_view_equal(type, IREE_SV("CTC"))) {
+    return iree_tokenizer_parse_ctc_text_decoder(value, allocator,
+                                                 out_transform);
+  }
+  if (iree_string_view_equal(type, IREE_SV("Strip"))) {
+    iree_string_view_t content = iree_string_view_empty();
+    IREE_RETURN_IF_ERROR(
+        iree_json_lookup_object_value(value, IREE_SV("content"), &content));
+    char buffer[4];
+    iree_host_size_t length = 0;
+    IREE_RETURN_IF_ERROR(
+        iree_json_unescape_string(content, sizeof(buffer), buffer, &length));
+    iree_string_view_t start = iree_string_view_empty();
+    iree_string_view_t stop = iree_string_view_empty();
+    IREE_RETURN_IF_ERROR(
+        iree_json_lookup_object_value(value, IREE_SV("start"), &start));
+    IREE_RETURN_IF_ERROR(
+        iree_json_lookup_object_value(value, IREE_SV("stop"), &stop));
+    int64_t start_count = 0;
+    int64_t stop_count = 0;
+    IREE_RETURN_IF_ERROR(iree_json_parse_int64(start, &start_count));
+    IREE_RETURN_IF_ERROR(iree_json_parse_int64(stop, &stop_count));
+    if (start_count < 0 || stop_count < 0 ||
+        (uint64_t)start_count > IREE_HOST_SIZE_MAX ||
+        (uint64_t)stop_count > IREE_HOST_SIZE_MAX) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "Strip counts must fit nonnegative host sizes");
+    }
+    return iree_tokenizer_normalizer_strip_literal_allocate(
+        iree_make_string_view(buffer, length), (iree_host_size_t)start_count,
+        (iree_host_size_t)stop_count, allocator, out_transform);
+  }
+  if (iree_string_view_equal(type, IREE_SV("Replace"))) {
+    iree_string_view_t pattern = iree_string_view_empty();
+    iree_string_view_t literal = iree_string_view_empty();
+    IREE_RETURN_IF_ERROR(
+        iree_json_lookup_object_value(value, IREE_SV("pattern"), &pattern));
+    IREE_RETURN_IF_ERROR(iree_json_try_lookup_object_value(
+        pattern, IREE_SV("String"), &literal));
+    if (iree_string_view_is_empty(literal)) {
+      return iree_make_status(IREE_STATUS_UNIMPLEMENTED,
+                              "joined-text Replace requires a literal pattern");
+    }
+    char pattern_buffer[IREE_TOKENIZER_REPLACE_MAX_PATTERN];
+    char content_buffer[IREE_TOKENIZER_REPLACE_MAX_CONTENT];
+    iree_host_size_t pattern_length = 0;
+    iree_host_size_t content_length = 0;
+    IREE_RETURN_IF_ERROR(iree_json_unescape_string(
+        literal, sizeof(pattern_buffer), pattern_buffer, &pattern_length));
+    IREE_RETURN_IF_ERROR(iree_json_lookup_string(
+        value, IREE_SV("content"),
+        iree_make_mutable_string_view(content_buffer, sizeof(content_buffer)),
+        &content_length));
+    return iree_tokenizer_normalizer_replace_allocate(
+        iree_make_string_view(pattern_buffer, pattern_length),
+        iree_make_string_view(content_buffer, content_length), allocator,
+        out_transform);
+  }
+  return iree_make_status(
+      IREE_STATUS_UNIMPLEMENTED,
+      "joined-text decoder transform is not supported: %.*s", (int)type.size,
+      type.data);
+}
+
+iree_status_t iree_tokenizer_huggingface_parse_decoder(
+    iree_string_view_t value, iree_allocator_t allocator,
+    iree_tokenizer_decoder_t** out_decoder,
+    iree_tokenizer_normalizer_t** out_text_transform) {
+  *out_decoder = NULL;
+  *out_text_transform = NULL;
+  if (iree_string_view_equal(value, IREE_SV("null"))) {
+    return iree_tokenizer_decoder_join_allocate(
+        IREE_TOKENIZER_DECODER_JOIN_SPACE_SEPARATED, allocator, out_decoder);
+  }
+  iree_tokenizer_decoder_program_t program = {0};
+  IREE_RETURN_IF_ERROR(
+      iree_tokenizer_decoder_program_visit(&program, 0, value));
+  iree_tokenizer_decoder_t* tokens[IREE_TOKENIZER_DECODER_SEQUENCE_MAX_DEPTH] =
+      {0};
+  iree_tokenizer_normalizer_t*
+      text[IREE_TOKENIZER_NORMALIZER_SEQUENCE_MAX_DEPTH] = {0};
+  iree_status_t status = iree_ok_status();
+  iree_host_size_t token_count = 0;
+  iree_host_size_t text_count = 0;
+  for (; token_count < program.token_count && iree_status_is_ok(status);
+       ++token_count) {
+    status = iree_tokenizer_parse_token_decoder(
+        program.tokens[token_count], allocator, &tokens[token_count]);
+  }
+  for (iree_host_size_t i = 0;
+       i < program.text_count && iree_status_is_ok(status); ++i) {
+    iree_tokenizer_normalizer_t* child = NULL;
+    status =
+        iree_tokenizer_parse_text_decoder(program.text[i], allocator, &child);
+    if (iree_status_is_ok(status) && child) {
+      text[text_count++] = child;
+    }
+  }
+  iree_tokenizer_decoder_t* decoder = NULL;
+  iree_tokenizer_normalizer_t* transform = NULL;
+  if (iree_status_is_ok(status)) {
+    if (token_count == 0) {
+      status = iree_tokenizer_decoder_join_allocate(
+          IREE_TOKENIZER_DECODER_JOIN_CONCATENATE, allocator, &decoder);
+    } else if (token_count == 1) {
+      decoder = tokens[0];
+    } else {
+      status = iree_tokenizer_decoder_sequence_allocate(tokens, token_count,
+                                                        allocator, &decoder);
+    }
+    if (iree_status_is_ok(status)) {
+      token_count = 0;
+    }
+  }
+  if (iree_status_is_ok(status)) {
+    if (text_count == 1) {
+      transform = text[0];
+    } else if (text_count > 1) {
+      status = iree_tokenizer_normalizer_sequence_allocate(
+          text, text_count, allocator, &transform);
+    }
+    if (iree_status_is_ok(status)) {
+      text_count = 0;
+    }
+  }
+  for (iree_host_size_t i = 0; i < token_count; ++i) {
+    iree_tokenizer_decoder_free(tokens[i]);
+  }
+  for (iree_host_size_t i = 0; i < text_count; ++i) {
+    iree_tokenizer_normalizer_free(text[i]);
+  }
+  if (iree_status_is_ok(status)) {
+    *out_decoder = decoder;
+    *out_text_transform = transform;
+  } else {
+    iree_tokenizer_decoder_free(decoder);
+    iree_tokenizer_normalizer_free(transform);
+  }
+  return status;
 }
