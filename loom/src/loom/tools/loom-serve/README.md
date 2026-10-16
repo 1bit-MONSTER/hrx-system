@@ -24,9 +24,12 @@ The installed command is `loom-serve` with the same arguments and no subcommand.
 At least one explicit HAL device URI is required. Repeating `--device` builds
 one ordered group; model documents select a top-level `device` index when the
 group has multiple members. A URI is interpreted by its linked HAL driver,
-without an implicit local device or fallback. Fixed backing works without
-virtual-memory support; elastic backing demand-commits retained slabs on
-drivers that provide it.
+without an implicit local device or fallback. Fixed backing needs no virtual
+reservation. Elastic backing demand-commits retained slabs through the HAL
+allocator-level virtual-memory contract. Task and Vulkan have device-group VMM
+support, but serving's retained pool does not yet consume that interface; use
+fixed backing for those drivers. The [command reference](../../../../docs/src/serving/index.md#devices-and-listeners)
+describes the backend and serving requirements separately.
 
 Generic URI parameters request immutable device runtime services. For example,
 `--device=amdgpu:?feedback` uses the default AMDGPU device and provisions the
