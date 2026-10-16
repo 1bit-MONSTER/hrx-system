@@ -104,4 +104,15 @@ loom_check_test_suite(
 )
 endif()
 
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_TARGET_ARCH_SPIRV)
+loom_check_test_suite(
+  NAME
+    matrix_tests
+  SRCS
+    "matrix_test.loom-test"
+  LABELS
+    "hostonly"
+)
+endif()
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###

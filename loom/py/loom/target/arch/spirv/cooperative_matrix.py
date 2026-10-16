@@ -58,11 +58,52 @@ class CooperativeMatrixCase:
     rhs_scalar_suffix: str | None = None
     accumulator_scalar_suffix: str | None = None
     result_scalar_suffix: str | None = None
-    property_storage_flags: str = "MATRIX_STORAGE_ANY"
-    operand_mode: str | None = None
-    property_operand_flags: str = "0"
-    packet_operand_mask: str | None = None
+    # Saturates the accumulation into the result component's integer range.
+    saturating_accumulation: bool = False
     source_rule_enabled: bool = True
+
+    @property
+    def operand_mode(self) -> str | None:
+        return "saturating" if self.saturating_accumulation else None
+
+    @property
+    def signed_component_roles(self) -> tuple[str, ...]:
+        return tuple(
+            role
+            for role, scalar in (
+                ("A", self.lhs_scalar),
+                ("B", self.rhs_scalar),
+                ("C", self.accumulator_scalar),
+                ("RESULT", self.result_scalar),
+            )
+            if scalar.suffix.startswith("i")
+        )
+
+    @property
+    def property_operand_flags(self) -> str:
+        operands = [
+            f"LOOM_SPIRV_COOPERATIVE_MATRIX_OPERAND_{role}_SIGNED_COMPONENTS"
+            for role in self.signed_component_roles
+        ]
+        if self.saturating_accumulation:
+            operands.append(
+                "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERAND_SATURATING_ACCUMULATION"
+            )
+        return " | ".join(operands) or "0"
+
+    @property
+    def packet_operand_mask(self) -> str | None:
+        operands = [
+            "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERANDS_"
+            f"MATRIX_{role}_SIGNED_COMPONENTS_KHR_MASK"
+            for role in self.signed_component_roles
+        ]
+        if self.saturating_accumulation:
+            operands.append(
+                "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERANDS_"
+                "SATURATING_ACCUMULATION_KHR_MASK"
+            )
+        return " | ".join(operands) or None
 
     @property
     def property_name(self) -> str:
@@ -177,27 +218,6 @@ def cooperative_matrix_memory_variants(
     return memory
 
 
-_SIGNED_SATURATING_PROPERTY_OPERANDS = " | ".join(
-    (
-        "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERAND_A_SIGNED_COMPONENTS",
-        "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERAND_B_SIGNED_COMPONENTS",
-        "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERAND_C_SIGNED_COMPONENTS",
-        "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERAND_RESULT_SIGNED_COMPONENTS",
-        "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERAND_SATURATING_ACCUMULATION",
-    )
-)
-
-_SIGNED_SATURATING_PACKET_OPERANDS = " | ".join(
-    (
-        "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERANDS_MATRIX_A_SIGNED_COMPONENTS_KHR_MASK",
-        "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERANDS_MATRIX_B_SIGNED_COMPONENTS_KHR_MASK",
-        "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERANDS_MATRIX_C_SIGNED_COMPONENTS_KHR_MASK",
-        "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERANDS_MATRIX_RESULT_SIGNED_COMPONENTS_KHR_MASK",
-        "LOOM_SPIRV_COOPERATIVE_MATRIX_OPERANDS_SATURATING_ACCUMULATION_KHR_MASK",
-    )
-)
-
-
 COOPERATIVE_MATRIX_CASES = (
     *(
         CooperativeMatrixCase(
@@ -242,56 +262,35 @@ COOPERATIVE_MATRIX_CASES = (
             "bfloat16_cooperative_matrix_khr",
         ),
     ),
-    CooperativeMatrixCase(
-        element="s8",
-        lhs_source_type="i8",
-        rhs_source_type="i8",
-        accumulator_source_type="i32",
-        result_source_type="i32",
-        accumulator="s32",
-        m_size=16,
-        n_size=16,
-        k_size=32,
-        lhs_rows=16,
-        lhs_columns=32,
-        rhs_rows=32,
-        rhs_columns=16,
-        accumulator_rows=16,
-        accumulator_columns=16,
-        feature_atoms=(
-            "cooperative_matrix_khr",
-            "int8",
-        ),
-        property_storage_flags="STORAGE_BUFFER_OR_BDA",
-        operand_mode="signed_saturating",
-        property_operand_flags=_SIGNED_SATURATING_PROPERTY_OPERANDS,
-        packet_operand_mask=_SIGNED_SATURATING_PACKET_OPERANDS,
-    ),
-    CooperativeMatrixCase(
-        element="u8",
-        lhs_source_type="i8",
-        rhs_source_type="i8",
-        accumulator_source_type="i32",
-        result_source_type="i32",
-        accumulator="u32",
-        m_size=16,
-        n_size=16,
-        k_size=32,
-        lhs_rows=16,
-        lhs_columns=32,
-        rhs_rows=32,
-        rhs_columns=16,
-        accumulator_rows=16,
-        accumulator_columns=16,
-        feature_atoms=(
-            "cooperative_matrix_khr",
-            "int8",
-        ),
-        lhs_scalar_suffix="u8",
-        rhs_scalar_suffix="u8",
-        accumulator_scalar_suffix="u32",
-        result_scalar_suffix="u32",
-        property_storage_flags="STORAGE_BUFFER_OR_BDA",
+    *(
+        CooperativeMatrixCase(
+            element=lhs_name if lhs == rhs else f"{lhs_name}_{rhs_name}",
+            lhs_source_type="i8",
+            rhs_source_type="i8",
+            accumulator_source_type="i32",
+            result_source_type="i32",
+            accumulator=accumulator_name,
+            m_size=16,
+            n_size=16,
+            k_size=reduction,
+            lhs_rows=16,
+            lhs_columns=reduction,
+            rhs_rows=reduction,
+            rhs_columns=16,
+            accumulator_rows=16,
+            accumulator_columns=16,
+            feature_atoms=("cooperative_matrix_khr", "int8"),
+            lhs_scalar_suffix=lhs,
+            rhs_scalar_suffix=rhs,
+            accumulator_scalar_suffix=accumulator,
+            result_scalar_suffix=accumulator,
+            saturating_accumulation=saturating,
+        )
+        for reduction in (16, 32)
+        for lhs_name, lhs in (("s8", "i8"), ("u8", "u8"))
+        for rhs_name, rhs in (("s8", "i8"), ("u8", "u8"))
+        for accumulator_name, accumulator in (("s32", "i32"), ("u32", "u32"))
+        for saturating in (False, True)
     ),
 )
 

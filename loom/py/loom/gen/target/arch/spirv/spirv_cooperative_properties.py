@@ -79,7 +79,7 @@ def _matrix_property_row(case: CooperativeMatrixCase) -> list[str]:
         f"        .result_type = {case.result_scalar.scalar_enum},",
         "        .scope = LOOM_SPIRV_SCOPE_SUBGROUP,",
         "        .layout_flags = MATRIX_LAYOUT_ANY,",
-        f"        .storage_class_flags = {case.property_storage_flags},",
+        "        .storage_class_flags = MATRIX_STORAGE_ANY,",
         f"        .operand_flags = {case.property_operand_flags},",
         (f"        .mul_add_descriptor_ref = {_descriptor_ref_constant_name(_mul_add_descriptor_key(case))},"),
         "    },",

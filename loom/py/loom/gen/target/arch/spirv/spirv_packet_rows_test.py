@@ -391,6 +391,34 @@ def test_cooperative_constructors_use_one_exact_scalar_component() -> None:
         assert value.use_c_expression in row.result_type
 
 
+def test_integer_matrix_packets_keep_independent_signs_and_saturation() -> None:
+    rows = {row.descriptor_key: row for row in _packet_rows()}
+    # A, B, C, and Result use independent signed-component bits in SPIR-V.
+    interpretations = (
+        ("s8", "s32", ("S8", "S8", "S32"), ("A", "B", "C", "RESULT")),
+        ("s8", "u32", ("S8", "S8", "U32"), ("A", "B")),
+        ("s8_u8", "s32", ("S8", "U8", "S32"), ("A", "C", "RESULT")),
+        ("s8_u8", "u32", ("S8", "U8", "U32"), ("A",)),
+        ("u8_s8", "s32", ("U8", "S8", "S32"), ("B", "C", "RESULT")),
+        ("u8_s8", "u32", ("U8", "S8", "U32"), ("B",)),
+        ("u8", "s32", ("U8", "U8", "S32"), ("C", "RESULT")),
+        ("u8", "u32", ("U8", "U8", "U32"), ()),
+    )
+    for element, accumulator, types, signed_roles in interpretations:
+        for reduction in (16, 32):
+            for saturating in (False, True):
+                mode = ".saturating" if saturating else ""
+                key = f"spirv.op_cooperative_matrix_mul_add_khr.{element}.m16n16k{reduction}.{accumulator}.subgroup{mode}"
+                row = rows[key]
+                flags = [f"LOOM_SPIRV_COOPERATIVE_MATRIX_OPERANDS_MATRIX_{role}_SIGNED_COMPONENTS_KHR_MASK" for role in signed_roles]
+                if saturating:
+                    flags.append("LOOM_SPIRV_COOPERATIVE_MATRIX_OPERANDS_SATURATING_ACCUMULATION_KHR_MASK")
+                assert row.cooperative_matrix_operands == (" | ".join(flags) or None)
+                for value, scalar in zip(row.operand_types, types, strict=True):
+                    assert f".scalar_type = LOOM_SPIRV_SCALAR_TYPE_{scalar}," in value
+                assert row.result_type == row.operand_types[2]
+
+
 def test_generation_offsets_storage_buffer_address_before_pointer_conversion() -> None:
     access_row = _packet_row("spirv.op_ptr_access_chain.storage_buffer.f32.byte_offset")
     assert access_row.opcode == "LOOM_SPIRV_OP_CONVERT_U_TO_PTR"

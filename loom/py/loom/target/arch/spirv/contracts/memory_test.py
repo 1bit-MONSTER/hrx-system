@@ -93,6 +93,8 @@ def test_cooperative_memory_uses_logical_shapes_without_carrier_widths() -> None
         for scalar, element, rows, columns, roles in (
             ("f16", "f16", 16, 16, ("lhs", "rhs", "init", "result")),
             ("bf16", "bf16", 16, 16, ("lhs", "rhs")),
+            ("i8", "i8", 16, 16, ("lhs", "rhs")),
+            ("u8", "i8", 16, 16, ("lhs", "rhs")),
             ("i8", "i8", 16, 32, ("lhs",)),
             ("i8", "i8", 32, 16, ("rhs",)),
             ("u8", "i8", 16, 32, ("lhs",)),
@@ -128,7 +130,13 @@ def test_cooperative_memory_uses_the_retained_allocation_carrier() -> None:
             "spirv.ptr.workgroup.array."
         )
         layout = rule.emit[-1].immediates["memory_layout"]
-        signature = (rule.descriptor.key.split(".")[3], role, carrier, layout)
+        signature = (
+            rule.descriptor.key.split(".")[3],
+            rule.descriptor.key.split(".")[4],
+            role,
+            carrier,
+            layout,
+        )
         assert signature not in signatures
         signatures.add(signature)
         for step in rule.emit:
@@ -150,7 +158,7 @@ def test_cooperative_memory_uses_the_retained_allocation_carrier() -> None:
             }[carrier]
         )
     expected = {
-        (scalar, role, carrier, layout)
+        (scalar, shape, role, carrier, layout)
         for scalar, roles, carriers in (
             ("f16", ("lhs", "rhs", "init", "result"), ("f16", "i16")),
             ("bf16", ("lhs", "rhs"), ("bf16", "i16")),
@@ -161,6 +169,11 @@ def test_cooperative_memory_uses_the_retained_allocation_carrier() -> None:
             ("u32", ("init", "result"), ("u32", "i32")),
         )
         for role in roles
+        for shape in (
+            ("16x16", "16x32" if role == "lhs" else "32x16")
+            if scalar in ("i8", "u8")
+            else ("16x16",)
+        )
         for carrier in carriers
         for layout in (0, 1)
     }

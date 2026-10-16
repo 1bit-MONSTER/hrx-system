@@ -1,4 +1,4 @@
-// Uniform constructors cover every declared cooperative matrix family.
+// Uniform constructors cover floating-point and integer cooperative matrices.
 // Carrier widths vary independently of subgroup width. The full output tile
 // checks K*a*b+c, with modulo-2^32 accumulation for the unsigned payload.
 config.decl @initializer.carrier_width : %value: index where [range(%value, 1, 8)]
@@ -273,7 +273,7 @@ kernel.def target(@wave32) @uniform_matrix_s8_constant_32() {
 check.case @uniform_matrix_s8_constant_32_case {
   check.requires<hal.vulkan.feature> {feature = "cooperative_matrix_khr"}
   check.requires<hal.vulkan.feature> {feature = "shader_int8"}
-  check.requires<hal.spirv.cooperative_matrix> {row = "khr.cooperative_matrix.s8.16x16x32.s32.subgroup.signed_saturating"}
+  check.requires<hal.spirv.cooperative_matrix> {row = "khr.cooperative_matrix.s8.16x16x32.s32.subgroup.saturating"}
   %output = check.generate.fill value(19) : tensor<16x16xi32>
   %expected = check.generate.fill value(-185) : tensor<16x16xi32>
   kernel.launch @uniform_matrix_s8_constant_32(%output) : (tensor<16x16xi32>)
@@ -293,7 +293,7 @@ kernel.def target(@wave32) @uniform_matrix_s8_runtime_32() {
 check.case @uniform_matrix_s8_runtime_32_case {
   check.requires<hal.vulkan.feature> {feature = "cooperative_matrix_khr"}
   check.requires<hal.vulkan.feature> {feature = "shader_int8"}
-  check.requires<hal.spirv.cooperative_matrix> {row = "khr.cooperative_matrix.s8.16x16x32.s32.subgroup.signed_saturating"}
+  check.requires<hal.spirv.cooperative_matrix> {row = "khr.cooperative_matrix.s8.16x16x32.s32.subgroup.saturating"}
   %output = check.generate.fill value(19) : tensor<16x16xi32>
   %expected = check.generate.fill value(-185) : tensor<16x16xi32>
   %a = check.literal value(-2) : i8
@@ -319,7 +319,7 @@ kernel.def target(@wave64) @uniform_matrix_s8_constant_64() {
 check.case @uniform_matrix_s8_constant_64_case {
   check.requires<hal.vulkan.feature> {feature = "cooperative_matrix_khr"}
   check.requires<hal.vulkan.feature> {feature = "shader_int8"}
-  check.requires<hal.spirv.cooperative_matrix> {row = "khr.cooperative_matrix.s8.16x16x32.s32.subgroup.signed_saturating"}
+  check.requires<hal.spirv.cooperative_matrix> {row = "khr.cooperative_matrix.s8.16x16x32.s32.subgroup.saturating"}
   %output = check.generate.fill value(19) : tensor<16x16xi32>
   %expected = check.generate.fill value(-185) : tensor<16x16xi32>
   kernel.launch @uniform_matrix_s8_constant_64(%output) : (tensor<16x16xi32>)
@@ -339,7 +339,7 @@ kernel.def target(@wave64) @uniform_matrix_s8_runtime_64() {
 check.case @uniform_matrix_s8_runtime_64_case {
   check.requires<hal.vulkan.feature> {feature = "cooperative_matrix_khr"}
   check.requires<hal.vulkan.feature> {feature = "shader_int8"}
-  check.requires<hal.spirv.cooperative_matrix> {row = "khr.cooperative_matrix.s8.16x16x32.s32.subgroup.signed_saturating"}
+  check.requires<hal.spirv.cooperative_matrix> {row = "khr.cooperative_matrix.s8.16x16x32.s32.subgroup.saturating"}
   %output = check.generate.fill value(19) : tensor<16x16xi32>
   %expected = check.generate.fill value(-185) : tensor<16x16xi32>
   %a = check.literal value(-2) : i8
