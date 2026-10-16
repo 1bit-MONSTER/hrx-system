@@ -78,25 +78,6 @@ _API_CONFIG_CMAKE_OPTIONS = {
     "//build_tools/d3d12/config:available": "IREE_D3D12_AVAILABLE",
 }
 
-_LOOM_CONFIG_CMAKE_OPTIONS = {
-    "//loom/config/serve:audio_decoding": "LOOM_SERVE_AUDIO_DECODING",
-    "//loom/config/serve:wav": "LOOM_SERVE_AUDIO_CODEC_WAV",
-    "//loom/config/serve:mp3": "LOOM_SERVE_AUDIO_CODEC_MP3",
-    "//loom/config/serve:flac": "LOOM_SERVE_AUDIO_CODEC_FLAC",
-    "//loom/config/serve:image_input_enabled": "LOOM_BUILD AND LOOM_SERVE_IMAGE_INPUT",
-    "//loom/config/serve:png": "LOOM_SERVE_IMAGE_CODEC_PNG",
-    "//loom/config/serve:jpeg": "LOOM_SERVE_IMAGE_CODEC_JPEG",
-    "//loom/config/serve:gif": "LOOM_SERVE_IMAGE_CODEC_GIF",
-    "//loom/config/serve:webp": "LOOM_SERVE_IMAGE_CODEC_WEBP",
-    "//loom/config/import:cxx": "LOOM_IMPORT_CXX",
-    "//loom/config/import/cxx:embed_includes_enabled": "LOOM_IMPORT_CXX_EMBED_INCLUDES",
-    "//loom/config/target:amdgpu_artifacts": "LOOM_BUILD AND LOOM_TARGET_ARCH_AMDGPU AND LOOM_EMIT_AMDGPU",
-    "//loom/config/target:spirv_artifacts": "LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV",
-    "//loom/config/target:spirv_vulkan_artifacts": "LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND IREE_HAL_DRIVER_VULKAN",
-    "//loom/config/target:wasm_artifacts": "LOOM_BUILD AND LOOM_TARGET_ARCH_WASM AND LOOM_EMIT_WASM",
-    "//loom/config/target:xdna_artifacts": "LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA",
-}
-
 
 def _append_unique_condition(conditions, condition):
     if condition and condition not in conditions:
@@ -202,9 +183,11 @@ class BuildFileFunctions(object):
         targets: bazel_to_cmake_targets.TargetConverter,
         build_dir: str,
         repo_root: str = "",
+        condition_mappings=None,
     ):
         self._converter = converter
         self._targets = targets
+        self._condition_mappings = condition_mappings or {}
         self._repo_root = os.path.abspath(repo_root) if repo_root else ""
         if self._repo_root and build_dir and not os.path.isabs(build_dir):
             self._build_dir = os.path.join(self._repo_root, build_dir)
@@ -303,10 +286,10 @@ class BuildFileFunctions(object):
         if condition:
             return condition
         return (
-            _COMPILER_CMAKE_OPTIONS.get(label)
+            self._condition_mappings.get(label)
+            or _COMPILER_CMAKE_OPTIONS.get(label)
             or _RUNTIME_HAL_DRIVER_CMAKE_OPTIONS.get(label)
             or _API_CONFIG_CMAKE_OPTIONS.get(label)
-            or _LOOM_CONFIG_CMAKE_OPTIONS.get(label)
         )
 
     def _condition_select_compatibility_condition(self, condition_select):
@@ -3042,6 +3025,7 @@ def convert_build_file(
         targets=target_converter,
         build_dir=build_dir,
         repo_root=repo_root,
+        condition_mappings=bazel_to_cmake_config.collect_condition_mappings(repo_cfg),
     )
 
     exec_namespace = GetDict(build_file_functions)

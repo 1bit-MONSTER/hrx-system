@@ -12,6 +12,19 @@ package(
 )
 
 py_test(
+    name = "bazel_to_cmake_config_test",
+    srcs = ["bazel_to_cmake/config_test.py"],
+    data = [
+        "bazel_to_cmake/loom_corpus.py",
+        "//:loom/.bazel_to_cmake.cfg.py",
+        "//loom/build_tools/amdgpu:target_config.bzl",
+    ],
+    main = "bazel_to_cmake/config_test.py",
+    tags = ["manual"],
+    deps = ["//build_tools/bazel_to_cmake:converter"],
+)
+
+py_test(
     name = "presubmit_test",
     size = "small",
     srcs = [
@@ -53,6 +66,7 @@ test_suite(
     name = "presubmit_tests",
     tags = ["manual"],
     tests = [
+        ":bazel_to_cmake_config_test",
         ":loom_source_lint_self_test",
         ":presubmit_test",
         "//loom/build_tools/hygiene:presubmit_tests",

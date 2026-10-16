@@ -23,6 +23,7 @@ class ProjectConfig:
         package_prefixes,
         build_file_functions=None,
         target_mappings=None,
+        condition_mappings=None,
         convert_unmatched_target=None,
     ):
         self.name = name
@@ -31,6 +32,8 @@ class ProjectConfig:
         )
         self.build_file_functions = build_file_functions
         self.target_mappings = dict(target_mappings or {})
+        # Conditions are owned by their defining project, not the BUILD consumer.
+        self.condition_mappings = dict(condition_mappings or {})
         self.convert_unmatched_target = convert_unmatched_target
 
     def match_length(self, repo_relative_path):
@@ -95,6 +98,14 @@ def include_projects(root_config_file, relative_paths):
 
 def get_projects(repo_cfg):
     return tuple(getattr(repo_cfg, "PROJECTS", ()))
+
+
+def collect_condition_mappings(repo_cfg):
+    """Collects project-owned select conditions for cross-project consumers."""
+    conditions = dict(getattr(repo_cfg, "CONDITION_MAPPINGS", {}))
+    for project in get_projects(repo_cfg):
+        conditions.update(project.condition_mappings)
+    return conditions
 
 
 def select_build_file_functions(repo_cfg, build_dir, repo_root, default_class):

@@ -19,7 +19,6 @@ import bazel_to_cmake_config
 import bazel_to_cmake_converter
 import bazel_to_cmake_requirements
 import bazel_to_cmake_targets
-from loom_binary import LoomBinaryBuildFileFunctions
 
 
 class _PythonBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
@@ -27,75 +26,46 @@ class _PythonBuildFileFunctions(bazel_to_cmake_converter.BuildFileFunctions):
         return True
 
 
-class _LoomBinaryBuildFileFunctions(
-    LoomBinaryBuildFileFunctions, bazel_to_cmake_converter.BuildFileFunctions
-):
-    pass
-
-
 class ConfigTest(unittest.TestCase):
-    def test_loom_image_provider_selection_survives_conversion(self):
-        converter = SimpleNamespace(body="")
-        functions = bazel_to_cmake_converter.BuildFileFunctions(
-            converter=converter,
-            targets=bazel_to_cmake_targets.TargetConverter(repo_map={"@hrx": ""}),
-            build_dir="/repo/loom/src/loom/serve/media",
-            repo_root="/repo",
-        )
-        functions.cc_library(
-            name="image_codecs",
-            srcs=["image_codecs.c"],
-            deps=functions.select(
-                {
-                    "//loom/config/serve:png": ["//third_party:libpng"],
-                    "//conditions:default": [],
-                }
-            ),
-        )
-        self.assertIn("if(LOOM_SERVE_IMAGE_CODEC_PNG)", converter.body)
-        self.assertIn("iree::third_party::libpng", converter.body)
-
-    def test_loom_audio_decoder_selection_survives_conversion(self):
-        converter = SimpleNamespace(body="")
-        functions = bazel_to_cmake_converter.BuildFileFunctions(
-            converter=converter,
-            targets=bazel_to_cmake_targets.TargetConverter(repo_map={"@hrx": ""}),
-            build_dir="/repo/loom/src/loom/serve/media",
-            repo_root="/repo",
-        )
-        functions.cc_library(
-            name="audio_decoder",
-            srcs=functions.select(
-                {
-                    "//loom/config/serve:audio_decoding": ["audio_decoder.c"],
-                    "//conditions:default": ["audio_decoder_disabled.c"],
-                }
-            ),
-            deps=functions.select(
-                {
-                    "//loom/config/serve:audio_decoding": ["//third_party:miniaudio"],
-                    "//conditions:default": [],
-                }
-            ),
-        )
-        self.assertIn("if(LOOM_SERVE_AUDIO_DECODING)", converter.body)
-        self.assertIn("iree::third_party::miniaudio", converter.body)
-        self.assertIn('"audio_decoder.c"', converter.body)
-        self.assertIn('"audio_decoder_disabled.c"', converter.body)
-        for codec in ("wav", "mp3", "flac"):
-            converter.body = ""
-            functions.cc_library(
-                name="selection",
-                defines=functions.select(
-                    {
-                        "//loom/config/serve:" + codec: ["ENABLED=1"],
-                        "//conditions:default": ["ENABLED=0"],
-                    }
+    def test_project_conditions_reach_other_project_consumers(self):
+        repo_cfg = SimpleNamespace(
+            REPO_MAP={"@hrx": ""},
+            CONDITION_MAPPINGS={"//config:enabled": "REPO_ENABLED"},
+            PROJECTS=[
+                bazel_to_cmake_config.ProjectConfig(
+                    name="producer",
+                    package_prefixes=["producer"],
+                    condition_mappings={
+                        "//producer/config:enabled": "PRODUCER_ENABLED",
+                    },
                 ),
-            )
-            self.assertIn(
-                "if(LOOM_SERVE_AUDIO_CODEC_" + codec.upper() + ")", converter.body
-            )
+                bazel_to_cmake_config.ProjectConfig(
+                    name="consumer", package_prefixes=["consumer"]
+                ),
+            ],
+        )
+        output = bazel_to_cmake_converter.convert_build_file(
+            """
+cc_library(
+    name = "consumer",
+    srcs = select({
+        "//producer/config:enabled": ["enabled.c"],
+        "//conditions:default": ["disabled.c"],
+    }),
+    target_compatible_with = select({
+        "//config:enabled": [],
+        "//conditions:default": ["@platforms//:incompatible"],
+    }),
+)
+""",
+            repo_cfg,
+            "/repo/consumer",
+            repo_root="/repo",
+        )
+        self.assertIn("if(PRODUCER_ENABLED)", output)
+        self.assertIn('"enabled.c"', output)
+        self.assertIn('"disabled.c"', output)
+        self.assertIn("if(REPO_ENABLED)", output)
 
     def test_gpu_image_targets_use_their_own_driver_selection(self):
         cases = (
@@ -121,108 +91,6 @@ class ConfigTest(unittest.TestCase):
                 )
                 self.assertIn("TARGETS\n    ${" + variable + "}", converter.body)
                 self.assertNotIn("${" + other_variable + "}", converter.body)
-
-    def test_loom_kernel_projects_profile_roots_configs_and_library_edges(self):
-        converter = SimpleNamespace(body="")
-        functions = _LoomBinaryBuildFileFunctions(
-            converter=converter,
-            targets=bazel_to_cmake_targets.TargetConverter(repo_map={"@hrx": ""}),
-            build_dir="/repo/programs",
-            repo_root="/repo",
-        )
-        compatibility = functions.select(
-            {
-                "//loom/config/target:xdna_artifacts": [],
-                "//conditions:default": ["@platforms//:incompatible"],
-            }
-        )
-        functions.loom_target_profile(
-            name="npu4",
-            family="amd.xdna.aie2p",
-            selector="amd.xdna.strix.17f0_10",
-            target_compatible_with=compatibility,
-        )
-        functions.loom_kernel_binary(
-            name="mul",
-            srcs=["z.loom", "a.loom"],
-            deps=[":z_library", ":a_library"],
-            roots=["@second", "@first"],
-            configs={"z.limit": "16", "a.value": "3"},
-            target=":npu4",
-            out="mul.xdna",
-            testonly=True,
-            target_compatible_with=compatibility,
-        )
-        self.assertIn('FAMILY\n    "amd.xdna.aie2p"', converter.body)
-        self.assertIn('SELECTOR\n    "amd.xdna.strix.17f0_10"', converter.body)
-        self.assertIn(
-            "REQUIRES\n    LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA",
-            converter.body,
-        )
-        self.assertIn(
-            "if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)",
-            converter.body,
-        )
-        self.assertIn('COMPONENT\n    "//programs:mul"', converter.body)
-        self.assertIn('SRCS\n    "z.loom"\n    "a.loom"', converter.body)
-        self.assertIn("LIBRARIES\n    ::z_library\n    ::a_library", converter.body)
-        self.assertIn('ROOTS\n    "@second"\n    "@first"', converter.body)
-        self.assertIn('CONFIGS\n    "a.value=3"\n    "z.limit=16"', converter.body)
-        self.assertIn("  TESTONLY\n", converter.body)
-
-    def test_loom_kernel_outputs_reach_embedding_by_rule_or_output_label(self):
-        converter = SimpleNamespace(body="")
-        functions = _LoomBinaryBuildFileFunctions(
-            converter=converter,
-            targets=bazel_to_cmake_targets.TargetConverter(repo_map={"@hrx": ""}),
-            build_dir="/repo/programs",
-            repo_root="/repo",
-        )
-        functions.loom_kernel_binary(
-            name="mul", srcs=["mul.loom"], target=":npu4", out="mul.xdna"
-        )
-        functions.loom_kernel_binary(
-            name="deps_only", deps=[":library"], target=":npu4"
-        )
-        self.assertNotIn("  ROOTS\n", converter.body)
-        self.assertNotIn("  CONFIGS\n", converter.body)
-        self.assertIn('OUTPUT\n    "deps_only"', converter.body)
-        for source in (":mul", ":mul.xdna"):
-            with self.subTest(source=source):
-                converter.body = ""
-                functions.iree_c_embed_data(
-                    name="embedded",
-                    srcs=[source],
-                    c_file_output="embedded.c",
-                    h_file_output="embedded.h",
-                    testonly=True,
-                )
-                self.assertIn('"${CMAKE_CURRENT_BINARY_DIR}/mul.xdna"', converter.body)
-                self.assertNotIn("$<TARGET_FILE:", converter.body)
-
-    def test_loom_rules_are_available_to_other_project_converters(self):
-        repo_cfg = SimpleNamespace(
-            PROJECTS=[],
-            REPO_MAP={"@hrx": ""},
-            CustomBuildFileFunctions=_LoomBinaryBuildFileFunctions,
-        )
-        output = bazel_to_cmake_converter.convert_build_file(
-            """
-load("//loom/build_tools/bazel:defs.bzl", "loom_kernel_binary", "loom_library", "loom_target_profile")
-loom_library(name="support", srcs=["support.cxx"])
-loom_target_profile(name="profile", family="amd.xdna.aie2p", selector="exact")
-loom_kernel_binary(name="program", srcs=["program.loom"], deps=[":support"], target=":profile")
-""",
-            repo_cfg,
-            "/repo/consumer",
-            repo_root="/repo",
-        )
-        self.assertIn("loom_module(", output)
-        self.assertIn("  NAME\n    support", output)
-        self.assertIn("loom_target_profile(", output)
-        self.assertIn("loom_kernel_binary(", output)
-        self.assertIn("  LIBRARIES\n    ::support", output)
-        self.assertIn('OUTPUT\n    "program"', output)
 
     def test_selects_longest_matching_project_for_build_path(self):
         runtime = bazel_to_cmake_config.ProjectConfig(
@@ -1444,39 +1312,6 @@ iree_execution_test_suite(
         self.assertIn('if(IREE_ARCH STREQUAL "wasm_32")', converter.body)
         self.assertIn("iree_execution_test_suite(", converter.body)
         self.assertIn("endif()", converter.body)
-
-    def test_loom_artifact_execution_requires_compiler_project(self):
-        converter = SimpleNamespace(body="")
-        functions = bazel_to_cmake_converter.BuildFileFunctions(
-            converter=converter,
-            targets=bazel_to_cmake_config.ProjectTargetConverter(
-                repo_map={"@hrx": ""},
-                projects=[],
-                target_mappings={
-                    "//loom/src/loom/tools/loom-compile": ["loom::tools::loom-compile"],
-                },
-            ),
-            build_dir="/repo/experimental/xdna/cts",
-            repo_root="/repo",
-        )
-
-        functions.iree_execution_test_suite(
-            name="integer_shifts_test",
-            manifests=["integer_shifts.test.json"],
-            tools={"loom-compile": "//loom/src/loom/tools/loom-compile"},
-            target_compatible_with=functions.select(
-                {
-                    "//loom/config/target:xdna_artifacts": [],
-                    "//conditions:default": ["@platforms//:incompatible"],
-                }
-            ),
-        )
-
-        self.assertIn(
-            "if(LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA)",
-            converter.body,
-        )
-        self.assertIn("loom-compile=", converter.body)
 
     def test_execution_test_suite_emits_resource_group(self):
         converter = SimpleNamespace(body="")
