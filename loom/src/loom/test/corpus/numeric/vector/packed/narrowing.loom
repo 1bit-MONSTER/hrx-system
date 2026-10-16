@@ -196,84 +196,164 @@ check.scenario @odd_width_bitstream_values {
   check.return
 }
 
-// Clamps one native packet to the signed i4 range before packing. Four
-// scenario invocations cover the complete byte domain.
-func.def @saturating_nibble_pack(%input: buffer, %output: buffer) {
-  %base = index.constant 0 : offset
-  %aligned_input = buffer.assume.alignment %input {minimum_alignment = 64} : buffer
-  %aligned_output = buffer.assume.alignment %output {minimum_alignment = 64} : buffer
-  %inputs = buffer.view %aligned_input[%base] : buffer -> view<64xi8>
-  %outputs = buffer.view %aligned_output[%base] : buffer -> view<32xi8>
-  %lower64 = vector.constant -8 : vector<64xi8>
-  %upper64 = vector.constant 7 : vector<64xi8>
-  %values64 = vector.load %inputs[0] : view<64xi8> -> vector<64xi8>
-  %above_lower64 = vector.maxsi %values64, %lower64 : vector<64xi8>
-  %clamped64 = vector.minsi %above_lower64, %upper64 : vector<64xi8>
-  %packed64 = vector.bitpack<4> %clamped64 : vector<64xi8> -> vector<32xi8>
-  vector.store %packed64, %outputs[0] : vector<32xi8>, view<32xi8>
+func.def @saturating_nibble_pack64(%input: buffer, %output: buffer) {
+  %source, %destination = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %origin = index.constant 0 : offset
+  %input_view = buffer.view %source[%origin] : buffer -> view<256xi8>
+  %output_view = buffer.view %destination[%origin] : buffer -> view<384xi8>
+  %guard = vector.constant -91 : vector<64xi8>
+  vector.store %guard, %output_view[0] : vector<64xi8>, view<384xi8>
+  vector.store %guard, %output_view[320] : vector<64xi8>, view<384xi8>
+  %lower = vector.constant -8 : vector<64xi8>
+  %upper = vector.constant 7 : vector<64xi8>
+  %values_0 = vector.load %input_view[0] : view<256xi8> -> vector<64xi8>
+  %lower_clamped_0 = vector.maxsi %values_0, %lower : vector<64xi8>
+  %clamped_0 = vector.minsi %lower_clamped_0, %upper : vector<64xi8>
+  %saturated_0 = vector.bitpack<4> %clamped_0 : vector<64xi8> -> vector<32xi8>
+  vector.store %saturated_0, %output_view[64] : vector<32xi8>, view<384xi8>
+  %truncated_0 = vector.bitpack<4> %values_0 : vector<64xi8> -> vector<32xi8>
+  vector.store %truncated_0, %output_view[192] : vector<32xi8>, view<384xi8>
+  %values_1 = vector.load %input_view[64] : view<256xi8> -> vector<64xi8>
+  %lower_clamped_1 = vector.maxsi %lower, %values_1 : vector<64xi8>
+  %clamped_1 = vector.minsi %lower_clamped_1, %upper : vector<64xi8>
+  %saturated_1 = vector.bitpack<4> %clamped_1 : vector<64xi8> -> vector<32xi8>
+  vector.store %saturated_1, %output_view[96] : vector<32xi8>, view<384xi8>
+  %truncated_1 = vector.bitpack<4> %values_1 : vector<64xi8> -> vector<32xi8>
+  vector.store %truncated_1, %output_view[224] : vector<32xi8>, view<384xi8>
+  %values_2 = vector.load %input_view[128] : view<256xi8> -> vector<64xi8>
+  %lower_clamped_2 = vector.maxsi %values_2, %lower : vector<64xi8>
+  %clamped_2 = vector.minsi %upper, %lower_clamped_2 : vector<64xi8>
+  %saturated_2 = vector.bitpack<4> %clamped_2 : vector<64xi8> -> vector<32xi8>
+  vector.store %saturated_2, %output_view[128] : vector<32xi8>, view<384xi8>
+  %truncated_2 = vector.bitpack<4> %values_2 : vector<64xi8> -> vector<32xi8>
+  vector.store %truncated_2, %output_view[256] : vector<32xi8>, view<384xi8>
+  %values_3 = vector.load %input_view[192] : view<256xi8> -> vector<64xi8>
+  %lower_clamped_3 = vector.maxsi %lower, %values_3 : vector<64xi8>
+  %clamped_3 = vector.minsi %upper, %lower_clamped_3 : vector<64xi8>
+  %saturated_3 = vector.bitpack<4> %clamped_3 : vector<64xi8> -> vector<32xi8>
+  vector.store %saturated_3, %output_view[160] : vector<32xi8>, view<384xi8>
+  %truncated_3 = vector.bitpack<4> %values_3 : vector<64xi8> -> vector<32xi8>
+  vector.store %truncated_3, %output_view[288] : vector<32xi8>, view<384xi8>
   func.return
 }
 
-func.def @saturating_nibble_pack_oracle(%input: buffer, %output: buffer) {
-  %base = index.constant 0 : offset
+func.def @saturating_nibble_pack128(%input: buffer, %output: buffer) {
+  %source, %destination = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %origin = index.constant 0 : offset
+  %input_view = buffer.view %source[%origin] : buffer -> view<256xi8>
+  %output_view = buffer.view %destination[%origin] : buffer -> view<384xi8>
+  %guard = vector.constant -91 : vector<64xi8>
+  vector.store %guard, %output_view[0] : vector<64xi8>, view<384xi8>
+  vector.store %guard, %output_view[320] : vector<64xi8>, view<384xi8>
+  %lower = vector.constant -8 : vector<128xi8>
+  %upper = vector.constant 7 : vector<128xi8>
+  %values_0 = vector.load %input_view[0] : view<256xi8> -> vector<128xi8>
+  %upper_clamped_0 = vector.minsi %values_0, %upper : vector<128xi8>
+  %clamped_0 = vector.maxsi %upper_clamped_0, %lower : vector<128xi8>
+  %saturated_0 = vector.bitpack<4> %clamped_0 : vector<128xi8> -> vector<64xi8>
+  vector.store %saturated_0, %output_view[64] : vector<64xi8>, view<384xi8>
+  %truncated_0 = vector.bitpack<4> %values_0 : vector<128xi8> -> vector<64xi8>
+  vector.store %truncated_0, %output_view[192] : vector<64xi8>, view<384xi8>
+  %values_1 = vector.load %input_view[128] : view<256xi8> -> vector<128xi8>
+  %upper_clamped_1 = vector.minsi %upper, %values_1 : vector<128xi8>
+  %clamped_1 = vector.maxsi %lower, %upper_clamped_1 : vector<128xi8>
+  %saturated_1 = vector.bitpack<4> %clamped_1 : vector<128xi8> -> vector<64xi8>
+  vector.store %saturated_1, %output_view[128] : vector<64xi8>, view<384xi8>
+  %truncated_1 = vector.bitpack<4> %values_1 : vector<128xi8> -> vector<64xi8>
+  vector.store %truncated_1, %output_view[256] : vector<64xi8>, view<384xi8>
+  func.return
+}
+
+// Odd multipliers visit every signed byte pattern with different neighbors.
+func.def @generate_pack_input(%trial: index, %input: buffer) {
+  %origin = index.constant 0 : offset
+  %destination = buffer.view %input[%origin] : buffer -> view<256xi8>
   %begin = index.constant 0 : index
-  %end = index.constant 32 : index
+  %end = index.constant 256 : index
+  %step = index.constant 1 : index
+  %record = index.cast %trial : index to i32
+  %c1 = scalar.constant 1 : i32
+  %c2 = scalar.constant 2 : i32
+  %c37 = scalar.constant 37 : i32
+  %c128 = scalar.constant 128 : i32
+  %scaled = scalar.muli %record, %c2 : i32
+  %multiplier = scalar.addi %scaled, %c1 : i32
+  %record_bias = scalar.muli %record, %c37 : i32
+  %bias = scalar.subi %record_bias, %c128 : i32
+  scf.for %i = [%begin to %end step %step] {
+    %position = index.cast %i : index to i32
+    %product = scalar.muli %position, %multiplier : i32
+    %value = scalar.addi %product, %bias : i32
+    %byte = scalar.trunci %value : i32 to i8
+    view.store %byte, %destination[%i] : i8, view<256xi8>
+  }
+  func.return
+}
+
+func.def @pack_reference(%input: buffer, %output: buffer) {
+  %origin = index.constant 0 : offset
+  %source = buffer.view %input[%origin] : buffer -> view<256xi8>
+  %destination = buffer.view %output[%origin] : buffer -> view<384xi8>
+  %begin = index.constant 0 : index
+  %output_length = index.constant 384 : index
+  %pairs = index.constant 128 : index
   %step = index.constant 1 : index
   %pair_width = index.constant 2 : index
-  %inputs = buffer.view %input[%base] : buffer -> view<64xi8>
-  %outputs = buffer.view %output[%base] : buffer -> view<32xi8>
+  %saturated_origin = index.constant 64 : index
+  %truncated_origin = index.constant 192 : index
+  %sentinel = scalar.constant -91 : i8
   %lower = scalar.constant -8 : i8
   %upper = scalar.constant 7 : i8
   %mask = scalar.constant 15 : i8
   %shift = scalar.constant 4 : i8
-  scf.for %result_position = [%begin to %end step %step] {
-    %even_position = index.mul %result_position, %pair_width : index
-    %odd_position = index.add %even_position, %step : index
-    %even = view.load %inputs[%even_position] : view<64xi8> -> i8
-    %odd = view.load %inputs[%odd_position] : view<64xi8> -> i8
-    %even_above_lower = scalar.maxsi %even, %lower : i8
-    %even_clamped = scalar.minsi %even_above_lower, %upper : i8
-    %odd_above_lower = scalar.maxsi %odd, %lower : i8
-    %odd_clamped = scalar.minsi %odd_above_lower, %upper : i8
-    %low_nibble = scalar.andi %even_clamped, %mask : i8
-    %high_nibble = scalar.shli %odd_clamped, %shift : i8
-    %packed = scalar.ori %low_nibble, %high_nibble : i8
-    view.store %packed, %outputs[%result_position] : i8, view<32xi8>
+  scf.for %i = [%begin to %output_length step %step] {
+    view.store %sentinel, %destination[%i] : i8, view<384xi8>
+  }
+  scf.for %i = [%begin to %pairs step %step] {
+    %first_position = index.mul %i, %pair_width : index
+    %second_position = index.add %first_position, %step : index
+    %first = view.load %source[%first_position] : view<256xi8> -> i8
+    %second = view.load %source[%second_position] : view<256xi8> -> i8
+    %first_above = scalar.maxsi %first, %lower : i8
+    %first_clamped = scalar.minsi %first_above, %upper : i8
+    %second_above = scalar.maxsi %second, %lower : i8
+    %second_clamped = scalar.minsi %second_above, %upper : i8
+    %first_nibble = scalar.andi %first_clamped, %mask : i8
+    %second_nibble = scalar.shli %second_clamped, %shift : i8
+    %saturated = scalar.ori %first_nibble, %second_nibble : i8
+    %first_bits = scalar.andi %first, %mask : i8
+    %second_bits = scalar.shli %second, %shift : i8
+    %truncated = scalar.ori %first_bits, %second_bits : i8
+    %saturated_position = index.add %saturated_origin, %i : index
+    %truncated_position = index.add %truncated_origin, %i : index
+    view.store %saturated, %destination[%saturated_position] : i8, view<384xi8>
+    view.store %truncated, %destination[%truncated_position] : i8, view<384xi8>
   }
   func.return
 }
 
+// Both widths alternate saturation and truncation within each invocation.
 check.scenario @saturating_nibble_values {
-  check.trial[1](%trial: index, %entropy: check.entropy) {
-    %input = check.generate.iota offset(-128) step(1) : tensor<64xi8>
-    %output_storage = check.generate.fill value(91) : tensor<64xi8>
-    %output = check.tensor.view %output_storage offset(16) : tensor<64xi8> -> tensor<32xi8>
-    check.compare<@saturating_nibble_pack, @saturating_nibble_pack_oracle>(%input, %output) : (tensor<64xi8>, tensor<32xi8>) -> () {
-      check.expect.bitwise actual(%output_storage) expected(%output_storage) : tensor<64xi8>
+  check.trial[6](%trial: index, %entropy: check.entropy) {
+    %input_storage = check.generate.fill value(90) : tensor<384xi8>
+    %input = check.tensor.view %input_storage offset(64) : tensor<384xi8> -> tensor<256xi8>
+    check.generate<@generate_pack_input>(%trial, %input) : (index, tensor<256xi8>) -> ()
+    %output_storage = check.generate.fill value(-52) : tensor<512xi8>
+    %output = check.tensor.view %output_storage offset(64) : tensor<512xi8> -> tensor<384xi8>
+    check.compare<@saturating_nibble_pack64, @pack_reference>(%input, %output) : (tensor<256xi8>, tensor<384xi8>) -> () {
+      check.expect.bitwise actual(%input_storage) expected(%input_storage) : tensor<384xi8>
+      check.expect.bitwise actual(%output_storage) expected(%output_storage) : tensor<512xi8>
     }
   }
-  check.trial[1](%trial: index, %entropy: check.entropy) {
-    %input = check.generate.iota offset(-64) step(1) : tensor<64xi8>
-    %output_storage = check.generate.fill value(91) : tensor<64xi8>
-    %output = check.tensor.view %output_storage offset(16) : tensor<64xi8> -> tensor<32xi8>
-    check.compare<@saturating_nibble_pack, @saturating_nibble_pack_oracle>(%input, %output) : (tensor<64xi8>, tensor<32xi8>) -> () {
-      check.expect.bitwise actual(%output_storage) expected(%output_storage) : tensor<64xi8>
-    }
-  }
-  check.trial[1](%trial: index, %entropy: check.entropy) {
-    %input = check.generate.iota offset(0) step(1) : tensor<64xi8>
-    %output_storage = check.generate.fill value(91) : tensor<64xi8>
-    %output = check.tensor.view %output_storage offset(16) : tensor<64xi8> -> tensor<32xi8>
-    check.compare<@saturating_nibble_pack, @saturating_nibble_pack_oracle>(%input, %output) : (tensor<64xi8>, tensor<32xi8>) -> () {
-      check.expect.bitwise actual(%output_storage) expected(%output_storage) : tensor<64xi8>
-    }
-  }
-  check.trial[1](%trial: index, %entropy: check.entropy) {
-    %input = check.generate.iota offset(64) step(1) : tensor<64xi8>
-    %output_storage = check.generate.fill value(91) : tensor<64xi8>
-    %output = check.tensor.view %output_storage offset(16) : tensor<64xi8> -> tensor<32xi8>
-    check.compare<@saturating_nibble_pack, @saturating_nibble_pack_oracle>(%input, %output) : (tensor<64xi8>, tensor<32xi8>) -> () {
-      check.expect.bitwise actual(%output_storage) expected(%output_storage) : tensor<64xi8>
+  check.trial[6](%trial: index, %entropy: check.entropy) {
+    %input_storage = check.generate.fill value(90) : tensor<384xi8>
+    %input = check.tensor.view %input_storage offset(64) : tensor<384xi8> -> tensor<256xi8>
+    check.generate<@generate_pack_input>(%trial, %input) : (index, tensor<256xi8>) -> ()
+    %output_storage = check.generate.fill value(-52) : tensor<512xi8>
+    %output = check.tensor.view %output_storage offset(64) : tensor<512xi8> -> tensor<384xi8>
+    check.compare<@saturating_nibble_pack128, @pack_reference>(%input, %output) : (tensor<256xi8>, tensor<384xi8>) -> () {
+      check.expect.bitwise actual(%input_storage) expected(%input_storage) : tensor<384xi8>
+      check.expect.bitwise actual(%output_storage) expected(%output_storage) : tensor<512xi8>
     }
   }
   check.return

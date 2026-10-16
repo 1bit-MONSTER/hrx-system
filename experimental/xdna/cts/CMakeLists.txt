@@ -41,65 +41,6 @@ endif()
 
 iree_py_library(
   NAME
-    assembly_pack_cases
-  MAIN
-    "assembly_pack_cases.py"
-  SRCS
-    "assembly_pack_cases.py"
-)
-
-if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND LOOM_IMPORT_CXX AND LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
-iree_execution_test_suite(
-  NAME
-    assembly_pack_npu2_test
-  MANIFESTS
-    "assembly_pack_npu2.test.json"
-  TOOLS
-    "generate-cases=::assembly_pack_cases"
-    "iree-xdna-run=iree::experimental::xdna::iree-xdna-run"
-    "loom-compile=loom::tools::loom-compile"
-    "loom-import-cxx=loom::tools::loom-import-cxx"
-    "loom-link=loom::tools::loom-link"
-  DATA
-    "${PROJECT_SOURCE_DIR}/experimental/xdna/cts/testdata/assembly_pack.cxx"
-    "${PROJECT_SOURCE_DIR}/experimental/xdna/cts/testdata/assembly_pack.loom"
-    "${PROJECT_SOURCE_DIR}/loom/src/loom/import/cxx/include/loomcxx/low.h"
-  LABELS
-    "manual"
-    "iree-build-requirement=libamdf"
-    "iree-build-requirement=libamdf.xdna"
-    "iree-run-requirement=libamdf.resource.xdna"
-    "runtime-resource=amd-xdna"
-  RESOURCE_GROUP
-    gpu-device
-)
-endif()
-
-if(AMDF_BUILD AND AMDF_FAMILY_XDNA AND LOOM_BUILD AND LOOM_TARGET_ARCH_XDNA AND LOOM_EMIT_XDNA AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "Windows"))
-iree_execution_test_suite(
-  NAME
-    saturating_pack_npu2_test
-  MANIFESTS
-    "saturating_pack_npu2.test.json"
-  TOOLS
-    "generate-cases=::assembly_pack_cases"
-    "iree-xdna-run=iree::experimental::xdna::iree-xdna-run"
-    "loom-compile=loom::tools::loom-compile"
-  DATA
-    "${PROJECT_SOURCE_DIR}/experimental/xdna/cts/testdata/saturating_pack.loom"
-  LABELS
-    "manual"
-    "iree-build-requirement=libamdf"
-    "iree-build-requirement=libamdf.xdna"
-    "iree-run-requirement=libamdf.resource.xdna"
-    "runtime-resource=amd-xdna"
-  RESOURCE_GROUP
-    gpu-device
-)
-endif()
-
-iree_py_library(
-  NAME
     bitcast_cases
   MAIN
     "bitcast_cases.py"
