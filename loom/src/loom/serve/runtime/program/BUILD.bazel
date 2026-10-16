@@ -279,6 +279,37 @@ loom_cc_library(
     ],
 )
 
+loom_cc_library(
+    name = "tokenizer_load",
+    srcs = ["tokenizer_load.c"],
+    hdrs = ["tokenizer_load.h"],
+    deps = [
+        ":sources",
+        "//loom/binding/c:loomc",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/threading",
+        "//runtime/src/iree/tokenizer",
+        "//runtime/src/iree/tokenizer/format/huggingface:tokenizer_json",
+    ],
+)
+
+loom_cc_test(
+    name = "tokenizer_load_test",
+    srcs = ["tokenizer_load_test.cc"],
+    deps = [
+        ":package",
+        ":tokenizer_load",
+        "//loom/binding/c:loomc",
+        "//loom/src/loom/serve/runtime/host",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/threading",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+        "//runtime/src/iree/tokenizer",
+        "//runtime/src/iree/tokenizer/vocab",
+    ],
+)
+
 loom_cc_test(
     name = "json_test",
     srcs = ["json_test.cc"],

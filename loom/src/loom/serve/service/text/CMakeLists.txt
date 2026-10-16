@@ -351,7 +351,6 @@ loom_cc_library(
     iree::hal
     iree::module::hal::types
     iree::tokenizer
-    iree::tokenizer::format::huggingface::tokenizer_json
     iree::tokenizer::vocab
     iree::tooling::device_profiling
     iree::vm
@@ -371,6 +370,7 @@ loom_cc_library(
     loom::serve::runtime::program::preparation
     loom::serve::runtime::program::sources
     loom::serve::runtime::program::stage_set
+    loom::serve::runtime::program::tokenizer_load
     loom::serve::runtime::program::variant_pool
     loom::serve::runtime::storage::block_pool
     loom::serve::runtime::storage::memory

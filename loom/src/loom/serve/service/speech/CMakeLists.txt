@@ -82,7 +82,6 @@ loom_cc_library(
     iree::hal
     iree::module::hal::types
     iree::tokenizer
-    iree::tokenizer::format::huggingface::tokenizer_json
     iree::tooling::device_profiling
     iree::vm
     loom::binding::c::loomc
@@ -102,6 +101,7 @@ loom_cc_library(
     loom::serve::runtime::program::preparation
     loom::serve::runtime::program::sources
     loom::serve::runtime::program::stage_set
+    loom::serve::runtime::program::tokenizer_load
   PUBLIC
 )
 endif()

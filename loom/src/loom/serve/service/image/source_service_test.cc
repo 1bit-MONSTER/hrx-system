@@ -946,6 +946,40 @@ TEST_P(SourceImageServiceTest, UploadedImageRegistrationProducesExactPixels) {
   WaitModel("pixels", {});
 }
 
+TEST_P(SourceImageServiceTest, TokenizerFailureRetiresCompiledModel) {
+  const auto assets =
+      iree::testing::MakeTempFilePath("missing_image_tokenizer");
+  ASSERT_TRUE(std::filesystem::create_directory(assets));
+  loom_serve::testing::ModelDocument document;
+  IREE_ASSERT_OK(document.Load(directory_ + "/model.json"));
+  const loom_serve_image_model_options_t options = {
+      .sources = document.value().sources,
+      .checkpoint_directory = iree_make_cstring_view(assets.c_str()),
+      .height = kHeight,
+      .width = kWidth,
+      .text_tokens = 32,
+      .command_quantum = GetParam(),
+  };
+  const auto before = loom_serve_device_memory_statistics(device_);
+  loom_serve_image_model_t* failed = nullptr;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_NOT_FOUND,
+                        loom_serve_image_model_allocate(
+                            device_, &options, host_allocator_, &failed));
+  EXPECT_EQ(failed, nullptr);
+  const auto after = loom_serve_device_memory_statistics(device_);
+  EXPECT_EQ(after.retained.reserved_bytes, before.retained.reserved_bytes);
+  EXPECT_EQ(after.retained.committed_bytes, before.retained.committed_bytes);
+
+  ASSERT_NO_FATAL_FAILURE(CreateStandaloneModel());
+  Start();
+  const auto response =
+      Read(Send("POST", "/v1/images/generations",
+                R"({"model":"fixture-image","prompt":"aba","seed":1})"));
+  EXPECT_NE(response.find("\"b64_json\":\"" + EncodedPixels(3, 1) + "\""),
+            std::string::npos)
+      << response;
+}
+
 TEST_P(SourceImageServiceTest, FailedImageSourceLeavesPeerUsable) {
   const auto package = iree::testing::MakeTempFilePath("failed_image_source");
   ASSERT_TRUE(std::filesystem::create_directory(package));

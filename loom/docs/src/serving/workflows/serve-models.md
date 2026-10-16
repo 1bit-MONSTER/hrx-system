@@ -29,9 +29,10 @@ curl --fail --silent --show-error http://127.0.0.1:8080/v1/models
 
 The first response is `{"status":"ready"}`; the second has an empty `data`
 array. Device selection is explicit. `task` executes native x86 kernels using
-the shared CPU workers; it does not emulate a GPU. Fixed backing works without
-virtual-memory support. The [command reference](../index.md)
-describes other device and memory choices.
+the shared CPU workers; it does not emulate a GPU. This example uses fixed
+retained backing. The [command reference](../index.md#devices-and-listeners)
+describes device and memory choices, including the distinction between HAL VMM
+support and serving's elastic-pool integration.
 
 ## Obtain the example package
 

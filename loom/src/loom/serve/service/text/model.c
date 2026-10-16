@@ -26,6 +26,7 @@
 #include "loom/serve/runtime/program/preparation.h"
 #include "loom/serve/runtime/program/program.h"
 #include "loom/serve/runtime/program/stage_set.h"
+#include "loom/serve/runtime/program/tokenizer_load.h"
 #include "loom/serve/service/text/source.h"
 #include "loom/serve/service/text/stages.h"
 #include "loom/serve/service/text/state.h"
@@ -391,6 +392,10 @@ struct loom_serve_text_load_t {
   bool cancelled;
   // Private task result transferred only by the task's final release.
   iree_status_t task_status;
+  // Independent tokenizer construction, joined before linking or retirement.
+  loom_serve_tokenizer_load_t* tokenizer_load;
+  // Terminal model outcome retained while tokenizer work is still retiring.
+  iree_status_t terminal_status;
   // Joins worker/proactor final publication with the owner's next advance.
   struct {
     // Protects completion publication and its final notification access.
@@ -429,6 +434,11 @@ static iree_status_t loom_serve_text_load_prepare(
     loom_serve_text_load_t* load) {
   loom_serve_text_model_t* model = load->model;
   const loom_serve_text_options_t* options = &load->options;
+  IREE_RETURN_IF_ERROR(loom_serve_tokenizer_load_start(
+      loom_serve_host_compiler_sink(
+          loom_serve_device_host(model->device_owner)),
+      &options->sources, options->tokenizer_path, load->event.wake,
+      load->event.user_data, model->host_allocator, &load->tokenizer_load));
   model->shape_count = options->epoch_count;
   model->context_capacity = options->context_capacity;
   if (model->shape_count) {
@@ -638,7 +648,9 @@ iree_status_t loom_serve_text_load_advance(loom_serve_text_load_t* load,
     iree_slim_mutex_unlock(&load->event.mutex);
     return iree_ok_status();
   }
-  iree_status_t status = load->event.status;
+  iree_status_t status =
+      iree_status_join(load->terminal_status, load->event.status);
+  load->terminal_status = iree_ok_status();
   load->event.status = iree_ok_status();
   iree_slim_mutex_unlock(&load->event.mutex);
   if (iree_status_is_ok(status) && load->cancelled) {
@@ -649,19 +661,21 @@ iree_status_t loom_serve_text_load_advance(loom_serve_text_load_t* load,
   bool submitted = false;
   while (iree_status_is_ok(status) && !submitted &&
          load->phase != TEXT_LOAD_COMPLETE) {
-    // Every phase either advances inline or lends this operation to one task.
-    iree_slim_mutex_lock(&load->event.mutex);
-    load->event.pending = true;
-    iree_slim_mutex_unlock(&load->event.mutex);
     switch (load->phase) {
       case TEXT_LOAD_PREPARE:
         load->phase = TEXT_LOAD_STAGES;
+        iree_slim_mutex_lock(&load->event.mutex);
+        load->event.pending = true;
+        iree_slim_mutex_unlock(&load->event.mutex);
         status = iree_status_from_loomc(loomc_task_sink_submit(
             loom_serve_host_compiler_sink(host), &load->task));
         submitted = iree_status_is_ok(status);
         break;
       case TEXT_LOAD_STAGES:
         load->phase = TEXT_LOAD_BIND;
+        iree_slim_mutex_lock(&load->event.mutex);
+        load->event.pending = true;
+        iree_slim_mutex_unlock(&load->event.mutex);
         status = loom_serve_stage_set_compile_catalog_async(
             model->jit, model->source.preparation,
             loom_serve_text_load_compiled, load, load->host_allocator);
@@ -676,6 +690,9 @@ iree_status_t loom_serve_text_load_advance(loom_serve_text_load_t* load,
           const iree_host_size_t index = load->index++;
           const loom_serve_preparation_parameter_t* checkpoint =
               model->parameters.sources[index];
+          iree_slim_mutex_lock(&load->event.mutex);
+          load->event.pending = true;
+          iree_slim_mutex_unlock(&load->event.mutex);
           status = loom_serve_weights_prepare_async(
               model->parameters.plans[index], host, model->jit,
               model->command_mode, &load->options.sources, checkpoint->paths,
@@ -686,9 +703,21 @@ iree_status_t loom_serve_text_load_advance(loom_serve_text_load_t* load,
         }
         break;
       case TEXT_LOAD_LINK:
-        status = loom_serve_text_load_link(load);
-        submitted = iree_status_is_ok(status);
-        load->phase = TEXT_LOAD_READY;
+        if (!loom_serve_tokenizer_load_take(&load->tokenizer_load, &status,
+                                            &model->source.tokenizer)) {
+          return iree_ok_status();
+        }
+        if (iree_status_is_ok(status)) {
+          status = loom_serve_text_source_resolve_tokenizer(&model->source);
+        }
+        if (iree_status_is_ok(status)) {
+          iree_slim_mutex_lock(&load->event.mutex);
+          load->event.pending = true;
+          iree_slim_mutex_unlock(&load->event.mutex);
+          status = loom_serve_text_load_link(load);
+          submitted = iree_status_is_ok(status);
+          load->phase = TEXT_LOAD_READY;
+        }
         break;
       case TEXT_LOAD_READY:
         loom_serve_text_storage_release_payloads(&model->state.storage);
@@ -699,11 +728,16 @@ iree_status_t loom_serve_text_load_advance(loom_serve_text_load_t* load,
     }
   }
   if (!submitted) {
-    // Rejected work owes no callback; terminal publication is already joined.
+    // Rejected model work owes no callback. Tokenizer work retires separately.
     iree_slim_mutex_lock(&load->event.mutex);
     load->event.pending = false;
     iree_slim_mutex_unlock(&load->event.mutex);
     load->phase = TEXT_LOAD_COMPLETE;
+    if (!loom_serve_tokenizer_load_take(&load->tokenizer_load, &status,
+                                        &model->source.tokenizer)) {
+      load->terminal_status = status;
+      return iree_ok_status();
+    }
   }
   *out_complete = load->phase == TEXT_LOAD_COMPLETE;
   return status;
