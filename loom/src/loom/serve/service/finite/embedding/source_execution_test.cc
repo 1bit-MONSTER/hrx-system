@@ -279,6 +279,27 @@ TEST_F(SourceEmbeddingServiceTest,
       0u);
 }
 
+TEST_F(SourceEmbeddingServiceTest, TokenizerFailureRetiresCompiledModel) {
+  const auto assets =
+      iree::testing::MakeTempFilePath("missing_embedding_tokenizer");
+  ASSERT_TRUE(std::filesystem::create_directory(assets));
+  loom_serve::testing::ModelDocument document;
+  IREE_ASSERT_OK(document.Load(directory_ + "/model.json"));
+  const loom_serve_finite_model_options_t options = {
+      .sources = document.value().sources,
+      .asset_directory = iree_make_cstring_view(assets.c_str()),
+      .options = IREE_SV("{}"),
+  };
+  const int resident = Send(R"({"model":"fixture","input":"a"})");
+  ASSERT_NO_FATAL_FAILURE(Accept(resident));
+  ModelLifecycle load;
+  load.service = &interface_;
+  IREE_EXPECT_STATUS_IS(IREE_STATUS_NOT_FOUND, load.Run(device_, options));
+  EXPECT_EQ(load.model, nullptr);
+  EXPECT_GT(load.report.commands, 0u);
+  EXPECT_NE(Read(resident).find(R"("embedding":[1,1,1,1])"), std::string::npos);
+}
+
 TEST_F(SourceEmbeddingServiceTest,
        CancelledAndFailedLoadsKeepTheirResidentPeerUsable) {
   const std::string package =

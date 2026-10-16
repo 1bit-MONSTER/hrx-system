@@ -22,6 +22,8 @@ global.rodata.def @identity = bytes("76617269616e74732f6964656e746974792e6c6f6f6
 
 global.rodata.def @name = bytes("666978747572652d77656967687465642d737065656368")
 
+global.rodata.def @tokenizer = bytes("746f6b656e697a65722e6a736f6e")
+
 global.rodata.def @empty = bytes("")
 
 global.rodata.def @invalid = bytes("7370656563682066697874757265206578706563747320656d707479206f7074696f6e73")
@@ -72,5 +74,6 @@ func.def public @prepare(%directory: buffer, %options: buffer) -> (i64, i64, i64
   %frames = scalar.constant 5 : i64
   %rate = scalar.constant 24000 : i64
   %name = global.load @name : buffer
-  func.return %rows, %rows, %input, %conditioning_bytes, %stream, %work_bytes, %output, %output, %frames, %rate, %c1, %empty_buffer, %name, %empty_buffer, %empty_buffer : i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, buffer, buffer, buffer, buffer
+  %tokenizer = global.load @tokenizer : buffer
+  func.return %rows, %rows, %input, %conditioning_bytes, %stream, %work_bytes, %output, %output, %frames, %rate, %c1, %tokenizer, %name, %empty_buffer, %empty_buffer : i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, buffer, buffer, buffer, buffer
 }

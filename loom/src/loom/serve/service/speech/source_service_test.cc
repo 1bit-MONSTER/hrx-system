@@ -94,6 +94,9 @@ class SourceSpeechServiceTest : public ::testing::TestWithParam<bool> {
     if (weighted) {
       assets_ = iree::testing::MakeTempFilePath("speech_assets");
       ASSERT_TRUE(std::filesystem::create_directory(assets_));
+      ASSERT_TRUE(
+          std::filesystem::copy_file(directory_ + "/variants/tokenizer.json",
+                                     assets_ + "/tokenizer.json"));
       // Phase tensors span a second file in the same source-declared domain.
       // The voice archive repeats a key but retains independent ownership.
       const std::string factor =
@@ -125,6 +128,7 @@ class SourceSpeechServiceTest : public ::testing::TestWithParam<bool> {
     IREE_ASSERT_OK(loom_serve_speech_model_allocate(
         loom_serve_device_group_at(group_, 0), &options, allocator_, &model_));
     generator_ = loom_serve_speech_model_generator(model_);
+    EXPECT_EQ(generator_.tokenizer != nullptr, weighted);
     EXPECT_EQ(generator_.format.sample_rate, 24000u);
     EXPECT_EQ(generator_.format.channels, 1u);
     EXPECT_EQ(generator_.block_capacity, 5u);
@@ -700,6 +704,13 @@ TEST_P(SourceSpeechServiceTest, DynamicRegistrationStandardEndpointAndRemoval) {
                 .find("HTTP/1.1 202"),
             0u);
   CheckAudio(Read(Send("POST", "/v1/audio/speech", Request())), 17);
+  if (GetParam()) {
+    const auto tokens = Read(
+        Send("POST", "/tokenize", R"({"model":"speech","content":"aba"})"));
+    EXPECT_EQ(tokens.find("HTTP/1.1 200"), 0u) << tokens;
+    EXPECT_NE(tokens.find(R"({"tokens":[0,1,0]})"), std::string::npos)
+        << tokens;
+  }
   EXPECT_EQ(Read(Send("POST", "/v1/audio/speech", Request("unknown!")))
                 .find("HTTP/1.1 400"),
             0u);
