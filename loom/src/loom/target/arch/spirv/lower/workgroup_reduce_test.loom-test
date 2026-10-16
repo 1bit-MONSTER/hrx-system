@@ -1,0 +1,362 @@
+// RUN: emit spirv-low target=spirv:vulkan1.3+bda+subgroup32+reductions+hal limits=MAX_WORKGROUP_STORAGE_BYTES:616
+
+// Differently sized unsigned values share topology but retain typed scratch
+// and their own identities. Signed source carriers are restored at the result.
+kernel.def @mixed_unsigned() {
+  %unit = index.constant 1 : index
+  %width = index.constant 67 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %item = kernel.workitem.id<x> : index
+  %source = buffer.view %input[%base] : buffer -> view<67xi64>
+  %destination = buffer.view %output[%base] : buffer -> view<67x2xi64>
+  %value = view.load %source[%item] : view<67xi64> -> i64
+  %byte = scalar.trunci %value : i64 to i8
+  %byte_minimum, %wide_minimum = kernel.workgroup.reduce<minui> %byte, %value : i8, i64
+  %byte_result = scalar.extui %byte_minimum : i8 to i64
+  view.store %byte_result, %destination[%item, 0] : i64, view<67x2xi64>
+  view.store %wide_minimum, %destination[%item, 1] : i64, view<67x2xi64>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer, buffer) -> ()}) workgroup_size(67, 1, 1) workgroup_count(1, 1, 1) @mixed_unsigned() asm {
+  %input = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %output = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %item = OpLoadBuiltin.local_invocation_id.x
+  %26 = OpSConvert.i32.offset64 %item
+  %27 = OpConstant.offset64 8
+  %28 = OpIMul.offset64 %26, %27
+  %29 = OpPtrAccessChain.storage_buffer.i64.byte_offset %input, %28
+  %value = OpLoad.storage_buffer.i64 %29
+  %byte = OpSConvert.i64.i8 %value
+  %32 = OpConstant.i32 0
+  %33 = OpConstant.i32 1
+  %34 = OpLoadBuiltin.subgroup_id : reg<spirv.id : i32>
+  %35 = OpLoadBuiltin.num_subgroups : reg<spirv.id : i32>
+  %36 = OpGroupNonUniformIAdd.exclusive_scan.i32 %33
+  %37 = OpConstant.i8 -1
+  %38 = OpBitcast.i8.u8 %37 : reg<spirv.id : i8>
+  %39 = OpBitcast.i8.u8 %byte : reg<spirv.id : i8>
+  %40 = OpGroupNonUniformUMin.reduce.u8 %39 : reg<spirv.id : i8>
+  %41 = storage {byte_alignment = 1, byte_length = 68} : low.storage<workgroup>
+  %42 = storage_address %41 : low.storage<workgroup> -> reg<spirv.ptr.workgroup.array.u8>
+  %43 = OpConstant.i64 -1
+  %44 = OpBitcast.i64.u64 %43 : reg<spirv.id : i64>
+  %45 = OpBitcast.i64.u64 %value : reg<spirv.id : i64>
+  %46 = OpGroupNonUniformUMin.reduce.u64 %45 : reg<spirv.id : i64>
+  %47 = storage {byte_alignment = 8, byte_length = 544} : low.storage<workgroup>
+  %48 = storage_address %47 : low.storage<workgroup> -> reg<spirv.ptr.workgroup.array.u64>
+  %49 = OpIEqual %36, %32
+  low.scf.if %49 {
+    %50 = OpAccessChain.workgroup.u8.element_index %42, %34
+    OpStore.workgroup.u8 %50, %40
+    %51 = OpAccessChain.workgroup.u64.element_index %48, %34
+    OpStore.workgroup.u64 %51, %46
+  }
+  OpControlBarrier.workgroup.workgroup.acq_rel
+  %52 = OpConstant.i32 67
+  %53 = OpAccessChain.workgroup.u8.element_index %42, %52
+  %54 = OpAccessChain.workgroup.u64.element_index %48, %52
+  %55 = OpIEqual %34, %32
+  low.scf.if %55 {
+    %56 = OpGroupNonUniformIAdd.reduce.i32 %33
+    %60, %61 = low.scf.for unsigned [%36 to %35 step %56] iter_args(%38: reg<spirv.id : i8>, %44: reg<spirv.id : i64>) -> (reg<spirv.id : i8>, reg<spirv.id : i64>) do(%57: reg<spirv.id : i32>, %58: reg<spirv.id : i8>, %59: reg<spirv.id : i64>) {
+      %62 = OpAccessChain.workgroup.u8.element_index %42, %57
+      %63 = OpLoad.workgroup.u8 %62 : reg<spirv.id : i8>
+      %64 = OpULessThan.u8 %58, %63
+      %65 = OpSelect.u8 %64, %58, %63 : reg<spirv.id : i8>
+      %66 = OpAccessChain.workgroup.u64.element_index %48, %57
+      %67 = OpLoad.workgroup.u64 %66 : reg<spirv.id : i64>
+      %68 = OpULessThan.u64 %59, %67
+      %69 = OpSelect.u64 %68, %59, %67 : reg<spirv.id : i64>
+      low.scf.yield %65, %69 : reg<spirv.id : i8>, reg<spirv.id : i64>
+    }
+    %70 = OpGroupNonUniformUMin.reduce.u8 %60 : reg<spirv.id : i8>
+    %71 = OpGroupNonUniformUMin.reduce.u64 %61 : reg<spirv.id : i64>
+    low.scf.if %49 {
+      OpStore.workgroup.u8 %53, %70
+      OpStore.workgroup.u64 %54, %71
+    }
+  }
+  OpControlBarrier.workgroup.workgroup.acq_rel
+  %72 = OpLoad.workgroup.u8 %53 : reg<spirv.id : i8>
+  %byte_minimum = OpBitcast.u8.i8 %72
+  %74 = OpLoad.workgroup.u64 %54 : reg<spirv.id : i64>
+  %wide_minimum = OpBitcast.u64.i64 %74
+  %76 = OpBitcast.i8.u8 %byte_minimum
+  %77 = OpUConvert.u8.u64 %76
+  %byte_result = OpBitcast.u64.i64 %77
+  %79 = OpSConvert.i32.offset64 %item
+  %80 = OpConstant.offset64 16
+  %81 = OpIMul.offset64 %79, %80
+  %82 = OpPtrAccessChain.storage_buffer.i64.byte_offset %output, %81
+  OpStore.storage_buffer.i64 %82, %byte_result
+  %86 = OpConstant.offset64 8
+  %87 = OpIAdd.offset64 %81, %86
+  %88 = OpPtrAccessChain.storage_buffer.i64.byte_offset %output, %87
+  OpStore.storage_buffer.i64 %88, %wide_minimum
+  return
+}
+
+// ====
+
+// RUN: emit spirv-low target=spirv:vulkan1.3+bda+subgroup32+reductions+hal limits=MAX_WORKGROUP_SUBGROUP_COUNT:2
+
+// Boolean packets keep logical arithmetic at both levels and use integer
+// scratch solely for the Workgroup storage boundary. The profile's subgroup
+// count bound narrows each array to two partial slots plus the final value.
+kernel.def @boolean_packet() {
+  %unit = index.constant 1 : index
+  %width = index.constant 3 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %item = kernel.workitem.id<x> : index
+  %source = buffer.view %input[%base] : buffer -> view<3x2xi32>
+  %destination = buffer.view %output[%base] : buffer -> view<3x2xi32>
+  %values = vector.load %source[%item, 0] : view<3x2xi32> -> vector<2xi32>
+  %predicates = vector.trunci %values : vector<2xi32> to vector<2xi1>
+  %parity = kernel.workgroup.reduce<addi> %predicates : vector<2xi1>
+  %bits = vector.extui %parity : vector<2xi1> to vector<2xi32>
+  vector.store %bits, %destination[%item, 0] : vector<2xi32>, view<3x2xi32>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer, buffer) -> ()}) workgroup_size(3, 1, 1) workgroup_count(1, 1, 1) @boolean_packet() asm {
+  %input = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %output = resource<hal_binding> {index = 1, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %item = OpLoadBuiltin.local_invocation_id.x
+  %49 = OpSConvert.i32.offset64 %item
+  %50 = OpConstant.offset64 8
+  %51 = OpIMul.offset64 %49, %50
+  %52 = OpPtrAccessChain.storage_buffer.i32.byte_offset %input, %51
+  %53 = OpLoad.storage_buffer.i32 %52
+  %57 = OpConstant.offset64 4
+  %58 = OpIAdd.offset64 %51, %57
+  %59 = OpPtrAccessChain.storage_buffer.i32.byte_offset %input, %58
+  %60 = OpLoad.storage_buffer.i32 %59
+  %61 = OpConstant.i32 1
+  %62 = OpBitwiseAnd %53, %61
+  %63 = OpIEqual %62, %61
+  %65 = OpBitwiseAnd %60, %61
+  %66 = OpIEqual %65, %61
+  %predicates = OpCompositeConstruct.v2bool %63, %66
+  %68 = OpConstant.i32 0
+  %70 = OpLoadBuiltin.subgroup_id : reg<spirv.id : i32>
+  %71 = OpLoadBuiltin.num_subgroups : reg<spirv.id : i32>
+  %72 = OpGroupNonUniformIAdd.exclusive_scan.i32 %61
+  %73 = OpConstantFalse.bool
+  %74 = OpCompositeExtract.v2bool.bool %predicates, 0
+  %75 = OpGroupNonUniformLogicalXor.reduce.bool %74
+  %76 = OpSelect %75, %61, %68
+  %77 = storage {byte_alignment = 4, byte_length = 12} : low.storage<workgroup>
+  %78 = storage_address %77 : low.storage<workgroup> -> reg<spirv.ptr.workgroup.array.i32>
+  %79 = OpCompositeExtract.v2bool.bool %predicates, 1
+  %80 = OpGroupNonUniformLogicalXor.reduce.bool %79
+  %81 = OpSelect %80, %61, %68
+  %82 = storage {byte_alignment = 4, byte_length = 12} : low.storage<workgroup>
+  %83 = storage_address %82 : low.storage<workgroup> -> reg<spirv.ptr.workgroup.array.i32>
+  %84 = OpIEqual %72, %68
+  low.scf.if %84 {
+    %85 = OpAccessChain.workgroup.i32.element_index %78, %70
+    OpStore.workgroup.i32 %85, %76
+    %86 = OpAccessChain.workgroup.i32.element_index %83, %70
+    OpStore.workgroup.i32 %86, %81
+  }
+  OpControlBarrier.workgroup.workgroup.acq_rel
+  %87 = OpConstant.i32 2
+  %88 = OpAccessChain.workgroup.i32.element_index %78, %87
+  %89 = OpAccessChain.workgroup.i32.element_index %83, %87
+  %90 = OpIEqual %70, %68
+  low.scf.if %90 {
+    %91 = OpGroupNonUniformIAdd.reduce.i32 %61
+    %95, %96 = low.scf.for unsigned [%72 to %71 step %91] iter_args(%73: reg<spirv.id : i1>, %73: reg<spirv.id : i1>) -> (reg<spirv.id : i1>, reg<spirv.id : i1>) do(%92: reg<spirv.id : i32>, %93: reg<spirv.id : i1>, %94: reg<spirv.id : i1>) {
+      %97 = OpAccessChain.workgroup.i32.element_index %78, %92
+      %98 = OpLoad.workgroup.i32 %97
+      %99 = OpINotEqual %98, %68
+      %100 = OpLogicalNotEqual.bool %93, %99
+      %101 = OpAccessChain.workgroup.i32.element_index %83, %92
+      %102 = OpLoad.workgroup.i32 %101
+      %103 = OpINotEqual %102, %68
+      %104 = OpLogicalNotEqual.bool %94, %103
+      low.scf.yield %100, %104 : reg<spirv.id : i1>, reg<spirv.id : i1>
+    }
+    %105 = OpGroupNonUniformLogicalXor.reduce.bool %95
+    %106 = OpSelect %105, %61, %68
+    %107 = OpGroupNonUniformLogicalXor.reduce.bool %96
+    %108 = OpSelect %107, %61, %68
+    low.scf.if %84 {
+      OpStore.workgroup.i32 %88, %106
+      OpStore.workgroup.i32 %89, %108
+    }
+  }
+  OpControlBarrier.workgroup.workgroup.acq_rel
+  %109 = OpLoad.workgroup.i32 %88
+  %110 = OpINotEqual %109, %68
+  %111 = OpLoad.workgroup.i32 %89
+  %112 = OpINotEqual %111, %68
+  %parity = OpCompositeConstruct.v2bool %110, %112
+  %114 = OpConstant.i32 1
+  %115 = OpCompositeConstruct.v2i32 %114, %114
+  %116 = OpConstant.i32 0
+  %117 = OpCompositeConstruct.v2i32 %116, %116
+  %bits = OpSelect.v2i32 %parity, %115, %117
+  %119 = OpCompositeExtract.v2i32.i32 %bits, 0
+  %120 = OpCompositeExtract.v2i32.i32 %bits, 1
+  %121 = OpSConvert.i32.offset64 %item
+  %122 = OpConstant.offset64 8
+  %123 = OpIMul.offset64 %121, %122
+  %124 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output, %123
+  OpStore.storage_buffer.i32 %124, %119
+  %128 = OpConstant.offset64 4
+  %129 = OpIAdd.offset64 %123, %128
+  %130 = OpPtrAccessChain.storage_buffer.i32.byte_offset %output, %129
+  OpStore.storage_buffer.i32 %130, %120
+  return
+}
+
+// ====
+
+// RUN: emit spirv-low target=spirv:vulkan1.3+bda+hal features=GROUP_NON_UNIFORM_ARITHMETIC,INT8,-SUBGROUP_EXTENDED_TYPES
+
+// A valid first payload cannot hide a later payload's missing capability.
+kernel.def @later_payload_capability() {
+  %unit = index.constant 1 : index
+  %width = index.constant 3 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer, %value: i32) {
+  %base = index.constant 0 : offset
+  %destination = buffer.view %output[%base] : buffer -> view<2xi32>
+  %byte = scalar.trunci %value : i32 to i8
+  // ERROR@+1: TARGET/003 {subject_role="feature", subject_name="spirv.subgroup_extended_types", constraint_key="native_collective_features"}
+  %word_sum, %byte_sum = kernel.workgroup.reduce<addi> %value, %byte : i32, i8
+  %byte_result = scalar.extui %byte_sum : i8 to i32
+  view.store %word_sum, %destination[0] : i32, view<2xi32>
+  view.store %byte_result, %destination[1] : i32, view<2xi32>
+  kernel.return
+}
+
+// ====
+
+// RUN: emit spirv-low target=spirv:vulkan1.3+bda+subgroup32+reductions+hal features=BFLOAT16_TYPE_KHR
+
+kernel.def @unsupported_native_type() {
+  %unit = index.constant 1 : index
+  %width = index.constant 3 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer, %value: bf16) {
+  %base = index.constant 0 : offset
+  %destination = buffer.view %output[%base] : buffer -> view<1xbf16>
+  // ERROR@+1: TARGET/033 {field_name="values", actual_type="bf16"}
+  %sum = kernel.workgroup.reduce<addf> %value : bf16
+  view.store %sum, %destination[0] : bf16, view<1xbf16>
+  kernel.return
+}
+
+// ====
+
+// RUN: emit spirv-low target=spirv:vulkan1.3+bda+subgroup32+reductions+hal
+
+kernel.def @preservation_requires_provider() {
+  %unit = index.constant 1 : index
+  %width = index.constant 3 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer, %value: f32) {
+  %base = index.constant 0 : offset
+  %destination = buffer.view %output[%base] : buffer -> view<1xf32>
+  // ERROR@+1: TARGET/003 {subject_role="flags", subject_name="math", constraint_key="has_none.preserve"}
+  %sum = kernel.workgroup.reduce<addf, preserve> %value : f32
+  view.store %sum, %destination[0] : f32, view<1xf32>
+  kernel.return
+}
+
+// ====
+
+// RUN: emit spirv-low target=spirv:vulkan1.3+bda+subgroup32+reductions+hal limits=MAX_WORKGROUP_STORAGE_BYTES:47
+
+// Seven explicit bytes, four I8 partial/final slots, padding, and four I64
+// partial/final slots reserve 48 bytes together, not 43 bytes independently.
+// ERROR@+1: TARGET/051 {reserved_bytes="48", limit_bytes="47"}
+kernel.def @mixed_storage_limit() {
+  %unit = index.constant 1 : index
+  %width = index.constant 3 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer, %value: i64) {
+  %base = index.constant 0 : offset
+  %bytes = index.constant 7 : offset
+  %allocation = buffer.alloca<workgroup> align(1) %bytes : buffer
+  %saved = buffer.view %allocation[%base] : buffer -> view<7xi8>
+  %destination = buffer.view %output[%base] : buffer -> view<2xi64>
+  %item = kernel.workitem.id<x> : index
+  %byte = scalar.trunci %value : i64 to i8
+  view.store %byte, %saved[%item] : i8, view<7xi8>
+  %byte_sum, %wide_sum = kernel.workgroup.reduce<addi> %byte, %value : i8, i64
+  %reloaded = view.load %saved[%item] : view<7xi8> -> i8
+  %combined = scalar.addi %reloaded, %byte_sum : i8
+  %byte_result = scalar.extui %combined : i8 to i64
+  view.store %byte_result, %destination[0] : i64, view<2xi64>
+  view.store %wide_sum, %destination[1] : i64, view<2xi64>
+  kernel.return
+}
+
+// ====
+
+// RUN: emit spirv-low target=spirv:vulkan1.3+bda+hal features=FLOAT16,STORAGE_BUFFER_16BIT_ACCESS,GROUP_NON_UNIFORM_ARITHMETIC,SUBGROUP_EXTENDED_TYPES,-INT16
+
+// Native half arithmetic needs no integer16 operations just to form its identity.
+kernel.def @half_without_integer16() {
+  %unit = index.constant 1 : index
+  %width = index.constant 3 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%width, %unit, %unit) : index
+} launch(%output: buffer, %value: f16) {
+  %base = index.constant 0 : offset
+  %destination = buffer.view %output[%base] : buffer -> view<1xf16>
+  %sum = kernel.workgroup.reduce<addf> %value : f16
+  view.store %sum, %destination[0] : f16, view<1xf16>
+  kernel.return
+}
+
+// ----
+low.kernel.def target<spirv.logical.core> abi_layout({signature = (buffer, f16) -> ()}) workgroup_size(3, 1, 1) workgroup_count(1, 1, 1) @half_without_integer16(%value: reg<spirv.id : f16>) asm {
+  %output = resource<hal_binding> {index = 0, source_type = hal.buffer} : reg<spirv.ptr.storage_buffer>
+  %9 = OpConstant.i32 0
+  %10 = OpConstant.i32 1
+  %11 = OpLoadBuiltin.subgroup_id : reg<spirv.id : i32>
+  %12 = OpLoadBuiltin.num_subgroups : reg<spirv.id : i32>
+  %13 = OpGroupNonUniformIAdd.exclusive_scan.i32 %10
+  %14 = OpConstant.f16 0
+  %15 = OpGroupNonUniformFAdd.reduce.f16 %value
+  %16 = storage {byte_alignment = 2, byte_length = 8} : low.storage<workgroup>
+  %17 = storage_address %16 : low.storage<workgroup> -> reg<spirv.ptr.workgroup.array.f16>
+  %18 = OpIEqual %13, %9
+  low.scf.if %18 {
+    %19 = OpAccessChain.workgroup.f16.element_index %17, %11
+    OpStore.workgroup.f16 %19, %15
+  }
+  OpControlBarrier.workgroup.workgroup.acq_rel
+  %20 = OpConstant.i32 3
+  %21 = OpAccessChain.workgroup.f16.element_index %17, %20
+  %22 = OpIEqual %11, %9
+  low.scf.if %22 {
+    %23 = OpGroupNonUniformIAdd.reduce.i32 %10
+    %26 = low.scf.for unsigned [%13 to %12 step %23] iter_args(%14: reg<spirv.id : f16>) -> (reg<spirv.id : f16>) do(%24: reg<spirv.id : i32>, %25: reg<spirv.id : f16>) {
+      %27 = OpAccessChain.workgroup.f16.element_index %17, %24
+      %28 = OpLoad.workgroup.f16 %27
+      %29 = OpFAdd.f16 %25, %28
+      low.scf.yield %29 : reg<spirv.id : f16>
+    }
+    %30 = OpGroupNonUniformFAdd.reduce.f16 %26
+    low.scf.if %18 {
+      OpStore.workgroup.f16 %21, %30
+    }
+  }
+  OpControlBarrier.workgroup.workgroup.acq_rel
+  %sum = OpLoad.workgroup.f16 %21
+  %32 = OpConstant.offset64 0
+  %33 = OpPtrAccessChain.storage_buffer.f16.byte_offset %output, %32
+  OpStore.storage_buffer.f16 %33, %sum
+  return
+}

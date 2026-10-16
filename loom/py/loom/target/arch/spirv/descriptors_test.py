@@ -529,6 +529,8 @@ def test_result_asm_recipes_cover_every_spirv_descriptor_family() -> None:
 
     for scalar in SCALAR_ALU_TYPES:
         add_scalar_recipe(f"spirv.op_select.{scalar.suffix}", scalar.source_type)
+    for scalar in UNSIGNED_INTEGER_SCALAR_ALU_TYPES:
+        add_carrier_only(f"spirv.op_select.{scalar.suffix}")
     add_scalar_recipe("spirv.op_select.bf16", BFLOAT16_CONSTANT_TYPE.source_type)
     add_scalar_recipe("spirv.op_select.bool", "i1")
     add_carrier_only("spirv.op_select.offset64")

@@ -571,11 +571,12 @@ def test_generation_emits_complete_integer_boolean_packet_matrix() -> None:
             descriptor = _descriptor(descriptor_key)
             assert descriptor.feature_mask_words == expected_feature_mask
 
-        select_descriptor_key = f"spirv.op_select.{signed.suffix}"
-        select_row = _packet_row(select_descriptor_key)
-        assert sum(signed.scalar_enum in value_type for value_type in _packet_value_types(select_row)) == 3
-        select_descriptor = _descriptor(select_descriptor_key)
-        assert select_descriptor.feature_mask_words == expected_feature_mask
+        for scalar in (scalar_pair.signed, scalar_pair.unsigned):
+            select_descriptor_key = f"spirv.op_select.{scalar.suffix}"
+            select_row = _packet_row(select_descriptor_key)
+            assert sum(scalar.scalar_enum in value_type for value_type in _packet_value_types(select_row)) == 3
+            select_descriptor = _descriptor(select_descriptor_key)
+            assert select_descriptor.feature_mask_words == expected_feature_mask
 
     for compare_type in FLOAT_COMPARE_TYPES:
         scalar = compare_type.scalar

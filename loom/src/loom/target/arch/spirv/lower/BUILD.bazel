@@ -27,6 +27,13 @@ loom_generated_file(
     output_flag = "--tables",
 )
 
+loom_generated_file(
+    name = "workgroup_reduce_rows_gen",
+    generator = "//loom/py/loom/gen/target/arch/spirv:collective_rows",
+    output = "workgroup_reduce_rows.inl",
+    output_flag = "--workgroup-tables",
+)
+
 loom_cc_library(
     name = "lower",
     srcs = [
@@ -35,6 +42,7 @@ loom_cc_library(
         "registry.c",
         "workgroup.c",
         "workgroup_layout.c",
+        "workgroup_reduce.c",
     ],
     hdrs = [
         "collective_arithmetic.h",
@@ -42,9 +50,11 @@ loom_cc_library(
         "matrix.h",
         "workgroup.h",
         "workgroup_layout.h",
+        "workgroup_reduce.h",
     ],
     textual_hdrs = [
         ":collective_rows.inl",
+        ":workgroup_reduce_rows.inl",
         "//loom/src/loom/target/arch/spirv/contracts:tables.inl",
     ],
     visibility = _SPIRV_ROOT_VISIBILITY,
@@ -104,6 +114,13 @@ loom_cc_library(
 loom_check_test_suite(
     name = "collective_arithmetic_tests",
     srcs = ["collective_arithmetic_test.loom-test"],
+    tags = ["hostonly"],
+    target_compatible_with = loom_config_compatible_with(["//loom/config/target:spirv_artifacts"]),
+)
+
+loom_check_test_suite(
+    name = "workgroup_reduce_tests",
+    srcs = ["workgroup_reduce_test.loom-test"],
     tags = ["hostonly"],
     target_compatible_with = loom_config_compatible_with(["//loom/config/target:spirv_artifacts"]),
 )

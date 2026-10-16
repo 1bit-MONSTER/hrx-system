@@ -588,6 +588,52 @@ def _extrema_rules() -> tuple[RecipeRule, ...]:
     return tuple(rules)
 
 
+def _workgroup_rules() -> tuple[RecipeRule, ...]:
+    # Every payload shares the same dynamic subgroup topology. The retained
+    # typed plan checks the independent payload carriers and their capabilities.
+    topology = descriptor_feature_guards(
+        logical_core_descriptor("spirv.op_load_builtin.subgroup_id"),
+        logical_core_descriptor("spirv.op_load_builtin.subgroup_count"),
+        logical_core_descriptor("spirv.op_group_non_uniform_iadd.exclusive_scan.i32"),
+        logical_core_descriptor("spirv.op_group_non_uniform_iadd.reduce.i32"),
+        logical_core_descriptor("spirv.op_control_barrier.workgroup.workgroup.acq_rel"),
+    )
+    return (
+        RecipeRule(
+            source_op=kernel.kernel_workgroup_reduce,
+            guards=(
+                Guard.enum_attr_in("kind", ("addf", "mulf")),
+                Guard.instance_flags_has_none("math", "preserve"),
+                *topology,
+            ),
+        ),
+        RecipeRule(
+            source_op=kernel.kernel_workgroup_reduce,
+            guards=(
+                Guard.enum_attr_in(
+                    "kind",
+                    (
+                        "addi",
+                        "muli",
+                        "minsi",
+                        "maxsi",
+                        "minui",
+                        "maxui",
+                        "andi",
+                        "ori",
+                        "xori",
+                        "minimumf",
+                        "maximumf",
+                        "minnumf",
+                        "maxnumf",
+                    ),
+                ),
+                *topology,
+            ),
+        ),
+    )
+
+
 SPIRV_SUBGROUP_CONTRACT_CASES: tuple[ContractCase, ...] = (
     _ballot_rule("i32", 32),
     _ballot_rule("i64", 64),
@@ -597,4 +643,5 @@ SPIRV_SUBGROUP_CONTRACT_CASES: tuple[ContractCase, ...] = (
     *_shuffle_rules(),
     *_arithmetic_rules(),
     *_extrema_rules(),
+    *_workgroup_rules(),
 )

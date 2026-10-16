@@ -415,6 +415,57 @@ def test_native_float_arithmetic_never_claims_source_preservation() -> None:
         assert native_only == (kinds in (("addf",), ("mulf",)))
 
 
+def test_workgroup_composition_has_one_topology_contract_for_all_payloads() -> None:
+    rules = tuple(
+        rule
+        for rule in SPIRV_SUBGROUP_CONTRACT_CASES
+        if rule.source_op is kernel.kernel_workgroup_reduce
+    )
+    assert len(rules) == 2
+    kinds = set()
+    for rule in rules:
+        rule.validate(SPIRV_LOGICAL_CORE_DESCRIPTOR_SET)
+        assert isinstance(rule, RecipeRule)
+        row_kinds = next(
+            guard.enum_keywords
+            for guard in rule.guards
+            if guard.kind is GuardKind.ENUM_ATTR_IN
+        )
+        assert kinds.isdisjoint(row_kinds)
+        kinds.update(row_kinds)
+        assert not any(guard.kind is GuardKind.VALUE_TYPE for guard in rule.guards)
+        assert any(
+            guard.kind is GuardKind.INSTANCE_FLAGS_HAS_NONE
+            and guard.field == "math"
+            and guard.enum_keyword == "preserve"
+            for guard in rule.guards
+        ) == (set(row_kinds) == {"addf", "mulf"})
+        topology = {
+            guard.descriptor.key
+            for guard in rule.guards
+            if guard.kind is GuardKind.DESCRIPTOR_AVAILABLE
+        }
+        assert "spirv.op_group_non_uniform_iadd.exclusive_scan.i32" in topology
+        assert "spirv.op_group_non_uniform_iadd.reduce.i32" in topology
+    assert kinds == {
+        "addi",
+        "muli",
+        "minsi",
+        "maxsi",
+        "minui",
+        "maxui",
+        "andi",
+        "ori",
+        "xori",
+        "addf",
+        "mulf",
+        "minnumf",
+        "maxnumf",
+        "minimumf",
+        "maximumf",
+    }
+
+
 def test_arithmetic_types_require_logical_device_admission() -> None:
     extended = feature_bits_value(("subgroup_extended_types",))
     for rule in SPIRV_SUBGROUP_CONTRACT_CASES:

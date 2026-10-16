@@ -100,10 +100,12 @@ iree_py_library(
     "spirv_collective_rows.py"
   SRCS
     "spirv_collective_rows.py"
+    "spirv_workgroup_rows.py"
   DEPS
     loom::py::loom::gen::support::support
     loom::py::loom::target::low_descriptors
     loom::py::loom::target::arch::spirv::descriptors
+    loom::py::loom::target::arch::spirv::ordinary_vector
     loom::py::loom::target::arch::spirv::subgroup
 )
 

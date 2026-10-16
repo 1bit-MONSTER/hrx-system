@@ -24,6 +24,7 @@ _ensure_runtime_py_on_path()
 from loom.gen.support.c import CIdentifierCase, c_identifier  # noqa: E402
 from loom.gen.support.files import write_text_file  # noqa: E402
 from loom.gen.support.generated_file import line_comment_header  # noqa: E402
+from loom.gen.target.arch.spirv.spirv_workgroup_rows import generate_workgroup_tables  # noqa: E402
 from loom.target.arch.spirv.descriptors import SPIRV_LOGICAL_CORE_DESCRIPTOR_SET  # noqa: E402
 from loom.target.arch.spirv.subgroup import SPIRV_COLLECTIVE_EXTREMA_TYPES  # noqa: E402
 from loom.target.low_descriptors import descriptor_set_relative_name  # noqa: E402
@@ -64,9 +65,14 @@ def generate_tables() -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tables", type=Path, required=True)
+    outputs = parser.add_mutually_exclusive_group(required=True)
+    outputs.add_argument("--tables", type=Path)
+    outputs.add_argument("--workgroup-tables", type=Path)
     args = parser.parse_args()
-    write_text_file(args.tables, generate_tables())
+    if args.tables:
+        write_text_file(args.tables, generate_tables())
+    else:
+        write_text_file(args.workgroup_tables, generate_workgroup_tables())
     return 0
 
 

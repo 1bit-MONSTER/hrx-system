@@ -23,6 +23,19 @@ loom_generated_file(
 endif()
 
 if(LOOM_TARGET_ARCH_SPIRV)
+loom_generated_file(
+  NAME
+    workgroup_reduce_rows_gen
+  GENERATOR
+    loom::py::loom::gen::target::arch::spirv::collective_rows
+  OUTPUT
+    "workgroup_reduce_rows.inl"
+  OUTPUT_FLAG
+    "--workgroup-tables"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_SPIRV)
 loom_cc_library(
   NAME
     lower
@@ -32,15 +45,18 @@ loom_cc_library(
     "matrix.h"
     "workgroup.h"
     "workgroup_layout.h"
+    "workgroup_reduce.h"
   TEXTUAL_HDRS
     "${IREE_BINARY_DIR}/loom/src/loom/target/arch/spirv/contracts/tables.inl"
     "collective_rows.inl"
+    "workgroup_reduce_rows.inl"
   SRCS
     "collective_arithmetic.c"
     "matrix.c"
     "registry.c"
     "workgroup.c"
     "workgroup_layout.c"
+    "workgroup_reduce.c"
   DEPS
     iree::base
     iree::base::internal
@@ -105,6 +121,17 @@ loom_check_test_suite(
     collective_arithmetic_tests
   SRCS
     "collective_arithmetic_test.loom-test"
+  LABELS
+    "hostonly"
+)
+endif()
+
+if(LOOM_BUILD AND LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_TARGET_ARCH_SPIRV)
+loom_check_test_suite(
+  NAME
+    workgroup_reduce_tests
+  SRCS
+    "workgroup_reduce_test.loom-test"
   LABELS
     "hostonly"
 )

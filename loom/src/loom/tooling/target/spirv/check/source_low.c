@@ -21,6 +21,8 @@ typedef struct loom_spirv_check_source_low_request_t {
   iree_string_view_t target_specification;
   // Public feature enum names; a leading '-' records an unavailable feature.
   iree_string_view_t features;
+  // Public numeric limit enum names paired with unsigned values.
+  iree_string_view_t limits;
 } loom_spirv_check_source_low_request_t;
 
 static iree_status_t loom_spirv_check_source_low_parse(
@@ -56,6 +58,14 @@ static iree_status_t loom_spirv_check_source_low_parse(
             "spirv-low requires one nonempty features list");
       }
       out_request->features = value;
+    } else if (iree_string_view_equal(name, IREE_SV("limits"))) {
+      if (!iree_string_view_is_empty(out_request->limits) ||
+          iree_string_view_is_empty(value) ||
+          iree_string_view_ends_with(value, IREE_SV(","))) {
+        return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                                "spirv-low requires one nonempty limits list");
+      }
+      out_request->limits = value;
     } else if (iree_string_view_equal(name, IREE_SV("target"))) {
       if (!iree_string_view_is_empty(out_request->target_specification) ||
           iree_string_view_is_empty(value)) {
@@ -87,10 +97,11 @@ static iree_status_t loom_spirv_check_source_low_parse(
     }
   }
   if ((!iree_string_view_is_empty(out_request->function_name) ||
-       !iree_string_view_is_empty(out_request->features)) &&
+       !iree_string_view_is_empty(out_request->features) ||
+       !iree_string_view_is_empty(out_request->limits)) &&
       iree_string_view_is_empty(out_request->target_specification)) {
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
-                            "spirv-low @function or features requires "
+                            "spirv-low @function, features, or limits requires "
                             "target=family:selector");
   }
   return iree_ok_status();
@@ -152,6 +163,31 @@ static const iree_string_view_t kFeatureNames[] = {
 static_assert(IREE_ARRAYSIZE(kFeatureNames) == LOOMC_SPIRV_FEATURE_COUNT,
               "all public SPIR-V feature IDs need checker spellings");
 
+#define LOOM_SPIRV_CHECK_LIMIT(name) \
+  [LOOMC_SPIRV_LIMIT_##name] = IREE_SVL(#name)
+static const iree_string_view_t kLimitNames[] = {
+    LOOM_SPIRV_CHECK_LIMIT(MAX_WORKGROUP_SIZE_X),
+    LOOM_SPIRV_CHECK_LIMIT(MAX_WORKGROUP_SIZE_Y),
+    LOOM_SPIRV_CHECK_LIMIT(MAX_WORKGROUP_SIZE_Z),
+    LOOM_SPIRV_CHECK_LIMIT(MAX_FLAT_WORKGROUP_SIZE),
+    LOOM_SPIRV_CHECK_LIMIT(MAX_WORKGROUP_STORAGE_BYTES),
+    LOOM_SPIRV_CHECK_LIMIT(SUBGROUP_SIZE),
+    LOOM_SPIRV_CHECK_LIMIT(MAX_WORKGROUP_COUNT_X),
+    LOOM_SPIRV_CHECK_LIMIT(MAX_WORKGROUP_COUNT_Y),
+    LOOM_SPIRV_CHECK_LIMIT(MAX_WORKGROUP_COUNT_Z),
+    LOOM_SPIRV_CHECK_LIMIT(MAX_GRID_SIZE_X),
+    LOOM_SPIRV_CHECK_LIMIT(MAX_GRID_SIZE_Y),
+    LOOM_SPIRV_CHECK_LIMIT(MAX_GRID_SIZE_Z),
+    LOOM_SPIRV_CHECK_LIMIT(MAX_FLAT_GRID_SIZE),
+    LOOM_SPIRV_CHECK_LIMIT(DEFAULT_SUBGROUP_SIZE),
+    LOOM_SPIRV_CHECK_LIMIT(MIN_SUBGROUP_SIZE),
+    LOOM_SPIRV_CHECK_LIMIT(MAX_SUBGROUP_SIZE),
+    LOOM_SPIRV_CHECK_LIMIT(MAX_WORKGROUP_SUBGROUP_COUNT),
+};
+#undef LOOM_SPIRV_CHECK_LIMIT
+static_assert(IREE_ARRAYSIZE(kLimitNames) == LOOMC_SPIRV_LIMIT_COUNT,
+              "all public SPIR-V limit IDs need checker spellings");
+
 static iree_status_t loom_spirv_loom_check_select_profile(
     const loom_check_emit_provider_request_t* request,
     const loom_spirv_check_source_low_request_t* emit_request,
@@ -189,11 +225,50 @@ static iree_status_t loom_spirv_loom_check_select_profile(
     };
   }
 
+  loomc_spirv_limit_fact_t limits[LOOMC_SPIRV_LIMIT_COUNT] = {0};
+  bool seen_limits[LOOMC_SPIRV_LIMIT_COUNT] = {false};
+  iree_host_size_t limit_count = 0;
+  remaining = emit_request->limits;
+  while (!iree_string_view_is_empty(remaining)) {
+    iree_string_view_t entry, name, value_text;
+    iree_string_view_split(remaining, ',', &entry, &remaining);
+    iree_string_view_split(entry, ':', &name, &value_text);
+    uint32_t limit = 1;
+    for (; limit < IREE_ARRAYSIZE(kLimitNames); ++limit) {
+      if (iree_string_view_equal(name, kLimitNames[limit])) {
+        break;
+      }
+    }
+    if (limit == IREE_ARRAYSIZE(kLimitNames) || seen_limits[limit]) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "unknown or duplicate SPIR-V limit '%.*s'",
+                              (int)name.size, name.data);
+    }
+    uint64_t value = 0;
+    bool is_decimal = !iree_string_view_is_empty(value_text);
+    for (iree_host_size_t i = 0; i < value_text.size && is_decimal; ++i) {
+      is_decimal = value_text.data[i] >= '0' && value_text.data[i] <= '9';
+    }
+    if (!is_decimal ||
+        !iree_string_view_atoi_uint64_base(value_text, 10, &value)) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "SPIR-V limit '%.*s' expects an unsigned integer",
+                              (int)name.size, name.data);
+    }
+    seen_limits[limit] = true;
+    limits[limit_count++] = (loomc_spirv_limit_fact_t){
+        .limit = (loomc_spirv_limit_t)limit,
+        .state = LOOMC_TARGET_FACT_STATE_TRUE,
+        .value = value,
+        .provenance = loomc_make_cstring_view("spirv-low limits option"),
+    };
+  }
+
   loomc_target_profile_t* base_profile = NULL;
   IREE_RETURN_IF_ERROR(loom_check_compile_session_select_target_profile(
       request->environment->compile_session, emit_request->target_specification,
       &base_profile));
-  if (!fact_count) {
+  if (!fact_count && !limit_count) {
     *out_profile = base_profile;
     return iree_ok_status();
   }
@@ -202,6 +277,8 @@ static iree_status_t loom_spirv_loom_check_select_profile(
       .structure_size = sizeof(profile_options),
       .feature_facts = facts,
       .feature_fact_count = fact_count,
+      .limit_facts = limits,
+      .limit_fact_count = limit_count,
   };
   loomc_result_t* result = NULL;
   iree_status_t status =
