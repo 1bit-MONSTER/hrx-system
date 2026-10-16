@@ -83,8 +83,10 @@ class HttpHarness {
   void Notify();
   iree_status_t Await(int client, const std::function<bool()>& ready);
 
-  // Claims an HTTP request while observing the corresponding client's socket.
-  // Only a manually driven fixture calls this: it temporarily owns the server
+  // Claims the next ready HTTP request while observing client's socket for
+  // transport failure. The claim may belong to a different client; callers
+  // needing peer identity claim one request before sending the next. Only a
+  // manually driven fixture calls this: it temporarily owns the server
   // observer, and no router or other request consumer is running concurrently.
   iree_status_t TakeRequest(int client,
                             loom_serve_http_connection_t** out_connection,

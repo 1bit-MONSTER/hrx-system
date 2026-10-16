@@ -10,6 +10,8 @@
 #include "loom/serve/service/finite/embedding/protocol.h"
 #include "loom/serve/service/text/epoch.h"
 #include "loom/serve/service/text/media_epoch.h"
+#include "loom/serve/service/text/media_projector.h"
+#include "loom/serve/service/text/readiness.h"
 #include "loom/serve/service/text/service_test_fixture.h"
 
 namespace {
@@ -125,6 +127,32 @@ class MediaExecutionTest : public SourceTextServiceTest {
   // Final consumer output, read only by the test oracle.
   std::vector<uint8_t> output_;
 };
+
+TEST_F(MediaExecutionTest, ProjectorAlignsAndReturnsItsHostAllocation) {
+  constexpr size_t alignment = alignof(loom_serve_text_readiness_t);
+  alignas(alignment) uint8_t storage[4096];
+  iree_async_proactor_t* proactor = nullptr;
+  IREE_ASSERT_OK(iree_async_proactor_pool_get(
+      loom_serve_host_proactor_pool(host_), 0, &proactor));
+  // A valid host allocator need not provide the task process's extended
+  // alignment. Exercise each naturally aligned offset within one cache line.
+  for (size_t offset = 0; offset < alignment; offset += iree_max_align_t) {
+    SCOPED_TRACE(offset);
+    iree_allocator_inline_storage_t arena = {
+        .capacity = sizeof(storage) - offset,
+        .buffer = storage + offset,
+    };
+    loom_serve_text_media_projector_t* projector = nullptr;
+    IREE_ASSERT_OK(loom_serve_text_media_projector_allocate(
+        producer_, 1, loom_serve_host_executor(host_), proactor, {},
+        iree_allocator_inline_arena(&arena), &projector));
+    EXPECT_EQ(reinterpret_cast<uintptr_t>(projector) % alignment, 0u);
+    EXPECT_TRUE(loom_serve_text_media_projector_is_collecting(projector));
+    EXPECT_FALSE(loom_serve_text_media_projector_is_pending(projector));
+    loom_serve_text_media_projector_free(projector);
+    EXPECT_EQ(arena.length, 0u);
+  }
+}
 
 TEST_F(MediaExecutionTest, RaggedCohortConditionsPackedAndIsolatedTextChunks) {
   ASSERT_NO_FATAL_FAILURE(Submit());

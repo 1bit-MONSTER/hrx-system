@@ -8,6 +8,7 @@
 
 SOURCE_FILES = [
     "testdata/component/control.loom",
+    "testdata/component/copy.loom",
     "testdata/component/kernels.loom",
     "testdata/component/policy.loom",
     "testdata/component/prepare.loom",

@@ -247,7 +247,9 @@ loom_cc_library(
     "source_execution_test.cc"
   DEPS
     ::epoch
+    ::media_projector
     ::model
+    ::readiness
     ::source_service_fixture
     iree::base::internal::json
     loom::serve::media::image_codec

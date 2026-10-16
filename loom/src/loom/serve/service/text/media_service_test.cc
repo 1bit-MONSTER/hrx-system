@@ -288,16 +288,22 @@ TEST_F(MediaServiceTest, CancelledMiddlePeerPreservesPreparedCohortOrdinals) {
   if (!loom_serve_media_image_codec(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG)) {
     return;
   }
-  const std::array<int, 3> clients = {
-      Send(Request(ImageMessage("a", "image/png", kPng, "low", "b"), 4)),
-      Send(Request(ImageMessage("x", "image/png", kPng, "low", "a"), 4)),
-      Send(Request(ImageMessage("b", "image/png", kAlphaPng, "low", "a"), 4)),
+  const std::array<std::string, 3> bodies = {
+      Request(ImageMessage("a", "image/png", kPng, "low", "b"), 4),
+      Request(ImageMessage("x", "image/png", kPng, "low", "a"), 4),
+      Request(ImageMessage("b", "image/png", kAlphaPng, "low", "a"), 4),
   };
+  std::array<int, 3> clients = {};
   std::array<loom_serve_http_connection_t*, 3> connections = {};
   std::array<const loom_serve_http_request_t*, 3> requests = {};
+  // Claim each peer before sending the next: transport arrival order is not
+  // client identity. All three claims still enter one owner turn below.
   for (size_t i = 0; i < clients.size(); ++i) {
+    clients[i] = Send(bodies[i]);
     IREE_ASSERT_OK(
         http_.TakeRequest(clients[i], &connections[i], &requests[i]));
+    EXPECT_EQ(std::string(requests[i]->body.data, requests[i]->body.size),
+              bodies[i]);
   }
   OwnerTurn::Run(loom_serve_host_executor(host_), [&] {
     for (size_t i = 0; i < clients.size(); ++i) {

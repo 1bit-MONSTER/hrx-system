@@ -10,9 +10,11 @@
 namespace {
 
 using loom_serve::testing::text::Oracle;
+using loom_serve::testing::text::RegisteredSourceTextServiceTest;
 using loom_serve::testing::text::SourceTextServiceTest;
 
-TEST_F(SourceTextServiceTest, TextRegistrationDoesNotPrepareItsImageComponent) {
+TEST_F(RegisteredSourceTextServiceTest,
+       TextRegistrationDoesNotPrepareItsImageComponent) {
   StartManaged();
   const auto declaration = Declaration(
       "fixture-text", directory_, "open",
@@ -51,7 +53,8 @@ TEST_F(SourceTextServiceTest, TextRegistrationDoesNotPrepareItsImageComponent) {
   EXPECT_FALSE(http_.failed());
 }
 
-TEST_F(SourceTextServiceTest, FailedTextPreparationRetiresItsDormantImage) {
+TEST_F(RegisteredSourceTextServiceTest,
+       FailedTextPreparationRetiresItsDormantImage) {
   StartManaged();
   const auto declaration = Declaration(
       "fixture-text", directory_, "open",

@@ -218,7 +218,9 @@ loom_cc_library(
     visibility = ["//loom/src/loom/serve:implementation"],
     deps = [
         ":epoch",
+        ":media_projector",
         ":model",
+        ":readiness",
         ":source_service_fixture",
         "//loom/src/loom/serve/media:image_codec",
         "//loom/src/loom/serve/media:image_codecs",

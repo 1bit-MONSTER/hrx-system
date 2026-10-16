@@ -118,8 +118,8 @@ class FiniteComponentTest : public ::testing::Test {
     ASSERT_NE(source_path, nullptr);
     const auto source_directory =
         std::filesystem::path(source_path).parent_path();
-    for (const char* file :
-         {"prepare.loom", "control.loom", "kernels.loom", "policy.loom"}) {
+    for (const char* file : {"prepare.loom", "control.loom", "kernels.loom",
+                             "copy.loom", "policy.loom"}) {
       ASSERT_TRUE(std::filesystem::copy_file(
           source_directory / file, std::filesystem::path(directory_) / file));
     }
@@ -143,8 +143,8 @@ class FiniteComponentTest : public ::testing::Test {
                 .base_directory = iree_make_cstring_view(directory_.c_str()),
                 .prepare = IREE_SV("prepare.loom"),
                 .control = IREE_SV("control.loom"),
-                .count = 1,
-                .values = &provider_,
+                .count = IREE_ARRAYSIZE(providers_),
+                .values = providers_,
             },
         .asset_directory = IREE_SV("."),
         .options = IREE_SV("{}"),
@@ -263,8 +263,10 @@ class FiniteComponentTest : public ::testing::Test {
   ComponentOwner owner_;
   // Stable path backing all borrowed source/parameter locators.
   std::string directory_;
-  // Native provider name borrowed by options_.sources.
-  iree_string_view_t provider_ = IREE_SV("kernels.loom");
+  // Native providers borrowed by options_.sources, including the physical
+  // entry.
+  iree_string_view_t providers_[2] = {IREE_SV("kernels.loom"),
+                                      IREE_SV("copy.loom")};
   // Stable borrowed definition through final component destruction.
   loom_serve_finite_model_options_t options_ = {};
   // Owned optional model handle under test.

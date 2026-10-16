@@ -14,7 +14,7 @@ namespace {
 
 using loom_serve::testing::text::Oracle;
 using loom_serve::testing::text::OwnerTurn;
-using loom_serve::testing::text::SourceTextServiceTest;
+using loom_serve::testing::text::RegisteredSourceTextServiceTest;
 
 std::string Field(const std::string& object, const char* name) {
   iree_string_view_t value = iree_string_view_empty();
@@ -32,10 +32,10 @@ bool HasField(const std::string& object, const char* name) {
   return !iree_string_view_is_empty(value);
 }
 
-class ManagedMediaServiceTest : public SourceTextServiceTest {
+class ManagedMediaServiceTest : public RegisteredSourceTextServiceTest {
  protected:
   void SetUp() override {
-    ASSERT_NO_FATAL_FAILURE(SourceTextServiceTest::SetUp());
+    ASSERT_NO_FATAL_FAILURE(RegisteredSourceTextServiceTest::SetUp());
     const char* source = std::getenv("LOOM_SERVE_TEST_PROJECTOR_SOURCE");
     ASSERT_NE(source, nullptr);
     projector_directory_ =
@@ -49,7 +49,7 @@ class ManagedMediaServiceTest : public SourceTextServiceTest {
   }
 
   void TearDown() override {
-    SourceTextServiceTest::TearDown();
+    RegisteredSourceTextServiceTest::TearDown();
     if (!assets_.empty()) {
       std::filesystem::remove_all(assets_);
     }

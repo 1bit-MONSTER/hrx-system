@@ -238,8 +238,9 @@ iree_status_t loom_serve_text_media_projector_allocate(
                         &prepared_offset),
       IREE_STRUCT_FIELD(capacity, iree_host_size_t, &rows_offset)));
   uint8_t* storage = NULL;
-  IREE_RETURN_IF_ERROR(
-      iree_allocator_malloc(host_allocator, length, (void**)&storage));
+  IREE_RETURN_IF_ERROR(iree_allocator_malloc_aligned(
+      host_allocator, length, iree_alignof(loom_serve_text_media_projector_t),
+      0, (void**)&storage));
   loom_serve_text_media_projector_t* projector = (void*)storage;
   *projector = (loom_serve_text_media_projector_t){
       .host_allocator = host_allocator,
@@ -653,5 +654,5 @@ void loom_serve_text_media_projector_free(
     loom_serve_text_media_job_release(&projector->jobs[i]);
   }
   loom_serve_text_readiness_deinitialize(&projector->readiness);
-  iree_allocator_free(projector->host_allocator, projector);
+  iree_allocator_free_aligned(projector->host_allocator, projector);
 }
