@@ -42,7 +42,9 @@ _PASSTHROUGH_LIBRARIES = [
 [
     hrx_cc_shared_library(
         name = name,
-        srcs = [source],
+        # hip_intercept also links the generated forwarders for every exported
+        # HIP symbol (generate_stubs.py; engine#410).
+        srcs = [source] + (["stubs_generated.c"] if name == "hip_intercept" else []),
         hdrs = ["hip_function_table.h"],
         additional_linker_inputs = ["passthrough_full.map"] if name == "hip_intercept" else [],
         copts = ["-fvisibility=default"],

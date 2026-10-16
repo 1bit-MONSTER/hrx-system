@@ -10,13 +10,14 @@
 // This library is symlinked in place of the real HIP library. It:
 // 1. Loads the real HIP library from HIP_PASSTHROUGH_BACKEND_LIB env var
 //    (defaults to /opt/rocm/lib/libamdhip64.so)
-// 2. Optionally loads an interception library from HIP_INTERCEPTION_LIBRARY
+// 2. Optionally loads an interception library from HIP_PASSTHROUGH_INTERCEPTOR
 // 3. Each HIP function forwards to the real library (or interceptor if loaded)
 //
 // Environment variables:
 // - HIP_PASSTHROUGH_BACKEND_LIB: Path to real HIP library
 //   Default: /opt/rocm/lib/libamdhip64.so
-// - HIP_INTERCEPTION_LIBRARY: Path to interception library (optional)
+// - HIP_PASSTHROUGH_INTERCEPTOR: Path to interception library (optional).
+//   HIP_INTERCEPTION_LIBRARY is accepted as a legacy alias.
 //===----------------------------------------------------------------------===//
 
 #define _GNU_SOURCE
@@ -137,8 +138,13 @@ static void intercept_init(void) {
   load_all_symbols();
   g_active_table = &g_real_table;
 
-  // Optionally load interception library
-  const char* interceptor_path = getenv("HIP_INTERCEPTION_LIBRARY");
+  // Optionally load interception library. HIP_PASSTHROUGH_INTERCEPTOR is the
+  // documented name (see README.md); HIP_INTERCEPTION_LIBRARY is the legacy
+  // alias kept for existing scripts.
+  const char* interceptor_path = getenv("HIP_PASSTHROUGH_INTERCEPTOR");
+  if (!interceptor_path || !*interceptor_path) {
+    interceptor_path = getenv("HIP_INTERCEPTION_LIBRARY");
+  }
   if (interceptor_path && *interceptor_path) {
     g_interceptor_lib = dlopen(interceptor_path, RTLD_NOW | RTLD_LOCAL);
     if (g_interceptor_lib) {
@@ -252,7 +258,12 @@ static void pt_log(int level, const char* fmt, ...) {
 // Force early initialization using .init_array with high priority
 // This runs before other constructors and hopefully before symbol resolution
 __attribute__((constructor(101))) static void early_init(void) {
-  intercept_init();
+  // Route through ensure_init() so the pthread_once guard is honored: calling
+  // intercept_init() directly here ran the whole load sequence twice (once from
+  // this constructor and once from the first forwarded HIP call), which
+  // re-dlopen()ed the backend, re-ran the interceptor's init, and made it
+  // truncate and reprint its log.
+  ensure_init();
 }
 
 __attribute__((destructor)) static void intercept_fini(void) {
@@ -276,6 +287,18 @@ hip_function_table_t* hip_passthrough_get_real_table(void) {
 hip_function_table_t* hip_passthrough_get_active_table(void) {
   ensure_init();
   return g_active_table;
+}
+
+// Backend library handle for the generated forwarders in stubs_generated.c.
+void* hip_passthrough_backend_lib(void) {
+  ensure_init();
+  return g_backend_lib;
+}
+
+// Logs a call forwarded by a generated stub. The generated forwarders carry no
+// per-call type information, so the entry names the symbol only.
+void hip_passthrough_log_call(const char* name) {
+  pt_log(2, "%s()", name);
 }
 
 //===----------------------------------------------------------------------===//
