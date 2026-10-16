@@ -226,8 +226,14 @@ def test_compile_contract_fragment_uses_supplied_descriptor_rule_rows() -> None:
     assert compiled.descriptor_rules[0].rule_index == 9
 
 
-def test_compile_contract_fragment_tracks_query_visible_source_graphs() -> None:
-    lowering_only_rule = DescriptorRule(
+@pytest.mark.parametrize(
+    ("fragment_query", "rule_query", "emitted"),
+    [(True, True, True), (False, True, True), (True, False, True), (True, True, False)],
+)
+def test_compile_contract_fragment_tracks_query_visible_source_graphs(
+    fragment_query: bool, rule_query: bool, emitted: bool
+) -> None:
+    graph_rule = DescriptorRule(
         source_op=scalar_arithmetic.scalar_muli,
         descriptor=TEST_LOW_ADD_I32_DESCRIPTOR,
         source_nodes=(
@@ -237,31 +243,56 @@ def test_compile_contract_fragment_tracks_query_visible_source_graphs() -> None:
                 parent_operand=ValueRef.operand("lhs"),
                 node_result=ValueRef.result("result"),
             ),
+            SourceNode.adjacent_definition(
+                "nested_producer",
+                source_op=scalar_arithmetic.scalar_subi,
+                parent="producer",
+                parent_operand=ValueRef.operand("lhs"),
+                node_result=ValueRef.result("result"),
+            ),
+            SourceNode.adjacent_unique_user(
+                "consumer",
+                source_op=scalar_arithmetic.scalar_addi,
+                parent_result=ValueRef.result("result"),
+                node_operand=ValueRef.operand("lhs"),
+                guards=(Guard.value_no_uses("result"),),
+            ),
         ),
-        guards=(Guard.value_no_uses("result"),),
-        target_query=False,
+        target_query=rule_query,
     )
-
-    def compile_rule(rule: DescriptorRule) -> CompiledContractFragment:
-        fragment = ContractFragment(
-            name="test-low.query-source-graph",
-            descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
-            cases=(rule,),
+    fragment = ContractFragment(
+        name="test-low.query-source-graph",
+        descriptor_set=TEST_LOW_CORE_DESCRIPTOR_SET,
+        cases=(graph_rule,),
+        target_contract_query=fragment_query,
+    )
+    compiled = compile_contract_fragment(
+        fragment,
+        dialect_ops={"scalar": ALL_SCALAR_OPS},
+        descriptor_rule_rows={0: CompiledDescriptorRule(0)} if emitted else {},
+        lower_rule_indices={0: 0} if emitted else {},
+    )
+    if fragment_query and rule_query and emitted:
+        # Include roots, nested definitions, and users, deduplicated by kind.
+        assert compiled.source_graph_op_kinds == tuple(
+            sorted(
+                (op.group.dialect_id << 8) | ALL_SCALAR_OPS.index(op)
+                for op in (
+                    scalar_arithmetic.scalar_addi,
+                    scalar_arithmetic.scalar_subi,
+                    scalar_arithmetic.scalar_muli,
+                )
+            )
         )
-        return compile_contract_fragment(
-            fragment,
-            dialect_ops={"scalar": ALL_SCALAR_OPS},
-            descriptor_rule_rows={0: CompiledDescriptorRule(0)},
-            lower_rule_indices={0: 0},
+    else:
+        assert compiled.source_graph_op_kinds == ()
+    if emitted:
+        expected_system = (
+            ContractSystem.DESCRIPTOR_RULE
+            if rule_query
+            else ContractSystem.DESCRIPTOR_RULE_LOWERING_ONLY
         )
-
-    lowering_only = compile_rule(lowering_only_rule)
-    assert not lowering_only.target_query_source_graph
-    assert lowering_only.cases[0].system is ContractSystem.DESCRIPTOR_RULE_LOWERING_ONLY
-
-    query_visible = compile_rule(replace(lowering_only_rule, target_query=True))
-    assert query_visible.target_query_source_graph
-    assert query_visible.cases[0].system is ContractSystem.DESCRIPTOR_RULE
+        assert compiled.cases[0].system is expected_system
 
 
 def test_compile_contract_fragment_orders_cases_by_priority() -> None:

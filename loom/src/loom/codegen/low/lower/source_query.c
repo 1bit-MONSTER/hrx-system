@@ -115,8 +115,9 @@ static bool loom_low_lower_source_query_case_has_related_nodes(
          0;
 }
 
-static bool loom_low_lower_source_query_has_related_rules(
-    const loom_low_lower_contract_query_options_t* options) {
+static bool loom_low_lower_source_query_op_participates_in_graphs(
+    const loom_low_lower_contract_query_options_t* options,
+    loom_op_kind_t op_kind) {
   if (options->contract_index == NULL) {
     return false;
   }
@@ -124,8 +125,8 @@ static bool loom_low_lower_source_query_has_related_rules(
     const loom_target_contract_binding_t* binding =
         &options->contract_index->bindings[i];
     if (binding->rule_set_index < options->rule_sets.count &&
-        loom_target_contract_fragment_queries_source_graphs(
-            binding->fragment)) {
+        loom_target_contract_fragment_has_source_graph_op(binding->fragment,
+                                                          op_kind)) {
       return true;
     }
   }
@@ -318,11 +319,6 @@ static iree_status_t loom_low_lower_source_query_prepare_coverage(
   if (coverage->prepared || coverage->preparing) {
     return iree_ok_status();
   }
-  if (!loom_low_lower_source_query_has_related_rules(options)) {
-    coverage->prepared = true;
-    return iree_ok_status();
-  }
-
   IREE_RETURN_IF_ERROR(loom_low_lower_source_graph_plan_allocate(
       &context->analysis_arena, &coverage->graph_plan));
   coverage->preparing = true;
@@ -537,7 +533,8 @@ static iree_status_t loom_low_lower_source_query_contract(
   loom_low_lower_source_query_coverage_t* coverage = NULL;
   if (iree_status_is_ok(status) && !fact_table_changed &&
       query_environment.vector_lane_projection.source_lane_count == 0 &&
-      loom_low_lower_source_query_has_related_rules(&query_options)) {
+      loom_low_lower_source_query_op_participates_in_graphs(&query_options,
+                                                            source_op->kind)) {
     status = loom_target_contract_query_resolve_function_analysis(
         &query_environment);
     if (iree_status_is_ok(status)) {

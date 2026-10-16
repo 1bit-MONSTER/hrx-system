@@ -20,7 +20,8 @@ constexpr uint8_t kLegalOpIndex = 3;
 
 const loom_target_contract_descriptor_rule_t kDescriptorRules[] = {{0}};
 const loom_target_contract_fragment_t kContractFragment = {
-    0, 1, kDescriptorRules, 0, nullptr,
+    .descriptor_rule_count = 1,
+    .descriptor_rules = kDescriptorRules,
 };
 const loom_target_contract_binding_t kBindings[] = {{&kContractFragment, 5}};
 const loom_target_contract_case_t kCases[] = {

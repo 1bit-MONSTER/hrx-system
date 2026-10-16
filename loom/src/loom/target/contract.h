@@ -379,9 +379,6 @@ enum loom_target_contract_fragment_flag_bits_e {
   // Fragment cases participate in read-only target contract queries.
   LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY =
       (loom_target_contract_fragment_flags_t)(1u << 0),
-  // Fragment has target-query-visible multi-operation source graphs.
-  LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY_SOURCE_GRAPH =
-      (loom_target_contract_fragment_flags_t)(1u << 1),
 };
 
 typedef struct loom_target_contract_fragment_t {
@@ -389,12 +386,17 @@ typedef struct loom_target_contract_fragment_t {
   loom_target_contract_fragment_flags_t flags;
   // Number of descriptor-rule rows.
   uint16_t descriptor_rule_count;
-  // Descriptor-rule row pool.
-  const loom_target_contract_descriptor_rule_t* descriptor_rules;
   // Number of descriptor-matrix rows.
   uint16_t descriptor_matrix_count;
+  // Number of distinct op kinds participating in query-visible source graphs.
+  uint16_t source_graph_op_kind_count;
+  // Descriptor-rule row pool.
+  const loom_target_contract_descriptor_rule_t* descriptor_rules;
   // Descriptor-matrix row pool.
   const loom_target_contract_descriptor_matrix_rule_t* descriptor_matrices;
+  // Sorted union of root and related-node kinds from every emitted graph rule
+  // that participates in target queries. Immutable across source mutations.
+  const loom_op_kind_t* source_graph_op_kinds;
 } loom_target_contract_fragment_t;
 
 // Returns true when |fragment| participates in read-only target contract
@@ -405,12 +407,11 @@ static inline bool loom_target_contract_fragment_queries_target(
          0;
 }
 
-// Returns true when the fragment has target-query-visible source graphs.
-static inline bool loom_target_contract_fragment_queries_source_graphs(
-    const loom_target_contract_fragment_t* fragment) {
-  return (fragment->flags &
-          LOOM_TARGET_CONTRACT_FRAGMENT_FLAG_TARGET_QUERY_SOURCE_GRAPH) != 0;
-}
+// Returns whether |op_kind| can participate as a root or related node in any
+// query-visible source graph. A false result proves that a point contract query
+// does not need source graph ownership analysis.
+bool loom_target_contract_fragment_has_source_graph_op(
+    const loom_target_contract_fragment_t* fragment, loom_op_kind_t op_kind);
 
 typedef struct loom_target_contract_binding_t {
   // Generated fragment rodata linked into the active target package.

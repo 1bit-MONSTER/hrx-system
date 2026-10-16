@@ -73,7 +73,7 @@ class CompiledContractFragment:
     cases: tuple[CompiledCase, ...]
     descriptor_rules: tuple[CompiledDescriptorRule, ...]
     descriptor_matrices: tuple[CompiledDescriptorMatrix, ...]
-    target_query_source_graph: bool = False
+    source_graph_op_kinds: tuple[int, ...] = ()
 
 
 class CompiledIndexCase(NamedTuple):
@@ -152,6 +152,7 @@ def compile_contract_fragment(
     descriptor_rules: list[CompiledDescriptorRule] = []
     descriptor_matrix_ordinals: dict[str, int] = {}
     descriptor_matrices: list[CompiledDescriptorMatrix] = []
+    source_graph_op_kinds: set[int] = set()
     for authored_case_index, contract_case in enumerate(table.cases):
         _require_op_index(op_indexes, contract_case.source_op)
         if isinstance(contract_case, DescriptorRule):
@@ -161,6 +162,20 @@ def compile_contract_fragment(
             descriptor_rule_index = len(descriptor_rules)
             descriptor_rule_ordinals[authored_case_index] = descriptor_rule_index
             descriptor_rules.append(descriptor_rule)
+            if (
+                table.target_contract_query
+                and contract_case.target_query
+                and contract_case.source_nodes
+                and authored_case_index in lower_rule_indices
+            ):
+                graph_ops = (
+                    contract_case.source_op,
+                    *(node.source_op for node in contract_case.source_nodes),
+                )
+                for graph_op in graph_ops:
+                    _require_op_index(op_indexes, graph_op)
+                    dialect, op_index = op_indexes[id(graph_op)]
+                    source_graph_op_kinds.add((dialect.dialect_id << 8) | op_index)
         elif isinstance(contract_case, DescriptorMatrixRule):
             if contract_case.source not in descriptor_matrix_ordinals:
                 descriptor_matrix_ordinals[contract_case.source] = len(
@@ -221,14 +236,7 @@ def compile_contract_fragment(
         cases=tuple(compiled_cases),
         descriptor_rules=tuple(descriptor_rules),
         descriptor_matrices=tuple(descriptor_matrices),
-        target_query_source_graph=table.target_contract_query
-        and any(
-            isinstance(contract_case, DescriptorRule)
-            and contract_case.target_query
-            and contract_case.source_nodes
-            and authored_case_index in lower_rule_indices
-            for authored_case_index, contract_case in enumerate(table.cases)
-        ),
+        source_graph_op_kinds=tuple(sorted(source_graph_op_kinds)),
     )
 
 
