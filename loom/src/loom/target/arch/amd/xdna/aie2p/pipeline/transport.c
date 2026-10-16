@@ -273,8 +273,16 @@ static iree_status_t loom_aie2p_native_admit_routes(
 
 // Workers have flat CFGs, and async legality retires every group within its
 // block. Different streams therefore cannot overlap. Within a stream, the
-// retained completion edge determines when a physical pair becomes reusable.
-// The search is bounded by the column's physical descriptor count.
+// retained completion edge determines when a physical resource becomes
+// reusable.
+static bool loom_aie2p_native_transfer_retired(
+    const loom_aie2p_native_transfer_t* transfer, const loom_op_t* issue) {
+  return transfer->completion->parent_block != issue->parent_block ||
+         transfer->completion->block_ordinal <= issue->block_ordinal;
+}
+
+// The search is bounded by the column's physical descriptor count. A retired
+// pair remains unavailable while another geometry uses its completion credit.
 static loom_aie2p_native_dma_descriptor_t*
 loom_aie2p_native_reusable_descriptor(
     const loom_aie2p_native_worker_t* worker,
@@ -293,8 +301,10 @@ loom_aie2p_native_reusable_descriptor(
        candidate; candidate = candidate->next) {
     const loom_aie2p_native_transfer_t* previous = candidate->last_transfer;
     if (candidate->path != descriptor->path ||
-        (previous->completion->parent_block == issue->parent_block &&
-         previous->completion->block_ordinal > issue->block_ordinal) ||
+        !loom_aie2p_native_transfer_retired(previous, issue) ||
+        (candidate->completion &&
+         !loom_aie2p_native_transfer_retired(
+             candidate->completion->last_transfer, issue)) ||
         memcmp(candidate->local.words[0], descriptor->local.words[0],
                sizeof(descriptor->local.words[0])) != 0 ||
         memcmp(candidate->shim.words[0], descriptor->shim.words[0],
@@ -314,6 +324,26 @@ loom_aie2p_native_reusable_descriptor(
         transfer->external_view->begin_byte_offset.constant !=
             previous->external_view->begin_byte_offset.constant;
     return candidate;
+  }
+  return NULL;
+}
+
+// Core waits consume arrival credits, so a retired credit can serve a different
+// descriptor geometry on the same tile. Configuration waits leave their credits
+// set and cannot share them. The search is bounded by the physical lock count.
+static loom_aie2p_native_dma_completion_t*
+loom_aie2p_native_reusable_completion(const loom_aie2p_native_worker_t* worker,
+                                      const loom_aie2p_native_tile_t* tile,
+                                      const loom_op_t* issue) {
+  if (worker->execution != LOOM_AIE2P_NATIVE_EXECUTION_CORE) {
+    return NULL;
+  }
+  for (loom_aie2p_native_dma_completion_t* completion = worker->dma_completions;
+       completion; completion = completion->next) {
+    if (completion->tile == tile &&
+        loom_aie2p_native_transfer_retired(completion->last_transfer, issue)) {
+      return completion;
+    }
   }
   return NULL;
 }
@@ -394,6 +424,8 @@ static iree_status_t loom_aie2p_native_select_worker_transfers(
   iree_host_size_t transport_step = 0;
   loom_aie2p_native_transfer_t** tail = &worker->transfers;
   loom_aie2p_native_dma_descriptor_t** descriptor_tail = &worker->descriptors;
+  loom_aie2p_native_dma_completion_t** completion_tail =
+      &worker->dma_completions;
   iree_host_size_t stream_index = 0;
   for (const loom_kernel_async_stream_t* stream =
            configuration ? source->transport.streams[0]
@@ -660,13 +692,10 @@ static iree_status_t loom_aie2p_native_select_worker_transfers(
             local_tile, queue->path->local_engine, &descriptor_base,
             &descriptor_count);
         if (shim->descriptor_counts[0] ==
-                shim->facts->dma.buffer_descriptor_count ||
-            (ingress && !autonomous &&
-             local_tile->next_lock == local_tile->facts->lock_count)) {
+            shim->facts->dma.buffer_descriptor_count) {
           return loom_aie2p_native_reject(
               context, request->op,
-              IREE_SV(
-                  "available native descriptors and completion semaphores"));
+              IREE_SV("an available native shim descriptor"));
         }
         if (autonomous) {
           bool valid;
@@ -699,15 +728,31 @@ static iree_status_t loom_aie2p_native_select_worker_transfers(
           descriptor.shim.descriptor = shim->descriptor_counts[0]++;
         }
         if (ingress && !autonomous) {
-          descriptor.completion_lock = local_tile->next_lock++;
-          if (!configuration) {
-            const uint32_t channel_index =
-                (uint32_t)(borrow.channel - context->channels);
-            const loom_aie2p_native_channel_access_t* access =
-                &worker->channels
-                     .accesses[worker->channels.indices[channel_index]];
-            descriptor.completion_selector =
-                access->window->lock_selector_base + descriptor.completion_lock;
+          descriptor.completion = loom_aie2p_native_reusable_completion(
+              worker, local_tile, request->op);
+          if (!descriptor.completion) {
+            if (local_tile->next_lock == local_tile->facts->lock_count) {
+              return loom_aie2p_native_reject(
+                  context, request->op,
+                  IREE_SV("an available native ingress completion semaphore"));
+            }
+            IREE_RETURN_IF_ERROR(
+                iree_arena_allocate(arena, sizeof(*descriptor.completion),
+                                    (void**)&descriptor.completion));
+            *descriptor.completion = (loom_aie2p_native_dma_completion_t){
+                .tile = local_tile, .lock = local_tile->next_lock++};
+            if (!configuration) {
+              const uint32_t channel_index =
+                  (uint32_t)(borrow.channel - context->channels);
+              const loom_aie2p_native_channel_access_t* access =
+                  &worker->channels
+                       .accesses[worker->channels.indices[channel_index]];
+              descriptor.completion->selector =
+                  access->window->lock_selector_base +
+                  descriptor.completion->lock;
+            }
+            *completion_tail = descriptor.completion;
+            completion_tail = &descriptor.completion->next;
           }
         }
         const iree_host_size_t template_bytes =
@@ -730,6 +775,9 @@ static iree_status_t loom_aie2p_native_select_worker_transfers(
         descriptor_tail = &selected->descriptor->next;
       }
       selected->descriptor->last_transfer = selected;
+      if (selected->descriptor->completion) {
+        selected->descriptor->completion->last_transfer = selected;
+      }
       loom_aie2p_native_binding_t* binding =
           &context->bindings[selected->binding];
       binding->byte_length =

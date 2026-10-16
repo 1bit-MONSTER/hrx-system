@@ -162,6 +162,39 @@ TEST_F(XdnaPipelineCompletionTest, ReusesOnlyRetiredDmaDescriptors) {
   }
 }
 
+TEST_F(XdnaPipelineCompletionTest, ReusesOnlyConsumedDmaCompletions) {
+  ASSERT_NO_FATAL_FAILURE(LoadPipeline(IREE_SV("reuse_dma_completions")));
+  ASSERT_NO_FATAL_FAILURE(CreateBindings(AMDF_MEMORY_PROFILE_ROLE_CREATE));
+  ASSERT_NO_FATAL_FAILURE(PrepareExecution(resolved_bindings_, &first_));
+  for (size_t generation = 0; generation < 3; ++generation) {
+    SCOPED_TRACE(generation);
+    const size_t first_input = generation;
+    const size_t second_input = (generation + 1) % resolved_bindings_.size();
+    const size_t output = (generation + 2) % resolved_bindings_.size();
+    std::array<BindingValues, 3> expected;
+    for (size_t binding = 0; binding < expected.size(); ++binding) {
+      for (size_t i = 0; i < kElementCount; ++i) {
+        expected[binding][i] =
+            kValues[(i + binding + generation) % kElementCount];
+      }
+      ASSERT_NO_FATAL_FAILURE(WriteBinding(binding, expected[binding]));
+    }
+    const ResolvedBindings bindings = {resolved_bindings_[first_input],
+                                       resolved_bindings_[second_input],
+                                       resolved_bindings_[output]};
+    ASSERT_NO_FATAL_FAILURE(BindPipeline(bindings));
+    for (size_t record = 0; record < 3; ++record) {
+      expected[output][4 * record] =
+          expected[first_input][record] + expected[first_input][record + 1];
+      expected[output][4 * record + 1] = expected[second_input][record];
+      expected[output][4 * record + 2] = expected[second_input][record + 1];
+      expected[output][4 * record + 3] = record;
+    }
+    ASSERT_NO_FATAL_FAILURE(RunExecution(first_));
+    ASSERT_NO_FATAL_FAILURE(VerifyBindings(expected));
+  }
+}
+
 TEST_F(XdnaPipelineCompletionTest, UsesFirstSlotOfMultiSlotChannel) {
   constexpr std::array<uint32_t, 1> results = {13};
   CheckPipeline(IREE_SV("single_admission"), results);

@@ -84,6 +84,64 @@ pipeline.def<kernel> public retain target(@npu) @reuse_dma_descriptors() run(%fi
   }
 }
 
+// Distinct arrival geometries reuse consumed completion credits. The second
+// one-word arrival matches the first descriptor while its credit is serving
+// the two-word arrival, so it must acquire a different completion resource.
+// Loop-varying projections and independent input bindings exercise address
+// patching without changing those immutable descriptor/completion identities.
+pipeline.def<kernel> public retain target(@npu) @reuse_dma_completions() run(%first_arg: buffer, %second_arg: buffer, %output_arg: buffer) {
+  %first_unique, %second_unique, %output_unique = buffer.assume.noalias %first_arg, %second_arg, %output_arg : buffer, buffer, buffer
+  %first, %second, %output = buffer.assume.alignment %first_unique, %second_unique, %output_unique {minimum_alignment = 4} : buffer, buffer, buffer
+  %memory = pipeline.memory<workgroup>[0, 3] : pool
+  %origin = index.constant 0 : offset
+  %storage_bytes = index.constant 16 : offset
+  %capacity = index.constant 1 : index
+  %storage = buffer.alloca<workgroup> pool(%memory) align(4) %storage_bytes : buffer
+  %slots = buffer.view %storage[%origin] : buffer -> view<1x4xi32>
+  %records = channel.bind<fifo> %slots, %capacity : view<1x4xi32>, index -> channel<tile<4xi32>>
+  pipeline.strand workers([0, 3], [1, 1], [1, 1]) {
+    %begin = index.constant 0 : index
+    %end = index.constant 3 : index
+    %step = index.constant 1 : index
+    %word_bytes = index.constant 4 : index
+    %record_bytes = index.constant 16 : index
+    scf.for %position = [%begin to %end step %step] {
+      %input_index = index.mul %position, %word_bytes : index
+      %next_index = index.add %input_index, %word_bytes : index
+      %input_offset = index.cast %input_index : index to offset
+      %next_offset = index.cast %next_index : index to offset
+      %initial_input = buffer.view %first[%input_offset] : buffer -> view<1xi32>
+      %pair_input = buffer.view %second[%input_offset] : buffer -> view<2xi32>
+      %word_input = buffer.view %first[%next_offset] : buffer -> view<1xi32>
+      %write, %destination = channel.reserve %records : channel<tile<4xi32>> -> (write<tile<4xi32>>, view<4xi32>)
+      %first_word = view.subview %destination[0] : view<4xi32> -> view<1xi32>
+      %middle_pair = view.subview %destination[1] : view<4xi32> -> view<2xi32>
+      %initial = kernel.async.copy %initial_input to %first_word {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<1xi32> to view<1xi32> -> kernel.async.token
+      %initial_group = kernel.async.group %initial : kernel.async.token -> kernel.async.group
+      kernel.async.wait %initial_group {newer_groups = 0} : kernel.async.group
+      %saved = view.load %first_word[0] : view<1xi32> -> i32
+      %pair = kernel.async.copy %pair_input to %middle_pair {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<2xi32> to view<2xi32> -> kernel.async.token
+      %word = kernel.async.copy %word_input to %first_word {cache_scope = workgroup, cache_temporal = regular, direction = global_to_workgroup} : view<1xi32> to view<1xi32> -> kernel.async.token
+      %incoming = kernel.async.group %pair, %word : kernel.async.token, kernel.async.token -> kernel.async.group
+      kernel.async.wait %incoming {newer_groups = 0} : kernel.async.group
+      %value = view.load %first_word[0] : view<1xi32> -> i32
+      %sum = scalar.addi %saved, %value : i32
+      view.store %sum, %first_word[0] : i32, view<1xi32>
+      %position_value = index.cast %position : index to i32
+      view.store %position_value, %destination[3] : i32, view<4xi32>
+      channel.publish %write : write<tile<4xi32>>
+      %read, %source = channel.acquire %records : channel<tile<4xi32>> -> (read<tile<4xi32>>, view<4xi32>)
+      %output_index = index.mul %position, %record_bytes : index
+      %output_offset = index.cast %output_index : index to offset
+      %output_view = buffer.view %output[%output_offset] : buffer -> view<4xi32>
+      %outgoing = kernel.async.copy %source to %output_view {cache_scope = workgroup, cache_temporal = regular, direction = workgroup_to_global} : view<4xi32> to view<4xi32> -> kernel.async.token
+      %outgoing_group = kernel.async.group %outgoing : kernel.async.token -> kernel.async.group
+      kernel.async.wait %outgoing_group {newer_groups = 0} : kernel.async.group
+      channel.release %read : read<tile<4xi32>>
+    }
+  }
+}
+
 // Autonomous ingress rotates three slots while computation mutates each record
 // and drains it to a padded external layout. Five records leave a partial ring
 // revolution; each independent invocation must start with slot zero again.

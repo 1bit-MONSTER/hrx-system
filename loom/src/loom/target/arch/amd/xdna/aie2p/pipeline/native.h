@@ -176,7 +176,23 @@ typedef struct loom_aie2p_native_switch_t {
   loom_aie2p_native_register_bank_t banks[LOOM_AIE2P_NATIVE_SWITCH_BANK_COUNT];
 } loom_aie2p_native_switch_t;
 
-// One physical descriptor pair reused only after its prior transfer retires.
+// One arrival credit reused only after its latest wait consumes that credit.
+// Descriptors with different immutable geometries can share this semaphore.
+typedef struct loom_aie2p_native_dma_completion_t {
+  // Next physical completion semaphore in the worker's allocation order.
+  struct loom_aie2p_native_dma_completion_t* next;
+  // Local DMA tile owning the semaphore.
+  loom_aie2p_native_tile_t* tile;
+  // Most recently assigned copy across every descriptor sharing this credit.
+  const struct loom_aie2p_native_transfer_t* last_transfer;
+  // Tile-local hardware semaphore index.
+  uint16_t lock;
+  // Worker-visible selector, unused for configuration-only transfers.
+  uint16_t selector;
+} loom_aie2p_native_dma_completion_t;
+
+// One physical descriptor pair reused after its prior transfer and any other
+// transfer sharing its completion semaphore have retired.
 typedef struct loom_aie2p_native_dma_descriptor_t {
   // Next physical pair in the worker's allocation order.
   struct loom_aie2p_native_dma_descriptor_t* next;
@@ -188,10 +204,8 @@ typedef struct loom_aie2p_native_dma_descriptor_t {
   loom_aie2p_native_dma_sequence_t local;
   // Shim descriptors, excluding their relocated address pairs.
   loom_aie2p_native_dma_sequence_t shim;
-  // On-chip DMA completion semaphore for non-autonomous local arrivals.
-  uint16_t completion_lock;
-  // Worker-visible selector of the local-arrival completion semaphore.
-  uint16_t completion_selector;
+  // Shared arrival credit, or NULL for egress and autonomous ingress.
+  loom_aie2p_native_dma_completion_t* completion;
   // Each issue patches the external address, including fixed offsets when
   // multiple copies sharing this pair address different caller storage.
   bool external_address_dynamic;
@@ -307,6 +321,8 @@ typedef struct loom_aie2p_native_worker_t {
   loom_aie2p_native_transfer_t* transfers;
   // Physical descriptor pairs shared by non-overlapping compatible copies.
   loom_aie2p_native_dma_descriptor_t* descriptors;
+  // Physical arrival credits shared independently of descriptor geometry.
+  loom_aie2p_native_dma_completion_t* dma_completions;
   // First selected on-die channel distribution.
   loom_aie2p_native_distribution_t* distributions;
   // Ordered DMA paths owned exclusively by this worker.

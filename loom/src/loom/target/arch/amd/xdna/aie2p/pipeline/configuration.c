@@ -334,12 +334,11 @@ static iree_status_t loom_aie2p_native_config_transfers(
       const loom_aie2p_native_memory_layout_t* layout =
           descriptor->path->local->memory_layout;
       uint32_t completion_release = 0;
-      if (descriptor->path->ingress &&
-          worker->execution != LOOM_AIE2P_NATIVE_EXECUTION_DMA) {
+      if (descriptor->completion) {
         completion_release =
             loom_xdna_register_field_encode_admitted(
                 layout->locks.release_id,
-                layout->local_lock_base + descriptor->completion_lock) |
+                layout->local_lock_base + descriptor->completion->lock) |
             loom_xdna_register_field_encode_admitted(
                 layout->locks.release_value, 1);
       }
@@ -649,7 +648,7 @@ static iree_status_t loom_aie2p_native_config_communicate(
             IREE_RETURN_IF_ERROR(loom_aie2p_native_config_register(
                 config, path->local->coordinate,
                 path->local->memory_layout->lock_value,
-                &complete->descriptor->completion_lock, 1, 1,
+                &complete->descriptor->completion->lock, 1, 1,
                 AIE2P_CONFIGURATION_DESCRIPTOR_REF_CONFIGURATION_WAIT_MASK32));
           } else {
             const uint64_t values[] = {path->shim->coordinate.column,
@@ -857,16 +856,11 @@ iree_status_t loom_aie2p_native_emit_configuration(
       IREE_RETURN_IF_ERROR(loom_aie2p_native_config_set_lock(
           &config, worker->tile->coordinate, worker->completion_lock, 0));
     }
-    for (const loom_aie2p_native_dma_descriptor_t* descriptor =
-             worker->descriptors;
-         descriptor; descriptor = descriptor->next) {
-      if (!descriptor->path->ingress ||
-          worker->execution == LOOM_AIE2P_NATIVE_EXECUTION_DMA) {
-        continue;
-      }
+    for (const loom_aie2p_native_dma_completion_t* completion =
+             worker->dma_completions;
+         completion; completion = completion->next) {
       IREE_RETURN_IF_ERROR(loom_aie2p_native_config_set_lock(
-          &config, descriptor->path->local->coordinate,
-          descriptor->completion_lock, 0));
+          &config, completion->tile->coordinate, completion->lock, 0));
     }
   }
   IREE_RETURN_IF_ERROR(loom_aie2p_native_config_op(

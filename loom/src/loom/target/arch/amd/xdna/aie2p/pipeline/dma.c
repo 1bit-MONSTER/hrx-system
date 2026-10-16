@@ -204,7 +204,7 @@ static iree_status_t loom_aie2p_native_dma_wait_helper(
   if (transfer->descriptor->path->ingress) {
     IREE_RETURN_IF_ERROR(loom_aie2p_worker_lock(
         code, &builder, AIE2P_CORE_DESCRIPTOR_REF_LOCK_ACQUIRE_IMMEDIATE,
-        transfer->descriptor->completion_selector, -1));
+        transfer->descriptor->completion->selector, -1));
   } else {
     loom_value_id_t completed;
     IREE_RETURN_IF_ERROR(loom_aie2p_worker_op(

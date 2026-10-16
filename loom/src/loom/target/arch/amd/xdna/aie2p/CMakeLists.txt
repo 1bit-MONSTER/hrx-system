@@ -979,6 +979,7 @@ loom_check_test_suite(
     "test/native_bindings.loom-test"
     "test/native_completion.loom-test"
     "test/native_distribution.loom-test"
+    "test/native_dma_completions.loom-test"
     "test/native_dma_descriptors.loom-test"
     "test/native_endpoint_addresses.loom-test"
     "test/native_local_buffers.loom-test"

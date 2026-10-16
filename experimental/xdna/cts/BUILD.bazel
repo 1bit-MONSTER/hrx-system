@@ -47,6 +47,7 @@ _PIPELINE_ARTIFACTS = select({
             "@reordered_retirement",
             "@rotating_retirement",
             "@reuse_dma_descriptors",
+            "@reuse_dma_completions",
         ],
         target = ":" + profile,
         target_compatible_with = _PIPELINE_ARTIFACTS,
