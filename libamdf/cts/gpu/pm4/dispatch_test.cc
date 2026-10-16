@@ -95,7 +95,8 @@ TEST_F(Pm4DispatchTest, CoherentSystemPayloadChangesAcrossEpochs) {
                 kernel.arguments.byte_length);
 
     commands.SystemBarrier();
-    commands.BindCompute(program, arguments->device_address);
+    commands.BindCompute(program, arguments->device_address,
+                         family_.format_features);
     commands.Dispatch(program, kGridSize, 1, 1);
     commands.SystemBarrier();
     // Monotonic completion values prevent a prior epoch from satisfying this
@@ -246,12 +247,14 @@ TEST_F(Pm4DispatchTest, CoherentSystemProducerConsumerChainAcrossEpochs) {
         &consumer_payload, kernel.arguments.byte_length);
 
     commands.SystemBarrier();
-    commands.BindCompute(program, arguments->device_address);
+    commands.BindCompute(program, arguments->device_address,
+                         family_.format_features);
     commands.Dispatch(program, kGridSize, 1, 1);
     // The queue permits unordered dispatch. This explicit completion/cache
     // edge makes the producer's payload available before the consumer loads.
     commands.SystemBarrier();
-    commands.BindCompute(program, arguments->device_address + kArgumentStride);
+    commands.BindCompute(program, arguments->device_address + kArgumentStride,
+                         family_.format_features);
     commands.Dispatch(program, kGridSize, 1, 1);
     // Independently drain both dispatches before host observation, even if the
     // middle dependency produces incorrect data. The confirmed marker follows
@@ -400,7 +403,8 @@ TEST_F(Pm4DispatchTest, CoherentSystemReleaseCompletesShaderAcrossEpochs) {
                 kernel.arguments.byte_length);
 
     commands.SystemBarrier();
-    commands.BindCompute(program, arguments->device_address);
+    commands.BindCompute(program, arguments->device_address,
+                         family_.format_features);
     commands.Dispatch(program, kGridSize, 1, 1);
     // This bottom-of-pipe release publishes the shader's vector stores and
     // writes the known epoch. It is the sole payload-completion signal.
@@ -555,7 +559,8 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderTimestampsAcrossEpochs) {
     }
 
     commands.SystemBarrier();
-    commands.BindCompute(program, arguments->device_address);
+    commands.BindCompute(program, arguments->device_address,
+                         family_.format_features);
     commands.CopyGpuClock64(control->device_address + kTimestampByteOffsets[0]);
     commands.Dispatch(program, kGridSize, 1, 1);
     commands.ReleaseGpuClock64(control->device_address +

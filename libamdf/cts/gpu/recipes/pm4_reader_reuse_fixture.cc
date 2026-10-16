@@ -388,7 +388,8 @@ void Pm4ReaderReuseTest::Run() {
       std::memcpy(arguments.expected.data() + argument_offset / 4, &payload,
                   kernel->arguments.byte_length);
       consume.BindCompute(program,
-                          arguments.memory->device_address + argument_offset);
+                          arguments.memory->device_address + argument_offset,
+                          family_.format_features);
       consume.Dispatch(program, word_count, 1, 1);
       consume.ReleaseSystem32(address(job, reader_offset(reader)), 1);
       // Join this dispatch before the next data acquire. Other reader queues

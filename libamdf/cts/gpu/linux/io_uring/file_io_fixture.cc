@@ -48,7 +48,8 @@ void GpuFileIoFixture::Execute(const kernels::Kernel& kernel,
   ASSERT_NO_FATAL_FAILURE(CreateQueue(&queue));
   Pm4CommandWriter commands(queue->words().data(), *pm4_profile_);
   commands.SystemBarrier();
-  commands.BindCompute(program, arguments->device_address);
+  commands.BindCompute(program, arguments->device_address,
+                       family_.format_features);
   commands.Dispatch(program, 1, 1, 1);
   commands.SystemBarrier();
   commands.WriteData32(completion->device_address, 1);

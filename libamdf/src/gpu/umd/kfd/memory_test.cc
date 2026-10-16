@@ -251,6 +251,7 @@ static amdf_gpu_umd_device_t MakeGfx1151Device() {
   };
   device.topology.gpu_id = 73;
   device.topology.properties.gfx_ip = {11, 5, 1};
+  device.topology.gc_ip = {11, 5, 1, true};
   device.topology.properties.compute.wavefront_size = 32;
   device.topology.properties.compute.compute_unit_count = 2;
   device.topology.properties.compute.maximum_wave_count_per_compute_unit = 32;
@@ -642,6 +643,7 @@ TEST(LinuxGpuMemoryProfileTest, SystemGroupUsesEachConsumersSelectedPolicy) {
 TEST(LinuxGpuMemoryProfileTest, SdmaSitesPreserveBackingSpecificCachePolicy) {
   auto gfx1100 = MakeGfx1151Device();
   gfx1100.topology.properties.gfx_ip = {11, 0, 0};
+  gfx1100.topology.gc_ip = {11, 0, 0, true};
   gfx1100.topology.sdma.ip = {6, 0, 0, true};
   gfx1100.topology.memory_features = AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY;
   for (auto device : {gfx1100, MakeGfx1151Device()}) {
@@ -859,7 +861,6 @@ TEST(LinuxGpuMemoryProfileTest, Gfx1151GroupUsesBackingAndConsumerFacts) {
 
 TEST(LinuxGpuMemoryProfileTest, SystemStoresPreserveIndependentSdmaPolicy) {
   auto device = MakeGfx1151Device();
-  device.topology.gc_ip = {11, 5, 1, true};
   device.topology.host_atomics = {true, true};
   amdf_gpu_endpoint_profile_t endpoint = {};
   ASSERT_NO_FATAL_FAILURE(InitializeQueueFamilies(&device, &endpoint));
@@ -915,7 +916,6 @@ TEST(LinuxGpuMemoryProfileTest, SystemStoresPreserveIndependentSdmaPolicy) {
 
 TEST(LinuxGpuMemoryProfileTest, SystemStoresDoNotRequireSdma) {
   auto device = MakeGfx1151Device();
-  device.topology.gc_ip = {11, 5, 1, true};
   device.topology.host_atomics = {true, true};
   device.topology.sdma = {};
   amdf_gpu_endpoint_profile_t endpoint = {};
@@ -941,7 +941,6 @@ TEST(LinuxGpuMemoryProfileTest, SystemStoresDoNotRequireSdma) {
 
 TEST(LinuxGpuMemoryProfileTest, SystemGroupStoresRemainConsumerSpecific) {
   auto qualified = MakeGfx1151Device();
-  qualified.topology.gc_ip = {11, 5, 1, true};
   qualified.topology.host_atomics = {true, true};
   auto unqualified = MakeGfx1151Device();
   unqualified.topology.gpu_id = qualified.topology.gpu_id + 1;

@@ -85,9 +85,10 @@ class Pm4CommandWriter {
   // equality wait, then writes back GL2. The caller owns the fence through a
   // subsequent completion; this fixed recipe performs no invalidation.
   void WaitEndOfPipeAndWriteback(uint64_t fence_address, uint32_t value);
-  // Binds ordinary shader inputs without touching profiling, dispatch-pointer,
-  // scratch or scheduler context. The caller separately publishes code/data.
-  void BindCompute(const Pm4ComputeProgram& program, uint64_t kernarg_address);
+  // Combines immutable shader inputs with the selected queue family's native
+  // register requirements. The caller separately publishes code and data.
+  void BindCompute(const Pm4ComputeProgram& program, uint64_t kernarg_address,
+                   amdf_queue_format_features_t format_features);
   // Launches the bound program in thread units, starting at zero with complete
   // groups. The program supplies the compiled wave size; shader completion and
   // memory visibility require an explicit subsequent completion/cache

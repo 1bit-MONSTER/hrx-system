@@ -39,6 +39,8 @@ TEST(Pm4ProfileTest, CoversThePm4PhysicalTargetFamilies) {
     const auto* profile = Pm4CommandProfile::Find(endpoint);
     ASSERT_NE(profile, nullptr);
     EXPECT_EQ(profile->supports_wave64, target[0] != 12 || target[1] != 5);
+    EXPECT_EQ(profile->group_segment_unit_byte_length,
+              target[0] == 12 && target[1] == 5 ? 2048u : 512u);
     // The gfx1250 instruction overlay does not change these PM4 registers.
     endpoint.asic_revision = 1;
     EXPECT_EQ(Pm4CommandProfile::Find(endpoint), profile);

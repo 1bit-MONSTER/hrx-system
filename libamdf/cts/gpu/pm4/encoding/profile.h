@@ -24,6 +24,8 @@ struct Pm4CommandProfile {
   uint32_t resource3_register;
   // Unshifted mask of RSRC3.INST_PREF_SIZE, whose unit is 128 bytes.
   uint32_t instruction_prefetch_mask;
+  // Byte length represented by one COMPUTE_PGM_RSRC2.LDS_SIZE unit.
+  uint32_t group_segment_unit_byte_length;
   // Physical wave64 execution support in addition to the baseline wave32 mode.
   bool supports_wave64;
 
@@ -34,6 +36,9 @@ struct Pm4CommandProfile {
   // instruction prefetch. Allocation granularity belongs to the memory owner.
   uint64_t CodeByteLength(uint32_t image_byte_length,
                           uint32_t entry_byte_offset, uint32_t resource3) const;
+
+  // Returns the COMPUTE_PGM_RSRC2.LDS_SIZE value covering `byte_length`.
+  uint32_t EncodeGroupSegmentByteLength(uint32_t byte_length) const;
 };
 
 #endif  // AMDF_CTS_GPU_PM4_ENCODING_PROFILE_H_

@@ -163,7 +163,8 @@ TEST_F(Pm4DispatchTest, SelectsImmutableIndirectWorkgroupCounts) {
     expected_control[kCompletionWordIndex] = epoch + 1;
 
     commands.SystemBarrier();
-    commands.BindCompute(program, arguments->device_address);
+    commands.BindCompute(program, arguments->device_address,
+                         family_.format_features);
     commands.DispatchIndirect(
         program, tuples->device_address + kTupleByteOffsets[epoch]);
     commands.SystemBarrier();
@@ -410,14 +411,16 @@ TEST_F(Pm4DispatchTest, ShaderProducedCountsControlIndirectDispatch) {
     expected_control[kCompletionWordIndex] = epoch + 1;
 
     commands.SystemBarrier();
-    commands.BindCompute(program, arguments->device_address);
+    commands.BindCompute(program, arguments->device_address,
+                         family_.format_features);
     // A complete workgroup executes; the shader's explicit count bounds its
     // three stores. This does not rely on hardware partial-group masking.
     commands.Dispatch(program, kernel.workgroup_size(), 1, 1);
     // Complete and publish the shader stores before the MEC fetches counts.
     commands.SystemBarrier();
     commands.BindCompute(
-        program, arguments->device_address + kConsumerArgumentByteOffset);
+        program, arguments->device_address + kConsumerArgumentByteOffset,
+        family_.format_features);
     commands.DispatchIndirect(program,
                               tuple->device_address + kTupleByteOffset);
     // This independent terminal drain joins both dispatches before host

@@ -149,7 +149,8 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderHandoffAcrossQueues) {
   Pm4CommandWriter consume(consumer->words().data(), *pm4_profile_);
   for (uint32_t epoch = 0; epoch < kCounts.size(); ++epoch) {
     produce.SystemBarrier();
-    produce.BindCompute(program, arguments->device_address);
+    produce.BindCompute(program, arguments->device_address,
+                        family_.format_features);
     produce.Dispatch(program, kGridSize, 1, 1);
     produce.SystemBarrier();
     produce.WriteData32(control->device_address + kGateWord * 4, epoch + 1);
@@ -164,7 +165,8 @@ TEST_F(Pm4DispatchTest, CoherentSystemShaderHandoffAcrossQueues) {
     // The wait orders execution. This separate acquire makes shader payload
     // visible; it is not the control cell's fresh-polling mechanism.
     consume.SystemBarrier();
-    consume.BindCompute(program, arguments->device_address + kArgumentStride);
+    consume.BindCompute(program, arguments->device_address + kArgumentStride,
+                        family_.format_features);
     consume.Dispatch(program, kGridSize, 1, 1);
     consume.SystemBarrier();
     consume.WriteData32(control->device_address + kConsumerCompletionWord * 4,

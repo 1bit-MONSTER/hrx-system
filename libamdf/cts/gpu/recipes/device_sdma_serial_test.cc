@@ -269,7 +269,8 @@ void DeviceGeneratedSdmaSerialTest<DispatchTest>::RunDependentCopies() {
     Pm4CommandWriter commands(producer.queue->words().data(),
                               *this->pm4_profile_);
     commands.SystemBarrier();
-    commands.BindCompute(producer.program, arguments->device_address);
+    commands.BindCompute(producer.program, arguments->device_address,
+                         this->family_.format_features);
     commands.Dispatch(producer.program, 1, 1, 1);
     commands.ReleaseSystem32(control->device_address, 1);
     commands.PadToEightWords();

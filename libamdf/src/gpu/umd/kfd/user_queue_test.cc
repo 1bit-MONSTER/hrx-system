@@ -311,6 +311,7 @@ class KfdUserQueueTest : public ::testing::Test {
     device_.page_size = 4096;
     device_.cache_line_size = 64;
     device_.topology.properties.gfx_ip = {11, 5, 1};
+    device_.topology.gc_ip = {11, 5, 1, true};
     device_.topology.properties.compute.wavefront_size = 32;
     device_.topology.properties.compute.compute_unit_count = 2;
     device_.topology.properties.compute.maximum_wave_count_per_compute_unit =
@@ -481,7 +482,7 @@ TEST_F(KfdUserQueueTest, ConstructionDependenciesPublishOnlyOnSuccess) {
 }
 
 TEST_F(KfdUserQueueTest, PublishesExactNativeQueueAndHostMapping) {
-  CreateQueue();
+  ASSERT_NO_FATAL_FAILURE(CreateQueue());
   EXPECT_TRUE(amdf_queue_id_is_valid(&queue_result_.queue_id));
   EXPECT_EQ(queue_result_.capabilities,
             AMDF_USER_QUEUE_CAPABILITY_HOST_PRODUCER);
@@ -556,7 +557,7 @@ TEST_F(KfdUserQueueTest, PublishesExactNativeQueueAndHostMapping) {
   EXPECT_EQ(context_header->err_payload_addr,
             native_state_.buffers[1].device_address + 128);
 
-  MapQueue();
+  ASSERT_NO_FATAL_FAILURE(MapQueue());
   EXPECT_EQ(
       mapping_result_.ring_address,
       reinterpret_cast<uintptr_t>(native_state_.buffers[0].storage.data()));
@@ -623,11 +624,12 @@ TEST_F(KfdUserQueueTest, BorrowsExistingHostMappingsWithoutAllocating) {
 
 TEST_F(KfdUserQueueTest, ComputeStorageUsesReportedTopologyAcrossGfx11) {
   device_.topology.properties.gfx_ip = {11, 0, 0};
+  device_.topology.gc_ip = {11, 0, 0, true};
   device_.topology.properties.compute.compute_unit_count = 3;
   device_.topology.properties.compute.maximum_wave_count_per_compute_unit = 17;
   device_.topology.context_save_restore_byte_length = 16384;
   device_.topology.control_stack_byte_length = 8192;
-  CreateQueue();
+  ASSERT_NO_FATAL_FAILURE(CreateQueue());
   ASSERT_NE(queue_, nullptr);
   EXPECT_EQ(native_state_.observed_create.ctx_save_restore_size, 16384u);
   EXPECT_EQ(native_state_.observed_create.ctl_stack_size, 8192u);
@@ -665,7 +667,7 @@ TEST_F(KfdUserQueueTest, SdmaConstructionPublishesOnlyAfterSuccess) {
 }
 
 TEST_F(KfdUserQueueTest, PublishesExactSdmaQueueAndHostMapping) {
-  CreateQueue(AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
+  ASSERT_NO_FATAL_FAILURE(CreateQueue(AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA));
   EXPECT_TRUE(amdf_queue_id_is_valid(&queue_result_.queue_id));
   EXPECT_EQ(queue_result_.capabilities,
             AMDF_USER_QUEUE_CAPABILITY_HOST_PRODUCER);
@@ -706,7 +708,7 @@ TEST_F(KfdUserQueueTest, PublishesExactSdmaQueueAndHostMapping) {
   EXPECT_EQ(create.ctx_save_restore_size, 0u);
   EXPECT_EQ(create.ctl_stack_size, 0u);
 
-  MapQueue();
+  ASSERT_NO_FATAL_FAILURE(MapQueue());
   EXPECT_EQ(
       mapping_result_.ring_address,
       reinterpret_cast<uintptr_t>(native_state_.buffers[0].storage.data()));
@@ -738,7 +740,7 @@ TEST_F(KfdUserQueueTest, PublishesExactSdmaQueueAndHostMapping) {
 }
 
 TEST_F(KfdUserQueueTest, DevicePublicationRequiresCreationRequest) {
-  CreateQueue(AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
+  ASSERT_NO_FATAL_FAILURE(CreateQueue(AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA));
   auto* const sentinel =
       reinterpret_cast<amdf_gpu_umd_user_queue_mapping_t*>(uintptr_t{1});
   auto* mapping = sentinel;
@@ -788,7 +790,7 @@ TEST_F(KfdUserQueueTest, BorrowsExactOwnerDeviceAddressesUntilQueueRelease) {
   mapping_ = nullptr;
   EXPECT_EQ(native_state_.device_doorbell.destroy_count, 0u);
   EXPECT_TRUE(native_state_.device_doorbell.live);
-  MapQueue();
+  ASSERT_NO_FATAL_FAILURE(MapQueue());
   EXPECT_EQ(
       mapping_result_.ring_address,
       reinterpret_cast<uintptr_t>(native_state_.buffers[0].storage.data()));
@@ -891,8 +893,8 @@ TEST_F(KfdUserQueueTest, RejectsUnsupportedQueueWithoutPublishingOutputs) {
 }
 
 TEST_F(KfdUserQueueTest, SamplesProgressAndLatchesTerminalFailures) {
-  CreateQueue();
-  MapQueue();
+  ASSERT_NO_FATAL_FAILURE(CreateQueue());
+  ASSERT_NO_FATAL_FAILURE(MapQueue());
   amdf_atomic_uint64_store_release(WriteIndex(), 16);
   amdf_atomic_uint64_store_release(ReadIndex(), 8);
 
@@ -1058,8 +1060,8 @@ INSTANTIATE_TEST_SUITE_P(Capacities, KfdSizedUserQueueTest,
                                            UINT64_C(65536)));
 
 TEST_F(KfdUserQueueTest, ClassifiesDeviceFailure) {
-  CreateQueue();
-  MapQueue();
+  ASSERT_NO_FATAL_FAILURE(CreateQueue());
+  ASSERT_NO_FATAL_FAILURE(MapQueue());
   native_state_.vm_fault.info = {
       .addr = native_state_.buffers[1].device_address,
       .status = 0x00800830,
@@ -1091,8 +1093,8 @@ TEST_F(KfdUserQueueTest, ClassifiesDeviceFailure) {
 }
 
 TEST_F(KfdUserQueueTest, PropagatesNativeFaultObservationFailure) {
-  CreateQueue();
-  MapQueue();
+  ASSERT_NO_FATAL_FAILURE(CreateQueue());
+  ASSERT_NO_FATAL_FAILURE(MapQueue());
   const amdf_status_t failure = amdf_make_status(AMDF_STATUS_DOMAIN_ERRNO, EIO);
   native_state_.vm_fault.query_status = failure;
   amdf_user_queue_status_t status;
@@ -1114,8 +1116,8 @@ TEST_F(KfdUserQueueTest, PropagatesNativeFaultObservationFailure) {
 }
 
 TEST_F(KfdUserQueueTest, ObservesVmFaultWithoutComputeContextStorage) {
-  CreateQueue(AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA);
-  MapQueue();
+  ASSERT_NO_FATAL_FAILURE(CreateQueue(AMDF_QUEUE_COMMAND_TYPE_GPU_SDMA));
+  ASSERT_NO_FATAL_FAILURE(MapQueue());
   native_state_.vm_fault.info.status = 0x00800830;
   amdf_atomic_uint64_store_release(WriteIndex(), 8);
   const amdf_wait_deadline_t deadline = {UINT64_MAX, UINT64_MAX};
@@ -1124,8 +1126,8 @@ TEST_F(KfdUserQueueTest, ObservesVmFaultWithoutComputeContextStorage) {
 }
 
 TEST_F(KfdUserQueueTest, MalformedProgressLatchesInternalFailure) {
-  CreateQueue();
-  MapQueue();
+  ASSERT_NO_FATAL_FAILURE(CreateQueue());
+  ASSERT_NO_FATAL_FAILURE(MapQueue());
   amdf_atomic_uint64_store_release(ReadIndex(), 17);
   amdf_atomic_uint64_store_release(WriteIndex(), 16);
   amdf_user_queue_status_t status = {};
@@ -1142,8 +1144,8 @@ TEST_F(KfdUserQueueTest, MalformedProgressLatchesInternalFailure) {
 
 TEST_F(KfdUserQueueTest, WaitAndDestroyRequireConsumedPublication) {
   native_state_.created_queue_identifier = 0;
-  CreateQueue();
-  MapQueue();
+  ASSERT_NO_FATAL_FAILURE(CreateQueue());
+  ASSERT_NO_FATAL_FAILURE(MapQueue());
   amdf_atomic_uint64_store_release(WriteIndex(), 8);
   amdf_atomic_uint64_store_release(ReadIndex(), 4);
 
@@ -1180,7 +1182,7 @@ TEST_F(KfdUserQueueTest, NativeRemovalFailureConsumesOwnerAndPreservesBacking) {
   for (int error : {EBUSY, ETIME, EIO}) {
     SCOPED_TRACE(error);
     native_state_.Reset();
-    CreateQueue();
+    ASSERT_NO_FATAL_FAILURE(CreateQueue());
     native_state_.queue_destroy_status =
         amdf_make_status(AMDF_STATUS_DOMAIN_ERRNO, error);
     EXPECT_EQ(amdf_gpu_umd_user_queue_destroy(queue_),
@@ -1198,7 +1200,7 @@ TEST_F(KfdUserQueueTest, NativeRemovalFailureConsumesOwnerAndPreservesBacking) {
 }
 
 TEST_F(KfdUserQueueTest, StorageReleaseFailureConsumesOwnerWithoutRetry) {
-  CreateQueue();
+  ASSERT_NO_FATAL_FAILURE(CreateQueue());
   native_state_.doorbell_unmap_status =
       amdf_make_status(AMDF_STATUS_DOMAIN_ERRNO, EBUSY);
   EXPECT_EQ(amdf_gpu_umd_user_queue_destroy(queue_),
@@ -1214,7 +1216,7 @@ TEST_F(KfdUserQueueTest, StorageReleaseFailureConsumesOwnerWithoutRetry) {
 }
 
 TEST_F(KfdUserQueueTest, FailedRetirementFlushPreservesAllReachableBacking) {
-  CreateQueue();
+  ASSERT_NO_FATAL_FAILURE(CreateQueue());
   native_state_.failed_buffer_destroy_call = 1;
   EXPECT_EQ(amdf_gpu_umd_user_queue_destroy(queue_),
             native_state_.buffer_destroy_failure);

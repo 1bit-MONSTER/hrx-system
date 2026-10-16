@@ -20,6 +20,7 @@ constexpr Pm4CommandProfile kGfx11 = {
     .gl2_writeback_gcr = 1u << 15,
     .resource3_register = 0x2e28,
     .instruction_prefetch_mask = 0x3f,
+    .group_segment_unit_byte_length = 512,
     .supports_wave64 = true,
 };
 
@@ -33,6 +34,7 @@ constexpr Pm4CommandProfile kGfx12 = {
     .gl2_writeback_gcr = 1u << 15,
     .resource3_register = 0x2e28,
     .instruction_prefetch_mask = 0xff,
+    .group_segment_unit_byte_length = 512,
     .supports_wave64 = true,
 };
 
@@ -47,6 +49,7 @@ constexpr Pm4CommandProfile kGfx125 = {
     .gl2_writeback_gcr = (2u << 4) | (1u << 15),
     .resource3_register = 0x2e23,
     .instruction_prefetch_mask = 0xff,
+    .group_segment_unit_byte_length = 2048,
     .supports_wave64 = false,
 };
 
@@ -78,4 +81,10 @@ uint64_t Pm4CommandProfile::CodeByteLength(uint32_t image_byte_length,
   const uint64_t image_extent =
       ((uint64_t{image_byte_length} + 63u) & ~UINT64_C(63)) + 192u;
   return std::max(image_extent, prefetch_extent);
+}
+
+uint32_t Pm4CommandProfile::EncodeGroupSegmentByteLength(
+    uint32_t byte_length) const {
+  return byte_length / group_segment_unit_byte_length +
+         (byte_length % group_segment_unit_byte_length != 0);
 }
