@@ -60,8 +60,9 @@ pluggable **interceptor** library. This enables:
 | `interceptors/passthrough_interceptor.c` | Minimal no-op interceptor (returns `NULL` → use real table). Good starting point for custom interceptors. |
 | `interceptors/logging_interceptor.c` | Standalone logging interceptor with `HIP_LOG_FILE`/`HIP_LOG_LEVEL` support. |
 | `add_logging.py` | Script to transform `hip_intercept.c` to inject `pt_log()` calls into every pass-through stub. |
+| `generate_stubs.py` | **Source of truth for symbol coverage.** Regenerates `stubs_generated.c` and `passthrough_full.map` from a reference `libamdhip64.so` export table; fails if the version-node set does not match `libhrx/src/binding/hip/amdhip64.map` or if a symbol would be left without a forwarder. |
 | `passthrough.map` | Linker version script exporting the core HIP symbols. |
-| `passthrough_full.map` | Full version script matching `libamdhip64.so` symbol versions (hip\_4.2 through hip\_7.2). |
+| `passthrough_full.map` | Generated version script. Carries the same version nodes as `libhrx/src/binding/hip/amdhip64.map` (every node, not just the ones an old ROCm happened to have). |
 
 ## Quick Start
 
@@ -87,6 +88,26 @@ export HIP_PASSTHROUGH_INTERCEPTOR=/path/to/build/libhip_logging.so
 LD_PRELOAD=/path/to/build/libhip_intercept.so ./my_hip_app
 ```
 
+### Regenerating the intercepted symbol surface
+
+`stubs_generated.c` and `passthrough_full.map` are generated, and must be
+regenerated whenever HRX's `libamdhip64.so` gains a symbol or a version node
+(e.g. a new `hip_7.x` node). There is no build-time generator: run the script
+from the repository root after building the HIP binding and commit the result.
+
+```bash
+python3 libhrx/src/passthrough/generate_stubs.py \
+    --reference-lib build/libhrx/src/binding/hip/libamdhip64.so
+# Verify an already-generated tree without writing to it:
+python3 libhrx/src/passthrough/generate_stubs.py \
+    --reference-lib build/libhrx/src/binding/hip/libamdhip64.so --check
+```
+
+The script exits non-zero when the produced version-node set differs from
+`libhrx/src/binding/hip/amdhip64.map`, when a node is missing or extra, or when
+any reference symbol would be left without a forwarder, so a newly added HIP
+symbol fails loudly instead of silently reopening the coverage gap.
+
 ## Environment Variables
 
 ### Core (libhip\_intercept)
@@ -95,6 +116,7 @@ LD_PRELOAD=/path/to/build/libhip_intercept.so ./my_hip_app
 |----------|-------------|
 | `HIP_PASSTHROUGH_BACKEND_LIB` | **Required.** Path to the real `libamdhip64.so`. |
 | `HIP_PASSTHROUGH_INTERCEPTOR` | Path to an interceptor `.so` to load (optional). |
+| `HIP_INTERCEPTION_LIBRARY` | Legacy alias for `HIP_PASSTHROUGH_INTERCEPTOR`. Both are read; the documented name wins. |
 
 ### Logging Interceptor (libhip\_logging)
 
