@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//loom/build_tools/bazel:defs.bzl", "loom_corpus_sources")
+load("//loom/build_tools/bazel:defs.bzl", "loom_corpus_sources", "loom_library")
 load(":manifest.bzl", "NUMERIC_CORPUS")
 
 package(
@@ -15,4 +15,10 @@ package(
 loom_corpus_sources(
     name = "all",
     manifest = NUMERIC_CORPUS,
+)
+
+# Stress scenarios link these same subjects without selecting corpus scenarios.
+loom_library(
+    name = "inverse_hyperbolic_narrow",
+    srcs = ["float/inverse_hyperbolic_narrow.loom"],
 )

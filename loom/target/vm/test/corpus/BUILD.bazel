@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//loom/build_tools/bazel:defs.bzl", "loom_corpus_build", "loom_corpus_test")
+load("//loom/build_tools/bazel:defs.bzl", "loom_corpus_build", "loom_corpus_test", "loom_test")
 load("//loom/src/loom/test/corpus:catalog.bzl", "LOOM_CORPUS")
 load("//loom/target/vm:execution_profiles.bzl", "VM_REFERENCE_PROFILE")
 
@@ -167,4 +167,17 @@ loom_corpus_test(
             "numeric/float/inverse_hyperbolic_narrow.loom",
         ],
     },
+)
+
+# Exhaustive encoding enumeration is opt-in; bounded witnesses stay in the corpus.
+loom_test(
+    name = "inverse_hyperbolic_stress",
+    srcs = ["//loom/src/loom/test/stress/numeric:inverse_hyperbolic.loom"],
+    benchmark_smoke = False,
+    execution_profiles = [VM_REFERENCE_PROFILE],
+    tags = [
+        "manual",
+        "stress",
+    ],
+    deps = ["//loom/src/loom/test/corpus/numeric:inverse_hyperbolic_narrow"],
 )

@@ -2170,4 +2170,41 @@ loom_corpus_test(
     LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN
 )
 
+loom_test_module(
+  NAME
+    inverse_hyperbolic_stress_module
+  SRCS
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/test/stress/numeric/inverse_hyperbolic.loom"
+  LIBRARIES
+    "loom::test::corpus::numeric::inverse_hyperbolic_narrow"
+)
+
+if(LOOM_TARGET_ARCH_SPIRV AND LOOM_EMIT_SPIRV AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_VULKAN)
+loom_execution_test(
+  NAME
+    inverse_hyperbolic_stress_execute_spirv_vulkan_hardware_test
+  CORRECTNESS_ONLY
+  MODULE
+    "::inverse_hyperbolic_stress_module"
+  RUNNER_ARGS
+    "--device=vulkan"
+    "--vulkan_validation_layers=false"
+  LABELS
+    "manual"
+    "stress"
+    "iree-build-requirement=loom.target.arch.spirv"
+    "iree-build-requirement=loom.emit.spirv"
+    "iree-build-requirement=loom.execute.iree_hal"
+    "iree-build-requirement=runtime.hal.vulkan"
+    "iree-run-requirement=vulkan.resource.device"
+    "runtime-resource=vulkan-device"
+    "loom-execution-profile=spirv_vulkan_hardware"
+    "loom-target-family=spirv"
+    "loom-target-class=gpu"
+    "loom-executor=hardware"
+  RESOURCE_GROUP
+    "gpu-device"
+)
+endif()
+
 ### BAZEL_TO_CMAKE_PRESERVES_ALL_CONTENT_BELOW_THIS_LINE ###
