@@ -104,6 +104,8 @@ struct loom_math_evaluation_lane_ops_t {
   loom_math_evaluation_unary_build_fn_t truncf;
   // Builds a lane-wise floating-point square root.
   loom_math_evaluation_unary_build_fn_t sqrtf;
+  // Builds a lane-wise floating-point reciprocal square root.
+  loom_math_evaluation_unary_build_fn_t rsqrtf;
 };
 
 static iree_status_t loom_math_evaluation_scalar_clampf_build(
@@ -172,6 +174,7 @@ static const loom_math_evaluation_lane_ops_t kScalarLaneOps = {
     .tanhf = loom_scalar_tanhf_build,
     .truncf = loom_scalar_truncf_build,
     .sqrtf = loom_scalar_sqrtf_build,
+    .rsqrtf = loom_scalar_rsqrtf_build,
 };
 
 static const loom_math_evaluation_lane_ops_t kVectorLaneOps = {
@@ -195,6 +198,7 @@ static const loom_math_evaluation_lane_ops_t kVectorLaneOps = {
     .tanhf = loom_vector_tanhf_build,
     .truncf = loom_vector_truncf_build,
     .sqrtf = loom_vector_sqrtf_build,
+    .rsqrtf = loom_vector_rsqrtf_build,
 };
 
 static loom_type_t loom_math_evaluation_type_with_element(
@@ -337,6 +341,7 @@ iree_status_t loom_math_evaluation_initialize(
   const loom_type_t source_result_type =
       loom_module_value_type(module, loom_op_results(op)[0]);
   *out_evaluation = (loom_math_evaluation_t){
+      .source_input = operands[0],
       .input = loom_math_evaluation_value_invalid(),
       .secondary_input = loom_math_evaluation_value_invalid(),
       .source_result_type = source_result_type,
@@ -585,14 +590,22 @@ iree_status_t loom_math_evaluation_build_unary(
     case LOOM_MATH_EVALUATION_UNARY_SQRTF:
       build = evaluation->lane_ops->sqrtf;
       break;
+    case LOOM_MATH_EVALUATION_UNARY_RSQRTF:
+      build = evaluation->lane_ops->rsqrtf;
+      break;
   }
   IREE_ASSERT(build != NULL);
+  uint8_t recipe_fastmath_flags =
+      evaluation->recipe_fastmath_flags & LOOM_TARGET_MATH_FASTMATH_FLAG_AFN;
+  if (unary_op == LOOM_MATH_EVALUATION_UNARY_RSQRTF) {
+    recipe_fastmath_flags |=
+        evaluation->recipe_fastmath_flags & LOOM_TARGET_MATH_FASTMATH_FLAG_ARCP;
+  }
   loom_op_t* op = NULL;
-  IREE_RETURN_IF_ERROR(build(
-      &evaluation->rewriter->builder,
-      evaluation->fastmath_flags | (evaluation->recipe_fastmath_flags &
-                                    LOOM_TARGET_MATH_FASTMATH_FLAG_AFN),
-      input->accumulator, evaluation->value_type, evaluation->location, &op));
+  IREE_RETURN_IF_ERROR(build(&evaluation->rewriter->builder,
+                             evaluation->fastmath_flags | recipe_fastmath_flags,
+                             input->accumulator, evaluation->value_type,
+                             evaluation->location, &op));
   *out_value = loom_math_evaluation_value_from_id(loom_op_results(op)[0]);
   return iree_ok_status();
 }
@@ -708,6 +721,76 @@ iree_status_t loom_math_evaluation_build_ordered_greater_equal(
       lhs->accumulator, rhs->accumulator, evaluation->value_type, mask_type,
       evaluation->location, &op));
   *out_value = loom_op_results(op)[0];
+  return iree_ok_status();
+}
+
+iree_status_t loom_math_evaluation_build_positive_normal_finite_condition(
+    loom_math_evaluation_t* evaluation,
+    const loom_math_evaluation_value_t* input, loom_value_id_t* out_condition) {
+  loom_scalar_type_t integer_element_type = LOOM_SCALAR_TYPE_NONE;
+  uint64_t minimum_normal_bits = 0;
+  uint64_t finite_normal_span = 0;
+  switch (loom_type_element_type(evaluation->value_type)) {
+    case LOOM_SCALAR_TYPE_F32:
+      integer_element_type = LOOM_SCALAR_TYPE_I32;
+      minimum_normal_bits = UINT32_C(0x00800000);
+      finite_normal_span = UINT32_C(0x7EFFFFFF);
+      break;
+    case LOOM_SCALAR_TYPE_F64:
+      integer_element_type = LOOM_SCALAR_TYPE_I64;
+      minimum_normal_bits = UINT64_C(0x0010000000000000);
+      finite_normal_span = UINT64_C(0x7FDFFFFFFFFFFFFF);
+      break;
+    default:
+      IREE_ASSERT_UNREACHABLE(
+          "reciprocal-root refinement requires F32 or F64 evaluation");
+      IREE_BUILTIN_UNREACHABLE();
+  }
+
+  loom_builder_t* builder = &evaluation->rewriter->builder;
+  const bool is_scalar_condition = loom_type_is_scalar(evaluation->value_type);
+  const loom_type_t integer_type = loom_math_evaluation_type_with_element(
+      evaluation->value_type, integer_element_type);
+  const loom_type_t mask_type = loom_math_evaluation_type_with_element(
+      evaluation->value_type, LOOM_SCALAR_TYPE_I1);
+  loom_op_t* minimum_op = NULL;
+  IREE_RETURN_IF_ERROR(evaluation->lane_ops->constant(
+      builder, loom_attr_i64((int64_t)minimum_normal_bits), integer_type,
+      evaluation->location, &minimum_op));
+  loom_op_t* span_op = NULL;
+  IREE_RETURN_IF_ERROR(evaluation->lane_ops->constant(
+      builder, loom_attr_i64((int64_t)finite_normal_span), integer_type,
+      evaluation->location, &span_op));
+
+  loom_op_t* bits_op = NULL;
+  loom_op_t* offset_op = NULL;
+  loom_op_t* condition_op = NULL;
+  if (is_scalar_condition) {
+    IREE_RETURN_IF_ERROR(loom_scalar_bitcast_build(
+        builder, input->accumulator, evaluation->value_type, integer_type,
+        evaluation->location, &bits_op));
+    IREE_RETURN_IF_ERROR(loom_scalar_subi_build(
+        builder, /*instance_flags=*/0, loom_scalar_bitcast_result(bits_op),
+        loom_op_results(minimum_op)[0], integer_type, evaluation->location,
+        &offset_op));
+    IREE_RETURN_IF_ERROR(loom_scalar_cmpi_build(
+        builder, LOOM_SCALAR_CMPI_PREDICATE_ULE,
+        loom_scalar_subi_result(offset_op), loom_op_results(span_op)[0],
+        evaluation->location, &condition_op));
+  } else {
+    IREE_RETURN_IF_ERROR(loom_vector_bitcast_build(
+        builder, input->accumulator, evaluation->value_type, integer_type,
+        evaluation->location, &bits_op));
+    IREE_RETURN_IF_ERROR(loom_vector_subi_build(
+        builder, /*instance_flags=*/0, loom_vector_bitcast_result(bits_op),
+        loom_op_results(minimum_op)[0], integer_type, evaluation->location,
+        &offset_op));
+    IREE_RETURN_IF_ERROR(loom_vector_cmpi_build(
+        builder, LOOM_VECTOR_CMPI_PREDICATE_ULE,
+        loom_vector_subi_result(offset_op), loom_op_results(span_op)[0],
+        integer_type, mask_type, evaluation->location, &condition_op));
+  }
+  *out_condition = loom_op_results(condition_op)[0];
   return iree_ok_status();
 }
 

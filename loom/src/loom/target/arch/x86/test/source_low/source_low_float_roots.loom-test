@@ -1,17 +1,17 @@
 // RUN: emit source-low output=low
 
-// AVX2 exposes exact square root for F32/F64, a native approximate F32
-// reciprocal root, and the shared exact reciprocal-root composition. The
-// packed cases cover the low-XMM carrier and both native vector widths.
+// AVX2 exposes exact square root for F32/F64, an explicitly requested raw F32
+// reciprocal-root estimate, and the shared exact composition. The packed cases
+// cover the low-XMM carrier and both native vector widths.
 x86.target<avx2> @target
 
 func.def target(@target) @avx2_root_family(%scalar_f32: f32, %scalar_f64: f64, %low_f32: vector<2xf32>, %xmm_f32: vector<4xf32>, %ymm_f32: vector<8xf32>, %ymm_f64: vector<4xf64>) -> (f32, f64, f32, f64, vector<2xf32>, vector<4xf32>, vector<8xf32>, vector<4xf64>) {
   %scalar_sqrt_f32 = scalar.sqrtf %scalar_f32 : f32
   %scalar_sqrt_f64 = scalar.sqrtf %scalar_f64 : f64
-  %scalar_fast_rsqrt_f32 = scalar.rsqrtf<afn> %scalar_f32 : f32
+  %scalar_fast_rsqrt_f32 = scalar.rsqrtf<arcp|afn> %scalar_f32 : f32
   %scalar_exact_rsqrt_f64 = scalar.rsqrtf %scalar_f64 : f64
   %low_sqrt_f32 = vector.sqrtf %low_f32 : vector<2xf32>
-  %xmm_fast_rsqrt_f32 = vector.rsqrtf<afn> %xmm_f32 : vector<4xf32>
+  %xmm_fast_rsqrt_f32 = vector.rsqrtf<arcp|afn> %xmm_f32 : vector<4xf32>
   %ymm_exact_rsqrt_f32 = vector.rsqrtf %ymm_f32 : vector<8xf32>
   %ymm_sqrt_f64 = vector.sqrtf %ymm_f64 : vector<4xf64>
   func.return %scalar_sqrt_f32, %scalar_sqrt_f64, %scalar_fast_rsqrt_f32, %scalar_exact_rsqrt_f64, %low_sqrt_f32, %xmm_fast_rsqrt_f32, %ymm_exact_rsqrt_f32, %ymm_sqrt_f64 : f32, f64, f32, f64, vector<2xf32>, vector<4xf32>, vector<8xf32>, vector<4xf64>
@@ -39,15 +39,16 @@ low.func.def target<x86.avx2.core>(@target) abi(object_function) abi_layout({sig
 // ====
 
 // AVX-512 retains AVX2 roots for narrow exact packets, adds native ZMM square
-// roots, and selects VRSQRT14 across XMM/YMM/ZMM and both precisions.
+// roots, and selects explicitly requested VRSQRT14 estimates across
+// XMM/YMM/ZMM and both precisions.
 x86.target<avx512> @target
 
 func.def target(@target) @avx512_packed_root_family(%low_f32: vector<2xf32>, %xmm_f64: vector<2xf64>, %ymm_f32: vector<8xf32>, %zmm_f32: vector<16xf32>, %zmm_f64: vector<8xf64>) -> (vector<2xf32>, vector<2xf64>, vector<8xf32>, vector<16xf32>, vector<8xf64>, vector<16xf32>) {
-  %low_fast_rsqrt_f32 = vector.rsqrtf<afn> %low_f32 : vector<2xf32>
-  %xmm_fast_rsqrt_f64 = vector.rsqrtf<afn> %xmm_f64 : vector<2xf64>
-  %ymm_fast_rsqrt_f32 = vector.rsqrtf<afn> %ymm_f32 : vector<8xf32>
+  %low_fast_rsqrt_f32 = vector.rsqrtf<arcp|afn> %low_f32 : vector<2xf32>
+  %xmm_fast_rsqrt_f64 = vector.rsqrtf<arcp|afn> %xmm_f64 : vector<2xf64>
+  %ymm_fast_rsqrt_f32 = vector.rsqrtf<arcp|afn> %ymm_f32 : vector<8xf32>
   %zmm_sqrt_f32 = vector.sqrtf %zmm_f32 : vector<16xf32>
-  %zmm_fast_rsqrt_f64 = vector.rsqrtf<afn> %zmm_f64 : vector<8xf64>
+  %zmm_fast_rsqrt_f64 = vector.rsqrtf<arcp|afn> %zmm_f64 : vector<8xf64>
   %zmm_exact_rsqrt_f32 = vector.rsqrtf %zmm_f32 : vector<16xf32>
   func.return %low_fast_rsqrt_f32, %xmm_fast_rsqrt_f64, %ymm_fast_rsqrt_f32, %zmm_sqrt_f32, %zmm_fast_rsqrt_f64, %zmm_exact_rsqrt_f32 : vector<2xf32>, vector<2xf64>, vector<8xf32>, vector<16xf32>, vector<8xf64>, vector<16xf32>
 }
@@ -72,8 +73,8 @@ x86.target<avx512> @target
 func.def target(@target) @avx512_scalar_root_family(%f32_value: f32, %f64_value: f64) -> (f32, f64, f32, f64) {
   %sqrt_f32 = scalar.sqrtf %f32_value : f32
   %sqrt_f64 = scalar.sqrtf %f64_value : f64
-  %fast_rsqrt_f32 = scalar.rsqrtf<afn> %f32_value : f32
-  %fast_rsqrt_f64 = scalar.rsqrtf<afn> %f64_value : f64
+  %fast_rsqrt_f32 = scalar.rsqrtf<arcp|afn> %f32_value : f32
+  %fast_rsqrt_f64 = scalar.rsqrtf<arcp|afn> %f64_value : f64
   func.return %sqrt_f32, %sqrt_f64, %fast_rsqrt_f32, %fast_rsqrt_f64 : f32, f64, f32, f64
 }
 

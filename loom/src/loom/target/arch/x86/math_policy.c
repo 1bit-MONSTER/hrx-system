@@ -78,7 +78,7 @@ static_assert(LOOM_X86_MATH_CONSTRAINT_KEY_COUNT_ <= UINT8_MAX,
               "x86 math constraint keys must fit in one byte");
 static_assert(LOOM_TARGET_MATH_OP_EXP2F <= UINT8_MAX,
               "x86 math operations must fit in one byte");
-static_assert(LOOM_TARGET_MATH_RECIPE_APPROXIMATE_COS_TURNS_F32 <= UINT8_MAX,
+static_assert(LOOM_TARGET_MATH_RECIPE_RSQRT_NEWTON_TWO <= UINT8_MAX,
               "x86 math recipes must fit in one byte");
 
 typedef struct loom_x86_approximate_f32_form_t {
@@ -152,6 +152,17 @@ static loom_target_math_policy_decision_t loom_x86_math_rewrite(
   };
 }
 
+static loom_target_math_policy_decision_t loom_x86_math_refine_rsqrt(
+    loom_target_math_recipe_t recipe, iree_string_view_t constraint_key) {
+  loom_target_math_policy_decision_t decision =
+      loom_x86_math_rewrite(recipe, constraint_key);
+  decision.recipe_fastmath_flags =
+      LOOM_TARGET_MATH_FASTMATH_FLAG_AFN | LOOM_TARGET_MATH_FASTMATH_FLAG_ARCP;
+  decision.native_required_fastmath_flags =
+      LOOM_TARGET_MATH_FASTMATH_FLAG_AFN | LOOM_TARGET_MATH_FASTMATH_FLAG_ARCP;
+  return decision;
+}
+
 static bool loom_x86_math_target_has_fp16(
     const loom_target_bundle_t* target_bundle) {
   return target_bundle != NULL && target_bundle->config != NULL &&
@@ -200,18 +211,39 @@ static void loom_x86_math_policy_query(
           loom_x86_math_profile_element_types(policy, query,
                                               /*approximate_rsqrt=*/true),
           query->element_type);
-      if (has_native_approximate_rsqrt &&
-          iree_all_bits_set(query->fastmath_flags,
-                            LOOM_TARGET_MATH_FASTMATH_FLAG_AFN)) {
-        *out_decision = loom_x86_math_keep(IREE_SV("math.op.native_rsqrt_afn"));
-        return;
+      if (has_native_approximate_rsqrt) {
+        const loom_target_math_fastmath_flags_t raw_estimate_flags =
+            LOOM_TARGET_MATH_FASTMATH_FLAG_AFN |
+            LOOM_TARGET_MATH_FASTMATH_FLAG_ARCP;
+        if (iree_all_bits_set(query->fastmath_flags, raw_estimate_flags) ||
+            (query->element_type == LOOM_SCALAR_TYPE_F16 &&
+             iree_all_bits_set(query->fastmath_flags,
+                               LOOM_TARGET_MATH_FASTMATH_FLAG_AFN))) {
+          *out_decision =
+              loom_x86_math_keep(IREE_SV("math.op.native_rsqrt_estimate"));
+          return;
+        }
+        if (iree_all_bits_set(query->fastmath_flags,
+                              LOOM_TARGET_MATH_FASTMATH_FLAG_AFN)) {
+          *out_decision = query->element_type == LOOM_SCALAR_TYPE_F64
+                              ? loom_x86_math_refine_rsqrt(
+                                    LOOM_TARGET_MATH_RECIPE_RSQRT_NEWTON_TWO,
+                                    IREE_SV("math.recipe.rsqrt_newton_two"))
+                              : loom_x86_math_refine_rsqrt(
+                                    LOOM_TARGET_MATH_RECIPE_RSQRT_NEWTON_ONE,
+                                    IREE_SV("math.recipe.rsqrt_newton_one"));
+          return;
+        }
       }
       *out_decision =
           loom_x86_math_rewrite(LOOM_TARGET_MATH_RECIPE_RSQRT_SQRT_DIV,
                                 IREE_SV("math.recipe.rsqrt_sqrt_div"));
       if (has_native_approximate_rsqrt) {
         out_decision->native_required_fastmath_flags =
-            LOOM_TARGET_MATH_FASTMATH_FLAG_AFN;
+            query->element_type == LOOM_SCALAR_TYPE_F16
+                ? LOOM_TARGET_MATH_FASTMATH_FLAG_AFN
+                : LOOM_TARGET_MATH_FASTMATH_FLAG_AFN |
+                      LOOM_TARGET_MATH_FASTMATH_FLAG_ARCP;
       }
       return;
     }
