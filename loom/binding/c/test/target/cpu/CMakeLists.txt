@@ -16,9 +16,12 @@ loom_cc_test(
   SRCS
     "iree_hal_test.cc"
   DEPS
+    iree::base::internal
     iree::base::internal::arena
+    iree::base::internal::cpu
     iree::hal
     iree::hal::drivers::task::device_spec
+    iree::hal::drivers::task::executable::elf::elf_module
     iree::hal::utils::device_spec_builder
     iree::testing::gtest
     iree::testing::gtest_main

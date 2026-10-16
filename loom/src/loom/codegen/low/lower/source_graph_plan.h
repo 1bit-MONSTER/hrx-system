@@ -45,6 +45,8 @@ typedef enum loom_low_lower_source_graph_alternative_state_e {
   // Alternative cannot participate in the current resolution.
   LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_DISABLED = 0,
   // Alternative participates only when its graph has no enabled alternative.
+  // Covers prefer enabled nodes before authored priority, so a fallback fusion
+  // cannot displace an enabled decomposition.
   LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_FALLBACK = 1,
   // Alternative is immediately selectable for its graph.
   LOOM_LOW_LOWER_SOURCE_GRAPH_ALTERNATIVE_ENABLED = 2,
@@ -89,12 +91,13 @@ iree_status_t loom_low_lower_source_graph_plan_add_alternative(
 // Selects a disjoint candidate cover for every participating node.
 //
 // Forest dynamic programming selects the exact disjoint cover maximizing, in
-// order, required nodes covered and authored priority per covered node. Every
-// other node has an active singleton, so covering the maximum required set also
-// covers every optional node. Complete coverage therefore dominates an
-// optimization preference. A graph rooted at a node wins an equal score over
-// the decomposed definition subtrees, maximizing fusion locally. Candidates
-// rooted at the same node retain insertion order.
+// order, required nodes covered, nodes covered by enabled alternatives, and
+// authored priority per covered node. Every other node has an active singleton,
+// so covering the maximum required set also covers every optional node.
+// Complete coverage dominates availability, which dominates optimization
+// preference. A graph rooted at a node wins an equal score over the decomposed
+// definition subtrees, maximizing fusion locally. Candidates rooted at the
+// same node retain insertion order.
 //
 // For each exact graph, the first fixed alternative wins, followed by the first
 // enabled alternative; the first fallback is used only when neither exists. A

@@ -50,15 +50,16 @@ static bool loom_x86_match_vector_float8_extension(
       loom_type_element_type(result_type));
 }
 
-static bool loom_x86_match_vector_float8_truncation(
+static bool loom_x86_match_vector_narrow_float_truncation(
     const loom_target_legalizer_entry_t* entry,
     const loom_target_legalization_context_t* context, const loom_op_t* op) {
   (void)entry;
   const loom_type_t result_type =
       loom_module_value_type(context->module, loom_vector_fptrunc_result(op));
-  return loom_scalar_type_set_contains(
-      LOOM_SCALAR_TYPE_SET_F8E4M3 | LOOM_SCALAR_TYPE_SET_F8E5M2,
-      loom_type_element_type(result_type));
+  return loom_scalar_type_set_contains(LOOM_SCALAR_TYPE_SET_F8E4M3 |
+                                           LOOM_SCALAR_TYPE_SET_F8E5M2 |
+                                           LOOM_SCALAR_TYPE_SET_16BIT_FLOAT,
+                                       loom_type_element_type(result_type));
 }
 
 static iree_status_t loom_x86_legalize_float8_to_bfloat_extension(
@@ -77,7 +78,7 @@ static iree_status_t loom_x86_legalize_float8_to_bfloat_extension(
   return iree_ok_status();
 }
 
-static iree_status_t loom_x86_legalize_vector_float8_conversion(
+static iree_status_t loom_x86_legalize_vector_narrow_float_conversion(
     const loom_target_legalizer_entry_t* entry,
     loom_target_legalization_context_t* context, loom_op_t* op,
     loom_target_legalizer_result_t* out_result) {
@@ -193,14 +194,14 @@ static const loom_target_legalizer_rule_t kX86LegalizerRules[] = {
         .first_operand_element_types =
             LOOM_SCALAR_TYPE_SET_F8E4M3 | LOOM_SCALAR_TYPE_SET_F8E5M2,
         .match = loom_x86_match_vector_float8_extension,
-        .legalize = loom_x86_legalize_vector_float8_conversion,
+        .legalize = loom_x86_legalize_vector_narrow_float_conversion,
     },
     {
         .root_kind = LOOM_OP_VECTOR_FPTRUNC,
         .first_operand_element_types =
             LOOM_SCALAR_TYPE_SET_16BIT_FLOAT | LOOM_SCALAR_TYPE_SET_F32,
-        .match = loom_x86_match_vector_float8_truncation,
-        .legalize = loom_x86_legalize_vector_float8_conversion,
+        .match = loom_x86_match_vector_narrow_float_truncation,
+        .legalize = loom_x86_legalize_vector_narrow_float_conversion,
     },
     {
         .root_kind = LOOM_OP_VECTOR_DIVREMSI,

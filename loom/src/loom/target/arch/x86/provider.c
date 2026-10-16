@@ -144,6 +144,9 @@ static loom_x86_feature_bits_t loom_x86_cpu_contract_feature_bits(
       selector != LOOM_X86_TARGET_KIND_AVX512) {
     return features;
   }
+  if (iree_any_bit_set(cpu_data->fields[0], IREE_CPU_DATA0_X86_64_F16C)) {
+    features |= LOOM_X86_FEATURE_F16C;
+  }
   if (iree_any_bit_set(cpu_data->fields[0], IREE_CPU_DATA0_X86_64_AVXVNNI)) {
     features |= LOOM_X86_FEATURE_AVX_VNNI;
   }

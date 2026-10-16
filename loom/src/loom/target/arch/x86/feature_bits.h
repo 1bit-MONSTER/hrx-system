@@ -35,5 +35,7 @@ typedef uint64_t loom_x86_feature_bits_t;
 #define LOOM_X86_FEATURE_AVX512_FP16 (UINT64_C(1) << 7)
 // Target supports AVX-NE-CONVERT packed floating-point conversions.
 #define LOOM_X86_FEATURE_AVX_NE_CONVERT (UINT64_C(1) << 8)
+// Target supports VEX F16C half/single-precision conversions.
+#define LOOM_X86_FEATURE_F16C (UINT64_C(1) << 9)
 
 #endif  // LOOM_TARGET_ARCH_X86_FEATURE_BITS_H_

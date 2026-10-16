@@ -74,6 +74,7 @@ NUMERIC_CORPUS = loom_corpus_manifest(
         "vector/broadcast_arithmetic.loom",
         "vector/conversion.loom",
         "vector/constants.loom",
+        "vector/concatenation.loom",
         "vector/dynamic_windows.loom",
         "vector/f32.loom",
         "vector/float_partial_load_reductions.loom",

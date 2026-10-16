@@ -192,6 +192,13 @@ CONTRACT_FRAGMENT_REGISTRATIONS = (
         aliases=("x86_avx_ne_convert",),
     ),
     ContractFragmentRegistration(
+        key="x86.f16c",
+        module_name="loom.target.arch.x86.contracts.f16c",
+        symbol_name="X86_F16C_CONTRACT_FRAGMENT",
+        dialect_ops_symbol_name="X86_F16C_CONTRACT_DIALECT_OPS",
+        aliases=("x86_f16c",),
+    ),
+    ContractFragmentRegistration(
         key="x86.packed_dot",
         module_name="loom.target.arch.x86.contracts.packed_dot",
         symbol_name="X86_PACKED_DOT_CONTRACT_FRAGMENT",

@@ -208,7 +208,8 @@ TEST_F(X86ProviderTest, PreservesExplicitCoreContract) {
 TEST_F(X86ProviderTest, ProjectsCompleteCpuFactsAndExecutableFeatures) {
   iree_cpu_data_t cpu_data = {
       .architecture = IREE_CPU_ARCHITECTURE_X86_64,
-      .fields = {kAvx2CpuFeatures | IREE_CPU_DATA0_X86_64_AVXVNNI |
+      .fields = {kAvx2CpuFeatures | IREE_CPU_DATA0_X86_64_F16C |
+                     IREE_CPU_DATA0_X86_64_AVXVNNI |
                      IREE_CPU_DATA0_X86_64_AVXVNNIINT8 |
                      IREE_CPU_DATA0_X86_64_AVXVNNIINT16 |
                      IREE_CPU_DATA0_X86_64_AVXNECONVERT,
@@ -223,7 +224,8 @@ TEST_F(X86ProviderTest, ProjectsCompleteCpuFactsAndExecutableFeatures) {
     EXPECT_EQ(facts->cpu_data.fields[i], cpu_data.fields[i]);
   }
   EXPECT_EQ(facts->base.storage.config.contract_feature_bits,
-            LOOM_X86_FEATURE_AVX_VNNI | LOOM_X86_FEATURE_AVX_VNNI_INT8 |
+            LOOM_X86_FEATURE_F16C | LOOM_X86_FEATURE_AVX_VNNI |
+                LOOM_X86_FEATURE_AVX_VNNI_INT8 |
                 LOOM_X86_FEATURE_AVX_VNNI_INT16 |
                 LOOM_X86_FEATURE_AVX_NE_CONVERT);
   loom_target_profile_selection_release(&selection, iree_allocator_system());
@@ -231,9 +233,12 @@ TEST_F(X86ProviderTest, ProjectsCompleteCpuFactsAndExecutableFeatures) {
 
 TEST_F(X86ProviderTest, ProjectsOptionalInstructionFeaturesIndependently) {
   struct FeatureCase {
+    // Runtime CPU feature independently advertised by the device.
     uint64_t cpu_feature;
+    // Matching optional instruction-contract feature.
     loom_x86_feature_bits_t contract_feature;
   } cases[] = {
+      {IREE_CPU_DATA0_X86_64_F16C, LOOM_X86_FEATURE_F16C},
       {IREE_CPU_DATA0_X86_64_AVXVNNI, LOOM_X86_FEATURE_AVX_VNNI},
       {IREE_CPU_DATA0_X86_64_AVXVNNIINT8, LOOM_X86_FEATURE_AVX_VNNI_INT8},
       {IREE_CPU_DATA0_X86_64_AVXVNNIINT16, LOOM_X86_FEATURE_AVX_VNNI_INT16},

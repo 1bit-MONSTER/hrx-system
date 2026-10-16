@@ -1,0 +1,168 @@
+// RUN: emit source-low target=x86:avx512 output=low
+
+func.def @widen_f32_f64_1(%input: f32) -> (f64) {
+  %result = scalar.extf %input : f32 to f64
+  func.return %result : f64
+}
+
+// ----
+low.func.def target<x86.avx512.core> abi(object_function) abi_layout({signature = (f32) -> (f64)}) @widen_f32_f64_1(%input: reg<x86.xmm>) -> (reg<x86.xmm>) asm {
+  %result = avx512.vcvtss2sd.xmm %input, %input
+  return %result
+}
+
+// ====
+
+func.def @widen_bf16_f64_1(%input: bf16) -> (f64) {
+  %result = scalar.extf %input : bf16 to f64
+  func.return %result : f64
+}
+
+// ----
+low.func.def target<x86.avx512.core> abi(object_function) abi_layout({signature = (bf16) -> (f64)}) @widen_bf16_f64_1(%input: reg<x86.gpr32>) -> (reg<x86.xmm>) asm {
+  %7 = copy %input : reg<x86.gpr32> -> reg<x86.gpr32>
+  %8 = shl.imm.gpr32 %7 {shift = 16}
+  %9 = vmovd.xmm.gpr32 %8
+  %result = avx512.vcvtss2sd.xmm %9, %9
+  return %result
+}
+
+// ====
+
+func.def @widen_f32_f64_2(%input: vector<2xf32>) -> (vector<2xf64>) {
+  %result = vector.extf %input : vector<2xf32> to vector<2xf64>
+  func.return %result : vector<2xf64>
+}
+
+// ----
+low.func.def target<x86.avx512.core> abi(object_function) abi_layout({signature = (vector<2xf32>) -> (vector<2xf64>)}) @widen_f32_f64_2(%input: reg<x86.xmm>) -> (reg<x86.xmm>) asm {
+  %result = avx512.vcvtps2pd.xmm.xmm %input
+  return %result
+}
+
+// ====
+
+func.def @widen_f32_f64_4(%input: vector<4xf32>) -> (vector<4xf64>) {
+  %result = vector.extf %input : vector<4xf32> to vector<4xf64>
+  func.return %result : vector<4xf64>
+}
+
+// ----
+low.func.def target<x86.avx512.core> abi(object_function) abi_layout({signature = (vector<4xf32>) -> (vector<4xf64>)}) @widen_f32_f64_4(%input: reg<x86.xmm>) -> (reg<x86.ymm>) asm {
+  %result = avx512.vcvtps2pd.ymm.xmm %input
+  return %result
+}
+
+// ====
+
+func.def @widen_f32_f64_8(%input: vector<8xf32>) -> (vector<8xf64>) {
+  %result = vector.extf %input : vector<8xf32> to vector<8xf64>
+  func.return %result : vector<8xf64>
+}
+
+// ----
+low.func.def target<x86.avx512.core> abi(object_function) abi_layout({signature = (vector<8xf32>) -> (vector<8xf64>)}) @widen_f32_f64_8(%input: reg<x86.ymm>) -> (reg<x86.zmm>) asm {
+  %result = avx512.vcvtps2pd.zmm.ymm %input
+  return %result
+}
+
+// ====
+
+func.def @widen_bf16_f32_2(%input: vector<2xbf16>) -> (vector<2xf32>) {
+  %result = vector.extf %input : vector<2xbf16> to vector<2xf32>
+  func.return %result : vector<2xf32>
+}
+
+// ----
+low.func.def target<x86.avx512.core> abi(object_function) abi_layout({signature = (vector<2xbf16>) -> (vector<2xf32>)}) @widen_bf16_f32_2(%input: reg<x86.xmm>) -> (reg<x86.xmm>) asm {
+  %5 = vpmovzxwd.xmm %input
+  %result = vpslld.xmm %5, 16
+  return %result
+}
+
+// ====
+
+func.def @widen_bf16_f32_4(%input: vector<4xbf16>) -> (vector<4xf32>) {
+  %result = vector.extf %input : vector<4xbf16> to vector<4xf32>
+  func.return %result : vector<4xf32>
+}
+
+// ----
+low.func.def target<x86.avx512.core> abi(object_function) abi_layout({signature = (vector<4xbf16>) -> (vector<4xf32>)}) @widen_bf16_f32_4(%input: reg<x86.xmm>) -> (reg<x86.xmm>) asm {
+  %5 = vpmovzxwd.xmm %input
+  %result = vpslld.xmm %5, 16
+  return %result
+}
+
+// ====
+
+func.def @widen_bf16_f32_8(%input: vector<8xbf16>) -> (vector<8xf32>) {
+  %result = vector.extf %input : vector<8xbf16> to vector<8xf32>
+  func.return %result : vector<8xf32>
+}
+
+// ----
+low.func.def target<x86.avx512.core> abi(object_function) abi_layout({signature = (vector<8xbf16>) -> (vector<8xf32>)}) @widen_bf16_f32_8(%input: reg<x86.xmm>) -> (reg<x86.ymm>) asm {
+  %5 = vpmovzxwd.ymm %input
+  %result = vpslld.ymm %5, 16
+  return %result
+}
+
+// ====
+
+func.def @widen_bf16_f32_16(%input: vector<16xbf16>) -> (vector<16xf32>) {
+  %result = vector.extf %input : vector<16xbf16> to vector<16xf32>
+  func.return %result : vector<16xf32>
+}
+
+// ----
+low.func.def target<x86.avx512.core> abi(object_function) abi_layout({signature = (vector<16xbf16>) -> (vector<16xf32>)}) @widen_bf16_f32_16(%input: reg<x86.ymm>) -> (reg<x86.zmm>) asm {
+  %5 = avx512.vpmovzxwd.zmm.ymm %input
+  %result = avx512.vpslld.zmm %5, 16
+  return %result
+}
+
+// ====
+
+func.def @widen_bf16_f64_2(%input: vector<2xbf16>) -> (vector<2xf64>) {
+  %result = vector.extf %input : vector<2xbf16> to vector<2xf64>
+  func.return %result : vector<2xf64>
+}
+
+// ----
+low.func.def target<x86.avx512.core> abi(object_function) abi_layout({signature = (vector<2xbf16>) -> (vector<2xf64>)}) @widen_bf16_f64_2(%input: reg<x86.xmm>) -> (reg<x86.xmm>) asm {
+  %5 = vpmovzxwd.xmm %input
+  %6 = vpslld.xmm %5, 16
+  %result = avx512.vcvtps2pd.xmm.xmm %6
+  return %result
+}
+
+// ====
+
+func.def @widen_bf16_f64_4(%input: vector<4xbf16>) -> (vector<4xf64>) {
+  %result = vector.extf %input : vector<4xbf16> to vector<4xf64>
+  func.return %result : vector<4xf64>
+}
+
+// ----
+low.func.def target<x86.avx512.core> abi(object_function) abi_layout({signature = (vector<4xbf16>) -> (vector<4xf64>)}) @widen_bf16_f64_4(%input: reg<x86.xmm>) -> (reg<x86.ymm>) asm {
+  %5 = vpmovzxwd.xmm %input
+  %6 = vpslld.xmm %5, 16
+  %result = avx512.vcvtps2pd.ymm.xmm %6
+  return %result
+}
+
+// ====
+
+func.def @widen_bf16_f64_8(%input: vector<8xbf16>) -> (vector<8xf64>) {
+  %result = vector.extf %input : vector<8xbf16> to vector<8xf64>
+  func.return %result : vector<8xf64>
+}
+
+// ----
+low.func.def target<x86.avx512.core> abi(object_function) abi_layout({signature = (vector<8xbf16>) -> (vector<8xf64>)}) @widen_bf16_f64_8(%input: reg<x86.xmm>) -> (reg<x86.zmm>) asm {
+  %5 = vpmovzxwd.ymm %input
+  %6 = vpslld.ymm %5, 16
+  %result = avx512.vcvtps2pd.zmm.ymm %6
+  return %result
+}

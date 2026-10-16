@@ -6,14 +6,20 @@
 
 #include "loomc/target/cpu/iree_hal.h"
 
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstring>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "iree/base/internal/arena.h"
+#include "iree/base/internal/cpu.h"
+#include "iree/base/internal/math.h"
 #include "iree/hal/api.h"
 #include "iree/hal/drivers/task/device_spec.h"
+#include "iree/hal/drivers/task/executable/elf/elf_module.h"
 #include "iree/hal/utils/device_spec_builder.h"
 #include "iree/testing/gtest.h"
 #include "loom/target/arch/x86/facts.h"
@@ -445,6 +451,338 @@ func.def public @dot4i_s8s8_256(%lhs: vector<32xi8>, %rhs: vector<32xi8>, %acc: 
   EXPECT_EQ(std::memcmp(object_contents.data(), kElfMagic, sizeof(kElfMagic)),
             0);
 }
+
+TEST(LoomcCpuIreeHalTargetTest, CompilesBfloatBroadcastWithoutNeConvert) {
+  const iree_cpu_data_t cpu_data = {
+      .architecture = IREE_CPU_ARCHITECTURE_X86_64,
+      .fields = {IREE_CPU_DATA0_X86_64_AVX | IREE_CPU_DATA0_X86_64_FMA |
+                 IREE_CPU_DATA0_X86_64_AVX2},
+  };
+  DeviceSpecPtr device_spec;
+  IREE_ASSERT_OK(CreateCpuDeviceSpec(true, true, &device_spec, &cpu_data));
+  FakeHalDevice device = {};
+  InitializeFakeDevice(device_spec.get(), &device);
+  TargetEnvironmentPtr target_environment = CreateConfiguredTargetEnvironment();
+  loomc_result_t* selection_result = nullptr;
+  TargetProfilePtr profile =
+      SelectCpuTarget(target_environment.get(), &device, &selection_result);
+  ResultPtr selection_result_ptr(selection_result);
+  ASSERT_TRUE(loomc_result_succeeded(selection_result_ptr.get()));
+  ASSERT_NE(profile.get(), nullptr);
+  ContextPtr context = CreateConfiguredContext(target_environment.get());
+  WorkspacePtr workspace = CreateWorkspace();
+  CompilerPtr compiler = CreateCompiler(context.get());
+  for (int lanes : {4, 8}) {
+    SCOPED_TRACE(lanes);
+    const std::string vector_type = "vector<" + std::to_string(lanes) + "xf32>";
+    const std::string source =
+        "func.def public @broadcast(%input: buffer) -> (" + vector_type +
+        ") {\n"
+        "  %base = index.constant 0 : offset\n"
+        "  %source = buffer.view %input[%base] : buffer -> view<1xbf16>\n"
+        "  %narrow = view.load %source[0] : view<1xbf16> -> bf16\n"
+        "  %wide = scalar.extf<daz> %narrow : bf16 to f32\n"
+        "  %result = vector.splat %wide : " +
+        vector_type +
+        "\n"
+        "  func.return %result : " +
+        vector_type + "\n}\n";
+    ModulePtr module =
+        ParseModule(context.get(), workspace.get(), source.c_str());
+    const loomc_string_view_t root = loomc_make_cstring_view("broadcast");
+    const loomc_emit_options_t emit_options = {
+        .type = LOOMC_STRUCTURE_TYPE_EMIT_OPTIONS,
+        .structure_size = sizeof(emit_options),
+        .artifact_format = loomc_make_cstring_view("x86-elf"),
+        .artifact_flags = LOOMC_EMIT_ARTIFACT_FLAG_PRIMARY,
+    };
+    const loomc_compile_artifact_options_t compile_options = {
+        .type = LOOMC_STRUCTURE_TYPE_COMPILE_ARTIFACT_OPTIONS,
+        .structure_size = sizeof(compile_options),
+        .roots = &root,
+        .root_count = 1,
+        .target_profile = profile.get(),
+        .emit_options = &emit_options,
+    };
+    loomc_result_t* compile_result = nullptr;
+    LOOMC_ASSERT_OK(loomc_compile_artifact(
+        compiler.get(), workspace.get(), nullptr, module.get(),
+        &compile_options, loomc_allocator_system(), &compile_result));
+    ResultPtr result(compile_result);
+    if (!loomc_result_succeeded(result.get())) {
+      for (loomc_host_size_t i = 0;
+           i < loomc_result_diagnostic_count(result.get()); ++i) {
+        ADD_FAILURE() << ToString(
+            loomc_result_diagnostic_at(result.get(), i)->message);
+      }
+    }
+    ASSERT_TRUE(loomc_result_succeeded(result.get()));
+    ASSERT_NE(
+        FindArtifact(result.get(), LOOMC_ARTIFACT_KIND_EXECUTABLE, "x86-elf"),
+        nullptr);
+  }
+}
+
+class LegacyHalfConversionTest : public ::testing::TestWithParam<int> {};
+
+TEST_P(LegacyHalfConversionTest,
+       DeviceFactsCompileAndExecuteStorageConversions) {
+  const bool avx512 = GetParam() == 2;
+  const bool f16c = GetParam() == 1;
+  const iree_cpu_data_t cpu_data = {
+      .architecture = IREE_CPU_ARCHITECTURE_X86_64,
+      .fields = {IREE_CPU_DATA0_X86_64_AVX | IREE_CPU_DATA0_X86_64_FMA |
+                 IREE_CPU_DATA0_X86_64_AVX2 |
+                 (avx512 ? IREE_CPU_DATA0_X86_64_AVX512F |
+                               IREE_CPU_DATA0_X86_64_AVX512DQ |
+                               IREE_CPU_DATA0_X86_64_AVX512BW |
+                               IREE_CPU_DATA0_X86_64_AVX512VL
+                         : (f16c ? IREE_CPU_DATA0_X86_64_F16C : 0))},
+  };
+  DeviceSpecPtr device_spec;
+  IREE_ASSERT_OK(CreateCpuDeviceSpec(true, true, &device_spec, &cpu_data));
+  FakeHalDevice device = {};
+  InitializeFakeDevice(device_spec.get(), &device);
+  TargetEnvironmentPtr target_environment = CreateConfiguredTargetEnvironment();
+  loomc_result_t* selection_result = nullptr;
+  TargetProfilePtr profile =
+      SelectCpuTarget(target_environment.get(), &device, &selection_result);
+  ResultPtr selection_result_ptr(selection_result);
+  ASSERT_TRUE(loomc_result_succeeded(selection_result_ptr.get()));
+  ASSERT_NE(profile.get(), nullptr);
+  ContextPtr context = CreateConfiguredContext(target_environment.get());
+  WorkspacePtr workspace = CreateWorkspace();
+  CompilerPtr compiler = CreateCompiler(context.get());
+
+  struct Conversion {
+    // Source storage element type.
+    const char* input;
+    // Destination storage element type.
+    const char* output;
+    // Source conversion operation name.
+    const char* operation;
+  };
+  constexpr Conversion kConversions[] = {
+      {"f16", "f32", "extf"},
+      {"f16", "f64", "extf"},
+      {"f32", "f16", "fptrunc"},
+      {"f32", "bf16", "fptrunc"},
+  };
+  iree_cpu_data_t host_cpu_data;
+  iree_cpu_query_data(iree_allocator_system(), &host_cpu_data);
+  const bool can_execute =
+      iree_cpu_data_satisfies_features(&host_cpu_data, &cpu_data);
+  for (const auto& conversion : kConversions) {
+    const bool narrow = conversion.input == std::string("f32");
+    const bool bfloat = conversion.output == std::string("bf16");
+    // Signed zeros, subnormal/normal boundaries, ordinary values, the largest
+    // finite value, infinity, and signaling/quiet NaNs, with both signs.
+    constexpr uint16_t kHalfBits[] = {
+        0x0000, 0x0001, 0x0002, 0x03ff, 0x0400, 0x0401, 0x3555, 0x3bff,
+        0x3c00, 0x3c01, 0x4000, 0x7bff, 0x7c00, 0x7c01, 0x7e00, 0x7fff,
+        0x8000, 0x8001, 0x8002, 0x83ff, 0x8400, 0x8401, 0xb555, 0xbbff,
+        0xbc00, 0xbc01, 0xc000, 0xfbff, 0xfc00, 0xfc01, 0xfe00, 0xffff,
+    };
+    std::vector<uint32_t> float_bits;
+    if (narrow) {
+      const auto append_signed = [&float_bits](uint32_t bits) {
+        float_bits.push_back(bits);
+        float_bits.push_back(bits | 0x80000000u);
+      };
+      for (uint32_t bits : {0u, 1u, 0x007fffffu, 0x00800000u, 0x3eaaaaabu,
+                            0x3f800000u, 0x40000000u, 0x7f7fffffu, 0x7f800000u,
+                            0x7f800001u, 0x7fc00000u, 0x7fffffffu}) {
+        append_signed(bits);
+      }
+      // Probe both neighbors of ties at zero, the normal boundary, even/odd
+      // significands near one, an exponent carry, and overflow.
+      constexpr uint32_t kHalfMidpoints[] = {
+          0x33000000, 0x387fe000, 0x3f801000,
+          0x3f803000, 0x3ffff000, 0x477ff000,
+      };
+      constexpr uint32_t kBfloatMidpoints[] = {
+          0x00008000, 0x007f8000, 0x3f808000,
+          0x3f818000, 0x3fff8000, 0x7f7f8000,
+      };
+      for (uint32_t midpoint : bfloat ? kBfloatMidpoints : kHalfMidpoints) {
+        for (int delta : {-1, 0, 1}) {
+          append_signed(midpoint + delta);
+        }
+      }
+    }
+    // Scalar carriers, a partial/native register, and multiple native packets
+    // exercise the device-selected execution paths. Exact lowering goldens and
+    // contract-family tests cover the individual native packet widths.
+    for (int lanes : {1, 4, 32}) {
+      SCOPED_TRACE(std::string(conversion.input) + " -> " + conversion.output +
+                   " lanes=" + std::to_string(lanes));
+      const auto value_type = [lanes](const char* element) {
+        return lanes == 1
+                   ? std::string(element)
+                   : "vector<" + std::to_string(lanes) + "x" + element + ">";
+      };
+      const std::string input_type = value_type(conversion.input);
+      const std::string output_type = value_type(conversion.output);
+      const std::string input_view =
+          "view<" + std::to_string(lanes) + "x" + conversion.input + ">";
+      const std::string output_view =
+          "view<" + std::to_string(lanes) + "x" + conversion.output + ">";
+      const std::string memory = lanes == 1 ? "view" : "vector";
+      // The production ELF call bridge preserves the System V convention on
+      // Windows as well as hosts whose native convention already matches it.
+      const std::string source =
+          "func.def public @convert(%input: buffer, %output: buffer, "
+          "%reserved: buffer) -> (i32) {\n"
+          "  %base = index.constant 0 : offset\n"
+          "  %source = buffer.view %input[%base] : buffer -> " +
+          input_view +
+          "\n"
+          "  %destination = buffer.view %output[%base] : buffer -> " +
+          output_view +
+          "\n"
+          "  %value = " +
+          memory + ".load %source[0] : " + input_view + " -> " + input_type +
+          "\n"
+          "  %converted = " +
+          (lanes == 1 ? "scalar." : "vector.") + conversion.operation +
+          " %value : " + input_type + " to " + output_type +
+          "\n"
+          "  " +
+          memory + ".store %converted, %destination[0] : " + output_type +
+          ", " + output_view +
+          "\n"
+          "  %status = scalar.constant 0 : i32\n"
+          "  func.return %status : i32\n}\n";
+      ModulePtr module =
+          ParseModule(context.get(), workspace.get(), source.c_str());
+      const loomc_string_view_t root = loomc_make_cstring_view("convert");
+      const loomc_emit_options_t emit_options = {
+          .type = LOOMC_STRUCTURE_TYPE_EMIT_OPTIONS,
+          .structure_size = sizeof(emit_options),
+          .artifact_format = loomc_make_cstring_view("x86-elf-shared"),
+          .artifact_flags = LOOMC_EMIT_ARTIFACT_FLAG_PRIMARY,
+      };
+      const loomc_compile_artifact_options_t compile_options = {
+          .type = LOOMC_STRUCTURE_TYPE_COMPILE_ARTIFACT_OPTIONS,
+          .structure_size = sizeof(compile_options),
+          .roots = &root,
+          .root_count = 1,
+          .target_profile = profile.get(),
+          .emit_options = &emit_options,
+      };
+      loomc_result_t* compile_result = nullptr;
+      LOOMC_ASSERT_OK(loomc_compile_artifact(
+          compiler.get(), workspace.get(), nullptr, module.get(),
+          &compile_options, loomc_allocator_system(), &compile_result));
+      ResultPtr result(compile_result);
+      if (!avx512 && !f16c && !narrow) {
+        ASSERT_FALSE(loomc_result_succeeded(result.get()));
+        ASSERT_GT(loomc_result_diagnostic_count(result.get()), 0u);
+        EXPECT_EQ(ToString(loomc_result_diagnostic_at(result.get(), 0)->code),
+                  "TARGET/046");
+        continue;
+      }
+      if (!loomc_result_succeeded(result.get())) {
+        for (loomc_host_size_t i = 0;
+             i < loomc_result_diagnostic_count(result.get()); ++i) {
+          ADD_FAILURE() << ToString(
+              loomc_result_diagnostic_at(result.get(), i)->message);
+        }
+      }
+      ASSERT_TRUE(loomc_result_succeeded(result.get()));
+      const loomc_artifact_t* image = FindArtifact(
+          result.get(), LOOMC_ARTIFACT_KIND_EXECUTABLE, "x86-elf-shared");
+      ASSERT_NE(image, nullptr);
+      if (!can_execute) {
+        continue;
+      }
+      const std::string contents = ToString(image->contents);
+      iree_elf_module_t native_module = {};
+      IREE_ASSERT_OK(iree_elf_module_initialize_from_memory(
+          iree_make_const_byte_span(contents.data(), contents.size()),
+          iree_allocator_system(), &native_module));
+      auto unload = [](iree_elf_module_t* module) {
+        iree_elf_module_deinitialize(module);
+      };
+      std::unique_ptr<iree_elf_module_t, decltype(unload)> native_guard(
+          &native_module, unload);
+      void* address = nullptr;
+      IREE_ASSERT_OK(
+          iree_elf_module_lookup_export(&native_module, "convert", &address));
+
+      const bool to_double = conversion.output == std::string("f64");
+      const size_t output_bytes = lanes * (narrow ? 2 : (to_double ? 8 : 4));
+      const size_t count =
+          narrow ? float_bits.size() : IREE_ARRAYSIZE(kHalfBits);
+      for (size_t position = 0; position < count; position += lanes) {
+        std::array<uint8_t, 288> input;
+        std::array<uint8_t, 288> output;
+        input.fill(0xa7);
+        output.fill(0xa7);
+        std::array<double, 32> expected_wide;
+        std::array<uint16_t, 32> expected_half;
+        for (int lane = 0; lane < lanes; ++lane) {
+          const size_t index = (position + lane) % count;
+          if (narrow) {
+            const uint32_t bits = float_bits[index];
+            std::memcpy(input.data() + 16 + lane * 4, &bits, 4);
+            float value;
+            std::memcpy(&value, &bits, 4);
+            expected_half[lane] = bfloat ? iree_math_f32_to_bf16(value)
+                                         : iree_math_f32_to_f16(value);
+          } else {
+            const uint16_t bits = kHalfBits[index];
+            std::memcpy(input.data() + 16 + lane * 2, &bits, 2);
+            expected_wide[lane] = iree_math_f16_to_f32(bits);
+          }
+        }
+        const auto before = input;
+        ASSERT_EQ(iree_elf_call_i_ppp(address, input.data() + 16,
+                                      output.data() + 16, nullptr),
+                  0);
+        ASSERT_EQ(input, before);
+        const auto is_guard = [](uint8_t byte) { return byte == 0xa7; };
+        ASSERT_TRUE(std::all_of(output.begin(), output.begin() + 16, is_guard));
+        ASSERT_TRUE(std::all_of(output.begin() + 16 + output_bytes,
+                                output.end(), is_guard));
+        for (int lane = 0; lane < lanes; ++lane) {
+          if (narrow) {
+            uint16_t actual;
+            std::memcpy(&actual, output.data() + 16 + lane * 2, 2);
+            const uint16_t infinity = bfloat ? 0x7f80 : 0x7c00;
+            if ((expected_half[lane] & 0x7fff) > infinity) {
+              ASSERT_GT(actual & 0x7fff, infinity);
+            } else {
+              ASSERT_EQ(actual, expected_half[lane]) << position + lane;
+            }
+          } else {
+            double actual;
+            if (to_double) {
+              std::memcpy(&actual, output.data() + 16 + lane * 8, 8);
+            } else {
+              float value;
+              std::memcpy(&value, output.data() + 16 + lane * 4, 4);
+              actual = value;
+            }
+            if (std::isnan(expected_wide[lane])) {
+              ASSERT_TRUE(std::isnan(actual));
+            } else {
+              ASSERT_EQ(actual, expected_wide[lane]) << position + lane;
+              ASSERT_EQ(std::signbit(actual),
+                        std::signbit(expected_wide[lane]));
+            }
+          }
+        }
+      }
+    }
+  }
+  if (!can_execute) {
+    GTEST_SKIP() << "Compiled the profile; host lacks its execution features";
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(BaseAvx2F16cAndAvx512, LegacyHalfConversionTest,
+                         ::testing::Values(0, 1, 2));
 
 TEST(LoomcCpuIreeHalTargetTest, ReportsMissingLoaderAsTargetDiagnostic) {
   DeviceSpecPtr device_spec;

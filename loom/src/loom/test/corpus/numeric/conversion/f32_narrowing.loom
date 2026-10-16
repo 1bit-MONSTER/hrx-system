@@ -225,3 +225,109 @@ check.scenario @f32_narrowing_values {
   }
   check.return
 }
+
+// Each output interval exercises scalar or packed narrowing on runtime inputs.
+func.def @narrow_f32_half_packets(%input: buffer, %output: buffer) {
+  %base = index.constant 0 : offset
+  %begin = index.constant 0 : index
+  %end = index.constant 64 : index
+  %source = buffer.view %input[%base] : buffer -> view<64xf32>
+  %offset1 = index.constant 0 : offset
+  %step1 = index.constant 1 : index
+  %destination1 = buffer.view %output[%offset1] : buffer -> view<64xf16>
+  %offset2 = index.constant 128 : offset
+  %step2 = index.constant 2 : index
+  %destination2 = buffer.view %output[%offset2] : buffer -> view<64xf16>
+  %offset4 = index.constant 256 : offset
+  %step4 = index.constant 4 : index
+  %destination4 = buffer.view %output[%offset4] : buffer -> view<64xf16>
+  %offset8 = index.constant 384 : offset
+  %step8 = index.constant 8 : index
+  %destination8 = buffer.view %output[%offset8] : buffer -> view<64xf16>
+  %offset16 = index.constant 512 : offset
+  %step16 = index.constant 16 : index
+  %destination16 = buffer.view %output[%offset16] : buffer -> view<64xf16>
+  scf.for %i = [%begin to %end step %step1] {
+    %value = view.load %source[%i] : view<64xf32> -> f32
+    %narrow = scalar.fptrunc %value : f32 to f16
+    view.store %narrow, %destination1[%i] : f16, view<64xf16>
+  }
+  scf.for %i = [%begin to %end step %step2] {
+    %value = vector.load %source[%i] : view<64xf32> -> vector<2xf32>
+    %narrow = vector.fptrunc %value : vector<2xf32> to vector<2xf16>
+    vector.store %narrow, %destination2[%i] : vector<2xf16>, view<64xf16>
+  }
+  scf.for %i = [%begin to %end step %step4] {
+    %value = vector.load %source[%i] : view<64xf32> -> vector<4xf32>
+    %narrow = vector.fptrunc %value : vector<4xf32> to vector<4xf16>
+    vector.store %narrow, %destination4[%i] : vector<4xf16>, view<64xf16>
+  }
+  scf.for %i = [%begin to %end step %step8] {
+    %value = vector.load %source[%i] : view<64xf32> -> vector<8xf32>
+    %narrow = vector.fptrunc %value : vector<8xf32> to vector<8xf16>
+    vector.store %narrow, %destination8[%i] : vector<8xf16>, view<64xf16>
+  }
+  scf.for %i = [%begin to %end step %step16] {
+    %value = vector.load %source[%i] : view<64xf32> -> vector<16xf32>
+    %narrow = vector.fptrunc %value : vector<16xf32> to vector<16xf16>
+    vector.store %narrow, %destination16[%i] : vector<16xf16>, view<64xf16>
+  }
+  func.return
+}
+
+check.scenario @f32_half_packet_values {
+  check.trial[8](%trial: index, %entropy: check.entropy) {
+    %seed = check.entropy.read %entropy[0] : check.entropy -> i64
+    %input = check.generate.random.uniform seed(%seed) range(-2147483648 to 2147483647) : tensor<64xi32>
+    %storage = check.generate.fill value(-123.5) : tensor<322xf16>
+    %output = check.tensor.view %storage offset(2) : tensor<322xf16> -> tensor<320xf16>
+    %guard = check.generate.fill value(-123.5) : tensor<1xf16>
+    %prefix = check.tensor.view %storage offset(0) : tensor<322xf16> -> tensor<1xf16>
+    %suffix = check.tensor.view %storage offset(642) : tensor<322xf16> -> tensor<1xf16>
+    check.compare<@narrow_f32_half_packets>(%input, %output) : (tensor<64xi32>, tensor<320xf16>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<320xf16>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<1xf16>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<1xf16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(1199566816) step(1) : tensor<64xi32>
+    %storage = check.generate.fill value(-123.5) : tensor<322xf16>
+    %output = check.tensor.view %storage offset(2) : tensor<322xf16> -> tensor<320xf16>
+    %guard = check.generate.fill value(-123.5) : tensor<1xf16>
+    %prefix = check.tensor.view %storage offset(0) : tensor<322xf16> -> tensor<1xf16>
+    %suffix = check.tensor.view %storage offset(642) : tensor<322xf16> -> tensor<1xf16>
+    check.compare<@narrow_f32_half_packets>(%input, %output) : (tensor<64xi32>, tensor<320xf16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<320xf16>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<1xf16>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<1xf16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(2139095040) step(1) : tensor<64xi32>
+    %storage = check.generate.fill value(-123.5) : tensor<322xf16>
+    %output = check.tensor.view %storage offset(2) : tensor<322xf16> -> tensor<320xf16>
+    %guard = check.generate.fill value(-123.5) : tensor<1xf16>
+    %prefix = check.tensor.view %storage offset(0) : tensor<322xf16> -> tensor<1xf16>
+    %suffix = check.tensor.view %storage offset(642) : tensor<322xf16> -> tensor<1xf16>
+    check.compare<@narrow_f32_half_packets>(%input, %output) : (tensor<64xi32>, tensor<320xf16>) -> () {
+      check.expect.close actual(%output) expected(%output) atol(0.0) rtol(0.0) nan(same) : tensor<320xf16>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<1xf16>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<1xf16>
+    }
+  }
+  check.trial[1](%trial: index, %entropy: check.entropy) {
+    %input = check.generate.iota offset(-2147483648) step(1) : tensor<64xi32>
+    %storage = check.generate.fill value(-123.5) : tensor<322xf16>
+    %output = check.tensor.view %storage offset(2) : tensor<322xf16> -> tensor<320xf16>
+    %guard = check.generate.fill value(-123.5) : tensor<1xf16>
+    %prefix = check.tensor.view %storage offset(0) : tensor<322xf16> -> tensor<1xf16>
+    %suffix = check.tensor.view %storage offset(642) : tensor<322xf16> -> tensor<1xf16>
+    check.compare<@narrow_f32_half_packets>(%input, %output) : (tensor<64xi32>, tensor<320xf16>) -> () {
+      check.expect.bitwise actual(%output) expected(%output) : tensor<320xf16>
+      check.expect.bitwise actual(%prefix) expected(%guard) : tensor<1xf16>
+      check.expect.bitwise actual(%suffix) expected(%guard) : tensor<1xf16>
+    }
+  }
+  check.return
+}

@@ -21,10 +21,13 @@ iree_py_library(
     "avx512_predicate.py"
     "avx_ne_convert.py"
     "constants.py"
+    "f16c.py"
     "float_narrowing.py"
     "float_roots.py"
+    "float_widening.py"
     "floating_extrema.py"
     "floating_reduction.py"
+    "half_conversion.py"
     "integer_bits.py"
     "integer_division.py"
     "integer_float.py"
@@ -56,6 +59,49 @@ iree_py_library(
     loom::py::loom::target::arch::x86::vector_families
     loom::py::loom::target::contracts::contracts
     loom::py::loom::target::emit::float_narrowing
+)
+
+iree_py_test(
+  NAME
+    half_conversion_test
+  MAIN
+    "../../../../tools/pytest_style_runner.py"
+  SRCS
+    "half_conversion_test.py"
+    "../../../../tools/pytest_style_runner.py"
+  ARGS
+    "loom.target.arch.x86.contracts.half_conversion_test"
+  DEPS
+    loom::py::loom::target::arch::x86::contracts::contracts
+    loom::py::loom::target::low_descriptors
+    loom::py::loom::target::arch::x86::descriptors
+    loom::py::loom::target::arch::x86::target_info
+    loom::py::loom::target::contracts::contracts
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
+)
+
+iree_py_test(
+  NAME
+    float_widening_test
+  MAIN
+    "../../../../tools/pytest_style_runner.py"
+  SRCS
+    "float_widening_test.py"
+    "../../../../tools/pytest_style_runner.py"
+  ARGS
+    "loom.target.arch.x86.contracts.float_widening_test"
+  DEPS
+    loom::py::loom::target::arch::x86::contracts::contracts
+    loom::py::loom::target::low_descriptors
+    loom::py::loom::target::arch::x86::descriptors
+    loom::py::loom::target::contracts::contracts
+  PACKAGE_DIRS
+    "${PROJECT_SOURCE_DIR}/loom/py"
+    "${PROJECT_BINARY_DIR}/loom/py"
+    "${PROJECT_SOURCE_DIR}"
 )
 
 iree_py_test(
@@ -120,6 +166,7 @@ iree_py_test(
     loom::py::loom::dialect::vector::vector
     loom::py::loom::dialect::view::view
     loom::py::loom::target::arch::x86::descriptors
+    loom::py::loom::target::arch::x86::target_info
     loom::py::loom::target::arch::x86::vector_families
     loom::py::loom::target::contracts::contracts
   PACKAGE_DIRS
