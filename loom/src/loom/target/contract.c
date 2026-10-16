@@ -69,6 +69,17 @@ loom_type_t loom_target_contract_query_projected_value_type(
       loom_type_rank(authored_type) == 1 ? authored_type.encoding_id : 0);
 }
 
+iree_status_t loom_target_contract_query_resolve_function_analysis(
+    loom_target_contract_query_environment_t* environment) {
+  if (environment->view_regions != NULL ||
+      environment->function_analysis.fn == NULL) {
+    return iree_ok_status();
+  }
+  return environment->function_analysis.fn(
+      environment->function_analysis.user_data, &environment->value_domain,
+      &environment->view_regions);
+}
+
 iree_status_t loom_target_contract_query_get_or_allocate_target_state(
     const loom_target_contract_query_environment_t* environment,
     const void* key, iree_host_size_t data_length, void** out_data) {

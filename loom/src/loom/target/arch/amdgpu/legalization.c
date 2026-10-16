@@ -711,6 +711,8 @@ static iree_status_t loom_amdgpu_legalize_packed_atomic(
       loom_memory_access_cast(context->module, op);
   const loom_type_t value_type =
       loom_module_value_type(context->module, loom_memory_access_value(access));
+  IREE_RETURN_IF_ERROR(
+      loom_target_legalization_resolve_function_analysis(context));
   loom_low_source_memory_access_plan_t source = {0};
   loom_low_source_memory_access_diagnostic_t diagnostic = {0};
   if (!loom_low_source_memory_access_plan_build(context->view_regions, op,

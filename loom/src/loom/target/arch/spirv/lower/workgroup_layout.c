@@ -386,6 +386,10 @@ iree_status_t loom_spirv_resolve_workgroup_contract_view_reg_class(
     uint16_t* out_reg_class_id) {
   *out_is_workgroup = false;
   *out_reg_class_id = LOOM_LOW_REG_CLASS_NONE;
+  loom_target_contract_query_environment_t analyzed_environment = *environment;
+  IREE_RETURN_IF_ERROR(loom_target_contract_query_resolve_function_analysis(
+      &analyzed_environment));
+  environment = &analyzed_environment;
   if (environment->fact_table == NULL || environment->value_domain == NULL ||
       environment->arena == NULL) {
     return iree_ok_status();

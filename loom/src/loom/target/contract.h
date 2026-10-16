@@ -513,6 +513,15 @@ static inline bool loom_target_contract_query_result_is_terminal_rejection(
   return result->outcome == LOOM_TARGET_CONTRACT_QUERY_TERMINAL_REJECTION;
 }
 
+typedef struct loom_target_contract_function_analysis_callback_t {
+  // Acquires complete analyses for the owner's immutable source snapshot.
+  iree_status_t (*fn)(void* user_data,
+                      loom_local_value_domain_t** out_value_domain,
+                      const loom_view_region_table_t** out_view_regions);
+  // Owner retaining the analyses until the source snapshot is retired.
+  void* user_data;
+} loom_target_contract_function_analysis_callback_t;
+
 typedef struct loom_target_contract_query_environment_t {
   // Source module being queried.
   const loom_module_t* module;
@@ -532,11 +541,19 @@ typedef struct loom_target_contract_query_environment_t {
   loom_local_value_domain_t* value_domain;
   // Optional function-local view-region analysis visible to the query.
   const loom_view_region_table_t* view_regions;
+  // Optional lazy owner of the function-local domain and view analysis.
+  loom_target_contract_function_analysis_callback_t function_analysis;
   // Scoped arena available for rare query-side auxiliary records.
   iree_arena_allocator_t* arena;
   // Optional scoped storage allocator for target-owned query analyses.
   loom_target_contract_query_state_allocator_t target_state_allocator;
 } loom_target_contract_query_environment_t;
+
+// Acquires the owner's function analyses when not already borrowed.
+// Environments without an owner retain their explicitly supplied, possibly
+// absent analyses.
+iree_status_t loom_target_contract_query_resolve_function_analysis(
+    loom_target_contract_query_environment_t* environment);
 
 // Returns the common target bundle selected for |environment|.
 static inline const loom_target_bundle_t*

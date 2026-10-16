@@ -1736,9 +1736,9 @@ static iree_status_t loom_low_lower_rule_matches(
           rule_set->guard_refs[guard_ref_index];
       const loom_low_lower_guard_t* guard = &rule_set->guards[guard_index];
       if (guard->kind == LOOM_LOW_LOWER_GUARD_DESCRIPTOR_AVAILABLE) {
-        const loom_low_lower_rule_source_memory_match_t source_memory_match =
-            loom_low_lower_rule_source_memory_emits_match(
-                match_context, rule_set, source_op, rule);
+        loom_low_lower_rule_source_memory_match_t source_memory_match;
+        IREE_RETURN_IF_ERROR(loom_low_lower_rule_source_memory_emits_match(
+            match_context, rule_set, source_op, rule, &source_memory_match));
         *out_source_memory_compatible = source_memory_match.all_emits_match &&
                                         source_memory_match.has_source_memory;
       }
@@ -1782,9 +1782,9 @@ static iree_status_t loom_low_lower_rule_matches(
     matched_guard_count =
         (uint16_t)(matched_guard_count + source_node->guard_count);
   }
-  const loom_low_lower_rule_source_memory_match_t source_memory_match =
-      loom_low_lower_rule_source_memory_emits_match(match_context, rule_set,
-                                                    source_op, rule);
+  loom_low_lower_rule_source_memory_match_t source_memory_match;
+  IREE_RETURN_IF_ERROR(loom_low_lower_rule_source_memory_emits_match(
+      match_context, rule_set, source_op, rule, &source_memory_match));
   if (!source_memory_match.all_emits_match) {
     *out_diagnostic_index = source_memory_match.diagnostic_index;
     *out_matched_guard_count = matched_guard_count;
@@ -2155,7 +2155,7 @@ static iree_status_t loom_low_lower_rule_set_select_range(
       /*access_plan=*/NULL, out_selection);
 }
 
-void loom_low_lower_rule_materialize_diagnostic_params(
+iree_status_t loom_low_lower_rule_materialize_diagnostic_params(
     const loom_low_lower_rule_match_context_t* match_context,
     const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
     const loom_low_lower_diagnostic_t* diagnostic,
@@ -2229,16 +2229,20 @@ void loom_low_lower_rule_materialize_diagnostic_params(
       case LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_BOOL_LITERAL:
         out_params[param_index] = loom_param_bool(value->bool_value);
         break;
-      case LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_SOURCE_MEMORY_MINIMUM_ALIGNMENT:
-        out_params[param_index] =
-            loom_param_u32(loom_low_lower_rule_source_memory_minimum_alignment(
-                match_context, source_op));
+      case LOOM_LOW_LOWER_DIAGNOSTIC_PARAM_SOURCE_MEMORY_MINIMUM_ALIGNMENT: {
+        uint32_t minimum_alignment = 0;
+        IREE_RETURN_IF_ERROR(
+            loom_low_lower_rule_source_memory_minimum_alignment(
+                match_context, source_op, &minimum_alignment));
+        out_params[param_index] = loom_param_u32(minimum_alignment);
         break;
+      }
       default:
         IREE_ASSERT_UNREACHABLE("unknown generated diagnostic param kind");
         IREE_BUILTIN_UNREACHABLE();
     }
   }
+  return iree_ok_status();
 }
 
 static iree_status_t loom_low_lower_rule_emit_diagnostic(
@@ -2260,8 +2264,8 @@ static iree_status_t loom_low_lower_rule_emit_diagnostic(
   loom_low_lower_rule_match_context_t match_context;
   loom_low_lower_rule_match_context_initialize_from_lowering(
       context, view_regions, source_memory_state, &match_context);
-  loom_low_lower_rule_materialize_diagnostic_params(
-      &match_context, rule_set, source_op, diagnostic, params);
+  IREE_RETURN_IF_ERROR(loom_low_lower_rule_materialize_diagnostic_params(
+      &match_context, rule_set, source_op, diagnostic, params));
   return loom_low_lower_emit_error_ref(context, source_op,
                                        diagnostic->error_ref, params,
                                        diagnostic->param_count);

@@ -957,7 +957,7 @@ loom_low_target_legalize_apply_final_rejection_to_contract_query(
   return iree_ok_status();
 }
 
-static void loom_low_target_legalize_deinitialize_query_scope(
+static void loom_low_target_legalize_reset_query_scope(
     loom_low_target_legalize_function_state_t* state) {
   state->packet_query_cache = loom_vector_component_packet_query_cache_empty();
   if (state->query_scope == NULL) {
@@ -965,22 +965,19 @@ static void loom_low_target_legalize_deinitialize_query_scope(
   }
   state->legalization_context.value_domain = NULL;
   state->legalization_context.view_regions = NULL;
-  loom_low_lower_source_query_scope_deinitialize(state->query_scope);
-  state->query_scope = NULL;
+  loom_low_lower_source_query_scope_reset(state->query_scope);
 }
 
 static iree_status_t loom_low_target_legalize_refresh_query_scope(
     loom_low_target_legalize_function_state_t* state,
     const loom_value_fact_table_t* fact_table) {
-  loom_low_target_legalize_deinitialize_query_scope(state);
   state->lower_options.fact_table = (loom_value_fact_table_t*)fact_table;
-  IREE_RETURN_IF_ERROR(loom_low_lower_source_query_scope_allocate(
-      state->module, state->selection->func, &state->lower_options,
-      state->query_scope_arena, &state->query_scope));
-  state->legalization_context.value_domain =
-      loom_low_lower_source_query_scope_value_domain(state->query_scope);
-  IREE_RETURN_IF_ERROR(loom_low_lower_source_query_scope_view_regions(
-      state->query_scope, &state->legalization_context.view_regions));
+  loom_low_target_legalize_reset_query_scope(state);
+  if (state->query_scope == NULL) {
+    IREE_RETURN_IF_ERROR(loom_low_lower_source_query_scope_allocate(
+        state->module, state->selection->func, &state->lower_options,
+        state->query_scope_arena, &state->query_scope));
+  }
   return iree_ok_status();
 }
 
@@ -992,6 +989,19 @@ static iree_status_t loom_low_target_legalize_ensure_query_scope(
     return iree_ok_status();
   }
   return loom_low_target_legalize_refresh_query_scope(state, fact_table);
+}
+
+static iree_status_t loom_low_target_legalize_function_analysis(
+    void* user_data, loom_local_value_domain_t** out_value_domain,
+    const loom_view_region_table_t** out_view_regions) {
+  loom_low_target_legalize_function_state_t* state = user_data;
+  IREE_RETURN_IF_ERROR(loom_low_target_legalize_ensure_query_scope(
+      state, state->legalization_context.fact_table));
+  IREE_RETURN_IF_ERROR(loom_low_lower_source_query_scope_view_regions(
+      state->query_scope, out_view_regions));
+  *out_value_domain =
+      loom_low_lower_source_query_scope_value_domain(state->query_scope);
+  return iree_ok_status();
 }
 
 static iree_status_t loom_low_target_legalize_query_contract(
@@ -1370,8 +1380,8 @@ static iree_status_t loom_low_target_legalize_packet_components(
   state->legalization_context.fact_table = driver->fact_table;
   state->legalization_context.rewriter = &driver->rewriter;
   state->legalization_context.arena = driver->scratch_arena;
-  IREE_RETURN_IF_ERROR(
-      loom_low_target_legalize_ensure_query_scope(state, driver->fact_table));
+  IREE_RETURN_IF_ERROR(loom_target_legalization_resolve_function_analysis(
+      &state->legalization_context));
   uint32_t rewritten_op_count = 0;
   iree_status_t packet_status = loom_vector_component_packet_legalize(
       &state->legalization_context,
@@ -1401,7 +1411,7 @@ static iree_status_t loom_low_target_legalize_packet_components(
 static void loom_low_target_legalize_changed(
     void* user_data, loom_greedy_rewrite_driver_t* driver) {
   (void)driver;
-  loom_low_target_legalize_deinitialize_query_scope(
+  loom_low_target_legalize_reset_query_scope(
       (loom_low_target_legalize_function_state_t*)user_data);
 }
 
@@ -1554,6 +1564,11 @@ IREE_ATTRIBUTE_NOINLINE static iree_status_t loom_low_target_legalize_function(
               .fn = loom_low_target_legalize_query_contract,
               .user_data = &state,
           },
+      .function_analysis =
+          {
+              .fn = loom_low_target_legalize_function_analysis,
+              .user_data = &state,
+          },
   };
   IREE_RETURN_IF_ERROR(
       loom_low_target_legalize_capture_report_source_ops(&state));
@@ -1586,7 +1601,7 @@ IREE_ATTRIBUTE_NOINLINE static iree_status_t loom_low_target_legalize_function(
   // Queries and rewrites borrow the pass-owned facts. Release their state
   // before invalidation so final legality can acquire a fresh scope after IR
   // changes.
-  loom_low_target_legalize_deinitialize_query_scope(&state);
+  loom_low_target_legalize_reset_query_scope(&state);
   loom_greedy_rewrite_driver_deinitialize(&rewrite_driver);
   iree_arena_deinitialize(&rewrite_arena);
   if (!iree_status_is_ok(status) || rewrite_result.changed) {
@@ -1620,7 +1635,7 @@ IREE_ATTRIBUTE_NOINLINE static iree_status_t loom_low_target_legalize_function(
           module, &state, pass_state, fact_table, &final_error_count);
     }
   }
-  loom_low_target_legalize_deinitialize_query_scope(&state);
+  loom_low_lower_source_query_scope_deinitialize(state.query_scope);
   IREE_RETURN_IF_ERROR(status);
 
   loom_low_target_legalize_statistics(pass)->errors +=

@@ -20,22 +20,29 @@ void loom_low_lower_rule_source_memory_state_initialize(
   };
 }
 
-static const loom_low_source_memory_access_plan_t*
-loom_low_lower_rule_source_memory_state_resolve(
+static iree_status_t loom_low_lower_rule_source_memory_state_resolve(
     const loom_low_lower_rule_match_context_t* match_context,
     const loom_op_t* source_op,
-    loom_low_lower_rule_source_memory_state_t* state) {
+    loom_low_lower_rule_source_memory_state_t* state,
+    const loom_low_source_memory_access_plan_t** out_access) {
   IREE_ASSERT_EQ(state->source_op, source_op);
   if (!state->plan_attempted) {
+    const loom_view_region_table_t* view_regions = match_context->view_regions;
+    if (view_regions == NULL && match_context->function_analysis.fn != NULL) {
+      loom_local_value_domain_t* value_domain = NULL;
+      IREE_RETURN_IF_ERROR(match_context->function_analysis.fn(
+          match_context->function_analysis.user_data, &value_domain,
+          &view_regions));
+    }
     state->plan_attempted = true;
-    if (match_context->view_regions != NULL) {
+    if (view_regions != NULL) {
       IREE_ASSERT(state->access_plan != NULL);
       if (state->retained_access != NULL) {
         *state->access_plan = *state->retained_access;
         state->plan_available = true;
       } else {
         state->plan_available = loom_low_source_memory_access_plan_build(
-            match_context->view_regions, source_op, state->axis_byte_strides,
+            view_regions, source_op, state->axis_byte_strides,
             state->access_plan, &state->diagnostic);
       }
       if (state->plan_available &&
@@ -50,19 +57,21 @@ loom_low_lower_rule_source_memory_state_resolve(
       }
     }
   }
-  return state->plan_available ? state->access_plan : NULL;
+  *out_access = state->plan_available ? state->access_plan : NULL;
+  return iree_ok_status();
 }
 
-uint32_t loom_low_lower_rule_source_memory_minimum_alignment(
+iree_status_t loom_low_lower_rule_source_memory_minimum_alignment(
     const loom_low_lower_rule_match_context_t* match_context,
-    const loom_op_t* source_op) {
+    const loom_op_t* source_op, uint32_t* out_alignment) {
   loom_low_lower_rule_source_memory_state_t* state =
       match_context->source_memory_state;
   IREE_ASSERT(state != NULL);
-  const loom_low_source_memory_access_plan_t* access =
-      loom_low_lower_rule_source_memory_state_resolve(match_context, source_op,
-                                                      state);
-  return access != NULL ? access->minimum_alignment : 0;
+  const loom_low_source_memory_access_plan_t* access = NULL;
+  IREE_RETURN_IF_ERROR(loom_low_lower_rule_source_memory_state_resolve(
+      match_context, source_op, state, &access));
+  *out_alignment = access != NULL ? access->minimum_alignment : 0;
+  return iree_ok_status();
 }
 
 bool loom_low_lower_rule_memory_space_matches(
@@ -557,11 +566,11 @@ bool loom_low_lower_rule_source_memory_matches(
                                                   out_diagnostic_index);
 }
 
-loom_low_lower_rule_source_memory_match_t
-loom_low_lower_rule_source_memory_emits_match(
+iree_status_t loom_low_lower_rule_source_memory_emits_match(
     const loom_low_lower_rule_match_context_t* match_context,
     const loom_low_lower_rule_set_t* rule_set, const loom_op_t* source_op,
-    const loom_low_lower_rule_t* rule) {
+    const loom_low_lower_rule_t* rule,
+    loom_low_lower_rule_source_memory_match_t* out_match) {
   loom_low_lower_rule_source_memory_match_t match = {
       .has_source_memory = false,
       .constraints_compatible = false,
@@ -581,8 +590,8 @@ loom_low_lower_rule_source_memory_emits_match(
     }
     if (!match.has_source_memory) {
       IREE_ASSERT(state != NULL);
-      source_memory_access = loom_low_lower_rule_source_memory_state_resolve(
-          match_context, source_op, state);
+      IREE_RETURN_IF_ERROR(loom_low_lower_rule_source_memory_state_resolve(
+          match_context, source_op, state, &source_memory_access));
     }
     match.has_source_memory = true;
     const uint16_t source_memory_index =
@@ -613,5 +622,6 @@ loom_low_lower_rule_source_memory_emits_match(
   }
   match.constraints_compatible =
       match.has_source_memory && all_constraints_compatible;
-  return match;
+  *out_match = match;
+  return iree_ok_status();
 }
