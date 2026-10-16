@@ -29,6 +29,25 @@ endif()
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
+    rows
+  HDRS
+    "rows.h"
+  SRCS
+    "rows.c"
+  DEPS
+    ::memory
+    iree::base
+    iree::hal
+    loom::serve::runtime::device
+    loom::serve::runtime::execution
+    loom::serve::runtime::execution::retirement
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_library(
+  NAME
     block_pool
   HDRS
     "block_pool.h"

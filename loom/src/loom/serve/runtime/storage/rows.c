@@ -4,16 +4,16 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-#include "loom/serve/service/speech/state.h"
+#include "loom/serve/runtime/storage/rows.h"
 
-void loom_serve_speech_state_initialize(iree_allocator_t host_allocator,
-                                        loom_serve_speech_state_t* out_state) {
-  *out_state = (loom_serve_speech_state_t){.host_allocator = host_allocator};
+void loom_serve_rows_initialize(iree_allocator_t host_allocator,
+                                loom_serve_rows_t* out_state) {
+  *out_state = (loom_serve_rows_t){.host_allocator = host_allocator};
   loom_serve_retirement_initialize(&out_state->retirement);
 }
 
-iree_status_t loom_serve_speech_state_allocate(
-    loom_serve_speech_state_t* state, loom_serve_device_t* device,
+iree_status_t loom_serve_rows_allocate(
+    loom_serve_rows_t* state, loom_serve_device_t* device,
     loom_serve_execution_t* execution, iree_host_size_t row_count,
     iree_device_size_t input_stride, iree_device_size_t stream_stride,
     iree_device_size_t conditioning_length, iree_device_size_t alignment) {
@@ -26,17 +26,15 @@ iree_status_t loom_serve_speech_state_allocate(
         IREE_HAL_SEMAPHORE_FLAG_DEFAULT, &state->backing.semaphore));
   }
   state->row_count = row_count;
-  state->strides[LOOM_SERVE_SPEECH_STATE_INPUT] = input_stride;
-  state->strides[LOOM_SERVE_SPEECH_STATE_CONDITIONING] = conditioning_length;
-  state->strides[LOOM_SERVE_SPEECH_STATE_STREAM] = stream_stride;
+  state->strides[LOOM_SERVE_ROWS_INPUT] = input_stride;
+  state->strides[LOOM_SERVE_ROWS_CONDITIONING] = conditioning_length;
+  state->strides[LOOM_SERVE_ROWS_STREAM] = stream_stride;
   iree_status_t status = iree_allocator_malloc_array(
       host_allocator, row_count, sizeof(*state->rows), (void**)&state->rows);
   for (iree_host_size_t i = 0;
-       i < LOOM_SERVE_SPEECH_STATE_BUFFER_COUNT && iree_status_is_ok(status);
-       ++i) {
+       i < LOOM_SERVE_ROWS_BUFFER_COUNT && iree_status_is_ok(status); ++i) {
     const iree_device_size_t length =
-        state->strides[i] *
-        (i == LOOM_SERVE_SPEECH_STATE_CONDITIONING ? 1 : row_count);
+        state->strides[i] * (i == LOOM_SERVE_ROWS_CONDITIONING ? 1 : row_count);
     if (state->pool) {
       status = loom_serve_virtual_buffer_allocate(state->pool, length,
                                                   alignment, &state->statistics,
@@ -60,23 +58,22 @@ iree_status_t loom_serve_speech_state_allocate(
   return status;
 }
 
-iree_hal_buffer_t* loom_serve_speech_state_buffer(
-    const loom_serve_speech_state_t* state, iree_host_size_t index) {
+iree_hal_buffer_t* loom_serve_rows_buffer(const loom_serve_rows_t* state,
+                                          iree_host_size_t index) {
   return state->buffers[index];
 }
 
-iree_status_t loom_serve_speech_state_try_reserve(
-    loom_serve_speech_state_t* state, iree_host_size_t row_index,
-    bool* out_reserved) {
+iree_status_t loom_serve_rows_try_reserve(loom_serve_rows_t* state,
+                                          iree_host_size_t row_index,
+                                          bool* out_reserved) {
   *out_reserved = false;
   bool reserved = true;
   if (state->pool) {
-    loom_serve_memory_range_t ranges[LOOM_SERVE_SPEECH_STATE_BUFFER_COUNT];
-    for (iree_host_size_t i = 0; i < LOOM_SERVE_SPEECH_STATE_BUFFER_COUNT;
-         ++i) {
+    loom_serve_memory_range_t ranges[LOOM_SERVE_ROWS_BUFFER_COUNT];
+    for (iree_host_size_t i = 0; i < LOOM_SERVE_ROWS_BUFFER_COUNT; ++i) {
       ranges[i] = (loom_serve_memory_range_t){
           .buffer = state->reservations[i],
-          .offset = i == LOOM_SERVE_SPEECH_STATE_CONDITIONING
+          .offset = i == LOOM_SERVE_ROWS_CONDITIONING
                         ? 0
                         : row_index * state->strides[i],
           .length = state->strides[i],
@@ -103,8 +100,7 @@ iree_status_t loom_serve_speech_state_try_reserve(
   return iree_ok_status();
 }
 
-void loom_serve_speech_state_complete_backing(
-    loom_serve_speech_state_t* state) {
+void loom_serve_rows_complete_backing(loom_serve_rows_t* state) {
   const bool complete =
       loom_serve_memory_operation_is_complete(state->backing.operation);
   IREE_ASSERT(complete);
@@ -112,21 +108,21 @@ void loom_serve_speech_state_complete_backing(
   state->backing.operation = NULL;
 }
 
-iree_status_t loom_serve_speech_state_release_row(
-    loom_serve_speech_state_t* state, iree_host_size_t row_index,
-    bool* out_complete) {
+iree_status_t loom_serve_rows_release_row(loom_serve_rows_t* state,
+                                          iree_host_size_t row_index,
+                                          bool* out_complete) {
   *out_complete = false;
   if (state->backing.operation) {
-    loom_serve_speech_state_complete_backing(state);
+    loom_serve_rows_complete_backing(state);
     *out_complete = true;
     return iree_ok_status();
   }
   state->rows[row_index] = false;
   loom_serve_virtual_buffer_t* buffers[2];
   iree_host_size_t count = 0;
-  for (iree_host_size_t i = 0;
-       state->pool && i < LOOM_SERVE_SPEECH_STATE_BUFFER_COUNT; ++i) {
-    if (i == LOOM_SERVE_SPEECH_STATE_CONDITIONING) {
+  for (iree_host_size_t i = 0; state->pool && i < LOOM_SERVE_ROWS_BUFFER_COUNT;
+       ++i) {
+    if (i == LOOM_SERVE_ROWS_CONDITIONING) {
       continue;
     }
     loom_serve_virtual_buffer_begin_trim(state->reservations[i]);
@@ -154,40 +150,36 @@ iree_status_t loom_serve_speech_state_release_row(
   return iree_ok_status();
 }
 
-void loom_serve_speech_state_retire(loom_serve_speech_state_t* state,
-                                    void (*wake)(void* user_data),
-                                    void* user_data) {
+void loom_serve_rows_retire(loom_serve_rows_t* state,
+                            void (*wake)(void* user_data), void* user_data) {
   loom_serve_retirement_set_observer(&state->retirement, wake, user_data);
   loom_serve_memory_operation_set_observer(state->backing.operation, wake,
                                            user_data);
-  for (iree_host_size_t i = 0; i < LOOM_SERVE_SPEECH_STATE_BUFFER_COUNT; ++i) {
+  for (iree_host_size_t i = 0; i < LOOM_SERVE_ROWS_BUFFER_COUNT; ++i) {
     iree_hal_buffer_release(state->buffers[i]);
     state->buffers[i] = NULL;
   }
 }
 
-bool loom_serve_speech_state_is_retired(loom_serve_speech_state_t* state) {
+bool loom_serve_rows_is_retired(loom_serve_rows_t* state) {
   return loom_serve_memory_operation_is_complete(state->backing.operation) &&
          loom_serve_retirement_is_idle(&state->retirement);
 }
 
-void loom_serve_speech_state_await_retirement(
-    loom_serve_speech_state_t* state) {
+void loom_serve_rows_await_retirement(loom_serve_rows_t* state) {
   loom_serve_memory_operation_await(state->backing.operation);
   loom_serve_retirement_await(&state->retirement);
 }
 
-iree_status_t loom_serve_speech_state_deinitialize(
-    loom_serve_speech_state_t* state) {
-  IREE_ASSERT(loom_serve_speech_state_is_retired(state));
+iree_status_t loom_serve_rows_deinitialize(loom_serve_rows_t* state) {
+  IREE_ASSERT(loom_serve_rows_is_retired(state));
   loom_serve_memory_operation_free(state->backing.operation);
   state->backing.operation = NULL;
   iree_hal_semaphore_release(state->backing.semaphore);
   state->backing.semaphore = NULL;
   iree_status_t status = iree_ok_status();
   for (iree_host_size_t i = 0;
-       i < LOOM_SERVE_SPEECH_STATE_BUFFER_COUNT && iree_status_is_ok(status);
-       ++i) {
+       i < LOOM_SERVE_ROWS_BUFFER_COUNT && iree_status_is_ok(status); ++i) {
     status = loom_serve_virtual_buffer_free(state->reservations[i]);
     if (iree_status_is_ok(status)) {
       state->reservations[i] = NULL;

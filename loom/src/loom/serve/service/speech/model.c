@@ -23,7 +23,7 @@
 #include "loom/serve/runtime/program/program.h"
 #include "loom/serve/runtime/program/stage_set.h"
 #include "loom/serve/runtime/program/tokenizer_load.h"
-#include "loom/serve/service/speech/state.h"
+#include "loom/serve/runtime/storage/rows.h"
 #include "loomc/iree.h"
 
 typedef struct speech_model_stage_t {
@@ -88,7 +88,7 @@ struct loom_serve_speech_model_t {
   // Independent model work and feedback timelines on shared queues.
   loom_serve_execution_t* execution;
   // Stable source-addressed input/history and reusable conditioning ownership.
-  loom_serve_speech_state_t state;
+  loom_serve_rows_t state;
   // Shared-device admission group pinning all checkpoint domains together.
   loom_serve_residency_t* residency;
   // Explicit owned requests, independent of the serialized VM process.
@@ -190,7 +190,7 @@ void loom_serve_speech_model_retire(loom_serve_speech_model_t* model,
     loom_serve_weights_set_retirement_observer(model->weights.plans[i], wake,
                                                user_data);
   }
-  loom_serve_speech_state_retire(&model->state, wake, user_data);
+  loom_serve_rows_retire(&model->state, wake, user_data);
   loom_serve_speech_model_release_consumers(model);
 }
 
@@ -204,7 +204,7 @@ bool loom_serve_speech_model_is_retired(loom_serve_speech_model_t* model) {
        ++i) {
     retired &= loom_serve_weights_is_retired(model->weights.plans[i]);
   }
-  return retired && loom_serve_speech_state_is_retired(&model->state);
+  return retired && loom_serve_rows_is_retired(&model->state);
 }
 
 // Consumes a retired model or a load that never submitted device work. A failed
@@ -215,7 +215,7 @@ static iree_status_t loom_serve_speech_model_destroy_resources(
     return iree_ok_status();
   }
   loom_serve_speech_model_release_consumers(model);
-  loom_serve_speech_state_retire(&model->state, NULL, NULL);
+  loom_serve_rows_retire(&model->state, NULL, NULL);
   IREE_ASSERT(loom_serve_speech_model_is_retired(model));
   loom_serve_residency_free(model->residency);
   model->residency = NULL;
@@ -230,7 +230,7 @@ static iree_status_t loom_serve_speech_model_destroy_resources(
     }
   }
   if (iree_status_is_ok(status)) {
-    status = loom_serve_speech_state_deinitialize(&model->state);
+    status = loom_serve_rows_deinitialize(&model->state);
   }
   if (iree_status_is_ok(status)) {
     iree_vm_buffer_release(model->control.tags);
@@ -282,7 +282,7 @@ iree_status_t loom_serve_speech_model_free(loom_serve_speech_model_t* model) {
   for (iree_host_size_t i = 0; i < model->weights.count; ++i) {
     loom_serve_weights_await_retirement(model->weights.plans[i]);
   }
-  loom_serve_speech_state_await_retirement(&model->state);
+  loom_serve_rows_await_retirement(&model->state);
   return iree_status_join(status,
                           loom_serve_speech_model_destroy_resources(model));
 }
@@ -749,7 +749,7 @@ static iree_status_t loom_serve_speech_model_link(
       model->execution,
       iree_max(model->batch_input_capacity, model->output_capacity),
       LOOM_SERVE_SPEECH_BUFFER_ALIGNMENT));
-  IREE_RETURN_IF_ERROR(loom_serve_speech_state_allocate(
+  IREE_RETURN_IF_ERROR(loom_serve_rows_allocate(
       &model->state, model->owner, model->execution, model->request_capacity,
       model->input_capacity, model->stream_capacity,
       model->conditioning_capacity, LOOM_SERVE_SPEECH_BUFFER_ALIGNMENT));
@@ -907,7 +907,7 @@ iree_status_t loom_serve_speech_load_allocate(
       host_allocator, sizeof(*load->model), (void**)&load->model);
   if (iree_status_is_ok(status)) {
     load->model->host_allocator = host_allocator;
-    loom_serve_speech_state_initialize(host_allocator, &load->model->state);
+    loom_serve_rows_initialize(host_allocator, &load->model->state);
     load->model->owner = device;
     *out_load = load;
   } else {
@@ -1188,7 +1188,7 @@ static iree_status_t loom_serve_speech_generator_admit(
   }
   // Activation already owns a pin and may have accepted device work. Even a
   // state-capacity denial retains that pin until complete_admit.
-  IREE_RETURN_IF_ERROR(loom_serve_speech_state_try_reserve(
+  IREE_RETURN_IF_ERROR(loom_serve_rows_try_reserve(
       &model->state, invocation->row_index, &invocation->reserved));
   if (invocation->reserved) {
     iree_const_byte_span_t payload;
@@ -1199,8 +1199,8 @@ static iree_status_t loom_serve_speech_generator_admit(
         {.type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
          .upload = {
              .source = payload.data,
-             .target_buffer = loom_serve_speech_state_buffer(
-                 &model->state, LOOM_SERVE_SPEECH_STATE_INPUT),
+             .target_buffer =
+                 loom_serve_rows_buffer(&model->state, LOOM_SERVE_ROWS_INPUT),
              .target_offset = invocation->row_index * model->input_capacity,
              .length = payload.data_length}}};
     iree_host_size_t upload_count = 1;
@@ -1214,8 +1214,8 @@ static iree_status_t loom_serve_speech_generator_admit(
         uploads[upload_count++] = (iree_hal_transfer_operation_t){
             .type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
             .upload = {.source = initial.data,
-                       .target_buffer = loom_serve_speech_state_buffer(
-                           &model->state, LOOM_SERVE_SPEECH_STATE_CONDITIONING),
+                       .target_buffer = loom_serve_rows_buffer(
+                           &model->state, LOOM_SERVE_ROWS_CONDITIONING),
                        .length = initial.data_length}};
       }
     }
@@ -1234,7 +1234,7 @@ static bool loom_serve_speech_generator_complete_admit(
     void* self, void* opaque_invocation) {
   loom_serve_speech_model_t* model = self;
   speech_invocation_t* invocation = opaque_invocation;
-  loom_serve_speech_state_complete_backing(&model->state);
+  loom_serve_rows_complete_backing(&model->state);
   if (!invocation->reserved) {
     loom_serve_residency_release(model->residency);
   }
@@ -1418,16 +1418,14 @@ static iree_status_t loom_serve_speech_generator_submit(
                                                   model->batch.buffers[0]),
         iree_hal_buffer_variant_from_ptr_borrowed(
             &model->control.hal_types,
-            loom_serve_speech_state_buffer(&model->state,
-                                           LOOM_SERVE_SPEECH_STATE_INPUT)),
+            loom_serve_rows_buffer(&model->state, LOOM_SERVE_ROWS_INPUT)),
         iree_hal_buffer_variant_from_ptr_borrowed(
             &model->control.hal_types,
-            loom_serve_speech_state_buffer(
-                &model->state, LOOM_SERVE_SPEECH_STATE_CONDITIONING)),
+            loom_serve_rows_buffer(&model->state,
+                                   LOOM_SERVE_ROWS_CONDITIONING)),
         iree_hal_buffer_variant_from_ptr_borrowed(
             &model->control.hal_types,
-            loom_serve_speech_state_buffer(&model->state,
-                                           LOOM_SERVE_SPEECH_STATE_STREAM)),
+            loom_serve_rows_buffer(&model->state, LOOM_SERVE_ROWS_STREAM)),
         iree_hal_buffer_variant_from_ptr_borrowed(&model->control.hal_types,
                                                   model->batch.buffers[1])};
     status = iree_vm_invoke(
@@ -1524,7 +1522,7 @@ static iree_status_t loom_serve_speech_generator_release(
   *out_frontier = (loom_serve_execution_frontier_t){0};
   loom_serve_speech_model_t* model = self;
   speech_invocation_t* invocation = opaque_invocation;
-  IREE_RETURN_IF_ERROR(loom_serve_speech_state_release_row(
+  IREE_RETURN_IF_ERROR(loom_serve_rows_release_row(
       &model->state, invocation->row_index, out_complete));
   if (!*out_complete) {
     *out_frontier = loom_serve_execution_frontier(model->execution);
