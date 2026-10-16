@@ -146,6 +146,71 @@ class CiTest(unittest.TestCase):
                         "Test", ("//suite:test",), bazel_options=(option,)
                     )
 
+    def test_platform_selection_applies_to_each_build_phase(self):
+        for selection, bazel_list, cmake_list in (
+            (None, "", ""),
+            ("0", "", ""),
+            ("1", "first,second", "first;second"),
+        ):
+            with self.subTest(selection=selection):
+                environment = (
+                    {}
+                    if selection is None
+                    else {"IREE_CI_PLATFORM_COVERAGE": selection}
+                )
+                with (
+                    mock.patch.dict(os.environ, environment, clear=True),
+                    mock.patch.object(
+                        ci_config, "OPTIONAL_IMAGE_CODECS", ("first", "second")
+                    ),
+                ):
+                    steps = (
+                        ci.bazel_configure_step(),
+                        ci.bazel_build_step("Build", ("//suite:target",)),
+                        ci.bazel_test_step("Test", ("//suite:target",)),
+                        ci.bazel_run_step("Run", "//suite:target"),
+                    )
+                    cmake_step = ci.cmake_configure_step("example")
+                for step in steps:
+                    self.assertEqual(
+                        [
+                            arg
+                            for arg in step.argv
+                            if arg.startswith("--//loom/config/serve:image_codecs=")
+                        ],
+                        ["--//loom/config/serve:image_codecs=" + bazel_list],
+                    )
+                self.assertIn(
+                    "-DLOOM_SERVE_IMAGE_CODECS=" + cmake_list, cmake_step.argv
+                )
+                self.assertEqual(
+                    shlex.split(cmake_step.command_line()), list(cmake_step.argv)
+                )
+
+    def test_codec_policy_precedes_explicit_job_overrides(self):
+        with mock.patch.object(ci, "codec_options", return_value=("--choice=default",)):
+            override = ("--choice=job",)
+            steps = (
+                ci.bazel_configure_step(extra_options=override),
+                ci.bazel_build_step(
+                    "Build", ("//suite:target",), bazel_options=override
+                ),
+                ci.bazel_test_step("Test", ("//suite:target",), bazel_options=override),
+                ci.bazel_run_step("Run", "//suite:target", bazel_options=override),
+                ci.cmake_configure_step("example", extra_options=override),
+            )
+        for step in steps:
+            self.assertLess(
+                step.argv.index("--choice=default"), step.argv.index("--choice=job")
+            )
+
+    def test_invalid_platform_selection_fails_loud(self):
+        with mock.patch.dict(os.environ, {"IREE_CI_PLATFORM_COVERAGE": "treu"}):
+            with self.assertRaisesRegex(
+                ValueError, "IREE_CI_PLATFORM_COVERAGE must be 0 or 1"
+            ):
+                ci.bazel_configure_step()
+
     def test_audit_survives_step_options_and_dry_run_has_no_subprocesses(self):
         step = ci.bazel_test_step("Test", ("//suite:test",))
         args = ci.parse_arguments(

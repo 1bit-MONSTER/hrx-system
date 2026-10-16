@@ -447,6 +447,25 @@ root independently through build configuration.
 | libHRX Bazel | Fetched ROCm Clang 23 | Fetched ROCm Clang 23 | Validates the source HRX product against its shipping ROCm compiler environment. |
 | Installed CMake/package CI | Fetched ROCm Clang 23 | Fetched ROCm Clang 23 | Builds, installs, packages, and tests the composed HRX distribution. |
 
+The `platform_coverage` rows in `.github/workflows/ci_iree.yml` are the shared
+representative set for portable optional dependencies: Linux Bazel Clang ASAN,
+Linux Bazel GCC repository build, Windows Bazel clang-cl repository integration,
+and Linux CMake Clang CPU. They cover both dependency-fetch mechanisms and the
+host compiler/platform boundaries without repeating dependency builds across
+every hardware or sanitizer configuration.
+
+These rows pass `IREE_CI_PLATFORM_COVERAGE=1` to the CI command script, enabling
+all optional image codecs. Other source-tree CI jobs retain image-serving tests
+through the built-in PAM provider. Ordinary build/test commands and release
+packaging retain the normal codec defaults. Additional portable optional
+dependencies share this representative set; hardware execution remains governed
+by its own resource requirements.
+
+Windows Bazel also uses `platform_coverage` to select its single Python test
+run. Interpreter coverage remains once per OS/build system: ordinary Linux CPU
+and Windows CMake CPU jobs keep their Python tests, and hardware jobs keep
+Python drivers that exercise their assigned devices.
+
 The repository-wide GCC lane intentionally uses the complete `//...` pattern,
 not a hand-maintained project list or exclusions. Platform-incompatible targets
 remain incompatible through their declared Bazel constraints. The lane does
