@@ -245,10 +245,14 @@ Detail is `auto` by default, or `low` or `high`, with interpretation owned by
 the model's source policy.
 
 Image URLs must be base64 data URLs. The server does not fetch network URLs or
-read image paths from the request. Configured codecs accept static PNG, JPEG,
-GIF and WebP; a build can omit individual codecs or all image input without
-removing other serving modalities. Animated inputs, MIME/signature mismatches
-and images exceeding source-declared byte, dimension or pixel limits reject.
+read image paths from the request. Image-enabled builds always accept static
+PAM (`image/x-portable-arbitrarymap`) without third-party codecs. PNG, JPEG,
+GIF, and WebP are enabled by default and can be omitted individually without
+removing image input or other serving modalities. PAM supports standard
+black-and-white, grayscale, and RGB tuples, with optional straight alpha and
+sample maxima up to 65535, normalized to RGB8 or RGBA8. Animated or multi-image
+inputs, MIME/signature mismatches, and images exceeding source-declared byte,
+dimension, or pixel limits reject.
 The normal HTTP request-body limit still applies.
 
 Multiple images and concurrent requests can share projection cohorts. Features

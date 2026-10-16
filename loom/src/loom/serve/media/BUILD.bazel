@@ -58,6 +58,16 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "image_pam",
+    srcs = ["image_pam.c"],
+    target_compatible_with = loom_config_compatible_with(["//loom/config/serve:image_input_enabled"]),
+    deps = [
+        ":image_codec",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
     name = "image_png",
     srcs = ["image_png.c"],
     target_compatible_with = loom_config_compatible_with(["//loom/config/serve:png"]),
@@ -109,6 +119,9 @@ loom_cc_library(
     name = "image_codecs",
     srcs = ["image_codecs.c"],
     defines = iree_select({
+        "//loom/config/serve:image_input_enabled": ["LOOM_SERVE_IMAGE_INPUT=1"],
+        "//conditions:default": ["LOOM_SERVE_IMAGE_INPUT=0"],
+    }) + iree_select({
         "//loom/config/serve:png": ["LOOM_SERVE_IMAGE_CODEC_PNG=1"],
         "//conditions:default": ["LOOM_SERVE_IMAGE_CODEC_PNG=0"],
     }) + iree_select({
@@ -125,6 +138,9 @@ loom_cc_library(
         ":image_codec",
         "//runtime/src/iree/base",
     ] + iree_select({
+        "//loom/config/serve:image_input_enabled": [":image_pam"],
+        "//conditions:default": [],
+    }) + iree_select({
         "//loom/config/serve:png": [":image_png"],
         "//conditions:default": [],
     }) + iree_select({
@@ -175,6 +191,19 @@ loom_cc_library(
         ":image",
         "//runtime/src/iree/base",
         "//runtime/src/iree/vm",
+    ],
+)
+
+loom_cc_test(
+    name = "image_pam_test",
+    srcs = ["image_pam_test.cc"],
+    target_compatible_with = loom_config_compatible_with(["//loom/config/serve:image_input_enabled"]),
+    deps = [
+        ":image",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/base/internal:base64",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
     ],
 )
 

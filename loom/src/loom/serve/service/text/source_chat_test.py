@@ -121,7 +121,7 @@ class RequestTest(unittest.TestCase):
         )
         result = self.execute(malformed)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("base64 PNG, JPEG, GIF or WebP data URL", result.stderr)
+        self.assertIn("base64 PNG, JPEG, GIF, WebP, or PAM data URL", result.stderr)
         self.assertEqual(result.stdout, "")
 
     def test_policy_errors_publish_no_partial_success(self):

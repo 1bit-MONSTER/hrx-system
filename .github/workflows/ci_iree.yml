@@ -78,6 +78,7 @@ jobs:
           - name: Clang / ASAN
             kind: cpu
             command: iree-bazel-cpu-asan
+            platform_coverage: true
             runner: azure-linux-scale-rocm
             host_ar: ar
             host_cc: clang
@@ -102,6 +103,7 @@ jobs:
           - name: GCC / Fastbuild / Repository Build
             kind: cpu
             command: iree-bazel-repository-build
+            platform_coverage: true
             runner: azure-linux-scale-rocm
             host_ar: ar
             host_cc: gcc
@@ -198,6 +200,8 @@ jobs:
     container:
       image: ${{ matrix.command == 'iree-bazel-repository-build' && 'ghcr.io/rocm/therock_build_manylinux_x86_64@sha256:702a5133851e6d1daf1207d2c9fbb01c2667914a5b6dc5a01faeb3ce66ea6421' || 'ghcr.io/rocm/no_rocm_image_ubuntu24_04@sha256:4150afe4759d14822f0e3f8930e1124f26e11f68b5c7b91ec9a02b20b1ebbb98' }}
       options: ${{ matrix.container_options || '' }}
+    env:
+      IREE_CI_PLATFORM_COVERAGE: ${{ matrix.platform_coverage && '1' || '0' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -512,13 +516,12 @@ jobs:
           - name: Clang CL / Fastbuild
             kind: repository
             host_toolchain: clang-cl
+            platform_coverage: true
             runner: azure-windows-scale-rocm
-            run_python_tests: true
           - name: MSVC / Fastbuild
             kind: repository
             host_toolchain: msvc
             runner: azure-windows-scale-rocm
-            run_python_tests: false
           - name: Clang CL / Fastbuild / AMD gfx1151 NPU5
             kind: amd_client
             host_toolchain: clang-cl
@@ -530,6 +533,7 @@ jobs:
     timeout-minutes: ${{ matrix.kind == 'amd_client' && 45 || 60 }}
     env:
       BAZEL_LLVM: ${{ github.workspace }}\build\${{ matrix.kind == 'amd_client' && 'iree-bazel-client' || 'iree-bazel-windows' }}\rocm-root\lib\llvm
+      IREE_CI_PLATFORM_COVERAGE: ${{ matrix.platform_coverage && '1' || '0' }}
       HRX_ARTIFACT_SET: core
       HRX_DOWNLOAD_CACHE_DIR: ${{ github.workspace }}\build\${{ matrix.kind == 'amd_client' && 'iree-bazel-client' || 'iree-bazel-windows' }}\downloads
       HRX_OUTPUT_DIR: ${{ github.workspace }}\build\${{ matrix.kind == 'amd_client' && 'iree-bazel-client' || 'iree-bazel-windows' }}
@@ -719,7 +723,7 @@ jobs:
             $env:AR = Join-Path $env:BAZEL_LLVM 'bin\llvm-lib.exe'
           }
           $pythonTestArgs = @()
-          if ("${{ matrix.run_python_tests }}" -eq 'false') {
+          if ("${{ matrix.platform_coverage }}" -ne 'true') {
             $pythonTestArgs += '--exclude-python-tests'
           }
           python build_tools/devtools/ci.py iree-bazel-repository-integration `
@@ -813,6 +817,7 @@ jobs:
           - name: Clang / RelWithDebInfo
             kind: cpu
             command: iree-cmake-cpu
+            platform_coverage: true
             runner: azure-linux-scale-rocm
             host_ar: ar
             host_cc: clang
@@ -855,6 +860,8 @@ jobs:
     container:
       image: ghcr.io/rocm/no_rocm_image_ubuntu24_04@sha256:4150afe4759d14822f0e3f8930e1124f26e11f68b5c7b91ec9a02b20b1ebbb98
       options: ${{ matrix.container_options || '' }}
+    env:
+      IREE_CI_PLATFORM_COVERAGE: ${{ matrix.platform_coverage && '1' || '0' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

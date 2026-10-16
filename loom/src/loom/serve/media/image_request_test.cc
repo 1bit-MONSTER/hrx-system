@@ -17,12 +17,14 @@
 
 namespace {
 
-constexpr char kRgbPng[] =
-    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFkl"
-    "EQVR4nGP4z8DA8J+BkYHh////DAAe9gT9Ce00PgAAAABJRU5ErkJggg==";
-constexpr char kRgbaPng[] =
-    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAGkl"
-    "EQVR4nGPkEpFjkJOTa2CxsbH5LycndxIAGOoD8lwtzTkAAAAASUVORK5CYII=";
+constexpr char kRgbPam[] =
+    "data:image/x-portable-arbitrarymap;base64,"
+    "UDcKV0lEVEggMgpIRUlHSFQgMgpERVBUSCAzCk1BWFZBTCAyNTUKVFVQTFRZUEUgUkdC"
+    "CkVOREhEUgr/AAAA/wAAAP////8=";
+constexpr char kRgbaPam[] =
+    "data:image/x-portable-arbitrarymap;base64,"
+    "UDcKV0lEVEggMgpIRUlHSFQgMgpERVBUSCA0Ck1BWFZBTCAyNTUKVFVQTFRZUEUgUkdC"
+    "X0FMUEhBCkVOREhEUgoKFB4AKDI8gEZQWv9kbnjI";
 constexpr char kRgbGif[] =
     "data:image/gif;base64,R0lGODdhAgACAIEAAP///wD/AP8AAAAA/ywAAAAAAgACAAAIBwAF"
     "BBgAICAAOw==";
@@ -62,15 +64,6 @@ class ImageRequestTest : public ::testing::Test {
     return inputs_[index].allocation != nullptr;
   }
 
-  bool OpenAvailable() {
-    for (const char* url : {kRgbPng, kRgbGif, kRgbWebP}) {
-      if (Open(0, url)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   // Independent immutable codec inputs, held through batch realization.
   std::array<loom_serve_media_image_input_t, 5> inputs_ = {};
   // Source-visible packets released after assertions, including early failure.
@@ -78,7 +71,7 @@ class ImageRequestTest : public ::testing::Test {
 };
 
 TEST_F(ImageRequestTest, MixedCodecsAndChannelsPreserveExactSourcePackets) {
-  const char* urls[] = {kRgbaPng, kRgbGif, kRgbPng, kRgbaWebP, kRgbWebP};
+  const char* urls[] = {kRgbaPam, kRgbGif, kRgbPam, kRgbaWebP, kRgbWebP};
   std::array<std::vector<uint8_t>, 5> metadata;
   std::vector<loom_serve_media_image_request_t> requests;
   for (size_t i = 0; i < IREE_ARRAYSIZE(urls); ++i) {
@@ -154,15 +147,15 @@ TEST_F(ImageRequestTest, MixedCodecsAndChannelsPreserveExactSourcePackets) {
 }
 
 TEST_F(ImageRequestTest, LateCodecFailureReleasesOnlyItsPacket) {
-  if (!Open(0, kRgbPng)) {
+  if (!Open(0, kRgbPam)) {
     return;
   }
-  std::string damaged = kRgbPng;
-  const size_t crc = damaged.find("Ce00");
-  ASSERT_NE(crc, std::string::npos);
-  damaged[crc + 3] = '1';
-  // Header inspection accepts this image; realization rejects its IDAT CRC.
-  ASSERT_TRUE(Open(1, damaged.c_str()));
+  // Header inspection succeeds; realization rejects the truncated raster.
+  const char* damaged =
+      "data:image/x-portable-arbitrarymap;base64,"
+      "UDcKV0lEVEggMgpIRUlHSFQgMgpERVBUSCAzCk1BWFZBTCAyNTUKVFVQTFRZUEUgUkdC"
+      "CkVOREhEUgr/AAAA/wAAAP///w==";
+  ASSERT_TRUE(Open(1, damaged));
   const loom_serve_media_image_request_t requests[] = {
       {&inputs_[0], {}, 1},
       {&inputs_[1], {}, 2},
@@ -180,7 +173,7 @@ TEST_F(ImageRequestTest, LateCodecFailureReleasesOnlyItsPacket) {
 }
 
 TEST_F(ImageRequestTest, AllocationFailuresPreserveOrdinalsAndReleaseStorage) {
-  if (!OpenAvailable()) {
+  if (!Open(0, kRgbPam)) {
     return;
   }
   const loom_serve_media_image_request_t requests[] = {

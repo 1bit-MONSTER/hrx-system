@@ -35,6 +35,10 @@ HOST_TSAN_INCOMPATIBLE_TEST_LABEL = "notsan"
 PYTHON_TEST_BAZEL_LANGUAGE_EXCLUSIONS = ("-py",)
 PYTHON_TEST_CTEST_LABEL_REGEX = r"^python-test$"
 
+# The shared platform-coverage matrix qualifies portable optional dependencies.
+# Other source-tree CI configurations retain built-in media formats.
+OPTIONAL_IMAGE_CODECS = ("png", "jpeg", "gif", "webp")
+
 CMAKE_SANITIZER_SMOKE_CTEST_REGEXES = (
     "^iree/base/status_test$",
     "^loom/format/bytecode/varint_test$",

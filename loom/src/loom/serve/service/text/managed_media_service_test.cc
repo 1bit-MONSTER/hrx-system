@@ -295,10 +295,11 @@ TEST_F(ManagedMediaServiceTest,
                 .find("HTTP/1.1 201"),
             0u);
 
-  const auto message = ImageMessage("a", "image/png", kPng, "low", "b");
+  const auto message =
+      ImageMessage("a", "image/x-portable-arbitrarymap", kPam, "low", "b");
   const auto first =
       Read(Send(Request(message, 4), "X-Loom-Session: image\r\n"));
-  if (!loom_serve_media_image_codec(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PNG)) {
+  if (!loom_serve_media_image_codec(LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM)) {
     EXPECT_EQ(first.find("HTTP/1.1 501"), 0u) << first;
     return;
   }

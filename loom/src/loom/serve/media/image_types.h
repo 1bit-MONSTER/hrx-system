@@ -16,6 +16,8 @@ typedef enum loom_serve_media_image_format_e {
   LOOM_SERVE_MEDIA_IMAGE_FORMAT_JPEG = 2,
   LOOM_SERVE_MEDIA_IMAGE_FORMAT_GIF = 3,
   LOOM_SERVE_MEDIA_IMAGE_FORMAT_WEBP = 4,
+  // Built-in PAM visual tuples, normalized from 1..65535 maxval to RGB8/RGBA8.
+  LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM = 5,
 } loom_serve_media_image_format_t;
 
 // Packed byte layouts. Values are the number of bytes per pixel. Alpha is

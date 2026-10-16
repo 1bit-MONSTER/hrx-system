@@ -199,6 +199,16 @@ def sanitizer_env(config: str | None) -> tuple[tuple[str, str], ...]:
     return (("TSAN_OPTIONS", f"suppressions={TSAN_SUPPRESSIONS_FILE}"),)
 
 
+def codec_options(build_system: str) -> tuple[str, ...]:
+    selection = os.environ.get("IREE_CI_PLATFORM_COVERAGE", "0")
+    if selection not in ("0", "1"):
+        raise ValueError("IREE_CI_PLATFORM_COVERAGE must be 0 or 1")
+    codecs = ci_config.OPTIONAL_IMAGE_CODECS if selection == "1" else ()
+    if build_system == "cmake":
+        return ("-DLOOM_SERVE_IMAGE_CODECS=" + ";".join(codecs),)
+    return ("--//loom/config/serve:image_codecs=" + ",".join(codecs),)
+
+
 # Bazel test actions do not inherit the client environment. Preserve the
 # selectors that establish the runner's GPU lease without choosing one here.
 AMDGPU_DEVICE_VISIBILITY_ENV_VARS = (
@@ -307,7 +317,10 @@ def bazel_configure_step(
         command.append(
             "--//loom/config/import:enable=" + ",".join(enabled_loom_importers)
         )
-    return CiStep("Configure Bazel", dev_command(*command, *extra_options))
+    return CiStep(
+        "Configure Bazel",
+        dev_command(*command, *codec_options("bazel"), *extra_options),
+    )
 
 
 def bazel_build_step(
@@ -316,7 +329,12 @@ def bazel_build_step(
     config: str | None = None,
     bazel_options: tuple[str, ...] = (),
 ) -> CiStep:
-    command = ["bazel", "build", *ci_config.BAZEL_DEFAULT_OPTIONS]
+    command = [
+        "bazel",
+        "build",
+        *ci_config.BAZEL_DEFAULT_OPTIONS,
+        *codec_options("bazel"),
+    ]
     if config is not None:
         command.append(f"--config={config}")
     command.extend(bazel_options)
@@ -343,6 +361,7 @@ def bazel_test_step(
         if any(option.split("=", 1)[0] == option_name for option in bazel_options):
             raise ValueError(f"Use {argument_name} to compose Bazel test filters")
     options = list(ci_config.BAZEL_DEFAULT_OPTIONS)
+    options.extend(codec_options("bazel"))
     if config is not None:
         options.append(f"--config={config}")
     for key, value in sanitizer_env(config) + test_env:
@@ -383,7 +402,14 @@ def bazel_run_step(
     program_args: tuple[str, ...] = (),
     bazel_options: tuple[str, ...] = (),
 ) -> CiStep:
-    command = ["bazel", "run", *ci_config.BAZEL_DEFAULT_OPTIONS, *bazel_options, target]
+    command = [
+        "bazel",
+        "run",
+        *ci_config.BAZEL_DEFAULT_OPTIONS,
+        *codec_options("bazel"),
+        *bazel_options,
+        target,
+    ]
     if program_args:
         command.extend(("--", *program_args))
     return CiStep(name, dev_command(*command))
@@ -416,6 +442,7 @@ def cmake_configure_step(
         "-DLIBHRX_BUILD=OFF",
         "-DIREE_ENABLE_VULKAN=OFF",
         "-DIREE_ENABLE_D3D12=OFF",
+        *codec_options("cmake"),
     ]
     for driver, define in CMAKE_HAL_DRIVER_DEFINES:
         command.append(f"-D{define}={'ON' if driver in enabled_driver_set else 'OFF'}")
@@ -1111,6 +1138,7 @@ def tilelang_importer_steps(command_name: str) -> list[CiStep]:
                 "test",
                 "--importer-env",
                 "tilelang",
+                *codec_options("bazel"),
                 *ci_config.IMPORTER_TILELANG_BAZEL_TEST_TARGETS,
             ),
         ),
@@ -1125,6 +1153,7 @@ def tilelang_importer_steps(command_name: str) -> list[CiStep]:
                 "tilelang",
                 "-DIREE_BUILD_TESTS=ON",
                 "-DLIBHRX_BUILD=OFF",
+                *codec_options("cmake"),
             ),
         ),
         CiStep(

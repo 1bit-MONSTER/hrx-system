@@ -45,8 +45,10 @@ static iree_status_t loom_serve_media_image_data_url_decode(
       iree_base64_encoded_size(maximum_length);
   iree_host_size_t maximum_data_url_length = 0;
   if (maximum_encoded_length == IREE_HOST_SIZE_MAX ||
-      !iree_host_size_checked_add(maximum_encoded_length, 32,
-                                  &maximum_data_url_length) ||
+      !iree_host_size_checked_add(
+          maximum_encoded_length,
+          sizeof("data:image/x-portable-arbitrarymap;base64,") - 1,
+          &maximum_data_url_length) ||
       data_url_length > maximum_data_url_length) {
     return iree_make_status(IREE_STATUS_RESOURCE_EXHAUSTED,
                             "image data URL exceeds the compressed byte bound");
@@ -81,10 +83,14 @@ static iree_status_t loom_serve_media_image_data_url_decode(
     } else if (iree_string_view_consume_prefix(
                    &encoded, IREE_SV("data:image/webp;base64,"))) {
       out_image->format = LOOM_SERVE_MEDIA_IMAGE_FORMAT_WEBP;
+    } else if (iree_string_view_consume_prefix(
+                   &encoded,
+                   IREE_SV("data:image/x-portable-arbitrarymap;base64,"))) {
+      out_image->format = LOOM_SERVE_MEDIA_IMAGE_FORMAT_PAM;
     } else {
       status = iree_make_status(
           IREE_STATUS_INVALID_ARGUMENT,
-          "image_url must be a base64 PNG, JPEG, GIF or WebP data URL");
+          "image_url must be a base64 PNG, JPEG, GIF, WebP, or PAM data URL");
     }
   }
   iree_host_size_t decoded_length = 0;

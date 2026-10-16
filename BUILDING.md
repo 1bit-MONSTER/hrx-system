@@ -152,22 +152,28 @@ is the artifact target for the `:elf_module_test` wrapper.
 ### Serving image inputs
 
 Loom serving image input is enabled by default on Linux, macOS, and Windows.
-PNG, JPEG, GIF, and WebP have independent codec providers. Text-only builds can
-exclude all image dependencies, or retain only selected formats:
+PAM images have a built-in decoder with no third-party dependencies. PNG, JPEG,
+GIF, and WebP have independent providers, all enabled by default. A minimal
+build can retain image input with only PAM, select optional codecs, or disable
+image input entirely:
 
 ```bash
-iree-bazel-configure -DLOOM_SERVE_IMAGE_INPUT=OFF
-iree-cmake-configure -DLOOM_SERVE_IMAGE_INPUT=OFF
+iree-bazel-configure -DLOOM_SERVE_IMAGE_CODECS=
+iree-cmake-configure -DLOOM_SERVE_IMAGE_CODECS=
 
 iree-bazel-configure '-DLOOM_SERVE_IMAGE_CODECS=png;jpeg'
 iree-cmake-configure '-DLOOM_SERVE_IMAGE_CODECS=png;jpeg'
+
+iree-bazel-configure -DLOOM_SERVE_IMAGE_INPUT=OFF
+iree-cmake-configure -DLOOM_SERVE_IMAGE_INPUT=OFF
 ```
 
 The native Bazel options are `--//loom/config/serve:image_input=false` and
-`--//loom/config/serve:image_codecs=png,jpeg`. Only selected providers enter
-the source-fetch and link graphs. Disabled formats return an explicit error;
-other serving modalities do not depend on codec availability. Other operating
-systems exclude image providers by default.
+`--//loom/config/serve:image_codecs=png,jpeg`; an empty codec list retains PAM.
+Only selected optional providers enter the source-fetch and link graphs.
+Disabled formats return an explicit error; other serving modalities do not
+depend on codec availability. Other operating systems exclude image providers
+by default.
 
 ### Windows targets
 
@@ -440,6 +446,25 @@ root independently through build configuration.
 | IREE Bazel repository build | GCC 13 system toolchain | Fetched ROCm Clang 23 | Builds every supported Linux HAL driver, Loom target/importer, and build-compatible target under `//...`; it does not duplicate test execution. |
 | libHRX Bazel | Fetched ROCm Clang 23 | Fetched ROCm Clang 23 | Validates the source HRX product against its shipping ROCm compiler environment. |
 | Installed CMake/package CI | Fetched ROCm Clang 23 | Fetched ROCm Clang 23 | Builds, installs, packages, and tests the composed HRX distribution. |
+
+The `platform_coverage` rows in `.github/workflows/ci_iree.yml` are the shared
+representative set for portable optional dependencies: Linux Bazel Clang ASAN,
+Linux Bazel GCC repository build, Windows Bazel clang-cl repository integration,
+and Linux CMake Clang CPU. They cover both dependency-fetch mechanisms and the
+host compiler/platform boundaries without repeating dependency builds across
+every hardware or sanitizer configuration.
+
+These rows pass `IREE_CI_PLATFORM_COVERAGE=1` to the CI command script, enabling
+all optional image codecs. Other source-tree CI jobs retain image-serving tests
+through the built-in PAM provider. Ordinary build/test commands and release
+packaging retain the normal codec defaults. Additional portable optional
+dependencies share this representative set; hardware execution remains governed
+by its own resource requirements.
+
+Windows Bazel also uses `platform_coverage` to select its single Python test
+run. Interpreter coverage remains once per OS/build system: ordinary Linux CPU
+and Windows CMake CPU jobs keep their Python tests, and hardware jobs keep
+Python drivers that exercise their assigned devices.
 
 The repository-wide GCC lane intentionally uses the complete `//...` pattern,
 not a hand-maintained project list or exclusions. Platform-incompatible targets
