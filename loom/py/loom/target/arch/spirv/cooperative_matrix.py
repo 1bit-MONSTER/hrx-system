@@ -58,11 +58,13 @@ class CooperativeMatrixCase:
     rhs_scalar_suffix: str | None = None
     accumulator_scalar_suffix: str | None = None
     result_scalar_suffix: str | None = None
-    property_storage_flags: str = "MATRIX_STORAGE_ANY"
-    operand_mode: str | None = None
     # Saturates the accumulation into the result component's integer range.
     saturating_accumulation: bool = False
     source_rule_enabled: bool = True
+
+    @property
+    def operand_mode(self) -> str | None:
+        return "saturating" if self.saturating_accumulation else None
 
     @property
     def signed_component_roles(self) -> tuple[str, ...]:
@@ -260,55 +262,35 @@ COOPERATIVE_MATRIX_CASES = (
             "bfloat16_cooperative_matrix_khr",
         ),
     ),
-    CooperativeMatrixCase(
-        element="s8",
-        lhs_source_type="i8",
-        rhs_source_type="i8",
-        accumulator_source_type="i32",
-        result_source_type="i32",
-        accumulator="s32",
-        m_size=16,
-        n_size=16,
-        k_size=32,
-        lhs_rows=16,
-        lhs_columns=32,
-        rhs_rows=32,
-        rhs_columns=16,
-        accumulator_rows=16,
-        accumulator_columns=16,
-        feature_atoms=(
-            "cooperative_matrix_khr",
-            "int8",
-        ),
-        property_storage_flags="STORAGE_BUFFER_OR_BDA",
-        operand_mode="signed_saturating",
-        saturating_accumulation=True,
-    ),
-    CooperativeMatrixCase(
-        element="u8",
-        lhs_source_type="i8",
-        rhs_source_type="i8",
-        accumulator_source_type="i32",
-        result_source_type="i32",
-        accumulator="u32",
-        m_size=16,
-        n_size=16,
-        k_size=32,
-        lhs_rows=16,
-        lhs_columns=32,
-        rhs_rows=32,
-        rhs_columns=16,
-        accumulator_rows=16,
-        accumulator_columns=16,
-        feature_atoms=(
-            "cooperative_matrix_khr",
-            "int8",
-        ),
-        lhs_scalar_suffix="u8",
-        rhs_scalar_suffix="u8",
-        accumulator_scalar_suffix="u32",
-        result_scalar_suffix="u32",
-        property_storage_flags="STORAGE_BUFFER_OR_BDA",
+    *(
+        CooperativeMatrixCase(
+            element=lhs_name if lhs == rhs else f"{lhs_name}_{rhs_name}",
+            lhs_source_type="i8",
+            rhs_source_type="i8",
+            accumulator_source_type="i32",
+            result_source_type="i32",
+            accumulator=accumulator_name,
+            m_size=16,
+            n_size=16,
+            k_size=reduction,
+            lhs_rows=16,
+            lhs_columns=reduction,
+            rhs_rows=reduction,
+            rhs_columns=16,
+            accumulator_rows=16,
+            accumulator_columns=16,
+            feature_atoms=("cooperative_matrix_khr", "int8"),
+            lhs_scalar_suffix=lhs,
+            rhs_scalar_suffix=rhs,
+            accumulator_scalar_suffix=accumulator,
+            result_scalar_suffix=accumulator,
+            saturating_accumulation=saturating,
+        )
+        for reduction in (16, 32)
+        for lhs_name, lhs in (("s8", "i8"), ("u8", "u8"))
+        for rhs_name, rhs in (("s8", "i8"), ("u8", "u8"))
+        for accumulator_name, accumulator in (("s32", "i32"), ("u32", "u32"))
+        for saturating in (False, True)
     ),
 )
 

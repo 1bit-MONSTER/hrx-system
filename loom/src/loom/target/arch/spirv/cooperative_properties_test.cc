@@ -22,15 +22,9 @@ constexpr loom_spirv_feature_bits_t kBf16CooperativeMatrixFeatures =
     LOOM_SPIRV_FEATURE_BFLOAT16_TYPE_KHR |
     LOOM_SPIRV_FEATURE_BFLOAT16_COOPERATIVE_MATRIX_KHR;
 
-constexpr loom_spirv_feature_bits_t kS8CooperativeMatrixFeatures =
+constexpr loom_spirv_feature_bits_t kIntegerCooperativeMatrixFeatures =
     LOOM_SPIRV_FEATURE_VULKAN_SHADER |
-    LOOM_SPIRV_FEATURE_COOPERATIVE_MATRIX_KHR | LOOM_SPIRV_FEATURE_INT8 |
-    LOOM_SPIRV_FEATURE_STORAGE_BUFFER_8BIT_ACCESS;
-
-constexpr loom_spirv_feature_bits_t kU8CooperativeMatrixFeatures =
-    LOOM_SPIRV_FEATURE_VULKAN_SHADER |
-    LOOM_SPIRV_FEATURE_COOPERATIVE_MATRIX_KHR | LOOM_SPIRV_FEATURE_INT8 |
-    LOOM_SPIRV_FEATURE_STORAGE_BUFFER_8BIT_ACCESS;
+    LOOM_SPIRV_FEATURE_COOPERATIVE_MATRIX_KHR | LOOM_SPIRV_FEATURE_INT8;
 
 void PreparePropertySet(loom_spirv_feature_bits_t feature_bits,
                         loom_spirv_cooperative_property_set_t* property_set) {
@@ -412,7 +406,7 @@ TEST(SpirvCooperativePropertiesTest, SelectsBfloat16CooperativeMatrixRow) {
 TEST(SpirvCooperativePropertiesTest,
      SelectsSignedSaturatingS8CooperativeMatrixRow) {
   loom_spirv_cooperative_property_set_t property_set = {};
-  PreparePropertySet(kS8CooperativeMatrixFeatures, &property_set);
+  PreparePropertySet(kIntegerCooperativeMatrixFeatures, &property_set);
   const loom_spirv_cooperative_matrix_query_t query =
       S8MatrixQuery(LOOM_LOWERING_POLICY_TARGET_PRIMITIVE_REQUIRED);
 
@@ -424,17 +418,17 @@ TEST(SpirvCooperativePropertiesTest,
   ASSERT_NE(property, nullptr);
   EXPECT_TRUE(iree_string_view_equal(
       property->name, IREE_SV("khr.cooperative_matrix.s8.16x16x32.s32.subgroup."
-                              "signed_saturating")));
+                              "saturating")));
   EXPECT_EQ(property->operand_flags, query.operand_flags);
   EXPECT_EQ(
       property->mul_add_descriptor_ref,
-      SPIRV_LOGICAL_CORE_DESCRIPTOR_REF_OP_COOPERATIVE_MATRIX_MUL_ADD_KHR_S8_M16N16K32_S32_SUBGROUP_SIGNED_SATURATING);
+      SPIRV_LOGICAL_CORE_DESCRIPTOR_REF_OP_COOPERATIVE_MATRIX_MUL_ADD_KHR_S8_M16N16K32_S32_SUBGROUP_SATURATING);
   EXPECT_EQ(diagnostic.status, LOOM_SPIRV_COOPERATIVE_SELECTION_MATCHED);
 }
 
 TEST(SpirvCooperativePropertiesTest, SelectsUnsignedU8CooperativeMatrixRow) {
   loom_spirv_cooperative_property_set_t property_set = {};
-  PreparePropertySet(kU8CooperativeMatrixFeatures, &property_set);
+  PreparePropertySet(kIntegerCooperativeMatrixFeatures, &property_set);
   const loom_spirv_cooperative_matrix_query_t query =
       U8MatrixQuery(LOOM_LOWERING_POLICY_TARGET_PRIMITIVE_REQUIRED);
 
@@ -459,9 +453,86 @@ TEST(SpirvCooperativePropertiesTest, SelectsUnsignedU8CooperativeMatrixRow) {
 }
 
 TEST(SpirvCooperativePropertiesTest,
+     SelectsCompleteEightBitIntegerMatrixFamily) {
+  loom_spirv_cooperative_property_set_t property_set = {};
+  PreparePropertySet(kIntegerCooperativeMatrixFeatures, &property_set);
+  for (uint16_t reduction : {16, 32}) {
+    // Bits 0..3 select signed A, B, C/Result, and saturation independently.
+    for (uint32_t variant = 0; variant < 16; ++variant) {
+      auto query =
+          U8MatrixQuery(LOOM_LOWERING_POLICY_TARGET_PRIMITIVE_REQUIRED);
+      query.k_size = reduction;
+      query.lhs_type =
+          (variant & 1) ? LOOM_SPIRV_SCALAR_TYPE_S8 : LOOM_SPIRV_SCALAR_TYPE_U8;
+      query.rhs_type =
+          (variant & 2) ? LOOM_SPIRV_SCALAR_TYPE_S8 : LOOM_SPIRV_SCALAR_TYPE_U8;
+      query.accumulator_type = query.result_type =
+          (variant & 4) ? LOOM_SPIRV_SCALAR_TYPE_S32
+                        : LOOM_SPIRV_SCALAR_TYPE_U32;
+      query.operand_flags =
+          (variant & 3) | ((variant & 4) ? 12 : 0) | ((variant & 8) ? 16 : 0);
+      SCOPED_TRACE(::testing::Message()
+                   << "K=" << reduction << ", flags=" << query.operand_flags);
+      for (auto storage_class :
+           {LOOM_SPIRV_STORAGE_CLASS_WORKGROUP,
+            LOOM_SPIRV_STORAGE_CLASS_STORAGE_BUFFER,
+            LOOM_SPIRV_STORAGE_CLASS_PHYSICAL_STORAGE_BUFFER}) {
+        query.storage_class = storage_class;
+        loom_spirv_cooperative_diagnostic_t diagnostic = {};
+        const auto* property = loom_spirv_cooperative_matrix_property_select(
+            &property_set, &query, &diagnostic);
+        ASSERT_NE(property, nullptr);
+        EXPECT_EQ(property->k_size, query.k_size);
+        EXPECT_EQ(property->lhs_type, query.lhs_type);
+        EXPECT_EQ(property->rhs_type, query.rhs_type);
+        EXPECT_EQ(property->accumulator_type, query.accumulator_type);
+        EXPECT_EQ(property->result_type, query.result_type);
+        EXPECT_EQ(property->operand_flags, query.operand_flags);
+        EXPECT_EQ(diagnostic.status, LOOM_SPIRV_COOPERATIVE_SELECTION_MATCHED);
+      }
+    }
+  }
+}
+
+TEST(SpirvCooperativePropertiesTest,
+     IntegerMatrixSubsetKeepsShapeAndSaturationConstraints) {
+  loom_spirv_cooperative_property_set_t property_set = {};
+  PreparePropertySet(kIntegerCooperativeMatrixFeatures, &property_set);
+  auto query = S8MatrixQuery(LOOM_LOWERING_POLICY_TARGET_PRIMITIVE_REQUIRED);
+  query.k_size = 16;
+  loom_spirv_cooperative_diagnostic_t diagnostic = {};
+  const auto* row = loom_spirv_cooperative_matrix_property_select(
+      &property_set, &query, &diagnostic);
+  ASSERT_NE(row, nullptr);
+  loom_spirv_cooperative_property_storage_t storage = {};
+  IREE_ASSERT_OK(loom_spirv_cooperative_property_storage_initialize(
+      kIntegerCooperativeMatrixFeatures, row, 1,
+      /*vector_properties=*/nullptr, /*vector_property_count=*/0,
+      iree_allocator_system(), &storage));
+  EXPECT_NE(loom_spirv_cooperative_matrix_property_select(&storage.set, &query,
+                                                          &diagnostic),
+            nullptr);
+  query.operand_flags &=
+      ~LOOM_SPIRV_COOPERATIVE_MATRIX_OPERAND_SATURATING_ACCUMULATION;
+  EXPECT_EQ(loom_spirv_cooperative_matrix_property_select(&storage.set, &query,
+                                                          &diagnostic),
+            nullptr);
+  EXPECT_TRUE(iree_any_bit_set(diagnostic.rejection_flags,
+                               LOOM_SPIRV_COOPERATIVE_REJECTION_OPERANDS));
+  query.k_size = 32;
+  EXPECT_EQ(loom_spirv_cooperative_matrix_property_select(&storage.set, &query,
+                                                          &diagnostic),
+            nullptr);
+  EXPECT_TRUE(iree_any_bit_set(diagnostic.rejection_flags,
+                               LOOM_SPIRV_COOPERATIVE_REJECTION_SHAPE));
+  loom_spirv_cooperative_property_storage_deinitialize(&storage,
+                                                       iree_allocator_system());
+}
+
+TEST(SpirvCooperativePropertiesTest,
      DistinguishesUnsignedMatrixRowsFromSignedOperandFlags) {
   loom_spirv_cooperative_property_set_t property_set = {};
-  PreparePropertySet(kU8CooperativeMatrixFeatures, &property_set);
+  PreparePropertySet(kIntegerCooperativeMatrixFeatures, &property_set);
   loom_spirv_cooperative_matrix_query_t query =
       U8MatrixQuery(LOOM_LOWERING_POLICY_TARGET_PRIMITIVE_REQUIRED);
   query.operand_flags =

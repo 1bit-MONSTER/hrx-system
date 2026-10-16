@@ -164,6 +164,7 @@ loom_test(
 loom_test(
     name = "vulkan_tests",
     srcs = [
+        "test/cooperative_integer.loom",
         "test/multiple_entries.loom",
         "test/spirv_vulkan_atomic_hal_actual.loom",
         "test/spirv_vulkan_coop_hal_actual.loom",

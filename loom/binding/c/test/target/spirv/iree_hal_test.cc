@@ -61,7 +61,7 @@ constexpr const char kF16CooperativeMatrixRow[] =
 constexpr const char kBf16CooperativeMatrixRow[] =
     "khr.cooperative_matrix.bf16.16x16x16.f32.subgroup";
 constexpr const char kS8CooperativeMatrixRow[] =
-    "khr.cooperative_matrix.s8.16x16x32.s32.subgroup.signed_saturating";
+    "khr.cooperative_matrix.s8.16x16x32.s32.subgroup.saturating";
 constexpr const char kU8CooperativeMatrixRow[] =
     "khr.cooperative_matrix.u8.16x16x32.u32.subgroup";
 

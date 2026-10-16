@@ -21,7 +21,14 @@ def test_constructor_types_cover_components_without_duplicate_accumulators() -> 
     }
     expected = {
         (scalar, rows, columns, role)
-        for scalar, reduction in (("f16", 16), ("bf16", 16), ("i8", 32), ("u8", 32))
+        for scalar, reduction in (
+            ("f16", 16),
+            ("bf16", 16),
+            ("i8", 16),
+            ("u8", 16),
+            ("i8", 32),
+            ("u8", 32),
+        )
         for rows, columns, role in ((16, reduction, "lhs"), (reduction, 16, "rhs"))
     } | {(scalar, 16, 16, "accumulator") for scalar in ("f16", "f32", "i32", "u32")}
     assert actual == expected
@@ -91,4 +98,4 @@ def test_initializers_cover_constants_origins_schemas_and_both_accumulator_roles
         for constant in (True, False)
     }
     assert signatures == expected
-    assert len(signatures) == 56
+    assert len(signatures) == 68

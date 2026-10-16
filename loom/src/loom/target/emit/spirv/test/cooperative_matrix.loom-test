@@ -179,7 +179,7 @@ low.kernel.def target<spirv.logical.core>(@hal_target_coop_s8) workgroup_size(32
   %lhs = OpCooperativeMatrixLoadKHR.lhs.i8.16x32.subgroup.storage_buffer %lhs_view, %input_stride, 0
   %rhs = OpCooperativeMatrixLoadKHR.rhs.i8.32x16.subgroup.storage_buffer %rhs_view, %output_stride, 0
   %init = OpCooperativeMatrixLoadKHR.init.i32.16x16.subgroup.storage_buffer %init_view, %output_stride, 0
-  %result = OpCooperativeMatrixMulAddKHR.s8.16x16x32.s32.subgroup.signed_saturating %lhs, %rhs, %init
+  %result = OpCooperativeMatrixMulAddKHR.s8.16x16x32.s32.subgroup.saturating %lhs, %rhs, %init
   OpCooperativeMatrixStoreKHR.result.i32.16x16.subgroup.storage_buffer %out_view, %result, %output_stride, 0
   return
 }

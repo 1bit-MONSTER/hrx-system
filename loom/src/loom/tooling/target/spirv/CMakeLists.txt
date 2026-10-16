@@ -421,6 +421,7 @@ loom_test_module(
   NAME
     vulkan_tests_module
   SRCS
+    "test/cooperative_integer.loom"
     "test/multiple_entries.loom"
     "test/spirv_vulkan_atomic_hal_actual.loom"
     "test/spirv_vulkan_coop_hal_actual.loom"
