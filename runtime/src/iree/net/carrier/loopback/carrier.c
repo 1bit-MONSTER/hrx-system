@@ -691,9 +691,7 @@ iree_net_loopback_carrier_query_send_budget(iree_net_carrier_t* base_carrier) {
 }
 
 static iree_status_t iree_net_loopback_check_send_admission_locked(
-    iree_net_loopback_carrier_t* carrier,
-    iree_net_loopback_carrier_t** out_peer) {
-  *out_peer = NULL;
+    iree_net_loopback_carrier_t* carrier) {
   if (iree_net_carrier_state(&carrier->base) != IREE_NET_CARRIER_STATE_ACTIVE) {
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                             "loopback carrier is not active");
@@ -716,14 +714,12 @@ static iree_status_t iree_net_loopback_check_send_admission_locked(
     return iree_make_status(IREE_STATUS_UNAVAILABLE,
                             "loopback peer is not receiving");
   }
-  *out_peer = peer;
   return iree_ok_status();
 }
 
-static iree_status_t iree_net_loopback_check_send_publication_locked(
+static iree_status_t iree_net_loopback_publish_send_locked(
     iree_net_loopback_carrier_t* carrier,
-    iree_net_loopback_carrier_t** out_peer) {
-  *out_peer = NULL;
+    iree_net_loopback_pending_send_t* pending_send) {
   if (iree_net_carrier_state(&carrier->base) != IREE_NET_CARRIER_STATE_ACTIVE) {
     return iree_make_status(IREE_STATUS_FAILED_PRECONDITION,
                             "loopback carrier deactivated during send");
@@ -746,7 +742,12 @@ static iree_status_t iree_net_loopback_check_send_publication_locked(
     return iree_make_status(IREE_STATUS_UNAVAILABLE,
                             "loopback peer is not receiving");
   }
-  *out_peer = peer;
+  pending_send->phase = IREE_NET_LOOPBACK_SEND_PHASE_DELIVERY;
+  iree_atomic_fetch_add(&peer->base.pending_operations, 1,
+                        iree_memory_order_acq_rel);
+  iree_net_loopback_event_queue_push(
+      &carrier->pair->event_queues[peer->pair_index], pending_send);
+  iree_net_loopback_schedule_dispatch_locked(peer);
   return iree_ok_status();
 }
 
@@ -794,10 +795,8 @@ static iree_status_t iree_net_loopback_carrier_send(
   }
   IREE_ASSERT(span_index == span_count);
 
-  iree_status_t status = iree_ok_status();
   iree_slim_mutex_lock(&carrier->pair->mutex);
-  iree_net_loopback_carrier_t* peer = NULL;
-  status = iree_net_loopback_check_send_admission_locked(carrier, &peer);
+  iree_status_t status = iree_net_loopback_check_send_admission_locked(carrier);
   if (iree_status_is_ok(status)) {
     pending_send->source = carrier;
     iree_net_carrier_retain(base_carrier);
@@ -826,20 +825,11 @@ static iree_status_t iree_net_loopback_carrier_send(
   }
 
   iree_slim_mutex_lock(&carrier->pair->mutex);
-  peer = NULL;
   if (iree_status_is_ok(status)) {
-    status = iree_net_loopback_check_send_publication_locked(carrier, &peer);
+    status = iree_net_loopback_publish_send_locked(carrier, pending_send);
   }
-  if (iree_status_is_ok(status)) {
-    pending_send->phase = IREE_NET_LOOPBACK_SEND_PHASE_DELIVERY;
-    iree_atomic_fetch_add(&peer->base.pending_operations, 1,
-                          iree_memory_order_acq_rel);
-    iree_net_loopback_event_queue_push(
-        &carrier->pair->event_queues[peer->pair_index], pending_send);
-    iree_net_loopback_schedule_dispatch_locked(peer);
-  } else {
+  if (!iree_status_is_ok(status)) {
     iree_net_loopback_queue_local_completion_locked(pending_send, status);
-    status = iree_ok_status();
   }
   iree_slim_mutex_unlock(&carrier->pair->mutex);
   return iree_ok_status();
