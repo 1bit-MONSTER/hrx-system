@@ -43,15 +43,16 @@ from loom.dsl import (
     ANY,
     ATTR_TYPE_SYMBOL_SET,
     SYMBOL_DEFINE,
-    UNKNOWN_EFFECTS,
     AttrDef,
     Dialect,
     Op,
     Operand,
+    Reads,
     Result,
     SymbolDefinition,
     SymbolDefinitionFlag,
     SymbolReference,
+    Writes,
 )
 
 # ============================================================================
@@ -270,7 +271,7 @@ global_load = Op(
     # Variadic results: the loaded value + any dim/encoding co-results.
     # The result count is determined by the LHS result names.
     results=[Result("result", ANY, variadic=True)],
-    traits=[UNKNOWN_EFFECTS],
+    effects=[Reads()],
     canonicalize="loom_global_load_canonicalize",
     facts="loom_global_load_facts",
     verify="loom_global_load_verify",
@@ -310,7 +311,7 @@ global_store = Op(
             symbol_ref=SymbolReference("global", ["global"]),
         ),
     ],
-    traits=[UNKNOWN_EFFECTS],
+    effects=[Writes()],
     verify="loom_global_store_verify",
     format=[
         Ref("value"),

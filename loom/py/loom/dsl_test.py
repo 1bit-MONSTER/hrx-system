@@ -167,6 +167,7 @@ from loom.dsl import (
     PositiveBitWidthAttr,
     RanksMatch,
     Reads,
+    ReadWrites,
     ReferenceTypeKey,
     RegionDef,
     Result,
@@ -2970,6 +2971,21 @@ class TestOp:
 
 
 class TestEffects:
+    def test_ambient_effects(self) -> None:
+        for effect in (Reads(), Writes(), ReadWrites()):
+            op = Op("test.ambient", effects=[effect])
+            assert not op.is_pure
+            assert op.effects[0].operand is None
+            for trait in (
+                PURE,
+                UNKNOWN_EFFECTS,
+                SAFE_TO_SPECULATE,
+                HINT,
+                COMPILE_TIME_ONLY,
+            ):
+                with _raises(ValueError):
+                    Op("test.bad", traits=[trait], effects=[effect])
+
     def test_valid_read_effect(self) -> None:
         op = Op(
             "test.load",

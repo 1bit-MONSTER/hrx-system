@@ -1836,6 +1836,7 @@ loom_cc_test(
     loom::ops::buffer
     loom::ops::channel
     loom::ops::encoding
+    loom::ops::global
     loom::ops::index
     loom::ops::kernel
     loom::ops::scf
