@@ -12,7 +12,6 @@ import bazel_to_cmake_requirements
 from loom_binary import LoomBinaryBuildFileFunctions
 
 _AMDF_CONFIG_CMAKE_OPTIONS = {
-    "//loom/config/import:cxx": "LOOM_IMPORT_CXX",
     "//libamdf/config:enabled_setting": "AMDF_BUILD",
     "//libamdf/config/family:cdna": "AMDF_FAMILY_CDNA",
     "//libamdf/config/family:gpu": "AMDF_FAMILY_RDNA OR AMDF_FAMILY_CDNA",
@@ -75,10 +74,6 @@ class AmdfBuildFileFunctions(
     def _convert_select_condition(self, label):
         if label in _AMDF_CONFIG_CMAKE_OPTIONS:
             return _AMDF_CONFIG_CMAKE_OPTIONS[label]
-        if isinstance(label, str) and label.startswith(
-            "//loom/config/target/amdgpu:descriptor_set_"
-        ):
-            return "LOOM_TARGET_AMDGPU_" + label.split(":", 1)[1].upper()
         return super()._convert_select_condition(label)
 
     def apply_amdf_target_policy(self, kwargs, name=None):
