@@ -74,13 +74,6 @@ defines the optimized intervals.
 
 ## Compiler execution cases
 
-`predicate_select_npu2_test` checks selection between independently computed
-predicates in full 64-element and partial 3x3 carriers. Every lane sees all
-eight Boolean input triples, with different patterns in the two mask halves.
-An independent conditional oracle checks selected bytes, partial-store tails,
-binding guards and unchanged inputs through three establishing invocations.
-It uses the explicit hardware configuration below.
-
 `bitcast_npu2_test` imports scalar/vector C++ bit casts and executes a streamed
 pipeline on Strix Halo. An independent byte oracle checks wrapping byte
 arithmetic, FP8/FP16/BF16 lane permutations and 64-bit payload transport through
@@ -162,14 +155,6 @@ are checked as raw bits, while packed BF16 pairs feed a dot with an independent
 arithmetic oracle. The compile report proves that each native lookup plan was
 selected without spills and remained within code and bank capacity; unchanged
 input and output guards bracket the device results.
-
-`transpose_npu2_test` checks ordinary High BF16 8x8 transposition as raw bit
-transport. Its 1,056 packets include every 16-bit pattern and signed zeros,
-subnormals, infinities and NaN payloads rotated through every lane. Independent
-scalar coordinate indexing checks all output bytes, both binding guards and
-unchanged inputs. Original, changed and original inputs each run through three
-complete invocations in fresh processes; capacity-two rings wrap repeatedly.
-The test asserts no floating-point arithmetic or timing property.
 
 `multicast_npu2_test` distributes eight A streams to two consumers each and two
 distinct B streams to eight consumers each. Sixteen workers span eight columns

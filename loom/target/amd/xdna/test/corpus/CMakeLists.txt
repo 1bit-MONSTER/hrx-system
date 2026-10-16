@@ -39,6 +39,7 @@ loom_corpus_test(
     "numeric/vector/integer_shifts.loom"
     "numeric/vector/integer_widening.loom"
     "numeric/vector/interleave.loom"
+    "numeric/vector/packed/arithmetic.loom"
     "numeric/vector/packed/dot.loom"
     "numeric/vector/packed/narrowing.loom"
     "numeric/vector/reductions.loom"
@@ -109,6 +110,9 @@ loom_corpus_test(
     "numeric/vector/interleave.loom"
     "@irregular_byte_row_mask_values"
     "BACKEND/005"
+    "numeric/vector/packed/arithmetic.loom"
+    "@packed_halfword_add_values"
+    "XDNA/051"
   RUNNER_ARGS
     "--device=xdna"
   LABELS

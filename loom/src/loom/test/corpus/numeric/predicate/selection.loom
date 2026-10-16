@@ -292,3 +292,150 @@ check.scenario @selected_predicate_values {
   }
   check.return
 }
+
+// Independent runtime predicates select predicate payloads at full and partial
+// vector widths. The upper half carries a distinct pattern from the lower half.
+func.def @select_full_predicates(%input: buffer, %output: buffer) {
+  %source, %destination = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %origin = index.constant 0 : offset
+  %true_origin = index.constant 64 : offset
+  %false_origin = index.constant 128 : offset
+  %mask_view = buffer.view %source[%origin] : buffer -> view<64xi8>
+  %true_view = buffer.view %source[%true_origin] : buffer -> view<64xi8>
+  %false_view = buffer.view %source[%false_origin] : buffer -> view<64xi8>
+  %output_view = buffer.view %destination[%origin] : buffer -> view<128xi8>
+  %result_view = buffer.view %destination[%origin] : buffer -> view<64xi8>
+  %sentinel = vector.constant -91 : vector<64xi8>
+  vector.store %sentinel, %output_view[0] : vector<64xi8>, view<128xi8>
+  vector.store %sentinel, %output_view[64] : vector<64xi8>, view<128xi8>
+  %mask_bytes = vector.load %mask_view[0] : view<64xi8> -> vector<64xi8>
+  %true_bytes = vector.load %true_view[0] : view<64xi8> -> vector<64xi8>
+  %false_bytes = vector.load %false_view[0] : view<64xi8> -> vector<64xi8>
+  %c0 = vector.constant 0 : vector<64xi8>
+  %c1 = vector.constant 1 : vector<64xi8>
+  %mask = vector.cmpi ne, %mask_bytes, %c0 : vector<64xi8> -> vector<64xi1>
+  %true_value = vector.cmpi ne, %true_bytes, %c0 : vector<64xi8> -> vector<64xi1>
+  %false_value = vector.cmpi ne, %false_bytes, %c0 : vector<64xi8> -> vector<64xi1>
+  %selected = vector.select %mask, %true_value, %false_value : vector<64xi1>
+  %bytes = vector.select %selected, %c1, %c0 : vector<64xi8>
+  vector.store %bytes, %result_view[0] : vector<64xi8>, view<64xi8>
+  func.return
+}
+
+func.def @select_partial_predicates(%input: buffer, %output: buffer) {
+  %source, %destination = buffer.assume.alignment %input, %output {minimum_alignment = 64} : buffer, buffer
+  %origin = index.constant 0 : offset
+  %true_origin = index.constant 64 : offset
+  %false_origin = index.constant 128 : offset
+  %mask_view = buffer.view %source[%origin] : buffer -> view<3x3xi8>
+  %true_view = buffer.view %source[%true_origin] : buffer -> view<3x3xi8>
+  %false_view = buffer.view %source[%false_origin] : buffer -> view<3x3xi8>
+  %output_view = buffer.view %destination[%origin] : buffer -> view<128xi8>
+  %result_view = buffer.view %destination[%origin] : buffer -> view<3x3xi8>
+  %sentinel = vector.constant -91 : vector<64xi8>
+  vector.store %sentinel, %output_view[0] : vector<64xi8>, view<128xi8>
+  vector.store %sentinel, %output_view[64] : vector<64xi8>, view<128xi8>
+  %mask_bytes = vector.load %mask_view[0, 0] : view<3x3xi8> -> vector<3x3xi8>
+  %true_bytes = vector.load %true_view[0, 0] : view<3x3xi8> -> vector<3x3xi8>
+  %false_bytes = vector.load %false_view[0, 0] : view<3x3xi8> -> vector<3x3xi8>
+  %c0 = vector.constant 0 : vector<3x3xi8>
+  %c1 = vector.constant 1 : vector<3x3xi8>
+  %mask = vector.cmpi ne, %mask_bytes, %c0 : vector<3x3xi8> -> vector<3x3xi1>
+  %true_value = vector.cmpi ne, %true_bytes, %c0 : vector<3x3xi8> -> vector<3x3xi1>
+  %false_value = vector.cmpi ne, %false_bytes, %c0 : vector<3x3xi8> -> vector<3x3xi1>
+  %selected = vector.select %mask, %true_value, %false_value : vector<3x3xi1>
+  %bytes = vector.select %selected, %c1, %c0 : vector<3x3xi8>
+  vector.store %bytes, %result_view[0, 0] : vector<3x3xi8>, view<3x3xi8>
+  func.return
+}
+
+func.def @generate_predicate_vectors(%trial: index, %input: buffer) {
+  %origin = index.constant 0 : offset
+  %source = buffer.view %input[%origin] : buffer -> view<256xi8>
+  %begin = index.constant 0 : index
+  %end = index.constant 64 : index
+  %step = index.constant 1 : index
+  %c3 = index.constant 3 : index
+  %c8 = index.constant 8 : index
+  %c32 = index.constant 32 : index
+  %c128 = index.constant 128 : index
+  %c1 = scalar.constant 1 : i32
+  %c2 = scalar.constant 2 : i32
+  scf.for %lane = [%begin to %end step %step] {
+    %half = index.div %lane, %c32 : index
+    %half_bias = index.mul %half, %c3 : index
+    %record_position = index.add %lane, %trial : index
+    %position = index.add %record_position, %half_bias : index
+    %triple = index.rem %position, %c8 : index
+    %bits = index.cast %triple : index to i32
+    %mask_word = scalar.shrui %bits, %c2 : i32
+    %true_word = scalar.shrui %bits, %c1 : i32
+    %true_bit = scalar.andi %true_word, %c1 : i32
+    %false_bit = scalar.andi %bits, %c1 : i32
+    %mask = scalar.trunci %mask_word : i32 to i8
+    %true_value = scalar.trunci %true_bit : i32 to i8
+    %false_value = scalar.trunci %false_bit : i32 to i8
+    %true_position = index.add %lane, %end : index
+    %false_position = index.add %lane, %c128 : index
+    view.store %mask, %source[%lane] : i8, view<256xi8>
+    view.store %true_value, %source[%true_position] : i8, view<256xi8>
+    view.store %false_value, %source[%false_position] : i8, view<256xi8>
+  }
+  func.return
+}
+
+func.def inline @predicate_vector_reference(%input: buffer, %output: buffer, %count: index) {
+  %origin = index.constant 0 : offset
+  %source = buffer.view %input[%origin] : buffer -> view<256xi8>
+  %destination = buffer.view %output[%origin] : buffer -> view<128xi8>
+  %begin = index.constant 0 : index
+  %step = index.constant 1 : index
+  %c64 = index.constant 64 : index
+  %c128 = index.constant 128 : index
+  %c0 = scalar.constant 0 : i8
+  %sentinel = scalar.constant -91 : i8
+  scf.for %lane = [%begin to %c128 step %step] {
+    view.store %sentinel, %destination[%lane] : i8, view<128xi8>
+  }
+  scf.for %lane = [%begin to %count step %step] {
+    %mask = view.load %source[%lane] : view<256xi8> -> i8
+    %condition = scalar.cmpi ne, %mask, %c0 : i8
+    %arm_origin = scf.select %condition, %c64, %c128 : index
+    %position = index.add %arm_origin, %lane : index
+    %value = view.load %source[%position] : view<256xi8> -> i8
+    view.store %value, %destination[%lane] : i8, view<128xi8>
+  }
+  func.return
+}
+
+func.def @select_predicate_vectors(%input: buffer, %full_output: buffer, %partial_output: buffer) {
+  func.call @select_full_predicates(%input, %full_output) : (buffer, buffer)
+  func.call @select_partial_predicates(%input, %partial_output) : (buffer, buffer)
+  func.return
+}
+
+func.def @predicate_vectors_reference(%input: buffer, %full_output: buffer, %partial_output: buffer) {
+  %full_count = index.constant 64 : index
+  %partial_count = index.constant 9 : index
+  func.call @predicate_vector_reference(%input, %full_output, %full_count) : (buffer, buffer, index)
+  func.call @predicate_vector_reference(%input, %partial_output, %partial_count) : (buffer, buffer, index)
+  func.return
+}
+
+check.scenario @predicate_vector_values {
+  check.trial[16](%trial: index, %entropy: check.entropy) {
+    %input_storage = check.generate.fill value(126) : tensor<384xi8>
+    %input = check.tensor.view %input_storage offset(64) : tensor<384xi8> -> tensor<256xi8>
+    check.generate<@generate_predicate_vectors>(%trial, %input) : (index, tensor<256xi8>) -> ()
+    %full_storage = check.generate.fill value(55) : tensor<256xi8>
+    %full_output = check.tensor.view %full_storage offset(64) : tensor<256xi8> -> tensor<128xi8>
+    %partial_storage = check.generate.fill value(55) : tensor<256xi8>
+    %partial_output = check.tensor.view %partial_storage offset(64) : tensor<256xi8> -> tensor<128xi8>
+    check.compare<@select_predicate_vectors, @predicate_vectors_reference>(%input, %full_output, %partial_output) : (tensor<256xi8>, tensor<128xi8>, tensor<128xi8>) -> () {
+      check.expect.bitwise actual(%input_storage) expected(%input_storage) : tensor<384xi8>
+      check.expect.bitwise actual(%full_storage) expected(%full_storage) : tensor<256xi8>
+      check.expect.bitwise actual(%partial_storage) expected(%partial_storage) : tensor<256xi8>
+    }
+  }
+  check.return
+}
