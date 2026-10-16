@@ -237,6 +237,15 @@ static void wrap___hipRegisterFunction(void** fatCubinHandle,
 
 __attribute__((visibility("default"))) hip_function_table_t*
 hip_interceptor_init(hip_function_table_t* real_functions) {
+  // Idempotent: a second init must not reopen the log with "w" and truncate
+  // everything already logged.
+  static int initialized = 0;
+  if (initialized) {
+    log_msg(2, "HIP Logging Interceptor already initialized; keeping state");
+    return &g_wrapper;
+  }
+  initialized = 1;
+
   g_real = real_functions;
 
   // Initialize logging
