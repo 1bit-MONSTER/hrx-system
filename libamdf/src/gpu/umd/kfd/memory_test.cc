@@ -1162,25 +1162,46 @@ TEST(LinuxGpuMemoryProfileTest, LegacySdmaExcludesHostAperture) {
 }
 
 TEST(LinuxGpuMemoryProfileTest, SystemStoresRequireNativeMappingAndCpuRoutes) {
+  const struct {
+    // Native GC identity, independent of the compiler target spelling.
+    amdf_gpu_kfd_ip_version_t gc;
+    // Whether owned coherent SYSTEM backing supports the CP STORE path.
+    bool supports_store;
+  } cases[] = {
+      {{.major = 9, .minor = 4, .revision = 3, .exact = true}, false},
+      {{.major = 11, .minor = 0, .revision = 0, .exact = true}, true},
+      {{.major = 11, .minor = 5, .revision = 0, .exact = true}, true},
+      {{.major = 11, .minor = 5, .revision = 1, .exact = true}, true},
+      {{.major = 11, .minor = 7, .revision = 0, .exact = true}, true},
+      {{.major = 11, .minor = 5, .revision = 1, .exact = false}, false},
+      {{.major = 12, .minor = 0, .revision = 0, .exact = true}, true},
+      {{.major = 12, .minor = 0, .revision = 1, .exact = true}, true},
+      {{.major = 12, .minor = 0, .revision = 1, .exact = false}, false},
+      {{.major = 12, .minor = 0, .revision = 2, .exact = true}, false},
+      {{.major = 12, .minor = 1, .revision = 0, .exact = true}, false},
+      {{.major = 12, .minor = 5, .revision = 0, .exact = true}, false},
+      {{.major = 13, .minor = 0, .revision = 0, .exact = true}, false},
+  };
   amdf_gpu_umd_device_t device = {
       .native_lifetime = AMDF_NATIVE_LIFETIME_PROCESS,
       .page_size = 4096,
   };
   device.topology.virtual_address.begin = UINT64_C(0x10000);
   device.topology.virtual_address.end = UINT64_C(1) << 48;
-  device.topology.gc_ip = {.major = 11, .exact = true};
   device.topology.memory_features = AMDF_GPU_DEVICE_FEATURE_LOCAL_MEMORY;
   for (uint32_t widths = 0; widths < 4; ++widths) {
     SCOPED_TRACE(widths);
     device.topology.host_atomics.supports_32 = (widths & 1) != 0;
     device.topology.host_atomics.supports_64 = (widths & 2) != 0;
-    for (uint32_t major : {9u, 11u, 12u}) {
-      SCOPED_TRACE(major);
-      device.topology.gc_ip.major = major;
+    for (const auto& test_case : cases) {
+      SCOPED_TRACE(::testing::Message()
+                   << test_case.gc.major << "." << test_case.gc.minor << "."
+                   << test_case.gc.revision << " exact=" << test_case.gc.exact);
+      device.topology.gc_ip = test_case.gc;
       for (uint32_t ordinal = 0; ordinal < 3; ++ordinal) {
         SCOPED_TRACE(ordinal);
         const auto profile = QueryProfile(&device, ordinal);
-        const bool native_mapping = ordinal == 0 && major == 11;
+        const bool native_mapping = ordinal == 0 && test_case.supports_store;
         EXPECT_EQ(profile.atomic_operations_32,
                   native_mapping && (widths & 1) != 0
                       ? AMDF_ATOMIC_OPERATION_STORE
@@ -1192,19 +1213,6 @@ TEST(LinuxGpuMemoryProfileTest, SystemStoresRequireNativeMappingAndCpuRoutes) {
       }
     }
   }
-  device.topology.gc_ip = {
-      .major = 11,
-      .minor = 5,
-      .revision = 0,
-      .exact = true,
-  };
-  EXPECT_EQ(QueryProfile(&device, 0).atomic_operations_64,
-            AMDF_ATOMIC_OPERATION_STORE);
-  device.topology.gc_ip.revision = 1;
-  EXPECT_EQ(QueryProfile(&device, 0).atomic_operations_64,
-            AMDF_ATOMIC_OPERATION_STORE);
-  device.topology.gc_ip.exact = false;
-  EXPECT_EQ(QueryProfile(&device, 0).atomic_operations_64, 0u);
 }
 
 }  // namespace
