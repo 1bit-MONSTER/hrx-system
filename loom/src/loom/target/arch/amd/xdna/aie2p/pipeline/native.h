@@ -242,6 +242,22 @@ typedef struct loom_aie2p_native_switch_t {
   loom_aie2p_native_register_bank_t banks[LOOM_AIE2P_NATIVE_SWITCH_BANK_COUNT];
 } loom_aie2p_native_switch_t;
 
+// Complete finite descriptor and task program for one DMA endpoint.
+typedef struct loom_aie2p_native_dma_sequence_t {
+  // First descriptor in the contiguous allocation owned by this sequence.
+  uint16_t descriptor;
+  // Number of descriptors, including any separately terminating final prefix.
+  uint16_t descriptor_count;
+  // Number of autonomous start tasks, bounded by the hardware queue depth.
+  uint8_t task_count;
+  // The single iterating descriptor ends away from the initial ring slot.
+  bool rewind_iteration;
+  // Arena-owned complete descriptor images in physical ordinal order.
+  uint32_t (*words)[8];
+  // Arena-owned encoded task words in FIFO publication order.
+  uint32_t* tasks;
+} loom_aie2p_native_dma_sequence_t;
+
 // One physical descriptor pair reused only after its prior transfer retires.
 typedef struct loom_aie2p_native_dma_descriptor_t {
   // Next physical pair in the worker's allocation order.
@@ -250,10 +266,10 @@ typedef struct loom_aie2p_native_dma_descriptor_t {
   loom_aie2p_native_dma_path_t* path;
   // Most recently assigned copy, retaining its retirement and address policy.
   const struct loom_aie2p_native_transfer_t* last_transfer;
-  // Local descriptor index in the selected engine's bank.
-  uint16_t local_descriptor;
-  // Shim descriptor index in the column's shared bank.
-  uint16_t shim_descriptor;
+  // Local descriptors, excluding dynamic addresses and completion releases.
+  loom_aie2p_native_dma_sequence_t local;
+  // Shim descriptors, excluding their relocated address pairs.
+  loom_aie2p_native_dma_sequence_t shim;
   // On-chip DMA completion semaphore for non-autonomous local arrivals.
   uint16_t completion_lock;
   // Worker-visible selector of the local-arrival completion semaphore.
@@ -261,10 +277,6 @@ typedef struct loom_aie2p_native_dma_descriptor_t {
   // Each issue patches the external address, including fixed offsets when
   // multiple copies sharing this pair address different caller storage.
   bool external_address_dynamic;
-  // Local template, excluding dynamic addresses and the completion release.
-  uint32_t local_words[8];
-  // Shim template, excluding its relocated address pair.
-  uint32_t shim_words[8];
 } loom_aie2p_native_dma_descriptor_t;
 
 typedef struct loom_aie2p_native_transfer_t {
@@ -309,18 +321,8 @@ typedef struct loom_aie2p_native_distribution_endpoint_t {
   loom_aie2p_native_tile_t* tile;
   // Direction-specific DMA engine.
   uint8_t engine;
-  // First descriptor in the contiguous allocation owned by this endpoint.
-  uint16_t descriptor;
-  // Number of descriptors, including any separately terminating final prefix.
-  uint16_t descriptor_count;
-  // Arena-owned complete descriptor images in physical ordinal order.
-  uint32_t (*words)[8];
-  // Number of start tasks, bounded by the hardware queue depth.
-  uint8_t task_count;
-  // Arena-owned encoded task words in FIFO publication order.
-  uint32_t* tasks;
-  // The single iterating descriptor ends away from the initial ring slot.
-  bool rewind_iteration;
+  // Descriptor images, finite queued tasks, and invocation rewind state.
+  loom_aie2p_native_dma_sequence_t sequence;
   // Invocation retirement must explicitly observe this DMA channel idle.
   bool wait_for_idle;
 } loom_aie2p_native_distribution_endpoint_t;
