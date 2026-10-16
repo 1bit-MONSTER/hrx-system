@@ -43,11 +43,11 @@ enum iree_hal_profile_chunk_flag_bits_t {
   // number of omitted typed records should report it in
   // iree_hal_profile_chunk_metadata_t::dropped_record_count.
   //
-  // Producers define pressure behavior by data family. Aggregate observability
-  // streams such as queue and memory events may use this flag to keep hot paths
-  // bounded. Precise execution timelines such as dispatch and device queue
-  // events should fail the profiled operation/session instead of silently
-  // omitting records needed for timing attribution.
+  // Capacity pressure preserves retained data and reports omissions with this
+  // flag instead of failing the workload or profiling session. This applies to
+  // every data family, including execution timelines. Retained records must
+  // still have valid attribution; consumers cannot infer complete execution
+  // coverage or continuity across reported loss.
   IREE_HAL_PROFILE_CHUNK_FLAG_TRUNCATED = 1ull << 0,
 };
 

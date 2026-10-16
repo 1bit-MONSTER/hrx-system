@@ -187,7 +187,7 @@ jobs:
             runner: linux-gfx1150-gpu-rocm-npu
             container_options: >-
               --device=/dev/accel/accel0 --ulimit memlock=-1:-1
-              --security-opt seccomp=unconfined
+              --security-opt seccomp=unconfined --user 0:0
     concurrency:
       group: iree-bazel-linux-${{ matrix.command }}-${{ matrix.target_selector }}-${{ (github.event_name == 'push' && github.ref) || github.run_id }}
       cancel-in-progress: true
@@ -769,10 +769,10 @@ jobs:
             Format-Table -AutoSize
 
       - name: Upload Windows build failure evidence
-        if: ${{ always() && steps.iree_bazel_ci.outcome == 'failure' }}
+        if: ${{ always() && (steps.iree_bazel_ci.outcome == 'failure' || steps.client_ci.outcome == 'failure') }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: windows-build-failures-bazel-${{ matrix.host_toolchain }}-attempt-${{ github.run_attempt }}
+          name: windows-build-failures-bazel-${{ matrix.kind }}-${{ matrix.host_toolchain }}-attempt-${{ github.run_attempt }}
           path: ${{ env.IREE_CI_FAILURE_ARTIFACT_DIR }}
           if-no-files-found: warn
           retention-days: 7
@@ -814,6 +814,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - name: GCC / RelWithDebInfo / Repository Build
+            kind: cpu
+            command: iree-cmake-repository-build
+            runner: azure-linux-scale-rocm
+            host_ar: ar
+            host_cc: gcc
+            host_cxx: g++
           - name: Clang / RelWithDebInfo
             kind: cpu
             command: iree-cmake-cpu
@@ -858,7 +865,7 @@ jobs:
       run:
         shell: bash
     container:
-      image: ghcr.io/rocm/no_rocm_image_ubuntu24_04@sha256:4150afe4759d14822f0e3f8930e1124f26e11f68b5c7b91ec9a02b20b1ebbb98
+      image: ${{ matrix.command == 'iree-cmake-repository-build' && 'ghcr.io/rocm/therock_build_manylinux_x86_64@sha256:702a5133851e6d1daf1207d2c9fbb01c2667914a5b6dc5a01faeb3ce66ea6421' || 'ghcr.io/rocm/no_rocm_image_ubuntu24_04@sha256:4150afe4759d14822f0e3f8930e1124f26e11f68b5c7b91ec9a02b20b1ebbb98' }}
       options: ${{ matrix.container_options || '' }}
     env:
       IREE_CI_PLATFORM_COVERAGE: ${{ matrix.platform_coverage && '1' || '0' }}
@@ -909,6 +916,7 @@ jobs:
           dpkg-query -W gcc g++ libvulkan1 mesa-vulkan-drivers vulkan-tools
 
       - name: Set up Python
+        if: matrix.command != 'iree-cmake-repository-build'
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"

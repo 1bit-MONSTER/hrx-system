@@ -217,10 +217,10 @@ iree_status_t iree_benchmark_loom_append_run_row(
     const iree_benchmark_loom_run_identity_t* run, bool dry_run,
     const loom_sanitizer_options_t* sanitizer, iree_string_builder_t* output);
 
-// Appends the selected HAL device row once per run.
+// Appends the current planned or created HAL device state once per run.
 iree_status_t iree_benchmark_loom_append_device_row(
     const iree_benchmark_loom_run_identity_t* run,
-    iree_benchmark_loom_hal_context_t* context,
+    const iree_benchmark_loom_hal_context_t* context,
     iree_benchmark_loom_device_row_state_t* state,
     iree_string_builder_t* output);
 

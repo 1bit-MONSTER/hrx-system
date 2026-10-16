@@ -189,6 +189,7 @@ TEST(ProfileCounterTest, InvokesSampleCallbackForMatchedValues) {
   iree_hal_profile_file_record_t sample_chunk =
       MakeCounterSamplesChunk(sample_payload);
   sample_chunk.header.chunk_flags = IREE_HAL_PROFILE_CHUNK_FLAG_TRUNCATED;
+  sample_chunk.header.dropped_record_count = 2;
 
   iree_profile_model_t model;
   iree_profile_model_initialize(iree_allocator_system(), &model);
@@ -207,9 +208,20 @@ TEST(ProfileCounterTest, InvokesSampleCallbackForMatchedValues) {
   IREE_ASSERT_OK(iree_profile_counter_process_sample_records(
       &context, &model, &sample_chunk, IREE_SV("*"), -1, sample_callback));
 
+  // Missing records have no identities to filter. A payload-free loss report
+  // still marks the capture incomplete without changing retained aggregates.
+  iree_hal_profile_file_record_t loss_chunk = MakeCounterSamplesChunk({});
+  loss_chunk.header.chunk_flags = IREE_HAL_PROFILE_CHUNK_FLAG_TRUNCATED;
+  loss_chunk.header.dropped_record_count = 7;
+  IREE_ASSERT_OK(iree_profile_counter_process_sample_records(
+      &context, &model, &loss_chunk, IREE_SV("not-a-counter"), 999,
+      sample_callback));
+
   EXPECT_EQ(1u, context.total_sample_count);
   EXPECT_EQ(1u, context.matched_sample_count);
   EXPECT_EQ(1u, context.truncated_sample_count);
+  EXPECT_EQ(2u, context.truncated_chunk_count);
+  EXPECT_EQ(9u, context.dropped_record_count);
   EXPECT_EQ(2u, context.aggregate_count);
   EXPECT_EQ(2u, collector.row_count);
   EXPECT_EQ(2u, collector.dispatch_row_count);

@@ -856,6 +856,22 @@ ERR_XDNA_056 = ErrorDef(
     fix_hint="Reduce the number or encoded size of entries in this artifact.",
 )
 
+ERR_XDNA_057 = ErrorDef(
+    domain=ErrorDomain.XDNA,
+    code=57,
+    severity=Severity.ERROR,
+    summary="XDNA measurement boundaries do not form one complete interval.",
+    message=(
+        "configuration function '@{function_name}' requires at most one "
+        "ordered measure.begin/measure.end pair: {reason}"
+    ),
+    params=(
+        ErrorParam("function_name", ParamKind.STRING),
+        ErrorParam("reason", ParamKind.STRING),
+    ),
+    fix_hint="Place one complete measurement interval in the invocation function.",
+)
+
 ALL_XDNA_ERRORS = (
     ERR_XDNA_001,
     ERR_XDNA_005,
@@ -905,4 +921,5 @@ ALL_XDNA_ERRORS = (
     ERR_XDNA_054,
     ERR_XDNA_055,
     ERR_XDNA_056,
+    ERR_XDNA_057,
 )

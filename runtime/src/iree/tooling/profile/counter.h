@@ -113,6 +113,11 @@ typedef struct iree_profile_counter_context_t {
   uint64_t matched_sample_count;
   // Matched counter sample records from truncated chunks.
   uint64_t truncated_sample_count;
+  // Counter sample chunks reporting loss, including chunks with no payload.
+  uint64_t truncated_chunk_count;
+  // Omitted counter sample records, before filtering; their identities are
+  // lost.
+  uint64_t dropped_record_count;
 } iree_profile_counter_context_t;
 
 typedef struct iree_profile_counter_sample_row_t {

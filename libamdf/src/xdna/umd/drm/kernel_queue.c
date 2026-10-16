@@ -270,12 +270,12 @@ amdf_status_t amdf_xdna_umd_kernel_queue_create(
     return amdf_make_api_status(AMDF_STATUS_CODE_BUSY);
   }
   queue->context = context;
+  status = amdf_linux_xdna_context_prepare_execution(context);
   amdf_atomic_uint64_initialize(&queue->retired_packets, 0);
   amdf_atomic_uint64_initialize(&queue->progress,
                                 context->last_native_sequence);
   amdf_atomic_uint32_initialize(&queue->first_point,
                                 AMDF_LINUX_XDNA_FIRST_POINT_UNCAPTURED);
-  status = amdf_atomic_uint64_load_acquire(&context->terminal_status);
   if (amdf_status_is_ok(status)) {
     status = amdf_linux_xdna_probe_notification_types(
         device->descriptor, &queue->notification_types);

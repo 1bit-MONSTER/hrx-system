@@ -418,6 +418,11 @@ typedef struct amdf_xdna_api_t {
   /// Native packet storage, completion resources and required bootstrap are
   /// ready before success; libamdf does not defer preparation to submission or
   /// wait. A live queue does not prevent native idle suspension.
+  /// A missing required execution interface returns
+  /// `AMDF_STATUS_CODE_UNSUPPORTED`. On Linux, the first queue submits and
+  /// retires a provider-owned no-effect transaction to qualify the direct
+  /// instruction transport. This check is independent of optional profiling
+  /// services and is not repeated when a queue is reacquired on that context.
   amdf_status_t(AMDF_CALL* kernel_queue_create)(
       amdf_xdna_context_t* context,
       const amdf_xdna_kernel_queue_create_info_t* create_info,
@@ -595,7 +600,9 @@ typedef struct amdf_xdna_api_t {
 
   /// Queries the cached backing/geometry requirements for finite firmware
   /// results before the caller selects its memory layout. Performs no native
-  /// call, allocation or reservation. Failure leaves out_info unchanged.
+  /// call, allocation or reservation. Success describes layout requirements,
+  /// not native service availability; attachment can still return UNSUPPORTED.
+  /// Failure leaves out_info unchanged.
   amdf_status_t(AMDF_CALL* context_query_result_buffer_info)(
       amdf_xdna_context_t* context, amdf_xdna_result_buffer_info_t* out_info);
 
@@ -613,6 +620,10 @@ typedef struct amdf_xdna_api_t {
   /// may leave the association active: backing remains live until native
   /// removal/retirement is established. Failure is not transactional rollback
   /// or release proof.
+  ///
+  /// AMDF_STATUS_CODE_UNSUPPORTED rejects this attachment without establishing
+  /// a binding. A previously unbound destination can be released immediately.
+  /// This does not discharge any prior binding or ambiguous-failure obligation.
   amdf_status_t(AMDF_CALL* context_attach_result_buffer)(
       amdf_xdna_context_t* context,
       const amdf_xdna_result_buffer_binding_t* binding);

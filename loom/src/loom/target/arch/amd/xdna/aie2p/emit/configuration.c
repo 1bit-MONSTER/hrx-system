@@ -428,6 +428,13 @@ static iree_status_t loom_aie2p_configuration_phase_emit(
     }
     loom_aie2p_program_record_t record = {0};
     switch (opcode) {
+      case AIE2P_CONFIGURATION_DESCRIPTOR_REF_CONFIGURATION_MEASURE_BEGIN:
+        emitter->program->measurement.present = true;
+        emitter->program->measurement.begin_record = (uint32_t)record_count;
+        continue;
+      case AIE2P_CONFIGURATION_DESCRIPTOR_REF_CONFIGURATION_MEASURE_END:
+        emitter->program->measurement.end_record = (uint32_t)record_count;
+        continue;
       case AIE2P_CONFIGURATION_DESCRIPTOR_REF_CONFIGURATION_CONSTANT:
         values[results[0]].scalar =
             loom_aie2p_configuration_configuration_constant_value(attrs).i64;

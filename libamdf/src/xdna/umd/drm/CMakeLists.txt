@@ -106,13 +106,42 @@ iree_cc_library(
     "context.c"
   DEPS
     $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_xdna_uapi>
+    ::buffer
     ::context_state
     ::device_state
+    ::elf_packet
     amdf::headers
     libamdf::src::allocator
     libamdf::src::platform::linux::file
+    libamdf::src::platform::linux::host_cache
     libamdf::src::xdna::umd::context
   PUBLIC
+)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND IREE_ARCH STREQUAL "x86_64" AND AMDF_BUILD AND AMDF_FAMILY_XDNA)
+iree_cc_test(
+  NAME
+    context_test
+  SRCS
+    "context_test.cc"
+  LINKOPTS
+    "-Wl,--wrap=ioctl"
+  DEPS
+    $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_xdna_uapi>
+    ::context
+    ::context_state
+    ::device_state
+    amdf::headers
+    iree::third_party::google_test
+    iree::third_party::google_test_main
+    libamdf::src::allocator
+    libamdf::src::atomics
+    libamdf::src::xdna::device_profile
+    libamdf::src::xdna::umd::context
+  LABELS
+    "iree-build-requirement=libamdf"
+    "iree-build-requirement=libamdf.xdna"
 )
 endif()
 
@@ -190,6 +219,7 @@ iree_cc_library(
   DEPS
     $<BUILD_LOCAL_INTERFACE:iree::third_party::linux_xdna_uapi>
     ::buffer
+    ::context
     ::context_state
     ::device_state
     ::elf_packet

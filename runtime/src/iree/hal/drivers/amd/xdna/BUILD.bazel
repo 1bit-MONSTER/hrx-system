@@ -216,10 +216,30 @@ iree_runtime_cc_library(
 )
 
 iree_runtime_cc_library(
+    name = "profile_counters",
+    srcs = ["profile_counters.c"],
+    hdrs = ["profile_counters.h"],
+    deps = [
+        ":command_arena",
+        ":context",
+        ":executable",
+        ":executable_measurement",
+        "//libamdf:headers",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal",
+        "//runtime/src/iree/hal/drivers/amd:status",
+        "//runtime/src/iree/hal/drivers/amd/fabric:memory",
+    ],
+)
+
+iree_runtime_cc_library(
     name = "profile",
     srcs = ["profile.c"],
     hdrs = ["profile.h"],
     deps = [
+        ":command_arena",
+        ":context",
+        ":profile_counters",
         "//runtime/src/iree/base",
         "//runtime/src/iree/base/threading",
         "//runtime/src/iree/hal",
@@ -243,10 +263,12 @@ iree_runtime_cc_library(
     ],
     deps = [
         ":barrier",
+        ":command_arena",
         ":command_buffer",
         ":context",
         ":executable",
         ":profile",
+        ":profile_counters",
         ":queue_frontier",
         ":queue_producer_index",
         ":queue_service",
@@ -265,12 +287,38 @@ iree_runtime_cc_library(
 )
 
 iree_runtime_cc_library(
+    name = "executable_measurement",
+    srcs = ["executable_measurement.c"],
+    hdrs = ["executable_measurement.h"],
+    deps = [
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal/drivers/amd/xdna/image:tables",
+        "//runtime/src/iree/schemas:xdna_executable",
+    ],
+)
+
+iree_runtime_cc_test(
+    name = "executable_measurement_test",
+    srcs = ["executable_measurement_test.cc"],
+    deps = [
+        ":executable_measurement",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/hal/drivers/amd/xdna/image",
+        "//runtime/src/iree/hal/drivers/amd/xdna/image/testing:image_fixture",
+        "//runtime/src/iree/schemas:xdna_executable",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+iree_runtime_cc_library(
     name = "executable",
     srcs = ["executable.c"],
     hdrs = ["executable.h"],
     deps = [
         ":command_arena",
         ":context",
+        ":executable_measurement",
         ":executable_storage",
         ":memory",
         "//libamdf:headers",

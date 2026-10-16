@@ -1144,6 +1144,15 @@ iree_status_t loom_aie2p_array_program_build(
       .control_record_count = builder.control.record_count,
       .relocations = builder.relocations,
       .relocation_count = builder.relocation_count,
+      // Array setup activates resident workers before invocation begins.
+      // The finite invocation issues shim transfers and waits for their output
+      // tokens; these records preserve one partition-shim timer epoch.
+      .measurement =
+          {
+              .present = true,
+              .begin_record = 0,
+              .end_record = (uint32_t)builder.control.record_count,
+          },
   };
   return iree_ok_status();
 }

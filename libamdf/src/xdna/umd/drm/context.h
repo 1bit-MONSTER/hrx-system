@@ -27,6 +27,29 @@ struct amdf_xdna_umd_context_t {
   amdf_atomic_uint64_t terminal_status;
   // Last native sequence plus one, assigned under the exclusive queue lease.
   uint64_t last_native_sequence;
+  // Temporary execution-admission backing, retained after uncertain native
+  // failure until context destruction proves that it is no longer reachable.
+  struct {
+    // CPU-visible native command/result packet.
+    amdf_linux_xdna_buffer_t packet;
+    // Heap suballocation containing a transaction with no device effects.
+    amdf_linux_xdna_buffer_t instructions;
+  } admission;
 };
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// Qualifies direct ELF submission and checked retirement once per context.
+// Called only by cold queue construction under the exclusive queue lease.
+// Failure records a terminal status and retains any unretired native backing
+// on this live context. Ordinary memory use does not require this operation.
+amdf_status_t amdf_linux_xdna_context_prepare_execution(
+    amdf_xdna_umd_context_t* context);
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif
 
 #endif  // AMDF_SRC_XDNA_UMD_DRM_CONTEXT_H_

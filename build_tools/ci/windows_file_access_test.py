@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 import subprocess
@@ -52,7 +53,9 @@ class WindowsFileAccessTest(unittest.TestCase):
             f"ERROR: Couldn't delete action output directory: {path} (Permission denied)\n",
             encoding="utf-8",
         )
-        diagnostics.capture_failure(artifacts, root, os.environ, None)
+        diagnostics.capture_failure(
+            artifacts, root, os.environ, None, started_at=dt.datetime.now(dt.UTC)
+        )
         manifest = json.loads((artifacts / "manifest.json").read_text())
         self.assertNotIn("capture_error", manifest)
         tool = next(

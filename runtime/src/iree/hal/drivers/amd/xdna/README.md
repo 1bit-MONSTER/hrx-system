@@ -26,6 +26,16 @@ context. The default is one column. The context width must equal the compiled
 array's width; a wider context does not implicitly pad the program. Endpoint
 identity, firmware ABI, and geometry are checked when an executable is loaded.
 
+The [native execution requirements](../../../../../../../libamdf/docs/xdna.md#native-requirements)
+must be available before HAL device creation succeeds. On Linux, libamdf
+qualifies the required direct instruction transport with a no-effect transaction
+when creating the first queue for a context. Unsupported transport produces an
+explicit update-driver diagnostic during device creation, before loading or
+submitting application work. Install the NPU driver and its matching firmware;
+discovering the device or successfully creating a native context is insufficient.
+This startup check runs once per context and adds no steady-state submission
+work. Optional profiling services have separate capability requirements.
+
 The normal tool accepts finite `pipeline.def<kernel>` subjects with buffer
 launch bindings and no leading specialization arguments. Specialization
 arguments need a compiler preparation step that binds the scenario's
@@ -168,7 +178,7 @@ python dev.py bazel run --config=opt \
   //loom/src/loom/tools/iree-benchmark-loom -- \
   loom/src/loom/tooling/target/amd/xdna/test/hal_execution.loom \
   --device=xdna --benchmark=@serial_array_latency --batch-size=64 \
-  --profile-data=queue-events,host-execution
+  --profile-data=queue-events,host-execution,counters
 ```
 
 `QUEUE_EVENTS` describes public submissions, dependency deferral, payload
@@ -177,18 +187,58 @@ command preparation/publication and mapped host work. Native spans finish when
 publication returns; they exclude NPU execution and completion waits. Callback
 spans cover the callback body until it returns. File spans cover preparation and
 final cache publication, excluding asynchronous file I/O.
-`LIGHTWEIGHT_STATISTICS` selects these two host families. Device
-dispatch events, device timestamps, counters, and executable metadata are not
-provided by this recorder; requests for unsupported families fail explicitly.
-The benchmark's default device-dispatch profile therefore requires the explicit
-host-family selection above for XDNA.
+`LIGHTWEIGHT_STATISTICS` selects these two host families.
+
+`COUNTER_SAMPLES` records `invocation_cycles`: the partition-shim timer delta
+inside the compiler-declared invocation interval. Generated pipelines bracket
+worker activation through completion waits; array programs bracket their control
+phase after resident activation. Authored configuration declares the interval
+with `measure.begin` / `measure.end`. The interval cannot contain a timer reset,
+and ordinary executable commands contain no result-producing instructions.
+Missing interval metadata fails the capture while ordinary execution continues.
+These are cycle counts, not device-wide busy cycles or elapsed nanoseconds: no
+shared epoch or stable operating frequency is implied. Device dispatch timelines
+and clock correlations remain unsupported and requests fail explicitly.
+
+Counter captures include executable/function metadata for attribution;
+`EXECUTABLE_METADATA` also works alone without native instrumentation. Use the
+benchmark's reported `artifact_path` with `iree-profile counter --format=jsonl`
+to inspect per-function aggregates, or add `--counter_samples` for individual
+invocations. The benchmark's dispatch-time summary does not convert these cycle
+counters into a duration distribution. The counter name `invocation_cycles` may
+be requested explicitly, and capture filters select functions, command buffers,
+command indices, physical devices, and queues.
 
 Profiling begin/end follows the HAL idle-device contract. Begin allocates one
-packed session with 4096 records per enabled stream; completed records are
-appended without allocation or sink calls. Flush can run with work in flight
-and sends stable snapshots outside queue and recording locks. Full rings report
-dropped records through `TRUNCATED` chunks. Failed sink writes retain the
-snapshot for retry; end releases session storage even when a sink fails.
+packed host session with 4096 records per enabled host stream; completed records
+are appended without allocation or sink calls. Flush can run with work in flight
+and sends stable host snapshots outside queue and recording locks. Full host
+rings report dropped records through `TRUNCATED` chunks. Failed host sink writes
+retain the snapshot for retry.
+
+Native capture reserves a finite result destination and a placed attribution
+ledger for at most 4096 commands, reduced by native capacity. Attachment occurs
+once at begin; collection and removal occur at idle end. Flush neither collects
+native results nor recovers this budget. Selected prepared commands reserve
+capacity once, including across native BUSY retries; only accepted commands enter
+the result ledger. Capacity exhaustion stops adding timer instructions and
+preserves workload execution and all retained samples. End emits the retained
+data followed by a `TRUNCATED` chunk with the number of accepted selected
+dispatches that could not be captured; overflow alone succeeds. Unmatched
+dispatches, BUSY retries, and rejected commands do not count as dropped samples.
+A rejected command conservatively consumes its reservation. Metadata-only
+capture reports truncation without a count because the missing executable
+identities were not retained. Missing or extra native records fail the capture
+before cycle samples are published.
+
+The first measured use of each exclusive invocation allocates a reusable command
+copy containing two fixed timer instructions. Unchanged warm bindings reuse the
+copy without allocation, patching, or cache publication. Changed bindings patch
+only their admitted address fields. Native arrays and queue scheduling remain
+unchanged; there are no per-command result controls, waits, or extra thread hops.
+End retains executable metadata until serialization, then releases session
+resources even if a sink fails. An ambiguous native result-control failure
+retains the result backing, arena, context, and native parents with a diagnostic.
 Disabled profiling performs no clock reads or profile allocation.
 
 ## Verification
@@ -230,10 +280,12 @@ The names below follow the `XdnaQueueBenchmark/` prefix:
 | `ReadySubmitOnly` | One HAL dispatch with no unresolved waits. Checked completion is outside timing. |
 | `ReadyEndToEnd` | One ready HAL dispatch and its completion wait. |
 | `UnresolvedSubmitOnly` | Acceptance of a dispatch waiting on an unreached host gate. Gate signaling and completion are outside timing. |
-| `StreamingSubmitOnly` | Acceptance of eight multiply dispatches chained by semaphore dependencies. The terminal wait is outside timing. |
-| `StreamingEndToEnd` | The same eight-dispatch chain and its terminal wait. |
-| `SwitchingSubmitOnly` | Acceptance of eight dependent dispatches alternating multiply and add executables. The terminal wait is outside timing. |
+| `StreamingSubmitOnly` | Acceptance of multiply dispatches chained by semaphore dependencies. The terminal wait is outside timing. |
+| `StreamingEndToEnd` | The same dispatch chain and its terminal wait. |
+| `SwitchingSubmitOnly` | Acceptance of dependent dispatches alternating multiply and add executables. The terminal wait is outside timing. |
 | `SwitchingEndToEnd` | The same alternating chain and its terminal wait. |
+| `RecordedStreaming*`, `RecordedSwitching*` | The corresponding batch submitted through one reusable command buffer. |
+| `MeasuredStreaming*`, `MeasuredRecordedStreaming*` | The corresponding streaming batch with native invocation counters enabled. |
 
 These are HAL operation costs, including capture, causal admission and native
 publication or deferral. Completed rows also include checked retirement and
@@ -243,9 +295,20 @@ end-to-end here means dispatch through HAL completion, not an entire
 host-to-host application pipeline. Numerical output and memory lifetime are
 checked by the native CTS above.
 
-Streaming and switching times are per eight-dispatch batch; divide elapsed time
-by eight for per-dispatch comparisons. Their item rate already counts individual
-dispatches. Ready and unresolved rows measure one dispatch per iteration.
+Streaming and switching times are per batch; the benchmark's numeric argument
+gives its dispatch count. Divide elapsed time by that count for per-dispatch
+comparisons. Their item rate already counts individual dispatches. Ready and
+unresolved rows measure one dispatch per iteration.
+
+Measured variants begin capture before warmup and collect results after timing.
+They use one- and eight-dispatch batches with 32 fixed iterations so the warmup
+and measured commands fit the finite native result budget. Warmup materializes
+the optional command copies. Timed submissions reuse those copies, and result
+collection validates the native protocol before discarding the serialized
+records. Compare them with matching unmeasured cases at the same iteration count
+to isolate warm capture costs; neither case includes session setup or teardown.
+An unavailable native result service or insufficient permission skips the
+measured cases; execution, collection, and protocol failures remain errors.
 
 ```sh
 iree-bazel-build --config=opt \

@@ -501,3 +501,119 @@ low.func.def target<amd.xdna.aie2p.configuration>(@configuration) @declare_argum
   binding.unused %ordinal
   return
 }
+
+// ====
+// RUN: verify
+
+aie2p.target<configuration> @configuration_target {device_profile = "amd.xdna.strix_halo.17f0_11"}
+
+low.func.def public retain target<amd.xdna.aie2p.configuration>(@configuration_target) abi(array_program) @measured() asm {
+  %one = constant 1 : reg<aie2p.config.scalar : i64>
+  entry %one, @initialize, @invoke
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.configuration>(@configuration_target) @initialize() asm {
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.configuration>(@configuration_target) @invoke() asm {
+  // ERROR@+1: XDNA/057 {function_name="invoke", reason="unexpected boundary"}
+  measure.end
+  return
+}
+
+
+// ====
+// RUN: verify
+
+aie2p.target<configuration> @configuration_target {device_profile = "amd.xdna.strix_halo.17f0_11"}
+
+low.func.def public retain target<amd.xdna.aie2p.configuration>(@configuration_target) abi(array_program) @measured() asm {
+  %one = constant 1 : reg<aie2p.config.scalar : i64>
+  entry %one, @initialize, @invoke
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.configuration>(@configuration_target) @initialize() asm {
+  return
+}
+
+// ERROR@+1: XDNA/057 {function_name="invoke", reason="missing measure.end"}
+low.func.def target<amd.xdna.aie2p.configuration>(@configuration_target) @invoke() asm {
+  measure.begin
+  return
+}
+
+
+// ====
+// RUN: verify
+
+aie2p.target<configuration> @configuration_target {device_profile = "amd.xdna.strix_halo.17f0_11"}
+
+low.func.def public retain target<amd.xdna.aie2p.configuration>(@configuration_target) abi(array_program) @measured() asm {
+  %one = constant 1 : reg<aie2p.config.scalar : i64>
+  entry %one, @initialize, @invoke
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.configuration>(@configuration_target) @initialize() asm {
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.configuration>(@configuration_target) @invoke() asm {
+  measure.begin
+  // ERROR@+1: XDNA/057 {function_name="invoke", reason="unexpected boundary"}
+  measure.begin
+  measure.end
+  return
+}
+
+
+// ====
+// RUN: verify
+
+aie2p.target<configuration> @configuration_target {device_profile = "amd.xdna.strix_halo.17f0_11"}
+
+low.func.def public retain target<amd.xdna.aie2p.configuration>(@configuration_target) abi(array_program) @measured() asm {
+  %one = constant 1 : reg<aie2p.config.scalar : i64>
+  entry %one, @initialize, @invoke
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.configuration>(@configuration_target) @initialize() asm {
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.configuration>(@configuration_target) @invoke() asm {
+  measure.begin
+  measure.end
+  // ERROR@+1: XDNA/057 {function_name="invoke", reason="unexpected boundary"}
+  measure.begin
+  // ERROR@+1: XDNA/057 {function_name="invoke", reason="unexpected boundary"}
+  measure.end
+  return
+}
+
+
+// ====
+// RUN: verify
+
+aie2p.target<configuration> @configuration_target {device_profile = "amd.xdna.strix_halo.17f0_11"}
+
+low.func.def public retain target<amd.xdna.aie2p.configuration>(@configuration_target) abi(array_program) @measured() asm {
+  %one = constant 1 : reg<aie2p.config.scalar : i64>
+  entry %one, @initialize, @invoke
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.configuration>(@configuration_target) @initialize() asm {
+  // ERROR@+1: XDNA/038 {function_name="initialize", phase="initialization", command="amd.xdna.aie2p.configuration.measure.begin"}
+  measure.begin
+  measure.end
+  return
+}
+
+low.func.def target<amd.xdna.aie2p.configuration>(@configuration_target) @invoke() asm {
+  return
+}

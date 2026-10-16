@@ -93,6 +93,8 @@ typedef struct loom_aie2p_low_verify_state_t {
   bool skip_body_checks;
   // Whether the array ABI layout passed its public schema boundary.
   bool abi_layout_valid;
+  // Ordered measurement progress: zero before begin, one inside, two after end.
+  uint32_t measurement_phase;
 } loom_aie2p_low_verify_state_t;
 
 static loom_diagnostic_param_t loom_aie2p_low_abi_layout_field_param(
@@ -543,6 +545,8 @@ static void loom_aie2p_low_record_configuration_command(
     case AIE2P_CONFIGURATION_DESCRIPTOR_REF_CONFIGURATION_RANGE:
     case AIE2P_CONFIGURATION_DESCRIPTOR_REF_CONFIGURATION_WRITE_ADDRESS:
     case AIE2P_CONFIGURATION_DESCRIPTOR_REF_CONFIGURATION_SHIM_DESCRIPTOR:
+    case AIE2P_CONFIGURATION_DESCRIPTOR_REF_CONFIGURATION_MEASURE_BEGIN:
+    case AIE2P_CONFIGURATION_DESCRIPTOR_REF_CONFIGURATION_MEASURE_END:
       phases = 1u << LOOM_AIE2P_CONFIGURATION_PHASE_INVOKE;
       break;
     default:
@@ -592,6 +596,26 @@ static iree_status_t loom_aie2p_low_verify_op(
       return iree_ok_status();
     }
     loom_aie2p_low_record_configuration_command(state->contract, packet);
+    if (packet->descriptor_ordinal ==
+            AIE2P_CONFIGURATION_DESCRIPTOR_REF_CONFIGURATION_MEASURE_BEGIN ||
+        packet->descriptor_ordinal ==
+            AIE2P_CONFIGURATION_DESCRIPTOR_REF_CONFIGURATION_MEASURE_END) {
+      const uint32_t expected =
+          packet->descriptor_ordinal ==
+                  AIE2P_CONFIGURATION_DESCRIPTOR_REF_CONFIGURATION_MEASURE_BEGIN
+              ? 0
+              : 1;
+      if (state->measurement_phase != expected) {
+        const loom_diagnostic_param_t params[] = {
+            loom_param_string(state->function_name),
+            loom_param_string(IREE_SV("unexpected boundary")),
+        };
+        return loom_low_verify_context_emit(context, packet->op,
+                                            LOOM_ERR_XDNA_057, params,
+                                            IREE_ARRAYSIZE(params));
+      }
+      ++state->measurement_phase;
+    }
   } else if (state->target->descriptor_set->stable_id ==
              AIE2P_ARRAY_DESCRIPTOR_SET_ID) {
     if (packet->kind == LOOM_LOW_DESCRIPTOR_PACKET_NONE) {
@@ -692,6 +716,14 @@ static iree_status_t loom_aie2p_low_verify_end_function(
     return iree_ok_status();
   }
   const loom_op_t* function = state->contract->function;
+  if (state->measurement_phase == 1) {
+    const loom_diagnostic_param_t params[] = {
+        loom_param_string(state->function_name),
+        loom_param_string(IREE_SV("missing measure.end")),
+    };
+    IREE_RETURN_IF_ERROR(loom_low_verify_context_emit(
+        context, function, LOOM_ERR_XDNA_057, params, IREE_ARRAYSIZE(params)));
+  }
   const bool is_entry =
       loom_func_like_abi(loom_func_like_const_cast(state->module, function)) ==
       LOOM_TARGET_ABI_ARRAY_PROGRAM;

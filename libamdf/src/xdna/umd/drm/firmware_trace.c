@@ -91,7 +91,13 @@ amdf_status_t amdf_xdna_umd_query_firmware_trace_info(
   };
   if (ioctl(device->descriptor, AMDF_LINUX_XDNA_TRACE_GET_ARRAY, &request) !=
       0) {
-    return amdf_linux_xdna_trace_error(errno);
+    const int error = errno;
+    // DRM returns EINVAL when GET_ARRAY has no ioctl slot. This fixed,
+    // read-only state query has no caller-controlled native arguments; its
+    // rejection means the service is unavailable. Variable reads and recorder
+    // configuration preserve EINVAL because their arguments can be rejected.
+    return error == EINVAL ? amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)
+                           : amdf_linux_xdna_trace_error(error);
   }
   if (state.status > 1 || request.element_size != sizeof(state) ||
       request.num_element != 1) {

@@ -776,6 +776,7 @@ loom_check_test_suite(
         "test/configuration_contracts.loom-test",
         "test/configuration_data.loom-test",
         "test/configuration_limits.loom-test",
+        "test/configuration_measurement.loom-test",
         "test/configuration_report.loom-test",
         "test/descriptors/bf16_comparison.loom-test",
         "test/descriptors/bfp_move.loom-test",

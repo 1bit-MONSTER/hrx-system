@@ -22,6 +22,13 @@ namespace {
 // and bytecode round trips live in test/operand_dictionary.loom-test.
 class VerifyStructureTest : public ::testing::Test {
  protected:
+  struct DiagnosticCapture {
+    // Number of diagnostic sink calls.
+    uint32_t count = 0;
+    // Total fallback source bytes delivered to the sink.
+    iree_host_size_t source_bytes = 0;
+  };
+
   static iree_status_t Allocate(void* self, iree_allocator_command_t command,
                                 const void* parameters, void** pointer) {
     auto* test = static_cast<VerifyStructureTest*>(self);
@@ -110,6 +117,8 @@ class VerifyStructureTest : public ::testing::Test {
   loom_value_id_t input_ = LOOM_VALUE_ID_INVALID;
   // Diagnostic counters for the operation API fixtures.
   loom_verify_result_t result_ = {};
+  // Sink backing retained for the lifetime of the verifier state.
+  DiagnosticCapture diagnostic_capture_;
   // Production verifier scratch reused across calls.
   loom_verify_state_t state_ = {};
 };
@@ -174,16 +183,10 @@ TEST_F(VerifyStructureTest, ErrorBudgetBoundsFallbackAttempts) {
   }
   IREE_ASSERT_OK(loom_test_operand_dict_set_param_names(
       module_, op, loom_make_canonical_attr_dict(names.data(), names.size())));
-  struct Capture {
-    // Number of diagnostic sink calls.
-    uint32_t count = 0;
-    // Total fallback source bytes delivered to the sink.
-    iree_host_size_t source_bytes = 0;
-  } capture;
   state_.sink = {
       [](void* user_data,
          const loom_diagnostic_t* diagnostic) -> iree_status_t {
-        auto* capture = static_cast<Capture*>(user_data);
+        auto* capture = static_cast<DiagnosticCapture*>(user_data);
         ++capture->count;
         capture->source_bytes += diagnostic->source_location.source.size;
         EXPECT_EQ(diagnostic->source_location.provenance,
@@ -191,16 +194,16 @@ TEST_F(VerifyStructureTest, ErrorBudgetBoundsFallbackAttempts) {
         EXPECT_GT(diagnostic->source_location.source.size, 0u);
         return iree_ok_status();
       },
-      &capture,
+      &diagnostic_capture_,
   };
   for (uint32_t limit : {1, 3, 0}) {
     SCOPED_TRACE(limit);
-    capture = {};
+    diagnostic_capture_ = {};
     state_.max_errors = limit;
     const uint32_t expected_count = limit == 0 ? 64 : limit;
     Check(op, expected_count);
-    EXPECT_EQ(capture.count, expected_count);
-    EXPECT_GT(capture.source_bytes, 0u);
+    EXPECT_EQ(diagnostic_capture_.count, expected_count);
+    EXPECT_GT(diagnostic_capture_.source_bytes, 0u);
   }
 }
 
@@ -221,7 +224,6 @@ TEST_F(VerifyStructureTest, TypeErrorsAlsoBoundSuccessfulFallbackRendering) {
       static_dimensions.data(), static_dimensions.size(), LOOM_LOCATION_UNKNOWN,
       &op));
   state_.max_errors = 3;
-  uint32_t sink_calls = 0;
   state_.sink = {
       [](void* user_data,
          const loom_diagnostic_t* diagnostic) -> iree_status_t {
@@ -231,12 +233,12 @@ TEST_F(VerifyStructureTest, TypeErrorsAlsoBoundSuccessfulFallbackRendering) {
         EXPECT_GT(diagnostic->source_location.source.size, 65u * 3u);
         return iree_ok_status();
       },
-      &sink_calls,
+      &diagnostic_capture_.count,
   };
   loom_verify_type_constraints(&state_, op, loom_op_vtable(module_, op));
   IREE_ASSERT_OK(loom_verify_take_diagnostic_status(&state_));
   EXPECT_EQ(result_.error_count, 3u);
-  EXPECT_EQ(sink_calls, 3u);
+  EXPECT_EQ(diagnostic_capture_.count, 3u);
 }
 
 TEST_F(VerifyStructureTest, ErrorBudgetBoundsCountsWithoutSink) {
@@ -260,16 +262,15 @@ TEST_F(VerifyStructureTest, SinkFailureAtErrorBudgetIsPreserved) {
   IREE_ASSERT_OK(loom_test_operand_dict_set_param_names(
       module_, op, loom_make_canonical_attr_dict(names.data(), names.size())));
   state_.max_errors = 1;
-  uint32_t sink_calls = 0;
   state_.sink = {
       [](void* user_data, const loom_diagnostic_t*) -> iree_status_t {
         ++*static_cast<uint32_t*>(user_data);
         return iree_make_status(IREE_STATUS_ABORTED, "diagnostic sink failure");
       },
-      &sink_calls,
+      &diagnostic_capture_.count,
   };
   Check(op, 1);
-  EXPECT_EQ(sink_calls, 1u);
+  EXPECT_EQ(diagnostic_capture_.count, 1u);
   IREE_EXPECT_STATUS_IS(IREE_STATUS_ABORTED,
                         loom_verify_take_diagnostic_status(&state_));
 }

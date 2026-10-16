@@ -379,7 +379,7 @@ static void iree_hal_amd_xdna_publisher_execute(
          iree_atomic_load(&queue->native_admission_open,
                           iree_memory_order_acquire)) {
     uint32_t command_count = 1;
-    const amdf_xdna_kernel_command_t* commands = &operation->native.command;
+    amdf_xdna_kernel_command_t* commands = &operation->native.command;
     iree_hal_amd_xdna_invocation_t** invocations =
         &operation->native.invocation;
     if (operation->kind == IREE_HAL_AMD_XDNA_OPERATION_EXECUTE) {
@@ -397,6 +397,10 @@ static void iree_hal_amd_xdna_publisher_execute(
     }
     if (!iree_status_is_ok(operation->native.publication.status)) {
       break;
+    }
+    if (operation->profile) {
+      iree_hal_amd_xdna_operation_profile_prepare_native(
+          operation, command_count, invocations, commands);
     }
     const amdf_xdna_kernel_queue_submission_info_t submission_info = {
         .type = AMDF_STRUCTURE_TYPE_XDNA_KERNEL_QUEUE_SUBMISSION_INFO,
@@ -421,6 +425,10 @@ static void iree_hal_amd_xdna_publisher_execute(
         submit_status, "xdna.kernel_queue_submit");
     if (!iree_status_is_ok(operation->native.publication.status)) {
       break;
+    }
+    if (operation->profile) {
+      iree_hal_amd_xdna_operation_profile_accept_native(
+          operation, command_count, invocations, commands);
     }
     // Each invocation retains its own immutable instruction range, while one
     // checked native point retires the complete accepted array.
@@ -1455,6 +1463,14 @@ iree_status_t iree_hal_amd_xdna_queue_create(
       context->xdna->kernel_queue_create(context->handle, &create_info,
                                          &queue->handle),
       "xdna.kernel_queue_create");
+  if (iree_status_is_unimplemented(status)) {
+    status = iree_status_annotate(
+        status,
+        IREE_SV("XDNA requires native instruction submission and completion "
+                "support; update the NPU driver and matching firmware. See "
+                "https://github.com/ROCm/hrx-system/blob/main/libamdf/docs/"
+                "xdna.md#native-requirements"));
+  }
   amdf_kernel_queue_info_t info = {
       .type = AMDF_STRUCTURE_TYPE_KERNEL_QUEUE_INFO,
       .structure_size = sizeof(info),

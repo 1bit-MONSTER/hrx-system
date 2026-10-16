@@ -28,6 +28,8 @@ typedef struct iree_hal_amd_xdna_record_t {
   struct iree_hal_amd_xdna_record_t* next;
   // Active command payload.
   iree_hal_amd_xdna_record_kind_t kind;
+  // Stable recording ordinal, retained for optional profile attribution.
+  uint32_t ordinal;
   union {
     // Whole-array native dispatch.
     struct {

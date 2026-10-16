@@ -65,7 +65,7 @@ TEST(XdnaDeviceProfileTest, ResolvesSerializedIdentityWithoutFallback) {
 }
 
 TEST(XdnaDeviceProfileTest, AcceptsEveryContiguousPhysicalPartitionFit) {
-  for (uint8_t revision : {0x10, 0x11}) {
+  for (uint8_t revision : {0x10, 0x11, 0x20}) {
     const loom_xdna_device_profile_t* profile = nullptr;
     IREE_ASSERT_OK(loom_xdna_device_profile_resolve_pci(0x1022, 0x17F0,
                                                         revision, &profile));

@@ -7,11 +7,153 @@
 #include "libamdf/src/xdna/umd/context.h"
 
 #include <drm/amdxdna_accel.h>
+#include <string.h>
 #include <sys/ioctl.h>
 
 #include "libamdf/src/allocator.h"
 #include "libamdf/src/platform/linux/file.h"
+#include "libamdf/src/platform/linux/host_cache.h"
 #include "libamdf/src/xdna/umd/drm/context.h"
+#include "libamdf/src/xdna/umd/drm/elf_packet.h"
+
+static amdf_status_t amdf_linux_xdna_context_release_admission(
+    amdf_xdna_umd_context_t* context) {
+  const int descriptor = context->device->descriptor;
+  const amdf_status_t packet_status = amdf_linux_xdna_buffer_deinitialize(
+      descriptor, &context->admission.packet);
+  const amdf_status_t instruction_status = amdf_linux_xdna_buffer_deinitialize(
+      descriptor, &context->admission.instructions);
+  return amdf_status_is_ok(packet_status) ? instruction_status : packet_status;
+}
+
+// This complete, known-valid request tests the required transport itself.
+// EINVAL here means that the native provider cannot admit this contract; it
+// does not change how arbitrary caller submissions report their errors.
+static amdf_status_t amdf_linux_xdna_context_submit_admission(
+    amdf_xdna_umd_context_t* context, uint64_t* out_sequence) {
+  struct amdxdna_drm_exec_cmd submit = {
+      .hwctx = context->handle,
+      .type = AMDXDNA_CMD_SUBMIT_EXEC_BUF,
+      .cmd_handles = context->admission.packet.handle,
+      .cmd_count = 1,
+  };
+  while (ioctl(context->device->descriptor, DRM_IOCTL_AMDXDNA_EXEC_CMD,
+               &submit) != 0) {
+    const int error = errno;
+    if (error == EINVAL || error == ENOTTY || error == EOPNOTSUPP) {
+      return amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+    } else if (error != EINTR) {
+      return amdf_linux_error(error);
+    }
+  }
+  *out_sequence = submit.seq;
+  return AMDF_STATUS_OK;
+}
+
+static amdf_status_t amdf_linux_xdna_context_wait_admission(
+    amdf_xdna_umd_context_t* context, uint64_t sequence) {
+  struct drm_syncobj_timeline_wait wait = {
+      .handles = (uintptr_t)&context->completion_syncobj,
+      .points = (uintptr_t)&sequence,
+      .timeout_nsec = INT64_MAX,
+      .count_handles = 1,
+      .flags = DRM_SYNCOBJ_WAIT_FLAGS_WAIT_ALL |
+               DRM_SYNCOBJ_WAIT_FLAGS_WAIT_FOR_SUBMIT,
+  };
+  // The exclusive queue lease prevents another submission from replacing the
+  // first fence. Point zero is therefore safe without a binary snapshot.
+  while (ioctl(context->device->descriptor, DRM_IOCTL_SYNCOBJ_TIMELINE_WAIT,
+               &wait) != 0) {
+    const int error = errno;
+    if (error != EINTR) {
+      return amdf_linux_error(error);
+    }
+  }
+  return AMDF_STATUS_OK;
+}
+
+amdf_status_t amdf_linux_xdna_context_prepare_execution(
+    amdf_xdna_umd_context_t* context) {
+  amdf_status_t status =
+      amdf_atomic_uint64_load_acquire(&context->terminal_status);
+  if (!amdf_status_is_ok(status) || context->last_native_sequence != 0) {
+    return status;
+  }
+  amdf_xdna_umd_device_t* device = context->device;
+  const amdf_xdna_device_profile_t* profile = device->profile;
+  const size_t alignment = profile->info->instruction.address_alignment;
+  status = amdf_linux_xdna_buffer_create(device->descriptor, AMDXDNA_BO_DEV,
+                                         alignment,
+                                         &context->admission.instructions);
+  if (amdf_status_is_ok(status)) {
+    status = amdf_linux_xdna_buffer_attach(device->descriptor, alignment,
+                                           device->page_size, &device->heap,
+                                           &context->admission.instructions);
+  }
+  if (amdf_status_is_ok(status)) {
+    status = amdf_linux_xdna_buffer_create(device->descriptor, AMDXDNA_BO_CMD,
+                                           device->page_size,
+                                           &context->admission.packet);
+  }
+  if (amdf_status_is_ok(status)) {
+    status = amdf_linux_xdna_buffer_attach(device->descriptor,
+                                           device->page_size, device->page_size,
+                                           NULL, &context->admission.packet);
+  }
+  if (amdf_status_is_ok(status)) {
+    // Transaction 0.1: twelve XAIE_IO_NOOP operations. No array register, tile
+    // program, DMA, lock, or application memory is touched by this program.
+    uint8_t* bytes = context->admission.instructions.host_pointer;
+    memset(bytes, 0, 64);
+    bytes[1] = 1;
+    bytes[2] = profile->transaction.device_generation;
+    bytes[3] = (uint8_t)profile->info->array.row_count;
+    bytes[4] = 1;
+    bytes[5] = (uint8_t)profile->rows.memory_count;
+    bytes[8] = 12;
+    bytes[12] = 64;
+    for (size_t offset = 16; offset < 64; offset += 4) {
+      bytes[offset] = 5;
+    }
+    amdf_linux_host_cache_transfer(bytes, 64, device->cache_line_size);
+    amdf_linux_xdna_elf_packet_build(
+        context->admission.instructions.device_address, 64,
+        context->admission.packet.host_pointer);
+  }
+  bool retired = true;
+  uint64_t sequence = 0;
+  if (amdf_status_is_ok(status)) {
+    status = amdf_linux_xdna_context_submit_admission(context, &sequence);
+    if (amdf_status_is_ok(status)) {
+      retired = false;
+      context->last_native_sequence = sequence + 1;
+      status = amdf_linux_xdna_context_wait_admission(context, sequence);
+      retired = amdf_status_is_ok(status);
+    }
+  }
+  if (amdf_status_is_ok(status)) {
+    const uint32_t state =
+        __atomic_load_n((const uint32_t*)context->admission.packet.host_pointer,
+                        __ATOMIC_ACQUIRE) &
+        0xf;
+    status = state == 4 ? AMDF_STATUS_OK
+                        : amdf_make_status(AMDF_STATUS_DOMAIN_FIRMWARE, state);
+    if (state == 0) {
+      status = amdf_make_api_status(AMDF_STATUS_CODE_INTERNAL);
+    }
+  }
+  if (retired) {
+    const amdf_status_t release_status =
+        amdf_linux_xdna_context_release_admission(context);
+    if (!amdf_status_is_ok(release_status)) {
+      status = release_status;
+    }
+  }
+  if (!amdf_status_is_ok(status)) {
+    amdf_atomic_uint64_store_release(&context->terminal_status, status);
+  }
+  return status;
+}
 
 amdf_status_t amdf_xdna_umd_context_destroy(amdf_xdna_umd_context_t* context) {
   // Caller-owned private memory and queues have already been released.
@@ -22,6 +164,13 @@ amdf_status_t amdf_xdna_umd_context_destroy(amdf_xdna_umd_context_t* context) {
       return amdf_linux_error(errno);
     }
     context->handle = AMDXDNA_INVALID_CTX_HANDLE;
+  }
+  // Successful native destruction has drained or canceled accepted admission
+  // work, including when its original completion could not be observed.
+  const amdf_status_t admission_status =
+      amdf_linux_xdna_context_release_admission(context);
+  if (!amdf_status_is_ok(admission_status)) {
+    return admission_status;
   }
   if (context->completion_syncobj != 0) {
     struct drm_syncobj_destroy destroy = {

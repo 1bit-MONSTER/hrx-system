@@ -7,7 +7,7 @@
 #ifndef IREE_HAL_DRIVERS_AMD_XDNA_PROFILE_H_
 #define IREE_HAL_DRIVERS_AMD_XDNA_PROFILE_H_
 
-#include "iree/hal/api.h"
+#include "iree/hal/drivers/amd/xdna/profile_counters.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,18 +18,24 @@ extern "C" {
 // they exclude device execution and asynchronous file I/O latency.
 typedef struct iree_hal_amd_xdna_profile_t iree_hal_amd_xdna_profile_t;
 
-// Begins a session and emits its device/queue identity. Supports QUEUE_EVENTS
-// and HOST_EXECUTION_EVENTS; LIGHTWEIGHT_STATISTICS selects both. Other
-// families require native instrumentation and are rejected. An empty request
-// returns NULL. The sink is retained until end. Begin/end require the HAL
-// idle-device contract; append operations never allocate or invoke sink
-// callbacks.
+// Begins a session and emits its device/queue identity. Supports QUEUE_EVENTS,
+// HOST_EXECUTION_EVENTS, EXECUTABLE_METADATA, and finite COUNTER_SAMPLES.
+// LIGHTWEIGHT_STATISTICS selects only the two host event families. An empty
+// request returns NULL. The sink is retained until end. Begin/end require the
+// HAL idle-device contract; warm capture never allocates or invokes the sink.
 iree_status_t iree_hal_amd_xdna_profile_begin(
     const iree_hal_device_profiling_options_t* options, uint64_t session_id,
     uint32_t physical_device_ordinal, uint32_t queue_ordinal,
+    iree_hal_amd_xdna_context_t* context,
+    iree_hal_amd_xdna_command_arena_t* command_arena,
     iree_allocator_t host_allocator, iree_hal_amd_xdna_profile_t** out_profile);
 
-// Writes completed event snapshots without holding the recording mutex.
+// Returns the optional finite counter/metadata recorder, or NULL.
+iree_hal_amd_xdna_profile_counters_t* iree_hal_amd_xdna_profile_counters(
+    iree_hal_amd_xdna_profile_t* profile);
+
+// Writes completed host event snapshots without holding the recording mutex.
+// Native results are collected only at idle end; flush does not rearm them.
 // Failed writes leave the snapshot available for a subsequent flush.
 iree_status_t iree_hal_amd_xdna_profile_flush(
     iree_hal_amd_xdna_profile_t* profile);

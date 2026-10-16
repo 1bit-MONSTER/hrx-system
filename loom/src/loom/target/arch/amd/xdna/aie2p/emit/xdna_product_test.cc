@@ -159,8 +159,8 @@ TEST_F(XdnaProductTest, PreservesRequirementsIndependentOfWorkerTopology) {
   commands[1].type = LOOM_AIE2P_PROGRAM_RECORD_REGISTER_WRITE32;
   commands[1].value.register_write32 = {0x0E21F000, 1};
   const loom_aie2p_array_program_t programs[] = {
-      {nullptr, 0, &commands[0], 1, nullptr, 0},
-      {nullptr, 0, &commands[1], 1, nullptr, 0},
+      {nullptr, 0, &commands[0], 1, nullptr, 0, {true, 0, 1}},
+      {nullptr, 0, &commands[1], 1, nullptr, 0, {}},
   };
   const iree_xdna_elf_binding_record_t bindings[] = {
       {
@@ -259,6 +259,20 @@ TEST_F(XdnaProductTest, PreservesRequirementsIndependentOfWorkerTopology) {
     EXPECT_EQ(binding.minimum_alignment, bindings[i].minimum_alignment);
     EXPECT_EQ(binding.minimum_byte_offset, bindings[i].minimum_byte_offset);
     EXPECT_EQ(binding.maximum_byte_offset, bindings[i].maximum_byte_offset);
+    const uint32_t invocation_offset =
+        binding_offset +
+        header.binding_count * IREE_XDNA_ELF_BINDING_RECORD_SIZE +
+        header.relocation_count * IREE_XDNA_ELF_RELOCATION_RECORD_SIZE;
+    for (uint32_t j = 0; j < entry.invocation_count; ++j) {
+      const auto invocation = iree_xdna_elf_decode_invocation(
+          metadata + invocation_offset +
+          (entry.first_invocation + j) * IREE_XDNA_ELF_INVOCATION_RECORD_SIZE);
+      // Both forms preserve ordinary command lengths; only the first entry
+      // declares a measured interval, including its final record boundary.
+      EXPECT_EQ(invocation.byte_length, 40u);
+      EXPECT_EQ(invocation.measurement.begin, i == 0 ? 16u : 0u);
+      EXPECT_EQ(invocation.measurement.end, i == 0 ? 40u : 0u);
+    }
   }
 }
 

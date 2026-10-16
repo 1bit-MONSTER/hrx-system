@@ -29,6 +29,8 @@ amdf_status_t amdf_xdna_umd_context_query_result_buffer_info(
 // Executes one native control on validated context-private memory. The caller
 // has established permissions, logical bounds and geometry and has retired all
 // writers. The provider retains neither memory nor attachment metadata.
+// UNSUPPORTED from ATTACH establishes no binding; other native failures may
+// have made progress. No failure discharges a prior backing obligation.
 amdf_status_t amdf_xdna_umd_context_result_buffer(
     amdf_xdna_umd_context_t* context,
     amdf_xdna_result_buffer_operation_t operation,

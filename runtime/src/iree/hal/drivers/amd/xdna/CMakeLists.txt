@@ -294,12 +294,37 @@ endif()
 if(AMDF_BUILD)
 iree_cc_library(
   NAME
+    profile_counters
+  HDRS
+    "profile_counters.h"
+  SRCS
+    "profile_counters.c"
+  DEPS
+    ::command_arena
+    ::context
+    ::executable
+    ::executable_measurement
+    amdf::headers
+    iree::base
+    iree::hal
+    iree::hal::drivers::amd::fabric::memory
+    iree::hal::drivers::amd::status
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_library(
+  NAME
     profile
   HDRS
     "profile.h"
   SRCS
     "profile.c"
   DEPS
+    ::command_arena
+    ::context
+    ::profile_counters
     iree::base
     iree::base::threading
     iree::hal
@@ -324,10 +349,12 @@ iree_cc_library(
     "queue_profile.c"
   DEPS
     ::barrier
+    ::command_arena
     ::command_buffer
     ::context
     ::executable
     ::profile
+    ::profile_counters
     ::queue_frontier
     ::queue_producer_index
     ::queue_service
@@ -349,6 +376,41 @@ endif()
 if(AMDF_BUILD)
 iree_cc_library(
   NAME
+    executable_measurement
+  HDRS
+    "executable_measurement.h"
+  SRCS
+    "executable_measurement.c"
+  DEPS
+    iree::base
+    iree::hal::drivers::amd::xdna::image::tables
+    iree::schemas::xdna_executable
+  PUBLIC
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_test(
+  NAME
+    executable_measurement_test
+  SRCS
+    "executable_measurement_test.cc"
+  DEPS
+    ::executable_measurement
+    iree::base
+    iree::hal::drivers::amd::xdna::image
+    iree::hal::drivers::amd::xdna::image::testing::image_fixture
+    iree::schemas::xdna_executable
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=libamdf"
+)
+endif()
+
+if(AMDF_BUILD)
+iree_cc_library(
+  NAME
     executable
   HDRS
     "executable.h"
@@ -357,6 +419,7 @@ iree_cc_library(
   DEPS
     ::command_arena
     ::context
+    ::executable_measurement
     ::executable_storage
     ::memory
     amdf::headers

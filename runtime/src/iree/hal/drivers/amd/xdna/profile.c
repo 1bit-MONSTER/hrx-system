@@ -19,6 +19,8 @@ struct iree_hal_amd_xdna_profile_t {
   iree_allocator_t host_allocator;
   // Retained sink, invoked only at begin/flush/end.
   iree_hal_profile_sink_t* sink;
+  // Optional finite native counter and executable metadata capture.
+  iree_hal_amd_xdna_profile_counters_t* counters;
   // Guards ring positions and contents during append and snapshot commit.
   iree_slim_mutex_t mutex;
   // Session-local producer identity shared by metadata and event chunks.
@@ -49,12 +51,17 @@ static void iree_hal_amd_xdna_profile_free(
 iree_status_t iree_hal_amd_xdna_profile_begin(
     const iree_hal_device_profiling_options_t* options, uint64_t session_id,
     uint32_t physical_device_ordinal, uint32_t queue_ordinal,
+    iree_hal_amd_xdna_context_t* context,
+    iree_hal_amd_xdna_command_arena_t* command_arena,
     iree_allocator_t host_allocator,
     iree_hal_amd_xdna_profile_t** out_profile) {
   *out_profile = NULL;
-  const iree_hal_device_profiling_data_families_t supported =
+  const iree_hal_device_profiling_data_families_t lightweight =
       IREE_HAL_DEVICE_PROFILING_DATA_QUEUE_EVENTS |
       IREE_HAL_DEVICE_PROFILING_DATA_HOST_EXECUTION_EVENTS;
+  const iree_hal_device_profiling_data_families_t supported =
+      lightweight | IREE_HAL_DEVICE_PROFILING_DATA_COUNTER_SAMPLES |
+      IREE_HAL_DEVICE_PROFILING_DATA_EXECUTABLE_METADATA;
   if (iree_any_bit_set(
           options->flags,
           ~IREE_HAL_DEVICE_PROFILING_FLAG_LIGHTWEIGHT_STATISTICS)) {
@@ -66,7 +73,7 @@ iree_status_t iree_hal_amd_xdna_profile_begin(
   if (!families &&
       iree_hal_device_profiling_options_requests_lightweight_statistics(
           options)) {
-    families = supported;
+    families = lightweight;
   }
   if (!families) {
     return iree_ok_status();
@@ -85,11 +92,21 @@ iree_status_t iree_hal_amd_xdna_profile_begin(
     return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                             "profiling filter reserved fields must be zero");
   }
-  if (!iree_hal_profile_capture_filter_is_default(&options->capture_filter) ||
-      options->counter_set_count || options->counter_sets) {
-    return iree_make_status(
-        IREE_STATUS_UNIMPLEMENTED,
-        "XDNA profiling does not support filters or counters");
+  const iree_hal_profile_capture_filter_flags_t supported_filters =
+      IREE_HAL_PROFILE_CAPTURE_FILTER_FLAG_EXECUTABLE_FUNCTION_PATTERN |
+      IREE_HAL_PROFILE_CAPTURE_FILTER_FLAG_COMMAND_BUFFER_ID |
+      IREE_HAL_PROFILE_CAPTURE_FILTER_FLAG_COMMAND_INDEX |
+      IREE_HAL_PROFILE_CAPTURE_FILTER_FLAG_PHYSICAL_DEVICE_ORDINAL |
+      IREE_HAL_PROFILE_CAPTURE_FILTER_FLAG_QUEUE_ORDINAL;
+  if (options->capture_filter.flags & ~supported_filters) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "unsupported XDNA capture filter flags");
+  }
+  if (options->counter_set_count &&
+      (!options->counter_sets ||
+       !(families & IREE_HAL_DEVICE_PROFILING_DATA_COUNTER_SAMPLES))) {
+    return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                            "counter selections require XDNA counter capture");
   }
   const iree_host_size_t queue_capacity =
       families & IREE_HAL_DEVICE_PROFILING_DATA_QUEUE_EVENTS
@@ -153,6 +170,11 @@ iree_status_t iree_hal_amd_xdna_profile_begin(
         iree_make_const_byte_span(&queue, sizeof(queue)));
   }
   if (iree_status_is_ok(status)) {
+    status = iree_hal_amd_xdna_profile_counters_begin(
+        options, &profile->metadata, context, command_arena, host_allocator,
+        &profile->counters);
+  }
+  if (iree_status_is_ok(status)) {
     *out_profile = profile;
   } else {
     if (begun) {
@@ -211,6 +233,9 @@ iree_status_t iree_hal_amd_xdna_profile_end(
     return iree_ok_status();
   }
   iree_status_t status = iree_hal_amd_xdna_profile_flush(profile);
+  status = iree_status_join(
+      status, iree_hal_amd_xdna_profile_counters_end(profile->counters));
+  profile->counters = NULL;
   const iree_status_code_t code = iree_status_code(status);
   status =
       iree_status_join(status, iree_hal_profile_sink_end_session(
@@ -286,4 +311,9 @@ void iree_hal_amd_xdna_profile_host_end(
         event;
   }
   iree_slim_mutex_unlock(&profile->mutex);
+}
+
+iree_hal_amd_xdna_profile_counters_t* iree_hal_amd_xdna_profile_counters(
+    iree_hal_amd_xdna_profile_t* profile) {
+  return profile->counters;
 }

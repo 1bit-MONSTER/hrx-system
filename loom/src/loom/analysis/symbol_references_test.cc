@@ -507,6 +507,7 @@ TEST_F(SymbolReferencesTest,
       iree_arena_reset(&storage.arena);
       IREE_ASSERT_OK(loom_symbol_reference_table_build(module.get(),
                                                        &storage.arena, &table));
+      ASSERT_EQ(table.occurrence_count, count);
       EXPECT_EQ(storage.allocation_count, backing_allocations);
       EXPECT_EQ(
           loom_symbol_reference_table_occurrence(&table, count - 1)->user_op,

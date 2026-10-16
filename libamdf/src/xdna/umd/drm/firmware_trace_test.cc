@@ -135,21 +135,41 @@ TEST_F(LinuxXdnaFirmwareTraceTest, StaleCursorPublishesRestartMetadata) {
                               AMDF_OBSERVATION_READ_FLAG_RESTART);
 }
 
-TEST_F(LinuxXdnaFirmwareTraceTest, DistinguishesAbsencePermissionAndShutdown) {
-  for (int error : {EOPNOTSUPP, EPERM, ESHUTDOWN}) {
+TEST_F(LinuxXdnaFirmwareTraceTest, MissingQueryLeavesStateUnpublished) {
+  for (int error : {EINVAL, EOPNOTSUPP, ENOTTY, EPERM, EIO, ESHUTDOWN}) {
+    SCOPED_TRACE(error);
+    state_.error = error;
+    amdf_xdna_firmware_trace_info_t info;
+    std::memset(&info, 0xA5, sizeof(info));
+    const auto original = info;
+    const amdf_status_t expected =
+        error == EINVAL || error == EOPNOTSUPP || error == ENOTTY
+            ? amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)
+            : amdf_make_status(AMDF_STATUS_DOMAIN_ERRNO, error);
+    EXPECT_EQ(amdf_xdna_umd_query_firmware_trace_info(&device_, &info),
+              expected);
+    EXPECT_EQ(std::memcmp(&info, &original, sizeof(info)), 0);
+  }
+}
+
+TEST_F(LinuxXdnaFirmwareTraceTest, DistinguishesAbsenceAndControlFailure) {
+  for (int error : {EINVAL, EOPNOTSUPP, ENOTTY, EPERM, ESHUTDOWN}) {
+    SCOPED_TRACE(error);
     state_.error = error;
     state_.calls = 0;
     std::array<uint64_t, 6> buffer = {};
     amdf_observation_read_result_t result = {.next_position = UINT64_MAX};
     const auto original = result;
     const amdf_status_t expected =
-        error == EOPNOTSUPP ? amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)
-                            : amdf_make_status(AMDF_STATUS_DOMAIN_ERRNO, error);
+        error == EOPNOTSUPP || error == ENOTTY
+            ? amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED)
+            : amdf_make_status(AMDF_STATUS_DOMAIN_ERRNO, error);
     EXPECT_EQ(amdf_xdna_umd_read_firmware_trace(&device_, 0, buffer.data(),
                                                 sizeof(buffer), &result),
               expected);
     EXPECT_EQ(std::memcmp(&result, &original, sizeof(result)), 0);
     EXPECT_EQ(state_.calls, 1u);
+    EXPECT_EQ(amdf_xdna_umd_configure_firmware_trace(&device_, 1, 5), expected);
   }
 }
 

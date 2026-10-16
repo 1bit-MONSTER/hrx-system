@@ -304,7 +304,12 @@ TEST_P(LinuxXdnaDeviceTest, MemoryDoesNotDependOnSchedulingContexts) {
   ASSERT_EQ(
       ioctl(device->descriptor, DRM_IOCTL_AMDXDNA_GET_BO_INFO, &native_info),
       0);
-  EXPECT_EQ(native_info.xdna_addr, memory_result.device_address);
+  // SVA SHARE buffers use the mapped user VA without a separate XDNA address.
+  if (native_info.xdna_addr == AMDXDNA_INVALID_ADDR) {
+    EXPECT_EQ(native_info.vaddr, memory_result.device_address);
+  } else {
+    EXPECT_EQ(native_info.xdna_addr, memory_result.device_address);
+  }
   EXPECT_EQ(native_info.vaddr,
             reinterpret_cast<uintptr_t>(memory->buffer.host_pointer));
   EXPECT_EQ(static_cast<uint8_t*>(views[1].pointer)[0], 0xA5);

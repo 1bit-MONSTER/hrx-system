@@ -404,9 +404,9 @@ static iree_status_t loom_aie2p_xdna_allocate_entry_storage(
   IREE_RETURN_IF_ERROR(loom_aie2p_xdna_allocate_bytes(
       arena, (iree_host_size_t)source_byte_length, &layout->source));
   const loom_aie2p_array_program_t* program = entry->array_program;
-  if (program->control_record_count != 0) {
+  if (program->control_record_count != 0 || program->measurement.present) {
     IREE_RETURN_IF_ERROR(
-        iree_arena_allocate_array(arena, program->control_record_count,
+        iree_arena_allocate_array(arena, program->control_record_count + 1,
                                   sizeof(*layout->control_record_offsets),
                                   (void**)&layout->control_record_offsets));
   }
@@ -541,6 +541,10 @@ static void loom_aie2p_xdna_emit_entry(
         source + layout->control_source_offset + control_offset);
     control_offset +=
         loom_aie2p_xdna_native_record_size(&program->control_records[i]);
+  }
+  if (layout->control_record_offsets) {
+    layout->control_record_offsets[program->control_record_count] =
+        control_offset;
   }
   uint32_t control_section;
   if (program->control_record_count != 0) {
@@ -1003,13 +1007,24 @@ iree_status_t loom_aie2p_xdna_product_finalize(
             &relocation, metadata.data + admission->relocation_offset +
                              ordinal * IREE_XDNA_ELF_RELOCATION_RECORD_SIZE);
       }
-      const iree_xdna_elf_invocation_record_t range = {
+      iree_xdna_elf_invocation_record_t range = {
           .allocation_use = 0,
           .byte_offset = invocation == 0 ? 0 : layout->repeat_offset,
           .byte_length = invocation == 0 ? layout->initial_byte_length
                                          : layout->repeat_byte_length,
           .next_invocation = 1,
       };
+      if (entry->array_program->measurement.present) {
+        const uint32_t control_begin = body_offset - range.byte_offset;
+        range.measurement.begin =
+            control_begin +
+            layout->control_record_offsets[entry->array_program->measurement
+                                               .begin_record];
+        range.measurement.end =
+            control_begin +
+            layout->control_record_offsets[entry->array_program->measurement
+                                               .end_record];
+      }
       iree_xdna_elf_encode_invocation(
           &range,
           metadata.data + admission->invocation_offset +

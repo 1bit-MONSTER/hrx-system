@@ -126,7 +126,7 @@ separately scoped source contracts, not additional execution admission.
 
 | Boundary | Linux modern DRM | Windows MCDM |
 | --- | --- | --- |
-| Context admission | Native hardware context and negotiated execution support. | Native private adapter query selects direct or metadata partition admission. |
+| Context admission | Native hardware context; queue creation qualifies direct instruction execution and completion. | Native private adapter query selects direct or metadata partition admission. |
 | Instruction storage | Context-qualified DEV backing, with sizes and alignment from its scope. | One 64 MiB native aperture per context; a reserved 32 KiB bootstrap prefix is excluded from the caller's usable range. |
 | Instruction submission | Mandatory DRM execution record and command BO referencing the caller's instruction range. | Mandatory native transport record and transaction-interpreter packet referencing that range. |
 | Ordinary data addresses | Firmware and shim-DMA address interpretations. | Firmware and shim-DMA address interpretations for standard system backing. |
@@ -140,6 +140,29 @@ translation so the complete range fits every advertised address interpretation.
 Linux checks the opened device file and driver identity, then requires the
 native array metadata and allocation/context operations used by its hardware
 architecture. DRM release metadata does not determine admission.
+
+Before returning the first queue for a Linux context, libamdf submits a small
+transaction containing only no-op instructions through the required
+`ERT_START_NPU_PREEMPT_ELF` transport. Queue creation waits for native completion
+and checks the execution result. A driver that rejects this known-valid
+submission as unsupported returns `AMDF_STATUS_CODE_UNSUPPORTED`; permission,
+resource, device, and completion failures preserve their own errors. Update the
+NPU driver and matching firmware when this execution requirement is missing.
+Creating a native context alone does not prove execution support.
+
+The transaction modifies no application memory, tile program, DMA, or array
+state; native scheduling still follows the context-isolation contract above.
+Admission uses two temporary BOs and one native submission per context, before
+any caller work. Reacquiring a queue reuses the completed admission. Submission and
+retirement paths perform no additional checks or allocations. An uncertain
+completion retains the temporary backing on the context until native context
+destruction proves it safe to release. Ordinary memory use does not perform
+execution admission.
+
+Result-buffer capture, firmware tracing, and clock correlation are separate
+optional services. Their availability does not determine whether ordinary
+instruction execution is supported. Hardware identity and a loaded `amdxdna`
+module establish neither the required transport nor these optional services.
 
 Windows queries the native private adapter interface before preparing a context.
 Its reply presence and required size distinguish three coupled context and
@@ -454,6 +477,8 @@ page-aligned private allocation; Windows Direct accepts an aligned slice of
 the context's private aperture. The caller keeps that slice disjoint from
 instructions and payloads. The Windows metadata protocols return `UNSUPPORTED`
 for this service; ordinary execution support does not imply result support.
+The passive geometry query does not probe native availability. Attachment can
+still return `UNSUPPORTED` when the installed driver lacks the service.
 
 A caller creates admitted backing through the ordinary memory API, maps it,
 and clears and publishes the finite destination. The same binding then goes to
@@ -491,6 +516,11 @@ native removal. A failed native control may have made progress; its error does
 not authorize freeing the destination. After an ambiguous native failure, a
 later successful control alone does not prove that old writers have retired.
 Neither memory release nor context destruction implicitly detaches a binding.
+`UNSUPPORTED` from attachment is a rejection before any new binding exists:
+the caller may release a previously unbound destination and continue ordinary
+execution. It does not clear an earlier binding or uncertainty. Collection and
+removal failures retain their backing obligation, even if the service has
+become unavailable.
 
 `amdf_xdna_timer_record_t` describes the native `RECORD_TIMER` result: a caller
 ID followed by the timestamp's high and low words. The helper

@@ -105,8 +105,8 @@ typedef struct iree_benchmark_loom_summary_event_t {
 typedef struct iree_benchmark_loom_device_event_t {
   // Run identity shared by all emitted events.
   const iree_benchmark_loom_run_identity_t* run;
-  // HAL context whose selected device metadata is reported.
-  iree_benchmark_loom_hal_context_t* context;
+  // Borrowed HAL context whose current device state is reported.
+  const iree_benchmark_loom_hal_context_t* context;
 } iree_benchmark_loom_device_event_t;
 
 typedef struct iree_benchmark_loom_compile_event_t {
@@ -336,11 +336,11 @@ iree_status_t iree_benchmark_loom_event_sink_emit_summary(
     iree_host_size_t correctness_sample_count,
     iree_host_size_t correctness_failed_sample_count, bool dry_run);
 
-// Emits selected HAL device metadata.
+// Emits current HAL device metadata without initializing the runtime.
 iree_status_t iree_benchmark_loom_event_sink_emit_device(
     const iree_benchmark_loom_event_sink_t* sink,
     const iree_benchmark_loom_run_identity_t* run,
-    iree_benchmark_loom_hal_context_t* context);
+    const iree_benchmark_loom_hal_context_t* context);
 
 // Emits candidate compile metadata.
 iree_status_t iree_benchmark_loom_event_sink_emit_compile(

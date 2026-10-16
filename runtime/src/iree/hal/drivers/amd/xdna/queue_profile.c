@@ -8,6 +8,7 @@
 
 iree_status_t iree_hal_amd_xdna_queue_profiling_begin(
     iree_hal_queue_t* base, uint32_t physical_device_ordinal,
+    iree_hal_amd_xdna_command_arena_t* command_arena,
     const iree_hal_device_profiling_options_t* options) {
   iree_hal_amd_xdna_queue_t* queue = (void*)base;
   if (queue->profile) {
@@ -16,7 +17,7 @@ iree_status_t iree_hal_amd_xdna_queue_profiling_begin(
   }
   return iree_hal_amd_xdna_profile_begin(
       options, ++queue->next_profile_session_id, physical_device_ordinal, 0,
-      queue->host_allocator, &queue->profile);
+      queue->context, command_arena, queue->host_allocator, &queue->profile);
 }
 
 iree_status_t iree_hal_amd_xdna_queue_profiling_flush(iree_hal_queue_t* base) {
@@ -183,4 +184,57 @@ void iree_hal_amd_xdna_operation_profile_host_end(
   iree_hal_amd_xdna_profile_host_end(operation->queue->profile,
                                      &operation->profile->event, start, flags,
                                      status_code, operation_count);
+}
+
+void iree_hal_amd_xdna_operation_profile_prepare_native(
+    iree_hal_amd_xdna_operation_t* operation, uint32_t count,
+    iree_hal_amd_xdna_invocation_t* const* invocations,
+    amdf_xdna_kernel_command_t* commands) {
+  if (iree_any_bit_set(
+          operation->profile->flags,
+          IREE_HAL_AMD_XDNA_OPERATION_PROFILE_FLAG_NATIVE_PREPARED)) {
+    return;
+  }
+  iree_hal_amd_xdna_profile_counters_t* counters =
+      iree_hal_amd_xdna_profile_counters(operation->queue->profile);
+  if (counters) {
+    const iree_hal_amd_xdna_record_t* record =
+        operation->kind == IREE_HAL_AMD_XDNA_OPERATION_EXECUTE
+            ? operation->execution->cursor
+            : NULL;
+    for (uint32_t i = 0; i < count; ++i) {
+      iree_hal_amd_xdna_profile_counters_prepare(
+          counters, &operation->profile->event,
+          record ? record->ordinal : UINT32_MAX, invocations[i], &commands[i]);
+      if (record) {
+        record = record->next;
+      }
+    }
+  }
+  operation->profile->flags |=
+      IREE_HAL_AMD_XDNA_OPERATION_PROFILE_FLAG_NATIVE_PREPARED;
+}
+
+void iree_hal_amd_xdna_operation_profile_accept_native(
+    iree_hal_amd_xdna_operation_t* operation, uint32_t count,
+    iree_hal_amd_xdna_invocation_t* const* invocations,
+    const amdf_xdna_kernel_command_t* commands) {
+  iree_hal_amd_xdna_profile_counters_t* counters =
+      iree_hal_amd_xdna_profile_counters(operation->queue->profile);
+  if (counters) {
+    const iree_hal_amd_xdna_record_t* record =
+        operation->kind == IREE_HAL_AMD_XDNA_OPERATION_EXECUTE
+            ? operation->execution->cursor
+            : NULL;
+    for (uint32_t i = 0; i < count; ++i) {
+      iree_hal_amd_xdna_profile_counters_accept(
+          counters, &operation->profile->event,
+          record ? record->ordinal : UINT32_MAX, invocations[i], &commands[i]);
+      if (record) {
+        record = record->next;
+      }
+    }
+  }
+  operation->profile->flags &=
+      ~IREE_HAL_AMD_XDNA_OPERATION_PROFILE_FLAG_NATIVE_PREPARED;
 }

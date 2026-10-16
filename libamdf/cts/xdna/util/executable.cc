@@ -17,7 +17,7 @@
 
 namespace {
 
-// ELF32LE and XDNA metadata version 2 use explicit little-endian fields,
+// ELF32LE and XDNA metadata version 3 use explicit little-endian fields,
 // independent of host structure padding. These sizes and identities are the
 // fixed wire declarations from iree/schemas/xdna_executable.h.
 constexpr uint32_t kElfHeaderSize = 52;
@@ -33,7 +33,7 @@ constexpr uint32_t kAllocationUseSize = 4;
 constexpr uint32_t kEntrySize = 48;
 constexpr uint32_t kBindingSize = 40;
 constexpr uint32_t kRelocationSize = 48;
-constexpr uint32_t kInvocationSize = 16;
+constexpr uint32_t kInvocationSize = 24;
 constexpr uint64_t kMaximumShimAddress = 0xFFFFFFFFFFFF;
 constexpr uint32_t kProfileInstructionAlignment = 32768;
 
@@ -168,7 +168,7 @@ uint64_t DeviceProfile(const amdf_xdna_endpoint_info_t& endpoint_info) {
     return ::testing::AssertionFailure() << "invalid XDNA metadata header";
   }
   const uint8_t* metadata = elf.data() + metadata_offset;
-  if (Read32(metadata) != 0x414E4458 || Read16(metadata + 4) != 2 ||
+  if (Read32(metadata) != 0x414E4458 || Read16(metadata + 4) != 3 ||
       Read16(metadata + 6) != 1 || Read32(metadata + 8) != 3 ||
       Read32(metadata + 12) != 1 || Read64(metadata + 16) != profile ||
       Read64(metadata + 24) != UINT64_C(0x4E5055320006000C) ||

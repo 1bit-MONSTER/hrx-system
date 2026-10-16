@@ -38,20 +38,21 @@ enum iree_hal_device_profiling_data_family_bits_t {
   IREE_HAL_DEVICE_PROFILING_DATA_HOST_EXECUTION_EVENTS = 1ull << 1,
 
   // Device-timestamped queue operation spans showing when queue-visible work
-  // started and completed in the device timestamp domain. These are precise
-  // execution timeline records: producers should fail the profiled operation or
-  // session when they cannot retain complete selected events.
+  // started and completed in the device timestamp domain. Retained events have
+  // precise attribution; capacity loss is reported with TRUNCATED chunks and
+  // does not invalidate the events that were retained.
   IREE_HAL_DEVICE_PROFILING_DATA_DEVICE_QUEUE_EVENTS = 1ull << 2,
 
   // Device-timestamped dispatch execution events. This does not request
-  // hardware/software counter samples by itself. These are precise execution
-  // timeline records: producers should fail the profiled operation or session
-  // when they cannot retain complete selected events.
+  // hardware/software counter samples by itself. Retained events have precise
+  // attribution; capacity loss is reported with TRUNCATED chunks and does not
+  // invalidate the events that were retained.
   IREE_HAL_DEVICE_PROFILING_DATA_DISPATCH_EVENTS = 1ull << 3,
 
   // Hardware/software counter samples attributed to individual operations.
   // Empty |counter_sets| requests the target's default best-effort counter set;
-  // explicit counter names are strict.
+  // explicit counter names are strict. Capacity loss preserves retained samples
+  // and reports omissions with TRUNCATED chunks.
   IREE_HAL_DEVICE_PROFILING_DATA_COUNTER_SAMPLES = 1ull << 4,
 
   // Executable/code-object/function metadata needed for offline analysis. Some

@@ -63,6 +63,10 @@ typedef struct iree_hal_amd_xdna_context_t {
   iree_hal_amd_xdna_memory_source_t data_source;
   // Context-private host-mappable instruction storage contract.
   iree_hal_amd_xdna_memory_source_t command_source;
+  // An ambiguous result control still borrows native backing and its parents.
+  // Set only during idle profiling controls; terminal device teardown retains
+  // the remaining ownership graph when this is true.
+  bool result_buffer_retained;
   // Device creation's diagnostic sink, borrowed for the device lifetime.
   iree_hal_device_event_sink_t event_sink;
 } iree_hal_amd_xdna_context_t;

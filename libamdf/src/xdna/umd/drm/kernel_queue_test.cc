@@ -691,6 +691,23 @@ TEST_F(LinuxXdnaKernelQueueTest, QueryRecoversACompletedPrefixWithoutWait) {
 }
 
 TEST_F(LinuxXdnaKernelQueueTest,
+       AdmissionFailureLeavesNoPublishedQueueOrNativePackets) {
+  ASSERT_EQ(amdf_xdna_umd_kernel_queue_destroy(queue_), AMDF_STATUS_OK);
+  queue_ = nullptr;
+  const uint32_t packet_count = native_.packet_count;
+  const auto unsupported = amdf_make_api_status(AMDF_STATUS_CODE_UNSUPPORTED);
+  amdf_atomic_uint64_store_release(&context_.terminal_status, unsupported);
+  amdf_xdna_umd_kernel_queue_t* output =
+      reinterpret_cast<amdf_xdna_umd_kernel_queue_t*>(uintptr_t{1});
+  EXPECT_EQ(amdf_xdna_umd_kernel_queue_create(&context_, 3, &output),
+            unsupported);
+  EXPECT_EQ(output,
+            reinterpret_cast<amdf_xdna_umd_kernel_queue_t*>(uintptr_t{1}));
+  EXPECT_EQ(native_.packet_count, packet_count);
+  EXPECT_EQ(amdf_atomic_uint32_load_acquire(&context_.queue_leased), 0u);
+}
+
+TEST_F(LinuxXdnaKernelQueueTest,
        ConstructionFailureReleasesOnlyAcquiredPackets) {
   ASSERT_EQ(amdf_xdna_umd_kernel_queue_destroy(queue_), AMDF_STATUS_OK);
   queue_ = nullptr;
@@ -710,6 +727,13 @@ TEST_F(LinuxXdnaKernelQueueTest,
 }
 
 }  // namespace
+
+extern "C" amdf_status_t amdf_linux_xdna_context_prepare_execution(
+    amdf_xdna_umd_context_t* context) {
+  // Context admission is a separate dependency; these cases exercise queue
+  // transport, including native providers whose first sequence is zero.
+  return amdf_atomic_uint64_load_acquire(&context->terminal_status);
+}
 
 extern "C" amdf_status_t amdf_linux_xdna_buffer_create(
     int descriptor, uint32_t type, size_t byte_length,

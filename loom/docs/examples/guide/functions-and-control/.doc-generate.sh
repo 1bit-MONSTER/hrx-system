@@ -35,10 +35,11 @@ cp -- "${script_dir}/paired-read-ahead.loom" "${output_dir}/paired-read-ahead.lo
 cp -- "${script_dir}/paired-read-ahead-tests.loom" "${output_dir}/paired-read-ahead-tests.loom"
 cp -- "${script_dir}/guarded-read-ahead.loom" "${output_dir}/guarded-read-ahead.loom"
 cp -- "${script_dir}/guarded-read-ahead-tests.loom" "${output_dir}/guarded-read-ahead-tests.loom"
-cp -- "${repo_root}/loom/src/loom/test/corpus/checked_benchmarks/streaming_packed_s8_dot.loom" \
-  "${output_dir}/streaming-packed-dot.loom"
 # Each downloadable example includes its kernel and named benchmark workloads.
 corpus_dir="${repo_root}/loom/src/loom/test/corpus/checked_benchmarks"
+"${loom_link}" "${corpus_dir}/streaming_packed_s8_dot.loom" \
+  "${corpus_dir}/streaming_packed_s8_dot_benchmark.loom" --mode=merge --to=text \
+  --output="${output_dir}/streaming-packed-dot.loom"
 for name in routed_row_combine cooperative_paged_attention \
   sparse_token_attention grouped_paged_attention; do
   "${loom_link}" "${corpus_dir}/${name}_f32.loom" \

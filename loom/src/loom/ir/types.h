@@ -535,12 +535,11 @@ static inline uint32_t loom_type_make_header(loom_type_kind_t kind,
 // For overflow types: reads from the overflow array.
 static inline uint64_t loom_type_dim(loom_type_t type, iree_host_size_t index) {
   IREE_ASSERT(index < loom_type_rank(type));
-  if (IREE_LIKELY(loom_type_has_inline_dims(type))) {
-    return type.dims[index];
-  }
-  const loom_overflow_dim_t* overflow =
-      (const loom_overflow_dim_t*)(uintptr_t)type.dims[0];
-  return overflow[index];
+  const uint64_t* dims =
+      IREE_LIKELY(loom_type_has_inline_dims(type))
+          ? type.dims
+          : (const loom_overflow_dim_t*)(uintptr_t)type.dims[0];
+  return dims[index];
 }
 
 static inline bool loom_type_dim_is_dynamic_at(loom_type_t type,

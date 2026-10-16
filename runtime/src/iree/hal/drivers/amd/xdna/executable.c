@@ -8,6 +8,7 @@
 
 #include "iree/base/threading/mutex.h"
 #include "iree/hal/drivers/amd/status.h"
+#include "iree/hal/drivers/amd/xdna/executable_measurement.h"
 
 // Cold allocation plan retained in entry-relative allocation-use order.
 typedef struct iree_hal_amd_xdna_allocation_plan_t {
@@ -33,6 +34,16 @@ typedef struct iree_hal_amd_xdna_owned_allocation_t {
   iree_hal_amd_xdna_command_allocation_t command;
 } iree_hal_amd_xdna_owned_allocation_t;
 
+// Allocated only when an exclusive invocation is first measured.
+typedef struct iree_hal_amd_xdna_invocation_measurement_t {
+  // Owned measured command range; ordinary command storage remains unchanged.
+  iree_hal_amd_xdna_command_allocation_t allocation;
+  // Native view borrowing the allocation until invocation destruction.
+  amdf_xdna_kernel_command_t command;
+  // True when the measured binding fields match the published ordinary command.
+  bool bindings_valid;
+} iree_hal_amd_xdna_invocation_measurement_t;
+
 struct iree_hal_amd_xdna_invocation_t {
   // Borrowed function, kept alive by the submitting operation's executable.
   iree_hal_amd_xdna_function_t* function;
@@ -53,9 +64,13 @@ struct iree_hal_amd_xdna_invocation_t {
   } prepared_bindings;
   // Independent invocation establishing tile state on every submission.
   amdf_xdna_kernel_command_t command;
+  // Optional owned command copy with fixed timer instructions, allocated cold.
+  iree_hal_amd_xdna_invocation_measurement_t* measurement;
 };
 
 struct iree_hal_amd_xdna_function_t {
+  // Borrowed executable identity, dominating the function lifetime.
+  iree_hal_executable_t* executable;
   // Borrowed native device owner.
   iree_hal_amd_xdna_context_t* context;
   // Host owner for cold invocation growth.
@@ -68,6 +83,9 @@ struct iree_hal_amd_xdna_function_t {
   uint32_t ordinal;
   // Decoded immutable function contract.
   iree_xdna_elf_entry_record_t record;
+  // First invocation establishing tile state, including optional timer
+  // boundaries.
+  iree_xdna_elf_invocation_record_t invocation;
   // Cold sharing and publication plan, with one row per allocation use.
   iree_hal_amd_xdna_allocation_plan_t* plans;
   // Protects only invocation list links; never held across allocation/native
@@ -88,6 +106,8 @@ typedef struct iree_hal_amd_xdna_executable_t {
   iree_allocator_t host_allocator;
   // Immutable image retaining its copied source bytes.
   iree_hal_amd_xdna_image_t* image;
+  // Process-local identity used by optional profiling sessions.
+  uint64_t profile_id;
   // Number of entries in the admitted image.
   uint32_t function_count;
   // Owned function array; partially initialized during construction.
@@ -95,6 +115,8 @@ typedef struct iree_hal_amd_xdna_executable_t {
 } iree_hal_amd_xdna_executable_t;
 
 static const iree_hal_executable_vtable_t iree_hal_amd_xdna_executable_vtable;
+static iree_atomic_int64_t iree_hal_amd_xdna_next_executable_id =
+    IREE_ATOMIC_VAR_INIT(1);
 
 static iree_hal_memory_access_t iree_hal_amd_xdna_required_binding_access(
     iree_xdna_elf_binding_access_t access) {
@@ -154,6 +176,11 @@ static void iree_hal_amd_xdna_invocation_free(
                                             &allocation->command);
     iree_hal_amd_xdna_memory_deinitialize(function->context,
                                           &allocation->memory);
+  }
+  if (invocation->measurement) {
+    iree_hal_amd_xdna_command_arena_release(
+        function->command_arena, &invocation->measurement->allocation);
+    iree_allocator_free(function->host_allocator, invocation->measurement);
   }
   iree_allocator_free(function->host_allocator, invocation);
 }
@@ -295,12 +322,15 @@ static iree_status_t iree_hal_amd_xdna_function_initialize(
   const iree_hal_amd_xdna_image_tables_t* tables =
       iree_hal_amd_xdna_image_tables(executable->image);
   iree_hal_amd_xdna_function_t* function = &executable->functions[ordinal];
+  function->executable = &executable->base;
   function->context = context;
   function->host_allocator = executable->host_allocator;
   function->command_arena = command_arena;
   function->image = executable->image;
   function->ordinal = ordinal;
   function->record = iree_hal_amd_xdna_image_tables_entry(tables, ordinal);
+  function->invocation = iree_hal_amd_xdna_image_tables_invocation(
+      tables, function->record.first_invocation);
   if (function->record.binding_count > UINT16_MAX) {
     return iree_make_status(IREE_STATUS_OUT_OF_RANGE,
                             "XDNA entry exceeds HAL binding count limit");
@@ -373,6 +403,8 @@ iree_status_t iree_hal_amd_xdna_executable_create(
   iree_hal_executable_initialize(family, &iree_hal_amd_xdna_executable_vtable,
                                  &executable->base);
   executable->host_allocator = host_allocator;
+  executable->profile_id = iree_atomic_fetch_add(
+      &iree_hal_amd_xdna_next_executable_id, 1, iree_memory_order_relaxed);
   iree_byte_span_t source = {NULL, params->executable_data.data_length};
   iree_status_t status = iree_allocator_clone(
       host_allocator, params->executable_data, (void**)&source.data);
@@ -683,6 +715,9 @@ iree_status_t iree_hal_amd_xdna_function_prepare(
     // The bytes cease to represent the prior tuple as soon as patching begins.
     // Leave the manifestation invalid unless all cache publication succeeds.
     invocation->prepared_bindings.valid = false;
+    if (invocation->measurement) {
+      invocation->measurement->bindings_valid = false;
+    }
     iree_hal_amd_xdna_executable_storage_patch(
         function->image, function->ordinal, invocation->storage, bindings);
     for (uint32_t i = 0;
@@ -718,6 +753,72 @@ iree_status_t iree_hal_amd_xdna_function_prepare(
     iree_hal_amd_xdna_invocation_release(invocation);
   }
   return status;
+}
+
+iree_status_t iree_hal_amd_xdna_invocation_prepare_measurement(
+    iree_hal_amd_xdna_invocation_t* invocation,
+    amdf_xdna_kernel_command_t* out_command) {
+  iree_hal_amd_xdna_function_t* function = invocation->function;
+  const iree_xdna_elf_invocation_record_t* range = &function->invocation;
+  if (!range->measurement.begin) {
+    return iree_make_status(IREE_STATUS_UNAVAILABLE,
+                            "XDNA function has no declared timer interval");
+  }
+  const uint8_t* command =
+      invocation->storage[range->allocation_use].mapping.data +
+      range->byte_offset;
+  iree_hal_amd_xdna_invocation_measurement_t* measurement =
+      invocation->measurement;
+  iree_byte_span_t changed = iree_byte_span_empty();
+  if (!measurement) {
+    IREE_RETURN_IF_ERROR(iree_allocator_malloc(
+        function->host_allocator, sizeof(*measurement), (void**)&measurement));
+    iree_status_t status = iree_hal_amd_xdna_command_arena_allocate_range(
+        function->command_arena,
+        range->byte_length + IREE_HAL_AMD_XDNA_MEASUREMENT_EXTRA_BYTES,
+        function->plans[range->allocation_use].record.alignment,
+        &measurement->allocation);
+    if (iree_status_is_ok(status)) {
+      status = iree_hal_amd_xdna_executable_measurement_initialize(
+          range, command, measurement->allocation.contents.data);
+    }
+    if (iree_status_is_ok(status)) {
+      status = IREE_HAL_AMD_STATUS_FROM_AMDF(
+          function->context->api->host_mapping_cache_control(
+              measurement->allocation.mapping, AMDF_HOST_CACHE_OPERATION_FLUSH,
+              measurement->allocation.memory_byte_offset,
+              measurement->allocation.contents.data_length),
+          "host_mapping_cache_control(measurement)");
+    }
+    if (!iree_status_is_ok(status)) {
+      iree_hal_amd_xdna_command_arena_release(function->command_arena,
+                                              &measurement->allocation);
+      iree_allocator_free(function->host_allocator, measurement);
+      return status;
+    }
+    measurement->command = (amdf_xdna_kernel_command_t){
+        .memory = measurement->allocation.memory,
+        .byte_offset = measurement->allocation.memory_byte_offset,
+        .byte_length = measurement->allocation.contents.data_length,
+    };
+    invocation->measurement = measurement;
+  } else if (!measurement->bindings_valid) {
+    changed = iree_hal_amd_xdna_executable_measurement_patch(
+        iree_hal_amd_xdna_image_tables(function->image), &function->record,
+        range, command, measurement->allocation.contents.data);
+  }
+  if (changed.data_length) {
+    IREE_RETURN_IF_ERROR(IREE_HAL_AMD_STATUS_FROM_AMDF(
+        function->context->api->host_mapping_cache_control(
+            measurement->allocation.mapping, AMDF_HOST_CACHE_OPERATION_FLUSH,
+            measurement->allocation.memory_byte_offset +
+                (changed.data - measurement->allocation.contents.data),
+            changed.data_length),
+        "host_mapping_cache_control(measurement)"));
+  }
+  measurement->bindings_valid = true;
+  *out_command = measurement->command;
+  return iree_ok_status();
 }
 
 static iree_host_size_t iree_hal_amd_xdna_executable_function_count(
@@ -808,3 +909,25 @@ static const iree_hal_executable_vtable_t iree_hal_amd_xdna_executable_vtable =
         .global_info = iree_hal_amd_xdna_executable_global_info,
         .global_buffer = iree_hal_amd_xdna_executable_global_buffer,
 };
+
+iree_hal_amd_xdna_invocation_info_t iree_hal_amd_xdna_invocation_info(
+    const iree_hal_amd_xdna_invocation_t* invocation) {
+  const iree_hal_amd_xdna_function_t* function = invocation->function;
+  const iree_hal_amd_xdna_executable_t* executable =
+      (const iree_hal_amd_xdna_executable_t*)function->executable;
+  return (iree_hal_amd_xdna_invocation_info_t){
+      .executable = function->executable,
+      .executable_id = executable->profile_id,
+      .function_ordinal = function->ordinal,
+      .name = iree_hal_amd_xdna_image_tables_entry_name(
+          iree_hal_amd_xdna_image_tables(function->image), &function->record),
+  };
+}
+
+bool iree_hal_amd_xdna_invocation_is_measured(
+    const iree_hal_amd_xdna_invocation_t* invocation,
+    const amdf_xdna_kernel_command_t* command) {
+  return invocation->measurement &&
+         command->memory == invocation->measurement->command.memory &&
+         command->byte_offset == invocation->measurement->command.byte_offset;
+}

@@ -117,7 +117,7 @@ iree_status_t iree_benchmark_loom_event_sink_emit_summary(
 iree_status_t iree_benchmark_loom_event_sink_emit_device(
     const iree_benchmark_loom_event_sink_t* sink,
     const iree_benchmark_loom_run_identity_t* run,
-    iree_benchmark_loom_hal_context_t* context) {
+    const iree_benchmark_loom_hal_context_t* context) {
   IREE_ASSERT_ARGUMENT(run);
   IREE_ASSERT_ARGUMENT(context);
   return iree_benchmark_loom_event_sink_emit(
