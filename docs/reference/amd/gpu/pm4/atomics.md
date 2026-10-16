@@ -1,7 +1,7 @@
 # Command-processor atomic operations
 
 `ATOMIC_MEM` asks the command processor to perform one atomic memory operation
-through the TC/GL2 memory system. The operation selects its data width and
+using the TC atomic-operation encoding. The operation selects its data width and
 arithmetic; packet controls select how the command processor issues it. A
 return-form operation can also supply the previous value to a subsequent
 `COPY_DATA`. Atomicity of that cell, ordering of other payload, and retirement
@@ -256,16 +256,57 @@ extend to every RMW operation, dGPU PCIe route, imported mapping, or peer GPU.
 ### GFX12 cache policy and explicit scope
 
 Coherent system memory does not have the same GPU cache policy across native
-GC revisions. KFD's mapping flags start with `AMDGPU_VM_MTYPE_DEFAULT`;
-the selected GMC implementation translates that choice and the BO flags:
+GC revisions or driver implementations. KFD's mapping flags start with
+`AMDGPU_VM_MTYPE_DEFAULT`; the selected GMC callback translates that choice
+and the BO flags:
 
-| Native mapping path | Owned GTT with COHERENT | Explicit UNCACHED |
+| Driver and native mapping path | Owned GTT with COHERENT | Explicit UNCACHED |
 | --- | --- | --- |
-| GMC11 | MTYPE_UC. | MTYPE_UC. |
-| GMC12, selected for GC12.0.0, GC12.0.1 and GC12.1.0 | MTYPE_NC; COHERENT alone does not select UC. | MTYPE_UC. |
+| Linux `50d05c7`, GMC11 | MTYPE_UC. | MTYPE_UC. |
+| Linux `50d05c7`, GMC12.0 callback for GC12.0.0 and GC12.0.1 | MTYPE_NC; COHERENT alone does not select UC. | MTYPE_UC. |
+| Linux `50d05c7`, GMC12.1 callback for GC12.1.0 | Revision-dependent MTYPE_NC or MTYPE_UC. | MTYPE_UC. |
+| ROCm AMDGPU `8202127`, GMC12.0 callback for GC12.0.0 and GC12.0.1 | MTYPE_NC; COHERENT alone does not select UC. | MTYPE_UC. |
+| ROCm AMDGPU `8202127`, GMC12.1 callback for GC12.1.0 | MTYPE_NC or MTYPE_UC according to the policy below. | MTYPE_UC. |
 
 [KFD mapping flags][linux-mapping] [GMC11 translation][linux-pte]
-[GMC12 translation][linux12-pte] [Native mapper selection][linux-gmc-selection]
+[GMC12.0 translation][linux12-pte]
+[Linux callback selection][linux12-selection]
+[Linux GC12.1 policy][linux121-coherence]
+[ROCm GMC12.0 translation][rocm12-pte]
+[ROCm callback selection][rocm12-selection]
+
+In both cited drivers, `gmc_v12_0_early_init` replaces the GMC callbacks with
+`gmc_v12_1_gmc_funcs` for native GC12.1.0. The IP-block name alone therefore
+does not identify the active PTE policy. For valid BO mappings,
+`gmc_v12_1_get_vm_pte` applies `gmc_v12_1_get_coherence_flags` after the
+requested MTYPE. [Callback selection][rocm12-selection]
+[PTE construction][rocm121-pte]
+
+That GC12.1 policy calls same-device VRAM local and treats GTT as remote. Its
+MTYPE choices are:
+
+| Predicate in ROCm AMDGPU `8202127` | Local MTYPE | Remote MTYPE |
+| --- | --- | --- |
+| `rev_id & 0x10` is set, before module overrides | RW | NC |
+| `rev_id & 0x10` is clear, before module overrides | NC | UC |
+| `amdgpu_mtype_local == 0` | RW | NC |
+| `amdgpu_mtype_local == 1` | NC | Retains the revision choice. |
+| Other `amdgpu_mtype_local` values | Retains the revision choice. | Retains the revision choice. |
+
+UNCACHED selects UC for either placement. EXT_COHERENT selects UC for remote
+memory; COHERENT alone retains the placement policy. A non-NC choice replaces
+the requested MTYPE; an NC choice preserves it. The callback adds SNOOPED
+and sets `AMDGPU_PTE_BUS_ATOMICS` when the BO is local or
+`adev->have_atomics_support` is true. That page bit does not replace the CPU
+route's operation-width contract or the command's scope.
+[Coherence and bus-atomic policy][rocm121-coherence]
+
+Linux `50d05c7` and the `releases/therock-7.14` revision `5081d70` apply the
+same placement, coherence and BUS_ATOMICS rules, but their
+`amdgpu_mtype_local == 0` override changes only the local choice. Remote memory
+retains its revision-dependent NC/UC choice. The driver revision is part of
+the mapping description. [Linux policy][linux121-coherence]
+[ROCm release policy][rocm121-therock]
 
 AMD's GFX12 memory-system description keeps fine-grained system memory
 cacheable: device-scope atomics can complete in L2, while system-scope atomics
@@ -414,7 +455,13 @@ header enumeration alone supplies no portable arithmetic recipe.
 [linux-pte]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gmc_v11_0.c#L468-L513
 [linux-mapping]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_amdkfd_gpuvm.c#L513-L525
 [linux12-pte]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gmc_v12_0.c#L507-L549
-[linux-gmc-selection]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_discovery.c#L2420-L2442
+[linux12-selection]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gmc_v12_0.c#L635-L654
+[linux121-coherence]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/gmc_v12_1.c#L574-L663
+[rocm12-pte]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdgpu/gmc_v12_0.c#L510-L553
+[rocm12-selection]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdgpu/gmc_v12_0.c#L638-L658
+[rocm121-pte]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdgpu/gmc_v12_1.c#L665-L709
+[rocm121-coherence]: https://github.com/ROCm/amdgpu/blob/820212794d184710298efcecce42c0215bfc9c6a/drivers/gpu/drm/amd/amdgpu/gmc_v12_1.c#L603-L663
+[rocm121-therock]: https://github.com/ROCm/amdgpu/blob/5081d704e60e807e9541c355c53df57d88ea8cde/drivers/gpu/drm/amd/amdgpu/gmc_v12_1.c#L528-L587
 [amd12-memory]: https://github.com/ROCm/legacy-rocm-build/blob/85a16825737e43a14ff431754b359380e78062a7/docs/reference/gpu-atomics-operation.rst#L173-L203
 [pal12-cache]: https://github.com/GPUOpen-Drivers/pal/blob/c5e800072a32f68b6ccc4422936d96167c6e0728/src/core/hw/gfxip/gfx12/gfx12Barrier.cpp#L406-L435
 [linux-cpu]: https://github.com/torvalds/linux/blob/50d05c7c76c96b90462f24debacca971d2e86713/drivers/gpu/drm/amd/amdgpu/amdgpu_ttm.c#L1190-L1214

@@ -250,10 +250,12 @@ amdf_status_t amdf_gpu_kfd_query_memory_profile(
             AMDF_LINUX_DMA_BUF_DIRECT_HOST_PROVENANCE;
     profile.external_memory_support[1].flags &=
         ~AMDF_EXTERNAL_MEMORY_SUPPORT_FLAG_FOREIGN_API;
-    // GMC11 maps coherent pinned GTT as UC. Native CPU route widths supply
-    // the independent AtomicOps requirement; compiler target spelling and
-    // allocation visibility do not establish that route.
-    if (topology->gc_ip.exact && topology->gc_ip.major == 11) {
+    // GMC11 maps coherent pinned GTT as UC. GC12.0 CP atomics bypass GL2
+    // through MALL even when that GTT mapping is NC. Native CPU route widths
+    // supply the independent AtomicOps requirement for either mapping.
+    const amdf_gpu_kfd_ip_version_t* gc = &topology->gc_ip;
+    if (gc->exact && (gc->major == 11 || (gc->major == 12 && gc->minor == 0 &&
+                                          gc->revision <= 1))) {
       if (topology->host_atomics.supports_32) {
         profile.atomic_operations_32 = AMDF_ATOMIC_OPERATION_STORE;
       }
