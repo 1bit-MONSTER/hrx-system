@@ -82,11 +82,11 @@ typedef struct loom_segmented_storage_t {
   // Minimum power-of-two alignment of every segment payload.
   iree_host_size_t segment_alignment;
   // Allocated segment pointer page covering the first page of segment indexes,
-  // or NULL while the inline pointer directory is active.
+  // or NULL until the inline pointer directory is exceeded.
   loom_segmented_storage_page_t* primary_page;
   // Lazily allocated page-group directory, or NULL while one page suffices.
   loom_segmented_storage_directory_t* page_directory;
-  // Inline pointer page used before the first allocated page is required.
+  // Stable inline prefix, retained after the allocated directory grows.
   void* inline_segments[LOOM_SEGMENTED_STORAGE_INLINE_SEGMENT_COUNT];
 } loom_segmented_storage_t;
 
@@ -117,7 +117,8 @@ iree_status_t loom_segmented_storage_append(loom_segmented_storage_t* storage,
 static inline void* loom_segmented_storage_segment(
     loom_segmented_storage_t* storage, uint32_t segment_index) {
   IREE_ASSERT(segment_index < storage->segment_count);
-  if (IREE_LIKELY(storage->primary_page == NULL)) {
+  if (IREE_LIKELY(segment_index <
+                  LOOM_SEGMENTED_STORAGE_INLINE_SEGMENT_COUNT)) {
     return storage->inline_segments[segment_index];
   }
   const uint32_t page_index =
@@ -135,7 +136,8 @@ static inline void* loom_segmented_storage_segment(
 static inline const void* loom_segmented_storage_const_segment(
     const loom_segmented_storage_t* storage, uint32_t segment_index) {
   IREE_ASSERT(segment_index < storage->segment_count);
-  if (IREE_LIKELY(storage->primary_page == NULL)) {
+  if (IREE_LIKELY(segment_index <
+                  LOOM_SEGMENTED_STORAGE_INLINE_SEGMENT_COUNT)) {
     return storage->inline_segments[segment_index];
   }
   const uint32_t page_index =
