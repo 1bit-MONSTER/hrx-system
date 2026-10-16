@@ -106,6 +106,10 @@ interprets those flags together with the mapping and placement:
 [GMC11 translation][pte11] [GMC12 translation][pte12]
 [GMC9 translation][pte9]
 
+The GC12.0 IP block selects separate GC12.1 callbacks for native GC12.1.0.
+Their placement, coherence, revision and BUS_ATOMICS predicates are described
+in the [GC12 mapping comparison](../pm4/atomics.md#gfx12-cache-policy-and-explicit-scope).
+
 The GMC implementation name is not a shader target or SDMA version. NC denotes
 non-coherent caching, not uncached access. The
 [local-memory discussion](../recipes/local-memory.md#native-hbm-cache-policy)
