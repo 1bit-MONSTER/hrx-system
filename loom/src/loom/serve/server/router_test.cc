@@ -781,6 +781,9 @@ TEST_P(HttpRouterTightCapacityTest, ObservationWaitsForTransportReclamation) {
   const int first = Send("POST", "/v1/test", body);
   held_.WaitSubmitted();
   const int second = Send("POST", "/v1/test", body);
+  // Independent sockets can become readable in either order. Establish the
+  // service FIFO before releasing and reading one held completion at a time.
+  held_.WaitAccepted(2);
   const int third = Send("POST", "/v1/test", body);
   held_.WaitAccepted(3);
 
