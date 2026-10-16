@@ -643,7 +643,7 @@ kernel.def retain target(@dispatch_target) export("native_rows") linkage(dso_loc
 }
 
 TEST_F(KernelConfigMaterializerTest,
-       ProjectedConfigurationPreservesConfiguredDispatches) {
+       ProjectedConfigurationPreservesConfiguredLaunches) {
   const iree_file_toc_t* files = loom_link_kernel_contracts_testdata_create();
   ASSERT_EQ(loom_link_kernel_contracts_testdata_size(), 1u);
   const iree_string_view_t source =

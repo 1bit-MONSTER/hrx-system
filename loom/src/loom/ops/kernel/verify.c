@@ -1295,8 +1295,17 @@ iree_status_t loom_kernel_dispatch_verify(const loom_module_t* module,
 
   const loom_symbol_ref_t callee = loom_kernel_dispatch_callee(op);
   const loom_symbol_t* symbol = &module->symbols.entries[callee.symbol_id];
-  const loom_func_like_t entry =
-      loom_func_like_cast(module, symbol->defining_op);
+  loom_op_t* definition_op = symbol->defining_op;
+  if (!loom_kernel_entry_decl_isa(definition_op)) {
+    const loom_diagnostic_param_t params[] = {
+        loom_param_string(
+            loom_string_table_get(&module->strings, symbol->name_id)),
+    };
+    return loom_kernel_emit_entry_related(emitter, op, definition_op,
+                                          LOOM_ERR_STRUCTURE_063, params,
+                                          IREE_ARRAYSIZE(params));
+  }
+  const loom_func_like_t entry = loom_func_like_cast(module, definition_op);
   uint16_t argument_count = 0;
   const loom_value_id_t* argument_ids =
       loom_func_like_arg_ids(entry, &argument_count);
@@ -1304,7 +1313,7 @@ iree_status_t loom_kernel_dispatch_verify(const loom_module_t* module,
   const loom_value_slice_t workgroup_counts =
       loom_kernel_dispatch_workgroup_counts(op);
   return loom_kernel_verify_entry_operand_group(
-      module, op, symbol->defining_op, emitter, IREE_SV("argument"),
+      module, op, definition_op, emitter, IREE_SV("argument"),
       IREE_SV("kernel entry ABI argument"), arguments, argument_ids,
       argument_count, workgroup_counts.count, /*enclosing_remap=*/NULL);
 }

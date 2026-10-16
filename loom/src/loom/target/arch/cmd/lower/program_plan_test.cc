@@ -928,27 +928,41 @@ command.program.def public @selected_schedule() launch(%storage: buffer) {
 }
 
 TEST_F(CmdProgramPlanTest, PreparationDoesNotReadUnselectedKernelRegions) {
-  ModulePtr source_module = ParseAndVerify(R"(
-kernel.def @child() {
+  ModulePtr provider_module = ParseAndVerify(R"(
+kernel.def @logical_child() {
   %unit = index.constant 1 : index
   kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
 } launch() {
   kernel.return
 }
 
+kernel.def @physical_child() {
+  %unit = index.constant 1 : index
+  kernel.launch.config workgroups(%unit, %unit, %unit) workgroup_size(%unit, %unit, %unit) : index
+} launch() {
+  kernel.return
+}
+)");
+  ASSERT_NE(provider_module, nullptr);
+  ModulePtr caller_module = ParseAndVerify(R"(
+kernel.decl @logical_child() launch()
+kernel.entry.decl @physical_child()
+
 command.program.def public @root() launch() {
-  kernel.launch @child() : ()
+  kernel.launch @logical_child() : ()
   command.return
 }
 
 command.program.def public @configured_root() launch() {
   %unit = index.constant 1 : index
-  kernel.dispatch @child[%unit]() : [index]()
+  kernel.dispatch @physical_child[%unit]() : [index]()
   command.return
 }
 )");
-  ASSERT_NE(source_module, nullptr);
-  std::vector<uint8_t> bytecode = WriteBytecode(source_module.get());
+  ASSERT_NE(caller_module, nullptr);
+  std::vector<uint8_t> provider_bytecode = WriteBytecode(provider_module.get());
+  const std::vector<uint8_t> caller_bytecode =
+      WriteBytecode(caller_module.get());
 
   loom_link_module_index_t* index = nullptr;
   IREE_ASSERT_OK(loom_link_module_index_allocate(
@@ -957,38 +971,58 @@ command.program.def public @configured_root() launch() {
       .diagnostic_sink = {loom_diagnostic_stderr_sink, nullptr},
   };
   IREE_ASSERT_OK(loom_link_module_index_add_bytecode(
-      index, iree_make_const_byte_span(bytecode.data(), bytecode.size()),
+      index,
+      iree_make_const_byte_span(provider_bytecode.data(),
+                                provider_bytecode.size()),
       IREE_SV("provider.loombc"), &index_options, /*options=*/nullptr,
       /*out_provider_ordinal=*/nullptr));
-  const loom_link_module_index_symbol_t* child =
-      loom_link_module_index_lookup_name(index, IREE_SV("child"));
-  ASSERT_NE(child, nullptr);
+  IREE_ASSERT_OK(loom_link_module_index_add_bytecode(
+      index,
+      iree_make_const_byte_span(caller_bytecode.data(), caller_bytecode.size()),
+      IREE_SV("caller.loombc"), &index_options, /*options=*/nullptr,
+      /*out_provider_ordinal=*/nullptr));
+  const loom_link_module_index_symbol_t* logical_child =
+      loom_link_module_index_lookup_name(index, IREE_SV("logical_child"));
+  const loom_link_module_index_symbol_t* physical_child =
+      loom_link_module_index_lookup_name(index, IREE_SV("physical_child"));
+  ASSERT_NE(logical_child, nullptr);
+  ASSERT_NE(physical_child, nullptr);
 
   const loom_link_module_index_provider_t* provider =
-      loom_link_module_index_symbol_provider(index, child);
+      loom_link_module_index_symbol_provider(index, logical_child);
   const loom_link_module_index_module_t* indexed_module =
-      loom_link_module_index_symbol_module(index, child);
+      loom_link_module_index_symbol_module(index, logical_child);
   ASSERT_NE(provider, nullptr);
   ASSERT_NE(indexed_module, nullptr);
+  ASSERT_EQ(loom_link_module_index_symbol_provider(index, physical_child),
+            provider);
   const loom_bytecode_module_metadata_t* metadata =
       &provider->bytecode.metadata
            .modules[indexed_module->provider_module_ordinal];
-  const loom_bytecode_symbol_metadata_t* symbol =
-      &metadata->symbols[child->module_symbol_ordinal];
-  ASSERT_NE(symbol->kernel_workload_region_payload_ordinal_plus_one, 0u);
-  ASSERT_NE(symbol->body_region_payload_ordinal_plus_one, 0u);
-  const loom_bytecode_region_payload_metadata_t* body_payload =
-      &metadata
-           ->region_payloads[symbol->first_region_payload_index +
-                             symbol->body_region_payload_ordinal_plus_one - 1];
-  ASSERT_GT(body_payload->length, 0u);
-  std::fill_n(bytecode.data() + body_payload->absolute_offset,
-              body_payload->length, UINT8_C(0xFF));
-  const loom_bytecode_region_payload_metadata_t* config_payload =
+  const loom_bytecode_symbol_metadata_t* logical_symbol =
+      &metadata->symbols[logical_child->module_symbol_ordinal];
+  const loom_bytecode_symbol_metadata_t* physical_symbol =
+      &metadata->symbols[physical_child->module_symbol_ordinal];
+  for (const loom_bytecode_symbol_metadata_t* symbol :
+       {logical_symbol, physical_symbol}) {
+    ASSERT_NE(symbol->body_region_payload_ordinal_plus_one, 0u);
+    const loom_bytecode_region_payload_metadata_t* body_payload =
+        &metadata
+             ->region_payloads[symbol->first_region_payload_index +
+                               symbol->body_region_payload_ordinal_plus_one -
+                               1];
+    ASSERT_GT(body_payload->length, 0u);
+    std::fill_n(provider_bytecode.data() + body_payload->absolute_offset,
+                body_payload->length, UINT8_C(0xFF));
+  }
+  ASSERT_NE(physical_symbol->kernel_workload_region_payload_ordinal_plus_one,
+            0u);
+  const loom_bytecode_region_payload_metadata_t* physical_config_payload =
       &metadata->region_payloads
-           [symbol->first_region_payload_index +
-            symbol->kernel_workload_region_payload_ordinal_plus_one - 1];
-  ASSERT_GT(config_payload->length, 0u);
+           [physical_symbol->first_region_payload_index +
+            physical_symbol->kernel_workload_region_payload_ordinal_plus_one -
+            1];
+  ASSERT_GT(physical_config_payload->length, 0u);
 
   const loom_link_plan_materialization_environment_t environment = {
       .context = &context_,
@@ -1005,8 +1039,9 @@ command.program.def public @configured_root() launch() {
         loom_link_module_index_lookup_name(index, root_name);
     ASSERT_NE(root, nullptr);
     if (iree_string_view_equal(root_name, IREE_SV("configured_root"))) {
-      std::fill_n(bytecode.data() + config_payload->absolute_offset,
-                  config_payload->length, UINT8_C(0xFF));
+      std::fill_n(
+          provider_bytecode.data() + physical_config_payload->absolute_offset,
+          physical_config_payload->length, UINT8_C(0xFF));
     }
     iree_arena_allocator_t body_blind_arena;
     iree_arena_initialize(&block_pool_, &body_blind_arena);

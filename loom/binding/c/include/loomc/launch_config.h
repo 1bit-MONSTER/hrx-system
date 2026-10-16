@@ -17,8 +17,12 @@
 ///
 /// A launch-config program is the host companion produced by one kernel
 /// compilation invocation. It contains one function for each exported kernel
-/// and evaluates that kernel's authored workload arguments into the complete
-/// configuration required to launch the matching compiled entry.
+/// and evaluates that kernel's authored scalar workload arguments into the
+/// complete configuration required to launch the matching compiled entry.
+/// Non-scalar workloads participate in target specialization but are omitted
+/// from the host function once their influence has folded away. Compilation
+/// rejects a requested launch-config artifact when a non-scalar workload
+/// remains necessary at host evaluation time.
 ///
 /// Launch-config programs are compiler products. Loading and invocation do
 /// not parse kernel source, apply configuration, select a target, or compile
@@ -203,14 +207,16 @@ LOOMC_API_EXPORT loomc_status_t loomc_launch_config_program_lookup_function(
 
 /// Invokes one compiled launch-config function for one kernel workload.
 ///
-/// Workload arguments map positionally to the selected kernel entry's authored
-/// launch workload. Each slot contains the raw bits of one scalar argument in
-/// its least-significant N bits, where N is the scalar bit width; higher bits
-/// are ignored. Signed integers and index values use two's-complement
-/// representation, offsets use unsigned representation, and floating-point
-/// values use their declared FP8, IEEE, or bfloat representation. Index and
-/// offset arguments consume all 64 bits. An offset greater than `INT64_MAX`
-/// cannot be represented by the current exact-fact domain and is rejected.
+/// Workload arguments map positionally to the scalar projection of the
+/// selected kernel entry's authored launch workload. Non-scalar workloads are
+/// omitted, and the remaining scalar arguments preserve source order. Each
+/// slot contains the raw bits of one scalar argument in its least-significant
+/// N bits, where N is the scalar bit width; higher bits are ignored. Signed
+/// integers and index values use two's-complement representation, offsets use
+/// unsigned representation, and floating-point values use their declared FP8,
+/// IEEE, or bfloat representation. Index and offset arguments consume all 64
+/// bits. An offset greater than `INT64_MAX` cannot be represented by the
+/// current exact-fact domain and is rejected.
 ///
 /// The function token must have been returned by `program`. Invocation
 /// validates argument count, scalar values, and authored value predicates

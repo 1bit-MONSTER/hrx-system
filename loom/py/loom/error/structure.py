@@ -1049,6 +1049,20 @@ ERR_STRUCTURE_062 = ErrorDef(
     ),
 )
 
+# ERR_STRUCTURE_063: Physical dispatch targets a configured kernel.
+ERR_STRUCTURE_063 = ErrorDef(
+    domain=ErrorDomain.STRUCTURE,
+    code=63,
+    severity=Severity.ERROR,
+    summary="Physical dispatch targets a configured kernel.",
+    message="'kernel.dispatch' targets configured kernel '@{kernel_name}'",
+    params=(ErrorParam("kernel_name", ParamKind.STRING),),
+    fix_hint=(
+        "Use kernel.launch with the kernel's workload operands, or dispatch a "
+        "resolved kernel.entry.decl"
+    ),
+)
+
 ALL_STRUCTURE_ERRORS: tuple[ErrorDef, ...] = (
     ERR_STRUCTURE_001,
     ERR_STRUCTURE_002,
@@ -1111,4 +1125,5 @@ ALL_STRUCTURE_ERRORS: tuple[ErrorDef, ...] = (
     ERR_STRUCTURE_060,
     ERR_STRUCTURE_061,
     ERR_STRUCTURE_062,
+    ERR_STRUCTURE_063,
 )

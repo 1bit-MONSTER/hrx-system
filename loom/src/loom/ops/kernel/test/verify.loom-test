@@ -301,19 +301,21 @@ func.def @valid_launch(%count: index, %output: tensor<4xi32>) {
 
 kernel.decl @configured_contract(%workload: index) launch(%count: index, %output: buffer)
 
-func.def @valid_configured_calls(%groups: index, %counts: view<3xi32>, %count: index, %output: buffer) {
+func.def @configured_kernel_requires_launch(%groups: index, %counts: view<3xi32>, %count: index, %output: buffer) {
+  // ERROR@+1: STRUCTURE/063 {kernel_name="configured_contract"}
   kernel.dispatch @configured_contract[%groups](%count, %output) : [index](index, buffer)
+  // ERROR@+1: STRUCTURE/063 {kernel_name="configured_contract"}
   kernel.dispatch @configured_contract[%counts](%count, %output) : [view<3xi32>](index, buffer)
   func.return
 }
 
 // ====
 
-kernel.decl @configured_argument_contract(%workload: index) launch(%argument: i32)
+kernel.entry.decl @physical_argument_contract(%argument: i32)
 
 func.def @wrong_configured_argument_type(%groups: index, %argument: f32) {
   // ERROR@+1: TYPE/001 "argument 0" "kernel entry ABI argument 0"
-  kernel.dispatch @configured_argument_contract[%groups](%argument) : [index](f32)
+  kernel.dispatch @physical_argument_contract[%groups](%argument) : [index](f32)
   func.return
 }
 

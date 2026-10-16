@@ -5,12 +5,10 @@ kernel.def @entry(%groups: index) {
   kernel.return
 }
 
-command.program.def public @root() launch(%data: buffer, %count_storage: buffer) {
+command.program.def public @root() launch(%data: buffer) {
   %c1 = index.constant 1 : index
-  %c0 = index.constant 0 : offset
-  %counts = buffer.view %count_storage[%c0] : buffer -> view<3xi32>
-  kernel.dispatch @entry[%c1](%data) : [index](buffer)
-  kernel.dispatch @entry[%counts](%data) : [view<3xi32>](buffer)
+  %c2 = index.constant 2 : index
   kernel.launch @entry[%c1](%data) : [index](buffer)
+  kernel.launch @entry[%c2](%data) : [index](buffer)
   command.return
 }
