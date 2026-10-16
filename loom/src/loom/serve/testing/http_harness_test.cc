@@ -129,6 +129,25 @@ TEST_F(HttpHarnessTest, DirectAdmissionAndResponseUseActualReadiness) {
   EXPECT_EQ(response, "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nready");
 }
 
+TEST_F(HttpHarnessTest, AdmissionClaimsReadyRequestNotObservedClient) {
+  HttpClient idle;
+  IREE_ASSERT_OK(client_.Send("", idle.put()));
+  HttpClient ready;
+  IREE_ASSERT_OK(client_.Send("GET /healthz HTTP/1.1\r\nHost: local\r\n\r\n",
+                              ready.put()));
+  loom_serve_http_connection_t* connection = nullptr;
+  const loom_serve_http_request_t* request = nullptr;
+  IREE_ASSERT_OK(client_.TakeRequest(idle.get(), &connection, &request));
+  // Socket observation is a failure channel, not a server-side identity lookup.
+  // Only the other peer has sent a request, so its claim is returned here.
+  EXPECT_EQ(std::string(request->target.data, request->target.size),
+            "/healthz");
+  loom_serve_http_connection_abort(connection);
+  std::string response;
+  IREE_ASSERT_OK(client_.Read(ready.release(), true, &response));
+  EXPECT_TRUE(response.empty());
+}
+
 TEST_F(HttpHarnessTest, ReceiveAllocationFailureTerminatesAdmission) {
   fail_listener_allocations_.store(true);
   int peer = -1;

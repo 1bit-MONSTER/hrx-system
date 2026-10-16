@@ -28,10 +28,11 @@ HTTP services, not canned native replies. They establish the serving contract,
 not learned quality or competitive neural performance. Each learned port needs
 its own numerical oracle and representative workload.
 
-Audio input, an image-conditioned request or an arbitrary workflow graph needs
-an input/output ownership contract beyond these HTTP profiles. Such a port is
-a modality extension, not an embedding vector with overloaded fields. The
-[HTTP reference](http-profiles.md) defines the existing boundary.
+Image-conditioned text composes retained text with an optional finite image
+projector, described below. Audio input or an arbitrary workflow graph needs
+its own input/output ownership contract beyond these HTTP profiles, not an
+embedding vector with overloaded fields. The [HTTP reference](http-profiles.md)
+defines the existing boundary.
 
 ## Keep the package complete and relocatable
 
@@ -265,6 +266,42 @@ reuse of the released row. Compare each surviving stream with isolated execution
 and compare the model's numerical stages with an independent reference. Batch
 occupancy alone establishes neither a throughput improvement nor a playback
 deadline.
+
+## Image-conditioned text
+
+A text definition's optional [image component](model-documents.md#image-input)
+implements the finite contract. It shares the deployment's device and numerical
+provider catalog, while owning separate preparation and parameter residency.
+Ordinary text and exact retained image-prefix hits do not prepare the projector.
+Explicit component warmup follows the same preparation boundary. Its parameter
+pin policy is independent of the primary language model's policy; deactivation
+does not discard retained text state.
+
+The text control program declares image limits and receives ordered text/image
+content records. It renders model framing and returns each image's projected
+row count and opaque preprocessing metadata. Its input preparation maps those
+occurrences into logical input spans; native code checks the returned ranges
+against the inspected images. The
+[ordered-media contract](https://github.com/ROCm/hrx-system/blob/main/loom/src/loom/serve/service/text/media.h)
+defines these records and retained identity.
+
+On a media-prefix miss, codecs realize packed RGB8/RGBA8 pixels without
+resizing or normalizing them. The projector receives an
+[image request packet](https://github.com/ROCm/hrx-system/blob/main/loom/src/loom/serve/media/image_request.h)
+containing encoded/display geometry, orientation, source metadata and pixels.
+Its device program owns preprocessing and projection. Compatible images from
+the same request or different requests share finite cohorts; source work units
+and compatibility tags govern packing, not a native assumption of one image
+per invocation.
+
+Projected rows remain on the device. The language epoch imports producer
+readiness and gathers only the rows its current spans need. Source
+`encode_epoch` maps those rows and ordinary tokens into its input packet and
+owns the position information consumed by its numerical stages. The
+[media epoch contract](https://github.com/ROCm/hrx-system/blob/main/loom/src/loom/serve/service/text/media_epoch.h)
+defines the host control records separately from device features. Projector
+weights and completed features have independent lifetimes; live requests retain
+features only until their language consumers finish.
 
 ## Make parameters and temporaries visible
 

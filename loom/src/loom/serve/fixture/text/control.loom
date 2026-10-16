@@ -162,6 +162,15 @@ func.def public @bind_request(%state: buffer, %row: i32, %options: buffer) {
   func.return
 }
 
+func.def public @chat_image_limits() -> (i64, i64, i64, i64, i64) {
+  %maximum_count = scalar.constant 4 : i64
+  %compressed_bytes = scalar.constant 1048576 : i64
+  %width = scalar.constant 4096 : i64
+  %height = scalar.constant 4096 : i64
+  %pixels = scalar.constant 16777216 : i64
+  func.return %maximum_count, %compressed_bytes, %width, %height, %pixels : i64, i64, i64, i64, i64
+}
+
 func.def public @chat_begin(%request: buffer, %tools: buffer) -> (buffer, i64) {
   %c0 = index.constant 0 : offset
   %c0_index = index.constant 0 : index
@@ -227,7 +236,76 @@ func.def public @chat_begin(%request: buffer, %tools: buffer) -> (buffer, i64) {
   func.return %rendered_tools, %c0_i64 : buffer, i64
 }
 
-func.def public @chat_message(%raw: buffer, %role: buffer, %content: buffer, %reasoning: buffer, %calls: buffer, %state: i64, %ordinal: i64, %fields: i64) -> (buffer, i64) {
+func.def @ordered_content(%content: buffer, %parts: buffer, %part_count: i64) -> (buffer, buffer) {
+  %c0 = index.constant 0 : offset
+  %c0_index = index.constant 0 : index
+  %c1 = index.constant 1 : offset
+  %c1_index = index.constant 1 : index
+  %c0_i32 = scalar.constant 0 : i32
+  %c1_i32 = scalar.constant 1 : i32
+  %c24_index = index.constant 24 : index
+  %text_kind = scalar.constant 0 : i32
+  %image_marker = scalar.constant 120 : i32
+  %bounded_count64 = scalar.assume %part_count [range(%part_count, 1, 4096)] : i64
+  %count = index.cast %bounded_count64 : i64 to index
+  %count_bytes = index.cast %bounded_count64 : i64 to offset
+  %content_length = buffer.length %content
+  %capacity = index.add %content_length, %count_bytes : offset
+  %scratch = buffer.alloca<private> align(1) %capacity : buffer
+  %records = buffer.view %parts[%c0] : buffer -> view<[%count]x7xi32>
+  %image_count = scf.for %i = [%c0_index to %count step %c1_index](%images = %c0_index : index) -> (index) {
+    %kind = view.load %records[%i, 0] : view<[%count]x7xi32> -> i32
+    %is_text = scalar.cmpi eq, %kind, %text_kind : i32
+    %increment = scf.select %is_text, %c0_index, %c1_index : index
+    %next = index.add %images, %increment : index
+    scf.yield %next : index
+  }
+  %plan_size = index.mul %image_count, %c24_index : index
+  %plan_size64 = index.cast %plan_size : index to i64
+  %bounded_plan_size64 = scalar.assume %plan_size64 [range(%plan_size64, 0, 98304)] : i64
+  %plan_bytes = index.cast %bounded_plan_size64 : i64 to offset
+  %plan_offset32 = scalar.trunci %bounded_plan_size64 : i64 to i32
+  %plan = buffer.alloca<private> align(4) %plan_bytes : buffer
+  %markers = buffer.view %plan[%c0] : buffer -> view<[%image_count]x6xi32>
+  %used, %final_image = scf.for %i = [%c0_index to %count step %c1_index](%cursor = %c0 : offset, %image = %c0_index : index) -> (offset, index) {
+    %kind = view.load %records[%i, 0] : view<[%count]x7xi32> -> i32
+    %is_text = scalar.cmpi eq, %kind, %text_kind : i32
+    %next_cursor, %next_image = scf.if %is_text -> (offset, index) {
+      %source32 = view.load %records[%i, 1] : view<[%count]x7xi32> -> i32
+      %length32 = view.load %records[%i, 2] : view<[%count]x7xi32> -> i32
+      %source64 = scalar.extui %source32 : i32 to i64
+      %length64 = scalar.extui %length32 : i32 to i64
+      %source_bounded = scalar.assume %source64 [range(%source64, 0, 4294967295)] : i64
+      %length_bounded = scalar.assume %length64 [range(%length64, 0, 4294967295)] : i64
+      %source = index.cast %source_bounded : i64 to offset
+      %length = index.cast %length_bounded : i64 to offset
+      buffer.copy %content[%source], %scratch[%cursor], %length
+      %after_text = index.add %cursor, %length : offset
+      scf.yield %after_text, %image : offset, index
+    } else {
+      buffer.store.i8 %image_marker, %scratch[%cursor]
+      %image_index = view.load %records[%i, 3] : view<[%count]x7xi32> -> i32
+      %cursor64 = index.cast %cursor : offset to i64
+      %cursor32 = scalar.trunci %cursor64 : i64 to i32
+      %bounded_image = index.assume %image [range(%image, 0, 4095), lt(%image, %image_count)] : index
+      view.store %image_index, %markers[%bounded_image, 0] : i32, view<[%image_count]x6xi32>
+      view.store %cursor32, %markers[%bounded_image, 1] : i32, view<[%image_count]x6xi32>
+      view.store %c1_i32, %markers[%bounded_image, 2] : i32, view<[%image_count]x6xi32>
+      view.store %c1_i32, %markers[%bounded_image, 3] : i32, view<[%image_count]x6xi32>
+      view.store %plan_offset32, %markers[%bounded_image, 4] : i32, view<[%image_count]x6xi32>
+      view.store %c0_i32, %markers[%bounded_image, 5] : i32, view<[%image_count]x6xi32>
+      %after_image = index.add %cursor, %c1 : offset
+      %after_image_index = index.add %image, %c1_index : index
+      scf.yield %after_image, %after_image_index : offset, index
+    }
+    scf.yield %next_cursor, %next_image : offset, index
+  }
+  %ordered = buffer.alloca<private> align(1) %used : buffer
+  buffer.copy %scratch[%c0], %ordered[%c0], %used
+  func.return %ordered, %plan : buffer, buffer
+}
+
+func.def public @chat_message(%raw: buffer, %role: buffer, %content: buffer, %parts: buffer, %reasoning: buffer, %calls: buffer, %state: i64, %ordinal: i64, %fields: i64, %part_count: i64) -> (buffer, i64, buffer) {
   %c0_i64 = scalar.constant 0 : i64
   %plain = scalar.cmpi eq, %fields, %c0_i64 : i64
   func.call @check(%plain) : (i1)
@@ -243,8 +321,15 @@ func.def public @chat_message(%raw: buffer, %role: buffer, %content: buffer, %re
   %terminal = global.load @terminal : buffer
   %empty = global.load @empty : buffer
   %suffix = scf.select %assistant, %terminal, %empty : buffer
-  %fragment = func.call @join(%content, %suffix) : (buffer, buffer) -> (buffer)
-  func.return %fragment, %state : buffer, i64
+  %has_parts = scalar.cmpi ne, %part_count, %c0_i64 : i64
+  %ordered, %plan = scf.if %has_parts -> (buffer, buffer) {
+    %value, %markers = func.call @ordered_content(%content, %parts, %part_count) : (buffer, buffer, i64) -> (buffer, buffer)
+    scf.yield %value, %markers : buffer, buffer
+  } else {
+    scf.yield %content, %empty : buffer, buffer
+  }
+  %fragment = func.call @join(%ordered, %suffix) : (buffer, buffer) -> (buffer)
+  func.return %fragment, %state, %plan : buffer, i64, buffer
 }
 
 func.def public @chat_end(%state: i64) -> (buffer, i64) {
@@ -269,10 +354,13 @@ func.def public @parse_tools(%schemas: buffer, %response: buffer) -> (buffer) {
 // The host supplies the previous raw prediction separately. On EOS it replaces
 // the first assistant delimiter in this suffix; an open response consumes its
 // last ordinary token before that delimiter. Full replay encodes both normally.
-func.def public @prepare_input(%text: buffer, %format: i32, %boundary: i32, %capacity: i64) -> (buffer, i64) {
+func.def public @prepare_input(%text: buffer, %markers: buffer, %marker_count: i64, %format: i32, %boundary: i32, %capacity: i64) -> (buffer, i64, buffer) {
   %c0 = index.constant 0 : offset
+  %c0_index = index.constant 0 : index
   %c1 = index.constant 1 : offset
+  %c1_index = index.constant 1 : index
   %c0_i32 = scalar.constant 0 : i32
+  %c1_i32 = scalar.constant 1 : i32
   %c2_i32 = scalar.constant 2 : i32
   %c1_i64 = scalar.constant 1 : i64
   %length = buffer.length %text
@@ -313,7 +401,25 @@ func.def public @prepare_input(%text: buffer, %format: i32, %boundary: i32, %cap
   %fits32 = scalar.extui %fits : i1 to i32
   %error = global.load @overflow : buffer
   func.call @require(%fits32, %error) : (i32, buffer)
-  func.return %tokens, %count : buffer, i64
+  %bounded_marker_count = scalar.assume %marker_count [range(%marker_count, 0, 4096)] : i64
+  %image_count = index.cast %bounded_marker_count : i64 to index
+  %c12 = index.constant 12 : index
+  %span_size = index.mul %image_count, %c12 : index
+  %span_bytes = index.cast %span_size : index to offset
+  %spans = buffer.alloca<private> align(4) %span_bytes : buffer
+  %marker_records = buffer.view %markers[%c0] : buffer -> view<[%image_count]x6xi32>
+  %span_records = buffer.view %spans[%c0] : buffer -> view<[%image_count]x3xi32>
+  %shift = scf.select %terminated, %c1_i32, %c0_i32 : i32
+  scf.for %i = [%c0_index to %image_count step %c1_index] {
+    %image_index = view.load %marker_records[%i, 0] : view<[%image_count]x6xi32> -> i32
+    %marker_offset = view.load %marker_records[%i, 1] : view<[%image_count]x6xi32> -> i32
+    %feature_count = view.load %marker_records[%i, 3] : view<[%image_count]x6xi32> -> i32
+    %input_offset = scalar.subi %marker_offset, %shift : i32
+    view.store %image_index, %span_records[%i, 0] : i32, view<[%image_count]x3xi32>
+    view.store %input_offset, %span_records[%i, 1] : i32, view<[%image_count]x3xi32>
+    view.store %feature_count, %span_records[%i, 2] : i32, view<[%image_count]x3xi32>
+  }
+  func.return %tokens, %count, %spans : buffer, i64, buffer
 }
 
 func.def public @output_next(%response: buffer, %previous: i64, %state: i64, %phase: i32) -> (i64, i64, i64, i64) {
@@ -351,13 +457,79 @@ func.def public @encode_state(%bindings: buffer, %count: i32, %origins: buffer) 
   func.return
 }
 
-// Device packets retain the first cohort's eight-field plan records. Feedback
+func.def @encode_mixed_plan(%plan: buffer, %inputs: buffer, %record_begin: index, %span_count: i32, %input_count: i32, %packet_capacity: i32, %packet: buffer) {
+  %origin = index.constant 0 : offset
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %bounded_span_count = scalar.assume %span_count [range(%span_count, 0, 16)] : i32
+  %span_extent = index.cast %bounded_span_count : i32 to index
+  %bounded_input_count = scalar.assume %input_count [range(%input_count, 1, 524288)] : i32
+  %input_extent = index.cast %bounded_input_count : i32 to index
+  %bounded_packet_capacity = scalar.assume %packet_capacity [range(%packet_capacity, 1, 524288)] : i32
+  %packet_extent = index.cast %bounded_packet_capacity : i32 to index
+  %requests = buffer.view %plan[%origin] : buffer -> view<32x9xi32>
+  %ids = buffer.view %inputs[%origin] : buffer -> view<[%input_extent]xi32>
+  %records = buffer.view %packet[%origin] : buffer -> view<[%packet_extent]x8xi32>
+  %bounded_record_begin = index.assume %record_begin [range(%record_begin, 0, 16)] : index
+  scf.for %i = [%c0 to %span_extent step %c1] {
+    %request_value = index.add %bounded_record_begin, %i : index
+    %request = index.assume %request_value [range(%request_value, 0, 31)] : index
+    %input_begin32 = view.load %requests[%request, 4] : view<32x9xi32> -> i32
+    %input_length32 = view.load %requests[%request, 5] : view<32x9xi32> -> i32
+    %bounded_begin = scalar.assume %input_begin32 [range(%input_begin32, 0, 524287)] : i32
+    %bounded_length = scalar.assume %input_length32 [range(%input_length32, 0, 524288)] : i32
+    %input_begin = index.cast %bounded_begin : i32 to index
+    %input_length = index.cast %bounded_length : i32 to index
+    scf.for %j = [%c0 to %input_length step %c1] {
+      %position = index.add %input_begin, %j : index
+      %input_position = index.assume %position [lt(%position, %input_extent)] : index
+      %packet_position = index.assume %position [lt(%position, %packet_extent)] : index
+      %token = view.load %ids[%input_position] : view<[%input_extent]xi32> -> i32
+      view.store %token, %records[%packet_position, 0] : i32, view<[%packet_extent]x8xi32>
+    }
+  }
+  func.return
+}
+
+func.def @encode_mixed_media(%plan: buffer, %media_plan: buffer, %media_count: i32, %packet_capacity: i32, %packet: buffer) {
+  %origin = index.constant 0 : offset
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %bounded_media_count = scalar.assume %media_count [range(%media_count, 1, 524288)] : i32
+  %media_extent = index.cast %bounded_media_count : i32 to index
+  %bounded_packet_capacity = scalar.assume %packet_capacity [range(%packet_capacity, 1, 524288)] : i32
+  %packet_extent = index.cast %bounded_packet_capacity : i32 to index
+  %requests = buffer.view %plan[%origin] : buffer -> view<32x9xi32>
+  %media = buffer.view %media_plan[%origin] : buffer -> view<[%media_extent]x7xi32>
+  %records = buffer.view %packet[%origin] : buffer -> view<[%packet_extent]x8xi32>
+  scf.for %i = [%c0 to %media_extent step %c1] {
+    %plan_index32 = view.load %media[%i, 0] : view<[%media_extent]x7xi32> -> i32
+    %relative32 = view.load %media[%i, 1] : view<[%media_extent]x7xi32> -> i32
+    %feature_offset = view.load %media[%i, 2] : view<[%media_extent]x7xi32> -> i32
+    %feature_length = view.load %media[%i, 3] : view<[%media_extent]x7xi32> -> i32
+    %feature_index = view.load %media[%i, 6] : view<[%media_extent]x7xi32> -> i32
+    %bounded_plan_index = scalar.assume %plan_index32 [range(%plan_index32, 0, 31)] : i32
+    %bounded_relative = scalar.assume %relative32 [range(%relative32, 0, 524287)] : i32
+    %plan_index = index.cast %bounded_plan_index : i32 to index
+    %relative = index.cast %bounded_relative : i32 to index
+    %input_begin32 = view.load %requests[%plan_index, 4] : view<32x9xi32> -> i32
+    %bounded_begin = scalar.assume %input_begin32 [range(%input_begin32, 0, 524287)] : i32
+    %input_begin = index.cast %bounded_begin : i32 to index
+    %position = index.add %input_begin, %relative : index
+    %packet_position = index.assume %position [lt(%position, %packet_extent)] : index
+    view.store %feature_offset, %records[%packet_position, 1] : i32, view<[%packet_extent]x8xi32>
+    view.store %feature_length, %records[%packet_position, 2] : i32, view<[%packet_extent]x8xi32>
+    view.store %feature_index, %records[%packet_position, 3] : i32, view<[%packet_extent]x8xi32>
+  }
+  func.return
+}
+
+// Device packets retain the first cohort's nine-field plan records. Feedback
 // slots are span-indexed, including unselected input-only spans.
-func.def public @encode_epoch(%control_state: buffer, %plan: buffer, %inputs: buffer, %first_count: i32, %next_count: i32, %eos: i32, %metadata: buffer, %tokens: buffer) -> (i32) {
+func.def public @encode_epoch(%control_state: buffer, %plan: buffer, %inputs: buffer, %media_plan: buffer, %first_count: i32, %next_count: i32, %input_count: i32, %first_media_count: i32, %next_media_count: i32, %first_packet_capacity: i32, %next_packet_capacity: i32, %eos: i32, %metadata: buffer, %tokens: buffer) -> (i32) {
   %origin = index.constant 0 : offset
   %header_bytes = index.constant 16 : offset
-  %plan_bytes = index.constant 512 : offset
-  %token_bytes = buffer.length %tokens
+  %plan_bytes = index.constant 576 : offset
   %header = buffer.view %metadata[%origin] : buffer -> view<4xi32>
   %c0 = scalar.constant 0 : i32
   view.store %first_count, %header[0] : i32, view<4xi32>
@@ -365,54 +537,83 @@ func.def public @encode_epoch(%control_state: buffer, %plan: buffer, %inputs: bu
   view.store %c0, %header[2] : i32, view<4xi32>
   view.store %c0, %header[3] : i32, view<4xi32>
   buffer.copy %plan[%origin], %metadata[%header_bytes], %plan_bytes
-  buffer.copy %inputs[%origin], %tokens[%origin], %token_bytes
+  %media_count = scalar.addi %first_media_count, %next_media_count : i32
+  %has_media = scalar.cmpi ne, %media_count, %c0 : i32
+  scf.if %has_media {
+    %packet_bytes = buffer.length %tokens
+    buffer.fill %c0, %tokens[%origin], %packet_bytes : i32
+    %packet_capacity = scalar.addi %first_packet_capacity, %next_packet_capacity : i32
+    %c0_index = index.constant 0 : index
+    func.call @encode_mixed_plan(%plan, %inputs, %c0_index, %first_count, %input_count, %packet_capacity, %tokens) : (buffer, buffer, index, i32, i32, i32, buffer)
+    %has_next = scalar.cmpi ne, %next_count, %c0 : i32
+    scf.if %has_next {
+      %c16 = index.constant 16 : index
+      func.call @encode_mixed_plan(%plan, %inputs, %c16, %next_count, %input_count, %packet_capacity, %tokens) : (buffer, buffer, index, i32, i32, i32, buffer)
+    }
+    func.call @encode_mixed_media(%plan, %media_plan, %media_count, %packet_capacity, %tokens) : (buffer, buffer, i32, i32, buffer)
+  } else {
+    %token_bytes = buffer.length %tokens
+    buffer.copy %inputs[%origin], %tokens[%origin], %token_bytes
+  }
   func.return %first_count : i32
 }
 
-func.def public @publish_epoch(%plan: buffer, %count: i32, %verified: i32, %continues: i32, %next_speculative_mask: i32, %ordinary: buffer, %first_results: buffer, %next_results: buffer, %progress: buffer) {
+func.def public @publish_epoch(%plan: buffer, %media_plan: buffer, %count: i32, %first_media_count: i32, %next_media_count: i32, %verified: i32, %continues: i32, %next_speculative_mask: i32, %ordinary: buffer, %first_results: buffer, %next_results: buffer, %progress: buffer) {
   %origin = index.constant 0 : offset
   %c0 = index.constant 0 : index
   %c1 = index.constant 1 : index
   %c0_i32 = scalar.constant 0 : i32
   %c1_i32 = scalar.constant 1 : i32
+  %c2_i32 = scalar.constant 2 : i32
   %progress_bytes = buffer.length %progress
   buffer.fill %c0_i32, %progress[%origin], %progress_bytes : i32
   %bounded_count = scalar.assume %count [range(%count, 1, 16)] : i32
   %length = index.cast %bounded_count : i32 to index
-  %requests = buffer.view %plan[%origin] : buffer -> view<32x8xi32>
+  %requests = buffer.view %plan[%origin] : buffer -> view<32x9xi32>
   %outputs = buffer.view %ordinary[%origin] : buffer -> view<16xi32>
-  %published = buffer.view %progress[%origin] : buffer -> view<16x20xi32>
+  %published = buffer.view %progress[%origin] : buffer -> view<16x21xi32>
   scf.for %i = [%c0 to %length step %c1] {
-    %consumed = view.load %requests[%i, 0] : view<32x8xi32> -> i32
-    %flags = view.load %requests[%i, 5] : view<32x8xi32> -> i32
+    %consumed = view.load %requests[%i, 0] : view<32x9xi32> -> i32
+    %source_position = view.load %requests[%i, 2] : view<32x9xi32> -> i32
+    %source_advance = scalar.muli %consumed, %c2_i32 : i32
+    %next_source_position = scalar.addi %source_position, %source_advance : i32
+    %flags = view.load %requests[%i, 6] : view<32x9xi32> -> i32
     %bits = scalar.andi %flags, %c1_i32 : i32
     %selected = scalar.cmpi ne, %bits, %c0_i32 : i32
     %selected_count = scalar.extui %selected : i1 to i32
-    view.store %consumed, %published[%i, 0] : i32, view<16x20xi32>
-    view.store %consumed, %published[%i, 1] : i32, view<16x20xi32>
-    view.store %selected_count, %published[%i, 2] : i32, view<16x20xi32>
+    view.store %consumed, %published[%i, 0] : i32, view<16x21xi32>
+    view.store %consumed, %published[%i, 1] : i32, view<16x21xi32>
+    view.store %selected_count, %published[%i, 2] : i32, view<16x21xi32>
+    view.store %next_source_position, %published[%i, 4] : i32, view<16x21xi32>
     scf.if %selected {
       %token = view.load %outputs[%i] : view<16xi32> -> i32
-      view.store %token, %published[%i, 4] : i32, view<16x20xi32>
+      view.store %token, %published[%i, 5] : i32, view<16x21xi32>
     }
   }
   func.return
 }
 
-func.def public @step(%state: buffer, %initialize: i32, %residual: hal.buffer, %control: hal.buffer, %recurrent: hal.buffer, %attention: hal.buffer, %tokens: hal.buffer, %progress: hal.buffer) -> (i64) {
+func.def public @step(%state: buffer, %initialize: i32, %source_position: i32, %input_count: i32, %residual: hal.buffer, %control: hal.buffer, %recurrent: hal.buffer, %attention: hal.buffer, %tokens: hal.buffer, %progress: hal.buffer) -> (i64, i32) {
   %c0 = scalar.constant 0 : i32
+  %c2 = scalar.constant 2 : i32
   %c0_i64 = scalar.constant 0 : i64
+  %source_advance = scalar.muli %input_count, %c2 : i32
+  %next_source_position = scalar.addi %source_position, %source_advance : i32
   %error = global.load @unsupported : buffer
   func.call @require(%c0, %error) : (i32, buffer)
-  func.return %c0_i64 : i64
+  func.return %c0_i64, %next_source_position : i64, i32
 }
 
-func.def public @epoch(%control_state: buffer, %shape: i32, %proposes: i32, %verifies: i32, %span_count: i32, %output_count: i32, %epoch_count: i32, %continuation_shape: i32, %continuation_proposes: i32, %residual: hal.buffer, %metadata: hal.buffer, %origins: hal.buffer, %state: hal.buffer, %tokens: hal.buffer, %outputs: hal.buffer, %carry: hal.buffer, %committed: hal.buffer, %results: hal.buffer, %draft_cache: hal.buffer, %draft_origins: hal.buffer, %next_results: hal.buffer) -> (i64) {
+func.def public @epoch(%control_state: buffer, %shape: i32, %proposes: i32, %verifies: i32, %span_count: i32, %output_count: i32, %epoch_count: i32, %continuation_shape: i32, %continuation_proposes: i32, %first_media_count: i32, %next_media_count: i32, %residual: hal.buffer, %metadata: hal.buffer, %origins: hal.buffer, %state: hal.buffer, %tokens: hal.buffer, %outputs: hal.buffer, %carry: hal.buffer, %committed: hal.buffer, %results: hal.buffer, %draft_cache: hal.buffer, %draft_origins: hal.buffer, %next_results: hal.buffer) -> (i64) {
   %origin = index.constant 0 : offset
-  %view = buffer.view %control_state[%origin] : buffer -> view<1xi32>
-  %stage = view.load %view[0] : view<1xi32> -> i32
-  %completion = func.call @execute_6(%stage, %residual, %metadata, %origins, %state, %tokens, %outputs) : (i32, hal.buffer, hal.buffer, hal.buffer, hal.buffer, hal.buffer, hal.buffer) -> (i64)
+  %view = buffer.view %control_state[%origin] : buffer -> view<2xi32>
+  %text_stage = view.load %view[0] : view<2xi32> -> i32
+  %media_stage = view.load %view[1] : view<2xi32> -> i32
+  %media_count = scalar.addi %first_media_count, %next_media_count : i32
   %c0 = scalar.constant 0 : i32
+  %has_media = scalar.cmpi ne, %media_count, %c0 : i32
+  %stage = scf.select %has_media, %media_stage, %text_stage : i32
+  %completion = func.call @execute_6(%stage, %residual, %metadata, %origins, %state, %tokens, %outputs) : (i32, hal.buffer, hal.buffer, hal.buffer, hal.buffer, hal.buffer, hal.buffer) -> (i64)
   %c0_i64 = scalar.constant 0 : i64
   %c4_i64 = scalar.constant 4 : i64
   %count64 = scalar.extui %span_count : i32 to i64

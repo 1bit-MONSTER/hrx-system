@@ -85,6 +85,28 @@ iree_py_test(
 )
 endif()
 
+if(LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND LOOM_TARGET_ARCH_VM)
+loom_cc_test(
+  NAME
+    finite_component_test
+  DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/service/finite/testdata/component/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/service/finite/testdata/component/copy.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/service/finite/testdata/component/kernels.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/service/finite/testdata/component/policy.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/service/finite/testdata/component/prepare.loom"
+  DEPS
+    ::test_compiler
+    ::test_device
+    iree::testing::gtest_main
+    loom::serve::service::finite::component_tests
+  ENV
+    "LOOM_SERVE_TEST_COMPONENT_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/service/finite/testdata/component/prepare.loom}}"
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+)
+endif()
+
 if(LOOM_TARGET_ARCH_X86 AND LOOM_EXECUTE_IREE_HAL AND IREE_HAL_DRIVER_TASK AND LOOM_TARGET_ARCH_VM AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
 iree_py_test(
   NAME
@@ -310,6 +332,18 @@ loom_cc_test(
   NAME
     source_text_service_test
   DATA
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/config.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/embed.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/model.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/tokenizer.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/projector/control.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/projector/model.json"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/projector/prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/projector/project.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/projector/weighted_prepare.loom"
+    "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/projector/weighted_project.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/advance.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/control.loom"
     "${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/model.json"
@@ -322,7 +356,9 @@ loom_cc_test(
     iree::testing::gtest_main
     loom::serve::service::text::source_reference_tests
   ENV
+    "LOOM_SERVE_TEST_MEDIA_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/embedding/model.json}}"
     "LOOM_SERVE_TEST_MODEL_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/text/prepare.loom}}"
+    "LOOM_SERVE_TEST_PROJECTOR_SOURCE={{${PROJECT_SOURCE_DIR}/loom/src/loom/serve/fixture/projector/model.json}}"
   LABELS
     "iree-build-requirement=loom.target.arch.vm"
 )

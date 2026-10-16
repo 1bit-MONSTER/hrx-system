@@ -12,6 +12,54 @@ iree_add_all_subdirs()
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
+    component_tests
+  SRCS
+    "component_test.cc"
+  DEPS
+    ::component
+    ::model
+    ::result
+    iree::base
+    iree::hal
+    iree::task
+    iree::testing::gtest
+    iree::testing::temp_file
+    iree::vm
+    loom::serve::runtime::device
+    loom::serve::runtime::execution
+    loom::serve::runtime::host
+    loom::serve::runtime::parameter::residency
+    loom::serve::runtime::storage::memory
+    loom::serve::testing::device
+    loom::serve::testing::service_application
+  TESTONLY
+  ALWAYSLINK
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_library(
+  NAME
+    component
+  HDRS
+    "component.h"
+  SRCS
+    "component.c"
+  DEPS
+    ::model
+    iree::base
+    loom::serve::runtime::device
+    loom::serve::runtime::host::wake
+    loom::serve::runtime::parameter::residency
+    loom::serve::runtime::program::compilation
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_library(
+  NAME
     protocol
   HDRS
     "protocol.h"

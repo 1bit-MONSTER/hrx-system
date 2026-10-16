@@ -107,6 +107,24 @@ backing. Sessions grow by blocks; admission reserves their requested completion
 high-water. Shared prefixes can reference the same resident blocks. Changing
 deployment capacities requires a new registration; they are not process flags.
 
+### Image input
+
+A text definition can include an optional `image` object with required
+`prepare`, `control` and `assets` paths, plus source-owned `options` defaulting
+to `{}`. It uses the enclosing definition's `sources`, uploaded source package,
+path base and device. This is an input projector, distinct from an
+image-generation deployment.
+
+The component implements the finite request/cohort contract and owns independent
+preparation and parameter residency. Registration and ordinary text generation
+leave it dormant; an image not covered by retained state or an explicit
+[`component:"image"` activation](workflows/operate-model-server.md#control-weight-residency-independently)
+starts preparation. Primary warmup and pinning do not implicitly warm or pin it.
+The text source must also declare image limits and implement ordered media
+framing and mixed input. A declaration alone does not give a text program
+vision capability. See [image-conditioned text](model-programs.md#image-conditioned-text)
+for the source boundaries.
+
 ## Image and finite-vector definitions
 
 Image requires `checkpoint`, an asset directory interpreted by source

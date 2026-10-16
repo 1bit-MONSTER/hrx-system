@@ -27,6 +27,8 @@
 #include "loom/serve/runtime/program/program.h"
 #include "loom/serve/runtime/program/stage_set.h"
 #include "loom/serve/runtime/program/tokenizer_load.h"
+#include "loom/serve/service/text/epoch_plan.h"
+#include "loom/serve/service/text/media_epoch.h"
 #include "loom/serve/service/text/source.h"
 #include "loom/serve/service/text/stages.h"
 #include "loom/serve/service/text/state.h"
@@ -145,6 +147,8 @@ struct loom_serve_text_model_t {
     text_epoch_flags_t flags;
     // First-plan span bits with device-fed speculative continuation.
     uint32_t continued_speculative_mask;
+    // Exact mixed-input host plan and packet records; empty for text-only.
+    loom_serve_text_media_epoch_t media;
   } invocation;
 };
 
@@ -161,6 +165,8 @@ struct loom_serve_text_row_t {
   struct {
     // Source command and completed metric category.
     text_step_kind_t kind;
+    // Absolute source-owned position to publish after successful readiness.
+    uint32_t source_position;
     // Number of consumed inputs published only after readiness.
     iree_host_size_t token_count;
     // Submission start, including activation and feedback retirement.
@@ -222,7 +228,7 @@ static iree_status_t loom_serve_text_create_program(
     }
   }
   const iree_host_size_t lengths[TEXT_HOST_BUFFER_COUNT] = {
-      2 * TEXT_ROW_CAPACITY * 8 * sizeof(int32_t),
+      2 * TEXT_ROW_CAPACITY * TEXT_PLAN_FIELD_COUNT * sizeof(int32_t),
       input_length,
       runner->shape_count
           ? iree_hal_buffer_byte_length(runner->state.epoch.buffers[1])
@@ -239,7 +245,7 @@ static iree_status_t loom_serve_text_create_program(
       iree_any_bit_set(runner->state.flags, LOOM_SERVE_TEXT_STATE_FLAG_DRAFT)
           ? iree_hal_buffer_byte_length(runner->state.draft.next_results)
           : 0,
-      TEXT_ROW_CAPACITY * 20 * sizeof(int32_t),
+      TEXT_ROW_CAPACITY * TEXT_PROGRESS_FIELD_COUNT * sizeof(int32_t),
       TEXT_ROW_CAPACITY * 4 * sizeof(int64_t),
       runner->shape_count
           ? runner->state.storage.bytes[LOOM_SERVE_TEXT_STORAGE_TARGET_ORIGINS]
@@ -322,23 +328,27 @@ static iree_status_t loom_serve_text_create_program(
       .kind = IREE_VM_SIGNATURE_TYPE_KIND_SCALAR,
       .value.scalar = IREE_VM_SCALAR_TYPE_I64};
   const iree_vm_signature_type_t step_arguments[] = {
-      buffer,        i32,           device_buffer, device_buffer,
-      device_buffer, device_buffer, device_buffer, device_buffer};
+      buffer,        i32,           i32,           i32,
+      device_buffer, device_buffer, device_buffer, device_buffer,
+      device_buffer, device_buffer};
+  const iree_vm_signature_type_t step_results[] = {i64, i32};
   const iree_vm_signature_type_t encode_arguments[] = {
-      buffer, buffer, buffer, i32, i32, i32, buffer, buffer};
+      buffer, buffer, buffer, buffer, i32, i32,    i32,
+      i32,    i32,    i32,    i32,    i32, buffer, buffer};
   const iree_vm_signature_type_t publish_arguments[] = {
-      buffer, i32, i32, i32, i32, buffer, buffer, buffer, buffer};
+      buffer, buffer, i32,    i32,    i32,    i32,
+      i32,    i32,    buffer, buffer, buffer, buffer};
   const iree_vm_signature_type_t state_arguments[] = {buffer, i32, buffer};
   const iree_vm_signature_type_t epoch_arguments[] = {
       buffer,        i32,           i32,           i32,           i32,
-      i32,           i32,           i32,           i32,           device_buffer,
+      i32,           i32,           i32,           i32,           i32,
+      i32,           device_buffer, device_buffer, device_buffer, device_buffer,
       device_buffer, device_buffer, device_buffer, device_buffer, device_buffer,
-      device_buffer, device_buffer, device_buffer, device_buffer, device_buffer,
-      device_buffer};
+      device_buffer, device_buffer, device_buffer};
   const loom_serve_program_binding_t bindings[] = {
       {IREE_SVL("step"),
        {step_arguments, IREE_ARRAYSIZE(step_arguments)},
-       {&i64, 1},
+       {step_results, IREE_ARRAYSIZE(step_results)},
        &runner->step},
       {IREE_SVL("encode_epoch"),
        {encode_arguments, IREE_ARRAYSIZE(encode_arguments)},
@@ -869,6 +879,7 @@ iree_status_t loom_serve_text_model_free_retired(
   iree_allocator_free(model->host_allocator, model->parameters.plans);
   iree_allocator_free(model->host_allocator, model->parameters.sources);
   loom_serve_jit_release(model->jit);
+  loom_serve_text_media_epoch_deinitialize(&model->invocation.media);
   for (iree_host_size_t i = 0; i < TEXT_HOST_BUFFER_COUNT; ++i) {
     iree_vm_buffer_release(model->host.buffers[i]);
   }
@@ -1358,19 +1369,28 @@ static iree_status_t loom_serve_text_submit_step(
     loom_serve_execution_frontier_t* out_frontier) {
   loom_serve_text_model_t* model = row->model;
   IREE_RETURN_IF_ERROR(loom_serve_residency_acquire(model->residency));
-  iree_vm_variant_t arguments[TEXT_BINDING_COUNT + 2] = {
+  iree_vm_variant_t arguments[TEXT_BINDING_COUNT + 4] = {
       iree_vm_buffer_variant_from_ptr_borrowed(&model->source.vm_types,
                                                model->source.control_state),
       iree_vm_variant_from_i32(initialize),
+      iree_vm_variant_from_i32((int32_t)row->state->source_position),
+      iree_vm_variant_from_i32((int32_t)row->step.token_count),
   };
   for (iree_host_size_t i = 0; i < TEXT_BINDING_COUNT; ++i) {
-    arguments[i + 2] = iree_hal_buffer_variant_from_ptr_borrowed(
+    arguments[i + 4] = iree_hal_buffer_variant_from_ptr_borrowed(
         &model->source.types, row->state->buffers[i]);
   }
-  iree_vm_variant_t results[1] = {0};
+  iree_vm_variant_t results[2] = {0};
   iree_status_t status = loom_serve_text_invoke(
       model, model->step, iree_vm_variant_span_from_array(arguments),
       iree_vm_variant_span_from_array(results));
+  int32_t source_position = 0;
+  if (iree_status_is_ok(status)) {
+    status = iree_vm_i32_from_variant(results[1], &source_position);
+  }
+  if (iree_status_is_ok(status)) {
+    row->step.source_position = (uint32_t)source_position;
+  }
   iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
   const iree_hal_transfer_operation_t downloads[] = {
       {.type = IREE_HAL_TRANSFER_OPERATION_TYPE_DOWNLOAD,
@@ -1462,47 +1482,6 @@ iree_status_t loom_serve_text_row_bind_request(loom_serve_text_row_t* row,
                                 iree_vm_variant_span_empty());
 }
 
-// The semantic host record is {length, position, row, input_begin, input_count,
-// flags, output_credit, first_span}. Known IDs are copied once into a
-// contiguous host stream. Source owns all device packet offsets and selection
-// policy.
-static iree_host_size_t loom_serve_text_prepare_plan(
-    loom_serve_text_model_t* model, iree_host_size_t span_count,
-    const loom_serve_text_span_t* spans, const uint32_t* output_limits,
-    const uint32_t* first_indices, iree_host_size_t record_begin,
-    iree_host_size_t input_begin) {
-  for (iree_host_size_t i = 0; i < span_count; ++i) {
-    const loom_serve_text_span_t* span = &spans[i];
-    const bool generates =
-        iree_any_bit_set(span->flags, LOOM_SERVE_TEXT_SPAN_FLAG_PROPOSE);
-    const iree_host_size_t input_count =
-        span->token_ids && !(first_indices && generates)
-            ? (generates ? 1 : span->token_count)
-            : 0;
-    const uint32_t fields[] = {
-        (uint32_t)span->token_count,
-        (uint32_t)model->rows[span->row_index].state->position,
-        (uint32_t)span->row_index,
-        (uint32_t)input_begin,
-        (uint32_t)input_count,
-        span->flags,
-        output_limits ? output_limits[i] : 0,
-        first_indices ? first_indices[i] : (uint32_t)i,
-    };
-    uint8_t* record = model->host.bytes[TEXT_HOST_PLAN].data +
-                      (record_begin + i) * sizeof(fields);
-    for (iree_host_size_t j = 0; j < IREE_ARRAYSIZE(fields); ++j) {
-      iree_unaligned_store_le_u32(record + j * sizeof(uint32_t), fields[j]);
-    }
-    if (input_count) {
-      memcpy(model->host.bytes[TEXT_HOST_INPUT].data + input_begin * 4,
-             span->token_ids, input_count * sizeof(int32_t));
-    }
-    input_begin += input_count;
-  }
-  return input_begin;
-}
-
 iree_status_t loom_serve_text_model_submit_epoch(
     loom_serve_text_model_t* model, iree_host_size_t shape_index,
     iree_host_size_t span_count, const loom_serve_text_span_t* spans,
@@ -1539,6 +1518,7 @@ iree_status_t loom_serve_text_model_submit_epoch(
   const iree_host_size_t epoch_count = continuation ? 2 : 1;
   const iree_host_size_t width = model->draft_depth + 1;
   bool proposes = false;
+  bool has_media_input = false;
   for (iree_host_size_t i = 0; i < span_count; ++i) {
     const loom_serve_text_span_t* span = &spans[i];
     if (span->row_index >= model->row_count || !span->token_count ||
@@ -1566,6 +1546,10 @@ iree_status_t loom_serve_text_model_submit_epoch(
     }
     const bool generates =
         iree_any_bit_set(span->flags, LOOM_SERVE_TEXT_SPAN_FLAG_PROPOSE);
+    if (generates && span->media) {
+      return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
+                              "speculative text span %zu carries media", i);
+    }
     if (generates && (!output_limits || !output_limits[i])) {
       return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
                               "proposal requires a speculative text span");
@@ -1586,6 +1570,7 @@ iree_status_t loom_serve_text_model_submit_epoch(
     resident_mask |= resident_bit;
     token_count += span->token_count;
     proposes |= generates;
+    has_media_input |= span->media != NULL;
   }
 
   if (continuation) {
@@ -1627,6 +1612,7 @@ iree_status_t loom_serve_text_model_submit_epoch(
         if (limit < 3 || limit > 2 * width || span->token_count != width ||
             span->flags != (LOOM_SERVE_TEXT_SPAN_FLAG_SELECT |
                             LOOM_SERVE_TEXT_SPAN_FLAG_PROPOSE) ||
+            span->media ||
             !iree_any_bit_set(prior->flags, LOOM_SERVE_TEXT_SPAN_FLAG_SELECT) ||
             (output_limits[first] && limit > output_limits[first])) {
           return iree_make_status(IREE_STATUS_INVALID_ARGUMENT,
@@ -1656,6 +1642,7 @@ iree_status_t loom_serve_text_model_submit_epoch(
       next_indices[i] = first;
       next_mask |= bit;
       next_tokens += span->token_count;
+      has_media_input |= span->media != NULL;
     }
   }
 
@@ -1679,7 +1666,30 @@ iree_status_t loom_serve_text_model_submit_epoch(
                             "epoch needs %u KV blocks; %u are available",
                             required_blocks, model->state.cache.pool.available);
   }
-  IREE_RETURN_IF_ERROR(loom_serve_residency_acquire(model->residency));
+  loom_serve_text_media_epoch_t media = {0};
+  if (has_media_input) {
+    IREE_RETURN_IF_ERROR(loom_serve_text_media_epoch_initialize(
+        span_count, spans, shape.token_capacity,
+        continuation ? continuation->span_count : 0,
+        continuation ? continuation->spans : NULL,
+        continuation ? model->shapes[continuation->shape_index].token_capacity
+                     : 0,
+        model->host_allocator, &media));
+  }
+  iree_status_t status = iree_ok_status();
+  if (media.plan) {
+    status = loom_serve_execution_reserve_workspace(
+        model->execution, media.device_length,
+        LOOM_SERVE_TEXT_MEDIA_PACKET_FEATURE_ALIGNMENT);
+  }
+  if (iree_status_is_ok(status)) {
+    status = loom_serve_residency_acquire(model->residency);
+  }
+  if (!iree_status_is_ok(status)) {
+    loom_serve_text_media_epoch_deinitialize(&media);
+    return status;
+  }
+  model->invocation.media = media;
   model->invocation.span_count = span_count;
   model->invocation.flags = (output_limits ? TEXT_EPOCH_FLAG_VERIFY : 0) |
                             (continuation ? TEXT_EPOCH_FLAG_CONTINUATION : 0);
@@ -1687,20 +1697,31 @@ iree_status_t loom_serve_text_model_submit_epoch(
   for (iree_host_size_t i = 0; i < span_count; ++i) {
     model->invocation.row_indices[i] = spans[i].row_index;
   }
-  iree_status_t status =
+  status =
       loom_serve_text_state_grow(&model->state, span_count, spans, extents);
   if (iree_status_is_ok(status)) {
     status = loom_serve_text_publish_state_bindings(model);
   }
 
-  const iree_host_size_t input_count = loom_serve_text_prepare_plan(
-      model, span_count, spans, output_limits, NULL, 0, 0);
+  iree_host_size_t input_count = loom_serve_text_epoch_plan_write(
+      model->state.rows, model->host.bytes[TEXT_HOST_PLAN],
+      model->host.bytes[TEXT_HOST_INPUT], span_count, spans, output_limits,
+      NULL, 0, 0);
   if (continuation) {
-    loom_serve_text_prepare_plan(model, continuation->span_count,
-                                 continuation->spans,
-                                 continuation->output_limits, next_indices,
-                                 TEXT_ROW_CAPACITY, input_count);
+    input_count = loom_serve_text_epoch_plan_write(
+        model->state.rows, model->host.bytes[TEXT_HOST_PLAN],
+        model->host.bytes[TEXT_HOST_INPUT], continuation->span_count,
+        continuation->spans, continuation->output_limits, next_indices,
+        TEXT_ROW_CAPACITY, input_count);
   }
+  loom_serve_text_media_epoch_t* invocation_media = &model->invocation.media;
+  const bool has_media_packet = invocation_media->plan != NULL;
+  iree_vm_buffer_t* media_plan = has_media_packet
+                                     ? invocation_media->plan
+                                     : model->host.buffers[TEXT_HOST_INPUT];
+  iree_vm_buffer_t* input_packet = has_media_packet
+                                       ? invocation_media->packet_records
+                                       : model->host.buffers[TEXT_HOST_TOKENS];
   iree_vm_variant_t encode_arguments[] = {
       iree_vm_buffer_variant_from_ptr_borrowed(&model->source.vm_types,
                                                model->source.control_state),
@@ -1708,14 +1729,22 @@ iree_status_t loom_serve_text_model_submit_epoch(
           &model->source.vm_types, model->host.buffers[TEXT_HOST_PLAN]),
       iree_vm_buffer_variant_from_ptr_borrowed(
           &model->source.vm_types, model->host.buffers[TEXT_HOST_INPUT]),
+      iree_vm_buffer_variant_from_ptr_borrowed(&model->source.vm_types,
+                                               media_plan),
       iree_vm_variant_from_i32((int32_t)span_count),
       iree_vm_variant_from_i32(continuation ? (int32_t)continuation->span_count
                                             : 0),
+      iree_vm_variant_from_i32((int32_t)input_count),
+      iree_vm_variant_from_i32((int32_t)invocation_media->first_feature_count),
+      iree_vm_variant_from_i32((int32_t)invocation_media->next_feature_count),
+      iree_vm_variant_from_i32(
+          (int32_t)invocation_media->first_packet_capacity),
+      iree_vm_variant_from_i32((int32_t)invocation_media->next_packet_capacity),
       iree_vm_variant_from_i32(model->source.eos_token),
       iree_vm_buffer_variant_from_ptr_borrowed(
           &model->source.vm_types, model->host.buffers[TEXT_HOST_METADATA]),
-      iree_vm_buffer_variant_from_ptr_borrowed(
-          &model->source.vm_types, model->host.buffers[TEXT_HOST_TOKENS]),
+      iree_vm_buffer_variant_from_ptr_borrowed(&model->source.vm_types,
+                                               input_packet),
   };
   iree_vm_variant_t encode_results[1] = {0};
   if (iree_status_is_ok(status)) {
@@ -1729,30 +1758,55 @@ iree_status_t loom_serve_text_model_submit_epoch(
     status = iree_vm_i32_from_variant(encode_results[0], &output_count);
   }
   iree_vm_variant_span_reset(iree_vm_variant_span_from_array(encode_results));
-  const iree_hal_transfer_operation_t uploads[] = {
-      {.type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
-       .upload = {.source = model->host.bytes[TEXT_HOST_METADATA].data,
-                  .target_buffer = model->state.epoch.buffers[1],
-                  .length = model->host.bytes[TEXT_HOST_METADATA].data_length}},
-      {.type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
-       .upload = {.source = model->host.bytes[TEXT_HOST_TOKENS].data,
-                  .target_buffer = model->state.epoch.buffers[4],
-                  .length = model->host.bytes[TEXT_HOST_TOKENS].data_length}},
-  };
+  iree_hal_buffer_t* dynamic_input = NULL;
+  if (iree_status_is_ok(status) && has_media_packet) {
+    const iree_hal_pool_reservation_request_t request = {
+        .allocation_size = invocation_media->device_length,
+        .min_alignment = LOOM_SERVE_TEXT_MEDIA_PACKET_FEATURE_ALIGNMENT,
+    };
+    status =
+        loom_serve_execution_alloca(model->execution, &request, &dynamic_input);
+  }
+  iree_hal_buffer_t* device_input =
+      dynamic_input ? dynamic_input : model->state.epoch.buffers[4];
   uint64_t completion = 0;
-  if (iree_status_is_ok(status)) {
+  if (iree_status_is_ok(status) && has_media_packet) {
+    status = loom_serve_text_media_epoch_enqueue(
+        invocation_media, model->execution,
+        iree_make_const_byte_span(
+            model->host.bytes[TEXT_HOST_METADATA].data,
+            model->host.bytes[TEXT_HOST_METADATA].data_length),
+        model->state.epoch.buffers[1], device_input, &completion);
+  } else if (iree_status_is_ok(status)) {
+    const iree_hal_transfer_operation_t uploads[] = {
+        {.type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
+         .upload = {.source = model->host.bytes[TEXT_HOST_METADATA].data,
+                    .target_buffer = model->state.epoch.buffers[1],
+                    .length =
+                        model->host.bytes[TEXT_HOST_METADATA].data_length}},
+        {.type = IREE_HAL_TRANSFER_OPERATION_TYPE_UPLOAD,
+         .upload = {.source = model->host.bytes[TEXT_HOST_TOKENS].data,
+                    .target_buffer = model->state.epoch.buffers[4],
+                    .length = model->host.bytes[TEXT_HOST_TOKENS].data_length}},
+    };
     status = loom_serve_execution_transfer(
         model->execution, IREE_ARRAYSIZE(uploads), uploads, &completion);
   }
   iree_hal_buffer_t* buffers[] = {
-      model->state.residual,         model->state.epoch.buffers[1],
-      model->state.epoch.buffers[2], model->state.row_arena,
-      model->state.epoch.buffers[4], model->state.epoch.buffers[5],
-      model->state.draft.carry,      model->state.draft.committed,
-      model->state.draft.results,    model->state.draft.cache,
-      model->state.draft.row_table,  model->state.draft.next_results,
+      model->state.residual,
+      model->state.epoch.buffers[1],
+      model->state.epoch.buffers[2],
+      model->state.row_arena,
+      device_input,
+      model->state.epoch.buffers[5],
+      model->state.draft.carry,
+      model->state.draft.committed,
+      model->state.draft.results,
+      model->state.draft.cache,
+      model->state.draft.row_table,
+      model->state.draft.next_results,
   };
-  iree_vm_variant_t arguments[9 + IREE_ARRAYSIZE(buffers)] = {
+  iree_vm_variant_t arguments[11 + IREE_ARRAYSIZE(buffers)] = {
       iree_vm_buffer_variant_from_ptr_borrowed(&model->source.vm_types,
                                                model->source.control_state),
       iree_vm_variant_from_i32((int32_t)shape_index),
@@ -1764,9 +1818,11 @@ iree_status_t loom_serve_text_model_submit_epoch(
       iree_vm_variant_from_i32(continuation ? (int32_t)continuation->shape_index
                                             : 0),
       iree_vm_variant_from_i32(continued_speculative_mask != 0),
+      iree_vm_variant_from_i32((int32_t)invocation_media->first_feature_count),
+      iree_vm_variant_from_i32((int32_t)invocation_media->next_feature_count),
   };
   for (iree_host_size_t i = 0; i < IREE_ARRAYSIZE(buffers); ++i) {
-    arguments[9 + i] = iree_hal_buffer_variant_from_ptr_borrowed(
+    arguments[11 + i] = iree_hal_buffer_variant_from_ptr_borrowed(
         &model->source.types, buffers[i]);
   }
   iree_vm_variant_t results[1] = {0};
@@ -1776,6 +1832,11 @@ iree_status_t loom_serve_text_model_submit_epoch(
                                     iree_vm_variant_span_from_array(results));
   }
   iree_vm_variant_span_reset(iree_vm_variant_span_from_array(results));
+  if (iree_status_is_ok(status) && dynamic_input) {
+    status = loom_serve_execution_dealloca(model->execution, dynamic_input,
+                                           &completion);
+  }
+  iree_hal_buffer_release(dynamic_input);
   if (iree_status_is_ok(status)) {
     *out_frontier = loom_serve_execution_frontier(model->execution);
   }
@@ -1784,10 +1845,17 @@ iree_status_t loom_serve_text_model_submit_epoch(
 
 iree_status_t loom_serve_text_model_complete_epoch(
     loom_serve_text_model_t* model, loom_serve_text_result_t* out_results) {
+  const loom_serve_text_media_epoch_t* media = &model->invocation.media;
+  iree_vm_buffer_t* media_plan =
+      media->plan ? media->plan : model->host.buffers[TEXT_HOST_INPUT];
   iree_vm_variant_t publish_arguments[] = {
       iree_vm_buffer_variant_from_ptr_borrowed(
           &model->source.vm_types, model->host.buffers[TEXT_HOST_PLAN]),
+      iree_vm_buffer_variant_from_ptr_borrowed(&model->source.vm_types,
+                                               media_plan),
       iree_vm_variant_from_i32((int32_t)model->invocation.span_count),
+      iree_vm_variant_from_i32((int32_t)media->first_feature_count),
+      iree_vm_variant_from_i32((int32_t)media->next_feature_count),
       iree_vm_variant_from_i32(
           iree_any_bit_set(model->invocation.flags, TEXT_EPOCH_FLAG_VERIFY)),
       iree_vm_variant_from_i32(iree_any_bit_set(model->invocation.flags,
@@ -1808,23 +1876,17 @@ iree_status_t loom_serve_text_model_complete_epoch(
                              iree_vm_variant_span_from_array(publish_arguments),
                              iree_vm_variant_span_empty()));
   for (iree_host_size_t i = 0; i < model->invocation.span_count; ++i) {
-    const uint8_t* record =
-        model->host.bytes[TEXT_HOST_PROGRESS].data + i * 20 * sizeof(int32_t);
-    loom_serve_text_result_t result = {
-        .consumed_count = iree_unaligned_load_le_u32(record),
-        .known_count = iree_unaligned_load_le_u32(record + 4),
-        .output_count = iree_unaligned_load_le_u32(record + 8),
-        .verification_count = iree_unaligned_load_le_u32(record + 12),
-    };
-    for (iree_host_size_t j = 0; j < IREE_ARRAYSIZE(result.tokens); ++j) {
-      result.tokens[j] =
-          (int32_t)iree_unaligned_load_le_u32(record + 16 + j * 4);
-    }
+    const uint8_t* record = model->host.bytes[TEXT_HOST_PROGRESS].data +
+                            i * TEXT_PROGRESS_FIELD_COUNT * sizeof(int32_t);
+    loom_serve_text_result_t result;
+    uint32_t source_position = 0;
+    loom_serve_text_epoch_plan_read_progress(record, &result, &source_position);
     if (out_results) {
       out_results[i] = result;
     }
     loom_serve_text_row_t* row = &model->rows[model->invocation.row_indices[i]];
     row->state->position += result.consumed_count;
+    row->state->source_position = source_position;
     loom_serve_text_state_row_trim(row->state);
     row->has_prediction = result.output_count != 0;
     if (row->has_prediction) {
@@ -1835,6 +1897,7 @@ iree_status_t loom_serve_text_model_complete_epoch(
     }
   }
   model->invocation.span_count = 0;
+  loom_serve_text_media_epoch_deinitialize(&model->invocation.media);
   loom_serve_residency_release(model->residency);
   return iree_ok_status();
 }
@@ -1997,6 +2060,7 @@ iree_status_t loom_serve_text_row_complete_step(loom_serve_text_row_t* row) {
     IREE_RETURN_IF_ERROR(loom_serve_text_model_complete_epoch(model, NULL));
   } else {
     row->state->position += row->step.token_count;
+    row->state->source_position = row->step.source_position;
     row->has_prediction = true;
     loom_serve_residency_release(model->residency);
   }

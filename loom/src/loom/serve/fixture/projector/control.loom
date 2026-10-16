@@ -1,0 +1,131 @@
+func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+
+func.decl import("runner") @execute_2(%stage: i32, %input: hal.buffer, %output: hal.buffer) -> (i64)
+
+global.rodata.def @invalid = bytes("70726f6a6563746f72206669787475726520726571756972657320312e2e3634206665617475726520726f7773")
+
+func.def @check(%condition: i1) {
+  %condition32 = scalar.extui %condition : i1 to i32
+  %diagnostic = global.load @invalid : buffer
+  func.call @require(%condition32, %diagnostic) : (i32, buffer)
+  func.return
+}
+
+// Preserve the native RGB/RGBA packet and report additive projection work.
+func.def public @prepare_request(%state: buffer, %request: buffer) -> (buffer, i64, i64) {
+  %origin = index.constant 0 : offset
+  %header = buffer.view %request[%origin] : buffer -> view<16xi32>
+  %rows = view.load %header[7] : view<16xi32> -> i32
+  %c0_i32 = scalar.constant 0 : i32
+  %limit = scalar.constant 64 : i32
+  %positive = scalar.cmpi ugt, %rows, %c0_i32 : i32
+  %bounded = scalar.cmpi ule, %rows, %limit : i32
+  %valid = scalar.andi %positive, %bounded : i1
+  func.call @check(%valid) : (i1)
+  %units = scalar.extui %rows : i32 to i64
+  %tag = scalar.constant 0 : i64
+  func.return %request, %units, %tag : buffer, i64, i64
+}
+
+// One dispatch consumes the entire cohort. Each feature retains its image's
+// pixel offset and channel count; rows are not forced into separate batches.
+func.def public @prepare_batch(%state: buffer, %tags: buffer, %ranges: buffer, %packed: buffer) -> (i32, buffer, buffer) {
+  %origin = index.constant 0 : offset
+  %c0 = index.constant 0 : index
+  %c1 = index.constant 1 : index
+  %c16_bytes = index.constant 16 : offset
+  %c24_bytes = index.constant 24 : offset
+  %c32_bytes = index.constant 32 : offset
+  %pixel_base = index.constant 1040 : offset
+  %c0_i32 = scalar.constant 0 : i32
+  %c0_i64 = scalar.constant 0 : i64
+  %c4_i64 = scalar.constant 4 : i64
+  %c16_i64 = scalar.constant 16 : i64
+  %range_bytes = buffer.length %ranges
+  %range_length = index.cast %range_bytes : offset to i64
+  %request_count_value = scalar.divui %range_length, %c16_i64 : i64
+  %bounded_requests = scalar.assume %request_count_value [range(%request_count_value, 1, 64)] : i64
+  %request_count = index.cast %bounded_requests : i64 to index
+  %request_count32 = index.cast %request_count : index to i32
+  %range_view = buffer.view %ranges[%origin] : buffer -> view<[%request_count]x2xi64>
+  %rows64 = scf.for %i = [%c0 to %request_count step %c1](%total = %c0_i64 : i64) -> (i64) {
+    %offset64 = view.load %range_view[%i, 0] : view<[%request_count]x2xi64> -> i64
+    %bounded_offset = scalar.assume %offset64 [range(%offset64, 0, 9223372036854775807)] : i64
+    %offset = index.cast %bounded_offset : i64 to offset
+    %header = buffer.view %packed[%offset] : buffer -> view<16xi32>
+    %count32 = view.load %header[7] : view<16xi32> -> i32
+    %count64 = scalar.extui %count32 : i32 to i64
+    %next = scalar.addi %total, %count64 : i64
+    scf.yield %next : i64
+  }
+  %maximum = scalar.constant 64 : i64
+  %fits = scalar.cmpi ule, %rows64, %maximum : i64
+  func.call @check(%fits) : (i1)
+  %bounded_rows = scalar.assume %rows64 [range(%rows64, 1, 64)] : i64
+  %rows = index.cast %bounded_rows : i64 to index
+  %rows32 = index.cast %rows : index to i32
+  %packed_bytes = buffer.length %packed
+  %payload_bytes = index.add %pixel_base, %packed_bytes : offset
+  %payload = buffer.alloca<private> align(16) %payload_bytes : buffer
+  buffer.copy %packed[%origin], %payload[%pixel_base], %packed_bytes
+  %header = buffer.view %payload[%origin] : buffer -> view<4xi32>
+  view.store %rows32, %header[0] : i32, view<4xi32>
+  %work = buffer.view %payload[%c16_bytes] : buffer -> view<64x4xi32>
+  %request_bytes = index.scale %request_count, %c24_bytes : index, offset -> offset
+  %row_base = index.add %c32_bytes, %request_bytes : offset
+  %output_bytes = index.scale %rows, %c16_bytes : index, offset -> offset
+  %plan_bytes = index.add %row_base, %output_bytes : offset
+  %plan = buffer.alloca<private> align(8) %plan_bytes : buffer
+  %plan_header = buffer.view %plan[%origin] : buffer -> view<4xi64>
+  %extent = index.cast %output_bytes : offset to i64
+  view.store %extent, %plan_header[0] : i64, view<4xi64>
+  view.store %extent, %plan_header[1] : i64, view<4xi64>
+  view.store %bounded_requests, %plan_header[2] : i64, view<4xi64>
+  view.store %rows64, %plan_header[3] : i64, view<4xi64>
+  %requests = buffer.view %plan[%c32_bytes] : buffer -> view<[%request_count]x3xi64>
+  %records = buffer.view %plan[%row_base] : buffer -> view<[%rows]x2xi64>
+  %end = scf.for %i = [%c0 to %request_count step %c1](%begin = %c0 : index) -> (index) {
+    %source64 = view.load %range_view[%i, 0] : view<[%request_count]x2xi64> -> i64
+    %bounded_source = scalar.assume %source64 [range(%source64, 0, 9223372036854775807)] : i64
+    %source = index.cast %bounded_source : i64 to offset
+    %image = buffer.view %packed[%source] : buffer -> view<16xi32>
+    %count32 = view.load %image[7] : view<16xi32> -> i32
+    %offset32 = view.load %image[10] : view<16xi32> -> i32
+    %format = view.load %image[12] : view<16xi32> -> i32
+    %bounded_count = scalar.assume %count32 [range(%count32, 1, 64)] : i32
+    %count = index.cast %bounded_count : i32 to index
+    %count64 = scalar.extui %count32 : i32 to i64
+    %offset64 = scalar.extui %offset32 : i32 to i64
+    %bounded_offset = scalar.assume %offset64 [range(%offset64, 0, 4294967295)] : i64
+    %offset = index.cast %bounded_offset : i64 to offset
+    %relative = index.add %source, %offset : offset
+    %absolute = index.add %pixel_base, %relative : offset
+    %absolute64 = index.cast %absolute : offset to i64
+    %absolute32 = scalar.trunci %absolute64 : i64 to i32
+    %begin64 = index.cast %begin : index to i64
+    view.store %begin64, %requests[%i, 0] : i64, view<[%request_count]x3xi64>
+    view.store %count64, %requests[%i, 1] : i64, view<[%request_count]x3xi64>
+    view.store %c0_i64, %requests[%i, 2] : i64, view<[%request_count]x3xi64>
+    scf.for %j = [%c0 to %count step %c1] {
+      %row_value = index.add %begin, %j : index
+      %row = index.assume %row_value [range(%row_value, 0, 63), lt(%row_value, %rows)] : index
+      %ordinal = index.cast %j : index to i32
+      view.store %absolute32, %work[%row, 0] : i32, view<64x4xi32>
+      view.store %ordinal, %work[%row, 1] : i32, view<64x4xi32>
+      view.store %format, %work[%row, 2] : i32, view<64x4xi32>
+      view.store %request_count32, %work[%row, 3] : i32, view<64x4xi32>
+      %byte_offset = index.scale %row, %c16_bytes : index, offset -> offset
+      %byte_offset64 = index.cast %byte_offset : offset to i64
+      view.store %byte_offset64, %records[%row, 0] : i64, view<[%rows]x2xi64>
+      view.store %c4_i64, %records[%row, 1] : i64, view<[%rows]x2xi64>
+    }
+    %next = index.add %begin, %count : index
+    scf.yield %next : index
+  }
+  func.return %c0_i32, %payload, %plan : i32, buffer, buffer
+}
+
+func.def public @run(%stage: i32, %input: hal.buffer, %output: hal.buffer) {
+  %work = func.call @execute_2(%stage, %input, %output) : (i32, hal.buffer, hal.buffer) -> (i64)
+  func.return
+}

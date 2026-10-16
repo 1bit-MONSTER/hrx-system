@@ -14,8 +14,8 @@ extern "C" {
 #endif
 
 // Borrowed completed frontier, stable during one exclusive preparation call.
-// Its immutable transcript storage identifies the exact completed history,
-// independently of the row or cache entry currently holding native state.
+// Its immutable transcript and media identity describe the exact completed
+// history independently of the row or cache entry holding native state.
 typedef struct loom_serve_text_input_prefix_t {
   // Canonical transcript; null means no retained continuation is available.
   const loom_serve_text_chat_completion_t* completion;
@@ -34,13 +34,18 @@ typedef struct loom_serve_text_input_t {
   int32_t* tokens;
   // Number of token IDs in tokens.
   iree_host_size_t count;
+  // Owned checked media spans in source token order.
+  loom_serve_text_media_span_t* media_spans;
+  // Number of populated media spans.
+  iree_host_size_t media_span_count;
   // Owned immutable history identity; null for full replay.
   iree_vm_buffer_t* history;
   // Consumed native positions preceding tokens.
   iree_host_size_t retained_count;
 } loom_serve_text_input_t;
 
-// Releases compact tokens and the host history reference; accepts zero state.
+// Releases compact tokens, media spans and the host history reference; accepts
+// zero state.
 void loom_serve_text_input_deinitialize(loom_serve_text_input_t* input,
                                         iree_allocator_t host_allocator);
 
@@ -52,7 +57,8 @@ bool loom_serve_text_input_is_current(const loom_serve_text_input_t* input,
 
 // Prepares once per actual history identity. Capacity retries with the same
 // history reuse tokens; eviction prepares full replay instead of using stale
-// suffix tokens. Required prefixes reject mismatching canonical histories.
+// suffix tokens. Required prefixes reject mismatching canonical histories or
+// ordered media semantics.
 // Scratch holds context_capacity IDs and is borrowed only during this call.
 // Input remains unchanged on failure; new storage uses host_allocator.
 iree_status_t loom_serve_text_input_prepare(

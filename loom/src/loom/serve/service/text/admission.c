@@ -27,7 +27,9 @@ void loom_serve_text_admission_remove(loom_serve_text_admission_t* admission,
   if (!index) {
     admission->overtakes = 0;
   }
-  if (index <= admission->cursor) {
+  if (index < admission->cursor) {
+    --admission->cursor;
+  } else if (index == admission->cursor) {
     admission->cursor = 0;
   }
 }

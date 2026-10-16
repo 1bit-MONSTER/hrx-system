@@ -18,6 +18,33 @@
 extern "C" {
 #endif
 
+// Independently controlled roles declared by the model document. Primary is
+// the default for unqualified parameter controls. Image denotes a text input
+// projector, not the primary computation of an image-generation service.
+typedef enum loom_serve_model_component_e {
+  LOOM_SERVE_MODEL_COMPONENT_PRIMARY = 0,
+  LOOM_SERVE_MODEL_COMPONENT_IMAGE,
+  LOOM_SERVE_MODEL_COMPONENT_COUNT,
+} loom_serve_model_component_t;
+
+// Owner-only observation of one component. Snapshots copy accounting; strings,
+// diagnostics, and compilation evidence remain borrowed through this owner
+// turn. Observation never prepares or activates a component.
+typedef struct loom_serve_registration_parameters_t {
+  // Static preparation/lifetime phase name, separate from weight activation.
+  const char* phase;
+  // A residency exists and parameters below describes it.
+  bool prepared;
+  // Quiescent release is supported, possibly by retiring an optional model.
+  bool deactivatable;
+  // Copied parameter-only accounting, meaningful only when prepared is true.
+  loom_serve_residency_snapshot_t parameters;
+  // Borrowed preparation failure retained by the component; never consumed.
+  iree_status_t status;
+  // Borrowed cumulative compilation evidence, or NULL for no separate report.
+  const loom_serve_compilation_report_t* compilation;
+} loom_serve_registration_parameters_t;
+
 // A modality's owned preparation/retirement operation. All methods run on the
 // serialized serving owner and never wait. Wake callbacks only schedule that
 // owner. The declaration and factory remain borrowed through destruction.
@@ -40,26 +67,35 @@ typedef struct loom_serve_registration_t {
   // Optional copied parameter state, queried only after successful prepare and
   // before retire. The adapter owns its actual parameter groups; neither the
   // registry nor the HTTP client gains a borrowed model or pool handle.
-  loom_serve_residency_snapshot_t (*parameters)(void* self);
+  loom_serve_registration_parameters_t (*parameters)(
+      void* self, loom_serve_model_component_t component);
   // Optional weight-only eviction policy. Applied on successful preparation
   // and ready policy changes, without allocation, submission or waiting.
   // Unpinning preserves operation-owned protection and all mutable state.
-  void (*set_pinned)(void* self, bool pinned);
+  void (*set_pinned)(void* self, loom_serve_model_component_t component,
+                     bool pinned);
   // Advances explicit warmup after admitted service activity has retired.
   // Capacity waiting owns no device work; submitted readiness owes an owner
   // wake. Cancellation withdraws admission or joins accepted work. Terminal
-  // failure preserves model resources until normal retirement and terminates
-  // shared serving: admission may already have reclaimed another model's
-  // backing. Paired with parameters; no model handle escapes the adapter.
-  iree_status_t (*activate)(void* self, loom_serve_activation_flags_t flags,
-                            loom_serve_activation_phase_t* out_phase);
+  // native failure preserves resources until retirement and terminates shared
+  // serving. A source preparation failure instead transfers a diagnostic to
+  // out_component_status and completes without failing the parent service;
+  // the component retains its own diagnostic for observation. The registry
+  // checks the factory's shared failure channel before keeping service open.
+  // Paired with parameters; no model handle escapes the adapter.
+  iree_status_t (*activate)(void* self, loom_serve_model_component_t component,
+                            loom_serve_activation_flags_t flags,
+                            loom_serve_activation_phase_t* out_phase,
+                            iree_status_t* out_component_status);
   // Releases reloadable parameter storage after admitted service activity has
-  // retired. Preserves programs and mutable state. Paired with parameters and
-  // called only when its snapshot reports elastic backing. Nonterminal success
-  // owes an owner wake after native release; repeated calls join that
-  // operation. Failure terminates shared serving through normal owner draining.
-  // No wait.
-  iree_status_t (*deactivate)(void* self, bool* out_complete);
+  // retired. Preserves primary mutable state. Optional models may retire and
+  // recreate fixed backing. Nonterminal success owes an owner wake after native
+  // release or ownership retirement; repeated calls join that operation.
+  // Called only when its snapshot permits deactivation. No wait.
+  // Failure terminates shared serving through normal owner draining.
+  iree_status_t (*deactivate)(void* self,
+                              loom_serve_model_component_t component,
+                              bool* out_complete);
   // Frees the operation after successful retirement; no model resources remain.
   void (*destroy)(void* self);
 } loom_serve_registration_t;
@@ -133,10 +169,12 @@ typedef struct loom_serve_registered_model_t {
   loom_serve_removal_t removal;
   // Reversible admission gate, not a residency or cancellation flag.
   bool closed;
-  // Persistent weight-only retention, applied by the adapter after preparation.
-  // Does not activate parameters, retain sessions or promise admission
-  // progress.
-  bool pinned;
+  // Weight-only retention bits indexed by loom_serve_model_component_t.
+  // Applied after preparation without activating parameters, retaining
+  // sessions, or promising admission progress.
+  uint8_t pinned_components;
+  // loom_serve_model_component_t selected by the current or last operation.
+  uint8_t parameter_component;
   // Mutually exclusive residency intent, independent of its HTTP connection.
   // Removal withdraws waiting admission and joins submitted activation first.
   loom_serve_parameter_operation_t parameter_operation;
@@ -207,27 +245,42 @@ iree_status_t loom_serve_registry_register(
 iree_status_t loom_serve_registry_remove(loom_serve_registered_model_t* model,
                                          loom_serve_removal_t mode);
 
-// Requests parameter deactivation while preserving the prepared model and its
-// retained sessions/checkpoints. Requires closed admission and a healthy ready
-// unpinned elastic residency; an unpinned metadata-only declaration is cold.
-// Repeated requests are idempotent. Advance completes after admitted work,
-// and native release retire, without waiting for either on the serving owner.
+// Requests selected-component release while preserving primary mutable state
+// and retained sessions/checkpoints. Requires closed admission and an unpinned
+// component whose adapter supports release; a metadata-only declaration is
+// already cold. Elastic primary backing releases weights without re-JIT;
+// optional fixed-backed components may instead retire and prepare on demand.
+// Repeated requests for the same component are idempotent. Advance completes
+// after admitted work, native release, and component ownership retire, without
+// blocking the owner or unrelated services.
 iree_status_t loom_serve_registry_deactivate(
-    loom_serve_registered_model_t* model);
+    loom_serve_registered_model_t* model,
+    loom_serve_model_component_t component);
 
 // Warms a healthy managed registration while leaving admission closed. Declared
 // models first prepare; ready models finish admitted work before activation.
-// Duplicates are idempotent. Opposite operations conflict; removal cancels the
-// intent but still joins accepted readiness before model retirement.
+// Primary activation does not prepare optional components. Image activation
+// prepares that component lazily and retains source failures locally.
+// Duplicates for the same component are idempotent. Other residency operations
+// conflict; removal cancels intent but joins accepted work before retirement.
 iree_status_t loom_serve_registry_activate(
-    loom_serve_registered_model_t* model);
+    loom_serve_registered_model_t* model,
+    loom_serve_model_component_t component);
 
 // Changes idempotent parameter-eviction policy on a healthy managed model,
 // including metadata-only declarations. Does not load, allocate, alter
 // admission or cancel accepted work. Pinning conflicts with deactivation;
 // unregister discards policy only with the model's normal resource retirement.
 iree_status_t loom_serve_registry_set_pinned(
-    loom_serve_registered_model_t* model, bool pinned);
+    loom_serve_registered_model_t* model,
+    loom_serve_model_component_t component, bool pinned);
+
+// Cold declaration queries. No source access is needed to name these roles.
+const char* loom_serve_model_component_name(
+    loom_serve_model_component_t component);
+bool loom_serve_registry_has_component(
+    const loom_serve_registered_model_t* model,
+    loom_serve_model_component_t component);
 
 // Returns STOPPING only for abort or after graceful admitted work has finished.
 // The router still owns held claims and external tokenizer lifetimes.

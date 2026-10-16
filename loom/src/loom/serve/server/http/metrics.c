@@ -65,30 +65,40 @@ static iree_status_t loom_serve_http_metrics_identity(
   return iree_ok_status();
 }
 
-static iree_status_t loom_serve_http_metrics_sample(
+static iree_status_t loom_serve_http_metrics_sample_begin(
     iree_string_builder_t* output, const char* metric,
-    const loom_serve_registered_model_t* model, const char* phase,
-    double value) {
-  if (!model->service.name.size) {
-    return iree_ok_status();
-  }
+    const loom_serve_registered_model_t* model, const char* label,
+    const char* value) {
   IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
       output, "loom_serve_model_%s{", metric));
   IREE_RETURN_IF_ERROR(loom_serve_http_metrics_identity(output, model));
-  if (phase) {
-    IREE_RETURN_IF_ERROR(iree_string_builder_append_cstring(output, ",phase="));
+  if (label) {
     IREE_RETURN_IF_ERROR(
-        loom_serve_http_metrics_label(output, iree_make_cstring_view(phase)));
+        iree_string_builder_append_format(output, ",%s=", label));
+    IREE_RETURN_IF_ERROR(
+        loom_serve_http_metrics_label(output, iree_make_cstring_view(value)));
   }
+  return iree_ok_status();
+}
+
+static iree_status_t loom_serve_http_metrics_sample(
+    iree_string_builder_t* output, const char* metric,
+    const loom_serve_registered_model_t* model, const char* label,
+    const char* label_value, double value) {
+  if (!model->service.name.size) {
+    return iree_ok_status();
+  }
+  IREE_RETURN_IF_ERROR(loom_serve_http_metrics_sample_begin(
+      output, metric, model, label, label_value));
   return iree_string_builder_append_format(output, "} %.9g\n", value);
 }
 
 static iree_status_t loom_serve_http_metrics_integer(
     iree_string_builder_t* output, const char* metric,
-    const loom_serve_registered_model_t* model, uint64_t value) {
-  IREE_RETURN_IF_ERROR(iree_string_builder_append_format(
-      output, "loom_serve_model_%s{", metric));
-  IREE_RETURN_IF_ERROR(loom_serve_http_metrics_identity(output, model));
+    const loom_serve_registered_model_t* model, const char* component,
+    uint64_t value) {
+  IREE_RETURN_IF_ERROR(loom_serve_http_metrics_sample_begin(
+      output, metric, model, "component", component));
   return iree_string_builder_append_format(output, "} %" PRIu64 "\n", value);
 }
 
@@ -111,7 +121,9 @@ static iree_status_t loom_serve_http_metrics_parameters(
       "# HELP loom_serve_model_parameter_admission_wait_age_seconds Current "
       "parameter admission wait age, or zero when not waiting.\n"
       "# TYPE loom_serve_model_parameter_admission_wait_age_seconds gauge\n"));
-  for (iree_host_size_t i = 0; i < loom_serve_registry_capacity(registry);
+  iree_status_t status = iree_ok_status();
+  for (iree_host_size_t i = 0;
+       i < loom_serve_registry_capacity(registry) && iree_status_is_ok(status);
        ++i) {
     const loom_serve_registered_model_t* model =
         loom_serve_registry_at(registry, i);
@@ -119,23 +131,45 @@ static iree_status_t loom_serve_http_metrics_parameters(
         !model->registration.parameters) {
       continue;
     }
-    const loom_serve_residency_snapshot_t state =
-        model->registration.parameters(model->registration.self);
-    IREE_RETURN_IF_ERROR(loom_serve_http_metrics_integer(
-        output, "parameter_pins", model, state.pin_count));
-    IREE_RETURN_IF_ERROR(loom_serve_http_metrics_integer(
-        output, "parameter_admission_waiting", model, state.admission.waiting));
-    IREE_RETURN_IF_ERROR(loom_serve_http_metrics_integer(
-        output, "parameter_admission_waits_total", model,
-        state.admission.count));
-    IREE_RETURN_IF_ERROR(loom_serve_http_metrics_sample(
-        output, "parameter_admission_wait_seconds_total", model, NULL,
-        state.admission.duration_ns / 1e9));
-    IREE_RETURN_IF_ERROR(loom_serve_http_metrics_sample(
-        output, "parameter_admission_wait_age_seconds", model, NULL,
-        state.admission.age_ns / 1e9));
+    for (loom_serve_model_component_t component = 0;
+         component < LOOM_SERVE_MODEL_COMPONENT_COUNT &&
+         iree_status_is_ok(status);
+         ++component) {
+      if (!loom_serve_registry_has_component(model, component)) {
+        continue;
+      }
+      const loom_serve_registration_parameters_t parameters =
+          model->registration.parameters(model->registration.self, component);
+      if (!parameters.prepared) {
+        continue;
+      }
+      const loom_serve_residency_snapshot_t state = parameters.parameters;
+      const char* name = loom_serve_model_component_name(component);
+      status = loom_serve_http_metrics_integer(output, "parameter_pins", model,
+                                               name, state.pin_count);
+      if (iree_status_is_ok(status)) {
+        status = loom_serve_http_metrics_integer(
+            output, "parameter_admission_waiting", model, name,
+            state.admission.waiting);
+      }
+      if (iree_status_is_ok(status)) {
+        status = loom_serve_http_metrics_integer(
+            output, "parameter_admission_waits_total", model, name,
+            state.admission.count);
+      }
+      if (iree_status_is_ok(status)) {
+        status = loom_serve_http_metrics_sample(
+            output, "parameter_admission_wait_seconds_total", model,
+            "component", name, state.admission.duration_ns / 1e9);
+      }
+      if (iree_status_is_ok(status)) {
+        status = loom_serve_http_metrics_sample(
+            output, "parameter_admission_wait_age_seconds", model, "component",
+            name, state.admission.age_ns / 1e9);
+      }
+    }
   }
-  return iree_ok_status();
+  return status;
 }
 
 typedef struct metrics_counter_field_t {
@@ -347,7 +381,7 @@ iree_status_t loom_serve_http_metrics_format(loom_serve_registry_t* registry,
         loom_serve_registry_at(registry, i);
     status =
         loom_serve_http_metrics_sample(output, "queued_requests", model, NULL,
-                                       model->snapshot.queued_requests);
+                                       NULL, model->snapshot.queued_requests);
   }
   if (iree_status_is_ok(status)) {
     status = iree_string_builder_append_cstring(
@@ -363,7 +397,7 @@ iree_status_t loom_serve_http_metrics_format(loom_serve_registry_t* registry,
         loom_serve_registry_at(registry, i);
     status =
         loom_serve_http_metrics_sample(output, "active_requests", model, NULL,
-                                       model->snapshot.active_requests);
+                                       NULL, model->snapshot.active_requests);
   }
   if (iree_status_is_ok(status)) {
     status = iree_string_builder_append_cstring(
@@ -376,7 +410,7 @@ iree_status_t loom_serve_http_metrics_format(loom_serve_registry_t* registry,
        ++i) {
     const loom_serve_registered_model_t* model =
         loom_serve_registry_at(registry, i);
-    status = loom_serve_http_metrics_sample(output, "phase", model,
+    status = loom_serve_http_metrics_sample(output, "phase", model, "phase",
                                             model->snapshot.phase, 1);
   }
   if (iree_status_is_ok(status)) {
@@ -393,7 +427,7 @@ iree_status_t loom_serve_http_metrics_format(loom_serve_registry_t* registry,
     const loom_serve_registered_model_t* model =
         loom_serve_registry_at(registry, i);
     status = loom_serve_http_metrics_sample(
-        output, "oldest_queued_age_seconds", model, NULL,
+        output, "oldest_queued_age_seconds", model, NULL, NULL,
         model->snapshot.oldest_queued_age / 1e9);
   }
   if (iree_status_is_ok(status)) {
@@ -411,7 +445,7 @@ iree_status_t loom_serve_http_metrics_format(loom_serve_registry_t* registry,
     const loom_serve_registered_model_t* model =
         loom_serve_registry_at(registry, i);
     status = loom_serve_http_metrics_sample(
-        output, "oldest_active_age_seconds", model, NULL,
+        output, "oldest_active_age_seconds", model, NULL, NULL,
         model->snapshot.oldest_active_age / 1e9);
   }
   if (iree_status_is_ok(status)) {
@@ -430,10 +464,10 @@ iree_status_t loom_serve_http_metrics_format(loom_serve_registry_t* registry,
     const loom_serve_registered_model_t* model =
         loom_serve_registry_at(registry, i);
     status = loom_serve_http_metrics_sample(output, "held_requests", model,
-                                            NULL, model->held_count);
+                                            NULL, NULL, model->held_count);
     if (iree_status_is_ok(status)) {
       status = loom_serve_http_metrics_sample(output, "admission_open", model,
-                                              NULL, !model->closed);
+                                              NULL, NULL, !model->closed);
     }
   }
   if (iree_status_is_ok(status)) {

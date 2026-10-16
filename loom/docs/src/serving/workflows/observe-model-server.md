@@ -27,6 +27,15 @@ preparation, capacity waiting and output encoding. A disconnected peer can
 remain counted until its accepted work retires. These are scheduler ownership
 observations, not device busy time or completed-request latency percentiles.
 
+`loom.parameters` reports independent `primary` and, when declared, `image`
+component records. Each has a preparation `phase` and persistent `pinned`
+policy. A component without prepared residency has no `active`, `backing` or
+byte-accounting fields; absence is not a zero-byte measurement. Prepared
+records include activation/deactivation counts and, for elastic backing,
+reserved and committed parameter bytes. Image preparation failures and
+compilation diagnostics stay in the image record rather than masking healthy
+text service. Reading status never starts component preparation.
+
 `/metrics` uses Prometheus text format with `model`, `kind` and registration
 `incarnation` labels. Gauges report current phase and ownership counts.
 Work counters include requests, completed, rejected,
@@ -42,15 +51,16 @@ with `--heartbeat_ms=0` does not disable counting.
 
 ## Distinguish parameter pressure from queued work
 
-Each prepared model's `loom.parameters` reports accepted-consumer `pins` and an
+Each prepared component in `loom.parameters` reports accepted-consumer `pins` and an
 `admission` snapshot: `waiting`, `count`, `duration_seconds`, and `age_seconds`.
-The snapshot describes the model's single outstanding interest in shared
+The snapshot describes the component's single outstanding interest in shared
 parameter admission. A wait can reflect physical backing pressure, an older
 waiting model, or asynchronous reclamation that must retire first. It is not
 one observation per request, and it ends before admitted parameter I/O and
 execution complete.
 
-The corresponding Prometheus series are:
+The corresponding Prometheus series have a `component` label (`primary` or
+`image`) in addition to the model identity:
 
 | Metric suffix after `loom_serve_model_` | Meaning |
 | --- | --- |
@@ -62,7 +72,7 @@ The corresponding Prometheus series are:
 
 Accepted consumers can retain pins while new work for the same model waits;
 their nested execution does not queue behind the work it must unblock. These
-pins are separate from the persistent `loom.parameter_pinned` eviction policy.
+pins are separate from the component's persistent `pinned` eviction policy.
 Releasing a consumer pin does not clear that policy, and cancelling a new-work
 interest does not release another consumer's pin.
 

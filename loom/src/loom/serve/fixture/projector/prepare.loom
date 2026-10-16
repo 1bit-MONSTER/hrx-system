@@ -1,0 +1,88 @@
+func.decl import("prepare") @dispatch(%root: buffer, %tag: i64) -> (i32)
+
+func.decl import("input") @require(%condition: i32, %diagnostic: buffer)
+
+func.decl import("json") @members(%json: buffer) -> (buffer, i32, i64)
+
+func.decl import("json") @parse_i64(%json: buffer, %offset: i64, %length: i64) -> (i64)
+
+global.rodata.def @root = bytes("70726f6a656374")
+
+global.rodata.def @empty = bytes("")
+
+global.rodata.def @name = bytes("666978747572652d70726f6a6563746f72")
+
+global.rodata.def @units_key = bytes("62617463685f756e697473")
+
+global.rodata.def @invalid = bytes("657870656374207b2262617463685f756e697473223a312e2e36347d206f72207b7d")
+
+func.def @check(%condition: i1) {
+  %value = scalar.extui %condition : i1 to i32
+  %diagnostic = global.load @invalid : buffer
+  func.call @require(%value, %diagnostic) : (i32, buffer)
+  func.return
+}
+
+func.def @batch_units(%options: buffer) -> (i64) {
+  %origin = index.constant 0 : offset
+  %empty_count = scalar.constant 0 : i64
+  %field_limit = scalar.constant 1 : i64
+  %object_kind = scalar.constant 2 : i32
+  %key_size = scalar.constant 11 : i64
+  %limit = scalar.constant 64 : i64
+  %fields, %type, %count = func.call @members(%options) : (buffer) -> (buffer, i32, i64)
+  %object = scalar.cmpi eq, %type, %object_kind : i32
+  %short = scalar.cmpi ule, %count, %field_limit : i64
+  %valid = scalar.andi %object, %short : i1
+  func.call @check(%valid) : (i1)
+  %empty = scalar.cmpi eq, %count, %empty_count : i64
+  %units = scf.if %empty -> (i64) {
+    scf.yield %limit : i64
+  } else {
+    %record = buffer.view %fields[%origin] : buffer -> view<1x5xi64>
+    %key_offset = view.load %record[0, 0] : view<1x5xi64> -> i64
+    %key_length = view.load %record[0, 1] : view<1x5xi64> -> i64
+    %offset = view.load %record[0, 2] : view<1x5xi64> -> i64
+    %length = view.load %record[0, 3] : view<1x5xi64> -> i64
+    %type = view.load %record[0, 4] : view<1x5xi64> -> i64
+    %number_kind = scalar.constant 1 : i64
+    %number = scalar.cmpi eq, %type, %number_kind : i64
+    %named = scalar.cmpi eq, %key_length, %key_size : i64
+    %typed = scalar.andi %number, %named : i1
+    func.call @check(%typed) : (i1)
+    %nonnegative = scalar.assume %key_offset [range(%key_offset, 0, 9223372036854775807)] : i64
+    %key_begin = index.cast %nonnegative : i64 to offset
+    %key = buffer.view %options[%key_begin] : buffer -> view<11xi8>
+    %expected = global.load @units_key : buffer
+    %expected_key = buffer.view %expected[%origin] : buffer -> view<11xi8>
+    %c0 = index.constant 0 : index
+    %c1 = index.constant 1 : index
+    %c11 = index.constant 11 : index
+    scf.for %i = [%c0 to %c11 step %c1] {
+      %actual_byte = view.load %key[%i] : view<11xi8> -> i8
+      %expected_byte = view.load %expected_key[%i] : view<11xi8> -> i8
+      %equal = scalar.cmpi eq, %actual_byte, %expected_byte : i8
+      func.call @check(%equal) : (i1)
+    }
+    %value = func.call @parse_i64(%options, %offset, %length) : (buffer, i64, i64) -> (i64)
+    scf.yield %value : i64
+  }
+  %positive = scalar.cmpi ugt, %units, %empty_count : i64
+  %bounded = scalar.cmpi ule, %units, %limit : i64
+  %valid_units = scalar.andi %positive, %bounded : i1
+  func.call @check(%valid_units) : (i1)
+  func.return %units : i64
+}
+
+// Up to 64 feature rows across arbitrary positive image request counts.
+func.def public @prepare(%directory: buffer, %options: buffer) -> (i64, i64, i64, i64, buffer, buffer, buffer) {
+  %tag = scalar.constant 0 : i64
+  %root = global.load @root : buffer
+  %stage = func.call @dispatch(%root, %tag) : (buffer, i64) -> (i32)
+  %units = func.call @batch_units(%options) : (buffer) -> (i64)
+  %input_capacity = scalar.constant 65536 : i64
+  %output_capacity = scalar.constant 1024 : i64
+  %empty = global.load @empty : buffer
+  %name = global.load @name : buffer
+  func.return %units, %input_capacity, %output_capacity, %output_capacity, %empty, %name, %empty : i64, i64, i64, i64, buffer, buffer, buffer
+}

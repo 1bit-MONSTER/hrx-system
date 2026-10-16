@@ -104,18 +104,36 @@ curl --fail --silent --show-error http://127.0.0.1:8080/v1/models/activate \
 curl --fail --silent --show-error http://127.0.0.1:8080/v1/status
 ```
 
-This also prepares a metadata-only registration without opening admission.
-HTTP 202 accepts intent; `parameter_operation` advances through `waiting`
-and `activating` to `idle`. Checking `loom.error` and waiting for `idle` establishes
-the result before undrain. `parameters.active` alone means weight activations
-have been enqueued, not that device work has completed.
+This prepares and warms the primary computation without opening admission.
+It leaves a text deployment's optional image projector dormant. HTTP 202
+accepts intent; `loom.parameter_operation` advances through `waiting` and
+`activating` to `idle`. Check `loom.error` and wait for `idle` before undrain.
+`loom.parameters.primary.active` alone means weight activations have been
+enqueued, not that device work has completed.
+
+For a text deployment with image input, explicit projector warmup uses:
+
+```sh
+curl --fail --silent --show-error http://127.0.0.1:8080/v1/models/activate \
+  -H 'Content-Type: application/json' -d '{"model":"scout","component":"image"}'
+```
+
+The registration must be drained first. This prepares the projector lazily,
+then warms its parameters. `loom.parameter_component` identifies the current
+or last operation; check `loom.parameters.image.error` as well as `loom.error`
+when it becomes idle. A projector source/preparation error remains local to
+image input; ordinary text can still run after undrain.
 
 With elastic backing, `/v1/models/deactivate` releases reloadable weights from
 a healthy, drained, unpinned model while retaining compiled programs, sessions
 and checkpoints. It accepts the same `{"model":"name"}` body and returns 202.
 Wait for `parameter_operation:"idle"`, check `loom.error`, and inspect
-`parameters.active` and `committed_bytes`. Prepared fixed-backed weights cannot
-deactivate and return 409; a metadata-only drained registration is already cold.
+`loom.parameters.primary.active` and `committed_bytes`. Fixed primary backing
+cannot deactivate and returns 409; a metadata-only drained registration is
+already cold. With `component:"image"`, deactivation releases projector weights
+on elastic backing or retires the projector on fixed backing. Both preserve
+text histories and checkpoints. Fresh image demand reloads weights or prepares
+the retired projector; a retained image-prefix hit needs neither.
 
 Native weight allocation and release run independently of the serving scheduler:
 another ready model can continue serving during either transition. Retained
@@ -128,10 +146,17 @@ Undrain and conflicting residency operations return 409 while an operation is
 pending. Ordinary inference can reload evicted weights on demand without
 re-JIT. Successful activation does not itself pin weights against later pressure.
 
-`/v1/models/pin` and `/v1/models/unpin` accept the same model-only body and
-change eviction eligibility. Pinning is not activation: a cold registration
-can remember the pin without loading its weights. Status exposes this policy
-as `loom.parameter_pinned`. A pending deactivation cannot be pinned.
+`/v1/models/pin` and `/v1/models/unpin` accept the same optional component
+selector and change only that component's eviction eligibility. Pinning is not
+activation: a cold component remembers the policy without loading its weights.
+Status exposes it as `loom.parameters.primary.pinned` or
+`loom.parameters.image.pinned`. A component with pending deactivation cannot
+be pinned. Unpinning never removes protection held by accepted work.
+
+Warmup releases its temporary protection when complete; it does not create a
+persistent pin. Pinning the primary language model can prevent its projector
+from fitting on a constrained device, even when the projector is unpinned.
+Pin only components that must remain resident within the deployment's budget.
 
 ## Return idle backing without removing models
 

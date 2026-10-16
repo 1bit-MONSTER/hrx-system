@@ -183,4 +183,34 @@ TEST_F(SourceTextServiceTest,
   EXPECT_NE(actual, Oracle::Complete(prompt, 16, 2));
 }
 
+TEST_F(SourceTextServiceTest, RejectsImagesWithoutProjection) {
+  Start();
+  const std::string message = ImageMessage("a", "image/png", kPng, "low", "b");
+  const std::string response = Read(Send(Request(message, 2)));
+  EXPECT_NE(response.find("501 Not Implemented"), std::string::npos)
+      << response;
+  EXPECT_EQ(response.find("chat.completion"), std::string::npos) << response;
+  EXPECT_EQ(Content(Read(Send(Request(Message("user", "ab"), 2)))),
+            Oracle::Complete("ab", 2));
+}
+
+TEST_F(SourceTextServiceTest, InputResourceLimitDoesNotRetireTheModel) {
+  Start();
+  std::string message = R"({"role":"user","content":[)";
+  for (size_t i = 0; i <= LOOM_SERVE_TEXT_CHAT_MAX_CONTENT_PART_COUNT; ++i) {
+    if (i) {
+      message += ",";
+    }
+    message += R"({"type":"text","text":"a"})";
+  }
+  message += "]}";
+  const std::string response = Read(Send(Request(message, 2)));
+  EXPECT_NE(response.find("503 Service Unavailable"), std::string::npos)
+      << response;
+  EXPECT_NE(response.find("ordered content parts"), std::string::npos)
+      << response;
+  EXPECT_EQ(Content(Read(Send(Request(Message("user", "ab"), 2)))),
+            Oracle::Complete("ab", 2));
+}
+
 }  // namespace

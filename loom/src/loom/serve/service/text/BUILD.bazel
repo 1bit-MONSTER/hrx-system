@@ -4,7 +4,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_library", "loom_cc_test")
+load("//loom/build_tools/bazel:build_defs.bzl", "loom_cc_fuzz", "loom_cc_library", "loom_cc_test")
 load("//loom/build_tools/bazel:python.bzl", "loom_py_test")
 load("//loom/src/loom/serve/fixture/text:sources.bzl", TEXT_SOURCES = "SOURCES")
 
@@ -75,6 +75,8 @@ loom_cc_library(
         "//loom/src/loom/serve/server:model_registration",
         "//loom/src/loom/serve/server:registry",
         "//loom/src/loom/serve/server:router",
+        "//loom/src/loom/serve/service/finite:component",
+        "//loom/src/loom/serve/service/finite:model",
         "//loom/src/loom/serve/service/text:chat",
         "//loom/src/loom/serve/service/text:input",
         "//loom/src/loom/serve/service/text:model",
@@ -104,11 +106,15 @@ loom_cc_library(
 loom_cc_library(
     name = "source_lifecycle_tests",
     testonly = True,
-    srcs = ["source_lifecycle_test.cc"],
+    srcs = [
+        "component_service_test.cc",
+        "source_lifecycle_test.cc",
+    ],
     target_compatible_with = _SOURCE_TEST_COMPATIBILITY,
     visibility = ["//visibility:private"],
     deps = [
         ":source_service_fixture",
+        "//loom/src/loom/serve/service/finite:component",
         "//loom/src/loom/serve/telemetry:latency",
     ],
     alwayslink = True,
@@ -120,7 +126,11 @@ loom_cc_library(
     srcs = ["source_cache_test.cc"],
     target_compatible_with = _SOURCE_TEST_COMPATIBILITY,
     visibility = ["//loom/src/loom/serve:implementation"],
-    deps = [":source_service_fixture"],
+    deps = [
+        ":source_service_fixture",
+        "//loom/src/loom/serve/media:image_codec",
+        "//loom/src/loom/serve/media:image_codecs",
+    ],
     alwayslink = True,
 )
 
@@ -197,10 +207,30 @@ loom_cc_library(
 loom_cc_library(
     name = "source_execution_tests",
     testonly = True,
-    srcs = ["source_execution_test.cc"],
+    srcs = [
+        "managed_media_service_test.cc",
+        "media_execution_test.cc",
+        "media_service_test.cc",
+        "projector_execution_test.cc",
+        "source_execution_test.cc",
+    ],
     target_compatible_with = _SOURCE_TEST_COMPATIBILITY,
     visibility = ["//loom/src/loom/serve:implementation"],
-    deps = [":source_service_fixture"],
+    deps = [
+        ":epoch",
+        ":media_projector",
+        ":model",
+        ":readiness",
+        ":source_service_fixture",
+        "//loom/src/loom/serve/media:image_codec",
+        "//loom/src/loom/serve/media:image_codecs",
+        "//loom/src/loom/serve/media:image_request",
+        "//loom/src/loom/serve/service/finite:component",
+        "//loom/src/loom/serve/service/finite:model",
+        "//loom/src/loom/serve/service/finite:result",
+        "//loom/src/loom/serve/service/finite/embedding:protocol",
+        "//runtime/src/iree/base/internal:json",
+    ],
     alwayslink = True,
 )
 
@@ -233,9 +263,17 @@ loom_cc_library(
 
 loom_cc_library(
     name = "chat",
-    srcs = ["chat.c"],
-    hdrs = ["chat.h"],
+    srcs = [
+        "chat.c",
+        "media.c",
+    ],
+    hdrs = [
+        "chat.h",
+        "media.h",
+    ],
     deps = [
+        "//loom/src/loom/serve/media:digest",
+        "//loom/src/loom/serve/media:image",
         "//loom/src/loom/serve/runtime/program",
         "//loom/src/loom/util:json",
         "//loom/src/loom/util:stream",
@@ -268,6 +306,39 @@ loom_cc_test(
     ],
 )
 
+loom_cc_test(
+    name = "media_test",
+    srcs = ["media_test.cc"],
+    deps = [
+        ":chat",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/testing:gtest",
+        "//runtime/src/iree/testing:gtest_main",
+    ],
+)
+
+loom_cc_fuzz(
+    name = "media_fuzz",
+    srcs = ["media_fuzz.cc"],
+    deps = [
+        ":chat",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/vm",
+    ],
+)
+
+loom_py_test(
+    name = "media_fuzz_test",
+    size = "small",
+    srcs = ["media_fuzz_test.py"],
+    args = ["$(rootpath :media_fuzz)"],
+    data = [":media_fuzz"],
+    tags = [
+        "manual",
+        "skip-bazel_to_cmake",
+    ],
+)
+
 loom_cc_library(
     name = "storage",
     srcs = ["storage.c"],
@@ -284,6 +355,8 @@ loom_cc_library(
 loom_cc_library(
     name = "model",
     srcs = [
+        "epoch_plan.c",
+        "media_epoch.c",
         "model.c",
         "source.c",
         "stages.c",
@@ -291,6 +364,9 @@ loom_cc_library(
         "variant.c",
     ],
     hdrs = [
+        "epoch_plan.h",
+        "media_epoch.h",
+        "media_input.h",
         "model.h",
         "source.h",
         "stages.h",
@@ -323,6 +399,7 @@ loom_cc_library(
         "//loom/src/loom/serve/runtime/storage:memory",
         "//loom/src/loom/serve/runtime/storage:relocation",
         "//loom/src/loom/serve/runtime/storage:snapshot",
+        "//loom/src/loom/serve/service/finite:result",
         "//loom/src/loom/util:stream",
         "//runtime/src/iree/async",
         "//runtime/src/iree/async/util:proactor_pool",
@@ -419,6 +496,7 @@ loom_cc_library(
     hdrs = ["session.h"],
     deps = [
         ":chat",
+        ":media_projector",
         ":model",
         "//loom/src/loom/serve/service:inspection",
         "//loom/src/loom/serve/telemetry:record",
@@ -460,7 +538,10 @@ loom_cc_library(
 
 loom_cc_test(
     name = "epoch_test",
-    srcs = ["epoch_test.cc"],
+    srcs = [
+        "epoch_plan_test.cc",
+        "epoch_test.cc",
+    ],
     deps = [
         ":epoch",
         ":model",
@@ -494,6 +575,7 @@ loom_cc_library(
     hdrs = ["prefix_cache.h"],
     visibility = ["//visibility:private"],
     deps = [
+        ":chat",
         ":model",
         "//loom/src/loom/serve/runtime/execution",
         "//runtime/src/iree/base",
@@ -580,6 +662,47 @@ loom_cc_library(
 )
 
 loom_cc_library(
+    name = "media_projector",
+    srcs = ["media_projector.c"],
+    hdrs = ["media_projector.h"],
+    deps = [
+        ":chat",
+        ":input",
+        ":model",
+        ":readiness",
+        "//loom/src/loom/serve/media:image",
+        "//loom/src/loom/serve/media:image_request",
+        "//loom/src/loom/serve/runtime/execution",
+        "//loom/src/loom/serve/runtime/parameter:residency",
+        "//loom/src/loom/serve/service",
+        "//loom/src/loom/serve/service/finite:model",
+        "//loom/src/loom/serve/service/finite:result",
+        "//runtime/src/iree/base",
+        "//runtime/src/iree/vm",
+    ],
+)
+
+loom_cc_library(
+    name = "pending_request",
+    srcs = ["pending_request.c"],
+    hdrs = ["pending_request.h"],
+    visibility = ["//visibility:private"],
+    deps = [
+        ":chat",
+        ":checkpoint_registry",
+        ":input",
+        ":media_projector",
+        ":model",
+        ":response",
+        ":schedule",
+        ":telemetry",
+        "//loom/src/loom/serve/telemetry:stream",
+        "//loom/src/loom/serve/transport/http:server",
+        "//runtime/src/iree/base",
+    ],
+)
+
+loom_cc_library(
     name = "service",
     srcs = ["service.c"],
     hdrs = ["service.h"],
@@ -591,8 +714,10 @@ loom_cc_library(
         ":epoch",
         ":heartbeat",
         ":input",
+        ":media_projector",
         ":model",
         ":packing",
+        ":pending_request",
         ":prefix_cache",
         ":readiness",
         ":reconfiguration",
@@ -601,6 +726,8 @@ loom_cc_library(
         ":session",
         ":session_cache",
         ":telemetry",
+        "//loom/src/loom/serve/media:image_codec",
+        "//loom/src/loom/serve/media:image_codecs",
         "//loom/src/loom/serve/runtime/device",
         "//loom/src/loom/serve/runtime/execution",
         "//loom/src/loom/serve/runtime/host",
@@ -608,6 +735,7 @@ loom_cc_library(
         "//loom/src/loom/serve/runtime/host:wake",
         "//loom/src/loom/serve/service",
         "//loom/src/loom/serve/service:execution_reconfiguration",
+        "//loom/src/loom/serve/service/finite:component",
         "//loom/src/loom/serve/telemetry:record",
         "//loom/src/loom/serve/telemetry:stream",
         "//loom/src/loom/serve/transport/http:request",

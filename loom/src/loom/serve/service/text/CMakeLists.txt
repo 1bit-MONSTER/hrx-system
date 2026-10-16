@@ -93,6 +93,8 @@ loom_cc_library(
     loom::serve::server::model_registration
     loom::serve::server::registry
     loom::serve::server::router
+    loom::serve::service::finite::component
+    loom::serve::service::finite::model
     loom::serve::service::text::chat
     loom::serve::service::text::input
     loom::serve::service::text::model
@@ -119,9 +121,11 @@ loom_cc_library(
   NAME
     source_lifecycle_tests
   SRCS
+    "component_service_test.cc"
     "source_lifecycle_test.cc"
   DEPS
     ::source_service_fixture
+    loom::serve::service::finite::component
     loom::serve::telemetry::latency
   TESTONLY
   ALWAYSLINK
@@ -137,6 +141,8 @@ loom_cc_library(
     "source_cache_test.cc"
   DEPS
     ::source_service_fixture
+    loom::serve::media::image_codec
+    loom::serve::media::image_codecs
   TESTONLY
   ALWAYSLINK
   PUBLIC
@@ -234,9 +240,25 @@ loom_cc_library(
   NAME
     source_execution_tests
   SRCS
+    "managed_media_service_test.cc"
+    "media_execution_test.cc"
+    "media_service_test.cc"
+    "projector_execution_test.cc"
     "source_execution_test.cc"
   DEPS
+    ::epoch
+    ::media_projector
+    ::model
+    ::readiness
     ::source_service_fixture
+    iree::base::internal::json
+    loom::serve::media::image_codec
+    loom::serve::media::image_codecs
+    loom::serve::media::image_request
+    loom::serve::service::finite::component
+    loom::serve::service::finite::embedding::protocol
+    loom::serve::service::finite::model
+    loom::serve::service::finite::result
   TESTONLY
   ALWAYSLINK
   PUBLIC
@@ -276,13 +298,17 @@ loom_cc_library(
     chat
   HDRS
     "chat.h"
+    "media.h"
   SRCS
     "chat.c"
+    "media.c"
   DEPS
     iree::base
     iree::base::internal::json
     iree::base::internal::unicode
     iree::vm
+    loom::serve::media::digest
+    loom::serve::media::image
     loom::serve::runtime::program
     loom::util::json
     loom::util::stream
@@ -323,6 +349,37 @@ loom_cc_test(
 endif()
 
 if(LOOM_TARGET_ARCH_VM)
+loom_cc_test(
+  NAME
+    media_test
+  SRCS
+    "media_test.cc"
+  DEPS
+    ::chat
+    iree::base
+    iree::testing::gtest
+    iree::testing::gtest_main
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_fuzz(
+  NAME
+    media_fuzz
+  SRCS
+    "media_fuzz.cc"
+  DEPS
+    ::chat
+    iree::base
+    iree::vm
+  LABELS
+    "iree-build-requirement=loom.target.arch.vm"
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
     storage
@@ -345,12 +402,17 @@ loom_cc_library(
   NAME
     model
   HDRS
+    "epoch_plan.h"
+    "media_epoch.h"
+    "media_input.h"
     "model.h"
     "source.h"
     "stages.h"
     "state.h"
     "variant.h"
   SRCS
+    "epoch_plan.c"
+    "media_epoch.c"
     "model.c"
     "source.c"
     "stages.c"
@@ -391,6 +453,7 @@ loom_cc_library(
     loom::serve::runtime::storage::memory
     loom::serve::runtime::storage::relocation
     loom::serve::runtime::storage::snapshot
+    loom::serve::service::finite::result
     loom::util::stream
   PUBLIC
 )
@@ -508,6 +571,7 @@ loom_cc_library(
     "session.c"
   DEPS
     ::chat
+    ::media_projector
     ::model
     iree::base
     iree::tokenizer
@@ -561,6 +625,7 @@ loom_cc_test(
   NAME
     epoch_test
   SRCS
+    "epoch_plan_test.cc"
     "epoch_test.cc"
   DEPS
     ::epoch
@@ -604,6 +669,7 @@ loom_cc_library(
   SRCS
     "prefix_cache.c"
   DEPS
+    ::chat
     ::model
     iree::base
     loom::serve::runtime::execution
@@ -716,6 +782,56 @@ endif()
 if(LOOM_TARGET_ARCH_VM)
 loom_cc_library(
   NAME
+    media_projector
+  HDRS
+    "media_projector.h"
+  SRCS
+    "media_projector.c"
+  DEPS
+    ::chat
+    ::input
+    ::model
+    ::readiness
+    iree::base
+    iree::vm
+    loom::serve::media::image
+    loom::serve::media::image_request
+    loom::serve::runtime::execution
+    loom::serve::runtime::parameter::residency
+    loom::serve::service
+    loom::serve::service::finite::model
+    loom::serve::service::finite::result
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_library(
+  NAME
+    pending_request
+  HDRS
+    "pending_request.h"
+  SRCS
+    "pending_request.c"
+  DEPS
+    ::chat
+    ::checkpoint_registry
+    ::input
+    ::media_projector
+    ::model
+    ::response
+    ::schedule
+    ::telemetry
+    iree::base
+    loom::serve::telemetry::stream
+    loom::serve::transport::http::server
+  PUBLIC
+)
+endif()
+
+if(LOOM_TARGET_ARCH_VM)
+loom_cc_library(
+  NAME
     service
   HDRS
     "service.h"
@@ -729,8 +845,10 @@ loom_cc_library(
     ::epoch
     ::heartbeat
     ::input
+    ::media_projector
     ::model
     ::packing
+    ::pending_request
     ::prefix_cache
     ::readiness
     ::reconfiguration
@@ -745,6 +863,8 @@ loom_cc_library(
     iree::base::threading
     iree::tokenizer
     iree::vm
+    loom::serve::media::image_codec
+    loom::serve::media::image_codecs
     loom::serve::runtime::device
     loom::serve::runtime::execution
     loom::serve::runtime::host
@@ -752,6 +872,7 @@ loom_cc_library(
     loom::serve::runtime::host::wake
     loom::serve::service
     loom::serve::service::execution_reconfiguration
+    loom::serve::service::finite::component
     loom::serve::telemetry::record
     loom::serve::telemetry::stream
     loom::serve::transport::http::request

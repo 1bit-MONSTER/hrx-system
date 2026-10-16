@@ -1,0 +1,11 @@
+{
+  "name": "projector",
+  "definition": {
+    "kind": "embedding",
+    "prepare": "prepare.loom",
+    "control": "control.loom",
+    "sources": ["project.loom"],
+    "assets": ".",
+    "options": {}
+  }
+}

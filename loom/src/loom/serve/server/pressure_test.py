@@ -162,7 +162,7 @@ def check(server, source, directory, workers, memory_bytes, retention):
                     body=json.dumps({"model": "alpha"}),
                     headers={"Content-Type": "application/json"},
                 )
-                assert state["loom"]["parameter_pinned"], state
+                assert state["loom"]["parameters"]["primary"]["pinned"], state
         elif retention == "checkpoint":
             # The oldest history has detached from its execution row. The
             # explicit pin shares its native state, not a second byte copy.
@@ -194,9 +194,9 @@ def check(server, source, directory, workers, memory_bytes, retention):
         expected = 503 if retention != "none" and memory_bytes == 4194304 else 200
         assert second_status == expected, second
         beta = next(item["loom"] for item in after["data"] if item["id"] == "beta")
-        admission = beta["parameters"]["admission"]
+        admission = beta["parameters"]["primary"]["admission"]
         assert not admission["waiting"] and admission["age_seconds"] == 0, beta
-        assert beta["parameters"]["pins"] == 0, beta
+        assert beta["parameters"]["primary"]["pins"] == 0, beta
         if expected == 503 and retention == "parameters":
             assert admission["count"] >= 1, beta
         elif expected == 503:
@@ -204,12 +204,12 @@ def check(server, source, directory, workers, memory_bytes, retention):
             # parameter admission succeeds. Earlier eviction may have required
             # a native release wait, but that wait has completed, and the new
             # weights are resident when state admission rejects the request.
-            assert beta["parameters"]["active"], beta
+            assert beta["parameters"]["primary"]["active"], beta
             alpha = next(
                 item["loom"] for item in after["data"] if item["id"] == "alpha"
             )
-            assert not alpha["parameters"]["active"], alpha
-            assert alpha["parameters"]["committed_bytes"] == 0, alpha
+            assert not alpha["parameters"]["primary"]["active"], alpha
+            assert alpha["parameters"]["primary"]["committed_bytes"] == 0, alpha
         assert admission["duration_seconds"] >= 0, beta
         connection = http.client.HTTPConnection(address.hostname, address.port)
         try:
@@ -219,7 +219,10 @@ def check(server, source, directory, workers, memory_bytes, retention):
             assert response.status == 200, metrics
         finally:
             connection.close()
-        identity = f'model="beta",kind="text",incarnation="{beta["incarnation"]}"'
+        identity = (
+            f'model="beta",kind="text",incarnation="{beta["incarnation"]}",'
+            'component="primary"'
+        )
         assert (
             f"loom_serve_model_parameter_admission_waits_total{{{identity}}} "
             f"{admission['count']}\n"
@@ -261,8 +264,11 @@ def check(server, source, directory, workers, memory_bytes, retention):
                     body=json.dumps({"model": "alpha"}),
                     headers={"Content-Type": "application/json"},
                 )["loom"]
-                assert not unpinned["parameter_pinned"], unpinned
-                assert unpinned["parameters"] == alpha["parameters"], unpinned
+                assert not unpinned["parameters"]["primary"]["pinned"], unpinned
+                assert unpinned["parameters"]["primary"] == {
+                    **alpha["parameters"]["primary"],
+                    "pinned": False,
+                }, unpinned
                 assert unpinned["incarnation"] == alpha["incarnation"], unpinned
             second_status, second = completion(address, "beta", messages, "peer")
             assert second_status == 200, second

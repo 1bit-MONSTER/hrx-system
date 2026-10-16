@@ -19,6 +19,7 @@ extern "C" {
 // and result publication stay on that owner; asynchronous native work uses the
 // storage pool's cold-memory executor. These are capacity transitions, not
 // per-token operations.
+// Backing supports storage, transfers, and indirect dispatch parameters.
 typedef struct loom_serve_memory_pool_t loom_serve_memory_pool_t;
 typedef struct loom_serve_virtual_buffer_t loom_serve_virtual_buffer_t;
 typedef struct loom_serve_memory_operation_t loom_serve_memory_operation_t;

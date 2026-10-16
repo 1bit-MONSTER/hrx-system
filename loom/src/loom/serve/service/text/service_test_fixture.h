@@ -164,14 +164,21 @@ class SourceTextServiceTest : public ::testing::Test {
     });
   }
 
-  std::string Declaration(const std::string& name, const std::string& source,
-                          const char* admission = "open",
-                          const std::string& definition_fields = "") {
+  std::string Declaration(
+      const std::string& name, const std::string& source,
+      const char* admission = "open", const std::string& definition_fields = "",
+      const std::vector<std::string>& additional_sources = {}) {
+    std::string sources = "\"advance.loom\"";
+    for (const auto& path : additional_sources) {
+      sources += ",\"" + path + "\"";
+    }
     return "{\"name\":\"" + name + "\",\"base_directory\":\"" +
            std::filesystem::absolute(source).string() + "\",\"admission\":\"" +
            admission +
            "\",\"definition\":{\"kind\":\"text\",\"prepare\":\"prepare.loom\","
-           "\"control\":\"control.loom\",\"sources\":[\"advance.loom\"],"
+           "\"control\":\"control.loom\",\"sources\":[" +
+           sources +
+           "],"
            "\"weights\":\"" +
            weights_ + "\",\"tokenizer\":\"" +
            std::filesystem::absolute(tokenizer_).string() +
@@ -231,6 +238,25 @@ class SourceTextServiceTest : public ::testing::Test {
                              const std::string& content) {
     return "{\"role\":\"" + role + "\",\"content\":\"" + content + "\"}";
   }
+
+  static std::string ImageMessage(const std::string& before,
+                                  const std::string& mime_type,
+                                  const std::string& base64,
+                                  const std::string& detail,
+                                  const std::string& after) {
+    return "{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"" +
+           before +
+           "\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:" +
+           mime_type + ";base64," + base64 + "\",\"detail\":\"" + detail +
+           "\"}},{\"type\":\"text\",\"text\":\"" + after + "\"}]}";
+  }
+
+  static constexpr char kPng[] =
+      "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP4z8DA8J+"
+      "BkYHh////DAAe9gT9Ce00PgAAAABJRU5ErkJggg==";
+  static constexpr char kAlphaPng[] =
+      "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAGklEQVR4nGPkEpFjkJOTa2C"
+      "xsbH5LycndxIAGOoD8lwtzTkAAAAASUVORK5CYII=";
 
   static std::string Request(const std::string& messages, size_t limit = 16) {
     return "{\"model\":\"fixture-text\",\"stream\":true,\"stream_options\":{"

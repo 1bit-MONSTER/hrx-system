@@ -37,8 +37,8 @@ header.
 | `POST /v1/models/register` | Complete model document, optionally with uploaded source files; HTTP 202 accepts registration intent. |
 | `POST /v1/models/drain`, `POST /v1/models/undrain` | `{"model":"name"}`; HTTP 200 acknowledges the gate change. |
 | `POST /v1/models/unregister` | `{"model":"name","mode":"drain"}`; mode may instead be `"abort"`; HTTP 202 accepts removal. |
-| `POST /v1/models/activate`, `POST /v1/models/deactivate` | Model-only body; HTTP 202 accepts a residency operation on a healthy drained registration. |
-| `POST /v1/models/pin`, `POST /v1/models/unpin` | Model-only body; HTTP 200 changes parameter eviction policy. |
+| `POST /v1/models/activate`, `POST /v1/models/deactivate` | `{"model":"name","component":"primary"}`; HTTP 202 accepts a residency operation on a healthy drained registration. |
+| `POST /v1/models/pin`, `POST /v1/models/unpin` | Same component selector; HTTP 200 changes parameter eviction policy. |
 | `GET /v1/models/variants` | Native executable inventory or one candidate's retained compilation diagnostics. |
 | `POST /v1/models/variants` | Stage native providers against a ready base without selecting them. |
 | `POST /v1/models/variants/select` | Select a ready candidate with expected-current protection. |
@@ -54,6 +54,12 @@ Prepared but drained or weight-evicted models remain discoverable.
 loaded tokenizer. Text also reports configured `context_length` and
 `limits.max_output_tokens`, not training context or total cache-pool capacity.
 Capabilities do not establish learned quality or support for every optional field.
+
+Residency controls default to `component:"primary"`. A text deployment with an
+image-input component also accepts `component:"image"`; an image-generation
+deployment's normal computation is still `primary`. An undeclared component
+returns 404; an invalid selector returns 400. Drain and unregister apply to the
+whole registration and do not accept a component selector.
 
 [Operation](workflows/operate-model-server.md) specifies asynchronous control
 completion, conflict and overload behavior. [Observation](workflows/observe-model-server.md)
@@ -227,6 +233,30 @@ history. Generated calls become structured `tool_calls`; the server never runs
 the tools. Invalid generated tool syntax fails rather than publishing a
 partially executable call. The client executes tools and returns their results
 in the next full conversation history.
+
+### Image input
+
+An image-capable text deployment reports both `text` and `image` input
+modalities. Message `content` may be an ordered array of `text` and `image_url`
+parts. A text part contains `type:"text"` and `text`; an image part contains
+`type:"image_url"` and an `image_url` object with `url` and optional `detail`.
+Detail is `auto` by default, or `low` or `high`, with interpretation owned by
+the model's source policy.
+
+Image URLs must be base64 data URLs. The server does not fetch network URLs or
+read image paths from the request. Configured codecs accept static PNG, JPEG,
+GIF and WebP; a build can omit individual codecs or all image input without
+removing other serving modalities. Animated inputs, MIME/signature mismatches
+and images exceeding source-declared byte, dimension or pixel limits reject.
+The normal HTTP request-body limit still applies.
+
+Multiple images and concurrent requests can share projection cohorts. Features
+remain device-resident through language input; a disconnected peer does not
+change the surviving images' association. Full conversation history remains
+required for retained reuse. Image identity includes the compressed bytes,
+ordered placement, detail and resolved source metadata, so reuse cannot cross
+a change in those semantics. A complete retained media prefix skips pixel
+decoding and projection; it does not require a separate image-feature cache.
 
 ### Retained conversations
 

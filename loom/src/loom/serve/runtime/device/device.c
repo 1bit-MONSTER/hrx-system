@@ -114,9 +114,12 @@ static iree_status_t loom_serve_device_initialize(
       iree_hal_queue_family(device->dispatch);
   const iree_hal_queue_family_t* transfer_family =
       iree_hal_queue_family(device->transfer);
+  // Source programs may carry indirect launch counts in retained buffers or
+  // execution workspace, both allocated from this dispatch-visible domain.
   const iree_hal_pool_family_access_t families[] = {
       {.family = dispatch_family,
-       .usage = IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER},
+       .usage = IREE_HAL_BUFFER_USAGE_STORAGE | IREE_HAL_BUFFER_USAGE_TRANSFER |
+                IREE_HAL_BUFFER_USAGE_DISPATCH_INDIRECT_PARAMETERS},
       {.family = transfer_family, .usage = IREE_HAL_BUFFER_USAGE_TRANSFER},
   };
   const iree_hal_pool_scope_t scope = {

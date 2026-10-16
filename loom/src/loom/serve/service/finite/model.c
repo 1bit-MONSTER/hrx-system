@@ -1018,6 +1018,11 @@ uint64_t loom_serve_finite_model_batch_limit(
   return model->batch_limit;
 }
 
+iree_host_size_t loom_serve_finite_model_input_capacity(
+    const loom_serve_finite_model_t* model) {
+  return model->input_capacity;
+}
+
 const iree_tokenizer_t* loom_serve_finite_model_tokenizer(
     const loom_serve_finite_model_t* model) {
   return model->tokenizer;
